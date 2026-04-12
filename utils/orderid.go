@@ -82,6 +82,88 @@ func GenerateOrderID(price float64, side string, priceDecimals int) string {
 	return fmt.Sprintf("c%s_%s_%s%s", priceB36, sideCode, tsB36, seqB36)
 }
 
+// GenerateOrderIDOKX 生成符合 OKX API v5 **clOrdId** 的客戶端訂單號：
+// 僅允許字母與數字、長度 ≤32，**不能包含下劃線**（否則 sCode=51000 Parameter clOrdId error）。
+// 格式：{priceInt}{B|S}{10位秒}{3位序號}（與 GenerateOrderID 共用序號發生器，保證唯一性）
+func GenerateOrderIDOKX(price float64, side string, priceDecimals int) string {
+	globalIDGen.mu.Lock()
+	defer globalIDGen.mu.Unlock()
+
+	multiplier := math.Pow(10, float64(priceDecimals))
+	priceInt := int64(math.Round(price * multiplier))
+	sideCode := "B"
+	if side == "SELL" {
+		sideCode = "S"
+	}
+
+	now := time.Now()
+	currentSec := now.Unix()
+	if currentSec != globalIDGen.lastSec {
+		globalIDGen.lastSec = currentSec
+		globalIDGen.sequence = 0
+	}
+	globalIDGen.sequence++
+
+	timestampSeq := fmt.Sprintf("%d%03d", currentSec, globalIDGen.sequence)
+	return fmt.Sprintf("%d%s%s", priceInt, sideCode, timestampSeq)
+}
+
+// GenerateOrderIDWithSourceOKX 與 GenerateOrderIDWithSource 相同語義；止損單在末尾追加 **SL**（無下劃線，因 OKX 不允許 _）
+func GenerateOrderIDWithSourceOKX(price float64, side string, priceDecimals int, orderSource string) string {
+	base := GenerateOrderIDOKX(price, side, priceDecimals)
+	if orderSource == "stop_loss" {
+		return base + "SL"
+	}
+	return base
+}
+
+// parseOKXAlphanumericOrderID 解析 GenerateOrderIDOKX / GenerateOrderIDWithSourceOKX 產生的 ID
+func parseOKXAlphanumericOrderID(clientOrderID string, priceDecimals int) (float64, string, int64, bool) {
+	id := clientOrderID
+	if strings.HasSuffix(id, "SL") && len(id) > 2 {
+		id = id[:len(id)-2]
+	}
+	if strings.Contains(id, "_") {
+		return 0, "", 0, false
+	}
+	if len(id) < 14 {
+		return 0, "", 0, false
+	}
+	tail := id[len(id)-13:]
+	for _, c := range tail {
+		if c < '0' || c > '9' {
+			return 0, "", 0, false
+		}
+	}
+	ts, err := strconv.ParseInt(tail[:10], 10, 64)
+	if err != nil {
+		return 0, "", 0, false
+	}
+	head := id[:len(id)-13]
+	if len(head) < 2 {
+		return 0, "", 0, false
+	}
+	sideCh := head[len(head)-1]
+	if sideCh != 'B' && sideCh != 'S' {
+		return 0, "", 0, false
+	}
+	priceStr := head[:len(head)-1]
+	if priceStr == "" {
+		return 0, "", 0, false
+	}
+	priceInt, err := strconv.ParseInt(priceStr, 10, 64)
+	if err != nil {
+		return 0, "", 0, false
+	}
+	multiplier := math.Pow(10, float64(priceDecimals))
+	price := float64(priceInt) / multiplier
+	side := "BUY"
+	if sideCh == 'S' {
+		side = "SELL"
+	}
+	return price, side, ts, true
+}
+
 // GenerateOrderIDWithSource 生成带訂單來源標識的 ClientOrderID
 // 當 orderSource 為 "stop_loss" 時，在末尾追加 _SL 後綴，便於從交易所返回的訂單中解析訂單來源
 // 格式: {price}_{side}_{timestamp}{seq} 或 {price}_{side}_{timestamp}{seq}_SL
@@ -101,6 +183,10 @@ func ParseOrderSource(clientOrderID string) string {
 	if strings.HasSuffix(clientOrderID, "_SL") {
 		return "stop_loss"
 	}
+	// OKX：止損單以末尾 SL 標記（無下劃線）；長度需足以區分隨機尾碼
+	if strings.HasSuffix(clientOrderID, "SL") && len(clientOrderID) >= 16 && !strings.Contains(clientOrderID, "_") {
+		return "stop_loss"
+	}
 	return "normal"
 }
 
@@ -108,6 +194,12 @@ func ParseOrderSource(clientOrderID string) string {
 // 支持帶 _SL 後綴的止損單格式，解析前會自動剝離
 // 返回: price, side, timestamp, valid
 func ParseOrderID(clientOrderID string, priceDecimals int) (float64, string, int64, bool) {
+	// OKX：無下劃線的字母數字 ID（止損為末尾 SL）
+	if !strings.Contains(clientOrderID, "_") {
+		if p, s, ts, ok := parseOKXAlphanumericOrderID(clientOrderID, priceDecimals); ok {
+			return p, s, ts, true
+		}
+	}
 	// 剝離 _SL 後綴（止損單），保持向後兼容
 	baseID := strings.TrimSuffix(clientOrderID, "_SL")
 	parts := strings.Split(baseID, "_")

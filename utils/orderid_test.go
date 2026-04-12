@@ -81,6 +81,36 @@ func TestGenerateOrderIDWithSource(t *testing.T) {
 	}
 }
 
+func TestGenerateOrderIDOKXRoundTrip(t *testing.T) {
+	price := 69538.4
+	side := "BUY"
+	decimals := 1
+	id := GenerateOrderIDOKX(price, side, decimals)
+	for _, c := range id {
+		if (c < '0' || c > '9') && c != 'B' && c != 'S' {
+			t.Fatalf("OKX clOrdId 含非法字符 %q: %s", c, id)
+		}
+	}
+	if len(id) > 32 {
+		t.Fatalf("OKX clOrdId 長度 %d > 32: %s", len(id), id)
+	}
+	p, s, _, ok := ParseOrderID(id, decimals)
+	if !ok || p != price || s != side {
+		t.Fatalf("OKX ID 往返失败: id=%s ok=%v p=%v s=%v want p=%v s=%v", id, ok, p, s, price, side)
+	}
+	idSL := GenerateOrderIDWithSourceOKX(price, "SELL", decimals, "stop_loss")
+	if !strings.HasSuffix(idSL, "SL") || strings.Contains(idSL, "_") {
+		t.Fatalf("OKX 止損 ID 應以 SL 結尾且無下劃線: %s", idSL)
+	}
+	if ParseOrderSource(idSL) != "stop_loss" {
+		t.Fatalf("ParseOrderSource OKX 止損: %s", idSL)
+	}
+	p2, _, _, ok2 := ParseOrderID(idSL, decimals)
+	if !ok2 || p2 != price {
+		t.Fatalf("ParseOrderID OKX 止損: %v", idSL)
+	}
+}
+
 func TestParseOrderSource(t *testing.T) {
 	tests := []struct {
 		clientOrderID string
@@ -90,6 +120,8 @@ func TestParseOrderSource(t *testing.T) {
 		{"65000_S_1702468800123_SL", "stop_loss"},
 		{"x-zdfVM8vY65000_S_1702468800123_SL", "stop_loss"},
 		{"65000_B_1702468800001", "normal"},
+		{"6953840B1776004528564SL", "stop_loss"},
+		{"6953840B1776004528564", "normal"},
 	}
 	for _, tt := range tests {
 		got := ParseOrderSource(tt.clientOrderID)
