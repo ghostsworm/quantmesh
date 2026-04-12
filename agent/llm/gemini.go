@@ -39,20 +39,20 @@ func NewGeminiClient(apiKey, model string) (types.LLMClient, error) {
 
 // geminiRequest Gemini API 请求
 type geminiRequest struct {
-	Contents       []geminiContent `json:"contents"`
-	Tools          []geminiTool    `json:"tools,omitempty"`
-	GenerationConfig geminiConfig  `json:"generationConfig,omitempty"`
+	Contents         []geminiContent `json:"contents"`
+	Tools            []geminiTool    `json:"tools,omitempty"`
+	GenerationConfig geminiConfig    `json:"generationConfig,omitempty"`
 }
 
 type geminiContent struct {
-	Role  string         `json:"role,omitempty"` // user, model
-	Parts []geminiPart    `json:"parts"`
+	Role  string       `json:"role,omitempty"` // user, model
+	Parts []geminiPart `json:"parts"`
 }
 
 type geminiPart struct {
-	Text         string        `json:"text,omitempty"`
-	InlineData    []geminiBlob  `json:"inlineData,omitempty"`
-	FunctionCall  *geminiFuncCall `json:"functionCall,omitempty"`
+	Text             string              `json:"text,omitempty"`
+	InlineData       []geminiBlob        `json:"inlineData,omitempty"`
+	FunctionCall     *geminiFuncCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFuncResponse `json:"functionResponse,omitempty"`
 }
 
@@ -67,7 +67,7 @@ type geminiFuncCall struct {
 }
 
 type geminiFuncResponse struct {
-	Name string     `json:"name"`
+	Name     string                 `json:"name"`
 	Response map[string]interface{} `json:"response"`
 }
 
@@ -82,13 +82,13 @@ type geminiFunctionDecl struct {
 }
 
 type geminiConfig struct {
-	Temperature float64 `json:"temperature,omitempty"`
-	MaxOutputTokens int  `json:"maxOutputTokens,omitempty"`
+	Temperature     float64 `json:"temperature,omitempty"`
+	MaxOutputTokens int     `json:"maxOutputTokens,omitempty"`
 }
 
 // geminiResponse Gemini API 响应
 type geminiResponse struct {
-	Candidates []geminiCandidate `json:"candidates"`
+	Candidates    []geminiCandidate `json:"candidates"`
 	UsageMetadata struct {
 		PromptTokenCount     int64 `json:"promptTokenCount"`
 		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
@@ -97,8 +97,8 @@ type geminiResponse struct {
 }
 
 type geminiCandidate struct {
-	Content geminiContent `json:"content"`
-	FinishReason string     `json:"finishReason"`
+	Content       geminiContent `json:"content"`
+	FinishReason  string        `json:"finishReason"`
 	UsageMetadata struct {
 		PromptTokenCount     int64 `json:"promptTokenCount"`
 		CandidatesTokenCount int64 `json:"candidatesTokenCount"`
@@ -179,7 +179,7 @@ func (c *GeminiClient) GenerateWithImage(ctx context.Context, text string, image
 			Parts: parts,
 		}},
 		GenerationConfig: geminiConfig{
-			Temperature: req.Temperature,
+			Temperature:     req.Temperature,
 			MaxOutputTokens: req.MaxTokens,
 		},
 	}
@@ -240,6 +240,7 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, req types.GenerateReq
 
 	go func() {
 		defer close(ch)
+		started := time.Now()
 
 		// Gemini 的流式 API 使用不同的端点
 		geminiReq := c.buildRequest(req)
@@ -274,7 +275,8 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, req types.GenerateReq
 			return
 		}
 
-		// 处理 SSE 流
+		var lastIn, lastOut int64
+		// 处理 SSE 流（末帧常帶完整 usageMetadata）
 		decoder := json.NewDecoder(resp.Body)
 		for {
 			var chunk map[string]interface{}
@@ -283,6 +285,10 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, req types.GenerateReq
 					break
 				}
 				continue
+			}
+
+			if inTok, outTok, ok := streamChunkUsage(chunk); ok {
+				lastIn, lastOut = inTok, outTok
 			}
 
 			// 解析增量内容
@@ -301,6 +307,14 @@ func (c *GeminiClient) GenerateStream(ctx context.Context, req types.GenerateReq
 			}
 		}
 
+		geminiusage.Record(geminiusage.Entry{
+			At:           time.Now(),
+			Model:        c.model,
+			Source:       "agent_llm_stream",
+			InputTokens:  lastIn,
+			OutputTokens: lastOut,
+			DurationMs:   time.Since(started).Milliseconds(),
+		})
 		ch <- types.GenerateChunk{IsComplete: true}
 	}()
 
@@ -338,7 +352,7 @@ func (c *GeminiClient) buildRequest(req types.GenerateRequest) geminiRequest {
 	geminiReq := geminiRequest{
 		Contents: contents,
 		GenerationConfig: geminiConfig{
-			Temperature: req.Temperature,
+			Temperature:     req.Temperature,
 			MaxOutputTokens: req.MaxTokens,
 		},
 	}
@@ -366,6 +380,59 @@ func (c *GeminiClient) convertTools(tools []types.ToolDefinition) geminiTool {
 	return geminiTool{
 		FunctionDeclarations: declarations,
 	}
+}
+
+func jsonNumberToInt64(v interface{}) (int64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return int64(x), true
+	case int64:
+		return x, true
+	case int:
+		return int64(x), true
+	case json.Number:
+		n, err := x.Int64()
+		return n, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func readUsagePairFromMap(um map[string]interface{}) (in, out int64) {
+	if v, ok := um["promptTokenCount"]; ok {
+		if n, ok := jsonNumberToInt64(v); ok {
+			in = n
+		}
+	}
+	if v, ok := um["candidatesTokenCount"]; ok {
+		if n, ok := jsonNumberToInt64(v); ok {
+			out = n
+		}
+	}
+	return in, out
+}
+
+// streamChunkUsage 從流式單帧解析 token 用量（與 ai_service 一致：根級優先，候選補全）
+func streamChunkUsage(chunk map[string]interface{}) (in, out int64, has bool) {
+	if um, ok := chunk["usageMetadata"].(map[string]interface{}); ok {
+		in, out = readUsagePairFromMap(um)
+		has = true
+	}
+	if candidates, ok := chunk["candidates"].([]interface{}); ok && len(candidates) > 0 {
+		if c0, ok := candidates[0].(map[string]interface{}); ok {
+			if um, ok := c0["usageMetadata"].(map[string]interface{}); ok {
+				in2, out2 := readUsagePairFromMap(um)
+				if in == 0 {
+					in = in2
+				}
+				if out == 0 {
+					out = out2
+				}
+				has = true
+			}
+		}
+	}
+	return in, out, has
 }
 
 // parseResponse 解析 Gemini 响应
