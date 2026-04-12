@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc11] - 2026-04-12
+
+### Added
+- **`GET /api/logs`**：支援可選查詢參數 **`exchange`、`symbol`、`market_type`、`bot_id`**（對 `message` 子串匹配，與 `keyword` 等條件為 **AND**）；日誌表仍無獨立欄位，僅縮小文本結果集。
+- **Web UI Bot 詳情「實時日誌」**：請求帶上 **`bot_id`、交易所、`market_type`**，與 `keyword`（交易對）一併縮小，避免多 Bot / 多所日誌混在一起。
+
+---
+
 ## [3.101.0-rc10] - 2026-04-12
 
 ### Fixed

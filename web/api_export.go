@@ -294,7 +294,12 @@ func exportLogsHandler(c *gin.Context) {
 		endTime = time.Now()
 	}
 
-	logs, _, err := logStorageProvider.GetLogs(startTime, endTime, "", "", params.Limit, params.Offset)
+	logs, _, err := logStorageProvider.GetLogs(storage.LogQueryParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+		Limit:     params.Limit,
+		Offset:    params.Offset,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -382,7 +387,12 @@ func exportAllHandler(c *gin.Context) {
 		if endTime.IsZero() {
 			endTime = time.Now()
 		}
-		logs, _, _ := logStorageProvider.GetLogs(startTime, endTime, "", "", 5000, 0)
+		logs, _, _ := logStorageProvider.GetLogs(storage.LogQueryParams{
+			StartTime: startTime,
+			EndTime:   endTime,
+			Limit:     5000,
+			Offset:    0,
+		})
 		if len(logs) > 0 {
 			logRecords = logs
 		}

@@ -40,6 +40,11 @@ type LogQueryParams struct {
 	Keyword   string
 	Limit     int
 	Offset    int
+	// 以下為可選：日誌表無獨立欄位，僅對 message 做子串匹配（多條件為 AND）
+	Exchange   string
+	Symbol     string
+	MarketType string
+	BotID      string
 }
 
 // LogRecord 日志記錄
@@ -373,9 +378,15 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 		args = append(args, params.Level)
 	}
 
-	if params.Keyword != "" {
-		where = append(where, "message LIKE ?")
-		args = append(args, "%"+params.Keyword+"%")
+	if kw := strings.TrimSpace(params.Keyword); kw != "" {
+		where = append(where, "LOWER(message) LIKE ?")
+		args = append(args, "%"+strings.ToLower(kw)+"%")
+	}
+	for _, raw := range []string{params.Exchange, params.Symbol, params.MarketType, params.BotID} {
+		if s := strings.TrimSpace(raw); s != "" {
+			where = append(where, "LOWER(message) LIKE ?")
+			args = append(args, "%"+strings.ToLower(s)+"%")
+		}
 	}
 
 	whereClause := strings.Join(where, " AND ")
