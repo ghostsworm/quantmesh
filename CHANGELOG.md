@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.101.0-rc8] - 2026-04-12
+
+### Fixed
+- **OKX 訂單簿**：`GetOrderBook` 對 `request()` 已剝離的 `data` 誤解為帶 `data` 鍵的對象，實際為數組，導致 `json: cannot unmarshal array into Go struct`；深度監控與依賴訂單簿的邏輯無法解析（`exchange/okx/client.go`）。新增回歸測試 `TestOrderBookDataArrayUnmarshal`。
+
+---
+
 ## [3.101.0-rc7] - 2026-04-12
 
 ### Added
