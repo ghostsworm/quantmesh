@@ -2623,6 +2623,7 @@
   "statistics": {
     "modeGlobal": "All Bots Statistics",
     "modeSingleBot": "Bot Statistics: {{symbol}}",
+    "botScopeNotice": "P&L and trades are filtered by this bot. Funding fees are account-wide and hidden here; equity snapshots remain symbol/account level.",
     "title": "Trading Statistics",
     "loading": "Loading...",
     "error": "Error",

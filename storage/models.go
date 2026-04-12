@@ -40,6 +40,7 @@ type Position struct {
 type Trade struct {
 	BuyOrderID         int64
 	SellOrderID        int64
+	BotID              string // Bot 唯一標識（與 orders.bot_id 對齊，空表示歷史未標記）
 	Exchange           string
 	Account            string // 账戶標识（如 API Key 的哈希或前缀）
 	Symbol             string

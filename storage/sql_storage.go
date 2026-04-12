@@ -143,6 +143,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL 網格配對成交表失败: %w", err)
 		}
+		if err := migratePairedTradesBotIDMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL 網格配對成交表 bot_id 失败: %w", err)
+		}
 		if err := migrateSystemMetricsTablesMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL system_metrics 表失败: %w", err)
@@ -207,6 +211,7 @@ func createTables(db *sql.DB) error {
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
 		buy_order_id BIGINT,
 		sell_order_id BIGINT,
+		bot_id TEXT DEFAULT '',
 		exchange TEXT,
 		account TEXT,
 		symbol TEXT,
@@ -1074,6 +1079,7 @@ func migrateTradesTable(db *sql.DB) error {
 	hasFeeAssetColumn := false
 	hasBuyPriceDeviationColumn := false
 	hasSellPriceDeviationColumn := false
+	hasBotIDColumn := false
 	for rows.Next() {
 		var cid int
 		var name string
@@ -1102,6 +1108,9 @@ func migrateTradesTable(db *sql.DB) error {
 		}
 		if name == "sell_price_deviation" {
 			hasSellPriceDeviationColumn = true
+		}
+		if name == "bot_id" {
+			hasBotIDColumn = true
 		}
 	}
 
@@ -1171,6 +1180,16 @@ func migrateTradesTable(db *sql.DB) error {
 		logger.Info("✅ sell_price_deviation 列添加成功")
 	}
 
+	if !hasBotIDColumn {
+		logger.Info("🔄 开始迁移 trades 表：添加 bot_id 字段")
+		_, err := db.Exec(`ALTER TABLE trades ADD COLUMN bot_id TEXT DEFAULT ''`)
+		if err != nil {
+			return fmt.Errorf("添加 bot_id 列失败: %w", err)
+		}
+		logger.Info("✅ bot_id 列添加成功")
+		backfillTradesBotIDFromOrders(db, "trades")
+	}
+
 	// 無論是否是新增列，都确保索引存在（老库可能已有列但缺索引）
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_trades_account_symbol ON trades(account, symbol)`)
 	if err != nil {
@@ -1180,9 +1199,34 @@ func migrateTradesTable(db *sql.DB) error {
 	if err != nil {
 		logger.Warn("⚠️ 确保 trades exchange 索引失败: %v", err)
 	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_trades_bot_exchange_symbol ON trades(bot_id, exchange, symbol)`)
+	if err != nil {
+		logger.Warn("⚠️ 确保 trades bot_id 索引失败: %v", err)
+	}
 
 	logger.Info("✅ trades 表迁移检查完成")
 	return nil
+}
+
+// backfillTradesBotIDFromOrders 用 orders.bot_id 回填 trades（best-effort）
+func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) {
+	q := fmt.Sprintf(`
+		UPDATE %s SET bot_id = COALESCE(
+			(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %s.sell_order_id LIMIT 1),
+			(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %s.buy_order_id LIMIT 1),
+			''
+		)
+		WHERE (bot_id IS NULL OR bot_id = '')
+			AND (
+				EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %s.sell_order_id AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)
+				OR EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %s.buy_order_id AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)
+			)
+	`, tableName, tableName, tableName, tableName, tableName)
+	if _, err := db.Exec(q); err != nil {
+		logger.Warn("⚠️ 回填 trades.bot_id 失败: %v", err)
+	} else {
+		logger.Info("✅ 已嘗試從 orders 回填 %s.bot_id", tableName)
+	}
 }
 
 // migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl / strategy_name / strategy_type 列
@@ -1672,11 +1716,12 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 	if exchange == "" {
 		exchange = "binance"
 	}
+	botID := strings.TrimSpace(trade.BotID)
 	_, err := s.db.Exec(fmt.Sprintf(`
 		INSERT INTO %s
-		(buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, s.tradesTbl()), trade.BuyOrderID, trade.SellOrderID, exchange, trade.Account, trade.Symbol,
+		(buy_order_id, sell_order_id, bot_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, s.tradesTbl()), trade.BuyOrderID, trade.SellOrderID, botID, exchange, trade.Account, trade.Symbol,
 		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
 		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
@@ -1690,10 +1735,11 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 }
 
 // SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
-func (s *SQLStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+func (s *SQLStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
 	trade := &Trade{
 		BuyOrderID:         buyOrderID,
 		SellOrderID:        sellOrderID,
+		BotID:              strings.TrimSpace(botID),
 		Exchange:           exchange,
 		Symbol:             symbol,
 		BuyPrice:           buyPrice,
@@ -1710,10 +1756,11 @@ func (s *SQLStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, excha
 }
 
 // SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈虧和價格偏差）
-func (s *SQLStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error {
+func (s *SQLStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
 	trade := &Trade{
 		BuyOrderID:         buyOrderID,
 		SellOrderID:        sellOrderID,
+		BotID:              strings.TrimSpace(botID),
 		Exchange:           exchange,
 		Symbol:             symbol,
 		BuyPrice:           buyPrice,
@@ -2428,7 +2475,7 @@ func (s *SQLStorage) GetStatisticsSummaryByExchange(exchange, account string) (*
 }
 
 // GetStatisticsSummaryByExchangeAndSymbol 獲取指定交易所、指定交易對的统计彙總
-func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error) {
+func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account, botID string) (*Statistics, error) {
 	query := fmt.Sprintf(`
 		SELECT 
 			COUNT(*) as total_trades,
@@ -2458,6 +2505,10 @@ func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, a
 	if account != "" {
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND COALESCE(bot_id, '') = ?"
+		args = append(args, bid)
 	}
 
 	row := s.db.QueryRow(query, args...)
@@ -2509,7 +2560,7 @@ func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, a
 }
 
 // GetExchangePnLTotal 獲取交易所已實現盈虧的總計（從 orders 表的 realized_pnl 聚合）
-func (s *SQLStorage) GetExchangePnLTotal(exchange, symbol string) (float64, error) {
+func (s *SQLStorage) GetExchangePnLTotal(exchange, symbol, botID string) (float64, error) {
 	query := `SELECT COALESCE(SUM(realized_pnl), 0) FROM orders WHERE realized_pnl IS NOT NULL AND status = 'FILLED'`
 	args := []interface{}{}
 	if exchange != "" {
@@ -2520,13 +2571,17 @@ func (s *SQLStorage) GetExchangePnLTotal(exchange, symbol string) (float64, erro
 		query += " AND symbol = ?"
 		args = append(args, symbol)
 	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND COALESCE(bot_id, '') = ?"
+		args = append(args, bid)
+	}
 	var total float64
 	err := s.db.QueryRow(query, args...).Scan(&total)
 	return total, err
 }
 
 // GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計
-func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error) {
+func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account, botID string) (*TodayStatistics, error) {
 	// 獲取當日日期（UTC）
 	now := time.Now().UTC()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
@@ -2553,6 +2608,10 @@ func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, acc
 		gridQuery += " AND (account = ? OR account IS NULL OR account = '')"
 		gridArgs = append(gridArgs, account)
 	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		gridQuery += " AND COALESCE(bot_id, '') = ?"
+		gridArgs = append(gridArgs, bid)
+	}
 
 	var gridTrades int
 	var gridPnL float64
@@ -2577,6 +2636,10 @@ func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, acc
 	if symbol != "" {
 		exchangeQuery += " AND symbol = ?"
 		exchangeArgs = append(exchangeArgs, symbol)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		exchangeQuery += " AND COALESCE(bot_id, '') = ?"
+		exchangeArgs = append(exchangeArgs, bid)
 	}
 
 	var exchangePnL float64
@@ -2621,7 +2684,7 @@ func (s *SQLStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLC
 }
 
 // GetDailyExchangePnL 獲取每日交易所已實現盈虧（從 orders 表按日期聚合 realized_pnl）
-func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error) {
+func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time, botID string) (map[string]float64, error) {
 	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
 	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
 	query := fmt.Sprintf(`
@@ -2638,6 +2701,10 @@ func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, end
 	if symbol != "" {
 		query += " AND symbol = ?"
 		args = append(args, symbol)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND COALESCE(bot_id, '') = ?"
+		args = append(args, bid)
 	}
 	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s'))", tzModifier)
 
@@ -2660,7 +2727,7 @@ func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, end
 }
 
 // GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
-func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error) {
+func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr, botID string) (count int, grossPnl, totalFee float64, err error) {
 	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
 	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
 	query := fmt.Sprintf(`
@@ -2676,6 +2743,10 @@ func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr string) (c
 	if account != "" {
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND COALESCE(bot_id, '') = ?"
+		args = append(args, bid)
 	}
 	var cnt sql.NullInt64
 	var pnl, fee sql.NullFloat64
@@ -2728,12 +2799,12 @@ func (s *SQLStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, bef
 }
 
 // QueryDailyStatisticsFromTrades 從 trades 表查詢每日统计
-func (s *SQLStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
-	return s.QueryDailyStatisticsByExchange("", account, startDate, endDate)
+func (s *SQLStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time, botID string) ([]*DailyStatisticsWithTradeCount, error) {
+	return s.QueryDailyStatisticsByExchange("", "", account, startDate, endDate, botID)
 }
 
 // QueryDailyStatisticsByExchange 從 trades 表查詢指定交易所的每日统计
-func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account string, startDate, endDate time.Time, botID string) ([]*DailyStatisticsWithTradeCount, error) {
 	// 限制最大返回數量，防止記憶體占用過大（分组后的結果通常不會太多，但还是要限制）
 	maxLimit := 3650 // 最多返回10年的每日统计（3650天）
 
@@ -2772,11 +2843,19 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, account string, st
 		query += " AND exchange = ?"
 		args = append(args, exchange)
 	}
+	if symbol != "" {
+		query += " AND symbol = ?"
+		args = append(args, symbol)
+	}
 	if account != "" {
 		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
 		// 这样可以确保即使舊數據的account字段為空，也能查詢到统计信息
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
+	}
+	if bid := strings.TrimSpace(botID); bid != "" {
+		query += " AND COALESCE(bot_id, '') = ?"
+		args = append(args, bid)
 	}
 	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s')) ORDER BY date DESC LIMIT ?", tzModifier)
 	args = append(args, maxLimit)
@@ -4918,6 +4997,7 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   buy_order_id BIGINT,
   sell_order_id BIGINT,
+  bot_id VARCHAR(128) DEFAULT '',
   exchange VARCHAR(64) DEFAULT 'binance',
   account VARCHAR(255) DEFAULT '',
   symbol VARCHAR(64),
@@ -4933,13 +5013,36 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   created_at TIMESTAMP(3) NULL,
   KEY idx_qm_pt_created_at (created_at),
   KEY idx_qm_pt_account_symbol (account(64), symbol(32)),
-  KEY idx_qm_pt_exchange_symbol (exchange(32), symbol(32))
+  KEY idx_qm_pt_exchange_symbol (exchange(32), symbol(32)),
+  KEY idx_qm_pt_bot_ex_sym (bot_id(64), exchange(32), symbol(32))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `)
 	if err != nil {
 		return err
 	}
 	logger.Info("✅ MySQL 網格配對成交表已就緒: %s", pairedTradesTableMySQL)
+	return nil
+}
+
+// migratePairedTradesBotIDMySQL 為已有 MySQL 網格配對表補充 bot_id 列並回填
+func migratePairedTradesBotIDMySQL(db *sql.DB) error {
+	var n int
+	err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'bot_id'
+	`, pairedTradesTableMySQL).Scan(&n)
+	if err != nil {
+		return fmt.Errorf("检查 %s.bot_id 列: %w", pairedTradesTableMySQL, err)
+	}
+	if n == 0 {
+		_, err := db.Exec(`ALTER TABLE ` + pairedTradesTableMySQL + ` ADD COLUMN bot_id VARCHAR(128) DEFAULT '' NOT NULL`)
+		if err != nil {
+			return fmt.Errorf("添加 %s.bot_id: %w", pairedTradesTableMySQL, err)
+		}
+		logger.Info("✅ MySQL %s 已添加 bot_id 列", pairedTradesTableMySQL)
+	}
+	_, _ = db.Exec(`CREATE INDEX idx_qm_pt_bot_ex_sym ON ` + pairedTradesTableMySQL + ` (bot_id(64), exchange(32), symbol(32))`)
+	backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL)
 	return nil
 }
 

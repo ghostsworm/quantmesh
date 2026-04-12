@@ -440,6 +440,7 @@ func startSymbolRuntime(
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
 			accountID:      accountID,
+			botID:          botID,
 		}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
 	}
@@ -729,6 +730,7 @@ func startSymbolRuntime(
 				tradeStorageAdapter := &tradeStorageAdapter{
 					storageService: storageService,
 					accountID:      accountID,
+					botID:          botID,
 				}
 				dcaStrategy.SetTradeStorage(tradeStorageAdapter)
 			}
@@ -749,6 +751,7 @@ func startSymbolRuntime(
 				tradeStorageAdapter := &tradeStorageAdapter{
 					storageService: storageService,
 					accountID:      accountID,
+					botID:          botID,
 				}
 				dcaEnhancedStrategy.SetTradeStorage(tradeStorageAdapter)
 			}

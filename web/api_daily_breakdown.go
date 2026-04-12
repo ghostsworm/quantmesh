@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"quantmesh/storage"
@@ -112,6 +113,7 @@ func getDailyPnLBreakdown(c *gin.Context) {
 
 	accountID := GetCurrentAccountID()
 	status := pickStatus(c)
+	botID := strings.TrimSpace(c.Query("bot_id"))
 	exchangeID := c.DefaultQuery("exchange", "")
 	symbolID := c.DefaultQuery("symbol", "")
 	if status != nil {
@@ -126,7 +128,7 @@ func getDailyPnLBreakdown(c *gin.Context) {
 	summary := DailyPnLBreakdownSummary{}
 
 	// 1. Trades 當日成交摘要（筆數、毛利、手續費）
-	gridTrades, gridProfit, totalFee, _ := st.GetDailyTradesSummary(exchangeID, accountID, dateStr)
+	gridTrades, gridProfit, totalFee, _ := st.GetDailyTradesSummary(exchangeID, accountID, dateStr, botID)
 	summary.GridTrades = gridTrades
 	summary.GridProfit = gridProfit
 	summary.TotalFee = totalFee
@@ -141,6 +143,9 @@ func getDailyPnLBreakdown(c *gin.Context) {
 				continue
 			}
 			if symbolID != "" && o.Symbol != symbolID {
+				continue
+			}
+			if botID != "" && strings.TrimSpace(o.BotID) != botID {
 				continue
 			}
 			qty := o.FilledQty
@@ -182,7 +187,7 @@ func getDailyPnLBreakdown(c *gin.Context) {
 	// 5. 交易所已實現盈虧（當日）
 	startDate := dayStart
 	endDate := dayStart.Add(24*time.Hour - time.Nanosecond)
-	epMap, _ := st.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate)
+	epMap, _ := st.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate, botID)
 	if v, ok := epMap[dateStr]; ok {
 		summary.ExchangePnL = v
 	}

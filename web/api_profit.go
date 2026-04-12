@@ -160,7 +160,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 	// 本月开始
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, utils.GlobalLocation)
 
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, monthStart, now)
+	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, monthStart, now, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
 		return
@@ -921,14 +921,14 @@ func getProfitTrendHandler(c *gin.Context) {
 	startDate := now.AddDate(0, 0, -days)
 	accountID := GetCurrentAccountID()
 
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, accountID, startDate, now)
+	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, startDate, now, "")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
 		return
 	}
 
 	// 獲取起始之前的累计盈利作為 base
-	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, accountID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
+	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1), "")
 	baseProfit := 0.0
 	for _, s := range allStatsBefore {
 		baseProfit += s.TotalPnL

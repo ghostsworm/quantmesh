@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc1] - 2026-04-12
+
+### Added
+- **網格配對成交表 `trades.bot_id`**：SQLite / MySQL `qm_paired_trades` 遷移新增欄位與索引；寫入時由運行時 Bot 注入；可選從 `orders` 回填歷史列。
+- **統計 API**：`GET /api/statistics`、`GET /api/statistics/daily` 支援可選查詢參數 **`bot_id`**；帶 `bot_id` 時僅聚合該 Bot 的配對成交與訂單已實現盈虧，且不採用全局 `statistics` 日表、不展示賬戶級資金費序列。
+- **`GET /api/statistics/daily/breakdown`**：支援 **`bot_id`**；`GetDailyTradesSummary` 等存儲層方法同步支援 Bot 維度。
+- **Web UI**：Bot 路由下統計與日盈虧拆解請求附帶 **`bot_id`**；統計頁增加說明文案（中/英）。
+
+---
+
 ## [3.101.0-rc12] - 2026-04-12
 
 ### Added
