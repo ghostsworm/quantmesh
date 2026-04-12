@@ -911,7 +911,11 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 // price_int: price * 10^decimals (轉為整數)
 // side: B=Buy, S=Sell
 // orderSource: 可選，傳 "stop_loss" 時追加 _SL，便於從交易所訂單中解析訂單來源
+// OKX：clOrdId 僅允許字母數字且 ≤32，含下劃線會被拒（51000 Parameter clOrdId error），改用無下劃線格式（見 utils.GenerateOrderIDWithSourceOKX）
 func (spm *SuperPositionManager) generateClientOrderID(price float64, side string, orderSource string) string {
+	if spm.exchangeName == "okx" {
+		return utils.GenerateOrderIDWithSourceOKX(price, side, spm.priceDecimals, orderSource)
+	}
 	return utils.GenerateOrderIDWithSource(price, side, spm.priceDecimals, orderSource)
 }
 

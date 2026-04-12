@@ -1,6 +1,7 @@
 package okx
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -165,6 +166,11 @@ func (k *KlineWebSocketManager) readMessages() {
 
 // handleMessage 处理消息
 func (k *KlineWebSocketManager) handleMessage(message []byte) {
+	trim := bytes.TrimSpace(message)
+	if len(trim) == 0 || (trim[0] != '{' && trim[0] != '[') {
+		// 服務端可能下發純文本 ping/pong，非 JSON，避免「invalid character 'p'」告警
+		return
+	}
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
 		logger.Warn("⚠️ [OKX K線 WebSocket] 解析消息失败: %v", err)

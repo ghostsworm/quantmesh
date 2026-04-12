@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc3] - 2026-04-12
+
+### Fixed
+- **OKX clOrdId**：API v5 要求 **僅字母數字**、長度 ≤32；原 `GenerateOrderID` 含下劃線（含緊湊格式 `c…_B_…`）觸發 **51000 Parameter clOrdId error**。對 **`exchangeName == okx`** 改用 **`GenerateOrderIDWithSourceOKX`**（無下劃線；止損為末尾 **`SL`**），並擴展 **`ParseOrderID` / `ParseOrderSource`** 解析該格式。
+- **OKX K線 WebSocket**：忽略非 JSON 帧（如純文本 **ping/pong**），避免 `invalid character 'p' looking for beginning of value` 告警。
+
+---
+
 ## [3.102.0-rc2] - 2026-04-12
 
 ### Fixed
