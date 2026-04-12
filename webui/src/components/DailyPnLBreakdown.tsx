@@ -33,7 +33,12 @@ const DailyPnLBreakdown: React.FC = () => {
       setLoading(true)
       setError(null)
       try {
-        const res = await getDailyPnLBreakdown(date, selectedExchange || undefined, selectedSymbol || undefined)
+        const res = await getDailyPnLBreakdown(
+          date,
+          selectedExchange || undefined,
+          selectedSymbol || undefined,
+          botId || undefined
+        )
         setData(res)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load')
@@ -42,7 +47,7 @@ const DailyPnLBreakdown: React.FC = () => {
       }
     }
     fetchData()
-  }, [date, selectedExchange, selectedSymbol])
+  }, [date, selectedExchange, selectedSymbol, botId])
 
   if (!date) {
     return (

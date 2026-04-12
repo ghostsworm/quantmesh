@@ -1091,17 +1091,18 @@ func getStatistics(c *gin.Context) {
 	accountID := GetCurrentAccountID()
 	logger.Info("[统计] accountID: %s", accountID)
 
-	// 獲取 exchange、symbol 参數（如果有）
+	// 獲取 exchange、symbol、bot_id 参數（如果有）
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
+	botID := strings.TrimSpace(c.Query("bot_id"))
 
 	// 從數據库獲取统计彙總
 	var summary interface{}
 	var err error
 	if exchange != "" && symbol != "" {
 		// 指定了交易所和交易對時，查詢該交易對的统计（概覽頁顯示當前交易對的總盈虧）
-		summary, err = storage.GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, accountID)
-		logger.Info("[统计] 查詢交易所 %s 交易對 %s 的统计，accountID: %s", exchange, symbol, accountID)
+		summary, err = storage.GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, accountID, botID)
+		logger.Info("[统计] 查詢交易所 %s 交易對 %s 的统计，accountID: %s bot_id: %q", exchange, symbol, accountID, botID)
 	} else if exchange != "" {
 		// 只指定了交易所，查詢該交易所的统计
 		summary, err = storage.GetStatisticsSummaryByExchange(exchange, accountID)
@@ -1164,10 +1165,10 @@ func getStatistics(c *gin.Context) {
 	// 🔥 查詢交易所已實現盈虧（從 orders 表的 realized_pnl 聚合）
 	exchangePnL := 0.0
 	type exchangePnLGetter interface {
-		GetExchangePnLTotal(exchange, symbol string) (float64, error)
+		GetExchangePnLTotal(exchange, symbol, botID string) (float64, error)
 	}
 	if epGetter, ok := storage.(exchangePnLGetter); ok {
-		if ep, err := epGetter.GetExchangePnLTotal(exchange, symbol); err == nil {
+		if ep, err := epGetter.GetExchangePnLTotal(exchange, symbol, botID); err == nil {
 			exchangePnL = ep
 		}
 	}
@@ -1208,6 +1209,7 @@ func getStatistics(c *gin.Context) {
 				reflect.ValueOf(exchange),
 				reflect.ValueOf(symbol),
 				reflect.ValueOf(accountID),
+				reflect.ValueOf(botID),
 			})
 			if len(results) == 2 {
 				if !results[0].IsNil() {
@@ -1292,11 +1294,30 @@ func getDailyStatistics(c *gin.Context) {
 	startDate := utils.NowConfiguredTimezone().AddDate(0, 0, -days)
 	endDate := utils.NowConfiguredTimezone()
 
-	// 1. 先從 statistics 表查詢
-	statsFromTable, err := st.QueryStatistics(startDate, endDate)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	botID := strings.TrimSpace(c.Query("bot_id"))
+	status := pickStatus(c)
+	exchQ := strings.TrimSpace(c.Query("exchange"))
+	symQ := strings.TrimSpace(c.Query("symbol"))
+	exchForTrades := exchQ
+	symForTrades := symQ
+	if status != nil {
+		if exchForTrades == "" {
+			exchForTrades = status.Exchange
+		}
+		if symForTrades == "" {
+			symForTrades = status.Symbol
+		}
+	}
+
+	// 1. 先從 statistics 表查詢（按 bot 篩選時不使用全局 statistics 表，避免與單 Bot 混賬）
+	var statsFromTable []*storage.Statistics
+	var err error
+	if botID == "" {
+		statsFromTable, err = st.QueryStatistics(startDate, endDate)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 	}
 
 	// 2. 構建日期映射（statistics 表中已有的日期）
@@ -1309,7 +1330,7 @@ func getDailyStatistics(c *gin.Context) {
 	// 3. 從 trades 表查詢所有日期（包含缺失的日期和盈利/亏损交易數）
 	tradesStatsMap := make(map[string]*storage.DailyStatisticsWithTradeCount)
 	accountID := GetCurrentAccountID()
-	tradesStats, err2 := st.QueryDailyStatisticsFromTrades(accountID, startDate, endDate)
+	tradesStats, err2 := st.QueryDailyStatisticsByExchange(exchForTrades, symForTrades, accountID, startDate, endDate, botID)
 	if err2 == nil {
 		for _, tradeStat := range tradesStats {
 			dateKey := tradeStat.Date.Format("2006-01-02")
@@ -1319,7 +1340,6 @@ func getDailyStatistics(c *gin.Context) {
 
 	// 3b. 從每日快照表查詢未實現盈虧與日內最大回撤
 	snapshotMap := make(map[string]*storage.DailySnapshot)
-	status := pickStatus(c)
 	if status != nil && status.Exchange != "" && status.Symbol != "" {
 		snapshots, errSnap := st.QueryDailySnapshots(status.Exchange, status.Symbol, accountID, startDate, endDate)
 		if errSnap == nil {
@@ -1361,35 +1381,33 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
-	// 4b. 獲取每日資金費用
+	// 4b. 獲取每日資金費用（賬戶級，無法按 bot 拆分；帶 bot_id 時不展示以免誤導）
 	fundingMap := make(map[string]float64)
 	type dailyFundingGetter interface {
 		GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error)
 	}
-	if stWithFunding, ok := st.(dailyFundingGetter); ok {
-		exchangeID := ""
-		if status != nil {
-			exchangeID = status.Exchange
-		}
-		dailyFunding, err := stWithFunding.GetDailyFundingPayments(accountID, exchangeID, startDate, endDate)
-		if err == nil {
-			fundingMap = dailyFunding
+	if botID == "" {
+		if stWithFunding, ok := st.(dailyFundingGetter); ok {
+			exchangeID := ""
+			if status != nil {
+				exchangeID = status.Exchange
+			}
+			dailyFunding, err := stWithFunding.GetDailyFundingPayments(accountID, exchangeID, startDate, endDate)
+			if err == nil {
+				fundingMap = dailyFunding
+			}
 		}
 	}
 
 	// 4c. 獲取每日交易所已實現盈虧（從 orders 表聚合 realized_pnl）
 	exchangePnLMap := make(map[string]float64)
 	type dailyExchangePnLGetter interface {
-		GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error)
+		GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time, botID string) (map[string]float64, error)
 	}
 	if epGetter, ok := st.(dailyExchangePnLGetter); ok {
-		exchangeID := ""
-		symbolID := ""
-		if status != nil {
-			exchangeID = status.Exchange
-			symbolID = status.Symbol
-		}
-		if dailyEP, err := epGetter.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate); err == nil {
+		exchangeID := exchForTrades
+		symbolID := symForTrades
+		if dailyEP, err := epGetter.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate, botID); err == nil {
 			exchangePnLMap = dailyEP
 		}
 	}
@@ -3823,9 +3841,9 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	orderStatsWithPnL := 0
 	orderStatsMissingPnL := 0
 	if epGetter, ok := st.(interface {
-		GetExchangePnLTotal(exchange, symbol string) (float64, error)
+		GetExchangePnLTotal(exchange, symbol, botID string) (float64, error)
 	}); ok {
-		if ep, err := epGetter.GetExchangePnLTotal(exchangeID, symbolID); err == nil {
+		if ep, err := epGetter.GetExchangePnLTotal(exchangeID, symbolID, ""); err == nil {
 			exchangePnL = math.Round(ep*100) / 100
 		}
 	}

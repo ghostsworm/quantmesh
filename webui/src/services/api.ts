@@ -836,11 +836,17 @@ export interface StatisticsSummary {
 }
 
 // /statistics 直接返回彙總字段（非 {summary: ...} 包装）
-export async function getStatistics(exchange?: string, symbol?: string, marketType?: string): Promise<StatisticsSummary> {
+export async function getStatistics(
+  exchange?: string,
+  symbol?: string,
+  marketType?: string,
+  botId?: string
+): Promise<StatisticsSummary> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
   if (marketType) queryParams.append('market_type', marketType)
+  if (botId) queryParams.append('bot_id', botId)
   const url = `${API_BASE_URL}/statistics${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
 }
@@ -874,11 +880,18 @@ export interface DailyStatisticsResponse {
   market_type?: string
 }
 
-export async function getDailyStatistics(exchange?: string, symbol?: string, days?: number, marketType?: string): Promise<DailyStatisticsResponse> {
+export async function getDailyStatistics(
+  exchange?: string,
+  symbol?: string,
+  days?: number,
+  marketType?: string,
+  botId?: string
+): Promise<DailyStatisticsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
   if (marketType) queryParams.append('market_type', marketType)
+  if (botId) queryParams.append('bot_id', botId)
   // 默认查詢365天（1年）的历史數據，确保显示所有交易記錄
   if (days !== undefined) {
     queryParams.append('days', days.toString())
@@ -955,11 +968,13 @@ export interface DailyPnLBreakdownResponse {
 export async function getDailyPnLBreakdown(
   date: string,
   exchange?: string,
-  symbol?: string
+  symbol?: string,
+  botId?: string
 ): Promise<DailyPnLBreakdownResponse> {
   const queryParams = new URLSearchParams({ date })
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (botId) queryParams.append('bot_id', botId)
   return fetchWithAuth(`${API_BASE_URL}/statistics/daily/breakdown?${queryParams.toString()}`)
 }
 

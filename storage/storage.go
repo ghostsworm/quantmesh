@@ -47,18 +47,18 @@ type Storage interface {
 	QueryStatistics(startDate, endDate time.Time) ([]*Statistics, error)
 	GetStatisticsSummary(account string) (*Statistics, error)
 	GetStatisticsSummaryByExchange(exchange, account string) (*Statistics, error)
-	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account string) (*Statistics, error)
-	// GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計
-	GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account string) (*TodayStatistics, error)
-	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
-	QueryDailyStatisticsByExchange(exchange, account string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error)
-	// GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
-	GetDailyTradesSummary(exchange, account, dateStr string) (count int, grossPnl, totalFee float64, err error)
+	GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account, botID string) (*Statistics, error)
+	// GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計（botID 非空時僅統計該 Bot）
+	GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, account, botID string) (*TodayStatistics, error)
+	QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time, botID string) ([]*DailyStatisticsWithTradeCount, error)
+	QueryDailyStatisticsByExchange(exchange, symbol, account string, startDate, endDate time.Time, botID string) ([]*DailyStatisticsWithTradeCount, error)
+	// GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費（botID 非空時僅該 Bot）
+	GetDailyTradesSummary(exchange, account, dateStr, botID string) (count int, grossPnl, totalFee float64, err error)
 	// GetFilledOrderQtySumBeforeTime 獲取指定時間前已成交訂單的買/賣數量合計（用於日初持倉）
 	GetFilledOrderQtySumBeforeTime(exchange, symbol string, before time.Time) (buyQty, sellQty float64, err error)
 	// 交易所已實現盈虧聚合（從 orders 表的 realized_pnl）
-	GetExchangePnLTotal(exchange, symbol string) (float64, error)
-	GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time) (map[string]float64, error)
+	GetExchangePnLTotal(exchange, symbol, botID string) (float64, error)
+	GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time, botID string) (map[string]float64, error)
 	SaveReconciliationHistory(history *ReconciliationHistory) error
 	QueryReconciliationHistory(exchange, symbol, account string, startTime, endTime time.Time, limit, offset int) ([]*ReconciliationHistory, error)
 	GetLatestReconciliationHistory(exchange, symbol, account string) (*ReconciliationHistory, error)

@@ -15,6 +15,7 @@ import {
   SimpleGrid,
   Alert,
   AlertIcon,
+  AlertDescription,
 } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
@@ -119,9 +120,10 @@ const Statistics: React.FC = () => {
         setLoading(true)
         // 查詢365天的历史數據，确保显示所有交易記錄
         const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
+        const bid = botId || undefined
         const [statsData, dailyData] = await Promise.all([
-          getStatistics(selectedExchange || undefined, selectedSymbol || undefined, mt),
-          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365, mt).catch(() => ({
+          getStatistics(selectedExchange || undefined, selectedSymbol || undefined, mt, bid),
+          getDailyStatistics(selectedExchange || undefined, selectedSymbol || undefined, 365, mt, bid).catch(() => ({
             statistics: [],
             max_drawdown: 0,
             max_drawdown_pct: 0,
@@ -146,7 +148,7 @@ const Statistics: React.FC = () => {
     const interval = setInterval(fetchData, 30000)
 
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol, selectedMarketType])
+  }, [selectedExchange, selectedSymbol, selectedMarketType, botId])
 
   const filteredDailyStats = useMemo(
     () => filterDailyStatsByRecentDays(dailyStats, days),
@@ -206,6 +208,13 @@ const Statistics: React.FC = () => {
         </Button>
       </div>
       <h2>{t('statistics.title')}</h2>
+
+      {botId && (
+        <Alert status="info" variant="left-accent" borderRadius="md" mb={4} maxW="960px">
+          <AlertIcon />
+          <AlertDescription fontSize="sm">{t('statistics.botScopeNotice')}</AlertDescription>
+        </Alert>
+      )}
 
       {stats && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginTop: '16px', maxWidth: '900px' }}>

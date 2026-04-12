@@ -2459,6 +2459,7 @@
   "statistics": {
     "modeGlobal": "全局收益统计",
     "modeSingleBot": "Bot 收益统计：{{symbol}}",
+    "botScopeNotice": "当前为按 Bot 筛选的配对成交与订单已实现盈亏；资金费为账户级故不展示；权益快照仍为交易对/账户维度。",
     "title": "交易统计",
     "loading": "加载中...",
     "error": "错误",

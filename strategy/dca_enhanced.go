@@ -292,7 +292,7 @@ func (s *DCAEnhancedStrategy) SetEventBus(bus EventBus) {
 
 // TradeStorage 交易存儲介面（避免循環匯入）
 type TradeStorage interface {
-	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time) error
+	SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time, botID string) error
 }
 
 // SetTradeStorage 設置交易存儲介面（用於保存交易記錄）
@@ -300,6 +300,30 @@ func (s *DCAEnhancedStrategy) SetTradeStorage(storage TradeStorage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tradeStorage = storage
+}
+
+// effectiveBotID 與 SymbolRuntime / SuperPositionManager 一致，供寫入 trades.bot_id
+func (s *DCAEnhancedStrategy) effectiveBotID() string {
+	if s.cfg == nil {
+		return ""
+	}
+	bid := strings.TrimSpace(s.cfg.Trading.BotID)
+	if bid != "" {
+		return bid
+	}
+	ex := strings.ToLower(strings.TrimSpace(s.exchange.GetName()))
+	if ex == "" {
+		ex = "binance"
+	}
+	sym := strings.TrimSpace(s.strategyCfg.Symbol)
+	if sym == "" {
+		sym = strings.TrimSpace(s.cfg.Trading.Symbol)
+	}
+	mt := strings.ToLower(strings.TrimSpace(s.cfg.Trading.MarketType))
+	if mt == "" {
+		mt = "futures"
+	}
+	return config.GenerateBotID(ex, sym, mt)
 }
 
 // Start 啟动策略
@@ -794,10 +818,10 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 		// 🔥 尝试使用带交易所盈亏的新接口（初始为0，后续订单更新时会更新）
 		if tradeStWithPnL, ok := s.tradeStorage.(interface {
-			SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time) error
+			SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
 		}); ok {
 			// 使用新接口，交易所盈亏初始为0（订单刚下，还不知道交易所计算的盈亏）
-			if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, 0, estimatedFee, "USDT", 0, 0, time.Now()); err != nil {
+			if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, 0, estimatedFee, "USDT", 0, 0, time.Now(), s.effectiveBotID()); err != nil {
 				logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
 					s.name, err, avgBuyPrice, orderPrice, qty, pnl)
 			} else {
@@ -811,7 +835,7 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 			}
 		} else {
 			// 降级：使用旧接口
-			if err := s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now()); err != nil {
+			if err := s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now(), s.effectiveBotID()); err != nil {
 				logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
 					s.name, err, avgBuyPrice, orderPrice, qty, pnl)
 			} else {

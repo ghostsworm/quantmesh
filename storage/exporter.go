@@ -135,7 +135,7 @@ func (e *Exporter) ExportStatistics(params ExportParams) ([]byte, string, error)
 		endTime = utils.NowConfiguredTimezone()
 	}
 
-	stats, err := e.storage.QueryDailyStatisticsByExchange(params.Exchange, params.Account, startTime, endTime)
+	stats, err := e.storage.QueryDailyStatisticsByExchange(params.Exchange, "", params.Account, startTime, endTime, "")
 	if err != nil {
 		return nil, "", err
 	}

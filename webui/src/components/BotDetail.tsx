@@ -251,7 +251,7 @@ const BotDetail: React.FC = () => {
         const mt = bot.market_type || 'futures'
         const [posRes, statRes, posStatus] = await Promise.all([
           getPositionsSummary(bot.exchange, bot.symbol, mt).catch(() => null),
-          getStatistics(bot.exchange, bot.symbol, mt).catch(() => null),
+          getStatistics(bot.exchange, bot.symbol, mt, botId || undefined).catch(() => null),
           botId ? getBotPositionStatus(botId).catch(() => null) : Promise.resolve(null),
         ])
         setPositionsSummary(posRes)
