@@ -2649,7 +2649,7 @@ var (
 
 // LogStorageProvider 日志存儲提供者接口
 type LogStorageProvider interface {
-	GetLogs(startTime, endTime time.Time, level, keyword string, limit, offset int) ([]*LogRecordResponse, int, error)
+	GetLogs(params storage.LogQueryParams) ([]*LogRecordResponse, int, error)
 	CleanOldLogsByLevel(days int, levels []string) (int64, error)
 	Vacuum() error
 	GetLogStats() (map[string]interface{}, error)
@@ -2666,16 +2666,7 @@ func NewLogStorageAdapter(ls *storage.LogStorage) LogStorageProvider {
 }
 
 // GetLogs 實現 LogStorageProvider 接口
-func (a *logStorageAdapter) GetLogs(startTime, endTime time.Time, level, keyword string, limit, offset int) ([]*LogRecordResponse, int, error) {
-	params := storage.LogQueryParams{
-		StartTime: startTime,
-		EndTime:   endTime,
-		Level:     level,
-		Keyword:   keyword,
-		Limit:     limit,
-		Offset:    offset,
-	}
-
+func (a *logStorageAdapter) GetLogs(params storage.LogQueryParams) ([]*LogRecordResponse, int, error) {
 	logs, total, err := a.storage.GetLogs(params)
 	if err != nil {
 		return nil, 0, err
@@ -2730,6 +2721,7 @@ func SetLogStorageProvider(provider LogStorageProvider) {
 //   - end_time: 結束時间（可選，ISO 8601格式，默认當前時间）
 //   - level: 日志级别（可選，DEBUG/INFO/WARN/ERROR/FATAL）
 //   - keyword: 关键词搜索（可選）
+//   - exchange / symbol / market_type / bot_id: 可選，對 message 子串匹配（多條件 AND）
 //   - limit: 每页數量（可選，預設 100，最大 2000）
 //   - offset: 偏移量（可選，默认0）
 func getLogs(c *gin.Context) {
@@ -2786,7 +2778,18 @@ func getLogs(c *gin.Context) {
 	}
 
 	// 查詢日志
-	logs, total, err := logStorageProvider.GetLogs(startTime, endTime, level, keyword, limit, offset)
+	logs, total, err := logStorageProvider.GetLogs(storage.LogQueryParams{
+		StartTime:  startTime,
+		EndTime:    endTime,
+		Level:      level,
+		Keyword:    keyword,
+		Limit:      limit,
+		Offset:     offset,
+		Exchange:   strings.TrimSpace(c.Query("exchange")),
+		Symbol:     strings.TrimSpace(c.Query("symbol")),
+		MarketType: strings.TrimSpace(c.Query("market_type")),
+		BotID:      strings.TrimSpace(c.Query("bot_id")),
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

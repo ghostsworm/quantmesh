@@ -292,12 +292,15 @@ const BotDetail: React.FC = () => {
   }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
 
   const fetchLogs = useCallback(async () => {
-    if (!bot?.symbol) return
+    if (!bot?.symbol || !botId) return
     setLogsLoading(true)
     try {
       const res = await getLogs({
         limit: logLimit,
         keyword: bot.symbol,
+        exchange: bot.exchange,
+        market_type: bot.market_type || 'futures',
+        bot_id: botId,
         ...(logLevelFilter ? { level: logLevelFilter } : {}),
       })
       setLogs(res.logs || [])
@@ -308,7 +311,7 @@ const BotDetail: React.FC = () => {
     } finally {
       setLogsLoading(false)
     }
-  }, [bot?.symbol, logLevelFilter, logLimit])
+  }, [bot?.symbol, bot?.exchange, bot?.market_type, botId, logLevelFilter, logLimit])
 
   useEffect(() => {
     void fetchLogs()

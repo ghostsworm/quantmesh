@@ -1167,6 +1167,11 @@ export interface LogsParams {
   keyword?: string
   start_time?: string
   end_time?: string
+  /** 與 keyword 獨立；後端對 message 做子串匹配，多條件為 AND */
+  exchange?: string
+  symbol?: string
+  market_type?: string
+  bot_id?: string
 }
 
 export interface LogsResponse {
@@ -1182,6 +1187,10 @@ export async function getLogs(params?: LogsParams): Promise<LogsResponse> {
   if (params?.keyword) queryParams.append('keyword', params.keyword)
   if (params?.start_time) queryParams.append('start_time', params.start_time)
   if (params?.end_time) queryParams.append('end_time', params.end_time)
+  if (params?.exchange) queryParams.append('exchange', params.exchange)
+  if (params?.symbol) queryParams.append('symbol', params.symbol)
+  if (params?.market_type) queryParams.append('market_type', params.market_type)
+  if (params?.bot_id) queryParams.append('bot_id', params.bot_id)
   
   const url = `${API_BASE_URL}/logs${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
