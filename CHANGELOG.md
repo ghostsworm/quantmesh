@@ -2,13 +2,23 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
-## [3.96.0-rc1] - 2026-04-12
+## [3.96.0-rc2] - 2026-04-12
 
-### Added
-- **OKX 現貨**：`StartPriceStream` 透過公共 WebSocket 訂閱 `tickers`（與合約適配器相同），支援僅 WebSocket 作為價格來源的啟動流程；`GetLatestPrice` 優先讀取 WS 緩存。
+### Fixed
+- **OKX 現貨價格流**：實作 `StartPriceStream`（公共 WS `tickers`），此前 `3.96.0-rc1` 變更日誌已列但程式仍回傳「暂未實現」。
 
 ### Tests
 - `exchange/okx`：`symbolToSpotInstId` 單元測試。
+
+---
+
+## [3.96.0-rc1] - 2026-04-12
+
+### Added
+- **Web 控制台**：全局設定「交易所 API」分頁中，未填寫 API Key / Secret（且無測試網、非零手續費等）的交易所預設摺疊為單行，點擊展開；展開後可收合。已填寫憑證的交易所仍完整顯示。
+
+### Tests
+- `exchangeConfigUi`：`isExchangeApiSlotVisuallyEmpty` 單元測試。
 
 ---
 

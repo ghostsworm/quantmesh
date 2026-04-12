@@ -33,6 +33,8 @@ type OKXSpotAdapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+	useTestnet       bool
+	wsManager        *WebSocketManager // 公共 tickers 價格流（與合約適配器相同）
 }
 
 // NewOKXSpotAdapter 創建 OKX 現貨适配器
@@ -50,9 +52,10 @@ func NewOKXSpotAdapter(cfg map[string]string, symbol string) (*OKXSpotAdapter, e
 	client := NewOKXClient(apiKey, secretKey, passphrase, testnet)
 	instId := symbolToSpotInstId(symbol)
 	adapter := &OKXSpotAdapter{
-		client: client,
-		symbol: symbol,
-		instId: instId,
+		client:     client,
+		symbol:     symbol,
+		instId:     instId,
+		useTestnet: testnet,
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -344,8 +347,14 @@ func (o *OKXSpotAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 最新價
+// GetLatestPrice 最新價（優先使用 WebSocket 緩存，與 OKX 合約適配器一致）
 func (o *OKXSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	if o.wsManager != nil {
+		price := o.wsManager.GetLatestPrice()
+		if price > 0 {
+			return price, nil
+		}
+	}
 	ticker, err := o.client.GetTicker(ctx, o.instId)
 	if err != nil {
 		return 0, err
@@ -353,9 +362,12 @@ func (o *OKXSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (flo
 	return strconv.ParseFloat(ticker.Last, 64)
 }
 
-// StartPriceStream 暂不實現
+// StartPriceStream 公共 WebSocket 訂閱 tickers（現貨 instId 如 BTC-USDT，與 REST 一致）
 func (o *OKXSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	return fmt.Errorf("OKX 現貨價格流暂未實現")
+	if o.wsManager == nil {
+		o.wsManager = NewWebSocketManager(o.client.apiKey, o.client.secretKey, o.client.passphrase, o.useTestnet)
+	}
+	return o.wsManager.StartPriceStream(ctx, o.instId, callback)
 }
 
 // StartKlineStream 暂不實現
