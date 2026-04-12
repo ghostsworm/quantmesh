@@ -39,9 +39,10 @@ type KlineWebSocketManager struct {
 	pongWait       time.Duration
 	isRunning      bool
 	useTestnet     bool // 是否使用測試網
+	spotMarket     bool // true=現貨 stream，false=合約 fstream
 }
 
-// NewKlineWebSocketManager 創建K線WebSocket管理器
+// NewKlineWebSocketManager 創建K線WebSocket管理器（合約）
 func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		done:           make(chan struct{}),
@@ -49,6 +50,19 @@ func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 		pingInterval:   30 * time.Second, // Ping间隔
 		pongWait:       60 * time.Second, // Pong等待超時
 		useTestnet:     useTestnet,
+		spotMarket:     false,
+	}
+}
+
+// NewSpotKlineWebSocketManager 創建現貨 K 線 WebSocket（stream.binance.com）
+func NewSpotKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
+	return &KlineWebSocketManager{
+		done:           make(chan struct{}),
+		reconnectDelay: 5 * time.Second,
+		pingInterval:   30 * time.Second,
+		pongWait:       60 * time.Second,
+		useTestnet:     useTestnet,
+		spotMarket:     true,
 	}
 }
 
@@ -84,20 +98,28 @@ func (k *KlineWebSocketManager) connectLoop(ctx context.Context) {
 		default:
 		}
 
-		// 構建WebSocket URL
 		streams := make([]string, len(k.symbols))
 		for i, symbol := range k.symbols {
 			streams[i] = fmt.Sprintf("%s@kline_%s", strings.ToLower(symbol), k.interval)
 		}
 		var wsURL string
-		if k.useTestnet {
-			wsURL = fmt.Sprintf("wss://stream.binancefuture.com/stream?streams=%s", strings.Join(streams, "/"))
-			logger.Info("🌐 [Binance Kline WS] 使用測試網 WebSocket")
+		if k.spotMarket {
+			if k.useTestnet {
+				wsURL = fmt.Sprintf("wss://stream.testnet.binance.vision/stream?streams=%s", strings.Join(streams, "/"))
+				logger.Info("🌐 [Binance Spot Kline WS] 測試網")
+			} else {
+				wsURL = fmt.Sprintf("wss://stream.binance.com:443/stream?streams=%s", strings.Join(streams, "/"))
+			}
+			logger.Info("🔗 正在连接 Binance 現貨 K線 WebSocket...")
 		} else {
-			wsURL = fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s", strings.Join(streams, "/"))
+			if k.useTestnet {
+				wsURL = fmt.Sprintf("wss://stream.binancefuture.com/stream?streams=%s", strings.Join(streams, "/"))
+				logger.Info("🌐 [Binance Kline WS] 使用測試網 WebSocket")
+			} else {
+				wsURL = fmt.Sprintf("wss://fstream.binance.com/stream?streams=%s", strings.Join(streams, "/"))
+			}
+			logger.Info("🔗 正在连接 Binance K線WebSocket...")
 		}
-
-		logger.Info("🔗 正在连接 Binance K線WebSocket...")
 
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {

@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.97.0-rc1] - 2026-04-12
+
+### Added
+- **Bybit / Gate.io / Bitget 現貨**：實作公共 WebSocket 價格流（Bybit `v5/public/spot` tickers；Gate `spot.tickers`；Bitget `SPOT` ticker）。
+- **幣安現貨**：實作 User Data Stream 訂單流（`executionReport`）與現貨 K 線 combined stream；`GetLatestPrice` 優先讀取 miniTicker 緩存。
+
+---
+
 ## [3.96.0-rc2] - 2026-04-12
 
 ### Fixed

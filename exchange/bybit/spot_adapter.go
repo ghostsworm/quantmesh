@@ -20,6 +20,7 @@ type BybitSpotAdapter struct {
 	baseAsset        string
 	quoteAsset       string
 	useTestnet       bool
+	wsManager        *WebSocketManager // 公共現貨 tickers
 }
 
 // NewBybitSpotAdapter 創建 Bybit 現貨适配器
@@ -334,8 +335,13 @@ func (b *BybitSpotAdapter) StopOrderStream() error {
 	return nil
 }
 
-// GetLatestPrice 最新價
+// GetLatestPrice 最新價（優先 WebSocket 緩存）
 func (b *BybitSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
+	if b.wsManager != nil {
+		if p := b.wsManager.GetLatestPrice(); p > 0 {
+			return p, nil
+		}
+	}
 	ticker, err := b.client.GetTicker(ctx, "spot", symbol)
 	if err != nil {
 		return 0, err
@@ -343,9 +349,12 @@ func (b *BybitSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) (f
 	return strconv.ParseFloat(ticker.LastPrice, 64)
 }
 
-// StartPriceStream 暂不實現
+// StartPriceStream 公共現貨 WebSocket tickers.{symbol}
 func (b *BybitSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
-	return fmt.Errorf("Bybit 現貨價格流暂未實現")
+	if b.wsManager == nil {
+		b.wsManager = NewWebSocketManager(b.client.apiKey, b.client.secretKey, b.useTestnet)
+	}
+	return b.wsManager.StartSpotPriceStream(ctx, b.symbol, callback)
 }
 
 // StartKlineStream 暂不實現
