@@ -126,7 +126,12 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 	}
 
 	if apiResp.Code != "0" {
-		return nil, fmt.Errorf("API 錯误 %s: %s", apiResp.Code, apiResp.Msg)
+		// 附帶 data 便於排查（例如 OKX 外層 code=1 時 data 內常有 sCode/sMsg）
+		dataStr := string(apiResp.Data)
+		if dataStr == "" || dataStr == "null" {
+			return nil, fmt.Errorf("API 錯误 %s: %s", apiResp.Code, apiResp.Msg)
+		}
+		return nil, fmt.Errorf("API 錯误 %s: %s; data=%s", apiResp.Code, apiResp.Msg, dataStr)
 	}
 
 	return apiResp.Data, nil
@@ -140,6 +145,7 @@ type Instrument struct {
 	SettleCcy string `json:"settleCcy"` // 結算币种
 	TickSz    string `json:"tickSz"`    // 價格最小变动單位
 	LotSz     string `json:"lotSz"`     // 數量最小变动單位
+	MinSz     string `json:"minSz"`     // 最小下單數量（現貨/合約標的，單位為張或基礎幣）
 }
 
 // GetInstruments 獲取合約信息
