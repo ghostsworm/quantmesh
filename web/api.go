@@ -2680,6 +2680,7 @@ func (a *logStorageAdapter) GetLogs(params storage.LogQueryParams) ([]*LogRecord
 			Timestamp: utils.ToUTC8(log.Timestamp),
 			Level:     log.Level,
 			Message:   log.Message,
+			BotID:     log.BotID,
 		}
 	}
 
@@ -2707,6 +2708,7 @@ type LogRecordResponse struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
 	Message   string    `json:"message"`
+	BotID     string    `json:"bot_id,omitempty"`
 }
 
 // SetLogStorageProvider 設置日志存儲提供者
@@ -2721,7 +2723,8 @@ func SetLogStorageProvider(provider LogStorageProvider) {
 //   - end_time: 結束時间（可選，ISO 8601格式，默认當前時间）
 //   - level: 日志级别（可選，DEBUG/INFO/WARN/ERROR/FATAL）
 //   - keyword: 关键词搜索（可選）
-//   - exchange / symbol / market_type / bot_id: 可選，對 message 子串匹配（多條件 AND）
+//   - exchange / symbol / market_type: 可選，對 message 子串匹配（多條件 AND）
+//   - bot_id: 可選，按 logs.bot_id 列精確匹配（舊數據為空則不命中）
 //   - limit: 每页數量（可選，預設 100，最大 2000）
 //   - offset: 偏移量（可選，默认0）
 func getLogs(c *gin.Context) {

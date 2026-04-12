@@ -30,6 +30,7 @@ type logEntry struct {
 	level     string
 	message   string
 	timestamp time.Time
+	botID     string // 可為空；寫入 DB 時 NULL
 }
 
 // LogQueryParams 日志查詢参數
@@ -40,11 +41,12 @@ type LogQueryParams struct {
 	Keyword   string
 	Limit     int
 	Offset    int
-	// 以下為可選：日誌表無獨立欄位，僅對 message 做子串匹配（多條件為 AND）
+	// Exchange/Symbol/MarketType：對 message 子串匹配（多條件為 AND）
 	Exchange   string
 	Symbol     string
 	MarketType string
-	BotID      string
+	// BotID：優先按 logs.bot_id 列精確匹配（舊數據為 NULL 時不會命中）
+	BotID string
 }
 
 // LogRecord 日志記錄
@@ -53,6 +55,7 @@ type LogRecord struct {
 	Timestamp time.Time `json:"timestamp"`
 	Level     string    `json:"level"`
 	Message   string    `json:"message"`
+	BotID     string    `json:"bot_id,omitempty"`
 }
 
 // NewLogStorage 創建日志存儲
@@ -88,6 +91,10 @@ func openLogStorageDB(path string) (*sql.DB, *LogStorage, error) {
 		db.Close()
 		return nil, nil, fmt.Errorf("創建日志表失败: %w", err)
 	}
+	if err := migrateLogsTable(ls.db); err != nil {
+		db.Close()
+		return nil, nil, fmt.Errorf("遷移日志表失败: %w", err)
+	}
 
 	// 啟动時完整性检查
 	if err := ls.checkIntegrity(); err != nil {
@@ -108,10 +115,25 @@ func openLogStorageDB(path string) (*sql.DB, *LogStorage, error) {
 			db2.Close()
 			return nil, nil, fmt.Errorf("重建后創建表失败: %w", err)
 		}
+		if err := migrateLogsTable(ls.db); err != nil {
+			db2.Close()
+			return nil, nil, fmt.Errorf("重建後遷移日志表失败: %w", err)
+		}
 		logger.Info("✅ 日志數據库已重建")
 	}
 
 	return db, ls, nil
+}
+
+// migrateLogsTable 為舊庫添加 bot_id 列及索引（可重複執行）
+func migrateLogsTable(db *sql.DB) error {
+	if _, err := db.Exec(`ALTER TABLE logs ADD COLUMN bot_id TEXT`); err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return err
+		}
+	}
+	_, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_logs_bot_id ON logs(bot_id)`)
+	return err
 }
 
 // checkIntegrity 執行 PRAGMA integrity_check，若有錯误返回非 nil
@@ -167,26 +189,34 @@ func (ls *LogStorage) createTable() error {
 		timestamp DATETIME NOT NULL,
 		level TEXT NOT NULL,
 		message TEXT NOT NULL,
+		bot_id TEXT,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_logs_timestamp ON logs(timestamp);
 	CREATE INDEX IF NOT EXISTS idx_logs_level ON logs(level);
+	CREATE INDEX IF NOT EXISTS idx_logs_bot_id ON logs(bot_id);
 	`
 
 	_, err := ls.db.Exec(sql)
 	return err
 }
 
-// WriteLog 写入日志（异步，不阻塞）
-func (ls *LogStorage) WriteLog(level, message string) {
+// WriteLog 写入日志（异步，不阻塞）。botID 可選，非空時寫入 bot_id 列。
+func (ls *LogStorage) WriteLog(level, message string, botID ...string) {
 	if ls.closed {
 		return
+	}
+
+	bid := ""
+	if len(botID) > 0 {
+		bid = strings.TrimSpace(botID[0])
 	}
 
 	entry := &logEntry{
 		level:     level,
 		message:   message,
 		timestamp: utils.NowUTC(),
+		botID:     bid,
 	}
 
 	select {
@@ -261,8 +291,8 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 	defer tx.Rollback()
 
 	stmt, err := tx.Prepare(`
-		INSERT INTO logs (timestamp, level, message)
-		VALUES (?, ?, ?)
+		INSERT INTO logs (timestamp, level, message, bot_id)
+		VALUES (?, ?, ?, NULLIF(?, ''))
 	`)
 	if err != nil {
 		return err
@@ -271,7 +301,7 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 
 	var insertedLogs []*LogRecord
 	for _, entry := range entries {
-		result, err := stmt.Exec(entry.timestamp, entry.level, entry.message)
+		result, err := stmt.Exec(entry.timestamp, entry.level, entry.message, entry.botID)
 		if err != nil {
 			return err
 		}
@@ -283,6 +313,7 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 			Timestamp: entry.timestamp,
 			Level:     entry.level,
 			Message:   entry.message,
+			BotID:     entry.botID,
 		})
 	}
 
@@ -382,7 +413,11 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 		where = append(where, "LOWER(message) LIKE ?")
 		args = append(args, "%"+strings.ToLower(kw)+"%")
 	}
-	for _, raw := range []string{params.Exchange, params.Symbol, params.MarketType, params.BotID} {
+	if id := strings.TrimSpace(params.BotID); id != "" {
+		where = append(where, "bot_id = ?")
+		args = append(args, id)
+	}
+	for _, raw := range []string{params.Exchange, params.Symbol, params.MarketType} {
 		if s := strings.TrimSpace(raw); s != "" {
 			where = append(where, "LOWER(message) LIKE ?")
 			args = append(args, "%"+strings.ToLower(s)+"%")
@@ -408,7 +443,7 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 	}
 
 	querySQL := fmt.Sprintf(`
-		SELECT id, timestamp, level, message
+		SELECT id, timestamp, level, message, bot_id
 		FROM logs
 		WHERE %s
 		ORDER BY timestamp DESC
@@ -426,9 +461,13 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 	var logs []*LogRecord
 	for rows.Next() {
 		var log LogRecord
-		err := rows.Scan(&log.ID, &log.Timestamp, &log.Level, &log.Message)
+		var botID sql.NullString
+		err := rows.Scan(&log.ID, &log.Timestamp, &log.Level, &log.Message, &botID)
 		if err != nil {
 			continue
+		}
+		if botID.Valid {
+			log.BotID = botID.String
 		}
 		logs = append(logs, &log)
 	}

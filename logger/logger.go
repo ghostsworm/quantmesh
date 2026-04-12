@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -42,8 +43,8 @@ var (
 	globalLocation *time.Location = time.Local
 	locationMu     sync.RWMutex
 
-	// SQLite 日志存儲（通過函數指針避免循环依赖）
-	logStorageWriter func(level, message string)
+	// SQLite 日志存儲（通過函數指針避免循环依赖）；botID 可為空
+	logStorageWriter func(level, message, botID string)
 	logStorageMu     sync.RWMutex
 
 	// 日志语言配置
@@ -274,8 +275,27 @@ func checkAndRotateLog() {
 	}
 }
 
+// botIDContextKey 用於 context.WithValue 的鍵（導出類型避免外部包衝突）
+type botIDContextKey struct{}
+
+// WithBotID 將當前 Bot ID 放入 context，寫入 SQLite 日誌時帶 bot_id 列。
+func WithBotID(ctx context.Context, botID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, botIDContextKey{}, strings.TrimSpace(botID))
+}
+
+func botIDFromContext(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	v, _ := ctx.Value(botIDContextKey{}).(string)
+	return strings.TrimSpace(v)
+}
+
 // InitLogStorage 初始化日志存儲（通過函數指針避免循环依赖）
-func InitLogStorage(writer func(level, message string)) {
+func InitLogStorage(writer func(level, message, botID string)) {
 	logStorageMu.Lock()
 	defer logStorageMu.Unlock()
 	logStorageWriter = writer
@@ -411,32 +431,41 @@ func shouldLog(level LogLevel) bool {
 
 // logf 内部日志输出函數
 func logf(level LogLevel, format string, args ...interface{}) {
+	logfWithContext(context.Background(), level, format, args...)
+}
+
+// logfWithContext 内部日志输出（可帶 bot_id 寫入 SQLite）
+func logfWithContext(ctx context.Context, level LogLevel, format string, args ...interface{}) {
 	if !shouldLog(level) {
 		return
 	}
-	
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	botID := botIDFromContext(ctx)
+
 	// 使用對象池複用 Builder，减少記憶體分配
 	builder := builderPool.Get().(*strings.Builder)
 	defer func() {
 		builder.Reset()
 		builderPool.Put(builder)
 	}()
-	
+
 	// 構建前缀
 	builder.WriteString("[")
 	builder.WriteString(level.String())
 	builder.WriteString("] ")
-	
+
 	// 格式化消息
 	formatted := fmt.Sprintf(format, args...)
 	builder.WriteString(formatted)
 	message := builder.String()
-	
+
 	// 限制消息长度，防止异常情况下的記憶體问题
 	if len(message) > maxLogMessageLength {
 		message = message[:maxLogMessageLength] + "... [truncated]"
 	}
-	
+
 	// 為了兼容性，也構建 prefix（用於標准输出）
 	prefix := fmt.Sprintf("[%s] ", level.String())
 
@@ -465,7 +494,7 @@ func logf(level LogLevel, format string, args ...interface{}) {
 
 	if writer != nil {
 		// 使用 goroutine 异步写入，避免阻塞
-		go func() {
+		go func(bid string) {
 			defer func() {
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
@@ -473,29 +502,37 @@ func logf(level LogLevel, format string, args ...interface{}) {
 					log.Printf("[ERROR] 日志写入 panic: %v", r)
 				}
 			}()
-			writer(level.String(), message)
-		}()
+			writer(level.String(), message, bid)
+		}(botID)
 	}
 }
 
 // logln 内部日志输出函數（無格式）
 func logln(level LogLevel, args ...interface{}) {
+	loglnWithContext(context.Background(), level, args...)
+}
+
+func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) {
 	if !shouldLog(level) {
 		return
 	}
-	
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	botID := botIDFromContext(ctx)
+
 	// 使用對象池複用 Builder，减少記憶體分配
 	builder := builderPool.Get().(*strings.Builder)
 	defer func() {
 		builder.Reset()
 		builderPool.Put(builder)
 	}()
-	
+
 	// 構建前缀
 	builder.WriteString("[")
 	builder.WriteString(level.String())
 	builder.WriteString("] ")
-	
+
 	// 構建消息
 	for i, arg := range args {
 		if i > 0 {
@@ -504,12 +541,12 @@ func logln(level LogLevel, args ...interface{}) {
 		builder.WriteString(fmt.Sprint(arg))
 	}
 	message := builder.String()
-	
+
 	// 限制消息长度，防止异常情况下的記憶體问题
 	if len(message) > maxLogMessageLength {
 		message = message[:maxLogMessageLength] + "... [truncated]"
 	}
-	
+
 	// 為了兼容性，也構建 prefix（用於標准输出）
 	prefix := fmt.Sprintf("[%s] ", level.String())
 
@@ -538,7 +575,7 @@ func logln(level LogLevel, args ...interface{}) {
 
 	if writer != nil {
 		// 使用 goroutine 异步写入，避免阻塞
-		go func() {
+		go func(bid string) {
 			defer func() {
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
@@ -546,8 +583,8 @@ func logln(level LogLevel, args ...interface{}) {
 					log.Printf("[ERROR] 日志写入 panic: %v", r)
 				}
 			}()
-			writer(level.String(), strings.TrimSuffix(message, "\n"))
-		}()
+			writer(level.String(), strings.TrimSuffix(message, "\n"), bid)
+		}(botID)
 	}
 }
 
@@ -556,9 +593,19 @@ func Debug(format string, args ...interface{}) {
 	logf(DEBUG, format, args...)
 }
 
+// DebugCtx 输出調試日志（可帶 bot_id）
+func DebugCtx(ctx context.Context, format string, args ...interface{}) {
+	logfWithContext(ctx, DEBUG, format, args...)
+}
+
 // Debugln 输出調試日志（無格式）
 func Debugln(args ...interface{}) {
 	logln(DEBUG, args...)
+}
+
+// DebuglnCtx 输出調試日志（無格式，可帶 bot_id）
+func DebuglnCtx(ctx context.Context, args ...interface{}) {
+	loglnWithContext(ctx, DEBUG, args...)
 }
 
 // Info 输出一般信息日志
@@ -566,9 +613,19 @@ func Info(format string, args ...interface{}) {
 	logf(INFO, format, args...)
 }
 
+// InfoCtx 输出一般信息日志（寫入 SQLite 時帶 bot_id 列）
+func InfoCtx(ctx context.Context, format string, args ...interface{}) {
+	logfWithContext(ctx, INFO, format, args...)
+}
+
 // Infoln 输出一般信息日志（無格式）
 func Infoln(args ...interface{}) {
 	logln(INFO, args...)
+}
+
+// InfolnCtx 输出一般信息日志（無格式，可帶 bot_id）
+func InfolnCtx(ctx context.Context, args ...interface{}) {
+	loglnWithContext(ctx, INFO, args...)
 }
 
 // Warn 输出警告日志
@@ -576,9 +633,19 @@ func Warn(format string, args ...interface{}) {
 	logf(WARN, format, args...)
 }
 
+// WarnCtx 输出警告日志（可帶 bot_id）
+func WarnCtx(ctx context.Context, format string, args ...interface{}) {
+	logfWithContext(ctx, WARN, format, args...)
+}
+
 // Warnln 输出警告日志（無格式）
 func Warnln(args ...interface{}) {
 	logln(WARN, args...)
+}
+
+// WarnlnCtx 输出警告日志（無格式，可帶 bot_id）
+func WarnlnCtx(ctx context.Context, args ...interface{}) {
+	loglnWithContext(ctx, WARN, args...)
 }
 
 // Error 输出錯误日志
@@ -586,9 +653,19 @@ func Error(format string, args ...interface{}) {
 	logf(ERROR, format, args...)
 }
 
+// ErrorCtx 输出錯误日志（可帶 bot_id）
+func ErrorCtx(ctx context.Context, format string, args ...interface{}) {
+	logfWithContext(ctx, ERROR, format, args...)
+}
+
 // Errorln 输出錯误日志（無格式）
 func Errorln(args ...interface{}) {
 	logln(ERROR, args...)
+}
+
+// ErrorlnCtx 输出錯误日志（無格式，可帶 bot_id）
+func ErrorlnCtx(ctx context.Context, args ...interface{}) {
+	loglnWithContext(ctx, ERROR, args...)
 }
 
 // Fatal 输出致命錯误日志並退出程序

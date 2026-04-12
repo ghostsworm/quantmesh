@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.101.0-rc11"
+var Version = "3.101.0-rc12"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -1529,9 +1529,9 @@ func main() {
 	} else {
 		globalLogStorage = logStorage
 		log.Printf("[DEBUG] logStorage 指針: %p", logStorage)
-		logger.InitLogStorage(func(level, message string) {
+		logger.InitLogStorage(func(level, message, botID string) {
 			if logStorage != nil {
-				logStorage.WriteLog(level, message)
+				logStorage.WriteLog(level, message, botID)
 			} else {
 				log.Printf("[ERROR] logStorage 為 nil，無法写入日志")
 			}

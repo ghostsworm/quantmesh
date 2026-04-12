@@ -261,6 +261,7 @@ func startSymbolRuntime(
 		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
 	}
 	localCfg.Trading.BotID = botID
+	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol
 	localCfg.Trading.MarketType = symCfg.GetMarketType()
 	localCfg.Trading.PriceInterval = symCfg.PriceInterval
@@ -304,49 +305,49 @@ func startSymbolRuntime(
 	var err error
 	if tempEx != nil {
 		ex = tempEx
-		logger.Info("✅ [%s] 重用交易所實例 (symbol=%s)", ex.GetName(), symCfg.Symbol)
+		logger.InfoCtx(ctx, "✅ [%s] 重用交易所實例 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 	} else {
 		ex, err = exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
 		if err != nil {
 			return nil, fmt.Errorf("創建交易所實例失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
 		}
-		logger.Info("✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
+		logger.InfoCtx(ctx, "✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 	}
 
 	// API 权限安全检测
-	logger.Info("🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
+	logger.InfoCtx(ctx, "🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
 	permCheckCtx, permCheckCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer permCheckCancel()
 
 	if checker, ok := ex.(exchange.PermissionChecker); ok {
 		permissions, err := checker.CheckAPIPermissions(permCheckCtx)
 		if err != nil {
-			logger.Warn("⚠️ [%s:%s] API 权限检测失败: %v (將继续啟动)", symCfg.Exchange, symCfg.Symbol, err)
+			logger.WarnCtx(ctx, "⚠️ [%s:%s] API 权限检测失败: %v (將继续啟动)", symCfg.Exchange, symCfg.Symbol, err)
 		} else {
 			// 检查是否安全
 			if !permissions.IsSecure() {
-				logger.Error("🚨 [%s:%s] API 密钥存在安全风險！", symCfg.Exchange, symCfg.Symbol)
+				logger.ErrorCtx(ctx, "🚨 [%s:%s] API 密钥存在安全风險！", symCfg.Exchange, symCfg.Symbol)
 				warnings := permissions.GetWarnings()
 				for _, warning := range warnings {
-					logger.Error("   %s", warning)
+					logger.ErrorCtx(ctx, "   %s", warning)
 				}
 				// 可以选擇是否继续啟动，这里我们記錄錯误但继续
-				logger.Warn("⚠️ [%s:%s] 尽管存在安全风險，系统仍將继续啟动。强烈建议修改 API 权限設置！", symCfg.Exchange, symCfg.Symbol)
+				logger.WarnCtx(ctx, "⚠️ [%s:%s] 尽管存在安全风險，系统仍將继续啟动。强烈建议修改 API 权限設置！", symCfg.Exchange, symCfg.Symbol)
 			} else {
-				logger.Info("✅ [%s:%s] API 权限检测通過 (安全评分: %d/100, 风險等级: %s)",
+				logger.InfoCtx(ctx, "✅ [%s:%s] API 权限检测通過 (安全评分: %d/100, 风險等级: %s)",
 					symCfg.Exchange, symCfg.Symbol, permissions.SecurityScore, permissions.RiskLevel)
 
 				// 显示建议
 				warnings := permissions.GetWarnings()
 				if len(warnings) > 0 {
 					for _, warning := range warnings {
-						logger.Info("   %s", warning)
+						logger.InfoCtx(ctx, "   %s", warning)
 					}
 				}
 			}
 		}
 	} else {
-		logger.Info("ℹ️ [%s:%s] 該交易所暫不支援自动权限检测，请手动确认 API 权限設置", symCfg.Exchange, symCfg.Symbol)
+		logger.InfoCtx(ctx, "ℹ️ [%s:%s] 該交易所暫不支援自动权限检测，请手动确认 API 权限設置", symCfg.Exchange, symCfg.Symbol)
 	}
 
 	// 價格監控
@@ -356,7 +357,7 @@ func startSymbolRuntime(
 		localCfg.Timing.PriceSendInterval,
 	)
 
-	logger.Info("🔗 [%s] 啟动 WebSocket 價格流...", symCfg.Symbol)
+	logger.InfoCtx(ctx, "🔗 [%s] 啟动 WebSocket 價格流...", symCfg.Symbol)
 	if err := priceMonitor.Start(); err != nil {
 		return nil, fmt.Errorf("啟動價格流失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
 	}
@@ -380,14 +381,14 @@ func startSymbolRuntime(
 	// 精度
 	priceDecimals := ex.GetPriceDecimals()
 	quantityDecimals := ex.GetQuantityDecimals()
-	logger.Info("ℹ️ [%s] 精度 - 價格:%d 數量:%d", symCfg.Symbol, priceDecimals, quantityDecimals)
+	logger.InfoCtx(ctx, "ℹ️ [%s] 精度 - 價格:%d 數量:%d", symCfg.Symbol, priceDecimals, quantityDecimals)
 
 	// 使用之前获取的手续费率（已在创建交易所实例前获取）
 	if symCfg.Exchange == "binance" && feeRate == 0 {
-		logger.Info("💳 [%s] 配置文件未設置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
-		logger.Info("ℹ️ [%s] 提示：币安期货實際费率取决於您的VIP等级，请在配置文件中設置准确的费率", symCfg.Symbol)
+		logger.InfoCtx(ctx, "💳 [%s] 配置文件未設置手续费率，使用币安期货默认Taker费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		logger.InfoCtx(ctx, "ℹ️ [%s] 提示：币安期货實際费率取决於您的VIP等级，请在配置文件中設置准确的费率", symCfg.Symbol)
 	} else {
-		logger.Info("💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
+		logger.InfoCtx(ctx, "💳 [%s] 使用配置文件中的手续费率: %.4f%%", symCfg.Symbol, feeRate*100)
 	}
 
 	// 持倉安全性检查
@@ -405,7 +406,7 @@ func startSymbolRuntime(
 	); err != nil {
 		return nil, fmt.Errorf("持倉安全性检查失败(%s): %w", botID, err)
 	}
-	logger.Info("✅ [%s] 持倉安全性检查通過", botID)
+	logger.InfoCtx(ctx, "✅ [%s] 持倉安全性检查通過", botID)
 
 	// 核心组件
 	// 生成账戶標识（使用 API Key 的前 8 位）
@@ -478,7 +479,7 @@ func startSymbolRuntime(
 			// 創建現貨交易所實例
 			spotEx, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot")
 			if err != nil {
-				logger.Warn("⚠️ 創建現貨交易所失敗，跳過期現套利: %v", err)
+				logger.WarnCtx(ctx, "⚠️ 創建現貨交易所失敗，跳過期現套利: %v", err)
 			} else {
 				// 創建交易所適配器
 				futuresAdapter := &arbitrageExchangeAdapter{exchange: ex}
@@ -488,11 +489,11 @@ func startSymbolRuntime(
 
 				// 連接套利管理器到網格管理器
 				superPositionManager.SetArbitrageManager(arbitrageManager)
-				logger.Info("💱 期現套利管理器已創建並連接到網格管理器")
+				logger.InfoCtx(ctx, "💱 期現套利管理器已創建並連接到網格管理器")
 			}
 		}
 
-		logger.Info("💰 資金費率監控器已創建")
+		logger.InfoCtx(ctx, "💰 資金費率監控器已創建")
 	}
 
 	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
@@ -523,7 +524,7 @@ func startSymbolRuntime(
 		// 币安的 WebSocket 訂單流是全局的，會推送所有交易對的订單
 		// 必須检查 Symbol 是否匹配，避免不同交易對的订單互相干扰
 		if posUpdate.Symbol != symCfg.Symbol {
-			logger.Debug("⏭️ [订單過滤] 跳過其他交易對的订單: Symbol=%s (當前交易對: %s), ClientOID=%s",
+			logger.DebugCtx(ctx, "⏭️ [订單過滤] 跳過其他交易對的订單: Symbol=%s (當前交易對: %s), ClientOID=%s",
 				posUpdate.Symbol, symCfg.Symbol, posUpdate.ClientOrderID)
 			return
 		}
@@ -583,7 +584,7 @@ func startSymbolRuntime(
 			multiExecutor.ReleaseOrderCapitalByOrderID(posUpdate.OrderID)
 		}
 	}); err != nil {
-		logger.Warn("⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
+		logger.WarnCtx(ctx, "⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
 	}
 
 	if err := superPositionManager.Initialize(currentPrice, currentPriceStr); err != nil {
@@ -594,18 +595,18 @@ func startSymbolRuntime(
 	// 避免等待價格變化才触发订單調整，确保满倉状態下也能立即开始交易
 	// 純趋势/动量等非網格多策略模式跳过首輪網格挂单，避免误挂
 	if config.ShouldSkipInitialGridAdjustOrders(&localCfg) {
-		logger.Info("⏭️ [%s] 啟动時跳过網格订單初始化（當前為非網格多策略模式）", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏭️ [%s] 啟动時跳过網格订單初始化（當前為非網格多策略模式）", symCfg.Symbol)
 	} else if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
-		logger.Warn("⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
+		logger.WarnCtx(ctx, "⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
 	} else {
-		logger.Info("✅ [%s] 啟动時订單初始化完成（如有持倉已自动挂賣單）", symCfg.Symbol)
+		logger.InfoCtx(ctx, "✅ [%s] 啟动時订單初始化完成（如有持倉已自动挂賣單）", symCfg.Symbol)
 	}
 
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
 			restoreAdapter := &reconciliationRestoreAdapter{storage: st}
 			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symCfg.Exchange, symCfg.Symbol); err != nil {
-				logger.Warn("⚠️ [%s] 恢複對账统计失败: %v", symCfg.Symbol, err)
+				logger.WarnCtx(ctx, "⚠️ [%s] 恢複對账统计失败: %v", symCfg.Symbol, err)
 			}
 		}
 	}
@@ -651,10 +652,10 @@ func startSymbolRuntime(
 			balance, err := ex.GetBalance(ctx, quoteAsset)
 			if err == nil && balance > 0 {
 				totalCapital = balance
-				logger.Info("💰 [%s] 從账戶獲取總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
+				logger.InfoCtx(ctx, "💰 [%s] 從账戶獲取總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
 			} else {
 				totalCapital = 5000
-				logger.Warn("⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
+				logger.WarnCtx(ctx, "⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
 			}
 		}
 
@@ -672,7 +673,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("grid", gridStrategy, gridCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 網格策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 網格策略已注册", symCfg.Symbol)
 		}
 
 		if trendCfg, exists := localCfg.Strategies.Configs["trend"]; exists && trendCfg.Enabled {
@@ -683,7 +684,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("trend", trendStrategy, trendCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 趋势策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 趋势策略已注册", symCfg.Symbol)
 		}
 
 		if meanCfg, exists := localCfg.Strategies.Configs["mean_reversion"]; exists && meanCfg.Enabled {
@@ -694,7 +695,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("mean_reversion", meanStrategy, meanCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 均值回归策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 均值回归策略已注册", symCfg.Symbol)
 		}
 
 		if momentumCfg, exists := localCfg.Strategies.Configs["momentum"]; exists && momentumCfg.Enabled {
@@ -705,7 +706,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("momentum", momentumStrategy, momentumCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 动量策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 动量策略已注册", symCfg.Symbol)
 		}
 
 		if martinCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martinCfg.Enabled {
@@ -716,7 +717,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("martingale", martinStrategy, martinCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 马丁格尔策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 马丁格尔策略已注册", symCfg.Symbol)
 		}
 
 		// DCA 策略（普通 DCA，使用 DCAEnhancedStrategy 實現）
@@ -736,7 +737,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("dca", dcaStrategy, dcaCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] DCA 定投策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] DCA 定投策略已注册", symCfg.Symbol)
 		}
 
 		// DCA Enhanced 策略（增強型 DCA）
@@ -756,7 +757,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("dca_enhanced", dcaEnhancedStrategy, dcaEnhancedCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 增强型 DCA 策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 增强型 DCA 策略已注册", symCfg.Symbol)
 		}
 
 		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
@@ -767,7 +768,7 @@ func startSymbolRuntime(
 				fixedPool = pool
 			}
 			strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
-			logger.Info("✅ [%s] 组合策略已注册", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 组合策略已注册", symCfg.Symbol)
 		}
 
 		// spot_short：現貨借幣做空策略（僅 spot/spot_margin，對沖組現貨腿，做多網格用）
@@ -781,7 +782,7 @@ func startSymbolRuntime(
 					spotShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_short")
 					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
 					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)
-					logger.Info("✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
+					logger.InfoCtx(ctx, "✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
 					break
 				}
 			}
@@ -797,7 +798,7 @@ func startSymbolRuntime(
 					spotLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_long")
 					spotLongStrategy := strategy.NewSpotLongStrategy("spot_long", &localCfg, spotLongExecutor, exchangeAdapter, spotLongCfg)
 					strategyManager.RegisterStrategy("spot_long", spotLongStrategy, si.Weight, 0)
-					logger.Info("✅ [%s] 現貨做多對沖策略已注册 (group=%v)", symCfg.Symbol, spotLongCfg["group_id"])
+					logger.InfoCtx(ctx, "✅ [%s] 現貨做多對沖策略已注册 (group=%v)", symCfg.Symbol, spotLongCfg["group_id"])
 					break
 				}
 			}
@@ -813,7 +814,7 @@ func startSymbolRuntime(
 					futuresShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_short")
 					futuresShortStrategy := strategy.NewFuturesShortStrategy("futures_short", &localCfg, futuresShortExecutor, exchangeAdapter, futuresShortCfg)
 					strategyManager.RegisterStrategy("futures_short", futuresShortStrategy, si.Weight, 0)
-					logger.Info("✅ [%s] 合約做空對沖策略已注册 (group=%v)", symCfg.Symbol, futuresShortCfg["group_id"])
+					logger.InfoCtx(ctx, "✅ [%s] 合約做空對沖策略已注册 (group=%v)", symCfg.Symbol, futuresShortCfg["group_id"])
 					break
 				}
 			}
@@ -829,7 +830,7 @@ func startSymbolRuntime(
 					futuresLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_long")
 					futuresLongStrategy := strategy.NewFuturesLongStrategy("futures_long", &localCfg, futuresLongExecutor, exchangeAdapter, futuresLongCfg)
 					strategyManager.RegisterStrategy("futures_long", futuresLongStrategy, si.Weight, 0)
-					logger.Info("✅ [%s] 合約做多對沖策略已注册 (group=%v)", symCfg.Symbol, futuresLongCfg["group_id"])
+					logger.InfoCtx(ctx, "✅ [%s] 合約做多對沖策略已注册 (group=%v)", symCfg.Symbol, futuresLongCfg["group_id"])
 					break
 				}
 			}
@@ -842,7 +843,7 @@ func startSymbolRuntime(
 				for _, restoreStatus := range restoreStatuses {
 					orders, err := st.QueryOrdersWithFilter(2000, 0, restoreStatus, symCfg.Exchange, symCfg.Symbol, nil, nil)
 					if err != nil {
-						logger.Warn("⚠️ [%s] 恢復策略路由失敗(status=%s): %v", symCfg.Symbol, restoreStatus, err)
+						logger.WarnCtx(ctx, "⚠️ [%s] 恢復策略路由失敗(status=%s): %v", symCfg.Symbol, restoreStatus, err)
 						continue
 					}
 					for _, o := range orders {
@@ -856,9 +857,9 @@ func startSymbolRuntime(
 		}
 
 		if err := strategyManager.StartAll(); err != nil {
-			logger.Error("❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
+			logger.ErrorCtx(ctx, "❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
 		} else {
-			logger.Info("✅ [%s] 多策略系统已啟动", symCfg.Symbol)
+			logger.InfoCtx(ctx, "✅ [%s] 多策略系统已啟动", symCfg.Symbol)
 		}
 	}
 
@@ -866,7 +867,7 @@ func startSymbolRuntime(
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("❌ [%s] 價格變化处理协程 panic: %v", symCfg.Symbol, r)
+				logger.ErrorCtx(ctx, "❌ [%s] 價格變化处理协程 panic: %v", symCfg.Symbol, r)
 			}
 		}()
 
@@ -876,19 +877,19 @@ func startSymbolRuntime(
 		for {
 			select {
 			case <-ctx.Done():
-				logger.Debug("⏹️ [%s] 價格變化处理协程已停止", symCfg.Symbol)
+				logger.DebugCtx(ctx, "⏹️ [%s] 價格變化处理协程已停止", symCfg.Symbol)
 				return
 			case priceChange, ok := <-priceCh:
 				if !ok {
 					// channel 已关闭
-					logger.Debug("⏹️ [%s] 價格變化 channel 已关闭", symCfg.Symbol)
+					logger.DebugCtx(ctx, "⏹️ [%s] 價格變化 channel 已关闭", symCfg.Symbol)
 					return
 				}
 
 				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
 				if isTriggered {
 					if !lastTriggered {
-						logger.Warn("🚨 [%s][风控触发] 撤销所有買單並暂停交易...", symCfg.Symbol)
+						logger.WarnCtx(ctx, "🚨 [%s][风控触发] 撤销所有買單並暂停交易...", symCfg.Symbol)
 						superPositionManager.CancelAllBuyOrders()
 						lastTriggered = true
 						if eventBus != nil {
@@ -928,7 +929,7 @@ func startSymbolRuntime(
 				}
 
 				if lastTriggered {
-					logger.Info("✅ [%s][风控解除] 恢複自动交易", symCfg.Symbol)
+					logger.InfoCtx(ctx, "✅ [%s][风控解除] 恢複自动交易", symCfg.Symbol)
 					lastTriggered = false
 					if eventBus != nil {
 						eventBus.Publish(&event.Event{
@@ -951,14 +952,14 @@ func startSymbolRuntime(
 					localCfg.Trading.BuyWindowSize = buyWindow
 					localCfg.Trading.SellWindowSize = sellWindow
 					if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
-						logger.Error("❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+						logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
 					}
 					localCfg.Trading.BuyWindowSize = origBuy
 					localCfg.Trading.SellWindowSize = origSell
 				} else {
 					if strategyManager == nil || !localCfg.Strategies.Enabled {
 						if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
-							logger.Error("❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+							logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
 						}
 					}
 				}
@@ -979,7 +980,7 @@ func startSymbolRuntime(
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					logger.Error("❌ [%s] 配置档案切换协程 panic: %v", symCfg.Symbol, r)
+					logger.ErrorCtx(ctx, "❌ [%s] 配置档案切换协程 panic: %v", symCfg.Symbol, r)
 				}
 			}()
 
@@ -997,7 +998,7 @@ func startSymbolRuntime(
 			for {
 				select {
 				case <-ctx.Done():
-					logger.Debug("⏹️ [%s] 配置档案切换协程已停止", symCfg.Symbol)
+					logger.DebugCtx(ctx, "⏹️ [%s] 配置档案切换协程已停止", symCfg.Symbol)
 					return
 				case <-ticker.C:
 					// 检查冷却时间
@@ -1010,7 +1011,7 @@ func startSymbolRuntime(
 					// 重新获取最新配置（可能已更新）
 					latestCfg, err := web.GetLatestConfig()
 					if err != nil {
-						logger.Warn("⚠️ [%s] 获取最新配置失败，跳过 profile 切换检查: %v", symCfg.Symbol, err)
+						logger.WarnCtx(ctx, "⚠️ [%s] 获取最新配置失败，跳过 profile 切换检查: %v", symCfg.Symbol, err)
 						continue
 					}
 
@@ -1056,13 +1057,13 @@ func startSymbolRuntime(
 
 					// 如果 profile 发生变化，记录日志（实际切换需要在重启时生效）
 					if newProfileName != currentProfileName {
-						logger.Info("🔄 [%s:%s] 检测到费率变化，建议从配置档案 '%s' 切换到 '%s' (资金费率: %.6f%%, 手续费率: %.6f%%)",
+						logger.InfoCtx(ctx, "🔄 [%s:%s] 检测到费率变化，建议从配置档案 '%s' 切换到 '%s' (资金费率: %.6f%%, 手续费率: %.6f%%)",
 							symCfg.Exchange, symCfg.Symbol, currentProfileName, newProfileName,
 							currentFundingRate*100, currentFeeRate*100)
 
 						// 记录新配置参数
 						if newProfileName != "default" {
-							logger.Info("📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
+							logger.InfoCtx(ctx, "📋 [%s:%s] 新配置档案参数: price_interval=%.2f, order_quantity=%.2f, buy_window=%d, sell_window=%d",
 								symCfg.Exchange, symCfg.Symbol, newProfile.PriceInterval, newProfile.OrderQuantity,
 								newProfile.BuyWindowSize, newProfile.SellWindowSize)
 						}
@@ -1139,20 +1140,20 @@ func startSymbolRuntime(
 	stopFn := func() {
 		// 終止時全部平倉：若配置了 close_on_stop，先執行全平倉
 		if symCfg.CloseOnStop && superPositionManager != nil {
-			logger.Info("🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
+			logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
 			superPositionManager.LiquidateAll()
 		}
-		logger.Info("⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
 		if rt.OpeningController != nil {
 			rt.OpeningController.Stop()
 		}
-		logger.Info("⏹️ [%s] 停止價格監控...", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止價格監控...", symCfg.Symbol)
 		if priceMonitor != nil {
 			priceMonitor.Stop()
 		}
-		logger.Info("⏹️ [%s] 停止訂單流...", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止訂單流...", symCfg.Symbol)
 		ex.StopOrderStream()
-		logger.Info("⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
 		if riskMonitor != nil {
 			riskMonitor.Stop()
 		}
