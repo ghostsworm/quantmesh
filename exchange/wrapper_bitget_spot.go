@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/income"
@@ -272,9 +274,44 @@ func (w *bitgetSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, income
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills 查詢訂單成交記錄（現貨 fills）
 func (w *bitgetSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*OrderFill, 0, len(rows))
+	for _, r := range rows {
+		side := SideBuy
+		if strings.EqualFold(r.Side, "sell") {
+			side = SideSell
+		}
+		price, _ := strconv.ParseFloat(r.PriceAvg, 64)
+		qty, _ := strconv.ParseFloat(r.Size, 64)
+		ts, _ := strconv.ParseInt(r.CTime, 10, 64)
+		oid, _ := strconv.ParseInt(r.OrderId, 10, 64)
+		comm := 0.0
+		commAsset := "USDT"
+		if len(r.FeeDetail) > 0 {
+			comm, _ = strconv.ParseFloat(r.FeeDetail[0].Fee, 64)
+			if r.FeeDetail[0].FeeCoin != "" {
+				commAsset = r.FeeDetail[0].FeeCoin
+			}
+		}
+		out = append(out, &OrderFill{
+			OrderID:         oid,
+			TradeID:         r.TradeId,
+			Symbol:          r.Symbol,
+			Side:            side,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      comm,
+			CommissionAsset: commAsset,
+			TradeTime:       ts,
+			IsMaker:         false,
+		})
+	}
+	return out, nil
 }
 
 func (w *bitgetSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

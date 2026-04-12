@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.98.0-rc1] - 2026-04-12
+
+### Added
+- **OKX / Bybit / Gate.io / Bitget 現貨**：實作訂單流與 K 線 WebSocket（OKX 私有 `orders` SPOT + 公共 `candle`；Bybit 私有 `order` + 現貨公共 `kline`；Gate `spot.orders` + `spot.candlesticks`；Bitget 私有 `SPOT orders` + 公共 `SPOT candle`）。
+- **現貨成交 REST**：上述四家 `GetOrderFills`（REST）及對應 `wrapper_*_spot` 轉換為通用 `OrderFill`。
+- **OKX 內部轉帳**：`InternalTransfer` 支援資金帳戶與交易帳戶互轉（`/api/v5/asset/transfer`），合約與現貨適配器共用邏輯。
+
+---
+
 ## [3.97.0-rc1] - 2026-04-12
 
 ### Added

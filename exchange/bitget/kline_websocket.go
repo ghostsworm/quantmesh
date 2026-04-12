@@ -38,15 +38,29 @@ type KlineWebSocketManager struct {
 	pingInterval   time.Duration
 	isRunning      bool
 	testnet        bool // 是否使用測試網
+	// productInstType 公共頻道 instType：默認 USDT-FUTURES；現貨 K 線為 SPOT
+	productInstType string
 }
 
 // NewKlineWebSocketManager 創建K線WebSocket管理器
 func NewKlineWebSocketManager(testnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
-		done:           make(chan struct{}),
-		reconnectDelay: 5 * time.Second,  // 重连延迟
-		pingInterval:   15 * time.Second, // Ping间隔（Bitget官方SDK使用15秒）
-		testnet:        testnet,
+		done:            make(chan struct{}),
+		reconnectDelay:  5 * time.Second,  // 重连延迟
+		pingInterval:    15 * time.Second, // Ping间隔（Bitget官方SDK使用15秒）
+		testnet:         testnet,
+		productInstType: "USDT-FUTURES",
+	}
+}
+
+// NewSpotKlineWebSocketManager 現貨 K 線（公共 candle，instType=SPOT）
+func NewSpotKlineWebSocketManager(testnet bool) *KlineWebSocketManager {
+	return &KlineWebSocketManager{
+		done:            make(chan struct{}),
+		reconnectDelay:  5 * time.Second,
+		pingInterval:    15 * time.Second,
+		testnet:         testnet,
+		productInstType: "SPOT",
 	}
 }
 
@@ -180,12 +194,16 @@ func (k *KlineWebSocketManager) subscribe(symbols []string, interval string) err
 	// 轉换interval格式：1m -> candle1m
 	channel := fmt.Sprintf("candle%s", interval)
 
+	inst := k.productInstType
+	if inst == "" {
+		inst = "USDT-FUTURES"
+	}
 	args := make([]map[string]string, len(symbols))
 	for i, symbol := range symbols {
 		// 轉换為Bitget格式
 		bitgetSymbol := convertToBitgetSymbol(symbol)
 		args[i] = map[string]string{
-			"instType": "USDT-FUTURES",
+			"instType": inst,
 			"channel":  channel,
 			"instId":   bitgetSymbol,
 		}

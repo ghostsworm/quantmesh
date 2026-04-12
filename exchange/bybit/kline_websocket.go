@@ -16,19 +16,29 @@ import (
 
 // KlineWebSocketManager K線 WebSocket 管理器
 type KlineWebSocketManager struct {
-	useTestnet bool
-	conn       *websocket.Conn
-	mu         sync.RWMutex
-	stopChan   chan struct{}
-	isRunning  atomic.Bool
-	callback   CandleUpdateCallback
+	useTestnet    bool
+	useSpotPublic bool // true 時使用 v5/public/spot 與現貨 kline 間隔格式
+	conn          *websocket.Conn
+	mu            sync.RWMutex
+	stopChan      chan struct{}
+	isRunning     atomic.Bool
+	callback      CandleUpdateCallback
 }
 
-// NewKlineWebSocketManager 創建 K線 WebSocket 管理器
+// NewKlineWebSocketManager 創建 K線 WebSocket 管理器（合約 linear）
 func NewKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
 	return &KlineWebSocketManager{
 		useTestnet: useTestnet,
 		stopChan:   make(chan struct{}),
+	}
+}
+
+// NewSpotKlineWebSocketManager 創建現貨 K 線 WebSocket（v5/public/spot）
+func NewSpotKlineWebSocketManager(useTestnet bool) *KlineWebSocketManager {
+	return &KlineWebSocketManager{
+		useTestnet:    useTestnet,
+		useSpotPublic: true,
+		stopChan:      make(chan struct{}),
 	}
 }
 
@@ -41,9 +51,17 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, int
 	k.callback = callback
 
 	// 连接公共 WebSocket
-	wsURL := PublicWsURL
-	if k.useTestnet {
-		wsURL = PublicTestnetWsURL
+	var wsURL string
+	if k.useSpotPublic {
+		wsURL = PublicSpotWsURL
+		if k.useTestnet {
+			wsURL = PublicSpotTestnetWsURL
+		}
+	} else {
+		wsURL = PublicWsURL
+		if k.useTestnet {
+			wsURL = PublicTestnetWsURL
+		}
 	}
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -67,15 +85,57 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, symbols []string, int
 	go k.readMessages()
 	go k.keepAlive()
 
-	logger.Info("✅ [Bybit K線 WebSocket] 已啟动，订阅 %d 個交易對", len(symbols))
+	if k.useSpotPublic {
+		logger.Info("✅ [Bybit Spot K線 WebSocket] 已啟动，订阅 %d 個交易對", len(symbols))
+	} else {
+		logger.Info("✅ [Bybit K線 WebSocket] 已啟动，订阅 %d 個交易對", len(symbols))
+	}
 	return nil
+}
+
+// intervalToBybitSpot 將 1m/1h 等轉為 Bybit 現貨 K 線間隔（1,3,60,D…）
+func intervalToBybitSpot(interval string) string {
+	switch interval {
+	case "1m", "1":
+		return "1"
+	case "3m", "3":
+		return "3"
+	case "5m", "5":
+		return "5"
+	case "15m", "15":
+		return "15"
+	case "30m", "30":
+		return "30"
+	case "1h", "60m", "60":
+		return "60"
+	case "2h", "120m", "120":
+		return "120"
+	case "4h", "240m", "240":
+		return "240"
+	case "6h", "360":
+		return "360"
+	case "12h", "720":
+		return "720"
+	case "1d", "1D", "d", "D":
+		return "D"
+	case "1w", "1W", "w", "W":
+		return "W"
+	case "1M", "M":
+		return "M"
+	default:
+		return "1"
+	}
 }
 
 // subscribeKlines 订阅 K線频道
 func (k *KlineWebSocketManager) subscribeKlines(symbols []string, interval string) error {
 	args := make([]string, len(symbols))
 	for i, symbol := range symbols {
-		args[i] = fmt.Sprintf("kline.%s.%s", interval, symbol)
+		iv := interval
+		if k.useSpotPublic {
+			iv = intervalToBybitSpot(interval)
+		}
+		args[i] = fmt.Sprintf("kline.%s.%s", iv, symbol)
 	}
 
 	subMsg := map[string]interface{}{

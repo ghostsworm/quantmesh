@@ -15,6 +15,8 @@ import (
 // GateSpotAdapter Gate.io 現貨交易所适配器
 type GateSpotAdapter struct {
 	client           *Client
+	apiKey           string
+	secretKey        string
 	symbol           string
 	gateSymbol       string // Gate格式（如 BTC_USDT）
 	priceDecimals    int
@@ -23,6 +25,8 @@ type GateSpotAdapter struct {
 	quoteAsset       string
 	testnet          bool
 	spotPriceWS      *SpotPriceWebSocketManager
+	spotOrderWS      *SpotOrderWebSocketManager
+	spotKlineWS      *SpotKlineWebSocketManager
 }
 
 // NewGateSpotAdapter 創建 Gate.io 現貨适配器
@@ -40,6 +44,8 @@ func NewGateSpotAdapter(cfg map[string]string, symbol string) (*GateSpotAdapter,
 
 	adapter := &GateSpotAdapter{
 		client:      client,
+		apiKey:      apiKey,
+		secretKey:   secretKey,
 		symbol:      symbol,
 		gateSymbol:  gateSymbol,
 		testnet:     testnet,
@@ -420,13 +426,21 @@ func (g *GateSpotAdapter) GetBalance(ctx context.Context, asset string) (float64
 	return 0, nil
 }
 
-// StartOrderStream 現貨訂單流暂不實現
+// StartOrderStream 現貨私有訂單流（spot.orders）
 func (g *GateSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	return fmt.Errorf("Gate 現貨訂單流暂未實現")
+	if g.spotOrderWS != nil {
+		g.spotOrderWS.Stop()
+	}
+	g.spotOrderWS = NewSpotOrderWebSocketManager(g.apiKey, g.secretKey, g.gateSymbol, g.testnet)
+	return g.spotOrderWS.Start(ctx, callback)
 }
 
-// StopOrderStream 無操作
+// StopOrderStream 停止現貨訂單流
 func (g *GateSpotAdapter) StopOrderStream() error {
+	if g.spotOrderWS != nil {
+		g.spotOrderWS.Stop()
+		g.spotOrderWS = nil
+	}
 	return nil
 }
 
@@ -461,13 +475,25 @@ func (g *GateSpotAdapter) StartPriceStream(ctx context.Context, symbol string, c
 	return g.spotPriceWS.Start(ctx, g.gateSymbol, callback)
 }
 
-// StartKlineStream 暂不實現
+// StartKlineStream 現貨公共 K 線（spot.candlesticks）
 func (g *GateSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
-	return fmt.Errorf("Gate 現貨K線流暂未實現")
+	if g.spotKlineWS != nil {
+		g.spotKlineWS.Stop()
+	}
+	gs := make([]string, 0, len(symbols))
+	for _, s := range symbols {
+		gs = append(gs, convertToGateSymbol(s))
+	}
+	g.spotKlineWS = NewSpotKlineWebSocketManager(g.testnet)
+	return g.spotKlineWS.Start(ctx, gs, interval, callback)
 }
 
-// StopKlineStream 無操作
+// StopKlineStream 停止 K 線流
 func (g *GateSpotAdapter) StopKlineStream() error {
+	if g.spotKlineWS != nil {
+		g.spotKlineWS.Stop()
+		g.spotKlineWS = nil
+	}
 	return nil
 }
 
@@ -596,4 +622,35 @@ func (g *GateSpotAdapter) GetOrderBook(ctx context.Context, symbol string, limit
 // InternalTransfer 現貨适配器暫不支援內部轉帳
 func (g *GateSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("Gate 現貨适配器暫不支援內部轉帳，请在网页端操作")
+}
+
+// GateSpotTrade 現貨成交（/spot/my_trades）
+type GateSpotTrade struct {
+	ID           string `json:"id"`
+	OrderID      string `json:"order_id"`
+	CurrencyPair string `json:"currency_pair"`
+	Side         string `json:"side"`
+	Amount       string `json:"amount"`
+	Price        string `json:"price"`
+	Fee          string `json:"fee"`
+	FeeCurrency  string `json:"fee_currency"`
+	CreateTime   string `json:"create_time"`
+}
+
+// GetOrderFills 查詢成交記錄
+func (g *GateSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]GateSpotTrade, error) {
+	path := "/spot/my_trades"
+	query := fmt.Sprintf("currency_pair=%s", g.gateSymbol)
+	if orderID != 0 {
+		query += fmt.Sprintf("&order_id=%d", orderID)
+	}
+	resp, err := g.client.DoRequest(ctx, "GET", path, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	var list []GateSpotTrade
+	if err := json.Unmarshal(resp, &list); err != nil {
+		return nil, fmt.Errorf("解析成交记录失败: %w", err)
+	}
+	return list, nil
 }

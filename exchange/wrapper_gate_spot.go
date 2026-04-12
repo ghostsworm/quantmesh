@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"quantmesh/exchange/gate"
 	"quantmesh/exchange/income"
@@ -272,9 +274,37 @@ func (w *gateSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTy
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills 查詢訂單成交記錄（/spot/my_trades）
 func (w *gateSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*OrderFill, 0, len(rows))
+	for _, r := range rows {
+		side := SideBuy
+		if strings.EqualFold(r.Side, "sell") {
+			side = SideSell
+		}
+		price, _ := strconv.ParseFloat(r.Price, 64)
+		qty, _ := strconv.ParseFloat(r.Amount, 64)
+		fee, _ := strconv.ParseFloat(r.Fee, 64)
+		ts, _ := strconv.ParseInt(r.CreateTime, 10, 64)
+		oid, _ := strconv.ParseInt(r.OrderID, 10, 64)
+		out = append(out, &OrderFill{
+			OrderID:         oid,
+			TradeID:         r.ID,
+			Symbol:          symbol,
+			Side:            side,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      fee,
+			CommissionAsset: r.FeeCurrency,
+			TradeTime:       ts * 1000,
+			IsMaker:         false,
+		})
+	}
+	return out, nil
 }
 
 func (w *gateSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
