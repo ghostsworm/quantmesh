@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.95.0-rc2] - 2026-04-12
+
+### Added
+- **Gemini 流式**：`agent/llm` 的 `GenerateStream` 在讀完 SSE 後依末帧（及中間帧）的 `usageMetadata` 寫入用量日誌，來源標記為 `agent_llm_stream`。
+
+### Tests
+- `agent/llm`：`streamChunkUsage` 根級與候選補全單元測試。
+
+---
+
 ## [3.95.0-rc1] - 2026-04-12
 
 ### Added
