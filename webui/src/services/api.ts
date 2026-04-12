@@ -2835,6 +2835,31 @@ export async function getAITaskStats(startTime?: string, endTime?: string): Prom
   return fetchWithAuth(url)
 }
 
+export interface GeminiUsageEntry {
+  at: string
+  model: string
+  source: string
+  input_tokens: number
+  output_tokens: number
+  duration_ms: number
+}
+
+export interface GeminiUsageSummary {
+  call_count: number
+  total_input_tokens: number
+  total_output_tokens: number
+}
+
+export interface GeminiUsageResponse {
+  entries: GeminiUsageEntry[]
+  summary: GeminiUsageSummary
+}
+
+/** 進程內 Gemini 調用記錄（時間、輸入/輸出 token），供頂欄展示 */
+export async function getGeminiUsageLog(): Promise<GeminiUsageResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/ai/gemini/usage`)
+}
+
 // ==================== AI 市场解读 ====================
 
 export interface MarketInterpretRequest {

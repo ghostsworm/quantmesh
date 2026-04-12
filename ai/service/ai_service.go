@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"quantmesh/ai/geminiusage"
 )
 
 type AIService struct {
@@ -203,12 +205,22 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 		outputTokens = geminiResp.Candidates[0].UsageMetadata.CandidatesTokenCount
 	}
 
+	elapsed := time.Since(startTime).Milliseconds()
+	geminiusage.Record(geminiusage.Entry{
+		At:           time.Now(),
+		Model:        model,
+		Source:       "ai_service",
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		DurationMs:   elapsed,
+	})
+
 	return &AIResponse{
 		Success:          true,
 		Content:          aiText,
 		InputTokens:      inputTokens,
 		OutputTokens:     outputTokens,
-		ProcessingTimeMs: time.Since(startTime).Milliseconds(),
+		ProcessingTimeMs: elapsed,
 		UsedAPIKey:       maskAPIKey(req.GeminiAPIKey),
 		AIInput:          req.Prompt,
 		AIOutput:         aiText,

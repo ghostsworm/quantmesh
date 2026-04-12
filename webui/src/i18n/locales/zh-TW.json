@@ -27,6 +27,19 @@
     "enabled": "啟用",
     "disabled": "禁用"
   },
+  "geminiUsage": {
+    "menuButton": "Gemini 用量",
+    "title": "Gemini 呼叫紀錄（本工作階段）",
+    "time": "時間",
+    "model": "模型",
+    "source": "來源",
+    "inputTokens": "輸入 token",
+    "outputTokens": "輸出 token",
+    "durationMs": "耗時 (ms)",
+    "empty": "尚無 Gemini 呼叫紀錄。",
+    "summary": "共 {{count}} 次 · 入 {{inTok}} · 出 {{outTok}}",
+    "loadFailed": "用量載入失敗"
+  },
   "sidebar": {
     "backToBotList": "返回 Bot 列表",
     "botList": "Bot 列表",

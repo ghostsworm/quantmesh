@@ -484,6 +484,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/ai/task/:task_id", getAITaskStatus)
 			protected.GET("/ai/tasks", getAITasks)
 			protected.GET("/ai/tasks/stats", getAITaskStats)
+			protected.GET("/ai/gemini/usage", getGeminiUsageLog)
 			protected.POST("/ai/apply-config", applyAIConfig)
 
 			// AI 市场解读 API（latest/history 须在 :task_id 之前注册）
