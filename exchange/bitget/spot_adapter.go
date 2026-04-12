@@ -15,6 +15,9 @@ import (
 // BitgetSpotAdapter Bitget 現貨交易所适配器
 type BitgetSpotAdapter struct {
 	client           *Client
+	apiKey           string
+	secretKey        string
+	passphrase       string
 	symbol           string
 	priceDecimals    int
 	quantityDecimals int
@@ -22,6 +25,8 @@ type BitgetSpotAdapter struct {
 	quoteAsset       string
 	testnet          bool
 	spotPriceWS      *SpotPublicPriceWS
+	spotOrderWS      *WebSocketManager
+	spotKlineWS      *KlineWebSocketManager
 }
 
 // NewBitgetSpotAdapter 創建 Bitget 現貨适配器
@@ -38,6 +43,9 @@ func NewBitgetSpotAdapter(cfg map[string]string, symbol string) (*BitgetSpotAdap
 	client := NewClient(apiKey, secretKey, passphrase, testnet)
 	adapter := &BitgetSpotAdapter{
 		client:      client,
+		apiKey:      apiKey,
+		secretKey:   secretKey,
+		passphrase:  passphrase,
 		symbol:      symbol,
 		testnet:     testnet,
 		spotPriceWS: NewSpotPublicPriceWS(testnet),
@@ -417,13 +425,23 @@ func (b *BitgetSpotAdapter) GetBalance(ctx context.Context, asset string) (float
 	return 0, nil
 }
 
-// StartOrderStream 現貨訂單流暂不實現
+// StartOrderStream 現貨私有 orders（instType=SPOT）
 func (b *BitgetSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	return fmt.Errorf("Bitget 現貨訂單流暂未實現")
+	if b.spotOrderWS != nil {
+		b.spotOrderWS.Stop()
+	}
+	b.spotOrderWS = NewWebSocketManagerForSpotOrders(
+		b.apiKey, b.secretKey, b.passphrase, b.testnet,
+	)
+	return b.spotOrderWS.StartSpotOrdersOnly(ctx, callback)
 }
 
-// StopOrderStream 無操作
+// StopOrderStream 停止現貨訂單流
 func (b *BitgetSpotAdapter) StopOrderStream() error {
+	if b.spotOrderWS != nil {
+		b.spotOrderWS.Stop()
+		b.spotOrderWS = nil
+	}
 	return nil
 }
 
@@ -459,13 +477,21 @@ func (b *BitgetSpotAdapter) StartPriceStream(ctx context.Context, symbol string,
 	return b.spotPriceWS.Start(ctx, inst, callback)
 }
 
-// StartKlineStream 暂不實現
+// StartKlineStream 現貨公共 K 線（instType=SPOT）
 func (b *BitgetSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
-	return fmt.Errorf("Bitget 現貨K線流暂未實現")
+	if b.spotKlineWS != nil {
+		b.spotKlineWS.Stop()
+	}
+	b.spotKlineWS = NewSpotKlineWebSocketManager(b.testnet)
+	return b.spotKlineWS.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 無操作
+// StopKlineStream 停止 K 線流
 func (b *BitgetSpotAdapter) StopKlineStream() error {
+	if b.spotKlineWS != nil {
+		b.spotKlineWS.Stop()
+		b.spotKlineWS = nil
+	}
 	return nil
 }
 
@@ -588,4 +614,36 @@ func (b *BitgetSpotAdapter) GetOrderBook(ctx context.Context, symbol string, lim
 // InternalTransfer 現貨适配器暫不支援內部轉帳
 func (b *BitgetSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("Bitget 現貨适配器暫不支援內部轉帳，请在网页端操作")
+}
+
+// BitgetSpotFill 現貨成交明細
+type BitgetSpotFill struct {
+	OrderId   string `json:"orderId"`
+	TradeId   string `json:"tradeId"`
+	Symbol    string `json:"symbol"`
+	Side      string `json:"side"`
+	PriceAvg  string `json:"priceAvg"`
+	Size      string `json:"size"`
+	FeeDetail []struct {
+		Fee     string `json:"fee"`
+		FeeCoin string `json:"feeCoin"`
+	} `json:"feeDetail"`
+	CTime string `json:"cTime"`
+}
+
+// GetOrderFills 查詢成交記錄（/api/v2/spot/trade/fills）
+func (b *BitgetSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]BitgetSpotFill, error) {
+	path := fmt.Sprintf("/api/v2/spot/trade/fills?symbol=%s", b.symbol)
+	if orderID != 0 {
+		path += fmt.Sprintf("&orderId=%d", orderID)
+	}
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var list []BitgetSpotFill
+	if err := json.Unmarshal(resp.Data, &list); err != nil {
+		return nil, fmt.Errorf("解析成交记录失败: %w", err)
+	}
+	return list, nil
 }

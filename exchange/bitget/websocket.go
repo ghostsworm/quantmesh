@@ -87,6 +87,8 @@ type WebSocketManager struct {
 	reconnectDelay       time.Duration
 	subscribedSymbol     string // 記錄订阅的交易對，用於重连后重新订阅
 	testnet              bool   // 是否使用測試網
+	// orderInstType 私有 orders 頻道 instType：默認 USDT-FUTURES，現貨訂單流設為 SPOT
+	orderInstType string
 
 	// WebSocket Dialer（支援代理）
 	dialer *websocket.Dialer
@@ -219,8 +221,33 @@ func NewWebSocketManager(apiKey, secretKey, passphrase string, testnet bool) *We
 		privateReconnectChan: make(chan struct{}, 1),
 		reconnectDelay:       5 * time.Second,
 		testnet:              testnet,
+		orderInstType:        "USDT-FUTURES",
 		dialer:               getProxyDialer(), // 初始化支援代理的 Dialer
 	}
+}
+
+// NewWebSocketManagerForSpotOrders 僅用於現貨私有 orders（instType=SPOT）
+func NewWebSocketManagerForSpotOrders(apiKey, secretKey, passphrase string, testnet bool) *WebSocketManager {
+	w := NewWebSocketManager(apiKey, secretKey, passphrase, testnet)
+	w.orderInstType = "SPOT"
+	return w
+}
+
+// StartSpotOrdersOnly 僅啟動私有頻道訂閱現貨 orders（不啟動公共 ticker）
+func (w *WebSocketManager) StartSpotOrdersOnly(ctx context.Context, callback func(interface{})) error {
+	w.mu.Lock()
+	w.ctx, w.cancel = context.WithCancel(ctx)
+	w.orderCallback = callback
+	w.subscribedSymbol = ""
+	w.mu.Unlock()
+
+	if callback != nil && !w.privateHandlerStarted {
+		w.wg.Add(1)
+		go w.privateConnectLoop()
+		w.privateHandlerStarted = true
+	}
+	logger.Info("✅ [Bitget WS] 現貨訂單流已啟動（私有 SPOT orders）")
+	return nil
 }
 
 // publicConnectLoop 公共频道连接循环（自动重连）
@@ -550,18 +577,22 @@ func (w *WebSocketManager) connectPublic() error {
 
 // subscribeOrders 订阅订單更新
 func (w *WebSocketManager) subscribeOrders(symbol string) error {
+	inst := w.orderInstType
+	if inst == "" {
+		inst = "USDT-FUTURES"
+	}
 	subMsg := map[string]interface{}{
 		"op": "subscribe",
 		"args": []WSSubscribeArg{
 			{
-				InstType: "USDT-FUTURES",
+				InstType: inst,
 				Channel:  "orders",
 				InstId:   "default", // 订阅所有交易對
 			},
 		},
 	}
 
-	logger.Info("📡 [Bitget WS] 订阅私有频道: orders")
+	logger.Info("📡 [Bitget WS] 订阅私有频道: orders instType=%s", inst)
 	return w.privateConn.WriteJSON(subMsg)
 }
 

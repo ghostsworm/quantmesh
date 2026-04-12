@@ -35,6 +35,8 @@ type OKXSpotAdapter struct {
 	quoteAsset       string
 	useTestnet       bool
 	wsManager        *WebSocketManager // 公共 tickers 價格流（與合約適配器相同）
+	spotOrderWS      *SpotOrderWebSocketManager
+	klineWS          *KlineWebSocketManager
 }
 
 // NewOKXSpotAdapter 創建 OKX 現貨适配器
@@ -337,13 +339,23 @@ func (o *OKXSpotAdapter) GetBalance(ctx context.Context, asset string) (float64,
 	return 0, nil
 }
 
-// StartOrderStream 現貨訂單流暂不實現
+// StartOrderStream 現貨私有訂單流（orders，instType=SPOT）
 func (o *OKXSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	return fmt.Errorf("OKX 現貨訂單流暂未實現")
+	if o.spotOrderWS != nil {
+		o.spotOrderWS.Stop()
+	}
+	o.spotOrderWS = NewSpotOrderWebSocketManager(o.client.apiKey, o.client.secretKey, o.client.passphrase, o.useTestnet, o.instId)
+	return o.spotOrderWS.Start(ctx, func(ou OrderUpdate) {
+		callback(ou)
+	})
 }
 
-// StopOrderStream 無操作
+// StopOrderStream 停止現貨訂單流
 func (o *OKXSpotAdapter) StopOrderStream() error {
+	if o.spotOrderWS != nil {
+		o.spotOrderWS.Stop()
+		o.spotOrderWS = nil
+	}
 	return nil
 }
 
@@ -370,13 +382,27 @@ func (o *OKXSpotAdapter) StartPriceStream(ctx context.Context, symbol string, ca
 	return o.wsManager.StartPriceStream(ctx, o.instId, callback)
 }
 
-// StartKlineStream 暂不實現
+// StartKlineStream 公共 candle 頻道（與合約相同 API，instId 為現貨如 BTC-USDT）
 func (o *OKXSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
-	return fmt.Errorf("OKX 現貨K線流暂未實現")
+	if o.klineWS != nil {
+		o.klineWS.Stop()
+	}
+	instIds := make([]string, 0, len(symbols))
+	for _, s := range symbols {
+		instIds = append(instIds, symbolToSpotInstId(s))
+	}
+	o.klineWS = NewKlineWebSocketManager(o.useTestnet)
+	return o.klineWS.Start(ctx, instIds, interval, func(c interface{}) {
+		callback(c)
+	})
 }
 
-// StopKlineStream 無操作
+// StopKlineStream 停止 K 線流
 func (o *OKXSpotAdapter) StopKlineStream() error {
+	if o.klineWS != nil {
+		o.klineWS.Stop()
+		o.klineWS = nil
+	}
 	return nil
 }
 
@@ -483,7 +509,27 @@ func (o *OKXSpotAdapter) GetOrderBook(ctx context.Context, symbol string, limit 
 	}, nil
 }
 
-// InternalTransfer 內部轉帳（OKX 現貨與资金账戶间）
+// InternalTransfer 內部轉帳（與合約適配器相同 REST，見 mapOKXTransferEndpoints）
 func (o *OKXSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("OKX 現貨适配器暫不支援內部轉帳，请在网页端操作")
+	from, to, err := mapOKXTransferEndpoints(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]interface{}{
+		"ccy":  asset,
+		"amt":  fmt.Sprintf("%.*f", 8, amount),
+		"type": "0",
+		"from": from,
+		"to":   to,
+	}
+	return o.client.AssetTransfer(ctx, body)
+}
+
+// GetOrderFills 查詢成交明細（REST /api/v5/trade/fills，instType=SPOT）
+func (o *OKXSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]OKXTradeFill, error) {
+	ord := ""
+	if orderID != 0 {
+		ord = strconv.FormatInt(orderID, 10)
+	}
+	return o.client.GetTradeFills(ctx, "SPOT", o.instId, ord)
 }

@@ -20,7 +20,8 @@ type BybitSpotAdapter struct {
 	baseAsset        string
 	quoteAsset       string
 	useTestnet       bool
-	wsManager        *WebSocketManager // 公共現貨 tickers
+	wsManager        *WebSocketManager // 公共現貨 tickers + 私有訂單流
+	spotKlineWS      *KlineWebSocketManager
 }
 
 // NewBybitSpotAdapter 創建 Bybit 現貨适配器
@@ -325,13 +326,21 @@ func (b *BybitSpotAdapter) GetBalance(ctx context.Context, asset string) (float6
 	return 0, nil
 }
 
-// StartOrderStream 現貨訂單流暂不實現
+// StartOrderStream 現貨訂單流（v5/private，topic order，含現貨）
 func (b *BybitSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
-	return fmt.Errorf("Bybit 現貨訂單流暂未實現")
+	if b.wsManager == nil {
+		b.wsManager = NewWebSocketManager(b.client.apiKey, b.client.secretKey, b.useTestnet)
+	}
+	return b.wsManager.Start(ctx, b.symbol, func(ou OrderUpdate) {
+		callback(ou)
+	})
 }
 
-// StopOrderStream 無操作
+// StopOrderStream 停止私有訂單流
 func (b *BybitSpotAdapter) StopOrderStream() error {
+	if b.wsManager != nil {
+		b.wsManager.Stop()
+	}
 	return nil
 }
 
@@ -357,13 +366,21 @@ func (b *BybitSpotAdapter) StartPriceStream(ctx context.Context, symbol string, 
 	return b.wsManager.StartSpotPriceStream(ctx, b.symbol, callback)
 }
 
-// StartKlineStream 暂不實現
+// StartKlineStream 現貨公共 K 線（v5/public/spot）
 func (b *BybitSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
-	return fmt.Errorf("Bybit 現貨K線流暂未實現")
+	if b.spotKlineWS != nil {
+		b.spotKlineWS.Stop()
+	}
+	b.spotKlineWS = NewSpotKlineWebSocketManager(b.useTestnet)
+	return b.spotKlineWS.Start(ctx, symbols, interval, callback)
 }
 
-// StopKlineStream 無操作
+// StopKlineStream 停止 K 線流
 func (b *BybitSpotAdapter) StopKlineStream() error {
+	if b.spotKlineWS != nil {
+		b.spotKlineWS.Stop()
+		b.spotKlineWS = nil
+	}
 	return nil
 }
 
@@ -463,4 +480,40 @@ func (b *BybitSpotAdapter) GetOrderBook(ctx context.Context, symbol string, limi
 // InternalTransfer 現貨适配器暫不支援內部轉帳
 func (b *BybitSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("Bybit 現貨适配器暫不支援內部轉帳，请在网页端操作")
+}
+
+// GetOrderFills 查詢成交明細（category=spot）
+func (b *BybitSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*BybitOrderFill, error) {
+	oid := ""
+	if orderID != 0 {
+		oid = strconv.FormatInt(orderID, 10)
+	}
+	executions, err := b.client.GetOrderFills(ctx, "spot", symbol, oid)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*BybitOrderFill, 0, len(executions))
+	for _, exec := range executions {
+		price, _ := strconv.ParseFloat(exec.ExecPrice, 64)
+		qty, _ := strconv.ParseFloat(exec.ExecQty, 64)
+		commission, _ := strconv.ParseFloat(exec.ExecFee, 64)
+		tradeTime, _ := strconv.ParseInt(exec.ExecTime, 10, 64)
+		ordID, _ := strconv.ParseInt(exec.OrderId, 10, 64)
+		if ordID == 0 {
+			ordID = orderID
+		}
+		fills = append(fills, &BybitOrderFill{
+			OrderID:         ordID,
+			TradeID:         exec.TradeId,
+			Symbol:          exec.Symbol,
+			Side:            exec.Side,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      commission,
+			CommissionAsset: exec.FeeCurrency,
+			TradeTime:       tradeTime,
+			IsMaker:         exec.IsMaker,
+		})
+	}
+	return fills, nil
 }

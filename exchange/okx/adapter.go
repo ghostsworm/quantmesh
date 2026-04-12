@@ -851,7 +851,32 @@ func (o *OKXAdapter) GetOrderBook(ctx context.Context, symbol string, limit int)
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（OKX 暂未實現）
+// InternalTransfer 交易所內部轉帳（POST /api/v5/asset/transfer，type=0）
+// 支援常見標籤：FUNDING/FUND ↔ TRADING/UNIFIED（資金帳戶 18 ↔ 交易帳戶 6）
 func (o *OKXAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for OKX")
+	from, to, err := mapOKXTransferEndpoints(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	body := map[string]interface{}{
+		"ccy":  asset,
+		"amt":  fmt.Sprintf("%.*f", 8, amount),
+		"type": "0",
+		"from": from,
+		"to":   to,
+	}
+	return o.client.AssetTransfer(ctx, body)
+}
+
+func mapOKXTransferEndpoints(fromAccount, toAccount string) (from, to string, err error) {
+	f := strings.ToUpper(strings.TrimSpace(fromAccount))
+	t := strings.ToUpper(strings.TrimSpace(toAccount))
+	switch {
+	case (f == "FUNDING" || f == "FUND") && (t == "TRADING" || t == "UNIFIED" || t == "MAIN"):
+		return "18", "6", nil
+	case (f == "TRADING" || f == "UNIFIED" || f == "MAIN") && (t == "FUNDING" || t == "FUND"):
+		return "6", "18", nil
+	default:
+		return "", "", fmt.Errorf("OKX 不支援的劃轉: %s -> %s（僅支援 FUNDING<->TRADING）", fromAccount, toAccount)
+	}
 }

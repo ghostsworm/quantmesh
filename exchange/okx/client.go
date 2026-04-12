@@ -478,6 +478,57 @@ func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*O
 	return &result.Data[0], nil
 }
 
+// OKXTradeFill REST /api/v5/trade/fills 單筆成交
+type OKXTradeFill struct {
+	InstId  string `json:"instId"`
+	OrdId   string `json:"ordId"`
+	TradeId string `json:"tradeId"`
+	Side    string `json:"side"`
+	FillSz  string `json:"fillSz"`
+	FillPx  string `json:"fillPx"`
+	Fee     string `json:"fee"`
+	FeeCcy  string `json:"feeCcy"`
+	Ts      string `json:"ts"`
+}
+
+// GetTradeFills 查詢成交明細（現貨 instType=SPOT / 合約 SWAP 等）
+func (c *OKXClient) GetTradeFills(ctx context.Context, instType, instId, ordId string) ([]OKXTradeFill, error) {
+	path := fmt.Sprintf("/api/v5/trade/fills?instType=%s", instType)
+	if instId != "" {
+		path += "&instId=" + instId
+	}
+	if ordId != "" {
+		path += "&ordId=" + ordId
+	}
+	data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
+	if err != nil {
+		return nil, err
+	}
+	var fills []OKXTradeFill
+	if err := json.Unmarshal(data, &fills); err != nil {
+		return nil, fmt.Errorf("解析成交明細失败: %w", err)
+	}
+	return fills, nil
+}
+
+// AssetTransfer POST /api/v5/asset/transfer（內部劃轉）
+func (c *OKXClient) AssetTransfer(ctx context.Context, body map[string]interface{}) (string, error) {
+	data, err := c.request(ctx, "POST", "/api/v5/asset/transfer", body, c.useTestnet)
+	if err != nil {
+		return "", err
+	}
+	var rows []struct {
+		TransId string `json:"transId"`
+	}
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return "", fmt.Errorf("解析劃轉結果失败: %w", err)
+	}
+	if len(rows) == 0 {
+		return "", fmt.Errorf("劃轉結果為空")
+	}
+	return rows[0].TransId, nil
+}
+
 func init() {
 	logger.Info("📦 [OKX Client] REST API 客戶端已初始化")
 }

@@ -288,9 +288,32 @@ func (w *bybitSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeT
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills 查詢訂單成交記錄（現貨 category=spot）
 func (w *bybitSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	bybitFills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*OrderFill, 0, len(bybitFills))
+	for _, bf := range bybitFills {
+		side := SideBuy
+		if bf.Side == "Sell" {
+			side = SideSell
+		}
+		out = append(out, &OrderFill{
+			OrderID:         bf.OrderID,
+			TradeID:         bf.TradeID,
+			Symbol:          bf.Symbol,
+			Side:            side,
+			Price:           bf.Price,
+			Quantity:        bf.Quantity,
+			Commission:      bf.Commission,
+			CommissionAsset: bf.CommissionAsset,
+			TradeTime:       bf.TradeTime,
+			IsMaker:         bf.IsMaker,
+		})
+	}
+	return out, nil
 }
 
 func (w *bybitSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

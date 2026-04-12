@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"strconv"
 	"strings"
 
 	"quantmesh/exchange/income"
@@ -274,9 +275,37 @@ func (w *okxSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTyp
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills 查詢訂單成交記錄（REST /api/v5/trade/fills）
 func (w *okxSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	fills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*OrderFill, 0, len(fills))
+	for _, f := range fills {
+		side := SideBuy
+		if strings.EqualFold(f.Side, "sell") {
+			side = SideSell
+		}
+		price, _ := strconv.ParseFloat(f.FillPx, 64)
+		qty, _ := strconv.ParseFloat(f.FillSz, 64)
+		fee, _ := strconv.ParseFloat(f.Fee, 64)
+		ts, _ := strconv.ParseInt(f.Ts, 10, 64)
+		oid, _ := strconv.ParseInt(f.OrdId, 10, 64)
+		out = append(out, &OrderFill{
+			OrderID:         oid,
+			TradeID:         f.TradeId,
+			Symbol:          symbol,
+			Side:            side,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      fee,
+			CommissionAsset: f.FeeCcy,
+			TradeTime:       ts,
+			IsMaker:         false,
+		})
+	}
+	return out, nil
 }
 
 func (w *okxSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
