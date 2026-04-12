@@ -1,0 +1,34 @@
+---
+description: 主配置在數據庫 app_config；禁止默認假設倉庫根目錄 config.yaml 存在或為權威來源
+alwaysApply: true
+---
+
+# 配置單一事實來源（SSOT）
+
+## 紅線（給 AI / 寫代碼時默認假設）
+
+- **本倉庫已不以「根目錄 `config.yaml`」作為日常運行或設計代碼時的默認前提。** 許多部署已刪除或從不提交該檔；**權威配置在數據庫主庫表 `app_config`**（與 `bot_configs` 等文檔表同庫）。
+- **設計新功能、讀寫配置、寫文檔或診斷步驟時**：默認用戶通過 **Web 保存**、**`GET/POST /api/config/json`**、或 **Storage / `LoadConfigFromAppConfigDBIfExists`** 與配置交互；**不要**先想到「改 `config.yaml` 再重啟」作為唯一路徑。
+- **例外（仍可能出現磁盤 YAML）**：命令行第一參數指定的一次性 YAML、`--migrate-app-config` 導入、本地範例 `config.example.yaml`、測試夾具。**這些是遷移/示例/開發**，不是生產 SSOT。
+- **若實作「從文件加載配置」的新路徑**：必須明確標註為可選/CLI/遷移專用，且不得與「僅 DB」部署衝突。
+
+## 原則
+
+- **運行時主配置**以主庫表 **`app_config`**（SQLite `./data/quantmesh.db` 或 MySQL 等）為準，**不是**倉庫根目錄的 **`config.yaml`**。
+- **不要**在文檔、示例、診斷步驟裡默認「用戶一定靠編輯 `config.yaml` 生效」；應優先說明 **Web 配置**、**環境變量**（如 `QUANTMESH_SQLITE_PATH`、`QUANTMESH_DATABASE_DSN`）或 **一次性 YAML 路徑**。
+- 程序啟動：未傳命令行 YAML 路徑時，從 **`LoadConfigFromAppConfigDBIfExists`** 加載；無快照時才用最小配置啟 Web 引導。
+- **`config.yaml` 仍可能出現於**：本地範例、**一次性導入**（命令行第一參數）、**`--migrate-app-config`**（需 `QUANTMESH_IMPORT_YAML`、參數路徑或當前目錄存在 `config.yaml`）。這些是**遷移/引導**，不是日常權威來源。
+
+## 對 AI / 貢獻者的約束
+
+- 新增或修改說明文時，避免寫「請修改 `config.yaml`」作為唯一路徑；應寫「在 Web 中保存配置」或「主庫 `app_config`」。
+- 代碼與測試若需示例配置，可用內存 **`CreateMinimalConfig`**、臨時文件或測試夾具，**不要**假設生產環境必須存在根目錄 `config.yaml`。
+- 若用戶明確說已不再使用 `config.yaml`（或已刪除），**尊重**其部署方式（純 DB / 純 RDS），不要強制恢復磁盤 YAML。
+
+## 新增配置項（例如 `ai.modules.polymarket_signal`）如何進庫
+
+- 主庫 **`app_config`** 通常為 **單行快照**：`content` 存 **整份 `config.Config` 的 JSON**，**不是**按模塊拆多張業務表。
+- 舊快照裡若缺少新字段，**`json.Unmarshal` 後為零值**（如 `polymarket_signal.enabled` 默認 `false`）；Gamma 根 URL 在代碼裡還有 fallback，**不強制**先寫庫。
+- 要把 `config.example.yaml` 裡某段**寫入數據庫**：**不要**手改 SQL 拼 JSON（易錯）。**推薦** `GET /api/config/json` → 在本地合併 `ai.modules.polymarket_signal` 等字段 → `POST /api/config/update`（整份 JSON 校驗後寫入 `app_config`）。
+- **`POST /api/config/update-yaml`** 會用請求體 YAML **解析成完整 `Config` 再保存**，**不是**與舊配置逐鍵合併；若只貼片段會覆蓋其他節點為零值，**僅適合**你手裡已有完整 YAML 或先從當前導出再編輯。
+- 一次性從文件灌庫：仍可用 **`--migrate-app-config`**（見 `main.go` 與 CHANGELOG），與日常「不盯 `config.yaml`」不矛盾。
