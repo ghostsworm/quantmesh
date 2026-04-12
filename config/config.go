@@ -10,6 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultPositionSafetyCheck 持倉安全檢查預設值（最少向下可持有倉數；配置為 0 或未填時回退至此）
+const DefaultPositionSafetyCheck = 5
+
 // BoolPtr 回傳 bool 值的指標（用於 SymbolConfig.Enabled 等欄位）
 func BoolPtr(b bool) *bool {
 	return &b
@@ -461,7 +464,7 @@ type Config struct {
 		OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 訂單清理上限（預設 100）
 		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
 		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
-		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 100，最少能向下持有多少倉）
+		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 5，最少能向下持有多少倉）
 		Direction             string  `yaml:"direction"`                    // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
 		PriceLow              float64 `yaml:"price_low"`                    // 網格價格下限，0=不限制（合併自 SymbolConfig）
 		PriceHigh             float64 `yaml:"price_high"`                   // 網格價格上限，0=不限制（合併自 SymbolConfig）
@@ -1981,7 +1984,7 @@ func CreateMinimalConfig() *Config {
 	cfg.Trading.OrderCleanupThreshold = 50
 	cfg.Trading.CleanupBatchSize = 10
 	cfg.Trading.MarginLockDurationSec = 10
-	cfg.Trading.PositionSafetyCheck = 100
+	cfg.Trading.PositionSafetyCheck = DefaultPositionSafetyCheck
 
 	// 系统配置
 	cfg.System.LogLevel = "INFO"
@@ -2193,7 +2196,7 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 			OrderCleanupThreshold: 50,
 			CleanupBatchSize:      10,
 			MarginLockDurationSec: 10,
-			PositionSafetyCheck:   100,
+			PositionSafetyCheck:   DefaultPositionSafetyCheck,
 		},
 	}
 
@@ -2305,7 +2308,7 @@ func (c *Config) Validate() error {
 				sc.MarginLockDurationSec = 10
 			}
 			if sc.PositionSafetyCheck <= 0 {
-				sc.PositionSafetyCheck = 100
+				sc.PositionSafetyCheck = DefaultPositionSafetyCheck
 			}
 			return sc, nil
 		}
@@ -2402,7 +2405,7 @@ func (c *Config) Validate() error {
 			if c.Trading.PositionSafetyCheck > 0 {
 				sc.PositionSafetyCheck = c.Trading.PositionSafetyCheck
 			} else {
-				sc.PositionSafetyCheck = 100
+				sc.PositionSafetyCheck = DefaultPositionSafetyCheck
 			}
 		}
 
@@ -2492,7 +2495,7 @@ func (c *Config) Validate() error {
 	c.Trading.Symbols = normalized
 
 	// 兼容舊欄位：保持首個交易對到舊欄位，供未改造代碼使用
-	// 若用戶已在 trading 頂層設置 position_safety_check，則不讓首個交易對覆蓋（避免 Web 表單默認 100 覆蓋用戶改的 30）
+	// 若用戶已在 trading 頂層設置 position_safety_check，則不讓首個交易對覆蓋（避免 Web 表單默認覆蓋用戶自訂值）
 	tradingPositionSafetyCheckSet := c.Trading.PositionSafetyCheck > 0
 	if len(c.Trading.Symbols) > 0 {
 		primary := c.Trading.Symbols[0]

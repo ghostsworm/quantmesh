@@ -1,5 +1,8 @@
 import { fetchWithAuth } from './api'
 
+/** 與後端 `config.DefaultPositionSafetyCheck` 一致（持倉安全檢查預設倉數） */
+export const DEFAULT_POSITION_SAFETY_CHECK = 5
+
 // 交易所配置
 export interface ExchangeConfig {
   api_key: string

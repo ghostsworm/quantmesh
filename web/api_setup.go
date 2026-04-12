@@ -209,7 +209,7 @@ func initSetupHandler(c *gin.Context) {
 			OrderCleanupThreshold: 50,
 			CleanupBatchSize:      10,
 			MarginLockDurationSec: 10,
-			PositionSafetyCheck:   100,
+			PositionSafetyCheck:   config.DefaultPositionSafetyCheck,
 		}
 		newSymbolConfigs = append(newSymbolConfigs, symbolCfg)
 	}

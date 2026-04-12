@@ -52,7 +52,7 @@ import {
 } from '@chakra-ui/react'
 import { AddIcon, DeleteIcon, EditIcon, InfoIcon, StarIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { Config, SymbolConfig } from '../services/config'
+import { Config, SymbolConfig, DEFAULT_POSITION_SAFETY_CHECK } from '../services/config'
 import { getExchangeSymbols } from '../services/setup'
 import { getSymbols } from '../services/api'
 import { getQuoteAsset } from '../utils/symbol'
@@ -124,7 +124,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
     order_cleanup_threshold: 50,
     cleanup_batch_size: 20,
     margin_lock_duration_seconds: 20,
-    position_safety_check: config.trading?.position_safety_check ?? 100,
+    position_safety_check: config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK,
     direction: 'LONG',
   })
 
@@ -308,7 +308,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
       order_cleanup_threshold: 50,
       cleanup_batch_size: 20,
       margin_lock_duration_seconds: 20,
-      position_safety_check: config.trading?.position_safety_check ?? 100,
+      position_safety_check: config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK,
     })
     setEditingIndex(-1)
     setCurrentPrice(null)
@@ -442,7 +442,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
           order_cleanup_threshold: 50,
           cleanup_batch_size: 20,
           margin_lock_duration_seconds: 20,
-          position_safety_check: config.trading?.position_safety_check ?? 100,
+          position_safety_check: config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK,
         }
         
         newSymbols.push(symbolConfig)
@@ -615,7 +615,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                       <Td>{sym.sell_window_size}</Td>
                       <Td>
                         <Badge colorScheme={sym.position_safety_check && sym.position_safety_check > 0 ? 'green' : 'gray'} fontSize="xs">
-                          {sym.position_safety_check ?? config.trading?.position_safety_check ?? 100}
+                          {sym.position_safety_check ?? config.trading?.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK}
                         </Badge>
                       </Td>
                       <Td>
@@ -1022,7 +1022,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                   </HStack>
                 </FormLabel>
                 <NumberInput
-                  value={formData.position_safety_check ?? 100}
+                  value={formData.position_safety_check ?? DEFAULT_POSITION_SAFETY_CHECK}
                   onChange={(_, v) => setFormData({ ...formData, position_safety_check: v })}
                   min={1}
                 >
