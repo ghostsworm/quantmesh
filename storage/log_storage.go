@@ -42,6 +42,7 @@ type LogQueryParams struct {
 	Limit     int
 	Offset    int
 	// Exchange/Symbol/MarketType：對 message 子串匹配（多條件為 AND）
+	// 與 BotID 同時使用時：若正文不含某關鍵子串（例如 OKX 用 BTC-USDT 而 keyword 傳 BTCUSDT）會得到 0 條；Bot 詳情頁應僅依 BotID 篩選。
 	Exchange   string
 	Symbol     string
 	MarketType string
