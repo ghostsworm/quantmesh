@@ -7,6 +7,25 @@ import (
 	"time"
 )
 
+func TestNormalizeOrderStatus_OKX(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{"canceled", "CANCELED"},
+		{"cancelled", "CANCELED"},
+		{"filled", "FILLED"},
+		{"partially_filled", "PARTIALLY_FILLED"},
+		{"live", "NEW"},
+		{"FILLED", "FILLED"},
+		{"NEW", "NEW"},
+	}
+	for _, tc := range tests {
+		if got := normalizeOrderStatus(tc.in); got != tc.want {
+			t.Errorf("normalizeOrderStatus(%q)=%q want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
 // MockExecutor 模拟订單執行器
 type MockExecutor struct {
 	PlacedOrders []*OrderRequest

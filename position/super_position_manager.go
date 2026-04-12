@@ -2180,8 +2180,41 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	return nil
 }
 
+// normalizeOrderStatus 將各交易所訂單狀態統一為 SPM 內使用的枚舉（與 Binance 等一致的大寫）。
+// OKX v5 WebSocket 的 state 為 live / partially_filled / filled / canceled（小寫+下劃線），
+// 若不在此處歸一化，OnOrderUpdate 的 switch 無法命中，槽位會永久卡在 CANCEL_REQUESTED+LOCKED。
+func normalizeOrderStatus(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	lower := strings.ToLower(s)
+	switch lower {
+	case "live", "new":
+		return "NEW"
+	case "partially_filled":
+		return "PARTIALLY_FILLED"
+	case "filled":
+		return "FILLED"
+	case "canceled", "cancelled":
+		return "CANCELED"
+	case "rejected":
+		return "REJECTED"
+	case "expired":
+		return "EXPIRED"
+	default:
+		// 已是 NEW、FILLED 等標準寫法則保持
+		if s == "NEW" || s == "PARTIALLY_FILLED" || s == "FILLED" || s == "CANCELED" || s == "REJECTED" || s == "EXPIRED" {
+			return s
+		}
+		return strings.ToUpper(strings.ReplaceAll(lower, " ", "_"))
+	}
+}
+
 // OnOrderUpdate 订單更新回呼（异步订單同步流）
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
+	update.Status = normalizeOrderStatus(update.Status)
+
 	// 🔥 重構：完全依赖 ClientOrderID 解析
 	price, side, valid := spm.parseClientOrderID(update.ClientOrderID)
 

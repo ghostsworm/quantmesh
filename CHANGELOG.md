@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc6] - 2026-04-12
+
+### Fixed
+- **OKX 現貨/合約訂單 WebSocket**：`state` 為 **`canceled` / `filled` / `partially_filled` / `live`**（小寫+下劃線），與 SPM 內 **`CANCELED` / `FILLED` 等**不一致，導致 **`OnOrderUpdate` 無法進入對應分支**；撤單後槽位長期 **`CANCEL_REQUESTED` + `LOCKED`**，風控解除後也不會重新掛單。新增 **`normalizeOrderStatus`** 在處理前歸一化。
+
+---
+
 ## [3.102.0-rc5] - 2026-04-12
 
 ### Changed
