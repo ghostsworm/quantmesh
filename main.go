@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.101.0-rc6"
+var Version = "3.101.0-rc7"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2369,7 +2369,8 @@ func main() {
 
 	logger.Info("⏱️ [啟動] 插件系統完成 (耗時: %v)", time.Since(startTime))
 
-	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock)
+	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock, mainYAMLPath)
+	symbolManager.GetBotManager().StartFeeRateRefreshLoop(ctx)
 
 	// 創建 SymbolManager 适配器（用於 Web API）
 	symbolManagerAdapter := &symbolManagerWebAdapter{

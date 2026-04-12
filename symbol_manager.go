@@ -28,10 +28,10 @@ type SymbolManager struct {
 	botManager *BotManager
 }
 
-// NewSymbolManager 創建管理器（內部創建 BotManager，需傳入完整依賴）
-func NewSymbolManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock) *SymbolManager {
+// NewSymbolManager 創建管理器（內部創建 BotManager，需傳入完整依賴）。primaryYAMLPath 為主配置 YAML 路徑（無則空），用於啟動 Bot 前與主庫同步刷新費率等。
+func NewSymbolManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock, primaryYAMLPath string) *SymbolManager {
 	return &SymbolManager{
-		botManager: NewBotManager(cfg, eventBus, storageService, distributedLock),
+		botManager: NewBotManager(cfg, eventBus, storageService, distributedLock, primaryYAMLPath),
 	}
 }
 

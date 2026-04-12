@@ -12,6 +12,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/feerate"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -47,10 +48,11 @@ type BotManager struct {
 	botStatesFileOverride string // 測試用，空時用默認 ./data/bot_states.json
 	startFailMu           sync.RWMutex
 	startFail             map[string]botStartFailure
+	primaryYAMLPath       string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
 }
 
-// NewBotManager 創建 Bot 管理器
-func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock) *BotManager {
+// NewBotManager 創建 Bot 管理器。primaryYAMLPath 為啟動時傳入的主 YAML 路徑（無則傳空），用於與 app_config 一致的刷新順序。
+func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock, primaryYAMLPath string) *BotManager {
 	return &BotManager{
 		cfg:             cfg,
 		runtimes:        make(map[string]*BotRuntime),
@@ -61,7 +63,125 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 		storageService:  storageService,
 		distributedLock: distributedLock,
 		startFail:       make(map[string]botStartFailure),
+		primaryYAMLPath: strings.TrimSpace(primaryYAMLPath),
 	}
+}
+
+func (bm *BotManager) refreshConfigBeforeBotStart() error {
+	if bm == nil || bm.cfg == nil {
+		return nil
+	}
+	var st storage.Storage
+	if bm.storageService != nil {
+		st = bm.storageService.GetStorage()
+	}
+	return storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg)
+}
+
+func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
+	if bm == nil || bm.cfg == nil || botCfg.Exchange == "" || botCfg.Symbol == "" {
+		return
+	}
+	if bm.cfg.Timing.SkipExchangeFeeOnBotStart {
+		return
+	}
+	maker, taker, err := feerate.FetchFromExchangeAPI(bm.cfg, botCfg.Exchange, botCfg.Symbol)
+	if err != nil {
+		logger.Info("ℹ️ 啟動前從交易所拉取手續費跳過: %v", err)
+		return
+	}
+	if taker <= 0 {
+		return
+	}
+	if exCfg, ok := bm.cfg.Exchanges[botCfg.Exchange]; ok {
+		exCfg.FeeRate = taker
+		bm.cfg.Exchanges[botCfg.Exchange] = exCfg
+		logger.Info("💳 啟動前已依交易所接口更新 %s Taker 手續費: %.4f%%（maker %.4f%%，用於持倉安全檢查）",
+			botCfg.Exchange, taker*100, maker*100)
+	}
+}
+
+// runPeriodicFeeRefresh 先從主庫/YAML 刷新內存配置，再按各交易所拉取 Taker 費率寫入內存（不強制寫回數據庫）。
+func (bm *BotManager) runPeriodicFeeRefresh() {
+	if bm == nil || bm.cfg == nil {
+		return
+	}
+	var st storage.Storage
+	if bm.storageService != nil {
+		st = bm.storageService.GetStorage()
+	}
+	if err := storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg); err != nil {
+		logger.Warn("⚠️ 定期刷新主配置失敗（仍嘗試拉取交易所費率）: %v", err)
+	}
+
+	seen := make(map[string]bool)
+	type pair struct{ ex, sym string }
+	var pairs []pair
+	for _, b := range bm.cfg.Bots {
+		if b.Exchange == "" || b.Symbol == "" {
+			continue
+		}
+		k := strings.ToLower(b.Exchange)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		pairs = append(pairs, pair{b.Exchange, b.Symbol})
+	}
+	if len(pairs) == 0 {
+		seen = make(map[string]bool)
+		for _, s := range bm.cfg.Trading.Symbols {
+			if s.Exchange == "" || s.Symbol == "" {
+				continue
+			}
+			k := strings.ToLower(s.Exchange)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			pairs = append(pairs, pair{s.Exchange, s.Symbol})
+		}
+	}
+	for _, p := range pairs {
+		maker, taker, err := feerate.FetchFromExchangeAPI(bm.cfg, p.ex, p.sym)
+		if err != nil {
+			logger.Info("ℹ️ 定期拉取 %s 手續費失敗: %v", p.ex, err)
+			continue
+		}
+		if taker <= 0 {
+			continue
+		}
+		if exCfg, ok := bm.cfg.Exchanges[p.ex]; ok {
+			exCfg.FeeRate = taker
+			bm.cfg.Exchanges[p.ex] = exCfg
+			logger.Info("💳 定期同步 %s Taker 手續費: %.4f%%（maker %.4f%%）", p.ex, taker*100, maker*100)
+		}
+	}
+}
+
+// StartFeeRateRefreshLoop 按 timing.fee_rate_refresh_minutes 週期刷新主配置並拉取交易所費率；分鐘數 <= 0 時不啟動。
+func (bm *BotManager) StartFeeRateRefreshLoop(ctx context.Context) {
+	if bm == nil || bm.cfg == nil {
+		return
+	}
+	min := bm.cfg.Timing.FeeRateRefreshMinutes
+	if min <= 0 {
+		return
+	}
+	d := time.Duration(min) * time.Minute
+	logger.Info("⏱️ 交易所手續費定期同步已啟用（間隔 %v）", d)
+	go func() {
+		ticker := time.NewTicker(d)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				bm.runPeriodicFeeRefresh()
+			}
+		}
+	}()
 }
 
 // symbolKey 返回交易所+交易對+市場類型的標準化 key，用於衝突檢測
@@ -171,6 +291,11 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		bm.recordStartFailure(botID, err)
 		return nil, err
 	}
+
+	if err := bm.refreshConfigBeforeBotStart(); err != nil {
+		logger.Warn("⚠️ 啟動前重新加載主配置失敗（繼續使用進程內存中的配置）: %v", err)
+	}
+	bm.applyExchangeFeeFromAPIForBot(botCfg)
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
 	onRequestStop := func(botID string) {

@@ -683,6 +683,10 @@ type Config struct {
 		PricePollInterval    int `yaml:"price_poll_interval"`    // 等待獲取價格的輪詢间隔（毫秒，預設500）
 		StatusPrintInterval  int `yaml:"status_print_interval"`  // 定期打印狀態的间隔（分钟，預設1）
 		OrderCleanupInterval int `yaml:"order_cleanup_interval"` // 訂單清理檢查间隔（秒，預設60）
+
+		// 手續費：啟動前與定期從交易所接口同步（與持倉安全檢查、網格邏輯使用的 fee_rate 一致）
+		SkipExchangeFeeOnBotStart bool `yaml:"skip_exchange_fee_on_bot_start"` // 為 true 時啟動 Bot 前不調用交易所拉取費率（仍會先刷新主庫/YAML 配置）
+		FeeRateRefreshMinutes     int  `yaml:"fee_rate_refresh_minutes"`       // 週期從交易所拉取費率並更新內存配置的間隔（分鐘）；0 表示關閉（預設 0）
 	} `yaml:"timing"`
 
 	// 通知配置
