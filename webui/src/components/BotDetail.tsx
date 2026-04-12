@@ -295,12 +295,11 @@ const BotDetail: React.FC = () => {
     if (!bot?.symbol || !botId) return
     setLogsLoading(true)
     try {
+      // 僅按 bot_id（+ 可選級別）查詢：後端對 exchange/market_type/keyword 皆為 message 子串 AND，
+      // OKX 常見 BTC-USDT 不含 BTCUSDT、正文無英文 spot，會把結果篩成 0 條。
       const res = await getLogs({
         limit: logLimit,
         bot_id: botId,
-        keyword: bot.symbol,
-        exchange: bot.exchange,
-        market_type: bot.market_type || 'futures',
         ...(logLevelFilter ? { level: logLevelFilter } : {}),
       })
       setLogs(res.logs || [])
