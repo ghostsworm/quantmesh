@@ -463,19 +463,17 @@ func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*O
 		return nil, err
 	}
 
-	var result struct {
-		Data []OKXOrderBookResponse `json:"data"`
-	}
-
-	if err := json.Unmarshal(data, &result); err != nil {
+	// request() 已剝離外層 envelope，此處 data 即 OKX 的 data 欄位：對 books 接口為 **數組** [{instId,bids,asks,ts}]
+	var rows []OKXOrderBookResponse
+	if err := json.Unmarshal(data, &rows); err != nil {
 		return nil, fmt.Errorf("解析订單簿數據失败: %w", err)
 	}
 
-	if len(result.Data) == 0 {
+	if len(rows) == 0 {
 		return nil, fmt.Errorf("订單簿數據為空")
 	}
 
-	return &result.Data[0], nil
+	return &rows[0], nil
 }
 
 // OKXTradeFill REST /api/v5/trade/fills 單筆成交

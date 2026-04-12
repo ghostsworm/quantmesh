@@ -1,8 +1,21 @@
 package okx
 
 import (
+	"encoding/json"
 	"testing"
 )
+
+// TestOrderBookDataArrayUnmarshal 回歸：request() 對 books 返回的 data 為數組，須解到 []OKXOrderBookResponse，不可再包一層 { "data": ... }。
+func TestOrderBookDataArrayUnmarshal(t *testing.T) {
+	raw := []byte(`[{"instId":"BTC-USDT-SWAP","bids":[["70000","1","0","1"]],"asks":[["70100","2","0","2"]],"ts":"1234567890123"}]`)
+	var rows []OKXOrderBookResponse
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].InstID != "BTC-USDT-SWAP" {
+		t.Fatalf("unexpected rows: %+v", rows)
+	}
+}
 
 func TestNewOKXClient(t *testing.T) {
 	apiKey := "test_api_key"
