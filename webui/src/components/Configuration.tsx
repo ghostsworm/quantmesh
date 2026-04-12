@@ -1155,6 +1155,13 @@ const Configuration: React.FC = () => {
           </Alert>
         )}
 
+        {isGlobalView && (
+          <Alert status="info" borderRadius="lg" variant="subtle">
+            <AlertIcon />
+            <AlertDescription fontSize="sm">{t('configuration.globalTradingParamsHint')}</AlertDescription>
+          </Alert>
+        )}
+
         {!isGlobalView && (
           <Alert status="info" borderRadius="lg" variant="subtle">
             <AlertIcon />

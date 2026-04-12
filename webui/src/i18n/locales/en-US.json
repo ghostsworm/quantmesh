@@ -1079,6 +1079,7 @@
   "configuration": {
     "title": "Settings",
     "globalDescription": "Configure global system parameters",
+    "globalTradingParamsHint": "The “Trading parameters” tab (order size, position safety check, buy/sell windows, etc.) is not on this page. Open a bot from the list, then Config, or go to /bots/<botId>/config. This page is for global settings (exchange API, notifications, YAML, …).",
     "symbolDescription": "Manage dedicated configuration for {{symbol}}",
     "singleBotGlobalHint": "This page only configures the current bot. For global settings (exchange API, notifications, YAML, etc.), go to <configLink>/config</configLink>.",
     "saveChanges": "Save Changes",
