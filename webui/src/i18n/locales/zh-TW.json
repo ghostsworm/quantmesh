@@ -852,6 +852,8 @@
     "profitSpread": "利潤間距（平倉價差）",
     "profitSpreadHint": "不填則使用價格間隔",
     "orderAmount": "單筆訂單金額 (USDT)",
+    "positionSafetyCheck": "持倉安全檢查（最少向下持有層數）",
+    "positionSafetyCheckHint": "啟動前依帳戶餘額、槓桿與單筆金額估算，要求至少能覆蓋多少層向下加倉；預設 5。數值越小越容易通過檢查但抗單邊風險越弱；越大則需要更多保證金。",
     "buyWindowSize": "買單窗口大小",
     "sellWindowSize": "賣單窗口大小",
     "riskControlSettings": "風險控制設置",
