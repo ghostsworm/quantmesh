@@ -357,3 +357,28 @@ func (c *Client) SetLeverage(ctx context.Context, settle, contract string, lever
 
 	return nil
 }
+
+// WalletTransfer POST /wallet/transfers — 現貨與合約（永续）帳戶間劃轉
+// settle：合約結算幣種（如 usdt），當 from/to 涉及 futures 時建議傳入
+func (c *Client) WalletTransfer(ctx context.Context, currency, amount, from, to, settle string) (int64, error) {
+	body := map[string]interface{}{
+		"currency": currency,
+		"amount":   amount,
+		"from":     from,
+		"to":       to,
+	}
+	if settle != "" {
+		body["settle"] = settle
+	}
+	respBody, err := c.DoRequest(ctx, "POST", "/wallet/transfers", "", body)
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		TxID int64 `json:"tx_id"`
+	}
+	if err := json.Unmarshal(respBody, &out); err != nil {
+		return 0, fmt.Errorf("解析劃轉响应失败: %w", err)
+	}
+	return out.TxID, nil
+}

@@ -1398,7 +1398,33 @@ func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit i
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（Bitget 暂未實現）
+// InternalTransfer 交易所內部轉帳（POST /api/spot/v1/wallet/transfer-v2：mix_usdt ↔ spot）
 func (b *BitgetAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for Bitget")
+	fromT, toT, err := mapBitgetTransferWalletTypes(fromAccount, toAccount, b.quoteAsset)
+	if err != nil {
+		return "", err
+	}
+	coin := strings.TrimSpace(asset)
+	if coin == "" {
+		coin = "USDT"
+	}
+	amt := strconv.FormatFloat(amount, 'f', 8, 64)
+	return b.client.WalletTransferV2(ctx, fromT, toT, coin, amt)
+}
+
+func mapBitgetTransferWalletTypes(fromAccount, toAccount, quoteAsset string) (fromType, toType string, err error) {
+	f := strings.ToUpper(strings.TrimSpace(fromAccount))
+	t := strings.ToUpper(strings.TrimSpace(toAccount))
+	mix := "mix_usdt"
+	if strings.EqualFold(quoteAsset, "USDC") {
+		mix = "mix_usdc"
+	}
+	switch {
+	case (f == "UMFUTURE" || f == "CONTRACT") && (t == "SPOT" || t == "MAIN"):
+		return mix, "spot", nil
+	case (f == "SPOT" || f == "MAIN") && (t == "UMFUTURE" || t == "CONTRACT"):
+		return "spot", mix, nil
+	default:
+		return "", "", fmt.Errorf("Bitget 不支援的劃轉: %s -> %s（僅支援 UMFUTURE↔SPOT，USDT 本位 mix_usdt）", fromAccount, toAccount)
+	}
 }

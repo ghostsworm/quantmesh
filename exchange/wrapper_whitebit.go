@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"strconv"
 
 	"quantmesh/exchange/income"
 	"quantmesh/exchange/whitebit"
@@ -335,7 +336,32 @@ func (w *whitebitWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTy
 
 // GetOrderFills 查詢訂單成交記錄
 func (w *whitebitWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	raw, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*OrderFill, 0, len(raw))
+	for _, x := range raw {
+		d, ok := x.(whitebit.OrderDealRecord)
+		if !ok {
+			continue
+		}
+		price, _ := strconv.ParseFloat(d.Price, 64)
+		qty, _ := strconv.ParseFloat(d.Amount, 64)
+		fee, _ := strconv.ParseFloat(d.Fee, 64)
+		out = append(out, &OrderFill{
+			OrderID:         orderID,
+			TradeID:         strconv.FormatInt(d.ID, 10),
+			Symbol:          symbol,
+			Price:           price,
+			Quantity:        qty,
+			Commission:      fee,
+			CommissionAsset: d.FeeAsset,
+			TradeTime:       int64(d.Time * 1000),
+			IsMaker:         d.Role == 1,
+		})
+	}
+	return out, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

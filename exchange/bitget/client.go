@@ -99,3 +99,27 @@ func (c *Client) DoRequest(ctx context.Context, method, path string, body interf
 
 	return &bitgetResp, nil
 }
+
+// WalletTransferV2 POST /api/spot/v1/wallet/transfer-v2 — 主帳戶內現貨與合約（mix_usdt 等）劃轉
+func (c *Client) WalletTransferV2(ctx context.Context, fromType, toType, coin, amount string) (string, error) {
+	body := map[string]interface{}{
+		"fromType": fromType,
+		"toType":   toType,
+		"coin":     coin,
+		"amount":   amount,
+	}
+	resp, err := c.DoRequest(ctx, "POST", "/api/spot/v1/wallet/transfer-v2", body)
+	if err != nil {
+		return "", err
+	}
+	var data struct {
+		TransferID string `json:"transferId"`
+	}
+	if len(resp.Data) == 0 {
+		return "", nil
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return "", fmt.Errorf("解析劃轉 data 失败: %w", err)
+	}
+	return data.TransferID, nil
+}

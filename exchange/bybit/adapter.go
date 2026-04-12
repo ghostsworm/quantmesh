@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"quantmesh/logger"
 	"quantmesh/utils"
 )
@@ -860,7 +862,34 @@ func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64
 	return price, nil
 }
 
-// InternalTransfer 交易所內部轉帳（Bybit 暂未實現）
+// InternalTransfer 交易所內部轉帳（POST /v5/asset/transfer：CONTRACT↔SPOT、FUND↔UNIFIED）
 func (b *BybitAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for Bybit")
+	from, to, err := mapBybitTransferAccounts(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	coin := strings.TrimSpace(asset)
+	if coin == "" {
+		return "", fmt.Errorf("Bybit 劃轉需要指定資產代碼")
+	}
+	amt := strconv.FormatFloat(amount, 'f', 8, 64)
+	tid := uuid.New().String()
+	return b.client.CreateUniversalTransfer(ctx, tid, coin, amt, from, to)
+}
+
+func mapBybitTransferAccounts(fromAccount, toAccount string) (from, to string, err error) {
+	f := strings.ToUpper(strings.TrimSpace(fromAccount))
+	t := strings.ToUpper(strings.TrimSpace(toAccount))
+	switch {
+	case (f == "UMFUTURE" || f == "CONTRACT" || f == "LINEAR") && (t == "SPOT" || t == "MAIN"):
+		return "CONTRACT", "SPOT", nil
+	case (f == "SPOT" || f == "MAIN") && (t == "UMFUTURE" || t == "CONTRACT" || t == "LINEAR"):
+		return "SPOT", "CONTRACT", nil
+	case (f == "FUNDING" || f == "FUND") && (t == "UNIFIED" || t == "TRADING"):
+		return "FUND", "UNIFIED", nil
+	case (f == "UNIFIED" || f == "TRADING") && (t == "FUNDING" || t == "FUND"):
+		return "UNIFIED", "FUND", nil
+	default:
+		return "", "", fmt.Errorf("Bybit 不支援的劃轉: %s -> %s（支援 UMFUTURE↔SPOT、FUND↔UNIFIED）", fromAccount, toAccount)
+	}
 }

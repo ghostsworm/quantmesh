@@ -543,6 +543,86 @@ func abs(x int) int {
 	return x
 }
 
+// KuCoinBookLevel 訂單簿檔位
+type KuCoinBookLevel struct {
+	Price    float64
+	Quantity float64
+}
+
+// KuCoinOrderBook 訂單簿（供 exchange wrapper 轉換）
+type KuCoinOrderBook struct {
+	Symbol    string
+	Bids      []KuCoinBookLevel
+	Asks      []KuCoinBookLevel
+	Timestamp int64
+}
+
+// GetSpotPrice 合約最新成交價（公共 ticker，作為「現貨參考」兜底）
+func (a *Adapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {
+	sym := contractSymbolForPublicAPI(a, symbol)
+	if sym == "" {
+		return 0, fmt.Errorf("kucoin: invalid contract symbol")
+	}
+	return a.client.GetFuturesTickerPrice(ctx, sym)
+}
+
+// GetOrderBook 訂單簿深度（公共 level2）
+func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*KuCoinOrderBook, error) {
+	sym := contractSymbolForPublicAPI(a, symbol)
+	if sym == "" {
+		return nil, fmt.Errorf("kucoin: invalid contract symbol")
+	}
+	depth := "depth20"
+	if limit > 50 {
+		depth = "depth100"
+	}
+	bidsRaw, asksRaw, ts, err := a.client.GetFuturesOrderBookDepth(ctx, sym, depth)
+	if err != nil {
+		return nil, err
+	}
+	maxLevels := limit
+	if maxLevels <= 0 {
+		maxLevels = 20
+	}
+	parseSide := func(raw [][]string) []KuCoinBookLevel {
+		out := make([]KuCoinBookLevel, 0, len(raw))
+		for i, row := range raw {
+			if i >= maxLevels {
+				break
+			}
+			if len(row) < 2 {
+				continue
+			}
+			p, _ := strconv.ParseFloat(row[0], 64)
+			q, _ := strconv.ParseFloat(row[1], 64)
+			out = append(out, KuCoinBookLevel{Price: p, Quantity: q})
+		}
+		return out
+	}
+	symDisp := symbol
+	if strings.TrimSpace(symDisp) == "" {
+		symDisp = a.symbol
+	}
+	return &KuCoinOrderBook{
+		Symbol:    symDisp,
+		Bids:      parseSide(bidsRaw),
+		Asks:      parseSide(asksRaw),
+		Timestamp: ts,
+	}, nil
+}
+
+func contractSymbolForPublicAPI(a *Adapter, symbol string) string {
+	s := strings.TrimSpace(symbol)
+	if s == "" {
+		return kucoinContractSymbolForFutures(a.symbol)
+	}
+	u := normalizeUnifiedSymbol(s)
+	if u == "" {
+		u = a.symbol
+	}
+	return kucoinContractSymbolForFutures(u)
+}
+
 // InternalTransfer 交易所內部轉帳（KuCoin 暂未實現）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	return "", fmt.Errorf("internal transfer not implemented for KuCoin")

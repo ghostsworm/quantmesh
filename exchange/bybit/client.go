@@ -622,6 +622,28 @@ func (c *BybitClient) GetOrderBook(ctx context.Context, category, symbol string,
 	return &result.Result, nil
 }
 
+// CreateUniversalTransfer POST /v5/asset/transfer — 帳戶內部劃轉（如合約↔現貨）
+func (c *BybitClient) CreateUniversalTransfer(ctx context.Context, transferID, coin, amount, fromAccountType, toAccountType string) (string, error) {
+	params := map[string]interface{}{
+		"transferId":       transferID,
+		"coin":             coin,
+		"amount":           amount,
+		"fromAccountType":  fromAccountType,
+		"toAccountType":    toAccountType,
+	}
+	data, err := c.request(ctx, "POST", "/v5/asset/transfer", params)
+	if err != nil {
+		return "", err
+	}
+	var result struct {
+		TransferID string `json:"transferId"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return "", fmt.Errorf("解析劃轉結果失败: %w", err)
+	}
+	return result.TransferID, nil
+}
+
 func init() {
 	logger.Info("📦 [Bybit Client] REST API 客戶端已初始化")
 }
