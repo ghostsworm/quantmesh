@@ -738,7 +738,15 @@ func (h *HuobiAdapter) GetOrderBook(ctx context.Context, symbol string, limit in
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（Huobi 暂未實現）
+// InternalTransfer 交易所內部轉帳（現貨 ↔ U 本位永續全倉，POST api.huobi.pro/v2/account/transfer）
 func (h *HuobiAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for Huobi")
+	fromSpotToFutures, err := mapHuobiTransferDirection(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	cur := strings.TrimSpace(asset)
+	if cur == "" {
+		cur = "USDT"
+	}
+	return h.client.LinearSwapAccountTransfer(ctx, cur, amount, fromSpotToFutures)
 }

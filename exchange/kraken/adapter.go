@@ -577,7 +577,18 @@ func (a *Adapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（Kraken 暂未實現）
+// InternalTransfer 交易所內部轉帳（現貨 WalletTransfer ↔ 期貨 withdrawal）
 func (a *Adapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
-	return "", fmt.Errorf("internal transfer not implemented for Kraken")
+	spotToFutures, err := mapKrakenTransferToCalls(fromAccount, toAccount)
+	if err != nil {
+		return "", err
+	}
+	cur := strings.TrimSpace(asset)
+	if cur == "" {
+		cur = "USDT"
+	}
+	if spotToFutures {
+		return a.client.SpotWalletTransferToFutures(ctx, cur, amount)
+	}
+	return a.client.FuturesWithdrawalToSpot(ctx, cur, amount)
 }
