@@ -167,13 +167,19 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
     event.stopPropagation()
 
     try {
-      await fetch(`/api/agent/sessions/${sessionIdToDelete}`, {
+      const response = await fetch(`/api/agent/sessions/${sessionIdToDelete}`, {
         method: 'DELETE',
       })
+      if (!response.ok) {
+        throw new Error(`DELETE sessions failed: ${response.status}`)
+      }
 
-      // 如果删除的是当前会话，创建新会话
+      // 若删除的是当前会话：不要立刻新建会话，否则列表会马上多一条「空聊天」，
+      // 用户会误以为删除未生效。清空状态后由用户点「新建聊天」再创建。
       if (sessionIdToDelete === sessionId) {
-        createSession()
+        setSessionId(null)
+        setMessages([])
+        setConfigPreview(null)
       }
 
       await loadSessions()
@@ -507,7 +513,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
             </Button>
           )}
           <Text fontSize="sm" color="gray.500" ml="auto">
-            {t('agent.sessionId')}: {sessionId?.slice(-8)}
+            {t('agent.sessionId')}: {sessionId ? sessionId.slice(-8) : '—'}
           </Text>
         </HStack>
 
@@ -632,7 +638,7 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
               aria-label="Upload image"
               icon={<Icon as={IoImage} />}
               onClick={() => fileInputRef.current?.click()}
-              isDisabled={isLoading}
+              isDisabled={isLoading || !sessionId}
             />
           </Tooltip>
 
@@ -641,8 +647,8 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder={t('agent.inputPlaceholder')}
-            disabled={isLoading}
+            placeholder={sessionId ? t('agent.inputPlaceholder') : t('agent.createSessionToContinue')}
+            disabled={isLoading || !sessionId}
             bg="white"
           />
 
@@ -652,7 +658,11 @@ const AgentChat: React.FC<AgentChatProps> = ({ botId, onConfigApplied }) => {
               aria-label="Send message"
               icon={<Icon as={IoSend} />}
               onClick={sendMessage}
-              isDisabled={isLoading || (!input.trim() && selectedImages.length === 0)}
+              isDisabled={
+                isLoading ||
+                !sessionId ||
+                (!input.trim() && selectedImages.length === 0)
+              }
             />
           </Tooltip>
 

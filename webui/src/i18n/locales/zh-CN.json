@@ -4495,6 +4495,7 @@
     "sessionLoadFailed": "加载会话失败",
     "sessionDeleted": "会话已删除",
     "sessionDeleteFailed": "删除会话失败",
+    "createSessionToContinue": "请先点击左侧「新建聊天」以继续对话",
     "closePreview": "关闭预览",
     "clickToEnlargeImage": "点击放大图片",
     "enlargePlay": "放大播放",

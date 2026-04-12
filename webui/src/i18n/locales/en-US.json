@@ -4493,6 +4493,7 @@
     "sessionLoadFailed": "Failed to load session",
     "sessionDeleted": "Session deleted",
     "sessionDeleteFailed": "Failed to delete session",
+    "createSessionToContinue": "Click \"New Chat\" on the left to continue",
     "closePreview": "Close preview",
     "clickToEnlargeImage": "Click to enlarge image",
     "enlargePlay": "Larger player",
