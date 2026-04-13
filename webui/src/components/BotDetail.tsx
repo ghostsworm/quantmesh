@@ -95,6 +95,8 @@ import {
   ExchangeOpenOrderInfo,
   getMarketTicker,
   MarketTickerResponse,
+  getBotAccountBalances,
+  BotAccountBalancesResponse,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useConfig } from '../contexts/ConfigContext'
@@ -138,6 +140,18 @@ const BOT_DETAIL_LOG_LIMIT_DEFAULT = 500
 const BOT_DETAIL_LOG_LIMIT_OPTIONS = [200, 500, 1000, 2000] as const
 /** Bot 详情「实时日志」自动刷新间隔（毫秒） */
 const BOT_DETAIL_LOG_POLL_INTERVAL_MS = 5000
+/** 概覽：交易所帳戶餘額輪詢間隔 */
+const BOT_DETAIL_ACCOUNT_BALANCES_POLL_MS = 20000
+
+function formatAssetBalance(n: number | undefined, asset: string): string {
+  if (n == null || Number.isNaN(n)) return '—'
+  const u = asset.toUpperCase()
+  const stable = ['USDT', 'USDC', 'USD', 'BUSD', 'FDUSD', 'TUSD', 'DAI']
+  if (stable.includes(u) || u.endsWith('USD')) {
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  return n.toLocaleString(undefined, { maximumFractionDigits: 8 })
+}
 
 /** Bot 主內容區分頁圖標（與 Tab 順序一致） */
 const BOT_MAIN_TAB_ICONS = [ViewIcon, RepeatIcon, WarningIcon, ArrowUpIcon, TimeIcon, StarIcon, ChatIcon] as const
@@ -169,6 +183,9 @@ const BotDetail: React.FC = () => {
   const [exchangeOrders, setExchangeOrders] = useState<ExchangeOpenOrderInfo[]>([])
   const [exchangeOrdersLoading, setExchangeOrdersLoading] = useState(false)
   const [cancellingAll, setCancellingAll] = useState(false)
+  const [accountBalances, setAccountBalances] = useState<BotAccountBalancesResponse | null>(null)
+  const [accountBalancesLoading, setAccountBalancesLoading] = useState(false)
+
   const [exchangePositionsSummary, setExchangePositionsSummary] = useState<{
     has_data: boolean
     quantity: number
@@ -233,6 +250,24 @@ const BotDetail: React.FC = () => {
 
   useEffect(() => {
     fetchBot()
+  }, [botId])
+
+  useEffect(() => {
+    if (!botId) return
+    const fetchBalances = async () => {
+      setAccountBalancesLoading(true)
+      try {
+        const res = await getBotAccountBalances(botId)
+        setAccountBalances(res)
+      } catch {
+        setAccountBalances(null)
+      } finally {
+        setAccountBalancesLoading(false)
+      }
+    }
+    void fetchBalances()
+    const timer = window.setInterval(() => void fetchBalances(), BOT_DETAIL_ACCOUNT_BALANCES_POLL_MS)
+    return () => window.clearInterval(timer)
   }, [botId])
 
   useEffect(() => {
@@ -869,6 +904,300 @@ const BotDetail: React.FC = () => {
         </TabList>
         <TabPanels>
           <TabPanel px={0}>
+            {botId && (
+              <Box mb={6}>
+                <Text fontSize="sm" color="gray.500" mb={3}>
+                  {t('botDetail.accountBalancesSection')}
+                </Text>
+                {accountBalancesLoading && !accountBalances ? (
+                  <Spinner size="sm" />
+                ) : accountBalances && accountBalances.success !== false ? (
+                  <>
+                    {accountBalances.funding_perp_spread?.legs && accountBalances.funding_perp_spread.legs.length > 0 && (
+                      <VStack align="stretch" spacing={4}>
+                        {accountBalances.funding_perp_spread.legs.map((leg) => (
+                          <Box key={`${leg.name}-${leg.exchange}-${leg.symbol}`}>
+                            <Text fontSize="xs" color="gray.600" mb={2}>
+                              {leg.name}: {leg.exchange} · {leg.symbol}
+                            </Text>
+                            {leg.error ? (
+                              <Text fontSize="sm" color="red.500">
+                                {leg.error}
+                              </Text>
+                            ) : (
+                              <SimpleGrid columns={{ base: 1, md: 3 }} spacing={3}>
+                                <Card>
+                                  <CardBody>
+                                    <Stat>
+                                      <StatLabel>{t('botDetail.futuresWalletBalance')}</StatLabel>
+                                      <StatNumber fontSize="md">
+                                        {leg.futures?.total_wallet_balance != null
+                                          ? formatAssetBalance(
+                                              leg.futures.total_wallet_balance,
+                                              leg.futures.quote_asset || 'USDT'
+                                            )
+                                          : '—'}
+                                      </StatNumber>
+                                    </Stat>
+                                  </CardBody>
+                                </Card>
+                                <Card>
+                                  <CardBody>
+                                    <Stat>
+                                      <StatLabel>{t('botDetail.futuresAvailableBalance')}</StatLabel>
+                                      <StatNumber fontSize="md">
+                                        {leg.futures?.available_balance != null
+                                          ? formatAssetBalance(
+                                              leg.futures.available_balance,
+                                              leg.futures.quote_asset || 'USDT'
+                                            )
+                                          : '—'}
+                                      </StatNumber>
+                                    </Stat>
+                                  </CardBody>
+                                </Card>
+                                <Card>
+                                  <CardBody>
+                                    <Stat>
+                                      <StatLabel>{t('botDetail.futuresMarginBalance')}</StatLabel>
+                                      <StatNumber fontSize="md">
+                                        {leg.futures?.total_margin_balance != null
+                                          ? formatAssetBalance(
+                                              leg.futures.total_margin_balance,
+                                              leg.futures.quote_asset || 'USDT'
+                                            )
+                                          : '—'}
+                                      </StatNumber>
+                                    </Stat>
+                                  </CardBody>
+                                </Card>
+                              </SimpleGrid>
+                            )}
+                          </Box>
+                        ))}
+                      </VStack>
+                    )}
+                    {accountBalances.funding_carry && (
+                      <VStack align="stretch" spacing={4}>
+                        <Box>
+                          <Text fontSize="xs" color="gray.600" mb={2}>
+                            {t('botDetail.accountBalancesSpotLeg')}
+                          </Text>
+                          <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+                            <Card>
+                              <CardBody>
+                                <Stat>
+                                  <StatLabel>
+                                    {t('botDetail.spotBaseAvailable', {
+                                      asset: accountBalances.funding_carry.spot.base_asset,
+                                    })}
+                                  </StatLabel>
+                                  <StatNumber fontSize="md">
+                                    {formatAssetBalance(
+                                      accountBalances.funding_carry.spot.base_available,
+                                      accountBalances.funding_carry.spot.base_asset
+                                    )}
+                                  </StatNumber>
+                                  {accountBalances.funding_carry.spot.base_error ? (
+                                    <StatHelpText fontSize="xs" color="red.500">
+                                      {accountBalances.funding_carry.spot.base_error}
+                                    </StatHelpText>
+                                  ) : null}
+                                </Stat>
+                              </CardBody>
+                            </Card>
+                            <Card>
+                              <CardBody>
+                                <Stat>
+                                  <StatLabel>
+                                    {t('botDetail.spotQuoteAvailable', {
+                                      asset: accountBalances.funding_carry.spot.quote_asset,
+                                    })}
+                                  </StatLabel>
+                                  <StatNumber fontSize="md">
+                                    {formatAssetBalance(
+                                      accountBalances.funding_carry.spot.quote_available,
+                                      accountBalances.funding_carry.spot.quote_asset
+                                    )}
+                                  </StatNumber>
+                                  {accountBalances.funding_carry.spot.quote_error ? (
+                                    <StatHelpText fontSize="xs" color="red.500">
+                                      {accountBalances.funding_carry.spot.quote_error}
+                                    </StatHelpText>
+                                  ) : null}
+                                </Stat>
+                              </CardBody>
+                            </Card>
+                          </SimpleGrid>
+                        </Box>
+                        <Box>
+                          <Text fontSize="xs" color="gray.600" mb={2}>
+                            {t('botDetail.accountBalancesFuturesLeg')}
+                          </Text>
+                          <SimpleGrid columns={{ base: 1, md: 3 }} spacing={3}>
+                            <Card>
+                              <CardBody>
+                                <Stat>
+                                  <StatLabel>{t('botDetail.futuresWalletBalance')}</StatLabel>
+                                  <StatNumber fontSize="md">
+                                    {accountBalances.funding_carry.futures.total_wallet_balance != null
+                                      ? formatAssetBalance(
+                                          accountBalances.funding_carry.futures.total_wallet_balance,
+                                          accountBalances.funding_carry.futures.quote_asset || 'USDT'
+                                        )
+                                      : '—'}
+                                  </StatNumber>
+                                  {accountBalances.funding_carry.futures.error ? (
+                                    <StatHelpText fontSize="xs" color="red.500">
+                                      {accountBalances.funding_carry.futures.error}
+                                    </StatHelpText>
+                                  ) : null}
+                                </Stat>
+                              </CardBody>
+                            </Card>
+                            <Card>
+                              <CardBody>
+                                <Stat>
+                                  <StatLabel>{t('botDetail.futuresAvailableBalance')}</StatLabel>
+                                  <StatNumber fontSize="md">
+                                    {accountBalances.funding_carry.futures.available_balance != null
+                                      ? formatAssetBalance(
+                                          accountBalances.funding_carry.futures.available_balance,
+                                          accountBalances.funding_carry.futures.quote_asset || 'USDT'
+                                        )
+                                      : '—'}
+                                  </StatNumber>
+                                </Stat>
+                              </CardBody>
+                            </Card>
+                            <Card>
+                              <CardBody>
+                                <Stat>
+                                  <StatLabel>{t('botDetail.futuresMarginBalance')}</StatLabel>
+                                  <StatNumber fontSize="md">
+                                    {accountBalances.funding_carry.futures.total_margin_balance != null
+                                      ? formatAssetBalance(
+                                          accountBalances.funding_carry.futures.total_margin_balance,
+                                          accountBalances.funding_carry.futures.quote_asset || 'USDT'
+                                        )
+                                      : '—'}
+                                  </StatNumber>
+                                </Stat>
+                              </CardBody>
+                            </Card>
+                          </SimpleGrid>
+                        </Box>
+                      </VStack>
+                    )}
+                    {accountBalances.spot && !accountBalances.funding_carry && (
+                      <SimpleGrid columns={{ base: 1, md: 2 }} spacing={3}>
+                        <Card>
+                          <CardBody>
+                            <Stat>
+                              <StatLabel>
+                                {t('botDetail.spotBaseAvailable', { asset: accountBalances.spot.base_asset })}
+                              </StatLabel>
+                              <StatNumber fontSize="md">
+                                {formatAssetBalance(
+                                  accountBalances.spot.base_available,
+                                  accountBalances.spot.base_asset
+                                )}
+                              </StatNumber>
+                              {accountBalances.spot.base_error ? (
+                                <StatHelpText fontSize="xs" color="red.500">
+                                  {accountBalances.spot.base_error}
+                                </StatHelpText>
+                              ) : null}
+                            </Stat>
+                          </CardBody>
+                        </Card>
+                        <Card>
+                          <CardBody>
+                            <Stat>
+                              <StatLabel>
+                                {t('botDetail.spotQuoteAvailable', { asset: accountBalances.spot.quote_asset })}
+                              </StatLabel>
+                              <StatNumber fontSize="md">
+                                {formatAssetBalance(
+                                  accountBalances.spot.quote_available,
+                                  accountBalances.spot.quote_asset
+                                )}
+                              </StatNumber>
+                              {accountBalances.spot.quote_error ? (
+                                <StatHelpText fontSize="xs" color="red.500">
+                                  {accountBalances.spot.quote_error}
+                                </StatHelpText>
+                              ) : null}
+                            </Stat>
+                          </CardBody>
+                        </Card>
+                      </SimpleGrid>
+                    )}
+                    {accountBalances.futures &&
+                      !accountBalances.spot &&
+                      !accountBalances.funding_carry &&
+                      !accountBalances.funding_perp_spread?.legs?.length && (
+                        <SimpleGrid columns={{ base: 1, md: 3 }} spacing={3}>
+                          <Card>
+                            <CardBody>
+                              <Stat>
+                                <StatLabel>{t('botDetail.futuresWalletBalance')}</StatLabel>
+                                <StatNumber fontSize="md">
+                                  {accountBalances.futures.total_wallet_balance != null
+                                    ? formatAssetBalance(
+                                        accountBalances.futures.total_wallet_balance,
+                                        accountBalances.futures.quote_asset || 'USDT'
+                                      )
+                                    : '—'}
+                                </StatNumber>
+                                {accountBalances.futures.error ? (
+                                  <StatHelpText fontSize="xs" color="red.500">
+                                    {accountBalances.futures.error}
+                                  </StatHelpText>
+                                ) : null}
+                              </Stat>
+                            </CardBody>
+                          </Card>
+                          <Card>
+                            <CardBody>
+                              <Stat>
+                                <StatLabel>{t('botDetail.futuresAvailableBalance')}</StatLabel>
+                                <StatNumber fontSize="md">
+                                  {accountBalances.futures.available_balance != null
+                                    ? formatAssetBalance(
+                                        accountBalances.futures.available_balance,
+                                        accountBalances.futures.quote_asset || 'USDT'
+                                      )
+                                    : '—'}
+                                </StatNumber>
+                              </Stat>
+                            </CardBody>
+                          </Card>
+                          <Card>
+                            <CardBody>
+                              <Stat>
+                                <StatLabel>{t('botDetail.futuresMarginBalance')}</StatLabel>
+                                <StatNumber fontSize="md">
+                                  {accountBalances.futures.total_margin_balance != null
+                                    ? formatAssetBalance(
+                                        accountBalances.futures.total_margin_balance,
+                                        accountBalances.futures.quote_asset || 'USDT'
+                                      )
+                                    : '—'}
+                                </StatNumber>
+                              </Stat>
+                            </CardBody>
+                          </Card>
+                        </SimpleGrid>
+                      )}
+                  </>
+                ) : (
+                  <Text fontSize="sm" color="gray.500">
+                    {t('botDetail.accountBalancesUnavailable')}
+                  </Text>
+                )}
+              </Box>
+            )}
             {bot.running ? (
               <>
                 {/* 持倉與資金（從風控移入） */}
