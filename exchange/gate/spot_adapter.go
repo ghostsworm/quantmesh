@@ -171,7 +171,7 @@ func (g *GateSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 	for _, req := range orders {
 		order, err := g.PlaceOrder(ctx, req)
 		if err != nil {
-			logger.Warn("⚠️ [Gate Spot] 下單失败 %.2f %s: %v", req.Price, req.Side, err)
+			logger.Warn("⚠️ [Gate Spot] 下單失败 price=%.2f side=%s qty=%.8f: %v", req.Price, req.Side, req.Quantity, err)
 			if strings.Contains(err.Error(), "insufficient") || strings.Contains(err.Error(), "balance") {
 				hasBalanceError = true
 			}

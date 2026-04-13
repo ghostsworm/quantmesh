@@ -279,14 +279,16 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 	for _, orderReq := range orders {
 		order, err := oe.PlaceOrder(orderReq)
 		if err != nil {
-			logger.ErrorCtx(oe.logCtx(), "❌ [%s] %s 下單失败 %.2f %s: %v",
-				oe.exchange.GetName(), orderReq.Symbol, orderReq.Price, orderReq.Side, err)
+			notionalUSDT := orderReq.Price * orderReq.Quantity
+			logger.ErrorCtx(oe.logCtx(), "❌ [%s] %s 下單失败 price=%.*f side=%s qty=%.8f 名义≈%.2f USDT: %v",
+				oe.exchange.GetName(), orderReq.Symbol, orderReq.PriceDecimals, orderReq.Price, orderReq.Side, orderReq.Quantity, notionalUSDT, err)
 
 			// 检查錯误類型
 			errStr := err.Error()
 			if strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "-2019") || strings.Contains(errStr, "insufficient") {
 				result.HasMarginError = true
-				logger.ErrorCtx(oe.logCtx(), "❌ [保证金不足] 订單 %.2f %s 因保证金不足失败", orderReq.Price, orderReq.Side)
+				logger.ErrorCtx(oe.logCtx(), "❌ [保证金不足] 订單 price=%.*f side=%s qty=%.8f 名义≈%.2f USDT 因保证金不足失败",
+					orderReq.PriceDecimals, orderReq.Price, orderReq.Side, orderReq.Quantity, notionalUSDT)
 			} else if isReduceOnlyError(err) {
 				// 記錄 ReduceOnly 錯误（系統會自動清空槽位，降級為 WARN 減少告警噪音）
 				result.ReduceOnlyErrors[orderReq.ClientOrderID] = true
