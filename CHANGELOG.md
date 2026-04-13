@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.103.0-rc4] - 2026-04-13
+
+### Fixed
+- **Bot 啟動仍用舊交易參數**：`StartBot` 在刷新主庫 `app_config` 後仍沿用調用入口傳入的舊 `botCfg`，導致持倉安全檢查等使用過期的 `order_quantity` 等。啟動前改為 **`resolveLatestStartConfig`**：對齊 `bm.cfg.Bots` 最新快照，並在存在 `bot_configs` 時以 Bot 專屬快照覆蓋；補充單元測試。
+
+---
+
 ## [3.103.0-rc3] - 2026-04-13
 
 ### Fixed
