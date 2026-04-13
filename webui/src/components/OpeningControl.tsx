@@ -29,6 +29,7 @@ import {
 } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
+import { useBot } from '../contexts/BotContext'
 import SymbolSelector from './SymbolSelector'
 import {
   getOpeningControlStatus,
@@ -55,6 +56,7 @@ const OpeningControl: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
+  const { botId } = useBot()
 
   const [status, setStatus] = useState<OpeningControlStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -80,7 +82,12 @@ const OpeningControl: React.FC = () => {
     }
     try {
       setLoading(true)
-      const data = await getOpeningControlStatus(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
+      const data = await getOpeningControlStatus(
+        selectedExchange,
+        selectedSymbol,
+        selectedMarketType ?? undefined,
+        botId ?? undefined
+      )
       setStatus(data)
       setError(null)
 
@@ -108,17 +115,17 @@ const OpeningControl: React.FC = () => {
     fetchStatus()
     const interval = setInterval(fetchStatus, 10000)
     return () => clearInterval(interval)
-  }, [selectedExchange, selectedSymbol, selectedMarketType])
+  }, [selectedExchange, selectedSymbol, selectedMarketType, botId])
 
   const handleToggleOpening = async () => {
     if (!selectedExchange || !selectedSymbol) return
     setToggling(true)
     try {
       if (status?.opening_paused) {
-        await resumeOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
+        await resumeOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined, botId ?? undefined)
         toast({ title: t('openingControl.resumeSuccess'), status: 'success', duration: 2000 })
       } else {
-        await pauseOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined)
+        await pauseOpening(selectedExchange, selectedSymbol, selectedMarketType ?? undefined, botId ?? undefined)
         toast({ title: t('openingControl.pauseSuccess'), status: 'info', duration: 2000 })
       }
       await fetchStatus()
@@ -141,7 +148,13 @@ const OpeningControl: React.FC = () => {
           ? { enabled: true, open_duration_min: parseInt(openDurationMin, 10) || 60, close_duration_min: parseInt(closeDurationMin, 10) || 30 }
           : { enabled: false, open_duration_min: 60, close_duration_min: 30 },
       }
-      await updateOpeningControlConfig(selectedExchange, selectedSymbol, cfg, selectedMarketType ?? undefined)
+      await updateOpeningControlConfig(
+        selectedExchange,
+        selectedSymbol,
+        cfg,
+        selectedMarketType ?? undefined,
+        botId ?? undefined
+      )
       toast({ title: t('openingControl.configSaved'), status: 'success', duration: 2000 })
       await fetchStatus()
     } catch (err) {

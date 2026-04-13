@@ -1838,6 +1838,7 @@ var (
 type SymbolManagerProvider interface {
 	Get(exchange, symbol string) (interface{}, bool)               // 回傳 SymbolRuntime（使用 interface{} 避免循环依赖）
 	GetEx(exchange, symbol, marketType string) (interface{}, bool) // 按 market_type 獲取（spot/futures），空則默認 futures
+	GetByBotID(botID string) (interface{}, bool)                   // 按 Bot UUID（或确定性 ID）獲取運行時；不存在則 (nil, false)
 	List() []interface{}                                           // 回傳 SymbolRuntime 列表
 	StartSymbol(exchange, symbol, marketType string) error         // 啟动指定交易所/币种的交易，marketType 為空時自動選首個未運行的
 	StopSymbol(exchange, symbol string) error                      // 停止指定交易所/币种的交易

@@ -11,8 +11,36 @@ import (
 	"quantmesh/position"
 )
 
+// openingControlRuntimeMatchesQuery 校驗運行時交易對與請求參數一致（防止 bot_id 與 exchange/symbol 參數錯配）
+func openingControlRuntimeMatchesQuery(rtInterface interface{}, exchange, symbol, marketType string) bool {
+	rtVal := reflect.ValueOf(rtInterface)
+	if rtVal.Kind() == reflect.Ptr {
+		rtVal = rtVal.Elem()
+	}
+	configField := rtVal.FieldByName("Config")
+	if !configField.IsValid() {
+		return false
+	}
+	cfg := configField.Addr().Interface().(*config.SymbolConfig)
+	cfgMT := cfg.GetMarketType()
+	if cfgMT == "spot_margin" {
+		cfgMT = "spot"
+	}
+	if cfgMT != "spot" && cfgMT != "futures" {
+		cfgMT = "futures"
+	}
+	reqMT := strings.TrimSpace(strings.ToLower(marketType))
+	if reqMT != "spot" && reqMT != "futures" {
+		reqMT = "futures"
+	}
+	return strings.EqualFold(cfg.Exchange, exchange) &&
+		strings.EqualFold(cfg.Symbol, symbol) &&
+		cfgMT == reqMT
+}
+
 // findOpeningControlConfigFromConfig 從配置文件中查找開倉控制配置（Bot 未運行時使用）
-func findOpeningControlConfigFromConfig(exchange, symbol, marketType string) *config.OpenPositionControl {
+// preferredBotID 非空時優先匹配該 Bot（與運行時 UUID 鍵一致），避免同交易對多條配置時誤用他條
+func findOpeningControlConfigFromConfig(exchange, symbol, marketType, preferredBotID string) *config.OpenPositionControl {
 	cfg, err := GetLatestConfig()
 	if err != nil || cfg == nil {
 		return nil
@@ -20,6 +48,14 @@ func findOpeningControlConfigFromConfig(exchange, symbol, marketType string) *co
 	mt := strings.TrimSpace(strings.ToLower(marketType))
 	if mt != "spot" && mt != "futures" {
 		mt = "futures"
+	}
+	if id := strings.TrimSpace(preferredBotID); id != "" {
+		for i := range cfg.Bots {
+			b := &cfg.Bots[i]
+			if strings.EqualFold(strings.TrimSpace(b.ID), id) {
+				return &b.OpenPositionControl
+			}
+		}
 	}
 	// 優先從 Bots 查找
 	for i := range cfg.Bots {
@@ -66,7 +102,7 @@ func getOpeningControlStatus(c *gin.Context) {
 		if marketType != "spot" && marketType != "futures" {
 			marketType = "futures"
 		}
-		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType)
+		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType, c.Query("bot_id"))
 		if cfgFallback != nil {
 			c.JSON(http.StatusOK, gin.H{
 				"exchange":                    exchange,
@@ -177,7 +213,7 @@ func getOpeningControlConfig(c *gin.Context) {
 		if marketType != "spot" && marketType != "futures" {
 			marketType = "futures"
 		}
-		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType)
+		cfgFallback := findOpeningControlConfigFromConfig(exchange, symbol, marketType, c.Query("bot_id"))
 		if cfgFallback != nil {
 			c.JSON(http.StatusOK, cfgFallback)
 			return
@@ -252,20 +288,36 @@ func putOpeningControlConfig(c *gin.Context) {
 	}
 
 	persisted := false
-	// 更新 Bots 中的開倉控制配置
-	for i := range cfg.Bots {
-		b := &cfg.Bots[i]
-		bmt := b.GetMarketType()
-		if bmt == "spot_margin" {
-			bmt = "spot"
+	botIDQ := strings.TrimSpace(c.Query("bot_id"))
+	if botIDQ != "" {
+		for i := range cfg.Bots {
+			b := &cfg.Bots[i]
+			if strings.EqualFold(strings.TrimSpace(b.ID), botIDQ) {
+				b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
+				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
+				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
+				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
+				persisted = true
+				break
+			}
 		}
-		if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == marketType {
-			b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-			b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-			b.OpenPositionControl.ScheduleRules = req.ScheduleRules
-			b.OpenPositionControl.PeriodicRule = req.PeriodicRule
-			persisted = true
-			break
+	}
+	// 更新 Bots 中的開倉控制配置（無 bot_id 或按 ID 未命中時按交易對匹配）
+	if !persisted {
+		for i := range cfg.Bots {
+			b := &cfg.Bots[i]
+			bmt := b.GetMarketType()
+			if bmt == "spot_margin" {
+				bmt = "spot"
+			}
+			if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == marketType {
+				b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
+				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
+				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
+				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
+				persisted = true
+				break
+			}
 		}
 	}
 	// 兼容舊配置：更新 Trading.Symbols
@@ -347,23 +399,36 @@ func getOpeningControlRuntimeAndController(c *gin.Context, exchange, symbol stri
 	if marketType != "spot" && marketType != "futures" {
 		marketType = "futures"
 	}
+
+	// 帶 UUID 的 Bot 運行時鍵為 bot_id，GetEx 仍按 exchange:symbol:mt 生成鍵查找，會誤判為「未運行」
+	if botID := strings.TrimSpace(c.Query("bot_id")); botID != "" {
+		if rtByID, idOK := symbolManagerProvider.GetByBotID(botID); idOK && rtByID != nil {
+			if openingControlRuntimeMatchesQuery(rtByID, exchange, symbol, marketType) {
+				return extractOpeningControllerFromRuntime(rtByID)
+			}
+		}
+	}
+
 	rtInterface, exists := symbolManagerProvider.GetEx(exchange, symbol, marketType)
 	if !exists {
 		// 不發送 HTTP 響應，僅返回 false，讓調用者決定如何處理（例如從配置文件讀取）
 		return nil, nil, false
 	}
 
+	return extractOpeningControllerFromRuntime(rtInterface)
+}
+
+func extractOpeningControllerFromRuntime(rtInterface interface{}) (interface{}, *position.OpeningController, bool) {
 	rtVal := reflect.ValueOf(rtInterface)
 	if rtVal.Kind() == reflect.Ptr {
 		rtVal = rtVal.Elem()
 	}
-
+	var oc *position.OpeningController
 	ocField := rtVal.FieldByName("OpeningController")
 	if ocField.IsValid() && !ocField.IsNil() {
 		if o, _ := ocField.Interface().(*position.OpeningController); o != nil {
 			oc = o
 		}
 	}
-
 	return rtInterface, oc, true
 }

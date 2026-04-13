@@ -1959,43 +1959,73 @@ export interface OpeningControlStatus {
   }
 }
 
-function openingControlQueryParams(exchange: string, symbol: string, marketType?: string | null): URLSearchParams {
+function openingControlQueryParams(
+  exchange: string,
+  symbol: string,
+  marketType?: string | null,
+  botId?: string | null
+): URLSearchParams {
   const queryParams = new URLSearchParams()
   queryParams.append('exchange', exchange)
   queryParams.append('symbol', symbol)
   if (marketType === 'spot' || marketType === 'futures') {
     queryParams.append('market_type', marketType)
   }
+  const bid = typeof botId === 'string' ? botId.trim() : ''
+  if (bid) {
+    queryParams.append('bot_id', bid)
+  }
   return queryParams
 }
 
-export async function getOpeningControlStatus(exchange: string, symbol: string, marketType?: string | null): Promise<OpeningControlStatus> {
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/status?${openingControlQueryParams(exchange, symbol, marketType).toString()}`)
+export async function getOpeningControlStatus(
+  exchange: string,
+  symbol: string,
+  marketType?: string | null,
+  botId?: string | null
+): Promise<OpeningControlStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/status?${openingControlQueryParams(exchange, symbol, marketType, botId).toString()}`)
 }
 
-export async function pauseOpening(exchange: string, symbol: string, marketType?: string | null): Promise<{ message: string; opening_paused: boolean }> {
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/pause?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
+export async function pauseOpening(
+  exchange: string,
+  symbol: string,
+  marketType?: string | null,
+  botId?: string | null
+): Promise<{ message: string; opening_paused: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/pause?${openingControlQueryParams(exchange, symbol, marketType, botId).toString()}`, {
     method: 'POST',
   })
 }
 
-export async function resumeOpening(exchange: string, symbol: string, marketType?: string | null): Promise<{ message: string; opening_paused: boolean }> {
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/resume?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
+export async function resumeOpening(
+  exchange: string,
+  symbol: string,
+  marketType?: string | null,
+  botId?: string | null
+): Promise<{ message: string; opening_paused: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/resume?${openingControlQueryParams(exchange, symbol, marketType, botId).toString()}`, {
     method: 'POST',
   })
 }
 
-export async function getOpeningControlConfig(exchange: string, symbol: string, marketType?: string | null): Promise<OpenPositionControlConfig> {
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType).toString()}`)
+export async function getOpeningControlConfig(
+  exchange: string,
+  symbol: string,
+  marketType?: string | null,
+  botId?: string | null
+): Promise<OpenPositionControlConfig> {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType, botId).toString()}`)
 }
 
 export async function updateOpeningControlConfig(
   exchange: string,
   symbol: string,
   config: Partial<OpenPositionControlConfig>,
-  marketType?: string | null
+  marketType?: string | null,
+  botId?: string | null
 ): Promise<{ message: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType).toString()}`, {
+  return fetchWithAuth(`${API_BASE_URL}/opening-control/config?${openingControlQueryParams(exchange, symbol, marketType, botId).toString()}`, {
     method: 'PUT',
     body: JSON.stringify(config),
   })

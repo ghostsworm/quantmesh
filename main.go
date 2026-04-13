@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.103.0-rc2"
+var Version = "3.103.0-rc3"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -472,6 +472,19 @@ func (a *symbolManagerWebAdapter) GetEx(exchange, symbol, marketType string) (in
 		return nil, false
 	}
 	return nil, false
+}
+
+// GetByBotID 按 Bot 主鍵（如 UUID）獲取運行時；與 GetEx(exchange,symbol,mt) 不同，後者僅適用於 ID 為 exchange:symbol:mt 的舊版 Bot
+func (a *symbolManagerWebAdapter) GetByBotID(botID string) (interface{}, bool) {
+	botID = strings.TrimSpace(botID)
+	if botID == "" {
+		return nil, false
+	}
+	br, ok := a.manager.GetBotManager().Get(botID)
+	if !ok || br == nil || br.Inner == nil {
+		return nil, false
+	}
+	return br.Inner, true
 }
 
 func (a *symbolManagerWebAdapter) List() []interface{} {
