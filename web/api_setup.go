@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"sort"
 	"strings"
@@ -822,6 +823,37 @@ func getGateSymbols(ctx context.Context, apiKey, secretKey string, testnet bool)
 	return symbols, nil
 }
 
+// gateSpotCurrencyPair Gate /api/v4/spot/currency_pairs 單條結構（見官方文檔；quote 為大寫 USDT，可交易狀態在 trade_status）
+type gateSpotCurrencyPair struct {
+	ID          string `json:"id"`
+	Quote       string `json:"quote"`
+	TradeStatus string `json:"trade_status"`
+}
+
+func gateSpotSymbolsFromCurrencyPairsJSON(r io.Reader) ([]string, error) {
+	var pairs []gateSpotCurrencyPair
+	if err := json.NewDecoder(r).Decode(&pairs); err != nil {
+		return nil, err
+	}
+	symbols := make([]string, 0)
+	for _, p := range pairs {
+		if !strings.EqualFold(p.Quote, "USDT") {
+			continue
+		}
+		// 活躍現貨為 tradable；若字段缺失則保守跳過
+		if p.TradeStatus != "" && p.TradeStatus != "tradable" {
+			continue
+		}
+		if p.ID == "" {
+			continue
+		}
+		// Gate 現貨 id 格式如 "btc_usdt"，轉為 BTCUSDT（與其他所現貨符號一致）
+		symbols = append(symbols, strings.ToUpper(strings.ReplaceAll(p.ID, "_", "")))
+	}
+	sort.Strings(symbols)
+	return symbols, nil
+}
+
 // getGateSpotSymbols 獲取 Gate.io 現貨交易對（公开 API）
 func getGateSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
 	baseURL := "https://api.gateio.ws"
@@ -842,23 +874,7 @@ func getGateSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
 	}
-	var pairs []struct {
-		ID        string `json:"id"`
-		Quote     string `json:"quote"`
-		Tradeable bool   `json:"tradeable"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&pairs); err != nil {
-		return nil, err
-	}
-	symbols := make([]string, 0)
-	for _, p := range pairs {
-		if p.Quote == "usdt" && p.Tradeable {
-			// Gate 現貨 id 格式如 "btc_usdt"，轉為 BTCUSDT
-			symbols = append(symbols, strings.ToUpper(strings.ReplaceAll(p.ID, "_", "")))
-		}
-	}
-	sort.Strings(symbols)
-	return symbols, nil
+	return gateSpotSymbolsFromCurrencyPairsJSON(resp.Body)
 }
 
 // getOKXSymbols 獲取 OKX 的所有交易對
