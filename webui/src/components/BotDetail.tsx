@@ -136,6 +136,8 @@ const getMixedStrategies = (t: any): StrategyOption[] => [
 /** Bot 详情「实时日志」默认条数；与后端 /api/logs 上限 2000 对齐 */
 const BOT_DETAIL_LOG_LIMIT_DEFAULT = 500
 const BOT_DETAIL_LOG_LIMIT_OPTIONS = [200, 500, 1000, 2000] as const
+/** Bot 详情「实时日志」自动刷新间隔（毫秒） */
+const BOT_DETAIL_LOG_POLL_INTERVAL_MS = 5000
 
 /** Bot 主內容區分頁圖標（與 Tab 順序一致） */
 const BOT_MAIN_TAB_ICONS = [ViewIcon, RepeatIcon, WarningIcon, ArrowUpIcon, TimeIcon, StarIcon, ChatIcon] as const
@@ -291,9 +293,9 @@ const BotDetail: React.FC = () => {
     return () => clearInterval(interval)
   }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = useCallback(async (silent = false) => {
     if (!botId) return
-    setLogsLoading(true)
+    if (!silent) setLogsLoading(true)
     try {
       // 只按 logs.bot_id 精準篩選（+ 可選級別、條數）；不依賴 message 子串。
       const res = await getLogs({
@@ -307,13 +309,21 @@ const BotDetail: React.FC = () => {
       setLogs([])
       setLogsTotal(0)
     } finally {
-      setLogsLoading(false)
+      if (!silent) setLogsLoading(false)
     }
   }, [botId, logLevelFilter, logLimit])
 
   useEffect(() => {
     void fetchLogs()
   }, [fetchLogs])
+
+  useEffect(() => {
+    if (!botId) return
+    const timerId = window.setInterval(() => {
+      void fetchLogs(true)
+    }, BOT_DETAIL_LOG_POLL_INTERVAL_MS)
+    return () => window.clearInterval(timerId)
+  }, [botId, fetchLogs])
 
   const fetchTpSlOrders = async () => {
     if (!bot?.exchange || !bot?.symbol) return
