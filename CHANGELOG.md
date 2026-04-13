@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.103.0-rc3] - 2026-04-13
+
+### Fixed
+- **開倉管理誤顯「Bot 未運行」**：運行中 Bot 使用 **UUID 主鍵** 時，`/api/opening-control/*` 仍用 `exchange:symbol:market_type` 推導舊式鍵查找運行時，導致與 Bot 詳情「運行中」不一致。現支援查詢參數 **`bot_id`**（前端在 Bot 工作區自動帶上 URL 中的 Bot ID），並在持久化時優先按 **`bot_id`** 寫回 `cfg.Bots`；補充 **`SymbolManagerProvider.GetByBotID`** 與單元測試 **`TestOpeningControlRuntimeMatchesQuery`**。
+
+---
+
 ## [3.103.0-rc2] - 2026-04-13
 
 ### Removed
