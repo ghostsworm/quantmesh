@@ -328,6 +328,54 @@ export async function getBotById(botId: string): Promise<BotDetailInfo> {
   return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}`)
 }
 
+/** GET /api/bots/:id/account-balances — 交易所帳戶餘額（概覽用） */
+export interface BotAccountBalancesSpot {
+  base_asset: string
+  quote_asset: string
+  base_available: number
+  quote_available: number
+  base_error?: string
+  quote_error?: string
+}
+
+export interface BotAccountBalancesFutures {
+  quote_asset?: string
+  total_wallet_balance?: number
+  available_balance?: number
+  total_margin_balance?: number
+  account_leverage?: number
+  error?: string
+}
+
+export interface BotAccountBalancesFundingCarry {
+  spot: BotAccountBalancesSpot
+  futures: BotAccountBalancesFutures
+}
+
+export interface BotAccountBalancesFundingPerpLeg {
+  name: string
+  exchange: string
+  symbol: string
+  error?: string
+  futures?: BotAccountBalancesFutures
+}
+
+export interface BotAccountBalancesResponse {
+  success: boolean
+  error?: string
+  exchange?: string
+  symbol?: string
+  market_type?: string
+  spot?: BotAccountBalancesSpot
+  futures?: BotAccountBalancesFutures
+  funding_carry?: BotAccountBalancesFundingCarry
+  funding_perp_spread?: { legs: BotAccountBalancesFundingPerpLeg[] }
+}
+
+export async function getBotAccountBalances(botId: string): Promise<BotAccountBalancesResponse> {
+  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/account-balances`)
+}
+
 export interface StartBotResponse {
   ok: boolean
   bot_id: string

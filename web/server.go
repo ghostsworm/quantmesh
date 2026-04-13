@@ -183,6 +183,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/funding-carry/income-history", getFundingIncomeHistory)
 
 			protected.GET("/bots/:id", getBotByID)
+			protected.GET("/bots/:id/account-balances", getBotAccountBalances)
 			protected.DELETE("/bots/:id", deleteBot)
 			protected.POST("/bots/:id/start", postBotStart)
 			protected.POST("/bots/:id/stop", postBotStop)
