@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -152,6 +153,23 @@ func TestConfigDiff(t *testing.T) {
 	}
 	if !foundRestart {
 		t.Error("修改 web.port 应該標記為需要重啟")
+	}
+}
+
+func TestDiffNewsMonitorRequiresRestart(t *testing.T) {
+	oldCfg := createValidConfig()
+	newCfg := createValidConfig()
+	newCfg.NewsMonitor.RiskThreshold = 88
+	diff := DiffConfig(oldCfg, newCfg)
+	found := false
+	for _, c := range diff.Changes {
+		if strings.HasPrefix(c.Path, "news_monitor") && c.RequiresRestart {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("news_monitor 变更应标記 requires_restart")
 	}
 }
 

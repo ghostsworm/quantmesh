@@ -191,6 +191,13 @@ func (nm *NewsMonitor) initRiskKeywords() {
 
 // Start 啟动新聞監控
 func (nm *NewsMonitor) Start() error {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	return nm.startInternalLocked()
+}
+
+// startInternalLocked 在持有 nm.mu 時啟動定時任務（與 ApplyRuntimeConfig 共用）
+func (nm *NewsMonitor) startInternalLocked() error {
 	if !nm.cfg.NewsMonitor.Enabled {
 		logger.Info("📰 新聞監控未啟用")
 		return nil
@@ -243,15 +250,32 @@ func (nm *NewsMonitor) Start() error {
 	return nil
 }
 
-// InitForManualTrigger 為手動觸發分析初始化分析器（未啟用新聞監控時調用）
-// 僅創建 Gemini 分析器，不啟動定時循環
-func (nm *NewsMonitor) InitForManualTrigger() {
-	nm.mu.Lock()
-	defer nm.mu.Unlock()
-	if nm.geminiAnalyzer != nil {
+// ApplyRuntimeConfig Web 保存完整主配置後調用：替換 cfg 指針並按需重啟定時任務，避免進程仍持舊配置。
+func (nm *NewsMonitor) ApplyRuntimeConfig(newCfg *config.Config) {
+	if newCfg == nil {
 		return
 	}
-	// 需有 AI 配置才能手動分析
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+
+	nm.cfg = newCfg
+
+	if nm.isRunning {
+		nm.stopInternalLocked()
+	}
+
+	if !newCfg.NewsMonitor.Enabled {
+		nm.refreshManualAnalyzerLocked()
+		return
+	}
+
+	if err := nm.startInternalLocked(); err != nil {
+		logger.Warn("📰 ApplyRuntimeConfig: %v", err)
+	}
+}
+
+func (nm *NewsMonitor) refreshManualAnalyzerLocked() {
+	nm.geminiAnalyzer = nil
 	hasAI := nm.cfg.NewsMonitor.UseGeminiSearch ||
 		(nm.cfg.NewsMonitor.AIProvider.Provider != "" && nm.cfg.NewsMonitor.AIProvider.APIKey != "") ||
 		(nm.cfg.NewsMonitor.AIProvider.Provider == "" && nm.cfg.AI.GeminiAPIKey != "") ||
@@ -259,22 +283,42 @@ func (nm *NewsMonitor) InitForManualTrigger() {
 	if !hasAI {
 		return
 	}
-	// 可傳 nil newsCollector，分析器會用 AI 內建搜索
 	nm.geminiAnalyzer = NewGeminiNewsAnalyzer(nm.cfg, nil)
+}
+
+// InitForManualTrigger 為手動觸發分析初始化分析器（未啟用新聞監控時調用）
+// 僅創建 Gemini 分析器，不啟動定時循環
+func (nm *NewsMonitor) InitForManualTrigger() {
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.refreshManualAnalyzerLocked()
+}
+
+// stopInternalLocked 停止定時任務並重置 context，以便再次 startInternalLocked。調用方須已持有 nm.mu。
+func (nm *NewsMonitor) stopInternalLocked() {
+	if !nm.isRunning {
+		return
+	}
+	nm.cancel()
+	if nm.newsCollector != nil {
+		nm.newsCollector.Stop()
+		nm.newsCollector = nil
+	}
+	if nm.analysisLoopDone != nil {
+		<-nm.analysisLoopDone
+		nm.analysisLoopDone = nil
+	}
+	nm.isRunning = false
+	nm.geminiAnalyzer = nil
+	nm.ctx, nm.cancel = context.WithCancel(context.Background())
+	logger.Info("📰 新聞監控已停止")
 }
 
 // Stop 停止新聞監控
 func (nm *NewsMonitor) Stop() {
-	nm.cancel()
-	if nm.newsCollector != nil {
-		nm.newsCollector.Stop()
-	}
-	// 僅當已啟动過監控循环時才等待
-	if nm.analysisLoopDone != nil {
-		<-nm.analysisLoopDone
-	}
-	nm.isRunning = false
-	logger.Info("📰 新聞監控已停止")
+	nm.mu.Lock()
+	defer nm.mu.Unlock()
+	nm.stopInternalLocked()
 }
 
 // monitoringLoop 監控循环（规则引擎模式）

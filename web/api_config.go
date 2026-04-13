@@ -27,7 +27,21 @@ var (
 	configHotReloader *config.HotReloader
 	// primaryStorageForAppConfig 主庫（SQLStorage，含 MySQL），用於持久化 app_config
 	primaryStorageForAppConfig storage.Storage
+	// newsMonitorRuntimeSync 主進程在保存完整 app_config 後同步新聞監控運行時（由 main 注入，可為 nil）
+	newsMonitorRuntimeSync func(*config.Config)
 )
+
+// SetNewsMonitorRuntimeSync 註冊「完整主配置寫入後」的回調，用於 NewsMonitor / 價格記錄等與配置指針同步。
+func SetNewsMonitorRuntimeSync(fn func(*config.Config)) {
+	newsMonitorRuntimeSync = fn
+}
+
+func notifyNewsMonitorRuntimeSync(cfg *config.Config) {
+	if cfg == nil || newsMonitorRuntimeSync == nil {
+		return
+	}
+	newsMonitorRuntimeSync(cfg)
+}
 
 // SetPrimaryStorageForAppConfig 設置主庫存儲（啟動時注入），用於寫入 app_config。
 func SetPrimaryStorageForAppConfig(st storage.Storage) {
@@ -252,6 +266,7 @@ func (fcm *FileConfigManager) UpdateConfig(newConfig *config.Config) error {
 		return err
 	}
 	fcm.currentConfig = newConfig
+	notifyNewsMonitorRuntimeSync(newConfig)
 	return nil
 }
 

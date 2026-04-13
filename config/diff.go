@@ -236,6 +236,7 @@ func requiresRestart(path string) bool {
 		"ai.upstreams",          // 命名上游表
 		"notifications.enabled", // 通知總开关（可能影响初始化）
 		"risk_control.enabled",  // 风控總开关（可能影响初始化）
+		"news_monitor", // 新聞監控：運行時已支持 ApplyRuntimeConfig 同步，仍標記以便 UI 提示「建議重啟」作為兜底
 	}
 
 	for _, restartPath := range restartPaths {
