@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Spotvoorraadbeleid",
+    "spotInventoryPolicyHint": "Conservatief: basisbalans van de exchange niet automatisch in gridvoorraad importeren. Alles overnemen: bij herstart huidige basisbalans naar verkoop-slots (typisch OKX spot grid herstel).",
+    "spotInventoryConservative": "Conservatief (standaard)",
+    "spotInventoryAdoptAll": "Hele basisbalans overnemen",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Tijd",
     "logLevel": "Niveau",
     "logMessage": "Bericht",
-    "loadLogs": "Logs laden"
+    "loadLogs": "Logs laden",
+    "strategy": {
+      "spotInventoryPolicy": "Spotvoorraadbeleid",
+      "spotInventoryPolicyHint": "Conservatief: basisbalans van de exchange niet automatisch in gridvoorraad importeren. Alles overnemen: bij herstart huidige basisbalans naar verkoop-slots.",
+      "spotInventoryConservative": "Conservatief (standaard)",
+      "spotInventoryAdoptAll": "Hele basisbalans overnemen"
+    }
   },
   "dashboard": {
     "tradingStopped": "Handel gestopt",

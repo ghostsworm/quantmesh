@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Polityka zapasów spot",
+    "spotInventoryPolicyHint": "Konserwatywnie: nie importuj automatycznie salda bazowego z giełdy do zapasów siatki. Przejmij wszystko: po restarcie przydziel bieżące saldo bazowe do slotów sprzedaży (typowe odzyskiwanie siatki spot OKX).",
+    "spotInventoryConservative": "Konserwatywnie (domyślnie)",
+    "spotInventoryAdoptAll": "Przejmij całe saldo bazowe",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "Czas",
     "logLevel": "Poziom",
     "logMessage": "Wiadomość",
-    "loadLogs": "Załaduj logi"
+    "loadLogs": "Załaduj logi",
+    "strategy": {
+      "spotInventoryPolicy": "Polityka zapasów spot",
+      "spotInventoryPolicyHint": "Konserwatywnie: nie importuj automatycznie salda bazowego z giełdy do zapasów siatki. Przejmij wszystko: po restarcie przydziel bieżące saldo bazowe do slotów sprzedaży.",
+      "spotInventoryConservative": "Konserwatywnie (domyślnie)",
+      "spotInventoryAdoptAll": "Przejmij całe saldo bazowe"
+    }
   },
   "dashboard": {
     "tradingStopped": "Handel zatrzymany",

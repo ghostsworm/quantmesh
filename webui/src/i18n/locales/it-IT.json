@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Politica inventario spot",
+    "spotInventoryPolicyHint": "Conservativo: non importa automaticamente il saldo base dell’exchange nell’inventario della grid. Adotta tutto: al riavvio alloca il saldo base corrente agli slot di vendita (tipico recupero grid spot OKX).",
+    "spotInventoryConservative": "Conservativo (predefinito)",
+    "spotInventoryAdoptAll": "Adotta tutto il saldo base",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Ora",
     "logLevel": "Livello",
     "logMessage": "Messaggio",
-    "loadLogs": "Carica log"
+    "loadLogs": "Carica log",
+    "strategy": {
+      "spotInventoryPolicy": "Politica inventario spot",
+      "spotInventoryPolicyHint": "Conservativo: non importa automaticamente il saldo base dell’exchange nell’inventario della grid. Adotta tutto: al riavvio alloca il saldo base corrente agli slot di vendita.",
+      "spotInventoryConservative": "Conservativo (predefinito)",
+      "spotInventoryAdoptAll": "Adotta tutto il saldo base"
+    }
   },
   "dashboard": {
     "tradingStopped": "Trading interrotto",

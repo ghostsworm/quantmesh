@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Chính sách tồn kho spot",
+    "spotInventoryPolicyHint": "Thận trọng: không tự nhập số dư cơ sở từ sàn vào tồn kho lưới. Nhận tất cả: khi khởi động lại, phân bổ số dư cơ sở hiện tại vào các ô bán (phục hồi lưới spot OKX điển hình).",
+    "spotInventoryConservative": "Thận trọng (mặc định)",
+    "spotInventoryAdoptAll": "Nhận toàn bộ số dư cơ sở",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Thời gian",
     "logLevel": "Cấp độ",
     "logMessage": "Tin nhắn",
-    "loadLogs": "Tải nhật ký"
+    "loadLogs": "Tải nhật ký",
+    "strategy": {
+      "spotInventoryPolicy": "Chính sách tồn kho spot",
+      "spotInventoryPolicyHint": "Thận trọng: không tự nhập số dư cơ sở từ sàn vào tồn kho lưới. Nhận tất cả: khi khởi động lại, phân bổ số dư cơ sở hiện tại vào các ô bán.",
+      "spotInventoryConservative": "Thận trọng (mặc định)",
+      "spotInventoryAdoptAll": "Nhận toàn bộ số dư cơ sở"
+    }
   },
   "dashboard": {
     "tradingStopped": "Đã dừng giao dịch",

@@ -205,6 +205,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Politique d’inventaire spot",
+    "spotInventoryPolicyHint": "Conservateur : n’importe pas automatiquement le solde de base de l’exchange dans l’inventaire du grid. Tout adopter : au redémarrage, alloue le solde de base actuel aux créneaux de vente (récupération typique du grid spot OKX).",
+    "spotInventoryConservative": "Conservateur (par défaut)",
+    "spotInventoryAdoptAll": "Adopter tout le solde de base",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -222,7 +226,13 @@
     "logTime": "Heure",
     "logLevel": "Niveau",
     "logMessage": "Message",
-    "loadLogs": "Charger les logs"
+    "loadLogs": "Charger les logs",
+    "strategy": {
+      "spotInventoryPolicy": "Politique d’inventaire spot",
+      "spotInventoryPolicyHint": "Conservateur : n’importe pas automatiquement le solde de base de l’exchange dans l’inventaire du grid. Tout adopter : au redémarrage, alloue le solde de base actuel aux créneaux de vente.",
+      "spotInventoryConservative": "Conservateur (par défaut)",
+      "spotInventoryAdoptAll": "Adopter tout le solde de base"
+    }
   },
   "backtest": {
     "dataSource": "Source de données",

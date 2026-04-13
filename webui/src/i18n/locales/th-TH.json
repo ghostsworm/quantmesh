@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "นโยบายสต็อกสปอต",
+    "spotInventoryPolicyHint": "แบบอนุรักษ์: ไม่นำยอดฐานจากกระดานมารวมในสต็อกกริดอัตโนมัติ รับทั้งหมด: เมื่อรีสตาร์ทจัดสรรยอดฐานปัจจุบันไปยังช่องขาย (กู้คืนกริดสปอต OKX แบบทั่วไป)",
+    "spotInventoryConservative": "แบบอนุรักษ์ (ค่าเริ่มต้น)",
+    "spotInventoryAdoptAll": "รับยอดฐานทั้งหมด",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "เวลา",
     "logLevel": "ระดับ",
     "logMessage": "ข้อความ",
-    "loadLogs": "โหลดล็อก"
+    "loadLogs": "โหลดล็อก",
+    "strategy": {
+      "spotInventoryPolicy": "นโยบายสต็อกสปอต",
+      "spotInventoryPolicyHint": "แบบอนุรักษ์: ไม่นำยอดฐานจากกระดานมารวมในสต็อกกริดอัตโนมัติ รับทั้งหมด: เมื่อรีสตาร์ทจัดสรรยอดฐานปัจจุบันไปยังช่องขาย",
+      "spotInventoryConservative": "แบบอนุรักษ์ (ค่าเริ่มต้น)",
+      "spotInventoryAdoptAll": "รับยอดฐานทั้งหมด"
+    }
   },
   "dashboard": {
     "tradingStopped": "หยุดเทรดแล้ว",

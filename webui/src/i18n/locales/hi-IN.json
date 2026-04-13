@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "स्पॉट इन्वेंटरी नीति",
+    "spotInventoryPolicyHint": "रूक्ष: एक्सचेंज का बेस बैलेंस ग्रिड इन्वेंटरी में स्वतः आयात न करें। सभी अपनाएँ: पुनः आरंभ पर वर्तमान बेस बैलेंस को बिक्री स्लॉट में आवंटित करें (OKX स्पॉट ग्रिड पुनर्प्राप्ति)।",
+    "spotInventoryConservative": "रूक्ष (डिफ़ॉल्ट)",
+    "spotInventoryAdoptAll": "पूरा बेस बैलेंस अपनाएँ",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "समय",
     "logLevel": "स्तर",
     "logMessage": "संदेश",
-    "loadLogs": "लॉग लोड करें"
+    "loadLogs": "लॉग लोड करें",
+    "strategy": {
+      "spotInventoryPolicy": "स्पॉट इन्वेंटरी नीति",
+      "spotInventoryPolicyHint": "रूक्ष: एक्सचेंज का बेस बैलेंस ग्रिड इन्वेंटरी में स्वतः आयात न करें। सभी अपनाएँ: पुनः आरंभ पर वर्तमान बेस बैलेंस को बिक्री स्लॉट में आवंटित करें।",
+      "spotInventoryConservative": "रूक्ष (डिफ़ॉल्ट)",
+      "spotInventoryAdoptAll": "पूरा बेस बैलेंस अपनाएँ"
+    }
   },
   "dashboard": {
     "tradingStopped": "ट्रेडिंग बंद हो गई",

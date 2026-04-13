@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "سپاٹ انوینٹری پالیسی",
+    "spotInventoryPolicyHint": "محتاط: ایکسچینج کا بیس بیلنس خودکار طور پر گرڈ انوینٹری میں نہ لائیں۔ سب قبول کریں: ری اسٹارٹ پر موجودہ بیس بیلنس کو فروخت سلاٹس میں تقسیم کریں (عام OKX سپاٹ گرڈ بحالی)۔",
+    "spotInventoryConservative": "محتاط (طے شدہ)",
+    "spotInventoryAdoptAll": "پورا بیس بیلنس قبول کریں",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "وقت",
     "logLevel": "سطح",
     "logMessage": "پیغام",
-    "loadLogs": "لاگز لوڈ کریں"
+    "loadLogs": "لاگز لوڈ کریں",
+    "strategy": {
+      "spotInventoryPolicy": "سپاٹ انوینٹری پالیسی",
+      "spotInventoryPolicyHint": "محتاط: ایکسچینج کا بیس بیلنس خودکار طور پر گرڈ انوینٹری میں نہ لائیں۔ سب قبول کریں: ری اسٹارٹ پر موجودہ بیس بیلنس کو فروخت سلاٹس میں تقسیم کریں۔",
+      "spotInventoryConservative": "محتاط (طے شدہ)",
+      "spotInventoryAdoptAll": "پورا بیس بیلنس قبول کریں"
+    }
   },
   "dashboard": {
     "tradingStopped": "ٹریڈنگ بند",

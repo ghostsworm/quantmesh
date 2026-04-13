@@ -246,6 +246,10 @@
     "last24hHigh": "24h 波峰",
     "last24hLow": "24h 波谷",
     "markPrice": "标记价格",
+    "spotInventoryPolicy": "現貨庫存策略",
+    "spotInventoryPolicyHint": "保守：不將交易所錢包中的基礎幣自動收編為網格庫存。全部接管：重啟後將當前基礎幣餘額依網格參數分配到賣單槽位（適用 OKX 現貨網格恢復）。",
+    "spotInventoryConservative": "保守（預設）",
+    "spotInventoryAdoptAll": "接管全部基礎幣餘額",
     "marketData": "市场行情"
   },
   "botDetail": {
@@ -287,7 +291,13 @@
     "gridCount": "網格數量",
     "strategySpecificParams": "策略專屬參數",
     "goToBacktest": "前往回測",
-    "goToBacktestDesc": "跳轉到全局回測頁面，已預填當前 Bot 的交易所、交易對、策略類型及參數"
+    "goToBacktestDesc": "跳轉到全局回測頁面，已預填當前 Bot 的交易所、交易對、策略類型及參數",
+    "strategy": {
+      "spotInventoryPolicy": "現貨庫存策略",
+      "spotInventoryPolicyHint": "保守：不將交易所錢包中的基礎幣自動收編為網格庫存。全部接管：重啟後將當前基礎幣餘額依網格參數分配到賣單槽位。",
+      "spotInventoryConservative": "保守（預設）",
+      "spotInventoryAdoptAll": "接管全部基礎幣餘額"
+    }
   },
   "backtest": {
     "dataSource": "資料來源",

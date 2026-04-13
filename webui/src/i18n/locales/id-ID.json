@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Kebijakan inventaris spot",
+    "spotInventoryPolicyHint": "Konservatif: jangan impor otomatis saldo dasar exchange ke inventaris grid. Adopsi semua: saat restart, alokasikan saldo dasar saat ke slot jual (pemulihan grid spot OKX yang umum).",
+    "spotInventoryConservative": "Konservatif (default)",
+    "spotInventoryAdoptAll": "Adopsi seluruh saldo dasar",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Waktu",
     "logLevel": "Level",
     "logMessage": "Pesan",
-    "loadLogs": "Muat log"
+    "loadLogs": "Muat log",
+    "strategy": {
+      "spotInventoryPolicy": "Kebijakan inventaris spot",
+      "spotInventoryPolicyHint": "Konservatif: jangan impor otomatis saldo dasar exchange ke inventaris grid. Adopsi semua: saat restart, alokasikan saldo dasar saat ke slot jual.",
+      "spotInventoryConservative": "Konservatif (default)",
+      "spotInventoryAdoptAll": "Adopsi seluruh saldo dasar"
+    }
   },
   "dashboard": {
     "tradingStopped": "Perdagangan dihentikan",

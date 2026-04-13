@@ -205,6 +205,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Spot-Bestandsrichtlinie",
+    "spotInventoryPolicyHint": "Konservativ: Basisguthaben der Börse wird nicht automatisch ins Grid-Bestand übernommen. Alle übernehmen: Beim Neustart wird das aktuelle Basisguthaben den Verkaufs-Slots zugewiesen (typisch für OKX-Spot-Grid-Wiederherstellung).",
+    "spotInventoryConservative": "Konservativ (Standard)",
+    "spotInventoryAdoptAll": "Gesamtes Basisguthaben übernehmen",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -222,7 +226,13 @@
     "logTime": "Zeit",
     "logLevel": "Stufe",
     "logMessage": "Nachricht",
-    "loadLogs": "Logs laden"
+    "loadLogs": "Logs laden",
+    "strategy": {
+      "spotInventoryPolicy": "Spot-Bestandsrichtlinie",
+      "spotInventoryPolicyHint": "Konservativ: Basisguthaben der Börse wird nicht automatisch ins Grid-Bestand übernommen. Alle übernehmen: Beim Neustart wird das aktuelle Basisguthaben den Verkaufs-Slots zugewiesen.",
+      "spotInventoryConservative": "Konservativ (Standard)",
+      "spotInventoryAdoptAll": "Gesamtes Basisguthaben übernehmen"
+    }
   },
   "backtest": {
     "dataSource": "Datenquelle",

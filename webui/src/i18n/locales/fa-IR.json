@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "سیاست موجودی اسپات",
+    "spotInventoryPolicyHint": "محافظه‌کارانه: موجودی پایه صرافی را به‌صورت خودکار به موجودی گرید وارد نکن. پذیرش همه: پس از راه‌اندازی مجدد، موجودی پایه فعلی را به اسلات‌های فروش تخصیص دهید (بازیابی معمول گرید اسپات OKX).",
+    "spotInventoryConservative": "محافظه‌کارانه (پیش‌فرض)",
+    "spotInventoryAdoptAll": "پذیرش تمام موجودی پایه",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "زمان",
     "logLevel": "سطح",
     "logMessage": "پیام",
-    "loadLogs": "بارگذاری لاگ"
+    "loadLogs": "بارگذاری لاگ",
+    "strategy": {
+      "spotInventoryPolicy": "سیاست موجودی اسپات",
+      "spotInventoryPolicyHint": "محافظه‌کارانه: موجودی پایه صرافی را به‌صورت خودکار به موجودی گرید وارد نکن. پذیرش همه: پس از راه‌اندازی مجدد، موجودی پایه فعلی را به اسلات‌های فروش تخصیص دهید.",
+      "spotInventoryConservative": "محافظه‌کارانه (پیش‌فرض)",
+      "spotInventoryAdoptAll": "پذیرش تمام موجودی پایه"
+    }
   },
   "dashboard": {
     "tradingStopped": "معاملات متوقف شد",
