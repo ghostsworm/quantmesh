@@ -731,6 +731,7 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 			symCfg.BuyWindowSize,
 			symCfg.SellWindowSize,
 		)
+		br.Inner.SuperPositionManager.SetSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
 		// 始終同步 Config，確保 smart_order、風控等配置變更在刷新頁面時正確顯示
 		br.Config = botCfg
 		br.Inner.Config = symCfg

@@ -287,6 +287,7 @@ func startSymbolRuntime(
 	localCfg.Trading.GridShiftStep = symCfg.GridShiftStep
 	localCfg.Trading.RocketTieredGrid = symCfg.RocketTieredGrid
 	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
+	localCfg.Trading.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
 	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
 	localCfg.Trading.SmartOrder = symCfg.SmartOrder
 	if symCfg.SmartOrder.Enabled && symCfg.SmartOrder.MaxOpenOrders <= 0 {

@@ -151,6 +151,8 @@ export interface BotInfo {
   leverage?: number // 杠杆倍数
   max_capital_ratio?: number // 最大资金占用比例 (0.1-1.0)
   buy_window_size?: number // 买窗大小（用于计算平仓价）
+  /** 現貨網格：庫存策略 conservative / adopt_all */
+  spot_inventory_policy?: string
   created_at?: string // 创建时间 ISO 8601
   stopped_at?: string // 停止时间 ISO 8601（仅当已停止时有值）
   hedge_group_name?: string // 所属对冲组名称，空则非对冲
@@ -199,6 +201,8 @@ export interface CreateBotRequest {
   min_order_value?: number
   buy_window_size?: number
   sell_window_size?: number
+  /** 現貨網格：庫存接管策略 conservative（預設）/ adopt_all */
+  spot_inventory_policy?: 'conservative' | 'adopt_all'
   reconcile_interval?: number
   order_cleanup_threshold?: number
   cleanup_batch_size?: number
@@ -454,6 +458,8 @@ export interface UpdateBotStrategyRequest {
       profit_spread: number
     }>
   }
+  /** 現貨網格：庫存接管策略 conservative / adopt_all */
+  spot_inventory_policy?: 'conservative' | 'adopt_all'
 }
 
 export interface UpdateBotStrategyResponse {

@@ -65,6 +65,12 @@ func (m *MockGridExchange) GetLatestPrice(ctx context.Context, symbol string) (f
 	return 50000, nil
 }
 
+func (m *MockGridExchange) GetQuoteAsset() string { return "USDT" }
+
+func (m *MockGridExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
+	return 1e9, nil
+}
+
 func TestGridStrategy_Delegation(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"

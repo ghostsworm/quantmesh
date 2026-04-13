@@ -179,6 +179,9 @@ type IExchange interface {
 	// 返回 nil, nil 表示不支援或查詢失敗
 	GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error)
 	GetLatestPrice(ctx context.Context, symbol string) (float64, error)
+	// GetQuoteAsset 计價資產（如 USDT），現貨買單預算裁剪用
+	GetQuoteAsset() string
+	GetBalance(ctx context.Context, asset string) (float64, error)
 }
 
 // TradeStorage 交易存儲介面（避免循環匯入）
@@ -1022,6 +1025,75 @@ func (spm *SuperPositionManager) placeInitialOpenOrders() error {
 	return nil
 }
 
+// clipSpotBuyOrdersByQuoteBudget 現貨做多：按計價幣可用餘額裁剪開倉買單，優先保留更接近市價的買價（價格更高者）
+func (spm *SuperPositionManager) clipSpotBuyOrdersByQuoteBudget(orders []*OrderRequest, openSide string) []*OrderRequest {
+	if !spm.isSpot() || spm.isShort() || openSide != "BUY" || len(orders) == 0 {
+		return orders
+	}
+	ctx := context.Background()
+	quote := spm.exchange.GetQuoteAsset()
+	if quote == "" {
+		quote = "USDT"
+	}
+	avail, err := spm.exchange.GetBalance(ctx, quote)
+	if err != nil {
+		logger.Warn("⚠️ [%s] [現貨買單預算] 獲取 %s 可用餘額失败，跳過裁剪: %v", spm.logPrefix(), quote, err)
+		return orders
+	}
+	if avail <= 0 {
+		logger.Debug("💰 [%s] [現貨買單預算] %s 可用為 0，跳過裁剪", spm.logPrefix(), quote)
+		return orders
+	}
+	type buyCand struct {
+		req      *OrderRequest
+		notional float64
+		price    float64
+	}
+	var buys []buyCand
+	var rest []*OrderRequest
+	for _, o := range orders {
+		if o.Side == openSide {
+			buys = append(buys, buyCand{req: o, notional: o.Price * o.Quantity, price: o.Price})
+		} else {
+			rest = append(rest, o)
+		}
+	}
+	if len(buys) == 0 {
+		return orders
+	}
+	sort.Slice(buys, func(i, j int) bool { return buys[i].price > buys[j].price })
+	remaining := avail
+	var kept []*OrderRequest
+	dropped := 0
+	for _, b := range buys {
+		if b.notional <= remaining+1e-8 {
+			kept = append(kept, b.req)
+			remaining -= b.notional
+			continue
+		}
+		dropped++
+		if price, _, valid := spm.parseClientOrderID(b.req.ClientOrderID); valid {
+			slot := spm.getOrCreateSlot(price)
+			slot.mu.Lock()
+			if slot.SlotStatus == SlotStatusPending {
+				slot.SlotStatus = SlotStatusFree
+			}
+			slot.mu.Unlock()
+		}
+	}
+	if dropped > 0 {
+		logger.Info("💰 [%s] [現貨買單預算] %s 可用 %.4f，保留 %d 筆買單，刪除 %d 筆超出可用計價資產的買單",
+			spm.logPrefix(), quote, avail, len(kept), dropped)
+	}
+	out := append(kept, rest...)
+	return out
+}
+
+// SetSpotInventoryPolicy 運行時同步現貨庫存策略（熱更新）
+func (spm *SuperPositionManager) SetSpotInventoryPolicy(p string) {
+	spm.config.Trading.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(p)
+}
+
 // AdjustOrders 調整订單（交易入口）
 func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 🔥 移除初始化检查：現在完全由 AdjustOrders 控制所有下單
@@ -1843,6 +1915,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				spm.logPrefix(), removedBuyCount)
 		}
 	}
+
+	ordersToPlace = spm.clipSpotBuyOrdersByQuoteBudget(ordersToPlace, openSideForDedup)
 
 	// 🔥 在下單前，先检查並調整资金限額（分级限額功能）
 	// 计算當前持倉层數和未實現盈亏
@@ -3619,6 +3693,11 @@ func (spm *SuperPositionManager) CancelAllOrders() {
 
 // getExistingPosition 獲取當前持倉數量（容錯处理）
 func (spm *SuperPositionManager) getExistingPosition() float64 {
+	if config.IsSpotMarketType(spm.config.Trading.MarketType) &&
+		config.NormalizeSpotInventoryPolicy(spm.config.Trading.SpotInventoryPolicy) != config.SpotInventoryPolicyAdoptAll {
+		logger.Debug("🔍 [持倉恢複] 現貨庫存策略為 conservative，跳過從交易所收編基礎幣餘額")
+		return 0
+	}
 	ctx := context.Background()
 	positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol)
 	if err != nil || positionsInterface == nil {

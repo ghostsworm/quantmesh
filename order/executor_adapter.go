@@ -14,6 +14,14 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// isMarginInsufficientError 判斷是否為餘額/保證金類拒單（含 OKX 現貨 51008）
+func isMarginInsufficientError(errStr string) bool {
+	return strings.Contains(errStr, "保证金不足") ||
+		strings.Contains(errStr, "-2019") ||
+		strings.Contains(errStr, "insufficient") ||
+		strings.Contains(errStr, "51008")
+}
+
 // OrderRequest 订單请求
 type OrderRequest struct {
 	Symbol        string
@@ -224,7 +232,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			// 达到3次后，下一輪循环會触发降级
 			time.Sleep(500 * time.Millisecond)
 			continue
-		} else if strings.Contains(errStr, "-2019") || strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "insufficient") {
+		} else if isMarginInsufficientError(errStr) {
 			// 保证金不足，不重試
 			return nil, err
 		} else if strings.Contains(errStr, "-4164") || strings.Contains(errStr, "Order's notional must be no smaller than 100") {
@@ -285,7 +293,7 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 
 			// 检查錯误類型
 			errStr := err.Error()
-			if strings.Contains(errStr, "保证金不足") || strings.Contains(errStr, "-2019") || strings.Contains(errStr, "insufficient") {
+			if isMarginInsufficientError(errStr) {
 				result.HasMarginError = true
 				logger.ErrorCtx(oe.logCtx(), "❌ [保证金不足] 订單 price=%.*f side=%s qty=%.8f 名义≈%.2f USDT 因保证金不足失败",
 					orderReq.PriceDecimals, orderReq.Price, orderReq.Side, orderReq.Quantity, notionalUSDT)

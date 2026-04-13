@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.103.0-rc5"
+var Version = "3.104.0-rc1"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -3568,6 +3568,14 @@ func (a *positionExchangeAdapter) GetOrderBook(ctx context.Context, symbol strin
 		Asks:      asks,
 		Timestamp: ob.Timestamp,
 	}, nil
+}
+
+func (a *positionExchangeAdapter) GetQuoteAsset() string {
+	return a.exchange.GetQuoteAsset()
+}
+
+func (a *positionExchangeAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
+	return a.exchange.GetBalance(ctx, asset)
 }
 
 // startFundingIncomeSync 定時從交易所拉取資金費用（FUNDING_FEE）並寫入 funding_payments

@@ -13,6 +13,32 @@ import (
 // DefaultPositionSafetyCheck 持倉安全檢查預設值（最少向下可持有倉數；配置為 0 或未填時回退至此）
 const DefaultPositionSafetyCheck = 5
 
+// SpotInventoryPolicyConservative 現貨網格：不將交易所錢包中的基礎幣餘額自動收編為網格庫存（預設，避免誤接管手動轉入資產）
+const SpotInventoryPolicyConservative = "conservative"
+
+// SpotInventoryPolicyAdoptAll 現貨網格：將當前交易對對應的基礎幣餘額一次性接管為網格庫存（重啟後恢復賣單槽位）
+const SpotInventoryPolicyAdoptAll = "adopt_all"
+
+// NormalizeSpotInventoryPolicy 歸一化現貨庫存策略；空或未知值回退為 conservative
+func NormalizeSpotInventoryPolicy(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case SpotInventoryPolicyAdoptAll:
+		return SpotInventoryPolicyAdoptAll
+	default:
+		return SpotInventoryPolicyConservative
+	}
+}
+
+// IsSpotMarketType 是否為現貨類市場（含現貨槓桿）
+func IsSpotMarketType(marketType string) bool {
+	switch strings.ToLower(strings.TrimSpace(marketType)) {
+	case "spot", "spot_margin":
+		return true
+	default:
+		return false
+	}
+}
+
 // BoolPtr 回傳 bool 值的指標（用於 SymbolConfig.Enabled 等欄位）
 func BoolPtr(b bool) *bool {
 	return &b
@@ -474,6 +500,8 @@ type Config struct {
 		GridShiftStep        float64                  `yaml:"grid_shift_step"`               // 合併自 SymbolConfig
 		RocketTieredGrid     *RocketTieredGridConfig   `yaml:"rocket_tiered_grid"`             // 三級火箭網格（合併自 SymbolConfig）
 		CloseOnStop          bool                     `yaml:"close_on_stop"`                 // 終止時全部平倉（合併自 SymbolConfig）
+		// SpotInventoryPolicy 現貨網格專用：是否將交易所基礎幣餘額自動收編為網格庫存（conservative / adopt_all）
+		SpotInventoryPolicy string `yaml:"spot_inventory_policy" json:"spot_inventory_policy"`
 		// 多交易對配置
 		Symbols []SymbolConfig `yaml:"symbols"`
 		// 注意：price_decimals 和 quantity_decimals 已廢棄，現在從交易所自动獲取
@@ -1271,6 +1299,8 @@ type SymbolConfig struct {
 	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
 	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
+	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
+	SpotInventoryPolicy string `yaml:"spot_inventory_policy,omitempty" json:"spot_inventory_policy,omitempty"`
 }
 
 // IsEnabled 返回交易對是否啟用（nil 預設為 true）
@@ -1406,6 +1436,8 @@ type BotConfig struct {
 	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
 	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
+	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
+	SpotInventoryPolicy string `yaml:"spot_inventory_policy,omitempty" json:"spot_inventory_policy,omitempty"`
 }
 
 // ClosePositionConfig 平倉配置
@@ -1587,6 +1619,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		Profiles:              sc.Profiles,
 		SwitchRules:           sc.SwitchRules,
 		FundingPerpSpread:     sc.FundingPerpSpread,
+		SpotInventoryPolicy:   NormalizeSpotInventoryPolicy(sc.SpotInventoryPolicy),
 	}
 	return bc
 }
@@ -1669,6 +1702,7 @@ func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 		Profiles:              bc.Profiles,
 		SwitchRules:           bc.SwitchRules,
 		FundingPerpSpread:     bc.FundingPerpSpread,
+		SpotInventoryPolicy:   bc.SpotInventoryPolicy,
 	}
 }
 

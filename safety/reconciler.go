@@ -305,6 +305,8 @@ func (r *Reconciler) Reconcile() error {
 	}
 
 	// 7. 检查持倉差异並執行同步
+	spotInvPolicy := config.NormalizeSpotInventoryPolicy(r.cfg.Trading.SpotInventoryPolicy)
+	isSpot := config.IsSpotMarketType(r.cfg.Trading.MarketType)
 	diff := math.Abs(localTotal - exchangePosition)
 	// 使用相對较小的阈值，但要考虑到浮点數精度
 	if diff > 0.00000001 {
@@ -332,10 +334,15 @@ func (r *Reconciler) Reconcile() error {
 				localTotal, exchangePosition)
 			r.pm.ForceSyncPositions(exchangePosition)
 		} else if localTotal < exchangePosition && exchangePosition > 0.00000001 {
-			// 🔥 本地持倉少於交易所：以交易所為準，補齊本地持倉差額
-			logger.Warn("🚨 [對账同步] 本地持倉(%.6f) < 交易所持倉(%.6f)，以交易所為準補齊本地持倉...",
-				localTotal, exchangePosition)
-			r.pm.ForceSyncPositions(exchangePosition)
+			// 🔥 本地持倉少於交易所：以交易所為準補齊（現貨 conservative 時不自動收編外部基礎幣）
+			if isSpot && spotInvPolicy != config.SpotInventoryPolicyAdoptAll {
+				logger.Debug("ℹ️ [對账同步] 現貨庫存策略為 conservative，跳過從交易所補齊本地網格庫存（本地: %.6f, 交易所: %.6f）",
+					localTotal, exchangePosition)
+			} else {
+				logger.Warn("🚨 [對账同步] 本地持倉(%.6f) < 交易所持倉(%.6f)，以交易所為準補齊本地持倉...",
+					localTotal, exchangePosition)
+				r.pm.ForceSyncPositions(exchangePosition)
+			}
 		}
 	}
 

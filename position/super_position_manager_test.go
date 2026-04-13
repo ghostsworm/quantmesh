@@ -95,6 +95,12 @@ func (m *MockExchange) GetLatestPrice(ctx context.Context, symbol string) (float
 	return 50000.0, nil
 }
 
+func (m *MockExchange) GetQuoteAsset() string { return "USDT" }
+
+func (m *MockExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
+	return 1e9, nil
+}
+
 // MockExchangeGetAccountFails 模擬 GetAccount 失敗（API 限流等），用於驗證 reflect panic 修復
 type MockExchangeGetAccountFails struct {
 	MockExchange

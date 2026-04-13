@@ -55,7 +55,10 @@ func NewSpotShortStrategy(name string, cfg *config.Config, executor position.Ord
 	quoteAsset := "USDT"
 	if ex != nil {
 		baseAsset = ex.GetBaseAsset()
-		quoteAsset = "USDT" // position.IExchange 無 GetQuoteAsset，用默認
+		quoteAsset = ex.GetQuoteAsset()
+		if quoteAsset == "" {
+			quoteAsset = "USDT"
+		}
 	}
 	var smEx exchange.ISpotMarginExchange
 	if rawEx != nil {
