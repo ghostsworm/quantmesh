@@ -78,6 +78,54 @@ func (bm *BotManager) refreshConfigBeforeBotStart() error {
 	return storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg)
 }
 
+// resolveLatestStartConfig 在真正啟動前重新對齊 Bot 配置：
+// 1. 優先使用剛刷新的 bm.cfg.Bots；
+// 2. 若主庫存在 bot_configs 快照，則再用該 Bot 專屬快照覆蓋。
+// 避免 StartBot 調用入口傳入的是保存前/刷新前的舊副本。
+func (bm *BotManager) resolveLatestStartConfig(botCfg config.BotConfig) config.BotConfig {
+	if bm == nil {
+		return botCfg
+	}
+	botID := config.BotIDOrGenerate(botCfg)
+	latest := botCfg
+
+	if bm.cfg != nil {
+		for i := range bm.cfg.Bots {
+			candidate := bm.cfg.Bots[i]
+			if config.BotIDOrGenerate(candidate) == botID {
+				latest = candidate
+				break
+			}
+		}
+	}
+
+	if bm.storageService == nil {
+		return latest
+	}
+	ss, ok := bm.storageService.GetStorage().(*storage.SQLStorage)
+	if !ok || ss == nil {
+		return latest
+	}
+	doc, err := ss.GetBotConfigDocument(context.Background(), botID)
+	if err != nil {
+		logger.Warn("⚠️ [%s] 啟動前讀取 bot_configs 失敗，回退主配置快照: %v", botID, err)
+		return latest
+	}
+	if doc == nil || strings.TrimSpace(doc.Content) == "" {
+		return latest
+	}
+	var bf config.BotConfigFile
+	if err := json.Unmarshal([]byte(doc.Content), &bf); err != nil {
+		logger.Warn("⚠️ [%s] 啟動前解析 bot_configs 失敗，回退主配置快照: %v", botID, err)
+		return latest
+	}
+	latest = config.ConvertToBotConfig(&bf)
+	if latest.ID == "" {
+		latest.ID = botID
+	}
+	return latest
+}
+
 func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
 	if bm == nil || bm.cfg == nil || botCfg.Exchange == "" || botCfg.Symbol == "" {
 		return
@@ -295,6 +343,7 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 	if err := bm.refreshConfigBeforeBotStart(); err != nil {
 		logger.Warn("⚠️ 啟動前重新加載主配置失敗（繼續使用進程內存中的配置）: %v", err)
 	}
+	botCfg = bm.resolveLatestStartConfig(botCfg)
 	bm.applyExchangeFeeFromAPIForBot(botCfg)
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)

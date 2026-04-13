@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,7 +12,90 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/storage"
 )
+
+func TestBotManagerResolveLatestStartConfigUsesRefreshedBotSnapshot(t *testing.T) {
+	botID := "bot-start-refresh"
+	stale := config.BotConfig{
+		ID:                  botID,
+		Exchange:            "binance",
+		Symbol:              "BTCUSDT",
+		MarketType:          "futures",
+		OrderQuantity:       100,
+		PositionSafetyCheck: 5,
+	}
+	fresh := stale
+	fresh.OrderQuantity = 250
+
+	bm := &BotManager{
+		cfg: &config.Config{
+			Bots: []config.BotConfig{fresh},
+		},
+	}
+
+	got := bm.resolveLatestStartConfig(stale)
+	if got.OrderQuantity != 250 {
+		t.Fatalf("expected refreshed order quantity 250, got %.2f", got.OrderQuantity)
+	}
+}
+
+func TestBotManagerResolveLatestStartConfigPrefersBotConfigSnapshot(t *testing.T) {
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "quantmesh.db")
+
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = dbPath
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatalf("NewStorageService: %v", err)
+	}
+	defer storageService.Stop()
+
+	botID := "bot-config-ssot"
+	stale := config.BotConfig{
+		ID:            botID,
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		MarketType:    "futures",
+		OrderQuantity: 100,
+	}
+	if _, err := storage.SaveBotConfigSnapshot(
+		context.Background(),
+		storageService.GetStorage(),
+		&config.BotConfigFile{
+			BotID:      botID,
+			Name:       "Test Bot",
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+			Grid: config.GridConfig{
+				OrderQuantity: 250,
+			},
+		},
+		"test",
+		"unit",
+	); err != nil {
+		t.Fatalf("SaveBotConfigSnapshot: %v", err)
+	}
+
+	bm := &BotManager{
+		cfg: &config.Config{
+			Bots: []config.BotConfig{stale},
+		},
+		storageService: storageService,
+	}
+
+	got := bm.resolveLatestStartConfig(stale)
+	if got.OrderQuantity != 250 {
+		t.Fatalf("expected bot_configs order quantity 250, got %.2f", got.OrderQuantity)
+	}
+}
 
 // TestBotManagerConcurrentAccessNoPanic 驗證並發讀寫 runtimes 不會觸發 map 競態崩潰
 func TestBotManagerConcurrentAccessNoPanic(t *testing.T) {
