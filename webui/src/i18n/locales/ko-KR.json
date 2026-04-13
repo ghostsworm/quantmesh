@@ -205,6 +205,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "현물 재고 정책",
+    "spotInventoryPolicyHint": "보수: 거래소 지갑의 기초 자산을 그리드 재고로 자동 편입하지 않습니다. 전체 인수: 재시작 시 현재 기초 자산을 매도 슬롯에 할당합니다(OKX 현물 그리드 복구에 적합).",
+    "spotInventoryConservative": "보수(기본값)",
+    "spotInventoryAdoptAll": "기초 자산 전체 인수",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -225,7 +229,13 @@
     "logCopyHint": "더블클릭하여 전체 로그 복사",
     "logCopied": "클립보드에 복사됨",
     "logCopyFailed": "복사 실패",
-    "loadLogs": "로그 로드"
+    "loadLogs": "로그 로드",
+    "strategy": {
+      "spotInventoryPolicy": "현물 재고 정책",
+      "spotInventoryPolicyHint": "보수: 거래소 기초 자산을 그리드 재고로 자동 편입하지 않습니다. 전체 인수: 재시작 시 현재 기초 자산을 매도 슬롯에 할당합니다.",
+      "spotInventoryConservative": "보수(기본값)",
+      "spotInventoryAdoptAll": "기초 자산 전체 인수"
+    }
   },
   "backtest": {
     "dataSource": "데이터 소스",

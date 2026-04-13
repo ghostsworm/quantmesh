@@ -195,6 +195,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "現物の在庫ポリシー",
+    "spotInventoryPolicyHint": "保守：取引所ウォレットの基礎資産をグリッド在庫に自動取り込みしません。すべて採用：再起動時に現在の基礎資産を売り指値スロットに割り当てます（OKX 現物グリッド復旧向け）。",
+    "spotInventoryConservative": "保守（既定）",
+    "spotInventoryAdoptAll": "基礎資産をすべて採用",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -215,7 +219,13 @@
     "logCopyHint": "ダブルクリックでログ全文をコピー",
     "logCopied": "クリップボードにコピーしました",
     "logCopyFailed": "コピーに失敗しました",
-    "loadLogs": "ログを読み込む"
+    "loadLogs": "ログを読み込む",
+    "strategy": {
+      "spotInventoryPolicy": "現物の在庫ポリシー",
+      "spotInventoryPolicyHint": "保守：取引所の基礎資産をグリッド在庫に自動取り込みしません。すべて採用：再起動時に現在の基礎資産を売り指値スロットに割り当てます。",
+      "spotInventoryConservative": "保守（既定）",
+      "spotInventoryAdoptAll": "基礎資産をすべて採用"
+    }
   },
   "backtestOptim": {
     "tabName": "Parameter Optimization",

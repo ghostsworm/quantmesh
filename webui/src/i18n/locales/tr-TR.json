@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Spot envanter politikası",
+    "spotInventoryPolicyHint": "Muhafazakâr: borsadaki temel bakiyeyi grid envanterine otomatik aktarma. Tümünü benimse: yeniden başlatmada mevcut temel bakiyeyi satış slotlarına yerleştirir (tipik OKX spot grid kurtarma).",
+    "spotInventoryConservative": "Muhafazakâr (varsayılan)",
+    "spotInventoryAdoptAll": "Tüm temel bakiyeyi benimse",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Zaman",
     "logLevel": "Seviye",
     "logMessage": "Mesaj",
-    "loadLogs": "Logları yükle"
+    "loadLogs": "Logları yükle",
+    "strategy": {
+      "spotInventoryPolicy": "Spot envanter politikası",
+      "spotInventoryPolicyHint": "Muhafazakâr: borsadaki temel bakiyeyi grid envanterine otomatik aktarma. Tümünü benimse: yeniden başlatmada mevcut temel bakiyeyi satış slotlarına yerleştirir.",
+      "spotInventoryConservative": "Muhafazakâr (varsayılan)",
+      "spotInventoryAdoptAll": "Tüm temel bakiyeyi benimse"
+    }
   },
   "dashboard": {
     "tradingStopped": "Alım satım durduruldu",

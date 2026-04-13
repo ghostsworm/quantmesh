@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Política de inventario spot",
+    "spotInventoryPolicyHint": "Conservador: no importar automáticamente el saldo base del exchange al inventario del grid. Adoptar todo: al reiniciar, asignar el saldo base actual a los slots de venta (recuperación típica de grid spot OKX).",
+    "spotInventoryConservative": "Conservador (predeterminado)",
+    "spotInventoryAdoptAll": "Adoptar todo el saldo base",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Hora",
     "logLevel": "Nivel",
     "logMessage": "Mensaje",
-    "loadLogs": "Cargar logs"
+    "loadLogs": "Cargar logs",
+    "strategy": {
+      "spotInventoryPolicy": "Política de inventario spot",
+      "spotInventoryPolicyHint": "Conservador: no importar automáticamente el saldo base del exchange al inventario del grid. Adoptar todo: al reiniciar, asignar el saldo base actual a los slots de venta.",
+      "spotInventoryConservative": "Conservador (predeterminado)",
+      "spotInventoryAdoptAll": "Adoptar todo el saldo base"
+    }
   },
   "backtest": {
     "dataSource": "Fuente de datos",

@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Политика спотового запаса",
+    "spotInventoryPolicyHint": "Консервативно: не импортировать базовый остаток биржи в сетку автоматически. Принять всё: при перезапуске распределить текущий базовый остаток по слотам продаж (типичное восстановление OKX spot grid).",
+    "spotInventoryConservative": "Консервативно (по умолчанию)",
+    "spotInventoryAdoptAll": "Принять весь базовый остаток",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "Время",
     "logLevel": "Уровень",
     "logMessage": "Сообщение",
-    "loadLogs": "Загрузить логи"
+    "loadLogs": "Загрузить логи",
+    "strategy": {
+      "spotInventoryPolicy": "Политика спотового запаса",
+      "spotInventoryPolicyHint": "Консервативно: не импортировать базовый остаток биржи в сетку автоматически. Принять всё: при перезапуске распределить текущий базовый остаток по слотам продаж.",
+      "spotInventoryConservative": "Консервативно (по умолчанию)",
+      "spotInventoryAdoptAll": "Принять весь базовый остаток"
+    }
   },
   "dashboard": {
     "tradingStopped": "Торговля остановлена",

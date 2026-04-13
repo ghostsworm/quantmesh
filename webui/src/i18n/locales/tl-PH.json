@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "Patakaran sa spot inventory",
+    "spotInventoryPolicyHint": "Konserbatibo: huwag awtomatikong i-import ang base balance ng exchange sa grid inventory. Kunin lahat: sa restart, ilaan ang kasalukuyang base balance sa mga sell slot (karaniwang OKX spot grid recovery).",
+    "spotInventoryConservative": "Konserbatibo (default)",
+    "spotInventoryAdoptAll": "Kunin ang buong base balance",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "Oras",
     "logLevel": "Level",
     "logMessage": "Mensahe",
-    "loadLogs": "Load logs"
+    "loadLogs": "Load logs",
+    "strategy": {
+      "spotInventoryPolicy": "Patakaran sa spot inventory",
+      "spotInventoryPolicyHint": "Konserbatibo: huwag awtomatikong i-import ang base balance ng exchange sa grid inventory. Kunin lahat: sa restart, ilaan ang kasalukuyang base balance sa mga sell slot.",
+      "spotInventoryConservative": "Konserbatibo (default)",
+      "spotInventoryAdoptAll": "Kunin ang buong base balance"
+    }
   },
   "dashboard": {
     "tradingStopped": "Huminto ang trading",

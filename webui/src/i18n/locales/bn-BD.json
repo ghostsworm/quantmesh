@@ -456,6 +456,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "স্পট ইনভেন্টরি নীতি",
+    "spotInventoryPolicyHint": "রক্ষণশীল: এক্সচেঞ্জের বেস ব্যালেন্স গ্রিড ইনভেন্টরিতে স্বয়ংক্রিয়ভাবে আমদানি করবেন না। সব গ্রহণ: পুনরায় চালুতে বর্তমান বেস ব্যালেন্স বিক্রয় স্লটে বরাদ্দ (OKX স্পট গ্রিড পুনরুদ্ধার)।",
+    "spotInventoryConservative": "রক্ষণশীল (ডিফল্ট)",
+    "spotInventoryAdoptAll": "সম্পূর্ণ বেস ব্যালেন্স গ্রহণ",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -473,7 +477,13 @@
     "logTime": "সময়",
     "logLevel": "স্তর",
     "logMessage": "বার্তা",
-    "loadLogs": "লগ লোড করুন"
+    "loadLogs": "লগ লোড করুন",
+    "strategy": {
+      "spotInventoryPolicy": "স্পট ইনভেন্টরি নীতি",
+      "spotInventoryPolicyHint": "রক্ষণশীল: এক্সচেঞ্জের বেস ব্যালেন্স গ্রিড ইনভেন্টরিতে স্বয়ংক্রিয়ভাবে আমদানি করবেন না। সব গ্রহণ: পুনরায় চালুতে বর্তমান বেস ব্যালেন্স বিক্রয় স্লটে বরাদ্দ।",
+      "spotInventoryConservative": "রক্ষণশীল (ডিফল্ট)",
+      "spotInventoryAdoptAll": "সম্পূর্ণ বেস ব্যালেন্স গ্রহণ"
+    }
   },
   "dashboard": {
     "tradingStopped": "ট্রেডিং বন্ধ",

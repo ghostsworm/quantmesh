@@ -203,6 +203,10 @@
     "last24hHigh": "24h High",
     "last24hLow": "24h Low",
     "markPrice": "Mark Price",
+    "spotInventoryPolicy": "سياسة مخزون السبوت",
+    "spotInventoryPolicyHint": "محافظ: لا تستورد تلقائياً رصيد الأصل الأساسي من المنصة إلى مخزون الشبكة. تبنَّ الكل: عند إعادة التشغيل يوزّع الرصيد الحالي على فتحات البيع (استعادة شبكة السبوت OKX النموذجية).",
+    "spotInventoryConservative": "محافظ (افتراضي)",
+    "spotInventoryAdoptAll": "تبنَّ كامل رصيد الأصل الأساسي",
     "marketData": "Market Data"
   },
   "botDetail": {
@@ -220,7 +224,13 @@
     "logTime": "الوقت",
     "logLevel": "المستوى",
     "logMessage": "الرسالة",
-    "loadLogs": "تحميل السجلات"
+    "loadLogs": "تحميل السجلات",
+    "strategy": {
+      "spotInventoryPolicy": "سياسة مخزون السبوت",
+      "spotInventoryPolicyHint": "محافظ: لا تستورد تلقائياً رصيد الأصل الأساسي من المنصة إلى مخزون الشبكة. تبنَّ الكل: عند إعادة التشغيل يوزّع الرصيد الحالي على فتحات البيع.",
+      "spotInventoryConservative": "محافظ (افتراضي)",
+      "spotInventoryAdoptAll": "تبنَّ كامل رصيد الأصل الأساسي"
+    }
   },
   "dashboard": {
     "tradingStopped": "تم إيقاف التداول",
