@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc12] - 2026-04-13
+
+### Fixed
+- **Gate 現貨交易對列表為空**：`/api/v4/spot/currency_pairs` 回傳 **`quote` 為大寫 `USDT`**、可交易狀態在 **`trade_status`**（如 `tradable`），舊邏輯誤用 **`usdt` + `tradeable` 布爾**，導致篩選結果永遠為空；已改為 **`EqualFold` + `trade_status`** 解析。
+
+---
+
 ## [3.102.0-rc11] - 2026-04-13
 
 ### Added
