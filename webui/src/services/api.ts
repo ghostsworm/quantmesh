@@ -2872,6 +2872,7 @@ export async function getAITaskStats(startTime?: string, endTime?: string): Prom
 }
 
 export interface GeminiUsageEntry {
+  id?: number
   at: string
   model: string
   source: string
@@ -2889,11 +2890,32 @@ export interface GeminiUsageSummary {
 export interface GeminiUsageResponse {
   entries: GeminiUsageEntry[]
   summary: GeminiUsageSummary
+  /** 符合篩選條件的總條數（分頁用） */
+  total?: number
+  limit?: number
+  offset?: number
+  /** database=主庫持久化；memory=僅進程內（無主庫時） */
+  source?: 'database' | 'memory'
 }
 
-/** 進程內 Gemini 調用記錄（時間、輸入/輸出 token），供頂欄展示 */
-export async function getGeminiUsageLog(): Promise<GeminiUsageResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/ai/gemini/usage`)
+export interface GeminiUsageQuery {
+  limit?: number
+  offset?: number
+  /** RFC3339 */
+  startTime?: string
+  /** RFC3339 */
+  endTime?: string
+}
+
+/** Gemini 調用記錄：默認從主庫讀取；無主庫時回退進程內緩存 */
+export async function getGeminiUsageLog(params?: GeminiUsageQuery): Promise<GeminiUsageResponse> {
+  const q = new URLSearchParams()
+  if (params?.limit != null) q.set('limit', String(params.limit))
+  if (params?.offset != null) q.set('offset', String(params.offset))
+  if (params?.startTime) q.set('start_time', params.startTime)
+  if (params?.endTime) q.set('end_time', params.endTime)
+  const qs = q.toString()
+  return fetchWithAuth(`${API_BASE_URL}/ai/gemini/usage${qs ? `?${qs}` : ''}`)
 }
 
 // ==================== AI 市场解读 ====================

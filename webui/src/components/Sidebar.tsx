@@ -615,6 +615,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.aiTasks')}
             </NavItem>
             <NavItem
+              icon={ViewIcon}
+              to="/gemini-usage"
+              isActive={isRouteActive('/gemini-usage')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.geminiUsage')}
+            </NavItem>
+            <NavItem
               icon={AtSignIcon}
               to="/agent-chat"
               isActive={isRouteActive('/agent-chat')}

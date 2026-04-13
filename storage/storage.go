@@ -106,6 +106,11 @@ type Storage interface {
 	GetOptimTaskStore() backtest.OptimTaskStore
 	Close() error
 
+	// Gemini API 用量（持久化）
+	SaveGeminiUsageRecord(rec *GeminiUsageRecord) error
+	QueryGeminiUsageRecords(startTime, endTime *time.Time, limit, offset int) ([]*GeminiUsageRecord, int64, error)
+	AggregateGeminiUsageTotals(startTime, endTime *time.Time) (callCount int, totalInputTokens, totalOutputTokens int64, err error)
+
 	// 新聞分析历史
 	SaveNewsAnalysisHistory(history *NewsAnalysisHistory) error
 	QueryNewsAnalysisHistory(symbol string, startTime, endTime time.Time, limit, offset int) ([]*NewsAnalysisHistory, int64, error)

@@ -19,17 +19,32 @@ type Entry struct {
 }
 
 var (
-	mu      sync.RWMutex
-	entries []Entry
+	mu        sync.RWMutex
+	entries   []Entry
+	persistFn func(Entry) // 可選：寫入主庫（由 main 注入）
 )
 
-// Record 追加一條記錄（線程安全）
-func Record(e Entry) {
+// SetPersist 註冊持久化回調；每條 Record 會在內存寫入後調用一次（勿阻塞過久）。
+func SetPersist(fn func(Entry)) {
 	mu.Lock()
 	defer mu.Unlock()
+	persistFn = fn
+}
+
+// Record 追加一條記錄（線程安全）；若已註冊 persistFn 則異步寫庫。
+func Record(e Entry) {
+	mu.Lock()
 	entries = append(entries, e)
 	if len(entries) > maxEntries {
 		entries = entries[len(entries)-maxEntries:]
+	}
+	fn := persistFn
+	mu.Unlock()
+	if fn != nil {
+		go func(ev Entry) {
+			defer func() { recover() }()
+			fn(ev)
+		}(e)
 	}
 }
 

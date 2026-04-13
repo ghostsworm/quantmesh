@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc11] - 2026-04-13
+
+### Added
+- **Gemini 用量持久化**：新增主庫表 **`gemini_usage`**，每次 `geminiusage.Record` 異步寫入；**`GET /api/ai/gemini/usage`** 支援 **`limit` / `offset` / `start_time` / `end_time`**（RFC3339），優先讀庫並返回 **`total` / `source`**。
+- **Gemini 用量主頁**：前端路由 **`/gemini-usage`**（側欄「全局 · AI」），頂欄改為鏈接至該頁；原下拉浮層組件已移除。
+
+---
+
 ## [3.102.0-rc10] - 2026-04-13
 
 ### Fixed

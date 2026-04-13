@@ -48,6 +48,11 @@ func SetPrimaryStorageForAppConfig(st storage.Storage) {
 	primaryStorageForAppConfig = st
 }
 
+// GetPrimaryStorageForAppConfig 返回主庫存儲（可為 nil），供 Gemini 用量持久化等使用。
+func GetPrimaryStorageForAppConfig() storage.Storage {
+	return primaryStorageForAppConfig
+}
+
 // persistAppConfigToDB 將完整主配置寫入主庫 app_config（唯一持久化來源）。
 func persistAppConfigToDB(cfg *config.Config, operator, source string) error {
 	if cfg == nil {
