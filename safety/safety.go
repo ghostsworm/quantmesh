@@ -125,7 +125,20 @@ func CheckAccountSafety(ex exchange.IExchange, symbol string, currentPrice, orde
 
 	// 5. 驗证是否满足要求
 	if maxPositions < float64(requiredPositions) {
-		return fmt.Errorf("持倉安全检查失败：您的账戶餘額不足，请补充足够保证金或調整配置参數，最少足够向下购買持有 %d 倉。當前最大可持有: %.0f 倉", requiredPositions, maxPositions)
+		// 與上方公式一致：需 balance*leverage >= requiredPositions*orderAmount ⇒ 最低可用餘額 ≈ requiredPositions*orderAmount/leverage
+		levF := float64(leverage)
+		if levF < 1 {
+			levF = 1
+		}
+		requiredBalanceApprox := float64(requiredPositions) * costPerPosition / levF
+		notionalApprox := float64(requiredPositions) * costPerPosition
+		return fmt.Errorf(
+			"持倉安全检查失败：您的账戶餘額不足，请补充足够保证金或調整配置参數，最少足够向下购買持有 %d 倉。當前最大可持有: %.0f 倉。"+
+				"當前可用餘額: %.2f %s；滿足 %d 倉按每倉 %.2f %s、%dx 杠杆估算約需可用餘額 %.2f %s（合約名義約 %.2f %s）。",
+			requiredPositions, maxPositions,
+			accountBalance, quoteCurrency,
+			requiredPositions, costPerPosition, quoteCurrency, leverage, requiredBalanceApprox, quoteCurrency, notionalApprox, quoteCurrency,
+		)
 	}
 
 	logger.Info("✅ 持倉安全性检查通過：可以安全持有至少 %d 倉", requiredPositions)

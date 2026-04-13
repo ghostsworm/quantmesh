@@ -3,6 +3,7 @@ package safety
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"quantmesh/exchange"
@@ -129,6 +130,31 @@ func TestCheckAccountSafety(t *testing.T) {
 				t.Errorf("CheckAccountSafety() error = %v, expectErr %v", err, tt.expectErr)
 			}
 		})
+	}
+}
+
+func TestCheckAccountSafetyInsufficientBalanceMessageIncludesAmounts(t *testing.T) {
+	symbol := "BTCUSDT"
+	ex := &MockExchange{
+		Name: "Binance",
+		Account: &exchange.Account{
+			AvailableBalance: 1084.0,
+			AccountLeverage:  1,
+		},
+		Positions:  []*exchange.Position{},
+		QuoteAsset: "USDT",
+	}
+	// 250 USDT/倉 × 5 倉 / 1x = 1250 > 1084
+	err := CheckAccountSafety(ex, symbol, 50000.0, 250.0, 100.0, 0.0002, 5, 2, 10)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	s := err.Error()
+	if !strings.Contains(s, "當前可用餘額") || !strings.Contains(s, "1084.00") {
+		t.Fatalf("expected 當前可用餘額 with balance, got: %s", s)
+	}
+	if !strings.Contains(s, "滿足 5 倉") || !strings.Contains(s, "1250.00") {
+		t.Fatalf("expected 滿足 5 倉 and required ~1250 USDT, got: %s", s)
 	}
 }
 
