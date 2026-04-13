@@ -1990,6 +1990,9 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
   // 三级火箭网格
   const [rocketTieredGridEnabled, setRocketTieredGridEnabled] = useState(false)
 
+  /** 現貨網格：庫存接管策略 */
+  const [spotInventoryPolicy, setSpotInventoryPolicy] = useState<'conservative' | 'adopt_all'>('conservative')
+
   // 非网格策略 / grid+trend 组合权重等专属参数（与 strategies[0].config 同步）
   const [strategyParamValues, setStrategyParamValues] = useState<Record<string, string>>({})
 
@@ -2044,6 +2047,9 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       // 三级火箭网格
       const rtg = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
       setRocketTieredGridEnabled(rtg?.enabled ?? false)
+
+      const sip = String((cfg as { spot_inventory_policy?: string }).spot_inventory_policy || '')
+      setSpotInventoryPolicy(sip === 'adopt_all' ? 'adopt_all' : 'conservative')
 
       const firstType = cfg.strategies?.[0]?.type || 'grid'
       const firstStratCfg = cfg.strategies?.[0]?.config as Record<string, unknown> | undefined
@@ -2108,6 +2114,10 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
           }
         : { enabled: false, tiers: [] }
 
+      if (bot.market_type === 'spot' && strategyUsesGridParams(strategyType)) {
+        updateData.spot_inventory_policy = spotInventoryPolicy
+      }
+
       await updateBotStrategy(botId, updateData)
       toast({
         title: t('botDetail.strategy.saveSuccess'),
@@ -2150,6 +2160,9 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
 
       const rtgReset = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
       setRocketTieredGridEnabled(rtgReset?.enabled ?? false)
+
+      const sipReset = String((cfg as { spot_inventory_policy?: string }).spot_inventory_policy || '')
+      setSpotInventoryPolicy(sipReset === 'adopt_all' ? 'adopt_all' : 'conservative')
 
       const firstType = cfg.strategies?.[0]?.type || 'grid'
       const firstStratCfg = cfg.strategies?.[0]?.config as Record<string, unknown> | undefined
@@ -2332,6 +2345,25 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                 {t('botDetail.strategy.orderQuantityHint')}
               </Text>
             </FormControl>
+
+            {bot?.market_type === 'spot' && (
+              <FormControl>
+                <FormLabel>{t('botDetail.strategy.spotInventoryPolicy')}</FormLabel>
+                <Select
+                  value={spotInventoryPolicy}
+                  onChange={(e) => {
+                    setSpotInventoryPolicy(e.target.value as 'conservative' | 'adopt_all')
+                    setHasChanges(true)
+                  }}
+                >
+                  <option value="conservative">{t('botDetail.strategy.spotInventoryConservative')}</option>
+                  <option value="adopt_all">{t('botDetail.strategy.spotInventoryAdoptAll')}</option>
+                </Select>
+                <Text fontSize="xs" color="gray.500" mt={1}>
+                  {t('botDetail.strategy.spotInventoryPolicyHint')}
+                </Text>
+              </FormControl>
+            )}
 
             <Divider />
 

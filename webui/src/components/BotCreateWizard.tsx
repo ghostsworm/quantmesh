@@ -105,6 +105,7 @@ const BotCreateWizard: React.FC = () => {
     take_profit_trigger_ratio?: number | string
     enable_trend_filter?: boolean
     rocket_tiered_grid_enabled?: boolean
+    spot_inventory_policy: 'conservative' | 'adopt_all'
   }>({
     exchange: 'binance',
     symbol: '',
@@ -121,6 +122,7 @@ const BotCreateWizard: React.FC = () => {
     take_profit_trigger_ratio: 0.08,
     enable_trend_filter: false,
     rocket_tiered_grid_enabled: false,
+    spot_inventory_policy: 'conservative',
   })
 
   const [loading, setLoading] = useState(true)
@@ -455,6 +457,9 @@ const BotCreateWizard: React.FC = () => {
               ],
             }
           : undefined,
+        ...(form.market_type === 'spot'
+          ? { spot_inventory_policy: form.spot_inventory_policy }
+          : {}),
       }
 
       if (strategyType === 'hedge') {
@@ -1029,6 +1034,26 @@ const BotCreateWizard: React.FC = () => {
                   {t('botCreate.directionHint')}
                 </Text>
               </FormControl>
+              {form.market_type === 'spot' && (
+                <FormControl>
+                  <FormLabel>{t('botCreate.spotInventoryPolicy')}</FormLabel>
+                  <Select
+                    value={form.spot_inventory_policy}
+                    onChange={(e) =>
+                      setForm((f) => ({
+                        ...f,
+                        spot_inventory_policy: e.target.value as 'conservative' | 'adopt_all',
+                      }))
+                    }
+                  >
+                    <option value="conservative">{t('botCreate.spotInventoryConservative')}</option>
+                    <option value="adopt_all">{t('botCreate.spotInventoryAdoptAll')}</option>
+                  </Select>
+                  <Text fontSize="xs" color="gray.500" mt={1}>
+                    {t('botCreate.spotInventoryPolicyHint')}
+                  </Text>
+                </FormControl>
+              )}
               <StrategyParamForm
                 strategyIds={getStrategyIds()}
                 value={strategyParams}

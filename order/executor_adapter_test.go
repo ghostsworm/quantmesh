@@ -13,3 +13,12 @@ func TestNewExchangeOrderExecutorTrimsBotID(t *testing.T) {
 		t.Fatalf("botID=%q", oe.botID)
 	}
 }
+
+func TestIsMarginInsufficientError_OKX51008(t *testing.T) {
+	if !isMarginInsufficientError("下單失败: 51008 - insufficient balance") {
+		t.Fatal("expected 51008 to be margin insufficient")
+	}
+	if isMarginInsufficientError("unknown") {
+		t.Fatal("unexpected")
+	}
+}

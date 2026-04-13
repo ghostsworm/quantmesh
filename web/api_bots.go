@@ -151,6 +151,9 @@ type CreateBotRequest struct {
 
 	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
 	FundingPerpSpread *config.FundingPerpSpreadConfig `json:"funding_perp_spread,omitempty"`
+
+	// SpotInventoryPolicy 現貨網格庫存策略：conservative（預設）/ adopt_all
+	SpotInventoryPolicy string `json:"spot_inventory_policy,omitempty"`
 }
 
 // buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
@@ -393,6 +396,7 @@ func postBotCreate(c *gin.Context) {
 		SmartOrder:            buildSmartOrderFromRequest(req),
 		RocketTieredGrid:      req.RocketTieredGrid,
 		FundingPerpSpread:     req.FundingPerpSpread,
+		SpotInventoryPolicy:   config.NormalizeSpotInventoryPolicy(req.SpotInventoryPolicy),
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -1131,6 +1135,9 @@ type UpdateBotStrategyRequest struct {
 
 	// 三級火箭網格
 	RocketTieredGrid *config.RocketTieredGridConfig `json:"rocket_tiered_grid,omitempty"`
+
+	// SpotInventoryPolicy 現貨網格庫存策略
+	SpotInventoryPolicy *string `json:"spot_inventory_policy,omitempty"`
 }
 
 // putBotStrategy 更新 Bot 策略配置
@@ -1270,6 +1277,10 @@ func putBotStrategy(c *gin.Context) {
 			// 更新三級火箭網格
 			if req.RocketTieredGrid != nil {
 				bc.RocketTieredGrid = req.RocketTieredGrid
+			}
+
+			if req.SpotInventoryPolicy != nil {
+				bc.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(*req.SpotInventoryPolicy)
 			}
 
 			found = true
