@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.102.0-rc10] - 2026-04-13
+
+### Fixed
+- **新聞監控配置保存後仍按舊任務運行**：`FileConfigManager.UpdateConfig` 成功寫入主庫後觸發 **`NewsMonitor.ApplyRuntimeConfig`**，替換運行時 `*Config` 指針並重啟/停止定時收集與分析；同步重啟 **價格歷史記錄器**、**預測驗證器**，並在重新啟用時向各 **`RiskMonitor`** 重新注入 **`SetNewsMonitor`**。
+- **差異預覽**：`news_monitor` 節任意字段變更標記 **`requires_restart`**（與運行時同步並行，便於 UI 提示兜底）。
+
+---
+
 ## [3.102.0-rc9] - 2026-04-12
 
 ### Fixed

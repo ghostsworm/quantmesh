@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.102.0-rc9"
+var Version = "3.102.0-rc10"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2530,6 +2530,8 @@ func main() {
 
 	// Web 绑定數據提供者（兼容舊前端：使用第一個运行時，同時注册多交易對）
 	var newsMonitor *monitor.NewsMonitor
+	var newsPriceRecorder *monitor.PriceHistoryRecorder
+	var newsPredVerifier *monitor.PredictionVerifier
 	if webServer != nil && configComplete && firstRuntime != nil {
 		statusMap := make(map[string]*web.SystemStatus)
 		for _, rt := range symbolManager.List() {
@@ -2728,17 +2730,53 @@ func main() {
 					}
 					logger.Info("✅ 新聞監控已啟动")
 					// 啟動價格历史記錄器（用於預测驗证）
-					priceRecorder := monitor.NewPriceHistoryRecorder(cfg, storageService.GetStorage(), getPrice)
-					priceRecorder.Start()
+					newsPriceRecorder = monitor.NewPriceHistoryRecorder(cfg, storageService.GetStorage(), getPrice)
+					newsPriceRecorder.Start()
 					// 啟动預测驗证器
-					predVerifier := monitor.NewPredictionVerifier(cfg, storageService.GetStorage())
-					predVerifier.Start()
+					newsPredVerifier = monitor.NewPredictionVerifier(cfg, storageService.GetStorage())
+					newsPredVerifier.Start()
 				}
 			} else {
 				// 未啟用時僅初始化分析器，支援手動觸發
 				newsMonitor.InitForManualTrigger()
 				logger.Info("✅ 新聞監控已就緒（手動觸發可用）")
 			}
+
+			// Web 保存 app_config 後同步新聞運行時（避免仍持啟動時舊 *Config 指針）
+			web.SetNewsMonitorRuntimeSync(func(newCfg *config.Config) {
+				if newsMonitor == nil || newCfg == nil {
+					return
+				}
+				if newsPriceRecorder != nil {
+					newsPriceRecorder.Stop()
+					newsPriceRecorder = nil
+				}
+				if newsPredVerifier != nil {
+					newsPredVerifier.Stop()
+					newsPredVerifier = nil
+				}
+				newsMonitor.ApplyRuntimeConfig(newCfg)
+				if !newCfg.NewsMonitor.Enabled {
+					return
+				}
+				getPrice := func(symbol string) float64 {
+					for _, rt := range symbolManager.List() {
+						if rt.Config.Symbol == symbol && rt.PriceMonitor != nil {
+							return rt.PriceMonitor.GetLastPrice()
+						}
+					}
+					return 0
+				}
+				newsPriceRecorder = monitor.NewPriceHistoryRecorder(newCfg, storageService.GetStorage(), getPrice)
+				newsPriceRecorder.Start()
+				newsPredVerifier = monitor.NewPredictionVerifier(newCfg, storageService.GetStorage())
+				newsPredVerifier.Start()
+				for _, rt := range symbolManager.List() {
+					if rt.RiskMonitor != nil {
+						rt.RiskMonitor.SetNewsMonitor(newsMonitor)
+					}
+				}
+			})
 		}
 
 		// 初始化宏觀事件預測市場拉取（Polymarket Gamma API）
