@@ -1,5 +1,5 @@
 import React, { useEffect, useState, Suspense, lazy } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, Link as RouterLink } from 'react-router-dom'
 import { 
   ChakraProvider, 
   Box, 
@@ -34,7 +34,6 @@ import Footer from './components/Footer'
 import Sidebar from './components/Sidebar'
 import MobileNav from './components/MobileNav'
 import LanguageSelector from './components/LanguageSelector'
-import GeminiUsageMenu from './components/GeminiUsageMenu'
 import ConnectionStatusBanner from './components/ConnectionStatusBanner'
 import { checkSetupStatus } from './services/setup'
 import { logout } from './services/auth'
@@ -75,6 +74,7 @@ const AIPromptManager = lazy(() => import('./components/AIPromptManager'))
 const AIConfigPage = lazy(() => import('./components/AIConfigPage'))
 const EventCenter = lazy(() => import('./components/EventCenter'))
 const AITaskManager = lazy(() => import('./components/AITaskManager'))
+const GeminiUsagePage = lazy(() => import('./components/GeminiUsagePage'))
 const CapitalManagement = lazy(() => import('./components/CapitalManagement'))
 const ProfitManagement = lazy(() => import('./components/ProfitManagement'))
 const FundingCarryDashboard = lazy(() => import('./components/FundingCarryDashboard'))
@@ -444,7 +444,16 @@ const AppContent: React.FC = () => {
             {isAuthenticated && (
               <GridItem area="actions" justifySelf="end">
                 <HStack spacing={{ base: 2, md: 4 }}>
-                  <GeminiUsageMenu />
+                  <Button
+                    as={RouterLink}
+                    to="/gemini-usage"
+                    size="xs"
+                    variant="ghost"
+                    fontWeight="600"
+                    borderRadius="full"
+                  >
+                    {t('geminiUsage.menuButton')}
+                  </Button>
                   <LanguageSelector />
                   <Button
                     variant="ghost"
@@ -535,6 +544,7 @@ const AppContent: React.FC = () => {
                 <Route path="/newbie-risk-check" element={<ProtectedRoute><NewbieRiskCheck /></ProtectedRoute>} />
                 <Route path="/ai-config" element={<ProtectedRoute><AIConfigPage /></ProtectedRoute>} />
                 <Route path="/ai/tasks" element={<ProtectedRoute><AITaskManager /></ProtectedRoute>} />
+                <Route path="/gemini-usage" element={<ProtectedRoute><GeminiUsagePage /></ProtectedRoute>} />
                 <Route path="/events" element={<ProtectedRoute><EventCenter /></ProtectedRoute>} />
                 <Route path="/bots" element={<ProtectedRoute><BotList /></ProtectedRoute>} />
                 <Route path="/bots/create" element={<ProtectedRoute><BotCreateWizard /></ProtectedRoute>} />

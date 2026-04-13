@@ -16,6 +16,7 @@ import (
 
 	// "quantmesh/ai" // AI 功能已迁移到商业插件
 	"quantmesh/ai"
+	"quantmesh/ai/geminiusage"
 	"quantmesh/ai/processor"
 	"quantmesh/ai/service"
 	"quantmesh/backtest"
@@ -44,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.102.0-rc10"
+var Version = "3.102.0-rc11"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -2124,6 +2125,23 @@ func main() {
 
 		if storageService != nil && storageService.GetStorage() != nil {
 			web.SetPrimaryStorageForAppConfig(storageService.GetStorage())
+			geminiusage.SetPersist(func(e geminiusage.Entry) {
+				st := web.GetPrimaryStorageForAppConfig()
+				if st == nil {
+					return
+				}
+				rec := &storage.GeminiUsageRecord{
+					CalledAt:     e.At,
+					Model:        e.Model,
+					Source:       e.Source,
+					InputTokens:  e.InputTokens,
+					OutputTokens: e.OutputTokens,
+					DurationMs:   e.DurationMs,
+				}
+				if err := st.SaveGeminiUsageRecord(rec); err != nil {
+					logger.Debug("📊 Gemini 用量寫庫失敗: %v", err)
+				}
+			})
 		}
 		fileConfigManager := web.NewFileConfigManager("")
 		fileConfigManager.SetRuntimeConfig(cfg)

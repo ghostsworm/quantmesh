@@ -155,6 +155,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL bot_risk_control_events 表失败: %w", err)
 		}
+		if err := migrateGeminiUsageTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL gemini_usage 表失败: %w", err)
+		}
 	}
 
 	tradesTbl := "trades"
@@ -491,6 +495,10 @@ func createTables(db *sql.DB) error {
 	// 迁移：确保 news_analysis_history 表存在
 	if err := migrateNewsAnalysisHistoryTable(db); err != nil {
 		return fmt.Errorf("迁移 news_analysis_history 表失败: %w", err)
+	}
+	// 迁移：Gemini 用量持久化
+	if err := migrateGeminiUsageTable(db); err != nil {
+		return fmt.Errorf("迁移 gemini_usage 表失败: %w", err)
 	}
 	// 迁移：确保 price_history 和 prediction_verification 表存在
 	if err := migratePriceHistoryTable(db); err != nil {

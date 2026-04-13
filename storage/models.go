@@ -348,6 +348,18 @@ type PredictionVerification struct {
 	Status               string // pending, verified, expired
 }
 
+// GeminiUsageRecord 單次 Gemini API 調用用量（持久化至 gemini_usage 表）
+type GeminiUsageRecord struct {
+	ID           int64
+	CalledAt     time.Time
+	Model        string
+	Source       string
+	InputTokens  int64
+	OutputTokens int64
+	DurationMs   int64
+	CreatedAt    time.Time
+}
+
 // NewsAnalysisHistory 新聞分析历史記錄
 type NewsAnalysisHistory struct {
 	ID                int64
