@@ -136,15 +136,9 @@ quantmesh_platform/
 ├── position/        safety/  monitor/  web/  webui/
 ```
 
-## 使用统计（可选）
+## 使用统计
 
-默认发送匿名统计（版本、系统、交易所名、交易对等），**不收集** IP、余额、API Key、成交金额。关闭方式：
-
-```bash
-export QUANTMESH_DISABLE_TELEMETRY=1
-```
-
-或在 `webui/.env.local` 中设置 `VITE_DISABLE_TELEMETRY=1`。详见 [docs/TELEMETRY_GUIDE.md](docs/TELEMETRY_GUIDE.md)、[docs/TELEMETRY_PRIVACY.md](docs/TELEMETRY_PRIVACY.md)。
+**已不再**向 PostHog 或任何第三方分析后端发送事件；后端与安装脚本均无此类出站请求。Web 界面可选在初始化时加载一枚 **1×1 像素**（见 `webui/src/services/telemetry.ts`）。若需关闭该像素，可在 `webui/.env.local` 设置 `VITE_DISABLE_TELEMETRY=1`，或将浏览器 `localStorage` 的 `QUANTMESH_DISABLE_TELEMETRY` 设为 `1`。说明见 [docs/TELEMETRY_GUIDE.md](docs/TELEMETRY_GUIDE.md)。
 
 ## 免责声明
 

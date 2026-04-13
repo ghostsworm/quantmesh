@@ -129,15 +129,9 @@ trading:
 
 Full write-up: [ARCHITECTURE.md](../ARCHITECTURE.md).
 
-## Telemetry (optional)
+## Telemetry
 
-Anonymous stats may be sent (version, OS, exchange name, symbols, latency, etc.). **We do not** collect IP, balances, API keys, or trade sizes. Disable:
-
-```bash
-export QUANTMESH_DISABLE_TELEMETRY=1
-```
-
-Or set `VITE_DISABLE_TELEMETRY=1` in `webui/.env.local`, or edit `utils/telemetry.go`. Long form: [TELEMETRY_GUIDE.md](../TELEMETRY_GUIDE.md), [TELEMETRY_PRIVACY.md](../TELEMETRY_PRIVACY.md).
+**PostHog and third-party backend analytics have been removed.** The Go backend and install script do not send usage events. The Web UI may still load an optional **1×1 pixel** on startup (`webui/src/services/telemetry.ts`). Disable with `VITE_DISABLE_TELEMETRY=1` in `webui/.env.local` or `localStorage` key `QUANTMESH_DISABLE_TELEMETRY` = `1`. Details: [TELEMETRY_GUIDE.md](../TELEMETRY_GUIDE.md).
 
 ## Disclaimer
 

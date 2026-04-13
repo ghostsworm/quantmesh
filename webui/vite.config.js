@@ -169,11 +169,6 @@ export default defineConfig({
             return 'echarts-vendor'
           }
           
-          // PostHog 分析
-          if (id.includes('node_modules/posthog-js')) {
-            return 'posthog-vendor'
-          }
-          
           // Markdown / Diff 渲染
           if (
             id.includes('node_modules/react-markdown') ||

@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.103.0-rc2] - 2026-04-13
+
+### Removed
+- **PostHog / 第三方後端遙測**：移除 `posthog-js` 與前端初始化；`utils/telemetry.go` 導出函數改為空實現；安裝腳本不再向分析端點發送請求；刪除 PostHog 相關腳本與冗餘 TELEMETRY_* 文檔，保留簡要說明於 `docs/TELEMETRY_GUIDE.md`。
+
+---
+
 ## [3.103.0-rc1] - 2026-04-13
 
 ### Added

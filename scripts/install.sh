@@ -1611,60 +1611,9 @@ start_service() {
     fi
 }
 
-# Send installation telemetry (optional, fully transparent)
+# 安裝腳本曾可選發送匿名統計；第三方遙測已移除，保留函數名以免調用處改動。
 send_install_telemetry() {
-    # Check if telemetry is disabled
-    if [ "$QUANTMESH_DISABLE_TELEMETRY" = "1" ]; then
-        return
-    fi
-    
-    # Check if curl command exists
-    if ! command -v curl &> /dev/null; then
-        return
-    fi
-    
-    # PostHog Project ID
-    POSTHOG_PROJECT_ID="${QUANTMESH_TELEMETRY_PROJECT_ID:-phc_kz2U334i5MD8ozz78zvCdN6aRkkx3kYyoU1RSigJOiA}"
-    POSTHOG_ENDPOINT="${QUANTMESH_TELEMETRY_ENDPOINT:-https://us.i.posthog.com/capture/}"
-    
-    # Skip if not configured
-    if [ -z "$POSTHOG_PROJECT_ID" ] || [ "$POSTHOG_PROJECT_ID" = "YOUR_POSTHOG_PROJECT_ID" ]; then
-        return
-    fi
-    
-    # Get system information
-    local arch=$(uname -m)
-    case $arch in
-        x86_64) arch="amd64" ;;
-        aarch64|arm64) arch="arm64" ;;
-        *) arch="unknown" ;;
-    esac
-    
-    local os_name=$(uname -s | tr '[:upper:]' '[:lower:]')
-    local timestamp=$(date -Iseconds 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S%z")
-    
-    # Send telemetry asynchronously, don't block installation
-    (
-        hname=$(hostname 2>/dev/null || echo "unknown")
-        public_ip=$(curl -s -m 1.5 "https://ip4.dev/myip" 2>/dev/null | tr -d '[:space:]')
-        distinct_id="${hname}"
-        [ -n "$public_ip" ] && distinct_id="${hname}-${public_ip}"
-        distinct_id="${distinct_id}-${os_name}-${arch}-${INSTALLED_VERSION}"
-        curl -s -m 1.5 -X POST "${POSTHOG_ENDPOINT}" \
-            -H "Content-Type: application/json" \
-            -H "User-Agent: QuantMesh-InstallScript/${INSTALLED_VERSION}" \
-            -d "{
-                \"api_key\": \"${POSTHOG_PROJECT_ID}\",
-                \"event\": \"install\",
-                \"distinct_id\": \"${distinct_id}\",
-                \"properties\": {
-                    \"timestamp\": \"${timestamp}\",
-                    \"version\": \"${INSTALLED_VERSION}\",
-                    \"os\": \"${os_name}\",
-                    \"arch\": \"${arch}\"
-                }
-            }" > /dev/null 2>&1
-    ) &
+    return
 }
 
 # Print completion information
