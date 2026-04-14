@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"quantmesh/config"
 	"quantmesh/position"
 
 	"github.com/gin-gonic/gin"
@@ -368,33 +369,41 @@ func versionHeaderMiddleware() gin.HandlerFunc {
 	}
 }
 
+// effectiveConfigForExchangeList 與 GET /api/config/json 一致：優先使用 Web 保存後的
+// FileConfigManager 內存配置；僅在尚未初始化時回退 globalConfig（啟動時注入）。
+// 避免「後台已寫入主庫與 fcm.currentConfig，但 globalConfig 未同步」導致新建 Bot 下拉里看不到剛配置的交易所。
+func effectiveConfigForExchangeList() *config.Config {
+	if cfg := GetConfig(); cfg != nil {
+		return cfg
+	}
+	return globalConfig
+}
+
 // getExchanges 返回所有配置的交易所列表
 func getExchanges(c *gin.Context) {
 	exchangeSet := make(map[string]bool)
 
-	// 首先從配置文件中读取所有配置的交易所
-	if globalConfig != nil {
-		cfg := globalConfig
-		if cfg != nil {
-			// 從配置的 exchanges 中读取
-			for ex := range cfg.Exchanges {
-				if ex != "" {
-					exchangeSet[strings.ToLower(ex)] = true
-				}
+	// 首先從當前運行配置读取所有配置的交易所（含 Web 保存後的最新 exchanges 鍵）
+	cfg := effectiveConfigForExchangeList()
+	if cfg != nil {
+		// 從配置的 exchanges 中读取
+		for ex := range cfg.Exchanges {
+			if ex != "" {
+				exchangeSet[strings.ToLower(ex)] = true
 			}
-			// 從交易對配置中读取交易所
-			for _, sym := range cfg.Trading.Symbols {
-				if sym.Exchange != "" {
-					exchangeSet[strings.ToLower(sym.Exchange)] = true
-				} else if cfg.App.CurrentExchange != "" {
-					exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
-				}
+		}
+		// 從交易對配置中读取交易所
+		for _, sym := range cfg.Trading.Symbols {
+			if sym.Exchange != "" {
+				exchangeSet[strings.ToLower(sym.Exchange)] = true
+			} else if cfg.App.CurrentExchange != "" {
+				exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
 			}
-			// 如果只有單交易對配置
-			if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
-				if cfg.App.CurrentExchange != "" {
-					exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
-				}
+		}
+		// 如果只有單交易對配置
+		if len(cfg.Trading.Symbols) == 0 && cfg.Trading.Symbol != "" {
+			if cfg.App.CurrentExchange != "" {
+				exchangeSet[strings.ToLower(cfg.App.CurrentExchange)] = true
 			}
 		}
 	}
