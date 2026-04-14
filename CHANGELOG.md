@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc2] - 2026-04-15
+
+### Fixed
+- **OKX 公共行情 WebSocket**：`tickers` 断線後自動重連（含讀取超時），避免 `last` 長期卡死在舊價；重複 `StartPriceStream` 時取消上一路协程，避免多連接競寫 `lastPrice`；解析推送時按 **`instId`** 過濾，避免多標的批次推送時誤用 `data[0]`。補 **`TestHandlePriceMessageFiltersByInstId`**。
+- **Gate.io 現貨訂單 WebSocket**：與 K 線流一致每 **15s** 發送 **`spot.ping`**，降低長連線被服務端斷開（如 **1006 abnormal closure**）後頻繁重連的情況。
+
+---
+
 ## [3.104.0-rc1] - 2026-04-13
 
 ### Added
