@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc5] - 2026-04-15
+
+### Fixed
+- **GET /api/exchanges**：先前僅讀啟動時的 `globalConfig`，Web 保存 `app_config` 後 `FileConfigManager` 已更新但 `globalConfig` 未同步，導致新建 Bot 下拉里看不到剛配置的交易所（如 Bitget）。改為優先使用 `GetConfig()`（與 `/api/config/json` 一致）。
+
+---
+
 ## [3.104.0-rc4] - 2026-04-15
 
 ### Fixed
