@@ -86,6 +86,8 @@ func (w *WebSocketManager) Stop() {
 func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-w.stopCh:
 			return
 		default:
@@ -120,13 +122,19 @@ func (w *WebSocketManager) connect(ctx context.Context, symbol string) {
 			continue
 		}
 
-		// 啟动心跳
-		go w.heartbeat()
+		hbStop := make(chan struct{})
+		go w.heartbeat(hbStop)
 
-		// 读取消息
 		w.readMessages()
 
-		// 连接断开，重连
+		close(hbStop)
+		w.mu.Lock()
+		if w.conn != nil {
+			_ = w.conn.Close()
+			w.conn = nil
+		}
+		w.mu.Unlock()
+
 		logger.Warn("AscendEX WebSocket disconnected, reconnecting...")
 		time.Sleep(5 * time.Second)
 	}
@@ -181,8 +189,8 @@ func (w *WebSocketManager) sendMessage(msg interface{}) error {
 	return conn.WriteMessage(websocket.TextMessage, data)
 }
 
-// heartbeat 心跳
-func (w *WebSocketManager) heartbeat() {
+// heartbeat 心跳（hbStop 關閉時退出，避免重連泄漏）
+func (w *WebSocketManager) heartbeat(hbStop <-chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -190,11 +198,16 @@ func (w *WebSocketManager) heartbeat() {
 		select {
 		case <-w.stopCh:
 			return
+		case <-hbStop:
+			return
 		case <-ticker.C:
 			pingMsg := map[string]interface{}{
 				"op": "ping",
 			}
-			w.sendMessage(pingMsg)
+			if err := w.sendMessage(pingMsg); err != nil {
+				logger.Error("AscendEX WebSocket ping error: %v", err)
+				return
+			}
 		}
 	}
 }

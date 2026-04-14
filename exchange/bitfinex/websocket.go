@@ -43,18 +43,31 @@ func NewWebSocketManager(client *BitfinexClient, symbol string) (*WebSocketManag
 	}, nil
 }
 
+func (w *WebSocketManager) closeConn() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.conn != nil {
+		_ = w.conn.Close()
+		w.conn = nil
+	}
+}
+
 // StartOrderStream 啟動訂單流
 func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	w.mu.Lock()
 	w.orderCallback = callback
 	w.mu.Unlock()
 
+	w.closeConn()
+
 	// 连接 WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(BitfinexWSURL, nil)
 	if err != nil {
 		return fmt.Errorf("dial websocket error: %w", err)
 	}
+	w.mu.Lock()
 	w.conn = conn
+	w.mu.Unlock()
 
 	logger.Info("Bitfinex WebSocket connected: %s", BitfinexWSURL)
 
@@ -73,19 +86,24 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(float64)) error {
 	w.mu.Lock()
 	w.priceCallback = callback
+	connExisting := w.conn
 	w.mu.Unlock()
 
 	// 如果已經连接，订阅 ticker
-	if w.conn != nil {
+	if connExisting != nil {
 		return w.subscribeTicker()
 	}
+
+	w.closeConn()
 
 	// 连接 WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(BitfinexWSURL, nil)
 	if err != nil {
 		return fmt.Errorf("dial websocket error: %w", err)
 	}
+	w.mu.Lock()
 	w.conn = conn
+	w.mu.Unlock()
 
 	logger.Info("Bitfinex WebSocket connected for price stream: %s", BitfinexWSURL)
 
@@ -117,7 +135,13 @@ func (w *WebSocketManager) authenticate() error {
 		"authPayload": authPayload,
 	}
 
-	if err := w.conn.WriteJSON(authMsg); err != nil {
+	w.mu.RLock()
+	conn := w.conn
+	w.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
+	if err := conn.WriteJSON(authMsg); err != nil {
 		return fmt.Errorf("send auth message error: %w", err)
 	}
 
@@ -133,7 +157,13 @@ func (w *WebSocketManager) subscribeTicker() error {
 		"symbol":  "t" + w.symbol,
 	}
 
-	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
+	w.mu.RLock()
+	conn := w.conn
+	w.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
+	if err := conn.WriteJSON(subscribeMsg); err != nil {
 		return fmt.Errorf("subscribe ticker error: %w", err)
 	}
 
@@ -156,9 +186,16 @@ func (w *WebSocketManager) handleMessages(ctx context.Context) {
 		case <-w.stopChan:
 			return
 		default:
-			_, message, err := w.conn.ReadMessage()
+			w.mu.RLock()
+			conn := w.conn
+			w.mu.RUnlock()
+			if conn == nil {
+				return
+			}
+			_, message, err := conn.ReadMessage()
 			if err != nil {
 				logger.Error("Bitfinex WebSocket read error: %v", err)
+				w.closeConn()
 				w.reconnect(ctx)
 				return
 			}
@@ -349,8 +386,6 @@ func (w *WebSocketManager) reconnect(ctx context.Context) {
 // Stop 停止 WebSocket
 func (w *WebSocketManager) Stop() {
 	close(w.stopChan)
-	if w.conn != nil {
-		w.conn.Close()
-	}
+	w.closeConn()
 	logger.Info("Bitfinex WebSocket stopped")
 }
