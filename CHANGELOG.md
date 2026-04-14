@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc4] - 2026-04-15
+
+### Fixed
+- **MEXC / AscendEX WebSocket**：外層重連時每次 `go heartbeat()` 未隨連線結束，導致多個 ping 协程泄漏；改為每條連線 **`hbStop` + `heartbeat(hbStop)`**，`readMessages` 返回後 `close(hbStop)` 並關閉連線；**`connect`** 增加 **`ctx.Done()`** 退出。
+- **Coins.ph 價格 WebSocket**：讀取失敗即退出、無自動重連；改為 **`runPriceLoop`**（退避重連、每連線獨立 keep-alive）、**`StartPriceStream`** 重複調用時 **`priceCancel`** 取消上一路。
+- **Bitfinex WebSocket**：重連前未釋放舊連線；讀錯後 **`w.conn` 仍非 nil** 時 **`StartPriceStream`** 僅訂閱導致無法恢復。新增 **`closeConn()`**，**`handleMessages`** 讀取前取鎖內連線副本、錯誤時先 **`closeConn()`** 再 **`reconnect`**；**`authenticate` / `subscribeTicker`** 經鎖取 `conn` 寫入。
+- **Kraken Futures WebSocket**：同上 **`closeConn()`** 與讀取路徑；**`ping`** 改為 **`startPingLoop` + `pingWorker`**（`pingCancel` 與連線綁定），避免重連疊加多個 ping 协程。
+
+---
+
 ## [3.104.0-rc3] - 2026-04-15
 
 ### Fixed

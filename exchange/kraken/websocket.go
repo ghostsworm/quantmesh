@@ -24,6 +24,8 @@ type WebSocketManager struct {
 	orderCallback  func(interface{})
 	priceCallback  func(float64)
 	mu             sync.RWMutex
+	pingMu         sync.Mutex
+	pingCancel     context.CancelFunc
 	stopChan       chan struct{}
 	reconnectDelay time.Duration
 }
@@ -38,18 +40,49 @@ func NewWebSocketManager(client *KrakenClient, symbol string) (*WebSocketManager
 	}, nil
 }
 
+func (w *WebSocketManager) closeConn() {
+	w.pingMu.Lock()
+	if w.pingCancel != nil {
+		w.pingCancel()
+		w.pingCancel = nil
+	}
+	w.pingMu.Unlock()
+
+	w.mu.Lock()
+	if w.conn != nil {
+		_ = w.conn.Close()
+		w.conn = nil
+	}
+	w.mu.Unlock()
+}
+
+func (w *WebSocketManager) startPingLoop(ctx context.Context) {
+	w.pingMu.Lock()
+	if w.pingCancel != nil {
+		w.pingCancel()
+	}
+	pingCtx, cancel := context.WithCancel(ctx)
+	w.pingCancel = cancel
+	w.pingMu.Unlock()
+	go w.pingWorker(pingCtx)
+}
+
 // StartOrderStream 啟動訂單流
 func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	w.mu.Lock()
 	w.orderCallback = callback
 	w.mu.Unlock()
 
+	w.closeConn()
+
 	// 连接 WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(KrakenWSURL, nil)
 	if err != nil {
 		return fmt.Errorf("dial websocket error: %w", err)
 	}
+	w.mu.Lock()
 	w.conn = conn
+	w.mu.Unlock()
 
 	logger.Info("Kraken WebSocket connected: %s", KrakenWSURL)
 
@@ -70,7 +103,7 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 
 	// 啟动消息处理
 	go w.handleMessages(ctx)
-	go w.ping(ctx)
+	w.startPingLoop(ctx)
 
 	return nil
 }
@@ -79,19 +112,24 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(float64)) error {
 	w.mu.Lock()
 	w.priceCallback = callback
+	hasConn := w.conn != nil
 	w.mu.Unlock()
 
 	// 如果已經连接，直接订阅價格流
-	if w.conn != nil {
+	if hasConn {
 		return w.subscribePriceStream()
 	}
+
+	w.closeConn()
 
 	// 连接 WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(KrakenWSURL, nil)
 	if err != nil {
 		return fmt.Errorf("dial websocket error: %w", err)
 	}
+	w.mu.Lock()
 	w.conn = conn
+	w.mu.Unlock()
 
 	logger.Info("Kraken WebSocket connected for price stream: %s", KrakenWSURL)
 
@@ -102,19 +140,25 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, callback func(f
 
 	// 啟动消息处理
 	go w.handleMessages(ctx)
-	go w.ping(ctx)
+	w.startPingLoop(ctx)
 
 	return nil
 }
 
 // subscribePriceStream 订阅價格流
 func (w *WebSocketManager) subscribePriceStream() error {
+	w.mu.RLock()
+	conn := w.conn
+	w.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("subscribe price stream: no connection")
+	}
 	subscribeMsg := map[string]interface{}{
 		"event":       "subscribe",
 		"feed":        "ticker",
 		"product_ids": []string{w.symbol},
 	}
-	if err := w.conn.WriteJSON(subscribeMsg); err != nil {
+	if err := conn.WriteJSON(subscribeMsg); err != nil {
 		return fmt.Errorf("subscribe price stream error: %w", err)
 	}
 
@@ -137,9 +181,16 @@ func (w *WebSocketManager) handleMessages(ctx context.Context) {
 		case <-w.stopChan:
 			return
 		default:
-			_, message, err := w.conn.ReadMessage()
+			w.mu.RLock()
+			conn := w.conn
+			w.mu.RUnlock()
+			if conn == nil {
+				return
+			}
+			_, message, err := conn.ReadMessage()
 			if err != nil {
 				logger.Error("Kraken WebSocket read error: %v", err)
+				w.closeConn()
 				w.reconnect(ctx)
 				return
 			}
@@ -257,8 +308,8 @@ func (w *WebSocketManager) handlePriceUpdate(message []byte) {
 	}
 }
 
-// ping 发送心跳
-func (w *WebSocketManager) ping(ctx context.Context) {
+// pingWorker 发送心跳（與連接生命週期綁定，重連前由 closeConn 取消上一路）
+func (w *WebSocketManager) pingWorker(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -269,10 +320,16 @@ func (w *WebSocketManager) ping(ctx context.Context) {
 		case <-w.stopChan:
 			return
 		case <-ticker.C:
+			w.mu.RLock()
+			conn := w.conn
+			w.mu.RUnlock()
+			if conn == nil {
+				return
+			}
 			pingMsg := map[string]interface{}{
 				"event": "ping",
 			}
-			if err := w.conn.WriteJSON(pingMsg); err != nil {
+			if err := conn.WriteJSON(pingMsg); err != nil {
 				logger.Error("Kraken send ping error: %v", err)
 				return
 			}
@@ -306,8 +363,6 @@ func (w *WebSocketManager) reconnect(ctx context.Context) {
 // Stop 停止 WebSocket
 func (w *WebSocketManager) Stop() {
 	close(w.stopChan)
-	if w.conn != nil {
-		w.conn.Close()
-	}
+	w.closeConn()
 	logger.Info("Kraken WebSocket stopped")
 }
