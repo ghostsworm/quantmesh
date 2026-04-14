@@ -114,10 +114,14 @@ func (m *SpotOrderWebSocketManager) loop() {
 
 		logger.Info("✅ [Gate Spot Order WS] 已訂閱 spot.orders %s", m.gateSymbol)
 
+		pingStop := make(chan struct{})
+		go m.pingLoop(conn, pingStop)
+
 	readLoop:
 		for {
 			select {
 			case <-m.ctx.Done():
+				close(pingStop)
 				conn.Close()
 				return
 			default:
@@ -126,6 +130,7 @@ func (m *SpotOrderWebSocketManager) loop() {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
 				logger.Warn("⚠️ [Gate Spot Order WS] 讀取失敗: %v", err)
+				close(pingStop)
 				conn.Close()
 				break readLoop
 			}
@@ -142,6 +147,20 @@ func (m *SpotOrderWebSocketManager) loop() {
 		case <-m.ctx.Done():
 			return
 		case <-time.After(3 * time.Second):
+		}
+	}
+}
+
+// pingLoop 與現貨 K 線流一致定期發送 spot.ping，降低長連線被服務端 idle 斷開（websocket 1006）的概率
+func (m *SpotOrderWebSocketManager) pingLoop(conn *websocket.Conn, done <-chan struct{}) {
+	t := time.NewTicker(15 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-done:
+			return
+		case <-t.C:
+			_ = conn.WriteJSON(map[string]interface{}{"time": time.Now().Unix(), "channel": "spot.ping"})
 		}
 	}
 }

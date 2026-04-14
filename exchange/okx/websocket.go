@@ -39,6 +39,11 @@ type WebSocketManager struct {
 	lastPrice     atomic.Value
 	orderCallback func(OrderUpdate)
 	priceCallback func(float64)
+
+	// 公共行情（tickers）單獨連接，與私有訂單 conn 分離；需可取消、可重連，避免断線後價格永遠卡死在舊值
+	muPrice        sync.Mutex
+	priceInstID    string
+	priceRunCancel context.CancelFunc
 }
 
 // NewWebSocketManager 創建 WebSocket 管理器
@@ -140,41 +145,98 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 	return w.sendMessage(subMsg)
 }
 
-// StartPriceStream 啟動價格流
+// StartPriceStream 啟動價格流（可重複調用：會取消上一路公共行情协程並關閉舊連接，避免多連接競寫 lastPrice）
 func (w *WebSocketManager) StartPriceStream(ctx context.Context, instId string, callback func(float64)) error {
 	w.priceCallback = callback
+	w.priceInstID = instId
 
-	// 價格流使用公共 WebSocket（根據是否使用測試網选擇不同的地址）
+	w.muPrice.Lock()
+	if w.priceRunCancel != nil {
+		w.priceRunCancel()
+		w.priceRunCancel = nil
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	w.priceRunCancel = cancel
+	w.muPrice.Unlock()
+
+	go w.runPublicPriceLoop(runCtx, instId)
+	logger.Info("✅ [OKX WebSocket] 價格流已啟动 instId=%s", instId)
+	return nil
+}
+
+func (w *WebSocketManager) runPublicPriceLoop(ctx context.Context, instId string) {
 	publicWsURL := MainnetPublicWsURL
 	if w.useTestnet {
 		publicWsURL = TestnetPublicWsURL
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
-	if err != nil {
-		return fmt.Errorf("连接價格流 WebSocket 失败: %w", err)
-	}
 
-	// 订阅行情频道
-	subMsg := map[string]interface{}{
-		"op": "subscribe",
-		"args": []map[string]string{
-			{
-				"channel": "tickers",
-				"instId":  instId,
+	backoff := 2 * time.Second
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
+		if err != nil {
+			logger.Warn("⚠️ [OKX WebSocket] 公共行情連接失敗: %v，%v 後重試", err, backoff)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			continue
+		}
+
+		subMsg := map[string]interface{}{
+			"op": "subscribe",
+			"args": []map[string]string{
+				{
+					"channel": "tickers",
+					"instId":  instId,
+				},
 			},
-		},
+		}
+		if err := conn.WriteJSON(subMsg); err != nil {
+			logger.Warn("⚠️ [OKX WebSocket] 訂閱 tickers 失敗: %v", err)
+			_ = conn.Close()
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(backoff):
+			}
+			continue
+		}
+
+	readLoop:
+		for {
+			select {
+			case <-ctx.Done():
+				_ = conn.Close()
+				return
+			default:
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			_, message, err := conn.ReadMessage()
+			if err != nil {
+				if ctx.Err() != nil {
+					_ = conn.Close()
+					return
+				}
+				logger.Warn("⚠️ [OKX WebSocket] 讀取價格消息失敗: %v，重連", err)
+				_ = conn.Close()
+				break readLoop
+			}
+			w.handlePriceMessage(message)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
 	}
-
-	if err := conn.WriteJSON(subMsg); err != nil {
-		conn.Close()
-		return fmt.Errorf("订阅價格频道失败: %w", err)
-	}
-
-	// 啟動價格消息处理
-	go w.readPriceMessages(conn)
-
-	logger.Info("✅ [OKX WebSocket] 價格流已啟动")
-	return nil
 }
 
 // sendMessage 发送消息
@@ -216,21 +278,6 @@ func (w *WebSocketManager) readMessages() {
 		}
 
 		w.handleMessage(message)
-	}
-}
-
-// readPriceMessages 读取價格消息
-func (w *WebSocketManager) readPriceMessages(conn *websocket.Conn) {
-	defer conn.Close()
-
-	for {
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			logger.Warn("⚠️ [OKX WebSocket] 读取價格消息失败: %v", err)
-			break
-		}
-
-		w.handlePriceMessage(message)
 	}
 }
 
@@ -322,28 +369,50 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	}
 }
 
-// handlePriceMessage 处理價格消息
+// handlePriceMessage 处理價格消息（只採用訂閱的 instId，避免多標的推送時誤用 data[0]）
 func (w *WebSocketManager) handlePriceMessage(message []byte) {
 	var msg map[string]interface{}
 	if err := json.Unmarshal(message, &msg); err != nil {
 		return
 	}
 
-	// 检查是否是行情數據
 	if arg, ok := msg["arg"].(map[string]interface{}); ok {
-		if channel, ok := arg["channel"].(string); ok && channel == "tickers" {
-			if data, ok := msg["data"].([]interface{}); ok && len(data) > 0 {
-				if ticker, ok := data[0].(map[string]interface{}); ok {
-					if lastStr, ok := ticker["last"].(string); ok {
-						if price, err := strconv.ParseFloat(lastStr, 64); err == nil {
-							w.lastPrice.Store(price)
-							if w.priceCallback != nil {
-								w.priceCallback(price)
-							}
-						}
-					}
+		if channel, ok := arg["channel"].(string); !ok || channel != "tickers" {
+			return
+		}
+		if want := w.priceInstID; want != "" {
+			if got, ok := arg["instId"].(string); ok && got != "" && got != want {
+				return
+			}
+		}
+		data, ok := msg["data"].([]interface{})
+		if !ok || len(data) == 0 {
+			return
+		}
+		want := w.priceInstID
+		for _, row := range data {
+			ticker, ok := row.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if want != "" {
+				if id, ok := ticker["instId"].(string); ok && id != "" && id != want {
+					continue
 				}
 			}
+			lastStr, ok := ticker["last"].(string)
+			if !ok {
+				continue
+			}
+			price, err := strconv.ParseFloat(lastStr, 64)
+			if err != nil || price <= 0 {
+				continue
+			}
+			w.lastPrice.Store(price)
+			if w.priceCallback != nil {
+				w.priceCallback(price)
+			}
+			return
 		}
 	}
 }
@@ -397,6 +466,13 @@ func (w *WebSocketManager) GetLatestPrice() float64 {
 
 // Stop 停止 WebSocket
 func (w *WebSocketManager) Stop() {
+	w.muPrice.Lock()
+	if w.priceRunCancel != nil {
+		w.priceRunCancel()
+		w.priceRunCancel = nil
+	}
+	w.muPrice.Unlock()
+
 	if !w.isRunning.Load() {
 		return
 	}
