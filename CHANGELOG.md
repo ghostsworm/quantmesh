@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc3] - 2026-04-15
+
+### Fixed
+- **Bybit 公共行情 WebSocket**：與已修復之 OKX 類似，舊實作在單次 `readPriceMessages` 断線後不重連，導致 `lastPrice` 可長期卡死；重複啟動價格流時未取消上一路。改為 **`runPublicPriceLoop`**（可取消、断線重連、讀取超時），**`handlePriceMessage`** 校驗 **`topic`** 為 `tickers.{symbol}`；**`Stop`** 時一併取消公共行情协程。補 **`TestHandlePriceMessageFiltersTopic`**。
+
+---
+
 ## [3.104.0-rc2] - 2026-04-15
 
 ### Fixed
