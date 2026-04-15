@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc3] - 2026-04-15
+
+### Fixed
+- **Web i18n（zh-TW）**：補齊 **`botCreate.direction` / `directionHint`**、**`backtest` 網格方向說明**（與 zh-CN / en-US 語義一致，繁體文案）。
+
+---
+
 ## [3.105.0-rc2] - 2026-04-15
 
 ### Fixed
