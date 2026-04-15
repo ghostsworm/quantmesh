@@ -199,6 +199,36 @@ func buildSmartOrderFromRequest(req CreateBotRequest) config.SmartOrderConfig {
 	return soc
 }
 
+// botConfigForRunningConflictCheck 優先從主配置或 GetBot 取完整 BotConfig，否則用列表項構造最小配置供 BotsConflict 使用。
+func botConfigForRunningConflictCheck(resp *BotResponse, cfg *config.Config) *config.BotConfig {
+	if resp == nil {
+		return nil
+	}
+	if cfg != nil && botManagerProvider != nil {
+		if detail, ok := botManagerProvider.GetBot(resp.BotID); ok && detail != nil && detail.Config != nil {
+			return detail.Config
+		}
+		for i := range cfg.Bots {
+			id := cfg.Bots[i].ID
+			if id == "" {
+				id = config.BotIDOrGenerate(cfg.Bots[i])
+			}
+			if id == resp.BotID {
+				return &cfg.Bots[i]
+			}
+		}
+	}
+	mt := resp.MarketType
+	if mt == "" {
+		mt = "futures"
+	}
+	return &config.BotConfig{
+		Exchange:   resp.Exchange,
+		Symbol:     resp.Symbol,
+		MarketType: mt,
+	}
+}
+
 // postBotCreate 創建 Bot
 // POST /api/bots/create
 func postBotCreate(c *gin.Context) {
@@ -295,40 +325,52 @@ func postBotCreate(c *gin.Context) {
 	}
 
 	// 1b. 期貨腿 / 資金費套利互斥（含雙永续兩腿）
+	// 同一交易對可保留多份配置；若既有 Bot 已停止運行（或已停用且未在列表中），不阻擋新建。
 	for i := range cfg.Bots {
 		b := &cfg.Bots[i]
 		id := b.ID
 		if id == "" {
 			id = config.BotIDOrGenerate(*b)
 		}
-		if config.BotsConflict(b, &candidate) {
-			logger.Warn("⚠️ [Bot創建] 與既有 Bot [%s] 配置衝突", id)
-			c.JSON(http.StatusConflict, gin.H{
-				"error":     "symbol_market_conflict",
-				"error_key": "error.bot_symbol_market_conflict",
-				"bot_id":    id,
-			})
-			return
+		if !config.BotsConflict(b, &candidate) {
+			continue
 		}
+		if botManagerProvider != nil {
+			var running bool
+			found := false
+			for _, r := range botManagerProvider.ListBots() {
+				if r.BotID != id {
+					continue
+				}
+				found = true
+				running = r.Running
+				break
+			}
+			if found && !running {
+				continue
+			}
+			if !found && !b.IsEnabled() {
+				continue
+			}
+		} else if !b.IsEnabled() {
+			continue
+		}
+		logger.Warn("⚠️ [Bot創建] 與既有 Bot [%s] 配置衝突", id)
+		c.JSON(http.StatusConflict, gin.H{
+			"error":     "symbol_market_conflict",
+			"error_key": "error.bot_symbol_market_conflict",
+			"bot_id":    id,
+		})
+		return
 	}
 
-	// 2. 檢查運行中衝突
+	// 2. 檢查運行中衝突（運行中 Bot 可能尚未寫回主配置快照）
 	if botManagerProvider != nil {
 		for _, resp := range botManagerProvider.ListBots() {
 			if !resp.Running {
 				continue
 			}
-			var running *config.BotConfig
-			for i := range cfg.Bots {
-				id := cfg.Bots[i].ID
-				if id == "" {
-					id = config.BotIDOrGenerate(cfg.Bots[i])
-				}
-				if id == resp.BotID {
-					running = &cfg.Bots[i]
-					break
-				}
-			}
+			running := botConfigForRunningConflictCheck(&resp, cfg)
 			if running == nil {
 				continue
 			}

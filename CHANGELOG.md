@@ -2,6 +2,21 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc2] - 2026-04-15
+
+### Fixed
+- **`POST /api/bots/create`**：`1b` 對主配置快照中**任意**同腿 Bot 一律 `BotsConflict` 拒絕，導致「僅有已停止 Bot」時仍 **409**；**2** 僅在 `cfg.Bots` 內找到運行中 ID 才擋，運行中 Bot **未寫回快照**時漏擋。改為：**1b** 在運行時可確認該 Bot **未在跑**（或已停用）時不阻擋；**2** 用 **`ListBots` + `GetBot`/最小腿信息** 做 `BotsConflict`。
+- **Web i18n（en-US）**：`botCreate.directionHint` 與中文語義對齊（單向淨持倉 BOTH、現貨降級說明）。
+
+---
+
+## [3.105.0-rc1] - 2026-04-15
+
+### Added
+- **單向淨持倉雙向網格（`direction: BOTH`）**：合約網格下方買開多、上方賣開空，槽位 **`PositionLeg`** 區分多/空腿；平倉仍 **`reduce_only`**。新增可選 **`short_open_window_size`**（未設時繼承 `sell_window_size` / `buy_window_size`）。現貨選 BOTH 時啟動時自動降級為 LONG。`SuperPositionManager` 新增 **`adjustOrdersBoth`**、PnL/全平/撤開倉單等路徑已適配。
+
+---
+
 ## [3.104.0-rc8] - 2026-04-15
 
 ### Fixed
