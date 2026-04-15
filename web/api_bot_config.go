@@ -84,6 +84,34 @@ func loadBotConfigUnified(botID string) (*config.BotConfigFile, error) {
 	return nil, nil
 }
 
+// resolveBotConfigFileFromUnifiedOrMain 載入 Bot 配置：優先主庫 bot_configs / 本地 YAML，否則從 app_config 快照中對應 Bot 轉換（與期權對沖、風控 PUT 等一致）。
+func resolveBotConfigFileFromUnifiedOrMain(botID string) (*config.BotConfigFile, error) {
+	bcf, err := loadBotConfigUnified(botID)
+	if err != nil {
+		return nil, err
+	}
+	if bcf != nil {
+		return bcf, nil
+	}
+	cfg, err := GetLatestConfig()
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, nil
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			return config.ConvertFromBotConfig(cfg.Bots[i]), nil
+		}
+	}
+	return nil, nil
+}
+
 func saveBotConfigUnified(bf *config.BotConfigFile, operator, source string) error {
 	if bf == nil {
 		return fmt.Errorf("配置為空")

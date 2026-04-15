@@ -12,33 +12,9 @@ import (
 
 var optionStore = option.NewStore()
 
-// resolveBotConfigForOptionHedge 與 GET /api/bots/:id/config-file 一致：主庫 bot_configs → 本地 bots/*/config.yaml → app_config 快照中的該 Bot（不強制寫庫）。
-// 僅用 LoadBotConfig 讀磁盤時，主庫已持久化、無本地 YAML 的部署會誤判「Bot 不存在」而 404。
+// resolveBotConfigForOptionHedge 與 GET /api/bots/:id/config-file 一致（見 resolveBotConfigFileFromUnifiedOrMain）。
 func resolveBotConfigForOptionHedge(botID string) (*config.BotConfigFile, error) {
-	bcf, err := loadBotConfigUnified(botID)
-	if err != nil {
-		return nil, err
-	}
-	if bcf != nil {
-		return bcf, nil
-	}
-	cfg, err := GetLatestConfig()
-	if err != nil {
-		return nil, err
-	}
-	if cfg == nil {
-		return nil, nil
-	}
-	for i := range cfg.Bots {
-		id := cfg.Bots[i].ID
-		if id == "" {
-			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
-		}
-		if id == botID {
-			return config.ConvertFromBotConfig(cfg.Bots[i]), nil
-		}
-	}
-	return nil, nil
+	return resolveBotConfigFileFromUnifiedOrMain(botID)
 }
 
 // getOptionHedgeStatus 获取期权对冲状态

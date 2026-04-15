@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc8] - 2026-04-15
+
+### Fixed
+- **`PUT /api/v2/bots/:id/risk-control`**：先前僅在 Bot **運行中**（內存實例存在）時可更新，已停止時一律 **404**，與 **GET**（可從主庫/快照讀）不一致。改為 Bot 未運行時與 **`resolveBotConfigFileFromUnifiedOrMain`** 一致載入配置、寫入 **`bot_configs`**（若可用）並同步 **`app_config` 快照**，並補單元測試。
+
+---
+
 ## [3.104.0-rc7] - 2026-04-15
 
 ### Fixed
