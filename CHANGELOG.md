@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc5] - 2026-04-15
+
+### Fixed
+- **主庫 `app_config` 與 `bot_configs` 一致性**：除 **`PUT /api/bots/:id/strategy`** 外，補齊僅寫入主快照而未同步 Bot 文檔表的路徑——**創建/刪除 Bot、對沖組、批量 funding_carry、整體配置 JSON/YAML、AI 應用配置、新人風控一鍵加固、運行中風控持久化、開倉管理持久化** 等；刪除 Bot/組時 **`removeBotConfigSnapshotBestEffort`** 清理 `bot_configs` 行。
+
+---
+
 ## [3.105.0-rc4] - 2026-04-15
 
 ### Fixed

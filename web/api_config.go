@@ -482,6 +482,8 @@ func updateConfigHandler(c *gin.Context) {
 		return
 	}
 
+	syncAllBotConfigSnapshotsFromMain(newConfig, "post_config_update")
+
 	// 尝試热更新
 	if configHotReloader != nil {
 		_, err := configHotReloader.UpdateConfig(newConfig)
@@ -584,6 +586,8 @@ func updateConfigYAMLHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
 		return
 	}
+
+	syncAllBotConfigSnapshotsFromMain(newConfig, "post_config_update_yaml")
 
 	// 尝試热更新
 	if configHotReloader != nil {
