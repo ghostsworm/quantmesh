@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc7] - 2026-04-15
+
+### Fixed
+- **Web 保存主配置**：`FileConfigManager.UpdateConfig` 原在持有全局配置寫鎖時同步調用 `notifyNewsMonitorRuntimeSync` → `NewsMonitor.ApplyRuntimeConfig` → `stopInternalLocked` 會 **`<-analysisLoopDone` 阻塞數秒～十餘秒**，導致 `PUT /api/bots/:id/strategy` 等寫庫 API 整體變慢（journal 出現 `[GIN_SLOW]` 10～17s）。改為 **先釋放鎖再同步新聞監控**，避免拖住所有依賴配置鎖的請求。
+
+---
+
 ## [3.104.0-rc6] - 2026-04-15
 
 ### Fixed
