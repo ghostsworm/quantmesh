@@ -53,15 +53,20 @@ func GetPrimaryStorageForAppConfig() storage.Storage {
 	return primaryStorageForAppConfig
 }
 
-// persistAppConfigToDB 將完整主配置寫入主庫 app_config（唯一持久化來源）。
-func persistAppConfigToDB(cfg *config.Config, operator, source string) error {
+// persistAppConfigToDB 將完整主配置寫入主庫 app_config（唯一持久化來源），並同步 cfg.Bots 至 bot_configs。
+// botHistorySource 非空時，寫入 bot_config_history 的 source 使用該值（便於與 app_config_history 區分審計）。
+func persistAppConfigToDB(cfg *config.Config, operator, appSource string, botHistorySource string) error {
 	if cfg == nil {
 		return fmt.Errorf("配置為空")
 	}
 	if primaryStorageForAppConfig == nil {
 		return fmt.Errorf("主庫未初始化，無法持久化主配置（請檢查 storage.enabled）")
 	}
-	_, err := storage.SaveAppConfigSnapshot(context.Background(), primaryStorageForAppConfig, cfg, operator, source)
+	if strings.TrimSpace(botHistorySource) != "" {
+		_, err := storage.SaveAppConfigSnapshotWithBotSource(context.Background(), primaryStorageForAppConfig, cfg, operator, appSource, botHistorySource)
+		return err
+	}
+	_, err := storage.SaveAppConfigSnapshot(context.Background(), primaryStorageForAppConfig, cfg, operator, appSource)
 	return err
 }
 
@@ -190,7 +195,7 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 		return fmt.Errorf("未找到交易對配置: %s:%s (market_type=%s)", exchange, symbol, mt)
 	}
 
-	if err := persistAppConfigToDB(cfg, "system", "symbol_enabled"); err != nil {
+	if err := persistAppConfigToDB(cfg, "system", "symbol_enabled", ""); err != nil {
 		return err
 	}
 
@@ -259,14 +264,19 @@ func (fcm *FileConfigManager) GetConfigPath() string {
 	return ""
 }
 
-// UpdateConfig 更新配置
+// UpdateConfig 更新配置（bot_config_history.source 與 app 一致，均為 file_config_update）。
 func (fcm *FileConfigManager) UpdateConfig(newConfig *config.Config) error {
+	return fcm.UpdateConfigWithBotHistorySource(newConfig, "")
+}
+
+// UpdateConfigWithBotHistorySource 同上，但寫入 bot_configs / bot_config_history 時使用指定 source（空則與 file_config_update 相同）。
+func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config.Config, botHistorySource string) error {
 	fcm.mu.Lock()
 	if err := newConfig.Validate(); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}
-	if err := persistAppConfigToDB(newConfig, "web", "file_config_update"); err != nil {
+	if err := persistAppConfigToDB(newConfig, "web", "file_config_update", botHistorySource); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}
@@ -476,13 +486,11 @@ func updateConfigHandler(c *gin.Context) {
 	// 生成差异
 	diff := config.DiffConfig(oldConfig, newConfig)
 
-	// 保存配置
-	if err := fileConfigManager.UpdateConfig(newConfig); err != nil {
+	// 保存配置（含 bot_configs 同步，source=post_config_update）
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(newConfig, "post_config_update"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
 		return
 	}
-
-	syncAllBotConfigSnapshotsFromMain(newConfig, "post_config_update")
 
 	// 尝試热更新
 	if configHotReloader != nil {
@@ -582,12 +590,10 @@ func updateConfigYAMLHandler(c *gin.Context) {
 	// 生成差异
 	diff := config.DiffConfig(oldConfig, newConfig)
 
-	if err := fileConfigManager.UpdateConfig(newConfig); err != nil {
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(newConfig, "post_config_update_yaml"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
 		return
 	}
-
-	syncAllBotConfigSnapshotsFromMain(newConfig, "post_config_update_yaml")
 
 	// 尝試热更新
 	if configHotReloader != nil {

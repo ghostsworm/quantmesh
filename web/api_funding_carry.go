@@ -105,28 +105,9 @@ func postBatchCreateFunding(c *gin.Context) {
 	}
 
 	if len(created) > 0 {
-		if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+		if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "post_funding_carry_batch"); err != nil {
 			respondError(c, http.StatusInternalServerError, "error.config_save_failed")
 			return
-		}
-		for _, sym := range created {
-			for i := range cfg.Bots {
-				b := &cfg.Bots[i]
-				if b.MarketType != config.MarketTypeFundingCarry {
-					continue
-				}
-				if !strings.EqualFold(b.Exchange, req.Exchange) || b.Symbol != sym {
-					continue
-				}
-				bid := b.ID
-				if bid == "" {
-					bid = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
-				}
-				if err := syncBotConfigSnapshotFromMainBot(bid, b, "post_funding_carry_batch"); err != nil {
-					logger.Error("同步 bot_configs 失敗 funding_carry %s: %v", bid, err)
-				}
-				break
-			}
 		}
 
 		if botManagerProvider != nil {

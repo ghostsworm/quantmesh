@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc6] - 2026-04-15
+
+### Fixed
+- **體系外持久化**：**`storage.SaveAppConfigSnapshot`** 在寫入 **`app_config`** 後同步 **`cfg.Bots` → `bot_configs`**；**`SaveAppConfigSnapshotWithBotSource`** 可單獨指定 **`bot_config_history.source`**（與 **`app_config_history`** 的 `file_config_update` 區分審計）。**`main.go` 首次快照**、**`--migrate-app-config`**（原本已在一事務內寫入 YAML 目錄 Bot，行為不變）與 Web **`UpdateConfigWithBotHistorySource`** 路徑一致。
+- **Web**：移除重複的 **`sync*`** 輔助函數，改由 **`persistAppConfigToDB`** 統一觸發存儲層同步。
+
+### Added
+- **`storage` 單元測試**：`TestSaveAppConfigSnapshotSyncsBotConfigs`。
+
+---
+
 ## [3.105.0-rc5] - 2026-04-15
 
 ### Fixed

@@ -473,13 +473,7 @@ func postBotCreate(c *gin.Context) {
 	}
 
 	cfg.Bots = append(cfg.Bots, bc)
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
-		return
-	}
-	last := &cfg.Bots[len(cfg.Bots)-1]
-	if err := syncBotConfigSnapshotFromMainBot(botID, last, "post_bot_create"); err != nil {
-		logger.Error("同步 bot_configs 失敗 (post_bot_create %s): %v", botID, err)
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "post_bot_create"); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -1092,17 +1086,7 @@ func postBotGroupCreate(c *gin.Context) {
 	cfg.BotGroups = append(cfg.BotGroups, group)
 	cfg.Bots = append(cfg.Bots, botsToAppend...)
 
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
-		return
-	}
-	if err := syncBotConfigSnapshotFromMainBot(spotID, botCfgByID(cfg, spotID), "post_bot_group_create"); err != nil {
-		logger.Error("同步 bot_configs 失敗 (spot %s): %v", spotID, err)
-		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
-		return
-	}
-	if err := syncBotConfigSnapshotFromMainBot(futuresID, botCfgByID(cfg, futuresID), "post_bot_group_create"); err != nil {
-		logger.Error("同步 bot_configs 失敗 (futures %s): %v", futuresID, err)
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "post_bot_group_create"); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
@@ -1372,26 +1356,9 @@ func putBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_bot_strategy"); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
-	}
-
-	// 同步主庫 bot_configs，與 app_config 快照一致（否則啟動時優先讀 bot_configs 仍為舊方向/參數）
-	for i := range cfg.Bots {
-		id := cfg.Bots[i].ID
-		if id == "" {
-			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
-		}
-		if id != botID {
-			continue
-		}
-		if err := syncBotConfigSnapshotFromMainBot(botID, &cfg.Bots[i], "put_bot_strategy"); err != nil {
-			logger.Error("同步 bot_configs 失敗 (bot_id=%s): %v", botID, err)
-			respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
-			return
-		}
-		break
 	}
 
 	// 推送配置到運行中的 Bot，確保 smart_order 等變更在刷新頁面時正確顯示

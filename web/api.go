@@ -6354,12 +6354,11 @@ func applyAIConfig(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_manager_unavailable")
 		return
 	}
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "post_ai_apply_config"); err != nil {
 		logger.Error("❌ 持久化 AI 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.apply_config_failed", err)
 		return
 	}
-	syncAllBotConfigSnapshotsFromMain(cfg, "post_ai_apply_config")
 	SetGlobalConfig(cfg)
 	if configHotReloader != nil {
 		_, _ = configHotReloader.UpdateConfig(cfg)

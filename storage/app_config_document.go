@@ -330,8 +330,49 @@ func DeleteBotConfigSnapshot(ctx context.Context, st Storage, botID string) erro
 	return err
 }
 
-// SaveAppConfigSnapshot 將完整主配置 JSON 寫入 app_config 並追加 app_config_history（與 MigrateYAMLToAppConfigDB 入庫一致）。
+// SyncBotConfigSnapshotsFromMainConfig 將主配置中的 cfg.Bots 逐條寫入 bot_configs（與 app_config 快照對齊）。
+// 用於 SaveAppConfigSnapshot、main 引導等僅寫入主快照的路徑，避免與 bot_configs 文檔表不一致。
+func SyncBotConfigSnapshotsFromMainConfig(ctx context.Context, st Storage, cfg *config.Config, operator, source string) error {
+	if cfg == nil || len(cfg.Bots) == 0 {
+		return nil
+	}
+	ss, ok := st.(*SQLStorage)
+	if !ok || ss == nil {
+		return nil
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return err
+	}
+	for i := range cfg.Bots {
+		bc := &cfg.Bots[i]
+		id := strings.TrimSpace(bc.ID)
+		if id == "" {
+			id = config.GenerateBotID(bc.Exchange, bc.Symbol, bc.GetMarketType())
+		}
+		bf := config.ConvertFromBotConfig(*bc)
+		bf.UpdatedAt = time.Now().Format(time.RFC3339)
+		if doc, err := ss.GetBotConfigDocument(ctx, id); err == nil && doc != nil && strings.TrimSpace(doc.Content) != "" {
+			var prev config.BotConfigFile
+			if json.Unmarshal([]byte(doc.Content), &prev) == nil && prev.CreatedAt != "" {
+				bf.CreatedAt = prev.CreatedAt
+			}
+		} else if bc.CreatedAt != "" {
+			bf.CreatedAt = bc.CreatedAt
+		}
+		if _, err := SaveBotConfigSnapshot(ctx, st, bf, operator, source); err != nil {
+			return fmt.Errorf("sync bot_configs %s: %w", id, err)
+		}
+	}
+	return nil
+}
+
+// SaveAppConfigSnapshot 將完整主配置 JSON 寫入 app_config 並追加 app_config_history，並同步 cfg.Bots 至 bot_configs。
 func SaveAppConfigSnapshot(ctx context.Context, st Storage, cfg *config.Config, operator, source string) (revision int, err error) {
+	return SaveAppConfigSnapshotWithBotSource(ctx, st, cfg, operator, source, "")
+}
+
+// SaveAppConfigSnapshotWithBotSource 同上；若 botHistorySource 為空，bot_config_history.source 使用 appSource，否則使用 botHistorySource。
+func SaveAppConfigSnapshotWithBotSource(ctx context.Context, st Storage, cfg *config.Config, operator, appSource, botHistorySource string) (revision int, err error) {
 	if st == nil || cfg == nil {
 		return 0, fmt.Errorf("SaveAppConfigSnapshot: storage 或配置為空")
 	}
@@ -339,7 +380,18 @@ func SaveAppConfigSnapshot(ctx context.Context, st Storage, cfg *config.Config, 
 	if err != nil {
 		return 0, fmt.Errorf("序列化配置為 JSON: %w", err)
 	}
-	return SaveAppConfigSnapshotFromJSON(ctx, st, jsonBytes, operator, source)
+	rev, err := SaveAppConfigSnapshotFromJSON(ctx, st, jsonBytes, operator, appSource)
+	if err != nil {
+		return 0, err
+	}
+	botSrc := botHistorySource
+	if strings.TrimSpace(botSrc) == "" {
+		botSrc = appSource
+	}
+	if err := SyncBotConfigSnapshotsFromMainConfig(ctx, st, cfg, operator, botSrc); err != nil {
+		return rev, err
+	}
+	return rev, nil
 }
 
 // SaveAppConfigSnapshotFromJSON 將主配置 JSON 寫入 app_config（可含 config.Config 結構體未涵蓋的鍵，例如 security）。
