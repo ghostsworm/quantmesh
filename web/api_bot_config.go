@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -15,6 +16,9 @@ import (
 )
 
 var botConfigManager *config.BotConfigManager
+
+// errBotConfigSnapshotNotFound deleteBotConfigUnified 在無可刪文檔時返回，供調用方忽略。
+var errBotConfigSnapshotNotFound = errors.New("bot config snapshot not found")
 
 // InitBotConfigManager 初始化 Bot 配置文件管理器（僅作無主庫時的後備；權威持久化為 bot_configs 表）
 func InitBotConfigManager(baseDir string) error {
@@ -113,10 +117,14 @@ func resolveBotConfigFileFromUnifiedOrMain(botID string) (*config.BotConfigFile,
 }
 
 // syncBotConfigSnapshotFromMainBot 將主配置中的單個 Bot 寫入 bot_configs（與 app_config 對齊）。
-// 用於僅調用 fileConfigManager.UpdateConfig 的路徑（如 PUT /api/bots/:id/strategy），避免主庫快照與 bot_configs 文檔不一致。
-func syncBotConfigSnapshotFromMainBot(botID string, bc *config.BotConfig) error {
+// 用於僅調用 fileConfigManager.UpdateConfig 的路徑，避免主庫快照與 bot_configs 文檔不一致。
+// historySource 寫入 bot_config_history.source，便於審計（如 put_bot_strategy、post_config_update）。
+func syncBotConfigSnapshotFromMainBot(botID string, bc *config.BotConfig, historySource string) error {
 	if bc == nil || !botConfigStorageReady() {
 		return nil
+	}
+	if historySource == "" {
+		historySource = "sync_bot_config_snapshot"
 	}
 	bf := config.ConvertFromBotConfig(*bc)
 	bf.UpdatedAt = time.Now().Format(time.RFC3339)
@@ -125,7 +133,36 @@ func syncBotConfigSnapshotFromMainBot(botID string, bc *config.BotConfig) error 
 	} else if bc.CreatedAt != "" {
 		bf.CreatedAt = bc.CreatedAt
 	}
-	return saveBotConfigUnified(bf, "web", "put_bot_strategy")
+	return saveBotConfigUnified(bf, "web", historySource)
+}
+
+// syncAllBotConfigSnapshotsFromMain 將 app_config.Bots 逐條同步到 bot_configs（整份主配置替換、AI 應用等）。
+func syncAllBotConfigSnapshotsFromMain(cfg *config.Config, historySource string) {
+	if cfg == nil || !botConfigStorageReady() {
+		return
+	}
+	if historySource == "" {
+		historySource = "sync_all_bot_configs"
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if err := syncBotConfigSnapshotFromMainBot(id, &cfg.Bots[i], historySource); err != nil {
+			logger.Error("同步 bot_configs 失敗 bot_id=%s: %v", id, err)
+		}
+	}
+}
+
+// removeBotConfigSnapshotBestEffort 刪除 bot_configs 行（刪除 Bot 時調用）；無行則忽略。
+func removeBotConfigSnapshotBestEffort(botID string) {
+	if botID == "" || !botConfigStorageReady() {
+		return
+	}
+	if err := deleteBotConfigUnified(botID); err != nil && !errors.Is(err, errBotConfigSnapshotNotFound) {
+		logger.Warn("刪除 bot_configs 失敗 (%s): %v", botID, err)
+	}
 }
 
 func saveBotConfigUnified(bf *config.BotConfigFile, operator, source string) error {
@@ -169,7 +206,7 @@ func deleteBotConfigUnified(botID string) error {
 		deleted = true
 	}
 	if !deleted {
-		return fmt.Errorf("not found")
+		return errBotConfigSnapshotNotFound
 	}
 	return nil
 }

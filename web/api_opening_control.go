@@ -288,6 +288,7 @@ func putOpeningControlConfig(c *gin.Context) {
 	}
 
 	persisted := false
+	var syncedBotID string
 	botIDQ := strings.TrimSpace(c.Query("bot_id"))
 	if botIDQ != "" {
 		for i := range cfg.Bots {
@@ -297,6 +298,10 @@ func putOpeningControlConfig(c *gin.Context) {
 				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
 				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
 				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
+				syncedBotID = b.ID
+				if syncedBotID == "" {
+					syncedBotID = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+				}
 				persisted = true
 				break
 			}
@@ -315,6 +320,10 @@ func putOpeningControlConfig(c *gin.Context) {
 				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
 				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
 				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
+				syncedBotID = b.ID
+				if syncedBotID == "" {
+					syncedBotID = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
+				}
 				persisted = true
 				break
 			}
@@ -345,6 +354,12 @@ func putOpeningControlConfig(c *gin.Context) {
 	if persisted {
 		if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 			logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
+		} else if syncedBotID != "" {
+			if b := botCfgByID(cfg, syncedBotID); b != nil {
+				if err := syncBotConfigSnapshotFromMainBot(syncedBotID, b, "put_opening_control"); err != nil {
+					logger.Warn("⚠️ [開倉管理] 同步 bot_configs 失敗 (%s): %v", syncedBotID, err)
+				}
+			}
 		}
 	} else if !ok {
 		respondError(c, http.StatusNotFound, "error.symbol_not_found")

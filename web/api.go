@@ -6359,6 +6359,7 @@ func applyAIConfig(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.apply_config_failed", err)
 		return
 	}
+	syncAllBotConfigSnapshotsFromMain(cfg, "post_ai_apply_config")
 	SetGlobalConfig(cfg)
 	if configHotReloader != nil {
 		_, _ = configHotReloader.UpdateConfig(cfg)

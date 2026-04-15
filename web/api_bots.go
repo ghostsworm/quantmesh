@@ -477,6 +477,12 @@ func postBotCreate(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
+	last := &cfg.Bots[len(cfg.Bots)-1]
+	if err := syncBotConfigSnapshotFromMainBot(botID, last, "post_bot_create"); err != nil {
+		logger.Error("同步 bot_configs 失敗 (post_bot_create %s): %v", botID, err)
+		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 }
 
@@ -622,11 +628,29 @@ func deleteBot(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
+	removeBotConfigSnapshotBestEffort(botID)
 	if botManagerProvider != nil {
 		_ = botManagerProvider.StopBot(botID)
 	}
 	logger.Info("✅ [Bot刪除] 已移除 %s", botID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
+}
+
+// botCfgByID 在主配置快照中按 ID 查找 Bot（與 GenerateBotID 回退規則一致）。
+func botCfgByID(cfg *config.Config, botID string) *config.BotConfig {
+	if cfg == nil || botID == "" {
+		return nil
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			return &cfg.Bots[i]
+		}
+	}
+	return nil
 }
 
 // postBotStop 停止 Bot
@@ -1072,6 +1096,16 @@ func postBotGroupCreate(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
+	if err := syncBotConfigSnapshotFromMainBot(spotID, botCfgByID(cfg, spotID), "post_bot_group_create"); err != nil {
+		logger.Error("同步 bot_configs 失敗 (spot %s): %v", spotID, err)
+		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		return
+	}
+	if err := syncBotConfigSnapshotFromMainBot(futuresID, botCfgByID(cfg, futuresID), "post_bot_group_create"); err != nil {
+		logger.Error("同步 bot_configs 失敗 (futures %s): %v", futuresID, err)
+		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "group_id": groupID, "bot_ids": []string{futuresID, spotID}})
 }
 
@@ -1157,6 +1191,9 @@ func deleteBotGroup(c *gin.Context) {
 	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
+	}
+	for _, id := range botIDsToRemove {
+		removeBotConfigSnapshotBestEffort(id)
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "group_id": groupID})
 }
@@ -1349,7 +1386,7 @@ func putBotStrategy(c *gin.Context) {
 		if id != botID {
 			continue
 		}
-		if err := syncBotConfigSnapshotFromMainBot(botID, &cfg.Bots[i]); err != nil {
+		if err := syncBotConfigSnapshotFromMainBot(botID, &cfg.Bots[i], "put_bot_strategy"); err != nil {
 			logger.Error("同步 bot_configs 失敗 (bot_id=%s): %v", botID, err)
 			respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 			return

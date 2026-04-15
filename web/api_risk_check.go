@@ -295,6 +295,8 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		return
 	}
 
+	syncAllBotConfigSnapshotsFromMain(&newConfig, "post_risk_check_harden")
+
 	// 热更新
 	if configHotReloader != nil {
 		configHotReloader.UpdateConfig(&newConfig)
