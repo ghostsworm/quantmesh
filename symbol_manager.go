@@ -270,6 +270,7 @@ func startSymbolRuntime(
 	localCfg.Trading.MinOrderValue = symCfg.MinOrderValue
 	localCfg.Trading.BuyWindowSize = symCfg.BuyWindowSize
 	localCfg.Trading.SellWindowSize = symCfg.SellWindowSize
+	localCfg.Trading.ShortOpenWindowSize = symCfg.ShortOpenWindowSize
 	localCfg.Trading.ReconcileInterval = symCfg.ReconcileInterval
 	localCfg.Trading.OrderCleanupThreshold = symCfg.OrderCleanupThreshold
 	localCfg.Trading.CleanupBatchSize = symCfg.CleanupBatchSize

@@ -70,8 +70,9 @@ type GridConfig struct {
 	ProfitSpread   float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`
 	OrderQuantity  float64 `yaml:"order_quantity" json:"order_quantity"`
 	MinOrderValue  float64 `yaml:"min_order_value" json:"min_order_value"`
-	BuyWindowSize  int     `yaml:"buy_window_size" json:"buy_window_size"`
-	SellWindowSize int     `yaml:"sell_window_size" json:"sell_window_size"`
+	BuyWindowSize         int `yaml:"buy_window_size" json:"buy_window_size"`
+	SellWindowSize        int `yaml:"sell_window_size" json:"sell_window_size"`
+	ShortOpenWindowSize   int `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"`
 
 	Direction    string  `yaml:"direction,omitempty" json:"direction,omitempty"`    // LONG/SHORT/BOTH
 	PriceLow     float64 `yaml:"price_low,omitempty" json:"price_low,omitempty"`
@@ -388,9 +389,10 @@ func ConvertFromBotConfig(bc BotConfig) *BotConfigFile {
 			ProfitSpread:      bc.ProfitSpread,
 			OrderQuantity:     bc.OrderQuantity,
 			MinOrderValue:     bc.MinOrderValue,
-			BuyWindowSize:     bc.BuyWindowSize,
-			SellWindowSize:    bc.SellWindowSize,
-			Direction:         bc.Direction,
+			BuyWindowSize:         bc.BuyWindowSize,
+			SellWindowSize:        bc.SellWindowSize,
+			ShortOpenWindowSize:   bc.ShortOpenWindowSize,
+			Direction:             bc.Direction,
 			PriceLow:          bc.PriceLow,
 			PriceHigh:         bc.PriceHigh,
 			TriggerPrice:      bc.TriggerPrice,
@@ -456,6 +458,7 @@ func ConvertToBotConfig(bcf *BotConfigFile) BotConfig {
 		MinOrderValue:         bcf.Grid.MinOrderValue,
 		BuyWindowSize:         bcf.Grid.BuyWindowSize,
 		SellWindowSize:        bcf.Grid.SellWindowSize,
+		ShortOpenWindowSize:   bcf.Grid.ShortOpenWindowSize,
 		Direction:             bcf.Grid.Direction,
 		PriceLow:              bcf.Grid.PriceLow,
 		PriceHigh:             bcf.Grid.PriceHigh,

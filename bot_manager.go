@@ -1015,10 +1015,16 @@ func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, time
 		return fmt.Errorf("unable to get current price")
 	}
 
+	if br.Config.GetDirection() == "BOTH" {
+		// 單向淨持倉雙向網格：按槽位腿別分別平多/平空
+		spm.LiquidateAll()
+		return nil
+	}
+
 	// 确定平仓方向
 	var side string
 	if br.Config.GetDirection() == "SHORT" {
-		side = "BUY"  // 做空平仓是买入
+		side = "BUY" // 做空平仓是买入
 	} else {
 		side = "SELL" // 做多平仓是卖出
 	}

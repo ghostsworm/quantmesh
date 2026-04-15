@@ -93,6 +93,11 @@ const (
 const (
 	PositionStatusEmpty  = "EMPTY"  // 空倉
 	PositionStatusFilled = "FILLED" // 有倉
+
+	// PositionLeg 槽位腿別（單向淨持倉雙向網格 BOTH）：多腿 / 空腿
+	PositionLegNone  = ""
+	PositionLegLong  = "LONG"
+	PositionLegShort = "SHORT"
 )
 
 // 槽位鎖定状態
@@ -133,6 +138,9 @@ type InventorySlot struct {
 	// 当买入订单成交时，使用实际成交价格更新此字段
 	// 计算公式：AvgBuyPrice = (旧AvgBuyPrice * 旧持仓 + 新买入价格 * 新买入数量) / 总持仓
 	AvgBuyPrice float64
+
+	// PositionLeg 單向淨持倉雙向網格（BOTH）專用：該槽位當前為多腿或空腿；LONG/SHORT 模式可為空
+	PositionLeg string
 
 	// 策略信息（用於追踪订單来源）
 	StrategyName string // 策略名称（如 "Grid-BTCUSDT-1", "DCA-ETHUSDT"）
@@ -362,6 +370,12 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
 
+	// 現貨不支援賣開空，BOTH 降級為 LONG
+	if strings.EqualFold(cfg.Trading.Direction, "BOTH") && cfg.Trading.MarketType == "spot" {
+		logger.Warn("⚠️ [%s] 現貨不支援雙向網格（合約賣開空），已將 direction 降級為 LONG", botID)
+		cfg.Trading.Direction = "LONG"
+	}
+
 	// 初始化智能掛單管理器（如果配置啟用）
 	if cfg.Trading.SmartOrder.Enabled {
 		spm.smartOrderMgr = NewSmartOrderManager(spm, &cfg.Trading.SmartOrder)
@@ -414,9 +428,9 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 		// 延遲一小段時間，等待可能的本地狀態更新
 		time.Sleep(1 * time.Second)
 
-		openSide := "BUY"
+		openSideBuy := "BUY"
 		if spm.isShort() {
-			openSide = "SELL"
+			openSideBuy = "SELL"
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -429,14 +443,8 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 			return
 		}
 
-		// 類型斷言，因為 IExchange.GetOpenOrders 返回 interface{}
-		// 這裡我們需要根據 IExchange 實際返回的類型進行斷言
-		// 在 adapter 中通常返回的是 []*exchange.Order，但為了避免循環導入，
-		// 我們可能需要處理成 []interface{} 或者反射處理，或者在這裡定義一個兼容的結構
-
 		var toCancel []int64
 
-		// 嘗試反射處理，這樣最通用
 		v := reflect.ValueOf(openOrdersInterface)
 		if v.Kind() == reflect.Slice {
 			for i := 0; i < v.Len(); i++ {
@@ -451,7 +459,11 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 
 					if sideField.IsValid() && idField.IsValid() {
 						sideStr := fmt.Sprintf("%v", sideField.Interface())
-						if sideStr == openSide {
+						if spm.isBoth() {
+							if sideStr == "BUY" || sideStr == "SELL" {
+								toCancel = append(toCancel, idField.Int())
+							}
+						} else if sideStr == openSideBuy {
 							toCancel = append(toCancel, idField.Int())
 						}
 					}
@@ -495,10 +507,6 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 
 // CancelAllOpenOrders 撤銷所有開倉委託（根據 direction 自動判斷 BUY 或 SELL）
 func (spm *SuperPositionManager) CancelAllOpenOrders() {
-	openSide := "BUY"
-	if spm.isShort() {
-		openSide = "SELL"
-	}
 	var orderIDs []int64
 	var prices []float64
 
@@ -507,8 +515,23 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 		slot := value.(*InventorySlot)
 
 		slot.mu.RLock()
-		if slot.OrderSide == openSide && slot.OrderID > 0 &&
-			slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+		match := false
+		if spm.isBoth() {
+			// 空槽上的買開或賣開
+			if slot.PositionStatus == PositionStatusEmpty && slot.PositionQty < 1e-12 &&
+				slot.OrderID > 0 &&
+				slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+				match = slot.OrderSide == "BUY" || slot.OrderSide == "SELL"
+			}
+		} else {
+			openSide := "BUY"
+			if spm.isShort() {
+				openSide = "SELL"
+			}
+			match = slot.OrderSide == openSide && slot.OrderID > 0 &&
+				slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested
+		}
+		if match {
 			orderIDs = append(orderIDs, slot.OrderID)
 			prices = append(prices, price)
 		}
@@ -520,11 +543,14 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 		return
 	}
 
-	sideLabel := "買單"
-	if spm.isShort() {
-		sideLabel = "賣單"
+	sideLabel := "開倉委託"
+	if !spm.isBoth() {
+		sideLabel = "買單"
+		if spm.isShort() {
+			sideLabel = "賣單"
+		}
 	}
-	logger.Info("🔄 [開倉管理] 準備撤銷 %d 個開倉 %s", len(orderIDs), sideLabel)
+	logger.Info("🔄 [開倉管理] 準備撤銷 %d 個%s", len(orderIDs), sideLabel)
 
 	for attempt := 1; attempt <= 3; attempt++ {
 		if len(orderIDs) == 0 {
@@ -550,8 +576,22 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 				price := key.(float64)
 				slot := value.(*InventorySlot)
 				slot.mu.RLock()
-				if slot.OrderSide == openSide && slot.OrderID > 0 &&
-					slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+				match := false
+				if spm.isBoth() {
+					if slot.PositionStatus == PositionStatusEmpty && slot.PositionQty < 1e-12 &&
+						slot.OrderID > 0 &&
+						slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+						match = slot.OrderSide == "BUY" || slot.OrderSide == "SELL"
+					}
+				} else {
+					openSide := "BUY"
+					if spm.isShort() {
+						openSide = "SELL"
+					}
+					match = slot.OrderSide == openSide && slot.OrderID > 0 &&
+						slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested
+				}
+				if match {
 					orderIDs = append(orderIDs, slot.OrderID)
 					prices = append(prices, price)
 				}
@@ -1261,6 +1301,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		}
 	}
 
+	// 單向淨持倉雙向網格（BOTH）：下方買開多、上方賣開空；平倉 reduce_only
+	if spm.isBoth() {
+		return spm.adjustOrdersBoth(currentPrice)
+	}
+
 	// 计算需要監控的價格範圍
 	buyWindowSize := spm.config.Trading.BuyWindowSize
 	sellWindowSize := spm.config.Trading.SellWindowSize
@@ -1921,20 +1966,16 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	// 🔥 在下單前，先检查並調整资金限額（分级限額功能）
 	// 计算當前持倉层數和未實現盈亏
 	positionLayers := 0
-	unrealizedPnL := 0.0
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
 			positionLayers++
-			// 计算未實現盈亏
-			if currentPrice > 0 && slot.Price > 0 {
-				unrealizedPnL += (currentPrice - slot.Price) * slot.PositionQty
-			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
+	unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
 
 	// 調用分级限額检查（可能會自动切换到紧急限額或恢複正常限額）
 	spm.allocationManager.CheckAndAdjustLimit(
@@ -2077,7 +2118,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
-			spm.CancelAllBuyOrders()
+			if spm.isBoth() {
+				spm.CancelAllOpenOrders()
+			} else {
+				spm.CancelAllBuyOrders()
+			}
 
 			// 发送保证金/餘額不足告警事件
 			if spm.eventBus != nil {
@@ -2352,12 +2397,26 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		slot.OrderFilledQty = update.ExecutedQty
 
 		// 根據方向更新持倉：LONG 時 BUY=開倉(加倉) SELL=平倉(減倉)；SHORT 時 SELL=開倉 BUY=平倉
+		// BOTH：依槽位 PositionLeg 判斷開倉/平倉
 		openSide := "BUY"
 		if spm.isShort() {
 			openSide = "SELL"
 		}
-		if side == openSide {
+		isOpenLeg := false
+		if spm.isBoth() {
+			isOpenLeg = bothSideIsOpen(side, slot)
+		} else {
+			isOpenLeg = (side == openSide)
+		}
+		if isOpenLeg {
 			if deltaQty > 0 {
+				if spm.isBoth() && slot.PositionLeg == "" {
+					if side == "BUY" {
+						slot.PositionLeg = PositionLegLong
+					} else {
+						slot.PositionLeg = PositionLegShort
+					}
+				}
 				// 🔥 更新平均买入价格（使用实际成交价格）
 				actualBuyPrice := update.AvgPrice
 				if actualBuyPrice <= 0 {
@@ -2405,6 +2464,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.OrderFilledQty = 0
 
 				slot.PositionStatus = PositionStatusFilled // 標記為有倉
+				if spm.isBoth() {
+					if side == "BUY" {
+						slot.PositionLeg = PositionLegLong
+					} else {
+						slot.PositionLeg = PositionLegShort
+					}
+				}
 				// 🔥 累計買入手續費（賣出時按比例攤銷）
 				slot.BuyFee += update.Commission
 				if update.CommissionAsset != "" {
@@ -2598,6 +2664,9 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 				if slot.PositionQty < 0.000001 {
 					slot.PositionStatus = PositionStatusEmpty // 標記為空倉
+					if spm.isBoth() {
+						slot.PositionLeg = PositionLegNone
+					}
 				}
 				// 🔥 释放槽位鎖：賣單成交，允許后续挂買單
 				slot.SlotStatus = SlotStatusFree
@@ -3503,10 +3572,6 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 	if maxAllowed <= 0 {
 		return
 	}
-	openSide := "BUY"
-	if spm.isShort() {
-		openSide = "SELL"
-	}
 	type slotOrder struct {
 		price   float64
 		orderID int64
@@ -3516,8 +3581,20 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.OrderSide == openSide && slot.OrderID > 0 &&
-			slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
+		var match bool
+		if spm.isBoth() {
+			match = (slot.OrderSide == "BUY" || slot.OrderSide == "SELL") && slot.PositionStatus == PositionStatusEmpty &&
+				slot.OrderID > 0 &&
+				slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested
+		} else {
+			openSide := "BUY"
+			if spm.isShort() {
+				openSide = "SELL"
+			}
+			match = slot.OrderSide == openSide && slot.OrderID > 0 &&
+				slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested
+		}
+		if match {
 			openOrders = append(openOrders, slotOrder{price: price, orderID: slot.OrderID})
 		}
 		slot.mu.RUnlock()
@@ -3526,8 +3603,10 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 	if len(openOrders) <= maxAllowed {
 		return
 	}
-	// LONG：價格降序，先撤高價買單；SHORT：價格升序，先撤低價賣單
 	sort.Slice(openOrders, func(i, j int) bool {
+		if spm.isBoth() {
+			return openOrders[i].price > openOrders[j].price
+		}
 		if spm.isShort() {
 			return openOrders[i].price < openOrders[j].price
 		}
@@ -3544,6 +3623,9 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 	sideLabel := "買單"
 	if spm.isShort() {
 		sideLabel = "賣單"
+	}
+	if spm.isBoth() {
+		sideLabel = "開倉單"
 	}
 	logger.Info("🔄 [最大持倉預警] 當前開倉單 %d 筆超過上限 %d，撤銷 %d 筆 %s（%s 先撤）",
 		len(openOrders), maxAllowed, len(orderIDs), sideLabel, map[bool]string{false: "高價先撤", true: "低價先撤"}[spm.isShort()])
@@ -3568,64 +3650,70 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 
 // LiquidateAll 全平倉位（风控或止损触发時使用）
 func (spm *SuperPositionManager) LiquidateAll() {
-	logger.Warn("🚨 [全平倉] 正在執行全平操作，撤销所有買單並市價平倉所有持倉...")
+	logger.Warn("🚨 [全平倉] 正在執行全平操作，撤销掛單並限價平倉持倉...")
 
-	// 1. 撤销所有買單
-	spm.CancelAllBuyOrders()
+	if spm.isBoth() {
+		spm.CancelAllOpenOrders()
+	} else {
+		spm.CancelAllBuyOrders()
+	}
 
-	// 2. 收集所有持倉槽位並提交賣單
-	var sellOrders []*OrderRequest
+	var closeOrders []*OrderRequest
 	spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
 
 		slot.mu.Lock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			// 如果已有订單，先尝試撤销
 			if slot.OrderID > 0 {
 				logger.Info("🔄 [全平倉] 撤销槽位 %s 的現有订單 %d", formatPrice(price, spm.priceDecimals), slot.OrderID)
 				spm.executor.BatchCancelOrders([]int64{slot.OrderID})
 			}
 
-			// 標記為 PENDING
 			slot.SlotStatus = SlotStatusPending
 
-			// 構建賣單（使用當前市價或略低於市價的價格以确保成交，这里简單使用當前锚点價格附近的賣出逻辑）
-			// 實際上由於是全平，最好的方式是下市價單或极优價格的限價單
-			// 这里複用 AdjustOrders 中的逻辑，使用槽位價格加一個间隔作為賣價，或者根據當前價格調整
-
-			// 獲取最后價格
 			lastPrice, _ := spm.lastMarketPrice.Load().(float64)
 			if lastPrice <= 0 {
 				lastPrice = price
 			}
 
-			sellPrice := lastPrice * 0.99 // 使用略低於市價的價格确保成交（限價平倉）
-			sellPrice = roundPrice(sellPrice, spm.priceDecimals)
+			leg := slot.PositionLeg
+			if leg == PositionLegNone {
+				leg = PositionLegLong
+			}
+			var side string
+			var px float64
+			if spm.isBoth() && leg == PositionLegShort {
+				side = "BUY"
+				px = lastPrice * 1.01
+			} else {
+				side = "SELL"
+				px = lastPrice * 0.99
+			}
+			px = roundPrice(px, spm.priceDecimals)
 
-			clientOID := spm.generateClientOrderID(price, "SELL", "stop_loss")
+			clientOID := spm.generateClientOrderID(price, side, "stop_loss")
 
-			sellOrders = append(sellOrders, &OrderRequest{
+			closeOrders = append(closeOrders, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
-				Side:          "SELL",
-				Price:         sellPrice,
+				Side:          side,
+				Price:         px,
 				Quantity:      slot.PositionQty,
 				PriceDecimals: spm.priceDecimals,
-				ReduceOnly:    !spm.isSpot(), // 現貨不支援 ReduceOnly
-				PostOnly:      false,         // 强制平倉不使用 PostOnly
+				ReduceOnly:    !spm.isSpot(),
+				PostOnly:      false,
 				ClientOrderID: clientOID,
-				OrderSource:   "stop_loss", // 止損平倉（ClientOrderID 含 _SL 後綴，可從交易所訂單中解析）
+				OrderSource:   "stop_loss",
 			})
 		}
 		slot.mu.Unlock()
 		return true
 	})
 
-	if len(sellOrders) > 0 {
-		logger.Info("🔄 [全平倉] 提交 %d 個平倉賣單", len(sellOrders))
-		result := spm.executor.BatchPlaceOrdersWithDetails(sellOrders)
+	if len(closeOrders) > 0 {
+		logger.Info("🔄 [全平倉] 提交 %d 個平倉單", len(closeOrders))
+		result := spm.executor.BatchPlaceOrdersWithDetails(closeOrders)
 
-		// 更新槽位状態
 		for _, ord := range result.PlacedOrders {
 			price, _, valid := spm.parseClientOrderID(ord.ClientOrderID)
 			if valid {
@@ -3633,7 +3721,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 				slot.mu.Lock()
 				slot.OrderID = ord.OrderID
 				slot.ClientOID = ord.ClientOrderID
-				slot.OrderSide = "SELL"
+				slot.OrderSide = ord.Side
 				slot.OrderStatus = OrderStatusPlaced
 				slot.SlotStatus = SlotStatusLocked
 				slot.mu.Unlock()
@@ -4490,8 +4578,22 @@ func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) fl
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			// 盈亏 = (當前價格 - 買入價格) * 數量
-			totalPnL += (currentPrice - slotPrice) * slot.PositionQty
+			if spm.isBoth() && slot.PositionLeg == PositionLegShort {
+				entry := slot.AvgBuyPrice
+				if entry <= 0 {
+					entry = slotPrice
+				}
+				totalPnL += (entry - currentPrice) * slot.PositionQty
+			} else if spm.isBoth() && slot.PositionLeg == PositionLegLong {
+				if slot.AvgBuyPrice > 0 {
+					totalPnL += (currentPrice - slot.AvgBuyPrice) * slot.PositionQty
+				} else {
+					totalPnL += (currentPrice - slotPrice) * slot.PositionQty
+				}
+			} else {
+				// 盈亏 = (當前價格 - 買入價格) * 數量（單向 LONG/SHORT 與舊行為一致）
+				totalPnL += (currentPrice - slotPrice) * slot.PositionQty
+			}
 		}
 		slot.mu.RUnlock()
 		return true

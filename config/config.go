@@ -486,6 +486,8 @@ type Config struct {
 		MinOrderValue         float64 `yaml:"min_order_value"` // 最小訂單價值（USDT），預設 6U，小於此值不掛單
 		BuyWindowSize         int     `yaml:"buy_window_size"`
 		SellWindowSize        int     `yaml:"sell_window_size"` // 賣單視窗大小
+		// ShortOpenWindowSize BOTH 模式：向上開空層數；0 時用 SellWindowSize，仍為 0 則用 BuyWindowSize
+		ShortOpenWindowSize   int     `yaml:"short_open_window_size" json:"short_open_window_size"`
 		ReconcileInterval     int     `yaml:"reconcile_interval"`
 		OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 訂單清理上限（預設 100）
 		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
@@ -1276,6 +1278,7 @@ type SymbolConfig struct {
 	MinOrderValue         float64            `yaml:"min_order_value" json:"min_order_value"`                   // 最小訂單價值
 	BuyWindowSize         int                `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口（主配置，未配置 profiles 时使用）
 	SellWindowSize        int                `yaml:"sell_window_size" json:"sell_window_size"`                 // 賣單視窗（主配置，未配置 profiles 时使用）
+	ShortOpenWindowSize   int                `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數；0=繼承 sell/buy
 	ReconcileInterval     int                `yaml:"reconcile_interval" json:"reconcile_interval"`             // 對账间隔（秒）
 	OrderCleanupThreshold int                `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 訂單清理上限
 	CleanupBatchSize      int                `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
@@ -1411,6 +1414,7 @@ type BotConfig struct {
 	MinOrderValue         float64               `yaml:"min_order_value" json:"min_order_value"`                               // 最小訂單價值
 	BuyWindowSize         int                   `yaml:"buy_window_size" json:"buy_window_size"`                               // 買單窗口
 	SellWindowSize        int                   `yaml:"sell_window_size" json:"sell_window_size"`                            // 賣單視窗
+	ShortOpenWindowSize   int                   `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數，0 繼承 sell/buy 窗口
 	ReconcileInterval     int                   `yaml:"reconcile_interval" json:"reconcile_interval"`                          // 對賬間隔（秒）
 	OrderCleanupThreshold int                   `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`               // 訂單清理上限
 	CleanupBatchSize      int                   `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`                         // 清理批次大小
@@ -1600,6 +1604,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		MinOrderValue:         sc.MinOrderValue,
 		BuyWindowSize:         sc.BuyWindowSize,
 		SellWindowSize:        sc.SellWindowSize,
+		ShortOpenWindowSize:   sc.ShortOpenWindowSize,
 		ReconcileInterval:     sc.ReconcileInterval,
 		OrderCleanupThreshold:  sc.OrderCleanupThreshold,
 		CleanupBatchSize:      sc.CleanupBatchSize,
@@ -1681,6 +1686,7 @@ func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 		MinOrderValue:         bc.MinOrderValue,
 		BuyWindowSize:         bc.BuyWindowSize,
 		SellWindowSize:        bc.SellWindowSize,
+		ShortOpenWindowSize:   bc.ShortOpenWindowSize,
 		ReconcileInterval:     bc.ReconcileInterval,
 		OrderCleanupThreshold: bc.OrderCleanupThreshold,
 		CleanupBatchSize:      bc.CleanupBatchSize,
@@ -2512,6 +2518,7 @@ func (c *Config) Validate() error {
 			MinOrderValue:         c.Trading.MinOrderValue,
 			BuyWindowSize:         c.Trading.BuyWindowSize,
 			SellWindowSize:        c.Trading.SellWindowSize,
+			ShortOpenWindowSize:   c.Trading.ShortOpenWindowSize,
 			Direction:             direction,
 			ReconcileInterval:     c.Trading.ReconcileInterval,
 			OrderCleanupThreshold: c.Trading.OrderCleanupThreshold,
@@ -2543,6 +2550,7 @@ func (c *Config) Validate() error {
 		c.Trading.MinOrderValue = primary.MinOrderValue
 		c.Trading.BuyWindowSize = primary.BuyWindowSize
 		c.Trading.SellWindowSize = primary.SellWindowSize
+		c.Trading.ShortOpenWindowSize = primary.ShortOpenWindowSize
 		c.Trading.ReconcileInterval = primary.ReconcileInterval
 		c.Trading.OrderCleanupThreshold = primary.OrderCleanupThreshold
 		c.Trading.CleanupBatchSize = primary.CleanupBatchSize
