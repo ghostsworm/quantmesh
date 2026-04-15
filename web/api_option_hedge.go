@@ -12,6 +12,35 @@ import (
 
 var optionStore = option.NewStore()
 
+// resolveBotConfigForOptionHedge 與 GET /api/bots/:id/config-file 一致：主庫 bot_configs → 本地 bots/*/config.yaml → app_config 快照中的該 Bot（不強制寫庫）。
+// 僅用 LoadBotConfig 讀磁盤時，主庫已持久化、無本地 YAML 的部署會誤判「Bot 不存在」而 404。
+func resolveBotConfigForOptionHedge(botID string) (*config.BotConfigFile, error) {
+	bcf, err := loadBotConfigUnified(botID)
+	if err != nil {
+		return nil, err
+	}
+	if bcf != nil {
+		return bcf, nil
+	}
+	cfg, err := GetLatestConfig()
+	if err != nil {
+		return nil, err
+	}
+	if cfg == nil {
+		return nil, nil
+	}
+	for i := range cfg.Bots {
+		id := cfg.Bots[i].ID
+		if id == "" {
+			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
+		}
+		if id == botID {
+			return config.ConvertFromBotConfig(cfg.Bots[i]), nil
+		}
+	}
+	return nil, nil
+}
+
 // getOptionHedgeStatus 获取期权对冲状态
 // GET /api/bots/:id/option-hedge/status
 func getOptionHedgeStatus(c *gin.Context) {
@@ -21,8 +50,12 @@ func getOptionHedgeStatus(c *gin.Context) {
 		return
 	}
 
-	bcf, err := botConfigManager.LoadBotConfig(botID)
+	bcf, err := resolveBotConfigForOptionHedge(botID)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config_load_failed"})
+		return
+	}
+	if bcf == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "bot not found"})
 		return
 	}
@@ -77,8 +110,12 @@ func postOptionHedgeSync(c *gin.Context) {
 		return
 	}
 
-	bcf, err := botConfigManager.LoadBotConfig(botID)
+	bcf, err := resolveBotConfigForOptionHedge(botID)
 	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config_load_failed"})
+		return
+	}
+	if bcf == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "bot not found"})
 		return
 	}
@@ -156,7 +193,11 @@ func getOptionHedgeRollSuggestions(c *gin.Context) {
 		return
 	}
 
-	bcf, _ := botConfigManager.LoadBotConfig(botID)
+	bcf, err := resolveBotConfigForOptionHedge(botID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config_load_failed"})
+		return
+	}
 	cfg := getOptionHedgeConfigFromBot(bcf)
 	if cfg == nil {
 		cfg = &config.OptionHedgeConfig{TargetCoverageRatio: 0.25, MinCoverageRatio: 0.15, DTEWarningDays: 7}

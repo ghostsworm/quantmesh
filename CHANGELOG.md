@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.104.0-rc6] - 2026-04-15
+
+### Fixed
+- **期權對沖 API**（`GET/POST /api/v2/bots/:id/option-hedge/*`）：先前僅用 `LoadBotConfig` 讀本地 `bots/<id>/config.yaml`，主庫 **`bot_configs`** 已有快照、但無磁盤文件時會載入失敗並回 **404**。改為與 **`loadBotConfigUnified`** 一致（主庫 → 本地 YAML → **`GetLatestConfig` 中對應 Bot**），並補單元測試。
+
+---
+
 ## [3.104.0-rc5] - 2026-04-15
 
 ### Fixed
