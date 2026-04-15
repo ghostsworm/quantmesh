@@ -262,15 +262,18 @@ func (fcm *FileConfigManager) GetConfigPath() string {
 // UpdateConfig 更新配置
 func (fcm *FileConfigManager) UpdateConfig(newConfig *config.Config) error {
 	fcm.mu.Lock()
-	defer fcm.mu.Unlock()
-
 	if err := newConfig.Validate(); err != nil {
+		fcm.mu.Unlock()
 		return err
 	}
 	if err := persistAppConfigToDB(newConfig, "web", "file_config_update"); err != nil {
+		fcm.mu.Unlock()
 		return err
 	}
 	fcm.currentConfig = newConfig
+	fcm.mu.Unlock()
+	// 必須在釋放鎖之後再同步新聞監控：ApplyRuntimeConfig 內 stopInternalLocked 可能阻塞數秒～十餘秒
+	//（等待 analysisLoopDone），若持鎖調用會拖慢所有依賴 GetLatestConfig/UpdateConfig 的 API（如 PUT /api/bots/:id/strategy）。
 	notifyNewsMonitorRuntimeSync(newConfig)
 	return nil
 }
