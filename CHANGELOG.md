@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc4] - 2026-04-15
+
+### Fixed
+- **`PUT /api/bots/:id/strategy`**：先前僅 **`fileConfigManager.UpdateConfig`** 寫入 **`app_config`**，未同步 **`bot_configs`**，導致主庫快照與 Bot 文檔表不一致（例如方向改為 LONG 後，啟動仍讀舊 **`bot_configs`**）。保存主快照後即 **`syncBotConfigSnapshotFromMainBot`** 寫入 **`bot_configs`**。
+- **`ConvertFromBotConfig` / `ConvertToBotConfig`**：補齊 **`Grid.AutoRebuild`** 往返，避免同步時丟失自動重建配置。
+
+---
+
 ## [3.105.0-rc3] - 2026-04-15
 
 ### Fixed

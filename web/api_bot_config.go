@@ -112,6 +112,22 @@ func resolveBotConfigFileFromUnifiedOrMain(botID string) (*config.BotConfigFile,
 	return nil, nil
 }
 
+// syncBotConfigSnapshotFromMainBot 將主配置中的單個 Bot 寫入 bot_configs（與 app_config 對齊）。
+// 用於僅調用 fileConfigManager.UpdateConfig 的路徑（如 PUT /api/bots/:id/strategy），避免主庫快照與 bot_configs 文檔不一致。
+func syncBotConfigSnapshotFromMainBot(botID string, bc *config.BotConfig) error {
+	if bc == nil || !botConfigStorageReady() {
+		return nil
+	}
+	bf := config.ConvertFromBotConfig(*bc)
+	bf.UpdatedAt = time.Now().Format(time.RFC3339)
+	if prev, err := loadBotConfigUnified(botID); err == nil && prev != nil && prev.CreatedAt != "" {
+		bf.CreatedAt = prev.CreatedAt
+	} else if bc.CreatedAt != "" {
+		bf.CreatedAt = bc.CreatedAt
+	}
+	return saveBotConfigUnified(bf, "web", "put_bot_strategy")
+}
+
 func saveBotConfigUnified(bf *config.BotConfigFile, operator, source string) error {
 	if bf == nil {
 		return fmt.Errorf("配置為空")
