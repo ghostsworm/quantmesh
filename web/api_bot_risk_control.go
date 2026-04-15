@@ -36,6 +36,40 @@ type PauseOpeningRequest struct {
 	AutoResumeSec *int   `json:"auto_resume_sec"` // 自动恢复时间（秒），0=不自动恢复
 }
 
+// mergeBotRiskControlRequest 將請求中非空字段合入 dst（dst 非 nil）
+func mergeBotRiskControlRequest(dst *config.BotRiskControl, req *BotRiskControlRequest) {
+	if req.Enabled != nil {
+		dst.Enabled = *req.Enabled
+	}
+	if req.MaxPositionQuantity != nil {
+		dst.MaxPositionQuantity = *req.MaxPositionQuantity
+	}
+	if req.MaxPositionValue != nil {
+		dst.MaxPositionValue = *req.MaxPositionValue
+	}
+	if req.MaxPositionLayers != nil {
+		dst.MaxPositionLayers = *req.MaxPositionLayers
+	}
+	if req.MaxOpenOrders != nil {
+		dst.MaxOpenOrders = *req.MaxOpenOrders
+	}
+	if req.OpenOrderDistance != nil {
+		dst.OpenOrderDistance = *req.OpenOrderDistance
+	}
+	if req.StopLossRatio != nil {
+		dst.StopLossRatio = *req.StopLossRatio
+	}
+	if req.TakeProfitRatio != nil {
+		dst.TakeProfitRatio = *req.TakeProfitRatio
+	}
+	if req.TrailingStopRatio != nil {
+		dst.TrailingStopRatio = *req.TrailingStopRatio
+	}
+	if req.TrendFilterEnabled != nil {
+		dst.TrendFilterEnabled = *req.TrendFilterEnabled
+	}
+}
+
 // getBotRiskControl 获取 Bot 风控配置（运行中从运行时取，已停止从配置取）
 // 返回包含 open_position_control 與 grid_risk_control 的合併結構
 func getBotRiskControl(c *gin.Context) {
@@ -107,15 +141,20 @@ func getBotRiskControl(c *gin.Context) {
 // updateBotRiskControl 更新 Bot 风控配置
 func updateBotRiskControl(c *gin.Context) {
 	botID := c.Param("id")
-	bot, ok := botExtendedProvider.GetBot(botID)
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
-		return
-	}
 
 	var req BotRiskControlRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if botExtendedProvider == nil {
+		updateBotRiskControlWhenStopped(c, botID, &req)
+		return
+	}
+	bot, ok := botExtendedProvider.GetBot(botID)
+	if !ok {
+		updateBotRiskControlWhenStopped(c, botID, &req)
 		return
 	}
 
@@ -124,38 +163,7 @@ func updateBotRiskControl(c *gin.Context) {
 	if currentRiskControl == nil {
 		currentRiskControl = &config.BotRiskControl{}
 	}
-
-	// 更新非空字段
-	if req.Enabled != nil {
-		currentRiskControl.Enabled = *req.Enabled
-	}
-	if req.MaxPositionQuantity != nil {
-		currentRiskControl.MaxPositionQuantity = *req.MaxPositionQuantity
-	}
-	if req.MaxPositionValue != nil {
-		currentRiskControl.MaxPositionValue = *req.MaxPositionValue
-	}
-	if req.MaxPositionLayers != nil {
-		currentRiskControl.MaxPositionLayers = *req.MaxPositionLayers
-	}
-	if req.MaxOpenOrders != nil {
-		currentRiskControl.MaxOpenOrders = *req.MaxOpenOrders
-	}
-	if req.OpenOrderDistance != nil {
-		currentRiskControl.OpenOrderDistance = *req.OpenOrderDistance
-	}
-	if req.StopLossRatio != nil {
-		currentRiskControl.StopLossRatio = *req.StopLossRatio
-	}
-	if req.TakeProfitRatio != nil {
-		currentRiskControl.TakeProfitRatio = *req.TakeProfitRatio
-	}
-	if req.TrailingStopRatio != nil {
-		currentRiskControl.TrailingStopRatio = *req.TrailingStopRatio
-	}
-	if req.TrendFilterEnabled != nil {
-		currentRiskControl.TrendFilterEnabled = *req.TrendFilterEnabled
-	}
+	mergeBotRiskControlRequest(currentRiskControl, &req)
 
 	// 应用更新后的配置
 	if err := bot.SetBotRiskControl(currentRiskControl); err != nil {
@@ -196,6 +204,65 @@ func updateBotRiskControl(c *gin.Context) {
 		"persisted":             true,
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// updateBotRiskControlWhenStopped Bot 未運行時：與 GET 一致從主庫/快照載入配置並寫回（避免誤回 404）
+func updateBotRiskControlWhenStopped(c *gin.Context, botID string, req *BotRiskControlRequest) {
+	bcf, err := resolveBotConfigFileFromUnifiedOrMain(botID)
+	if err != nil {
+		logger.Error("載入 Bot 配置失敗 [%s]: %v", botID, err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config_load_failed"})
+		return
+	}
+	if bcf == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		return
+	}
+
+	rc := bcf.RiskControl.OpenPositionControl.BotRiskControl
+	if rc == nil {
+		rc = &config.BotRiskControl{}
+	}
+	mergeBotRiskControlRequest(rc, req)
+	bcf.RiskControl.OpenPositionControl.BotRiskControl = rc
+	if req.GridRiskControl != nil {
+		bcf.RiskControl.GridRiskControl = *req.GridRiskControl
+	}
+	bcf.UpdatedAt = time.Now().Format(time.RFC3339)
+
+	if botConfigStorageReady() {
+		if err := saveBotConfigUnified(bcf, "web", "put_bot_risk_control_stopped"); err != nil {
+			logger.Error("❌ [%s] 保存風控到 bot_configs 失敗: %v", botID, err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+	}
+	if fileConfigManager != nil {
+		if err := persistBotRiskControlToConfig(botID, *rc); err != nil {
+			logger.Warn("⚠️ [%s] 主配置風控同步失敗: %v", botID, err)
+		}
+		if req.GridRiskControl != nil {
+			if err := persistGridRiskControlToConfig(botID, *req.GridRiskControl); err != nil {
+				logger.Warn("⚠️ [%s] 主配置網格風控同步失敗: %v", botID, err)
+			}
+		}
+	}
+
+	logger.Info("✅ [%s] 風控配置已更新（Bot 未運行）: %+v", botID, rc)
+	c.JSON(http.StatusOK, gin.H{
+		"enabled":               rc.Enabled,
+		"max_position_quantity": rc.MaxPositionQuantity,
+		"max_position_value":    rc.MaxPositionValue,
+		"max_position_layers":   rc.MaxPositionLayers,
+		"max_open_orders":       rc.MaxOpenOrders,
+		"open_order_distance":   rc.OpenOrderDistance,
+		"stop_loss_ratio":       rc.StopLossRatio,
+		"take_profit_ratio":     rc.TakeProfitRatio,
+		"trailing_stop_ratio":   rc.TrailingStopRatio,
+		"trend_filter_enabled":  rc.TrendFilterEnabled,
+		"grid_risk_control":     bcf.RiskControl.GridRiskControl,
+		"persisted":             true,
+	})
 }
 
 // persistBotRiskControlToConfig 將 Bot 風控寫入主配置文件
