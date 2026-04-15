@@ -400,6 +400,7 @@ func ConvertFromBotConfig(bc BotConfig) *BotConfigFile {
 			GridShiftEnabled:  bc.GridShiftEnabled,
 			GridShiftStep:     bc.GridShiftStep,
 			RocketTieredGrid:  bc.RocketTieredGrid,
+			AutoRebuild:       bc.AutoRebuild,
 		},
 		RiskControl: RiskControlConfig{
 			GridRiskControl:     bc.GridRiskControl,
@@ -467,6 +468,7 @@ func ConvertToBotConfig(bcf *BotConfigFile) BotConfig {
 		GridShiftEnabled:      bcf.Grid.GridShiftEnabled,
 		GridShiftStep:         bcf.Grid.GridShiftStep,
 		RocketTieredGrid:      bcf.Grid.RocketTieredGrid,
+		AutoRebuild:           bcf.Grid.AutoRebuild,
 		GridRiskControl:       bcf.RiskControl.GridRiskControl,
 		OpenPositionControl:   bcf.RiskControl.OpenPositionControl,
 		ReconcileInterval:     bcf.Advanced.ReconcileInterval,
