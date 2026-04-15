@@ -116,45 +116,6 @@ func resolveBotConfigFileFromUnifiedOrMain(botID string) (*config.BotConfigFile,
 	return nil, nil
 }
 
-// syncBotConfigSnapshotFromMainBot 將主配置中的單個 Bot 寫入 bot_configs（與 app_config 對齊）。
-// 用於僅調用 fileConfigManager.UpdateConfig 的路徑，避免主庫快照與 bot_configs 文檔不一致。
-// historySource 寫入 bot_config_history.source，便於審計（如 put_bot_strategy、post_config_update）。
-func syncBotConfigSnapshotFromMainBot(botID string, bc *config.BotConfig, historySource string) error {
-	if bc == nil || !botConfigStorageReady() {
-		return nil
-	}
-	if historySource == "" {
-		historySource = "sync_bot_config_snapshot"
-	}
-	bf := config.ConvertFromBotConfig(*bc)
-	bf.UpdatedAt = time.Now().Format(time.RFC3339)
-	if prev, err := loadBotConfigUnified(botID); err == nil && prev != nil && prev.CreatedAt != "" {
-		bf.CreatedAt = prev.CreatedAt
-	} else if bc.CreatedAt != "" {
-		bf.CreatedAt = bc.CreatedAt
-	}
-	return saveBotConfigUnified(bf, "web", historySource)
-}
-
-// syncAllBotConfigSnapshotsFromMain 將 app_config.Bots 逐條同步到 bot_configs（整份主配置替換、AI 應用等）。
-func syncAllBotConfigSnapshotsFromMain(cfg *config.Config, historySource string) {
-	if cfg == nil || !botConfigStorageReady() {
-		return
-	}
-	if historySource == "" {
-		historySource = "sync_all_bot_configs"
-	}
-	for i := range cfg.Bots {
-		id := cfg.Bots[i].ID
-		if id == "" {
-			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
-		}
-		if err := syncBotConfigSnapshotFromMainBot(id, &cfg.Bots[i], historySource); err != nil {
-			logger.Error("同步 bot_configs 失敗 bot_id=%s: %v", id, err)
-		}
-	}
-}
-
 // removeBotConfigSnapshotBestEffort 刪除 bot_configs 行（刪除 Bot 時調用）；無行則忽略。
 func removeBotConfigSnapshotBestEffort(botID string) {
 	if botID == "" || !botConfigStorageReady() {

@@ -289,13 +289,11 @@ func applyNewbieSecurityConfig(c *gin.Context) {
 		return
 	}
 
-	// 保存配置
-	if err := fileConfigManager.UpdateConfig(&newConfig); err != nil {
+	// 保存配置（含 bot_configs 同步）
+	if err := fileConfigManager.UpdateConfigWithBotHistorySource(&newConfig, "post_risk_check_harden"); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存加固配置失败: " + err.Error()})
 		return
 	}
-
-	syncAllBotConfigSnapshotsFromMain(&newConfig, "post_risk_check_harden")
 
 	// 热更新
 	if configHotReloader != nil {

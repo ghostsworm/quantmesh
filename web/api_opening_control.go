@@ -352,14 +352,12 @@ func putOpeningControlConfig(c *gin.Context) {
 	}
 
 	if persisted {
-		if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-			logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
-		} else if syncedBotID != "" {
-			if b := botCfgByID(cfg, syncedBotID); b != nil {
-				if err := syncBotConfigSnapshotFromMainBot(syncedBotID, b, "put_opening_control"); err != nil {
-					logger.Warn("⚠️ [開倉管理] 同步 bot_configs 失敗 (%s): %v", syncedBotID, err)
-				}
+		if syncedBotID != "" {
+			if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_opening_control"); err != nil {
+				logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
 			}
+		} else if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+			logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
 		}
 	} else if !ok {
 		respondError(c, http.StatusNotFound, "error.symbol_not_found")

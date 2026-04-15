@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"quantmesh/config"
@@ -178,5 +179,76 @@ trading:
 	}
 	if cfgPtr.Exchanges["binance"].FeeRate != 0.0005 {
 		t.Fatalf("expected DB fee 0.0005, got %v", cfgPtr.Exchanges["binance"].FeeRate)
+	}
+}
+
+// SaveAppConfigSnapshot 應將 cfg.Bots 同步寫入 bot_configs（與 main 引導、Web 持久化一致）。
+func TestSaveAppConfigSnapshotSyncsBotConfigs(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "t.db")
+	st, err := NewSQLStorage(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	yamlPath := filepath.Join(dir, "c.yaml")
+	minimal := `app:
+  current_exchange: binance
+exchanges:
+  binance:
+    api_key: "k"
+    secret_key: "s"
+trading:
+  symbols:
+    - symbol: BTCUSDT
+      exchange: binance
+      price_interval: 100
+      order_quantity: 10
+      buy_window_size: 5
+      sell_window_size: 5
+`
+	if err := os.WriteFile(yamlPath, []byte(minimal), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE", "1")
+	if _, err := MigrateYAMLToAppConfigDB(context.Background(), st, yamlPath, filepath.Join(dir, "nobots"), MigrateYAMLModeCLI); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := loadConfigFromAppConfigDocument(st)
+	if err != nil || cfg == nil {
+		t.Fatalf("load: %v cfg=%v", err, cfg)
+	}
+	bid := "sync-test-bot"
+	enb := true
+	cfg.Bots = []config.BotConfig{{
+		ID:                    bid,
+		Name:                  "x",
+		Exchange:              "binance",
+		Symbol:                "BTCUSDT",
+		MarketType:            "futures",
+		Enabled:               &enb,
+		Strategies:            []config.StrategyInstance{{Type: "grid", Weight: 1}},
+		PriceInterval:         100,
+		OrderQuantity:         10,
+		MinOrderValue:         20,
+		BuyWindowSize:         5,
+		SellWindowSize:        5,
+		ReconcileInterval:     60,
+		OrderCleanupThreshold: 50,
+		CleanupBatchSize:      10,
+		MarginLockDurationSec: 10,
+		PositionSafetyCheck:   config.DefaultPositionSafetyCheck,
+		Direction:             "LONG",
+	}}
+	if _, err := SaveAppConfigSnapshot(context.Background(), st, cfg, "test", "save_app_snapshot"); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := st.GetBotConfigDocument(context.Background(), bid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc == nil || strings.TrimSpace(doc.Content) == "" {
+		t.Fatalf("expected bot_configs row for %s", bid)
 	}
 }

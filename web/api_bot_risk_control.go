@@ -284,10 +284,10 @@ func persistBotRiskControlToConfig(botID string, rc config.BotRiskControl) error
 				cfg.Bots[i].OpenPositionControl.BotRiskControl = &config.BotRiskControl{}
 			}
 			*cfg.Bots[i].OpenPositionControl.BotRiskControl = rc
-			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+			if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_bot_risk_control_running"); err != nil {
 				return err
 			}
-			return syncBotConfigSnapshotFromMainBot(botID, &cfg.Bots[i], "put_bot_risk_control_running")
+			return nil
 		}
 	}
 	return nil
@@ -309,10 +309,10 @@ func persistGridRiskControlToConfig(botID string, grc config.GridRiskControl) er
 		}
 		if id == botID {
 			cfg.Bots[i].GridRiskControl = grc
-			if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+			if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_bot_risk_control_running"); err != nil {
 				return err
 			}
-			return syncBotConfigSnapshotFromMainBot(botID, &cfg.Bots[i], "put_bot_risk_control_running")
+			return nil
 		}
 	}
 	return nil
