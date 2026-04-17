@@ -1698,7 +1698,7 @@
     "timeRangeRequired": "历史订单必须选择时间范围",
     "timeRangeMaxDays": "时间范围不能超过7天",
     "timeRangeInvalid": "结束时间必须晚于开始时间",
-    "defaultTimeRange": "默认最近24小时",
+    "defaultTimeRange": "默认最近72小时",
     "timeRangeFilterHint": "筛选依据为订单最后更新时间（成交、撤单等会更新），不是下单时间；网格单常挂單较久、近日才成交，此前若选「最近24小时」会看不到。",
     "onlyBinanceSupported": "当前仅支持币安交易所的订单同步"
   },

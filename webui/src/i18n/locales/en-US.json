@@ -1699,7 +1699,7 @@
     "timeRangeRequired": "Time range is required for history orders",
     "timeRangeMaxDays": "Time range cannot exceed 7 days",
     "timeRangeInvalid": "End time must be later than start time",
-    "defaultTimeRange": "Default: Last 24 hours",
+    "defaultTimeRange": "Default: Last 72 hours",
     "timeRangeFilterHint": "The range filters by last update time (fills/cancels update it), not placement time. Grid orders may rest for days and fill recently—older logic used create time and could hide them."
   },
   "wizard": {

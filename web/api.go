@@ -863,7 +863,7 @@ func getOrderHistory(c *gin.Context) {
 	// 解析时间范围（RFC3339格式）
 	var startTime, endTime *time.Time
 	now := utils.NowUTC()
-	defaultStartTime := now.Add(-24 * time.Hour) // 默认最近24小时
+	defaultStartTime := now.Add(-72 * time.Hour) // 默认最近72小时（与 Web 订单历史页默认一致）
 
 	if startTimeStr != "" {
 		if t, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
