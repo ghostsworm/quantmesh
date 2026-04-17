@@ -985,7 +985,7 @@
     "totalFee": "Total Fee",
     "totalFilledQty": "Total Filled",
     "tradeDetail": "Trade Details",
-    "defaultTimeRange": "Default: Last 24 hours",
+    "defaultTimeRange": "Default: Last 72 hours",
     "timeRangeFilterHint": "The range filters by last update time (fills/cancels update it), not placement time. Grid orders may rest for days and fill recently—older logic used create time and could hide them.",
     "endTime": "End Time",
     "exchangePnl": "Exchange P&L",

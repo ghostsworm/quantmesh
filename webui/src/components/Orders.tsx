@@ -102,11 +102,11 @@ const Orders: React.FC = () => {
   const [historyFilterSide, setHistoryFilterSide] = useState<string>('all')
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   
-  // 历史订单时间范围状态（默认最近24小时）
+  // 历史订单时间范围状态（默认最近72小时）
   const getDefaultTimeRange = () => {
     const now = new Date()
     const endTime = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
-    const startTime = new Date(now.getTime() - 24 * 60 * 60 * 1000 - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+    const startTime = new Date(now.getTime() - 72 * 60 * 60 * 1000 - now.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
     return { startTime, endTime }
   }
   const [historyStartTime, setHistoryStartTime] = useState<string>(getDefaultTimeRange().startTime)
