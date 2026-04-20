@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc10] - 2026-04-21
+
+### Fixed
+- **日志庫 SQLite**：連接 DSN 增加 **`_busy_timeout=15000`**；**`batchInsert`** 對 `database is locked` / busy 類錯誤做短重試，減輕高併發下「批量写入日志失败: database is locked」。
+
+---
+
 ## [3.105.0-rc9] - 2026-04-21
 
 ### Fixed

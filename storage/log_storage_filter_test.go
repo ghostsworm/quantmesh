@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -59,5 +60,20 @@ func TestLogStorage_GetLogs_OptionalMessageFilters(t *testing.T) {
 	}
 	if total != 0 || len(logs) != 0 {
 		t.Fatalf("AND of column bot_id + message filters should exclude mismatch, got total=%d", total)
+	}
+}
+
+func TestSqliteLogLockedRetryable(t *testing.T) {
+	if !sqliteLogLockedRetryable(errors.New("database is locked")) {
+		t.Fatal("expected locked message retryable")
+	}
+	if !sqliteLogLockedRetryable(errors.New("SQLITE_BUSY")) {
+		t.Fatal("expected busy retryable")
+	}
+	if sqliteLogLockedRetryable(nil) {
+		t.Fatal("nil should not retry")
+	}
+	if sqliteLogLockedRetryable(errors.New("constraint failed")) {
+		t.Fatal("constraint should not retry")
 	}
 }

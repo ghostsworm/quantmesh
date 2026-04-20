@@ -72,9 +72,14 @@ func NewLogStorage(path string) (*LogStorage, error) {
 	return ls, nil
 }
 
+// logSQLiteDSN WAL + busy_timeout，避免與其它連接短暫競爭時出現 database is locked
+func logSQLiteDSN(path string) string {
+	return path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=15000"
+}
+
 // openLogStorageDB 打开數據库，若完整性检查失败则备份並重建
 func openLogStorageDB(path string) (*sql.DB, *LogStorage, error) {
-	dsn := path + "?_journal_mode=WAL&_synchronous=NORMAL"
+	dsn := logSQLiteDSN(path)
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("打开日志數據库失败: %w", err)
@@ -278,13 +283,43 @@ func (ls *LogStorage) processLogs() {
 	}
 }
 
-// batchInsert 批量插入日志
+func sqliteLogLockedRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database is locked") || strings.Contains(msg, "locked") ||
+		strings.Contains(msg, "busy")
+}
+
+// batchInsert 批量插入日志（對 SQLITE_BUSY / locked 短重試，配合 DSN busy_timeout）
 func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	const maxAttempts = 6
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(20+attempt*25) * time.Millisecond)
+		}
+		lastErr = ls.batchInsertOnce(entries)
+		if lastErr == nil {
+			return nil
+		}
+		if !sqliteLogLockedRetryable(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
 
-	// 使用事務批量插入
+// batchInsertOnce 單次事務批量插入
+func (ls *LogStorage) batchInsertOnce(entries []*logEntry) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
 	tx, err := ls.db.Begin()
 	if err != nil {
 		return err
@@ -307,7 +342,6 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 			return err
 		}
 
-		// 獲取插入的 ID
 		id, _ := result.LastInsertId()
 		insertedLogs = append(insertedLogs, &LogRecord{
 			ID:        id,
@@ -322,7 +356,6 @@ func (ls *LogStorage) batchInsert(entries []*logEntry) error {
 		return err
 	}
 
-	// 通知所有订阅者
 	ls.notifySubscribers(insertedLogs)
 
 	return nil
