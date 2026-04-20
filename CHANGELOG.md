@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc9] - 2026-04-21
+
+### Fixed
+- **`VolatilityAlertService.Stop`**：改為指針接收者並調用 **`cancel`**，避免按值傳遞複製 **`sync.RWMutex`**（`go vet` 報錯）。
+- **`GetStatistics`**：在已持有讀鎖時不再調用 **`GetUnacknowledgedAlerts`**（會再次 **`RLock`**），消除同 goroutine 死鎖風險。
+- **`DynamicAdjuster.Stop`**：停止時調用波動預警服務的 **`Stop`**，釋放上下文。
+
+---
+
 ## [3.105.0-rc8] - 2026-04-21
 
 ### Fixed
