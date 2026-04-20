@@ -64,11 +64,20 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
     return `${y}-${m}-${d}`
   }
 
-  // 獲取某天的统计數據
+  /** 後端僅在有成交/記錄時返回該日；無記錄視為當日盈虧 0，避免日曆滿屏「無數據」。 */
+  const emptyDayStats = (dateStr: string): DailyStatistics => ({
+    date: dateStr,
+    total_trades: 0,
+    total_volume: 0,
+    total_pnl: 0,
+    win_rate: 0,
+  })
+
+  // 獲取某天的统计數據（當月有效日期必有對象，月初空白格為 null）
   const getDayStats = (date: Date | null): DailyStatistics | null => {
     if (!date) return null
     const dateStr = formatDate(date)
-    return statsMap.get(dateStr) || null
+    return statsMap.get(dateStr) ?? emptyDayStats(dateStr)
   }
 
   // 今日日期字串（使用本地時區，與日曆格子一致，避免 UTC 導致焦點錯位）
@@ -110,8 +119,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
           const stats = getDayStats(date)
           const isToday = date ? formatDate(date) === todayStr : false
           const dateStr = date ? formatDate(date) : ''
-          const hasData = !!stats
-          const isClickable = hasData && onDayClick
+          const isClickable = !!date && !!onDayClick
 
           return (
             <div
@@ -159,8 +167,8 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                     {date.getDate()}
                   </div>
 
-                  {/* 统计數據 */}
-                  {stats ? (
+                  {/* 统计數據（無後端記錄時已補 0，不再顯示「無數據」） */}
+                  {stats && (
                     <div style={{ flex: 1, fontSize: '11px', lineHeight: '1.4' }}>
                       <div style={{
                         color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f',
@@ -222,10 +230,6 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                           <span style={{ color: '#ff4d4f' }}>{stats.losing_trades}</span>
                         </div>
                       )}
-                    </div>
-                  ) : (
-                    <div style={{ flex: 1, fontSize: '11px', color: '#bfbfbf' }}>
-                      {t('statistics.noData')}
                     </div>
                   )}
                 </>
