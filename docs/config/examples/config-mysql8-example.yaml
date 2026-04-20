@@ -127,11 +127,13 @@ risk_control:
   max_leverage: 10
 
 # ============================================
-# 存储配置
+# 存储配置（與 database 一致使用 MySQL；網格成交寫入 qm_paired_trades，避免與 GORM trades 衝突）
+# path 可填完整 MySQL DSN，或留空則使用上方 database.dsn
 # ============================================
 storage:
   enabled: true
-  type: "database"  # 使用 MySQL 数据库存储
+  type: "mysql"
+  path: "" # 留空則 resolveMySQLStorageDSN 使用 database.dsn
   buffer_size: 1000
   batch_size: 100
   flush_interval: 10
