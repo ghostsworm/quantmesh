@@ -145,6 +145,9 @@ func (da *DynamicAdjuster) Stop() {
 	if da.cancel != nil {
 		da.cancel()
 	}
+	if da.volatilityAlert != nil {
+		da.volatilityAlert.Stop()
+	}
 }
 
 // watchPriceChanges 監听價格變化

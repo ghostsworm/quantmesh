@@ -59,8 +59,11 @@ func (vas *VolatilityAlertService) Start() {
 	logger.Info("✅ 波动率预警服务已启动")
 }
 
-// Stop 停止预警服务
-func (VolatilityAlertService) Stop() {
+// Stop 停止预警服务（須用指針接收者，避免複製含 sync.RWMutex 的值）
+func (vas *VolatilityAlertService) Stop() {
+	if vas != nil && vas.cancel != nil {
+		vas.cancel()
+	}
 	logger.Info("🛑 波动率预警服务已停止")
 }
 
@@ -267,12 +270,18 @@ func (vas *VolatilityAlertService) GetStatistics() map[string]interface{} {
 	vas.mu.RLock()
 	defer vas.mu.RUnlock()
 
+	unackCount := 0
+	for _, record := range vas.alertHistory {
+		if !record.Acknowledged {
+			unackCount++
+		}
+	}
 	stats := map[string]interface{}{
 		"current_regime":     vas.detector.GetCurrentRegime().String(),
 		"current_risk_level": vas.detector.GetRiskLevel(),
 		"grid_friendly":      vas.detector.IsGridFriendly(),
 		"total_alerts":       len(vas.alertHistory),
-		"unacknowledged":     len(vas.GetUnacknowledgedAlerts()),
+		"unacknowledged":     unackCount,
 		"subscribers":        len(vas.subscribers),
 	}
 
