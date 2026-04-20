@@ -2,6 +2,14 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc11] - 2026-04-21
+
+### Fixed
+- **配置**：`storage.type: mysql` 且 **`path` 留空**（依 `database.dsn`）時，預設 **`storage.enabled: true`**，避免誤以為未啟用存儲。
+- **文檔**：`docs/config/examples/config-mysql8-example.yaml` 中 **`storage.type` 誤寫為 `database`**，已改為 **`mysql`** 並註明與 `database.dsn` 的關係。
+
+---
+
 ## [3.105.0-rc10] - 2026-04-21
 
 ### Fixed

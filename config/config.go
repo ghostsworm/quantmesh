@@ -2748,6 +2748,10 @@ func (c *Config) Validate() error {
 	if c.Storage.Path != "" && c.Storage.Type != "" {
 		c.Storage.Enabled = true
 	}
+	// MySQL 時 path 常留空（由 database.dsn 解析），仍應啟用存儲
+	if c.Storage.Type == "mysql" && strings.TrimSpace(c.Database.DSN) != "" {
+		c.Storage.Enabled = true
+	}
 	if c.Storage.BufferSize <= 0 {
 		c.Storage.BufferSize = 1000 // 預設 1000
 	}
