@@ -3,11 +3,13 @@ package feerate
 import (
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -80,15 +82,19 @@ func fetchBinanceFeeRate(apiKey, secretKey, symbol string) (makerFee, takerFee f
 
 func fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol string) (makerFee, takerFee float64, err error) {
 	timestamp := fmt.Sprintf("%d", time.Now().UnixMilli())
-	path := fmt.Sprintf("/api/v2/common/trade-rate?symbol=%s&businessType=futures", symbol)
-	message := timestamp + "GET" + path
+	requestPath := "/api/v2/common/trade-rate"
+	q := url.Values{}
+	q.Set("businessType", "mix")
+	q.Set("symbol", symbol)
+	queryString := q.Encode()
+	preHash := timestamp + "GET" + requestPath + "?" + queryString
 
 	mac := hmac.New(sha256.New, []byte(secretKey))
-	mac.Write([]byte(message))
-	signature := hex.EncodeToString(mac.Sum(nil))
+	mac.Write([]byte(preHash))
+	signature := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
-	url := "https://api.bitget.com" + path
-	req, err := http.NewRequest("GET", url, nil)
+	fullURL := "https://api.bitget.com" + requestPath + "?" + queryString
+	req, err := http.NewRequest("GET", fullURL, nil)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -97,6 +103,7 @@ func fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol string) (makerFee,
 	req.Header.Set("ACCESS-PASSPHRASE", passphrase)
 	req.Header.Set("ACCESS-TIMESTAMP", timestamp)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("locale", "en-US")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -111,17 +118,22 @@ func fetchBitgetFeeRate(apiKey, secretKey, passphrase, symbol string) (makerFee,
 		return 0, 0, fmt.Errorf("API 返回 %d", resp.StatusCode)
 	}
 
-	var data struct {
+	var bitgetResp struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
 		Data struct {
 			MakerFeeRate string `json:"makerFeeRate"`
 			TakerFeeRate string `json:"takerFeeRate"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := json.Unmarshal(body, &bitgetResp); err != nil {
 		return 0, 0, fmt.Errorf("解析费率失败: %v", err)
 	}
+	if bitgetResp.Code != "00000" {
+		return 0, 0, fmt.Errorf("bitget trade-rate: code=%s msg=%s", bitgetResp.Code, bitgetResp.Msg)
+	}
 
-	makerFee, _ = strconv.ParseFloat(data.Data.MakerFeeRate, 64)
-	takerFee, _ = strconv.ParseFloat(data.Data.TakerFeeRate, 64)
+	makerFee, _ = strconv.ParseFloat(bitgetResp.Data.MakerFeeRate, 64)
+	takerFee, _ = strconv.ParseFloat(bitgetResp.Data.TakerFeeRate, 64)
 	return makerFee, takerFee, nil
 }

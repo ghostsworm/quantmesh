@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc13] - 2026-05-03
+
+### Fixed
+- **Bitget V2 收尾**：資金費率改為 **`GET /api/v2/mix/market/current-fund-rate`**（路徑與官方遷移表一致）；`productType` 使用適配器實際 **`usdt-futures` / `coin-futures` 等**，不再硬編碼。
+- **Bitget 實時费率拉取**：**`GET /api/v2/common/trade-rate`** 改為官方 **Base64 HMAC** 簽名；**`businessType=mix`**（合約）；按 **`code=00000`** 解析 **`data`**。
+- **`live_server/bitget`**：合約 **`productType` 查詢參數** 統一為小寫 **`usdt-futures`**（與主程序適配器一致）。
+- **CHANGELOG**：舊條目內 Bitget 劃轉路徑更新為 V2。
+
+---
+
 ## [3.105.0-rc12] - 2026-05-03
 
 ### Fixed
@@ -413,7 +423,7 @@
 ## [3.99.0-rc1] - 2026-04-12
 
 ### Added
-- **Gate.io / Bybit / Bitget**：`InternalTransfer` 實作（Gate `POST /wallet/transfers`；Bybit `POST /v5/asset/transfer`；Bitget `POST /api/spot/v1/wallet/transfer-v2`），並附帳戶標籤映射單元測試。
+- **Gate.io / Bybit / Bitget**：`InternalTransfer` 實作（Gate `POST /wallet/transfers`；Bybit `POST /v5/asset/transfer`；Bitget `POST /api/v2/spot/wallet/transfer`），並附帳戶標籤映射單元測試。
 - **KuCoin 合約**：`GetSpotPrice` / `GetOrderBook` 走公共 ticker 與 level2 深度；`wrapper_kucoin` 轉為通用 `OrderBook`。
 - **WhiteBIT**：`GetOrderFills`（`/api/v4/trade-account/order` 成交明细）與 wrapper 轉換；K 線流明確回傳不支援錯誤。
 
