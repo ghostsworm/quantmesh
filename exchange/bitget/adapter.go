@@ -1183,11 +1183,10 @@ func (b *BitgetAdapter) GetQuoteAsset() string {
 
 // GetFundingRate 獲取资金费率
 func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	// Bitget API: GET /api/v2/mix/market/current-fundRate
-	// 需要轉换交易對格式
+	// Bitget V2：GET /api/v2/mix/market/current-fund-rate（舊路徑 current-fundRate 已廢棄）
 	bitgetSymbol := convertToBitgetSymbol(symbol)
 
-	path := fmt.Sprintf("/api/v2/mix/market/current-fundRate?symbol=%s&productType=USDT-FUTURES", bitgetSymbol)
+	path := fmt.Sprintf("/api/v2/mix/market/current-fund-rate?symbol=%s&productType=%s", bitgetSymbol, b.productType)
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
@@ -1246,10 +1245,10 @@ func bitgetEstimateNextFundingUTC8h(now time.Time) time.Time {
 	}
 }
 
-// GetFundingInfo 獲取資金費與下次結算（current-fundRate 擴展欄位 + 後備估算）
+// GetFundingInfo 獲取資金費與下次結算（current-fund-rate 擴展欄位 + 後備估算）
 func (b *BitgetAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
 	bitgetSymbol := convertToBitgetSymbol(symbol)
-	path := fmt.Sprintf("/api/v2/mix/market/current-fundRate?symbol=%s&productType=USDT-FUTURES", bitgetSymbol)
+	path := fmt.Sprintf("/api/v2/mix/market/current-fund-rate?symbol=%s&productType=%s", bitgetSymbol, b.productType)
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("獲取资金费率失败: %w", err)

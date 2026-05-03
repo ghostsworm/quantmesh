@@ -245,7 +245,7 @@ func makeRestRequest(config *Config, method, path string) ([]byte, error) {
 
 // fetchAccountInfo fetches account information from Bitget
 func fetchAccountInfo(config *Config) (*BitgetAccountResponse, error) {
-	body, err := makeRestRequest(config, "GET", "/api/v2/mix/account/accounts?productType=USDT-FUTURES")
+	body, err := makeRestRequest(config, "GET", "/api/v2/mix/account/accounts?productType=usdt-futures")
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func fetchAccountInfo(config *Config) (*BitgetAccountResponse, error) {
 
 // fetchHistoryCandles fetches historical K-line data from Bitget
 func fetchHistoryCandles(config *Config, symbol string, limit int) (*BitgetCandlesResponse, error) {
-	path := fmt.Sprintf("/api/v2/mix/market/candles?symbol=%s&productType=USDT-FUTURES&granularity=1m&limit=%d", symbol, limit)
+	path := fmt.Sprintf("/api/v2/mix/market/candles?symbol=%s&productType=usdt-futures&granularity=1m&limit=%d", symbol, limit)
 	body, err := makeRestRequest(config, "GET", path)
 	if err != nil {
 		return nil, err
@@ -298,7 +298,7 @@ type BitgetOpenOrdersResponse struct {
 
 // fetchOpenOrders fetches current open orders from Bitget
 func fetchOpenOrders(config *Config, symbol string) (*BitgetOpenOrdersResponse, error) {
-	path := fmt.Sprintf("/api/v2/mix/order/orders-pending?symbol=%s&productType=USDT-FUTURES", symbol)
+	path := fmt.Sprintf("/api/v2/mix/order/orders-pending?symbol=%s&productType=usdt-futures", symbol)
 	body, err := makeRestRequest(config, "GET", path)
 	if err != nil {
 		return nil, err
