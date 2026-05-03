@@ -2,6 +2,13 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc12] - 2026-05-03
+
+### Fixed
+- **Bitget**：V1 REST 已下線（錯誤碼 **30032**）。合約訂單簿改為 **GET `/api/v2/mix/market/merge-depth`**；內部劃轉改為 **POST `/api/v2/spot/wallet/transfer`**，帳戶類型 **mix_usdt/mix_usdc** 改為官方 V2 的 **usdt_futures/usdc_futures**。
+
+---
+
 ## [3.105.0-rc11] - 2026-04-21
 
 ### Fixed

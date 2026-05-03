@@ -100,7 +100,7 @@ func (c *Client) DoRequest(ctx context.Context, method, path string, body interf
 	return &bitgetResp, nil
 }
 
-// WalletTransferV2 POST /api/spot/v1/wallet/transfer-v2 — 主帳戶內現貨與合約（mix_usdt 等）劃轉
+// WalletTransferV2 POST /api/v2/spot/wallet/transfer — 主帳戶內現貨與合約（usdt_futures 等）劃轉（V1 transfer-v2 已下線）
 func (c *Client) WalletTransferV2(ctx context.Context, fromType, toType, coin, amount string) (string, error) {
 	body := map[string]interface{}{
 		"fromType": fromType,
@@ -108,7 +108,7 @@ func (c *Client) WalletTransferV2(ctx context.Context, fromType, toType, coin, a
 		"coin":     coin,
 		"amount":   amount,
 	}
-	resp, err := c.DoRequest(ctx, "POST", "/api/spot/v1/wallet/transfer-v2", body)
+	resp, err := c.DoRequest(ctx, "POST", "/api/v2/spot/wallet/transfer", body)
 	if err != nil {
 		return "", err
 	}
