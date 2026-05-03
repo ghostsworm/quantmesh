@@ -59,7 +59,7 @@ func TestSign(t *testing.T) {
 
 	timestamp := "1234567890"
 	method := "POST"
-	requestPath := "/api/mix/v1/order/placeOrder"
+	requestPath := "/api/v2/mix/order/place-order"
 	body := `{"symbol":"BTCUSDT","side":"buy"}`
 
 	signature := signer.Sign(timestamp, method, requestPath, body)

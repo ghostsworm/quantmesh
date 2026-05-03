@@ -1353,78 +1353,111 @@ func (b *BitgetAdapter) GetSpotPrice(ctx context.Context, symbol string) (float6
 
 // GetOrderBook 獲取訂單簿深度
 func (b *BitgetAdapter) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
-	// Bitget API: GET /api/mix/v1/market/depth
-	path := fmt.Sprintf("/api/mix/v1/market/depth?symbol=%s&productType=%s&limit=%d", symbol, b.productType, limit)
+	// Bitget V2：GET /api/v2/mix/market/merge-depth（V1 /api/mix/v1/market/depth 已下線，code=30032）
+	gear := bitgetMergeDepthLimitGear(limit)
+	path := fmt.Sprintf("/api/v2/mix/market/merge-depth?symbol=%s&productType=%s&limit=%s", symbol, b.productType, gear)
 
 	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("獲取訂單簿深度失败: %w", err)
 	}
 
-	// 解析响应
 	var depthData struct {
-		Asks [][]string `json:"asks"` // [[價格, 數量], ...]
-		Bids [][]string `json:"bids"` // [[價格, 數量], ...]
-		TS   int64      `json:"ts"`   // 時间戳（毫秒）
+		Asks []json.RawMessage `json:"asks"`
+		Bids []json.RawMessage `json:"bids"`
+		TS   json.RawMessage   `json:"ts"`
 	}
 
 	if err := json.Unmarshal(resp.Data, &depthData); err != nil {
 		return nil, fmt.Errorf("解析订單簿數據失败: %w", err)
 	}
 
-	// 轉换買盘數據（價格從高到低）
-	bids := make([]OrderBookLevel, 0, len(depthData.Bids))
-	for _, bid := range depthData.Bids {
-		if len(bid) < 2 {
-			continue
-		}
-		price, err := strconv.ParseFloat(bid[0], 64)
-		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订單簿買盘價格解析失败: %v", err)
-			continue
-		}
-		quantity, err := strconv.ParseFloat(bid[1], 64)
-		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订單簿買盘數量解析失败: %v", err)
-			continue
-		}
-		bids = append(bids, OrderBookLevel{
-			Price:    price,
-			Quantity: quantity,
-		})
-	}
-
-	// 轉换賣盘數據（價格從低到高）
-	asks := make([]OrderBookLevel, 0, len(depthData.Asks))
-	for _, ask := range depthData.Asks {
-		if len(ask) < 2 {
-			continue
-		}
-		price, err := strconv.ParseFloat(ask[0], 64)
-		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订單簿賣盘價格解析失败: %v", err)
-			continue
-		}
-		quantity, err := strconv.ParseFloat(ask[1], 64)
-		if err != nil {
-			logger.Warn("⚠️ [Bitget] 订單簿賣盘數量解析失败: %v", err)
-			continue
-		}
-		asks = append(asks, OrderBookLevel{
-			Price:    price,
-			Quantity: quantity,
-		})
-	}
+	bids := parseBitgetMergeDepthSide(depthData.Bids, "買盘")
+	asks := parseBitgetMergeDepthSide(depthData.Asks, "賣盘")
 
 	return &OrderBook{
 		Symbol:    symbol,
 		Bids:      bids,
 		Asks:      asks,
-		Timestamp: depthData.TS,
+		Timestamp: parseBitgetDepthMillisTS(depthData.TS),
 	}, nil
 }
 
-// InternalTransfer 交易所內部轉帳（POST /api/spot/v1/wallet/transfer-v2：mix_usdt ↔ spot）
+// bitgetMergeDepthLimitGear 將期望檔位數映射為 V2 merge-depth 的 limit 枚舉（1/5/15/50/max）。
+func bitgetMergeDepthLimitGear(limit int) string {
+	if limit <= 0 {
+		return "50"
+	}
+	switch {
+	case limit <= 1:
+		return "1"
+	case limit <= 5:
+		return "5"
+	case limit <= 15:
+		return "15"
+	case limit <= 50:
+		return "50"
+	default:
+		return "max"
+	}
+}
+
+func parseBitgetDepthMillisTS(raw json.RawMessage) int64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		v, err := strconv.ParseInt(s, 10, 64)
+		if err == nil {
+			return v
+		}
+	}
+	var n int64
+	if err := json.Unmarshal(raw, &n); err == nil {
+		return n
+	}
+	var f float64
+	if err := json.Unmarshal(raw, &f); err == nil {
+		return int64(f)
+	}
+	return 0
+}
+
+func parseBitgetMergeDepthSide(rows []json.RawMessage, sideLabel string) []OrderBookLevel {
+	out := make([]OrderBookLevel, 0, len(rows))
+	for _, row := range rows {
+		var pair []interface{}
+		if err := json.Unmarshal(row, &pair); err != nil || len(pair) < 2 {
+			continue
+		}
+		price, err := parseBitgetDepthScalar(pair[0])
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订單簿%s價格解析失败: %v", sideLabel, err)
+			continue
+		}
+		qty, err := parseBitgetDepthScalar(pair[1])
+		if err != nil {
+			logger.Warn("⚠️ [Bitget] 订單簿%s數量解析失败: %v", sideLabel, err)
+			continue
+		}
+		out = append(out, OrderBookLevel{Price: price, Quantity: qty})
+	}
+	return out
+}
+
+func parseBitgetDepthScalar(v interface{}) (float64, error) {
+	switch x := v.(type) {
+	case float64:
+		return x, nil
+	case string:
+		return strconv.ParseFloat(x, 64)
+	default:
+		return strconv.ParseFloat(fmt.Sprint(x), 64)
+	}
+}
+
+// InternalTransfer 交易所內部轉帳（POST /api/v2/spot/wallet/transfer：usdt_futures / usdc_futures ↔ spot）
 func (b *BitgetAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
 	fromT, toT, err := mapBitgetTransferWalletTypes(fromAccount, toAccount, b.quoteAsset)
 	if err != nil {
@@ -1441,9 +1474,9 @@ func (b *BitgetAdapter) InternalTransfer(ctx context.Context, fromAccount, toAcc
 func mapBitgetTransferWalletTypes(fromAccount, toAccount, quoteAsset string) (fromType, toType string, err error) {
 	f := strings.ToUpper(strings.TrimSpace(fromAccount))
 	t := strings.ToUpper(strings.TrimSpace(toAccount))
-	mix := "mix_usdt"
+	mix := "usdt_futures"
 	if strings.EqualFold(quoteAsset, "USDC") {
-		mix = "mix_usdc"
+		mix = "usdc_futures"
 	}
 	switch {
 	case (f == "UMFUTURE" || f == "CONTRACT") && (t == "SPOT" || t == "MAIN"):
@@ -1451,6 +1484,6 @@ func mapBitgetTransferWalletTypes(fromAccount, toAccount, quoteAsset string) (fr
 	case (f == "SPOT" || f == "MAIN") && (t == "UMFUTURE" || t == "CONTRACT"):
 		return "spot", mix, nil
 	default:
-		return "", "", fmt.Errorf("Bitget 不支援的劃轉: %s -> %s（僅支援 UMFUTURE↔SPOT，USDT 本位 mix_usdt）", fromAccount, toAccount)
+		return "", "", fmt.Errorf("Bitget 不支援的劃轉: %s -> %s（僅支援 UMFUTURE↔SPOT，合約帳戶類型見 V2 usdt_futures/usdc_futures）", fromAccount, toAccount)
 	}
 }
