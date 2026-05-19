@@ -657,6 +657,7 @@ func (b *BybitAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 獲取歷史K線數據
 func (b *BybitAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
+	interval = strings.TrimSuffix(interval, "m")
 	klines, err := b.client.GetKlines(ctx, "linear", symbol, interval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)

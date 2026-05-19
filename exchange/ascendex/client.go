@@ -388,13 +388,13 @@ func (c *AscendEXClient) GetKlines(ctx context.Context, symbol, interval string,
 		return nil, fmt.Errorf("API error: code=%d, msg=%s", apiResp.Code, apiResp.Message)
 	}
 
-	var klineResp KlineResponse
+	var klines []Kline
 	dataBytes, _ := json.Marshal(apiResp.Data)
-	if err := json.Unmarshal(dataBytes, &klineResp); err != nil {
+	if err := json.Unmarshal(dataBytes, &klines); err != nil {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
-	return klineResp.Data, nil
+	return klines, nil
 }
 
 // 數據結構定义

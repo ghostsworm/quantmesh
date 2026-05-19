@@ -467,11 +467,11 @@ type Kline struct {
 	EndTimestamp   int64   `json:"end_timestamp"`
 	Symbol         string  `json:"symbol"`
 	Type           string  `json:"type"`
-	Open           float64 `json:"open"`
-	High           float64 `json:"high"`
-	Low            float64 `json:"low"`
-	Close          float64 `json:"close"`
-	Volume         float64 `json:"volume"`
+	Open           float64 `json:"open,string"`
+	High           float64 `json:"high,string"`
+	Low            float64 `json:"low,string"`
+	Close          float64 `json:"close,string"`
+	Volume         float64 `json:"volume,string"`
 }
 
 type KlinesResponse struct {

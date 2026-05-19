@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc34] - 2026-05-19
+
+### Fixed
+- **多交易所订单链路安全性**：修复 BitMEX、Phemex 字符串型订单 ID 被错误转成 rune 的撤单/查单问题，修复 AscendEX、Poloniex 撤单/查单误传交易对而非订单 ID 的问题；Deribit、MEXC、BingX、WOO X、Crypto.com、BTCC、CoinEx、Bitrue、XT.COM 等批量撤单/全撤不再吞掉单笔失败，避免上层误判为全部成功。
+- **Polymarket 情报质量**：Gamma 客户端解析并透出 `outcomePrices` / `yes_probability`，AI Polymarket 信号提示词改为使用真实 Yes 概率，避免模型只靠题目和成交量猜概率。
+- **AI 情报输出防护**：Polymarket 信号分析增加并发保护、防御性缓存拷贝，以及 signal/strength/confidence/probability 的边界归一化，降低异常 LLM 输出污染市场判断的风险。
+- **NewsAPI 长期运行稳定性**：NewsAPI 查询统一去重、压缩空白、限制关键词数和查询长度，修复旧监控路径使用 `language=zh,en` 导致请求失败的问题，并限制错误/响应体读取大小。
+- **Gemini 调用成本与质量**：异步 Gemini 任务不再把完整 prompt 同时作为 `system_instruction` 重复提交，改用简短系统指令，减少无效 token 消耗并降低提示词自我干扰。
+- **Gemini 密钥落库防护**：异步 AI 任务请求入库前会脱敏 `gemini_api_key`，运行期通过内存引用取回真实 key，降低任务表或本地数据库泄露后的凭据风险。
+- **宏观事件拉取器生命周期**：Polymarket 宏观事件定时拉取支持空 context 兜底、无效间隔兜底、Stop 后重建停止通道，并限制 Gamma 响应体大小，降低长期 goroutine 静默失效或 panic 风险。
+
+---
+
 ## [3.105.0-rc33] - 2026-05-19
 
 ### Fixed

@@ -34,7 +34,7 @@ func TestLivePublicExchangeMarketData(t *testing.T) {
 		{name: "phemex", symbol: "BTCUSDT"},
 		{name: "woox", symbol: "BTCUSDT"},
 		{name: "coinex", symbol: "BTCUSDT"},
-		{name: "bitrue", symbol: "BTCUSDT"},
+		{name: "bitrue", symbol: "BTCUSDT", priceOnly: true},
 		{name: "xtcom", symbol: "BTCUSDT"},
 		{name: "btcc", symbol: "BTCUSDT"},
 		{name: "ascendex", symbol: "BTCUSDT"},

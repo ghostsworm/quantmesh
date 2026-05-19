@@ -277,11 +277,11 @@ func (c *HuobiClient) LinearSwapAccountTransfer(ctx context.Context, currency st
 
 // ContractInfo 合約信息
 type ContractInfo struct {
-	Symbol         string `json:"symbol"`
-	ContractCode   string `json:"contract_code"`
-	PriceTick      string `json:"price_tick"`
+	Symbol         string  `json:"symbol"`
+	ContractCode   string  `json:"contract_code"`
+	PriceTick      string  `json:"price_tick"`
 	ContractSize   float64 `json:"contract_size"`
-	SettlementDate string `json:"settlement_date"`
+	SettlementDate string  `json:"settlement_date"`
 }
 
 // GetContractInfo 獲取合約信息
@@ -487,25 +487,45 @@ type Kline struct {
 
 // GetKlines 獲取K線數據
 func (c *HuobiClient) GetKlines(ctx context.Context, symbol, period string, size int) ([]Kline, error) {
-	params := map[string]string{
-		"contract_code": symbol,
-		"period":        period,
-	}
+	values := url.Values{}
+	values.Set("contract_code", symbol)
+	values.Set("period", period)
 	if size > 0 {
-		params["size"] = strconv.Itoa(size)
+		values.Set("size", strconv.Itoa(size))
 	}
 
-	data, err := c.request(ctx, "GET", "/linear-swap-ex/market/history/kline", params, nil)
+	fullURL := c.baseURL + "/linear-swap-ex/market/history/kline?" + values.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("創建请求失败: %w", err)
+	}
+	req.Header.Set("User-Agent", "QuantMesh/1.0")
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("发送请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	var klines []Kline
-	if err := json.Unmarshal(data, &klines); err != nil {
+	var out struct {
+		Status string  `json:"status"`
+		Data   []Kline `json:"data"`
+		ErrMsg string  `json:"err_msg"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
 		return nil, fmt.Errorf("解析K線數據失败: %w", err)
 	}
+	if out.Status != "ok" {
+		return nil, fmt.Errorf("API 錯误: %s", string(body))
+	}
 
-	return klines, nil
+	return out.Data, nil
 }
 
 // FundingRate 资金费率

@@ -362,7 +362,11 @@ func (a *Adapter) StopKlineStream() error {
 // GetHistoricalKlines 獲取歷史K線數據
 func (a *Adapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*KuCoinCandle, error) {
 	granularity := convertIntervalToGranularity(interval)
-	candles, err := a.client.GetHistoricalKlines(ctx, symbol, granularity, limit)
+	contractSymbol := kucoinContractSymbolForFutures(normalizeUnifiedSymbol(symbol))
+	if contractSymbol == "" {
+		contractSymbol = a.symbol
+	}
+	candles, err := a.client.GetHistoricalKlines(ctx, contractSymbol, granularity, limit)
 	if err != nil {
 		return nil, fmt.Errorf("get historical klines error: %w", err)
 	}

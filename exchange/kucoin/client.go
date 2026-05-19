@@ -343,8 +343,8 @@ func (c *KuCoinClient) GetHistoricalKlines(ctx context.Context, symbol string, g
 	path := fmt.Sprintf("/api/v1/kline/query?symbol=%s&granularity=%d", symbol, granularity)
 	if limit > 0 {
 		// KuCoin 使用時间範圍而不是 limit，这里简化处理
-		to := time.Now().Unix()
-		from := to - int64(granularity*60*limit)
+		to := time.Now().UnixMilli()
+		from := to - int64(granularity*60*limit*1000)
 		path += fmt.Sprintf("&from=%d&to=%d", from, to)
 	}
 
@@ -677,6 +677,53 @@ type Candle struct {
 	Low    float64 `json:"low"`
 	Close  float64 `json:"close"`
 	Volume float64 `json:"volume"`
+}
+
+func (c *Candle) UnmarshalJSON(data []byte) error {
+	var row []interface{}
+	if err := json.Unmarshal(data, &row); err != nil {
+		type alias Candle
+		var obj alias
+		if objErr := json.Unmarshal(data, &obj); objErr != nil {
+			return err
+		}
+		*c = Candle(obj)
+		return nil
+	}
+	if len(row) < 6 {
+		return fmt.Errorf("invalid kucoin candle row length: %d", len(row))
+	}
+	c.Time = kucoinInt64FromAny(row[0])
+	c.Open = kucoinFloat64FromAny(row[1])
+	c.High = kucoinFloat64FromAny(row[2])
+	c.Low = kucoinFloat64FromAny(row[3])
+	c.Close = kucoinFloat64FromAny(row[4])
+	c.Volume = kucoinFloat64FromAny(row[5])
+	return nil
+}
+
+func kucoinInt64FromAny(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case string:
+		n, _ := strconv.ParseInt(x, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func kucoinFloat64FromAny(v interface{}) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case string:
+		n, _ := strconv.ParseFloat(x, 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 // WebSocketToken WebSocket 连接 token

@@ -383,8 +383,8 @@ func (c *MEXCClient) GetContractDepth(ctx context.Context, symbol string) (bids 
 		return nil, nil, 0, err
 	}
 	var resp struct {
-		Code    int    `json:"code"`
-		Success bool   `json:"success"`
+		Code    int  `json:"code"`
+		Success bool `json:"success"`
 		Data    struct {
 			Bids      [][]float64 `json:"bids"`
 			Asks      [][]float64 `json:"asks"`
@@ -416,9 +416,16 @@ func (c *MEXCClient) GetKlines(ctx context.Context, symbol, interval string, lim
 	}
 
 	var resp struct {
-		Code    int     `json:"code"`
-		Data    []Kline `json:"data"`
-		Success bool    `json:"success"`
+		Code int `json:"code"`
+		Data struct {
+			Time  []int64   `json:"time"`
+			Open  []float64 `json:"open"`
+			Close []float64 `json:"close"`
+			High  []float64 `json:"high"`
+			Low   []float64 `json:"low"`
+			Vol   []float64 `json:"vol"`
+		} `json:"data"`
+		Success bool `json:"success"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
@@ -428,7 +435,22 @@ func (c *MEXCClient) GetKlines(ctx context.Context, symbol, interval string, lim
 		return nil, fmt.Errorf("get klines failed")
 	}
 
-	return resp.Data, nil
+	n := len(resp.Data.Time)
+	klines := make([]Kline, 0, n)
+	for i := 0; i < n; i++ {
+		if i >= len(resp.Data.Open) || i >= len(resp.Data.High) || i >= len(resp.Data.Low) || i >= len(resp.Data.Close) || i >= len(resp.Data.Vol) {
+			break
+		}
+		klines = append(klines, Kline{
+			Time:  resp.Data.Time[i] * 1000,
+			Open:  resp.Data.Open[i],
+			High:  resp.Data.High[i],
+			Low:   resp.Data.Low[i],
+			Close: resp.Data.Close[i],
+			Vol:   resp.Data.Vol[i],
+		})
+	}
+	return klines, nil
 }
 
 // 數據結構定义

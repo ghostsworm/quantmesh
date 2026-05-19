@@ -2,7 +2,6 @@ package exchange
 
 import (
 	"context"
-	"strconv"
 
 	"quantmesh/exchange/deribit"
 	"quantmesh/exchange/income"
@@ -71,15 +70,17 @@ func (w *deribitWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 // CancelOrder 取消訂單
 func (w *deribitWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	// Deribit 使用字符串 ID
-	return w.adapter.CancelOrder(ctx, strconv.FormatInt(orderID, 10))
+	return w.adapter.CancelOrder(ctx, orderIDString(orderID))
 }
 
 // BatchCancelOrders 批量取消訂單
 func (w *deribitWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	var errs []error
 	for _, orderID := range orderIDs {
-		_ = w.adapter.CancelOrder(ctx, strconv.FormatInt(orderID, 10))
+		id := orderIDString(orderID)
+		errs = appendOrderOpError(errs, id, w.adapter.CancelOrder(ctx, id))
 	}
-	return nil
+	return joinOrderOpErrors("batch cancel deribit orders", errs)
 }
 
 // CancelAllOrders 取消所有订單
@@ -89,16 +90,17 @@ func (w *deribitWrapper) CancelAllOrders(ctx context.Context, symbol string) err
 		return err
 	}
 
+	var errs []error
 	for _, order := range orders {
-		_ = w.adapter.CancelOrder(ctx, order.OrderID)
+		errs = appendOrderOpError(errs, order.OrderID, w.adapter.CancelOrder(ctx, order.OrderID))
 	}
 
-	return nil
+	return joinOrderOpErrors("cancel all deribit orders", errs)
 }
 
 // GetOrder 查詢訂單
 func (w *deribitWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	order, err := w.adapter.GetOrder(ctx, strconv.FormatInt(orderID, 10))
+	order, err := w.adapter.GetOrder(ctx, orderIDString(orderID))
 	if err != nil {
 		return nil, err
 	}

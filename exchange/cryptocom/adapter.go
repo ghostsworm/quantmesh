@@ -60,7 +60,7 @@ func convertSymbolToCryptoCom(symbol string) string {
 	symbol = strings.ToUpper(symbol)
 	if strings.HasSuffix(symbol, "USDT") {
 		base := strings.TrimSuffix(symbol, "USDT")
-		return base + "_USDT"
+		return base + "USD-PERP"
 	}
 	return symbol
 }
