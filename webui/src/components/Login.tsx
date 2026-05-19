@@ -23,6 +23,7 @@ import {
   verifyPassword,
   beginWebAuthnLogin,
   finishWebAuthnLogin,
+  recoverPassword,
 } from '../services/auth'
 import { trackUserLogin } from '../services/telemetry'
 import LanguageSelector from './LanguageSelector'
@@ -32,8 +33,13 @@ const Login: React.FC = () => {
   const navigate = useNavigate()
   const { isAuthenticated, hasWebAuthn, refreshAuth } = useAuth()
   const [password, setPassword] = useState('')
+  const [showRecovery, setShowRecovery] = useState(false)
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [recoveryPassword, setRecoveryPassword] = useState('')
+  const [recoveryConfirmPassword, setRecoveryConfirmPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
   const [version, setVersion] = useState<string>('')
 
   const bgColor = 'gray.50'
@@ -80,6 +86,7 @@ const Login: React.FC = () => {
 
     setIsLoading(true)
     setError(null)
+    setSuccess(null)
 
     try {
       await verifyPassword(password)
@@ -105,6 +112,7 @@ const Login: React.FC = () => {
 
     setIsLoading(true)
     setError(null)
+    setSuccess(null)
 
     try {
       // 1. 开始 WebAuthn 登錄
@@ -123,6 +131,18 @@ const Login: React.FC = () => {
           bytes[i] = binary.charCodeAt(i)
         }
         return bytes.buffer
+      }
+
+      const arrayBufferToBase64URL = (buffer: ArrayBuffer): string => {
+        const bytes = new Uint8Array(buffer)
+        let binary = ''
+        bytes.forEach((byte) => {
+          binary += String.fromCharCode(byte)
+        })
+        return btoa(binary)
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/g, '')
       }
 
       const publicKeyOptions: any = { ...beginResponse.options }
@@ -147,25 +167,18 @@ const Login: React.FC = () => {
       const response = credential.response as AuthenticatorAssertionResponse
       const credentialResponse = {
         id: credential.id,
-        rawId: Array.from(new Uint8Array(credential.rawId)),
+        rawId: arrayBufferToBase64URL(credential.rawId),
         response: {
-          authenticatorData: Array.from(new Uint8Array(response.authenticatorData)),
-          clientDataJSON: Array.from(new Uint8Array(response.clientDataJSON)),
-          signature: Array.from(new Uint8Array(response.signature)),
-          userHandle: response.userHandle ? Array.from(new Uint8Array(response.userHandle)) : null,
+          authenticatorData: arrayBufferToBase64URL(response.authenticatorData),
+          clientDataJSON: arrayBufferToBase64URL(response.clientDataJSON),
+          signature: arrayBufferToBase64URL(response.signature),
+          userHandle: response.userHandle ? arrayBufferToBase64URL(response.userHandle) : null,
         },
         type: credential.type,
       }
 
-      // 5. 完成登錄（需要密碼）
-      const passwordForWebAuthn = prompt(t('login.webauthnPasswordPrompt'))
-      if (!passwordForWebAuthn) {
-        setError(t('login.webauthnPasswordRequired'))
-        setIsLoading(false)
-        return
-      }
-
-      await finishWebAuthnLogin('admin', beginResponse.session_key, credentialResponse, passwordForWebAuthn)
+      // 5. 完成免密登錄
+      await finishWebAuthnLogin('admin', beginResponse.session_key, credentialResponse)
 
       // 追踪登录事件
       trackUserLogin('webauthn')
@@ -180,6 +193,39 @@ const Login: React.FC = () => {
       } else {
         setError(err.message || t('login.webauthnLoginFailed'))
       }
+      setIsLoading(false)
+    }
+  }
+
+  const handlePasswordRecovery = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setSuccess(null)
+
+    if (!recoveryCode.trim() || !recoveryPassword || !recoveryConfirmPassword) {
+      setError(t('login.recoveryFillAllFields'))
+      return
+    }
+    if (recoveryPassword.length < 6) {
+      setError(t('login.recoveryPasswordMinLength'))
+      return
+    }
+    if (recoveryPassword !== recoveryConfirmPassword) {
+      setError(t('login.recoveryPasswordMismatch'))
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      await recoverPassword(recoveryCode, recoveryPassword)
+      setRecoveryCode('')
+      setRecoveryPassword('')
+      setRecoveryConfirmPassword('')
+      setShowRecovery(false)
+      setSuccess(t('login.recoverySuccess'))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('login.recoveryFailed'))
+    } finally {
       setIsLoading(false)
     }
   }
@@ -249,7 +295,14 @@ const Login: React.FC = () => {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
+            {success && (
+              <Alert status="success" borderRadius="md">
+                <AlertIcon />
+                <AlertDescription>{success}</AlertDescription>
+              </Alert>
+            )}
 
+            {!showRecovery ? (
             <form onSubmit={handlePasswordLogin}>
               <VStack spacing={4} align="stretch">
                 <FormControl isRequired>
@@ -274,8 +327,88 @@ const Login: React.FC = () => {
                 >
                   {t('login.passwordLogin')}
                 </Button>
+
+                <Button
+                  type="button"
+                  variant="link"
+                  colorScheme="blue"
+                  onClick={() => {
+                    setError(null)
+                    setSuccess(null)
+                    setShowRecovery(true)
+                  }}
+                  isDisabled={isLoading}
+                >
+                  {t('login.forgotPassword')}
+                </Button>
               </VStack>
             </form>
+            ) : (
+              <form onSubmit={handlePasswordRecovery}>
+                <VStack spacing={4} align="stretch">
+                  <FormControl isRequired>
+                    <FormLabel>{t('login.recoveryCode')}</FormLabel>
+                    <Input
+                      type="text"
+                      value={recoveryCode}
+                      onChange={(e) => setRecoveryCode(e.target.value)}
+                      placeholder={t('login.recoveryCodePlaceholder')}
+                      size="lg"
+                      isDisabled={isLoading}
+                    />
+                  </FormControl>
+
+                  <FormControl isRequired>
+                    <FormLabel>{t('login.newPassword')}</FormLabel>
+                    <Input
+                      type="password"
+                      value={recoveryPassword}
+                      onChange={(e) => setRecoveryPassword(e.target.value)}
+                      placeholder={t('login.newPasswordPlaceholder')}
+                      size="lg"
+                      isDisabled={isLoading}
+                    />
+                  </FormControl>
+
+                  <FormControl isRequired>
+                    <FormLabel>{t('login.confirmNewPassword')}</FormLabel>
+                    <Input
+                      type="password"
+                      value={recoveryConfirmPassword}
+                      onChange={(e) => setRecoveryConfirmPassword(e.target.value)}
+                      placeholder={t('login.confirmNewPasswordPlaceholder')}
+                      size="lg"
+                      isDisabled={isLoading}
+                    />
+                  </FormControl>
+
+                  <Button
+                    type="submit"
+                    colorScheme="blue"
+                    size="lg"
+                    width="full"
+                    isLoading={isLoading}
+                    loadingText={t('login.recovering')}
+                  >
+                    {t('login.resetPassword')}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="link"
+                    colorScheme="gray"
+                    onClick={() => {
+                      setError(null)
+                      setSuccess(null)
+                      setShowRecovery(false)
+                    }}
+                    isDisabled={isLoading}
+                  >
+                    {t('login.backToPasswordLogin')}
+                  </Button>
+                </VStack>
+              </form>
+            )}
 
             {hasWebAuthn && (
               <Button

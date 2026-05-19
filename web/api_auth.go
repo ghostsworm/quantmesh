@@ -30,8 +30,8 @@ func getAuthStatus(c *gin.Context) {
 		// 密碼管理器未初始化時，返回特殊標記
 		// 前端應該顯示錯誤提示而不是設置密碼頁面
 		c.JSON(http.StatusOK, gin.H{
-			"has_password":         false,
-			"has_webauthn":         false,
+			"has_password":           false,
+			"has_webauthn":           false,
 			"password_manager_error": true, // 🔒 新增：標識密碼管理器初始化失敗
 		})
 		return
@@ -100,7 +100,7 @@ func setPassword(c *gin.Context) {
 		})
 		return
 	}
-	
+
 	// 🔒 安全检查：如果已經設置過密碼，则拒绝请求
 	hasPassword, err := globalPasswordManager.HasPassword(username)
 	if err != nil {
@@ -108,12 +108,12 @@ func setPassword(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "检查密碼状態失败"})
 		return
 	}
-	
+
 	if hasPassword {
 		logger.WriteWebLog("[AUTH] ⚠️ 拒绝設置密碼请求：密碼已存在，请使用修改密碼接口")
 		c.JSON(http.StatusForbidden, gin.H{
 			"error": "密碼已設置，请使用修改密碼功能",
-			"code": "PASSWORD_ALREADY_SET",
+			"code":  "PASSWORD_ALREADY_SET",
 		})
 		return
 	}
@@ -273,6 +273,81 @@ func changePassword(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "密碼修改成功"})
+}
+
+// generatePasswordRecoveryCode 生成一次性密碼恢復碼
+// POST /api/auth/recovery-code/generate
+func generatePasswordRecoveryCode(c *gin.Context) {
+	if globalPasswordManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密碼管理器未初始化"})
+		return
+	}
+
+	sm := GetSessionManager()
+	if sm == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登錄"})
+		return
+	}
+
+	session, exists := sm.GetSessionFromRequest(c.Request)
+	if !exists || session == nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请先登錄"})
+		return
+	}
+
+	code, err := globalPasswordManager.GenerateRecoveryCode(session.Username)
+	if err != nil {
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 生成密碼恢復碼失败: %v", err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成恢復碼失败"})
+		return
+	}
+
+	logger.WriteWebLog(fmt.Sprintf("[AUTH] ✅ 已為用戶 %s 生成新的密碼恢復碼", session.Username))
+	c.JSON(http.StatusOK, gin.H{
+		"success":       true,
+		"recovery_code": code,
+		"message":       "恢復碼已生成，请立即保存",
+	})
+}
+
+// recoverPassword 使用一次性恢復碼重置密碼
+// POST /api/auth/password/recover
+func recoverPassword(c *gin.Context) {
+	if globalPasswordManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "密碼管理器未初始化"})
+		return
+	}
+
+	var req struct {
+		RecoveryCode string `json:"recovery_code" binding:"required"`
+		NewPassword  string `json:"new_password" binding:"required"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "無效的请求"})
+		return
+	}
+
+	if len(req.NewPassword) < 6 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "新密碼长度至少為6位"})
+		return
+	}
+
+	username := "admin"
+	if err := globalPasswordManager.RecoverPasswordWithCode(username, req.RecoveryCode, req.NewPassword); err != nil {
+		logger.WriteWebLog(fmt.Sprintf("[AUTH] 密碼恢復失败: %v", err))
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "恢復碼無效或已失效"})
+		return
+	}
+
+	sm := GetSessionManager()
+	if sm != nil {
+		sm.DeleteSessionsForUser(username)
+		sm.ClearSessionCookie(c.Writer)
+	}
+
+	logger.WriteWebLog("[AUTH] ✅ 已通過恢復碼重置 admin 密碼，舊會话已失效")
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "密碼已重置，请使用新密碼登錄"})
 }
 
 // logout 退出登錄

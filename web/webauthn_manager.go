@@ -180,18 +180,15 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 			continue
 		}
 
-		// 解析 public_key (JSON) 為 webauthn.Credential
-		var credentialData map[string]interface{}
-		if err := json.Unmarshal([]byte(publicKeyJSON), &credentialData); err != nil {
+		credential, err := decodeStoredCredential(credentialIDBytes, []byte(publicKeyJSON), uint32(counter))
+		if err != nil {
+			if wm.log != nil {
+				wm.log.Warnf("[WebAuthn] 跳過無法解析的凭证 - CredentialID: %s, Error: %v", credentialID, err)
+			}
 			continue
 		}
 
-		// 構造 webauthn.Credential
-		credential := webauthn.Credential{
-			ID:        credentialIDBytes,
-			PublicKey: []byte(publicKeyJSON), // 存儲 JSON 格式的公钥
-		}
-		credentials = append(credentials, credential)
+		credentials = append(credentials, *credential)
 	}
 
 	// 創建用戶（使用用戶名作為 ID）
@@ -204,6 +201,52 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 	}, nil
 }
 
+// decodeStoredCredential 解析當前版本和舊版本保存的 WebAuthn 凭证。
+func decodeStoredCredential(credentialID []byte, raw []byte, counter uint32) (*webauthn.Credential, error) {
+	var stored webauthn.Credential
+	if err := json.Unmarshal(raw, &stored); err == nil && len(stored.PublicKey) > 0 {
+		if len(stored.ID) == 0 {
+			stored.ID = credentialID
+		}
+		if stored.Authenticator.SignCount < counter {
+			stored.Authenticator.SignCount = counter
+		}
+		return &stored, nil
+	}
+
+	var publicKeyBase64 string
+	if err := json.Unmarshal(raw, &publicKeyBase64); err == nil && publicKeyBase64 != "" {
+		publicKey, err := base64.StdEncoding.DecodeString(publicKeyBase64)
+		if err != nil {
+			publicKey, err = base64.RawURLEncoding.DecodeString(publicKeyBase64)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("解析舊版公钥失败: %w", err)
+		}
+
+		return &webauthn.Credential{
+			ID:        credentialID,
+			PublicKey: publicKey,
+			Authenticator: webauthn.Authenticator{
+				SignCount: counter,
+			},
+		}, nil
+	}
+
+	var publicKeyBytes []byte
+	if err := json.Unmarshal(raw, &publicKeyBytes); err == nil && len(publicKeyBytes) > 0 {
+		return &webauthn.Credential{
+			ID:        credentialID,
+			PublicKey: publicKeyBytes,
+			Authenticator: webauthn.Authenticator{
+				SignCount: counter,
+			},
+		}, nil
+	}
+
+	return nil, fmt.Errorf("不支持的凭证存儲格式")
+}
+
 // SaveCredential 保存凭证
 func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *webauthn.Credential, deviceName string) error {
 	credentialID := base64.RawURLEncoding.EncodeToString(credential.ID)
@@ -213,26 +256,25 @@ func (wm *WebAuthnManager) SaveCredential(userID, username string, credential *w
 			username, deviceName, credentialID)
 	}
 
-	// 序列化公钥
-	publicKeyJSON, err := json.Marshal(credential.PublicKey)
+	credentialJSON, err := json.Marshal(credential)
 	if err != nil {
 		if wm.log != nil {
-			wm.log.Errorf("[WebAuthn] 序列化公钥失败: %v", err)
+			wm.log.Errorf("[WebAuthn] 序列化凭证失败: %v", err)
 		}
-		return fmt.Errorf("序列化公钥失败: %v", err)
+		return fmt.Errorf("序列化凭证失败: %v", err)
 	}
 
 	counter := credential.Authenticator.SignCount
 
 	if wm.log != nil {
-		wm.log.Debugf("[WebAuthn] 執行數據库插入 - CredentialID: %s, Counter: %d, PublicKey长度: %d",
-			credentialID, counter, len(publicKeyJSON))
+		wm.log.Debugf("[WebAuthn] 執行數據库插入 - CredentialID: %s, Counter: %d, Credential长度: %d",
+			credentialID, counter, len(credentialJSON))
 	}
 
 	result, err := wm.db.Exec(`
 		INSERT INTO webauthn_credentials (id, user_id, username, credential_id, public_key, counter, device_name)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, credentialID, userID, username, credentialID, string(publicKeyJSON), counter, deviceName)
+	`, credentialID, userID, username, credentialID, string(credentialJSON), counter, deviceName)
 
 	if err != nil {
 		if wm.log != nil {

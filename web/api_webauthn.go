@@ -2,8 +2,10 @@ package web
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"sync"
@@ -60,6 +62,31 @@ func deleteWebAuthnSession(key string) {
 	delete(webauthnSessionStore.data, key)
 }
 
+func newWebAuthnSessionKey(prefix string, username string) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s_%s_%s", prefix, username, base64.RawURLEncoding.EncodeToString(b)), nil
+}
+
+func normalizeWebAuthnBinaryField(value interface{}) (interface{}, bool) {
+	switch v := value.(type) {
+	case []interface{}:
+		bytes := make([]byte, len(v))
+		for i, item := range v {
+			num, ok := item.(float64)
+			if !ok || num < 0 || num > 255 {
+				return nil, false
+			}
+			bytes[i] = byte(num)
+		}
+		return base64.RawURLEncoding.EncodeToString(bytes), true
+	default:
+		return value, true
+	}
+}
+
 // normalizeWebAuthnResponse 规范化 WebAuthn 响应，將數组格式轉换為 base64url 字符串
 func normalizeWebAuthnResponse(response map[string]interface{}) map[string]interface{} {
 	if response == nil {
@@ -75,72 +102,47 @@ func normalizeWebAuthnResponse(response map[string]interface{}) map[string]inter
 
 	// 轉换 rawId：如果是數组，轉换為 base64url 字符串
 	if rawId, ok := normalized["rawId"]; ok {
+		normalizedRawID, ok := normalizeWebAuthnBinaryField(rawId)
+		if !ok {
+			return nil
+		}
+		normalized["rawId"] = normalizedRawID
 		if rawIdArray, ok := rawId.([]interface{}); ok {
-			// 轉换為字节數组
-			bytes := make([]byte, len(rawIdArray))
-			for i, v := range rawIdArray {
-				if num, ok := v.(float64); ok {
-					bytes[i] = byte(num)
-				} else {
-					return nil // 無效的數组元素
-				}
-			}
-			// 轉换為 base64url 字符串
-			normalized["rawId"] = base64.RawURLEncoding.EncodeToString(bytes)
 			if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
 				globalWebAuthnManager.log.Debugf("[WebAuthn注册] 轉换 rawId: 數组[%d] -> base64url字符串[%d]", len(rawIdArray), len(normalized["rawId"].(string)))
 			}
 		}
-		// 如果已經是字符串，保持不变
 	}
 
 	// 轉换 response 對象
 	if resp, ok := normalized["response"].(map[string]interface{}); ok {
 		normalizedResp := make(map[string]interface{})
 
-		// 轉换 attestationObject
-		if attObj, ok := resp["attestationObject"]; ok {
-			if attObjArray, ok := attObj.([]interface{}); ok {
-				bytes := make([]byte, len(attObjArray))
-				for i, v := range attObjArray {
-					if num, ok := v.(float64); ok {
-						bytes[i] = byte(num)
-					} else {
-						return nil
-					}
-				}
-				normalizedResp["attestationObject"] = base64.RawURLEncoding.EncodeToString(bytes)
-				if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
-					globalWebAuthnManager.log.Debugf("[WebAuthn注册] 轉换 attestationObject: 數组[%d] -> base64url字符串[%d]", len(attObjArray), len(normalizedResp["attestationObject"].(string)))
-				}
-			} else {
-				normalizedResp["attestationObject"] = attObj
-			}
+		binaryFields := []string{
+			"attestationObject",
+			"authenticatorData",
+			"clientDataJSON",
+			"signature",
+			"userHandle",
 		}
-
-		// 轉换 clientDataJSON
-		if clientData, ok := resp["clientDataJSON"]; ok {
-			if clientDataArray, ok := clientData.([]interface{}); ok {
-				bytes := make([]byte, len(clientDataArray))
-				for i, v := range clientDataArray {
-					if num, ok := v.(float64); ok {
-						bytes[i] = byte(num)
-					} else {
-						return nil
-					}
+		for _, field := range binaryFields {
+			value, exists := resp[field]
+			if !exists || value == nil {
+				if exists {
+					normalizedResp[field] = value
 				}
-				normalizedResp["clientDataJSON"] = base64.RawURLEncoding.EncodeToString(bytes)
-				if globalWebAuthnManager != nil && globalWebAuthnManager.log != nil {
-					globalWebAuthnManager.log.Debugf("[WebAuthn注册] 轉换 clientDataJSON: 數组[%d] -> base64url字符串[%d]", len(clientDataArray), len(normalizedResp["clientDataJSON"].(string)))
-				}
-			} else {
-				normalizedResp["clientDataJSON"] = clientData
+				continue
 			}
+			normalizedValue, ok := normalizeWebAuthnBinaryField(value)
+			if !ok {
+				return nil
+			}
+			normalizedResp[field] = normalizedValue
 		}
 
 		// 複制其他字段
 		for k, v := range resp {
-			if k != "attestationObject" && k != "clientDataJSON" {
+			if _, handled := normalizedResp[k]; !handled {
 				normalizedResp[k] = v
 			}
 		}
@@ -199,7 +201,11 @@ func beginWebAuthnRegistration(c *gin.Context) {
 	}
 
 	// 保存會话數據
-	sessionKey := "webauthn_reg_" + session.Username + "_" + time.Now().Format("20060102150405")
+	sessionKey, err := newWebAuthnSessionKey("webauthn_reg", session.Username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成會话失败"})
+		return
+	}
 	saveWebAuthnSession(sessionKey, sessionData)
 
 	// 序列化选项
@@ -457,16 +463,13 @@ func beginWebAuthnLogin(c *gin.Context) {
 		return
 	}
 
-	// 检查用戶是否存在
-	_, err := globalWebAuthnManager.GetUser(req.Username)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "用戶不存在或未注册 WebAuthn"})
-		return
+	if req.Username == "" {
+		req.Username = "admin"
 	}
 
 	// 獲取用戶
 	user, err := globalWebAuthnManager.GetUser(req.Username)
-	if err != nil {
+	if err != nil || len(user.WebAuthnCredentials()) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "用戶不存在或未注册 WebAuthn"})
 		return
 	}
@@ -482,7 +485,11 @@ func beginWebAuthnLogin(c *gin.Context) {
 	}
 
 	// 保存會话數據
-	sessionKey := "webauthn_login_" + req.Username + "_" + time.Now().Format("20060102150405")
+	sessionKey, err := newWebAuthnSessionKey("webauthn_login", req.Username)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成會话失败"})
+		return
+	}
 	saveWebAuthnSession(sessionKey, sessionData)
 
 	// 序列化选项
@@ -523,7 +530,7 @@ func beginWebAuthnLogin(c *gin.Context) {
 	})
 }
 
-// finishWebAuthnLogin 完成 WebAuthn 登錄（需要密碼驗证）
+// finishWebAuthnLogin 完成 WebAuthn 免密登錄
 // POST /api/webauthn/login/finish
 func finishWebAuthnLogin(c *gin.Context) {
 	if globalWebAuthnManager == nil {
@@ -542,7 +549,6 @@ func finishWebAuthnLogin(c *gin.Context) {
 		Username   string                 `json:"username"`
 		SessionKey string                 `json:"session_key"`
 		Response   map[string]interface{} `json:"response"`
-		Password   string                 `json:"password"` // 需要密碼驗证
 	}
 
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
@@ -550,13 +556,8 @@ func finishWebAuthnLogin(c *gin.Context) {
 		return
 	}
 
-	// 驗证密碼
-	if globalPasswordManager != nil {
-		valid, err := globalPasswordManager.VerifyPassword(req.Username, req.Password)
-		if err != nil || !valid {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "密碼錯误"})
-			return
-		}
+	if req.Username == "" {
+		req.Username = "admin"
 	}
 
 	// 從临時存儲獲取 sessionData
@@ -568,13 +569,19 @@ func finishWebAuthnLogin(c *gin.Context) {
 
 	// 獲取用戶
 	user, err := globalWebAuthnManager.GetUser(req.Username)
-	if err != nil {
+	if err != nil || len(user.WebAuthnCredentials()) == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "用戶不存在"})
 		return
 	}
 
+	normalizedResponse := normalizeWebAuthnResponse(req.Response)
+	if normalizedResponse == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "处理响应失败"})
+		return
+	}
+
 	// 將 response 轉换為 JSON，作為新的请求体傳遞给 webauthn 库
-	responseBytes, err := json.Marshal(req.Response)
+	responseBytes, err := json.Marshal(normalizedResponse)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "处理响应失败"})
 		return

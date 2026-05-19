@@ -92,6 +92,39 @@ export async function changePassword(currentPassword: string, newPassword: strin
   }
 }
 
+export async function generatePasswordRecoveryCode(): Promise<{ recovery_code: string }> {
+  const response = await fetch(`${API_BASE}/auth/recovery-code/generate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || i18n.t('auth.errors.generateRecoveryCodeFailed'))
+  }
+  return response.json()
+}
+
+export async function recoverPassword(recoveryCode: string, newPassword: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/auth/password/recover`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    credentials: 'include',
+    body: JSON.stringify({
+      recovery_code: recoveryCode,
+      new_password: newPassword,
+    }),
+  })
+  if (!response.ok) {
+    const error = await response.json()
+    throw new Error(error.error || i18n.t('auth.errors.recoverPasswordFailed'))
+  }
+}
+
 // 退出登錄
 export async function logout(): Promise<void> {
   const response = await fetch(`${API_BASE}/auth/logout`, {
@@ -169,12 +202,11 @@ export async function beginWebAuthnLogin(username: string): Promise<{
   return response.json()
 }
 
-// WebAuthn 登錄完成（需要密碼驗证）
+// WebAuthn 登錄完成
 export async function finishWebAuthnLogin(
   username: string,
   sessionKey: string,
-  response: any,
-  password: string
+  response: any
 ): Promise<{ success: boolean }> {
   const apiResponse = await fetch(`${API_BASE}/webauthn/login/finish`, {
     method: 'POST',
@@ -186,7 +218,6 @@ export async function finishWebAuthnLogin(
       username,
       session_key: sessionKey,
       response,
-      password,
     }),
   })
   if (!apiResponse.ok) {

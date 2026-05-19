@@ -7,6 +7,7 @@ import {
   beginWebAuthnRegistration,
   finishWebAuthnRegistration,
   deleteWebAuthnCredential,
+  generatePasswordRecoveryCode,
   WebAuthnCredential,
 } from '../services/auth'
 import './Profile.css'
@@ -14,7 +15,7 @@ import './Profile.css'
 const Profile: React.FC = () => {
   const { t, i18n } = useTranslation()
   const { refreshAuth } = useAuth()
-  const [activeTab, setActiveTab] = useState<'password' | 'webauthn'>('password')
+  const [activeTab, setActiveTab] = useState<'password' | 'webauthn' | 'recovery'>('password')
   
   // 密碼修改相关
   const [currentPassword, setCurrentPassword] = useState('')
@@ -23,6 +24,10 @@ const Profile: React.FC = () => {
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null)
   const [passwordLoading, setPasswordLoading] = useState(false)
+  const [recoveryCode, setRecoveryCode] = useState('')
+  const [recoveryError, setRecoveryError] = useState<string | null>(null)
+  const [recoverySuccess, setRecoverySuccess] = useState<string | null>(null)
+  const [recoveryLoading, setRecoveryLoading] = useState(false)
 
   // WebAuthn 相关
   const [credentials, setCredentials] = useState<WebAuthnCredential[]>([])
@@ -79,6 +84,26 @@ const Profile: React.FC = () => {
       setPasswordError(err instanceof Error ? err.message : t('profile.passwordChangeFailed'))
     } finally {
       setPasswordLoading(false)
+    }
+  }
+
+  const handleGenerateRecoveryCode = async () => {
+    if (!confirm(t('profile.confirmGenerateRecoveryCode'))) {
+      return
+    }
+
+    setRecoveryLoading(true)
+    setRecoveryError(null)
+    setRecoverySuccess(null)
+    setRecoveryCode('')
+    try {
+      const response = await generatePasswordRecoveryCode()
+      setRecoveryCode(response.recovery_code)
+      setRecoverySuccess(t('profile.recoveryCodeGenerated'))
+    } catch (err) {
+      setRecoveryError(err instanceof Error ? err.message : t('profile.recoveryCodeGenerateFailed'))
+    } finally {
+      setRecoveryLoading(false)
     }
   }
 
@@ -221,6 +246,12 @@ const Profile: React.FC = () => {
           onClick={() => setActiveTab('webauthn')}
         >
           {t('profile.fingerprintManagement')}
+        </button>
+        <button
+          className={`tab-button ${activeTab === 'recovery' ? 'active' : ''}`}
+          onClick={() => setActiveTab('recovery')}
+        >
+          {t('profile.passwordRecovery')}
         </button>
       </div>
 
@@ -371,6 +402,38 @@ const Profile: React.FC = () => {
                 </table>
               )}
             </div>
+          </div>
+        )}
+
+        {activeTab === 'recovery' && (
+          <div className="recovery-section">
+            <h3>{t('profile.passwordRecovery')}</h3>
+
+            {recoveryError && (
+              <div className="alert alert-error">{recoveryError}</div>
+            )}
+            {recoverySuccess && (
+              <div className="alert alert-success">{recoverySuccess}</div>
+            )}
+
+            <div className="recovery-card">
+              <p>{t('profile.recoveryCodeDesc')}</p>
+              <button
+                className="btn btn-primary"
+                onClick={handleGenerateRecoveryCode}
+                disabled={recoveryLoading}
+              >
+                {recoveryLoading ? t('profile.generatingRecoveryCode') : t('profile.generateRecoveryCode')}
+              </button>
+            </div>
+
+            {recoveryCode && (
+              <div className="recovery-code-box">
+                <label>{t('profile.recoveryCode')}</label>
+                <code>{recoveryCode}</code>
+                <p>{t('profile.recoveryCodeSaveHint')}</p>
+              </div>
+            )}
           </div>
         )}
       </div>
