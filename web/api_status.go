@@ -274,17 +274,13 @@ func getSymbols(c *gin.Context) {
 				if exchange != "" {
 					key := makeSymbolKey(exchange, cfg.Trading.Symbol, "futures")
 					if _, exists := symbolMap[key]; !exists {
-						direction := cfg.Trading.Direction
-						if direction != "SHORT" {
-							direction = "LONG"
-						}
 						symbolMap[key] = &SymbolItem{
 							Exchange:     strings.ToLower(exchange),
 							Symbol:       cfg.Trading.Symbol,
 							IsActive:     false,
 							CurrentPrice: 0,
 							MarketType:   "futures", // 舊版單交易對配置默認為合約
-							Direction:    direction,
+							Direction:    config.NormalizeDirection(cfg.Trading.Direction),
 						}
 					}
 				}

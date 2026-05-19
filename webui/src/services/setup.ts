@@ -1,3 +1,5 @@
+import i18n from '../i18n/config'
+
 // 配置状態响应
 export interface SetupStatus {
   needs_setup: boolean
@@ -51,7 +53,7 @@ export async function checkSetupStatus(): Promise<SetupStatus> {
     credentials: 'include',
   })
   if (!response.ok) {
-    throw new Error('检查配置状態失败')
+    throw new Error(i18n.t('setup.errors.checkStatusFailed'))
   }
   return await response.json()
 }
@@ -68,7 +70,7 @@ export async function saveInitialConfig(config: SetupInitRequest): Promise<Setup
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.message || '保存配置失败')
+    throw new Error(error.message || i18n.t('setup.errors.saveConfigFailed'))
   }
   return await response.json()
 }
@@ -100,7 +102,7 @@ export async function getExchangeSymbols(request: ExchangeSymbolsRequest): Promi
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.message || '獲取交易對列表失败')
+    throw new Error(error.message || i18n.t('setup.errors.fetchExchangeSymbolsFailed'))
   }
   return await response.json()
 }

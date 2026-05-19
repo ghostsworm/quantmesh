@@ -10,17 +10,23 @@ import (
 	"quantmesh/logger"
 )
 
+const (
+	defaultVolatilityCheckInterval      = 60 * time.Second
+	defaultProfitTrailingUpdateInterval = 10 * time.Second
+)
+
 // DynamicStopLossManager 动态止损管理器
 type DynamicStopLossManager struct {
-	config    *config.DynamicStopLossConfig
-	eventBus  *event.EventBus
+	config      *config.DynamicStopLossConfig
+	eventBus    *event.EventBus
 	botProvider BotProvider
 
 	// 运行时状态
-	activeSlots      map[string]*DynamicStopLossSlot // slotKey -> 动态止损信息
-	activeSlotsMu    sync.RWMutex
-	isRunning        bool
-	stopChan         chan struct{}
+	activeSlots   map[string]*DynamicStopLossSlot // slotKey -> 动态止损信息
+	activeSlotsMu sync.RWMutex
+	lifecycleMu   sync.Mutex
+	isRunning     bool
+	stopChan      chan struct{}
 
 	// 统计信息
 	totalAdjustments int64
@@ -29,85 +35,115 @@ type DynamicStopLossManager struct {
 
 // DynamicStopLossSlot 动态止损槽位信息
 type DynamicStopLossSlot struct {
-	BotID         string    `json:"bot_id"`
-	Symbol        string    `json:"symbol"`
-	EntryPrice    float64   `json:"entry_price"`
-	OriginalStop  float64   `json:"original_stop_loss"`
-	CurrentStop   float64   `json:"current_stop_loss"`
-	HighPrice     float64   `json:"high_price"`      // 盈利追踪中的最高价
-	LastUpdate    time.Time `json:"last_update"`
-	Activated     bool      `json:"activated"`      // 是否已激活盈利追踪
+	BotID        string    `json:"bot_id"`
+	Symbol       string    `json:"symbol"`
+	EntryPrice   float64   `json:"entry_price"`
+	OriginalStop float64   `json:"original_stop_loss"`
+	CurrentStop  float64   `json:"current_stop_loss"`
+	HighPrice    float64   `json:"high_price"` // 盈利追踪中的最高价
+	LastUpdate   time.Time `json:"last_update"`
+	Activated    bool      `json:"activated"` // 是否已激活盈利追踪
 }
 
 // StopLossAdjustment 止损调整记录
 type StopLossAdjustment struct {
-	Timestamp   time.Time `json:"timestamp"`
-	BotID       string    `json:"bot_id"`
-	Symbol      string    `json:"symbol"`
-	OldStopLoss float64   `json:"old_stop_loss"`
-	NewStopLoss float64   `json:"new_stop_loss"`
-	Reason      string    `json:"reason"`
-	AdjustmentType string `json:"adjustment_type"` // volatility, time, profit, trend
+	Timestamp      time.Time `json:"timestamp"`
+	BotID          string    `json:"bot_id"`
+	Symbol         string    `json:"symbol"`
+	OldStopLoss    float64   `json:"old_stop_loss"`
+	NewStopLoss    float64   `json:"new_stop_loss"`
+	Reason         string    `json:"reason"`
+	AdjustmentType string    `json:"adjustment_type"` // volatility, time, profit, trend
 }
 
 // NewDynamicStopLossManager 创建动态止损管理器
 func NewDynamicStopLossManager(cfg *config.DynamicStopLossConfig, eventBus *event.EventBus, botProvider BotProvider) *DynamicStopLossManager {
 	return &DynamicStopLossManager{
-		config:       cfg,
-		eventBus:     eventBus,
-		botProvider:  botProvider,
-		activeSlots:  make(map[string]*DynamicStopLossSlot),
-		stopChan:     make(chan struct{}),
+		config:      cfg,
+		eventBus:    eventBus,
+		botProvider: botProvider,
+		activeSlots: make(map[string]*DynamicStopLossSlot),
 	}
 }
 
 // Start 启动动态止损管理器
 func (dslm *DynamicStopLossManager) Start() {
+	dslm.lifecycleMu.Lock()
+	defer dslm.lifecycleMu.Unlock()
+
+	if dslm.config == nil {
+		logger.Warn("⚠️ [动态止损] 配置为空，跳过启动")
+		return
+	}
 	if dslm.isRunning {
 		logger.Warn("⚠️ [动态止损] 管理器已在运行")
 		return
 	}
 
+	stopChan := make(chan struct{})
+	dslm.stopChan = stopChan
 	dslm.isRunning = true
 	logger.Info("🎯 [动态止损] 启动动态止损管理器")
 
 	// 启动多个检查器
 	if dslm.config.VolatilityBased.Enabled {
-		go dslm.volatilityChecker()
+		interval := dslm.checkIntervalDuration(
+			"波动率检查",
+			dslm.config.VolatilityBased.CheckInterval,
+			defaultVolatilityCheckInterval,
+		)
+		go dslm.volatilityChecker(stopChan, interval)
 	}
 
 	if dslm.config.TimeBased.Enabled {
-		go dslm.timeBasedChecker()
+		go dslm.timeBasedChecker(stopChan)
 	}
 
 	if dslm.config.ProfitBasedTrailing.Enabled {
-		go dslm.profitTrailingChecker()
+		interval := dslm.checkIntervalDuration(
+			"盈利追踪检查",
+			dslm.config.ProfitBasedTrailing.UpdateFrequency,
+			defaultProfitTrailingUpdateInterval,
+		)
+		go dslm.profitTrailingChecker(stopChan, interval)
 	}
 
 	if dslm.config.TrendReversal.Enabled {
-		go dslm.trendReversalChecker()
+		go dslm.trendReversalChecker(stopChan)
 	}
+}
+
+func (dslm *DynamicStopLossManager) checkIntervalDuration(name string, seconds int, fallback time.Duration) time.Duration {
+	if seconds <= 0 {
+		logger.Warn("⚠️ [动态止损] %s间隔配置无效: %d 秒，使用默认值 %s", name, seconds, fallback)
+		return fallback
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // Stop 停止动态止损管理器
 func (dslm *DynamicStopLossManager) Stop() {
+	dslm.lifecycleMu.Lock()
+	defer dslm.lifecycleMu.Unlock()
+
 	if !dslm.isRunning {
 		return
 	}
 
 	dslm.isRunning = false
 	close(dslm.stopChan)
+	dslm.stopChan = nil
 	logger.Info("🛑 [动态止损] 停止动态止损管理器")
 }
 
 // volatilityChecker 波动率检查器
-func (dslm *DynamicStopLossManager) volatilityChecker() {
-	ticker := time.NewTicker(time.Duration(dslm.config.VolatilityBased.CheckInterval) * time.Second)
+func (dslm *DynamicStopLossManager) volatilityChecker(stopChan <-chan struct{}, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dslm.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			dslm.checkVolatilityAdjustment()
@@ -116,13 +152,13 @@ func (dslm *DynamicStopLossManager) volatilityChecker() {
 }
 
 // timeBasedChecker 时间分段检查器
-func (dslm *DynamicStopLossManager) timeBasedChecker() {
+func (dslm *DynamicStopLossManager) timeBasedChecker(stopChan <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Minute) // 每5分钟检查一次
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dslm.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			dslm.checkTimeBasedAdjustment()
@@ -131,13 +167,13 @@ func (dslm *DynamicStopLossManager) timeBasedChecker() {
 }
 
 // profitTrailingChecker 盈利追踪检查器
-func (dslm *DynamicStopLossManager) profitTrailingChecker() {
-	ticker := time.NewTicker(time.Duration(dslm.config.ProfitBasedTrailing.UpdateFrequency) * time.Second)
+func (dslm *DynamicStopLossManager) profitTrailingChecker(stopChan <-chan struct{}, interval time.Duration) {
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dslm.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			dslm.checkProfitTrailing()
@@ -146,13 +182,13 @@ func (dslm *DynamicStopLossManager) profitTrailingChecker() {
 }
 
 // trendReversalChecker 趋势反转检查器
-func (dslm *DynamicStopLossManager) trendReversalChecker() {
+func (dslm *DynamicStopLossManager) trendReversalChecker(stopChan <-chan struct{}) {
 	ticker := time.NewTicker(1 * time.Minute) // 每分钟检查一次
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dslm.stopChan:
+		case <-stopChan:
 			return
 		case <-ticker.C:
 			dslm.checkTrendReversal()
@@ -199,6 +235,11 @@ func (dslm *DynamicStopLossManager) checkTimeBasedAdjustment() {
 
 // checkProfitTrailing 检查盈利追踪
 func (dslm *DynamicStopLossManager) checkProfitTrailing() {
+	if dslm.botProvider == nil {
+		logger.Warn("⚠️ [动态止损] Bot 提供者为空，跳过盈利追踪检查")
+		return
+	}
+
 	bots := dslm.botProvider.GetAllBots()
 
 	for _, bot := range bots {
@@ -233,7 +274,7 @@ func (dslm *DynamicStopLossManager) activateProfitTrailingForSlot(slotKey string
 	slot, exists := dslm.activeSlots[slotKey]
 	if !exists {
 		slot = &DynamicStopLossSlot{
-			BotID:    slotKey,
+			BotID:     slotKey,
 			Activated: true,
 		}
 		dslm.activeSlots[slotKey] = slot
@@ -274,6 +315,11 @@ func (dslm *DynamicStopLossManager) checkTrendReversal() {
 
 // applyTimeBasedAdjustment 应用时间分段调整
 func (dslm *DynamicStopLossManager) applyTimeBasedAdjustment(multiplier float64) {
+	if dslm.botProvider == nil {
+		logger.Warn("⚠️ [动态止损] Bot 提供者为空，跳过时间分段止损调整")
+		return
+	}
+
 	bots := dslm.botProvider.GetAllBots()
 
 	for _, bot := range bots {
@@ -291,7 +337,11 @@ func (dslm *DynamicStopLossManager) GetActiveSlots() map[string]*DynamicStopLoss
 
 	result := make(map[string]*DynamicStopLossSlot, len(dslm.activeSlots))
 	for k, v := range dslm.activeSlots {
-		result[k] = v
+		if v == nil {
+			continue
+		}
+		slotCopy := *v
+		result[k] = &slotCopy
 	}
 	return result
 }

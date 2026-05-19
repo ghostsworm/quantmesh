@@ -12,12 +12,12 @@ import (
 
 // DepthSnapshot 深度快照
 type DepthSnapshot struct {
-	Symbol        string
-	BidDepth      float64 // 買盘深度（USDT）
-	AskDepth      float64 // 賣盘深度（USDT）
-	TotalDepth    float64 // 總深度（USDT）
-	BidAskRatio   float64 // 買賣盘比例
-	Timestamp     int64
+	Symbol      string
+	BidDepth    float64 // 買盘深度（USDT）
+	AskDepth    float64 // 賣盘深度（USDT）
+	TotalDepth  float64 // 總深度（USDT）
+	BidAskRatio float64 // 買賣盘比例
+	Timestamp   int64
 }
 
 // DepthMonitor 订單簿深度監控器
@@ -89,12 +89,19 @@ func (d *DepthMonitor) getMonitorSymbols() []string {
 
 // monitorLoop 監控循环
 func (d *DepthMonitor) monitorLoop(ctx context.Context, symbols []string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if len(symbols) == 0 {
 		logger.Warn("⚠️ 深度監控：未找到需要監控的交易對")
 		return
 	}
 
 	checkInterval := time.Duration(d.cfg.RiskControl.DepthMonitor.CheckInterval) * time.Second
+	if checkInterval <= 0 {
+		checkInterval = 5 * time.Second
+		logger.Warn("⚠️ 深度監控檢查間隔配置無效，使用默认值 %v", checkInterval)
+	}
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 

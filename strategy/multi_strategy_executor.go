@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"quantmesh/config"
 	"quantmesh/order"
 	"quantmesh/position"
 )
@@ -92,11 +93,44 @@ func extractStrategyType(strategyName string) string {
 	return ""
 }
 
+func (mse *MultiStrategyExecutor) isReducePositionOrder(strategyName string, req *position.OrderRequest) bool {
+	if req == nil {
+		return true
+	}
+	if req.ReduceOnly {
+		return true
+	}
+
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	switch side {
+	case "BUY":
+		return false
+	case "SELL":
+		return !mse.isShortOpeningContext(strategyName)
+	default:
+		return true
+	}
+}
+
+func (mse *MultiStrategyExecutor) isShortOpeningContext(strategyName string) bool {
+	name := strings.ToLower(strings.TrimSpace(strategyName))
+	if strings.Contains(name, "short") {
+		return true
+	}
+	if mse == nil || mse.allocator == nil {
+		return false
+	}
+	cfg := mse.allocator.GetConfig()
+	if cfg == nil {
+		return false
+	}
+	direction := config.NormalizeDirection(cfg.Trading.Direction)
+	return direction == "SHORT" || direction == "BOTH"
+}
+
 // PlaceOrder 下單（带策略標記）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
-	// 🔥 判斷是否為平倉/減倉操作
-	// ReduceOnly=true 或 賣出操作（平多倉）不需要檢查和預留資金
-	isReducePosition := req.ReduceOnly || strings.ToUpper(req.Side) == "SELL"
+	isReducePosition := mse.isReducePositionOrder(strategyName, req)
 
 	var estimatedAmount float64
 
@@ -216,9 +250,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	orderAmounts := make(map[string]float64) // ClientOrderID -> estimatedAmount
 
 	for _, req := range orders {
-		// 🔥 判斷是否為平倉/減倉操作
-		// ReduceOnly=true 或 賣出操作（平多倉）不需要檢查和預留資金
-		isReducePosition := req.ReduceOnly || strings.ToUpper(req.Side) == "SELL"
+		isReducePosition := mse.isReducePositionOrder(strategyName, req)
 
 		var estimatedAmount float64
 

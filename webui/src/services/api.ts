@@ -26,13 +26,14 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       }
     }
     const errorText = await response.text()
-    let parsed: { error_key?: string; group_name?: string; bot_id?: string } | null = null
+    let parsed: { error?: string; message?: string; error_key?: string; group_name?: string; bot_id?: string } | null = null
     try {
-      parsed = JSON.parse(errorText) as { error_key?: string; group_name?: string; bot_id?: string }
+      parsed = JSON.parse(errorText) as { error?: string; message?: string; error_key?: string; group_name?: string; bot_id?: string }
     } catch {
       /* ignore */
     }
-    const err = new Error(`HTTP ${response.status}: ${errorText}`) as Error & {
+    const message = parsed?.error || parsed?.message || errorText
+    const err = new Error(`HTTP ${response.status}: ${message}`) as Error & {
       status?: number
       errorKey?: string
       groupName?: string
@@ -3833,4 +3834,3 @@ export async function fixLogout(sessionId: string): Promise<{ ok: boolean; sessi
     body: JSON.stringify({ session_id: sessionId }),
   })
 }
-

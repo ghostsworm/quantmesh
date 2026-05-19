@@ -48,8 +48,15 @@ func NewOrderCleaner(cfg *config.Config, executor IOrderExecutor, pm IOrderClean
 
 // Start 啟動訂單清理协程
 func (oc *OrderCleaner) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	go func() {
 		cleanupInterval := time.Duration(oc.cfg.Timing.OrderCleanupInterval) * time.Second
+		if cleanupInterval <= 0 {
+			cleanupInterval = 30 * time.Second
+			logger.Warn("⚠️ 訂單清理間隔配置無效，使用默认值 %v", cleanupInterval)
+		}
 		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 

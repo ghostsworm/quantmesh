@@ -16,11 +16,11 @@ type EmergencyAction string
 
 const (
 	EmergencyActionStopAll           EmergencyAction = "stop_all"            // 停止所有Bot
-	EmergencyActionCancelAllOrders   EmergencyAction = "cancel_all_orders"  // 撤销所有挂单
+	EmergencyActionCancelAllOrders   EmergencyAction = "cancel_all_orders"   // 撤销所有挂单
 	EmergencyActionCloseAllPositions EmergencyAction = "close_all_positions" // 平掉所有仓位
-	EmergencyActionPauseAll          EmergencyAction = "pause_all"          // 暂停所有Bot开仓
-	EmergencyActionReducePosition    EmergencyAction = "reduce_position"    // 减仓（50%）
-	EmergencyActionEmergencyMode     EmergencyAction = "emergency_mode"     // 进入紧急模式
+	EmergencyActionPauseAll          EmergencyAction = "pause_all"           // 暂停所有Bot开仓
+	EmergencyActionReducePosition    EmergencyAction = "reduce_position"     // 减仓（50%）
+	EmergencyActionEmergencyMode     EmergencyAction = "emergency_mode"      // 进入紧急模式
 )
 
 // EmergencyScenario 预定义紧急场景
@@ -77,37 +77,37 @@ var (
 
 // DefaultEmergencyScenarios 默认紧急场景列表
 var DefaultEmergencyScenarios = map[string]*EmergencyScenario{
-	"market_crash":   EmergencyScenarioMarketCrash,
-	"api_failure":    EmergencyScenarioAPIFailure,
-	"large_loss":     EmergencyScenarioLargeLoss,
-	"network_issue":  EmergencyScenarioNetworkIssue,
-	"full_shutdown":  EmergencyScenarioFullShutdown,
+	"market_crash":  EmergencyScenarioMarketCrash,
+	"api_failure":   EmergencyScenarioAPIFailure,
+	"large_loss":    EmergencyScenarioLargeLoss,
+	"network_issue": EmergencyScenarioNetworkIssue,
+	"full_shutdown": EmergencyScenarioFullShutdown,
 }
 
 // EmergencyOperation 紧急操作记录
 type EmergencyOperation struct {
-	ID          string            `json:"id"`
-	Scenario    string            `json:"scenario"`
-	Actions     []EmergencyAction `json:"actions"`
-	TriggeredBy  string            `json:"triggered_by"`
-	Reason      string            `json:"reason"`
-	Timestamp   time.Time         `json:"timestamp"`
-	Status      string            `json:"status"` // executing, completed, failed, rolled_back
-	Results     map[string]string `json:"results"`
-	Error       string            `json:"error,omitempty"`
-	RollbackAvailable bool        `json:"rollback_available"`
+	ID                string            `json:"id"`
+	Scenario          string            `json:"scenario"`
+	Actions           []EmergencyAction `json:"actions"`
+	TriggeredBy       string            `json:"triggered_by"`
+	Reason            string            `json:"reason"`
+	Timestamp         time.Time         `json:"timestamp"`
+	Status            string            `json:"status"` // executing, completed, failed, rolled_back
+	Results           map[string]string `json:"results"`
+	Error             string            `json:"error,omitempty"`
+	RollbackAvailable bool              `json:"rollback_available"`
 }
 
 // EmergencyCenter 紧急操作中心
 type EmergencyCenter struct {
-	config         *config.EmergencyCenterConfig
-	statusMu       sync.RWMutex
-	eventBus       *event.EventBus
-	botProvider    BotProvider
-	scenarios      map[string]*EmergencyScenario
-	operations     []*EmergencyOperation
-	operationsMu   sync.RWMutex
-	emergencyMode  bool
+	config          *config.EmergencyCenterConfig
+	statusMu        sync.RWMutex
+	eventBus        *event.EventBus
+	botProvider     BotProvider
+	scenarios       map[string]*EmergencyScenario
+	operations      []*EmergencyOperation
+	operationsMu    sync.RWMutex
+	emergencyMode   bool
 	emergencyModeMu sync.RWMutex
 }
 
@@ -161,14 +161,14 @@ func (ec *EmergencyCenter) ExecuteScenario(scenarioName, triggeredBy, reason str
 
 	// 创建操作记录
 	op := &EmergencyOperation{
-		ID:        fmt.Sprintf("op_%d", time.Now().UnixNano()),
-		Scenario:  scenarioName,
-		Actions:   scenario.Actions,
-		TriggeredBy: triggeredBy,
-		Reason:    reason,
-		Timestamp: time.Now(),
-		Status:    "executing",
-		Results:   make(map[string]string),
+		ID:                fmt.Sprintf("op_%d", time.Now().UnixNano()),
+		Scenario:          scenarioName,
+		Actions:           scenario.Actions,
+		TriggeredBy:       triggeredBy,
+		Reason:            reason,
+		Timestamp:         time.Now(),
+		Status:            "executing",
+		Results:           make(map[string]string),
 		RollbackAvailable: true,
 	}
 
@@ -273,10 +273,14 @@ func (ec *EmergencyCenter) pauseAllBots(bots []BotController) (string, error) {
 	return fmt.Sprintf("已暂停 %d 个Bot开仓", successCount), nil
 }
 
-// reducePositions 减仓50%
+// reducePositions 减仓保护。
+// 当前 BotController 尚未暴露“按比例减仓”能力；在大额亏损场景下，宁可保守全平，也不能返回“减仓成功”的假安全感。
 func (ec *EmergencyCenter) reducePositions(ctx context.Context, bots []BotController, method string, timeout int) (string, error) {
-	// TODO: 实现减仓逻辑（需要获取当前仓位并平掉50%）
-	return "减仓功能待实现", nil
+	result, err := ec.closeAllPositions(ctx, bots, method, timeout)
+	if err != nil {
+		return result, err
+	}
+	return "减仓接口未实现，已执行全平保护：" + result, nil
 }
 
 // enableEmergencyMode 启用紧急模式

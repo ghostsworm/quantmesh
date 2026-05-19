@@ -39,6 +39,18 @@ func IsSpotMarketType(marketType string) bool {
 	}
 }
 
+// NormalizeDirection 將交易方向歸一化為 LONG / SHORT / BOTH，空值與未知值按 LONG 兼容。
+func NormalizeDirection(direction string) string {
+	switch strings.ToUpper(strings.TrimSpace(direction)) {
+	case "SHORT":
+		return "SHORT"
+	case "BOTH":
+		return "BOTH"
+	default:
+		return "LONG"
+	}
+}
+
 // BoolPtr 回傳 bool 值的指標（用於 SymbolConfig.Enabled 等欄位）
 func BoolPtr(b bool) *bool {
 	return &b
@@ -194,9 +206,9 @@ type GridRiskControl struct {
 	TrailingTakeProfitRatio float64 `yaml:"trailing_take_profit_ratio" json:"trailing_take_profit_ratio"` // 盈利回撤比例（如 0.03 表示回撤 3% 止盈）
 	TrendFilterEnabled      bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`             // 是否開啟趨勢過濾
 	// 關閉條件：滿足時自動停止 Bot（平倉並停止運行）
-	CloseConditionEnabled         bool    `yaml:"close_condition_enabled" json:"close_condition_enabled"`                   // 是否啟用關閉條件
-	CloseConditionProfitTarget    float64 `yaml:"close_condition_profit_target" json:"close_condition_profit_target"`       // 盈利率達到此值時停止 Bot（如 0.2 表示 20%）
-	CloseConditionLossLimit       float64 `yaml:"close_condition_loss_limit" json:"close_condition_loss_limit"`             // 虧損率達到此值時停止 Bot（如 0.1 表示 10%）
+	CloseConditionEnabled      bool    `yaml:"close_condition_enabled" json:"close_condition_enabled"`             // 是否啟用關閉條件
+	CloseConditionProfitTarget float64 `yaml:"close_condition_profit_target" json:"close_condition_profit_target"` // 盈利率達到此值時停止 Bot（如 0.2 表示 20%）
+	CloseConditionLossLimit    float64 `yaml:"close_condition_loss_limit" json:"close_condition_loss_limit"`       // 虧損率達到此值時停止 Bot（如 0.1 表示 10%）
 }
 
 // RocketTieredGridConfig 三級火箭網格配置
@@ -216,24 +228,24 @@ type RocketTier struct {
 // ScheduleRule 定時規則：在指定時段執行暫停/恢復開倉
 type ScheduleRule struct {
 	Enabled  bool   `yaml:"enabled" json:"enabled"`
-	Action   string `yaml:"action" json:"action"`   // "pause" 或 "resume"
-	Time     string `yaml:"time" json:"time"`       // "HH:MM" 格式（UTC）
+	Action   string `yaml:"action" json:"action"`               // "pause" 或 "resume"
+	Time     string `yaml:"time" json:"time"`                   // "HH:MM" 格式（UTC）
 	Weekdays []int  `yaml:"weekdays,omitempty" json:"weekdays"` // 0=週日..6=週六，空=每天
 }
 
 // PeriodicRule 週期規則：週期性開關倉
 type PeriodicRule struct {
-	Enabled           bool `yaml:"enabled" json:"enabled"`
-	OpenDurationMin   int  `yaml:"open_duration_min" json:"open_duration_min"`   // 開倉持續分鐘數
-	CloseDurationMin  int  `yaml:"close_duration_min" json:"close_duration_min"` // 關倉持續分鐘數
+	Enabled          bool `yaml:"enabled" json:"enabled"`
+	OpenDurationMin  int  `yaml:"open_duration_min" json:"open_duration_min"`   // 開倉持續分鐘數
+	CloseDurationMin int  `yaml:"close_duration_min" json:"close_duration_min"` // 關倉持續分鐘數
 }
 
 // LogCleanupConfig 定期清理 INFO/WARN 日志（保留 ERROR/DEBUG 便於排查）
 type LogCleanupConfig struct {
-	Enabled        bool     `yaml:"enabled"`         // 是否啟用，預設 true
-	Schedule       string   `yaml:"schedule"`       // 執行時间 HH:MM（如 02:00），預設 02:00
-	RetentionDays  int      `yaml:"retention_days"` // 保留天數，超過此天數的指定級別日志將被清理，預設 7
-	LevelsToClean  []string `yaml:"levels_to_clean"` // 要清理的級別，如 ["INFO","WARN"]，預設 INFO/WARN
+	Enabled       bool     `yaml:"enabled"`         // 是否啟用，預設 true
+	Schedule      string   `yaml:"schedule"`        // 執行時间 HH:MM（如 02:00），預設 02:00
+	RetentionDays int      `yaml:"retention_days"`  // 保留天數，超過此天數的指定級別日志將被清理，預設 7
+	LevelsToClean []string `yaml:"levels_to_clean"` // 要清理的級別，如 ["INFO","WARN"]，預設 INFO/WARN
 }
 
 // OpenPositionControl 開倉管理配置
@@ -266,50 +278,50 @@ type BotRiskControl struct {
 
 	// 倉位數量限制
 	MaxPositionQuantity float64 `yaml:"max_position_quantity" json:"max_position_quantity"` // 最大持倉數量（幣種）
-	MaxPositionValue    float64 `yaml:"max_position_value" json:"max_position_value"`    // 最大倉位價值（USDT）
-	MaxPositionLayers    int     `yaml:"max_position_layers" json:"max_position_layers"`    // 最大持倉層數
+	MaxPositionValue    float64 `yaml:"max_position_value" json:"max_position_value"`       // 最大倉位價值（USDT）
+	MaxPositionLayers   int     `yaml:"max_position_layers" json:"max_position_layers"`     // 最大持倉層數
 
 	// 開倉掛單限制（單向做多/做空時，每筆開倉委託佔用保證金，限制掛單數可節省資金）
-	MaxOpenOrders     int     `yaml:"max_open_orders" json:"max_open_orders"`           // 最多開倉掛單數（每方向），0=不限制
-	OpenOrderDistance float64 `yaml:"open_order_distance" json:"open_order_distance"`   // 開倉單距離當前價的最大間隔數，0=用默認
+	MaxOpenOrders     int     `yaml:"max_open_orders" json:"max_open_orders"`         // 最多開倉掛單數（每方向），0=不限制
+	OpenOrderDistance float64 `yaml:"open_order_distance" json:"open_order_distance"` // 開倉單距離當前價的最大間隔數，0=用默認
 
 	// 止損止盈
-	StopLossRatio       float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`           // 止損比例
-	TakeProfitRatio      float64 `yaml:"take_profit_ratio" json:"take_profit_ratio"`         // 止盈比例
-	TrailingStopRatio    float64 `yaml:"trailing_stop_ratio" json:"trailing_stop_ratio"`     // 移動止盈比例
+	StopLossRatio     float64 `yaml:"stop_loss_ratio" json:"stop_loss_ratio"`         // 止損比例
+	TakeProfitRatio   float64 `yaml:"take_profit_ratio" json:"take_profit_ratio"`     // 止盈比例
+	TrailingStopRatio float64 `yaml:"trailing_stop_ratio" json:"trailing_stop_ratio"` // 移動止盈比例
 
 	// 暫停開倉
-	PauseOpening         bool    `yaml:"pause_opening" json:"pause_opening"`                 // 是否暫停開倉
-	PauseOpeningReason   string  `yaml:"pause_opening_reason,omitempty" json:"pause_opening_reason,omitempty"` // 暫停原因
-	AutoResumeAfter      int     `yaml:"auto_resume_after,omitempty" json:"auto_resume_after,omitempty"` // 自動恢復時間（秒），0=不自動恢復
+	PauseOpening       bool   `yaml:"pause_opening" json:"pause_opening"`                                   // 是否暫停開倉
+	PauseOpeningReason string `yaml:"pause_opening_reason,omitempty" json:"pause_opening_reason,omitempty"` // 暫停原因
+	AutoResumeAfter    int    `yaml:"auto_resume_after,omitempty" json:"auto_resume_after,omitempty"`       // 自動恢復時間（秒），0=不自動恢復
 
 	// 趨勢過濾
-	TrendFilterEnabled   bool    `yaml:"trend_filter_enabled" json:"trend_filter_enabled"`   // 是否啟用趨勢過濾
+	TrendFilterEnabled bool `yaml:"trend_filter_enabled" json:"trend_filter_enabled"` // 是否啟用趨勢過濾
 
 	// 波動率暫停開倉（新增）
-	VolatilityPauseEnabled bool `yaml:"volatility_pause_enabled" json:"volatility_pause_enabled"` // 是否啟用波動率暫停開倉
+	VolatilityPauseEnabled bool                  `yaml:"volatility_pause_enabled" json:"volatility_pause_enabled"`                   // 是否啟用波動率暫停開倉
 	VolatilityPauseConfig  VolatilityPauseConfig `yaml:"volatility_pause_config,omitempty" json:"volatility_pause_config,omitempty"` // 波動率暫停配置
 }
 
 // VolatilityPauseConfig 波動率暫停開倉配置
 type VolatilityPauseConfig struct {
 	// 暫停觸發條件
-	PauseOnHighVolatility     bool    `yaml:"pause_on_high_volatility"`      // 高波動時暫停開倉
-	PauseOnExtremeVolatility  bool    `yaml:"pause_on_extreme_volatility"`   // 極端波動時暫停開倉
-	PauseOnSuddenIncrease     bool    `yaml:"pause_on_sudden_increase"`       // 波動率突增時暫停開倉
+	PauseOnHighVolatility    bool `yaml:"pause_on_high_volatility"`    // 高波動時暫停開倉
+	PauseOnExtremeVolatility bool `yaml:"pause_on_extreme_volatility"` // 極端波動時暫停開倉
+	PauseOnSuddenIncrease    bool `yaml:"pause_on_sudden_increase"`    // 波動率突增時暫停開倉
 
 	// 策略方向過濾（根據策略方向和市場行情決定是否暫停）
-	PauseOnDowntrend  bool `yaml:"pause_on_downtrend"`  // 做多策略在高波動下跌行情中暫停開倉
-	PauseOnUptrend    bool `yaml:"pause_on_uptrend"`    // 做空策略在高波動上漲行情中暫停開倉
+	PauseOnDowntrend bool `yaml:"pause_on_downtrend"` // 做多策略在高波動下跌行情中暫停開倉
+	PauseOnUptrend   bool `yaml:"pause_on_uptrend"`   // 做空策略在高波動上漲行情中暫停開倉
 
 	// 自動恢復
-	AutoResumeOnNormal bool  `yaml:"auto_resume_on_normal"` // 波動率回歸正常時自動恢復開倉
-	ResumeThreshold   float64 `yaml:"resume_threshold"`    // 恢復開倉的波動率閾值（%），低於此值時恢復
+	AutoResumeOnNormal bool    `yaml:"auto_resume_on_normal"` // 波動率回歸正常時自動恢復開倉
+	ResumeThreshold    float64 `yaml:"resume_threshold"`      // 恢復開倉的波動率閾值（%），低於此值時恢復
 
 	// 趨勢判斷配置（用於判斷上漲/下跌行情）
-	TrendCheckPeriod   int     `yaml:"trend_check_period"`    // 趨勢檢查週期（分鐘），預設 15
-	TrendDownThreshold float64 `yaml:"trend_down_threshold"`  // 下跌趨勢閾值（%），低於此值視為下跌
-	TrendUpThreshold   float64 `yaml:"trend_up_threshold"`    // 上漲趨勢閾值（%），高於此值視為上漲
+	TrendCheckPeriod   int     `yaml:"trend_check_period"`   // 趨勢檢查週期（分鐘），預設 15
+	TrendDownThreshold float64 `yaml:"trend_down_threshold"` // 下跌趨勢閾值（%），低於此值視為下跌
+	TrendUpThreshold   float64 `yaml:"trend_up_threshold"`   // 上漲趨勢閾值（%），高於此值視為上漲
 }
 
 // FundingRateConfig 資金費率監控與套利配置
@@ -347,18 +359,18 @@ type CircuitBreakerConfig struct {
 	// 觸發條件
 	Triggers struct {
 		TotalDailyLoss struct {
-			Enabled    bool    `yaml:"enabled" json:"enabled"`    // 是否啟用單日總虧損觸發
+			Enabled   bool    `yaml:"enabled" json:"enabled"`     // 是否啟用單日總虧損觸發
 			Threshold float64 `yaml:"threshold" json:"threshold"` // USDT
 		} `yaml:"total_daily_loss" json:"total_daily_loss"`
 
 		MaxDrawdown struct {
-			Enabled    bool    `yaml:"enabled" json:"enabled"`    // 是否啟用最大回撤觸發
+			Enabled   bool    `yaml:"enabled" json:"enabled"`     // 是否啟用最大回撤觸發
 			Threshold float64 `yaml:"threshold" json:"threshold"` // 百分比
 		} `yaml:"max_drawdown" json:"max_drawdown"`
 
 		ConsecutiveLosses struct {
 			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用連續虧損觸發
-			Count   int  `yaml:"count" json:"count"`   // 連續虧損次數
+			Count   int  `yaml:"count" json:"count"`     // 連續虧損次數
 		} `yaml:"consecutive_losses" json:"consecutive_losses"`
 
 		WebSocketDisconnected struct {
@@ -368,7 +380,7 @@ type CircuitBreakerConfig struct {
 
 		APIAuthFailed struct {
 			Enabled bool `yaml:"enabled" json:"enabled"` // 是否啟用 API 認證失敗觸發
-			Count   int  `yaml:"count" json:"count"`   // 連續失敗次數
+			Count   int  `yaml:"count" json:"count"`     // 連續失敗次數
 		} `yaml:"api_auth_failed" json:"api_auth_failed"`
 
 		AllocationExceeded struct {
@@ -378,11 +390,11 @@ type CircuitBreakerConfig struct {
 
 	// 熔斷動作
 	Actions struct {
-		StopAllNewOrders    bool `yaml:"stop_all_new_orders" json:"stop_all_new_orders"`    // 停止所有新開倉
+		StopAllNewOrders    bool `yaml:"stop_all_new_orders" json:"stop_all_new_orders"`       // 停止所有新開倉
 		CancelAllOpenOrders bool `yaml:"cancel_all_open_orders" json:"cancel_all_open_orders"` // 撤銷所有掛單
 		ClosePositions      struct {
 			Enabled bool   `yaml:"enabled" json:"enabled"` // 是否啟用平倉
-			Method  string `yaml:"method" json:"method"`  // market/limit
+			Method  string `yaml:"method" json:"method"`   // market/limit
 			Timeout int    `yaml:"timeout" json:"timeout"`
 		} `yaml:"close_positions" json:"close_positions"`
 		PauseDuration int `yaml:"pause_duration" json:"pause_duration"` // 秒，0=無限期
@@ -390,31 +402,31 @@ type CircuitBreakerConfig struct {
 
 	// 恢復條件
 	Recovery struct {
-		AutoResume      bool `yaml:"auto_resume" json:"auto_resume"`       // 是否自動恢復
+		AutoResume      bool `yaml:"auto_resume" json:"auto_resume"`           // 是否自動恢復
 		ManualRequired  bool `yaml:"manual_required" json:"manual_required"`   // 是否需要手動恢復
-		CooldownMinutes int  `yaml:"cooldown_minutes" json:"cooldown_minutes"`  // 冷卻時間（分鐘）
+		CooldownMinutes int  `yaml:"cooldown_minutes" json:"cooldown_minutes"` // 冷卻時間（分鐘）
 	} `yaml:"recovery" json:"recovery"`
 
 	// 通知配置
 	Notifications struct {
-		Enabled bool     `yaml:"enabled" json:"enabled"`              // 是否啟用通知
-		Channels []string `yaml:"channels" json:"channels"`             // telegram, email, webhook
+		Enabled  bool     `yaml:"enabled" json:"enabled"`   // 是否啟用通知
+		Channels []string `yaml:"channels" json:"channels"` // telegram, email, webhook
 	} `yaml:"notifications" json:"notifications"`
 }
 
 // EmergencyScenarioConfig 紧急场景配置
 type EmergencyScenarioConfig struct {
 	Description string   `yaml:"description" json:"description"`
-	Actions     []string `yaml:"actions" json:"actions"`     // stop_all, cancel_all_orders, close_all_positions, pause_all, reduce_position, emergency_mode
+	Actions     []string `yaml:"actions" json:"actions"`           // stop_all, cancel_all_orders, close_all_positions, pause_all, reduce_position, emergency_mode
 	CloseMethod string   `yaml:"close_method" json:"close_method"` // market/limit
-	Timeout     int      `yaml:"timeout" json:"timeout"`      // 秒
+	Timeout     int      `yaml:"timeout" json:"timeout"`           // 秒
 }
 
 // EmergencyCenterConfig 紧急操作中心配置
 type EmergencyCenterConfig struct {
-	Enabled         bool                             `yaml:"enabled" json:"enabled"`
-	RequireConfirmation bool                         `yaml:"require_confirmation" json:"require_confirmation"` // 是否需要确认
-	CustomScenarios map[string]EmergencyScenarioConfig `yaml:"custom_scenarios" json:"custom_scenarios"` // 自定义场景
+	Enabled             bool                               `yaml:"enabled" json:"enabled"`
+	RequireConfirmation bool                               `yaml:"require_confirmation" json:"require_confirmation"` // 是否需要确认
+	CustomScenarios     map[string]EmergencyScenarioConfig `yaml:"custom_scenarios" json:"custom_scenarios"`         // 自定义场景
 }
 
 // DynamicStopLossConfig 动态止损配置
@@ -423,36 +435,36 @@ type DynamicStopLossConfig struct {
 
 	// 波动率调整
 	VolatilityBased struct {
-		Enabled          bool    `yaml:"enabled" json:"enabled"`           // 是否启用波动率调整
-		ATRMultiplier    float64 `yaml:"atr_multiplier" json:"atr_multiplier"`   // ATR倍数
-		ATRPeriod        int     `yaml:"atr_period" json:"atr_period"`           // ATR周期
-		MinStopLoss      float64 `yaml:"min_stop_loss" json:"min_stop_loss"`     // 最小止损比例
-		MaxStopLoss      float64 `yaml:"max_stop_loss" json:"max_stop_loss"`     // 最大止损比例
-		CheckInterval    int     `yaml:"check_interval" json:"check_interval"`   // 检查间隔（秒）
+		Enabled       bool    `yaml:"enabled" json:"enabled"`               // 是否启用波动率调整
+		ATRMultiplier float64 `yaml:"atr_multiplier" json:"atr_multiplier"` // ATR倍数
+		ATRPeriod     int     `yaml:"atr_period" json:"atr_period"`         // ATR周期
+		MinStopLoss   float64 `yaml:"min_stop_loss" json:"min_stop_loss"`   // 最小止损比例
+		MaxStopLoss   float64 `yaml:"max_stop_loss" json:"max_stop_loss"`   // 最大止损比例
+		CheckInterval int     `yaml:"check_interval" json:"check_interval"` // 检查间隔（秒）
 	} `yaml:"volatility_based" json:"volatility_based"`
 
 	// 时间分段调整
 	TimeBased struct {
-		Enabled    bool     `yaml:"enabled" json:"enabled"`     // 是否启用时间分段
-		HighVolatilityHours []int `yaml:"high_volatility_hours" json:"high_volatility_hours"` // 高波动时段（0-23）
-		LowVolatilityHours  []int `yaml:"low_volatility_hours" json:"low_volatility_hours"`   // 低波动时段
+		Enabled                  bool    `yaml:"enabled" json:"enabled"`                                       // 是否启用时间分段
+		HighVolatilityHours      []int   `yaml:"high_volatility_hours" json:"high_volatility_hours"`           // 高波动时段（0-23）
+		LowVolatilityHours       []int   `yaml:"low_volatility_hours" json:"low_volatility_hours"`             // 低波动时段
 		HighVolatilityMultiplier float64 `yaml:"high_volatility_multiplier" json:"high_volatility_multiplier"` // 高波动时段止损倍数
 		LowVolatilityMultiplier  float64 `yaml:"low_volatility_multiplier" json:"low_volatility_multiplier"`   // 低波动时段止损倍数
 	} `yaml:"time_based" json:"time_based"`
 
 	// 盈利追踪调整
 	ProfitBasedTrailing struct {
-		Enabled         bool    `yaml:"enabled" json:"enabled"`           // 是否启用盈利追踪
-		ActivateProfit  float64 `yaml:"activate_profit" json:"activate_profit"` // 激活追踪的盈利比例
+		Enabled          bool    `yaml:"enabled" json:"enabled"`                     // 是否启用盈利追踪
+		ActivateProfit   float64 `yaml:"activate_profit" json:"activate_profit"`     // 激活追踪的盈利比例
 		TrailingDistance float64 `yaml:"trailing_distance" json:"trailing_distance"` // 追踪距离（回撤多少触发止损）
-		MinDistance     float64 `yaml:"min_distance" json:"min_distance"`     // 最小追踪距离
-		UpdateFrequency int     `yaml:"update_frequency" json:"update_frequency"` // 更新频率（秒）
+		MinDistance      float64 `yaml:"min_distance" json:"min_distance"`           // 最小追踪距离
+		UpdateFrequency  int     `yaml:"update_frequency" json:"update_frequency"`   // 更新频率（秒）
 	} `yaml:"profit_based_trailing" json:"profit_based_trailing"`
 
 	// 趋势反转调整
 	TrendReversal struct {
-		Enabled         bool    `yaml:"enabled" json:"enabled"`            // 是否启用趋势反转检测
-		TrendWindow     int     `yaml:"trend_window" json:"trend_window"`      // 趋势窗口
+		Enabled           bool    `yaml:"enabled" json:"enabled"`                       // 是否启用趋势反转检测
+		TrendWindow       int     `yaml:"trend_window" json:"trend_window"`             // 趋势窗口
 		ReversalThreshold float64 `yaml:"reversal_threshold" json:"reversal_threshold"` // 反转阈值
 		TightenMultiplier float64 `yaml:"tighten_multiplier" json:"tighten_multiplier"` // 收紧止损倍数
 	} `yaml:"trend_reversal" json:"trend_reversal"`
@@ -478,30 +490,30 @@ type Config struct {
 		// BotID 運行時標識（不持久化），用於日誌區分同交易所同幣多實例
 		BotID string `yaml:"-"`
 		// 相容舊配置：單交易對欄位（若啟用多交易對，將自動轉換為 Symbols 列表）
-		Symbol                string  `yaml:"symbol"`
-		MarketType            string  `yaml:"market_type"` // 市場類型：spot 現貨 / futures 合約，預設 futures
-		PriceInterval         float64 `yaml:"price_interval"`
-		ProfitSpread          float64 `yaml:"profit_spread"`   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
-		OrderQuantity         float64 `yaml:"order_quantity"`  // 每單購買金額（USDT/USDC）
-		MinOrderValue         float64 `yaml:"min_order_value"` // 最小訂單價值（USDT），預設 6U，小於此值不掛單
-		BuyWindowSize         int     `yaml:"buy_window_size"`
-		SellWindowSize        int     `yaml:"sell_window_size"` // 賣單視窗大小
+		Symbol         string  `yaml:"symbol"`
+		MarketType     string  `yaml:"market_type"` // 市場類型：spot 現貨 / futures 合約，預設 futures
+		PriceInterval  float64 `yaml:"price_interval"`
+		ProfitSpread   float64 `yaml:"profit_spread"`   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
+		OrderQuantity  float64 `yaml:"order_quantity"`  // 每單購買金額（USDT/USDC）
+		MinOrderValue  float64 `yaml:"min_order_value"` // 最小訂單價值（USDT），預設 6U，小於此值不掛單
+		BuyWindowSize  int     `yaml:"buy_window_size"`
+		SellWindowSize int     `yaml:"sell_window_size"` // 賣單視窗大小
 		// ShortOpenWindowSize BOTH 模式：向上開空層數；0 時用 SellWindowSize，仍為 0 則用 BuyWindowSize
-		ShortOpenWindowSize   int     `yaml:"short_open_window_size" json:"short_open_window_size"`
-		ReconcileInterval     int     `yaml:"reconcile_interval"`
-		OrderCleanupThreshold int     `yaml:"order_cleanup_threshold"`      // 訂單清理上限（預設 100）
-		CleanupBatchSize      int     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
-		MarginLockDurationSec int     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
-		PositionSafetyCheck   int     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 5，最少能向下持有多少倉）
-		Direction             string  `yaml:"direction"`                    // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
-		PriceLow              float64 `yaml:"price_low"`                    // 網格價格下限，0=不限制（合併自 SymbolConfig）
-		PriceHigh             float64 `yaml:"price_high"`                   // 網格價格上限，0=不限制（合併自 SymbolConfig）
-		TriggerPrice         float64 `yaml:"trigger_price"`                 // 觸發價格，0=立即啟動（合併自 SymbolConfig）
-		GridMode             string                   `yaml:"grid_mode"`                     // arithmetic / geometric（合併自 SymbolConfig）
-		GridShiftEnabled     bool                     `yaml:"grid_shift_enabled"`            // 合併自 SymbolConfig
-		GridShiftStep        float64                  `yaml:"grid_shift_step"`               // 合併自 SymbolConfig
-		RocketTieredGrid     *RocketTieredGridConfig   `yaml:"rocket_tiered_grid"`             // 三級火箭網格（合併自 SymbolConfig）
-		CloseOnStop          bool                     `yaml:"close_on_stop"`                 // 終止時全部平倉（合併自 SymbolConfig）
+		ShortOpenWindowSize   int                     `yaml:"short_open_window_size" json:"short_open_window_size"`
+		ReconcileInterval     int                     `yaml:"reconcile_interval"`
+		OrderCleanupThreshold int                     `yaml:"order_cleanup_threshold"`      // 訂單清理上限（預設 100）
+		CleanupBatchSize      int                     `yaml:"cleanup_batch_size"`           // 清理批次大小（預設 10）
+		MarginLockDurationSec int                     `yaml:"margin_lock_duration_seconds"` // 保證金鎖定時間（秒，預設 10）
+		PositionSafetyCheck   int                     `yaml:"position_safety_check"`        // 持倉安全性檢查（預設 5，最少能向下持有多少倉）
+		Direction             string                  `yaml:"direction"`                    // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
+		PriceLow              float64                 `yaml:"price_low"`                    // 網格價格下限，0=不限制（合併自 SymbolConfig）
+		PriceHigh             float64                 `yaml:"price_high"`                   // 網格價格上限，0=不限制（合併自 SymbolConfig）
+		TriggerPrice          float64                 `yaml:"trigger_price"`                // 觸發價格，0=立即啟動（合併自 SymbolConfig）
+		GridMode              string                  `yaml:"grid_mode"`                    // arithmetic / geometric（合併自 SymbolConfig）
+		GridShiftEnabled      bool                    `yaml:"grid_shift_enabled"`           // 合併自 SymbolConfig
+		GridShiftStep         float64                 `yaml:"grid_shift_step"`              // 合併自 SymbolConfig
+		RocketTieredGrid      *RocketTieredGridConfig `yaml:"rocket_tiered_grid"`           // 三級火箭網格（合併自 SymbolConfig）
+		CloseOnStop           bool                    `yaml:"close_on_stop"`                // 終止時全部平倉（合併自 SymbolConfig）
 		// SpotInventoryPolicy 現貨網格專用：是否將交易所基礎幣餘額自動收編為網格庫存（conservative / adopt_all）
 		SpotInventoryPolicy string `yaml:"spot_inventory_policy" json:"spot_inventory_policy"`
 		// 多交易對配置
@@ -548,14 +560,14 @@ type Config struct {
 
 			// 波动率区间检测（新增）
 			VolatilityDetection struct {
-				Enabled   bool    `yaml:"enabled"`   // 是否啟用波动率检测
-				ShortPeriod int    `yaml:"short_period"`   // 短期周期（小時），預設 24
-				MediumPeriod int   `yaml:"medium_period"`  // 中期周期（小時），預設 72 (3天)
-				LongPeriod  int    `yaml:"long_period"`   // 長期周期（小時），預設 168 (7天)
-				LowThreshold     float64 `yaml:"low_threshold"`      // 低波动阈值（%），預設 1.0
-				NormalThreshold  float64 `yaml:"normal_threshold"`   // 正常波动上限（%），預設 3.0
-				HighThreshold    float64 `yaml:"high_threshold"`     // 高波动上限（%），預設 5.0
-				ExtremeThreshold float64 `yaml:"extreme_threshold"`  // 极端波动阈值（%），預設 10.0
+				Enabled             bool    `yaml:"enabled"`               // 是否啟用波动率检测
+				ShortPeriod         int     `yaml:"short_period"`          // 短期周期（小時），預設 24
+				MediumPeriod        int     `yaml:"medium_period"`         // 中期周期（小時），預設 72 (3天)
+				LongPeriod          int     `yaml:"long_period"`           // 長期周期（小時），預設 168 (7天)
+				LowThreshold        float64 `yaml:"low_threshold"`         // 低波动阈值（%），預設 1.0
+				NormalThreshold     float64 `yaml:"normal_threshold"`      // 正常波动上限（%），預設 3.0
+				HighThreshold       float64 `yaml:"high_threshold"`        // 高波动上限（%），預設 5.0
+				ExtremeThreshold    float64 `yaml:"extreme_threshold"`     // 极端波动阈值（%），預設 10.0
 				PriceRangePeriod    int     `yaml:"price_range_period"`    // 价格范围检测周期（小時），預設 72 (3天)
 				PriceRangeThreshold float64 `yaml:"price_range_threshold"` // 价格范围阈值（%），預設 1.5
 			} `yaml:"volatility_detection"`
@@ -585,19 +597,19 @@ type Config struct {
 
 		GridRiskControl       GridRiskControl       `yaml:"grid_risk_control"`
 		OrderbookOptimization OrderbookOptimization `yaml:"orderbook_optimization"`
-		SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
-		OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"`                   // 開倉管理
+		SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"` // 智能掛單配置
+		OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"` // 開倉管理
 	} `yaml:"trading"`
 
 	System struct {
-		LogLevel             string       `yaml:"log_level"`
-		Timezone             string       `yaml:"timezone"`     // 時区，如 "Asia/Shanghai"
-		LogLanguage          string       `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
-		CancelOnExit         bool         `yaml:"cancel_on_exit"`
-		ClosePositionsOnExit bool         `yaml:"close_positions_on_exit"` // 退出時是否平倉（預設false）
-		LogRetentionDays     int          `yaml:"log_retention_days"`      // 日志保留天數（預設30天，0表示不清理）
-		DryRun               bool         `yaml:"dry_run"`                 // 模拟运行模式（不實際下單，只記錄日志）
-		LogCleanup            LogCleanupConfig `yaml:"log_cleanup"`        // 定期清理 INFO/WARN 日志（保留 ERROR/DEBUG）
+		LogLevel             string           `yaml:"log_level"`
+		Timezone             string           `yaml:"timezone"`     // 時区，如 "Asia/Shanghai"
+		LogLanguage          string           `yaml:"log_language"` // 日志语言，如 "zh-CN" 或 "en-US"
+		CancelOnExit         bool             `yaml:"cancel_on_exit"`
+		ClosePositionsOnExit bool             `yaml:"close_positions_on_exit"` // 退出時是否平倉（預設false）
+		LogRetentionDays     int              `yaml:"log_retention_days"`      // 日志保留天數（預設30天，0表示不清理）
+		DryRun               bool             `yaml:"dry_run"`                 // 模拟运行模式（不實際下單，只記錄日志）
+		LogCleanup           LogCleanupConfig `yaml:"log_cleanup"`             // 定期清理 INFO/WARN 日志（保留 ERROR/DEBUG）
 	} `yaml:"system"`
 
 	// 實例配置（多實例部署）
@@ -655,10 +667,10 @@ type Config struct {
 
 	// 複合風控引擎配置
 	CompositeRisk struct {
-		Enabled           bool                        `yaml:"enabled"`
-		EvaluateInterval  int                         `yaml:"evaluate_interval"`
-		Thresholds        CompositeRiskThresholds     `yaml:"thresholds"`
-		Factors           CompositeRiskFactorsConfig  `yaml:"factors"`
+		Enabled          bool                       `yaml:"enabled"`
+		EvaluateInterval int                        `yaml:"evaluate_interval"`
+		Thresholds       CompositeRiskThresholds    `yaml:"thresholds"`
+		Factors          CompositeRiskFactorsConfig `yaml:"factors"`
 	} `yaml:"composite_risk"`
 
 	// 資金費率監控與套利配置
@@ -846,7 +858,7 @@ type Config struct {
 
 	// FIX 协议配置
 	Fix struct {
-		Enabled             *bool `yaml:"enabled" json:"enabled"`                           // FIX 开关，nil/未配置时預設 true
+		Enabled             *bool `yaml:"enabled" json:"enabled"`                             // FIX 开关，nil/未配置时預設 true
 		HeartbeatTimeoutSec int   `yaml:"heartbeat_timeout_sec" json:"heartbeat_timeout_sec"` // 心跳超时秒数，預設 120
 	} `yaml:"fix"`
 
@@ -891,14 +903,14 @@ type Config struct {
 		FetchInterval int    `yaml:"fetch_interval"` // 拉取間隔（秒），預設 300
 		GammaAPIURL   string `yaml:"gamma_api_url"`  // Gamma API 地址
 		Categories    map[string]struct {
-			Keywords    []string `yaml:"keywords"`
-			CryptoImpact string  `yaml:"crypto_impact"`
-			RiskWeight   float64 `yaml:"risk_weight"`
+			Keywords     []string `yaml:"keywords"`
+			CryptoImpact string   `yaml:"crypto_impact"`
+			RiskWeight   float64  `yaml:"risk_weight"`
 		} `yaml:"categories"`
 		Filters struct {
-			MinLiquidity   float64 `yaml:"min_liquidity"`
-			MinVolume24h   float64 `yaml:"min_volume_24h"`
-			ActiveOnly     bool    `yaml:"active_only"`
+			MinLiquidity float64 `yaml:"min_liquidity"`
+			MinVolume24h float64 `yaml:"min_volume_24h"`
+			ActiveOnly   bool    `yaml:"active_only"`
 		} `yaml:"filters"`
 		Signal struct {
 			ProbabilityChangeThreshold float64 `yaml:"probability_change_threshold"`
@@ -1023,7 +1035,7 @@ type Config struct {
 		FocusSymbols []InspectorFocusSymbol `yaml:"focus_symbols"`
 		AI           struct {
 			UpstreamRef   string `yaml:"upstream_ref"` // 可選，指向 ai.upstreams
-			Provider      string `yaml:"provider"` // gemini
+			Provider      string `yaml:"provider"`     // gemini
 			Model         string `yaml:"model"`
 			AnalysisDepth string `yaml:"analysis_depth"` // brief, standard, detailed
 		} `yaml:"ai"`
@@ -1037,13 +1049,13 @@ type Config struct {
 
 	// AI配置
 	AI struct {
-		Enabled          bool   `yaml:"enabled"`
-		DefaultUpstream  string `yaml:"default_upstream"` // 可選，指向 ai.upstreams 的鍵名
-		Upstreams        map[string]AIUpstreamProfile `yaml:"upstreams"` // 可選，命名上游
-		Provider         string `yaml:"provider"` // gemini, openai
-		APIKey           string `yaml:"api_key"`
-		GeminiAPIKey     string `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果為空则使用 api_key）
-		BaseURL          string `yaml:"base_url"`       // 可選，用於自定义API端点
+		Enabled         bool                         `yaml:"enabled"`
+		DefaultUpstream string                       `yaml:"default_upstream"` // 可選，指向 ai.upstreams 的鍵名
+		Upstreams       map[string]AIUpstreamProfile `yaml:"upstreams"`        // 可選，命名上游
+		Provider        string                       `yaml:"provider"`         // gemini, openai
+		APIKey          string                       `yaml:"api_key"`
+		GeminiAPIKey    string                       `yaml:"gemini_api_key"` // Gemini API 密钥（优先使用，如果為空则使用 api_key）
+		BaseURL         string                       `yaml:"base_url"`       // 可選，用於自定义API端点
 
 		// 各模塊开关
 		Modules struct {
@@ -1092,15 +1104,15 @@ type Config struct {
 			} `yaml:"sentiment_analysis"`
 
 			StrategyGeneration struct {
-				Enabled       bool   `yaml:"enabled"` // 實驗性功能
-				UpstreamRef   string `yaml:"upstream_ref"`
+				Enabled     bool   `yaml:"enabled"` // 實驗性功能
+				UpstreamRef string `yaml:"upstream_ref"`
 			} `yaml:"strategy_generation"`
 
 			PolymarketSignal struct {
 				Enabled          bool   `yaml:"enabled"`
 				AnalysisInterval int    `yaml:"analysis_interval"` // 秒
 				UpstreamRef      string `yaml:"upstream_ref"`
-				APIURL           string `yaml:"api_url"`           // Polymarket API地址
+				APIURL           string `yaml:"api_url"` // Polymarket API地址
 				Markets          struct {
 					Keywords        []string `yaml:"keywords"`           // 关注的市场关键词
 					MinLiquidity    float64  `yaml:"min_liquidity"`      // 最小流动性（USDC）
@@ -1242,12 +1254,12 @@ type StrategyInstance struct {
 
 // ProfileConfig 配置档案（用于多套配置自动切换）
 type ProfileConfig struct {
-	PriceInterval     float64 `yaml:"price_interval" json:"price_interval"`         // 價格間隔
-	ProfitSpread      float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"` // 利潤間距（平倉價差），為 0 時等於 PriceInterval
-	OrderQuantity     float64 `yaml:"order_quantity" json:"order_quantity"`       // 每單金額（USDT/USDC）
-	BuyWindowSize     int     `yaml:"buy_window_size" json:"buy_window_size"`     // 買單窗口
-	SellWindowSize    int     `yaml:"sell_window_size" json:"sell_window_size"`  // 賣單視窗
-	MinOrderValue     float64 `yaml:"min_order_value,omitempty" json:"min_order_value,omitempty"` // 最小訂單價值（可選，繼承主配置）
+	PriceInterval  float64 `yaml:"price_interval" json:"price_interval"`                       // 價格間隔
+	ProfitSpread   float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`     // 利潤間距（平倉價差），為 0 時等於 PriceInterval
+	OrderQuantity  float64 `yaml:"order_quantity" json:"order_quantity"`                       // 每單金額（USDT/USDC）
+	BuyWindowSize  int     `yaml:"buy_window_size" json:"buy_window_size"`                     // 買單窗口
+	SellWindowSize int     `yaml:"sell_window_size" json:"sell_window_size"`                   // 賣單視窗
+	MinOrderValue  float64 `yaml:"min_order_value,omitempty" json:"min_order_value,omitempty"` // 最小訂單價值（可選，繼承主配置）
 }
 
 // SwitchRules 切换规则（根据资金费率和手续费率自动切换配置档案）
@@ -1263,43 +1275,43 @@ type SwitchRules struct {
 
 // SymbolConfig 單個交易對配置（可指定所属交易所及交易参數）
 type SymbolConfig struct {
-	ID                    string             `yaml:"id,omitempty" json:"id,omitempty"`                         // 可選：Bot 唯一標識，未填時由 Exchange:Symbol:MarketType 生成；同交易所同幣可多實例時需唯一
-	Name                  string             `yaml:"name,omitempty" json:"name,omitempty"`                       // 可選：顯示名稱，用於區分多個同幣 Bot
-	Enabled               *bool              `yaml:"enabled" json:"enabled"`                                   // 是否啟用自动交易，預設為 true（使用指針确保 false 時也會被序列化）
-	Exchange              string             `yaml:"exchange" json:"exchange"`                                 // 所属交易所，預設為 app.current_exchange
-	Symbol                string             `yaml:"symbol" json:"symbol"`                                     // 交易對，如 BTCUSDT
-	MarketType            string             `yaml:"market_type" json:"market_type"`                           // 市场類型：spot 現貨 / futures 合約，預設 futures
-	TotalAllocatedCapital float64            `yaml:"total_allocated_capital" json:"total_allocated_capital"`   // 該幣種分配的總资金
-	Strategies            []StrategyInstance `yaml:"strategies" json:"strategies"`                             // 运行在該幣種上的策略列表
-	WithdrawalPolicy      WithdrawalPolicy   `yaml:"withdrawal_policy" json:"withdrawal_policy"`               // 提現策略
-	PriceInterval         float64            `yaml:"price_interval" json:"price_interval"`                     // 價格間隔（主配置，未配置 profiles 时使用）
-	ProfitSpread          float64            `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
-	OrderQuantity         float64            `yaml:"order_quantity" json:"order_quantity"`                     // 每單金額（USDT/USDC）（主配置，未配置 profiles 时使用）
-	MinOrderValue         float64            `yaml:"min_order_value" json:"min_order_value"`                   // 最小訂單價值
-	BuyWindowSize         int                `yaml:"buy_window_size" json:"buy_window_size"`                   // 買單窗口（主配置，未配置 profiles 时使用）
-	SellWindowSize        int                `yaml:"sell_window_size" json:"sell_window_size"`                 // 賣單視窗（主配置，未配置 profiles 时使用）
-	ShortOpenWindowSize   int                `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數；0=繼承 sell/buy
-	ReconcileInterval     int                `yaml:"reconcile_interval" json:"reconcile_interval"`             // 對账间隔（秒）
-	OrderCleanupThreshold int                `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`   // 訂單清理上限
-	CleanupBatchSize      int                `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`             // 清理批次大小
-	MarginLockDurationSec int                `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"` // 保證金鎖定時间（秒）
-	PositionSafetyCheck   int                `yaml:"position_safety_check" json:"position_safety_check"`       // 持倉安全性檢查
-	GridRiskControl       GridRiskControl      `yaml:"grid_risk_control" json:"grid_risk_control"`               // 網格策略风控
-	OpenPositionControl   OpenPositionControl  `yaml:"open_position_control" json:"open_position_control"`     // 開倉管理
-	SmartOrder            SmartOrderConfig     `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`       // 智能掛單配置
-	Direction             string               `yaml:"direction" json:"direction"`                              // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
-	PriceLow              float64            `yaml:"price_low" json:"price_low"`                               // 網格價格下限，0 表示不限制（軟限制：超出時暫停新開倉，保留平倉單）
-	PriceHigh             float64            `yaml:"price_high" json:"price_high"`                              // 網格價格上限，0 表示不限制
-	TriggerPrice          float64            `yaml:"trigger_price" json:"trigger_price"`                       // 觸發價格，達到後才啟動網格，0 表示立即啟動
-	GridMode              string                   `yaml:"grid_mode" json:"grid_mode"`                               // 網格模式：arithmetic 等差 / geometric 等比，預設 arithmetic
-	GridShiftEnabled      bool                     `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`             // 是否啟用網格上移/下移
-	RocketTieredGrid      *RocketTieredGridConfig   `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"` // 三級火箭網格
-	GridShiftStep         float64            `yaml:"grid_shift_step" json:"grid_shift_step"`                    // 每次移動步長
-	CloseOnStop           bool               `yaml:"close_on_stop" json:"close_on_stop"`                       // 終止時全部平倉
-	UseSpotMargin         bool               `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"` // 是否使用現貨槓桿（借幣做空）
+	ID                    string                  `yaml:"id,omitempty" json:"id,omitempty"`                                         // 可選：Bot 唯一標識，未填時由 Exchange:Symbol:MarketType 生成；同交易所同幣可多實例時需唯一
+	Name                  string                  `yaml:"name,omitempty" json:"name,omitempty"`                                     // 可選：顯示名稱，用於區分多個同幣 Bot
+	Enabled               *bool                   `yaml:"enabled" json:"enabled"`                                                   // 是否啟用自动交易，預設為 true（使用指針确保 false 時也會被序列化）
+	Exchange              string                  `yaml:"exchange" json:"exchange"`                                                 // 所属交易所，預設為 app.current_exchange
+	Symbol                string                  `yaml:"symbol" json:"symbol"`                                                     // 交易對，如 BTCUSDT
+	MarketType            string                  `yaml:"market_type" json:"market_type"`                                           // 市场類型：spot 現貨 / futures 合約，預設 futures
+	TotalAllocatedCapital float64                 `yaml:"total_allocated_capital" json:"total_allocated_capital"`                   // 該幣種分配的總资金
+	Strategies            []StrategyInstance      `yaml:"strategies" json:"strategies"`                                             // 运行在該幣種上的策略列表
+	WithdrawalPolicy      WithdrawalPolicy        `yaml:"withdrawal_policy" json:"withdrawal_policy"`                               // 提現策略
+	PriceInterval         float64                 `yaml:"price_interval" json:"price_interval"`                                     // 價格間隔（主配置，未配置 profiles 时使用）
+	ProfitSpread          float64                 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`                   // 利潤間距（平倉價差），為 0 時等於 PriceInterval
+	OrderQuantity         float64                 `yaml:"order_quantity" json:"order_quantity"`                                     // 每單金額（USDT/USDC）（主配置，未配置 profiles 时使用）
+	MinOrderValue         float64                 `yaml:"min_order_value" json:"min_order_value"`                                   // 最小訂單價值
+	BuyWindowSize         int                     `yaml:"buy_window_size" json:"buy_window_size"`                                   // 買單窗口（主配置，未配置 profiles 时使用）
+	SellWindowSize        int                     `yaml:"sell_window_size" json:"sell_window_size"`                                 // 賣單視窗（主配置，未配置 profiles 时使用）
+	ShortOpenWindowSize   int                     `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數；0=繼承 sell/buy
+	ReconcileInterval     int                     `yaml:"reconcile_interval" json:"reconcile_interval"`                             // 對账间隔（秒）
+	OrderCleanupThreshold int                     `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`                   // 訂單清理上限
+	CleanupBatchSize      int                     `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`                             // 清理批次大小
+	MarginLockDurationSec int                     `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration"`                 // 保證金鎖定時间（秒）
+	PositionSafetyCheck   int                     `yaml:"position_safety_check" json:"position_safety_check"`                       // 持倉安全性檢查
+	GridRiskControl       GridRiskControl         `yaml:"grid_risk_control" json:"grid_risk_control"`                               // 網格策略风控
+	OpenPositionControl   OpenPositionControl     `yaml:"open_position_control" json:"open_position_control"`                       // 開倉管理
+	SmartOrder            SmartOrderConfig        `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                       // 智能掛單配置
+	Direction             string                  `yaml:"direction" json:"direction"`                                               // 交易方向：LONG 做多 / SHORT 做空，預設 LONG
+	PriceLow              float64                 `yaml:"price_low" json:"price_low"`                                               // 網格價格下限，0 表示不限制（軟限制：超出時暫停新開倉，保留平倉單）
+	PriceHigh             float64                 `yaml:"price_high" json:"price_high"`                                             // 網格價格上限，0 表示不限制
+	TriggerPrice          float64                 `yaml:"trigger_price" json:"trigger_price"`                                       // 觸發價格，達到後才啟動網格，0 表示立即啟動
+	GridMode              string                  `yaml:"grid_mode" json:"grid_mode"`                                               // 網格模式：arithmetic 等差 / geometric 等比，預設 arithmetic
+	GridShiftEnabled      bool                    `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                             // 是否啟用網格上移/下移
+	RocketTieredGrid      *RocketTieredGridConfig `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`         // 三級火箭網格
+	GridShiftStep         float64                 `yaml:"grid_shift_step" json:"grid_shift_step"`                                   // 每次移動步長
+	CloseOnStop           bool                    `yaml:"close_on_stop" json:"close_on_stop"`                                       // 終止時全部平倉
+	UseSpotMargin         bool                    `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`               // 是否使用現貨槓桿（借幣做空）
 	// 多套配置自动切换
-	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`       // 配置档案（如 positive, negative）
-	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
+	Profiles    map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`         // 配置档案（如 positive, negative）
+	SwitchRules SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"` // 切换规则
 	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
@@ -1339,10 +1351,7 @@ func (sc *SymbolConfig) IsSpot() bool {
 
 // GetDirection 返回交易方向，空時預設 LONG（向后兼容）
 func (sc *SymbolConfig) GetDirection() string {
-	if sc.Direction == "SHORT" {
-		return "SHORT"
-	}
-	return "LONG"
+	return NormalizeDirection(sc.Direction)
 }
 
 // SetEnabled 設置交易對啟用狀態
@@ -1376,68 +1385,68 @@ type StrategyConfig struct {
 
 // HedgeConfig 跨市場對沖配置
 type HedgeConfig struct {
-	HedgeRatio          float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                     // 對沖比例 0-1
-	ShortNotionalRatio  float64 `yaml:"short_notional_ratio" json:"short_notional_ratio"`   // 做空/做多名義敞口占網格名義敞口比例，默認 0.25
-	HedgeTriggerLayers  int     `yaml:"hedge_trigger_layers" json:"hedge_trigger_layers"`   // 網格滿幾格才觸發開對沖倉，默認 3
-	Direction           string  `yaml:"direction" json:"direction"`                        // 合約網格方向：LONG/SHORT/BOTH，用於決定發 target_spot_short 或 target_spot_long
-	PrimaryLeg          string  `yaml:"primary_leg" json:"primary_leg"`                     // 主腿：futures（默認，合約主+現貨從）或 spot（現貨主+合約從）
-	MaxDrawdown         float64 `yaml:"max_drawdown" json:"max_drawdown"`                   // 觸發對沖的最大回撤
-	AutoRebalance       bool    `yaml:"auto_rebalance" json:"auto_rebalance"`               // 自動再平衡
-	RebalanceInterval   int     `yaml:"rebalance_interval" json:"rebalance_interval"`       // 再平衡間隔（秒）
+	HedgeRatio         float64 `yaml:"hedge_ratio" json:"hedge_ratio"`                   // 對沖比例 0-1
+	ShortNotionalRatio float64 `yaml:"short_notional_ratio" json:"short_notional_ratio"` // 做空/做多名義敞口占網格名義敞口比例，默認 0.25
+	HedgeTriggerLayers int     `yaml:"hedge_trigger_layers" json:"hedge_trigger_layers"` // 網格滿幾格才觸發開對沖倉，默認 3
+	Direction          string  `yaml:"direction" json:"direction"`                       // 合約網格方向：LONG/SHORT/BOTH，用於決定發 target_spot_short 或 target_spot_long
+	PrimaryLeg         string  `yaml:"primary_leg" json:"primary_leg"`                   // 主腿：futures（默認，合約主+現貨從）或 spot（現貨主+合約從）
+	MaxDrawdown        float64 `yaml:"max_drawdown" json:"max_drawdown"`                 // 觸發對沖的最大回撤
+	AutoRebalance      bool    `yaml:"auto_rebalance" json:"auto_rebalance"`             // 自動再平衡
+	RebalanceInterval  int     `yaml:"rebalance_interval" json:"rebalance_interval"`     // 再平衡間隔（秒）
 }
 
 // BotGroup 跨市場 Bot 組（用於對沖策略：合約+現貨等）
 type BotGroup struct {
-	ID          string       `yaml:"id" json:"id"`
-	Name        string       `yaml:"name" json:"name"`
-	Type        string       `yaml:"type" json:"type"`               // "futures_spot_hedge", "long_short_hedge"
-	BotIDs      []string     `yaml:"bot_ids" json:"bot_ids"`         // 關聯的 Bot ID 列表
-	HedgeConfig HedgeConfig  `yaml:"hedge_config" json:"hedge_config"`
+	ID          string      `yaml:"id" json:"id"`
+	Name        string      `yaml:"name" json:"name"`
+	Type        string      `yaml:"type" json:"type"`       // "futures_spot_hedge", "long_short_hedge"
+	BotIDs      []string    `yaml:"bot_ids" json:"bot_ids"` // 關聯的 Bot ID 列表
+	HedgeConfig HedgeConfig `yaml:"hedge_config" json:"hedge_config"`
 }
 
 // BotConfig 單個 Bot 配置（獨立的運行單元：交易所+交易對+策略集+參數+風控+資金）
 type BotConfig struct {
-	ID                    string                 `yaml:"id" json:"id"`                                                       // Bot 唯一標識，由 Exchange:Symbol:MarketType 生成或 UUID
-	Name                  string                 `yaml:"name" json:"name"`                                                   // 顯示名稱
-	CreatedAt             string                 `yaml:"created_at,omitempty" json:"created_at,omitempty"`                     // 創建時間 ISO 8601，可選
-	Exchange              string                 `yaml:"exchange" json:"exchange"`                                           // 所屬交易所
-	Symbol                string                 `yaml:"symbol" json:"symbol"`                                               // 交易對，如 BTCUSDT
-	MarketType            string                 `yaml:"market_type" json:"market_type"`                                     // 市場類型：spot 現貨 / futures 合約，預設 futures
-	Testnet               bool                   `yaml:"testnet" json:"testnet"`                                             // 是否使用測試網
-	Enabled               *bool                  `yaml:"enabled" json:"enabled"`                                             // 是否啟用，nil 預設 true
-	Strategies            []StrategyInstance    `yaml:"strategies" json:"strategies"`                                       // 該 Bot 運行的策略列表
-	TotalAllocatedCapital float64               `yaml:"total_allocated_capital" json:"total_allocated_capital"`             // 分配的總資金（USDT）
-	WithdrawalPolicy      WithdrawalPolicy      `yaml:"withdrawal_policy" json:"withdrawal_policy"`                           // 提現策略
-	PriceInterval         float64               `yaml:"price_interval" json:"price_interval"`                               // 價格間隔
-	ProfitSpread          float64               `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`             // 利潤間距，0 時等於 PriceInterval
-	OrderQuantity         float64               `yaml:"order_quantity" json:"order_quantity"`                                 // 每單金額（USDT/USDC）
-	MinOrderValue         float64               `yaml:"min_order_value" json:"min_order_value"`                               // 最小訂單價值
-	BuyWindowSize         int                   `yaml:"buy_window_size" json:"buy_window_size"`                               // 買單窗口
-	SellWindowSize        int                   `yaml:"sell_window_size" json:"sell_window_size"`                            // 賣單視窗
-	ShortOpenWindowSize   int                   `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數，0 繼承 sell/buy 窗口
-	ReconcileInterval     int                   `yaml:"reconcile_interval" json:"reconcile_interval"`                          // 對賬間隔（秒）
-	OrderCleanupThreshold int                   `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`               // 訂單清理上限
-	CleanupBatchSize      int                   `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`                         // 清理批次大小
-	MarginLockDurationSec int                   `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration_seconds"`    // 保證金鎖定時間（秒）
-	PositionSafetyCheck   int                   `yaml:"position_safety_check" json:"position_safety_check"`                   // 持倉安全性檢查
-	GridRiskControl       GridRiskControl       `yaml:"grid_risk_control" json:"grid_risk_control"`                            // 網格策略風控
-	OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"`                   // 開倉管理
-	Direction             string                `yaml:"direction" json:"direction"`                                         // 交易方向：LONG / SHORT / BOTH
-	PriceLow              float64               `yaml:"price_low" json:"price_low"`                                           // 網格價格下限，0=不限制
-	PriceHigh             float64               `yaml:"price_high" json:"price_high"`                                         // 網格價格上限，0=不限制
-	TriggerPrice          float64               `yaml:"trigger_price" json:"trigger_price"`                                 // 觸發價格，0=立即啟動
-	GridMode              string                  `yaml:"grid_mode" json:"grid_mode"`                                          // 網格模式：arithmetic / geometric
-	GridShiftEnabled      bool                    `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                         // 是否啟用網格上移/下移
-	GridShiftStep         float64                 `yaml:"grid_shift_step" json:"grid_shift_step"`                               // 每次移動步長
-	RocketTieredGrid      *RocketTieredGridConfig  `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`     // 三級火箭網格
-	CloseOnStop           bool                    `yaml:"close_on_stop" json:"close_on_stop"`                                   // 終止時全部平倉
-	CloseOnStopConfig     ClosePositionConfig   `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"` // 平倉配置
-	SlotFilter            SlotFilterConfig      `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                   // 槽位過濾配置
-	SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                   // 智能掛單配置
-	UseSpotMargin         bool                  `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`           // 是否使用現貨槓桿（借幣做空）
-	AutoRebuild           GridAutoRebuildConfig `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                 // 網格自動重建配置
-	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                      // 配置檔案（多套參數切換）
-	SwitchRules           SwitchRules           `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                  // 切換規則
+	ID                    string                   `yaml:"id" json:"id"`                                                             // Bot 唯一標識，由 Exchange:Symbol:MarketType 生成或 UUID
+	Name                  string                   `yaml:"name" json:"name"`                                                         // 顯示名稱
+	CreatedAt             string                   `yaml:"created_at,omitempty" json:"created_at,omitempty"`                         // 創建時間 ISO 8601，可選
+	Exchange              string                   `yaml:"exchange" json:"exchange"`                                                 // 所屬交易所
+	Symbol                string                   `yaml:"symbol" json:"symbol"`                                                     // 交易對，如 BTCUSDT
+	MarketType            string                   `yaml:"market_type" json:"market_type"`                                           // 市場類型：spot 現貨 / futures 合約，預設 futures
+	Testnet               bool                     `yaml:"testnet" json:"testnet"`                                                   // 是否使用測試網
+	Enabled               *bool                    `yaml:"enabled" json:"enabled"`                                                   // 是否啟用，nil 預設 true
+	Strategies            []StrategyInstance       `yaml:"strategies" json:"strategies"`                                             // 該 Bot 運行的策略列表
+	TotalAllocatedCapital float64                  `yaml:"total_allocated_capital" json:"total_allocated_capital"`                   // 分配的總資金（USDT）
+	WithdrawalPolicy      WithdrawalPolicy         `yaml:"withdrawal_policy" json:"withdrawal_policy"`                               // 提現策略
+	PriceInterval         float64                  `yaml:"price_interval" json:"price_interval"`                                     // 價格間隔
+	ProfitSpread          float64                  `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`                   // 利潤間距，0 時等於 PriceInterval
+	OrderQuantity         float64                  `yaml:"order_quantity" json:"order_quantity"`                                     // 每單金額（USDT/USDC）
+	MinOrderValue         float64                  `yaml:"min_order_value" json:"min_order_value"`                                   // 最小訂單價值
+	BuyWindowSize         int                      `yaml:"buy_window_size" json:"buy_window_size"`                                   // 買單窗口
+	SellWindowSize        int                      `yaml:"sell_window_size" json:"sell_window_size"`                                 // 賣單視窗
+	ShortOpenWindowSize   int                      `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"` // BOTH：向上開空層數，0 繼承 sell/buy 窗口
+	ReconcileInterval     int                      `yaml:"reconcile_interval" json:"reconcile_interval"`                             // 對賬間隔（秒）
+	OrderCleanupThreshold int                      `yaml:"order_cleanup_threshold" json:"order_cleanup_threshold"`                   // 訂單清理上限
+	CleanupBatchSize      int                      `yaml:"cleanup_batch_size" json:"cleanup_batch_size"`                             // 清理批次大小
+	MarginLockDurationSec int                      `yaml:"margin_lock_duration_seconds" json:"margin_lock_duration_seconds"`         // 保證金鎖定時間（秒）
+	PositionSafetyCheck   int                      `yaml:"position_safety_check" json:"position_safety_check"`                       // 持倉安全性檢查
+	GridRiskControl       GridRiskControl          `yaml:"grid_risk_control" json:"grid_risk_control"`                               // 網格策略風控
+	OpenPositionControl   OpenPositionControl      `yaml:"open_position_control" json:"open_position_control"`                       // 開倉管理
+	Direction             string                   `yaml:"direction" json:"direction"`                                               // 交易方向：LONG / SHORT / BOTH
+	PriceLow              float64                  `yaml:"price_low" json:"price_low"`                                               // 網格價格下限，0=不限制
+	PriceHigh             float64                  `yaml:"price_high" json:"price_high"`                                             // 網格價格上限，0=不限制
+	TriggerPrice          float64                  `yaml:"trigger_price" json:"trigger_price"`                                       // 觸發價格，0=立即啟動
+	GridMode              string                   `yaml:"grid_mode" json:"grid_mode"`                                               // 網格模式：arithmetic / geometric
+	GridShiftEnabled      bool                     `yaml:"grid_shift_enabled" json:"grid_shift_enabled"`                             // 是否啟用網格上移/下移
+	GridShiftStep         float64                  `yaml:"grid_shift_step" json:"grid_shift_step"`                                   // 每次移動步長
+	RocketTieredGrid      *RocketTieredGridConfig  `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`         // 三級火箭網格
+	CloseOnStop           bool                     `yaml:"close_on_stop" json:"close_on_stop"`                                       // 終止時全部平倉
+	CloseOnStopConfig     ClosePositionConfig      `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"`     // 平倉配置
+	SlotFilter            SlotFilterConfig         `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                       // 槽位過濾配置
+	SmartOrder            SmartOrderConfig         `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`                       // 智能掛單配置
+	UseSpotMargin         bool                     `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`               // 是否使用現貨槓桿（借幣做空）
+	AutoRebuild           GridAutoRebuildConfig    `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                     // 網格自動重建配置
+	Profiles              map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`                             // 配置檔案（多套參數切換）
+	SwitchRules           SwitchRules              `yaml:"switch_rules,omitempty" json:"switch_rules,omitempty"`                     // 切換規則
 	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
@@ -1456,11 +1465,11 @@ type ClosePositionConfig struct {
 
 // SlotFilterRule 槽位過濾規則
 type SlotFilterRule struct {
-	Type     string   `yaml:"type" json:"type"`                               // "exclude"/"include"
-	Prices   []float64 `yaml:"prices,omitempty" json:"prices,omitempty"`     // 具體價格列表
+	Type     string    `yaml:"type" json:"type"`                               // "exclude"/"include"
+	Prices   []float64 `yaml:"prices,omitempty" json:"prices,omitempty"`       // 具體價格列表
 	MinPrice float64   `yaml:"min_price,omitempty" json:"min_price,omitempty"` // 價格區間下限
 	MaxPrice float64   `yaml:"max_price,omitempty" json:"max_price,omitempty"` // 價格區間上限
-	Reason   string    `yaml:"reason,omitempty" json:"reason,omitempty"`     // 禁用原因（可選）
+	Reason   string    `yaml:"reason,omitempty" json:"reason,omitempty"`       // 禁用原因（可選）
 }
 
 // SlotFilterConfig 槽位過濾配置
@@ -1470,12 +1479,12 @@ type SlotFilterConfig struct {
 
 // SmartOrderConfig 智能掛單配置
 type SmartOrderConfig struct {
-	Enabled              bool    `yaml:"enabled" json:"enabled"`                                         // 是否啟用智能掛單
-	MaxOpenOrders        int     `yaml:"max_open_orders,omitempty" json:"max_open_orders,omitempty"`     // 最大開倉掛單數（每個方向）
-	OpenOrderDistance    float64 `yaml:"open_order_distance,omitempty" json:"open_order_distance,omitempty"` // 開倉單距離當前價的最大間隔數
+	Enabled              bool    `yaml:"enabled" json:"enabled"`                                                     // 是否啟用智能掛單
+	MaxOpenOrders        int     `yaml:"max_open_orders,omitempty" json:"max_open_orders,omitempty"`                 // 最大開倉掛單數（每個方向）
+	OpenOrderDistance    float64 `yaml:"open_order_distance,omitempty" json:"open_order_distance,omitempty"`         // 開倉單距離當前價的最大間隔數
 	OnlyCloseFilledSlots bool    `yaml:"only_close_filled_slots,omitempty" json:"only_close_filled_slots,omitempty"` // 只為已成交槽位掛平倉單
-	ProgressivePlacement bool    `yaml:"progressive_placement,omitempty" json:"progressive_placement,omitempty"` // 漸進式掛單（價格移動時逐步添加）
-	LeadSlots            int     `yaml:"lead_slots,omitempty" json:"lead_slots,omitempty"`                 // 領先槽位數量（當前價前幾個）
+	ProgressivePlacement bool    `yaml:"progressive_placement,omitempty" json:"progressive_placement,omitempty"`     // 漸進式掛單（價格移動時逐步添加）
+	LeadSlots            int     `yaml:"lead_slots,omitempty" json:"lead_slots,omitempty"`                           // 領先槽位數量（當前價前幾個）
 }
 
 // IsEnabled 返回 Bot 是否啟用（nil 預設為 true）
@@ -1506,14 +1515,7 @@ func (bc *BotConfig) GetMarketType() string {
 
 // GetDirection 返回交易方向，空時預設 LONG
 func (bc *BotConfig) GetDirection() string {
-	switch strings.ToUpper(bc.Direction) {
-	case "SHORT":
-		return "SHORT"
-	case "BOTH":
-		return "BOTH"
-	default:
-		return "LONG"
-	}
+	return NormalizeDirection(bc.Direction)
 }
 
 // IsLong 是否做多
@@ -1606,7 +1608,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		SellWindowSize:        sc.SellWindowSize,
 		ShortOpenWindowSize:   sc.ShortOpenWindowSize,
 		ReconcileInterval:     sc.ReconcileInterval,
-		OrderCleanupThreshold:  sc.OrderCleanupThreshold,
+		OrderCleanupThreshold: sc.OrderCleanupThreshold,
 		CleanupBatchSize:      sc.CleanupBatchSize,
 		MarginLockDurationSec: sc.MarginLockDurationSec,
 		PositionSafetyCheck:   sc.PositionSafetyCheck,
@@ -2505,10 +2507,7 @@ func (c *Config) Validate() error {
 		if c.Trading.Symbol == "" {
 			return fmt.Errorf("交易對不能為空")
 		}
-		direction := c.Trading.Direction
-		if direction != "SHORT" {
-			direction = "LONG"
-		}
+		direction := NormalizeDirection(c.Trading.Direction)
 		c.Trading.Symbols = []SymbolConfig{{
 			Enabled:               BoolPtr(true),
 			Exchange:              c.App.CurrentExchange,

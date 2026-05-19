@@ -20,7 +20,7 @@ type SpotShortStrategy struct {
 	cfg        *config.Config
 	executor   position.OrderExecutorInterface
 	ex         position.IExchange
-	rawEx      exchange.IExchange          // 用於 Borrow/Repay 類型斷言
+	rawEx      exchange.IExchange           // 用於 Borrow/Repay 類型斷言
 	smEx       exchange.ISpotMarginExchange // 現貨槓桿交易所（借還）
 	groupID    string
 	symbol     string
@@ -30,9 +30,9 @@ type SpotShortStrategy struct {
 	eventBus        EventBus
 	subscribableBus interface{ Subscribe() <-chan *event.Event }
 
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.RWMutex
 	pendingRepay map[int64]float64 // orderID -> 待還數量
 
 	positions []*Position
@@ -196,8 +196,8 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 		return
 	}
 	targetShort := getFloat64(evt.Data, "target_spot_short")
-	if targetShort <= 0 {
-		return
+	if targetShort < 0 {
+		targetShort = 0
 	}
 	if s.smEx == nil {
 		logger.Warn("SpotShortStrategy: 交易所不支援借幣做空，跳過")

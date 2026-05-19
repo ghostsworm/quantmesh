@@ -12,13 +12,14 @@ import (
 
 // OpeningController 開倉控制器：限倉檢查、定時規則、週期規則
 type OpeningController struct {
-	spm           *SuperPositionManager
-	configPtr     *config.SymbolConfig
-	ticker        *time.Ticker
-	stopCh        chan struct{}
-	periodicState bool      // 當前週期狀態：true=開倉中，false=關倉中
+	spm            *SuperPositionManager
+	configPtr      *config.SymbolConfig
+	ticker         *time.Ticker
+	stopCh         chan struct{}
+	running        bool
+	periodicState  bool      // 當前週期狀態：true=開倉中，false=關倉中
 	periodicSwitch time.Time // 下次切換時間
-	mu            sync.RWMutex
+	mu             sync.RWMutex
 }
 
 // NewOpeningController 創建開倉控制器
@@ -33,27 +34,42 @@ func NewOpeningController(spm *SuperPositionManager, configPtr *config.SymbolCon
 
 // Start 啟動開倉控制器（每分鐘檢查一次）
 func (oc *OpeningController) Start() {
+	oc.mu.Lock()
+	defer oc.mu.Unlock()
+	if oc.running {
+		logger.Warn("🔄 [開倉管理] 開倉控制器已在運行 [%s:%s]", oc.configPtr.Exchange, oc.configPtr.Symbol)
+		return
+	}
+	oc.stopCh = make(chan struct{})
 	oc.ticker = time.NewTicker(1 * time.Minute)
-	go oc.run()
+	oc.running = true
+	go oc.run(oc.ticker, oc.stopCh)
 	logger.Info("🔄 [開倉管理] 開倉控制器已啟動 [%s:%s]", oc.configPtr.Exchange, oc.configPtr.Symbol)
 }
 
 // Stop 停止開倉控制器
 func (oc *OpeningController) Stop() {
+	oc.mu.Lock()
+	defer oc.mu.Unlock()
+	if !oc.running {
+		return
+	}
 	if oc.ticker != nil {
 		oc.ticker.Stop()
 		oc.ticker = nil
 	}
 	close(oc.stopCh)
+	oc.stopCh = nil
+	oc.running = false
 	logger.Info("🔄 [開倉管理] 開倉控制器已停止 [%s:%s]", oc.configPtr.Exchange, oc.configPtr.Symbol)
 }
 
-func (oc *OpeningController) run() {
+func (oc *OpeningController) run(ticker *time.Ticker, stopCh <-chan struct{}) {
 	for {
 		select {
-		case <-oc.stopCh:
+		case <-stopCh:
 			return
-		case <-oc.ticker.C:
+		case <-ticker.C:
 			oc.check()
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,23 +18,139 @@ import (
 
 // BotRiskControlRequest 风控配置请求
 type BotRiskControlRequest struct {
-	Enabled             *bool                   `json:"enabled"`
-	MaxPositionQuantity *float64                `json:"max_position_quantity"`
-	MaxPositionValue    *float64                `json:"max_position_value"`
-	MaxPositionLayers   *int                    `json:"max_position_layers"`
-	MaxOpenOrders       *int                    `json:"max_open_orders"`     // 最多開倉掛單數，0=不限制
-	OpenOrderDistance   *float64                `json:"open_order_distance"` // 開倉單距離當前價的最大間隔數
-	StopLossRatio       *float64                `json:"stop_loss_ratio"`
-	TakeProfitRatio     *float64                `json:"take_profit_ratio"`
-	TrailingStopRatio   *float64                `json:"trailing_stop_ratio"`
-	TrendFilterEnabled  *bool                   `json:"trend_filter_enabled"`
-	GridRiskControl     *config.GridRiskControl `json:"grid_risk_control,omitempty"` // 網格風控（止損、止盈、回撤等）
+	Enabled             *bool                 `json:"enabled"`
+	MaxPositionQuantity *float64              `json:"max_position_quantity"`
+	MaxPositionValue    *float64              `json:"max_position_value"`
+	MaxPositionLayers   *int                  `json:"max_position_layers"`
+	MaxOpenOrders       *int                  `json:"max_open_orders"`     // 最多開倉掛單數，0=不限制
+	OpenOrderDistance   *float64              `json:"open_order_distance"` // 開倉單距離當前價的最大間隔數
+	StopLossRatio       *float64              `json:"stop_loss_ratio"`
+	TakeProfitRatio     *float64              `json:"take_profit_ratio"`
+	TrailingStopRatio   *float64              `json:"trailing_stop_ratio"`
+	TrendFilterEnabled  *bool                 `json:"trend_filter_enabled"`
+	GridRiskControl     *GridRiskControlPatch `json:"grid_risk_control,omitempty"` // 網格風控（止損、止盈、回撤等）
+}
+
+type GridRiskControlPatch struct {
+	Enabled                    *bool    `json:"enabled"`
+	MaxGridLayers              *int     `json:"max_grid_layers"`
+	MaxOpenOrdersAtCap         *int     `json:"max_open_orders_at_cap"`
+	StopLossRatio              *float64 `json:"stop_loss_ratio"`
+	TakeProfitTriggerRatio     *float64 `json:"take_profit_trigger_ratio"`
+	TrailingTakeProfitRatio    *float64 `json:"trailing_take_profit_ratio"`
+	TrendFilterEnabled         *bool    `json:"trend_filter_enabled"`
+	CloseConditionEnabled      *bool    `json:"close_condition_enabled"`
+	CloseConditionProfitTarget *float64 `json:"close_condition_profit_target"`
+	CloseConditionLossLimit    *float64 `json:"close_condition_loss_limit"`
 }
 
 // PauseOpeningRequest 暂停开仓请求
 type PauseOpeningRequest struct {
 	Reason        string `json:"reason"`
 	AutoResumeSec *int   `json:"auto_resume_sec"` // 自动恢复时间（秒），0=不自动恢复
+}
+
+func validateBotRiskControlRequest(req *BotRiskControlRequest) error {
+	if req.MaxPositionQuantity != nil && !validNonNegativeFinite(*req.MaxPositionQuantity) {
+		return fmt.Errorf("max_position_quantity must be a finite number >= 0")
+	}
+	if req.MaxPositionValue != nil && !validNonNegativeFinite(*req.MaxPositionValue) {
+		return fmt.Errorf("max_position_value must be a finite number >= 0")
+	}
+	if req.MaxPositionLayers != nil && *req.MaxPositionLayers < 0 {
+		return fmt.Errorf("max_position_layers must be >= 0")
+	}
+	if req.MaxOpenOrders != nil && *req.MaxOpenOrders < 0 {
+		return fmt.Errorf("max_open_orders must be >= 0")
+	}
+	if req.OpenOrderDistance != nil && !validNonNegativeFinite(*req.OpenOrderDistance) {
+		return fmt.Errorf("open_order_distance must be a finite number >= 0")
+	}
+	if req.StopLossRatio != nil && !validRatio(*req.StopLossRatio) {
+		return fmt.Errorf("stop_loss_ratio must be between 0 and 1")
+	}
+	if req.TakeProfitRatio != nil && !validRatio(*req.TakeProfitRatio) {
+		return fmt.Errorf("take_profit_ratio must be between 0 and 1")
+	}
+	if req.TrailingStopRatio != nil && !validRatio(*req.TrailingStopRatio) {
+		return fmt.Errorf("trailing_stop_ratio must be between 0 and 1")
+	}
+	if req.GridRiskControl != nil {
+		if err := validateGridRiskControlPatch(*req.GridRiskControl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateGridRiskControlPatch(grc GridRiskControlPatch) error {
+	if grc.MaxGridLayers != nil && *grc.MaxGridLayers < 0 {
+		return fmt.Errorf("grid_risk_control.max_grid_layers must be >= 0")
+	}
+	if grc.MaxOpenOrdersAtCap != nil && *grc.MaxOpenOrdersAtCap < 0 {
+		return fmt.Errorf("grid_risk_control.max_open_orders_at_cap must be >= 0")
+	}
+	if grc.StopLossRatio != nil && !validRatio(*grc.StopLossRatio) {
+		return fmt.Errorf("grid_risk_control.stop_loss_ratio must be between 0 and 1")
+	}
+	if grc.TakeProfitTriggerRatio != nil && !validRatio(*grc.TakeProfitTriggerRatio) {
+		return fmt.Errorf("grid_risk_control.take_profit_trigger_ratio must be between 0 and 1")
+	}
+	if grc.TrailingTakeProfitRatio != nil && !validRatio(*grc.TrailingTakeProfitRatio) {
+		return fmt.Errorf("grid_risk_control.trailing_take_profit_ratio must be between 0 and 1")
+	}
+	if grc.CloseConditionProfitTarget != nil && !validRatio(*grc.CloseConditionProfitTarget) {
+		return fmt.Errorf("grid_risk_control.close_condition_profit_target must be between 0 and 1")
+	}
+	if grc.CloseConditionLossLimit != nil && !validRatio(*grc.CloseConditionLossLimit) {
+		return fmt.Errorf("grid_risk_control.close_condition_loss_limit must be between 0 and 1")
+	}
+	return nil
+}
+
+func applyGridRiskControlPatch(dst config.GridRiskControl, patch *GridRiskControlPatch) config.GridRiskControl {
+	if patch == nil {
+		return dst
+	}
+	if patch.Enabled != nil {
+		dst.Enabled = *patch.Enabled
+	}
+	if patch.MaxGridLayers != nil {
+		dst.MaxGridLayers = *patch.MaxGridLayers
+	}
+	if patch.MaxOpenOrdersAtCap != nil {
+		dst.MaxOpenOrdersAtCap = *patch.MaxOpenOrdersAtCap
+	}
+	if patch.StopLossRatio != nil {
+		dst.StopLossRatio = *patch.StopLossRatio
+	}
+	if patch.TakeProfitTriggerRatio != nil {
+		dst.TakeProfitTriggerRatio = *patch.TakeProfitTriggerRatio
+	}
+	if patch.TrailingTakeProfitRatio != nil {
+		dst.TrailingTakeProfitRatio = *patch.TrailingTakeProfitRatio
+	}
+	if patch.TrendFilterEnabled != nil {
+		dst.TrendFilterEnabled = *patch.TrendFilterEnabled
+	}
+	if patch.CloseConditionEnabled != nil {
+		dst.CloseConditionEnabled = *patch.CloseConditionEnabled
+	}
+	if patch.CloseConditionProfitTarget != nil {
+		dst.CloseConditionProfitTarget = *patch.CloseConditionProfitTarget
+	}
+	if patch.CloseConditionLossLimit != nil {
+		dst.CloseConditionLossLimit = *patch.CloseConditionLossLimit
+	}
+	return dst
+}
+
+func validNonNegativeFinite(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0
+}
+
+func validRatio(v float64) bool {
+	return validNonNegativeFinite(v) && v <= 1
 }
 
 // mergeBotRiskControlRequest 將請求中非空字段合入 dst（dst 非 nil）
@@ -82,20 +199,20 @@ func getBotRiskControl(c *gin.Context) {
 		}
 		grc := bot.GetGridRiskControl()
 		c.JSON(http.StatusOK, gin.H{
-			"enabled":                 rc.Enabled,
-			"max_position_quantity":   rc.MaxPositionQuantity,
-			"max_position_value":      rc.MaxPositionValue,
-			"max_position_layers":     rc.MaxPositionLayers,
-			"max_open_orders":         rc.MaxOpenOrders,
-			"open_order_distance":     rc.OpenOrderDistance,
-			"stop_loss_ratio":         rc.StopLossRatio,
-			"take_profit_ratio":       rc.TakeProfitRatio,
-			"trailing_stop_ratio":     rc.TrailingStopRatio,
-			"trend_filter_enabled":    rc.TrendFilterEnabled,
-			"pause_opening":           rc.PauseOpening,
-			"pause_opening_reason":    rc.PauseOpeningReason,
-			"auto_resume_after":       rc.AutoResumeAfter,
-			"grid_risk_control":       grc,
+			"enabled":               rc.Enabled,
+			"max_position_quantity": rc.MaxPositionQuantity,
+			"max_position_value":    rc.MaxPositionValue,
+			"max_position_layers":   rc.MaxPositionLayers,
+			"max_open_orders":       rc.MaxOpenOrders,
+			"open_order_distance":   rc.OpenOrderDistance,
+			"stop_loss_ratio":       rc.StopLossRatio,
+			"take_profit_ratio":     rc.TakeProfitRatio,
+			"trailing_stop_ratio":   rc.TrailingStopRatio,
+			"trend_filter_enabled":  rc.TrendFilterEnabled,
+			"pause_opening":         rc.PauseOpening,
+			"pause_opening_reason":  rc.PauseOpeningReason,
+			"auto_resume_after":     rc.AutoResumeAfter,
+			"grid_risk_control":     grc,
 		})
 		return
 	}
@@ -117,20 +234,20 @@ func getBotRiskControl(c *gin.Context) {
 			}
 			grc := cfg.Bots[i].GridRiskControl
 			c.JSON(http.StatusOK, gin.H{
-				"enabled":                 rc.Enabled,
-				"max_position_quantity":   rc.MaxPositionQuantity,
-				"max_position_value":      rc.MaxPositionValue,
-				"max_position_layers":     rc.MaxPositionLayers,
-				"max_open_orders":         rc.MaxOpenOrders,
-				"open_order_distance":     rc.OpenOrderDistance,
-				"stop_loss_ratio":         rc.StopLossRatio,
-				"take_profit_ratio":       rc.TakeProfitRatio,
-				"trailing_stop_ratio":     rc.TrailingStopRatio,
-				"trend_filter_enabled":    rc.TrendFilterEnabled,
-				"pause_opening":           rc.PauseOpening,
-				"pause_opening_reason":    rc.PauseOpeningReason,
-				"auto_resume_after":       rc.AutoResumeAfter,
-				"grid_risk_control":       grc,
+				"enabled":               rc.Enabled,
+				"max_position_quantity": rc.MaxPositionQuantity,
+				"max_position_value":    rc.MaxPositionValue,
+				"max_position_layers":   rc.MaxPositionLayers,
+				"max_open_orders":       rc.MaxOpenOrders,
+				"open_order_distance":   rc.OpenOrderDistance,
+				"stop_loss_ratio":       rc.StopLossRatio,
+				"take_profit_ratio":     rc.TakeProfitRatio,
+				"trailing_stop_ratio":   rc.TrailingStopRatio,
+				"trend_filter_enabled":  rc.TrendFilterEnabled,
+				"pause_opening":         rc.PauseOpening,
+				"pause_opening_reason":  rc.PauseOpeningReason,
+				"auto_resume_after":     rc.AutoResumeAfter,
+				"grid_risk_control":     grc,
 			})
 			return
 		}
@@ -144,6 +261,10 @@ func updateBotRiskControl(c *gin.Context) {
 
 	var req BotRiskControlRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := validateBotRiskControlRequest(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -177,13 +298,14 @@ func updateBotRiskControl(c *gin.Context) {
 
 	// 更新網格風控（若請求中包含）
 	if req.GridRiskControl != nil {
-		if err := bot.SetGridRiskControl(*req.GridRiskControl); err != nil {
+		nextGridRiskControl := applyGridRiskControlPatch(bot.GetGridRiskControl(), req.GridRiskControl)
+		if err := bot.SetGridRiskControl(nextGridRiskControl); err != nil {
 			logger.Error("❌ [%s] 更新網格風控失敗: %v", botID, err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		// 持久化到配置文件
-		if err := persistGridRiskControlToConfig(botID, *req.GridRiskControl); err != nil {
+		if err := persistGridRiskControlToConfig(botID, nextGridRiskControl); err != nil {
 			logger.Warn("⚠️ [%s] 網格風控持久化失敗（運行時已更新）: %v", botID, err)
 		}
 	}
@@ -226,7 +348,7 @@ func updateBotRiskControlWhenStopped(c *gin.Context, botID string, req *BotRiskC
 	mergeBotRiskControlRequest(rc, req)
 	bcf.RiskControl.OpenPositionControl.BotRiskControl = rc
 	if req.GridRiskControl != nil {
-		bcf.RiskControl.GridRiskControl = *req.GridRiskControl
+		bcf.RiskControl.GridRiskControl = applyGridRiskControlPatch(bcf.RiskControl.GridRiskControl, req.GridRiskControl)
 	}
 	bcf.UpdatedAt = time.Now().Format(time.RFC3339)
 
@@ -242,7 +364,7 @@ func updateBotRiskControlWhenStopped(c *gin.Context, botID string, req *BotRiskC
 			logger.Warn("⚠️ [%s] 主配置風控同步失敗: %v", botID, err)
 		}
 		if req.GridRiskControl != nil {
-			if err := persistGridRiskControlToConfig(botID, *req.GridRiskControl); err != nil {
+			if err := persistGridRiskControlToConfig(botID, bcf.RiskControl.GridRiskControl); err != nil {
 				logger.Warn("⚠️ [%s] 主配置網格風控同步失敗: %v", botID, err)
 			}
 		}

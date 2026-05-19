@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"quantmesh/logger"
 	"quantmesh/position"
 )
+
+const defaultOrderPollInterval = 30 * time.Second
 
 // OrderStatusPollService 訂單狀態輪詢服務
 // 定期輪詢本地活躍訂單的狀態，及時發現外部變化（如手工平倉）
@@ -45,18 +48,27 @@ func NewOrderStatusPollService(
 		pm:           pm,
 		symbol:       symbol,
 		pollInterval: pollInterval,
-		stopC:        make(chan struct{}),
 	}
 }
 
 // Start 啟動訂單狀態輪詢服務
 func (s *OrderStatusPollService) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	s.mu.Lock()
 	if s.isRunning {
 		s.mu.Unlock()
 		logger.Warn("⚠️ [訂單輪詢] 服務已在運行")
 		return
 	}
+	if s.pollInterval <= 0 {
+		logger.Warn("⚠️ [訂單輪詢] 輪詢間隔配置無效: %v，使用默认值 %v", s.pollInterval, defaultOrderPollInterval)
+		s.pollInterval = defaultOrderPollInterval
+	}
+	stopC := make(chan struct{})
+	s.stopC = stopC
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -65,6 +77,7 @@ func (s *OrderStatusPollService) Start(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(s.pollInterval)
 		defer ticker.Stop()
+		defer s.markStopped(stopC)
 
 		// 啟動時立即輪詢一次
 		if err := s.PollOrderStatus(ctx); err != nil {
@@ -76,7 +89,7 @@ func (s *OrderStatusPollService) Start(ctx context.Context) {
 			case <-ctx.Done():
 				logger.Info("⏹️ [訂單輪詢] 服務已停止")
 				return
-			case <-s.stopC:
+			case <-stopC:
 				logger.Info("⏹️ [訂單輪詢] 服務已停止")
 				return
 			case <-ticker.C:
@@ -86,6 +99,17 @@ func (s *OrderStatusPollService) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (s *OrderStatusPollService) markStopped(stopC chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopC != stopC {
+		return
+	}
+	s.stopC = nil
+	s.isRunning = false
 }
 
 // Stop 停止訂單狀態輪詢服務
@@ -98,12 +122,21 @@ func (s *OrderStatusPollService) Stop() {
 	}
 
 	close(s.stopC)
+	s.stopC = nil
 	s.isRunning = false
 	logger.Info("⏹️ [訂單輪詢] 訂單狀態輪詢服務已停止")
 }
 
 // PollOrderStatus 執行訂單狀態輪詢
 func (s *OrderStatusPollService) PollOrderStatus(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s.exchange == nil || s.pm == nil {
+		logger.Warn("⚠️ [訂單輪詢] 交易所或倉位管理器为空，跳过轮询")
+		return nil
+	}
+
 	// 1. 收集本地活躍訂單ID
 	localActiveOrderIDs := make(map[int64]struct {
 		Price     float64
@@ -123,6 +156,12 @@ func (s *OrderStatusPollService) PollOrderStatus(ctx context.Context) error {
 	s.pm.IterateSlots(func(price float64, slotRaw interface{}) bool {
 		// 使用反射提取槽位字段
 		v := reflect.ValueOf(slotRaw)
+		for v.IsValid() && v.Kind() == reflect.Ptr {
+			if v.IsNil() {
+				return true
+			}
+			v = v.Elem()
+		}
 		if v.Kind() != reflect.Struct {
 			return true
 		}
@@ -135,15 +174,31 @@ func (s *OrderStatusPollService) PollOrderStatus(ctx context.Context) error {
 			return ""
 		}
 
-		getFloat64Field := func(name string) float64 {
+		getInt64Field := func(name string) int64 {
 			field := v.FieldByName(name)
-			if field.IsValid() && field.CanFloat() {
-				return field.Float()
+			if !field.IsValid() {
+				return 0
 			}
-			return 0.0
+			switch field.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				return field.Int()
+			case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+				if !field.CanUint() {
+					return 0
+				}
+				value := field.Uint()
+				if value > uint64(^uint64(0)>>1) {
+					return 0
+				}
+				return int64(value)
+			case reflect.Float32, reflect.Float64:
+				return int64(field.Float())
+			default:
+				return 0
+			}
 		}
 
-		orderID := int64(getFloat64Field("OrderID"))
+		orderID := getInt64Field("OrderID")
 		orderStatus := getStringField("OrderStatus")
 		orderSide := getStringField("OrderSide")
 		clientOID := getStringField("ClientOID")
@@ -191,7 +246,10 @@ func (s *OrderStatusPollService) PollOrderStatus(ctx context.Context) error {
 		}
 
 		// 3. 檢查訂單狀態是否變化
-		exchangeStatus := string(orderDetail.Status)
+		exchangeStatus := normalizePolledOrderStatus(string(orderDetail.Status))
+		if exchangeStatus == "NEW" && slotInfo.Status == position.OrderStatusConfirmed {
+			continue
+		}
 		if exchangeStatus != slotInfo.Status {
 			logger.Info("🔄 [訂單輪詢] 檢測到訂單狀態變化: OrderID=%d, 本地=%s, 交易所=%s",
 				orderID, slotInfo.Status, exchangeStatus)
@@ -222,4 +280,25 @@ func (s *OrderStatusPollService) PollOrderStatus(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func normalizePolledOrderStatus(status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		return status
+	}
+
+	lower := strings.ToLower(status)
+	switch lower {
+	case "new", "live", "open":
+		return "NEW"
+	case "partially_filled", "partial", "partially filled":
+		return position.OrderStatusPartiallyFilled
+	case "filled", "closed":
+		return position.OrderStatusFilled
+	case "canceled", "cancelled":
+		return position.OrderStatusCanceled
+	default:
+		return strings.ToUpper(strings.ReplaceAll(lower, " ", "_"))
+	}
 }

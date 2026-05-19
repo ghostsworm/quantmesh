@@ -47,6 +47,15 @@ func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedP
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
+	if weight < 0 {
+		logger.Warn("⚠️ [资金分配] 策略 %s 权重为负数 %.4f，已归零", name, weight)
+		weight = 0
+	}
+	if fixedPool < 0 {
+		logger.Warn("⚠️ [资金分配] 策略 %s 固定资金池为负数 %.4f，已归零", name, fixedPool)
+		fixedPool = 0
+	}
+
 	ca.strategies[name] = &StrategyCapital{
 		Weight:    weight,
 		FixedPool: fixedPool,
@@ -75,12 +84,22 @@ func (ca *CapitalAllocator) Allocate() {
 
 	// 剩餘资金用於权重分配
 	remainingCapital := ca.totalCapital - fixedPoolTotal
+	fixedPoolScale := 1.0
+	if fixedPoolTotal > ca.totalCapital && fixedPoolTotal > 0 {
+		fixedPoolScale = ca.totalCapital / fixedPoolTotal
+		remainingCapital = 0
+		logger.Warn("⚠️ [资金分配] 固定资金池總額 %.2f 超過總资金 %.2f，已按比例缩放固定池并暂停权重资金分配",
+			fixedPoolTotal, ca.totalCapital)
+	}
+	if remainingCapital < 0 {
+		remainingCapital = 0
+	}
 
 	// 分配资金
 	for name, capital := range ca.strategies {
 		if capital.FixedPool > 0 {
 			// 使用固定资金池
-			capital.Allocated = capital.FixedPool
+			capital.Allocated = capital.FixedPool * fixedPoolScale
 		} else if weightTotal > 0 {
 			// 按权重分配
 			capital.Allocated = remainingCapital * (capital.Weight / weightTotal)
@@ -88,7 +107,10 @@ func (ca *CapitalAllocator) Allocate() {
 			capital.Allocated = 0
 		}
 
-		capital.Available = capital.Allocated - capital.Used
+		if capital.Allocated < 0 {
+			capital.Allocated = 0
+		}
+		capital.Available = math.Max(0, capital.Allocated-capital.Used)
 
 		logger.Info("💰 [资金分配] 策略 %s: 分配=%.2f, 已用=%.2f, 可用=%.2f (权重=%.2f%%)",
 			name, capital.Allocated, capital.Used, capital.Available, capital.Weight*100)
@@ -97,6 +119,10 @@ func (ca *CapitalAllocator) Allocate() {
 
 // CheckAvailable 检查策略可用资金
 func (ca *CapitalAllocator) CheckAvailable(strategyName string, amount float64) bool {
+	if amount <= 0 {
+		return true
+	}
+
 	ca.mu.RLock()
 	defer ca.mu.RUnlock()
 
@@ -113,6 +139,10 @@ func (ca *CapitalAllocator) CheckAvailable(strategyName string, amount float64) 
 
 // Reserve 預留资金
 func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
+	if amount <= 0 {
+		return true
+	}
+
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
@@ -129,12 +159,16 @@ func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
 	}
 
 	capital.Used += amount
-	capital.Available = capital.Allocated - capital.Used
+	capital.Available = math.Max(0, capital.Allocated-capital.Used)
 	return true
 }
 
 // Release 释放资金
 func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
+	if amount <= 0 {
+		return
+	}
+
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
@@ -151,7 +185,7 @@ func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
 	} else {
 		capital.Used = 0
 	}
-	capital.Available = capital.Allocated - capital.Used
+	capital.Available = math.Max(0, capital.Allocated-capital.Used)
 }
 
 // ReleaseAll 释放策略全部锁定资金（用於手动修正错误锁定）
