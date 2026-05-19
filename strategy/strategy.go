@@ -41,12 +41,13 @@ type Position struct {
 
 // Order 订單信息
 type Order struct {
-	OrderID  int64
-	Symbol   string
-	Side     string
-	Price    float64
-	Quantity float64
-	Status   string
+	OrderID       int64
+	ClientOrderID string
+	Symbol        string
+	Side          string
+	Price         float64
+	Quantity      float64
+	Status        string
 }
 
 // StrategyStatistics 策略统计

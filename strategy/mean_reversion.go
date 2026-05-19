@@ -26,10 +26,15 @@ type MeanReversionStrategy struct {
 	period             int
 	stdMultiplier      float64
 	reversionThreshold float64
+	orderAmount        float64
+	slippage           float64
 
 	// 持倉
-	position   *Position
-	entryPrice float64
+	position      *Position
+	entryPrice    float64
+	activeOrder   *Order
+	pendingAction string
+	stats         *StrategyStatistics
 
 	isPaused  bool
 	isRunning bool
@@ -58,6 +63,7 @@ func NewMeanReversionStrategy(
 		priceHistory: make([]float64, 0, 100),
 		ctx:          ctx,
 		cancel:       cancel,
+		stats:        &StrategyStatistics{},
 	}
 
 	// 從配置中读取参數
@@ -78,6 +84,8 @@ func NewMeanReversionStrategy(
 	} else {
 		mrs.reversionThreshold = 0.5 // 預設 0.5σ
 	}
+	mrs.orderAmount = signalStrategyOrderAmount(strategyCfg)
+	mrs.slippage = signalStrategySlippage(strategyCfg)
 
 	return mrs
 }
@@ -105,8 +113,8 @@ func (mrs *MeanReversionStrategy) Start(ctx context.Context) error {
 	mrs.isRunning = true
 	mrs.mu.Unlock()
 
-	logger.Warn("⚠️ [%s] 均值回归策略以信号模式啟动，当前不会自动下单 (周期:%d, 標准差倍數:%.2f)",
-		mrs.name, mrs.period, mrs.stdMultiplier)
+	logger.Info("✅ [%s] 均值回归策略已啟动自动交易 (周期:%d, 標准差倍數:%.2f, 单笔金额:%.2f)",
+		mrs.name, mrs.period, mrs.stdMultiplier, mrs.orderAmount)
 	return nil
 }
 
@@ -205,7 +213,7 @@ func (mrs *MeanReversionStrategy) calculateBollingerBands() (upper, middle, lowe
 // OnPriceChange 價格變化处理
 func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 	mrs.mu.RLock()
-	if !mrs.isRunning || mrs.isPaused {
+	if !mrs.isRunning || mrs.isPaused || mrs.activeOrder != nil {
 		mrs.mu.RUnlock()
 		return nil
 	}
@@ -224,23 +232,13 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 	// 價格低於下轨：買入信号
 	if price < lower && mrs.position == nil {
 		logger.Info("📊 [%s] 價格低於下轨，買入信号: 價格=%.2f, 下轨=%.2f", mrs.name, price, lower)
-		// TODO: 實現買入逻辑
-		mrs.entryPrice = price
-		mrs.position = &Position{
-			Symbol:       mrs.cfg.Trading.Symbol,
-			Size:         0, // TODO: 计算倉位大小
-			EntryPrice:   price,
-			CurrentPrice: price,
-			PnL:          0,
-		}
+		return mrs.placeSignalOrder(signalActionOpenLong, price)
 	}
 
 	// 價格高於上轨：賣出信号
 	if price > upper && mrs.position != nil {
 		logger.Info("📊 [%s] 價格高於上轨，賣出信号: 價格=%.2f, 上轨=%.2f", mrs.name, price, upper)
-		// TODO: 實現賣出逻辑
-		mrs.position = nil
-		mrs.entryPrice = 0
+		return mrs.placeSignalOrder(signalActionCloseLong, price)
 	}
 
 	// 價格回归中轨：平倉
@@ -248,19 +246,139 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 		deviation := math.Abs(price - middle)
 		if deviation < stdDev*mrs.reversionThreshold {
 			logger.Info("📊 [%s] 價格回归中轨，平倉: 價格=%.2f, 中轨=%.2f", mrs.name, price, middle)
-			// TODO: 實現平倉逻辑
-			mrs.position = nil
-			mrs.entryPrice = 0
+			return mrs.placeSignalOrder(signalActionCloseLong, price)
 		}
 	}
 
 	return nil
 }
 
+func (mrs *MeanReversionStrategy) placeSignalOrder(action string, price float64) error {
+	if mrs.executor == nil {
+		return nil
+	}
+	symbol := signalStrategySymbol(mrs.cfg, mrs.strategyCfg)
+	priceDecimals := signalPriceDecimals(mrs.exchange)
+	qtyDecimals := signalQuantityDecimals(mrs.exchange)
+
+	side := "BUY"
+	orderPrice := signalRound(price*(1+mrs.slippage), priceDecimals)
+	quantity := signalFloor(mrs.orderAmount/orderPrice, qtyDecimals)
+	reduceOnly := false
+
+	if action == signalActionCloseLong {
+		if mrs.position == nil || mrs.position.Size <= 0 {
+			return nil
+		}
+		side = "SELL"
+		orderPrice = signalRound(price*(1-mrs.slippage), priceDecimals)
+		quantity = signalFloor(mrs.position.Size, qtyDecimals)
+		reduceOnly = signalIsFuturesMarket(mrs.cfg)
+	}
+	if orderPrice <= 0 || quantity <= 0 {
+		logger.Warn("⚠️ [%s] 均值回归下单数量无效: action=%s price=%.8f qty=%.8f", mrs.name, action, orderPrice, quantity)
+		return nil
+	}
+
+	order, err := mrs.executor.PlaceOrder(&position.OrderRequest{
+		Symbol:        symbol,
+		Side:          side,
+		Price:         orderPrice,
+		Quantity:      quantity,
+		PriceDecimals: priceDecimals,
+		ReduceOnly:    reduceOnly,
+		PostOnly:      false,
+		ClientOrderID: signalClientOrderID(mrs.name, action),
+		StrategyName:  mrs.name,
+		StrategyType:  "mean_reversion",
+	})
+	if err != nil {
+		return err
+	}
+	if order == nil {
+		return nil
+	}
+
+	tracked := &Order{
+		OrderID:       order.OrderID,
+		ClientOrderID: order.ClientOrderID,
+		Symbol:        order.Symbol,
+		Side:          order.Side,
+		Price:         order.Price,
+		Quantity:      order.Quantity,
+		Status:        order.Status,
+	}
+	mrs.activeOrder = tracked
+	mrs.pendingAction = action
+	if signalOrderStatusFilled(order.Status) {
+		mrs.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
+	}
+	return nil
+}
+
 // OnOrderUpdate 订單更新处理
 func (mrs *MeanReversionStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	// TODO: 处理订單更新
+	if update == nil {
+		return nil
+	}
+	mrs.mu.Lock()
+	defer mrs.mu.Unlock()
+
+	if !signalOrderMatches(mrs.activeOrder, update) {
+		return nil
+	}
+	mrs.activeOrder.Status = update.Status
+	if signalOrderStatusTerminal(update.Status) {
+		mrs.activeOrder = nil
+		mrs.pendingAction = ""
+		return nil
+	}
+	if !signalOrderStatusFilled(update.Status) {
+		return nil
+	}
+	fillPrice := update.AvgPrice
+	if fillPrice <= 0 {
+		fillPrice = update.Price
+	}
+	fillQty := update.ExecutedQty
+	if fillQty <= 0 {
+		fillQty = mrs.activeOrder.Quantity
+	}
+	mrs.applyFilledOrderLocked(mrs.activeOrder, fillQty, fillPrice)
 	return nil
+}
+
+func (mrs *MeanReversionStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
+	if order == nil {
+		return
+	}
+	if price <= 0 {
+		price = order.Price
+	}
+	if quantity <= 0 {
+		quantity = order.Quantity
+	}
+	switch mrs.pendingAction {
+	case signalActionOpenLong:
+		mrs.entryPrice = price
+		mrs.position = &Position{
+			Symbol:       order.Symbol,
+			Size:         quantity,
+			EntryPrice:   price,
+			CurrentPrice: price,
+			PnL:          0,
+		}
+	case signalActionCloseLong:
+		if mrs.position != nil && mrs.entryPrice > 0 {
+			mrs.stats.TotalPnL += (price - mrs.entryPrice) * mrs.position.Size
+		}
+		mrs.position = nil
+		mrs.entryPrice = 0
+		mrs.stats.TotalTrades++
+	}
+	mrs.stats.TotalVolume += quantity * price
+	mrs.activeOrder = nil
+	mrs.pendingAction = ""
 }
 
 // GetPositions 獲取持倉
@@ -277,17 +395,20 @@ func (mrs *MeanReversionStrategy) GetPositions() []*Position {
 
 // GetOrders 獲取訂單
 func (mrs *MeanReversionStrategy) GetOrders() []*Order {
-	return []*Order{}
+	mrs.mu.RLock()
+	defer mrs.mu.RUnlock()
+	if mrs.activeOrder == nil {
+		return []*Order{}
+	}
+	return []*Order{mrs.activeOrder}
 }
 
 // GetStatistics 獲取统计
 func (mrs *MeanReversionStrategy) GetStatistics() *StrategyStatistics {
-	return &StrategyStatistics{
-		TotalTrades: 0,
-		WinRate:     0,
-		TotalPnL:    0,
-		TotalVolume: 0,
-	}
+	mrs.mu.RLock()
+	defer mrs.mu.RUnlock()
+	stats := *mrs.stats
+	return &stats
 }
 
 // GetVisualizationData 獲取策略可视化數據
@@ -309,6 +430,7 @@ func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} 
 	hasPosition := mrs.position != nil
 	entryPrice := mrs.entryPrice
 	isRunning := mrs.isRunning
+	pendingAction := mrs.pendingAction
 	mrs.mu.RUnlock()
 	data["currentPrice"] = currentPrice
 
@@ -343,9 +465,11 @@ func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} 
 	data["period"] = mrs.period
 	data["stdMultiplier"] = mrs.stdMultiplier
 	data["reversionThreshold"] = mrs.reversionThreshold
-	data["executionMode"] = "signal_only"
-	data["autoTradingEnabled"] = false
+	data["executionMode"] = "auto_trade"
+	data["autoTradingEnabled"] = true
 	data["isRunning"] = isRunning
+	data["orderAmount"] = mrs.orderAmount
+	data["pendingAction"] = pendingAction
 
 	// 买入/卖出信号判断
 	if upper > 0 && lower > 0 && currentPrice > 0 {
