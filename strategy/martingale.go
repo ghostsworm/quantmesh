@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -44,9 +45,11 @@ type MartingaleStrategy struct {
 	currentLevel int    // 當前马丁层级
 
 	// 状態
-	ctx       context.Context
-	cancel    context.CancelFunc
-	isRunning bool
+	ctx          context.Context
+	cancel       context.CancelFunc
+	isRunning    bool
+	isClosing    bool
+	closeOrderID int64
 
 	// 统计
 	stats *StrategyStatistics
@@ -297,7 +300,7 @@ func (s *MartingaleStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.isRunning || s.isPaused {
+	if !s.isRunning || s.isPaused || s.isClosing {
 		return nil
 	}
 
@@ -431,16 +434,20 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:     s.strategyCfg.Symbol,
-		Side:       side,
-		Quantity:   quantity,
-		Price:      price,
-		PostOnly:   true,
+		Symbol:   s.strategyCfg.Symbol,
+		Side:     side,
+		Quantity: quantity,
+		Price:    price,
+		PostOnly: true,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 初始订單下單失败: %v", s.name, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 初始订單被执行器跳过，等待下一轮", s.name)
+		return nil
 	}
 
 	entry.OrderID = order.OrderID
@@ -529,16 +536,20 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:     s.strategyCfg.Symbol,
-		Side:       side,
-		Quantity:   quantity,
-		Price:      price,
-		PostOnly:   true,
+		Symbol:   s.strategyCfg.Symbol,
+		Side:     side,
+		Quantity: quantity,
+		Price:    price,
+		PostOnly: true,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 马丁加倉 #%d 失败: %v", s.name, s.currentLevel, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 马丁加倉 #%d 被执行器跳过，等待下一轮", s.name, s.currentLevel)
+		return nil
 	}
 
 	entry.OrderID = order.OrderID
@@ -595,16 +606,20 @@ func (s *MartingaleStrategy) checkReverseMartingale(price float64) error {
 	}
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:     s.strategyCfg.Symbol,
-		Side:       side,
-		Quantity:   quantity,
-		Price:      price,
-		PostOnly:   true,
+		Symbol:   s.strategyCfg.Symbol,
+		Side:     side,
+		Quantity: quantity,
+		Price:    price,
+		PostOnly: true,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 反向马丁加倉 #%d 失败: %v", s.name, s.currentLevel, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 反向马丁加倉 #%d 被执行器跳过，等待下一轮", s.name, s.currentLevel)
+		return nil
 	}
 
 	entry.OrderID = order.OrderID
@@ -698,7 +713,7 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 
 	// 判斷订單來源（止损/止盈）
 	orderSource := "stop_loss"
-	if reason != "止损" {
+	if !strings.Contains(reason, "止损") {
 		orderSource = "normal"
 	}
 
@@ -708,13 +723,17 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 		Quantity:    s.totalQty,
 		Price:       price,
 		ReduceOnly:  true,
-		PostOnly:    true,
+		PostOnly:    orderSource != "stop_loss",
 		OrderSource: orderSource,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 平倉失败: %v", s.name, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 平倉单被执行器跳过，等待下一轮", s.name)
+		return nil
 	}
 
 	// 计算盈亏
@@ -742,14 +761,20 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 	logger.Info("✅ [%s] 平倉完成 (%s): 订單ID=%d, 层數=%d, 盈亏=%.2f USDT",
 		s.name, reason, order.OrderID, len(s.entries), pnl)
 
-	// 重置
+	s.isClosing = true
+	s.closeOrderID = order.OrderID
+
+	return nil
+}
+
+func (s *MartingaleStrategy) resetPositionState() {
 	s.entries = make([]*MartingaleEntry, 0, s.strategyCfg.MaxLevels)
 	s.totalCost = 0
 	s.totalQty = 0
 	s.avgEntryPrice = 0
 	s.currentLevel = 0
-
-	return nil
+	s.isClosing = false
+	s.closeOrderID = 0
 }
 
 // checkTrendFilter 趨勢過濾
@@ -782,6 +807,19 @@ func (s *MartingaleStrategy) checkTrendFilter() bool {
 func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.isClosing && update.OrderID == s.closeOrderID {
+		switch update.Status {
+		case position.OrderStatusFilled:
+			logger.Info("✅ [%s] 平倉單 #%d 已成交，清理马丁倉位狀態", s.name, update.OrderID)
+			s.resetPositionState()
+		case position.OrderStatusCanceled:
+			logger.Warn("⚠️ [%s] 平倉單 #%d 已取消，保留倉位狀態等待重新平倉", s.name, update.OrderID)
+			s.isClosing = false
+			s.closeOrderID = 0
+		}
+		return nil
+	}
 
 	for _, entry := range s.entries {
 		if entry.OrderID == update.OrderID {

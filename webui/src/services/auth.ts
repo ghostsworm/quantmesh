@@ -1,3 +1,5 @@
+import i18n from '../i18n/config'
+
 // 使用页面同源，避免某些环境下相對路径被代理/扩展劫持
 const API_BASE = `${window.location.origin}/api`
 
@@ -22,14 +24,13 @@ export interface WebAuthnCredential {
 export async function checkAuthStatus(): Promise<AuthStatus> {
   const response = await fetch(`${API_BASE}/auth/status`)
   if (!response.ok) {
-    throw new Error('Failed to check auth status')
+    throw new Error(i18n.t('auth.errors.checkStatusFailed'))
   }
   return response.json()
 }
 
 // 設置密碼
 export async function setPassword(password: string): Promise<void> {
-  console.log('setPassword API called')
   const response = await fetch(`${API_BASE}/auth/password/set`, {
     method: 'POST',
     headers: {
@@ -68,7 +69,7 @@ export async function verifyPassword(password: string): Promise<void> {
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to verify password')
+    throw new Error(error.error || i18n.t('auth.errors.verifyPasswordFailed'))
   }
 }
 
@@ -87,7 +88,7 @@ export async function changePassword(currentPassword: string, newPassword: strin
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to change password')
+    throw new Error(error.error || i18n.t('auth.errors.changePasswordFailed'))
   }
 }
 
@@ -98,7 +99,7 @@ export async function logout(): Promise<void> {
     credentials: 'include',
   })
   if (!response.ok) {
-    throw new Error('Failed to logout')
+    throw new Error(i18n.t('auth.errors.logoutFailed'))
   }
 }
 
@@ -118,7 +119,7 @@ export async function beginWebAuthnRegistration(deviceName: string): Promise<{
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to begin WebAuthn registration')
+    throw new Error(error.error || i18n.t('auth.errors.beginWebAuthnRegistrationFailed'))
   }
   return response.json()
 }
@@ -143,7 +144,7 @@ export async function finishWebAuthnRegistration(
   })
   if (!apiResponse.ok) {
     const error = await apiResponse.json()
-    throw new Error(error.error || 'Failed to finish WebAuthn registration')
+    throw new Error(error.error || i18n.t('auth.errors.finishWebAuthnRegistrationFailed'))
   }
 }
 
@@ -163,7 +164,7 @@ export async function beginWebAuthnLogin(username: string): Promise<{
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to begin WebAuthn login')
+    throw new Error(error.error || i18n.t('auth.errors.beginWebAuthnLoginFailed'))
   }
   return response.json()
 }
@@ -190,7 +191,7 @@ export async function finishWebAuthnLogin(
   })
   if (!apiResponse.ok) {
     const error = await apiResponse.json()
-    throw new Error(error.error || 'Failed to finish WebAuthn login')
+    throw new Error(error.error || i18n.t('auth.errors.finishWebAuthnLoginFailed'))
   }
   return apiResponse.json()
 }
@@ -204,7 +205,7 @@ export async function listWebAuthnCredentials(): Promise<{
     credentials: 'include',
   })
   if (!response.ok) {
-    throw new Error('Failed to list credentials')
+    throw new Error(i18n.t('auth.errors.listCredentialsFailed'))
   }
   return response.json()
 }
@@ -221,7 +222,6 @@ export async function deleteWebAuthnCredential(credentialID: string): Promise<vo
   })
   if (!response.ok) {
     const error = await response.json()
-    throw new Error(error.error || 'Failed to delete credential')
+    throw new Error(error.error || i18n.t('auth.errors.deleteCredentialFailed'))
   }
 }
-

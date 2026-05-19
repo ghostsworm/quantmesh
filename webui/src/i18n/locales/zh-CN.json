@@ -29,6 +29,27 @@
     "enabled": "启用",
     "disabled": "禁用"
   },
+  "auth": {
+    "errors": {
+      "checkStatusFailed": "检查登录状态失败",
+      "verifyPasswordFailed": "密码验证失败",
+      "changePasswordFailed": "修改密码失败",
+      "logoutFailed": "退出登录失败",
+      "beginWebAuthnRegistrationFailed": "开始注册安全密钥失败",
+      "finishWebAuthnRegistrationFailed": "完成注册安全密钥失败",
+      "beginWebAuthnLoginFailed": "开始安全密钥登录失败",
+      "finishWebAuthnLoginFailed": "完成安全密钥登录失败",
+      "listCredentialsFailed": "获取安全密钥列表失败",
+      "deleteCredentialFailed": "删除安全密钥失败"
+    }
+  },
+  "setup": {
+    "errors": {
+      "checkStatusFailed": "检查配置状态失败",
+      "saveConfigFailed": "保存配置失败",
+      "fetchExchangeSymbolsFailed": "获取交易对列表失败"
+    }
+  },
   "geminiUsage": {
     "menuButton": "Gemini 用量",
     "title": "Gemini 调用记录",

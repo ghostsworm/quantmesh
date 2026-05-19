@@ -158,8 +158,8 @@ func (s *FuturesShortStrategy) onHedgeSignal(evt *event.Event) {
 		return
 	}
 	targetShort := getFloat64(evt.Data, "target_futures_short")
-	if targetShort <= 0 {
-		return
+	if targetShort < 0 {
+		targetShort = 0
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

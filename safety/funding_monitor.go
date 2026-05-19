@@ -58,12 +58,21 @@ func (f *FundingRateMonitor) Start(ctx context.Context) {
 		logger.Info("⚠️ 資金費率監控未啟用")
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if f.futuresExchange == nil {
+		logger.Warn("⚠️ 資金費率監控交易所为空，跳过启动")
+		return
+	}
 
 	f.mu.Lock()
 	if f.running {
 		f.mu.Unlock()
 		return
 	}
+	stopCh := make(chan struct{})
+	f.stopCh = stopCh
 	f.running = true
 	f.mu.Unlock()
 
@@ -77,7 +86,7 @@ func (f *FundingRateMonitor) Start(ctx context.Context) {
 	}
 
 	// 啟動定期監控
-	go f.monitorLoop(ctx)
+	go f.monitorLoop(ctx, stopCh)
 }
 
 // Stop 停止監控
@@ -91,11 +100,12 @@ func (f *FundingRateMonitor) Stop() {
 
 	f.running = false
 	close(f.stopCh)
+	f.stopCh = nil
 	logger.Info("💰 資金費率監控已停止")
 }
 
 // monitorLoop 監控循環
-func (f *FundingRateMonitor) monitorLoop(ctx context.Context) {
+func (f *FundingRateMonitor) monitorLoop(ctx context.Context, stopCh chan struct{}) {
 	interval := time.Duration(f.cfg.FundingRate.MonitorInterval) * time.Second
 	if interval <= 0 {
 		interval = 60 * time.Second
@@ -107,8 +117,9 @@ func (f *FundingRateMonitor) monitorLoop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			f.markStopped(stopCh)
 			return
-		case <-f.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			if err := f.fetchFundingRate(ctx); err != nil {
@@ -120,6 +131,16 @@ func (f *FundingRateMonitor) monitorLoop(ctx context.Context) {
 			f.checkAlert()
 		}
 	}
+}
+
+func (f *FundingRateMonitor) markStopped(stopCh chan struct{}) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.stopCh != stopCh {
+		return
+	}
+	f.running = false
+	f.stopCh = nil
 }
 
 // fetchFundingRate 獲取資金費率
@@ -365,8 +386,8 @@ func (f *FundingRateMonitor) GetBuyBias() float64 {
 	}
 
 	// 計算中間閾值
-	midThreshold := highThreshold / 2  // 0.05%
-	lowMidThreshold := midThreshold    // 0.05%
+	midThreshold := highThreshold / 2 // 0.05%
+	lowMidThreshold := midThreshold   // 0.05%
 
 	// 費率偏向計算
 	switch {

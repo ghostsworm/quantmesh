@@ -2,8 +2,10 @@ package strategy
 
 import (
 	"testing"
+	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 )
 
 func TestGetTargetSpotPosition(t *testing.T) {
@@ -70,3 +72,41 @@ func TestGetString(t *testing.T) {
 	}
 }
 
+func TestHedgeCoordinatorPublishesZeroTargetBelowTrigger(t *testing.T) {
+	bus := event.NewEventBus(10)
+	ch := bus.Subscribe()
+	hc := NewHedgeCoordinator(config.BotGroup{
+		ID:     "group-1",
+		BotIDs: []string{"spot-bot", "futures-bot"},
+		HedgeConfig: config.HedgeConfig{
+			PrimaryLeg:         "spot",
+			Direction:          "LONG",
+			HedgeTriggerLayers: 3,
+			ShortNotionalRatio: 0.5,
+		},
+	}, bus)
+
+	hc.onEvent(&event.Event{
+		Type: event.EventTypePositionClosed,
+		Data: map[string]interface{}{
+			"bot_id":        "spot-bot",
+			"market_type":   "spot",
+			"position":      0.0,
+			"filled_layers": 0,
+			"symbol":        "BTCUSDT",
+			"exchange":      "binance",
+		},
+	})
+
+	select {
+	case evt := <-ch:
+		if evt.Type != event.EventTypeHedgeSignal {
+			t.Fatalf("事件类型=%s want %s", evt.Type, event.EventTypeHedgeSignal)
+		}
+		if got := getFloat64(evt.Data, "target_futures_short"); got != 0 {
+			t.Fatalf("target_futures_short=%.8f want 0", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("未收到对冲归零信号")
+	}
+}

@@ -2,6 +2,7 @@ package position
 
 import (
 	"context"
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -102,26 +103,15 @@ func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
 
 	// 统计开仓单数量
 	var openOrderCount int
-	direction := "LONG"
-	if som.spm.isShort() {
-		direction = "SHORT"
-	}
 
 	som.spm.slots.Range(func(key, value interface{}) bool {
-		_ = key.(float64)
+		price := key.(float64)
 		slot := value.(*InventorySlot)
 
 		slot.mu.RLock()
 		defer slot.mu.RUnlock()
 
-		var isOpeningOrder bool
-		if direction == "LONG" && slot.OrderSide == "BUY" {
-			isOpeningOrder = true
-		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
-			isOpeningOrder = true
-		}
-
-		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
+		if _, isOpeningOrder := som.openingOrderDistanceLocked(price, currentPrice, slot); isOpeningOrder {
 			openOrderCount++
 		}
 		return true
@@ -145,21 +135,7 @@ func (som *SmartOrderManager) shouldAdjustOrders(currentPrice float64) bool {
 		slot.mu.RLock()
 		defer slot.mu.RUnlock()
 
-		var isOpeningOrder bool
-		if direction == "LONG" && slot.OrderSide == "BUY" {
-			isOpeningOrder = true
-		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
-			isOpeningOrder = true
-		}
-
-		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
-			var distance float64
-			if direction == "LONG" {
-				distance = currentPrice - price
-			} else {
-				distance = price - currentPrice
-			}
-
+		if distance, isOpeningOrder := som.openingOrderDistanceLocked(price, currentPrice, slot); isOpeningOrder {
 			if distance > maxDistance {
 				hasFarOrders = true
 				logger.Debug("🧠 [%s] 发现远距离订单: %.2f (距离: %.2f)",
@@ -188,11 +164,6 @@ func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
 		return
 	}
 
-	direction := "LONG"
-	if som.spm.isShort() {
-		direction = "SHORT"
-	}
-
 	var orderIDsToCancel []int64
 	som.spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
@@ -201,21 +172,7 @@ func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
 		slot.mu.RLock()
 		defer slot.mu.RUnlock()
 
-		var isOpeningOrder bool
-		if direction == "LONG" && slot.OrderSide == "BUY" {
-			isOpeningOrder = true
-		} else if direction == "SHORT" && slot.OrderSide == "SELL" {
-			isOpeningOrder = true
-		}
-
-		if isOpeningOrder && (slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed) {
-			var distance float64
-			if direction == "LONG" {
-				distance = currentPrice - price
-			} else {
-				distance = price - currentPrice
-			}
-
+		if distance, isOpeningOrder := som.openingOrderDistanceLocked(price, currentPrice, slot); isOpeningOrder {
 			if distance > maxDistance {
 				orderIDsToCancel = append(orderIDsToCancel, slot.OrderID)
 			}
@@ -227,6 +184,54 @@ func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
 		logger.Info("🧠 [%s] 撤销 %d 个远距离订单", som.spm.logPrefix(), len(orderIDsToCancel))
 		som.spm.executor.BatchCancelOrders(orderIDsToCancel)
 	}
+}
+
+func (som *SmartOrderManager) openingOrderDistanceLocked(price, currentPrice float64, slot *InventorySlot) (float64, bool) {
+	if slot == nil || !isActiveOpenOrderStatus(slot.OrderStatus) || slot.OrderID <= 0 {
+		return 0, false
+	}
+
+	if som.spm.isBoth() {
+		if slot.PositionStatus != PositionStatusEmpty || slot.PositionQty >= 1e-12 {
+			return 0, false
+		}
+		switch slot.OrderSide {
+		case "BUY":
+			if price < currentPrice {
+				return currentPrice - price, true
+			}
+			return math.Inf(1), true
+		case "SELL":
+			if price > currentPrice {
+				return price - currentPrice, true
+			}
+			return math.Inf(1), true
+		default:
+			return 0, false
+		}
+	}
+
+	if som.spm.isShort() {
+		if slot.OrderSide != "SELL" {
+			return 0, false
+		}
+		if price > currentPrice {
+			return price - currentPrice, true
+		}
+		return math.Inf(1), true
+	}
+
+	if slot.OrderSide != "BUY" {
+		return 0, false
+	}
+	if price < currentPrice {
+		return currentPrice - price, true
+	}
+	return math.Inf(1), true
+}
+
+func isActiveOpenOrderStatus(status string) bool {
+	return status == OrderStatusPlaced || status == OrderStatusConfirmed || status == OrderStatusPartiallyFilled
 }
 
 // getMaxOpenOrders 获取最大开仓订单数

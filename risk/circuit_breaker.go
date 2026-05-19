@@ -24,23 +24,23 @@ const (
 type CircuitBreakerTrigger string
 
 const (
-	TriggerManual                CircuitBreakerTrigger = "manual"                  // 手动触发
-	TriggerTotalDailyLoss        CircuitBreakerTrigger = "total_daily_loss"        // 单日总亏损
-	TriggerMaxDrawdown           CircuitBreakerTrigger = "max_drawdown"            // 最大回撤
-	TriggerConsecutiveLosses     CircuitBreakerTrigger = "consecutive_losses"      // 连续亏损
-	TriggerWebSocketDisconnected CircuitBreakerTrigger = "websocket_disconnected"  // WebSocket断线
-	TriggerAPIAuthFailed         CircuitBreakerTrigger = "api_auth_failed"         // API认证失败
-	TriggerAllocationExceeded    CircuitBreakerTrigger = "allocation_exceeded"     // 配额超限
+	TriggerManual                CircuitBreakerTrigger = "manual"                 // 手动触发
+	TriggerTotalDailyLoss        CircuitBreakerTrigger = "total_daily_loss"       // 单日总亏损
+	TriggerMaxDrawdown           CircuitBreakerTrigger = "max_drawdown"           // 最大回撤
+	TriggerConsecutiveLosses     CircuitBreakerTrigger = "consecutive_losses"     // 连续亏损
+	TriggerWebSocketDisconnected CircuitBreakerTrigger = "websocket_disconnected" // WebSocket断线
+	TriggerAPIAuthFailed         CircuitBreakerTrigger = "api_auth_failed"        // API认证失败
+	TriggerAllocationExceeded    CircuitBreakerTrigger = "allocation_exceeded"    // 配额超限
 )
 
 // CircuitBreakerEvent 熔断事件
 type CircuitBreakerEvent struct {
-	Timestamp    time.Time                `json:"timestamp"`
-	Status       CircuitBreakerStatus     `json:"status"`
-	Trigger      CircuitBreakerTrigger    `json:"trigger"`
-	TriggeredBy  string                   `json:"triggered_by"` // 操作人
-	Reason       string                   `json:"reason"`
-	Metrics      map[string]float64       `json:"metrics"`
+	Timestamp   time.Time             `json:"timestamp"`
+	Status      CircuitBreakerStatus  `json:"status"`
+	Trigger     CircuitBreakerTrigger `json:"trigger"`
+	TriggeredBy string                `json:"triggered_by"` // 操作人
+	Reason      string                `json:"reason"`
+	Metrics     map[string]float64    `json:"metrics"`
 }
 
 // GlobalCircuitBreaker 全局熔断器
@@ -52,16 +52,16 @@ type GlobalCircuitBreaker struct {
 	botProvider BotProvider
 
 	// 统计数据
-	dailyPnL        float64 // 当日总盈亏
-	maxDrawdown    float64 // 最大回撤
-	consecutiveLosses int    // 连续亏损次数
-	authFailCount    int    // API认证失败次数
-	lastWSDisconnect time.Time
+	dailyPnL          float64 // 当日总盈亏
+	maxDrawdown       float64 // 最大回撤
+	consecutiveLosses int     // 连续亏损次数
+	authFailCount     int     // API认证失败次数
+	lastWSDisconnect  time.Time
 
 	// 熔断历史
-	events      []*CircuitBreakerEvent
-	eventsMu    sync.RWMutex
-	trippedAt   time.Time
+	events    []*CircuitBreakerEvent
+	eventsMu  sync.RWMutex
+	trippedAt time.Time
 
 	// 冷却期结束时间
 	cooldownUntil time.Time
@@ -229,42 +229,52 @@ func (gcb *GlobalCircuitBreaker) checkAllocationTrigger() bool {
 
 // checkRecovery 检查恢复条件
 func (gcb *GlobalCircuitBreaker) checkRecovery() {
-	if gcb.config.Recovery.AutoResume {
+	if gcb.config.Recovery.AutoResume && !gcb.config.Recovery.ManualRequired {
 		// 自动恢复逻辑
 		trippedDuration := time.Since(gcb.trippedAt)
 		if trippedDuration > time.Duration(gcb.config.Actions.PauseDuration)*time.Second {
-			gcb.recover("auto")
+			if err := gcb.recover("auto"); err != nil {
+				logger.Warn("⚠️ [全局熔断] 自动恢复跳过: %v", err)
+			}
 		}
 	}
 }
 
 // trip 触发熔断
 func (gcb *GlobalCircuitBreaker) trip(trigger CircuitBreakerTrigger, triggeredBy, reason string) {
+	now := time.Now()
+
 	gcb.statusMu.Lock()
-	defer gcb.statusMu.Unlock()
+	if gcb.status == CircuitBreakerStatusTripped {
+		gcb.statusMu.Unlock()
+		logger.Warn("⚠️ [全局熔断] 熔断已触发，忽略重复触发: %s, 原因: %s", trigger, reason)
+		return
+	}
+
+	metrics := map[string]float64{
+		"daily_pnl":          gcb.dailyPnL,
+		"max_drawdown":       gcb.maxDrawdown,
+		"consecutive_losses": float64(gcb.consecutiveLosses),
+	}
+	gcb.status = CircuitBreakerStatusTripped
+	gcb.trippedAt = now
+	gcb.statusMu.Unlock()
 
 	logger.Error("🔴 [全局熔断] 熔断触发! 触发器: %s, 原因: %s, 操作人: %s", trigger, reason, triggeredBy)
 
 	// 记录事件
 	cbEvent := &CircuitBreakerEvent{
-		Timestamp:  time.Now(),
-		Status:     CircuitBreakerStatusTripped,
-		Trigger:    trigger,
+		Timestamp:   now,
+		Status:      CircuitBreakerStatusTripped,
+		Trigger:     trigger,
 		TriggeredBy: triggeredBy,
-		Reason:     reason,
-		Metrics: map[string]float64{
-			"daily_pnl":         gcb.dailyPnL,
-			"max_drawdown":      gcb.maxDrawdown,
-			"consecutive_losses": float64(gcb.consecutiveLosses),
-		},
+		Reason:      reason,
+		Metrics:     metrics,
 	}
 
 	gcb.eventsMu.Lock()
 	gcb.events = append(gcb.events, cbEvent)
 	gcb.eventsMu.Unlock()
-
-	gcb.status = CircuitBreakerStatusTripped
-	gcb.trippedAt = time.Now()
 
 	// 发布事件
 	if gcb.eventBus != nil {
@@ -362,37 +372,41 @@ func (gcb *GlobalCircuitBreaker) ManualTrigger(triggeredBy, reason string) {
 
 // ManualRecover 手动恢复
 func (gcb *GlobalCircuitBreaker) ManualRecover(triggeredBy string) error {
-	gcb.statusMu.Lock()
-	defer gcb.statusMu.Unlock()
-
-	if gcb.status != CircuitBreakerStatusTripped {
-		return fmt.Errorf("当前状态不是已触发，无需恢复")
-	}
-
 	logger.Info("🔧 [全局熔断] 手动恢复，操作人: %s", triggeredBy)
-	gcb.recover(triggeredBy)
-	return nil
+	return gcb.recover(triggeredBy)
 }
 
 // recover 恢复
-func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) {
+func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 	logger.Info("♻️  [全局熔断] 开始恢复...")
+
+	now := time.Now()
+	reason := "手动恢复"
+	if triggeredBy == "auto" {
+		reason = "自动恢复"
+	}
+
+	gcb.statusMu.Lock()
+	if gcb.status != CircuitBreakerStatusTripped {
+		gcb.statusMu.Unlock()
+		return fmt.Errorf("当前状态不是已触发，无需恢复")
+	}
+	gcb.status = CircuitBreakerStatusNormal
+	gcb.cooldownUntil = now.Add(time.Duration(gcb.config.Recovery.CooldownMinutes) * time.Minute)
+	gcb.statusMu.Unlock()
 
 	// 记录事件
 	cbEvent := &CircuitBreakerEvent{
-		Timestamp:   time.Now(),
+		Timestamp:   now,
 		Status:      CircuitBreakerStatusNormal,
 		Trigger:     TriggerManual,
 		TriggeredBy: triggeredBy,
-		Reason:      "手动恢复",
+		Reason:      reason,
 	}
 
 	gcb.eventsMu.Lock()
 	gcb.events = append(gcb.events, cbEvent)
 	gcb.eventsMu.Unlock()
-
-	gcb.status = CircuitBreakerStatusNormal
-	gcb.cooldownUntil = time.Now().Add(time.Duration(gcb.config.Recovery.CooldownMinutes) * time.Minute)
 
 	// 恢复所有 Bot
 	bots := gcb.botProvider.GetAllBots()
@@ -410,6 +424,8 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) {
 			},
 		})
 	}
+
+	return nil
 }
 
 // UpdateMetrics 更新统计数据

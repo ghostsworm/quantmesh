@@ -110,13 +110,9 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	if allowedNewLongBuys > remainingOrders {
 		allowedNewLongBuys = remainingOrders
 	}
-	rem2 := remainingOrders
-	if rem2 < 0 {
-		rem2 = 0
-	}
 	allowedNewShortSells := shortOpenW
-	if allowedNewShortSells > rem2 {
-		allowedNewShortSells = rem2
+	if allowedNewShortSells > remainingOrders {
+		allowedNewShortSells = remainingOrders
 	}
 
 	skipLongBuy := false
@@ -228,7 +224,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 
 	// 賣開空
 	for _, price := range slotPricesUp {
-		if skipShortSell || shortSells >= allowedNewShortSells {
+		if skipShortSell || shortSells >= allowedNewShortSells || longBuys+shortSells >= remainingOrders {
 			break
 		}
 		if !spm.isSlotEnabled(price) {

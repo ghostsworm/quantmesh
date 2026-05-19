@@ -12,19 +12,21 @@ import (
 	"quantmesh/storage"
 )
 
+const defaultOrderSyncInterval = 5 * time.Minute
+
 // OrderSyncService 订单同步服务
 // 定期从交易所拉取历史成交记录，补全缺失的订单
 type OrderSyncService struct {
-	exchange      exchange.IExchange
-	storage       storage.Storage
-	symbol        string
-	accountID     string
-	exchangeName  string
-	syncInterval  time.Duration
-	lastSyncTime  time.Time
-	mu            sync.RWMutex
-	isRunning     bool
-	stopC         chan struct{}
+	exchange     exchange.IExchange
+	storage      storage.Storage
+	symbol       string
+	accountID    string
+	exchangeName string
+	syncInterval time.Duration
+	lastSyncTime time.Time
+	mu           sync.RWMutex
+	isRunning    bool
+	stopC        chan struct{}
 }
 
 // NewOrderSyncService 创建订单同步服务
@@ -37,22 +39,31 @@ func NewOrderSyncService(
 	return &OrderSyncService{
 		exchange:     ex,
 		storage:      st,
-		symbol:      symbol,
+		symbol:       symbol,
 		accountID:    accountID,
 		exchangeName: exchangeName,
 		syncInterval: syncInterval,
-		stopC:        make(chan struct{}),
 	}
 }
 
 // Start 启动订单同步服务
 func (s *OrderSyncService) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	s.mu.Lock()
 	if s.isRunning {
 		s.mu.Unlock()
 		logger.Warn("⚠️ [订单同步] 服务已在运行")
 		return
 	}
+	if s.syncInterval <= 0 {
+		logger.Warn("⚠️ [订单同步] 同步间隔配置无效: %v，使用默认值 %v", s.syncInterval, defaultOrderSyncInterval)
+		s.syncInterval = defaultOrderSyncInterval
+	}
+	stopC := make(chan struct{})
+	s.stopC = stopC
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -61,6 +72,7 @@ func (s *OrderSyncService) Start(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(s.syncInterval)
 		defer ticker.Stop()
+		defer s.markStopped(stopC)
 
 		// 启动时立即同步一次
 		if err := s.Sync(ctx); err != nil {
@@ -72,7 +84,7 @@ func (s *OrderSyncService) Start(ctx context.Context) {
 			case <-ctx.Done():
 				logger.Info("⏹️ [订单同步] 服务已停止")
 				return
-			case <-s.stopC:
+			case <-stopC:
 				logger.Info("⏹️ [订单同步] 服务已停止")
 				return
 			case <-ticker.C:
@@ -82,6 +94,17 @@ func (s *OrderSyncService) Start(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+func (s *OrderSyncService) markStopped(stopC chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.stopC != stopC {
+		return
+	}
+	s.stopC = nil
+	s.isRunning = false
 }
 
 // Stop 停止订单同步服务
@@ -94,12 +117,21 @@ func (s *OrderSyncService) Stop() {
 	}
 
 	close(s.stopC)
+	s.stopC = nil
 	s.isRunning = false
 	logger.Info("⏹️ [订单同步] 订单同步服务已停止")
 }
 
 // Sync 执行订单同步
 func (s *OrderSyncService) Sync(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s.exchange == nil || s.storage == nil {
+		logger.Warn("⚠️ [订单同步] 交易所或存储为空，跳过同步")
+		return nil
+	}
+
 	s.mu.Lock()
 	lastSync := s.lastSyncTime
 	s.mu.Unlock()

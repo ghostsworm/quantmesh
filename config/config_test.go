@@ -62,6 +62,54 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestNormalizeDirectionPreservesBoth(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{name: "empty defaults long", in: "", want: "LONG"},
+		{name: "long normalized", in: "long", want: "LONG"},
+		{name: "short normalized", in: " short ", want: "SHORT"},
+		{name: "both normalized", in: "both", want: "BOTH"},
+		{name: "unknown defaults long", in: "sideways", want: "LONG"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := NormalizeDirection(tc.in); got != tc.want {
+				t.Fatalf("NormalizeDirection(%q)=%q want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	sc := SymbolConfig{Direction: "BOTH"}
+	if got := sc.GetDirection(); got != "BOTH" {
+		t.Fatalf("SymbolConfig.GetDirection()=%q want BOTH", got)
+	}
+	bc := BotConfig{Direction: "BOTH"}
+	if got := bc.GetDirection(); got != "BOTH" {
+		t.Fatalf("BotConfig.GetDirection()=%q want BOTH", got)
+	}
+}
+
+func TestValidateLegacySingleSymbolPreservesBothDirection(t *testing.T) {
+	cfg := createValidConfig()
+	cfg.Trading.Direction = "BOTH"
+	cfg.Trading.Symbols = nil
+	if err := cfg.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Trading.Symbols) != 1 {
+		t.Fatalf("expected one migrated symbol, got %d", len(cfg.Trading.Symbols))
+	}
+	if got := cfg.Trading.Symbols[0].GetDirection(); got != "BOTH" {
+		t.Fatalf("migrated symbol direction=%q want BOTH", got)
+	}
+	if got := cfg.Trading.Direction; got != "BOTH" {
+		t.Fatalf("top-level trading direction=%q want BOTH", got)
+	}
+}
+
 func TestStorageDefaults(t *testing.T) {
 	// SQLite 且 Path 為空時應設置默認路徑
 	cfg1 := createValidConfig()

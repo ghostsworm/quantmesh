@@ -52,11 +52,13 @@ type DCAEnhancedStrategy struct {
 	takeProfitTriggered bool    // 是否触发止盈追踪
 
 	// 状態
-	ctx        context.Context
-	cancel     context.CancelFunc
-	isRunning  bool
-	isPaused   bool // 暂停加倉（瀑布下跌保护）
-	pauseUntil time.Time
+	ctx          context.Context
+	cancel       context.CancelFunc
+	isRunning    bool
+	isPaused     bool // 暂停加倉（瀑布下跌保护）
+	pauseUntil   time.Time
+	isClosing    bool
+	closeOrderID int64
 
 	// 统计
 	stats *StrategyStatistics
@@ -368,8 +370,17 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.isRunning || s.isPaused {
+	if !s.isRunning || s.isClosing {
 		return nil
+	}
+
+	// 检查瀑布保护
+	if s.isPaused {
+		if s.pauseUntil.IsZero() || time.Now().Before(s.pauseUntil) {
+			return nil
+		}
+		s.isPaused = false
+		s.pauseUntil = time.Time{}
 	}
 
 	// 更新價格历史
@@ -387,12 +398,6 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 
 	// 计算动態间距
 	s.calculateDynamicInterval()
-
-	// 检查瀑布保护
-	if s.isPaused && time.Now().Before(s.pauseUntil) {
-		return nil
-	}
-	s.isPaused = false
 
 	// 检查瀑布下跌
 	if s.strategyCfg.CascadeProtection && s.detectCascadeDrop() {
@@ -553,16 +558,20 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:     s.strategyCfg.Symbol,
-		Side:       "BUY",
-		Quantity:   quantity,
-		Price:      orderPrice,
-		PostOnly:   true,
+		Symbol:   s.strategyCfg.Symbol,
+		Side:     "BUY",
+		Quantity: quantity,
+		Price:    orderPrice,
+		PostOnly: true,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 基础订單下單失败: %v", s.logPrefix(), err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 基础订單被执行器跳过，等待下一轮", s.logPrefix())
+		return nil
 	}
 
 	layer.OrderID = order.OrderID
@@ -640,16 +649,20 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:     s.strategyCfg.Symbol,
-		Side:       "BUY",
-		Quantity:   quantity,
-		Price:      orderPrice,
-		PostOnly:   true,
+		Symbol:   s.strategyCfg.Symbol,
+		Side:     "BUY",
+		Quantity: quantity,
+		Price:    orderPrice,
+		PostOnly: true,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 安全订單 #%d 下單失败: %v", s.name, s.currentLayer, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 安全订單 #%d 被执行器跳过，等待下一轮", s.name, s.currentLayer)
+		return nil
 	}
 
 	layer.OrderID = order.OrderID
@@ -774,7 +787,7 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 	// 判斷订單來源（止损/止盈）
 	orderSource := "stop_loss"
-	if reason != "止损" {
+	if !strings.Contains(reason, "止损") {
 		orderSource = "normal"
 	}
 
@@ -785,13 +798,17 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		Quantity:    qty,
 		Price:       orderPrice,
 		ReduceOnly:  true,
-		PostOnly:    true,
+		PostOnly:    orderSource != "stop_loss",
 		OrderSource: orderSource,
 	})
 
 	if err != nil {
 		logger.Error("❌ [%s] 平倉失败: %v", s.name, err)
 		return err
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 平倉单被执行器跳过，等待下一轮", s.name)
+		return nil
 	}
 
 	// 计算盈亏
@@ -868,7 +885,13 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	logger.Info("✅ [%s] 平倉完成 (%s): 订單ID=%d, 數量=%.6f, 價格=%.2f, 盈亏=%.2f USDT",
 		s.name, reason, order.OrderID, s.totalQty, price, pnl)
 
-	// 重置状態
+	s.isClosing = true
+	s.closeOrderID = order.OrderID
+
+	return nil
+}
+
+func (s *DCAEnhancedStrategy) resetPositionState() {
 	s.layers = make([]*DCALayer, 0, s.maxLayers)
 	s.totalCost = 0
 	s.totalQty = 0
@@ -876,8 +899,8 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	s.currentLayer = 0
 	s.highestProfit = 0
 	s.takeProfitTriggered = false
-
-	return nil
+	s.isClosing = false
+	s.closeOrderID = 0
 }
 
 // isTrendUp 判断趋势是否向上
@@ -920,6 +943,19 @@ func (s *DCAEnhancedStrategy) isTrendUp() bool {
 func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.isClosing && update.OrderID == s.closeOrderID {
+		switch update.Status {
+		case position.OrderStatusFilled:
+			logger.Info("✅ [%s] 平倉單 #%d 已成交，清理 DCA 倉位狀態", s.name, update.OrderID)
+			s.resetPositionState()
+		case position.OrderStatusCanceled:
+			logger.Warn("⚠️ [%s] 平倉單 #%d 已取消，保留倉位狀態等待重新平倉", s.name, update.OrderID)
+			s.isClosing = false
+			s.closeOrderID = 0
+		}
+		return nil
+	}
 
 	// 查找對应的层级
 	for _, layer := range s.layers {

@@ -1,7 +1,9 @@
 package web
 
 import (
+	"math"
 	"net/http"
+	"strings"
 
 	"quantmesh/logger"
 	"quantmesh/risk"
@@ -46,9 +48,9 @@ func getDynamicStopLossStats(c *gin.Context) {
 
 // AdjustStopLossRequest 手动调整止损请求
 type AdjustStopLossRequest struct {
-	BotID      string  `json:"bot_id"`
+	BotID       string  `json:"bot_id"`
 	NewStopLoss float64 `json:"new_stop_loss"`
-	Reason     string  `json:"reason"`
+	Reason      string  `json:"reason"`
 }
 
 // adjustStopLoss 手动调整止损
@@ -63,14 +65,23 @@ func adjustStopLoss(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	req.BotID = strings.TrimSpace(req.BotID)
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.BotID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "bot_id is required"})
+		return
+	}
+	if math.IsNaN(req.NewStopLoss) || math.IsInf(req.NewStopLoss, 0) || req.NewStopLoss <= 0 || req.NewStopLoss > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "new_stop_loss must be between 0 and 1"})
+		return
+	}
 
-	// TODO: 实现手动调整止损逻辑
-	logger.Info("🎯 [动态止损] 手动调整止损: BotID=%s, NewStopLoss=%.4f, Reason=%s",
+	logger.Warn("⚠️ [动态止损] 手动调整止损接口尚未实现，已拒绝请求: BotID=%s, NewStopLoss=%.4f, Reason=%s",
 		req.BotID, req.NewStopLoss, req.Reason)
 
-	c.JSON(http.StatusOK, gin.H{
-		"status": "adjusted",
-		"bot_id": req.BotID,
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"error":         "manual dynamic stop-loss adjustment is not implemented",
+		"bot_id":        req.BotID,
 		"new_stop_loss": req.NewStopLoss,
 	})
 }

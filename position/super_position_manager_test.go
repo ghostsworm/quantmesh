@@ -28,7 +28,8 @@ func TestNormalizeOrderStatus_OKX(t *testing.T) {
 
 // MockExecutor 模拟订單執行器
 type MockExecutor struct {
-	PlacedOrders []*OrderRequest
+	PlacedOrders      []*OrderRequest
+	CancelledOrderIDs []int64
 }
 
 func (m *MockExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
@@ -62,6 +63,7 @@ func (m *MockExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequest) *Batc
 }
 
 func (m *MockExecutor) BatchCancelOrders(orderIDs []int64) error {
+	m.CancelledOrderIDs = append(m.CancelledOrderIDs, orderIDs...)
 	return nil
 }
 
@@ -78,9 +80,9 @@ func (m *MockExchange) GetOpenOrders(ctx context.Context, symbol string) (interf
 func (m *MockExchange) GetOrder(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
 	return nil, nil
 }
-func (m *MockExchange) GetAccount(ctx context.Context) (interface{}, error)       { return nil, nil }
-func (m *MockExchange) GetPriceDecimals() int                                     { return 2 }
-func (m *MockExchange) GetQuantityDecimals() int                                  { return 3 }
+func (m *MockExchange) GetAccount(ctx context.Context) (interface{}, error) { return nil, nil }
+func (m *MockExchange) GetPriceDecimals() int                               { return 2 }
+func (m *MockExchange) GetQuantityDecimals() int                            { return 3 }
 func (m *MockExchange) GetOrderBook(ctx context.Context, symbol string, limit int) (*OrderBook, error) {
 	return nil, nil
 }
@@ -352,14 +354,14 @@ func TestCloseOrderPriceAboveAvgBuyPrice(t *testing.T) {
 	// 3. 模擬買單成交，但實際成交價高於委託價（波動/滑點）
 	avgBuyPrice := slotPrice + 200 // 50100 when slotPrice=49900
 	spm.OnOrderUpdate(OrderUpdate{
-		OrderID:     orderID,
+		OrderID:       orderID,
 		ClientOrderID: clientOID,
-		Symbol:      "BTCUSDT",
-		Status:      OrderStatusFilled,
-		ExecutedQty:  0.002,
-		Price:       avgBuyPrice,
-		AvgPrice:    avgBuyPrice,
-		Side:        "BUY",
+		Symbol:        "BTCUSDT",
+		Status:        OrderStatusFilled,
+		ExecutedQty:   0.002,
+		Price:         avgBuyPrice,
+		AvgPrice:      avgBuyPrice,
+		Side:          "BUY",
 	})
 
 	// 4. 清空已下單記錄，觸發平倉賣單

@@ -21,7 +21,7 @@ type FactorResult struct {
 	Score      float64                `json:"score"`      // 0-100, 0=安全, 100=极度危险
 	Confidence float64                `json:"confidence"` // 0-1, 数据可信度
 	Reason     string                 `json:"reason"`     // 人类可读原因
-	Details    map[string]interface{}  `json:"details"`    // 详细数据
+	Details    map[string]interface{} `json:"details"`    // 详细数据
 }
 
 // RiskLevel 风控级别
@@ -29,7 +29,7 @@ type RiskLevel string
 
 const (
 	RiskNormal         RiskLevel = "normal"          // < 25
-	RiskCaution        RiskLevel = "caution"        // 25-45
+	RiskCaution        RiskLevel = "caution"         // 25-45
 	RiskReducePosition RiskLevel = "reduce_position" // 45-65
 	RiskPauseBuying    RiskLevel = "pause_buying"    // 65-80
 	RiskStopTrading    RiskLevel = "stop_trading"    // > 80
@@ -37,22 +37,22 @@ const (
 
 // CompositeRiskResult 复合风控结果
 type CompositeRiskResult struct {
-	CompositeScore float64             `json:"composite_score"`
-	Level          RiskLevel           `json:"level"`
-	BuyBias        float64             `json:"buy_bias"` // 0.0-1.2 买入系数
+	CompositeScore float64                 `json:"composite_score"`
+	Level          RiskLevel               `json:"level"`
+	BuyBias        float64                 `json:"buy_bias"` // 0.0-1.2 买入系数
 	FactorResults  map[string]FactorResult `json:"factor_results"`
-	Timestamp      time.Time           `json:"timestamp"`
-	Reasons        []string            `json:"reasons"`
+	Timestamp      time.Time               `json:"timestamp"`
+	Reasons        []string                `json:"reasons"`
 }
 
 // CompositeRiskController 复合风控引擎
 type CompositeRiskController struct {
-	cfg       *config.Config
-	factors   []RiskFactor
-	mu        sync.RWMutex
+	cfg        *config.Config
+	factors    []RiskFactor
+	mu         sync.RWMutex
 	lastResult CompositeRiskResult
-	running   bool
-	stopCh    chan struct{}
+	running    bool
+	stopCh     chan struct{}
 }
 
 // NewCompositeRiskController 创建复合风控引擎
@@ -72,7 +72,6 @@ func NewCompositeRiskController(cfg *config.Config) *CompositeRiskController {
 			FactorResults: make(map[string]FactorResult),
 			Reasons:       []string{},
 		},
-		stopCh: make(chan struct{}),
 	}
 }
 
@@ -227,12 +226,17 @@ func (c *CompositeRiskController) Start(ctx context.Context) {
 		logger.Info("⚠️ 复合风控未启用")
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	c.mu.Lock()
 	if c.running {
 		c.mu.Unlock()
 		return
 	}
 	c.running = true
+	stopCh := make(chan struct{})
+	c.stopCh = stopCh
 	interval := time.Duration(c.cfg.CompositeRisk.EvaluateInterval) * time.Second
 	if interval <= 0 {
 		interval = 30 * time.Second
@@ -250,17 +254,25 @@ func (c *CompositeRiskController) Start(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				c.mu.Lock()
-				c.running = false
-				c.mu.Unlock()
+				c.markStopped(stopCh)
 				return
-			case <-c.stopCh:
+			case <-stopCh:
 				return
 			case <-ticker.C:
 				c.Evaluate(ctx)
 			}
 		}
 	}()
+}
+
+func (c *CompositeRiskController) markStopped(stopCh chan struct{}) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.stopCh != stopCh {
+		return
+	}
+	c.running = false
+	c.stopCh = nil
 }
 
 // Stop 停止评估
@@ -272,4 +284,5 @@ func (c *CompositeRiskController) Stop() {
 	}
 	c.running = false
 	close(c.stopCh)
+	c.stopCh = nil
 }

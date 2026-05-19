@@ -1,9 +1,8 @@
 package web
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -15,21 +14,21 @@ import (
 
 // ParamAdvisorResponse 参數建议响应
 type ParamAdvisorResponse struct {
-	CurrentPrice float64       `json:"current_price"`
-	MakerFee     float64       `json:"maker_fee"`
-	TakerFee     float64       `json:"taker_fee"`
-	FeeSource    string        `json:"fee_source"` // "exchange_api" | "config" | "default"
-	Exchange     string        `json:"exchange"`
-	Symbol       string        `json:"symbol"`
+	CurrentPrice float64         `json:"current_price"`
+	MakerFee     float64         `json:"maker_fee"`
+	TakerFee     float64         `json:"taker_fee"`
+	FeeSource    string          `json:"fee_source"` // "exchange_api" | "config" | "default"
+	Exchange     string          `json:"exchange"`
+	Symbol       string          `json:"symbol"`
 	Suggestions  ParamSuggestion `json:"suggestions"`
 }
 
 // ParamSuggestion 参數建议
 type ParamSuggestion struct {
-	PriceInterval        RangeAdvice `json:"price_interval"`
-	OrderQuantity        RangeAdvice `json:"order_quantity"`
-	MinProfitableInterval float64    `json:"min_profitable_interval"` // 最低盈利所需的 price_interval
-	BreakevenFeeRate     float64    `json:"breakeven_fee_rate"`      // 盈亏平衡的等效单边费率
+	PriceInterval         RangeAdvice `json:"price_interval"`
+	OrderQuantity         RangeAdvice `json:"order_quantity"`
+	MinProfitableInterval float64     `json:"min_profitable_interval"` // 最低盈利所需的 price_interval
+	BreakevenFeeRate      float64     `json:"breakeven_fee_rate"`      // 盈亏平衡的等效单边费率
 }
 
 // RangeAdvice 范围建议
@@ -63,7 +62,7 @@ func getParamAdvisor(c *gin.Context) {
 	takerFeeStr := c.Query("taker_fee")
 
 	// 1. 获取当前价格
-	price, err := fetchCurrentPrice(exchangeName, symbol)
+	price, err := fetchCurrentPrice(c.Request.Context(), exchangeName, symbol)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("获取价格失败: %v", err)})
 		return
@@ -131,35 +130,29 @@ func getExchangeFees(c *gin.Context) {
 }
 
 // fetchCurrentPrice 获取当前价格（支持多交易所）
-func fetchCurrentPrice(exchangeName, symbol string) (float64, error) {
+func fetchCurrentPrice(ctx context.Context, exchangeName, symbol string) (float64, error) {
 	switch exchangeName {
 	case "binance":
-		return fetchBinancePrice(symbol)
+		return fetchBinancePrice(ctx, symbol)
 	case "bitget":
-		return fetchBitgetPrice(symbol)
+		return fetchBitgetPrice(ctx, symbol)
 	case "bybit":
-		return fetchBybitPrice(symbol)
+		return fetchBybitPrice(ctx, symbol)
 	case "okx":
-		return fetchOKXPrice(symbol)
+		return fetchOKXPrice(ctx, symbol)
 	default:
 		// 默认尝试 Binance
-		return fetchBinancePrice(symbol)
+		return fetchBinancePrice(ctx, symbol)
 	}
 }
 
 // fetchBinancePrice 从 Binance 获取价格
-func fetchBinancePrice(symbol string) (float64, error) {
+func fetchBinancePrice(ctx context.Context, symbol string) (float64, error) {
 	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Price string `json:"price"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := fetchPublicJSON(ctx, url, &data); err != nil {
 		return 0, fmt.Errorf("解析价格失败")
 	}
 	price, err := strconv.ParseFloat(data.Price, 64)
@@ -170,45 +163,33 @@ func fetchBinancePrice(symbol string) (float64, error) {
 }
 
 // fetchBitgetPrice 从 Bitget 获取价格
-func fetchBitgetPrice(symbol string) (float64, error) {
+func fetchBitgetPrice(ctx context.Context, symbol string) (float64, error) {
 	// Bitget futures 用 USDT 结尾的品种名
 	url := fmt.Sprintf("https://api.bitget.com/api/v2/mix/market/ticker?productType=USDT-FUTURES&symbol=%s", symbol)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Data []struct {
 			LastPr string `json:"lastPr"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil || len(data.Data) == 0 {
+	if err := fetchPublicJSON(ctx, url, &data); err != nil || len(data.Data) == 0 {
 		// 回退到 spot
-		return fetchBitgetSpotPrice(symbol)
+		return fetchBitgetSpotPrice(ctx, symbol)
 	}
 	price, err := strconv.ParseFloat(data.Data[0].LastPr, 64)
 	if err != nil || price <= 0 {
-		return fetchBitgetSpotPrice(symbol)
+		return fetchBitgetSpotPrice(ctx, symbol)
 	}
 	return price, nil
 }
 
-func fetchBitgetSpotPrice(symbol string) (float64, error) {
+func fetchBitgetSpotPrice(ctx context.Context, symbol string) (float64, error) {
 	url := fmt.Sprintf("https://api.bitget.com/api/v2/spot/market/tickers?symbol=%s", symbol)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Data []struct {
 			LastPr string `json:"lastPr"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil || len(data.Data) == 0 {
+	if err := fetchPublicJSON(ctx, url, &data); err != nil || len(data.Data) == 0 {
 		return 0, fmt.Errorf("无法获取 Bitget 价格")
 	}
 	price, err := strconv.ParseFloat(data.Data[0].LastPr, 64)
@@ -219,14 +200,8 @@ func fetchBitgetSpotPrice(symbol string) (float64, error) {
 }
 
 // fetchBybitPrice 从 Bybit 获取价格
-func fetchBybitPrice(symbol string) (float64, error) {
+func fetchBybitPrice(ctx context.Context, symbol string) (float64, error) {
 	url := fmt.Sprintf("https://api.bybit.com/v5/market/tickers?category=linear&symbol=%s", symbol)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Result struct {
 			List []struct {
@@ -234,7 +209,7 @@ func fetchBybitPrice(symbol string) (float64, error) {
 			} `json:"list"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil || len(data.Result.List) == 0 {
+	if err := fetchPublicJSON(ctx, url, &data); err != nil || len(data.Result.List) == 0 {
 		return 0, fmt.Errorf("无法获取 Bybit 价格")
 	}
 	price, err := strconv.ParseFloat(data.Result.List[0].LastPrice, 64)
@@ -245,22 +220,16 @@ func fetchBybitPrice(symbol string) (float64, error) {
 }
 
 // fetchOKXPrice 从 OKX 获取价格
-func fetchOKXPrice(symbol string) (float64, error) {
+func fetchOKXPrice(ctx context.Context, symbol string) (float64, error) {
 	// OKX 使用 BTC-USDT 格式，需转换
 	instId := convertToOKXInstID(symbol)
 	url := fmt.Sprintf("https://www.okx.com/api/v5/market/ticker?instId=%s", instId)
-	resp, err := http.Get(url)
-	if err != nil {
-		return 0, err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Data []struct {
 			Last string `json:"last"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil || len(data.Data) == 0 {
+	if err := fetchPublicJSON(ctx, url, &data); err != nil || len(data.Data) == 0 {
 		return 0, fmt.Errorf("无法获取 OKX 价格")
 	}
 	price, err := strconv.ParseFloat(data.Data[0].Last, 64)

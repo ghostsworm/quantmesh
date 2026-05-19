@@ -29,6 +29,27 @@
     "enabled": "Enabled",
     "disabled": "Disabled"
   },
+  "auth": {
+    "errors": {
+      "checkStatusFailed": "Failed to check authentication status",
+      "verifyPasswordFailed": "Failed to verify password",
+      "changePasswordFailed": "Failed to change password",
+      "logoutFailed": "Failed to log out",
+      "beginWebAuthnRegistrationFailed": "Failed to start security key registration",
+      "finishWebAuthnRegistrationFailed": "Failed to finish security key registration",
+      "beginWebAuthnLoginFailed": "Failed to start security key login",
+      "finishWebAuthnLoginFailed": "Failed to finish security key login",
+      "listCredentialsFailed": "Failed to list security keys",
+      "deleteCredentialFailed": "Failed to delete security key"
+    }
+  },
+  "setup": {
+    "errors": {
+      "checkStatusFailed": "Failed to check setup status",
+      "saveConfigFailed": "Failed to save configuration",
+      "fetchExchangeSymbolsFailed": "Failed to fetch exchange symbols"
+    }
+  },
   "geminiUsage": {
     "menuButton": "Gemini usage",
     "title": "Gemini API calls",

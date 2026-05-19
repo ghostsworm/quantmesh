@@ -179,11 +179,6 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 				shortRatio = 0.25
 			}
 		}
-		if filledLayers < triggerLayers {
-			logger.Debug("HedgeCoordinator: 網格未滿 %d 格 (當前 %d)，跳過對沖", triggerLayers, filledLayers)
-			return
-		}
-
 		evtData := map[string]interface{}{
 			"group_id": hc.group.ID,
 			"symbol":   symbol,
@@ -207,8 +202,11 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 					absPos = -absPos
 				}
 				targetFuturesLong := absPos * shortRatio
+				if filledLayers < triggerLayers || targetFuturesLong < 0.000001 {
+					targetFuturesLong = 0
+				}
 				if targetFuturesLong < 0.000001 {
-					return
+					logger.Debug("HedgeCoordinator: 現貨主做空低於對沖門檻，發送歸零信號 layers=%d trigger=%d", filledLayers, triggerLayers)
 				}
 				evtData["target_futures_long"] = targetFuturesLong
 				hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
@@ -216,8 +214,11 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 					hc.group.ID, symbol, targetFuturesLong, filledLayers)
 			} else {
 				targetFuturesShort := position * shortRatio
+				if filledLayers < triggerLayers || targetFuturesShort < 0.000001 {
+					targetFuturesShort = 0
+				}
 				if targetFuturesShort < 0.000001 {
-					return
+					logger.Debug("HedgeCoordinator: 現貨主做多低於對沖門檻，發送歸零信號 layers=%d trigger=%d", filledLayers, triggerLayers)
 				}
 				evtData["target_futures_short"] = targetFuturesShort
 				hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
@@ -241,8 +242,11 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 		switch direction {
 		case "SHORT":
 			targetSpotLong := -position * shortRatio
+			if filledLayers < triggerLayers || targetSpotLong < 0.000001 {
+				targetSpotLong = 0
+			}
 			if targetSpotLong < 0.000001 {
-				return
+				logger.Debug("HedgeCoordinator: 合約主做空低於對沖門檻，發送歸零信號 layers=%d trigger=%d", filledLayers, triggerLayers)
 			}
 			evtData["target_spot_long"] = targetSpotLong
 			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})
@@ -250,8 +254,11 @@ func (hc *HedgeCoordinator) onEvent(evt *event.Event) {
 				hc.group.ID, symbol, targetSpotLong, filledLayers)
 		default:
 			targetSpotShort := position * shortRatio
+			if filledLayers < triggerLayers || targetSpotShort < 0.000001 {
+				targetSpotShort = 0
+			}
 			if targetSpotShort < 0.000001 {
-				return
+				logger.Debug("HedgeCoordinator: 合約主做多低於對沖門檻，發送歸零信號 layers=%d trigger=%d", filledLayers, triggerLayers)
 			}
 			evtData["target_spot_short"] = targetSpotShort
 			hc.eventBus.Publish(&event.Event{Type: event.EventTypeHedgeSignal, Data: evtData})

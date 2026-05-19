@@ -2,9 +2,7 @@ package web
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -36,7 +34,7 @@ var (
 
 // OptimizerRunRequest 优化运行请求
 type OptimizerRunRequest struct {
-	Exchange       string                     `json:"exchange"`        // binance, bitget，預設 binance
+	Exchange       string                     `json:"exchange"` // binance, bitget，預設 binance
 	Symbol         string                     `json:"symbol" binding:"required"`
 	Interval       string                     `json:"interval" binding:"required"`
 	StartTime      time.Time                  `json:"start_time" binding:"required"`
@@ -227,12 +225,12 @@ func getOptimizerStatus(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success":    true,
-		"task_id":     task.ID,
-		"status":      task.Status,
-		"progress":    task.Progress,
-		"error":       task.Error,
-		"created_at":  task.CreatedAt,
-		"updated_at":  task.UpdatedAt,
+		"task_id":    task.ID,
+		"status":     task.Status,
+		"progress":   task.Progress,
+		"error":      task.Error,
+		"created_at": task.CreatedAt,
+		"updated_at": task.UpdatedAt,
 	})
 }
 
@@ -261,7 +259,7 @@ func getOptimizerResult(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"status":  task.Status,
-		"result":   task.Result,
+		"result":  task.Result,
 	})
 }
 
@@ -275,18 +273,11 @@ func getOptimizerPrice(c *gin.Context) {
 	}
 	// Binance 公开 API 無需鉴权
 	url := fmt.Sprintf("https://api.binance.com/api/v3/ticker/price?symbol=%s", symbol)
-	resp, err := http.Get(url)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
 	var data struct {
 		Symbol string `json:"symbol"`
 		Price  string `json:"price"`
 	}
-	if err := json.Unmarshal(body, &data); err != nil {
+	if err := fetchPublicJSON(c.Request.Context(), url, &data); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "解析價格失败"})
 		return
 	}

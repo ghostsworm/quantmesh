@@ -609,6 +609,10 @@ func (s *ComboStrategy) detectMarketState() {
 // rebalanceLoop 权重再平衡循环
 func (s *ComboStrategy) rebalanceLoop() {
 	interval := time.Duration(s.strategyCfg.RebalanceInterval) * time.Second
+	if interval <= 0 {
+		interval = time.Hour
+		logger.Warn("⚠️ [%s] 组合策略再平衡间隔配置无效，使用默认值 %v", s.name, interval)
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

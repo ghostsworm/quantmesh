@@ -158,8 +158,8 @@ func (s *SpotLongStrategy) onHedgeSignal(evt *event.Event) {
 		return
 	}
 	targetLong := getFloat64(evt.Data, "target_spot_long")
-	if targetLong <= 0 {
-		return
+	if targetLong < 0 {
+		targetLong = 0
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
