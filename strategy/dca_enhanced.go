@@ -365,6 +365,13 @@ func (s *DCAEnhancedStrategy) Stop() error {
 	return nil
 }
 
+// IsRunning 回傳策略是否已成功啟动
+func (s *DCAEnhancedStrategy) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isRunning
+}
+
 // OnPriceChange 價格變化处理
 func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()

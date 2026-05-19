@@ -428,6 +428,13 @@ func (s *ComboStrategy) Stop() error {
 	return nil
 }
 
+// IsRunning 回傳策略是否已成功啟动
+func (s *ComboStrategy) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.isRunning
+}
+
 // OnPriceChange 價格變化处理
 func (s *ComboStrategy) OnPriceChange(price float64) error {
 	s.mu.Lock()

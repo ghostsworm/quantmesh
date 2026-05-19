@@ -38,8 +38,9 @@ type TrendFollowingStrategy struct {
 	takeProfit  float64 // 止盈比例
 	maxPosition float64 // 最大倉位比例
 
-	isPaused bool
-	eventBus EventBus
+	isPaused  bool
+	isRunning bool
+	eventBus  EventBus
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -128,17 +129,32 @@ func (tfs *TrendFollowingStrategy) Initialize(cfg *config.Config, executor posit
 
 // Start 啟动策略
 func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
-	logger.Info("✅ [%s] 趋势跟踪策略已啟动 (短期:%d, 长期:%d, 方法:%s)",
+	tfs.mu.Lock()
+	tfs.isRunning = true
+	tfs.mu.Unlock()
+
+	logger.Warn("⚠️ [%s] 趋势跟踪策略以信号模式啟动，当前不会自动下单 (短期:%d, 长期:%d, 方法:%s)",
 		tfs.name, tfs.shortPeriod, tfs.longPeriod, tfs.method)
 	return nil
 }
 
 // Stop 停止策略
 func (tfs *TrendFollowingStrategy) Stop() error {
+	tfs.mu.Lock()
+	tfs.isRunning = false
+	tfs.mu.Unlock()
+
 	if tfs.cancel != nil {
 		tfs.cancel()
 	}
 	return nil
+}
+
+// IsRunning 回傳策略是否已成功啟动
+func (tfs *TrendFollowingStrategy) IsRunning() bool {
+	tfs.mu.RLock()
+	defer tfs.mu.RUnlock()
+	return tfs.isRunning
 }
 
 // addPrice 新增價格
@@ -239,9 +255,12 @@ func (tfs *TrendFollowingStrategy) detectTrend() Trend {
 
 // OnPriceChange 價格變化处理
 func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
-	if tfs.isPaused {
+	tfs.mu.RLock()
+	if !tfs.isRunning || tfs.isPaused {
+		tfs.mu.RUnlock()
 		return nil
 	}
+	tfs.mu.RUnlock()
 	tfs.addPrice(price)
 
 	trend := tfs.detectTrend()
@@ -336,9 +355,6 @@ func (tfs *TrendFollowingStrategy) GetStatistics() *StrategyStatistics {
 
 // GetVisualizationData 獲取策略可视化數據
 func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{} {
-	tfs.mu.RLock()
-	defer tfs.mu.RUnlock()
-
 	data := make(map[string]interface{})
 
 	// 计算快慢均线
@@ -359,9 +375,14 @@ func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{}
 
 	// 当前价格
 	currentPrice := 0.0
+	tfs.mu.RLock()
 	if len(tfs.priceHistory) > 0 {
 		currentPrice = tfs.priceHistory[len(tfs.priceHistory)-1]
 	}
+	hasPosition := tfs.position != nil
+	entryPrice := tfs.entryPrice
+	isRunning := tfs.isRunning
+	tfs.mu.RUnlock()
 	data["currentPrice"] = currentPrice
 
 	// 趋势方向
@@ -382,11 +403,11 @@ func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{}
 	}
 
 	// 持仓状态
-	if tfs.position != nil {
+	if hasPosition {
 		data["hasPosition"] = true
-		data["entryPrice"] = tfs.entryPrice
-		if currentPrice > 0 && tfs.entryPrice > 0 {
-			pnlPercent := ((currentPrice - tfs.entryPrice) / tfs.entryPrice) * 100
+		data["entryPrice"] = entryPrice
+		if currentPrice > 0 && entryPrice > 0 {
+			pnlPercent := ((currentPrice - entryPrice) / entryPrice) * 100
 			data["pnlPercent"] = pnlPercent
 		}
 	} else {
@@ -397,6 +418,9 @@ func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{}
 	// 止损止盈
 	data["stopLoss"] = tfs.stopLoss * 100 // 转换为百分比
 	data["takeProfit"] = tfs.takeProfit * 100
+	data["executionMode"] = "signal_only"
+	data["autoTradingEnabled"] = false
+	data["isRunning"] = isRunning
 
 	// 金叉/死叉判断
 	if fastMA > 0 && slowMA > 0 {
