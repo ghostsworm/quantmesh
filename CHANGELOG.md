@@ -2,6 +2,15 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc35] - 2026-05-19
+
+### Fixed
+- **市场情报链路落地**：Polymarket Gamma 客户端解析真实 `outcomePrices` / `yes_probability`，并把概率透出给市场情报 API 与 AI 提示词，避免模型只靠题目和成交量猜概率。
+- **AI 输出与凭据防护**：Polymarket 信号分析增加并发保护、防御性缓存拷贝和 signal/strength/confidence/probability 边界归一化；异步 Gemini 任务入库前脱敏 API key，真实 key 仅通过运行期内存引用取回。
+- **NewsAPI 与长期任务稳定性**：NewsAPI 查询统一限长、去重、压缩空白并修复旧监控路径的非法 `language=zh,en`；宏观事件拉取器补齐空 context、无效间隔、Stop 后重启和 Gamma 响应体限流保护。
+
+---
+
 ## [3.105.0-rc34] - 2026-05-19
 
 ### Fixed

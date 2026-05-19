@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"quantmesh/config"
@@ -17,10 +18,10 @@ import (
 
 // PolymarketSignalAnalysis 與 Web 前端 AIPolymarketSignal 對齊。
 type PolymarketSignalAnalysis struct {
-	Signal     string   `json:"signal"`
-	Strength   float64  `json:"strength"`
-	Confidence float64  `json:"confidence"`
-	Reasoning  string   `json:"reasoning"`
+	Signal     string       `json:"signal"`
+	Strength   float64      `json:"strength"`
+	Confidence float64      `json:"confidence"`
+	Reasoning  string       `json:"reasoning"`
 	Signals    []SignalItem `json:"signals,omitempty"`
 }
 
@@ -43,6 +44,7 @@ type PolymarketSignalAnalyzer struct {
 	http     *http.Client
 	last     *PolymarketSignalAnalysis
 	lastTime time.Time
+	running  atomic.Bool
 }
 
 // NewPolymarketSignalAnalyzer 創建分析器。
@@ -76,7 +78,14 @@ func (a *PolymarketSignalAnalyzer) keywords() []string {
 func (a *PolymarketSignalAnalyzer) GetLastAnalysis() interface{} {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	return a.last
+	if a.last == nil {
+		return nil
+	}
+	cp := *a.last
+	if a.last.Signals != nil {
+		cp.Signals = append([]SignalItem(nil), a.last.Signals...)
+	}
+	return &cp
 }
 
 // GetLastAnalysisTime 獲取最近一次分析時間。
@@ -91,7 +100,14 @@ func (a *PolymarketSignalAnalyzer) TriggerAnalysis() error {
 	if a == nil || a.client == nil || a.cfg == nil {
 		return fmt.Errorf("polymarket analyzer 未初始化")
 	}
-	raw, err := polymarket.FetchActiveMarkets(a.gammaBaseURL(), a.keywords(), a.http, 50)
+	if !a.running.CompareAndSwap(false, true) {
+		return fmt.Errorf("polymarket analyzer 已在运行")
+	}
+	defer a.running.Store(false)
+
+	fetchCtx, fetchCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer fetchCancel()
+	raw, err := polymarket.FetchActiveMarketsContext(fetchCtx, a.gammaBaseURL(), a.keywords(), a.http, 50)
 	if err != nil {
 		return err
 	}
@@ -154,6 +170,7 @@ func (a *PolymarketSignalAnalyzer) TriggerAnalysis() error {
 			Reasoning:  truncateStr(out, 2000),
 		}
 	}
+	normalizePolymarketAnalysis(analysis)
 	a.mu.Lock()
 	a.last = analysis
 	a.lastTime = time.Now()
@@ -200,17 +217,25 @@ func (a *PolymarketSignalAnalyzer) filterMarkets(in []polymarket.MarketInfo) []p
 func buildPolymarketPrompt(markets []polymarket.MarketInfo) string {
 	var b strings.Builder
 	b.WriteString("你是加密與宏觀預測市場分析師。以下數據來自 Polymarket（預測市場），用於感知「市場是否正在為某類重大事件定價」。\n")
-	b.WriteString("請根據問題、標題、流動性與成交量，輸出 JSON：\n")
+	b.WriteString("請根據問題、標題、Yes 概率、流動性與成交量，輸出 JSON：\n")
 	b.WriteString("- signal: 對加密資產短期風險偏好的綜合判斷（bullish / bearish / neutral）\n")
 	b.WriteString("- strength: 0~1\n- confidence: 0~1\n- reasoning: 簡短中文，說明為何可能出現「大事」或為何相對平靜\n")
-	b.WriteString("- signals: 每個市場一條，signal 用 bullish/bearish/neutral 表示該市場對風險的含義；probability 用 0~1 表示「Yes」類結果在語義上的相對可能性（若無法估計可填 0.5）\n\n")
+	b.WriteString("- signals: 每個市場一條，signal 用 bullish/bearish/neutral 表示該市場對風險的含義；probability 必須優先使用市場給出的 Yes 概率，無價格時才填 0.5\n\n")
 	for i, m := range markets {
 		title := m.EventTitle
 		if title == "" {
 			title = "(event)"
 		}
-		b.WriteString(fmt.Sprintf("%d. [%s] %s\n   流動性:%.0f 成交:%.0f 到期:%s\n",
-			i+1, title, m.Question, m.Liquidity, m.Volume, m.EndDate.Format(time.RFC3339)))
+		yesProbability := "未知"
+		if len(m.OutcomePrices) > 0 {
+			yesProbability = fmt.Sprintf("%.4f", m.YesProbability)
+		}
+		outcomes := strings.Join(m.Outcomes, "/")
+		if outcomes == "" {
+			outcomes = "未知"
+		}
+		b.WriteString(fmt.Sprintf("%d. [%s] %s\n   结果:%s Yes概率:%s 流動性:%.0f 成交:%.0f 到期:%s\n",
+			i+1, title, m.Question, outcomes, yesProbability, m.Liquidity, m.Volume, m.EndDate.Format(time.RFC3339)))
 	}
 	return b.String()
 }
@@ -228,4 +253,38 @@ func parsePolymarketJSON(s string) (*PolymarketSignalAnalysis, error) {
 		return nil, err
 	}
 	return &out, nil
+}
+
+func normalizePolymarketAnalysis(a *PolymarketSignalAnalysis) {
+	if a == nil {
+		return
+	}
+	a.Signal = normalizePolymarketSignal(a.Signal)
+	a.Strength = clamp01(a.Strength)
+	a.Confidence = clamp01(a.Confidence)
+	for i := range a.Signals {
+		a.Signals[i].Signal = normalizePolymarketSignal(a.Signals[i].Signal)
+		a.Signals[i].Probability = clamp01(a.Signals[i].Probability)
+		a.Signals[i].Strength = clamp01(a.Signals[i].Strength)
+		a.Signals[i].Confidence = clamp01(a.Signals[i].Confidence)
+	}
+}
+
+func normalizePolymarketSignal(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "bullish", "bearish", "neutral":
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return "neutral"
+	}
+}
+
+func clamp01(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
 }

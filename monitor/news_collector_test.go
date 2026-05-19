@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,7 +10,8 @@ import (
 )
 
 // 聯網 NewsAPI 測試預設關閉，避免 CI/無外網環境失敗；真機驗證時設：
-//   NEWSAPI_INTEGRATION_TEST=1 NEWSAPI_TEST_KEY=你的key go test ./monitor/... -run NewsAPI -v
+//
+//	NEWSAPI_INTEGRATION_TEST=1 NEWSAPI_TEST_KEY=你的key go test ./monitor/... -run NewsAPI -v
 func integrationNewsAPIKey(t *testing.T) string {
 	t.Helper()
 	if os.Getenv("NEWSAPI_INTEGRATION_TEST") != "1" {
@@ -170,5 +172,28 @@ func TestNewsCollector_ContextCancellation(t *testing.T) {
 		t.Logf("API call returned error: %v", err)
 	} else {
 		t.Log("API call succeeded")
+	}
+}
+
+func TestBuildNewsAPIQuerySanitizesAndBoundsKeywords(t *testing.T) {
+	keywords := []string{
+		" bitcoin  ",
+		"Bitcoin",
+		"ethereum\nspot etf",
+		strings.Repeat("x", 120),
+	}
+	for i := 0; i < 40; i++ {
+		keywords = append(keywords, "keyword")
+	}
+
+	query := buildNewsAPIQuery(keywords)
+	if len(query) > maxNewsAPIQueryLength {
+		t.Fatalf("query too long: %d", len(query))
+	}
+	if strings.Contains(query, "\n") {
+		t.Fatalf("query contains raw newline: %q", query)
+	}
+	if strings.Count(strings.ToLower(query), "bitcoin") != 1 {
+		t.Fatalf("query did not dedupe bitcoin: %q", query)
 	}
 }
