@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"math"
 	"sync"
 
 	"quantmesh/config"
@@ -27,10 +28,15 @@ type MomentumStrategy struct {
 	overbought        float64
 	oversold          float64
 	momentumThreshold float64
+	orderAmount       float64
+	slippage          float64
 
 	// 持倉
-	position   *Position
-	entryPrice float64
+	position      *Position
+	entryPrice    float64
+	activeOrder   *Order
+	pendingAction string
+	stats         *StrategyStatistics
 
 	isPaused  bool
 	isRunning bool
@@ -60,6 +66,7 @@ func NewMomentumStrategy(
 		rsiValues:    make([]float64, 0, 100),
 		ctx:          ctx,
 		cancel:       cancel,
+		stats:        &StrategyStatistics{},
 	}
 
 	// 從配置中读取参數
@@ -86,6 +93,8 @@ func NewMomentumStrategy(
 	} else {
 		ms.momentumThreshold = 0.5 // 預設 0.5
 	}
+	ms.orderAmount = signalStrategyOrderAmount(strategyCfg)
+	ms.slippage = signalStrategySlippage(strategyCfg)
 
 	return ms
 }
@@ -113,8 +122,8 @@ func (ms *MomentumStrategy) Start(ctx context.Context) error {
 	ms.isRunning = true
 	ms.mu.Unlock()
 
-	logger.Warn("⚠️ [%s] 动量策略以信号模式啟动，当前不会自动下单 (RSI周期:%d, 超買:%d, 超賣:%d)",
-		ms.name, ms.rsiPeriod, int(ms.overbought), int(ms.oversold))
+	logger.Info("✅ [%s] 动量策略已啟动自动交易 (RSI周期:%d, 超買:%d, 超賣:%d, 单笔金额:%.2f)",
+		ms.name, ms.rsiPeriod, int(ms.overbought), int(ms.oversold), ms.orderAmount)
 	return nil
 }
 
@@ -206,7 +215,7 @@ func (ms *MomentumStrategy) calculateRSI() float64 {
 // OnPriceChange 價格變化处理
 func (ms *MomentumStrategy) OnPriceChange(price float64) error {
 	ms.mu.RLock()
-	if !ms.isRunning || ms.isPaused {
+	if !ms.isRunning || ms.isPaused || ms.activeOrder != nil {
 		ms.mu.RUnlock()
 		return nil
 	}
@@ -224,32 +233,143 @@ func (ms *MomentumStrategy) OnPriceChange(price float64) error {
 	// RSI < 30：超賣，買入信号
 	if rsi < ms.oversold && ms.position == nil {
 		logger.Info("📊 [%s] RSI超賣，買入信号: RSI=%.2f, 價格=%.2f", ms.name, rsi, price)
-		// TODO: 實現買入逻辑
-		ms.entryPrice = price
-		ms.position = &Position{
-			Symbol:       ms.cfg.Trading.Symbol,
-			Size:         0,
-			EntryPrice:   price,
-			CurrentPrice: price,
-			PnL:          0,
-		}
+		return ms.placeSignalOrder(signalActionOpenLong, price)
 	}
 
 	// RSI > 70：超買，賣出信号
 	if rsi > ms.overbought && ms.position != nil {
 		logger.Info("📊 [%s] RSI超買，賣出信号: RSI=%.2f, 價格=%.2f", ms.name, rsi, price)
-		// TODO: 實現賣出逻辑
-		ms.position = nil
-		ms.entryPrice = 0
+		return ms.placeSignalOrder(signalActionCloseLong, price)
 	}
 
 	return nil
 }
 
+func (ms *MomentumStrategy) placeSignalOrder(action string, price float64) error {
+	if ms.executor == nil {
+		return nil
+	}
+	symbol := signalStrategySymbol(ms.cfg, ms.strategyCfg)
+	priceDecimals := signalPriceDecimals(ms.exchange)
+	qtyDecimals := signalQuantityDecimals(ms.exchange)
+
+	side := "BUY"
+	orderPrice := signalRound(price*(1+ms.slippage), priceDecimals)
+	quantity := signalFloor(ms.orderAmount/orderPrice, qtyDecimals)
+	reduceOnly := false
+
+	if action == signalActionCloseLong {
+		if ms.position == nil || ms.position.Size <= 0 {
+			return nil
+		}
+		side = "SELL"
+		orderPrice = signalRound(price*(1-ms.slippage), priceDecimals)
+		quantity = signalFloor(ms.position.Size, qtyDecimals)
+		reduceOnly = signalIsFuturesMarket(ms.cfg)
+	}
+	if orderPrice <= 0 || quantity <= 0 || math.IsNaN(quantity) {
+		logger.Warn("⚠️ [%s] 动量策略下单数量无效: action=%s price=%.8f qty=%.8f", ms.name, action, orderPrice, quantity)
+		return nil
+	}
+
+	order, err := ms.executor.PlaceOrder(&position.OrderRequest{
+		Symbol:        symbol,
+		Side:          side,
+		Price:         orderPrice,
+		Quantity:      quantity,
+		PriceDecimals: priceDecimals,
+		ReduceOnly:    reduceOnly,
+		PostOnly:      false,
+		ClientOrderID: signalClientOrderID(ms.name, action),
+		StrategyName:  ms.name,
+		StrategyType:  "momentum",
+	})
+	if err != nil {
+		return err
+	}
+	if order == nil {
+		return nil
+	}
+	tracked := &Order{
+		OrderID:       order.OrderID,
+		ClientOrderID: order.ClientOrderID,
+		Symbol:        order.Symbol,
+		Side:          order.Side,
+		Price:         order.Price,
+		Quantity:      order.Quantity,
+		Status:        order.Status,
+	}
+	ms.activeOrder = tracked
+	ms.pendingAction = action
+	if signalOrderStatusFilled(order.Status) {
+		ms.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
+	}
+	return nil
+}
+
 // OnOrderUpdate 订單更新处理
 func (ms *MomentumStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	// TODO: 处理订單更新
+	if update == nil {
+		return nil
+	}
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+
+	if !signalOrderMatches(ms.activeOrder, update) {
+		return nil
+	}
+	ms.activeOrder.Status = update.Status
+	if signalOrderStatusTerminal(update.Status) {
+		ms.activeOrder = nil
+		ms.pendingAction = ""
+		return nil
+	}
+	if !signalOrderStatusFilled(update.Status) {
+		return nil
+	}
+	fillPrice := update.AvgPrice
+	if fillPrice <= 0 {
+		fillPrice = update.Price
+	}
+	fillQty := update.ExecutedQty
+	if fillQty <= 0 {
+		fillQty = ms.activeOrder.Quantity
+	}
+	ms.applyFilledOrderLocked(ms.activeOrder, fillQty, fillPrice)
 	return nil
+}
+
+func (ms *MomentumStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
+	if order == nil {
+		return
+	}
+	if price <= 0 {
+		price = order.Price
+	}
+	if quantity <= 0 {
+		quantity = order.Quantity
+	}
+	switch ms.pendingAction {
+	case signalActionOpenLong:
+		ms.entryPrice = price
+		ms.position = &Position{
+			Symbol:       order.Symbol,
+			Size:         quantity,
+			EntryPrice:   price,
+			CurrentPrice: price,
+			PnL:          0,
+		}
+	case signalActionCloseLong:
+		if ms.position != nil && ms.entryPrice > 0 {
+			ms.stats.TotalPnL += (price - ms.entryPrice) * ms.position.Size
+		}
+		ms.position = nil
+		ms.entryPrice = 0
+		ms.stats.TotalTrades++
+	}
+	ms.stats.TotalVolume += quantity * price
+	ms.activeOrder = nil
+	ms.pendingAction = ""
 }
 
 // GetPositions 獲取持倉
@@ -266,17 +386,20 @@ func (ms *MomentumStrategy) GetPositions() []*Position {
 
 // GetOrders 獲取訂單
 func (ms *MomentumStrategy) GetOrders() []*Order {
-	return []*Order{}
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	if ms.activeOrder == nil {
+		return []*Order{}
+	}
+	return []*Order{ms.activeOrder}
 }
 
 // GetStatistics 獲取统计
 func (ms *MomentumStrategy) GetStatistics() *StrategyStatistics {
-	return &StrategyStatistics{
-		TotalTrades: 0,
-		WinRate:     0,
-		TotalPnL:    0,
-		TotalVolume: 0,
-	}
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	stats := *ms.stats
+	return &stats
 }
 
 // GetVisualizationData 獲取策略可视化數據
@@ -290,6 +413,7 @@ func (ms *MomentumStrategy) GetVisualizationData() map[string]interface{} {
 	}
 	hasPosition := ms.position != nil
 	entryPrice := ms.entryPrice
+	pendingAction := ms.pendingAction
 
 	return map[string]interface{}{
 		"currentPrice":       currentPrice,
@@ -299,8 +423,10 @@ func (ms *MomentumStrategy) GetVisualizationData() map[string]interface{} {
 		"momentumThreshold":  ms.momentumThreshold,
 		"hasPosition":        hasPosition,
 		"entryPrice":         entryPrice,
-		"executionMode":      "signal_only",
-		"autoTradingEnabled": false,
+		"executionMode":      "auto_trade",
+		"autoTradingEnabled": true,
 		"isRunning":          ms.isRunning,
+		"orderAmount":        ms.orderAmount,
+		"pendingAction":      pendingAction,
 	}
 }

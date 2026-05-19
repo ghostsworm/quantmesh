@@ -37,6 +37,12 @@ type TrendFollowingStrategy struct {
 	stopLoss    float64 // 止损比例
 	takeProfit  float64 // 止盈比例
 	maxPosition float64 // 最大倉位比例
+	orderAmount float64
+	slippage    float64
+
+	activeOrder   *Order
+	pendingAction string
+	stats         *StrategyStatistics
 
 	isPaused  bool
 	isRunning bool
@@ -67,6 +73,7 @@ func NewTrendFollowingStrategy(
 		longMA:       make([]float64, 0, 100),
 		ctx:          ctx,
 		cancel:       cancel,
+		stats:        &StrategyStatistics{},
 	}
 
 	// 從配置中读取参數
@@ -105,6 +112,8 @@ func NewTrendFollowingStrategy(
 	} else {
 		tfs.maxPosition = 0.3 // 預設 30%
 	}
+	tfs.orderAmount = signalStrategyOrderAmount(strategyCfg)
+	tfs.slippage = signalStrategySlippage(strategyCfg)
 
 	return tfs
 }
@@ -133,8 +142,8 @@ func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
 	tfs.isRunning = true
 	tfs.mu.Unlock()
 
-	logger.Warn("⚠️ [%s] 趋势跟踪策略以信号模式啟动，当前不会自动下单 (短期:%d, 长期:%d, 方法:%s)",
-		tfs.name, tfs.shortPeriod, tfs.longPeriod, tfs.method)
+	logger.Info("✅ [%s] 趋势跟踪策略已啟动自动交易 (短期:%d, 长期:%d, 方法:%s, 单笔金额:%.2f)",
+		tfs.name, tfs.shortPeriod, tfs.longPeriod, tfs.method, tfs.orderAmount)
 	return nil
 }
 
@@ -256,7 +265,7 @@ func (tfs *TrendFollowingStrategy) detectTrend() Trend {
 // OnPriceChange 價格變化处理
 func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
 	tfs.mu.RLock()
-	if !tfs.isRunning || tfs.isPaused {
+	if !tfs.isRunning || tfs.isPaused || tfs.activeOrder != nil {
 		tfs.mu.RUnlock()
 		return nil
 	}
@@ -280,48 +289,159 @@ func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
 		if pnlPercent <= -tfs.stopLoss {
 			logger.Warn("🛑 [%s] 触发止损: 入场價=%.2f, 當前價=%.2f, 亏损=%.2f%%",
 				tfs.name, tfs.entryPrice, currentPrice, pnlPercent*100)
-			// TODO: 平倉
-			tfs.position = nil
-			tfs.entryPrice = 0
-			return nil
+			return tfs.placeSignalOrder(signalActionCloseLong, price)
 		}
 
 		// 止盈
 		if pnlPercent >= tfs.takeProfit {
 			logger.Info("💰 [%s] 触发止盈: 入场價=%.2f, 當前價=%.2f, 盈利=%.2f%%",
 				tfs.name, tfs.entryPrice, currentPrice, pnlPercent*100)
-			// TODO: 平倉
-			tfs.position = nil
-			tfs.entryPrice = 0
-			return nil
+			return tfs.placeSignalOrder(signalActionCloseLong, price)
 		}
 	}
 
 	// 趋势向上：开多倉或加倉
 	if trend == TrendUp {
 		if tfs.position == nil {
-			// 开倉
-			// TODO: 實現开倉逻辑
-			logger.Info("📈 [%s] 上涨趋势，准备开多倉", tfs.name)
+			logger.Info("📈 [%s] 上涨趋势，准备自动开多倉", tfs.name)
+			return tfs.placeSignalOrder(signalActionOpenLong, price)
 		}
 	} else if trend == TrendDown {
 		// 趋势向下：平倉
 		if tfs.position != nil {
-			// 平倉
-			logger.Info("📉 [%s] 下跌趋势，准备平倉", tfs.name)
-			// TODO: 實現平倉逻辑
-			tfs.position = nil
-			tfs.entryPrice = 0
+			logger.Info("📉 [%s] 下跌趋势，准备自动平倉", tfs.name)
+			return tfs.placeSignalOrder(signalActionCloseLong, price)
 		}
 	}
 
 	return nil
 }
 
+func (tfs *TrendFollowingStrategy) placeSignalOrder(action string, price float64) error {
+	if tfs.executor == nil {
+		return nil
+	}
+	symbol := signalStrategySymbol(tfs.cfg, tfs.strategyCfg)
+	priceDecimals := signalPriceDecimals(tfs.exchange)
+	qtyDecimals := signalQuantityDecimals(tfs.exchange)
+
+	side := "BUY"
+	orderPrice := signalRound(price*(1+tfs.slippage), priceDecimals)
+	quantity := signalFloor(tfs.orderAmount/orderPrice, qtyDecimals)
+	reduceOnly := false
+
+	if action == signalActionCloseLong {
+		if tfs.position == nil || tfs.position.Size <= 0 {
+			return nil
+		}
+		side = "SELL"
+		orderPrice = signalRound(price*(1-tfs.slippage), priceDecimals)
+		quantity = signalFloor(tfs.position.Size, qtyDecimals)
+		reduceOnly = signalIsFuturesMarket(tfs.cfg)
+	}
+	if orderPrice <= 0 || quantity <= 0 {
+		logger.Warn("⚠️ [%s] 趋势跟踪下单数量无效: action=%s price=%.8f qty=%.8f", tfs.name, action, orderPrice, quantity)
+		return nil
+	}
+
+	order, err := tfs.executor.PlaceOrder(&position.OrderRequest{
+		Symbol:        symbol,
+		Side:          side,
+		Price:         orderPrice,
+		Quantity:      quantity,
+		PriceDecimals: priceDecimals,
+		ReduceOnly:    reduceOnly,
+		PostOnly:      false,
+		ClientOrderID: signalClientOrderID(tfs.name, action),
+		StrategyName:  tfs.name,
+		StrategyType:  "trend",
+	})
+	if err != nil {
+		return err
+	}
+	if order == nil {
+		return nil
+	}
+	tracked := &Order{
+		OrderID:       order.OrderID,
+		ClientOrderID: order.ClientOrderID,
+		Symbol:        order.Symbol,
+		Side:          order.Side,
+		Price:         order.Price,
+		Quantity:      order.Quantity,
+		Status:        order.Status,
+	}
+	tfs.activeOrder = tracked
+	tfs.pendingAction = action
+	if signalOrderStatusFilled(order.Status) {
+		tfs.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
+	}
+	return nil
+}
+
 // OnOrderUpdate 订單更新处理
 func (tfs *TrendFollowingStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	// TODO: 处理订單更新
+	if update == nil {
+		return nil
+	}
+	tfs.mu.Lock()
+	defer tfs.mu.Unlock()
+
+	if !signalOrderMatches(tfs.activeOrder, update) {
+		return nil
+	}
+	tfs.activeOrder.Status = update.Status
+	if signalOrderStatusTerminal(update.Status) {
+		tfs.activeOrder = nil
+		tfs.pendingAction = ""
+		return nil
+	}
+	if !signalOrderStatusFilled(update.Status) {
+		return nil
+	}
+	fillPrice := update.AvgPrice
+	if fillPrice <= 0 {
+		fillPrice = update.Price
+	}
+	fillQty := update.ExecutedQty
+	if fillQty <= 0 {
+		fillQty = tfs.activeOrder.Quantity
+	}
+	tfs.applyFilledOrderLocked(tfs.activeOrder, fillQty, fillPrice)
 	return nil
+}
+
+func (tfs *TrendFollowingStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
+	if order == nil {
+		return
+	}
+	if price <= 0 {
+		price = order.Price
+	}
+	if quantity <= 0 {
+		quantity = order.Quantity
+	}
+	switch tfs.pendingAction {
+	case signalActionOpenLong:
+		tfs.entryPrice = price
+		tfs.position = &Position{
+			Symbol:       order.Symbol,
+			Size:         quantity,
+			EntryPrice:   price,
+			CurrentPrice: price,
+			PnL:          0,
+		}
+	case signalActionCloseLong:
+		if tfs.position != nil && tfs.entryPrice > 0 {
+			tfs.stats.TotalPnL += (price - tfs.entryPrice) * tfs.position.Size
+		}
+		tfs.position = nil
+		tfs.entryPrice = 0
+		tfs.stats.TotalTrades++
+	}
+	tfs.stats.TotalVolume += quantity * price
+	tfs.activeOrder = nil
+	tfs.pendingAction = ""
 }
 
 // GetPositions 獲取持倉
@@ -338,19 +458,20 @@ func (tfs *TrendFollowingStrategy) GetPositions() []*Position {
 
 // GetOrders 獲取訂單
 func (tfs *TrendFollowingStrategy) GetOrders() []*Order {
-	// TODO: 實現订單查詢
-	return []*Order{}
+	tfs.mu.RLock()
+	defer tfs.mu.RUnlock()
+	if tfs.activeOrder == nil {
+		return []*Order{}
+	}
+	return []*Order{tfs.activeOrder}
 }
 
 // GetStatistics 獲取统计
 func (tfs *TrendFollowingStrategy) GetStatistics() *StrategyStatistics {
-	// TODO: 實現统计计算
-	return &StrategyStatistics{
-		TotalTrades: 0,
-		WinRate:     0,
-		TotalPnL:    0,
-		TotalVolume: 0,
-	}
+	tfs.mu.RLock()
+	defer tfs.mu.RUnlock()
+	stats := *tfs.stats
+	return &stats
 }
 
 // GetVisualizationData 獲取策略可视化數據
@@ -382,6 +503,7 @@ func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{}
 	hasPosition := tfs.position != nil
 	entryPrice := tfs.entryPrice
 	isRunning := tfs.isRunning
+	pendingAction := tfs.pendingAction
 	tfs.mu.RUnlock()
 	data["currentPrice"] = currentPrice
 
@@ -418,9 +540,11 @@ func (tfs *TrendFollowingStrategy) GetVisualizationData() map[string]interface{}
 	// 止损止盈
 	data["stopLoss"] = tfs.stopLoss * 100 // 转换为百分比
 	data["takeProfit"] = tfs.takeProfit * 100
-	data["executionMode"] = "signal_only"
-	data["autoTradingEnabled"] = false
+	data["executionMode"] = "auto_trade"
+	data["autoTradingEnabled"] = true
 	data["isRunning"] = isRunning
+	data["orderAmount"] = tfs.orderAmount
+	data["pendingAction"] = pendingAction
 
 	// 金叉/死叉判断
 	if fastMA > 0 && slowMA > 0 {
