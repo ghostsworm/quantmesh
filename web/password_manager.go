@@ -1,10 +1,13 @@
 package web
 
 import (
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -69,8 +72,25 @@ func (pm *PasswordManager) initDatabase() error {
 		return fmt.Errorf("創建用戶表失败: %v", err)
 	}
 
+	createRecoveryTableSQL := `
+	CREATE TABLE IF NOT EXISTS password_recovery_codes (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		username TEXT NOT NULL,
+		code_hash TEXT NOT NULL,
+		created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		used_at DATETIME,
+		is_active BOOLEAN DEFAULT 1
+	);
+	`
+	if _, err := pm.db.Exec(createRecoveryTableSQL); err != nil {
+		return fmt.Errorf("創建密碼恢復碼表失败: %v", err)
+	}
+
 	// 創建索引
-	indexSQL := "CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);"
+	indexSQL := `
+	CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+	CREATE INDEX IF NOT EXISTS idx_recovery_codes_username_active ON password_recovery_codes(username, is_active);
+	`
 	if _, err := pm.db.Exec(indexSQL); err != nil {
 		return fmt.Errorf("創建索引失败: %v", err)
 	}
@@ -187,6 +207,139 @@ func (pm *PasswordManager) HasPassword(username string) (bool, error) {
 	}
 
 	return count > 0, nil
+}
+
+// GenerateRecoveryCode 生成一次性密碼恢復碼，明文僅返回本次响应。
+func (pm *PasswordManager) GenerateRecoveryCode(username string) (string, error) {
+	code, err := generateRecoveryCode()
+	if err != nil {
+		return "", err
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(normalizeRecoveryCode(code)), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("生成恢復碼哈希失败: %v", err)
+	}
+
+	tx, err := pm.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("開始恢復碼事务失败: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		UPDATE password_recovery_codes
+		SET is_active = 0
+		WHERE username = ? AND is_active = 1
+	`, username); err != nil {
+		return "", fmt.Errorf("停用舊恢復碼失败: %v", err)
+	}
+
+	if _, err := tx.Exec(`
+		INSERT INTO password_recovery_codes (username, code_hash)
+		VALUES (?, ?)
+	`, username, string(hash)); err != nil {
+		return "", fmt.Errorf("保存恢復碼失败: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("提交恢復碼事务失败: %v", err)
+	}
+
+	return code, nil
+}
+
+// RecoverPasswordWithCode 使用一次性恢復碼重置密碼。
+func (pm *PasswordManager) RecoverPasswordWithCode(username, recoveryCode, newPassword string) error {
+	normalizedCode := normalizeRecoveryCode(recoveryCode)
+	if normalizedCode == "" {
+		return fmt.Errorf("恢復碼無效")
+	}
+
+	var id int64
+	var codeHash string
+	err := pm.db.QueryRow(`
+		SELECT id, code_hash
+		FROM password_recovery_codes
+		WHERE username = ? AND is_active = 1 AND used_at IS NULL
+		ORDER BY created_at DESC
+		LIMIT 1
+	`, username).Scan(&id, &codeHash)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("恢復碼無效或已失效")
+	}
+	if err != nil {
+		return fmt.Errorf("查詢恢復碼失败: %v", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(codeHash), []byte(normalizedCode)); err != nil {
+		return fmt.Errorf("恢復碼無效或已失效")
+	}
+
+	passwordHash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("生成密碼哈希失败: %v", err)
+	}
+
+	tx, err := pm.db.Begin()
+	if err != nil {
+		return fmt.Errorf("開始密碼恢復事务失败: %v", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`
+		INSERT INTO users (username, password_hash)
+		VALUES (?, ?)
+		ON CONFLICT(username) DO UPDATE SET password_hash = ?
+	`, username, string(passwordHash), string(passwordHash)); err != nil {
+		return fmt.Errorf("保存新密碼失败: %v", err)
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE password_recovery_codes
+		SET used_at = ?, is_active = 0
+		WHERE id = ?
+	`, time.Now(), id); err != nil {
+		return fmt.Errorf("標記恢復碼已使用失败: %v", err)
+	}
+
+	if _, err := tx.Exec(`
+		UPDATE password_recovery_codes
+		SET is_active = 0
+		WHERE username = ? AND id != ?
+	`, username, id); err != nil {
+		return fmt.Errorf("停用其他恢復碼失败: %v", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交密碼恢復事务失败: %v", err)
+	}
+
+	if err := pm.createInstalledMarker(); err != nil {
+		fmt.Printf("[WARN] 創建 .installed 標記文件失敗: %v\n", err)
+	}
+
+	return nil
+}
+
+func generateRecoveryCode() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("生成恢復碼失败: %v", err)
+	}
+	token := strings.ToUpper(base64.RawURLEncoding.EncodeToString(b))
+	parts := []string{"QMREC"}
+	for i := 0; i < 4; i++ {
+		start := i * 6
+		parts = append(parts, token[start:start+6])
+	}
+	return strings.Join(parts, "-"), nil
+}
+
+func normalizeRecoveryCode(code string) string {
+	code = strings.TrimSpace(code)
+	code = strings.ReplaceAll(code, " ", "")
+	return strings.ToUpper(code)
 }
 
 // Close 关闭數據库连接

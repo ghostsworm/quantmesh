@@ -40,7 +40,9 @@
       "beginWebAuthnLoginFailed": "开始安全密钥登录失败",
       "finishWebAuthnLoginFailed": "完成安全密钥登录失败",
       "listCredentialsFailed": "获取安全密钥列表失败",
-      "deleteCredentialFailed": "删除安全密钥失败"
+      "deleteCredentialFailed": "删除安全密钥失败",
+      "generateRecoveryCodeFailed": "生成恢复码失败",
+      "recoverPasswordFailed": "找回密码失败"
     }
   },
   "setup": {
@@ -983,7 +985,22 @@
     "webauthnPasswordRequired": "需要密码才能完成指纹登录",
     "userCancelled": "用户取消了指纹验证",
     "webauthnLoginFailed": "指纹登录失败",
-    "webauthnLoginError": "WebAuthn 登录失败"
+    "webauthnLoginError": "WebAuthn 登录失败",
+    "forgotPassword": "忘记密码？",
+    "recoveryCode": "恢复码",
+    "recoveryCodePlaceholder": "请输入恢复码",
+    "newPassword": "新密码",
+    "newPasswordPlaceholder": "请输入新密码（至少 6 位）",
+    "confirmNewPassword": "确认新密码",
+    "confirmNewPasswordPlaceholder": "请再次输入新密码",
+    "resetPassword": "重置密码",
+    "recovering": "重置中...",
+    "backToPasswordLogin": "返回密码登录",
+    "recoveryFillAllFields": "请填写恢复码和新密码",
+    "recoveryPasswordMinLength": "新密码长度至少为 6 位",
+    "recoveryPasswordMismatch": "两次输入的新密码不一致",
+    "recoverySuccess": "密码已重置，请使用新密码登录",
+    "recoveryFailed": "密码找回失败"
   },
   "globalDashboard": {
     "building": "正在构建指挥中心...",
@@ -3905,7 +3922,16 @@
     "notUsed": "未使用",
     "invalidDate": "無效日期",
     "unnamedDevice": "未命名設备",
-    "delete": "刪除"
+    "delete": "刪除",
+    "passwordRecovery": "密码找回",
+    "confirmGenerateRecoveryCode": "生成新的恢复码会使旧恢复码失效。确认继续吗？",
+    "recoveryCodeGenerated": "恢复码已生成，请立即保存",
+    "recoveryCodeGenerateFailed": "生成恢复码失败",
+    "recoveryCodeDesc": "恢复码用于忘记密码时重置登录密码。系统只会显示一次，新的恢复码会自动废弃旧恢复码。",
+    "generatingRecoveryCode": "生成中...",
+    "generateRecoveryCode": "生成新的恢复码",
+    "recoveryCode": "恢复码",
+    "recoveryCodeSaveHint": "请离线保存到安全位置。离开页面后无法再次查看，使用一次后会自动失效。"
   },
   "basisMonitor": {
     "title": "現貨-合約價差監控",

@@ -132,6 +132,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			auth.GET("/status", getAuthStatus)
 			auth.POST("/password/set", setPassword)
 			auth.POST("/password/verify", verifyPassword)
+			auth.POST("/password/recover", recoverPassword)
 			auth.POST("/logout", logout)
 		}
 
@@ -151,6 +152,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 		authProtected.Use(authMiddleware())
 		{
 			authProtected.POST("/password/change", changePassword)
+			authProtected.POST("/recovery-code/generate", generatePasswordRecoveryCode)
 		}
 
 		// WebAuthn API（部分需要认证，部分不需要）
@@ -159,7 +161,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			webauthn.POST("/register/begin", authMiddleware(), beginWebAuthnRegistration)
 			webauthn.POST("/register/finish", authMiddleware(), finishWebAuthnRegistration)
 			webauthn.POST("/login/begin", beginWebAuthnLogin)   // 登錄开始不需要认证
-			webauthn.POST("/login/finish", finishWebAuthnLogin) // 登錄完成不需要认证（但需要密碼驗证）
+			webauthn.POST("/login/finish", finishWebAuthnLogin) // 登錄完成不需要认证，依赖 WebAuthn 断言
 			webauthn.GET("/credentials", authMiddleware(), listWebAuthnCredentials)
 			webauthn.POST("/credentials/delete", authMiddleware(), deleteWebAuthnCredential)
 		}

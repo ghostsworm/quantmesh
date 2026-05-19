@@ -40,7 +40,9 @@
       "beginWebAuthnLoginFailed": "Failed to start security key login",
       "finishWebAuthnLoginFailed": "Failed to finish security key login",
       "listCredentialsFailed": "Failed to list security keys",
-      "deleteCredentialFailed": "Failed to delete security key"
+      "deleteCredentialFailed": "Failed to delete security key",
+      "generateRecoveryCodeFailed": "Failed to generate recovery code",
+      "recoverPasswordFailed": "Failed to recover password"
     }
   },
   "setup": {
@@ -983,7 +985,22 @@
     "webauthnPasswordRequired": "Password required to complete biometric login",
     "userCancelled": "User cancelled biometric verification",
     "webauthnLoginFailed": "Biometric login failed",
-    "webauthnLoginError": "WebAuthn login failed"
+    "webauthnLoginError": "WebAuthn login failed",
+    "forgotPassword": "Forgot password?",
+    "recoveryCode": "Recovery code",
+    "recoveryCodePlaceholder": "Enter recovery code",
+    "newPassword": "New password",
+    "newPasswordPlaceholder": "Enter new password (min. 6 characters)",
+    "confirmNewPassword": "Confirm new password",
+    "confirmNewPasswordPlaceholder": "Re-enter new password",
+    "resetPassword": "Reset password",
+    "recovering": "Resetting...",
+    "backToPasswordLogin": "Back to password login",
+    "recoveryFillAllFields": "Enter recovery code and new password",
+    "recoveryPasswordMinLength": "New password must be at least 6 characters",
+    "recoveryPasswordMismatch": "New passwords do not match",
+    "recoverySuccess": "Password reset. Sign in with the new password.",
+    "recoveryFailed": "Password recovery failed"
   },
   "globalDashboard": {
     "building": "Building command center...",
@@ -3903,7 +3920,16 @@
     "notUsed": "Not used",
     "invalidDate": "Invalid date",
     "unnamedDevice": "Unnamed device",
-    "delete": "Delete"
+    "delete": "Delete",
+    "passwordRecovery": "Password Recovery",
+    "confirmGenerateRecoveryCode": "Generating a new recovery code will invalidate the old one. Continue?",
+    "recoveryCodeGenerated": "Recovery code generated. Save it now.",
+    "recoveryCodeGenerateFailed": "Failed to generate recovery code",
+    "recoveryCodeDesc": "Use a recovery code to reset your login password if you forget it. It is shown once only; generating a new one invalidates the old code.",
+    "generatingRecoveryCode": "Generating...",
+    "generateRecoveryCode": "Generate new recovery code",
+    "recoveryCode": "Recovery code",
+    "recoveryCodeSaveHint": "Save it offline in a secure place. It cannot be viewed again after leaving this page and expires after one use."
   },
   "basisMonitor": {
     "title": "Spot-Futures Basis Monitor",

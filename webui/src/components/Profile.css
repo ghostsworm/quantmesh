@@ -44,7 +44,8 @@
 }
 
 .password-section h3,
-.webauthn-section h3 {
+.webauthn-section h3,
+.recovery-section h3 {
   margin-top: 0;
   margin-bottom: 20px;
   color: #333;
@@ -193,3 +194,43 @@
   text-align: right;
 }
 
+.recovery-card {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.recovery-card p {
+  margin-top: 0;
+  color: #595959;
+  line-height: 1.6;
+}
+
+.recovery-code-box {
+  padding: 16px;
+  border: 1px solid #91d5ff;
+  border-radius: 6px;
+  background: #e6f7ff;
+}
+
+.recovery-code-box label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: bold;
+  color: #003a8c;
+}
+
+.recovery-code-box code {
+  display: block;
+  padding: 12px;
+  border-radius: 4px;
+  background: white;
+  color: #10239e;
+  font-size: 16px;
+  word-break: break-all;
+}
+
+.recovery-code-box p {
+  margin: 10px 0 0;
+  color: #8c6d1f;
+}

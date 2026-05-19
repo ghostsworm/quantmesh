@@ -349,6 +349,35 @@ func (sm *SessionManager) DeleteSession(sessionID string) {
 	}
 }
 
+// DeleteSessionsForUser 刪除指定用戶的所有會话。
+func (sm *SessionManager) DeleteSessionsForUser(username string) {
+	sm.mu.Lock()
+	var sessionIDs []string
+	for sessionID, session := range sm.sessions {
+		if session.Username == username {
+			sessionIDs = append(sessionIDs, sessionID)
+			delete(sm.sessions, sessionID)
+		}
+	}
+	sm.mu.Unlock()
+
+	if sm.db != nil {
+		rows, err := sm.db.Query("SELECT session_id FROM sessions WHERE username = ?", username)
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var sessionID string
+				if rows.Scan(&sessionID) == nil {
+					sessionIDs = append(sessionIDs, sessionID)
+				}
+			}
+		}
+		if len(sessionIDs) > 0 {
+			sm.deleteSessionsFromDB(sessionIDs)
+		}
+	}
+}
+
 // deleteSessionsFromDB 從數據库刪除會话
 func (sm *SessionManager) deleteSessionsFromDB(sessionIDs []string) error {
 	if sm.db == nil || len(sessionIDs) == 0 {
