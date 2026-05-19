@@ -32,6 +32,15 @@ func (s *routingTestStrategy) Stop() error                                  { re
 func (s *routingTestStrategy) SetEventBus(bus EventBus)                     {}
 func (s *routingTestStrategy) GetVisualizationData() map[string]interface{} { return nil }
 
+type runningStatusStrategy struct {
+	routingTestStrategy
+	running atomic.Int64
+}
+
+func (s *runningStatusStrategy) IsRunning() bool {
+	return s.running.Load() == 1
+}
+
 func TestStrategyManagerOnOrderUpdateForStrategy(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Strategies.Configs = map[string]config.StrategyConfig{
@@ -53,5 +62,39 @@ func TestStrategyManagerOnOrderUpdateForStrategy(t *testing.T) {
 	}
 	if got := martingale.hit.Load(); got != 0 {
 		t.Fatalf("martingale 策略不应收到回调，实际 %d", got)
+	}
+}
+
+func TestStrategyManagerStatusUsesRuntimeState(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{
+		"grid": {Enabled: true, Type: "grid", Weight: 1},
+	}
+
+	sm := NewStrategyManager(cfg, 1000)
+	strategy := &runningStatusStrategy{routingTestStrategy: routingTestStrategy{name: "grid"}}
+	sm.RegisterStrategy("grid", strategy, 1, 0)
+
+	status := sm.GetStrategyStatus("grid")
+	if status == nil {
+		t.Fatal("应返回策略状态")
+	}
+	if status.IsRunning {
+		t.Fatal("策略尚未成功启动时不应仅因 enabled=true 就显示 running=true")
+	}
+
+	strategy.running.Store(1)
+	status = sm.GetStrategyStatus("grid")
+	if status == nil || !status.IsRunning {
+		t.Fatal("策略运行态为 true 时应显示 running=true")
+	}
+
+	cfg.Strategies.Configs["grid"] = config.StrategyConfig{Enabled: false, Type: "grid", Weight: 1}
+	status = sm.GetStrategyStatus("grid")
+	if status == nil {
+		t.Fatal("应返回策略状态")
+	}
+	if status.IsRunning {
+		t.Fatal("策略配置被禁用时不应显示 running=true")
 	}
 }

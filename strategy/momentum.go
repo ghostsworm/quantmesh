@@ -32,8 +32,9 @@ type MomentumStrategy struct {
 	position   *Position
 	entryPrice float64
 
-	isPaused bool
-	eventBus EventBus
+	isPaused  bool
+	isRunning bool
+	eventBus  EventBus
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -108,17 +109,32 @@ func (ms *MomentumStrategy) Initialize(cfg *config.Config, executor position.Ord
 
 // Start 啟动策略
 func (ms *MomentumStrategy) Start(ctx context.Context) error {
-	logger.Info("✅ [%s] 动量策略已啟动 (RSI周期:%d, 超買:%d, 超賣:%d)",
+	ms.mu.Lock()
+	ms.isRunning = true
+	ms.mu.Unlock()
+
+	logger.Warn("⚠️ [%s] 动量策略以信号模式啟动，当前不会自动下单 (RSI周期:%d, 超買:%d, 超賣:%d)",
 		ms.name, ms.rsiPeriod, int(ms.overbought), int(ms.oversold))
 	return nil
 }
 
 // Stop 停止策略
 func (ms *MomentumStrategy) Stop() error {
+	ms.mu.Lock()
+	ms.isRunning = false
+	ms.mu.Unlock()
+
 	if ms.cancel != nil {
 		ms.cancel()
 	}
 	return nil
+}
+
+// IsRunning 回傳策略是否已成功啟动
+func (ms *MomentumStrategy) IsRunning() bool {
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+	return ms.isRunning
 }
 
 // addPrice 新增價格
@@ -189,9 +205,12 @@ func (ms *MomentumStrategy) calculateRSI() float64 {
 
 // OnPriceChange 價格變化处理
 func (ms *MomentumStrategy) OnPriceChange(price float64) error {
-	if ms.isPaused {
+	ms.mu.RLock()
+	if !ms.isRunning || ms.isPaused {
+		ms.mu.RUnlock()
 		return nil
 	}
+	ms.mu.RUnlock()
 	ms.addPrice(price)
 
 	rsi := ms.calculateRSI()
@@ -262,6 +281,26 @@ func (ms *MomentumStrategy) GetStatistics() *StrategyStatistics {
 
 // GetVisualizationData 獲取策略可视化數據
 func (ms *MomentumStrategy) GetVisualizationData() map[string]interface{} {
-	// TODO: 实现Momentum策略的可视化数据
-	return make(map[string]interface{})
+	ms.mu.RLock()
+	defer ms.mu.RUnlock()
+
+	currentPrice := 0.0
+	if len(ms.priceHistory) > 0 {
+		currentPrice = ms.priceHistory[len(ms.priceHistory)-1]
+	}
+	hasPosition := ms.position != nil
+	entryPrice := ms.entryPrice
+
+	return map[string]interface{}{
+		"currentPrice":       currentPrice,
+		"rsiPeriod":          ms.rsiPeriod,
+		"overbought":         ms.overbought,
+		"oversold":           ms.oversold,
+		"momentumThreshold":  ms.momentumThreshold,
+		"hasPosition":        hasPosition,
+		"entryPrice":         entryPrice,
+		"executionMode":      "signal_only",
+		"autoTradingEnabled": false,
+		"isRunning":          ms.isRunning,
+	}
 }

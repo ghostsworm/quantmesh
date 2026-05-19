@@ -145,7 +145,10 @@ func (sm *StrategyManager) GetAllStrategies() map[string]Strategy {
 func (sm *StrategyManager) IsStrategyEnabled(name string) bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
+	return sm.isStrategyEnabledLocked(name)
+}
 
+func (sm *StrategyManager) isStrategyEnabledLocked(name string) bool {
 	strategyCfg, exists := sm.cfg.Strategies.Configs[name]
 	if !exists {
 		return false
@@ -161,7 +164,7 @@ func (sm *StrategyManager) StartAll() error {
 	// 2. 啟动每個策略
 	sm.mu.RLock()
 	for name, strategy := range sm.strategies {
-		if sm.IsStrategyEnabled(name) {
+		if sm.isStrategyEnabledLocked(name) {
 			go func(n string, s Strategy) {
 				if err := s.Start(sm.ctx); err != nil {
 					logger.Error("❌ 策略 %s 啟动失败: %v", n, err)
@@ -207,7 +210,7 @@ func (sm *StrategyManager) OnPriceChange(price float64) {
 	defer sm.mu.RUnlock()
 
 	for name, strategy := range sm.strategies {
-		if sm.IsStrategyEnabled(name) {
+		if sm.isStrategyEnabledLocked(name) {
 			go func(n string, s Strategy) {
 				if err := s.OnPriceChange(price); err != nil {
 					logger.Warn("⚠️ 策略 %s 处理價格變化失败: %v", n, err)
@@ -223,7 +226,7 @@ func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 	defer sm.mu.RUnlock()
 
 	for name, strategy := range sm.strategies {
-		if sm.IsStrategyEnabled(name) {
+		if sm.isStrategyEnabledLocked(name) {
 			go func(n string, s Strategy) {
 				if err := s.OnOrderUpdate(update); err != nil {
 					logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
@@ -239,7 +242,7 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 	defer sm.mu.RUnlock()
 	if strategyName == "" {
 		for name, strategy := range sm.strategies {
-			if sm.IsStrategyEnabled(name) {
+			if sm.isStrategyEnabledLocked(name) {
 				go func(n string, s Strategy) {
 					if err := s.OnOrderUpdate(update); err != nil {
 						logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
@@ -250,7 +253,7 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 		return
 	}
 	strategy, ok := sm.strategies[strategyName]
-	if !ok || !sm.IsStrategyEnabled(strategyName) {
+	if !ok || !sm.isStrategyEnabledLocked(strategyName) {
 		return
 	}
 	go func(n string, s Strategy) {
@@ -286,6 +289,20 @@ type StrategyRuntimeStatus struct {
 	PositionCount     int                    `json:"positionCount"`
 	OrderCount        int                    `json:"orderCount"`
 	VisualizationData map[string]interface{} `json:"visualizationData,omitempty"` // 新增：策略可视化數據
+}
+
+type strategyRuntimeReporter interface {
+	IsRunning() bool
+}
+
+func isStrategyActuallyRunning(strategy Strategy, isEnabled bool) bool {
+	if !isEnabled {
+		return false
+	}
+	if reporter, ok := strategy.(strategyRuntimeReporter); ok {
+		return reporter.IsRunning()
+	}
+	return isEnabled
 }
 
 // GetAllStrategyStatus 獲取所有策略的運行狀態
@@ -328,7 +345,7 @@ func (sm *StrategyManager) GetAllStrategyStatus() []StrategyRuntimeStatus {
 			Name:              name,
 			Type:              strategyType,
 			IsEnabled:         isEnabled,
-			IsRunning:         isEnabled, // 如果啟用就是運行中
+			IsRunning:         isStrategyActuallyRunning(strategy, isEnabled),
 			Weight:            weight,
 			AllocatedFunds:    allocatedFunds,
 			UsedFunds:         usedFunds,
@@ -389,7 +406,7 @@ func (sm *StrategyManager) GetStrategyStatus(name string) *StrategyRuntimeStatus
 		Name:              name,
 		Type:              strategyType,
 		IsEnabled:         isEnabled,
-		IsRunning:         isEnabled,
+		IsRunning:         isStrategyActuallyRunning(strategy, isEnabled),
 		Weight:            weight,
 		AllocatedFunds:    allocatedFunds,
 		UsedFunds:         usedFunds,

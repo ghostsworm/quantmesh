@@ -10,11 +10,13 @@ import (
 	"quantmesh/exchange/bingx"
 	"quantmesh/exchange/bitfinex"
 	"quantmesh/exchange/bitget"
+	"quantmesh/exchange/bitkub"
 	"quantmesh/exchange/bitmex"
 	"quantmesh/exchange/bitrue"
 	"quantmesh/exchange/btcc"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/coinex"
+	"quantmesh/exchange/coinsph"
 	"quantmesh/exchange/cryptocom"
 	"quantmesh/exchange/deribit"
 	"quantmesh/exchange/gate"
@@ -25,12 +27,10 @@ import (
 	"quantmesh/exchange/okx"
 	"quantmesh/exchange/phemex"
 	"quantmesh/exchange/poloniex"
-	"quantmesh/utils"
-	"quantmesh/exchange/bitkub"
-	"quantmesh/exchange/coinsph"
 	"quantmesh/exchange/whitebit"
 	"quantmesh/exchange/woox"
 	"quantmesh/exchange/xtcom"
+	"quantmesh/utils"
 )
 
 // NewExchange 創建交易所實例
@@ -585,6 +585,13 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 // 適用於未啟動 bot 時查詢主流幣種 K 線，如 Binance 的 K 線為公開接口。
 func NewExchangeForPublicKlines(exchangeName, symbol string) (IExchange, error) {
 	exchangeName = strings.ToLower(exchangeName)
+	publicCfg := map[string]string{
+		"api_key":     "public-data-only",
+		"secret_key":  "public-data-only",
+		"passphrase":  "public-data-only",
+		"testnet":     "false",
+		"public_data": "true",
+	}
 	switch exchangeName {
 	case "binance":
 		cfgMap := map[string]string{
@@ -597,7 +604,161 @@ func NewExchangeForPublicKlines(exchangeName, symbol string) (IExchange, error) 
 			return nil, err
 		}
 		return &binanceWrapper{adapter: adapter}, nil
+	case "bitget":
+		adapter, err := bitget.NewBitgetAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitgetWrapper{adapter: adapter}, nil
+	case "bybit":
+		adapter, err := bybit.NewBybitAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bybitWrapper{adapter: adapter}, nil
+	case "gate":
+		cfgMap := clonePublicConfig(publicCfg)
+		cfgMap["settle"] = "usdt"
+		adapter, err := gate.NewGateAdapter(cfgMap, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &gateWrapper{adapter: adapter}, nil
+	case "okx":
+		adapter, err := okx.NewOKXAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &okxWrapper{adapter: adapter}, nil
+	case "huobi":
+		adapter, err := huobi.NewHuobiAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &huobiWrapper{adapter: adapter}, nil
+	case "kucoin":
+		adapter, err := kucoin.NewKuCoinAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &kucoinWrapper{adapter: adapter}, nil
+	case "kraken":
+		adapter, err := kraken.NewKrakenAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &krakenWrapper{adapter: adapter}, nil
+	case "bitfinex":
+		adapter, err := bitfinex.NewBitfinexAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitfinexWrapper{adapter: adapter}, nil
+	case "mexc":
+		adapter, err := mexc.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &mexcWrapper{adapter: adapter}, nil
+	case "bingx":
+		adapter, err := bingx.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bingxWrapper{adapter: adapter}, nil
+	case "deribit":
+		adapter, err := deribit.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &deribitWrapper{adapter: adapter}, nil
+	case "bitmex":
+		adapter, err := bitmex.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitmexWrapper{adapter: adapter}, nil
+	case "phemex":
+		adapter, err := phemex.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &phemexWrapper{adapter: adapter}, nil
+	case "woox":
+		adapter, err := woox.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &wooxWrapper{adapter: adapter}, nil
+	case "coinex":
+		adapter, err := coinex.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &coinexWrapper{adapter: adapter}, nil
+	case "bitrue":
+		adapter, err := bitrue.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitrueWrapper{adapter: adapter}, nil
+	case "xtcom":
+		adapter, err := xtcom.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &xtcomWrapper{adapter: adapter}, nil
+	case "btcc":
+		adapter, err := btcc.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &btccWrapper{adapter: adapter}, nil
+	case "ascendex":
+		adapter, err := ascendex.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &ascendexWrapper{adapter: adapter}, nil
+	case "poloniex":
+		adapter, err := poloniex.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &poloniexWrapper{adapter: adapter}, nil
+	case "cryptocom":
+		adapter, err := cryptocom.NewAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &cryptocomWrapper{adapter: adapter}, nil
+	case "whitebit":
+		adapter, err := whitebit.NewWhiteBITAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &whitebitWrapper{adapter: adapter}, nil
+	case "bitkub":
+		adapter, err := bitkub.NewBitkubSpotAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &bitkubSpotWrapper{adapter: adapter}, nil
+	case "coinsph":
+		adapter, err := coinsph.NewCoinsphSpotAdapter(publicCfg, symbol)
+		if err != nil {
+			return nil, err
+		}
+		return &coinsphSpotWrapper{adapter: adapter}, nil
 	default:
 		return nil, fmt.Errorf("交易所 %s 暫不支援無認證公開 K 線查詢，請先啟動對應交易對的 bot", exchangeName)
 	}
+}
+
+func clonePublicConfig(cfg map[string]string) map[string]string {
+	out := make(map[string]string, len(cfg))
+	for k, v := range cfg {
+		out[k] = v
+	}
+	return out
 }

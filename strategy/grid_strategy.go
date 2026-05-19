@@ -64,6 +64,7 @@ func (gs *GridStrategy) Initialize(cfg *config.Config, executor position.OrderEx
 func (gs *GridStrategy) Start(ctx context.Context) error {
 	gs.mu.Lock()
 	gs.ctx = ctx
+	gs.isRunning = true
 	gs.mu.Unlock()
 
 	logger.Info("✅ [%s] 網格策略已啟动", gs.name)
@@ -72,8 +73,19 @@ func (gs *GridStrategy) Start(ctx context.Context) error {
 
 // Stop 停止策略
 func (gs *GridStrategy) Stop() error {
+	gs.mu.Lock()
+	gs.isRunning = false
+	gs.mu.Unlock()
+
 	logger.Info("⏹️ [%s] 網格策略已停止", gs.name)
 	return nil
+}
+
+// IsRunning 回傳策略是否已成功啟动
+func (gs *GridStrategy) IsRunning() bool {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.isRunning
 }
 
 // OnPriceChange 價格變化处理

@@ -2,6 +2,23 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc32] - 2026-05-19
+
+### Fixed
+- **策略运行态不再误报**：策略状态接口优先读取策略真实运行态，网格、DCA、马丁、组合以及信号型策略会在 Start/Stop 后同步运行状态，避免 UI/API 把“已启用但未运行”的策略误显示为运行中。
+- **策略管理器锁安全**：策略广播与启动路径不再在持读锁时再次读取策略启用状态，降低长期运行中状态变更与行情回调交错造成锁等待卡住的风险。
+- **信号型策略长期运行安全**：趋势跟踪、均值回归、动量策略明确标记为 signal-only，不再暗示会自动下单；均值回归和趋势策略的可视化/信号路径拆除嵌套锁，避免行情触发特定分支后策略卡死。
+
+---
+
+## [3.105.0-rc31] - 2026-05-19
+
+### Fixed
+- **多交易所公開 K 線入口**：`NewExchangeForPublicKlines` 不再只支持 Binance，已覆盖工厂声明的 Bitget、Bybit、Gate、OKX、Huobi、KuCoin、Kraken、Bitfinex、MEXC、BingX、Deribit、BitMEX、Phemex、WOO X、CoinEx、Bitrue、XT.COM、BTCC、AscendEX、Poloniex、Crypto.com、WhiteBIT、Bitkub、Coins.ph 等接入，未启动 Bot 时也能优先尝试对应交易所的公开行情/K 线适配器。
+- **交易所 live 检查**：新增默认跳过的 `TestLivePublicExchangeMarketData`，设置 `QUANTMESH_LIVE_EXCHANGE_TESTS=1` 后可逐个调用已接入交易所公开行情接口，便于持续排查实际 API 可用性。
+
+---
+
 ## [3.105.0-rc30] - 2026-05-19
 
 ### Fixed

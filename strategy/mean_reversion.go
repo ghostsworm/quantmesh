@@ -31,8 +31,9 @@ type MeanReversionStrategy struct {
 	position   *Position
 	entryPrice float64
 
-	isPaused bool
-	eventBus EventBus
+	isPaused  bool
+	isRunning bool
+	eventBus  EventBus
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -100,17 +101,32 @@ func (mrs *MeanReversionStrategy) Initialize(cfg *config.Config, executor positi
 
 // Start 啟动策略
 func (mrs *MeanReversionStrategy) Start(ctx context.Context) error {
-	logger.Info("✅ [%s] 均值回归策略已啟动 (周期:%d, 標准差倍數:%.2f)",
+	mrs.mu.Lock()
+	mrs.isRunning = true
+	mrs.mu.Unlock()
+
+	logger.Warn("⚠️ [%s] 均值回归策略以信号模式啟动，当前不会自动下单 (周期:%d, 標准差倍數:%.2f)",
 		mrs.name, mrs.period, mrs.stdMultiplier)
 	return nil
 }
 
 // Stop 停止策略
 func (mrs *MeanReversionStrategy) Stop() error {
+	mrs.mu.Lock()
+	mrs.isRunning = false
+	mrs.mu.Unlock()
+
 	if mrs.cancel != nil {
 		mrs.cancel()
 	}
 	return nil
+}
+
+// IsRunning 回傳策略是否已成功啟动
+func (mrs *MeanReversionStrategy) IsRunning() bool {
+	mrs.mu.RLock()
+	defer mrs.mu.RUnlock()
+	return mrs.isRunning
 }
 
 // addPrice 新增價格
@@ -188,15 +204,19 @@ func (mrs *MeanReversionStrategy) calculateBollingerBands() (upper, middle, lowe
 
 // OnPriceChange 價格變化处理
 func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
-	if mrs.isPaused {
+	mrs.mu.RLock()
+	if !mrs.isRunning || mrs.isPaused {
+		mrs.mu.RUnlock()
 		return nil
 	}
+	mrs.mu.RUnlock()
 	mrs.addPrice(price)
 
 	upper, middle, lower := mrs.calculateBollingerBands()
 	if upper == 0 || middle == 0 || lower == 0 {
 		return nil
 	}
+	stdDev := mrs.calculateStdDev(middle)
 
 	mrs.mu.Lock()
 	defer mrs.mu.Unlock()
@@ -226,7 +246,6 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 	// 價格回归中轨：平倉
 	if mrs.position != nil {
 		deviation := math.Abs(price - middle)
-		stdDev := mrs.calculateStdDev(middle)
 		if deviation < stdDev*mrs.reversionThreshold {
 			logger.Info("📊 [%s] 價格回归中轨，平倉: 價格=%.2f, 中轨=%.2f", mrs.name, price, middle)
 			// TODO: 實現平倉逻辑
@@ -273,9 +292,6 @@ func (mrs *MeanReversionStrategy) GetStatistics() *StrategyStatistics {
 
 // GetVisualizationData 獲取策略可视化數據
 func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} {
-	mrs.mu.RLock()
-	defer mrs.mu.RUnlock()
-
 	data := make(map[string]interface{})
 
 	// 计算布林带
@@ -286,9 +302,14 @@ func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} 
 
 	// 当前价格
 	currentPrice := 0.0
+	mrs.mu.RLock()
 	if len(mrs.priceHistory) > 0 {
 		currentPrice = mrs.priceHistory[len(mrs.priceHistory)-1]
 	}
+	hasPosition := mrs.position != nil
+	entryPrice := mrs.entryPrice
+	isRunning := mrs.isRunning
+	mrs.mu.RUnlock()
 	data["currentPrice"] = currentPrice
 
 	// 价格在布林带中的位置（百分比）
@@ -306,11 +327,11 @@ func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} 
 	}
 
 	// 持仓状态
-	if mrs.position != nil {
+	if hasPosition {
 		data["hasPosition"] = true
-		data["entryPrice"] = mrs.entryPrice
-		if currentPrice > 0 && mrs.entryPrice > 0 {
-			pnlPercent := ((currentPrice - mrs.entryPrice) / mrs.entryPrice) * 100
+		data["entryPrice"] = entryPrice
+		if currentPrice > 0 && entryPrice > 0 {
+			pnlPercent := ((currentPrice - entryPrice) / entryPrice) * 100
 			data["pnlPercent"] = pnlPercent
 		}
 	} else {
@@ -322,20 +343,22 @@ func (mrs *MeanReversionStrategy) GetVisualizationData() map[string]interface{} 
 	data["period"] = mrs.period
 	data["stdMultiplier"] = mrs.stdMultiplier
 	data["reversionThreshold"] = mrs.reversionThreshold
+	data["executionMode"] = "signal_only"
+	data["autoTradingEnabled"] = false
+	data["isRunning"] = isRunning
 
 	// 买入/卖出信号判断
 	if upper > 0 && lower > 0 && currentPrice > 0 {
-		hasPos := mrs.position != nil
 		// 买入信号：价格触及下轨
-		buySignal := currentPrice <= lower*1.01 && !hasPos
+		buySignal := currentPrice <= lower*1.01 && !hasPosition
 		data["buySignal"] = buySignal
 
 		// 卖出信号：价格触及上轨或回归均值
-		sellSignal := (currentPrice >= upper*0.99 || currentPrice >= middle) && hasPos
+		sellSignal := (currentPrice >= upper*0.99 || currentPrice >= middle) && hasPosition
 		data["sellSignal"] = sellSignal
 
 		// 距离买入/卖出信号的距离
-		if !hasPos {
+		if !hasPosition {
 			distanceToBuy := ((currentPrice - lower) / currentPrice) * 100
 			data["distanceToBuy"] = distanceToBuy
 		} else {
