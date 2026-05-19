@@ -128,6 +128,9 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 	prompt, _ := reqData["prompt"].(string)
 	sysInst, _ := reqData["system_instruction"].(string)
 	apiKey, _ := reqData["gemini_api_key"].(string)
+	if apiKey == "" || apiKey == service.RedactedAPIKey {
+		apiKey = service.ResolveTaskGeminiAPIKey(task.ID)
+	}
 
 	aiReq := service.AIRequest{
 		Prompt:            prompt,

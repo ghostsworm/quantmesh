@@ -4,11 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 	"time"
 
-	"quantmesh/database"
 	"github.com/google/uuid"
+	"quantmesh/database"
 )
+
+const RedactedAPIKey = "***redacted***"
+
+var taskSecrets sync.Map
 
 type TaskService struct {
 	db database.Database
@@ -24,7 +30,8 @@ func (s *TaskService) CreateTask(ctx context.Context, taskType string, requestDa
 	taskID := uuid.New().String()
 	expiresAt := time.Now().Add(24 * time.Hour)
 
-	requestDataJSON, err := json.Marshal(requestData)
+	storedRequestData := redactSensitiveRequestData(taskID, requestData)
+	requestDataJSON, err := json.Marshal(storedRequestData)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request data: %w", err)
 	}
@@ -74,11 +81,12 @@ func (s *TaskService) UpdateTaskStatus(ctx context.Context, taskID, status strin
 	}
 
 	if status == "completed" || status == "failed" || status == "timeout" {
+		ForgetTaskSecrets(taskID)
 		task.CompletedAt = &now
 		if result != nil {
 			resultJSON, _ := json.Marshal(result)
 			task.Result = string(resultJSON)
-			
+
 			// 從結果中提取统计信息
 			if aiInput, ok := result["ai_input"].(string); ok {
 				task.AIInput = &aiInput
@@ -149,4 +157,34 @@ func (s *TaskService) RetryTask(ctx context.Context, taskID string) error {
 func (s *TaskService) CleanupExpiredTasks(ctx context.Context) (int64, error) {
 	cutoff := time.Now().AddDate(0, 0, -7) // 清理 7 天前的已完成/失败任務
 	return s.db.CleanupExpiredAsyncTasks(ctx, cutoff)
+}
+
+func redactSensitiveRequestData(taskID string, requestData map[string]interface{}) map[string]interface{} {
+	out := make(map[string]interface{}, len(requestData)+1)
+	for k, v := range requestData {
+		out[k] = v
+	}
+	if key, ok := requestData["gemini_api_key"].(string); ok && strings.TrimSpace(key) != "" {
+		taskSecrets.Store(secretKey(taskID, "gemini_api_key"), key)
+		out["gemini_api_key"] = RedactedAPIKey
+		out["gemini_api_key_ref"] = "memory"
+	}
+	return out
+}
+
+func ResolveTaskGeminiAPIKey(taskID string) string {
+	if key, ok := taskSecrets.Load(secretKey(taskID, "gemini_api_key")); ok {
+		if s, ok := key.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func ForgetTaskSecrets(taskID string) {
+	taskSecrets.Delete(secretKey(taskID, "gemini_api_key"))
+}
+
+func secretKey(taskID, name string) string {
+	return taskID + ":" + name
 }

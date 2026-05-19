@@ -4463,13 +4463,15 @@ type RedditPostInfo struct {
 
 // PolymarketMarketInfo Polymarket市场信息
 type PolymarketMarketInfo struct {
-	ID          string    `json:"id"`
-	Question    string    `json:"question"`
-	Description string    `json:"description"`
-	EndDate     time.Time `json:"end_date"`
-	Outcomes    []string  `json:"outcomes"`
-	Volume      float64   `json:"volume"`
-	Liquidity   float64   `json:"liquidity"`
+	ID             string    `json:"id"`
+	Question       string    `json:"question"`
+	Description    string    `json:"description"`
+	EndDate        time.Time `json:"end_date"`
+	Outcomes       []string  `json:"outcomes"`
+	OutcomePrices  []float64 `json:"outcome_prices,omitempty"`
+	YesProbability float64   `json:"yes_probability,omitempty"`
+	Volume         float64   `json:"volume"`
+	Liquidity      float64   `json:"liquidity"`
 }
 
 // SetDataSourceProvider 設置數據源提供者
@@ -4778,13 +4780,15 @@ func (p *builtinDataSourceProvider) GetPolymarketMarkets(keywords []string) ([]P
 	out := make([]PolymarketMarketInfo, 0, len(raw))
 	for _, m := range raw {
 		out = append(out, PolymarketMarketInfo{
-			ID:          m.ID,
-			Question:    m.Question,
-			Description: m.Description,
-			EndDate:     m.EndDate,
-			Outcomes:    m.Outcomes,
-			Volume:      m.Volume,
-			Liquidity:   m.Liquidity,
+			ID:             m.ID,
+			Question:       m.Question,
+			Description:    m.Description,
+			EndDate:        m.EndDate,
+			Outcomes:       m.Outcomes,
+			OutcomePrices:  m.OutcomePrices,
+			YesProbability: m.YesProbability,
+			Volume:         m.Volume,
+			Liquidity:      m.Liquidity,
 		})
 	}
 	p.polyMu.Lock()
@@ -5051,13 +5055,14 @@ func (a *dataSourceAdapter) GetPolymarketMarkets(keywords []string) ([]Polymarke
 							}
 						}
 						markets = append(markets, PolymarketMarketInfo{
-							ID:          getFieldString(market, "ID"),
-							Question:    getFieldString(market, "Question"),
-							Description: getFieldString(market, "Description"),
-							EndDate:     getFieldTime(market, "EndDate"),
-							Outcomes:    outcomes,
-							Volume:      getFieldFloat(market, "Volume"),
-							Liquidity:   getFieldFloat(market, "Liquidity"),
+							ID:             getFieldString(market, "ID"),
+							Question:       getFieldString(market, "Question"),
+							Description:    getFieldString(market, "Description"),
+							EndDate:        getFieldTime(market, "EndDate"),
+							Outcomes:       outcomes,
+							YesProbability: getFieldFloat(market, "YesProbability"),
+							Volume:         getFieldFloat(market, "Volume"),
+							Liquidity:      getFieldFloat(market, "Liquidity"),
 						})
 					}
 					return markets, nil
@@ -5077,13 +5082,15 @@ func fetchPolymarketMarketsFromGamma(baseURL string, keywords []string) ([]Polym
 	out := make([]PolymarketMarketInfo, 0, len(raw))
 	for _, m := range raw {
 		out = append(out, PolymarketMarketInfo{
-			ID:          m.ID,
-			Question:    m.Question,
-			Description: m.Description,
-			EndDate:     m.EndDate,
-			Outcomes:    m.Outcomes,
-			Volume:      m.Volume,
-			Liquidity:   m.Liquidity,
+			ID:             m.ID,
+			Question:       m.Question,
+			Description:    m.Description,
+			EndDate:        m.EndDate,
+			Outcomes:       m.Outcomes,
+			OutcomePrices:  m.OutcomePrices,
+			YesProbability: m.YesProbability,
+			Volume:         m.Volume,
+			Liquidity:      m.Liquidity,
 		})
 	}
 	return out, nil

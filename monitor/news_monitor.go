@@ -1066,8 +1066,9 @@ func (nm *NewsMonitor) fetchFromNewsAPI(apiKey string, keywords []string) ([]New
 	baseURL := "https://newsapi.org/v2/everything"
 	params := url.Values{}
 	params.Set("apiKey", apiKey)
-	params.Set("q", strings.Join(keywords, " OR "))
-	params.Set("language", "zh,en")
+	params.Set("q", buildNewsAPIQuery(keywords))
+	// NewsAPI 只接受单一 language 值，逗号分隔会导致请求失败。
+	params.Set("language", "en")
 	params.Set("sortBy", "publishedAt")
 	params.Set("pageSize", "20")
 
@@ -1084,7 +1085,7 @@ func (nm *NewsMonitor) fetchFromNewsAPI(apiKey string, keywords []string) ([]New
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxNewsAPIErrorBodyBytes))
 		return nil, fmt.Errorf("NewsAPI error: HTTP %d, %s", resp.StatusCode, string(body))
 	}
 
@@ -1101,7 +1102,7 @@ func (nm *NewsMonitor) fetchFromNewsAPI(apiKey string, keywords []string) ([]New
 		} `json:"articles"`
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxNewsAPIResponseBytes))
 	if err != nil {
 		return nil, err
 	}

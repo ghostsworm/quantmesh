@@ -17,6 +17,14 @@ import (
 	"quantmesh/logger"
 )
 
+const (
+	defaultNewsCollectInterval = 5 * time.Minute
+	maxNewsAPIQueryLength      = 450
+	maxNewsAPIKeywords         = 20
+	maxNewsAPIErrorBodyBytes   = 4096
+	maxNewsAPIResponseBytes    = 4 << 20
+)
+
 // NewsCollector 新闻收集器：每5分钟静默收集NewsAPI新闻，维护最近2小時缓存
 type NewsCollector struct {
 	cfg         *config.Config
@@ -67,9 +75,9 @@ func (nc *NewsCollector) Start() {
 	}
 
 	interval, err := time.ParseDuration(nc.cfg.NewsMonitor.NewsCollectInterval)
-	if err != nil {
+	if err != nil || interval <= 0 {
 		logger.Warn("📰 NewsCollector: 解析收集间隔失败，使用默认5分钟: %v", err)
-		interval = 5 * time.Minute
+		interval = defaultNewsCollectInterval
 	}
 
 	logger.Info("📰 NewsCollector 啟动 (收集间隔: %s)", interval)
@@ -179,7 +187,7 @@ func (nc *NewsCollector) CollectNow() error {
 func (nc *NewsCollector) collectKeywords() []string {
 	seen := make(map[string]bool)
 	var result []string
-	
+
 	// 优先使用配置的关键词（用户自定义的最重要）
 	if len(nc.cfg.NewsMonitor.Keywords) > 0 {
 		for _, k := range nc.cfg.NewsMonitor.Keywords {
@@ -190,7 +198,7 @@ func (nc *NewsCollector) collectKeywords() []string {
 			}
 		}
 	}
-	
+
 	// 然后添加启用的资产关键词（限制每个资产的关键词数量）
 	for _, a := range nc.cfg.NewsMonitor.Assets {
 		if !a.Enabled || len(a.Keywords) == 0 {
@@ -211,7 +219,7 @@ func (nc *NewsCollector) collectKeywords() []string {
 			}
 		}
 	}
-	
+
 	// 如果还没有关键词，使用默认关键词（优先使用 BTC 相关的）
 	if len(result) == 0 {
 		// 优先使用 BTC 相关的核心关键词
@@ -238,13 +246,13 @@ func (nc *NewsCollector) collectKeywords() []string {
 			}
 		}
 	}
-	
+
 	// 最终限制：最多 15 个关键词（确保查询字符串不会太长）
 	if len(result) > 15 {
 		result = result[:15]
 		logger.Debug("📰 NewsCollector: 关键词数量过多，已限制到 15 个最重要的关键词")
 	}
-	
+
 	return result
 }
 
@@ -313,35 +321,8 @@ func (nc *NewsCollector) GetCacheCount() int {
 
 // fetchFromNewsAPI 從NewsAPI獲取新闻
 func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]NewsItem, error) {
-	// NewsAPI 限制查询字符串最大长度为 500 字符
-	// 如果关键词太多，需要分割成多个请求
-	const maxQueryLength = 450 // 留一些余量，避免 URL 编码后超过 500
-	
-	// 限制关键词数量，优先使用最重要的关键词
-	// 如果关键词太多，只取前 N 个最重要的
-	maxKeywords := 20 // 限制最多 20 个关键词
-	if len(keywords) > maxKeywords {
-		logger.Debug("📰 NewsCollector: 关键词数量过多 (%d)，只使用前 %d 个", len(keywords), maxKeywords)
-		keywords = keywords[:maxKeywords]
-	}
-	
-	// 构建查询字符串，确保不超过长度限制
-	query := strings.Join(keywords, " OR ")
-	if len(query) > maxQueryLength {
-		// 如果查询字符串太长，逐步减少关键词直到符合长度要求
-		for len(query) > maxQueryLength && len(keywords) > 1 {
-			keywords = keywords[:len(keywords)-1]
-			query = strings.Join(keywords, " OR ")
-		}
-		if len(query) > maxQueryLength {
-			// 如果单个关键词都太长，截断查询字符串
-			query = query[:maxQueryLength]
-			logger.Warn("📰 NewsCollector: 查询字符串过长，已截断到 %d 字符", maxQueryLength)
-		} else {
-			logger.Debug("📰 NewsCollector: 查询字符串过长，已减少到 %d 个关键词", len(keywords))
-		}
-	}
-	
+	query := buildNewsAPIQuery(keywords)
+
 	baseURL := "https://newsapi.org/v2/everything"
 	params := url.Values{}
 	params.Set("apiKey", apiKey)
@@ -365,7 +346,7 @@ func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]N
 
 	if resp.StatusCode != http.StatusOK {
 		// 讀取錯誤響應體以便調試
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxNewsAPIErrorBodyBytes))
 		return nil, fmt.Errorf("NewsAPI error: HTTP %d - %s", resp.StatusCode, string(body))
 	}
 
@@ -382,7 +363,7 @@ func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]N
 		} `json:"articles"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxNewsAPIResponseBytes)).Decode(&result); err != nil {
 		return nil, err
 	}
 
@@ -402,4 +383,61 @@ func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]N
 		})
 	}
 	return newsItems, nil
+}
+
+func buildNewsAPIQuery(keywords []string) string {
+	keywords = normalizeNewsAPIKeywords(keywords)
+	query := strings.Join(keywords, " OR ")
+	if len(query) <= maxNewsAPIQueryLength {
+		return query
+	}
+	for len(query) > maxNewsAPIQueryLength && len(keywords) > 1 {
+		keywords = keywords[:len(keywords)-1]
+		query = strings.Join(keywords, " OR ")
+	}
+	if len(query) > maxNewsAPIQueryLength {
+		return query[:maxNewsAPIQueryLength]
+	}
+	return query
+}
+
+func normalizeNewsAPIKeywords(keywords []string) []string {
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(keywords))
+	for _, k := range keywords {
+		k = strings.Join(strings.Fields(strings.TrimSpace(k)), " ")
+		if k == "" {
+			continue
+		}
+		if len(k) > 80 {
+			k = k[:80]
+		}
+		key := strings.ToLower(k)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, k)
+		if len(out) >= maxNewsAPIKeywords {
+			break
+		}
+	}
+	if len(out) == 0 {
+		for _, k := range config.DefaultNewsKeywords() {
+			k = strings.Join(strings.Fields(strings.TrimSpace(k)), " ")
+			if k == "" {
+				continue
+			}
+			key := strings.ToLower(k)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, k)
+			if len(out) >= maxNewsAPIKeywords {
+				break
+			}
+		}
+	}
+	return out
 }

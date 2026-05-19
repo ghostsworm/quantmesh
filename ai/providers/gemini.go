@@ -39,7 +39,7 @@ func (p *GeminiProvider) GenerateContent(ctx context.Context, prompt string, sch
 	// 使用现有的异步任务系统
 	requestData := map[string]interface{}{
 		"prompt":             prompt,
-		"system_instruction": prompt,
+		"system_instruction": "你是 QuantMesh 的市场分析与配置助手。严格按请求的 JSON schema 输出，不要泄露密钥或凭据。",
 		"gemini_api_key":     p.apiKey,
 		"json_schema":        schema,
 		"model":              p.model,

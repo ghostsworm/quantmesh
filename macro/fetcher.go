@@ -16,24 +16,26 @@ import (
 )
 
 const (
-	defaultGammaAPIURL = "https://gamma-api.polymarket.com"
+	defaultGammaAPIURL   = "https://gamma-api.polymarket.com"
 	defaultFetchInterval = 300 // 秒
+	maxGammaBodyBytes    = 8 << 20
+	maxGammaErrorBytes   = 4096
 )
 
 // MacroEventFetcher 从 Polymarket Gamma API 拉取宏观事件
 type MacroEventFetcher struct {
-	cfg       *config.Config
-	apiURL    string
-	interval  time.Duration
+	cfg        *config.Config
+	apiURL     string
+	interval   time.Duration
 	classifier *EventImpactClassifier
 
-	mu           sync.RWMutex
-	events       []MacroEvent
-	lastFetched  time.Time
-	history      map[string]float64 // eventID -> 上次概率，用于计算 delta
-	running      bool
-	stopCh       chan struct{}
-	httpClient   *http.Client
+	mu          sync.RWMutex
+	events      []MacroEvent
+	lastFetched time.Time
+	history     map[string]float64 // eventID -> 上次概率，用于计算 delta
+	running     bool
+	stopCh      chan struct{}
+	httpClient  *http.Client
 }
 
 // NewMacroEventFetcher 创建拉取器
@@ -66,11 +68,20 @@ func (f *MacroEventFetcher) Start(ctx context.Context) {
 		logger.Info("📊 宏观事件拉取未启用")
 		return
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	f.mu.Lock()
 	if f.running {
 		f.mu.Unlock()
 		return
 	}
+	if f.interval <= 0 {
+		f.interval = time.Duration(defaultFetchInterval) * time.Second
+	}
+	f.stopCh = make(chan struct{})
+	stopCh := f.stopCh
+	interval := f.interval
 	f.running = true
 	f.mu.Unlock()
 
@@ -80,11 +91,19 @@ func (f *MacroEventFetcher) Start(ctx context.Context) {
 	}
 
 	go func() {
-		ticker := time.NewTicker(f.interval)
+		defer func() {
+			f.mu.Lock()
+			if f.stopCh == stopCh {
+				f.running = false
+				f.stopCh = make(chan struct{})
+			}
+			f.mu.Unlock()
+		}()
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-f.stopCh:
+			case <-stopCh:
 				return
 			case <-ctx.Done():
 				return
@@ -95,7 +114,7 @@ func (f *MacroEventFetcher) Start(ctx context.Context) {
 			}
 		}
 	}()
-	logger.Info("📊 宏观事件拉取已启动，间隔 %v", f.interval)
+	logger.Info("📊 宏观事件拉取已启动，间隔 %v", interval)
 }
 
 // Stop 停止拉取
@@ -105,8 +124,10 @@ func (f *MacroEventFetcher) Stop() {
 	if !f.running {
 		return
 	}
+	stopCh := f.stopCh
 	f.running = false
-	close(f.stopCh)
+	f.stopCh = make(chan struct{})
+	close(stopCh)
 }
 
 // Fetch 执行一次拉取
@@ -169,7 +190,7 @@ func (f *MacroEventFetcher) GetImpactSummary() MacroImpactSummary {
 	}
 	return MacroImpactSummary{
 		CompositeRiskScore: compositeScore,
-		EventCount:          len(events),
+		EventCount:         len(events),
 		HighImpactCount:    highCount,
 		Assessments:        assessments,
 		LastFetched:        lastFetched,
@@ -214,11 +235,11 @@ func (f *MacroEventFetcher) fetchFromGamma(ctx context.Context) ([]MacroEvent, e
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxGammaErrorBytes))
 		return nil, fmt.Errorf("Gamma API %d: %s", resp.StatusCode, string(body))
 	}
 	var rawEvents []GammaEvent
-	if err := json.NewDecoder(resp.Body).Decode(&rawEvents); err != nil {
+	if err := json.NewDecoder(io.LimitReader(resp.Body, maxGammaBodyBytes)).Decode(&rawEvents); err != nil {
 		return nil, err
 	}
 
