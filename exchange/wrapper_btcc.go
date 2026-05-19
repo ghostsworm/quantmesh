@@ -73,10 +73,11 @@ func (w *btccWrapper) CancelOrder(ctx context.Context, symbol string, orderID in
 
 // BatchCancelOrders 批量取消訂單
 func (w *btccWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	var errs []error
 	for _, orderID := range orderIDs {
-		_ = w.adapter.CancelOrder(ctx, orderID)
+		errs = appendOrderOpError(errs, orderIDString(orderID), w.adapter.CancelOrder(ctx, orderID))
 	}
-	return nil
+	return joinOrderOpErrors("batch cancel btcc orders", errs)
 }
 
 // CancelAllOrders 取消所有订單
@@ -86,11 +87,12 @@ func (w *btccWrapper) CancelAllOrders(ctx context.Context, symbol string) error 
 		return err
 	}
 
+	var errs []error
 	for _, order := range orders {
-		_ = w.adapter.CancelOrder(ctx, order.OrderID)
+		errs = appendOrderOpError(errs, orderIDString(order.OrderID), w.adapter.CancelOrder(ctx, order.OrderID))
 	}
 
-	return nil
+	return joinOrderOpErrors("cancel all btcc orders", errs)
 }
 
 // GetOrder 查詢訂單

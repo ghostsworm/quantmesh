@@ -399,7 +399,10 @@ func (c *PhemexClient) GetKlines(ctx context.Context, symbol string, resolution 
 	params := url.Values{}
 	params.Set("symbol", symbol)
 	params.Set("resolution", strconv.Itoa(resolution))
-	params.Set("limit", strconv.Itoa(limit))
+	to := time.Now().Unix() - int64(resolution)
+	from := to - int64(resolution*limit)
+	params.Set("from", strconv.FormatInt(from, 10))
+	params.Set("to", strconv.FormatInt(to, 10))
 
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, params, nil, false)
 	if err != nil {
@@ -537,6 +540,43 @@ type Kline struct {
 	CloseEp   int64 `json:"closeEp"`
 	Volume    int64 `json:"volume"`
 	Turnover  int64 `json:"turnoverEv"`
+}
+
+func (k *Kline) UnmarshalJSON(data []byte) error {
+	var row []interface{}
+	if err := json.Unmarshal(data, &row); err != nil {
+		type alias Kline
+		var obj alias
+		if objErr := json.Unmarshal(data, &obj); objErr != nil {
+			return err
+		}
+		*k = Kline(obj)
+		return nil
+	}
+	if len(row) < 8 {
+		return fmt.Errorf("invalid phemex kline row length: %d", len(row))
+	}
+	k.Timestamp = int64FromAny(row[0])
+	k.Interval = int(int64FromAny(row[1]))
+	k.OpenEp = int64FromAny(row[2])
+	k.CloseEp = int64FromAny(row[3])
+	k.HighEp = int64FromAny(row[4])
+	k.LowEp = int64FromAny(row[5])
+	k.Volume = int64FromAny(row[6])
+	k.Turnover = int64FromAny(row[7])
+	return nil
+}
+
+func int64FromAny(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case string:
+		n, _ := strconv.ParseInt(x, 10, 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 type KlinesResponse struct {

@@ -323,3 +323,69 @@ type Kline struct {
 	StartTime        int64   `json:"startTime"`
 	CloseTime        int64   `json:"closeTime"`
 }
+
+func (k *Kline) UnmarshalJSON(data []byte) error {
+	var row []interface{}
+	if err := json.Unmarshal(data, &row); err != nil {
+		type alias Kline
+		var obj alias
+		if objErr := json.Unmarshal(data, &obj); objErr != nil {
+			return err
+		}
+		*k = Kline(obj)
+		return nil
+	}
+	if len(row) < 14 {
+		return fmt.Errorf("invalid poloniex kline row length: %d", len(row))
+	}
+	k.Low = float64FromAny(row[0])
+	k.High = float64FromAny(row[1])
+	k.Open = float64FromAny(row[2])
+	k.Close = float64FromAny(row[3])
+	k.Amount = float64FromAny(row[4])
+	k.Quantity = float64FromAny(row[5])
+	k.BuyTakerAmount = float64FromAny(row[6])
+	k.BuyTakerQuantity = float64FromAny(row[7])
+	k.TradeCount = int64FromAny(row[8])
+	k.Ts = int64FromAny(row[9])
+	k.WeightedAverage = float64FromAny(row[10])
+	k.Interval = stringFromAny(row[11])
+	k.StartTime = int64FromAny(row[12])
+	k.CloseTime = int64FromAny(row[13])
+	return nil
+}
+
+func int64FromAny(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case string:
+		n, _ := strconv.ParseInt(x, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func float64FromAny(v interface{}) float64 {
+	switch x := v.(type) {
+	case float64:
+		return x
+	case string:
+		n, _ := strconv.ParseFloat(x, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func stringFromAny(v interface{}) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	default:
+		return ""
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -115,6 +116,34 @@ func (c *CryptoComClient) sendRequest(ctx context.Context, method string, params
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
 
+	return respBody, nil
+}
+
+func (c *CryptoComClient) publicGet(ctx context.Context, method string, params map[string]string) ([]byte, error) {
+	values := url.Values{}
+	for k, v := range params {
+		values.Set(k, v)
+	}
+	reqURL := strings.TrimSuffix(c.baseURL, "/v2") + "/exchange/v1/" + method
+	if encoded := values.Encode(); encoded != "" {
+		reqURL += "?" + encoded
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request error: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("send request error: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response error: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(respBody))
+	}
 	return respBody, nil
 }
 
@@ -305,12 +334,9 @@ func (c *CryptoComClient) GetAccountSummary(ctx context.Context) (*AccountSummar
 
 // GetTicker 獲取最新價格
 func (c *CryptoComClient) GetTicker(ctx context.Context, instrumentName string) (*Ticker, error) {
-	method := "public/get-ticker"
-	params := map[string]interface{}{
+	respBody, err := c.publicGet(ctx, "public/get-tickers", map[string]string{
 		"instrument_name": instrumentName,
-	}
-
-	respBody, err := c.sendRequest(ctx, method, params)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -324,24 +350,26 @@ func (c *CryptoComClient) GetTicker(ctx context.Context, instrumentName string) 
 		return nil, fmt.Errorf("API error: code=%d", apiResp.Code)
 	}
 
-	var result TickerResult
+	var result struct {
+		Data []Ticker `json:"data"`
+	}
 	dataBytes, _ := json.Marshal(apiResp.Result)
 	if err := json.Unmarshal(dataBytes, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
+	if len(result.Data) == 0 {
+		return nil, fmt.Errorf("ticker not found for %s", instrumentName)
+	}
 
-	return &result.Data, nil
+	return &result.Data[0], nil
 }
 
 // GetCandlestick 獲取 K線數據
 func (c *CryptoComClient) GetCandlestick(ctx context.Context, instrumentName, timeframe string) ([]Candlestick, error) {
-	method := "public/get-candlestick"
-	params := map[string]interface{}{
+	respBody, err := c.publicGet(ctx, "public/get-candlestick", map[string]string{
 		"instrument_name": instrumentName,
 		"timeframe":       timeframe,
-	}
-
-	respBody, err := c.sendRequest(ctx, method, params)
+	})
 	if err != nil {
 		return nil, err
 	}

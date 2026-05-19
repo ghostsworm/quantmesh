@@ -567,6 +567,7 @@ func (h *HuobiAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 獲取歷史K線數據
 func (h *HuobiAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
+	interval = convertHuobiKlinePeriod(interval)
 	klines, err := h.client.GetKlines(ctx, h.contractCode, interval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
@@ -587,6 +588,27 @@ func (h *HuobiAdapter) GetHistoricalKlines(ctx context.Context, symbol string, i
 	}
 
 	return candles, nil
+}
+
+func convertHuobiKlinePeriod(interval string) string {
+	switch interval {
+	case "1m":
+		return "1min"
+	case "5m":
+		return "5min"
+	case "15m":
+		return "15min"
+	case "30m":
+		return "30min"
+	case "1h":
+		return "60min"
+	case "4h":
+		return "4hour"
+	case "1d":
+		return "1day"
+	default:
+		return interval
+	}
 }
 
 // GetPriceDecimals 獲取價格精度

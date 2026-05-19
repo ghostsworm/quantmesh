@@ -467,3 +467,49 @@ type Kline struct {
 	Volume    string `json:"volume"`
 	Market    string `json:"market"`
 }
+
+func (k *Kline) UnmarshalJSON(data []byte) error {
+	var row []interface{}
+	if err := json.Unmarshal(data, &row); err != nil {
+		type alias Kline
+		var obj alias
+		if objErr := json.Unmarshal(data, &obj); objErr != nil {
+			return err
+		}
+		*k = Kline(obj)
+		return nil
+	}
+	if len(row) < 7 {
+		return fmt.Errorf("invalid coinex kline row length: %d", len(row))
+	}
+	k.Timestamp = int64FromAny(row[0])
+	k.Open = stringFromAny(row[1])
+	k.Close = stringFromAny(row[2])
+	k.High = stringFromAny(row[3])
+	k.Low = stringFromAny(row[4])
+	k.Volume = stringFromAny(row[5])
+	return nil
+}
+
+func int64FromAny(v interface{}) int64 {
+	switch x := v.(type) {
+	case float64:
+		return int64(x)
+	case string:
+		n, _ := strconv.ParseInt(x, 10, 64)
+		return n
+	default:
+		return 0
+	}
+}
+
+func stringFromAny(v interface{}) string {
+	switch x := v.(type) {
+	case string:
+		return x
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	default:
+		return ""
+	}
+}

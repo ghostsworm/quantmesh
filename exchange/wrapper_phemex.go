@@ -67,15 +67,17 @@ func (w *phemexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderReq
 
 // CancelOrder 取消訂單
 func (w *phemexWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
-	return w.adapter.CancelOrder(ctx, string(rune(orderID)))
+	return w.adapter.CancelOrder(ctx, orderIDString(orderID))
 }
 
 // BatchCancelOrders 批量取消訂單
 func (w *phemexWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	var errs []error
 	for _, orderID := range orderIDs {
-		_ = w.adapter.CancelOrder(ctx, string(rune(orderID)))
+		id := orderIDString(orderID)
+		errs = appendOrderOpError(errs, id, w.adapter.CancelOrder(ctx, id))
 	}
-	return nil
+	return joinOrderOpErrors("batch cancel phemex orders", errs)
 }
 
 // CancelAllOrders 取消所有订單
@@ -85,16 +87,17 @@ func (w *phemexWrapper) CancelAllOrders(ctx context.Context, symbol string) erro
 		return err
 	}
 
+	var errs []error
 	for _, order := range orders {
-		_ = w.adapter.CancelOrder(ctx, order.OrderID)
+		errs = appendOrderOpError(errs, order.OrderID, w.adapter.CancelOrder(ctx, order.OrderID))
 	}
 
-	return nil
+	return joinOrderOpErrors("cancel all phemex orders", errs)
 }
 
 // GetOrder 查詢訂單
 func (w *phemexWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	order, err := w.adapter.GetOrder(ctx, string(rune(orderID)))
+	order, err := w.adapter.GetOrder(ctx, orderIDString(orderID))
 	if err != nil {
 		return nil, err
 	}

@@ -68,15 +68,17 @@ func (w *ascendexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 // CancelOrder 取消訂單
 func (w *ascendexWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	// AscendEX 使用字符串 ID，这里需要轉换
-	return w.adapter.CancelOrder(ctx, symbol)
+	return w.adapter.CancelOrder(ctx, orderIDString(orderID))
 }
 
 // BatchCancelOrders 批量取消訂單
 func (w *ascendexWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
-	for range orderIDs {
-		_ = w.adapter.CancelOrder(ctx, symbol)
+	var errs []error
+	for _, orderID := range orderIDs {
+		id := orderIDString(orderID)
+		errs = appendOrderOpError(errs, id, w.adapter.CancelOrder(ctx, id))
 	}
-	return nil
+	return joinOrderOpErrors("batch cancel ascendex orders", errs)
 }
 
 // CancelAllOrders 取消所有订單
@@ -86,16 +88,17 @@ func (w *ascendexWrapper) CancelAllOrders(ctx context.Context, symbol string) er
 		return err
 	}
 
+	var errs []error
 	for _, order := range orders {
-		_ = w.adapter.CancelOrder(ctx, order.OrderID)
+		errs = appendOrderOpError(errs, order.OrderID, w.adapter.CancelOrder(ctx, order.OrderID))
 	}
 
-	return nil
+	return joinOrderOpErrors("cancel all ascendex orders", errs)
 }
 
 // GetOrder 查詢訂單
 func (w *ascendexWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	order, err := w.adapter.GetOrder(ctx, symbol)
+	order, err := w.adapter.GetOrder(ctx, orderIDString(orderID))
 	if err != nil {
 		return nil, err
 	}

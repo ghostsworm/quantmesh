@@ -68,15 +68,17 @@ func (w *poloniexWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 // CancelOrder 取消訂單
 func (w *poloniexWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	// Poloniex 使用字符串 ID
-	return w.adapter.CancelOrder(ctx, symbol)
+	return w.adapter.CancelOrder(ctx, orderIDString(orderID))
 }
 
 // BatchCancelOrders 批量取消訂單
 func (w *poloniexWrapper) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
-	for range orderIDs {
-		_ = w.adapter.CancelOrder(ctx, symbol)
+	var errs []error
+	for _, orderID := range orderIDs {
+		id := orderIDString(orderID)
+		errs = appendOrderOpError(errs, id, w.adapter.CancelOrder(ctx, id))
 	}
-	return nil
+	return joinOrderOpErrors("batch cancel poloniex orders", errs)
 }
 
 // CancelAllOrders 取消所有订單
@@ -86,16 +88,17 @@ func (w *poloniexWrapper) CancelAllOrders(ctx context.Context, symbol string) er
 		return err
 	}
 
+	var errs []error
 	for _, order := range orders {
-		_ = w.adapter.CancelOrder(ctx, order.OrderID)
+		errs = appendOrderOpError(errs, order.OrderID, w.adapter.CancelOrder(ctx, order.OrderID))
 	}
 
-	return nil
+	return joinOrderOpErrors("cancel all poloniex orders", errs)
 }
 
 // GetOrder 查詢訂單
 func (w *poloniexWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	order, err := w.adapter.GetOrder(ctx, symbol)
+	order, err := w.adapter.GetOrder(ctx, orderIDString(orderID))
 	if err != nil {
 		return nil, err
 	}
