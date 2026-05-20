@@ -38,6 +38,7 @@ QuantMesh 是一款高性能、低延迟的加密货币做市系统，采用 Go 
 
 ### 近期优化
 
+- **3.105.0-rc39**：Agent 参数工具补强异常输入容错：`set_parameter`、`validate_parameters`、`suggest_parameters` 在必填参数缺失或类型错误时返回明确错误，不再 panic；参数优化器未注入 market data 服务时自动使用默认实现，并补充对应回归测试。
 - **3.105.0-rc38**：PostgreSQL/Supabase 配置存储补齐：配置中心新增 GORM 实现，支持 `postgres/postgresql` DSN；未指定 YAML 时可从 Postgres/Supabase `app_config` 启动；远端 SQL 默认值不再把空 `storage.path` 补成 SQLite 文件；前端数据存储设置增加 PostgreSQL/Supabase 选项与 DSN 提示。
 - **3.105.0-rc37**：登录安全补齐一次性密码恢复码：已登录用户可生成恢复码，忘记密码时可用恢复码重置密码；恢复码只明文展示一次、落库仅保存哈希，使用后自动失效，并在重置成功后清理旧会话；登录页和个人资料页补齐对应入口。
 - **3.105.0-rc36**：WebAuthn 指纹/Passkey 登录补齐真正免密闭环：登录完成不再要求额外密码，前端移除二次密码弹窗；凭证改为保存完整 credential 并兼容旧版公钥记录；challenge 会话 key 改用加密随机值，登录响应统一兼容 base64url 与旧数组格式。
