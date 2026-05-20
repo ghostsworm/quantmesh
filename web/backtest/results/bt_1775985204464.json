@@ -1,0 +1,61 @@
+{
+  "task_id": "bt_1775985204464",
+  "task": {
+    "id": "bt_1775985204464",
+    "status": "running",
+    "mode": "hedge_group",
+    "group_id": "group_hedge_1",
+    "strategy": "",
+    "symbol": "BTCUSDT",
+    "interval": "1m",
+    "start_time": "2025-01-01T08:00:00+08:00",
+    "end_time": "2025-01-01T08:02:00+08:00",
+    "params": {
+      "hedge_ratio": 1,
+      "leg_b_kline_file": "1m_binance_ETHUSDT_20250101.csv",
+      "leg_b_symbol": "ETHUSDT",
+      "rebalance_interval": 2
+    },
+    "total_capital": 1000,
+    "leverage": 0,
+    "max_capital_ratio": 0,
+    "progress": 0,
+    "created_at": "2026-04-12T17:13:24.46408+08:00",
+    "data_source": "kline_file",
+    "kline_file": "1m_binance_BTCUSDT_20250101.csv"
+  },
+  "result": null,
+  "hedge_result": {
+    "start_time": "2025-01-01T08:00:00+08:00",
+    "end_time": "2025-01-01T08:02:00+08:00",
+    "initial_capital": 1000,
+    "final_equity": 1000.09900990099,
+    "total_return_pct": 0.009900990099004048,
+    "max_drawdown_pct": 0,
+    "rebalance_count": 1,
+    "aligned_points": 3,
+    "long_symbol": "BTCUSDT",
+    "short_symbol": "ETHUSDT",
+    "equity_curve": [
+      {
+        "timestamp": 1735689600000,
+        "total_equity": 1000,
+        "long_equity": 500,
+        "short_equity": 500
+      },
+      {
+        "timestamp": 1735689660000,
+        "total_equity": 1000,
+        "long_equity": 505,
+        "short_equity": 495
+      },
+      {
+        "timestamp": 1735689720000,
+        "total_equity": 1000.09900990099,
+        "long_equity": 500.049504950495,
+        "short_equity": 500.049504950495
+      }
+    ]
+  },
+  "comparison": null
+}
