@@ -32,7 +32,11 @@
       "Bash(git restore:*)",
       "Bash(while:*)",
       "Bash(do:*)",
-      "Bash(done:*)"
+      "Bash(done:*)",
+      "Bash(git worktree:*)",
+      "Bash(git -C .worktrees/feature-hedge-backtest status --short)",
+      "Bash(git merge:*)",
+      "Bash(git branch:*)"
     ],
     "deny": [],
     "ask": []
