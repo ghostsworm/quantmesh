@@ -2134,6 +2134,7 @@ const Configuration: React.FC = () => {
                         >
                           <option value="sqlite">{t('configuration.storageTypeSqlite')}</option>
                           <option value="mysql">{t('configuration.storageTypeMysql')}</option>
+                          <option value="postgres">{t('configuration.storageTypePostgres')}</option>
                         </Select>
                       </FormControl>
                       {(config.storage?.type || 'sqlite') === 'sqlite' && (
@@ -2157,6 +2158,18 @@ const Configuration: React.FC = () => {
                             placeholder="user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
                           />
                           <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.mysqlDsnHint')}</Text>
+                        </FormControl>
+                      )}
+                      {(config.storage?.type || 'sqlite') === 'postgres' && (
+                        <FormControl mb={4}>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.postgresDsn')}</FormLabel>
+                          <Input
+                            value={config.storage?.path || ''}
+                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
+                            borderRadius="xl"
+                            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require"
+                          />
+                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.postgresDsnHint')}</Text>
                         </FormControl>
                       )}
                       <HStack spacing={4}>

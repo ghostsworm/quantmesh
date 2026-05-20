@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc38] - 2026-05-20
+
+### Fixed
+- **PostgreSQL/Supabase 配置存储**：新增基于 GORM 的配置中心实现，`database.type: postgres/postgresql` 可使用 Postgres/Supabase DSN 初始化 `config_entries` 与 `config_history`，避免原配置中心只识别 SQLite/MySQL。
+- **远端 SQL 默认值**：`storage.type` 未填但主库配置为 MySQL/PostgreSQL 时会跟随主库类型；PostgreSQL/Supabase 与 MySQL 一样允许 `storage.path` 留空并使用 `database.dsn`，避免被错误补成 SQLite 文件路径。
+- **启动引导**：未指定 YAML 时可通过 `QUANTMESH_DATABASE_DSN=postgresql://...` 读取 PostgreSQL/Supabase `app_config` 快照，迁移模式也不会把远端 SQL 的空 `storage.path` 覆盖成本地 SQLite。
+- **前端与状态可观测性**：数据存储设置增加 PostgreSQL/Supabase 选项与 DSN 提示，服务状态接口按 Postgres DSN 判定配置完整性。
+- **部署文档**：HA 与通用配置示例补齐 `storage.type: postgres` / 远端 SQL 留空 `path` 的写法，减少 Supabase/PostgreSQL 部署时的配置误导。
+
+---
+
 ## [3.105.0-rc37] - 2026-05-19
 
 ### Fixed

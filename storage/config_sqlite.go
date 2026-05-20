@@ -15,6 +15,8 @@ func NewConfigStorageByType(dbType, dsn string) (ConfigStorage, error) {
 	switch dbType {
 	case "mysql":
 		return NewMySQLConfigStorage(dsn)
+	case "postgres", "postgresql":
+		return NewGormConfigStorage(dbType, dsn)
 	case "sqlite", "":
 		return NewConfigStorage(dsn)
 	default:

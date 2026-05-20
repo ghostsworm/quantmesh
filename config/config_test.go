@@ -132,6 +132,38 @@ func TestStorageDefaults(t *testing.T) {
 	if cfg2.Storage.Path != "" {
 		t.Errorf("MySQL Path 空時應保持空，得到 %s", cfg2.Storage.Path)
 	}
+
+	// PostgreSQL/Supabase 且 Path 為空時應保持空（使用 database.dsn）
+	cfg3 := createValidConfig()
+	cfg3.Storage.Type = "postgres"
+	cfg3.Storage.Path = ""
+	cfg3.Database.Type = "postgres"
+	cfg3.Database.DSN = "postgresql://user:pass@db.example.com:5432/quantmesh?sslmode=require"
+	if err := cfg3.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg3.Storage.Path != "" {
+		t.Errorf("PostgreSQL Path 空時應保持空，得到 %s", cfg3.Storage.Path)
+	}
+	if !cfg3.Storage.Enabled {
+		t.Error("PostgreSQL 配置 database.dsn 時應自動啟用 storage")
+	}
+
+	// storage.type 未填但 database 已配置遠端 PostgreSQL 時，應跟隨主庫類型
+	cfg4 := createValidConfig()
+	cfg4.Storage.Type = ""
+	cfg4.Storage.Path = ""
+	cfg4.Database.Type = "postgresql"
+	cfg4.Database.DSN = "postgres://user:pass@localhost:5432/quantmesh?sslmode=disable"
+	if err := cfg4.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg4.Storage.Type != "postgres" {
+		t.Errorf("storage.type 應歸一化為 postgres，得到 %s", cfg4.Storage.Type)
+	}
+	if cfg4.Storage.Path != "" {
+		t.Errorf("PostgreSQL 跟隨主庫時 storage.path 應保持空，得到 %s", cfg4.Storage.Path)
+	}
 }
 
 func TestLogCleanupDefaults(t *testing.T) {

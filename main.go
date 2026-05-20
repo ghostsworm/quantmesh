@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.105.0-rc37"
+var Version = "3.105.0-rc38"
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -890,15 +890,15 @@ func convertStrategies(strategies []config.StrategyInstance) []web.BotStrategyIn
 func getStrategyDisplayName(strategyType string) string {
 	// 策略类型到显示名称的映射
 	strategyNames := map[string]string{
-		"grid":            "网格交易",
-		"dca":             "DCA定投",
-		"dca_enhanced":    "增强DCA",
-		"martingale":      "马丁格尔",
-		"trend_following": "趋势跟踪",
-		"mean_reversion":  "均值回归",
-		"combo":           "组合策略",
-		"funding_carry":        "资金费率套利",
-		"funding_perp_spread":  "双永续跨所资金费套利",
+		"grid":                "网格交易",
+		"dca":                 "DCA定投",
+		"dca_enhanced":        "增强DCA",
+		"martingale":          "马丁格尔",
+		"trend_following":     "趋势跟踪",
+		"mean_reversion":      "均值回归",
+		"combo":               "组合策略",
+		"funding_carry":       "资金费率套利",
+		"funding_perp_spread": "双永续跨所资金费套利",
 	}
 	if name, ok := strategyNames[strategyType]; ok {
 		return name
@@ -1759,7 +1759,8 @@ func main() {
 		if cfg.Storage.Type == "" {
 			cfg.Storage.Type = "sqlite"
 		}
-		if cfg.Storage.Path == "" {
+		storageType := strings.ToLower(strings.TrimSpace(cfg.Storage.Type))
+		if cfg.Storage.Path == "" && storageType != "mysql" && storageType != "postgres" && storageType != "postgresql" {
 			cfg.Storage.Path = "./data/quantmesh.db"
 		}
 	}
@@ -1917,17 +1918,16 @@ func main() {
 		if err != nil {
 			logger.Warn("⚠️ 初始化 SQLite 配置存儲失败: %v", err)
 		}
-	} else if dbType == "mysql" {
-		// MySQL 使用 DSN
+	} else if dbType == "mysql" || dbType == "postgres" || dbType == "postgresql" {
+		// 遠端 SQL 使用 DSN；Supabase 使用 postgres/postgresql DSN。
 		dsn := cfg.Database.DSN
 		if dsn == "" {
-			// 构建默认 DSN
-			dsn = fmt.Sprintf("root:@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=True&loc=Local")
+			dsn = storage.ResolveSQLStorageDSN(cfg, dbType)
 		}
 		configStorage, err = storage.NewConfigStorageByType(dbType, dsn)
 		if err != nil {
-			logger.Warn("⚠️ 初始化 MySQL 配置存儲失败: %v，將回退使用 SQLite", err)
-			// MySQL 失败时回退到 SQLite，避免服务无法启动
+			logger.Warn("⚠️ 初始化 %s 配置存儲失败: %v，將回退使用 SQLite", dbType, err)
+			// 遠端庫失败时回退到 SQLite，避免服务无法启动
 			configDBPath := cfg.Storage.Path
 			if configDBPath == "" {
 				configDBPath = "./data/config.db"

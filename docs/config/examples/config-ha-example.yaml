@@ -124,7 +124,8 @@ notifications:
 # 存储配置
 storage:
   enabled: true
-  type: "database"  # 使用数据库抽象层
+  type: "postgres"  # 使用 PostgreSQL/Supabase；也可为 mysql 或 sqlite
+  path: ""          # 远端 SQL 留空时使用 database.dsn；如需覆盖可直接填 DSN
   buffer_size: 1000
   batch_size: 100
   flush_interval: 10
@@ -161,6 +162,5 @@ ai:
     sentiment_analysis: false
     polymarket_signal: false
     strategy_generation: false
-
 
 
