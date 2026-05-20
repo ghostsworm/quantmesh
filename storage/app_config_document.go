@@ -14,6 +14,7 @@ import (
 
 	"quantmesh/config"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,12 +22,12 @@ const appConfigSingletonID = 1
 
 // AppConfigDocument 主配置快照（app_config 表）
 type AppConfigDocument struct {
-	ID             int64
-	SchemaVersion  int
-	Content        string
-	Revision       int
-	ContentHash    string
-	UpdatedAt      time.Time
+	ID            int64
+	SchemaVersion int
+	Content       string
+	Revision      int
+	ContentHash   string
+	UpdatedAt     time.Time
 }
 
 // migrateAppConfigDocumentTables 創建 app_config / app_config_history / bot_configs / bot_config_history（SQLite）
@@ -144,6 +145,9 @@ func isAppConfigTableMissing(err error) bool {
 		return true
 	}
 	if strings.Contains(msg, "1146") {
+		return true
+	}
+	if strings.Contains(msg, "relation") && strings.Contains(msg, "does not exist") {
 		return true
 	}
 	return false
@@ -667,8 +671,33 @@ func LoadConfigFromAppConfigDBIfExists(sqlitePath string) (*config.Config, error
 		}
 		return cfg, nil
 	}
+	if dsn != "" && IsPostgresStorageDSNString(dsn) {
+		cfg, err := loadConfigFromPostgresAppConfigDocument(dsn)
+		if err != nil {
+			return nil, err
+		}
+		return cfg, nil
+	}
 
 	return nil, nil
+}
+
+func loadConfigFromPostgresAppConfigDocument(dsn string) (*config.Config, error) {
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("打开 PostgreSQL app_config 失败: %w", err)
+	}
+	defer db.Close()
+
+	var content string
+	err = db.QueryRow(`SELECT content FROM app_config WHERE id = $1`, appConfigSingletonID).Scan(&content)
+	if err == sql.ErrNoRows || isAppConfigTableMissing(err) || strings.TrimSpace(content) == "" {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取 PostgreSQL app_config 失败: %w", err)
+	}
+	return config.LoadConfigFromJSON([]byte(content))
 }
 
 // ApplyAppConfigFromDBIfPresent 若 app_config 有有效快照則覆蓋內存中的 *Config（環境變量 QUANTMESH_USE_APP_CONFIG=0 可禁用）

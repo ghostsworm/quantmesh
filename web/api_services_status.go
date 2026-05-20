@@ -14,7 +14,7 @@ type ServiceStatusItem struct {
 	Name          string            `json:"name,omitempty"`
 	Ok            bool              `json:"ok"`
 	Message       string            `json:"message,omitempty"`        // 兼容舊版，前端優先使用 message_key
-	MessageKey    string            `json:"message_key,omitempty"`   // 對應 i18n servicesStatus.message.*
+	MessageKey    string            `json:"message_key,omitempty"`    // 對應 i18n servicesStatus.message.*
 	MessageParams map[string]string `json:"message_params,omitempty"` // 如 type, path
 }
 
@@ -40,6 +40,9 @@ func getServicesStatus(c *gin.Context) {
 		} else if globalConfig.Storage.Type == "sqlite" && globalConfig.Storage.Path == "" {
 			storageMsgKey = "storageNotConfigured"
 		} else if globalConfig.Storage.Type == "mysql" && globalConfig.Database.DSN == "" && !storage.IsMySQLStorageDSNString(globalConfig.Storage.Path) {
+			storageMsgKey = "storageNotConfigured"
+		} else if (globalConfig.Storage.Type == "postgres" || globalConfig.Storage.Type == "postgresql") &&
+			globalConfig.Database.DSN == "" && !storage.IsPostgresStorageDSNString(globalConfig.Storage.Path) {
 			storageMsgKey = "storageNotConfigured"
 		} else if storageServiceProvider == nil {
 			storageMsgKey = "storageProviderNil"

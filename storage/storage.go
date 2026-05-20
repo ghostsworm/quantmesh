@@ -195,6 +195,17 @@ func IsMySQLStorageDSNString(s string) bool {
 		strings.HasPrefix(s, "mysql://")
 }
 
+// IsPostgresStorageDSNString 判斷 s 是否為 PostgreSQL/Supabase 連接串。
+func IsPostgresStorageDSNString(s string) bool {
+	s = strings.TrimSpace(strings.ToLower(s))
+	if s == "" {
+		return false
+	}
+	return strings.HasPrefix(s, "postgres://") ||
+		strings.HasPrefix(s, "postgresql://") ||
+		strings.Contains(s, "host=") && strings.Contains(s, "dbname=")
+}
+
 // resolveMySQLStorageDSN 決定 MySQL 存儲使用的 DSN：storage.path 若為有效 MySQL DSN 則優先；
 // 若為空或像 SQLite 文件路徑，則回退到 database.dsn（避免誤把 .db 路徑當成 DSN）。
 func resolveMySQLStorageDSN(cfg *config.Config) string {
@@ -206,6 +217,30 @@ func resolveMySQLStorageDSN(cfg *config.Config) string {
 		return cfg.Database.DSN
 	}
 	return path
+}
+
+// ResolveSQLStorageDSN 決定遠端 SQL 存儲使用的 DSN。storage.path 若填了匹配方言的 DSN 則優先；
+// 否則使用 database.dsn，避免把 ./data/*.db 之類 SQLite 路徑誤交給遠端驅動。
+func ResolveSQLStorageDSN(cfg *config.Config, dbType string) string {
+	if cfg == nil {
+		return ""
+	}
+	dbType = strings.ToLower(strings.TrimSpace(dbType))
+	path := strings.TrimSpace(cfg.Storage.Path)
+	switch dbType {
+	case "mysql":
+		return resolveMySQLStorageDSN(cfg)
+	case "postgres", "postgresql":
+		if path != "" && IsPostgresStorageDSNString(path) {
+			return path
+		}
+		if cfg.Database.DSN != "" {
+			return cfg.Database.DSN
+		}
+		return path
+	default:
+		return path
+	}
 }
 
 // NewStorageService 創建存儲服務（支援 SQLite/MySQL，PostgreSQL 暂不支持）

@@ -816,8 +816,8 @@ type Config struct {
 	// 存儲配置
 	Storage struct {
 		Enabled       bool   `yaml:"enabled"`
-		Type          string `yaml:"type"`           // sqlite, mysql；線上推薦 mysql
-		Path          string `yaml:"path"`           // SQLite 時為文件路徑；MySQL 時為 DSN（可留空使用 database.dsn）
+		Type          string `yaml:"type"`           // sqlite, mysql, postgres/postgresql；遠端庫可留空 path 並使用 database.dsn
+		Path          string `yaml:"path"`           // SQLite 時為文件路徑；MySQL/PostgreSQL 時可為 DSN（可留空使用 database.dsn）
 		BufferSize    int    `yaml:"buffer_size"`    // 缓冲区大小（預設 1000）
 		BatchSize     int    `yaml:"batch_size"`     // 批量写入大小（預設 100）
 		FlushInterval int    `yaml:"flush_interval"` // 刷新间隔（秒，預設5）
@@ -2738,17 +2738,27 @@ func (c *Config) Validate() error {
 
 	// 設置存儲配置預設值
 	if c.Storage.Type == "" {
-		c.Storage.Type = "sqlite" // 預設SQLite
+		dbType := strings.ToLower(strings.TrimSpace(c.Database.Type))
+		if (dbType == "mysql" || dbType == "postgres" || dbType == "postgresql") && strings.TrimSpace(c.Database.DSN) != "" {
+			c.Storage.Type = dbType
+		} else {
+			c.Storage.Type = "sqlite" // 預設SQLite
+		}
 	}
-	if c.Storage.Path == "" && c.Storage.Type != "mysql" {
-		c.Storage.Path = "./data/quantmesh.db" // SQLite 預設路径；MySQL 可留空，屆時使用 database.dsn
+	storageType := strings.ToLower(strings.TrimSpace(c.Storage.Type))
+	if storageType == "postgresql" {
+		storageType = "postgres"
+		c.Storage.Type = "postgres"
+	}
+	if c.Storage.Path == "" && storageType != "mysql" && storageType != "postgres" {
+		c.Storage.Path = "./data/quantmesh.db" // SQLite 預設路径；遠端 SQL 可留空，屆時使用 database.dsn
 	}
 	// 若已配置路徑與類型，則視為啟用存儲（避免僅填路徑卻未勾選 enabled 導致回測等不可用）
 	if c.Storage.Path != "" && c.Storage.Type != "" {
 		c.Storage.Enabled = true
 	}
-	// MySQL 時 path 常留空（由 database.dsn 解析），仍應啟用存儲
-	if c.Storage.Type == "mysql" && strings.TrimSpace(c.Database.DSN) != "" {
+	// 遠端 SQL 時 path 常留空（由 database.dsn 解析），仍應啟用存儲
+	if (storageType == "mysql" || storageType == "postgres") && strings.TrimSpace(c.Database.DSN) != "" {
 		c.Storage.Enabled = true
 	}
 	if c.Storage.BufferSize <= 0 {
