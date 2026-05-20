@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"quantmesh/agent/types"
 	"quantmesh/config"
@@ -55,9 +56,9 @@ func (t *GetParametersTool) Execute(ctx context.Context, params map[string]inter
 	// 格式化返回 - 使用存根实现
 	return types.ToolResult{
 		Result: map[string]interface{}{
-			"parameters":   configData,
-			"defaults":     make(map[string]interface{}),
-			"constraints":  make(map[string]interface{}),
+			"parameters":    configData,
+			"defaults":      make(map[string]interface{}),
+			"constraints":   make(map[string]interface{}),
 			"documentation": "See strategy documentation",
 		},
 	}, nil
@@ -100,9 +101,17 @@ func NewSetParameterTool(configStore *config.BotConfigManager) *SetParameterTool
 }
 
 func (t *SetParameterTool) Execute(ctx context.Context, params map[string]interface{}) (types.ToolResult, error) {
-	_ = params["strategy_id"].(string) // strategyID 用于标识策略
-	parameter := params["parameter"].(string)
-	value := params["value"]
+	if _, err := requiredStringParam(params, "strategy_id"); err != nil {
+		return types.ToolResult{Error: err.Error()}, nil
+	}
+	parameter, err := requiredStringParam(params, "parameter")
+	if err != nil {
+		return types.ToolResult{Error: err.Error()}, nil
+	}
+	value, ok := params["value"]
+	if !ok {
+		return types.ToolResult{Error: "缺少必填参数 value"}, nil
+	}
 
 	// 验证参数
 	if t.validator != nil {
@@ -120,10 +129,10 @@ func (t *SetParameterTool) Execute(ctx context.Context, params map[string]interf
 	// 实际应该通过热更新机制来更新配置
 	return types.ToolResult{
 		Result: map[string]interface{}{
-			"success":      true,
+			"success":       true,
 			"applied_value": value,
-			"side_effects": []string{"Configuration change requires bot restart or hot reload"},
-			"note":         "Use hot reload API to apply parameter changes",
+			"side_effects":  []string{"Configuration change requires bot restart or hot reload"},
+			"note":          "Use hot reload API to apply parameter changes",
 		},
 	}, nil
 }
@@ -142,11 +151,11 @@ func (t *SetParameterTool) AssessRisk(params map[string]interface{}) types.Secur
 
 	// 某些参数是高风险的
 	highRiskParams := map[string]bool{
-		"stop_loss":           true,
-		"take_profit":          true,
-		"max_position_ratio":   true,
-		"leverage":             true,
-		"capital_allocation":   true,
+		"stop_loss":          true,
+		"take_profit":        true,
+		"max_position_ratio": true,
+		"leverage":           true,
+		"capital_allocation": true,
 	}
 
 	if highRiskParams[parameter] {
@@ -181,15 +190,21 @@ func NewValidateParametersTool(validator *ParameterValidator) *ValidateParameter
 }
 
 func (t *ValidateParametersTool) Execute(ctx context.Context, params map[string]interface{}) (types.ToolResult, error) {
-	parameters, _ := params["parameters"].(map[string]interface{})
+	parameters, ok := params["parameters"].(map[string]interface{})
+	if !ok {
+		return types.ToolResult{Error: "参数 parameters 必须是对象"}, nil
+	}
+	if t.validator == nil {
+		t.validator = NewParameterValidator()
+	}
 
 	validation := t.validator.ValidateAll(parameters)
 
 	return types.ToolResult{
 		Result: map[string]interface{}{
-			"valid":     validation.Valid,
-			"errors":    validation.Errors,
-			"warnings":  validation.Warnings,
+			"valid":       validation.Valid,
+			"errors":      validation.Errors,
+			"warnings":    validation.Warnings,
 			"suggestions": validation.Suggestions,
 		},
 	}, nil
@@ -237,10 +252,19 @@ func NewSuggestParametersTool(optimizer *ParameterOptimizer) *SuggestParametersT
 }
 
 func (t *SuggestParametersTool) Execute(ctx context.Context, params map[string]interface{}) (types.ToolResult, error) {
-	strategyType := params["strategy_type"].(string)
-	symbol := params["symbol"].(string)
+	strategyType, err := requiredStringParam(params, "strategy_type")
+	if err != nil {
+		return types.ToolResult{Error: err.Error()}, nil
+	}
+	symbol, err := requiredStringParam(params, "symbol")
+	if err != nil {
+		return types.ToolResult{Error: err.Error()}, nil
+	}
 	capital, _ := params["capital"].(float64)
 	riskProfile, _ := params["risk_profile"].(string)
+	if t.optimizer == nil {
+		t.optimizer = &ParameterOptimizer{}
+	}
 
 	suggestions := t.optimizer.Optimize(strategyType, symbol, capital, riskProfile)
 
@@ -315,9 +339,9 @@ func (pv *ParameterValidator) Validate(param string, value interface{}) error {
 
 func (pv *ParameterValidator) ValidateAll(params map[string]interface{}) *ValidationResult {
 	result := &ValidationResult{
-		Valid:     true,
-		Errors:    make([]string, 0),
-		Warnings:  make([]string, 0),
+		Valid:       true,
+		Errors:      make([]string, 0),
+		Warnings:    make([]string, 0),
 		Suggestions: make([]string, 0),
 	}
 
@@ -339,10 +363,22 @@ func (pv *ParameterValidator) Suggest(param string, value interface{}) []string 
 	}
 }
 
+func requiredStringParam(params map[string]interface{}, name string) (string, error) {
+	value, ok := params[name]
+	if !ok {
+		return "", fmt.Errorf("缺少必填参数 %s", name)
+	}
+	str, ok := value.(string)
+	if !ok || strings.TrimSpace(str) == "" {
+		return "", fmt.Errorf("参数 %s 必须是非空字符串", name)
+	}
+	return str, nil
+}
+
 type ValidationResult struct {
-	Valid      bool     `json:"valid"`
-	Errors     []string `json:"errors,omitempty"`
-	Warnings   []string `json:"warnings,omitempty"`
+	Valid       bool     `json:"valid"`
+	Errors      []string `json:"errors,omitempty"`
+	Warnings    []string `json:"warnings,omitempty"`
 	Suggestions []string `json:"suggestions,omitempty"`
 }
 
@@ -352,7 +388,7 @@ type ParameterOptimizer struct {
 }
 
 type ParameterSuggestion struct {
-	Parameter string      `json:"parameter"`
+	Parameter  string      `json:"parameter"`
 	Value      interface{} `json:"value"`
 	Reason     string      `json:"reason"`
 	Confidence float64     `json:"confidence"`
@@ -361,9 +397,15 @@ type ParameterSuggestion struct {
 func (po *ParameterOptimizer) Optimize(strategyType, symbol string, capital float64, riskProfile string) []ParameterSuggestion {
 	// 基于市场数据和风险偏好优化参数
 	suggestions := make([]ParameterSuggestion, 0)
+	if po.marketData == nil {
+		po.marketData = &MarketDataService{}
+	}
 
 	// 获取市场数据
 	marketData := po.marketData.GetMarketData(symbol)
+	if marketData == nil {
+		return suggestions
+	}
 
 	// 根据策略类型生成建议
 	switch strategyType {
@@ -384,7 +426,7 @@ func (po *ParameterOptimizer) optimizeGrid(marketData *MarketData, capital float
 	suggestedInterval := marketData.CurrentPrice * volatility * 0.5
 
 	suggestions = append(suggestions, ParameterSuggestion{
-		Parameter: "price_interval",
+		Parameter:  "price_interval",
 		Value:      suggestedInterval,
 		Reason:     fmt.Sprintf("基于24h波动率 %.2f%% 计算", volatility*100),
 		Confidence: 0.85,
@@ -400,7 +442,7 @@ func (po *ParameterOptimizer) optimizeGrid(marketData *MarketData, capital float
 	}
 
 	suggestions = append(suggestions, ParameterSuggestion{
-		Parameter: "grid_count",
+		Parameter:  "grid_count",
 		Value:      suggestedGridCount,
 		Reason:     fmt.Sprintf("基于资金量 $%.2f 和当前价格计算", capital),
 		Confidence: 0.75,
@@ -422,7 +464,7 @@ func (po *ParameterOptimizer) GetReasoning() string {
 type MarketDataService struct{}
 
 type MarketData struct {
-	CurrentPrice float64
+	CurrentPrice  float64
 	Volatility24h float64
 	Volume24h     float64
 }
@@ -430,7 +472,7 @@ type MarketData struct {
 func (m *MarketDataService) GetMarketData(symbol string) *MarketData {
 	// 实现获取市场数据的逻辑
 	return &MarketData{
-		CurrentPrice: 45000.0,
+		CurrentPrice:  45000.0,
 		Volatility24h: 0.032,
 		Volume24h:     2.3e9,
 	}
