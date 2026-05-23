@@ -266,10 +266,20 @@ func (s *MartingaleStrategy) SetEventBus(bus EventBus) {
 
 // Start 啟动策略
 func (s *MartingaleStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+
 	s.mu.Lock()
-	s.ctx = ctx
+	oldCancel := s.cancel
+	s.ctx = runCtx
+	s.cancel = cancel
 	s.isRunning = true
 	s.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+	}
 
 	logger.Info("✅ [%s] 马丁格尔策略已啟动", s.name)
 	logger.Info("📊 配置: 方向=%s, 初始金額=%.2f, 倍數=%.1f, 最大层數=%d",
@@ -284,11 +294,13 @@ func (s *MartingaleStrategy) Start(ctx context.Context) error {
 // Stop 停止策略
 func (s *MartingaleStrategy) Stop() error {
 	s.mu.Lock()
+	cancel := s.cancel
 	s.isRunning = false
+	s.cancel = nil
 	s.mu.Unlock()
 
-	if s.cancel != nil {
-		s.cancel()
+	if cancel != nil {
+		cancel()
 	}
 
 	logger.Info("⏹️ [%s] 马丁格尔策略已停止", s.name)

@@ -284,6 +284,55 @@ func (s *SQLStorage) GetBotConfigDocument(ctx context.Context, botID string) (*B
 	return &doc, nil
 }
 
+// ListBotConfigDocuments 讀取全部 Bot 配置文檔，供整站配置遷移導出使用。
+func (s *SQLStorage) ListBotConfigDocuments(ctx context.Context) ([]*BotConfigDocument, error) {
+	if s == nil || s.db == nil {
+		return nil, nil
+	}
+	if err := s.EnsureAppConfigDocumentTables(); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT bot_id, schema_version, content, revision, content_hash, updated_at
+		FROM bot_configs ORDER BY bot_id`)
+	if err != nil && isBotConfigsTableMissing(err) {
+		if e2 := s.EnsureAppConfigDocumentTables(); e2 != nil {
+			return nil, fmt.Errorf("補建 bot_configs 表失敗: %w (原錯: %v)", e2, err)
+		}
+		rows, err = s.db.QueryContext(ctx, `
+		SELECT bot_id, schema_version, content, revision, content_hash, updated_at
+		FROM bot_configs ORDER BY bot_id`)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	docs := make([]*BotConfigDocument, 0)
+	for rows.Next() {
+		var doc BotConfigDocument
+		var contentHash sql.NullString
+		var updatedAt sql.NullString
+		if err := rows.Scan(&doc.BotID, &doc.SchemaVersion, &doc.Content, &doc.Revision, &contentHash, &updatedAt); err != nil {
+			return nil, err
+		}
+		if contentHash.Valid {
+			doc.ContentHash = contentHash.String
+		}
+		if updatedAt.Valid {
+			doc.UpdatedAt, _ = time.ParseInLocation("2006-01-02 15:04:05", updatedAt.String, time.Local)
+			if doc.UpdatedAt.IsZero() {
+				doc.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt.String)
+			}
+		}
+		docs = append(docs, &doc)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return docs, nil
+}
+
 // SaveBotConfigSnapshot 將 Bot 配置 JSON 寫入 bot_configs 與 bot_config_history（與 MigrateYAMLToAppConfigDB 入庫一致）
 func SaveBotConfigSnapshot(ctx context.Context, st Storage, bf *config.BotConfigFile, operator, source string) (revision int, err error) {
 	if st == nil || bf == nil {

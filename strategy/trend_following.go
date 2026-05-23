@@ -138,9 +138,20 @@ func (tfs *TrendFollowingStrategy) Initialize(cfg *config.Config, executor posit
 
 // Start 啟动策略
 func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+
 	tfs.mu.Lock()
+	oldCancel := tfs.cancel
+	tfs.ctx = runCtx
+	tfs.cancel = cancel
 	tfs.isRunning = true
 	tfs.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+	}
 
 	logger.Info("✅ [%s] 趋势跟踪策略已啟动自动交易 (短期:%d, 长期:%d, 方法:%s, 单笔金额:%.2f)",
 		tfs.name, tfs.shortPeriod, tfs.longPeriod, tfs.method, tfs.orderAmount)
@@ -150,11 +161,13 @@ func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
 // Stop 停止策略
 func (tfs *TrendFollowingStrategy) Stop() error {
 	tfs.mu.Lock()
+	cancel := tfs.cancel
 	tfs.isRunning = false
+	tfs.cancel = nil
 	tfs.mu.Unlock()
 
-	if tfs.cancel != nil {
-		tfs.cancel()
+	if cancel != nil {
+		cancel()
 	}
 	return nil
 }

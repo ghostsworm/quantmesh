@@ -252,3 +252,36 @@ trading:
 		t.Fatalf("expected bot_configs row for %s", bid)
 	}
 }
+
+func TestListBotConfigDocuments(t *testing.T) {
+	dir := t.TempDir()
+	st, err := NewSQLStorage(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	ctx := context.Background()
+	for _, botID := range []string{"bot-b", "bot-a"} {
+		if _, err := SaveBotConfigSnapshot(ctx, st, &config.BotConfigFile{
+			BotID:      botID,
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+			Strategies: []config.BotStrategyConfig{{Type: "grid", Enabled: true}},
+		}, "test", "unit"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	docs, err := st.ListBotConfigDocuments(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("expected 2 bot config docs, got %d", len(docs))
+	}
+	if docs[0].BotID != "bot-a" || docs[1].BotID != "bot-b" {
+		t.Fatalf("expected bot docs sorted by bot_id, got %s, %s", docs[0].BotID, docs[1].BotID)
+	}
+}

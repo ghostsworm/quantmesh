@@ -26,8 +26,8 @@ type BotConfigFile struct {
 	Testnet    bool   `yaml:"testnet" json:"testnet"`
 
 	// 策略配置（支持多策略）
-	StrategyMode string               `yaml:"strategy_mode" json:"strategy_mode"` // single/multi/hybrid
-	Strategies   []BotStrategyConfig  `yaml:"strategies" json:"strategies"`
+	StrategyMode string              `yaml:"strategy_mode" json:"strategy_mode"` // single/multi/hybrid
+	Strategies   []BotStrategyConfig `yaml:"strategies" json:"strategies"`
 
 	// 混合策略配置（当 strategy_mode 为 hybrid 时使用）
 	HybridStrategy *HybridStrategyConfig `yaml:"hybrid_strategy,omitempty" json:"hybrid_strategy,omitempty"`
@@ -50,36 +50,36 @@ type BotConfigFile struct {
 
 // BotStrategyConfig 单个策略的完整配置（Bot 配置文件专用）
 type BotStrategyConfig struct {
-	Type     string                 `yaml:"type" json:"type"`           // grid, dca, momentum, trend_following, etc.
+	Type     string                 `yaml:"type" json:"type"` // grid, dca, momentum, trend_following, etc.
 	Enabled  bool                   `yaml:"enabled" json:"enabled"`
-	Weight   float64                `yaml:"weight" json:"weight"`       // 策略权重（多策略时分配资金）
-	Params   map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`   // 策略特定参数
+	Weight   float64                `yaml:"weight" json:"weight"`                         // 策略权重（多策略时分配资金）
+	Params   map[string]interface{} `yaml:"params,omitempty" json:"params,omitempty"`     // 策略特定参数
 	Settings map[string]interface{} `yaml:"settings,omitempty" json:"settings,omitempty"` // 策略设置
 }
 
 // CapitalConfig 资金配置
 type CapitalConfig struct {
-	TotalAllocated float64 `yaml:"total_allocated" json:"total_allocated"` // 总分配资金
-	PerStrategy     bool    `yaml:"per_strategy" json:"per_strategy"`       // 是否按策略分配资金
-	Withdrawal      WithdrawalPolicy `yaml:"withdrawal" json:"withdrawal"`
+	TotalAllocated float64          `yaml:"total_allocated" json:"total_allocated"` // 总分配资金
+	PerStrategy    bool             `yaml:"per_strategy" json:"per_strategy"`       // 是否按策略分配资金
+	Withdrawal     WithdrawalPolicy `yaml:"withdrawal" json:"withdrawal"`
 }
 
 // GridConfig 网格策略配置
 type GridConfig struct {
-	PriceInterval  float64 `yaml:"price_interval" json:"price_interval"`
-	ProfitSpread   float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`
-	OrderQuantity  float64 `yaml:"order_quantity" json:"order_quantity"`
-	MinOrderValue  float64 `yaml:"min_order_value" json:"min_order_value"`
-	BuyWindowSize         int `yaml:"buy_window_size" json:"buy_window_size"`
-	SellWindowSize        int `yaml:"sell_window_size" json:"sell_window_size"`
-	ShortOpenWindowSize   int `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"`
+	PriceInterval       float64 `yaml:"price_interval" json:"price_interval"`
+	ProfitSpread        float64 `yaml:"profit_spread,omitempty" json:"profit_spread,omitempty"`
+	OrderQuantity       float64 `yaml:"order_quantity" json:"order_quantity"`
+	MinOrderValue       float64 `yaml:"min_order_value" json:"min_order_value"`
+	BuyWindowSize       int     `yaml:"buy_window_size" json:"buy_window_size"`
+	SellWindowSize      int     `yaml:"sell_window_size" json:"sell_window_size"`
+	ShortOpenWindowSize int     `yaml:"short_open_window_size,omitempty" json:"short_open_window_size,omitempty"`
 
-	Direction    string  `yaml:"direction,omitempty" json:"direction,omitempty"`    // LONG/SHORT/BOTH
+	Direction    string  `yaml:"direction,omitempty" json:"direction,omitempty"` // LONG/SHORT/BOTH
 	PriceLow     float64 `yaml:"price_low,omitempty" json:"price_low,omitempty"`
 	PriceHigh    float64 `yaml:"price_high,omitempty" json:"price_high,omitempty"`
 	TriggerPrice float64 `yaml:"trigger_price,omitempty" json:"trigger_price,omitempty"`
 
-	GridMode         string  `yaml:"grid_mode,omitempty" json:"grid_mode,omitempty"`           // arithmetic/geometric
+	GridMode         string  `yaml:"grid_mode,omitempty" json:"grid_mode,omitempty"` // arithmetic/geometric
 	GridShiftEnabled bool    `yaml:"grid_shift_enabled,omitempty" json:"grid_shift_enabled,omitempty"`
 	GridShiftStep    float64 `yaml:"grid_shift_step,omitempty" json:"grid_shift_step,omitempty"`
 
@@ -101,28 +101,28 @@ type GridAutoRebuildConfig struct {
 	// 触发条件（满足任一即可）
 	PriceDeviationLayers int     `yaml:"price_deviation_layers" json:"price_deviation_layers"` // 价格偏离网格中心层数，默认 5
 	OrderExpireMinutes   int     `yaml:"order_expire_minutes" json:"order_expire_minutes"`     // 订单过期时间（分钟），默认 30
-	ExpiredOrderRatio    float64 `yaml:"expired_order_ratio" json:"expired_order_ratio"`        // 过期订单比例，默认 0.7
+	ExpiredOrderRatio    float64 `yaml:"expired_order_ratio" json:"expired_order_ratio"`       // 过期订单比例，默认 0.7
 
 	// 重建模式
 	RebuildMode string `yaml:"rebuild_mode" json:"rebuild_mode"` // smart/always，默认 smart
 
 	// 保护机制（防止频繁重建）
-	MaxRebuildsPerHour  int `yaml:"max_rebuilds_per_hour" json:"max_rebuilds_per_hour"` // 每小时最大重建次数，默认 2
-	MinRebuildInterval  int `yaml:"min_rebuild_interval" json:"min_rebuild_interval"` // 两次重建最小间隔（分钟），默认 15
+	MaxRebuildsPerHour  int  `yaml:"max_rebuilds_per_hour" json:"max_rebuilds_per_hour"` // 每小时最大重建次数，默认 2
+	MinRebuildInterval  int  `yaml:"min_rebuild_interval" json:"min_rebuild_interval"`   // 两次重建最小间隔（分钟），默认 15
 	RequireTrendConfirm bool `yaml:"require_trend_confirm" json:"require_trend_confirm"` // 是否需要趋势确认，默认 false
 }
 
 // GetDefaultAutoRebuildConfig 返回保守的默认自动重建配置
 func GetDefaultAutoRebuildConfig() GridAutoRebuildConfig {
 	return GridAutoRebuildConfig{
-		Enabled:             false, // 默认关闭，需要用户主动开启
+		Enabled:              false, // 默认关闭，需要用户主动开启
 		CheckIntervalMinutes: 5,
-		PriceDeviationLayers: 5,    // 偏离 5 层网格才触发（足够宽松）
-		OrderExpireMinutes:   30,   // 订单挂单 30 分钟未成交算过期
-		ExpiredOrderRatio:    0.7,  // 70% 订单过期才触发
+		PriceDeviationLayers: 5,   // 偏离 5 层网格才触发（足够宽松）
+		OrderExpireMinutes:   30,  // 订单挂单 30 分钟未成交算过期
+		ExpiredOrderRatio:    0.7, // 70% 订单过期才触发
 		RebuildMode:          "smart",
-		MaxRebuildsPerHour:   2,    // 每小时最多重建 2 次
-		MinRebuildInterval:   15,   // 两次重建最少间隔 15 分钟
+		MaxRebuildsPerHour:   2,     // 每小时最多重建 2 次
+		MinRebuildInterval:   15,    // 两次重建最少间隔 15 分钟
 		RequireTrendConfirm:  false, // 默认不需要趋势确认（保守策略）
 	}
 }
@@ -132,7 +132,7 @@ func GetDefaultAutoRebuildConfig() GridAutoRebuildConfig {
 type OptionHedgeConfig struct {
 	Enabled             bool    `yaml:"enabled" json:"enabled"`
 	Exchange            string  `yaml:"exchange" json:"exchange"`                           // binance / deribit
-	Direction           string  `yaml:"direction,omitempty" json:"direction,omitempty"`       // LONG=Put 保护，SHORT=Call 保护；空时从 grid.direction 推断
+	Direction           string  `yaml:"direction,omitempty" json:"direction,omitempty"`     // LONG=Put 保护，SHORT=Call 保护；空时从 grid.direction 推断
 	TargetCoverageRatio float64 `yaml:"target_coverage_ratio" json:"target_coverage_ratio"` // 目标覆盖率 0-1，默认 0.25
 	MinCoverageRatio    float64 `yaml:"min_coverage_ratio" json:"min_coverage_ratio"`       // 最小覆盖率，低于则联动风控
 	DTEWarningDays      int     `yaml:"dte_warning_days" json:"dte_warning_days"`           // DTE 低于此值告警
@@ -150,15 +150,15 @@ type RiskControlConfig struct {
 
 // AdvancedConfig 高级配置
 type AdvancedConfig struct {
-	ReconcileInterval     int                `yaml:"reconcile_interval,omitempty" json:"reconcile_interval,omitempty"`
-	OrderCleanupThreshold int                `yaml:"order_cleanup_threshold,omitempty" json:"order_cleanup_threshold,omitempty"`
-	CleanupBatchSize      int                `yaml:"cleanup_batch_size,omitempty" json:"cleanup_batch_size,omitempty"`
-	MarginLockDurationSec int                `yaml:"margin_lock_duration_sec,omitempty" json:"margin_lock_duration_sec,omitempty"`
-	PositionSafetyCheck   int                `yaml:"position_safety_check,omitempty" json:"position_safety_check,omitempty"`
-	CloseOnStop           bool               `yaml:"close_on_stop,omitempty" json:"close_on_stop,omitempty"`
+	ReconcileInterval     int                 `yaml:"reconcile_interval,omitempty" json:"reconcile_interval,omitempty"`
+	OrderCleanupThreshold int                 `yaml:"order_cleanup_threshold,omitempty" json:"order_cleanup_threshold,omitempty"`
+	CleanupBatchSize      int                 `yaml:"cleanup_batch_size,omitempty" json:"cleanup_batch_size,omitempty"`
+	MarginLockDurationSec int                 `yaml:"margin_lock_duration_sec,omitempty" json:"margin_lock_duration_sec,omitempty"`
+	PositionSafetyCheck   int                 `yaml:"position_safety_check,omitempty" json:"position_safety_check,omitempty"`
+	CloseOnStop           bool                `yaml:"close_on_stop,omitempty" json:"close_on_stop,omitempty"`
 	CloseOnStopConfig     ClosePositionConfig `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"`
-	SlotFilter            SlotFilterConfig   `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`
-	SmartOrder            SmartOrderConfig   `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`
+	SlotFilter            SlotFilterConfig    `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`
+	SmartOrder            SmartOrderConfig    `yaml:"smart_order,omitempty" json:"smart_order,omitempty"`
 
 	// 配置档案
 	Profiles    map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`
@@ -240,7 +240,7 @@ func (m *BotConfigManager) SaveBotConfig(config *BotConfigFile) error {
 		return fmt.Errorf("序列化 Bot 配置失败: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := writeFileAtomic(configPath, data, 0600); err != nil {
 		return fmt.Errorf("写入 Bot 配置文件失败: %w", err)
 	}
 
@@ -373,34 +373,34 @@ func (m *BotConfigManager) BotConfigExists(botID string) bool {
 // ConvertFromBotConfig 从旧的 BotConfig 转换到新的 BotConfigFile
 func ConvertFromBotConfig(bc BotConfig) *BotConfigFile {
 	config := &BotConfigFile{
-		BotID:       bc.ID,
-		Name:        bc.Name,
-		Exchange:    bc.Exchange,
-		Symbol:      bc.Symbol,
-		MarketType:  bc.MarketType,
-		Testnet:     bc.Testnet,
+		BotID:        bc.ID,
+		Name:         bc.Name,
+		Exchange:     bc.Exchange,
+		Symbol:       bc.Symbol,
+		MarketType:   bc.MarketType,
+		Testnet:      bc.Testnet,
 		StrategyMode: "single",
 		Capital: CapitalConfig{
 			TotalAllocated: bc.TotalAllocatedCapital,
 			Withdrawal:     bc.WithdrawalPolicy,
 		},
 		Grid: GridConfig{
-			PriceInterval:     bc.PriceInterval,
-			ProfitSpread:      bc.ProfitSpread,
-			OrderQuantity:     bc.OrderQuantity,
-			MinOrderValue:     bc.MinOrderValue,
-			BuyWindowSize:         bc.BuyWindowSize,
-			SellWindowSize:        bc.SellWindowSize,
-			ShortOpenWindowSize:   bc.ShortOpenWindowSize,
-			Direction:             bc.Direction,
-			PriceLow:          bc.PriceLow,
-			PriceHigh:         bc.PriceHigh,
-			TriggerPrice:      bc.TriggerPrice,
-			GridMode:          bc.GridMode,
-			GridShiftEnabled:  bc.GridShiftEnabled,
-			GridShiftStep:     bc.GridShiftStep,
-			RocketTieredGrid:  bc.RocketTieredGrid,
-			AutoRebuild:       bc.AutoRebuild,
+			PriceInterval:       bc.PriceInterval,
+			ProfitSpread:        bc.ProfitSpread,
+			OrderQuantity:       bc.OrderQuantity,
+			MinOrderValue:       bc.MinOrderValue,
+			BuyWindowSize:       bc.BuyWindowSize,
+			SellWindowSize:      bc.SellWindowSize,
+			ShortOpenWindowSize: bc.ShortOpenWindowSize,
+			Direction:           bc.Direction,
+			PriceLow:            bc.PriceLow,
+			PriceHigh:           bc.PriceHigh,
+			TriggerPrice:        bc.TriggerPrice,
+			GridMode:            bc.GridMode,
+			GridShiftEnabled:    bc.GridShiftEnabled,
+			GridShiftStep:       bc.GridShiftStep,
+			RocketTieredGrid:    bc.RocketTieredGrid,
+			AutoRebuild:         bc.AutoRebuild,
 		},
 		RiskControl: RiskControlConfig{
 			GridRiskControl:     bc.GridRiskControl,
