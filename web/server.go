@@ -411,6 +411,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			// 數據導出 API
 			protected.GET("/export/config", exportConfigHandler)
+			protected.GET("/export/config-migration", exportConfigMigrationHandler)
 			protected.GET("/export/trades", exportTradesHandler)
 			protected.GET("/export/orders", exportOrdersHandler)
 			protected.GET("/export/positions", exportPositionsHandler)
@@ -422,6 +423,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/export/audit-logs", exportAuditLogsHandler)
 			protected.GET("/export/backtest-reports", exportBacktestReportsHandler)
 			protected.GET("/export/all", exportAllHandler)
+			protected.POST("/config/import-migration", importConfigMigrationHandler)
 
 			protected.POST("/trading/start", startTrading)
 			protected.POST("/trading/stop", stopTrading)

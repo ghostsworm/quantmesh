@@ -52,9 +52,9 @@ func (m *MockGridExchange) GetOrder(ctx context.Context, symbol string, orderID 
 	return nil, nil
 }
 func (m *MockGridExchange) CancelAllOrders(ctx context.Context, symbol string) error { return nil }
-func (m *MockGridExchange) GetAccount(ctx context.Context) (interface{}, error)       { return nil, nil }
-func (m *MockGridExchange) GetPriceDecimals() int    { return 2 }
-func (m *MockGridExchange) GetQuantityDecimals() int { return 3 }
+func (m *MockGridExchange) GetAccount(ctx context.Context) (interface{}, error)      { return nil, nil }
+func (m *MockGridExchange) GetPriceDecimals() int                                    { return 2 }
+func (m *MockGridExchange) GetQuantityDecimals() int                                 { return 3 }
 func (m *MockGridExchange) GetOrderBook(ctx context.Context, symbol string, limit int) (*position.OrderBook, error) {
 	return &position.OrderBook{}, nil
 }
@@ -87,6 +87,9 @@ func TestGridStrategy_Delegation(t *testing.T) {
 
 	// 創建 GridStrategy
 	gs := NewGridStrategy("test_grid", cfg, executor, ex, spm)
+	if err := gs.Start(context.Background()); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	// 测試價格變化触发下單
 	err := gs.OnPriceChange(49950.0)
@@ -118,4 +121,27 @@ func TestGridStrategy_Delegation(t *testing.T) {
 	}
 	_ = len(pos)
 	_ = len(orders)
+}
+
+func TestGridStrategy_IgnoresCallbacksWhenStoppedOrUninitialized(t *testing.T) {
+	gs := NewGridStrategy("test_grid", &config.Config{}, nil, nil, nil)
+
+	if err := gs.OnPriceChange(49950.0); err != nil {
+		t.Fatalf("stopped OnPriceChange should be ignored, got %v", err)
+	}
+	if err := gs.OnOrderUpdate(&position.OrderUpdate{OrderID: 12345}); err != nil {
+		t.Fatalf("stopped OnOrderUpdate should be ignored, got %v", err)
+	}
+	if err := gs.Start(nil); err != nil {
+		t.Fatalf("Start with nil context failed: %v", err)
+	}
+	if !gs.IsRunning() {
+		t.Fatal("expected strategy to be running")
+	}
+	if err := gs.OnPriceChange(49950.0); err != nil {
+		t.Fatalf("nil manager OnPriceChange should be ignored, got %v", err)
+	}
+	if err := gs.OnOrderUpdate(nil); err != nil {
+		t.Fatalf("nil update should be ignored, got %v", err)
+	}
 }

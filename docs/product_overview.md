@@ -38,6 +38,9 @@ QuantMesh 是一款高性能、低延迟的加密货币做市系统，采用 Go 
 
 ### 近期优化
 
+- **3.105.0-rc42**：新增整站配置迁移包导出/导入：导出包含运行时配置、YAML 视图、数据库 `app_config` 与全部 `bot_configs`；导入会写回新站主库、运行时配置和 Bot 文件配置后备，并补充迁移指南，便于旧站向新站完整搬迁。
+- **3.105.0-rc41**：网格策略停止态与异常初始化防护增强，停止后不再响应价格/订单回调，空 manager 不再 panic；马丁格尔与趋势跟踪策略停止/重启时刷新并取消运行 context；磁盘 YAML 配置和 Bot 配置改为原子写入并使用 `0600` 权限，降低半写配置和密钥泄露风险。
+- **3.105.0-rc40**：API 版本可观测性增强：后端统一规范化版本号输出，空白版本会回退为 `unknown`；所有 `/api` 响应在保留 `X-App-Version` 的同时增加 `X-Server-Version` 响应头，并补充对应回归测试。
 - **3.105.0-rc39**：Agent 参数工具补强异常输入容错：`set_parameter`、`validate_parameters`、`suggest_parameters` 在必填参数缺失或类型错误时返回明确错误，不再 panic；参数优化器未注入 market data 服务时自动使用默认实现，并补充对应回归测试。
 - **3.105.0-rc38**：PostgreSQL/Supabase 配置存储补齐：配置中心新增 GORM 实现，支持 `postgres/postgresql` DSN；未指定 YAML 时可从 Postgres/Supabase `app_config` 启动；远端 SQL 默认值不再把空 `storage.path` 补成 SQLite 文件；前端数据存储设置增加 PostgreSQL/Supabase 选项与 DSN 提示。
 - **3.105.0-rc37**：登录安全补齐一次性密码恢复码：已登录用户可生成恢复码，忘记密码时可用恢复码重置密码；恢复码只明文展示一次、落库仅保存哈希，使用后自动失效，并在重置成功后清理旧会话；登录页和个人资料页补齐对应入口。

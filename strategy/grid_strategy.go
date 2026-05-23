@@ -62,6 +62,9 @@ func (gs *GridStrategy) Initialize(cfg *config.Config, executor position.OrderEx
 
 // Start 啟动策略
 func (gs *GridStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	gs.mu.Lock()
 	gs.ctx = ctx
 	gs.isRunning = true
@@ -90,21 +93,33 @@ func (gs *GridStrategy) IsRunning() bool {
 
 // OnPriceChange 價格變化处理
 func (gs *GridStrategy) OnPriceChange(price float64) error {
-	gs.mu.Lock()
-	if gs.isPaused {
-		gs.mu.Unlock()
+	gs.mu.RLock()
+	running := gs.isRunning
+	paused := gs.isPaused
+	manager := gs.manager
+	gs.mu.RUnlock()
+	if !running || paused || manager == nil {
 		return nil
 	}
-	gs.mu.Unlock()
 
 	// 調用 SuperPositionManager 的 AdjustOrders
-	return gs.manager.AdjustOrders(price)
+	return manager.AdjustOrders(price)
 }
 
 // OnOrderUpdate 订單更新处理
 func (gs *GridStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	if update == nil {
+		return nil
+	}
+	gs.mu.RLock()
+	running := gs.isRunning
+	manager := gs.manager
+	gs.mu.RUnlock()
+	if !running || manager == nil {
+		return nil
+	}
 	// 調用 SuperPositionManager 的 OnOrderUpdate（需要傳遞值類型）
-	gs.manager.OnOrderUpdate(*update)
+	manager.OnOrderUpdate(*update)
 	return nil
 }
 

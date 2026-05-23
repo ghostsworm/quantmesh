@@ -346,21 +346,23 @@ func getSymbols(c *gin.Context) {
 
 // getVersion 返回版本号（不需要认证）
 func getVersion(c *gin.Context) {
-	version := appVersion
-	if version == "" {
-		version = "unknown"
-	}
-	c.JSON(http.StatusOK, gin.H{"version": version})
+	c.JSON(http.StatusOK, gin.H{"version": normalizedAppVersion()})
 }
 
-// versionHeaderMiddleware 在响应头中設置 X-App-Version，便於排查
+func normalizedAppVersion() string {
+	version := strings.TrimSpace(appVersion)
+	if version == "" {
+		return "unknown"
+	}
+	return version
+}
+
+// versionHeaderMiddleware 在响应头中設置版本号，便於排查
 func versionHeaderMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		v := appVersion
-		if v == "" {
-			v = "unknown"
-		}
+		v := normalizedAppVersion()
 		c.Header("X-App-Version", v)
+		c.Header("X-Server-Version", v)
 		c.Next()
 	}
 }
