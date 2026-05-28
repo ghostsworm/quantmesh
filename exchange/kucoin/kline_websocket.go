@@ -21,6 +21,7 @@ type KlineWebSocketManager struct {
 	token          *WebSocketToken
 	callback       CandleUpdateCallback
 	mu             sync.RWMutex
+	writeMu        sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan       chan struct{}
 	reconnectDelay time.Duration
 }
@@ -68,7 +69,10 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, callback CandleUpdate
 			"topic":    fmt.Sprintf("/contractMarket/candle:%s_%dm", symbol, granularity),
 			"response": true,
 		}
-		if err := conn.WriteJSON(subscribeMsg); err != nil {
+		k.writeMu.Lock()
+		err := conn.WriteJSON(subscribeMsg)
+		k.writeMu.Unlock()
+		if err != nil {
 			return fmt.Errorf("subscribe kline stream error: %w", err)
 		}
 		logger.Info("KuCoin subscribed to K線 stream: %s, interval: %s", symbol, k.interval)
@@ -222,7 +226,10 @@ func (k *KlineWebSocketManager) ping(ctx context.Context) {
 				"id":   time.Now().UnixMilli(),
 				"type": "ping",
 			}
-			if err := k.conn.WriteJSON(pingMsg); err != nil {
+			k.writeMu.Lock()
+			err := k.conn.WriteJSON(pingMsg)
+			k.writeMu.Unlock()
+			if err != nil {
 				logger.Error("KuCoin K線 send ping error: %v", err)
 				return
 			}

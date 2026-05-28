@@ -20,8 +20,9 @@ type WebSocketManager struct {
 	signer    *Signer
 
 	// 连接管理
-	conn *websocket.Conn
-	mu   sync.RWMutex
+	conn    *websocket.Conn
+	mu      sync.RWMutex
+	writeMu sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 
 	// 回呼函數
 	orderCallback func(interface{})
@@ -240,7 +241,10 @@ func (w *WebSocketManager) login() error {
 		return fmt.Errorf("连接未建立")
 	}
 
-	if err := conn.WriteJSON(loginMsg); err != nil {
+	w.writeMu.Lock()
+	err := conn.WriteJSON(loginMsg)
+	w.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("发送登錄消息失败: %w", err)
 	}
 
@@ -303,7 +307,9 @@ func (w *WebSocketManager) subscribeChannels(symbol string) error {
 		return fmt.Errorf("连接未建立")
 	}
 
-	// 发送订阅消息
+	// 发送订阅消息（writeMu 覆蓋三條訂閱消息整體，避免和心跳交錯）
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
 	if err := conn.WriteJSON(ordersMsg); err != nil {
 		return fmt.Errorf("订阅订單频道失败: %w", err)
 	}
@@ -344,7 +350,10 @@ func (w *WebSocketManager) keepAlive(conn *websocket.Conn) {
 				"channel": "futures.ping",
 			}
 
-			if err := conn.WriteJSON(pingMsg); err != nil {
+			w.writeMu.Lock()
+			err := conn.WriteJSON(pingMsg)
+			w.writeMu.Unlock()
+			if err != nil {
 				logger.Warn("⚠️ [Gate WS] Ping 失败: %v", err)
 				return
 			}
@@ -611,7 +620,10 @@ func (w *WebSocketManager) PlaceOrder(order map[string]interface{}) error {
 		return fmt.Errorf("未认证")
 	}
 
-	if err := conn.WriteJSON(orderMsg); err != nil {
+	w.writeMu.Lock()
+	err := conn.WriteJSON(orderMsg)
+	w.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("发送下單消息失败: %w", err)
 	}
 

@@ -34,6 +34,7 @@ type WebSocketManager struct {
 
 	conn          *websocket.Conn
 	mu            sync.RWMutex
+	writeMu       sync.Mutex // 串行化私有 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan      chan struct{}
 	isRunning     atomic.Bool
 	lastPrice     atomic.Value
@@ -242,13 +243,16 @@ func (w *WebSocketManager) runPublicPriceLoop(ctx context.Context, instId string
 // sendMessage 发送消息
 func (w *WebSocketManager) sendMessage(msg interface{}) error {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
+	conn := w.conn
+	w.mu.RUnlock()
 
-	if w.conn == nil {
+	if conn == nil {
 		return fmt.Errorf("WebSocket 未连接")
 	}
 
-	return w.conn.WriteJSON(msg)
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+	return conn.WriteJSON(msg)
 }
 
 // readMessages 读取消息
@@ -445,7 +449,10 @@ func (w *WebSocketManager) keepAlive() {
 			w.mu.RUnlock()
 
 			if conn != nil {
-				if err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg)); err != nil {
+				w.writeMu.Lock()
+				err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg))
+				w.writeMu.Unlock()
+				if err != nil {
 					logger.Warn("⚠️ [OKX WebSocket] 发送 ping 失败: %v", err)
 				}
 			}

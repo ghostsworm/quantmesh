@@ -28,9 +28,23 @@ type WebSocketManager struct {
 	wsURL     string
 	conn      *websocket.Conn
 	mu        sync.RWMutex
+	writeMu   sync.Mutex
 	stopCh    chan struct{}
 	callback  func(interface{})
 	isRunning bool
+}
+
+// safeWriteMessage 串行化 conn 的写操作，避免 gorilla/websocket 并发写竞态。
+func (w *WebSocketManager) safeWriteMessage(messageType int, data []byte) error {
+	w.mu.RLock()
+	conn := w.conn
+	w.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+	return conn.WriteMessage(messageType, data)
 }
 
 // NewWebSocketManager 創建 WebSocket 管理器
@@ -163,20 +177,11 @@ func (w *WebSocketManager) subscribe(symbol string) error {
 
 // sendMessage 发送消息
 func (w *WebSocketManager) sendMessage(msg interface{}) error {
-	w.mu.RLock()
-	conn := w.conn
-	w.mu.RUnlock()
-
-	if conn == nil {
-		return fmt.Errorf("websocket not connected")
-	}
-
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return w.safeWriteMessage(websocket.TextMessage, data)
 }
 
 // heartbeat 心跳
@@ -189,13 +194,7 @@ func (w *WebSocketManager) heartbeat() {
 		case <-w.stopCh:
 			return
 		case <-ticker.C:
-			pingMsg := "ping"
-			w.mu.RLock()
-			conn := w.conn
-			w.mu.RUnlock()
-			if conn != nil {
-				conn.WriteMessage(websocket.TextMessage, []byte(pingMsg))
-			}
+			_ = w.safeWriteMessage(websocket.TextMessage, []byte("ping"))
 		}
 	}
 }

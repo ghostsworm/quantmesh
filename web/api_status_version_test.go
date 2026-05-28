@@ -34,7 +34,7 @@ func TestVersionHeaderMiddlewareExposesServerVersion(t *testing.T) {
 
 	originalVersion := appVersion
 	defer func() { appVersion = originalVersion }()
-	SetVersion(" 3.105.0-rc42 ")
+	SetVersion(" 3.105.0-rc43 ")
 
 	r := gin.New()
 	r.Use(versionHeaderMiddleware())
@@ -46,10 +46,10 @@ func TestVersionHeaderMiddlewareExposesServerVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/ping", nil)
 	r.ServeHTTP(w, req)
 
-	if got := w.Header().Get("X-App-Version"); got != "3.105.0-rc42" {
-		t.Fatalf("expected X-App-Version 3.105.0-rc42, got %q", got)
+	if got := w.Header().Get("X-App-Version"); got != "3.105.0-rc43" {
+		t.Fatalf("expected X-App-Version 3.105.0-rc43, got %q", got)
 	}
-	if got := w.Header().Get("X-Server-Version"); got != "3.105.0-rc42" {
-		t.Fatalf("expected X-Server-Version 3.105.0-rc42, got %q", got)
+	if got := w.Header().Get("X-Server-Version"); got != "3.105.0-rc43" {
+		t.Fatalf("expected X-Server-Version 3.105.0-rc43, got %q", got)
 	}
 }

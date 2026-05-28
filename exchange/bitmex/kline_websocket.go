@@ -17,9 +17,23 @@ type KlineWebSocketManager struct {
 	wsURL     string
 	conn      *websocket.Conn
 	mu        sync.RWMutex
+	writeMu   sync.Mutex
 	stopCh    chan struct{}
 	callback  func(*TradeBucket)
 	isRunning bool
+}
+
+// safeWriteMessage 串行化 conn 的写操作，避免 gorilla/websocket 并发写竞态。
+func (k *KlineWebSocketManager) safeWriteMessage(messageType int, data []byte) error {
+	k.mu.RLock()
+	conn := k.conn
+	k.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("websocket not connected")
+	}
+	k.writeMu.Lock()
+	defer k.writeMu.Unlock()
+	return conn.WriteMessage(messageType, data)
 }
 
 // NewKlineWebSocketManager 創建 K線 WebSocket 管理器
@@ -121,20 +135,11 @@ func (k *KlineWebSocketManager) subscribe(symbol, binSize string) error {
 
 // sendMessage 发送消息
 func (k *KlineWebSocketManager) sendMessage(msg interface{}) error {
-	k.mu.RLock()
-	conn := k.conn
-	k.mu.RUnlock()
-
-	if conn == nil {
-		return fmt.Errorf("websocket not connected")
-	}
-
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-
-	return conn.WriteMessage(websocket.TextMessage, data)
+	return k.safeWriteMessage(websocket.TextMessage, data)
 }
 
 // heartbeat 心跳
@@ -147,12 +152,7 @@ func (k *KlineWebSocketManager) heartbeat() {
 		case <-k.stopCh:
 			return
 		case <-ticker.C:
-			k.mu.RLock()
-			conn := k.conn
-			k.mu.RUnlock()
-			if conn != nil {
-				conn.WriteMessage(websocket.TextMessage, []byte("ping"))
-			}
+			_ = k.safeWriteMessage(websocket.TextMessage, []byte("ping"))
 		}
 	}
 }

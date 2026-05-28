@@ -13,15 +13,16 @@ import (
 
 // SpotKlineWebSocketManager 現貨公共 K 線（spot.candlesticks）
 type SpotKlineWebSocketManager struct {
-	testnet       bool
-	gateSymbols   []string
-	interval      string
-	callback      func(interface{})
-	mu            sync.RWMutex
-	conn          *websocket.Conn
-	stopC         chan struct{}
-	stopOnce      sync.Once
-	pingInterval  time.Duration
+	testnet        bool
+	gateSymbols    []string
+	interval       string
+	callback       func(interface{})
+	mu             sync.RWMutex
+	writeMu        sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
+	conn           *websocket.Conn
+	stopC          chan struct{}
+	stopOnce       sync.Once
+	pingInterval   time.Duration
 	reconnectDelay time.Duration
 }
 
@@ -89,7 +90,10 @@ func (k *SpotKlineWebSocketManager) runLoop(ctx context.Context) {
 				"event":   "subscribe",
 				"payload": []string{iv, gs},
 			}
-			if err := conn.WriteJSON(sub); err != nil {
+			k.writeMu.Lock()
+			err := conn.WriteJSON(sub)
+			k.writeMu.Unlock()
+			if err != nil {
 				logger.Warn("⚠️ [Gate Spot K線] 訂閱失敗: %v", err)
 				break
 			}
@@ -149,7 +153,9 @@ func (k *SpotKlineWebSocketManager) pingLoop(conn *websocket.Conn, done <-chan s
 		case <-done:
 			return
 		case <-t.C:
+			k.writeMu.Lock()
 			_ = conn.WriteJSON(map[string]interface{}{"time": time.Now().Unix(), "channel": "spot.ping"})
+			k.writeMu.Unlock()
 		}
 	}
 }

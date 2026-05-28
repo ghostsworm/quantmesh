@@ -27,6 +27,7 @@ type SpotOrderWebSocketManager struct {
 
 	conn          *websocket.Conn
 	mu            sync.RWMutex
+	writeMu       sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan      chan struct{}
 	stopOnce      sync.Once
 	isRunning     atomic.Bool
@@ -124,11 +125,14 @@ func (w *SpotOrderWebSocketManager) login() error {
 
 func (w *SpotOrderWebSocketManager) sendMessage(msg interface{}) error {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
-	if w.conn == nil {
+	conn := w.conn
+	w.mu.RUnlock()
+	if conn == nil {
 		return fmt.Errorf("WebSocket 未连接")
 	}
-	return w.conn.WriteJSON(msg)
+	w.writeMu.Lock()
+	defer w.writeMu.Unlock()
+	return conn.WriteJSON(msg)
 }
 
 func (w *SpotOrderWebSocketManager) readMessages() {
@@ -238,7 +242,9 @@ func (w *SpotOrderWebSocketManager) keepAlive() {
 			conn := w.conn
 			w.mu.RUnlock()
 			if conn != nil {
+				w.writeMu.Lock()
 				_ = conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+				w.writeMu.Unlock()
 			}
 		case <-w.stopChan:
 			return

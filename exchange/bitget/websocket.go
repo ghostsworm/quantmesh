@@ -63,6 +63,9 @@ type WebSocketManager struct {
 	privateConn *websocket.Conn
 	publicConn  *websocket.Conn
 	mu          sync.RWMutex
+	// 串行化 conn 寫操作，避免 gorilla/websocket 並發寫競態
+	privateWriteMu sync.Mutex
+	publicWriteMu  sync.Mutex
 
 	// 回呼函數
 	orderCallback func(interface{})
@@ -310,7 +313,7 @@ func (w *WebSocketManager) publicConnectLoop() {
 		// 啟动 ping 和读取协程
 		done := make(chan struct{})
 		go func() {
-			w.keepAlive(conn, "公共", w.publicReconnectChan)
+			w.keepAlive(conn, "公共", w.publicReconnectChan, &w.publicWriteMu)
 			close(done)
 		}()
 
@@ -403,7 +406,7 @@ func (w *WebSocketManager) privateConnectLoop() {
 		// 啟动 ping 和读取协程
 		done := make(chan struct{})
 		go func() {
-			w.keepAlive(conn, "私有", w.privateReconnectChan)
+			w.keepAlive(conn, "私有", w.privateReconnectChan, &w.privateWriteMu)
 			close(done)
 		}()
 
@@ -593,6 +596,8 @@ func (w *WebSocketManager) subscribeOrders(symbol string) error {
 	}
 
 	logger.Info("📡 [Bitget WS] 订阅私有频道: orders instType=%s", inst)
+	w.privateWriteMu.Lock()
+	defer w.privateWriteMu.Unlock()
 	return w.privateConn.WriteJSON(subMsg)
 }
 
@@ -609,6 +614,8 @@ func (w *WebSocketManager) subscribeTicker(symbol string) error {
 		},
 	}
 
+	w.publicWriteMu.Lock()
+	defer w.publicWriteMu.Unlock()
 	return w.publicConn.WriteJSON(subMsg)
 }
 
@@ -964,7 +971,8 @@ func (w *WebSocketManager) GetLatestPrice() float64 {
 }
 
 // keepAlive WebSocket 保活（每15秒发送 ping）
-func (w *WebSocketManager) keepAlive(conn *websocket.Conn, connType string, reconnectChan chan struct{}) {
+// writeMu 用於與業務寫操作串行化（避免 gorilla/websocket 並發寫）。
+func (w *WebSocketManager) keepAlive(conn *websocket.Conn, connType string, reconnectChan chan struct{}, writeMu *sync.Mutex) {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 
@@ -974,8 +982,10 @@ func (w *WebSocketManager) keepAlive(conn *websocket.Conn, connType string, reco
 			return
 		case <-ticker.C:
 			if conn != nil {
+				writeMu.Lock()
 				conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 				err := conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+				writeMu.Unlock()
 				if err != nil {
 					logger.Warn("⚠️ [Bitget WS%s] 发送 ping 失败: %v", connType, err)
 					// 🔥 关键：ping 失败說明连接已断开，触发重连並退出
