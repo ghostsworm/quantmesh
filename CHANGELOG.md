@@ -2,6 +2,31 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc44] - 2026-05-28
+
+### Refactor
+- **`web/api.go` 拆分**：原文件 6570 行嚴重超過全局規則 §10 約定的 3000 行硬上限（超 218%），按業務主題拆分為 12 個新文件：
+  - `web/api_ai_task_manager.go`（101 行）：`AITaskStatus`/`AITask`/`AITaskManager` 及其方法。
+  - `web/api_logs.go`（264 行）：`LogStorageProvider`/`logStorageAdapter`/`LogRecordResponse` + `getLogs`、`cleanLogs`、`getLogStats`、`vacuumLogs`。
+  - `web/api_reconciliation.go`（398 行）：對賬狀態、歷史與聚合 API + `ReconciliationStatus`/`ReconciliationHistoryInfo`/`ReconciliationAggregatedData`。
+  - `web/api_pnl.go`（631 行）：盈虧 5 個 handler + `PnLSummaryResponse`/`PnLBySymbolResponse`/`ExchangePnLResponse`/`SymbolPnLInfo` + `maxPnLExchangeQueryRange`。
+  - `web/api_funding.go`（177 行）：`FundingMonitorProvider` + 資金費率 current / history handler。
+  - `web/api_datasource.go`（756 行）：`DataSourceProvider` + 內置 `builtinDataSourceProvider`（RSS、Polymarket Gamma、Fear & Greed 抓取）+ 反射 `dataSourceAdapter` + 字段反射 helper。
+  - `web/api_market_intelligence.go`（146 行）：`getMarketIntelligence` 聚合 handler + `min` helper。
+  - `web/api_ai_analysis.go`（464 行）：6 個 AI Provider 接口 + 對應 Set / Get / Trigger handler + `aiXXXAdapter` 適配器族。
+  - `web/api_allocation.go`（159 行）：`getAllocationStatus`/`getAllocationStatusBySymbol`（通過反射讀取運行時 `allocationManager`）。
+  - `web/api_ai_config_gen.go`（387 行）：`SymbolCapitalRequest`、`generateAIConfig`（Gemini 異步任務）、`TaskProvider`/`getAITasks`/`getAITaskStats`/`getAITaskStatus`、`applyAIConfig`。
+  - `web/api_price_stability.go`（198 行）：`getPriceStability`（價格波動率/標準差/收益率波動率計算）。
+  - `web/api_basis_monitor.go`（137 行）：`BasisMonitorProvider` + `getBasisCurrent`/`getBasisHistory`/`getBasisStatistics`。
+  - 拆分後 `web/api.go` 行數降至 2913 行，符合 ≤3000 行硬上限。函數體與類型語意保持不變，僅進行物理分文件；同 package 內所有引用關係自動可達，無需任何 export / re-export 改動。
+  - 路由註冊 (`web/server.go`)、調用點 (`main.go`、`main_adapters_*.go`) 全部不需要改動，handler / Set\* / Pick\* 等對外符號名稱完全保留。
+- **驗證**：`go build ./...`、`go vet ./...` 與全倉 `go test -short ./...`（40 個包）全部通過。
+
+### Notes
+- `storage/sql_storage.go`（5571 行）、`position/super_position_manager.go`（4916 行）仍超 3000 行上限，將在後續 rc 中分別拆分。
+
+---
+
 ## [3.105.0-rc43] - 2026-05-28
 
 ### Fixed
@@ -17,7 +42,7 @@
   - 拆分後 `main.go` 行數降至 2753 行，符合 ≤3000 行硬上限。函數體與類型語意保持不變。
 
 ### Notes
-- `web/api.go`（6570 行）、`storage/sql_storage.go`（5571 行）、`position/super_position_manager.go`（4916 行）仍超 3000 行上限，將在後續 rc 中分別拆分。
+- `storage/sql_storage.go`（5571 行）、`position/super_position_manager.go`（4916 行）仍超 3000 行上限，將在後續 rc 中分別拆分。
 
 ---
 
