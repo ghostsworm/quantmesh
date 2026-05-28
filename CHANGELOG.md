@@ -2,6 +2,25 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc43] - 2026-05-28
+
+### Fixed
+- **多家交易所 WebSocket 並發寫競態（高風險）**：`bitmex`、`bitrue`、`bitget`、`bybit`、`gate`、`huobi`、`kraken`、`kucoin`、`okx` 共 18 個 `WebSocketManager` / `KlineWebSocketManager` / `SpotKlineWebSocketManager` / `SpotOrderWebSocketManager` 結構體缺乏寫互斥：心跳 goroutine 與業務方法（登錄、訂閱、下單、回 pong）同時對同一個 `*websocket.Conn` 調用 `WriteMessage`/`WriteJSON`，違反 `gorilla/websocket` 文檔「不允許並發寫入」的約束，實盤高頻下可能導致幀交錯、連接被服務端踢開、最壞情況下觸發庫內部 panic。本次為每個受影響結構體新增 `writeMu sync.Mutex`（雙連接的 Bitget 分別新增 `privateWriteMu`/`publicWriteMu`），所有寫 `conn` 的路徑統一通過該互斥串行化。
+- **`go vet ./...` 與 9 個受影響交易所單元測試全部通過**，未引入新的回歸。
+
+### Refactor
+- **`main.go` 拆分**：原文件 4114 行超過全局規則 §10 約定的 3000 行硬上限，按業務主題拆分為：
+  - `main_adapters_web.go`：`capitalDataSourceAdapter`、`webAuthnLoggerAdapter`、`reconciliationStorageAdapter`、`allocationManagerProviderAdapter`、`planManagerProviderAdapter`、`polymarketSignalAdapter`、`reconciliationRestoreAdapter`、`tradeStorageAdapter`、`snapshotRuntimeAdapter` + helper `buildBinanceConfigForBacktest`。
+  - `main_adapters_bot.go`：`convertStrategies`、`getStrategyDisplayName`、`botManagerProviderAdapter`、`botExtendedProviderAdapter`、`attachBotLastStartFailure`、`attachBotRiskFields`。
+  - `main_adapters_position.go`：`loggerAdapter`、`positionExchangeAdapter`、`exchangeProviderAdapter`、`exchangeExecutorAdapter`。
+  - `main_helpers.go`：`startFundingIncomeSync`、`registerWebSymbolProvidersForRuntime`、`runSymbolStatusUpdateLoop`、`unregisterWebSymbolProvidersForRuntime`、`closeAllPositions`、`closeAllPositionsWithResult`。
+  - 拆分後 `main.go` 行數降至 2753 行，符合 ≤3000 行硬上限。函數體與類型語意保持不變。
+
+### Notes
+- `web/api.go`（6570 行）、`storage/sql_storage.go`（5571 行）、`position/super_position_manager.go`（4916 行）仍超 3000 行上限，將在後續 rc 中分別拆分。
+
+---
+
 ## [3.105.0-rc42] - 2026-05-23
 
 ### Fixed

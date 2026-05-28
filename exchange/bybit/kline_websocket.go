@@ -20,6 +20,7 @@ type KlineWebSocketManager struct {
 	useSpotPublic bool // true 時使用 v5/public/spot 與現貨 kline 間隔格式
 	conn          *websocket.Conn
 	mu            sync.RWMutex
+	writeMu       sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan      chan struct{}
 	isRunning     atomic.Bool
 	callback      CandleUpdateCallback
@@ -144,13 +145,16 @@ func (k *KlineWebSocketManager) subscribeKlines(symbols []string, interval strin
 	}
 
 	k.mu.RLock()
-	defer k.mu.RUnlock()
+	conn := k.conn
+	k.mu.RUnlock()
 
-	if k.conn == nil {
+	if conn == nil {
 		return fmt.Errorf("WebSocket 未连接")
 	}
 
-	return k.conn.WriteJSON(subMsg)
+	k.writeMu.Lock()
+	defer k.writeMu.Unlock()
+	return conn.WriteJSON(subMsg)
 }
 
 // readMessages 读取消息
@@ -268,7 +272,10 @@ func (k *KlineWebSocketManager) keepAlive() {
 			k.mu.RUnlock()
 
 			if conn != nil {
-				if err := conn.WriteJSON(pingMsg); err != nil {
+				k.writeMu.Lock()
+				err := conn.WriteJSON(pingMsg)
+				k.writeMu.Unlock()
+				if err != nil {
 					logger.Warn("⚠️ [Bybit K線 WebSocket] 发送 ping 失败: %v", err)
 				}
 			}

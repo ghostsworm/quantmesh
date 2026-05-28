@@ -20,6 +20,7 @@ type KlineWebSocketManager struct {
 	useTestnet bool
 	conn       *websocket.Conn
 	mu         sync.RWMutex
+	writeMu    sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan   chan struct{}
 	isRunning  atomic.Bool
 	callback   CandleUpdateCallback
@@ -90,13 +91,16 @@ func (k *KlineWebSocketManager) subscribeKlines(instIds []string, interval strin
 	}
 
 	k.mu.RLock()
-	defer k.mu.RUnlock()
+	conn := k.conn
+	k.mu.RUnlock()
 
-	if k.conn == nil {
+	if conn == nil {
 		return fmt.Errorf("WebSocket 未连接")
 	}
 
-	return k.conn.WriteJSON(subMsg)
+	k.writeMu.Lock()
+	defer k.writeMu.Unlock()
+	return conn.WriteJSON(subMsg)
 }
 
 // convertInterval 轉换時间周期格式
@@ -267,7 +271,10 @@ func (k *KlineWebSocketManager) keepAlive() {
 			k.mu.RUnlock()
 
 			if conn != nil {
-				if err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg)); err != nil {
+				k.writeMu.Lock()
+				err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg))
+				k.writeMu.Unlock()
+				if err != nil {
 					logger.Warn("⚠️ [OKX K線 WebSocket] 发送 ping 失败: %v", err)
 				}
 			}

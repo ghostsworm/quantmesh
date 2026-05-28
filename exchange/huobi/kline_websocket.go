@@ -22,6 +22,7 @@ const (
 type KlineWebSocketManager struct {
 	conn      *websocket.Conn
 	mu        sync.RWMutex
+	writeMu   sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	stopChan  chan struct{}
 	isRunning atomic.Bool
 	callback  CandleUpdateCallback
@@ -75,8 +76,14 @@ func (k *KlineWebSocketManager) subscribeKlines(contractCodes []string, interval
 		}
 
 		k.mu.RLock()
-		err := k.conn.WriteJSON(subMsg)
+		conn := k.conn
 		k.mu.RUnlock()
+		if conn == nil {
+			return fmt.Errorf("WebSocket 未连接")
+		}
+		k.writeMu.Lock()
+		err := conn.WriteJSON(subMsg)
+		k.writeMu.Unlock()
 
 		if err != nil {
 			return err
@@ -139,8 +146,13 @@ func (k *KlineWebSocketManager) handleMessage(message []byte) {
 			"pong": int64(ping),
 		}
 		k.mu.RLock()
-		k.conn.WriteJSON(pongMsg)
+		conn := k.conn
 		k.mu.RUnlock()
+		if conn != nil {
+			k.writeMu.Lock()
+			_ = conn.WriteJSON(pongMsg)
+			k.writeMu.Unlock()
+		}
 		return
 	}
 

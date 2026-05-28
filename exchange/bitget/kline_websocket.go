@@ -30,6 +30,7 @@ type Candle struct {
 type KlineWebSocketManager struct {
 	conn           *websocket.Conn
 	mu             sync.RWMutex
+	writeMu        sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	done           chan struct{}
 	callback       func(candle interface{})
 	symbols        []string
@@ -223,7 +224,10 @@ func (k *KlineWebSocketManager) subscribe(symbols []string, interval string) err
 	}
 
 	data, _ := json.Marshal(subMsg)
-	if err := conn.WriteMessage(websocket.TextMessage, data); err != nil {
+	k.writeMu.Lock()
+	err := conn.WriteMessage(websocket.TextMessage, data)
+	k.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("发送订阅消息失败: %w", err)
 	}
 
@@ -274,8 +278,11 @@ func (k *KlineWebSocketManager) pingLoop(ctx context.Context, conn *websocket.Co
 
 			// Bitget 使用纯文本 "ping"，服務器返回纯文本 "pong"
 			// 参考官方SDK: https://github.com/BitgetLimited/v3-bitget-api-sdk/blob/master/bitget-golang-sdk-api/internal/common/bitgetwsclient.go
+			k.writeMu.Lock()
 			conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
+			err := conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+			k.writeMu.Unlock()
+			if err != nil {
 				logger.Warn("⚠️ Bitget K線WebSocket发送Ping失败: %v", err)
 				conn.Close()
 				return

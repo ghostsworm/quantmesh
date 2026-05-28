@@ -23,6 +23,7 @@ type SpotOrderWebSocketManager struct {
 	testnet    bool
 
 	mu       sync.RWMutex
+	writeMu  sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	conn     *websocket.Conn
 	ctx      context.Context
 	cancel   context.CancelFunc
@@ -101,7 +102,10 @@ func (m *SpotOrderWebSocketManager) loop() {
 			},
 			"payload": []string{m.gateSymbol},
 		}
-		if err := conn.WriteJSON(sub); err != nil {
+		m.writeMu.Lock()
+		err = conn.WriteJSON(sub)
+		m.writeMu.Unlock()
+		if err != nil {
 			logger.Warn("⚠️ [Gate Spot Order WS] 訂閱失敗: %v", err)
 			conn.Close()
 			select {
@@ -160,7 +164,9 @@ func (m *SpotOrderWebSocketManager) pingLoop(conn *websocket.Conn, done <-chan s
 		case <-done:
 			return
 		case <-t.C:
+			m.writeMu.Lock()
 			_ = conn.WriteJSON(map[string]interface{}{"time": time.Now().Unix(), "channel": "spot.ping"})
+			m.writeMu.Unlock()
 		}
 	}
 }

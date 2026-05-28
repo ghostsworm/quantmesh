@@ -24,6 +24,7 @@ type WebSocketManager struct {
 	orderCallback  func(interface{})
 	priceCallback  func(float64)
 	mu             sync.RWMutex
+	writeMu        sync.Mutex // 串行化 conn 的寫操作，避免 gorilla/websocket 並發寫競態
 	pingMu         sync.Mutex
 	pingCancel     context.CancelFunc
 	stopChan       chan struct{}
@@ -95,7 +96,10 @@ func (w *WebSocketManager) StartOrderStream(ctx context.Context, callback func(i
 		"event": "subscribe",
 		"feed":  "fills",
 	}
-	if err := conn.WriteJSON(subscribeMsg); err != nil {
+	w.writeMu.Lock()
+	err = conn.WriteJSON(subscribeMsg)
+	w.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("subscribe order stream error: %w", err)
 	}
 
@@ -158,7 +162,10 @@ func (w *WebSocketManager) subscribePriceStream() error {
 		"feed":        "ticker",
 		"product_ids": []string{w.symbol},
 	}
-	if err := conn.WriteJSON(subscribeMsg); err != nil {
+	w.writeMu.Lock()
+	err := conn.WriteJSON(subscribeMsg)
+	w.writeMu.Unlock()
+	if err != nil {
 		return fmt.Errorf("subscribe price stream error: %w", err)
 	}
 
@@ -329,7 +336,10 @@ func (w *WebSocketManager) pingWorker(ctx context.Context) {
 			pingMsg := map[string]interface{}{
 				"event": "ping",
 			}
-			if err := conn.WriteJSON(pingMsg); err != nil {
+			w.writeMu.Lock()
+			err := conn.WriteJSON(pingMsg)
+			w.writeMu.Unlock()
+			if err != nil {
 				logger.Error("Kraken send ping error: %v", err)
 				return
 			}
