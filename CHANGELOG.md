@@ -2,6 +2,29 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc45] - 2026-05-28
+
+### Refactor
+- **`storage/sql_storage.go` 拆分**：原文件 5571 行嚴重超過全局規則 §10 約定的 3000 行硬上限（超 186%），按業務領域拆分為 11 個新文件：
+  - `storage/sql_funding.go`（229 行）：`SaveFundingRate`、`GetLatestFundingRate`、`GetFundingRateHistory`、`SaveFundingPayment`、`GetFundingPayments`、`GetFundingPaymentsSum`、`GetDailyFundingPayments` + `abs` helper。
+  - `storage/sql_reconciliation.go`（183 行）：`SaveReconciliationHistory`、`QueryReconciliationHistory`、`GetLatestReconciliationHistory`、`GetReconciliationCount`。
+  - `storage/sql_risk.go`（217 行）：`SaveBotRiskControlEvent`、`QueryBotRiskControlEvents`、`CountBotRiskControlEvents`、`SaveRiskCheck`、`QueryRiskCheckHistory`、`CleanupRiskCheckHistory`。
+  - `storage/sql_fix.go`（316 行）：FIX 协议会话状态/订单映射的全套 Upsert/Get/List + `migrateFixTables` + `scanFixOrderLinkRow`/`toNullableTime`/`fromNullableTime` helper。
+  - `storage/sql_bot_state.go`（276 行）：`migrateBotStatesTable`(SQLite) + 5 個 MySQL 关联迁移（SystemMetrics、BotRiskControlEvents、PairedTrades、PairedTradesBotID、BotStatesMySQL）+ `GetBotState`/`SetBotState`/`ListBotStates`。
+  - `storage/sql_profit_withdraw.go`（347 行）：自动提取规则 + 提取記錄的全套 CRUD（List/Replace/Upsert/Delete + SaveWithdrawRecord/UpdateStatus/GetRecords）。
+  - `storage/sql_price_prediction.go`（279 行）：價格歷史 + 預测驗证 + 准确率统计（按窗口/方向分組）。
+  - `storage/sql_ai_basis_news.go`（373 行）：AI prompt 模板 + Basis 价差數據 + News 分析历史 + Inspection 报告。
+  - `storage/sql_equity_kline.go`（224 行）：HourlyEquityRecord + DailySnapshot + K線文件保護。
+  - `storage/sql_pnl.go`（221 行）：`GetPnLBySymbol`、`GetPnLByTimeRange`、`GetActualProfitBySymbol`、`GetTotalBuySellQty`（配對成交 PnL 查詢）。
+  - `storage/sql_config_migration.go`（74 行）：`migrateConfigTables`（config_entries / config_history 表迁移）。
+  - 拆分後 `storage/sql_storage.go` 行數降至 2953 行，符合 ≤3000 行硬上限。函數體與 SQL 語句保持不變，僅進行物理分文件；同 package 內 `SQLStorage` 方法接收器与所有 helper（`tradesTbl`、`pairedTradesTableMySQL`、`backfillTradesBotIDFromOrders`）自动可达，无需任何 export 改动。
+- **驗證**：`go build ./...`、`go vet ./...` 與 `go test -short ./storage/` 全部通過。
+
+### Notes
+- `position/super_position_manager.go`（4916 行）仍超 3000 行上限，將在後續 rc 中拆分。
+
+---
+
 ## [3.105.0-rc44] - 2026-05-28
 
 ### Refactor
