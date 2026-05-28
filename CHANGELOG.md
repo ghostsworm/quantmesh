@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.105.0-rc46] - 2026-05-29
+
+### Refactor
+- **`position/super_position_manager.go` 拆分**：原文件 4916 行嚴重超過全局規則 §10 約定的 3000 行硬上限（超 164%），按業務職責拆分為 3 個新文件：
+  - `position/super_position_manager_adjust.go`（1180 行）：`AdjustOrders`（網格訂單調整主循環，1164 行單函數）—— 處理風控止損、止盈回撤、關閉條件、保證金檢查、買單/平倉單生成、批量下單與槽位狀態同步。
+  - `position/super_position_manager_order_events.go`（455 行）：`OnOrderUpdate`（訂單事件回呼）—— WebSocket 推送的訂單成交/取消/拒絕統一處理流，包括加權平均買入價計算、PnL 與手續費攤銷、SaveTrade 持久化、ReduceOnly 冷卻、槽位釋放。
+  - `position/super_position_manager_reconcile.go`（1165 行）：對賬恢復 + 持倉同步 + 緊急平倉 + 網格移位 + 持倉打印的完整族 —— `RestoreReconciliationStats`、`UpdateSlotOrderStatus`、`CancelAllBuyOrders`、`CancelExcessOpenOrders`、`LiquidateAll`、`SetGridRiskControl`、`ShiftGrid`、`CancelAllOrders`、`getExistingPosition`、`ForceSyncPositions`、`trimExcessPositions`、`fillDeficitPositions`、`initializeSellSlotsFromPosition`、`initializeBuySlotsFromPosition`、`PrintPositions`。
+  - 拆分後 `position/super_position_manager.go` 行數降至 2161 行，符合 ≤3000 行硬上限。函數體與類型語意保持不變，僅進行物理分文件；同 package 內所有 `SuperPositionManager` 方法接收器與類型常量（`InventorySlot`、`OrderRequest`、`OrderStatus*`、`PositionStatus*`、`SlotStatus*`、`PositionLeg*`、`FilterSlotsByMaxOpenOrders`、`bothSideIsOpen`）自動可達。
+- **三個超大文件全部拆完**：本次與 rc44 / rc45 共同完成全局規則 §10 要求的所有 3 個 3000 行以上文件拆分。原始 `main.go` 4114 行 / `web/api.go` 6570 行 / `storage/sql_storage.go` 5571 行 / `position/super_position_manager.go` 4916 行 —— 全部降至 ≤3000 行。
+- **驗證**：`go build ./...`、`go vet ./...` 與全倉 `go test -short ./...`（48 個包）全部通過。
+
+---
+
 ## [3.105.0-rc45] - 2026-05-28
 
 ### Refactor
