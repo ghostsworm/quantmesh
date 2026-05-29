@@ -442,6 +442,18 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/system/local-dev-mode", getLocalDevMode)
 			protected.POST("/system/local-dev-mode", setLocalDevMode)
 
+			// aipipe 错误上报集成
+			protected.GET("/aipipe/config", getAipipeConfig)
+			protected.PUT("/aipipe/config", putAipipeConfig)
+			protected.POST("/aipipe/test", postAipipeTest)
+
+			// MCP 服务管理（token / 开关 / 客户端 snippet）；MCP 协议端点本身挂在 /mcp，由 main 调用 MountMCP
+			protected.GET("/mcp/config", getMCPConfig)
+			protected.PUT("/mcp/config", putMCPConfig)
+			protected.POST("/mcp/token/rotate", postMCPRotateToken)
+			protected.DELETE("/mcp/token", deleteMCPToken)
+			protected.GET("/mcp/client-snippet", getMCPClientSnippet)
+
 			// 配置管理 API
 			if configStorage != nil {
 				configAPI := NewConfigManagerAPI(configStorage)
@@ -741,6 +753,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			c.Data(http.StatusOK, contentType, data)
 		})
 	}
+
+	// MCP 服务（如果 main 已通过 SetMCPServer 注入了 server，挂到 /mcp）
+	mountMCPIfReady(r)
 
 	// SPA 路由回退（所有未匹配的路由回傳 index.html）
 	r.NoRoute(func(c *gin.Context) {

@@ -34,6 +34,7 @@ import (
 	"quantmesh/metrics"
 	"quantmesh/monitor"
 	"quantmesh/notify"
+	"quantmesh/notify/aipipe"
 	"quantmesh/plugin"
 	"quantmesh/position"
 	"quantmesh/profit"
@@ -44,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.105.0-rc46"
+var Version = "3.106.0-rc1"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1704,6 +1705,7 @@ func main() {
 
 	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock, mainYAMLPath)
 	symbolManager.GetBotManager().StartFeeRateRefreshLoop(ctx)
+	SetCurrentSymbolManager(symbolManager) // 让 MCP 写工具能找到 BotManager
 
 	// 創建 SymbolManager 适配器（用於 Web API）
 	symbolManagerAdapter := &symbolManagerWebAdapter{
@@ -2435,6 +2437,8 @@ func main() {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
 					logger.Info("✅ 系統設置提供者已設置")
+					bootstrapAipipe(ssAdapter)
+					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
 			}
 			logger.Info("✅ 全局存儲服務提供者已設置")
@@ -2532,6 +2536,8 @@ func main() {
 			if st := storageService.GetStorage(); st != nil {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
+					bootstrapAipipe(ssAdapter)
+					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
 			}
 			if st := storageService.GetStorage(); st != nil {
@@ -2736,6 +2742,12 @@ func main() {
 
 	// 关闭文件日志
 	logger.Close()
+
+	// 关闭 aipipe 上报客户端，把待发条目落盘
+	if err := aipipe.Close(); err != nil {
+		// 不能用 logger（已 Close），直接走 std log
+		// 但 logger.Error 之类只是写到 stdout，影响有限
+	}
 
 	// 关闭日志存儲
 	if globalLogStorage != nil {
