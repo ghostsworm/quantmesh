@@ -66,6 +66,7 @@ const ConfigSetup = lazy(() => import('./components/ConfigSetup'))
 const KlineChart = lazy(() => import('./components/KlineChart'))
 const GlobalKlinePage = lazy(() => import('./components/GlobalKlinePage'))
 const Configuration = lazy(() => import('./components/Configuration'))
+const GlobalSettings = lazy(() => import('./components/GlobalSettings'))
 const FundingRate = lazy(() => import('./components/FundingRate'))
 const BasisMonitor = lazy(() => import('./components/BasisMonitor'))
 const MarketIntelligence = lazy(() => import('./components/MarketIntelligence'))
@@ -578,6 +579,7 @@ const AppContent: React.FC = () => {
                 <Route path="/services/status" element={<ProtectedRoute><ServiceStatusPage /></ProtectedRoute>} />
                 <Route path="/fix" element={<ProtectedRoute><FixManagement /></ProtectedRoute>} />
                 <Route path="/config" element={<ProtectedRoute><Configuration /></ProtectedRoute>} />
+                <Route path="/global-settings" element={<ProtectedRoute><GlobalSettings /></ProtectedRoute>} />
                 <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
                 <Route path="/terms" element={<TermsPage />} />
                 <Route path="/privacy" element={<PrivacyPage />} />

@@ -666,6 +666,15 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               {t('sidebar.configManagement')}
             </NavItem>
             <NavItem
+              icon={StarIcon}
+              to="/global-settings"
+              isActive={isRouteActive('/global-settings')}
+              onClick={onNavItemClick}
+              collapsed={collapsed}
+            >
+              {t('sidebar.globalSettings')}
+            </NavItem>
+            <NavItem
               icon={CheckCircleIcon}
               to="/services/status"
               isActive={isRouteActive('/services/status')}
