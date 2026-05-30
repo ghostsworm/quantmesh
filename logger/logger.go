@@ -47,6 +47,10 @@ var (
 	logStorageWriter func(level, message, botID string)
 	logStorageMu     sync.RWMutex
 
+	// 错误外发钩子（如 aipipe 上报）；通过函数指针避免循环依赖
+	errorHookWriter func(level, message string)
+	errorHookMu     sync.RWMutex
+
 	// 日志语言配置
 	logLanguage string = "zh-CN"
 	langMu      sync.RWMutex
@@ -301,6 +305,35 @@ func InitLogStorage(writer func(level, message, botID string)) {
 	logStorageWriter = writer
 }
 
+// SetErrorHook 注册错误外发钩子。只在 ERROR/FATAL 触发。
+// 传 nil 可以取消。重复调用以最后一次为准。
+func SetErrorHook(hook func(level, message string)) {
+	errorHookMu.Lock()
+	defer errorHookMu.Unlock()
+	errorHookWriter = hook
+}
+
+// dispatchErrorHook 内部用：在异步 goroutine 里安全调用 hook。
+func dispatchErrorHook(level LogLevel, message string) {
+	if level < ERROR {
+		return
+	}
+	errorHookMu.RLock()
+	hook := errorHookWriter
+	errorHookMu.RUnlock()
+	if hook == nil {
+		return
+	}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[WARN] errorHook panic: %v", r)
+			}
+		}()
+		hook(level.String(), message)
+	}()
+}
+
 // InitWebLogger 初始化 Web 日志文件
 func InitWebLogger() error {
 	webFileMu.Lock()
@@ -505,6 +538,9 @@ func logfWithContext(ctx context.Context, level LogLevel, format string, args ..
 			writer(level.String(), message, bid)
 		}(botID)
 	}
+
+	// ERROR/FATAL 触发外发钩子（如 aipipe 上报）
+	dispatchErrorHook(level, message)
 }
 
 // logln 内部日志输出函數（無格式）
@@ -586,6 +622,9 @@ func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) 
 			writer(level.String(), strings.TrimSuffix(message, "\n"), bid)
 		}(botID)
 	}
+
+	// ERROR/FATAL 触发外发钩子（如 aipipe 上报）
+	dispatchErrorHook(level, strings.TrimSuffix(message, "\n"))
 }
 
 // Debug 输出調試日志

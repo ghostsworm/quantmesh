@@ -6,17 +6,105 @@ package main
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
+	"quantmesh/mcp"
 	"quantmesh/monitor"
+	"quantmesh/notify/aipipe"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
 	"quantmesh/web"
 )
+
+var aipipeBootstrapped sync.Once
+
+// bootstrapAipipe 读取 system_settings 里的 aipipe_* 配置，启动上报客户端，
+// 并把 logger 的 ERROR/FATAL 钩子接到 aipipe.ReportMessage。
+//
+// 幂等：多次调用只生效一次（multi-tenant 路径可能调两次）。
+// 失败不影响主流程；启动期没填 key → 整套静默 no-op。
+func bootstrapAipipe(provider web.SystemSettingsProvider) {
+	if provider == nil {
+		return
+	}
+	aipipeBootstrapped.Do(func() {
+		cfg := loadAipipeConfigFromSettings(provider)
+		if err := aipipe.Reload(cfg); err != nil {
+			logger.Warn("aipipe 启动失败: %v", err)
+		}
+		// 装错误外发钩子：ERROR/FATAL 自动上报
+		logger.SetErrorHook(func(level, message string) {
+			aipipe.ReportMessage(level, message, "log")
+		})
+		web.RegisterAipipeReloader(func() {
+			c := loadAipipeConfigFromSettings(provider)
+			if err := aipipe.Reload(c); err != nil {
+				logger.Warn("aipipe 重载失败: %v", err)
+			}
+		})
+		if cfg.Enabled && cfg.APIKey != "" {
+			logger.Info("✅ aipipe 错误上报已启用，endpoint=%s", cfg.Endpoint)
+		}
+	})
+}
+
+// bootstrapMCP 构建 mcp.Server 并注入到 web 包。
+//
+// 调用时机：在 web.NewWebServer 之前，因为 SetupRoutes 必须在 ServeHTTP 之前
+// 完成所有路由挂载。
+//
+// SymbolManager 此时通常还没创建（main 流程顺序如此），所以 BotControl 用
+// "全局延迟绑定"——由 NewMCPBotController() 返回的 controller 内部读取
+// currentSymbolManager atomic 指针，等运行时落定后自动可用。
+//
+// allow_write 后续被改 → reloader 会重建 server 并替换。
+func bootstrapMCP(version string, provider web.SystemSettingsProvider, st storage.Storage, logSt *storage.LogStorage) {
+	if provider == nil {
+		return
+	}
+	build := func() *mcp.Server {
+		allowWrite, _ := provider.GetSystemSettingBool(context.Background(), "mcp_allow_write", false)
+		providers := mcp.Providers{
+			Version:        version,
+			Storage:        st,
+			LogStorage:     logSt,
+			SystemSettings: provider,
+			BotControl:     NewMCPBotController(),
+		}
+		if st != nil {
+			providers.BacktestTasks = st.GetBacktestTaskStore()
+		}
+		s := mcp.NewServer(version, web.MCPTokenCheck)
+		mcp.RegisterAllTools(s, providers, allowWrite)
+		return s
+	}
+	web.SetMCPServer(build())
+	web.RegisterMCPReloader(func() {
+		web.SetMCPServer(build())
+		logger.Info("MCP server 已重建（allow_write 切换）")
+	})
+}
+
+// loadAipipeConfigFromSettings 从 system_settings 中读取 aipipe 配置。
+func loadAipipeConfigFromSettings(provider web.SystemSettingsProvider) aipipe.Config {
+	ctx := context.Background()
+	cfg := aipipe.Config{Endpoint: aipipe.DefaultEndpoint}
+	if v, err := provider.GetSystemSetting(ctx, aipipe.SettingKeyAPIKey); err == nil && v != nil {
+		cfg.APIKey = v.Value
+	}
+	if v, err := provider.GetSystemSetting(ctx, aipipe.SettingKeyEndpoint); err == nil && v != nil && v.Value != "" {
+		cfg.Endpoint = v.Value
+	}
+	if enabled, err := provider.GetSystemSettingBool(ctx, aipipe.SettingKeyEnabled, false); err == nil {
+		cfg.Enabled = enabled
+	}
+	return cfg
+}
 
 // startFundingIncomeSync 定時從交易所拉取資金費用（FUNDING_FEE）並寫入 funding_payments
 func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, symbol, accountID string) {

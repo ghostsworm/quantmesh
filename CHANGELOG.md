@@ -2,6 +2,38 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.106.0-rc1] - 2026-05-29
+
+### Added
+- **集成 aipipe-go-sdk（17push 错误上报）**
+  - 新增 `notify/aipipe` 包：封装 SDK 单例，支持配置热重载、连通性测试、显式禁用（无 key 时全程 no-op）。
+  - 触发点：`logger.Error/Fatal`（通过新增的 `logger.SetErrorHook` 钩子，无循环依赖）、Gin 5xx 响应、HTTP handler panic（新增 `GinRecoveryMiddleware` 替换 `gin.Recovery`，捕获后既写本地日志又上报）。
+  - 自防回环：上报路径内部错误使用 `aipipe.WithSuppress` 屏蔽，避免「ERROR → 上报失败 → 又是 ERROR → 再上报」死循环。
+  - HTTP API：`GET/PUT /api/aipipe/config`、`POST /api/aipipe/test`。Key 在响应中始终脱敏（前 12 + 末 4），仅在 PUT 时才上传明文。
+  - 配置存储复用 `system_settings`：`aipipe_api_key` / `aipipe_endpoint` / `aipipe_enabled`。
+  - 进程退出钩子在 `logger.Close()` 之后调 `aipipe.Close()`，把内存里未发送的事件落盘续传。
+- **内嵌 MCP（Model Context Protocol）服务**
+  - 新增 `mcp` 包：自实现 streamable HTTP / JSON-RPC 2.0 server（无新依赖），符合 MCP 2025-06-18 规范，支持 `initialize`、`tools/list`、`tools/call`、`ping` 与批量请求。
+  - 11 个内置工具：`qm_server_info`、`qm_list_positions`、`qm_position_summary`、`qm_list_bots`、`qm_get_bot`、`qm_pnl_today`、`qm_pnl_range`、`qm_tail_logs`、`qm_list_backtests`、`qm_get_backtest`、`qm_list_settings`、`qm_get_setting`、`qm_funding_rate_latest`、`qm_funding_payments_sum`、`qm_list_orders`。
+  - 写操作（`qm_bot_set_enabled`、`qm_set_setting`）默认关闭，仅当 `mcp_allow_write=true` 时注册；每个写工具都强制要求 `confirm: true` 参数，防止 agent 一时手抖。
+  - 鉴权：独立 `mcp_token`（不复用 web session），支持 `Authorization: Bearer`、`X-MCP-Token`、`?token=` 三种来源；token 在 system_settings 中存储，可一键轮换/吊销，吊销立即失效。
+  - 敏感字段（含 `api_key` / `secret` / `password` / `token` / `webauthn` / `webhook` 的 key）通过 MCP 查询时一律脱敏；写工具拒绝修改任何敏感 key。
+  - HTTP API：`GET/PUT /api/mcp/config`、`POST /api/mcp/token/rotate`、`DELETE /api/mcp/token`、`GET /api/mcp/client-snippet?style=claude|cursor|generic` 返回可直接粘贴到 agent 客户端的 JSON。
+  - MCP 协议端点挂在 `/mcp`（不走 `/api` 前缀，方便 agent 客户端直连）；通过代理 handler 解耦初始化时序，启动早期会返回 503 而不是 404。
+- **WebUI 全局设置页**
+  - 新增 `webui/src/components/GlobalSettings.tsx` + 路由 `/global-settings` + 侧栏入口（系统设置组）。
+  - aipipe 区块：API Key（保留留空策略）、Endpoint、启用开关、测试连接、清除 Key；i18n 完整覆盖 zh-CN / en-US。
+  - MCP 区块：服务开关、写权限开关（带高亮警告）、Token 生成/轮换/清除（新 token 仅展示一次）、客户端配置 JSON 切换（Claude Desktop / Cursor / 通用）、一键复制。
+
+### Changed
+- 版本号同步前后端到 `3.106.0-rc1`（前端原为 `3.105.0-rc43`，已对齐）。
+- `logger` 新增 `SetErrorHook` 公开接口，供外部 sink 接收 ERROR/FATAL；hook 调用在 goroutine 内带 panic recover。
+
+### Files Added
+- `notify/aipipe/reporter.go`、`mcp/{protocol,server,providers,register,schema_helpers,tools_*}.go`、`web/{api_aipipe,api_mcp}.go`、`main_mcp_bridge.go`、`webui/src/components/GlobalSettings.tsx`、`webui/src/services/globalSettings.ts`。
+
+---
+
 ## [3.105.0-rc46] - 2026-05-29
 
 ### Refactor
