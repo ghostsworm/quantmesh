@@ -12,6 +12,9 @@ other = "初始化日志存储失败: {{.Error}}，将继续运行但不保存�
 other = "日志存储已初始化: {{.Path}}"
 
 # HTTP 错误消息
+[error.ai_api_key_not_configured]
+other = "未配置 AI API Key，请在配置中填写 provider 与 API Key"
+
 [error.session_manager_not_initialized]
 other = "会话管理器未初始化"
 

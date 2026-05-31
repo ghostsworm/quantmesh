@@ -21,16 +21,30 @@ type GeminiClient interface {
 	GenerateContentWithGoogleSearch(ctx context.Context, prompt string, schema map[string]interface{}) (string, error)
 }
 
-// AsyncGeminiClient 异步 Gemini API 客戶端
+// AsyncGeminiClient 异步 AI 客戶端（保留歷史命名；現已支持多 provider）
 type AsyncGeminiClient struct {
-	apiKey string
+	provider string
+	apiKey   string
+	model    string
+	baseURL  string
 }
 
-// NewGeminiClient 創建 Gemini 客戶端（現在统一使用异步内置方式）
+// NewGeminiClient 創建客戶端（向后兼容入口，默認 gemini provider）
 func NewGeminiClient(apiKey string) GeminiClient {
-	return &AsyncGeminiClient{
-		apiKey: apiKey,
+	return &AsyncGeminiClient{provider: "gemini", apiKey: apiKey}
+}
+
+// NewProviderClient 創建指定 provider 的異步客戶端（provider/model/api_key/base_url 任意组合）
+func NewProviderClient(provider, model, apiKey, baseURL string) GeminiClient {
+	if provider == "" {
+		provider = "gemini"
 	}
+	return &AsyncGeminiClient{provider: provider, apiKey: apiKey, model: model, baseURL: baseURL}
+}
+
+// NewClientFromUpstream 從已解析的上游配置創建客戶端
+func NewClientFromUpstream(u config.AIResolvedUpstream) GeminiClient {
+	return NewProviderClient(u.Provider, u.Model, u.APIKey, u.BaseURL)
 }
 
 // GenerateConfig 生成配置建议
@@ -66,13 +80,29 @@ func (c *AsyncGeminiClient) generateContentInternal(ctx context.Context, prompt 
 		return "", fmt.Errorf("AI 任務服務未初始化")
 	}
 
+	provider := c.provider
+	if provider == "" {
+		provider = "gemini"
+	}
+	model := c.model
+	if model == "" && provider == "gemini" {
+		model = "gemini-3-flash-preview" // 历史默认，保证 gemini 行为零回归
+	}
+
 	// 1. 創建异步任務
 	requestData := map[string]interface{}{
 		"prompt":             prompt,
 		"system_instruction": "你是 QuantMesh 的市场分析与配置助手。严格按请求的 JSON schema 输出，不要泄露密钥或凭据。",
-		"gemini_api_key":     c.apiKey,
+		"provider":           provider,
+		"api_key":            c.apiKey,
 		"json_schema":        schema,
-		"model":              "gemini-3-flash-preview",
+		"model":              model,
+	}
+	if c.baseURL != "" {
+		requestData["base_url"] = c.baseURL
+	}
+	if provider == "gemini" {
+		requestData["gemini_api_key"] = c.apiKey // 向后兼容旧读取路径
 	}
 	if useGoogleSearch {
 		requestData["use_google_search"] = true
