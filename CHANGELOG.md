@@ -2,6 +2,23 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.107.0-rc1] - 2026-05-31
+
+### Added
+- **PostHog / Sentry 可观测性上报集成**
+  - 新增 `notify/observability` 包：通过 PostHog Capture API 与 Sentry Envelope 接口异步上报运行时错误，无额外 SDK 依赖。
+  - 触发点与 aipipe 对齐：`logger.Error/Fatal`、Gin HTTP 5xx、HTTP handler panic。
+  - 配置存储复用 `system_settings`：`posthog_project_api_key` / `posthog_host` / `posthog_enabled` / `sentry_dsn` / `sentry_enabled` / `observability_environment`。
+  - HTTP API：`GET/PUT /api/observability/config`、`POST /api/observability/test`，密钥与 DSN 响应始终脱敏。
+  - WebUI 全局设置页新增 PostHog / Sentry 区块，支持环境名、启用开关、测试事件、清除密钥/DSN。
+- 新增根目录 `AGENTS.md` 补充规则：本项目 commit message 必须使用繁体中文。
+
+### Changed
+- 版本号同步前后端到 `3.107.0-rc1`。
+- 更新遥测说明文档，区分默认关闭的前端粗粒度像素统计与用户主动配置的可观测性错误上报。
+
+---
+
 ## [3.106.0-rc1] - 2026-05-29
 
 ### Added

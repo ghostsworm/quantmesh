@@ -447,6 +447,11 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.PUT("/aipipe/config", putAipipeConfig)
 			protected.POST("/aipipe/test", postAipipeTest)
 
+			// PostHog / Sentry 可观测性上报集成
+			protected.GET("/observability/config", getObservabilityConfig)
+			protected.PUT("/observability/config", putObservabilityConfig)
+			protected.POST("/observability/test", postObservabilityTest)
+
 			// MCP 服务管理（token / 开关 / 客户端 snippet）；MCP 协议端点本身挂在 /mcp，由 main 调用 MountMCP
 			protected.GET("/mcp/config", getMCPConfig)
 			protected.PUT("/mcp/config", putMCPConfig)

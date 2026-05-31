@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/logger"
 	"quantmesh/notify/aipipe"
+	"quantmesh/notify/observability"
 )
 
 // slowHTTPRequestThreshold 超過此耗時的請求額外打 [GIN_SLOW]（對應瀏覽器里「等待服務器響應」過長時便於對照 journal / web 日志）
@@ -48,10 +49,10 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 
 		// 獲取客戶端 IP
 		clientIP := c.ClientIP()
-		
+
 		// 獲取请求方法
 		method := c.Request.Method
-		
+
 		// 拼接完整路径
 		if raw != "" {
 			path = path + "?" + raw
@@ -59,7 +60,7 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 
 		// 獲取錯误信息（如果有）
 		errorMessage := c.Errors.ByType(gin.ErrorTypePrivate).String()
-		
+
 		// 格式化日志消息
 		var logMessage string
 		if errorMessage != "" {
@@ -86,11 +87,10 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 
 		// 5xx 上报 aipipe（4xx 通常是用户输入问题，不上报避免噪音）
 		if statusCode >= 500 {
-			aipipe.ReportError(
-				fmt.Errorf("HTTP %d %s %s", statusCode, method, path),
-				"http5xx",
-				fmt.Sprintf("client_ip=%s latency=%v", clientIP, latency),
-			)
+			err := fmt.Errorf("HTTP %d %s %s", statusCode, method, path)
+			extra := fmt.Sprintf("client_ip=%s latency=%v", clientIP, latency)
+			aipipe.ReportError(err, "http5xx", extra)
+			observability.ReportError(err, "http5xx", extra)
 		}
 	}
 }
@@ -105,6 +105,7 @@ func GinRecoveryMiddleware() gin.HandlerFunc {
 				msg := fmt.Sprintf("panic in %s %s: %v", c.Request.Method, c.Request.URL.Path, r)
 				logger.Error("%s\n%s", msg, stack)
 				aipipe.ReportError(errors.New(msg), "panic", stack)
+				observability.ReportError(errors.New(msg), "panic", stack)
 				if !c.Writer.Written() {
 					c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})
 				} else {
@@ -115,4 +116,3 @@ func GinRecoveryMiddleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

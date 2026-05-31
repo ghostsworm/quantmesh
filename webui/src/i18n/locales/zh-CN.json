@@ -4709,7 +4709,7 @@
   },
   "globalSettings": {
     "title": "全局设置",
-    "subtitle": "集中管理错误上报、MCP 服务等集成项。",
+    "subtitle": "集中管理错误上报、可观测性、MCP 服务等集成项。",
     "save": "保存",
     "saved": "保存成功",
     "saveFailed": "保存失败",
@@ -4734,6 +4734,44 @@
       "testFailed": "测试失败",
       "clearButton": "清除 Key",
       "cleared": "Key 已清除，上报已关闭"
+    },
+    "observability": {
+      "title": "可观测性上报（PostHog / Sentry）",
+      "intro": "把运行时错误、HTTP 5xx、panic 同步上报到 PostHog 或 Sentry；未填写密钥或 DSN 时不会发送任何外部请求。",
+      "posthogActive": "PostHog 已启用",
+      "sentryActive": "Sentry 已启用",
+      "environmentLabel": "环境名",
+      "environmentHelp": "用于区分 production、staging、local 等运行环境。",
+      "environmentPlaceholder": "production",
+      "posthog": {
+        "title": "PostHog",
+        "projectKeyLabel": "Project API Key",
+        "projectKeyPlaceholder": "粘贴 PostHog Project API Key",
+        "projectKeyPlaceholderHasValue": "已设置（{{mask}}），留空则保留原值",
+        "projectKeyHelp": "仅保存到本地 system_settings；响应中只返回脱敏值。",
+        "hostLabel": "Host",
+        "hostHelp": "PostHog Cloud 通常使用 https://us.i.posthog.com；自托管请填自己的 Host。",
+        "hostPlaceholder": "https://us.i.posthog.com",
+        "enabledLabel": "启用 PostHog 上报",
+        "testButton": "测试 PostHog",
+        "testOk": "PostHog 测试事件已发送",
+        "testFailed": "PostHog 测试失败",
+        "clearButton": "清除 Key",
+        "posthogCleared": "PostHog Key 已清除，上报已关闭"
+      },
+      "sentry": {
+        "title": "Sentry",
+        "dsnLabel": "DSN",
+        "dsnPlaceholder": "粘贴 Sentry DSN",
+        "dsnPlaceholderHasValue": "已设置（{{mask}}），留空则保留原值",
+        "dsnHelp": "用于把错误事件发送到对应 Sentry 项目；响应中只返回脱敏值。",
+        "enabledLabel": "启用 Sentry 上报",
+        "testButton": "测试 Sentry",
+        "testOk": "Sentry 测试事件已发送",
+        "testFailed": "Sentry 测试失败",
+        "clearButton": "清除 DSN",
+        "sentryCleared": "Sentry DSN 已清除，上报已关闭"
+      }
     },
     "mcp": {
       "title": "MCP 服务（供 LLM Agent 调用）",

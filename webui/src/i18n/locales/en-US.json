@@ -4707,7 +4707,7 @@
   },
   "globalSettings": {
     "title": "Global Settings",
-    "subtitle": "Central place for integrations: error reporting, MCP service, etc.",
+    "subtitle": "Central place for integrations: error reporting, observability, MCP service, etc.",
     "save": "Save",
     "saved": "Saved",
     "saveFailed": "Save failed",
@@ -4732,6 +4732,44 @@
       "testFailed": "Test failed",
       "clearButton": "Clear key",
       "cleared": "Key cleared and reporting disabled"
+    },
+    "observability": {
+      "title": "Observability Reporting (PostHog / Sentry)",
+      "intro": "Report runtime errors, HTTP 5xx responses, and panics to PostHog or Sentry. No external request is sent unless a key or DSN is configured.",
+      "posthogActive": "PostHog enabled",
+      "sentryActive": "Sentry enabled",
+      "environmentLabel": "Environment",
+      "environmentHelp": "Used to separate production, staging, local, and other runtime environments.",
+      "environmentPlaceholder": "production",
+      "posthog": {
+        "title": "PostHog",
+        "projectKeyLabel": "Project API Key",
+        "projectKeyPlaceholder": "Paste the PostHog Project API Key",
+        "projectKeyPlaceholderHasValue": "Configured ({{mask}}); leave blank to keep current",
+        "projectKeyHelp": "Stored only in local system_settings; API responses return a masked value.",
+        "hostLabel": "Host",
+        "hostHelp": "PostHog Cloud usually uses https://us.i.posthog.com; use your own Host for self-hosted.",
+        "hostPlaceholder": "https://us.i.posthog.com",
+        "enabledLabel": "Enable PostHog reporting",
+        "testButton": "Test PostHog",
+        "testOk": "PostHog test event sent",
+        "testFailed": "PostHog test failed",
+        "clearButton": "Clear key",
+        "posthogCleared": "PostHog key cleared and reporting disabled"
+      },
+      "sentry": {
+        "title": "Sentry",
+        "dsnLabel": "DSN",
+        "dsnPlaceholder": "Paste the Sentry DSN",
+        "dsnPlaceholderHasValue": "Configured ({{mask}}); leave blank to keep current",
+        "dsnHelp": "Sends error events to the selected Sentry project; API responses return a masked value.",
+        "enabledLabel": "Enable Sentry reporting",
+        "testButton": "Test Sentry",
+        "testOk": "Sentry test event sent",
+        "testFailed": "Sentry test failed",
+        "clearButton": "Clear DSN",
+        "sentryCleared": "Sentry DSN cleared and reporting disabled"
+      }
     },
     "mcp": {
       "title": "MCP Service (for LLM agents)",
