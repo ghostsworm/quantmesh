@@ -2,6 +2,28 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.0] - 2026-06-01
+
+### Added
+- **AI 多 Provider 協議支援（OpenAI 相容 / Claude 原生 / Gemini）**
+  - 新建協議無關執行層 `ai/service/transport*.go`：統一中立請求/回應抽象 `chatRequest/chatResult` + `providerTransport` 介面，每家協議一個轉接器（`transport_gemini.go` / `transport_openai.go` / `transport_claude.go`）。
+  - `transport_openai.go` 涵蓋 OpenAI 相容協議（OpenAI / DeepSeek / Moonshot / 智譜 / Ollama / OneAPI 中轉 / Poe 等），支援自訂 `base_url`；`transport_claude.go` 走 Anthropic 原生 `/v1/messages`。
+  - 所有 provider 統一走非同步任務佇列 + 輪詢，共享重試 / 逾時 / token 統計 / 前端輪詢可觀測性（`ai/providers/queue_provider.go` 泛化原 Gemini 佇列 provider）。
+  - `AIRequest` 新增中性欄位 `Provider` / `APIKey` / `BaseURL`，`GeminiAPIKey` 作向後相容回退；token 統計對所有 provider 自動生效。
+- 前端 AI 設定區支援「協議族」選擇（OpenAI 相容 / Claude / Gemini）+ 自訂 `base_url` / `model`，文案全部走 i18n。
+
+### Changed
+- 工廠 `ai/factory.go` 所有 provider 分支統一回傳非同步佇列用戶端；`poe` 歸入 OpenAI 相容協議（填 `base_url` 即可，保留列舉字串向後相容）。
+- 業務點 `web/api_market_intel_digest.go` / `api_market_interpret.go` / `api_ai_config_gen.go` / `main.go`(inspector) / `monitor/gemini_news_analyzer.go` 切換到 `config.ResolveGlobalAI` / `ResolveInspectorAI` + `ai.NewAIClient`，不再硬綁 Gemini。
+- 憑證測試介面 `POST /api/config/test-gemini` 泛化支援 `provider` / `api_key` / `base_url` / `model`（端點名與 `gemini_api_key` 欄位保留向後相容）。
+- i18n key `error.gemini_api_key_not_configured` → `error.ai_api_key_not_configured`。
+- 版本號同步前後端到 `3.108.0`。
+
+### Removed
+- 刪除舊的同步直連 provider 實作 `ai/providers/{openai,claude,poe,gemini}.go`，消除兩份協議程式碼漂移，協議實作統一收斂到 transport 層。
+
+---
+
 ## [3.107.0-rc1] - 2026-05-31
 
 ### Added

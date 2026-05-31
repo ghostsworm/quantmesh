@@ -456,7 +456,10 @@ const Configuration: React.FC = () => {
 
   const handleTestGemini = async () => {
     if (!config || testingGemini) return
-    const key = String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()
+    // 通用 API Key：优先 ai.api_key，回退 ai.gemini_api_key（向后兼容）
+    const key =
+      String(getNestedValue(config, 'ai.api_key') || '').trim() ||
+      String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()
     if (!key) {
       toast({
         title: t('configuration.credentialVerifyFailed'),
@@ -467,9 +470,12 @@ const Configuration: React.FC = () => {
       })
       return
     }
+    const provider = String(getNestedValue(config, 'ai.provider') || '').trim() || 'gemini'
+    const baseURL = String(getNestedValue(config, 'ai.base_url') || '').trim()
+    const model = String(getNestedValue(config, 'ai.model') || '').trim()
     setTestingGemini(true)
     try {
-      const res = await testGeminiKey(key)
+      const res = await testGeminiKey(key, { provider, base_url: baseURL, model })
       if (res.success) {
         toast({
           title: t('configuration.credentialVerifySuccess'),
@@ -1485,13 +1491,57 @@ const Configuration: React.FC = () => {
                     </Alert>
                     <ConfigCard title={t('configuration.aiConfigAssistant')} icon={<StarIcon />}>
                       <VStack spacing={4} align="stretch">
+                        <Text fontSize="xs" color="gray.500">{t('configuration.globalAIProviderDesc')}</Text>
+                        <SimpleGrid columns={2} spacing={4}>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.protocolFamily')}</FormLabel>
+                            <Select
+                              value={config.ai?.provider || 'gemini'}
+                              onChange={(e) => {
+                                updateConfigField('ai.provider', e.target.value)
+                                // 切换协议族时清空 model，让用户重新选择/留空走默认
+                                updateConfigField('ai.model', '')
+                              }}
+                              borderRadius="xl"
+                              size="sm"
+                            >
+                              <option value="gemini">{t('configuration.protocolGemini')}</option>
+                              <option value="openai">{t('configuration.protocolOpenAICompatible')}</option>
+                              <option value="claude">{t('configuration.protocolClaude')}</option>
+                            </Select>
+                          </FormControl>
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.model')}</FormLabel>
+                            <Input
+                              value={config.ai?.model || ''}
+                              onChange={(e) => updateConfigField('ai.model', e.target.value)}
+                              placeholder={t('configuration.useDefaultModel')}
+                              borderRadius="xl"
+                              size="sm"
+                            />
+                          </FormControl>
+                        </SimpleGrid>
                         <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">Gemini API Key</FormLabel>
-                          {renderPasswordInput('ai.gemini_api_key', t('configuration.geminiApiKeyPlaceholder'))}
+                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.apiKey')}</FormLabel>
+                          {renderPasswordInput('ai.api_key', t('configuration.enterApiKeyPlaceholder'))}
                           <Text fontSize="xs" color="gray.500" mt={1}>
-                            {t('configuration.geminiApiKeyDesc')}
+                            {(config.ai?.provider || 'gemini') === 'gemini' && t('configuration.geminiApiKeyDesc')}
+                            {config.ai?.provider === 'openai' && t('configuration.apiKeyFromOpenAI')}
+                            {config.ai?.provider === 'claude' && t('configuration.apiKeyFromAnthropic')}
                           </Text>
                         </FormControl>
+                        {(config.ai?.provider === 'openai' || config.ai?.provider === 'claude') && (
+                          <FormControl>
+                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.baseUrlOptional')}</FormLabel>
+                            <Input
+                              value={config.ai?.base_url || ''}
+                              onChange={(e) => updateConfigField('ai.base_url', e.target.value)}
+                              placeholder={t('configuration.baseUrlPlaceholder')}
+                              borderRadius="xl"
+                              size="sm"
+                            />
+                          </FormControl>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -1500,9 +1550,12 @@ const Configuration: React.FC = () => {
                           isLoading={testingGemini}
                           loadingText={t('configuration.testingCredentials')}
                           onClick={handleTestGemini}
-                          isDisabled={!String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()}
+                          isDisabled={
+                            !String(getNestedValue(config, 'ai.api_key') || '').trim() &&
+                            !String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()
+                          }
                         >
-                          {t('configuration.testGeminiKey')}
+                          {t('configuration.testAIConnection')}
                         </Button>
                         <Button
                           leftIcon={<StarIcon />}

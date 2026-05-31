@@ -389,8 +389,9 @@ export interface Config {
       base_url?: string
     }>
     provider: string
+    model?: string  // 全局 AI 模型，留空走 provider 默认模型
     api_key: string
-    gemini_api_key?: string  // Gemini API Key，用於 AI 配置助手
+    gemini_api_key?: string  // Gemini API Key，用於 AI 配置助手（向后兼容）
     base_url: string
     access_mode?: 'native' | 'proxy'  // 访问模式：native=直接访问，proxy=通過中轉服務
     proxy?: {
@@ -633,8 +634,13 @@ export async function testNotification(
   )
 }
 
-/** POST /api/config/test-gemini — 驗證 Gemini API Key（輕量問答，不下單） */
-export async function testGeminiKey(geminiApiKey: string): Promise<{
+/** POST /api/config/test-gemini — 驗證 AI API Key（輕量問答，不下單）。
+ * 支援多協議：傳入 provider/base_url/model 即可測試 OpenAI 兼容 / Claude / Gemini 上游。
+ * 為向後兼容，沿用 test-gemini 端點與 gemini_api_key 欄位。 */
+export async function testGeminiKey(
+  apiKey: string,
+  opts?: { provider?: string; base_url?: string; model?: string },
+): Promise<{
   success: boolean
   message: string
   reply_preview?: string
@@ -642,7 +648,13 @@ export async function testGeminiKey(geminiApiKey: string): Promise<{
 }> {
   return fetchWithAuth(`${window.location.origin}/api/config/test-gemini`, {
     method: 'POST',
-    body: JSON.stringify({ gemini_api_key: geminiApiKey }),
+    body: JSON.stringify({
+      gemini_api_key: apiKey, // 向後兼容欄位
+      api_key: apiKey,
+      provider: opts?.provider || undefined,
+      base_url: opts?.base_url || undefined,
+      model: opts?.model || undefined,
+    }),
   })
 }
 

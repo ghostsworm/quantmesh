@@ -127,16 +127,27 @@ func (p *TaskProcessor) executeTask(task *database.AsyncTask) {
 	// 構建 AI 请求
 	prompt, _ := reqData["prompt"].(string)
 	sysInst, _ := reqData["system_instruction"].(string)
-	apiKey, _ := reqData["gemini_api_key"].(string)
+	provider, _ := reqData["provider"].(string)
+	baseURL, _ := reqData["base_url"].(string)
+
+	// 通用 api_key 优先，回退旧的 gemini_api_key；脱敏占位则从内存还原
+	apiKey, _ := reqData["api_key"].(string)
 	if apiKey == "" || apiKey == service.RedactedAPIKey {
-		apiKey = service.ResolveTaskGeminiAPIKey(task.ID)
+		if k, _ := reqData["gemini_api_key"].(string); k != "" && k != service.RedactedAPIKey {
+			apiKey = k
+		}
+	}
+	if apiKey == "" || apiKey == service.RedactedAPIKey {
+		apiKey = service.ResolveTaskAPIKey(task.ID)
 	}
 
 	aiReq := service.AIRequest{
 		Prompt:            prompt,
 		SystemInstruction: sysInst,
 		Model:             "",
-		GeminiAPIKey:      apiKey,
+		Provider:          provider,
+		BaseURL:           baseURL,
+		APIKey:            apiKey,
 	}
 
 	if task.Model != nil && *task.Model != "" {
