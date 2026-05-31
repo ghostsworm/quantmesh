@@ -36,7 +36,11 @@ func defaultTestSymbolAndMarket(exchangeName, requestedMarket string) (symbol st
 }
 
 type testGeminiRequest struct {
-	GeminiAPIKey string `json:"gemini_api_key"`
+	GeminiAPIKey string `json:"gemini_api_key"` // 向后兼容
+	APIKey       string `json:"api_key"`        // 通用 API Key（优先）
+	Provider     string `json:"provider"`       // gemini(默认)/openai/claude/poe
+	Model        string `json:"model"`          // 可選
+	BaseURL      string `json:"base_url"`       // 可選，自定义端点
 }
 
 type testGeminiResponse struct {
@@ -53,31 +57,44 @@ func postConfigTestGemini(c *gin.Context) {
 		c.JSON(http.StatusOK, testGeminiResponse{Success: false, Message: "請求格式錯誤"})
 		return
 	}
-	key := strings.TrimSpace(req.GeminiAPIKey)
+	key := strings.TrimSpace(req.APIKey)
 	if key == "" {
-		c.JSON(http.StatusOK, testGeminiResponse{Success: false, Message: "請填寫 Gemini API Key"})
+		key = strings.TrimSpace(req.GeminiAPIKey)
+	}
+	if key == "" {
+		c.JSON(http.StatusOK, testGeminiResponse{Success: false, Message: "請填寫 API Key"})
 		return
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(req.Provider))
+	if provider == "" {
+		provider = "gemini"
 	}
 
 	sv := service.NewAIService()
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 45*time.Second)
 	defer cancel()
 
-	model := "gemini-2.0-flash"
+	model := strings.TrimSpace(req.Model)
+	if model == "" && provider == "gemini" {
+		model = "gemini-2.0-flash"
+	}
 	resp, err := sv.GenerateContent(ctx, service.AIRequest{
-		Prompt:              "Reply with exactly one word: OK",
-		SystemInstruction:   "You are an API connectivity check. Respond with only the letters OK, nothing else.",
-		GeminiAPIKey:        key,
-		Model:               model,
-		ResponseMimeType:    "text/plain",
+		Prompt:            "Reply with exactly one word: OK",
+		SystemInstruction: "You are an API connectivity check. Respond with only the letters OK, nothing else.",
+		Provider:          provider,
+		APIKey:            key,
+		BaseURL:           strings.TrimSpace(req.BaseURL),
+		Model:             model,
+		ResponseMimeType:  "text/plain",
 	})
 	if err != nil {
-		logger.Warn("test-gemini: %v", err)
+		logger.Warn("test-ai (%s): %v", provider, err)
 		c.JSON(http.StatusOK, testGeminiResponse{Success: false, Message: fmt.Sprintf("請求失敗: %v", err)})
 		return
 	}
 	if resp == nil || !resp.Success {
-		msg := "Gemini API 返回失敗"
+		msg := "AI API 返回失敗"
 		if resp != nil && resp.Error != "" {
 			msg = resp.Error
 		}

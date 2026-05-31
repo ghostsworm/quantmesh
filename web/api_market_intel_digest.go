@@ -97,9 +97,9 @@ func getMarketIntelNewsDigest(c *gin.Context) {
 		lang = "zh"
 	}
 
-	apiKey := config.ResolveGlobalGeminiAPIKey(cfg)
-	if apiKey == "" {
-		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
+	upstream := config.ResolveGlobalAI(cfg)
+	if upstream.APIKey == "" {
+		respondError(c, http.StatusBadRequest, "error.ai_api_key_not_configured")
 		return
 	}
 
@@ -131,10 +131,10 @@ func getMarketIntelNewsDigest(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Minute)
 	defer cancel()
 
-	client := ai.NewGeminiClient(apiKey)
+	client := ai.NewClientFromUpstream(upstream)
 	text, err := client.GenerateContent(ctx, prompt, map[string]interface{}{})
 	if err != nil {
-		logger.Warn("market digest: gemini: %v", err)
+		logger.Warn("market digest: ai: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.market_intel_digest_failed", err)
 		return
 	}

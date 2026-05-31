@@ -1,11 +1,7 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -43,7 +39,7 @@ func NewAIService() *AIService {
 
 	return &AIService{
 		httpClient: &http.Client{
-			Timeout:   600 * time.Second, // 10 分钟，Gemini API 複杂请求可能需要较长時间
+			Timeout:   600 * time.Second, // 10 分钟，複杂请求可能需要较长時间
 			Transport: transport,
 		},
 	}
@@ -53,10 +49,21 @@ type AIRequest struct {
 	Prompt            string                 `json:"prompt"`
 	SystemInstruction string                 `json:"system_instruction"`
 	Model             string                 `json:"model"`
-	GeminiAPIKey      string                 `json:"gemini_api_key"`
+	Provider          string                 `json:"provider"`     // gemini(默认) / openai / claude / poe
+	APIKey            string                 `json:"api_key"`      // 通用 API Key（优先于 GeminiAPIKey）
+	BaseURL           string                 `json:"base_url"`     // 可選，自定义 API 端点
+	GeminiAPIKey      string                 `json:"gemini_api_key"` // 向后兼容字段，APIKey 为空时回退
 	JSONSchema        map[string]interface{} `json:"json_schema"`
-	UseGoogleSearch   bool                   `json:"use_google_search"`    // 是否啟用 Google Search 實時搜索
-	ResponseMimeType  string                 `json:"response_mime_type"`   // 响应格式，默认 "application/json"，可设为 "text/plain" 获取纯文本
+	UseGoogleSearch   bool                   `json:"use_google_search"`  // 是否啟用實時搜索（仅 Gemini 原生支持）
+	ResponseMimeType  string                 `json:"response_mime_type"` // 响应格式，默认 "application/json"，可设为 "text/plain"
+}
+
+// apiKey 返回实际使用的 key：APIKey 优先，回退 GeminiAPIKey（向后兼容）
+func (r AIRequest) apiKey() string {
+	if strings.TrimSpace(r.APIKey) != "" {
+		return r.APIKey
+	}
+	return r.GeminiAPIKey
 }
 
 type AIResponse struct {
@@ -74,157 +81,81 @@ type AIResponse struct {
 func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResponse, error) {
 	startTime := time.Now()
 
-	// 确定响应 MIME 类型（默认 application/json，可通过 ResponseMimeType 字段覆盖）
-	responseMimeType := req.ResponseMimeType
-	if responseMimeType == "" {
-		responseMimeType = "application/json"
+	provider := strings.ToLower(strings.TrimSpace(req.Provider))
+	if provider == "" {
+		provider = "gemini"
 	}
 
-	generationConfig := map[string]interface{}{
-		"temperature": 0.7,
-		"topK":        40,
-		"topP":        0.95,
-	}
-	// 仅在需要 JSON 格式时设置 responseMimeType（纯文本模式不设置，让模型自由输出）
-	if responseMimeType == "application/json" {
-		generationConfig["responseMimeType"] = responseMimeType
-	}
-
-	geminiReq := map[string]interface{}{
-		"contents": []map[string]interface{}{
-			{
-				"parts": []map[string]interface{}{
-					{"text": req.Prompt},
-				},
-			},
-		},
-		"generationConfig": generationConfig,
+	chatReq := chatRequest{
+		Prompt:            req.Prompt,
+		SystemInstruction: req.SystemInstruction,
+		Model:             req.Model,
+		APIKey:            req.apiKey(),
+		BaseURL:           req.BaseURL,
+		JSONSchema:        req.JSONSchema,
+		UseWebSearch:      req.UseGoogleSearch,
+		ResponseMimeType:  req.ResponseMimeType,
 	}
 
-	if req.SystemInstruction != "" {
-		geminiReq["system_instruction"] = map[string]interface{}{
-			"parts": []map[string]interface{}{
-				{"text": req.SystemInstruction},
-			},
-		}
-	}
-
-	// 注意：當啟用 Google Search tool 時，Gemini API 可能無法同時強制 responseSchema
-	// 因此我們需要在 prompt 中明確要求 JSON 格式輸出
-	if req.JSONSchema != nil {
-		// 僅在不使用 Google Search 時設置 responseSchema（因為 tools 和 responseSchema 可能衝突）
-		if !req.UseGoogleSearch {
-			geminiReq["generationConfig"].(map[string]interface{})["responseSchema"] = req.JSONSchema
-		}
-		// 無論是否使用 Google Search，都保持 responseMimeType 為 application/json
-	}
-
-	// 啟用 Google Search 實時搜索（用於新聞分析等场景）
-	if req.UseGoogleSearch {
-		geminiReq["tools"] = []map[string]interface{}{
-			{"google_search": map[string]interface{}{}},
-		}
-	}
-
-	jsonData, err := json.Marshal(geminiReq)
+	transport := resolveTransport(provider)
+	result, err := transport.Do(ctx, s.httpClient, chatReq)
 	if err != nil {
-		return nil, fmt.Errorf("serialize request failed: %w", err)
+		// 与历史行为一致：协议层返回的非 200 等错误归一化为 Success=false 的响应；
+		// 仅请求构造/网络层错误以 error 形式上抛（保留 context 取消语义供上层判断超时）。
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return &AIResponse{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
 	}
 
 	model := req.Model
 	if model == "" {
-		model = "gemini-3-flash-preview"
-	}
-
-	baseURL := "https://generativelanguage.googleapis.com/v1beta"
-	url := fmt.Sprintf("%s/models/%s:generateContent?key=%s", baseURL, model, req.GeminiAPIKey)
-
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("create request failed: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return &AIResponse{
-			Success: false,
-			Error:   fmt.Sprintf("API error: %d - %s", resp.StatusCode, string(body)),
-		}, nil
-	}
-
-	var geminiResp struct {
-		Candidates []struct {
-			Content struct {
-				Parts []struct {
-					Text string `json:"text"`
-				} `json:"parts"`
-			} `json:"content"`
-			UsageMetadata struct {
-				PromptTokenCount     int64 `json:"promptTokenCount"`
-				CandidatesTokenCount int64 `json:"candidatesTokenCount"`
-				TotalTokenCount      int64 `json:"totalTokenCount"`
-			} `json:"usageMetadata"`
-		} `json:"candidates"`
-		UsageMetadata struct {
-			PromptTokenCount     int64 `json:"promptTokenCount"`
-			CandidatesTokenCount int64 `json:"candidatesTokenCount"`
-			TotalTokenCount      int64 `json:"totalTokenCount"`
-		} `json:"usageMetadata"`
-	}
-
-	if err := json.Unmarshal(body, &geminiResp); err != nil {
-		return nil, fmt.Errorf("parse response failed: %w (body: %s)", err, string(body))
-	}
-
-	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
-		return &AIResponse{
-			Success: false,
-			Error:   "AI returned no response",
-		}, nil
-	}
-
-	aiText := geminiResp.Candidates[0].Content.Parts[0].Text
-	aiText = strings.TrimPrefix(aiText, "```json")
-	aiText = strings.TrimPrefix(aiText, "```")
-	aiText = strings.TrimSuffix(aiText, "```")
-	aiText = strings.TrimSpace(aiText)
-
-	// 獲取 token 使用情况
-	inputTokens := geminiResp.UsageMetadata.PromptTokenCount
-	outputTokens := geminiResp.UsageMetadata.CandidatesTokenCount
-	if inputTokens == 0 && len(geminiResp.Candidates) > 0 {
-		inputTokens = geminiResp.Candidates[0].UsageMetadata.PromptTokenCount
-		outputTokens = geminiResp.Candidates[0].UsageMetadata.CandidatesTokenCount
+		model = defaultModelForProvider(provider)
 	}
 
 	elapsed := time.Since(startTime).Milliseconds()
 	geminiusage.Record(geminiusage.Entry{
 		At:           time.Now(),
-		Model:        model,
+		Model:        usageModelLabel(provider, model),
 		Source:       "ai_service",
-		InputTokens:  inputTokens,
-		OutputTokens: outputTokens,
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
 		DurationMs:   elapsed,
 	})
 
 	return &AIResponse{
 		Success:          true,
-		Content:          aiText,
-		InputTokens:      inputTokens,
-		OutputTokens:     outputTokens,
+		Content:          result.Text,
+		InputTokens:      result.InputTokens,
+		OutputTokens:     result.OutputTokens,
 		ProcessingTimeMs: elapsed,
-		UsedAPIKey:       maskAPIKey(req.GeminiAPIKey),
+		UsedAPIKey:       maskAPIKey(chatReq.APIKey),
 		AIInput:          req.Prompt,
-		AIOutput:         aiText,
+		AIOutput:         result.Text,
 	}, nil
+}
+
+// defaultModelForProvider 仅用于 usage 记录的模型标签兜底
+func defaultModelForProvider(provider string) string {
+	switch provider {
+	case "openai", "poe":
+		return openAIDefaultModel
+	case "claude", "anthropic":
+		return claudeDefaultModel
+	default:
+		return geminiDefaultModel
+	}
+}
+
+// usageModelLabel 在 usage 日志中区分 provider（gemini 维持原裸模型名，保证既有统计零回归）
+func usageModelLabel(provider, model string) string {
+	if provider == "gemini" || provider == "" {
+		return model
+	}
+	return provider + ":" + model
 }
 
 func maskAPIKey(key string) string {
