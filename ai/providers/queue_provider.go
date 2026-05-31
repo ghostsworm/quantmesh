@@ -10,39 +10,50 @@ import (
 	"quantmesh/logger"
 )
 
-// GeminiProvider Gemini AI Provider实现
-type GeminiProvider struct {
-	apiKey string
-	model  string
+// queueProvider 协议无关的异步队列 Provider。
+// 所有 provider（gemini/openai/claude/poe…）统一走异步任务队列 + 轮询，
+// 共享重试、超时管理、token 统计与可观测性。实际协议由 ai/service 的 transport 层按 provider 选择。
+type queueProvider struct {
+	provider string
+	apiKey   string
+	model    string
+	baseURL  string
 }
 
-// NewGeminiProvider 创建Gemini Provider
-func NewGeminiProvider(apiKey, model string) *GeminiProvider {
-	if model == "" {
-		model = "gemini-3-flash-preview" // 默认模型
+// NewQueueProvider 创建统一队列 Provider（供工厂调用）
+func NewQueueProvider(provider, apiKey, model, baseURL string) *queueProvider {
+	if provider == "" {
+		provider = "gemini"
 	}
-	return &GeminiProvider{
-		apiKey: apiKey,
-		model:  model,
+	return &queueProvider{
+		provider: provider,
+		apiKey:   apiKey,
+		model:    model,
+		baseURL:  baseURL,
 	}
 }
 
-// GenerateContent 实现AIClient接口
-func (p *GeminiProvider) GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}, useGoogleSearch bool) (string, error) {
-	// 获取全局任务服务（通过函数参数传递，避免循环导入）
-	// 这里我们需要通过一个全局变量或者函数来获取，暂时使用service包
+// GenerateContent 实现 AIClient 接口：入队 + 轮询任务结果
+func (p *queueProvider) GenerateContent(ctx context.Context, prompt string, schema map[string]interface{}, useGoogleSearch bool) (string, error) {
 	taskService := getGlobalTaskService()
 	if taskService == nil {
 		return "", fmt.Errorf("AI 任務服務未初始化")
 	}
 
-	// 使用现有的异步任务系统
 	requestData := map[string]interface{}{
 		"prompt":             prompt,
 		"system_instruction": "你是 QuantMesh 的市场分析与配置助手。严格按请求的 JSON schema 输出，不要泄露密钥或凭据。",
-		"gemini_api_key":     p.apiKey,
+		"provider":           p.provider,
+		"api_key":            p.apiKey,
 		"json_schema":        schema,
 		"model":              p.model,
+	}
+	if p.baseURL != "" {
+		requestData["base_url"] = p.baseURL
+	}
+	// 向后兼容：gemini 仍写入旧键，便于历史读取路径回退
+	if p.provider == "gemini" {
+		requestData["gemini_api_key"] = p.apiKey
 	}
 	if useGoogleSearch {
 		requestData["use_google_search"] = true
@@ -54,7 +65,7 @@ func (p *GeminiProvider) GenerateContent(ctx context.Context, prompt string, sch
 		return "", fmt.Errorf("創建异步任務失败: %w", err)
 	}
 
-	logger.Info("🔄 [Gemini] 已創建 AI 异步任務: %s，开始輪詢結果...", taskID)
+	logger.Info("🔄 [%s] 已創建 AI 异步任務: %s，开始輪詢結果...", p.provider, taskID)
 
 	// 轮询任务结果
 	maxPolls := 600 // 约20分钟

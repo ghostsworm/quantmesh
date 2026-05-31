@@ -159,30 +159,50 @@ func (s *TaskService) CleanupExpiredTasks(ctx context.Context) (int64, error) {
 	return s.db.CleanupExpiredAsyncTasks(ctx, cutoff)
 }
 
+// sensitiveKeyNames 需要从持久化请求体中脱敏并存入内存的字段名
+var sensitiveKeyNames = []string{"api_key", "gemini_api_key"}
+
 func redactSensitiveRequestData(taskID string, requestData map[string]interface{}) map[string]interface{} {
 	out := make(map[string]interface{}, len(requestData)+1)
 	for k, v := range requestData {
 		out[k] = v
 	}
-	if key, ok := requestData["gemini_api_key"].(string); ok && strings.TrimSpace(key) != "" {
-		taskSecrets.Store(secretKey(taskID, "gemini_api_key"), key)
-		out["gemini_api_key"] = RedactedAPIKey
-		out["gemini_api_key_ref"] = "memory"
+	for _, name := range sensitiveKeyNames {
+		if key, ok := requestData[name].(string); ok && strings.TrimSpace(key) != "" && key != RedactedAPIKey {
+			taskSecrets.Store(secretKey(taskID, name), key)
+			out[name] = RedactedAPIKey
+			out[name+"_ref"] = "memory"
+		}
 	}
 	return out
 }
 
+// ResolveTaskAPIKey 还原任务的 API Key：通用 api_key 优先，回退旧 gemini_api_key
+func ResolveTaskAPIKey(taskID string) string {
+	for _, name := range sensitiveKeyNames {
+		if key, ok := taskSecrets.Load(secretKey(taskID, name)); ok {
+			if s, ok := key.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// ResolveTaskGeminiAPIKey 向后兼容别名
 func ResolveTaskGeminiAPIKey(taskID string) string {
 	if key, ok := taskSecrets.Load(secretKey(taskID, "gemini_api_key")); ok {
 		if s, ok := key.(string); ok {
 			return s
 		}
 	}
-	return ""
+	return ResolveTaskAPIKey(taskID)
 }
 
 func ForgetTaskSecrets(taskID string) {
-	taskSecrets.Delete(secretKey(taskID, "gemini_api_key"))
+	for _, name := range sensitiveKeyNames {
+		taskSecrets.Delete(secretKey(taskID, name))
+	}
 }
 
 func secretKey(taskID, name string) string {

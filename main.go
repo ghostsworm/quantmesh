@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.107.0-rc1"
+var Version = "3.108.0"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2353,11 +2353,9 @@ func main() {
 			})
 			var geminiClient inspector.GeminiContentGenerator
 			if cfg.AI.Enabled {
-				apiKey := config.ResolveInspectorGeminiAPIKey(cfg)
-				if apiKey != "" {
-					geminiClient = ai.NewGeminiClient(apiKey)
-				} else if ins := config.ResolveInspectorAI(cfg); ins.Provider != "" && ins.Provider != "gemini" {
-					logger.Warn("⚠️ 智子巡檢當前僅支援 Gemini 客戶端，inspector 上游為 %s 時請改用 gemini 或留空 upstream_ref", ins.Provider)
+				ins := config.ResolveInspectorAI(cfg)
+				if ins.APIKey != "" {
+					geminiClient = ai.NewClientFromUpstream(ins)
 				}
 			}
 			reportCfg := inspector.DefaultReportConfig()

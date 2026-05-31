@@ -34,7 +34,11 @@ func generateAIConfig(c *gin.Context) {
 		SymbolCapitals []SymbolCapitalRequest `json:"symbol_capitals"`
 		CapitalMode    string                 `json:"capital_mode"` // total 或 per_symbol
 		RiskProfile    string                 `json:"risk_profile"`
-		GeminiAPIKey   string                 `json:"gemini_api_key"` // 可選，前端傳入的 API Key
+		GeminiAPIKey   string                 `json:"gemini_api_key"` // 向后兼容：前端傳入的 API Key
+		APIKey         string                 `json:"api_key"`        // 可選，通用 API Key（优先于 gemini_api_key）
+		Provider       string                 `json:"provider"`       // 可選，gemini/openai/claude
+		Model          string                 `json:"model"`          // 可選
+		BaseURL        string                 `json:"base_url"`       // 可選，自定义端点
 
 		// 资產优先重構新增字段
 		SymbolAllocations map[string]float64                   `json:"symbol_allocations"`
@@ -59,15 +63,25 @@ func generateAIConfig(c *gin.Context) {
 		return
 	}
 
-	// 獲取 Gemini API Key
-	// 优先使用请求中傳入的 Key，否则使用配置文件中的 Key
-	geminiAPIKey := req.GeminiAPIKey
-	if geminiAPIKey == "" {
-		geminiAPIKey = config.ResolveGlobalGeminiAPIKey(cfg)
+	// 解析 AI 上游：以全局配置为基底，前端传入字段优先覆盖
+	upstream := config.ResolveGlobalAI(cfg)
+	if v := req.APIKey; v != "" {
+		upstream.APIKey = v
+	} else if req.GeminiAPIKey != "" {
+		upstream.APIKey = req.GeminiAPIKey
+	}
+	if req.Provider != "" {
+		upstream.Provider = req.Provider
+	}
+	if req.Model != "" {
+		upstream.Model = req.Model
+	}
+	if req.BaseURL != "" {
+		upstream.BaseURL = req.BaseURL
 	}
 
-	if geminiAPIKey == "" {
-		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
+	if upstream.APIKey == "" {
+		respondError(c, http.StatusBadRequest, "error.ai_api_key_not_configured")
 		return
 	}
 
@@ -158,10 +172,10 @@ func generateAIConfig(c *gin.Context) {
 		aiTaskManager.UpdateTask(task.TaskID, TaskStatusRunning, nil, nil)
 		logger.Info("🔄 [AI任務] %s 开始執行", task.TaskID)
 
-		geminiClient := ai.NewGeminiClient(geminiAPIKey)
+		aiClient := ai.NewClientFromUpstream(upstream)
 
-		logger.Info("🔄 [AI任務] %s 調用 Gemini API 生成配置", task.TaskID)
-		aiConfig, err := geminiClient.GenerateConfig(ctx, &ai.GenerateConfigRequest{
+		logger.Info("🔄 [AI任務] %s 調用 AI (provider=%s) 生成配置", task.TaskID, upstream.Provider)
+		aiConfig, err := aiClient.GenerateConfig(ctx, &ai.GenerateConfigRequest{
 			Exchange:          req.Exchange,
 			Symbols:           req.Symbols,
 			TotalCapital:      req.TotalCapital,

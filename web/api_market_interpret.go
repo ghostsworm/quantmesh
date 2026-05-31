@@ -200,9 +200,9 @@ func createMarketInterpret(c *gin.Context) {
 		return
 	}
 
-	geminiAPIKey := config.ResolveGlobalGeminiAPIKey(cfg)
-	if geminiAPIKey == "" {
-		respondError(c, http.StatusBadRequest, "error.gemini_api_key_not_configured")
+	upstream := config.ResolveGlobalAI(cfg)
+	if upstream.APIKey == "" {
+		respondError(c, http.StatusBadRequest, "error.ai_api_key_not_configured")
 		return
 	}
 
@@ -271,17 +271,23 @@ func createMarketInterpret(c *gin.Context) {
 		// 3) 构建 prompt
 		prompt := buildMarketInterpretPrompt(req, klines1m, klines15m)
 
-		// 4) 调用 Gemini API（启用 Google Search）
+		// 4) 调用 AI（gemini 上游默认启用 Google Search 实时搜索）
+		model := upstream.Model
+		if model == "" && (upstream.Provider == "" || upstream.Provider == "gemini") {
+			model = "gemini-2.5-flash-preview-05-20" // 市场解读 gemini 默认模型，保持历史行为
+		}
 		aiSvc := aiservice.NewAIService()
 		aiReq := aiservice.AIRequest{
 			Prompt:           prompt,
-			GeminiAPIKey:     geminiAPIKey,
+			Provider:         upstream.Provider,
+			APIKey:           upstream.APIKey,
+			BaseURL:          upstream.BaseURL,
 			UseGoogleSearch:  true,
-			Model:            "gemini-2.5-flash-preview-05-20",
+			Model:            model,
 			ResponseMimeType: "text/plain", // 市场解读需要 Markdown 文本输出
 		}
 
-		logger.Info("🔄 [市场解读] %s 调用 Gemini API ...", task.TaskID)
+		logger.Info("🔄 [市场解读] %s 调用 AI (provider=%s) ...", task.TaskID, aiReq.Provider)
 		resp, err := aiSvc.GenerateContent(ctx, aiReq)
 		if err != nil {
 			logger.Error("❌ [市场解读] %s Gemini API 调用失败: %v", task.TaskID, err)

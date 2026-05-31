@@ -1,13 +1,13 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.107.0-rc1`（2026-05-31）
+> 当前版本：`3.108.0`（2026-06-01）
 
 ## 主要功能
 
 - 多交易所网格 / 趋势 / 套利策略引擎（spot + perpetual）
 - 可视化配置 + 多 Bot 并行管理 + 实时风控
 - 回测 / 优化器 + 历史数据导出
-- 多 AI 上游（Gemini / OpenAI / 自托管 LLM）的市场解读、参数建议、新闻分析
+- 多 AI 上游（OpenAI 兼容 / Claude 原生 / Gemini，含 DeepSeek / Moonshot / 智谱 / Ollama / OneAPI / Poe 等自定义 base_url）的市场解读、参数建议、新闻分析
 - WebUI（React + Chakra）+ REST API + WebSocket 推送 + Telegram / 邮件 / Webhook 告警
 - **错误自动上报到 17push（通过 aipipe-go-sdk）**
 - **PostHog / Sentry 可观测性错误上报（用户主动配置后启用）**
@@ -19,6 +19,7 @@
 - **存储优先 SQL**：SQLite 默认，可切 MySQL / Postgres；配置文件作为可导入/导出的源
 - **配置即数据**：YAML 与数据库双源，热更新；首次启动会自动迁移
 - **WebUI 完全独立于后端**：通过 `/api/*` 通信，i18n 走 react-i18next（**禁止硬编码文案**）
+- **AI 协议无关执行层**：`ai/service` 的 transport 层（`transport_{gemini,openai,claude}.go`）将「统一中立请求 → provider 协议请求/响应 → 统一结果」三步抽象为 `providerTransport` 接口；所有 provider 统一走异步任务队列 + 轮询，共享重试 / 超时 / token 统计。新增 provider 只需加一个 transport 适配器，业务层与配置层无感。配置通过 `provider + model + api_key + base_url` 任意组合上游（含命名上游 `ai.upstreams` 与模块级 `upstream_ref`）
 - **可观测性**：
   - 日志写文件 + SQLite，前端可查询
   - Prometheus `/metrics` 端点
