@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.106.0-rc1"
+var Version = "3.107.0-rc1"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -496,7 +496,6 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 //   convertStrategies, getStrategyDisplayName,
 //   botManagerProviderAdapter, botExtendedProviderAdapter,
 //   attachBotLastStartFailure, attachBotRiskFields。
-
 
 // resolveMarketType 從配置或运行時中推導 market_type
 func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) string {
@@ -2438,6 +2437,7 @@ func main() {
 					web.SetSystemSettingsProvider(ssAdapter)
 					logger.Info("✅ 系統設置提供者已設置")
 					bootstrapAipipe(ssAdapter)
+					bootstrapObservability(Version, ssAdapter)
 					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
 			}
@@ -2537,6 +2537,7 @@ func main() {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
 					bootstrapAipipe(ssAdapter)
+					bootstrapObservability(Version, ssAdapter)
 					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
 			}
@@ -2762,4 +2763,3 @@ func main() {
 // 以下類型已抽取到 main_adapters_position.go：
 //   loggerAdapter, positionExchangeAdapter
 // （exchangeProviderAdapter 與 exchangeExecutorAdapter 也在該文件）
-

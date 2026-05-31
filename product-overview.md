@@ -1,6 +1,6 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.106.0-rc1`（2026-05-29）
+> 当前版本：`3.107.0-rc1`（2026-05-31）
 
 ## 主要功能
 
@@ -10,6 +10,7 @@
 - 多 AI 上游（Gemini / OpenAI / 自托管 LLM）的市场解读、参数建议、新闻分析
 - WebUI（React + Chakra）+ REST API + WebSocket 推送 + Telegram / 邮件 / Webhook 告警
 - **错误自动上报到 17push（通过 aipipe-go-sdk）**
+- **PostHog / Sentry 可观测性错误上报（用户主动配置后启用）**
 - **内嵌 MCP 服务，可被 Claude Desktop / Cursor / 自研 Agent 直接调用**
 
 ## 设计思路
@@ -23,11 +24,12 @@
   - Prometheus `/metrics` 端点
   - HTTP 响应统一带 `X-App-Version` / `X-Server-Version` 头
   - 错误自动上报到 17push（用户提供 API Key 后即生效，无 key 时整套静默）
+  - 可选 PostHog / Sentry 错误上报（用户提供 Project API Key / DSN 后即生效）
 
 ## 当前待办
 
 - [ ] MCP stdio 适配（目前仅 streamable HTTP，部分老 agent 客户端需要 stdio）
-- [ ] aipipe 上报范围扩展：策略/下单失败、交易所 WS 异常断连
+- [ ] 可观测性上报范围扩展：策略/下单失败、交易所 WS 异常断连
 - [ ] 移动端响应式适配优化
 
 ## 集成手册
@@ -37,6 +39,12 @@
 1. 注册 [17push.com](https://17push.com) 并生成 API Key
 2. 进入「全局设置 → 错误自动上报」，粘贴 Key 并启用
 3. 点「测试连接」确认通；之后所有 `logger.Error` / 5xx / panic 会自动上报
+
+### PostHog / Sentry 可观测性
+
+1. 进入「全局设置 → 可观测性上报」
+2. 填入 PostHog Project API Key 或 Sentry DSN，按需设置环境名
+3. 点对应「测试」按钮确认通；之后 `logger.Error` / 5xx / panic 会同步上报到已启用的平台
 
 ### MCP 服务
 

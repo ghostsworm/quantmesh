@@ -15,6 +15,7 @@ import (
 	"quantmesh/mcp"
 	"quantmesh/monitor"
 	"quantmesh/notify/aipipe"
+	"quantmesh/notify/observability"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -22,6 +23,7 @@ import (
 )
 
 var aipipeBootstrapped sync.Once
+var observabilityBootstrapped sync.Once
 
 // bootstrapAipipe 读取 system_settings 里的 aipipe_* 配置，启动上报客户端，
 // 并把 logger 的 ERROR/FATAL 钩子接到 aipipe.ReportMessage。
@@ -40,6 +42,7 @@ func bootstrapAipipe(provider web.SystemSettingsProvider) {
 		// 装错误外发钩子：ERROR/FATAL 自动上报
 		logger.SetErrorHook(func(level, message string) {
 			aipipe.ReportMessage(level, message, "log")
+			observability.ReportMessage(level, message, "log")
 		})
 		web.RegisterAipipeReloader(func() {
 			c := loadAipipeConfigFromSettings(provider)
@@ -49,6 +52,26 @@ func bootstrapAipipe(provider web.SystemSettingsProvider) {
 		})
 		if cfg.Enabled && cfg.APIKey != "" {
 			logger.Info("✅ aipipe 错误上报已启用，endpoint=%s", cfg.Endpoint)
+		}
+	})
+}
+
+// bootstrapObservability 读取 system_settings 中的 PostHog / Sentry 配置并启动上报。
+//
+// 与 aipipe 一样：未启用或未填密钥时保持 no-op。logger hook 由 bootstrapAipipe
+// 统一安装，避免多个 hook 后注册覆盖前注册。
+func bootstrapObservability(version string, provider web.SystemSettingsProvider) {
+	if provider == nil {
+		return
+	}
+	observabilityBootstrapped.Do(func() {
+		cfg := loadObservabilityConfigFromSettings(version, provider)
+		observability.Reload(cfg)
+		web.RegisterObservabilityReloader(func() {
+			observability.Reload(loadObservabilityConfigFromSettings(version, provider))
+		})
+		if cfg.PostHogEnabled || cfg.SentryEnabled {
+			logger.Info("✅ PostHog/Sentry 可观测性上报配置已加载")
 		}
 	})
 }
@@ -102,6 +125,36 @@ func loadAipipeConfigFromSettings(provider web.SystemSettingsProvider) aipipe.Co
 	}
 	if enabled, err := provider.GetSystemSettingBool(ctx, aipipe.SettingKeyEnabled, false); err == nil {
 		cfg.Enabled = enabled
+	}
+	return cfg
+}
+
+// loadObservabilityConfigFromSettings 从 system_settings 中读取 PostHog / Sentry 配置。
+func loadObservabilityConfigFromSettings(version string, provider web.SystemSettingsProvider) observability.Config {
+	ctx := context.Background()
+	cfg := observability.Config{
+		PostHogHost: observability.DefaultPostHogHost,
+		Environment: observability.DefaultEnvironment,
+		Release:     version,
+		DistinctID:  "quantmesh-server",
+	}
+	if v, err := provider.GetSystemSetting(ctx, observability.SettingKeyPostHogProjectKey); err == nil && v != nil {
+		cfg.PostHogProjectKey = v.Value
+	}
+	if v, err := provider.GetSystemSetting(ctx, observability.SettingKeyPostHogHost); err == nil && v != nil && v.Value != "" {
+		cfg.PostHogHost = v.Value
+	}
+	if enabled, err := provider.GetSystemSettingBool(ctx, observability.SettingKeyPostHogEnabled, false); err == nil {
+		cfg.PostHogEnabled = enabled
+	}
+	if v, err := provider.GetSystemSetting(ctx, observability.SettingKeySentryDSN); err == nil && v != nil {
+		cfg.SentryDSN = v.Value
+	}
+	if enabled, err := provider.GetSystemSettingBool(ctx, observability.SettingKeySentryEnabled, false); err == nil {
+		cfg.SentryEnabled = enabled
+	}
+	if v, err := provider.GetSystemSetting(ctx, observability.SettingKeyEnvironment); err == nil && v != nil && v.Value != "" {
+		cfg.Environment = v.Value
 	}
 	return cfg
 }
