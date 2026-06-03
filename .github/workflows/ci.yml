@@ -11,10 +11,61 @@ env:
   GO_VERSION: '1.25.4'
 
 jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        cache: true
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+
+    - name: Enable Corepack (Yarn 4)
+      run: corepack enable
+
+    - name: Prepare Yarn (with retry)
+      run: |
+        for i in 1 2 3; do
+          if corepack prepare yarn@4.12.0 --activate; then
+            echo "Yarn prepared successfully"
+            break
+          fi
+          echo "Attempt $i failed, retrying in 5 seconds..."
+          sleep 5
+        done
+
+    - name: Install C compiler and SQLite dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libsqlite3-dev
+
+    - name: Run Go tests
+      run: go test ./... -coverprofile=/tmp/quantmesh-go-cover.out
+
+    - name: Report Go coverage
+      run: go tool cover -func=/tmp/quantmesh-go-cover.out | tail -n 1
+
+    - name: Run frontend tests
+      working-directory: webui
+      run: |
+        yarn install --immutable
+        yarn test
+
   # 构建
   build:
     name: Build
     runs-on: ${{ matrix.runner }}
+    needs: test
     
     strategy:
       matrix:

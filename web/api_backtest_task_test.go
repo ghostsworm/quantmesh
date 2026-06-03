@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,27 +18,43 @@ import (
 )
 
 type fakeWebTaskStore struct {
+	mu   sync.Mutex
 	task *backtest.BacktestTask
+	done chan string
 }
 
 func (s *fakeWebTaskStore) CreateBacktestTask(task *backtest.BacktestTask) error {
-	s.task = task
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copied := *task
+	s.task = &copied
 	return nil
 }
 
 func (s *fakeWebTaskStore) GetBacktestTask(id string) (*backtest.BacktestTask, error) {
-	return s.task, nil
-}
-
-func (s *fakeWebTaskStore) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.task == nil {
 		return nil, nil
 	}
-	return []*backtest.BacktestTask{s.task}, nil
+	copied := *s.task
+	return &copied, nil
+}
+
+func (s *fakeWebTaskStore) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.task == nil {
+		return nil, nil
+	}
+	copied := *s.task
+	return []*backtest.BacktestTask{&copied}, nil
 }
 
 func (s *fakeWebTaskStore) UpdateBacktestTaskStatus(id, status string, progress int, startedAt, completedAt *time.Time, errMsg, resultPath, reportPath string) error {
+	s.mu.Lock()
 	if s.task == nil {
+		s.mu.Unlock()
 		return nil
 	}
 	s.task.Status = status
@@ -45,10 +62,49 @@ func (s *fakeWebTaskStore) UpdateBacktestTaskStatus(id, status string, progress 
 	s.task.Error = errMsg
 	s.task.ResultPath = resultPath
 	s.task.ReportPath = reportPath
+	s.mu.Unlock()
+	if status == "completed" || status == "failed" {
+		select {
+		case s.done <- status:
+		default:
+		}
+	}
 	return nil
 }
 
 func (s *fakeWebTaskStore) DeleteBacktestTask(id string) error {
+	return nil
+}
+
+func (s *fakeWebTaskStore) snapshot() *backtest.BacktestTask {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.task == nil {
+		return nil
+	}
+	copied := *s.task
+	return &copied
+}
+
+func waitForBacktestTask(t *testing.T, store *fakeWebTaskStore) *backtest.BacktestTask {
+	t.Helper()
+	select {
+	case status := <-store.done:
+		task := store.snapshot()
+		if task == nil {
+			t.Fatal("expected task to be stored")
+		}
+		if status != "completed" {
+			t.Fatalf("expected backtest task to complete, got %q with error %q", status, task.Error)
+		}
+		return task
+	case <-time.After(2 * time.Second):
+		task := store.snapshot()
+		if task == nil {
+			t.Fatal("timed out waiting for backtest task before it was stored")
+		}
+		t.Fatalf("timed out waiting for backtest task %s to finish; latest status %q", task.ID, task.Status)
+	}
 	return nil
 }
 
@@ -66,9 +122,10 @@ func TestPostBacktestTasksAcceptsStrategiesArray(t *testing.T) {
 		t.Fatalf("failed to write kline file: %v", err)
 	}
 
-	store := &fakeWebTaskStore{}
+	store := &fakeWebTaskStore{done: make(chan string, 1)}
 	originManager := backtestTaskManager
 	backtestTaskManager = backtest.NewTaskManager(store, nil, tempDir)
+	backtestTaskManager.SetOutputDirs(filepath.Join(tempDir, "results"), filepath.Join(tempDir, "reports"))
 	t.Cleanup(func() {
 		backtestTaskManager = originManager
 	})
@@ -98,14 +155,12 @@ func TestPostBacktestTasksAcceptsStrategiesArray(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d with body %s", w.Code, w.Body.String())
 	}
-	if store.task == nil {
-		t.Fatal("expected task to be stored")
+	task := waitForBacktestTask(t, store)
+	if task.Mode != backtest.TaskModeBotStrategies {
+		t.Fatalf("expected mode to be bot_strategies, got %q", task.Mode)
 	}
-	if store.task.Mode != backtest.TaskModeBotStrategies {
-		t.Fatalf("expected mode to be bot_strategies, got %q", store.task.Mode)
-	}
-	if len(store.task.Strategies) != 2 {
-		t.Fatalf("expected 2 strategies, got %d", len(store.task.Strategies))
+	if len(task.Strategies) != 2 {
+		t.Fatalf("expected 2 strategies, got %d", len(task.Strategies))
 	}
 }
 
@@ -126,9 +181,10 @@ func TestPostBacktestTasksAcceptsHedgeGroupWithoutStrategy(t *testing.T) {
 		t.Fatalf("failed to write legB kline file: %v", err)
 	}
 
-	store := &fakeWebTaskStore{}
+	store := &fakeWebTaskStore{done: make(chan string, 1)}
 	originManager := backtestTaskManager
 	backtestTaskManager = backtest.NewTaskManager(store, nil, tempDir)
+	backtestTaskManager.SetOutputDirs(filepath.Join(tempDir, "results"), filepath.Join(tempDir, "reports"))
 	t.Cleanup(func() {
 		backtestTaskManager = originManager
 	})
@@ -142,9 +198,9 @@ func TestPostBacktestTasksAcceptsHedgeGroupWithoutStrategy(t *testing.T) {
 		"data_source":   "kline_file",
 		"kline_file":    legAFile,
 		"params": map[string]interface{}{
-			"leg_b_symbol":      "ETHUSDT",
-			"leg_b_kline_file":  legBFile,
-			"hedge_ratio":       1.0,
+			"leg_b_symbol":       "ETHUSDT",
+			"leg_b_kline_file":   legBFile,
+			"hedge_ratio":        1.0,
 			"rebalance_interval": 2,
 		},
 	}
@@ -160,14 +216,12 @@ func TestPostBacktestTasksAcceptsHedgeGroupWithoutStrategy(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d with body %s", w.Code, w.Body.String())
 	}
-	if store.task == nil {
-		t.Fatal("expected task to be stored")
+	task := waitForBacktestTask(t, store)
+	if task.Mode != backtest.TaskModeHedgeGroup {
+		t.Fatalf("expected mode to be hedge_group, got %q", task.Mode)
 	}
-	if store.task.Mode != backtest.TaskModeHedgeGroup {
-		t.Fatalf("expected mode to be hedge_group, got %q", store.task.Mode)
-	}
-	if store.task.GroupID != "group_hedge_1" {
-		t.Fatalf("expected group id to be preserved, got %q", store.task.GroupID)
+	if task.GroupID != "group_hedge_1" {
+		t.Fatalf("expected group id to be preserved, got %q", task.GroupID)
 	}
 }
 

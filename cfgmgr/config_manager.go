@@ -150,9 +150,6 @@ func (cm *ConfigManager) GetBool(scope storage.ConfigScope, scopeID, key string)
 
 // Set 设置配置值（保存到数据库）
 func (cm *ConfigManager) Set(scope storage.ConfigScope, scopeID, key string, value interface{}, updatedBy string) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
 	// 获取旧值
 	oldValue, _ := cm.Get(scope, scopeID, key)
 
@@ -161,6 +158,9 @@ func (cm *ConfigManager) Set(scope storage.ConfigScope, scopeID, key string, val
 	if err != nil {
 		return fmt.Errorf("创建配置条目失败: %w", err)
 	}
+
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	// 保存到数据库
 	if err := cm.storage.SetConfig(cm.ctx, entry, updatedBy); err != nil {
@@ -176,11 +176,11 @@ func (cm *ConfigManager) Set(scope storage.ConfigScope, scopeID, key string, val
 
 // Delete 删除配置（恢复默认值）
 func (cm *ConfigManager) Delete(scope storage.ConfigScope, scopeID, key string, updatedBy string) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
 	// 获取旧值
 	oldValue, _ := cm.Get(scope, scopeID, key)
+
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
 
 	// 从数据库删除
 	if err := cm.storage.DeleteConfig(cm.ctx, scope, scopeID, key); err != nil {
@@ -245,113 +245,113 @@ func (cm *ConfigManager) initNotificationConfigs() []*storage.ConfigEntry {
 	return []*storage.ConfigEntry{
 		// 通知开关
 		{
-			Key:      "enabled",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Enabled,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Enabled),
-			Category:  "notifications",
+			Key:         "enabled",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Enabled,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Enabled),
+			Category:    "notifications",
 			DisplayName: "启用通知",
 			Description: "是否启用通知功能",
-			Editable:   true,
+			Editable:    true,
 		},
 		// 通知规则
 		{
-			Key:      "rules.order_placed",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.OrderPlaced,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.OrderPlaced),
-			Category:  "notifications",
+			Key:         "rules.order_placed",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.OrderPlaced,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.OrderPlaced),
+			Category:    "notifications",
 			DisplayName: "下单时通知",
 			Description: "下单成功时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.order_filled",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.OrderFilled,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.OrderFilled),
-			Category:  "notifications",
+			Key:         "rules.order_filled",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.OrderFilled,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.OrderFilled),
+			Category:    "notifications",
 			DisplayName: "成交时通知",
 			Description: "订单成交时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.error",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.Error,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.Error),
-			Category:  "notifications",
+			Key:         "rules.error",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.Error,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.Error),
+			Category:    "notifications",
 			DisplayName: "错误时通知",
 			Description: "发生错误时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.margin_insufficient",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.MarginInsufficient,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.MarginInsufficient),
-			Category:  "notifications",
+			Key:         "rules.margin_insufficient",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.MarginInsufficient,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.MarginInsufficient),
+			Category:    "notifications",
 			DisplayName: "保证金不足通知",
 			Description: "保证金不足时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.risk_triggered",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.RiskTriggered,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.RiskTriggered),
-			Category:  "notifications",
+			Key:         "rules.risk_triggered",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.RiskTriggered,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.RiskTriggered),
+			Category:    "notifications",
 			DisplayName: "风控触发通知",
 			Description: "风控被触发时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.stop_loss",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.StopLoss,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.StopLoss),
-			Category:  "notifications",
+			Key:         "rules.stop_loss",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.StopLoss,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.StopLoss),
+			Category:    "notifications",
 			DisplayName: "止损通知",
 			Description: "触发止损时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.allocation_exceeded",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.AllocationExceeded,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.AllocationExceeded),
-			Category:  "notifications",
+			Key:         "rules.allocation_exceeded",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.AllocationExceeded,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.AllocationExceeded),
+			Category:    "notifications",
 			DisplayName: "分配超限通知",
 			Description: "超出资金分配限制时发送通知",
-			Editable:   true,
+			Editable:    true,
 		},
 		{
-			Key:      "rules.inspector_report",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeBoolean,
-			BoolValue: cm.cfg.Notifications.Rules.InspectorReport,
-			Value:     fmt.Sprintf("%v", cm.cfg.Notifications.Rules.InspectorReport),
-			Category:  "notifications",
+			Key:         "rules.inspector_report",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeBoolean,
+			BoolValue:   cm.cfg.Notifications.Rules.InspectorReport,
+			Value:       fmt.Sprintf("%v", cm.cfg.Notifications.Rules.InspectorReport),
+			Category:    "notifications",
 			DisplayName: "巡检报告通知",
 			Description: "智能子巡检报告通知",
-			Editable:   true,
+			Editable:    true,
 		},
 	}
 }
@@ -360,16 +360,16 @@ func (cm *ConfigManager) initNotificationConfigs() []*storage.ConfigEntry {
 func (cm *ConfigManager) initTradingConfigs() []*storage.ConfigEntry {
 	return []*storage.ConfigEntry{
 		{
-			Key:      "position_safety_check",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeNumber,
+			Key:         "position_safety_check",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeNumber,
 			NumberValue: float64(cm.cfg.Trading.PositionSafetyCheck),
-			Value:     fmt.Sprintf("%d", cm.cfg.Trading.PositionSafetyCheck),
-			Category:  "trading",
+			Value:       fmt.Sprintf("%d", cm.cfg.Trading.PositionSafetyCheck),
+			Category:    "trading",
 			DisplayName: "持仓安全检查",
 			Description: "最少能向下持有多少仓",
-			Editable:   true,
+			Editable:    true,
 		},
 	}
 }
@@ -378,15 +378,15 @@ func (cm *ConfigManager) initTradingConfigs() []*storage.ConfigEntry {
 func (cm *ConfigManager) initSystemConfigs() []*storage.ConfigEntry {
 	return []*storage.ConfigEntry{
 		{
-			Key:      "log_level",
-			Scope:    storage.ScopeGlobal,
-			ScopeID:  "",
-			Type:     storage.TypeString,
-			Value:     cm.cfg.System.LogLevel,
-			Category:  "system",
+			Key:         "log_level",
+			Scope:       storage.ScopeGlobal,
+			ScopeID:     "",
+			Type:        storage.TypeString,
+			Value:       cm.cfg.System.LogLevel,
+			Category:    "system",
 			DisplayName: "日志级别",
 			Description: "系统日志级别 (debug, info, warn, error)",
-			Editable:   true,
+			Editable:    true,
 		},
 	}
 }
@@ -628,7 +628,7 @@ func (cm *ConfigManager) getBotDefault(botID, key string) (interface{}, error) {
 				return bot.ProfitSpread, nil
 			case "rocket_tiered_grid":
 				return bot.RocketTieredGrid, nil
-			// 可以添加更多配置项
+				// 可以添加更多配置项
 			}
 		}
 	}
