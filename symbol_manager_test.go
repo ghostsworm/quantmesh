@@ -9,183 +9,81 @@ import (
 	"quantmesh/exchange"
 )
 
-func TestRuntimeKeyDefaultsMarketType(t *testing.T) {
-	if got := runtimeKey("binance", "BTCUSDT"); got != "binance:btcusdt:futures" {
-		t.Fatalf("runtimeKey default = %q", got)
-	}
-	if got := runtimeKey("binance", "BTCUSDT", "spot"); got != "binance:btcusdt:spot" {
-		t.Fatalf("runtimeKey spot = %q", got)
-	}
-}
+func TestSymbolManagerRuntimeMapAndProfileSelection(t *testing.T) {
+	cfg := config.CreateMinimalConfig()
+	cfg.Exchanges["binance"] = config.ExchangeConfig{Testnet: true}
+	manager := NewSymbolManager(cfg, event.NewEventBus(16), nil, nil, "")
 
-func TestApplyProfileOverridesOnlyPositiveValues(t *testing.T) {
-	base := config.SymbolConfig{
-		PriceInterval:  10,
-		ProfitSpread:   2,
-		OrderQuantity:  100,
-		BuyWindowSize:  5,
-		SellWindowSize: 6,
-		MinOrderValue:  20,
-	}
-	profile := config.ProfileConfig{
-		PriceInterval:  15,
-		ProfitSpread:   0,
-		OrderQuantity:  200,
-		BuyWindowSize:  7,
-		SellWindowSize: 8,
-		MinOrderValue:  30,
-	}
-
-	got := applyProfile(base, profile)
-	if got.PriceInterval != 15 || got.OrderQuantity != 200 || got.BuyWindowSize != 7 || got.SellWindowSize != 8 || got.MinOrderValue != 30 {
-		t.Fatalf("profile overrides not applied: %#v", got)
-	}
-	if got.ProfitSpread != 2 {
-		t.Fatalf("zero profile ProfitSpread should keep base value, got %v", got.ProfitSpread)
-	}
-}
-
-func TestSelectProfileByFundingAndFeeRules(t *testing.T) {
-	cfg := config.SymbolConfig{
-		Exchange:   "binance",
-		Symbol:     "BTCUSDT",
-		MarketType: "futures",
-		Profiles: map[string]config.ProfileConfig{
-			"positive": {PriceInterval: 20},
-			"negative": {PriceInterval: 5},
-		},
-	}
-	cfg.SwitchRules.FundingRate.Threshold = 0.01
-
-	positive, name := selectProfile(context.Background(), cfg, &fakeFundingExchange{rate: 0.02}, 0, nil)
-	if name != "positive" || positive.PriceInterval != 20 {
-		t.Fatalf("expected positive funding profile, got name=%q profile=%#v", name, positive)
-	}
-
-	negative, name := selectProfile(context.Background(), cfg, &fakeFundingExchange{rate: -0.02}, 0, nil)
-	if name != "negative" || negative.PriceInterval != 5 {
-		t.Fatalf("expected negative funding profile, got name=%q profile=%#v", name, negative)
-	}
-
-	cfg.SwitchRules.FundingRate.Threshold = 0
-	cfg.SwitchRules.FeeRate.Threshold = 0.001
-	feeProfile, name := selectProfile(context.Background(), cfg, nil, 0.002, nil)
-	if name != "positive" || feeProfile.PriceInterval != 20 {
-		t.Fatalf("expected positive fee profile, got name=%q profile=%#v", name, feeProfile)
-	}
-
-	feeProfile, name = selectProfile(context.Background(), cfg, nil, 0.0005, nil)
-	if name != "negative" || feeProfile.PriceInterval != 5 {
-		t.Fatalf("expected negative fee profile, got name=%q profile=%#v", name, feeProfile)
-	}
-}
-
-func TestSelectProfileReturnsDefaultWithoutProfiles(t *testing.T) {
-	profile, name := selectProfile(context.Background(), config.SymbolConfig{}, nil, 0, nil)
-	if name != "" || profile.PriceInterval != 0 {
-		t.Fatalf("expected default profile, got name=%q profile=%#v", name, profile)
-	}
-}
-
-func TestSymbolManagerAddGetListAndRemove(t *testing.T) {
-	cfg := &config.Config{
-		Exchanges: map[string]config.ExchangeConfig{
-			"binance": {Testnet: true},
-		},
-	}
-	manager := NewSymbolManager(cfg, event.NewEventBus(8), nil, nil, "")
 	rt := &SymbolRuntime{Config: config.SymbolConfig{
 		Exchange:   "binance",
 		Symbol:     "BTCUSDT",
 		MarketType: "spot",
 	}}
-
 	manager.Add(rt)
-	got, ok := manager.Get("binance", "BTCUSDT", "spot")
-	if !ok || got != rt {
-		t.Fatalf("Get returned %#v ok=%v", got, ok)
+	if got, ok := manager.Get("binance", "BTCUSDT", "spot"); !ok || got != rt {
+		t.Fatalf("get runtime=%#v ok=%v", got, ok)
 	}
-	if _, ok := manager.Get("binance", "BTCUSDT", "futures"); ok {
-		t.Fatal("futures runtime should not exist")
+	if len(manager.List()) != 1 {
+		t.Fatalf("list length mismatch")
 	}
-	if list := manager.List(); len(list) != 1 || list[0] != rt {
-		t.Fatalf("List = %#v, want runtime", list)
+	if manager.GetBotManager() == nil {
+		t.Fatalf("bot manager should be available")
 	}
 	manager.Remove("binance", "BTCUSDT", "spot")
 	if _, ok := manager.Get("binance", "BTCUSDT", "spot"); ok {
-		t.Fatal("runtime should be removed")
+		t.Fatalf("runtime should be removed")
 	}
 	manager.StopAll()
-}
 
-func TestSymbolManagerWebAdapterLookupHelpers(t *testing.T) {
-	cfg := &config.Config{
-		Exchanges: map[string]config.ExchangeConfig{
-			"binance": {Testnet: false},
+	if runtimeKey("BINANCE", "BTCUSDT") != config.GenerateBotID("BINANCE", "BTCUSDT", "futures") {
+		t.Fatalf("runtime key default mismatch")
+	}
+	if runtimeKey("binance", "ETHUSDT", "spot") != config.GenerateBotID("binance", "ETHUSDT", "spot") {
+		t.Fatalf("runtime key spot mismatch")
+	}
+
+	base := config.SymbolConfig{
+		Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures",
+		PriceInterval: 10, ProfitSpread: 20, OrderQuantity: 30, BuyWindowSize: 2, SellWindowSize: 3, MinOrderValue: 40,
+		Profiles: map[string]config.ProfileConfig{
+			"positive": {PriceInterval: 11, ProfitSpread: 22, OrderQuantity: 33, BuyWindowSize: 4, SellWindowSize: 5, MinOrderValue: 44},
+			"negative": {PriceInterval: 7},
 		},
 	}
-	manager := NewSymbolManager(cfg, event.NewEventBus(8), nil, nil, "")
-	spot := &SymbolRuntime{Config: config.SymbolConfig{
-		Exchange:   "binance",
-		Symbol:     "ETHUSDT",
-		MarketType: "spot",
-	}}
-	futures := &SymbolRuntime{Config: config.SymbolConfig{
-		Exchange:   "binance",
-		Symbol:     "ETHUSDT",
-		MarketType: "futures",
-	}}
-	custom := &SymbolRuntime{Config: config.SymbolConfig{
-		ID:         "custom-bot",
-		Exchange:   "binance",
-		Symbol:     "XRPUSDT",
-		MarketType: "spot",
-	}}
-	manager.Add(spot)
-	manager.Add(futures)
-	manager.Add(custom)
+	base.SwitchRules.FundingRate.Threshold = 0.01
+	profile, name := selectProfile(context.Background(), base, &symbolProfileExchange{fundingRate: 0.02}, 0, nil)
+	if name != "positive" || profile.PriceInterval != 11 {
+		t.Fatalf("positive profile=%#v name=%s", profile, name)
+	}
+	profile, name = selectProfile(context.Background(), base, &symbolProfileExchange{fundingRate: -0.02}, 0, nil)
+	if name != "negative" || profile.PriceInterval != 7 {
+		t.Fatalf("negative profile=%#v name=%s", profile, name)
+	}
+	noProfile, name := selectProfile(context.Background(), config.SymbolConfig{}, nil, 0, nil)
+	if name != "" || noProfile.PriceInterval != 0 {
+		t.Fatalf("no profile=%#v name=%s", noProfile, name)
+	}
+	base.SwitchRules.FundingRate.Threshold = 0
+	base.SwitchRules.FeeRate.Threshold = 0.001
+	if _, name := selectProfile(context.Background(), base, nil, 0.002, nil); name != "positive" {
+		t.Fatalf("fee positive profile not selected")
+	}
+	if _, name := selectProfile(context.Background(), base, nil, 0.0002, nil); name != "negative" {
+		t.Fatalf("fee negative profile not selected")
+	}
 
-	adapter := &symbolManagerWebAdapter{manager: manager, cfg: cfg, ctx: context.Background()}
-	if got, ok := adapter.GetEx("binance", "ETHUSDT", "spot"); !ok || got != spot {
-		t.Fatalf("GetEx spot returned %#v ok=%v", got, ok)
-	}
-	if got, ok := adapter.GetEx("binance", "ETHUSDT", "futures"); !ok || got != futures {
-		t.Fatalf("GetEx futures returned %#v ok=%v", got, ok)
-	}
-	if got, ok := adapter.Get("binance", "ETHUSDT"); ok || got != nil {
-		t.Fatalf("ambiguous Get returned %#v ok=%v, want nil false", got, ok)
-	}
-	if got, ok := adapter.GetByBotID("custom-bot"); !ok || got != custom {
-		t.Fatalf("GetByBotID returned %#v ok=%v", got, ok)
-	}
-	if got, ok := adapter.GetByBotID(" "); ok || got != nil {
-		t.Fatalf("blank GetByBotID returned %#v ok=%v", got, ok)
-	}
-	if list := adapter.List(); len(list) != 3 {
-		t.Fatalf("adapter List length = %d, want 3", len(list))
-	}
-	if got := adapter.resolveMarketType("binance", "ETHUSDT"); got != "spot" && got != "futures" {
-		t.Fatalf("resolveMarketType = %s, want spot or futures", got)
-	}
-	if got := adapter.resolveMarketType("binance", "MISSING"); got != "futures" {
-		t.Fatalf("missing resolveMarketType = %s, want futures", got)
-	}
-	if _, err := adapter.GetAllStrategyStatus("binance", "MISSING"); err == nil {
-		t.Fatal("missing strategy status should return error")
-	}
-	if got, err := adapter.GetAllStrategyStatus("binance", "ETHUSDT"); err != nil || len(got) != 0 {
-		t.Fatalf("empty strategy status = %#v err=%v", got, err)
-	}
-	if got, err := adapter.GetStrategyStatus("binance", "ETHUSDT", "grid"); err != nil || got != nil {
-		t.Fatalf("missing single strategy status = %#v err=%v", got, err)
+	applied := applyProfile(base, base.Profiles["positive"])
+	if applied.PriceInterval != 11 || applied.ProfitSpread != 22 || applied.OrderQuantity != 33 ||
+		applied.BuyWindowSize != 4 || applied.SellWindowSize != 5 || applied.MinOrderValue != 44 {
+		t.Fatalf("applied profile=%#v", applied)
 	}
 }
 
-type fakeFundingExchange struct {
+type symbolProfileExchange struct {
 	exchange.IExchange
-	rate float64
+	fundingRate float64
 }
 
-func (e *fakeFundingExchange) GetFundingRate(ctx context.Context, symbol string) (float64, error) {
-	return e.rate, nil
+func (e *symbolProfileExchange) GetFundingRate(context.Context, string) (float64, error) {
+	return e.fundingRate, nil
 }

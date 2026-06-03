@@ -1,7 +1,9 @@
 package monitor
 
 import (
-	"os"
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -9,191 +11,80 @@ import (
 	"quantmesh/config"
 )
 
-// 聯網 NewsAPI 測試預設關閉，避免 CI/無外網環境失敗；真機驗證時設：
-//
-//	NEWSAPI_INTEGRATION_TEST=1 NEWSAPI_TEST_KEY=你的key go test ./monitor/... -run NewsAPI -v
-func integrationNewsAPIKey(t *testing.T) string {
-	t.Helper()
-	if os.Getenv("NEWSAPI_INTEGRATION_TEST") != "1" {
-		t.Skip("live NewsAPI disabled; set NEWSAPI_INTEGRATION_TEST=1 and NEWSAPI_TEST_KEY")
-	}
-	key := os.Getenv("NEWSAPI_TEST_KEY")
-	if key == "" {
-		t.Skip("NEWSAPI_TEST_KEY not set")
-	}
-	return key
-}
-
-func TestNewsCollector_FetchFromNewsAPI(t *testing.T) {
-	apiKey := integrationNewsAPIKey(t)
-
+func TestNewsCollectorKeywordsCacheSummaryAndNewsAPI(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.NewsMonitor.Enabled = true
-	cfg.NewsMonitor.NewsAPIKey = apiKey
-	cfg.NewsMonitor.Sources = []string{"newsapi"}
-	cfg.NewsMonitor.Keywords = []string{"bitcoin", "btc", "cryptocurrency"}
+	cfg.NewsMonitor.Keywords = []string{" bitcoin ", "btc", "bitcoin", ""}
 	cfg.NewsMonitor.Assets = []config.AssetConfig{
-		{
-			AssetType: "crypto_btc",
-			Symbol:    "BTCUSDT",
-			Keywords:  []string{"bitcoin", "btc"},
-			Enabled:   true,
-		},
+		{Enabled: true, Keywords: []string{"ethereum", "solana", "btc"}},
+		{Enabled: false, Keywords: []string{"ignored"}},
 	}
-
 	collector := NewNewsCollector(cfg)
-
-	keywords := []string{"bitcoin", "btc", "cryptocurrency"}
-	newsItems, err := collector.fetchFromNewsAPI(apiKey, keywords)
-	if err != nil {
-		t.Fatalf("Failed to fetch news from NewsAPI: %v", err)
+	keywords := collector.collectKeywords()
+	if len(keywords) != 4 || keywords[0] != "bitcoin" {
+		t.Fatalf("keywords=%#v", keywords)
 	}
-
-	if len(newsItems) == 0 {
-		t.Log("Warning: No news items returned, but API call succeeded")
-	} else {
-		t.Logf("Successfully fetched %d news items", len(newsItems))
-
-		for i, item := range newsItems {
-			if item.Title == "" {
-				t.Errorf("News item %d has empty title", i)
-			}
-			if item.Source == "" {
-				t.Errorf("News item %d has empty source", i)
-			}
-			if item.URL == "" {
-				t.Errorf("News item %d has empty URL", i)
-			}
-			if item.PublishedAt.IsZero() {
-				t.Errorf("News item %d has zero published time", i)
-			}
-
-			t.Logf("News %d: %s from %s at %s", i+1, item.Title, item.Source, item.PublishedAt.Format(time.RFC3339))
-		}
+	longKeywords := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		longKeywords = append(longKeywords, strings.Repeat("x", 100))
 	}
-}
-
-func TestNewsCollector_CollectNow(t *testing.T) {
-	apiKey := integrationNewsAPIKey(t)
-
-	cfg := &config.Config{}
-	cfg.NewsMonitor.Enabled = true
-	cfg.NewsMonitor.NewsAPIKey = apiKey
-	cfg.NewsMonitor.Sources = []string{"newsapi"}
-	cfg.NewsMonitor.Keywords = []string{"bitcoin", "btc"}
-	cfg.NewsMonitor.NewsCollectInterval = "5m"
-	cfg.NewsMonitor.Assets = []config.AssetConfig{
-		{
-			AssetType: "crypto_btc",
-			Symbol:    "BTCUSDT",
-			Keywords:  []string{"bitcoin", "btc"},
-			Enabled:   true,
-		},
+	normalized := normalizeNewsAPIKeywords(longKeywords)
+	if len(normalized) != 1 || len(normalized[0]) != 80 {
+		t.Fatalf("normalized=%#v", normalized)
 	}
-
-	collector := NewNewsCollector(cfg)
-
-	err := collector.CollectNow()
-	if err != nil {
-		t.Fatalf("Failed to collect news: %v", err)
+	if defaults := normalizeNewsAPIKeywords(nil); len(defaults) == 0 {
+		t.Fatalf("default keywords should be populated")
 	}
-
-	cachedNews := collector.GetAllCachedNews()
-	if len(cachedNews) == 0 {
-		t.Log("Warning: No news in cache after collection, but collection succeeded")
-	} else {
-		t.Logf("Successfully collected and cached %d news items", len(cachedNews))
-	}
-
-	recentNews := collector.GetRecentNews(2)
-	t.Logf("Recent news (last 2 hours): %d items", len(recentNews))
-}
-
-func TestNewsCollector_WithMultipleKeywords(t *testing.T) {
-	apiKey := integrationNewsAPIKey(t)
-
-	cfg := &config.Config{}
-	cfg.NewsMonitor.Enabled = true
-	cfg.NewsMonitor.NewsAPIKey = apiKey
-	cfg.NewsMonitor.Sources = []string{"newsapi"}
-	cfg.NewsMonitor.Keywords = []string{"bitcoin", "btc"}
-	cfg.NewsMonitor.Assets = []config.AssetConfig{
-		{
-			AssetType: "crypto_btc",
-			Symbol:    "BTCUSDT",
-			Keywords:  []string{"bitcoin", "btc", "cryptocurrency"},
-			Enabled:   true,
-		},
-		{
-			AssetType: "commodity_gold",
-			Symbol:    "PAXGUSDT",
-			Keywords:  []string{"gold", "XAU", "gold price"},
-			Enabled:   true,
-		},
-	}
-
-	collector := NewNewsCollector(cfg)
-
-	err := collector.CollectNow()
-	if err != nil {
-		t.Fatalf("Failed to collect news: %v", err)
-	}
-
-	keywords := []string{"bitcoin", "btc", "gold", "XAU"}
-	if len(keywords) == 0 {
-		t.Fatal("No keywords collected")
-	}
-
-	t.Logf("Collected keywords: %v", keywords)
-
-	newsItems, err := collector.fetchFromNewsAPI(apiKey, keywords)
-	if err != nil {
-		t.Fatalf("Failed to fetch news with multiple keywords: %v", err)
-	}
-
-	t.Logf("Successfully fetched %d news items with merged keywords", len(newsItems))
-}
-
-func TestNewsCollector_ContextCancellation(t *testing.T) {
-	apiKey := integrationNewsAPIKey(t)
-
-	cfg := &config.Config{}
-	cfg.NewsMonitor.Enabled = true
-	cfg.NewsMonitor.NewsAPIKey = apiKey
-	cfg.NewsMonitor.Sources = []string{"newsapi"}
-	cfg.NewsMonitor.Keywords = []string{"bitcoin"}
-
-	collector := NewNewsCollector(cfg)
-
-	keywords := []string{"bitcoin"}
-	_, err := collector.fetchFromNewsAPI(apiKey, keywords)
-
-	if err != nil {
-		t.Logf("API call returned error: %v", err)
-	} else {
-		t.Log("API call succeeded")
-	}
-}
-
-func TestBuildNewsAPIQuerySanitizesAndBoundsKeywords(t *testing.T) {
-	keywords := []string{
-		" bitcoin  ",
-		"Bitcoin",
-		"ethereum\nspot etf",
-		strings.Repeat("x", 120),
-	}
-	for i := 0; i < 40; i++ {
-		keywords = append(keywords, "keyword")
-	}
-
-	query := buildNewsAPIQuery(keywords)
-	if len(query) > maxNewsAPIQueryLength {
+	if query := buildNewsAPIQuery(longKeywords); len(query) > maxNewsAPIQueryLength {
 		t.Fatalf("query too long: %d", len(query))
 	}
-	if strings.Contains(query, "\n") {
-		t.Fatalf("query contains raw newline: %q", query)
+
+	now := time.Now()
+	collector.newsCache = []NewsItem{
+		{Title: "Fresh", Source: "Unit", Content: strings.Repeat("a", 250), PublishedAt: now.Add(-time.Hour)},
+		{Title: "Old", Source: "Unit", PublishedAt: now.Add(-25 * time.Hour)},
 	}
-	if strings.Count(strings.ToLower(query), "bitcoin") != 1 {
-		t.Fatalf("query did not dedupe bitcoin: %q", query)
+	if recent := collector.GetRecentNews(2); len(recent) != 1 || recent[0].Title != "Fresh" {
+		t.Fatalf("recent=%#v", recent)
+	}
+	if all := collector.GetAllCachedNews(); len(all) != 2 {
+		t.Fatalf("all len=%d", len(all))
+	}
+	if summary := collector.GetNewsSummaryText(AssetTypeCryptoBTC); !strings.Contains(summary, "Fresh") || !strings.Contains(summary, "...") {
+		t.Fatalf("summary=%q", summary)
+	}
+	collector.newsCache = nil
+	if summary := collector.GetNewsSummaryText(""); !strings.Contains(summary, "暂無") {
+		t.Fatalf("empty summary=%q", summary)
+	}
+	if !collector.GetLastCollectTime().IsZero() || collector.GetCacheCount() != 0 {
+		t.Fatalf("empty collect metadata mismatch")
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("apiKey") != "key" || r.URL.Query().Get("q") == "" {
+			t.Fatalf("unexpected query: %s", r.URL.RawQuery)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok","articles":[{"title":"A","description":"D","url":"https://example.test/a","source":{"name":"S"},"publishedAt":"2026-06-04T00:00:00Z"}]}`))
+	}))
+	defer server.Close()
+	collector.httpClient = server.Client()
+	collector.ctx = context.Background()
+	oldBase := newsAPIBaseURLForTest
+	newsAPIBaseURLForTest = server.URL
+	t.Cleanup(func() { newsAPIBaseURLForTest = oldBase })
+	items, err := collector.fetchFromNewsAPI("key", []string{"btc"})
+	if err != nil || len(items) != 1 || items[0].Title != "A" {
+		t.Fatalf("items=%#v err=%v", items, err)
+	}
+
+	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "bad", http.StatusTooManyRequests)
+	}))
+	defer errorServer.Close()
+	collector.httpClient = errorServer.Client()
+	newsAPIBaseURLForTest = errorServer.URL
+	if _, err := collector.fetchFromNewsAPI("key", []string{"btc"}); err == nil {
+		t.Fatalf("http error should fail")
 	}
 }

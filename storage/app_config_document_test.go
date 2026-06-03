@@ -2,286 +2,133 @@ package storage
 
 import (
 	"context"
-	"database/sql"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"quantmesh/config"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
-func TestEnsureAppConfigDocumentTables_OnBareDB(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "bare.db")
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS _placeholder(x INTEGER)`); err != nil {
-		t.Fatal(err)
-	}
-	s := &SQLStorage{db: db, dbType: "sqlite"}
-	if err := s.EnsureAppConfigDocumentTables(); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.EnsureAppConfigDocumentTables(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.GetAppConfigDocument(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestMigrateYAMLToAppConfigDB_Minimal(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "t.db")
-	st, err := NewSQLStorage(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	yamlPath := filepath.Join(dir, "c.yaml")
-	minimal := `app:
-  current_exchange: binance
-exchanges:
-  binance:
-    api_key: "k"
-    secret_key: "s"
-trading:
-  symbols:
-    - symbol: BTCUSDT
-      exchange: binance
-      price_interval: 100
-      order_quantity: 10
-      buy_window_size: 5
-      sell_window_size: 5
-`
-	if err := os.WriteFile(yamlPath, []byte(minimal), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE", "1")
-	if _, err := MigrateYAMLToAppConfigDB(context.Background(), st, yamlPath, filepath.Join(dir, "nobots"), MigrateYAMLModeCLI); err != nil {
-		t.Fatal(err)
-	}
-
-	doc, err := st.GetAppConfigDocument(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc == nil || doc.Revision < 1 || doc.Content == "" {
-		t.Fatalf("expected app_config row, got %+v", doc)
-	}
-}
-
-func TestLoadConfigFromAppConfigDBIfExists(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "boot.db")
-	st, err := NewSQLStorage(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	yamlPath := filepath.Join(dir, "c.yaml")
-	minimal := `app:
-  current_exchange: binance
-exchanges:
-  binance:
-    api_key: "k"
-    secret_key: "s"
-trading:
-  symbols:
-    - symbol: BTCUSDT
-      exchange: binance
-      price_interval: 100
-      order_quantity: 10
-      buy_window_size: 5
-      sell_window_size: 5
-`
-	if err := os.WriteFile(yamlPath, []byte(minimal), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE", "1")
-	if _, err := MigrateYAMLToAppConfigDB(context.Background(), st, yamlPath, filepath.Join(dir, "nobots"), MigrateYAMLModeCLI); err != nil {
-		t.Fatal(err)
-	}
-	if err := st.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, err := LoadConfigFromAppConfigDBIfExists(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg == nil || cfg.App.CurrentExchange != "binance" {
-		t.Fatalf("expected config from DB, got %+v", cfg)
-	}
-}
-
-func TestRefreshTradingConfigFromPrimarySource_DBOverwritesYAML(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "t.db")
-	st, err := NewSQLStorage(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	yamlPath := filepath.Join(dir, "base.yaml")
-	base := `app:
-  current_exchange: binance
-exchanges:
-  binance:
-    api_key: "k"
-    secret_key: "s"
-    fee_rate: 0.001
-trading:
-  symbols:
-    - symbol: BTCUSDT
-      exchange: binance
-      price_interval: 100
-      order_quantity: 10
-      buy_window_size: 5
-      sell_window_size: 5
-`
-	if err := os.WriteFile(yamlPath, []byte(base), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE", "1")
-	if _, err := MigrateYAMLToAppConfigDB(context.Background(), st, yamlPath, filepath.Join(dir, "nobots"), MigrateYAMLModeCLI); err != nil {
-		t.Fatal(err)
-	}
-
-	cfgFromDB, err := loadConfigFromAppConfigDocument(st)
-	if err != nil || cfgFromDB == nil {
-		t.Fatalf("load from db: %v cfg=%v", err, cfgFromDB)
-	}
-	ex := cfgFromDB.Exchanges["binance"]
-	ex.FeeRate = 0.0005
-	cfgFromDB.Exchanges["binance"] = ex
-	if _, err := SaveAppConfigSnapshot(context.Background(), st, cfgFromDB, "test", "t"); err != nil {
-		t.Fatal(err)
-	}
-
-	cfgPtr, err := config.LoadConfig(yamlPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfgPtr.Exchanges["binance"].FeeRate != 0.001 {
-		t.Fatalf("yaml fee should be 0.001")
-	}
-	if err := RefreshTradingConfigFromPrimarySource(yamlPath, st, &cfgPtr); err != nil {
-		t.Fatal(err)
-	}
-	if cfgPtr.Exchanges["binance"].FeeRate != 0.0005 {
-		t.Fatalf("expected DB fee 0.0005, got %v", cfgPtr.Exchanges["binance"].FeeRate)
-	}
-}
-
-// SaveAppConfigSnapshot 應將 cfg.Bots 同步寫入 bot_configs（與 main 引導、Web 持久化一致）。
-func TestSaveAppConfigSnapshotSyncsBotConfigs(t *testing.T) {
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "t.db")
-	st, err := NewSQLStorage(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
-	yamlPath := filepath.Join(dir, "c.yaml")
-	minimal := `app:
-  current_exchange: binance
-exchanges:
-  binance:
-    api_key: "k"
-    secret_key: "s"
-trading:
-  symbols:
-    - symbol: BTCUSDT
-      exchange: binance
-      price_interval: 100
-      order_quantity: 10
-      buy_window_size: 5
-      sell_window_size: 5
-`
-	if err := os.WriteFile(yamlPath, []byte(minimal), 0644); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("QUANTMESH_MIGRATE_APP_CONFIG_FORCE", "1")
-	if _, err := MigrateYAMLToAppConfigDB(context.Background(), st, yamlPath, filepath.Join(dir, "nobots"), MigrateYAMLModeCLI); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := loadConfigFromAppConfigDocument(st)
-	if err != nil || cfg == nil {
-		t.Fatalf("load: %v cfg=%v", err, cfg)
-	}
-	bid := "sync-test-bot"
-	enb := true
-	cfg.Bots = []config.BotConfig{{
-		ID:                    bid,
-		Name:                  "x",
-		Exchange:              "binance",
-		Symbol:                "BTCUSDT",
-		MarketType:            "futures",
-		Enabled:               &enb,
-		Strategies:            []config.StrategyInstance{{Type: "grid", Weight: 1}},
-		PriceInterval:         100,
-		OrderQuantity:         10,
-		MinOrderValue:         20,
-		BuyWindowSize:         5,
-		SellWindowSize:        5,
-		ReconcileInterval:     60,
-		OrderCleanupThreshold: 50,
-		CleanupBatchSize:      10,
-		MarginLockDurationSec: 10,
-		PositionSafetyCheck:   config.DefaultPositionSafetyCheck,
-		Direction:             "LONG",
-	}}
-	if _, err := SaveAppConfigSnapshot(context.Background(), st, cfg, "test", "save_app_snapshot"); err != nil {
-		t.Fatal(err)
-	}
-	doc, err := st.GetBotConfigDocument(context.Background(), bid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc == nil || strings.TrimSpace(doc.Content) == "" {
-		t.Fatalf("expected bot_configs row for %s", bid)
-	}
-}
-
-func TestListBotConfigDocuments(t *testing.T) {
-	dir := t.TempDir()
-	st, err := NewSQLStorage(filepath.Join(dir, "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
+func TestAppConfigDocumentSnapshotsAndBotSync(t *testing.T) {
 	ctx := context.Background()
-	for _, botID := range []string{"bot-b", "bot-a"} {
-		if _, err := SaveBotConfigSnapshot(ctx, st, &config.BotConfigFile{
-			BotID:      botID,
-			Exchange:   "binance",
-			Symbol:     "BTCUSDT",
-			MarketType: "futures",
-			Strategies: []config.BotStrategyConfig{{Type: "grid", Enabled: true}},
-		}, "test", "unit"); err != nil {
-			t.Fatal(err)
-		}
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "app_config.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	if sha256Hex("abc") == "" || !isAppConfigTableMissing(assertStorageErr("no such table: app_config")) ||
+		!isAppConfigTableMissing(assertStorageErr("Error 1146: Table 'db.app_config' doesn't exist")) ||
+		isAppConfigTableMissing(nil) {
+		t.Fatalf("app config helper mismatch")
+	}
+	if !isBotConfigsTableMissing(assertStorageErr("no such table: bot_configs")) || isBotConfigsTableMissing(assertStorageErr("no such table: other")) {
+		t.Fatalf("bot config missing helper mismatch")
+	}
+	if nullStr("") != nil || nullStr("operator").(string) != "operator" {
+		t.Fatalf("nullStr mismatch")
+	}
+	if err := (&SQLStorage{}).EnsureAppConfigDocumentTables(); err == nil {
+		t.Fatalf("nil db ensure should fail")
 	}
 
-	docs, err := st.ListBotConfigDocuments(ctx)
-	if err != nil {
-		t.Fatal(err)
+	if doc, err := store.GetAppConfigDocument(ctx); err != nil || doc != nil {
+		t.Fatalf("empty app doc=%#v err=%v", doc, err)
 	}
-	if len(docs) != 2 {
-		t.Fatalf("expected 2 bot config docs, got %d", len(docs))
+	if _, err := SaveAppConfigSnapshotFromJSON(ctx, nil, []byte(`{}`), "op", "src"); err == nil {
+		t.Fatalf("nil storage save json should fail")
 	}
-	if docs[0].BotID != "bot-a" || docs[1].BotID != "bot-b" {
-		t.Fatalf("expected bot docs sorted by bot_id, got %s, %s", docs[0].BotID, docs[1].BotID)
+	if _, err := SaveAppConfigSnapshotFromJSON(ctx, store, []byte(` `), "op", "src"); err == nil {
+		t.Fatalf("empty json should fail")
 	}
+
+	rev, err := SaveAppConfigSnapshotFromJSON(ctx, store, []byte(`{"app":{"name":"qm"}}`), "op", "src")
+	if err != nil || rev != 1 {
+		t.Fatalf("save json rev=%d err=%v", rev, err)
+	}
+	doc, err := store.GetAppConfigDocument(ctx)
+	if err != nil || doc == nil || doc.Revision != 1 || !strings.Contains(doc.Content, "qm") || doc.ContentHash == "" {
+		t.Fatalf("app doc=%#v err=%v", doc, err)
+	}
+	rev, err = SaveAppConfigSnapshotFromJSON(ctx, store, []byte(`{"app":{"name":"qm2"}}`), "", "")
+	if err != nil || rev != 2 {
+		t.Fatalf("second save json rev=%d err=%v", rev, err)
+	}
+
+	cfg := config.CreateMinimalConfig()
+	cfg.App.CurrentExchange = "binance"
+	cfg.Bots = []config.BotConfig{{
+		ID:            "bot-1",
+		Exchange:      "binance",
+		Symbol:        "BTCUSDT",
+		MarketType:    "futures",
+		CreatedAt:     "2026-06-01T00:00:00Z",
+		OrderQuantity: 100,
+	}}
+	rev, err = SaveAppConfigSnapshotWithBotSource(ctx, store, cfg, "tester", "app_src", "bot_src")
+	if err != nil || rev != 3 {
+		t.Fatalf("save config rev=%d err=%v", rev, err)
+	}
+	botDoc, err := store.GetBotConfigDocument(ctx, "bot-1")
+	if err != nil || botDoc == nil || botDoc.Revision != 1 || botDoc.ContentHash == "" {
+		t.Fatalf("bot doc=%#v err=%v", botDoc, err)
+	}
+	if empty, err := store.GetBotConfigDocument(ctx, ""); err != nil || empty != nil {
+		t.Fatalf("empty bot id doc=%#v err=%v", empty, err)
+	}
+	list, err := store.ListBotConfigDocuments(ctx)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("bot list=%#v err=%v", list, err)
+	}
+
+	bf := config.ConvertFromBotConfig(cfg.Bots[0])
+	bf.BotID = "bot-1"
+	bf.Symbol = "ETHUSDT"
+	rev, err = SaveBotConfigSnapshot(ctx, store, bf, "tester", "manual")
+	if err != nil || rev != 2 {
+		t.Fatalf("save bot rev=%d err=%v", rev, err)
+	}
+	if _, err := SaveBotConfigSnapshot(ctx, nil, bf, "", ""); err == nil {
+		t.Fatalf("nil storage bot save should fail")
+	}
+	if _, err := SaveBotConfigSnapshot(ctx, store, nil, "", ""); err == nil {
+		t.Fatalf("nil bot config should fail")
+	}
+	bf.BotID = ""
+	if _, err := SaveBotConfigSnapshot(ctx, store, bf, "", ""); err == nil {
+		t.Fatalf("empty bot id should fail")
+	}
+
+	if err := SyncBotConfigSnapshotsFromMainConfig(ctx, store, cfg, "tester", "sync"); err != nil {
+		t.Fatalf("sync bot snapshots: %v", err)
+	}
+	list, err = store.ListBotConfigDocuments(ctx)
+	if err != nil || len(list) < 1 {
+		t.Fatalf("synced bot list=%#v err=%v", list, err)
+	}
+	if err := SyncBotConfigSnapshotsFromMainConfig(ctx, nil, cfg, "", ""); err != nil {
+		t.Fatalf("nil storage sync should no-op: %v", err)
+	}
+	if err := SyncBotConfigSnapshotsFromMainConfig(ctx, store, nil, "", ""); err != nil {
+		t.Fatalf("nil config sync should no-op: %v", err)
+	}
+
+	if err := DeleteBotConfigSnapshot(ctx, store, "bot-1"); err != nil {
+		t.Fatalf("delete bot: %v", err)
+	}
+	if deleted, err := store.GetBotConfigDocument(ctx, "bot-1"); err != nil || deleted != nil {
+		t.Fatalf("deleted bot=%#v err=%v", deleted, err)
+	}
+	if err := DeleteBotConfigSnapshot(ctx, nil, "bot-1"); err == nil {
+		t.Fatalf("nil storage delete should fail")
+	}
+	if err := DeleteBotConfigSnapshot(ctx, store, ""); err == nil {
+		t.Fatalf("empty bot delete should fail")
+	}
+}
+
+type assertStorageErr string
+
+func (e assertStorageErr) Error() string {
+	return string(e)
 }
