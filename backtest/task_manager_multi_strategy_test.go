@@ -75,8 +75,7 @@ func TestTaskManagerRunTaskSupportsStrategiesArray(t *testing.T) {
 	}
 
 	manager := NewTaskManager(store, nil, tempDir)
-	manager.resultsDir = filepath.Join(tempDir, "results")
-	manager.reportsDir = filepath.Join(tempDir, "reports")
+	manager.SetOutputDirs(filepath.Join(tempDir, "results"), filepath.Join(tempDir, "reports"))
 
 	if err := manager.RunTask(store.task.ID); err != nil {
 		t.Fatalf("expected task manager to run without error, got: %v", err)
@@ -97,5 +96,19 @@ func TestTaskManagerRunTaskSupportsStrategiesArray(t *testing.T) {
 	}
 	if len(payload.MultiResult.StrategyResults) != 2 {
 		t.Fatalf("expected 2 persisted strategy results, got %d", len(payload.MultiResult.StrategyResults))
+	}
+}
+
+func TestTaskManagerSetOutputDirsKeepsExistingWhenBlank(t *testing.T) {
+	manager := NewTaskManager(nil, nil, "/tmp/kline")
+	originalReportsDir := manager.reportsDir
+
+	manager.SetOutputDirs("/tmp/results", "")
+
+	if manager.resultsDir != "/tmp/results" {
+		t.Fatalf("resultsDir = %q, want /tmp/results", manager.resultsDir)
+	}
+	if manager.reportsDir != originalReportsDir {
+		t.Fatalf("reportsDir = %q, want original %q", manager.reportsDir, originalReportsDir)
 	}
 }

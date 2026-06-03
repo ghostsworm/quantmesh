@@ -17,18 +17,25 @@ echo "--------------------------------------------------"
 rm -f ./test_quantmesh.db*
 rm -f ./storage/test_quantmesh.db*
 
-# 运行所有已实现测试的包
-# -v: 显示详细日志
-# -count=1: 禁用测试缓存，确保每次都是真实运行
-go test -v ./utils/... ./config/... ./storage/... ./position/... ./safety/... ./strategy/...
-
-# 检查运行结果
-if [ $? -eq 0 ]; then
+echo "运行 Go 全仓单元测试..."
+go test ./... -coverprofile=/tmp/quantmesh-go-cover.out
+if [ $? -ne 0 ]; then
     echo "--------------------------------------------------"
-    echo -e "${GREEN}✅ 所有单元测试均已通过！${NC}"
-else
-    echo "--------------------------------------------------"
-    echo -e "${RED}❌ 部分单元测试失败，请检查上方日志。${NC}"
+    echo -e "${RED}❌ Go 单元测试失败，请检查上方日志。${NC}"
     exit 1
 fi
 
+echo "Go 覆盖率摘要："
+go tool cover -func=/tmp/quantmesh-go-cover.out | tail -n 1
+
+echo "运行 WebUI 单元测试..."
+cd webui
+yarn test
+if [ $? -ne 0 ]; then
+    echo "--------------------------------------------------"
+    echo -e "${RED}❌ WebUI 单元测试失败，请检查上方日志。${NC}"
+    exit 1
+fi
+
+echo "--------------------------------------------------"
+echo -e "${GREEN}✅ 所有单元测试均已通过！${NC}"

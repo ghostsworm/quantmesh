@@ -130,6 +130,7 @@ func TestTrendFollowingStrategy(t *testing.T) {
 // TestReportGeneration 测試报告生成
 func TestReportGeneration(t *testing.T) {
 	t.Log("测試报告生成...")
+	t.Chdir(t.TempDir())
 
 	// 生成模拟數據
 	candles := generateMockCandles("BTCUSDT", 500, 30000, 0.02)

@@ -55,6 +55,17 @@ func (m *TaskManager) GetKlineDataDir() string {
 	return m.klineDataDir
 }
 
+// SetOutputDirs 设置回测任务结果与报告输出目录。
+// 主要用于测试或嵌入式调用方隔离相对路径产物；传空字符串时保留原目录。
+func (m *TaskManager) SetOutputDirs(resultsDir, reportsDir string) {
+	if resultsDir != "" {
+		m.resultsDir = resultsDir
+	}
+	if reportsDir != "" {
+		m.reportsDir = reportsDir
+	}
+}
+
 // CreateAndRun 創建任務並异步執行
 func (m *TaskManager) CreateAndRun(task *BacktestTask) error {
 	if task.ID == "" {
