@@ -25,6 +25,8 @@ const (
 	maxNewsAPIResponseBytes    = 4 << 20
 )
 
+var newsAPIBaseURLForTest = "https://newsapi.org/v2/everything"
+
 // NewsCollector 新闻收集器：每5分钟静默收集NewsAPI新闻，维护最近2小時缓存
 type NewsCollector struct {
 	cfg         *config.Config
@@ -323,7 +325,7 @@ func (nc *NewsCollector) GetCacheCount() int {
 func (nc *NewsCollector) fetchFromNewsAPI(apiKey string, keywords []string) ([]NewsItem, error) {
 	query := buildNewsAPIQuery(keywords)
 
-	baseURL := "https://newsapi.org/v2/everything"
+	baseURL := newsAPIBaseURLForTest
 	params := url.Values{}
 	params.Set("apiKey", apiKey)
 	params.Set("q", query)
