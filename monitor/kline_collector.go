@@ -32,6 +32,47 @@ type KlineCollector struct {
 	majorSymbols []string
 	// 数据存储目录
 	dataDir string
+	// 已下架/不存在的 "exchange:symbol"，命中后续采集直接跳过，避免每轮刷屏告警
+	deadSymbols sync.Map
+}
+
+// isSymbolDelistedErr 判断错误是否表示该交易对已下架/不存在（各交易所文案不同，取交集特征）。
+func isSymbolDelistedErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, sig := range []string{
+		"has been removed", // bitget code=40309
+		"40309",
+		"delisted",
+		"symbol not found",
+		"symbol does not exist",
+		"instrument not found",
+		"invalid symbol",
+	} {
+		if strings.Contains(msg, sig) {
+			return true
+		}
+	}
+	return false
+}
+
+// isDeadSymbol 该 (交易所,符号) 是否已被标记为下架。
+func (kc *KlineCollector) isDeadSymbol(exchangeName, symbol string) bool {
+	_, dead := kc.deadSymbols.Load(exchangeName + ":" + symbol)
+	return dead
+}
+
+// markDeadSymbol 若 err 表示符号已下架，则标记并只告警一次，返回 true；否则返回 false。
+func (kc *KlineCollector) markDeadSymbol(exchangeName, symbol string, err error) bool {
+	if !isSymbolDelistedErr(err) {
+		return false
+	}
+	if _, loaded := kc.deadSymbols.LoadOrStore(exchangeName+":"+symbol, true); !loaded {
+		logger.Warn("⏭️ [K线采集] %s %s 似乎已下架，后续将跳过采集（%v）", exchangeName, symbol, err)
+	}
+	return true
 }
 
 // GetDataDir 获取数据目录
@@ -177,10 +218,15 @@ func (kc *KlineCollector) collectTickDataOnce() {
 		}
 
 		for _, symbol := range kc.majorSymbols {
+			if kc.isDeadSymbol(exchangeName, symbol) {
+				continue
+			}
 			// 获取最新K线数据（1分钟K线作为tick数据）
 			klines, err := ex.GetHistoricalKlines(ctx, symbol, "1m", 1440) // 24小时 * 60分钟
 			if err != nil {
-				logger.Warn("获取tick数据失败 %s %s: %v", exchangeName, symbol, err)
+				if !kc.markDeadSymbol(exchangeName, symbol, err) {
+					logger.Warn("获取tick数据失败 %s %s: %v", exchangeName, symbol, err)
+				}
 				continue
 			}
 
@@ -243,9 +289,16 @@ func (kc *KlineCollector) collectMinuteDataOnce() {
 		}
 
 		for _, symbol := range kc.majorSymbols {
+			if kc.isDeadSymbol(exchangeName, symbol) {
+				continue
+			}
 			// 获取最新1分钟K线
 			klines, err := ex.GetHistoricalKlines(ctx, symbol, "1m", 1)
-			if err != nil || len(klines) == 0 {
+			if err != nil {
+				kc.markDeadSymbol(exchangeName, symbol, err)
+				continue
+			}
+			if len(klines) == 0 {
 				continue
 			}
 
@@ -254,6 +307,9 @@ func (kc *KlineCollector) collectMinuteDataOnce() {
 			// 获取订单深度
 			orderbook, err := ex.GetOrderBook(ctx, symbol, 20)
 			if err != nil {
+				if kc.markDeadSymbol(exchangeName, symbol, err) {
+					continue
+				}
 				logger.Warn("获取订单深度失败 %s %s: %v", exchangeName, symbol, err)
 				// 即使没有订单深度也保存K线数据
 			}
@@ -304,9 +360,16 @@ func (kc *KlineCollector) collectHourlyDataOnce() {
 		}
 
 		for _, symbol := range kc.majorSymbols {
+			if kc.isDeadSymbol(exchangeName, symbol) {
+				continue
+			}
 			// 获取最新1小时K线
 			klines, err := ex.GetHistoricalKlines(ctx, symbol, "1h", 1)
-			if err != nil || len(klines) == 0 {
+			if err != nil {
+				kc.markDeadSymbol(exchangeName, symbol, err)
+				continue
+			}
+			if len(klines) == 0 {
 				continue
 			}
 
@@ -315,6 +378,9 @@ func (kc *KlineCollector) collectHourlyDataOnce() {
 			// 获取订单深度
 			orderbook, err := ex.GetOrderBook(ctx, symbol, 20)
 			if err != nil {
+				if kc.markDeadSymbol(exchangeName, symbol, err) {
+					continue
+				}
 				logger.Warn("获取订单深度失败 %s %s: %v", exchangeName, symbol, err)
 			}
 
