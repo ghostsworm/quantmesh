@@ -1,6 +1,6 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.108.1-rc8`（2026-06-04）
+> 当前版本：`3.108.1-rc13`（2026-06-16）
 
 ## 主要功能
 
@@ -11,8 +11,8 @@
 - WebUI（React + Chakra）+ REST API + WebSocket 推送 + Telegram / 邮件 / Webhook 告警
 - **错误自动上报到 17push（通过 aipipe-go-sdk）**
 - **PostHog / Sentry 可观测性错误上报（用户主动配置后启用）**
-- **内嵌 MCP 服务，可被 Claude Desktop / Cursor / 自研 Agent 直接调用**
-- CI 会执行 Go 全仓单元测试、覆盖率摘要与 WebUI Vitest 单测，当前 Go 全仓语句覆盖率已推进到 `30.0%`
+- **内嵌 MCP streamable HTTP 服务，可被 Claude Desktop / Cursor / 自研 Agent 直接调用 Bot、持仓、订单、PNL、对账、风控、系统健康与诊断工具**
+- CI 会执行 Go 全仓单元测试、覆盖率摘要与 WebUI Vitest 单测，当前 Go 全仓语句覆盖率已推进到 `33.2%`
 
 ## 设计思路
 
@@ -33,6 +33,7 @@
 - [ ] MCP stdio 适配（目前仅 streamable HTTP，部分老 agent 客户端需要 stdio）
 - [ ] 可观测性上报范围扩展：策略/下单失败、交易所 WS 异常断连
 - [ ] 移动端响应式适配优化
+- [ ] **偶发 CPU 100% busy-loop 复现与定位**（社区 issue）：现象为启动后偶发某 goroutine 空转占满 CPU、重启又正常，疑似启动竞态。已审计 WebSocket 重连/读循环（均有退避、出错即 return，未发现空转）与初始价格轮询，并加固已知零值隐患（KuCoin ping ticker、PricePollInterval）。已加入 `SIGUSR1` goroutine 栈快照工具用于抓现场（见 `monitor/stackdump.go`），待拿到一次真实 dump 后定位根因。
 
 ## 集成手册
 
@@ -52,4 +53,4 @@
 
 1. 「全局设置 → MCP 服务」生成 Token
 2. 复制下方 JSON（按 agent 类型切换）粘贴到客户端配置文件
-3. Agent 即可调用 `qm_list_positions` 等工具；写工具默认关闭，需在 UI 显式开启
+3. Agent 即可调用 `qm_list_positions`、`qm_reconciliation_latest`、`qm_order_pnl_audit`、`qm_risk_events` 等工具核对数据；写工具默认关闭，需在 UI 显式开启

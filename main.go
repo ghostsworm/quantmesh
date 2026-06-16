@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.108.1-rc8"
+var Version = "3.108.1-rc13"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -857,6 +857,10 @@ func main() {
 
 	logger.Info("🚀 QuantMesh 做市商系統啟动...")
 	logger.Info("📦 版本号: %s", Version)
+
+	// 诊断：注册按需 goroutine 栈快照处理器，用于排查偶发 CPU 100% busy-loop。
+	// CPU 异常时执行 `kill -USR1 <pid>` 即可把全部 goroutine 栈写入 logs/，空转的 goroutine 会霸榜现形。
+	monitor.StartGoroutineDumpHandler()
 
 	// 可選：第一個命令行參數為一次性導入用主配置 YAML 路徑；省略則僅從主庫 app_config / 引導加載
 	mainYAMLPath := ""

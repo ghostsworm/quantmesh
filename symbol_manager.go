@@ -366,6 +366,10 @@ func startSymbolRuntime(
 
 	// 等待初始價格
 	pollInterval := time.Duration(localCfg.Timing.PricePollInterval) * time.Millisecond
+	if pollInterval <= 0 {
+		// 零值保护：避免配置未经校验时 time.Sleep(0) 退化为 CPU 空转
+		pollInterval = 500 * time.Millisecond
+	}
 	currentPrice := 0.0
 	currentPriceStr := ""
 	for i := 0; i < 10; i++ {

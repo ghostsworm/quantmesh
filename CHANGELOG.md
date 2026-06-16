@@ -2,6 +2,67 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc13] - 2026-06-16
+
+### Added
+- **按需 goroutine 栈快照诊断**（排查偶发 CPU 100% busy-loop）：进程启动后注册 `SIGUSR1`/`SIGUSR2` 处理器，CPU 异常飙满时执行 `kill -USR1 <pid>` 即可把全部 goroutine 栈写入 `logs/goroutine_dump_<时间戳>.txt`，并在日志中按相同栈聚合打印 Top 榜——正在空转的 goroutine 会以"同一栈帧重复成百上千份"的形态当场现形。处理器只读、零侵入，平时完全静默。见 `monitor/stackdump.go`。
+
+### Fixed
+- **KuCoin ping ticker 零值保护**：`ping()`/K 线 `ping()` 的心跳间隔直接取自 KuCoin token 接口返回的 `PingInterval`，若接口返回 0 或解析失败会触发 `time.NewTicker(0)` panic。现增加 `<= 0` 回退到默认 18 秒。
+- **初始价格轮询零值保护**：`symbol_manager`、`funding_carry_runtime`、`funding_perp_spread_runtime` 中等待初始价格的轮询若 `PricePollInterval` 为 0（配置未经校验路径），`time.Sleep(0)` 会退化为 CPU 空转。现增加 `<= 0` 回退到 500ms。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc13`。
+
+---
+
+## [3.108.1-rc12] - 2026-06-05
+
+### Added
+- **MCP 对账与诊断工具完善**：新增 `qm_reconciliation_latest`、`qm_reconciliation_history`、`qm_order_pnl_audit`、`qm_system_metrics_latest`、`qm_risk_events`、`qm_risk_checks`、`qm_daily_snapshots`，方便外部 agent 核对 Bot 对账记录、持仓差异、订单 realized_pnl 完整性、系统健康、风控历史与权益快照。
+
+### Fixed
+- **MCP 服务开关接入鉴权**：`mcp_enabled=false` 现在会阻止 `/mcp` token 鉴权通过，避免设置页关闭后仍可被有效 token 调用。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc12`。
+
+---
+
+## [3.108.1-rc11] - 2026-06-05
+
+### Added
+- **Huobi REST 客户端单元测试补强**：新增 Huobi 合约/现货 mock transport 测试，覆盖签名查询参数、合约信息、下单/撤单/订单查询、账户/持仓、资金费率、K 线、merged 行情、深度、线性永续与现货划转，以及现货 v2/legacy 响应解析和公开接口错误分支。
+
+### Changed
+- Go 全仓语句覆盖率从 `33.0%` 提升到 `33.2%`；继续向 40% 推进。
+- 版本号同步前后端到 `3.108.1-rc11`。
+
+---
+
+## [3.108.1-rc10] - 2026-06-04
+
+### Added
+- **交易所 REST 客户端单元测试继续推进**：新增 Gate.io、MEXC、Bitget、BitMEX、Phemex REST client mock HTTP 测试，覆盖签名请求头、订单/账户/持仓/行情/K 线/盘口/划转成功路径，以及 API 错误、空结果、JSON 解析和自定义数字解码分支。
+
+### Changed
+- Go 全仓语句覆盖率从 `32.4%` 提升到 `33.0%`；距离 40% 仍有差距，后续主要提升空间在剩余交易所 adapter / WebSocket、`main.go` 长启动流程和 Web 大 handler 的依赖注入拆分。
+- 版本号同步前后端到 `3.108.1-rc10`。
+
+---
+
+## [3.108.1-rc9] - 2026-06-04
+
+### Added
+- **单元测试覆盖继续推进**：新增 `position.SuperPositionManager` 状态/槽位/网格/PnL/盘口优化单元测试，补齐主包 Web 适配器、`web/api_setup` 初始化流程、`web/api` provider/系统指标基础设施、`storage.SQLStorage` 读写聚合，以及 `config` 配置转换/加载保存/脱敏路径测试。
+- **单元测试覆盖再推进一轮**：补齐 `ai/providers` 队列 provider、`ai/processor` 任务处理器生命周期、`backtest/optimrun` 优化任务管理器、`backtest` 报告生成/对比报告、`web` 日志存储适配器与 helper、许可证 CLI 工具，以及 WhiteBIT / Bitfinex REST 客户端 mock HTTP 路径测试。
+
+### Changed
+- Go 全仓语句覆盖率从 `30.0%` 提升到 `32.4%`；本轮未达到 40%，主要受 `main.go` 长启动流程、交易所 REST/WS 适配器和 Web 大 handler 的外部依赖耦合限制，继续提升需要更大规模的 mock/依赖注入拆分。
+- 版本号同步前后端到 `3.108.1-rc9`。
+
+---
+
 ## [3.108.1-rc8] - 2026-06-04
 
 ### Added
