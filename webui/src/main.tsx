@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
+import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 import './i18n/config'
 import i18n from 'i18next'
@@ -99,6 +100,8 @@ void disableServiceWorkersForAuthFlow(window.location.pathname)
 trackAppInit()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <App />
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
 )
 

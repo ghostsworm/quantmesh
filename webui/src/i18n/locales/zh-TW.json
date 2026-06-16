@@ -169,6 +169,10 @@
     "envLive": "實盤"
   },
   "error": {
+    "render_crash_title": "頁面載入出錯了",
+    "render_crash_desc": "介面渲染時發生異常，通常和設定未初始化或資料缺失有關。可先試著重新整理；若反覆出現，請把下面的錯誤訊息回報給我們。",
+    "render_crash_reload": "重新整理",
+    "render_crash_details": "錯誤詳情",
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",
     "bot_symbol_used_by_hedge_group": "該交易對已被對沖組「{{groupName}}」佔用，請先刪除對沖組再創建獨立 Bot。",
     "bot_in_hedge_group_cannot_delete": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組。",

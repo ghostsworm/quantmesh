@@ -78,6 +78,10 @@
     "loadFailed": "用量加载失败"
   },
   "error": {
+    "render_crash_title": "页面加载出错了",
+    "render_crash_desc": "界面渲染时发生异常，通常和配置未初始化或数据缺失有关。可先尝试刷新；若反复出现，请把下面的错误信息反馈给我们。",
+    "render_crash_reload": "刷新页面",
+    "render_crash_details": "错误详情",
     "bot_symbol_conflict": "该交易对已有 Bot 在运行时不能创建。请先停止或删除运行中的 Bot。",
     "bot_symbol_used_by_hedge_group": "该交易对已被对冲组「{{groupName}}」占用，请先删除对冲组再创建独立 Bot。",
     "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。",
