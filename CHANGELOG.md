@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc16] - 2026-06-16
+
+### Fixed
+- **OKX K线 WebSocket 连错端点导致拿不到 K 线**：OKX 已将 candle 频道迁移到 business 端点，而 `exchange/okx/kline_websocket.go` 仍连 `/ws/v5/public`，订阅 `candle1m` 报 `Wrong URL or channel:candle1m ... doesn't exist`，K 线 WS 流收不到任何数据。新增 `MainnetBusinessWsURL`/`TestnetBusinessWsURL`（`/ws/v5/business`）并改用之。
+- **OKX 现货订单 WebSocket 订阅早于登录确认**：`spot_order_websocket.go` 过去 `login()` 发送即返回（不等响应）随即订阅 orders 频道，被 OKX 以 `Please log in` 拒绝且不补订，导致订单流可能根本未订阅（且刷 ERROR）。改为先起读循环、等登录成功信号（带 10s 超时与 stop 中断）后再订阅。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc16`。
+
+---
+
 ## [3.108.1-rc15] - 2026-06-16
 
 ### Fixed

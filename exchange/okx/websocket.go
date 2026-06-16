@@ -23,6 +23,10 @@ const (
 	TestnetWsURL      = "wss://wspap.okx.com:8443/ws/v5/private"
 	MainnetPublicWsURL = "wss://ws.okx.com:8443/ws/v5/public"
 	TestnetPublicWsURL = "wss://wspap.okx.com:8443/ws/v5/public"
+	// OKX 已将 K线/candle 等频道迁移到 business 端点，public 上不再提供（订阅会报
+	// "Wrong URL or channel:candle1m ... doesn't exist"）。
+	MainnetBusinessWsURL = "wss://ws.okx.com:8443/ws/v5/business"
+	TestnetBusinessWsURL = "wss://wspap.okx.com:8443/ws/v5/business"
 )
 
 // WebSocketManager WebSocket 管理器
