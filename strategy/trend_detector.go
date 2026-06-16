@@ -75,7 +75,12 @@ func (td *TrendDetector) watchPriceChanges() {
 		select {
 		case <-td.ctx.Done():
 			return
-		case priceChange := <-priceCh:
+		case priceChange, ok := <-priceCh:
+			if !ok {
+				// 价格订阅 channel 已关闭（PriceMonitor 已停止）。
+				// 必须 return，否则会无限读取零值导致 CPU 100% 空转。
+				return
+			}
 			td.addPrice(priceChange.NewPrice)
 		}
 	}

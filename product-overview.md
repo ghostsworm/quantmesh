@@ -1,6 +1,6 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.108.1-rc13`（2026-06-16）
+> 当前版本：`3.108.1-rc14`（2026-06-16）
 
 ## 主要功能
 
@@ -33,7 +33,7 @@
 - [ ] MCP stdio 适配（目前仅 streamable HTTP，部分老 agent 客户端需要 stdio）
 - [ ] 可观测性上报范围扩展：策略/下单失败、交易所 WS 异常断连
 - [ ] 移动端响应式适配优化
-- [ ] **偶发 CPU 100% busy-loop 复现与定位**（社区 issue）：现象为启动后偶发某 goroutine 空转占满 CPU、重启又正常，疑似启动竞态。已审计 WebSocket 重连/读循环（均有退避、出错即 return，未发现空转）与初始价格轮询，并加固已知零值隐患（KuCoin ping ticker、PricePollInterval）。已加入 `SIGUSR1` goroutine 栈快照工具用于抓现场（见 `monitor/stackdump.go`），待拿到一次真实 dump 后定位根因。
+- [ ] **偶发 CPU 100% busy-loop 现场确认**（社区 issue，rc14 已修复疑似根因，待真实 dump 验证）：现象为运行中偶发某 goroutine 空转占满 CPU、重启又正常。已定位高可能根因——`dynamic_adjuster`/`trend_detector` 读价格订阅 channel 漏判 `ok`，PriceMonitor 停止关闭 channel 后空转（rc14 已修）。另已审计 WebSocket（重连均有退避、出错即 return）并加固 KuCoin ping ticker、PricePollInterval 零值隐患（rc13）。已加入 `SIGUSR1` goroutine 栈快照工具（`monitor/stackdump.go`）用于抓现场，待用户回传一次真实 dump 做最终确认。
 
 ## 集成手册
 

@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc14] - 2026-06-16
+
+### Fixed
+- **疑似 CPU 100% busy-loop 根因修复（读已关闭 channel）**：`strategy/dynamic_adjuster.go`、`strategy/trend_detector.go` 的 `watchPriceChanges` 在读取 `PriceMonitor.Subscribe()` 返回的价格 channel 时**漏判 `ok`**。当 `PriceMonitor.Stop()`（运行中重配/某交易对重启等竞态）关闭该 channel、而对应策略的 `ctx` 尚未取消时，`<-priceCh` 会瞬间无限返回零值，goroutine 在 `addPrice(0)`/`updateTrend(0)` 上 100% 空转——与社区 issue「跑一天偶发 CPU 占满、重启又正常」高度吻合。现两处均补齐 `ok` 检查，channel 关闭即 `return`（对齐 `symbol_manager.go` 中已有的正确写法）。同类的事件总线消费方（`spot_long`/`futures_long`/`futures_short`/`spot_short`/`hedge_coordinator`）经核对均已正确判 `ok`，无需改动。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc14`。
+
+---
+
 ## [3.108.1-rc13] - 2026-06-16
 
 ### Added
