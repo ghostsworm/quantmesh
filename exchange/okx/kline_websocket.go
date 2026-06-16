@@ -42,12 +42,13 @@ func (k *KlineWebSocketManager) Start(ctx context.Context, instIds []string, int
 
 	k.callback = callback
 
-	// 连接公共 WebSocket（根據是否使用測試網选擇不同的地址）
-	publicWsURL := MainnetPublicWsURL
+	// 连接 business WebSocket：OKX 的 K线/candle 频道在 business 端点，
+	// public 端点订阅 candle 会报 "Wrong URL or channel ... doesn't exist"。
+	businessWsURL := MainnetBusinessWsURL
 	if k.useTestnet {
-		publicWsURL = TestnetPublicWsURL
+		businessWsURL = TestnetBusinessWsURL
 	}
-	conn, _, err := websocket.DefaultDialer.Dial(publicWsURL, nil)
+	conn, _, err := websocket.DefaultDialer.Dial(businessWsURL, nil)
 	if err != nil {
 		return fmt.Errorf("连接 K線 WebSocket 失败: %w", err)
 	}

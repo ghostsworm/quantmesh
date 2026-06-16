@@ -32,6 +32,7 @@ type SpotOrderWebSocketManager struct {
 	stopOnce      sync.Once
 	isRunning     atomic.Bool
 	orderCallback func(OrderUpdate)
+	loginCh       chan error // 登录结果信号：OKX 要求登录成功后才能订阅私有频道
 }
 
 // NewSpotOrderWebSocketManager 創建現貨訂單流管理器
@@ -76,11 +77,34 @@ func (w *SpotOrderWebSocketManager) Start(ctx context.Context, callback func(Ord
 	w.conn = conn
 	w.mu.Unlock()
 	w.isRunning.Store(true)
+	w.loginCh = make(chan error, 1)
+
+	// 先起读循环，才能收到登录响应；订阅必须等登录成功后再发，
+	// 否则 OKX 会以 "Please log in" 拒绝订阅且不会自动补订。
+	go w.readMessages()
+	go w.keepAlive()
 
 	if err := w.login(); err != nil {
 		conn.Close()
 		w.isRunning.Store(false)
 		return fmt.Errorf("WebSocket 登錄失败: %w", err)
+	}
+
+	// 等待登录确认
+	select {
+	case err := <-w.loginCh:
+		if err != nil {
+			conn.Close()
+			w.isRunning.Store(false)
+			return fmt.Errorf("WebSocket 登錄失败: %w", err)
+		}
+	case <-time.After(10 * time.Second):
+		conn.Close()
+		w.isRunning.Store(false)
+		return fmt.Errorf("WebSocket 登錄超時")
+	case <-w.stopChan:
+		w.isRunning.Store(false)
+		return fmt.Errorf("WebSocket 已停止")
 	}
 
 	subMsg := map[string]interface{}{
@@ -99,11 +123,19 @@ func (w *SpotOrderWebSocketManager) Start(ctx context.Context, callback func(Ord
 		return fmt.Errorf("订阅現貨订單频道失败: %w", err)
 	}
 
-	go w.readMessages()
-	go w.keepAlive()
-
 	logger.Info("✅ [OKX Spot WS] 訂單流已啟动 instId=%s", w.instId)
 	return nil
+}
+
+// signalLogin 把登录结果（一次性）投递给等待订阅的 Start；非阻塞，多余信号丢弃。
+func (w *SpotOrderWebSocketManager) signalLogin(err error) {
+	if w.loginCh == nil {
+		return
+	}
+	select {
+	case w.loginCh <- err:
+	default:
+	}
 }
 
 func (w *SpotOrderWebSocketManager) login() error {
@@ -170,9 +202,14 @@ func (w *SpotOrderWebSocketManager) handleMessage(message []byte) {
 		if event == "login" {
 			if code, ok := msg["code"].(string); ok && code == "0" {
 				logger.Info("✅ [OKX Spot WS] 登錄成功")
+				w.signalLogin(nil)
+			} else {
+				w.signalLogin(fmt.Errorf("登錄被拒: %v", msg["msg"]))
 			}
 		} else if event == "error" {
 			logger.Error("❌ [OKX Spot WS] %v", msg["msg"])
+			// 登录等待阶段的 error（如 "Please log in"）也作为登录失败信号，避免卡到超时
+			w.signalLogin(fmt.Errorf("%v", msg["msg"]))
 		}
 		return
 	}
