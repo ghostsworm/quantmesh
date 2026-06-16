@@ -290,7 +290,15 @@ func (w *WebSocketManager) ping(ctx context.Context) {
 		return
 	}
 
-	ticker := time.NewTicker(time.Duration(w.token.PingInterval) * time.Millisecond)
+	// 零值保护：PingInterval 直接来自 KuCoin token 接口，若返回 0 或解析失败，
+	// time.NewTicker(0) 会 panic。回退到 KuCoin 默认的 18 秒。
+	pingInterval := time.Duration(w.token.PingInterval) * time.Millisecond
+	if pingInterval <= 0 {
+		logger.Warn("KuCoin WebSocket ping interval 无效(%dms)，回退默认 18s", w.token.PingInterval)
+		pingInterval = 18 * time.Second
+	}
+
+	ticker := time.NewTicker(pingInterval)
 	defer ticker.Stop()
 
 	for {
