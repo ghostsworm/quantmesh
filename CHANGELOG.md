@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc15] - 2026-06-16
+
+### Fixed
+- **K 线采集器自动跳过已下架交易对**：`monitor/kline_collector.go` 的 tick/分钟/小时三个采集循环在拉取某交易对的 K 线或盘口深度时，若交易所返回"已下架/不存在"（如 bitget `code=40309 The symbol has been removed`、MATIC→POL 改名后 `MATICUSDT` 仍在内置 `majorSymbols` 列表里），过去会每轮重试并刷屏 WARN。现新增 `deadSymbols` 标记：命中下架特征（`has been removed`/`40309`/`delisted`/`symbol not found`/`does not exist`/`instrument not found`/`invalid symbol`）即把该 `exchange:symbol` 标记为 dead，只告警一次，后续所有采集循环自动跳过。对任何交易所今后下架的符号都一劳永逸，无需手改配置。重启后重新评估（已下架标记不持久化）。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc15`。
+
+---
+
 ## [3.108.1-rc14] - 2026-06-16
 
 ### Fixed
