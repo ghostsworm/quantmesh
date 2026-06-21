@@ -343,7 +343,8 @@
     "webauthnPasswordRequired": "Senha necessária para completar o login biométrico",
     "userCancelled": "Usuário cancelou a verificação biométrica",
     "webauthnLoginFailed": "Login biométrico falhou",
-    "webauthnLoginError": "Login WebAuthn falhou"
+    "webauthnLoginError": "Login WebAuthn falhou",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "Construindo o centro de comando...",
@@ -2541,7 +2542,8 @@
     "stepSetPassword": "First Setup - Set Password",
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
-    "webauthnRegFailed": "WebAuthn registration failed"
+    "webauthnRegFailed": "WebAuthn registration failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "Seletor de intervalo de velas",

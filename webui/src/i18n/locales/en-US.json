@@ -1005,7 +1005,8 @@
     "recoveryPasswordMinLength": "New password must be at least 6 characters",
     "recoveryPasswordMismatch": "New passwords do not match",
     "recoverySuccess": "Password reset. Sign in with the new password.",
-    "recoveryFailed": "Password recovery failed"
+    "recoveryFailed": "Password recovery failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "Building command center...",
@@ -3061,7 +3062,8 @@
     "deviceNameHint": "Give this device a name for easy identification",
     "registering": "Registering...",
     "registerWebauthn": "Register Fingerprint",
-    "registerLater": "Register Later"
+    "registerLater": "Register Later",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "eventDetail": {
     "title": "Event Details",

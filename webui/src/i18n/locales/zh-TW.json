@@ -648,7 +648,8 @@
     "webauthnPasswordRequired": "需要密碼才能完成指紋登錄",
     "userCancelled": "用戶取消了指紋驗證",
     "webauthnLoginFailed": "指紋登錄失敗",
-    "webauthnLoginError": "WebAuthn 登錄失敗"
+    "webauthnLoginError": "WebAuthn 登錄失敗",
+    "webauthnNotSecureContext": "目前頁面不是「安全上下文」，瀏覽器停用了指紋/通行密鑰 API。請改用 https:// 或 http://localhost 後重試。遠端主機可在本機執行 ssh -L 28889:127.0.0.1:28888 user@host，然後開啟 http://localhost:28889"
   },
   "globalDashboard": {
     "building": "正在構建指揮中心...",
@@ -2854,7 +2855,8 @@
     "stepSetPassword": "First Setup - Set Password",
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
-    "webauthnRegFailed": "WebAuthn registration failed"
+    "webauthnRegFailed": "WebAuthn registration failed",
+    "webauthnNotSecureContext": "目前頁面不是「安全上下文」，瀏覽器停用了指紋/通行密鑰 API。請改用 https:// 或 http://localhost 後重試。遠端主機可在本機執行 ssh -L 28889:127.0.0.1:28888 user@host，然後開啟 http://localhost:28889"
   },
   "klineChart": {
     "intervalSelector": "K線週期選擇",

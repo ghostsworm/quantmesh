@@ -596,7 +596,8 @@
     "webauthnPasswordRequired": "Password required to complete biometric login",
     "userCancelled": "User cancelled biometric verification",
     "webauthnLoginFailed": "Biometric login failed",
-    "webauthnLoginError": "WebAuthn login failed"
+    "webauthnLoginError": "WebAuthn login failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "Building command center...",
@@ -2565,7 +2566,8 @@
     "stepSetPassword": "First Setup - Set Password",
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
-    "webauthnRegFailed": "WebAuthn registration failed"
+    "webauthnRegFailed": "WebAuthn registration failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "K-line interval selector",

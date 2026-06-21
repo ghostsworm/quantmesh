@@ -698,7 +698,7 @@ const GlobalSettings: React.FC = () => {
 
             <Divider />
 
-            <Box>
+            <FormControl>
               <FormLabel>{t('globalSettings.mcp.tokenLabel')}</FormLabel>
               <HStack>
                 <Input
@@ -741,11 +741,11 @@ const GlobalSettings: React.FC = () => {
                   {t('globalSettings.mcp.tokenShownOnce')}
                 </Alert>
               )}
-            </Box>
+            </FormControl>
 
             <Divider />
 
-            <Box>
+            <FormControl>
               <Stack direction={{ base: 'column', md: 'row' }} justify="space-between" align={{ md: 'center' }} mb={2}>
                 <FormLabel mb={0}>{t('globalSettings.mcp.snippetLabel')}</FormLabel>
                 <Select
@@ -782,7 +782,7 @@ const GlobalSettings: React.FC = () => {
                 />
               </Box>
               <FormHelperText>{t('globalSettings.mcp.snippetHelp')}</FormHelperText>
-            </Box>
+            </FormControl>
 
             <Box>
               <Text fontSize="sm" color="gray.500">

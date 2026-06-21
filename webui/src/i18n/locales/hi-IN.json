@@ -343,7 +343,8 @@
     "webauthnPasswordRequired": "बायोमेट्रिक लॉगिन पूरा करने के लिए पासवर्ड आवश्यक है",
     "userCancelled": "उपयोगकर्ता ने बायोमेट्रिक सत्यापन रद्द कर दिया",
     "webauthnLoginFailed": "बायोमेट्रिक लॉगिन विफल",
-    "webauthnLoginError": "वेबऑथेंटिकेशन लॉगिन विफल"
+    "webauthnLoginError": "वेबऑथेंटिकेशन लॉगिन विफल",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "कमांड सेंटर बनाया जा रहा है...",
@@ -2541,7 +2542,8 @@
     "stepSetPassword": "First Setup - Set Password",
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
-    "webauthnRegFailed": "WebAuthn registration failed"
+    "webauthnRegFailed": "WebAuthn registration failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "K-line अंतराल चयनकर्ता",

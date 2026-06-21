@@ -343,7 +343,8 @@
     "webauthnPasswordRequired": "كلمة المرور مطلوبة لإكمال تسجيل الدخول البيومتري",
     "userCancelled": "ألغى المستخدم التحقق البيومتري",
     "webauthnLoginFailed": "فشل تسجيل الدخول البيومتري",
-    "webauthnLoginError": "فشل تسجيل الدخول باستخدام WebAuthn"
+    "webauthnLoginError": "فشل تسجيل الدخول باستخدام WebAuthn",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "جارٍ إنشاء مركز القيادة...",
@@ -2541,7 +2542,8 @@
     "stepSetPassword": "First Setup - Set Password",
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
-    "webauthnRegFailed": "WebAuthn registration failed"
+    "webauthnRegFailed": "WebAuthn registration failed",
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "محدد فاصل الشموع",
