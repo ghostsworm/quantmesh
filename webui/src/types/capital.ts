@@ -4,6 +4,7 @@
 export interface CapitalUsageResponse {
   success: boolean
   message?: string
+  code?: string
   exchanges: ExchangeUsageDetail[]
 }
 

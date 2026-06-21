@@ -351,6 +351,7 @@ func getCapitalUsageHandler(c *gin.Context) {
 	if capitalDataSource == nil {
 		c.JSON(http.StatusOK, gin.H{
 			"success":   false,
+			"code":      "capital_data_source_unavailable",
 			"message":   "资金數據源未就绪",
 			"exchanges": []ExchangeUsageDetail{},
 		})

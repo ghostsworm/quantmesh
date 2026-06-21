@@ -1492,7 +1492,8 @@
     "symbol": "Symbol",
     "totalUsed": "Total Used",
     "totalUsedPct": "Total %",
-    "viewBots": "View Bot list"
+    "viewBots": "View Bot list",
+    "dataSourceUnavailableHint": "Backend is not connected to any exchange (capital_data_source is empty). Please configure at least one exchange API key under Global Settings → Exchanges. If you have already configured it, check server logs for initialization errors."
   },
   "profitManagement": {
     "title": "Profit Management",
@@ -2258,7 +2259,8 @@
     "tabAnalysis": "Latest Analysis",
     "tabHistory": "History",
     "tabPrediction": "Prediction Accuracy",
-    "usStock": "US Stocks"
+    "usStock": "US Stocks",
+    "newsMonitorUnavailableHint": "News monitor service is not running. Possible causes: (1) NewsAPI key not set — go to Global Settings → News Monitor and add your NewsAPI key or enable RSS sources; (2) Monitoring not enabled in config; (3) Service init failed — check server logs."
   },
   "strategyNames": {
     "grid": "Grid Trading Strategy",

@@ -769,6 +769,28 @@ CREATE TABLE IF NOT EXISTS price_history (
 	return nil
 }
 
+func migratePositionsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS positions (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  slot_price DECIMAL(20,8),
+  symbol VARCHAR(64),
+  size DECIMAL(20,8),
+  entry_price DECIMAL(20,8),
+  current_price DECIMAL(20,8),
+  pnl DECIMAL(20,8),
+  opened_at DATETIME(3) NULL,
+  closed_at DATETIME(3) NULL,
+  KEY idx_positions_slot_price (slot_price)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL positions 表已就緒")
+	return nil
+}
+
 func migratePredictionVerificationTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS prediction_verification (

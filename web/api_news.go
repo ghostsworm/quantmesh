@@ -110,7 +110,11 @@ type triggerNewsAnalyzeRequest struct {
 // POST /api/news/analyze
 func postNewsAnalyze(c *gin.Context) {
 	if newsMonitorProvider == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "新聞監控未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"success": false,
+			"code":    "news_monitor_unavailable",
+			"message": "新聞監控未初始化",
+		})
 		return
 	}
 

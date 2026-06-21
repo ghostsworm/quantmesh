@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/logger"
 	"quantmesh/utils"
 )
 
@@ -312,5 +313,61 @@ func migrateFixTables(db *sql.DB) error {
 		_, _ = db.Exec("ALTER TABLE fix_session_states ADD COLUMN bot_id TEXT NOT NULL DEFAULT ''")
 		_, _ = db.Exec("CREATE INDEX IF NOT EXISTS idx_fix_session_bot_id ON fix_session_states(bot_id)")
 	}
+	return nil
+}
+
+// migrateFixTablesMySQL 為 MySQL 創建 FIX 會話狀態與訂單映射表。
+// migrateFixTables 使用了 SQLite-only 的 pragma_table_info，不能在 MySQL 上跑。
+// 此函數提供與 SQLite 版本字段語義一致的 MySQL DDL，由 NewStorage mysql 分支調用。
+func migrateFixTablesMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS fix_session_states (
+  session_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  bot_id VARCHAR(128) NOT NULL DEFAULT '',
+  role VARCHAR(64) NOT NULL DEFAULT '',
+  begin_string VARCHAR(64) NOT NULL DEFAULT '',
+  sender_comp_id VARCHAR(128) NOT NULL DEFAULT '',
+  target_comp_id VARCHAR(128) NOT NULL DEFAULT '',
+  next_sender_seq BIGINT NOT NULL DEFAULT 1,
+  next_target_seq BIGINT NOT NULL DEFAULT 1,
+  is_logged_on TINYINT NOT NULL DEFAULT 0,
+  last_logon_at TIMESTAMP(3) NULL,
+  last_heartbeat_at TIMESTAMP(3) NULL,
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_fix_session_updated_at (updated_at),
+  KEY idx_fix_session_bot_id (bot_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS fix_order_links (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  session_id VARCHAR(255) NOT NULL,
+  cl_ord_id VARCHAR(255) NOT NULL,
+  orig_cl_ord_id VARCHAR(255) DEFAULT '',
+  bot_id VARCHAR(128) DEFAULT '',
+  exchange VARCHAR(64) DEFAULT '',
+  symbol VARCHAR(64) DEFAULT '',
+  side VARCHAR(16) DEFAULT '',
+  internal_order_id BIGINT NOT NULL DEFAULT 0,
+  last_exec_id VARCHAR(255) DEFAULT '',
+  ord_status VARCHAR(32) DEFAULT '',
+  cum_qty DOUBLE NOT NULL DEFAULT 0,
+  leaves_qty DOUBLE NOT NULL DEFAULT 0,
+  avg_px DOUBLE NOT NULL DEFAULT 0,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_fix_order_session_clord (session_id, cl_ord_id),
+  KEY idx_fix_order_session_updated (session_id, updated_at),
+  KEY idx_fix_order_session_status (session_id, ord_status),
+  KEY idx_fix_order_internal (session_id, internal_order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL fix_session_states / fix_order_links 表已就緒")
 	return nil
 }

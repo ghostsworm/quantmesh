@@ -1992,7 +1992,8 @@
     "testnetMode": "测试网模式",
     "testnetDesc": "当前正在使用测试网环境，显示的资产为虚拟测试币，不会产生真实交易。",
     "usingTestnet": "正在使用测试网。",
-    "testnet": "测试网"
+    "testnet": "测试网",
+    "dataSourceUnavailableHint": "后端尚未连接到任何交易所（capital_data_source 为空）。请先在【全局设置】→【交易所配置】填入至少一个交易所的 API Key 并保存；如果已配置仍提示未就绪，请查看服务端日志确认初始化错误。"
   },
   "profitManagement": {
     "title": "盈利管理",
@@ -2874,7 +2875,8 @@
     "last7d": "最近 7 天",
     "last30d": "最近 30 天",
     "last90d": "最近 90 天",
-    "noTrendData": "暂无历史波动数据"
+    "noTrendData": "暂无历史波动数据",
+    "newsMonitorUnavailableHint": "新闻监控服务未启动。可能原因：(1) NewsAPI Key 未配置 — 去【全局设置】→【新闻监控】填入 NewsAPI Key 或启用 RSS 源；(2) 监控功能未在配置中开启；(3) 服务初始化失败 — 请查看服务端日志。"
   },
   "firstTimeSetup": {
     "enterPassword": "请输入密码",

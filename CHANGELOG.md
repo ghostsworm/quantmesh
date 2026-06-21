@@ -2,6 +2,24 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc24] - 2026-06-21
+
+### Fixed
+- **MySQL 模式再补 3 张表迁移：`positions` + `fix_session_states` + `fix_order_links`**：rc22 audit 时只扫了 `createTables` 路径，但 `fix_*` 两张表在 `storage/sql_fix.go` 的独立 `migrateFixTables` 里（且用了 SQLite-only 的 `pragma_table_info`，不能直接复用），导致 FIX 管理页打开报 `Error 1146`；`positions` 在 createTables 里但 rc22 漏挂调用。新增 `migratePositionsTableMySQL`（`storage/sql_bot_state.go`）和 `migrateFixTablesMySQL`（`storage/sql_fix.go`，建 fix_session_states + fix_order_links 两张表，保留字反引号，UNIQUE/索引齐全），在 `NewStorage` mysql 分支注册。q3 上线后这两个页面的 1146 全部消失。
+- **「服务未就绪」类错误改为给可操作指引（按用户要求："缺 key 要明说，不缺 key 就是 bug"）**：
+  - 新闻分析点「手动触发分析」时如果 `newsMonitorProvider == nil`，过去 toast 只显示 `HTTP 503: 新聞監控未初始化` 一行裸消息，用户不知道是去配 NewsAPI Key 还是后端挂了。后端 (`web/api_news.go`) 加 `code: news_monitor_unavailable`，前端 (`webui/src/components/NewsAnalysis.tsx`) 按 code 走友好文案：列出三个可能原因（NewsAPI Key 未配 / 监控未开启 / 服务初始化失败）和对应的解决路径。
+  - 资金管理页面 `capitalDataSource == nil` 时过去 toast 只显示后端原始 message `资金數據源未就绪`。后端 (`web/api_capital.go`) 加 `code: capital_data_source_unavailable`，前端 (`webui/src/components/CapitalManagement.tsx`) 按 code 提示用户去【全局设置】→【交易所配置】配 API Key。
+  - `webui/src/services/api.ts` 的 `fetchWithAuth` 扩展为解析后端 `code` 字段并挂到 `Error.code` 上，供任何组件按 code 渲染指引。
+- **24 个语言文件同步新增 `capitalManagement.dataSourceUnavailableHint` 和 `newsAnalysis.newsMonitorUnavailableHint`**，zh-CN/zh-TW/en-US 真翻译，其余英文。
+
+### Known Issues
+- **rc23 的 GitHub Release 资源损坏：** rc23 push tag 之前曾因本地 cwd 误切到 `webui/` 导致 git add main.go 失败，但 tag 创建+push 仍走完了，错指向 rc22 commit，触发了一次老 CD，最终覆盖了真 rc23 CD 的 tarball assets。结果是 `v3.108.1-rc23` release 里的二进制 Version 字符串为 `3.108.1-rc22`、不含 ProfitManagement mock 删除修复。**请使用 rc24（包含 rc23 的所有修复）**。本仓库账号无 admin 权限删除 rc23 release，发布者可手动删除。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc24`。
+
+---
+
 ## [3.108.1-rc23] - 2026-06-21
 
 ### Fixed
