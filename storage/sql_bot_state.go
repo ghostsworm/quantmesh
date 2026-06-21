@@ -308,6 +308,29 @@ CREATE TABLE IF NOT EXISTS kline_files (
 	return nil
 }
 
+// migrateSystemSettingsTableMySQL 創建系統設置表（MySQL）。
+// SQLite 在 migrateSystemSettingsTable 中建表；MySQL 路徑不跑那些遷移，須單獨補。
+// key/value/type 為 MySQL 保留字，建表與索引 DDL 必須用反引號包裹。
+func migrateSystemSettingsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS system_settings (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  ` + "`key`" + ` VARCHAR(255) NOT NULL,
+  ` + "`value`" + ` TEXT,
+  ` + "`type`" + ` VARCHAR(32) NOT NULL DEFAULT 'string',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_system_settings_key (` + "`key`" + `)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX idx_system_settings_key ON system_settings(`key`)")
+	logger.Info("✅ MySQL system_settings 表已就緒")
+	return nil
+}
+
 // migrateProtectedKlineFilesTableMySQL 創建 K 線文件保護表（MySQL）。
 func migrateProtectedKlineFilesTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
