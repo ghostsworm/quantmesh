@@ -2114,7 +2114,8 @@
     "importedBothPresets": "Both presets imported",
     "importedBothPresetsDesc": "Conservative and aggressive rules imported",
     "exchangeLabel": "Exchange",
-    "selectExchange": "Select Exchange"
+    "selectExchange": "Select Exchange",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

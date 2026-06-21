@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Muhafazakâr ve agresif kurallar içe aktarıldı",
     "exchangeLabel": "Borsa",
     "selectExchange": "Borsa seçin",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Pozisyon Planı",

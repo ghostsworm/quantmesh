@@ -1594,7 +1594,8 @@
     "importedBothPresets": "両方のプリセットをインポートしました",
     "importedBothPresetsDesc": "保守型と積極型ルールをインポートしました",
     "exchangeLabel": "取引所",
-    "selectExchange": "取引所を選択"
+    "selectExchange": "取引所を選択",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

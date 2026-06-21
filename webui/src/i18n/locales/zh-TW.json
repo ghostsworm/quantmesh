@@ -1663,7 +1663,8 @@
     "importedBothPresets": "已匯入全部預設",
     "importedBothPresetsDesc": "已匯入保守型和積極型規則",
     "exchangeLabel": "交易所",
-    "selectExchange": "選擇交易所"
+    "selectExchange": "選擇交易所",
+    "fetchFailed": "獲取盈利數據失敗"
   },
   "positionPlan": {
     "title": "倉位計劃",

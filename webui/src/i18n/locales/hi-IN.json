@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "रूढ़िवादी और आक्रामक नियम आयात किए गए",
     "exchangeLabel": "एक्सचेंज",
     "selectExchange": "एक्सचेंज चुनें",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "स्थिति योजना",

@@ -2114,7 +2114,8 @@
     "importedBothPresets": "已导入全部预设",
     "importedBothPresetsDesc": "已导入保守型和激进型规则",
     "exchangeLabel": "交易所",
-    "selectExchange": "选择交易所"
+    "selectExchange": "选择交易所",
+    "fetchFailed": "获取盈利数据失败"
   },
   "positionPlan": {
     "title": "仓位计划",

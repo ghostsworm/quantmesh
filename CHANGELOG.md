@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc23] - 2026-06-21
+
+### Fixed
+- **盈利管理页切交易所始终显示同一组假数据**：`ProfitManagement.tsx` 历史上塞了一组 `MOCK_SUMMARY`/`MOCK_STRATEGY_PROFITS`/`MOCK_TREND`/`MOCK_WITHDRAW_HISTORY` 写死的占位（净盈利 1234.56、毛利润 1280.00 等），`fetchData()` 调真实 API 时只要任一接口出错就**默默 fall back 到 mock**，导致全新实例（没交易所 key/没 bot/没交易）看到的永远是同一组虚假数据，且切交易所 tab 不会变。违反"React 禁止硬编码"原则。删除 4 个 MOCK 常量；`catch` 改成 `setSummary(null)` + `setStrategyProfits([])` + `setTrend([])` + 各 `[]`，并 toast 出错给用户（i18n key `profitManagement.fetchFailed`，24 语言文件同步加，zh-CN/zh-TW/en-US 真翻译）。UI 端已有 null/[] 空态分支，不需要额外改。
+
+### Removed
+- 清理 `StrategyMarket.tsx` 的死代码 `MOCK_STRATEGIES`（46-119 行，从未被引用）。`catch` 早已 `setStrategies([])` 走空态。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc23`。
+
+---
+
 ## [3.108.1-rc22] - 2026-06-21
 
 ### Fixed
