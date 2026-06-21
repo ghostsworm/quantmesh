@@ -59,108 +59,6 @@ import type {
 
 const MotionBox = motion(Box)
 
-// Mock data for development
-const MOCK_SUMMARY: ProfitSummary = {
-  totalProfit: 1234.56,
-  grossProfit: 1280.00,
-  totalFee: 45.44,
-  todayProfit: 45.67,
-  weekProfit: 234.56,
-  monthProfit: 890.12,
-  unrealizedProfit: 123.45,
-  withdrawnProfit: 500,
-  availableToWithdraw: 734.56,
-  lastUpdated: new Date().toISOString(),
-}
-
-const MOCK_STRATEGY_PROFITS: StrategyProfit[] = [
-  {
-    strategyId: 'grid',
-    strategyName: 'Grid Trading',
-    strategyType: 'grid',
-    totalProfit: 678.90,
-    todayProfit: 23.45,
-    unrealizedProfit: 56.78,
-    realizedProfit: 622.12,
-    withdrawnProfit: 300,
-    availableToWithdraw: 322.12,
-    tradeCount: 156,
-    winRate: 0.78,
-    avgProfitPerTrade: 4.35,
-    lastTradeAt: new Date().toISOString(),
-  },
-  {
-    strategyId: 'dca_enhanced',
-    strategyName: 'Enhanced DCA',
-    strategyType: 'dca',
-    totalProfit: 345.67,
-    todayProfit: 12.34,
-    unrealizedProfit: 45.67,
-    realizedProfit: 300,
-    withdrawnProfit: 100,
-    availableToWithdraw: 200,
-    tradeCount: 89,
-    winRate: 0.82,
-    avgProfitPerTrade: 3.88,
-    lastTradeAt: new Date().toISOString(),
-  },
-  {
-    strategyId: 'trend_following',
-    strategyName: 'Trend Following',
-    strategyType: 'trend',
-    totalProfit: 209.99,
-    todayProfit: 9.88,
-    unrealizedProfit: 21.00,
-    realizedProfit: 188.99,
-    withdrawnProfit: 100,
-    availableToWithdraw: 88.99,
-    tradeCount: 45,
-    winRate: 0.65,
-    avgProfitPerTrade: 4.67,
-    lastTradeAt: new Date().toISOString(),
-  },
-]
-
-const MOCK_TREND: ProfitTrendItem[] = Array.from({ length: 30 }, (_, i) => {
-  const date = new Date()
-  date.setDate(date.getDate() - (29 - i))
-  const profit = Math.random() * 60 - 20
-  return {
-    date: date.toISOString().split('T')[0],
-    profit,
-    cumulativeProfit: MOCK_STRATEGY_PROFITS.reduce((sum, s) => sum + s.totalProfit, 0) * (i / 30),
-  }
-})
-
-const MOCK_WITHDRAW_HISTORY: WithdrawRecord[] = [
-  {
-    id: '1',
-    strategyId: 'grid',
-    strategyName: 'Grid Trading',
-    amount: 200,
-    fee: 1,
-    netAmount: 199,
-    type: 'auto',
-    status: 'completed',
-    destination: 'account',
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    completedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: '2',
-    strategyId: 'dca_enhanced',
-    strategyName: 'Enhanced DCA',
-    amount: 100,
-    fee: 0.5,
-    netAmount: 99.5,
-    type: 'manual',
-    status: 'completed',
-    destination: 'account',
-    createdAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-    completedAt: new Date(Date.now() - 86400000 * 5).toISOString(),
-  },
-]
-
 const ProfitManagement: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
@@ -318,14 +216,20 @@ const ProfitManagement: React.FC = () => {
       setStrategyProfits(profitsRes.profits)
       setAllWithdrawRules(rulesRes.rules)
       setWithdrawHistory(historyRes.records)
-    } catch (err) {
-      // Use mock data for development
-      console.warn('Using mock data:', err)
-      setSummary(MOCK_SUMMARY)
-      setStrategyProfits(MOCK_STRATEGY_PROFITS)
-      setTrend(MOCK_TREND)
+    } catch (err: any) {
+      console.error('獲取盈利数据失败:', err)
+      setSummary(null)
+      setStrategyProfits([])
+      setTrend([])
       setAllWithdrawRules([])
-      setWithdrawHistory(MOCK_WITHDRAW_HISTORY)
+      setWithdrawHistory([])
+      toast({
+        title: t('profitManagement.fetchFailed'),
+        description: err?.message || String(err),
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      })
     } finally {
       setLoading(false)
     }
@@ -337,8 +241,8 @@ const ProfitManagement: React.FC = () => {
       const res = await getProfitTrend(period, exchangeId)
       setTrend(res.trend)
     } catch (err) {
-      // Keep mock data
-      console.warn('Using mock trend data:', err)
+      console.warn('獲取盈利趨勢失败:', err)
+      setTrend([])
     }
   }
 

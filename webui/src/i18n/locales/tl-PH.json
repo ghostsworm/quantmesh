@@ -1589,7 +1589,8 @@
     "importedBothPresetsDesc": "Na-import ang konserbatibo at agresibong panuntunan",
     "exchangeLabel": "Exchange",
     "selectExchange": "Pumili ng exchange",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

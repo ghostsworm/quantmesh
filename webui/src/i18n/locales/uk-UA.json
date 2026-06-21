@@ -1589,7 +1589,8 @@
     "importedBothPresetsDesc": "Консервативне та агресивне правила імпортовано",
     "exchangeLabel": "Біржа",
     "selectExchange": "Вибрати біржу",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

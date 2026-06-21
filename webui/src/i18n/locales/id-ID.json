@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Aturan konservatif dan agresif diimpor",
     "exchangeLabel": "Exchange",
     "selectExchange": "Pilih exchange",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Rencana Posisi",

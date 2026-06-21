@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Regole conservativa e aggressiva importate",
     "exchangeLabel": "Exchange",
     "selectExchange": "Seleziona l'exchange",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Piano di Posizione",

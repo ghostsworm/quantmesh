@@ -1589,7 +1589,8 @@
     "importedBothPresetsDesc": "রক্ষণশীল ও আক্রমণাত্মক নিয়ম আমদানি হয়েছে",
     "exchangeLabel": "এক্সচেঞ্জ",
     "selectExchange": "এক্সচেঞ্জ নির্বাচন করুন",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

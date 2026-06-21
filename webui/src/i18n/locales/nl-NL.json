@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Conservatieve en agressieve regels geïmporteerd",
     "exchangeLabel": "Beurs",
     "selectExchange": "Selecteer beurs",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Positieplan",

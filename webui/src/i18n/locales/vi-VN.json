@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Đã nhập quy tắc bảo thủ và mạnh mẽ",
     "exchangeLabel": "Sàn giao dịch",
     "selectExchange": "Chọn sàn giao dịch",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Kế hoạch vị thế",

@@ -1559,7 +1559,8 @@
     "importedBothPresetsDesc": "보수적 및 공격적 규칙을 가져왔습니다",
     "exchangeLabel": "거래소",
     "selectExchange": "거래소 선택",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "포지션 계획",

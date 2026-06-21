@@ -1589,7 +1589,8 @@
     "importedBothPresetsDesc": "قوانین محافظه‌کارانه و تهاجمی وارد شدند",
     "exchangeLabel": "صرافی",
     "selectExchange": "صرافی را انتخاب کنید",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "Position Plan",

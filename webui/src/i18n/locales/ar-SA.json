@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "تم استيراد القواعد المحافظة والجريئة",
     "exchangeLabel": "البورصة",
     "selectExchange": "اختر البورصة",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "خطة المراكز",

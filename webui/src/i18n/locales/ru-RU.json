@@ -1336,7 +1336,8 @@
     "importedBothPresetsDesc": "Консервативное и агрессивное правила импортированы",
     "exchangeLabel": "Биржа",
     "selectExchange": "Выбрать биржу",
-    "exchangeProfit": "Exchange Profit"
+    "exchangeProfit": "Exchange Profit",
+    "fetchFailed": "Failed to load profit data"
   },
   "positionPlan": {
     "title": "План позиции",
