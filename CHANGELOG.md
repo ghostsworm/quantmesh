@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc21] - 2026-06-21
+
+### Fixed
+- **MySQL 模式下 `system_settings` 表缺失迁移**：与 rc18 修的 `kline_files` 同类 bug——SQLite 分支由 `migrateSystemSettingsTable` 自动建表，MySQL 分支漏了对应的 `migrateSystemSettingsTableMySQL`。任何写系统设置的入口（典型如 `/global-settings` 保存 MCP 开关）都会撞到 `Error 1146 (42S02): Table 'quantmesh.system_settings' doesn't exist` 返回 HTTP 500。新增 `migrateSystemSettingsTableMySQL`（`storage/sql_bot_state.go`），与已有 `migrateKlineFilesTableMySQL` 同风格——`utf8mb4_unicode_ci`、`InnoDB`、`IF NOT EXISTS`、保留字 `key`/`value`/`type` 用反引号、UNIQUE 索引保证 key 唯一。在 `NewStorage` 的 mysql 分支按序调用。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc21`。
+
+---
+
 ## [3.108.1-rc20] - 2026-06-21
 
 ### Changed

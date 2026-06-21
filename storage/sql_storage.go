@@ -166,6 +166,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL protected_kline_files 表失败: %w", err)
 		}
+		if err := migrateSystemSettingsTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL system_settings 表失败: %w", err)
+		}
 	}
 
 	tradesTbl := "trades"
