@@ -182,15 +182,13 @@ func (s *SQLStorage) GetDailyFundingPayments(account, exchange string, startTime
 	startUTC := utils.ToUTC(startTime)
 	endUTC := utils.ToUTC(endTime)
 
-	// 獲取配置時區的偏移秒數
-	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
-	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	dateExpr := s.dateExprInConfiguredTimezone("trade_time")
 
 	query := fmt.Sprintf(`
-		SELECT date(datetime(trade_time, '%s')) as date, COALESCE(SUM(income), 0) as daily_funding
+		SELECT %s as date, COALESCE(SUM(income), 0) as daily_funding
 		FROM funding_payments
 		WHERE trade_time >= ? AND trade_time <= ?
-	`, tzModifier)
+	`, dateExpr)
 	args := []interface{}{startUTC, endUTC}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -200,7 +198,7 @@ func (s *SQLStorage) GetDailyFundingPayments(account, exchange string, startTime
 		query += " AND (account = ? OR account IS NULL OR account = '')"
 		args = append(args, account)
 	}
-	query += fmt.Sprintf(" GROUP BY date(datetime(trade_time, '%s'))", tzModifier)
+	query += " GROUP BY " + dateExpr
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {

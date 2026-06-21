@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,339 @@ func TestSQLStorage(t *testing.T) {
 	summaryOther, _ := storage.GetPnLBySymbol("BTCUSDT", "other_account", time.Now().UTC().Add(-time.Hour), time.Now().UTC().Add(time.Hour))
 	if summaryOther.TotalPnL != 0 {
 		t.Errorf("账戶隔离失败: 期望 0, 得到 %.2f", summaryOther.TotalPnL)
+	}
+}
+
+func newSQLStorageForTest(t *testing.T) *SQLStorage {
+	t.Helper()
+	st, err := NewSQLStorage(filepath.Join(t.TempDir(), "quantmesh.db"))
+	if err != nil {
+		t.Fatalf("創建存儲失败: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
+
+func TestSQLStoragePositionTradeMetricsAndAggregateQueries(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	yesterday := now.Add(-24 * time.Hour)
+	closedAt := now.Add(30 * time.Minute)
+
+	if err := st.SavePosition(&Position{
+		SlotPrice:    50000,
+		Symbol:       "BTCUSDT",
+		Size:         0.2,
+		EntryPrice:   50010,
+		CurrentPrice: 50100,
+		PnL:          18,
+		OpenedAt:     yesterday,
+		ClosedAt:     &closedAt,
+	}); err != nil {
+		t.Fatalf("SavePosition: %v", err)
+	}
+	positions, err := st.QueryPositions(0, 0)
+	if err != nil {
+		t.Fatalf("QueryPositions: %v", err)
+	}
+	if len(positions) != 1 || positions[0].Symbol != "BTCUSDT" || positions[0].Size != 0.2 {
+		t.Fatalf("unexpected positions: %+v", positions)
+	}
+
+	realizedBuy := 12.5
+	realizedSell := -2.5
+	orders := []*Order{
+		{
+			OrderID:     7001,
+			BotID:       "bot-a",
+			Account:     "acct-a",
+			Symbol:      "BTCUSDT",
+			Side:        "BUY",
+			Exchange:    "binance",
+			Type:        "LIMIT",
+			Price:       50000,
+			Quantity:    0.3,
+			FilledQty:   0.25,
+			Status:      "FILLED",
+			RealizedPnL: &realizedBuy,
+			CreatedAt:   yesterday,
+			UpdatedAt:   yesterday,
+		},
+		{
+			OrderID:     7002,
+			BotID:       "bot-a",
+			Account:     "acct-a",
+			Symbol:      "BTCUSDT",
+			Side:        "SELL",
+			Exchange:    "binance",
+			Type:        "LIMIT",
+			Price:       50100,
+			Quantity:    0.2,
+			FilledQty:   0.15,
+			Status:      "FILLED",
+			RealizedPnL: &realizedSell,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+		{
+			OrderID:   7003,
+			BotID:     "bot-b",
+			Account:   "acct-b",
+			Symbol:    "ETHUSDT",
+			Side:      "SELL",
+			Exchange:  "okx",
+			Type:      "MARKET",
+			Price:     3100,
+			Quantity:  1,
+			Status:    "NEW",
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+	for _, order := range orders {
+		if err := st.SaveOrder(order); err != nil {
+			t.Fatalf("SaveOrder(%d): %v", order.OrderID, err)
+		}
+	}
+	orderCount, err := st.CountOrders("")
+	if err != nil {
+		t.Fatalf("CountOrders: %v", err)
+	}
+	if orderCount != 3 {
+		t.Fatalf("order count = %d", orderCount)
+	}
+	filledCount, err := st.CountOrders("FILLED")
+	if err != nil {
+		t.Fatalf("CountOrders filled: %v", err)
+	}
+	if filledCount != 2 {
+		t.Fatalf("filled count = %d", filledCount)
+	}
+	buyQty, sellQty, err := st.GetFilledOrderQtySumBeforeTime("binance", "BTCUSDT", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("GetFilledOrderQtySumBeforeTime: %v", err)
+	}
+	if buyQty != 0.25 || sellQty != 0.15 {
+		t.Fatalf("unexpected filled qty: buy=%v sell=%v", buyQty, sellQty)
+	}
+
+	trades := []*Trade{
+		{
+			BuyOrderID:         7001,
+			SellOrderID:        7002,
+			BotID:              "bot-a",
+			Exchange:           "binance",
+			Account:            "acct-a",
+			Symbol:             "BTCUSDT",
+			BuyPrice:           50000,
+			SellPrice:          50200,
+			Quantity:           0.2,
+			PnL:                40,
+			ExchangePnL:        37,
+			Fee:                1.5,
+			FeeAsset:           "USDT",
+			BuyPriceDeviation:  1,
+			SellPriceDeviation: -2,
+			CreatedAt:          now,
+		},
+		{
+			BuyOrderID:  7101,
+			SellOrderID: 7102,
+			BotID:       "bot-b",
+			Exchange:    "binance",
+			Account:     "",
+			Symbol:      "BTCUSDT",
+			BuyPrice:    50300,
+			SellPrice:   50250,
+			Quantity:    0.1,
+			PnL:         -5,
+			Fee:         0.5,
+			CreatedAt:   now.Add(time.Minute),
+		},
+	}
+	for _, trade := range trades {
+		if err := st.SaveTrade(trade); err != nil {
+			t.Fatalf("SaveTrade(%d): %v", trade.SellOrderID, err)
+		}
+	}
+	if err := st.SaveTradeWithDeviation(7201, 7202, "okx", "ETHUSDT", 3000, 3010, 1, 10, 0.2, "USDT", 0.3, 0.4, now, "bot-c"); err != nil {
+		t.Fatalf("SaveTradeWithDeviation: %v", err)
+	}
+	if err := st.SaveTradeWithExchangePnL(7301, 7302, "binance", "BTCUSDT", 50000, 50050, 0.1, 5, 4.8, 0.1, "USDT", 0, 0, now, "bot-a"); err != nil {
+		t.Fatalf("SaveTradeWithExchangePnL: %v", err)
+	}
+	queriedTrades, err := st.QueryTrades(now.Add(-time.Hour), now.Add(2*time.Hour), 10, 0)
+	if err != nil {
+		t.Fatalf("QueryTrades: %v", err)
+	}
+	if len(queriedTrades) != 4 {
+		t.Fatalf("trade count = %d", len(queriedTrades))
+	}
+	tradePnLBySellID, err := st.GetTradesBySellOrderIDs([]int64{7002, 7202, 9999})
+	if err != nil {
+		t.Fatalf("GetTradesBySellOrderIDs: %v", err)
+	}
+	if tradePnLBySellID[7002] != 40 || tradePnLBySellID[7202] != 10 {
+		t.Fatalf("unexpected trade pnl map: %+v", tradePnLBySellID)
+	}
+
+	summary, err := st.GetStatisticsSummary("acct-a")
+	if err != nil {
+		t.Fatalf("GetStatisticsSummary: %v", err)
+	}
+	if summary.TotalTrades != 4 || summary.GrossPnL != 50 || summary.TotalFee != 2.3 || summary.TotalPnL != 47.7 {
+		t.Fatalf("unexpected account summary: %+v", summary)
+	}
+	exchangeSummary, err := st.GetStatisticsSummaryByExchange("okx", "")
+	if err != nil {
+		t.Fatalf("GetStatisticsSummaryByExchange: %v", err)
+	}
+	if exchangeSummary.TotalTrades != 1 || exchangeSummary.TotalPnL != 9.8 {
+		t.Fatalf("unexpected exchange summary: %+v", exchangeSummary)
+	}
+	symbolSummary, err := st.GetStatisticsSummaryByExchangeAndSymbol("binance", "BTCUSDT", "acct-a", "bot-a")
+	if err != nil {
+		t.Fatalf("GetStatisticsSummaryByExchangeAndSymbol: %v", err)
+	}
+	if symbolSummary.TotalTrades != 2 || symbolSummary.TotalBuyDeviation != 1 || symbolSummary.TotalSellDeviation != -2 {
+		t.Fatalf("unexpected symbol summary: %+v", symbolSummary)
+	}
+
+	exchangePnL, err := st.GetExchangePnLTotal("binance", "BTCUSDT", "bot-a")
+	if err != nil {
+		t.Fatalf("GetExchangePnLTotal: %v", err)
+	}
+	if exchangePnL != 10 {
+		t.Fatalf("exchange pnl = %v", exchangePnL)
+	}
+	withPnL, missingPnL, totalPnL, err := st.GetExchangePnLOrderStats("binance", "BTCUSDT")
+	if err != nil {
+		t.Fatalf("GetExchangePnLOrderStats: %v", err)
+	}
+	if withPnL != 2 || missingPnL != 0 || totalPnL != 10 {
+		t.Fatalf("unexpected order pnl stats: with=%d missing=%d total=%v", withPnL, missingPnL, totalPnL)
+	}
+
+	today, err := st.GetTodayStatisticsByExchangeAndSymbol("binance", "BTCUSDT", "acct-a", "bot-a")
+	if err != nil {
+		t.Fatalf("GetTodayStatisticsByExchangeAndSymbol: %v", err)
+	}
+	if today.TotalTrades == 0 || today.ExchangePnL != -2.5 {
+		t.Fatalf("unexpected today stats: %+v", today)
+	}
+	dailyExchangePnL, err := st.GetDailyExchangePnL("binance", "BTCUSDT", now.AddDate(0, 0, -1), now.AddDate(0, 0, 1), "bot-a")
+	if err != nil {
+		t.Fatalf("GetDailyExchangePnL: %v", err)
+	}
+	if len(dailyExchangePnL) == 0 {
+		t.Fatalf("daily exchange pnl should not be empty")
+	}
+	count, grossPnL, totalFee, err := st.GetDailyTradesSummary("binance", "acct-a", now.Format("2006-01-02"), "bot-a")
+	if err != nil {
+		t.Fatalf("GetDailyTradesSummary: %v", err)
+	}
+	if count != 2 || grossPnL != 45 || totalFee != 1.6 {
+		t.Fatalf("unexpected daily trade summary: count=%d gross=%v fee=%v", count, grossPnL, totalFee)
+	}
+	dailyStats, err := st.QueryDailyStatisticsByExchange("binance", "BTCUSDT", "acct-a", now.AddDate(0, 0, -1), now.AddDate(0, 0, 1), "bot-a")
+	if err != nil {
+		t.Fatalf("QueryDailyStatisticsByExchange: %v", err)
+	}
+	if len(dailyStats) == 0 || dailyStats[0].WinningTrades == 0 {
+		t.Fatalf("unexpected daily stats: %+v", dailyStats)
+	}
+	fromTrades, err := st.QueryDailyStatisticsFromTrades("acct-a", now.AddDate(0, 0, -1), now.AddDate(0, 0, 1), "bot-a")
+	if err != nil {
+		t.Fatalf("QueryDailyStatisticsFromTrades: %v", err)
+	}
+	if len(fromTrades) == 0 {
+		t.Fatalf("daily stats from trades should not be empty")
+	}
+
+	if err := st.SaveStatistics(&Statistics{
+		Date:        now,
+		TotalTrades: 4,
+		TotalVolume: 1.2,
+		TotalPnL:    48,
+		WinRate:     0.75,
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("SaveStatistics: %v", err)
+	}
+	statsRows, err := st.QueryStatistics(now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("QueryStatistics: %v", err)
+	}
+	if len(statsRows) != 1 || statsRows[0].TotalTrades != 4 {
+		t.Fatalf("unexpected statistics rows: %+v", statsRows)
+	}
+}
+
+func TestSQLStorageMetricsAndEvents(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	if err := st.SaveSystemMetrics(&SystemMetrics{
+		Timestamp:     now,
+		CPUPercent:    12.5,
+		MemoryMB:      256,
+		MemoryPercent: 33.3,
+		ProcessID:     4242,
+	}); err != nil {
+		t.Fatalf("SaveSystemMetrics: %v", err)
+	}
+	if err := st.SaveDailySystemMetrics(&DailySystemMetrics{
+		Date:          now,
+		AvgCPUPercent: 10,
+		MaxCPUPercent: 20,
+		MinCPUPercent: 5,
+		AvgMemoryMB:   200,
+		MaxMemoryMB:   300,
+		MinMemoryMB:   100,
+		SampleCount:   3,
+	}); err != nil {
+		t.Fatalf("SaveDailySystemMetrics: %v", err)
+	}
+	if err := st.SaveEvent("bot_started", map[string]interface{}{"bot_id": "bot-a", "ok": true}); err != nil {
+		t.Fatalf("SaveEvent generic: %v", err)
+	}
+	if err := st.SaveEvent("system_metrics", map[string]interface{}{
+		"timestamp":      now.Format(time.RFC3339),
+		"cpu_percent":    15.5,
+		"memory_mb":      512.0,
+		"memory_percent": 44.4,
+		"process_id":     5151.0,
+	}); err != nil {
+		t.Fatalf("SaveEvent system_metrics: %v", err)
+	}
+	if err := st.SaveEvent("system_metrics", map[string]interface{}{
+		"timestamp":   "not-a-time",
+		"cpu_percent": 1.5,
+		"process_id":  6161,
+	}); err != nil {
+		t.Fatalf("SaveEvent system_metrics fallback: %v", err)
+	}
+
+	var metricsCount int
+	if err := st.db.QueryRow("SELECT COUNT(*) FROM system_metrics").Scan(&metricsCount); err != nil {
+		t.Fatalf("count system_metrics: %v", err)
+	}
+	if metricsCount != 3 {
+		t.Fatalf("system metrics count = %d", metricsCount)
+	}
+	var dailyCount int
+	if err := st.db.QueryRow("SELECT COUNT(*) FROM daily_system_metrics").Scan(&dailyCount); err != nil {
+		t.Fatalf("count daily_system_metrics: %v", err)
+	}
+	if dailyCount != 1 {
+		t.Fatalf("daily metrics count = %d", dailyCount)
+	}
+	var eventCount int
+	if err := st.db.QueryRow("SELECT COUNT(*) FROM events WHERE event_type = 'bot_started'").Scan(&eventCount); err != nil {
+		t.Fatalf("count events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("event count = %d", eventCount)
 	}
 }
 
@@ -956,6 +1290,25 @@ func TestSQLStorage_mysqlQuoteIdent(t *testing.T) {
 	sqliteSt := &SQLStorage{dbType: "sqlite"}
 	if got := sqliteSt.mysqlQuoteIdent("interval"); got != "interval" {
 		t.Fatalf("sqlite: want interval, got %q", got)
+	}
+}
+
+func TestSQLStorageDateExprInConfiguredTimezone(t *testing.T) {
+	t.Parallel()
+
+	mysqlSt := &SQLStorage{dbType: "mysql"}
+	mysqlExpr := mysqlSt.dateExprInConfiguredTimezone("created_at")
+	if !strings.Contains(mysqlExpr, "DATE_ADD(created_at, INTERVAL") {
+		t.Fatalf("mysql date expr should use DATE_ADD, got %q", mysqlExpr)
+	}
+	if strings.Contains(mysqlExpr, "datetime(") {
+		t.Fatalf("mysql date expr must not use SQLite datetime modifier, got %q", mysqlExpr)
+	}
+
+	sqliteSt := &SQLStorage{dbType: "sqlite"}
+	sqliteExpr := sqliteSt.dateExprInConfiguredTimezone("created_at")
+	if !strings.Contains(sqliteExpr, "date(datetime(created_at") {
+		t.Fatalf("sqlite date expr should use datetime modifier, got %q", sqliteExpr)
 	}
 }
 

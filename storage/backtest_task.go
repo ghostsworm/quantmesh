@@ -19,7 +19,7 @@ func (s *SQLStorage) CreateBacktestTask(task *backtest.BacktestTask) error {
 		return err
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO backtest_tasks (id, status, mode, bot_id, group_id, strategy, strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, data_source, kline_file, cache_name)
+		INSERT INTO backtest_tasks (id, status, mode, bot_id, group_id, strategy, strategies_json, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, data_source, kline_file, cache_name)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID,
 		task.Status,
@@ -57,7 +57,7 @@ func (s *SQLStorage) GetBacktestTask(id string) (*backtest.BacktestTask, error) 
 	)
 	task := &backtest.BacktestTask{ID: id}
 	err := s.db.QueryRow(`
-		SELECT status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path, 
+		SELECT status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
 		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks WHERE id = ?`, id).Scan(
 		&task.Status,
@@ -115,7 +115,7 @@ func (s *SQLStorage) GetBacktestTask(id string) (*backtest.BacktestTask, error) 
 // ListBacktestTasks 列出回测任務（按創建時间倒序）
 func (s *SQLStorage) ListBacktestTasks(limit, offset int) ([]*backtest.BacktestTask, error) {
 	rows, err := s.db.Query(`
-		SELECT id, status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, interval, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
+		SELECT id, status, COALESCE(mode, '') as mode, COALESCE(bot_id, '') as bot_id, COALESCE(group_id, '') as group_id, strategy, COALESCE(strategies_json, '') as strategies_json, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, params, total_capital, progress, created_at, started_at, completed_at, error, result_path, report_path,
 		       COALESCE(data_source, '') as data_source, COALESCE(kline_file, '') as kline_file, COALESCE(cache_name, '') as cache_name
 		FROM backtest_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {

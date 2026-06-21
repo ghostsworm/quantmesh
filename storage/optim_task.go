@@ -21,7 +21,7 @@ func (s *SQLStorage) CreateOptimTask(task *backtest.OptimTask) error {
 		return err
 	}
 	_, err = s.db.Exec(`
-		INSERT INTO optim_tasks (id, status, strategy, symbol, interval, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error)
+		INSERT INTO optim_tasks (id, status, strategy, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		task.ID,
 		task.Status,
@@ -53,7 +53,7 @@ func (s *SQLStorage) GetOptimTask(id string) (*backtest.OptimTask, error) {
 	)
 	task := &backtest.OptimTask{ID: id}
 	err := s.db.QueryRow(`
-		SELECT status, strategy, symbol, interval, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error
+		SELECT status, strategy, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error
 		FROM optim_tasks WHERE id = ?`, id).Scan(
 		&task.Status,
 		&task.Strategy,
@@ -98,7 +98,7 @@ func (s *SQLStorage) GetOptimTask(id string) (*backtest.OptimTask, error) {
 // ListOptimTasks 列出参数优化任务
 func (s *SQLStorage) ListOptimTasks(limit, offset int) ([]*backtest.OptimTask, error) {
 	rows, err := s.db.Query(`
-		SELECT id, status, strategy, symbol, interval, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error
+		SELECT id, status, strategy, symbol, `+s.mysqlQuoteIdent("interval")+`, start_time, end_time, total_capital, search_space, progress, total_combos, completed_combos, created_at, started_at, completed_at, result_path, error
 		FROM optim_tasks ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
 		return nil, err

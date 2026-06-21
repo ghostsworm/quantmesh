@@ -9,7 +9,7 @@ import (
 )
 
 func TestWebAuthnCredentialRoundTrip(t *testing.T) {
-	manager, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", "http://localhost")
+	manager, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", []string{"http://localhost"})
 	if err != nil {
 		t.Fatalf("NewWebAuthnManager() error = %v", err)
 	}
@@ -45,7 +45,7 @@ func TestWebAuthnCredentialRoundTrip(t *testing.T) {
 }
 
 func TestWebAuthnLegacyPublicKeyStorage(t *testing.T) {
-	manager, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", "http://localhost")
+	manager, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", []string{"http://localhost"})
 	if err != nil {
 		t.Fatalf("NewWebAuthnManager() error = %v", err)
 	}

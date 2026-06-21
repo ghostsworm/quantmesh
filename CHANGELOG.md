@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc26] - 2026-06-21
+
+### Fixed
+- **MySQL/MariaDB 模式下页面巡检暴露的 6 个接口 500**：补齐历史 `orders` 表迁移缺失列（`account`、`bot_id`、`exchange`、`filled_qty`、`realized_pnl` 等）并追加索引；补齐旧 `statistics` 表缺失的 `total_trades` / `total_volume` / `total_pnl` 列，并兼容旧 GORM 字段回填，同时保留 `/api/statistics/daily` 对旧库异常的 `trades` 实时聚合降级；盈利汇总/趋势与日统计相关 SQL 在 MySQL 下改用 `DATE_ADD` 做时区日期聚合；`backtest_tasks.interval` 与 `optim_tasks.interval` 统一按 MySQL 保留字转义，避免 MariaDB 1064。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc26`。
+
+---
+
 ## [3.108.1-rc25] - 2026-06-21
 
 ### Fixed

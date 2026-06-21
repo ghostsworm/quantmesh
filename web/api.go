@@ -1217,8 +1217,8 @@ func getDailyStatistics(c *gin.Context) {
 	if botID == "" {
 		statsFromTable, err = st.QueryStatistics(startDate, endDate)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			logger.Warn("⚠️ statistics 表查詢失败，將降級使用 trades 實時聚合: %v", err)
+			statsFromTable = nil
 		}
 	}
 
@@ -2561,7 +2561,6 @@ func cancelAllExchangeOrders(c *gin.Context) {
 	})
 }
 
-
 // RiskMonitorProvider 风控監控提供者接口
 type RiskMonitorProvider interface {
 	IsTriggered() bool
@@ -2828,6 +2827,7 @@ func (a *publicKlineProviderAdapter) GetPositions(ctx context.Context, symbol st
 //   - symbol: 交易對（如 BTCUSDT）
 //   - interval: K線週期（1m/5m/15m/30m/1h/4h/1d等，默认1m）
 //   - limit: 返回K線數量（默认500，最大1000）
+//
 // 當無對應 bot 時，若傳入 exchange+symbol，會嘗試使用公開 API 拉取主流幣 K 線（如 Binance 無需 API 密鑰）
 func getKlines(c *gin.Context) {
 	// 獲取交易對與交易所（優先查詢參數，其次系統狀態）
@@ -2899,8 +2899,6 @@ func getKlines(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"klines": klines, "symbol": symbol, "interval": interval})
 }
-
-
 
 // SetConfigStorage 設置配置存儲
 func SetConfigStorage(cs storage.ConfigStorage) {
