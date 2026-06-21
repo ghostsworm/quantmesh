@@ -855,6 +855,17 @@ type Config struct {
 			RequireAuth bool     `yaml:"require_auth"` // 是否需要认证，預設 true
 			AllowedIPs  []string `yaml:"allowed_ips"`  // IP 白名單（可選，為空则允許所有 IP）
 		} `yaml:"pprof"`
+
+		// WebAuthn 配置（指纹/通行密钥）
+		WebAuthn struct {
+			// 額外允许的瀏覽器 origin 列表。預設只允许 rpOrigin（host:port），
+			// SSH 隧道、反向代理等場景下，瀏覽器的 origin 與 rpOrigin 不同时
+			// 會被 WebAuthn 規範拒絕。在這里手動列出所有允许的 origin，例如：
+			//   - "http://localhost:28889"  (SSH 隧道用 28889→28888)
+			//   - "https://quantmesh.example.com"
+			// 若 rpID==localhost，會自動追加 8080/28888/28889/3000/5173 等常見端口。
+			AllowedOrigins []string `yaml:"allowed_origins"`
+		} `yaml:"webauthn"`
 	} `yaml:"web"`
 
 	// FIX 协议配置

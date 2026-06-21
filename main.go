@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.108.1-rc24"
+var Version = "3.108.1-rc25"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1424,12 +1424,40 @@ func main() {
 				}
 			}
 		}
-		webauthnManager, err := web.NewWebAuthnManager(&webAuthnLoggerAdapter{}, "./data", rpID, rpOrigin)
+		// 構造允许的 origin 列表：rpOrigin 必選；rpID==localhost 時自動追加常見端口
+		// （8080/28888/28889/3000/5173），方便 SSH 隧道與本地開發；額外可在
+		// config.yaml 的 web.webauthn.allowed_origins 補充任意 origin。
+		rpOrigins := []string{rpOrigin}
+		if rpID == "localhost" {
+			for _, p := range []int{8080, 28888, 28889, 3000, 5173} {
+				extra := fmt.Sprintf("http://localhost:%d", p)
+				if extra != rpOrigin {
+					rpOrigins = append(rpOrigins, extra)
+				}
+			}
+		}
+		for _, o := range cfg.Web.WebAuthn.AllowedOrigins {
+			o = strings.TrimSpace(o)
+			if o == "" {
+				continue
+			}
+			dup := false
+			for _, e := range rpOrigins {
+				if e == o {
+					dup = true
+					break
+				}
+			}
+			if !dup {
+				rpOrigins = append(rpOrigins, o)
+			}
+		}
+		webauthnManager, err := web.NewWebAuthnManager(&webAuthnLoggerAdapter{}, "./data", rpID, rpOrigins)
 		if err != nil {
 			logger.Error("❌ 初始化 WebAuthn 管理器失败: %v", err)
 		} else {
 			web.SetWebAuthnManager(webauthnManager)
-			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigin=%s)", rpID, rpOrigin)
+			logger.Info("✅ WebAuthn 管理器已初始化 (rpID=%s, rpOrigins=%v)", rpID, rpOrigins)
 		}
 
 		if storageService != nil && storageService.GetStorage() != nil {

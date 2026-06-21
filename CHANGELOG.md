@@ -2,6 +2,19 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc25] - 2026-06-21
+
+### Fixed
+- **WebAuthn rpOrigin 端口写死导致 SSH 隧道走不同端口被拒（"The relying party ID is not a registrable domain suffix of, nor equal to the current domain"）**：之前 `main.go` 把 `rpOrigin` 写成 `http://localhost:<cfg.Web.Port>`（典型 28888），但用户通过 SSH 隧道访问时浏览器看到的 origin 是 `http://localhost:28889`（隧道为避开本机 28888 缓存改的端口），WebAuthn 严格要求请求 origin 与 RPOrigins 之一精确匹配，于是注册被拒。改为：`web/webauthn_manager.go` 的 `NewWebAuthnManager` 签名改成接受 `rpOrigins []string`；`main.go` 构造允许列表时若 rpID == `localhost`，自动追加 `http://localhost:{8080,28888,28889,3000,5173}` 五个常见端口；另外 `cfg.Web.WebAuthn.AllowedOrigins []string` 新配置项允许 yaml 显式补充任意 origin（反向代理、自签名 HTTPS 域名等）。日志从 `rpOrigin=...` 改为 `rpOrigins=[...]` 便于排查。
+
+### Added
+- **恢复码生成后加「下载为 .txt」按钮 + 「复制」按钮**：用户提出"恢复码最好是直接可以下载"。`Profile.tsx` 在已生成的恢复码下方加两个按钮：下载触发浏览器 Blob 下载 `quantmesh-recovery-code-<UTC-timestamp>.txt`（内容含恢复码 + 保管须知三行 + 生成时间），复制走 `navigator.clipboard.writeText` 并 toast 反馈。24 个语言文件加 `profile.recoveryCodeDownload` / `recoveryCodeCopy` / `recoveryCodeCopied` / `recoveryCodeCopyFailed` / `recoveryCodeFileTitle` / `recoveryCodeFileHint` / `recoveryCodeFileGenerated` 共 7 个 key（zh-CN/zh-TW/en-US 真翻译，其余英文）。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc25`。
+
+---
+
 ## [3.108.1-rc24] - 2026-06-21
 
 ### Fixed

@@ -87,6 +87,37 @@ const Profile: React.FC = () => {
     }
   }
 
+  const handleDownloadRecoveryCode = (code: string) => {
+    const ts = new Date()
+    const content = [
+      t('profile.recoveryCodeFileTitle'),
+      '',
+      code,
+      '',
+      t('profile.recoveryCodeFileHint'),
+      '',
+      `${t('profile.recoveryCodeFileGenerated')}: ${ts.toLocaleString()}`,
+    ].join('\n')
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `quantmesh-recovery-code-${ts.toISOString().replace(/[:.]/g, '-').slice(0, 19)}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
+  const handleCopyRecoveryCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      setRecoverySuccess(t('profile.recoveryCodeCopied'))
+    } catch {
+      setRecoveryError(t('profile.recoveryCodeCopyFailed'))
+    }
+  }
+
   const handleGenerateRecoveryCode = async () => {
     if (!confirm(t('profile.confirmGenerateRecoveryCode'))) {
       return
@@ -432,6 +463,22 @@ const Profile: React.FC = () => {
                 <label>{t('profile.recoveryCode')}</label>
                 <code>{recoveryCode}</code>
                 <p>{t('profile.recoveryCodeSaveHint')}</p>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '12px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="form-button form-button-primary"
+                    onClick={() => handleDownloadRecoveryCode(recoveryCode)}
+                  >
+                    {t('profile.recoveryCodeDownload')}
+                  </button>
+                  <button
+                    type="button"
+                    className="form-button"
+                    onClick={() => handleCopyRecoveryCode(recoveryCode)}
+                  >
+                    {t('profile.recoveryCodeCopy')}
+                  </button>
+                </div>
               </div>
             )}
           </div>
