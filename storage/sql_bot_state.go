@@ -274,3 +274,51 @@ func (s *SQLStorage) ListBotStates() ([]*BotState, error) {
 	}
 	return states, rows.Err()
 }
+
+// migrateKlineFilesTableMySQL 創建 K 線文件統一管理表（MySQL）。
+// SQLite 在 migrateKlineFilesTable 中建表；MySQL 路徑不跑那些遷移，須單獨補。
+// interval 為 MySQL 保留字，建表 DDL 必須用反引號包裹，否則 Error 1064。
+func migrateKlineFilesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS kline_files (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  filename VARCHAR(255) NOT NULL,
+  exchange VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  ` + "`interval`" + ` VARCHAR(32) NOT NULL,
+  start_time BIGINT NOT NULL,
+  end_time BIGINT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'collecting',
+  has_depth TINYINT NOT NULL DEFAULT 0,
+  candle_count BIGINT NOT NULL DEFAULT 0,
+  file_size BIGINT NOT NULL DEFAULT 0,
+  source VARCHAR(64) NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_kline_files_filename (filename)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	_, _ = db.Exec("CREATE INDEX idx_kline_files_symbol ON kline_files(symbol)")
+	_, _ = db.Exec("CREATE INDEX idx_kline_files_status ON kline_files(status)")
+	_, _ = db.Exec("CREATE INDEX idx_kline_files_exchange_symbol_interval ON kline_files(exchange, symbol, `interval`)")
+	logger.Info("✅ MySQL kline_files 表已就緒")
+	return nil
+}
+
+// migrateProtectedKlineFilesTableMySQL 創建 K 線文件保護表（MySQL）。
+func migrateProtectedKlineFilesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS protected_kline_files (
+  filename VARCHAR(255) NOT NULL PRIMARY KEY,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL protected_kline_files 表已就緒")
+	return nil
+}

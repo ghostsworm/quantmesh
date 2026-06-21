@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc18] - 2026-06-21
+
+### Fixed
+- **MySQL/MariaDB 模式下 `kline_files` 与 `protected_kline_files` 表缺失迁移**：之前 `storage/sql_storage.go` 的 SQLite 分支会自动建出这两张 K 线文件管理表，而 MySQL 分支漏了对应的 `migrate*MySQL` 函数，导致 K 线采集器启动后持续刷 `Error 1146 (42S02): Table 'quantmesh.kline_files' doesn't exist`，K 线文件入库全废。新增 `migrateKlineFilesTableMySQL` 与 `migrateProtectedKlineFilesTableMySQL`（`storage/sql_bot_state.go`），与已有 `migrateBotStatesTableMySQL` 等同风格——`utf8mb4_unicode_ci`、`InnoDB`、`IF NOT EXISTS`、保留字 `interval` 用反引号、索引分开 CREATE 以兼容旧版。在 `NewStorage` 的 mysql 分支中按序调用。q3 实盘部署一启动就复现，rc18 升级后该路径全绿。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc18`。
+
+---
+
 ## [3.108.1-rc17] - 2026-06-17
 
 ### Fixed

@@ -158,6 +158,14 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL gemini_usage 表失败: %w", err)
 		}
+		if err := migrateKlineFilesTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL kline_files 表失败: %w", err)
+		}
+		if err := migrateProtectedKlineFilesTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL protected_kline_files 表失败: %w", err)
+		}
 	}
 
 	tradesTbl := "trades"
