@@ -6,9 +6,12 @@ package mcp
 // 调用方：main 包初始化阶段。
 func RegisterAllTools(s *Server, p Providers, allowWrite bool) {
 	RegisterMetaTools(s, p)
+	RegisterIntelligenceTools(s, p)
 	RegisterPositionTools(s, p)
+	RegisterReconciliationTools(s, p)
 	RegisterBotTools(s, p)
 	RegisterPnLTools(s, p)
+	RegisterRiskTools(s, p)
 	RegisterLogTools(s, p)
 	RegisterBacktestTools(s, p)
 	RegisterSettingsTools(s, p)

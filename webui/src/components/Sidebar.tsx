@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Box,
   VStack,
@@ -9,9 +9,13 @@ import {
   Heading,
   IconButton,
   Tooltip,
+  Input,
+  InputGroup,
+  InputLeftElement,
+  InputRightElement,
 } from '@chakra-ui/react'
 import { Link as RouterLink, useLocation } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   InfoIcon,
   SettingsIcon,
@@ -37,11 +41,13 @@ import {
   ChevronRightIcon,
   WarningIcon,
   DownloadIcon,
+  CloseIcon,
 } from '@chakra-ui/icons'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import { useTranslation } from 'react-i18next'
 import { isBotWorkspaceRoot } from '../utils/botRouteActive'
+import { filterSidebarItems, SidebarSearchItem } from '../utils/sidebarSearch'
 import SidebarUpdateHint from './SidebarUpdateHint'
 
 const MotionBox = motion(Box)
@@ -137,6 +143,12 @@ interface SidebarProps {
 
 const SIDEBAR_COLLAPSED_KEY = 'sidebar_collapsed'
 
+type SearchNavItem = SidebarSearchItem & {
+  icon: any
+  activePath?: string
+  isRoot?: boolean
+}
+
 const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
   const { isGlobalView, selectedSymbol } = useSymbol()
   const { botId, bot } = useBot()
@@ -151,6 +163,8 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
     const saved = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
     return saved === 'true'
   })
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   // Bot 模式下使用不同的背景色，让用户感知「在 Bot 内」
   const bgColor = isInBotMode ? 'blue.50' : 'rgba(255, 255, 255, 0.8)'
@@ -164,10 +178,82 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
     return path !== '/' && location.pathname.startsWith(path)
   }
 
-  const menuTransition = {
-    type: "spring",
-    stiffness: 300,
-    damping: 30
+  const searchItems = useMemo<SearchNavItem[]>(() => {
+    const botGroup = t('sidebar.groupBotWorkspace')
+    if (isInBotMode) {
+      return [
+        { icon: ChevronLeftIcon, label: t('sidebar.backToBotList'), group: botGroup, to: '/bots' },
+        { icon: InfoIcon, label: t('sidebar.botDetail'), group: botGroup, to: botPrefix, isRoot: true },
+        { icon: ViewIcon, label: t('sidebar.tradingPanel'), group: botGroup, to: `${botPrefix}/dashboard` },
+        { icon: DragHandleIcon, label: t('sidebar.currentPositions'), group: botGroup, to: `${botPrefix}/positions` },
+        { icon: RepeatIcon, label: t('sidebar.orderManagement'), group: botGroup, to: `${botPrefix}/orders` },
+        { icon: AddIcon, label: t('sidebar.strategySlots'), group: botGroup, to: `${botPrefix}/slots` },
+        { icon: CalendarIcon, label: t('sidebar.profitStatistics'), group: botGroup, to: `${botPrefix}/statistics` },
+        { icon: SearchIcon, label: t('sidebar.reconciliation'), group: botGroup, to: `${botPrefix}/reconciliation` },
+        { icon: LockIcon, label: t('sidebar.openingControl'), group: botGroup, to: `${botPrefix}/opening-control` },
+        { icon: StarIcon, label: t('sidebar.positionPlan'), group: botGroup, to: `${botPrefix}/position-plan` },
+        { icon: TimeIcon, label: t('sidebar.klineDepth'), group: botGroup, to: `${botPrefix}/kline` },
+        { icon: SettingsIcon, label: t('sidebar.configManagement'), group: botGroup, to: `${botPrefix}/config` },
+      ]
+    }
+
+    const globalDashboard = `${t('common.global')} · ${t('sidebar.groupGlobalDashboard')}`
+    const backtestData = `${t('common.global')} · ${t('sidebar.groupBacktestData')}`
+    const marketData = `${t('common.global')} · ${t('sidebar.groupMarketData')}`
+    const aiGroup = `${t('common.global')} · ${t('sidebar.groupAI')}`
+    const strategyCapital = `${t('common.global')} · ${t('sidebar.groupStrategyCapital')}`
+
+    return [
+      { icon: RepeatIcon, label: t('sidebar.botList'), group: t('sidebar.groupBotPlaza'), to: '/bots' },
+      { icon: InfoIcon, label: t('sidebar.globalDashboard'), group: globalDashboard, to: '/', isRoot: true },
+      { icon: DragHandleIcon, label: t('sidebar.globalPositions'), group: globalDashboard, to: '/global-positions' },
+      { icon: ViewIcon, label: t('sidebar.strategyMarket'), group: globalDashboard, to: '/strategy-market' },
+      { icon: CalendarIcon, label: t('sidebar.profitStatistics'), group: globalDashboard, to: '/statistics' },
+      { icon: SettingsIcon, label: t('sidebar.performanceMonitor'), group: globalDashboard, to: '/system-monitor' },
+      { icon: BellIcon, label: t('sidebar.eventCenter'), group: globalDashboard, to: '/events' },
+      { icon: AtSignIcon, label: t('sidebar.marketIntelligence'), group: globalDashboard, to: '/market-intelligence' },
+      { icon: TriangleUpIcon, label: t('sidebar.riskMonitor'), group: globalDashboard, to: '/risk' },
+      { icon: DownloadIcon, label: t('sidebar.profitManagement'), group: globalDashboard, to: '/profit-management' },
+      { icon: TimeIcon, label: t('sidebar.klineDepth'), group: globalDashboard, to: '/kline' },
+      { icon: EditIcon, label: t('sidebar.runLogs'), group: globalDashboard, to: '/logs' },
+      { icon: TimeIcon, label: t('sidebar.backtest'), group: backtestData, to: '/backtest' },
+      { icon: ExternalLinkIcon, label: t('sidebar.dataExport'), group: backtestData, to: '/data-export' },
+      { icon: AttachmentIcon, label: t('sidebar.klineFiles'), group: backtestData, to: '/kline-files' },
+      { icon: SearchIcon, label: t('sidebar.newsAnalysis'), group: marketData, to: '/news-analysis' },
+      { icon: AtSignIcon, label: t('sidebar.fundingRate'), group: marketData, to: '/funding-rate' },
+      { icon: AtSignIcon, label: t('sidebar.fundingCarry'), group: marketData, to: '/funding-carry' },
+      { icon: AtSignIcon, label: t('sidebar.basisMonitor'), group: marketData, to: '/basis-monitor' },
+      { icon: RepeatIcon, label: t('sidebar.oscillation'), group: marketData, to: '/oscillation' },
+      { icon: QuestionIcon, label: t('sidebar.aiPrompts'), group: aiGroup, to: '/ai-prompts' },
+      { icon: WarningIcon, label: t('sidebar.newbieRiskCheck'), group: aiGroup, to: '/newbie-risk-check' },
+      { icon: MoonIcon, label: t('sidebar.aiConfig'), group: aiGroup, to: '/ai-config' },
+      { icon: StarIcon, label: t('sidebar.aiTasks'), group: aiGroup, to: '/ai/tasks' },
+      { icon: ViewIcon, label: t('sidebar.geminiUsage'), group: aiGroup, to: '/gemini-usage' },
+      { icon: AtSignIcon, label: t('sidebar.aiChat'), group: aiGroup, to: '/agent-chat' },
+      { icon: CheckCircleIcon, label: t('sidebar.capitalManagement'), group: strategyCapital, to: '/capital-management' },
+      { icon: SettingsIcon, label: t('sidebar.configManagement'), group: t('sidebar.groupSystemSettings'), to: '/config' },
+      { icon: StarIcon, label: t('sidebar.globalSettings'), group: t('sidebar.groupSystemSettings'), to: '/global-settings' },
+      { icon: CheckCircleIcon, label: t('sidebar.servicesStatus'), group: t('sidebar.groupSystemSettings'), to: '/services/status' },
+      { icon: AttachmentIcon, label: t('sidebar.fixManagement'), group: t('sidebar.groupSystemSettings'), to: '/fix' },
+      { icon: InfoIcon, label: t('sidebar.firstTimeWizard'), group: t('sidebar.groupSystemSettings'), to: '/wizard' },
+      { icon: LockIcon, label: t('sidebar.profile'), group: t('sidebar.groupSystemSettings'), to: '/profile' },
+    ]
+  }, [botPrefix, isInBotMode, t])
+
+  const searchResults = useMemo(
+    () => filterSidebarItems(searchItems, searchQuery),
+    [searchItems, searchQuery]
+  )
+  const hasSearchQuery = searchQuery.trim().length > 0
+
+  const isSearchItemActive = (item: SearchNavItem) => {
+    if (item.isRoot && item.to === botPrefix) {
+      return isBotWorkspaceRoot(location.pathname, botPrefix)
+    }
+    if (item.isRoot && item.to === '/') {
+      return isRouteActive('/') && isGlobalView
+    }
+    return isRouteActive(item.activePath || item.to)
   }
 
   const toggleCollapse = () => {
@@ -176,6 +262,14 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
     if (!isDrawer) {
       localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newCollapsed))
     }
+  }
+
+  const openSearchFromCollapsed = () => {
+    setCollapsed(false)
+    if (!isDrawer) {
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, 'false')
+    }
+    window.setTimeout(() => searchInputRef.current?.focus(), 0)
   }
 
   // 同步更新主内容区域的左边距和 CSS 变量
@@ -241,7 +335,80 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
           </Flex>
         )}
 
-        {isInBotMode ? (
+        {collapsed && !isDrawer ? (
+          <Tooltip label={t('sidebar.searchAria')} placement="right" hasArrow>
+            <IconButton
+              aria-label={t('sidebar.searchAria')}
+              icon={<SearchIcon />}
+              size="sm"
+              variant="ghost"
+              mx="2"
+              borderRadius="md"
+              onClick={openSearchFromCollapsed}
+              _hover={{ bg: 'gray.100' }}
+            />
+          </Tooltip>
+        ) : (
+          <Box px="3" pb="2">
+            <InputGroup size="sm">
+              <InputLeftElement pointerEvents="none">
+                <SearchIcon color="gray.400" />
+              </InputLeftElement>
+              <Input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t('sidebar.searchPlaceholder')}
+                aria-label={t('sidebar.searchAria')}
+                bg="white"
+                borderColor="gray.200"
+                borderRadius="md"
+                fontSize="sm"
+                _focus={{ borderColor: 'blue.400', boxShadow: '0 0 0 1px var(--chakra-colors-blue-400)' }}
+              />
+              {hasSearchQuery && (
+                <InputRightElement>
+                  <IconButton
+                    aria-label={t('sidebar.searchClear')}
+                    icon={<CloseIcon />}
+                    size="xs"
+                    variant="ghost"
+                    onClick={() => {
+                      setSearchQuery('')
+                      searchInputRef.current?.focus()
+                    }}
+                  />
+                </InputRightElement>
+              )}
+            </InputGroup>
+          </Box>
+        )}
+
+        {hasSearchQuery ? (
+          <>
+            {searchResults.length > 0 ? (
+              searchResults.map((item) => (
+                <NavItem
+                  key={item.to}
+                  icon={item.icon}
+                  to={item.to}
+                  isActive={isSearchItemActive(item)}
+                  onClick={() => {
+                    setSearchQuery('')
+                    onNavItemClick?.()
+                  }}
+                  collapsed={collapsed}
+                >
+                  {item.label}
+                </NavItem>
+              ))
+            ) : (
+              <Text px="7" py="3" fontSize="sm" color="gray.500">
+                {t('sidebar.searchNoResults')}
+              </Text>
+            )}
+          </>
+        ) : isInBotMode ? (
           /* ─── Bot 模式：仅显示 Bot 相关菜单 + 返回 ─── */
           <>
             <NavItem
@@ -551,7 +718,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onNavItemClick, isDrawer }) => {
               onClick={onNavItemClick}
               collapsed={collapsed}
             >
-              {t('profitManagement.fundingCarryDashboard', 'Funding Carry')}
+              {t('sidebar.fundingCarry')}
             </NavItem>
             <NavItem
               icon={AtSignIcon}

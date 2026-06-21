@@ -466,6 +466,12 @@
     "groupMarketData": "市场数据",
     "groupAI": "AI",
     "groupStrategyCapital": "策略与资金",
+    "groupBotWorkspace": "Bot 工作区",
+    "searchPlaceholder": "搜索菜单",
+    "searchAria": "搜索左侧菜单",
+    "searchClear": "清空菜单搜索",
+    "searchNoResults": "未找到匹配菜单",
+    "fundingCarry": "资金套利",
     "globalPositions": "全局持仓"
   },
   "backtestOptim": {

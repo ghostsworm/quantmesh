@@ -44,6 +44,13 @@ func SetMCPServer(s *mcp.Server) {
 
 // MCPTokenCheck 给 mcp.Server 用的鉴权回调：缓存 token，避免每个请求都读 DB。
 func MCPTokenCheck(token string) bool {
+	if systemSettingsProvider == nil {
+		return false
+	}
+	enabled, err := systemSettingsProvider.GetSystemSettingBool(context.Background(), settingKeyMCPEnabled, true)
+	if err != nil || !enabled {
+		return false
+	}
 	mcpTokenCacheMu.RLock()
 	cached := mcpTokenCache
 	mcpTokenCacheMu.RUnlock()
@@ -51,9 +58,6 @@ func MCPTokenCheck(token string) bool {
 		return true
 	}
 	// 缓存未命中或不匹配 → 从 settings 取一次
-	if systemSettingsProvider == nil {
-		return false
-	}
 	v, err := systemSettingsProvider.GetSystemSetting(context.Background(), settingKeyMCPToken)
 	if err != nil || v == nil || v.Value == "" {
 		return false
