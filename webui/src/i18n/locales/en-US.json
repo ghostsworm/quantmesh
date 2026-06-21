@@ -3948,7 +3948,14 @@
     "generatingRecoveryCode": "Generating...",
     "generateRecoveryCode": "Generate new recovery code",
     "recoveryCode": "Recovery code",
-    "recoveryCodeSaveHint": "Save it offline in a secure place. It cannot be viewed again after leaving this page and expires after one use."
+    "recoveryCodeSaveHint": "Save it offline in a secure place. It cannot be viewed again after leaving this page and expires after one use.",
+    "recoveryCodeDownload": "Download as .txt",
+    "recoveryCodeCopy": "Copy",
+    "recoveryCodeCopied": "Recovery code copied to clipboard",
+    "recoveryCodeCopyFailed": "Copy failed, please select and save manually",
+    "recoveryCodeFileTitle": "QuantMesh Password Recovery Code",
+    "recoveryCodeFileHint": "Keep this safe:\n- This is the only credential to recover your password — store it offline in a safe place.\n- It becomes invalid after a single use.\n- Generating a new recovery code immediately invalidates this one.",
+    "recoveryCodeFileGenerated": "Generated at"
   },
   "basisMonitor": {
     "title": "Spot-Futures Basis Monitor",

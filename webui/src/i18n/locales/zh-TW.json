@@ -3077,7 +3077,14 @@
     "title": "Profile",
     "unnamedDevice": "Unnamed device",
     "userCancelledFingerprint": "User cancelled fingerprint verification",
-    "webauthnRegisterFailed": "WebAuthn registration failed"
+    "webauthnRegisterFailed": "WebAuthn registration failed",
+    "recoveryCodeDownload": "下載為 .txt",
+    "recoveryCodeCopy": "複製",
+    "recoveryCodeCopied": "恢復碼已複製到剪貼簿",
+    "recoveryCodeCopyFailed": "複製失敗，請手動選中儲存",
+    "recoveryCodeFileTitle": "QuantMesh 密碼恢復碼",
+    "recoveryCodeFileHint": "保管須知：\n- 這是您帳號唯一的密碼恢復憑證，請離線保存到安全位置。\n- 使用一次後此恢復碼會自動失效。\n- 重新產生新恢復碼會立即廢棄目前這一份。",
+    "recoveryCodeFileGenerated": "產生時間"
   },
   "servicesStatus": {
     "title": "服務狀態",

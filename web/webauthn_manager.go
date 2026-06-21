@@ -29,8 +29,10 @@ type WebAuthnManager struct {
 	log      WebAuthnLogger
 }
 
-// NewWebAuthnManager 創建 WebAuthn 管理器
-func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigin string) (*WebAuthnManager, error) {
+// NewWebAuthnManager 創建 WebAuthn 管理器。
+// rpOrigins 是允許的瀏覽器 origin 列表（必須與請求時的 window.location.origin 嚴格匹配，
+// 包括 scheme/host/port），可傳多個以支持 SSH 隧道、反向代理等場景。
+func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigins []string) (*WebAuthnManager, error) {
 	dbPath := filepath.Join(dataDir, "webauthn.db")
 
 	// 確保資料目錄存在
@@ -66,7 +68,7 @@ func NewWebAuthnManager(log WebAuthnLogger, dataDir string, rpID string, rpOrigi
 	wconfig := &webauthn.Config{
 		RPDisplayName: "QuantMesh",
 		RPID:          rpID,
-		RPOrigins:     []string{rpOrigin},
+		RPOrigins:     rpOrigins,
 	}
 	wa, err := webauthn.New(wconfig)
 	if err != nil {

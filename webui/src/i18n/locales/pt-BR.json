@@ -2764,7 +2764,14 @@
     "title": "Profile",
     "unnamedDevice": "Unnamed device",
     "userCancelledFingerprint": "User cancelled fingerprint verification",
-    "webauthnRegisterFailed": "WebAuthn registration failed"
+    "webauthnRegisterFailed": "WebAuthn registration failed",
+    "recoveryCodeDownload": "Download as .txt",
+    "recoveryCodeCopy": "Copy",
+    "recoveryCodeCopied": "Recovery code copied to clipboard",
+    "recoveryCodeCopyFailed": "Copy failed, please select and save manually",
+    "recoveryCodeFileTitle": "QuantMesh Password Recovery Code",
+    "recoveryCodeFileHint": "Keep this safe:\n- This is the only credential to recover your password — store it offline in a safe place.\n- It becomes invalid after a single use.\n- Generating a new recovery code immediately invalidates this one.",
+    "recoveryCodeFileGenerated": "Generated at"
   },
   "servicesStatus": {
     "checkHint": "Check config and restart",

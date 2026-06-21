@@ -3950,7 +3950,14 @@
     "generatingRecoveryCode": "生成中...",
     "generateRecoveryCode": "生成新的恢复码",
     "recoveryCode": "恢复码",
-    "recoveryCodeSaveHint": "请离线保存到安全位置。离开页面后无法再次查看，使用一次后会自动失效。"
+    "recoveryCodeSaveHint": "请离线保存到安全位置。离开页面后无法再次查看，使用一次后会自动失效。",
+    "recoveryCodeDownload": "下载为 .txt",
+    "recoveryCodeCopy": "复制",
+    "recoveryCodeCopied": "恢复码已复制到剪贴板",
+    "recoveryCodeCopyFailed": "复制失败，请手动选中保存",
+    "recoveryCodeFileTitle": "QuantMesh 密码恢复码",
+    "recoveryCodeFileHint": "保管须知：\n- 这是您账号唯一的密码恢复凭证，请离线保存到安全位置。\n- 使用一次后此恢复码会自动失效。\n- 重新生成新恢复码会立即废弃当前这一份。",
+    "recoveryCodeFileGenerated": "生成时间"
   },
   "basisMonitor": {
     "title": "現貨-合約價差監控",
