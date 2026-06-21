@@ -597,7 +597,7 @@
     "userCancelled": "کاربر تأیید زیست‌سنجشی را لغو کرد",
     "webauthnLoginFailed": "ورود زیست‌سنجشی ناموفق بود",
     "webauthnLoginError": "ورود WebAuthn ناموفق بود",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Just enter your password above to log in. To use fingerprint / passkey later, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "در حال ساخت مرکز فرمان...",
@@ -2567,7 +2567,7 @@
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
     "webauthnRegFailed": "WebAuthn registration failed",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. If you don't need it right now, just click \"Register later\" below and use a password. To enable fingerprint / passkey, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "انتخاب بازه زمانی کندل",
