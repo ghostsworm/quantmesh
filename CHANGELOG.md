@@ -2,6 +2,16 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc22] - 2026-06-21
+
+### Fixed
+- **MySQL 模式一次性补齐 17 张 SQLite-only 表迁移**：rc18/rc21 修了 `kline_files/protected_kline_files/system_settings` 三张，但 audit 后发现 SQLite `createTables` 里建的、MySQL 路径未覆盖的表还有 17 张。任何相关功能首次写入都会撞 `Error 1146 (42S02): Table 'quantmesh.<xxx>' doesn't exist`。本次集中补齐：`reconciliation_history`、`risk_check_history`、`funding_rates`、`ai_prompts`、`basis_data`、`profit_withdraw_rules`、`profit_withdraw_records`、`inspection_reports`、`funding_payments`、`market_interpret_tasks`、`hourly_equity_records`、`daily_snapshots`、`backtest_tasks`、`optim_tasks`、`news_analysis_history`、`price_history`、`prediction_verification`。各表对应 `migrate*TableMySQL` 函数放在 `storage/sql_bot_state.go`，在 `NewStorage` 的 mysql 分支用 slice 按 SQLite 顺序统一调用。规则：`utf8mb4_unicode_ci` / `InnoDB` / `IF NOT EXISTS` / `REAL`→`DOUBLE` / `INTEGER PK`→`BIGINT AUTO_INCREMENT` / bool→`TINYINT` / `TEXT PK`→`VARCHAR(128~255)` / 保留字 `key`/`value`/`type`/`interval` 用反引号 / SQLite 后续 ALTER 加的列（如 `hourly_equity_records.account_equity`、`daily_snapshots.account_equity`、`profit_withdraw_rules.last_triggered_at`）直接合入建表一次到位。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc22`。
+
+---
+
 ## [3.108.1-rc21] - 2026-06-21
 
 ### Fixed

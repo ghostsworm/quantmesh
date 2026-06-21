@@ -345,3 +345,456 @@ CREATE TABLE IF NOT EXISTS protected_kline_files (
 	logger.Info("✅ MySQL protected_kline_files 表已就緒")
 	return nil
 }
+
+// 以下 17 個 MySQL 遷移函數補齊 SQLite createTables 已建但 MySQL 路徑未覆蓋的表。
+// 規則：ENGINE=InnoDB CHARSET=utf8mb4_unicode_ci；REAL→DOUBLE；INTEGER PK→BIGINT
+// AUTO_INCREMENT；bool→TINYINT；TEXT PK→VARCHAR(255)；保留字 key/value/type/interval
+// 用反引號；UNIQUE/索引保留；IF NOT EXISTS，索引單獨發並用 `_, _ =` 容錯。
+// 若 SQLite 在 createTables 之後另有 ALTER 補列（如 hourly_equity_records.account_equity、
+// daily_snapshots.account_equity、profit_withdraw_rules.last_triggered_at），在 MySQL
+// 建表時直接合入，一次到位。
+
+func migrateReconciliationHistoryTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS reconciliation_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64),
+  symbol VARCHAR(64),
+  account VARCHAR(255),
+  reconcile_time TIMESTAMP(3) NULL,
+  local_position DECIMAL(20,8),
+  exchange_position DECIMAL(20,8),
+  position_diff DECIMAL(20,8),
+  active_buy_orders INT DEFAULT 0,
+  active_sell_orders INT DEFAULT 0,
+  pending_sell_qty DECIMAL(20,8),
+  total_buy_qty DECIMAL(20,8),
+  total_sell_qty DECIMAL(20,8),
+  estimated_profit DECIMAL(20,8),
+  actual_profit DECIMAL(20,8) DEFAULT 0,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_reconciliation_history_symbol (symbol),
+  KEY idx_reconciliation_history_time (reconcile_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL reconciliation_history 表已就緒")
+	return nil
+}
+
+func migrateRiskCheckHistoryTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS risk_check_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  check_time TIMESTAMP(3) NOT NULL,
+  bot_id VARCHAR(128) NOT NULL DEFAULT '',
+  exchange VARCHAR(64) NOT NULL DEFAULT '',
+  market_type VARCHAR(64) NOT NULL DEFAULT '',
+  symbol VARCHAR(64) NOT NULL,
+  is_healthy TINYINT NOT NULL,
+  price_deviation DOUBLE,
+  volume_ratio DOUBLE,
+  reason TEXT,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_risk_check_history_time (check_time),
+  KEY idx_risk_check_history_symbol (symbol),
+  KEY idx_risk_check_history_time_symbol (check_time, symbol),
+  KEY idx_risk_check_history_bot_id (bot_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL risk_check_history 表已就緒")
+	return nil
+}
+
+func migrateFundingRatesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS funding_rates (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  symbol VARCHAR(64) NOT NULL,
+  exchange VARCHAR(64) NOT NULL,
+  rate DOUBLE NOT NULL,
+  timestamp TIMESTAMP(3) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_funding_rates_symbol (symbol),
+  KEY idx_funding_rates_timestamp (timestamp),
+  KEY idx_funding_rates_symbol_timestamp (symbol, timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL funding_rates 表已就緒")
+	return nil
+}
+
+func migrateAIPromptsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS ai_prompts (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  module VARCHAR(128) NOT NULL,
+  template MEDIUMTEXT NOT NULL,
+  system_prompt MEDIUMTEXT,
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_ai_prompts_module (module)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL ai_prompts 表已就緒")
+	return nil
+}
+
+func migrateBasisDataTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS basis_data (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  symbol VARCHAR(64) NOT NULL,
+  exchange VARCHAR(64) NOT NULL,
+  spot_price DOUBLE NOT NULL,
+  futures_price DOUBLE NOT NULL,
+  basis DOUBLE NOT NULL,
+  basis_percent DOUBLE NOT NULL,
+  funding_rate DOUBLE,
+  timestamp DATETIME(3) NOT NULL,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_basis_symbol_time (symbol, timestamp),
+  KEY idx_basis_exchange (exchange)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL basis_data 表已就緒")
+	return nil
+}
+
+func migrateProfitWithdrawRulesTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
+  id VARCHAR(128) NOT NULL PRIMARY KEY,
+  account_id VARCHAR(255) NOT NULL,
+  exchange_id VARCHAR(64) NOT NULL,
+  strategy_id VARCHAR(128) NOT NULL DEFAULT '',
+  enabled TINYINT NOT NULL DEFAULT 1,
+  trigger_amount DOUBLE NOT NULL DEFAULT 0,
+  withdraw_ratio DOUBLE NOT NULL DEFAULT 0,
+  frequency VARCHAR(32) NOT NULL DEFAULT 'immediate',
+  destination VARCHAR(32) NOT NULL DEFAULT 'account',
+  wallet_address VARCHAR(255),
+  min_withdraw_amount DOUBLE NOT NULL DEFAULT 0,
+  max_withdraw_amount DOUBLE,
+  last_triggered_at TIMESTAMP(3) NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_profit_withdraw_rules_account (account_id),
+  KEY idx_profit_withdraw_rules_account_exchange (account_id, exchange_id),
+  KEY idx_profit_withdraw_rules_updated_at (updated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL profit_withdraw_rules 表已就緒")
+	return nil
+}
+
+func migrateProfitWithdrawRecordsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS profit_withdraw_records (
+  id VARCHAR(128) NOT NULL PRIMARY KEY,
+  rule_id VARCHAR(128) NOT NULL,
+  account_id VARCHAR(255) NOT NULL,
+  exchange_id VARCHAR(64) NOT NULL,
+  strategy_id VARCHAR(128) DEFAULT '',
+  amount DOUBLE NOT NULL,
+  fee DOUBLE NOT NULL DEFAULT 0,
+  net_amount DOUBLE NOT NULL,
+  currency VARCHAR(32) NOT NULL,
+  ` + "`type`" + ` VARCHAR(32) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  destination VARCHAR(32) NOT NULL,
+  transfer_id VARCHAR(255),
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  completed_at TIMESTAMP(3) NULL,
+  failed_reason TEXT,
+  note TEXT,
+  KEY idx_withdraw_records_account (account_id),
+  KEY idx_withdraw_records_created_at (created_at),
+  KEY idx_withdraw_records_rule_id (rule_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL profit_withdraw_records 表已就緒")
+	return nil
+}
+
+func migrateInspectionReportsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS inspection_reports (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  report_type VARCHAR(64) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  body LONGTEXT NOT NULL,
+  snapshot_json LONGTEXT,
+  analysis_json LONGTEXT,
+  event_type VARCHAR(64),
+  event_data_json LONGTEXT,
+  generated_at TIMESTAMP(3) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_inspection_reports_generated_at (generated_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL inspection_reports 表已就緒")
+	return nil
+}
+
+func migrateFundingPaymentsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS funding_payments (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  account VARCHAR(255),
+  income_type VARCHAR(64) NOT NULL,
+  income DECIMAL(20,8) NOT NULL,
+  asset VARCHAR(32),
+  info TEXT,
+  transaction_id BIGINT,
+  trade_time TIMESTAMP(3) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_funding_payments_exchange_symbol (exchange, symbol),
+  KEY idx_funding_payments_trade_time (trade_time),
+  KEY idx_funding_payments_account (account)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL funding_payments 表已就緒")
+	return nil
+}
+
+func migrateMarketInterpretTasksTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS market_interpret_tasks (
+  task_id VARCHAR(128) NOT NULL PRIMARY KEY,
+  page_type VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  progress INT NOT NULL DEFAULT 0,
+  result LONGTEXT,
+  error TEXT,
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL,
+  KEY idx_market_interpret_page_created (page_type, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL market_interpret_tasks 表已就緒")
+	return nil
+}
+
+func migrateHourlyEquityRecordsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS hourly_equity_records (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  account VARCHAR(255) NOT NULL,
+  timestamp DATETIME(3) NOT NULL,
+  equity DOUBLE NOT NULL,
+  unrealized_pnl DOUBLE NOT NULL,
+  total_position_value DOUBLE NOT NULL,
+  account_equity DOUBLE,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_hourly_equity_exchange_symbol_account (exchange, symbol, account),
+  KEY idx_hourly_equity_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL hourly_equity_records 表已就緒")
+	return nil
+}
+
+func migrateDailySnapshotsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS daily_snapshots (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  account VARCHAR(255) NOT NULL,
+  date DATE NOT NULL,
+  unrealized_pnl DOUBLE NOT NULL,
+  total_position_value DOUBLE NOT NULL,
+  intraday_max_drawdown DOUBLE NOT NULL,
+  intraday_max_drawdown_pct DOUBLE NOT NULL,
+  intraday_peak_equity DOUBLE NOT NULL,
+  closing_price DOUBLE NOT NULL,
+  snapshot_time TIMESTAMP(3) NOT NULL,
+  account_equity DOUBLE,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_daily_snapshots_dim (exchange, symbol, account, date),
+  KEY idx_daily_snapshots_exchange_symbol_account (exchange, symbol, account),
+  KEY idx_daily_snapshots_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL daily_snapshots 表已就緒")
+	return nil
+}
+
+func migrateBacktestTasksTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS backtest_tasks (
+  id VARCHAR(128) NOT NULL PRIMARY KEY,
+  status VARCHAR(32) NOT NULL,
+  mode VARCHAR(32),
+  bot_id VARCHAR(128),
+  group_id VARCHAR(128),
+  strategy VARCHAR(64) NOT NULL,
+  strategies_json LONGTEXT,
+  symbol VARCHAR(64) NOT NULL,
+  ` + "`interval`" + ` VARCHAR(32) NOT NULL,
+  start_time BIGINT NOT NULL,
+  end_time BIGINT NOT NULL,
+  params LONGTEXT NOT NULL,
+  total_capital DOUBLE NOT NULL,
+  progress INT DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  started_at BIGINT,
+  completed_at BIGINT,
+  error TEXT,
+  result_path VARCHAR(512),
+  report_path VARCHAR(512),
+  data_source VARCHAR(64),
+  kline_file VARCHAR(255),
+  cache_name VARCHAR(255),
+  KEY idx_backtest_tasks_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL backtest_tasks 表已就緒")
+	return nil
+}
+
+func migrateOptimTasksTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS optim_tasks (
+  id VARCHAR(128) NOT NULL PRIMARY KEY,
+  status VARCHAR(32) NOT NULL,
+  strategy VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  ` + "`interval`" + ` VARCHAR(32) NOT NULL,
+  start_time BIGINT NOT NULL,
+  end_time BIGINT NOT NULL,
+  total_capital DOUBLE NOT NULL,
+  search_space LONGTEXT NOT NULL,
+  progress INT DEFAULT 0,
+  total_combos INT DEFAULT 0,
+  completed_combos INT DEFAULT 0,
+  created_at BIGINT NOT NULL,
+  started_at BIGINT,
+  completed_at BIGINT,
+  result_path VARCHAR(512),
+  error TEXT,
+  KEY idx_optim_tasks_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL optim_tasks 表已就緒")
+	return nil
+}
+
+func migrateNewsAnalysisHistoryTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS news_analysis_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  analysis_time TIMESTAMP(3) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  current_price DOUBLE NOT NULL,
+  assessment TEXT,
+  recent_news_summary MEDIUMTEXT,
+  gemini_prompt MEDIUMTEXT,
+  gemini_response LONGTEXT,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_news_analysis_history_analysis_time (analysis_time),
+  KEY idx_news_analysis_history_symbol (symbol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL news_analysis_history 表已就緒")
+	return nil
+}
+
+func migratePriceHistoryTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS price_history (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  asset_type VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  price DOUBLE NOT NULL,
+  source VARCHAR(64),
+  recorded_at TIMESTAMP(3) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  KEY idx_price_history_lookup (asset_type, symbol, recorded_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL price_history 表已就緒")
+	return nil
+}
+
+func migratePredictionVerificationTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS prediction_verification (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  analysis_id BIGINT NOT NULL,
+  asset_type VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  prediction_time TIMESTAMP(3) NOT NULL,
+  timeframe VARCHAR(32) NOT NULL,
+  predicted_direction VARCHAR(32) NOT NULL,
+  predicted_change_pct DOUBLE,
+  predicted_probability DOUBLE,
+  actual_price_at_prediction DOUBLE,
+  actual_price_at_verify DOUBLE,
+  actual_direction VARCHAR(32),
+  actual_change_pct DOUBLE,
+  is_correct TINYINT,
+  verified_at TIMESTAMP(3) NULL,
+  status VARCHAR(32) DEFAULT 'pending',
+  KEY idx_pred_verif_status (status),
+  KEY idx_pred_verif_asset_symbol (asset_type, symbol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+	logger.Info("✅ MySQL prediction_verification 表已就緒")
+	return nil
+}

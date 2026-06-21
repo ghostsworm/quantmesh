@@ -170,6 +170,37 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL system_settings 表失败: %w", err)
 		}
+		// SQLite createTables / migrate*Table 已建但 MySQL 路徑歷史漏掉的 17 張表，
+		// 按 SQLite 中出現的順序補齊；觸發任何相關功能（對賬/風控歷史/資金費/AI 提示/基差/
+		// 利潤提取/巡檢/市場解讀/權益快照/回測/參數優化/新聞分析/價格快照/預測校驗）前必須就緒。
+		mysqlExtraMigrations := []struct {
+			name string
+			fn   func(*sql.DB) error
+		}{
+			{"reconciliation_history", migrateReconciliationHistoryTableMySQL},
+			{"risk_check_history", migrateRiskCheckHistoryTableMySQL},
+			{"funding_rates", migrateFundingRatesTableMySQL},
+			{"ai_prompts", migrateAIPromptsTableMySQL},
+			{"basis_data", migrateBasisDataTableMySQL},
+			{"profit_withdraw_rules", migrateProfitWithdrawRulesTableMySQL},
+			{"profit_withdraw_records", migrateProfitWithdrawRecordsTableMySQL},
+			{"inspection_reports", migrateInspectionReportsTableMySQL},
+			{"funding_payments", migrateFundingPaymentsTableMySQL},
+			{"market_interpret_tasks", migrateMarketInterpretTasksTableMySQL},
+			{"hourly_equity_records", migrateHourlyEquityRecordsTableMySQL},
+			{"daily_snapshots", migrateDailySnapshotsTableMySQL},
+			{"backtest_tasks", migrateBacktestTasksTableMySQL},
+			{"optim_tasks", migrateOptimTasksTableMySQL},
+			{"news_analysis_history", migrateNewsAnalysisHistoryTableMySQL},
+			{"price_history", migratePriceHistoryTableMySQL},
+			{"prediction_verification", migratePredictionVerificationTableMySQL},
+		}
+		for _, m := range mysqlExtraMigrations {
+			if err := m.fn(db); err != nil {
+				db.Close()
+				return nil, fmt.Errorf("迁移 MySQL %s 表失败: %w", m.name, err)
+			}
+		}
 	}
 
 	tradesTbl := "trades"
