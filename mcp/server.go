@@ -30,6 +30,12 @@ type ToolEntry struct {
 	Write   bool // 是否是写操作；写工具需要 allowWrite=true 才注册
 }
 
+// ToolSnapshot 是注册工具的只读快照，供自描述/诊断类工具使用。
+type ToolSnapshot struct {
+	Tool  Tool `json:"tool"`
+	Write bool `json:"write"`
+}
+
 // Server 一个进程一份。Register 完所有工具后 Mount 到 gin。
 type Server struct {
 	mu         sync.RWMutex
@@ -97,6 +103,17 @@ func (s *Server) ToolCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.tools)
+}
+
+// ToolSnapshots 返回当前已注册工具的稳定副本；不会暴露 handler。
+func (s *Server) ToolSnapshots() []ToolSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ToolSnapshot, 0, len(s.tools))
+	for _, e := range s.tools {
+		out = append(out, ToolSnapshot{Tool: e.Tool, Write: e.Write})
+	}
+	return out
 }
 
 func (s *Server) handleGet(c *gin.Context) {

@@ -466,6 +466,12 @@
     "groupMarketData": "Market Data",
     "groupAI": "AI",
     "groupStrategyCapital": "Strategy & Capital",
+    "groupBotWorkspace": "Bot Workspace",
+    "searchPlaceholder": "Search menu",
+    "searchAria": "Search sidebar menu",
+    "searchClear": "Clear menu search",
+    "searchNoResults": "No matching menu items",
+    "fundingCarry": "Funding Carry",
     "globalPositions": "Global Positions"
   },
   "backtestOptim": {
