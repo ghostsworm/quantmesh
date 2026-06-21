@@ -26,9 +26,9 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       }
     }
     const errorText = await response.text()
-    let parsed: { error?: string; message?: string; error_key?: string; group_name?: string; bot_id?: string } | null = null
+    let parsed: { error?: string; message?: string; error_key?: string; code?: string; group_name?: string; bot_id?: string } | null = null
     try {
-      parsed = JSON.parse(errorText) as { error?: string; message?: string; error_key?: string; group_name?: string; bot_id?: string }
+      parsed = JSON.parse(errorText) as { error?: string; message?: string; error_key?: string; code?: string; group_name?: string; bot_id?: string }
     } catch {
       /* ignore */
     }
@@ -36,11 +36,13 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
     const err = new Error(`HTTP ${response.status}: ${message}`) as Error & {
       status?: number
       errorKey?: string
+      code?: string
       groupName?: string
       botId?: string
     }
     err.status = response.status
     if (parsed?.error_key) err.errorKey = parsed.error_key
+    if (parsed?.code) err.code = parsed.code
     if (parsed?.group_name) err.groupName = parsed.group_name
     if (parsed?.bot_id) err.botId = parsed.bot_id
     throw err

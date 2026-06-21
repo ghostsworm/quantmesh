@@ -60,12 +60,16 @@ const CapitalManagement: React.FC = () => {
       ])
       if (usageRes.success && usageRes.exchanges) {
         setExchanges(usageRes.exchanges)
-      } else if (!usageRes.success && usageRes.message) {
+      } else if (!usageRes.success) {
+        const isDataSourceMissing = usageRes.code === 'capital_data_source_unavailable'
         toast({
           title: t('capitalManagement.fetchDataFailed'),
-          description: usageRes.message,
-          status: 'warning',
-          duration: 5000,
+          description: isDataSourceMissing
+            ? t('capitalManagement.dataSourceUnavailableHint')
+            : (usageRes.message || t('capitalManagement.checkBackendConnection')),
+          status: isDataSourceMissing ? 'info' : 'warning',
+          duration: 7000,
+          isClosable: true,
         })
       }
       if (overviewRes.success && overviewRes.overview) {

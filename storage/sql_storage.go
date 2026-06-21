@@ -194,6 +194,8 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			{"news_analysis_history", migrateNewsAnalysisHistoryTableMySQL},
 			{"price_history", migratePriceHistoryTableMySQL},
 			{"prediction_verification", migratePredictionVerificationTableMySQL},
+			{"positions", migratePositionsTableMySQL},
+			{"fix_session_states/fix_order_links", migrateFixTablesMySQL},
 		}
 		for _, m := range mysqlExtraMigrations {
 			if err := m.fn(db); err != nil {

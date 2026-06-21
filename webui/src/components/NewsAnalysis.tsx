@@ -142,7 +142,18 @@ const NewsAnalysis: React.FC = () => {
       toast({ title: t('newsAnalysis.analysisSubmitted'), status: 'success', duration: 2000 })
       setTimeout(fetchData, 2000)
     } catch (err) {
-      toast({ title: (err as Error).message || t('newsAnalysis.triggerFailed'), status: 'error', duration: 3000 })
+      const e = err as Error & { code?: string }
+      if (e.code === 'news_monitor_unavailable') {
+        toast({
+          title: t('newsAnalysis.triggerFailed'),
+          description: t('newsAnalysis.newsMonitorUnavailableHint'),
+          status: 'info',
+          duration: 7000,
+          isClosable: true,
+        })
+      } else {
+        toast({ title: e.message || t('newsAnalysis.triggerFailed'), status: 'error', duration: 3000 })
+      }
     } finally {
       setTriggering(false)
     }

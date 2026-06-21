@@ -1566,7 +1566,8 @@
     "symbol": "交易对",
     "totalUsed": "合计占用",
     "totalUsedPct": "合计占比",
-    "viewBots": "查看 Bot 列表"
+    "viewBots": "查看 Bot 列表",
+    "dataSourceUnavailableHint": "後端尚未連接到任何交易所（capital_data_source 為空）。請先在【全局設定】→【交易所配置】填入至少一個交易所的 API Key 並儲存；如果已配置仍提示未就緒，請查看服務端日誌確認初始化錯誤。"
   },
   "profitManagement": {
     "title": "盈利管理",
@@ -2327,7 +2328,8 @@
     "riskTrend": "风险波动趋势",
     "tabAnalysis": "最新分析",
     "tabHistory": "历史记录",
-    "tabPrediction": "预测准确率"
+    "tabPrediction": "预测准确率",
+    "newsMonitorUnavailableHint": "新聞監控服務未啟動。可能原因：(1) NewsAPI Key 未配置 — 去【全局設定】→【新聞監控】填入 NewsAPI Key 或啟用 RSS 源；(2) 監控功能未在配置中開啟；(3) 服務初始化失敗 — 請查看服務端日誌。"
   },
   "strategyNames": {
     "grid": "網格交易策略",
