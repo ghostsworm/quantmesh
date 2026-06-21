@@ -567,7 +567,7 @@
     "userCancelled": "사용자가 생체 인식 확인을 취소했습니다",
     "webauthnLoginFailed": "생체 인식 로그인 실패",
     "webauthnLoginError": "WebAuthn 로그인 실패",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Just enter your password above to log in. To use fingerprint / passkey later, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "명령 센터 구축 중...",
@@ -2548,7 +2548,7 @@
     "userCancelledWebauthn": "User cancelled fingerprint verification",
     "versionInfo": "Version: v{{version}} | Build Time: {{buildTime}}",
     "webauthnRegFailed": "WebAuthn registration failed",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. If you don't need it right now, just click \"Register later\" below and use a password. To enable fingerprint / passkey, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "klineChart": {
     "intervalSelector": "K선 주기 선택",

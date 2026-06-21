@@ -1006,7 +1006,7 @@
     "recoveryPasswordMismatch": "New passwords do not match",
     "recoverySuccess": "Password reset. Sign in with the new password.",
     "recoveryFailed": "Password recovery failed",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Just enter your password above to log in. To use fingerprint / passkey later, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "globalDashboard": {
     "building": "Building command center...",
@@ -3063,7 +3063,7 @@
     "registering": "Registering...",
     "registerWebauthn": "Register Fingerprint",
     "registerLater": "Register Later",
-    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. Open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
+    "webauthnNotSecureContext": "Fingerprint / passkey requires a secure context. If you don't need it right now, just click \"Register later\" below and use a password. To enable fingerprint / passkey, open this page via HTTPS or http://localhost (for a remote host, run: ssh -L 28889:127.0.0.1:28888 user@host, then open http://localhost:28889)."
   },
   "eventDetail": {
     "title": "Event Details",
