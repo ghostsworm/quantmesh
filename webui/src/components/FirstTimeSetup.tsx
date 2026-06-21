@@ -79,6 +79,11 @@ const FirstTimeSetup: React.FC = () => {
       return
     }
 
+    if (!window.isSecureContext || !navigator.credentials?.create) {
+      setError(t('firstTimeSetup.webauthnNotSecureContext'))
+      return
+    }
+
     setIsLoading(true)
     setError(null)
 

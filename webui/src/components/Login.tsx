@@ -110,6 +110,11 @@ const Login: React.FC = () => {
       return
     }
 
+    if (!window.isSecureContext || !navigator.credentials?.get) {
+      setError(t('login.webauthnNotSecureContext'))
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     setSuccess(null)

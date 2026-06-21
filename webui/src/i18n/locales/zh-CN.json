@@ -1005,7 +1005,8 @@
     "recoveryPasswordMinLength": "新密码长度至少为 6 位",
     "recoveryPasswordMismatch": "两次输入的新密码不一致",
     "recoverySuccess": "密码已重置，请使用新密码登录",
-    "recoveryFailed": "密码找回失败"
+    "recoveryFailed": "密码找回失败",
+    "webauthnNotSecureContext": "当前页面不是「安全上下文」，浏览器禁用了指纹/通行密钥 API。请改用 https:// 或 http://localhost 后重试。远程主机可在本机执行 ssh -L 28889:127.0.0.1:28888 user@host，然后打开 http://localhost:28889"
   },
   "globalDashboard": {
     "building": "正在构建指挥中心...",
@@ -2898,7 +2899,8 @@
     "deviceNameHint": "为这个设备起一个名称，方便识别",
     "registering": "注册中...",
     "registerWebauthn": "注册指纹",
-    "registerLater": "稍后注册"
+    "registerLater": "稍后注册",
+    "webauthnNotSecureContext": "当前页面不是「安全上下文」，浏览器禁用了指纹/通行密钥 API。请改用 https:// 或 http://localhost 后重试。远程主机可在本机执行 ssh -L 28889:127.0.0.1:28888 user@host，然后打开 http://localhost:28889"
   },
   "eventDetail": {
     "title": "事件详情",

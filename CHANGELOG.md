@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.108.1-rc19] - 2026-06-21
+
+### Fixed
+- **WebAuthn 注册/登录在非安全上下文下报「Cannot read properties of undefined (reading 'create')」改为明确提示**：通过 `http://<远程主机>:port` 访问时，浏览器按 Web 标准把 `navigator.credentials` 设为 `undefined`（WebAuthn 仅在 HTTPS 或 `localhost`/`127.0.0.1` 才暴露），过去用户点「注册指纹」/「指纹登录」会拿到一条没法理解的 JS 错误。现在在 `webui/src/components/FirstTimeSetup.tsx` 和 `webui/src/components/Login.tsx` 调用 `navigator.credentials.create/.get` 前先检测 `window.isSecureContext` 与 API 可用性，若不满足直接 `setError(t('...webauthnNotSecureContext'))` 并跳出，文案给出可执行指引（HTTPS / `http://localhost` / SSH 隧道命令）。同步在 24 个语言文件加 `firstTimeSetup.webauthnNotSecureContext` 与 `login.webauthnNotSecureContext`（zh-CN/zh-TW/en-US 真翻译，其余按现有惯例填英文）。
+- **全局设置页 `/global-settings` 报「useFormControlStyles returned is 'undefined'」加载白屏**：`webui/src/components/GlobalSettings.tsx` 中 MCP token 与 snippet 两段用 `<Box>` 直接包裹 `<FormLabel>` / `<FormHelperText>`，而 Chakra 的这些组件依赖父级 `<FormControl>` 提供的 React Context；找不到时 `useFormControlStyles()` 抛 ContextError，被 rc17 新加的 ErrorBoundary 兜住显示「页面加载出错了」。把这两处外层 `<Box>` 换成 `<FormControl>` 即可（Chakra v2 的 FormControl 默认就是个带 context 的 div，结构 100% 兼容）。
+
+### Changed
+- 版本号同步前后端到 `3.108.1-rc19`。
+
+---
+
 ## [3.108.1-rc18] - 2026-06-21
 
 ### Fixed
