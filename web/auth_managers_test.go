@@ -173,7 +173,7 @@ func TestPasswordManagerInstallRecoveryAndSecurityStates(t *testing.T) {
 }
 
 func TestWebAuthnManagerCredentialLifecycleAndDecoders(t *testing.T) {
-	wm, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", "http://localhost")
+	wm, err := NewWebAuthnManager(nil, t.TempDir(), "localhost", []string{"http://localhost"})
 	if err != nil {
 		t.Fatalf("new webauthn manager: %v", err)
 	}

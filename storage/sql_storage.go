@@ -43,6 +43,17 @@ func (s *SQLStorage) mysqlQuoteIdent(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
 }
 
+// dateExprInConfiguredTimezone 返回按配置時區取日期的 SQL 表達式。
+// SQLite 支援 datetime(col, '+N seconds')；MySQL/MariaDB 需使用 DATE_ADD。
+func (s *SQLStorage) dateExprInConfiguredTimezone(column string) string {
+	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
+	if s != nil && s.dbType == "mysql" {
+		return fmt.Sprintf("DATE(DATE_ADD(%s, INTERVAL %d SECOND))", column, tzOffsetSeconds)
+	}
+	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	return fmt.Sprintf("date(datetime(%s, '%s'))", column, tzModifier)
+}
+
 // NewSQLStorage 打開 SQLite 路徑並初始化存儲（含表遷移）
 func NewSQLStorage(path string) (*SQLStorage, error) {
 	return NewStorage("sqlite", path+"?_journal_mode=WAL&_synchronous=NORMAL")
@@ -145,6 +156,14 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 		if err := migratePairedTradesBotIDMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL 網格配對成交表 bot_id 失败: %w", err)
+		}
+		if err := migrateOrdersTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL orders 表失败: %w", err)
+		}
+		if err := migrateStatisticsTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL statistics 表失败: %w", err)
 		}
 		if err := migrateSystemMetricsTablesMySQL(db); err != nil {
 			db.Close()
@@ -1939,6 +1958,25 @@ func (s *SQLStorage) SaveStatistics(stats *Statistics) error {
 	// 轉换為UTC時间存儲
 	date := utils.ToUTC(stats.Date)
 	createdAt := utils.ToUTC(stats.CreatedAt)
+	if s.dbType == "mysql" {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM statistics WHERE date = ?`, date); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		if _, err := tx.Exec(`
+			INSERT INTO statistics
+			(date, total_trades, total_volume, total_pnl, win_rate, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, date, stats.TotalTrades, stats.TotalVolume, stats.TotalPnL, stats.WinRate, createdAt); err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+		return tx.Commit()
+	}
 	_, err := s.db.Exec(`
 		INSERT OR REPLACE INTO statistics 
 		(date, total_trades, total_volume, total_pnl, win_rate, created_at)
@@ -2737,14 +2775,13 @@ func (s *SQLStorage) GetExchangePnLOrderStats(exchange, symbol string) (withPnLC
 
 // GetDailyExchangePnL 獲取每日交易所已實現盈虧（從 orders 表按日期聚合 realized_pnl）
 func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time, botID string) (map[string]float64, error) {
-	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
-	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	dateExpr := s.dateExprInConfiguredTimezone("created_at")
 	query := fmt.Sprintf(`
-		SELECT date(datetime(created_at, '%s')) as dt, COALESCE(SUM(realized_pnl), 0) as total
+		SELECT %s as dt, COALESCE(SUM(realized_pnl), 0) as total
 		FROM orders
 		WHERE realized_pnl IS NOT NULL AND status = 'FILLED'
-			AND date(datetime(created_at, '%s')) >= ? AND date(datetime(created_at, '%s')) <= ?
-	`, tzModifier, tzModifier, tzModifier)
+			AND %s >= ? AND %s <= ?
+	`, dateExpr, dateExpr, dateExpr)
 	args := []interface{}{startDate.Format("2006-01-02"), endDate.Format("2006-01-02")}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -2758,7 +2795,7 @@ func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, end
 		query += " AND COALESCE(bot_id, '') = ?"
 		args = append(args, bid)
 	}
-	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s'))", tzModifier)
+	query += " GROUP BY " + dateExpr
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -2780,13 +2817,12 @@ func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, end
 
 // GetDailyTradesSummary 獲取指定日（配置時區）的成交筆數、毛利、手續費
 func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr, botID string) (count int, grossPnl, totalFee float64, err error) {
-	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
-	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	dateExpr := s.dateExprInConfiguredTimezone("created_at")
 	query := fmt.Sprintf(`
 		SELECT COUNT(*), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0)
 		FROM %s
-		WHERE date(datetime(created_at, '%s')) = ?
-	`, s.tradesTbl(), tzModifier)
+		WHERE %s = ?
+	`, s.tradesTbl(), dateExpr)
 	args := []interface{}{dateStr}
 	if exchange != "" {
 		query += " AND (exchange = ? OR exchange = '')"
@@ -2864,15 +2900,12 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 	startDateStr := startDate.Format("2006-01-02")
 	endDateStr := endDate.Format("2006-01-02")
 
-	// 獲取配置時区的偏移秒數（用於將 UTC 時間轉換為本地時間後再按日期分組）
-	// 例如：Asia/Shanghai 為 +28800 秒（8小時）
-	// SQLite 的 datetime(created_at, '+N seconds') 可將 UTC 時間轉換為本地時間
-	tzOffsetSeconds := utils.GetTimezoneOffsetSeconds()
-	tzModifier := fmt.Sprintf("%+d seconds", tzOffsetSeconds)
+	// 獲取配置時区的日期表達式（SQLite / MySQL 語法不同）
+	dateExpr := s.dateExprInConfiguredTimezone("created_at")
 
 	query := fmt.Sprintf(`
 		SELECT 
-			date(datetime(created_at, '%s')) as date,
+			%s as date,
 			COUNT(*) as total_trades,
 			COALESCE(SUM(quantity), 0) as total_volume,
 			COALESCE(SUM(pnl), 0) as gross_pnl,
@@ -2888,8 +2921,8 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 			COALESCE(SUM(CASE WHEN pnl > 0 THEN quantity ELSE 0 END), 0) as volume_profit,
 			COALESCE(SUM(CASE WHEN pnl <= 0 THEN quantity ELSE 0 END), 0) as volume_stop_loss
 		FROM %s
-		WHERE date(datetime(created_at, '%s')) >= ? AND date(datetime(created_at, '%s')) <= ?
-	`, tzModifier, s.tradesTbl(), tzModifier, tzModifier)
+		WHERE %s >= ? AND %s <= ?
+	`, dateExpr, s.tradesTbl(), dateExpr, dateExpr)
 	args := []interface{}{startDateStr, endDateStr}
 	if exchange != "" {
 		query += " AND exchange = ?"
@@ -2909,7 +2942,7 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 		query += " AND COALESCE(bot_id, '') = ?"
 		args = append(args, bid)
 	}
-	query += fmt.Sprintf(" GROUP BY date(datetime(created_at, '%s')) ORDER BY date DESC LIMIT ?", tzModifier)
+	query += " GROUP BY " + dateExpr + " ORDER BY date DESC LIMIT ?"
 	args = append(args, maxLimit)
 
 	rows, err := s.db.Query(query, args...)
@@ -2982,7 +3015,6 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 	return stats, nil
 }
 
-
 // Close 关闭數據库连接
 func (s *SQLStorage) Close() error {
 	if s.closed {
@@ -2991,8 +3023,3 @@ func (s *SQLStorage) Close() error {
 	s.closed = true
 	return s.db.Close()
 }
-
-
-
-
-

@@ -142,6 +142,199 @@ func migratePairedTradesBotIDMySQL(db *sql.DB) error {
 	return nil
 }
 
+// migrateOrdersTableMySQL 補齊歷史 MySQL orders 表缺失列。
+// 部署庫中 orders 可能由 GORM 舊模型創建，缺少 storage 層查詢依賴的 account/bot_id 等列。
+func migrateOrdersTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS orders (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  order_id BIGINT,
+  bot_id VARCHAR(128) DEFAULT '',
+  account VARCHAR(255) DEFAULT '',
+  client_order_id VARCHAR(255),
+  symbol VARCHAR(64),
+  side VARCHAR(16),
+  exchange VARCHAR(64) DEFAULT '',
+  ` + "`type`" + ` VARCHAR(32) DEFAULT '',
+  price DECIMAL(20,8),
+  quantity DECIMAL(20,8),
+  filled_qty DECIMAL(20,8) DEFAULT 0,
+  status VARCHAR(64),
+  realized_pnl DECIMAL(20,8),
+  strategy_name VARCHAR(128) DEFAULT '',
+  strategy_type VARCHAR(64) DEFAULT '',
+  order_source VARCHAR(64) DEFAULT '',
+  created_at TIMESTAMP(3) NULL,
+  updated_at TIMESTAMP(3) NULL,
+  KEY idx_orders_order_id (order_id),
+  KEY idx_orders_created_at (created_at),
+  KEY idx_orders_bot_id (bot_id),
+  KEY idx_orders_account (account),
+  KEY idx_orders_exchange_symbol (exchange, symbol)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"bot_id", "ALTER TABLE orders ADD COLUMN bot_id VARCHAR(128) DEFAULT ''"},
+		{"account", "ALTER TABLE orders ADD COLUMN account VARCHAR(255) DEFAULT ''"},
+		{"client_order_id", "ALTER TABLE orders ADD COLUMN client_order_id VARCHAR(255)"},
+		{"exchange", "ALTER TABLE orders ADD COLUMN exchange VARCHAR(64) DEFAULT ''"},
+		{"type", "ALTER TABLE orders ADD COLUMN `type` VARCHAR(32) DEFAULT ''"},
+		{"filled_qty", "ALTER TABLE orders ADD COLUMN filled_qty DECIMAL(20,8) DEFAULT 0"},
+		{"realized_pnl", "ALTER TABLE orders ADD COLUMN realized_pnl DECIMAL(20,8)"},
+		{"strategy_name", "ALTER TABLE orders ADD COLUMN strategy_name VARCHAR(128) DEFAULT ''"},
+		{"strategy_type", "ALTER TABLE orders ADD COLUMN strategy_type VARCHAR(64) DEFAULT ''"},
+		{"order_source", "ALTER TABLE orders ADD COLUMN order_source VARCHAR(64) DEFAULT ''"},
+		{"created_at", "ALTER TABLE orders ADD COLUMN created_at TIMESTAMP(3) NULL"},
+		{"updated_at", "ALTER TABLE orders ADD COLUMN updated_at TIMESTAMP(3) NULL"},
+	}
+	for _, col := range columns {
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND COLUMN_NAME = ?
+		`, col.name).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				return err
+			}
+			logger.Info("🔄 MySQL orders 表成功添加列: %s", col.name)
+		}
+	}
+
+	indexes := []struct {
+		name string
+		stmt string
+	}{
+		{"idx_orders_order_id", "CREATE INDEX idx_orders_order_id ON orders(order_id)"},
+		{"idx_orders_created_at", "CREATE INDEX idx_orders_created_at ON orders(created_at)"},
+		{"idx_orders_bot_id", "CREATE INDEX idx_orders_bot_id ON orders(bot_id)"},
+		{"idx_orders_account", "CREATE INDEX idx_orders_account ON orders(account)"},
+		{"idx_orders_exchange_symbol", "CREATE INDEX idx_orders_exchange_symbol ON orders(exchange, symbol)"},
+	}
+	for _, idx := range indexes {
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND INDEX_NAME = ?
+		`, idx.name).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := db.Exec(idx.stmt); err != nil {
+				return err
+			}
+		}
+	}
+	logger.Info("✅ MySQL orders 表已就緒")
+	return nil
+}
+
+// migrateStatisticsTableMySQL 補齊歷史 MySQL statistics 表與 storage 層查詢字段的差異。
+// 舊 GORM 表使用 trade_count/volume/total_pn_l；storage 層使用 total_trades/total_volume/total_pnl。
+func migrateStatisticsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS statistics (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  date DATETIME(3) NULL,
+  total_trades BIGINT DEFAULT 0,
+  total_volume DECIMAL(20,8) DEFAULT 0,
+  total_pnl DECIMAL(20,8) DEFAULT 0,
+  win_rate DECIMAL(10,4) DEFAULT 0,
+  created_at TIMESTAMP(3) NULL,
+  KEY idx_statistics_date (date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`)
+	if err != nil {
+		return err
+	}
+
+	columns := []struct {
+		name string
+		def  string
+	}{
+		{"date", "ALTER TABLE statistics ADD COLUMN date DATETIME(3) NULL"},
+		{"total_trades", "ALTER TABLE statistics ADD COLUMN total_trades BIGINT DEFAULT 0"},
+		{"total_volume", "ALTER TABLE statistics ADD COLUMN total_volume DECIMAL(20,8) DEFAULT 0"},
+		{"total_pnl", "ALTER TABLE statistics ADD COLUMN total_pnl DECIMAL(20,8) DEFAULT 0"},
+		{"win_rate", "ALTER TABLE statistics ADD COLUMN win_rate DECIMAL(10,4) DEFAULT 0"},
+		{"created_at", "ALTER TABLE statistics ADD COLUMN created_at TIMESTAMP(3) NULL"},
+	}
+	for _, col := range columns {
+		var count int
+		if err := db.QueryRow(`
+			SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+			WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'statistics' AND COLUMN_NAME = ?
+		`, col.name).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := db.Exec(col.def); err != nil {
+				return err
+			}
+			logger.Info("🔄 MySQL statistics 表成功添加列: %s", col.name)
+		}
+	}
+
+	var tradeCountCol, volumeCol, totalPnLCol int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'statistics' AND COLUMN_NAME = 'trade_count'
+	`).Scan(&tradeCountCol); err != nil {
+		return err
+	}
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'statistics' AND COLUMN_NAME = 'volume'
+	`).Scan(&volumeCol); err != nil {
+		return err
+	}
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'statistics' AND COLUMN_NAME = 'total_pn_l'
+	`).Scan(&totalPnLCol); err != nil {
+		return err
+	}
+	if tradeCountCol > 0 {
+		if _, err := db.Exec(`UPDATE statistics SET total_trades = IF((total_trades IS NULL OR total_trades = 0) AND trade_count IS NOT NULL, trade_count, total_trades)`); err != nil {
+			return err
+		}
+	}
+	if volumeCol > 0 {
+		if _, err := db.Exec(`UPDATE statistics SET total_volume = IF((total_volume IS NULL OR total_volume = 0) AND volume IS NOT NULL, volume, total_volume)`); err != nil {
+			return err
+		}
+	}
+	if totalPnLCol > 0 {
+		if _, err := db.Exec(`UPDATE statistics SET total_pnl = IF((total_pnl IS NULL OR total_pnl = 0) AND total_pn_l IS NOT NULL, total_pn_l, total_pnl)`); err != nil {
+			return err
+		}
+	}
+
+	var idxCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'statistics' AND INDEX_NAME = 'idx_statistics_date'
+	`).Scan(&idxCount); err != nil {
+		return err
+	}
+	if idxCount == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_statistics_date ON statistics(date)`); err != nil {
+			return err
+		}
+	}
+	logger.Info("✅ MySQL statistics 表已就緒")
+	return nil
+}
+
 // migrateBotStatesTableMySQL 遷移 Bot 啟停狀態表（MySQL）
 func migrateBotStatesTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
