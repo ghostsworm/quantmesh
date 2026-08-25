@@ -3,6 +3,8 @@ package backtest
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -414,14 +416,14 @@ func TestReportParamsTableWithLabels(t *testing.T) {
 	meta := &ReportMeta{
 		Interval: "1m",
 		Params: map[string]interface{}{
-			"grid_spacing":            170,
-			"grid_count":              60,
-			"order_quantity":          350,
-			"fee_rate":                0.0004,
-			"direction":               "SHORT",
-			"risk_volume_multiplier":  3.0,
-			"risk_average_window":     20,
-			"total_capital":           10000,
+			"grid_spacing":           170,
+			"grid_count":             60,
+			"order_quantity":         350,
+			"fee_rate":               0.0004,
+			"direction":              "SHORT",
+			"risk_volume_multiplier": 3.0,
+			"risk_average_window":    20,
+			"total_capital":          10000,
 		},
 	}
 	data := prepareReportData(result, meta)
@@ -443,5 +445,184 @@ func TestReportParamsTableWithLabels(t *testing.T) {
 		if row.Key == "手續費率" && !strings.Contains(row.Value, "%") {
 			t.Errorf("fee_rate value should show as percentage, got %q", row.Value)
 		}
+	}
+}
+
+func TestReportHelperFormattingBranches(t *testing.T) {
+	if got := getDirectionFromMeta(&ReportMeta{Params: map[string]interface{}{"direction": float64(0)}}); got != "LONG" {
+		t.Fatalf("float direction 0 = %q, want LONG", got)
+	}
+	if got := getDirectionFromMeta(&ReportMeta{Params: map[string]interface{}{"direction": float64(1)}}); got != "SHORT" {
+		t.Fatalf("float direction 1 = %q, want SHORT", got)
+	}
+	if got := getDirectionFromMeta(&ReportMeta{Params: map[string]interface{}{"direction": float64(2)}}); got != "BOTH" {
+		t.Fatalf("float direction 2 = %q, want BOTH", got)
+	}
+	if got := formatGridDirectionLabel(&ReportMeta{Params: map[string]interface{}{"direction": float64(2)}}); got != "雙向網格" {
+		t.Fatalf("float direction label = %q, want 雙向網格", got)
+	}
+
+	if got := formatComparisonEndPositionQty(-0.25, "SHORT", "ETH"); got != "欠 0.250000 ETH" {
+		t.Fatalf("short end qty = %q", got)
+	}
+	if got := formatComparisonEndPositionValue(-500, "SHORT"); got != "倉位負債 500.0000 USDT" {
+		t.Fatalf("short end value = %q", got)
+	}
+	if got := baseAssetFromSymbol("ethusdc"); got != "ETH" {
+		t.Fatalf("base asset = %q, want ETH", got)
+	}
+	if got := baseAssetFromSymbol("CUSTOMPAIR"); got != "CUSTOMPAIR" {
+		t.Fatalf("custom base asset = %q", got)
+	}
+	if got := formatStrategyConfig(map[string]interface{}{"z": true, "a": 2}); got != "a=2, z=true" {
+		t.Fatalf("strategy config = %q", got)
+	}
+}
+
+func TestGenerateReportToFileWithPriceCurveAndShortLeverage(t *testing.T) {
+	now := time.Unix(1780000000, 0)
+	result := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "ETHUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   10800,
+		StartTime:      now.Add(-48 * time.Hour),
+		EndTime:        now,
+		Trades: []Trade{
+			{Timestamp: now.Add(-40 * time.Hour).UnixMilli(), Type: "sell", Price: 3200, Quantity: 2},
+			{Timestamp: now.Add(-24 * time.Hour).UnixMilli(), Type: "buy", Price: 3000, Quantity: 1, PnL: 200},
+		},
+		Metrics: Metrics{
+			TotalReturn:      8,
+			AnnualizedReturn: 20,
+			MaxDrawdown:      5,
+			SharpeRatio:      1.6,
+			TotalTrades:      1,
+			BuyCount:         1,
+			SellCount:        1,
+			ProfitFactor:     math.Inf(1),
+		},
+		RiskMetrics: RiskMetrics{VaR95: 1.2, VaR99: 2.3, CVaR95: 3.4, CVaR99: 4.5},
+		PriceCurve: &PriceCurveSummary{
+			StartPrice:            3100,
+			EndPrice:              2900,
+			Top3Valleys:           []float64{2800, 2850},
+			Top3Peaks:             []float64{3300, 3250},
+			MaxConsecutiveDecline: 300,
+			MaxConsecutiveRise:    180,
+		},
+	}
+	meta := &ReportMeta{
+		Interval: "5m",
+		Params: map[string]interface{}{
+			"direction": "SHORT",
+			"leverage":  float64(5),
+			"fee_rate":  float64(0.0005),
+		},
+	}
+
+	path := filepath.Join(t.TempDir(), "reports", "short.md")
+	if err := GenerateReportToFile(result, path, meta); err != nil {
+		t.Fatalf("GenerateReportToFile() error = %v", err)
+	}
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read report: %v", err)
+	}
+	content := string(contentBytes)
+	for _, want := range []string{
+		"K 線周期 | 5m",
+		"欠 1.000000 ETH / 5x = 0.200000 ETH",
+		"倉位負債 2900.0000 USDT / 5x = 580.0000 USDT",
+		"∞（全部盈利）",
+		"策略 8.0000%",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("report should contain %q, got preview: %.500s", want, content)
+		}
+	}
+}
+
+func TestGenerateComparisonReportToFileAndAnalysisBranches(t *testing.T) {
+	now := time.Unix(1780000000, 0)
+	noRisk := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "BTCUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   11200,
+		StartTime:      now.Add(-72 * time.Hour),
+		EndTime:        now,
+		Trades: []Trade{
+			{Timestamp: now.Add(-60 * time.Hour).UnixMilli(), Type: "buy", Price: 60000, Quantity: 0.1},
+			{Timestamp: now.Add(-36 * time.Hour).UnixMilli(), Type: "sell", Price: 62000, Quantity: 0.1, PnL: 200},
+		},
+		Metrics:    Metrics{TotalReturn: 12, MaxDrawdown: 8, TotalTrades: 2, BuyCount: 1, SellCount: 1, SharpeRatio: 1.2, ProfitFactor: 2},
+		PriceCurve: &PriceCurveSummary{StartPrice: 60000, EndPrice: 61000},
+	}
+	withRisk := &BacktestResult{
+		Strategy:       "grid",
+		Symbol:         "BTCUSDT",
+		InitialCapital: 10000,
+		FinalCapital:   11600,
+		StartTime:      noRisk.StartTime,
+		EndTime:        noRisk.EndTime,
+		Trades: []Trade{
+			{Timestamp: now.Add(-58 * time.Hour).UnixMilli(), Type: "buy", Price: 59500, Quantity: 0.1},
+			{Timestamp: now.Add(-30 * time.Hour).UnixMilli(), Type: "sell", Price: 62500, Quantity: 0.1, PnL: 300},
+		},
+		Metrics: Metrics{TotalReturn: 16, MaxDrawdown: 5, TotalTrades: 2, BuyCount: 1, SellCount: 1, SharpeRatio: 1.4, ProfitFactor: 3},
+		RiskInterventions: []RiskIntervention{
+			{Timestamp: now.UnixMilli(), Reason: "volume spike", RiskType: "volume", Duration: 3, SkippedBuys: 2},
+			{TimeStr: "custom-time", Reason: "depth thin", RiskType: "depth", Duration: 1, SkippedBuys: 0},
+		},
+		PriceCurve: &PriceCurveSummary{StartPrice: 60000, EndPrice: 61000},
+	}
+	comparison := &ComparisonResult{
+		NoRiskResult:   noRisk,
+		WithRiskResult: withRisk,
+		Comparison: &ComparisonMetrics{
+			ReturnDiff:            4,
+			DrawdownDiff:          -3,
+			TradeCountDiff:        0,
+			RiskInterventionCount: 2,
+			SkippedSignals:        2,
+		},
+	}
+	path := filepath.Join(t.TempDir(), "comparison", "risk.md")
+	if err := GenerateComparisonReportToFile(comparison, path, &ReportMeta{Interval: "1m", Params: map[string]interface{}{"direction": "LONG"}}); err != nil {
+		t.Fatalf("GenerateComparisonReportToFile() error = %v", err)
+	}
+	contentBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read comparison report: %v", err)
+	}
+	content := string(contentBytes)
+	for _, want := range []string{
+		"無風控 vs 有風控對比",
+		"本次回測風控共介入 **2** 次",
+		"volume spike",
+		"custom-time",
+		"有風控收益率（16.0000%）較無風控（12.0000%）高 4.0000 個百分點",
+		"改善 3.0000 個百分點",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("comparison report should contain %q, got preview: %.800s", want, content)
+		}
+	}
+}
+
+func TestGenerateRiskAnalysisFallbacks(t *testing.T) {
+	comp := &ComparisonResult{
+		NoRiskResult:   &BacktestResult{Metrics: Metrics{TotalReturn: 5, MaxDrawdown: 4}},
+		WithRiskResult: &BacktestResult{Metrics: Metrics{TotalReturn: 5, MaxDrawdown: 6}},
+	}
+	if got := generateRiskAnalysis(comp); got != "風控對比數據不可用。" {
+		t.Fatalf("nil comparison analysis = %q", got)
+	}
+
+	comp.Comparison = &ComparisonMetrics{ReturnDiff: 0, DrawdownDiff: 2}
+	got := generateRiskAnalysis(comp)
+	if !strings.Contains(got, "風控未觸發") || !strings.Contains(got, "收益率相同") || !strings.Contains(got, "增大 2.0000 個百分點") {
+		t.Fatalf("unexpected neutral analysis: %s", got)
 	}
 }
