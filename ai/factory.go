@@ -45,5 +45,11 @@ func NewAIClient(provider, model, apiKey, baseURL string) (AIClient, error) {
 		provider = "openai"
 	}
 
+	// dashscope_sg 的默认端点含 {WorkspaceId} 占位符，天生不可直接使用，
+	// 必须由用户提供替换后的实际 base_url，否则会拼出非法域名。
+	if provider == "dashscope_sg" && baseURL == "" {
+		return nil, fmt.Errorf("dashscope_sg provider 需要配置 base_url（默认端点含 {WorkspaceId} 占位符，需替换为实际工作空间 ID）")
+	}
+
 	return providers.NewQueueProvider(provider, apiKey, model, baseURL), nil
 }

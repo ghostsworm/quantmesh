@@ -2,6 +2,24 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.110.0-rc2] - 2026-08-26
+
+### Fixed
+- **DashScope 新加坡端點的 `{WorkspaceId}` 佔位符後端無兜底**：`defaultOpenAICompatibleBaseURL` 在 `base_url` 為空時會回傳含 `{WorkspaceId}` 的預設端點，先前只有 AI 配置向導做前端校驗，走非向導路徑（直接呼叫 API、改配置檔、或使用者照抄官方文件沒替換）會拼出非法網域，底層只拋出一句看不出根因的 DNS 錯誤。現補上兩層攔截：
+  - `ai/service/transport_openai.go` 在發請求前校驗解析後的 `base_url`，偵測到任何未替換的 `{Xxx}` 模板佔位符即返回點名該佔位符的錯誤。此處為統一收口，同時涵蓋「沒填 base_url 落到預設值」與「填了但沒替換」兩種情形，且不限於 DashScope。
+  - `ai/factory.go` 對 `dashscope_sg` 增加與 `poe` / 自訂中轉站同級的 `base_url` 必填校驗，在建立 client 時就報錯，而非等到第一次請求。
+
+- **MCP「今日盈亏」在伺服器時區與配置時區不一致時查錯日期**：`mcp/tools_pnl.go` 用本機 `time.Now()` 構造日期串，而 `GetDailyTradesSummary` 是按「配置時區」對 `created_at` 分桶的。伺服器跑 UTC、配置寫 `Asia/Shanghai` 時，每天有 8 小時窗口（配置時區 00:00~08:00）會回傳前一天的數據。改用 `utils.NowConfiguredTimezone()`，與 `main.go` 既有的時間處理約定一致。此問題由 `TestSQLStoragePositionTradeMetricsAndAggregateQueries` 在 UTC 16:00 後跨日時暴露——該測試同樣用 UTC 日期去對配置時區的分桶，屬每天固定失敗 8 小時的時間炸彈，一併修正。
+
+### Added
+- `ai/service/transport_placeholder_test.go`、`ai/factory_test.go`：佔位符攔截與 provider `base_url` 必填規則的回歸測試，並覆蓋「已替換的 base_url 必須照常放行」以確保攔截沒有誤傷正常路徑。
+- `storage/daily_summary_timezone_test.go`：時區邊界回歸測試。顯式構造落在跨日邊界上的時間戳（2026-08-25 16:30 UTC == 2026-08-26 00:30 Asia/Shanghai），任何時刻跑都能穩定復現，不像原測試那樣只在特定時段才暴露問題。
+
+### Changed
+- 版本号同步前后端到 `3.110.0-rc2`（純 bugfix，僅遞增 rc 號）。
+
+---
+
 ## [3.110.0-rc1] - 2026-08-25
 
 ### Added

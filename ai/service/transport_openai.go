@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -16,6 +17,20 @@ type openAITransport struct{}
 
 const openAIDefaultBaseURL = "https://api.openai.com/v1"
 const openAIDefaultModel = "gpt-4o-mini"
+
+// urlPlaceholderPattern 匹配 base_url 裡未被替換的模板佔位符，如 {WorkspaceId}。
+// DashScope 新加坡的端點形如 https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/…，
+// 使用者若照抄官方文件而沒替換，或壓根沒填 base_url 而落到預設值，
+// 拼出來的網域是非法的，底層只會拋出一句看不出根因的 DNS 錯誤。
+var urlPlaceholderPattern = regexp.MustCompile(`\{[A-Za-z0-9_]+\}`)
+
+// validateResolvedBaseURL 在發請求前攔截仍含佔位符的 base_url
+func validateResolvedBaseURL(baseURL string) error {
+	if m := urlPlaceholderPattern.FindString(baseURL); m != "" {
+		return fmt.Errorf("base_url 仍含未替換的佔位符 %s，请填入實際值後重試（當前 base_url: %s）", m, baseURL)
+	}
+	return nil
+}
 
 func defaultOpenAICompatibleBaseURL(provider string) string {
 	switch NormalizeProvider(provider) {
@@ -82,6 +97,9 @@ func (openAITransport) Do(ctx context.Context, httpClient *http.Client, req chat
 	baseURL := req.BaseURL
 	if baseURL == "" {
 		baseURL = defaultOpenAICompatibleBaseURL(req.Provider)
+	}
+	if err := validateResolvedBaseURL(baseURL); err != nil {
+		return chatResult{}, err
 	}
 	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(baseURL, "/"))
 

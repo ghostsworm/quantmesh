@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"quantmesh/utils"
 )
 
 // RegisterPnLTools PNL / 统计查询。
@@ -31,7 +33,11 @@ func RegisterPnLTools(s *Server, p Providers) {
 				BotID    string `json:"bot_id"`
 			}
 			_ = json.Unmarshal(args, &q)
-			date := time.Now().Format("2006-01-02")
+			// GetDailyTradesSummary 按「配置時區」對 created_at 分桶，
+			// 這裡若用本機 time.Now()，在伺服器本機時區與配置時區不一致時
+			// （例如伺服器跑 UTC、配置寫 Asia/Shanghai）會查錯日期，
+			// 每天有數小時的窗口回傳到前一天/後一天的數據。
+			date := utils.NowConfiguredTimezone().Format("2006-01-02")
 			count, gross, fee, err := p.Storage.GetDailyTradesSummary(q.Exchange, q.Account, date, q.BotID)
 			if err != nil {
 				return nil, err
