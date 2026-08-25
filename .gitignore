@@ -102,8 +102,8 @@ test_logs
 .gh_key
 
 # 回测运行产物（带时间戳的报表/权益曲线/结果 JSON，属于运行输出而非源码）
-# 注意：仓库里已有历史遗留的同类文件仍处于跟踪状态，本规则只阻止新产物入库；
-# 如需彻底清理，另行执行 git rm --cached 后单独提交。
+# 历史遗留的 347 个同类文件已于 3.110.0-rc1 用 git rm --cached 移出跟踪，
+# 本地磁盘文件保留未删。
 backtest/backtest/
 web/backtest/reports/
 web/backtest/results/
