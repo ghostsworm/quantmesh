@@ -1505,9 +1505,15 @@ const Configuration: React.FC = () => {
                               borderRadius="xl"
                               size="sm"
                             >
-                              <option value="gemini">{t('configuration.protocolGemini')}</option>
-                              <option value="openai">{t('configuration.protocolOpenAICompatible')}</option>
+                              <option value="gemini">{t('aiConfig.wizard.providers.gemini')}</option>
+                              <option value="openai">{t('aiConfig.wizard.providers.openai')}</option>
+                              <option value="dashscope">{t('aiConfig.wizard.providers.dashscopeCn')}</option>
+                              <option value="dashscope_sg">{t('aiConfig.wizard.providers.dashscopeSg')}</option>
+                              <option value="kimi">{t('aiConfig.wizard.providers.kimiCn')}</option>
+                              <option value="kimi_intl">{t('aiConfig.wizard.providers.kimiIntl')}</option>
+                              <option value="deepseek">{t('aiConfig.wizard.providers.deepseek')}</option>
                               <option value="claude">{t('configuration.protocolClaude')}</option>
+                              <option value="custom">{t('aiConfig.wizard.providers.custom')}</option>
                             </Select>
                           </FormControl>
                           <FormControl>
@@ -1526,11 +1532,11 @@ const Configuration: React.FC = () => {
                           {renderPasswordInput('ai.api_key', t('configuration.enterApiKeyPlaceholder'))}
                           <Text fontSize="xs" color="gray.500" mt={1}>
                             {(config.ai?.provider || 'gemini') === 'gemini' && t('configuration.geminiApiKeyDesc')}
-                            {config.ai?.provider === 'openai' && t('configuration.apiKeyFromOpenAI')}
+                            {['openai', 'dashscope', 'dashscope_sg', 'kimi', 'kimi_intl', 'deepseek', 'custom'].includes(config.ai?.provider || '') && t('configuration.apiKeyFromOpenAI')}
                             {config.ai?.provider === 'claude' && t('configuration.apiKeyFromAnthropic')}
                           </Text>
                         </FormControl>
-                        {(config.ai?.provider === 'openai' || config.ai?.provider === 'claude') && (
+                        {(['openai', 'dashscope', 'dashscope_sg', 'kimi', 'kimi_intl', 'deepseek', 'custom', 'claude'].includes(config.ai?.provider || '')) && (
                           <FormControl>
                             <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.baseUrlOptional')}</FormLabel>
                             <Input
@@ -3624,8 +3630,15 @@ const Configuration: React.FC = () => {
                         <FormControl>
                           <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.provider')}</FormLabel>
                           <Select value={config.ai?.provider || ''} onChange={(e) => updateConfigField('ai.provider', e.target.value)} borderRadius="xl">
-                            <option value="gemini">Gemini</option>
-                            <option value="openai">OpenAI</option>
+                            <option value="gemini">{t('aiConfig.wizard.providers.gemini')}</option>
+                            <option value="openai">{t('aiConfig.wizard.providers.openai')}</option>
+                            <option value="dashscope">{t('aiConfig.wizard.providers.dashscopeCn')}</option>
+                            <option value="dashscope_sg">{t('aiConfig.wizard.providers.dashscopeSg')}</option>
+                            <option value="kimi">{t('aiConfig.wizard.providers.kimiCn')}</option>
+                            <option value="kimi_intl">{t('aiConfig.wizard.providers.kimiIntl')}</option>
+                            <option value="deepseek">{t('aiConfig.wizard.providers.deepseek')}</option>
+                            <option value="claude">{t('configuration.protocolClaude')}</option>
+                            <option value="custom">{t('aiConfig.wizard.providers.custom')}</option>
                           </Select>
                         </FormControl>
                         <FormControl>
@@ -3640,6 +3653,26 @@ const Configuration: React.FC = () => {
                         <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.apiKey')}</FormLabel>
                         {renderPasswordInput('ai.api_key')}
                       </FormControl>
+                      <SimpleGrid columns={2} spacing={6} mt={4}>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.model')}</FormLabel>
+                          <Input
+                            value={config.ai?.model || ''}
+                            onChange={(e) => updateConfigField('ai.model', e.target.value)}
+                            placeholder={t('configuration.useDefaultModel')}
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                        <FormControl>
+                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.baseUrlOptional')}</FormLabel>
+                          <Input
+                            value={config.ai?.base_url || ''}
+                            onChange={(e) => updateConfigField('ai.base_url', e.target.value)}
+                            placeholder={t('configuration.baseUrlPlaceholder')}
+                            borderRadius="xl"
+                          />
+                        </FormControl>
+                      </SimpleGrid>
                     </ConfigCard>
                   </VStack>
                 )}

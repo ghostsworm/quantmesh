@@ -26,6 +26,10 @@ func TestAIServiceProviderLabelsAndMasking(t *testing.T) {
 	modelCases := map[string]string{
 		"openai":    openAIDefaultModel,
 		"poe":       openAIDefaultModel,
+		"custom":    openAIDefaultModel,
+		"dashscope": "qwen-plus",
+		"deepseek":  "deepseek-v4-pro",
+		"kimi":      "kimi-k2.6",
 		"claude":    claudeDefaultModel,
 		"anthropic": claudeDefaultModel,
 		"gemini":    geminiDefaultModel,
@@ -45,6 +49,9 @@ func TestAIServiceProviderLabelsAndMasking(t *testing.T) {
 	}
 	if got := usageModelLabel("openai", "gpt-5"); got != "openai:gpt-5" {
 		t.Fatalf("openai usage label = %q", got)
+	}
+	if got := usageModelLabel("dashscope_sg", "qwen-plus"); got != "dashscope_sg:qwen-plus" {
+		t.Fatalf("dashscope usage label = %q", got)
 	}
 
 	if got := maskAPIKey("short"); got != "****" {

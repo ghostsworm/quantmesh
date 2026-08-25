@@ -74,6 +74,130 @@ type WizardStep =
   | 'preview' 
   | 'success';
 
+type AIProviderPresetId =
+  | 'gemini'
+  | 'openai'
+  | 'dashscope_cn'
+  | 'dashscope_sg'
+  | 'kimi_cn'
+  | 'kimi_intl'
+  | 'deepseek'
+  | 'claude'
+  | 'custom'
+
+interface AIProviderPreset {
+  id: AIProviderPresetId
+  provider: string
+  labelKey: string
+  defaultModel: string
+  defaultBaseURL: string
+  keyHelpURL?: string
+  needsBaseURL: boolean
+  baseURLHintKey?: string
+}
+
+const AI_PROVIDER_PRESETS: AIProviderPreset[] = [
+  {
+    id: 'gemini',
+    provider: 'gemini',
+    labelKey: 'aiConfig.wizard.providers.gemini',
+    defaultModel: 'gemini-3-flash-preview',
+    defaultBaseURL: '',
+    keyHelpURL: 'https://aistudio.google.com/app/apikey',
+    needsBaseURL: false,
+  },
+  {
+    id: 'openai',
+    provider: 'openai',
+    labelKey: 'aiConfig.wizard.providers.openai',
+    defaultModel: 'gpt-4o-mini',
+    defaultBaseURL: 'https://api.openai.com/v1',
+    keyHelpURL: 'https://platform.openai.com/api-keys',
+    needsBaseURL: true,
+  },
+  {
+    id: 'dashscope_cn',
+    provider: 'dashscope',
+    labelKey: 'aiConfig.wizard.providers.dashscopeCn',
+    defaultModel: 'qwen-plus',
+    defaultBaseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    keyHelpURL: 'https://bailian.console.aliyun.com/',
+    needsBaseURL: true,
+  },
+  {
+    id: 'dashscope_sg',
+    provider: 'dashscope_sg',
+    labelKey: 'aiConfig.wizard.providers.dashscopeSg',
+    defaultModel: 'qwen-plus',
+    defaultBaseURL: 'https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+    keyHelpURL: 'https://bailian.console.aliyun.com/',
+    needsBaseURL: true,
+    baseURLHintKey: 'aiConfig.wizard.dashscopeSgBaseURLHint',
+  },
+  {
+    id: 'kimi_cn',
+    provider: 'kimi',
+    labelKey: 'aiConfig.wizard.providers.kimiCn',
+    defaultModel: 'kimi-k2.6',
+    defaultBaseURL: 'https://api.moonshot.cn/v1',
+    keyHelpURL: 'https://platform.kimi.com/',
+    needsBaseURL: true,
+  },
+  {
+    id: 'kimi_intl',
+    provider: 'kimi_intl',
+    labelKey: 'aiConfig.wizard.providers.kimiIntl',
+    defaultModel: 'kimi-k2.6',
+    defaultBaseURL: 'https://api.moonshot.ai/v1',
+    keyHelpURL: 'https://platform.kimi.ai/',
+    needsBaseURL: true,
+  },
+  {
+    id: 'deepseek',
+    provider: 'deepseek',
+    labelKey: 'aiConfig.wizard.providers.deepseek',
+    defaultModel: 'deepseek-v4-pro',
+    defaultBaseURL: 'https://api.deepseek.com',
+    keyHelpURL: 'https://platform.deepseek.com/',
+    needsBaseURL: true,
+  },
+  {
+    id: 'claude',
+    provider: 'claude',
+    labelKey: 'aiConfig.wizard.providers.claude',
+    defaultModel: 'claude-3-5-sonnet-latest',
+    defaultBaseURL: '',
+    keyHelpURL: 'https://console.anthropic.com/settings/keys',
+    needsBaseURL: false,
+  },
+  {
+    id: 'custom',
+    provider: 'custom',
+    labelKey: 'aiConfig.wizard.providers.custom',
+    defaultModel: 'gpt-4o-mini',
+    defaultBaseURL: '',
+    needsBaseURL: true,
+    baseURLHintKey: 'aiConfig.wizard.customBaseURLHint',
+  },
+]
+
+const getPresetById = (id: AIProviderPresetId): AIProviderPreset =>
+  AI_PROVIDER_PRESETS.find(p => p.id === id) || AI_PROVIDER_PRESETS[0]
+
+const inferPresetId = (provider?: string, baseURL?: string): AIProviderPresetId => {
+  const normalizedProvider = (provider || 'gemini').trim().toLowerCase()
+  const normalizedBaseURL = (baseURL || '').trim().toLowerCase()
+  if (normalizedProvider === 'dashscope_sg' || normalizedBaseURL.includes('ap-southeast-1.maas.aliyuncs.com') || normalizedBaseURL.includes('dashscope-intl.aliyuncs.com')) return 'dashscope_sg'
+  if (['dashscope', 'dashscope_cn', 'aliyun', 'qwen'].includes(normalizedProvider) || normalizedBaseURL.includes('dashscope.aliyuncs.com')) return 'dashscope_cn'
+  if (normalizedProvider === 'kimi_intl' || normalizedBaseURL.includes('api.moonshot.ai')) return 'kimi_intl'
+  if (['kimi', 'kimi_cn', 'moonshot'].includes(normalizedProvider) || normalizedBaseURL.includes('api.moonshot.cn')) return 'kimi_cn'
+  if (normalizedProvider === 'deepseek' || normalizedBaseURL.includes('api.deepseek.com')) return 'deepseek'
+  if (normalizedProvider === 'openai' || normalizedBaseURL.includes('api.openai.com')) return 'openai'
+  if (['claude', 'anthropic'].includes(normalizedProvider) || normalizedBaseURL.includes('api.anthropic.com')) return 'claude'
+  if (['custom', 'proxy', 'oneapi', 'openai_compatible', 'openai-compatible'].includes(normalizedProvider)) return 'custom'
+  return 'gemini'
+}
+
 const AIConfigWizard: React.FC<AIConfigWizardProps> = ({ 
   isOpen, 
   onClose, 
@@ -86,7 +210,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const [step, setStep] = useState<WizardStep>('ai-setup')
   const [loading, setLoading] = useState(false)
   
-  // Gemini API Key
+  // AI 上游配置
+  const [aiProviderPreset, setAIProviderPreset] = useState<AIProviderPresetId>('gemini')
+  const [aiModel, setAIModel] = useState(getPresetById('gemini').defaultModel)
+  const [aiBaseURL, setAIBaseURL] = useState(getPresetById('gemini').defaultBaseURL)
   const [geminiApiKey, setGeminiApiKey] = useState('')
   const [showApiKey, setShowApiKey] = useState(false)
   const [isKeyFromConfig, setIsKeyFromConfig] = useState(false) // 標記 Key 是否来自配置文件
@@ -161,6 +288,28 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   // 使用傳入的交易所，如果没有傳入则從配置獲取或默认
   const [exchange, setExchange] = useState(propsExchange || 'binance')
   const symbols = propsSymbols || [] // 可選的所有币种列表
+  const selectedAIPreset = getPresetById(aiProviderPreset)
+
+  const buildAIRequestFields = () => ({
+    gemini_api_key: geminiApiKey,
+    api_key: geminiApiKey,
+    provider: selectedAIPreset.provider,
+    model: aiModel.trim() || selectedAIPreset.defaultModel,
+    base_url: aiBaseURL.trim() || undefined,
+  })
+
+  const validateAISetup = (): string | null => {
+    if (!geminiApiKey.trim()) {
+      return t('aiConfig.wizard.enterApiKeyError')
+    }
+    if (selectedAIPreset.needsBaseURL && !aiBaseURL.trim()) {
+      return t('aiConfig.wizard.enterBaseURLError')
+    }
+    if (aiBaseURL.includes('{WorkspaceId}')) {
+      return t('aiConfig.wizard.replaceWorkspaceIdError')
+    }
+    return null
+  }
 
   // 弹窗打开時，預填配置中的 Gemini Key 和访问模式（若存在）
   useEffect(() => {
@@ -174,7 +323,14 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           setExchange(cfg.app.current_exchange)
         }
 
-        // 优先從配置文件读取 Gemini API Key
+        // 加載 AI provider / model / endpoint
+        const configuredPreset = inferPresetId(cfg?.ai?.provider, cfg?.ai?.base_url)
+        const preset = getPresetById(configuredPreset)
+        setAIProviderPreset(configuredPreset)
+        setAIModel(cfg?.ai?.model || preset.defaultModel)
+        setAIBaseURL(cfg?.ai?.base_url || preset.defaultBaseURL)
+
+        // 优先從配置文件读取 AI API Key
         const keyFromConfig =
           cfg?.ai?.gemini_api_key ||
           cfg?.ai?.api_key ||
@@ -185,24 +341,6 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
           setIsKeyFromConfig(true) // 標記 Key 来自配置文件
         } else {
           setIsKeyFromConfig(false)
-        }
-        
-        // 加載访问模式配置
-        if (cfg?.ai?.access_mode) {
-          setAccessMode(cfg.ai.access_mode as 'native' | 'proxy')
-        }
-        
-        // 加載代理配置
-        if (cfg?.ai?.proxy) {
-          if (cfg.ai.proxy.base_url) {
-            setProxyBaseURL(cfg.ai.proxy.base_url)
-          }
-          if (cfg.ai.proxy.username) {
-            setProxyUsername(cfg.ai.proxy.username)
-          }
-          if (cfg.ai.proxy.password) {
-            setProxyPassword(cfg.ai.proxy.password)
-          }
         }
 
         // 初始化已选币种
@@ -309,8 +447,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
 
   const handleNext = () => {
     if (step === 'ai-setup') {
-      if (!geminiApiKey.trim()) {
-        setError(t('aiConfig.wizard.enterApiKeyError'))
+      const setupError = validateAISetup()
+      if (setupError) {
+        setError(setupError)
         return
       }
       setStep('asset-alloc')
@@ -586,9 +725,10 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const totalSymbolCapitals = symbolCapitals.reduce((sum, sc) => sum + sc.capital, 0)
 
   const handleGenerate = async () => {
-    // 驗证 Gemini API Key
-    if (!geminiApiKey.trim()) {
-      setError(t('aiConfig.wizard.enterApiKeyError'))
+    // 驗证 AI 上游配置
+    const setupError = validateAISetup()
+    if (setupError) {
+      setError(setupError)
       return
     }
 
@@ -652,7 +792,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         symbols: primarySymbols,
         capital_mode: 'per_symbol', // 使用按币种分配模式
         risk_profile: riskProfile,
-        gemini_api_key: geminiApiKey,  // 傳遞 API Key
+        ...buildAIRequestFields(),
         
         // 资產优先重構新增字段
         symbol_allocations: symbolAllocationsMap,
@@ -874,7 +1014,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   }
 
   const handleReset = () => {
-    setStep('form')
+    setStep('ai-setup')
     setAiConfig(null)
     setError(null)
   }
@@ -887,8 +1027,9 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   // AI 推荐：资產比例分配
   const [recommendingAllocations, setRecommendingAllocations] = useState(false)
   const handleAIRecommendAllocations = async () => {
-    if (!geminiApiKey.trim()) {
-      toast({ title: t('aiConfig.wizard.setApiKeyFirst'), status: 'warning', duration: 3000 })
+    const setupError = validateAISetup()
+    if (setupError) {
+      toast({ title: t('aiConfig.wizard.setApiKeyFirst'), description: setupError, status: 'warning', duration: 3000 })
       return
     }
     if (selectedSymbols.length === 0) {
@@ -906,7 +1047,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
         capital_mode: 'total',
         total_capital: totalCapital,
         risk_profile: riskProfile,
-        gemini_api_key: geminiApiKey,
+        ...buildAIRequestFields(),
       }
 
       const result = await generateAIConfig(request)
@@ -1225,11 +1366,59 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               </Alert>
 
               <FormControl isRequired>
-                <FormLabel>{t('aiConfig.wizard.geminiApiKeyLabel')}</FormLabel>
+                <FormLabel>{t('aiConfig.wizard.providerLabel')}</FormLabel>
+                <Select
+                  value={aiProviderPreset}
+                  onChange={(e) => {
+                    const nextPresetId = e.target.value as AIProviderPresetId
+                    const nextPreset = getPresetById(nextPresetId)
+                    setAIProviderPreset(nextPresetId)
+                    setAIModel(nextPreset.defaultModel)
+                    setAIBaseURL(nextPreset.defaultBaseURL)
+                  }}
+                  borderRadius="xl"
+                >
+                  {AI_PROVIDER_PRESETS.map(preset => (
+                    <option key={preset.id} value={preset.id}>
+                      {t(preset.labelKey)}
+                    </option>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {selectedAIPreset.needsBaseURL && (
+                <FormControl isRequired>
+                  <FormLabel>{t('aiConfig.wizard.baseURLLabel')}</FormLabel>
+                  <Input
+                    value={aiBaseURL}
+                    onChange={(e) => setAIBaseURL(e.target.value)}
+                    placeholder={t('aiConfig.wizard.baseURLPlaceholder')}
+                    borderRadius="xl"
+                  />
+                  {selectedAIPreset.baseURLHintKey && (
+                    <Text fontSize="xs" color="gray.500" mt={1}>
+                      {t(selectedAIPreset.baseURLHintKey)}
+                    </Text>
+                  )}
+                </FormControl>
+              )}
+
+              <FormControl>
+                <FormLabel>{t('aiConfig.wizard.modelLabel')}</FormLabel>
+                <Input
+                  value={aiModel}
+                  onChange={(e) => setAIModel(e.target.value)}
+                  placeholder={t('aiConfig.wizard.modelPlaceholder')}
+                  borderRadius="xl"
+                />
+              </FormControl>
+
+              <FormControl isRequired>
+                <FormLabel>{t('aiConfig.wizard.apiKeyLabel')}</FormLabel>
                 <InputGroup size="md">
                   <Input
                     type={showApiKey ? 'text' : 'password'}
-                    placeholder={t('aiConfig.wizard.geminiApiKeyPlaceholder')}
+                    placeholder={t('aiConfig.wizard.apiKeyPlaceholder')}
                     value={geminiApiKey}
                     onChange={(e) => {
                       setGeminiApiKey(e.target.value)
@@ -1253,9 +1442,11 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                     {t('aiConfig.wizard.keyFromConfig')}
                   </Text>
                 )}
-                <Text fontSize="xs" color="gray.500" mt={isKeyFromConfig && geminiApiKey ? 0 : 2}>
-                  {t('aiConfig.wizard.noKeyYet')} <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>{t('aiConfig.wizard.getKeyLink')}</a>
-                </Text>
+                {selectedAIPreset.keyHelpURL && (
+                  <Text fontSize="xs" color="gray.500" mt={isKeyFromConfig && geminiApiKey ? 0 : 2}>
+                    {t('aiConfig.wizard.noKeyYet')} <a href={selectedAIPreset.keyHelpURL} target="_blank" rel="noopener noreferrer" style={{ color: '#3182ce', textDecoration: 'underline' }}>{t('aiConfig.wizard.getKeyLink')}</a>
+                  </Text>
+                )}
               </FormControl>
             </VStack>
           )}
@@ -2167,7 +2358,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
               <Button
                 colorScheme="blue"
                 onClick={handleNext}
-                isDisabled={step === 'ai-setup' && !geminiApiKey.trim()}
+                isDisabled={step === 'ai-setup' && Boolean(validateAISetup())}
               >
                 {t('aiConfig.wizard.nextStep')}
               </Button>

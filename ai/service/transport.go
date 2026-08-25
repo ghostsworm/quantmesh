@@ -10,6 +10,7 @@ import (
 type chatRequest struct {
 	Prompt            string
 	SystemInstruction string
+	Provider          string
 	Model             string
 	APIKey            string
 	BaseURL           string
@@ -33,10 +34,10 @@ type providerTransport interface {
 
 // resolveTransport 按 provider 选择协议适配器。
 // 空值或未知 provider 一律回退 gemini，保持历史行为零回归。
-// poe 归入 OpenAI 兼容协议（用户填 base_url 即可）。
+// DeepSeek / DashScope / Kimi / Poe / 自定义中转站归入 OpenAI 兼容协议。
 func resolveTransport(provider string) providerTransport {
-	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openai", "poe":
+	switch NormalizeProvider(provider) {
+	case "openai", "poe", "dashscope", "dashscope_sg", "kimi", "kimi_intl", "deepseek", "openai_compatible":
 		return openAITransport{}
 	case "claude", "anthropic":
 		return claudeTransport{}
@@ -44,6 +45,36 @@ func resolveTransport(provider string) providerTransport {
 		return geminiTransport{}
 	default:
 		return geminiTransport{}
+	}
+}
+
+// NormalizeProvider 将 UI/配置里常见的 provider 别名归一化为 transport 可识别的枚举。
+func NormalizeProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "":
+		return "gemini"
+	case "gemini", "google", "google-gemini":
+		return "gemini"
+	case "openai":
+		return "openai"
+	case "claude", "anthropic":
+		return "claude"
+	case "poe":
+		return "poe"
+	case "dashscope", "dashscope_cn", "dashscope-cn", "aliyun", "aliyun_dashscope", "qwen":
+		return "dashscope"
+	case "dashscope_sg", "dashscope-sg", "dashscope_intl", "dashscope-intl", "aliyun_sg", "aliyun-singapore":
+		return "dashscope_sg"
+	case "kimi", "kimi_cn", "kimi-cn", "moonshot", "moonshot_cn", "moonshot-cn":
+		return "kimi"
+	case "kimi_intl", "kimi-intl", "kimi_global", "kimi-global", "moonshot_intl", "moonshot-intl":
+		return "kimi_intl"
+	case "deepseek":
+		return "deepseek"
+	case "custom", "proxy", "oneapi", "openai_compatible", "openai-compatible", "relay":
+		return "openai_compatible"
+	default:
+		return strings.ToLower(strings.TrimSpace(provider))
 	}
 }
 

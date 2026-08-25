@@ -2653,6 +2653,10 @@ export interface AIGenerateConfigRequest {
   capital_mode: 'total' | 'per_symbol'  // 资金配置模式
   risk_profile: 'conservative' | 'balanced' | 'aggressive'
   gemini_api_key?: string  // 可選的 Gemini API Key，如果提供则临時使用
+  api_key?: string  // 通用 AI API Key，优先于 gemini_api_key
+  provider?: string  // gemini/openai/claude/dashscope/kimi/deepseek/custom
+  model?: string
+  base_url?: string
   
   // 资產优先重構新增字段
   symbol_allocations?: Record<string, number> // 币种比例分配 symbol -> weight (0-1)

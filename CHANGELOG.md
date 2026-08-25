@@ -2,6 +2,17 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.110.0-rc1] - 2026-08-25
+
+### Added
+- **AI 配置向导支持多供应商上游**：首次使用向导的 AI 环境设置从仅支持 Gemini 改为支持 Google Gemini、OpenAI、Claude/Anthropic Messages、阿里云百炼 DashScope（北京/新加坡）、Kimi/Moonshot（中国站/国际站）、DeepSeek 和自定义 OpenAI 兼容中转站；支持 provider、model、base_url、api_key 一起透传到后端异步生成任务，并对 DashScope 新加坡 `{WorkspaceId}` 占位符做前端校验。
+
+### Changed
+- **AI provider 后端路由泛化**：新增 `service.NormalizeProvider` 统一归一化 provider 别名（含 `anthropic`→`claude`、空值→`gemini`）；DeepSeek、DashScope、Kimi 与自定义中转站统一走 OpenAI 兼容 transport，补齐各 provider 默认模型和默认 Base URL；配置页 AI provider 下拉同步扩展，不再把新上游误回退到 Gemini。
+- 版本号同步前后端到 `3.110.0-rc1`。
+
+---
+
 ## [3.109.0-rc2] - 2026-08-25
 
 ### Fixed
