@@ -862,7 +862,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		spm.exchangeName,
 		spm.config.Trading.Symbol,
 		currentPrice,
-		spm.anchorPrice,
+		spm.anchorPrice(),
 		positionLayers,
 		unrealizedPnL,
 	)

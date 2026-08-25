@@ -162,8 +162,8 @@ func applyStrategyTemplate(c *gin.Context) {
 	}
 
 	// 检查 Bot 是否正在运行
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_apply_template",

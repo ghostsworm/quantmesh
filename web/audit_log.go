@@ -169,6 +169,10 @@ func (al *AuditLogger) Query(username string, action string, startTime, endTime 
 		logs = append(logs, log)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷審計日志失败: %w", err)
+	}
+
 	return logs, nil
 }
 

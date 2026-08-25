@@ -2,6 +2,32 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.109.0-rc2] - 2026-08-25
+
+### Fixed
+- **下單數量因浮點誤差憑空少一個步長（資金損失）**：`roundToStepSize` 直接用 `math.Floor(qty/step)*step`，而 `0.3/0.1` 在雙精度下等於 `2.9999999999999996`，Floor 後變成 2，實際只下 0.2——少了 33%。同一份實現被複製到 Binance 合約、Binance 現貨、Coins.ph、Bitkub 四個適配器。價格側同理：`8.70/0.01 = 869.9999999999999` 讓限價買單被壓到 8.69，賣單 `0.07` 被抬到 0.08，網格每一檔都系統性偏移一個 tick。
+- **統一取整實現**：新增 `utils.FloorToStep` / `CeilToStep` / `RoundToStep` / `FloorToDecimals` / `RoundToDecimals`，先消除 IEEE754 表示誤差再取整，容差按數值量級縮放（相對 1e-13，約數百個 ULP），既吸收表示誤差又不會把該截斷的值誤判為已對齊。四個適配器改為共用該實現。
+- **下單數量取整方向不一致**：`futures_long` / `futures_short` / `spot_long` / `spot_short` 的 `roundQuantity` 用的是四捨五入，會向上取整，而適配器層與 `ExchangeOrderExecutor` 都是向下取整。現貨賣出沒有 `ReduceOnly` 兜底，向上取整會直接超出持有量被交易所拒單。四處統一改為向下取整。
+- **網格錨點 `anchorPrice` 存在數據競態**：該欄位被 34 處讀寫，`ShiftGrid`/`rebuild` 持 `spm.mu` 寫入，但 `findNearestGridPrice`（決定每一檔掛單價格）與 `GridAutoRebuilder` 的定時 goroutine 在鎖外讀取。改為以 atomic 存儲 float64 bits，讀路徑無鎖（避免在深層調用鏈上與 `spm.mu` 形成死鎖），寫路徑保留 `spm.mu` 保證讀-改-寫原子性。
+- **`web` 層 Bot 管理提供者存在數據競態**：`botManagerProvider` 是裸全局變量，`postBotStart` 在新起的 goroutine 裡讀取，與 `RegisterBotManagerProvider` 的寫入構成競態。改為 RWMutex 保護的訪問器。
+- **平倉重試讀取未加鎖的字段**：`ClosePositionManager.watchTimeout` 在 goroutine 內讀 `record.TargetQty`/`FilledQty`，而 `UpdateRecord` 持 `record.mu` 併發改寫，可能按錯誤的剩餘量下單。改為在鎖內取值後再傳入 goroutine。
+- **查詢結果被靜默截斷**：14 處 `rows.Scan` 出錯直接 `continue`、12 個檔案缺 `rows.Err()` 檢查，資料庫中途出錯仍返回 `nil` error。影響盈亏報表、每日統計、資金費、權益曲线、風控歷史、Bot 狀態、審計日志、系統設置與 WebAuthn 憑證列表。金額與統計路徑改為返回錯誤；WebAuthn/會话等「跳過單條壞資料」屬刻意韌性的路徑保留跳過但補上日志，並一律補齊 `rows.Err()`。
+- **`DeleteSessionsForUser` 可能靜默殘留有效會话**：遍歷會话列表出錯時無任何記錄，用戶以為已登出全部設備。改為記錄告警。
+- **`trades` 表遷移可能誤判欄位**：讀取 `PRAGMA table_info` 時 Scan 出錯直接跳過，會讓遷移誤以為欄位不存在而重複 `ALTER TABLE`，或跳過必要遷移。改為返回錯誤。
+- 網格重建日志把「舊錨點 -> 新錨點」打成了同一個值（賦值在前、打印在後），改為在賦值前保存舊值。
+- `TestNewExchangeForPublicKlines_Binance` 會真打幣安線上 API，且靠比對錯誤字串跳過網路失敗，但幣安返回的 `<APIError> rsp={"error":403}` 不含 `Forbidden` 字樣導致漏判成真失敗。改為沿用既有的 `QUANTMESH_LIVE_EXCHANGE_TESTS=1` 開關門控。
+- `TestCapitalOverviewAggregatesExchangeBalancesAndCache` 整體賦值複製了含 `sync.RWMutex` 的緩存結構體（`go vet copylocks`），改為只備份資料欄位。
+
+### Added
+- `utils/rounding_test.go`：取整回歸測試，含性質測試（向下取整永不超過原值）。
+- `exchange/binance/adapter_rounding_regression_test.go`：適配器層取整回歸測試，覆蓋丟量與 tick 漂移。
+- `position/anchor_price_race_test.go`：`anchorPrice` 併發讀寫與 `ShiftGrid` 讀-改-寫原子性測試（`-race` 下修復前必然報 DATA RACE）。
+
+### Changed
+- 版本号同步前后端到 `3.109.0-rc2`（純 bugfix，僅遞增 rc 號，不提升正式版本位）。
+
+---
+
 ## [3.109.0-rc1] - 2026-06-21
 
 ### Added

@@ -65,12 +65,12 @@ func postBotBacktestCreate(c *gin.Context) {
 	}
 
 	// 獲取Bot配置
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
 	}
 
-	botDetail, ok := botManagerProvider.GetBot(botID)
+	botDetail, ok := botManagerProvider().GetBot(botID)
 	if !ok {
 		respondError(c, http.StatusNotFound, "error.bot_not_found")
 		return

@@ -21,7 +21,8 @@ func (s *SQLStorage) ListAccountIDsWithProfitRules() ([]string, error) {
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			continue
+			// 漏掉帳戶會讓該帳戶的提盈規則被靜默跳過不執行
+			return nil, fmt.Errorf("解析提盈帳戶 ID 失败: %w", err)
 		}
 		ids = append(ids, id)
 	}

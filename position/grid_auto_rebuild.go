@@ -191,7 +191,7 @@ func (gar *GridAutoRebuilder) shouldTriggerRebuild() (bool, string) {
 // checkPriceDeviation 检查价格偏离条件
 func (gar *GridAutoRebuilder) checkPriceDeviation(currentPrice, priceInterval float64) string {
 	// 计算当前价格与锚点的偏差
-	anchorPrice := gar.spm.anchorPrice
+	anchorPrice := gar.spm.anchorPrice()
 	if anchorPrice <= 0 {
 		return ""
 	}
@@ -261,11 +261,12 @@ func (gar *GridAutoRebuilder) rebuild() error {
 	// 更新网格锚点到当前价格
 	currentPrice := gar.spm.lastMarketPrice.Load().(float64)
 	gar.spm.mu.Lock()
-	gar.spm.anchorPrice = currentPrice
+	previousAnchor := gar.spm.anchorPrice()
+	gar.spm.setAnchorPrice(currentPrice)
 	gar.spm.mu.Unlock()
 
 	logger.Info("📊 [%s] 网格锚点已更新: %.2f -> %.2f",
-		gar.spm.logPrefix(), gar.spm.anchorPrice, currentPrice)
+		gar.spm.logPrefix(), previousAnchor, currentPrice)
 
 	// 系统会在下一轮价格更新时自动按新锚点挂单
 	return nil

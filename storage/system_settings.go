@@ -67,6 +67,10 @@ func (s *SQLStorage) GetSystemSettings(ctx context.Context, filter *SystemSettin
 		settings = append(settings, &setting)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷系统設置失败: %w", err)
+	}
+
 	return settings, nil
 }
 

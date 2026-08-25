@@ -236,11 +236,11 @@ func fixLogonSession(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
 		return
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.not_supported", fmt.Errorf("bot manager not available"))
 		return
 	}
-	if _, ok := botManagerProvider.GetBot(req.BotID); !ok {
+	if _, ok := botManagerProvider().GetBot(req.BotID); !ok {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
@@ -683,10 +683,10 @@ func resolveFixExecutionContext(c *gin.Context, sessionID string) (storage.Stora
 	if botID == "" {
 		return nil, nil, nil, nil, "", fmt.Errorf("session bot binding missing; please logon again")
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		return nil, nil, nil, nil, "", fmt.Errorf("bot manager unavailable")
 	}
-	botDetail, ok := botManagerProvider.GetBot(botID)
+	botDetail, ok := botManagerProvider().GetBot(botID)
 	if !ok || botDetail == nil {
 		return nil, nil, nil, nil, "", fmt.Errorf("bound bot not found")
 	}

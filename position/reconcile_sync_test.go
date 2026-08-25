@@ -16,7 +16,7 @@ func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	cfg.Trading.BuyWindowSize = 2
 	executor := &MockExecutor{}
 	spm := NewSuperPositionManager(cfg, executor, &MockExchange{}, 2, 4)
-	spm.anchorPrice = 1000
+	spm.setAnchorPrice(1000)
 	spm.lastMarketPrice.Store(1000.0)
 
 	when := time.Now().Add(-time.Hour)

@@ -211,7 +211,8 @@ func (s *SQLStorage) GetDailyFundingPayments(account, exchange string, startTime
 		var dateStr string
 		var dailyFunding float64
 		if err := rows.Scan(&dateStr, &dailyFunding); err != nil {
-			continue
+			// 資金費率聚合不能跳行：少一天就是持倉成本算少了
+			return nil, fmt.Errorf("解析每日资金费失败: %w", err)
 		}
 		result[dateStr] = dailyFunding
 	}

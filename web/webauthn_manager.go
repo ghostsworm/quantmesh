@@ -173,12 +173,20 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 		var lastUsedAt sql.NullTime
 
 		if err := rows.Scan(&credentialID, &publicKeyJSON, &counter, &deviceName, &createdAt, &lastUsedAt); err != nil {
+			// 跳過單條壞資料好過讓用戶完全登不上，但不能靜默——
+			// 否則用戶只會看到「憑證無法識別」，查不出根因
+			if wm.log != nil {
+				wm.log.Warnf("[WebAuthn] 跳過無法讀取的凭证行 - User: %s, Error: %v", username, err)
+			}
 			continue
 		}
 
 		// 解碼 credential_id
 		credentialIDBytes, err := base64.RawURLEncoding.DecodeString(credentialID)
 		if err != nil {
+			if wm.log != nil {
+				wm.log.Warnf("[WebAuthn] 跳過 credential_id 無法解碼的凭证 - CredentialID: %s, Error: %v", credentialID, err)
+			}
 			continue
 		}
 
@@ -191,6 +199,12 @@ func (wm *WebAuthnManager) GetUser(username string) (*WebAuthnUser, error) {
 		}
 
 		credentials = append(credentials, *credential)
+	}
+
+	// DB 層面的中斷不屬於「單條壞資料」，必須上報，
+	// 否則用戶會拿到一份殘缺的凭证列表而不知情
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷用戶凭证失败: %w", err)
 	}
 
 	// 創建用戶（使用用戶名作為 ID）
@@ -363,6 +377,11 @@ func (wm *WebAuthnManager) ListCredentials(username string) ([]CredentialInfo, e
 			wm.log.Debugf("[WebAuthn] 找到凭证 - ID: %s, DeviceName: %s, CreatedAt: %v, IsActive: %v",
 				cred.ID, cred.DeviceName, cred.CreatedAt, cred.IsActive)
 		}
+	}
+
+	// 遍歷中斷會讓用戶看到一份殘缺的安全金鑰列表，誤以為金鑰已丟失
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷凭证列表失败: %w", err)
 	}
 
 	if wm.log != nil {

@@ -522,6 +522,10 @@ func (s *MySQLConfigStorage) GetConfigHistory(ctx context.Context, configID int6
 		history = append(history, &h)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历配置历史失败: %w", err)
+	}
+
 	return history, nil
 }
 

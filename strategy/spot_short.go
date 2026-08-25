@@ -11,6 +11,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 // SpotShortStrategy 現貨借幣做空策略
@@ -301,13 +302,14 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) {
 	logger.Info("📥 SpotShortStrategy: 已下買回單 %.6f %s (order=%d)，成交後還幣", amount, s.baseAsset, ord.OrderID)
 }
 
+// roundQuantity 將數量向下取整到交易所精度。
+// 現貨賣出沒有 ReduceOnly 兜底，向上取整會直接超出持有量被拒單。
 func (s *SpotShortStrategy) roundQuantity(qty float64) float64 {
 	decimals := s.ex.GetQuantityDecimals()
 	if decimals <= 0 {
 		decimals = 6
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(qty*factor+0.5) / factor
+	return utils.FloorToDecimals(qty, decimals)
 }
 
 func (s *SpotShortStrategy) roundPrice(price float64) float64 {
@@ -315,8 +317,7 @@ func (s *SpotShortStrategy) roundPrice(price float64) float64 {
 	if decimals <= 0 {
 		decimals = 2
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(price*factor+0.5) / factor
+	return utils.RoundToDecimals(price, decimals)
 }
 
 func (s *SpotShortStrategy) getPriceDecimals() int {

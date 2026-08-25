@@ -166,6 +166,10 @@ func (s *SQLStorage) GetBasisStatistics(symbol, exchange string, hours int) (*Ba
 		values = append(values, value)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷统计數據失败: %w", err)
+	}
+
 	if len(values) == 0 {
 		return nil, fmt.Errorf("没有找到數據")
 	}

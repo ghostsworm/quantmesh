@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -68,7 +69,12 @@ type BotManagerProvider interface {
 	EnableBot(botID string) error  // 啟用 Bot（從數據庫移除禁用標記）
 }
 
-var botManagerProvider BotManagerProvider
+// Bot 管理提供者由 main 在啟動時註冊，但 postBotStart 等處會在
+// 新起的 goroutine 裡讀取它，構成跨 goroutine 的共享狀態，必須加鎖。
+var (
+	bmProviderMu  sync.RWMutex
+	bmProviderRef BotManagerProvider
+)
 
 // FindGroupNameByBotID 若 botID 屬於某個 BotGroup，返回該組名稱；否則返回空字串（供 main 等調用）
 func FindGroupNameByBotID(cfg *config.Config, botID string) string {
@@ -87,7 +93,16 @@ func FindGroupNameByBotID(cfg *config.Config, botID string) string {
 
 // RegisterBotManagerProvider 註冊 Bot 管理提供者
 func RegisterBotManagerProvider(provider BotManagerProvider) {
-	botManagerProvider = provider
+	bmProviderMu.Lock()
+	bmProviderRef = provider
+	bmProviderMu.Unlock()
+}
+
+// botManagerProvider 讀取已註冊的 Bot 管理提供者（可能為 nil，調用方需判空）
+func botManagerProvider() BotManagerProvider {
+	bmProviderMu.RLock()
+	defer bmProviderMu.RUnlock()
+	return bmProviderRef
 }
 
 // CreateBotRequest Bot 創建請求（含策略配置）
@@ -204,8 +219,8 @@ func botConfigForRunningConflictCheck(resp *BotResponse, cfg *config.Config) *co
 	if resp == nil {
 		return nil
 	}
-	if cfg != nil && botManagerProvider != nil {
-		if detail, ok := botManagerProvider.GetBot(resp.BotID); ok && detail != nil && detail.Config != nil {
+	if cfg != nil && botManagerProvider() != nil {
+		if detail, ok := botManagerProvider().GetBot(resp.BotID); ok && detail != nil && detail.Config != nil {
 			return detail.Config
 		}
 		for i := range cfg.Bots {
@@ -335,10 +350,10 @@ func postBotCreate(c *gin.Context) {
 		if !config.BotsConflict(b, &candidate) {
 			continue
 		}
-		if botManagerProvider != nil {
+		if botManagerProvider() != nil {
 			var running bool
 			found := false
-			for _, r := range botManagerProvider.ListBots() {
+			for _, r := range botManagerProvider().ListBots() {
 				if r.BotID != id {
 					continue
 				}
@@ -365,8 +380,8 @@ func postBotCreate(c *gin.Context) {
 	}
 
 	// 2. 檢查運行中衝突（運行中 Bot 可能尚未寫回主配置快照）
-	if botManagerProvider != nil {
-		for _, resp := range botManagerProvider.ListBots() {
+	if botManagerProvider() != nil {
+		for _, resp := range botManagerProvider().ListBots() {
 			if !resp.Running {
 				continue
 			}
@@ -483,11 +498,11 @@ func postBotCreate(c *gin.Context) {
 // getBots 獲取 Bot 列表
 // GET /api/bots
 func getBots(c *gin.Context) {
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		c.JSON(http.StatusOK, gin.H{"bots": []BotResponse{}})
 		return
 	}
-	bots := botManagerProvider.ListBots()
+	bots := botManagerProvider().ListBots()
 	c.JSON(http.StatusOK, gin.H{"bots": bots})
 }
 
@@ -499,11 +514,11 @@ func getBotByID(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot manager not available"})
 		return
 	}
-	bot, ok := botManagerProvider.GetBot(botID)
+	bot, ok := botManagerProvider().GetBot(botID)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
@@ -519,7 +534,7 @@ func postBotStart(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
 	}
@@ -544,13 +559,13 @@ func postBotStart(c *gin.Context) {
 		return
 	}
 	// 已在運行則直接返回成功
-	if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 		return
 	}
 	// 用戶點擊啟動時，先清除數據庫中的禁用標記（若之前通過 Web UI 停止過）
 	// 否則 StartBot 會因 bot_disabled_in_database 失敗，而 API 已返回 202，前端輪詢 60s 無果
-	if err := botManagerProvider.EnableBot(botID); err != nil {
+	if err := botManagerProvider().EnableBot(botID); err != nil {
 		logger.Warn("⚠️ [%s] 清除禁用標記失敗（不影響啟動）: %v", botID, err)
 	}
 	// 異步啟動，避免 WebSocket 連接、價格獲取等耗時操作阻塞請求導致超時
@@ -562,7 +577,7 @@ func postBotStart(c *gin.Context) {
 			}
 		}()
 		ctx := context.Background()
-		if err := botManagerProvider.StartBot(ctx, bc); err != nil {
+		if err := botManagerProvider().StartBot(ctx, bc); err != nil {
 			logger.Error("❌ [%s] [%s] Bot 異步啟動失敗: %v", botID, bc.Symbol, err)
 		}
 	}()
@@ -623,8 +638,8 @@ func deleteBot(c *gin.Context) {
 		return
 	}
 	removeBotConfigSnapshotBestEffort(botID)
-	if botManagerProvider != nil {
-		_ = botManagerProvider.StopBot(botID)
+	if botManagerProvider() != nil {
+		_ = botManagerProvider().StopBot(botID)
 	}
 	logger.Info("✅ [Bot刪除] 已移除 %s", botID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
@@ -655,11 +670,11 @@ func postBotStop(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
 	}
-	if err := botManagerProvider.StopBot(botID); err != nil {
+	if err := botManagerProvider().StopBot(botID); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.bot_stop_failed", err)
 		return
 	}
@@ -674,11 +689,11 @@ func postBotEnable(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
 	}
-	if err := botManagerProvider.EnableBot(botID); err != nil {
+	if err := botManagerProvider().EnableBot(botID); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.bot_enable_failed", err)
 		return
 	}
@@ -702,8 +717,8 @@ func buildBotGroupConsistency(group config.BotGroup) gin.H {
 
 	for _, botID := range group.BotIDs {
 		isRunning := false
-		if botManagerProvider != nil {
-			if bot, ok := botManagerProvider.GetBot(botID); ok && bot != nil && bot.Running {
+		if botManagerProvider() != nil {
+			if bot, ok := botManagerProvider().GetBot(botID); ok && bot != nil && bot.Running {
 				isRunning = true
 			}
 		}
@@ -862,8 +877,8 @@ func postBotGroupCreate(c *gin.Context) {
 	}
 
 	// 2. 檢查運行中衝突：若同一交易對已有 Bot 在運行，拒絕（與單 Bot 創建邏輯一致）
-	if botManagerProvider != nil {
-		for _, resp := range botManagerProvider.ListBots() {
+	if botManagerProvider() != nil {
+		for _, resp := range botManagerProvider().ListBots() {
 			if !resp.Running {
 				continue
 			}
@@ -1148,9 +1163,9 @@ func deleteBotGroup(c *gin.Context) {
 		return
 	}
 	// 先停止组内所有运行中的 Bot，避免删除配置后出现“孤儿腿”继续交易
-	if botManagerProvider != nil {
+	if botManagerProvider() != nil {
 		for _, botID := range botIDsToRemove {
-			if err := botManagerProvider.StopBot(botID); err != nil {
+			if err := botManagerProvider().StopBot(botID); err != nil {
 				respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
 				return
 			}
@@ -1239,8 +1254,8 @@ func putBotStrategy(c *gin.Context) {
 		if id == botID {
 			// 檢查 Bot 是否正在運行（只對策略類型切換有限制，參數修改允許）
 			isRunning := false
-			if botManagerProvider != nil {
-				if bot, ok := botManagerProvider.GetBot(botID); ok {
+			if botManagerProvider() != nil {
+				if bot, ok := botManagerProvider().GetBot(botID); ok {
 					isRunning = bot.Running
 				}
 			}

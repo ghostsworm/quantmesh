@@ -447,7 +447,8 @@ func (s *SQLStorage) ListBotStates() ([]*BotState, error) {
 		var updatedAt, updatedBy, reason sql.NullString
 
 		if err := rows.Scan(&state.BotID, &enabled, &updatedAt, &updatedBy, &reason); err != nil {
-			continue
+			// 漏掉一個 Bot 狀態會讓調用方以為該 Bot 不存在，進而誤判啟停
+			return nil, fmt.Errorf("解析 Bot 狀態失败: %w", err)
 		}
 
 		state.Enabled = enabled == 1

@@ -231,12 +231,15 @@ func (cpm *ClosePositionManager) watchTimeout(
 				record.Method = CloseMethodMarket
 				record.RetryCount++
 				record.UpdatedAt = time.Now()
+				// 在鎖內取出重试所需的字段：UpdateRecord 會併發改寫 FilledQty，
+				// 放到 goroutine 裡再讀就是數據競態，可能按錯誤的剩餘量下單
+				remainingQty := record.TargetQty - record.FilledQty
+				side := record.Side
 				record.mu.Unlock()
 
 				go func() {
-					remainingQty := record.TargetQty - record.FilledQty
 					if remainingQty > 0 {
-						_, err := cpm.ClosePositions(context.Background(), record.Side,
+						_, err := cpm.ClosePositions(context.Background(), side,
 							remainingQty, config.ClosePositionConfig{
 								Method:     string(CloseMethodMarket),
 								TimeoutSec: 0, // 重试的市价单不设置超时

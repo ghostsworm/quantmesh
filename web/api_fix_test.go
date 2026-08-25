@@ -179,7 +179,7 @@ func TestFixLogonAndHeartbeat(t *testing.T) {
 	defer st.Close()
 
 	origStorageProvider := storageServiceProvider
-	origBotProvider := botManagerProvider
+	origBotProvider := botManagerProvider()
 	SetStorageServiceProvider(&testStorageProvider{st: st})
 	RegisterBotManagerProvider(&mockFixBotManager{})
 	t.Cleanup(func() {
@@ -259,7 +259,7 @@ func TestFixSessionTimeout(t *testing.T) {
 	setFixSessionBotBinding(state.SessionID, state.BotID)
 
 	origStorageProvider := storageServiceProvider
-	origBotProvider := botManagerProvider
+	origBotProvider := botManagerProvider()
 	SetStorageServiceProvider(&testStorageProvider{st: st})
 	RegisterBotManagerProvider(&mockFixBotManager{})
 	t.Cleanup(func() {
@@ -423,7 +423,7 @@ func TestFixHeartbeatTimeoutConfig(t *testing.T) {
 	setFixSessionBotBinding(state.SessionID, state.BotID)
 
 	origStorageProvider := storageServiceProvider
-	origBotProvider := botManagerProvider
+	origBotProvider := botManagerProvider()
 	SetStorageServiceProvider(&testStorageProvider{st: st})
 	RegisterBotManagerProvider(&mockFixBotManager{})
 	t.Cleanup(func() {

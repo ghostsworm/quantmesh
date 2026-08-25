@@ -498,12 +498,16 @@ func (ls *LogStorage) GetLogs(params LogQueryParams) ([]*LogRecord, int, error) 
 		var botID sql.NullString
 		err := rows.Scan(&log.ID, &log.Timestamp, &log.Level, &log.Message, &botID)
 		if err != nil {
-			continue
+			return nil, 0, fmt.Errorf("解析日志記錄失败: %w", err)
 		}
 		if botID.Valid {
 			log.BotID = botID.String
 		}
 		logs = append(logs, &log)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("遍歷日志失败: %w", err)
 	}
 
 	return logs, total, nil
@@ -597,9 +601,12 @@ func (ls *LogStorage) GetLogStats() (map[string]interface{}, error) {
 		var level string
 		var count int64
 		if err := rows.Scan(&level, &count); err != nil {
-			continue
+			return nil, fmt.Errorf("解析日志分級统计失败: %w", err)
 		}
 		levelStats[level] = count
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷日志分級统计失败: %w", err)
 	}
 	stats["by_level"] = levelStats
 
