@@ -49,9 +49,9 @@ type AIRequest struct {
 	Prompt            string                 `json:"prompt"`
 	SystemInstruction string                 `json:"system_instruction"`
 	Model             string                 `json:"model"`
-	Provider          string                 `json:"provider"`     // gemini(默认) / openai / claude / poe
-	APIKey            string                 `json:"api_key"`      // 通用 API Key（优先于 GeminiAPIKey）
-	BaseURL           string                 `json:"base_url"`     // 可選，自定义 API 端点
+	Provider          string                 `json:"provider"`       // gemini(默认) / openai / claude / dashscope / kimi / deepseek / custom
+	APIKey            string                 `json:"api_key"`        // 通用 API Key（优先于 GeminiAPIKey）
+	BaseURL           string                 `json:"base_url"`       // 可選，自定义 API 端点
 	GeminiAPIKey      string                 `json:"gemini_api_key"` // 向后兼容字段，APIKey 为空时回退
 	JSONSchema        map[string]interface{} `json:"json_schema"`
 	UseGoogleSearch   bool                   `json:"use_google_search"`  // 是否啟用實時搜索（仅 Gemini 原生支持）
@@ -81,14 +81,12 @@ type AIResponse struct {
 func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResponse, error) {
 	startTime := time.Now()
 
-	provider := strings.ToLower(strings.TrimSpace(req.Provider))
-	if provider == "" {
-		provider = "gemini"
-	}
+	provider := NormalizeProvider(req.Provider)
 
 	chatReq := chatRequest{
 		Prompt:            req.Prompt,
 		SystemInstruction: req.SystemInstruction,
+		Provider:          provider,
 		Model:             req.Model,
 		APIKey:            req.apiKey(),
 		BaseURL:           req.BaseURL,
@@ -140,9 +138,15 @@ func (s *AIService) GenerateContent(ctx context.Context, req AIRequest) (*AIResp
 
 // defaultModelForProvider 仅用于 usage 记录的模型标签兜底
 func defaultModelForProvider(provider string) string {
-	switch provider {
-	case "openai", "poe":
+	switch NormalizeProvider(provider) {
+	case "openai", "poe", "openai_compatible":
 		return openAIDefaultModel
+	case "dashscope", "dashscope_sg":
+		return "qwen-plus"
+	case "kimi", "kimi_intl":
+		return "kimi-k2.6"
+	case "deepseek":
+		return "deepseek-v4-pro"
 	case "claude", "anthropic":
 		return claudeDefaultModel
 	default:
@@ -152,10 +156,11 @@ func defaultModelForProvider(provider string) string {
 
 // usageModelLabel 在 usage 日志中区分 provider（gemini 维持原裸模型名，保证既有统计零回归）
 func usageModelLabel(provider, model string) string {
-	if provider == "gemini" || provider == "" {
+	normalized := NormalizeProvider(provider)
+	if normalized == "gemini" || normalized == "" {
 		return model
 	}
-	return provider + ":" + model
+	return normalized + ":" + model
 }
 
 func maskAPIKey(key string) string {

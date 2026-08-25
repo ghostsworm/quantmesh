@@ -17,6 +17,23 @@ type openAITransport struct{}
 const openAIDefaultBaseURL = "https://api.openai.com/v1"
 const openAIDefaultModel = "gpt-4o-mini"
 
+func defaultOpenAICompatibleBaseURL(provider string) string {
+	switch NormalizeProvider(provider) {
+	case "dashscope":
+		return "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	case "dashscope_sg":
+		return "https://{WorkspaceId}.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+	case "kimi":
+		return "https://api.moonshot.cn/v1"
+	case "kimi_intl":
+		return "https://api.moonshot.ai/v1"
+	case "deepseek":
+		return "https://api.deepseek.com"
+	default:
+		return openAIDefaultBaseURL
+	}
+}
+
 func (openAITransport) Do(ctx context.Context, httpClient *http.Client, req chatRequest) (chatResult, error) {
 	prompt := req.Prompt
 
@@ -64,7 +81,7 @@ func (openAITransport) Do(ctx context.Context, httpClient *http.Client, req chat
 
 	baseURL := req.BaseURL
 	if baseURL == "" {
-		baseURL = openAIDefaultBaseURL
+		baseURL = defaultOpenAICompatibleBaseURL(req.Provider)
 	}
 	url := fmt.Sprintf("%s/chat/completions", strings.TrimRight(baseURL, "/"))
 

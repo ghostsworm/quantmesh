@@ -16,6 +16,12 @@ func TestResolveTransport(t *testing.T) {
 	}{
 		{provider: "openai", wantType: "service.openAITransport"},
 		{provider: "poe", wantType: "service.openAITransport"},
+		{provider: "dashscope", wantType: "service.openAITransport"},
+		{provider: "dashscope_sg", wantType: "service.openAITransport"},
+		{provider: "kimi", wantType: "service.openAITransport"},
+		{provider: "kimi_intl", wantType: "service.openAITransport"},
+		{provider: "deepseek", wantType: "service.openAITransport"},
+		{provider: "custom", wantType: "service.openAITransport"},
 		{provider: "claude", wantType: "service.claudeTransport"},
 		{provider: "anthropic", wantType: "service.claudeTransport"},
 		{provider: "gemini", wantType: "service.geminiTransport"},
@@ -72,6 +78,19 @@ func TestAIServiceGenerateContentSuccessErrorAndCancellation(t *testing.T) {
 	}
 	if openAIResp.UsedAPIKey != "123456....cdef" || openAIResp.AIInput != "prompt" || openAIResp.AIOutput != "openai text" {
 		t.Fatalf("unexpected metadata: %#v", openAIResp)
+	}
+
+	dashScopeResp, err := service.GenerateContent(ctx, AIRequest{
+		Prompt:   "prompt",
+		Provider: "dashscope",
+		APIKey:   "1234567890abcdef",
+		BaseURL:  server.URL,
+	})
+	if err != nil {
+		t.Fatalf("GenerateContent dashscope returned error: %v", err)
+	}
+	if !dashScopeResp.Success || dashScopeResp.Content != "openai text" {
+		t.Fatalf("unexpected dashscope response: %#v", dashScopeResp)
 	}
 
 	geminiResp, err := service.GenerateContent(ctx, AIRequest{
