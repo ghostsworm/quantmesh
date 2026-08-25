@@ -100,3 +100,13 @@ config_backups/
 backups/
 test_logs
 .gh_key
+
+# 回测运行产物（带时间戳的报表/权益曲线/结果 JSON，属于运行输出而非源码）
+# 注意：仓库里已有历史遗留的同类文件仍处于跟踪状态，本规则只阻止新产物入库；
+# 如需彻底清理，另行执行 git rm --cached 后单独提交。
+backtest/backtest/
+web/backtest/reports/
+web/backtest/results/
+
+# 误敲命令行参数生成的配置文件（如 `--config.yaml`）
+--*.yaml
