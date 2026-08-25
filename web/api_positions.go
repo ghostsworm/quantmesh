@@ -548,8 +548,8 @@ func getExchangePositionsSummary(c *gin.Context) {
 func getPositionsSummaryAll(c *gin.Context) {
 	// 建立 exchange:symbol:marketType -> bot_id 的映射
 	botIDByKey := make(map[string]string)
-	if botManagerProvider != nil {
-		for _, b := range botManagerProvider.ListBots() {
+	if botManagerProvider() != nil {
+		for _, b := range botManagerProvider().ListBots() {
 			mt := b.MarketType
 			if mt == "" {
 				mt = "futures"

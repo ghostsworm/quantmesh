@@ -86,10 +86,16 @@ func TestCapitalHandlersReturnNotReadyWithoutDataSource(t *testing.T) {
 
 func TestCapitalOverviewAggregatesExchangeBalancesAndCache(t *testing.T) {
 	old := capitalDataSource
-	oldCache := capitalOverviewCache
+	// 只備份資料欄位：整個結構體含 sync.RWMutex，
+	// 直接賦值會複製鎖（go vet copylocks），還可能把鎖狀態一起搬走
+	oldOverview := capitalOverviewCache.overview
+	oldAt := capitalOverviewCache.at
+	oldTTL := capitalOverviewCache.ttl
 	t.Cleanup(func() {
 		capitalDataSource = old
-		capitalOverviewCache = oldCache
+		capitalOverviewCache.overview = oldOverview
+		capitalOverviewCache.at = oldAt
+		capitalOverviewCache.ttl = oldTTL
 	})
 	capitalOverviewCache.at = time.Time{}
 	capitalOverviewCache.ttl = time.Minute

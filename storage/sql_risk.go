@@ -152,7 +152,8 @@ func (s *SQLStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit i
 
 		err := rows.Scan(&checkTime, &symbol, &isHealthy, &priceDeviation, &volumeRatio, &reason)
 		if err != nil {
-			continue
+			// 風控歷史漏行會讓異常記錄消失，掩蓋真實風險
+			return nil, fmt.Errorf("解析風控检查歷史失败: %w", err)
 		}
 
 		// 根據時间範圍聚合時间戳
@@ -186,6 +187,10 @@ func (s *SQLStorage) QueryRiskCheckHistory(startTime, endTime time.Time, limit i
 			history.HealthyCount++
 		}
 		history.TotalCount++
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷風控检查歷史失败: %w", err)
 	}
 
 	// 轉换為切片並排序

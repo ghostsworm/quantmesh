@@ -456,7 +456,7 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 	})
 
 	spm.allocationManager.CheckAndAdjustLimit(
-		spm.exchangeName, spm.config.Trading.Symbol, currentPrice, spm.anchorPrice,
+		spm.exchangeName, spm.config.Trading.Symbol, currentPrice, spm.anchorPrice(),
 		positionLayers, unrealizedPnL,
 	)
 

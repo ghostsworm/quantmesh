@@ -1160,7 +1160,8 @@ func migrateTradesTable(db *sql.DB) error {
 		var pk int
 
 		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
-			continue
+			// 漏讀一列會讓遷移誤判欄位不存在，進而重複 ALTER TABLE 或跳過必要遷移
+			return fmt.Errorf("讀取 trades 表結構失败: %w", err)
 		}
 		if name == "exchange" {
 			hasExchangeColumn = true
@@ -1183,6 +1184,10 @@ func migrateTradesTable(db *sql.DB) error {
 		if name == "bot_id" {
 			hasBotIDColumn = true
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("遍歷 trades 表結構失败: %w", err)
 	}
 
 	if !hasExchangeColumn {
@@ -2059,6 +2064,10 @@ func (s *SQLStorage) QueryOrders(limit, offset int, status string) ([]*Order, er
 		orders = append(orders, order)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷訂單失败: %w", err)
+	}
+
 	return orders, nil
 }
 
@@ -2405,6 +2414,10 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 		trades = append(trades, trade)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷成交記錄失败: %w", err)
+	}
+
 	return trades, nil
 }
 
@@ -2436,7 +2449,8 @@ func (s *SQLStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]fl
 		var sellOrderID int64
 		var pnl float64
 		if err := rows.Scan(&sellOrderID, &pnl); err != nil {
-			continue
+			// 金額聚合不能跳行：少一筆就是盈亏數字直接算錯
+			return nil, fmt.Errorf("解析成交盈亏失败: %w", err)
 		}
 		result[sellOrderID] = pnl
 	}
@@ -2475,6 +2489,10 @@ func (s *SQLStorage) QueryStatistics(startDate, endDate time.Time) ([]*Statistic
 			continue
 		}
 		stats = append(stats, stat)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷统计數據失败: %w", err)
 	}
 
 	return stats, nil
@@ -2808,7 +2826,8 @@ func (s *SQLStorage) GetDailyExchangePnL(exchange, symbol string, startDate, end
 		var dt string
 		var total float64
 		if err := rows.Scan(&dt, &total); err != nil {
-			continue
+			// 金額聚合不能跳行：少一天就是日盈亏曲线出現缺口
+			return nil, fmt.Errorf("解析每日盈亏失败: %w", err)
 		}
 		result[dt] = total
 	}
@@ -2968,13 +2987,14 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 
 		err := rows.Scan(&dateStr, &totalTrades, &totalVolume, &grossPnL, &totalFee, &netPnL, &winRate, &winningTrades, &losingTrades, &volumeProfit, &volumeStopLoss)
 		if err != nil {
-			continue
+			// 統計報表不能跳行：少一天就是報表數字直接算錯
+			return nil, fmt.Errorf("解析每日统计失败: %w", err)
 		}
 
 		// 解析日期
 		date, err := time.Parse("2006-01-02", dateStr)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("解析统计日期失败 (%s): %w", dateStr, err)
 		}
 		stat.Date = date
 
@@ -3010,6 +3030,10 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 		}
 
 		stats = append(stats, stat)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷每日统计失败: %w", err)
 	}
 
 	return stats, nil

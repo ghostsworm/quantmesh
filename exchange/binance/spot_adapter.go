@@ -161,22 +161,14 @@ func (b *BinanceSpotAdapter) roundToTickSize(price float64, side Side) float64 {
 	if b.tickSize <= 0 {
 		return price
 	}
-	ticks := price / b.tickSize
-	var roundedTicks float64
 	if side == SideBuy {
-		roundedTicks = math.Floor(ticks)
-	} else {
-		roundedTicks = math.Ceil(ticks)
+		return utils.FloorToStep(price, b.tickSize)
 	}
-	return roundedTicks * b.tickSize
+	return utils.CeilToStep(price, b.tickSize)
 }
 
 func (b *BinanceSpotAdapter) roundToStepSize(quantity float64) float64 {
-	if b.stepSize <= 0 {
-		return quantity
-	}
-	steps := math.Floor(quantity / b.stepSize)
-	return steps * b.stepSize
+	return utils.FloorToStep(quantity, b.stepSize)
 }
 
 // PlaceOrder 下單（現貨不支援 ReduceOnly，忽略該参數）

@@ -279,8 +279,8 @@ func putBotConfigFile(c *gin.Context) {
 	req.BotID = botID
 	req.UpdatedAt = time.Now().Format(time.RFC3339)
 
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_update_full_config",
@@ -357,8 +357,8 @@ func deleteBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_delete_config",
@@ -450,8 +450,8 @@ func putBotStrategyConfig(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			oldType := botConfig.Strategies[req.StrategyIndex].Type
 			newType := req.Strategy.Type
 			if oldType != newType {
@@ -514,8 +514,8 @@ func addBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_add_strategy",
@@ -580,8 +580,8 @@ func removeBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider != nil {
-		if bot, ok := botManagerProvider.GetBot(botID); ok && bot.Running {
+	if botManagerProvider() != nil {
+		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":     "bot_running",
 				"error_key": "error.bot_running_cannot_remove_strategy",

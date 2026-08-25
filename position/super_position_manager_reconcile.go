@@ -365,16 +365,20 @@ func (spm *SuperPositionManager) ShiftGrid(direction string, step float64) {
 	if step <= 0 {
 		step = spm.config.Trading.PriceInterval
 	}
+	// 讀-改-寫必須在 spm.mu 內完成，否則並發的兩次 ShiftGrid 會互相覆蓋
 	spm.mu.Lock()
+	updated := spm.anchorPrice()
 	if direction == "up" {
-		spm.anchorPrice += step
-		logger.Info("📈 [網格上移] 錨點 +%.2f，新錨點=%.2f", step, spm.anchorPrice)
+		updated += step
+		spm.setAnchorPrice(updated)
+		logger.Info("📈 [網格上移] 錨點 +%.2f，新錨點=%.2f", step, updated)
 	} else {
-		spm.anchorPrice -= step
-		if spm.anchorPrice < 0 {
-			spm.anchorPrice = 0
+		updated -= step
+		if updated < 0 {
+			updated = 0
 		}
-		logger.Info("📉 [網格下移] 錨點 -%.2f，新錨點=%.2f", step, spm.anchorPrice)
+		spm.setAnchorPrice(updated)
+		logger.Info("📉 [網格下移] 錨點 -%.2f，新錨點=%.2f", step, updated)
 	}
 	spm.mu.Unlock()
 	spm.CancelAllOpenOrders()
@@ -514,7 +518,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 	// 獲取當前市場價格
 	currentPrice, _ := spm.lastMarketPrice.Load().(float64)
 	if currentPrice <= 0 {
-		currentPrice = spm.anchorPrice
+		currentPrice = spm.anchorPrice()
 	}
 
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -609,7 +613,7 @@ func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) 
 
 	currentPrice, _ := spm.lastMarketPrice.Load().(float64)
 	if currentPrice <= 0 {
-		currentPrice = spm.anchorPrice
+		currentPrice = spm.anchorPrice()
 	}
 
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -754,7 +758,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 使用锚点價格作為参考價格，使用從交易所獲取的數量精度
 
 	// 每單的理論數量 = 目標金額 / 锚点價格
-	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice
+	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice()
 	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
 
 	// 2. 计算需要創建的總槽位數
@@ -770,7 +774,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 
 	// 4. 计算賣單槽位價格（從锚点價格 + 利潤間距开始）
 	// 賣單最低價 = 锚点價格 + 利潤間距（避免與買單最高價冲突）
-	sellStartPrice := spm.anchorPrice + spm.getEffectiveProfitSpread()
+	sellStartPrice := spm.anchorPrice() + spm.getEffectiveProfitSpread()
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
 	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
 
@@ -846,7 +850,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 锚点價格是市场當前價格，接近實際買入的平均價格
 		// 不能用賣出價格（sellPrice），因為賣出價格是目標價，會高估成本
 		// 對於有杠杆的交易，實際使用的保证金 = 倉位價值 / 杠杆倍數
-		positionValue := spm.anchorPrice * slotQty        // 倉位價值
+		positionValue := spm.anchorPrice() * slotQty        // 倉位價值
 		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
 		totalUsedAmount += actualMargin
 
@@ -872,7 +876,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 这样资金限額限制的是實際投入的资金，而不是倉位價值
 	if totalUsedAmount > 0 {
 		spm.allocationManager.SetUsedAmount(spm.exchangeName, spm.config.Trading.Symbol, totalUsedAmount)
-		positionValue := spm.anchorPrice * totalPosition // 總倉位價值
+		positionValue := spm.anchorPrice() * totalPosition // 總倉位價值
 		logger.Info("💰 [%s] [资金分配] 恢複持倉，初始化已用资金: %.2f USDT (實際保证金，杠杆 %dx，倉位價值: %.2f USDT)",
 			spm.logPrefix(), totalUsedAmount, leverage, positionValue)
 	}
@@ -888,14 +892,14 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 		return
 	}
 	// 做空持倉：槽位價格 = 開倉賣價（高於錨點），平倉買價 = 槽位價格 - interval
-	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice
+	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice()
 	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
 	totalSlotsNeeded := int(math.Ceil(totalPosition / theoryQtyPerSlot))
 	sellWindowSize := spm.config.Trading.SellWindowSize
 	if sellWindowSize <= 0 {
 		sellWindowSize = spm.config.Trading.BuyWindowSize
 	}
-	sellStartPrice := spm.anchorPrice + spm.getEffectiveProfitSpread()
+	sellStartPrice := spm.anchorPrice() + spm.getEffectiveProfitSpread()
 	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
 	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
 
@@ -1060,7 +1064,7 @@ func (spm *SuperPositionManager) PrintPositions() {
 	// 獲取最后的市场價格
 	lastPrice, ok := spm.lastMarketPrice.Load().(float64)
 	if !ok || lastPrice <= 0 {
-		lastPrice = spm.anchorPrice // 如果没有更新過，使用锚点價格
+		lastPrice = spm.anchorPrice() // 如果没有更新過，使用锚点價格
 	}
 	logger.Info("[%s] 當前市場價格: %s", spm.logPrefix(), formatPrice(lastPrice, spm.priceDecimals))
 

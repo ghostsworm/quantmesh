@@ -116,7 +116,7 @@ func TestGetBotsReturnsBotResponseFields(t *testing.T) {
 			},
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -307,7 +307,7 @@ func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForStartTest{}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -402,7 +402,7 @@ func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForDeleteGroupTest{}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -484,7 +484,7 @@ func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 			{BotID: futuresID, Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", Running: false},
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -542,7 +542,7 @@ func TestPostBotGroupCreateRejectsWhenRunningBotExists(t *testing.T) {
 			{BotID: "running-bot", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", Running: true},
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -622,7 +622,7 @@ func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
 			{BotID: "stopped-bot-id", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Running: false},
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -708,7 +708,7 @@ func TestPostBotCreateRejectsWhenRunningBotExists(t *testing.T) {
 			{BotID: "running-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Running: true},
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -768,7 +768,7 @@ func TestPostBotCreateFundingCarrySuccess(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForCreateTest{bots: nil}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -844,7 +844,7 @@ func TestPostBotCreateFundingCarryRejectsNonSingleStrategy(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForCreateTest{}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -908,7 +908,7 @@ func TestPostBotCreateFundingCarryConflictsWithExistingSpot(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForCreateTest{}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -969,7 +969,7 @@ func TestPostBotGroupCreateWorksWithFileConfigManagerOnly(t *testing.T) {
 	t.Cleanup(func() { configManager = origCM })
 
 	mock := &mockBotManagerForGroupConsistencyTest{}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 
@@ -1033,7 +1033,7 @@ func TestGetBotGroupByIDIncludesConsistency(t *testing.T) {
 			"spot-bot": false,
 		},
 	}
-	origProvider := botManagerProvider
+	origProvider := botManagerProvider()
 	RegisterBotManagerProvider(mock)
 	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
 

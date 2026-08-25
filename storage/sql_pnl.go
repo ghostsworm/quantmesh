@@ -115,7 +115,8 @@ func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.T
 
 		err := rows.Scan(&r.Exchange, &r.Symbol, &totalTrades, &totalPnL, &exchangePnL, &totalVolume, &winRate, &exchangeWinRate)
 		if err != nil {
-			continue
+			// 不能跳過：靜默丟行會讓盈亏報表少算，調用方還以為數據是完整的
+			return nil, fmt.Errorf("解析盈亏數據失败: %w", err)
 		}
 
 		if totalTrades.Valid {
@@ -138,6 +139,11 @@ func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.T
 		}
 
 		results = append(results, r)
+	}
+
+	// 迭代中途的錯誤（連接中斷、超時）只會在這裡暴露，漏檢就等於返回殘缺數據
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷盈亏數據失败: %w", err)
 	}
 
 	return results, nil

@@ -148,7 +148,8 @@ func (s *SQLStorage) QueryHourlyEquityRecords(exchange, symbol, account string, 
 		var ts, createdAt time.Time
 		var acct sql.NullFloat64
 		if err := rows.Scan(&r.ID, &r.Exchange, &r.Symbol, &r.Account, &ts, &r.Equity, &r.UnrealizedPnL, &r.TotalPositionValue, &acct, &createdAt); err != nil {
-			continue
+			// 權益曲线缺一個點就是圖表失真，不能靜默跳過
+			return nil, fmt.Errorf("解析權益記錄失败: %w", err)
 		}
 		if acct.Valid {
 			v := acct.Float64
@@ -206,7 +207,8 @@ func (s *SQLStorage) GetProtectedKlineFiles() ([]string, error) {
 	for rows.Next() {
 		var filename string
 		if err := rows.Scan(&filename); err != nil {
-			continue
+			// 漏掉受保護的檔名會導致該檔案被誤刪
+			return nil, fmt.Errorf("解析受保護 K線檔名失败: %w", err)
 		}
 		files = append(files, filename)
 	}

@@ -244,23 +244,15 @@ func (c *CoinsphSpotAdapter) roundToTickSize(price float64, side Side) float64 {
 	if c.tickSize <= 0 {
 		return price
 	}
-	ticks := price / c.tickSize
-	var roundedTicks float64
 	if side == SideBuy {
-		roundedTicks = math.Floor(ticks)
-	} else {
-		roundedTicks = math.Ceil(ticks)
+		return utils.FloorToStep(price, c.tickSize)
 	}
-	return roundedTicks * c.tickSize
+	return utils.CeilToStep(price, c.tickSize)
 }
 
 // roundToStepSize 按數量步長四捨五入
 func (c *CoinsphSpotAdapter) roundToStepSize(quantity float64) float64 {
-	if c.stepSize <= 0 {
-		return quantity
-	}
-	steps := math.Floor(quantity / c.stepSize)
-	return steps * c.stepSize
+	return utils.FloorToStep(quantity, c.stepSize)
 }
 
 // GetName 獲取交易所名称

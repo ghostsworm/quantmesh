@@ -100,6 +100,10 @@ func (s *SQLStorage) QueryReconciliationHistory(exchange, symbol, account string
 		histories = append(histories, h)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷對賬歷史失败: %w", err)
+	}
+
 	return histories, nil
 }
 

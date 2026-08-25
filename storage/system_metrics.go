@@ -43,6 +43,10 @@ func (s *SQLStorage) QuerySystemMetrics(startTime, endTime time.Time) ([]*System
 		metrics = append(metrics, m)
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷系统指標失败: %w", err)
+	}
+
 	return metrics, nil
 }
 
@@ -82,6 +86,10 @@ func (s *SQLStorage) QueryDailySystemMetrics(days int) ([]*DailySystemMetrics, e
 			continue
 		}
 		metrics = append(metrics, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷每日系统指標失败: %w", err)
 	}
 
 	return metrics, nil

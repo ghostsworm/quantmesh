@@ -240,8 +240,12 @@ type SuperPositionManager struct {
 	strategyName string // 策略名称（如 "Grid-BTCUSDT-1"）
 	strategyType string // 策略類型（固定為 "grid"）
 
-	// 價格锚点（初始化時的市场價格）
-	anchorPrice float64
+	// 價格锚点（初始化時的市场價格），以 float64 bits 形式原子存儲。
+	// 讀者遍布多個 goroutine（網格計算、Web API、自動重建定時器），
+	// 寫者 ShiftGrid/rebuild 在 spm.mu 內完成讀-改-寫。
+	// 讀路徑刻意不取鎖：findNearestGridPrice 等函數調用鏈很深，
+	// 在其中取 spm.mu 會與已持鎖的上游形成死鎖（RWMutex 不可重入）。
+	anchorPriceBits atomic.Uint64
 	// 最后市场價格（用於打印状態）
 	lastMarketPrice atomic.Value // float64
 	// 價格精度（根據锚点價格检测得出的小數位數）
@@ -913,13 +917,13 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	}
 
 	// 1. 設置價格锚点（精度信息已經在構造函數中設置，從交易所獲取）
-	spm.anchorPrice = initialPrice
+	spm.setAnchorPrice(initialPrice)
 	spm.lastMarketPrice.Store(initialPrice) // 初始化最后市场價格
 	logger.Info("✅ 價格锚点已設置: %s, 價格精度:%d, 數量精度:%d",
 		formatPrice(initialPrice, spm.priceDecimals), spm.priceDecimals, spm.quantityDecimals)
 
 	// 2. 直接使用锚点價格作為网格價格（不再對齐到整數）
-	initialGridPrice := spm.anchorPrice
+	initialGridPrice := spm.anchorPrice()
 	logger.Info("✅ 初始网格價格: %s (使用锚点價格)", formatPrice(initialGridPrice, spm.priceDecimals))
 
 	// 4. 使用统一的槽位價格计算方法創建初始槽位
@@ -1021,9 +1025,9 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 	// 1. priceDecimals 参數錯误
 	// 2. 多交易對场景下，订單属於其他交易對（应該在上层過滤，但这里作為兜底检查）
 	// 3. 历史遗留订單（切换交易對后的舊订單）
-	if spm.anchorPrice > 1000 && price < 1000 && price > 0 {
+	if spm.anchorPrice() > 1000 && price < 1000 && price > 0 {
 		logger.Warn("⚠️ [價格解析异常] ClientOrderID=%s, 解析價格=%.2f, 锚点價格=%.2f, priceDecimals=%d",
-			clientOrderID, price, spm.anchorPrice, spm.priceDecimals)
+			clientOrderID, price, spm.anchorPrice(), spm.priceDecimals)
 		logger.Warn("💡 [可能原因] 1) 此订單属於其他交易對 2) priceDecimals 参數錯误 3) 历史遗留订單")
 		logger.Warn("💡 [建议] 检查是否运行了多個交易對，确保订單推送已正确過滤 Symbol")
 
@@ -1033,7 +1037,7 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 				continue
 			}
 			testPrice, _, _, testValid := utils.ParseOrderID(cleanID, testDecimals)
-			if testValid && testPrice > 1000 && math.Abs(testPrice-spm.anchorPrice) < spm.anchorPrice*0.5 {
+			if testValid && testPrice > 1000 && math.Abs(testPrice-spm.anchorPrice()) < spm.anchorPrice()*0.5 {
 				logger.Warn("⚠️ [價格解析修複] 使用 priceDecimals=%d 重新解析得到價格=%.2f", testDecimals, testPrice)
 				return testPrice, side, true
 			}
@@ -1198,18 +1202,18 @@ func (spm *SuperPositionManager) findNearestGridPrice(currentPrice float64) floa
 			ratio = 0.01 // 默認 1%
 		}
 		// 等比：gridPrice = anchor * (1+ratio)^k，k = round(log(current/anchor) / log(1+ratio))
-		if spm.anchorPrice <= 0 {
+		if spm.anchorPrice() <= 0 {
 			return roundPrice(currentPrice, spm.priceDecimals)
 		}
 		logRatio := math.Log(1 + ratio)
-		k := math.Round(math.Log(currentPrice/spm.anchorPrice) / logRatio)
-		gridPrice := spm.anchorPrice * math.Pow(1+ratio, k)
+		k := math.Round(math.Log(currentPrice/spm.anchorPrice()) / logRatio)
+		gridPrice := spm.anchorPrice() * math.Pow(1+ratio, k)
 		return roundPrice(gridPrice, spm.priceDecimals)
 	}
 	// 等差
-	offset := currentPrice - spm.anchorPrice
+	offset := currentPrice - spm.anchorPrice()
 	intervals := math.Round(offset / spm.config.Trading.PriceInterval)
-	gridPrice := spm.anchorPrice + intervals*spm.config.Trading.PriceInterval
+	gridPrice := spm.anchorPrice() + intervals*spm.config.Trading.PriceInterval
 	return roundPrice(gridPrice, spm.priceDecimals)
 }
 
@@ -1622,9 +1626,21 @@ func (spm *SuperPositionManager) getEffectiveProfitSpread() float64 {
 	return spm.config.Trading.PriceInterval
 }
 
+// anchorPrice 讀取價格錨點（無鎖，可在任意調用鏈上安全使用）
+func (spm *SuperPositionManager) anchorPrice() float64 {
+	return math.Float64frombits(spm.anchorPriceBits.Load())
+}
+
+// setAnchorPrice 寫入價格錨點。
+// 讀-改-寫（如 ShiftGrid 的 +=）必須在 spm.mu 內完成，
+// 本方法只保證單次寫入對其他 goroutine 立即可見。
+func (spm *SuperPositionManager) setAnchorPrice(price float64) {
+	spm.anchorPriceBits.Store(math.Float64bits(price))
+}
+
 // GetAnchorPrice 獲取價格锚点
 func (spm *SuperPositionManager) GetAnchorPrice() float64 {
-	return spm.anchorPrice
+	return spm.anchorPrice()
 }
 
 // UpdateTradingParams 运行時更新交易参數（热更新）
@@ -1687,7 +1703,7 @@ func (spm *SuperPositionManager) GetTradingParamsSummary() map[string]interface{
 		"order_quantity":   spm.config.Trading.OrderQuantity,
 		"buy_window_size":  buyWindowSize,
 		"sell_window_size": sellWindowSize,
-		"anchor_price":     spm.anchorPrice,
+		"anchor_price":     spm.anchorPrice(),
 		"current_price":    lastPrice,
 		"direction":        spm.config.Trading.Direction,
 	}

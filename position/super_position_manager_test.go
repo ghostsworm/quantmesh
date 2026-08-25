@@ -142,8 +142,8 @@ func TestSuperPositionManager_Initialize(t *testing.T) {
 	}
 
 	// 驗证锚点價格
-	if spm.anchorPrice != initialPrice {
-		t.Errorf("锚点價格錯误: 期望 %.2f, 得到 %.2f", initialPrice, spm.anchorPrice)
+	if spm.anchorPrice() != initialPrice {
+		t.Errorf("锚点價格錯误: 期望 %.2f, 得到 %.2f", initialPrice, spm.anchorPrice())
 	}
 
 	// 驗证初始化是否成功

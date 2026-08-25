@@ -110,7 +110,7 @@ func postBatchCreateFunding(c *gin.Context) {
 			return
 		}
 
-		if botManagerProvider != nil {
+		if botManagerProvider() != nil {
 			for _, bc := range cfg.Bots {
 				if bc.MarketType != config.MarketTypeFundingCarry {
 					continue
@@ -128,7 +128,7 @@ func postBatchCreateFunding(c *gin.Context) {
 				go func(b config.BotConfig) {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
-					if err := botManagerProvider.StartBot(ctx, b); err != nil {
+					if err := botManagerProvider().StartBot(ctx, b); err != nil {
 						logger.Warn("⚠️ 批量啟動 Bot %s 失敗: %v", b.ID, err)
 					}
 				}(bc)
@@ -176,8 +176,8 @@ func getFundingCarryDashboard(c *gin.Context) {
 		totalCapital += bc.TotalAllocatedCapital
 
 		status := "stopped"
-		if botManagerProvider != nil {
-			for _, br := range botManagerProvider.ListBots() {
+		if botManagerProvider() != nil {
+			for _, br := range botManagerProvider().ListBots() {
 				if br.BotID == bc.ID && br.Running {
 					status = "running"
 					break
@@ -273,12 +273,12 @@ func getFundingCarryStatus(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider == nil {
+	if botManagerProvider() == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_not_ready")
 		return
 	}
 
-	detail, found := botManagerProvider.GetBot(botID)
+	detail, found := botManagerProvider().GetBot(botID)
 	if !found || detail == nil {
 		respondError(c, http.StatusNotFound, "error.bot_not_found")
 		return

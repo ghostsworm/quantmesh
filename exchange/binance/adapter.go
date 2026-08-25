@@ -374,26 +374,17 @@ func (b *BinanceAdapter) roundToTickSize(price float64, side Side) float64 {
 	if b.tickSize <= 0 {
 		return price
 	}
-	// 计算價格是 tickSize 的多少倍
-	ticks := price / b.tickSize
-	var roundedTicks float64
 	if side == SideBuy {
 		// 買單向下取整（更低的價格對買家有利）
-		roundedTicks = math.Floor(ticks)
-	} else {
-		// 賣單向上取整（更高的價格對賣家有利）
-		roundedTicks = math.Ceil(ticks)
+		return utils.FloorToStep(price, b.tickSize)
 	}
-	return roundedTicks * b.tickSize
+	// 賣單向上取整（更高的價格對賣家有利）
+	return utils.CeilToStep(price, b.tickSize)
 }
 
 // roundToStepSize 將數量調整到符合 stepSize 的值（向下取整）
 func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
-	if b.stepSize <= 0 {
-		return quantity
-	}
-	steps := math.Floor(quantity / b.stepSize)
-	return steps * b.stepSize
+	return utils.FloorToStep(quantity, b.stepSize)
 }
 
 // PlaceOrder 下單

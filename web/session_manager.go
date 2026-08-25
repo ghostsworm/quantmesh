@@ -363,13 +363,22 @@ func (sm *SessionManager) DeleteSessionsForUser(username string) {
 
 	if sm.db != nil {
 		rows, err := sm.db.Query("SELECT session_id FROM sessions WHERE username = ?", username)
-		if err == nil {
+		if err != nil {
+			// 查不到會话列表就等於沒能撤销，必須讓運維看見
+			logger.Warn("⚠️ 查詢用戶會话失败，可能有會话未被撤销 - User: %s, Error: %v", username, err)
+		} else {
 			defer rows.Close()
 			for rows.Next() {
 				var sessionID string
-				if rows.Scan(&sessionID) == nil {
-					sessionIDs = append(sessionIDs, sessionID)
+				if err := rows.Scan(&sessionID); err != nil {
+					logger.Warn("⚠️ 讀取會话 ID 失败，該會话可能未被撤销 - User: %s, Error: %v", username, err)
+					continue
 				}
+				sessionIDs = append(sessionIDs, sessionID)
+			}
+			// 遍歷中斷會導致部分會话殘留為有效狀態，屬於安全問題
+			if err := rows.Err(); err != nil {
+				logger.Warn("⚠️ 遍歷用戶會话中斷，可能有會话未被撤销 - User: %s, Error: %v", username, err)
 			}
 		}
 		if len(sessionIDs) > 0 {

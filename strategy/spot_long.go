@@ -10,6 +10,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 // SpotLongStrategy 現貨做多對沖策略
@@ -246,13 +247,14 @@ func (s *SpotLongStrategy) decreaseLong(ctx context.Context, amount float64) {
 	logger.Info("📤 SpotLongStrategy: 賣出 %.6f %s 減少多倉", amount, s.baseAsset)
 }
 
+// roundQuantity 將數量向下取整到交易所精度。
+// 現貨賣出沒有 ReduceOnly 兜底，向上取整會直接超出持有量被拒單。
 func (s *SpotLongStrategy) roundQuantity(qty float64) float64 {
 	decimals := s.ex.GetQuantityDecimals()
 	if decimals <= 0 {
 		decimals = 6
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(qty*factor+0.5) / factor
+	return utils.FloorToDecimals(qty, decimals)
 }
 
 func (s *SpotLongStrategy) roundPrice(price float64) float64 {
@@ -260,8 +262,7 @@ func (s *SpotLongStrategy) roundPrice(price float64) float64 {
 	if decimals <= 0 {
 		decimals = 2
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(price*factor+0.5) / factor
+	return utils.RoundToDecimals(price, decimals)
 }
 
 func (s *SpotLongStrategy) getPriceDecimals() int {

@@ -10,6 +10,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 // FuturesShortStrategy 合約做空對沖策略
@@ -248,13 +249,14 @@ func (s *FuturesShortStrategy) decreaseShort(ctx context.Context, amount float64
 	logger.Info("📥 FuturesShortStrategy: 平空 %.6f %s", amount, s.baseAsset)
 }
 
+// roundQuantity 將數量向下取整到交易所精度。
+// 必須向下：向上取整會讓平倉量超出持倉、開倉量超出餘額，直接被交易所拒單。
 func (s *FuturesShortStrategy) roundQuantity(qty float64) float64 {
 	decimals := s.ex.GetQuantityDecimals()
 	if decimals <= 0 {
 		decimals = 6
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(qty*factor+0.5) / factor
+	return utils.FloorToDecimals(qty, decimals)
 }
 
 func (s *FuturesShortStrategy) roundPrice(price float64) float64 {
@@ -262,8 +264,7 @@ func (s *FuturesShortStrategy) roundPrice(price float64) float64 {
 	if decimals <= 0 {
 		decimals = 2
 	}
-	factor := math.Pow10(decimals)
-	return math.Floor(price*factor+0.5) / factor
+	return utils.RoundToDecimals(price, decimals)
 }
 
 func (s *FuturesShortStrategy) getPriceDecimals() int {
