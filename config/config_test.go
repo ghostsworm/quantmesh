@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -89,6 +91,196 @@ func TestNormalizeDirectionPreservesBoth(t *testing.T) {
 	bc := BotConfig{Direction: "BOTH"}
 	if got := bc.GetDirection(); got != "BOTH" {
 		t.Fatalf("BotConfig.GetDirection()=%q want BOTH", got)
+	}
+}
+
+func TestSymbolAndBotConfigAccessorsAndConversions(t *testing.T) {
+	var sc SymbolConfig
+	if !sc.IsEnabled() {
+		t.Fatal("nil SymbolConfig.Enabled should default to true")
+	}
+	sc.SetEnabled(false)
+	if sc.IsEnabled() {
+		t.Fatal("SetEnabled(false) was not applied")
+	}
+	sc.MarketType = "spot"
+	sc.UseSpotMargin = true
+	if got := sc.GetMarketType(); got != "spot_margin" {
+		t.Fatalf("spot margin market type = %q", got)
+	}
+	if sc.IsSpot() {
+		t.Fatal("spot_margin should not be treated as plain spot")
+	}
+
+	bc := BotConfig{Direction: "both", MarketType: "spot", UseSpotMargin: true}
+	if !bc.IsEnabled() {
+		t.Fatal("nil BotConfig.Enabled should default to true")
+	}
+	bc.SetEnabled(false)
+	if bc.IsEnabled() {
+		t.Fatal("SetEnabled(false) was not applied")
+	}
+	if got := bc.GetMarketType(); got != "spot_margin" {
+		t.Fatalf("bot spot margin market type = %q", got)
+	}
+	if !bc.IsLong() || !bc.IsShort() || !bc.IsBoth() {
+		t.Fatalf("BOTH direction helpers returned long=%v short=%v both=%v", bc.IsLong(), bc.IsShort(), bc.IsBoth())
+	}
+
+	if got := GenerateBotID("Binance", "BTCUSDT", ""); got != "binance:btcusdt:futures" {
+		t.Fatalf("GenerateBotID default = %q", got)
+	}
+	if id := GenerateUniqueBotID(); id == "" {
+		t.Fatal("GenerateUniqueBotID returned empty id")
+	}
+
+	enabled := true
+	rocket := &RocketTieredGridConfig{Enabled: true}
+	source := SymbolConfig{
+		ID:                    "bot-source",
+		Name:                  "Source Bot",
+		Enabled:               &enabled,
+		Exchange:              "binance",
+		Symbol:                "ETHUSDT",
+		MarketType:            "spot",
+		TotalAllocatedCapital: 2000,
+		Strategies:            []StrategyInstance{{Type: "grid", Weight: 1}},
+		PriceInterval:         10,
+		ProfitSpread:          12,
+		OrderQuantity:         20,
+		MinOrderValue:         6,
+		BuyWindowSize:         3,
+		SellWindowSize:        4,
+		ShortOpenWindowSize:   5,
+		ReconcileInterval:     30,
+		OrderCleanupThreshold: 60,
+		CleanupBatchSize:      7,
+		MarginLockDurationSec: 8,
+		PositionSafetyCheck:   9,
+		Direction:             "SHORT",
+		GridMode:              "geometric",
+		GridShiftEnabled:      true,
+		GridShiftStep:         2,
+		RocketTieredGrid:      rocket,
+		CloseOnStop:           true,
+		UseSpotMargin:         false,
+		SpotInventoryPolicy:   SpotInventoryPolicyAdoptAll,
+	}
+	converted := SymbolConfigToBotConfig(source, true)
+	if converted.ID != source.ID || converted.Name != source.Name || !converted.Testnet {
+		t.Fatalf("unexpected converted bot identity: %+v", converted)
+	}
+	if converted.MarketType != "spot" || converted.SpotInventoryPolicy != SpotInventoryPolicyAdoptAll {
+		t.Fatalf("unexpected converted bot market fields: %+v", converted)
+	}
+	roundTrip := BotConfigToSymbolConfig(converted)
+	if roundTrip.ID != source.ID || roundTrip.Symbol != source.Symbol || roundTrip.RocketTieredGrid != rocket {
+		t.Fatalf("unexpected round trip symbol: %+v", roundTrip)
+	}
+
+	carry := SymbolConfig{
+		Exchange:              "binance",
+		Symbol:                "BTCUSDT",
+		MarketType:            MarketTypeFundingCarry,
+		TotalAllocatedCapital: 1000,
+	}
+	carryBot := SymbolConfigToBotConfig(carry, false)
+	if carryBot.Name != "BTCUSDT (funding_carry)" || carryBot.GetMarketType() != MarketTypeFundingCarry {
+		t.Fatalf("unexpected funding carry bot: %+v", carryBot)
+	}
+}
+
+func TestConfigSyncSetupLoadSaveAndSanitize(t *testing.T) {
+	cfg := &Config{}
+	cfg.Bots = []BotConfig{{
+		ID:             "bot-1",
+		Name:           "BTC Spot",
+		Exchange:       "binance",
+		Symbol:         "BTCUSDT",
+		MarketType:     "spot",
+		PriceInterval:  100,
+		OrderQuantity:  10,
+		BuyWindowSize:  1,
+		SellWindowSize: 1,
+	}}
+	cfg.SyncSymbolsFromBots()
+	if len(cfg.Trading.Symbols) != 1 || cfg.Trading.Symbols[0].ID != "bot-1" {
+		t.Fatalf("SyncSymbolsFromBots failed: %+v", cfg.Trading.Symbols)
+	}
+	cfg.SyncSymbolsFromBots()
+	if len(cfg.Trading.Symbols) != 1 {
+		t.Fatalf("SyncSymbolsFromBots should not append when symbols already exist")
+	}
+
+	setupCfg, err := CreateConfigFromSetup(&SetupData{
+		Exchange:      "binance",
+		APIKey:        "api-key",
+		SecretKey:     "secret-key",
+		Passphrase:    "pass",
+		Symbol:        "BTCUSDT",
+		PriceInterval: 100,
+		OrderQuantity: 20,
+		BuyWindowSize: 2,
+		Testnet:       true,
+	})
+	if err != nil {
+		t.Fatalf("CreateConfigFromSetup: %v", err)
+	}
+	if setupCfg.Exchanges["binance"].FeeRate != 0.0002 || setupCfg.Trading.SellWindowSize != 2 || setupCfg.Trading.MinOrderValue != 20 {
+		t.Fatalf("unexpected setup defaults: %+v", setupCfg)
+	}
+	if err := setupCfg.Validate(); err != nil {
+		t.Fatalf("setup config should validate: %v", err)
+	}
+
+	export := SanitizeForExport(setupCfg)
+	if export.Exchanges["binance"].APIKey != "api-****" || export.Exchanges["binance"].SecretKey != "****" || export.Exchanges["binance"].Passphrase != "****" {
+		t.Fatalf("exchange fields were not sanitized: %+v", export.Exchanges["binance"])
+	}
+	setupCfg.AI.APIKey = "ai-key"
+	setupCfg.AI.GeminiAPIKey = "gemini-key"
+	setupCfg.AI.Upstreams = map[string]AIUpstreamProfile{"openai": {APIKey: "sk-test"}}
+	export = SanitizeForExport(setupCfg)
+	if export.AI.APIKey != "****" || export.AI.GeminiAPIKey != "****" || export.AI.Upstreams["openai"].APIKey != "****" {
+		t.Fatalf("AI fields were not sanitized: %+v", export.AI)
+	}
+	if SanitizeForExport(nil) != nil {
+		t.Fatal("nil sanitize should return nil")
+	}
+
+	dir := t.TempDir()
+	yamlPath := filepath.Join(dir, "config.yaml")
+	if err := SaveConfig(setupCfg, yamlPath); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	loaded, err := LoadConfig(yamlPath)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if loaded.App.CurrentExchange != "binance" || loaded.Trading.Symbol != "BTCUSDT" {
+		t.Fatalf("unexpected loaded config: %+v", loaded)
+	}
+	raw, err := os.ReadFile(yamlPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	fromBytes, err := LoadConfigFromBytes(raw)
+	if err != nil {
+		t.Fatalf("LoadConfigFromBytes: %v", err)
+	}
+	if fromBytes.Trading.Symbol != "BTCUSDT" {
+		t.Fatalf("unexpected bytes config: %+v", fromBytes)
+	}
+	jsonData := []byte(`{"App":{"CurrentExchange":"binance"},"Exchanges":{"binance":{"api_key":"k","secret_key":"s","fee_rate":0.0002}},"Trading":{"Symbol":"ETHUSDT","PriceInterval":50,"OrderQuantity":10,"BuyWindowSize":1}}`)
+	fromJSON, err := LoadConfigFromJSON(jsonData)
+	if err != nil {
+		t.Fatalf("LoadConfigFromJSON: %v", err)
+	}
+	if fromJSON.Trading.Symbol != "ETHUSDT" {
+		t.Fatalf("unexpected json config: %+v", fromJSON)
+	}
+	if err := SaveConfigWithoutValidation(&Config{}, filepath.Join(dir, "raw.yaml")); err != nil {
+		t.Fatalf("SaveConfigWithoutValidation: %v", err)
 	}
 }
 
