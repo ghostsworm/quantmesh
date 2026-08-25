@@ -36,7 +36,18 @@
       "Bash(git worktree:*)",
       "Bash(git -C .worktrees/feature-hedge-backtest status --short)",
       "Bash(git merge:*)",
-      "Bash(git branch:*)"
+      "Bash(git branch:*)",
+      "Bash(go vet *)",
+      "Read(//tmp/**)",
+      "Bash(git stash *)",
+      "Read(//private/tmp/**)",
+      "Bash(git check-ignore *)",
+      "Bash(git pull *)",
+      "Bash(gh issue *)",
+      "Bash(gh api *)",
+      "Bash(go env *)",
+      "Bash(gh release *)",
+      "Bash(gh run *)"
     ],
     "deny": [],
     "ask": []
