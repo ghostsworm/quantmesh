@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/utils"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -329,7 +331,11 @@ func TestSQLStoragePositionTradeMetricsAndAggregateQueries(t *testing.T) {
 	if len(dailyExchangePnL) == 0 {
 		t.Fatalf("daily exchange pnl should not be empty")
 	}
-	count, grossPnL, totalFee, err := st.GetDailyTradesSummary("binance", "acct-a", now.Format("2006-01-02"), "bot-a")
+	// GetDailyTradesSummary 按「配置時區」對 created_at 分桶，日期串必須也用配置時區。
+	// 先前直接拿 UTC 的 now 取日期，在 UTC 16:00~24:00（即 Asia/Shanghai 次日 00:00~08:00）
+	// 這段窗口裡 UTC 日期比配置時區日期少一天，查詢必然落空——測試每天固定失敗 8 小時。
+	summaryDate := utils.ToConfiguredTimezone(now).Format("2006-01-02")
+	count, grossPnL, totalFee, err := st.GetDailyTradesSummary("binance", "acct-a", summaryDate, "bot-a")
 	if err != nil {
 		t.Fatalf("GetDailyTradesSummary: %v", err)
 	}
