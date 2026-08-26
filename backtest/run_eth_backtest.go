@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"quantmesh/backtest"
@@ -93,7 +94,12 @@ func main() {
 		fmt.Println("")
 
 		// 定义策略
-		pluginPath := "/Users/user/Sites/quantmesh-premium/plugins/multi_strategy/multi_strategy.so"
+		// 插件路径通过 QUANTMESH_PLUGIN_PATH 配置，未设置时按相对路径回退，
+		// 避免把本机绝对路径写死在仓库里。
+		pluginPath := os.Getenv("QUANTMESH_PLUGIN_PATH")
+		if pluginPath == "" {
+			pluginPath = "./plugins/multi_strategy/multi_strategy.so"
+		}
 		strategies := []struct {
 			Name         string
 			StrategyName string

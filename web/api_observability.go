@@ -237,3 +237,13 @@ func maskDSN(dsn string) string {
 	}
 	return before[:12] + "..." + before[len(before)-4:] + "@***"
 }
+
+// maskAPIKey 脱敏 API Key，仅保留头尾少量字符用于人工核对。
+// 先前定义在已移除的 api_aipipe.go 中，因 MCP 与可观测性配置接口都依赖它，
+// 随文件删除会导致这两处编译失败，故迁移至此。
+func maskAPIKey(k string) string {
+	if len(k) <= 16 {
+		return strings.Repeat("*", len(k))
+	}
+	return k[:12] + "..." + k[len(k)-4:]
+}

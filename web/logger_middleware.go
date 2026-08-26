@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/logger"
-	"quantmesh/notify/aipipe"
 	"quantmesh/notify/observability"
 )
 
@@ -85,11 +84,10 @@ func GinLoggerMiddleware(logAll bool) gin.HandlerFunc {
 		// 写入 Web 日志文件
 		logger.WriteWebLog(logMessage)
 
-		// 5xx 上报 aipipe（4xx 通常是用户输入问题，不上报避免噪音）
+		// 5xx 上报可观测性通道（4xx 通常是用户输入问题，不上报避免噪音）
 		if statusCode >= 500 {
 			err := fmt.Errorf("HTTP %d %s %s", statusCode, method, path)
 			extra := fmt.Sprintf("client_ip=%s latency=%v", clientIP, latency)
-			aipipe.ReportError(err, "http5xx", extra)
 			observability.ReportError(err, "http5xx", extra)
 		}
 	}
@@ -104,7 +102,6 @@ func GinRecoveryMiddleware() gin.HandlerFunc {
 				stack := string(debug.Stack())
 				msg := fmt.Sprintf("panic in %s %s: %v", c.Request.Method, c.Request.URL.Path, r)
 				logger.Error("%s\n%s", msg, stack)
-				aipipe.ReportError(errors.New(msg), "panic", stack)
 				observability.ReportError(errors.New(msg), "panic", stack)
 				if !c.Writer.Written() {
 					c.AbortWithStatusJSON(500, gin.H{"error": "internal server error"})

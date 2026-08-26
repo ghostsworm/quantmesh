@@ -208,7 +208,7 @@ GET /api/events/stats
 ### 后端测试
 
 ```bash
-cd /Users/user/Sites/btc/quantmesh-opensource
+cd /path/to/quantmesh-opensource
 go test -v ./event/...
 ```
 

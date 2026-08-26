@@ -25,7 +25,7 @@ type Providers struct {
 	// BacktestTasks 回测任务存储；nil 时不注册回测工具
 	BacktestTasks backtest.TaskStore
 
-	// SystemSettings 取/改 system_settings 表（aipipe key 之类）
+	// SystemSettings 取/改 system_settings 表
 	SystemSettings SystemSettingsReader
 
 	// 写工具依赖项 —— 只在 allow_write=true 时才需要

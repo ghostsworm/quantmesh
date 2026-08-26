@@ -14,7 +14,6 @@ import (
 	"quantmesh/logger"
 	"quantmesh/mcp"
 	"quantmesh/monitor"
-	"quantmesh/notify/aipipe"
 	"quantmesh/notify/observability"
 	"quantmesh/position"
 	"quantmesh/storage"
@@ -22,44 +21,18 @@ import (
 	"quantmesh/web"
 )
 
-var aipipeBootstrapped sync.Once
 var observabilityBootstrapped sync.Once
 
-// bootstrapAipipe 读取 system_settings 里的 aipipe_* 配置，启动上报客户端，
-// 并把 logger 的 ERROR/FATAL 钩子接到 aipipe.ReportMessage。
+// bootstrapObservability 读取 system_settings 中的 PostHog / Sentry 配置并启动上报，
+// 并把 logger 的 ERROR/FATAL 钩子接到 observability.ReportMessage。
 //
 // 幂等：多次调用只生效一次（multi-tenant 路径可能调两次）。
-// 失败不影响主流程；启动期没填 key → 整套静默 no-op。
-func bootstrapAipipe(provider web.SystemSettingsProvider) {
-	if provider == nil {
-		return
-	}
-	aipipeBootstrapped.Do(func() {
-		cfg := loadAipipeConfigFromSettings(provider)
-		if err := aipipe.Reload(cfg); err != nil {
-			logger.Warn("aipipe 启动失败: %v", err)
-		}
-		// 装错误外发钩子：ERROR/FATAL 自动上报
-		logger.SetErrorHook(func(level, message string) {
-			aipipe.ReportMessage(level, message, "log")
-			observability.ReportMessage(level, message, "log")
-		})
-		web.RegisterAipipeReloader(func() {
-			c := loadAipipeConfigFromSettings(provider)
-			if err := aipipe.Reload(c); err != nil {
-				logger.Warn("aipipe 重载失败: %v", err)
-			}
-		})
-		if cfg.Enabled && cfg.APIKey != "" {
-			logger.Info("✅ aipipe 错误上报已启用，endpoint=%s", cfg.Endpoint)
-		}
-	})
-}
-
-// bootstrapObservability 读取 system_settings 中的 PostHog / Sentry 配置并启动上报。
+// 未启用或未填密钥时保持 no-op，失败不影响主流程。
 //
-// 与 aipipe 一样：未启用或未填密钥时保持 no-op。logger hook 由 bootstrapAipipe
-// 统一安装，避免多个 hook 后注册覆盖前注册。
+// 注：该 hook 先前由已移除的 bootstrapAipipe 统一安装（一个 hook 里同时转发给
+// aipipe 和 observability），因为 SetErrorHook 是后注册覆盖前注册的单槽机制。
+// 移除 aipipe 后这里是唯一的 hook 安装点；若将来再加上报通道，仍需在同一个
+// hook 内扇出，不要各自 SetErrorHook。
 func bootstrapObservability(version string, provider web.SystemSettingsProvider) {
 	if provider == nil {
 		return
@@ -67,6 +40,10 @@ func bootstrapObservability(version string, provider web.SystemSettingsProvider)
 	observabilityBootstrapped.Do(func() {
 		cfg := loadObservabilityConfigFromSettings(version, provider)
 		observability.Reload(cfg)
+		// 装错误外发钩子：ERROR/FATAL 自动上报
+		logger.SetErrorHook(func(level, message string) {
+			observability.ReportMessage(level, message, "log")
+		})
 		web.RegisterObservabilityReloader(func() {
 			observability.Reload(loadObservabilityConfigFromSettings(version, provider))
 		})
@@ -111,22 +88,6 @@ func bootstrapMCP(version string, provider web.SystemSettingsProvider, st storag
 		web.SetMCPServer(build())
 		logger.Info("MCP server 已重建（allow_write 切换）")
 	})
-}
-
-// loadAipipeConfigFromSettings 从 system_settings 中读取 aipipe 配置。
-func loadAipipeConfigFromSettings(provider web.SystemSettingsProvider) aipipe.Config {
-	ctx := context.Background()
-	cfg := aipipe.Config{Endpoint: aipipe.DefaultEndpoint}
-	if v, err := provider.GetSystemSetting(ctx, aipipe.SettingKeyAPIKey); err == nil && v != nil {
-		cfg.APIKey = v.Value
-	}
-	if v, err := provider.GetSystemSetting(ctx, aipipe.SettingKeyEndpoint); err == nil && v != nil && v.Value != "" {
-		cfg.Endpoint = v.Value
-	}
-	if enabled, err := provider.GetSystemSettingBool(ctx, aipipe.SettingKeyEnabled, false); err == nil {
-		cfg.Enabled = enabled
-	}
-	return cfg
 }
 
 // loadObservabilityConfigFromSettings 从 system_settings 中读取 PostHog / Sentry 配置。

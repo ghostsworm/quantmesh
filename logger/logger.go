@@ -47,7 +47,7 @@ var (
 	logStorageWriter func(level, message, botID string)
 	logStorageMu     sync.RWMutex
 
-	// 错误外发钩子（如 aipipe 上报）；通过函数指针避免循环依赖
+	// 错误外发钩子（如可观测性上报）；通过函数指针避免循环依赖
 	errorHookWriter func(level, message string)
 	errorHookMu     sync.RWMutex
 
@@ -539,7 +539,7 @@ func logfWithContext(ctx context.Context, level LogLevel, format string, args ..
 		}(botID)
 	}
 
-	// ERROR/FATAL 触发外发钩子（如 aipipe 上报）
+	// ERROR/FATAL 触发外发钩子（如可观测性上报）
 	dispatchErrorHook(level, message)
 }
 
@@ -623,7 +623,7 @@ func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) 
 		}(botID)
 	}
 
-	// ERROR/FATAL 触发外发钩子（如 aipipe 上报）
+	// ERROR/FATAL 触发外发钩子（如可观测性上报）
 	dispatchErrorHook(level, strings.TrimSuffix(message, "\n"))
 }
 

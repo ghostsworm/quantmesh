@@ -1,43 +1,7 @@
-// 全局设置页面的轻量 API 封装：aipipe 错误上报 + MCP 服务。
+// 全局设置页面的轻量 API 封装：可观测性上报 + MCP 服务。
 import { fetchWithAuth } from './api'
 
 const API_BASE_URL = `${window.location.origin}/api`
-
-// ——— aipipe —————————————————————————————————————————————————
-
-export interface AipipeConfig {
-  enabled: boolean
-  has_api_key: boolean
-  api_key_mask: string
-  endpoint: string
-  default_endpoint: string
-}
-
-export interface AipipeUpdateRequest {
-  api_key?: string
-  endpoint?: string
-  enabled?: boolean
-}
-
-export async function getAipipeConfig(): Promise<AipipeConfig> {
-  return fetchWithAuth(`${API_BASE_URL}/aipipe/config`)
-}
-
-export async function updateAipipeConfig(req: AipipeUpdateRequest): Promise<AipipeConfig> {
-  return fetchWithAuth(`${API_BASE_URL}/aipipe/config`, {
-    method: 'PUT',
-    body: JSON.stringify(req),
-  })
-}
-
-export async function testAipipeConnection(
-  payload: { api_key?: string; endpoint?: string }
-): Promise<{ ok: boolean; message?: string; error?: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/aipipe/test`, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-}
 
 // ——— PostHog / Sentry ————————————————————————————————————————
 

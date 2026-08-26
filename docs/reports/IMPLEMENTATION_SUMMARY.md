@@ -22,7 +22,7 @@
 - 实现插件接口和加载机制
 
 **关键文件**:
-- `/Users/user/Sites/quantmesh-premium/` - 私有仓库
+- `<premium-repo>/` - 私有仓库
 - `plugin/loader.go` - 插件加载器
 - `plugin/interfaces.go` - 插件接口定义
 - `docs/config/examples/config.example.yaml` - 插件配置示例
@@ -46,7 +46,7 @@
 **实施内容**:
 - 增强本地 License 验证器 (`plugin/license.go`)
 - 实现云端验证器 (`plugin/cloud_validator.go`)
-- 创建 License 服务器 (`/Users/user/Sites/license-server/`)
+- 创建 License 服务器 (`<license-server-repo>/`)
 - 实现 License 缓存机制 (24小时有效期)
 - 支持云端验证和离线模式
 

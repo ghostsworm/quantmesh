@@ -442,11 +442,6 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			protected.GET("/system/local-dev-mode", getLocalDevMode)
 			protected.POST("/system/local-dev-mode", setLocalDevMode)
 
-			// aipipe 错误上报集成
-			protected.GET("/aipipe/config", getAipipeConfig)
-			protected.PUT("/aipipe/config", putAipipeConfig)
-			protected.POST("/aipipe/test", postAipipeTest)
-
 			// PostHog / Sentry 可观测性上报集成
 			protected.GET("/observability/config", getObservabilityConfig)
 			protected.PUT("/observability/config", putObservabilityConfig)

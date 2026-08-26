@@ -4766,23 +4766,6 @@
     "copy": "Copy",
     "copied": "{{what}} copied",
     "copyFailed": "Copy failed",
-    "aipipe": {
-      "title": "Error Reporting (17push)",
-      "intro": "Once the API Key is set, runtime errors / HTTP 5xx / panics will be reported asynchronously to your 17push console. Sign up at:",
-      "active": "Enabled",
-      "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "Paste the API Key from your 17push console",
-      "apiKeyPlaceholderHasValue": "Configured ({{mask}}); leave blank to keep current",
-      "apiKeyHelp": "Only uploaded on save; blank keeps the existing key.",
-      "endpointLabel": "Endpoint",
-      "endpointHelp": "Defaults to https://17push.com/api/v1; change for self-hosted.",
-      "enabledLabel": "Enable error reporting",
-      "testButton": "Test connection",
-      "testOk": "Test event sent",
-      "testFailed": "Test failed",
-      "clearButton": "Clear key",
-      "cleared": "Key cleared and reporting disabled"
-    },
     "observability": {
       "title": "Observability Reporting (PostHog / Sentry)",
       "intro": "Report runtime errors, HTTP 5xx responses, and panics to PostHog or Sentry. No external request is sent unless a key or DSN is configured.",

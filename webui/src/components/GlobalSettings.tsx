@@ -30,19 +30,15 @@ import {
 import { CopyIcon, RepeatIcon } from '@chakra-ui/icons'
 
 import {
-  AipipeConfig,
   MCPConfig,
   MCPSnippetStyle,
   ObservabilityConfig,
   clearMCPToken,
-  getAipipeConfig,
   getMCPClientSnippet,
   getMCPConfig,
   getObservabilityConfig,
   rotateMCPToken,
-  testAipipeConnection,
   testObservabilityConnection,
-  updateAipipeConfig,
   updateMCPConfig,
   updateObservabilityConfig,
 } from '../services/globalSettings'
@@ -55,14 +51,6 @@ const GlobalSettings: React.FC = () => {
   const cardBg = useColorModeValue('white', 'gray.800')
   const codeBg = useColorModeValue('gray.50', 'gray.900')
 
-  // ── aipipe state ─────────────────────────────────────────────
-  const [aipipeLoading, setAipipeLoading] = useState(true)
-  const [aipipeCfg, setAipipeCfg] = useState<AipipeConfig | null>(null)
-  const [aipipeKeyInput, setAipipeKeyInput] = useState('')
-  const [aipipeEndpointInput, setAipipeEndpointInput] = useState('')
-  const [aipipeEnabled, setAipipeEnabled] = useState(false)
-  const [aipipeSaving, setAipipeSaving] = useState(false)
-  const [aipipeTesting, setAipipeTesting] = useState(false)
 
   // ── observability state ─────────────────────────────────────
   const [observabilityLoading, setObservabilityLoading] = useState(true)
@@ -88,25 +76,6 @@ const GlobalSettings: React.FC = () => {
   const [snippetStyle, setSnippetStyle] = useState<MCPSnippetStyle>('claude')
   const [snippetText, setSnippetText] = useState('')
   const [snippetLoading, setSnippetLoading] = useState(false)
-
-  const refreshAipipe = useCallback(async () => {
-    setAipipeLoading(true)
-    try {
-      const cfg = await getAipipeConfig()
-      setAipipeCfg(cfg)
-      setAipipeEndpointInput(cfg.endpoint || cfg.default_endpoint)
-      setAipipeEnabled(cfg.enabled)
-    } catch (err) {
-      toast({
-        title: t('globalSettings.loadFailed'),
-        description: String(err),
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setAipipeLoading(false)
-    }
-  }, [t, toast])
 
   const refreshMCP = useCallback(async () => {
     setMcpLoading(true)
@@ -171,95 +140,13 @@ const GlobalSettings: React.FC = () => {
   )
 
   useEffect(() => {
-    refreshAipipe()
     refreshObservability()
     refreshMCP()
-  }, [refreshAipipe, refreshObservability, refreshMCP])
+  }, [refreshObservability, refreshMCP])
 
   useEffect(() => {
     refreshSnippet(snippetStyle)
   }, [snippetStyle, refreshSnippet, mcpCfg?.has_token])
-
-  // ── aipipe actions ───────────────────────────────────────────
-  const handleAipipeSave = async () => {
-    setAipipeSaving(true)
-    try {
-      const payload: { api_key?: string; endpoint?: string; enabled?: boolean } = {
-        endpoint: aipipeEndpointInput,
-        enabled: aipipeEnabled,
-      }
-      if (aipipeKeyInput.trim() !== '') {
-        payload.api_key = aipipeKeyInput.trim()
-      }
-      const cfg = await updateAipipeConfig(payload)
-      setAipipeCfg(cfg)
-      setAipipeKeyInput('')
-      toast({ title: t('globalSettings.saved'), status: 'success', duration: 3000 })
-    } catch (err) {
-      toast({
-        title: t('globalSettings.saveFailed'),
-        description: String(err),
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setAipipeSaving(false)
-    }
-  }
-
-  const handleAipipeClearKey = async () => {
-    setAipipeSaving(true)
-    try {
-      const cfg = await updateAipipeConfig({ api_key: '__clear__', enabled: false })
-      setAipipeCfg(cfg)
-      setAipipeKeyInput('')
-      setAipipeEnabled(false)
-      toast({ title: t('globalSettings.aipipe.cleared'), status: 'success', duration: 3000 })
-    } catch (err) {
-      toast({
-        title: t('globalSettings.saveFailed'),
-        description: String(err),
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setAipipeSaving(false)
-    }
-  }
-
-  const handleAipipeTest = async () => {
-    setAipipeTesting(true)
-    try {
-      const r = await testAipipeConnection({
-        api_key: aipipeKeyInput.trim() || undefined,
-        endpoint: aipipeEndpointInput.trim() || undefined,
-      })
-      if (r.ok) {
-        toast({
-          title: t('globalSettings.aipipe.testOk'),
-          description: r.message,
-          status: 'success',
-          duration: 4000,
-        })
-      } else {
-        toast({
-          title: t('globalSettings.aipipe.testFailed'),
-          description: r.error,
-          status: 'error',
-          duration: 6000,
-        })
-      }
-    } catch (err) {
-      toast({
-        title: t('globalSettings.aipipe.testFailed'),
-        description: String(err),
-        status: 'error',
-        duration: 6000,
-      })
-    } finally {
-      setAipipeTesting(false)
-    }
-  }
 
   // ── observability actions ───────────────────────────────────
   const handleObservabilitySave = async () => {
@@ -456,72 +343,6 @@ const GlobalSettings: React.FC = () => {
     <Container maxW="container.lg" py={6}>
       <Heading size="lg" mb={2}>{t('globalSettings.title')}</Heading>
       <Text color="gray.500" mb={6}>{t('globalSettings.subtitle')}</Text>
-
-      {/* —— aipipe —————————————————————————————————————— */}
-      <Box bg={cardBg} borderRadius="md" boxShadow="sm" p={6} mb={6}>
-        <HStack justify="space-between" mb={3}>
-          <Heading size="md">{t('globalSettings.aipipe.title')}</Heading>
-          {aipipeCfg?.enabled && aipipeCfg?.has_api_key && (
-            <Badge colorScheme="green">{t('globalSettings.aipipe.active')}</Badge>
-          )}
-        </HStack>
-        <Text fontSize="sm" color="gray.500" mb={4}>
-          {t('globalSettings.aipipe.intro')}
-          {' '}
-          <Link href="https://17push.com" isExternal color="blue.500">
-            17push.com
-          </Link>
-        </Text>
-
-        {aipipeLoading ? <Spinner /> : (
-          <VStack align="stretch" spacing={4}>
-            <FormControl>
-              <FormLabel>{t('globalSettings.aipipe.apiKeyLabel')}</FormLabel>
-              <Input
-                type="password"
-                placeholder={aipipeCfg?.has_api_key
-                  ? t('globalSettings.aipipe.apiKeyPlaceholderHasValue', { mask: aipipeCfg.api_key_mask })
-                  : t('globalSettings.aipipe.apiKeyPlaceholder')}
-                value={aipipeKeyInput}
-                onChange={(e) => setAipipeKeyInput(e.target.value)}
-              />
-              <FormHelperText>{t('globalSettings.aipipe.apiKeyHelp')}</FormHelperText>
-            </FormControl>
-
-            <FormControl>
-              <FormLabel>{t('globalSettings.aipipe.endpointLabel')}</FormLabel>
-              <Input
-                value={aipipeEndpointInput}
-                onChange={(e) => setAipipeEndpointInput(e.target.value)}
-                placeholder={aipipeCfg?.default_endpoint || 'https://17push.com/api/v1'}
-              />
-              <FormHelperText>{t('globalSettings.aipipe.endpointHelp')}</FormHelperText>
-            </FormControl>
-
-            <FormControl display="flex" alignItems="center">
-              <FormLabel mb="0">{t('globalSettings.aipipe.enabledLabel')}</FormLabel>
-              <Switch
-                isChecked={aipipeEnabled}
-                onChange={(e) => setAipipeEnabled(e.target.checked)}
-              />
-            </FormControl>
-
-            <HStack>
-              <Button colorScheme="blue" onClick={handleAipipeSave} isLoading={aipipeSaving}>
-                {t('globalSettings.save')}
-              </Button>
-              <Button onClick={handleAipipeTest} isLoading={aipipeTesting} variant="outline">
-                {t('globalSettings.aipipe.testButton')}
-              </Button>
-              {aipipeCfg?.has_api_key && (
-                <Button onClick={handleAipipeClearKey} variant="ghost" colorScheme="red">
-                  {t('globalSettings.aipipe.clearButton')}
-                </Button>
-              )}
-            </HStack>
-          </VStack>
-        )}
-      </Box>
 
       {/* —— PostHog / Sentry —————————————————————————————— */}
       <Box bg={cardBg} borderRadius="md" boxShadow="sm" p={6} mb={6}>

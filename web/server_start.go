@@ -38,7 +38,7 @@ func NewWebServer(cfg *config.Config) *WebServer {
 	// 使用 gin.New() 代替 gin.Default()，手动添加中间件
 	r := gin.New()
 	
-	// 添加 Recovery 中间件（panic 恢複 + aipipe 上报）
+	// 添加 Recovery 中间件（panic 恢複 + 可观测性上报）
 	r.Use(GinRecoveryMiddleware())
 	
 	// 添加自定义日志中间件

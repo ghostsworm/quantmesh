@@ -19,7 +19,7 @@
 #### 1. 运行安全检查
 
 ```bash
-cd /Users/user/Sites/btc/quantmesh-opensource
+cd /path/to/quantmesh-opensource
 ./scripts/security_check.sh
 ```
 

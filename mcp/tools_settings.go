@@ -10,6 +10,8 @@ import (
 // 一些不应该通过 MCP 读到的敏感 key（API Key、密钥前缀等）。
 // 命中 → 工具返回脱敏值。
 var sensitiveSettingPrefixes = []string{
+	// aipipe 集成已移除，但老部署的 system_settings 表里仍残留 aipipe_api_key 行。
+	// 这条必须保留：移出本列表会让 MCP 明文返回那个残留的 API Key。
 	"aipipe_api_key",
 	"mcp_token",
 	"secret",

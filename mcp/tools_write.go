@@ -76,7 +76,7 @@ func registerSettingWriteTools(s *Server, p Providers) {
 		Tool: Tool{
 			Name: "qm_set_setting",
 			Description: "修改 system_settings 中的某个 key。⚠️ 写操作：必须 confirm=true。" +
-				"禁止修改 mcp_token/aipipe_api_key 等敏感字段。",
+				"禁止修改 mcp_token 等敏感字段。",
 			InputSchema: schemaObject(map[string]any{
 				"key":     schemaString("设置 key"),
 				"value":   schemaString("新值（字符串）"),

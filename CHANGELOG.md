@@ -2,6 +2,22 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.110.0-rc3] - 2026-08-26
+
+### Removed
+- **移除 aipipe 错误上报集成**：不再维护该功能。删除 `notify/aipipe` 包、`web/api_aipipe.go` 及三个 `/api/aipipe/*` 路由，清理 `main.go`、`main_helpers.go`、`web/logger_middleware.go`、`mcp/*` 与前端 `GlobalSettings` / `globalSettings.ts` / i18n 中的全部引用，并从 `go.mod` / `go.sum` 移除 `github.com/redacted/aipipe-go-sdk` 依赖。
+  - **logger 错误钩子已迁移，PostHog / Sentry 上报未受影响**：`logger.SetErrorHook` 是「后注册覆盖前注册」的单槽机制，先前由 `bootstrapAipipe` 统一安装一个 hook，在其中同时转发给 aipipe 和 observability。直接删除 `bootstrapAipipe` 会连带静默切断 PostHog / Sentry 的 ERROR/FATAL 上报，故已将 hook 安装迁入 `bootstrapObservability`（两者在 `main.go` 的两处调用点均相邻，时序安全）。
+  - **`maskAPIKey` 已迁移**：该函数原定义在 `web/api_aipipe.go`，被 `api_mcp.go` 与 `api_observability.go` 依赖，随文件删除会导致编译失败，现迁至 `web/api_observability.go`。
+  - **`aipipe_api_key` 仍保留在 MCP 敏感字段脱敏列表中**：功能虽已移除，但既有部署的 `system_settings` 表里仍残留该行；若将其一并移出列表，MCP 会开始明文返回这个残留的 API Key。
+  - 遗留的 `aipipe_*` system_settings 行不会自动清理，属无害孤儿数据，如需清除请手工删除。
+
+### Changed
+- **清理仓库中的本机绝对路径**：`backtest/run_eth_backtest.go` 的插件路径改为读取 `QUANTMESH_PLUGIN_PATH` 环境变量并回退到相对路径；`docs/SECURITY_ALERT.md`、`docs/reports/*`、`plugin/快速开始.md` 中的示例路径改为通用占位符。
+- **前端构建产物移出 git 跟踪**：`dist/` 与 `webui/dev-dist/` 共 214 个文件（其 sourcemap 会把构建机的本机绝对路径打进 bundle），已用 `git rm --cached` 移出跟踪并加入 `.gitignore`，本地磁盘文件保留未删。这两个目录与 `go:embed` 所需的 `web/dist/` 无关，代码与构建配置中均无引用。
+- 版本号同步前后端到 `3.110.0-rc3`。
+
+---
+
 ## [3.110.0-rc2] - 2026-08-26
 
 ### Fixed

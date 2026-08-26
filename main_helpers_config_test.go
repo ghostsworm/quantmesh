@@ -4,16 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"quantmesh/notify/aipipe"
 	"quantmesh/notify/observability"
 	"quantmesh/storage"
 )
 
-func TestLoadAipipeAndObservabilityConfigFromSettings(t *testing.T) {
+func TestLoadObservabilityConfigFromSettings(t *testing.T) {
 	provider := &mainSettingsProvider{values: map[string]*storage.SystemSetting{
-		aipipe.SettingKeyAPIKey:                   {Key: aipipe.SettingKeyAPIKey, Value: "api-key"},
-		aipipe.SettingKeyEndpoint:                 {Key: aipipe.SettingKeyEndpoint, Value: "https://push.example/api"},
-		aipipe.SettingKeyEnabled:                  {Key: aipipe.SettingKeyEnabled, Value: "true", Type: "boolean"},
 		observability.SettingKeyPostHogProjectKey: {Key: observability.SettingKeyPostHogProjectKey, Value: "ph-key"},
 		observability.SettingKeyPostHogHost:       {Key: observability.SettingKeyPostHogHost, Value: "https://posthog.example"},
 		observability.SettingKeyPostHogEnabled:    {Key: observability.SettingKeyPostHogEnabled, Value: "true", Type: "boolean"},
@@ -21,11 +17,6 @@ func TestLoadAipipeAndObservabilityConfigFromSettings(t *testing.T) {
 		observability.SettingKeySentryEnabled:     {Key: observability.SettingKeySentryEnabled, Value: "true", Type: "boolean"},
 		observability.SettingKeyEnvironment:       {Key: observability.SettingKeyEnvironment, Value: "staging"},
 	}}
-
-	pipeCfg := loadAipipeConfigFromSettings(provider)
-	if pipeCfg.APIKey != "api-key" || pipeCfg.Endpoint != "https://push.example/api" || !pipeCfg.Enabled {
-		t.Fatalf("aipipe config=%#v", pipeCfg)
-	}
 
 	obsCfg := loadObservabilityConfigFromSettings("9.8.7-rc1", provider)
 	if obsCfg.PostHogProjectKey != "ph-key" || obsCfg.PostHogHost != "https://posthog.example" || !obsCfg.PostHogEnabled {
@@ -42,18 +33,11 @@ func TestLoadAipipeAndObservabilityConfigFromSettings(t *testing.T) {
 func TestLoadConfigFromSettingsFallsBackOnMissingOrErrors(t *testing.T) {
 	provider := &mainSettingsProvider{
 		values: map[string]*storage.SystemSetting{
-			aipipe.SettingKeyEndpoint:           {Key: aipipe.SettingKeyEndpoint, Value: ""},
 			observability.SettingKeyPostHogHost: {Key: observability.SettingKeyPostHogHost, Value: ""},
 		},
 		errKeys: map[string]bool{
-			aipipe.SettingKeyEnabled:              true,
 			observability.SettingKeySentryEnabled: true,
 		},
-	}
-
-	pipeCfg := loadAipipeConfigFromSettings(provider)
-	if pipeCfg.Endpoint != aipipe.DefaultEndpoint || pipeCfg.Enabled {
-		t.Fatalf("fallback aipipe config=%#v", pipeCfg)
 	}
 
 	obsCfg := loadObservabilityConfigFromSettings("1.0.0", provider)

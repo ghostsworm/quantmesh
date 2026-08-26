@@ -34,7 +34,6 @@ import (
 	"quantmesh/metrics"
 	"quantmesh/monitor"
 	"quantmesh/notify"
-	"quantmesh/notify/aipipe"
 	"quantmesh/plugin"
 	"quantmesh/position"
 	"quantmesh/profit"
@@ -45,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.110.0-rc2"
+var Version = "3.110.0-rc3"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2466,7 +2465,6 @@ func main() {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
 					logger.Info("✅ 系統設置提供者已設置")
-					bootstrapAipipe(ssAdapter)
 					bootstrapObservability(Version, ssAdapter)
 					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
@@ -2566,7 +2564,6 @@ func main() {
 			if st := storageService.GetStorage(); st != nil {
 				if ssAdapter := web.NewStorageSystemSettingsAdapter(st); ssAdapter != nil {
 					web.SetSystemSettingsProvider(ssAdapter)
-					bootstrapAipipe(ssAdapter)
 					bootstrapObservability(Version, ssAdapter)
 					bootstrapMCP(Version, ssAdapter, st, globalLogStorage)
 				}
@@ -2773,12 +2770,6 @@ func main() {
 
 	// 关闭文件日志
 	logger.Close()
-
-	// 关闭 aipipe 上报客户端，把待发条目落盘
-	if err := aipipe.Close(); err != nil {
-		// 不能用 logger（已 Close），直接走 std log
-		// 但 logger.Error 之类只是写到 stdout，影响有限
-	}
 
 	// 关闭日志存儲
 	if globalLogStorage != nil {

@@ -9,7 +9,6 @@
 - 回测 / 优化器 + 历史数据导出
 - 多 AI 上游（OpenAI 兼容 / Claude 原生 / Gemini，含 DeepSeek / Moonshot / 智谱 / Ollama / OneAPI / Poe 等自定义 base_url）的市场解读、参数建议、新闻分析
 - WebUI（React + Chakra）+ REST API + WebSocket 推送 + Telegram / 邮件 / Webhook 告警
-- **错误自动上报到 17push（通过 aipipe-go-sdk）**
 - **PostHog / Sentry 可观测性错误上报（用户主动配置后启用）**
 - **内嵌 MCP streamable HTTP 服务，可被 Claude Desktop / Cursor / 自研 Agent 直接调用 Bot、持仓、订单、PNL、对账、风控、系统健康与诊断工具**
 - CI 会执行 Go 全仓单元测试、覆盖率摘要与 WebUI Vitest 单测，当前 Go 全仓语句覆盖率已推进到 `33.2%`

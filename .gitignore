@@ -108,5 +108,11 @@ backtest/backtest/
 web/backtest/reports/
 web/backtest/results/
 
+# 前端构建产物（非 go:embed 所需——embed 用的是 web/dist/，另行忽略）。
+# 这些 bundle 的 sourcemap 会把构建机的本机绝对路径一起打进去，
+# 属于既是噪音又是信息泄漏，不应进仓库。
+dist/
+webui/dev-dist/
+
 # 误敲命令行参数生成的配置文件（如 `--config.yaml`）
 --*.yaml

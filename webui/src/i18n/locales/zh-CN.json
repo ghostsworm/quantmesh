@@ -4768,23 +4768,6 @@
     "copy": "复制",
     "copied": "{{what}} 已复制",
     "copyFailed": "复制失败",
-    "aipipe": {
-      "title": "错误自动上报（17push）",
-      "intro": "填入 API Key 后，系统会异步把运行时错误、HTTP 5xx、panic 上报到 17push 控制台便于排查。注册地址：",
-      "active": "已启用",
-      "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "粘贴 17push 控制台生成的 API Key",
-      "apiKeyPlaceholderHasValue": "已设置（{{mask}}），留空则保留原值",
-      "apiKeyHelp": "仅在保存时上传；留空则不修改已有 key。",
-      "endpointLabel": "Endpoint",
-      "endpointHelp": "默认 https://17push.com/api/v1；私有部署可改。",
-      "enabledLabel": "启用错误上报",
-      "testButton": "测试连接",
-      "testOk": "测试事件已发送",
-      "testFailed": "测试失败",
-      "clearButton": "清除 Key",
-      "cleared": "Key 已清除，上报已关闭"
-    },
     "observability": {
       "title": "可观测性上报（PostHog / Sentry）",
       "intro": "把运行时错误、HTTP 5xx、panic 同步上报到 PostHog 或 Sentry；未填写密钥或 DSN 时不会发送任何外部请求。",
