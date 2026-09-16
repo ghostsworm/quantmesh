@@ -2,9 +2,11 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/income"
+	"quantmesh/logger"
 )
 
 // bybitWrapper Bybit 包装器
@@ -23,17 +25,9 @@ func (w *bybitWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *bybitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	bybitReq := &bybit.OrderRequest{
-		Symbol:        req.Symbol,
-		Side:          bybit.Side(req.Side),
-		Type:          bybit.OrderType(req.Type),
-		TimeInForce:   bybit.TimeInForce(req.TimeInForce),
-		Quantity:      req.Quantity,
-		Price:         req.Price,
-		ReduceOnly:    req.ReduceOnly,
-		PostOnly:      req.PostOnly,
-		PriceDecimals: req.PriceDecimals,
-		ClientOrderID: req.ClientOrderID,
+	bybitReq, err := toBybitOrderRequest(req)
+	if err != nil {
+		return nil, err
 	}
 
 	order, err := w.adapter.PlaceOrder(ctx, bybitReq)
@@ -41,17 +35,59 @@ func (w *bybitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		return nil, err
 	}
 
+	return fromBybitOrder(order)
+}
+
+// toBybitOrderRequest 內部下單請求 → Bybit 原生（方向/類型/TimeInForce 走顯式映射，未知值直接報錯）
+func toBybitOrderRequest(req *OrderRequest) (*bybit.OrderRequest, error) {
+	side, err := bybit.ToNativeSide(string(req.Side))
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 下單參數轉換失败(clientOrderId=%s): %w", req.ClientOrderID, err)
+	}
+	orderType, err := bybit.ToNativeOrderType(string(req.Type))
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 下單參數轉換失败(clientOrderId=%s): %w", req.ClientOrderID, err)
+	}
+	tif := bybit.ToNativeTimeInForce(req.PostOnly, string(req.TimeInForce))
+	return &bybit.OrderRequest{
+		Symbol:        req.Symbol,
+		Side:          side,
+		Type:          orderType,
+		TimeInForce:   tif,
+		Quantity:      req.Quantity,
+		Price:         req.Price,
+		ReduceOnly:    req.ReduceOnly,
+		PostOnly:      tif == bybit.TimeInForcePO,
+		PriceDecimals: req.PriceDecimals,
+		ClientOrderID: req.ClientOrderID,
+	}, nil
+}
+
+// fromBybitOrder Bybit 訂單 → 內部訂單（Side/Type/Status 映射為內部常量，未知值報錯）
+func fromBybitOrder(order *bybit.Order) (*Order, error) {
+	side, err := bybit.ToInternalSide(order.Side)
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
+	orderType, err := bybit.ToInternalOrderType(order.Type)
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
+	status, err := bybit.ToInternalStatus(order.Status)
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
 	return &Order{
 		OrderID:       order.OrderID,
 		ClientOrderID: order.ClientOrderID,
 		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
+		Side:          Side(side),
+		Type:          OrderType(orderType),
 		Price:         order.Price,
 		Quantity:      order.Quantity,
 		ExecutedQty:   order.ExecutedQty,
 		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
+		Status:        OrderStatus(status),
 		CreatedAt:     order.CreatedAt,
 		UpdateTime:    order.UpdateTime,
 	}, nil
@@ -59,40 +95,26 @@ func (w *bybitWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 
 // BatchPlaceOrders 批量下單
 func (w *bybitWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
-	bybitOrders := make([]*bybit.OrderRequest, len(orders))
-	for i, req := range orders {
-		bybitOrders[i] = &bybit.OrderRequest{
-			Symbol:        req.Symbol,
-			Side:          bybit.Side(req.Side),
-			Type:          bybit.OrderType(req.Type),
-			TimeInForce:   bybit.TimeInForce(req.TimeInForce),
-			Quantity:      req.Quantity,
-			Price:         req.Price,
-			ReduceOnly:    req.ReduceOnly,
-			PostOnly:      req.PostOnly,
-			PriceDecimals: req.PriceDecimals,
-			ClientOrderID: req.ClientOrderID,
+	bybitOrders := make([]*bybit.OrderRequest, 0, len(orders))
+	for _, req := range orders {
+		bybitReq, err := toBybitOrderRequest(req)
+		if err != nil {
+			logger.Warn("⚠️ [Bybit] 跳過無法轉換的下單請求: %v", err)
+			continue
 		}
+		bybitOrders = append(bybitOrders, bybitReq)
 	}
 
 	placedOrders, hasMarginError := w.adapter.BatchPlaceOrders(ctx, bybitOrders)
 
-	result := make([]*Order, len(placedOrders))
-	for i, order := range placedOrders {
-		result[i] = &Order{
-			OrderID:       order.OrderID,
-			ClientOrderID: order.ClientOrderID,
-			Symbol:        order.Symbol,
-			Side:          Side(order.Side),
-			Type:          OrderType(order.Type),
-			Price:         order.Price,
-			Quantity:      order.Quantity,
-			ExecutedQty:   order.ExecutedQty,
-			AvgPrice:      order.AvgPrice,
-			Status:        OrderStatus(order.Status),
-			CreatedAt:     order.CreatedAt,
-			UpdateTime:    order.UpdateTime,
+	result := make([]*Order, 0, len(placedOrders))
+	for _, order := range placedOrders {
+		converted, err := fromBybitOrder(order)
+		if err != nil {
+			logger.Error("❌ [Bybit] 已下單但結果轉換失败: %v", err)
+			continue
 		}
+		result = append(result, converted)
 	}
 
 	return result, hasMarginError
@@ -120,19 +142,7 @@ func (w *bybitWrapper) GetOrder(ctx context.Context, symbol string, orderID int6
 		return nil, err
 	}
 
-	return &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		ExecutedQty:   order.ExecutedQty,
-		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
-		UpdateTime:    order.UpdateTime,
-	}, nil
+	return fromBybitOrder(order)
 }
 
 // GetOpenOrders 查詢未完成订單
@@ -142,21 +152,13 @@ func (w *bybitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 		return nil, err
 	}
 
-	result := make([]*Order, len(orders))
-	for i, order := range orders {
-		result[i] = &Order{
-			OrderID:       order.OrderID,
-			ClientOrderID: order.ClientOrderID,
-			Symbol:        order.Symbol,
-			Side:          Side(order.Side),
-			Type:          OrderType(order.Type),
-			Price:         order.Price,
-			Quantity:      order.Quantity,
-			ExecutedQty:   order.ExecutedQty,
-			AvgPrice:      order.AvgPrice,
-			Status:        OrderStatus(order.Status),
-			UpdateTime:    order.UpdateTime,
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		converted, err := fromBybitOrder(order)
+		if err != nil {
+			return nil, err
 		}
+		result = append(result, converted)
 	}
 
 	return result, nil
@@ -342,16 +344,16 @@ func (w *bybitWrapper) GetOrderFills(ctx context.Context, symbol string, orderID
 
 	fills := make([]*OrderFill, 0, len(bybitFills))
 	for _, bf := range bybitFills {
-		side := SideBuy
-		if bf.Side == "Sell" {
-			side = SideSell
+		side, err := bybit.ToInternalSide(bybit.Side(bf.Side))
+		if err != nil {
+			return nil, fmt.Errorf("Bybit 訂單 %d 成交 %s 轉換失败: %w", orderID, bf.TradeID, err)
 		}
 
 		fills = append(fills, &OrderFill{
 			OrderID:         bf.OrderID,
 			TradeID:         bf.TradeID,
 			Symbol:          bf.Symbol,
-			Side:            side,
+			Side:            Side(side),
 			Price:           bf.Price,
 			Quantity:        bf.Quantity,
 			Commission:      bf.Commission,

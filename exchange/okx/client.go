@@ -141,6 +141,7 @@ func (c *OKXClient) request(ctx context.Context, method, path string, body inter
 type Instrument struct {
 	InstId    string `json:"instId"`
 	InstType  string `json:"instType"`
+	CtVal     string `json:"ctVal"`     // 合約面值（每張合約對應的 ctValCcy 數量；現貨為空）
 	CtValCcy  string `json:"ctValCcy"`  // 合約面值计價币种
 	SettleCcy string `json:"settleCcy"` // 結算币种
 	TickSz    string `json:"tickSz"`    // 價格最小变动單位
@@ -492,7 +493,29 @@ type OKXTradeFill struct {
 	FillPx  string `json:"fillPx"`
 	Fee     string `json:"fee"`
 	FeeCcy  string `json:"feeCcy"`
+	ExecType string `json:"execType"` // T=taker, M=maker
 	Ts      string `json:"ts"`
+}
+
+// AccountConfig GET /api/v5/account/config 帳戶配置（僅取用到的欄位）
+type AccountConfig struct {
+	PosMode string `json:"posMode"` // long_short_mode：雙向持倉；net_mode：單向持倉
+}
+
+// GetAccountConfig 查詢帳戶配置（持倉模式等）
+func (c *OKXClient) GetAccountConfig(ctx context.Context) (*AccountConfig, error) {
+	data, err := c.request(ctx, "GET", "/api/v5/account/config", nil, c.useTestnet)
+	if err != nil {
+		return nil, err
+	}
+	var rows []AccountConfig
+	if err := json.Unmarshal(data, &rows); err != nil {
+		return nil, fmt.Errorf("解析帳戶配置失败: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, fmt.Errorf("帳戶配置為空")
+	}
+	return &rows[0], nil
 }
 
 // GetTradeFills 查詢成交明細（現貨 instType=SPOT / 合約 SWAP 等）

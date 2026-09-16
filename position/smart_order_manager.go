@@ -182,7 +182,11 @@ func (som *SmartOrderManager) adjustOrders(currentPrice float64) {
 
 	if len(orderIDsToCancel) > 0 {
 		logger.Info("🧠 [%s] 撤销 %d 个远距离订单", som.spm.logPrefix(), len(orderIDsToCancel))
-		som.spm.executor.BatchCancelOrders(orderIDsToCancel)
+		if err := som.spm.executor.BatchCancelOrders(orderIDsToCancel); err != nil {
+			// 未撤掉的訂單仍保留在槽位中，下一輪調整會再次嘗試
+			logger.Warn("⚠️ [%s] 撤销远距离订单失败 (共%d个, 当前价=%.8f, 最大距离=%.8f): %v",
+				som.spm.logPrefix(), len(orderIDsToCancel), currentPrice, maxDistance, err)
+		}
 	}
 }
 

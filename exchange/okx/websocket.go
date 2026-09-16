@@ -19,14 +19,34 @@ import (
 
 const (
 	// WebSocket 地址
-	MainnetWsURL      = "wss://ws.okx.com:8443/ws/v5/private"
-	TestnetWsURL      = "wss://wspap.okx.com:8443/ws/v5/private"
+	MainnetWsURL       = "wss://ws.okx.com:8443/ws/v5/private"
+	TestnetWsURL       = "wss://wspap.okx.com:8443/ws/v5/private"
 	MainnetPublicWsURL = "wss://ws.okx.com:8443/ws/v5/public"
 	TestnetPublicWsURL = "wss://wspap.okx.com:8443/ws/v5/public"
 	// OKX 已将 K线/candle 等频道迁移到 business 端点，public 上不再提供（订阅会报
 	// "Wrong URL or channel:candle1m ... doesn't exist"）。
 	MainnetBusinessWsURL = "wss://ws.okx.com:8443/ws/v5/business"
 	TestnetBusinessWsURL = "wss://wspap.okx.com:8443/ws/v5/business"
+)
+
+const (
+	// privateWsHandshakeTimeout 登錄/訂閱確認的等待上限
+	privateWsHandshakeTimeout = 10 * time.Second
+	// privateWsPingInterval 心跳間隔（OKX 30 秒無消息會斷開）
+	privateWsPingInterval = 20 * time.Second
+	// privateWsReadTimeout 讀超時：心跳每 20 秒一次必有 pong，超過即視為連接已死
+	privateWsReadTimeout = 3 * privateWsPingInterval
+	// privateWsReconnectInitialBackoff / privateWsReconnectMaxBackoff 重連指數退避區間
+	privateWsReconnectInitialBackoff = 1 * time.Second
+	privateWsReconnectMaxBackoff     = 60 * time.Second
+
+	okxPingMessage = "ping"
+	okxPongMessage = "pong"
+
+	okxEventLogin     = "login"
+	okxEventSubscribe = "subscribe"
+	okxEventError     = "error"
+	okxSuccessCode    = "0"
 )
 
 // WebSocketManager WebSocket 管理器
@@ -39,11 +59,18 @@ type WebSocketManager struct {
 	conn          *websocket.Conn
 	mu            sync.RWMutex
 	writeMu       sync.Mutex // 串行化私有 conn 的寫操作，避免 gorilla/websocket 並發寫競態
-	stopChan      chan struct{}
 	isRunning     atomic.Bool
 	lastPrice     atomic.Value
 	orderCallback func(OrderUpdate)
 	priceCallback func(float64)
+
+	// 私有訂單流生命週期：runCancel 取消後讀循環/心跳/重連全部退出，runWg 等待其結束
+	privateURL              string // 為空時按 useTestnet 選擇（測試可覆寫）
+	reconnectInitialBackoff time.Duration
+	reconnectMaxBackoff     time.Duration
+	runMu                   sync.Mutex
+	runCancel               context.CancelFunc
+	runWg                   sync.WaitGroup
 
 	// 公共行情（tickers）單獨連接，與私有訂單 conn 分離；需可取消、可重連，避免断線後價格永遠卡死在舊值
 	muPrice        sync.Mutex
@@ -54,11 +81,12 @@ type WebSocketManager struct {
 // NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey, passphrase string, useTestnet bool) *WebSocketManager {
 	return &WebSocketManager{
-		apiKey:     apiKey,
-		secretKey:  secretKey,
-		passphrase: passphrase,
-		useTestnet: useTestnet,
-		stopChan:   make(chan struct{}),
+		apiKey:                  apiKey,
+		secretKey:               secretKey,
+		passphrase:              passphrase,
+		useTestnet:              useTestnet,
+		reconnectInitialBackoff: privateWsReconnectInitialBackoff,
+		reconnectMaxBackoff:     privateWsReconnectMaxBackoff,
 	}
 }
 
@@ -70,48 +98,211 @@ func (w *WebSocketManager) sign(timestamp string) string {
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
 
-// Start 啟動訂單流
+func (w *WebSocketManager) privateWsURL() string {
+	if w.privateURL != "" {
+		return w.privateURL
+	}
+	if w.useTestnet {
+		return TestnetWsURL
+	}
+	return MainnetWsURL
+}
+
+// Start 啟動訂單流：首次連接同步完成（登錄確認 → 訂閱確認），之後斷線自動重連並重新登錄、訂閱
 func (w *WebSocketManager) Start(ctx context.Context, instId string, callback func(OrderUpdate)) error {
+	w.runMu.Lock()
+	defer w.runMu.Unlock()
+
 	if w.isRunning.Load() {
 		return fmt.Errorf("WebSocket 已在运行")
 	}
 
 	w.orderCallback = callback
+	runCtx, cancel := context.WithCancel(ctx)
 
-	wsURL := MainnetWsURL
-	if w.useTestnet {
-		wsURL = TestnetWsURL
-	}
-
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, err := w.connectPrivate(runCtx, instId)
 	if err != nil {
-		return fmt.Errorf("连接 WebSocket 失败: %w", err)
+		cancel()
+		return fmt.Errorf("OKX 私有訂單流啟動失败(instId=%s): %w", instId, err)
 	}
 
-	w.mu.Lock()
-	w.conn = conn
-	w.mu.Unlock()
-
+	w.runCancel = cancel
 	w.isRunning.Store(true)
+	w.runWg.Add(2)
+	go w.runPrivateLoop(runCtx, instId, conn)
+	go w.keepAlive(runCtx)
 
-	// 登錄认证
-	if err := w.login(); err != nil {
-		conn.Close()
-		return fmt.Errorf("WebSocket 登錄失败: %w", err)
-	}
-
-	// 订阅订單频道
-	if err := w.subscribeOrders(instId); err != nil {
-		conn.Close()
-		return fmt.Errorf("订阅订單频道失败: %w", err)
-	}
-
-	// 啟动消息处理
-	go w.readMessages()
-	go w.keepAlive()
-
-	logger.Info("✅ [OKX WebSocket] 訂單流已啟动")
+	logger.Info("✅ [OKX WebSocket] 訂單流已啟动 instId=%s", instId)
 	return nil
+}
+
+// connectPrivate 建立私有連接並完成「登錄 → 等登錄確認 → 訂閱 → 等訂閱確認」
+func (w *WebSocketManager) connectPrivate(ctx context.Context, instId string) (*websocket.Conn, error) {
+	dialCtx, cancel := context.WithTimeout(ctx, privateWsHandshakeTimeout)
+	defer cancel()
+	conn, _, err := websocket.DefaultDialer.DialContext(dialCtx, w.privateWsURL(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("连接 WebSocket 失败: %w", err)
+	}
+	if !w.setConn(ctx, conn) {
+		return nil, fmt.Errorf("WebSocket 已停止")
+	}
+
+	fail := func(step string, err error) (*websocket.Conn, error) {
+		w.closeConn(conn)
+		return nil, fmt.Errorf("%s: %w", step, err)
+	}
+
+	if err := w.login(); err != nil {
+		return fail("发送登錄请求失败", err)
+	}
+	// OKX 要求登錄成功後才能訂閱私有頻道，否則訂閱被拒且不會自動補訂
+	if err := w.awaitEvent(conn, okxEventLogin); err != nil {
+		return fail("WebSocket 登錄失败", err)
+	}
+	if err := w.subscribeOrders(instId); err != nil {
+		return fail("发送订阅请求失败", err)
+	}
+	if err := w.awaitEvent(conn, okxEventSubscribe); err != nil {
+		return fail("订阅订單频道失败", err)
+	}
+	_ = conn.SetReadDeadline(time.Time{})
+	return conn, nil
+}
+
+// setConn 設置當前連接；若已停止則關閉新連接並返回 false（避免 Stop 之後遺留連接）
+func (w *WebSocketManager) setConn(ctx context.Context, conn *websocket.Conn) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if ctx.Err() != nil {
+		_ = conn.Close()
+		return false
+	}
+	w.conn = conn
+	return true
+}
+
+// closeConn 關閉指定連接，若它仍是當前連接則清空
+func (w *WebSocketManager) closeConn(conn *websocket.Conn) {
+	w.mu.Lock()
+	if w.conn == conn {
+		w.conn = nil
+	}
+	w.mu.Unlock()
+	_ = conn.Close()
+}
+
+// awaitEvent 在握手階段同步讀取，直到收到指定 event 的確認；收到 error 事件或超時則失败
+func (w *WebSocketManager) awaitEvent(conn *websocket.Conn, want string) error {
+	deadline := time.Now().Add(privateWsHandshakeTimeout)
+	for {
+		_ = conn.SetReadDeadline(deadline)
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			return fmt.Errorf("等待 %s 确认失败: %w", want, err)
+		}
+		if string(message) == okxPongMessage {
+			continue
+		}
+		var ev struct {
+			Event string `json:"event"`
+			Code  string `json:"code"`
+			Msg   string `json:"msg"`
+		}
+		if err := json.Unmarshal(message, &ev); err != nil {
+			continue
+		}
+		switch ev.Event {
+		case want:
+			if ev.Code != "" && ev.Code != okxSuccessCode {
+				return fmt.Errorf("OKX 返回 %s 失败 code=%s msg=%s", want, ev.Code, ev.Msg)
+			}
+			return nil
+		case okxEventError:
+			return fmt.Errorf("OKX 返回錯误 code=%s msg=%s", ev.Code, ev.Msg)
+		case "":
+			w.safeHandleMessage(message)
+		}
+	}
+}
+
+// runPrivateLoop 讀取私有推送；斷線後按指數退避重連，ctx 取消時退出
+func (w *WebSocketManager) runPrivateLoop(ctx context.Context, instId string, conn *websocket.Conn) {
+	defer w.runWg.Done()
+	for {
+		err := w.readLoop(conn)
+		w.closeConn(conn)
+		if ctx.Err() != nil {
+			return
+		}
+		logger.Warn("⚠️ [OKX WebSocket] 私有訂單流斷開(instId=%s): %v，开始重連", instId, err)
+
+		conn = w.reconnect(ctx, instId)
+		if conn == nil {
+			return
+		}
+		logger.Info("✅ [OKX WebSocket] 私有訂單流重連成功(instId=%s)，已重新登錄並訂閱", instId)
+	}
+}
+
+// reconnect 指數退避重連，直到成功或 ctx 取消（返回 nil）
+func (w *WebSocketManager) reconnect(ctx context.Context, instId string) *websocket.Conn {
+	backoff := w.reconnectInitialBackoff
+	if backoff <= 0 {
+		backoff = privateWsReconnectInitialBackoff
+	}
+	maxBackoff := w.reconnectMaxBackoff
+	if maxBackoff < backoff {
+		maxBackoff = backoff
+	}
+	for attempt := 1; ; attempt++ {
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil
+		case <-timer.C:
+		}
+
+		conn, err := w.connectPrivate(ctx, instId)
+		if err == nil {
+			return conn
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+		next := backoff * 2
+		if next > maxBackoff {
+			next = maxBackoff
+		}
+		logger.Warn("⚠️ [OKX WebSocket] 第 %d 次重連失败(instId=%s): %v，%v 後重試", attempt, instId, err, next)
+		backoff = next
+	}
+}
+
+// readLoop 讀取消息直到出錯
+func (w *WebSocketManager) readLoop(conn *websocket.Conn) error {
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(privateWsReadTimeout))
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+		if string(message) == okxPongMessage {
+			continue
+		}
+		w.safeHandleMessage(message)
+	}
+}
+
+// safeHandleMessage 處理消息並吞掉單條消息引發的 panic，避免整條訂單流停擺
+func (w *WebSocketManager) safeHandleMessage(message []byte) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Error("❌ [OKX WebSocket] 消息处理 panic: %v", r)
+		}
+	}()
+	w.handleMessage(message)
 }
 
 // login 登錄认证
@@ -141,7 +332,7 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 		"args": []map[string]string{
 			{
 				"channel":  "orders",
-				"instType": "SWAP",
+				"instType": okxInstTypeSwap,
 				"instId":   instId,
 			},
 		},
@@ -259,36 +450,6 @@ func (w *WebSocketManager) sendMessage(msg interface{}) error {
 	return conn.WriteJSON(msg)
 }
 
-// readMessages 读取消息
-func (w *WebSocketManager) readMessages() {
-	defer func() {
-		w.isRunning.Store(false)
-		if r := recover(); r != nil {
-			logger.Error("❌ [OKX WebSocket] 消息处理 panic: %v", r)
-		}
-	}()
-
-	for w.isRunning.Load() {
-		w.mu.RLock()
-		conn := w.conn
-		w.mu.RUnlock()
-
-		if conn == nil {
-			break
-		}
-
-		_, message, err := conn.ReadMessage()
-		if err != nil {
-			if w.isRunning.Load() {
-				logger.Warn("⚠️ [OKX WebSocket] 读取消息失败: %v", err)
-			}
-			break
-		}
-
-		w.handleMessage(message)
-	}
-}
-
 // handleMessage 处理消息
 func (w *WebSocketManager) handleMessage(message []byte) {
 	var msg map[string]interface{}
@@ -299,16 +460,16 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 
 	// 检查事件類型
 	if event, ok := msg["event"].(string); ok {
-		if event == "login" {
-			if code, ok := msg["code"].(string); ok && code == "0" {
+		if event == okxEventLogin {
+			if code, ok := msg["code"].(string); ok && code == okxSuccessCode {
 				logger.Info("✅ [OKX WebSocket] 登錄成功")
 			} else {
 				logger.Error("❌ [OKX WebSocket] 登錄失败: %v", msg["msg"])
 			}
-		} else if event == "subscribe" {
+		} else if event == okxEventSubscribe {
 			logger.Info("✅ [OKX WebSocket] 订阅成功")
-		} else if event == "error" {
-			logger.Error("❌ [OKX WebSocket] 錯误: %v", msg["msg"])
+		} else if event == okxEventError {
+			logger.Error("❌ [OKX WebSocket] 錯误: code=%v msg=%v", msg["code"], msg["msg"])
 		}
 		return
 	}
@@ -321,7 +482,8 @@ func (w *WebSocketManager) handleMessage(message []byte) {
 	}
 }
 
-// handleOrderUpdate 处理订單更新
+// handleOrderUpdate 处理订單更新。
+// 這裡保留 OKX 原生值（instId、張數、buy/sell、live/filled），由適配器統一換算成內部口徑。
 func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 	data, ok := msg["data"].([]interface{})
 	if !ok || len(data) == 0 {
@@ -341,24 +503,21 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 		avgPrice, _ := strconv.ParseFloat(getString(orderData, "avgPx"), 64)
 		updateTime, _ := strconv.ParseInt(getString(orderData, "uTime"), 10, 64)
 
-		side := getString(orderData, "side")
-		var orderSide Side
-		if side == "buy" {
-			orderSide = SideBuy
-		} else {
-			orderSide = SideSell
-		}
-
 		// 🔥 解析已實現盈虧（OKX 返回 pnl 字段，僅平倉訂單有效）
 		realizedPnL, _ := strconv.ParseFloat(getString(orderData, "pnl"), 64)
 
-		// OKX WebSocket 訂單更新消息中通常不包含手續費，需要從交易歷史獲取
-		// 這裡先設為 0，後續可通過查詢交易歷史補充
+		// 本次成交手續費：fillFee 扣費為負、返佣為正，轉為「支出為正」
+		fillFee, _ := strconv.ParseFloat(getString(orderData, "fillFee"), 64)
+		feeCcy := getString(orderData, "fillFeeCcy")
+		if feeCcy == "" {
+			feeCcy = okxDefaultCommissionAsset
+		}
+
 		update := OrderUpdate{
 			OrderID:         orderId,
 			ClientOrderID:   getString(orderData, "clOrdId"),
 			Symbol:          getString(orderData, "instId"),
-			Side:            orderSide,
+			Side:            Side(getString(orderData, "side")),
 			Type:            OrderType(getString(orderData, "ordType")),
 			Status:          OrderStatus(getString(orderData, "state")),
 			Price:           price,
@@ -366,8 +525,8 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			ExecutedQty:     executedQty,
 			AvgPrice:        avgPrice,
 			UpdateTime:      updateTime,
-			Commission:      0, // OKX WebSocket 不提供手續費，需從交易歷史查詢
-			CommissionAsset: "USDT",
+			Commission:      okxFeeToCommission(fillFee),
+			CommissionAsset: feeCcy,
 			RealizedPnL:     realizedPnL,
 		}
 
@@ -435,33 +594,29 @@ func getString(m map[string]interface{}, key string) string {
 	return ""
 }
 
-// keepAlive 保持连接
-func (w *WebSocketManager) keepAlive() {
-	ticker := time.NewTicker(20 * time.Second)
+// keepAlive 保持连接（對當前私有連接發 ping；ctx 取消時退出）
+func (w *WebSocketManager) keepAlive(ctx context.Context) {
+	defer w.runWg.Done()
+	ticker := time.NewTicker(privateWsPingInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			if !w.isRunning.Load() {
-				return
-			}
-
-			pingMsg := "ping"
 			w.mu.RLock()
 			conn := w.conn
 			w.mu.RUnlock()
 
 			if conn != nil {
 				w.writeMu.Lock()
-				err := conn.WriteMessage(websocket.TextMessage, []byte(pingMsg))
+				err := conn.WriteMessage(websocket.TextMessage, []byte(okxPingMessage))
 				w.writeMu.Unlock()
 				if err != nil {
 					logger.Warn("⚠️ [OKX WebSocket] 发送 ping 失败: %v", err)
 				}
 			}
 
-		case <-w.stopChan:
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -475,7 +630,7 @@ func (w *WebSocketManager) GetLatestPrice() float64 {
 	return 0
 }
 
-// Stop 停止 WebSocket
+// Stop 停止 WebSocket（等待讀循環、心跳、重連協程全部退出）
 func (w *WebSocketManager) Stop() {
 	w.muPrice.Lock()
 	if w.priceRunCancel != nil {
@@ -484,19 +639,28 @@ func (w *WebSocketManager) Stop() {
 	}
 	w.muPrice.Unlock()
 
+	w.runMu.Lock()
+	defer w.runMu.Unlock()
+
 	if !w.isRunning.Load() {
 		return
 	}
 
 	w.isRunning.Store(false)
-	close(w.stopChan)
+	if w.runCancel != nil {
+		w.runCancel()
+		w.runCancel = nil
+	}
 
+	// 先取消 ctx 再關連接：setConn 會拒絕 Stop 之後才建立的新連接
 	w.mu.Lock()
 	if w.conn != nil {
-		w.conn.Close()
+		_ = w.conn.Close()
 		w.conn = nil
 	}
 	w.mu.Unlock()
+
+	w.runWg.Wait()
 
 	logger.Info("🛑 [OKX WebSocket] 已停止")
 }

@@ -158,7 +158,8 @@ type PriceFilter struct {
 }
 
 type LotSizeFilter struct {
-	QtyStep string `json:"qtyStep"`
+	QtyStep     string `json:"qtyStep"`
+	MinOrderQty string `json:"minOrderQty"`
 }
 
 // GetInstruments 獲取合約信息
@@ -344,7 +345,9 @@ type BybitPosition struct {
 	MarkPrice     string `json:"markPrice"`
 	UnrealisedPnl string `json:"unrealisedPnl"`
 	Leverage      string `json:"leverage"`
-	TradeMode     string `json:"tradeMode"`
+	// V5 的 tradeMode / positionIdx 為數字；json.Number 同時兼容數字與數字字串
+	TradeMode   json.Number `json:"tradeMode"`
+	PositionIdx json.Number `json:"positionIdx"` // 0=單向持倉；1/2=雙向持倉的多/空
 }
 
 // GetPositions 獲取持倉信息

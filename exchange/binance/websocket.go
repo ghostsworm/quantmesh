@@ -26,7 +26,8 @@ type WebSocketManager struct {
 	mu         sync.RWMutex
 	callbacks  []OrderUpdateCallback
 	isRunning  bool
-	useTestnet bool // 是否使用測試網
+	useTestnet bool   // 是否使用測試網
+	symbol     string // 所屬適配器交易對（僅用於連線事件標註）
 
 	// 價格缓存
 	latestPrice float64
@@ -120,6 +121,7 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 	// 獲取listenKey
 	listenKey, err := w.startUserStream(ctx)
 	if err != nil {
+		w.reportIfAuthError(err)
 		return fmt.Errorf("獲取listenKey失败: %w", err)
 	}
 	w.setListenKey(listenKey)
@@ -132,7 +134,8 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 	}
 	// 每次啟動重建 stop/done 通道，避免 Stop 後再 Start 重複 close 已關閉通道
 	w.isRunning = true
-	w.callbacks = append(w.callbacks, callback)
+	// 替換而非追加：Stop 後再 Start 不得重複註冊回調（否則每條訂單更新被處理多次）
+	w.callbacks = []OrderUpdateCallback{callback}
 	w.stopC = make(chan struct{})
 	w.doneC = make(chan struct{})
 	stopC, doneC := w.stopC, w.doneC
@@ -285,6 +288,7 @@ func (w *WebSocketManager) keepAliveListenKey(ctx context.Context, stopC <-chan 
 			return
 		case <-ticker.C:
 			if err := w.keepAliveStream(ctx, w.getListenKey()); err != nil {
+				w.reportIfAuthError(err)
 				logger.Error("❌ [Binance] listenKey保活失败，將重建 listenKey: %v", err)
 				w.requestRenew()
 			} else {
@@ -303,6 +307,7 @@ func (w *WebSocketManager) renewListenKey(ctx context.Context, stopC <-chan stru
 			logger.Info("✅ [Binance] 已重建訂單流 listenKey")
 			return true
 		}
+		w.reportIfAuthError(err)
 		logger.Error("❌ [Binance] 重建 listenKey 失败: %v，%v 後重試", err, delay)
 		if !w.sleepOrStop(ctx, stopC, delay) {
 			return false
@@ -335,8 +340,23 @@ func (w *WebSocketManager) nextDelay(d time.Duration) time.Duration {
 
 // listenUserDataStream 監听用戶數據流
 // 斷線或保活失敗後先重建 listenKey 再重連（舊 key 可能已過期，用它重連只會反覆失敗）
-func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC <-chan struct{}, doneC chan struct{}) {
-	defer close(doneC)
+func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC chan struct{}, doneC chan struct{}) {
+	// down: 當前是否處於已上報的斷線狀態（一次斷線只上報一次 Disconnected）
+	down := false
+	defer func() {
+		if down {
+			w.emitConnectivity(ConnectivityStopped, "order stream stopped while disconnected")
+		}
+		close(doneC)
+		// 外部 ctx 取消導致退出時 Stop 未被調用，需復位運行狀態，否則之後無法再次 Start
+		w.markStoppedIfCurrent(stopC)
+	}()
+	markDown := func(reason string) {
+		if !down {
+			down = true
+			w.emitConnectivity(ConnectivityDisconnected, reason)
+		}
+	}
 
 	delay := w.reconnectDelay
 	needRenew := false
@@ -361,6 +381,7 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC <-cha
 		connDoneC, connStopC, err := w.serveUserData(w.getListenKey(), w.handleUserDataEvent, w.handleError)
 		if err != nil {
 			logger.Error("❌ [Binance] WebSocket连接失败: %v，%v 後重建 listenKey 並重連", err, delay)
+			markDown(fmt.Sprintf("connect failed: %v", err))
 			if !w.sleepOrStop(ctx, stopC, delay) {
 				return
 			}
@@ -370,6 +391,10 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC <-cha
 		}
 
 		logger.Info("✅ [Binance] WebSocket訂單流已连接")
+		if down {
+			down = false
+			w.emitConnectivity(ConnectivityReconnected, "user data stream reconnected")
+		}
 		delay = w.reconnectDelay
 
 		// 等待断开或停止信号（close 而非發送：庫內讀協程退出後無人接收，發送會永久阻塞）
@@ -384,14 +409,44 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC <-cha
 			logger.Warn("⚠️ [Binance] listenKey 已失效，斷開並重建後重連")
 			close(connStopC)
 			<-connDoneC
+			markDown("listenKey expired")
 			needRenew = true
 		case <-connDoneC:
 			logger.Warn("⚠️ [Binance] WebSocket连接断开，重建 listenKey 後重连...")
+			markDown("connection closed")
 			if !w.sleepOrStop(ctx, stopC, delay) {
 				return
 			}
 			needRenew = true
 		}
+	}
+}
+
+// markStoppedIfCurrent 監聽協程退出時復位運行狀態（僅當仍是本輪啟動且未被 Stop 處理）
+func (w *WebSocketManager) markStoppedIfCurrent(stopC chan struct{}) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.isRunning && w.stopC == stopC {
+		w.isRunning = false
+		w.callbacks = nil
+	}
+}
+
+// emitConnectivity 發布用戶數據流連線事件
+func (w *WebSocketManager) emitConnectivity(typ ConnectivityEventType, reason string) {
+	emitConnectivityEvent(ConnectivityEvent{
+		Type:    typ,
+		Stream:  connectivityStreamUserData,
+		Symbol:  w.symbol,
+		Testnet: w.useTestnet,
+		Reason:  reason,
+	})
+}
+
+// reportIfAuthError listenKey 申請/保活遇到認證類錯誤時發布認證失敗事件
+func (w *WebSocketManager) reportIfAuthError(err error) {
+	if isBinanceAuthError(err) {
+		w.emitConnectivity(ConnectivityAuthFailed, err.Error())
 	}
 }
 

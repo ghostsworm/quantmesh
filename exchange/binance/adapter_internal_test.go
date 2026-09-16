@@ -29,13 +29,14 @@ func TestBinanceAdapterRoundingAndEstimateFinalOrderAmount(t *testing.T) {
 	if got := adapter.EstimateFinalOrderAmount("BTCUSDT", 50000, 0.001, true); got != 50 {
 		t.Fatalf("reduce-only notional = %f, want 50", got)
 	}
-	if got := adapter.EstimateFinalOrderAmount("BTCUSDT", 50000, 0.001, false); got < 100 {
-		t.Fatalf("non reduce-only notional = %f, want at least 100", got)
+	// 不足最小名義金額時不再放大數量（PlaceOrder 會直接拒絕），預估即對齊後的名義金額
+	if got := adapter.EstimateFinalOrderAmount("BTCUSDT", 50000, 0.001, false); math.Abs(got-50) > 1e-9 {
+		t.Fatalf("non reduce-only notional = %f, want 50", got)
 	}
 
 	adapter.stepSize = 0
-	if got := adapter.EstimateFinalOrderAmount("BTCUSDT", 50000, 0.000001, false); got < 100 {
-		t.Fatalf("fallback quantity notional = %f, want at least 100", got)
+	if got := adapter.EstimateFinalOrderAmount("BTCUSDT", 50000, 0.000001, false); math.Abs(got-0.05) > 1e-9 {
+		t.Fatalf("no step size notional = %f, want 0.05 (quantity kept as-is)", got)
 	}
 	if adapter.GetPriceDecimals() != 2 || adapter.GetQuantityDecimals() != 3 {
 		t.Fatal("unexpected adapter precisions")

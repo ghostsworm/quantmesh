@@ -157,8 +157,8 @@
 |---|---|---|
 | R1 止血 | A1–A6（SHORT 链路）、B1、B2、D1、D2、E1、E2、X1、X2 | ✅（另完成 X6、E5 部分） |
 | R2 风控生效 | C1–C6、B3、B4、D3–D5、E3–E6 | ✅（另完成 S6、S9、S11 部分；E5 已在 R1） |
-| R3 策略包 | S1–S11 | ⬜ |
-| R4 交易所 | X3–X6、OKX/Bybit 整套 | ⬜ |
+| R3 策略包 | S1–S11 | ✅ |
+| R4 交易所 | X3–X6、OKX/Bybit 整套 | ✅（X6 已在 R1；OKX/Bybit 现货链路未改） |
 | R5 胜率改进 | 第五节 1–8、11、12 | ⬜ |
 | R6 回测与调参 | 第五节 9、10 | ⬜ |
 
@@ -203,3 +203,24 @@
   - R3：`position/opening_controller.go` 定时/周期规则调用 `ResumeOpening` 可覆盖熔断暂停（需分暂停来源）；combo 子策略未设置 `PositionSide`；`dynamic_adjuster.go`、`GetStatistics` 的并发问题（S11 余项）。
   - R4：交易所层发布 WS 断线/认证失败事件；`order/executor_adapter.go` 批量撤单总是 return nil；`position/smart_order_manager.go:185` 等处丢弃撤单错误；Binance 现货/杠杆适配器撤单吞错未查。
   - 已知限制：回撤高水位仅内存保存，重启重新起算；复合风控只接全局因子（按交易对因子为做多语义，未接）；配额超限触发器无数据源。
+
+#### R3（✅ go build / vet / test ./... 通过；含 strategy、position 的 -race 通过）
+- S1/S2 `strategy/dca_enhanced.go` `onPrice`、`closeLastLayer`。
+- S3 `dca_enhanced.go`、`martingale.go` pending→filled 状态机；`signal_trade_helpers.go` `entryFillFromUpdate`。
+- S4 `strategy/combo_strategy.go` `OnPriceChangeRiskOnly` 路由、`GetInfo` 去递归锁、`MaxExposure`/`MaxDrawdown`；Hedge 配置告警。
+- S5 `strategy/trend_following.go` `OnPriceChange`。
+- S7 `strategy/funding_carry_strategy.go` `recordStrategySpot`/`closeStrategySpot`/`roundQty`。
+- S8 `strategy/spot_short.go` `repayAfterFailedShort`。
+- S10/S11 `strategy/dynamic_adjuster.go` 边界函数、`CalculateUtilization`、`checkVolatilityPause`、`applyTradingParams`。
+- 暂停来源 `position/super_position_manager.go` `PauseOpeningUnlessHeld`/`ResumeOpeningIfOwned`，`position/opening_controller.go`。
+- 测试：`strategy/dca_martingale_combo_r3_test.go`、`trend_following_stoploss_test.go`、`funding_carry_spot_leg_test.go`、`spot_short_test.go`、`dynamic_adjuster_bounds_test.go`、`position/opening_controller_pause_source_test.go`。
+- 已知限制：资金费套利现货记账仅内存（重启保守推导）；熔断器直接恢复开仓时会顺带清掉被覆盖的定时/周期暂停；动态调整器读取 `cfg.Trading.*` 仍未加锁；trend/mean_reversion 子策略订单未带持仓方向；马丁反向加仓与平仓数量无精度截断；平仓交易记录在下单时写入而非成交后。
+
+#### R4（✅ go build / vet / test ./... 通过；exchange、order 的 -race 通过）
+- X3/X4/X5 `exchange/binance/order_guards.go`（MIN_NOTIONAL、市价估算、持仓模式自检）、`adapter.go`；`symbol_manager.go` 对冲模式中止启动。
+- E5 `exchange/interface.go` `OrderByClientIDQuerier`、`wrapper_binance.go`、`order/executor_adapter.go`。
+- 撤单错误 `order/executor_adapter.go`、`exchange/binance/spot_adapter.go` `cancelOrdersSequentially`、`spot_margin_adapter.go` 杠杆批量撤单；`position/smart_order_manager.go` 记录撤单错误。
+- 连线事件 `exchange/binance/connectivity.go`、`websocket.go`；`main_helpers.go` `wireBinanceConnectivityEvents`。
+- OKX/Bybit `exchange/okx/mapping.go`、`exchange/bybit/mapping.go`、两个 `adapter.go`/`websocket.go`/`client.go`、`wrapper_okx.go`/`wrapper_bybit.go`。
+- 测试：`exchange/binance/order_guards_test.go`、`websocket_test.go`、`order/executor_adapter_test.go`、`exchange/okx/adapter_ctval_test.go`、`mapping_test.go`、`websocket_reconnect_test.go`、`exchange/bybit/adapter_order_test.go`、`websocket_reconnect_test.go`、`exchange/wrapper_okx_bybit_mapping_test.go`。
+- 已知限制：连线事件仅在启用全局熔断器时接线，多 Bot 共用一个断线计时；现货用户数据流无连线事件；OKX/Bybit 现货推送状态仍原样透传；Bybit 推送手续费为 0（由 `GetOrderFills` 补查）；OKX 手续费按 `Commission = -fillFee` 记（返佣为负数，减少成本）；部分 OKX/Bybit 旧测试仍会发起真实网络请求。

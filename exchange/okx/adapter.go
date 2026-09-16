@@ -3,8 +3,10 @@ package okx
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"quantmesh/logger"
@@ -145,7 +147,32 @@ type OKXAdapter struct {
 	baseAsset        string
 	quoteAsset       string
 	useTestnet       bool
+
+	// 合約規格：策略層以「基礎幣數量」下單，OKX 合約 sz 單位是「張」，需按 ctVal 換算
+	ctVal  float64 // 每張合約面值（基礎幣）；現貨/未知時按 1 處理
+	lotSz  float64 // 下單數量步長（張）
+	minSz  float64 // 最小下單數量（張）
+	tickSz float64 // 價格步長
+
+	// 持倉模式自檢：本系統不傳 posSide，僅支援 net_mode（單向持倉）
+	posModeMu       sync.Mutex
+	posModeVerified bool
 }
+
+const (
+	// defaultCtVal 未取得合約面值（或現貨品種無 ctVal）時的面值：1 張 = 1 基礎幣
+	defaultCtVal = 1.0
+	// maxQtyDecimals 基礎幣數量換算後保留的最大小數位
+	maxQtyDecimals = 12
+	// okxPosModeLongShort OKX 雙向持倉模式標識
+	okxPosModeLongShort = "long_short_mode"
+	// okxInstTypeSwap 永續合約 instType
+	okxInstTypeSwap = "SWAP"
+	// okxDefaultCommissionAsset 推送中缺少手續費幣種時的默認值（USDT 本位合約）
+	okxDefaultCommissionAsset = "USDT"
+	// okxExecTypeMaker 成交明細中 maker 標識
+	okxExecTypeMaker = "M"
+)
 
 // NewOKXAdapter 創建 OKX 适配器
 func NewOKXAdapter(cfg map[string]string, symbol string) (*OKXAdapter, error) {
@@ -244,20 +271,141 @@ func (o *OKXAdapter) fetchInstrumentInfo(ctx context.Context) error {
 		return fmt.Errorf("未找到合約信息: %s", o.instId)
 	}
 
-	inst := instruments[0]
+	return o.applyInstrument(instruments[0])
+}
 
-	// 解析精度
-	tickSz, _ := strconv.ParseFloat(inst.TickSz, 64)
-	lotSz, _ := strconv.ParseFloat(inst.LotSz, 64)
+// applyInstrument 解析合約規格（tickSz / lotSz / minSz / ctVal）
+func (o *OKXAdapter) applyInstrument(inst Instrument) error {
+	tickSz, err := strconv.ParseFloat(inst.TickSz, 64)
+	if err != nil || tickSz <= 0 {
+		return fmt.Errorf("合約 %s tickSz 無效: %q", inst.InstId, inst.TickSz)
+	}
+	lotSz, err := strconv.ParseFloat(inst.LotSz, 64)
+	if err != nil || lotSz <= 0 {
+		return fmt.Errorf("合約 %s lotSz 無效: %q", inst.InstId, inst.LotSz)
+	}
+	minSz, err := strconv.ParseFloat(inst.MinSz, 64)
+	if err != nil || minSz < 0 {
+		minSz = lotSz
+	}
+	// 現貨品種沒有 ctVal，按 1 張 = 1 基礎幣處理
+	ctVal := defaultCtVal
+	if inst.CtVal != "" {
+		v, err := strconv.ParseFloat(inst.CtVal, 64)
+		if err != nil || v <= 0 {
+			return fmt.Errorf("合約 %s ctVal 無效: %q", inst.InstId, inst.CtVal)
+		}
+		ctVal = v
+	}
 
+	o.tickSz = tickSz
+	o.lotSz = lotSz
+	o.minSz = minSz
+	o.ctVal = ctVal
 	o.priceDecimals = getPrecision(tickSz)
-	o.quantityDecimals = getPrecision(lotSz)
-	o.baseAsset = inst.CtValCcy   // 基础币种
-	o.quoteAsset = inst.SettleCcy // 結算币种
+	// 對外暴露的數量精度是「基礎幣」精度：步長 = lotSz × ctVal
+	o.quantityDecimals = o.baseQtyDecimals()
+	if inst.CtValCcy != "" {
+		o.baseAsset = inst.CtValCcy // 基础币种
+	}
+	if inst.SettleCcy != "" {
+		o.quoteAsset = inst.SettleCcy // 結算币种
+	}
 
-	logger.Info("ℹ️ [OKX 合約信息] %s - 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
-		o.instId, o.quantityDecimals, o.priceDecimals, o.baseAsset, o.quoteAsset)
+	logger.Info("ℹ️ [OKX 合約信息] %s - ctVal:%v, lotSz:%v, minSz:%v, tickSz:%v, 數量精度(基礎幣):%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
+		o.instId, ctVal, lotSz, minSz, tickSz, o.quantityDecimals, o.priceDecimals, o.baseAsset, o.quoteAsset)
 
+	return nil
+}
+
+// effectiveCtVal 返回有效合約面值（未初始化時按 1）
+func (o *OKXAdapter) effectiveCtVal() float64 {
+	if o.ctVal > 0 {
+		return o.ctVal
+	}
+	return defaultCtVal
+}
+
+// effectiveLotSz 返回數量步長（張）；合約信息缺失時按 quantityDecimals 推算
+func (o *OKXAdapter) effectiveLotSz() float64 {
+	if o.lotSz > 0 {
+		return o.lotSz
+	}
+	return math.Pow10(-o.quantityDecimals)
+}
+
+// effectiveTickSz 返回價格步長；合約信息缺失時按價格精度推算
+func (o *OKXAdapter) effectiveTickSz(priceDecimals int) float64 {
+	if o.tickSz > 0 {
+		return o.tickSz
+	}
+	if priceDecimals <= 0 {
+		priceDecimals = o.priceDecimals
+	}
+	return math.Pow10(-priceDecimals)
+}
+
+// baseQtyDecimals 基礎幣數量的小數位（lotSz 小數位 + ctVal 小數位）
+func (o *OKXAdapter) baseQtyDecimals() int {
+	d := getPrecision(o.effectiveLotSz()) + getPrecision(o.effectiveCtVal())
+	if d > maxQtyDecimals {
+		return maxQtyDecimals
+	}
+	return d
+}
+
+// baseToContracts 基礎幣數量 → 合約張數：floor(qty/ctVal/lotSz)*lotSz，並校驗 minSz
+func (o *OKXAdapter) baseToContracts(baseQty float64) (float64, error) {
+	if math.IsNaN(baseQty) || math.IsInf(baseQty, 0) || baseQty <= 0 {
+		return 0, fmt.Errorf("OKX 下單數量無效: %v", baseQty)
+	}
+	ctVal := o.effectiveCtVal()
+	contracts := utils.FloorToStep(baseQty/ctVal, o.effectiveLotSz())
+	if contracts <= 0 || (o.minSz > 0 && contracts < o.minSz) {
+		return 0, fmt.Errorf("OKX 下單數量過小: %s 數量 %v（=%v 張，ctVal=%v）低於最小下單量 %v 張（=%v 基礎幣）",
+			o.instId, baseQty, contracts, ctVal, o.minSz, o.contractsToBase(o.minSz))
+	}
+	return contracts, nil
+}
+
+// contractsToBase 合約張數 → 基礎幣數量
+func (o *OKXAdapter) contractsToBase(contracts float64) float64 {
+	factor := math.Pow10(o.baseQtyDecimals())
+	return math.Round(contracts*o.effectiveCtVal()*factor) / factor
+}
+
+// alignPrice 價格按方向對齊到 tickSz：買單向下、賣單向上，避免 post only 單穿價
+func (o *OKXAdapter) alignPrice(price float64, side Side, priceDecimals int) (float64, error) {
+	if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+		return 0, fmt.Errorf("OKX 限價單價格無效: %v", price)
+	}
+	tick := o.effectiveTickSz(priceDecimals)
+	switch side {
+	case SideBuy:
+		return utils.FloorToStep(price, tick), nil
+	case SideSell:
+		return utils.CeilToStep(price, tick), nil
+	default:
+		return 0, fmt.Errorf("OKX 不支援的訂單方向: %q", side)
+	}
+}
+
+// ensureNetPositionMode 下單前自檢帳戶持倉模式（只在成功後緩存）。
+// 本系統不傳 posSide，雙向持倉模式下每一單都會被拒，直接給出明確錯誤。
+func (o *OKXAdapter) ensureNetPositionMode(ctx context.Context) error {
+	o.posModeMu.Lock()
+	defer o.posModeMu.Unlock()
+	if o.posModeVerified {
+		return nil
+	}
+	cfg, err := o.client.GetAccountConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("OKX 下單前查詢持倉模式失败: %w", err)
+	}
+	if cfg.PosMode == okxPosModeLongShort {
+		return fmt.Errorf("OKX 帳戶為雙向持倉模式(%s)，本系統僅支援單向持倉(net_mode)，請在 OKX 交易設置中切換後重試", cfg.PosMode)
+	}
+	o.posModeVerified = true
 	return nil
 }
 
@@ -273,30 +421,45 @@ func getPrecision(value float64) int {
 
 // PlaceOrder 下單
 func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	side := string(req.Side)
-	orderType := string(req.Type)
-
-	// OKX 使用 post_only 作為 TimeInForce
-	var tdMode string
-	if req.PostOnly {
-		tdMode = "post_only"
-	} else {
-		tdMode = ""
+	if req.Side != SideBuy && req.Side != SideSell {
+		return nil, fmt.Errorf("OKX 不支援的訂單方向: %q（需為 buy/sell）", req.Side)
 	}
+	// OKX 的 post only 是 ordType=post_only，不是獨立參數
+	orderType := req.Type
+	if req.PostOnly && orderType == OrderTypeLimit {
+		orderType = OrderTypePostOnly
+	}
+	if _, err := ToInternalOrderType(orderType); err != nil {
+		return nil, fmt.Errorf("OKX 下單失败: %w", err)
+	}
+
+	if err := o.ensureNetPositionMode(ctx); err != nil {
+		return nil, err
+	}
+
+	// 基礎幣數量 → 合約張數（向下取整到 lotSz，低於 minSz 直接拒絕）
+	contracts, err := o.baseToContracts(req.Quantity)
+	if err != nil {
+		return nil, err
+	}
+	lotSz := o.effectiveLotSz()
 
 	// 構造订單请求
 	orderReq := map[string]interface{}{
 		"instId":  o.instId,
 		"tdMode":  "cross", // 全倉模式
-		"side":    side,
-		"ordType": orderType,
-		"sz":      fmt.Sprintf("%.*f", o.quantityDecimals, req.Quantity),
-		"px":      fmt.Sprintf("%.*f", req.PriceDecimals, req.Price),
+		"side":    string(req.Side),
+		"ordType": string(orderType),
+		"sz":      strconv.FormatFloat(contracts, 'f', getPrecision(lotSz), 64),
 	}
 
-	// 設置 post_only
-	if tdMode != "" {
-		orderReq["postOnly"] = true
+	price := req.Price
+	if orderType != OrderTypeMarket && orderType != OrderTypeOptimalLimitIOC {
+		price, err = o.alignPrice(req.Price, req.Side, req.PriceDecimals)
+		if err != nil {
+			return nil, err
+		}
+		orderReq["px"] = strconv.FormatFloat(price, 'f', getPrecision(o.effectiveTickSz(req.PriceDecimals)), 64)
 	}
 
 	// 設置自定义订單ID
@@ -331,9 +494,9 @@ func (o *OKXAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 		ClientOrderID: result.ClOrdId,
 		Symbol:        req.Symbol,
 		Side:          req.Side,
-		Type:          req.Type,
-		Price:         req.Price,
-		Quantity:      req.Quantity,
+		Type:          orderType,
+		Price:         price,
+		Quantity:      o.contractsToBase(contracts),
 		Status:        OrderStatusNew,
 		CreatedAt:     time.Now(),
 		UpdateTime:    time.Now().UnixMilli(),
@@ -477,22 +640,16 @@ func (o *OKXAdapter) convertOrder(order *OKXOrder) *Order {
 	avgPrice, _ := strconv.ParseFloat(order.AvgPx, 64)
 	updateTime, _ := strconv.ParseInt(order.UTime, 10, 64)
 
-	var side Side
-	if order.Side == "buy" {
-		side = SideBuy
-	} else {
-		side = SideSell
-	}
-
+	// Side/Type/Status 保持 OKX 原生值，由 wrapper 通過映射表轉成內部常量（未知值報錯而非透傳）
 	return &Order{
 		OrderID:       orderID,
 		ClientOrderID: order.ClOrdId,
 		Symbol:        o.symbol,
-		Side:          side,
+		Side:          Side(order.Side),
 		Type:          OrderType(order.OrdType),
 		Price:         price,
-		Quantity:      quantity,
-		ExecutedQty:   executedQty,
+		Quantity:      o.contractsToBase(quantity),
+		ExecutedQty:   o.contractsToBase(executedQty),
 		AvgPrice:      avgPrice,
 		Status:        OrderStatus(order.State),
 		UpdateTime:    updateTime,
@@ -561,7 +718,7 @@ func (o *OKXAdapter) GetPositions(ctx context.Context, symbol string) ([]*Positi
 
 		result = append(result, &Position{
 			Symbol:         o.symbol,
-			Size:           size,
+			Size:           o.contractsToBase(size), // pos 單位為張（net_mode 下帶符號），換算為基礎幣
 			EntryPrice:     entryPrice,
 			MarkPrice:      markPrice,
 			UnrealizedPNL:  unrealizedPNL,
@@ -590,41 +747,130 @@ func (o *OKXAdapter) StartOrderStream(ctx context.Context, callback func(interfa
 	}
 
 	localCallback := func(update OrderUpdate) {
-		genericUpdate := struct {
-			OrderID         int64
-			ClientOrderID   string
-			Symbol          string
-			Side            string
-			Type            string
-			Status          string
-			Price           float64
-			Quantity        float64
-			ExecutedQty     float64
-			AvgPrice        float64
-			UpdateTime      int64
-			Commission      float64
-			CommissionAsset string
-			RealizedPnL     float64
-		}{
-			OrderID:         update.OrderID,
-			ClientOrderID:   update.ClientOrderID,
-			Symbol:          update.Symbol,
-			Side:            string(update.Side),
-			Type:            string(update.Type),
-			Status:          string(update.Status),
-			Price:           update.Price,
-			Quantity:        update.Quantity,
-			ExecutedQty:     update.ExecutedQty,
-			AvgPrice:        update.AvgPrice,
-			UpdateTime:      update.UpdateTime,
-			Commission:      update.Commission,
-			CommissionAsset: update.CommissionAsset,
-			RealizedPnL:     update.RealizedPnL,
+		genericUpdate, err := o.normalizeOrderUpdate(update)
+		if err != nil {
+			logger.Error("❌ [OKX WebSocket] 丟棄無法識別的訂單推送 ordId=%d clOrdId=%s: %v",
+				update.OrderID, update.ClientOrderID, err)
+			return
 		}
 		callback(genericUpdate)
 	}
 
 	return o.wsManager.Start(ctx, o.instId, localCallback)
+}
+
+// StreamOrderUpdate 推給上層的訂單更新（字段名與 exchange.OrderUpdate 一致，供反射讀取）
+type StreamOrderUpdate struct {
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            string
+	Type            string
+	Status          string
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64
+	CommissionAsset string
+	RealizedPnL     float64
+}
+
+// normalizeOrderUpdate 將 OKX 原生推送轉成內部口徑：
+// Symbol 用配置的交易對（BTCUSDT 而非 BTC-USDT-SWAP）、數量由張換算為基礎幣、Side/Type/Status 映射為內部常量。
+func (o *OKXAdapter) normalizeOrderUpdate(update OrderUpdate) (StreamOrderUpdate, error) {
+	if update.Symbol != "" && update.Symbol != o.instId {
+		return StreamOrderUpdate{}, fmt.Errorf("非本適配器合約的推送: instId=%s（期望 %s）", update.Symbol, o.instId)
+	}
+	side, err := ToInternalSide(update.Side)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	orderType, err := ToInternalOrderType(update.Type)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	status, err := ToInternalStatus(update.Status)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	return StreamOrderUpdate{
+		OrderID:         update.OrderID,
+		ClientOrderID:   update.ClientOrderID,
+		Symbol:          o.symbol,
+		Side:            side,
+		Type:            orderType,
+		Status:          status,
+		Price:           update.Price,
+		Quantity:        o.contractsToBase(update.Quantity),
+		ExecutedQty:     o.contractsToBase(update.ExecutedQty),
+		AvgPrice:        update.AvgPrice,
+		UpdateTime:      update.UpdateTime,
+		Commission:      update.Commission,
+		CommissionAsset: update.CommissionAsset,
+		RealizedPnL:     update.RealizedPnL,
+	}, nil
+}
+
+// OKXOrderFill 訂單成交明細（本地類型，避免循環匯入；數量已換算為基礎幣）
+type OKXOrderFill struct {
+	OrderID         int64
+	TradeID         string
+	Symbol          string
+	Side            Side
+	Price           float64
+	Quantity        float64
+	Commission      float64 // 正數為支出，負數為返佣
+	CommissionAsset string
+	TradeTime       int64
+	IsMaker         bool
+}
+
+// okxFeeToCommission OKX 手續費符號約定：扣費為負、返佣為正；內部 Commission 以「支出為正」計，故取反
+func okxFeeToCommission(fee float64) float64 {
+	return -fee
+}
+
+// GetOrderFills 查詢訂單成交明細（GET /api/v5/trade/fills，用於補充手續費）
+func (o *OKXAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OKXOrderFill, error) {
+	rows, err := o.client.GetTradeFills(ctx, okxInstTypeSwap, o.instId, strconv.FormatInt(orderID, 10))
+	if err != nil {
+		return nil, fmt.Errorf("OKX 查詢訂單 %d 成交明細失败(instId=%s): %w", orderID, o.instId, err)
+	}
+
+	fills := make([]*OKXOrderFill, 0, len(rows))
+	for _, r := range rows {
+		price, err := strconv.ParseFloat(r.FillPx, 64)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillPx 無效 %q: %w", r.TradeId, r.FillPx, err)
+		}
+		sz, err := strconv.ParseFloat(r.FillSz, 64)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillSz 無效 %q: %w", r.TradeId, r.FillSz, err)
+		}
+		fee, _ := strconv.ParseFloat(r.Fee, 64)
+		ts, _ := strconv.ParseInt(r.Ts, 10, 64)
+		ordID := orderID
+		if r.OrdId != "" {
+			if v, err := strconv.ParseInt(r.OrdId, 10, 64); err == nil {
+				ordID = v
+			}
+		}
+		fills = append(fills, &OKXOrderFill{
+			OrderID:         ordID,
+			TradeID:         r.TradeId,
+			Symbol:          o.symbol,
+			Side:            Side(r.Side),
+			Price:           price,
+			Quantity:        o.contractsToBase(sz),
+			Commission:      okxFeeToCommission(fee),
+			CommissionAsset: r.FeeCcy,
+			TradeTime:       ts,
+			IsMaker:         r.ExecType == okxExecTypeMaker,
+		})
+	}
+	return fills, nil
 }
 
 // StopOrderStream 停止訂單流

@@ -2,9 +2,11 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/income"
 	"quantmesh/exchange/okx"
+	"quantmesh/logger"
 )
 
 // okxWrapper OKX 包装器
@@ -23,17 +25,9 @@ func (w *okxWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *okxWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	okxReq := &okx.OrderRequest{
-		Symbol:        req.Symbol,
-		Side:          okx.Side(req.Side),
-		Type:          okx.OrderType(req.Type),
-		TimeInForce:   okx.TimeInForce(req.TimeInForce),
-		Quantity:      req.Quantity,
-		Price:         req.Price,
-		ReduceOnly:    req.ReduceOnly,
-		PostOnly:      req.PostOnly,
-		PriceDecimals: req.PriceDecimals,
-		ClientOrderID: req.ClientOrderID,
+	okxReq, err := toOKXOrderRequest(req)
+	if err != nil {
+		return nil, err
 	}
 
 	order, err := w.adapter.PlaceOrder(ctx, okxReq)
@@ -41,17 +35,63 @@ func (w *okxWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 		return nil, err
 	}
 
+	return fromOKXOrder(order)
+}
+
+// toOKXOrderRequest 內部下單請求 → OKX 原生（方向/類型走顯式映射表，未知值直接報錯）
+func toOKXOrderRequest(req *OrderRequest) (*okx.OrderRequest, error) {
+	side, err := okx.ToNativeSide(string(req.Side))
+	if err != nil {
+		return nil, fmt.Errorf("OKX 下單參數轉換失败(clientOrderId=%s): %w", req.ClientOrderID, err)
+	}
+	orderType, err := okx.ToNativeOrderType(string(req.Type), req.PostOnly, string(req.TimeInForce))
+	if err != nil {
+		return nil, fmt.Errorf("OKX 下單參數轉換失败(clientOrderId=%s): %w", req.ClientOrderID, err)
+	}
+	postOnly := orderType == okx.OrderTypePostOnly
+	if postOnly {
+		// 適配器以 limit + PostOnly 表達 post_only
+		orderType = okx.OrderTypeLimit
+	}
+	return &okx.OrderRequest{
+		Symbol:        req.Symbol,
+		Side:          side,
+		Type:          orderType,
+		TimeInForce:   okx.TimeInForce(req.TimeInForce),
+		Quantity:      req.Quantity,
+		Price:         req.Price,
+		ReduceOnly:    req.ReduceOnly,
+		PostOnly:      postOnly,
+		PriceDecimals: req.PriceDecimals,
+		ClientOrderID: req.ClientOrderID,
+	}, nil
+}
+
+// fromOKXOrder OKX 訂單 → 內部訂單（Side/Type/Status 映射為內部常量，未知值報錯）
+func fromOKXOrder(order *okx.Order) (*Order, error) {
+	side, err := okx.ToInternalSide(order.Side)
+	if err != nil {
+		return nil, fmt.Errorf("OKX 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
+	orderType, err := okx.ToInternalOrderType(order.Type)
+	if err != nil {
+		return nil, fmt.Errorf("OKX 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
+	status, err := okx.ToInternalStatus(order.Status)
+	if err != nil {
+		return nil, fmt.Errorf("OKX 訂單 %d 轉換失败: %w", order.OrderID, err)
+	}
 	return &Order{
 		OrderID:       order.OrderID,
 		ClientOrderID: order.ClientOrderID,
 		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
+		Side:          Side(side),
+		Type:          OrderType(orderType),
 		Price:         order.Price,
 		Quantity:      order.Quantity,
 		ExecutedQty:   order.ExecutedQty,
 		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
+		Status:        OrderStatus(status),
 		CreatedAt:     order.CreatedAt,
 		UpdateTime:    order.UpdateTime,
 	}, nil
@@ -59,40 +99,26 @@ func (w *okxWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order,
 
 // BatchPlaceOrders 批量下單
 func (w *okxWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
-	okxOrders := make([]*okx.OrderRequest, len(orders))
-	for i, req := range orders {
-		okxOrders[i] = &okx.OrderRequest{
-			Symbol:        req.Symbol,
-			Side:          okx.Side(req.Side),
-			Type:          okx.OrderType(req.Type),
-			TimeInForce:   okx.TimeInForce(req.TimeInForce),
-			Quantity:      req.Quantity,
-			Price:         req.Price,
-			ReduceOnly:    req.ReduceOnly,
-			PostOnly:      req.PostOnly,
-			PriceDecimals: req.PriceDecimals,
-			ClientOrderID: req.ClientOrderID,
+	okxOrders := make([]*okx.OrderRequest, 0, len(orders))
+	for _, req := range orders {
+		okxReq, err := toOKXOrderRequest(req)
+		if err != nil {
+			logger.Warn("⚠️ [OKX] 跳過無法轉換的下單請求: %v", err)
+			continue
 		}
+		okxOrders = append(okxOrders, okxReq)
 	}
 
 	placedOrders, hasMarginError := w.adapter.BatchPlaceOrders(ctx, okxOrders)
 
-	result := make([]*Order, len(placedOrders))
-	for i, order := range placedOrders {
-		result[i] = &Order{
-			OrderID:       order.OrderID,
-			ClientOrderID: order.ClientOrderID,
-			Symbol:        order.Symbol,
-			Side:          Side(order.Side),
-			Type:          OrderType(order.Type),
-			Price:         order.Price,
-			Quantity:      order.Quantity,
-			ExecutedQty:   order.ExecutedQty,
-			AvgPrice:      order.AvgPrice,
-			Status:        OrderStatus(order.Status),
-			CreatedAt:     order.CreatedAt,
-			UpdateTime:    order.UpdateTime,
+	result := make([]*Order, 0, len(placedOrders))
+	for _, order := range placedOrders {
+		converted, err := fromOKXOrder(order)
+		if err != nil {
+			logger.Error("❌ [OKX] 已下單但結果轉換失败: %v", err)
+			continue
 		}
+		result = append(result, converted)
 	}
 
 	return result, hasMarginError
@@ -120,19 +146,7 @@ func (w *okxWrapper) GetOrder(ctx context.Context, symbol string, orderID int64)
 		return nil, err
 	}
 
-	return &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		ExecutedQty:   order.ExecutedQty,
-		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
-		UpdateTime:    order.UpdateTime,
-	}, nil
+	return fromOKXOrder(order)
 }
 
 // GetOpenOrders 查詢未完成订單
@@ -142,21 +156,13 @@ func (w *okxWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order
 		return nil, err
 	}
 
-	result := make([]*Order, len(orders))
-	for i, order := range orders {
-		result[i] = &Order{
-			OrderID:       order.OrderID,
-			ClientOrderID: order.ClientOrderID,
-			Symbol:        order.Symbol,
-			Side:          Side(order.Side),
-			Type:          OrderType(order.Type),
-			Price:         order.Price,
-			Quantity:      order.Quantity,
-			ExecutedQty:   order.ExecutedQty,
-			AvgPrice:      order.AvgPrice,
-			Status:        OrderStatus(order.Status),
-			UpdateTime:    order.UpdateTime,
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		converted, err := fromOKXOrder(order)
+		if err != nil {
+			return nil, err
 		}
+		result = append(result, converted)
 	}
 
 	return result, nil
@@ -334,9 +340,34 @@ func (w *okxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType st
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（OKX 暂未實現）
+// GetOrderFills 查詢訂單成交記錄（GET /api/v5/trade/fills，用於補充手續費）
 func (w *okxWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	okxFills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+
+	fills := make([]*OrderFill, 0, len(okxFills))
+	for _, f := range okxFills {
+		side, err := okx.ToInternalSide(f.Side)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 訂單 %d 成交 %s 轉換失败: %w", orderID, f.TradeID, err)
+		}
+		fills = append(fills, &OrderFill{
+			OrderID:         f.OrderID,
+			TradeID:         f.TradeID,
+			Symbol:          f.Symbol,
+			Side:            Side(side),
+			Price:           f.Price,
+			Quantity:        f.Quantity,
+			Commission:      f.Commission,
+			CommissionAsset: f.CommissionAsset,
+			TradeTime:       f.TradeTime,
+			IsMaker:         f.IsMaker,
+		})
+	}
+
+	return fills, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

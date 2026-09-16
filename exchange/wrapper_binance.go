@@ -150,6 +150,31 @@ func (w *binanceWrapper) GetOrder(ctx context.Context, symbol string, orderID in
 	}, nil
 }
 
+// GetOrderByClientOrderID 按自定義訂單 ID 查詢訂單（實現 OrderByClientIDQuerier）；不存在返回 nil, nil
+func (w *binanceWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	binanceOrder, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || binanceOrder == nil {
+		return nil, err
+	}
+	return &Order{
+		OrderID:       binanceOrder.OrderID,
+		ClientOrderID: binanceOrder.ClientOrderID,
+		Symbol:        binanceOrder.Symbol,
+		Side:          Side(binanceOrder.Side),
+		Type:          OrderType(binanceOrder.Type),
+		Price:         binanceOrder.Price,
+		Quantity:      binanceOrder.Quantity,
+		ExecutedQty:   binanceOrder.ExecutedQty,
+		AvgPrice:      binanceOrder.AvgPrice,
+		Status:        OrderStatus(binanceOrder.Status),
+		CreatedAt:     binanceOrder.CreatedAt,
+		UpdateTime:    binanceOrder.UpdateTime,
+	}, nil
+}
+
+// 編譯期保證 binanceWrapper 實現可選的按 ClientOrderID 查單介面
+var _ OrderByClientIDQuerier = (*binanceWrapper)(nil)
+
 func (w *binanceWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	binanceOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {

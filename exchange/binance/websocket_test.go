@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/adshao/go-binance/v2/common"
 	"github.com/adshao/go-binance/v2/futures"
 )
 
@@ -153,5 +154,134 @@ func TestWebSocketManager_StopThenStartDoesNotPanic(t *testing.T) {
 		}
 		waitFor(t, func() bool { return len(f.servedKeys()) >= i+1 })
 		w.Stop()
+	}
+}
+
+func TestWebSocketManager_RestartDoesNotDuplicateCallbacks(t *testing.T) {
+	w := NewWebSocketManager("k", "s", false)
+	w.keepAliveInterval = time.Hour
+	f := &fakeUserStream{}
+	f.install(w)
+
+	var calls int32
+	cb := func(OrderUpdate) { atomic.AddInt32(&calls, 1) }
+	for i := 0; i < 2; i++ {
+		if err := w.Start(context.Background(), cb); err != nil {
+			t.Fatalf("第 %d 次 Start 失敗: %v", i+1, err)
+		}
+		if i == 0 {
+			w.Stop()
+		}
+	}
+	defer w.Stop()
+
+	w.handleUserDataEvent(&futures.WsUserDataEvent{Event: futures.UserDataEventTypeOrderTradeUpdate})
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("回調被調用 %d 次, want 1", got)
+	}
+}
+
+func TestWebSocketManager_ExternalCancelResetsState(t *testing.T) {
+	w := NewWebSocketManager("k", "s", false)
+	w.keepAliveInterval = time.Hour
+	f := &fakeUserStream{}
+	f.install(w)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := w.Start(ctx, func(OrderUpdate) {}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return len(f.servedKeys()) >= 1 })
+	cancel()
+	waitFor(t, func() bool {
+		w.mu.RLock()
+		defer w.mu.RUnlock()
+		return !w.isRunning
+	})
+
+	if err := w.Start(context.Background(), func(OrderUpdate) {}); err != nil {
+		t.Fatalf("外部 ctx 取消後應可再次 Start: %v", err)
+	}
+	w.Stop()
+}
+
+// connectivityRecorder 記錄連線事件（進程級 handler，測試結束時復原）
+type connectivityRecorder struct {
+	mu     sync.Mutex
+	events []ConnectivityEventType
+}
+
+func newConnectivityRecorder(t *testing.T) *connectivityRecorder {
+	r := &connectivityRecorder{}
+	SetConnectivityEventHandler(func(e ConnectivityEvent) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		r.events = append(r.events, e.Type)
+	})
+	t.Cleanup(func() { SetConnectivityEventHandler(nil) })
+	return r
+}
+
+func (r *connectivityRecorder) snapshot() []ConnectivityEventType {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]ConnectivityEventType(nil), r.events...)
+}
+
+func TestWebSocketManager_EmitsConnectivityEvents(t *testing.T) {
+	rec := newConnectivityRecorder(t)
+	w := NewWebSocketManager("k", "s", false)
+	w.keepAliveInterval = time.Hour
+	f := &fakeUserStream{dropFirst: true}
+	f.install(w)
+
+	if err := w.Start(context.Background(), func(OrderUpdate) {}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return len(rec.snapshot()) >= 2 })
+	w.Stop()
+
+	got := rec.snapshot()
+	want := []ConnectivityEventType{ConnectivityDisconnected, ConnectivityReconnected}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+}
+
+func TestWebSocketManager_StopWhileDisconnectedEmitsStopped(t *testing.T) {
+	rec := newConnectivityRecorder(t)
+	w := NewWebSocketManager("k", "s", false)
+	w.keepAliveInterval = time.Hour
+	f := &fakeUserStream{}
+	f.install(w)
+	w.reconnectDelay = time.Hour // 斷線後停在退避等待中
+	w.serveUserData = func(string, futures.WsUserDataHandler, futures.ErrHandler) (chan struct{}, chan struct{}, error) {
+		return nil, nil, errors.New("dial failed")
+	}
+
+	if err := w.Start(context.Background(), func(OrderUpdate) {}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, func() bool { return len(rec.snapshot()) >= 1 })
+	w.Stop()
+
+	got := rec.snapshot()
+	if len(got) != 2 || got[0] != ConnectivityDisconnected || got[1] != ConnectivityStopped {
+		t.Fatalf("events = %v, want [disconnected stopped]", got)
+	}
+}
+
+func TestWebSocketManager_AuthErrorEmitsAuthFailed(t *testing.T) {
+	rec := newConnectivityRecorder(t)
+	w := NewWebSocketManager("k", "s", false)
+	w.startUserStream = func(context.Context) (string, error) {
+		return "", &common.APIError{Code: errCodeRejectedMBXKey, Message: "Invalid API-key, IP, or permissions for action."}
+	}
+	if err := w.Start(context.Background(), func(OrderUpdate) {}); err == nil {
+		t.Fatal("認證失敗時 Start 應返回錯誤")
+	}
+	got := rec.snapshot()
+	if len(got) != 1 || got[0] != ConnectivityAuthFailed {
+		t.Fatalf("events = %v, want [auth_failed]", got)
 	}
 }

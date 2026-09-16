@@ -257,11 +257,11 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			// 保证金不足，不重試
 			return nil, err
 		} else if strings.Contains(errStr, "-4164") || strings.Contains(errStr, "Order's notional must be no smaller than 100") {
-			// 🔥 币安合約最小訂單金額不足：订單名义價值必須 >= 100 USDT（除非是reduce only订單）
+			// 🔥 订單名义價值低於交易所 MIN_NOTIONAL（本地校驗或交易所 -4164，reduce only 除外）
 			// 这是配置问题，重試無效，直接返回錯误
-			logger.ErrorCtx(oe.logCtx(), "❌ [%s] 订單金額不足：币安合約要求订單名义價值 >= 100 USDT（除非是reduce only订單）。订單金額=%.2f × %.8f = %.2f USDT",
-				oe.exchange.GetName(), req.Price, req.Quantity, req.Price*req.Quantity)
-			return nil, fmt.Errorf("订單金額不足（币安合約最小訂單金額為100 USDT）: %w", err)
+			logger.ErrorCtx(oe.logCtx(), "❌ [%s] 订單金額不足交易所最小名義金額（除非是reduce only订單）。订單金額=%.2f × %.8f = %.2f: %v",
+				oe.exchange.GetName(), req.Price, req.Quantity, req.Price*req.Quantity, err)
+			return nil, fmt.Errorf("订單金額不足交易所最小名義金額: %w", err)
 		} else if strings.Contains(errStr, "-1021") {
 			// 時间戳不同步，不重試
 			return nil, err
@@ -293,14 +293,36 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	return nil, fmt.Errorf("下單失败（重試%d次）: %w", maxRetries, lastErr)
 }
 
-// findOrderByClientOrderID 在未完成订單中按 ClientOrderID 回查（兼容交易所返佣前綴）
-// 交易所接口未提供按 ClientOrderID 查單，已完全成交的订單無法通過此方式找回
+// findOrderByClientOrderID 按 ClientOrderID 回查订單（兼容交易所返佣前綴）。
+// 交易所實現 exchange.OrderByClientIDQuerier 時直接查單（可找回已成交/已撤銷订單）；
+// 否則或查詢出錯時，退回在未完成订單中掃描（已完全成交的订單無法找回）。
 func (oe *ExchangeOrderExecutor) findOrderByClientOrderID(req *OrderRequest) *Order {
 	if req.ClientOrderID == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), orderLookupTimeout)
 	defer cancel()
+
+	if querier, ok := oe.exchange.(exchange.OrderByClientIDQuerier); ok {
+		o, err := querier.GetOrderByClientOrderID(ctx, req.Symbol, req.ClientOrderID)
+		if err == nil {
+			if o == nil {
+				return nil // 交易所確認不存在
+			}
+			return &Order{
+				OrderID:       o.OrderID,
+				ClientOrderID: o.ClientOrderID,
+				Symbol:        req.Symbol,
+				Side:          req.Side,
+				Price:         req.Price,
+				Quantity:      req.Quantity,
+				Status:        string(o.Status),
+				CreatedAt:     time.Now(),
+			}
+		}
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 按 ClientOrderID 直接查單失败 cid=%s，改為掃描挂單: %v", oe.exchange.GetName(), req.ClientOrderID, err)
+	}
+
 	openOrders, err := oe.exchange.GetOpenOrders(ctx, req.Symbol)
 	if err != nil {
 		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 按 ClientOrderID 回查订單失败 cid=%s: %v", oe.exchange.GetName(), req.ClientOrderID, err)
@@ -420,7 +442,7 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 			logger.InfoCtx(oe.logCtx(), "ℹ️ [%s] 订單 %d 已不存在（可能已成交或已取消），跳過取消", oe.exchange.GetName(), orderID)
 			return nil
 		}
-		return fmt.Errorf("取消訂單失败: %v", err)
+		return fmt.Errorf("取消訂單 %d 失败: %w", orderID, err)
 	}
 
 	logger.InfoCtx(oe.logCtx(), "✅ [%s] 取消訂單成功: %d", oe.exchange.GetName(), orderID)
@@ -435,16 +457,23 @@ func (oe *ExchangeOrderExecutor) BatchCancelOrders(orderIDs []int64) error {
 
 	// 使用交易所的批量撤單接口
 	err := oe.exchange.BatchCancelOrders(context.Background(), oe.symbol, orderIDs)
-	if err != nil {
-		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 批量撤單失败: %v，尝試單個撤單", oe.exchange.GetName(), err)
-		// 如果批量撤單失败，尝試單個撤單
-		for _, orderID := range orderIDs {
-			if err := oe.CancelOrder(orderID); err != nil {
-				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 取消訂單 %d 失败: %v", oe.exchange.GetName(), orderID, err)
-			}
-		}
+	if err == nil {
+		return nil
 	}
 
+	logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 批量撤單失败: %v，尝試單個撤單", oe.exchange.GetName(), err)
+	// 批量撤單失败時逐個撤單；CancelOrder 已把「訂單不存在」視為成功，剩餘失敗匯總返回
+	var errs []error
+	for _, orderID := range orderIDs {
+		if cancelErr := oe.CancelOrder(orderID); cancelErr != nil {
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 取消訂單 %d 失败: %v", oe.exchange.GetName(), orderID, cancelErr)
+			errs = append(errs, fmt.Errorf("order %d: %w", orderID, cancelErr))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("[%s] %s 批量撤單 %d/%d 個訂單失败: %w",
+			oe.exchange.GetName(), oe.symbol, len(errs), len(orderIDs), errors.Join(errs...))
+	}
 	return nil
 }
 

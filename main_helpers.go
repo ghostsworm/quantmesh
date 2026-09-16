@@ -14,6 +14,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/exchange/binance"
 	"quantmesh/logger"
 	"quantmesh/mcp"
 	"quantmesh/monitor"
@@ -564,6 +565,38 @@ func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreak
 	)
 	feeder.Start(ctx)
 	gcb.SubscribeConnectivityEvents(ctx, eventBus)
+	wireBinanceConnectivityEvents(eventBus)
+}
+
+// wireBinanceConnectivityEvents 把 Binance 合約用戶數據流的斷線/重連/認證失敗轉發到事件總線（熔斷器訂閱）
+func wireBinanceConnectivityEvents(eventBus *event.EventBus) {
+	if eventBus == nil {
+		return
+	}
+	binance.SetConnectivityEventHandler(func(e binance.ConnectivityEvent) {
+		var eventType event.EventType
+		switch e.Type {
+		case binance.ConnectivityDisconnected:
+			eventType = event.EventTypeWebSocketDisconnected
+		case binance.ConnectivityReconnected, binance.ConnectivityStopped:
+			// 斷線期間主動停止也清除斷線計時，避免停掉的 Bot 觸發「長時間斷線」熔斷
+			eventType = event.EventTypeWebSocketReconnected
+		case binance.ConnectivityAuthFailed:
+			eventType = event.EventTypeAPIAuthFailed
+		default:
+			return
+		}
+		eventBus.Publish(&event.Event{
+			Type: eventType,
+			Data: map[string]interface{}{
+				"exchange": e.Exchange,
+				"stream":   e.Stream,
+				"symbol":   e.Symbol,
+				"testnet":  e.Testnet,
+				"reason":   e.Reason,
+			},
+		})
+	})
 }
 
 // startCompositeRiskGuard 接線複合風控：註冊全局可用因子，stop_trading 時走與熔斷器相同的暫停開倉路徑。

@@ -163,6 +163,12 @@ type IExchange interface {
 	InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error)
 }
 
+// OrderByClientIDQuerier 可選介面：按自定義訂單 ID 查詢訂單（含已成交/已撤銷訂單）。
+// clientOrderID 傳下單時使用的原始 ID（實現方自行處理返佣前綴）；訂單不存在時返回 nil, nil。
+type OrderByClientIDQuerier interface {
+	GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error)
+}
+
 // ISpotMarginExchange 現貨槓桿交易所介面（借幣做空）
 // 僅 Binance Spot Margin 等支援借還的交易所實現
 type ISpotMarginExchange interface {

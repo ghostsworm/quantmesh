@@ -2,6 +2,7 @@ package binance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -266,28 +267,47 @@ func (b *BinanceSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*Ord
 func (b *BinanceSpotAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	_, err := b.client.NewCancelOrderService().Symbol(symbol).OrderID(orderID).Do(ctx)
 	if err != nil {
-		if strings.Contains(err.Error(), "-2011") || strings.Contains(err.Error(), "Unknown order") {
+		if isBinanceUnknownOrderError(err) {
 			logger.Info("ℹ️ [Binance Spot] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
-		return err
+		return fmt.Errorf("cancel spot order %d on %s: %w", orderID, symbol, err)
 	}
 	return nil
 }
 
-// BatchCancelOrders 批量撤單
+// BatchCancelOrders 批量撤單（逐個撤銷，匯總失敗；訂單不存在視為成功）
 func (b *BinanceSpotAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
-	for _, id := range orderIDs {
-		_ = b.CancelOrder(ctx, symbol, id)
-		time.Sleep(100 * time.Millisecond)
+	return cancelOrdersSequentially(ctx, "binance spot", symbol, orderIDs, b.CancelOrder)
+}
+
+// cancelOrdersSequentially 逐個撤單並匯總錯誤（cancel 需自行把「訂單不存在」視為成功）
+func cancelOrdersSequentially(ctx context.Context, market, symbol string, orderIDs []int64,
+	cancel func(ctx context.Context, symbol string, orderID int64) error) error {
+	var errs []error
+	for i, id := range orderIDs {
+		if err := cancel(ctx, symbol, id); err != nil {
+			logger.Warn("⚠️ [%s] 取消訂單失败 %d: %v", market, id, err)
+			errs = append(errs, err)
+		}
+		if i < len(orderIDs)-1 {
+			time.Sleep(binanceCancelThrottleInterval) // 避免限频
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s batch cancel on %s: %d of %d orders failed: %w",
+			market, symbol, len(errs), len(orderIDs), errors.Join(errs...))
 	}
 	return nil
 }
 
-// CancelAllOrders 取消該交易對下所有订單
+// CancelAllOrders 取消該交易對下所有订單（無挂單時交易所返回 -2011，視為成功）
 func (b *BinanceSpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	_, err := b.client.NewCancelOpenOrdersService().Symbol(symbol).Do(ctx)
-	return err
+	if err != nil && !isBinanceUnknownOrderError(err) {
+		return fmt.Errorf("cancel all spot orders on %s: %w", symbol, err)
+	}
+	return nil
 }
 
 // GetOrder 查詢訂單

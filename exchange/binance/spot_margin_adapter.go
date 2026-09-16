@@ -196,23 +196,32 @@ func (b *BinanceSpotMarginAdapter) CancelOrder(ctx context.Context, symbol strin
 	}
 	_, err := b.client.NewCancelMarginOrderService().Symbol(sym).OrderID(orderID).IsIsolated(false).Do(ctx)
 	if err != nil {
-		if strings.Contains(err.Error(), "-2011") || strings.Contains(err.Error(), "Unknown order") {
+		if isBinanceUnknownOrderError(err) {
 			logger.Info("ℹ️ [Binance Spot Margin] 訂單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
-		return err
+		return fmt.Errorf("cancel margin order %d on %s: %w", orderID, sym, err)
 	}
 	return nil
 }
 
-// CancelAllOrders 取消所有訂單（使用 margin API）
+// BatchCancelOrders 批量撤單（使用 margin API）。
+// 必須覆蓋內嵌現貨適配器的實現：那條路徑走現貨撤單接口，對槓桿訂單返回「訂單不存在」並被當作成功，訂單實際未撤。
+func (b *BinanceSpotMarginAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	return cancelOrdersSequentially(ctx, "binance spot margin", symbol, orderIDs, b.CancelOrder)
+}
+
+// CancelAllOrders 取消所有訂單（使用 margin API；無挂單時 -2011 視為成功）
 func (b *BinanceSpotMarginAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
 	sym := symbol
 	if sym == "" {
 		sym = b.symbol
 	}
 	_, err := b.client.NewCancelAllMarginOrdersService().Symbol(sym).IsIsolated(false).Do(ctx)
-	return err
+	if err != nil && !isBinanceUnknownOrderError(err) {
+		return fmt.Errorf("cancel all margin orders on %s: %w", sym, err)
+	}
+	return nil
 }
 
 // GetOrder 查詢訂單（使用 margin API）

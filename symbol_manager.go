@@ -12,6 +12,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/exchange/binance"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/monitor"
@@ -616,6 +617,10 @@ func startSymbolRuntime(
 			multiExecutor.OnOrderUpdate(posUpdate)
 		}
 	}); err != nil {
+		if errors.Is(err, binance.ErrHedgePositionMode) {
+			// 對沖（雙向）持倉模式下所有訂單都會被拒，繼續啟動只會空轉，直接中止
+			return nil, fmt.Errorf("啟動訂單流失败(%s:%s)，請將賬戶切換為單向持倉模式: %w", symCfg.Exchange, symCfg.Symbol, err)
+		}
 		logger.WarnCtx(ctx, "⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
 	}
 

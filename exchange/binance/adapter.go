@@ -151,6 +151,16 @@ type BinanceAdapter struct {
 	quoteAsset       string  // 计價资產（結算币种），如 USDT、USD
 	useTestnet       bool    // 是否使用測試網
 
+	// minNotionals 各交易對 MIN_NOTIONAL 過濾器下限（exchangeInfo 拉取時緩存，X3）
+	minNotionals   map[string]float64
+	minNotionalsMu sync.RWMutex
+
+	// 持倉模式自檢（X5）：確認單向持倉後不再查詢；查詢失敗時按間隔重試
+	positionModeMu          sync.Mutex
+	positionModeVerified    bool
+	positionModeHedge       bool
+	positionModeLastAttempt time.Time
+
 	// 速率限制相关
 	lastAPICallTime time.Time     // 上次API調用時间
 	apiCallMu       sync.Mutex    // API調用互斥鎖
@@ -245,6 +255,7 @@ func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool
 	syncCancel()
 
 	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
+	wsManager.symbol = symbol
 
 	adapter := &BinanceAdapter{
 		client:                  client,
@@ -341,6 +352,17 @@ func (b *BinanceAdapter) fetchExchangeInfo(ctx context.Context) error {
 		return fmt.Errorf("獲取交易所信息失败: %w", err)
 	}
 
+	// 緩存所有交易對的最小名義金額（下單前本地校驗用）
+	minNotionals := make(map[string]float64, len(exchangeInfo.Symbols))
+	for i := range exchangeInfo.Symbols {
+		if v, ok := parseMinNotional(&exchangeInfo.Symbols[i]); ok {
+			minNotionals[exchangeInfo.Symbols[i].Symbol] = v
+		}
+	}
+	b.minNotionalsMu.Lock()
+	b.minNotionals = minNotionals
+	b.minNotionalsMu.Unlock()
+
 	// 查找指定交易對的信息
 	for _, symbol := range exchangeInfo.Symbols {
 		if symbol.Symbol == b.symbol {
@@ -399,6 +421,11 @@ func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
 
 // PlaceOrder 下單
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	// 對沖（雙向）持倉模式下本適配器的訂單必被拒，先自檢（X5）
+	if err := b.ensureOneWayPositionMode(ctx); err != nil {
+		return nil, err
+	}
+
 	// 市价单不需要价格验证
 	isMarketOrder := req.Type == OrderTypeMarket
 	if !isMarketOrder && req.Price <= 0 {
@@ -499,64 +526,15 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 		return nil, fmt.Errorf("無效的下單數量: %s（數量必須大於0）", quantityStr)
 	}
 
-	// 🔥 币安合約最小訂單金額检查：订單名义價值必須 >= 100 USDT（除非是reduce only订單）
+	// 最小名義金額檢查（X3/X4）：按 exchangeInfo 的 MIN_NOTIONAL 校驗，不足時直接拒絕，
+	// 不再靜默放大數量（放大會讓每層實際暴露遠超配置）。reduceOnly 單交易所豁免。
 	finalPrice, _ := strconv.ParseFloat(priceStr, 64)
-	orderNotional := finalPrice * finalQty
-	const minNotional = 100.0 // 币安合約最小訂單金額為100 USDT
-
-	if !req.ReduceOnly && orderNotional < minNotional {
-		// 構建策略信息字符串
-		strategyInfo := ""
-		if req.StrategyName != "" || req.StrategyType != "" {
-			if req.StrategyName != "" && req.StrategyType != "" {
-				strategyInfo = fmt.Sprintf("[策略:%s/%s] ", req.StrategyName, req.StrategyType)
-			} else if req.StrategyName != "" {
-				strategyInfo = fmt.Sprintf("[策略:%s] ", req.StrategyName)
-			} else if req.StrategyType != "" {
-				strategyInfo = fmt.Sprintf("[策略類型:%s] ", req.StrategyType)
-			}
-		}
-
-		// 獲取基础资產名称（用於显示單位）
-		baseAsset := b.baseAsset
-		if baseAsset == "" {
-			if len(req.Symbol) > 4 {
-				baseAsset = req.Symbol[:len(req.Symbol)-4]
-			} else {
-				baseAsset = "币"
-			}
-		}
-
-		// 尝試自动上調數量：由於數量精度/步進對齐可能導致名义金額從 100 掉到 99.x
-		// 这里按數量精度向上取整，确保最终 notional >= minNotional
-		scale := math.Pow10(qDec)
-		needQty := minNotional / finalPrice
-		adjustedQty := math.Ceil((needQty+1e-12)*scale) / scale // +epsilon 避免浮点误差導致仍不足
-
-		// 防御：如果计算結果没有变大，就至少增加一個最小步進
-		if adjustedQty <= finalQty {
-			adjustedQty = (math.Floor(finalQty*scale) + 1) / scale
-		}
-
-		adjustedQtyStr := fmt.Sprintf("%.*f", qDec, adjustedQty)
-		adjustedQtyParsed, _ := strconv.ParseFloat(adjustedQtyStr, 64)
-		adjustedNotional := finalPrice * adjustedQtyParsed
-
-		if adjustedQtyParsed > 0 && adjustedNotional >= minNotional {
-			logger.Warn("⚠️ [Binance] [%s] %s订單金額不足(%.2f<%.2f USDT)，已自动上調數量: %.8f -> %.8f %s（價格=%.2f，名义金額=%.2f USDT）",
-				req.Symbol, strategyInfo, orderNotional, minNotional, finalQty, adjustedQtyParsed, baseAsset, finalPrice, adjustedNotional)
-
-			// 应用修正后的數量
-			req.Quantity = adjustedQtyParsed
-			quantityStr = adjustedQtyStr
-			finalQty = adjustedQtyParsed
-			orderNotional = adjustedNotional
-		} else {
-			logger.Error("❌ [Binance] [%s] %s订單金額不足：订單金額=%.2f USDT，币安合約要求最小訂單金額為 %.2f USDT（除非是reduce only订單）。價格=%.2f，數量=%.8f %s",
-				req.Symbol, strategyInfo, orderNotional, minNotional, finalPrice, finalQty, baseAsset)
-
-			return nil, fmt.Errorf("订單金額不足：订單金額 %.2f USDT 小於币安合約最小要求 %.2f USDT（除非是reduce only订單）。请增加订單金額或數量", orderNotional, minNotional)
-		}
+	if isMarketOrder {
+		finalPrice = b.estimateMarketOrderPrice(ctx, req.Symbol)
+	}
+	if err := b.checkMinNotional(req.Symbol, finalPrice, finalQty, req.ReduceOnly); err != nil {
+		logger.Error("❌ [Binance] [%s] %s", req.Symbol, err)
+		return nil, err
 	}
 
 	// 根據订单类型和 PostOnly 参數选擇 TimeInForce（仅限价单需要）
@@ -1268,6 +1246,11 @@ func (b *BinanceAdapter) GetBalance(ctx context.Context, asset string) (float64,
 
 // StartOrderStream 啟動訂單流（WebSocket）
 func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
+	// 對沖持倉模式下拒絕啟動訂單流（Bot 啟動入口），避免帶著必被拒的下單邏輯運行（X5）
+	if err := b.ensureOneWayPositionMode(ctx); err != nil {
+		return err
+	}
+
 	// 轉换回呼函數：將 binance.OrderUpdate 轉换為通用格式
 	localCallback := func(update OrderUpdate) {
 		// 構造通用的 OrderUpdate 結構（避免導入 exchange 包）
@@ -1789,8 +1772,8 @@ func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissio
 }
 
 // EstimateFinalOrderAmount 預估最终下單金額（USDT）
-// 币安合約有最小名义金額 100 USDT 的要求，如果原始金額不足會自动上調數量
-// 此方法用於资金分配器在下單前准确預留资金，避免預留不足導致保证金不足
+// 按 tickSize/stepSize 對齊後的名義金額；不足交易所 MIN_NOTIONAL 的訂單 PlaceOrder 會直接拒絕（不放大數量）
+// 此方法用於资金分配器在下單前准确預留资金
 func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity float64, reduceOnly bool) float64 {
 	// ReduceOnly 订單不受最小名义金額限制
 	if reduceOnly {
@@ -1814,21 +1797,9 @@ func (b *BinanceAdapter) EstimateFinalOrderAmount(symbol string, price, quantity
 		}
 	}
 
-	// 计算名义金額
-	notional := adjustedPrice * adjustedQty
-	const minNotional = 100.0 // 币安合約最小訂單金額
-
-	// 如果名义金額不足 100 USDT，计算需要上調到多少
-	if notional < minNotional {
-		// 计算满足最小名义金額所需的數量
-		needQty := minNotional / adjustedPrice
-		// 按精度向上取整
-		scale := math.Pow10(b.quantityDecimals)
-		adjustedQty = math.Ceil((needQty+1e-12)*scale) / scale
-		notional = adjustedPrice * adjustedQty
-	}
-
-	return notional
+	// 與 PlaceOrder 一致：名義金額不足 MIN_NOTIONAL 時下單會被拒絕而不是放大數量，
+	// 因此預估金額即按精度對齊後的名義金額
+	return adjustedPrice * adjustedQty
 }
 
 // GetOrderBook 獲取訂單簿深度

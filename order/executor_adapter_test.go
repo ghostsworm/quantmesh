@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -266,6 +267,106 @@ func TestPlaceOrderAmbiguousFailureLooksUpClientOrderID(t *testing.T) {
 			}
 			if err == nil || got != nil {
 				t.Fatalf("PlaceOrder = %#v, %v; want failure", got, err)
+			}
+		})
+	}
+}
+
+// fakeCIDQuerierExchange 實現 exchange.OrderByClientIDQuerier 的假交易所
+type fakeCIDQuerierExchange struct {
+	*fakeOrderExchange
+	byCID       map[string]*exchange.Order
+	queryErr    error
+	queryCalls  int
+	openScanned bool
+}
+
+func (f *fakeCIDQuerierExchange) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	f.queryCalls++
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+	return f.byCID[clientOrderID], nil
+}
+
+func (f *fakeCIDQuerierExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*exchange.Order, error) {
+	f.openScanned = true
+	return f.fakeOrderExchange.GetOpenOrders(ctx, symbol)
+}
+
+// TestFindOrderByClientOrderIDUsesQuerier 交易所支持按 ClientOrderID 查單時優先直查（可找回已成交訂單），出錯才掃描挂單
+func TestFindOrderByClientOrderIDUsesQuerier(t *testing.T) {
+	tests := []struct {
+		name         string
+		byCID        map[string]*exchange.Order
+		queryErr     error
+		openOrders   []*exchange.Order
+		wantID       int64
+		wantFound    bool
+		wantOpenScan bool
+	}{
+		{name: "直查找到已成交訂單", byCID: map[string]*exchange.Order{"cid-1": {OrderID: 9, ClientOrderID: "cid-1", Status: exchange.OrderStatusFilled}}, wantID: 9, wantFound: true},
+		{name: "直查確認不存在不再掃描", byCID: map[string]*exchange.Order{}, openOrders: []*exchange.Order{{OrderID: 5, ClientOrderID: "cid-1"}}},
+		{name: "直查出錯回退掃描挂單", queryErr: errors.New("timeout"), openOrders: []*exchange.Order{{OrderID: 5, ClientOrderID: "cid-1"}}, wantID: 5, wantFound: true, wantOpenScan: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &fakeCIDQuerierExchange{
+				fakeOrderExchange: &fakeOrderExchange{openOrders: tt.openOrders},
+				byCID:             tt.byCID,
+				queryErr:          tt.queryErr,
+			}
+			oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+			got := oe.findOrderByClientOrderID(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", ClientOrderID: "cid-1"})
+			if ex.queryCalls != 1 {
+				t.Fatalf("queryCalls = %d, want 1", ex.queryCalls)
+			}
+			if (got != nil) != tt.wantFound || (got != nil && got.OrderID != tt.wantID) {
+				t.Fatalf("found = %#v, want id %d found %v", got, tt.wantID, tt.wantFound)
+			}
+			if ex.openScanned != tt.wantOpenScan {
+				t.Fatalf("openScanned = %v, want %v", ex.openScanned, tt.wantOpenScan)
+			}
+		})
+	}
+}
+
+// perOrderCancelExchange 按訂單返回撤單錯誤
+type perOrderCancelExchange struct {
+	*fakeOrderExchange
+	cancelErrs map[int64]error
+}
+
+func (p *perOrderCancelExchange) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
+	p.cancelled = append(p.cancelled, orderID)
+	return p.cancelErrs[orderID]
+}
+
+// TestBatchCancelOrdersReturnsAggregatedErrors 批量撤單失敗後逐個撤單，不存在視為成功，其餘錯誤匯總返回
+func TestBatchCancelOrdersReturnsAggregatedErrors(t *testing.T) {
+	boom := errors.New("boom")
+	tests := []struct {
+		name       string
+		cancelErrs map[int64]error
+		wantErr    bool
+	}{
+		{name: "逐個全部成功", cancelErrs: map[int64]error{}},
+		{name: "不存在視為成功", cancelErrs: map[int64]error{1: errors.New("-2011 Unknown order sent")}},
+		{name: "真實失敗匯總返回", cancelErrs: map[int64]error{2: boom}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &perOrderCancelExchange{
+				fakeOrderExchange: &fakeOrderExchange{batchCancelErr: errors.New("batch down")},
+				cancelErrs:        tt.cancelErrs,
+			}
+			oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+			err := oe.BatchCancelOrders([]int64{1, 2})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && (!errors.Is(err, boom) || !strings.Contains(err.Error(), "order 2")) {
+				t.Fatalf("錯誤應包含訂單 2 的原因並可 errors.Is: %v", err)
 			}
 		})
 	}

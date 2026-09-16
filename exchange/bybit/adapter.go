@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -147,7 +148,23 @@ type BybitAdapter struct {
 	baseAsset        string
 	quoteAsset       string
 	useTestnet       bool
+
+	// 合約規格
+	qtyStep     float64 // 數量步長
+	minOrderQty float64 // 最小下單數量
+	tickSize    float64 // 價格步長
+
+	// 持倉模式自檢：本系統不傳 positionIdx，僅支援單向持倉
+	posModeMu       sync.Mutex
+	posModeVerified bool
 }
+
+const (
+	// bybitCategoryLinear USDT 永續
+	bybitCategoryLinear = "linear"
+	// bybitOneWayPositionIdx 單向持倉模式下的 positionIdx
+	bybitOneWayPositionIdx = "0"
+)
 
 // NewBybitAdapter 創建 Bybit 适配器
 func NewBybitAdapter(cfg map[string]string, symbol string) (*BybitAdapter, error) {
@@ -233,20 +250,103 @@ func (b *BybitAdapter) fetchInstrumentInfo(ctx context.Context) error {
 		return fmt.Errorf("未找到合約信息: %s", b.symbol)
 	}
 
-	inst := instruments[0]
+	return b.applyInstrument(instruments[0])
+}
 
-	// 解析精度
-	tickSize, _ := strconv.ParseFloat(inst.PriceFilter.TickSize, 64)
-	qtyStep, _ := strconv.ParseFloat(inst.LotSizeFilter.QtyStep, 64)
+// applyInstrument 解析合約規格（tickSize / qtyStep / minOrderQty）
+func (b *BybitAdapter) applyInstrument(inst Instrument) error {
+	tickSize, err := strconv.ParseFloat(inst.PriceFilter.TickSize, 64)
+	if err != nil || tickSize <= 0 {
+		return fmt.Errorf("合約 %s tickSize 無效: %q", inst.Symbol, inst.PriceFilter.TickSize)
+	}
+	qtyStep, err := strconv.ParseFloat(inst.LotSizeFilter.QtyStep, 64)
+	if err != nil || qtyStep <= 0 {
+		return fmt.Errorf("合約 %s qtyStep 無效: %q", inst.Symbol, inst.LotSizeFilter.QtyStep)
+	}
+	minQty, err := strconv.ParseFloat(inst.LotSizeFilter.MinOrderQty, 64)
+	if err != nil || minQty < 0 {
+		minQty = qtyStep
+	}
 
+	b.tickSize = tickSize
+	b.qtyStep = qtyStep
+	b.minOrderQty = minQty
 	b.priceDecimals = getPrecision(tickSize)
 	b.quantityDecimals = getPrecision(qtyStep)
 	b.baseAsset = inst.BaseCoin
 	b.quoteAsset = inst.QuoteCoin
 
-	logger.Info("ℹ️ [Bybit 合約信息] %s - 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
-		b.symbol, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
+	logger.Info("ℹ️ [Bybit 合約信息] %s - qtyStep:%v, minOrderQty:%v, tickSize:%v, 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
+		b.symbol, qtyStep, minQty, tickSize, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
 
+	return nil
+}
+
+// effectiveQtyStep 數量步長；合約信息缺失時按數量精度推算
+func (b *BybitAdapter) effectiveQtyStep() float64 {
+	if b.qtyStep > 0 {
+		return b.qtyStep
+	}
+	return math.Pow10(-b.quantityDecimals)
+}
+
+// effectiveTickSize 價格步長；合約信息缺失時按價格精度推算
+func (b *BybitAdapter) effectiveTickSize(priceDecimals int) float64 {
+	if b.tickSize > 0 {
+		return b.tickSize
+	}
+	if priceDecimals <= 0 {
+		priceDecimals = b.priceDecimals
+	}
+	return math.Pow10(-priceDecimals)
+}
+
+// alignQuantity 數量向下取整到 qtyStep，低於最小下單量直接拒絕（不再靜默放大）
+func (b *BybitAdapter) alignQuantity(qty float64) (float64, error) {
+	if math.IsNaN(qty) || math.IsInf(qty, 0) || qty <= 0 {
+		return 0, fmt.Errorf("Bybit 下單數量無效: %v", qty)
+	}
+	aligned := utils.FloorToStep(qty, b.effectiveQtyStep())
+	if aligned <= 0 || (b.minOrderQty > 0 && aligned < b.minOrderQty) {
+		return 0, fmt.Errorf("Bybit 下單數量過小: %s 數量 %v（對齊後 %v）低於最小下單量 %v", b.symbol, qty, aligned, b.minOrderQty)
+	}
+	return aligned, nil
+}
+
+// alignPrice 價格按方向對齊到 tickSize：買單向下、賣單向上，避免 PostOnly 單穿價
+func (b *BybitAdapter) alignPrice(price float64, side Side, priceDecimals int) (float64, error) {
+	if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+		return 0, fmt.Errorf("Bybit 限價單價格無效: %v", price)
+	}
+	tick := b.effectiveTickSize(priceDecimals)
+	switch side {
+	case SideBuy:
+		return utils.FloorToStep(price, tick), nil
+	case SideSell:
+		return utils.CeilToStep(price, tick), nil
+	default:
+		return 0, fmt.Errorf("Bybit 不支援的訂單方向: %q", side)
+	}
+}
+
+// ensureOneWayPositionMode 下單前自檢持倉模式（只在成功後緩存）。
+// 雙向持倉（hedge）下 /v5/position/list 返回 positionIdx=1/2 的記錄，本系統不傳 positionIdx，每單都會被拒。
+func (b *BybitAdapter) ensureOneWayPositionMode(ctx context.Context) error {
+	b.posModeMu.Lock()
+	defer b.posModeMu.Unlock()
+	if b.posModeVerified {
+		return nil
+	}
+	positions, err := b.client.GetPositions(ctx, bybitCategoryLinear, b.symbol)
+	if err != nil {
+		return fmt.Errorf("Bybit 下單前查詢持倉模式失败(symbol=%s): %w", b.symbol, err)
+	}
+	for _, p := range positions {
+		if idx := p.PositionIdx.String(); idx != "" && idx != bybitOneWayPositionIdx {
+			return fmt.Errorf("Bybit %s 為雙向持倉模式(positionIdx=%s)，本系統僅支援單向持倉(One-Way Mode)，請在 Bybit 切換後重試", b.symbol, idx)
+		}
+	}
+	b.posModeVerified = true
 	return nil
 }
 
@@ -262,49 +362,46 @@ func getPrecision(value float64) int {
 
 // PlaceOrder 下單
 func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	side := string(req.Side)
-	orderType := string(req.Type)
-
-	// 确定精度
-	qDec := b.quantityDecimals
-	if qDec < 0 {
-		qDec = 0
+	if req.Side != SideBuy && req.Side != SideSell {
+		return nil, fmt.Errorf("Bybit 不支援的訂單方向: %q（需為 Buy/Sell）", req.Side)
 	}
-	pDec := req.PriceDecimals
-	if pDec < 0 {
-		pDec = 0
+	if req.Type != OrderTypeLimit && req.Type != OrderTypeMarket {
+		return nil, fmt.Errorf("Bybit 不支援的訂單類型: %q（需為 Limit/Market）", req.Type)
+	}
+	if req.Type == OrderTypeMarket && req.PostOnly {
+		return nil, fmt.Errorf("Bybit 市價單不支援 PostOnly")
 	}
 
-	// 特殊处理：如果數量過小，自动調整為最小下單量
-	if req.Quantity <= 0 {
-		req.Quantity = math.Pow10(-qDec)
-		logger.Warn("⚠️ [Bybit] 下單數量原始值為 0，已自动調整為最小單位: %.8f", req.Quantity)
+	if err := b.ensureOneWayPositionMode(ctx); err != nil {
+		return nil, err
 	}
 
-	qtyStr := fmt.Sprintf("%.*f", qDec, req.Quantity)
-	// 如果截断后數量為 0，也需要兜底
-	q, _ := strconv.ParseFloat(qtyStr, 64)
-	if q <= 0 {
-		minQty := math.Pow10(-qDec)
-		qtyStr = fmt.Sprintf("%.*f", qDec, minQty)
-		logger.Warn("⚠️ [Bybit] 數量截断后為 0，使用最小精度兜底: %s", qtyStr)
+	qty, err := b.alignQuantity(req.Quantity)
+	if err != nil {
+		return nil, err
 	}
 
 	// 構造订單请求
 	orderReq := map[string]interface{}{
-		"category":  "linear",
+		"category":  bybitCategoryLinear,
 		"symbol":    req.Symbol,
-		"side":      side,
-		"orderType": orderType,
-		"qty":       qtyStr,
-		"price":     fmt.Sprintf("%.*f", pDec, req.Price),
+		"side":      string(req.Side),
+		"orderType": string(req.Type),
+		"qty":       strconv.FormatFloat(qty, 'f', getPrecision(b.effectiveQtyStep()), 64),
 	}
 
-	// 設置 TimeInForce
-	if req.PostOnly {
-		orderReq["timeInForce"] = "PostOnly"
-	} else {
-		orderReq["timeInForce"] = "GTC"
+	price := req.Price
+	if req.Type == OrderTypeLimit {
+		price, err = b.alignPrice(req.Price, req.Side, req.PriceDecimals)
+		if err != nil {
+			return nil, err
+		}
+		orderReq["price"] = strconv.FormatFloat(price, 'f', getPrecision(b.effectiveTickSize(req.PriceDecimals)), 64)
+		if req.PostOnly || req.TimeInForce == TimeInForcePO {
+			orderReq["timeInForce"] = string(TimeInForcePO)
+		} else {
+			orderReq["timeInForce"] = string(TimeInForceGTC)
+		}
 	}
 
 	// 設置自定义订單ID
@@ -331,8 +428,8 @@ func (b *BybitAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		Symbol:        req.Symbol,
 		Side:          req.Side,
 		Type:          req.Type,
-		Price:         req.Price,
-		Quantity:      req.Quantity,
+		Price:         price,
+		Quantity:      qty,
 		Status:        OrderStatusNew,
 		CreatedAt:     time.Now(),
 		UpdateTime:    time.Now().UnixMilli(),
@@ -465,18 +562,12 @@ func (b *BybitAdapter) convertOrder(order *BybitOrder) *Order {
 	avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
 	updateTime, _ := strconv.ParseInt(order.UpdatedTime, 10, 64)
 
-	var side Side
-	if order.Side == "Buy" {
-		side = SideBuy
-	} else {
-		side = SideSell
-	}
-
+	// Side/Type/Status 保持 Bybit 原生值，由 wrapper 通過映射表轉成內部常量（未知值報錯而非透傳）
 	return &Order{
 		OrderID:       orderID,
 		ClientOrderID: order.OrderLinkId,
 		Symbol:        order.Symbol,
-		Side:          side,
+		Side:          Side(order.Side),
 		Type:          OrderType(order.OrderType),
 		Price:         price,
 		Quantity:      quantity,
@@ -549,7 +640,7 @@ func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 			MarkPrice:      markPrice,
 			UnrealizedPNL:  unrealizedPNL,
 			Leverage:       leverage,
-			MarginType:     pos.TradeMode,
+			MarginType:     pos.TradeMode.String(),
 			IsolatedMargin: 0,
 		})
 	}
@@ -572,42 +663,70 @@ func (b *BybitAdapter) StartOrderStream(ctx context.Context, callback func(inter
 		b.wsManager = NewWebSocketManager(b.client.apiKey, b.client.secretKey, b.useTestnet)
 	}
 
+	// order topic 覆蓋全部品類，合約適配器只處理 linear，避免同名現貨訂單混入
+	b.wsManager.SetOrderCategory(bybitCategoryLinear)
+
 	localCallback := func(update OrderUpdate) {
-		genericUpdate := struct {
-			OrderID         int64
-			ClientOrderID   string
-			Symbol          string
-			Side            string
-			Type            string
-			Status          string
-			Price           float64
-			Quantity        float64
-			ExecutedQty     float64
-			AvgPrice        float64
-			UpdateTime      int64
-			Commission      float64
-			CommissionAsset string
-			RealizedPnL     float64
-		}{
-			OrderID:         update.OrderID,
-			ClientOrderID:   update.ClientOrderID,
-			Symbol:          update.Symbol,
-			Side:            string(update.Side),
-			Type:            string(update.Type),
-			Status:          string(update.Status),
-			Price:           update.Price,
-			Quantity:        update.Quantity,
-			ExecutedQty:     update.ExecutedQty,
-			AvgPrice:        update.AvgPrice,
-			UpdateTime:      update.UpdateTime,
-			Commission:      update.Commission,
-			CommissionAsset: update.CommissionAsset,
-			RealizedPnL:     update.RealizedPnL,
+		genericUpdate, err := normalizeOrderUpdate(update)
+		if err != nil {
+			logger.Error("❌ [Bybit WebSocket] 丟棄無法識別的訂單推送 orderId=%d orderLinkId=%s symbol=%s: %v",
+				update.OrderID, update.ClientOrderID, update.Symbol, err)
+			return
 		}
 		callback(genericUpdate)
 	}
 
 	return b.wsManager.Start(ctx, b.symbol, localCallback)
+}
+
+// StreamOrderUpdate 推給上層的訂單更新（字段名與 exchange.OrderUpdate 一致，供反射讀取）
+type StreamOrderUpdate struct {
+	OrderID         int64
+	ClientOrderID   string
+	Symbol          string
+	Side            string
+	Type            string
+	Status          string
+	Price           float64
+	Quantity        float64
+	ExecutedQty     float64
+	AvgPrice        float64
+	UpdateTime      int64
+	Commission      float64
+	CommissionAsset string
+	RealizedPnL     float64
+}
+
+// normalizeOrderUpdate 將 Bybit 原生推送的 Side/Type/Status 映射為內部常量（未知值報錯）
+func normalizeOrderUpdate(update OrderUpdate) (StreamOrderUpdate, error) {
+	side, err := ToInternalSide(update.Side)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	orderType, err := ToInternalOrderType(update.Type)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	status, err := ToInternalStatus(update.Status)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	return StreamOrderUpdate{
+		OrderID:         update.OrderID,
+		ClientOrderID:   update.ClientOrderID,
+		Symbol:          update.Symbol,
+		Side:            side,
+		Type:            orderType,
+		Status:          status,
+		Price:           update.Price,
+		Quantity:        update.Quantity,
+		ExecutedQty:     update.ExecutedQty,
+		AvgPrice:        update.AvgPrice,
+		UpdateTime:      update.UpdateTime,
+		Commission:      update.Commission,
+		CommissionAsset: update.CommissionAsset,
+		RealizedPnL:     update.RealizedPnL,
+	}, nil
 }
 
 // StopOrderStream 停止訂單流
