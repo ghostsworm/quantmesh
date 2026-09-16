@@ -75,9 +75,14 @@ type FundingCarryStrategy struct {
 
 	// 持倉狀態（每次 tick 從交易所同步）
 	direction  CarryDirection
-	spotQty    float64 // 正向：現貨持倉; 反向：0
+	spotQty    float64 // 正向：策略自身的現貨腿數量（= min(記賬值, 現貨餘額)）; 反向：0
 	futQty     float64 // 正向：合約空頭 size; 反向：合約多頭 size
 	marginDebt float64 // 反向：借幣數量
+
+	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
+	// 策略目前沒有狀態持久化；重啟後首次同步時保守地以 min(合約空頭, 現貨餘額) 重新推導。
+	strategySpotQty   float64
+	strategySpotKnown bool
 
 	consecutiveErrors int
 }
@@ -86,6 +91,12 @@ const (
 	maxConsecutiveErrors = 5
 	orderWaitTimeout     = 30 * time.Second
 	orderPollInterval    = 2 * time.Second
+
+	// closeSpotSellPriceFactor 平倉現貨限價賣單相對最新價的折讓（保證盡快成交）
+	closeSpotSellPriceFactor = 0.99
+
+	// roundQtyEpsilon 數量向下取整時的浮點容差（以最小精度單位計）
+	roundQtyEpsilon = 1e-9
 )
 
 // NewFundingCarryStrategy 建立策略
@@ -611,15 +622,23 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	}
 
 	s.mu.Lock()
-	s.spotQty = spotBal
+	// 現貨腿只認策略自己記賬的數量，避免把用戶原有持幣當成對沖腿
+	if !s.strategySpotKnown {
+		// 無記賬（如重啟）：保守推導為 min(合約空頭, 現貨餘額)，無空頭則視為 0
+		s.strategySpotQty = math.Min(futShort, spotBal)
+		s.strategySpotKnown = true
+	}
+	s.strategySpotQty = math.Min(s.strategySpotQty, spotBal)
+	strategySpot := s.strategySpotQty
+	s.spotQty = strategySpot
 	s.marginDebt = debt
-	if futShort > 0 && spotBal > 0 {
+	if futShort > 0 && strategySpot > 0 {
 		s.direction = DirectionForward
 		s.futQty = futShort
 	} else if futLong > 0 && debt > 0 {
 		s.direction = DirectionReverse
 		s.futQty = futLong
-	} else if futShort > 0 || futLong > 0 || spotBal > 0 || debt > 0 {
+	} else if futShort > 0 || futLong > 0 || strategySpot > 0 || debt > 0 {
 		// 有殘留但不配對——保持上次方向讓平衡檢測處理
 		if futShort > 0 {
 			s.futQty = futShort
@@ -692,6 +711,9 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 		}
 		return fmt.Errorf("現貨買入超時未成交，已撤單")
 	}
+
+	// 現貨已成交即記入策略自身持倉（即使後續合約腿失敗，這部分幣也屬於策略，平倉時需賣出）
+	s.recordStrategySpot(filledQty)
 
 	futQty := s.roundQty(filledQty, s.fut.GetQuantityDecimals())
 	if futQty <= 0 {
@@ -854,32 +876,8 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) erro
 		}
 	}
 
-	base := s.spot.GetBaseAsset()
-	bal, err := s.spot.GetBalance(ctx, base)
-	if err != nil {
-		errs = append(errs, fmt.Errorf("spot.GetBalance: %w", err))
-	} else {
-		qty := s.roundQty(bal, s.spot.GetQuantityDecimals())
-		if qty > 0 {
-			sellPrice := 0.0
-			if px, e := s.spot.GetLatestPrice(ctx, s.symbol); e == nil {
-				sellPrice = px * 0.99
-			}
-			sellPrice = s.roundPrice(sellPrice, s.spot.GetPriceDecimals())
-			if sellPrice > 0 {
-				_, err = s.spot.PlaceOrder(ctx, &exchange.OrderRequest{
-					Symbol: s.symbol, Side: exchange.SideSell, Type: exchange.OrderTypeLimit,
-					Quantity: qty, Price: sellPrice, PriceDecimals: s.spot.GetPriceDecimals(),
-					StrategyType: "funding_carry",
-				})
-				if err != nil {
-					errs = append(errs, fmt.Errorf("現貨賣出: %w", err))
-					s.publishEvent(event.EventTypeOrderFailed, map[string]interface{}{
-						"side": "spot_sell", "error": err.Error(), "message": "現貨賣出失敗",
-					})
-				}
-			}
-		}
+	if err := s.closeStrategySpot(ctx); err != nil {
+		errs = append(errs, err)
 	}
 
 	if len(errs) == 0 {
@@ -892,6 +890,87 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) erro
 		logger.Warn("⚠️ [%s] 正向平倉部分失敗 reason=%s errors=%d", s.symbol, reason, len(errs))
 	}
 	return combineErrors(errs)
+}
+
+// recordStrategySpot 記錄策略自身買入的現貨數量
+func (s *FundingCarryStrategy) recordStrategySpot(qty float64) {
+	if qty <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.strategySpotQty += qty
+	s.strategySpotKnown = true
+	s.spotQty = s.strategySpotQty
+	s.mu.Unlock()
+}
+
+// releaseStrategySpot 賣出成交後扣減策略自身現貨記賬
+func (s *FundingCarryStrategy) releaseStrategySpot(qty float64) {
+	if qty <= 0 {
+		return
+	}
+	s.mu.Lock()
+	s.strategySpotQty = math.Max(0, s.strategySpotQty-qty)
+	s.spotQty = s.strategySpotQty
+	s.mu.Unlock()
+}
+
+// closeStrategySpot 只賣出策略自身記賬的現貨數量（不超過當前餘額），不動用戶原有持幣
+func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
+	s.mu.RLock()
+	recorded := s.strategySpotQty
+	s.mu.RUnlock()
+	if recorded <= 0 {
+		return nil
+	}
+
+	base := s.spot.GetBaseAsset()
+	bal, err := s.spot.GetBalance(ctx, base)
+	if err != nil {
+		return fmt.Errorf("spot.GetBalance(%s): %w", base, err)
+	}
+	qty := s.roundQty(math.Min(recorded, bal), s.spot.GetQuantityDecimals())
+	if qty <= 0 {
+		return nil
+	}
+
+	px, err := s.spot.GetLatestPrice(ctx, s.symbol)
+	if err != nil {
+		return fmt.Errorf("現貨賣出取價 %s: %w", s.symbol, err)
+	}
+	sellPrice := s.roundPrice(px*closeSpotSellPriceFactor, s.spot.GetPriceDecimals())
+	if sellPrice <= 0 {
+		return fmt.Errorf("現貨賣出價格無效 %s: price=%.8f", s.symbol, sellPrice)
+	}
+
+	order, err := s.spot.PlaceOrder(ctx, &exchange.OrderRequest{
+		Symbol: s.symbol, Side: exchange.SideSell, Type: exchange.OrderTypeLimit,
+		Quantity: qty, Price: sellPrice, PriceDecimals: s.spot.GetPriceDecimals(),
+		StrategyType: "funding_carry",
+	})
+	if err != nil {
+		s.publishEvent(event.EventTypeOrderFailed, map[string]interface{}{
+			"side": "spot_sell", "error": err.Error(), "message": "現貨賣出失敗",
+		})
+		return fmt.Errorf("現貨賣出 qty=%.8f: %w", qty, err)
+	}
+
+	filledQty, fillErr := s.waitOrderFill(ctx, s.spot, order.OrderID, orderWaitTimeout)
+	if filledQty > 0 {
+		s.releaseStrategySpot(filledQty)
+	}
+	if fillErr != nil || filledQty < qty {
+		if cancelErr := s.spot.CancelOrder(ctx, s.symbol, order.OrderID); cancelErr != nil {
+			logger.Warn("⚠️ [%s] 現貨賣單撤單失敗 orderID=%d: %v", s.symbol, order.OrderID, cancelErr)
+		}
+		if fillErr != nil {
+			return fmt.Errorf("等待現貨賣出成交 orderID=%d: %w", order.OrderID, fillErr)
+		}
+		if filledQty <= 0 {
+			return fmt.Errorf("現貨賣出未成交 orderID=%d qty=%.8f，已撤單", order.OrderID, qty)
+		}
+	}
+	return nil
 }
 
 func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) error {
@@ -1042,11 +1121,12 @@ func (s *FundingCarryStrategy) publishEvent(eventType event.EventType, data map[
 }
 
 func (s *FundingCarryStrategy) roundQty(q float64, decimals int) float64 {
-	step := math.Pow10(-decimals)
-	if step <= 0 {
+	factor := math.Pow10(decimals)
+	if factor <= 0 {
 		return q
 	}
-	return math.Floor(q/step) * step
+	// 先乘後除並加微小容差：避免 0.5 被 Floor(q/1e-5)*1e-5 截成 0.49999000000000005
+	return math.Floor(q*factor+roundQtyEpsilon) / factor
 }
 
 func (s *FundingCarryStrategy) roundPrice(p float64, decimals int) float64 {

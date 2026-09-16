@@ -306,6 +306,8 @@ type SuperPositionManager struct {
 	// 開倉管理：僅暫停開倉（區別於 isPaused 暫停所有交易）
 	isOpeningPaused    atomic.Bool
 	openingPauseReason atomic.Value // string - 暫停原因
+	// openingPauseMu 串行化暫停狀態的「檢查原因 + 修改」，供按來源的條件暫停/恢復使用
+	openingPauseMu sync.Mutex
 
 	// 資金費率監控器（可選，用於費率偏向策略）
 	fundingMonitor FundingMonitor
@@ -433,8 +435,52 @@ func (spm *SuperPositionManager) IsPaused() bool {
 
 // PauseOpening 暫停開倉（並撤銷所有開倉委託）
 func (spm *SuperPositionManager) PauseOpening(reason string) {
+	spm.openingPauseMu.Lock()
+	spm.setOpeningPausedLocked(reason)
+	spm.openingPauseMu.Unlock()
+	spm.afterOpeningPaused(reason)
+}
+
+// PauseOpeningUnlessHeld 條件暫停開倉：若已被 owned 判定為「非本來源」的原因暫停（如熔斷、複合風控、手動），
+// 則保留原暫停與原因不覆蓋，返回 false。用於定時/週期等低優先級來源，避免把風控暫停改寫成自己的原因後又被自己恢復。
+func (spm *SuperPositionManager) PauseOpeningUnlessHeld(reason string, owned func(reason string) bool) bool {
+	spm.openingPauseMu.Lock()
+	if spm.isOpeningPaused.Load() && !owned(spm.GetOpeningPauseReason()) {
+		spm.openingPauseMu.Unlock()
+		return false
+	}
+	spm.setOpeningPausedLocked(reason)
+	spm.openingPauseMu.Unlock()
+	spm.afterOpeningPaused(reason)
+	return true
+}
+
+// ResumeOpeningIfOwned 僅當當前暫停原因屬於調用方（owned 返回 true）時恢復開倉，返回是否恢復。
+// 風控（熔斷器 / 複合風控 / 手動）設置的暫停不會被定時規則等來源解除。
+func (spm *SuperPositionManager) ResumeOpeningIfOwned(owned func(reason string) bool) bool {
+	spm.openingPauseMu.Lock()
+	if !spm.isOpeningPaused.Load() || !owned(spm.GetOpeningPauseReason()) {
+		spm.openingPauseMu.Unlock()
+		return false
+	}
+	spm.clearOpeningPausedLocked()
+	spm.openingPauseMu.Unlock()
+	spm.afterOpeningResumed()
+	return true
+}
+
+func (spm *SuperPositionManager) setOpeningPausedLocked(reason string) {
 	spm.isOpeningPaused.Store(true)
 	spm.openingPauseReason.Store(reason)
+}
+
+func (spm *SuperPositionManager) clearOpeningPausedLocked() {
+	spm.isOpeningPaused.Store(false)
+	spm.openingPauseReason.Store("")
+}
+
+// afterOpeningPaused 暫停後的副作用（日誌、事件、撤開倉單），不持 openingPauseMu 執行
+func (spm *SuperPositionManager) afterOpeningPaused(reason string) {
 	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.logPrefix(), reason)
 
 	storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, "opening_manager")
@@ -504,8 +550,13 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 
 // ResumeOpening 恢復開倉
 func (spm *SuperPositionManager) ResumeOpening() {
-	spm.isOpeningPaused.Store(false)
-	spm.openingPauseReason.Store("")
+	spm.openingPauseMu.Lock()
+	spm.clearOpeningPausedLocked()
+	spm.openingPauseMu.Unlock()
+	spm.afterOpeningResumed()
+}
+
+func (spm *SuperPositionManager) afterOpeningResumed() {
 	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
 
 	storage.AppendBotRiskControlEvent(spm.botID, "resumed", "", "opening_manager")

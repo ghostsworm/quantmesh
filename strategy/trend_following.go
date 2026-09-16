@@ -250,14 +250,11 @@ func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
 	tfs.addPrice(price)
 
 	trend := tfs.detectTrend()
-	if trend == TrendSide {
-		return nil
-	}
 
 	tfs.mu.Lock()
 	defer tfs.mu.Unlock()
 
-	// 检查止损止盈
+	// 检查止损止盈：必须先于震荡判定执行，否则震荡行情中持仓的止损会被跳过
 	if tfs.position != nil && tfs.entryPrice > 0 {
 		currentPrice := price
 		pnlPercent := (currentPrice - tfs.entryPrice) / tfs.entryPrice

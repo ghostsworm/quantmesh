@@ -3,6 +3,8 @@ package strategy
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -43,6 +45,9 @@ type ComboStrategy struct {
 	isRunning bool
 	isPaused  bool // 暂停標志
 
+	// 组合风控：權益高水位（僅內存，重啟重新起算）
+	peakEquity float64
+
 	// 统计
 	stats *StrategyStatistics
 
@@ -59,6 +64,15 @@ const (
 	MarketSideways MarketState = "sideways" // 震荡市
 	MarketVolatile MarketState = "volatile" // 高波动
 )
+
+// riskOnlyPriceHandler 子策略可選實現：只跑止盈止损、不开新倉。
+// 组合策略在市况門控 / 敞口或回撤超限時調用，保证已有持倉的保护不被跳过（S4）。
+type riskOnlyPriceHandler interface {
+	OnPriceChangeRiskOnly(price float64) error
+}
+
+// comboPercentBase 百分比换算基數
+const comboPercentBase = 100.0
 
 // ComboConfig 组合策略配置
 type ComboConfig struct {
@@ -303,6 +317,9 @@ func (s *ComboStrategy) initializeStrategies() {
 
 		switch stratCfg.Type {
 		case "dca":
+			if strings.EqualFold(strings.TrimSpace(stratCfg.Direction), position.PositionSideShort) {
+				logger.Warn("⚠️ [%s] 子策略 %s 為 DCA，只支持做多，配置的 SHORT 方向將被忽略", s.name, stratCfg.Name)
+			}
 			strategy = NewDCAEnhancedStrategy(
 				stratCfg.Name,
 				s.strategyCfg.Symbol,
@@ -399,6 +416,8 @@ func (s *ComboStrategy) Start(ctx context.Context) error {
 		go s.rebalanceLoop()
 	}
 
+	s.warnUnsupportedRiskConfig()
+
 	logger.Info("✅ [%s] 组合策略已啟动，子策略數量: %d", s.name, len(s.strategies))
 	for i, name := range s.strategyNames {
 		logger.Info("   - %s (权重: %.2f)", name, s.weights[i])
@@ -459,18 +478,111 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 
 	s.mu.Unlock()
 
+	// 组合级风控（敞口 / 回撤）只限制开新倉
+	riskAllowOpen, riskReason := s.checkComboRiskLimits(price)
+
 	// 傳遞给所有子策略
 	for i, strategy := range s.strategies {
-		// 根據权重和市况决定是否執行
-		if s.shouldExecuteStrategy(i) {
+		// 市况門控與组合风控只决定能否开新倉；不能开倉時仍要跑已有持倉的止盈止损（S4）
+		if riskAllowOpen && s.shouldExecuteStrategy(i) {
 			if err := strategy.OnPriceChange(price); err != nil {
 				logger.Warn("⚠️ [%s] 子策略 %s 处理價格變化失败: %v",
 					s.name, s.strategyNames[i], err)
 			}
+			continue
+		}
+		if err := s.runRiskOnly(strategy, price); err != nil {
+			logger.Warn("⚠️ [%s] 子策略 %s 止盈止损检查失败 (门控原因: %s): %v",
+				s.name, s.strategyNames[i], riskReason, err)
 		}
 	}
 
 	return nil
+}
+
+// runRiskOnly 子策略被門控時只执行止盈止损。
+// 未實現 riskOnlyPriceHandler 的子策略：有持倉就完整轉發價格（保护优先，可能伴随其自身的加倉逻辑），无持倉则跳过。
+func (s *ComboStrategy) runRiskOnly(strategy Strategy, price float64) error {
+	if handler, ok := strategy.(riskOnlyPriceHandler); ok {
+		return handler.OnPriceChangeRiskOnly(price)
+	}
+	if len(strategy.GetPositions()) > 0 {
+		return strategy.OnPriceChange(price)
+	}
+	return nil
+}
+
+// checkComboRiskLimits 组合级敞口与回撤限制：超限時只禁止开新倉，返回 (是否允许开倉, 原因)。
+// MaxExposure：子策略持倉名义价值之和 / TotalCapital；MaxDrawdown：(權益高水位 - 當前權益) / 高水位 (%)，
+// 當前權益 = TotalCapital + 子策略已實現盈亏 + 未實現盈亏。TotalCapital<=0 時两项均不生效。
+func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
+	if s.strategyCfg == nil || s.strategyCfg.TotalCapital <= 0 {
+		return true, ""
+	}
+	maxExposure := s.strategyCfg.MaxExposure
+	maxDrawdown := s.strategyCfg.MaxDrawdown
+	if maxExposure <= 0 && maxDrawdown <= 0 {
+		return true, ""
+	}
+
+	notional := 0.0
+	unrealized := 0.0
+	realized := 0.0
+	for _, strategy := range s.strategies {
+		for _, pos := range strategy.GetPositions() {
+			if pos == nil {
+				continue
+			}
+			markPrice := pos.CurrentPrice
+			if markPrice <= 0 {
+				markPrice = price
+			}
+			notional += math.Abs(pos.Size) * markPrice
+			unrealized += pos.PnL
+		}
+		if stats := strategy.GetStatistics(); stats != nil {
+			realized += stats.TotalPnL
+		}
+	}
+
+	capital := s.strategyCfg.TotalCapital
+	if maxExposure > 0 {
+		exposure := notional / capital
+		if exposure >= maxExposure {
+			return false, fmt.Sprintf("敞口 %.2f 已达上限 %.2f", exposure, maxExposure)
+		}
+	}
+
+	if maxDrawdown > 0 {
+		equity := capital + realized + unrealized
+		s.mu.Lock()
+		if equity > s.peakEquity {
+			s.peakEquity = equity
+		}
+		peak := s.peakEquity
+		s.mu.Unlock()
+		if peak > 0 {
+			drawdown := (peak - equity) / peak * comboPercentBase
+			if drawdown >= maxDrawdown {
+				return false, fmt.Sprintf("回撤 %.2f%% 已达上限 %.2f%%", drawdown, maxDrawdown)
+			}
+		}
+	}
+
+	return true, ""
+}
+
+// warnUnsupportedRiskConfig 對已解析但未實現的配置給出啟动告警
+func (s *ComboStrategy) warnUnsupportedRiskConfig() {
+	if s.strategyCfg == nil {
+		return
+	}
+	if s.strategyCfg.HedgeEnabled {
+		logger.Warn("⚠️ [%s] hedge_enabled/hedge_ratio 暂未實現（不会自动開對沖倉），max_drawdown 仅用于回撤超限時停止开新倉", s.name)
+	}
+	if s.strategyCfg.TotalCapital <= 0 && (s.strategyCfg.MaxExposure > 0 || s.strategyCfg.MaxDrawdown > 0) {
+		logger.Warn("⚠️ [%s] total_capital 未配置，max_exposure / max_drawdown 不生效", s.name)
+	}
 }
 
 // updateCandle 更新 K線
@@ -768,10 +880,13 @@ func (s *ComboStrategy) GetStrategyWeights() map[string]float64 {
 // GetInfo 獲取组合策略信息
 func (s *ComboStrategy) GetInfo() string {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
+	marketState := s.marketState
+	strategyCount := len(s.strategies)
+	s.mu.RUnlock()
 
+	// GetPositions 自己會加讀鎖，不能在持有讀鎖時調用（遞歸 RLock 遇到寫者等待會死鎖）
 	return fmt.Sprintf("市场状態: %s, 子策略數: %d, 總持倉: %d",
-		s.marketState, len(s.strategies), len(s.GetPositions()))
+		marketState, strategyCount, len(s.GetPositions()))
 }
 
 // GetVisualizationData 獲取策略可视化數據

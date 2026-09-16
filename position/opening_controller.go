@@ -10,6 +10,28 @@ import (
 	"quantmesh/logger"
 )
 
+// 開倉控制器自身設置的暫停原因。控制器只會解除這些原因的暫停，
+// 熔斷器 / 複合風控 / 手動 / 波動率等其他來源的暫停一律不覆蓋、不解除。
+const (
+	openingPauseReasonPositionLimit = "position_limit"
+	openingPauseReasonSchedule      = "schedule"
+	openingPauseReasonPeriodic      = "periodic"
+)
+
+// isOpeningControllerPauseReason 判斷暫停原因是否由開倉控制器設置
+func isOpeningControllerPauseReason(reason string) bool {
+	switch reason {
+	case openingPauseReasonPositionLimit, openingPauseReasonSchedule, openingPauseReasonPeriodic:
+		return true
+	}
+	return false
+}
+
+// isPositionLimitPauseReason 僅匹配限倉暫停
+func isPositionLimitPauseReason(reason string) bool {
+	return reason == openingPauseReasonPositionLimit
+}
+
 // OpeningController 開倉控制器：限倉檢查、定時規則、週期規則
 type OpeningController struct {
 	spm            *SuperPositionManager
@@ -97,9 +119,20 @@ func (oc *OpeningController) check() {
 
 	// 僅對限倉規則：若當前未超限且之前因限倉而暫停，則恢復開倉
 	// 定時/週期規則只在觸發時刻切換，不做自動恢復
-	reason := oc.spm.GetOpeningPauseReason()
-	if oc.spm.IsOpeningPaused() && reason == "position_limit" {
-		oc.spm.ResumeOpening()
+	oc.spm.ResumeOpeningIfOwned(isPositionLimitPauseReason)
+}
+
+// pause 以控制器來源暫停開倉；已被其他來源暫停時保持原狀
+func (oc *OpeningController) pause(reason string) {
+	if !oc.spm.PauseOpeningUnlessHeld(reason, isOpeningControllerPauseReason) {
+		logger.Info("ℹ️ [開倉管理] 開倉已被其他來源暫停（%s），%s 規則不覆蓋", oc.spm.GetOpeningPauseReason(), reason)
+	}
+}
+
+// resume 只解除控制器自己設置的暫停，絕不解除風控等其他來源的暫停
+func (oc *OpeningController) resume(rule string) {
+	if oc.spm.IsOpeningPaused() && !oc.spm.ResumeOpeningIfOwned(isOpeningControllerPauseReason) {
+		logger.Warn("⏸️ [開倉管理] %s 規則到點恢復，但開倉被其他來源暫停（%s），不予解除", rule, oc.spm.GetOpeningPauseReason())
 	}
 }
 
@@ -137,7 +170,7 @@ func (oc *OpeningController) checkPositionLimit(cfg *config.OpenPositionControl)
 	}
 
 	if shouldPause {
-		oc.spm.PauseOpening("position_limit")
+		oc.pause(openingPauseReasonPositionLimit)
 		return true
 	}
 	return false
@@ -180,11 +213,11 @@ func (oc *OpeningController) checkScheduleRules(cfg *config.OpenPositionControl)
 		// 在該時間點執行：允許 1 分鐘誤差（同一分鐘內觸發）
 		if currentMinutes >= ruleMinutes && currentMinutes < ruleMinutes+1 {
 			if rule.Action == "pause" {
-				oc.spm.PauseOpening("schedule")
+				oc.pause(openingPauseReasonSchedule)
 				return true
 			}
 			if rule.Action == "resume" {
-				oc.spm.ResumeOpening()
+				oc.resume(openingPauseReasonSchedule)
 				return true
 			}
 		}
@@ -229,14 +262,14 @@ func (oc *OpeningController) checkPeriodicRule(cfg *config.OpenPositionControl) 
 		// 當前為開倉期，切換到關倉期
 		oc.periodicState = false
 		oc.periodicSwitch = now.Add(time.Duration(pr.CloseDurationMin) * time.Minute)
-		oc.spm.PauseOpening("periodic")
+		oc.pause(openingPauseReasonPeriodic)
 		logger.Info("🔄 [開倉管理] 週期規則：進入關倉期 %d 分鐘", pr.CloseDurationMin)
 		return true
 	}
 	// 當前為關倉期，切換到開倉期
 	oc.periodicState = true
 	oc.periodicSwitch = now.Add(time.Duration(pr.OpenDurationMin) * time.Minute)
-	oc.spm.ResumeOpening()
+	oc.resume(openingPauseReasonPeriodic)
 	logger.Info("🔄 [開倉管理] 週期規則：進入開倉期 %d 分鐘", pr.OpenDurationMin)
 	return true
 }

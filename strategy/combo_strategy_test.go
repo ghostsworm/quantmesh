@@ -152,7 +152,8 @@ func TestComboStrategyMarketStateWeightsAndExecution(t *testing.T) {
 	if err := combo.OnPriceChange(100); err != nil {
 		t.Fatalf("OnPriceChange returned error: %v", err)
 	}
-	if len(first.prices) != 1 || len(second.prices) != 0 {
+	// bear 不匹配市况但持有倉位：S4 后仍需收到價格以执行止盈止损
+	if len(first.prices) != 1 || len(second.prices) != 1 {
 		t.Fatalf("unexpected strategy execution: first=%v second=%v", first.prices, second.prices)
 	}
 

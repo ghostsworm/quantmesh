@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -13,6 +14,9 @@ import (
 	"quantmesh/position"
 	"quantmesh/utils"
 )
+
+// spotShortRepayTimeout 借幣後操作失敗時歸還借幣的超時
+const spotShortRepayTimeout = 15 * time.Second
 
 // SpotShortStrategy 現貨借幣做空策略
 // 訂閱 HedgeCoordinator 發送的 EventTypeHedgeSignal，根據目標空倉執行借幣/賣出或買回/還幣
@@ -216,7 +220,9 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 	}
 
 	if diff > 0 {
-		s.increaseShort(ctx, diff)
+		if err := s.increaseShort(ctx, diff); err != nil {
+			logger.Error("SpotShortStrategy 增加空倉失敗 (target=%.8f current=%.8f): %v", targetShort, currentShort, err)
+		}
 	} else {
 		s.decreaseShort(ctx, -diff)
 	}
@@ -238,19 +244,20 @@ func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) float64
 	return 0
 }
 
-func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) {
+func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	if _, err := s.smEx.Borrow(ctx, s.baseAsset, amount); err != nil {
-		logger.Error("SpotShortStrategy 借幣失敗: %v", err)
-		return
+		return fmt.Errorf("借幣 %.8f %s: %w", amount, s.baseAsset, err)
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
-	if err != nil || price <= 0 {
-		logger.Error("SpotShortStrategy 獲取價格失敗: %v", err)
-		return
+	if err == nil && price <= 0 {
+		err = fmt.Errorf("價格無效 %.8f", price)
+	}
+	if err != nil {
+		return s.repayAfterFailedShort(ctx, amount, fmt.Errorf("借幣後獲取 %s 價格: %w", s.symbol, err))
 	}
 	price = s.roundPrice(price)
 	req := &position.OrderRequest{
@@ -262,10 +269,25 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) {
 		PostOnly:      true,
 	}
 	if _, err := s.executor.PlaceOrder(req); err != nil {
-		logger.Error("SpotShortStrategy 賣出失敗: %v", err)
-		return
+		return s.repayAfterFailedShort(ctx, amount, fmt.Errorf("借幣後賣出 %.8f %s: %w", amount, s.symbol, err))
 	}
 	logger.Info("📤 SpotShortStrategy: 借幣 %.6f %s 並賣出", amount, s.baseAsset)
+	return nil
+}
+
+// repayAfterFailedShort 借幣成功但後續步驟失敗時歸還借幣，避免負債殘留並在下次信號重複借入。
+// 返回包裝後的原始錯誤；還幣也失敗時同時帶上還幣錯誤並記錄日誌。
+func (s *SpotShortStrategy) repayAfterFailedShort(ctx context.Context, amount float64, cause error) error {
+	// 原 ctx 可能已超時（例如取價超時），還幣使用獨立超時，保證回滾有機會執行
+	repayCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spotShortRepayTimeout)
+	defer cancel()
+	if _, repayErr := s.smEx.Repay(repayCtx, s.baseAsset, amount); repayErr != nil {
+		logger.Error("SpotShortStrategy 還幣失敗，借幣 %.8f %s 未歸還，請手動處理: %v (原因: %v)",
+			amount, s.baseAsset, repayErr, cause)
+		return fmt.Errorf("%w；還幣 %.8f %s 也失敗: %v", cause, amount, s.baseAsset, repayErr)
+	}
+	logger.Warn("SpotShortStrategy 借幣後操作失敗，已歸還 %.8f %s: %v", amount, s.baseAsset, cause)
+	return cause
 }
 
 func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) {

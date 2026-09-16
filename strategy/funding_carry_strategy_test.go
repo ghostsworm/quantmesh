@@ -295,8 +295,9 @@ func TestSyncPositions_Forward(t *testing.T) {
 	if err := s.syncPositions(context.Background()); err != nil {
 		t.Fatalf("syncPositions: %v", err)
 	}
-	if s.spotQty != 1.5 {
-		t.Errorf("spotQty = %v, want 1.5", s.spotQty)
+	// 無記賬時保守推導為 min(合約空頭, 現貨餘額)，多出的 0.3 視為用戶自有持幣
+	if s.spotQty != 1.2 {
+		t.Errorf("spotQty = %v, want 1.2", s.spotQty)
 	}
 	if s.futQty != 1.2 {
 		t.Errorf("futQty = %v, want 1.2", s.futQty)

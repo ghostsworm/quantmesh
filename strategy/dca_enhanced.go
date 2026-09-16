@@ -59,6 +59,7 @@ type DCAEnhancedStrategy struct {
 	pauseUntil   time.Time
 	isClosing    bool
 	closeOrderID int64
+	closeLayer   *DCALayer // 非 nil 表示當前平倉單只平該层（尾單止盈），nil 表示全倉平倉
 
 	// 统计
 	stats *StrategyStatistics
@@ -109,6 +110,9 @@ type DCAEnhancedConfig struct {
 	TrendMethod        string `yaml:"trend_method"`         // 趋势判断方法 (ma/ema/macd)
 	TrendPeriod        int    `yaml:"trend_period"`         // 趋势周期
 }
+
+// dcaEstimatedFeeRate 平倉記錄的估算手續費率（實際手續費由訂單回報補充）
+const dcaEstimatedFeeRate = 0.001
 
 // DCALayer 分层倉位
 type DCALayer struct {
@@ -374,6 +378,16 @@ func (s *DCAEnhancedStrategy) IsRunning() bool {
 
 // OnPriceChange 價格變化处理
 func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
+	return s.onPrice(price, true)
+}
+
+// OnPriceChangeRiskOnly 只更新行情並執行止盈止损，不开倉/加倉（组合策略門控時使用）
+func (s *DCAEnhancedStrategy) OnPriceChangeRiskOnly(price float64) error {
+	return s.onPrice(price, false)
+}
+
+// onPrice 價格處理主流程；allowOpening=false 時跳过开倉/加倉
+func (s *DCAEnhancedStrategy) onPrice(price float64, allowOpening bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -381,13 +395,15 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 		return nil
 	}
 
-	// 检查瀑布保护
+	// 检查瀑布保护（S1：暂停只影响开倉/加倉，止盈止损照常执行）
+	openingPaused := false
 	if s.isPaused {
 		if s.pauseUntil.IsZero() || time.Now().Before(s.pauseUntil) {
-			return nil
+			openingPaused = true
+		} else {
+			s.isPaused = false
+			s.pauseUntil = time.Time{}
 		}
-		s.isPaused = false
-		s.pauseUntil = time.Time{}
 	}
 
 	// 更新價格历史
@@ -407,16 +423,21 @@ func (s *DCAEnhancedStrategy) OnPriceChange(price float64) error {
 	s.calculateDynamicInterval()
 
 	// 检查瀑布下跌
-	if s.strategyCfg.CascadeProtection && s.detectCascadeDrop() {
+	if !openingPaused && s.strategyCfg.CascadeProtection && s.detectCascadeDrop() {
 		s.isPaused = true
 		s.pauseUntil = time.Now().Add(time.Duration(s.strategyCfg.CascadePauseDuration) * time.Second)
-		logger.Warn("⚠️ [%s] 检测到瀑布式下跌，暂停加倉 %d 秒", s.name, s.strategyCfg.CascadePauseDuration)
-		return nil
+		logger.Warn("⚠️ [%s] 检测到瀑布式下跌，暂停加倉 %d 秒（止盈止损仍生效）", s.name, s.strategyCfg.CascadePauseDuration)
+		openingPaused = true
 	}
 
 	// 检查止盈止损
 	if err := s.checkTakeProfitStopLoss(price); err != nil {
 		return err
+	}
+
+	// 已下平倉單、暂停中、被門控、或仍有未成交的开倉單時，不再下新的开倉/加倉單
+	if s.isClosing || openingPaused || !allowOpening || s.hasPendingLayer() {
+		return nil
 	}
 
 	// 检查是否需要开倉或加倉
@@ -560,16 +581,17 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		Price:    orderPrice,
 		Quantity: quantity,
 		Cost:     s.strategyCfg.BaseOrderAmount,
-		Status:   "pending",
+		Status:   entryStatusPending,
 	}
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     "BUY",
-		Quantity: quantity,
-		Price:    orderPrice,
-		PostOnly: true,
+		Symbol:       s.strategyCfg.Symbol,
+		Side:         "BUY",
+		Quantity:     quantity,
+		Price:        orderPrice,
+		PostOnly:     true,
+		PositionSide: position.PositionSideLong,
 	})
 
 	if err != nil {
@@ -581,15 +603,12 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		return nil
 	}
 
+	// S3：限價單下單成功≠成交，保持 pending，等成交回報再計入持倉
 	layer.OrderID = order.OrderID
-	layer.Status = "filled"
-	layer.FilledAt = time.Now()
 	s.layers = append(s.layers, layer)
 	s.currentLayer = 1
 
-	s.updateTotals()
-
-	logger.Info("📈 [%s:%s] [%s] 基础订單成交: 價格=%.2f, 數量=%.6f, 成本=%.2f",
+	logger.Info("📈 [%s:%s] [%s] 基础订單已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, s.strategyCfg.BaseOrderAmount)
 
 	return nil
@@ -651,16 +670,17 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 		Price:    orderPrice,
 		Quantity: quantity,
 		Cost:     orderAmount,
-		Status:   "pending",
+		Status:   entryStatusPending,
 	}
 
 	// 下單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:   s.strategyCfg.Symbol,
-		Side:     "BUY",
-		Quantity: quantity,
-		Price:    orderPrice,
-		PostOnly: true,
+		Symbol:       s.strategyCfg.Symbol,
+		Side:         "BUY",
+		Quantity:     quantity,
+		Price:        orderPrice,
+		PostOnly:     true,
+		PositionSide: position.PositionSideLong,
 	})
 
 	if err != nil {
@@ -672,15 +692,12 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 		return nil
 	}
 
+	// S3：保持 pending，等成交回報再計入持倉
 	layer.OrderID = order.OrderID
-	layer.Status = "filled"
-	layer.FilledAt = time.Now()
 	s.layers = append(s.layers, layer)
 	s.currentLayer++
 
-	s.updateTotals()
-
-	logger.Info("📉 [%s:%s] [%s] 安全订單 #%d 成交: 價格=%.2f, 數量=%.6f, 成本=%.2f, 平均成本=%.2f",
+	logger.Info("📉 [%s:%s] [%s] 安全订單 #%d 已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f, 平均成本=%.2f",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, layer.Index, price, quantity, orderAmount, s.avgEntryPrice)
 
 	return nil
@@ -703,7 +720,7 @@ func (s *DCAEnhancedStrategy) updateTotals() {
 	s.totalQty = 0
 
 	for _, layer := range s.layers {
-		if layer.Status == "filled" {
+		if entryHasFill(layer.Status) {
 			s.totalCost += layer.Cost
 			s.totalQty += layer.Quantity
 		}
@@ -711,12 +728,36 @@ func (s *DCAEnhancedStrategy) updateTotals() {
 
 	if s.totalQty > 0 {
 		s.avgEntryPrice = s.totalCost / s.totalQty
+	} else {
+		s.avgEntryPrice = 0
 	}
+}
+
+// filledLayers 返回已有成交的层（按下單顺序）
+func (s *DCAEnhancedStrategy) filledLayers() []*DCALayer {
+	filled := make([]*DCALayer, 0, len(s.layers))
+	for _, layer := range s.layers {
+		if entryHasFill(layer.Status) && layer.Quantity > 0 {
+			filled = append(filled, layer)
+		}
+	}
+	return filled
+}
+
+// hasPendingLayer 是否存在未完全成交的开倉單
+func (s *DCAEnhancedStrategy) hasPendingLayer() bool {
+	for _, layer := range s.layers {
+		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled {
+			return true
+		}
+	}
+	return false
 }
 
 // checkTakeProfitStopLoss 检查止盈止损
 func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
-	if len(s.layers) == 0 || s.totalQty == 0 {
+	filled := s.filledLayers()
+	if len(filled) == 0 || s.totalQty == 0 || s.totalCost <= 0 {
 		return nil
 	}
 
@@ -731,18 +772,18 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 	}
 
 	// 1. 首單止盈检查
-	if len(s.layers) == 1 && pnlPercent >= s.strategyCfg.FirstOrderTakeProfit {
+	if len(filled) == 1 && pnlPercent >= s.strategyCfg.FirstOrderTakeProfit {
 		logger.Info("💰 [%s] 首單止盈触发: 盈利=%.2f%%", s.name, pnlPercent)
 		return s.closeAllPositions(price, "首單止盈")
 	}
 
-	// 2. 尾單止盈检查
-	if len(s.layers) > 1 {
-		lastLayer := s.layers[len(s.layers)-1]
+	// 2. 尾單止盈检查（S2：只平最后一层，保留其余层继续等待全倉止盈）
+	if len(filled) > 1 {
+		lastLayer := filled[len(filled)-1]
 		lastPnlPercent := (price - lastLayer.Price) / lastLayer.Price * 100
 		if lastPnlPercent >= s.strategyCfg.LastOrderTakeProfit {
-			logger.Info("💰 [%s] 尾單止盈触发: 尾單盈利=%.2f%%", s.name, lastPnlPercent)
-			return s.closeAllPositions(price, "尾單止盈")
+			logger.Info("💰 [%s] 尾單止盈触发: 尾單(层级 %d)盈利=%.2f%%", s.name, lastLayer.Index, lastPnlPercent)
+			return s.closeLastLayer(lastLayer, price)
 		}
 	}
 
@@ -798,20 +839,24 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		orderSource = "normal"
 	}
 
+	// 先撤掉未成交的开倉單，避免平倉後又成交出孤兒倉位
+	s.cancelPendingLayers()
+
 	// 下賣單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:      s.strategyCfg.Symbol,
-		Side:        "SELL",
-		Quantity:    qty,
-		Price:       orderPrice,
-		ReduceOnly:  true,
-		PostOnly:    orderSource != "stop_loss",
-		OrderSource: orderSource,
+		Symbol:       s.strategyCfg.Symbol,
+		Side:         "SELL",
+		Quantity:     qty,
+		Price:        orderPrice,
+		ReduceOnly:   true,
+		PositionSide: position.PositionSideLong,
+		PostOnly:     orderSource != "stop_loss",
+		OrderSource:  orderSource,
 	})
 
 	if err != nil {
-		logger.Error("❌ [%s] 平倉失败: %v", s.name, err)
-		return err
+		logger.Error("❌ [%s] 平倉失败 (%s, 數量=%.6f, 價格=%.2f): %v", s.name, reason, qty, orderPrice, err)
+		return fmt.Errorf("DCA 策略 %s 平倉(%s)下單失败: %w", s.name, reason, err)
 	}
 	if order == nil {
 		logger.Debug("🔒 [%s] 平倉单被执行器跳过，等待下一轮", s.name)
@@ -822,80 +867,186 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	pnl := s.totalQty*price - s.totalCost
 
 	// 🔥 保存交易記錄到數據库（止损单和止盈单都需要保存）
-	if s.tradeStorage != nil && len(s.layers) > 0 {
-		// 计算平均买入价格
+	if len(s.layers) > 0 {
 		avgBuyPrice := s.avgEntryPrice
 		if avgBuyPrice <= 0 && s.totalCost > 0 && s.totalQty > 0 {
 			avgBuyPrice = s.totalCost / s.totalQty
 		}
-
-		// 计算手续费（简化处理：使用总成本的0.1%作为买入手续费，卖出手续费为0，实际手续费会在订单更新时补充）
-		estimatedFee := s.totalCost * 0.001 // 估算手续费
-
-		// 保存交易記錄
-		buyOrderID := int64(0) // DCA策略无法追溯历史买入订单ID
-		sellOrderID := order.OrderID
-		exchangeName := strings.ToLower(s.exchange.GetName())
-		if exchangeName == "" {
-			exchangeName = "binance"
-		}
-
-		// 🔥 尝试使用带交易所盈亏的新接口（初始为0，后续订单更新时会更新）
-		if tradeStWithPnL, ok := s.tradeStorage.(interface {
-			SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-		}); ok {
-			// 使用新接口，交易所盈亏初始为0（订单刚下，还不知道交易所计算的盈亏）
-			if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, 0, estimatedFee, "USDT", 0, 0, time.Now(), s.effectiveBotID()); err != nil {
-				logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
-					s.name, err, avgBuyPrice, orderPrice, qty, pnl)
-			} else {
-				if pnl < 0 {
-					logger.Warn("🛑 [%s] [止损/亏损交易已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 網格盈亏: %.4f, OrderID: %d",
-						s.name, avgBuyPrice, orderPrice, qty, pnl, sellOrderID)
-				} else {
-					logger.Debug("💰 [%s] [交易記錄已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 網格盈亏: %.4f",
-						s.name, avgBuyPrice, orderPrice, qty, pnl)
-				}
-			}
-		} else {
-			// 降级：使用旧接口
-			if err := s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now(), s.effectiveBotID()); err != nil {
-				logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
-					s.name, err, avgBuyPrice, orderPrice, qty, pnl)
-			} else {
-				if pnl < 0 {
-					logger.Warn("🛑 [%s] [止损/亏损交易已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f, OrderID: %d",
-						s.name, avgBuyPrice, orderPrice, qty, pnl, sellOrderID)
-				} else {
-					logger.Debug("💰 [%s] [交易記錄已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f",
-						s.name, avgBuyPrice, orderPrice, qty, pnl)
-				}
-			}
-		}
+		s.saveCloseTrade(order.OrderID, avgBuyPrice, orderPrice, qty, pnl, s.totalCost)
 	}
 
-	// 更新统计
-	s.stats.TotalTrades++
-	s.stats.TotalPnL += pnl
-	s.stats.TotalVolume += s.totalCost
+	s.recordCloseStats(pnl, s.totalCost)
 
-	if pnl > 0 {
-		// 更新胜率
-		winCount := s.stats.WinRate * float64(s.stats.TotalTrades-1)
-		winCount++
-		s.stats.WinRate = winCount / float64(s.stats.TotalTrades)
-	} else {
-		winCount := s.stats.WinRate * float64(s.stats.TotalTrades-1)
-		s.stats.WinRate = winCount / float64(s.stats.TotalTrades)
-	}
-
-	logger.Info("✅ [%s] 平倉完成 (%s): 订單ID=%d, 數量=%.6f, 價格=%.2f, 盈亏=%.2f USDT",
+	logger.Info("✅ [%s] 平倉單已下 (%s): 订單ID=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
 		s.name, reason, order.OrderID, s.totalQty, price, pnl)
 
 	s.isClosing = true
 	s.closeOrderID = order.OrderID
+	s.closeLayer = nil
 
 	return nil
+}
+
+// closeLastLayer 尾單止盈：只平最后一层的成交數量（S2）
+func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) error {
+	if layer == nil || layer.Quantity <= 0 {
+		return nil
+	}
+
+	qDec := s.exchange.GetQuantityDecimals()
+	qty := math.Floor(layer.Quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+	if qty <= 0 {
+		return nil
+	}
+	orderPrice := s.roundPrice(price)
+
+	s.cancelPendingLayers()
+
+	order, err := s.executor.PlaceOrder(&position.OrderRequest{
+		Symbol:       s.strategyCfg.Symbol,
+		Side:         "SELL",
+		Quantity:     qty,
+		Price:        orderPrice,
+		ReduceOnly:   true,
+		PositionSide: position.PositionSideLong,
+		PostOnly:     true,
+		OrderSource:  "normal",
+	})
+	if err != nil {
+		logger.Error("❌ [%s] 尾單止盈下單失败 (层级 %d, 數量=%.6f, 價格=%.2f): %v", s.name, layer.Index, qty, orderPrice, err)
+		return fmt.Errorf("DCA 策略 %s 尾單止盈(层级 %d)下單失败: %w", s.name, layer.Index, err)
+	}
+	if order == nil {
+		logger.Debug("🔒 [%s] 尾單止盈單被执行器跳过，等待下一轮", s.name)
+		return nil
+	}
+
+	layerCost := layer.Cost * qty / layer.Quantity
+	pnl := qty*price - layerCost
+	s.saveCloseTrade(order.OrderID, layer.Price, orderPrice, qty, pnl, layerCost)
+	s.recordCloseStats(pnl, layerCost)
+
+	logger.Info("✅ [%s] 尾單止盈單已下: 订單ID=%d, 层级=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
+		s.name, order.OrderID, layer.Index, qty, price, pnl)
+
+	s.isClosing = true
+	s.closeOrderID = order.OrderID
+	s.closeLayer = layer
+	return nil
+}
+
+// cancelPendingLayers 撤销所有未完全成交的开倉單（撤單回報到達後再回滚层状態）
+func (s *DCAEnhancedStrategy) cancelPendingLayers() {
+	ids := make([]int64, 0)
+	for _, layer := range s.layers {
+		if (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled) && layer.OrderID > 0 {
+			ids = append(ids, layer.OrderID)
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	if err := s.executor.BatchCancelOrders(ids); err != nil {
+		logger.Warn("⚠️ [%s] 平倉前撤销未成交开倉單失败 (订單=%v): %v", s.name, ids, err)
+	}
+}
+
+// recordCloseStats 更新平倉统计
+func (s *DCAEnhancedStrategy) recordCloseStats(pnl, volume float64) {
+	s.stats.TotalTrades++
+	s.stats.TotalPnL += pnl
+	s.stats.TotalVolume += volume
+
+	winCount := s.stats.WinRate * float64(s.stats.TotalTrades-1)
+	if pnl > 0 {
+		winCount++
+	}
+	s.stats.WinRate = winCount / float64(s.stats.TotalTrades)
+}
+
+// saveCloseTrade 保存平倉交易記錄
+func (s *DCAEnhancedStrategy) saveCloseTrade(sellOrderID int64, avgBuyPrice, orderPrice, qty, pnl, cost float64) {
+	if s.tradeStorage == nil {
+		return
+	}
+
+	// 计算手续费（简化处理：使用成本的0.1%作为买入手续费，卖出手续费为0，实际手续费会在订单更新时补充）
+	estimatedFee := cost * dcaEstimatedFeeRate
+
+	buyOrderID := int64(0) // DCA策略无法追溯历史买入订单ID
+	exchangeName := strings.ToLower(s.exchange.GetName())
+	if exchangeName == "" {
+		exchangeName = "binance"
+	}
+
+	var err error
+	// 🔥 尝试使用带交易所盈亏的新接口（初始为0，后续订单更新时会更新）
+	if tradeStWithPnL, ok := s.tradeStorage.(interface {
+		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
+	}); ok {
+		err = tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, 0, estimatedFee, "USDT", 0, 0, time.Now(), s.effectiveBotID())
+	} else {
+		// 降级：使用旧接口
+		err = s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now(), s.effectiveBotID())
+	}
+
+	if err != nil {
+		logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
+			s.name, err, avgBuyPrice, orderPrice, qty, pnl)
+		return
+	}
+	if pnl < 0 {
+		logger.Warn("🛑 [%s] [止损/亏损交易已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f, OrderID: %d",
+			s.name, avgBuyPrice, orderPrice, qty, pnl, sellOrderID)
+	} else {
+		logger.Debug("💰 [%s] [交易記錄已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f",
+			s.name, avgBuyPrice, orderPrice, qty, pnl)
+	}
+}
+
+// removeLayer 移除指定层并重算層數與總计
+func (s *DCAEnhancedStrategy) removeLayer(target *DCALayer) {
+	kept := make([]*DCALayer, 0, len(s.layers))
+	for _, layer := range s.layers {
+		if layer != target {
+			kept = append(kept, layer)
+		}
+	}
+	s.layers = kept
+	s.currentLayer = len(s.layers)
+	s.updateTotals()
+}
+
+// reduceLayer 按平倉成交數量减少某一层；平完则移除
+func (s *DCAEnhancedStrategy) reduceLayer(layer *DCALayer, qty float64) {
+	if layer == nil || qty <= 0 {
+		return
+	}
+	if qty >= layer.Quantity-entryQtyEpsilon {
+		s.removeLayer(layer)
+		return
+	}
+	remainRatio := (layer.Quantity - qty) / layer.Quantity
+	layer.Cost *= remainRatio
+	layer.Quantity -= qty
+	s.updateTotals()
+}
+
+// reduceAllLayers 全倉平倉單部分成交後被撤：按比例缩减所有已成交层
+func (s *DCAEnhancedStrategy) reduceAllLayers(qty float64) {
+	if qty <= 0 || s.totalQty <= 0 {
+		return
+	}
+	if qty >= s.totalQty-entryQtyEpsilon {
+		s.resetPositionState()
+		return
+	}
+	remainRatio := (s.totalQty - qty) / s.totalQty
+	for _, layer := range s.filledLayers() {
+		layer.Quantity *= remainRatio
+		layer.Cost *= remainRatio
+	}
+	s.updateTotals()
 }
 
 func (s *DCAEnhancedStrategy) resetPositionState() {
@@ -908,6 +1059,7 @@ func (s *DCAEnhancedStrategy) resetPositionState() {
 	s.takeProfitTriggered = false
 	s.isClosing = false
 	s.closeOrderID = 0
+	s.closeLayer = nil
 }
 
 // isTrendUp 判断趋势是否向上
@@ -951,35 +1103,104 @@ func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if update == nil || update.OrderID == 0 {
+		return nil
+	}
+
 	if s.isClosing && update.OrderID == s.closeOrderID {
-		switch update.Status {
-		case position.OrderStatusFilled:
-			logger.Info("✅ [%s] 平倉單 #%d 已成交，清理 DCA 倉位狀態", s.name, update.OrderID)
-			s.resetPositionState()
-		case position.OrderStatusCanceled:
-			logger.Warn("⚠️ [%s] 平倉單 #%d 已取消，保留倉位狀態等待重新平倉", s.name, update.OrderID)
-			s.isClosing = false
-			s.closeOrderID = 0
-		}
+		s.handleCloseOrderUpdate(update)
 		return nil
 	}
 
 	// 查找對应的层级
 	for _, layer := range s.layers {
 		if layer.OrderID == update.OrderID {
-			if update.Status == "FILLED" {
-				layer.Status = "filled"
-				layer.FilledAt = time.Now()
-				logger.Info("📊 [%s] 订單 #%d 成交: 层级=%d", s.name, update.OrderID, layer.Index)
-			} else if update.Status == "CANCELED" {
-				layer.Status = "canceled"
-				logger.Warn("⚠️ [%s] 订單 #%d 已取消: 层级=%d", s.name, update.OrderID, layer.Index)
-			}
+			s.handleLayerOrderUpdate(layer, update)
 			break
 		}
 	}
 
 	return nil
+}
+
+// handleCloseOrderUpdate 处理平倉單回報：成交才清理倉位；撤單/拒單/過期退出 closing（S3）
+func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdate) {
+	switch {
+	case signalOrderStatusFilled(update.Status):
+		if s.closeLayer != nil {
+			layer := s.closeLayer
+			qty := update.ExecutedQty
+			if qty <= 0 {
+				qty = layer.Quantity
+			}
+			logger.Info("✅ [%s] 尾單止盈單 #%d 已成交，移除层级 %d (數量=%.6f)", s.name, update.OrderID, layer.Index, qty)
+			s.reduceLayer(layer, qty)
+			s.isClosing = false
+			s.closeOrderID = 0
+			s.closeLayer = nil
+			s.highestProfit = 0
+			s.takeProfitTriggered = false
+			return
+		}
+		logger.Info("✅ [%s] 平倉單 #%d 已成交，清理 DCA 倉位狀態", s.name, update.OrderID)
+		s.resetPositionState()
+	case signalOrderStatusTerminal(update.Status):
+		logger.Warn("⚠️ [%s] 平倉單 #%d 狀態 %s (已成交 %.6f)，保留剩余倉位等待重新平倉",
+			s.name, update.OrderID, update.Status, update.ExecutedQty)
+		if update.ExecutedQty > 0 {
+			if s.closeLayer != nil {
+				s.reduceLayer(s.closeLayer, update.ExecutedQty)
+			} else {
+				s.reduceAllLayers(update.ExecutedQty)
+			}
+		}
+		s.isClosing = false
+		s.closeOrderID = 0
+		s.closeLayer = nil
+	}
+}
+
+// handleLayerOrderUpdate 处理开倉/加倉單回報：按實際成交數量/均價計入持倉；未成交即終止则回滚该层（S3）
+func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *position.OrderUpdate) {
+	filled := signalOrderStatusFilled(update.Status)
+	switch {
+	case filled || signalOrderStatusPartiallyFilled(update.Status):
+		qty, price := entryFillFromUpdate(update, layer.Quantity, layer.Price)
+		if qty <= 0 {
+			return
+		}
+		layer.Quantity = qty
+		layer.Price = price
+		layer.Cost = qty * price
+		layer.FilledAt = time.Now()
+		if filled {
+			layer.Status = entryStatusFilled
+		} else {
+			layer.Status = entryStatusPartiallyFilled
+		}
+		s.updateTotals()
+		logger.Info("📊 [%s] 订單 #%d %s: 层级=%d, 成交數量=%.6f, 均價=%.2f, 平均成本=%.2f",
+			s.name, update.OrderID, update.Status, layer.Index, qty, price, s.avgEntryPrice)
+	case signalOrderStatusTerminal(update.Status):
+		if layer.Status == entryStatusFilled {
+			return
+		}
+		if update.ExecutedQty > 0 || layer.Status == entryStatusPartiallyFilled {
+			if update.ExecutedQty > 0 {
+				_, price := entryFillFromUpdate(update, layer.Quantity, layer.Price)
+				layer.Quantity = update.ExecutedQty
+				layer.Price = price
+				layer.Cost = update.ExecutedQty * price
+			}
+			layer.Status = entryStatusFilled
+			s.updateTotals()
+			logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s: 层级=%d 按部分成交 %.6f 保留",
+				s.name, update.OrderID, update.Status, layer.Index, layer.Quantity)
+			return
+		}
+		s.removeLayer(layer)
+		logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s 且未成交: 回滚层级=%d", s.name, update.OrderID, update.Status, layer.Index)
+	}
 }
 
 // GetPositions 獲取持倉
@@ -1031,7 +1252,11 @@ func (s *DCAEnhancedStrategy) GetOrders() []*Order {
 func (s *DCAEnhancedStrategy) GetStatistics() *StrategyStatistics {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.stats
+	if s.stats == nil {
+		return &StrategyStatistics{}
+	}
+	statsCopy := *s.stats
+	return &statsCopy
 }
 
 // GetLayerInfo 獲取层级信息

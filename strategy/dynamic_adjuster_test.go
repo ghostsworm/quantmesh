@@ -32,7 +32,12 @@ func TestDynamicAdjusterCalculationsAndVolatilityRegimeAdjustments(t *testing.T)
 	cfg.Trading.DynamicAdjustment.OrderQuantity.Max = 300
 	cfg.Trading.DynamicAdjustment.OrderQuantity.AdjustmentStep = 25
 
-	manager := &position.SuperPositionManager{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.PositionAllocation.Enabled = true
+	cfg.PositionAllocation.Allocations = []config.SymbolAllocation{{Exchange: "binance", Symbol: "BTCUSDT", MaxAmountUSDT: 1000}}
+
+	manager := position.NewSuperPositionManager(cfg, &signalTestExecutor{}, &signalTestExchange{}, 2, 3)
+	manager.GetAllocationManager().SetUsedAmount("binance", "BTCUSDT", 900)
 	da := NewDynamicAdjuster(cfg, nil, manager)
 	if da.currentSymbol != "BTCUSDT" {
 		t.Fatalf("current symbol=%s", da.currentSymbol)
@@ -76,8 +81,8 @@ func TestDynamicAdjusterCalculationsAndVolatilityRegimeAdjustments(t *testing.T)
 	if cfg.Trading.OrderQuantity != 123 {
 		t.Fatalf("update quantity failed")
 	}
-	if da.CalculateUtilization() != 0.5 {
-		t.Fatalf("placeholder utilization mismatch")
+	if u, ok := da.CalculateUtilization(); !ok || u != 0.9 {
+		t.Fatalf("utilization=%v ok=%v, want 0.9 from allocation manager", u, ok)
 	}
 
 	da.adjustForVolatilityRegime(indicators.RegimeLow, "info")

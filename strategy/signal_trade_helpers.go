@@ -145,6 +145,41 @@ func signalOrderStatusFilled(status string) bool {
 	return status == "FILLED" || status == "FULLY_FILLED" || status == "CLOSED"
 }
 
+func signalOrderStatusPartiallyFilled(status string) bool {
+	return strings.ToUpper(strings.TrimSpace(status)) == position.OrderStatusPartiallyFilled
+}
+
+// 分層開倉單（DCA 層 / 馬丁入場）本地狀態：下單後為 pending，只有收到成交回報才計入持倉（S3）
+const (
+	entryStatusPending         = "pending"
+	entryStatusPartiallyFilled = "partially_filled"
+	entryStatusFilled          = "filled"
+)
+
+// entryQtyEpsilon 分層數量比較容差
+const entryQtyEpsilon = 1e-12
+
+// entryHasFill 分層是否已有成交（部分或全部），可計入持倉
+func entryHasFill(status string) bool {
+	return status == entryStatusFilled || status == entryStatusPartiallyFilled
+}
+
+// entryFillFromUpdate 從成交回報取累計成交數量與均價；回報缺數量時對 FILLED 回退到下單數量
+func entryFillFromUpdate(update *position.OrderUpdate, plannedQty, plannedPrice float64) (qty, price float64) {
+	qty = update.ExecutedQty
+	if qty <= 0 && signalOrderStatusFilled(update.Status) {
+		qty = plannedQty
+	}
+	price = update.AvgPrice
+	if price <= 0 {
+		price = update.Price
+	}
+	if price <= 0 {
+		price = plannedPrice
+	}
+	return qty, price
+}
+
 func signalOrderStatusTerminal(status string) bool {
 	status = strings.ToUpper(strings.TrimSpace(status))
 	return status == "CANCELED" || status == "CANCELLED" || status == "REJECTED" || status == "EXPIRED" || status == "FAILED"

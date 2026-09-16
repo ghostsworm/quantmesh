@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"quantmesh/config"
@@ -34,7 +35,13 @@ type DynamicAdjuster struct {
 	// 趋势状态（用于判断上涨/下跌行情）
 	currentTrend         string // "up", "down", "sideways"
 	trendHistory         []float64 // 价格历史用于趋势判断
+
+	// utilizationWarned 资金利用率不可用的告警只打印一次
+	utilizationWarned atomic.Bool
 }
+
+// volatilityPauseReasonPrefix 波動率暫停開倉的原因前綴；恢復時只解除帶此前綴的暫停
+const volatilityPauseReasonPrefix = "波动率暂停"
 
 // NewDynamicAdjuster 創建動態調整器
 func NewDynamicAdjuster(
@@ -286,20 +293,13 @@ func (da *DynamicAdjuster) AdjustPriceInterval() {
 	currentInterval := da.cfg.Trading.PriceInterval
 	threshold := da.cfg.Trading.DynamicAdjustment.PriceInterval.VolatilityThreshold
 	step := da.cfg.Trading.DynamicAdjustment.PriceInterval.AdjustmentStep
-	minInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Min
-	maxInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Max
+	minInterval, maxInterval := da.priceIntervalBounds()
 
 	if threshold <= 0 {
 		threshold = 0.02 // 默认2%
 	}
 	if step <= 0 {
 		step = 0.5
-	}
-	if minInterval <= 0 {
-		minInterval = 0.5
-	}
-	if maxInterval <= 0 {
-		maxInterval = 10.0
 	}
 
 	var newInterval float64
@@ -328,16 +328,121 @@ func (da *DynamicAdjuster) AdjustPriceInterval() {
 
 // updatePriceInterval 更新價格間隔
 func (da *DynamicAdjuster) updatePriceInterval(newInterval float64) {
-	da.cfg.Trading.PriceInterval = newInterval
+	da.applyTradingParams(newInterval, 0, 0, 0)
 	logger.Info("✅ [動態調整] 價格間隔已更新為: %.2f", newInterval)
 }
 
-// CalculateUtilization 计算资金利用率
-func (da *DynamicAdjuster) CalculateUtilization() float64 {
-	// 这里需要從交易所獲取帳戶信息
-	// 暂時返回一個估算值，實際實現需要呼叫交易所API
-	// TODO: 實現實際的资金利用率计算
-	return 0.5 // 占位符
+// ========== 參數邊界與寫入 ==========
+
+// 未配置 Min/Max 時使用的保守默認邊界
+const (
+	defaultMinPriceInterval = 0.5
+	defaultMaxPriceInterval = 10.0
+	defaultMinWindowSize    = 5
+	defaultMaxWindowSize    = 50
+	defaultMinOrderQuantity = 50.0 // 需滿足交易所最小訂單金額
+	defaultMaxOrderQuantity = 500.0
+)
+
+// priceIntervalBounds 返回帶默認值且已校驗（min>0、max>=min）的價格間隔邊界
+func (da *DynamicAdjuster) priceIntervalBounds() (float64, float64) {
+	pi := da.cfg.Trading.DynamicAdjustment.PriceInterval
+	return floatBoundsWithDefaults(pi.Min, pi.Max, defaultMinPriceInterval, defaultMaxPriceInterval)
+}
+
+// windowSizeBounds 返回帶默認值且已校驗的買/賣窗口邊界
+func (da *DynamicAdjuster) windowSizeBounds() (minBuy, maxBuy, minSell, maxSell int) {
+	ws := da.cfg.Trading.DynamicAdjustment.WindowSize
+	minBuy, maxBuy = intBoundsWithDefaults(ws.BuyWindow.Min, ws.BuyWindow.Max, defaultMinWindowSize, defaultMaxWindowSize)
+	minSell, maxSell = intBoundsWithDefaults(ws.SellWindow.Min, ws.SellWindow.Max, defaultMinWindowSize, defaultMaxWindowSize)
+	return minBuy, maxBuy, minSell, maxSell
+}
+
+// orderQuantityBounds 返回帶默認值且已校驗的單筆金額邊界
+func (da *DynamicAdjuster) orderQuantityBounds() (float64, float64) {
+	oq := da.cfg.Trading.DynamicAdjustment.OrderQuantity
+	return floatBoundsWithDefaults(oq.Min, oq.Max, defaultMinOrderQuantity, defaultMaxOrderQuantity)
+}
+
+func floatBoundsWithDefaults(minV, maxV, defMin, defMax float64) (float64, float64) {
+	if minV <= 0 {
+		minV = defMin
+	}
+	if maxV <= 0 {
+		maxV = defMax
+	}
+	if maxV < minV {
+		maxV = minV
+	}
+	return minV, maxV
+}
+
+func intBoundsWithDefaults(minV, maxV, defMin, defMax int) (int, int) {
+	if minV <= 0 {
+		minV = defMin
+	}
+	if maxV <= 0 {
+		maxV = defMax
+	}
+	if maxV < minV {
+		maxV = minV
+	}
+	return minV, maxV
+}
+
+func clampAdjustFloat(v, lo, hi float64) float64 {
+	return math.Max(lo, math.Min(v, hi))
+}
+
+func clampAdjustInt(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}
+
+// applyTradingParams 寫入交易參數（<=0 的參數保持不變）。
+// S11：網格讀取 cfg.Trading.* 的路徑（AdjustOrders 等）持有 SuperPositionManager.mu，
+// 因此經由 SuperPositionManager.UpdateTradingParams（同一把鎖）寫入，避免與網格計算數據競爭；
+// 生產環境中調整器與倉位管理器共用同一份 config 指針。無倉位管理器時（僅測試/離線場景）直接寫配置。
+func (da *DynamicAdjuster) applyTradingParams(priceInterval, orderQuantity float64, buyWindow, sellWindow int) {
+	if da.manager != nil {
+		const keepProfitSpread = -1 // UpdateTradingParams 對負值不做修改
+		da.manager.UpdateTradingParams(priceInterval, keepProfitSpread, orderQuantity, buyWindow, sellWindow)
+		return
+	}
+	if priceInterval > 0 {
+		da.cfg.Trading.PriceInterval = priceInterval
+	}
+	if orderQuantity > 0 {
+		da.cfg.Trading.OrderQuantity = orderQuantity
+	}
+	if buyWindow > 0 {
+		da.cfg.Trading.BuyWindowSize = buyWindow
+	}
+	if sellWindow > 0 {
+		da.cfg.Trading.SellWindowSize = sellWindow
+	}
+}
+
+// CalculateUtilization 计算资金利用率（已用 / 上限），數據來自倉位管理器的资金分配管理器。
+// 第二個返回值為 false 表示無可用數據（未啟用资金分配或未配置該交易對上限），調用方不得用猜測值替代。
+func (da *DynamicAdjuster) CalculateUtilization() (float64, bool) {
+	if da.manager == nil {
+		return 0, false
+	}
+	am := da.manager.GetAllocationManager()
+	if am == nil {
+		return 0, false
+	}
+	status := am.GetStatus(da.manager.GetExchange(), da.manager.GetSymbol())
+	if status == nil || status.MaxAmount <= 0 {
+		return 0, false
+	}
+	return status.UsedAmount / status.MaxAmount, true
 }
 
 // adjustWindowSizeLoop 定期調整窗口大小
@@ -362,7 +467,14 @@ func (da *DynamicAdjuster) adjustWindowSizeLoop() {
 
 // AdjustWindowSize 調整窗口大小
 func (da *DynamicAdjuster) AdjustWindowSize() {
-	utilization := da.CalculateUtilization()
+	utilization, ok := da.CalculateUtilization()
+	if !ok {
+		// 沒有真實资金利用率數據時拒絕調整，避免用假數字改窗口（只告警一次）
+		if da.utilizationWarned.CompareAndSwap(false, true) {
+			logger.Warn("⚠️ [動態調整] 無法獲取资金利用率（需啟用 position_allocation 並配置該交易對上限），窗口大小動態調整不生效")
+		}
+		return
+	}
 	threshold := da.cfg.Trading.DynamicAdjustment.WindowSize.UtilizationThreshold
 	step := da.cfg.Trading.DynamicAdjustment.WindowSize.AdjustmentStep
 
@@ -376,23 +488,7 @@ func (da *DynamicAdjuster) AdjustWindowSize() {
 	currentBuyWindow := da.cfg.Trading.BuyWindowSize
 	currentSellWindow := da.cfg.Trading.SellWindowSize
 
-	minBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Min
-	maxBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Max
-	minSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Min
-	maxSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Max
-
-	if minBuyWindow <= 0 {
-		minBuyWindow = 5
-	}
-	if maxBuyWindow <= 0 {
-		maxBuyWindow = 50
-	}
-	if minSellWindow <= 0 {
-		minSellWindow = 5
-	}
-	if maxSellWindow <= 0 {
-		maxSellWindow = 50
-	}
+	minBuyWindow, maxBuyWindow, minSellWindow, maxSellWindow := da.windowSizeBounds()
 
 	var newBuyWindow, newSellWindow int
 
@@ -429,8 +525,7 @@ func (da *DynamicAdjuster) AdjustWindowSize() {
 
 // updateWindowSize 更新窗口大小
 func (da *DynamicAdjuster) updateWindowSize(buyWindow, sellWindow int) {
-	da.cfg.Trading.BuyWindowSize = buyWindow
-	da.cfg.Trading.SellWindowSize = sellWindow
+	da.applyTradingParams(0, 0, buyWindow, sellWindow)
 	logger.Info("✅ [動態調整] 窗口大小已更新: 買單窗口=%d, 賣單視窗=%d", buyWindow, sellWindow)
 }
 
@@ -460,17 +555,10 @@ func (da *DynamicAdjuster) AdjustOrderQuantity() {
 		return
 	}
 	oq := da.cfg.Trading.DynamicAdjustment.OrderQuantity
-	minQty := oq.Min
-	maxQty := oq.Max
+	minQty, maxQty := da.orderQuantityBounds()
 	threshold := oq.FrequencyThreshold
 	step := oq.AdjustmentStep
 
-	if minQty <= 0 {
-		minQty = 50 // 保守預設，需滿足交易所最小訂單金額
-	}
-	if maxQty <= 0 {
-		maxQty = 500
-	}
 	if threshold <= 0 {
 		threshold = 5
 	}
@@ -510,7 +598,7 @@ func (da *DynamicAdjuster) AdjustOrderQuantity() {
 
 // updateOrderQuantity 更新單筆金額
 func (da *DynamicAdjuster) updateOrderQuantity(newQty float64) {
-	da.cfg.Trading.OrderQuantity = newQty
+	da.applyTradingParams(0, newQty, 0, 0)
 	logger.Info("✅ [動態調整] 單筆金額已更新為: %.2f", newQty)
 }
 
@@ -570,47 +658,62 @@ func (da *DynamicAdjuster) adjustForVolatilityRegime(regime indicators.Volatilit
 func (da *DynamicAdjuster) adjustForLowVolatility() {
 	logger.Info("🟢 [波动率调整] 低波动区间，优化网格参数")
 
-	// 缩小价格间距以提高交易频率
-	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
-		currentInterval := da.cfg.Trading.PriceInterval
-		minInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Min
+	// 缩小价格间距 20% 提高交易频率、增加窗口 20% 捕获更多机会；均夾在（帶默認值的）邊界內，間距不會降到 0
+	da.scaleTradingParams("✅ [波动率调整]", lowVolIntervalFactor, lowVolWindowFactor, 0)
+}
 
-		// 减少 20% 的间距，但不低于最小值
-		newInterval := currentInterval * 0.8
-		if newInterval < minInterval {
-			newInterval = minInterval
-		}
+// 波動率區間調整倍數（0 表示不調整該參數）
+const (
+	lowVolIntervalFactor    = 0.8
+	lowVolWindowFactor      = 1.2
+	highVolIntervalFactor   = 1.5
+	highVolWindowFactor     = 0.7
+	suddenVolIntervalFactor = 2.0
+	suddenVolWindowFactor   = 0.5
+	suddenVolQtyFactor      = 0.5
 
-		if newInterval < currentInterval {
-			da.cfg.Trading.PriceInterval = newInterval
-			logger.Info("✅ [波动率调整] 缩小价格间距: %.2f -> %.2f", currentInterval, newInterval)
+	priceIntervalChangeEpsilon = 1e-9
+)
+
+// scaleTradingParams 按倍數調整價格間距 / 窗口 / 單筆金額，結果夾在帶默認值的 Min/Max 內，一次寫入。
+// 倍數 <= 0 的參數不調整；對應動態調整開關未啟用的參數也不調整。
+func (da *DynamicAdjuster) scaleTradingParams(logTag string, intervalFactor, windowFactor, qtyFactor float64) {
+	adj := da.cfg.Trading.DynamicAdjustment
+	var newInterval, newQty float64
+	var newBuy, newSell int
+
+	if adj.PriceInterval.Enabled && intervalFactor > 0 {
+		minI, maxI := da.priceIntervalBounds()
+		cur := da.cfg.Trading.PriceInterval
+		if v := clampAdjustFloat(cur*intervalFactor, minI, maxI); math.Abs(v-cur) > priceIntervalChangeEpsilon {
+			newInterval = v
+			logger.Info("%s 价格间距: %.2f -> %.2f", logTag, cur, v)
 		}
 	}
 
-	// 可以考虑增加窗口大小以捕获更多机会
-	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
-		currentBuyWindow := da.cfg.Trading.BuyWindowSize
-		currentSellWindow := da.cfg.Trading.SellWindowSize
-		maxBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Max
-		maxSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Max
-
-		// 增加 20% 的窗口大小
-		newBuyWindow := int(float64(currentBuyWindow) * 1.2)
-		newSellWindow := int(float64(currentSellWindow) * 1.2)
-
-		if newBuyWindow > maxBuyWindow {
-			newBuyWindow = maxBuyWindow
+	if adj.WindowSize.Enabled && windowFactor > 0 {
+		minBuy, maxBuy, minSell, maxSell := da.windowSizeBounds()
+		curBuy := da.cfg.Trading.BuyWindowSize
+		curSell := da.cfg.Trading.SellWindowSize
+		b := clampAdjustInt(int(float64(curBuy)*windowFactor), minBuy, maxBuy)
+		s := clampAdjustInt(int(float64(curSell)*windowFactor), minSell, maxSell)
+		if b != curBuy || s != curSell {
+			newBuy, newSell = b, s
+			logger.Info("%s 窗口大小: 买 %d->%d, 卖 %d->%d", logTag, curBuy, b, curSell, s)
 		}
-		if newSellWindow > maxSellWindow {
-			newSellWindow = maxSellWindow
-		}
+	}
 
-		if newBuyWindow > currentBuyWindow || newSellWindow > currentSellWindow {
-			da.cfg.Trading.BuyWindowSize = newBuyWindow
-			da.cfg.Trading.SellWindowSize = newSellWindow
-			logger.Info("✅ [波动率调整] 增加窗口大小: 买 %d->%d, 卖 %d->%d",
-				currentBuyWindow, newBuyWindow, currentSellWindow, newSellWindow)
+	if adj.OrderQuantity.Enabled && qtyFactor > 0 {
+		minQ, maxQ := da.orderQuantityBounds()
+		cur := da.cfg.Trading.OrderQuantity
+		if v := clampAdjustFloat(cur*qtyFactor, minQ, maxQ); math.Abs(v-cur) > priceIntervalChangeEpsilon {
+			newQty = v
+			logger.Info("%s 单笔金额: %.2f -> %.2f", logTag, cur, v)
 		}
+	}
+
+	if newInterval > 0 || newQty > 0 || newBuy > 0 || newSell > 0 {
+		da.applyTradingParams(newInterval, newQty, newBuy, newSell)
 	}
 }
 
@@ -618,138 +721,41 @@ func (da *DynamicAdjuster) adjustForLowVolatility() {
 func (da *DynamicAdjuster) adjustForHighVolatility() {
 	logger.Warn("⚠️ [波动率调整] 高波动区间，采取保守策略")
 
-	// 扩大价格间距以减少频繁交易
-	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
-		currentInterval := da.cfg.Trading.PriceInterval
-		maxInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Max
-
-		// 增加 50% 的间距
-		newInterval := currentInterval * 1.5
-		if newInterval > maxInterval {
-			newInterval = maxInterval
-		}
-
-		if newInterval > currentInterval {
-			da.cfg.Trading.PriceInterval = newInterval
-			logger.Info("✅ [波动率调整] 扩大价格间距: %.2f -> %.2f", currentInterval, newInterval)
-		}
-	}
-
-	// 减少窗口大小以降低风险
-	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
-		currentBuyWindow := da.cfg.Trading.BuyWindowSize
-		currentSellWindow := da.cfg.Trading.SellWindowSize
-		minBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Min
-		minSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Min
-
-		// 减少 30% 的窗口大小
-		newBuyWindow := int(float64(currentBuyWindow) * 0.7)
-		newSellWindow := int(float64(currentSellWindow) * 0.7)
-
-		if newBuyWindow < minBuyWindow {
-			newBuyWindow = minBuyWindow
-		}
-		if newSellWindow < minSellWindow {
-			newSellWindow = minSellWindow
-		}
-
-		if newBuyWindow < currentBuyWindow || newSellWindow < currentSellWindow {
-			da.cfg.Trading.BuyWindowSize = newBuyWindow
-			da.cfg.Trading.SellWindowSize = newSellWindow
-			logger.Info("✅ [波动率调整] 减少窗口大小: 买 %d->%d, 卖 %d->%d",
-				currentBuyWindow, newBuyWindow, currentSellWindow, newSellWindow)
-		}
-	}
+	// 扩大价格间距 50% 减少频繁交易，减少窗口 30% 降低风险
+	da.scaleTradingParams("✅ [波动率调整]", highVolIntervalFactor, highVolWindowFactor, 0)
 }
 
 // adjustForSuddenHighVolatility 突然进入高波动的调整
 func (da *DynamicAdjuster) adjustForSuddenHighVolatility() {
 	logger.Error("🚨 [波动率调整] 检测到波动率突然升高，启动紧急保护")
 
-	// 大幅扩大价格间距
-	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
-		currentInterval := da.cfg.Trading.PriceInterval
-		maxInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Max
-
-		// 增加 100% 的间距（翻倍）
-		newInterval := currentInterval * 2.0
-		if newInterval > maxInterval {
-			newInterval = maxInterval
-		}
-
-		if newInterval > currentInterval {
-			da.cfg.Trading.PriceInterval = newInterval
-			logger.Info("🛡️ [紧急保护] 大幅扩大价格间距: %.2f -> %.2f", currentInterval, newInterval)
-		}
-	}
-
-	// 大幅减少窗口大小
-	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
-		currentBuyWindow := da.cfg.Trading.BuyWindowSize
-		currentSellWindow := da.cfg.Trading.SellWindowSize
-		minBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Min
-		minSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Min
-
-		// 减少 50% 的窗口大小
-		newBuyWindow := int(float64(currentBuyWindow) * 0.5)
-		newSellWindow := int(float64(currentSellWindow) * 0.5)
-
-		if newBuyWindow < minBuyWindow {
-			newBuyWindow = minBuyWindow
-		}
-		if newSellWindow < minSellWindow {
-			newSellWindow = minSellWindow
-		}
-
-		if newBuyWindow < currentBuyWindow || newSellWindow < currentSellWindow {
-			da.cfg.Trading.BuyWindowSize = newBuyWindow
-			da.cfg.Trading.SellWindowSize = newSellWindow
-			logger.Info("🛡️ [紧急保护] 大幅减少窗口大小: 买 %d->%d, 卖 %d->%d",
-				currentBuyWindow, newBuyWindow, currentSellWindow, newSellWindow)
-		}
-	}
-
-	// 减少单笔金额以降低风险
-	if da.cfg.Trading.DynamicAdjustment.OrderQuantity.Enabled {
-		currentQty := da.cfg.Trading.OrderQuantity
-		minQty := da.cfg.Trading.DynamicAdjustment.OrderQuantity.Min
-
-		// 减少 50% 的单笔金额
-		newQty := currentQty * 0.5
-		if newQty < minQty {
-			newQty = minQty
-		}
-
-		if newQty < currentQty {
-			da.cfg.Trading.OrderQuantity = newQty
-			logger.Info("🛡️ [紧急保护] 减少单笔金额: %.2f -> %.2f", currentQty, newQty)
-		}
-	}
+	// 间距翻倍、窗口减半、单笔金额减半，均夾在邊界內
+	da.scaleTradingParams("🛡️ [紧急保护]", suddenVolIntervalFactor, suddenVolWindowFactor, suddenVolQtyFactor)
 }
 
-// adjustForExtremeVolatility 极端波动调整
+// adjustForExtremeVolatility 极端波动调整：设置到最保守的参数（使用帶默認值、已校驗的邊界，未配置 Min/Max 時不會寫 0）
 func (da *DynamicAdjuster) adjustForExtremeVolatility() {
 	logger.Error("🚨🚨 [波动率调整] 极端波动区间，建议暂停策略！")
 
-	// 设置到最保守的参数
-	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
-		maxInterval := da.cfg.Trading.DynamicAdjustment.PriceInterval.Max
-		da.cfg.Trading.PriceInterval = maxInterval
-		logger.Info("🛡️ [极端保护] 价格间距设置为最大值: %.2f", maxInterval)
+	adj := da.cfg.Trading.DynamicAdjustment
+	var newInterval, newQty float64
+	var newBuy, newSell int
+
+	if adj.PriceInterval.Enabled {
+		_, newInterval = da.priceIntervalBounds()
+		logger.Info("🛡️ [极端保护] 价格间距设置为最大值: %.2f", newInterval)
+	}
+	if adj.WindowSize.Enabled {
+		newBuy, _, newSell, _ = da.windowSizeBounds()
+		logger.Info("🛡️ [极端保护] 窗口大小设置为最小值: 买 %d, 卖 %d", newBuy, newSell)
+	}
+	if adj.OrderQuantity.Enabled {
+		newQty, _ = da.orderQuantityBounds()
+		logger.Info("🛡️ [极端保护] 单笔金额设置为最小值: %.2f", newQty)
 	}
 
-	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
-		minBuyWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.BuyWindow.Min
-		minSellWindow := da.cfg.Trading.DynamicAdjustment.WindowSize.SellWindow.Min
-		da.cfg.Trading.BuyWindowSize = minBuyWindow
-		da.cfg.Trading.SellWindowSize = minSellWindow
-		logger.Info("🛡️ [极端保护] 窗口大小设置为最小值: 买 %d, 卖 %d", minBuyWindow, minSellWindow)
-	}
-
-	if da.cfg.Trading.DynamicAdjustment.OrderQuantity.Enabled {
-		minQty := da.cfg.Trading.DynamicAdjustment.OrderQuantity.Min
-		da.cfg.Trading.OrderQuantity = minQty
-		logger.Info("🛡️ [极端保护] 单笔金额设置为最小值: %.2f", minQty)
+	if newInterval > 0 || newQty > 0 || newBuy > 0 || newSell > 0 {
+		da.applyTradingParams(newInterval, newQty, newBuy, newSell)
 	}
 }
 
@@ -919,23 +925,30 @@ func (da *DynamicAdjuster) checkVolatilityPause(event indicators.VolatilityRegim
 	}
 
 	// 执行暂停或恢复
+	if da.manager == nil {
+		return
+	}
 	if shouldPause {
-		reason := "波动率暂停: " + reason
-		da.manager.PauseOpening(reason)
-		if botRisk != nil {
+		reason := volatilityPauseReasonPrefix + ": " + reason
+		// 已被熔斷 / 複合風控 / 手動等其他來源暫停時不覆蓋原因，否則回落後會誤把風控暫停當成自己的解除
+		if da.manager.PauseOpeningUnlessHeld(reason, isVolatilityPauseReason) {
 			botRisk.PauseOpening = true
 			botRisk.PauseOpeningReason = reason
+			logger.Error("🚨 [波动率暂停] 已暂停开仓: %s", reason)
 		}
-		logger.Error("🚨 [波动率暂停] 已暂停开仓: %s", reason)
-	} else if volConfig.AutoResumeOnNormal && event.NewRegime == indicators.RegimeLow {
-		// 自动恢复开仓
-		if botRisk != nil && botRisk.PauseOpening && strings.Contains(botRisk.PauseOpeningReason, "波动率暂停") {
-			da.manager.ResumeOpening()
+	} else if volConfig.AutoResumeOnNormal && event.NewRegime <= indicators.RegimeNormal {
+		// 波动率回到正常或低波动即自动恢复；只解除波动率自己设置的暂停，不解除风控暂停
+		if da.manager.ResumeOpeningIfOwned(isVolatilityPauseReason) {
 			botRisk.PauseOpening = false
 			botRisk.PauseOpeningReason = ""
-			logger.Info("✅ [波动率恢复] 波动率回归正常，已恢复开仓")
+			logger.Info("✅ [波动率恢复] 波动率回归 %s，已恢复开仓", event.NewRegime)
 		}
 	}
+}
+
+// isVolatilityPauseReason 暂停原因是否由波动率暂停设置
+func isVolatilityPauseReason(reason string) bool {
+	return strings.HasPrefix(reason, volatilityPauseReasonPrefix)
 }
 
 // getStrategyDirection 获取策略方向（简化版）
@@ -949,33 +962,5 @@ func (da *DynamicAdjuster) getStrategyDirection() string {
 	}
 	// 默认返回做多
 	return "long"
-}
-
-// CheckAndResumeOpening 检查是否可以恢复开仓
-func (da *DynamicAdjuster) CheckAndResumeOpening() {
-	if len(da.cfg.Trading.Symbols) == 0 {
-		return
-	}
-
-	botRisk := da.cfg.Trading.Symbols[0].OpenPositionControl.BotRiskControl
-	if botRisk == nil || !botRisk.VolatilityPauseEnabled {
-		return
-	}
-
-	volConfig := botRisk.VolatilityPauseConfig
-	if !volConfig.AutoResumeOnNormal {
-		return
-	}
-
-	// 检查当前波动率
-	regime := da.GetCurrentVolatilityRegime()
-	if regime == indicators.RegimeLow || regime == indicators.RegimeNormal {
-		if botRisk.PauseOpening && strings.Contains(botRisk.PauseOpeningReason, "波动率暂停") {
-			da.manager.ResumeOpening()
-			botRisk.PauseOpening = false
-			botRisk.PauseOpeningReason = ""
-			logger.Info("✅ [波动率恢复] 波动率回归正常，已恢复开仓")
-		}
-	}
 }
 
