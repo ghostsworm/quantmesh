@@ -144,7 +144,7 @@ dsn: "quantmesh:secret@tcp(localhost:3306)/quantmesh?charset=utf8mb4&parseTime=T
 | `grid_mode` | string | "arithmetic" | 網格模式：`arithmetic` 等差、`geometric` 等比（等比時 `price_interval` 為比例，如 0.005=0.5%） |
 | `grid_shift_step` | float64 | 同 price_interval | 網格上移/下移步長（供 API 或按鈕使用） |
 | `close_on_stop` | bool | false | 策略停止時是否自動全部平倉 |
-| `grid_risk_control` | object | — | 網格風控：enabled、stop_loss_ratio、take_profit_trigger_ratio、trailing_take_profit_ratio、max_grid_layers、max_open_orders_at_cap、trend_filter_enabled；詳見 [GRID_STRATEGY_ADVANCED_FEATURES.md](GRID_STRATEGY_ADVANCED_FEATURES.md) 與 [RISK_CONTROL_GUIDE.md](RISK_CONTROL_GUIDE.md) |
+| `grid_risk_control` | object | — | 網格風控：enabled、stop_loss_ratio、stop_loss_basis（`position` 預設=浮虧/持倉名義價值；`equity`=浮虧/帳戶權益，權益緩存約 10s 後台刷新，暫無數據時回退 position）、take_profit_trigger_ratio、trailing_take_profit_ratio、max_grid_layers、max_open_orders_at_cap、trend_filter_enabled；詳見 [GRID_STRATEGY_ADVANCED_FEATURES.md](GRID_STRATEGY_ADVANCED_FEATURES.md) 與 [RISK_CONTROL_GUIDE.md](RISK_CONTROL_GUIDE.md) |
 
 示例（單一交易對含進階參數與網格風控）：
 
@@ -170,6 +170,24 @@ trading:
         max_open_orders_at_cap: 0
         trend_filter_enabled: true
 ```
+
+### 手續費感知利差與 PostOnly 重定價（全局 `trading` 段）
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `fee_aware_spread.enabled` | bool | true（未配置即啟用） | 平倉利差取 `max(profit_spread, 開倉基準價 × (2×費率 + safety_margin_ratio))`。網格單一律 PostOnly，按 maker 費率計算；費率在 Bot 啟動時從交易所接口拉取（受 `timing.skip_exchange_fee_on_bot_start` 控制，目前支持 Binance/Bitget 合約），失敗或現貨時回退 `exchanges.<name>.fee_rate`（maker 保守取同值），並按 `timing.fee_rate_refresh_minutes` 定期刷新。配置利差低於下界時自動抬高，每個 Bot 只告警一次 |
+| `fee_aware_spread.safety_margin_ratio` | float64 | 0.0002 | 安全邊際（價格比例，0.0002=0.02%）；<=0 使用預設值 |
+| `post_only_reprice_max_attempts` | int | 3 | PostOnly 被拒（如 Binance -5022）時往遠離盤口方向移一個 tick 重掛的最大次數；超過後本輪放棄，下一輪重新計算。**永不降級為 GTC 吃單**。平倉單被交易所撤銷/過期後，下次掛單價至少在現價外 `(1+連續被拒次數)` 個 tick（封頂此值） |
+
+```yaml
+trading:
+  fee_aware_spread:
+    enabled: true
+    safety_margin_ratio: 0.0002
+  post_only_reprice_max_attempts: 3
+```
+
+> 行為說明：`AdjustOrders` 價格推送去抖——價格在 0.1×網格間距的分桶內移動、且無訂單/成交事件時跳過全量重算（至少每 1s 全量一次）；網格風控（止損、回撤止盈、關閉條件）仍每個 tick 檢查。下單路徑的帳戶信息緩存 5s，保證金不足時立即失效。全平倉（止損/熔斷）優先按盤口可成交價下 reduce-only 限價單（覆蓋持倉數量所需的買盤/賣盤檔位，讓價不超過現價±1%），無盤口數據時回退現價±1%。
 
 ## 配置模板
 

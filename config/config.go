@@ -210,6 +210,57 @@ type GridRiskControl struct {
 	CloseConditionEnabled      bool    `yaml:"close_condition_enabled" json:"close_condition_enabled"`             // 是否啟用關閉條件
 	CloseConditionProfitTarget float64 `yaml:"close_condition_profit_target" json:"close_condition_profit_target"` // 盈利率達到此值時停止 Bot（如 0.2 表示 20%）
 	CloseConditionLossLimit    float64 `yaml:"close_condition_loss_limit" json:"close_condition_loss_limit"`       // 虧損率達到此值時停止 Bot（如 0.1 表示 10%）
+	// StopLossBasis 硬止損比例的分母：position=按持倉名義價值（預設，兼容舊行為）/ equity=按帳戶權益
+	StopLossBasis string `yaml:"stop_loss_basis,omitempty" json:"stop_loss_basis,omitempty"`
+}
+
+// 硬止損分母取值
+const (
+	StopLossBasisPosition = "position"
+	StopLossBasisEquity   = "equity"
+)
+
+// GetStopLossBasis 返回歸一化後的止損分母；空或未知值回退為 position
+func (g GridRiskControl) GetStopLossBasis() string {
+	if strings.EqualFold(strings.TrimSpace(g.StopLossBasis), StopLossBasisEquity) {
+		return StopLossBasisEquity
+	}
+	return StopLossBasisPosition
+}
+
+// DefaultFeeAwareSafetyMarginRatio 費率感知利差的預設安全邊際（按價格比例，0.0002 = 0.02%）
+const DefaultFeeAwareSafetyMarginRatio = 0.0002
+
+// DefaultPostOnlyRepriceMaxAttempts PostOnly 被拒後向遠離盤口方向重定價的預設最大次數
+const DefaultPostOnlyRepriceMaxAttempts = 3
+
+// FeeAwareSpreadConfig 費率感知最小利差：平倉利差不低於 entryPrice × (2×費率 + 安全邊際)
+type FeeAwareSpreadConfig struct {
+	// Enabled 是否啟用；未配置（nil）時預設啟用
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	// SafetyMarginRatio 安全邊際（價格比例）；<=0 時使用 DefaultFeeAwareSafetyMarginRatio
+	SafetyMarginRatio float64 `yaml:"safety_margin_ratio,omitempty" json:"safety_margin_ratio,omitempty"`
+}
+
+// IsEnabled 未配置時預設啟用
+func (f FeeAwareSpreadConfig) IsEnabled() bool {
+	return f.Enabled == nil || *f.Enabled
+}
+
+// GetSafetyMarginRatio 返回安全邊際，未配置或非正數時使用預設值
+func (f FeeAwareSpreadConfig) GetSafetyMarginRatio() float64 {
+	if f.SafetyMarginRatio <= 0 {
+		return DefaultFeeAwareSafetyMarginRatio
+	}
+	return f.SafetyMarginRatio
+}
+
+// EffectivePostOnlyRepriceMaxAttempts 歸一化 PostOnly 重定價次數，<=0 時使用預設值
+func EffectivePostOnlyRepriceMaxAttempts(n int) int {
+	if n <= 0 {
+		return DefaultPostOnlyRepriceMaxAttempts
+	}
+	return n
 }
 
 // RocketTieredGridConfig 三級火箭網格配置
@@ -600,6 +651,11 @@ type Config struct {
 		OrderbookOptimization OrderbookOptimization `yaml:"orderbook_optimization"`
 		SmartOrder            SmartOrderConfig      `yaml:"smart_order,omitempty" json:"smart_order,omitempty"` // 智能掛單配置
 		OpenPositionControl   OpenPositionControl   `yaml:"open_position_control" json:"open_position_control"` // 開倉管理
+
+		// FeeAwareSpread 費率感知最小利差（未配置時預設啟用）
+		FeeAwareSpread FeeAwareSpreadConfig `yaml:"fee_aware_spread,omitempty" json:"fee_aware_spread,omitempty"`
+		// PostOnlyRepriceMaxAttempts PostOnly 被拒後向遠離盤口方向移動一個 tick 重掛的最大次數（0=預設 3）；永不降級為 GTC
+		PostOnlyRepriceMaxAttempts int `yaml:"post_only_reprice_max_attempts,omitempty" json:"post_only_reprice_max_attempts,omitempty"`
 	} `yaml:"trading"`
 
 	System struct {
@@ -2519,6 +2575,9 @@ func (c *Config) Validate() error {
 			}
 			if sc.GridRiskControl.TrailingTakeProfitRatio == 0 {
 				sc.GridRiskControl.TrailingTakeProfitRatio = c.Trading.GridRiskControl.TrailingTakeProfitRatio
+			}
+			if strings.TrimSpace(sc.GridRiskControl.StopLossBasis) == "" {
+				sc.GridRiskControl.StopLossBasis = c.Trading.GridRiskControl.StopLossBasis
 			}
 		}
 

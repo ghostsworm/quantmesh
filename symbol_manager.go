@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"quantmesh/arbitrage"
@@ -13,6 +14,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/exchange/binance"
+	"quantmesh/feerate"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/monitor"
@@ -83,6 +85,73 @@ func logAdjustOrdersError(ctx context.Context, symbol string, err error) {
 		return
 	}
 	logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symbol, err)
+}
+
+// fetchExchangeFeeRates 從交易所接口拉取 maker/taker 費率（測試可替換）
+var fetchExchangeFeeRates = feerate.FetchFromExchangeAPI
+
+// gridFeeRateSource 網格費率來源（日誌用）
+const (
+	gridFeeRateSourceExchange = "exchange_api"
+	gridFeeRateSourceConfig   = "config_fee_rate"
+)
+
+// resolveGridFeeRates 計算網格費率感知利差使用的 maker/taker：
+// 合約且未跳過時優先交易所接口（feerate 目前只支持合約費率端點）；失敗或現貨時回退配置 fee_rate（maker 保守地取同值）。
+// 返回 taker <= 0 表示無可用費率。
+func resolveGridFeeRates(cfg *config.Config, symCfg config.SymbolConfig, configFeeRate float64, allowExchange bool) (maker, taker float64, source string) {
+	maker, taker, source = configFeeRate, configFeeRate, gridFeeRateSourceConfig
+	if !allowExchange || cfg == nil || config.IsSpotMarketType(symCfg.GetMarketType()) {
+		return maker, taker, source
+	}
+	m, t, err := fetchExchangeFeeRates(cfg, symCfg.Exchange, symCfg.Symbol)
+	if err != nil || t <= 0 {
+		logger.Info("ℹ️ [%s:%s] 從交易所拉取 maker/taker 費率失敗，使用配置 fee_rate=%.4f%%: %v",
+			symCfg.Exchange, symCfg.Symbol, configFeeRate*100, err)
+		return maker, taker, source
+	}
+	return m, t, gridFeeRateSourceExchange
+}
+
+// applyGridFeeRates 啟動時為倉位管理器注入費率（遵守 timing.skip_exchange_fee_on_bot_start）
+func applyGridFeeRates(ctx context.Context, cfg *config.Config, symCfg config.SymbolConfig, configFeeRate float64, spm *position.SuperPositionManager) {
+	if spm == nil {
+		return
+	}
+	maker, taker, source := resolveGridFeeRates(cfg, symCfg, configFeeRate, cfg != nil && !cfg.Timing.SkipExchangeFeeOnBotStart)
+	if taker <= 0 {
+		logger.WarnCtx(ctx, "⚠️ [%s] 無可用手續費率，費率感知最小利差不生效", symCfg.Symbol)
+		return
+	}
+	spm.SetFeeRates(maker, taker)
+	logger.InfoCtx(ctx, "💳 [%s] 網格費率來源: %s (maker %.4f%% / taker %.4f%%)", symCfg.Symbol, source, maker*100, taker*100)
+}
+
+// startGridFeeRateRefresh 按 timing.fee_rate_refresh_minutes 定期刷新倉位管理器費率；返回停止函數（可重複調用）
+func startGridFeeRateRefresh(ctx context.Context, cfg *config.Config, symCfg config.SymbolConfig, configFeeRate float64, spm *position.SuperPositionManager) func() {
+	if spm == nil || cfg == nil || cfg.Timing.FeeRateRefreshMinutes <= 0 {
+		return func() {}
+	}
+	interval := time.Duration(cfg.Timing.FeeRateRefreshMinutes) * time.Minute
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				if maker, taker, _ := resolveGridFeeRates(cfg, symCfg, configFeeRate, true); taker > 0 {
+					spm.SetFeeRates(maker, taker)
+				}
+			}
+		}
+	}()
+	return func() { once.Do(func() { close(done) }) }
 }
 
 // runtimeKey 生成唯一键（exchange:symbol:market_type）
@@ -467,7 +536,12 @@ func startSymbolRuntime(
 	}
 	exchangeAdapter := &positionExchangeAdapter{exchange: ex}
 
+	// PostOnly 被拒時重定價重掛（永不降級 GTC）
+	exchangeExecutor.SetPostOnlyRepriceMaxAttempts(localCfg.Trading.PostOnlyRepriceMaxAttempts)
+
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	// 費率感知最小利差：注入 maker/taker 費率（交易所接口優先，失敗回退配置 fee_rate）
+	applyGridFeeRates(ctx, &localCfg, symCfg, feeRate, superPositionManager)
 	if storageService != nil {
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
@@ -1187,7 +1261,11 @@ func startSymbolRuntime(
 	openingController.Start()
 	rt.OpeningController = openingController
 
+	// 按 timing.fee_rate_refresh_minutes 定期刷新費率（放在所有可能提前返回的初始化步驟之後，避免協程洩漏）
+	stopFeeRefresh := startGridFeeRateRefresh(ctx, &localCfg, symCfg, feeRate, superPositionManager)
+
 	stopFn := func() {
+		stopFeeRefresh()
 		// 終止時全部平倉：若配置了 close_on_stop，先執行全平倉
 		if symCfg.CloseOnStop && superPositionManager != nil {
 			logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)

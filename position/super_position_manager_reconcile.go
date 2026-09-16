@@ -271,6 +271,27 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	// 按方向撤銷開倉委託（LONG 撤 BUY、SHORT 撤 SELL、BOTH 撤空槽上的開倉單）
 	spm.CancelAllOpenOrders()
 
+	// 先統計各方向待平數量，在不持有槽位鎖時查一次盤口，按可成交價平倉
+	var sellQty, buyQty float64
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			leg := slot.PositionLeg
+			if leg == PositionLegNone {
+				leg = PositionLegLong
+			}
+			if spm.liquidationIsShortLeg(leg) {
+				buyQty += slot.PositionQty
+			} else {
+				sellQty += slot.PositionQty
+			}
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	bookPrices := spm.fetchLiquidationBookPrices(sellQty, buyQty)
+
 	var closeOrders []*OrderRequest
 	// 記錄被標為 Pending 的槽位，下單失敗時回滾，避免槽位永久卡死
 	var pendingPrices []float64
@@ -297,17 +318,12 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			if leg == PositionLegNone {
 				leg = PositionLegLong
 			}
-			var side string
-			var px float64
+			// 空頭平倉 BUY 吃賣盤、多頭平倉 SELL 吃買盤；無盤口時用現價±1%
+			side := "SELL"
 			if spm.liquidationIsShortLeg(leg) {
-				// 空頭平倉：BUY reduceOnly，略高於現價以確保成交
 				side = "BUY"
-				px = lastPrice * 1.01
-			} else {
-				side = "SELL"
-				px = lastPrice * 0.99
 			}
-			px = roundPrice(px, spm.priceDecimals)
+			px := roundPrice(liquidationLimitPrice(side, lastPrice, bookPrices), spm.priceDecimals)
 
 			clientOID := spm.generateClientOrderID(price, side, "stop_loss")
 

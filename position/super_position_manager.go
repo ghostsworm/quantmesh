@@ -134,7 +134,7 @@ type InventorySlot struct {
 	// 🔥 新增：槽位鎖定状態，防止並发重複操作
 	SlotStatus string // FREE/PENDING/LOCKED
 
-	// PostOnly失败计數（连续失败3次后降级為普通單）
+	// PostOnly 连续被拒/過期计數：平倉價按此計數逐 tick 遠離盤口（不再降級為普通單），成交後重置
 	PostOnlyFailCount int
 
 	// 買入手續費累計（該槽位持倉對應的買單手續費，賣出時按比例攤銷）
@@ -283,6 +283,12 @@ type SuperPositionManager struct {
 	allocReservations allocationReservations
 	// 槓桿倍數緩存（WS 回調只讀緩存，不做 REST）
 	leverage leverageCache
+	// 帳戶信息緩存（AdjustOrders 資金分配與權益止損共用，避免每個 tick 調 GetAccount）
+	account accountCache
+	// 手續費率（費率感知最小利差）
+	fees feeRateState
+	// AdjustOrders 去抖狀態
+	adjust adjustDebounce
 
 	// 事件總線（用於发送告警）
 	eventBus EventBus
@@ -425,6 +431,7 @@ func (spm *SuperPositionManager) Pause() {
 // Resume 恢複交易
 func (spm *SuperPositionManager) Resume() {
 	spm.isPaused.Store(false)
+	spm.markAdjustDirty()
 	logger.Info("▶️ [%s] 倉位管理器已恢複交易", spm.logPrefix())
 }
 
@@ -557,6 +564,7 @@ func (spm *SuperPositionManager) ResumeOpening() {
 }
 
 func (spm *SuperPositionManager) afterOpeningResumed() {
+	spm.markAdjustDirty()
 	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
 
 	storage.AppendBotRiskControlEvent(spm.botID, "resumed", "", "opening_manager")
@@ -1683,8 +1691,18 @@ func (spm *SuperPositionManager) GetProfitSpread() float64 {
 	return spm.getEffectiveProfitSpread()
 }
 
-// getEffectiveProfitSpread 獲取有效利潤間距：ProfitSpread > 0 則使用，否則回退到 PriceInterval
+// getEffectiveProfitSpread 獲取有效利潤間距：ProfitSpread > 0 則使用，否則回退到 PriceInterval；
+// 再與費率下界取大（參考價為最新市價，無市價時用錨點；網格單均為 PostOnly，按 maker 費率）
 func (spm *SuperPositionManager) getEffectiveProfitSpread() float64 {
+	refPrice, _ := spm.lastMarketPrice.Load().(float64)
+	if refPrice <= 0 {
+		refPrice = spm.anchorPrice()
+	}
+	return spm.applyFeeAwareSpread(spm.configuredProfitSpread(), refPrice, gridOrdersPostOnly)
+}
+
+// configuredProfitSpread 配置的利潤間距（不含費率下界）
+func (spm *SuperPositionManager) configuredProfitSpread() float64 {
 	if spm.config.Trading.ProfitSpread > 0 {
 		return spm.config.Trading.ProfitSpread
 	}
@@ -1701,6 +1719,7 @@ func (spm *SuperPositionManager) anchorPrice() float64 {
 // 本方法只保證單次寫入對其他 goroutine 立即可見。
 func (spm *SuperPositionManager) setAnchorPrice(price float64) {
 	spm.anchorPriceBits.Store(math.Float64bits(price))
+	spm.markAdjustDirty()
 }
 
 // GetAnchorPrice 獲取價格锚点
@@ -1743,6 +1762,7 @@ func (spm *SuperPositionManager) UpdateTradingParams(priceInterval, profitSpread
 	}
 
 	if len(changes) > 0 {
+		spm.markAdjustDirty()
 		logger.Info("🔄 [%s] 交易参數已热更新: %s",
 			spm.logPrefix(), strings.Join(changes, ", "))
 		return true

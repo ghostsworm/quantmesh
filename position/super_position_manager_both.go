@@ -3,7 +3,6 @@ package position
 import (
 	"context"
 	"math"
-	"reflect"
 	"sort"
 	"time"
 
@@ -212,10 +211,9 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			}
 			coid := spm.generateClientOrderID(price, "BUY", "")
 			slot.SlotStatus = SlotStatusPending
-			usePostOnly := slot.PostOnlyFailCount < 3
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol: spm.config.Trading.Symbol, Side: "BUY", Price: price, Quantity: qty,
-				PriceDecimals: spm.priceDecimals, PostOnly: usePostOnly, ClientOrderID: coid,
+				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			longBuys++
 		}
@@ -255,10 +253,9 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			}
 			coid := spm.generateClientOrderID(price, "SELL", "")
 			slot.SlotStatus = SlotStatusPending
-			usePostOnly := slot.PostOnlyFailCount < 3
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol: spm.config.Trading.Symbol, Side: "SELL", Price: price, Quantity: qty,
-				PriceDecimals: spm.priceDecimals, PostOnly: usePostOnly, ClientOrderID: coid,
+				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			shortSells++
 		}
@@ -298,7 +295,6 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			leg = PositionLegLong
 		}
 
-		slotSpread := spm.getProfitSpreadForSlot(slotPrice, currentGridPrice)
 		var closePrice float64
 		var closeSide string
 
@@ -308,7 +304,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice < slotPrice {
 				basePrice = slot.AvgBuyPrice
 			}
-			closePrice = basePrice - slotSpread
+			closePrice = basePrice - spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 			if closePrice < buyWindowMinPrice {
 				return true
@@ -319,13 +315,15 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice > slotPrice {
 				basePrice = slot.AvgBuyPrice
 			}
-			closePrice = basePrice + slotSpread
+			closePrice = basePrice + spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 			if slotPrice > sellWindowMaxPrice {
 				return true
 			}
 			closeSide = "SELL"
 		}
+		// PostOnly 平倉價必須在盤口外側（價格已越過平倉價時掛到現價外一個 tick 起，連續被拒則逐步外移）
+		closePrice = spm.makerSafeClosePrice(closePrice, currentPrice, closeSide, slot.PostOnlyFailCount)
 
 		minVal := spm.config.Trading.MinOrderValue
 		if minVal <= 0 {
@@ -363,13 +361,12 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			continue
 		}
 		slot.SlotStatus = SlotStatusPending
-		usePostOnly := slot.PostOnlyFailCount < 3
 		slot.mu.Unlock()
 
 		coid := spm.generateClientOrderID(c.SlotPrice, c.CloseSide, "")
 		ordersToPlace = append(ordersToPlace, &OrderRequest{
 			Symbol: spm.config.Trading.Symbol, Side: c.CloseSide, Price: c.ClosePrice, Quantity: c.Quantity,
-			PriceDecimals: spm.priceDecimals, ReduceOnly: !spm.isSpot(), PostOnly: usePostOnly, ClientOrderID: coid,
+			PriceDecimals: spm.priceDecimals, ReduceOnly: !spm.isSpot(), PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 		})
 		closeN++
 	}
@@ -465,17 +462,10 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 	var accountResult interface{}
 	if spm.exchange != nil {
 		var err error
-		accountResult, err = spm.exchange.GetAccount(ctx)
+		// 帳戶信息緩存 accountCacheTTL，避免每輪調整都打 GetAccount REST
+		accountResult, err = spm.getAccountCached(ctx)
 		if err == nil && accountResult != nil {
-			accountValue := reflect.ValueOf(accountResult)
-			if accountValue.Kind() == reflect.Ptr {
-				accountValue = accountValue.Elem()
-			}
-			if balanceField := accountValue.FieldByName("AvailableBalance"); balanceField.IsValid() && balanceField.CanInterface() {
-				if balance, ok := balanceField.Interface().(float64); ok {
-					accountBalance = balance
-				}
-			}
+			accountBalance = accountAvailableBalance(accountResult)
 		}
 	}
 
@@ -515,6 +505,7 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 		logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 		spm.insufficientMargin = true
 		spm.marginLockTime = time.Now()
+		spm.invalidateAccountCache()
 		spm.CancelAllOpenOrders()
 		if spm.eventBus != nil {
 			spm.eventBus.Publish(&event.Event{

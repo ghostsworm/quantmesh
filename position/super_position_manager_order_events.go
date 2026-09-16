@@ -14,6 +14,8 @@ import (
 // OnOrderUpdate 订單更新回呼（异步订單同步流）
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	update.Status = normalizeOrderStatus(update.Status)
+	// 任何訂單/成交事件都要求下一個 tick 全量重算掛單（AdjustOrders 去抖）
+	spm.markAdjustDirty()
 
 	// 🔥 重構：完全依赖 ClientOrderID 解析
 	price, side, valid := spm.parseClientOrderID(update.ClientOrderID)
@@ -408,7 +410,8 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		} else {
 			// 平倉單被取消/拒绝：应該还持有倉位，保持持倉状態
 			if slot.PositionQty > 0 {
-				// 增加PostOnly失败计數（订單被交易所撤销通常是PostOnly失败）
+				// 增加PostOnly连续被拒计數（订單被交易所撤销通常是PostOnly/GTX過期）：
+				// 下次平倉價會按此計數逐 tick 遠離盤口（封頂 post_only_reprice_max_attempts），始終保持 PostOnly
 				slot.PostOnlyFailCount++
 				logger.Info("🔄 [平倉單取消] 價格: %s, 方向: %s, 保持持倉状態: %.4f, 等待重挂, PostOnly失败计數: %d",
 					formatPrice(price, spm.priceDecimals), side, slot.PositionQty, slot.PostOnlyFailCount)

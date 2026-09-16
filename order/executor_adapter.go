@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/metrics"
 	"quantmesh/utils"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -26,7 +28,32 @@ const (
 	orderLockAcquireTimeout = 5 * time.Second
 	// orderLookupTimeout 下單結果不確定時按 ClientOrderID 回查的超時
 	orderLookupTimeout = 10 * time.Second
+	// orderMaxRetries 非 PostOnly 類錯誤（網路、限流等）的最大重試次數
+	orderMaxRetries = 5
+	// postOnlyRepriceDelay PostOnly 被拒後重定價重掛前的等待
+	postOnlyRepriceDelay = 100 * time.Millisecond
 )
+
+// repricePostOnly 將 PostOnly 被拒的價格往遠離盤口方向移動一個 tick（BUY 下移、SELL 上移）。
+// tick 按價格小數位計算；BUY 下移後價格不為正時返回原價與 false。
+func repricePostOnly(price float64, side string, priceDecimals int) (float64, bool) {
+	if priceDecimals < 0 {
+		priceDecimals = 0
+	}
+	tick := math.Pow10(-priceDecimals)
+	scale := math.Pow10(priceDecimals)
+	var next float64
+	if strings.EqualFold(side, string(exchange.SideSell)) {
+		next = price + tick
+	} else {
+		next = price - tick
+	}
+	next = math.Round(next*scale) / scale
+	if next <= 0 {
+		return price, false
+	}
+	return next, true
+}
 
 // isMarginInsufficientError 判斷是否為餘額/保證金類拒單（含 OKX 現貨 51008）
 func isMarginInsufficientError(errStr string) bool {
@@ -74,6 +101,18 @@ type ExchangeOrderExecutor struct {
 	// 時间配置
 	rateLimitRetryDelay time.Duration
 	orderRetryDelay     time.Duration
+
+	// postOnlyRepriceMaxAttempts PostOnly 被拒後重定價重掛的最大次數（<=0 用預設值）
+	postOnlyRepriceMaxAttempts atomic.Int32
+}
+
+// SetPostOnlyRepriceMaxAttempts 設置 PostOnly 被拒後重定價的最大次數（<=0 使用預設值，並發安全）
+func (oe *ExchangeOrderExecutor) SetPostOnlyRepriceMaxAttempts(n int) {
+	oe.postOnlyRepriceMaxAttempts.Store(int32(config.EffectivePostOnlyRepriceMaxAttempts(n)))
+}
+
+func (oe *ExchangeOrderExecutor) postOnlyMaxAttempts() int {
+	return config.EffectivePostOnlyRepriceMaxAttempts(int(oe.postOnlyRepriceMaxAttempts.Load()))
 }
 
 // NewExchangeOrderExecutor 創建基於交易所接口的订單執行器
@@ -165,12 +204,14 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		return nil, fmt.Errorf("速率限制等待失败: %v", err)
 	}
 
-	maxRetries := 5 // 增加重試次數:3次PostOnly + 1次降级 + 1次保險
 	var lastErr error
-	postOnlyFailCount := 0
-	degraded := false // 是否已降级為普通單
+	// PostOnly 被拒時不降級為 GTC（會變成吃單、手續費翻倍），而是往遠離盤口方向移一個 tick 重掛
+	postOnlyMaxAttempts := oe.postOnlyMaxAttempts()
+	postOnlyRejects := 0
+	orderPrice := req.Price
+	priceDecimals := req.PriceDecimals
 
-	for i := 0; i <= maxRetries; i++ {
+	for i := 0; i <= orderMaxRetries; i++ {
 		// 轉换為通用订單请求
 		exchangeReq := &exchange.OrderRequest{
 			Symbol:        req.Symbol,
@@ -178,33 +219,25 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			Type:          exchange.OrderTypeLimit,
 			TimeInForce:   exchange.TimeInForceGTC,
 			Quantity:      req.Quantity,
-			Price:         req.Price,
+			Price:         orderPrice,
 			PriceDecimals: req.PriceDecimals,
 			ReduceOnly:    req.ReduceOnly,
-			PostOnly:      req.PostOnly && !degraded, // 如果已降级，强制為普通單
-			ClientOrderID: req.ClientOrderID,         // 傳遞自定义订單ID
-			StrategyName:  req.StrategyName,          // 傳遞策略名称
-			StrategyType:  req.StrategyType,          // 傳遞策略類型
-		}
-
-		// 🔥 如果PostOnly已失败3次，降级為普通限價單
-		if postOnlyFailCount >= 3 && req.PostOnly && !degraded {
-			degraded = true
-			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] PostOnly已失败3次，降级為普通限價單: %s %.2f",
-				oe.exchange.GetName(), req.Side, req.Price)
-			exchangeReq.PostOnly = false
+			PostOnly:      req.PostOnly,
+			ClientOrderID: req.ClientOrderID, // 傳遞自定义订單ID
+			StrategyName:  req.StrategyName,  // 傳遞策略名称
+			StrategyType:  req.StrategyType,  // 傳遞策略類型
 		}
 
 		// 呼叫交易所接口
 		exchangeOrder, err := oe.exchange.PlaceOrder(context.Background(), exchangeReq)
 		if err == nil {
-			// 轉换回 Order 格式
+			// 轉换回 Order 格式（價格為實際掛單價，可能已被 PostOnly 重定價）
 			order := &Order{
 				OrderID:       exchangeOrder.OrderID,
 				ClientOrderID: exchangeOrder.ClientOrderID,
 				Symbol:        req.Symbol,
 				Side:          req.Side,
-				Price:         req.Price,
+				Price:         orderPrice,
 				Quantity:      req.Quantity,
 				Status:        string(exchangeOrder.Status),
 				CreatedAt:     time.Now(),
@@ -215,13 +248,15 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			pm.RecordOrder(exchangeName, req.Symbol, req.Side, string(exchangeOrder.Status))
 			pm.RecordOrderSuccess(exchangeName, req.Symbol, req.Side, duration)
 
-			// 根據實際使用的订單類型显示日志
-			orderTypeDesc := "PostOnly"
-			if !exchangeReq.PostOnly {
-				orderTypeDesc = "普通單(PostOnly降级)"
+			orderTypeDesc := "普通單"
+			if exchangeReq.PostOnly {
+				orderTypeDesc = "PostOnly"
+				if postOnlyRejects > 0 {
+					orderTypeDesc = fmt.Sprintf("PostOnly重定價%d次", postOnlyRejects)
+				}
 			}
 			logger.InfoCtx(oe.logCtx(), "✅ [%s] 下單成功(%s): %s %.*f 數量: %.4f 订單ID: %d",
-				oe.exchange.GetName(), orderTypeDesc, req.Side, req.PriceDecimals, req.Price, req.Quantity, exchangeOrder.OrderID)
+				oe.exchange.GetName(), orderTypeDesc, req.Side, req.PriceDecimals, orderPrice, req.Quantity, exchangeOrder.OrderID)
 			return order, nil
 		}
 
@@ -239,19 +274,29 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			logger.WarnCtx(oe.logCtx(), "⚠️ 触发速率限制，等待后重試...")
 			time.Sleep(oe.rateLimitRetryDelay)
 			continue
-		} else if isPostOnlyError(err) && !degraded {
-			// 🔥 PostOnly錯误：價格會立即成交，記錄失败次數(必須放在其他检查之前!)
-			postOnlyFailCount++
-			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] PostOnly被拒(%d/3): %s %.2f, 等待500ms后重試",
-				oe.exchange.GetName(), postOnlyFailCount, req.Side, req.Price)
-
-			// 如果还没达到3次，继续重試PostOnly
-			if postOnlyFailCount < 3 {
-				time.Sleep(500 * time.Millisecond)
-				continue
+		} else if req.PostOnly && isPostOnlyError(err) {
+			// 🔥 PostOnly錯误：價格會立即成交（必須放在其他检查之前!）。
+			// 往遠離盤口方向移一個 tick 重掛，最多 postOnlyMaxAttempts 次；PostOnly 重掛不消耗通用重試次數。
+			postOnlyRejects++
+			if postOnlyRejects == 1 && priceDecimals <= 0 {
+				// 請求未帶價格精度時，按交易所精度計算 tick
+				priceDecimals = oe.exchange.GetPriceDecimals()
 			}
-			// 达到3次后，下一輪循环會触发降级
-			time.Sleep(500 * time.Millisecond)
+			if postOnlyRejects > postOnlyMaxAttempts {
+				pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "post_only_rejected")
+				return nil, fmt.Errorf("PostOnly 重定價 %d 次後仍被拒 %s %s 原價=%.*f 最後價=%.*f: %w",
+					postOnlyMaxAttempts, req.Symbol, req.Side, priceDecimals, req.Price, priceDecimals, orderPrice, err)
+			}
+			next, ok := repricePostOnly(orderPrice, req.Side, priceDecimals)
+			if !ok {
+				return nil, fmt.Errorf("PostOnly 被拒且無法再重定價 %s %s 價格=%.*f: %w",
+					req.Symbol, req.Side, priceDecimals, orderPrice, err)
+			}
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] PostOnly被拒(%d/%d): %s %.*f → 重定價 %.*f 重掛",
+				exchangeName, postOnlyRejects, postOnlyMaxAttempts, req.Side, priceDecimals, orderPrice, priceDecimals, next)
+			orderPrice = next
+			i--
+			time.Sleep(postOnlyRepriceDelay)
 			continue
 		} else if isMarginInsufficientError(errStr) {
 			// 保证金不足，不重試
@@ -273,14 +318,16 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		}
 
 		// 其他錯误，短暂等待后重試
-		if i < maxRetries {
+		if i < orderMaxRetries {
 			time.Sleep(oe.orderRetryDelay)
 		}
 	}
 
 	// 重試耗盡時結果可能不確定（超時/網路錯誤但交易所已受理，或重試時報 ClientOrderID 重複）：
 	// 按 ClientOrderID 回查，找到則視為成功，避免上層釋放槽位後以新 ID 重複挂單
-	if found := oe.findOrderByClientOrderID(req); found != nil {
+	lookupReq := *req
+	lookupReq.Price = orderPrice // 可能已被 PostOnly 重定價
+	if found := oe.findOrderByClientOrderID(&lookupReq); found != nil {
 		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 下單重試失败但交易所已存在同 ClientOrderID 订單，視為成功: %s 订單ID: %d (最後錯誤: %v)",
 			exchangeName, req.ClientOrderID, found.OrderID, lastErr)
 		pm.RecordOrder(exchangeName, req.Symbol, req.Side, found.Status)
@@ -290,7 +337,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 
 	// 記錄失败指標
 	pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "max_retries_exceeded")
-	return nil, fmt.Errorf("下單失败（重試%d次）: %w", maxRetries, lastErr)
+	return nil, fmt.Errorf("下單失败（重試%d次）: %w", orderMaxRetries, lastErr)
 }
 
 // findOrderByClientOrderID 按 ClientOrderID 回查订單（兼容交易所返佣前綴）。

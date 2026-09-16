@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"reflect"
 	"sort"
 	"time"
 
@@ -64,9 +63,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
 			if totalValue > 0 {
-				pnlRatio := unrealizedPnL / totalValue
+				// 分母：position=持倉名義價值（預設）；equity=帳戶權益（緩存，後台刷新，不在 tick 中同步請求）
+				denominator, basis := spm.stopLossDenominator(totalValue)
+				pnlRatio := unrealizedPnL / denominator
 				if pnlRatio <= -stopLossRatio {
-					logger.Error("🚨 [网格风控] 触发硬為止损! 當前浮亏率: %.2f%%, 阈值: %.2f%%", pnlRatio*100, -stopLossRatio*100)
+					logger.Error("🚨 [网格风控] 触发硬為止损! 當前浮亏率: %.2f%% (分母=%s %.2f), 阈值: %.2f%%", pnlRatio*100, basis, denominator, -stopLossRatio*100)
 					// 发布止损事件，触发飞书/邮件等通知
 					if spm.eventBus != nil {
 						spm.eventBus.Publish(&event.Event{
@@ -81,6 +82,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 								"threshold_pct":  stopLossRatio * 100,
 								"unrealized_pnl": unrealizedPnL,
 								"total_value":    totalValue,
+								"basis":          basis,
+								"denominator":    denominator,
 							},
 						})
 					}
@@ -179,6 +182,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			logger.Warn("⏸️ [暂停下單] 保证金不足，暂停下單中... (剩餘時间: %.0f秒)", remainingTime.Seconds())
 			return nil
 		}
+	}
+
+	// 去抖：以上風控每個 tick 都執行；價格未跨出分桶、無訂單/成交事件且未到兜底間隔時跳過全量重算
+	if spm.shouldSkipAdjust(currentPrice, time.Now()) {
+		return nil
 	}
 
 	// 單向淨持倉雙向網格（BOTH）：下方買開多、上方賣開空；平倉 reduce_only
@@ -601,16 +609,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				slot.OrderStatus = OrderStatusNotPlaced
 			}
 
-			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
-			usePostOnly := slot.PostOnlyFailCount < 3
-
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
 				Side:          openSide,
 				Price:         price,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
-				PostOnly:      usePostOnly,
+				PostOnly:      gridOrdersPostOnly, // 永不降級 GTC，被拒由執行器重定價
 				ClientOrderID: clientOID,
 			})
 			buyOrdersToCreate++
@@ -650,9 +655,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				return true
 			}
 
-			// 三級火箭模式：每個槽位使用其檔位對應的利差
-			slotSpread := spm.getProfitSpreadForSlot(slotPrice, currentGridPrice)
+			// 三級火箭模式：每個槽位使用其檔位對應的利差；並與按開倉基準價計算的手續費下界取大
 			var closePrice float64
+			closeSide := "SELL"
 			if spm.isShort() {
 				// SHORT: 買低平倉。必須保證買回價 <= 實際開空均價，否則波動/滑點時可能虧損。
 				// AvgBuyPrice 在 SHORT 模式下存儲的是實際賣出（開空）均價。
@@ -662,7 +667,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					logger.Debug("📊 [%s] 槽位 %.2f 實際開空價(%.2f) < 網格價，平倉基準價調整為 %.2f",
 						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
 				}
-				closePrice = basePrice - slotSpread
+				closePrice = basePrice - spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
+				closeSide = "BUY"
 			} else {
 				// LONG: 賣高平倉。必須保證賣出價 >= 實際買入均價，否則波動/滑點時可能虧損
 				basePrice := slotPrice
@@ -671,9 +677,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					logger.Debug("📊 [%s] 槽位 %.2f 實際買入價(%.2f) > 網格價，平倉基準價調整為 %.2f",
 						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
 				}
-				closePrice = basePrice + slotSpread
+				closePrice = basePrice + spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
 			}
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
+			// PostOnly 平倉價必須在盤口外側（價格已越過平倉價時掛到現價外一個 tick 起，連續被拒則逐步外移）
+			closePrice = spm.makerSafeClosePrice(closePrice, currentPrice, closeSide, slot.PostOnlyFailCount)
 
 			// 窗口检查：LONG 跳過 slot 高於上限；SHORT 跳過 close 低於下限
 			if spm.isShort() {
@@ -759,8 +767,6 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			if slot.OrderID == 0 && slot.OrderStatus == OrderStatusCanceled {
 				slot.OrderStatus = OrderStatusNotPlaced
 			}
-			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
-			usePostOnly := slot.PostOnlyFailCount < 3
 			slot.mu.Unlock()
 
 			// 生成 ClientOrderID
@@ -801,8 +807,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				Price:         candidate.ClosePrice,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
-				ReduceOnly:    !spm.isSpot(), // 平倉單需要 ReduceOnly
-				PostOnly:      usePostOnly,
+				ReduceOnly:    !spm.isSpot(),      // 平倉單需要 ReduceOnly
+				PostOnly:      gridOrdersPostOnly, // 永不降級 GTC，被拒由執行器重定價
 				ClientOrderID: clientOID,
 			})
 			sellOrdersToCreate++
@@ -880,25 +886,16 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 執行下單前，检查资金分配
 	if len(ordersToPlace) > 0 {
-		// 獲取帳戶餘額（從交易所獲取實際餘額）
+		// 獲取帳戶餘額（緩存 accountCacheTTL，避免每輪調整都打 GetAccount REST）
 		var accountBalance float64 = 0
 		var accountResult interface{} = nil
 		ctx := context.Background()
 		if spm.exchange != nil {
 			var err error
-			accountResult, err = spm.exchange.GetAccount(ctx)
+			accountResult, err = spm.getAccountCached(ctx)
 			if err == nil && accountResult != nil {
-				// 使用反射獲取 AvailableBalance 字段
-				// 注意：不同交易所可能返回不同的類型，使用反射统一处理
-				accountValue := reflect.ValueOf(accountResult)
-				if accountValue.Kind() == reflect.Ptr {
-					accountValue = accountValue.Elem()
-				}
-				if balanceField := accountValue.FieldByName("AvailableBalance"); balanceField.IsValid() && balanceField.CanInterface() {
-					if balance, ok := balanceField.Interface().(float64); ok {
-						accountBalance = balance
-					}
-				}
+				// 使用反射獲取 AvailableBalance 字段（兼容不同交易所類型）
+				accountBalance = accountAvailableBalance(accountResult)
 				// 使用可用餘額（AvailableBalance）進行资金分配检查
 				// 注意：對於合約账戶，如果有持倉，AvailableBalance可能為0，这是正常的
 				logger.Debug("💰 [%s] [资金分配] 账戶可用餘額: %.2f USDT", spm.logPrefix(), accountBalance)
@@ -966,6 +963,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
+			spm.invalidateAccountCache()
 			// 按方向撤銷開倉委託（SHORT 撤賣單，不誤撤平倉單）
 			spm.CancelAllOpenOrders()
 
