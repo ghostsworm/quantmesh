@@ -3,11 +3,13 @@ package position
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/utils"
 )
 
 // CloseMethod 平仓方式
@@ -52,6 +54,8 @@ type ClosePositionManager struct {
 	exchange ExchangeWrapper
 	botID    string
 	symbol   string
+	// priceDecimals 价格精度（限价单使用），未知时为 -1
+	priceDecimals int
 
 	// 平仓记录存储
 	records map[string]*ClosePositionRecord
@@ -95,14 +99,29 @@ type ExchangeOrder struct {
 // NewClosePositionManager 创建平仓管理器
 func NewClosePositionManager(exchange ExchangeWrapper, botID, symbol string) *ClosePositionManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &ClosePositionManager{
-		exchange: exchange,
-		botID:    botID,
-		symbol:   symbol,
-		records:  make(map[string]*ClosePositionRecord),
-		ctx:      ctx,
-		cancel:   cancel,
+	priceDecimals := -1
+	if p, ok := exchange.(priceDecimalsProvider); ok {
+		priceDecimals = p.GetPriceDecimals()
 	}
+	return &ClosePositionManager{
+		exchange:      exchange,
+		botID:         botID,
+		symbol:        symbol,
+		priceDecimals: priceDecimals,
+		records:       make(map[string]*ClosePositionRecord),
+		ctx:           ctx,
+		cancel:        cancel,
+	}
+}
+
+// priceDecimalsProvider 可选接口：交易所包装器能提供价格精度时使用
+type priceDecimalsProvider interface {
+	GetPriceDecimals() int
+}
+
+// SetPriceDecimals 设置价格精度（覆盖交易所包装器提供的值）
+func (cpm *ClosePositionManager) SetPriceDecimals(decimals int) {
+	cpm.priceDecimals = decimals
 }
 
 // ClosePositions 平仓（支持市价/限价）
@@ -128,13 +147,17 @@ func (cpm *ClosePositionManager) ClosePositions(
 		record.TimeoutAt = record.CreatedAt.Add(time.Duration(cfg.TimeoutSec) * time.Second)
 	}
 
-	// 构建订单请求
+	// 构建订单请求：优先使用交易所真实价格精度，未知时退回旧默认值
+	reqPriceDecimals := cpm.priceDecimals
+	if reqPriceDecimals < 0 {
+		reqPriceDecimals = fallbackClosePriceDecimals
+	}
 	orderReq := &ExchangeOrderRequest{
 		Symbol:        cpm.symbol,
 		Side:          side,
 		Quantity:      quantity,
 		ReduceOnly:    true,
-		PriceDecimals: 2, // 默认精度
+		PriceDecimals: reqPriceDecimals,
 	}
 
 	if CloseMethod(cfg.Method) == CloseMethodMarket {
@@ -148,11 +171,22 @@ func (cpm *ClosePositionManager) ClosePositions(
 			record.UpdatedAt = time.Now()
 			return record, err
 		}
+		if currentPrice <= 0 {
+			err = fmt.Errorf("获取价格失败: %s 最新价无效 %.8f", cpm.symbol, currentPrice)
+			record.Status = CloseStatusFailed
+			record.ErrorMessage = err.Error()
+			record.UpdatedAt = time.Now()
+			return record, err
+		}
 		price := calculateLimitPrice(currentPrice, side, cfg.PriceOffset)
+		if cpm.priceDecimals >= 0 {
+			price = utils.RoundToDecimals(price, cpm.priceDecimals)
+		}
 		orderReq.Type = "LIMIT"
 		orderReq.Price = price
 		orderReq.TimeInForce = "GTC"
-		orderReq.PostOnly = true // 限价平仓使用 PostOnly 获取 Maker 手续费
+		// 平仓（含熔断/紧急平仓）不使用 PostOnly：吃单价会被交易所直接拒绝，导致仓位平不掉
+		orderReq.PostOnly = false
 		record.Price = price
 	}
 
@@ -314,6 +348,56 @@ func (cpm *ClosePositionManager) Stop() {
 	cpm.cancel()
 	cpm.wg.Wait()
 }
+
+// ClosePlan 平仓计划：方向 + 数量
+type ClosePlan struct {
+	Side     string  // BUY（平空）/ SELL（平多）
+	Quantity float64 // 平仓数量（已按数量精度向下取整）
+}
+
+// PlanCloseOrder 根据 Bot 自身净持仓（多为正、空为负）计算平仓方向与数量
+//   - exchangeNetQty/hasExchange：交易所该交易对的净持仓（可选），用于封顶，避免 reduceOnly 超量被拒
+//   - ratio：平仓比例 0~1，0 或 1 表示全仓
+//   - quantityDecimals：数量精度，向下取整，避免超过实际持仓
+func PlanCloseOrder(botNetQty, exchangeNetQty float64, hasExchange bool, ratio float64, quantityDecimals int) (*ClosePlan, error) {
+	if ratio < 0 || ratio > 1 {
+		return nil, fmt.Errorf("平仓比例无效: %.4f（应在 0~1 之间）", ratio)
+	}
+	if ratio == 0 {
+		ratio = 1
+	}
+	if math.Abs(botNetQty) < closeQtyEpsilon {
+		return nil, fmt.Errorf("没有可平的持仓")
+	}
+
+	side := "SELL"
+	if botNetQty < 0 {
+		side = "BUY"
+	}
+	qty := math.Abs(botNetQty)
+
+	if hasExchange {
+		if math.Abs(exchangeNetQty) < closeQtyEpsilon || (exchangeNetQty > 0) != (botNetQty > 0) {
+			return nil, fmt.Errorf("交易所持仓与本地方向不一致: 本地=%.8f 交易所=%.8f", botNetQty, exchangeNetQty)
+		}
+		qty = math.Min(qty, math.Abs(exchangeNetQty))
+	}
+
+	qty *= ratio
+	if quantityDecimals >= 0 {
+		qty = utils.FloorToDecimals(qty, quantityDecimals)
+	}
+	if qty <= 0 {
+		return nil, fmt.Errorf("平仓数量按精度取整后为 0（持仓=%.8f, 比例=%.4f, 精度=%d）", math.Abs(botNetQty), ratio, quantityDecimals)
+	}
+	return &ClosePlan{Side: side, Quantity: qty}, nil
+}
+
+// fallbackClosePriceDecimals 无法获取交易所价格精度时的兜底值
+const fallbackClosePriceDecimals = 2
+
+// closeQtyEpsilon 持仓数量视为 0 的阈值
+const closeQtyEpsilon = 1e-12
 
 // calculateLimitPrice 计算限价
 func calculateLimitPrice(currentPrice float64, side string, offsetPercent float64) float64 {

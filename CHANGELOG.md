@@ -2,6 +2,20 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
+## [3.110.0-rc4] - 2026-09-17
+
+依据 `docs/audits/2026-09-17-full-audit.md` 的整改，分轮提交。
+
+### Fixed — R1 止血
+- **SHORT 方向链路**：单向 SHORT 未实现盈亏符号修正（开仓价优先取均价）；`LiquidateAll` 做空改为 `BUY reduceOnly`，按方向撤开仓单，下单失败的槽位回滚为 FREE；风控撤单改为方向感知的 `CancelAllOpenOrders`；资金费率偏向新增 `GetSellBias`，趋势过滤对做空按「上涨不利」镜像；做空「秒成交/秒撤单」判定按开仓腿/平仓腿识别。（A1–A4、A6）
+- **对账器**：SHORT 按绝对值比较交易所持仓；BOTH 模式（仅有净持仓）跳过自动清零/裁剪并告警；方向不符时跳过同步。（A5）
+- **Web 平仓接口**：去掉硬编码 `SELL 100`，按本 Bot 净持仓（合约以交易所持仓封顶）和比例计算方向与数量；`CloseAllPositions` 不再用「成本价值 ÷ 现价」估算数量；`GetLatestPrice` 接通底层交易所；平仓价格精度取交易所真实精度，平仓单不再使用 PostOnly。（B1、B2）
+- **利润提取**：`immediate` 规则只提取上次成功提取之后的增量利润并扣除已提取额，不再每 5 分钟重复划转累计利润；`MaxWithdrawAmount` 生效；daily/weekly 改为定时到目标时刻并按周期去重，不再受进程启动分钟数影响。（D1、D2）
+- **Redis 分布式锁**：`lockKeys` 加互斥锁，修复并发下单时 `concurrent map writes` 致进程崩溃；下单锁 TTL 10 秒并在持锁期间自动续期；拿锁出错 fail-closed。（E1）
+- **下单空指针**：锁未获取时返回 `order.ErrLockNotAcquired` 而非 `(nil, nil)`，批量下单与适配器不再产生 nil 订单；重试用尽的歧义失败按 ClientOrderID 回查挂单。（E2、E5 部分）
+- **Binance 主网/测试网**：不再在运行期改写进程全局 `futures.UseTestnet`，REST 按实例设置地址，公开 K 线不再影响运行中的测试网 Bot；同一进程混用主网与测试网合约交易适配器会明确报错。listenKey 断线或保活失败时重新申请后再重连（指数退避），Stop 后可再次 Start；遇到 `-1021` 自动重同步服务器时间。（X1、X2、X6）
+- 版本号同步前后端到 `3.110.0-rc4`。
+
 ## [3.110.0-rc3] - 2026-08-26
 
 ### Removed

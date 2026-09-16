@@ -189,11 +189,14 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 		logger.Info("🌐 [Binance] 使用測試網模式")
 	}
 
-	// 設置測試網模式（必須在創建客戶端之前設置）
-	futures.UseTestnet = useTestnet
-
 	if apiKey == "" || secretKey == "" {
 		return nil, fmt.Errorf("Binance API 配置不完整")
+	}
+
+	// 交易適配器需要 WS（用戶數據流 / WS API），其端點由 go-binance 進程全局變量決定：
+	// 首個交易適配器認領網絡，之後拒絕混用（詳見 network.go）
+	if err := claimFuturesNetwork(useTestnet); err != nil {
+		return nil, err
 	}
 
 	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
@@ -212,7 +215,8 @@ func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*Bina
 		logger.Info("🌐 [Binance] 使用測試網模式（公開數據）")
 	}
 
-	futures.UseTestnet = useTestnet
+	// 公開數據只走 REST（按實例設置 BaseURL），不得改寫 futures.UseTestnet，
+	// 否則會把同進程內測試網 Bot 的 WS 連接翻到主網（X1）
 
 	// 公開 API 無需認證，使用占位符通過客戶端構造
 	if apiKey == "" {
@@ -229,10 +233,14 @@ func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*Bina
 func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool) (*BinanceAdapter, error) {
 	symbol = normalizeBinanceSymbolTypo(symbol)
 
-	client := futures.NewClient(apiKey, secretKey)
+	client := newFuturesClient(apiKey, secretKey, useTestnet)
 
-	// 同步服務器時间
-	client.NewSetServerTimeService().Do(context.Background())
+	// 同步服務器時间（失敗不阻斷構造；後續遇到 -1021 會自動重同步）
+	syncCtx, syncCancel := context.WithTimeout(context.Background(), serverTimeResyncTimeout)
+	if _, err := client.NewSetServerTimeService().Do(syncCtx); err != nil {
+		logger.Warn("⚠️ [Binance] 初始同步服務器時間失敗 (testnet=%v): %v", useTestnet, err)
+	}
+	syncCancel()
 
 	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
 
@@ -998,6 +1006,10 @@ type accountData struct {
 
 // fetchAccountViaWebSocket 使用 WebSocket API (v2/account.status) 獲取賬戶
 func (b *BinanceAdapter) fetchAccountViaWebSocket(ctx context.Context) (*accountData, error) {
+	// WS API 端點由 futures.UseTestnet 決定；網絡不一致時拒絕，由調用方回退 REST
+	if futures.UseTestnet != b.useTestnet {
+		return nil, fmt.Errorf("WebSocket API 網絡不一致: 進程 testnet=%v, 適配器 testnet=%v", futures.UseTestnet, b.useTestnet)
+	}
 	resp, err := b.client.GetAccountInfoWs()
 	if err != nil {
 		return nil, err

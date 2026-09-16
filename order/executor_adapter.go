@@ -2,16 +2,30 @@ package order
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"quantmesh/exchange"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/metrics"
+	"quantmesh/utils"
 	"strings"
 	"time"
 
 	"golang.org/x/time/rate"
+)
+
+// ErrLockNotAcquired 價格位分布式鎖已被其他實例持有，本次下單被跳過（未向交易所提交）
+var ErrLockNotAcquired = errors.New("order lock not acquired")
+
+const (
+	// orderLockTTL 下單鎖 TTL；持有期間由 lock.StartAutoRenew 按 TTL/3 續期，覆蓋整個重試過程
+	orderLockTTL = 10 * time.Second
+	// orderLockAcquireTimeout 獲取/釋放下單鎖的 Redis 調用超時
+	orderLockAcquireTimeout = 5 * time.Second
+	// orderLookupTimeout 下單結果不確定時按 ClientOrderID 回查的超時
+	orderLookupTimeout = 10 * time.Second
 )
 
 // isMarginInsufficientError 判斷是否為餘額/保證金類拒單（含 OKX 現貨 51008）
@@ -120,24 +134,31 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	priceLevel := math.Floor(req.Price/10) * 10
 	lockKey := fmt.Sprintf("order:%s:%s:%.0f", exchangeName, req.Symbol, priceLevel)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	acquired, err := oe.lock.TryLock(ctx, lockKey, 5*time.Second)
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+	acquired, err := oe.lock.TryLock(lockCtx, lockKey, orderLockTTL)
+	lockCancel()
 	if err != nil {
-		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 獲取鎖失败: %v", exchangeName, err)
-		// 鎖獲取失败不阻塞，继续執行（降级策略）
-	} else if !acquired {
-		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 價格位 %.2f 已被其他實例鎖定，跳過", exchangeName, req.Price)
-		return nil, nil // 回傳 nil 表示跳過，不是錯误
-	} else {
-		// 成功獲取鎖，defer 释放
-		defer func() {
-			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
-				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放鎖失败: %v", exchangeName, unlockErr)
-			}
-		}()
+		// 鎖服務異常時 fail closed：不下單，避免多實例重複挂單
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 獲取下單鎖失败，放棄本次下單: %v", exchangeName, err)
+		return nil, fmt.Errorf("獲取下單鎖失败 key=%s: %w", lockKey, err)
 	}
+	if !acquired {
+		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 價格位 %.2f 已被其他實例鎖定，跳過", exchangeName, req.Price)
+		return nil, fmt.Errorf("價格位 %.2f 下單跳過 key=%s: %w", req.Price, lockKey, ErrLockNotAcquired)
+	}
+	// 持鎖期間自動續期，確保重試總時長超過 TTL 時鎖仍有效
+	stopRenew := lock.StartAutoRenew(oe.lock, lockKey, orderLockTTL, func(renewErr error) {
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 下單鎖續期失败（鎖可能已過期）key=%s: %v", exchangeName, lockKey, renewErr)
+	})
+	defer func() {
+		stopRenew()
+		// 使用獨立 context 釋放：重試可能已超過獲取鎖時的超時
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+		defer unlockCancel()
+		if unlockErr := oe.lock.Unlock(unlockCtx, lockKey); unlockErr != nil {
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放鎖失败: %v", exchangeName, unlockErr)
+		}
+	}()
 
 	// 限流
 	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
@@ -257,9 +278,51 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		}
 	}
 
+	// 重試耗盡時結果可能不確定（超時/網路錯誤但交易所已受理，或重試時報 ClientOrderID 重複）：
+	// 按 ClientOrderID 回查，找到則視為成功，避免上層釋放槽位後以新 ID 重複挂單
+	if found := oe.findOrderByClientOrderID(req); found != nil {
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 下單重試失败但交易所已存在同 ClientOrderID 订單，視為成功: %s 订單ID: %d (最後錯誤: %v)",
+			exchangeName, req.ClientOrderID, found.OrderID, lastErr)
+		pm.RecordOrder(exchangeName, req.Symbol, req.Side, found.Status)
+		pm.RecordOrderSuccess(exchangeName, req.Symbol, req.Side, time.Since(startTime))
+		return found, nil
+	}
+
 	// 記錄失败指標
 	pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "max_retries_exceeded")
 	return nil, fmt.Errorf("下單失败（重試%d次）: %w", maxRetries, lastErr)
+}
+
+// findOrderByClientOrderID 在未完成订單中按 ClientOrderID 回查（兼容交易所返佣前綴）
+// 交易所接口未提供按 ClientOrderID 查單，已完全成交的订單無法通過此方式找回
+func (oe *ExchangeOrderExecutor) findOrderByClientOrderID(req *OrderRequest) *Order {
+	if req.ClientOrderID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), orderLookupTimeout)
+	defer cancel()
+	openOrders, err := oe.exchange.GetOpenOrders(ctx, req.Symbol)
+	if err != nil {
+		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 按 ClientOrderID 回查订單失败 cid=%s: %v", oe.exchange.GetName(), req.ClientOrderID, err)
+		return nil
+	}
+	prefixed := utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), req.ClientOrderID)
+	for _, o := range openOrders {
+		if o == nil || (o.ClientOrderID != req.ClientOrderID && o.ClientOrderID != prefixed) {
+			continue
+		}
+		return &Order{
+			OrderID:       o.OrderID,
+			ClientOrderID: o.ClientOrderID,
+			Symbol:        req.Symbol,
+			Side:          req.Side,
+			Price:         req.Price,
+			Quantity:      req.Quantity,
+			Status:        string(o.Status),
+			CreatedAt:     time.Now(),
+		}
+	}
+	return nil
 }
 
 // BatchPlaceOrdersResult 批量下單結果
@@ -286,6 +349,11 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 
 	for _, orderReq := range orders {
 		order, err := oe.PlaceOrder(orderReq)
+		if errors.Is(err, ErrLockNotAcquired) {
+			logger.DebugCtx(oe.logCtx(), "🔒 [%s] %s 價格位 %.*f 被其他實例鎖定，本輪跳過",
+				oe.exchange.GetName(), orderReq.Symbol, orderReq.PriceDecimals, orderReq.Price)
+			continue
+		}
 		if err != nil {
 			notionalUSDT := orderReq.Price * orderReq.Quantity
 			logger.ErrorCtx(oe.logCtx(), "❌ [%s] %s 下單失败 price=%.*f side=%s qty=%.8f 名义≈%.2f USDT: %v",
@@ -302,6 +370,9 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 				result.ReduceOnlyErrors[orderReq.ClientOrderID] = true
 				logger.WarnCtx(oe.logCtx(), "⚠️ [ReduceOnly] 订單 %.2f %s 無持倉，將清空槽位", orderReq.Price, orderReq.Side)
 			}
+			continue
+		}
+		if order == nil {
 			continue
 		}
 		result.PlacedOrders = append(result.PlacedOrders, order)

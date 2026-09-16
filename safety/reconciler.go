@@ -214,8 +214,8 @@ func (r *Reconciler) Reconcile() error {
 	var localTotal float64
 	var localPendingSellQty float64
 	var localFilledPosition float64
-	var activeBuyOrders int
-	var activeSellOrders int
+	var activeBuyOrders int  // 開倉方向挂單數（LONG=BUY，SHORT=SELL）
+	var activeSellOrders int // 平倉方向挂單數（LONG=SELL，SHORT=BUY）
 
 	// 订單状態常量（與 position 包保持一致）
 	const (
@@ -225,6 +225,13 @@ func (r *Reconciler) Reconcile() error {
 		OrderStatusCancelRequested = "CANCEL_REQUESTED"
 		PositionStatusFilled       = "FILLED"
 	)
+
+	// 平倉方向：LONG 持倉以 SELL 平倉；SHORT 持倉以 BUY 平倉（本地 PositionQty 恆為正數）
+	direction := config.NormalizeDirection(r.cfg.Trading.Direction)
+	closeSide, openSide := "SELL", "BUY"
+	if direction == "SHORT" {
+		closeSide, openSide = "BUY", "SELL"
+	}
 
 	r.pm.IterateSlots(func(price float64, slotRaw interface{}) bool {
 		// 使用反射提取槽位字段
@@ -257,14 +264,14 @@ func (r *Reconciler) Reconcile() error {
 
 		if positionStatus == PositionStatusFilled {
 			localFilledPosition += positionQty
-			if orderSide == "SELL" && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
+			if orderSide == closeSide && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
 				orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusCancelRequested) {
 				localPendingSellQty += positionQty
 				activeSellOrders++
 			}
 		}
 
-		if orderSide == "BUY" && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
+		if orderSide == openSide && positionStatus != PositionStatusFilled && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
 			orderStatus == OrderStatusPartiallyFilled) {
 			activeBuyOrders++
 		}
@@ -293,7 +300,7 @@ func (r *Reconciler) Reconcile() error {
 	logger.Info("📊 [统计] 對账次數: %d, 累计買入: %.2f, 累计賣出: %.2f, 預计盈利: %.2f U",
 		r.pm.GetReconcileCount(), totalBuyQty, totalSellQty, estimatedProfit)
 
-	// 6. 保存對账历史到數據库（如果存儲服務可用）
+	// 6. 保存對账历史（exchangePosition 為交易所原始帶符號淨持倉）到數據库（如果存儲服務可用）
 	if r.storage != nil {
 		reconcileTime := time.Now()
 		positionDiff := localTotal - exchangePosition
@@ -305,8 +312,14 @@ func (r *Reconciler) Reconcile() error {
 	}
 
 	// 7. 检查持倉差异並執行同步
+	// 交易所 Position.Size 帶符號（多倉為正、空倉為負），本地 PositionQty 恆為正數，需按方向歸一化後再比較
 	spotInvPolicy := config.NormalizeSpotInventoryPolicy(r.cfg.Trading.SpotInventoryPolicy)
 	isSpot := config.IsSpotMarketType(r.cfg.Trading.MarketType)
+	exchangePosition, syncAllowed := normalizeExchangePositionForSync(direction, isSpot, exchangePosition)
+	if !syncAllowed {
+		logger.Debugln("🔍 ===== 對账完成（跳過持倉同步）=====")
+		return nil
+	}
 	diff := math.Abs(localTotal - exchangePosition)
 	// 使用相對较小的阈值，但要考虑到浮点數精度
 	if diff > 0.00000001 {
@@ -348,4 +361,33 @@ func (r *Reconciler) Reconcile() error {
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
 	return nil
+}
+
+// normalizeExchangePositionForSync 將交易所帶符號淨持倉轉換為可與本地（正數）持倉比較的數量
+// 回傳 (歸一化持倉, 是否允許自動同步)：
+//   - LONG / 現貨：要求淨持倉 >= 0，出現空倉時方向不符，跳過同步
+//   - SHORT：取絕對值；出現多倉時方向不符，跳過同步
+//   - BOTH：交易所僅提供單一淨持倉，無法按多/空腿分別對賬，跳過同步避免按淨值誤清/誤修剪
+func normalizeExchangePositionForSync(direction string, isSpot bool, signedSize float64) (float64, bool) {
+	const eps = 0.00000001
+	if isSpot {
+		return signedSize, true
+	}
+	switch direction {
+	case "BOTH":
+		logger.Warn("⚠️ [對账同步] BOTH 雙向模式：交易所僅返回淨持倉 %.6f，無法按多/空腿分別對賬，跳過自動同步（請人工核對）", signedSize)
+		return signedSize, false
+	case "SHORT":
+		if signedSize > eps {
+			logger.Warn("🚨 [對账同步] SHORT 模式但交易所持倉為多倉 %.6f，方向不符，跳過自動同步（請人工核對）", signedSize)
+			return signedSize, false
+		}
+		return math.Abs(signedSize), true
+	default:
+		if signedSize < -eps {
+			logger.Warn("🚨 [對账同步] LONG 模式但交易所持倉為空倉 %.6f，方向不符，跳過自動同步（請人工核對）", signedSize)
+			return signedSize, false
+		}
+		return signedSize, true
+	}
 }

@@ -179,3 +179,57 @@ func TestReconciler_SpotAdoptAll_ForceSyncWhenLocalLessThanExchange(t *testing.T
 		t.Fatalf("adopt_all 應 ForceSyncPositions(0.05)，得到 count=%d last=%v", pm.ForceSyncCount, pm.LastForceSync)
 	}
 }
+
+// TestReconciler_DirectionAwareSync 交易所持倉帶符號：SHORT 按絕對值比較、BOTH 不按淨值同步、方向不符跳過
+func TestReconciler_DirectionAwareSync(t *testing.T) {
+	filled := func(qty float64, closeSide string) TestSlot {
+		return TestSlot{PositionStatus: "FILLED", PositionQty: qty, OrderSide: closeSide, OrderStatus: "NOT_PLACED"}
+	}
+	tests := []struct {
+		name          string
+		direction     string
+		exchangeSize  float64
+		localQty      float64
+		closeSide     string
+		wantSyncCount int
+		wantSyncValue float64
+	}{
+		{name: "SHORT 本地超出交易所空倉時修剪到絕對值", direction: "SHORT", exchangeSize: -0.03, localQty: 0.05, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0.03},
+		{name: "SHORT 本地少於交易所空倉時補齊到絕對值", direction: "SHORT", exchangeSize: -0.05, localQty: 0.03, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0.05},
+		{name: "SHORT 數量一致不同步", direction: "SHORT", exchangeSize: -0.02, localQty: 0.02, closeSide: "BUY", wantSyncCount: 0},
+		{name: "SHORT 交易所已平倉且無挂單時清空", direction: "SHORT", exchangeSize: 0, localQty: 0.02, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0},
+		{name: "SHORT 交易所出現多倉方向不符跳過", direction: "SHORT", exchangeSize: 0.02, localQty: 0.05, closeSide: "BUY", wantSyncCount: 0},
+		{name: "BOTH 淨持倉為 0 不清空本地", direction: "BOTH", exchangeSize: 0, localQty: 0.02, closeSide: "SELL", wantSyncCount: 0},
+		{name: "BOTH 淨持倉小於本地不修剪", direction: "BOTH", exchangeSize: 0.01, localQty: 0.05, closeSide: "SELL", wantSyncCount: 0},
+		{name: "LONG 交易所出現空倉方向不符跳過", direction: "LONG", exchangeSize: -0.02, localQty: 0.05, closeSide: "SELL", wantSyncCount: 0},
+		{name: "LONG 本地超出交易所時修剪", direction: "LONG", exchangeSize: 0.03, localQty: 0.05, closeSide: "SELL", wantSyncCount: 1, wantSyncValue: 0.03},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "futures"
+			cfg.Trading.Direction = tt.direction
+
+			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: tt.exchangeSize}}}
+			if tt.exchangeSize == 0 {
+				ex.Positions = nil
+			}
+			pm := &MockPositionManager{
+				Symbol:        "BTCUSDT",
+				PriceInterval: 100,
+				Slots:         map[float64]interface{}{50000.0: filled(tt.localQty, tt.closeSide)},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if pm.ForceSyncCount != tt.wantSyncCount {
+				t.Fatalf("ForceSyncCount = %d, want %d", pm.ForceSyncCount, tt.wantSyncCount)
+			}
+			if tt.wantSyncCount > 0 && pm.LastForceSync != tt.wantSyncValue {
+				t.Fatalf("ForceSyncPositions(%v), want %v", pm.LastForceSync, tt.wantSyncValue)
+			}
+		})
+	}
+}

@@ -322,8 +322,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		// 趨勢過濾
 		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
 			trend := spm.trendDetector.GetCurrentTrend()
-			if trend == "down" {
-				logger.Warn("📉 [趨勢過濾] 检测到下跌趋势，暂停買入")
+			// 逆勢不開倉：LONG 遇下跌暫停買開，SHORT 遇上漲暫停賣開
+			if trend == spm.adverseTrend() {
+				logger.Warn("📉 [趨勢過濾] 检测到不利趋势(%s)，暂停開倉", trend)
 				skipBuying = true
 			}
 		}
@@ -412,7 +413,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 資金費率偏向策略檢查
 	if spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
-		buyBias := spm.fundingMonitor.GetBuyBias()
+		// LONG 用買入偏向，SHORT 用鏡像的賣開偏向
+		buyBias := spm.openingFundingBias()
 
 		if buyBias == 0 {
 			// 極高費率：完全暫停買入
@@ -447,10 +449,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		spm.fundingMonitor != nil && spm.trendDetector != nil &&
 		spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
 
-		buyBias := spm.fundingMonitor.GetBuyBias()
+		buyBias := spm.openingFundingBias()
 		trend := spm.trendDetector.GetCurrentTrend()
 
-		if buyBias > 1 && trend == "up" {
+		// 有利費率 + 順勢（LONG=上漲 / SHORT=下跌）：放寬；不利費率 + 逆勢：暫停開倉
+		if buyBias > 1 && trend == spm.favorableTrend() {
 			// 負費率 + 上漲趨勢：只放寬趨勢過濾限制，不再重複乘係數（之前已乘過 buyBias）
 			if skipBuying {
 				skipBuying = false
@@ -459,7 +462,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 				logger.Info("🔥 [費率趨勢聯動] 負費率(%.2f) + 上漲趨勢：放寬趨勢過濾限制", buyBias)
 			}
-		} else if buyBias < 1 && trend == "down" {
+		} else if buyBias < 1 && trend == spm.adverseTrend() {
 			// 高正費率 + 下跌趨勢：強化賣出偏向
 			skipBuying = true
 			allowedNewBuyOrders = 0
@@ -593,6 +596,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 			// 🔥 鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
+			// 重置上一筆訂單殘留的 CANCELED 狀態，避免下單回執時被誤判為「秒撤已處理」
+			if slot.OrderID == 0 && slot.OrderStatus == OrderStatusCanceled {
+				slot.OrderStatus = OrderStatusNotPlaced
+			}
 
 			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
 			usePostOnly := slot.PostOnlyFailCount < 3
@@ -748,6 +755,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 			// 🔥 立即鎖定槽位：標記為PENDING状態，防止並发操作
 			slot.SlotStatus = SlotStatusPending
+			// 重置上一筆訂單殘留的 CANCELED 狀態，避免下單回執時被誤判為「秒撤已處理」
+			if slot.OrderID == 0 && slot.OrderStatus == OrderStatusCanceled {
+				slot.OrderStatus = OrderStatusNotPlaced
+			}
 			// 检查PostOnly失败计數，失败3次后不再使用PostOnly
 			usePostOnly := slot.PostOnlyFailCount < 3
 			slot.mu.Unlock()
@@ -998,11 +1009,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
 			spm.marginLockTime = time.Now()
-			if spm.isBoth() {
-				spm.CancelAllOpenOrders()
-			} else {
-				spm.CancelAllBuyOrders()
-			}
+			// 按方向撤銷開倉委託（SHORT 撤賣單，不誤撤平倉單）
+			spm.CancelAllOpenOrders()
 
 			// 发送保证金/餘額不足告警事件
 			if spm.eventBus != nil {
@@ -1121,18 +1129,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			slot := spm.getOrCreateSlot(price)
 			slot.mu.Lock()
 
-			// 🔥 关键修複：检查是否是秒成交场景（買單或賣單都可能）
-			// 秒成交的特征:
-			// 1. 買單秒成交: PositionStatus=FILLED (刚成交) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
-			// 2. 賣單秒成交: PositionStatus=EMPTY (已清空) 且 OrderID=0 (已被WebSocket清空) 且 OrderSide=""
-			isInstantFill := false
-			if side == "BUY" {
-				// 買單秒成交: 有持倉但订單ID為0且OrderSide已清空
-				isInstantFill = (slot.PositionStatus == PositionStatusFilled && slot.OrderID == 0 && slot.OrderSide == "")
-			} else if side == "SELL" {
-				// 🔥 賣單秒成交: 持倉已清空且订單ID為0且OrderSide已清空
-				isInstantFill = (slot.PositionStatus == PositionStatusEmpty && slot.OrderID == 0 && slot.OrderSide == "" && slot.SlotStatus == SlotStatusFree)
-			}
+			// 🔥 关键修複：检查是否是秒成交/秒撤场景（開倉單或平倉單都可能），按開倉/平倉腿判斷，不按字面 BUY/SELL
+			isInstantFill := spm.isPlacedOrderAlreadyHandled(side, slot)
 
 			if !isInstantFill {
 				// 正常情况: 更新订單状態
@@ -1167,8 +1165,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				logger.Debug("✅ [實時新增] 槽位價格: %s, %s订單, 订單價格: %s, 订單ID: %d, ClientOID: %s",
 					formatPrice(price, spm.priceDecimals), side, formatPrice(ord.Price, spm.priceDecimals), ord.OrderID, ord.ClientOrderID)
 			} else {
-				// 🔍 秒成交场景：WebSocket已經处理了FILLED,跳過状態更新
-				logger.Debug("🔍 [%s單秒成交] 槽位 %s 的订單已被WebSocket处理，跳過状態更新 (持倉: %.4f, SlotStatus: %s)",
+				// 🔍 秒成交/秒撤场景：WebSocket已經处理了FILLED/CANCELED,跳過状態更新
+				logger.Debug("🔍 [%s單秒成交/秒撤] 槽位 %s 的订單已被WebSocket处理，跳過状態更新 (持倉: %.4f, SlotStatus: %s)",
 					side, formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.SlotStatus)
 			}
 
@@ -1177,4 +1175,26 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 
 	return nil
+}
+
+// isPlacedOrderAlreadyHandled 判斷下單回執到達前，WebSocket 是否已處理完該訂單（調用方需持有 slot.mu）
+// 單向模式按開倉腿/平倉腿判斷（LONG: BUY=開倉；SHORT: SELL=開倉）：
+//  1. 開倉單秒成交：PositionStatus=FILLED 且 OrderID=0 且 OrderSide=""
+//  2. 平倉單秒成交：PositionStatus=EMPTY 且 OrderID=0 且 OrderSide="" 且 SlotStatus=FREE
+//  3. 秒撤/秒拒：OrderStatus=CANCELED 且 OrderID=0（WS 已釋放槽位，不能覆蓋回 PLACED/LOCKED）
+func (spm *SuperPositionManager) isPlacedOrderAlreadyHandled(side string, slot *InventorySlot) bool {
+	if slot.OrderStatus == OrderStatusCanceled && slot.OrderID == 0 {
+		return true
+	}
+	if side != "BUY" && side != "SELL" {
+		return false
+	}
+	openSide := "BUY"
+	if spm.isShort() {
+		openSide = "SELL"
+	}
+	if side == openSide {
+		return slot.PositionStatus == PositionStatusFilled && slot.OrderID == 0 && slot.OrderSide == ""
+	}
+	return slot.PositionStatus == PositionStatusEmpty && slot.OrderID == 0 && slot.OrderSide == "" && slot.SlotStatus == SlotStatusFree
 }

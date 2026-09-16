@@ -899,8 +899,9 @@ func startSymbolRuntime(
 				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
 				if isTriggered {
 					if !lastTriggered {
-						logger.WarnCtx(ctx, "🚨 [%s][风控触发] 撤销所有買單並暂停交易...", symCfg.Symbol)
-						superPositionManager.CancelAllBuyOrders()
+						logger.WarnCtx(ctx, "🚨 [%s][风控触发] 撤销所有開倉單並暂停交易...", symCfg.Symbol)
+						// 按方向撤銷開倉單（LONG 撤買單、SHORT 撤賣單），避免做空時誤撤平倉單
+						superPositionManager.CancelAllOpenOrders()
 						lastTriggered = true
 						if eventBus != nil {
 							// 匯集觸發原因，便於事件中心展示

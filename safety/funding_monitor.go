@@ -374,6 +374,29 @@ func (f *FundingRateMonitor) GetBuyBias() float64 {
 	rate := f.currentRate
 	f.mu.RUnlock()
 
+	// 多頭：正費率為成本（多付空），費率 <= 0 視為有利
+	return f.computeOpenBias(rate, true)
+}
+
+// GetSellBias 獲取做空開倉（賣開）偏向係數，與 GetBuyBias 鏡像：
+// 正費率時空頭收取資金費（有利），負費率時空頭付費（不利）。
+// 返回值含義與 GetBuyBias 相同：1.2 可略增開倉、1.0 正常、0.7/0.3 減少、0 暫停開倉。
+func (f *FundingRateMonitor) GetSellBias() float64 {
+	if !f.cfg.FundingRate.BiasEnabled {
+		return 1.0
+	}
+
+	f.mu.RLock()
+	rate := f.currentRate
+	f.mu.RUnlock()
+
+	// 空頭：負費率為成本；費率為 0 時不視為有利（保持正常係數）
+	return f.computeOpenBias(-rate, false)
+}
+
+// computeOpenBias 按「對開倉方不利的費率」計算偏向係數
+// adverseRate > 0 表示開倉方需支付資金費；zeroFavorable 決定費率恰為 0 時是否按有利處理
+func (f *FundingRateMonitor) computeOpenBias(adverseRate float64, zeroFavorable bool) float64 {
 	// 獲取閾值配置
 	highThreshold := f.cfg.FundingRate.HighRateThreshold
 	pauseThreshold := f.cfg.FundingRate.PauseBuyThreshold
@@ -391,24 +414,24 @@ func (f *FundingRateMonitor) GetBuyBias() float64 {
 
 	// 費率偏向計算
 	switch {
-	case rate <= 0:
-		// 負費率：有利於多頭，可以略微增加買入
+	case adverseRate < 0 || (zeroFavorable && adverseRate == 0):
+		// 對開倉方有利的費率：可以略微增加開倉
 		return 1.2
 
-	case rate <= lowMidThreshold:
-		// 0 < rate <= 0.05%：正常
+	case adverseRate <= lowMidThreshold:
+		// 0 <= rate <= 0.05%：正常
 		return 1.0
 
-	case rate <= highThreshold:
+	case adverseRate <= highThreshold:
 		// 0.05% < rate <= 0.1%：減少 30%
 		return 0.7
 
-	case rate <= pauseThreshold:
+	case adverseRate <= pauseThreshold:
 		// 0.1% < rate <= 0.15%：減少 70%
 		return 0.3
 
 	default:
-		// rate > 0.15%：暫停買入
+		// rate > 0.15%：暫停開倉
 		return 0.0
 	}
 }

@@ -5,27 +5,63 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
+// redisClient RedisLock 依賴的最小 Redis 命令集（便於測試替換）
+type redisClient interface {
+	SetNX(ctx context.Context, key string, value interface{}, expiration time.Duration) *redis.BoolCmd
+	Eval(ctx context.Context, script string, keys []string, args ...interface{}) *redis.Cmd
+	Ping(ctx context.Context) *redis.StatusCmd
+	Close() error
+}
+
 // RedisLock Redis 分布式鎖實現
 type RedisLock struct {
-	client   *redis.Client
+	client   redisClient
 	prefix   string
 	lockID   string            // 當前實例的唯一標识
+	mu       sync.Mutex        // 保護 lockKeys（多槽位並發下單會同時讀寫）
 	lockKeys map[string]string // 記錄持有的鎖和對应的 token
 }
 
 // NewRedisLock 創建 Redis 分布式鎖
 func NewRedisLock(client *redis.Client, prefix string) *RedisLock {
+	return newRedisLock(client, prefix)
+}
+
+func newRedisLock(client redisClient, prefix string) *RedisLock {
 	return &RedisLock{
 		client:   client,
 		prefix:   prefix,
 		lockID:   generateLockID(),
 		lockKeys: make(map[string]string),
 	}
+}
+
+func (r *RedisLock) setToken(key, token string) {
+	r.mu.Lock()
+	r.lockKeys[key] = token
+	r.mu.Unlock()
+}
+
+func (r *RedisLock) getToken(key string) (string, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	token, ok := r.lockKeys[key]
+	return token, ok
+}
+
+// deleteToken 僅在 token 未被重新獲取覆蓋時刪除
+func (r *RedisLock) deleteToken(key, token string) {
+	r.mu.Lock()
+	if r.lockKeys[key] == token {
+		delete(r.lockKeys, key)
+	}
+	r.mu.Unlock()
 }
 
 // generateLockID 生成唯一的鎖 ID
@@ -60,7 +96,7 @@ func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) err
 				return fmt.Errorf("redis setnx failed: %w", err)
 			}
 			if ok {
-				r.lockKeys[key] = token
+				r.setToken(key, token)
 				return nil
 			}
 		}
@@ -78,7 +114,7 @@ func (r *RedisLock) TryLock(ctx context.Context, key string, ttl time.Duration) 
 	}
 
 	if ok {
-		r.lockKeys[key] = token
+		r.setToken(key, token)
 	}
 
 	return ok, nil
@@ -87,7 +123,7 @@ func (r *RedisLock) TryLock(ctx context.Context, key string, ttl time.Duration) 
 // Unlock 释放鎖
 func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 	lockKey := r.prefix + key
-	token, exists := r.lockKeys[key]
+	token, exists := r.getToken(key)
 	if !exists {
 		return fmt.Errorf("lock not held: %s", key)
 	}
@@ -106,37 +142,39 @@ func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 		return fmt.Errorf("redis eval failed: %w", err)
 	}
 
-	if result.(int64) == 0 {
+	if n, ok := result.(int64); !ok || n == 0 {
+		// 鎖已過期或被他人持有：本地記錄已無意義，一併清除
+		r.deleteToken(key, token)
 		return fmt.Errorf("lock not held or expired: %s", key)
 	}
 
-	delete(r.lockKeys, key)
+	r.deleteToken(key, token)
 	return nil
 }
 
 // Extend 延长鎖的過期時间
 func (r *RedisLock) Extend(ctx context.Context, key string, ttl time.Duration) error {
 	lockKey := r.prefix + key
-	token, exists := r.lockKeys[key]
+	token, exists := r.getToken(key)
 	if !exists {
 		return fmt.Errorf("lock not held: %s", key)
 	}
 
-	// Lua 脚本确保原子性：只有持有鎖的實例才能延期
+	// Lua 脚本确保原子性：只有持有鎖的實例才能延期（毫秒精度，避免 <1s TTL 被截斷為 0）
 	script := `
 		if redis.call("get", KEYS[1]) == ARGV[1] then
-			return redis.call("expire", KEYS[1], ARGV[2])
+			return redis.call("pexpire", KEYS[1], ARGV[2])
 		else
 			return 0
 		end
 	`
 
-	result, err := r.client.Eval(ctx, script, []string{lockKey}, token, int(ttl.Seconds())).Result()
+	result, err := r.client.Eval(ctx, script, []string{lockKey}, token, ttl.Milliseconds()).Result()
 	if err != nil {
 		return fmt.Errorf("redis eval failed: %w", err)
 	}
 
-	if result.(int64) == 0 {
+	if n, ok := result.(int64); !ok || n == 0 {
 		return fmt.Errorf("lock not held or expired: %s", key)
 	}
 

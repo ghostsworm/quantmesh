@@ -76,9 +76,22 @@ func (w *ExchangeAdapterWrapper) CancelOrder(ctx context.Context, symbol string,
 	return w.exchange.CancelOrder(ctx, symbol, orderID)
 }
 
-// GetLatestPrice 獲取最新價格
+// GetLatestPrice 獲取最新價格（委託底層交易所實現）
 func (w *ExchangeAdapterWrapper) GetLatestPrice(ctx context.Context, symbol string) (float64, error) {
-	// 嘗試從交易所獲取價格
-	// 這可能需要根據實際的交易所實現來調整
-	return 0, fmt.Errorf("not implemented")
+	if w.exchange == nil {
+		return 0, fmt.Errorf("獲取最新價格失敗: %s 交易所未初始化", symbol)
+	}
+	price, err := w.exchange.GetLatestPrice(ctx, symbol)
+	if err != nil {
+		return 0, fmt.Errorf("獲取最新價格失敗: %s: %w", symbol, err)
+	}
+	return price, nil
+}
+
+// GetPriceDecimals 獲取價格精度（供平倉管理器限價單使用）
+func (w *ExchangeAdapterWrapper) GetPriceDecimals() int {
+	if w.exchange == nil {
+		return -1
+	}
+	return w.exchange.GetPriceDecimals()
 }

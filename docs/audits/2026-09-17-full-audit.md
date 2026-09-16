@@ -155,7 +155,7 @@
 
 | 轮次 | 范围 | 状态 |
 |---|---|---|
-| R1 止血 | A1–A6（SHORT 链路）、B1、B2、D1、D2、E1、E2、X1、X2 | ⬜ |
+| R1 止血 | A1–A6（SHORT 链路）、B1、B2、D1、D2、E1、E2、X1、X2 | ✅（另完成 X6、E5 部分） |
 | R2 风控生效 | C1–C6、B3、B4、D3–D5、E3–E6 | ⬜ |
 | R3 策略包 | S1–S11 | ⬜ |
 | R4 交易所 | X3–X6、OKX/Bybit 整套 | ⬜ |
@@ -165,3 +165,20 @@
 ### 逐项记录
 
 （每轮结束时在此追加：条目编号 → 改了什么、落在哪、对应测试）
+
+#### R1（✅ go build / vet / test ./... 通过；position、safety、lock、order、profit、exchange/binance 通过 -race）
+- A1 `position/super_position_manager.go` `calculateUnrealizedPnL`：SHORT/BOTH 空腿按 (开仓价-现价)，开仓价优先 AvgBuyPrice。测试 `position/short_direction_test.go`。
+- A2 `position/super_position_manager_reconcile.go` `LiquidateAll`：方向感知撤单 + 平空 BUY@last×1.01，失败槽位回滚 FREE。
+- A3 `symbol_manager.go`、`super_position_manager_adjust.go`：风控撤单改 `CancelAllOpenOrders`。
+- A4 `safety/funding_monitor.go` 新增 `GetSellBias`；`adjust.go` 趋势过滤/费率偏向按方向取值。测试 `safety/funding_monitor_sell_bias_test.go`。
+- A5 `safety/reconciler.go` `normalizeExchangePositionForSync`。测试 `TestReconciler_DirectionAwareSync`。
+- A6 `adjust.go` `isPlacedOrderAlreadyHandled`：按开/平仓腿判定秒成交与秒撤单。
+- B1/B2 `bot_manager.go` `planClosePosition`、`position/close_manager.go` `PlanCloseOrder`、`position/exchange_wrapper.go` `GetLatestPrice`/`GetPriceDecimals`。测试 `position/close_manager_test.go`。
+- D1/D2 `profit/withdraw_executor.go` `processRule`/`withdrawnSince`/`runScheduledTask`。测试 `TestImmediateWithdrawNoRepeatedTransfer` 等。
+- E1 `lock/redis.go` 加锁、`lock/renew.go` 自动续期、fail-closed。测试 `lock/redis_test.go`（-race）。
+- E2/E5 `order/executor_adapter.go` `ErrLockNotAcquired`、`findOrderByClientOrderID`；`main_adapters_position.go` nil 防护。测试 `main_adapters_position_test.go`。
+- X1/X2/X6 新增 `exchange/binance/network.go`（网络认领、按实例 REST 地址、-1021 重同步）；`websocket.go` listenKey 重建与退避。测试 `network_test.go`、`websocket_test.go`。
+- 遗留转入后续轮：
+  - R2：`super_position_manager_order_events.go` 撤单回调按字面 BUY/SELL 判断（做空开仓单被撤会走错分支）；`symbol_manager.go`/`position` 调用方区分 `ErrLockNotAcquired` 与真实失败。
+  - R4：E5 需交易所接口支持按 ClientOrderID 查单（已完全成交的单不在挂单列表）；同进程同时支持 Binance 主网+测试网需自建 WS；Binance WS 管理器 Stop/Start 后回调重复注册、外部 ctx 取消后状态不复位。
+  - 行为变化：同一进程同时创建 Binance 合约主网与测试网交易适配器会报错。

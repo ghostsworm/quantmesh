@@ -37,11 +37,15 @@ type fakeOrderExchange struct {
 	order           *exchange.Order
 	openOrders      []*exchange.Order
 	quantityDecimal int
+	placeErr        error
 }
 
 func (f *fakeOrderExchange) GetName() string { return "fake" }
 func (f *fakeOrderExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	f.placed = append(f.placed, req)
+	if f.placeErr != nil {
+		return nil, f.placeErr
+	}
 	return &exchange.Order{
 		OrderID:       int64(len(f.placed)),
 		ClientOrderID: req.ClientOrderID,
@@ -110,8 +114,8 @@ func TestExchangeOrderExecutorPlaceCancelAndQueryPaths(t *testing.T) {
 
 	skippedExecutor := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, denyOrderLock{}, "")
 	skipped, err := skippedExecutor.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 50000, Quantity: 0.01})
-	if err != nil || skipped != nil {
-		t.Fatalf("locked PlaceOrder = %#v err=%v, want nil nil", skipped, err)
+	if !errors.Is(err, ErrLockNotAcquired) || skipped != nil {
+		t.Fatalf("locked PlaceOrder = %#v err=%v, want nil ErrLockNotAcquired", skipped, err)
 	}
 
 	if err := oe.CancelOrder(99); err != nil {
@@ -180,5 +184,89 @@ func TestOrderErrorClassifiers(t *testing.T) {
 	}
 	if isReduceOnlyError(nil) || isReduceOnlyError(errors.New("-4164 reduce only notional too small")) {
 		t.Fatal("unexpected reduce-only classification")
+	}
+}
+
+type errOrderLock struct {
+	lock.DistributedLock
+}
+
+func (e errOrderLock) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return false, errors.New("redis down")
+}
+
+// TestPlaceOrderLockOutcomes 鎖未獲取返回哨兵錯誤、鎖服務異常 fail closed，均不向交易所提交
+func TestPlaceOrderLockOutcomes(t *testing.T) {
+	tests := []struct {
+		name         string
+		lock         lock.DistributedLock
+		wantSentinel bool
+	}{
+		{name: "lock held by other instance", lock: denyOrderLock{}, wantSentinel: true},
+		{name: "lock backend error fails closed", lock: errOrderLock{}, wantSentinel: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &fakeOrderExchange{}
+			oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, tt.lock, "")
+			got, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1})
+			if err == nil || got != nil {
+				t.Fatalf("PlaceOrder = %#v, %v; want nil order and error", got, err)
+			}
+			if errors.Is(err, ErrLockNotAcquired) != tt.wantSentinel {
+				t.Fatalf("errors.Is(ErrLockNotAcquired) = %v, want %v (err=%v)", !tt.wantSentinel, tt.wantSentinel, err)
+			}
+			if len(ex.placed) != 0 {
+				t.Fatalf("exchange PlaceOrder called %d times, want 0", len(ex.placed))
+			}
+		})
+	}
+}
+
+// TestBatchPlaceOrdersSkipsLockedWithoutNil 批量下單時被鎖跳過的订單不得以 nil 形式加入結果
+func TestBatchPlaceOrdersSkipsLockedWithoutNil(t *testing.T) {
+	oe := NewExchangeOrderExecutor(&fakeOrderExchange{}, "BTCUSDT", 0, 0, denyOrderLock{}, "")
+	res := oe.BatchPlaceOrdersWithDetails([]*OrderRequest{
+		{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "a"},
+		{Symbol: "BTCUSDT", Side: "BUY", Price: 90, Quantity: 1, ClientOrderID: "b"},
+	})
+	if len(res.PlacedOrders) != 0 || res.HasMarginError {
+		t.Fatalf("result = %#v, want no placed orders", res)
+	}
+	for _, o := range res.PlacedOrders {
+		if o == nil {
+			t.Fatal("nil order in PlacedOrders")
+		}
+	}
+}
+
+// TestPlaceOrderAmbiguousFailureLooksUpClientOrderID 重試耗盡後按 ClientOrderID 回查，已受理則視為成功
+func TestPlaceOrderAmbiguousFailureLooksUpClientOrderID(t *testing.T) {
+	tests := []struct {
+		name       string
+		cid        string
+		openOrders []*exchange.Order
+		wantFound  bool
+		wantID     int64
+	}{
+		{name: "exact cid found", cid: "cid-1", openOrders: []*exchange.Order{{OrderID: 42, ClientOrderID: "cid-1", Status: exchange.OrderStatusNew}}, wantFound: true, wantID: 42},
+		{name: "other cid not matched", cid: "cid-1", openOrders: []*exchange.Order{{OrderID: 43, ClientOrderID: "cid-2"}}, wantFound: false},
+		{name: "empty cid skips lookup", cid: "", openOrders: []*exchange.Order{{OrderID: 44, ClientOrderID: ""}}, wantFound: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &fakeOrderExchange{placeErr: errors.New("context deadline exceeded"), openOrders: tt.openOrders}
+			oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+			got, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: tt.cid})
+			if tt.wantFound {
+				if err != nil || got == nil || got.OrderID != tt.wantID {
+					t.Fatalf("PlaceOrder = %#v, %v; want order %d", got, err, tt.wantID)
+				}
+				return
+			}
+			if err == nil || got != nil {
+				t.Fatalf("PlaceOrder = %#v, %v; want failure", got, err)
+			}
+		})
 	}
 }

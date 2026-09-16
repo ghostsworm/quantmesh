@@ -40,6 +40,18 @@ type WebSocketManager struct {
 	// ACCOUNT_UPDATE 時觸發，用於失效適配器端的賬戶緩存
 	onAccountUpdate func()
 	onAccountMu     sync.RWMutex
+
+	// listenKey 讀寫鎖（保活協程與監聽協程並發訪問）；renewC 通知監聽協程重建 listenKey
+	keyMu  sync.RWMutex
+	renewC chan struct{}
+
+	// 最大重連退避
+	maxReconnectDelay time.Duration
+
+	// 可注入的網絡操作（測試用），默認走 go-binance
+	startUserStream func(ctx context.Context) (string, error)
+	keepAliveStream func(ctx context.Context, listenKey string) error
+	serveUserData   func(listenKey string, handler futures.WsUserDataHandler, errHandler futures.ErrHandler) (doneC, stopC chan struct{}, err error)
 }
 
 // SetOnAccountUpdate 設置 ACCOUNT_UPDATE 回調，收到賬戶變更時調用以失效緩存
@@ -51,8 +63,8 @@ func (w *WebSocketManager) SetOnAccountUpdate(fn func()) {
 
 // NewWebSocketManager 創建 WebSocket 管理器
 func NewWebSocketManager(apiKey, secretKey string, useTestnet bool) *WebSocketManager {
-	return &WebSocketManager{
-		client:            futures.NewClient(apiKey, secretKey),
+	w := &WebSocketManager{
+		client:            newFuturesClient(apiKey, secretKey, useTestnet),
 		apiKey:            apiKey,
 		secretKey:         secretKey,
 		useTestnet:        useTestnet,
@@ -62,6 +74,37 @@ func NewWebSocketManager(apiKey, secretKey string, useTestnet bool) *WebSocketMa
 		reconnectDelay:    5 * time.Second,
 		keepAliveInterval: 30 * time.Minute,
 		closeTimeout:      10 * time.Second,
+		maxReconnectDelay: 60 * time.Second,
+		renewC:            make(chan struct{}, 1),
+	}
+	w.startUserStream = func(ctx context.Context) (string, error) {
+		return w.client.NewStartUserStreamService().Do(ctx)
+	}
+	w.keepAliveStream = func(ctx context.Context, listenKey string) error {
+		return w.client.NewKeepaliveUserStreamService().ListenKey(listenKey).Do(ctx)
+	}
+	// WsUserDataServe 的端點取自 futures.UseTestnet，由 claimFuturesNetwork 保證與本實例一致
+	w.serveUserData = futures.WsUserDataServe
+	return w
+}
+
+func (w *WebSocketManager) getListenKey() string {
+	w.keyMu.RLock()
+	defer w.keyMu.RUnlock()
+	return w.listenKey
+}
+
+func (w *WebSocketManager) setListenKey(key string) {
+	w.keyMu.Lock()
+	defer w.keyMu.Unlock()
+	w.listenKey = key
+}
+
+// requestRenew 非阻塞地通知監聽協程重建 listenKey
+func (w *WebSocketManager) requestRenew() {
+	select {
+	case w.renewC <- struct{}{}:
+	default:
 	}
 }
 
@@ -72,23 +115,38 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 		w.mu.Unlock()
 		return fmt.Errorf("訂單流已在运行")
 	}
-	w.isRunning = true
-	w.callbacks = append(w.callbacks, callback)
 	w.mu.Unlock()
 
 	// 獲取listenKey
-	listenKey, err := w.client.NewStartUserStreamService().Do(ctx)
+	listenKey, err := w.startUserStream(ctx)
 	if err != nil {
-		return fmt.Errorf("獲取listenKey失败: %v", err)
+		return fmt.Errorf("獲取listenKey失败: %w", err)
 	}
-	w.listenKey = listenKey
-	logger.Debug("✅ [Binance] 已獲取訂單流listenKey: %s", listenKey)
+	w.setListenKey(listenKey)
+	logger.Debug("✅ [Binance] 已獲取訂單流listenKey")
+
+	w.mu.Lock()
+	if w.isRunning {
+		w.mu.Unlock()
+		return fmt.Errorf("訂單流已在运行")
+	}
+	// 每次啟動重建 stop/done 通道，避免 Stop 後再 Start 重複 close 已關閉通道
+	w.isRunning = true
+	w.callbacks = append(w.callbacks, callback)
+	w.stopC = make(chan struct{})
+	w.doneC = make(chan struct{})
+	stopC, doneC := w.stopC, w.doneC
+	select { // 清掉上一輪殘留的重建信號
+	case <-w.renewC:
+	default:
+	}
+	w.mu.Unlock()
 
 	// 啟动listenKey保活协程
-	go w.keepAliveListenKey(ctx)
+	go w.keepAliveListenKey(ctx, stopC)
 
 	// 啟动WebSocket監听
-	go w.listenUserDataStream(ctx)
+	go w.listenUserDataStream(ctx, stopC, doneC)
 
 	return nil
 }
@@ -214,8 +272,8 @@ func (w *WebSocketManager) Stop() {
 	w.isRunning = false
 }
 
-// keepAliveListenKey 保持listenKey有效
-func (w *WebSocketManager) keepAliveListenKey(ctx context.Context) {
+// keepAliveListenKey 保持listenKey有效；保活失敗時通知監聽協程重建 listenKey 並重連
+func (w *WebSocketManager) keepAliveListenKey(ctx context.Context, stopC <-chan struct{}) {
 	ticker := time.NewTicker(w.keepAliveInterval)
 	defer ticker.Stop()
 
@@ -223,11 +281,12 @@ func (w *WebSocketManager) keepAliveListenKey(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.stopC:
+		case <-stopC:
 			return
 		case <-ticker.C:
-			if err := w.client.NewKeepaliveUserStreamService().ListenKey(w.listenKey).Do(ctx); err != nil {
-				logger.Error("❌ [Binance] listenKey保活失败: %v", err)
+			if err := w.keepAliveStream(ctx, w.getListenKey()); err != nil {
+				logger.Error("❌ [Binance] listenKey保活失败，將重建 listenKey: %v", err)
+				w.requestRenew()
 			} else {
 				logger.Debug("✅ [Binance] listenKey保活成功")
 			}
@@ -235,41 +294,103 @@ func (w *WebSocketManager) keepAliveListenKey(ctx context.Context) {
 	}
 }
 
-// listenUserDataStream 監听用戶數據流
-func (w *WebSocketManager) listenUserDataStream(ctx context.Context) {
-	defer close(w.doneC)
+// renewListenKey 重新申請 listenKey，失敗時指數退避重試，直到成功或停止
+func (w *WebSocketManager) renewListenKey(ctx context.Context, stopC <-chan struct{}, delay time.Duration) bool {
+	for {
+		key, err := w.startUserStream(ctx)
+		if err == nil {
+			w.setListenKey(key)
+			logger.Info("✅ [Binance] 已重建訂單流 listenKey")
+			return true
+		}
+		logger.Error("❌ [Binance] 重建 listenKey 失败: %v，%v 後重試", err, delay)
+		if !w.sleepOrStop(ctx, stopC, delay) {
+			return false
+		}
+		delay = w.nextDelay(delay)
+	}
+}
 
+// sleepOrStop 等待 d；期間收到停止信號返回 false
+func (w *WebSocketManager) sleepOrStop(ctx context.Context, stopC <-chan struct{}, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-stopC:
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func (w *WebSocketManager) nextDelay(d time.Duration) time.Duration {
+	d *= 2
+	if w.maxReconnectDelay > 0 && d > w.maxReconnectDelay {
+		d = w.maxReconnectDelay
+	}
+	return d
+}
+
+// listenUserDataStream 監听用戶數據流
+// 斷線或保活失敗後先重建 listenKey 再重連（舊 key 可能已過期，用它重連只會反覆失敗）
+func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC <-chan struct{}, doneC chan struct{}) {
+	defer close(doneC)
+
+	delay := w.reconnectDelay
+	needRenew := false
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.stopC:
+		case <-stopC:
 			return
 		default:
 		}
 
+		if needRenew {
+			if !w.renewListenKey(ctx, stopC, delay) {
+				return
+			}
+			needRenew = false
+		}
+
 		logger.Info("🔗 [Binance] 连接WebSocket訂單流...")
 
-		doneC, stopC, err := futures.WsUserDataServe(w.listenKey, w.handleUserDataEvent, w.handleError)
+		connDoneC, connStopC, err := w.serveUserData(w.getListenKey(), w.handleUserDataEvent, w.handleError)
 		if err != nil {
-			logger.Error("❌ [Binance] WebSocket连接失败: %v", err)
-			time.Sleep(w.reconnectDelay)
+			logger.Error("❌ [Binance] WebSocket连接失败: %v，%v 後重建 listenKey 並重連", err, delay)
+			if !w.sleepOrStop(ctx, stopC, delay) {
+				return
+			}
+			delay = w.nextDelay(delay)
+			needRenew = true
 			continue
 		}
 
 		logger.Info("✅ [Binance] WebSocket訂單流已连接")
+		delay = w.reconnectDelay
 
-		// 等待断开或停止信号
+		// 等待断开或停止信号（close 而非發送：庫內讀協程退出後無人接收，發送會永久阻塞）
 		select {
 		case <-ctx.Done():
-			stopC <- struct{}{}
+			close(connStopC)
 			return
-		case <-w.stopC:
-			stopC <- struct{}{}
+		case <-stopC:
+			close(connStopC)
 			return
-		case <-doneC:
-			logger.Warn("⚠️ [Binance] WebSocket连接断开，等待重连...")
-			time.Sleep(w.reconnectDelay)
+		case <-w.renewC:
+			logger.Warn("⚠️ [Binance] listenKey 已失效，斷開並重建後重連")
+			close(connStopC)
+			<-connDoneC
+			needRenew = true
+		case <-connDoneC:
+			logger.Warn("⚠️ [Binance] WebSocket连接断开，重建 listenKey 後重连...")
+			if !w.sleepOrStop(ctx, stopC, delay) {
+				return
+			}
+			needRenew = true
 		}
 	}
 }

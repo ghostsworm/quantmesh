@@ -268,13 +268,12 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 func (spm *SuperPositionManager) LiquidateAll() {
 	logger.Warn("🚨 [全平倉] 正在執行全平操作，撤销掛單並限價平倉持倉...")
 
-	if spm.isBoth() {
-		spm.CancelAllOpenOrders()
-	} else {
-		spm.CancelAllBuyOrders()
-	}
+	// 按方向撤銷開倉委託（LONG 撤 BUY、SHORT 撤 SELL、BOTH 撤空槽上的開倉單）
+	spm.CancelAllOpenOrders()
 
 	var closeOrders []*OrderRequest
+	// 記錄被標為 Pending 的槽位，下單失敗時回滾，避免槽位永久卡死
+	var pendingPrices []float64
 	spm.slots.Range(func(key, value interface{}) bool {
 		price := key.(float64)
 		slot := value.(*InventorySlot)
@@ -287,6 +286,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			}
 
 			slot.SlotStatus = SlotStatusPending
+			pendingPrices = append(pendingPrices, price)
 
 			lastPrice, _ := spm.lastMarketPrice.Load().(float64)
 			if lastPrice <= 0 {
@@ -299,7 +299,8 @@ func (spm *SuperPositionManager) LiquidateAll() {
 			}
 			var side string
 			var px float64
-			if spm.isBoth() && leg == PositionLegShort {
+			if spm.liquidationIsShortLeg(leg) {
+				// 空頭平倉：BUY reduceOnly，略高於現價以確保成交
 				side = "BUY"
 				px = lastPrice * 1.01
 			} else {
@@ -329,8 +330,14 @@ func (spm *SuperPositionManager) LiquidateAll() {
 	if len(closeOrders) > 0 {
 		logger.Info("🔄 [全平倉] 提交 %d 個平倉單", len(closeOrders))
 		result := spm.executor.BatchPlaceOrdersWithDetails(closeOrders)
+		if result == nil {
+			result = &BatchPlaceOrdersResult{}
+		}
 
 		for _, ord := range result.PlacedOrders {
+			if ord == nil {
+				continue
+			}
 			price, _, valid := spm.parseClientOrderID(ord.ClientOrderID)
 			if valid {
 				slot := spm.getOrCreateSlot(price)
@@ -343,9 +350,33 @@ func (spm *SuperPositionManager) LiquidateAll() {
 				slot.mu.Unlock()
 			}
 		}
+
+		// 回滾：下單失敗（仍停留在 Pending）的槽位恢復為 FREE，讓下一輪可重新掛平倉單
+		rolledBack := 0
+		for _, price := range pendingPrices {
+			slot := spm.getOrCreateSlot(price)
+			slot.mu.Lock()
+			if slot.SlotStatus == SlotStatusPending {
+				slot.SlotStatus = SlotStatusFree
+				rolledBack++
+			}
+			slot.mu.Unlock()
+		}
+		if rolledBack > 0 {
+			logger.Error("❌ [全平倉] %d/%d 個平倉單提交失敗（保證金不足=%v），已回滾槽位狀態為 FREE",
+				rolledBack, len(closeOrders), result.HasMarginError)
+		}
 	} else {
 		logger.Info("ℹ️ [全平倉] 没有发現需要平倉的持倉")
 	}
+}
+
+// liquidationIsShortLeg 判斷全平倉時該槽位是否為空頭持倉（需 BUY 平倉）
+func (spm *SuperPositionManager) liquidationIsShortLeg(leg string) bool {
+	if spm.isBoth() {
+		return leg == PositionLegShort
+	}
+	return spm.isShort()
 }
 
 // SetGridRiskControl 更新網格風控配置（運行時熱更新，供 API 調用）

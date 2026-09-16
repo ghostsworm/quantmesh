@@ -220,6 +220,8 @@ type FundingMonitor interface {
 	// GetBuyBias 獲取買入偏向係數
 	// 返回 0-1.2 的值：1.0 為正常，<1.0 為減少買入，0 為暫停買入，>1.0 為增加買入
 	GetBuyBias() float64
+	// GetSellBias 獲取做空開倉（賣開）偏向係數，語義與 GetBuyBias 鏡像
+	GetSellBias() float64
 	// IsHighRate 判斷是否為高費率
 	IsHighRate() bool
 	// GetCurrentRate 獲取當前資金費率
@@ -633,6 +635,33 @@ func (spm *SuperPositionManager) isSpot() bool {
 // isShort 是否為做空方向
 func (spm *SuperPositionManager) isShort() bool {
 	return spm.config.Trading.Direction == "SHORT"
+}
+
+// favorableTrend 單向模式下對開倉方向有利的趨勢（LONG=up，SHORT=down）
+func (spm *SuperPositionManager) favorableTrend() string {
+	if spm.isShort() {
+		return "down"
+	}
+	return "up"
+}
+
+// adverseTrend 單向模式下對開倉方向不利的趨勢（LONG=down，SHORT=up）
+func (spm *SuperPositionManager) adverseTrend() string {
+	if spm.isShort() {
+		return "up"
+	}
+	return "down"
+}
+
+// openingFundingBias 單向模式下開倉方向的資金費率偏向係數（LONG=GetBuyBias，SHORT=GetSellBias）
+func (spm *SuperPositionManager) openingFundingBias() float64 {
+	if spm.fundingMonitor == nil {
+		return 1.0
+	}
+	if spm.isShort() {
+		return spm.fundingMonitor.GetSellBias()
+	}
+	return spm.fundingMonitor.GetBuyBias()
 }
 
 // isLong 是否為做多方向
@@ -1581,6 +1610,26 @@ func (spm *SuperPositionManager) GetTotalPositionValueUSDT() float64 {
 	return total
 }
 
+// GetNetPositionQty 獲取本 Bot 槽位淨持倉數量（多為正、空為負），供平倉按實際持倉計算數量
+// LONG/SHORT 模式按配置方向取符號；BOTH 模式按槽位腿別累加
+func (spm *SuperPositionManager) GetNetPositionQty() float64 {
+	var net float64
+	spm.slots.Range(func(key, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			if spm.liquidationIsShortLeg(slot.PositionLeg) {
+				net -= slot.PositionQty
+			} else {
+				net += slot.PositionQty
+			}
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	return net
+}
+
 // GetPendingBuyOrderValueUSDT 獲取當前掛單買單佔用的資金（USDT），用於資金管理展示
 // 統計所有 OrderSide=BUY 且 OrderStatus 為 Placed/Confirmed/PartiallyFilled 的訂單金額
 func (spm *SuperPositionManager) GetPendingBuyOrderValueUSDT() float64 {
@@ -1839,21 +1888,23 @@ func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) fl
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			if spm.isBoth() && slot.PositionLeg == PositionLegShort {
-				entry := slot.AvgBuyPrice
-				if entry <= 0 {
-					entry = slotPrice
-				}
-				totalPnL += (entry - currentPrice) * slot.PositionQty
-			} else if spm.isBoth() && slot.PositionLeg == PositionLegLong {
-				if slot.AvgBuyPrice > 0 {
-					totalPnL += (currentPrice - slot.AvgBuyPrice) * slot.PositionQty
-				} else {
-					totalPnL += (currentPrice - slotPrice) * slot.PositionQty
-				}
+			// 開倉均價優先（SHORT 模式下 AvgBuyPrice 存儲的是實際開空均價），缺失時退回槽位價
+			entry := slot.AvgBuyPrice
+			if entry <= 0 {
+				entry = slotPrice
+			}
+			isShortLeg := false
+			if spm.isBoth() {
+				isShortLeg = slot.PositionLeg == PositionLegShort
 			} else {
-				// 盈亏 = (當前價格 - 買入價格) * 數量（單向 LONG/SHORT 與舊行為一致）
-				totalPnL += (currentPrice - slotPrice) * slot.PositionQty
+				isShortLeg = spm.isShort()
+			}
+			if isShortLeg {
+				// 空頭盈虧 = (開倉價 - 當前價) * 數量
+				totalPnL += (entry - currentPrice) * slot.PositionQty
+			} else {
+				// 多頭盈虧 = (當前價 - 開倉價) * 數量
+				totalPnL += (currentPrice - entry) * slot.PositionQty
 			}
 		}
 		slot.mu.RUnlock()

@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"quantmesh/event"
@@ -180,6 +181,10 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 	if err != nil {
 		return nil, err
 	}
+	if ord == nil {
+		// 防禦：執行器不應返回 (nil, nil)，按跳過處理，避免上層解引用 panic
+		return nil, fmt.Errorf("下單未返回订單 symbol=%s price=%.8f: %w", req.Symbol, req.Price, order.ErrLockNotAcquired)
+	}
 
 	if a.eventBus != nil {
 		a.eventBus.Publish(&event.Event{
@@ -250,13 +255,16 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
 
 	result := &position.BatchPlaceOrdersResult{
-		PlacedOrders:     make([]*position.Order, len(batchResult.PlacedOrders)),
+		PlacedOrders:     make([]*position.Order, 0, len(batchResult.PlacedOrders)),
 		HasMarginError:   batchResult.HasMarginError,
 		ReduceOnlyErrors: batchResult.ReduceOnlyErrors,
 	}
 
-	for i, ord := range batchResult.PlacedOrders {
-		result.PlacedOrders[i] = &position.Order{
+	for _, ord := range batchResult.PlacedOrders {
+		if ord == nil {
+			continue
+		}
+		result.PlacedOrders = append(result.PlacedOrders, &position.Order{
 			OrderID:       ord.OrderID,
 			ClientOrderID: ord.ClientOrderID,
 			Symbol:        ord.Symbol,
@@ -265,7 +273,7 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			Quantity:      ord.Quantity,
 			Status:        ord.Status,
 			CreatedAt:     ord.CreatedAt,
-		}
+		})
 
 		// 发布订單下單事件（回填策略信息）
 		sName, sType, oSource := "", "", ""

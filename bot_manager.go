@@ -754,6 +754,12 @@ func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositi
 		return nil, fmt.Errorf("exchange not initialized")
 	}
 
+	// 按實際持倉計算平倉方向與數量（本 Bot 槽位淨持倉，並以交易所持倉封頂）
+	plan, err := br.planClosePosition(ctx, cfg.QuantityRatio)
+	if err != nil {
+		return nil, fmt.Errorf("bot %s 計算平倉數量失敗: %w", br.BotID, err)
+	}
+
 	// 創建平倉管理器
 	closeMgr := position.NewClosePositionManager(
 		position.NewExchangeAdapterWrapper(exchange),
@@ -761,21 +767,49 @@ func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositi
 		br.Config.Symbol,
 	)
 
-	// 獲取持倉
-	_, err := exchange.GetPositions(ctx, br.Config.Symbol)
+	record, err := closeMgr.ClosePositions(ctx, plan.Side, plan.Quantity, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get positions: %w", err)
-	}
-
-	// 平倉
-	// 這裡需要根據實際的持倉情況來決定平倉方向
-	// 暫時簡化處理，假設做多平倉為賣單
-	record, err := closeMgr.ClosePositions(ctx, "SELL", 100, cfg) // 這裡需要實際數量
-	if err != nil {
-		return nil, err
+		return record, fmt.Errorf("bot %s 平倉下單失敗 (%s %.8f): %w", br.BotID, plan.Side, plan.Quantity, err)
 	}
 
 	return record, nil
+}
+
+// planClosePosition 依據本 Bot 槽位淨持倉與交易所持倉計算平倉方向和數量
+// ratio 為平倉比例 0~1，0 或 1 表示全倉
+func (br *BotRuntime) planClosePosition(ctx context.Context, ratio float64) (*position.ClosePlan, error) {
+	spm := br.Inner.SuperPositionManager
+	ex := br.Inner.Exchange
+	symbol := br.Config.Symbol
+
+	botNet := spm.GetNetPositionQty()
+
+	if config.IsSpotMarketType(br.Config.MarketType) {
+		// 現貨無合約持倉概念，按本地槽位計算
+		return position.PlanCloseOrder(botNet, 0, false, ratio, ex.GetQuantityDecimals())
+	}
+
+	positions, err := ex.GetPositions(ctx, symbol)
+	if err != nil {
+		return nil, fmt.Errorf("獲取 %s 持倉失敗: %w", symbol, err)
+	}
+	var exchangeNet float64
+	hasExchange := false
+	for _, p := range positions {
+		if p == nil {
+			continue
+		}
+		if p.Symbol != "" && !strings.EqualFold(p.Symbol, symbol) {
+			continue
+		}
+		exchangeNet += p.Size
+		hasExchange = true
+	}
+	if !hasExchange && len(positions) > 0 {
+		logger.Warn("⚠️ [平倉] %s 交易所持倉返回的交易對名稱與配置不匹配，僅按本地槽位持倉計算", symbol)
+	}
+
+	return position.PlanCloseOrder(botNet, exchangeNet, hasExchange, ratio, ex.GetQuantityDecimals())
 }
 
 // GetCloseRecords 獲取平倉記錄
@@ -1009,34 +1043,24 @@ func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, time
 	}
 	spm := br.Inner.SuperPositionManager
 
-	// 获取当前价格以确定平仓方向
-	currentPrice := spm.GetLastMarketPrice()
-	if currentPrice == 0 {
-		return fmt.Errorf("unable to get current price")
-	}
-
 	if br.Config.GetDirection() == "BOTH" {
 		// 單向淨持倉雙向網格：按槽位腿別分別平多/平空
 		spm.LiquidateAll()
 		return nil
 	}
 
-	// 确定平仓方向
-	var side string
-	if br.Config.GetDirection() == "SHORT" {
-		side = "BUY" // 做空平仓是买入
-	} else {
-		side = "SELL" // 做多平仓是卖出
+	// 按实际持仓数量（Σ slot.PositionQty，并以交易所持仓封顶）计算平仓方向与数量，
+	// 不再用「成本价值 ÷ 现价」估算（价格下跌时会多平）
+	if br.Inner.Exchange == nil {
+		return fmt.Errorf("exchange not initialized")
 	}
-
-	// 获取总持仓价值
-	totalValue := spm.GetTotalPositionValueUSDT()
-	if totalValue == 0 {
+	if spm.GetNetPositionQty() == 0 {
 		return nil // 没有持仓
 	}
-
-	// 计算需要平仓的数量
-	totalQty := totalValue / currentPrice
+	plan, err := br.planClosePosition(ctx, 1)
+	if err != nil {
+		return fmt.Errorf("bot %s 计算平仓数量失败: %w", br.BotID, err)
+	}
 
 	// 创建平仓配置
 	cfg := config.ClosePositionConfig{
@@ -1055,8 +1079,10 @@ func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, time
 	)
 
 	// 执行平仓
-	_, err := closeMgr.ClosePositions(ctx, side, totalQty, cfg)
-	return err
+	if _, err := closeMgr.ClosePositions(ctx, plan.Side, plan.Quantity, cfg); err != nil {
+		return fmt.Errorf("bot %s 平仓下单失败 (%s %.8f): %w", br.BotID, plan.Side, plan.Quantity, err)
+	}
+	return nil
 }
 
 // GetPositionSummary 获取仓位摘要信息

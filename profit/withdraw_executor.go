@@ -16,6 +16,13 @@ const (
 	dailyHour         = 2
 	dailyMinute       = 0
 	weeklyWeekday     = time.Monday
+
+	frequencyImmediate = "immediate"
+	frequencyDaily     = "daily"
+	frequencyWeekly    = "weekly"
+
+	// withdrawRecordLookupLimit 計算已提取額時回查的記錄上限（storage 單次最多 1000）
+	withdrawRecordLookupLimit = 1000
 )
 
 // ExchangeGetter 根據交易所 ID 獲取交易所實例（用於內部轉帳）
@@ -23,11 +30,11 @@ type ExchangeGetter func(exchangeID string) exchange.IExchange
 
 // WithdrawExecutor 利润提取定時執行器
 type WithdrawExecutor struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	st              storage.Storage
-	getExchange     ExchangeGetter
-	immediateTicker *time.Ticker
+	ctx         context.Context
+	cancel      context.CancelFunc
+	st          storage.Storage
+	getExchange ExchangeGetter
+	now         func() time.Time // 可注入時鐘（測試用），預設 time.Now
 }
 
 // NewWithdrawExecutor 創建利润提取執行器
@@ -38,68 +45,83 @@ func NewWithdrawExecutor(ctx context.Context, st storage.Storage, getExchange Ex
 		cancel:      cancel,
 		st:          st,
 		getExchange: getExchange,
+		now:         time.Now,
 	}
 }
 
 // Start 啟动定時任務（immediate / daily / weekly）
 func (e *WithdrawExecutor) Start() {
 	go e.runImmediateTask()
-	go e.runDailyTask()
-	go e.runWeeklyTask()
+	go e.runScheduledTask(frequencyDaily)
+	go e.runScheduledTask(frequencyWeekly)
 	logger.Info("✅ 利润提取執行器已啟动（immediate/daily/weekly）")
 }
 
 // Stop 停止執行器
 func (e *WithdrawExecutor) Stop() {
 	e.cancel()
-	if e.immediateTicker != nil {
-		e.immediateTicker.Stop()
-	}
+}
+
+func (e *WithdrawExecutor) nowInConfiguredTimezone() time.Time {
+	return e.now().In(utils.GlobalLocation)
 }
 
 func (e *WithdrawExecutor) runImmediateTask() {
-	e.immediateTicker = time.NewTicker(immediateInterval)
-	defer e.immediateTicker.Stop()
-	for {
-		select {
-		case <-e.ctx.Done():
-			return
-		case <-e.immediateTicker.C:
-			e.processRules("immediate")
-		}
-	}
-}
-
-func (e *WithdrawExecutor) runDailyTask() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(immediateInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-e.ctx.Done():
 			return
 		case <-ticker.C:
-			now := utils.NowConfiguredTimezone()
-			if now.Hour() == dailyHour && now.Minute() < 15 {
-				e.processRules("daily")
-			}
+			e.processRules(frequencyImmediate)
 		}
 	}
 }
 
-func (e *WithdrawExecutor) runWeeklyTask() {
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
+// runScheduledTask daily/weekly 任務：計時器直接對準下一個目標時刻，不依賴 ticker 相位；
+// 啟動時先補跑一次，由 shouldExecute 按週期去重（本週期已成功執行的規則不會重複觸發）
+func (e *WithdrawExecutor) runScheduledTask(frequency string) {
+	e.processRules(frequency)
 	for {
+		now := e.nowInConfiguredTimezone()
+		wait := nextScheduleTime(frequency, now).Sub(now)
+		timer := time.NewTimer(wait)
 		select {
 		case <-e.ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
-			now := utils.NowConfiguredTimezone()
-			if now.Weekday() == weeklyWeekday && now.Hour() == dailyHour && now.Minute() < 15 {
-				e.processRules("weekly")
-			}
+		case <-timer.C:
+			e.processRules(frequency)
 		}
 	}
+}
+
+// currentPeriodStart 返回 now 所在週期的起點（最近一個 <= now 的目標時刻）
+func currentPeriodStart(frequency string, now time.Time) time.Time {
+	target := time.Date(now.Year(), now.Month(), now.Day(), dailyHour, dailyMinute, 0, 0, now.Location())
+	switch frequency {
+	case frequencyWeekly:
+		offset := (int(now.Weekday()) - int(weeklyWeekday) + 7) % 7
+		target = target.AddDate(0, 0, -offset)
+		if now.Before(target) {
+			target = target.AddDate(0, 0, -7)
+		}
+	default:
+		if now.Before(target) {
+			target = target.AddDate(0, 0, -1)
+		}
+	}
+	return target
+}
+
+// nextScheduleTime 返回 now 之後的下一個目標時刻
+func nextScheduleTime(frequency string, now time.Time) time.Time {
+	start := currentPeriodStart(frequency, now)
+	if frequency == frequencyWeekly {
+		return start.AddDate(0, 0, 7)
+	}
+	return start.AddDate(0, 0, 1)
 }
 
 func (e *WithdrawExecutor) processRules(frequency string) {
@@ -121,74 +143,114 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 			if !e.shouldExecute(rule, frequency) {
 				continue
 			}
-			profit := e.calculateRealizedProfit(rule)
-			if profit < rule.TriggerAmount {
-				continue
-			}
-			withdrawAmount := profit * rule.WithdrawRatio
-			if withdrawAmount < rule.MinWithdrawAmount {
-				continue
-			}
-			if err := e.executeWithdraw(rule, withdrawAmount); err != nil {
+			if err := e.processRule(rule); err != nil {
 				logger.Warn("⚠️ [利润提取] 執行失败 rule=%s: %v", rule.ID, err)
 			}
 		}
 	}
 }
 
+// processRule 只提取「上次成功提取之後」新實現的利潤，並扣除該區間內已提取/處理中的金額，
+// 保證重複 tick（含 LastTriggeredAt 更新失敗的情況）不會重複劃轉
+func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) error {
+	var since time.Time
+	if rule.LastTriggeredAt != nil {
+		since = *rule.LastTriggeredAt
+	}
+	windowEnd := e.now()
+
+	profit, err := e.calculateRealizedProfit(rule, since, windowEnd)
+	if err != nil {
+		return err
+	}
+	if profit <= 0 || profit < rule.TriggerAmount {
+		return nil
+	}
+	withdrawn, err := e.withdrawnSince(rule, since)
+	if err != nil {
+		return err
+	}
+	withdrawAmount := profit*rule.WithdrawRatio - withdrawn
+	if rule.MaxWithdrawAmount != nil && *rule.MaxWithdrawAmount > 0 && withdrawAmount > *rule.MaxWithdrawAmount {
+		withdrawAmount = *rule.MaxWithdrawAmount
+	}
+	if withdrawAmount <= 0 || withdrawAmount < rule.MinWithdrawAmount {
+		return nil
+	}
+	return e.executeWithdraw(rule, withdrawAmount, windowEnd)
+}
+
 func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequency string) bool {
+	return shouldExecuteAt(rule, frequency, e.nowInConfiguredTimezone())
+}
+
+// shouldExecuteAt immediate 總是執行（金額由 processRule 按區間去重）；
+// daily/weekly 在本週期起點之後尚未成功執行時才執行
+func shouldExecuteAt(rule *storage.ProfitWithdrawRule, frequency string, now time.Time) bool {
 	switch frequency {
-	case "immediate":
+	case frequencyImmediate:
 		return true
-	case "daily":
+	case frequencyDaily, frequencyWeekly:
 		if rule.LastTriggeredAt == nil {
 			return true
 		}
-		now := utils.NowConfiguredTimezone()
-		y, m, d := rule.LastTriggeredAt.Date()
-		ny, nm, nd := now.Date()
-		return y != ny || m != nm || d != nd
-	case "weekly":
-		if rule.LastTriggeredAt == nil {
-			return true
-		}
-		now := utils.NowConfiguredTimezone()
-		_, tw := rule.LastTriggeredAt.ISOWeek()
-		_, nw := now.ISOWeek()
-		return tw != nw || rule.LastTriggeredAt.Year() != now.Year()
+		return rule.LastTriggeredAt.Before(currentPeriodStart(frequency, now))
 	default:
 		return false
 	}
 }
 
-func (e *WithdrawExecutor) calculateRealizedProfit(rule *storage.ProfitWithdrawRule) float64 {
-	startTime := time.Time{}
-	endTime := time.Now()
+// calculateRealizedProfit 計算 (since, end] 區間內已實現利潤
+func (e *WithdrawExecutor) calculateRealizedProfit(rule *storage.ProfitWithdrawRule, since, end time.Time) (float64, error) {
 	if rule.StrategyID != "" {
-		summary, err := e.st.GetPnLBySymbol(rule.StrategyID, rule.AccountID, startTime, endTime)
+		summary, err := e.st.GetPnLBySymbol(rule.StrategyID, rule.AccountID, since, end)
 		if err != nil {
-			return 0
+			return 0, fmt.Errorf("查詢盈虧失败 strategy=%s account=%s: %w", rule.StrategyID, rule.AccountID, err)
 		}
-		return summary.TotalPnL
+		if summary == nil {
+			return 0, nil
+		}
+		return summary.TotalPnL, nil
 	}
-	list, err := e.st.GetPnLByTimeRange(rule.AccountID, startTime, endTime)
+	list, err := e.st.GetPnLByTimeRange(rule.AccountID, since, end)
 	if err != nil {
-		return 0
+		return 0, fmt.Errorf("查詢盈虧失败 account=%s: %w", rule.AccountID, err)
 	}
 	var total float64
 	for _, p := range list {
 		total += p.TotalPnL
 	}
-	return total
+	return total, nil
 }
 
-func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amount float64) error {
+// withdrawnSince 統計該規則在 since 之後創建、已完成或仍在處理中的提取金額
+// （pending/processing 結果未知，保守計入，寧可少提也不重複劃轉）
+func (e *WithdrawExecutor) withdrawnSince(rule *storage.ProfitWithdrawRule, since time.Time) (float64, error) {
+	records, err := e.st.GetWithdrawRecords(rule.AccountID, withdrawRecordLookupLimit)
+	if err != nil {
+		return 0, fmt.Errorf("查詢提取記錄失败 account=%s: %w", rule.AccountID, err)
+	}
+	var total float64
+	for _, rec := range records {
+		if rec == nil || rec.RuleID != rule.ID || !rec.CreatedAt.After(since) {
+			continue
+		}
+		if rec.Status == "failed" {
+			continue
+		}
+		total += rec.Amount
+	}
+	return total, nil
+}
+
+// executeWithdraw 執行劃轉；windowEnd 為本次利潤統計截止時刻，成功後寫入 LastTriggeredAt 作為下次統計起點
+func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amount float64, windowEnd time.Time) error {
 	ex := e.getExchange(rule.ExchangeID)
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
 	}
 	record := &storage.ProfitWithdrawRecord{
-		ID:          fmt.Sprintf("wd_%d", time.Now().UnixNano()),
+		ID:          fmt.Sprintf("wd_%d", e.now().UnixNano()),
 		RuleID:      rule.ID,
 		AccountID:   rule.AccountID,
 		ExchangeID:  rule.ExchangeID,
@@ -200,20 +262,24 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amo
 		Type:        "auto",
 		Status:      "pending",
 		Destination: rule.Destination,
-		CreatedAt:   time.Now(),
+		// CreatedAt 與 windowEnd 對齊：下次以 LastTriggeredAt=windowEnd 起算時，本記錄不會被重複扣減；
+		// 若 LastTriggeredAt 更新失敗，本記錄仍落在舊區間內，會被扣減從而避免重複劃轉
+		CreatedAt: windowEnd,
 	}
 	if err := e.st.SaveWithdrawRecord(record); err != nil {
 		return fmt.Errorf("保存記錄失败: %w", err)
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)
 	if err != nil {
-		_ = e.st.UpdateWithdrawRecordStatus(record.ID, "failed", "", err.Error())
-		return err
+		if updErr := e.st.UpdateWithdrawRecordStatus(record.ID, "failed", "", err.Error()); updErr != nil {
+			logger.Warn("⚠️ [利润提取] 更新失败記錄状態失败 record=%s: %v", record.ID, updErr)
+		}
+		return fmt.Errorf("劃轉失败 rule=%s amount=%.2f: %w", rule.ID, amount, err)
 	}
 	if err := e.st.UpdateWithdrawRecordStatus(record.ID, "completed", transferID, ""); err != nil {
 		logger.Warn("⚠️ [利润提取] 更新記錄状態失败: %v", err)
 	}
-	if err := e.st.UpdateRuleLastTriggeredAt(rule.ID, time.Now()); err != nil {
+	if err := e.st.UpdateRuleLastTriggeredAt(rule.ID, windowEnd); err != nil {
 		logger.Warn("⚠️ [利润提取] 更新规则執行時间失败: %v", err)
 	}
 	logger.Info("✅ [利润提取] 執行成功 rule=%s amount=%.2f USDT transferId=%s", rule.ID, amount, transferID)
