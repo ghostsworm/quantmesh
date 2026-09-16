@@ -1,6 +1,6 @@
 # ADR 2026-09-17：K 线级市场状态过滤与 ATR 自适应网格间隔
 
-- 状态：已接受（模块已实现，尚未接入网格；接入由后续轮次完成）
+- 状态：已接受（模块已实现；R5 第二段已接入网格，见 `2026-09-17-grid-regime-wiring.md`，其中 Unknown 改为保持原有行为）
 - 关联：`docs/audits/2026-09-17-full-audit.md` 第四节第 3、4、5 条，第五节第 4、5、6 条
 - 代码：`strategy/regime/`（新包），`indicators/wilder.go`（新增 Wilder RMA/ATR/ADX、PercentileRank）
 

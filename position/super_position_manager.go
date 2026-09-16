@@ -289,6 +289,8 @@ type SuperPositionManager struct {
 	fees feeRateState
 	// AdjustOrders 去抖狀態
 	adjust adjustDebounce
+	// K 線 regime 過濾 / 自適應間隔 / 邊界冻结（未注入時不生效）
+	regimeCtl regimeControl
 
 	// 事件總線（用於发送告警）
 	eventBus EventBus

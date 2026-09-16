@@ -450,6 +450,25 @@ for candle in candles:
 
 我建议先做 **方案1: K线内模拟**，这样可以快速验证你的假设！
 
+## 🔁 2026-09-17 更新：实盘同构回放引擎（engine=replay）
+
+上文的根因分析只覆盖了「决策频率」。2026-09 审计（`docs/audits/2026-09-17-full-audit.md` 第四节第 7、8 条）指出更根本的问题：
+legacy 网格回测与实盘不是同一套代码，且 K 线 low/high 触价即成交、无排队/部分成交/PostOnly 拒单、maker/taker 不分，
+默认网格区间还取了回测期的未来最高/最低价。**legacy 回测结果不能作为调参依据。**
+
+现在提供 `backtest/replay` 回放引擎，直接驱动实盘 `position.SuperPositionManager`：
+
+- 价格经 `AdjustOrders(price)` 喂入（默认每 50ms 模拟时间一次，同实盘价格循环），成交以 WS 同形的 `OrderUpdate` 回调 `OnOrderUpdate`；
+- 价格**穿越**挂单价才成交，触价默认不成交（可选排队模型）；按成交量 × 参与率部分成交；
+- PostOnly 下单时若与最新成交价交叉则拒单，并按实盘执行器规则逐 tick 重定价（最多 3 次，永不降级 GTC）；
+- maker/taker 分开计费，可选 8 小时资金费；
+- 首选 aggTrades（`params.aggtrade_dir`），无 tick 数据时退回 K 线内路径（阳线 O→L→H→C、阴线 O→H→L→C）；
+- legacy 引擎未填区间时改为「起点价 ±10%」，不再使用未来价格；
+- 调参新增滚动 walk-forward（train 60d / test 15d），最终得分只由测试窗口拼接计算，评分增加「每格净利 / 手续费」项。
+
+用法：`POST /api/backtest/tasks` 带 `"engine": "replay"`（默认仍为 `legacy`）。撮合假设、参数列表与仍存在的差距
+（牆钟计时器、无盘口深度、零延迟、ClientOrderID 生成依赖牆钟等）见 `docs/decisions/2026-09-17-replay-backtest.md`。
+
 ---
 
 *本分析由 QuantMesh 系统生成*

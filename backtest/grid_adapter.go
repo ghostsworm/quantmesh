@@ -21,10 +21,53 @@ type GridBacktestParams struct {
 	FeeRate       float64 `json:"fee_rate"`
 	SlippageRatio float64 `json:"slippage_ratio"`
 	Direction     string  `json:"direction"` // LONG/SHORT/BOTH，預設 LONG。做空時：價格上漲開空(賣)，價格下跌平空(買)
+	// AutoRangeRatio 未填 price_low/price_high 時，以回測起點價格 ×(1±ratio) 推導區間；<=0 用 DefaultGridAutoRangeRatio。
+	// 只使用起點時刻已知的價格，禁止使用回測期內的未來最高/最低價（未來函數）。
+	AutoRangeRatio float64 `json:"auto_range_ratio,omitempty"`
+}
+
+const (
+	// DefaultGridAutoRangeRatio 未填價格區間時，以起點價格上下各 10% 作為網格區間
+	DefaultGridAutoRangeRatio = 0.10
+	// maxGridAutoRangeRatio 自動區間比例上限（下限價必須為正）
+	maxGridAutoRangeRatio = 0.9
+)
+
+// deriveGridRangeNoLookahead 只用回測起點（第一根 K 線開盤價）推導網格區間，不讀取任何後續 K 線。
+// 已填的一端保持不變；推導結果不合法時返回錯誤。
+func deriveGridRangeNoLookahead(first *exchange.Candle, priceLow, priceHigh, ratio float64) (float64, float64, error) {
+	if first == nil {
+		return 0, 0, fmt.Errorf("derive grid range: first candle is nil")
+	}
+	if ratio <= 0 {
+		ratio = DefaultGridAutoRangeRatio
+	}
+	if ratio > maxGridAutoRangeRatio {
+		ratio = maxGridAutoRangeRatio
+	}
+	ref := first.Open
+	if ref <= 0 {
+		ref = first.Close
+	}
+	if ref <= 0 {
+		return 0, 0, fmt.Errorf("derive grid range: first candle (ts=%d) has no valid open/close price", first.Timestamp)
+	}
+	if priceLow <= 0 {
+		priceLow = ref * (1 - ratio)
+	}
+	if priceHigh <= 0 {
+		priceHigh = ref * (1 + ratio)
+	}
+	if priceHigh <= priceLow {
+		return 0, 0, fmt.Errorf("derive grid range: price_high %.8f must be greater than price_low %.8f (ref=%.8f ratio=%.4f)",
+			priceHigh, priceLow, ref, ratio)
+	}
+	return priceLow, priceHigh, nil
 }
 
 // RunGridBacktest 運行網格策略回测（独立於 StrategyAdapter，多檔位多笔交易）
-// 回测時可不填價格上下限：若 price_low/price_high 未填或為 0，則從 K 線數據推導回測區間的實際最低價/最高價，更貼近「實盤不知未來高低」的假設。
+// 回测時可不填價格上下限：若 price_low/price_high 未填或為 0，則以回測起點價格 ×(1±auto_range_ratio) 推導，
+// 不使用回測期內的未來最高/最低價（避免未來函數）。
 // riskSimulator 可選，為 nil 時不啟用風控；非 nil 時在觸發風控時跳過買入信號。
 func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBacktestParams, initialCapital float64, riskSimulator *RiskSimulator) (*BacktestResult, error) {
 	if len(candles) == 0 {
@@ -36,31 +79,11 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 
 	priceLow := params.PriceLow
 	priceHigh := params.PriceHigh
-	needLow := priceLow <= 0
-	needHigh := priceHigh <= 0
-	if needLow || needHigh {
-		// 從 K 線推導回測區間的實際最低價/最高價（未填的一端或兩端）
-		derivedLow := candles[0].Low
-		derivedHigh := candles[0].High
-		for _, c := range candles[1:] {
-			if c.Low > 0 && c.Low < derivedLow {
-				derivedLow = c.Low
-			}
-			if c.High > 0 && c.High > derivedHigh {
-				derivedHigh = c.High
-			}
-		}
-		if needLow && derivedLow > 0 {
-			priceLow = derivedLow
-		}
-		if needHigh && derivedHigh > 0 {
-			priceHigh = derivedHigh
-		}
-		if priceLow <= 0 || priceHigh <= 0 {
-			return nil, fmt.Errorf("could not derive price range from candles (need at least one valid Low/High)")
-		}
-		if priceHigh <= priceLow {
-			priceHigh = priceLow * 1.01 // 單一價時給一點區間
+	if priceLow <= 0 || priceHigh <= 0 {
+		var err error
+		priceLow, priceHigh, err = deriveGridRangeNoLookahead(candles[0], priceLow, priceHigh, params.AutoRangeRatio)
+		if err != nil {
+			return nil, err
 		}
 	} else if priceHigh <= priceLow {
 		return nil, fmt.Errorf("price_high must be greater than price_low")

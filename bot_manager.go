@@ -126,6 +126,15 @@ func (bm *BotManager) resolveLatestStartConfig(botCfg config.BotConfig) config.B
 	return latest
 }
 
+// applyExchangeFeeFromAPIForBot 啟動前把交易所 taker 費率寫入進程內 cfg.Exchanges[ex].FeeRate。
+//
+// 與 symbol_manager.applyGridFeeRates 看似重複（兩處都拉一次費率），但並非冗餘，不能刪除：
+//   - 本函數寫的是全局配置的 taker 費率，被 startSymbolRuntime 讀作 feeRate，用於
+//     safety.CheckAccountSafety（持倉安全檢查）、selectProfile 的費率切換規則，以及 web 參數建議（api_param_advisor）；
+//   - applyGridFeeRates 只把 maker/taker 注入本 Bot 的 SuperPositionManager（費率感知最小利差），不回寫全局配置，
+//     且在交易所接口失敗時回退到本函數寫入的 FeeRate。
+//
+// 代價是 Bot 啟動時多一次費率 REST 請求（受 timing.skip_exchange_fee_on_bot_start 控制）。
 func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
 	if bm == nil || bm.cfg == nil || botCfg.Exchange == "" || botCfg.Symbol == "" {
 		return

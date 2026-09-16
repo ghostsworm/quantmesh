@@ -410,6 +410,14 @@ func startSymbolRuntime(
 		logger.InfoCtx(ctx, "✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 	}
 
+	// K 線 regime 檢測器（trading.regime_filter / adaptive_interval / upper_bound_freeze）：
+	// 在啟動任何後台組件前校驗配置，配置非法時直接拒絕啟動
+	gridRegime, err := newGridRegimeRuntime(&localCfg, symCfg.Symbol, ex)
+	if err != nil {
+		return nil, fmt.Errorf("K 線 regime 配置無效(%s): %w", botID, err)
+	}
+	logLegacyTrendFilterDeprecation(ctx, &localCfg, symCfg.Symbol)
+
 	// API 权限安全检测
 	logger.InfoCtx(ctx, "🔐 [%s:%s] 开始检测 API 权限...", symCfg.Exchange, symCfg.Symbol)
 	permCheckCtx, permCheckCancel := context.WithTimeout(ctx, 10*time.Second)
@@ -749,8 +757,16 @@ func startSymbolRuntime(
 		dynamicAdjuster.Start()
 	}
 
+	// K 線 regime：注入倉位管理器並啟動檢測器 + 間隔控制循環（stopFn 中停止）
+	if err := gridRegime.start(ctx, superPositionManager); err != nil {
+		logger.ErrorCtx(ctx, "❌ [%s] K 線 regime 啟動失敗，本 Bot 以原有網格邏輯運行: %v", symCfg.Symbol, err)
+		gridRegime = nil
+	}
+
 	var trendDetector *strategy.TrendDetector
-	if localCfg.Trading.SmartPosition.Enabled || localCfg.Trading.GridRiskControl.TrendFilterEnabled {
+	// 舊 tick 級趨勢檢測器：regime_filter 啟用時不再為趨勢過濾創建（smart_position 仍需要）
+	legacyTrendFilter := localCfg.Trading.GridRiskControl.TrendFilterEnabled && !localCfg.Trading.RegimeFilter.Enabled
+	if localCfg.Trading.SmartPosition.Enabled || legacyTrendFilter {
 		trendDetector = strategy.NewTrendDetector(&localCfg, priceMonitor)
 		trendDetector.Start()
 		// 將趋势检测器注入 SuperPositionManager
@@ -1297,6 +1313,7 @@ func startSymbolRuntime(
 		if trendDetector != nil {
 			trendDetector.Stop()
 		}
+		gridRegime.stop()
 		if strategyManager != nil {
 			strategyManager.StopAll()
 		}

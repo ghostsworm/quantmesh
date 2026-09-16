@@ -106,4 +106,6 @@ type BacktestTaskResult struct {
 	MultiResult *MultiStrategyResult `json:"multi_result,omitempty"`
 	HedgeResult *HedgePairResult     `json:"hedge_result,omitempty"`
 	Comparison  *ComparisonResult    `json:"comparison"` // 对比結果（网格策略带风控对比时使用）
+	// ReplayMetrics 回放引擎（engine=replay）專有指標：maker/taker 手續費、資金費、成交數、每格淨利/手續費、敞口摘要等
+	ReplayMetrics interface{} `json:"replay_metrics,omitempty"`
 }

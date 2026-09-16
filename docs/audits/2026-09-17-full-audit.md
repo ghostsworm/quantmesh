@@ -159,8 +159,8 @@
 | R2 风控生效 | C1–C6、B3、B4、D3–D5、E3–E6 | ✅（另完成 S6、S9、S11 部分；E5 已在 R1） |
 | R3 策略包 | S1–S11 | ✅ |
 | R4 交易所 | X3–X6、OKX/Bybit 整套 | ✅（X6 已在 R1；OKX/Bybit 现货链路未改） |
-| R5 胜率改进 | 第五节 1–8、11、12 | ⬜ |
-| R6 回测与调参 | 第五节 9、10 | ⬜ |
+| R5 胜率改进 | 第五节 1–8、11、12 | ✅（12 已在 R3 完成） |
+| R6 回测与调参 | 第五节 9、10 | ✅（默认引擎仍为 legacy） |
 
 ### 逐项记录
 
@@ -224,3 +224,34 @@
 - OKX/Bybit `exchange/okx/mapping.go`、`exchange/bybit/mapping.go`、两个 `adapter.go`/`websocket.go`/`client.go`、`wrapper_okx.go`/`wrapper_bybit.go`。
 - 测试：`exchange/binance/order_guards_test.go`、`websocket_test.go`、`order/executor_adapter_test.go`、`exchange/okx/adapter_ctval_test.go`、`mapping_test.go`、`websocket_reconnect_test.go`、`exchange/bybit/adapter_order_test.go`、`websocket_reconnect_test.go`、`exchange/wrapper_okx_bybit_mapping_test.go`。
 - 已知限制：连线事件仅在启用全局熔断器时接线，多 Bot 共用一个断线计时；现货用户数据流无连线事件；OKX/Bybit 现货推送状态仍原样透传；Bybit 推送手续费为 0（由 `GetOrderFills` 补查）；OKX 手续费按 `Commission = -fillFee` 记（返佣为负数，减少成本）；部分 OKX/Bybit 旧测试仍会发起真实网络请求。
+
+#### R5（✅ go build / vet / test ./... 通过；position、order、config、feerate、strategy、indicators、safety、根包通过 -race）
+- 1 费率感知利差 `position/fee_aware_spread.go`，`symbol_manager.go` 费率注入与刷新；配置 `trading.fee_aware_spread`。测试 `position/r5_profitability_test.go`、`symbol_manager_fee_test.go`。
+- 2 PostOnly 重定价 `order/executor_adapter.go`，`adjust.go`/`both.go` `makerSafeClosePrice`。测试 `order/executor_postonly_reprice_test.go`。
+- 3 止损口径 `position/adjust_cache.go`（权益缓存）、盘口平仓价 `position/liquidation_price.go`；回撤熔断已在 R2 C1。
+- 4/6 K 线行情识别 `strategy/regime/`、`indicators/wilder.go`；接线 `symbol_manager_regime.go`、`position/adjust_plan.go`、`position/adjust_regime.go`；配置 `config/grid_regime.go`。ADR `docs/decisions/2026-09-17-kline-regime-filter.md`、`2026-09-17-grid-regime-wiring.md`。测试 `strategy/regime/*_test.go`、`position/r5b_regime_test.go`、`config/grid_regime_test.go`。
+- 5 上沿冻结 `position/adjust_plan.go`（`trading.upper_bound_freeze`）。
+- 7 库存偏斜 `position/inventory_skew.go`（`trading.inventory_skew`）。
+- 8 资金费定价 `position/funding_pricing.go`、`safety/funding_monitor.go` `EstimateNextFundingTime`。测试 `safety/funding_monitor_settlement_test.go`。
+- 11 去抖 `position/adjust_cache.go` `shouldSkipAdjust`。
+- 12 已在 R3（`dynamic_adjuster.go` `CalculateUtilization`）。
+- `config/config.go` 超 3000 行，交易风控/开仓控制类型拆至 `config/trading_controls.go`（无行为变化）。
+- 已知限制：新配置只读全局 `trading.*`/`funding_rate.*`，不支持按 Bot 覆盖；非 8 小时结算品种的结算时间估算有偏差；上述参数尚未经实盘校准。
+
+#### R6（✅ go build / vet / test ./... 通过；backtest、web 通过 -race）
+- 9 回放引擎 `backtest/replay/`（`sim_exchange.go`、`executor.go`、`engine.go`、`market.go`、`task.go`）；引擎选择 `backtest/engine_select.go`、`task_manager.go`、`web/api_backtest.go`；legacy 未来函数修复 `backtest/grid_adapter.go`。ADR `docs/decisions/2026-09-17-replay-backtest.md`。测试 `backtest/replay/replay_test.go`、`task_test.go`、`backtest/grid_range_nolookahead_test.go`、`engine_select_test.go`。
+- 10 Walk-forward `backtest/optimizer/walkforward.go`，评分 `score.go`。测试 `walkforward_test.go`。
+- 已知限制：`SuperPositionManager` 内保证金锁、冷却、`Sleep(2s)` 按挂钟时间，回放需注入 Clock 才能完全同构（回放默认关闭保证金检查）；无盘口深度/延迟模型；仅单交易对单向净持仓；walk-forward 未接入 Web 的 `UniversalOptimizer`；默认引擎在用实盘成交校准前保持 legacy。
+
+---
+
+## 九、整改总结
+
+- 六轮全部完成：第一至七节列出的缺陷全部处理，未修项已在各轮「已知限制」中说明原因。
+- 最终验证（2026-09-17）：`go build ./...`、`go vet ./...`、`go test -count=1 ./...` 全部通过；position、safety、lock、order、profit、risk、monitor、strategy、exchange、config、backtest、indicators、feerate、web、根包 `-race` 全部通过；`webui` Vitest 33 个文件 / 144 个用例通过。
+- 版本：`3.111.0-rc1`。
+- 仍需人工处理：
+  1. 新功能（行情识别、自适应间隔、上沿冻结、库存偏斜、资金费定价）默认关闭，建议先用回放引擎和测试网小仓位验证再开启。
+  2. 费率感知利差默认开启，间隔过小的现有配置会被自动抬高，升级前核对 `price_interval`。
+  3. 同一进程不能同时运行 Binance 合约主网与测试网 Bot；账户处于双向持仓模式时 Bot 拒绝启动。
+  4. `storage/sql_storage.go`（3049 行）在 main 上已超 3000 行，非本次引入，建议单独拆分。

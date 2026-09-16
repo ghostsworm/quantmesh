@@ -8,6 +8,7 @@ import (
 
 	"quantmesh/event"
 	"quantmesh/logger"
+	"quantmesh/strategy/regime"
 )
 
 // effectiveShortOpenWindowSize BOTH：向上開空層數；0 時繼承 sell_window 再 buy_window
@@ -44,17 +45,27 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	shortOpenW := spm.effectiveShortOpenWindowSize()
 	profitSpread := spm.getEffectiveProfitSpread()
 
+	// R5：按腿應用 regime 策略、庫存偏斜、資金費定價（均默認關閉）
+	now := time.Now()
+	regimeView := spm.loadRegimeTick()
+	spm.logRegimeTransition(regimeView)
+	longPlan := spm.planOpeningLeg(regime.DirectionLong, buyWindowSize, currentPrice, regimeView, now)
+	shortPlan := spm.planOpeningLeg(regime.DirectionShort, shortOpenW, currentPrice, regimeView, now)
+	buyWindowSize = longPlan.Window
+	shortOpenW = shortPlan.Window
+
 	currentGridPrice := spm.findNearestGridPrice(currentPrice)
 
 	slotPricesDown := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, "down")
 	slotPricesUp := spm.calculateSlotPrices(currentGridPrice, shortOpenW, "up")
 
-	priceLow := spm.config.Trading.PriceLow
-	priceHigh := spm.config.Trading.PriceHigh
+	priceLow, priceHigh := spm.effectivePriceBounds(regimeView)
 	if priceLow > 0 || priceHigh > 0 {
 		slotPricesDown = filterPricesInRange(slotPricesDown, priceLow, priceHigh)
 		slotPricesUp = filterPricesInRange(slotPricesUp, priceLow, priceHigh)
 	}
+	slotPricesDown = spm.applyFreezeBound(regime.DirectionLong, longPlan.FreezeBound, slotPricesDown, currentGridPrice)
+	slotPricesUp = spm.applyFreezeBound(regime.DirectionShort, shortPlan.FreezeBound, slotPricesUp, currentGridPrice)
 
 	slotPricesDown = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPricesDown)
 	slotPricesUp = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPricesUp)
@@ -128,8 +139,15 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 		skipLongBuy = true
 		skipShortSell = true
 	}
+	if longPlan.StopOpening {
+		skipLongBuy = true
+	}
+	if shortPlan.StopOpening {
+		skipShortSell = true
+	}
 
-	if spm.config.Trading.GridRiskControl.Enabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
+	// 舊 tick 級趨勢過濾（已廢棄；啟用 regime_filter 時由 K 線 regime 策略取代）
+	if spm.config.Trading.GridRiskControl.Enabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil && !regimeView.filterActive() {
 		trend := spm.trendDetector.GetCurrentTrend()
 		if trend == "down" {
 			logger.Warn("📉 [趨勢過濾:BOTH] 下跌趨勢，暫停買開")
@@ -152,11 +170,9 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 		}
 	}
 
-	if spm.config.FundingRate.TrendSyncEnabled &&
-		spm.fundingMonitor != nil && spm.trendDetector != nil &&
-		spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
+	if trend, trendOK := spm.syncTrend(regimeView); trendOK && spm.config.FundingRate.TrendSyncEnabled &&
+		spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
 		buyBias := spm.fundingMonitor.GetBuyBias()
-		trend := spm.trendDetector.GetCurrentTrend()
 		if buyBias > 1 && trend == "up" {
 			if skipLongBuy {
 				skipLongBuy = false
@@ -203,7 +219,8 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			continue
 		}
 		if !hasActive && slot.OrderID == 0 && slot.ClientOID == "" {
-			qty := spm.config.Trading.OrderQuantity / price
+			orderPrice := spm.shiftedOpenPrice(price, longPlan.PriceShift, "BUY")
+			qty := spm.config.Trading.OrderQuantity / orderPrice
 			qty = roundPrice(qty, spm.quantityDecimals)
 			if qty <= 0 && spm.quantityDecimals >= 0 {
 				slot.mu.Unlock()
@@ -212,7 +229,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			coid := spm.generateClientOrderID(price, "BUY", "")
 			slot.SlotStatus = SlotStatusPending
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
-				Symbol: spm.config.Trading.Symbol, Side: "BUY", Price: price, Quantity: qty,
+				Symbol: spm.config.Trading.Symbol, Side: "BUY", Price: orderPrice, Quantity: qty,
 				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			longBuys++
@@ -245,7 +262,8 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			continue
 		}
 		if !hasActive && slot.OrderID == 0 && slot.ClientOID == "" {
-			qty := spm.config.Trading.OrderQuantity / price
+			orderPrice := spm.shiftedOpenPrice(price, shortPlan.PriceShift, "SELL")
+			qty := spm.config.Trading.OrderQuantity / orderPrice
 			qty = roundPrice(qty, spm.quantityDecimals)
 			if qty <= 0 && spm.quantityDecimals >= 0 {
 				slot.mu.Unlock()
@@ -254,7 +272,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			coid := spm.generateClientOrderID(price, "SELL", "")
 			slot.SlotStatus = SlotStatusPending
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
-				Symbol: spm.config.Trading.Symbol, Side: "SELL", Price: price, Quantity: qty,
+				Symbol: spm.config.Trading.Symbol, Side: "SELL", Price: orderPrice, Quantity: qty,
 				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			shortSells++
@@ -304,7 +322,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice < slotPrice {
 				basePrice = slot.AvgBuyPrice
 			}
-			closePrice = basePrice - spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
+			closePrice = basePrice - spm.skewedCloseSpread(slotPrice, currentGridPrice, basePrice, shortPlan.CloseSpreadFactor) - shortPlan.CloseShift
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 			if closePrice < buyWindowMinPrice {
 				return true
@@ -315,7 +333,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			if slot.AvgBuyPrice > 0 && slot.AvgBuyPrice > slotPrice {
 				basePrice = slot.AvgBuyPrice
 			}
-			closePrice = basePrice + spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
+			closePrice = basePrice + spm.skewedCloseSpread(slotPrice, currentGridPrice, basePrice, longPlan.CloseSpreadFactor) + longPlan.CloseShift
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 			if slotPrice > sellWindowMaxPrice {
 				return true

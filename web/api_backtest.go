@@ -13,6 +13,7 @@ import (
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
 	"quantmesh/backtest/optimrun"
+	"quantmesh/backtest/replay"
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/logger"
@@ -114,6 +115,10 @@ var optimTaskManager *optimrun.OptimTaskManager
 
 // SetBacktestTaskManager 設置回测任務管理器
 func SetBacktestTaskManager(m *backtest.TaskManager) {
+	if m != nil {
+		// 回放引擎位於 backtest/replay（依賴 position），由此注入以避免 backtest → position 的循環依賴
+		m.SetReplayRunner(replay.RunGridTask)
+	}
 	backtestTaskManager = m
 }
 
@@ -506,10 +511,23 @@ func postBacktestTasks(c *gin.Context) {
 		DataSource string `json:"data_source"`
 		KlineFile  string `json:"kline_file"`
 		CacheName  string `json:"cache_name"`
+		// Engine 網格回測引擎：legacy（默認）/ replay（實盤同構回放）
+		Engine string `json:"engine"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("参數錯误: %v", err)})
 		return
+	}
+	if req.Engine != "" {
+		engine, engineErr := backtest.NormalizeEngine(req.Engine)
+		if engineErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": engineErr.Error()})
+			return
+		}
+		if req.Params == nil {
+			req.Params = make(map[string]interface{})
+		}
+		req.Params[backtest.ParamKeyEngine] = engine
 	}
 	if req.Mode == backtest.TaskModeHedgeGroup && req.GroupID != "" && globalConfig != nil {
 		cfg := globalConfig

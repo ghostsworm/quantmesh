@@ -44,6 +44,29 @@ type Metrics struct {
 
 	// 交易所风格指標（基于平均持仓成本）
 	ExchangeStyle ExchangeStyleMetrics `json:"exchange_style"` // 交易所风格指标
+
+	// 手續費效率（walk-forward 評分使用）
+	TotalFees float64 `json:"total_fees"` // 累計手續費（USDT）
+	// GridNetProfitToFeeRatio 每格淨利 / 每格手續費 = 已實現淨利（平倉 PnL − 開倉腿手續費）/ 總手續費；無手續費時為 0
+	GridNetProfitToFeeRatio float64 `json:"grid_net_profit_to_fee_ratio"`
+}
+
+// calculateFeeEfficiency 計算總手續費與「每格淨利 / 手續費」。
+// 約定（與網格回測一致）：平倉成交的 Trade.PnL 已扣除本筆手續費，開倉成交 PnL 為 0 且手續費未計入 PnL。
+func calculateFeeEfficiency(trades []Trade) (totalFees, netToFee float64) {
+	netRealized := 0.0
+	for _, t := range trades {
+		totalFees += t.Fee
+		if t.PnL != 0 {
+			netRealized += t.PnL
+		} else {
+			netRealized -= t.Fee
+		}
+	}
+	if totalFees <= 0 {
+		return totalFees, 0
+	}
+	return totalFees, netRealized / totalFees
 }
 
 // CalculateMetrics 計算所有指標
@@ -93,6 +116,7 @@ func CalculateMetricsWithPrice(equity []EquityPoint, trades []Trade, initialCapi
 		metrics.LargestLoss = calculateLargestLoss(trades)
 		metrics.MaxConsecutiveWins = calculateMaxConsecutiveWins(trades)
 		metrics.MaxConsecutiveLosses = calculateMaxConsecutiveLosses(trades)
+		metrics.TotalFees, metrics.GridNetProfitToFeeRatio = calculateFeeEfficiency(trades)
 	}
 
 	// 计算交易所风格指标

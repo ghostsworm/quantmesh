@@ -34,6 +34,10 @@ type OptimResult struct {
 	HoldOutEnabled bool    `json:"hold_out_enabled"`
 	FeeRateUsed    float64 `json:"fee_rate_used"`
 	SlippageUsed   float64 `json:"slippage_used"`
+
+	// WalkForward 啟用 walk-forward 時的逐折結果；此時 BestScore/BestMetrics 為測試窗口拼接指標，
+	// BestParams 為最後一折在訓練窗口選出的參數
+	WalkForward *WalkForwardResult `json:"walk_forward,omitempty"`
 }
 
 // HeatmapData 热力图數據，供前端 ECharts 使用

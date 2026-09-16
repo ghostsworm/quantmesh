@@ -167,7 +167,23 @@ func (f *FundingRateMonitor) fetchFundingRate(ctx context.Context) error {
 		f.rateHistory = f.rateHistory[len(f.rateHistory)-100:]
 	}
 
+	// 交易所接口只返回費率；未由外部 SetNextFundingTime 設置或已過期時，按 8 小時 UTC 結算表估算（資金費定價/結算前暫停使用）
+	if now := time.Now(); !f.nextFundingTime.After(now) {
+		f.nextFundingTime = EstimateNextFundingTime(now)
+	}
+
 	return nil
+}
+
+// fundingSettlementIntervalHours 主流交易所（Binance/OKX/Bybit 默認）資金費結算間隔（小時），結算點為 UTC 00/08/16 點
+const fundingSettlementIntervalHours = 8
+
+// EstimateNextFundingTime 按 8 小時 UTC 結算表估算 now 之後的下一次結算時間（嚴格晚於 now）
+func EstimateNextFundingTime(now time.Time) time.Time {
+	utc := now.UTC()
+	dayStart := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+	nextHour := (utc.Hour()/fundingSettlementIntervalHours + 1) * fundingSettlementIntervalHours
+	return dayStart.Add(time.Duration(nextHour) * time.Hour)
 }
 
 // FetchFundingInfo 獲取完整的資金費率信息（包括下次結算時間）
@@ -199,22 +215,7 @@ func (f *FundingRateMonitor) FetchFundingInfo(ctx context.Context) error {
 	}
 
 	// 計算預估的下次結算時間（幣安為每 8 小時：00:00, 08:00, 16:00 UTC）
-	now := time.Now().UTC()
-	hour := now.Hour()
-	var nextHour int
-	if hour < 8 {
-		nextHour = 8
-	} else if hour < 16 {
-		nextHour = 16
-	} else {
-		nextHour = 24 // 明天 00:00
-	}
-
-	nextTime := time.Date(now.Year(), now.Month(), now.Day(), nextHour%24, 0, 0, 0, time.UTC)
-	if nextHour == 24 {
-		nextTime = nextTime.AddDate(0, 0, 1)
-	}
-	f.nextFundingTime = nextTime
+	f.nextFundingTime = EstimateNextFundingTime(time.Now())
 
 	return nil
 }

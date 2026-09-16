@@ -189,6 +189,49 @@ trading:
 
 > 行為說明：`AdjustOrders` 價格推送去抖——價格在 0.1×網格間距的分桶內移動、且無訂單/成交事件時跳過全量重算（至少每 1s 全量一次）；網格風控（止損、回撤止盈、關閉條件）仍每個 tick 檢查。下單路徑的帳戶信息緩存 5s，保證金不足時立即失效。全平倉（止損/熔斷）優先按盤口可成交價下 reduce-only 限價單（覆蓋持倉數量所需的買盤/賣盤檔位，讓價不超過現價±1%），無盤口數據時回退現價±1%。
 
+### K 線 regime 過濾、自適應間隔、邊界冻结、庫存偏斜、資金費定價（全部默認關閉）
+
+設計見 `docs/decisions/2026-09-17-kline-regime-filter.md` 與 `docs/decisions/2026-09-17-grid-regime-wiring.md`。目前只讀取全局 `trading.*` / `funding_rate.*`，所有 Bot 共用。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `trading.regime_filter.enabled` | bool | false | 基於已收盤 K 線（ADX + EMA 斜率，滯回 + 駐留確認）識別 range / trend_up / trend_down。逆勢腿開倉窗口 ×0.5（向下取整，至少 1 檔）、間隔 ×1.5（量化到 base 整數倍）；順勢腿冻结邊界（LONG 冻结上沿、SHORT 冻结下沿，只保留平倉單，不追價重建倉）；range 滿鋪。**數據未就緒或過期（Unknown）時保持原有行為**。啟用後舊 `grid_risk_control.trend_filter_enabled`（50ms tick 均線）不再參與判斷，資金費-趨勢聯動改用 regime 趨勢 |
+| `trading.regime_filter.kline_interval` 等 | — | 見 ADR 默認值表 | `kline_interval`(1h)、`adx_period`(14)、`adx_enter_threshold`/`adx_exit_threshold`(25/20)、`ema_period`(50)、`ema_slope_lookback`(5)、`ema_slope_min_atr`(0.05)、`min_dwell_bars`(3)、`atr_period`(14)、`atr_percentile_lookback`(100)、`bootstrap_bars`(500)、`poll_interval_seconds`(0=自動)、`stale_multiplier`(2)。配置非法時 Bot 拒絕啟動。以上參數同樣作用於下面兩項所需的 K 線檢測器 |
+| `trading.adaptive_interval.enabled` | bool | false | `interval = QuantizeInterval(Next(ATR) × regime 間隔倍數, base)`，base = 啟動時的 `price_interval`；只在新收盤 K 線或狀態變化時計算（檢查周期 30s）。新間隔恆為 base 整數倍，槽位仍對齊錨點。`profit_spread > 0` 時按同倍數縮放。等比網格/三級火箭網格不支持（跳過並告警）；與 `dynamic_adjustment.price_interval` 同時啟用時本項自動停用。外部熱更新 `price_interval` 後以新值為基準 |
+| `trading.adaptive_interval.atr_multiplier` | float64 | 0.5 | k：目標間隔 = k × ATR |
+| `trading.adaptive_interval.min_interval` / `max_interval` | float64 | 0 → base / 8×base | 價格單位 |
+| `trading.adaptive_interval.change_threshold_ratio` | float64 | 0.25 | 相對變化不足時不切換 |
+| `trading.upper_bound_freeze.enabled` | bool | false | ATR 自動邊界：做多腿自動 `price_high = EMA + k×ATR`，做空腿自動 `price_low = EMA − k×ATR`，與手動 `price_high`/`price_low` 取更嚴格者，同為軟限制（越界暫停開倉、槽位裁剪、平倉照常）。快照過期時不生效。不依賴 `regime_filter.enabled` |
+| `trading.upper_bound_freeze.atr_multiplier` | float64 | 3 | k |
+| `trading.inventory_skew.enabled` | bool | false | `inv = 已成交層數 / 最大層數`（最大層數依次取 `bot_risk_control.max_position_layers`、`open_position_control.max_position_layers`、啟用時的 `grid_risk_control.max_grid_layers`；均未配置則不生效並告警一次）。開倉窗口 ×(1−inv×s)（≤0 停止開倉），開倉價再遠離現價 inv×s×間隔，平倉利差 ×(1−0.5×inv×s) 但不低於手續費下界。BOTH 模式按多/空腿分別計算 |
+| `trading.inventory_skew.strength` | float64 | 0.5 | s，範圍 0..1（配置 >1 校驗失敗；<=0 使用默認值） |
+| `funding_rate.pricing_enabled` | bool | false | 付費一側（LONG 遇正費率 / SHORT 遇負費率）開倉價遠離、平倉價外移 `|rate| × price × 距結算小時 / 8`，封頂 0.5×間隔；開倉總外移（含庫存偏斜）封頂 0.9×間隔。收費一側不移動。需 `funding_rate.enabled`（僅合約）。下次結算時間未知時按 8 小時計（監控器按 UTC 00/08/16 估算） |
+| `funding_rate.pre_settlement_pause_minutes` | int | 0 | >0 時結算前 N 分鐘暫停付費一側的新開倉 |
+
+```yaml
+trading:
+  regime_filter:
+    enabled: true
+    kline_interval: 1h
+  adaptive_interval:
+    enabled: true
+    atr_multiplier: 0.5
+  upper_bound_freeze:
+    enabled: false
+    atr_multiplier: 3
+  inventory_skew:
+    enabled: true
+    strength: 0.5
+  open_position_control:
+    max_position_layers: 8
+funding_rate:
+  enabled: true
+  pricing_enabled: true
+  pre_settlement_pause_minutes: 10
+```
+
+> 提示：以上參數尚無與實盤同構的回測可驗證（見審計第五節第 9 條），建議先小倉位觀察。
+
 ## 配置模板
 
 ### 模板 1: 单机开发环境

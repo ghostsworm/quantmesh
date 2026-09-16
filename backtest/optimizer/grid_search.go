@@ -26,6 +26,10 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 		return nil, errInvalidRange
 	}
 
+	if config.walkForwardEnabled() {
+		return g.runWalkForward(ctx, symbol, candles, space, config, initialCapital)
+	}
+
 	train, val, holdOut, err := SplitCandlesForValidation(candles, config.ValidationRatio)
 	if err != nil {
 		return nil, err
@@ -68,6 +72,33 @@ func (g *GridSearchOptimizer) Run(ctx context.Context, symbol string, candles []
 		HoldOutEnabled:   holdOut,
 		FeeRateUsed:      feeRate,
 		SlippageUsed:     slip,
+	}, nil
+}
+
+// runWalkForward 枚舉搜索空間後執行滾動 walk-forward；結果只含測試窗口指標
+func (g *GridSearchOptimizer) runWalkForward(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
+	feeRate, slip := DefaultFeeSlippage(config)
+	paramSets := g.enumerateParams(space, initialCapital, feeRate, slip)
+	if len(paramSets) == 0 {
+		return nil, errInvalidRange
+	}
+	lambda := config.Lambda
+	start := time.Now()
+	wf, err := RunWalkForward(ctx, symbol, candles, paramSets, *config.WalkForward, lambda, initialCapital)
+	if err != nil {
+		return nil, err
+	}
+	return &OptimResult{
+		BestParams:     wf.LatestParams,
+		BestScore:      wf.Score,
+		BestMetrics:    wf.Metrics,
+		Elapsed:        time.Since(start),
+		Iterations:     len(paramSets) * len(wf.Folds),
+		Method:         "grid_walk_forward",
+		HoldOutEnabled: true,
+		FeeRateUsed:    feeRate,
+		SlippageUsed:   slip,
+		WalkForward:    wf,
 	}, nil
 }
 

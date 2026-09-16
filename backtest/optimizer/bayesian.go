@@ -34,6 +34,9 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 	if err := ValidateOptimConfig(config); err != nil {
 		return nil, err
 	}
+	if config.walkForwardEnabled() {
+		return nil, errWalkForwardGridOnly
+	}
 	if len(candles) == 0 {
 		return nil, errInvalidRange
 	}

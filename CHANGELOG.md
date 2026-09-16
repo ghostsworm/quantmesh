@@ -2,9 +2,27 @@
 
 所有重要的專案更新都會記錄在此檔案中。
 
-## [3.110.0-rc4] - 2026-09-17
+## [3.111.0-rc1] - 2026-09-17
 
-依据 `docs/audits/2026-09-17-full-audit.md` 的整改，分轮提交。
+依据 `docs/audits/2026-09-17-full-audit.md` 的整改，分六轮提交（R1–R4 缺陷修复，R5–R6 盈利能力与回测新功能）。中途的 `3.110.0-rc4` 未发布，已并入本版本。
+
+### Added — R5 盈利能力（除费率感知利差外默认关闭）
+- **费率感知最小利差**（默认开启）：启动时拉取 maker/taker 费率并按配置间隔刷新，平仓利差不低于 `开仓价 × (2×费率 + safety_margin_ratio)`，低于下限自动抬高并告警一次。配置 `trading.fee_aware_spread.{enabled, safety_margin_ratio=0.0002}`。**行为变化**：拉取失败时按 `fee_rate` 同时作 maker/taker，间隔偏小的配置会被抬高。
+- **PostOnly 重定价**：被拒后向远离盘口方向移一个 tick 重挂（`trading.post_only_reprice_max_attempts=3`），网格单不再降级为 GTC 吃单；平仓单连续被撤时平仓价逐步外移。
+- **止损口径与平仓价**：`grid_risk_control.stop_loss_basis: position|equity`（默认 position）；`LiquidateAll` 使用盘口价，让价不超过现价 ±1%。
+- **AdjustOrders 去抖**：账户信息 5 秒缓存，价格未跨越 0.1×间距、无订单事件且距上次不足 1 秒时跳过全量重算；止损/回撤止盈/关闭条件每个 tick 照常检查。
+- **K 线行情识别**：新包 `strategy/regime`（Wilder ADX/ATR、EMA 斜率、滞回与驻留），`trading.regime_filter.*`；逆势腿缩窗、顺势腿冻结边界，数据未就绪或过期时保持原行为。开启后替代旧的 50ms tick 趋势过滤。
+- **ATR 自适应间隔**：`trading.adaptive_interval.*`，每根收盘 K 线重算并量化到基准间隔整数倍，保持锚点对齐。
+- **上沿冻结**：`trading.upper_bound_freeze.{enabled, atr_multiplier=3}`，按 EMA ± k×ATR 自动给出价格上/下限，与手动 `price_low/price_high` 取更严格者。
+- **库存偏斜**：`trading.inventory_skew.{enabled, strength=0.5}`，持仓越多开仓窗口越小、开仓价越远、平仓利差越窄（不低于费率下限），SHORT/BOTH 按腿生效。
+- **资金费进定价**：`funding_rate.pricing_enabled`、`funding_rate.pre_settlement_pause_minutes`，付费一方按距结算时长外移开/平仓价（有上限），可在结算前暂停开仓。
+
+### Added — R6 回测与调参
+- **回放回测引擎** `backtest/replay`：直接驱动实盘 `SuperPositionManager`，价格严格穿越才成交（可选排队模型）、PostOnly 交叉拒单并重定价、按参与率部分成交、maker/taker 分开计费、可选 8 小时资金费；优先 aggTrade，缺失时按 K 线路径。`POST /api/backtest/tasks` 新增可选字段 `engine: legacy|replay`，默认仍为 legacy。
+- **Walk-forward 调参**：`OptimConfig.WalkForward{enabled, train_days=60, test_days=15, step_days}`，只用测试窗口指标汇总；评分新增「每格净利/手续费」项。当前仅接入网格搜索优化器。
+
+### Fixed — R6
+- legacy 网格回测未指定区间时不再使用回测期内未来的最高/最低价，改为起点开盘价 ± `auto_range_ratio`（默认 10%）。
 
 ### Fixed — R1 止血
 - **SHORT 方向链路**：单向 SHORT 未实现盈亏符号修正（开仓价优先取均价）；`LiquidateAll` 做空改为 `BUY reduceOnly`，按方向撤开仓单，下单失败的槽位回滚为 FREE；风控撤单改为方向感知的 `CancelAllOpenOrders`；资金费率偏向新增 `GetSellBias`，趋势过滤对做空按「上涨不利」镜像；做空「秒成交/秒撤单」判定按开仓腿/平仓腿识别。（A1–A4、A6）
@@ -45,7 +63,7 @@
 - **连线事件**：Binance 合约用户数据流上报断线、重连成功、认证失败事件，接入熔断器；WS 管理器 Stop/Start 后回调不再重复注册，外部 ctx 取消后可再次 Start。
 - **OKX / Bybit 合约**：OKX 合约面值 `ctVal` 换算（下单张数、持仓与成交回报换回币数）；方向/订单类型/状态双向显式映射，未知值报错；OKX 推送交易对归一化为配置名；私有 WS 断线指数退避重连，登录确认后再订阅；OKX 解析 `fillFee` 并实现成交明细查询；数量向下取整、价格按买卖方向取整，低于最小下单量报错；对冲持仓模式拒绝下单；Bybit 订单推送只收 linear 品类。（OKX/Bybit 现货链路未改）
 
-- 版本号同步前后端到 `3.110.0-rc4`。
+- 版本号同步前后端到 `3.111.0-rc1`。
 
 ## [3.110.0-rc3] - 2026-08-26
 

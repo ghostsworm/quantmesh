@@ -41,6 +41,13 @@ type OptimConfig struct {
 	// FeeRate、SlippageRatio 傳入網格回測參數；0 表示使用庫內默認（taker 約萬四、滑點約萬三）。
 	FeeRate       float64 `json:"fee_rate"`
 	SlippageRatio float64 `json:"slippage_ratio"`
+	// WalkForward 滾動 walk-forward（目前僅網格搜索支持）；啟用時忽略 ValidationRatio 的單次切分
+	WalkForward *WalkForwardConfig `json:"walk_forward,omitempty"`
+}
+
+// walkForwardEnabled 是否啟用 walk-forward
+func (c OptimConfig) walkForwardEnabled() bool {
+	return c.WalkForward != nil && c.WalkForward.Enabled
 }
 
 // Optimizer 优化器接口
@@ -91,6 +98,11 @@ func ValidateOptimConfig(cfg OptimConfig) error {
 	}
 	if cfg.ValidationRatio > 0 && cfg.ValidationRatio >= 0.5 {
 		return errInvalidValidationRatio
+	}
+	if cfg.walkForwardEnabled() {
+		if _, _, _, err := cfg.WalkForward.windowsMs(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

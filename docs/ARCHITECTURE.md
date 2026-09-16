@@ -602,10 +602,28 @@ main.go
   ├── position (仓位管理)
   │     ├── order.OrderExecutor (接口适配)
   │     └── IExchange (子集接口)
-  └── safety (安全风控)
-        ├── exchange.IExchange
-        └── position.SuperPositionManager
+  ├── safety (安全风控)
+  │     ├── exchange.IExchange
+  │     └── position.SuperPositionManager
+  ├── risk (熔断器 / 紧急中心 / 复合风控守卫)
+  │     ├── MetricsFeeder（注入数据源：交易记录、权益、浮盈亏）
+  │     └── OpeningPauseCoordinator（多来源暂停开仓协调）
+  ├── strategy/regime (K 线行情识别 + ATR 自适应间隔，2026-09 新增)
+  │     ├── exchange (KlineSource)
+  │     └── indicators (Wilder ADX/ATR)
+  └── backtest/replay (回放回测引擎，2026-09 新增)
+        ├── position.SuperPositionManager（直接驱动实盘代码）
+        └── 由 web.SetBacktestTaskManager 注入 backtest.TaskManager
 ```
+
+#### 2026-09 整改新增的依赖约束
+- `strategy/regime` 不得依赖 `position`（`strategy` 已依赖 `position`），以便 `position` 通过自定义的 `RegimeProvider` 接口消费。
+- `config` 不得引用 `strategy/regime`（`regime → exchange → config` 会成环），因此 `config/grid_regime.go` 按字段镜像 `regime.RegimeConfig` / `AdaptiveIntervalConfig`，通过结构体类型转换互转，字段不一致时编译失败。
+- `backtest` 不得依赖 `position`（已有 `position → storage → backtest`），回放引擎放在子包 `backtest/replay`，通过 `TaskManager.SetReplayRunner` 注入。
+- `exchange/binance` 的连线事件（断线 / 重连 / 认证失败）通过进程级回调 `connectivity.go` 上报，由 `main_helpers.go` 转发到事件总线，避免交易所层依赖 `event`/`risk`。
+- `exchange.OrderByClientIDQuerier` 是可选接口，执行器以类型断言使用，未实现的交易所回退为扫描挂单。
+
+详见 `docs/audits/2026-09-17-full-audit.md` 与 `docs/decisions/2026-09-17-*.md`。
 
 ### 循环依赖问题及解决方案
 

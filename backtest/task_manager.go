@@ -31,6 +31,7 @@ type TaskManager struct {
 	klineDataDir  string // K線檔案目錄 (./data/kline)
 	mu            sync.Mutex
 	running       map[string]struct{}
+	replayRunner  ReplayTaskRunner // 可選：engine=replay 時使用
 }
 
 // NewTaskManager 創建任務管理器
@@ -185,6 +186,7 @@ func (m *TaskManager) RunTask(id string) error {
 	var multiResult *MultiStrategyResult
 	var hedgeResult *HedgePairResult
 	var comparison *ComparisonResult
+	var replayMetrics interface{}
 	capital := task.TotalCapital
 	if task.Mode == TaskModeHedgeGroup {
 		legACandles := candles
@@ -199,6 +201,20 @@ func (m *TaskManager) RunTask(id string) error {
 	} else {
 		switch task.Strategy {
 		case "grid":
+			engine, engineErr := taskEngine(task)
+			if engineErr != nil {
+				m.failTask(id, engineErr.Error())
+				return nil
+			}
+			if engine == EngineReplay {
+				runner := m.getReplayRunner()
+				if runner == nil {
+					m.failTask(id, "回放引擎（engine=replay）未註冊")
+					return nil
+				}
+				result, replayMetrics, err = runner(task, candles)
+				break
+			}
 			params := m.gridParamsFromTask(task)
 			// 執行兩次：無風控 + 帶風控
 			resultNoRisk, err := RunGridBacktest(task.Symbol, candles, params, capital, nil)
@@ -256,7 +272,7 @@ func (m *TaskManager) RunTask(id string) error {
 		return nil
 	}
 	resultPath := filepath.Join(m.resultsDir, id+".json")
-	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, MultiResult: multiResult, HedgeResult: hedgeResult, Comparison: comparison}
+	payload := BacktestTaskResult{TaskID: id, Task: task, Result: result, MultiResult: multiResult, HedgeResult: hedgeResult, Comparison: comparison, ReplayMetrics: replayMetrics}
 	body, _ := json.MarshalIndent(payload, "", "  ")
 	if err := os.WriteFile(resultPath, body, 0644); err != nil {
 		m.failTask(id, fmt.Sprintf("保存結果失敗: %v", err))

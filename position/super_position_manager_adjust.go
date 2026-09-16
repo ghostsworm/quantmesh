@@ -9,6 +9,7 @@ import (
 
 	"quantmesh/event"
 	"quantmesh/logger"
+	"quantmesh/strategy/regime"
 )
 
 // ========== 訂單調整主循環（AdjustOrders）==========
@@ -199,6 +200,17 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	sellWindowSize := spm.config.Trading.SellWindowSize
 	profitSpread := spm.getEffectiveProfitSpread()
 
+	// R5：K 線 regime 策略、庫存偏斜、資金費定價（均默認關閉，關閉時 openPlan 為原有行為）
+	now := time.Now()
+	regimeView := spm.loadRegimeTick()
+	spm.logRegimeTransition(regimeView)
+	legDir := regime.DirectionLong
+	if spm.isShort() {
+		legDir = regime.DirectionShort
+	}
+	openPlan := spm.planOpeningLeg(legDir, buyWindowSize, currentPrice, regimeView, now)
+	buyWindowSize = openPlan.Window
+
 	// 动態计算网格價格
 	currentGridPrice := spm.findNearestGridPrice(currentPrice)
 	// logger.Debug("🔄 [實時調整] 當前價格: %s, 网格價格: %s, 買單窗口: %d, 賣單視窗: %d",
@@ -211,22 +223,13 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 	slotPrices := spm.calculateSlotPrices(currentGridPrice, buyWindowSize, slotDir)
 
-	// 價格範圍軟限制：將槽位價格裁剪到 [PriceLow, PriceHigh] 範圍內
-	priceLow := spm.config.Trading.PriceLow
-	priceHigh := spm.config.Trading.PriceHigh
+	// 價格範圍軟限制：將槽位價格裁剪到 [PriceLow, PriceHigh] 範圍內（含 upper_bound_freeze 的 ATR 自動邊界）
+	priceLow, priceHigh := spm.effectivePriceBounds(regimeView)
 	if priceLow > 0 || priceHigh > 0 {
-		filtered := make([]float64, 0, len(slotPrices))
-		for _, p := range slotPrices {
-			if priceLow > 0 && p < priceLow {
-				continue
-			}
-			if priceHigh > 0 && p > priceHigh {
-				continue
-			}
-			filtered = append(filtered, p)
-		}
-		slotPrices = filtered
+		slotPrices = filterPricesInRange(slotPrices, priceLow, priceHigh)
 	}
+	// 順勢邊界冻结：LONG 在 TrendUp 不追高、SHORT 在 TrendDown 不追低（平倉單不受影響）
+	slotPrices = spm.applyFreezeBound(legDir, openPlan.FreezeBound, slotPrices, currentGridPrice)
 
 	// 🔥 P2 新增：根據訂單簿深度優化槽位價格
 	slotPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, slotPrices)
@@ -326,9 +329,12 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	if spm.IsOpeningPaused() {
 		skipBuying = true
 	}
+	if openPlan.StopOpening {
+		skipBuying = true
+	}
 	if spm.config.Trading.GridRiskControl.Enabled {
-		// 趨勢過濾
-		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil {
+		// 趨勢過濾（舊 tick 級，已廢棄；啟用 regime_filter 時由 K 線 regime 策略取代）
+		if spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil && !regimeView.filterActive() {
 			trend := spm.trendDetector.GetCurrentTrend()
 			// 逆勢不開倉：LONG 遇下跌暫停買開，SHORT 遇上漲暫停賣開
 			if trend == spm.adverseTrend() {
@@ -453,12 +459,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 
 	// 🔥 P1 新增：資金費率與趨勢聯動邏輯
-	if spm.config.FundingRate.TrendSyncEnabled &&
-		spm.fundingMonitor != nil && spm.trendDetector != nil &&
-		spm.config.FundingRate.BiasEnabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
+	if trend, trendOK := spm.syncTrend(regimeView); trendOK && spm.config.FundingRate.TrendSyncEnabled &&
+		spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
 
 		buyBias := spm.openingFundingBias()
-		trend := spm.trendDetector.GetCurrentTrend()
 
 		// 有利費率 + 順勢（LONG=上漲 / SHORT=下跌）：放寬；不利費率 + 逆勢：暫停開倉
 		if buyBias > 1 && trend == spm.favorableTrend() {
@@ -561,7 +565,14 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 			}
 
-			quantity := spm.config.Trading.OrderQuantity / price
+			// 開倉委託價：庫存偏斜/資金費定價時遠離現價（槽位鍵仍為 price）
+			openSideForPrice := "BUY"
+			if spm.isShort() {
+				openSideForPrice = "SELL"
+			}
+			orderPrice := spm.shiftedOpenPrice(price, openPlan.PriceShift, openSideForPrice)
+
+			quantity := spm.config.Trading.OrderQuantity / orderPrice
 			// 使用從交易所獲取的數量精度
 			quantity = roundPrice(quantity, spm.quantityDecimals)
 
@@ -612,7 +623,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
 				Side:          openSide,
-				Price:         price,
+				Price:         orderPrice,
 				Quantity:      quantity,
 				PriceDecimals: spm.priceDecimals,
 				PostOnly:      gridOrdersPostOnly, // 永不降級 GTC，被拒由執行器重定價
@@ -667,7 +678,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					logger.Debug("📊 [%s] 槽位 %.2f 實際開空價(%.2f) < 網格價，平倉基準價調整為 %.2f",
 						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
 				}
-				closePrice = basePrice - spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
+				closePrice = basePrice - spm.skewedCloseSpread(slotPrice, currentGridPrice, basePrice, openPlan.CloseSpreadFactor) - openPlan.CloseShift
 				closeSide = "BUY"
 			} else {
 				// LONG: 賣高平倉。必須保證賣出價 >= 實際買入均價，否則波動/滑點時可能虧損
@@ -677,7 +688,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					logger.Debug("📊 [%s] 槽位 %.2f 實際買入價(%.2f) > 網格價，平倉基準價調整為 %.2f",
 						spm.logPrefix(), slotPrice, slot.AvgBuyPrice, basePrice)
 				}
-				closePrice = basePrice + spm.closeSpreadForSlot(slotPrice, currentGridPrice, basePrice)
+				closePrice = basePrice + spm.skewedCloseSpread(slotPrice, currentGridPrice, basePrice, openPlan.CloseSpreadFactor) + openPlan.CloseShift
 			}
 			closePrice = roundPrice(closePrice, spm.priceDecimals)
 			// PostOnly 平倉價必須在盤口外側（價格已越過平倉價時掛到現價外一個 tick 起，連續被拒則逐步外移）

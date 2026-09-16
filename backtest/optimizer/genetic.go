@@ -47,6 +47,9 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 	if err := ValidateOptimConfig(config); err != nil {
 		return nil, err
 	}
+	if config.walkForwardEnabled() {
+		return nil, errWalkForwardGridOnly
+	}
 	if len(candles) == 0 {
 		return nil, errInvalidRange
 	}
