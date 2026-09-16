@@ -200,50 +200,14 @@ func (tfs *TrendFollowingStrategy) addPrice(price float64) {
 func (tfs *TrendFollowingStrategy) calculateMA(period int) float64 {
 	tfs.mu.RLock()
 	defer tfs.mu.RUnlock()
-
-	if len(tfs.priceHistory) < period {
-		return 0
-	}
-
-	start := len(tfs.priceHistory) - period
-	prices := tfs.priceHistory[start:]
-
-	var sum float64
-	for _, price := range prices {
-		sum += price
-	}
-
-	return sum / float64(len(prices))
+	return simpleMovingAverage(tfs.priceHistory, period)
 }
 
-// calculateEMA 计算指數移动平均
+// calculateEMA 计算指數移动平均（基于完整价格历史，见 exponentialMovingAverage）
 func (tfs *TrendFollowingStrategy) calculateEMA(period int) float64 {
 	tfs.mu.RLock()
 	defer tfs.mu.RUnlock()
-
-	if len(tfs.priceHistory) < period {
-		return 0
-	}
-
-	start := len(tfs.priceHistory) - period
-	prices := tfs.priceHistory[start:]
-
-	// 初始值使用简單移动平均
-	var sum float64
-	for i := 0; i < period && i < len(prices); i++ {
-		sum += prices[i]
-	}
-	ema := sum / float64(period)
-
-	// 计算平滑因子
-	multiplier := 2.0 / (float64(period) + 1.0)
-
-	// 计算EMA
-	for i := period; i < len(prices); i++ {
-		ema = (prices[i] * multiplier) + (ema * (1 - multiplier))
-	}
-
-	return ema
+	return exponentialMovingAverage(tfs.priceHistory, period)
 }
 
 // detectTrend 检测趋势

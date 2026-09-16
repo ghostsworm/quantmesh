@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -10,16 +11,51 @@ import (
 	"quantmesh/position"
 )
 
+// 訂單回報狀態（與 position.OrderUpdate.Status 歸一化後的取值一致）
+const (
+	orderStatusPartiallyFilled = "PARTIALLY_FILLED"
+	orderStatusFilled          = "FILLED"
+	orderStatusCanceled        = "CANCELED"
+	orderStatusExpired         = "EXPIRED"
+	orderStatusRejected        = "REJECTED"
+)
+
+// capitalQtyEpsilon 數量比較容差
+const capitalQtyEpsilon = 1e-12
+
+// orderCapital 單筆策略訂單的資金記賬
+type orderCapital struct {
+	strategy      string
+	leg           string  // position.PositionSideLong / PositionSideShort
+	opening       bool    // 開倉單占用資金；平倉單成交時釋放持倉占用
+	reserved      float64 // 下單時預留金額（僅開倉）
+	converted     float64 // 已隨成交轉為持倉占用的金額
+	quantity      float64 // 下單數量
+	filledQty     float64 // 已處理的累計成交數量
+	orderID       int64
+	clientOrderID string
+}
+
+// legUsage 策略某條腿上已成交持倉占用的資金
+type legUsage struct {
+	amount float64
+	qty    float64
+}
+
 // MultiStrategyExecutor 多策略订單執行器
+//
+// 資金生命週期（D5）：開倉單下單時 Reserve → 成交後轉為「持倉占用」（仍計入 used）
+// → 平倉單成交時按比例 Release；開倉單撤單/拒單/過期時 Release 未成交部分。
 type MultiStrategyExecutor struct {
-	executor            *order.ExchangeOrderExecutor
-	allocator           *CapitalAllocator
-	strategies          map[string]string  // orderID -> strategyName
-	clientStrategies    map[string]string  // clientOrderID -> strategyName
-	orderReservedAmount map[int64]float64  // orderID -> 下單時預留的金額（僅開倉買單）
-	clientReserved      map[string]float64 // clientOrderID -> 預留金額（處理秒成交回報）
-	clientToOrderID     map[string]int64   // clientOrderID -> orderID（避免重複釋放）
-	mu                  sync.RWMutex
+	executor             *order.ExchangeOrderExecutor
+	allocator            *CapitalAllocator
+	strategies           map[string]string        // orderID -> strategyName
+	clientStrategies     map[string]string        // clientOrderID -> strategyName
+	ordersByClient       map[string]*orderCapital // clientOrderID -> 資金記賬
+	ordersByID           map[int64]*orderCapital  // orderID -> 資金記賬
+	positionUsage        map[string]*legUsage     // strategy|leg -> 持倉占用
+	strategyPositionSide map[string]string        // strategyName -> 固定持倉腿（如 spot_short=SHORT）
+	mu                   sync.RWMutex
 }
 
 // NewMultiStrategyExecutor 創建多策略订單執行器
@@ -28,15 +64,28 @@ func NewMultiStrategyExecutor(
 	allocator *CapitalAllocator,
 ) *MultiStrategyExecutor {
 	return &MultiStrategyExecutor{
-		executor:            executor,
-		allocator:           allocator,
-		strategies:          make(map[string]string),
-		clientStrategies:    make(map[string]string),
-		orderReservedAmount: make(map[int64]float64),
-		clientReserved:      make(map[string]float64),
-		clientToOrderID:     make(map[string]int64),
-		mu:                  sync.RWMutex{},
+		executor:             executor,
+		allocator:            allocator,
+		strategies:           make(map[string]string),
+		clientStrategies:     make(map[string]string),
+		ordersByClient:       make(map[string]*orderCapital),
+		ordersByID:           make(map[int64]*orderCapital),
+		positionUsage:        make(map[string]*legUsage),
+		strategyPositionSide: make(map[string]string),
 	}
+}
+
+// SetStrategyPositionSide 顯式聲明某策略只操作一條持倉腿（LONG/SHORT），
+// 用於在未設置 OrderRequest.PositionSide 時判斷開/平倉，替代按策略名稱猜測（S9）。
+func (mse *MultiStrategyExecutor) SetStrategyPositionSide(strategyName, positionSide string) error {
+	side := strings.ToUpper(strings.TrimSpace(positionSide))
+	if side != position.PositionSideLong && side != position.PositionSideShort {
+		return fmt.Errorf("策略 %s 的持倉方向 %q 無效，應為 LONG 或 SHORT", strategyName, positionSide)
+	}
+	mse.mu.Lock()
+	mse.strategyPositionSide[strategyName] = side
+	mse.mu.Unlock()
+	return nil
 }
 
 func (mse *MultiStrategyExecutor) bindOrderRouteLocked(orderID int64, clientOrderID, strategyName string) {
@@ -48,12 +97,51 @@ func (mse *MultiStrategyExecutor) bindOrderRouteLocked(orderID int64, clientOrde
 			mse.clientStrategies[clientOrderID] = strategyName
 		}
 	}
-	if orderID > 0 && clientOrderID != "" {
-		mse.clientToOrderID[clientOrderID] = orderID
-		if amount, ok := mse.clientReserved[clientOrderID]; ok && amount > 0 {
-			mse.orderReservedAmount[orderID] = amount
+}
+
+// trackOrderLocked 記錄訂單資金記賬（ClientOrderID 或 OrderID 任一可用即可查到）
+func (mse *MultiStrategyExecutor) trackOrderLocked(rec *orderCapital, orderID int64, clientOrderID string) {
+	if rec == nil {
+		return
+	}
+	if orderID > 0 {
+		rec.orderID = orderID
+		mse.ordersByID[orderID] = rec
+	}
+	if clientOrderID != "" {
+		if rec.clientOrderID == "" {
+			rec.clientOrderID = clientOrderID
+		}
+		mse.ordersByClient[clientOrderID] = rec
+	}
+}
+
+// untrackOrderLocked 刪除訂單的記賬與路由
+func (mse *MultiStrategyExecutor) untrackOrderLocked(rec *orderCapital) {
+	for clientOID, r := range mse.ordersByClient {
+		if r == rec {
+			delete(mse.ordersByClient, clientOID)
+			delete(mse.clientStrategies, clientOID)
 		}
 	}
+	if rec.orderID > 0 {
+		delete(mse.ordersByID, rec.orderID)
+		delete(mse.strategies, fmt.Sprintf("%d", rec.orderID))
+	}
+}
+
+func (mse *MultiStrategyExecutor) lookupOrderLocked(orderID int64, clientOrderID string) *orderCapital {
+	if clientOrderID != "" {
+		if rec, ok := mse.ordersByClient[clientOrderID]; ok {
+			return rec
+		}
+	}
+	if orderID > 0 {
+		if rec, ok := mse.ordersByID[orderID]; ok {
+			return rec
+		}
+	}
+	return nil
 }
 
 // extractStrategyType 從策略名称中提取策略類型
@@ -93,48 +181,71 @@ func extractStrategyType(strategyName string) string {
 	return ""
 }
 
-func (mse *MultiStrategyExecutor) isReducePositionOrder(strategyName string, req *position.OrderRequest) bool {
+// classifyOrder 判斷訂單所屬持倉腿與開/平倉（S9：不再按策略名稱是否含 "short" 猜測）。
+// 優先級：ReduceOnly（一定是平倉）> OrderRequest.PositionSide > 策略註冊的持倉腿 > 全局 direction。
+// 全局 BOTH 且無顯式信息時，非 ReduceOnly 單一律按開倉處理（保守占用資金）。
+func (mse *MultiStrategyExecutor) classifyOrder(strategyName string, req *position.OrderRequest) (leg string, opening bool) {
 	if req == nil {
-		return true
+		return "", false
+	}
+	side := strings.ToUpper(strings.TrimSpace(req.Side))
+	if side != "BUY" && side != "SELL" {
+		return "", false
 	}
 	if req.ReduceOnly {
-		return true
+		if side == "SELL" {
+			return position.PositionSideLong, false
+		}
+		return position.PositionSideShort, false
 	}
 
-	side := strings.ToUpper(strings.TrimSpace(req.Side))
-	switch side {
-	case "BUY":
-		return false
-	case "SELL":
-		return !mse.isShortOpeningContext(strategyName)
-	default:
-		return true
+	posSide := strings.ToUpper(strings.TrimSpace(req.PositionSide))
+	if posSide != position.PositionSideLong && posSide != position.PositionSideShort {
+		posSide = ""
+		if mse != nil {
+			mse.mu.RLock()
+			posSide = mse.strategyPositionSide[strategyName]
+			mse.mu.RUnlock()
+		}
 	}
+	if posSide == "" {
+		direction := "LONG"
+		if mse != nil && mse.allocator != nil {
+			if cfg := mse.allocator.GetConfig(); cfg != nil {
+				direction = config.NormalizeDirection(cfg.Trading.Direction)
+			}
+		}
+		switch direction {
+		case "SHORT":
+			posSide = position.PositionSideShort
+		case "BOTH":
+			if side == "BUY" {
+				return position.PositionSideLong, true
+			}
+			return position.PositionSideShort, true
+		default:
+			posSide = position.PositionSideLong
+		}
+	}
+
+	if posSide == position.PositionSideShort {
+		return posSide, side == "SELL"
+	}
+	return posSide, side == "BUY"
 }
 
-func (mse *MultiStrategyExecutor) isShortOpeningContext(strategyName string) bool {
-	name := strings.ToLower(strings.TrimSpace(strategyName))
-	if strings.Contains(name, "short") {
-		return true
-	}
-	if mse == nil || mse.allocator == nil {
-		return false
-	}
-	cfg := mse.allocator.GetConfig()
-	if cfg == nil {
-		return false
-	}
-	direction := config.NormalizeDirection(cfg.Trading.Direction)
-	return direction == "SHORT" || direction == "BOTH"
+func (mse *MultiStrategyExecutor) isReducePositionOrder(strategyName string, req *position.OrderRequest) bool {
+	_, opening := mse.classifyOrder(strategyName, req)
+	return !opening
 }
 
 // PlaceOrder 下單（带策略標記）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
-	isReducePosition := mse.isReducePositionOrder(strategyName, req)
+	leg, opening := mse.classifyOrder(strategyName, req)
 
 	var estimatedAmount float64
 
-	if !isReducePosition {
+	if opening {
 		// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
 		// 交易所可能因最小名义金額（如币安 100 USDT）、精度對齐等原因調整數量
 		// 必須用預估的最终金額做 Reserve，否则會出現"預留 90 實際下 180"的穿透額度问题
@@ -165,12 +276,12 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		}
 	}
 
+	rec := &orderCapital{strategy: strategyName, leg: leg, opening: opening, reserved: estimatedAmount, quantity: req.Quantity}
 	if req.ClientOrderID != "" {
+		// 下單前先記賬，處理「成交回報先於下單回執到達」
 		mse.mu.Lock()
 		mse.clientStrategies[req.ClientOrderID] = strategyName
-		if !isReducePosition && estimatedAmount > 0 {
-			mse.clientReserved[req.ClientOrderID] = estimatedAmount
-		}
+		mse.trackOrderLocked(rec, 0, req.ClientOrderID)
 		mse.mu.Unlock()
 	}
 
@@ -191,31 +302,26 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 	ord, err := mse.executor.PlaceOrder(orderReq)
 	if err != nil {
 		// 下單失败，释放资金（僅對開倉操作）
-		if !isReducePosition && estimatedAmount > 0 {
+		if opening && estimatedAmount > 0 {
 			mse.allocator.Release(strategyName, estimatedAmount)
 		}
-		if req.ClientOrderID != "" {
-			mse.mu.Lock()
-			delete(mse.clientStrategies, req.ClientOrderID)
-			delete(mse.clientReserved, req.ClientOrderID)
-			delete(mse.clientToOrderID, req.ClientOrderID)
-			mse.mu.Unlock()
+		mse.mu.Lock()
+		mse.untrackOrderLocked(rec)
+		mse.mu.Unlock()
+		if errors.Is(err, order.ErrLockNotAcquired) {
+			// 未提交到交易所：預留已歸還，調用方可用 errors.Is 識別並在下一輪重試，不應計為失敗
+			return nil, fmt.Errorf("策略 %s 下單跳過（價格位被其他實例鎖定）: %w", strategyName, err)
 		}
-		return nil, fmt.Errorf("下單失败: %w", err)
+		return nil, fmt.Errorf("策略 %s 下單失败: %w", strategyName, err)
 	}
 
-	// 標記订單所属策略，並記錄預留金額（訂單成交/取消時用於釋放資金）
+	// 標記订單所属策略，並記錄資金記賬（成交/取消回報時用於轉換或釋放資金）
 	mse.mu.Lock()
 	mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
 	if req.ClientOrderID != "" && req.ClientOrderID != ord.ClientOrderID {
 		mse.bindOrderRouteLocked(ord.OrderID, req.ClientOrderID, strategyName)
 	}
-	if !isReducePosition && estimatedAmount > 0 {
-		mse.orderReservedAmount[ord.OrderID] = estimatedAmount
-		if ord.ClientOrderID != "" {
-			mse.clientReserved[ord.ClientOrderID] = estimatedAmount
-		}
-	}
+	mse.trackOrderLocked(rec, ord.OrderID, ord.ClientOrderID)
 	mse.mu.Unlock()
 
 	// 轉换為 position.Order
@@ -247,14 +353,14 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 
 	// 轉换為 order.OrderRequest
 	orderReqs := make([]*order.OrderRequest, 0, len(orders))
-	orderAmounts := make(map[string]float64) // ClientOrderID -> estimatedAmount
+	records := make(map[string]*orderCapital) // ClientOrderID -> 資金記賬
 
 	for _, req := range orders {
-		isReducePosition := mse.isReducePositionOrder(strategyName, req)
+		leg, opening := mse.classifyOrder(strategyName, req)
 
 		var estimatedAmount float64
 
-		if !isReducePosition {
+		if opening {
 			// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
 			estimatedAmount = mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
 			if estimatedAmount <= 0 {
@@ -287,16 +393,12 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		}
 		orderReqs = append(orderReqs, orderReq)
 
-		// 僅記錄開倉操作的資金預留
-		if !isReducePosition && estimatedAmount > 0 {
-			orderAmounts[req.ClientOrderID] = estimatedAmount
-		}
+		rec := &orderCapital{strategy: strategyName, leg: leg, opening: opening, reserved: estimatedAmount, quantity: req.Quantity}
 		if req.ClientOrderID != "" {
+			records[req.ClientOrderID] = rec
 			mse.mu.Lock()
 			mse.clientStrategies[req.ClientOrderID] = strategyName
-			if !isReducePosition && estimatedAmount > 0 {
-				mse.clientReserved[req.ClientOrderID] = estimatedAmount
-			}
+			mse.trackOrderLocked(rec, 0, req.ClientOrderID)
 			mse.mu.Unlock()
 		}
 	}
@@ -311,8 +413,8 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		// 標記订單
 		mse.mu.Lock()
 		mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
-		if amount, ok := orderAmounts[ord.ClientOrderID]; ok && amount > 0 {
-			mse.orderReservedAmount[ord.OrderID] = amount
+		if rec, ok := records[ord.ClientOrderID]; ok {
+			mse.trackOrderLocked(rec, ord.OrderID, ord.ClientOrderID)
 		}
 		mse.mu.Unlock()
 
@@ -333,13 +435,13 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 	for _, ord := range batchResult.PlacedOrders {
 		placedClientOIDs[ord.ClientOrderID] = true
 	}
-	for clientOID, amount := range orderAmounts {
+	for clientOID, rec := range records {
 		if !placedClientOIDs[clientOID] {
-			mse.allocator.Release(strategyName, amount)
+			if rec.opening && rec.reserved > 0 {
+				mse.allocator.Release(strategyName, rec.reserved)
+			}
 			mse.mu.Lock()
-			delete(mse.clientStrategies, clientOID)
-			delete(mse.clientReserved, clientOID)
-			delete(mse.clientToOrderID, clientOID)
+			mse.untrackOrderLocked(rec)
 			mse.mu.Unlock()
 		}
 	}
@@ -348,68 +450,108 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 }
 
 // BatchCancelOrders 批量撤單
+// 資金釋放在撤單回報（CANCELED/EXPIRED/REJECTED）經 OnOrderUpdate 處理，這裡不提前釋放。
 func (mse *MultiStrategyExecutor) BatchCancelOrders(orderIDs []int64) error {
-	// 獲取訂單ID對应的策略，释放资金
-	// TODO: 需要知道订單金額才能释放资金
-	// 實際释放应該在订單更新時处理（订單取消時）
-	mse.mu.RLock()
-	_ = mse.strategies // 暂時保留，后续實現资金释放
-	mse.mu.RUnlock()
-
 	return mse.executor.BatchCancelOrders(orderIDs)
 }
 
-// ReleaseOrderCapital 释放订單资金（订單成交或取消時調用）
+// ReleaseOrderCapital 释放订單资金（手動釋放指定金額）
 func (mse *MultiStrategyExecutor) ReleaseOrderCapital(strategyName string, amount float64) {
 	mse.allocator.Release(strategyName, amount)
 }
 
-// ReleaseOrderCapitalByOrderID 根據訂單 ID 釋放當時預留的資金（訂單成交或取消時調用，避免 DCA 等策略「可用」只減不增）
-func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByOrderID(orderID int64) {
-	mse.mu.Lock()
-	strategyName, hasStrategy := mse.strategies[fmt.Sprintf("%d", orderID)]
-	amount, hasAmount := mse.orderReservedAmount[orderID]
-	for clientOID, mappedOrderID := range mse.clientToOrderID {
-		if mappedOrderID == orderID {
-			delete(mse.clientToOrderID, clientOID)
-			delete(mse.clientStrategies, clientOID)
-			delete(mse.clientReserved, clientOID)
-		}
-	}
-	if hasStrategy && hasAmount {
-		delete(mse.strategies, fmt.Sprintf("%d", orderID))
-		delete(mse.orderReservedAmount, orderID)
-		mse.mu.Unlock()
-		mse.allocator.Release(strategyName, amount)
+// OnOrderUpdate 根據訂單回報維護策略資金（D5）：
+//   - 開倉單成交：預留按成交比例轉為持倉占用（不釋放，DCA/馬丁累計敞口受分配額度約束）
+//   - 平倉單成交：按比例釋放該策略該腿的持倉占用
+//   - 開倉單撤單/拒單/過期：釋放未成交部分的預留
+func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
+	if mse == nil || update == nil {
 		return
 	}
+	status := strings.ToUpper(strings.TrimSpace(update.Status))
+	var releaseStrategy string
+	var releaseAmount float64
+
+	mse.mu.Lock()
+	rec := mse.lookupOrderLocked(update.OrderID, update.ClientOrderID)
+	if rec == nil {
+		mse.mu.Unlock()
+		return
+	}
+	if update.OrderID > 0 && rec.orderID == 0 {
+		mse.trackOrderLocked(rec, update.OrderID, "")
+	}
+
+	switch status {
+	case orderStatusPartiallyFilled, orderStatusFilled:
+		final := status == orderStatusFilled
+		delta := update.ExecutedQty - rec.filledQty
+		if delta < 0 {
+			delta = 0
+		}
+		if update.ExecutedQty > rec.filledQty {
+			rec.filledQty = update.ExecutedQty
+		}
+		usageKey := rec.strategy + "|" + rec.leg
+		usage := mse.positionUsage[usageKey]
+		if usage == nil {
+			usage = &legUsage{}
+			mse.positionUsage[usageKey] = usage
+		}
+		if rec.opening {
+			remaining := rec.reserved - rec.converted
+			share := remaining
+			if !final && rec.quantity > 0 {
+				share = rec.reserved * delta / rec.quantity
+				if share > remaining {
+					share = remaining
+				}
+			}
+			if share < 0 {
+				share = 0
+			}
+			rec.converted += share
+			usage.amount += share
+			usage.qty += delta
+		} else if delta > 0 && usage.amount > 0 {
+			release := usage.amount
+			if usage.qty > capitalQtyEpsilon && delta < usage.qty {
+				release = usage.amount * delta / usage.qty
+			}
+			usage.amount -= release
+			usage.qty -= delta
+			if usage.qty <= capitalQtyEpsilon {
+				usage.qty = 0
+				// 持倉清空：歸還剩餘占用（處理精度殘留）
+				release += usage.amount
+				usage.amount = 0
+			}
+			releaseStrategy, releaseAmount = rec.strategy, release
+		}
+		if final {
+			mse.untrackOrderLocked(rec)
+		}
+	case orderStatusCanceled, orderStatusExpired, orderStatusRejected:
+		if rec.opening {
+			releaseStrategy, releaseAmount = rec.strategy, rec.reserved-rec.converted
+		}
+		mse.untrackOrderLocked(rec)
+	}
 	mse.mu.Unlock()
+
+	if releaseStrategy != "" && releaseAmount > 0 {
+		mse.allocator.Release(releaseStrategy, releaseAmount)
+	}
 }
 
-// ReleaseOrderCapitalByClientOrderID 根據 ClientOrderID 釋放預留資金（處理秒成交先到）
-func (mse *MultiStrategyExecutor) ReleaseOrderCapitalByClientOrderID(clientOrderID string) {
-	if clientOrderID == "" {
-		return
+// GetPositionCapital 返回策略某條腿上已成交持倉占用的資金（供監控/測試）
+func (mse *MultiStrategyExecutor) GetPositionCapital(strategyName, positionSide string) float64 {
+	mse.mu.RLock()
+	defer mse.mu.RUnlock()
+	if usage, ok := mse.positionUsage[strategyName+"|"+strings.ToUpper(positionSide)]; ok {
+		return usage.amount
 	}
-	mse.mu.Lock()
-	strategyName, hasStrategy := mse.clientStrategies[clientOrderID]
-	amount, hasAmount := mse.clientReserved[clientOrderID]
-	orderID, hasOrderID := mse.clientToOrderID[clientOrderID]
-	if hasStrategy {
-		delete(mse.clientStrategies, clientOrderID)
-	}
-	if hasAmount {
-		delete(mse.clientReserved, clientOrderID)
-	}
-	if hasOrderID {
-		delete(mse.clientToOrderID, clientOrderID)
-		delete(mse.strategies, fmt.Sprintf("%d", orderID))
-		delete(mse.orderReservedAmount, orderID)
-	}
-	mse.mu.Unlock()
-	if hasStrategy && hasAmount && amount > 0 {
-		mse.allocator.Release(strategyName, amount)
-	}
+	return 0
 }
 
 // GetStrategyByOrderID 根據订單ID獲取策略名称

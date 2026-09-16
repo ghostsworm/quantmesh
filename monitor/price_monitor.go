@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,6 +56,13 @@ type PriceMonitor struct {
 	ctx               context.Context
 	cancel            context.CancelFunc
 
+	// 生命週期：priceChangeCh 只由發送方（periodicPriceSender）所在流程關閉，
+	// Stop 先取消 ctx 並等待發送協程退出，再經 closeOnce 關閉，避免 send on closed channel
+	lifecycleMu   sync.Mutex
+	senderStarted bool
+	senderDone    chan struct{}
+	closeOnce     sync.Once
+
 	// 時间配置
 	priceSendInterval time.Duration
 }
@@ -101,9 +109,24 @@ func (pm *PriceMonitor) Start() error {
 	}
 
 	logger.Info("✅ 價格監控已啟动 (WebSocket 推送)")
-	go pm.periodicPriceSender() // 啟动定期发送协程
+	pm.startSender()
 
 	return nil
+}
+
+// startSender 啟动定期发送协程（Stop 之後不再啟動）
+func (pm *PriceMonitor) startSender() {
+	pm.lifecycleMu.Lock()
+	defer pm.lifecycleMu.Unlock()
+	if pm.senderStarted || pm.ctx.Err() != nil {
+		return
+	}
+	pm.senderStarted = true
+	pm.senderDone = make(chan struct{})
+	go func(done chan struct{}) {
+		defer close(done)
+		pm.periodicPriceSender()
+	}(pm.senderDone)
 }
 
 // pollPrice 已移除 - 毫秒级量化系统不使用 REST API 輪詢
@@ -206,14 +229,39 @@ func (pm *PriceMonitor) periodicPriceSender() {
 func (pm *PriceMonitor) Stop() {
 	pm.cancel()
 	pm.isRunning.Store(false)
-	// 使用select避免向已关闭的channel发送數據
-	select {
-	case <-pm.priceChangeCh:
-		// channel已关闭或為空
-	default:
-		// channel未关闭，安全关闭
-		close(pm.priceChangeCh)
+
+	// 等待發送協程退出後再關閉 channel（可重複調用）
+	pm.lifecycleMu.Lock()
+	done := pm.senderDone
+	pm.lifecycleMu.Unlock()
+	if done != nil {
+		<-done
 	}
+	pm.closeOnce.Do(func() {
+		close(pm.priceChangeCh)
+	})
+}
+
+// GetLastPriceTime 最後一次收到價格推送的時間；從未收到時為零值
+func (pm *PriceMonitor) GetLastPriceTime() time.Time {
+	if val := pm.lastPriceTime.Load(); val != nil {
+		return val.(time.Time)
+	}
+	return time.Time{}
+}
+
+// IsStale 價格是否過期：從未收到價格，或距最後一次推送超過 maxAge。
+// WS 靜默停推時 GetLastPrice 會一直返回舊價，下單前應先檢查此方法（接入開倉路徑由倉位模組負責）。
+// maxAge <= 0 視為不檢查，返回 false。
+func (pm *PriceMonitor) IsStale(maxAge time.Duration) bool {
+	if maxAge <= 0 {
+		return false
+	}
+	last := pm.GetLastPriceTime()
+	if last.IsZero() {
+		return true
+	}
+	return time.Since(last) > maxAge
 }
 
 // GetLastPrice 獲取最新價格

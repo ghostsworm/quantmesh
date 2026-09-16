@@ -510,6 +510,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 				logger.Info("🧹 [强制同步] 清空槽位價格 %s 的持倉 (原數量: %.4f)",
 					formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty)
 				slot.PositionStatus = PositionStatusEmpty
+				spm.releaseSlotAllocationLocked(slot, 0, 0)
 				slot.PositionQty = 0
 				slot.OrderID = 0
 				slot.OrderStatus = OrderStatusNotPlaced
@@ -608,6 +609,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 				formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty, fs.Distance)
 			excess -= slot.PositionQty
 			slot.PositionStatus = PositionStatusEmpty
+			spm.releaseSlotAllocationLocked(slot, 0, 0)
 			slot.PositionQty = 0
 			slot.OrderID = 0
 			slot.OrderStatus = OrderStatusNotPlaced
@@ -619,6 +621,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 			// 槽位數量大於多餘量，部分修剪（這種情況較少見）
 			logger.Warn("✂️ [强制同步] 部分修剪槽位 價格=%s 數量 %.6f -> %.6f（扣除幻影 %.6f）",
 				formatPrice(slot.Price, spm.priceDecimals), slot.PositionQty, slot.PositionQty-excess, excess)
+			spm.releaseSlotAllocationLocked(slot, excess, slot.PositionQty)
 			slot.PositionQty -= excess
 			excess = 0
 		}
@@ -884,6 +887,10 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		positionValue := spm.anchorPrice() * slotQty        // 倉位價值
 		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
 		totalUsedAmount += actualMargin
+		// 記入槽位持倉占用，平倉成交時按比例釋放（D3）
+		slot.mu.Lock()
+		slot.AllocatedMargin = actualMargin
+		slot.mu.Unlock()
 
 		// 日志標記：是否在窗口内（只打印前10個和最后10個）
 		if i < 10 || i >= len(sellPrices)-10 {

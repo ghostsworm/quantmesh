@@ -1751,6 +1751,9 @@ func main() {
 	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
 	web.RegisterBotExtendedProvider(&botExtendedProviderAdapter{manager: symbolManager}) // 註冊擴展的 Bot 提供者
 
+	// 熔斷器與複合風控共用暫停協調器，避免一方恢復時覆蓋另一方的暫停
+	riskPauseCoordinator := risk.NewOpeningPauseCoordinator()
+
 	// 初始化全局熔斷器
 	if cfg.CircuitBreaker.Enabled {
 		logger.Info("🔧 正在初始化全局熔斷器...")
@@ -1759,8 +1762,13 @@ func main() {
 			eventBus,
 			&botManagerProviderAdapter{manager: symbolManager},
 		)
+		circuitBreaker.SetPauseCoordinator(riskPauseCoordinator)
+		if notifier != nil {
+			circuitBreaker.SetNotifier(notifier)
+		}
+		startCircuitBreakerFeeder(ctx, circuitBreaker, eventBus, storageService, symbolManager)
 		web.SetGlobalCircuitBreaker(circuitBreaker)
-		logger.Info("✅ 全局熔斷器已初始化並啟用")
+		logger.Info("✅ 全局熔斷器已初始化並啟用（內部喂數已啟動）")
 	}
 
 	// 初始化紧急操作中心
@@ -1775,21 +1783,8 @@ func main() {
 		logger.Info("✅ 紧急操作中心已初始化並啟用")
 	}
 
-	// 初始化动态止损管理器
-	if cfg.DynamicStopLoss.Enabled {
-		logger.Info("🎯 正在初始化动态止损管理器...")
-		dynamicSLManager := risk.NewDynamicStopLossManager(
-			&cfg.DynamicStopLoss,
-			eventBus,
-			&botManagerProviderAdapter{manager: symbolManager},
-		)
-		dynamicSLManager.Start()
-		web.SetDynamicStopLossManager(dynamicSLManager)
-		logger.Info("✅ 动态止损管理器已初始化並啟用")
-
-		// 程序退出时停止
-		defer dynamicSLManager.Stop()
-	}
+	// 动态止损：各调整逻辑仍为 stub，不启动也不注册（Web 接口返回“未初始化”而非伪装已启用），仅告警
+	warnDynamicStopLossNotImplemented(cfg)
 
 	// 只有在配置完整時才啟动交易系统（優先使用 Bots，兼容舊 Symbols）
 	var firstRuntime *SymbolRuntime
@@ -2135,6 +2130,9 @@ func main() {
 		}
 
 		// 初始化宏觀事件預測市場拉取（Polymarket Gamma API）
+		var macroRiskProvider interface {
+			GetImpactSummary() macro.MacroImpactSummary
+		}
 		if cfg.MacroEvent.Enabled {
 			logger.Info("📊 初始化宏觀事件預測市場...")
 			macroClassifier := macro.NewEventImpactClassifier(cfg)
@@ -2142,7 +2140,15 @@ func main() {
 			macroFetcher.Start(ctx)
 			web.SetMacroEventFetcher(macroFetcher)
 			logger.Info("✅ 宏觀事件拉取已啟动")
+			macroRiskProvider = macroFetcher
 		}
+
+		// 複合風控：stop_trading 時與熔斷器共用暫停開倉路徑
+		var compositeNotifier risk.AlertNotifier
+		if notifier != nil {
+			compositeNotifier = notifier
+		}
+		startCompositeRiskGuard(ctx, cfg, symbolManager, riskPauseCoordinator, compositeNotifier, newsMonitor, macroRiskProvider)
 
 		// 設置系统監控數據提供者
 		if watchdog != nil {

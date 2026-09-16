@@ -6,16 +6,21 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/mcp"
 	"quantmesh/monitor"
 	"quantmesh/notify/observability"
 	"quantmesh/position"
+	"quantmesh/risk"
+	"quantmesh/safety"
 	"quantmesh/storage"
 	"quantmesh/utils"
 	"quantmesh/web"
@@ -466,4 +471,148 @@ func closeAllPositionsWithResult(ctx context.Context, ex exchange.IExchange, sym
 
 	logger.Info("📊 [平倉完成] 成功: %d, 失败: %d", successCount, failCount)
 	return successCount, failCount, nil
+}
+
+// ===== 風控接線（審查報告 C1 / C4）=====
+
+// riskEquityQueryTimeout 熔斷喂數查詢單個賬戶權益的超時
+const riskEquityQueryTimeout = 10 * time.Second
+
+// storageTradeHistorySource 用 storage.trades 實現 risk.TradeHistorySource
+type storageTradeHistorySource struct {
+	storageService *storage.StorageService
+}
+
+func (s *storageTradeHistorySource) TradesBetween(_ context.Context, start, end time.Time, limit int) ([]risk.TradeOutcome, error) {
+	if s.storageService == nil || s.storageService.GetStorage() == nil {
+		return nil, nil
+	}
+	trades, err := s.storageService.GetStorage().QueryTrades(start, end, limit, 0)
+	if err != nil {
+		return nil, fmt.Errorf("QueryTrades(%s ~ %s, limit=%d): %w", start.Format(time.RFC3339), end.Format(time.RFC3339), limit, err)
+	}
+	out := make([]risk.TradeOutcome, 0, len(trades))
+	for _, t := range trades {
+		if t == nil {
+			continue
+		}
+		out = append(out, risk.TradeOutcome{
+			Key:      fmt.Sprintf("%s:%s:%d:%d", t.Exchange, t.Symbol, t.BuyOrderID, t.SellOrderID),
+			NetPnL:   t.PnL - t.Fee,
+			ClosedAt: t.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// runtimeEquitySource 匯總所有合約運行時所屬賬戶的保證金餘額（含未實現盈虧），按交易所+賬戶去重
+type runtimeEquitySource struct {
+	manager *SymbolManager
+}
+
+func (s *runtimeEquitySource) TotalEquity(ctx context.Context) (float64, error) {
+	seen := make(map[string]bool)
+	total := 0.0
+	var errs []error
+	for _, rt := range s.manager.List() {
+		if rt == nil || rt.Exchange == nil || rt.Config.GetMarketType() != "futures" {
+			continue
+		}
+		key := rt.Config.Exchange + "|" + rt.AccountID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		qctx, cancel := context.WithTimeout(ctx, riskEquityQueryTimeout)
+		acct, err := rt.Exchange.GetAccount(qctx)
+		cancel()
+		if err != nil {
+			errs = append(errs, fmt.Errorf("GetAccount(%s): %w", rt.Config.Exchange, err))
+			continue
+		}
+		if acct == nil {
+			errs = append(errs, fmt.Errorf("GetAccount(%s): 返回空賬戶", rt.Config.Exchange))
+			continue
+		}
+		total += acct.TotalMarginBalance
+	}
+	if len(errs) > 0 {
+		// 任一賬戶失敗都返回錯誤：部分賬戶的權益作為回撤基準會嚴重失真
+		return 0, errors.Join(errs...)
+	}
+	if len(seen) == 0 {
+		return 0, fmt.Errorf("沒有運行中的合約 Bot: %w", risk.ErrEquityUnavailable)
+	}
+	return total, nil
+}
+
+// startCircuitBreakerFeeder 啟動熔斷器內部喂數與連線事件訂閱
+func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreaker, eventBus *event.EventBus, storageService *storage.StorageService, symbolManager *SymbolManager) {
+	var trades risk.TradeHistorySource
+	if storageService != nil && storageService.GetStorage() != nil {
+		trades = &storageTradeHistorySource{storageService: storageService}
+	} else {
+		logger.Warn("⚠️ [全局熔斷] 存儲未啟用：單日已實現盈虧與連續虧損無數據，僅按未實現盈虧計算")
+	}
+	feeder := risk.NewMetricsFeeder(
+		gcb,
+		trades,
+		&runtimeEquitySource{manager: symbolManager},
+		&botManagerProviderAdapter{manager: symbolManager},
+		risk.MetricsFeederOptions{Location: utils.GlobalLocation},
+	)
+	feeder.Start(ctx)
+	gcb.SubscribeConnectivityEvents(ctx, eventBus)
+}
+
+// startCompositeRiskGuard 接線複合風控：註冊全局可用因子，stop_trading 時走與熔斷器相同的暫停開倉路徑。
+// 趨勢/深度/資金費率/K線因子是按交易對、且按做多語義評分的，全局暫停所有 Bot（含做空）會誤傷，暫不註冊。
+func startCompositeRiskGuard(ctx context.Context, cfg *config.Config, symbolManager *SymbolManager, pauser *risk.OpeningPauseCoordinator,
+	notifier risk.AlertNotifier, newsMonitor *monitor.NewsMonitor, macroProvider safety.MacroEventProvider) *safety.CompositeRiskController {
+	if cfg == nil || !cfg.CompositeRisk.Enabled {
+		return nil
+	}
+	controller := safety.NewCompositeRiskController(cfg)
+	registered := 0
+	if cfg.CompositeRisk.Factors.News.Enabled && newsMonitor != nil {
+		controller.RegisterFactor(safety.NewNewsRiskFactor(cfg, "", newsMonitor))
+		registered++
+	}
+	if cfg.CompositeRisk.Factors.Macro.Enabled && macroProvider != nil {
+		controller.RegisterFactor(safety.NewMacroEventRiskFactor(cfg, macroProvider))
+		registered++
+	}
+	f := cfg.CompositeRisk.Factors
+	if f.Trend.Enabled || f.Depth.Enabled || f.FundingRate.Enabled || f.Kline.Enabled {
+		logger.Warn("⚠️ [複合風控] trend/depth/funding_rate/kline 因子為按交易對的做多語義評分，暫不支持全局接線，已忽略")
+	}
+	if registered == 0 {
+		logger.Warn("⚠️ [複合風控] 已啟用但沒有可用因子（需啟用 news 並開啟新聞監控，或啟用 macro 並開啟宏觀事件），不生效")
+		return nil
+	}
+
+	guard := risk.NewCompositeRiskGuard(&botManagerProviderAdapter{manager: symbolManager}, pauser, notifier)
+	controller.SetResultHandler(func(r safety.CompositeRiskResult) {
+		signal := risk.CompositeRiskRelease
+		switch r.Level {
+		case safety.RiskStopTrading:
+			signal = risk.CompositeRiskStop
+		case safety.RiskPauseBuying:
+			signal = risk.CompositeRiskHold // 滯回：未回落到 reduce_position 以下前不解除
+		}
+		guard.Apply(signal, string(r.Level), r.CompositeScore, r.Reasons)
+	})
+	controller.Start(ctx)
+	logger.Info("✅ [複合風控] 已接線 %d 個全局因子，stop_trading 時暫停所有 Bot 開倉", registered)
+	return controller
+}
+
+// warnDynamicStopLossNotImplemented 動態止損各檢查器仍為 stub：不啟動，明確告警，避免誤以為已生效
+func warnDynamicStopLossNotImplemented(cfg *config.Config) {
+	if cfg == nil || !cfg.DynamicStopLoss.Enabled {
+		return
+	}
+	logger.Warn("⚠️ [動態止損] 配置 dynamic_stop_loss.enabled=true，但波動率/時間分段/盈利追蹤/趨勢反轉調整均未實現，" +
+		"本版本不會調整任何止損，管理器不啟動。請使用 grid_risk_control 的 stop_loss_ratio / trailing_take_profit_ratio")
 }

@@ -3,6 +3,7 @@ package risk
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,6 +34,17 @@ const (
 	TriggerAllocationExceeded    CircuitBreakerTrigger = "allocation_exceeded"    // 配额超限
 )
 
+const (
+	// circuitBreakerCheckInterval 后台检查触发条件的间隔
+	circuitBreakerCheckInterval = 30 * time.Second
+	// circuitBreakerPauseSource 熔断器在暂停协调器中的来源名
+	circuitBreakerPauseSource = "circuit_breaker"
+	// triggeredByAuto 自动恢复的操作人标识
+	triggeredByAuto = "auto"
+	// triggeredBySystem 系统自动触发的操作人标识
+	triggeredBySystem = "system"
+)
+
 // CircuitBreakerEvent 熔断事件
 type CircuitBreakerEvent struct {
 	Timestamp   time.Time             `json:"timestamp"`
@@ -43,6 +55,27 @@ type CircuitBreakerEvent struct {
 	Metrics     map[string]float64    `json:"metrics"`
 }
 
+// AlertNotifier 告警发送接口（由 notify.NotificationService 实现）
+type AlertNotifier interface {
+	Send(evt *event.Event)
+}
+
+// MetricsResetMarks 熔断恢复时的统计基线。
+// Feeder 只统计基线之后的数据，避免恢复后立刻用同一批历史亏损再次触发。
+type MetricsResetMarks struct {
+	All    time.Time // 手动恢复：日内已实现盈亏、回撤高水位、连续亏损全部重算
+	Streak time.Time // 任意恢复：连续亏损从此刻重新计数
+}
+
+// circuitMetrics 统计数据快照
+type circuitMetrics struct {
+	dailyPnL          float64
+	maxDrawdown       float64
+	consecutiveLosses int
+	authFailCount     int
+	lastWSDisconnect  time.Time
+}
+
 // GlobalCircuitBreaker 全局熔断器
 type GlobalCircuitBreaker struct {
 	config      *config.CircuitBreakerConfig
@@ -51,20 +84,26 @@ type GlobalCircuitBreaker struct {
 	eventBus    *event.EventBus
 	botProvider BotProvider
 
-	// 统计数据
+	// 统计数据（受 statusMu 保护）
 	dailyPnL          float64 // 当日总盈亏
 	maxDrawdown       float64 // 最大回撤
 	consecutiveLosses int     // 连续亏损次数
 	authFailCount     int     // API认证失败次数
 	lastWSDisconnect  time.Time
+	resetMarks        MetricsResetMarks
 
 	// 熔断历史
 	events    []*CircuitBreakerEvent
 	eventsMu  sync.RWMutex
 	trippedAt time.Time
 
-	// 冷却期结束时间
+	// 冷却期结束时间（受 statusMu 保护）
 	cooldownUntil time.Time
+
+	// 可选依赖（受 depsMu 保护）
+	depsMu   sync.RWMutex
+	notifier AlertNotifier
+	pauser   *OpeningPauseCoordinator
 }
 
 // BotProvider Bot 提供者接口
@@ -99,9 +138,62 @@ func NewGlobalCircuitBreaker(cfg *config.CircuitBreakerConfig, eventBus *event.E
 	return gcb
 }
 
+// SetNotifier 设置告警通知器（nil 表示仅记录日志）
+func (gcb *GlobalCircuitBreaker) SetNotifier(n AlertNotifier) {
+	gcb.depsMu.Lock()
+	defer gcb.depsMu.Unlock()
+	gcb.notifier = n
+}
+
+// SetPauseCoordinator 设置暂停开仓协调器（与复合风控共用，避免互相覆盖恢复）
+func (gcb *GlobalCircuitBreaker) SetPauseCoordinator(p *OpeningPauseCoordinator) {
+	gcb.depsMu.Lock()
+	defer gcb.depsMu.Unlock()
+	gcb.pauser = p
+}
+
+func (gcb *GlobalCircuitBreaker) deps() (AlertNotifier, *OpeningPauseCoordinator) {
+	gcb.depsMu.RLock()
+	defer gcb.depsMu.RUnlock()
+	return gcb.notifier, gcb.pauser
+}
+
+// SubscribeConnectivityEvents 订阅事件总线中的 WebSocket 断线/重连与 API 认证失败事件。
+// 注意：截至 R2，交易所适配层尚未发布这些事件类型，此订阅为预留钩子。
+func (gcb *GlobalCircuitBreaker) SubscribeConnectivityEvents(ctx context.Context, bus *event.EventBus) {
+	if bus == nil {
+		return
+	}
+	ch := bus.Subscribe()
+	go func() {
+		defer bus.Unsubscribe(ch)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case evt, ok := <-ch:
+				if !ok {
+					return
+				}
+				if evt == nil {
+					continue
+				}
+				switch evt.Type {
+				case event.EventTypeWebSocketDisconnected:
+					gcb.ReportWebSocketDisconnect()
+				case event.EventTypeWebSocketReconnected:
+					gcb.ReportWebSocketReconnected()
+				case event.EventTypeAPIAuthFailed:
+					gcb.ReportAuthFailure()
+				}
+			}
+		}
+	}()
+}
+
 // backgroundChecker 后台检查触发条件
 func (gcb *GlobalCircuitBreaker) backgroundChecker() {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(circuitBreakerCheckInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -111,132 +203,169 @@ func (gcb *GlobalCircuitBreaker) backgroundChecker() {
 	}
 }
 
+// snapshotMetrics 在锁内复制统计数据
+func (gcb *GlobalCircuitBreaker) snapshotMetrics() circuitMetrics {
+	gcb.statusMu.RLock()
+	defer gcb.statusMu.RUnlock()
+	return circuitMetrics{
+		dailyPnL:          gcb.dailyPnL,
+		maxDrawdown:       gcb.maxDrawdown,
+		consecutiveLosses: gcb.consecutiveLosses,
+		authFailCount:     gcb.authFailCount,
+		lastWSDisconnect:  gcb.lastWSDisconnect,
+	}
+}
+
 // checkTriggers 检查所有触发条件
 func (gcb *GlobalCircuitBreaker) checkTriggers() {
 	gcb.statusMu.RLock()
 	currentStatus := gcb.status
+	cooldownUntil := gcb.cooldownUntil
 	gcb.statusMu.RUnlock()
 
-	// 如果已触发且在恢复期，检查恢复条件
+	// 如果已触发，检查恢复条件
 	if currentStatus == CircuitBreakerStatusTripped {
 		gcb.checkRecovery()
 		return
 	}
 
 	// 如果在冷却期，跳过检查
-	if time.Now().Before(gcb.cooldownUntil) {
+	if time.Now().Before(cooldownUntil) {
 		return
 	}
 
-	// 检查各种触发条件
-	if gcb.checkDailyLossTrigger() {
-		return
+	m := gcb.snapshotMetrics()
+	if trigger, reason, hit := gcb.evaluateTriggers(m); hit {
+		gcb.trip(trigger, triggeredBySystem, reason)
 	}
-	if gcb.checkMaxDrawdownTrigger() {
-		return
+}
+
+// evaluateTriggers 按优先级返回第一个命中的触发器
+func (gcb *GlobalCircuitBreaker) evaluateTriggers(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	checks := []func(circuitMetrics) (CircuitBreakerTrigger, string, bool){
+		gcb.checkDailyLossTrigger,
+		gcb.checkMaxDrawdownTrigger,
+		gcb.checkConsecutiveLossesTrigger,
+		gcb.checkWebSocketTrigger,
+		gcb.checkAPIAuthTrigger,
+		gcb.checkAllocationTrigger,
 	}
-	if gcb.checkConsecutiveLossesTrigger() {
-		return
+	for _, check := range checks {
+		if trigger, reason, hit := check(m); hit {
+			return trigger, reason, true
+		}
 	}
-	if gcb.checkWebSocketTrigger() {
-		return
-	}
-	if gcb.checkAPIAuthTrigger() {
-		return
-	}
-	if gcb.checkAllocationTrigger() {
-		return
-	}
+	return "", "", false
 }
 
 // checkDailyLossTrigger 检查单日总亏损触发
-func (gcb *GlobalCircuitBreaker) checkDailyLossTrigger() bool {
-	if !gcb.config.Triggers.TotalDailyLoss.Enabled {
-		return false
+func (gcb *GlobalCircuitBreaker) checkDailyLossTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	t := gcb.config.Triggers.TotalDailyLoss
+	if !t.Enabled || t.Threshold <= 0 {
+		return "", "", false
 	}
-
-	if gcb.dailyPnL <= -gcb.config.Triggers.TotalDailyLoss.Threshold {
-		gcb.trip(TriggerTotalDailyLoss, "system", fmt.Sprintf("单日亏损超限: %.2f USDT", gcb.dailyPnL))
-		return true
+	if m.dailyPnL <= -t.Threshold {
+		return TriggerTotalDailyLoss, fmt.Sprintf("单日亏损超限: %.2f USDT (阈值 %.2f)", m.dailyPnL, t.Threshold), true
 	}
-	return false
+	return "", "", false
 }
 
 // checkMaxDrawdownTrigger 检查最大回撤触发
-func (gcb *GlobalCircuitBreaker) checkMaxDrawdownTrigger() bool {
-	if !gcb.config.Triggers.MaxDrawdown.Enabled {
-		return false
+func (gcb *GlobalCircuitBreaker) checkMaxDrawdownTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	t := gcb.config.Triggers.MaxDrawdown
+	if !t.Enabled || t.Threshold <= 0 {
+		return "", "", false
 	}
-
-	if gcb.maxDrawdown >= gcb.config.Triggers.MaxDrawdown.Threshold {
-		gcb.trip(TriggerMaxDrawdown, "system", fmt.Sprintf("最大回撤超限: %.2f%%", gcb.maxDrawdown))
-		return true
+	if m.maxDrawdown >= t.Threshold {
+		return TriggerMaxDrawdown, fmt.Sprintf("最大回撤超限: %.2f%% (阈值 %.2f%%)", m.maxDrawdown, t.Threshold), true
 	}
-	return false
+	return "", "", false
 }
 
 // checkConsecutiveLossesTrigger 检查连续亏损触发
-func (gcb *GlobalCircuitBreaker) checkConsecutiveLossesTrigger() bool {
-	if !gcb.config.Triggers.ConsecutiveLosses.Enabled {
-		return false
+func (gcb *GlobalCircuitBreaker) checkConsecutiveLossesTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	t := gcb.config.Triggers.ConsecutiveLosses
+	if !t.Enabled || t.Count <= 0 {
+		return "", "", false
 	}
-
-	if gcb.consecutiveLosses >= gcb.config.Triggers.ConsecutiveLosses.Count {
-		gcb.trip(TriggerConsecutiveLosses, "system", fmt.Sprintf("连续亏损次数超限: %d次", gcb.consecutiveLosses))
-		return true
+	if m.consecutiveLosses >= t.Count {
+		return TriggerConsecutiveLosses, fmt.Sprintf("连续亏损次数超限: %d次 (阈值 %d)", m.consecutiveLosses, t.Count), true
 	}
-	return false
+	return "", "", false
 }
 
 // checkWebSocketTrigger 检查 WebSocket 断线触发
-func (gcb *GlobalCircuitBreaker) checkWebSocketTrigger() bool {
-	if !gcb.config.Triggers.WebSocketDisconnected.Enabled {
-		return false
+func (gcb *GlobalCircuitBreaker) checkWebSocketTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	t := gcb.config.Triggers.WebSocketDisconnected
+	if !t.Enabled || m.lastWSDisconnect.IsZero() {
+		return "", "", false
 	}
-
-	if !gcb.lastWSDisconnect.IsZero() {
-		disconnectedFor := time.Since(gcb.lastWSDisconnect).Seconds()
-		if int(disconnectedFor) > gcb.config.Triggers.WebSocketDisconnected.Timeout {
-			gcb.trip(TriggerWebSocketDisconnected, "system", fmt.Sprintf("WebSocket断线超限: %d秒", int(disconnectedFor)))
-			return true
-		}
+	disconnectedFor := time.Since(m.lastWSDisconnect)
+	if disconnectedFor > time.Duration(t.Timeout)*time.Second {
+		return TriggerWebSocketDisconnected, fmt.Sprintf("WebSocket断线超限: %d秒", int(disconnectedFor.Seconds())), true
 	}
-	return false
+	return "", "", false
 }
 
 // checkAPIAuthTrigger 检查 API 认证失败触发
-func (gcb *GlobalCircuitBreaker) checkAPIAuthTrigger() bool {
-	if !gcb.config.Triggers.APIAuthFailed.Enabled {
-		return false
+func (gcb *GlobalCircuitBreaker) checkAPIAuthTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	t := gcb.config.Triggers.APIAuthFailed
+	if !t.Enabled || t.Count <= 0 {
+		return "", "", false
 	}
-
-	if gcb.authFailCount >= gcb.config.Triggers.APIAuthFailed.Count {
-		gcb.trip(TriggerAPIAuthFailed, "system", fmt.Sprintf("API认证失败次数超限: %d次", gcb.authFailCount))
-		return true
+	if m.authFailCount >= t.Count {
+		return TriggerAPIAuthFailed, fmt.Sprintf("API认证失败次数超限: %d次", m.authFailCount), true
 	}
-	return false
+	return "", "", false
 }
 
 // checkAllocationTrigger 检查配额超限触发
-func (gcb *GlobalCircuitBreaker) checkAllocationTrigger() bool {
-	if !gcb.config.Triggers.AllocationExceeded.Enabled {
-		return false
-	}
+func (gcb *GlobalCircuitBreaker) checkAllocationTrigger(_ circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	// 配额超限目前没有数据来源，即使启用也不会触发（已在审查报告中记录）
+	return "", "", false
+}
 
-	// TODO: 检查分配管理器是否触发配额超限
-	return false
+// autoResumeBlockers 自动恢复前检查：会随时间/行情自然回到阈值内的指标必须已恢复。
+// 连续亏损与认证失败计数在恢复时重置，不作为阻塞条件（否则停止交易后永远无法恢复）。
+func (gcb *GlobalCircuitBreaker) autoResumeBlockers(m circuitMetrics) []string {
+	var blockers []string
+	if _, reason, hit := gcb.checkDailyLossTrigger(m); hit {
+		blockers = append(blockers, reason)
+	}
+	if _, reason, hit := gcb.checkMaxDrawdownTrigger(m); hit {
+		blockers = append(blockers, reason)
+	}
+	if gcb.config.Triggers.WebSocketDisconnected.Enabled && !m.lastWSDisconnect.IsZero() {
+		blockers = append(blockers, "WebSocket 尚未重连")
+	}
+	return blockers
 }
 
 // checkRecovery 检查恢复条件
 func (gcb *GlobalCircuitBreaker) checkRecovery() {
-	if gcb.config.Recovery.AutoResume && !gcb.config.Recovery.ManualRequired {
-		// 自动恢复逻辑
-		trippedDuration := time.Since(gcb.trippedAt)
-		if trippedDuration > time.Duration(gcb.config.Actions.PauseDuration)*time.Second {
-			if err := gcb.recover("auto"); err != nil {
-				logger.Warn("⚠️ [全局熔断] 自动恢复跳过: %v", err)
-			}
-		}
+	if !gcb.config.Recovery.AutoResume || gcb.config.Recovery.ManualRequired {
+		return
+	}
+	// pause_duration=0 表示无限期暂停，只能手动恢复
+	if gcb.config.Actions.PauseDuration <= 0 {
+		return
+	}
+
+	gcb.statusMu.RLock()
+	trippedAt := gcb.trippedAt
+	gcb.statusMu.RUnlock()
+
+	if time.Since(trippedAt) <= time.Duration(gcb.config.Actions.PauseDuration)*time.Second {
+		return
+	}
+
+	if blockers := gcb.autoResumeBlockers(gcb.snapshotMetrics()); len(blockers) > 0 {
+		logger.Warn("⏸️ [全局熔断] 暂停期已过，但指标仍未恢复，继续保持熔断: %s", strings.Join(blockers, "; "))
+		return
+	}
+
+	if err := gcb.recover(triggeredByAuto); err != nil {
+		logger.Warn("⚠️ [全局熔断] 自动恢复跳过: %v", err)
 	}
 }
 
@@ -286,83 +415,100 @@ func (gcb *GlobalCircuitBreaker) trip(trigger CircuitBreakerTrigger, triggeredBy
 		})
 	}
 
-	// 执行熔断动作
-	go gcb.executeActions()
+	// 1. 停止所有新开仓：同步执行，保证随后的恢复一定发生在暂停之后（否则暂停可能落在恢复之后而永久生效）
+	var results []string
+	if gcb.config.Actions.StopAllNewOrders {
+		results = append(results, gcb.pauseAllBots(string(cbEvent.Trigger)))
+	}
+
+	// 其余耗时动作（撤单/平仓/通知）异步执行
+	go gcb.executeActions(cbEvent, results)
 }
 
-// executeActions 执行熔断动作
-func (gcb *GlobalCircuitBreaker) executeActions() {
+// executeActions 执行熔断动作（撤单、平仓、通知）
+func (gcb *GlobalCircuitBreaker) executeActions(cbEvent *CircuitBreakerEvent, results []string) {
 	logger.Warn("🚨 [全局熔断] 开始执行熔断动作...")
-
-	// 1. 停止所有新开仓
-	if gcb.config.Actions.StopAllNewOrders {
-		gcb.pauseAllBots("circuit_breaker")
-	}
 
 	// 2. 撤销所有挂单
 	if gcb.config.Actions.CancelAllOpenOrders {
-		gcb.cancelAllOrders()
+		results = append(results, gcb.cancelAllOrders())
 	}
 
 	// 3. 平仓（如果启用）
 	if gcb.config.Actions.ClosePositions.Enabled {
-		gcb.closeAllPositions()
+		results = append(results, gcb.closeAllPositions())
 	}
 
 	// 4. 发送通知
-	gcb.sendNotification()
+	gcb.sendNotification(event.EventTypeRiskTriggered, map[string]interface{}{
+		"source":       "global_circuit_breaker",
+		"trigger":      string(cbEvent.Trigger),
+		"reason":       cbEvent.Reason,
+		"triggered_by": cbEvent.TriggeredBy,
+		"actions":      strings.Join(results, "; "),
+	})
 
-	logger.Warn("✅ [全局熔断] 熔断动作执行完成")
+	logger.Warn("✅ [全局熔断] 熔断动作执行完成: %s", strings.Join(results, "; "))
 }
 
 // pauseAllBots 暂停所有 Bot 开仓
-func (gcb *GlobalCircuitBreaker) pauseAllBots(reason string) {
+func (gcb *GlobalCircuitBreaker) pauseAllBots(trigger string) string {
 	bots := gcb.botProvider.GetAllBots()
-	for _, bot := range bots {
-		bot.PauseOpening(reason)
+	reason := "circuit_breaker:" + trigger
+	_, pauser := gcb.deps()
+	if pauser != nil {
+		pauser.Pause(circuitBreakerPauseSource, reason, bots)
+	} else {
+		for _, bot := range bots {
+			bot.PauseOpening(reason)
+		}
 	}
 	logger.Info("⏸️ [全局熔断] 已暂停 %d 个 Bot 的开仓", len(bots))
+	return fmt.Sprintf("已暂停 %d 个Bot开仓", len(bots))
 }
 
 // cancelAllOrders 撤销所有挂单
-func (gcb *GlobalCircuitBreaker) cancelAllOrders() {
-	bots := gcb.botProvider.GetAllBots()
-	successCount := 0
-	for _, bot := range bots {
-		if err := bot.CancelAllOpenOrders(); err != nil {
-			logger.Error("❌ [全局熔断] Bot 撤单失败: %v", err)
-		} else {
-			successCount++
-		}
+func (gcb *GlobalCircuitBreaker) cancelAllOrders() string {
+	report := cancelOrdersOnBots(gcb.botProvider.GetAllBots())
+	if err := report.Err(); err != nil {
+		logger.Error("❌ [全局熔断] 撤单存在失败: %v", err)
 	}
-	logger.Info("🔄 [全局熔断] 已撤销 %d/%d 个 Bot 的挂单", successCount, len(bots))
+	summary := report.Summary("已撤单")
+	logger.Info("🔄 [全局熔断] %s (状态: %s)", summary, report.Status())
+	return summary
 }
 
-// closeAllPositions 平仓
-func (gcb *GlobalCircuitBreaker) closeAllPositions() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(gcb.config.Actions.ClosePositions.Timeout)*time.Second)
-	defer cancel()
-
-	bots := gcb.botProvider.GetAllBots()
-	successCount := 0
-	for _, bot := range bots {
-		if err := bot.CloseAllPositions(ctx, gcb.config.Actions.ClosePositions.Method, gcb.config.Actions.ClosePositions.Timeout); err != nil {
-			logger.Error("❌ [全局熔断] Bot 平仓失败: %v", err)
-		} else {
-			successCount++
-		}
+// closeAllPositions 平仓（每个 Bot 独立超时；timeout<=0 使用默认值）
+func (gcb *GlobalCircuitBreaker) closeAllPositions() string {
+	cp := gcb.config.Actions.ClosePositions
+	report := closePositionsOnBots(context.Background(), gcb.botProvider.GetAllBots(), cp.Method, cp.Timeout)
+	if err := report.Err(); err != nil {
+		logger.Error("❌ [全局熔断] 平仓存在失败: %v", err)
 	}
-	logger.Info("📤 [全局熔断] 已平仓 %d/%d 个 Bot", successCount, len(bots))
+	summary := report.Summary("已平仓")
+	logger.Info("📤 [全局熔断] %s (状态: %s)", summary, report.Status())
+	return summary
 }
 
-// sendNotification 发送通知
-func (gcb *GlobalCircuitBreaker) sendNotification() {
+// sendNotification 通过通知服务发送告警
+func (gcb *GlobalCircuitBreaker) sendNotification(evtType event.EventType, data map[string]interface{}) {
 	if !gcb.config.Notifications.Enabled {
 		return
 	}
-
-	logger.Info("📢 [全局熔断] 发送通知到渠道: %v", gcb.config.Notifications.Channels)
-	// TODO: 实现各种通知渠道的发送
+	notifier, _ := gcb.deps()
+	if notifier == nil {
+		logger.Warn("📢 [全局熔断] 通知已启用但未注入通知服务，仅记录日志: %v", data)
+		return
+	}
+	if len(gcb.config.Notifications.Channels) > 0 {
+		// NotificationService 按全局已启用渠道广播，暂不支持按 channels 过滤
+		data["channels"] = strings.Join(gcb.config.Notifications.Channels, ",")
+	}
+	notifier.Send(&event.Event{
+		Type:      evtType,
+		Timestamp: time.Now(),
+		Data:      data,
+	})
 }
 
 // ManualTrigger 手动触发熔断
@@ -381,8 +527,9 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 	logger.Info("♻️  [全局熔断] 开始恢复...")
 
 	now := time.Now()
+	auto := triggeredBy == triggeredByAuto
 	reason := "手动恢复"
-	if triggeredBy == "auto" {
+	if auto {
 		reason = "自动恢复"
 	}
 
@@ -393,6 +540,16 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 	}
 	gcb.status = CircuitBreakerStatusNormal
 	gcb.cooldownUntil = now.Add(time.Duration(gcb.config.Recovery.CooldownMinutes) * time.Minute)
+	// 计数型指标恢复即清零，避免同一批历史再次触发 → 平仓 → 恢复 → 重建仓的循环
+	gcb.consecutiveLosses = 0
+	gcb.authFailCount = 0
+	gcb.resetMarks.Streak = now
+	if !auto {
+		// 手动恢复代表操作人确认继续：日内亏损与回撤基线一并重置
+		gcb.dailyPnL = 0
+		gcb.maxDrawdown = 0
+		gcb.resetMarks.All = now
+	}
 	gcb.statusMu.Unlock()
 
 	// 记录事件
@@ -410,10 +567,17 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 
 	// 恢复所有 Bot
 	bots := gcb.botProvider.GetAllBots()
-	for _, bot := range bots {
-		bot.ResumeOpening()
+	_, pauser := gcb.deps()
+	if pauser != nil {
+		if pauser.Release(circuitBreakerPauseSource, bots) {
+			logger.Info("▶️ [全局熔断] 已恢复 %d 个 Bot", len(bots))
+		}
+	} else {
+		for _, bot := range bots {
+			bot.ResumeOpening()
+		}
+		logger.Info("▶️ [全局熔断] 已恢复 %d 个 Bot", len(bots))
 	}
-	logger.Info("▶️ [全局熔断] 已恢复 %d 个 Bot", len(bots))
 
 	// 发布事件
 	if gcb.eventBus != nil {
@@ -424,6 +588,12 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 			},
 		})
 	}
+
+	gcb.sendNotification(event.EventTypeRiskRecovered, map[string]interface{}{
+		"source":       "global_circuit_breaker",
+		"reason":       reason,
+		"triggered_by": triggeredBy,
+	})
 
 	return nil
 }
@@ -436,6 +606,13 @@ func (gcb *GlobalCircuitBreaker) UpdateMetrics(dailyPnL, maxDrawdown float64, co
 	gcb.dailyPnL = dailyPnL
 	gcb.maxDrawdown = maxDrawdown
 	gcb.consecutiveLosses = consecutiveLosses
+}
+
+// MetricsResetMarks 返回统计基线（供 MetricsFeeder 使用）
+func (gcb *GlobalCircuitBreaker) MetricsResetMarks() MetricsResetMarks {
+	gcb.statusMu.RLock()
+	defer gcb.statusMu.RUnlock()
+	return gcb.resetMarks
 }
 
 // ReportAuthFailure 报告 API 认证失败
@@ -452,7 +629,10 @@ func (gcb *GlobalCircuitBreaker) ReportWebSocketDisconnect() {
 	gcb.statusMu.Lock()
 	defer gcb.statusMu.Unlock()
 
-	gcb.lastWSDisconnect = time.Now()
+	// 已在断线状态时保留首次断线时间，否则重复上报会不断推迟超时判定
+	if gcb.lastWSDisconnect.IsZero() {
+		gcb.lastWSDisconnect = time.Now()
+	}
 	logger.Warn("⚠️ [全局熔断] WebSocket断线")
 }
 
@@ -480,7 +660,9 @@ func (gcb *GlobalCircuitBreaker) GetEvents(limit int) []*CircuitBreakerEvent {
 	if limit <= 0 || limit > len(gcb.events) {
 		limit = len(gcb.events)
 	}
-	return gcb.events[len(gcb.events)-limit:]
+	out := make([]*CircuitBreakerEvent, limit)
+	copy(out, gcb.events[len(gcb.events)-limit:])
+	return out
 }
 
 // IsTripped 是否已触发

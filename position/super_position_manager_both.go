@@ -479,29 +479,13 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 		}
 	}
 
-	leverage := 1
-	if accountResult != nil {
-		accountValue := reflect.ValueOf(accountResult)
-		if accountValue.Kind() == reflect.Ptr && !accountValue.IsNil() {
-			accountValue = accountValue.Elem()
-		}
-		if accountValue.IsValid() && accountValue.Kind() == reflect.Struct {
-			if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-				if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-					leverage = lev
-				}
-			}
-		}
-	}
+	leverage := spm.resolveLeverage(ctx, accountResult)
 
+	// D3：只有開倉腿預留资金（按 ClientOrderID 記賬），reduce-only 平倉單不受资金分配限制
 	var validOrders []*OrderRequest
 	for _, req := range ordersToPlace {
-		orderValue := req.Quantity * req.Price
-		actualMargin := orderValue / float64(leverage)
-		err := spm.allocationManager.CheckAndReserve(
-			spm.exchangeName, spm.config.Trading.Symbol, actualMargin, accountBalance,
-		)
-		if err != nil {
+		if _, err := spm.reserveOrderAllocation(req, leverage, accountBalance); err != nil {
+			logger.Warn("⚠️ [%s] [BOTH 资金分配] %v (ClientOID: %s)", spm.logPrefix(), err, req.ClientOrderID)
 			if price, _, valid := spm.parseClientOrderID(req.ClientOrderID); valid {
 				slot := spm.getOrCreateSlot(price)
 				slot.mu.Lock()
@@ -576,36 +560,24 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 			}
 		}
 		if valid {
-			slot := spm.getOrCreateSlot(price)
-			slot.mu.Lock()
-			if slot.PositionStatus == PositionStatusFilled {
-				logger.Warn("⚠️ [ReduceOnly:BOTH] 清空槽位 %.2f 腿=%s 方向=%s", price, slot.PositionLeg, side)
-				slot.PositionStatus = PositionStatusEmpty
-				slot.PositionQty = 0
-				slot.PositionLeg = PositionLegNone
-				slot.SlotStatus = SlotStatusFree
-			}
-			slot.mu.Unlock()
-			spm.reduceOnlyCooldown.Store(price, time.Now())
+			// E6：不清空本地持倉，只冷卻並交給對賬決定
+			spm.handleReduceOnlyRejection(price, side, clientOID)
 		}
 	}
 
 	for _, req := range ordersToPlace {
 		if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] {
-			price, side, valid := spm.parseClientOrderID(req.ClientOrderID)
-			if valid {
+			if price, _, valid := spm.parseClientOrderID(req.ClientOrderID); valid {
 				slot := spm.getOrCreateSlot(price)
 				slot.mu.Lock()
 				if slot.SlotStatus == SlotStatusPending {
 					slot.SlotStatus = SlotStatusFree
 				}
 				slot.mu.Unlock()
-				if side == "BUY" {
-					ov := req.Quantity * req.Price
-					if am := spm.getActualMargin(ov); am > 0 {
-						spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, am)
-					}
-				}
+			}
+			// 按 ClientOrderID 歸還預留（開多 BUY / 開空 SELL 一致處理）
+			if released := spm.releaseOrderReservation(req.ClientOrderID); released > 0 {
+				logger.Debug("💰 [BOTH 资金释放] 订單提交失败，释放預留资金: %.2f USDT (ClientOID: %s)", released, req.ClientOrderID)
 			}
 		}
 	}

@@ -246,23 +246,25 @@ func (am *AllocationManager) CheckAndReserve(exchange, symbol string, amount flo
 		return nil
 	}
 
-	// 计算實際限制（取固定金額和百分比的较小值）
+	// 计算本次生效限制（取固定金額和百分比的较小值）
+	// D4：只用局部變量，不回寫 alloc.MaxAmount，否則餘額暫時下降會把限額永久壓低
+	effectiveLimit := alloc.MaxAmount
 	configAlloc := am.getConfigAllocation(exchange, symbol)
 	if configAlloc != nil && accountBalance > 0 {
 		percentageLimit := accountBalance * (configAlloc.MaxPercentage / 100.0)
-		if percentageLimit > 0 && percentageLimit < alloc.MaxAmount {
-			alloc.MaxAmount = percentageLimit
+		if percentageLimit > 0 && percentageLimit < effectiveLimit {
+			effectiveLimit = percentageLimit
 		}
 	}
 
 	// 检查是否超出限制
-	if alloc.UsedAmount+amount > alloc.MaxAmount {
+	if alloc.UsedAmount+amount > effectiveLimit {
 		limitType := "正常限額"
 		if alloc.IsEmergencyMode {
 			limitType = "紧急限額"
 		}
 		return fmt.Errorf("超出资金分配限制(%s): %s:%s 已用 %.2f USDT, 限額 %.2f USDT, 本次需要 %.2f USDT",
-			limitType, exchange, symbol, alloc.UsedAmount, alloc.MaxAmount, amount)
+			limitType, exchange, symbol, alloc.UsedAmount, effectiveLimit, amount)
 	}
 
 	// 預留资金
@@ -287,6 +289,23 @@ func (am *AllocationManager) Release(exchange, symbol string, amount float64) {
 		if alloc.UsedAmount < 0 {
 			alloc.UsedAmount = 0
 		}
+	}
+}
+
+// Consume 無條件記入已用资金（用於未經 CheckAndReserve 的開倉成交，如外部路徑下的單），
+// 保證後續平倉時的 Release 對稱，不做限額檢查
+func (am *AllocationManager) Consume(exchange, symbol string, amount float64) {
+	if !am.cfg.PositionAllocation.Enabled || amount <= 0 {
+		return
+	}
+
+	key := fmt.Sprintf("%s:%s", exchange, symbol)
+
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	if alloc, exists := am.allocations[key]; exists {
+		alloc.UsedAmount += amount
 	}
 }
 

@@ -156,7 +156,7 @@
 | 轮次 | 范围 | 状态 |
 |---|---|---|
 | R1 止血 | A1–A6（SHORT 链路）、B1、B2、D1、D2、E1、E2、X1、X2 | ✅（另完成 X6、E5 部分） |
-| R2 风控生效 | C1–C6、B3、B4、D3–D5、E3–E6 | ⬜ |
+| R2 风控生效 | C1–C6、B3、B4、D3–D5、E3–E6 | ✅（另完成 S6、S9、S11 部分；E5 已在 R1） |
 | R3 策略包 | S1–S11 | ⬜ |
 | R4 交易所 | X3–X6、OKX/Bybit 整套 | ⬜ |
 | R5 胜率改进 | 第五节 1–8、11、12 | ⬜ |
@@ -182,3 +182,24 @@
   - R2：`super_position_manager_order_events.go` 撤单回调按字面 BUY/SELL 判断（做空开仓单被撤会走错分支）；`symbol_manager.go`/`position` 调用方区分 `ErrLockNotAcquired` 与真实失败。
   - R4：E5 需交易所接口支持按 ClientOrderID 查单（已完全成交的单不在挂单列表）；同进程同时支持 Binance 主网+测试网需自建 WS；Binance WS 管理器 Stop/Start 后回调重复注册、外部 ctx 取消后状态不复位。
   - 行为变化：同一进程同时创建 Binance 合约主网与测试网交易适配器会报错。
+
+#### R2（✅ go build / vet / test ./... 通过；position、safety、lock、order、profit、risk、monitor、strategy、exchange/binance、根包通过 -race；webui 144 用例通过）
+- C1 `risk/metrics_feeder.go`、`main_helpers.go` `startCircuitBreakerFeeder`、`risk/circuit_breaker.go` `SubscribeConnectivityEvents`。测试 `risk/metrics_feeder_test.go`。
+- C2 `bot_manager.go` `PauseOpening/resumeOpening` → spm。测试 `bot_manager_pause_test.go`。
+- C3 `risk/circuit_breaker.go` `autoResumeBlockers`/`recover`，`OpeningPauseCoordinator`。测试 `risk/circuit_breaker_recovery_test.go`。
+- B3 `risk/bot_actions.go`、`risk/emergency_center.go` `executeOperation`。测试 `risk/emergency_center_ops_test.go`。
+- C4 `web/api_emergency_center.go` 确认校验；`risk/composite_guard.go` + `safety/composite_risk.go` `SetResultHandler`；动态止损启动告警不注册。测试 `web/api_emergency_center_test.go`、`safety/composite_risk_handler_test.go`。
+- C5 `safety/depth_monitor.go` 按币种状态、冻结基线。测试 `safety/depth_monitor_test.go`。
+- C6 通知接入 `notify.NotificationService`；`monitor/price_monitor.go` `IsStale`/`Stop`。测试 `monitor/price_monitor_test.go`、`monitor/watchdog_notify_test.go`。
+- B4 `exchange/binance/adapter.go` `BatchCancelOrders` 错误汇总；`wrapper_binance.go` `CancelAllOrders`。测试 `exchange/binance/batch_cancel_test.go`。
+- D3 `position/allocation_reservation.go`（按 ClientOrderID 记账）。测试 `position/allocation_reservation_test.go`（30 例）。
+- D4 `position/allocation_manager.go` 局部有效限额。测试 `position/allocation_smart_order_test.go`。
+- D5/S9 `strategy/multi_strategy_executor.go` `OnOrderUpdate`、`classifyOrder`；`symbol_manager.go` 登记对冲策略方向。测试 `strategy/multi_strategy_executor_test.go`。
+- E3/S6/S11 `strategy/trend_detector.go`、`trend_following.go`。测试 `strategy/trend_detector_concurrency_test.go`。
+- E4 `position/super_position_manager.go` 杠杆缓存 `leverageCacheRefreshInterval`。
+- E6 `position/super_position_manager_adjust.go` `handleReduceOnlyRejection`。
+- R1 遗留（撤单回调方向、ErrLockNotAcquired 调用方）已完成。
+- 遗留转入后续轮：
+  - R3：`position/opening_controller.go` 定时/周期规则调用 `ResumeOpening` 可覆盖熔断暂停（需分暂停来源）；combo 子策略未设置 `PositionSide`；`dynamic_adjuster.go`、`GetStatistics` 的并发问题（S11 余项）。
+  - R4：交易所层发布 WS 断线/认证失败事件；`order/executor_adapter.go` 批量撤单总是 return nil；`position/smart_order_manager.go:185` 等处丢弃撤单错误；Binance 现货/杠杆适配器撤单吞错未查。
+  - 已知限制：回撤高水位仅内存保存，重启重新起算；复合风控只接全局因子（按交易对因子为做多语义，未接）；配额超限触发器无数据源。

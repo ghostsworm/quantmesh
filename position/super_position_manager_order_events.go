@@ -61,6 +61,12 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		slot.OrderID = update.OrderID
 	}
 
+	// 資金預留記賬 key：優先推送中的 ClientOrderID，兜底用槽位記錄的
+	orderClientOID := update.ClientOrderID
+	if orderClientOID == "" {
+		orderClientOID = slot.ClientOID
+	}
+
 	// 处理状態轉换
 	switch update.Status {
 	case "NEW":
@@ -79,17 +85,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 		// 根據方向更新持倉：LONG 時 BUY=開倉(加倉) SELL=平倉(減倉)；SHORT 時 SELL=開倉 BUY=平倉
 		// BOTH：依槽位 PositionLeg 判斷開倉/平倉
-		openSide := "BUY"
-		if spm.isShort() {
-			openSide = "SELL"
-		}
-		isOpenLeg := false
-		if spm.isBoth() {
-			isOpenLeg = bothSideIsOpen(side, slot)
-		} else {
-			isOpenLeg = (side == openSide)
-		}
-		if isOpenLeg {
+		if spm.isOpenLegOrderSide(side, slot) {
 			if deltaQty > 0 {
 				if spm.isBoth() && slot.PositionLeg == "" {
 					if side == "BUY" {
@@ -132,12 +128,18 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				}
 
 				slot.PositionQty += deltaQty
+				// D3：成交部分的預留资金轉為槽位持倉占用（平倉成交時再按比例釋放）
+				spm.applyOpeningFillAllocationLocked(slot, orderClientOID, deltaQty, actualBuyPrice, update.Status == "FILLED")
 				// 累加统计
 				oldTotal := spm.totalBuyQty.Load().(float64)
 				spm.totalBuyQty.Store(oldTotal + deltaQty)
 			}
 
 			if update.Status == "FILLED" {
+				if deltaQty <= 0 {
+					// 最後一筆成交增量已在 PARTIALLY_FILLED 中處理：把剩餘預留全部轉為持倉占用
+					spm.applyOpeningFillAllocationLocked(slot, orderClientOID, 0, 0, true)
+				}
 				slot.OrderStatus = OrderStatusNotPlaced // 重置订單状態
 				slot.OrderID = 0
 				slot.ClientOID = ""
@@ -166,13 +168,6 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				// 🔥 買單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
 
-				// 🔥 释放资金：買單成交后，资金已轉换為持倉，释放預留的资金
-				orderValue := slot.OrderPrice * update.ExecutedQty
-				actualMargin := spm.getActualMargin(orderValue)
-				if actualMargin > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 買單成交，释放资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
-				}
 
 				logger.Info("✅ [買單成交] 價格: %s, 持倉: %.4f, 槽位状態: %s -> %s, 订單状態: %s -> %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty,
@@ -206,6 +201,10 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.PositionQty -= deltaQty
 				if slot.PositionQty < 0 {
 					slot.PositionQty = 0
+				}
+				// D3：平倉成交按比例釋放該槽位的持倉资金占用（只用內存數據，不做網絡請求）
+				if released := spm.releaseSlotAllocationLocked(slot, deltaQty, positionQtyBeforeSell); released > 0 {
+					logger.Debug("💰 [资金释放] 平倉成交，释放持倉占用: %.2f USDT (減倉: %.4f)", released, deltaQty)
 				}
 				// 累加统计
 				oldTotal := spm.totalSellQty.Load().(float64)
@@ -354,15 +353,9 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				// 🔥 賣單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
 
-				// 🔥 释放资金：賣單成交后，资金已收回，释放預留的资金（賣單不需要預留资金，但為了统一处理也释放）
-				// 注意：賣單是平倉，不占用资金，但為了保持一致性，这里也处理
-				// 賣單成交后，持倉减少，對应的買入资金应該被释放
-				// 使用槽位價格（買入價）计算释放金額
-				releaseValue := price * deltaQty
-				actualMargin := spm.getActualMargin(releaseValue)
-				if actualMargin > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 賣單成交，释放资金: %.2f USDT (持倉價值: %.2f USDT, 持倉减少: %.4f)", actualMargin, releaseValue, deltaQty)
+				// 持倉已清空：釋放槽位剩餘的资金占用（處理精度殘留）
+				if slot.PositionStatus == PositionStatusEmpty {
+					spm.releaseSlotAllocationLocked(slot, 0, 0)
 				}
 
 				logger.Info("✅ [賣單成交] 價格: %s, 剩餘持倉: %.4f, 槽位状態: %s, 订單状態: %s, SlotStatus: FREE",
@@ -383,64 +376,53 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		logger.Info("⚠️ [订單%s] 價格: %s, 方向: %s, 原因: %s, 已成交: %.4f",
 			update.Status, formatPrice(price, spm.priceDecimals), side, update.Status, slot.OrderFilledQty)
 
-		// 🔥 释放资金：订單取消后，释放未成交部分的預留资金
-		// 注意：買單取消時，如果未成交，需要释放整個订單的預留资金
-		// 由於我们不知道原始订單數量，使用订單價格和配置的订單金額来估算
-		if side == "BUY" && slot.OrderPrice > 0 {
-			// 對於買單，如果未成交或部分成交，释放未成交部分的资金
-			// 使用配置的订單金額作為参考（因為每個槽位的订單金額是固定的）
-			orderValue := spm.config.Trading.OrderQuantity
-			if slot.OrderFilledQty > 0 {
-				// 部分成交：释放未成交部分的资金
-				filledValue := slot.OrderPrice * slot.OrderFilledQty
-				unfilledValue := orderValue - filledValue
-				actualMargin := spm.getActualMargin(unfilledValue)
-				if actualMargin > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 買單部分成交后取消，释放未成交资金: %.2f USDT (訂單價值: %.2f USDT, 已成交: %.4f)",
-						actualMargin, unfilledValue, slot.OrderFilledQty)
-				}
-			} else {
-				// 完全未成交：释放整個订單的預留资金
-				actualMargin := spm.getActualMargin(orderValue)
-				if actualMargin > 0 {
-					spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-					logger.Debug("💰 [资金释放] 買單未成交取消，释放资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
-				}
-			}
+		// 🔥 释放资金（D3）：按 ClientOrderID 歸還該訂單尚未轉為持倉的預留；
+		// 已成交部分已在成交回報中轉為槽位持倉占用。平倉單沒有預留，這裡為 0。
+		if released := spm.releaseOrderReservation(orderClientOID); released > 0 {
+			logger.Debug("💰 [资金释放] 订單%s，释放未成交預留资金: %.2f USDT (方向: %s, 已成交: %.4f)",
+				update.Status, released, side, slot.OrderFilledQty)
 		}
-		// 賣單取消不需要释放资金，因為賣單是平倉，不占用资金
 
-		// 🔥 核心修複：根據订單方向和成交情况处理槽位状態
-		if side == "BUY" {
-			// 買單被取消/拒绝
+		// 🔥 核心修複：按開倉腿/平倉腿處理槽位状態（LONG: BUY=開倉；SHORT: SELL=開倉；BOTH: 依槽位腿）
+		if side != "BUY" && side != "SELL" {
+			logger.Warn("⚠️ [订單%s] 價格: %s, 無法識別訂單方向 %q，僅清空訂單信息",
+				update.Status, formatPrice(price, spm.priceDecimals), side)
+		} else if spm.isOpenLegOrderSide(side, slot) {
+			// 開倉單被取消/拒绝
 			if slot.PositionQty > 0 || slot.OrderFilledQty > 0 {
-				// 部分成交后被取消：保留持倉，允許后续挂賣單
-				logger.Info("💡 [買單部分成交后取消] 價格: %s, 持倉: %.4f, 轉為有倉状態",
-					formatPrice(price, spm.priceDecimals), slot.PositionQty)
+				// 部分成交后被取消：保留持倉，允許后续挂平倉單
+				logger.Info("💡 [開倉單部分成交后取消] 價格: %s, 方向: %s, 持倉: %.4f, 轉為有倉状態",
+					formatPrice(price, spm.priceDecimals), side, slot.PositionQty)
 				slot.PositionStatus = PositionStatusFilled
-				slot.SlotStatus = SlotStatusFree // 允許挂賣單
+				slot.SlotStatus = SlotStatusFree // 允許挂平倉單
 			} else {
 				// 完全未成交被取消：重置為空槽位
-				logger.Info("🔄 [買單未成交取消] 價格: %s, 重置槽位為空闲",
-					formatPrice(price, spm.priceDecimals))
+				logger.Info("🔄 [開倉單未成交取消] 價格: %s, 方向: %s, 重置槽位為空闲",
+					formatPrice(price, spm.priceDecimals), side)
 				slot.PositionStatus = PositionStatusEmpty
-				slot.SlotStatus = SlotStatusFree // 允許重新挂買單
+				if spm.isBoth() {
+					slot.PositionLeg = PositionLegNone
+				}
+				slot.SlotStatus = SlotStatusFree // 允許重新挂開倉單
 			}
-		} else if side == "SELL" {
-			// 賣單被取消/拒绝：应該还持有币，保持持倉状態
+		} else {
+			// 平倉單被取消/拒绝：应該还持有倉位，保持持倉状態
 			if slot.PositionQty > 0 {
 				// 增加PostOnly失败计數（订單被交易所撤销通常是PostOnly失败）
 				slot.PostOnlyFailCount++
-				logger.Info("🔄 [賣單取消] 價格: %s, 保持持倉状態: %.4f, 等待重挂, PostOnly失败计數: %d",
-					formatPrice(price, spm.priceDecimals), slot.PositionQty, slot.PostOnlyFailCount)
+				logger.Info("🔄 [平倉單取消] 價格: %s, 方向: %s, 保持持倉状態: %.4f, 等待重挂, PostOnly失败计數: %d",
+					formatPrice(price, spm.priceDecimals), side, slot.PositionQty, slot.PostOnlyFailCount)
 				slot.PositionStatus = PositionStatusFilled
-				slot.SlotStatus = SlotStatusFree // 允許重新挂賣單
+				slot.SlotStatus = SlotStatusFree // 允許重新挂平倉單
 			} else {
-				// 异常情况：賣單取消但没有持倉，重置為空
-				logger.Warn("⚠️ [异常] 賣單取消但無持倉，價格: %s, 重置為空",
-					formatPrice(price, spm.priceDecimals))
+				// 异常情况：平倉單取消但没有持倉，重置為空
+				logger.Warn("⚠️ [异常] 平倉單取消但無持倉，價格: %s, 方向: %s, 重置為空",
+					formatPrice(price, spm.priceDecimals), side)
 				slot.PositionStatus = PositionStatusEmpty
+				if spm.isBoth() {
+					slot.PositionLeg = PositionLegNone
+				}
+				spm.releaseSlotAllocationLocked(slot, 0, 0)
 				slot.SlotStatus = SlotStatusFree
 			}
 		}

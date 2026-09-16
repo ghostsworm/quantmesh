@@ -898,7 +898,6 @@ func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 // PauseOpening 暂停开仓
 func (br *BotRuntime) PauseOpening(reason string) {
 	br.configMu.Lock()
-	defer br.configMu.Unlock()
 
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
 	br.Config.OpenPositionControl.PauseOpening = true
@@ -910,14 +909,29 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpening = true
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
 	br.Config.OpenPositionControl.BotRiskControl.Enabled = true
+	autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
+	br.configMu.Unlock()
 
-	storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "config")
+	// C2：br.Config 只是展示用拷贝，SPM 持有自己的配置；必須直接通知 SPM 才能真正停止開倉
+	// （SPM.PauseOpening 會撤銷開倉委託並記錄風控事件）。在釋放 configMu 後調用，避免持鎖做網絡請求。
+	if spm := br.superPositionManager(); spm != nil {
+		spm.PauseOpening(reason)
+	} else {
+		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "config")
+	}
 
 	// 🔥 如果设置了自动恢复时间，启动自动恢复 goroutine
-	if br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter > 0 {
-		autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
+	if autoResumeSec > 0 {
 		go br.autoResumeAfter(autoResumeSec)
 	}
+}
+
+// superPositionManager 返回運行中的 SPM（未初始化時為 nil）
+func (br *BotRuntime) superPositionManager() *position.SuperPositionManager {
+	if br.Inner == nil {
+		return nil
+	}
+	return br.Inner.SuperPositionManager
 }
 
 // ResumeOpening 恢复开仓
@@ -927,8 +941,6 @@ func (br *BotRuntime) ResumeOpening() {
 
 func (br *BotRuntime) resumeOpening(source string) {
 	br.configMu.Lock()
-	defer br.configMu.Unlock()
-
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
 	br.Config.OpenPositionControl.PauseOpening = false
 
@@ -937,7 +949,13 @@ func (br *BotRuntime) resumeOpening(source string) {
 		br.Config.OpenPositionControl.BotRiskControl.PauseOpening = false
 		br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = ""
 	}
+	br.configMu.Unlock()
 
+	// C2：同步恢復 SPM 的開倉開關（SPM 內部會記錄 resumed 事件）
+	if spm := br.superPositionManager(); spm != nil {
+		spm.ResumeOpening()
+		return
+	}
 	storage.AppendBotRiskControlEvent(br.BotID, "resumed", "", source)
 }
 

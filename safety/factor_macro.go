@@ -87,8 +87,7 @@ func (f *MacroEventRiskFactor) Evaluate(ctx context.Context) FactorResult {
 	}
 	if summary.CompositeRiskScore >= 70 {
 		reason = "宏观风险较高，建议谨慎"
-	}
-	if summary.CompositeRiskScore >= 50 {
+	} else if summary.CompositeRiskScore >= 50 {
 		reason = "宏观事件需关注"
 	}
 

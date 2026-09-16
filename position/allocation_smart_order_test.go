@@ -46,11 +46,16 @@ func TestAllocationManagerReserveLimitsStatusesAndTieredRecovery(t *testing.T) {
 	if err := am.CheckAndReserve("binance", "BTCUSDT", 400, 1000); err != nil {
 		t.Fatalf("reserve within percentage limit: %v", err)
 	}
-	if status := am.GetStatus("binance", "BTCUSDT"); status.UsedAmount != 400 || status.MaxAmount != 500 {
+	// D4：百分比限額只在本次檢查生效，不回寫 MaxAmount
+	if status := am.GetStatus("binance", "BTCUSDT"); status.UsedAmount != 400 || status.MaxAmount != 1000 {
 		t.Fatalf("reserved percentage status = %#v", status)
 	}
 	if err := am.CheckAndReserve("binance", "BTCUSDT", 200, 1000); err == nil {
 		t.Fatalf("reserve above limit should fail")
+	}
+	// 餘額回升後，百分比限額隨之回升，不再被歷史低餘額壓住
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 200, 4000); err != nil {
+		t.Fatalf("reserve after balance recovered should pass: %v", err)
 	}
 	am.Release("binance", "BTCUSDT", 1000)
 	if status := am.GetStatus("binance", "BTCUSDT"); status.UsedAmount != 0 || status.AvailableAmount != status.MaxAmount {

@@ -22,6 +22,9 @@ type ExecuteScenarioRequest struct {
 	Scenario    string `json:"scenario"`     // 场景名称
 	TriggeredBy string `json:"triggered_by"` // 操作人
 	Reason      string `json:"reason"`       // 原因
+	// 以下兩項僅在 emergency_center.require_confirmation=true 時必填
+	Confirm         bool   `json:"confirm"`          // 明確確認執行
+	ConfirmScenario string `json:"confirm_scenario"` // 再次輸入場景名，須與 scenario 一致
 }
 
 // getEmergencyScenarios 获取所有紧急场景
@@ -57,6 +60,15 @@ func executeEmergencyScenario(c *gin.Context) {
 
 	if req.TriggeredBy == "" {
 		req.TriggeredBy = "unknown"
+	}
+
+	if err := globalEmergencyCenter.ValidateConfirmation(req.Scenario, req.Confirm, req.ConfirmScenario); err != nil {
+		logger.Warn("⚠️ [紧急中心] 拒绝未确认的场景执行: %v，操作人: %s", err, req.TriggeredBy)
+		c.JSON(http.StatusPreconditionRequired, gin.H{
+			"error":                 err.Error(),
+			"confirmation_required": true,
+		})
+		return
 	}
 
 	op, err := globalEmergencyCenter.ExecuteScenario(req.Scenario, req.TriggeredBy, req.Reason)

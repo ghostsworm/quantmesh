@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -18,6 +19,7 @@ import (
 	"quantmesh/utils"
 
 	binancesdk "github.com/adshao/go-binance/v2"
+	"github.com/adshao/go-binance/v2/common"
 	"github.com/adshao/go-binance/v2/futures"
 )
 
@@ -649,28 +651,49 @@ func (b *BinanceAdapter) CancelOrder(ctx context.Context, symbol string, orderID
 		Do(ctx)
 
 	if err != nil {
-		errStr := err.Error()
-		if strings.Contains(errStr, "-2011") || strings.Contains(errStr, "Unknown order") {
+		if isBinanceUnknownOrderError(err) {
 			logger.Info("ℹ️ [Binance] 订單 %d 已不存在，跳過取消", orderID)
 			return nil
 		}
-		return err
+		return fmt.Errorf("cancel order %d on %s: %w", orderID, symbol, err)
 	}
 
 	logger.Info("✅ [Binance] 取消訂單成功: %d", orderID)
 	return nil
 }
 
-// BatchCancelOrders 批量撤單
+const (
+	// binanceBatchCancelMaxOrders Binance 批量撤單單次最多 10 個
+	binanceBatchCancelMaxOrders = 10
+	// binanceCancelThrottleInterval 連續撤單請求之間的間隔，避免限頻
+	binanceCancelThrottleInterval = 100 * time.Millisecond
+	// binanceErrCodeUnknownOrder 訂單不存在（已成交/已撤銷），撤單時視為成功
+	binanceErrCodeUnknownOrder = -2011
+)
+
+// isBinanceUnknownOrderError 判斷是否為「訂單不存在」錯誤（code -2011）
+func isBinanceUnknownOrderError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var apiErr *common.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == binanceErrCodeUnknownOrder {
+		return true
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, strconv.Itoa(binanceErrCodeUnknownOrder)) || strings.Contains(errStr, "Unknown order")
+}
+
+// BatchCancelOrders 批量撤單。
+// 所有未能確認撤銷的訂單錯誤會被匯總返回；訂單不存在（-2011）視為成功。
 func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
 	if len(orderIDs) == 0 {
 		return nil
 	}
 
-	// 🔥 Binance 批量撤單限制：最多10個
-	batchSize := 10
-	for i := 0; i < len(orderIDs); i += batchSize {
-		end := i + batchSize
+	var errs []error
+	for i := 0; i < len(orderIDs); i += binanceBatchCancelMaxOrders {
+		end := i + binanceBatchCancelMaxOrders
 		if end > len(orderIDs) {
 			end = len(orderIDs)
 		}
@@ -681,34 +704,71 @@ func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, o
 		if len(batch) == 1 {
 			if err := b.CancelOrder(ctx, symbol, batch[0]); err != nil {
 				logger.Warn("⚠️ [Binance] 取消訂單失败 %d: %v", batch[0], err)
+				errs = append(errs, err)
 			}
 			continue
 		}
 
-		_, err := b.client.NewCancelMultipleOrdersService().
+		resp, err := b.client.NewCancelMultipleOrdersService().
 			Symbol(symbol).
 			OrderIDList(batch).
 			Do(ctx)
 
+		var retry []int64
 		if err != nil {
 			logger.Warn("⚠️ [Binance] 批量撤單失败 (共%d個): %v", len(batch), err)
-			// 失败時尝試單個撤單
-			logger.Info("🔄 [Binance] 改為逐個撤單...")
-			for _, orderID := range batch {
-				_ = b.CancelOrder(ctx, symbol, orderID)
-				time.Sleep(100 * time.Millisecond) // 避免限频
-			}
+			retry = batch
 		} else {
-			logger.Info("✅ [Binance] 批量撤單成功: %d 個订單", len(batch))
+			// 批量接口按條返回結果，失敗條目為 {code,msg}，解析後 OrderID 為 0，
+			// 因此以響應中出現的 OrderID 判斷哪些訂單已確認撤銷。
+			retry = unconfirmedCancelOrderIDs(batch, resp)
+			if len(retry) == 0 {
+				logger.Info("✅ [Binance] 批量撤單成功: %d 個订單", len(batch))
+			} else {
+				logger.Warn("⚠️ [Binance] 批量撤單部分未確認 (%d/%d)", len(retry), len(batch))
+			}
+		}
+
+		if len(retry) > 0 {
+			// 逐個撤單：CancelOrder 會把「訂單不存在」視為成功
+			logger.Info("🔄 [Binance] 改為逐個撤單 %d 個...", len(retry))
+			for _, orderID := range retry {
+				if cancelErr := b.CancelOrder(ctx, symbol, orderID); cancelErr != nil {
+					logger.Warn("⚠️ [Binance] 取消訂單失败 %d: %v", orderID, cancelErr)
+					errs = append(errs, cancelErr)
+				}
+				time.Sleep(binanceCancelThrottleInterval) // 避免限频
+			}
 		}
 
 		// 避免限频
-		if i+batchSize < len(orderIDs) {
-			time.Sleep(100 * time.Millisecond)
+		if end < len(orderIDs) {
+			time.Sleep(binanceCancelThrottleInterval)
 		}
 	}
 
+	if len(errs) > 0 {
+		return fmt.Errorf("binance batch cancel on %s: %d of %d orders failed: %w",
+			symbol, len(errs), len(orderIDs), errors.Join(errs...))
+	}
 	return nil
+}
+
+// unconfirmedCancelOrderIDs 返回 batch 中未在批量撤單響應裡確認撤銷的訂單 ID
+func unconfirmedCancelOrderIDs(batch []int64, resp []*futures.CancelOrderResponse) []int64 {
+	confirmed := make(map[int64]struct{}, len(resp))
+	for _, r := range resp {
+		if r != nil && r.OrderID != 0 {
+			confirmed[r.OrderID] = struct{}{}
+		}
+	}
+	var missing []int64
+	for _, orderID := range batch {
+		if _, ok := confirmed[orderID]; !ok {
+			missing = append(missing, orderID)
+		}
+	}
+	return missing
 }
 
 // GetOrder 查詢訂單

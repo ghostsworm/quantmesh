@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/logger"
 	"quantmesh/notify"
 	"quantmesh/storage"
@@ -18,7 +19,7 @@ type Watchdog struct {
 	cfg             *config.Config
 	storageService  *storage.StorageService
 	logStorage      *storage.LogStorage // 日志存儲（用於清理日志）
-	notifier        *notify.NotificationService
+	notifier        alertSender
 	sampleInterval  time.Duration
 	cleanupInterval time.Duration
 	ctx             context.Context
@@ -59,11 +60,17 @@ func NewWatchdog(cfg *config.Config, storageService *storage.StorageService, log
 	}
 	maxHistory := (windowMinutes*60)/int(sampleInterval.Seconds()) + 10 // 多保留一些
 
+	// 避免把 nil 指針裝進介面後被當成非 nil
+	var sender alertSender
+	if notifier != nil {
+		sender = notifier
+	}
+
 	return &Watchdog{
 		cfg:                  cfg,
 		storageService:       storageService,
 		logStorage:           logStorage,
-		notifier:             notifier,
+		notifier:             sender,
 		sampleInterval:       sampleInterval,
 		cleanupInterval:      cleanupInterval,
 		ctx:                  ctx,
@@ -205,7 +212,7 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 	if w.cfg.Watchdog.Notifications.FixedThreshold.Enabled {
 		if checker.CheckFixedThreshold(current) {
 			if w.shouldNotify("fixed_cpu") {
-				w.sendNotification("fixed_threshold", current, fmt.Sprintf(
+				w.sendNotification("fixed_threshold", watchdogMetricCPU, current, fmt.Sprintf(
 					"CPU占用超過阈值: %.2f%% (阈值: %.2f%%)",
 					current.CPUPercent, w.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent,
 				))
@@ -217,7 +224,7 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 		if w.cfg.Watchdog.Notifications.FixedThreshold.MemoryMB > 0 {
 			if current.MemoryMB >= float64(w.cfg.Watchdog.Notifications.FixedThreshold.MemoryMB) {
 				if w.shouldNotify("fixed_memory") {
-					w.sendNotification("fixed_threshold", current, fmt.Sprintf(
+					w.sendNotification("fixed_threshold", watchdogMetricMemory, current, fmt.Sprintf(
 						"記憶體占用超過阈值: %.2f MB (阈值: %.2f MB)",
 						current.MemoryMB, float64(w.cfg.Watchdog.Notifications.FixedThreshold.MemoryMB),
 					))
@@ -243,13 +250,15 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 			if w.shouldNotify("rate_cpu") {
 				oldest := findOldestInWindow(history, current.Timestamp, w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes)
 				change := current.CPUPercent
+				oldestCPU := 0.0
 				if oldest != nil {
-					change = current.CPUPercent - oldest.CPUPercent
+					oldestCPU = oldest.CPUPercent
+					change = current.CPUPercent - oldestCPU
 				}
-				w.sendNotification("rate_threshold", current, fmt.Sprintf(
+				w.sendNotification("rate_threshold", watchdogMetricCPU, current, fmt.Sprintf(
 					"CPU占用在%d分钟内上涨%.2f%% (從%.2f%%到%.2f%%)",
 					w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes,
-					change, oldest.CPUPercent, current.CPUPercent,
+					change, oldestCPU, current.CPUPercent,
 				))
 				w.updateNotificationTime("rate_cpu")
 			}
@@ -266,13 +275,15 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 				if w.shouldNotify("rate_memory") {
 					oldest := findOldestInWindow(history, current.Timestamp, w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes)
 					change := current.MemoryMB
+					oldestMem := 0.0
 					if oldest != nil {
-						change = current.MemoryMB - oldest.MemoryMB
+						oldestMem = oldest.MemoryMB
+						change = current.MemoryMB - oldestMem
 					}
-					w.sendNotification("rate_threshold", current, fmt.Sprintf(
+					w.sendNotification("rate_threshold", watchdogMetricMemory, current, fmt.Sprintf(
 						"記憶體占用在%d分钟内上涨%.2f MB (從%.2f MB到%.2f MB)",
 						w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes,
-						change, oldest.MemoryMB, current.MemoryMB,
+						change, oldestMem, current.MemoryMB,
 					))
 					w.updateNotificationTime("rate_memory")
 				}
@@ -303,19 +314,46 @@ func (w *Watchdog) updateNotificationTime(key string) {
 	w.lastNotificationTime[key] = time.Now()
 }
 
-// sendNotification 发送通知
-func (w *Watchdog) sendNotification(alertType string, metrics *SystemMetrics, message string) {
+// alertSender 告警发送接口（notify.NotificationService 實現），便於測試注入
+type alertSender interface {
+	Send(evt *event.Event)
+}
+
+// 告警指標類型
+const (
+	watchdogMetricCPU    = "cpu"
+	watchdogMetricMemory = "memory"
+)
+
+// sendNotification 通過通知服務发送告警（NotificationService 異步發送，不阻塞采样）
+func (w *Watchdog) sendNotification(alertType, metricKind string, metrics *SystemMetrics, message string) {
+	logger.Warn("🚨 [系统監控告警] %s: %s", alertType, message)
+	if metrics != nil {
+		logger.Info("📊 當前系统状態: CPU=%.2f%%, 記憶體=%.2f MB", metrics.CPUPercent, metrics.MemoryMB)
+	}
+
 	if w.notifier == nil {
 		return
 	}
 
-	// 使用事件系统发送通知
-	// 注意：这里需要創建事件，但notify服務可能需要适配
-	logger.Warn("🚨 [系统監控告警] %s: %s", alertType, message)
-	logger.Info("📊 當前系统状態: CPU=%.2f%%, 記憶體=%.2f MB", metrics.CPUPercent, metrics.MemoryMB)
-
-	// TODO: 集成到事件系统，通過事件總線发送通知
-	// 目前先記錄日志，后续可以通過事件系统发送
+	evtType := event.EventTypeSystemCPUHigh
+	if metricKind == watchdogMetricMemory {
+		evtType = event.EventTypeSystemMemoryHigh
+	}
+	data := map[string]interface{}{
+		"source":     "watchdog",
+		"alert_type": alertType,
+		"message":    message,
+	}
+	if metrics != nil {
+		data["cpu_percent"] = fmt.Sprintf("%.2f", metrics.CPUPercent)
+		data["memory_mb"] = fmt.Sprintf("%.2f", metrics.MemoryMB)
+	}
+	w.notifier.Send(&event.Event{
+		Type:      evtType,
+		Timestamp: time.Now(),
+		Data:      data,
+	})
 }
 
 // cleanupLoop 清理循环

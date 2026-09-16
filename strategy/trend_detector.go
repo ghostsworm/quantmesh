@@ -107,55 +107,52 @@ func (td *TrendDetector) addPrice(price float64) {
 	}
 }
 
-// calculateMA 计算移动平均
+// calculateMA 计算移动平均（自行加读锁；持锁调用方请直接使用 simpleMovingAverage）
 func (td *TrendDetector) calculateMA(period int) float64 {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
-
-	if len(td.priceHistory) < period {
-		return 0
-	}
-
-	// 使用最近的數據
-	start := len(td.priceHistory) - period
-	prices := td.priceHistory[start:]
-
-	var sum float64
-	for _, price := range prices {
-		sum += price
-	}
-
-	return sum / float64(len(prices))
+	return simpleMovingAverage(td.priceHistory, period)
 }
 
-// calculateEMA 计算指數移动平均
+// calculateEMA 计算指數移动平均（自行加读锁；持锁调用方请直接使用 exponentialMovingAverage）
 func (td *TrendDetector) calculateEMA(period int) float64 {
 	td.mu.RLock()
 	defer td.mu.RUnlock()
+	return exponentialMovingAverage(td.priceHistory, period)
+}
 
-	if len(td.priceHistory) < period {
+// simpleMovingAverage 计算最近 period 个价格的简单移动平均，不加锁。
+// 数据不足或 period 非法时返回 0。
+func simpleMovingAverage(prices []float64, period int) float64 {
+	if period <= 0 || len(prices) < period {
 		return 0
 	}
 
-	// 使用最近的數據
-	start := len(td.priceHistory) - period
-	prices := td.priceHistory[start:]
-
-	// 初始值使用简單移动平均
 	var sum float64
-	for i := 0; i < period && i < len(prices); i++ {
-		sum += prices[i]
+	for _, price := range prices[len(prices)-period:] {
+		sum += price
+	}
+	return sum / float64(period)
+}
+
+// exponentialMovingAverage 基于完整价格历史计算 EMA，不加锁。
+// 以前 period 个价格的 SMA 作为种子，再对其后的每个价格迭代平滑；
+// 历史越长于 period，结果越接近真正的 EMA。数据不足或 period 非法时返回 0。
+func exponentialMovingAverage(prices []float64, period int) float64 {
+	if period <= 0 || len(prices) < period {
+		return 0
+	}
+
+	var sum float64
+	for _, price := range prices[:period] {
+		sum += price
 	}
 	ema := sum / float64(period)
 
-	// 计算平滑因子
 	multiplier := 2.0 / (float64(period) + 1.0)
-
-	// 计算EMA
-	for i := period; i < len(prices); i++ {
-		ema = (prices[i] * multiplier) + (ema * (1 - multiplier))
+	for _, price := range prices[period:] {
+		ema = price*multiplier + ema*(1-multiplier)
 	}
-
 	return ema
 }
 
@@ -182,12 +179,12 @@ func (td *TrendDetector) DetectTrend() Trend {
 	method := td.cfg.Trading.SmartPosition.TrendDetection.Method
 
 	if method == "ema" {
-		shortMA = td.calculateEMA(shortPeriod)
-		longMA = td.calculateEMA(longPeriod)
+		shortMA = exponentialMovingAverage(td.priceHistory, shortPeriod)
+		longMA = exponentialMovingAverage(td.priceHistory, longPeriod)
 	} else {
-		// 預設使用 MA
-		shortMA = td.calculateMA(shortPeriod)
-		longMA = td.calculateMA(longPeriod)
+		// 預設使用 MA（已持有读锁，调用无锁版本，避免重入 RLock 与等待中的写锁死锁）
+		shortMA = simpleMovingAverage(td.priceHistory, shortPeriod)
+		longMA = simpleMovingAverage(td.priceHistory, longPeriod)
 	}
 
 	if shortMA == 0 || longMA == 0 {
@@ -222,9 +219,12 @@ func (td *TrendDetector) detectTrendLoop() {
 			return
 		case <-ticker.C:
 			trend := td.DetectTrend()
-			if trend != td.currentTrend {
-				logger.Info("📊 [趋势变化] %s -> %s", td.currentTrend, trend)
-				td.currentTrend = trend
+			td.mu.Lock()
+			previous := td.currentTrend
+			td.currentTrend = trend
+			td.mu.Unlock()
+			if trend != previous {
+				logger.Info("📊 [趋势变化] %s -> %s", previous, trend)
 			}
 		}
 	}

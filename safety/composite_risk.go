@@ -53,6 +53,8 @@ type CompositeRiskController struct {
 	lastResult CompositeRiskResult
 	running    bool
 	stopCh     chan struct{}
+	// resultHandler 每次評估後回調（可選）
+	resultHandler func(CompositeRiskResult)
 }
 
 // NewCompositeRiskController 创建复合风控引擎
@@ -165,9 +167,21 @@ func (c *CompositeRiskController) Evaluate(ctx context.Context) CompositeRiskRes
 
 	c.mu.Lock()
 	c.lastResult = result
+	handler := c.resultHandler
 	c.mu.Unlock()
 
+	if handler != nil {
+		handler(result)
+	}
+
 	return result
+}
+
+// SetResultHandler 設置每次評估後的回調（由 main 接到暫停開倉路徑）；在鎖外調用
+func (c *CompositeRiskController) SetResultHandler(h func(CompositeRiskResult)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resultHandler = h
 }
 
 func scoreToLevel(score float64, t config.CompositeRiskThresholds) RiskLevel {

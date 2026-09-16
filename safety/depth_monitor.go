@@ -20,24 +20,39 @@ type DepthSnapshot struct {
 	Timestamp   int64
 }
 
+const (
+	// depthHistoryMaxSnapshots 每個交易對保留的最大深度快照數
+	depthHistoryMaxSnapshots = 20
+	// depthBaselineSamples 計算基線平均深度時使用的最近快照數（不含當前）
+	depthBaselineSamples = 10
+)
+
+// depthTriggerState 單個交易對的深度風控觸發狀態
+type depthTriggerState struct {
+	triggeredTime time.Time
+	baselineDepth float64 // 觸發時凍結的基線平均深度，恢復判斷只與它比較
+	msg           string
+}
+
 // DepthMonitor 订單簿深度監控器
 type DepthMonitor struct {
-	cfg           *config.Config
-	exchange      exchange.IExchange
-	depthHistory  map[string][]*DepthSnapshot // 每個交易對的深度历史
-	mu            sync.RWMutex
-	triggered     bool
-	triggeredTime time.Time
-	recoveredTime time.Time
-	lastMsg       string
+	cfg              *config.Config
+	exchange         exchange.IExchange
+	depthHistory     map[string][]*DepthSnapshot   // 每個交易對的深度历史
+	triggeredSymbols map[string]*depthTriggerState // 按交易對記錄的觸發狀態
+	mu               sync.RWMutex
+	triggeredTime    time.Time
+	recoveredTime    time.Time
+	lastMsg          string
 }
 
 // NewDepthMonitor 創建深度監控器
 func NewDepthMonitor(cfg *config.Config, ex exchange.IExchange) *DepthMonitor {
 	return &DepthMonitor{
-		cfg:          cfg,
-		exchange:     ex,
-		depthHistory: make(map[string][]*DepthSnapshot),
+		cfg:              cfg,
+		exchange:         ex,
+		depthHistory:     make(map[string][]*DepthSnapshot),
+		triggeredSymbols: make(map[string]*depthTriggerState),
 	}
 }
 
@@ -135,28 +150,50 @@ func (d *DepthMonitor) checkDepth(ctx context.Context, symbol string) {
 
 	// 计算當前深度指標
 	snapshot := d.calculateDepthMetrics(symbol, orderBook)
+	d.processSnapshot(symbol, snapshot)
+}
 
-	// 更新历史記錄
+// processSnapshot 按交易對處理一個深度快照：已觸發則只判斷恢復，否則更新歷史並判斷是否觸發
+func (d *DepthMonitor) processSnapshot(symbol string, snapshot *DepthSnapshot) {
 	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if state, ok := d.triggeredSymbols[symbol]; ok {
+		// 風控期間凍結基線：崩盤後的快照不寫入歷史，避免拉低均值導致自動解除
+		d.recoverFromDepthRiskLocked(symbol, snapshot, state)
+		return
+	}
+
 	history := d.depthHistory[symbol]
-	if len(history) >= 20 {
-		// 只保留最近20個快照
-		history = history[len(history)-19:]
+	if len(history) >= depthHistoryMaxSnapshots {
+		// 只保留最近 depthHistoryMaxSnapshots 個快照
+		history = history[len(history)-(depthHistoryMaxSnapshots-1):]
 	}
-	history = append(history, snapshot)
-	d.depthHistory[symbol] = history
+	candidate := append(history, snapshot)
 
-	// 检查是否需要触发风控
-	shouldTrigger := d.shouldTriggerDepthRisk(symbol, snapshot, history)
-	currentTriggered := d.triggered
-	d.mu.Unlock()
-
-	// 触发或恢複风控
-	if shouldTrigger && !currentTriggered {
-		d.triggerDepthRisk(symbol, snapshot)
-	} else if !shouldTrigger && currentTriggered {
-		d.recoverFromDepthRisk(symbol, snapshot)
+	if d.shouldTriggerDepthRisk(symbol, snapshot, candidate) {
+		baseline, _ := baselineAverageDepth(candidate)
+		// 觸發快照不計入歷史，保持基線為觸發前的正常深度
+		d.depthHistory[symbol] = history
+		d.triggerDepthRiskLocked(symbol, snapshot, baseline)
+		return
 	}
+	d.depthHistory[symbol] = candidate
+}
+
+// baselineAverageDepth 計算基線平均深度：history 最後一個元素視為當前快照並排除，
+// 取其之前最近 depthBaselineSamples 個快照的平均值。
+func baselineAverageDepth(history []*DepthSnapshot) (float64, bool) {
+	sum := 0.0
+	count := 0
+	for i := len(history) - 2; i >= 0 && count < depthBaselineSamples; i-- {
+		sum += history[i].TotalDepth
+		count++
+	}
+	if count == 0 {
+		return 0, false
+	}
+	return sum / float64(count), true
 }
 
 // calculateDepthMetrics 计算深度指標
@@ -202,18 +239,11 @@ func (d *DepthMonitor) shouldTriggerDepthRisk(symbol string, current *DepthSnaps
 		return false
 	}
 
-	// 计算平均深度（使用历史數據）
-	avgDepth := 0.0
-	count := 0
-	// 使用最近10個快照计算平均值（排除當前）
-	for i := len(history) - 2; i >= 0 && count < 10; i-- {
-		avgDepth += history[i].TotalDepth
-		count++
-	}
-	if count == 0 {
+	// 计算平均深度（使用最近 depthBaselineSamples 個快照，排除當前）
+	avgDepth, ok := baselineAverageDepth(history)
+	if !ok {
 		return false
 	}
-	avgDepth /= float64(count)
 
 	// 检查1：深度下降超過阈值
 	if avgDepth > 0 {
@@ -235,69 +265,68 @@ func (d *DepthMonitor) shouldTriggerDepthRisk(symbol string, current *DepthSnaps
 	return false
 }
 
-// triggerDepthRisk 触发深度风控
-func (d *DepthMonitor) triggerDepthRisk(symbol string, snapshot *DepthSnapshot) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if d.triggered {
+// triggerDepthRiskLocked 触发指定交易對的深度风控（調用方須持有 d.mu 寫鎖）
+func (d *DepthMonitor) triggerDepthRiskLocked(symbol string, snapshot *DepthSnapshot, baseline float64) {
+	if _, ok := d.triggeredSymbols[symbol]; ok {
 		return // 已經触发，避免重複
 	}
 
-	d.triggered = true
-	d.triggeredTime = time.Now()
-	d.lastMsg = fmt.Sprintf("深度风控触发: %s 深度 %.0f USDT", symbol, snapshot.TotalDepth)
+	now := time.Now()
+	msg := fmt.Sprintf("深度风控触发: %s 深度 %.0f USDT", symbol, snapshot.TotalDepth)
+	d.triggeredSymbols[symbol] = &depthTriggerState{
+		triggeredTime: now,
+		baselineDepth: baseline,
+		msg:           msg,
+	}
+	d.triggeredTime = now
+	d.lastMsg = msg
 
-	logger.Warn("🚨🚨🚨 [深度監控] 触发深度风控！交易對: %s, 當前深度: %.0f USDT (買盘: %.0f, 賣盘: %.0f)",
-		symbol, snapshot.TotalDepth, snapshot.BidDepth, snapshot.AskDepth)
+	logger.Warn("🚨🚨🚨 [深度監控] 触发深度风控！交易對: %s, 當前深度: %.0f USDT (買盘: %.0f, 賣盘: %.0f, 凍結基線: %.0f)",
+		symbol, snapshot.TotalDepth, snapshot.BidDepth, snapshot.AskDepth, baseline)
 }
 
-// recoverFromDepthRisk 從深度风控中恢複
-func (d *DepthMonitor) recoverFromDepthRisk(symbol string, snapshot *DepthSnapshot) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
-	if !d.triggered {
-		return // 未触发，無需恢複
-	}
-
-	// 检查是否达到恢複阈值
-	history := d.depthHistory[symbol]
-	if len(history) < 2 {
+// recoverFromDepthRiskLocked 判斷指定交易對是否從深度风控中恢複（調用方須持有 d.mu 寫鎖）。
+// 只與觸發時凍結的基線比較，且當前深度須不低於最小深度。
+func (d *DepthMonitor) recoverFromDepthRiskLocked(symbol string, snapshot *DepthSnapshot, state *depthTriggerState) {
+	cfg := d.cfg.RiskControl.DepthMonitor
+	if snapshot.TotalDepth < cfg.MinDepthUSDT {
 		return
 	}
 
-	// 计算平均深度
-	avgDepth := 0.0
-	count := 0
-	for i := len(history) - 2; i >= 0 && count < 10; i-- {
-		avgDepth += history[i].TotalDepth
-		count++
-	}
-	if count == 0 {
-		return
-	}
-	avgDepth /= float64(count)
-
-	// 恢複条件：深度恢複到平均值的恢複阈值以上
-	if avgDepth > 0 {
-		recoveryRatio := snapshot.TotalDepth / avgDepth
-		if recoveryRatio >= d.cfg.RiskControl.DepthMonitor.RecoveryThreshold {
-			d.triggered = false
-			d.recoveredTime = time.Now()
-			d.lastMsg = fmt.Sprintf("深度已恢複: %s 深度 %.0f USDT", symbol, snapshot.TotalDepth)
-
-			logger.Info("✅ [深度監控] 深度已恢複，解除风控限制。交易對: %s, 當前深度: %.0f USDT (恢複率: %.1f%%)",
-				symbol, snapshot.TotalDepth, recoveryRatio*100)
+	recoveryRatio := 1.0
+	if state.baselineDepth > 0 {
+		recoveryRatio = snapshot.TotalDepth / state.baselineDepth
+		if recoveryRatio < cfg.RecoveryThreshold {
+			return
 		}
 	}
+
+	delete(d.triggeredSymbols, symbol)
+	d.recoveredTime = time.Now()
+	d.lastMsg = fmt.Sprintf("深度已恢複: %s 深度 %.0f USDT", symbol, snapshot.TotalDepth)
+	// 其他交易對仍在觸發中時，保留其觸發信息供上層展示
+	for _, other := range d.triggeredSymbols {
+		d.lastMsg = other.msg
+		break
+	}
+
+	logger.Info("✅ [深度監控] 深度已恢複，解除该交易對风控限制。交易對: %s, 當前深度: %.0f USDT (恢複率: %.1f%%, 仍觸發交易對數: %d)",
+		symbol, snapshot.TotalDepth, recoveryRatio*100, len(d.triggeredSymbols))
 }
 
-// IsTriggered 返回是否触发深度风控
+// IsTriggered 返回是否有任一交易對触发深度风控
 func (d *DepthMonitor) IsTriggered() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.triggered
+	return len(d.triggeredSymbols) > 0
+}
+
+// IsSymbolTriggered 返回指定交易對是否触发深度风控
+func (d *DepthMonitor) IsSymbolTriggered(symbol string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	_, ok := d.triggeredSymbols[symbol]
+	return ok
 }
 
 // GetTriggeredTime 獲取触发時间
@@ -325,7 +354,7 @@ func (d *DepthMonitor) GetLastMsg() string {
 func (d *DepthMonitor) GetDepthRiskScore(symbol string) (score float64, reason string) {
 	d.mu.RLock()
 	history := d.depthHistory[symbol]
-	triggered := d.triggered
+	_, triggered := d.triggeredSymbols[symbol]
 	dropThreshold := d.cfg.RiskControl.DepthMonitor.DropThreshold
 	minDepth := d.cfg.RiskControl.DepthMonitor.MinDepthUSDT
 	d.mu.RUnlock()
@@ -337,16 +366,10 @@ func (d *DepthMonitor) GetDepthRiskScore(symbol string) (score float64, reason s
 		return 0, "數據不足"
 	}
 	current := history[len(history)-1].TotalDepth
-	avgDepth := 0.0
-	count := 0
-	for i := len(history) - 2; i >= 0 && count < 10; i-- {
-		avgDepth += history[i].TotalDepth
-		count++
-	}
-	if count == 0 {
+	avgDepth, ok := baselineAverageDepth(history)
+	if !ok {
 		return 0, "數據不足"
 	}
-	avgDepth /= float64(count)
 	if current < minDepth {
 		return 100, "深度過低"
 	}

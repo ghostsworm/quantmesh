@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/income"
@@ -107,9 +108,10 @@ func (w *binanceWrapper) BatchCancelOrders(ctx context.Context, symbol string, o
 // 查詢所有未完成订單后批量撤銷
 func (w *binanceWrapper) CancelAllOrders(ctx context.Context, symbol string) error {
 	// 1. 查詢所有未完成订單
+	operation := fmt.Sprintf("binance cancel all orders for %s", symbol)
 	openOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {
-		return err
+		return joinOrderOpErrors(operation, appendOrderOpError(nil, "", fmt.Errorf("query open orders: %w", err)))
 	}
 
 	if len(openOrders) == 0 {
@@ -122,8 +124,8 @@ func (w *binanceWrapper) CancelAllOrders(ctx context.Context, symbol string) err
 		orderIDs[i] = order.OrderID
 	}
 
-	// 3. 批量撤銷（adapter會自动分批处理）
-	return w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)
+	// 3. 批量撤銷（adapter會自动分批处理，並匯總返回未能撤銷的訂單錯誤）
+	return joinOrderOpErrors(operation, appendOrderOpError(nil, "", w.adapter.BatchCancelOrders(ctx, symbol, orderIDs)))
 }
 
 func (w *binanceWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {

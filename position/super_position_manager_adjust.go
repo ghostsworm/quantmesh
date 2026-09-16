@@ -909,58 +909,15 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 		// 獲取杠杆倍數（用於计算實際使用的保证金）
 		// 注意：API 限流/失敗時 accountResult 可能為 (*T)(nil) 轉 interface{}，Elem() 後得 zero Value，對其 FieldByName 會 panic，需先檢查 IsValid
-		leverage := 1 // 默认1倍（無杠杆）
-		if accountResult != nil {
-			accountValue := reflect.ValueOf(accountResult)
-			if accountValue.Kind() == reflect.Ptr && !accountValue.IsNil() {
-				accountValue = accountValue.Elem()
-			}
-			if accountValue.IsValid() && accountValue.Kind() == reflect.Struct {
-				if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-					if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-						leverage = lev
-					}
-				}
-			}
-		}
-		// 如果從账戶中獲取不到，尝試從持倉中獲取
-		if leverage == 1 && spm.exchange != nil {
-			if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-				// 使用反射處理不同類型的持倉資訊
-				positionsValue := reflect.ValueOf(positionsInterface)
-				if positionsValue.Kind() == reflect.Slice {
-					for i := 0; i < positionsValue.Len(); i++ {
-						posValue := positionsValue.Index(i)
-						if posValue.Kind() == reflect.Interface {
-							posValue = posValue.Elem()
-						}
-						if posValue.Kind() == reflect.Ptr {
-							posValue = posValue.Elem()
-						}
-						if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
-							if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-								leverage = lev
-								break
-							}
-						}
-					}
-				}
-			}
-		}
+		// 杠杆倍數：優先帳戶信息，其次緩存（過期才查持倉刷新）；此處不持有槽位鎖
+		leverage := spm.resolveLeverage(ctx, accountResult)
 
 		// 過滤掉超出资金分配的订單
+		// D3：只有開倉腿預留资金，並按 ClientOrderID 記賬；平倉（reduce-only）單不受资金分配限制
 		var validOrders []*OrderRequest
 		for _, req := range ordersToPlace {
 			orderValue := req.Quantity * req.Price // 订單名义金額（倉位價值）
-			// 對於有杠杆的交易，實際使用的保证金 = 訂單價值 / 杠杆倍數
-			// 资金限額限制的是實際投入的资金，而不是倉位價值
-			actualMargin := orderValue / float64(leverage)
-			err := spm.allocationManager.CheckAndReserve(
-				spm.exchangeName,
-				spm.config.Trading.Symbol,
-				actualMargin, // 使用實際保证金而不是訂單價值
-				accountBalance,
-			)
+			actualMargin, err := spm.reserveOrderAllocation(req, leverage, accountBalance)
 
 			if err != nil {
 				logger.Warn("⚠️ [%s] [资金分配] %v (訂單價值: %.2f USDT, 實際保证金: %.2f USDT, 杠杆: %dx)",
@@ -1064,27 +1021,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				}
 			}
 			if valid {
-				if side == "SELL" {
-					// SELL ReduceOnly：平多倉失败，清空槽位持倉状態
-					slot := spm.getOrCreateSlot(price)
-					slot.mu.Lock()
-					if slot.PositionStatus == PositionStatusFilled {
-						logger.Warn("⚠️ [ReduceOnly錯誤處理] 清空槽位持倉: 價格=%s, 原持倉=%.4f",
-							formatPrice(price, spm.priceDecimals), slot.PositionQty)
-						// 清空持倉状態
-						slot.PositionStatus = PositionStatusEmpty
-						slot.PositionQty = 0
-						slot.SlotStatus = SlotStatusFree
-					}
-					slot.mu.Unlock()
-					// 記錄冷却期，2 分钟内不再尝试该槽位平仓
-					spm.reduceOnlyCooldown.Store(price, time.Now())
-				} else if side == "BUY" {
-					// BUY ReduceOnly：平空倉失败，账戶中無空倉（系统不管理空倉状態，僅記錄日志）
-					logger.Warn("⚠️ [ReduceOnly錯誤處理] BUY平空倉订單被拒绝: 價格=%s, 账戶中無空倉",
-						formatPrice(price, spm.priceDecimals))
-					spm.reduceOnlyCooldown.Store(price, time.Now())
-				}
+				spm.handleReduceOnlyRejection(price, side, clientOID)
 			}
 		}
 
@@ -1103,15 +1040,10 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					}
 					slot.mu.Unlock()
 
-					// 🔥 释放預留的资金（只有買單需要释放，賣單不占用资金）
-					if side == "BUY" {
-						orderValue := req.Quantity * req.Price
-						actualMargin := spm.getActualMargin(orderValue)
-						if actualMargin > 0 {
-							spm.allocationManager.Release(spm.exchangeName, spm.config.Trading.Symbol, actualMargin)
-							logger.Debug("💰 [资金释放] 订單提交失败，释放預留资金: %.2f USDT (訂單價值: %.2f USDT)", actualMargin, orderValue)
-						}
-					}
+				}
+				// 🔥 释放該訂單的預留资金（按 ClientOrderID 記賬，開倉/平倉、LONG/SHORT 一致處理）
+				if released := spm.releaseOrderReservation(req.ClientOrderID); released > 0 {
+					logger.Debug("💰 [资金释放] 订單提交失败，释放預留资金: %.2f USDT (%s, ClientOID: %s)", released, side, req.ClientOrderID)
 				}
 			}
 		}
@@ -1175,6 +1107,26 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 
 	return nil
+}
+
+// handleReduceOnlyRejection 處理 reduce-only 被拒（如 Binance -2022）。
+// E6：不清空本地持倉（清空後下一輪會在同價重新開倉，放大真實持倉），
+// 只釋放槽位鎖並設置冷卻期，由對賬（reconcile / ForceSyncPositions）根據交易所持倉決定是否修正。
+func (spm *SuperPositionManager) handleReduceOnlyRejection(price float64, side, clientOID string) {
+	slot := spm.getOrCreateSlot(price)
+	slot.mu.Lock()
+	if slot.SlotStatus == SlotStatusPending {
+		slot.SlotStatus = SlotStatusFree
+	}
+	positionQty := slot.PositionQty
+	slot.mu.Unlock()
+
+	// 平倉單不預留资金；防禦性清理（例如 BOTH 模式下被誤判為開倉的請求）
+	spm.releaseOrderReservation(clientOID)
+	spm.reduceOnlyCooldown.Store(price, time.Now())
+
+	logger.Warn("⚠️ [%s] [ReduceOnly錯誤處理] %s 平倉單被拒: 槽位=%s, 本地持倉=%.4f 保留，冷卻 %s 後重試，等待對賬確認",
+		spm.logPrefix(), side, formatPrice(price, spm.priceDecimals), positionQty, reduceOnlyCooldownDuration)
 }
 
 // isPlacedOrderAlreadyHandled 判斷下單回執到達前，WebSocket 是否已處理完該訂單（調用方需持有 slot.mu）

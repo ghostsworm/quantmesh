@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -58,6 +59,29 @@ type SymbolRuntime struct {
 	StorageService       *storage.StorageService
 	AccountID            string // 账戶標识
 	Stop                 func()
+}
+
+// singleLegStrategyPositionSides 單腿對沖策略的固定持倉方向（策略名 -> LONG/SHORT）
+var singleLegStrategyPositionSides = map[string]string{
+	"spot_short":    position.PositionSideShort,
+	"futures_short": position.PositionSideShort,
+	"spot_long":     position.PositionSideLong,
+	"futures_long":  position.PositionSideLong,
+}
+
+// isOrderSkippedError 判斷下單錯誤是否為「價格位鎖被其他實例持有，本次未提交」。
+// 這類錯誤不是失敗：不應釋放/計數為失敗，等待下一個 tick 重試。
+func isOrderSkippedError(err error) bool {
+	return errors.Is(err, order.ErrLockNotAcquired)
+}
+
+// logAdjustOrdersError 記錄 AdjustOrders 錯誤：鎖未取得按跳過處理（Debug），其餘按失敗處理（Error）
+func logAdjustOrdersError(ctx context.Context, symbol string, err error) {
+	if isOrderSkippedError(err) {
+		logger.DebugCtx(ctx, "🔒 [%s] 調整订單跳過（價格位被其他實例鎖定），下一輪重試: %v", symbol, err)
+		return
+	}
+	logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symbol, err)
 }
 
 // runtimeKey 生成唯一键（exchange:symbol:market_type）
@@ -587,9 +611,9 @@ func startSymbolRuntime(
 			}
 			strategyManager.OnOrderUpdateForStrategy(routedStrategy, posUpdate)
 		}
-		if multiExecutor != nil && (posUpdate.Status == "FILLED" || posUpdate.Status == "CANCELED") {
-			multiExecutor.ReleaseOrderCapitalByClientOrderID(posUpdate.ClientOrderID)
-			multiExecutor.ReleaseOrderCapitalByOrderID(posUpdate.OrderID)
+		if multiExecutor != nil {
+			// D5：開倉成交轉為持倉占用、平倉成交按比例釋放、撤單/拒單/過期釋放未成交預留
+			multiExecutor.OnOrderUpdate(posUpdate)
 		}
 	}); err != nil {
 		logger.WarnCtx(ctx, "⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
@@ -605,7 +629,11 @@ func startSymbolRuntime(
 	if config.ShouldSkipInitialGridAdjustOrders(&localCfg) {
 		logger.InfoCtx(ctx, "⏭️ [%s] 啟动時跳过網格订單初始化（當前為非網格多策略模式）", symCfg.Symbol)
 	} else if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
-		logger.WarnCtx(ctx, "⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
+		if isOrderSkippedError(err) {
+			logger.InfoCtx(ctx, "🔒 [%s] 啟动時部分價格位被其他實例鎖定，下一輪重試: %v", symCfg.Symbol, err)
+		} else {
+			logger.WarnCtx(ctx, "⚠️ [%s] 啟动時初始化订單失败: %v", symCfg.Symbol, err)
+		}
 	} else {
 		logger.InfoCtx(ctx, "✅ [%s] 啟动時订單初始化完成（如有持倉已自动挂賣單）", symCfg.Symbol)
 	}
@@ -673,6 +701,12 @@ func startSymbolRuntime(
 			strategyManager.SetEventBus(eventBus)
 		}
 		multiExecutor = strategy.NewMultiStrategyExecutor(exchangeExecutor, strategyManager.GetCapitalAllocator())
+		// S9：顯式聲明單腿對沖策略的持倉方向，用於判斷開/平倉（不再按策略名稱猜測）
+		for strategyName, positionSide := range singleLegStrategyPositionSides {
+			if err := multiExecutor.SetStrategyPositionSide(strategyName, positionSide); err != nil {
+				logger.WarnCtx(ctx, "⚠️ [%s] 設置策略持倉方向失败: %v", symCfg.Symbol, err)
+			}
+		}
 
 		if gridCfg, exists := localCfg.Strategies.Configs["grid"]; exists && gridCfg.Enabled {
 			gridStrategy := strategy.NewGridStrategy("grid", &localCfg, executorAdapter, exchangeAdapter, superPositionManager)
@@ -963,14 +997,14 @@ func startSymbolRuntime(
 					localCfg.Trading.BuyWindowSize = buyWindow
 					localCfg.Trading.SellWindowSize = sellWindow
 					if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
-						logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+						logAdjustOrdersError(ctx, symCfg.Symbol, err)
 					}
 					localCfg.Trading.BuyWindowSize = origBuy
 					localCfg.Trading.SellWindowSize = origSell
 				} else {
 					if strategyManager == nil || !localCfg.Strategies.Enabled {
 						if err := superPositionManager.AdjustOrders(priceChange.NewPrice); err != nil {
-							logger.ErrorCtx(ctx, "❌ [%s] 調整订單失败: %v", symCfg.Symbol, err)
+							logAdjustOrdersError(ctx, symCfg.Symbol, err)
 						}
 					}
 				}

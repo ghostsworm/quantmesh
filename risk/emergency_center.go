@@ -2,6 +2,7 @@ package risk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -113,11 +114,16 @@ type EmergencyCenter struct {
 
 // NewEmergencyCenter 创建紧急操作中心
 func NewEmergencyCenter(cfg *config.EmergencyCenterConfig, eventBus *event.EventBus, botProvider BotProvider) *EmergencyCenter {
+	// 复制默认场景表，避免加载自定义场景时污染包级全局 map
+	scenarios := make(map[string]*EmergencyScenario, len(DefaultEmergencyScenarios))
+	for name, s := range DefaultEmergencyScenarios {
+		scenarios[name] = s
+	}
 	ec := &EmergencyCenter{
 		config:      cfg,
 		eventBus:    eventBus,
 		botProvider: botProvider,
-		scenarios:   DefaultEmergencyScenarios,
+		scenarios:   scenarios,
 		operations:  make([]*EmergencyOperation, 0, 100),
 	}
 
@@ -174,37 +180,121 @@ func (ec *EmergencyCenter) ExecuteScenario(scenarioName, triggeredBy, reason str
 
 	ec.operationsMu.Lock()
 	ec.operations = append(ec.operations, op)
+	snapshot := op.clone()
 	ec.operationsMu.Unlock()
 
 	// 异步执行
 	go ec.executeOperation(op, scenario)
 
-	return op, nil
+	return snapshot, nil
 }
 
-// executeOperation 执行操作
+// RequiresConfirmation 是否要求执行前显式确认（config.require_confirmation）
+func (ec *EmergencyCenter) RequiresConfirmation() bool {
+	return ec.config != nil && ec.config.RequireConfirmation
+}
+
+// ValidateConfirmation 校验执行确认：启用 require_confirmation 时，
+// 请求必须携带 confirm=true 且 confirm_scenario 与场景名完全一致（防误点/误传场景）。
+func (ec *EmergencyCenter) ValidateConfirmation(scenarioName string, confirmed bool, confirmScenario string) error {
+	if !ec.RequiresConfirmation() {
+		return nil
+	}
+	if !confirmed {
+		return fmt.Errorf("场景 %s 需要确认: 请求须携带 confirm=true", scenarioName)
+	}
+	if confirmScenario != scenarioName {
+		return fmt.Errorf("场景 %s 确认不匹配: confirm_scenario=%q", scenarioName, confirmScenario)
+	}
+	return nil
+}
+
+// clone 复制操作记录（避免调用方与执行协程并发读写）
+func (op *EmergencyOperation) clone() *EmergencyOperation {
+	cp := *op
+	cp.Actions = append([]EmergencyAction(nil), op.Actions...)
+	cp.Results = make(map[string]string, len(op.Results))
+	for k, v := range op.Results {
+		cp.Results[k] = v
+	}
+	return &cp
+}
+
+// executeOperation 执行操作：逐个动作执行并汇总每个 Bot 的错误，不因单个动作失败中断后续保护动作
 func (ec *EmergencyCenter) executeOperation(op *EmergencyOperation, scenario *EmergencyScenario) {
 	logger.Info("⚡ [紧急中心] 开始执行操作 %s...", op.ID)
 
 	bots := ec.botProvider.GetAllBots()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(scenario.Timeout)*time.Second)
-	defer cancel()
+	ctx := context.Background()
 
+	var errs []error
+	anySuccess := false
+	anyFailure := false
 	for _, action := range scenario.Actions {
 		result, err := ec.executeAction(ctx, action, scenario.CloseMethod, scenario.Timeout, bots)
-		if err != nil {
-			op.Status = "failed"
-			op.Error = err.Error()
-			logger.Error("❌ [紧急中心] 操作失败: %s, 错误: %v", action, err)
-			ec.publishOperationEvent(op)
-			return
-		}
+		ec.operationsMu.Lock()
 		op.Results[string(action)] = result
+		ec.operationsMu.Unlock()
+
+		if err != nil {
+			anyFailure = true
+			errs = append(errs, fmt.Errorf("%s: %w", action, err))
+			logger.Error("❌ [紧急中心] 动作失败: %s, 结果: %s, 错误: %v", action, result, err)
+			if !isTotalFailure(err) {
+				anySuccess = true
+			}
+			continue
+		}
+		anySuccess = true
 	}
 
-	op.Status = "completed"
-	logger.Info("✅ [紧急中心] 操作 %s 执行完成", op.ID)
-	ec.publishOperationEvent(op)
+	status := OperationStatusCompleted
+	switch {
+	case anyFailure && anySuccess:
+		status = OperationStatusPartial
+	case anyFailure:
+		status = OperationStatusFailed
+	}
+
+	ec.operationsMu.Lock()
+	op.Status = status
+	if len(errs) > 0 {
+		op.Error = errors.Join(errs...).Error()
+	}
+	snapshot := op.clone()
+	ec.operationsMu.Unlock()
+
+	if status == OperationStatusCompleted {
+		logger.Info("✅ [紧急中心] 操作 %s 执行完成", op.ID)
+	} else {
+		logger.Error("❌ [紧急中心] 操作 %s 执行结束，状态: %s，错误: %s", op.ID, status, snapshot.Error)
+	}
+	ec.publishOperationEvent(snapshot)
+}
+
+// partialFailureError 部分 Bot 失败（至少一个成功）
+type partialFailureError struct{ err error }
+
+func (e *partialFailureError) Error() string { return e.err.Error() }
+func (e *partialFailureError) Unwrap() error { return e.err }
+
+// isTotalFailure 动作是否整体失败（非部分失败）
+func isTotalFailure(err error) bool {
+	var pe *partialFailureError
+	return !errors.As(err, &pe)
+}
+
+// reportResult 把 Bot 执行汇总转成 (结果, 错误)；部分失败包装为 partialFailureError
+func reportResult(report BotActionReport, verb string) (string, error) {
+	summary := report.Summary(verb)
+	err := report.Err()
+	if err == nil {
+		return summary, nil
+	}
+	if report.Succeeded > 0 {
+		return summary, &partialFailureError{err: err}
+	}
+	return summary, err
 }
 
 // executeAction 执行单个动作
@@ -239,28 +329,12 @@ func (ec *EmergencyCenter) stopAllBots(bots []BotController) (string, error) {
 
 // cancelAllOrders 撤销所有挂单
 func (ec *EmergencyCenter) cancelAllOrders(bots []BotController) (string, error) {
-	successCount := 0
-	for _, bot := range bots {
-		if err := bot.CancelAllOpenOrders(); err != nil {
-			logger.Warn("⚠️ [紧急中心] Bot撤单失败: %v", err)
-		} else {
-			successCount++
-		}
-	}
-	return fmt.Sprintf("已撤销 %d/%d 个Bot的挂单", successCount, len(bots)), nil
+	return reportResult(cancelOrdersOnBots(bots), "已撤销挂单")
 }
 
-// closeAllPositions 平掉所有仓位
+// closeAllPositions 平掉所有仓位（每个 Bot 独立超时；timeout<=0 使用 DefaultBotActionTimeout）
 func (ec *EmergencyCenter) closeAllPositions(ctx context.Context, bots []BotController, method string, timeout int) (string, error) {
-	successCount := 0
-	for _, bot := range bots {
-		if err := bot.CloseAllPositions(ctx, method, timeout); err != nil {
-			logger.Warn("⚠️ [紧急中心] Bot平仓失败: %v", err)
-		} else {
-			successCount++
-		}
-	}
-	return fmt.Sprintf("已平仓 %d/%d 个Bot", successCount, len(bots)), nil
+	return reportResult(closePositionsOnBots(ctx, bots, method, timeout), "已平仓")
 }
 
 // pauseAllBots 暂停所有Bot开仓
@@ -277,10 +351,7 @@ func (ec *EmergencyCenter) pauseAllBots(bots []BotController) (string, error) {
 // 当前 BotController 尚未暴露“按比例减仓”能力；在大额亏损场景下，宁可保守全平，也不能返回“减仓成功”的假安全感。
 func (ec *EmergencyCenter) reducePositions(ctx context.Context, bots []BotController, method string, timeout int) (string, error) {
 	result, err := ec.closeAllPositions(ctx, bots, method, timeout)
-	if err != nil {
-		return result, err
-	}
-	return "减仓接口未实现，已执行全平保护：" + result, nil
+	return "减仓接口未实现，已执行全平保护：" + result, err
 }
 
 // enableEmergencyMode 启用紧急模式
@@ -334,7 +405,11 @@ func (ec *EmergencyCenter) GetOperations(limit int) []*EmergencyOperation {
 		start = 0
 	}
 
-	return ec.operations[start:]
+	out := make([]*EmergencyOperation, 0, len(ec.operations)-start)
+	for _, op := range ec.operations[start:] {
+		out = append(out, op.clone())
+	}
+	return out
 }
 
 // GetScenarios 获取所有场景

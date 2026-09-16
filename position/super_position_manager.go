@@ -59,12 +59,19 @@ type OrderRequest struct {
 	Quantity      float64
 	PriceDecimals int    // 價格小數位數（用於格式化價格字符串）
 	ReduceOnly    bool   // 是否只减倉（平倉單）
+	PositionSide  string // 可選：該單所屬持倉腿（PositionSideLong/PositionSideShort），與 Side 一起明確開/平倉；空表示按策略註冊或全局方向推斷
 	PostOnly      bool   // 是否只做 Maker（Post Only）
 	ClientOrderID string // 自定义订單ID
 	StrategyName  string // 策略名称（可選，用於日志追踪）
 	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
 	OrderSource   string // 订單來源（"normal"=正常限價, "stop_loss"=止損平倉, "liquidation"=強制平倉）
 }
+
+// OrderRequest.PositionSide 取值
+const (
+	PositionSideLong  = "LONG"
+	PositionSideShort = "SHORT"
+)
 
 // Order 订單信息（避免循環匯入）
 type Order struct {
@@ -138,6 +145,9 @@ type InventorySlot struct {
 	// 当买入订单成交时，使用实际成交价格更新此字段
 	// 计算公式：AvgBuyPrice = (旧AvgBuyPrice * 旧持仓 + 新买入价格 * 新买入数量) / 总持仓
 	AvgBuyPrice float64
+
+	// AllocatedMargin 該槽位持倉占用的資金分配額度（開倉成交時由訂單預留轉入，平倉成交時按比例釋放）
+	AllocatedMargin float64
 
 	// PositionLeg 單向淨持倉雙向網格（BOTH）專用：該槽位當前為多腿或空腿；LONG/SHORT 模式可為空
 	PositionLeg string
@@ -269,6 +279,10 @@ type SuperPositionManager struct {
 
 	// 资金分配管理器
 	allocationManager *AllocationManager
+	// 開倉訂單資金預留記賬（按 ClientOrderID）
+	allocReservations allocationReservations
+	// 槓桿倍數緩存（WS 回調只讀緩存，不做 REST）
+	leverage leverageCache
 
 	// 事件總線（用於发送告警）
 	eventBus EventBus
@@ -810,60 +824,12 @@ func (spm *SuperPositionManager) IsAutoRebuildEnabled() bool {
 
 // getActualMargin 獲取實際使用的保证金（考虑杠杆）
 // 現貨：實際占用 = 訂單價值（杠杆 1）；合約：實際保证金 = 訂單價值 / 杠杆倍數
+// 只讀取杠杆緩存，不發起網絡請求（可能在持有槽位鎖的 WS 回調中被調用）。
 func (spm *SuperPositionManager) getActualMargin(orderValue float64) float64 {
 	if orderValue <= 0 {
 		return 0
 	}
-	if spm.isSpot() {
-		return orderValue
-	}
-
-	// 獲取杠杆倍數
-	leverage := 1 // 默认1倍（無杠杆）
-	ctx := context.Background()
-
-	// 先尝試從帳戶資訊中獲取
-	if accountResult, err := spm.exchange.GetAccount(ctx); err == nil && accountResult != nil {
-		accountValue := reflect.ValueOf(accountResult)
-		if accountValue.Kind() == reflect.Ptr {
-			accountValue = accountValue.Elem()
-		}
-		if leverageField := accountValue.FieldByName("AccountLeverage"); leverageField.IsValid() && leverageField.CanInterface() {
-			if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-				leverage = lev
-			}
-		}
-	}
-
-	// 如果從账戶中獲取不到，尝試從持倉中獲取
-	if leverage == 1 {
-		if positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol); err == nil && positionsInterface != nil {
-			// 使用反射处理不同類型的持倉資訊
-			positionsValue := reflect.ValueOf(positionsInterface)
-			if positionsValue.Kind() == reflect.Slice {
-				for i := 0; i < positionsValue.Len(); i++ {
-					posValue := positionsValue.Index(i)
-					if posValue.Kind() == reflect.Ptr {
-						posValue = posValue.Elem()
-					} else if posValue.Kind() == reflect.Interface {
-						posValue = posValue.Elem()
-					}
-
-					// 尝試獲取 Leverage 字段
-					if leverageField := posValue.FieldByName("Leverage"); leverageField.IsValid() && leverageField.CanInterface() {
-						if lev, ok := leverageField.Interface().(int); ok && lev > 0 {
-							leverage = lev
-							logger.Debug("🔍 [杠杆检测] 從持倉資訊中獲取到杠杆倍數: %dx", leverage)
-							break
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// 计算實際保证金
-	return orderValue / float64(leverage)
+	return orderValue / float64(spm.cachedLeverage())
 }
 
 // SetTrendDetector 設置趋势检测器
@@ -1023,10 +989,9 @@ func (spm *SuperPositionManager) findSlotByOrderID(orderID int64) (*InventorySlo
 
 // isReduceOnlyCooldown 检查槽位是否处于 ReduceOnly 冷却期（2 分钟内不再尝试平仓）
 func (spm *SuperPositionManager) isReduceOnlyCooldown(slotPrice float64) bool {
-	const cooldown = 2 * time.Minute
 	if v, ok := spm.reduceOnlyCooldown.Load(slotPrice); ok {
 		t := v.(time.Time)
-		return time.Since(t) < cooldown
+		return time.Since(t) < reduceOnlyCooldownDuration
 	}
 	return false
 }
