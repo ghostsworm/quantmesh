@@ -267,4 +267,6 @@ type Metrics struct {
 	OrderCleanerRuns int   `json:"order_cleaner_runs"`
 	StartTime        int64 `json:"start_time"`
 	EndTime          int64 `json:"end_time"`
+	// Features 回測任務（RunGridTask）的新功能開關、資金費率來源與 regime 統計；直接調用 Engine 時為 nil
+	Features *FeatureReport `json:"features,omitempty"`
 }

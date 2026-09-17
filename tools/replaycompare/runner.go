@@ -183,7 +183,11 @@ func RunJob(j Job) RunSummary {
 		return s
 	}
 	t0 := time.Now()
-	hooks := installHooks(&cfg, j.Spec.Symbol, j.Hourly, j.Funding)
+	hooks, err := installHooks(&cfg, j.Spec.Symbol, j.Hourly, j.Funding)
+	if err != nil {
+		s.Error = err.Error()
+		return s
+	}
 	res, err := replay.NewEngine(cfg).Run(ticks)
 	s.RuntimeSec = time.Since(t0).Seconds()
 	s.Ticks = len(ticks)
@@ -201,15 +205,12 @@ func RunJob(j Job) RunSummary {
 	s.PostOnlyRejects, s.MarginRejects, s.OrdersPlaced = m.PostOnlyRejects, m.MarginRejects, m.OrdersPlaced
 	s.OrdersCanceled = m.OrdersCanceled
 	s.OrderCleanerRuns = m.OrderCleanerRuns
-	if hooks.regimeEnabled {
-		s.RegimeRefreshErrors = hooks.refreshErrors
-		s.IntervalChanges = hooks.intervalChanges
-		if hooks.samples > 0 {
-			s.MeanIntervalMultiple = hooks.intervalSum / float64(hooks.samples)
-			s.RegimeSharePct = map[string]float64{}
-			for k, n := range hooks.regimeSamples {
-				s.RegimeSharePct[k] = float64(n) / float64(hooks.samples) * percentScale
-			}
+	if hooks.RegimeEnabled {
+		s.RegimeRefreshErrors = hooks.RefreshErrors
+		s.IntervalChanges = hooks.IntervalChanges
+		if hooks.Samples > 0 {
+			s.MeanIntervalMultiple = hooks.MeanIntervalMultiple()
+			s.RegimeSharePct = hooks.RegimeSharePct()
 		}
 	}
 	s.DailySharpeLike, s.TradingDays = DailySharpeLike(res.Backtest.Equity)

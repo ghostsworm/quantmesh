@@ -100,9 +100,19 @@ func RunGridTask(task *backtest.BacktestTask, candles []*exchange.Candle) (*back
 		}
 	}
 
+	features, featureStats, err := installTaskFeatures(&cfg, candles)
+	if err != nil {
+		return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
+	}
+
 	res, err := NewEngine(cfg).Run(ticks)
 	if err != nil {
 		return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
+	}
+	finalizeFeatureReport(features, featureStats)
+	res.Metrics.Features = features
+	for _, note := range features.Notes {
+		logger.Warn("⚠️ [回放回測] 任務 %s: %s", task.ID, note)
 	}
 	logger.Info("✅ [回放回測] 任務 %s: 淨盈虧=%.4f 手續費=%.4f(maker %.4f/taker %.4f) 資金費=%.4f 成交=%d maker占比=%.2f%% 每格淨利/手續費=%.3f",
 		task.ID, res.Metrics.NetPnL, res.Metrics.FeesTotal, res.Metrics.FeesMaker, res.Metrics.FeesTaker,
@@ -150,7 +160,11 @@ func ConfigFromTask(task *backtest.BacktestTask) (Config, error) {
 	taker := paramFloat(p, paramTakerFeeRate, paramFloat(p, paramFeeRate, DefaultTakerFeeRate))
 	maker := paramFloat(p, paramMakerFeeRate, DefaultMakerFeeRate)
 	leverage := int(math.Round(task.Leverage))
-	fundingRate := paramFloat(p, paramFundingRate, 0)
+	// 新功能開關（regime_filter / adaptive_interval / upper_bound_freeze / inventory_skew / fee_aware_spread / 資金費定價）與資金費率來源
+	fundingRate, fundingSeries, err := applyTaskFeatureParams(p, bot)
+	if err != nil {
+		return Config{}, err
+	}
 
 	return Config{
 		Bot:              bot,
@@ -166,8 +180,9 @@ func ConfigFromTask(task *backtest.BacktestTask) (Config, error) {
 			FillOnTouch:       paramBool(p, paramFillOnTouch, false),
 		},
 		AdjustIntervalMs: int64(paramInt(p, paramAdjustIntervalMs, DefaultAdjustIntervalMs)),
-		FundingEnabled:   paramBool(p, paramFundingEnabled, fundingRate != 0),
+		FundingEnabled:   paramBool(p, paramFundingEnabled, fundingRate != 0 || len(fundingSeries) > 0),
 		FundingRate:      fundingRate,
+		FundingSeries:    fundingSeries,
 		EnforceMargin:    paramBool(p, paramEnforceMargin, defaultTaskEnforceMargin),
 		OrderCleaner:     paramBool(p, paramOrderCleaner, defaultTaskOrderCleaner),
 	}, nil
