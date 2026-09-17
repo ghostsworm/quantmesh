@@ -294,6 +294,12 @@ func createTables(db *sql.DB) error {
 		}
 	}
 
+	// 新庫：orders 表由上方 ordersSQL 建出，列已齊全，直接創建與 SaveOrder ON CONFLICT 一致的複合 UNIQUE 索引。
+	// 舊庫（缺 account 等列）跳過，交由 migrateOrdersTable → ensureOrdersCompositeUniqueConstraint 補列後處理。
+	if err := createOrdersCompositeUniqueIndexIfColumnsReady(db); err != nil {
+		return fmt.Errorf("創建 orders 複合唯一索引失败: %w", err)
+	}
+
 	// 迁移：為已存在的表添加 actual_profit 和 account 字段（如果不存在）
 	if err := migrateReconciliationHistory(db); err != nil {
 		return fmt.Errorf("迁移對账历史表失败: %w", err)

@@ -121,6 +121,14 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 	}
 
 	_, err := s.db.Exec(query, args...)
+	if s.dbType == "sqlite" && isOrdersOnConflictMismatch(err) {
+		// 自愈：orders 表被外部重建（如同庫 GORM AutoMigrate）導致複合唯一索引丟失，修復後重試一次。
+		logger.Warn("⚠️ orders 複合唯一索引缺失（ON CONFLICT 不匹配），嘗試現場修復後重試: order_id=%d symbol=%s", order.OrderID, order.Symbol)
+		if repairErr := ensureOrdersCompositeUniqueConstraint(s.db); repairErr != nil {
+			return fmt.Errorf("保存訂單 order_id=%d 失败且修復 orders 唯一索引失败: %v (原始錯誤: %w)", order.OrderID, repairErr, err)
+		}
+		_, err = s.db.Exec(query, args...)
+	}
 	return err
 }
 

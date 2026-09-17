@@ -176,6 +176,59 @@ type closeOnStopActions struct {
 	cancelAllOrders func()
 	liquidateAll    func()
 	closePositions  func(ctx context.Context, cfg config.ClosePositionConfig) error
+	// exchangePositionFlat 平倉前重查交易所持倉，返回 true 表示已無持倉（跳過平倉）。
+	// nil 表示不支持重查（如現貨），直接按本地槽位處理。
+	exchangePositionFlat func(ctx context.Context) (bool, error)
+}
+
+// shutdownCloseOwner 退出流程中由誰負責平倉（同一 Bot 只允許一條路徑提交平倉單）
+type shutdownCloseOwner int
+
+const (
+	shutdownCloseNone    shutdownCloseOwner = iota // 不平倉
+	shutdownCloseProcess                           // 進程級 system.close_positions_on_exit（按交易所持倉一次全平）
+	shutdownCloseBot                               // Bot 級 close_on_stop（Stop 中執行）
+)
+
+// exchangePositionFlatEpsilon 交易所淨持倉絕對值小於該值視為無持倉
+const exchangePositionFlatEpsilon = 1e-12
+
+// decideShutdownCloseOwner 決定退出時的平倉負責方：
+//   - 只開一個開關：由該開關負責；
+//   - 兩個都開：配置了 close_on_stop_config（method/ratio 等）或現貨（進程級按合約持倉查不到現貨餘額）時交給 Bot 級，
+//     否則由進程級按交易所實際持倉做一次全平，Bot 級 close_on_stop 跳過。
+func decideShutdownCloseOwner(processCloseOnExit bool, sc config.SymbolConfig) shutdownCloseOwner {
+	switch {
+	case !processCloseOnExit && !sc.CloseOnStop:
+		return shutdownCloseNone
+	case !processCloseOnExit:
+		return shutdownCloseBot
+	case !sc.CloseOnStop:
+		return shutdownCloseProcess
+	case closeOnStopConfigSet(sc.CloseOnStopConfig) || config.IsSpotMarketType(sc.MarketType):
+		return shutdownCloseBot
+	default:
+		return shutdownCloseProcess
+	}
+}
+
+// markShutdownCloseHandled 標記本 Bot 在退出流程中已被平倉，Stop 中的 close_on_stop 將跳過
+func (rt *SymbolRuntime) markShutdownCloseHandled(reason string) {
+	if rt == nil {
+		return
+	}
+	rt.shutdownCloseHandled.Store(&reason)
+}
+
+// shutdownCloseHandledReason 返回已平倉原因；空串表示尚未由其他路徑平倉
+func (rt *SymbolRuntime) shutdownCloseHandledReason() string {
+	if rt == nil {
+		return ""
+	}
+	if p := rt.shutdownCloseHandled.Load(); p != nil {
+		return *p
+	}
+	return ""
 }
 
 // runCloseOnStop 停止時平倉：
@@ -186,6 +239,16 @@ type closeOnStopActions struct {
 func runCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) {
 	if !symCfg.CloseOnStop {
 		return
+	}
+	// 平倉前重查交易所持倉：已被其他路徑平掉（或本就無倉）時不再提交一輪平倉單
+	if act.exchangePositionFlat != nil {
+		flat, err := act.exchangePositionFlat(ctx)
+		if err != nil {
+			logger.WarnCtx(ctx, "⚠️ [%s] 終止時重查交易所持倉失敗，按本地槽位繼續平倉: %v", symCfg.Symbol, err)
+		} else if flat {
+			logger.InfoCtx(ctx, "ℹ️ [%s] 終止時交易所持倉已為 0，跳過 close_on_stop 平倉", symCfg.Symbol)
+			return
+		}
 	}
 	cfg := symCfg.CloseOnStopConfig
 	if !closeOnStopConfigSet(cfg) {
@@ -228,12 +291,47 @@ func closeOnStopActionsForRuntime(symCfg config.SymbolConfig, rt *SymbolRuntime)
 			_, err := br.ClosePositions(ctx, cfg)
 			return err
 		},
+		exchangePositionFlat: exchangePositionFlatChecker(symCfg, rt),
 	}
+}
+
+// exchangePositionFlatChecker 合約 Bot 返回按交易所持倉判斷是否已平的函數；現貨或無交易所實例返回 nil
+func exchangePositionFlatChecker(symCfg config.SymbolConfig, rt *SymbolRuntime) func(ctx context.Context) (bool, error) {
+	if rt == nil || rt.Exchange == nil || config.IsSpotMarketType(symCfg.MarketType) {
+		return nil
+	}
+	ex := rt.Exchange
+	return func(ctx context.Context) (bool, error) {
+		positions, err := ex.GetPositions(ctx, symCfg.Symbol)
+		if err != nil {
+			return false, fmt.Errorf("查詢 %s 交易所持倉失敗: %w", symCfg.Symbol, err)
+		}
+		var net float64
+		for _, p := range positions {
+			if p == nil || (p.Symbol != "" && !strings.EqualFold(p.Symbol, symCfg.Symbol)) {
+				continue
+			}
+			net += p.Size
+		}
+		return net < exchangePositionFlatEpsilon && net > -exchangePositionFlatEpsilon, nil
+	}
+}
+
+// shouldRunBotCloseOnStop Stop 中是否執行 close_on_stop：已由進程級平倉處理時跳過並記錄原因
+func shouldRunBotCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) bool {
+	if !symCfg.CloseOnStop || rt == nil {
+		return false
+	}
+	if reason := rt.shutdownCloseHandledReason(); reason != "" {
+		logger.InfoCtx(ctx, "ℹ️ [%s] 跳過 close_on_stop 平倉：%s", symCfg.Symbol, reason)
+		return false
+	}
+	return rt.SuperPositionManager != nil
 }
 
 // closeOnStopForRuntime 停止流程調用入口（帶超時，不依賴可能已取消的啟動 ctx）
 func closeOnStopForRuntime(logCtx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) {
-	if !symCfg.CloseOnStop || rt == nil || rt.SuperPositionManager == nil {
+	if !shouldRunBotCloseOnStop(logCtx, symCfg, rt) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(logCtx), closeOnStopBaseTimeout)

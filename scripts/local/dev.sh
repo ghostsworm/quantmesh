@@ -6,6 +6,10 @@
 # 端口规划：
 #   - Go 后端：28888（API 和 WebSocket）
 #   - Vite 前端：15173（开发服务器，代理 /api 和 /ws 到后端）
+#
+# 后端不再用 `go run .`：go run 会从 go-build 缓存派生真正的服务进程，
+# 停止时只杀 go run 的 PID 会留下占着 28888 的孤儿。改为编译到 .dev/quantmesh-dev 后直接运行，
+# PID 文件记录的就是服务进程本身，并以独立进程组启动，便于 stop.sh 整组优雅停止。
 
 set -e
 
@@ -24,6 +28,9 @@ VITE_PORT=15173
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PID_FILE_GO="${SCRIPT_DIR}/.dev_go.pid"
 PID_FILE_VITE="${SCRIPT_DIR}/.dev_vite.pid"
+DEV_DIR="${SCRIPT_DIR}/.dev"
+DEV_BIN="${DEV_DIR}/quantmesh-dev"
+STOP_SCRIPT="${SCRIPT_DIR}/scripts/local/stop.sh"
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -61,70 +68,9 @@ if [ ! -d "${SCRIPT_DIR}/webui" ]; then
     exit 1
 fi
 
-# 杀掉占用端口的进程
-kill_port_process() {
-    local port=$1
-    local name=$2
-    if [ -z "$port" ]; then
-        return
-    fi
-
-    local pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti:${port} 2>/dev/null || echo "")
-    elif command -v fuser >/dev/null 2>&1; then
-        pid=$(fuser ${port}/tcp 2>/dev/null | awk '{print $1}' || echo "")
-    fi
-
-    if [ -n "${pid}" ]; then
-        log_warn "发现占用端口 ${port} 的进程 (PID: ${pid})，正在停止..."
-        kill -TERM ${pid} 2>/dev/null || true
-        sleep 1
-        if kill -0 ${pid} 2>/dev/null; then
-            kill -9 ${pid} 2>/dev/null || true
-        fi
-        log_info "端口 ${port} (${name}) 已释放"
-    fi
-}
-
-# 停止旧的开发进程
-stop_dev_processes() {
-    log_info "检查并停止旧的开发进程..."
-    
-    # 从 PID 文件停止
-    if [ -f "${PID_FILE_GO}" ]; then
-        local old_pid=$(cat "${PID_FILE_GO}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_info "停止旧的 Go 进程 (PID: ${old_pid})"
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 1
-        fi
-        rm -f "${PID_FILE_GO}"
-    fi
-    
-    if [ -f "${PID_FILE_VITE}" ]; then
-        local old_pid=$(cat "${PID_FILE_VITE}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_info "停止旧的 Vite 进程 (PID: ${old_pid})"
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 1
-        fi
-        rm -f "${PID_FILE_VITE}"
-    fi
-    
-    # 杀掉占用端口的进程
-    kill_port_process ${GO_PORT} "Go 后端"
-    kill_port_process ${VITE_PORT} "Vite 前端"
-    
-    # 通过进程名杀掉可能遗留的进程
-    pkill -f "go run main.go symbol_manager.go" 2>/dev/null || true
-    pkill -f "go run \." 2>/dev/null || true
-    pkill -f "go run main.go" 2>/dev/null || true
-    pkill -f "vite.*${VITE_PORT}" 2>/dev/null || true
-}
-
-# 停止旧进程
-stop_dev_processes
+# 停止旧的开发进程：统一复用 stop.sh --dev（PID 文件 → 进程组/子进程 → 端口监听者，优雅退出后再强杀）
+log_info "检查并停止旧的开发进程..."
+bash "${STOP_SCRIPT}" --dev || log_warn "停止旧开发进程时出现错误，继续启动"
 
 # 检查 webui/node_modules 是否存在，如果不存在则安装依赖
 if [ ! -d "${SCRIPT_DIR}/webui/node_modules" ]; then
@@ -134,39 +80,59 @@ if [ ! -d "${SCRIPT_DIR}/webui/node_modules" ]; then
     cd "${SCRIPT_DIR}"
 fi
 
+# 发信号给以独立进程组启动的子进程（整组），失败时退回单进程
+signal_group() {
+    local sig=$1
+    local pid=$2
+    if [ -z "${pid}" ]; then
+        return
+    fi
+    kill -"${sig}" -- "-${pid}" 2>/dev/null || kill -"${sig}" "${pid}" 2>/dev/null || true
+}
+
 # 清理函数：当脚本退出时清理后台进程
+CLEANED_UP=false
 cleanup() {
+    if [ "${CLEANED_UP}" = true ]; then
+        return
+    fi
+    CLEANED_UP=true
     echo ""
     log_warn "正在停止开发服务器..."
-    
-    # 停止 Go 进程
-    if [ -n "$GO_PID" ] && kill -0 $GO_PID 2>/dev/null; then
-        kill -TERM $GO_PID 2>/dev/null || true
+
+    # 后台任务在独立进程组中，终端的 Ctrl+C 不会直接送达，这里显式转发 SIGINT 让后端走优雅退出
+    if [ -n "$GO_PID" ] && kill -0 "$GO_PID" 2>/dev/null; then
+        signal_group INT "$GO_PID"
     fi
-    
-    # 停止 Vite 进程
-    if [ -n "$VITE_PID" ] && kill -0 $VITE_PID 2>/dev/null; then
-        kill -TERM $VITE_PID 2>/dev/null || true
+    if [ -n "$VITE_PID" ] && kill -0 "$VITE_PID" 2>/dev/null; then
+        signal_group TERM "$VITE_PID"
     fi
-    
+
     # 等待进程退出
     wait $GO_PID $VITE_PID 2>/dev/null || true
-    
+
     # 清理 PID 文件
     rm -f "${PID_FILE_GO}" "${PID_FILE_VITE}"
-    
+
     log_info "开发服务器已停止"
-    exit 0
 }
 
 # 注册清理函数
-trap cleanup SIGINT SIGTERM EXIT
+trap 'cleanup; exit 0' SIGINT SIGTERM
+trap cleanup EXIT
+
+# 编译 Go 后端到固定路径（整个包：main、symbol_manager、bot_manager 等）
+log_info "编译 Go 后端 -> ${DEV_BIN} ..."
+cd "${SCRIPT_DIR}"
+mkdir -p "${DEV_DIR}"
+go build -o "${DEV_BIN}" .
+
+# 开启作业控制：后台任务各自成为进程组组长（PGID == PID），stop.sh 可整组停止
+set -m
 
 # 启动 Go 后端
 log_info "启动 Go 后端服务器 (端口 ${GO_PORT})..."
-cd "${SCRIPT_DIR}"
-# 编译整个包（含 main、symbol_manager、bot_manager 等）
-go run . &
+"${DEV_BIN}" &
 GO_PID=$!
 echo "${GO_PID}" > "${PID_FILE_GO}"
 
@@ -213,8 +179,6 @@ wait_for_backend() {
 }
 if ! wait_for_backend ${GO_PORT}; then
     log_error "等待 Go 后端 HTTP 服务超时（约 60 秒），请检查后端日志或 config.yaml"
-    kill $GO_PID 2>/dev/null || true
-    rm -f "${PID_FILE_GO}"
     exit 1
 fi
 log_info "Go 后端 HTTP 服务已就绪 (端口 ${GO_PORT})"
@@ -233,8 +197,6 @@ sleep 3
 # 检查 Vite 是否成功启动
 if ! kill -0 $VITE_PID 2>/dev/null; then
     log_error "Vite 前端开发服务器启动失败"
-    kill $GO_PID 2>/dev/null || true
-    rm -f "${PID_FILE_GO}" "${PID_FILE_VITE}"
     exit 1
 fi
 log_info "Vite 前端已启动 (PID: ${VITE_PID})"
@@ -248,13 +210,13 @@ echo -e "${BLUE}前端开发服务器:${NC} http://localhost:${VITE_PORT}"
 echo -e "${BLUE}后端 API 服务器:${NC} http://localhost:${GO_PORT}"
 echo ""
 echo -e "${YELLOW}进程信息:${NC}"
-echo -e "  Go 后端 PID: ${GO_PID}"
+echo -e "  Go 后端 PID: ${GO_PID} (${DEV_BIN})"
 echo -e "  Vite 前端 PID: ${VITE_PID}"
 echo ""
 echo -e "${YELLOW}提示:${NC}"
 echo -e "  - 前端代码修改会自动热重载 (Hot Reload)"
 echo -e "  - 后端代码修改需要重启 Go 服务器"
-echo -e "  - 按 Ctrl+C 停止所有服务器"
+echo -e "  - 按 Ctrl+C 停止所有服务器，或在其他终端执行 make dev-stop"
 echo -e "  - 使用 ./scripts/local/restart.sh --dev 重启开发服务器"
 echo ""
 

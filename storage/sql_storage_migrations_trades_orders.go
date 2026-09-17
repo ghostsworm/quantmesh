@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	"quantmesh/logger"
 )
@@ -400,6 +401,43 @@ func ordersCompositeUniqueIndexMatches(db *sql.DB) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// ordersCompositeUniqueColumns 與 SaveOrder 的 ON CONFLICT 目標列（順序一致）。
+var ordersCompositeUniqueColumns = []string{"exchange", "account", "symbol", "order_id"}
+
+// createOrdersCompositeUniqueIndexIfColumnsReady 在 orders 表已具備全部目標列時創建複合 UNIQUE 索引（冪等）。
+// 供 createTables 在全新數據庫上一次到位；列不齊（舊庫）時靜默跳過，由遷移補齊。
+func createOrdersCompositeUniqueIndexIfColumnsReady(db *sql.DB) error {
+	for _, col := range ordersCompositeUniqueColumns {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('orders') WHERE name=?`, col).Scan(&count); err != nil {
+			return fmt.Errorf("檢查 orders 列 %s 失败: %w", col, err)
+		}
+		if count == 0 {
+			return nil
+		}
+	}
+	// 若存在同名但列不一致的舊索引，IF NOT EXISTS 不會修正它；那種情況由 ensureOrdersCompositeUniqueConstraint 處理。
+	_, err := db.Exec(fmt.Sprintf(
+		`CREATE UNIQUE INDEX IF NOT EXISTS %s ON orders(exchange, account, symbol, order_id)`,
+		ordersCompositeUniqueIndexName,
+	))
+	return err
+}
+
+// isOrdersOnConflictMismatch 判斷 SQLite 是否因缺少與 ON CONFLICT 匹配的唯一約束而報錯。
+func isOrdersOnConflictMismatch(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "ON CONFLICT clause does not match")
+}
+
+// EnsureOrdersSchema 重新校驗並修復 orders 複合唯一索引（僅 SQLite；冪等）。
+// 用途：同一 SQLite 文件被其他組件（如 database 包的 GORM AutoMigrate）重建 orders 表後，索引會丟失，需在其後再修一次。
+func (s *SQLStorage) EnsureOrdersSchema() error {
+	if s == nil || s.db == nil || s.dbType != "sqlite" {
+		return nil
+	}
+	return ensureOrdersCompositeUniqueConstraint(s.db)
 }
 
 func rebuildOrdersTableForCompositeUnique(db *sql.DB) error {

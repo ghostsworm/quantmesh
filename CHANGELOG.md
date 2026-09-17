@@ -9,6 +9,16 @@
 ### Security
 - **示例配置泄露凭据**：`docs/config/examples/config.minimal.yaml`（自 2026-04-11 起提交）含三个交易所的真实 API Key/Secret/Passphrase，已清空。根因是 `cfgmgr.generateMinimalConfig` 把运行中配置的凭据、Web API Key、DSN 密码原样写入仓库内的示例文件；现改为交易所凭据与 Web API Key 一律留空、DSN 密码替换为占位符，并加回归测试。**已提交历史中仍可见，涉及的密钥必须到交易所后台吊销并重新生成。**
 
+### Added — 回放校准
+- **回放引擎注入点**：`replay.Config` 新增 `Setup`、`OnTick`、`OrderCleaner`；新增 `SimFundingMonitor`（按已结算费率，无未来数据）；回放按模拟时间运行订单清理器（回测任务参数 `order_cleaner` 默认开启），修复单边行情中挂单攒满后网格停摆导致的结果失真。`safety.OrderCleaner` 新增 `CleanupOnce`/`CleanupInterval`，原接口不变。
+- **校准工具** `tools/replaycompare`：加载 Binance 公开 1m K 线与资金费率，无未来数据地驱动行情识别，按功能开关矩阵输出 JSON + Markdown 报告。
+- **校准报告** `docs/reports/2026-09-17-replay-calibration.{md,json}`（BTCUSDT/ETHUSDT 89 天，以上涨行情为主，样本有限）：费率感知利差维持默认开启；自适应间隔、上沿冻结、库存偏斜、资金费定价建议按行情开启；单独开启行情识别与全部开启暂不建议。默认值未修改。
+
+### Fixed — 测试网试跑
+- **新库首次写订单报 ON CONFLICT 错误**：GORM AutoMigrate 与存储层共用同一 SQLite 文件时会重建 `orders` 表并丢失唯一索引；现在建表时即创建与 upsert 一致的唯一索引，GORM 初始化后立即 `EnsureOrdersSchema`，SQLite 写入遇到该错误时修复索引后重试一次。MySQL `orders` 表补建唯一键（此前 `ON DUPLICATE KEY UPDATE` 实际每次插入新行）。
+- **退出时重复平仓**：`system.close_positions_on_exit` 与 Bot 级 `close_on_stop` 同时开启时，每个交易对只由一方平仓一次；Bot 级平仓前重新查询交易所持仓，已为 0 则跳过。
+- **`make dev-stop` 残留后端进程**：开发脚本改为先编译到 `.dev/quantmesh-dev` 再运行并按进程组管理，停止脚本依次按 PID、进程组、仓库专属命令行、开发端口查找并优雅停止；不再误杀调用方 shell。
+
 ### Added — 后续
 - **按 Bot 覆盖新配置**：Bot 级 `trading_overrides` 可覆盖 `fee_aware_spread`、`post_only_reprice_max_attempts`、`regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`inventory_skew`、`funding_rate.pricing_enabled`/`pre_settlement_pause_minutes`；合并后校验，非法覆盖仅该 Bot 拒绝启动；创建/更新 Bot 接口接受并校验该字段。修改后需重启 Bot 生效。
 - **接通 Bot 配置**：`auto_rebuild` 在 Bot 启动后运行、停止时回收；`slot_filter` 启动时生效；`close_on_stop_config`（平仓方式/比例/超时）在 `close_on_stop=true` 时用于停止平仓。三者启动时校验，`auto_rebuild.require_trend_confirm` 未实现，设为 true 拒绝启动。

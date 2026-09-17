@@ -234,9 +234,30 @@ CREATE TABLE IF NOT EXISTS orders (
 			}
 		}
 	}
+	// SaveOrder 的 ON DUPLICATE KEY UPDATE 依賴 (exchange, account, symbol, order_id) 唯一鍵；
+	// 歷史 MySQL 表只有自增主鍵，upsert 會退化為重複插入。缺失時補建；已有重複行則告警不阻塞啟動。
+	var ukCount int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS
+		WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'orders' AND INDEX_NAME = ?
+	`, ordersCompositeUniqueKeyMySQL).Scan(&ukCount); err != nil {
+		return err
+	}
+	if ukCount == 0 {
+		stmt := "CREATE UNIQUE INDEX " + ordersCompositeUniqueKeyMySQL + " ON orders(exchange, account, symbol, order_id)"
+		if _, err := db.Exec(stmt); err != nil {
+			logger.Warn("⚠️ MySQL orders 創建唯一鍵 %s 失败（可能存在重複的 exchange/account/symbol/order_id 行，請清理後重啟）: %v",
+				ordersCompositeUniqueKeyMySQL, err)
+		} else {
+			logger.Info("🔄 MySQL orders 已創建唯一鍵 %s", ordersCompositeUniqueKeyMySQL)
+		}
+	}
 	logger.Info("✅ MySQL orders 表已就緒")
 	return nil
 }
+
+// ordersCompositeUniqueKeyMySQL MySQL orders 與 SaveOrder ON DUPLICATE KEY UPDATE 對應的唯一鍵名。
+const ordersCompositeUniqueKeyMySQL = "uk_orders_exchange_account_symbol_order_id"
 
 // migrateStatisticsTableMySQL 補齊歷史 MySQL statistics 表與 storage 層查詢字段的差異。
 // 舊 GORM 表使用 trade_count/volume/total_pn_l；storage 層使用 total_trades/total_volume/total_pnl。

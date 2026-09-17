@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"quantmesh/arbitrage"
@@ -62,6 +63,10 @@ type SymbolRuntime struct {
 	StorageService       *storage.StorageService
 	AccountID            string // 账戶標识
 	Stop                 func()
+
+	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
+	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。
+	shutdownCloseHandled atomic.Pointer[string]
 }
 
 // singleLegStrategyPositionSides 單腿對沖策略的固定持倉方向（策略名 -> LONG/SHORT）

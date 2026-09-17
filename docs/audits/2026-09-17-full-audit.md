@@ -305,6 +305,50 @@
 - `docs/config/examples/config.minimal.yaml` 自 2026-04-11 起含 Binance/Gate/OKX 主网 API Key/Secret/Passphrase，已清空；根因 `cfgmgr.generateMinimalConfig` 原样写入运行中配置的凭据，现改为凭据与 Web API Key 留空、DSN 密码替换为占位符，新增 `cfgmgr/minimal_config_redact_test.go`。
 - **需人工**：到交易所吊销并重新生成这三组密钥；历史提交中仍可见，是否改写 git 历史由仓库所有者决定。
 
+#### 后续：回放校准
+- 报告 `docs/reports/2026-09-17-replay-calibration.md`（数据 `.json`），工具 `tools/replaycompare/`（加载 data.binance.vision 1m K 线 zip/CSV 与资金费率、由 1m 聚合 1h 的无未来函数 K 线源、变体矩阵、JSON + Markdown 报告；测试 `loader_test.go` 覆盖 zip/CSV 加载与无未来函数）。
+- 数据：Binance USD-M BTCUSDT/ETHUSDT 1m，2026-06-19 ～ 2026-09-15 共 89 天（09-16 日包未发布）；9 月资金费沿用 08-31 最后费率。LONG，间隔 0.15%/0.30%（另加测 0.05%），全段 + 3 个 30 天分段。**样本只有 2 个品种 89 天，且以上涨为主，结论仅用于默认值判断。**
+- 结论：
+  - `fee_aware_spread`：**建议默认开启**（维持现默认）。间隔 ≥0.15% 时不生效（Δ=0）；0.05% 时 16/16 组净盈亏改善。
+  - `inventory_skew`：**暂不建议开启**。效果小且符号随回放口径变化（最大三笔为负），回撤有升有降。
+  - `regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`funding_rate.pricing_enabled`、全开：**数据不足无法判断**，回放引擎无法注入（见下），只做了离线 regime 诊断：各状态之后 24h 收益无稳定区分；k=0.5 会把 0.15% 间隔平均放大 1.3–3.5 倍；本样本资金费率 ≤0.01%/8h，定价偏移量级小。
+- 发现的问题（未改 `backtest/`、`position/`）：
+  1. **阻塞**：`replay.Engine.Run` 在内部创建 `SuperPositionManager`，没有创建后/每 tick 回调，无法 `ConfigureRegimeControl`、`SetFundingMonitor`，也无法在模拟时间驱动 `RefreshRegimeInterval`。建议在 `replay.Config` 增加 `Setup`/`OnTick` 钩子，并提供由 `FundingSeries` 驱动的模拟 FundingMonitor。
+  2. **失真**：回放不运行 `safety.OrderCleaner`（且其 `Start` 用牆钟 ticker）。`AdjustOrders` 按 `order_cleanup_threshold`（默认 100）限制新单，单边行情里远端挂单攒满 100 张后网格不再开仓（BTC 0.05% seg3 连续 657 小时零成交、撤单 0）；趋势段绝对盈亏因此强烈依赖口径（BTC 0.05% 全段 +81 vs −298）。ADR 已知差距未列，建议补充。
+  3. 观察：`max_position_layers` 只拦新单，已挂开仓单照常成交，持仓可超过上限（约 30 层 / 上限 20），实盘相同。
+- 未做：未改默认值；版本号与 CHANGELOG 不在本次文件范围内，未更新。
+
+#### 后续：测试网试跑发现的问题
+1. **全新 SQLite 首次启动 `SaveOrder` 报 `ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint`**（order_placed / order_canceled 都失败，第二次启动迁移修好）。
+   - 根因：`storage` 启动时其实已经建好 `(exchange, account, symbol, order_id)` 复合唯一索引，但 `config.yaml` 的 `database.dsn` 与 `storage.path` 指向同一个 `./data/quantmesh.db`。`main.go` 在存储初始化之后又调用 `database.NewDatabase`，GORM `AutoMigrate(&database.Order{})` 因为列类型不同重建了 `orders` 表，所有索引随之丢失。第二次启动时 GORM 发现类型已一致不再重建，`ensureOrdersCompositeUniqueConstraint` 补回索引，所以恢复正常。用测试复现确认。
+   - 修复：`createTables` 在 `orders` 列齐全时直接创建复合唯一索引（`createOrdersCompositeUniqueIndexIfColumnsReady`，旧库缺列时跳过，交给迁移处理）；新增 `(*SQLStorage).EnsureOrdersSchema`，`main.go` 在 GORM 初始化成功后立即调用（`repairOrdersSchemaAfterGORM`）；`SaveOrder` 在 SQLite 上遇到这个错误时现场修复索引并重试一次。MySQL：阅读代码发现 `migrateOrdersTableMySQL` 只有自增主键、没有唯一键，`ON DUPLICATE KEY UPDATE` 实际会退化为重复插入，已补建 `uk_orders_exchange_account_symbol_order_id`（已有重复行导致创建失败时只告警，不阻塞启动；本次未连 MySQL 验证）。
+   - 测试：`storage/orders_fresh_db_test.go`（全新库同键 `SaveOrder` 两次只有 1 行且状态更新；单独执行 `createTables` 也会建出索引；同一文件跑 GORM AutoMigrate 后，显式修复和 `SaveOrder` 自愈两条路径都能成功）。
+   - 遗留：`database.Order` 的 GORM 模型（`order_id` 唯一索引、列类型）与 storage 的 `orders` 表定义不一致，两套代码共用一个文件本身有风险，建议 `database` 包不再迁移 `orders`，或改用独立的库文件（`database/` 不在本次范围内）。
+2. **退出时重复平仓**：`system.close_positions_on_exit=true` 和 Bot `close_on_stop=true` 同时开启时，进程级 `closeAllPositions` 按交易所持仓下平仓单之后，每个 Bot 的 `Stop` 又执行 `LiquidateAll`，按槽位再提交一轮（试跑中是 23 张）。
+   - 修复：`decideShutdownCloseOwner`（`symbol_manager_bot_extras.go`）决定每个 Bot 由谁平仓：只开一个开关时由该开关负责；两个都开时，配置了 `close_on_stop_config` 或是现货，交给 Bot 级（按 method/ratio 执行），否则由进程级按交易所实际持仓一次全平。`runProcessLevelCloseOnExit`（`main_helpers.go`，替换 `main.go` 原来的循环）平仓成功后在 `SymbolRuntime` 上打标记，`closeOnStopForRuntime` 看到标记就跳过并记录原因；同一交易所/账户/交易对只平一次；进程级查询持仓失败或有下单失败时不打标记，保留 `close_on_stop` 兜底。`runCloseOnStop` 在提交前重新查询交易所持仓（合约），已经为 0 时跳过，查询失败时继续按本地槽位平仓。`closeAllPositions` 改为返回失败数和查询错误。
+   - 测试：`shutdown_close_test.go`（用假实现覆盖两个开关都开、只开一个、已配置 `close_on_stop_config`、现货、进程级失败后兜底，每个交易对恰好提交 1 次；多个 Bot 共用一个交易对时去重；交易所已无持仓时跳过；重新查询失败时继续平仓）。
+3. **`make dev-stop` 后编译出的子进程仍在运行**：`dev.sh` 用 `go run .` 启动，PID 文件记录的是 `go run`，真正的服务进程在 go-build 缓存中，是它的子进程；`stop.sh --dev` 只杀 `go run`，子进程被 PID 1 收养后继续占用 28888（试跑中残留了 3 小时）。
+   - 修复：`scripts/local/dev.sh` 先 `go build -o .dev/quantmesh-dev .` 再直接运行，PID 文件记录的就是服务进程；用 `set -m` 让后端和 Vite 各自成为进程组组长；Ctrl+C 或脚本退出时向进程组转发 SIGINT。`scripts/local/stop.sh --dev` 按 PID 文件 → 进程组与直接子进程 → 本仓库 dev 二进制、go-build `exe/quantmesh`、本仓库 webui vite 的命令行 → 28888/15173 端口监听者逐层处理，每层依次发 SIGINT，等待 `DEV_STOP_TIMEOUT`（默认 20s），再发 SIGTERM，等 3s 后 SIGKILL。只在 `pgid==pid` 时才向整个进程组发信号，按命令行匹配时排除自身和祖先进程（原来宽泛的 `vite.*15173` 会匹配到调用方 shell）。`dev.sh` 和 `restart.sh --dev` 停旧进程时都改为调用 `stop.sh --dev`。`.gitignore` 增加 `.dev/`。
+   - 验证：`bash -n` 全部通过；模拟 `go run` 父进程被杀、子进程成为孤儿并监听 28888 的情况，以及进程组 + PID 文件的情况，`stop.sh --dev` 都能释放端口并删除 PID 文件；实际执行一次 `dev.sh`（DB 配置 DryRun）后 `make dev-stop`，28888/15173 没有残留进程，连续执行两次不报错。
+   - 观察（未修）：后端收到 SIGINT 后约 1s 打出「系统已安全退出」，但进程没有退出，直到 20s 后收到 SIGTERM 才结束，怀疑 `main` 中某个 defer 清理步骤阻塞，需要单独排查。
+4. 用户本地 `config.yaml` 的 `trading.symbols` 中有拼写错误的交易对 `BTCUSTD`（这是用户配置，未修改）。
+
+#### 后续：回放注入点与订单清理器、补跑校准
+- 解决「后续：回放校准」发现的问题 1、2；报告 `docs/reports/2026-09-17-replay-calibration.{md,json}` 已整份重新生成，取代上一版结论。
+- 注入点：`backtest/replay/types.go` `Config` 新增 `Setup func(spm, clock) error`（`engine.go` 在注入 `SimClock`、费率之后、`Initialize` 之前调用，出错则 `Run` 失败）和 `OnTick func(now, price)`（每个 tick 撮合并投递回报后、订单清理与 `AdjustOrders` 之前调用，不持锁）。新增 `backtest/replay/funding_monitor.go` `SimFundingMonitor`：实现 `position.FundingMonitor` 与 `GetNextFundingTime`，按模拟时钟取最后一个已结算费率（无未来函数）、下次结算按 UTC 00/08/16，偏向系数规则与 `safety.FundingRateMonitor` 一致。`RunRegimeControlLoop` 已用 `Clock.NewTicker`，测试确认 `SimClock` 下按模拟时间触发；校准工具为保证可重复，在 `OnTick` 中按实盘周期同步调用 `Detector.Refresh`（每 `PollInterval`）和 `RefreshRegimeInterval`（每 30s 或状态变化后）。`position/` 未修改。
+- 订单清理器：`safety/order_cleaner.go` 新增 `DefaultOrderCleanupInterval`、`CleanupInterval()`、`CleanupOnce(ctx)`（同步一轮，不起协程、不用牆钟），`NewOrderCleaner`/`Start` 签名与行为不变，调用方无改动。`replay.Config.OrderCleaner` 开启时引擎按 `order_cleanup_interval` 模拟时间执行并投递撤单回报（`Metrics.OrderCleanerRuns` 计数）；回测任务参数 `order_cleaner` 缺省 true，另支持 `order_cleanup_threshold`、`cleanup_batch_size`、`order_cleanup_interval`（缺省 60 秒）。
+- 工具：`tools/replaycompare/hooks.go` 接入 regime 检测器（`ClosedKlineSource`，含段前历史预热）、自适应间隔、上沿冻结、资金费定价（模拟监控器，9 月沿用 8 月末费率，报告已披露）和全开；报告正文移到已提交的 `tools/replaycompare/notes/2026-09-17.md` 并设为 `-notes` 默认值，重跑命令即可重现报告。默认只跑 `live_default`（含清理器）；`no_cleaner`、`no_order_cap` 通过 `-profiles` 对照：`no_order_cap` 与新口径 24 组 baseline 中 16 组完全一致、其余差 ≤0.35 USDT（最大 ETH 0.05% 全段 4.02），因此不再并列；`no_cleaner` 在趋势段因停摆反而虚高（BTC 0.15% 全段 +192.96 vs +80.35）。
+- 测试：`backtest/replay/hooks_test.go`（钩子调用时机与模拟时间、Setup 出错传播、模拟资金费无未来函数与结算时间、偏向阈值、Setup 注入后资金费定价生效、`SimClock` 驱动 `RunRegimeControlLoop`）、`backtest/replay/cleaner_test.go`（单边锯齿上涨：无清理器后半段 0 成交复现停摆；有清理器 60 轮、后半段 60 笔成交、挂单 ≤ 阈值、持仓不超层数上限）、`backtest/replay/task_test.go`（清理器参数缺省与覆盖）、`safety/order_cleaner_test.go`（间隔缺省、`CleanupOnce` 撤最远买单、ctx 取消不执行）、`tools/replaycompare/hooks_test.go`（regime 变体已注入且预热后无拉取失败、自适应间隔生效、资金费定价改变结果、注入后重复运行一致）。`go build ./...`、`go vet ./backtest/... ./safety/... ./tools/...`、`go test -race ./backtest/... ./safety/... ./tools/replaycompare/... ./position/...` 通过。
+- 校准（192 项，6 并行约 205～356 秒，两次生成除耗时外逐项一致；**仍只有 2 个品种 89 天、以上涨为主，无持续下跌段**）：
+  - `fee_aware_spread`：建议默认开启（维持）。0.15%/0.30% 间隔 Δ 全为 0；0.05% 8/8 为正。
+  - `regime_filter`：暂不建议开启。13 正 11 负，横盘段 6/6 为正、单边上涨段 1/6；敞口与回撤下降。
+  - `adaptive_interval`：建议按行情开启（间隔相对 ATR 偏窄时）。0.05%/0.15% 16/16 为正，0.30% 4/8；0.15% 开启后与静态 0.30% 接近。
+  - `upper_bound_freeze`：建议按行情开启（LONG、上涨突破频繁时）。21 正 3 负（负值 ≥ −4.3），回撤 0 组上升。
+  - `inventory_skew`：建议按行情开启（配置了 `max_position_layers` 时）。21 正 3 负但幅度小；上一版的大幅负值随停摆问题消失。
+  - `funding_rate.pricing_enabled`：建议按行情开启（资金费率持续偏高时）。22 正 2 负但样本费率 ≤0.01%/8h，高费率无数据。
+  - 全开：暂不建议开启。主要由自适应间隔贡献，ETH 上多数组不如单开自适应间隔。
+- 未做：未改任何默认值；Web 回测任务（`RunGridTask`）尚未注入 regime/资金费；版本号与 CHANGELOG 不在本次文件范围内，未更新。
+
 ## 九、整改总结
 
 - 六轮全部完成：第一至七节列出的缺陷全部处理，未修项已在各轮「已知限制」中说明原因。

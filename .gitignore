@@ -41,6 +41,9 @@ data/
 *.pid
 .quantmesh.pid
 
+# 本地开发编译产物（scripts/local/dev.sh）
+.dev/
+
 # Config files with sensitive data (keep example configs)
 config.yaml
 config.yaml.migrated.*.bak

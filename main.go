@@ -1318,6 +1318,9 @@ func main() {
 		} else {
 			defer db.Close()
 			logger.Info("✅ 數據库已初始化 (類型: %s)", cfg.Database.Type)
+			// database 包 GORM AutoMigrate 若與 storage 共用同一 SQLite 文件，會重建 orders 表並丟失
+			// (exchange, account, symbol, order_id) 複合唯一索引，導致首次啟動 SaveOrder 報 ON CONFLICT 不匹配；此處立即修復。
+			repairOrdersSchemaAfterGORM(storageService)
 
 			// 初始化 AI 异步任務系统
 			logger.Info("🔧 正在初始化 AI 异步任務系统...")
@@ -2712,14 +2715,11 @@ func main() {
 		}
 
 		// 🔥 平倉（可選）
-		if cfg.System.ClosePositionsOnExit {
-			for _, rt := range symbolManager.List() {
-				logger.Info("🔄 [%s:%s] 正在平掉所有持倉...", rt.Config.Exchange, rt.Config.Symbol)
-				closeCtx, closeTimeout := context.WithTimeout(context.Background(), 30*time.Second)
-				closeAllPositions(closeCtx, rt.Exchange, rt.Config.Symbol, rt.PriceMonitor)
-				closeTimeout()
-			}
-		}
+		// 與 Bot 級 close_on_stop 互斥（見 runProcessLevelCloseOnExit），避免同一持倉被提交兩輪平倉單
+		runProcessLevelCloseOnExit(cfg.System.ClosePositionsOnExit, symbolManager.List(),
+			func(ctx context.Context, rt *SymbolRuntime) (int, error) {
+				return closeAllPositions(ctx, rt.Exchange, rt.Config.Symbol, rt.PriceMonitor)
+			})
 
 		// 🔥 停止所有交易對组件
 		for _, rt := range symbolManager.List() {

@@ -137,42 +137,8 @@ kill_port_process() {
 # 停止开发模式进程
 stop_dev_processes() {
     log_info "停止开发模式进程..."
-    
-    # 从 PID 文件停止 Go 进程
-    if [ -f "${PID_FILE_GO}" ]; then
-        local old_pid=$(cat "${PID_FILE_GO}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_info "停止 Go 开发进程 (PID: ${old_pid})"
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 1
-            kill -9 "${old_pid}" 2>/dev/null || true
-        fi
-        rm -f "${PID_FILE_GO}"
-    fi
-    
-    # 从 PID 文件停止 Vite 进程
-    if [ -f "${PID_FILE_VITE}" ]; then
-        local old_pid=$(cat "${PID_FILE_VITE}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_info "停止 Vite 开发进程 (PID: ${old_pid})"
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 1
-            kill -9 "${old_pid}" 2>/dev/null || true
-        fi
-        rm -f "${PID_FILE_VITE}"
-    fi
-    
-    # 杀掉占用端口的进程
-    kill_port_process ${GO_PORT} "Go 后端"
-    kill_port_process ${VITE_PORT} "Vite 前端"
-    
-    # 通过进程名杀掉可能遗留的进程
-    pkill -f "go run main.go symbol_manager.go" 2>/dev/null || true
-    pkill -f "go run main.go" 2>/dev/null || true
-    pkill -f "vite.*${VITE_PORT}" 2>/dev/null || true
-    pkill -f "pnpm.*dev" 2>/dev/null || true
-    
-    sleep 1
+    # 复用 stop.sh --dev：按进程组/子进程/端口监听者优雅停止，避免 go-build 子进程成为孤儿
+    bash "${SCRIPT_DIR}/scripts/local/stop.sh" --dev || log_warn "停止开发模式进程时出现错误"
 }
 
 # 停止生产模式进程

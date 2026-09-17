@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,6 +29,25 @@ import (
 )
 
 var observabilityBootstrapped sync.Once
+
+// ordersSchemaRepairer 由 *storage.SQLStorage 實現；接口定義在使用方。
+type ordersSchemaRepairer interface {
+	EnsureOrdersSchema() error
+}
+
+// repairOrdersSchemaAfterGORM 在 database 包 GORM AutoMigrate 之後重新校驗 orders 複合唯一索引。
+func repairOrdersSchemaAfterGORM(storageService *storage.StorageService) {
+	if storageService == nil {
+		return
+	}
+	repairer, ok := storageService.GetStorage().(ordersSchemaRepairer)
+	if !ok {
+		return
+	}
+	if err := repairer.EnsureOrdersSchema(); err != nil {
+		logger.Warn("⚠️ GORM 初始化後修復 orders 唯一索引失败（SaveOrder 會在首次寫入時再嘗試自愈）: %v", err)
+	}
+}
 
 // bootstrapObservability 读取 system_settings 中的 PostHog / Sentry 配置并启动上报，
 // 并把 logger 的 ERROR/FATAL 钩子接到 observability.ReportMessage。
@@ -280,17 +300,17 @@ func unregisterWebSymbolProvidersForRuntime(bc *config.BotConfig) {
 	web.UnregisterSymbolProviders(bc.Exchange, bc.Symbol, mt)
 }
 
-// closeAllPositions 平掉所有持倉（退出時使用）
-func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string, priceMonitor *monitor.PriceMonitor) {
+// closeAllPositions 平掉所有持倉（退出時使用）。返回下單失敗/跳過的持倉數；查詢持倉失敗時返回 error。
+func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string, priceMonitor *monitor.PriceMonitor) (int, error) {
 	positions, err := ex.GetPositions(ctx, symbol)
 	if err != nil {
 		logger.Error("❌ 查詢持倉失败，無法平倉: %v", err)
-		return
+		return 0, fmt.Errorf("查詢 %s 持倉失敗: %w", symbol, err)
 	}
 
 	if len(positions) == 0 {
 		logger.Info("ℹ️ 當前没有持倉，無需平倉")
-		return
+		return 0, nil
 	}
 
 	currentPrice := 0.0
@@ -315,7 +335,7 @@ func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string
 
 	if needCloseCount == 0 {
 		logger.Info("ℹ️ 當前没有有效持倉，無需平倉")
-		return
+		return 0, nil
 	}
 
 	logger.Info("🔄 发現 %d 個持倉需要平倉", needCloseCount)
@@ -382,6 +402,55 @@ func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string
 	if successCount > 0 {
 		logger.Info("⏳ 等待平倉單成交...")
 		time.Sleep(2 * time.Second)
+	}
+	return failCount, nil
+}
+
+// processCloseOnExitTimeout 進程級退出平倉單個 Bot 的超時
+const processCloseOnExitTimeout = 30 * time.Second
+
+// processCloseFunc 進程級平倉單個 Bot 的實現，返回失敗數與查詢錯誤（抽出以便測試）
+type processCloseFunc func(ctx context.Context, rt *SymbolRuntime) (failCount int, err error)
+
+// runProcessLevelCloseOnExit 執行 system.close_positions_on_exit，並與 Bot 級 close_on_stop 互斥：
+//   - 由 decideShutdownCloseOwner 決定負責方，歸 Bot 級的跳過（Stop 時按 close_on_stop_config 平倉）；
+//   - 同一 交易所/賬戶/交易對 只按交易所持倉平一次（多個 Bot 共用一個持倉時不重複下單）；
+//   - 平倉成功後標記 rt，Stop 中的 close_on_stop 跳過；失敗時不標記，保留 close_on_stop 兜底（其前會重查交易所持倉）。
+func runProcessLevelCloseOnExit(enabled bool, runtimes []*SymbolRuntime, closeFn processCloseFunc) {
+	if !enabled || closeFn == nil {
+		return
+	}
+	closedKeys := make(map[string]bool)
+	for _, rt := range runtimes {
+		if rt == nil {
+			continue
+		}
+		sc := rt.Config
+		owner := decideShutdownCloseOwner(enabled, sc)
+		if owner == shutdownCloseBot {
+			logger.Info("ℹ️ [%s:%s] 退出平倉交給 Bot 級 close_on_stop（已配置 close_on_stop_config 或現貨），進程級跳過",
+				sc.Exchange, sc.Symbol)
+			continue
+		}
+		if owner != shutdownCloseProcess {
+			continue
+		}
+		key := strings.ToLower(sc.Exchange) + "|" + rt.AccountID + "|" + strings.ToUpper(sc.Symbol)
+		if closedKeys[key] {
+			rt.markShutdownCloseHandled("同交易所賬戶交易對已由進程級 close_positions_on_exit 平倉")
+			continue
+		}
+		logger.Info("🔄 [%s:%s] 正在平掉所有持倉...", sc.Exchange, sc.Symbol)
+		ctx, cancel := context.WithTimeout(context.Background(), processCloseOnExitTimeout)
+		failCount, err := closeFn(ctx, rt)
+		cancel()
+		if err != nil || failCount > 0 {
+			logger.Warn("⚠️ [%s:%s] 進程級退出平倉未完全成功（失敗 %d，err=%v），保留 close_on_stop 兜底",
+				sc.Exchange, sc.Symbol, failCount, err)
+			continue
+		}
+		closedKeys[key] = true
+		rt.markShutdownCloseHandled("已由進程級 close_positions_on_exit 平倉")
 	}
 }
 
