@@ -518,6 +518,8 @@ type Config struct {
 		AverageWindow     int      `yaml:"average_window"`     // 移动平均窗口大小，預設20
 		RecoveryThreshold int      `yaml:"recovery_threshold"` // 恢復交易所需的正常币种數量，預設3
 		MaxLeverage       int      `yaml:"max_leverage"`       // 最大允許杠杆倍數，預設 10（設置為0表示不限制）
+		// 異動檢測靈敏度（新鍵，見 risk_control_detector.go）
+		RiskAnomalyDetectorConfig `yaml:",inline"`
 
 		// 深度監控配置
 		DepthMonitor struct {

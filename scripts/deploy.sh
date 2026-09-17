@@ -24,6 +24,9 @@ SERVICE_NAME="${APP_NAME}"
 BACKUP_DIR="${SCRIPT_DIR}/backups"
 DATA_DIR="${SCRIPT_DIR}/data"
 LOG_DIR="${SCRIPT_DIR}/logs"
+PID_FILE="${PID_FILE:-${SCRIPT_DIR}/.${BINARY_NAME}.pid}"
+STOP_TIMEOUT="${STOP_TIMEOUT:-30}"     # SIGINT 后等待秒数
+STOP_TERM_WAIT="${STOP_TERM_WAIT:-3}"  # SIGTERM 后到 SIGKILL 的等待秒数
 
 # 日志函数
 log_info() {
@@ -120,16 +123,117 @@ stop_service() {
         fi
     fi
     
-    # 检查进程
-    local pids=$(pgrep -f "${BINARY_NAME}" 2>/dev/null || echo "")
-    if [ -n "${pids}" ]; then
-        log_info "停止进程..."
-        echo "${pids}" | xargs kill -TERM 2>/dev/null || true
-        sleep 3
-        echo "${pids}" | xargs kill -9 2>/dev/null || true
+    # 检查直接运行的进程：只停止可执行文件就是本次部署二进制（${SCRIPT_DIR}/${BINARY_NAME}
+    # 或 --target 路径）的进程，绝不按裸进程名 pgrep -f 后直接 kill（会误杀同机其他实例、
+    # 编辑器/日志 tail 等命令行里含 quantmesh 的进程）。
+    local pids
+    pids=$(find_deployed_pids "$@" | tr '\n' ' ')
+    if [ -n "${pids// /}" ]; then
+        # shellcheck disable=SC2086
+        graceful_stop_pids ${pids}
     fi
-    
+    rm -f "${PID_FILE}"
+
     log_info "✅ 服务已停止"
+}
+
+# ---------- 进程识别（自包含：本脚本会被单独拷贝到服务器执行，不 source 仓库内其他文件）----------
+
+pid_alive() {
+    [ -n "$1" ] && kill -0 "$1" 2>/dev/null
+}
+
+# 输出进程可执行文件绝对路径（Linux 读 /proc，macOS 用 lsof txt 首项）；取不到输出空
+pid_exe_path() {
+    local pid=$1
+    if [ -e "/proc/${pid}/exe" ]; then
+        readlink "/proc/${pid}/exe" 2>/dev/null | sed 's/ (deleted)$//' || true
+        return
+    fi
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -a -p "${pid}" -d txt -Fn 2>/dev/null | sed -n 's/^n//p' | head -1 || true
+    fi
+}
+
+# 规范化路径（解析目录符号链接）；目录不存在时原样输出
+canonical_path() {
+    local p=$1
+    local dir base
+    dir=$(dirname "${p}")
+    base=$(basename "${p}")
+    if [ -d "${dir}" ]; then
+        echo "$(cd "${dir}" && pwd -P)/${base}"
+    else
+        echo "${p}"
+    fi
+}
+
+# 列出可执行文件是部署二进制的 PID。参数：额外的二进制路径（如 --target）。
+# 候选 = PID 文件 + 进程名恰好等于 ${BINARY_NAME} 的进程（pgrep -x，不匹配命令行），再逐个核对可执行文件路径；
+# 取不到可执行文件路径的进程不停止（宁可漏停由上方 systemd/supervisor 处理，也不误杀）。
+find_deployed_pids() {
+    local wants="" p
+    for p in "${SCRIPT_DIR}/${BINARY_NAME}" "$@"; do
+        [ -n "${p}" ] && wants="${wants}|$(canonical_path "${p}")|"
+    done
+    local candidates=""
+    if [ -f "${PID_FILE}" ]; then
+        candidates="$(cat "${PID_FILE}" 2>/dev/null || true)"
+    fi
+    candidates="${candidates} $(pgrep -x "${BINARY_NAME}" 2>/dev/null | tr '\n' ' ' || true)"
+    local seen=" " pid exe
+    for pid in ${candidates}; do
+        case "${pid}" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        case "${seen}" in
+            *" ${pid} "*) continue ;;
+        esac
+        seen="${seen}${pid} "
+        [ "${pid}" != "$$" ] || continue
+        pid_alive "${pid}" || continue
+        exe=$(pid_exe_path "${pid}")
+        if [ -z "${exe}" ]; then
+            log_warn "无法确认 PID ${pid} 的可执行文件路径，跳过（请手动确认）"
+            continue
+        fi
+        case "${wants}" in
+            *"|$(canonical_path "${exe}")|"*) echo "${pid}" ;;
+        esac
+    done
+}
+
+# 等待 pid 全部退出；超时返回 1
+wait_pids_exit() {
+    local timeout=$1
+    shift
+    local elapsed=0 p alive
+    while [ "${elapsed}" -lt "${timeout}" ]; do
+        alive=false
+        for p in "$@"; do
+            if pid_alive "${p}"; then
+                alive=true
+                break
+            fi
+        done
+        [ "${alive}" = false ] && return 0
+        sleep 1
+        elapsed=$((elapsed + 1))
+    done
+    return 1
+}
+
+# 优雅停止：SIGINT → 等待 STOP_TIMEOUT（退出时要撤单/平仓/落库）→ SIGTERM → 等待 → SIGKILL
+graceful_stop_pids() {
+    [ "$#" -gt 0 ] || return 0
+    log_info "停止进程 (PID: $*)，发送 SIGINT，最多等待 ${STOP_TIMEOUT}s..."
+    kill -INT "$@" 2>/dev/null || true
+    wait_pids_exit "${STOP_TIMEOUT}" "$@" && return 0
+    log_warn "进程未在 ${STOP_TIMEOUT}s 内退出，发送 SIGTERM..."
+    kill -TERM "$@" 2>/dev/null || true
+    wait_pids_exit "${STOP_TERM_WAIT}" "$@" && return 0
+    log_warn "进程仍未退出，发送 SIGKILL"
+    kill -KILL "$@" 2>/dev/null || true
 }
 
 # 在线编译
@@ -343,8 +447,8 @@ main() {
         log_warn "跳过数据库备份"
     fi
     
-    # 2. 停止服务
-    stop_service
+    # 2. 停止服务（直接运行的进程只停可执行文件为本仓库二进制或 --target 路径的）
+    stop_service "${TARGET_PATH}"
     
     # 3. 在线编译
     if [ "$SKIP_BUILD" = false ]; then

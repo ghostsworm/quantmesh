@@ -20,6 +20,34 @@ const (
 type liquidationBookPrices struct {
 	sell float64 // SELL 平多：吃買盤，覆蓋 sellQty 所需的最差買價（數量不超過買一時即買一價）
 	buy  float64 // BUY 平空：吃賣盤，覆蓋 buyQty 所需的最差賣價（數量不超過賣一時即賣一價）
+	// bestBid/bestAsk 買一/賣一（0 表示無數據），用於保證穿價
+	bestBid float64
+	bestAsk float64
+}
+
+// firstLevelPrice 盤口第一個有效檔位價格；無數據返回 0
+func firstLevelPrice(levels []OrderBookLevel) float64 {
+	for _, lv := range levels {
+		if lv.Price > 0 {
+			return lv.Price
+		}
+	}
+	return 0
+}
+
+// marketableLiquidationPrice 保證全平倉限價穿價：SELL 不高於買一、BUY 不低於賣一。
+// 現價±1% 的讓價上限在盤口大幅偏離時可能不穿價，此時以買一/賣一為準；無盤口數據時原樣返回。
+func marketableLiquidationPrice(side string, px float64, book liquidationBookPrices) float64 {
+	if side == "BUY" {
+		if book.bestAsk > 0 && (px <= 0 || px < book.bestAsk) {
+			return book.bestAsk
+		}
+		return px
+	}
+	if book.bestBid > 0 && (px <= 0 || px > book.bestBid) {
+		return book.bestBid
+	}
+	return px
 }
 
 // sweepPrice 沿盤口累計數量，返回覆蓋 qty 所需的最深一檔價格；深度不足或無數據返回 0
@@ -59,6 +87,8 @@ func (spm *SuperPositionManager) fetchLiquidationBookPrices(sellQty, buyQty floa
 	}
 	out.sell = sweepPrice(book.Bids, sellQty)
 	out.buy = sweepPrice(book.Asks, buyQty)
+	out.bestBid = firstLevelPrice(book.Bids)
+	out.bestAsk = firstLevelPrice(book.Asks)
 	return out
 }
 

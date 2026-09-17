@@ -174,8 +174,9 @@ func startConfiguredAutoRebuild(ctx context.Context, symCfg config.SymbolConfig,
 // closeOnStopActions 停止時平倉用到的操作，抽出以便測試
 type closeOnStopActions struct {
 	cancelAllOrders func()
-	liquidateAll    func()
-	closePositions  func(ctx context.Context, cfg config.ClosePositionConfig) error
+	// liquidateAll 核實型全平倉（阻塞至平乾淨或 ctx 超時），殘留時返回錯誤
+	liquidateAll   func(ctx context.Context) error
+	closePositions func(ctx context.Context, cfg config.ClosePositionConfig) error
 	// exchangePositionFlat 平倉前重查交易所持倉，返回 true 表示已無持倉（跳過平倉）。
 	// nil 表示不支持重查（如現貨），直接按本地槽位處理。
 	exchangePositionFlat func(ctx context.Context) (bool, error)
@@ -253,12 +254,12 @@ func runCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, act closeOn
 	cfg := symCfg.CloseOnStopConfig
 	if !closeOnStopConfigSet(cfg) {
 		logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
-		act.liquidateAll()
+		runVerifiedLiquidation(ctx, symCfg, act)
 		return
 	}
 	if symCfg.GetDirection() == directionBoth {
 		logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (direction=BOTH 按槽位腿別平倉，close_on_stop_config.method 不適用)...", symCfg.Symbol)
-		act.liquidateAll()
+		runVerifiedLiquidation(ctx, symCfg, act)
 		return
 	}
 	logger.InfoCtx(ctx, "🔄 [%s] 終止時平倉 (method=%s, ratio=%v, timeout=%ds)...",
@@ -268,19 +269,35 @@ func runCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, act closeOn
 	if err := act.closePositions(ctx, cfg); err != nil {
 		if isFullCloseRatio(cfg.QuantityRatio) {
 			logger.ErrorCtx(ctx, "❌ [%s] 終止時按 close_on_stop_config 平倉失敗，回退全平: %v", symCfg.Symbol, err)
-			act.liquidateAll()
+			runVerifiedLiquidation(ctx, symCfg, act)
 			return
 		}
 		logger.ErrorCtx(ctx, "❌ [%s] 終止時部分平倉失敗（ratio=%v，不回退全平，請手動處理）: %v", symCfg.Symbol, cfg.QuantityRatio, err)
 	}
 }
 
-// closeOnStopActionsForRuntime 綁定到真實運行時：平倉走 R1 修正後的 BotRuntime.ClosePositions
+// runVerifiedLiquidation 執行核實型全平倉；殘留持倉/掛單時記 ERROR（退出流程不因此阻斷）
+func runVerifiedLiquidation(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) {
+	if err := act.liquidateAll(ctx); err != nil {
+		logger.ErrorCtx(ctx, "❌ [%s] 終止時全平倉未核實完成，請手動處理: %v", symCfg.Symbol, err)
+	}
+}
+
+// closeOnStopActionsForRuntime 綁定到真實運行時：平倉走 R1 修正後的 BotRuntime.ClosePositions，
+// 全平走核實型 LiquidateAllVerified（無交易所實例時退回只提交限價單的 LiquidateAll 並返回錯誤）
 func closeOnStopActionsForRuntime(symCfg config.SymbolConfig, rt *SymbolRuntime) closeOnStopActions {
 	spm := rt.SuperPositionManager
 	return closeOnStopActions{
 		cancelAllOrders: spm.CancelAllOrders,
-		liquidateAll:    spm.LiquidateAll,
+		liquidateAll: func(ctx context.Context) error {
+			venue := position.NewExchangeLiquidationVenue(rt.Exchange)
+			if venue == nil {
+				spm.LiquidateAll()
+				return fmt.Errorf("交易所實例不可用，已提交限價平倉單但無法核實成交")
+			}
+			// timeout=0：使用 ctx（closeOnStopBaseTimeout）剩餘時間
+			return spm.LiquidateAllVerified(ctx, venue, 0)
+		},
 		closePositions: func(ctx context.Context, cfg config.ClosePositionConfig) error {
 			botCfg := config.SymbolConfigToBotConfig(symCfg, false)
 			br := &BotRuntime{Config: botCfg, BotID: config.BotIDOrGenerate(botCfg), Inner: rt}

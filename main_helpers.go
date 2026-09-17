@@ -300,110 +300,284 @@ func unregisterWebSymbolProvidersForRuntime(bc *config.BotConfig) {
 	web.UnregisterSymbolProviders(bc.Exchange, bc.Symbol, mt)
 }
 
-// closeAllPositions 平掉所有持倉（退出時使用）。返回下單失敗/跳過的持倉數；查詢持倉失敗時返回 error。
+// ===== 進程級退出平倉（close_positions_on_exit）=====
+//
+// 測試網試跑發現：舊實現用 priceMonitor 的（可能過期的）最新價掛 GTC 限價 ReduceOnly 單，
+// SELL 價 76363.90 高於當時市價 ~76348，平倉單掛在盤口上不成交，只 sleep 2s 就退出。
+// 新流程保證「可成交 + 核實 + 不留掛單」：
+//  1. 參考價取 新鮮最新價 / 價格監控 / 標記價 中對平倉方最不利的一個（SELL 取最低、BUY 取最高），
+//     再按 shutdownCloseSlippageRatio 穿價：SELL ≤ 參考價×(1−滑點)，BUY ≥ 參考價×(1+滑點)，IOC；
+//  2. 輪詢訂單狀態等待成交，超時未終結的撤單（撤單失敗記 ERROR 帶訂單號）；
+//  3. 重查交易所持倉，剩餘部分以 MARKET ReduceOnly 補平，並再次核實持倉；
+//  4. 最後撤銷該交易對全部掛單（覆蓋撤單後被網格重掛的止盈單），仍有殘留記 ERROR 帶訂單號。
+
+const (
+	// shutdownCloseSlippageRatio 退出平倉限價單相對參考價的穿價比例（0.003 = 0.3%）
+	shutdownCloseSlippageRatio = 0.003
+	// shutdownCloseFillWait 等待限價平倉單成交 / 市價補單後持倉歸零的最長時間
+	shutdownCloseFillWait = 3 * time.Second
+	// shutdownClosePollInterval 輪詢訂單狀態 / 持倉的間隔
+	shutdownClosePollInterval = 200 * time.Millisecond
+	// shutdownCloseCancelTimeout 最終清理掛單的超時（不依賴可能已耗盡的平倉 ctx）
+	shutdownCloseCancelTimeout = 5 * time.Second
+)
+
+// shutdownCloseOptions 退出平倉的等待參數（測試中縮短）
+type shutdownCloseOptions struct {
+	fillWait     time.Duration
+	pollInterval time.Duration
+}
+
+func defaultShutdownCloseOptions() shutdownCloseOptions {
+	return shutdownCloseOptions{fillWait: shutdownCloseFillWait, pollInterval: shutdownClosePollInterval}
+}
+
+// closeAllPositions 平掉所有持倉（退出時使用）。返回未能平掉的持倉數；查詢持倉失敗時返回 error。
 func closeAllPositions(ctx context.Context, ex exchange.IExchange, symbol string, priceMonitor *monitor.PriceMonitor) (int, error) {
+	monitorPrice := 0.0
+	if priceMonitor != nil {
+		monitorPrice = priceMonitor.GetLastPrice()
+	}
+	return closeAllPositionsMarketable(ctx, ex, symbol, monitorPrice, defaultShutdownCloseOptions())
+}
+
+// marketableClosePrice 計算穿價的平倉限價；參考價均無效時返回 0（調用方直接走市價）。
+// SELL 取候選最低價再向下穿價，BUY 取候選最高價再向上穿價，保證不會掛在盤口外側。
+func marketableClosePrice(side exchange.Side, priceDecimals int, candidates ...float64) float64 {
+	ref := 0.0
+	for _, p := range candidates {
+		if p <= 0 {
+			continue
+		}
+		if ref == 0 || (side == exchange.SideSell && p < ref) || (side == exchange.SideBuy && p > ref) {
+			ref = p
+		}
+	}
+	if ref <= 0 {
+		return 0
+	}
+	if side == exchange.SideSell {
+		px := ref * (1 - shutdownCloseSlippageRatio)
+		if priceDecimals >= 0 {
+			px = utils.FloorToDecimals(px, priceDecimals)
+		}
+		return px
+	}
+	px := ref * (1 + shutdownCloseSlippageRatio)
+	if priceDecimals >= 0 {
+		// 向上取整（-floor(-x)），避免取整後回落到參考價附近
+		px = -utils.FloorToDecimals(-px, priceDecimals)
+	}
+	return px
+}
+
+// closeSideAndQty 由持倉數量得到平倉方向與數量
+func closeSideAndQty(size float64) (exchange.Side, float64) {
+	if size > 0 {
+		return exchange.SideSell, size
+	}
+	return exchange.SideBuy, -size
+}
+
+// nonZeroPositions 過濾本交易對非零持倉
+func nonZeroPositions(positions []*exchange.Position, symbol string) []*exchange.Position {
+	out := make([]*exchange.Position, 0, len(positions))
+	for _, p := range positions {
+		if p == nil || (p.Symbol != "" && !strings.EqualFold(p.Symbol, symbol)) {
+			continue
+		}
+		if p.Size > exchangePositionFlatEpsilon || p.Size < -exchangePositionFlatEpsilon {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func isTerminalOrderStatus(s exchange.OrderStatus) bool {
+	switch s {
+	case exchange.OrderStatusFilled, exchange.OrderStatusCanceled, exchange.OrderStatusRejected, exchange.OrderStatusExpired:
+		return true
+	}
+	return false
+}
+
+// closeAllPositionsMarketable 見本段頭部註釋
+func closeAllPositionsMarketable(ctx context.Context, ex exchange.IExchange, symbol string, monitorPrice float64, opts shutdownCloseOptions) (int, error) {
 	positions, err := ex.GetPositions(ctx, symbol)
 	if err != nil {
 		logger.Error("❌ 查詢持倉失败，無法平倉: %v", err)
 		return 0, fmt.Errorf("查詢 %s 持倉失敗: %w", symbol, err)
 	}
-
-	if len(positions) == 0 {
-		logger.Info("ℹ️ 當前没有持倉，無需平倉")
-		return 0, nil
-	}
-
-	currentPrice := 0.0
-	if priceMonitor != nil {
-		currentPrice = priceMonitor.GetLastPrice()
-	}
-
-	if currentPrice <= 0 {
-		var priceErr error
-		currentPrice, priceErr = ex.GetLatestPrice(ctx, symbol)
-		if priceErr != nil || currentPrice <= 0 {
-			logger.Warn("⚠️ 無法獲取當前價格，將使用持倉標記價格平倉")
-		}
-	}
-
-	needCloseCount := 0
-	for _, pos := range positions {
-		if pos.Size != 0 {
-			needCloseCount++
-		}
-	}
-
-	if needCloseCount == 0 {
+	open := nonZeroPositions(positions, symbol)
+	if len(open) == 0 {
 		logger.Info("ℹ️ 當前没有有效持倉，無需平倉")
 		return 0, nil
 	}
+	logger.Info("🔄 发現 %d 個持倉需要平倉", len(open))
 
-	logger.Info("🔄 发現 %d 個持倉需要平倉", needCloseCount)
+	freshPrice, priceErr := ex.GetLatestPrice(ctx, symbol)
+	if priceErr != nil {
+		logger.Warn("⚠️ [平倉] 獲取 %s 最新價失敗（將只用監控價/標記價，均無效時直接市價）: %v", symbol, priceErr)
+		freshPrice = 0
+	}
 
-	successCount := 0
-	failCount := 0
-
-	for _, pos := range positions {
-		if pos.Size == 0 {
+	// 1. 穿價 IOC 限價單
+	placedIDs := make([]int64, 0, len(open))
+	for _, pos := range open {
+		side, qty := closeSideAndQty(pos.Size)
+		px := marketableClosePrice(side, ex.GetPriceDecimals(), freshPrice, monitorPrice, pos.MarkPrice)
+		if px <= 0 {
+			logger.Warn("⚠️ [平倉] %s 無有效參考價，跳過限價直接走市價", symbol)
 			continue
 		}
-
-		var side exchange.Side
-		quantity := pos.Size
-		if quantity > 0 {
-			side = exchange.SideSell
-		} else {
-			side = exchange.SideBuy
-			quantity = -quantity
-		}
-
-		closePrice := currentPrice
-		if closePrice <= 0 && pos.MarkPrice > 0 {
-			closePrice = pos.MarkPrice
-		}
-		if closePrice <= 0 && pos.EntryPrice > 0 {
-			closePrice = pos.EntryPrice
-		}
-
-		if closePrice <= 0 {
-			logger.Error("❌ [平倉] 無法确定價格，跳過持倉 %s (Size: %.6f)", pos.Symbol, pos.Size)
-			failCount++
-			continue
-		}
-
-		logger.Info("🔄 [平倉] %s %s %.6f @ %.2f (ReduceOnly)", side, pos.Symbol, quantity, closePrice)
-
-		orderReq := &exchange.OrderRequest{
+		logger.Info("🔄 [平倉] %s %s %.6f @ %s (穿價限價 IOC ReduceOnly，參考價 最新=%.4f 監控=%.4f 標記=%.4f)",
+			side, symbol, qty, formatShutdownPrice(px, ex.GetPriceDecimals()), freshPrice, monitorPrice, pos.MarkPrice)
+		ord, placeErr := ex.PlaceOrder(ctx, &exchange.OrderRequest{
 			Symbol:        symbol,
 			Side:          side,
 			Type:          exchange.OrderTypeLimit,
-			TimeInForce:   exchange.TimeInForceGTC,
-			Quantity:      quantity,
-			Price:         closePrice,
+			TimeInForce:   exchange.TimeInForceIOC,
+			Quantity:      qty,
+			Price:         px,
 			ReduceOnly:    true,
-			PostOnly:      false,
 			PriceDecimals: ex.GetPriceDecimals(),
+		})
+		if placeErr != nil {
+			logger.Warn("⚠️ [平倉] 限價平倉下單失敗 %s %.6f @ %.4f（將以市價補平）: %v", side, qty, px, placeErr)
+			continue
 		}
-
-		_, err := ex.PlaceOrder(ctx, orderReq)
-		if err != nil {
-			logger.Error("❌ [平倉] 下單失败 %s %.6f @ %.2f: %v", side, quantity, closePrice, err)
-			failCount++
-		} else {
-			logger.Info("✅ [平倉] 已下單 %s %.6f @ %.2f", side, quantity, closePrice)
-			successCount++
+		if ord != nil && ord.OrderID != 0 {
+			placedIDs = append(placedIDs, ord.OrderID)
 		}
-
-		time.Sleep(100 * time.Millisecond)
 	}
 
-	logger.Info("📊 [平倉完成] 成功: %d, 失败: %d", successCount, failCount)
-
-	if successCount > 0 {
-		logger.Info("⏳ 等待平倉單成交...")
-		time.Sleep(2 * time.Second)
+	// 2. 等待成交；未終結的撤單
+	if len(placedIDs) > 0 {
+		logger.Info("⏳ 等待平倉單成交（最多 %s）...", opts.fillWait)
+		pending := waitOrdersTerminal(ctx, ex, symbol, placedIDs, opts)
+		for _, id := range pending {
+			if cancelErr := ex.CancelOrder(ctx, symbol, id); cancelErr != nil {
+				logger.Error("❌ [平倉] 撤銷未成交平倉單失敗 %s orderID=%d: %v", symbol, id, cancelErr)
+			} else {
+				logger.Info("🧹 [平倉] 已撤銷未完全成交的平倉單 orderID=%d", id)
+			}
+		}
 	}
+
+	// 3. 重查持倉，剩餘以市價補平
+	failCount := 0
+	remaining, err := ex.GetPositions(ctx, symbol)
+	if err != nil {
+		logger.Error("❌ [平倉] 限價階段後重查 %s 持倉失敗: %v", symbol, err)
+		return len(open), fmt.Errorf("重查 %s 持倉失敗: %w", symbol, err)
+	}
+	left := nonZeroPositions(remaining, symbol)
+	if len(left) > 0 {
+		for _, pos := range left {
+			side, qty := closeSideAndQty(pos.Size)
+			logger.Warn("⚠️ [平倉] %s 仍有 %.6f 未平，市價 ReduceOnly 補平 (%s)", symbol, pos.Size, side)
+			if _, placeErr := ex.PlaceOrder(ctx, &exchange.OrderRequest{
+				Symbol:        symbol,
+				Side:          side,
+				Type:          exchange.OrderTypeMarket,
+				Quantity:      qty,
+				ReduceOnly:    true,
+				PriceDecimals: ex.GetPriceDecimals(),
+			}); placeErr != nil {
+				logger.Error("❌ [平倉] 市價補平失敗 %s %s %.6f: %v", symbol, side, qty, placeErr)
+			}
+		}
+		left = waitPositionsFlat(ctx, ex, symbol, opts)
+		failCount = len(left)
+		for _, pos := range left {
+			logger.Error("❌ [平倉] %s 退出時持倉未能平掉: %.6f，請手動處理", symbol, pos.Size)
+		}
+	}
+
+	// 4. 最終清理：不留任何掛單
+	cleanupShutdownOpenOrders(ctx, ex, symbol)
+
+	logger.Info("📊 [平倉完成] 需平 %d，未平 %d", len(open), failCount)
 	return failCount, nil
+}
+
+// formatShutdownPrice 按精度格式化價格用於日誌
+func formatShutdownPrice(px float64, decimals int) string {
+	if decimals < 0 {
+		decimals = 8
+	}
+	return fmt.Sprintf("%.*f", decimals, px)
+}
+
+// waitOrdersTerminal 輪詢訂單直到全部終結或超時，返回仍未終結（或查詢失敗）的訂單號
+func waitOrdersTerminal(ctx context.Context, ex exchange.IExchange, symbol string, ids []int64, opts shutdownCloseOptions) []int64 {
+	deadline := time.Now().Add(opts.fillWait)
+	pending := append([]int64(nil), ids...)
+	for {
+		next := pending[:0]
+		for _, id := range pending {
+			ord, err := ex.GetOrder(ctx, symbol, id)
+			if err != nil || ord == nil || !isTerminalOrderStatus(ord.Status) {
+				next = append(next, id)
+			}
+		}
+		pending = next
+		if len(pending) == 0 || !time.Now().Before(deadline) || ctx.Err() != nil {
+			return pending
+		}
+		time.Sleep(opts.pollInterval)
+	}
+}
+
+// waitPositionsFlat 輪詢持倉直到歸零或超時，返回仍非零的持倉（查詢失敗時返回 nil 以外的最後一次結果）
+func waitPositionsFlat(ctx context.Context, ex exchange.IExchange, symbol string, opts shutdownCloseOptions) []*exchange.Position {
+	deadline := time.Now().Add(opts.fillWait)
+	var last []*exchange.Position
+	for {
+		positions, err := ex.GetPositions(ctx, symbol)
+		if err != nil {
+			logger.Warn("⚠️ [平倉] 核實 %s 持倉失敗: %v", symbol, err)
+		} else {
+			last = nonZeroPositions(positions, symbol)
+			if len(last) == 0 {
+				return nil
+			}
+		}
+		if !time.Now().Before(deadline) || ctx.Err() != nil {
+			return last
+		}
+		time.Sleep(opts.pollInterval)
+	}
+}
+
+// cleanupShutdownOpenOrders 撤銷本交易對全部掛單並核實；仍有殘留時記 ERROR 帶訂單號
+func cleanupShutdownOpenOrders(ctx context.Context, ex exchange.IExchange, symbol string) {
+	cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownCloseCancelTimeout)
+	defer cancel()
+	orders, err := ex.GetOpenOrders(cctx, symbol)
+	if err != nil {
+		logger.Warn("⚠️ [平倉] 查詢 %s 殘留掛單失敗，仍嘗試全部撤銷: %v", symbol, err)
+	} else if len(orders) == 0 {
+		return
+	}
+	if cancelErr := ex.CancelAllOrders(cctx, symbol); cancelErr != nil {
+		logger.Error("❌ [平倉] 退出前撤銷 %s 全部掛單失敗: %v", symbol, cancelErr)
+	}
+	left, err := ex.GetOpenOrders(cctx, symbol)
+	if err != nil {
+		logger.Error("❌ [平倉] 核實 %s 殘留掛單失敗: %v", symbol, err)
+		return
+	}
+	if len(left) > 0 {
+		ids := make([]string, 0, len(left))
+		for _, o := range left {
+			if o != nil {
+				ids = append(ids, fmt.Sprintf("%d", o.OrderID))
+			}
+		}
+		logger.Error("❌ [平倉] 退出時 %s 仍有 %d 個掛單未撤銷，訂單號: %s，請手動處理",
+			symbol, len(left), strings.Join(ids, ","))
+	}
 }
 
 // processCloseOnExitTimeout 進程級退出平倉單個 Bot 的超時

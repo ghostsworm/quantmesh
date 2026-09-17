@@ -1064,51 +1064,24 @@ func (br *BotRuntime) CancelAllOpenOrders() error {
 	return nil
 }
 
-// CloseAllPositions 平掉所有仓位
+// CloseAllPositions 平掉所有仓位（熔断 / 复合风控 / 紧急中心调用，每个 Bot 独立超时 ctx）。
+//
+// 所有方向（LONG/SHORT/BOTH 按槽位腿别）统一走核实型全平仓 LiquidateAllVerified：
+// 穿价限价 → 等待成交 → 撤剩余 → 按交易所持仓市价 ReduceOnly 补平 → 清理挂单，残留时返回错误。
+// method 仅用于日志：紧急平仓以「确认平干净」为准，不再按 limit 挂单后台重试。
+// 本方法会阻塞至多 timeout 秒，调用方（risk.closePositionsOnBots）不持有 spm.mu / 槽位锁。
 func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, timeout int) error {
 	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
 		return fmt.Errorf("bot not initialized")
 	}
-	spm := br.Inner.SuperPositionManager
-
-	if br.Config.GetDirection() == "BOTH" {
-		// 單向淨持倉雙向網格：按槽位腿別分別平多/平空
-		spm.LiquidateAll()
-		return nil
-	}
-
-	// 按实际持仓数量（Σ slot.PositionQty，并以交易所持仓封顶）计算平仓方向与数量，
-	// 不再用「成本价值 ÷ 现价」估算（价格下跌时会多平）
 	if br.Inner.Exchange == nil {
 		return fmt.Errorf("exchange not initialized")
 	}
-	if spm.GetNetPositionQty() == 0 {
-		return nil // 没有持仓
-	}
-	plan, err := br.planClosePosition(ctx, 1)
-	if err != nil {
-		return fmt.Errorf("bot %s 计算平仓数量失败: %w", br.BotID, err)
-	}
-
-	// 创建平仓配置
-	cfg := config.ClosePositionConfig{
-		Method:     method,
-		TimeoutSec: timeout,
-		AutoRetry:  timeout > 0,
-		MaxRetries: 3,
-	}
-
-	// 创建平仓管理器
-	exchange := br.Inner.Exchange
-	closeMgr := position.NewClosePositionManager(
-		position.NewExchangeAdapterWrapper(exchange),
-		br.BotID,
-		br.Config.Symbol,
-	)
-
-	// 执行平仓
-	if _, err := closeMgr.ClosePositions(ctx, plan.Side, plan.Quantity, cfg); err != nil {
-		return fmt.Errorf("bot %s 平仓下单失败 (%s %.8f): %w", br.BotID, plan.Side, plan.Quantity, err)
+	spm := br.Inner.SuperPositionManager
+	logger.Warn("🚨 [%s] 全部平仓（请求 method=%s，按核实型全平仓执行，超时 %ds）", br.BotID, method, timeout)
+	venue := position.NewExchangeLiquidationVenue(br.Inner.Exchange)
+	if err := spm.LiquidateAllVerified(ctx, venue, time.Duration(timeout)*time.Second); err != nil {
+		return fmt.Errorf("bot %s 全部平仓未核实完成: %w", br.BotID, err)
 	}
 	return nil
 }

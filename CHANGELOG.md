@@ -12,12 +12,20 @@
 ### Added — 回放校准
 - **回放引擎注入点**：`replay.Config` 新增 `Setup`、`OnTick`、`OrderCleaner`；新增 `SimFundingMonitor`（按已结算费率，无未来数据）；回放按模拟时间运行订单清理器（回测任务参数 `order_cleaner` 默认开启），修复单边行情中挂单攒满后网格停摆导致的结果失真。`safety.OrderCleaner` 新增 `CleanupOnce`/`CleanupInterval`，原接口不变。
 - **校准工具** `tools/replaycompare`：加载 Binance 公开 1m K 线与资金费率，无未来数据地驱动行情识别，按功能开关矩阵输出 JSON + Markdown 报告。
+- **Web 回测接入新功能**：`engine=replay` 的回测任务支持 `regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`inventory_skew`、`fee_aware_spread` 参数，可传布尔值或与配置文件同名字段的对象；资金费定价可用 `funding_pricing: true` 或 `funding_rate` 对象开启，另支持 `funding_series`、`funding_constant_rate`、`max_position_layers`。此前这些功能在 Web 回测中始终不生效。行情识别所用 K 线由任务 K 线聚合；没有资金费率序列时按固定费率计算。预热不足、使用固定费率等情况会在结果的 `replay_metrics.features.notes` 中说明。注入逻辑移到 `backtest/replay/features.go`，与校准工具共用。
 - **校准报告** `docs/reports/2026-09-17-replay-calibration.{md,json}`（BTCUSDT/ETHUSDT 89 天，以上涨行情为主，样本有限）：费率感知利差维持默认开启；自适应间隔、上沿冻结、库存偏斜、资金费定价建议按行情开启；单独开启行情识别与全部开启暂不建议。默认值未修改。
 
 ### Fixed — 测试网试跑
 - **新库首次写订单报 ON CONFLICT 错误**：GORM AutoMigrate 与存储层共用同一 SQLite 文件时会重建 `orders` 表并丢失唯一索引；现在建表时即创建与 upsert 一致的唯一索引，GORM 初始化后立即 `EnsureOrdersSchema`，SQLite 写入遇到该错误时修复索引后重试一次。MySQL `orders` 表补建唯一键（此前 `ON DUPLICATE KEY UPDATE` 实际每次插入新行）。
 - **退出时重复平仓**：`system.close_positions_on_exit` 与 Bot 级 `close_on_stop` 同时开启时，每个交易对只由一方平仓一次；Bot 级平仓前重新查询交易所持仓，已为 0 则跳过。
 - **`make dev-stop` 残留后端进程**：开发脚本改为先编译到 `.dev/quantmesh-dev` 再运行并按进程组管理，停止脚本依次按 PID、进程组、仓库专属命令行、开发端口查找并优雅停止；不再误杀调用方 shell。
+- **退出时可能卡住**：原来 K 线收集器、事件中心、分布式锁、数据库关闭等清理放在打印「系统已安全退出」之后执行，既不限时也不打日志，而且后续 SIGINT/SIGTERM 被程序接管后不再生效。现在这些清理在最终日志之前执行，每步限时并有总时长上限，超时的步骤会记录名称和 goroutine 栈，最后显式退出进程；优雅关闭期间（首个信号 2s 后）再次收到退出信号时强制退出。另外修复了日志存储关闭顺序：原来退出时固定报「批量写入日志失败: sql: database is closed」并丢掉最后一批日志，最终日志也写不进 logs.db。
+- **`restart.sh --prod` 误杀无关进程**：原来按 `pgrep -f quantmesh` 匹配并直接 `kill -9`，现在只停止本仓库 `./quantmesh` 二进制（核对可执行文件路径，PID 文件中的 PID 也要核对），按 SIGINT → 等待 → SIGTERM → SIGKILL 顺序停止；端口被其他进程占用时只提示。
+- **`start.sh` 与 `stop.sh --prod` 误杀无关进程**：原来按 `pgrep -f quantmesh` / `pgrep -x quantmesh` 匹配并 `kill -9`（只等 2s），端口占用者也直接杀掉。现在与 `restart.sh` 共用 `scripts/local/lib/process.sh`：只停止本仓库二进制，SIGINT → 等待 `PROD_STOP_TIMEOUT`（默认 30s）→ SIGTERM → 3s → SIGKILL；端口被其他进程占用时报告并以非零状态退出，不杀。新增 `scripts/local/tests/process_match_test.sh`。
+- **风控误触发后停盘不恢复**：原来价格低于 1m 均线 0.04%、成交量达到均量 4.1 倍就触发主动风控；单交易对 Bot 沿用全局 `recovery_threshold=3`，恢复条件永远不满足，当小时剩余时间一直停止交易。现在触发要求跌幅 ≥ max(`min_price_drop_pct`（默认 0.5%，只监控 1 个交易对时 ×`single_symbol_drop_factor`=2），`volatility_multiplier`(3) × 收益率标准差) 且量比 > `volume_multiplier`，K 线过期（`stale_bars`=3）时不触发；监控 ≥2 个交易对时「集体异动」至少需要 2 个（`min_panic_symbols`，默认仍为全部）；恢复阈值按监控数夹紧，价格低于均线不超过 `recovery_max_drop_pct`（0.1%）即视为恢复，价格回到均线上方时不再要求缩量。K 线缓存按开盘时间合并，不再把未收盘 K 线计入均线。新键均有默认值，旧键含义不变，见 `docs/CONFIGURATION_GUIDE.md`。
+- **退出平仓单挂在市价外侧**：`system.close_positions_on_exit` 原来按可能过期的价格挂 GTC 限价单（试跑中 SELL 76363.90，市价约 76348），等 2s 就退出。现在按对平仓方最不利的参考价穿价 0.3% 下 IOC ReduceOnly 单，核实订单状态和持仓，未成交部分撤单后以市价 ReduceOnly 补平，最后撤销该交易对剩余挂单，撤单失败记 ERROR 并列出订单号。
+- **`scripts/deploy.sh` 按进程名误杀**：原来用 `pgrep -f quantmesh` 匹配，3s 后 `kill -9`。现在只停止可执行文件为 `${SCRIPT_DIR}/quantmesh` 或 `--target` 路径的进程，按 SIGINT → 30s → SIGTERM → 3s → SIGKILL 停止。
+- **Bot 级全平仓不核实成交**：`close_on_stop` 全平以及熔断器、复合风控、紧急中心的「平掉所有仓位」原来只提交限价单就返回，可能留下挂单或持仓。现在改用 `LiquidateAllVerified`：先下穿价限价单，按注入时钟等待成交，撤掉未成交部分，多腿、空腿分别以市价 ReduceOnly 补平剩余（数量不超过本 Bot 的持仓），最后撤销该交易对的剩余挂单；有残留时返回错误并列出数量和订单号。`AdjustOrders` 内持锁的止损路径仍用原来的 `LiquidateAll`。
 
 ### Added — 后续
 - **按 Bot 覆盖新配置**：Bot 级 `trading_overrides` 可覆盖 `fee_aware_spread`、`post_only_reprice_max_attempts`、`regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`inventory_skew`、`funding_rate.pricing_enabled`/`pre_settlement_pause_minutes`；合并后校验，非法覆盖仅该 Bot 拒绝启动；创建/更新 Bot 接口接受并校验该字段。修改后需重启 Bot 生效。

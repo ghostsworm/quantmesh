@@ -230,7 +230,7 @@ type closeOnStopRecorder struct {
 func (r *closeOnStopRecorder) actions() closeOnStopActions {
 	return closeOnStopActions{
 		cancelAllOrders: func() { r.calls = append(r.calls, "cancel") },
-		liquidateAll:    func() { r.calls = append(r.calls, "liquidate") },
+		liquidateAll:    func(context.Context) error { r.calls = append(r.calls, "liquidate"); return nil },
 		closePositions: func(ctx context.Context, cfg config.ClosePositionConfig) error {
 			r.calls = append(r.calls, "close")
 			r.gotCfg = cfg

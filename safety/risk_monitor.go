@@ -33,6 +33,27 @@ type RiskMonitor struct {
 	triggeredTime    time.Time
 	recoveredTime    time.Time
 	lastMsg          string
+	now              func() time.Time // 可注入時鐘（測試用），默認 time.Now
+}
+
+// params 當前配置下的檢測參數（每次讀取，兼容熱更新）
+func (r *RiskMonitor) params() detectorParams {
+	return detectorParamsFromConfig(r.cfg)
+}
+
+// statsForRecord 為檢查記錄計算價格偏離與量比
+func (r *RiskMonitor) statsForRecord(record *storage.RiskCheckRecord, useLatest bool) {
+	symbolData, exists := r.symbolDataMap[record.Symbol]
+	if !exists {
+		return
+	}
+	symbolData.mu.RLock()
+	candles := symbolData.candles
+	symbolData.mu.RUnlock()
+	if st, why := computeKlineStats(candles, r.cfg.RiskControl.AverageWindow, useLatest); why == "" {
+		record.PriceDeviation = st.priceDevPct
+		record.VolumeRatio = st.volRatio
+	}
 }
 
 // NewRiskMonitor 創建风控監視器
@@ -49,6 +70,7 @@ func NewRiskMonitor(cfg *config.Config, ex exchange.IExchange) *RiskMonitor {
 		exchange:         ex,
 		symbolDataMap:    symbolDataMap,
 		lastHealthStatus: make(map[string]bool),
+		now:              time.Now,
 	}
 }
 
@@ -75,8 +97,10 @@ func (r *RiskMonitor) Start(ctx context.Context) {
 
 	logger.Info("🛡️ 啟动主动安全风控監控 (周期: %s, 倍數: %.1f, 窗口: %d)",
 		r.cfg.RiskControl.Interval, r.cfg.RiskControl.VolumeMultiplier, r.cfg.RiskControl.AverageWindow)
-	logger.Info("🛡️ 監控币种: %v (恢複阈值: %d/%d)", r.cfg.RiskControl.MonitorSymbols,
-		r.cfg.RiskControl.RecoveryThreshold, len(r.cfg.RiskControl.MonitorSymbols))
+	p := r.params()
+	logger.Info("🛡️ 監控币种: %v (恢複阈值: %d/%d, 集體異動需 %d 個, 最小跌幅 %.2f%%, 波動率倍數 %.1f, 恢復容忍 %.2f%%)",
+		r.cfg.RiskControl.MonitorSymbols, p.resolved.RecoveryThreshold, len(r.cfg.RiskControl.MonitorSymbols),
+		p.resolved.MinPanicSymbols, p.resolved.MinPriceDropPct, p.resolved.VolatilityMultiplier, p.resolved.RecoveryMaxDropPct)
 
 	// 預加載历史K線數據
 	logger.Info("📊 正在加載历史K線數據...")
@@ -88,6 +112,7 @@ func (r *RiskMonitor) Start(ctx context.Context) {
 		}
 
 		if len(candles) > 0 {
+			markFormingHistorical(candles, r.cfg.RiskControl.Interval, r.now())
 			r.mu.Lock()
 			symbolData, exists := r.symbolDataMap[symbol]
 			r.mu.Unlock()
@@ -131,52 +156,11 @@ func (r *RiskMonitor) onCandleUpdate(candle *exchange.Candle) {
 	}
 
 	symbolData.mu.Lock()
-
-	if c.IsClosed {
-		// 完結的K線：追加到列表
-		symbolData.candles = append(symbolData.candles, c)
-
-		// 保留足够數量的完結K線（窗口大小）+ 可能的1根未完結K線
-		// 只保留最近的完結K線，刪除過舊的
-		requiredClosedCount := r.cfg.RiskControl.AverageWindow
-		closedCount := 0
-		for i := len(symbolData.candles) - 1; i >= 0; i-- {
-			if symbolData.candles[i].IsClosed {
-				closedCount++
-			}
-		}
-
-		// 如果完結K線超過需要的數量，從前面刪除舊的
-		if closedCount > requiredClosedCount+1 {
-			// 找到需要保留的起始位置（從后往前數requiredClosedCount+1根完結K線）
-			keepClosedCount := requiredClosedCount + 1
-			foundCount := 0
-			startIdx := len(symbolData.candles) - 1
-			for i := len(symbolData.candles) - 1; i >= 0; i-- {
-				if symbolData.candles[i].IsClosed {
-					foundCount++
-					if foundCount >= keepClosedCount {
-						startIdx = i
-						break
-					}
-				}
-			}
-			// 使用 copy 而不是切片截取，避免記憶體泄漏
-			keepCount := len(symbolData.candles) - startIdx
-			newCandles := make([]*exchange.Candle, keepCount)
-			copy(newCandles, symbolData.candles[startIdx:])
-			symbolData.candles = newCandles
-		}
-	} else {
-		// 未完結的K線
-		if len(symbolData.candles) > 0 && !symbolData.candles[len(symbolData.candles)-1].IsClosed {
-			// 最后一根也是未完結的：更新它
-			symbolData.candles[len(symbolData.candles)-1] = c
-		} else {
-			// 最后一根是完結的或列表為空：追加這個未完結K線
-			symbolData.candles = append(symbolData.candles, c)
-		}
-	}
+	// 按開盤時間去重合併（未完結→完結替換同一根、亂序舊數據忽略）並裁剪到窗口大小；
+	// 在副本上修改，已被讀者取走的舊切片不被原地改寫
+	cloned := make([]*exchange.Candle, len(symbolData.candles), len(symbolData.candles)+1)
+	copy(cloned, symbolData.candles)
+	symbolData.candles = upsertCandle(cloned, c, r.cfg.RiskControl.AverageWindow)
 	currentCount := len(symbolData.candles)
 	symbolData.mu.Unlock()
 
@@ -214,43 +198,16 @@ func (r *RiskMonitor) checkMarket() {
 		for _, symbol := range r.cfg.RiskControl.MonitorSymbols {
 			isRecovered, reason := r.checkSymbolRecovery(symbol)
 			record := &storage.RiskCheckRecord{
-				CheckTime: checkTime,
-				BotID:     botID,
-				Exchange:  exchangeName,
+				CheckTime:  checkTime,
+				BotID:      botID,
+				Exchange:   exchangeName,
 				MarketType: marketType,
-				Symbol:    symbol,
-				IsHealthy: isRecovered,
-				Reason:    reason,
+				Symbol:     symbol,
+				IsHealthy:  isRecovered,
+				Reason:     reason,
 			}
-			// 獲取價格偏离和成交量比率
-			if symbolData, exists := r.symbolDataMap[symbol]; exists {
-				symbolData.mu.RLock()
-				candles := symbolData.candles
-				candleCount := len(candles)
-				symbolData.mu.RUnlock()
-
-				if candleCount >= r.cfg.RiskControl.AverageWindow+1 {
-					currentCandle := candles[candleCount-1]
-					var totalPrice, totalVol float64
-					var validCount int
-					window := r.cfg.RiskControl.AverageWindow
-
-					for i := candleCount - 2; i >= 0 && validCount < window; i-- {
-						if candles[i].IsClosed {
-							totalPrice += candles[i].Close
-							totalVol += candles[i].Volume
-							validCount++
-						}
-					}
-
-					if validCount >= window {
-						avgPrice := totalPrice / float64(validCount)
-						avgVol := totalVol / float64(validCount)
-						record.PriceDeviation = (currentCandle.Close - avgPrice) / avgPrice * 100
-						record.VolumeRatio = currentCandle.Volume / avgVol
-					}
-				}
-			}
+			// 恢復判定只用完結 K 線，記錄口徑保持一致
+			r.statsForRecord(record, false)
 			checkRecords = append(checkRecords, record)
 		}
 
@@ -264,7 +221,7 @@ func (r *RiskMonitor) checkMarket() {
 				}
 			}
 			logger.Info("✅ 市场风險信号消失，解除风控限制。(%d/%d 币种已恢複正常，达到恢複阈值 %d)",
-				recoveredCount, len(r.cfg.RiskControl.MonitorSymbols), r.cfg.RiskControl.RecoveryThreshold)
+				recoveredCount, len(r.cfg.RiskControl.MonitorSymbols), r.params().resolved.RecoveryThreshold)
 			logger.Info("详情: %s", strings.Join(details, ", "))
 			r.triggered = false
 			r.recoveredTime = time.Now()
@@ -293,43 +250,15 @@ func (r *RiskMonitor) checkMarket() {
 
 				// 收集检查結果
 				record := &storage.RiskCheckRecord{
-					CheckTime: checkTime,
-					BotID:     botID,
-					Exchange:  exchangeName,
+					CheckTime:  checkTime,
+					BotID:      botID,
+					Exchange:   exchangeName,
 					MarketType: marketType,
-					Symbol:    symbol,
-					IsHealthy: !isPanic,
-					Reason:    reason,
+					Symbol:     symbol,
+					IsHealthy:  !isPanic,
+					Reason:     reason,
 				}
-				// 獲取價格偏离和成交量比率
-				if symbolData, exists := r.symbolDataMap[symbol]; exists {
-					symbolData.mu.RLock()
-					candles := symbolData.candles
-					candleCount := len(candles)
-					symbolData.mu.RUnlock()
-
-					if candleCount >= r.cfg.RiskControl.AverageWindow+1 {
-						currentCandle := candles[candleCount-1]
-						var totalPrice, totalVol float64
-						var validCount int
-						window := r.cfg.RiskControl.AverageWindow
-
-						for i := candleCount - 2; i >= 0 && validCount < window; i-- {
-							if candles[i].IsClosed {
-								totalPrice += candles[i].Close
-								totalVol += candles[i].Volume
-								validCount++
-							}
-						}
-
-						if validCount >= window {
-							avgPrice := totalPrice / float64(validCount)
-							avgVol := totalVol / float64(validCount)
-							record.PriceDeviation = (currentCandle.Close - avgPrice) / avgPrice * 100
-							record.VolumeRatio = currentCandle.Volume / avgVol
-						}
-					}
-				}
+				r.statsForRecord(record, true)
 				checkRecords = append(checkRecords, record)
 
 				if isPanic {
@@ -339,10 +268,10 @@ func (r *RiskMonitor) checkMarket() {
 			}
 		}
 
-		// 全部币种都出現异常或新闻触发時才触发
+		// 異常交易對數達到 min_panic_symbols（默認全部；多交易對時至少 2 個）或新闻触发時才触发
 		r.mu.Lock()
 		pm := metrics.GetPrometheusMetrics()
-		if panicCount > 0 && panicCount >= len(r.cfg.RiskControl.MonitorSymbols) {
+		if panicCount > 0 && panicCount >= r.params().resolved.MinPanicSymbols {
 			logger.Warn("🚨🚨🚨 触发主动安全风控！市场出現集体异动！🚨🚨🚨")
 			logger.Warn("详情: %s", strings.Join(details, ", "))
 			r.triggered = true
@@ -442,8 +371,9 @@ func (r *RiskMonitor) checkRecovery() (bool, []string) {
 		}
 	}
 
-	// 达到恢複阈值即可解除风控
-	threshold := r.cfg.RiskControl.RecoveryThreshold
+	// 达到恢複阈值即可解除风控。阈值按監控數夾緊到 [1, n]：
+	// 單交易對 runtime 沿用全局 recovery_threshold=3 時舊代碼永遠 1<3 無法恢復（測試網試跑實錘）
+	threshold := r.params().resolved.RecoveryThreshold
 	return recoveredCount >= threshold, details
 }
 
@@ -457,63 +387,9 @@ func (r *RiskMonitor) checkSymbolRecovery(symbol string) (bool, string) {
 
 	symbolData.mu.RLock()
 	candles := symbolData.candles
-	candleCount := len(candles)
 	symbolData.mu.RUnlock()
 
-	if candleCount < r.cfg.RiskControl.AverageWindow+1 {
-		return false, "數據不足"
-	}
-
-	// 找到最新的完結K線用於判断（如果最后一根是未完結的，使用倒數第二根）
-	var currentCandle *exchange.Candle
-	var currentPrice float64
-
-	for i := candleCount - 1; i >= 0; i-- {
-		if candles[i].IsClosed {
-			currentCandle = candles[i]
-			currentPrice = currentCandle.Close
-			break
-		}
-	}
-
-	if currentCandle == nil {
-		return false, "無完結K線"
-	}
-
-	// 计算移动平均價格和移动平均成交量（只使用完結的K線，排除當前用於判断的这根）
-	var totalPrice float64
-	var totalVol float64
-	var validCount int
-	window := r.cfg.RiskControl.AverageWindow
-
-	for i := candleCount - 1; i >= 0 && validCount < window; i-- {
-		if candles[i].IsClosed && candles[i] != currentCandle {
-			totalPrice += candles[i].Close
-			totalVol += candles[i].Volume
-			validCount++
-		}
-	}
-
-	if validCount < window {
-		return false, fmt.Sprintf("完結K線不足(%d<%d)", validCount, window)
-	}
-
-	avgPrice := totalPrice / float64(validCount)
-	avgVol := totalVol / float64(validCount)
-
-	// 恢複条件：價格 > 均價 且 成交量 < 均值×倍數（與触发条件對应）
-	priceAboveMA := currentPrice > avgPrice
-	volNormal := currentCandle.Volume < avgVol*r.cfg.RiskControl.VolumeMultiplier
-
-	if priceAboveMA && volNormal {
-		return true, "價格回归均線/量正常"
-	}
-
-	// 返回未恢複原因
-	if !priceAboveMA {
-		return false, fmt.Sprintf("價格%.2f<均價%.2f", currentPrice, avgPrice)
-	}
-	return false, fmt.Sprintf("量%.0f>均量×%.1f", currentCandle.Volume, r.cfg.RiskControl.VolumeMultiplier)
+	return r.params().evaluateRecovery(candles)
 }
 
 // checkSymbol 检查單個币种（基於移动平均線）
@@ -529,49 +405,11 @@ func (r *RiskMonitor) checkSymbol(symbol string) (bool, string) {
 
 	symbolData.mu.RLock()
 	candles := symbolData.candles
-	candleCount := len(candles)
 	symbolData.mu.RUnlock()
 
-	if candleCount < r.cfg.RiskControl.AverageWindow+1 {
-		return false, ""
-	}
-
-	// 最新K線（可以是未完結的，用於實時检测）
-	currentCandle := candles[candleCount-1]
-	currentPrice := currentCandle.Close
-
-	// 计算移动平均價格和移动平均成交量（使用历史完結的K線）
-	var totalPrice float64
-	var totalVol float64
-	var validCount int
-	window := r.cfg.RiskControl.AverageWindow
-
-	// 從倒數第二根K線开始往前计算（排除當前可能未完結的K線）
-	for i := candleCount - 2; i >= 0 && validCount < window; i-- {
-		if candles[i].IsClosed {
-			totalPrice += candles[i].Close
-			totalVol += candles[i].Volume
-			validCount++
-		}
-	}
-
-	if validCount < window {
-		return false, ""
-	}
-
-	avgPrice := totalPrice / float64(validCount)
-	avgVol := totalVol / float64(validCount)
-
-	// 计算當前價格偏离均線的百分比
-	priceDeviation := (currentPrice - avgPrice) / avgPrice * 100
-	volRatio := currentCandle.Volume / avgVol
-
-	// 触发条件：當前價格 < 均價 且 成交量放大（使用最新數據，包括未完結K線）
-	if currentPrice < avgPrice && currentCandle.Volume > avgVol*r.cfg.RiskControl.VolumeMultiplier {
-		return true, fmt.Sprintf("價格%.2f%%低於均線/量×%.1f", priceDeviation, volRatio)
-	}
-
-	return false, ""
+	// 触发条件：跌破均線且跌幅 ≥ max(min_price_drop_pct[×單交易對係數], k×收益率標準差)，
+	// 且量比 > volume_multiplier，且最新 K 線未過期
+	return r.params().evaluatePanic(candles, r.now())
 }
 
 // IsTriggered 返回是否触发风控
@@ -852,9 +690,10 @@ func (r *RiskMonitor) printMovingAverages(inRiskControl bool) {
 		priceDeviation := (currentPrice - avgPrice) / avgPrice * 100
 		volRatio := currentVol / avgVol
 
-		// 判断各项指標状態
-		priceAboveMA := currentPrice > avgPrice
-		volNormal := currentVol < avgVol*r.cfg.RiskControl.VolumeMultiplier
+		// 判断各项指標状態（與 evaluateRecovery / evaluatePanic 同口徑）
+		p := r.params()
+		priceAboveMA := p.priceRecovered(klineStats{priceDevPct: priceDeviation})
+		volNormal := volRatio < p.volumeMultiplier || (inRiskControl && priceDeviation >= 0)
 
 		// 根據是否在风控中，显示不同的状態信息
 		klineStatus := "完結"
@@ -889,9 +728,9 @@ func (r *RiskMonitor) printMovingAverages(inRiskControl bool) {
 				// 异常状態，說明未恢複的原因
 				var priceStatus, volStatus string
 				if priceAboveMA {
-					priceStatus = "現價在均價上方已恢複"
+					priceStatus = "價格已回到均線附近"
 				} else {
-					priceStatus = "現價在均價下方未恢複"
+					priceStatus = fmt.Sprintf("價格低於均線超過%.2f%%未恢複", p.resolved.RecoveryMaxDropPct)
 				}
 				if volNormal {
 					volStatus = "成交量已恢複"
@@ -902,11 +741,8 @@ func (r *RiskMonitor) printMovingAverages(inRiskControl bool) {
 					klineStatus, klineAgeStr, currentPrice, avgPrice, priceDeviation, priceStatus, currentVol, avgVol, volRatio, volStatus)
 			}
 		} else {
-			// 非风控状態，判断异常需要同時满足两個条件：價格低於均價 且 成交量超過配置倍數
-			isPriceBelow := !priceAboveMA
-			isVolHigh := !volNormal
-
-			if isPriceBelow && isVolHigh {
+			// 非风控状態：與觸發判定同口徑（跌幅門檻 + 量比 + 過期檢查）
+			if isPanic, _ := p.evaluatePanic(candles, r.now()); isPanic {
 				// 同時满足两個条件才是真正的异常
 				statusMsg = fmt.Sprintf("🚨异常[%s|%s]: 當前價=%.4f, 均價=%.4f (偏离%.2f%%), 當前量=%.0f, 均量=%.0f (倍數×%.2f)",
 					klineStatus, klineAgeStr, currentPrice, avgPrice, priceDeviation, currentVol, avgVol, volRatio)

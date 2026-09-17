@@ -306,6 +306,49 @@ Web API：`POST /api/bots/create`、`PUT /api/bots/:id/strategy`（整段替換 
 - `funding_rate.enabled`（資金費監控總開關）不能按 Bot 覆蓋，資金費定價仍需全局開啟。
 - 只作用於網格類 Bot；`funding_carry`、`funding_perp_spread` 不使用這些配置。
 
+### 主動安全風控：K 線集體異動檢測（`risk_control`）
+
+檢測器對每個監控交易對取最新 K 線（可為未收盤），與之前 `average_window` 根已收盤 K 線的均價、均量比較。某交易對判為異常需同時滿足：
+
+1. 價格低於均線，且跌幅 ≥ max(`min_price_drop_pct`（只監控 1 個交易對時再乘 `single_symbol_drop_factor`），`volatility_multiplier` × 窗口內 1 根 K 線收盤收益率的標準差)；
+2. 量比 > `volume_multiplier`；
+3. 最新 K 線開盤時間距今不超過 `stale_bars` 個周期（過期數據不觸發）。
+
+異常交易對數達到 `min_panic_symbols` 時觸發並停止開倉。觸發後只用已收盤 K 線判斷恢復：價格低於均線不超過 `recovery_max_drop_pct`，且量比 < `volume_multiplier`（價格已回到均線上方時不看量），恢復的交易對數達到 `recovery_threshold` 即解除。
+
+K 線緩存按開盤時間合併：同一根 K 線的更新和收盤版本替換原記錄，不再重複追加；亂序的舊 K 線忽略；REST 歷史 K 線中尚未收盤的最後一根標記為未收盤，不計入均線。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| `enabled` / `monitor_symbols` / `interval` | — | true / 5 個主流幣 / 1m | 含義不變。按交易對運行的 Bot 只監控本 Bot 的交易對 |
+| `volume_multiplier` | float64 | 3.0 | 含義不變：量比閾值 |
+| `average_window` | int | 20 | 含義不變：均線/均量窗口 |
+| `recovery_threshold` | int | 3 | 含義不變：解除所需恢復的交易對數。**現在按監控數夾緊到 [1, n]**：此前單交易對 Bot 沿用 3 時永遠無法恢復 |
+| `min_price_drop_pct` | float64 | 0.5 | 新增。最小跌幅（百分比，0.5 = 0.5%）。0 = 默認值，負數 = 不設最小跌幅 |
+| `volatility_multiplier` | float64 | 3 | 新增。跌幅還需 ≥ k × 收益率標準差。0 = 默認值，負數 = 關閉 |
+| `single_symbol_drop_factor` | float64 | 2 | 新增。只監控 1 個交易對時最小跌幅乘以該係數（默認即 1%）。0 = 默認值，負數 = 不加嚴 |
+| `min_panic_symbols` | int | 0（全部） | 新增。觸發所需異常交易對數；0 或超過監控數時取監控數（與舊行為一致）；監控 ≥2 個交易對時至少為 2 |
+| `recovery_max_drop_pct` | float64 | 0.1 | 新增。恢復時允許價格仍低於均線的幅度（百分比）。0 = 默認值，負數 = 必須回到均線上方（舊行為） |
+| `stale_bars` | int | 3 | 新增。最新 K 線超過 N 個周期未更新時不參與觸發。0 = 默認值，負數 = 關閉 |
+
+需要完全回到舊的觸發條件（只要跌破均線並放量即觸發）時，把 `min_price_drop_pct` 和 `volatility_multiplier` 都設為負數。
+
+```yaml
+risk_control:
+  enabled: true
+  monitor_symbols: [BTCUSDT, ETHUSDT, SOLUSDT]
+  interval: 1m
+  volume_multiplier: 3
+  average_window: 20
+  recovery_threshold: 2
+  min_price_drop_pct: 0.5
+  volatility_multiplier: 3
+  single_symbol_drop_factor: 2
+  min_panic_symbols: 2
+  recovery_max_drop_pct: 0.1
+  stale_bars: 3
+```
+
 ## 配置模板
 
 ### 模板 1: 单机开发环境

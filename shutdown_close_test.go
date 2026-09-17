@@ -43,7 +43,7 @@ func (f *shutdownCloseFake) simulateStop(rt *SymbolRuntime) {
 	symbol := sc.Symbol
 	runCloseOnStop(context.Background(), sc, closeOnStopActions{
 		cancelAllOrders: func() {},
-		liquidateAll:    func() { f.botCalls[symbol]++ },
+		liquidateAll:    func(context.Context) error { f.botCalls[symbol]++; return nil },
 		closePositions: func(context.Context, config.ClosePositionConfig) error {
 			f.botCalls[symbol]++
 			return nil
@@ -119,7 +119,7 @@ func TestRunCloseOnStopSkipsWhenExchangeFlat(t *testing.T) {
 	sc := config.SymbolConfig{Symbol: "BTCUSDT", CloseOnStop: true}
 	runCloseOnStop(context.Background(), sc, closeOnStopActions{
 		cancelAllOrders:      func() { calls++ },
-		liquidateAll:         func() { calls++ },
+		liquidateAll:         func(context.Context) error { calls++; return nil },
 		closePositions:       func(context.Context, config.ClosePositionConfig) error { calls++; return nil },
 		exchangePositionFlat: func(context.Context) (bool, error) { return true, nil },
 	})
@@ -130,7 +130,7 @@ func TestRunCloseOnStopSkipsWhenExchangeFlat(t *testing.T) {
 	// 重查失敗時不阻斷平倉
 	runCloseOnStop(context.Background(), sc, closeOnStopActions{
 		cancelAllOrders:      func() {},
-		liquidateAll:         func() { calls++ },
+		liquidateAll:         func(context.Context) error { calls++; return nil },
 		closePositions:       func(context.Context, config.ClosePositionConfig) error { return nil },
 		exchangePositionFlat: func(context.Context) (bool, error) { return false, errors.New("timeout") },
 	})
