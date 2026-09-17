@@ -19,6 +19,30 @@ type OrderIDGenerator struct {
 
 var globalIDGen = &OrderIDGenerator{}
 
+// maxOrderIDSeqPerSecond 每個邏輯秒可分配的最大序號。
+// 舊格式 / OKX 格式序號固定 3 位十進制（≤999），緊湊格式序號固定 2 位 base36（≤1295），取兩者較小值，
+// 保證所有格式序號都不截斷、不溢出位寬。
+const maxOrderIDSeqPerSecond = 999
+
+// nextLocked 分配 (秒, 序號)，調用方持有 g.mu。
+//
+// 邏輯秒單調不減：牆鐘秒大於上次時切換到新秒並重置序號；牆鐘回撥時沿用上次的秒；
+// 同一秒內序號用盡（>999 筆/秒，如加速回放）時借用下一秒。
+// 因此同一進程內 (秒, 序號) 永不重複，ID 格式與長度不變；
+// 代價是突發下單時 ID 中的時間戳可能略超前於牆鐘（ID 中的時間戳不參與交易決策）。
+func (g *OrderIDGenerator) nextLocked(wallSec int64) (int64, int) {
+	if wallSec > g.lastSec {
+		g.lastSec = wallSec
+		g.sequence = 0
+	}
+	if g.sequence >= maxOrderIDSeqPerSecond {
+		g.lastSec++
+		g.sequence = 0
+	}
+	g.sequence++
+	return g.lastSec, g.sequence
+}
+
 // GenerateOrderID 生成紧凑的订單ID
 // 格式: {price_int}_{side}_{timestamp}{seq}
 //
@@ -48,20 +72,11 @@ func GenerateOrderID(price float64, side string, priceDecimals int) string {
 		sideCode = "S"
 	}
 
-	// 3. 生成紧凑的時间戳 + 序列号
-	now := time.Now()
-	currentSec := now.Unix()
-
-	// 重置序列号（每秒重置）
-	if currentSec != globalIDGen.lastSec {
-		globalIDGen.lastSec = currentSec
-		globalIDGen.sequence = 0
-	}
-
-	globalIDGen.sequence++
+	// 3. 生成紧凑的時间戳 + 序列号（邏輯秒單調、序號不溢出，見 nextLocked）
+	currentSec, seq := globalIDGen.nextLocked(time.Now().Unix())
 
 	// 時间戳(10位) + 序列号(3位) = 13字符
-	timestampSeq := fmt.Sprintf("%d%03d", currentSec, globalIDGen.sequence)
+	timestampSeq := fmt.Sprintf("%d%03d", currentSec, seq)
 
 	// 優先使用可讀的舊格式
 	legacy := fmt.Sprintf("%d_%s_%s", priceInt, sideCode, timestampSeq)
@@ -72,12 +87,9 @@ func GenerateOrderID(price float64, side string, priceDecimals int) string {
 	// 超長時使用緊湊格式: c{price36}_{side}_{ts36}{seq36}
 	priceB36 := strings.ToLower(strconv.FormatInt(priceInt, 36))
 	tsB36 := strings.ToLower(strconv.FormatInt(currentSec, 36))
-	seqB36 := strings.ToLower(strconv.FormatInt(int64(globalIDGen.sequence), 36))
+	seqB36 := strings.ToLower(strconv.FormatInt(int64(seq), 36))
 	if len(seqB36) < 2 {
 		seqB36 = strings.Repeat("0", 2-len(seqB36)) + seqB36
-	}
-	if len(seqB36) > 2 {
-		seqB36 = seqB36[len(seqB36)-2:]
 	}
 	return fmt.Sprintf("c%s_%s_%s%s", priceB36, sideCode, tsB36, seqB36)
 }
@@ -96,15 +108,9 @@ func GenerateOrderIDOKX(price float64, side string, priceDecimals int) string {
 		sideCode = "S"
 	}
 
-	now := time.Now()
-	currentSec := now.Unix()
-	if currentSec != globalIDGen.lastSec {
-		globalIDGen.lastSec = currentSec
-		globalIDGen.sequence = 0
-	}
-	globalIDGen.sequence++
+	currentSec, seq := globalIDGen.nextLocked(time.Now().Unix())
 
-	timestampSeq := fmt.Sprintf("%d%03d", currentSec, globalIDGen.sequence)
+	timestampSeq := fmt.Sprintf("%d%03d", currentSec, seq)
 	return fmt.Sprintf("%d%s%s", priceInt, sideCode, timestampSeq)
 }
 

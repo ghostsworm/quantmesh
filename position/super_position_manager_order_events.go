@@ -1,7 +1,6 @@
 package position
 
 import (
-	"context"
 	"math"
 	"strings"
 	"time"
@@ -50,6 +49,12 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 			price, slot.ClientOID, update.ClientOrderID, update.OrderID)
 		return
 	}
+	// 已完全成交並重置的訂單再次推送（WS 重放/重連補推/延遲到達）：不得再次記賬持倉與手續費
+	if slot.ClientOID == "" && update.ClientOrderID != "" && update.ClientOrderID == slot.lastFilledClientOID {
+		logger.Debug("⏭️ [订單更新被忽略] 槽位 %.2f: 訂單 %s 已完全成交，忽略重複推送 (status=%s)",
+			price, update.ClientOrderID, update.Status)
+		return
+	}
 
 	// 更新订單ID (如果是首個推送)
 	if slot.OrderID == 0 {
@@ -85,6 +90,14 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 		slot.OrderFilledQty = update.ExecutedQty
 
+		// 手續費按「每筆成交」累計：交易所在每次 PARTIALLY_FILLED/FILLED 推送中攜帶的是本筆成交的手續費。
+		// 僅在成交數量有正增量時記賬，重複/重放的同一推送（增量為 0）不會重複累加。
+		fillCommission := 0.0
+		if deltaQty > 0 {
+			fillCommission = update.Commission
+			slot.addOrderCommissionLocked(orderClientOID, fillCommission, update.BaseFeeQty)
+		}
+
 		// 根據方向更新持倉：LONG 時 BUY=開倉(加倉) SELL=平倉(減倉)；SHORT 時 SELL=開倉 BUY=平倉
 		// BOTH：依槽位 PositionLeg 判斷開倉/平倉
 		if spm.isOpenLegOrderSide(side, slot) {
@@ -119,17 +132,32 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					}
 				}
 
+				// 現貨買入且手續費以基礎幣扣收：實際到帳 = 成交增量 − 基礎幣手續費
+				receivedQty := spm.netReceivedQty(side, deltaQty, update.BaseFeeQty)
 				// 计算新的平均买入价格
 				if slot.PositionQty > 0 && slot.AvgBuyPrice > 0 {
 					// 加权平均：(旧价格 * 旧数量 + 新价格 * 新数量) / 总数量
-					totalCost := slot.AvgBuyPrice*slot.PositionQty + actualBuyPrice*deltaQty
-					slot.AvgBuyPrice = totalCost / (slot.PositionQty + deltaQty)
+					totalCost := slot.AvgBuyPrice*slot.PositionQty + actualBuyPrice*receivedQty
+					if total := slot.PositionQty + receivedQty; total > 0 {
+						slot.AvgBuyPrice = totalCost / total
+					}
 				} else {
 					// 首次买入或之前没有持仓，直接使用当前买入价格
 					slot.AvgBuyPrice = actualBuyPrice
 				}
 
-				slot.PositionQty += deltaQty
+				slot.PositionQty += receivedQty
+				if receivedQty != deltaQty {
+					// 訂單結束時再向下取整到數量精度（見 floorBaseFeePositionLocked），部分成交期間保留精確值避免逐筆截斷累積損失
+					slot.baseFeeUnfloored = true
+					logger.Info("🪙 [現貨基礎幣手續費] 槽位 %s: 成交 %.8f, 基礎幣手續費 %.8f, 實際到帳 %.8f",
+						formatPrice(price, spm.priceDecimals), deltaQty, update.BaseFeeQty, receivedQty)
+				}
+				// 🔥 累計開倉手續費（平倉時按比例攤銷）
+				slot.BuyFee += fillCommission
+				if fillCommission != 0 && update.CommissionAsset != "" {
+					slot.FeeAsset = update.CommissionAsset
+				}
 				// D3：成交部分的預留资金轉為槽位持倉占用（平倉成交時再按比例釋放）
 				spm.applyOpeningFillAllocationLocked(slot, orderClientOID, deltaQty, actualBuyPrice, update.Status == "FILLED")
 				// 累加统计
@@ -142,11 +170,15 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					// 最後一筆成交增量已在 PARTIALLY_FILLED 中處理：把剩餘預留全部轉為持倉占用
 					spm.applyOpeningFillAllocationLocked(slot, orderClientOID, 0, 0, true)
 				}
+				// 🔥 整筆訂單的推送都未帶手續費（如 Bybit order topic），異步查詢補充一次（按訂單全部成交匯總）
+				spm.startFeeSupplementLocked(slot, update, orderClientOID, side, true)
+				spm.floorBaseFeePositionLocked(slot)
 				slot.OrderStatus = OrderStatusNotPlaced // 重置订單状態
 				slot.OrderID = 0
 				slot.ClientOID = ""
 				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
+				slot.lastFilledClientOID = orderClientOID
 
 				slot.PositionStatus = PositionStatusFilled // 標記為有倉
 				if spm.isBoth() {
@@ -155,15 +187,6 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					} else {
 						slot.PositionLeg = PositionLegShort
 					}
-				}
-				// 🔥 累計買入手續費（賣出時按比例攤銷）
-				slot.BuyFee += update.Commission
-				if update.CommissionAsset != "" {
-					slot.FeeAsset = update.CommissionAsset
-				}
-				// 🔥 如果 WebSocket 未提供手續費，異步查詢補充
-				if update.Commission == 0 && update.OrderID > 0 {
-					go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, side, slot)
 				}
 				// 🔥 释放槽位鎖：買單成交，允許后续挂賣單
 				slot.SlotStatus = SlotStatusFree
@@ -265,14 +288,10 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						}
 
 						// 🔥 手續費：買入攤銷 + 賣出本次手續費（feeFromBuy 已在上面计算）
-						totalFee := feeFromBuy + update.Commission
+						totalFee := feeFromBuy + fillCommission
 						feeAsset := update.CommissionAsset
 						if feeAsset == "" {
 							feeAsset = slot.FeeAsset
-						}
-						// 🔥 如果 WebSocket 未提供賣出手續費，異步查詢補充
-						if update.Commission == 0 && update.OrderID > 0 {
-							go spm.supplementCommission(context.Background(), update.OrderID, update.Symbol, "SELL", slot)
 						}
 
 						// 🔥 添加合理性检查：如果盈亏异常大，記錄警告
@@ -307,7 +326,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						if tradeStWithPnL, ok := spm.tradeStorage.(interface {
 							SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
 						}); ok {
-							if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, exchangePnL, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, time.Now(), spm.botID); err != nil {
+							if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, exchangePnL, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, spm.now(), spm.botID); err != nil {
 								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
 							} else {
 								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 網格盈亏: %.4f, 交易所盈亏: %.4f, 手續費: %.4f %s, 買入偏差: %.4f, 賣出偏差: %.4f",
@@ -317,7 +336,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 							SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
 						}); ok {
 							// 降级：使用带偏差的接口（不含交易所盈亏）
-							if err := tradeStWithDev.SaveTradeWithDeviation(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, time.Now(), spm.botID); err != nil {
+							if err := tradeStWithDev.SaveTradeWithDeviation(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, spm.now(), spm.botID); err != nil {
 								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
 							} else {
 								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s, 買入偏差: %.4f, 賣出偏差: %.4f",
@@ -325,7 +344,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 							}
 						} else {
 							// 降级：使用旧接口
-							if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, time.Now(), spm.botID); err != nil {
+							if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, spm.now(), spm.botID); err != nil {
 								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
 							} else {
 								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s",
@@ -338,14 +357,18 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 			}
 
 			if update.Status == "FILLED" {
+				// 🔥 整筆平倉單推送都未帶手續費，異步查詢補充一次（交易記錄已保存，補查結果寫入更正記錄）
+				spm.startFeeSupplementLocked(slot, update, orderClientOID, side, false)
 				slot.OrderStatus = OrderStatusNotPlaced // 重置订單状態
 				slot.OrderID = 0
 				slot.ClientOID = ""
 				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
+				slot.lastFilledClientOID = orderClientOID
 
 				if slot.PositionQty < 0.000001 {
 					slot.PositionStatus = PositionStatusEmpty // 標記為空倉
+					slot.resetPositionCycleLocked()
 					if spm.isBoth() {
 						slot.PositionLeg = PositionLegNone
 					}
@@ -395,8 +418,13 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				// 部分成交后被取消：保留持倉，允許后续挂平倉單
 				logger.Info("💡 [開倉單部分成交后取消] 價格: %s, 方向: %s, 持倉: %.4f, 轉為有倉状態",
 					formatPrice(price, spm.priceDecimals), side, slot.PositionQty)
+				spm.floorBaseFeePositionLocked(slot)
 				slot.PositionStatus = PositionStatusFilled
 				slot.SlotStatus = SlotStatusFree // 允許挂平倉單
+				// 部分成交的推送都未帶手續費：補查一次已成交部分的手續費
+				if slot.OrderFilledQty > 0 {
+					spm.startFeeSupplementLocked(slot, update, orderClientOID, side, true)
+				}
 			} else {
 				// 完全未成交被取消：重置為空槽位
 				logger.Info("🔄 [開倉單未成交取消] 價格: %s, 方向: %s, 重置槽位為空闲",
@@ -422,6 +450,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				logger.Warn("⚠️ [异常] 平倉單取消但無持倉，價格: %s, 方向: %s, 重置為空",
 					formatPrice(price, spm.priceDecimals), side)
 				slot.PositionStatus = PositionStatusEmpty
+				slot.resetPositionCycleLocked()
 				if spm.isBoth() {
 					slot.PositionLeg = PositionLegNone
 				}

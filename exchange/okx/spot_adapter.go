@@ -2,6 +2,7 @@ package okx
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -10,6 +11,19 @@ import (
 
 	"quantmesh/logger"
 	"quantmesh/utils"
+)
+
+const (
+	// okxSpotTdModeCash 現貨非槓桿交易模式
+	okxSpotTdModeCash = "cash"
+	// okxSpotTgtCcyBase 市價單 sz 以基礎幣計（OKX 現貨市價買單默認按計價幣計）
+	okxSpotTgtCcyBase = "base_ccy"
+	// okxSpotDefaultQuote 無法從交易對解析計價幣時的默認值
+	okxSpotDefaultQuote = "USDT"
+	// okxSpotCancelInterval 逐筆撤單間隔，避免觸發限頻
+	okxSpotCancelInterval = 50 * time.Millisecond
+	// okxInsufficientBalanceCode OKX 餘額不足錯誤碼
+	okxInsufficientBalanceCode = "51008"
 )
 
 // symbolToSpotInstId BTCUSDT -> BTC-USDT
@@ -68,44 +82,75 @@ func NewOKXSpotAdapter(cfg map[string]string, symbol string) (*OKXSpotAdapter, e
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := adapter.fetchSpotInstrument(ctx); err != nil {
+		// 不再寫死 tickSz/lotSz/minSz：步長按精度推算，最小下單量交給交易所校驗
 		logger.Warn("⚠️ [OKX Spot] 獲取交易對信息失败: %v，使用默认精度", err)
 		adapter.priceDecimals = 2
 		adapter.quantityDecimals = 5
-		adapter.tickSz = 0.1
-		adapter.lotSz = 0.00000001
-		adapter.minSz = 0.00001
-		adapter.baseAsset = strings.Split(instId, "-")[0]
-		adapter.quoteAsset = "USDT"
+	}
+	if adapter.baseAsset == "" || adapter.quoteAsset == "" {
+		base, quote := splitSpotInstId(instId)
+		if adapter.baseAsset == "" {
+			adapter.baseAsset = base
+		}
+		if adapter.quoteAsset == "" {
+			adapter.quoteAsset = quote
+		}
 	}
 	return adapter, nil
 }
 
+// splitSpotInstId BTC-USDT → BTC, USDT
+func splitSpotInstId(instId string) (base, quote string) {
+	parts := strings.SplitN(instId, "-", 2)
+	base = parts[0]
+	quote = okxSpotDefaultQuote
+	if len(parts) == 2 && parts[1] != "" {
+		quote = parts[1]
+	}
+	return base, quote
+}
+
 func (o *OKXSpotAdapter) fetchSpotInstrument(ctx context.Context) error {
-	instruments, err := o.client.GetInstruments(ctx, "SPOT", o.instId)
-	if err != nil || len(instruments) == 0 {
+	instruments, err := o.client.GetInstruments(ctx, okxInstTypeSpot, o.instId)
+	if err != nil {
+		return fmt.Errorf("查詢現貨交易對 %s 失败: %w", o.instId, err)
+	}
+	if len(instruments) == 0 {
 		return fmt.Errorf("未找到現貨交易對: %s", o.instId)
 	}
-	inst := instruments[0]
-	tickSz, _ := strconv.ParseFloat(inst.TickSz, 64)
-	lotSz, _ := strconv.ParseFloat(inst.LotSz, 64)
-	minSz, _ := strconv.ParseFloat(inst.MinSz, 64)
+	return o.applySpotInstrument(instruments[0])
+}
+
+// applySpotInstrument 解析現貨規格（tickSz / lotSz / minSz / baseCcy / quoteCcy）
+func (o *OKXSpotAdapter) applySpotInstrument(inst Instrument) error {
+	tickSz, err := strconv.ParseFloat(inst.TickSz, 64)
+	if err != nil || tickSz <= 0 {
+		return fmt.Errorf("現貨 %s tickSz 無效: %q", inst.InstId, inst.TickSz)
+	}
+	lotSz, err := strconv.ParseFloat(inst.LotSz, 64)
+	if err != nil || lotSz <= 0 {
+		return fmt.Errorf("現貨 %s lotSz 無效: %q", inst.InstId, inst.LotSz)
+	}
+	minSz, err := strconv.ParseFloat(inst.MinSz, 64)
+	if err != nil || minSz < 0 {
+		minSz = lotSz
+	}
 	o.tickSz = tickSz
 	o.lotSz = lotSz
 	o.minSz = minSz
 	o.priceDecimals = getPrecision(tickSz)
 	o.quantityDecimals = getPrecision(lotSz)
-	o.baseAsset = inst.CtValCcy
+	base, quote := splitSpotInstId(o.instId)
+	o.baseAsset = inst.BaseCcy
 	if o.baseAsset == "" {
-		parts := strings.Split(o.instId, "-")
-		if len(parts) >= 1 {
-			o.baseAsset = parts[0]
-		}
+		o.baseAsset = base
 	}
-	o.quoteAsset = inst.SettleCcy
+	o.quoteAsset = inst.QuoteCcy
 	if o.quoteAsset == "" {
-		o.quoteAsset = "USDT"
+		o.quoteAsset = quote
 	}
-	logger.Info("ℹ️ [OKX Spot] %s - 數量精度:%d, 價格精度:%d", o.instId, o.quantityDecimals, o.priceDecimals)
+	logger.Info("ℹ️ [OKX Spot] %s - tickSz:%v lotSz:%v minSz:%v 數量精度:%d 價格精度:%d",
+		o.instId, tickSz, lotSz, minSz, o.quantityDecimals, o.priceDecimals)
 	return nil
 }
 
@@ -119,92 +164,126 @@ func (o *OKXSpotAdapter) GetMarketType() string {
 	return "spot"
 }
 
-// roundToOKXTick 將限價對齊到 tickSz（OKX 拒絕不符合 tick 的 px 時常回外層 code=1）
-func roundToOKXTick(price, tick float64) float64 {
-	if tick <= 0 || math.IsNaN(price) {
-		return price
-	}
-	ratio := price / tick
-	// 補償 float64 十進位小數誤差（例如 70052.95/0.1 略小於 700529.5）
-	steps := math.Round(ratio + 1e-8)
-	return steps * tick
-}
-
-// floorToOKXLot 將數量向下對齊到 lotSz，避免浮點餘數導致低於最小步長
-func floorToOKXLot(qty, lot float64) float64 {
-	if lot <= 0 || math.IsNaN(qty) {
-		return qty
-	}
-	return math.Floor(qty/lot+1e-12) * lot
-}
-
-// PlaceOrder 下單（現貨 tdMode=cash，忽略 ReduceOnly）
-func (o *OKXSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	side := string(req.Side)
-	orderType := string(req.Type)
-
-	price := req.Price
-	if o.tickSz > 0 {
-		price = roundToOKXTick(req.Price, o.tickSz)
-	}
-	qty := req.Quantity
+// effectiveLotSz 數量步長；交易對信息缺失時按數量精度推算
+func (o *OKXSpotAdapter) effectiveLotSz() float64 {
 	if o.lotSz > 0 {
-		qty = floorToOKXLot(req.Quantity, o.lotSz)
+		return o.lotSz
 	}
-	if qty <= 0 {
-		return nil, fmt.Errorf("數量對齊後為零（lotSz=%.10f），請調大 order_quantity", o.lotSz)
+	return math.Pow10(-o.quantityDecimals)
+}
+
+// effectiveTickSz 價格步長；交易對信息缺失時按價格精度推算
+func (o *OKXSpotAdapter) effectiveTickSz(priceDecimals int) float64 {
+	if o.tickSz > 0 {
+		return o.tickSz
 	}
-	if o.minSz > 0 && qty+1e-12 < o.minSz {
-		return nil, fmt.Errorf("數量 %.8f 低於 OKX 最小下單量 minSz=%.8f %s（請調大 order_quantity 或檢查價格）",
-			qty, o.minSz, o.baseAsset)
+	if priceDecimals <= 0 {
+		priceDecimals = o.priceDecimals
+	}
+	return math.Pow10(-priceDecimals)
+}
+
+// alignQuantity 數量向下取整到 lotSz，低於 minSz 直接拒絕（不靜默放大）
+func (o *OKXSpotAdapter) alignQuantity(qty float64) (float64, error) {
+	if math.IsNaN(qty) || math.IsInf(qty, 0) || qty <= 0 {
+		return 0, fmt.Errorf("OKX 現貨下單數量無效: %v", qty)
+	}
+	aligned := utils.FloorToStep(qty, o.effectiveLotSz())
+	if aligned <= 0 || (o.minSz > 0 && aligned < o.minSz) {
+		return 0, fmt.Errorf("OKX 現貨下單數量過小: %s 數量 %v（按 lotSz=%v 對齊後 %v）低於最小下單量 minSz=%v %s",
+			o.instId, qty, o.effectiveLotSz(), aligned, o.minSz, o.baseAsset)
+	}
+	return aligned, nil
+}
+
+// alignPrice 價格按方向對齊到 tickSz：買單向下、賣單向上，避免 post only 單穿價
+func (o *OKXSpotAdapter) alignPrice(price float64, side Side, priceDecimals int) (float64, error) {
+	if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+		return 0, fmt.Errorf("OKX 現貨限價單價格無效: %v", price)
+	}
+	tick := o.effectiveTickSz(priceDecimals)
+	switch side {
+	case SideBuy:
+		return utils.FloorToStep(price, tick), nil
+	case SideSell:
+		return utils.CeilToStep(price, tick), nil
+	default:
+		return 0, fmt.Errorf("OKX 不支援的訂單方向: %q", side)
+	}
+}
+
+// PlaceOrder 下單（現貨 tdMode=cash，忽略 ReduceOnly）。
+// 請求須為 OKX 原生值（buy/sell、limit/market/post_only），由 wrapper 通過映射表轉換。
+func (o *OKXSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if _, err := ToInternalSide(req.Side); err != nil {
+		return nil, fmt.Errorf("OKX 現貨下單失败(instId=%s): %w", o.instId, err)
+	}
+	// OKX 的 post only 是 ordType=post_only，不是獨立參數
+	orderType := req.Type
+	if req.PostOnly {
+		switch orderType {
+		case OrderTypeLimit:
+			orderType = OrderTypePostOnly
+		case OrderTypePostOnly:
+		default:
+			return nil, fmt.Errorf("OKX 現貨下單失败(instId=%s): 訂單類型 %q 不支援 post only", o.instId, orderType)
+		}
+	}
+	if orderType != OrderTypeLimit && orderType != OrderTypeMarket && orderType != OrderTypePostOnly {
+		return nil, fmt.Errorf("OKX 現貨下單失败(instId=%s): 不支援的訂單類型 %q", o.instId, orderType)
 	}
 
-	pxDecimals := o.priceDecimals
-	if pxDecimals <= 0 {
-		pxDecimals = 8
-	}
-	szDecimals := o.quantityDecimals
-	if szDecimals <= 0 {
-		szDecimals = 8
+	qty, err := o.alignQuantity(req.Quantity)
+	if err != nil {
+		return nil, err
 	}
 
 	orderReq := map[string]interface{}{
 		"instId":  o.instId,
-		"tdMode":  "cash", // 現貨
-		"side":    side,
-		"ordType": orderType,
-		"sz":      fmt.Sprintf("%.*f", szDecimals, qty),
-		"px":      fmt.Sprintf("%.*f", pxDecimals, price),
+		"tdMode":  okxSpotTdModeCash,
+		"side":    string(req.Side),
+		"ordType": string(orderType),
+		"sz":      strconv.FormatFloat(qty, 'f', getPrecision(o.effectiveLotSz()), 64),
 	}
-	if req.PostOnly {
-		orderReq["postOnly"] = true
+
+	price := req.Price
+	if orderType == OrderTypeMarket {
+		// 現貨市價買單默認 sz 為計價幣金額，統一指定按基礎幣數量
+		orderReq["tgtCcy"] = okxSpotTgtCcyBase
+	} else {
+		price, err = o.alignPrice(req.Price, req.Side, req.PriceDecimals)
+		if err != nil {
+			return nil, err
+		}
+		orderReq["px"] = strconv.FormatFloat(price, 'f', getPrecision(o.effectiveTickSz(req.PriceDecimals)), 64)
 	}
 	if req.ClientOrderID != "" {
 		orderReq["clOrdId"] = utils.AddBrokerPrefix("okx", req.ClientOrderID)
 	}
 	resp, err := o.client.PlaceOrder(ctx, orderReq)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("OKX 現貨下單失败(instId=%s side=%s sz=%v): %w", o.instId, req.Side, qty, err)
 	}
 	if len(resp) == 0 {
-		return nil, fmt.Errorf("下單响应為空")
+		return nil, fmt.Errorf("OKX 現貨下單响应為空(instId=%s)", o.instId)
 	}
 	r := resp[0]
 	if r.SCode != "0" {
 		return nil, fmt.Errorf("下單失败: %s - %s", r.SCode, r.SMsg)
 	}
 	orderID, _ := strconv.ParseInt(r.OrdId, 10, 64)
+	now := time.Now()
 	return &Order{
 		OrderID:       orderID,
 		ClientOrderID: r.ClOrdId,
 		Symbol:        o.symbol,
 		Side:          req.Side,
-		Type:          req.Type,
+		Type:          orderType,
 		Price:         price,
 		Quantity:      qty,
 		Status:        OrderStatusNew,
-		CreatedAt:     time.Now(),
-		UpdateTime:    time.Now().UnixMilli(),
+		CreatedAt:     now,
+		UpdateTime:    now.UnixMilli(),
 	}, nil
 }
 
@@ -216,7 +295,7 @@ func (o *OKXSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 		order, err := o.PlaceOrder(ctx, req)
 		if err != nil {
 			logger.Warn("⚠️ [OKX Spot] 下單失败: %v", err)
-			if strings.Contains(err.Error(), "51008") || strings.Contains(err.Error(), "insufficient") {
+			if strings.Contains(err.Error(), okxInsufficientBalanceCode) || strings.Contains(err.Error(), "insufficient") {
 				hasErr = true
 			}
 			continue
@@ -228,7 +307,10 @@ func (o *OKXSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 
 // CancelOrder 取消訂單
 func (o *OKXSpotAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
-	return o.client.CancelOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), "")
+	if err := o.client.CancelOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), ""); err != nil {
+		return fmt.Errorf("OKX 現貨撤單失败(instId=%s ordId=%d): %w", o.instId, orderID, err)
+	}
+	return nil
 }
 
 // BatchCancelOrders 批量撤單
@@ -240,29 +322,36 @@ func (o *OKXSpotAdapter) BatchCancelOrders(ctx context.Context, symbol string, o
 	for i, id := range orderIDs {
 		ids[i] = strconv.FormatInt(id, 10)
 	}
-	return o.client.BatchCancelOrders(ctx, o.instId, ids)
-}
-
-// CancelAllOrders 取消該交易對下所有订單
-func (o *OKXSpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
-	orders, err := o.client.GetOpenOrdersByInstType(ctx, "SPOT", o.instId)
-	if err != nil {
-		return err
-	}
-	for _, ord := range orders {
-		id, _ := strconv.ParseInt(ord.OrdId, 10, 64)
-		_ = o.CancelOrder(ctx, symbol, id)
-		time.Sleep(50 * time.Millisecond)
+	if err := o.client.BatchCancelOrders(ctx, o.instId, ids); err != nil {
+		return fmt.Errorf("OKX 現貨批量撤單失败(instId=%s 共 %d 筆): %w", o.instId, len(ids), err)
 	}
 	return nil
 }
 
-// GetOrder 查詢訂單
-func (o *OKXSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
-	ord, err := o.client.GetOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), "")
+// CancelAllOrders 取消該交易對下所有订單（任一筆失败都匯總返回，不吞錯）
+func (o *OKXSpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
+	orders, err := o.client.GetOpenOrdersByInstType(ctx, okxInstTypeSpot, o.instId)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("OKX 現貨查詢挂單失败(instId=%s): %w", o.instId, err)
 	}
+	var errs []error
+	for _, ord := range orders {
+		id, err := strconv.ParseInt(ord.OrdId, 10, 64)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("OKX 現貨挂單 ordId=%q 無法解析: %w", ord.OrdId, err))
+			continue
+		}
+		if err := o.CancelOrder(ctx, symbol, id); err != nil {
+			errs = append(errs, err)
+		}
+		time.Sleep(okxSpotCancelInterval)
+	}
+	return errors.Join(errs...)
+}
+
+// convertOrder REST 訂單 → 本地訂單（Side/Type/Status 保留 OKX 原生值，由 wrapper 映射）
+func (o *OKXSpotAdapter) convertOrder(ord *OKXOrder) *Order {
+	orderID, _ := strconv.ParseInt(ord.OrdId, 10, 64)
 	price, _ := strconv.ParseFloat(ord.Px, 64)
 	qty, _ := strconv.ParseFloat(ord.Sz, 64)
 	execQty, _ := strconv.ParseFloat(ord.AccFillSz, 64)
@@ -280,36 +369,31 @@ func (o *OKXSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID in
 		AvgPrice:      avgPx,
 		Status:        OrderStatus(ord.State),
 		UpdateTime:    uTime,
-	}, nil
+	}
+}
+
+// GetOrder 查詢訂單
+func (o *OKXSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
+	ord, err := o.client.GetOrder(ctx, o.instId, strconv.FormatInt(orderID, 10), "")
+	if err != nil {
+		return nil, fmt.Errorf("OKX 現貨查單失败(instId=%s ordId=%d): %w", o.instId, orderID, err)
+	}
+	order := o.convertOrder(ord)
+	if order.OrderID == 0 {
+		order.OrderID = orderID
+	}
+	return order, nil
 }
 
 // GetOpenOrders 未完成订單
 func (o *OKXSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
-	orders, err := o.client.GetOpenOrdersByInstType(ctx, "SPOT", o.instId)
+	orders, err := o.client.GetOpenOrdersByInstType(ctx, okxInstTypeSpot, o.instId)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("OKX 現貨查詢挂單失败(instId=%s): %w", o.instId, err)
 	}
 	result := make([]*Order, 0, len(orders))
-	for _, ord := range orders {
-		price, _ := strconv.ParseFloat(ord.Px, 64)
-		qty, _ := strconv.ParseFloat(ord.Sz, 64)
-		execQty, _ := strconv.ParseFloat(ord.AccFillSz, 64)
-		avgPx, _ := strconv.ParseFloat(ord.AvgPx, 64)
-		orderID, _ := strconv.ParseInt(ord.OrdId, 10, 64)
-		uTime, _ := strconv.ParseInt(ord.UTime, 10, 64)
-		result = append(result, &Order{
-			OrderID:       orderID,
-			ClientOrderID: ord.ClOrdId,
-			Symbol:        o.symbol,
-			Side:          Side(ord.Side),
-			Type:          OrderType(ord.OrdType),
-			Price:         price,
-			Quantity:      qty,
-			ExecutedQty:   execQty,
-			AvgPrice:      avgPx,
-			Status:        OrderStatus(ord.State),
-			UpdateTime:    uTime,
-		})
+	for i := range orders {
+		result = append(result, o.convertOrder(&orders[i]))
 	}
 	return result, nil
 }
@@ -333,7 +417,7 @@ func (o *OKXSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}
 	return &Account{
 		TotalWalletBalance: total,
-		TotalMarginBalance:  total,
+		TotalMarginBalance: total,
 		AvailableBalance:   available,
 		Positions:          nil,
 	}, nil
@@ -397,15 +481,96 @@ func (o *OKXSpotAdapter) GetBalance(ctx context.Context, asset string) (float64,
 	return 0, nil
 }
 
-// StartOrderStream 現貨私有訂單流（orders，instType=SPOT）
+// spotCommissionToQuote 把現貨手續費統一換算為計價幣口徑。
+// 上層（position 包）把 Commission 直接累加進 USDT 計的 BuyFee/PnL，因此：
+//   - 手續費幣種為基礎幣（OKX 現貨買單常見）→ 乘以成交價換算為計價幣，CommissionAsset 改為計價幣；
+//   - 手續費幣種為計價幣或為空 → 原樣返回，CommissionAsset 為計價幣；
+//   - 其他幣種（如平台幣抵扣）→ 無法換算，原樣返回並保留原幣種，由上層自行判斷。
+//
+// commission 已是「支出為正」口徑。
+func (o *OKXSpotAdapter) spotCommissionToQuote(commission float64, feeCcy string, fillPx float64) (float64, string) {
+	switch {
+	case feeCcy == "" || feeCcy == o.quoteAsset:
+		return commission, o.quoteAsset
+	case feeCcy == o.baseAsset && fillPx > 0:
+		return commission * fillPx, o.quoteAsset
+	default:
+		return commission, feeCcy
+	}
+}
+
+// StartOrderStream 現貨私有訂單流（orders，instType=SPOT），推送前統一換成內部口徑
 func (o *OKXSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if o.spotOrderWS != nil {
 		o.spotOrderWS.Stop()
 	}
 	o.spotOrderWS = NewSpotOrderWebSocketManager(o.client.apiKey, o.client.secretKey, o.client.passphrase, o.useTestnet, o.instId)
 	return o.spotOrderWS.Start(ctx, func(ou OrderUpdate) {
-		callback(ou)
+		update, err := o.normalizeSpotStreamUpdate(ou)
+		if err != nil {
+			logger.Error("❌ [OKX Spot WS] 丟棄無法識別的訂單推送 ordId=%d clOrdId=%s: %v", ou.OrderID, ou.ClientOrderID, err)
+			return
+		}
+		callback(update)
 	})
+}
+
+// SpotStreamOrderUpdate 現貨訂單推送：在通用 StreamOrderUpdate 上附加基礎幣手續費數量。
+// 上層按字段名反射讀取（嵌入字段會被提升），BaseFeeQty 映射到 position.OrderUpdate.BaseFeeQty。
+type SpotStreamOrderUpdate struct {
+	StreamOrderUpdate
+	// BaseFeeQty 本筆成交以基礎幣扣收的手續費（基礎幣單位，>=0）；其計價幣價值已包含在 Commission 中
+	BaseFeeQty float64
+}
+
+// normalizeSpotStreamUpdate normalizeOrderUpdate + 基礎幣手續費數量（fillFeeCcy 為基礎幣且為支出時）
+func (o *OKXSpotAdapter) normalizeSpotStreamUpdate(update OrderUpdate) (SpotStreamOrderUpdate, error) {
+	normalized, err := o.normalizeOrderUpdate(update)
+	if err != nil {
+		return SpotStreamOrderUpdate{}, err
+	}
+	out := SpotStreamOrderUpdate{StreamOrderUpdate: normalized}
+	if o.baseAsset != "" && update.CommissionAsset == o.baseAsset && update.Commission > 0 {
+		out.BaseFeeQty = update.Commission
+	}
+	return out, nil
+}
+
+// normalizeOrderUpdate 將 OKX 現貨原生推送轉成內部口徑：
+// Symbol 用配置的交易對（BTCUSDT 而非 BTC-USDT）、Side/Type/Status 映射為內部常量、手續費換算為計價幣。
+func (o *OKXSpotAdapter) normalizeOrderUpdate(update OrderUpdate) (StreamOrderUpdate, error) {
+	if update.Symbol != "" && update.Symbol != o.instId {
+		return StreamOrderUpdate{}, fmt.Errorf("非本適配器交易對的推送: instId=%s（期望 %s）", update.Symbol, o.instId)
+	}
+	side, err := ToInternalSide(update.Side)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	orderType, err := ToInternalOrderType(update.Type)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	status, err := ToInternalStatus(update.Status)
+	if err != nil {
+		return StreamOrderUpdate{}, err
+	}
+	commission, commissionAsset := o.spotCommissionToQuote(update.Commission, update.CommissionAsset, update.FillPrice)
+	return StreamOrderUpdate{
+		OrderID:         update.OrderID,
+		ClientOrderID:   update.ClientOrderID,
+		Symbol:          o.symbol,
+		Side:            side,
+		Type:            orderType,
+		Status:          status,
+		Price:           update.Price,
+		Quantity:        update.Quantity,
+		ExecutedQty:     update.ExecutedQty,
+		AvgPrice:        update.AvgPrice,
+		UpdateTime:      update.UpdateTime,
+		Commission:      commission,
+		CommissionAsset: commissionAsset,
+		RealizedPnL:     update.RealizedPnL,
+	}, nil
 }
 
 // StopOrderStream 停止現貨訂單流
@@ -583,11 +748,64 @@ func (o *OKXSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 	return o.client.AssetTransfer(ctx, body)
 }
 
-// GetOrderFills 查詢成交明細（REST /api/v5/trade/fills，instType=SPOT）
-func (o *OKXSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]OKXTradeFill, error) {
+// OKXSpotOrderFill 現貨成交明細：在 OKXOrderFill 上附加基礎幣手續費數量
+type OKXSpotOrderFill struct {
+	OKXOrderFill
+	// BaseFeeQty 本筆以基礎幣扣收的手續費（基礎幣單位，>=0）；其計價幣價值已包含在 Commission 中
+	BaseFeeQty float64
+}
+
+// GetOrderFills 查詢成交明細（GET /api/v5/trade/fills，instType=SPOT）。
+// Commission 為「支出為正、返佣為負」，並已換算為計價幣（規則見 spotCommissionToQuote）。
+// 以基礎幣收取的手續費另在 BaseFeeQty 中給出原始數量（基礎幣單位，>=0）。
+func (o *OKXSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OKXSpotOrderFill, error) {
 	ord := ""
 	if orderID != 0 {
 		ord = strconv.FormatInt(orderID, 10)
 	}
-	return o.client.GetTradeFills(ctx, "SPOT", o.instId, ord)
+	rows, err := o.client.GetTradeFills(ctx, okxInstTypeSpot, o.instId, ord)
+	if err != nil {
+		return nil, fmt.Errorf("OKX 現貨查詢訂單 %d 成交明細失败(instId=%s): %w", orderID, o.instId, err)
+	}
+	fills := make([]*OKXSpotOrderFill, 0, len(rows))
+	for _, r := range rows {
+		price, err := strconv.ParseFloat(r.FillPx, 64)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillPx 無效 %q: %w", r.TradeId, r.FillPx, err)
+		}
+		sz, err := strconv.ParseFloat(r.FillSz, 64)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillSz 無效 %q: %w", r.TradeId, r.FillSz, err)
+		}
+		fee, _ := strconv.ParseFloat(r.Fee, 64)
+		ts, _ := strconv.ParseInt(r.Ts, 10, 64)
+		ordID := orderID
+		if r.OrdId != "" {
+			if v, err := strconv.ParseInt(r.OrdId, 10, 64); err == nil {
+				ordID = v
+			}
+		}
+		rawCommission := okxFeeToCommission(fee)
+		commission, commissionAsset := o.spotCommissionToQuote(rawCommission, r.FeeCcy, price)
+		baseFeeQty := 0.0
+		if o.baseAsset != "" && r.FeeCcy == o.baseAsset && rawCommission > 0 {
+			baseFeeQty = rawCommission
+		}
+		fills = append(fills, &OKXSpotOrderFill{
+			OKXOrderFill: OKXOrderFill{
+				OrderID:         ordID,
+				TradeID:         r.TradeId,
+				Symbol:          o.symbol,
+				Side:            Side(r.Side),
+				Price:           price,
+				Quantity:        sz,
+				Commission:      commission,
+				CommissionAsset: commissionAsset,
+				TradeTime:       ts,
+				IsMaker:         r.ExecType == okxExecTypeMaker,
+			},
+			BaseFeeQty: baseFeeQty,
+		})
+	}
+	return fills, nil
 }

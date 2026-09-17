@@ -186,6 +186,29 @@ type tradeStorageAdapter struct {
 	botID          string // 與運行時 Bot 一致，寫入 trades.bot_id
 }
 
+// SaveEvent 寫入通用事件（如手續費補查更正 trade_fee_correction），自動補上 bot_id。
+// 存儲不可用時返回錯誤，由調用方記錄告警，避免更正記錄被靜默丟棄。
+func (a *tradeStorageAdapter) SaveEvent(eventType string, data map[string]interface{}) error {
+	if a.storageService == nil {
+		return fmt.Errorf("保存事件 %s 失败: 存儲服務未初始化", eventType)
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return fmt.Errorf("保存事件 %s 失败: 存儲不可用", eventType)
+	}
+	payload := make(map[string]interface{}, len(data)+1)
+	for k, v := range data {
+		payload[k] = v
+	}
+	if _, ok := payload["bot_id"]; !ok && a.botID != "" {
+		payload["bot_id"] = a.botID
+	}
+	if err := st.SaveEvent(eventType, payload); err != nil {
+		return fmt.Errorf("保存事件 %s 失败 (bot=%s): %w", eventType, a.botID, err)
+	}
+	return nil
+}
+
 func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time, botID string) error {
 	return a.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, 0, 0, createdAt, botID)
 }

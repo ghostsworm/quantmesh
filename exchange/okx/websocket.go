@@ -66,6 +66,7 @@ type WebSocketManager struct {
 
 	// 私有訂單流生命週期：runCancel 取消後讀循環/心跳/重連全部退出，runWg 等待其結束
 	privateURL              string // 為空時按 useTestnet 選擇（測試可覆寫）
+	privateInstType         string // orders 頻道的 instType（SWAP/SPOT），為空時按 SWAP
 	reconnectInitialBackoff time.Duration
 	reconnectMaxBackoff     time.Duration
 	runMu                   sync.Mutex
@@ -96,6 +97,18 @@ func (w *WebSocketManager) sign(timestamp string) string {
 	h := hmac.New(sha256.New, []byte(w.secretKey))
 	h.Write([]byte(message))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+// SetOrderInstType 設置私有 orders 頻道訂閱的 instType（SWAP/SPOT）。需在 Start 前調用。
+func (w *WebSocketManager) SetOrderInstType(instType string) {
+	w.privateInstType = instType
+}
+
+func (w *WebSocketManager) orderInstType() string {
+	if w.privateInstType != "" {
+		return w.privateInstType
+	}
+	return okxInstTypeSwap
 }
 
 func (w *WebSocketManager) privateWsURL() string {
@@ -332,7 +345,7 @@ func (w *WebSocketManager) subscribeOrders(instId string) error {
 		"args": []map[string]string{
 			{
 				"channel":  "orders",
-				"instType": okxInstTypeSwap,
+				"instType": w.orderInstType(),
 				"instId":   instId,
 			},
 		},
@@ -508,6 +521,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 
 		// 本次成交手續費：fillFee 扣費為負、返佣為正，轉為「支出為正」
 		fillFee, _ := strconv.ParseFloat(getString(orderData, "fillFee"), 64)
+		fillPx, _ := strconv.ParseFloat(getString(orderData, "fillPx"), 64)
 		feeCcy := getString(orderData, "fillFeeCcy")
 		if feeCcy == "" {
 			feeCcy = okxDefaultCommissionAsset
@@ -528,6 +542,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			Commission:      okxFeeToCommission(fillFee),
 			CommissionAsset: feeCcy,
 			RealizedPnL:     realizedPnL,
+			FillPrice:       fillPx,
 		}
 
 		if w.orderCallback != nil {

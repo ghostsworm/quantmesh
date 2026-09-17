@@ -6,7 +6,6 @@ import (
 	"math"
 	"reflect"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,9 +30,13 @@ type OrderUpdate struct {
 	Side            string
 	Type            string
 	UpdateTime      int64
-	Commission      float64 // 本次成交手續費
+	Commission      float64 // 本次成交手續費（僅本筆成交，非累計；現貨適配器已換算為計價幣）
 	CommissionAsset string  // 手續費幣種
 	RealizedPnL     float64 // 已實現盈虧（交易所計算）
+	// BaseFeeQty 本次成交中以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費或未知）。
+	// 僅現貨有意義：買單實際到帳數量 = 本次成交增量 − BaseFeeQty。
+	// 該費用的計價幣價值仍包含在 Commission 中（用於盈虧），兩者不是重複扣費。
+	BaseFeeQty float64
 }
 
 // BatchPlaceOrdersResult 批量下單結果
@@ -140,6 +143,24 @@ type InventorySlot struct {
 	// 買入手續費累計（該槽位持倉對應的買單手續費，賣出時按比例攤銷）
 	BuyFee   float64
 	FeeAsset string
+
+	// feeClientOID/orderCommission 當前訂單（按 ClientOrderID）已由推送累計的手續費，
+	// 用於判斷是否需要 REST 補查手續費，避免推送已帶手續費時補查重複累加。
+	feeClientOID    string
+	orderCommission float64
+	// orderBaseFeeQty 當前訂單推送已攜帶並已從持倉扣除的基礎幣手續費數量（防止 REST 補查重複扣減）
+	orderBaseFeeQty float64
+	// cycleGen 持倉週期代號：槽位持倉清空（平倉完成/強制同步清倉）時遞增。
+	// 異步手續費補查攜帶發起時的代號，回來時不一致即說明原週期已結束，不得寫入新週期的 BuyFee/持倉。
+	cycleGen uint64
+	// feeSupplementUntil 現貨開倉買單正在 REST 補查手續費（可能需扣減基礎幣到帳數量）的截止時間；
+	// 截止前暫緩為該槽位掛平倉單，避免按毛數量掛單超出實際可用餘額。零值表示無補查在途。
+	feeSupplementUntil time.Time
+	// lastFilledClientOID 最近一筆已完全成交（FILLED）的 ClientOrderID：
+	// 槽位訂單信息重置後，同一訂單的重放/延遲推送不得再次記賬。
+	lastFilledClientOID string
+	// baseFeeUnfloored 當前開倉訂單扣過現貨基礎幣手續費、持倉尚未按數量精度向下取整
+	baseFeeUnfloored bool
 
 	// 🔥 实际平均买入价格（用於准确计算盈亏）
 	// 当买入订单成交时，使用实际成交价格更新此字段
@@ -343,6 +364,9 @@ type SuperPositionManager struct {
 	// 關閉條件：滿足時調用此回調以停止 Bot（由 symbol_manager 注入）
 	requestStopFunc func()
 
+	// 時鐘（默認牆鐘；回放注入模擬時鐘，見 clock.go）
+	clk clockHolder
+
 	mu sync.RWMutex // 全局鎖（用於关键操作）
 }
 
@@ -501,14 +525,15 @@ func (spm *SuperPositionManager) afterOpeningPaused(reason string) {
 	// 如果本地 slots 狀態同步有延遲，直接調用交易所接口撤銷開倉方向的所有訂單
 	go func() {
 		// 延遲一小段時間，等待可能的本地狀態更新
-		time.Sleep(1 * time.Second)
+		spm.sleep(pauseResidualCancelDelay)
 
 		openSideBuy := "BUY"
 		if spm.isShort() {
 			openSideBuy = "SELL"
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// 網絡超時保持牆鐘
+		ctx, cancel := context.WithTimeout(context.Background(), pauseResidualCancelTimeout)
 		defer cancel()
 
 		// 獲取交易所所有掛單
@@ -633,7 +658,7 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 	}
 	logger.Info("🔄 [開倉管理] 準備撤銷 %d 個%s", len(orderIDs), sideLabel)
 
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= cancelRetryAttempts; attempt++ {
 		if len(orderIDs) == 0 {
 			break
 		}
@@ -648,9 +673,10 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 			slot.mu.Unlock()
 		}
 
-		time.Sleep(2 * time.Second)
+		// 按注入時鐘等待撤單回報；回放中不真實等待
+		spm.sleep(cancelSettleWait)
 
-		if attempt < 3 {
+		if attempt < cancelRetryAttempts {
 			orderIDs = nil
 			prices = nil
 			spm.slots.Range(func(key, value interface{}) bool {
@@ -944,9 +970,10 @@ func (spm *SuperPositionManager) GetArbitrageManager() ArbitrageManager {
 func (spm *SuperPositionManager) recordFill() {
 	spm.fillMu.Lock()
 	defer spm.fillMu.Unlock()
-	spm.fillTimestamps = append(spm.fillTimestamps, time.Now())
+	now := spm.now()
+	spm.fillTimestamps = append(spm.fillTimestamps, now)
 	// 保留最近 2 分鐘的記錄，避免無限增長
-	cutoff := time.Now().Add(-2 * time.Minute)
+	cutoff := now.Add(-fillHistoryRetention)
 	for len(spm.fillTimestamps) > 0 && spm.fillTimestamps[0].Before(cutoff) {
 		spm.fillTimestamps = spm.fillTimestamps[1:]
 	}
@@ -956,7 +983,7 @@ func (spm *SuperPositionManager) recordFill() {
 func (spm *SuperPositionManager) GetFillCountInLastMinute() int {
 	spm.fillMu.Lock()
 	defer spm.fillMu.Unlock()
-	cutoff := time.Now().Add(-1 * time.Minute)
+	cutoff := spm.now().Add(-fillRateWindow)
 	for len(spm.fillTimestamps) > 0 && spm.fillTimestamps[0].Before(cutoff) {
 		spm.fillTimestamps = spm.fillTimestamps[1:]
 	}
@@ -1052,7 +1079,7 @@ func (spm *SuperPositionManager) findSlotByOrderID(orderID int64) (*InventorySlo
 func (spm *SuperPositionManager) isReduceOnlyCooldown(slotPrice float64) bool {
 	if v, ok := spm.reduceOnlyCooldown.Load(slotPrice); ok {
 		t := v.(time.Time)
-		return time.Since(t) < reduceOnlyCooldownDuration
+		return spm.since(t) < reduceOnlyCooldownDuration
 	}
 	return false
 }
@@ -2036,7 +2063,7 @@ func (spm *SuperPositionManager) optimizeSlotPricesWithOrderBook(ctx context.Con
 	}
 
 	// 检查優化間隔
-	now := time.Now()
+	now := spm.now()
 	if spm.config.Trading.OrderbookOptimization.OptimizationInterval > 0 {
 		lastOptTime, ok := spm.lastOptimizationTime.Load().(time.Time)
 		if ok && now.Sub(lastOptTime).Seconds() < float64(spm.config.Trading.OrderbookOptimization.OptimizationInterval) {
@@ -2182,85 +2209,22 @@ func (spm *SuperPositionManager) findNextLiquidLevel(candidatePrice float64, lev
 	return candidatePrice
 }
 
-// supplementCommission 補充手續費（當 WebSocket 未提供時）
-func (spm *SuperPositionManager) supplementCommission(ctx context.Context, orderID int64, symbol, side string, slot *InventorySlot) {
-	if spm.exchange == nil {
-		return
+// interfaceSliceOf 把任意切片（含 []*T、[]T、[]interface{}）展開為 []interface{}；非切片返回 nil
+func interfaceSliceOf(raw interface{}) []interface{} {
+	if items, ok := raw.([]interface{}); ok {
+		return items
 	}
-
-	// 查詢訂單成交記錄
-	fillsRaw, err := spm.exchange.GetOrderFills(ctx, symbol, orderID)
-	if err != nil || fillsRaw == nil {
-		logger.Debug("🔍 [手續費補充] 訂單 %d 查詢成交記錄失敗或不支援: %v", orderID, err)
-		return
+	rv := reflect.ValueOf(raw)
+	if !rv.IsValid() || (rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array) {
+		return nil
 	}
-
-	// 嘗試解析為 []*exchange.OrderFill
-	fills, ok := fillsRaw.([]interface{})
-	if !ok || len(fills) == 0 {
-		logger.Debug("🔍 [手續費補充] 訂單 %d 無成交記錄", orderID)
-		return
-	}
-
-	// 計算總手續費
-	totalCommission := 0.0
-	commissionAsset := "USDT"
-	for _, fillRaw := range fills {
-		// 使用反射或類型斷言解析結構
-		fillMap, ok := fillRaw.(map[string]interface{})
-		if !ok {
-			// 嘗試反射獲取字段
-			rv := reflect.ValueOf(fillRaw)
-			if rv.Kind() == reflect.Ptr {
-				rv = rv.Elem()
-			}
-			if rv.Kind() != reflect.Struct {
-				continue
-			}
-			// 查找 Commission 字段
-			commField := rv.FieldByName("Commission")
-			assetField := rv.FieldByName("CommissionAsset")
-			if commField.IsValid() && commField.Kind() == reflect.Float64 {
-				totalCommission += commField.Float()
-			}
-			if assetField.IsValid() && assetField.Kind() == reflect.String && assetField.String() != "" {
-				commissionAsset = assetField.String()
-			}
+	out := make([]interface{}, 0, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		item := rv.Index(i)
+		if item.Kind() == reflect.Ptr && item.IsNil() {
 			continue
 		}
-
-		// 從 map 中提取手續費
-		if comm, ok := fillMap["Commission"].(float64); ok {
-			totalCommission += comm
-		} else if commStr, ok := fillMap["Commission"].(string); ok {
-			if comm, err := strconv.ParseFloat(commStr, 64); err == nil {
-				totalCommission += comm
-			}
-		}
-		if asset, ok := fillMap["CommissionAsset"].(string); ok && asset != "" {
-			commissionAsset = asset
-		}
+		out = append(out, item.Interface())
 	}
-
-	if totalCommission == 0 {
-		logger.Debug("🔍 [手續費補充] 訂單 %d 手續費為 0", orderID)
-		return
-	}
-
-	logger.Info("💰 [手續費補充] 訂單 %d (%s) 補充手續費: %.8f %s", orderID, side, totalCommission, commissionAsset)
-
-	// 更新 slot 中的手續費
-	spm.mu.Lock()
-	if side == "BUY" {
-		slot.BuyFee += totalCommission
-		if commissionAsset != "" {
-			slot.FeeAsset = commissionAsset
-		}
-	} else {
-		// 賣單：需要更新已保存的交易記錄
-		// 注意：這裡只能更新 slot，無法回溯更新已保存的 trades 記錄
-		// 如果需要更新 trades 記錄，需要額外的機制（如定期同步）
-		logger.Debug("💰 [手續費補充] 賣單 %d 手續費已補充，但無法回溯更新已保存的交易記錄", orderID)
-	}
-	spm.mu.Unlock()
+	return out
 }

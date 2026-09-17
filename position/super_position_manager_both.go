@@ -4,7 +4,6 @@ import (
 	"context"
 	"math"
 	"sort"
-	"time"
 
 	"quantmesh/event"
 	"quantmesh/logger"
@@ -46,7 +45,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	profitSpread := spm.getEffectiveProfitSpread()
 
 	// R5：按腿應用 regime 策略、庫存偏斜、資金費定價（均默認關閉）
-	now := time.Now()
+	now := spm.now()
 	regimeView := spm.loadRegimeTick()
 	spm.logRegimeTransition(regimeView)
 	longPlan := spm.planOpeningLeg(regime.DirectionLong, buyWindowSize, currentPrice, regimeView, now)
@@ -522,7 +521,7 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 		}
 		logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 		spm.insufficientMargin = true
-		spm.marginLockTime = time.Now()
+		spm.marginLockTime = spm.now()
 		spm.invalidateAccountCache()
 		spm.CancelAllOpenOrders()
 		if spm.eventBus != nil {
@@ -603,7 +602,7 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 		slot.OrderSide = side
 		slot.OrderStatus = OrderStatusPlaced
 		slot.OrderPrice = ord.Price
-		slot.OrderCreatedAt = time.Now()
+		slot.OrderCreatedAt = spm.now()
 		slot.SlotStatus = SlotStatusLocked
 		slot.StrategyName = spm.strategyName
 		slot.StrategyType = spm.strategyType

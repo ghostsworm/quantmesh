@@ -1184,6 +1184,9 @@ type SymbolConfig struct {
 	RocketTieredGrid      *RocketTieredGridConfig `yaml:"rocket_tiered_grid,omitempty" json:"rocket_tiered_grid,omitempty"`         // 三級火箭網格
 	GridShiftStep         float64                 `yaml:"grid_shift_step" json:"grid_shift_step"`                                   // 每次移動步長
 	CloseOnStop           bool                    `yaml:"close_on_stop" json:"close_on_stop"`                                       // 終止時全部平倉
+	CloseOnStopConfig     ClosePositionConfig     `yaml:"close_on_stop_config,omitempty" json:"close_on_stop_config,omitempty"`     // 平倉配置（與 BotConfig 同名同 tag）
+	SlotFilter            SlotFilterConfig        `yaml:"slot_filter,omitempty" json:"slot_filter,omitempty"`                       // 槽位過濾配置
+	AutoRebuild           GridAutoRebuildConfig   `yaml:"auto_rebuild,omitempty" json:"auto_rebuild,omitempty"`                     // 網格自動重建配置
 	UseSpotMargin         bool                    `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`               // 是否使用現貨槓桿（借幣做空）
 	// 多套配置自动切换
 	Profiles    map[string]ProfileConfig `yaml:"profiles,omitempty" json:"profiles,omitempty"`         // 配置档案（如 positive, negative）
@@ -1192,6 +1195,8 @@ type SymbolConfig struct {
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
 	SpotInventoryPolicy string `yaml:"spot_inventory_policy,omitempty" json:"spot_inventory_policy,omitempty"`
+	// TradingOverrides 按 Bot 覆蓋 R5 全局配置（見 bot_trading_overrides.go）
+	TradingOverrides *BotTradingOverrides `yaml:"trading_overrides,omitempty" json:"trading_overrides,omitempty"`
 }
 
 // IsEnabled 返回交易對是否啟用（nil 預設為 true）
@@ -1327,6 +1332,8 @@ type BotConfig struct {
 	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
 	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
 	SpotInventoryPolicy string `yaml:"spot_inventory_policy,omitempty" json:"spot_inventory_policy,omitempty"`
+	// TradingOverrides 按 Bot 覆蓋 R5 全局配置（見 bot_trading_overrides.go）
+	TradingOverrides *BotTradingOverrides `yaml:"trading_overrides,omitempty" json:"trading_overrides,omitempty"`
 }
 
 // ClosePositionConfig 平倉配置
@@ -1470,7 +1477,7 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		Name:                  name,
 		Exchange:              sc.Exchange,
 		Symbol:                sc.Symbol,
-		MarketType:            mt,
+		MarketType:            botMarketTypeFromSymbol(mt),
 		Testnet:               exchangeTestnet,
 		Enabled:               sc.Enabled,
 		Strategies:            sc.Strategies,
@@ -1499,10 +1506,16 @@ func SymbolConfigToBotConfig(sc SymbolConfig, exchangeTestnet bool) BotConfig {
 		GridShiftStep:         sc.GridShiftStep,
 		RocketTieredGrid:      sc.RocketTieredGrid,
 		CloseOnStop:           sc.CloseOnStop,
+		CloseOnStopConfig:     sc.CloseOnStopConfig,
+		SlotFilter:            sc.SlotFilter,
+		AutoRebuild:           sc.AutoRebuild,
+		SmartOrder:            sc.SmartOrder,
+		UseSpotMargin:         sc.UseSpotMargin,
 		Profiles:              sc.Profiles,
 		SwitchRules:           sc.SwitchRules,
 		FundingPerpSpread:     sc.FundingPerpSpread,
 		SpotInventoryPolicy:   NormalizeSpotInventoryPolicy(sc.SpotInventoryPolicy),
+		TradingOverrides:      sc.TradingOverrides,
 	}
 	return bc
 }
@@ -1582,11 +1595,15 @@ func BotConfigToSymbolConfig(bc BotConfig) SymbolConfig {
 		GridShiftStep:         bc.GridShiftStep,
 		RocketTieredGrid:      bc.RocketTieredGrid,
 		CloseOnStop:           bc.CloseOnStop,
+		CloseOnStopConfig:     bc.CloseOnStopConfig,
+		SlotFilter:            bc.SlotFilter,
+		AutoRebuild:           bc.AutoRebuild,
 		UseSpotMargin:         bc.UseSpotMargin,
 		Profiles:              bc.Profiles,
 		SwitchRules:           bc.SwitchRules,
 		FundingPerpSpread:     bc.FundingPerpSpread,
 		SpotInventoryPolicy:   bc.SpotInventoryPolicy,
+		TradingOverrides:      bc.TradingOverrides,
 	}
 }
 

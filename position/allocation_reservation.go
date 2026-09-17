@@ -227,14 +227,14 @@ func (spm *SuperPositionManager) storeLeverage(v int) {
 	}
 	spm.leverage.mu.Lock()
 	spm.leverage.value = v
-	spm.leverage.updatedAt = time.Now()
+	spm.leverage.updatedAt = spm.now()
 	spm.leverage.mu.Unlock()
 }
 
 func (spm *SuperPositionManager) leverageCacheFresh() bool {
 	spm.leverage.mu.RLock()
 	defer spm.leverage.mu.RUnlock()
-	return spm.leverage.value > 0 && time.Since(spm.leverage.updatedAt) < leverageCacheRefreshInterval
+	return spm.leverage.value > 0 && spm.since(spm.leverage.updatedAt) < leverageCacheRefreshInterval
 }
 
 // resolveLeverage 下單路徑使用：優先解析已取得的帳戶信息；緩存未過期時直接用緩存；

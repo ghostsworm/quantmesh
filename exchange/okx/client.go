@@ -147,6 +147,8 @@ type Instrument struct {
 	TickSz    string `json:"tickSz"`    // 價格最小变动單位
 	LotSz     string `json:"lotSz"`     // 數量最小变动單位
 	MinSz     string `json:"minSz"`     // 最小下單數量（現貨/合約標的，單位為張或基礎幣）
+	BaseCcy   string `json:"baseCcy"`   // 現貨交易貨幣（如 BTC-USDT 的 BTC；合約為空）
+	QuoteCcy  string `json:"quoteCcy"`  // 現貨計價貨幣（如 BTC-USDT 的 USDT；合約為空）
 }
 
 // GetInstruments 獲取合約信息

@@ -101,8 +101,8 @@ type Config struct {
 	FundingRate float64
 	// FundingSeries 資金費率序列（按時間升序）；非空時優先使用
 	FundingSeries []FundingPoint
-	// EnforceMargin 是否模擬保證金不足拒單。默認關閉：倉位管理器的保證金鎖使用牆鐘 10 秒，
-	// 在加速回放中會變成「永久停單」，與實盤不同構（見已知差距）
+	// EnforceMargin 是否模擬保證金不足拒單。倉位管理器注入了模擬時鐘，保證金鎖（默認 10 秒）按模擬時間解除。
+	// 回測任務參數 enforce_margin 缺省為 true；直接構造 Config 時零值為關閉，需顯式開啟
 	EnforceMargin bool
 	// EquitySampleMs 權益曲線/敞口採樣間隔；<=0 用默認 1 小時
 	EquitySampleMs int64

@@ -169,6 +169,9 @@ type CreateBotRequest struct {
 
 	// SpotInventoryPolicy 現貨網格庫存策略：conservative（預設）/ adopt_all
 	SpotInventoryPolicy string `json:"spot_inventory_policy,omitempty"`
+
+	// TradingOverrides 按 Bot 覆蓋 R5 全局配置（未設置項沿用全局）
+	TradingOverrides *config.BotTradingOverrides `json:"trading_overrides,omitempty"`
 }
 
 // buildGridRiskControlFromRequest 從創建請求構建 GridRiskControl
@@ -308,6 +311,10 @@ func postBotCreate(c *gin.Context) {
 			})
 			return
 		}
+	}
+	if err := config.ValidateBotTradingOverrides(cfg, req.TradingOverrides); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_config", err)
+		return
 	}
 
 	candidate := config.BotConfig{
@@ -454,6 +461,7 @@ func postBotCreate(c *gin.Context) {
 		RocketTieredGrid:      req.RocketTieredGrid,
 		FundingPerpSpread:     req.FundingPerpSpread,
 		SpotInventoryPolicy:   config.NormalizeSpotInventoryPolicy(req.SpotInventoryPolicy),
+		TradingOverrides:      req.TradingOverrides,
 	}
 	if bc.ReconcileInterval <= 0 {
 		bc.ReconcileInterval = 60
@@ -1216,6 +1224,9 @@ type UpdateBotStrategyRequest struct {
 
 	// SpotInventoryPolicy 現貨網格庫存策略
 	SpotInventoryPolicy *string `json:"spot_inventory_policy,omitempty"`
+
+	// TradingOverrides 按 Bot 覆蓋 R5 全局配置（整體替換 Bot 上原有的覆蓋；重啟 Bot 後生效）
+	TradingOverrides *config.BotTradingOverrides `json:"trading_overrides,omitempty"`
 }
 
 // putBotStrategy 更新 Bot 策略配置
@@ -1239,6 +1250,10 @@ func putBotStrategy(c *gin.Context) {
 	cfg, err := GetLatestConfig()
 	if err != nil || cfg == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
+		return
+	}
+	if err := config.ValidateBotTradingOverrides(cfg, req.TradingOverrides); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_config", err)
 		return
 	}
 
@@ -1359,6 +1374,10 @@ func putBotStrategy(c *gin.Context) {
 
 			if req.SpotInventoryPolicy != nil {
 				bc.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(*req.SpotInventoryPolicy)
+			}
+
+			if req.TradingOverrides != nil {
+				bc.TradingOverrides = req.TradingOverrides
 			}
 
 			found = true

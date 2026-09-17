@@ -29,6 +29,14 @@ type fakeBybitPrivateServer struct {
 	conns          atomic.Int32
 	earlySubscribe atomic.Bool
 	authFail       bool
+	category       string // 推送的 category，為空時按 linear
+}
+
+func (f *fakeBybitPrivateServer) pushCategory() string {
+	if f.category != "" {
+		return f.category
+	}
+	return bybitCategoryLinear
 }
 
 func (f *fakeBybitPrivateServer) handle(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +85,7 @@ func (f *fakeBybitPrivateServer) handle(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"success":true,"ret_msg":"","op":"subscribe"}`))
-	push := `{"topic":"order","data":[{"category":"linear","symbol":"BTCUSDT","orderId":"` + strconv.Itoa(int(n)) +
+	push := `{"topic":"order","data":[{"category":"` + f.pushCategory() + `","symbol":"BTCUSDT","orderId":"` + strconv.Itoa(int(n)) +
 		`","side":"Buy","orderType":"Limit","orderStatus":"Filled"}]}`
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(push))
 	if n == 1 {

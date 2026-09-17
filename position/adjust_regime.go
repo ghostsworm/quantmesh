@@ -385,13 +385,13 @@ func (spm *SuperPositionManager) RunRegimeControlLoop(ctx context.Context) {
 	spm.regimeCtl.mu.Unlock()
 
 	spm.RefreshRegimeInterval()
-	ticker := time.NewTicker(regimeControlCheckInterval)
+	ticker := spm.Clock().NewTicker(regimeControlCheckInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			spm.RefreshRegimeInterval()
 		case <-trigger:
 			spm.RefreshRegimeInterval()

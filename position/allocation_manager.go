@@ -15,7 +15,13 @@ type AllocationManager struct {
 	cfg         *config.Config
 	allocations map[string]*SymbolAllocationInfo // key: "exchange:symbol"
 	eventBus    EventBus                         // 事件總線（用於发送通知）
+	clk         clockHolder                      // 時鐘（緊急限額冷卻；默認牆鐘）
 	mu          sync.RWMutex
+}
+
+// SetClock 注入時鐘（nil 恢復牆鐘），由 SuperPositionManager.SetClock 傳遞
+func (am *AllocationManager) SetClock(c Clock) {
+	am.clk.set(c)
 }
 
 // SymbolAllocationInfo 币种分配信息
@@ -150,7 +156,7 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 			// 触发紧急限額
 			alloc.MaxAmount = alloc.EmergencyLimit
 			alloc.IsEmergencyMode = true
-			alloc.EmergencyTriggeredAt = time.Now()
+			alloc.EmergencyTriggeredAt = am.clk.get().Now()
 			
 			logger.Warn("🚨 [资金分配] %s:%s 触发紧急限額: %.2f USDT -> %.2f USDT, 原因: %s",
 				exchange, symbol, alloc.NormalLimit, alloc.EmergencyLimit, triggerReason)
@@ -183,7 +189,7 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 		if cooldownSeconds <= 0 {
 			cooldownSeconds = 300 // 默认5分钟
 		}
-		timeSinceTrigger := time.Since(alloc.EmergencyTriggeredAt).Seconds()
+		timeSinceTrigger := am.clk.get().Now().Sub(alloc.EmergencyTriggeredAt).Seconds()
 		if timeSinceTrigger < float64(cooldownSeconds) {
 			// 还在冷却期内，不恢複
 			return

@@ -323,6 +323,15 @@ func startSymbolRuntime(
 		return startFundingPerpSpreadSymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
 	}
 
+	// 按 Bot 覆蓋的 R5 配置（trading_overrides）與全局合併後校驗；非法時只拒絕本 Bot 啟動
+	if err := config.ValidateBotTradingOverrides(baseCfg, symCfg.TradingOverrides); err != nil {
+		return nil, fmt.Errorf("Bot 配置無效(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+	// auto_rebuild / slot_filter / close_on_stop_config 校驗，非法時拒絕啟動
+	if err := validateBotRuntimeExtras(symCfg); err != nil {
+		return nil, fmt.Errorf("Bot 配置無效(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
+
 	// 獲取交易手续费率（在创建交易所实例之前）
 	configFeeRate := baseCfg.Exchanges[symCfg.Exchange].FeeRate
 	feeRate := configFeeRate
@@ -384,6 +393,7 @@ func startSymbolRuntime(
 	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
 	localCfg.Trading.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
 	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
+	config.InheritStopLossBasis(&localCfg.Trading.GridRiskControl, baseCfg.Trading.GridRiskControl)
 	localCfg.Trading.SmartOrder = symCfg.SmartOrder
 	if symCfg.SmartOrder.Enabled && symCfg.SmartOrder.MaxOpenOrders <= 0 {
 		localCfg.Trading.SmartOrder.MaxOpenOrders = 3
@@ -394,6 +404,8 @@ func startSymbolRuntime(
 
 	// 將 Bot 上的 strategies 合并到本交易对 localCfg，使实盘与 API 策略类型（如 trend_following）一致
 	config.ApplyBotStrategiesToLocalConfig(&localCfg, &symCfg)
+	// Bot 級 R5 覆蓋（fee_aware_spread / regime_filter / inventory_skew / funding_rate.pricing_enabled 等），未設置項沿用全局
+	config.ApplyBotTradingOverrides(&localCfg, symCfg.TradingOverrides)
 
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	// 如果之前创建了临时实例，重用它；否则创建新实例
@@ -550,6 +562,8 @@ func startSymbolRuntime(
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
 	// 費率感知最小利差：注入 maker/taker 費率（交易所接口優先，失敗回退配置 fee_rate）
 	applyGridFeeRates(ctx, &localCfg, symCfg, feeRate, superPositionManager)
+	// 配置的槽位過濾在首輪掛單（Initialize / AdjustOrders）之前生效
+	applyConfiguredSlotFilter(ctx, symCfg, superPositionManager)
 	if storageService != nil {
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
@@ -1279,14 +1293,14 @@ func startSymbolRuntime(
 
 	// 按 timing.fee_rate_refresh_minutes 定期刷新費率（放在所有可能提前返回的初始化步驟之後，避免協程洩漏）
 	stopFeeRefresh := startGridFeeRateRefresh(ctx, &localCfg, symCfg, feeRate, superPositionManager)
+	// 網格自動重建同樣放在所有提前返回之後；停止時先停它，避免平倉過程中重新錨定網格
+	stopAutoRebuild := startConfiguredAutoRebuild(ctx, symCfg, superPositionManager, !config.ShouldSkipInitialGridAdjustOrders(&localCfg))
 
 	stopFn := func() {
 		stopFeeRefresh()
-		// 終止時全部平倉：若配置了 close_on_stop，先執行全平倉
-		if symCfg.CloseOnStop && superPositionManager != nil {
-			logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
-			superPositionManager.LiquidateAll()
-		}
+		stopAutoRebuild()
+		// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
+		closeOnStopForRuntime(ctx, symCfg, rt)
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
 		if rt.OpeningController != nil {
 			rt.OpeningController.Stop()
@@ -1369,6 +1383,7 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		Commission:      getFloat64Field("Commission"),
 		CommissionAsset: getStringField("CommissionAsset"),
 		RealizedPnL:     getFloat64Field("RealizedPnL"),
+		BaseFeeQty:      getFloat64Field("BaseFeeQty"),
 	}
 }
 

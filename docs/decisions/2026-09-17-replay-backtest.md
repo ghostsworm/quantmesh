@@ -74,8 +74,9 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 
 ## 已知差距（仍不同构的地方）
 
-1. **牆钟时间**：`SuperPositionManager` 内部多处用 `time.Now()`/`time.Sleep`——保证金不足锁（10s）、reduce-only 冷却（2min）、`AdjustOrders` 去抖兜底（1s）、`CancelAllOpenOrders` 每轮 `Sleep(2s)`、订单簿优化间隔。回放按模拟时间推进，这些逻辑按牆钟生效：保证金锁在加速回放里几乎等于永久停单（因此 `enforce_margin` 默认关闭），`LiquidateAll`/超额撤单会让回放真实等待 2 秒。要彻底同构需要 `position` 注入时钟接口（`Clock{Now, Sleep}`），属于 `position/` 的改动，未在本轮做。
-2. **ClientOrderID 唯一性**：`utils.GenerateOrderID` 以牆钟秒 + 3 位序号生成，回放 1 秒内下单超过 999 笔时会切到紧凑格式、序号截断为 2 位 base36，理论上可能重复（同一槽位上才有影响，回放中回报即时投递，影响很小）。
+1. ~~**牆钟时间**~~（已解决，见审计文档第八节「后续：时钟注入」）：`position.Clock`（`position/clock.go`）通过 `SuperPositionManager.SetClock` 注入，回放引擎用 `replay.SimClock`（`backtest/replay/clock.go`）按 tick 时间戳推进。保证金锁、reduce-only 冷却、去抖兜底、账户/杠杆缓存 TTL、撤单等待 `Sleep(2s)`、订单簿优化间隔、成交频率统计、资金分配紧急冷却、开仓控制器定时/周期规则、regime/智能挂单/自动重建后台循环均按模拟时间生效；`Sleep` 不阻塞牆钟，只推进模拟时间（时钟单调，更早的 tick 不回拨）。回测任务 `enforce_margin` 缺省改为 `true`（直接构造 `replay.Config` 时零值仍为关闭）。仍按牆钟的：网络超时（`context.WithTimeout`）、`ClosePositionManager`/`PlanManager`（手动平仓与仓位计划，不在回放中驱动）、构造时 `lastReconcileTime` 初值。
+2. ~~**ClientOrderID 唯一性**~~（已解决）：`utils` 订单号生成器改为「逻辑秒单调 + 每秒最多 999 个序号，用尽借用下一秒」，同进程内 (秒, 序号) 不重复，格式与长度不变（旧格式 / OKX 3 位十进制，紧凑格式 2 位 base36 不再截断）。代价：突发 >999 单/秒时 ID 内时间戳可能超前牆钟数秒（不参与交易决策）。
+   - 副作用：模拟时钟的 `Sleep` 推进时间后，回放中紧随其后的 tick 在「被阻塞」的时间窗内仍会被撮合，而实盘同期价格循环被阻塞；影响仅限撤单等待的 2 秒窗口。
 3. **盘口**：没有买卖价差与深度，PostOnly 是否交叉按最新成交价判断；非 PostOnly 交叉单假设深度无限、按最新价成交（无冲击成本）。`GetOrderBook` 返回最新价 ±1 tick 的合成盘口，订单簿优化（`orderbook_optimization`）在回放里无意义。
 4. **队列位置**：排队模型只按「触价成交量 ≥ 挂单量 × 系数」近似，不跟踪挂单时刻的真实队列长度与撤单；穿价成交按参与率分配，不区分主动方向（aggTrade 的 `isBuyerMaker` 未使用）。
 5. **延迟**：下单/撤单/回报都是零延迟（下一个 tick 就生效），实盘有网络与限流延迟（`order` 执行器 25 单/秒、PostOnly 重挂间隔 100ms）。

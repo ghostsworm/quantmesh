@@ -66,7 +66,7 @@ func (som *SmartOrderManager) run() {
 
 	// 检查间隔：默认 60 秒
 	checkInterval := 60 * time.Second
-	ticker := time.NewTicker(checkInterval)
+	ticker := som.spm.Clock().NewTicker(checkInterval)
 	defer ticker.Stop()
 
 	// 启动时立即检查一次
@@ -76,7 +76,7 @@ func (som *SmartOrderManager) run() {
 		select {
 		case <-som.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			som.checkAndAdjustOrders()
 		}
 	}

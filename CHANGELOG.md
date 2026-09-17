@@ -9,6 +9,22 @@
 ### Security
 - **示例配置泄露凭据**：`docs/config/examples/config.minimal.yaml`（自 2026-04-11 起提交）含三个交易所的真实 API Key/Secret/Passphrase，已清空。根因是 `cfgmgr.generateMinimalConfig` 把运行中配置的凭据、Web API Key、DSN 密码原样写入仓库内的示例文件；现改为交易所凭据与 Web API Key 一律留空、DSN 密码替换为占位符，并加回归测试。**已提交历史中仍可见，涉及的密钥必须到交易所后台吊销并重新生成。**
 
+### Added — 后续
+- **按 Bot 覆盖新配置**：Bot 级 `trading_overrides` 可覆盖 `fee_aware_spread`、`post_only_reprice_max_attempts`、`regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`inventory_skew`、`funding_rate.pricing_enabled`/`pre_settlement_pause_minutes`；合并后校验，非法覆盖仅该 Bot 拒绝启动；创建/更新 Bot 接口接受并校验该字段。修改后需重启 Bot 生效。
+- **接通 Bot 配置**：`auto_rebuild` 在 Bot 启动后运行、停止时回收；`slot_filter` 启动时生效；`close_on_stop_config`（平仓方式/比例/超时）在 `close_on_stop=true` 时用于停止平仓。三者启动时校验，`auto_rebuild.require_trend_confirm` 未实现，设为 true 拒绝启动。
+- **回放引擎时钟注入**：`position.Clock` / `SetClock`，仓位管理器内保证金锁、冷却、去抖、缓存、撤单等待等全部按注入时钟；回放使用模拟时钟，不再真实等待，回测任务 `enforce_margin` 默认开启。订单号生成改为逻辑秒单调递增，同一秒超过 999 单也不重复。
+
+### Fixed — 后续
+- **OKX/Bybit 现货链路**：方向/类型/状态显式映射、交易对归一化、按步长取整与最小下单校验、OKX 现货私有 WS 断线重连、市价单按基础币计量、撤单错误汇总。
+- **现货手续费记账**：部分成交手续费不再丢失且不重复计；Bybit 手续费补查此前因类型断言错误从未生效，已修复；现货买单按基础币扣费时持仓按实际到手数量记账；Binance 现货手续费换算为计价币；异步补查结果按槽位周期校验，过期结果写入更正事件。
+- **配置转换丢字段**：`BotConfigFile` 补 `SpotInventoryPolicy`/`FundingPerpSpread`/`UseSpotMargin`/`CreatedAt`；`SymbolConfig` 补 `CloseOnStopConfig`/`SlotFilter`/`AutoRebuild`/`SmartOrder`/`UseSpotMargin`；现货杠杆配置转换后不再被识别为合约；Web 更新 Bot 与启动读取配置时不再清空 `Enabled`。新增反射往返测试防回归。
+- **止损口径继承**：Bot 级 `stop_loss_basis` 为空时继承全局值（此前按 `bots` 启动不继承）。
+- **自动重建**：未取得有效价格或间隔 ≤0 时不再按 0 价重建网格锚点。
+
+### Changed — 后续
+- `storage/sql_storage.go`（3049 行）按领域拆分为 8 个文件，纯移动无逻辑变化。
+- 依赖真实网络的 OKX/Bybit 旧测试改为设置 `QUANTMESH_NETWORK_TESTS=1` 时才运行。
+
 ### Added — R5 盈利能力（除费率感知利差外默认关闭）
 - **费率感知最小利差**（默认开启）：启动时拉取 maker/taker 费率并按配置间隔刷新，平仓利差不低于 `开仓价 × (2×费率 + safety_margin_ratio)`，低于下限自动抬高并告警一次。配置 `trading.fee_aware_spread.{enabled, safety_margin_ratio=0.0002}`。**行为变化**：拉取失败时按 `fee_rate` 同时作 maker/taker，间隔偏小的配置会被抬高。
 - **PostOnly 重定价**：被拒后向远离盘口方向移一个 tick 重挂（`trading.post_only_reprice_max_attempts=3`），网格单不再降级为 GTC 吃单；平仓单连续被撤时平仓价逐步外移。

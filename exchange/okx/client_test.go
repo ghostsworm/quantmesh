@@ -2,8 +2,19 @@ package okx
 
 import (
 	"encoding/json"
+	"os"
 	"testing"
 )
+
+// networkTestsEnv 設為 1 時才運行會訪問真實交易所的測試，保證 go test ./... 默認不觸網
+const networkTestsEnv = "QUANTMESH_NETWORK_TESTS"
+
+func requireNetworkTests(t *testing.T) {
+	t.Helper()
+	if os.Getenv(networkTestsEnv) != "1" {
+		t.Skipf("訪問真實 OKX 網絡，設置 %s=1 後運行", networkTestsEnv)
+	}
+}
 
 // TestOrderBookDataArrayUnmarshal 回歸：request() 對 books 返回的 data 為數組，須解到 []OKXOrderBookResponse，不可再包一層 { "data": ... }。
 func TestOrderBookDataArrayUnmarshal(t *testing.T) {
@@ -69,6 +80,7 @@ func TestSign(t *testing.T) {
 }
 
 func TestNewAdapter(t *testing.T) {
+	requireNetworkTests(t)
 	config := map[string]string{
 		"api_key":    "test_api_key",
 		"secret_key": "test_secret_key",
@@ -91,6 +103,7 @@ func TestNewAdapter(t *testing.T) {
 }
 
 func TestAdapterBasicMethods(t *testing.T) {
+	requireNetworkTests(t)
 	config := map[string]string{
 		"api_key":    "test_api_key",
 		"secret_key": "test_secret_key",

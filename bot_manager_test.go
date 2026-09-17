@@ -97,6 +97,63 @@ func TestBotManagerResolveLatestStartConfigPrefersBotConfigSnapshot(t *testing.T
 	}
 }
 
+// bot_configs 快照不帶 Enabled：解析後必須沿用主配置中的值，而不是 nil
+func TestBotManagerResolveLatestStartConfigPreservesEnabled(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "quantmesh.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatalf("NewStorageService: %v", err)
+	}
+	defer storageService.Stop()
+
+	botID := "bot-config-enabled"
+	if _, err := storage.SaveBotConfigSnapshot(
+		context.Background(),
+		storageService.GetStorage(),
+		&config.BotConfigFile{
+			BotID:      botID,
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+			Grid:       config.GridConfig{OrderQuantity: 250},
+		},
+		"test",
+		"unit",
+	); err != nil {
+		t.Fatalf("SaveBotConfigSnapshot: %v", err)
+	}
+
+	mainCfg := config.BotConfig{
+		ID:         botID,
+		Exchange:   "binance",
+		Symbol:     "BTCUSDT",
+		MarketType: "futures",
+		Enabled:    config.BoolPtr(false),
+		CreatedAt:  "2026-01-01T00:00:00Z",
+	}
+	bm := &BotManager{
+		cfg:            &config.Config{Bots: []config.BotConfig{mainCfg}},
+		storageService: storageService,
+	}
+
+	got := bm.resolveLatestStartConfig(mainCfg)
+	if got.OrderQuantity != 250 {
+		t.Fatalf("expected bot_configs order quantity 250, got %.2f", got.OrderQuantity)
+	}
+	if got.Enabled == nil || *got.Enabled {
+		t.Fatalf("Enabled must be preserved as false, got %v", got.Enabled)
+	}
+	if got.ID != botID {
+		t.Fatalf("ID = %q, want %q", got.ID, botID)
+	}
+}
+
 // TestBotManagerConcurrentAccessNoPanic 驗證並發讀寫 runtimes 不會觸發 map 競態崩潰
 func TestBotManagerConcurrentAccessNoPanic(t *testing.T) {
 	bm := &BotManager{

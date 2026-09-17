@@ -2,9 +2,11 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/income"
+	"quantmesh/logger"
 )
 
 // bybitSpotWrapper 包装 Bybit 現貨适配器以實現 IExchange 接口
@@ -20,72 +22,47 @@ func (w *bybitSpotWrapper) GetMarketType() string {
 	return w.adapter.GetMarketType()
 }
 
+// toBybitSpotOrderRequest 與合約共用映射（方向/類型/TimeInForce 未知值報錯），現貨不支援 ReduceOnly
+func toBybitSpotOrderRequest(req *OrderRequest) (*bybit.OrderRequest, error) {
+	bybitReq, err := toBybitOrderRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	bybitReq.ReduceOnly = false
+	return bybitReq, nil
+}
+
 func (w *bybitSpotWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	bybitReq := &bybit.OrderRequest{
-		Symbol:        req.Symbol,
-		Side:          bybit.Side(req.Side),
-		Type:          bybit.OrderType(req.Type),
-		TimeInForce:   bybit.TimeInForce(req.TimeInForce),
-		Quantity:      req.Quantity,
-		Price:         req.Price,
-		ReduceOnly:    false,
-		PostOnly:      req.PostOnly,
-		PriceDecimals: req.PriceDecimals,
-		ClientOrderID: req.ClientOrderID,
+	bybitReq, err := toBybitSpotOrderRequest(req)
+	if err != nil {
+		return nil, err
 	}
 	order, err := w.adapter.PlaceOrder(ctx, bybitReq)
 	if err != nil {
 		return nil, err
 	}
-	return &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		ExecutedQty:   order.ExecutedQty,
-		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
-		CreatedAt:     order.CreatedAt,
-		UpdateTime:    order.UpdateTime,
-	}, nil
+	return fromBybitOrder(order)
 }
 
 func (w *bybitSpotWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
-	bybitOrders := make([]*bybit.OrderRequest, len(orders))
-	for i, req := range orders {
-		bybitOrders[i] = &bybit.OrderRequest{
-			Symbol:        req.Symbol,
-			Side:          bybit.Side(req.Side),
-			Type:          bybit.OrderType(req.Type),
-			TimeInForce:   bybit.TimeInForce(req.TimeInForce),
-			Quantity:      req.Quantity,
-			Price:         req.Price,
-			ReduceOnly:    false,
-			PostOnly:      req.PostOnly,
-			PriceDecimals: req.PriceDecimals,
-			ClientOrderID: req.ClientOrderID,
+	bybitOrders := make([]*bybit.OrderRequest, 0, len(orders))
+	for _, req := range orders {
+		bybitReq, err := toBybitSpotOrderRequest(req)
+		if err != nil {
+			logger.Warn("⚠️ [Bybit Spot] 跳過無法轉換的下單請求: %v", err)
+			continue
 		}
+		bybitOrders = append(bybitOrders, bybitReq)
 	}
 	placed, hasErr := w.adapter.BatchPlaceOrders(ctx, bybitOrders)
-	result := make([]*Order, len(placed))
-	for i, ord := range placed {
-		result[i] = &Order{
-			OrderID:       ord.OrderID,
-			ClientOrderID: ord.ClientOrderID,
-			Symbol:        ord.Symbol,
-			Side:          Side(ord.Side),
-			Type:          OrderType(ord.Type),
-			Price:         ord.Price,
-			Quantity:      ord.Quantity,
-			ExecutedQty:   ord.ExecutedQty,
-			AvgPrice:      ord.AvgPrice,
-			Status:        OrderStatus(ord.Status),
-			CreatedAt:     ord.CreatedAt,
-			UpdateTime:    ord.UpdateTime,
+	result := make([]*Order, 0, len(placed))
+	for _, ord := range placed {
+		converted, err := fromBybitOrder(ord)
+		if err != nil {
+			logger.Error("❌ [Bybit Spot] 已下單但結果轉換失败: %v", err)
+			continue
 		}
+		result = append(result, converted)
 	}
 	return result, hasErr
 }
@@ -107,19 +84,7 @@ func (w *bybitSpotWrapper) GetOrder(ctx context.Context, symbol string, orderID 
 	if err != nil {
 		return nil, err
 	}
-	return &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		ExecutedQty:   order.ExecutedQty,
-		AvgPrice:      order.AvgPrice,
-		Status:        OrderStatus(order.Status),
-		UpdateTime:    order.UpdateTime,
-	}, nil
+	return fromBybitOrder(order)
 }
 
 func (w *bybitSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
@@ -127,21 +92,13 @@ func (w *bybitSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*Order, len(orders))
-	for i, ord := range orders {
-		result[i] = &Order{
-			OrderID:       ord.OrderID,
-			ClientOrderID: ord.ClientOrderID,
-			Symbol:        ord.Symbol,
-			Side:          Side(ord.Side),
-			Type:          OrderType(ord.Type),
-			Price:         ord.Price,
-			Quantity:      ord.Quantity,
-			ExecutedQty:   ord.ExecutedQty,
-			AvgPrice:      ord.AvgPrice,
-			Status:        OrderStatus(ord.Status),
-			UpdateTime:    ord.UpdateTime,
+	result := make([]*Order, 0, len(orders))
+	for _, ord := range orders {
+		converted, err := fromBybitOrder(ord)
+		if err != nil {
+			return nil, err
 		}
+		result = append(result, converted)
 	}
 	return result, nil
 }
@@ -288,7 +245,7 @@ func (w *bybitSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeT
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（現貨 category=spot）
+// GetOrderFills 查詢訂單成交記錄（現貨 category=spot）。Commission 已換算為計價幣。
 func (w *bybitSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
 	bybitFills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
 	if err != nil {
@@ -296,21 +253,22 @@ func (w *bybitSpotWrapper) GetOrderFills(ctx context.Context, symbol string, ord
 	}
 	out := make([]*OrderFill, 0, len(bybitFills))
 	for _, bf := range bybitFills {
-		side := SideBuy
-		if bf.Side == "Sell" {
-			side = SideSell
+		side, err := bybit.ToInternalSide(bybit.Side(bf.Side))
+		if err != nil {
+			return nil, fmt.Errorf("Bybit 現貨訂單 %d 成交 %s 轉換失败: %w", orderID, bf.TradeID, err)
 		}
 		out = append(out, &OrderFill{
 			OrderID:         bf.OrderID,
 			TradeID:         bf.TradeID,
 			Symbol:          bf.Symbol,
-			Side:            side,
+			Side:            Side(side),
 			Price:           bf.Price,
 			Quantity:        bf.Quantity,
 			Commission:      bf.Commission,
 			CommissionAsset: bf.CommissionAsset,
 			TradeTime:       bf.TradeTime,
 			IsMaker:         bf.IsMaker,
+			BaseFeeQty:      bf.BaseFeeQty,
 		})
 	}
 	return out, nil

@@ -128,7 +128,7 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 	logger.Info("🔄 [撤销買單] 准备撤销 %d 個買單以释放保证金", len(buyOrderIDs))
 
 	// 🔥 重複尝試3次，确保撤單干净
-	for attempt := 1; attempt <= 3; attempt++ {
+	for attempt := 1; attempt <= cancelRetryAttempts; attempt++ {
 		if len(buyOrderIDs) == 0 {
 			break
 		}
@@ -147,11 +147,11 @@ func (spm *SuperPositionManager) CancelAllBuyOrders() {
 			slot.mu.Unlock()
 		}
 
-		// 等待2秒让撤單生效（WebSocket推送通知）
-		time.Sleep(2 * time.Second)
+		// 等待2秒让撤單生效（WebSocket推送通知）；按注入時鐘，回放中不真實等待
+		spm.sleep(cancelSettleWait)
 
 		// 🔥 二次检查：重新扫描本地槽位状態
-		if attempt < 3 {
+		if attempt < cancelRetryAttempts {
 			buyOrderIDs = nil
 			buyPrices = nil
 
@@ -528,6 +528,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 				slot.PositionStatus = PositionStatusEmpty
 				spm.releaseSlotAllocationLocked(slot, 0, 0)
 				slot.PositionQty = 0
+				slot.resetPositionCycleLocked()
 				slot.OrderID = 0
 				slot.OrderStatus = OrderStatusNotPlaced
 				slot.ClientOID = ""
@@ -627,6 +628,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 			slot.PositionStatus = PositionStatusEmpty
 			spm.releaseSlotAllocationLocked(slot, 0, 0)
 			slot.PositionQty = 0
+			slot.resetPositionCycleLocked()
 			slot.OrderID = 0
 			slot.OrderStatus = OrderStatusNotPlaced
 			slot.OrderSide = ""

@@ -101,7 +101,7 @@ func (spm *SuperPositionManager) cachedAccount(maxAge time.Duration) (interface{
 	if spm.account.result == nil || spm.account.fetchedAt.IsZero() {
 		return nil, false
 	}
-	return spm.account.result, time.Since(spm.account.fetchedAt) < maxAge
+	return spm.account.result, spm.since(spm.account.fetchedAt) < maxAge
 }
 
 // getAccountCached 下單路徑取帳戶信息：緩存未過期直接返回，否則同步拉取並寫緩存。
@@ -120,7 +120,7 @@ func (spm *SuperPositionManager) getAccountCached(ctx context.Context) (interfac
 		return nil, err
 	}
 	if !isNilInterface(res) {
-		spm.storeAccountSnapshot(res, time.Now())
+		spm.storeAccountSnapshot(res, spm.now())
 	}
 	return res, nil
 }
@@ -140,7 +140,7 @@ func (spm *SuperPositionManager) refreshAccountAsync() {
 			return
 		}
 		if !isNilInterface(res) {
-			spm.storeAccountSnapshot(res, time.Now())
+			spm.storeAccountSnapshot(res, spm.now())
 		}
 	}()
 }

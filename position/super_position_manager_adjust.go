@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"time"
 
 	"quantmesh/event"
 	"quantmesh/logger"
@@ -73,7 +72,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					if spm.eventBus != nil {
 						spm.eventBus.Publish(&event.Event{
 							Type:      event.EventTypeStopLoss,
-							Timestamp: time.Now(),
+							Timestamp: spm.now(),
 							Data: map[string]interface{}{
 								"bot_id":         spm.botID,
 								"symbol":         spm.config.Trading.Symbol,
@@ -151,7 +150,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 					if spm.eventBus != nil {
 						spm.eventBus.Publish(&event.Event{
 							Type:      event.EventTypeStopLoss,
-							Timestamp: time.Now(),
+							Timestamp: spm.now(),
 							Data: map[string]interface{}{
 								"bot_id":    spm.botID,
 								"symbol":    spm.config.Trading.Symbol,
@@ -175,18 +174,18 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 检查保证金不足状態
 	if spm.insufficientMargin {
-		if time.Since(spm.marginLockTime) >= spm.marginLockDuration {
+		if spm.since(spm.marginLockTime) >= spm.marginLockDuration {
 			logger.Info("✅ [保证金恢複] 鎖定時间已過，恢複下單功能")
 			spm.insufficientMargin = false
 		} else {
-			remainingTime := spm.marginLockDuration - time.Since(spm.marginLockTime)
+			remainingTime := spm.marginLockDuration - spm.since(spm.marginLockTime)
 			logger.Warn("⏸️ [暂停下單] 保证金不足，暂停下單中... (剩餘時间: %.0f秒)", remainingTime.Seconds())
 			return nil
 		}
 	}
 
 	// 去抖：以上風控每個 tick 都執行；價格未跨出分桶、無訂單/成交事件且未到兜底間隔時跳過全量重算
-	if spm.shouldSkipAdjust(currentPrice, time.Now()) {
+	if spm.shouldSkipAdjust(currentPrice, spm.now()) {
 		return nil
 	}
 
@@ -201,7 +200,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	profitSpread := spm.getEffectiveProfitSpread()
 
 	// R5：K 線 regime 策略、庫存偏斜、資金費定價（均默認關閉，關閉時 openPlan 為原有行為）
-	now := time.Now()
+	now := spm.now()
 	regimeView := spm.loadRegimeTick()
 	spm.logRegimeTransition(regimeView)
 	legDir := regime.DirectionLong
@@ -586,7 +585,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
 						Type:      event.EventTypePrecisionAdjustment,
-						Timestamp: time.Now(),
+						Timestamp: spm.now(),
 						Data: map[string]interface{}{
 							"symbol":         spm.config.Trading.Symbol,
 							"exchange":       spm.exchangeName,
@@ -660,6 +659,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			slot.SlotStatus == SlotStatusFree &&
 			slot.OrderID == 0 &&
 			slot.ClientOID == "" {
+
+			// 現貨開倉買單手續費補查在途：等待按基礎幣手續費扣減後的淨持倉再掛平倉單
+			if spm.closeOrderHeldForFeeLocked(slot) {
+				return true
+			}
 
 			// 🔥 ReduceOnly 冷却期：该槽位近期 ReduceOnly 失败过，跳过避免重复告警
 			if spm.isReduceOnlyCooldown(slotPrice) {
@@ -794,7 +798,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				if spm.eventBus != nil {
 					spm.eventBus.Publish(&event.Event{
 						Type:      event.EventTypePrecisionAdjustment,
-						Timestamp: time.Now(),
+						Timestamp: spm.now(),
 						Data: map[string]interface{}{
 							"symbol":   spm.config.Trading.Symbol,
 							"exchange": spm.exchangeName,
@@ -973,7 +977,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			}
 			logger.Warn("⚠️ [%s] 检测到錯误，暂停下單 %d 秒", errLabel, int(spm.marginLockDuration.Seconds()))
 			spm.insufficientMargin = true
-			spm.marginLockTime = time.Now()
+			spm.marginLockTime = spm.now()
 			spm.invalidateAccountCache()
 			// 按方向撤銷開倉委託（SHORT 撤賣單，不誤撤平倉單）
 			spm.CancelAllOpenOrders()
@@ -1094,7 +1098,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 				slot.OrderSide = side // "BUY" or "SELL"
 				slot.OrderStatus = OrderStatusPlaced
 				slot.OrderPrice = ord.Price
-				slot.OrderCreatedAt = time.Now()
+				slot.OrderCreatedAt = spm.now()
 				// 🔥 订單提交成功，設置為LOCKED状態
 				slot.SlotStatus = SlotStatusLocked
 				// 保存策略信息
@@ -1132,7 +1136,7 @@ func (spm *SuperPositionManager) handleReduceOnlyRejection(price float64, side, 
 
 	// 平倉單不預留资金；防禦性清理（例如 BOTH 模式下被誤判為開倉的請求）
 	spm.releaseOrderReservation(clientOID)
-	spm.reduceOnlyCooldown.Store(price, time.Now())
+	spm.reduceOnlyCooldown.Store(price, spm.now())
 
 	logger.Warn("⚠️ [%s] [ReduceOnly錯誤處理] %s 平倉單被拒: 槽位=%s, 本地持倉=%.4f 保留，冷卻 %s 後重試，等待對賬確認",
 		spm.logPrefix(), side, formatPrice(price, spm.priceDecimals), positionQty, reduceOnlyCooldownDuration)

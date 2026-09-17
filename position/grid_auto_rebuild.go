@@ -98,7 +98,7 @@ func (gar *GridAutoRebuilder) Stop() {
 func (gar *GridAutoRebuilder) run() {
 	defer gar.wg.Done()
 
-	ticker := time.NewTicker(time.Duration(gar.config.CheckIntervalMinutes) * time.Minute)
+	ticker := gar.spm.Clock().NewTicker(time.Duration(gar.config.CheckIntervalMinutes) * time.Minute)
 	defer ticker.Stop()
 
 	// 启动时立即检查一次
@@ -108,7 +108,7 @@ func (gar *GridAutoRebuilder) run() {
 		select {
 		case <-gar.ctx.Done():
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			gar.checkAndRebuild()
 		}
 	}
@@ -145,7 +145,7 @@ func (gar *GridAutoRebuilder) checkProtection() bool {
 	gar.mu.Lock()
 	defer gar.mu.Unlock()
 
-	now := time.Now()
+	now := gar.spm.now()
 
 	// 重置小时计数
 	if now.Sub(gar.lastHourReset) >= time.Hour {
@@ -172,8 +172,12 @@ func (gar *GridAutoRebuilder) checkProtection() bool {
 
 // shouldTriggerRebuild 检查是否满足重建条件
 func (gar *GridAutoRebuilder) shouldTriggerRebuild() (bool, string) {
-	currentPrice := gar.spm.lastMarketPrice.Load().(float64)
+	currentPrice, _ := gar.spm.lastMarketPrice.Load().(float64)
 	priceInterval := gar.spm.config.Trading.PriceInterval
+	// 還沒收到有效價格（或間隔無效）時不判斷，避免把錨點重建到 0
+	if currentPrice <= 0 || priceInterval <= 0 {
+		return false, ""
+	}
 
 	// 条件 1: 价格偏离网格中心超过指定层数
 	if deviationReason := gar.checkPriceDeviation(currentPrice, priceInterval); deviationReason != "" {
@@ -213,7 +217,7 @@ func (gar *GridAutoRebuilder) checkPriceDeviation(currentPrice, priceInterval fl
 
 // checkExpiredOrders 检查订单过期条件
 func (gar *GridAutoRebuilder) checkExpiredOrders() string {
-	now := time.Now()
+	now := gar.spm.now()
 	expireDuration := time.Duration(gar.config.OrderExpireMinutes) * time.Minute
 
 	var totalOrders, expiredOrders int
@@ -255,11 +259,15 @@ func (gar *GridAutoRebuilder) checkExpiredOrders() string {
 
 // rebuild 执行网格重建
 func (gar *GridAutoRebuilder) rebuild() error {
+	currentPrice, _ := gar.spm.lastMarketPrice.Load().(float64)
+	if currentPrice <= 0 {
+		return fmt.Errorf("当前价格无效 %.8f，跳过重建", currentPrice)
+	}
+
 	// 撤销所有开仓订单
 	gar.spm.CancelAllOpenOrders()
 
 	// 更新网格锚点到当前价格
-	currentPrice := gar.spm.lastMarketPrice.Load().(float64)
 	gar.spm.mu.Lock()
 	previousAnchor := gar.spm.anchorPrice()
 	gar.spm.setAnchorPrice(currentPrice)
@@ -277,7 +285,7 @@ func (gar *GridAutoRebuilder) updateRebuildStats() {
 	gar.mu.Lock()
 	defer gar.mu.Unlock()
 
-	gar.lastRebuildTime = time.Now()
+	gar.lastRebuildTime = gar.spm.now()
 	gar.rebuildCountInHour++
 }
 
@@ -286,7 +294,7 @@ func (gar *GridAutoRebuilder) RecordOrderCreated(orderID int64) {
 	if gar == nil || !gar.config.Enabled {
 		return
 	}
-	gar.orderCreationTimes.Store(orderID, time.Now())
+	gar.orderCreationTimes.Store(orderID, gar.spm.now())
 }
 
 // RecordOrderFilled 记录订单成交（由 SuperPositionManager 调用）

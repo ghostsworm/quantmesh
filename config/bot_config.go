@@ -44,6 +44,17 @@ type BotConfigFile struct {
 	// 高级配置
 	Advanced AdvancedConfig `yaml:"advanced,omitempty" json:"advanced,omitempty"`
 
+	// 按 Bot 覆蓋 R5 全局配置（trading.* / funding_rate.*），未設置的項沿用全局
+	TradingOverrides *BotTradingOverrides `yaml:"trading_overrides,omitempty" json:"trading_overrides,omitempty"`
+
+	// 以下字段与 BotConfig 同名同 tag，保证 bot_configs 表 / bots/*.yaml 往返不丢失
+	// SpotInventoryPolicy 現貨網格庫存策略（conservative / adopt_all）
+	SpotInventoryPolicy string `yaml:"spot_inventory_policy,omitempty" json:"spot_inventory_policy,omitempty"`
+	// FundingPerpSpread 雙永续跨所資金費差（market_type=funding_perp_spread 時必填）
+	FundingPerpSpread *FundingPerpSpreadConfig `yaml:"funding_perp_spread,omitempty" json:"funding_perp_spread,omitempty"`
+	// UseSpotMargin 是否使用現貨槓桿（借幣做空）
+	UseSpotMargin bool `yaml:"use_spot_margin,omitempty" json:"use_spot_margin,omitempty"`
+
 	// 对冲配置（仅在对冲组中的 bot 使用）
 	Hedge *HedgeBotConfig `yaml:"hedge,omitempty" json:"hedge,omitempty"`
 }
@@ -419,6 +430,11 @@ func ConvertFromBotConfig(bc BotConfig) *BotConfigFile {
 			Profiles:              bc.Profiles,
 			SwitchRules:           bc.SwitchRules,
 		},
+		TradingOverrides:    bc.TradingOverrides,
+		CreatedAt:           bc.CreatedAt,
+		SpotInventoryPolicy: bc.SpotInventoryPolicy,
+		FundingPerpSpread:   bc.FundingPerpSpread,
+		UseSpotMargin:       bc.UseSpotMargin,
 	}
 
 	// 转换策略配置
@@ -482,6 +498,11 @@ func ConvertToBotConfig(bcf *BotConfigFile) BotConfig {
 		SmartOrder:            bcf.Advanced.SmartOrder,
 		Profiles:              bcf.Advanced.Profiles,
 		SwitchRules:           bcf.Advanced.SwitchRules,
+		TradingOverrides:      bcf.TradingOverrides,
+		CreatedAt:             bcf.CreatedAt,
+		SpotInventoryPolicy:   bcf.SpotInventoryPolicy,
+		FundingPerpSpread:     bcf.FundingPerpSpread,
+		UseSpotMargin:         bcf.UseSpotMargin,
 	}
 
 	// 转换策略配置

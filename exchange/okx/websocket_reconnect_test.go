@@ -19,16 +19,27 @@ const (
 )
 
 type wsFrame struct {
-	Op string `json:"op"`
+	Op   string              `json:"op"`
+	Args []map[string]string `json:"args"`
 }
 
 // fakeOKXPrivateServer 模擬 OKX 私有 WS：延遲回登錄確認，並校驗訂閱只在確認之後到達；
 // 第 1 條連接推送一條訂單後主動斷開，第 2 條連接推送後保持。
+// instId 為空時按合約 ETH-USDT-SWAP；subscribedInstType 記錄最後一次訂閱的 instType。
 type fakeOKXPrivateServer struct {
-	t              *testing.T
-	conns          atomic.Int32
-	earlySubscribe atomic.Bool
-	loginFail      bool
+	t                  *testing.T
+	conns              atomic.Int32
+	earlySubscribe     atomic.Bool
+	loginFail          bool
+	instId             string
+	subscribedInstType atomic.Value
+}
+
+func (f *fakeOKXPrivateServer) pushInstId() string {
+	if f.instId != "" {
+		return f.instId
+	}
+	return "ETH-USDT-SWAP"
 }
 
 func (f *fakeOKXPrivateServer) handle(w http.ResponseWriter, r *http.Request) {
@@ -73,12 +84,17 @@ func (f *fakeOKXPrivateServer) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"login","code":"0","msg":""}`))
-	if fr, ok := <-frames; !ok || fr.Op != "subscribe" {
+	fr, ok := <-frames
+	if !ok || fr.Op != "subscribe" {
 		return
 	}
-	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"subscribe","arg":{"channel":"orders","instType":"SWAP","instId":"ETH-USDT-SWAP"}}`))
-	push := `{"arg":{"channel":"orders","instId":"ETH-USDT-SWAP"},"data":[{"instId":"ETH-USDT-SWAP","ordId":"` +
-		string(rune('0'+n)) + `","side":"buy","ordType":"limit","state":"filled","sz":"1","accFillSz":"1"}]}`
+	if len(fr.Args) > 0 {
+		f.subscribedInstType.Store(fr.Args[0]["instType"])
+	}
+	instId := f.pushInstId()
+	_ = conn.WriteMessage(websocket.TextMessage, []byte(`{"event":"subscribe","arg":{"channel":"orders","instId":"`+instId+`"}}`))
+	push := `{"arg":{"channel":"orders","instId":"` + instId + `"},"data":[{"instId":"` + instId + `","ordId":"` +
+		string(rune('0'+n)) + `","side":"buy","ordType":"limit","state":"filled","sz":"1","accFillSz":"1","fillPx":"100","fillFee":"-0.001","fillFeeCcy":"BTC"}]}`
 	_ = conn.WriteMessage(websocket.TextMessage, []byte(push))
 	if n == 1 {
 		return // 模擬斷線

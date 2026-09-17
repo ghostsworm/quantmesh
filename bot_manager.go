@@ -119,7 +119,8 @@ func (bm *BotManager) resolveLatestStartConfig(botCfg config.BotConfig) config.B
 		logger.Warn("⚠️ [%s] 啟動前解析 bot_configs 失敗，回退主配置快照: %v", botID, err)
 		return latest
 	}
-	latest = config.ConvertToBotConfig(&bf)
+	// BotConfigFile 不帶 Enabled：沿用主配置（或調用方）中的值，CreatedAt/ID 為空時也沿用
+	latest = config.MergeBotConfigFileInto(latest, &bf)
 	if latest.ID == "" {
 		latest.ID = botID
 	}

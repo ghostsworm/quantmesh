@@ -160,6 +160,10 @@ type PriceFilter struct {
 type LotSizeFilter struct {
 	QtyStep     string `json:"qtyStep"`
 	MinOrderQty string `json:"minOrderQty"`
+	// 以下僅現貨（category=spot）返回：現貨沒有 qtyStep，數量步長為 basePrecision
+	BasePrecision  string `json:"basePrecision"`
+	QuotePrecision string `json:"quotePrecision"`
+	MinOrderAmt    string `json:"minOrderAmt"` // 最小下單金額（計價幣）
 }
 
 // GetInstruments 獲取合約信息

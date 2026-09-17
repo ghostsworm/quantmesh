@@ -61,3 +61,28 @@ func TestBybitWrapperOrderConversion(t *testing.T) {
 		t.Fatal("非原生方向應報錯")
 	}
 }
+
+func TestSpotWrapperOrderConversion(t *testing.T) {
+	okxReq, err := toOKXSpotOrderRequest(&OrderRequest{Side: SideSell, Type: OrderTypeLimit, PostOnly: true, ReduceOnly: true})
+	if err != nil || okxReq.Side != okx.SideSell || okxReq.Type != okx.OrderTypeLimit || !okxReq.PostOnly || okxReq.ReduceOnly {
+		t.Fatalf("toOKXSpotOrderRequest=%+v,%v", okxReq, err)
+	}
+	if _, err := toOKXSpotOrderRequest(&OrderRequest{Side: SideBuy, Type: "STOP"}); err == nil {
+		t.Fatal("OKX 現貨未知類型應報錯")
+	}
+	order, err := fromOKXOrder(&okx.Order{Side: okx.SideBuy, Type: okx.OrderTypeMarket, Status: okx.OrderStatusPartiallyFilled})
+	if err != nil || order.Side != SideBuy || order.Type != OrderTypeMarket || order.Status != OrderStatusPartiallyFilled {
+		t.Fatalf("fromOKXOrder=%+v,%v", order, err)
+	}
+
+	bybitReq, err := toBybitSpotOrderRequest(&OrderRequest{Side: SideBuy, Type: OrderTypeLimit, TimeInForce: TimeInForceGTX, ReduceOnly: true})
+	if err != nil || bybitReq.Side != bybit.SideBuy || bybitReq.TimeInForce != bybit.TimeInForcePO || bybitReq.ReduceOnly {
+		t.Fatalf("toBybitSpotOrderRequest=%+v,%v", bybitReq, err)
+	}
+	if _, err := toBybitSpotOrderRequest(&OrderRequest{Side: "HOLD", Type: OrderTypeLimit}); err == nil {
+		t.Fatal("Bybit 現貨未知方向應報錯")
+	}
+	if _, err := fromBybitOrder(&bybit.Order{Side: bybit.SideSell, Type: bybit.OrderTypeLimit, Status: "Unknown"}); err == nil {
+		t.Fatal("Bybit 未知狀態應報錯而非透傳")
+	}
+}

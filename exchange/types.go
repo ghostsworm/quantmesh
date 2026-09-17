@@ -126,6 +126,9 @@ type OrderFill struct {
 	CommissionAsset string  // 手續費幣種
 	TradeTime       int64   // 成交時間（毫秒）
 	IsMaker         bool    // 是否為 Maker 訂單
+	// BaseFeeQty 本筆成交以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費）。
+	// 僅現貨有意義：其計價幣價值已包含在 Commission 中，上層只用它把買單到帳數量扣減為淨額。
+	BaseFeeQty float64 `json:"base_fee_qty,omitempty"`
 }
 
 // OrderUpdateCallback 订單更新回呼函數

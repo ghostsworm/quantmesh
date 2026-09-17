@@ -25,7 +25,9 @@ type Engine struct {
 	ex   *simExchange
 	exec *simExecutor
 	spm  *position.SuperPositionManager
-	ran  bool
+	// clock 由 tick 時間戳驅動的模擬時鐘（注入倉位管理器）
+	clock *SimClock
+	ran   bool
 
 	// 權益/敞口統計
 	peakEquity       float64
@@ -49,6 +51,9 @@ func NewEngine(cfg Config) *Engine {
 
 // SPM 返回被驅動的倉位管理器（Run 之後可用於檢查槽位狀態；Run 之前為 nil）
 func (e *Engine) SPM() *position.SuperPositionManager { return e.spm }
+
+// Clock 返回注入倉位管理器的模擬時鐘（Run 之前為 nil）
+func (e *Engine) Clock() *SimClock { return e.clock }
 
 // Run 按時間順序回放成交序列：
 //  1. 首個 tick：設置最新價並 Initialize(price)（與實盤啟動一致，從空倉開始）；
@@ -82,6 +87,9 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	e.ex = newSimExchange(cfg)
 	e.exec = newSimExecutor(e.ex, cfg.Bot)
 	e.spm = position.NewSuperPositionManager(cfg.Bot, e.exec, e.ex, cfg.PriceDecimals, cfg.QuantityDecimals)
+	// 模擬時鐘：保證金鎖、reduce-only 冷卻、去抖兜底、緩存 TTL、撤單等待均按 tick 時間生效
+	e.clock = NewSimClock(time.UnixMilli(first.Timestamp))
+	e.spm.SetClock(e.clock)
 	// 與實盤 symbol_manager 注入真實費率一致：費率感知最小利差使用回放的 maker/taker
 	if cfg.Matching.TakerFeeRate > 0 {
 		e.spm.SetFeeRates(cfg.Matching.MakerFeeRate, cfg.Matching.TakerFeeRate)
@@ -108,6 +116,7 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			e.ex.settleFunding(prevTs, t.Timestamp, e.fundingRateAt)
 		}
 		prevTs = t.Timestamp
+		e.clock.AdvanceToMillis(t.Timestamp)
 		if i > 0 {
 			e.ex.matchTrade(t)
 			e.deliver()

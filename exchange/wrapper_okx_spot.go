@@ -2,11 +2,11 @@ package exchange
 
 import (
 	"context"
-	"strconv"
-	"strings"
+	"fmt"
 
 	"quantmesh/exchange/income"
 	"quantmesh/exchange/okx"
+	"quantmesh/logger"
 )
 
 // okxSpotWrapper 包装 OKX 現貨适配器以實現 IExchange 接口
@@ -22,84 +22,49 @@ func (w *okxSpotWrapper) GetMarketType() string {
 	return w.adapter.GetMarketType()
 }
 
+// toOKXSpotOrderRequest 與合約共用映射（方向/類型/PostOnly 未知值報錯），現貨不支援 ReduceOnly
+func toOKXSpotOrderRequest(req *OrderRequest) (*okx.OrderRequest, error) {
+	okxReq, err := toOKXOrderRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	okxReq.ReduceOnly = false
+	return okxReq, nil
+}
+
 func (w *okxSpotWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
-	okxReq := &okx.OrderRequest{
-		Symbol:        req.Symbol,
-		Side:          okx.Side(strings.ToLower(string(req.Side))),
-		Type:          okx.OrderType(strings.ToLower(string(req.Type))),
-		TimeInForce:   okx.TimeInForce(req.TimeInForce),
-		Quantity:      req.Quantity,
-		Price:         req.Price,
-		ReduceOnly:    false,
-		PostOnly:      req.PostOnly,
-		PriceDecimals: req.PriceDecimals,
-		ClientOrderID: req.ClientOrderID,
+	okxReq, err := toOKXSpotOrderRequest(req)
+	if err != nil {
+		return nil, err
 	}
 	order, err := w.adapter.PlaceOrder(ctx, okxReq)
 	if err != nil {
 		return nil, err
 	}
-	return okxSpotOrderToExchange(order), nil
+	return fromOKXOrder(order)
 }
 
 func (w *okxSpotWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
-	okxOrders := make([]*okx.OrderRequest, len(orders))
-	for i, req := range orders {
-		okxOrders[i] = &okx.OrderRequest{
-			Symbol:        req.Symbol,
-			Side:          okx.Side(strings.ToLower(string(req.Side))),
-			Type:          okx.OrderType(strings.ToLower(string(req.Type))),
-			TimeInForce:   okx.TimeInForce(req.TimeInForce),
-			Quantity:      req.Quantity,
-			Price:         req.Price,
-			ReduceOnly:    false,
-			PostOnly:      req.PostOnly,
-			PriceDecimals: req.PriceDecimals,
-			ClientOrderID: req.ClientOrderID,
+	okxOrders := make([]*okx.OrderRequest, 0, len(orders))
+	for _, req := range orders {
+		okxReq, err := toOKXSpotOrderRequest(req)
+		if err != nil {
+			logger.Warn("⚠️ [OKX Spot] 跳過無法轉換的下單請求: %v", err)
+			continue
 		}
+		okxOrders = append(okxOrders, okxReq)
 	}
 	placed, hasErr := w.adapter.BatchPlaceOrders(ctx, okxOrders)
-	result := make([]*Order, len(placed))
-	for i, ord := range placed {
-		result[i] = okxSpotOrderToExchange(ord)
+	result := make([]*Order, 0, len(placed))
+	for _, ord := range placed {
+		converted, err := fromOKXOrder(ord)
+		if err != nil {
+			logger.Error("❌ [OKX Spot] 已下單但結果轉換失败: %v", err)
+			continue
+		}
+		result = append(result, converted)
 	}
 	return result, hasErr
-}
-
-func okxSpotOrderToExchange(ord *okx.Order) *Order {
-	return &Order{
-		OrderID:       ord.OrderID,
-		ClientOrderID: ord.ClientOrderID,
-		Symbol:        ord.Symbol,
-		Side:          Side(strings.ToUpper(string(ord.Side))),
-		Type:          OrderType(strings.ToUpper(string(ord.Type))),
-		Price:         ord.Price,
-		Quantity:      ord.Quantity,
-		ExecutedQty:   ord.ExecutedQty,
-		AvgPrice:      ord.AvgPrice,
-		Status:        OrderStatus(okxSpotStatusToExchange(ord.Status)),
-		CreatedAt:     ord.CreatedAt,
-		UpdateTime:    ord.UpdateTime,
-	}
-}
-
-func okxSpotStatusToExchange(s okx.OrderStatus) string {
-	switch s {
-	case okx.OrderStatusNew:
-		return string(OrderStatusNew)
-	case okx.OrderStatusPartiallyFilled:
-		return string(OrderStatusPartiallyFilled)
-	case okx.OrderStatusFilled:
-		return string(OrderStatusFilled)
-	case okx.OrderStatusCanceled:
-		return string(OrderStatusCanceled)
-	case okx.OrderStatusRejected:
-		return string(OrderStatusRejected)
-	case okx.OrderStatusExpired:
-		return string(OrderStatusExpired)
-	default:
-		return string(OrderStatusNew)
-	}
 }
 
 func (w *okxSpotWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
@@ -119,7 +84,7 @@ func (w *okxSpotWrapper) GetOrder(ctx context.Context, symbol string, orderID in
 	if err != nil {
 		return nil, err
 	}
-	return okxSpotOrderToExchange(ord), nil
+	return fromOKXOrder(ord)
 }
 
 func (w *okxSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
@@ -127,9 +92,13 @@ func (w *okxSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*Order, len(orders))
-	for i, ord := range orders {
-		result[i] = okxSpotOrderToExchange(ord)
+	result := make([]*Order, 0, len(orders))
+	for _, ord := range orders {
+		converted, err := fromOKXOrder(ord)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
 	}
 	return result, nil
 }
@@ -275,7 +244,8 @@ func (w *okxSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTyp
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（REST /api/v5/trade/fills）
+// GetOrderFills 查詢訂單成交記錄（REST /api/v5/trade/fills）。
+// Commission 為支出為正，且已換算為計價幣（基礎幣收取的手續費按成交價折算）。
 func (w *okxSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
 	fills, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
 	if err != nil {
@@ -283,26 +253,22 @@ func (w *okxSpotWrapper) GetOrderFills(ctx context.Context, symbol string, order
 	}
 	out := make([]*OrderFill, 0, len(fills))
 	for _, f := range fills {
-		side := SideBuy
-		if strings.EqualFold(f.Side, "sell") {
-			side = SideSell
+		side, err := okx.ToInternalSide(f.Side)
+		if err != nil {
+			return nil, fmt.Errorf("OKX 現貨訂單 %d 成交 %s 轉換失败: %w", orderID, f.TradeID, err)
 		}
-		price, _ := strconv.ParseFloat(f.FillPx, 64)
-		qty, _ := strconv.ParseFloat(f.FillSz, 64)
-		fee, _ := strconv.ParseFloat(f.Fee, 64)
-		ts, _ := strconv.ParseInt(f.Ts, 10, 64)
-		oid, _ := strconv.ParseInt(f.OrdId, 10, 64)
 		out = append(out, &OrderFill{
-			OrderID:         oid,
-			TradeID:         f.TradeId,
-			Symbol:          symbol,
-			Side:            side,
-			Price:           price,
-			Quantity:        qty,
-			Commission:      fee,
-			CommissionAsset: f.FeeCcy,
-			TradeTime:       ts,
-			IsMaker:         false,
+			OrderID:         f.OrderID,
+			TradeID:         f.TradeID,
+			Symbol:          f.Symbol,
+			Side:            Side(side),
+			Price:           f.Price,
+			Quantity:        f.Quantity,
+			Commission:      f.Commission,
+			CommissionAsset: f.CommissionAsset,
+			TradeTime:       f.TradeTime,
+			IsMaker:         f.IsMaker,
+			BaseFeeQty:      f.BaseFeeQty,
 		})
 	}
 	return out, nil

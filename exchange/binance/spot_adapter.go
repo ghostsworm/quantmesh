@@ -38,6 +38,12 @@ type BinanceSpotAdapter struct {
 	wsManager *SpotWebSocketManager
 	orderWS   *SpotUserDataWebSocketManager
 	klineWS   *KlineWebSocketManager // NewSpotKlineWebSocketManager
+
+	// 手續費換算：非計價幣/基礎幣（如 BNB）按 ASSET+QUOTE 最新價折算，結果短 TTL 緩存
+	feePriceMu      sync.Mutex
+	feePriceCache   map[string]spotFeeAssetPrice
+	feeWarned       map[string]bool
+	feePriceFetcher func(ctx context.Context, pair string) (float64, error) // 測試注入；nil 時走 REST ticker
 }
 
 // NewBinanceSpotAdapter 創建币安現貨适配器
@@ -497,8 +503,136 @@ func (b *BinanceSpotAdapter) StartOrderStream(ctx context.Context, callback func
 		b.orderWS = NewSpotUserDataWebSocketManager(b.client, b.useTestnet)
 	}
 	return b.orderWS.Start(ctx, func(up OrderUpdate) {
-		callback(up)
+		callback(b.toSpotStreamUpdate(up))
 	})
+}
+
+// SpotStreamOrderUpdate 現貨訂單推送：在 OrderUpdate 上附加基礎幣手續費數量。
+// 上層按字段名反射讀取（嵌入字段會被提升），BaseFeeQty 映射到 position.OrderUpdate.BaseFeeQty。
+type SpotStreamOrderUpdate struct {
+	OrderUpdate
+	// BaseFeeQty 本筆成交以基礎幣扣收的手續費（executionReport n，N=基礎幣時；基礎幣單位，>=0）
+	BaseFeeQty float64
+}
+
+// toSpotStreamUpdate 把 executionReport 的手續費（commissionAsset 計）換算為計價幣口徑：
+//   - 計價幣 → 原樣；
+//   - 基礎幣 → × 本筆成交價（L，缺失時退回委託價），並把原始數量填入 BaseFeeQty；
+//   - 其他幣種（如 BNB 抵扣）→ × ASSET+QUOTE 最新價（REST ticker，短 TTL 緩存）。
+//
+// 降級約定：無法換算時 Commission 保留原幣種數量、CommissionAsset 保留原幣種，並按幣種只告警一次。
+// 下游（position 包）把 Commission 當計價幣累加，因此此時費用口徑會有偏差，可通過 CommissionAsset != 計價幣識別。
+func (b *BinanceSpotAdapter) toSpotStreamUpdate(up OrderUpdate) SpotStreamOrderUpdate {
+	out := SpotStreamOrderUpdate{OrderUpdate: up}
+	if up.Commission == 0 || up.CommissionAsset == "" {
+		return out
+	}
+	asset := up.CommissionAsset
+	if b.baseAsset != "" && asset == b.baseAsset && up.Commission > 0 {
+		out.BaseFeeQty = up.Commission
+	}
+	if b.quoteAsset == "" {
+		b.warnFeeConversionOnce(asset, "計價幣未知（交易對信息未加載）")
+		return out
+	}
+	switch asset {
+	case b.quoteAsset:
+		return out
+	case b.baseAsset:
+		px := up.AvgPrice
+		if px <= 0 {
+			px = up.Price
+		}
+		if px <= 0 {
+			b.warnFeeConversionOnce(asset, "成交價缺失")
+			return out
+		}
+		out.Commission = up.Commission * px
+		out.CommissionAsset = b.quoteAsset
+	default:
+		px, err := b.feeAssetQuotePrice(asset)
+		if err != nil || px <= 0 {
+			b.warnFeeConversionOnce(asset, fmt.Sprintf("查詢 %s%s 價格失敗: %v", asset, b.quoteAsset, err))
+			return out
+		}
+		out.Commission = up.Commission * px
+		out.CommissionAsset = b.quoteAsset
+	}
+	return out
+}
+
+const (
+	// spotFeeAssetPriceTTL 手續費幣種（如 BNB）對計價幣價格緩存時長（失敗結果同樣緩存，避免每筆成交都打 REST）
+	spotFeeAssetPriceTTL = 30 * time.Second
+	// spotFeeAssetPriceTimeout 單次 REST 查價超時（在訂單推送回調中同步執行，須保持很短）
+	spotFeeAssetPriceTimeout = 3 * time.Second
+)
+
+type spotFeeAssetPrice struct {
+	price float64
+	err   error
+	at    time.Time
+}
+
+// feeAssetQuotePrice 返回 asset 以計價幣計的最新價（ASSET+QUOTE ticker），帶 TTL 緩存
+func (b *BinanceSpotAdapter) feeAssetQuotePrice(asset string) (float64, error) {
+	pair := asset + b.quoteAsset
+	now := time.Now()
+	b.feePriceMu.Lock()
+	if c, ok := b.feePriceCache[pair]; ok && now.Sub(c.at) < spotFeeAssetPriceTTL {
+		b.feePriceMu.Unlock()
+		return c.price, c.err
+	}
+	fetch := b.feePriceFetcher
+	b.feePriceMu.Unlock()
+
+	if fetch == nil {
+		fetch = b.fetchTickerPrice
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), spotFeeAssetPriceTimeout)
+	defer cancel()
+	price, err := fetch(ctx, pair)
+	if err == nil && price <= 0 {
+		err = fmt.Errorf("%s 價格無效: %v", pair, price)
+	}
+
+	b.feePriceMu.Lock()
+	if b.feePriceCache == nil {
+		b.feePriceCache = make(map[string]spotFeeAssetPrice)
+	}
+	b.feePriceCache[pair] = spotFeeAssetPrice{price: price, err: err, at: now}
+	b.feePriceMu.Unlock()
+	return price, err
+}
+
+// fetchTickerPrice REST 查詢交易對最新價
+func (b *BinanceSpotAdapter) fetchTickerPrice(ctx context.Context, pair string) (float64, error) {
+	if b.client == nil {
+		return 0, fmt.Errorf("Binance 客戶端未初始化，無法查詢 %s 價格", pair)
+	}
+	ticker, err := b.client.NewListPricesService().Symbol(pair).Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("查詢 %s 價格失敗: %w", pair, err)
+	}
+	if len(ticker) == 0 {
+		return 0, fmt.Errorf("無價格數據: %s", pair)
+	}
+	return strconv.ParseFloat(ticker[0].Price, 64)
+}
+
+// warnFeeConversionOnce 手續費無法換算為計價幣時按幣種只告警一次
+func (b *BinanceSpotAdapter) warnFeeConversionOnce(asset, reason string) {
+	b.feePriceMu.Lock()
+	if b.feeWarned == nil {
+		b.feeWarned = make(map[string]bool)
+	}
+	warned := b.feeWarned[asset]
+	b.feeWarned[asset] = true
+	b.feePriceMu.Unlock()
+	if !warned {
+		logger.Warn("⚠️ [Binance Spot] %s 手續費幣種 %s 無法換算為計價幣（%s），Commission 保留原幣種數量，費用統計口徑可能偏差",
+			b.symbol, asset, reason)
+	}
 }
 
 // StopOrderStream 停止訂單流

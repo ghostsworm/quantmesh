@@ -106,6 +106,7 @@ type OrderUpdate struct {
 	Commission      float64 // 本次成交手續費
 	CommissionAsset string  // 手續費幣種
 	RealizedPnL     float64 // 已實現盈虧（交易所計算）
+	FillPrice       float64 // 本次成交價（fillPx）；現貨按基礎幣收取的手續費需用它換算為計價幣
 }
 
 type Candle struct {
@@ -168,6 +169,8 @@ const (
 	okxPosModeLongShort = "long_short_mode"
 	// okxInstTypeSwap 永續合約 instType
 	okxInstTypeSwap = "SWAP"
+	// okxInstTypeSpot 現貨 instType
+	okxInstTypeSpot = "SPOT"
 	// okxDefaultCommissionAsset 推送中缺少手續費幣種時的默認值（USDT 本位合約）
 	okxDefaultCommissionAsset = "USDT"
 	// okxExecTypeMaker 成交明細中 maker 標識

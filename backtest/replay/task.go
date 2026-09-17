@@ -45,6 +45,9 @@ const (
 	defaultTaskWindowSize = 10
 	// defaultTaskOrderQuantity 默認每格金額（USDT）
 	defaultTaskOrderQuantity = 100.0
+	// defaultTaskEnforceMargin 回測任務默認模擬保證金不足拒單：
+	// 倉位管理器已注入模擬時鐘，保證金鎖按模擬時間解除，不再「永久停單」
+	defaultTaskEnforceMargin = true
 	// unsetDecimals 表示精度按價格推斷
 	unsetDecimals = -1
 )
@@ -152,7 +155,7 @@ func ConfigFromTask(task *backtest.BacktestTask) (Config, error) {
 		AdjustIntervalMs: int64(paramInt(p, paramAdjustIntervalMs, DefaultAdjustIntervalMs)),
 		FundingEnabled:   paramBool(p, paramFundingEnabled, fundingRate != 0),
 		FundingRate:      fundingRate,
-		EnforceMargin:    paramBool(p, paramEnforceMargin, false),
+		EnforceMargin:    paramBool(p, paramEnforceMargin, defaultTaskEnforceMargin),
 	}, nil
 }
 

@@ -279,6 +279,11 @@ func putBotConfigFile(c *gin.Context) {
 	req.BotID = botID
 	req.UpdatedAt = time.Now().Format(time.RFC3339)
 
+	if err := config.ValidateBotTradingOverrides(nil, req.TradingOverrides); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_bot_config", err)
+		return
+	}
+
 	if botManagerProvider() != nil {
 		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
 			c.JSON(http.StatusConflict, gin.H{
@@ -313,8 +318,8 @@ func putBotConfigFile(c *gin.Context) {
 					id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
 				}
 				if id == botID {
-					updatedBot := config.ConvertToBotConfig(&req)
-					cfg.Bots[i] = updatedBot
+					// 合併而非整條覆蓋：保留 BotConfigFile 不承載的 Enabled 等字段
+					cfg.Bots[i] = config.MergeBotConfigFileInto(cfg.Bots[i], &req)
 					found = true
 					break
 				}
@@ -649,8 +654,8 @@ func syncBotConfigToMain(botID string, botConfig *config.BotConfigFile) {
 			id = config.GenerateBotID(cfg.Bots[i].Exchange, cfg.Bots[i].Symbol, cfg.Bots[i].GetMarketType())
 		}
 		if id == botID {
-			updatedBot := config.ConvertToBotConfig(botConfig)
-			cfg.Bots[i] = updatedBot
+			// 合併而非整條覆蓋：保留 BotConfigFile 不承載的 Enabled 等字段
+			cfg.Bots[i] = config.MergeBotConfigFileInto(cfg.Bots[i], botConfig)
 			found = true
 			break
 		}

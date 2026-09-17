@@ -1,8 +1,19 @@
 package bybit
 
 import (
+	"os"
 	"testing"
 )
+
+// networkTestsEnv 設為 1 時才運行會訪問真實交易所的測試，保證 go test ./... 默認不觸網
+const networkTestsEnv = "QUANTMESH_NETWORK_TESTS"
+
+func requireNetworkTests(t *testing.T) {
+	t.Helper()
+	if os.Getenv(networkTestsEnv) != "1" {
+		t.Skipf("訪問真實 Bybit 網絡，設置 %s=1 後運行", networkTestsEnv)
+	}
+}
 
 func TestNewBybitClient(t *testing.T) {
 	apiKey := "test_api_key"
@@ -53,6 +64,7 @@ func TestSign(t *testing.T) {
 }
 
 func TestNewAdapter(t *testing.T) {
+	requireNetworkTests(t)
 	config := map[string]string{
 		"api_key":    "test_api_key",
 		"secret_key": "test_secret_key",
@@ -74,6 +86,7 @@ func TestNewAdapter(t *testing.T) {
 }
 
 func TestAdapterBasicMethods(t *testing.T) {
+	requireNetworkTests(t)
 	config := map[string]string{
 		"api_key":    "test_api_key",
 		"secret_key": "test_secret_key",

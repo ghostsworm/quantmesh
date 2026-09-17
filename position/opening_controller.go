@@ -18,6 +18,9 @@ const (
 	openingPauseReasonPeriodic      = "periodic"
 )
 
+// openingControllerCheckInterval 開倉控制器檢查間隔
+const openingControllerCheckInterval = 1 * time.Minute
+
 // isOpeningControllerPauseReason 判斷暫停原因是否由開倉控制器設置
 func isOpeningControllerPauseReason(reason string) bool {
 	switch reason {
@@ -36,7 +39,7 @@ func isPositionLimitPauseReason(reason string) bool {
 type OpeningController struct {
 	spm            *SuperPositionManager
 	configPtr      *config.SymbolConfig
-	ticker         *time.Ticker
+	ticker         Ticker
 	stopCh         chan struct{}
 	running        bool
 	periodicState  bool      // 當前週期狀態：true=開倉中，false=關倉中
@@ -63,7 +66,7 @@ func (oc *OpeningController) Start() {
 		return
 	}
 	oc.stopCh = make(chan struct{})
-	oc.ticker = time.NewTicker(1 * time.Minute)
+	oc.ticker = oc.clock().NewTicker(openingControllerCheckInterval)
 	oc.running = true
 	go oc.run(oc.ticker, oc.stopCh)
 	logger.Info("🔄 [開倉管理] 開倉控制器已啟動 [%s:%s]", oc.configPtr.Exchange, oc.configPtr.Symbol)
@@ -86,12 +89,20 @@ func (oc *OpeningController) Stop() {
 	logger.Info("🔄 [開倉管理] 開倉控制器已停止 [%s:%s]", oc.configPtr.Exchange, oc.configPtr.Symbol)
 }
 
-func (oc *OpeningController) run(ticker *time.Ticker, stopCh <-chan struct{}) {
+// clock 使用倉位管理器的時鐘（未綁定倉位管理器時為牆鐘）
+func (oc *OpeningController) clock() Clock {
+	if oc.spm == nil {
+		return RealClock()
+	}
+	return oc.spm.Clock()
+}
+
+func (oc *OpeningController) run(ticker Ticker, stopCh <-chan struct{}) {
 	for {
 		select {
 		case <-stopCh:
 			return
-		case <-ticker.C:
+		case <-ticker.C():
 			oc.check()
 		}
 	}
@@ -182,7 +193,7 @@ func (oc *OpeningController) checkScheduleRules(cfg *config.OpenPositionControl)
 		return false
 	}
 
-	now := time.Now().UTC()
+	now := oc.clock().Now().UTC()
 	currentMinutes := now.Hour()*60 + now.Minute()
 	weekday := int(now.Weekday()) // 0=Sunday, 6=Saturday
 
@@ -253,7 +264,7 @@ func (oc *OpeningController) checkPeriodicRule(cfg *config.OpenPositionControl) 
 	oc.mu.Lock()
 	defer oc.mu.Unlock()
 
-	now := time.Now()
+	now := oc.clock().Now()
 	if now.Before(oc.periodicSwitch) {
 		return oc.periodicState
 	}

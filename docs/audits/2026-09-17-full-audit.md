@@ -243,15 +243,77 @@
 - 10 Walk-forward `backtest/optimizer/walkforward.go`，评分 `score.go`。测试 `walkforward_test.go`。
 - 已知限制：`SuperPositionManager` 内保证金锁、冷却、`Sleep(2s)` 按挂钟时间，回放需注入 Clock 才能完全同构（回放默认关闭保证金检查）；无盘口深度/延迟模型；仅单交易对单向净持仓；walk-forward 未接入 Web 的 `UniversalOptimizer`；默认引擎在用实盘成交校准前保持 legacy。
 
+#### 后续：时钟注入（解决 R6 已知限制第一条）
+- 时钟抽象 `position/clock.go`（`Clock{Now, Sleep, After, NewTicker}`、`RealClock`、`SuperPositionManager.SetClock`，原子替换，默认牆钟，实盘行为不变）。
+- 改为按注入时钟：`super_position_manager.go`（`CancelAllOpenOrders` 撤单等待、暂停开仓后残留单核对延迟、成交频率统计、reduce-only 冷却判断、订单簿优化间隔）、`super_position_manager_adjust.go`（保证金锁、去抖、regime/资金费定价 `now`、下单时间、冷却写入、事件时间戳）、`super_position_manager_both.go`、`super_position_manager_order_events.go`（成交记录时间）、`super_position_manager_reconcile.go`（`CancelAllBuyOrders` 等待）、`adjust_cache.go`（账户缓存 TTL）、`allocation_reservation.go`（杠杆缓存 TTL）、`allocation_manager.go`（紧急限额冷却）、`adjust_regime.go`/`smart_order_manager.go`/`grid_auto_rebuild.go`/`opening_controller.go`（后台循环与定时/周期规则）。
+- 保持牆钟：网络超时、`close_manager.go`、`plan_manager.go`（不经 `SuperPositionManager` 驱动）。
+- 回放 `backtest/replay/clock.go` `SimClock`（tick 驱动，`Sleep` 立即推进模拟时间）；`engine.go` 注入；回测任务 `enforce_margin` 缺省改为 `true`。
+- 订单号：`utils/orderid.go` 逻辑秒单调、每秒序号上限 999、用尽借下一秒，同进程内不重复，格式/长度不变。
+- 测试：`position/clock_test.go`（reduce-only 冷却、保证金锁按模拟时间、撤单不等牆钟、5000 个同一模拟秒内 ID 唯一且满足 Binance ≤36 / OKX ≤32 无下划线）、`backtest/replay/clock_test.go`（SimClock 定时器、触发 LiquidateAll 的回放 <200ms、保证金锁 10s 模拟时间后解除）、`utils/orderid_unique_test.go`。
+- 仍有差距：`Sleep` 推进模拟时间后，紧随的 tick 仍被撮合（实盘同期价格循环被阻塞）；ADR「已知差距」其余条目不变。
+
+#### 后续：按 Bot 覆盖新配置（解决 R5 已知限制第一条）
+- 新增 `trading_overrides`（`config/bot_trading_overrides.go` `BotTradingOverrides`），挂在 `SymbolConfig`、`BotConfig`、`BotConfigFile`（顶层），四个转换函数同步透传；可覆盖 `fee_aware_spread`、`post_only_reprice_max_attempts`、`regime_filter`、`adaptive_interval`、`upper_bound_freeze`、`inventory_skew`、`funding_rate.pricing_enabled`/`pre_settlement_pause_minutes`。
+- 合并规则：Bot 设置了（指针非 nil）用 Bot 值，否则沿用全局；`regime_filter`/`adaptive_interval`/`upper_bound_freeze`/`inventory_skew` 整段替换，`fee_aware_spread`、`funding_rate` 按字段合并。`ApplyBotTradingOverrides` 在 `symbol_manager.go` 构造 `localCfg` 时调用，position 通过 `spm.config`（即 `&localCfg`）读取，未改 position。
+- 止损口径：`config.Validate` 只对 `trading.symbols` 做了 `stop_loss_basis` 继承，按 `bots` 启动的路径原先没有继承；`symbol_manager.go` 构造 `localCfg` 时补调 `InheritStopLossBasis`（Bot 为空才取全局）。
+- 校验：合并后复用 `validateGridR5Features`；`POST /api/bots/create`、`PUT /api/bots/:id/strategy`、`PUT /api/bots/:id/config-file` 非法返回 400；Bot 启动时在创建交易所实例前再校验，K 线参数仍由 `newGridRegimeRuntime` 校验，非法只拒绝该 Bot。
+- 持久化：`bot_configs` 表与 app_config 快照均为 JSON，`bots/*.yaml` 为 YAML，字段自动随结构体序列化，无需改 storage。
+- 测试：`config/bot_trading_overrides_test.go`（合并表驱动、不改全局、校验、止损口径继承、Symbol↔Bot↔BotConfigFile + JSON/YAML 往返、显式 0 保留）、`symbol_manager_overrides_test.go`（非法覆盖拒绝启动、覆盖决定是否创建 K 线检测器）、`web/api_bot_trading_overrides_test.go`（创建持久化、非法 400）。`go build ./...`、config/web/根包 `go vet` 与 `-race` 测试通过。
+- 已知限制：修改覆盖需重启 Bot 才生效（热更新不同步）；Web 表单无输入项，只能走 API 或 YAML 编辑器；YAML 编辑器保存整份配置时不校验单个 Bot 覆盖（启动时拦截）；`funding_rate.enabled` 不可按 Bot 覆盖；`funding_carry`/`funding_perp_spread` 不使用。
+
+#### 后续：拆分 storage/sql_storage.go
+- 原因：3049 行，超过 3000 行上限（第九节第 4 条）。纯搬移，同包 `storage`，不改名、不改签名、不改逻辑，注释随函数走，每个文件只 import 自己用到的包。
+- 拆分结果：`sql_storage.go`（238 行：`SQLStorage` 结构体、`tradesTbl`/`mysqlQuoteIdent`/`dateExprInConfiguredTimezone`、`NewSQLStorage`/`NewMySQLStorage`/`NewStorage`、`Close`）；`sql_storage_schema.go`（376：`createTables`）；`sql_storage_migrations.go`（539：SQLite 各表 `migrate*`，含巡检、资金费、K 线文件、权益快照、回测/优化任务、新闻、价格、预测校验、利润提取、events、对账）；`sql_storage_migrations_trades_orders.go`（523：trades/orders/risk_check_history 迁移、orders 复合唯一索引）；`sql_storage_orders.go`（480：`SaveOrder`、订单查询/计数、`GetFilledOrderQtySumBeforeTime`）；`sql_storage_trades.go`（243：持仓与成交的保存和查询）；`sql_storage_statistics.go`（593：统计保存、汇总、当日/每日盈亏）；`sql_storage_metrics.go`（114：系统监控指标、事件）。
+- 验证：拆分前后 `storage/*.go` 顶层声明列表、`go doc -all ./storage` 输出逐字一致；原文件与新文件的代码行排序后比对一致（去掉 package/import/空行）。唯一的字节差异：29 行 SQL 原始字符串末尾的空格被去掉（编辑工具会删行尾空白），SQL 语义不变，仓库里没有按 SQL 原文匹配的测试（无 sqlmock）。`go build ./...`、`go vet ./storage/...`、`go test -race ./storage/...` 通过；引用 storage 的根包、cfgmgr、inspector、mcp、monitor、notify、position、profit、safety、sync、web 测试通过。
+- 行数复查：非 webui 的 Go 文件已无超过 3000 行的；最大的是 `config/config.go` 2968、`web/api.go` 2911、`main.go` 2792，都接近上限。
+
+#### 后续：配置转换丢字段
+- `BotConfigFile` 缺 `spot_inventory_policy`、`funding_perp_spread`、`use_spot_margin`，从 `bot_configs` 表 / `bots/*.yaml` 读回的 Bot 丢这三项；已加到顶层（tag 与 `BotConfig` 一致，均 omitempty），`ConvertFromBotConfig`/`ConvertToBotConfig` 双向透传，`CreatedAt` 也补上双向复制（storage 保存时仍优先沿用旧文档的 created_at）。
+- `SymbolConfigToBotConfig` 漏了 `SmartOrder`、`UseSpotMargin`；并且对 `spot + use_spot_margin` 写入的 `MarketType` 是推导值 `spot_margin`，`BotConfig.GetMarketType()` 不认这个原始值，会退回 `futures`。现在存 `spot` 并复制 `UseSpotMargin`，有效类型仍是 `spot_margin`（`config/bot_config_convert.go`）。
+- 测试：`config/config_convert_reflect_test.go` 用反射把源结构体所有导出字段填成非零值，检查 Symbol→Bot、Bot→Symbol 的同名字段，以及 Bot→File→Bot、File→Bot→File、Symbol→Bot→Symbol 的往返；有意不复制的字段放在带原因的 allowlist 里（`Enabled`：启停状态存 DB；File 独有的 `UpdatedAt`/`StrategyMode`/`Strategies` 的 Enabled 和 Settings/`HybridStrategy`/`Hedge`/`Capital.PerStrategy`/`RiskControl` 的 OptionHedge、MaxDrawdownRatio、StopLossRatio、TakeProfitRatio：`BotConfig` 里没有对应字段）。另外检查同名字段的 tag 是否一致，以及新字段的 JSON/YAML 往返和零值省略。`go build ./...`、config/web 的 `go vet`，以及 config/web/cfgmgr/根包的 `-race` 测试都通过。
+- 已知限制：`BotConfig` 独有的 `CloseOnStopConfig`、`SlotFilter`、`AutoRebuild` 在 `SymbolConfig` 里没有字段，经 `BotConfigToSymbolConfig` 转换后会丢；Web 端更新 Bot 时，`ConvertToBotConfig` 会覆盖整条 `cfg.Bots[i]`，主配置里的 `Enabled` 指针因此被清空（运行时以 DB 为准）。
+
+#### 后续：配置转换剩余问题（解决上一条的两项已知限制）
+- 调用方排查：`BotConfigToSymbolConfig` 用在 `bot_manager.go` 启动 Bot（结果传给 `startSymbolRuntime`，成为 `rt.Config`）、热更新 `UpdateRuntimeTradingParams`（写回 `br.Inner.Config`）、`Config.SyncSymbolsFromBots`（生成 `trading.symbols`）。`SymbolConfig` 仍是运行时配置类型，不是只读的旧类型，所以选择补字段，不改调用方。
+- 目前运行时还没有从配置读取这三项：`StartAutoRebuild` 没有调用方，`SlotFilter` 只能通过 `/api/bots/:id/slot-filter` 在运行中设置，`CloseOnStopConfig` 没被用到（停止时平仓只看 `CloseOnStop`）。所以丢字段暂时不影响交易，但会让运行时和 `trading.symbols` 里的配置不完整，以后接上时会读到零值。
+- `config/config.go` `SymbolConfig` 新增 `CloseOnStopConfig`、`SlotFilter`、`AutoRebuild`，yaml/json tag 与 `BotConfig` 相同（都是 omitempty）；`SymbolConfigToBotConfig`、`BotConfigToSymbolConfig` 双向复制。`config.go` 现为 2979 行。
+- Web 更新：新增 `config/bot_config_convert.go` `MergeBotConfigFileInto`，从 `BotConfigFile` 转换后保留原有的 `Enabled`（`BotConfigFile` 不带这个字段）；请求里 `created_at`、`bot_id` 为空时沿用原值。`web/api_bot_config.go` 的 `putBotConfigFile` 和 `syncBotConfigToMain`（添加/删除/更新策略时调用）改为合并，新建 Bot 的逻辑不变。
+- 测试：`config/config_convert_reflect_test.go` 新增 `TestSymbolConfig_HasAllBotConfigFields`（`BotConfig` 的每个字段都要在 `SymbolConfig` 中存在且类型一致，只允许 `Testnet`、`CreatedAt` 例外并写明原因；原来的同名字段比较发现不了缺字段）、`TestBotSymbolBot_RoundTrip`、`TestMergeBotConfigFileInto_PreservesUncarriedFields`（按 Bot→File→Bot 往返的 allowlist 逐项检查合并后没被改写）；`web/api_bot_config_merge_test.go` 验证 PUT config-file 和 `syncBotConfigToMain` 之后 `Enabled=false`、`CreatedAt` 保留，更新的字段生效。`go build ./...`、config/web 的 `go vet`，以及 config/web/cfgmgr/storage/根包的 `-race` 测试都通过。
+- 已知限制：`bot_manager.go` `resolveLatestStartConfig` 从 `bot_configs` 读回配置时同样用 `ConvertToBotConfig`，得到的 `Enabled` 为 nil。启用状态在这之前已经按 DB 检查过，不影响启动，本轮没有改；`CloseOnStopConfig`、`SlotFilter`、`AutoRebuild` 还没接到运行时。
+
+#### 后续：接通 AutoRebuild / SlotFilter / CloseOnStopConfig（解决上一条的两项已知限制）
+- 新增 `symbol_manager_bot_extras.go`，`startSymbolRuntime`（`symbol_manager.go`）四处调用：
+  - 启动校验 `validateBotRuntimeExtras`，紧跟 `ValidateBotTradingOverrides`，在创建交易所实例之前执行，非法时拒绝本 Bot 启动，错误信息带字段名。`auto_rebuild`（仅在启用时校验）：数值不能为负，`expired_order_ratio` 取 0~1，`rebuild_mode` 只接受 smart/always，`require_trend_confirm=true` 因为没有实现而拒绝。`slot_filter`：`type` 只接受 exclude/include；每条规则要有 `prices` 或同时设置 `min_price`/`max_price`（运行时两端都大于 0 才按区间匹配，只填一端的规则永远不会生效），且 min≤max，价格为正。`close_on_stop_config`（非零值时校验）：`method` 只接受 market/limit，`timeout_sec`/`max_retries` 不为负，`quantity_ratio` 取 0~1；`direction=BOTH` 不允许部分平仓。
+  - SlotFilter：SPM 创建并注入费率后调用 `applyConfiguredSlotFilter`，在 `Initialize`/首轮 `AdjustOrders` 之前通过 API 同样使用的 `SetSlotFilter` 生效，并复制规则切片，避免和配置共用底层数组。
+  - AutoRebuild：在 `startGridFeeRateRefresh` 之后（所有提前返回之后，出错时不会留下协程）调用 `startConfiguredAutoRebuild`，非网格多策略模式（`ShouldSkipInitialGridAdjustOrders`）下不启动。`stopFn` 先停费率刷新，再 `StopAutoRebuild`（cancel + WaitGroup 等待），然后才平仓，避免平仓过程中重新锚定网格。
+  - CloseOnStopConfig：`stopFn` 调用 `closeOnStopForRuntime`，使用独立的 30s 超时 ctx（`context.WithoutCancel`，不受已取消的启动 ctx 影响）。`close_on_stop=false` 不处理；未配置 `close_on_stop_config` 或 `direction=BOTH` 时仍走 `LiquidateAll`（与原来一致）；否则先 `CancelAllOrders`（止盈单会占用现货余额，也会和平仓单重复平仓），再走 R1 修过的 `BotRuntime.ClosePositions`（按槽位净持仓并以交易所持仓封顶、reduce-only）。下单失败时没有挂出平仓单，全仓平仓回退 `LiquidateAll`；部分平仓只记录错误，不回退全平。
+- `position/grid_auto_rebuild.go` 小修：还没有有效价格（`lastMarketPrice<=0`）或 `price_interval<=0` 时不触发重建，`rebuild` 也拒绝以 0 价重建，避免启动后立即检查时把锚点改成 0（之前没有调用方，所以没暴露）。
+- `bot_manager.go` `resolveLatestStartConfig` 改用 `MergeBotConfigFileInto`，从 `bot_configs` 读回时沿用主配置里的 `Enabled`（以及为空的 `CreatedAt`/`ID`）。
+- 测试：`symbol_manager_bot_extras_test.go` 覆盖校验表驱动用例、`startSymbolRuntime` 遇到非法 slot_filter 时拒绝启动、SlotFilter 生效且不共用切片、AutoRebuild 启停（停止后 goroutine 栈里不再有 `(*GridAutoRebuilder).run`，`NumGoroutine` 回到基线，stop 幂等；未启用/非网格模式/nil SPM 时不启动）、`runCloseOnStop` 各分支的调用顺序和配置透传、nil 运行时安全；`bot_manager_test.go` 新增 `TestBotManagerResolveLatestStartConfigPreservesEnabled`。`go build ./...`、根包与 position 的 `go vet`、根包/position/config/web 的 `-race` 测试通过。
+- `docs/CONFIGURATION_GUIDE.md` 补充三项配置的说明与示例，写明实际行为和限制。
+- 已知限制：三项只在 Bot 启动时应用，热更新（`UpdateRuntimeTradingParams`）不会重新应用，需要重启 Bot；API 修改的 slot filter 不会写回配置。`rebuild_mode` smart/always 目前行为相同；自动重建按基础 `price_interval` 计算偏离层数，没有考虑自适应间隔。限价平仓的超时检查协程由 `ClosePositionManager` 在后台运行，Bot 停止后还会存活 `timeout_sec`：到时如果开了 `auto_retry`，撤掉限价单、按剩余数量改下一次市价单（现有实现最多重试一次，`max_retries` 只作为是否允许重试的判断）；没开 `auto_retry` 的限价单超时后不会撤单，会留在交易所。Web 新建/更新 Bot 时不做这里的校验，非法配置要到启动时才报错。
+
 ---
+
+#### 后续：OKX/Bybit 现货链路与现货手续费记账
+- 现货 wrapper 复用合约映射（方向/类型/状态双向显式映射，未知值报错），交易对归一化；数量按 lotSz/basePrecision 向下取整、价格按买卖方向取整，低于最小数量/金额报错；OKX 现货私有 WS 复用合约重连实现并订阅 SPOT，Bybit 现货只收 spot 品类；市价单按基础币计量（OKX `tgtCcy=base_ccy`、Bybit `marketUnit=baseCoin`）；现货撤单汇总错误。依赖真实网络的旧测试改为 `QUANTMESH_NETWORK_TESTS=1` 才运行。
+- `position`：每笔部分成交都累加手续费并按成交量增量/订单去重；`supplementCommission` 反射解析修复（此前 Bybit 补查从未生效）；新增 `OrderUpdate.BaseFeeQty` / `exchange.OrderFill.BaseFeeQty`，现货买单按基础币扣费时持仓按实际到手数量记账并在订单结束时按精度取整；Binance 现货手续费换算为计价币（其他币按 30 秒缓存的 ticker 换算，失败保留原币种并告警）；补查结果按槽位周期 `cycleGen` 校验，过期结果与平仓单补查写入 `trade_fee_correction` 事件（实盘存储适配器已实现 `SaveEvent`）。
+- 测试：`exchange/okx/spot_adapter_test.go`、`exchange/bybit/spot_adapter_test.go`、`exchange/binance/spot_adapter_basefee_test.go`、`position/fill_fee_test.go`、`position/fill_fee_supplement_test.go`、`symbol_manager_order_update_test.go`、`main_adapters_web_event_test.go`。
+- 已知限制：Binance 现货/杠杆 `GetOrderFills` 仍为空实现（推送自带手续费，通常不触发补查）；部分成交后被撤的平仓单不补查手续费；非计价币手续费换算在推送回调中同步查价，缓存未命中时最多阻塞 3 秒。
+
+#### 后续：示例配置凭据泄露（安全）
+- `docs/config/examples/config.minimal.yaml` 自 2026-04-11 起含 Binance/Gate/OKX 主网 API Key/Secret/Passphrase，已清空；根因 `cfgmgr.generateMinimalConfig` 原样写入运行中配置的凭据，现改为凭据与 Web API Key 留空、DSN 密码替换为占位符，新增 `cfgmgr/minimal_config_redact_test.go`。
+- **需人工**：到交易所吊销并重新生成这三组密钥；历史提交中仍可见，是否改写 git 历史由仓库所有者决定。
 
 ## 九、整改总结
 
 - 六轮全部完成：第一至七节列出的缺陷全部处理，未修项已在各轮「已知限制」中说明原因。
-- 最终验证（2026-09-17）：`go build ./...`、`go vet ./...`、`go test -count=1 ./...` 全部通过；position、safety、lock、order、profit、risk、monitor、strategy、exchange、config、backtest、indicators、feerate、web、根包 `-race` 全部通过；`webui` Vitest 33 个文件 / 144 个用例通过。
+- 最终验证（2026-09-17，含后续条目）：`go build ./...`、`go vet ./...`、`go test -count=1 ./...` 全部通过；position、safety、lock、order、profit、risk、monitor、strategy、exchange、config、cfgmgr、storage、backtest、indicators、feerate、utils、web、根包 `-race` 全部通过；`webui` Vitest 33 个文件 / 144 个用例通过；无超过 3000 行的 Go 文件。
 - 版本：`3.111.0-rc1`。
 - 仍需人工处理：
   1. 新功能（行情识别、自适应间隔、上沿冻结、库存偏斜、资金费定价）默认关闭，建议先用回放引擎和测试网小仓位验证再开启。
   2. 费率感知利差默认开启，间隔过小的现有配置会被自动抬高，升级前核对 `price_interval`。
   3. 同一进程不能同时运行 Binance 合约主网与测试网 Bot；账户处于双向持仓模式时 Bot 拒绝启动。
-  4. `storage/sql_storage.go`（3049 行）在 main 上已超 3000 行，非本次引入，建议单独拆分。
+  4. ~~`storage/sql_storage.go` 超 3000 行~~：已拆分（见第八节后续条目）。
+  5. **吊销泄露的交易所 API 密钥**（见第八节「示例配置凭据泄露」）。
+  6. 以下为设计取舍，未做：按 Bot 覆盖配置与 AutoRebuild/SlotFilter/CloseOnStopConfig 需重启 Bot 生效（不支持热更新）；Web 新建/更新 Bot 不做这些配置的校验，非法值在启动时拦截；回放引擎无盘口深度与延迟模型、仅单交易对单向净持仓；walk-forward 未接入 Web 的 `UniversalOptimizer`。
