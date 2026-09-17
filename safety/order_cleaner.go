@@ -46,18 +46,38 @@ func NewOrderCleaner(cfg *config.Config, executor IOrderExecutor, pm IOrderClean
 	}
 }
 
+// DefaultOrderCleanupInterval timing.order_cleanup_interval 無效（<=0）時清理器使用的間隔
+const DefaultOrderCleanupInterval = 30 * time.Second
+
+// CleanupInterval 生效的清理間隔：timing.order_cleanup_interval（秒），無效時為 DefaultOrderCleanupInterval。
+// 回放回測用它在模擬時間上調度 CleanupOnce，與實盤 Start 的牆鐘周期一致。
+func (oc *OrderCleaner) CleanupInterval() time.Duration {
+	cleanupInterval := time.Duration(oc.cfg.Timing.OrderCleanupInterval) * time.Second
+	if cleanupInterval <= 0 {
+		return DefaultOrderCleanupInterval
+	}
+	return cleanupInterval
+}
+
+// CleanupOnce 同步執行一輪清理（ctx 已取消時不執行）。
+// 不啟動協程、不使用牆鐘，供回放引擎在模擬時間上按 CleanupInterval 驅動；調用方不得持有倉位管理器鎖。
+func (oc *OrderCleaner) CleanupOnce(ctx context.Context) {
+	if ctx != nil && ctx.Err() != nil {
+		return
+	}
+	oc.CleanupOrders()
+}
+
 // Start 啟動訂單清理协程
 func (oc *OrderCleaner) Start(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	go func() {
-		cleanupInterval := time.Duration(oc.cfg.Timing.OrderCleanupInterval) * time.Second
-		if cleanupInterval <= 0 {
-			cleanupInterval = 30 * time.Second
-			logger.Warn("⚠️ 訂單清理間隔配置無效，使用默认值 %v", cleanupInterval)
+		if oc.cfg.Timing.OrderCleanupInterval <= 0 {
+			logger.Warn("⚠️ 訂單清理間隔配置無效，使用默认值 %v", DefaultOrderCleanupInterval)
 		}
-		ticker := time.NewTicker(cleanupInterval)
+		ticker := time.NewTicker(oc.CleanupInterval())
 		defer ticker.Stop()
 
 		for {

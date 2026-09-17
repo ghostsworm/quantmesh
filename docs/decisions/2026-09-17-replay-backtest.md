@@ -28,7 +28,9 @@
   - 启动：首个 tick 调 `Initialize(price)`（空仓启动）；
   - 价格：每个 tick 距上次调用 ≥ `adjust_interval_ms`（默认 50ms，对应实盘价格循环）时调 `AdjustOrders(price)`；
   - 成交/撤单：以 `position.OrderUpdate`（`OrderID/ClientOrderID/Status/ExecutedQty 累计/AvgPrice/Commission 本次/RealizedPnL`）调用 `OnOrderUpdate`，与 WS 推送同形；
-  - 费率：`SetFeeRates(maker, taker)`，与 `symbol_manager` 注入真实费率一致，费率感知最小利差生效。
+  - 费率：`SetFeeRates(maker, taker)`，与 `symbol_manager` 注入真实费率一致，费率感知最小利差生效；
+  - 注入点：`Config.Setup` 在注入模拟时钟与费率之后、`Initialize` 之前调用；`Config.OnTick` 每个 tick 在撮合回报之后调用；
+  - 订单清理：`Config.OrderCleaner` 开启时，每经过 `order_cleanup_interval` 模拟时间在 `AdjustOrders` 之前同步执行一轮 `safety.OrderCleaner`（与实盘 `symbol_manager` 启动的清理协程同规则）。
 - 回报在 `AdjustOrders`/`Initialize` 返回后才投递（模拟 WS 异步；同时避免 `LiquidateAll` 持槽位锁撤单时同步回调死锁）。
 
 ### 2. 撮合模型（`MatchingConfig`）
@@ -69,7 +71,7 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 ### 6. 入口
 
 - `POST /api/backtest/tasks` 新增可选字段 `engine`（`legacy` 默认 / `replay`），写入 `params.engine`（随 params 持久化）。
-- 回放任务参数：`grid_spacing`（必填，或给 `price_low/price_high/grid_count` 推算）、`profit_spread`、`buy_window_size`/`sell_window_size`（默认 `grid_count` 或 10）、`order_quantity`、`direction`、`maker_fee_rate`、`taker_fee_rate`（缺省取 `fee_rate`）、`participation_rate`、`queue_factor`、`fill_on_touch`、`intrabar_path`、`intrabar_steps_per_leg`、`adjust_interval_ms`、`funding_rate`/`funding_enabled`、`price_decimals`、`quantity_decimals`、`aggtrade_dir`、`enforce_margin`、`post_only_reprice_max_attempts`；杠杆取任务 `leverage`。
+- 回放任务参数：`grid_spacing`（必填，或给 `price_low/price_high/grid_count` 推算）、`profit_spread`、`buy_window_size`/`sell_window_size`（默认 `grid_count` 或 10）、`order_quantity`、`direction`、`maker_fee_rate`、`taker_fee_rate`（缺省取 `fee_rate`）、`participation_rate`、`queue_factor`、`fill_on_touch`、`intrabar_path`、`intrabar_steps_per_leg`、`adjust_interval_ms`、`funding_rate`/`funding_enabled`、`price_decimals`、`quantity_decimals`、`aggtrade_dir`、`enforce_margin`、`post_only_reprice_max_attempts`、`order_cleaner`（缺省 true）、`order_cleanup_threshold`、`cleanup_batch_size`、`order_cleanup_interval`（秒，缺省 60）；杠杆取任务 `leverage`。
 - Go 调用：`replay.RunAggTrades(cfg, rows)`、`replay.RunCandles(cfg, candles, opt)`、`replay.RunTicks(cfg, ticks)`；`optimizer.RunWalkForward(ctx, symbol, candles, candidates, wfCfg, lambda, capital)`。
 
 ## 已知差距（仍不同构的地方）
@@ -80,7 +82,10 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 3. **盘口**：没有买卖价差与深度，PostOnly 是否交叉按最新成交价判断；非 PostOnly 交叉单假设深度无限、按最新价成交（无冲击成本）。`GetOrderBook` 返回最新价 ±1 tick 的合成盘口，订单簿优化（`orderbook_optimization`）在回放里无意义。
 4. **队列位置**：排队模型只按「触价成交量 ≥ 挂单量 × 系数」近似，不跟踪挂单时刻的真实队列长度与撤单；穿价成交按参与率分配，不区分主动方向（aggTrade 的 `isBuyerMaker` 未使用）。
 5. **延迟**：下单/撤单/回报都是零延迟（下一个 tick 就生效），实盘有网络与限流延迟（`order` 执行器 25 单/秒、PostOnly 重挂间隔 100ms）。
-6. **范围**：单交易对、单向净持仓合约；现货预算裁剪、BOTH 双腿记账、强平、ADL、资金划转、对账器（`reconcile`）、趋势/资金费监控器、regime 检测器未接入回放（未注入时对应逻辑自然关闭）。
+6. **范围**：单交易对、单向净持仓合约；现货预算裁剪、BOTH 双腿记账、强平、ADL、资金划转、对账器（`reconcile`）、旧 tick 级趋势检测器、资金费套利未接入回放（未注入时对应逻辑自然关闭）。
+   - ~~regime 检测器 / 资金费监控器无法注入~~（已解决，见审计文档第八节「后续：回放注入点与订单清理器、补跑校准」）：`replay.Config.Setup(spm, clock)` 在 `Initialize` 前调用，可 `ConfigureRegimeControl`、`SetFundingMonitor`；`replay.Config.OnTick(now, price)` 每个 tick 在撮合回报之后、订单清理与 `AdjustOrders` 之前调用（不持锁），用于在模拟时间上同步驱动 `Detector.Refresh`、`RefreshRegimeInterval`。`RunRegimeControlLoop` 在 `SimClock` 下按模拟时间触发（有测试），但协程与主循环的相对顺序不确定，需要可重复结果时应在 `OnTick` 同步调用（`tools/replaycompare/hooks.go` 即如此）。回测任务入口（`RunGridTask`）尚未注入 regime/资金费，这些功能在 Web 回测中仍为关闭。
+   - 资金费监控器 `replay.SimFundingMonitor` 的「当前费率」是最后一个已结算费率（无未来函数），实盘读的是交易所当期预测费率，费率变化时相差一期；序列结束后沿用最后一个费率。
+   - ~~订单清理器未接入~~（已解决）：`replay.Config.OrderCleaner=true` 时按 `timing.order_cleanup_interval` 模拟时间同步执行 `safety.OrderCleaner.CleanupOnce`（任务参数 `order_cleaner` 缺省 true）。此前回放不清理，单边行情中远端挂单累积到 `order_cleanup_threshold` 后网格永久停止开仓，趋势段绝对盈亏失真（见校准报告第三节 3.2）。清理与 regime 控制在 tick 之间同步执行，没有实盘协程之间的并发与延迟。
 7. **K 线回退路径**是假设的价格顺序，同一根 K 线内先低后高还是先高后低会显著影响网格成交；有 aggTrades 时应优先使用。
 8. **walk-forward** 只接入 `GridSearchOptimizer`（legacy 回测引擎）；Web 参数优化任务走的 `UniversalOptimizer`（`optimrun`）尚未接入，候选参数的回放评估（用 replay 引擎做 walk-forward）也未接入，回放速度需要先验证。
 9. 默认引擎仍是 legacy；在用回放结果对照几段实盘成交记录校准（成交数、maker 占比、净利）之前，不切换默认。

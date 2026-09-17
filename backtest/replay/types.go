@@ -11,8 +11,10 @@ package replay
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"quantmesh/config"
+	"quantmesh/position"
 )
 
 // 撮合與回放默認值
@@ -106,6 +108,20 @@ type Config struct {
 	EnforceMargin bool
 	// EquitySampleMs 權益曲線/敞口採樣間隔；<=0 用默認 1 小時
 	EquitySampleMs int64
+
+	// OrderCleaner 是否在模擬時間上運行 safety.OrderCleaner（與實盤 symbol_manager 一致）：
+	// 每經過 Bot.Timing.OrderCleanupInterval 秒（無效時 safety.DefaultOrderCleanupInterval）同步執行一輪，
+	// 掛單數達到 trading.order_cleanup_threshold 時撤銷數量多一側最遠的 cleanup_batch_size 張。
+	// 關閉時單邊行情中遠端掛單會累積到閾值，網格停止開倉（實盤不會出現）。
+	// 回測任務參數 order_cleaner 缺省為 true；直接構造 Config 時零值為關閉。
+	OrderCleaner bool
+	// Setup 可選：倉位管理器創建、模擬時鐘與費率注入之後、Initialize 之前調用，
+	// 用於注入 RegimeProvider（ConfigureRegimeControl）、FundingMonitor（SetFundingMonitor）等實盤由 symbol_manager 完成的依賴。
+	// clock 為引擎的模擬時鐘（*SimClock）。返回錯誤時 Run 失敗。
+	Setup func(spm *position.SuperPositionManager, clock position.Clock) error
+	// OnTick 可選：每個 tick 撮合並投遞回報之後、訂單清理與 AdjustOrders 之前調用（不持有倉位管理器鎖），
+	// now 為該 tick 的模擬時間。用於在模擬時間上同步驅動 regime.Detector.Refresh 與 RefreshRegimeInterval 等實盤後台循環。
+	OnTick func(now time.Time, price float64)
 }
 
 // InferPriceDecimals 按價格量級推斷價格精度（僅在未提供交易所精度時使用）
@@ -245,8 +261,10 @@ type Metrics struct {
 
 	Exposure ExposureSummary `json:"exposure"`
 
-	TicksProcessed int   `json:"ticks_processed"`
-	AdjustCalls    int   `json:"adjust_calls"`
-	StartTime      int64 `json:"start_time"`
-	EndTime        int64 `json:"end_time"`
+	TicksProcessed int `json:"ticks_processed"`
+	AdjustCalls    int `json:"adjust_calls"`
+	// OrderCleanerRuns 模擬時間上執行 OrderCleaner 的輪數（Config.OrderCleaner 關閉時為 0）
+	OrderCleanerRuns int   `json:"order_cleaner_runs"`
+	StartTime        int64 `json:"start_time"`
+	EndTime          int64 `json:"end_time"`
 }

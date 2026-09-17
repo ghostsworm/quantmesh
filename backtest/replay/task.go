@@ -40,6 +40,16 @@ const (
 	paramAggTradeDir       = "aggtrade_dir"
 	paramEnforceMargin     = "enforce_margin"
 	paramPostOnlyReprice   = "post_only_reprice_max_attempts"
+	// paramOrderCleaner 是否在模擬時間上運行 safety.OrderCleaner（缺省 true，與實盤一致）
+	paramOrderCleaner          = "order_cleaner"
+	paramOrderCleanupThreshold = "order_cleanup_threshold"
+	paramCleanupBatchSize      = "cleanup_batch_size"
+	paramOrderCleanupInterval  = "order_cleanup_interval"
+
+	// defaultTaskOrderCleaner 回測任務默認運行訂單清理器：否則單邊行情中遠端掛單累積到閾值後網格停止開倉
+	defaultTaskOrderCleaner = true
+	// defaultTaskOrderCleanupIntervalSec 與實盤配置默認 timing.order_cleanup_interval=60 秒一致
+	defaultTaskOrderCleanupIntervalSec = 60
 
 	// defaultTaskWindowSize 未配置買/賣窗口且無 grid_count 時的默認窗口
 	defaultTaskWindowSize = 10
@@ -133,6 +143,9 @@ func ConfigFromTask(task *backtest.BacktestTask) (Config, error) {
 	bot.Trading.PriceLow = priceLow
 	bot.Trading.PriceHigh = priceHigh
 	bot.Trading.PostOnlyRepriceMaxAttempts = paramInt(p, paramPostOnlyReprice, 0)
+	bot.Trading.OrderCleanupThreshold = paramInt(p, paramOrderCleanupThreshold, 0)
+	bot.Trading.CleanupBatchSize = paramInt(p, paramCleanupBatchSize, 0)
+	bot.Timing.OrderCleanupInterval = paramInt(p, paramOrderCleanupInterval, defaultTaskOrderCleanupIntervalSec)
 
 	taker := paramFloat(p, paramTakerFeeRate, paramFloat(p, paramFeeRate, DefaultTakerFeeRate))
 	maker := paramFloat(p, paramMakerFeeRate, DefaultMakerFeeRate)
@@ -156,6 +169,7 @@ func ConfigFromTask(task *backtest.BacktestTask) (Config, error) {
 		FundingEnabled:   paramBool(p, paramFundingEnabled, fundingRate != 0),
 		FundingRate:      fundingRate,
 		EnforceMargin:    paramBool(p, paramEnforceMargin, defaultTaskEnforceMargin),
+		OrderCleaner:     paramBool(p, paramOrderCleaner, defaultTaskOrderCleaner),
 	}, nil
 }
 

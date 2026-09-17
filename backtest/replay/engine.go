@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 	"quantmesh/backtest"
 	"quantmesh/exchange"
 	"quantmesh/position"
+	"quantmesh/safety"
 )
 
 // Result 回放結果
@@ -42,6 +44,12 @@ type Engine struct {
 	lastNotional     float64
 	lastQty          float64
 	adjustCalls      int
+
+	// 訂單清理器（Config.OrderCleaner）：按模擬時間調度
+	cleaner       *safety.OrderCleaner
+	cleanupEvery  int64
+	nextCleanupTs int64
+	cleanerRuns   int
 }
 
 // NewEngine 創建回放引擎；配置在 Run 時按首個 tick 價格補全默認值（如推斷精度）。
@@ -94,8 +102,19 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	if cfg.Matching.TakerFeeRate > 0 {
 		e.spm.SetFeeRates(cfg.Matching.MakerFeeRate, cfg.Matching.TakerFeeRate)
 	}
+	if cfg.OrderCleaner {
+		e.cleaner = safety.NewOrderCleaner(cfg.Bot, e.exec, e.spm)
+		e.cleanupEvery = e.cleaner.CleanupInterval().Milliseconds()
+		// 與實盤 time.NewTicker 一致：啟動後經過一個間隔才首次清理
+		e.nextCleanupTs = first.Timestamp + e.cleanupEvery
+	}
 
 	e.ex.setMarket(first.Timestamp, first.Price)
+	if cfg.Setup != nil {
+		if err := cfg.Setup(e.spm, e.clock); err != nil {
+			return nil, fmt.Errorf("replay engine: setup hook: %w", err)
+		}
+	}
 	if err := e.spm.Initialize(first.Price, strconv.FormatFloat(first.Price, 'f', cfg.PriceDecimals, 64)); err != nil {
 		return nil, fmt.Errorf("replay engine: initialize position manager at price %.8f: %w", first.Price, err)
 	}
@@ -121,6 +140,10 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			e.ex.matchTrade(t)
 			e.deliver()
 		}
+		if cfg.OnTick != nil {
+			cfg.OnTick(e.clock.Now(), t.Price)
+		}
+		e.runOrderCleaner(t.Timestamp)
 		if lastAdjust == math.MinInt64 || t.Timestamp-lastAdjust >= cfg.AdjustIntervalMs {
 			lastAdjust = t.Timestamp
 			if err := e.spm.AdjustOrders(t.Price); err != nil {
@@ -134,6 +157,19 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	last := ticks[len(ticks)-1]
 	e.record(last.Timestamp, true)
 	return e.buildResult(ticks), nil
+}
+
+// runOrderCleaner 模擬時間到達清理點時同步執行一輪 OrderCleaner 並投遞撤單回報；
+// 一個 tick 跨越多個清理點時只執行一次（與 time.Ticker 消費不及時丟棄觸發一致）。
+func (e *Engine) runOrderCleaner(ts int64) {
+	if e.cleaner == nil || ts < e.nextCleanupTs {
+		return
+	}
+	e.cleaner.CleanupOnce(context.Background())
+	e.cleanerRuns++
+	e.deliver()
+	missed := (ts-e.nextCleanupTs)/e.cleanupEvery + 1
+	e.nextCleanupTs += missed * e.cleanupEvery
 }
 
 // deliver 投遞所有待處理回報；OnOrderUpdate 不會觸發新下單，但循環直到隊列清空以防萬一
@@ -244,6 +280,7 @@ func (e *Engine) buildResult(ticks []Tick) *Result {
 		ClosedGrids:          stats.closedGrids,
 		TicksProcessed:       len(ticks),
 		AdjustCalls:          e.adjustCalls,
+		OrderCleanerRuns:     e.cleanerRuns,
 		StartTime:            first.Timestamp,
 		EndTime:              last.Timestamp,
 	}

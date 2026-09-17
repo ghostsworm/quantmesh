@@ -55,3 +55,24 @@ func TestRunGridTask_CandleFallback(t *testing.T) {
 		t.Fatalf("missing grid_spacing must be rejected, got config %+v", cfg)
 	}
 }
+
+func TestConfigFromTask_OrderCleanerDefaults(t *testing.T) {
+	cfg, err := ConfigFromTask(&backtest.BacktestTask{Symbol: "ETHUSDT", Params: map[string]interface{}{"grid_spacing": 10.0}})
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	if !cfg.OrderCleaner || cfg.Bot.Timing.OrderCleanupInterval != defaultTaskOrderCleanupIntervalSec {
+		t.Fatalf("task default must run the order cleaner every %ds, got enabled=%v interval=%d",
+			defaultTaskOrderCleanupIntervalSec, cfg.OrderCleaner, cfg.Bot.Timing.OrderCleanupInterval)
+	}
+	cfg, err = ConfigFromTask(&backtest.BacktestTask{Symbol: "ETHUSDT", Params: map[string]interface{}{
+		"grid_spacing": 10.0, "order_cleaner": false, "order_cleanup_threshold": float64(40), "cleanup_batch_size": float64(5), "order_cleanup_interval": float64(15),
+	}})
+	if err != nil {
+		t.Fatalf("config: %v", err)
+	}
+	if cfg.OrderCleaner || cfg.Bot.Trading.OrderCleanupThreshold != 40 || cfg.Bot.Trading.CleanupBatchSize != 5 || cfg.Bot.Timing.OrderCleanupInterval != 15 {
+		t.Fatalf("explicit cleaner params not applied: enabled=%v threshold=%d batch=%d interval=%d", cfg.OrderCleaner,
+			cfg.Bot.Trading.OrderCleanupThreshold, cfg.Bot.Trading.CleanupBatchSize, cfg.Bot.Timing.OrderCleanupInterval)
+	}
+}
