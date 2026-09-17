@@ -6,21 +6,21 @@ exchanges:
         secret_key: ""
         passphrase: ""
         fee_rate: 0
-        testnet: false
+        testnet: true
         leverage: 0
     gate:
         api_key: ""
         secret_key: ""
         passphrase: ""
         fee_rate: 0
-        testnet: false
+        testnet: true
         leverage: 0
     okx:
         api_key: ""
         secret_key: ""
         passphrase: ""
         fee_rate: 0
-        testnet: false
+        testnet: true
         leverage: 0
 bots:
     - id: binance:btcu:spot
