@@ -70,32 +70,6 @@ for arg in "$@"; do
     esac
 done
 
-# 杀掉占用端口的进程
-kill_port_process() {
-    local port=$1
-    local name=$2
-    if [ -z "$port" ]; then
-        return
-    fi
-
-    local pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti:${port} 2>/dev/null || echo "")
-    elif command -v fuser >/dev/null 2>&1; then
-        pid=$(fuser ${port}/tcp 2>/dev/null | awk '{print $1}' || echo "")
-    fi
-
-    if [ -n "${pid}" ]; then
-        log_warn "发现占用端口 ${port} 的进程 (PID: ${pid})，正在停止..."
-        kill -TERM ${pid} 2>/dev/null || true
-        sleep 1
-        if kill -0 ${pid} 2>/dev/null; then
-            kill -9 ${pid} 2>/dev/null || true
-        fi
-        log_info "端口 ${port} (${name}) 已释放"
-    fi
-}
-
 # ---------- 开发模式：优雅停止整棵进程树 ----------
 # dev.sh 把后端编译到固定路径并以独立进程组启动；旧版 `go run .` 会派生 go-build 缓存里的子进程，
 # 只杀 go run 的 PID 会留下占着 28888 的孤儿。这里按「进程组 + 直接子进程 + 端口监听者」逐层兜底。
@@ -106,79 +80,17 @@ DEV_STOP_TIMEOUT="${DEV_STOP_TIMEOUT:-20}"
 DEV_STOP_TERM_WAIT=3
 DEV_BIN="${SCRIPT_DIR}/.dev/quantmesh-dev"
 
-pid_alive() {
-    [ -n "$1" ] && kill -0 "$1" 2>/dev/null
-}
+# ---------- 生产模式：只识别本仓库的二进制 ----------
+PROD_BIN="${SCRIPT_DIR}/${BINARY_NAME}"
+# 优雅退出等待秒数（后端退出时会撤单/平仓/落库，给足时间）
+PROD_STOP_TIMEOUT="${PROD_STOP_TIMEOUT:-30}"
+# SIGTERM 之后到 SIGKILL 的等待秒数
+PROD_STOP_TERM_WAIT=3
 
-# 向 pid 及其直接子进程发信号；pid 是自己进程组的组长时连同整组一起发。
-# 只在 pgid==pid 时才发组信号，避免误伤调用方所在的终端进程组。
-signal_tree() {
-    local sig=$1
-    local pid=$2
-    shift 2
-    local pgid
-    pgid=$(ps -o pgid= -p "${pid}" 2>/dev/null | tr -d ' ' || true)
-    if [ -n "${pgid}" ] && [ "${pgid}" = "${pid}" ]; then
-        kill -"${sig}" -- "-${pgid}" 2>/dev/null || true
-    fi
-    local p
-    for p in "$@" "${pid}"; do
-        kill -"${sig}" "${p}" 2>/dev/null || true
-    done
-}
-
-# 等待给定 pid 全部退出；超时返回 1
-wait_pids_exit() {
-    local timeout=$1
-    shift
-    local elapsed=0
-    local p alive
-    while [ "${elapsed}" -lt "${timeout}" ]; do
-        alive=false
-        for p in "$@"; do
-            if pid_alive "${p}"; then
-                alive=true
-                break
-            fi
-        done
-        if [ "${alive}" = false ]; then
-            return 0
-        fi
-        sleep 1
-        elapsed=$((elapsed + 1))
-    done
-    return 1
-}
-
-# 优雅停止：SIGINT → 等待 → SIGTERM → 等待 → SIGKILL。进程不存在时返回 1。
-graceful_stop_pid() {
-    local name=$1
-    local pid=$2
-    if ! pid_alive "${pid}"; then
-        return 1
-    fi
-    # 先记下子进程：父进程退出后子进程会被 PID 1 收养，pgrep -P 就查不到了
-    local children
-    children=$(pgrep -P "${pid}" 2>/dev/null | tr '\n' ' ' || true)
-    log_info "停止 ${name} (PID: ${pid}${children:+，子进程: ${children}})，发送 SIGINT，最多等待 ${DEV_STOP_TIMEOUT}s..."
-    # shellcheck disable=SC2086
-    signal_tree INT "${pid}" ${children}
-    # shellcheck disable=SC2086
-    if wait_pids_exit "${DEV_STOP_TIMEOUT}" "${pid}" ${children}; then
-        return 0
-    fi
-    log_warn "${name} 未在 ${DEV_STOP_TIMEOUT}s 内退出，发送 SIGTERM..."
-    # shellcheck disable=SC2086
-    signal_tree TERM "${pid}" ${children}
-    # shellcheck disable=SC2086
-    if wait_pids_exit "${DEV_STOP_TERM_WAIT}" "${pid}" ${children}; then
-        return 0
-    fi
-    log_warn "${name} 仍未退出，发送 SIGKILL"
-    # shellcheck disable=SC2086
-    signal_tree KILL "${pid}" ${children}
-    return 0
-}
+# 共用进程函数：pid_alive / signal_tree / wait_pids_exit / graceful_stop_pid / stop_by_pattern /
+# is_this_checkout_binary / find_prod_pids / graceful_stop_prod_pids / check_port_owner 等
+# shellcheck source=lib/process.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/process.sh"
 
 # 从 PID 文件停止并删除 PID 文件
 stop_from_pid_file() {
@@ -213,32 +125,6 @@ stop_port_listeners() {
     return ${stopped}
 }
 
-# 按命令行模式停止遗留进程
-stop_by_pattern() {
-    local name=$1
-    local pattern=$2
-    local pids
-    pids=$(pgrep -f "${pattern}" 2>/dev/null | tr '\n' ' ' || true)
-    # 不要停掉自己及祖先进程（调用方 shell、dev.sh、restart.sh）
-    local ancestors=" "
-    local a=$$
-    while [ -n "${a}" ] && [ "${a}" != "0" ] && [ "${a}" != "1" ]; do
-        ancestors="${ancestors}${a} "
-        a=$(ps -o ppid= -p "${a}" 2>/dev/null | tr -d ' ' || true)
-    done
-    local stopped=1
-    local pid
-    for pid in ${pids}; do
-        case "${ancestors}" in
-            *" ${pid} "*) continue ;;
-        esac
-        if graceful_stop_pid "${name}" "${pid}"; then
-            stopped=0
-        fi
-    done
-    return ${stopped}
-}
-
 # 停止开发模式进程（幂等：没有进程时只输出提示）
 stop_dev_processes() {
     local found=false
@@ -263,51 +149,27 @@ stop_dev_processes() {
     fi
 }
 
-# 停止生产模式进程
+# 停止生产模式进程（幂等）。只停止可执行文件为 ${PROD_BIN} 的进程（PID 文件经可执行文件路径核验），
+# SIGINT → 等待 PROD_STOP_TIMEOUT → SIGTERM → 等待 → SIGKILL。
+# Go 端口被非本仓库进程占用时只报告、不杀，并返回 1。
 stop_prod_processes() {
     local found=false
-    
-    # 从 PID 文件停止
-    if [ -f "${PID_FILE}" ]; then
-        local pid=$(cat "${PID_FILE}" 2>/dev/null || echo "")
-        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
-            log_info "停止生产进程 (PID: ${pid})"
-            kill -TERM "${pid}" 2>/dev/null || true
-            sleep 2
-            if kill -0 "${pid}" 2>/dev/null; then
-                kill -9 "${pid}" 2>/dev/null || true
-            fi
-            found=true
-        fi
-        rm -f "${PID_FILE}"
+
+    if stop_this_checkout_prod; then
+        found=true
     fi
-    
-    # 通过进程名查找并杀掉
-    local pids=$(pgrep -f "^\./${BINARY_NAME}" 2>/dev/null || pgrep -x "${BINARY_NAME}" 2>/dev/null || echo "")
-    if [ -n "${pids}" ]; then
-        log_info "停止通过进程名匹配的进程..."
-        for pid in ${pids}; do
-            if kill -0 "${pid}" 2>/dev/null; then
-                log_info "停止进程 PID: ${pid}"
-                kill -TERM "${pid}" 2>/dev/null || true
-                found=true
-            fi
-        done
-        sleep 2
-        for pid in ${pids}; do
-            if kill -0 "${pid}" 2>/dev/null; then
-                kill -9 "${pid}" 2>/dev/null || true
-            fi
-        done
+
+    # 端口兜底：只处理本仓库二进制
+    check_port_owner "${GO_PORT}" "Go 后端"
+    if [ -n "${PORT_OWNER_OTHERS}" ]; then
+        log_error "端口 ${GO_PORT} 仍被非本仓库进程占用 (PID: ${PORT_OWNER_OTHERS})，未停止；请确认是否为其他 checkout / 试跑实例后手动处理"
+        return 1
     fi
-    
-    # 杀掉占用 Go 端口的进程
-    kill_port_process ${GO_PORT} "Go 后端"
-    
+
     if [ "$found" = true ]; then
         log_info "✅ 生产模式进程已停止"
     else
-        log_info "未发现运行中的生产模式进程"
+        log_info "未发现运行中的生产模式进程 (${PROD_BIN})"
     fi
 }
 

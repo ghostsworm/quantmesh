@@ -119,63 +119,57 @@ get_port_from_config() {
 WEB_PORT=$(get_port_from_config)
 log_info "检测到Web端口: ${WEB_PORT}"
 
-# 杀掉旧进程
-kill_old_process() {
-    if [ -f "${PID_FILE}" ]; then
-        local old_pid=$(cat "${PID_FILE}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_warn "发现正在运行的进程 (PID: ${old_pid})，正在停止..."
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 2
-            # 如果还在运行，强制杀掉
-            if kill -0 "${old_pid}" 2>/dev/null; then
-                log_warn "进程未响应，强制停止..."
-                kill -9 "${old_pid}" 2>/dev/null || true
-            fi
-            log_info "旧进程已停止"
-        fi
-        rm -f "${PID_FILE}"
-    fi
+# ---------- 旧进程 / 端口：只识别本仓库的二进制 ----------
+# 旧实现 `pgrep -f quantmesh | xargs kill -9` 会误杀其他 checkout、临时目录试跑二进制、编辑器等；
+# 端口占用者也直接 kill -9，且只给 2s，后端来不及撤单。现与 restart.sh / stop.sh --prod 共用 lib/process.sh。
+PROD_BIN="${SCRIPT_DIR}/${BINARY_NAME}"
+# 优雅退出等待秒数（后端退出时会撤单/平仓/落库，给足时间）
+PROD_STOP_TIMEOUT="${PROD_STOP_TIMEOUT:-30}"
+# SIGTERM 之后到 SIGKILL 的等待秒数
+PROD_STOP_TERM_WAIT=3
+# 停止后等待端口释放的秒数
+PORT_RELEASE_WAIT=5
 
-    # 通过进程名查找并杀掉
-    local pids=$(pgrep -f "${BINARY_NAME}" 2>/dev/null || echo "")
-    if [ -n "${pids}" ]; then
-        log_warn "发现通过进程名匹配的进程，正在停止..."
-        echo "${pids}" | xargs kill -TERM 2>/dev/null || true
-        sleep 2
-        echo "${pids}" | xargs kill -9 2>/dev/null || true
-        log_info "已停止所有匹配的进程"
+# shellcheck source=lib/process.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/process.sh"
+
+# 停止本仓库的旧进程（PID 文件经可执行文件路径核验 + 进程表中可执行文件为 ${PROD_BIN} 的进程）
+kill_old_process() {
+    if stop_this_checkout_prod; then
+        log_info "旧进程已停止"
+    else
+        log_info "未发现本仓库正在运行的进程 (${PROD_BIN})"
     fi
 }
 
-# 杀掉占用端口的进程
+# 释放端口：本仓库二进制占用时优雅停止；被其他进程占用时报告并退出（不杀）
 kill_port_process() {
     local port=$1
     if [ -z "$port" ]; then
         return
     fi
-
-    # macOS使用lsof，Linux使用lsof或fuser
-    local pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti:${port} 2>/dev/null || echo "")
-    elif command -v fuser >/dev/null 2>&1; then
-        pid=$(fuser ${port}/tcp 2>/dev/null | awk '{print $1}' || echo "")
+    if ! command -v lsof >/dev/null 2>&1; then
+        log_warn "未找到 lsof，跳过端口 ${port} 占用检查"
+        return
     fi
 
-    if [ -n "${pid}" ]; then
-        log_warn "发现占用端口 ${port} 的进程 (PID: ${pid})，正在停止..."
-        kill -TERM ${pid} 2>/dev/null || true
-        sleep 2
-        # 如果还在运行，强制杀掉
-        if kill -0 ${pid} 2>/dev/null; then
-            log_warn "进程未响应，强制停止..."
-            kill -9 ${pid} 2>/dev/null || true
+    check_port_owner "${port}" "Web"
+    if [ -n "${PORT_OWNER_OTHERS}" ]; then
+        log_error "端口 ${port} 被非本仓库进程占用 (PID: ${PORT_OWNER_OTHERS})，已中止启动，未停止该进程"
+        log_error "请确认是否为其他 checkout / 试跑实例 / 开发模式（scripts/local/stop.sh --dev），或在配置中改用其他端口"
+        exit 1
+    fi
+    # 刚被停止的进程释放监听需要一点时间
+    local waited=0
+    while lsof -nP -tiTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; do
+        if [ "${waited}" -ge "${PORT_RELEASE_WAIT}" ]; then
+            log_error "端口 ${port} 在 ${PORT_RELEASE_WAIT}s 后仍被占用，已中止启动"
+            exit 1
         fi
-        log_info "端口 ${port} 已释放"
-    else
-        log_info "端口 ${port} 未被占用"
-    fi
+        sleep 1
+        waited=$((waited + 1))
+    done
+    log_info "端口 ${port} 可用"
 }
 
 # 构建前端（如果需要）

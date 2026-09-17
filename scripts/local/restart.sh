@@ -23,6 +23,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+LOCAL_SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 端口配置
 GO_PORT=28888
@@ -108,31 +109,21 @@ fi
 # 默认配置文件
 CONFIG_FILE="${CONFIG_FILE:-config.yaml}"
 
-# 杀掉占用端口的进程
-kill_port_process() {
-    local port=$1
-    local name=$2
-    if [ -z "$port" ]; then
-        return
-    fi
+# ---------- 生产模式：只识别本仓库的二进制 ----------
+# 旧实现用 `pgrep -f quantmesh` 并对端口占用者直接 kill -9，会误杀编辑器、其他 checkout、
+# 临时目录里的试跑二进制等所有命令行含 quantmesh 的进程。现在只处理「可执行文件就是本仓库
+# ${SCRIPT_DIR}/${BINARY_NAME}」的进程，并与 stop.sh --dev 一样 SIGINT → 等待 → SIGTERM → SIGKILL。
 
-    local pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti:${port} 2>/dev/null || echo "")
-    elif command -v fuser >/dev/null 2>&1; then
-        pid=$(fuser ${port}/tcp 2>/dev/null | awk '{print $1}' || echo "")
-    fi
+PROD_BIN="${SCRIPT_DIR}/${BINARY_NAME}"
+# 优雅退出等待秒数（后端退出时会撤单/平仓/落库，给足时间）
+PROD_STOP_TIMEOUT="${PROD_STOP_TIMEOUT:-30}"
+# SIGTERM 之后到 SIGKILL 的等待秒数
+PROD_STOP_TERM_WAIT=3
 
-    if [ -n "${pid}" ]; then
-        log_warn "发现占用端口 ${port} 的进程 (PID: ${pid})，正在停止..."
-        kill -TERM ${pid} 2>/dev/null || true
-        sleep 1
-        if kill -0 ${pid} 2>/dev/null; then
-            kill -9 ${pid} 2>/dev/null || true
-        fi
-        log_info "端口 ${port} (${name}) 已释放"
-    fi
-}
+# 进程识别与优雅停止函数（pid_alive / is_this_checkout_binary / find_prod_pids /
+# graceful_stop_prod_pids / check_port_owner 等）与 start.sh、stop.sh 共用
+# shellcheck source=lib/process.sh
+source "${LOCAL_SCRIPTS_DIR}/lib/process.sh"
 
 # 停止开发模式进程
 stop_dev_processes() {
@@ -144,32 +135,20 @@ stop_dev_processes() {
 # 停止生产模式进程
 stop_prod_processes() {
     log_info "停止生产模式进程..."
-    
-    # 从 PID 文件停止
-    if [ -f "${PID_FILE}" ]; then
-        local old_pid=$(cat "${PID_FILE}" 2>/dev/null || echo "")
-        if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
-            log_info "停止生产进程 (PID: ${old_pid})"
-            kill -TERM "${old_pid}" 2>/dev/null || true
-            sleep 2
-            kill -9 "${old_pid}" 2>/dev/null || true
-        fi
-        rm -f "${PID_FILE}"
+
+    local pids
+    pids=$(find_prod_pids | tr '\n' ' ')
+    if [ -n "${pids// /}" ]; then
+        # shellcheck disable=SC2086
+        graceful_stop_prod_pids ${pids}
+    else
+        log_info "未发现本仓库的生产进程 (${PROD_BIN})"
     fi
-    
-    # 通过进程名查找并杀掉
-    local pids=$(pgrep -f "${BINARY_NAME}" 2>/dev/null || echo "")
-    if [ -n "${pids}" ]; then
-        log_warn "发现通过进程名匹配的进程，正在停止..."
-        echo "${pids}" | xargs kill -TERM 2>/dev/null || true
-        sleep 2
-        echo "${pids}" | xargs kill -9 2>/dev/null || true
-    fi
-    
-    # 杀掉占用端口的进程
-    kill_port_process ${GO_PORT} "Go 后端"
-    
-    sleep 1
+    # PID 文件里的进程已退出或不是本仓库二进制（PID 被复用）时同样删除
+    rm -f "${PID_FILE}"
+
+    # 端口兜底：只处理本仓库二进制
+    check_port_owner "${GO_PORT}" "Go 后端"
 }
 
 # 检查是否有开发模式进程在运行
@@ -185,34 +164,21 @@ has_dev_processes() {
         fi
     fi
     
-    # 检查进程名
-    if pgrep -f "go run main.go symbol_manager.go" >/dev/null 2>&1; then
+    # 检查本仓库 dev 二进制（与 stop.sh --dev 的匹配规则一致，带仓库绝对路径）
+    if pgrep -f "^${SCRIPT_DIR}/.dev/quantmesh-dev" >/dev/null 2>&1; then
         return 0
     fi
-    if pgrep -f "go run main.go" >/dev/null 2>&1; then
-        return 0
-    fi
-    if pgrep -f "vite.*${VITE_PORT}" >/dev/null 2>&1; then
-        return 0
-    fi
-    
+
     return 1
 }
 
-# 检查是否有生产模式进程在运行
+# 检查是否有本仓库的生产模式进程在运行（PID 文件或进程表中可执行文件为 ${PROD_BIN}）
 has_prod_processes() {
     if [ -f "${PID_FILE}" ]; then
-        local pid=$(cat "${PID_FILE}" 2>/dev/null || echo "")
-        if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
-            return 0
-        fi
-    fi
-    
-    if pgrep -f "${BINARY_NAME}" >/dev/null 2>&1; then
+        # 残留 PID 文件也交给 stop_prod_processes 清理
         return 0
     fi
-    
-    return 1
+    [ -n "$(find_prod_pids)" ]
 }
 
 # 主流程

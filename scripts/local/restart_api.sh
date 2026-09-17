@@ -5,7 +5,12 @@
 #
 # 使用方法：
 #   ./scripts/local/restart_api.sh [config.yaml]   # 生产模式重启 API
-#   ./scripts/local/restart_api.sh --dev           # 开发模式（go run，Vite 保持运行）
+#   ./scripts/local/restart_api.sh --dev           # 开发模式（编译 .dev/quantmesh-dev 后运行，Vite 保持运行）
+#
+# 停止策略与 stop.sh / restart.sh 共用 lib/process.sh：
+#   - 只停止本仓库的二进制（生产 ./quantmesh、开发 .dev/quantmesh-dev），不按进程名宽泛匹配；
+#   - 先 SIGINT 让程序撤单退出，超时再 SIGTERM，最后才 SIGKILL；
+#   - 端口被其他进程占用时只报告并退出，不杀。
 
 set -e
 
@@ -17,18 +22,23 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GO_PORT=28888
 APP_NAME="quantmesh"
+BINARY_NAME="quantmesh"
 PID_FILE="${SCRIPT_DIR}/.${APP_NAME}.pid"
 PID_FILE_GO="${SCRIPT_DIR}/.dev_go.pid"
-BINARY_NAME="quantmesh"
+DEV_DIR="${SCRIPT_DIR}/.dev"
+DEV_BIN="${DEV_DIR}/quantmesh-dev"
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# shellcheck source=lib/process.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/process.sh"
 
 show_help() {
     echo "用法: $0 [选项] [配置文件]"
     echo ""
     echo "选项:"
-    echo "  -d, --dev    开发模式：仅重启 go run，不重启 Vite"
+    echo "  -d, --dev    开发模式：仅重启 Go 后端，不重启 Vite"
     echo "  -h, --help   显示帮助"
     echo ""
     echo "示例:"
@@ -52,50 +62,31 @@ for arg in "$@"; do
     esac
 done
 
-kill_port_process() {
-    local port=$1
-    [ -z "$port" ] && return
-    local pid=""
-    if command -v lsof >/dev/null 2>&1; then
-        pid=$(lsof -ti:${port} 2>/dev/null || echo "")
-    elif command -v fuser >/dev/null 2>&1; then
-        pid=$(fuser ${port}/tcp 2>/dev/null | awk '{print $1}' || echo "")
+# 停止开发模式后端：PID 文件中的进程，以及本仓库 .dev/quantmesh-dev 的残留进程
+stop_dev_backend() {
+    if [ -f "${PID_FILE_GO}" ]; then
+        local pid
+        pid=$(cat "${PID_FILE_GO}" 2>/dev/null || echo "")
+        if [ -n "${pid}" ]; then
+            graceful_stop_pid "Go 开发后端" "${pid}" || true
+        fi
+        rm -f "${PID_FILE_GO}"
     fi
-    if [ -n "${pid}" ]; then
-        log_warn "停止占用端口 ${port} 的进程 (PID: ${pid})..."
-        kill -TERM ${pid} 2>/dev/null || true
-        sleep 1
-        kill -9 ${pid} 2>/dev/null || true
-        log_info "端口 ${port} 已释放"
-    fi
+    stop_by_pattern "Go 开发后端" "${DEV_BIN}" || true
 }
 
 stop_backend() {
     log_info "停止后端..."
-    # PID 文件
-    for pf in "${PID_FILE}" "${PID_FILE_GO}"; do
-        if [ -f "$pf" ]; then
-            local pid=$(cat "$pf" 2>/dev/null || echo "")
-            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-                log_info "停止进程 PID: $pid"
-                kill -TERM "$pid" 2>/dev/null || true
-                sleep 1
-                kill -9 "$pid" 2>/dev/null || true
-            fi
-            rm -f "$pf"
-        fi
-    done
-    # 进程名
-    pkill -f "go run main.go symbol_manager.go" 2>/dev/null || true
-    pkill -f "go run main.go" 2>/dev/null || true
-    local pids=$(pgrep -f "${BINARY_NAME}" 2>/dev/null || echo "")
-    if [ -n "$pids" ]; then
-        echo "$pids" | xargs kill -TERM 2>/dev/null || true
-        sleep 2
-        echo "$pids" | xargs kill -9 2>/dev/null || true
+    stop_dev_backend
+    if ! stop_this_checkout_prod; then
+        log_info "未发现运行中的本仓库生产后端"
     fi
-    kill_port_process ${GO_PORT}
-    sleep 1
+
+    check_port_owner "${GO_PORT}"
+    if [ -n "${PORT_OWNER_OTHERS:-}" ]; then
+        log_error "端口 ${GO_PORT} 被其他进程占用 (PID: ${PORT_OWNER_OTHERS})，不是本仓库的后端，未停止。请手动处理后重试。"
+        exit 1
+    fi
 }
 
 log_info "=========================================="
@@ -105,16 +96,19 @@ log_info "=========================================="
 stop_backend
 
 if [ "$DEV_MODE" = true ]; then
-    log_info "启动开发模式后端 (go run)..."
+    log_info "编译开发模式后端 -> ${DEV_BIN} ..."
+    mkdir -p "${DEV_DIR}"
     cd "${SCRIPT_DIR}"
-    go run main.go symbol_manager.go &
+    go build -o "${DEV_BIN}" .
+    "${DEV_BIN}" &
     echo $! > "${PID_FILE_GO}"
     sleep 2
-    if kill -0 $(cat "${PID_FILE_GO}") 2>/dev/null; then
-        log_info "✅ 后端已启动 (PID: $(cat ${PID_FILE_GO}))"
+    if kill -0 "$(cat "${PID_FILE_GO}")" 2>/dev/null; then
+        log_info "✅ 后端已启动 (PID: $(cat "${PID_FILE_GO}"))"
         log_info "   http://localhost:${GO_PORT}"
     else
         log_error "后端启动失败"
+        rm -f "${PID_FILE_GO}"
         exit 1
     fi
 else
