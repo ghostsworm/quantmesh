@@ -1,0 +1,243 @@
+package storage
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	"quantmesh/logger"
+	"quantmesh/utils"
+)
+
+// SavePosition 保存持倉
+func (s *SQLStorage) SavePosition(position *Position) error {
+	// 轉换為UTC時间存儲
+	openedAt := utils.ToUTC(position.OpenedAt)
+	var closedAt interface{}
+	if position.ClosedAt != nil {
+		closedAtUTC := utils.ToUTC(*position.ClosedAt)
+		closedAt = closedAtUTC
+	}
+
+	_, err := s.db.Exec(`
+		INSERT INTO positions
+		(slot_price, symbol, size, entry_price, current_price, pnl, opened_at, closed_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, position.SlotPrice, position.Symbol, position.Size,
+		position.EntryPrice, position.CurrentPrice, position.PnL,
+		openedAt, closedAt)
+	return err
+}
+
+// SaveTrade 保存交易
+func (s *SQLStorage) SaveTrade(trade *Trade) error {
+	// 轉换為UTC時间存儲
+	createdAt := utils.ToUTC(trade.CreatedAt)
+	// 确保 exchange 不為空，默认為 binance（兼容舊數據）
+	exchange := trade.Exchange
+	if exchange == "" {
+		exchange = "binance"
+	}
+	botID := strings.TrimSpace(trade.BotID)
+	_, err := s.db.Exec(fmt.Sprintf(`
+		INSERT INTO %s
+		(buy_order_id, sell_order_id, bot_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, s.tradesTbl()), trade.BuyOrderID, trade.SellOrderID, botID, exchange, trade.Account, trade.Symbol,
+		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
+		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
+	if err != nil {
+		return err
+	}
+	// 合规审计：記錄成交事件
+	if globalAuditLogger != nil {
+		globalAuditLogger.LogTrade(trade)
+	}
+	return nil
+}
+
+// SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
+func (s *SQLStorage) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
+	trade := &Trade{
+		BuyOrderID:         buyOrderID,
+		SellOrderID:        sellOrderID,
+		BotID:              strings.TrimSpace(botID),
+		Exchange:           exchange,
+		Symbol:             symbol,
+		BuyPrice:           buyPrice,
+		SellPrice:          sellPrice,
+		Quantity:           quantity,
+		PnL:                pnl,
+		Fee:                fee,
+		FeeAsset:           feeAsset,
+		BuyPriceDeviation:  buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation,
+		CreatedAt:          createdAt,
+	}
+	return s.SaveTrade(trade)
+}
+
+// SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈虧和價格偏差）
+func (s *SQLStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
+	trade := &Trade{
+		BuyOrderID:         buyOrderID,
+		SellOrderID:        sellOrderID,
+		BotID:              strings.TrimSpace(botID),
+		Exchange:           exchange,
+		Symbol:             symbol,
+		BuyPrice:           buyPrice,
+		SellPrice:          sellPrice,
+		Quantity:           quantity,
+		PnL:                pnl,
+		ExchangePnL:        exchangePnL,
+		Fee:                fee,
+		FeeAsset:           feeAsset,
+		BuyPriceDeviation:  buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation,
+		CreatedAt:          createdAt,
+	}
+	return s.SaveTrade(trade)
+}
+
+// QueryPositions 查詢持倉历史
+func (s *SQLStorage) QueryPositions(limit, offset int) ([]*Position, error) {
+	maxLimit := 10000
+	if limit <= 0 {
+		limit = 100
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 持倉查詢 limit 超過限制 (%d)，已限制為 %d", limit, maxLimit)
+	}
+
+	rows, err := s.db.Query(`
+		SELECT slot_price, symbol, size, entry_price, current_price, pnl, opened_at, closed_at
+		FROM positions
+		ORDER BY opened_at DESC
+		LIMIT ? OFFSET ?
+	`, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("查詢持倉失败: %w", err)
+	}
+	defer rows.Close()
+
+	var positions []*Position
+	for rows.Next() {
+		p := &Position{}
+		var closedAt interface{}
+		err := rows.Scan(
+			&p.SlotPrice,
+			&p.Symbol,
+			&p.Size,
+			&p.EntryPrice,
+			&p.CurrentPrice,
+			&p.PnL,
+			&p.OpenedAt,
+			&closedAt,
+		)
+		if err != nil {
+			continue
+		}
+		if closedAt != nil {
+			if t, ok := closedAt.(time.Time); ok {
+				p.ClosedAt = &t
+			}
+		}
+		positions = append(positions, p)
+	}
+
+	return positions, rows.Err()
+}
+
+// QueryTrades 查詢交易
+func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int) ([]*Trade, error) {
+	// 限制最大返回數量，防止記憶體占用過大
+	maxLimit := 10000 // 最多返回1万条交易
+	if limit <= 0 {
+		limit = 100 // 預設 100条
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+		logger.Warn("⚠️ 交易查詢 limit 超過限制 (%d)，已限制為 %d", limit, maxLimit)
+	}
+
+	rows, err := s.db.Query(fmt.Sprintf(`
+		SELECT buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
+		FROM %s
+		WHERE created_at >= ? AND created_at <= ?
+		ORDER BY created_at DESC
+		LIMIT ? OFFSET ?
+	`, s.tradesTbl()), startTime, endTime, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("查詢交易失败: %w", err)
+	}
+	defer rows.Close()
+
+	var trades []*Trade
+	for rows.Next() {
+		trade := &Trade{}
+		err := rows.Scan(
+			&trade.BuyOrderID,
+			&trade.SellOrderID,
+			&trade.Exchange,
+			&trade.Account,
+			&trade.Symbol,
+			&trade.BuyPrice,
+			&trade.SellPrice,
+			&trade.Quantity,
+			&trade.PnL,
+			&trade.Fee,
+			&trade.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		// 兼容舊數據：如果 exchange 為空，默认為 binance
+		if trade.Exchange == "" {
+			trade.Exchange = "binance"
+		}
+		trades = append(trades, trade)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍歷成交記錄失败: %w", err)
+	}
+
+	return trades, nil
+}
+
+// GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射
+func (s *SQLStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]float64, error) {
+	result := make(map[int64]float64)
+	if len(sellOrderIDs) == 0 {
+		return result, nil
+	}
+	// 構建 IN 子句的佔位符
+	placeholders := ""
+	args := make([]interface{}, 0, len(sellOrderIDs))
+	for i, id := range sellOrderIDs {
+		if i > 0 {
+			placeholders += ","
+		}
+		placeholders += "?"
+		args = append(args, id)
+	}
+	query := fmt.Sprintf(`
+		SELECT sell_order_id, pnl FROM %s WHERE sell_order_id IN (%s)
+	`, s.tradesTbl(), placeholders)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("查詢賣單盈虧失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var sellOrderID int64
+		var pnl float64
+		if err := rows.Scan(&sellOrderID, &pnl); err != nil {
+			// 金額聚合不能跳行：少一筆就是盈亏數字直接算錯
+			return nil, fmt.Errorf("解析成交盈亏失败: %w", err)
+		}
+		result[sellOrderID] = pnl
+	}
+	return result, rows.Err()
+}
