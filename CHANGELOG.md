@@ -6,6 +6,9 @@
 
 依据 `docs/audits/2026-09-17-full-audit.md` 的整改，分六轮提交（R1–R4 缺陷修复，R5–R6 盈利能力与回测新功能）。中途的 `3.110.0-rc4` 未发布，已并入本版本。
 
+### Security
+- **示例配置泄露凭据**：`docs/config/examples/config.minimal.yaml`（自 2026-04-11 起提交）含三个交易所的真实 API Key/Secret/Passphrase，已清空。根因是 `cfgmgr.generateMinimalConfig` 把运行中配置的凭据、Web API Key、DSN 密码原样写入仓库内的示例文件；现改为交易所凭据与 Web API Key 一律留空、DSN 密码替换为占位符，并加回归测试。**已提交历史中仍可见，涉及的密钥必须到交易所后台吊销并重新生成。**
+
 ### Added — R5 盈利能力（除费率感知利差外默认关闭）
 - **费率感知最小利差**（默认开启）：启动时拉取 maker/taker 费率并按配置间隔刷新，平仓利差不低于 `开仓价 × (2×费率 + safety_margin_ratio)`，低于下限自动抬高并告警一次。配置 `trading.fee_aware_spread.{enabled, safety_margin_ratio=0.0002}`。**行为变化**：拉取失败时按 `fee_rate` 同时作 maker/taker，间隔偏小的配置会被抬高。
 - **PostOnly 重定价**：被拒后向远离盘口方向移一个 tick 重挂（`trading.post_only_reprice_max_attempts=3`），网格单不再降级为 GTC 吃单；平仓单连续被撤时平仓价逐步外移。

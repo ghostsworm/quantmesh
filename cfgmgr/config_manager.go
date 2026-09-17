@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -700,7 +701,8 @@ func (cm *ConfigManager) generateMinimalConfig() error {
 	if minimalCfg.Database.Type == "" {
 		minimalCfg.Database.Type = "sqlite"
 	}
-	minimalCfg.Database.DSN = cm.cfg.Database.DSN
+	// 示例文件位于仓库 docs/ 目录（会被提交），DSN 中的密码必须脱敏
+	minimalCfg.Database.DSN = redactDSNPassword(cm.cfg.Database.DSN)
 
 	// 存储配置（必须）
 	minimalCfg.Storage.Enabled = cm.cfg.Storage.Enabled
@@ -714,7 +716,8 @@ func (cm *ConfigManager) generateMinimalConfig() error {
 	minimalCfg.Web.Enabled = cm.cfg.Web.Enabled
 	minimalCfg.Web.Host = cm.cfg.Web.Host
 	minimalCfg.Web.Port = cm.cfg.Web.Port
-	minimalCfg.Web.APIKey = cm.cfg.Web.APIKey
+	// Web API Key 属于凭据，示例文件中不写入
+	minimalCfg.Web.APIKey = ""
 
 	// 系统配置（必须）
 	minimalCfg.System.LogLevel = cm.cfg.System.LogLevel
@@ -722,14 +725,12 @@ func (cm *ConfigManager) generateMinimalConfig() error {
 	minimalCfg.System.CancelOnExit = cm.cfg.System.CancelOnExit
 	minimalCfg.System.ClosePositionsOnExit = cm.cfg.System.ClosePositionsOnExit
 
-	// 交易所配置（必须，至少需要 API 密钥）
+	// 交易所配置：只保留交易所名称结构，API 密钥一律留空。
+	// 该文件位于仓库 docs/ 目录并会被提交，绝不能写入真实凭据，迁移时需手工填写。
 	minimalCfg.Exchanges = make(map[string]config.ExchangeConfig)
 	for name, exchange := range cm.cfg.Exchanges {
-		// 只保存必要的交易所配置
 		minimalCfg.Exchanges[name] = config.ExchangeConfig{
-			APIKey:     exchange.APIKey,
-			SecretKey:  exchange.SecretKey,
-			Passphrase: exchange.Passphrase,
+			Testnet: exchange.Testnet,
 		}
 	}
 
@@ -770,4 +771,43 @@ func (cm *ConfigManager) generateMinimalConfig() error {
 	logger.Info("💡 如需使用简化版配置，请执行: mv docs/config/examples/config.minimal.yaml config.yaml")
 
 	return nil
+}
+
+// dsnPasswordPlaceholder 生成示例配置时替换 DSN 密码的占位符
+const dsnPasswordPlaceholder = "CHANGE_ME"
+
+// redactDSNPassword 脱敏 DSN 中的密码，支持 MySQL 风格 `user:pass@tcp(...)`、
+// URL 风格 `scheme://user:pass@host` 与 PostgreSQL 关键字风格 `password=xxx`。
+// 无密码的 DSN（如 SQLite 路径、`root@tcp(...)`）原样返回。
+func redactDSNPassword(dsn string) string {
+	if dsn == "" {
+		return dsn
+	}
+
+	// PostgreSQL 关键字风格：password=xxx
+	if strings.Contains(dsn, "password=") {
+		fields := strings.Fields(dsn)
+		for i, f := range fields {
+			if strings.HasPrefix(f, "password=") {
+				fields[i] = "password=" + dsnPasswordPlaceholder
+			}
+		}
+		return strings.Join(fields, " ")
+	}
+
+	at := strings.LastIndex(dsn, "@")
+	if at < 0 {
+		return dsn
+	}
+	userInfo := dsn[:at]
+	prefix := ""
+	if idx := strings.Index(userInfo, "://"); idx >= 0 {
+		prefix = userInfo[:idx+3]
+		userInfo = userInfo[idx+3:]
+	}
+	colon := strings.Index(userInfo, ":")
+	if colon < 0 {
+		return dsn
+	}
+	return prefix + userInfo[:colon+1] + dsnPasswordPlaceholder + dsn[at:]
 }

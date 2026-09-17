@@ -2,23 +2,23 @@ app:
     current_exchange: ""
 exchanges:
     binance:
-        api_key: 8fAtufMyMdu0jbMCIpigtd8zlOYh3I6apfHtDuvuUubGi2p1hd8AJEjOg38suW08
-        secret_key: 924o7RkK50rIvPH45UOwUIp9OQrBI3N7scbPNAjvXksZ5XjMJGGUfHoSTef67QB6
+        api_key: ""
+        secret_key: ""
         passphrase: ""
         fee_rate: 0
         testnet: false
         leverage: 0
     gate:
-        api_key: 90e077e0f97008585b11fc4432d37930
-        secret_key: e82d1ce1461c6caa31b2c6bf23c943486a740f6fbc0bf9fde56d848888b8f469
+        api_key: ""
+        secret_key: ""
         passphrase: ""
         fee_rate: 0
         testnet: false
         leverage: 0
     okx:
-        api_key: 09922dc4-0cc9-4d9a-9036-688056e1f64f
-        secret_key: C0E4FE7E22D2BE3BF039289DDBB51575
-        passphrase: KvydMM5iwtLvMS
+        api_key: ""
+        secret_key: ""
+        passphrase: ""
         fee_rate: 0
         testnet: false
         leverage: 0
@@ -474,6 +474,7 @@ trading:
     min_order_value: 0
     buy_window_size: 0
     sell_window_size: 0
+    short_open_window_size: 0
     reconcile_interval: 0
     order_cleanup_threshold: 0
     cleanup_batch_size: 0
@@ -488,6 +489,7 @@ trading:
     grid_shift_step: 0
     rocket_tiered_grid: null
     close_on_stop: false
+    spot_inventory_policy: ""
     symbols: []
     dynamic_adjustment:
         enabled: false
@@ -668,6 +670,8 @@ funding_rate:
     high_rate_threshold: 0
     pause_buy_threshold: 0
     trend_sync_enabled: false
+    pricing_enabled: false
+    pre_settlement_pause_minutes: 0
     arbitrage_enabled: false
     hedge_min_position: 0
     hedge_rate_threshold: 0
@@ -709,6 +713,8 @@ timing:
     price_poll_interval: 0
     status_print_interval: 0
     order_cleanup_interval: 0
+    skip_exchange_fee_on_bot_start: false
+    fee_rate_refresh_minutes: 0
 notifications:
     enabled: false
     telegram:
@@ -780,6 +786,8 @@ web:
         enabled: false
         require_auth: false
         allowed_ips: []
+    webauthn:
+        allowed_origins: []
 fix:
     enabled: null
     heartbeat_timeout_sec: 0
