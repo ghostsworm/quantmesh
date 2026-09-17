@@ -17,10 +17,15 @@ import (
 
 // LogStorage 日志存儲
 type LogStorage struct {
-	db          *sql.DB
-	mu          sync.RWMutex
-	logCh       chan *logEntry
-	closed      bool
+	db    *sql.DB
+	mu    sync.RWMutex
+	logCh chan *logEntry
+	// closeMu 保护 closed 与 logCh 的关闭：WriteLog 持读锁投递，Close 持写锁关闭 channel，
+	// 避免关闭后投递触发 send on closed channel。与 mu 分开，写日志不会被批量写库阻塞。
+	closeMu sync.RWMutex
+	closed  bool
+	// processDone 在 processLogs 刷完剩余日志退出后关闭；Close 等它再关数据库
+	processDone chan struct{}
 	subscribers []chan *LogRecord // 订阅者列表（用於實時推送）
 	subMu       sync.RWMutex
 }
@@ -90,6 +95,7 @@ func openLogStorageDB(path string) (*sql.DB, *LogStorage, error) {
 	ls := &LogStorage{
 		db:          db,
 		logCh:       make(chan *logEntry, 500),
+		processDone: make(chan struct{}),
 		subscribers: make([]chan *LogRecord, 0),
 	}
 
@@ -209,6 +215,8 @@ func (ls *LogStorage) createTable() error {
 
 // WriteLog 写入日志（异步，不阻塞）。botID 可選，非空時寫入 bot_id 列。
 func (ls *LogStorage) WriteLog(level, message string, botID ...string) {
+	ls.closeMu.RLock()
+	defer ls.closeMu.RUnlock()
 	if ls.closed {
 		return
 	}
@@ -241,6 +249,7 @@ func (ls *LogStorage) processLogs() {
 	buffer := make([]*logEntry, 0, 100)
 	ticker := time.NewTicker(1 * time.Second) // 每秒刷新一次
 	defer ticker.Stop()
+	defer close(ls.processDone)
 	defer log.Println("[DEBUG] 日志處理協程已退出")
 
 	flush := func() {
@@ -622,16 +631,32 @@ func (ls *LogStorage) GetLogStats() (map[string]interface{}, error) {
 }
 
 // Close 关闭日志存儲
+//
+// 顺序：标记关闭并关闭队列 → 等 processLogs 把队列剩余日志刷入数据库并退出（最多 logFlushOnCloseTimeout）
+// → 关闭订阅者 → 关闭数据库。
+// 旧实现持有 mu 睡 100ms 后直接关库，而 processLogs 的最后一次 flush 需要 mu，
+// 只能在库关闭之后执行，导致退出时固定出现「批量写入日志失败: sql: database is closed」并丢掉最后一批日志。
 func (ls *LogStorage) Close() error {
-	ls.mu.Lock()
-	defer ls.mu.Unlock()
-
+	ls.closeMu.Lock()
 	if ls.closed {
+		ls.closeMu.Unlock()
 		return nil
 	}
-
 	ls.closed = true
 	close(ls.logCh)
+	ls.closeMu.Unlock()
+
+	flushed := true
+	if ls.processDone != nil {
+		timer := time.NewTimer(logFlushOnCloseTimeout)
+		select {
+		case <-ls.processDone:
+		case <-timer.C:
+			flushed = false
+			log.Printf("[WARN] 等待日志刷盘超过 %v，直接关闭日志数据库", logFlushOnCloseTimeout)
+		}
+		timer.Stop()
+	}
 
 	// 关闭所有订阅者
 	ls.subMu.Lock()
@@ -641,8 +666,14 @@ func (ls *LogStorage) Close() error {
 	ls.subscribers = nil
 	ls.subMu.Unlock()
 
-	// 等待一小段時间，让 processLogs 协程完成
-	time.Sleep(100 * time.Millisecond)
-
+	if !flushed {
+		// 刷盘协程仍持有 mu 写库时不等它，直接关库让其失败返回
+		return ls.db.Close()
+	}
+	ls.mu.Lock()
+	defer ls.mu.Unlock()
 	return ls.db.Close()
 }
+
+// logFlushOnCloseTimeout Close 等待剩余日志刷盘的最长时间
+const logFlushOnCloseTimeout = 2 * time.Second

@@ -966,6 +966,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// 退出收尾步驟統一登記到 shutdown（語義同 defer，但限時執行並在最終日誌之前完成），見 main_shutdown.go
+	shutdown := newShutdownRunner()
+
 	// 啟動定期日誌清理任務（在 ctx 定義之後）
 	if globalLogStorage != nil && cfg.System.LogCleanup.Enabled {
 		lc := cfg.System.LogCleanup
@@ -1302,6 +1305,7 @@ func main() {
 
 	// 初始化數據库（可選，用於未来迁移）
 	var db database.Database
+	var closeGormDB func()
 	if cfg.Database.Type != "" && cfg.Database.DSN != "" {
 		dbConfig := &database.Config{
 			Type:            cfg.Database.Type,
@@ -1316,7 +1320,12 @@ func main() {
 			logger.Warn("⚠️ 初始化數據库失败: %v (將继续使用現有存儲)", err)
 			db = nil
 		} else {
-			defer db.Close()
+			// GORM 連接可能被存儲服務共用，必須在 storageService.Stop 刷盤之後才關閉，見退出流程
+			closeGormDB = func() {
+				if err := db.Close(); err != nil {
+					logger.Warn("⚠️ 關閉 GORM 數據庫失敗: %v", err)
+				}
+			}
 			logger.Info("✅ 數據库已初始化 (類型: %s)", cfg.Database.Type)
 			// database 包 GORM AutoMigrate 若與 storage 共用同一 SQLite 文件，會重建 orders 表並丟失
 			// (exchange, account, symbol, order_id) 複合唯一索引，導致首次啟動 SaveOrder 報 ON CONFLICT 不匹配；此處立即修復。
@@ -1369,7 +1378,7 @@ func main() {
 		} else {
 			logger.Info("⏸️ 事件中心未啟用（可通過 Web API 动態啟用）")
 		}
-		defer eventCenter.Stop()
+		shutdown.Defer("停止事件中心", eventCenter.Stop)
 	} else {
 		logger.Warn("⚠️ 數據库未初始化，事件中心將不可用")
 	}
@@ -1591,7 +1600,7 @@ func main() {
 	if err != nil {
 		logger.Fatalf("❌ 初始化分布式鎖失败: %v", err)
 	}
-	defer distributedLock.Close()
+	shutdown.Defer("關閉分布式鎖", func() { _ = distributedLock.Close() })
 
 	if cfg.DistributedLock.Enabled {
 		logger.Info("✅ 分布式鎖已啟用 (類型: %s, 實例: %s)", cfg.DistributedLock.Type, cfg.Instance.ID)
@@ -1678,7 +1687,7 @@ func main() {
 				logger.Info("⏱️ [啟動] K線收集器完成 (耗時: %v)", time.Since(startTime))
 				// 注入到Web层
 				web.SetKlineCollector(klineCollector)
-				defer klineCollector.Stop()
+				shutdown.Defer("停止 K 線收集器", klineCollector.Stop)
 			}
 		} else {
 			logger.Warn("⚠️ 没有可用的交易所实例，K线数据收集器将不可用")
@@ -1724,12 +1733,12 @@ func main() {
 		}
 
 		// 在程序退出時卸載所有插件
-		defer func() {
+		shutdown.Defer("卸載插件", func() {
 			if pluginLoader != nil {
 				pluginLoader.UnloadAll()
 				logger.Info("✅ 所有插件已卸載")
 			}
-		}()
+		})
 	} else {
 		logger.Info("ℹ️ 插件系统未啟用")
 	}
@@ -2456,7 +2465,7 @@ func main() {
 				},
 			})
 			sophonInspector.Start()
-			defer sophonInspector.Stop()
+			shutdown.Defer("停止智子巡檢", sophonInspector.Stop)
 			logger.Info("✅ 智子巡檢已啟動")
 		}
 
@@ -2688,6 +2697,8 @@ func main() {
 	<-sigChan
 
 	logger.Info("🛑 收到退出信号，开始优雅关闭...")
+	// 優雅關閉期間再次收到信號（超過寬限期）則強制退出，避免 signal.Notify 吞掉後續 SIGINT/SIGTERM 只能等 SIGKILL
+	go watchForceExitSignal(sigChan, time.Now(), forceExitSignalGrace, time.Now, os.Stderr, os.Exit)
 
 	// 发布系统停止事件
 	if eventBus != nil {
@@ -2756,14 +2767,31 @@ func main() {
 		storage.SetGlobalAuditLogger(nil)
 	}
 
+	// 停止仍會寫入存儲/數據庫的組件（智子巡檢、插件、K 線收集器、分布式鎖、事件中心），逆序、每步限時。
+	// 原來是 main 的 defer，在「系统已安全退出」之後才執行，任何一步阻塞都會讓進程打完最終日誌後不退出。
+	if timedOut := shutdown.Run(); len(timedOut) > 0 {
+		logger.Warn("⚠️ 以下退出收尾步驟超時未完成（goroutine 棧已寫到標準錯誤）: %v", timedOut)
+	}
+
 	// 🔥 第四优先级：停止存儲服務（确保所有事件都已处理完毕）
 	logger.Info("⏹️ 正在停止存儲服務...")
 	if storageService != nil {
-		storageService.Stop()
+		if !runWithTimeout(storageService.Stop, shutdownStepTimeout) {
+			logger.Warn("⚠️ 停止存儲服務 %v 內未完成，繼續退出", shutdownStepTimeout)
+			writeGoroutineDump(os.Stderr, "停止存儲服務超時")
+		}
 	}
 
 	// 再等待一小段時间，让存儲服務完成最后的写入
 	time.Sleep(200 * time.Millisecond)
+
+	// GORM 數據庫可能與存儲服務共用連接，放在存儲服務停止之後關閉
+	if closeGormDB != nil {
+		if !runWithTimeout(closeGormDB, shutdownStepTimeout) {
+			logger.Warn("⚠️ 關閉 GORM 數據庫 %v 內未完成，繼續退出", shutdownStepTimeout)
+			writeGoroutineDump(os.Stderr, "關閉 GORM 數據庫超時")
+		}
+	}
 
 	// 打印最终状態（僅在配置完整時）
 	if configComplete {
@@ -2774,17 +2802,28 @@ func main() {
 		}
 	}
 
-	// 关闭文件日志
+	// 最終日誌：logger 寫 logs.db 是每條一個異步 goroutine，緊接著關庫可能丟失；
+	// 因此先摘掉 logger 的存儲寫入器，只輸出到標準輸出/文件，再同步投遞到日誌存儲隊列，由 Close 刷盤
+	logger.InitLogStorage(nil)
+	const finalExitMessage = "✅ 系统已安全退出 QuantMesh"
+	logger.Info(finalExitMessage)
+	if globalLogStorage != nil {
+		globalLogStorage.WriteLog(logger.INFO.String(), "["+logger.INFO.String()+"] "+finalExitMessage)
+	}
+
+	// 關閉文件日誌；之後的日誌只到標準輸出
 	logger.Close()
 
-	// 关闭日志存儲
+	// 关闭日志存儲：等待後台協程把隊列剩餘日誌刷盤後再關閉數據庫
 	if globalLogStorage != nil {
-		if err := globalLogStorage.Close(); err != nil {
-			logger.Error("❌ 关闭日志存儲失败: %v", err)
+		if err := closeLogStorageWithTimeout(globalLogStorage.Close, logStorageCloseTimeout); err != nil {
+			log.Printf("[WARN] 关闭日志存儲失败: %v", err)
 		}
 	}
 
-	logger.Info("✅ 系统已安全退出 QuantMesh")
+	// 顯式退出：收尾已全部限時完成，不讓任何殘留 goroutine / 未知阻塞拖住進程
+	cancel()
+	os.Exit(0)
 }
 
 // 以下類型已抽取到 main_adapters_position.go：
