@@ -167,6 +167,9 @@ type InventorySlot struct {
 	// feeSupplementUntil 現貨開倉買單正在 REST 補查手續費（可能需扣減基礎幣到帳數量）的截止時間；
 	// 截止前暫緩為該槽位掛平倉單，避免按毛數量掛單超出實際可用餘額。零值表示無補查在途。
 	feeSupplementUntil time.Time
+	// pendingFeeSupplementCount tracks every asynchronous REST fee lookup. A
+	// non-zero count is persisted and prevents an "empty" startup shortcut.
+	pendingFeeSupplementCount int
 	// lastFilledClientOID 最近一筆已完全成交（FILLED）的 ClientOrderID：
 	// 槽位訂單信息重置後，同一訂單的重放/延遲推送不得再次記賬。
 	lastFilledClientOID string
@@ -254,7 +257,7 @@ type GridRuntimeStateStore interface {
 	SaveRuntimeState(strategyName string, schemaVersion int, payload string) error
 }
 
-const gridRuntimeStateSchemaVersion = 1
+const gridRuntimeStateSchemaVersion = 2
 
 type gridRuntimeStateSnapshot struct {
 	Version      int                       `json:"version"`
@@ -271,35 +274,36 @@ type gridRuntimeStateSnapshot struct {
 }
 
 type gridRuntimeSlotSnapshot struct {
-	Price               float64      `json:"price"`
-	PositionStatus      string       `json:"position_status"`
-	PositionQty         float64      `json:"position_qty"`
-	OrderID             int64        `json:"order_id"`
-	ClientOID           string       `json:"client_oid"`
-	OrderSide           string       `json:"order_side"`
-	OrderStatus         string       `json:"order_status"`
-	OrderPrice          float64      `json:"order_price"`
-	OrderFilledQty      float64      `json:"order_filled_qty"`
-	OrderFilledNotional float64      `json:"order_filled_notional"`
-	OrderCreatedAt      time.Time    `json:"order_created_at"`
-	SlotStatus          string       `json:"slot_status"`
-	PostOnlyFailCount   int          `json:"post_only_fail_count"`
-	BuyFee              float64      `json:"buy_fee"`
-	FeeAsset            string       `json:"fee_asset"`
-	FeeClientOID        string       `json:"fee_client_oid"`
-	OrderCommission     float64      `json:"order_commission"`
-	FeeValuationUnknown bool         `json:"fee_valuation_unknown"`
-	OrderBaseFeeQty     float64      `json:"order_base_fee_qty"`
-	CycleGen            uint64       `json:"cycle_gen"`
-	FeeSupplementUntil  time.Time    `json:"fee_supplement_until"`
-	LastFilledClientOID string       `json:"last_filled_client_oid"`
-	LastTerminalFill    FillProgress `json:"last_terminal_fill"`
-	BaseFeeUnfloored    bool         `json:"base_fee_unfloored"`
-	AvgBuyPrice         float64      `json:"avg_buy_price"`
-	AllocatedMargin     float64      `json:"allocated_margin"`
-	PositionLeg         string       `json:"position_leg"`
-	StrategyName        string       `json:"strategy_name"`
-	StrategyType        string       `json:"strategy_type"`
+	Price                     float64      `json:"price"`
+	PositionStatus            string       `json:"position_status"`
+	PositionQty               float64      `json:"position_qty"`
+	OrderID                   int64        `json:"order_id"`
+	ClientOID                 string       `json:"client_oid"`
+	OrderSide                 string       `json:"order_side"`
+	OrderStatus               string       `json:"order_status"`
+	OrderPrice                float64      `json:"order_price"`
+	OrderFilledQty            float64      `json:"order_filled_qty"`
+	OrderFilledNotional       float64      `json:"order_filled_notional"`
+	OrderCreatedAt            time.Time    `json:"order_created_at"`
+	SlotStatus                string       `json:"slot_status"`
+	PostOnlyFailCount         int          `json:"post_only_fail_count"`
+	BuyFee                    float64      `json:"buy_fee"`
+	FeeAsset                  string       `json:"fee_asset"`
+	FeeClientOID              string       `json:"fee_client_oid"`
+	OrderCommission           float64      `json:"order_commission"`
+	FeeValuationUnknown       bool         `json:"fee_valuation_unknown"`
+	OrderBaseFeeQty           float64      `json:"order_base_fee_qty"`
+	CycleGen                  uint64       `json:"cycle_gen"`
+	FeeSupplementUntil        time.Time    `json:"fee_supplement_until"`
+	PendingFeeSupplementCount int          `json:"pending_fee_supplement_count"`
+	LastFilledClientOID       string       `json:"last_filled_client_oid"`
+	LastTerminalFill          FillProgress `json:"last_terminal_fill"`
+	BaseFeeUnfloored          bool         `json:"base_fee_unfloored"`
+	AvgBuyPrice               float64      `json:"avg_buy_price"`
+	AllocatedMargin           float64      `json:"allocated_margin"`
+	PositionLeg               string       `json:"position_leg"`
+	StrategyName              string       `json:"strategy_name"`
+	StrategyType              string       `json:"strategy_type"`
 }
 
 // ReconciliationStorage 對账存儲介面（避免循環匯入）
@@ -400,6 +404,8 @@ type SuperPositionManager struct {
 	gridRuntimeStateSaveMu   sync.Mutex
 	gridRuntimeStateStore    GridRuntimeStateStore
 	gridRuntimeStateRestored atomic.Bool
+	feeSupplementQueueMu     sync.Mutex
+	pendingFeeSupplements    []pendingFeeSupplement
 
 	// 初始化標志
 	isInitialized atomic.Bool

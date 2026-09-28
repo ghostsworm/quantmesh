@@ -197,3 +197,35 @@ func TestConfiguredAccountWalletCapitalCountsBothSpreadLegsOnSameWallet(t *testi
 		t.Fatalf("same-wallet two-leg spread commitment=%v, want full 700", got)
 	}
 }
+
+func TestConfiguredAccountWalletCapitalRejectsDuplicateBotIdentity(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "shared-a"}},
+	}
+	cfg.Strategies.CapitalAllocation.TotalCapital = 500
+	cfg.Bots = []config.BotConfig{
+		{ID: "duplicate", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 200},
+		{ID: " duplicate ", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", TotalAllocatedCapital: 300},
+	}
+	candidate := config.SymbolConfig{ID: "candidate", Exchange: "binance", Symbol: "SOLUSDT", MarketType: "futures", TotalAllocatedCapital: 100}
+	if _, err := configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "futures"); err == nil {
+		t.Fatal("duplicate Bot identity unexpectedly allowed an unverified wallet commitment")
+	}
+}
+
+func TestConfiguredAccountWalletCapitalMatchesLegacyBotUsingCurrentExchange(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "shared-a"}},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Bots = []config.BotConfig{{Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 300}}
+	candidate := config.SymbolConfig{Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 500}
+
+	got, err := configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "futures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 500 {
+		t.Fatalf("legacy candidate allocation was not replaced by its canonical Bot identity: got %.2f, want 500", got)
+	}
+}

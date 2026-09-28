@@ -123,6 +123,23 @@ type feeSupplementTag struct {
 	wsBaseFeeQty float64
 }
 
+type pendingFeeSupplement struct {
+	slot *InventorySlot
+	tag  feeSupplementTag
+}
+
+// startPendingFeeSupplements releases queued REST work only after the grid
+// snapshot containing its pending marker has been durably saved.
+func (spm *SuperPositionManager) startPendingFeeSupplements() {
+	spm.feeSupplementQueueMu.Lock()
+	queued := spm.pendingFeeSupplements
+	spm.pendingFeeSupplements = nil
+	spm.feeSupplementQueueMu.Unlock()
+	for _, task := range queued {
+		go spm.supplementCommission(context.Background(), task.slot, task.tag)
+	}
+}
+
 // startFeeSupplementLocked 訂單結束且推送未帶手續費時發起一次異步補查。
 // 現貨開倉買單在補查返回（或超時）前暫緩掛平倉單，保證平倉數量使用扣除基礎幣手續費後的淨持倉。
 // 調用方需持有 slot.mu。
@@ -140,11 +157,14 @@ func (spm *SuperPositionManager) startFeeSupplementLocked(slot *InventorySlot, u
 		cycleGen:     slot.cycleGen,
 		wsBaseFeeQty: st.wsBaseFeeQty,
 	}
+	slot.pendingFeeSupplementCount++
+	spm.feeSupplementQueueMu.Lock()
+	spm.pendingFeeSupplements = append(spm.pendingFeeSupplements, pendingFeeSupplement{slot: slot, tag: tag})
+	spm.feeSupplementQueueMu.Unlock()
 	// 回放時鐘下不暫緩：補查協程與 tick 推進的先後不確定，暫緩會破壞回測可重現性（模擬交易所回報已帶手續費）
 	if _, real := spm.clk.get().(realClock); real && openLeg && side == "BUY" && spm.isSpot() {
 		slot.feeSupplementUntil = time.Now().Add(feeSupplementCloseHold)
 	}
-	go spm.supplementCommission(context.Background(), slot, tag)
 }
 
 // fillFeeSummary 成交明細匯總
@@ -267,18 +287,18 @@ func mapFloat(m map[string]interface{}, key string) float64 {
 //   - 平倉腿：交易記錄已保存且存儲不支持按訂單更新手續費，記更正記錄。
 func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot *InventorySlot, tag feeSupplementTag) {
 	defer func() {
-		persistState := false
-		if tag.openLeg {
-			slot.mu.Lock()
-			if slot.cycleGen == tag.cycleGen {
-				slot.feeSupplementUntil = time.Time{}
-				persistState = true
-			}
-			slot.mu.Unlock()
+		slot.mu.Lock()
+		if tag.openLeg && slot.cycleGen == tag.cycleGen {
+			slot.feeSupplementUntil = time.Time{}
 		}
-		if persistState {
-			spm.persistGridRuntimeStateOrHold(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol})
+		if slot.pendingFeeSupplementCount <= 0 {
+			spm.openingGate.Block("grid_fee_supplement_state_invalid")
+			logger.Error("[%s] 手續費補查計數失配：order=%d cid=%s", spm.logPrefix(), tag.orderID, tag.clientOID)
+		} else {
+			slot.pendingFeeSupplementCount--
 		}
+		slot.mu.Unlock()
+		spm.persistGridRuntimeStateOrHold(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol})
 	}()
 
 	ctx, cancel := context.WithTimeout(ctx, feeSupplementTimeout)

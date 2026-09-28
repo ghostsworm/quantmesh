@@ -2,6 +2,8 @@ package position
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"sync"
 	"testing"
@@ -25,10 +27,11 @@ type gatedFillsExchange struct {
 	mu      sync.Mutex
 	fills   map[int64][]*detailedFill
 	release chan struct{}
+	started chan struct{}
 }
 
 func newGatedFillsExchange(gated bool) *gatedFillsExchange {
-	g := &gatedFillsExchange{fills: map[int64][]*detailedFill{}, release: make(chan struct{})}
+	g := &gatedFillsExchange{fills: map[int64][]*detailedFill{}, release: make(chan struct{}), started: make(chan struct{}, 1)}
 	if !gated {
 		close(g.release)
 	}
@@ -43,6 +46,10 @@ func (g *gatedFillsExchange) setFills(orderID int64, fills ...*detailedFill) {
 
 func (g *gatedFillsExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) (interface{}, error) {
 	select {
+	case g.started <- struct{}{}:
+	default:
+	}
+	select {
 	case <-g.release:
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -50,6 +57,38 @@ func (g *gatedFillsExchange) GetOrderFills(ctx context.Context, symbol string, o
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.fills[orderID], nil
+}
+
+type synchronizedGridStateStore struct {
+	mu       sync.Mutex
+	version  int
+	payload  string
+	found    bool
+	failNext bool
+}
+
+func (s *synchronizedGridStateStore) LoadRuntimeState(string) (int, string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.version, s.payload, s.found, nil
+}
+
+func (s *synchronizedGridStateStore) SaveRuntimeState(_ string, version int, payload string) error {
+	s.mu.Lock()
+	if s.failNext {
+		s.failNext = false
+		s.mu.Unlock()
+		return errors.New("injected grid state write failure")
+	}
+	s.version, s.payload, s.found = version, payload, true
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *synchronizedGridStateStore) failNextSave() {
+	s.mu.Lock()
+	s.failNext = true
+	s.mu.Unlock()
 }
 
 // eventTradeStorage 記錄交易與更正事件
@@ -177,6 +216,81 @@ func TestSupplementCommission_SpotBaseFeeDeductedAndCloseUsesNetQty(t *testing.T
 			t.Fatalf("平倉數量 %v 超過淨持倉 0.499", req.Quantity)
 		}
 	}
+}
+
+func TestFeeSupplementMarkerIsPersistedBeforeRESTLookupStarts(t *testing.T) {
+	ex := newGatedFillsExchange(true)
+	ex.setFills(30, &detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.6, CommissionAsset: "USDT"})
+	spm := newFillFeeSPM(t, "futures", ex)
+	spm.botID = "fee-pending-bot"
+	spm.setAnchorPrice(fillFeeTestPrice)
+	store := &synchronizedGridStateStore{}
+	spm.SetGridRuntimeStateStore(store)
+
+	fillOrder(spm, 30, "BUY", 0.5, 0, 0)
+	select {
+	case <-ex.started:
+	case <-time.After(time.Second):
+		t.Fatal("fee REST lookup did not start after the grid snapshot was persisted")
+	}
+	_, payload, found, err := store.LoadRuntimeState(gridRuntimeStateName)
+	if err != nil || !found {
+		t.Fatalf("load persisted grid state: found=%v err=%v", found, err)
+	}
+	var snapshot gridRuntimeStateSnapshot
+	if err := json.Unmarshal([]byte(payload), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Slots) != 1 || snapshot.Slots[0].PendingFeeSupplementCount != 1 {
+		t.Fatalf("REST lookup started without a durable pending marker: %+v", snapshot.Slots)
+	}
+
+	close(ex.release)
+	waitFor(t, func() bool {
+		_, payload, found, _ := store.LoadRuntimeState(gridRuntimeStateName)
+		if !found || json.Unmarshal([]byte(payload), &snapshot) != nil || len(snapshot.Slots) != 1 {
+			return false
+		}
+		return snapshot.Slots[0].PendingFeeSupplementCount == 0
+	})
+	if spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("a filled slot cannot be considered empty after fee supplement")
+	}
+}
+
+func TestFeeSupplementDoesNotStartUntilPendingMarkerWriteSucceeds(t *testing.T) {
+	ex := newGatedFillsExchange(true)
+	ex.setFills(31, &detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.6, CommissionAsset: "USDT"})
+	spm := newFillFeeSPM(t, "futures", ex)
+	spm.botID = "fee-write-failure-bot"
+	spm.setAnchorPrice(fillFeeTestPrice)
+	store := &synchronizedGridStateStore{}
+	spm.SetGridRuntimeStateStore(store)
+
+	cid := spm.generateClientOrderID(fillFeeTestPrice, "BUY", "")
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 31, ClientOrderID: cid, Symbol: "ETHUSDT", Status: "NEW", Side: "BUY", Price: fillFeeTestPrice})
+	store.failNextSave()
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 31, ClientOrderID: cid, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice})
+	select {
+	case <-ex.started:
+		t.Fatal("REST fee lookup started although its pending marker write failed")
+	default:
+	}
+	if !spm.openingGate.Blocked() {
+		t.Fatal("failed grid state persistence did not keep opening blocked")
+	}
+
+	// A duplicate terminal event retries persistence; only after that durable
+	// write succeeds may the queued lookup start.
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 31, ClientOrderID: cid, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice})
+	select {
+	case <-ex.started:
+	case <-time.After(time.Second):
+		t.Fatal("queued REST lookup did not start after durable marker retry")
+	}
+	close(ex.release)
 }
 
 // 推送已帶基礎幣手續費（但 Commission 為 0 仍觸發補查）時，補查不得重複扣減持倉；合約不扣減

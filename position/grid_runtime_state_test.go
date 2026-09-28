@@ -40,6 +40,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	slot.BuyFee, slot.FeeAsset = 0.03, "USDT"
 	slot.feeClientOID, slot.orderCommission, slot.orderBaseFeeQty = "owned-cid", 0.01, 0.0001
 	slot.feeValuationUnknown, slot.cycleGen = true, 4
+	slot.pendingFeeSupplementCount = 2
 	slot.lastFilledClientOID = "previous-cid"
 	slot.lastTerminalFill = FillProgress{Quantity: 0.1, Notional: 9.9}
 	slot.AvgBuyPrice, slot.AllocatedMargin = 98.5, 147.75
@@ -65,7 +66,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	state := got.Slots[0]
 	if state.PositionQty != 1.5 || state.ClientOID != "owned-cid" || state.OrderFilledQty != .25 || state.OrderFilledNotional != 25.5 ||
 		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 ||
-		!state.FeeValuationUnknown || state.CycleGen != 4 || state.LastFilledClientOID != "previous-cid" ||
+		!state.FeeValuationUnknown || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
 		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 || state.AllocatedMargin != 147.75 {
 		t.Fatalf("snapshot lost grid accounting cursor: %+v", state)
 	}
@@ -87,7 +88,8 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	restoredSlot.(*InventorySlot).mu.RLock()
 	defer restoredSlot.(*InventorySlot).mu.RUnlock()
 	if restoredSlot.(*InventorySlot).PositionQty != 1.5 || restoredSlot.(*InventorySlot).feeClientOID != "owned-cid" ||
-		restoredSlot.(*InventorySlot).lastTerminalFill.Quantity != .1 || restored.anchorPrice() != 100 {
+		restoredSlot.(*InventorySlot).lastTerminalFill.Quantity != .1 || restoredSlot.(*InventorySlot).pendingFeeSupplementCount != 2 ||
+		restored.anchorPrice() != 100 {
 		t.Fatalf("restored accounting state mismatch: %+v", restoredSlot.(*InventorySlot))
 	}
 	if err := restored.Initialize(120, "120"); err != nil {
@@ -132,6 +134,30 @@ func TestGridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot(t *testing.T) 
 	if spm.GridRuntimeStateIsVerifiedEmpty() {
 		t.Fatal("empty snapshot with a locked slot must remain blocked")
 	}
+	slot.(*InventorySlot).mu.Lock()
+	slot.(*InventorySlot).SlotStatus = SlotStatusFree
+	slot.(*InventorySlot).pendingFeeSupplementCount = 1
+	slot.(*InventorySlot).mu.Unlock()
+	if spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("empty snapshot with pending fee accounting must remain blocked")
+	}
+
+	snapshot.Slots[0].PendingFeeSupplementCount = 1
+	pendingPayload, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted, _ := newStateTestSPM("LONG", "futures")
+	restarted.botID = "bot-empty"
+	restarted.SetGridRuntimeStateStore(&gridRuntimeStateTestStore{
+		version: gridRuntimeStateSchemaVersion, payload: string(pendingPayload), found: true,
+	})
+	if restored, err := restarted.RestoreGridRuntimeState(); err != nil || !restored {
+		t.Fatalf("restore pending fee snapshot: restored=%v err=%v", restored, err)
+	}
+	if restarted.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("restart classified a persisted pending fee supplement as verified empty")
+	}
 }
 
 func TestRestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch(t *testing.T) {
@@ -150,6 +176,29 @@ func TestRestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch(t *testing.
 	store.version = gridRuntimeStateSchemaVersion + 1
 	if _, err := spm.RestoreGridRuntimeState(); err == nil {
 		t.Fatal("storage and payload schema mismatch must be rejected")
+	}
+}
+
+func TestRestoreGridRuntimeStateRejectsLegacySnapshotWithoutFeePendingEvidence(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-legacy"
+	legacy := gridRuntimeStateSnapshot{
+		Version: 1, BotID: "bot-legacy", Exchange: "binance", MarketType: "futures",
+		Symbol: "BTCUSDT", Direction: "LONG", AnchorPrice: 100,
+		Slots: []gridRuntimeSlotSnapshot{{
+			Price: 100, PositionStatus: PositionStatusEmpty, OrderStatus: OrderStatusNotPlaced, SlotStatus: SlotStatusFree,
+		}},
+	}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spm.SetGridRuntimeStateStore(&gridRuntimeStateTestStore{version: 1, payload: string(payload), found: true})
+	if restored, err := spm.RestoreGridRuntimeState(); err == nil || !restored {
+		t.Fatalf("legacy snapshot must be found and rejected: restored=%v err=%v", restored, err)
+	}
+	if spm.gridRuntimeStateRestored.Load() || spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("legacy snapshot without pending-fee evidence was treated as restored/empty")
 	}
 }
 

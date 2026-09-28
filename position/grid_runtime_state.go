@@ -48,7 +48,8 @@ func (spm *SuperPositionManager) PersistGridRuntimeState() error {
 			BuyFee: slot.BuyFee, FeeAsset: slot.FeeAsset, FeeClientOID: slot.feeClientOID,
 			OrderCommission: slot.orderCommission, FeeValuationUnknown: slot.feeValuationUnknown,
 			OrderBaseFeeQty: slot.orderBaseFeeQty, CycleGen: slot.cycleGen, FeeSupplementUntil: slot.feeSupplementUntil,
-			LastFilledClientOID: slot.lastFilledClientOID, LastTerminalFill: slot.lastTerminalFill,
+			PendingFeeSupplementCount: slot.pendingFeeSupplementCount,
+			LastFilledClientOID:       slot.lastFilledClientOID, LastTerminalFill: slot.lastTerminalFill,
 			BaseFeeUnfloored: slot.baseFeeUnfloored, AvgBuyPrice: slot.AvgBuyPrice,
 			AllocatedMargin: slot.AllocatedMargin, PositionLeg: slot.PositionLeg,
 			StrategyName: slot.StrategyName, StrategyType: slot.StrategyType,
@@ -128,7 +129,8 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			BuyFee: state.BuyFee, FeeAsset: state.FeeAsset, feeClientOID: state.FeeClientOID,
 			orderCommission: state.OrderCommission, feeValuationUnknown: state.FeeValuationUnknown,
 			orderBaseFeeQty: state.OrderBaseFeeQty, cycleGen: state.CycleGen, feeSupplementUntil: state.FeeSupplementUntil,
-			lastFilledClientOID: state.LastFilledClientOID, lastTerminalFill: state.LastTerminalFill,
+			pendingFeeSupplementCount: state.PendingFeeSupplementCount,
+			lastFilledClientOID:       state.LastFilledClientOID, lastTerminalFill: state.LastTerminalFill,
 			baseFeeUnfloored: state.BaseFeeUnfloored, AvgBuyPrice: state.AvgBuyPrice,
 			AllocatedMargin: state.AllocatedMargin, PositionLeg: state.PositionLeg,
 			StrategyName: state.StrategyName, StrategyType: state.StrategyType,
@@ -159,7 +161,8 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 			(slot.OrderStatus == OrderStatusNotPlaced || slot.OrderStatus == OrderStatusCanceled) &&
 			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&
 			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.feeValuationUnknown &&
-			slot.feeSupplementUntil.IsZero() && !slot.baseFeeUnfloored && slot.PositionLeg == PositionLegNone
+			slot.feeSupplementUntil.IsZero() && slot.pendingFeeSupplementCount == 0 &&
+			!slot.baseFeeUnfloored && slot.PositionLeg == PositionLegNone
 		slot.mu.RUnlock()
 		if !clear {
 			empty = false
@@ -192,6 +195,9 @@ func validateGridRuntimeSnapshot(snapshot gridRuntimeStateSnapshot) error {
 		if slot.Price <= 0 || slot.PositionQty < 0 || slot.OrderFilledQty < 0 || slot.OrderFilledNotional < 0 ||
 			slot.OrderBaseFeeQty < 0 || slot.PostOnlyFailCount < 0 || (i > 0 && snapshot.Slots[i-1].Price >= slot.Price) {
 			return fmt.Errorf("grid runtime snapshot slot %d has invalid or duplicate identity/state", i)
+		}
+		if slot.PendingFeeSupplementCount < 0 {
+			return fmt.Errorf("grid runtime snapshot slot %d has invalid pending fee supplement count", i)
 		}
 		if !validGridPositionStatus(slot.PositionStatus) || !validGridOrderStatus(slot.OrderStatus) ||
 			!validGridSlotStatus(slot.SlotStatus) || (slot.OrderSide != "" && slot.OrderSide != "BUY" && slot.OrderSide != "SELL") ||

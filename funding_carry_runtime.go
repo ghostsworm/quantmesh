@@ -173,6 +173,10 @@ func startFundingCarrySymbolRuntime(
 		}
 	}
 	fc := strategy.NewFundingCarryStrategy("funding_carry", &localCfg, symCfg, futEx, spotEx, marginEx, fcCfg)
+	accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
+	if err := fc.SetAccountWalletCoordinationLock(distributedLock, "funding_carry_wallet:"+accountScope); err != nil {
+		return nil, fmt.Errorf("configure funding_carry account wallet coordination: %w", err)
+	}
 	ownCapital := symCfg.TotalAllocatedCapital
 	if ownCapital <= 0 {
 		ownCapital = symCfg.OrderQuantity
@@ -206,7 +210,6 @@ func startFundingCarrySymbolRuntime(
 	if marginEx != nil {
 		marginOrderExecutor = newFundingCarryOrderExecutor(marginEx, symCfg.Symbol, botID, localCfg, distributedLock, openingGate, "SHORT")
 	}
-	accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
 	for _, leg := range []struct {
 		exchange exchange.IExchange
 		executor *fundingCarryOrderExecutor

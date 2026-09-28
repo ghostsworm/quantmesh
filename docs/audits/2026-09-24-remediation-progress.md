@@ -1312,3 +1312,39 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 锁续租失败会取消受影响的提交上下文；订单执行器在本进程保持物理提交阻断，对账器取消本轮并在槽位同步前检查 context。新增模拟租约续期失败的失败关闭回归。
 - 验证：订单屏障/共享锁用例 20 次重复通过，覆盖已有提交 drain、锁持有期间拒绝提交、取消后解锁、并发屏障独立释放、同分布式锁域提交等待及续租失败；对账快照持屏障与异常快照用例 10 次、协调锁先于历史写库释放用例 20 次通过；锁释放顺序另行 race 五轮通过。完整共享锁/失败关闭 race、全量 `go test ./... -count=1`、`go vet ./...`、`webui/yarn verify`（39 文件/193 项、生产构建及 PWA）通过；未调用真实交易所。
 - **边界：现有独占锁接口会使同交易所/交易对的标准订单提交在实际 API 调用期间短时串行，提交等待有界并失败关闭。绕过 `ExchangeOrderExecutor` 的直连下单、交易所端人工订单/操作，以及租约已丢失后其他进程是否仍持有旧状态的 fencing 尚未覆盖；活动交易所订单仍按 rc211 规则禁止快照同步。** 未真实交易、提交或推送。盈利准备度其他未闭合项继续开放。
+
+## 后续续修：拒绝重复 Bot 身份参与账户预算聚合（3.111.0-rc297）
+
+- 同账户钱包预算聚合此前对重复 Bot ID 静默跳过后续配置项；配置身份冲突时可能少算账户承诺，使启动资金检查失真。现在缺失或重复的 Bot 身份均导致聚合失败并拒绝启动，不再假设重复项代表同一预算。
+- 新增重复 ID 配置回归，断言无法核验的账户钱包预算返回错误。验证：`go test . -run 'TestConfiguredAccountWalletCapital' -count=1` 与 `git diff --check` 通过；未发起真实交易所请求。
+- **边界：这修复的是静态配置身份歧义，不是运行期间跨进程原子资本预留；多个 Bot 仍可能在并发读取余额后竞争相同可用资金，需持久化账户/钱包级预留与执行意图联动。** 前后端版本 `3.111.0-rc297`，未提交、推送或交易。
+
+## 后续续修：规范化账户预算中的 Bot 身份（3.111.0-rc298）
+
+- 复查发现各路径对显式 Bot ID 的空白处理不一致，且旧版 Bot 缺省交易所时预算聚合曾以空交易所生成 ID。预算聚合现统一 trim 显式 ID，并让未设置 ID 的旧配置按已解析的当前交易所生成稳定 ID；重复身份继续失败关闭。
+- 回归覆盖 `"duplicate"` 与 `" duplicate "` 冲突，以及缺省交易所的候选 Bot 正确替换旧配置预算。`go test . -run '^TestConfiguredAccountWalletCapital' -count=1` 与身份回归 `go test -race . -run '^TestConfiguredAccountWalletCapital(RejectsDuplicateBotIdentity|MatchesLegacyBotUsingCurrentExchange)$' -count=5` 通过；`git diff --check` 通过。
+- **边界：仍是配置快照级校验；运行时跨 Bot/进程的原子资本预留、执行意图和成交经济状态联动未完成。** 前后端版本 `3.111.0-rc298`，未提交、推送或交易。
+
+## 後續續修：持久化網格異步手續費補查在途狀態（3.111.0-rc299）
+
+- 網格訂單終態缺少推送手續費時會異步 REST 補查；此前運行態可能在補查完成前被視為空倉，且查詢啟動早於快照持久化。現在先增加並保存槽位補查計數，再啟動 REST；補查完成後扣減並再次保存。持久化失敗保持開倉核對阻斷；重啟恢復非零計數時不能走「已核實空倉」捷徑。快照 schema 升至 v2，舊版不兼容時失敗關閉。
+- 新增回歸驗證費用查詢開始前快照已有 pending marker、補查完成後計數持久化歸零，以及恢復快照的 pending 狀態不會被判為空倉。`go test ./position -count=1`、補查/恢復用例 `go test -race ./position -run 'Test(FeeSupplementMarkerIsPersistedBeforeRESTLookupStarts|GridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot|PersistGridRuntimeStateCapturesCompleteSlotAccountingCursor|SupplementCommission)' -count=3`、當前完整 `go test ./...`、`go vet ./position` 與 `git diff --check` 均通過。
+- 後續故障注入又確認：pending 快照寫入失敗時 REST 查詢未被調用、開倉仍封鎖；相同終態回報重試持久化成功後才啟動排隊查詢。另由已保存的非零 pending 快照重建新管理器，驗證不能被判為已核實空倉。相應測試在 RC300 擴增，定向測試通過。
+- **邊界：未完成補查若在進程崩潰後恢復，仍會要求人工/專用 reconciliation，不會自動重放查詢或推斷手續費；跨策略完整恢復與盈利驗證仍未完成。** 前後端版本 `3.111.0-rc299`，未提交、推送或交易。
+
+## 後續續修：補查標記故障注入與重啟阻斷回歸（3.111.0-rc300）
+
+- 持久化 pending 標記失敗時，查詢不得被派發；同一終態事件重試快照寫入成功後，才啟動排隊查詢。另以非零 pending 計數快照重建管理器，確認不能通過空倉快速初始化。
+- 驗證：補查/恢復用例 `go test -race ./position -run 'Test(FeeSupplement|GridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot|PersistGridRuntimeStateCapturesCompleteSlotAccountingCursor|RestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch|SupplementCommission)' -count=3` 通過；完整 `go test ./...`、`go vet ./position` 與 `git diff --check` 通過。
+- **邊界：未完成補查崩潰後保持阻斷，仍需 reconciliation；這不是自動恢復 fee query，也不代表盈利或實盤驗收。** 前後端版本 `3.111.0-rc300`，未提交、推送或交易。
+
+## 後續續修：同帳戶資金費策略錢包操作串行化（3.111.0-rc302，2026-09-29）
+
+- 多個 `funding_carry` Bot 可並發讀取同一錢包餘額，再各自劃轉或執行雙腿開倉；啟動時餘額/預算核驗無法防止運行期競態。
+- 為期現雙腿開倉、反向借幣雙腿開倉及利潤劃轉增加進程內帳戶門閂和分布式帳戶鎖，長操作自動續租；鎖續租失敗會取消操作上下文，避免繼續提交後續步驟。新增同帳戶策略實例串行回歸測試。
+- **邊界：**僅協調共享同一帳戶作用域及分布式鎖後端的 `funding_carry` 實例，不覆蓋普通 Bot、人工或其他進程的外部資金操作；不等同於全帳戶原子餘額預留。未連接交易帳戶或執行真實訂單/劃轉。版本 `3.111.0-rc302`，未發布、未部署。
+
+## 後續續修：網格舊版快照升級必須失敗關閉（3.111.0-rc301）
+
+- 增加現存 v1 快照（storage schema 與 payload 均為 1）的啟動回歸：即使槽位看似空白，因舊版沒有 pending fee supplement 證據，restore 必須報錯，不能設置 restored 標記或使用空倉快速放行。
+- `go test ./position -run '^TestRestoreGridRuntimeStateRejectsLegacySnapshotWithoutFeePendingEvidence$' -count=1` 與舊/未知 schema 拒絕用例 `go test -race ./position -run 'TestRestoreGridRuntimeStateRejects(LegacySnapshotWithoutFeePendingEvidence|ForeignOwnerAndSchemaMismatch)$' -count=5` 通過；`git diff --check` 通過。前後端版本 `3.111.0-rc301`；未提交、推送或交易。

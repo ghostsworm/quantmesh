@@ -14,6 +14,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/execution"
+	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
 )
@@ -74,6 +75,8 @@ type FundingCarryStrategy struct {
 	accountFuturesCapitalReserve  float64
 	externalFuturesCapitalReserve float64
 	externalSpotCapitalReserve    float64
+	accountWalletLock             lock.DistributedLock
+	accountWalletLockKey          string
 
 	mu                sync.RWMutex
 	ctx               context.Context
@@ -261,6 +264,20 @@ func (s *FundingCarryStrategy) SetAccountCapitalReserves(futuresTotal, futuresEx
 	s.accountFuturesCapitalReserve = futuresTotal
 	s.externalFuturesCapitalReserve = futuresExternal
 	s.externalSpotCapitalReserve = spotExternal
+	s.mu.Unlock()
+	return nil
+}
+
+// SetAccountWalletCoordinationLock serializes funding_carry wallet mutations
+// across Bots sharing the same account. The lock covers both hedge legs and
+// harvest transfers; it does not coordinate unrelated external account users.
+func (s *FundingCarryStrategy) SetAccountWalletCoordinationLock(coordinator lock.DistributedLock, key string) error {
+	if coordinator == nil || strings.TrimSpace(key) == "" {
+		return fmt.Errorf("account wallet coordinator and key are required")
+	}
+	s.mu.Lock()
+	s.accountWalletLock = coordinator
+	s.accountWalletLockKey = strings.TrimSpace(key)
 	s.mu.Unlock()
 	return nil
 }
@@ -927,6 +944,18 @@ func (s *FundingCarryStrategy) harvestProfit(ctx context.Context) {
 	if !s.profitHarvestEnabled {
 		return
 	}
+	if err := s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		s.harvestProfitUnderWalletLock(operationCtx)
+		return nil
+	}); err != nil {
+		logger.Warn("⚠️ [%s] 利潤歸集因帳戶錢包協調失敗而跳過: %v", s.symbol, err)
+	}
+}
+
+func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context) {
+	if !s.profitHarvestEnabled {
+		return
+	}
 	futBal, err := s.fut.GetBalance(ctx, "USDT")
 	if err != nil || !finiteNonNegative(futBal) {
 		return
@@ -1302,6 +1331,12 @@ func (s *FundingCarryStrategy) CloseOwned(ctx context.Context) (float64, error) 
 }
 
 func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rate float64) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.openHedgeUnderWalletLock(operationCtx, futPx, spotPx, rate)
+	})
+}
+
+func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) error {
 	cap, err := s.capitalWithinOpeningLimits(futPx, spotPx)
 	if err != nil {
 		return err
@@ -1465,6 +1500,12 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 // ---------------------------------------------------------------------------
 
 func (s *FundingCarryStrategy) openReverseHedge(ctx context.Context, futPx, spotPx, rate float64) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.openReverseHedgeUnderWalletLock(operationCtx, futPx, spotPx, rate)
+	})
+}
+
+func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) error {
 	if s.marginEx == nil {
 		return fmt.Errorf("反向套利需要保證金帳戶，但 marginEx 為 nil")
 	}

@@ -57,7 +57,7 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 			if exchangeName == "" {
 				exchangeName = currentExchange
 			}
-			bots = append(bots, walletCapitalBot{id: config.BotIDOrGenerate(bot), exchange: exchangeName,
+			bots = append(bots, walletCapitalBot{id: configuredWalletBotID(bot, exchangeName), exchange: exchangeName,
 				market: bot.GetMarketType(), capital: bot.TotalAllocatedCapital, orderQty: bot.OrderQuantity,
 				spread: bot.FundingPerpSpread})
 		}
@@ -99,8 +99,11 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 	seen := make(map[string]struct{}, len(bots))
 	total := 0.0
 	for _, bot := range bots {
+		if bot.id == "" {
+			return 0, fmt.Errorf("configured Bot identity is unavailable")
+		}
 		if _, exists := seen[bot.id]; exists {
-			continue
+			return 0, fmt.Errorf("duplicate configured Bot identity %q prevents wallet commitment verification", bot.id)
 		}
 		seen[bot.id] = struct{}{}
 		fraction, relevant, err := walletCapitalFraction(cfg, bot, walletExchange, walletScope, walletMarket)
@@ -126,6 +129,16 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 		}
 	}
 	return total, nil
+}
+
+func configuredWalletBotID(bot config.BotConfig, exchangeName string) string {
+	if id := strings.TrimSpace(bot.ID); id != "" {
+		return id
+	}
+	if bot.GetMarketType() == config.MarketTypeFundingPerpSpread {
+		return config.GenerateBotIDFundingPerpSpread(bot.FundingPerpSpread)
+	}
+	return config.GenerateBotID(exchangeName, bot.Symbol, bot.GetMarketType())
 }
 
 func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExchange, walletScope, walletMarket string) (float64, bool, error) {

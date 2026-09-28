@@ -85,8 +85,20 @@ func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUp
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
 	update.Status = normalizeOrderStatus(update.Status)
 	spm.onOrderUpdate(update)
-	if !spm.persistGridRuntimeStateOrHold(update) || update.ExecutedQty != 0 ||
-		(update.Status != "CANCELED" && update.Status != "EXPIRED" && update.Status != "REJECTED") {
+	if !spm.persistGridRuntimeStateOrHold(update) {
+		spm.gridRuntimeStateMu.RLock()
+		storeMissing := spm.gridRuntimeStateStore == nil
+		spm.gridRuntimeStateMu.RUnlock()
+		if storeMissing {
+			// Isolated/unit runtimes without a persistent store retain the
+			// historical asynchronous behavior. Production startup remains
+			// blocked by its required exposure journal when storage is absent.
+			spm.startPendingFeeSupplements()
+		}
+		return false
+	}
+	spm.startPendingFeeSupplements()
+	if update.ExecutedQty != 0 || (update.Status != "CANCELED" && update.Status != "EXPIRED" && update.Status != "REJECTED") {
 		return false
 	}
 	price, _, valid := spm.parseClientOrderID(update.ClientOrderID)
