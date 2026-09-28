@@ -372,8 +372,8 @@ func (e *WithdrawExecutor) withdrawnSince(rule *storage.ProfitWithdrawRule, sinc
 // ValidateTransferSafety is shared by manual and automatic transfers. It only
 // proves the requested futures-to-spot transfer is inside the exchange's
 // fresh USDT transfer limits; callers must separately prove profit coverage.
-func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, amount float64, windowStart, windowEnd time.Time) error {
-	if ctx == nil || ex == nil || windowStart.IsZero() || !windowStart.Before(windowEnd) {
+func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol string, amount float64, windowStart, windowEnd time.Time) error {
+	if ctx == nil || ex == nil || strings.TrimSpace(symbol) == "" || windowStart.IsZero() || !windowStart.Before(windowEnd) {
 		return fmt.Errorf("withdrawal transfer requires an exchange and complete accounting interval")
 	}
 	ledgerSource, ok := ex.(accounting.Source)
@@ -401,9 +401,13 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, amount f
 		switch entry.Kind {
 		case "insurance_clear", "unallocated_fee", "interest":
 			return fmt.Errorf("withdrawal interval contains unallocated account cash flow %q; withdrawal is disabled", entry.Kind)
-		case "transfer_in", "transfer_out", "funding", "realized_pnl", "fee", "rebate":
+		case "funding", "realized_pnl", "fee":
+			if strings.TrimSpace(entry.Symbol) == "" || !strings.EqualFold(strings.TrimSpace(entry.Symbol), strings.TrimSpace(symbol)) {
+				return fmt.Errorf("withdrawal interval contains %q not attributable to requested symbol %q; withdrawal is disabled", entry.Kind, symbol)
+			}
+		case "transfer_in", "transfer_out", "rebate":
 			// Explicitly classified categories; only realized PnL, funding, and fees
-			// contribute to the strategy-profit calculation.
+			// for this exact symbol contribute to the strategy-profit calculation.
 		default:
 			return fmt.Errorf("withdrawal interval contains unsupported account cash flow %q; withdrawal is disabled", entry.Kind)
 		}
@@ -434,7 +438,7 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
 	}
-	if err := ValidateTransferSafety(e.ctx, ex, amount, windowStart, windowEnd); err != nil {
+	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, amount, windowStart, windowEnd); err != nil {
 		return err
 	}
 	record := &storage.ProfitWithdrawRecord{

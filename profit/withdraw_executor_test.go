@@ -276,12 +276,37 @@ func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, a
 	return "tx", nil
 }
 
+func TestValidateTransferSafetyRequiresSameSymbolAttribution(t *testing.T) {
+	now := time.Now().UTC()
+	windowStart, windowEnd := now.Add(-10*time.Minute), now.Add(-time.Minute)
+	for _, tt := range []struct {
+		name   string
+		symbol string
+		wantOK bool
+	}{
+		{name: "exact symbol", symbol: "BTCUSDT", wantOK: true},
+		{name: "different symbol", symbol: "ETHUSDT"},
+		{name: "missing symbol"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &fakeTransferExchange{
+				account:       &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 100, MaxWithdrawAmount: 100},
+				ledgerEntries: []accounting.Entry{{ID: "income-1", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: tt.symbol, At: now.Add(-5 * time.Minute)}},
+			}
+			err := ValidateTransferSafety(context.Background(), ex, "BTCUSDT", 5, windowStart, windowEnd)
+			if (err == nil) != tt.wantOK {
+				t.Fatalf("ValidateTransferSafety() error=%v, wantOK=%v", err, tt.wantOK)
+			}
+		})
+	}
+}
+
 func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	for _, kind := range []string{"insurance_clear", "unallocated_fee", "interest"} {
 		t.Run(kind, func(t *testing.T) {
 			st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
-				ID: "cashflow-rule", AccountID: "cashflow-account", AccountScope: "scope-a", ExchangeID: "binance",
+				ID: "cashflow-rule", AccountID: "cashflow-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
 				Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 			}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
 				events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}}}
@@ -302,7 +327,7 @@ func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 func TestAutomaticWithdrawRejectsUnknownAccountCashFlow(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
-		ID: "unknown-flow-rule", AccountID: "unknown-flow-account", AccountScope: "scope-a", ExchangeID: "binance",
+		ID: "unknown-flow-rule", AccountID: "unknown-flow-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
 		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
 		events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}}}
@@ -335,7 +360,7 @@ func TestAutomaticWithdrawRequiresFreshSufficientUSDTBalance(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
-				ID: "balance-rule", AccountID: "balance-account", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+				ID: "balance-rule", AccountID: "balance-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true,
 				TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 			}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 			st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
@@ -381,7 +406,7 @@ func TestAutomaticWithdrawFailsClosedForOverlappingEnabledRules(t *testing.T) {
 func TestAutomaticWithdrawAmbiguousTransferErrorIsNeverRetried(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
-		ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+		ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true,
 		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
@@ -409,7 +434,7 @@ func TestAutomaticWithdrawAmbiguousTransferErrorIsNeverRetried(t *testing.T) {
 func TestAutomaticWithdrawEmptyTransferIDRemainsUnresolved(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
-		ID: "empty-transfer-id-rule", AccountID: "empty-transfer-id-account", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+		ID: "empty-transfer-id-rule", AccountID: "empty-transfer-id-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true,
 		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
@@ -437,7 +462,7 @@ func TestConcurrentAutomaticWithdrawForSameRuleTransfersOnlyOnce(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
 		ID: "concurrent-rule", AccountID: "concurrent-account", AccountScope: "scope-a",
-		ExchangeID: "binance", Enabled: true, TriggerAmount: 1, CreatedAt: base.Add(-time.Hour),
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true, TriggerAmount: 1, CreatedAt: base.Add(-time.Hour),
 		WithdrawRatio: 1, Frequency: frequencyImmediate,
 	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
@@ -469,7 +494,7 @@ func TestAutomaticWithdrawStopsAtLastCompleteFundingCoverage(t *testing.T) {
 	coverageEnd := base.Add(2 * time.Minute)
 	st := &fakeWithdrawStorage{
 		rule: &storage.ProfitWithdrawRule{
-			ID: "coverage-rule", AccountID: "coverage-account", AccountScope: "scope-a", ExchangeID: "binance",
+			ID: "coverage-rule", AccountID: "coverage-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
 			Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 		},
 		coverageFrom: base.Add(-24 * time.Hour), coverageUntil: coverageEnd,
@@ -522,7 +547,7 @@ func TestImmediateWithdrawNoRepeatedTransfer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := &fakeWithdrawStorage{
 				rule: &storage.ProfitWithdrawRule{
-					ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+					ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true,
 					TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate", CreatedAt: base.Add(-time.Hour),
 				},
 				coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),

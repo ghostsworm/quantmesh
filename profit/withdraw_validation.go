@@ -17,6 +17,12 @@ func ValidateWithdrawRule(rule *storage.ProfitWithdrawRule) error {
 	if rule.Enabled && strings.TrimSpace(rule.ExchangeID) == "" {
 		return fmt.Errorf("启用提取规则必须指定交易所")
 	}
+	if rule.Enabled && strings.TrimSpace(rule.StrategyID) == "" {
+		return fmt.Errorf("启用提取规则必须指定可核算的交易对")
+	}
+	if rule.Enabled && strings.TrimSpace(rule.AccountScope) == "" {
+		return fmt.Errorf("启用提取规则必须绑定不可变账户作用域")
+	}
 	if !finiteNonNegative(rule.TriggerAmount) {
 		return fmt.Errorf("触发金额必须是有限的非负数")
 	}

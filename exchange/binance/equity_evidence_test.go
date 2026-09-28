@@ -85,6 +85,19 @@ func TestEquityIncomePagesAndTypeScopedIdentity(t *testing.T) {
 	}
 }
 
+func TestIncomeEvidencePreservesTradingSymbol(t *testing.T) {
+	row := equityTestIncome(time.Now().UTC(), 731)
+	row.Type = "REALIZED_PNL"
+	row.Symbol = "BTCUSDT"
+	entry, err := incomeEvidence(row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Symbol != "BTCUSDT" {
+		t.Fatalf("income symbol=%q, want BTCUSDT", entry.Symbol)
+	}
+}
+
 func TestEquityIncomeRejectsIncompleteEvidence(t *testing.T) {
 	for _, name := range []string{"repeat_page", "conflict", "null", "null_row", "bad_amount", "oversized_amount", "unknown_type", "foreign_asset", "missing_id", "outside_interval", "positive_fee", "http_error", "too_many_rows", "invalid_json"} {
 		t.Run(name, func(t *testing.T) {

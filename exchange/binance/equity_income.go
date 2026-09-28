@@ -19,6 +19,7 @@ const (
 
 type equityIncomeWire struct {
 	Type          string `json:"incomeType"`
+	Symbol        string `json:"symbol"`
 	Amount        string `json:"income"`
 	Asset         string `json:"asset"`
 	Time          int64  `json:"time"`
@@ -66,7 +67,7 @@ func incomeEvidence(row *equityIncomeWire) (accounting.Entry, error) {
 		return accounting.Entry{}, fmt.Errorf("unclassified Binance income type")
 	}
 	// tranId is unique only within one incomeType, never globally.
-	return accounting.Entry{ID: row.Type + ":" + strconv.FormatInt(row.TransactionID, 10), Kind: kind, Currency: row.Asset, Amount: amount, At: time.UnixMilli(row.Time).UTC()}, nil
+	return accounting.Entry{ID: row.Type + ":" + strconv.FormatInt(row.TransactionID, 10), Kind: kind, Currency: row.Asset, Amount: amount, Symbol: row.Symbol, At: time.UnixMilli(row.Time).UTC()}, nil
 }
 
 func (b *BinanceAdapter) readEquityIncome(ctx context.Context, from, through, server time.Time) ([]accounting.Entry, error) {

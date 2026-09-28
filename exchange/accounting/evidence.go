@@ -12,8 +12,8 @@ import (
 )
 
 type Entry struct {
-	ID, Kind, Currency, Amount string
-	At                         time.Time
+	ID, Kind, Currency, Amount, Symbol string
+	At                                 time.Time
 }
 
 const (

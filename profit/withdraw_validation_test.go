@@ -9,7 +9,7 @@ import (
 
 func TestValidateWithdrawRuleRejectsUnsafeOrUnsupportedSettings(t *testing.T) {
 	valid := storage.ProfitWithdrawRule{
-		ID: "rule-1", ExchangeID: "binance", Enabled: true,
+		ID: "rule-1", ExchangeID: "binance", StrategyID: "BTCUSDT", AccountScope: "scope-a", Enabled: true,
 		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate,
 		Destination: "account", MinWithdrawAmount: 1,
 	}
@@ -23,6 +23,8 @@ func TestValidateWithdrawRuleRejectsUnsafeOrUnsupportedSettings(t *testing.T) {
 		{name: "unsupported frequency", mutate: func(r *storage.ProfitWithdrawRule) { r.Frequency = "monthly" }},
 		{name: "unsupported wallet destination", mutate: func(r *storage.ProfitWithdrawRule) { r.Destination = "wallet" }},
 		{name: "missing exchange", mutate: func(r *storage.ProfitWithdrawRule) { r.ExchangeID = "" }},
+		{name: "missing symbol", mutate: func(r *storage.ProfitWithdrawRule) { r.StrategyID = "" }},
+		{name: "missing account scope", mutate: func(r *storage.ProfitWithdrawRule) { r.AccountScope = "" }},
 		{name: "negative max", mutate: func(r *storage.ProfitWithdrawRule) { value := -1.0; r.MaxWithdrawAmount = &value }},
 	}
 	for _, tt := range tests {
