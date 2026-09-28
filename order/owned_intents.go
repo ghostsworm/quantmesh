@@ -29,6 +29,11 @@ type ownedIntent struct {
 	settled       bool
 }
 
+type retryableZeroFillSettlementError struct{ cause error }
+
+func (e retryableZeroFillSettlementError) Error() string { return e.cause.Error() }
+func (e retryableZeroFillSettlementError) Unwrap() error { return e.cause }
+
 // SetUnknownOrderHandler is configured before the runtime starts. The callback
 // runs without intentMu and must not try to synchronously drain this same call.
 func (oe *ExchangeOrderExecutor) SetUnknownOrderHandler(handler func(OrderRequest)) {
@@ -87,7 +92,35 @@ func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID
 // reserved for an accounted zero-fill callback and requires the venue's
 // authoritative terminal query and merged journal cursor to remain zero-fill.
 func (oe *ExchangeOrderExecutor) SettleZeroFillIntent(ctx context.Context, clientOrderID string) error {
-	return oe.settleIntent(ctx, clientOrderID, true)
+	delay := 200 * time.Millisecond
+	for {
+		err := oe.settleIntent(ctx, clientOrderID, true)
+		if err == nil {
+			return nil
+		}
+		var retryable retryableZeroFillSettlementError
+		if !errors.As(err, &retryable) {
+			return err
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return fmt.Errorf("retry zero-fill settlement for %s: %w", clientOrderID, ctx.Err())
+		case <-timer.C:
+		}
+		if delay < 2*time.Second {
+			delay *= 2
+			if delay > 2*time.Second {
+				delay = 2 * time.Second
+			}
+		}
+	}
 }
 
 func zeroFillTerminalStatus(status string) bool {
@@ -117,13 +150,29 @@ func (oe *ExchangeOrderExecutor) settleIntent(ctx context.Context, clientOrderID
 	}
 	observed, err := oe.exchange.GetOrder(ctx, oe.symbol, orderID)
 	if err != nil {
+		if zeroFillOnly {
+			return retryableZeroFillSettlementError{cause: fmt.Errorf("verify terminal order %d: %w", orderID, err)}
+		}
 		return fmt.Errorf("verify terminal order %d before settlement: %w", orderID, err)
 	}
-	if observed == nil || observed.OrderID != orderID || observed.Symbol != oe.symbol ||
-		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) || !terminalOrderStatus(string(observed.Status)) ||
-		(zeroFillOnly && !zeroFillTerminalStatus(string(observed.Status))) ||
-		(zeroFillOnly && (observed.ExecutedQty != 0 || math.IsNaN(observed.ExecutedQty) || math.IsInf(observed.ExecutedQty, 0))) {
+	if observed == nil {
+		if zeroFillOnly {
+			return retryableZeroFillSettlementError{cause: fmt.Errorf("terminal venue order %d is not visible yet", orderID)}
+		}
 		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
+	}
+	if observed.OrderID != orderID || observed.Symbol != oe.symbol ||
+		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) {
+		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
+	}
+	if !terminalOrderStatus(string(observed.Status)) {
+		if zeroFillOnly {
+			return retryableZeroFillSettlementError{cause: fmt.Errorf("venue order %d is not terminal yet", orderID)}
+		}
+		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
+	}
+	if zeroFillOnly && (!zeroFillTerminalStatus(string(observed.Status)) || observed.ExecutedQty != 0 || math.IsNaN(observed.ExecutedQty) || math.IsInf(observed.ExecutedQty, 0)) {
+		return fmt.Errorf("execution intent %s has no matching zero-fill terminal venue order", clientOrderID)
 	}
 	observed.ClientOrderID = clientOrderID
 	if !oe.ObserveOrder(observed) {

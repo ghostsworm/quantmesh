@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/execution"
@@ -169,6 +170,43 @@ func TestSettleZeroFillIntentRejectsFilledStatusWithZeroQuantity(t *testing.T) {
 	}
 	if oe.intents["grid-invalid-filled"].settled {
 		t.Fatal("contradictory FILLED status was incorrectly settled")
+	}
+}
+
+type transientGetOrderVenue struct {
+	*ownedTestVenue
+	failures int
+}
+
+func (v *transientGetOrderVenue) GetOrder(ctx context.Context, symbol string, orderID int64) (*exchange.Order, error) {
+	if v.failures > 0 {
+		v.failures--
+		return nil, errors.New("temporary venue query failure")
+	}
+	return v.ownedTestVenue.GetOrder(ctx, symbol, orderID)
+}
+
+func TestSettleZeroFillIntentRetriesTransientVenueFailure(t *testing.T) {
+	venue := &transientGetOrderVenue{
+		ownedTestVenue: &ownedTestVenue{orders: map[int64]*exchange.Order{20: {
+			OrderID: 20, ClientOrderID: "grid-cancel-retry", Symbol: "BTCUSDT", Side: "BUY",
+			Status: exchange.OrderStatusCanceled, Quantity: 1,
+		}}},
+		failures: 2,
+	}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	oe.intents = map[string]*ownedIntent{"grid-cancel-retry": {
+		request: OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, ClientOrderID: "grid-cancel-retry"},
+		order:   &Order{OrderID: 20, ClientOrderID: "grid-cancel-retry", Symbol: "BTCUSDT", Side: "BUY", Status: "CANCELED", Quantity: 1},
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	if err := oe.SettleZeroFillIntent(ctx, "grid-cancel-retry"); err != nil {
+		t.Fatalf("SettleZeroFillIntent() did not recover after transient query failures: %v", err)
+	}
+	if !oe.intents["grid-cancel-retry"].settled || venue.failures != 0 {
+		t.Fatal("intent was not settled after the venue query recovered")
 	}
 }
 
