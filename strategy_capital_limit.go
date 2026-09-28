@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"quantmesh/config"
 )
@@ -48,4 +49,91 @@ func applyBotCapitalLimit(control *config.OpenPositionControl, budget float64) e
 		botRisk.MaxPositionValue = botMaxPositionValue
 	}
 	return nil
+}
+
+// configuredAccountCapitalTotal sums allocations for every configured Bot that
+// uses the same exchange credential, environment and market account. A Bot's
+// cap is a reservation even while stopped: it may still own live orders or lots.
+func configuredAccountCapitalTotal(cfg *config.Config, candidate config.SymbolConfig) (float64, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("account capital configuration is unavailable")
+	}
+	exchangeName := strings.TrimSpace(candidate.Exchange)
+	if exchangeName == "" {
+		exchangeName = strings.TrimSpace(cfg.App.CurrentExchange)
+	}
+	exchangeCfg, ok := cfg.Exchanges[exchangeName]
+	if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
+		return 0, fmt.Errorf("account identity is unavailable")
+	}
+	accountScope := equityAccountScopeID(exchangeName, exchangeCfg)
+	marketType := candidate.GetMarketType()
+	candidateID := candidate.ID
+	if candidateID == "" {
+		candidateID = config.GenerateBotID(exchangeName, candidate.Symbol, marketType)
+	}
+	seen := make(map[string]struct{})
+	total := 0.0
+	candidateFound := false
+	add := func(id string, allocated float64) error {
+		if id == candidateID {
+			candidateFound = true
+			allocated = candidate.TotalAllocatedCapital
+		}
+		if _, exists := seen[id]; exists {
+			return nil
+		}
+		seen[id] = struct{}{}
+		if allocated == 0 {
+			allocated = cfg.Strategies.CapitalAllocation.TotalCapital
+		}
+		if math.IsNaN(allocated) || math.IsInf(allocated, 0) || allocated <= 0 {
+			return fmt.Errorf("Bot %s has no valid capital allocation", id)
+		}
+		total += allocated
+		if math.IsNaN(total) || math.IsInf(total, 0) {
+			return fmt.Errorf("configured account capital total is invalid")
+		}
+		return nil
+	}
+	if len(cfg.Bots) > 0 {
+		for _, bot := range cfg.Bots {
+			botExchange := strings.TrimSpace(bot.Exchange)
+			if botExchange == "" {
+				botExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+			}
+			botExchangeCfg, exists := cfg.Exchanges[botExchange]
+			if !exists || equityAccountScopeID(botExchange, botExchangeCfg) != accountScope || bot.GetMarketType() != marketType {
+				continue
+			}
+			id := config.BotIDOrGenerate(bot)
+			if err := add(id, bot.TotalAllocatedCapital); err != nil {
+				return 0, err
+			}
+		}
+	} else {
+		for _, symbol := range cfg.Trading.Symbols {
+			botExchange := strings.TrimSpace(symbol.Exchange)
+			if botExchange == "" {
+				botExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+			}
+			botExchangeCfg, exists := cfg.Exchanges[botExchange]
+			if !exists || equityAccountScopeID(botExchange, botExchangeCfg) != accountScope || symbol.GetMarketType() != marketType {
+				continue
+			}
+			id := symbol.ID
+			if id == "" {
+				id = config.GenerateBotID(botExchange, symbol.Symbol, symbol.GetMarketType())
+			}
+			if err := add(id, symbol.TotalAllocatedCapital); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if !candidateFound {
+		if err := add(candidateID, candidate.TotalAllocatedCapital); err != nil {
+			return 0, err
+		}
+	}
+	return total, nil
 }

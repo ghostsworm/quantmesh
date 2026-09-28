@@ -494,6 +494,14 @@ func startSymbolRuntime(
 	if balanceErr != nil {
 		capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
 	}
+	accountCapitalTotal, accountCapitalErr := configuredAccountCapitalTotal(baseCfg, symCfg)
+	if capitalErr == nil && accountCapitalErr != nil {
+		capitalErr = accountCapitalErr
+	}
+	if capitalErr == nil && accountCapitalTotal > availableBalance {
+		capitalErr = fmt.Errorf("configured Bot allocations %.2f %s exceed current available balance %.2f %s",
+			accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
+	}
 	if capitalErr == nil {
 		capitalErr = applyBotCapitalLimit(&localCfg.Trading.OpenPositionControl, botCapitalBudget)
 	}
@@ -652,6 +660,9 @@ func startSymbolRuntime(
 	} else if requestedCapital > botCapitalBudget {
 		logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過交易所可用余额 %.2f %s，Bot 总名义敞口已下調至可用余额",
 			botID, requestedCapital, quoteAsset, botCapitalBudget, quoteAsset)
+	} else {
+		logger.InfoCtx(ctx, "💰 [%s] 同账户已配置 Bot 资金预算合计 %.2f %s，当前可用余额 %.2f %s",
+			botID, accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
 	}
 	exposureBook, err := configureRuntimeExposure(exchangeExecutor, priceMonitor.GetQuoteEvidence)
 	if err != nil {

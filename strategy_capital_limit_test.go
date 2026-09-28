@@ -56,3 +56,47 @@ func TestApplyBotCapitalLimit(t *testing.T) {
 		t.Fatalf("stricter user limit was relaxed: %+v", control)
 	}
 }
+
+func TestConfiguredAccountCapitalTotal(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{
+			"binance": {APIKey: "account-a", Testnet: false},
+			"okx":     {APIKey: "account-b", Testnet: false},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Strategies.CapitalAllocation.TotalCapital = 1000
+	cfg.Bots = []config.BotConfig{
+		{ID: "btc", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 700},
+		{ID: "eth", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", TotalAllocatedCapital: 300},
+		{ID: "spot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot", TotalAllocatedCapital: 900},
+		{ID: "other-account", Exchange: "okx", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 2000},
+	}
+	candidate := config.SymbolConfig{ID: "btc", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 500}
+	got, err := configuredAccountCapitalTotal(cfg, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 800 {
+		t.Fatalf("configured account capital = %v, want candidate replacement + same-account futures Bot = 800", got)
+	}
+}
+
+func TestConfiguredAccountCapitalTotalUsesFallbackAndRejectsUnknown(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "account-a"}}}
+	cfg.Strategies.CapitalAllocation.TotalCapital = 250
+	cfg.Bots = []config.BotConfig{{ID: "other", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}}
+	candidate := config.SymbolConfig{ID: "btc", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}
+	got, err := configuredAccountCapitalTotal(cfg, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 500 {
+		t.Fatalf("fallback account capital = %v, want 500", got)
+	}
+
+	cfg.Exchanges["binance"] = config.ExchangeConfig{}
+	if _, err := configuredAccountCapitalTotal(cfg, candidate); err == nil {
+		t.Fatal("missing account identity unexpectedly accepted")
+	}
+}
