@@ -11,6 +11,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 
 	"quantmesh/config"
+	"quantmesh/execution"
+	"quantmesh/position"
 	"quantmesh/storage"
 )
 
@@ -117,5 +119,56 @@ func TestTradeStorageAdapterPersistsMarketType(t *testing.T) {
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM trades WHERE execution_key = ?`, trade.ExecutionKey).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("adapter retry duplicated trade: count=%d err=%v", count, err)
+	}
+}
+
+func TestTradeStorageAdapterReplaysScopedGridLedgerPayloadIdempotently(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "trade-ledger-replay.db")
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = dbPath
+	cfg.Storage.BufferSize = 10
+	cfg.Storage.BatchSize = 10
+	ss, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatalf("NewStorageService: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.GetStorage().Close() })
+
+	scope := execution.IntentScope{Account: "scope-1", Exchange: "binance", Market: "futures", Symbol: "BTCUSDT", Bot: "bot-replay"}
+	const orderID int64 = 502
+	const cumulativeQty = 0.25
+	trade := storage.Trade{
+		ExecutionKey: position.GridTradeExecutionKey(scope.Bot, scope.Exchange, scope.Market, orderID, scope.Symbol, cumulativeQty),
+		SellOrderID:  orderID, BotID: scope.Bot, Exchange: scope.Exchange, MarketType: scope.Market, Symbol: scope.Symbol,
+		BuyPrice: 100, SellPrice: 110, Quantity: cumulativeQty, PnL: 2.5, ExchangePnL: 2.5, Fee: 0.01, FeeAsset: "USDT", CreatedAt: time.Now().UTC(),
+	}
+	payload, err := json.Marshal(trade)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := &tradeStorageAdapter{storageService: ss, accountID: "acct-1", accountScope: "scope-1", botID: scope.Bot}
+	if err := adapter.ReplayPendingGridTrade(context.Background(), scope, orderID, cumulativeQty, payload); err != nil {
+		t.Fatalf("replay pending trade: %v", err)
+	}
+	if err := adapter.ReplayPendingGridTrade(context.Background(), scope, orderID, cumulativeQty, payload); err != nil {
+		t.Fatalf("idempotent replay: %v", err)
+	}
+	if err := adapter.ReplayPendingGridTrade(context.Background(), scope, orderID+1, cumulativeQty, payload); err == nil {
+		t.Fatal("trade payload bound to another order must be rejected")
+	}
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var count int
+	var account, accountScope string
+	if err := db.QueryRow(`SELECT COUNT(*), MAX(account), MAX(account_scope) FROM trades WHERE execution_key = ?`, trade.ExecutionKey).Scan(&count, &account, &accountScope); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 || account != "acct-1" || accountScope != "scope-1" {
+		t.Fatalf("replay rows=%d account=%q scope=%q; want one row with exact owner", count, account, accountScope)
 	}
 }

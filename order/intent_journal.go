@@ -17,6 +17,7 @@ const (
 	IntentJournalFailureBlock = "execution_intent_journal_failed"
 	intentJournalPageSize     = 500
 	intentJournalTimeout      = 5 * time.Second
+	maxTradeLedgerReplayBytes = 64 * 1024
 )
 
 type persistedIntent struct {
@@ -28,6 +29,7 @@ type persistedIntent struct {
 	Unknown       bool
 	LedgerPending bool
 	LedgerReason  string
+	LedgerPayload json.RawMessage `json:"LedgerPayload,omitempty"`
 	Rejected      bool
 	Settled       bool
 	Attempts      int
@@ -55,6 +57,7 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 	}
 	oe.intentJournal, oe.intentScope, oe.intentScopeKey = journal, scope, key
 	oe.intents = make(map[string]*ownedIntent)
+	var pendingTradeRecovery []*ownedIntent
 	var after int64
 	for {
 		page, err := journal.LoadExecutionIntents(ctx, key, after, intentJournalPageSize)
@@ -91,6 +94,9 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 			intent.unknown = true // Includes PREPARED and unaccounted terminal fills.
 			if intent.ledgerPending {
 				intent.unknown = true
+				if len(intent.ledgerPayload) > 0 && intent.order != nil && terminalOrderStatus(intent.order.Status) {
+					pendingTradeRecovery = append(pendingTradeRecovery, intent)
+				}
 			}
 			oe.intents[r.ClientOrderID] = intent
 		}
@@ -99,6 +105,28 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 		}
 	}
 	oe.journalLoaded = true
+	for _, intent := range pendingTradeRecovery {
+		if oe.tradeLedgerRecoveryHandler == nil {
+			continue
+		}
+		if err := oe.tradeLedgerRecoveryHandler(ctx, scope, intent.order.OrderID, intent.order.ExecutedQty, append([]byte(nil), intent.ledgerPayload...)); err != nil {
+			continue
+		}
+		intent.ledgerPending = false
+		intent.ledgerReason = ""
+		intent.ledgerPayload = nil
+		intent.unknown = false
+		intent.settled = true
+		if err := oe.saveJournalIntentLocked(intent); err != nil {
+			intent.settled = false
+			intent.ledgerPending = true
+			intent.unknown = true
+			intent.ledgerReason = "trade ledger replay succeeded but intent settlement was not confirmed"
+			oe.blockJournalFailureLocked()
+			continue
+		}
+		delete(oe.intents, intent.request.ClientOrderID)
+	}
 	if len(oe.intents) > 0 {
 		return fmt.Errorf("persisted intents require economic reconciliation: %w", execution.ErrOrderUnknown)
 	}
@@ -142,7 +170,11 @@ func (oe *ExchangeOrderExecutor) decodeJournalIntent(r execution.IntentJournalRe
 			return nil, fmt.Errorf("persisted bot-wide close allocation invalid")
 		}
 	}
-	return &ownedIntent{request: p.Request, opening: p.Opening, order: p.Order, unknown: p.Unknown, ledgerPending: p.LedgerPending, ledgerReason: p.LedgerReason, rejected: p.Rejected, settled: p.Settled, revision: r.Revision, attempts: p.Attempts, attemptPrice: p.AttemptPrice}, nil
+	if len(p.LedgerPayload) > 0 && (!p.LedgerPending || p.Order == nil || !terminalOrderStatus(p.Order.Status) || len(p.LedgerPayload) > maxTradeLedgerReplayBytes) {
+		return nil, fmt.Errorf("persisted trade ledger replay state invalid")
+	}
+	return &ownedIntent{request: p.Request, opening: p.Opening, order: p.Order, unknown: p.Unknown, ledgerPending: p.LedgerPending, ledgerReason: p.LedgerReason,
+		ledgerPayload: append([]byte(nil), p.LedgerPayload...), rejected: p.Rejected, settled: p.Settled, revision: r.Revision, attempts: p.Attempts, attemptPrice: p.AttemptPrice}, nil
 }
 
 func (oe *ExchangeOrderExecutor) saveJournalIntentLocked(intent *ownedIntent) error {
@@ -153,7 +185,7 @@ func (oe *ExchangeOrderExecutor) saveJournalIntentLocked(intent *ownedIntent) er
 		return fmt.Errorf("intent journal unavailable")
 	}
 	data, err := json.Marshal(persistedIntent{Version: 1, Scope: oe.intentScope, Request: intent.request, Opening: intent.opening,
-		Order: intent.order, Unknown: intent.unknown, LedgerPending: intent.ledgerPending, LedgerReason: intent.ledgerReason,
+		Order: intent.order, Unknown: intent.unknown, LedgerPending: intent.ledgerPending, LedgerReason: intent.ledgerReason, LedgerPayload: intent.ledgerPayload,
 		Rejected: intent.rejected, Settled: intent.settled, Attempts: intent.attempts, AttemptPrice: intent.attemptPrice})
 	if err != nil {
 		return err
@@ -172,6 +204,19 @@ func (oe *ExchangeOrderExecutor) saveJournalIntentLocked(intent *ownedIntent) er
 // Unlike an unknown-order hold, this does not mark the physical order unknown,
 // so emergency close verification can continue while new openings stay blocked.
 func (oe *ExchangeOrderExecutor) MarkTradeLedgerReconciliationRequired(orderID int64, clientOrderID, reason string) error {
+	return oe.markTradeLedgerReconciliationRequired(orderID, clientOrderID, reason, nil)
+}
+
+// MarkTradeLedgerRecordReconciliationRequired stores the exact idempotent
+// trade row alongside the hold for safe replay after a transient write error.
+func (oe *ExchangeOrderExecutor) MarkTradeLedgerRecordReconciliationRequired(orderID int64, clientOrderID, reason string, payload []byte) error {
+	if len(payload) == 0 || len(payload) > maxTradeLedgerReplayBytes || !json.Valid(payload) {
+		return fmt.Errorf("trade ledger replay payload must be valid JSON")
+	}
+	return oe.markTradeLedgerReconciliationRequired(orderID, clientOrderID, reason, payload)
+}
+
+func (oe *ExchangeOrderExecutor) markTradeLedgerReconciliationRequired(orderID int64, clientOrderID, reason string, payload []byte) error {
 	oe.intentMu.Lock()
 	defer oe.intentMu.Unlock()
 	for cid, intent := range oe.intents {
@@ -183,6 +228,9 @@ func (oe *ExchangeOrderExecutor) MarkTradeLedgerReconciliationRequired(orderID i
 		}
 		intent.ledgerPending = true
 		intent.ledgerReason = reason
+		if len(payload) > 0 {
+			intent.ledgerPayload = append([]byte(nil), payload...)
+		}
 		if err := oe.saveJournalIntentLocked(intent); err != nil {
 			oe.blockJournalFailureLocked()
 			return fmt.Errorf("persist trade-ledger reconciliation hold (%s): %w", reason, err)

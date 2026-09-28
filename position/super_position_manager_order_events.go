@@ -3,6 +3,7 @@ package position
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -13,7 +14,12 @@ import (
 )
 
 func gridTradeExecutionKey(spm *SuperPositionManager, orderID int64, cumulativeQty float64) string {
-	identity := fmt.Sprintf("grid|%s|%s|%s|%d|%s|%s", strings.TrimSpace(spm.botID), strings.ToLower(strings.TrimSpace(spm.exchangeName)), strings.ToLower(strings.TrimSpace(spm.config.Trading.MarketType)), orderID, strings.TrimSpace(spm.config.Trading.Symbol), strconv.FormatFloat(cumulativeQty, 'f', -1, 64))
+	return GridTradeExecutionKey(spm.botID, spm.exchangeName, spm.config.Trading.MarketType, orderID, spm.config.Trading.Symbol, cumulativeQty)
+}
+
+// GridTradeExecutionKey creates a stable identity for one cumulative order fill.
+func GridTradeExecutionKey(botID, exchangeName, marketType string, orderID int64, symbol string, cumulativeQty float64) string {
+	identity := fmt.Sprintf("grid|%s|%s|%s|%d|%s|%s", strings.TrimSpace(botID), strings.ToLower(strings.TrimSpace(exchangeName)), strings.ToLower(strings.TrimSpace(marketType)), orderID, strings.TrimSpace(symbol), strconv.FormatFloat(cumulativeQty, 'f', -1, 64))
 	sum := sha256.Sum256([]byte(identity))
 	return hex.EncodeToString(sum[:])
 }
@@ -26,8 +32,29 @@ func (spm *SuperPositionManager) saveGridTradeIdempotently(trade *storage.Trade)
 	return writer.SaveTradeIdempotent(trade)
 }
 
-func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUpdate, cause error) {
+func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUpdate, cause error, tradeRecord ...*storage.Trade) {
 	spm.openingGate.Block("trade_ledger_unverified")
+	var payload []byte
+	if len(tradeRecord) > 0 && tradeRecord[0] != nil {
+		encoded, err := json.Marshal(tradeRecord[0])
+		if err != nil {
+			logger.Error("[%s] 成交账本待核账凭据序列化失败：order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, err)
+		} else {
+			payload = encoded
+		}
+	}
+	if len(payload) > 0 {
+		if tracker, ok := spm.executor.(interface {
+			MarkTradeLedgerRecordReconciliationRequired(int64, string, string, []byte) error
+		}); ok {
+			if err := tracker.MarkTradeLedgerRecordReconciliationRequired(update.OrderID, update.ClientOrderID, cause.Error(), payload); err != nil {
+				logger.Error("[%s] 成交账本失败且可重放凭据未能持久化：order=%d cid=%s err=%v tracker_err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause, err)
+				return
+			}
+			logger.Error("[%s] 成交账本失败；已持久化可重放凭据與經濟對賬鎖：order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause)
+			return
+		}
+	}
 	if tracker, ok := spm.executor.(interface {
 		MarkTradeLedgerReconciliationRequired(int64, string, string) error
 	}); ok {
@@ -411,7 +438,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 							SellPriceDeviation: sellPriceDeviation, CreatedAt: spm.now(),
 						}
 						if err := spm.saveGridTradeIdempotently(trade); err != nil {
-							spm.requireTradeLedgerReconciliation(update, err)
+							spm.requireTradeLedgerReconciliation(update, err, trade)
 						}
 						slot.BuyFee -= feeFromBuy
 					}

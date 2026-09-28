@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"quantmesh/ai"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
@@ -266,6 +268,36 @@ func (a *tradeStorageAdapter) SaveTradeIdempotent(trade *storage.Trade) error {
 	}
 	canonical.MarketType = strings.ToLower(strings.TrimSpace(canonical.MarketType))
 	return writer.SaveTradeIdempotent(&canonical)
+}
+
+func (a *tradeStorageAdapter) ReplayPendingGridTrade(ctx context.Context, scope execution.IntentScope, orderID int64, cumulativeQty float64, payload []byte) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if a == nil || a.storageService == nil || scope.Account != a.accountScope || scope.Bot != a.botID {
+		return fmt.Errorf("pending grid trade runtime owner mismatch")
+	}
+	var trade storage.Trade
+	if err := json.Unmarshal(payload, &trade); err != nil {
+		return fmt.Errorf("decode pending grid trade: %w", err)
+	}
+	finite := func(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
+	if orderID <= 0 || !finite(cumulativeQty) || cumulativeQty <= 0 || trade.SellOrderID != orderID ||
+		trade.ExecutionKey != position.GridTradeExecutionKey(scope.Bot, scope.Exchange, scope.Market, orderID, scope.Symbol, cumulativeQty) ||
+		trade.BotID != scope.Bot || !strings.EqualFold(trade.Exchange, scope.Exchange) ||
+		!strings.EqualFold(trade.MarketType, scope.Market) || trade.Symbol != scope.Symbol ||
+		trade.BuyPrice <= 0 || trade.SellPrice <= 0 || trade.Quantity <= 0 ||
+		!finite(trade.BuyPrice) || !finite(trade.SellPrice) || !finite(trade.Quantity) || !finite(trade.PnL) ||
+		!finite(trade.ExchangePnL) || !finite(trade.Fee) || !finite(trade.BuyPriceDeviation) || !finite(trade.SellPriceDeviation) {
+		return fmt.Errorf("pending grid trade does not match the persisted intent scope or fill")
+	}
+	if trade.Account != "" && trade.Account != a.accountID {
+		return fmt.Errorf("pending grid trade account does not match the runtime owner")
+	}
+	if trade.AccountScope != "" && trade.AccountScope != a.accountScope {
+		return fmt.Errorf("pending grid trade credential scope does not match the runtime owner")
+	}
+	return a.SaveTradeIdempotent(&trade)
 }
 
 // SaveEvent 寫入通用事件（如手續費補查更正 trade_fee_correction），自動補上 bot_id。

@@ -632,6 +632,16 @@ func startSymbolRuntime(
 	}
 	intentScope := execution.IntentScope{Account: equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 		Exchange: ex.GetName(), Market: ex.GetMarketType(), Symbol: symCfg.Symbol, Bot: botID}
+	if storageService != nil {
+		tradeStorageAdapter := &tradeStorageAdapter{
+			storageService: storageService,
+			accountID:      accountID,
+			accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+			botID:          botID,
+		}
+		superPositionManager.SetTradeStorage(tradeStorageAdapter)
+		exchangeExecutor.SetTradeLedgerRecoveryHandler(tradeStorageAdapter.ReplayPendingGridTrade)
+	}
 	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook); err != nil {
 		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
 	}
@@ -655,15 +665,6 @@ func startSymbolRuntime(
 	applyGridFeeRates(ctx, &localCfg, symCfg, feeRate, superPositionManager)
 	// 配置的槽位過濾在首輪掛單（Initialize / AdjustOrders）之前生效
 	applyConfiguredSlotFilter(ctx, symCfg, superPositionManager)
-	if storageService != nil {
-		tradeStorageAdapter := &tradeStorageAdapter{
-			storageService: storageService,
-			accountID:      accountID,
-			accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
-			botID:          botID,
-		}
-		superPositionManager.SetTradeStorage(tradeStorageAdapter)
-	}
 	// 設置事件總線（用於发送告警）
 	if eventBus != nil {
 		superPositionManager.SetEventBus(eventBus)

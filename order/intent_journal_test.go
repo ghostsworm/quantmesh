@@ -450,6 +450,55 @@ func TestTradeLedgerFailurePersistsIntentReconciliationHoldAcrossRestart(t *test
 	}
 }
 
+func TestTradeLedgerRecoveryReplaysDurablePayloadBeforeOpening(t *testing.T) {
+	oe, venue, _ := newOwnedTestExecutor()
+	journal := &memoryIntentJournal{}
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "SELL", Price: 101, Quantity: 1, ClientOrderID: "ledger-replay"}); err != nil {
+		t.Fatal(err)
+	}
+	if !oe.ObserveOrder(&exchange.Order{OrderID: 1, ClientOrderID: "ledger-replay", Symbol: "BTCUSDT", Side: exchange.SideSell,
+		Quantity: 1, ExecutedQty: 1, AvgPrice: 101, Status: exchange.OrderStatusFilled}) {
+		t.Fatal("terminal fill not observed")
+	}
+	tradePayload := []byte(`{"ExecutionKey":"grid-key","SellOrderID":1,"Quantity":1}`)
+	if err := oe.MarkTradeLedgerRecordReconciliationRequired(1, "ledger-replay", "trade write unavailable", tradePayload); err != nil {
+		t.Fatal(err)
+	}
+	blocked := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	blocked.SetTradeLedgerRecoveryHandler(func(context.Context, execution.IntentScope, int64, float64, []byte) error {
+		return errors.New("trade database remains unavailable")
+	})
+	if err := blocked.ConfigureIntentJournal(t.Context(), journal, journalScope()); !errors.Is(err, execution.ErrOrderUnknown) || !blocked.IsOpeningPaused() {
+		t.Fatalf("failed ledger replay must preserve the startup hold: err=%v paused=%v", err, blocked.IsOpeningPaused())
+	}
+	restarted := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	replayed := false
+	restarted.SetTradeLedgerRecoveryHandler(func(_ context.Context, scope execution.IntentScope, orderID int64, cumulativeQty float64, payload []byte) error {
+		replayed = true
+		if scope != journalScope() || orderID != 1 || cumulativeQty != 1 || string(payload) != string(tradePayload) {
+			t.Fatalf("replay identity mismatch: scope=%+v order=%d qty=%v payload=%s", scope, orderID, cumulativeQty, payload)
+		}
+		return nil
+	})
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatalf("idempotent trade replay should settle a pending ledger record: %v", err)
+	}
+	if !replayed || restarted.IsOpeningPaused() || len(restarted.snapshotOwnedIntents()) != 0 {
+		t.Fatalf("trade replay did not clear the recovered hold: replayed=%v paused=%v intents=%+v", replayed, restarted.IsOpeningPaused(), restarted.snapshotOwnedIntents())
+	}
+	page, err := journal.LoadExecutionIntents(t.Context(), func() string { key, _ := journalScope().Key(); return key }(), 0, 10)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("load settled replay intent: records=%d err=%v", len(page), err)
+	}
+	var saved persistedIntent
+	if err := json.Unmarshal(page[0].Payload, &saved); err != nil || saved.LedgerPending || len(saved.LedgerPayload) != 0 || !saved.Settled {
+		t.Fatalf("replayed intent was not durably settled: %+v err=%v", saved, err)
+	}
+}
+
 func TestTradeLedgerHoldCannotBeSkippedAsZeroFillTerminal(t *testing.T) {
 	intent := &ownedIntent{
 		request:       OrderRequest{ClientOrderID: "ledger-pending", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1},

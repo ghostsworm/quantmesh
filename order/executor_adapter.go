@@ -124,6 +124,7 @@ type ExchangeOrderExecutor struct {
 	cancellationMu             sync.Mutex
 	intents                    map[string]*ownedIntent
 	unknownOrderHandler        func(OrderRequest)
+	tradeLedgerRecoveryHandler func(context.Context, execution.IntentScope, int64, float64, []byte) error
 	exposureBook               *execution.ExposureBook
 	exposureMarkProvider       func() (float64, time.Time) // immutable after startup
 	intentJournal              execution.IntentJournal

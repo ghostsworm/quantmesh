@@ -13,9 +13,13 @@ type auditTradeRecorder struct {
 	pnl    []float64
 	keys   []string
 	trades []*storage.Trade
+	err    error
 }
 
 func (s *auditTradeRecorder) SaveTradeIdempotent(trade *storage.Trade) error {
+	if s.err != nil {
+		return s.err
+	}
 	s.pnl = append(s.pnl, trade.PnL)
 	s.keys = append(s.keys, trade.ExecutionKey)
 	copy := *trade

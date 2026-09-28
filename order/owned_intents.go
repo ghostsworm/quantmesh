@@ -18,6 +18,7 @@ type ownedIntent struct {
 	unknown       bool
 	ledgerPending bool
 	ledgerReason  string
+	ledgerPayload []byte
 	revision      int64
 	attempts      int
 	attemptPrice  float64
@@ -29,6 +30,12 @@ type ownedIntent struct {
 // runs without intentMu and must not try to synchronously drain this same call.
 func (oe *ExchangeOrderExecutor) SetUnknownOrderHandler(handler func(OrderRequest)) {
 	oe.unknownOrderHandler = handler
+}
+
+// SetTradeLedgerRecoveryHandler installs the owner-scoped idempotent replay
+// used for durable trade rows that failed before a prior process stopped.
+func (oe *ExchangeOrderExecutor) SetTradeLedgerRecoveryHandler(handler func(context.Context, execution.IntentScope, int64, float64, []byte) error) {
+	oe.tradeLedgerRecoveryHandler = handler
 }
 
 func (oe *ExchangeOrderExecutor) intentAcceptanceObserved(cid string) bool {
