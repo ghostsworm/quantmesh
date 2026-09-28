@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"math"
@@ -1259,37 +1260,77 @@ func getProfitTrendHandler(c *gin.Context) {
 	})
 }
 
+func currentAccountWithdrawRecord(c *gin.Context) (*storage.ProfitWithdrawRecord, int, string) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		return nil, http.StatusServiceUnavailable, "提取记录存储不可用，无法核实状态"
+	}
+	reader, ok := storageProv.GetStorage().(interface {
+		GetWithdrawRecord(accountID, recordID string) (*storage.ProfitWithdrawRecord, error)
+	})
+	if !ok {
+		return nil, http.StatusServiceUnavailable, "存储后端不支持账户隔离的提取记录查询"
+	}
+	accountID := GetCurrentAccountID()
+	if accountID == "" {
+		accountID = "default"
+	}
+	record, err := reader.GetWithdrawRecord(accountID, c.Param("id"))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, http.StatusNotFound, "提取记录不存在或不属于当前账户"
+		}
+		return nil, http.StatusInternalServerError, "读取提取记录失败"
+	}
+	return record, http.StatusOK, ""
+}
+
 // 取消提取
 func cancelWithdrawHandler(c *gin.Context) {
-	withdrawID := c.Param("id")
-
-	// TODO: 實際取消逻辑
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "提取已取消",
-		"id":      withdrawID,
+	record, status, message := currentAccountWithdrawRecord(c)
+	if status != http.StatusOK {
+		c.JSON(status, gin.H{"success": false, "message": message})
+		return
+	}
+	responseMessage := "该状态下的提取记录不可取消，状态不会被修改。"
+	switch record.Status {
+	case "pending", "processing":
+		responseMessage = "资金划转不可直接取消；结果可能未知的记录必须先核对交易所流水，并通过核账流程处理。"
+	case "completed":
+		responseMessage = "资金划转已完成，不能取消已执行的资金操作。"
+	}
+	c.JSON(http.StatusConflict, gin.H{
+		"success": false,
+		"message": responseMessage,
 	})
 }
 
 // 獲取提取详情
 func getWithdrawDetailHandler(c *gin.Context) {
-	withdrawID := c.Param("id")
-
+	dbRecord, status, message := currentAccountWithdrawRecord(c)
+	if status != http.StatusOK {
+		c.JSON(status, gin.H{"success": false, "message": message})
+		return
+	}
 	record := WithdrawRecord{
-		ID:            withdrawID,
-		StrategyID:    "grid",
-		StrategyName:  "网格交易策略",
-		Amount:        1000,
-		Fee:           1.0,
-		NetAmount:     999,
-		Currency:      "USDT",
-		Type:          "manual",
-		Status:        "completed",
-		TargetAddress: "0x1234...5678",
-		TxHash:        "0xabcd...ef12",
-		CreatedAt:     time.Now().AddDate(0, 0, -1).Format(time.RFC3339),
-		CompletedAt:   time.Now().AddDate(0, 0, -1).Add(30 * time.Minute).Format(time.RFC3339),
+		ID:           dbRecord.ID,
+		ExchangeID:   dbRecord.ExchangeID,
+		StrategyID:   dbRecord.StrategyID,
+		StrategyName: getStrategyName(dbRecord.StrategyID),
+		Amount:       dbRecord.Amount,
+		Fee:          dbRecord.Fee,
+		NetAmount:    dbRecord.NetAmount,
+		Currency:     dbRecord.Currency,
+		Type:         dbRecord.Type,
+		Status:       dbRecord.Status,
+		Destination:  dbRecord.Destination,
+		TxHash:       dbRecord.TransferID,
+		CreatedAt:    dbRecord.CreatedAt.Format(time.RFC3339),
+		FailedReason: dbRecord.FailedReason,
+		Note:         dbRecord.Note,
+	}
+	if dbRecord.CompletedAt != nil {
+		record.CompletedAt = dbRecord.CompletedAt.Format(time.RFC3339)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

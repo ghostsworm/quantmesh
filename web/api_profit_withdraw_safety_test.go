@@ -44,6 +44,77 @@ func TestManualTransferReceiptRequiresVerifiableID(t *testing.T) {
 	}
 }
 
+func TestWithdrawDetailReadsScopedLedgerAndCancelFailsClosed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := storage.NewSQLStorage(t.TempDir() + "/withdraw-detail.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	originalStorage := storageServiceProvider
+	SetStorageServiceProvider(&testStorageProvider{st: st})
+	t.Cleanup(func() { SetStorageServiceProvider(originalStorage) })
+
+	accountID := GetCurrentAccountID()
+	if accountID == "" {
+		accountID = "default"
+	}
+	createdAt := time.Date(2026, 9, 28, 10, 30, 0, 0, time.UTC)
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{
+		ID: "pending-real-record", AccountID: accountID, ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Amount: 12.5, Fee: 0.1, NetAmount: 12.4, Currency: "USDT", Type: "manual", Status: "pending",
+		Destination: "account", TransferID: "", CreatedAt: createdAt, FailedReason: "transfer outcome unknown",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{
+		ID: "foreign-record", AccountID: "another-account", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		Amount: 5000, Currency: "USDT", Type: "manual", Status: "completed", CreatedAt: createdAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/profit/withdraw/pending-real-record", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "pending-real-record"}}
+	getWithdrawDetailHandler(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		Record WithdrawRecord `json:"record"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.Record.ID != "pending-real-record" || payload.Record.Amount != 12.5 || payload.Record.Status != "pending" || payload.Record.FailedReason != "transfer outcome unknown" {
+		t.Fatalf("detail did not reflect persisted record: %+v", payload.Record)
+	}
+
+	response = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/profit/withdraw/foreign-record", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "foreign-record"}}
+	getWithdrawDetailHandler(ctx)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("foreign detail status=%d body=%s, want not found", response.Code, response.Body.String())
+	}
+
+	response = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/api/profit/withdraw/pending-real-record/cancel", nil)
+	ctx.Params = gin.Params{{Key: "id", Value: "pending-real-record"}}
+	cancelWithdrawHandler(ctx)
+	if response.Code != http.StatusConflict {
+		t.Fatalf("cancel status=%d body=%s, want conflict", response.Code, response.Body.String())
+	}
+	record, err := st.GetWithdrawRecord(accountID, "pending-real-record")
+	if err != nil || record.Status != "pending" {
+		t.Fatalf("cancel changed ambiguous transfer state: record=%+v err=%v", record, err)
+	}
+}
+
 type ambiguousWithdrawExchange struct {
 	exchange.IExchange
 	transferCalled *bool
