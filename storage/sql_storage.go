@@ -101,6 +101,12 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			return nil, fmt.Errorf("迁移 order_fills 表失败: %w", err)
 		}
 
+		// orders.bot_id 是历史成交归属回填的数据源，必须先迁移 orders。
+		if err := migrateOrdersTable(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
+		}
+
 		// 迁移：添加 exchange 字段（如果不存在）
 		if err := migrateTradesTable(db); err != nil {
 			db.Close()
@@ -121,11 +127,6 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			return nil, fmt.Errorf("迁移 trades account_scope 字段失败: %w", err)
 		}
 
-		// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
-		if err := migrateOrdersTable(db); err != nil {
-			db.Close()
-			return nil, fmt.Errorf("迁移 orders 表失败: %w", err)
-		}
 		// 迁移：risk_check_history 表增加 bot_id / exchange / market_type 列
 		if err := migrateRiskCheckHistoryTable(db); err != nil {
 			db.Close()
@@ -175,7 +176,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			return nil, fmt.Errorf("迁移 MySQL orders 表失败: %w", err)
 		}
 		// orders 必须先就绪，再回填配对成交的 bot_id；否则旧顺序会静默漏数据。
-		backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL)
+		if err := backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("回填 MySQL 网格配对成交 bot_id 失败: %w", err)
+		}
 		if err := migrateOrderFillsTable(db, true); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL order_fills 表失败: %w", err)

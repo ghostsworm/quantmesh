@@ -142,7 +142,9 @@ func migrateTradesTable(db *sql.DB) error {
 			return fmt.Errorf("添加 bot_id 列失败: %w", err)
 		}
 		logger.Info("✅ bot_id 列添加成功")
-		backfillTradesBotIDFromOrders(db, "trades")
+	}
+	if err := backfillTradesBotIDFromOrders(db, "trades"); err != nil {
+		return err
 	}
 	if !hasExecutionKeyColumn {
 		if _, err := db.Exec(`ALTER TABLE trades ADD COLUMN execution_key TEXT`); err != nil {
@@ -171,8 +173,8 @@ func migrateTradesTable(db *sql.DB) error {
 	return nil
 }
 
-// backfillTradesBotIDFromOrders 用 orders.bot_id 回填 trades（best-effort）
-func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) {
+// backfillTradesBotIDFromOrders 用 orders.bot_id 回填 trades。
+func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) error {
 	q := fmt.Sprintf(`
 		UPDATE %s SET bot_id = COALESCE(
 			(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %s.sell_order_id LIMIT 1),
@@ -186,10 +188,10 @@ func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) {
 			)
 	`, tableName, tableName, tableName, tableName, tableName)
 	if _, err := db.Exec(q); err != nil {
-		logger.Warn("⚠️ 回填 trades.bot_id 失败: %v", err)
-	} else {
-		logger.Info("✅ 已嘗試從 orders 回填 %s.bot_id", tableName)
+		return fmt.Errorf("回填 %s.bot_id 失败: %w", tableName, err)
 	}
+	logger.Info("✅ 已嘗試從 orders 回填 %s.bot_id", tableName)
+	return nil
 }
 
 // migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl / strategy_name / strategy_type 列
