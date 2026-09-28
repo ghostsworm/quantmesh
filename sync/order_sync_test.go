@@ -102,3 +102,57 @@ func TestPersistTradePageRejectsInvalidSideBeforeAnyPersistence(t *testing.T) {
 		t.Fatalf("invalid execution must be rejected before storage access: reader=%v persisted=%d", reader.called, len(writer.fills))
 	}
 }
+
+type futureFillHistoryExchange struct {
+	exchange.IExchange
+	futureFill *exchange.OrderFill
+}
+
+func (e futureFillHistoryExchange) GetOrderHistoryPage(context.Context, string, int64, int64, string, int) (exchange.OrderHistoryPage, error) {
+	return exchange.OrderHistoryPage{Fills: []*exchange.OrderFill{e.futureFill}, HasMore: true, NextCursor: "older-page"}, nil
+}
+
+type orderSyncCoverageStorage struct {
+	syncStorageStub
+	coverageAdvanced bool
+	fillsSaved       int
+}
+
+func (*orderSyncCoverageStorage) GetOrderFillCoverage(string, string, string, string) (*storage.OrderFillCoverage, error) {
+	return nil, nil
+}
+
+func (s *orderSyncCoverageStorage) AdvanceOrderFillCoverage(string, string, string, string, time.Time, time.Time) error {
+	s.coverageAdvanced = true
+	return nil
+}
+
+func (*orderSyncCoverageStorage) GetExistingOrderIDsForScope(string, string, string, string, []int64) (map[int64]bool, error) {
+	return map[int64]bool{}, nil
+}
+
+func (s *orderSyncCoverageStorage) SaveOrderFill(*storage.OrderFill) error {
+	s.fillsSaved++
+	return nil
+}
+
+func (*orderSyncCoverageStorage) SaveOrder(*storage.Order) error { return nil }
+
+func TestOrderSyncRejectsOutOfRangeFillWithoutAdvancingCoverage(t *testing.T) {
+	store := &orderSyncCoverageStorage{}
+	service := NewOrderSyncService(futureFillHistoryExchange{futureFill: &exchange.OrderFill{
+		OrderID: 1, TradeID: "future-trade", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 1, TradeTime: time.Now().Add(time.Minute).UnixMilli(),
+	}}, store, "BTCUSDT", "acct", "mock", time.Minute)
+	service.SetTradeScope("futures", "scope")
+	err := service.Sync(context.Background())
+	if err == nil {
+		t.Fatalf("out-of-range execution must fail synchronization, got %v", err)
+	}
+	if store.coverageAdvanced {
+		t.Fatal("out-of-range execution must not advance complete-history coverage")
+	}
+	if store.fillsSaved != 0 {
+		t.Fatalf("out-of-range execution must not be persisted, got %d fills", store.fillsSaved)
+	}
+}

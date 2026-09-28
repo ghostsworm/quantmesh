@@ -212,7 +212,6 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 			break
 		}
 		inWindow := make([]*exchange.OrderFill, 0, len(result.Fills))
-		pastWindow := false
 		for _, row := range result.Fills {
 			if row == nil || row.TradeID == "" || row.OrderID <= 0 || row.TradeTime <= 0 || row.Symbol != s.symbol {
 				return fmt.Errorf("exchange returned an invalid execution history row")
@@ -221,8 +220,7 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 				return fmt.Errorf("exchange returned execution older than requested history window")
 			}
 			if row.TradeTime > endTime {
-				pastWindow = true
-				continue
+				return fmt.Errorf("exchange returned execution newer than requested history window")
 			}
 			inWindow = append(inWindow, row)
 		}
@@ -232,7 +230,7 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 		}
 		totalTrades += len(inWindow)
 		syncedOrders += added
-		if pastWindow || !result.HasMore {
+		if !result.HasMore {
 			complete = true
 			break
 		}
