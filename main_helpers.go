@@ -16,6 +16,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/binance"
 	"quantmesh/logger"
 	"quantmesh/mcp"
@@ -149,6 +150,36 @@ func loadObservabilityConfigFromSettings(version string, provider web.SystemSett
 
 // fundingIncomeHistoryPageSize is Binance's configured income-history page limit.
 const fundingIncomeHistoryPageSize = 1000
+
+type scopedWithdrawExchange struct {
+	exchange.IExchange
+	accountScope string
+}
+
+func (e scopedWithdrawExchange) WithdrawalAccountScope() string { return e.accountScope }
+
+func (e scopedWithdrawExchange) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	source, ok := e.IExchange.(accounting.Source)
+	if !ok {
+		return accounting.Snapshot{}, fmt.Errorf("exchange does not provide account income evidence")
+	}
+	return source.ReadAccountEvidence(ctx, since)
+}
+
+func (e scopedWithdrawExchange) GetAccountFresh(ctx context.Context) (*exchange.Account, error) {
+	reader, ok := e.IExchange.(interface {
+		GetAccountFresh(context.Context) (*exchange.Account, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("exchange does not provide uncached account balances")
+	}
+	return reader.GetAccountFresh(ctx)
+}
+
+func (e scopedWithdrawExchange) SupportsFundingIncomeHistory() bool {
+	supported, ok := e.IExchange.(interface{ SupportsFundingIncomeHistory() bool })
+	return ok && supported.SupportsFundingIncomeHistory()
+}
 
 func fundingIncomeSyncWindow(coveredFrom, now time.Time) (time.Time, time.Time, error) {
 	if now.IsZero() {

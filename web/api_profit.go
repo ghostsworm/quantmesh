@@ -976,7 +976,7 @@ func withdrawProfitHandler(c *gin.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := profit.ValidateTransferSafety(ctx, ex, req.StrategyID, req.Amount, windowStart, windowEnd); err != nil {
+	if err := profit.ValidateTransferSafety(ctx, ex, req.StrategyID, accountScope, req.Amount, windowStart, windowEnd); err != nil {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "转账前安全校验未通过: " + err.Error()})
 		return
 	}

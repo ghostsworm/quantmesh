@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc257"
+var Version = "3.111.0-rc258"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1864,8 +1864,8 @@ func main() {
 	if storageService != nil && storageService.GetStorage() != nil {
 		getExchange := func(exchangeID string) exchange.IExchange {
 			for _, rt := range symbolManager.List() {
-				if rt != nil && rt.Config.Exchange == exchangeID {
-					return rt.Exchange
+				if rt != nil && rt.Exchange != nil && rt.Config.Exchange == exchangeID {
+					return scopedWithdrawExchange{IExchange: rt.Exchange, accountScope: rt.AccountScope}
 				}
 			}
 			return nil

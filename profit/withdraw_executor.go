@@ -372,9 +372,13 @@ func (e *WithdrawExecutor) withdrawnSince(rule *storage.ProfitWithdrawRule, sinc
 // ValidateTransferSafety is shared by manual and automatic transfers. It only
 // proves the requested futures-to-spot transfer is inside the exchange's
 // fresh USDT transfer limits; callers must separately prove profit coverage.
-func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol string, amount float64, windowStart, windowEnd time.Time) error {
-	if ctx == nil || ex == nil || strings.TrimSpace(symbol) == "" || windowStart.IsZero() || !windowStart.Before(windowEnd) {
+func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, accountScope string, amount float64, windowStart, windowEnd time.Time) error {
+	if ctx == nil || ex == nil || strings.TrimSpace(symbol) == "" || strings.TrimSpace(accountScope) == "" || windowStart.IsZero() || !windowStart.Before(windowEnd) {
 		return fmt.Errorf("withdrawal transfer requires an exchange and complete accounting interval")
+	}
+	scopedExchange, ok := ex.(interface{ WithdrawalAccountScope() string })
+	if !ok || strings.TrimSpace(scopedExchange.WithdrawalAccountScope()) == "" || scopedExchange.WithdrawalAccountScope() != accountScope {
+		return fmt.Errorf("exchange credential scope does not match the withdrawal accounting scope; withdrawal is disabled")
 	}
 	ledgerSource, ok := ex.(accounting.Source)
 	if !ok {
@@ -438,7 +442,7 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
 	}
-	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, amount, windowStart, windowEnd); err != nil {
+	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, rule.AccountScope, amount, windowStart, windowEnd); err != nil {
 		return err
 	}
 	record := &storage.ProfitWithdrawRecord{
