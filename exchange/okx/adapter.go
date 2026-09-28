@@ -1150,9 +1150,9 @@ func mapOKXTransferEndpoints(fromAccount, toAccount string) (from, to string, er
 	f := strings.ToUpper(strings.TrimSpace(fromAccount))
 	t := strings.ToUpper(strings.TrimSpace(toAccount))
 	switch {
-	case (f == "FUNDING" || f == "FUND") && (t == "TRADING" || t == "UNIFIED" || t == "MAIN"):
+	case (f == "FUNDING" || f == "FUND" || f == "SPOT") && (t == "TRADING" || t == "UNIFIED" || t == "MAIN" || t == "UMFUTURE" || t == "CONTRACT"):
 		return "18", "6", nil
-	case (f == "TRADING" || f == "UNIFIED" || f == "MAIN") && (t == "FUNDING" || t == "FUND"):
+	case (f == "TRADING" || f == "UNIFIED" || f == "MAIN" || f == "UMFUTURE" || f == "CONTRACT") && (t == "FUNDING" || t == "FUND" || t == "SPOT"):
 		return "6", "18", nil
 	default:
 		return "", "", fmt.Errorf("OKX 不支援的劃轉: %s -> %s（僅支援 FUNDING<->TRADING）", fromAccount, toAccount)

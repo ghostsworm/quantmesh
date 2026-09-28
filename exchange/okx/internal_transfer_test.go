@@ -11,6 +11,14 @@ func TestMapOKXTransferEndpoints(t *testing.T) {
 	if err != nil || from != "6" || to != "18" {
 		t.Fatalf("TRADING->FUND: from=%s to=%s err=%v", from, to, err)
 	}
+	from, to, err = mapOKXTransferEndpoints("UMFUTURE", "SPOT")
+	if err != nil || from != "6" || to != "18" {
+		t.Fatalf("UMFUTURE->SPOT: from=%s to=%s err=%v", from, to, err)
+	}
+	from, to, err = mapOKXTransferEndpoints("SPOT", "UMFUTURE")
+	if err != nil || from != "18" || to != "6" {
+		t.Fatalf("SPOT->UMFUTURE: from=%s to=%s err=%v", from, to, err)
+	}
 	_, _, err = mapOKXTransferEndpoints("X", "Y")
 	if err == nil {
 		t.Fatal("expected error for unknown pair")
