@@ -200,6 +200,39 @@ func TestOrderSubmissionWaitsForSharedPositionReconciliationLock(t *testing.T) {
 	release()
 }
 
+func TestPositionSnapshotHoldsSharedLeaseAndSubmissionBarrier(t *testing.T) {
+	sharedLock := newSharedPositionLock()
+	ex := &fakeOrderExchange{}
+	snapshotter := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, sharedLock, "snapshot")
+	ctx, release, err := snapshotter.BeginPositionSnapshot(context.Background())
+	if err != nil {
+		t.Fatalf("BeginPositionSnapshot() error = %v", err)
+	}
+	defer release()
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("snapshot context unexpectedly canceled: %v", err)
+	}
+	if sharedLock.try(execution.PositionReconciliationLockKey("fake", "BTCUSDT")) {
+		t.Fatal("distributed position lease was not held during snapshot")
+	}
+	if _, err := snapshotter.admitSubmission(context.Background(), &OrderRequest{Side: "BUY"}); !errors.Is(err, ErrRuntimeStopping) {
+		t.Fatalf("local submission during snapshot = %v, want blocked", err)
+	}
+
+	submitter := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, sharedLock, "submitter")
+	deadlineCtx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	if _, _, err := submitter.acquirePositionSubmissionLock(deadlineCtx, "fake", "BTCUSDT"); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("cross-executor submission lease during snapshot = %v, want deadline exceeded", err)
+	}
+	release()
+	_, submitRelease, err := submitter.acquirePositionSubmissionLock(context.Background(), "fake", "BTCUSDT")
+	if err != nil {
+		t.Fatalf("submission lease after snapshot release: %v", err)
+	}
+	submitRelease()
+}
+
 func TestPositionSubmissionUsesLocalBarrierWithNoopDistributedLock(t *testing.T) {
 	const exchangeName, symbol = "binance", "BTCUSDT"
 	key := execution.PositionReconciliationLockKey(exchangeName, symbol)

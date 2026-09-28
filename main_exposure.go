@@ -28,10 +28,15 @@ func configureRuntimeExposure(executor *order.ExchangeOrderExecutor, quote func(
 
 func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, ex exchange.IExchange, backend runtimeIntentBackend, scope execution.IntentScope, book *execution.ExposureBook) error {
 	gate.Block(runtimeExposureBootstrapBlock)
-	if err := configureRuntimeIntentJournal(ctx, executor, gate, ex, backend, scope); err != nil {
+	snapshotCtx, releaseSnapshot, err := executor.BeginPositionSnapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("freeze order submissions before startup exposure verification: %w", err)
+	}
+	defer releaseSnapshot()
+	if err := configureRuntimeIntentJournal(snapshotCtx, executor, gate, ex, backend, scope); err != nil {
 		return err
 	}
-	positions, err := ex.GetPositions(ctx, scope.Symbol)
+	positions, err := ex.GetPositions(snapshotCtx, scope.Symbol)
 	if err != nil {
 		return fmt.Errorf("verify startup exposure positions for %s: %w", scope.Symbol, err)
 	}
@@ -43,12 +48,15 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 			return fmt.Errorf("startup exposure is not empty for %s: position requires reconciliation", scope.Symbol)
 		}
 	}
-	openOrders, err := ex.GetOpenOrders(ctx, scope.Symbol)
+	openOrders, err := ex.GetOpenOrders(snapshotCtx, scope.Symbol)
 	if err != nil {
 		return fmt.Errorf("verify startup exposure orders for %s: %w", scope.Symbol, err)
 	}
 	if len(openOrders) != 0 {
 		return fmt.Errorf("startup exposure is not empty for %s: %d open orders require reconciliation", scope.Symbol, len(openOrders))
+	}
+	if err := snapshotCtx.Err(); err != nil {
+		return fmt.Errorf("startup exposure snapshot coordination was lost before seeding: %w", err)
 	}
 	if err := book.Seed(nil); err != nil {
 		return err

@@ -36,6 +36,31 @@ func (oe *ExchangeOrderExecutor) BeginPositionReconciliation(ctx context.Context
 	return func() { once.Do(func() { oe.submissionGate.Unblock(block) }) }, nil
 }
 
+// BeginPositionSnapshot holds the same local and distributed coordination
+// lease used by order submissions while an account snapshot is collected.
+// Losing the lease cancels the returned context and blocks this executor.
+func (oe *ExchangeOrderExecutor) BeginPositionSnapshot(ctx context.Context) (context.Context, func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	snapshotCtx, releaseLease, err := oe.acquirePositionSubmissionLock(ctx, oe.exchange.GetName(), oe.symbol)
+	if err != nil {
+		return nil, nil, fmt.Errorf("acquire position snapshot coordination lease: %w", err)
+	}
+	releaseBarrier, err := oe.BeginPositionReconciliation(snapshotCtx)
+	if err != nil {
+		releaseLease()
+		return nil, nil, err
+	}
+	var once sync.Once
+	return snapshotCtx, func() {
+		once.Do(func() {
+			releaseBarrier()
+			releaseLease()
+		})
+	}, nil
+}
+
 // FailPositionReconciliation permanently blocks this executor for the current
 // process after losing the distributed snapshot/submission lease.
 func (oe *ExchangeOrderExecutor) FailPositionReconciliation(err error) {
