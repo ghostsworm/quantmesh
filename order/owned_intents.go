@@ -90,6 +90,15 @@ func (oe *ExchangeOrderExecutor) SettleZeroFillIntent(ctx context.Context, clien
 	return oe.settleIntent(ctx, clientOrderID, true)
 }
 
+func zeroFillTerminalStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "CANCELED", "CANCELLED", "EXPIRED", "REJECTED":
+		return true
+	default:
+		return false
+	}
+}
+
 func (oe *ExchangeOrderExecutor) settleIntent(ctx context.Context, clientOrderID string, zeroFillOnly bool) error {
 	oe.intentMu.Lock()
 	intent := oe.intents[clientOrderID]
@@ -112,6 +121,7 @@ func (oe *ExchangeOrderExecutor) settleIntent(ctx context.Context, clientOrderID
 	}
 	if observed == nil || observed.OrderID != orderID || observed.Symbol != oe.symbol ||
 		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) || !terminalOrderStatus(string(observed.Status)) ||
+		(zeroFillOnly && !zeroFillTerminalStatus(string(observed.Status))) ||
 		(zeroFillOnly && (observed.ExecutedQty != 0 || math.IsNaN(observed.ExecutedQty) || math.IsInf(observed.ExecutedQty, 0))) {
 		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
 	}

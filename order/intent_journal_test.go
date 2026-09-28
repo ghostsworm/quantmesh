@@ -153,6 +153,25 @@ func TestSettleZeroFillIntentRejectsLateVenueFill(t *testing.T) {
 	}
 }
 
+func TestSettleZeroFillIntentRejectsFilledStatusWithZeroQuantity(t *testing.T) {
+	venue := &ownedTestVenue{orders: map[int64]*exchange.Order{19: {
+		OrderID: 19, ClientOrderID: "grid-invalid-filled", Symbol: "BTCUSDT", Side: "BUY",
+		Status: exchange.OrderStatusFilled, Quantity: 1, ExecutedQty: 0,
+	}}}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	oe.intents = map[string]*ownedIntent{"grid-invalid-filled": {
+		request: OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, ClientOrderID: "grid-invalid-filled"},
+		order:   &Order{OrderID: 19, ClientOrderID: "grid-invalid-filled", Symbol: "BTCUSDT", Side: "BUY", Status: "CANCELED", Quantity: 1},
+	}}
+
+	if err := oe.SettleZeroFillIntent(t.Context(), "grid-invalid-filled"); err == nil {
+		t.Fatal("zero-fill settlement accepted FILLED with zero executed quantity")
+	}
+	if oe.intents["grid-invalid-filled"].settled {
+		t.Fatal("contradictory FILLED status was incorrectly settled")
+	}
+}
+
 type journalCheckedVenue struct {
 	*ownedTestVenue
 	t       *testing.T

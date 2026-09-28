@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc269] - 2026-09-28（未发布）
+
+### Fixed
+- 零成交终态结算只接受 CANCELED/CANCELLED、EXPIRED 或 REJECTED；矛盾的 `FILLED` 零成交回报保持待核账。
+
 ## [3.111.0-rc268] - 2026-09-28（未发布）
 
 ### Fixed
