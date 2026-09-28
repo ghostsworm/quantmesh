@@ -56,7 +56,7 @@ func TestSaveOrderFillRequiresCompleteIdentityAndFiniteEconomics(t *testing.T) {
 	}
 	defer st.Close()
 	base := &OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope", Symbol: "BTCUSDT", TradeID: "1", OrderID: 1, Side: "BUY", Price: 1, Quantity: 1, TradeTime: time.Now()}
-	for _, mutate := range []func(*OrderFill){func(f *OrderFill) { f.AccountScope = "" }, func(f *OrderFill) { f.TradeID = "" }, func(f *OrderFill) { f.Price = 0 }, func(f *OrderFill) { f.Quantity = -1 }, func(f *OrderFill) { f.TradeTime = time.Time{} }} {
+	for _, mutate := range []func(*OrderFill){func(f *OrderFill) { f.AccountScope = "" }, func(f *OrderFill) { f.TradeID = "" }, func(f *OrderFill) { f.Side = "BID" }, func(f *OrderFill) { f.Side = "buy" }, func(f *OrderFill) { f.Price = 0 }, func(f *OrderFill) { f.Quantity = -1 }, func(f *OrderFill) { f.TradeTime = time.Time{} }} {
 		candidate := *base
 		mutate(&candidate)
 		if err := st.SaveOrderFill(&candidate); err == nil {

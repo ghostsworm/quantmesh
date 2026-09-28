@@ -236,7 +236,7 @@ func (s *SQLStorage) QueryTopDailyRealizedFills(account, exchange, marketType, s
 
 // SaveOrderFill 插入逐笔成交；重复身份只有在经济字段一致时视为安全重放。
 func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
-	if fill == nil || fill.Exchange == "" || fill.MarketType == "" || fill.AccountScope == "" || fill.Symbol == "" || fill.TradeID == "" || fill.OrderID == 0 || fill.Side == "" || fill.TradeTime.IsZero() || !finitePositive(fill.Price) || !finitePositive(fill.Quantity) || math.IsNaN(fill.Commission) || math.IsInf(fill.Commission, 0) {
+	if fill == nil || fill.Exchange == "" || fill.MarketType == "" || fill.AccountScope == "" || fill.Symbol == "" || fill.TradeID == "" || fill.OrderID == 0 || (fill.Side != "BUY" && fill.Side != "SELL") || fill.TradeTime.IsZero() || !finitePositive(fill.Price) || !finitePositive(fill.Quantity) || math.IsNaN(fill.Commission) || math.IsInf(fill.Commission, 0) {
 		return fmt.Errorf("order fill requires valid scoped identity, time, price, quantity, and commission")
 	}
 	tradeTime := utils.ToUTC(fill.TradeTime)
