@@ -993,5 +993,5 @@ func (b *BinanceSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, 
 	if err != nil {
 		return "", err
 	}
-	return strconv.FormatInt(res.ID, 10), nil
+	return verifiedUniversalTransferID(res)
 }

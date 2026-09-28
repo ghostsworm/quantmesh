@@ -1813,6 +1813,13 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 	if err != nil {
 		return "", fmt.Errorf("內部轉帳失败: %w", err)
 	}
+	return verifiedUniversalTransferID(res)
+}
+
+func verifiedUniversalTransferID(res *binancesdk.CreateUserUniversalTransferResponse) (string, error) {
+	if res == nil || res.ID <= 0 {
+		return "", fmt.Errorf("Binance universal transfer response lacks a valid transfer ID")
+	}
 	return strconv.FormatInt(res.ID, 10), nil
 }
 
