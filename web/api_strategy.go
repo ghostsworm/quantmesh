@@ -91,13 +91,13 @@ type StrategyConfig struct {
 
 // StrategyTemplate 策略組合模板
 type StrategyTemplate struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Type        string   `json:"type"` // combo, hedge
-	Strategies  []string `json:"strategies"`
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Description string    `json:"description"`
+	Type        string    `json:"type"` // combo, hedge
+	Strategies  []string  `json:"strategies"`
 	Weights     []float64 `json:"weights,omitempty"`
-	Tags        []string `json:"tags"`
+	Tags        []string  `json:"tags"`
 }
 
 // getStrategyTemplatesHandler 獲取預設組合模板
@@ -381,13 +381,7 @@ func getStrategyDetailHandler(c *gin.Context) {
 			},
 		},
 		Performance: StrategyPerformance{
-			WinRate:        65.5,
-			AvgProfit:      2.3,
-			MaxDrawdown:    12.5,
-			SharpeRatio:    1.85,
-			TotalTrades:    1523,
-			BacktestPeriod: "2023-01-01 至 2024-12-31",
-			LastUpdated:    time.Now().Format(time.RFC3339),
+			// No verified, strategy-specific performance dataset is currently wired here.
 		},
 	}
 
@@ -400,6 +394,10 @@ func getStrategyDetailHandler(c *gin.Context) {
 // 啟用策略
 func enableStrategyHandler(c *gin.Context) {
 	strategyID := c.Param("id")
+	if isStrategyPremium(strategyID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "該付費策略尚無可驗證的授權記錄，不能啟用"})
+		return
+	}
 
 	if configManager == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "配置管理器未初始化"})
@@ -573,6 +571,10 @@ func updateStrategyConfigHandler(c *gin.Context) {
 	}
 
 	reqConfig.StrategyID = strategyID
+	if reqConfig.Enabled && isStrategyPremium(strategyID) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "該付費策略尚無可驗證的授權記錄，不能啟用"})
+		return
+	}
 
 	// TODO: 保存配置到數據库
 	if globalConfig != nil {
@@ -620,32 +622,9 @@ func getStrategyTypesHandler(c *gin.Context) {
 
 // 购買策略
 func purchaseStrategyHandler(c *gin.Context) {
-	strategyID := c.Param("id")
-
-	var req struct {
-		Tier string `json:"tier"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "無效的请求數據",
-		})
-		return
-	}
-
-	// TODO: 實際實現购買逻辑
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "策略购買成功",
-		"license": StrategyLicense{
-			StrategyID:   strategyID,
-			Tier:         req.Tier,
-			ValidFrom:    time.Now().Format(time.RFC3339),
-			ValidUntil:   time.Now().AddDate(1, 0, 0).Format(time.RFC3339),
-			IsActive:     true,
-			MaxInstances: getTierInstances(req.Tier),
-		},
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"message": "策略授權支付與持久化尚未接通，未建立購買或授權記錄",
 	})
 }
 
@@ -674,25 +653,9 @@ func getEnabledStrategiesHandler(c *gin.Context) {
 
 // 批量更新策略
 func batchUpdateStrategiesHandler(c *gin.Context) {
-	var req struct {
-		Updates []struct {
-			StrategyID string `json:"strategyId"`
-			Enabled    bool   `json:"enabled"`
-		} `json:"updates"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "無效的请求數據",
-		})
-		return
-	}
-
-	// TODO: 實際實現批量更新逻辑
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "批量更新成功",
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"message": "批量策略更新尚未實現，未修改任何策略",
 	})
 }
 
@@ -747,6 +710,7 @@ func getStrategyType(id string) string {
 func isStrategyPremium(id string) bool {
 	premium := map[string]bool{
 		"trend_following": true,
+		"trend":           true,
 		"mean_reversion":  true,
 	}
 	return premium[id]
@@ -848,19 +812,6 @@ func getStrategyParameters(id string) []StrategyParameter {
 	return []StrategyParameter{}
 }
 
-func getTierInstances(tier string) int {
-	switch tier {
-	case "basic":
-		return 1
-	case "pro":
-		return 5
-	case "enterprise":
-		return 999
-	default:
-		return 1
-	}
-}
-
 // ========== 策略運行狀態 API ==========
 
 // StrategyRuntimeStatusResponse 策略運行狀態響應
@@ -910,10 +861,10 @@ type StrategyOrderResp struct {
 
 // SymbolStrategyRuntimeItem 單個幣種下的策略運行狀態聚合（用於 GET /api/strategies/runtime/all）
 type SymbolStrategyRuntimeItem struct {
-	Exchange    string                         `json:"exchange"`
-	Symbol      string                         `json:"symbol"`
-	MarketType  string                         `json:"marketType"`
-	Strategies  []StrategyRuntimeStatusResponse `json:"strategies"`
+	Exchange   string                          `json:"exchange"`
+	Symbol     string                          `json:"symbol"`
+	MarketType string                          `json:"marketType"`
+	Strategies []StrategyRuntimeStatusResponse `json:"strategies"`
 }
 
 // StrategyRuntimeProvider 策略運行時提供者接口
