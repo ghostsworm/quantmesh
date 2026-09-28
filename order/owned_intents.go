@@ -47,12 +47,16 @@ func (oe *ExchangeOrderExecutor) intentAcceptanceObserved(cid string) bool {
 	return i != nil && i.order != nil
 }
 
+func (oe *ExchangeOrderExecutor) matchesOwnedClientOrderID(clientOrderID, candidate string) bool {
+	return candidate == clientOrderID || utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), clientOrderID) == candidate
+}
+
 // IntentStrategyType returns the durable strategy identity for an owned CID.
 func (oe *ExchangeOrderExecutor) IntentStrategyType(clientOrderID string) (string, string, bool) {
 	oe.intentMu.Lock()
 	defer oe.intentMu.Unlock()
 	for cid, intent := range oe.intents {
-		if cid == clientOrderID || utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), cid) == clientOrderID {
+		if oe.matchesOwnedClientOrderID(cid, clientOrderID) {
 			return intent.request.StrategyName, intent.request.StrategyType, true
 		}
 	}
@@ -65,7 +69,7 @@ func (oe *ExchangeOrderExecutor) OwnedIntentClientOrderID(clientOrderID string) 
 	oe.intentMu.Lock()
 	defer oe.intentMu.Unlock()
 	for cid := range oe.intents {
-		if cid == clientOrderID || utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), cid) == clientOrderID {
+		if oe.matchesOwnedClientOrderID(cid, clientOrderID) {
 			return cid, true
 		}
 	}
@@ -91,7 +95,7 @@ func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID
 		return fmt.Errorf("verify terminal order %d before settlement: %w", orderID, err)
 	}
 	if observed == nil || observed.OrderID != orderID || observed.Symbol != oe.symbol ||
-		(observed.ClientOrderID != "" && observed.ClientOrderID != clientOrderID) || !terminalOrderStatus(string(observed.Status)) {
+		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) || !terminalOrderStatus(string(observed.Status)) {
 		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
 	}
 	observed.ClientOrderID = clientOrderID

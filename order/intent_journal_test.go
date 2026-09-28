@@ -11,6 +11,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/execution"
 	"quantmesh/lock"
+	"quantmesh/utils"
 )
 
 type memoryIntentJournal struct {
@@ -98,6 +99,38 @@ func TestOwnedIntentIdentityIsScopedToJournalCID(t *testing.T) {
 	name, strategyType, ok := oe.IntentStrategyType(cid)
 	if !ok || name != "Grid-BTCUSDT" || strategyType != "grid" {
 		t.Fatalf("strategy identity = (%q, %q, %v), want grid identity", name, strategyType, ok)
+	}
+}
+
+type brokerPrefixedIntentVenue struct{ *ownedTestVenue }
+
+func (*brokerPrefixedIntentVenue) GetName() string { return "binance" }
+func (v *brokerPrefixedIntentVenue) GetOrder(ctx context.Context, symbol string, orderID int64) (*exchange.Order, error) {
+	order, err := v.ownedTestVenue.GetOrder(ctx, symbol, orderID)
+	if err == nil && order != nil {
+		order.ClientOrderID = utils.AddBrokerPrefix("binance", order.ClientOrderID)
+	}
+	return order, err
+}
+
+func TestSettleIntentAcceptsExchangeBrokerPrefix(t *testing.T) {
+	venue := &brokerPrefixedIntentVenue{ownedTestVenue: &ownedTestVenue{
+		orders: map[int64]*exchange.Order{17: {
+			OrderID: 17, ClientOrderID: "grid-cancel-1", Symbol: "BTCUSDT", Side: "BUY",
+			Status: exchange.OrderStatusCanceled, Quantity: 1,
+		}},
+	}}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	oe.intents = map[string]*ownedIntent{"grid-cancel-1": {
+		request: OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, ClientOrderID: "grid-cancel-1"},
+		order:   &Order{OrderID: 17, ClientOrderID: "grid-cancel-1", Symbol: "BTCUSDT", Side: "BUY", Status: "CANCELED", Quantity: 1},
+	}}
+
+	if err := oe.SettleIntent(t.Context(), "grid-cancel-1"); err != nil {
+		t.Fatalf("SettleIntent() rejected matching broker-prefixed terminal ID: %v", err)
+	}
+	if !oe.intents["grid-cancel-1"].settled {
+		t.Fatal("verified zero-fill terminal intent was not marked settled")
 	}
 }
 
