@@ -36,6 +36,34 @@ func TestCapStrategyCapitalLimit(t *testing.T) {
 	}
 }
 
+func TestCapTwoLegStrategyCapitalLimit(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured float64
+		legA       float64
+		legB       float64
+		want       float64
+		wantErr    bool
+	}{
+		{name: "configured within both legs", configured: 150, legA: 100, legB: 100, want: 150},
+		{name: "limited by lower balance", configured: 500, legA: 400, legB: 100, want: 200},
+		{name: "zero configured cap rejected", configured: 0, legA: 100, legB: 100, wantErr: true},
+		{name: "missing leg balance rejected", configured: 100, legA: 100, legB: 0, wantErr: true},
+		{name: "non-finite leg balance rejected", configured: 100, legA: 100, legB: math.NaN(), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := capTwoLegStrategyCapitalLimit(tt.configured, tt.legA, tt.legB)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Fatalf("capTwoLegStrategyCapitalLimit() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyBotCapitalLimit(t *testing.T) {
 	control := &config.OpenPositionControl{
 		MaxPositionValue: 1000,

@@ -56,6 +56,41 @@ func startFundingPerpSpreadSymbolRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("創建 leg_b 合約連線失敗: %w", err)
 	}
+	baseA, baseB := legAEx.GetBaseAsset(), legBEx.GetBaseAsset()
+	if err := validateFundingPerpSpreadLegBases(baseA, baseB); err != nil {
+		return nil, err
+	}
+	const spreadCapitalAsset = "USDT"
+	quoteA := strings.ToUpper(strings.TrimSpace(legAEx.GetQuoteAsset()))
+	quoteB := strings.ToUpper(strings.TrimSpace(legBEx.GetQuoteAsset()))
+	if quoteA != spreadCapitalAsset || quoteB != spreadCapitalAsset {
+		return nil, fmt.Errorf("funding_perp_spread currently requires USDT-quoted legs; got %q and %q", quoteA, quoteB)
+	}
+	requestedCapital := symCfg.TotalAllocatedCapital
+	if requestedCapital <= 0 {
+		requestedCapital = symCfg.OrderQuantity
+	}
+	balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
+	legABalance, balanceErr := legAEx.GetBalance(balanceCtx, spreadCapitalAsset)
+	if balanceErr == nil {
+		var legBBalance float64
+		legBBalance, balanceErr = legBEx.GetBalance(balanceCtx, spreadCapitalAsset)
+		if balanceErr == nil {
+			verifiedCapital, capErr := capTwoLegStrategyCapitalLimit(requestedCapital, legABalance, legBBalance)
+			if capErr != nil {
+				balanceErr = capErr
+			} else {
+				if verifiedCapital < requestedCapital {
+					logger.WarnCtx(ctx, "funding_perp_spread budget capped from %.2f to %.2f USDT by verified leg balances", requestedCapital, verifiedCapital)
+				}
+				symCfg.TotalAllocatedCapital = verifiedCapital
+			}
+		}
+	}
+	cancelBalance()
+	if balanceErr != nil {
+		return nil, fmt.Errorf("verify funding_perp_spread USDT balance on both legs: %w", balanceErr)
+	}
 
 	// 價格監控掛在 leg_a（主顯示）
 	priceMonitor := monitor.NewPriceMonitor(
@@ -82,12 +117,6 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	totalCap := symCfg.TotalAllocatedCapital
-	if totalCap <= 0 {
-		totalCap = symCfg.OrderQuantity
-	}
-	if totalCap <= 0 {
-		return nil, fmt.Errorf("total_allocated_capital 必須大於 0")
-	}
 
 	strategyManager := strategy.NewStrategyManager(&localCfg, totalCap)
 	if eventBus != nil {
@@ -155,6 +184,15 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	return rt, nil
+}
+
+func validateFundingPerpSpreadLegBases(baseA, baseB string) error {
+	baseA = strings.ToUpper(strings.TrimSpace(baseA))
+	baseB = strings.ToUpper(strings.TrimSpace(baseB))
+	if baseA == "" || baseB == "" || baseA != baseB {
+		return fmt.Errorf("funding_perp_spread legs must use the same verified base asset; got %q and %q", baseA, baseB)
+	}
+	return nil
 }
 
 // fundingPerpSpreadStateScope isolates durable strategy state by bot, both legs,

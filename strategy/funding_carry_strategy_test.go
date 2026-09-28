@@ -266,12 +266,12 @@ func TestOpenHedge_AtomicSuccess(t *testing.T) {
 	bus := &mockEventBus{}
 	spotEx := &mockFCExchange{
 		name: "binance", marketType: "spot", baseAsset: "BTC",
-		latestPrice: 50000, priceDecimals: 2, quantityDecimals: 5,
+		balance: 1000, latestPrice: 50000, priceDecimals: 2, quantityDecimals: 5,
 		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.002,
 	}
 	futEx := &mockFCExchange{
 		name: "binance", marketType: "futures", baseAsset: "BTC",
-		latestPrice: 50050, fundingRate: 0.001, priceDecimals: 2, quantityDecimals: 3,
+		balance: 300, latestPrice: 50050, fundingRate: 0.001, priceDecimals: 2, quantityDecimals: 3,
 	}
 
 	s := NewFundingCarryStrategy("fc", nil,

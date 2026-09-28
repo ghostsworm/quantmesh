@@ -624,13 +624,14 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	if legNotional < 50 {
 		return fmt.Errorf("單腿名義 %.2f USDT 過小", legNotional)
 	}
-	refPx := (pxA + pxB) / 2
-	if refPx <= 0 {
-		return fmt.Errorf("參考價無效")
+	qtyShort, err := fundingPerpSpreadOrderQuantity(legNotional, pxA, pxB, shortEx.GetQuantityDecimals())
+	if err != nil {
+		return fmt.Errorf("short leg quantity: %w", err)
 	}
-	qty := legNotional / refPx
-	qtyShort := roundPerpQty(qty, shortEx.GetQuantityDecimals())
-	qtyLong := roundPerpQty(qty, longEx.GetQuantityDecimals())
+	qtyLong, err := fundingPerpSpreadOrderQuantity(legNotional, pxA, pxB, longEx.GetQuantityDecimals())
+	if err != nil {
+		return fmt.Errorf("long leg quantity: %w", err)
+	}
 	if qtyShort <= 0 || qtyLong <= 0 {
 		return fmt.Errorf("數量精度截斷為 0")
 	}
@@ -836,4 +837,25 @@ func roundPerpQty(q float64, decimals int) float64 {
 	}
 	p := math.Pow10(decimals)
 	return math.Round(q*p) / p
+}
+
+func fundingPerpSpreadOrderQuantity(legNotional, priceA, priceB float64, decimals int) (float64, error) {
+	if math.IsNaN(legNotional) || math.IsInf(legNotional, 0) || legNotional <= 0 ||
+		math.IsNaN(priceA) || math.IsInf(priceA, 0) || priceA <= 0 ||
+		math.IsNaN(priceB) || math.IsInf(priceB, 0) || priceB <= 0 || decimals < 0 {
+		return 0, fmt.Errorf("invalid notional, prices, or quantity precision")
+	}
+	quantity := legNotional / math.Max(priceA, priceB)
+	if math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity <= 0 {
+		return 0, fmt.Errorf("invalid target quantity")
+	}
+	precision := math.Pow10(decimals)
+	if math.IsInf(precision, 0) || precision <= 0 {
+		return 0, fmt.Errorf("unsupported quantity precision %d", decimals)
+	}
+	quantity = math.Floor(quantity*precision) / precision
+	if math.IsNaN(quantity) || math.IsInf(quantity, 0) {
+		return 0, fmt.Errorf("rounded quantity is invalid")
+	}
+	return quantity, nil
 }

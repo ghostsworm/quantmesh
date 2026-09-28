@@ -31,3 +31,24 @@ func TestFundingPerpSpreadStateScopeIsolatesCredentialsWithoutLeakingThem(t *tes
 		}
 	}
 }
+
+func TestValidateFundingPerpSpreadLegBases(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseA   string
+		baseB   string
+		wantErr bool
+	}{
+		{name: "same asset ignoring case and spaces", baseA: " btc ", baseB: "BTC"},
+		{name: "different assets", baseA: "BTC", baseB: "ETH", wantErr: true},
+		{name: "missing asset", baseA: "BTC", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFundingPerpSpreadLegBases(tt.baseA, tt.baseB)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

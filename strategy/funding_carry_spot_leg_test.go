@@ -110,7 +110,8 @@ func TestCloseAll_NoRecordedSpotDoesNotSellUserCoins(t *testing.T) {
 }
 
 func TestOpenHedge_RecordsStrategySpot(t *testing.T) {
-	s, spotEx, _ := newSpotLegTestStrategy(0, 0)
+	s, spotEx, futEx := newSpotLegTestStrategy(1000, 0)
+	futEx.balance = 300
 	spotEx.getOrderExecQty = 0.004
 	s.symCfg.TotalAllocatedCapital = 500
 

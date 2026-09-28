@@ -799,28 +799,39 @@ func estimateNextSettlement(now time.Time) time.Time {
 // Auto transfer
 // ---------------------------------------------------------------------------
 
-func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, requiredUSDT float64) error {
-	if !s.autoTransferEnabled {
-		return nil
+func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, requiredUSDT, spotOrderReserveUSDT float64) error {
+	if !finitePositive(requiredUSDT) || !finiteNonNegative(spotOrderReserveUSDT) ||
+		!finiteNonNegative(s.transferReserveSpot) {
+		return fmt.Errorf("invalid funding_carry collateral or spot reserve amount")
 	}
 	futBal, err := s.fut.GetBalance(ctx, "USDT")
 	if err != nil {
 		return fmt.Errorf("query futures USDT balance before transfer: %w", err)
 	}
-	if futBal >= requiredUSDT {
-		return nil
-	}
-	need := requiredUSDT - futBal
 	spotBal, err := s.spot.GetBalance(ctx, "USDT")
 	if err != nil {
 		return fmt.Errorf("query spot USDT balance before transfer: %w", err)
 	}
-	available := spotBal - s.transferReserveSpot
-	if available <= 0 {
-		return fmt.Errorf("insufficient transferable spot USDT: balance %.2f, reserve %.2f, required %.2f", spotBal, s.transferReserveSpot, need)
+	if !finiteNonNegative(futBal) || !finiteNonNegative(spotBal) {
+		return fmt.Errorf("invalid futures/spot USDT balance: futures %.12g, spot %.12g", futBal, spotBal)
 	}
-	if need > available {
-		return fmt.Errorf("insufficient transferable spot USDT: available %.2f, required %.2f", available, need)
+	spotReserve := spotOrderReserveUSDT
+	if s.autoTransferEnabled {
+		spotReserve += s.transferReserveSpot
+	}
+	if !finiteNonNegative(spotReserve) || spotBal < spotReserve {
+		return fmt.Errorf("insufficient spot USDT for pending hedge leg and reserve: balance %.2f, required %.2f", spotBal, spotReserve)
+	}
+	if futBal >= requiredUSDT {
+		return nil
+	}
+	if !s.autoTransferEnabled {
+		return fmt.Errorf("insufficient futures USDT: available %.2f, required %.2f", futBal, requiredUSDT)
+	}
+	need := requiredUSDT - futBal
+	transferable := spotBal - spotReserve
+	if need > transferable {
+		return fmt.Errorf("insufficient transferable spot USDT after reserving hedge leg: available %.2f, transfer %.2f", transferable, need)
 	}
 	txID, err := s.spot.InternalTransfer(ctx, "SPOT", "UMFUTURE", "USDT", need)
 	if err != nil {
@@ -830,8 +841,15 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if err != nil {
 		return fmt.Errorf("transfer %s accepted but futures balance could not be verified: %w", txID, err)
 	}
-	if futBal < requiredUSDT {
+	if !finiteNonNegative(futBal) || futBal < requiredUSDT {
 		return fmt.Errorf("transfer %s completed but futures USDT remains insufficient: %.2f < %.2f", txID, futBal, requiredUSDT)
+	}
+	spotBal, err = s.spot.GetBalance(ctx, "USDT")
+	if err != nil {
+		return fmt.Errorf("transfer %s accepted but remaining spot USDT could not be verified: %w", txID, err)
+	}
+	if !finiteNonNegative(spotBal) || spotBal < spotReserve {
+		return fmt.Errorf("transfer %s completed but spot USDT reserve is insufficient: %.2f < %.2f", txID, spotBal, spotReserve)
 	}
 	logger.Info("💸 [%s] 自動劃轉 SPOT→UMFUTURE %.2f USDT (txID=%s)", s.symbol, need, txID)
 	s.publishEvent(event.EventTypePositionOpened, map[string]interface{}{
@@ -841,6 +859,28 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 		"message": fmt.Sprintf("自動劃轉 %.2f USDT 到合約帳戶", need),
 	})
 	return nil
+}
+
+func finitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func finiteNonNegative(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func fundingCarrySpotBuyReserve(quantity, limitPrice, feeRate float64) (float64, error) {
+	if !finitePositive(quantity) || !finitePositive(limitPrice) || math.IsNaN(feeRate) || math.IsInf(feeRate, 0) {
+		return 0, fmt.Errorf("invalid spot buy reserve inputs")
+	}
+	if feeRate < 0 {
+		feeRate = 0
+	}
+	reserve := quantity * limitPrice * (1 + feeRate)
+	if !finitePositive(reserve) {
+		return 0, fmt.Errorf("spot buy reserve is invalid")
+	}
+	return reserve, nil
 }
 
 func (s *FundingCarryStrategy) harvestProfit(ctx context.Context) {
@@ -1203,7 +1243,24 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 	if legNotional < 100 {
 		return fmt.Errorf("單腿名義 %.2f USDT 低於合約最小要求", legNotional)
 	}
-	if err := s.ensureFuturesMargin(ctx, legNotional); err != nil {
+	qty := legNotional / spotPx
+	qty = s.roundQty(qty, s.spot.GetQuantityDecimals())
+	if qty <= 0 {
+		return fmt.Errorf("現貨買入數量精度截斷為 0")
+	}
+	buyPrice := spotPx * 1.005
+	buyPrice = s.roundPrice(buyPrice, s.spot.GetPriceDecimals())
+	feeRate := 0.0
+	if s.cfg != nil {
+		if exchangeCfg, ok := s.cfg.Exchanges[s.symCfg.Exchange]; ok {
+			feeRate = exchangeCfg.FeeRate
+		}
+	}
+	spotBuyReserve, err := fundingCarrySpotBuyReserve(qty, buyPrice, feeRate)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureFuturesMargin(ctx, legNotional, spotBuyReserve); err != nil {
 		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
 	if err := s.beginRuntimeIntent(); err != nil {
@@ -1215,12 +1272,6 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 			logger.Error("[%s] persist funding_carry opening result: %v", s.symbol, err)
 		}
 	}()
-
-	qty := legNotional / spotPx
-	qty = s.roundQty(qty, s.spot.GetQuantityDecimals())
-
-	buyPrice := spotPx * 1.005
-	buyPrice = s.roundPrice(buyPrice, s.spot.GetPriceDecimals())
 
 	spotOrder, err := s.placeOrder(ctx, s.spot, s.spotExecutor, &exchange.OrderRequest{
 		Symbol:        s.symbol,
@@ -1357,7 +1408,7 @@ func (s *FundingCarryStrategy) openReverseHedge(ctx context.Context, futPx, spot
 	}
 	legNotional := cap / 2
 
-	if err := s.ensureFuturesMargin(ctx, legNotional); err != nil {
+	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
 		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
 

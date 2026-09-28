@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -34,7 +35,10 @@ func TestBotManagerResolveLatestStartConfigUsesRefreshedBotSnapshot(t *testing.T
 		},
 	}
 
-	got := bm.resolveLatestStartConfig(stale)
+	got, err := bm.resolveLatestStartConfig(stale)
+	if err != nil {
+		t.Fatalf("resolveLatestStartConfig: %v", err)
+	}
 	if got.OrderQuantity != 250 {
 		t.Fatalf("expected refreshed order quantity 250, got %.2f", got.OrderQuantity)
 	}
@@ -91,7 +95,10 @@ func TestBotManagerResolveLatestStartConfigPrefersBotConfigSnapshot(t *testing.T
 		storageService: storageService,
 	}
 
-	got := bm.resolveLatestStartConfig(stale)
+	got, err := bm.resolveLatestStartConfig(stale)
+	if err != nil {
+		t.Fatalf("resolveLatestStartConfig: %v", err)
+	}
 	if got.OrderQuantity != 250 {
 		t.Fatalf("expected bot_configs order quantity 250, got %.2f", got.OrderQuantity)
 	}
@@ -142,7 +149,10 @@ func TestBotManagerResolveLatestStartConfigPreservesEnabled(t *testing.T) {
 		storageService: storageService,
 	}
 
-	got := bm.resolveLatestStartConfig(mainCfg)
+	got, err := bm.resolveLatestStartConfig(mainCfg)
+	if err != nil {
+		t.Fatalf("resolveLatestStartConfig: %v", err)
+	}
 	if got.OrderQuantity != 250 {
 		t.Fatalf("expected bot_configs order quantity 250, got %.2f", got.OrderQuantity)
 	}
@@ -151,6 +161,64 @@ func TestBotManagerResolveLatestStartConfigPreservesEnabled(t *testing.T) {
 	}
 	if got.ID != botID {
 		t.Fatalf("ID = %q, want %q", got.ID, botID)
+	}
+}
+
+func TestBotManagerPrepareBotStartConfigRejectsStalePrimaryConfig(t *testing.T) {
+	bm := &BotManager{
+		cfg:             &config.Config{},
+		primaryYAMLPath: filepath.Join(t.TempDir(), "missing-config.yaml"),
+	}
+	_, err := bm.prepareBotStartConfig(config.BotConfig{ID: "stale-bot"})
+	if err == nil || !strings.Contains(err.Error(), "YAML") {
+		t.Fatalf("prepareBotStartConfig error = %v, want fail-closed primary refresh error", err)
+	}
+}
+
+func TestBotManagerResolveLatestStartConfigRejectsRemovedBot(t *testing.T) {
+	stale := config.BotConfig{ID: "removed-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}
+	bm := &BotManager{cfg: &config.Config{
+		Bots: []config.BotConfig{{ID: "current-bot", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}},
+	}}
+	if _, err := bm.resolveLatestStartConfig(stale); err == nil {
+		t.Fatal("removed Bot was accepted from the stale caller snapshot")
+	}
+}
+
+func TestBotManagerResolveLatestStartConfigUsesLegacySymbolInventory(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {Testnet: true}}}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbols = []config.SymbolConfig{{
+		Symbol: "BTCUSDT", MarketType: "futures", OrderQuantity: 250,
+	}}
+	bm := &BotManager{cfg: cfg}
+	stale := config.BotConfig{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", OrderQuantity: 100}
+	got, err := bm.resolveLatestStartConfig(stale)
+	if err != nil {
+		t.Fatalf("resolveLatestStartConfig: %v", err)
+	}
+	if got.OrderQuantity != 250 || !got.Testnet {
+		t.Fatalf("legacy symbol inventory result = %+v, want latest settings and testnet", got)
+	}
+}
+
+func TestBotManagerResolveLatestStartConfigRejectsStorageReadFailure(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "quantmesh.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatalf("NewStorageService: %v", err)
+	}
+	storageService.Stop()
+
+	bm := &BotManager{cfg: cfg, storageService: storageService}
+	_, err = bm.resolveLatestStartConfig(config.BotConfig{ID: "db-unavailable"})
+	if err == nil || !strings.Contains(err.Error(), "讀取 Bot 配置失敗") {
+		t.Fatalf("resolveLatestStartConfig error = %v, want fail-closed storage error", err)
 	}
 }
 
@@ -200,11 +268,11 @@ func TestBotManagerWarnsOnSingleLegRunning(t *testing.T) {
 		},
 	}
 	bm := &BotManager{
-		cfg:              cfg,
-		runtimes:         make(map[string]*BotRuntime),
-		eventBus:         eb,
-		groupLegAlerted:  make(map[string]bool),
-		groupLegTimers:   make(map[string]*time.Timer),
+		cfg:             cfg,
+		runtimes:        make(map[string]*BotRuntime),
+		eventBus:        eb,
+		groupLegAlerted: make(map[string]bool),
+		groupLegTimers:  make(map[string]*time.Timer),
 	}
 
 	bm.AddRuntime(&BotRuntime{BotID: "fut-bot", Config: config.BotConfig{ID: "fut-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}})

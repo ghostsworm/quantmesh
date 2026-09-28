@@ -87,49 +87,84 @@ func (bm *BotManager) refreshConfigBeforeBotStart() error {
 // 1. 優先使用剛刷新的 bm.cfg.Bots；
 // 2. 若主庫存在 bot_configs 快照，則再用該 Bot 專屬快照覆蓋。
 // 避免 StartBot 調用入口傳入的是保存前/刷新前的舊副本。
-func (bm *BotManager) resolveLatestStartConfig(botCfg config.BotConfig) config.BotConfig {
+func (bm *BotManager) resolveLatestStartConfig(botCfg config.BotConfig) (config.BotConfig, error) {
 	if bm == nil {
-		return botCfg
+		return botCfg, nil
 	}
 	botID := config.BotIDOrGenerate(botCfg)
 	latest := botCfg
+	configuredBotFound := false
 
 	if bm.cfg != nil {
-		for i := range bm.cfg.Bots {
-			candidate := bm.cfg.Bots[i]
-			if config.BotIDOrGenerate(candidate) == botID {
-				latest = candidate
-				break
+		if len(bm.cfg.Bots) > 0 {
+			for i := range bm.cfg.Bots {
+				candidate := bm.cfg.Bots[i]
+				if config.BotIDOrGenerate(candidate) == botID {
+					latest = candidate
+					configuredBotFound = true
+					break
+				}
 			}
+		} else {
+			for i := range bm.cfg.Trading.Symbols {
+				candidate := bm.cfg.Trading.Symbols[i]
+				exchangeName := candidate.Exchange
+				if exchangeName == "" {
+					exchangeName = bm.cfg.App.CurrentExchange
+				}
+				candidateID := candidate.ID
+				if candidateID == "" {
+					candidateID = config.GenerateBotID(exchangeName, candidate.Symbol, candidate.GetMarketType())
+				}
+				if candidateID == botID {
+					candidate.Exchange = exchangeName
+					exchangeCfg := bm.cfg.Exchanges[exchangeName]
+					latest = config.SymbolConfigToBotConfig(candidate, exchangeCfg.Testnet)
+					configuredBotFound = true
+					break
+				}
+			}
+		}
+		if (len(bm.cfg.Bots) > 0 || len(bm.cfg.Trading.Symbols) > 0) && !configuredBotFound {
+			return botCfg, fmt.Errorf("Bot %s 不存在於最新主配置，拒絕使用呼叫方舊快照啟動", botID)
 		}
 	}
 
 	if bm.storageService == nil {
-		return latest
+		return latest, nil
 	}
 	ss, ok := bm.storageService.GetStorage().(*storage.SQLStorage)
 	if !ok || ss == nil {
-		return latest
+		return latest, nil
 	}
 	doc, err := ss.GetBotConfigDocument(context.Background(), botID)
 	if err != nil {
-		logger.Warn("⚠️ [%s] 啟動前讀取 bot_configs 失敗，回退主配置快照: %v", botID, err)
-		return latest
+		return latest, fmt.Errorf("啟動前讀取 Bot 配置失敗(%s): %w", botID, err)
 	}
 	if doc == nil || strings.TrimSpace(doc.Content) == "" {
-		return latest
+		return latest, nil
 	}
 	var bf config.BotConfigFile
 	if err := json.Unmarshal([]byte(doc.Content), &bf); err != nil {
-		logger.Warn("⚠️ [%s] 啟動前解析 bot_configs 失敗，回退主配置快照: %v", botID, err)
-		return latest
+		return latest, fmt.Errorf("啟動前解析 Bot 配置失敗(%s): %w", botID, err)
 	}
 	// BotConfigFile 不帶 Enabled：沿用主配置（或調用方）中的值，CreatedAt/ID 為空時也沿用
 	latest = config.MergeBotConfigFileInto(latest, &bf)
 	if latest.ID == "" {
 		latest.ID = botID
 	}
-	return latest
+	return latest, nil
+}
+
+func (bm *BotManager) prepareBotStartConfig(botCfg config.BotConfig) (config.BotConfig, error) {
+	if err := bm.refreshConfigBeforeBotStart(); err != nil {
+		return botCfg, fmt.Errorf("啟動前刷新主交易配置失敗: %w", err)
+	}
+	latest, err := bm.resolveLatestStartConfig(botCfg)
+	if err != nil {
+		return botCfg, err
+	}
+	return latest, nil
 }
 
 // applyExchangeFeeFromAPIForBot 啟動前把交易所 taker 費率寫入進程內 cfg.Exchanges[ex].FeeRate。
@@ -360,10 +395,20 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		return nil, err
 	}
 
-	if err := bm.refreshConfigBeforeBotStart(); err != nil {
-		logger.Warn("⚠️ 啟動前重新加載主配置失敗（繼續使用進程內存中的配置）: %v", err)
+	botCfg, err = bm.prepareBotStartConfig(botCfg)
+	if err != nil {
+		bm.recordStartFailure(botID, err)
+		bm.eventBus.Publish(&event.Event{
+			Type: event.EventTypeTradingStartFailed,
+			Data: map[string]interface{}{
+				"bot_id":   botID,
+				"exchange": botCfg.Exchange,
+				"symbol":   botCfg.Symbol,
+				"error":    err.Error(),
+			},
+		})
+		return nil, err
 	}
-	botCfg = bm.resolveLatestStartConfig(botCfg)
 	bm.applyExchangeFeeFromAPIForBot(botCfg)
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -22,6 +23,20 @@ type fundingSpreadCoordinationLock struct {
 	waitKey      string
 	waitEntered  chan struct{}
 	continueWait chan struct{}
+}
+
+func TestFundingPerpSpreadOrderQuantityNeverExceedsPerLegNotional(t *testing.T) {
+	qty, err := fundingPerpSpreadOrderQuantity(100, 200, 100, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if qty != 0.5 || qty*200 > 100 || qty*100 > 100 {
+		t.Fatalf("quantity = %v, leg notionals = %v/%v, want <= 100 each", qty, qty*200, qty*100)
+	}
+
+	if _, err := fundingPerpSpreadOrderQuantity(100, math.NaN(), 100, 3); err == nil {
+		t.Fatal("NaN leg price unexpectedly produced an order quantity")
+	}
 }
 
 func (l *fundingSpreadCoordinationLock) Lock(ctx context.Context, key string, _ time.Duration) error {
