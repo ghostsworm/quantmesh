@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"quantmesh/execution"
+	"quantmesh/utils"
 )
 
 // ownedIntent records economic intent before the physical call. Never infer
@@ -43,6 +45,31 @@ func (oe *ExchangeOrderExecutor) intentAcceptanceObserved(cid string) bool {
 	defer oe.intentMu.Unlock()
 	i := oe.intents[cid]
 	return i != nil && i.order != nil
+}
+
+// IntentStrategyType returns the durable strategy identity for an owned CID.
+func (oe *ExchangeOrderExecutor) IntentStrategyType(clientOrderID string) (string, string, bool) {
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	for cid, intent := range oe.intents {
+		if cid == clientOrderID || utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), cid) == clientOrderID {
+			return intent.request.StrategyName, intent.request.StrategyType, true
+		}
+	}
+	return "", "", false
+}
+
+// OwnedIntentClientOrderID resolves exchange-prefixed callback IDs to the
+// canonical ID used as the execution journal key.
+func (oe *ExchangeOrderExecutor) OwnedIntentClientOrderID(clientOrderID string) (string, bool) {
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	for cid := range oe.intents {
+		if cid == clientOrderID || utils.AddBrokerPrefix(strings.ToLower(oe.exchange.GetName()), cid) == clientOrderID {
+			return cid, true
+		}
+	}
+	return "", false
 }
 
 // SettleIntent is called only after the owning strategy has durably accounted

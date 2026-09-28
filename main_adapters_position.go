@@ -184,6 +184,13 @@ func (a *exchangeExecutorAdapter) PlaceOrderContext(ctx context.Context, req *po
 	if req == nil {
 		return nil, fmt.Errorf("order request is nil")
 	}
+	strategyName, strategyType := req.StrategyName, req.StrategyType
+	if strategyName == "" {
+		strategyName = "Grid-" + req.Symbol
+	}
+	if strategyType == "" {
+		strategyType = "grid"
+	}
 	orderReq := &order.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          req.Side,
@@ -198,8 +205,8 @@ func (a *exchangeExecutorAdapter) PlaceOrderContext(ctx context.Context, req *po
 		BotWideClose:  req.BotWideClose,
 		PostOnly:      req.PostOnly,
 		ClientOrderID: req.ClientOrderID,
-		StrategyName:  req.StrategyName,
-		StrategyType:  req.StrategyType,
+		StrategyName:  strategyName,
+		StrategyType:  strategyType,
 		OrderSource:   req.OrderSource,
 	}
 	ord, err := a.executor.PlaceOrderContext(ctx, orderReq)

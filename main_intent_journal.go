@@ -9,6 +9,7 @@ import (
 
 	"quantmesh/exchange"
 	"quantmesh/execution"
+	"quantmesh/logger"
 	"quantmesh/order"
 	"quantmesh/position"
 )
@@ -24,6 +25,37 @@ func observeOwnedRuntimeOrder(executor *order.ExchangeOrderExecutor, update *pos
 	return executor.ObserveOrder(&exchange.Order{OrderID: update.OrderID, ClientOrderID: update.ClientOrderID,
 		Symbol: update.Symbol, Side: exchange.Side(update.Side), Status: exchange.OrderStatus(update.Status),
 		Price: update.Price, AvgPrice: update.AvgPrice, ExecutedQty: update.ExecutedQty})
+}
+
+const gridZeroFillSettlementTimeout = 10 * time.Second
+
+// settleVerifiedGridZeroFill asynchronously settles only a grid intent whose
+// strategy slot was durably updated and whose terminal update reports zero fill.
+func settleVerifiedGridZeroFill(executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, update *position.OrderUpdate, accounted bool) {
+	if executor == nil || gate == nil || update == nil || !accounted || update.ExecutedQty != 0 ||
+		!terminalOrderUpdate(update.Status) {
+		return
+	}
+	canonicalCID, owned := executor.OwnedIntentClientOrderID(update.ClientOrderID)
+	_, strategyType, strategyOwned := executor.IntentStrategyType(update.ClientOrderID)
+	if !owned || !strategyOwned || strategyType != "grid" || update.OrderID <= 0 {
+		return
+	}
+	block := "grid_zero_fill_settlement:" + canonicalCID
+	gate.Block(block)
+	copyUpdate := *update
+	copyUpdate.ClientOrderID = canonicalCID
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), gridZeroFillSettlementTimeout)
+		defer cancel()
+		if err := executor.SettleIntent(ctx, copyUpdate.ClientOrderID); err != nil {
+			markErr := executor.MarkOrderReconciliationRequired(copyUpdate.OrderID, copyUpdate.ClientOrderID, err.Error())
+			logger.Error("[%s] 网格零成交终态意图未能安全结算，保持开仓阻断: cid=%s settle_err=%v journal_err=%v",
+				copyUpdate.Symbol, copyUpdate.ClientOrderID, err, markErr)
+			return
+		}
+		gate.Unblock(block)
+	}()
 }
 
 type runtimeIntentBackend interface {

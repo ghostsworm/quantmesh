@@ -84,6 +84,23 @@ func journalScope() execution.IntentScope {
 	return execution.IntentScope{Account: "account-full-digest", Exchange: "fake", Market: "futures", Symbol: "BTCUSDT", Bot: "bot-a"}
 }
 
+func TestOwnedIntentIdentityIsScopedToJournalCID(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	const cid = "qm-grid-order"
+	oe.intents = make(map[string]*ownedIntent)
+	oe.intents[cid] = &ownedIntent{request: OrderRequest{ClientOrderID: cid, StrategyName: "Grid-BTCUSDT", StrategyType: "grid"}}
+
+	canonical, ok := oe.OwnedIntentClientOrderID(cid)
+	if !ok || canonical != cid {
+		t.Fatalf("canonical ID = %q, ok = %v; want %q, true", canonical, ok, cid)
+	}
+	name, strategyType, ok := oe.IntentStrategyType(cid)
+	if !ok || name != "Grid-BTCUSDT" || strategyType != "grid" {
+		t.Fatalf("strategy identity = (%q, %q, %v), want grid identity", name, strategyType, ok)
+	}
+}
+
 type journalCheckedVenue struct {
 	*ownedTestVenue
 	t       *testing.T

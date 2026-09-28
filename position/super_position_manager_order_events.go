@@ -82,12 +82,36 @@ func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUp
 // ========== 訂單更新事件處理（OnOrderUpdate）==========
 
 // OnOrderUpdate 订單更新回呼（异步订單同步流）
-func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
+func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
+	update.Status = normalizeOrderStatus(update.Status)
 	spm.onOrderUpdate(update)
-	spm.persistGridRuntimeStateOrHold(update)
+	if !spm.persistGridRuntimeStateOrHold(update) || update.ExecutedQty != 0 ||
+		(update.Status != "CANCELED" && update.Status != "EXPIRED" && update.Status != "REJECTED") {
+		return false
+	}
+	price, _, valid := spm.parseClientOrderID(update.ClientOrderID)
+	if !valid {
+		return false
+	}
+	raw, exists := spm.slots.Load(price)
+	if !exists {
+		return false
+	}
+	slot := raw.(*InventorySlot)
+	slot.mu.RLock()
+	accounted := slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderStatus == OrderStatusCanceled &&
+		spm.sameClientOrderID(slot.lastFilledClientOID, update.ClientOrderID)
+	slot.mu.RUnlock()
+	return accounted
 }
 
-func (spm *SuperPositionManager) persistGridRuntimeStateOrHold(update OrderUpdate) {
+func (spm *SuperPositionManager) persistGridRuntimeStateOrHold(update OrderUpdate) bool {
+	spm.gridRuntimeStateMu.RLock()
+	hasStore := spm.gridRuntimeStateStore != nil
+	spm.gridRuntimeStateMu.RUnlock()
+	if !hasStore {
+		return false
+	}
 	if err := spm.PersistGridRuntimeState(); err != nil {
 		spm.openingGate.Block("grid_runtime_state_unverified")
 		if tracker, ok := spm.executor.(interface {
@@ -101,7 +125,9 @@ func (spm *SuperPositionManager) persistGridRuntimeStateOrHold(update OrderUpdat
 		} else {
 			logger.Error("[%s] 网格运行态快照失败且执行器不支持持久化订单核账锁: order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, err)
 		}
+		return false
 	}
+	return true
 }
 
 func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {

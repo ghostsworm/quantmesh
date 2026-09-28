@@ -842,7 +842,7 @@ func startSymbolRuntime(
 			}
 		}
 
-		superPositionManager.OnOrderUpdate(*posUpdate)
+		gridZeroFillAccounted := superPositionManager.OnOrderUpdate(*posUpdate)
 		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
 		if strategyManager != nil {
 			routedStrategy := ""
@@ -867,6 +867,7 @@ func startSymbolRuntime(
 			// D5：開倉成交轉為持倉占用、平倉成交按比例釋放、撤單/拒單/過期釋放未成交預留
 			multiExecutor.OnOrderUpdate(posUpdate)
 		}
+		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
 	}); err != nil {
 		if errors.Is(err, binance.ErrHedgePositionMode) {
 			// 對沖（雙向）持倉模式下所有訂單都會被拒，繼續啟動只會空轉，直接中止
