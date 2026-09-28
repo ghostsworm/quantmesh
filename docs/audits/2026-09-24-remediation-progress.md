@@ -1098,3 +1098,10 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 修正测试 mock，使空仓通过显式空切片表达，并覆盖 nil/typed-nil、错误类型、nil 行、NaN 和重复交易对；每种异常均断言返回错误、不执行仓位同步、不发布完成样本。
 - 验证：`go test ./safety -run 'TestReconciler(RejectsUnverifiedPositionSnapshot|ContextCancellation|ContextCancellationInterruptsThrottle|_Reconcile|_Spot|_Direction)' -count=3`、`go test -race ./safety -run 'TestReconciler(RejectsUnverifiedPositionSnapshot|ContextCancellation)' -count=3`、全量 `go test ./... -count=1`、`go vet ./...` 及 `webui/yarn verify` 通过；未调用真实交易所。
 - **边界：重复同交易对快照按歧义失败关闭；对冲持仓模式若交易所适配器按 LONG/SHORT 分行返回同一 symbol，将跳过本轮对账并记录错误，需后续按持仓方向字段设计专门解析。** 盈利准备度其他未闭合项继续开放。未提交、推送或交易。
+
+## 后续续修：未完成挂单期间禁止单快照同步槽位（3.111.0-rc211）
+
+- 对账器此前查询交易所未完成挂单却只记录响应类型，且持仓差异分支在有未完成开/平仓单时仍可能调用 `ForceSyncPositions`，导致在途敞口或槽位订单身份被单次仓位读数覆盖。
+- 现在将统一接口的 `[]*exchange.Order` 响应作为已核实挂单快照；拒绝 nil、typed-nil、错误类型及 nil 项。只要交易所快照中有订单，或本地槽位仍记录活动开/平仓订单，仓位差异仅告警、不自动同步。定向用例覆盖交易所未归属订单、本地待确认平仓订单及异常快照。
+- 验证：定向对账测试重复三轮通过；`go test -race ./safety -run 'TestReconciler(RejectsUnverifiedOpenOrderSnapshot|SkipsPositionSyncWhileOrdersRemainOpen|RejectsUnverifiedPositionSnapshot|ContextCancellation)' -count=3`、全量 `go test ./... -count=1`、`go vet ./...` 和 `webui/yarn verify`（39 文件/193 项、生产构建及 PWA 生成）均通过。没有调用真实交易所。
+- **边界：这不是挂单自动修复：不会按快照取消、接管或终结本地/外部订单；存在任何活动订单时仓位同步会保守跳过。订单成交、取消终态和账本结算仍须各自核实，且查询与新订单提交之间仍存在跨组件竞态，需后续统一协调屏障。** 未交易；盈利准备度其他未闭合项继续开放。

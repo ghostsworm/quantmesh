@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/lock"
 	"testing"
 	"time"
@@ -160,7 +161,8 @@ type TestSlot struct {
 
 // MockReconcileExchange 专门用於對账测試的 Mock
 type MockReconcileExchange struct {
-	Positions []mockExchangePositionRow
+	Positions  []mockExchangePositionRow
+	OpenOrders []*exchange.Order
 }
 
 func (m *MockReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
@@ -170,9 +172,21 @@ func (m *MockReconcileExchange) GetPositions(ctx context.Context, symbol string)
 	return m.Positions, nil
 }
 func (m *MockReconcileExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
-	return nil, nil
+	if m.OpenOrders == nil {
+		return []*exchange.Order{}, nil
+	}
+	return m.OpenOrders, nil
 }
 func (m *MockReconcileExchange) GetBaseAsset() string { return "BTC" }
+
+type rawOpenOrdersReconcileExchange struct {
+	MockReconcileExchange
+	raw interface{}
+}
+
+func (m *rawOpenOrdersReconcileExchange) GetOpenOrders(context.Context, string) (interface{}, error) {
+	return m.raw, nil
+}
 
 type rawPositionReconcileExchange struct {
 	MockReconcileExchange
@@ -217,6 +231,84 @@ func TestReconcilerRejectsUnverifiedPositionSnapshot(t *testing.T) {
 			}
 			if pm.ReconcileCount != 0 {
 				t.Fatalf("unverified snapshot published a completed sample, count=%d", pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerRejectsUnverifiedOpenOrderSnapshot(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  interface{}
+	}{
+		{name: "nil response", raw: nil},
+		{name: "typed nil slice", raw: []*exchange.Order(nil)},
+		{name: "wrong response type", raw: []string{"BTCUSDT"}},
+		{name: "nil order", raw: []*exchange.Order{nil}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "spot"
+			cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+			ex := &rawOpenOrdersReconcileExchange{raw: tt.raw}
+			pm := &MockPositionManager{
+				Symbol: "BTCUSDT",
+				Slots: map[float64]interface{}{
+					50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1, OrderSide: "SELL"},
+				},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("Reconcile() succeeded with an unverified open-order snapshot")
+			}
+			if pm.ForceSyncCount != 0 || pm.ReconcileCount != 0 {
+				t.Fatalf("unverified snapshot changed state: sync=%d reconcile=%d", pm.ForceSyncCount, pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerSkipsPositionSyncWhileOrdersRemainOpen(t *testing.T) {
+	tests := []struct {
+		name       string
+		openOrders []*exchange.Order
+		orderState string
+	}{
+		{
+			name:       "venue order not represented by local slot",
+			openOrders: []*exchange.Order{{OrderID: 10, Symbol: "BTCUSDT", Status: exchange.OrderStatusNew}},
+			orderState: "NOT_PLACED",
+		},
+		{
+			name:       "local close order awaiting venue snapshot",
+			openOrders: []*exchange.Order{},
+			orderState: "PLACED",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "spot"
+			cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+			ex := &MockReconcileExchange{OpenOrders: tt.openOrders}
+			pm := &MockPositionManager{
+				Symbol: "BTCUSDT",
+				Slots: map[float64]interface{}{
+					50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1, OrderSide: "SELL", OrderStatus: tt.orderState},
+				},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if pm.ForceSyncCount != 0 {
+				t.Fatalf("open orders must prevent ForceSyncPositions, got %v", pm.LastForceSync)
+			}
+			if pm.ReconcileCount != 1 {
+				t.Fatalf("valid snapshots should complete reconciliation, count=%d", pm.ReconcileCount)
 			}
 		})
 	}
@@ -318,7 +410,7 @@ func TestReconciler_SpotAdoptAll_ForceSyncWhenLocalLessThanExchange(t *testing.T
 				PositionStatus: "FILLED",
 				PositionQty:    0.01,
 				OrderSide:      "SELL",
-				OrderStatus:    "PLACED",
+				OrderStatus:    "NOT_PLACED",
 			},
 		},
 	}

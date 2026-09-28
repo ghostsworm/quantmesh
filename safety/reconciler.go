@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"reflect"
@@ -206,10 +207,14 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	if err != nil {
 		return fmt.Errorf("查詢挂單失败: %w", err)
 	}
+	exchangeOpenOrders, err := parseExchangeOpenOrders(openOrdersRaw)
+	if err != nil {
+		return fmt.Errorf("核實交易所挂單响应失败: %w", err)
+	}
 
 	// 3. 解析持倉和挂單信息（通用处理）
 	logger.Debug("📊 交易所持倉資訊類型: %T", positionsRaw)
-	logger.Debug("📊 交易所挂單信息類型: %T", openOrdersRaw)
+	logger.Debug("📊 交易所未完成挂單數: %d", len(exchangeOpenOrders))
 
 	// 3a. 持仓快照必须明确返回可解析的 slice；nil/坏数据不能当成空仓。
 
@@ -329,6 +334,15 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		logger.Warn("🚨 [對账預警] 持倉不一致! 本地: %.6f, 交易所: %.6f, 差异: %.6f",
 			localTotal, exchangePosition, localTotal-exchangePosition)
 
+		// A single position snapshot is not safe to apply while any order can
+		// still change account exposure. This includes venue orders not owned by
+		// this grid and local orders awaiting their venue acknowledgement.
+		if len(exchangeOpenOrders) > 0 || activeBuyOrders > 0 || activeSellOrders > 0 {
+			logger.Warn("⚠️ [對账同步] 存在未完成挂單（交易所: %d, 本地開倉: %d, 本地平倉: %d），跳過持倉同步",
+				len(exchangeOpenOrders), activeBuyOrders, activeSellOrders)
+			return nil
+		}
+
 		// 🔥 自动同步逻辑：如果交易所持倉為0，但本地认為有持倉
 		// 这种情况通常发生在手动平倉、重啟程序或訂單流丢失時
 		// ⚠️ 重要：如果有挂單（特别是賣單），不应该清空持仓，因為挂單意味着持仓正在被卖出
@@ -364,6 +378,25 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
 	return nil
+}
+
+func parseExchangeOpenOrders(raw interface{}) ([]*exchange.Order, error) {
+	if raw == nil {
+		return nil, fmt.Errorf("挂單响应为 nil，无法确认不存在未完成订单")
+	}
+	orders, ok := raw.([]*exchange.Order)
+	if !ok {
+		return nil, fmt.Errorf("挂單响应类型不可解析: %T", raw)
+	}
+	if orders == nil {
+		return nil, fmt.Errorf("挂單响应为 nil 切片，无法确认不存在未完成订单")
+	}
+	for i, order := range orders {
+		if order == nil {
+			return nil, fmt.Errorf("挂單响应第 %d 项为 nil", i)
+		}
+	}
+	return orders, nil
 }
 
 func parseExchangePositionSize(raw interface{}, symbol string) (float64, error) {
