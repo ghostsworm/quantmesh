@@ -182,6 +182,7 @@ func backfillTradesBotIDFromOrders(db *sql.DB, tableName, ordersTableName string
 		LOWER(TRIM(COALESCE(o.exchange, ''))) = LOWER(TRIM(COALESCE(%[1]s.exchange, '')))
 		AND TRIM(COALESCE(o.account, '')) = TRIM(COALESCE(%[1]s.account, ''))
 		AND LOWER(TRIM(COALESCE(o.market_type, ''))) = LOWER(TRIM(COALESCE(%[1]s.market_type, '')))
+		AND UPPER(TRIM(COALESCE(o.symbol, ''))) = UPPER(TRIM(COALESCE(%[1]s.symbol, '')))
 		AND TRIM(COALESCE(o.account_scope, '')) = TRIM(COALESCE(%[1]s.account_scope, ''))
 	`, tableName)
 	orderBot := func(orderColumn string) string {

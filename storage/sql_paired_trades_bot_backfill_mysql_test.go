@@ -30,33 +30,35 @@ func TestMySQLBackfillTradesBotIDFromOrdersRejectsAmbiguousOwnership(t *testing.
 	defer db.Exec("DROP TABLE IF EXISTS " + tradesTable)
 	_, err = db.Exec(`CREATE TABLE ` + ordersTable + ` (
 		order_id BIGINT, bot_id VARCHAR(128), exchange VARCHAR(64), account VARCHAR(255),
-		market_type VARCHAR(32), account_scope VARCHAR(512)) ENGINE=InnoDB`)
+		market_type VARCHAR(32), symbol VARCHAR(64), account_scope VARCHAR(512)) ENGINE=InnoDB`)
 	if err != nil {
 		t.Fatal("create isolated order fixture:", err)
 	}
 	_, err = db.Exec(`CREATE TABLE ` + tradesTable + ` (
 		id BIGINT PRIMARY KEY, sell_order_id BIGINT, buy_order_id BIGINT, bot_id VARCHAR(128),
-		exchange VARCHAR(64), account VARCHAR(255), market_type VARCHAR(32), account_scope VARCHAR(512)) ENGINE=InnoDB`)
+		exchange VARCHAR(64), account VARCHAR(255), market_type VARCHAR(32), symbol VARCHAR(64), account_scope VARCHAR(512)) ENGINE=InnoDB`)
 	if err != nil {
 		t.Fatal("create isolated paired-trade fixture:", err)
 	}
-	_, err = db.Exec(`INSERT INTO ` + ordersTable + ` (order_id, bot_id, exchange, account, market_type, account_scope) VALUES
-		(500, 'wrong-scope', 'okx', 'acct-a', 'futures', 'scope-a'),
-		(500, 'owner-a', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(501, 'owner-b', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(502, 'owner-b', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(503, 'owner-left', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(504, 'owner-right', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(505, 'BotCase', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(505, 'botcase', 'binance', 'acct-a', 'futures', 'scope-a')`)
+	_, err = db.Exec(`INSERT INTO ` + ordersTable + ` (order_id, bot_id, exchange, account, market_type, symbol, account_scope) VALUES
+		(500, 'wrong-scope', 'okx', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(500, 'owner-a', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(501, 'owner-b', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(502, 'owner-b', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(503, 'owner-left', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(504, 'owner-right', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(505, 'BotCase', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(505, 'botcase', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(506, 'wrong-symbol', 'binance', 'acct-a', 'futures', 'ETHUSDT', 'scope-a')`)
 	if err != nil {
 		t.Fatal("insert temporary order fixture:", err)
 	}
-	_, err = db.Exec(`INSERT INTO ` + tradesTable + ` (id, sell_order_id, buy_order_id, bot_id, exchange, account, market_type, account_scope) VALUES
-		(1, 500, NULL, '', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(2, 501, 502, '', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(3, 503, 504, '', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(4, 505, NULL, '', 'binance', 'acct-a', 'futures', 'scope-a')`)
+	_, err = db.Exec(`INSERT INTO ` + tradesTable + ` (id, sell_order_id, buy_order_id, bot_id, exchange, account, market_type, symbol, account_scope) VALUES
+		(1, 500, NULL, '', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(2, 501, 502, '', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(3, 503, 504, '', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(4, 505, NULL, '', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a'),
+		(5, 506, NULL, '', 'binance', 'acct-a', 'futures', 'BTCUSDT', 'scope-a')`)
 	if err != nil {
 		t.Fatal("insert temporary paired-trade fixture:", err)
 	}
@@ -64,7 +66,7 @@ func TestMySQLBackfillTradesBotIDFromOrdersRejectsAmbiguousOwnership(t *testing.
 	if err := backfillTradesBotIDFromOrders(db, tradesTable, ordersTable); err != nil {
 		t.Fatalf("backfill MySQL legacy ownership: %v", err)
 	}
-	want := map[int64]string{1: "owner-a", 2: "owner-b", 3: "", 4: ""}
+	want := map[int64]string{1: "owner-a", 2: "owner-b", 3: "", 4: "", 5: ""}
 	rows, err := db.Query(`SELECT id, bot_id FROM ` + tradesTable + ` ORDER BY id`)
 	if err != nil {
 		t.Fatal("read migrated MySQL ownership:", err)
