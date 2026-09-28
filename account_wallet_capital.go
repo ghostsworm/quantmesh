@@ -12,23 +12,53 @@ type walletCapitalBot struct {
 	id       string
 	exchange string
 	market   string
+	symbol   string
 	capital  float64
 	orderQty float64
 	spread   *config.FundingPerpSpreadConfig
 }
 
 // configuredAccountWalletCapitalTotal converts gross Bot allocations into
-// commitments against one credential and market account. Comparisons use
-// configured USDT notionals; quote assets are not independently partitioned.
-// Paired strategies use half their gross allocation per leg.
+// commitments against one credential, market account, and quote asset. Pure
+// callers infer the candidate asset; runtime callers should use the exchange's
+// market metadata through configuredAccountWalletCapitalForQuote.
 func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.SymbolConfig, walletExchange, walletMarket string) (float64, error) {
+	quoteAsset, err := configuredCandidateQuoteAsset(candidate)
+	if err != nil {
+		return 0, fmt.Errorf("candidate Bot quote asset: %w", err)
+	}
+	return configuredAccountWalletCapitalForQuote(cfg, candidate, walletExchange, walletMarket, quoteAsset)
+}
+
+func configuredCandidateQuoteAsset(candidate config.SymbolConfig) (string, error) {
+	if candidate.GetMarketType() == config.MarketTypeFundingPerpSpread {
+		if candidate.FundingPerpSpread == nil {
+			return "", fmt.Errorf("funding_perp_spread leg configuration is unavailable")
+		}
+		for _, leg := range []config.FundingPerpLeg{candidate.FundingPerpSpread.LegA, candidate.FundingPerpSpread.LegB} {
+			quoteAsset, err := quoteAssetFromConfiguredSymbol(leg.Symbol)
+			if err != nil {
+				return "", err
+			}
+			if quoteAsset != "USDT" {
+				return "", fmt.Errorf("funding_perp_spread requires USDT quote assets, got %s", quoteAsset)
+			}
+		}
+		return "USDT", nil
+	}
+	return quoteAssetFromConfiguredSymbol(candidate.Symbol)
+}
+
+// Paired strategies use half their gross allocation per leg.
+func configuredAccountWalletCapitalForQuote(cfg *config.Config, candidate config.SymbolConfig, walletExchange, walletMarket, walletQuoteAsset string) (float64, error) {
 	if cfg == nil {
 		return 0, fmt.Errorf("account capital configuration is unavailable")
 	}
 	walletExchange = strings.TrimSpace(walletExchange)
 	walletMarket = strings.ToLower(strings.TrimSpace(walletMarket))
-	if walletExchange == "" || walletMarket == "" {
-		return 0, fmt.Errorf("wallet exchange and market are required")
+	walletQuoteAsset = strings.ToUpper(strings.TrimSpace(walletQuoteAsset))
+	if walletExchange == "" || walletMarket == "" || walletQuoteAsset == "" {
+		return 0, fmt.Errorf("wallet exchange, market, and quote asset are required")
 	}
 	walletCfg, ok := cfg.Exchanges[walletExchange]
 	if !ok || strings.TrimSpace(walletCfg.APIKey) == "" {
@@ -57,7 +87,7 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 			if exchangeName == "" {
 				exchangeName = currentExchange
 			}
-			bots = append(bots, walletCapitalBot{id: configuredWalletBotID(bot, exchangeName), exchange: exchangeName,
+			bots = append(bots, walletCapitalBot{id: configuredWalletBotID(bot, exchangeName), exchange: exchangeName, symbol: bot.Symbol,
 				market: bot.GetMarketType(), capital: bot.TotalAllocatedCapital, orderQty: bot.OrderQuantity,
 				spread: bot.FundingPerpSpread})
 		}
@@ -75,7 +105,7 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 					id = config.GenerateBotID(exchangeName, symbol.Symbol, symbol.GetMarketType())
 				}
 			}
-			bots = append(bots, walletCapitalBot{id: id, exchange: exchangeName,
+			bots = append(bots, walletCapitalBot{id: id, exchange: exchangeName, symbol: symbol.Symbol,
 				market: symbol.GetMarketType(), capital: symbol.TotalAllocatedCapital, orderQty: symbol.OrderQuantity,
 				spread: symbol.FundingPerpSpread})
 		}
@@ -86,14 +116,14 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 	candidateInserted := false
 	for i := range bots {
 		if bots[i].id == candidateID {
-			bots[i] = walletCapitalBot{id: candidateID, exchange: candidateExchange, market: candidateMarket,
+			bots[i] = walletCapitalBot{id: candidateID, exchange: candidateExchange, market: candidateMarket, symbol: candidate.Symbol,
 				capital: candidate.TotalAllocatedCapital, orderQty: candidate.OrderQuantity, spread: candidate.FundingPerpSpread}
 			candidateInserted = true
 			break
 		}
 	}
 	if !candidateInserted {
-		bots = append(bots, walletCapitalBot{id: candidateID, exchange: candidateExchange, market: candidateMarket,
+		bots = append(bots, walletCapitalBot{id: candidateID, exchange: candidateExchange, market: candidateMarket, symbol: candidate.Symbol,
 			capital: candidate.TotalAllocatedCapital, orderQty: candidate.OrderQuantity, spread: candidate.FundingPerpSpread})
 	}
 	seen := make(map[string]struct{}, len(bots))
@@ -106,7 +136,7 @@ func configuredAccountWalletCapitalTotal(cfg *config.Config, candidate config.Sy
 			return 0, fmt.Errorf("duplicate configured Bot identity %q prevents wallet commitment verification", bot.id)
 		}
 		seen[bot.id] = struct{}{}
-		fraction, relevant, err := walletCapitalFraction(cfg, bot, walletExchange, walletScope, walletMarket)
+		fraction, relevant, err := walletCapitalFraction(cfg, bot, walletExchange, walletScope, walletMarket, walletQuoteAsset)
 		if err != nil {
 			return 0, fmt.Errorf("Bot %s wallet commitment: %w", bot.id, err)
 		}
@@ -141,7 +171,7 @@ func configuredWalletBotID(bot config.BotConfig, exchangeName string) string {
 	return config.GenerateBotID(exchangeName, bot.Symbol, bot.GetMarketType())
 }
 
-func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExchange, walletScope, walletMarket string) (float64, bool, error) {
+func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExchange, walletScope, walletMarket, walletQuoteAsset string) (float64, bool, error) {
 	if bot.market == config.MarketTypeFundingCarry {
 		botExchange := strings.TrimSpace(bot.exchange)
 		botCfg, exists := cfg.Exchanges[botExchange]
@@ -149,6 +179,9 @@ func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExcha
 			return 0, false, fmt.Errorf("funding_carry account identity is unavailable")
 		}
 		if !exists || equityAccountScopeID(botExchange, botCfg) != walletScope || botExchange != walletExchange {
+			return 0, false, nil
+		}
+		if walletQuoteAsset != "USDT" {
 			return 0, false, nil
 		}
 		if walletMarket == "spot" || walletMarket == "futures" || walletMarket == "spot_margin" {
@@ -177,6 +210,13 @@ func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExcha
 				continue
 			}
 			if legExchange == walletExchange && equityAccountScopeID(legExchange, legCfg) == walletScope {
+				quoteAsset, err := quoteAssetFromConfiguredSymbol(leg.Symbol)
+				if err != nil {
+					return 0, false, fmt.Errorf("funding_perp_spread quote asset is unavailable: %w", err)
+				}
+				if quoteAsset != walletQuoteAsset {
+					return 0, false, fmt.Errorf("funding_perp_spread quote asset %s does not match wallet %s", quoteAsset, walletQuoteAsset)
+				}
 				fraction += 0.5
 			}
 		}
@@ -193,5 +233,34 @@ func walletCapitalFraction(cfg *config.Config, bot walletCapitalBot, walletExcha
 	if strings.ToLower(strings.TrimSpace(bot.market)) != walletMarket {
 		return 0, false, nil
 	}
+	quoteAsset, err := quoteAssetFromConfiguredSymbol(bot.symbol)
+	if err != nil {
+		return 0, false, fmt.Errorf("configured Bot %s quote asset is unavailable: %w", bot.id, err)
+	}
+	if quoteAsset != walletQuoteAsset {
+		return 0, false, nil
+	}
 	return 1, true, nil
+}
+
+var configuredQuoteAssetSuffixes = []string{
+	"USDT", "USDC", "FDUSD", "BUSD", "TUSD", "USDP", "DAI", "PAXG",
+	"EUR", "GBP", "AUD", "BRL", "CAD", "CHF", "JPY", "KRW", "MXN", "RUB", "TRY",
+	"USD", "BTC", "ETH", "BNB",
+}
+
+func quoteAssetFromConfiguredSymbol(symbol string) (string, error) {
+	normalized := strings.ToUpper(strings.TrimSpace(symbol))
+	for _, separator := range []string{"/", "-", "_", ":", " "} {
+		normalized = strings.ReplaceAll(normalized, separator, "")
+	}
+	for _, contractSuffix := range []string{"SWAP", "PERP"} {
+		normalized = strings.TrimSuffix(normalized, contractSuffix)
+	}
+	for _, suffix := range configuredQuoteAssetSuffixes {
+		if strings.HasSuffix(normalized, suffix) && len(normalized) > len(suffix) {
+			return suffix, nil
+		}
+	}
+	return "", fmt.Errorf("cannot identify quote asset from symbol %q", symbol)
 }

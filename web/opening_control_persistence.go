@@ -84,7 +84,7 @@ func openingControlTarget(cfg *config.Config, id, exchange, symbol, market strin
 
 // Copy, resolve and persist under the manager lock. Failure never changes the
 // currently published snapshot, including nested schedule slices.
-func persistOpeningControl(id, exchange, symbol, market string, req config.OpenPositionControl) (config.OpenPositionControl, string, error) {
+func persistOpeningControl(id, exchange, symbol, market string, req config.OpenPositionControl, clamp func(config.OpenPositionControl) (config.OpenPositionControl, error)) (config.OpenPositionControl, string, error) {
 	var zero config.OpenPositionControl
 	fcm := fileConfigManager
 	if fcm == nil {
@@ -111,6 +111,13 @@ func persistOpeningControl(id, exchange, symbol, market string, req config.OpenP
 	target.MaxPositionLayers = req.MaxPositionLayers
 	target.ScheduleRules = req.ScheduleRules
 	target.PeriodicRule = req.PeriodicRule
+	if clamp != nil {
+		effective, clampErr := clamp(config.CloneOpenPositionControl(*target))
+		if clampErr != nil {
+			return zero, "", fmt.Errorf("apply verified opening-control capital ceiling: %w", clampErr)
+		}
+		*target = effective
+	}
 	*target = config.CloneOpenPositionControl(*target)
 	if err = next.Validate(); err != nil {
 		return zero, "", err

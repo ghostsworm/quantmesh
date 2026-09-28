@@ -29,7 +29,9 @@ func TestOpeningSaveRuntimeUnavailableIsRejectedBeforePersistence(t *testing.T) 
 	oldFCM, oldProvider := fileConfigManager, symbolManagerProvider
 	t.Cleanup(func() { fileConfigManager, symbolManagerProvider = oldFCM, oldProvider })
 	fileConfigManager = NewFileConfigManager("")
-	if err := fileConfigManager.UpdateConfig(newRiskPersistenceConfig()); err != nil {
+	cfg := newRiskPersistenceConfig()
+	cfg.Bots[0].OpenPositionControl.BotRiskControl.MaxPositionValue = 250
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
 	rt := &struct {
@@ -75,6 +77,55 @@ func TestOpeningSaveAppliesThroughSpecializedRuntimeController(t *testing.T) {
 	w := openingSaveRequest(`{"max_position_value":200,"max_position_layers":3}`, "&bot_id=risk-test")
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"applied":true`) || applied.MaxPositionValue != 200 || applied.MaxPositionLayers != 3 {
 		t.Fatalf("specialized runtime control not applied: response=%d %s applied=%+v", w.Code, w.Body, applied)
+	}
+}
+
+func TestOpeningSavePersistsStartupBudgetClampedRuntimeControl(t *testing.T) {
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+	oldFCM, oldProvider := fileConfigManager, symbolManagerProvider
+	t.Cleanup(func() { fileConfigManager, symbolManagerProvider = oldFCM, oldProvider })
+	fileConfigManager = NewFileConfigManager("")
+	cfg := newRiskPersistenceConfig()
+	cfg.Bots[0].OpenPositionControl.BotRiskControl.MaxPositionValue = 250
+	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	var applied config.OpenPositionControl
+	rt := &struct {
+		Config            config.SymbolConfig
+		OpeningController *position.OpeningController
+		UpdateOpenControl func(config.OpenPositionControl) error
+		ClampOpenControl  func(config.OpenPositionControl) (config.OpenPositionControl, error)
+	}{
+		Config: config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+		UpdateOpenControl: func(control config.OpenPositionControl) error {
+			applied = control
+			return nil
+		},
+		ClampOpenControl: func(control config.OpenPositionControl) (config.OpenPositionControl, error) {
+			if control.MaxPositionValue == 0 || control.MaxPositionValue > 100 {
+				control.MaxPositionValue = 100
+			}
+			if control.BotRiskControl != nil && (control.BotRiskControl.MaxPositionValue == 0 || control.BotRiskControl.MaxPositionValue > 100) {
+				control.BotRiskControl.MaxPositionValue = 100
+			}
+			return control, nil
+		},
+	}
+	symbolManagerProvider = openingTestProvider{runtime: rt}
+	w := openingSaveRequest(`{"max_position_value":200,"max_position_layers":3}`, "&bot_id=risk-test")
+	if w.Code != http.StatusOK || applied.MaxPositionValue != 100 {
+		t.Fatalf("runtime opening control was not clamped: status=%d body=%s applied=%+v", w.Code, w.Body, applied)
+	}
+	persisted, err := loadConfigFromPrimaryDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := persisted.Bots[0].OpenPositionControl.MaxPositionValue; got != 100 {
+		t.Fatalf("persisted opening-control limit = %v, want verified ceiling 100", got)
+	}
+	if got := persisted.Bots[0].OpenPositionControl.BotRiskControl.MaxPositionValue; got != 100 {
+		t.Fatalf("persisted nested Bot risk limit = %v, want verified ceiling 100", got)
 	}
 }
 

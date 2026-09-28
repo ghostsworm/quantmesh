@@ -117,24 +117,26 @@ type ExchangeOrderExecutor struct {
 	orderRetryDelay     time.Duration
 
 	// postOnlyRepriceMaxAttempts PostOnly 被拒後重定價重掛的最大次數（<=0 用預設值）
-	postOnlyRepriceMaxAttempts atomic.Int32
-	openingGate                *execution.OpeningGate
-	positionDirection          string
-	intentMu                   sync.Mutex
-	cancellationMu             sync.Mutex
-	intents                    map[string]*ownedIntent
-	unknownOrderHandler        func(OrderRequest)
-	tradeLedgerRecoveryHandler func(context.Context, execution.IntentScope, int64, float64, []byte) error
-	exposureBook               *execution.ExposureBook
-	exposureRequired           bool
-	exposureMarkProvider       func() (float64, time.Time) // immutable after startup
-	intentJournal              execution.IntentJournal
-	intentScope                execution.IntentScope
-	intentScopeKey             string
-	journalRequired            bool
-	journalLoaded              bool
-	submissionGate             execution.OpeningGate // all ordinary submissions, including closes
-	reconciliationSequence     atomic.Uint64
+	postOnlyRepriceMaxAttempts  atomic.Int32
+	openingGate                 *execution.OpeningGate
+	positionDirection           string
+	intentMu                    sync.Mutex
+	cancellationMu              sync.Mutex
+	exposureLimitMu             sync.Mutex
+	exposureCancellationPending bool
+	intents                     map[string]*ownedIntent
+	unknownOrderHandler         func(OrderRequest)
+	tradeLedgerRecoveryHandler  func(context.Context, execution.IntentScope, int64, float64, []byte) error
+	exposureBook                *execution.ExposureBook
+	exposureRequired            bool
+	exposureMarkProvider        func() (float64, time.Time) // immutable after startup
+	intentJournal               execution.IntentJournal
+	intentScope                 execution.IntentScope
+	intentScopeKey              string
+	journalRequired             bool
+	journalLoaded               bool
+	submissionGate              execution.OpeningGate // all ordinary submissions, including closes
+	reconciliationSequence      atomic.Uint64
 }
 
 // SetPostOnlyRepriceMaxAttempts 設置 PostOnly 被拒後重定價的最大次數（<=0 使用預設值，並發安全）
@@ -219,6 +221,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	if req.Side != "BUY" && req.Side != "SELL" {
 		return nil, fmt.Errorf("invalid order side %q", req.Side)
 	}
+	if oe.exposureBook != nil {
+		oe.refreshExposureMark()
+	}
 	orderType, tif, err := validateOrderExecution(req)
 	if err != nil {
 		return nil, err
@@ -227,6 +232,12 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		req.ClientOrderID = utils.NewCompactOrderID()
 	}
 	if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
+		if oe.openingGate != nil && oe.openingGate.HasBlock(ExposureLimitBlock) {
+			if oe.exposureBook != nil && oe.exposureBook.OverLimits() {
+				return nil, execution.ErrExposureLimit
+			}
+			return nil, execution.ErrExposureUnverified
+		}
 		return nil, execution.ErrOpeningPaused
 	}
 	// Market opens need a live notional bound before capital can be reserved.

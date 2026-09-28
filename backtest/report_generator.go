@@ -71,29 +71,29 @@ type ComparisonReportData struct {
 	// 網格方向（開多/開空/雙向網格）
 	GridDirectionLabel string
 	// 無風控
-	NoRiskTotalReturn  string
-	NoRiskMaxDrawdown  string
-	NoRiskTotalTrades  string
-	NoRiskBuyCount     string
-	NoRiskSellCount    string
-	NoRiskFinalCapital string
-	NoRiskOpenCloseDiff string
-	NoRiskEndPositionQty string
+	NoRiskTotalReturn      string
+	NoRiskMaxDrawdown      string
+	NoRiskTotalTrades      string
+	NoRiskBuyCount         string
+	NoRiskSellCount        string
+	NoRiskFinalCapital     string
+	NoRiskOpenCloseDiff    string
+	NoRiskEndPositionQty   string
 	NoRiskEndPositionValue string
 	// 有風控
-	WithRiskTotalReturn  string
-	WithRiskMaxDrawdown  string
-	WithRiskTotalTrades  string
-	WithRiskBuyCount     string
-	WithRiskSellCount    string
-	WithRiskFinalCapital string
-	WithRiskOpenCloseDiff string
-	WithRiskEndPositionQty string
+	WithRiskTotalReturn      string
+	WithRiskMaxDrawdown      string
+	WithRiskTotalTrades      string
+	WithRiskBuyCount         string
+	WithRiskSellCount        string
+	WithRiskFinalCapital     string
+	WithRiskOpenCloseDiff    string
+	WithRiskEndPositionQty   string
 	WithRiskEndPositionValue string
 	// 差異
-	ReturnDiff     string
-	DrawdownDiff   string
-	TradeCountDiff string
+	ReturnDiff        string
+	DrawdownDiff      string
+	TradeCountDiff    string
 	TradeCountExplain string
 	// 風控介入
 	InterventionCount int
@@ -194,37 +194,37 @@ func prepareComparisonReportData(comp *ComparisonResult, meta *ReportMeta) Compa
 	gridDirLabel := formatGridDirectionLabel(meta)
 
 	return ComparisonReportData{
-		ReportData:              base,
-		GridDirectionLabel:      gridDirLabel,
-		NoRiskTotalReturn:       fmt.Sprintf("%.4f%%", noRisk.Metrics.TotalReturn),
-		NoRiskMaxDrawdown:       fmt.Sprintf("%.4f%%", noRisk.Metrics.MaxDrawdown),
-		NoRiskTotalTrades:       fmt.Sprintf("%d", noRisk.Metrics.TotalTrades),
-		NoRiskBuyCount:          fmt.Sprintf("%d", noRisk.Metrics.BuyCount),
-		NoRiskSellCount:         fmt.Sprintf("%d", noRisk.Metrics.SellCount),
-		NoRiskFinalCapital:      fmt.Sprintf("%.4f", noRisk.FinalCapital),
-		NoRiskOpenCloseDiff:     fmt.Sprintf("%+d", noRiskOpenCloseDiff),
-		NoRiskEndPositionQty:    formatComparisonEndPositionQty(noRiskEndQty, direction, baseAsset),
-		NoRiskEndPositionValue:  formatComparisonEndPositionValue(noRiskEndVal, direction),
-		WithRiskTotalReturn:     fmt.Sprintf("%.4f%%", withRisk.Metrics.TotalReturn),
-		WithRiskMaxDrawdown:     fmt.Sprintf("%.4f%%", withRisk.Metrics.MaxDrawdown),
-		WithRiskTotalTrades:     fmt.Sprintf("%d", withRisk.Metrics.TotalTrades),
-		WithRiskBuyCount:        fmt.Sprintf("%d", withRisk.Metrics.BuyCount),
-		WithRiskSellCount:       fmt.Sprintf("%d", withRisk.Metrics.SellCount),
-		WithRiskFinalCapital:    fmt.Sprintf("%.4f", withRisk.FinalCapital),
-		WithRiskOpenCloseDiff:   fmt.Sprintf("%+d", withRiskOpenCloseDiff),
-		WithRiskEndPositionQty:  formatComparisonEndPositionQty(withRiskEndQty, direction, baseAsset),
+		ReportData:               base,
+		GridDirectionLabel:       gridDirLabel,
+		NoRiskTotalReturn:        fmt.Sprintf("%.4f%%", noRisk.Metrics.TotalReturn),
+		NoRiskMaxDrawdown:        fmt.Sprintf("%.4f%%", noRisk.Metrics.MaxDrawdown),
+		NoRiskTotalTrades:        fmt.Sprintf("%d", noRisk.Metrics.TotalTrades),
+		NoRiskBuyCount:           fmt.Sprintf("%d", noRisk.Metrics.BuyCount),
+		NoRiskSellCount:          fmt.Sprintf("%d", noRisk.Metrics.SellCount),
+		NoRiskFinalCapital:       fmt.Sprintf("%.4f", noRisk.FinalCapital),
+		NoRiskOpenCloseDiff:      fmt.Sprintf("%+d", noRiskOpenCloseDiff),
+		NoRiskEndPositionQty:     formatComparisonEndPositionQty(noRiskEndQty, direction, baseAsset),
+		NoRiskEndPositionValue:   formatComparisonEndPositionValue(noRiskEndVal, direction),
+		WithRiskTotalReturn:      fmt.Sprintf("%.4f%%", withRisk.Metrics.TotalReturn),
+		WithRiskMaxDrawdown:      fmt.Sprintf("%.4f%%", withRisk.Metrics.MaxDrawdown),
+		WithRiskTotalTrades:      fmt.Sprintf("%d", withRisk.Metrics.TotalTrades),
+		WithRiskBuyCount:         fmt.Sprintf("%d", withRisk.Metrics.BuyCount),
+		WithRiskSellCount:        fmt.Sprintf("%d", withRisk.Metrics.SellCount),
+		WithRiskFinalCapital:     fmt.Sprintf("%.4f", withRisk.FinalCapital),
+		WithRiskOpenCloseDiff:    fmt.Sprintf("%+d", withRiskOpenCloseDiff),
+		WithRiskEndPositionQty:   formatComparisonEndPositionQty(withRiskEndQty, direction, baseAsset),
 		WithRiskEndPositionValue: formatComparisonEndPositionValue(withRiskEndVal, direction),
-		ReturnDiff:              fmt.Sprintf("%+.4f%%", cm.ReturnDiff),
-		DrawdownDiff:            fmt.Sprintf("%+.4f%%", cm.DrawdownDiff),
-		TradeCountDiff:          fmt.Sprintf("%+d", cm.TradeCountDiff),
-		TradeCountExplain:       buildTradeCountExplain(direction, noRiskOpenCloseDiff, noRiskEndQty, withRiskOpenCloseDiff, withRiskEndQty),
-		InterventionCount:       cm.RiskInterventionCount,
-		SkippedSignals:          cm.SkippedSignals,
-		InterventionsSkipped:    intervSkipped,
-		InterventionsNotSkipped: intervNotSkipped,
-		TotalSkippedCount:       totalSkippedCount,
-		TotalNotSkippedCount:    totalNotSkippedCount,
-		RiskAnalysis:            riskAnalysis,
+		ReturnDiff:               fmt.Sprintf("%+.4f%%", cm.ReturnDiff),
+		DrawdownDiff:             fmt.Sprintf("%+.4f%%", cm.DrawdownDiff),
+		TradeCountDiff:           fmt.Sprintf("%+d", cm.TradeCountDiff),
+		TradeCountExplain:        buildTradeCountExplain(direction, noRiskOpenCloseDiff, noRiskEndQty, withRiskOpenCloseDiff, withRiskEndQty),
+		InterventionCount:        cm.RiskInterventionCount,
+		SkippedSignals:           cm.SkippedSignals,
+		InterventionsSkipped:     intervSkipped,
+		InterventionsNotSkipped:  intervNotSkipped,
+		TotalSkippedCount:        totalSkippedCount,
+		TotalNotSkippedCount:     totalNotSkippedCount,
+		RiskAnalysis:             riskAnalysis,
 	}
 }
 
@@ -561,9 +561,9 @@ type ReportData struct {
 	BuyLabel  string // 買入對應的顯示標籤（開倉/平倉/買入）
 	SellLabel string // 賣出對應的顯示標籤（平倉/開倉/賣出）
 	// 成對交易表頭（開倉時間/開倉價、平倉時間/平倉價，或 買入/賣出）
-	OpenTimeCol  string
-	OpenPriceCol string
-	CloseTimeCol string
+	OpenTimeCol   string
+	OpenPriceCol  string
+	CloseTimeCol  string
 	ClosePriceCol string
 
 	// 收益指標
@@ -593,14 +593,14 @@ type ReportData struct {
 	LargestLoss          string
 	MaxConsecutiveWins   string
 	MaxConsecutiveLosses string
-	MaxPosition          string // 最大持倉（基幣數量，如 0.1234 BTC）
-	EndPositionQty       string // 期末持倉（基幣數量）或做空時「欠 X.XXX 基幣」
-	EndPositionValue     string // 期末持倉市值（USDT）或做空時「倉位負債 X.XXX USDT」
-	EndCashUSDT          string // 期末持有 USDT（現金）
-	RealFinalCapital     string // 真正的期末資金（現金 + 市值/杠杆）
-	EndNetValue          string // 期末净價值（做多=USDT+持倉市值，做空=USDT-負債；等於 RealFinalCapital）
+	MaxPosition          string  // 最大持倉（基幣數量，如 0.1234 BTC）
+	EndPositionQty       string  // 期末持倉（基幣數量）或做空時「欠 X.XXX 基幣」
+	EndPositionValue     string  // 期末持倉市值（USDT）或做空時「倉位負債 X.XXX USDT」
+	EndCashUSDT          string  // 期末持有 USDT（現金）
+	RealFinalCapital     string  // 真正的期末資金（現金 + 市值/杠杆）
+	EndNetValue          string  // 期末净價值（做多=USDT+持倉市值，做空=USDT-負債；等於 RealFinalCapital）
 	Leverage             float64 // 杠杆倍数
-	TotalSlippageLoss    string // 🔥 累计價格偏差（slippage）損失（USDT）
+	TotalSlippageLoss    string  // 🔥 累计價格偏差（slippage）損失（USDT）
 
 	// 交易明细
 	TopTrades         []TradeRow  // 前20筆原始成交
@@ -819,21 +819,21 @@ func formatStrategyConfig(cfg map[string]interface{}) string {
 
 // paramKeyToLabel 參數鍵到中文標籤的映射（網格策略、風控等）
 var paramKeyToLabel = map[string]string{
-	"grid_spacing":                          "網格間距",
-	"grid_count":                            "格子數",
-	"order_quantity":                        "單筆訂單大小（USDT）",
-	"fee_rate":                              "手續費率",
-	"direction":                             "方向",
-	"price_low":                             "價格下限",
-	"price_high":                            "價格上限",
-	"total_capital":                         "總資金",
-	"profit_spread":                         "利潤間距（止盈價差）",
-	"risk_volume_multiplier":                "風控-成交量倍數",
-	"risk_average_window":                   "風控-均線窗口",
-	"grid_risk_control_enabled":             "風控-啟用",
+	"grid_spacing":                           "網格間距",
+	"grid_count":                             "格子數",
+	"order_quantity":                         "單筆訂單大小（USDT）",
+	"fee_rate":                               "手續費率",
+	"direction":                              "方向",
+	"price_low":                              "價格下限",
+	"price_high":                             "價格上限",
+	"total_capital":                          "總資金",
+	"profit_spread":                          "利潤間距（止盈價差）",
+	"risk_volume_multiplier":                 "風控-成交量倍數",
+	"risk_average_window":                    "風控-均線窗口",
+	"grid_risk_control_enabled":              "風控-啟用",
 	"grid_risk_control_trend_filter_enabled": "風控-趨勢過濾",
-	"leverage":                              "槓桿倍數",
-	"max_capital_ratio":                     "最大資金占用比例",
+	"leverage":                               "槓桿倍數",
+	"max_capital_ratio":                      "最大資金占用比例",
 }
 
 // formatParamKey 將參數鍵轉為可讀標籤
@@ -1419,40 +1419,41 @@ func SaveEquityCurveCSV(result *BacktestResult) (string, error) {
 
 // MultiStrategyReportData 多策略報告數據
 type MultiStrategyReportData struct {
-	GeneratedAt    string                      `json:"generated_at"`
-	Symbol         string                      `json:"symbol"`
-	Interval       string                      `json:"interval"`
-	StartDate      string                      `json:"start_date"`
-	EndDate        string                      `json:"end_date"`
-	Duration       string                      `json:"duration"`
-	InitialCapital float64                     `json:"initial_capital"`
-	FinalEquity    float64                     `json:"final_equity"`
-	TotalReturnPct float64                     `json:"total_return_pct"`
-	TotalTrades    int                         `json:"total_trades"`
-	TotalFees      float64                     `json:"total_fees"`
-	TotalFunding   float64                     `json:"total_funding"`
-	MaxDrawdownPct float64                     `json:"max_drawdown_pct"`
-	SharpeRatio    float64                     `json:"sharpe_ratio"`
-	WinRate        float64                     `json:"win_rate"`
-	Strategies     []MultiStrategyReportItem   `json:"strategies"`
-	ParamsTable     []ReportParamRow            `json:"params_table"`
-	Leverage        float64                     `json:"leverage"`         // 杠杆倍数
-	MaxCapitalRatio float64                     `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
+	GeneratedAt     string                    `json:"generated_at"`
+	Symbol          string                    `json:"symbol"`
+	Interval        string                    `json:"interval"`
+	StartDate       string                    `json:"start_date"`
+	EndDate         string                    `json:"end_date"`
+	Duration        string                    `json:"duration"`
+	InitialCapital  float64                   `json:"initial_capital"`
+	FinalEquity     float64                   `json:"final_equity"`
+	TotalReturnPct  float64                   `json:"total_return_pct"`
+	TotalTrades     int                       `json:"total_trades"`
+	TotalFees       float64                   `json:"total_fees"`
+	TotalFunding    float64                   `json:"total_funding"`
+	MaxDrawdownPct  float64                   `json:"max_drawdown_pct"`
+	SharpeRatio     float64                   `json:"sharpe_ratio"`
+	WinRate         float64                   `json:"win_rate"`
+	Strategies      []MultiStrategyReportItem `json:"strategies"`
+	ParamsTable     []ReportParamRow          `json:"params_table"`
+	Leverage        float64                   `json:"leverage"`          // 杠杆倍数
+	MaxCapitalRatio float64                   `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
 	// 期末結算明細（一眼區分估值收官 vs 強平收官）
-	EndLiquidated       bool    `json:"end_liquidated"`
-	EndLiquidationPrice string  `json:"end_liquidation_price"`
-	EndLiquidationQty   string  `json:"end_liquidation_qty"`
-	EndLiquidationAmt   string  `json:"end_liquidation_amt"`
+	EndLiquidated       bool               `json:"end_liquidated"`
+	EndLiquidationPrice string             `json:"end_liquidation_price"`
+	EndLiquidationQty   string             `json:"end_liquidation_qty"`
+	EndLiquidationAmt   string             `json:"end_liquidation_amt"`
+	Liquidations        []LiquidationEvent `json:"liquidations"`
 }
 
 // MultiStrategyReportItem 多策略報告中的單個策略項
 type MultiStrategyReportItem struct {
-	Name           string  `json:"name"`
-	Weight         float64 `json:"weight"`
-	TotalTrades    int     `json:"total_trades"`
-	RealizedPnl    float64 `json:"realized_pnl"`
-	WinRate        float64 `json:"win_rate"`
-	MaxDrawdown    float64 `json:"max_drawdown"`
+	Name        string  `json:"name"`
+	Weight      float64 `json:"weight"`
+	TotalTrades int     `json:"total_trades"`
+	RealizedPnl float64 `json:"realized_pnl"`
+	WinRate     float64 `json:"win_rate"`
+	MaxDrawdown float64 `json:"max_drawdown"`
 }
 
 // GenerateMultiStrategyReportToFile 生成多策略報告到指定路徑
@@ -1485,7 +1486,7 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 	}
 
 	data := MultiStrategyReportData{
-		GeneratedAt:        time.Now().Format("2006-01-02 15:04:05"),
+		GeneratedAt:         time.Now().Format("2006-01-02 15:04:05"),
 		Symbol:              result.Symbol,
 		Interval:            "", // 將在 task_manager 中填充
 		StartDate:           result.StartTime.Format("2006-01-02 15:04:05"),
@@ -1501,12 +1502,13 @@ func GenerateMultiStrategyReportToFile(result *MultiStrategyResult, reportPath s
 		SharpeRatio:         result.RiskMetrics.SharpeRatio,
 		WinRate:             result.RiskMetrics.WinRate,
 		ParamsTable:         paramsTable,
-		Leverage:             result.Leverage,
+		Leverage:            result.Leverage,
 		MaxCapitalRatio:     result.MaxCapitalRatio,
 		EndLiquidated:       result.EndSettlement.Liquidated,
 		EndLiquidationPrice: endLiqPrice,
 		EndLiquidationQty:   endLiqQty,
 		EndLiquidationAmt:   endLiqAmt,
+		Liquidations:        append([]LiquidationEvent(nil), result.Liquidations...),
 	}
 
 	// 添加杠杆和资金占用到参数表
@@ -1597,6 +1599,12 @@ func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, er
 | 強平價格 | {{.EndLiquidationPrice}} |
 | 強平數量 | {{.EndLiquidationQty}} |
 | 強平金額 | {{.EndLiquidationAmt}} |
+{{if .Liquidations}}
+
+| 策略 | 觸發價 | 實際成交價 | 數量 | 手續費 | 滑點成本 |
+|------|--------|------------|------|--------|----------|
+{{range .Liquidations}}| {{.StrategyName}} | {{printf "%.6f" .TriggerPrice}} | {{printf "%.6f" .ExecutionPrice}} | {{printf "%.6f" .Qty}} | {{printf "%.6f" .Fee}} | {{printf "%.6f" .Slippage}} |
+{{end}}{{end}}
 {{else}}
 **收官方式**: 估值收官
 
@@ -1652,18 +1660,18 @@ func renderMultiStrategyReportTemplate(data MultiStrategyReportData) (string, er
 
 // HedgeReportData 對沖報告數據
 type HedgeReportData struct {
-	GeneratedAt     string  `json:"generated_at"`
-	StartTime       string  `json:"start_time"`
-	EndTime         string  `json:"end_time"`
-	InitialCapital  float64 `json:"initial_capital"`
-	FinalEquity     float64 `json:"final_equity"`
-	TotalReturnPct  float64 `json:"total_return_pct"`
-	MaxDrawdownPct  float64 `json:"max_drawdown_pct"`
-	RebalanceCount  int     `json:"rebalance_count"`
-	AlignedPoints   int     `json:"aligned_points"`
-	LongSymbol      string  `json:"long_symbol"`
-	ShortSymbol     string  `json:"short_symbol"`
-	ParamsTable     []ReportParamRow `json:"params_table"`
+	GeneratedAt    string           `json:"generated_at"`
+	StartTime      string           `json:"start_time"`
+	EndTime        string           `json:"end_time"`
+	InitialCapital float64          `json:"initial_capital"`
+	FinalEquity    float64          `json:"final_equity"`
+	TotalReturnPct float64          `json:"total_return_pct"`
+	MaxDrawdownPct float64          `json:"max_drawdown_pct"`
+	RebalanceCount int              `json:"rebalance_count"`
+	AlignedPoints  int              `json:"aligned_points"`
+	LongSymbol     string           `json:"long_symbol"`
+	ShortSymbol    string           `json:"short_symbol"`
+	ParamsTable    []ReportParamRow `json:"params_table"`
 }
 
 // GenerateHedgeReportToFile 生成對沖報告到指定路徑
@@ -1682,18 +1690,18 @@ func GenerateHedgeReportToFile(result *HedgePairResult, reportPath string, task 
 	}
 
 	data := HedgeReportData{
-		GeneratedAt:     time.Now().Format("2006-01-02 15:04:05"),
-		StartTime:       result.StartTime.Format("2006-01-02 15:04:05"),
-		EndTime:         result.EndTime.Format("2006-01-02 15:04:05"),
-		InitialCapital:  result.InitialCapital,
-		FinalEquity:     result.FinalEquity,
-		TotalReturnPct:  result.TotalReturnPct,
-		MaxDrawdownPct:  result.MaxDrawdownPct,
-		RebalanceCount:  result.RebalanceCount,
-		AlignedPoints:   result.AlignedPoints,
-		LongSymbol:      result.LongSymbol,
-		ShortSymbol:     result.ShortSymbol,
-		ParamsTable:     paramsTable,
+		GeneratedAt:    time.Now().Format("2006-01-02 15:04:05"),
+		StartTime:      result.StartTime.Format("2006-01-02 15:04:05"),
+		EndTime:        result.EndTime.Format("2006-01-02 15:04:05"),
+		InitialCapital: result.InitialCapital,
+		FinalEquity:    result.FinalEquity,
+		TotalReturnPct: result.TotalReturnPct,
+		MaxDrawdownPct: result.MaxDrawdownPct,
+		RebalanceCount: result.RebalanceCount,
+		AlignedPoints:  result.AlignedPoints,
+		LongSymbol:     result.LongSymbol,
+		ShortSymbol:    result.ShortSymbol,
+		ParamsTable:    paramsTable,
 	}
 
 	content, err := renderHedgeReportTemplate(data)
@@ -1758,4 +1766,3 @@ func renderHedgeReportTemplate(data HedgeReportData) (string, error) {
 
 	return buf.String(), nil
 }
-

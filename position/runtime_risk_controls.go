@@ -1,6 +1,7 @@
 package position
 
 import (
+	"fmt"
 	"math"
 	"quantmesh/config"
 	"quantmesh/execution"
@@ -34,8 +35,35 @@ func (spm *SuperPositionManager) SetRiskControls(controls config.RiskControls) {
 	spm.publishRiskControlsLocked(controls)
 }
 
+// SetVerifiedCapitalLimit installs the immutable startup-verified Bot budget.
+// All subsequent control publication paths, including OpeningController's
+// direct updates, are clamped against this ceiling.
+func (spm *SuperPositionManager) SetVerifiedCapitalLimit(limit float64) error {
+	if !validRuntimeLimit(limit) || limit <= 0 {
+		return fmt.Errorf("verified capital limit must be finite and positive")
+	}
+	spm.mu.Lock()
+	defer spm.mu.Unlock()
+	if spm.verifiedCapitalLimit > 0 && spm.verifiedCapitalLimit != limit {
+		return fmt.Errorf("verified capital limit is immutable once installed")
+	}
+	spm.verifiedCapitalLimit = limit
+	spm.publishRiskControlsLocked(spm.riskControlSnapshot())
+	return nil
+}
+
+func validRuntimeLimit(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
 func (spm *SuperPositionManager) publishRiskControlsLocked(controls config.RiskControls) {
 	copy := controls.Clone()
+	if limit := spm.verifiedCapitalLimit; limit > 0 {
+		copy.Open.MaxPositionValue = clampNotionalLimit(copy.Open.MaxPositionValue, limit)
+		if copy.Open.BotRiskControl != nil {
+			copy.Open.BotRiskControl.MaxPositionValue = clampNotionalLimit(copy.Open.BotRiskControl.MaxPositionValue, limit)
+		}
+	}
 	// Pause/resume is owned by OpeningGate, not a stale configuration flag.
 	copy.Open.PauseOpening = false
 	if copy.Open.BotRiskControl != nil {
@@ -54,6 +82,13 @@ func (spm *SuperPositionManager) publishRiskControlsLocked(controls config.RiskC
 	}
 	spm.riskControls.Store(&copy)
 	spm.markAdjustDirty()
+}
+
+func clampNotionalLimit(configured, verified float64) float64 {
+	if math.IsNaN(configured) || math.IsInf(configured, 0) || configured <= 0 || configured > verified {
+		return verified
+	}
+	return configured
 }
 
 func (spm *SuperPositionManager) positionLimitReached(price float64) bool {

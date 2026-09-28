@@ -13,14 +13,18 @@ import (
 
 type runtimeRiskTestBot struct {
 	BotExtended
-	rc   config.BotRiskControl
-	grid config.GridRiskControl
+	rc           config.BotRiskControl
+	grid         config.GridRiskControl
+	capitalLimit float64
 }
 
 func (b *runtimeRiskTestBot) GetBotRiskControl() *config.BotRiskControl  { return &b.rc }
 func (b *runtimeRiskTestBot) GetGridRiskControl() config.GridRiskControl { return b.grid }
 func (b *runtimeRiskTestBot) SetRiskControls(rc *config.BotRiskControl, grid config.GridRiskControl) error {
 	b.rc, b.grid = *rc, grid
+	if b.capitalLimit > 0 && b.rc.MaxPositionValue > b.capitalLimit {
+		b.rc.MaxPositionValue = b.capitalLimit
+	}
 	return nil
 }
 
@@ -108,5 +112,29 @@ func TestRunningRiskControlPersistsBothSectionsInDatabase(t *testing.T) {
 	b := persisted.Bots[0]
 	if b.OpenPositionControl.BotRiskControl.MaxPositionValue != 200 || b.OpenPositionControl.BotRiskControl.MaxPositionQuantity != 7 || b.GridRiskControl.MaxGridLayers != 4 || b.GridRiskControl.StopLossRatio != 0.1 {
 		t.Fatal("database snapshot lost a section or omitted field")
+	}
+}
+
+func TestRunningRiskControlPersistsEffectiveClampedValue(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+	oldFCM, oldProvider := fileConfigManager, botExtendedProvider
+	t.Cleanup(func() { fileConfigManager, botExtendedProvider = oldFCM, oldProvider })
+	fileConfigManager = NewFileConfigManager("")
+	if err := fileConfigManager.UpdateConfig(newRiskPersistenceConfig()); err != nil {
+		t.Fatal(err)
+	}
+	bot := &runtimeRiskTestBot{capitalLimit: 100}
+	botExtendedProvider = protectiveResumeProvider{bot: bot}
+	code, response := runtimeRiskRequest(t)
+	if code != http.StatusOK || response["max_position_value"] != float64(100) {
+		t.Fatalf("API did not report effective clamped limit: status=%d response=%v", code, response)
+	}
+	persisted, err := loadConfigFromPrimaryDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := persisted.Bots[0].OpenPositionControl.BotRiskControl.MaxPositionValue; got != 100 {
+		t.Fatalf("persisted risk limit = %v, want effective cap 100", got)
 	}
 }

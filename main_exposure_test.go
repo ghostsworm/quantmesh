@@ -106,6 +106,24 @@ func TestRuntimeExposureSharedGridStrategyAndHotLimits(t *testing.T) {
 	}
 }
 
+func TestOpeningControllerLimitUpdatesCannotExceedVerifiedCapitalCeiling(t *testing.T) {
+	v := &runtimeJournalVenue{}
+	executor, spm, _, _ := runtimeExposureFixture(t, v)
+	if err := spm.SetVerifiedCapitalLimit(500); err != nil {
+		t.Fatal(err)
+	}
+	spm.SetOpenPositionControl(config.OpenPositionControl{MaxPositionValue: 900})
+	if got := spm.GetRiskControls().Open.MaxPositionValue; got != 500 {
+		t.Fatalf("published opening-control limit = %v, want verified ceiling 500", got)
+	}
+	_, err := executor.PlaceOrder(&order.OrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 6, ClientOrderID: "opening-control-over-budget",
+	})
+	if !errors.Is(err, execution.ErrExposureLimit) || v.sends != 0 {
+		t.Fatalf("direct opening-control update bypassed verified capital ceiling: sends=%d err=%v", v.sends, err)
+	}
+}
+
 func TestBotCapitalNotionalLimitIsSharedByGridAndStrategyOrders(t *testing.T) {
 	v := &runtimeJournalVenue{}
 	executor, spm, _, _ := runtimeExposureFixture(t, v)

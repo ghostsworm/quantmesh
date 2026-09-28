@@ -822,9 +822,17 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 		br.Inner.SuperPositionManager.SetSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
 		// 始終同步 Config，確保 smart_order、風控等配置變更在刷新頁面時正確顯示
 		br.configMu.Lock()
+		previousOpen := config.CloneOpenPositionControl(br.Config.OpenPositionControl)
+		previousGrid := br.Config.GridRiskControl
+		previousBotConfig := br.Config
 		br.Config = botCfg
 		br.Config.OpenPositionControl = config.CloneOpenPositionControl(botCfg.OpenPositionControl)
-		br.publishRiskControlsLocked()
+		if err := br.publishRiskControlsLocked(); err != nil {
+			br.Config = previousBotConfig
+			br.Config.OpenPositionControl = previousOpen
+			br.Config.GridRiskControl = previousGrid
+			logger.Error("[%s] 拒绝应用超过已核实预算的运行时风控: %v", botID, err)
+		}
 		br.configMu.Unlock()
 		br.Inner.Config = symCfg
 		if changed {
@@ -989,14 +997,18 @@ func (br *BotRuntime) GetBotRiskControl() *config.BotRiskControl {
 func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) error {
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
+	if !br.supportsRiskControlUpdates() {
+		return fmt.Errorf("runtime does not support hot risk-control updates")
+	}
+	previousOpen := config.CloneOpenPositionControl(br.Config.OpenPositionControl)
+	previousGrid := br.Config.GridRiskControl
 
 	copy := config.BotRiskControl{}
 	if riskControl != nil {
 		copy = *riskControl
 	}
 	br.Config.OpenPositionControl.BotRiskControl = &copy
-	br.publishRiskControlsLocked()
-	return nil
+	return br.rollbackRiskControlsLocked(previousOpen, previousGrid, br.publishRiskControlsLocked())
 }
 
 // GetGridRiskControl 獲取網格風控配置
@@ -1010,9 +1022,15 @@ func (br *BotRuntime) GetGridRiskControl() config.GridRiskControl {
 func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
+	if br.Inner != nil && br.Inner.SuperPositionManager == nil {
+		if br.Inner.UpdateOpenControl == nil || br.Config.GridRiskControl != grc {
+			return fmt.Errorf("specialized runtime does not support grid-risk-control updates")
+		}
+	}
+	previousOpen := config.CloneOpenPositionControl(br.Config.OpenPositionControl)
+	previousGrid := br.Config.GridRiskControl
 	br.Config.GridRiskControl = grc
-	br.publishRiskControlsLocked()
-	return nil
+	return br.rollbackRiskControlsLocked(previousOpen, previousGrid, br.publishRiskControlsLocked())
 }
 
 // SetRiskControls atomically applies a combined Bot/grid API patch to the real
@@ -1020,23 +1038,71 @@ func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 func (br *BotRuntime) SetRiskControls(rc *config.BotRiskControl, grid config.GridRiskControl) error {
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
+	if !br.supportsRiskControlUpdates() {
+		return fmt.Errorf("runtime does not support hot risk-control updates")
+	}
+	if br.Inner.SuperPositionManager == nil && br.Config.GridRiskControl != grid {
+		return fmt.Errorf("specialized runtime does not support grid-risk-control updates")
+	}
+	previousOpen := config.CloneOpenPositionControl(br.Config.OpenPositionControl)
+	previousGrid := br.Config.GridRiskControl
 	copy := config.BotRiskControl{}
 	if rc != nil {
 		copy = *rc
 	}
 	br.Config.OpenPositionControl.BotRiskControl = &copy
 	br.Config.GridRiskControl = grid
-	br.publishRiskControlsLocked()
-	return nil
+	return br.rollbackRiskControlsLocked(previousOpen, previousGrid, br.publishRiskControlsLocked())
 }
 
-func (br *BotRuntime) publishRiskControlsLocked() {
+func (br *BotRuntime) rollbackRiskControlsLocked(previousOpen config.OpenPositionControl, previousGrid config.GridRiskControl, applyErr error) error {
+	if applyErr == nil {
+		return nil
+	}
+	br.Config.OpenPositionControl = previousOpen
+	br.Config.GridRiskControl = previousGrid
+	return applyErr
+}
+
+func (br *BotRuntime) supportsRiskControlUpdates() bool {
+	return br != nil && br.Inner != nil && (br.Inner.SuperPositionManager != nil || br.Inner.UpdateOpenControl != nil)
+}
+
+func (br *BotRuntime) publishRiskControlsLocked() error {
+	if br.Inner != nil && br.Inner.verifiedCapitalBudget > 0 {
+		if err := applyBotCapitalLimit(&br.Config.OpenPositionControl, br.Inner.verifiedCapitalBudget); err != nil {
+			if br.Inner.OpeningGate != nil {
+				br.Inner.OpeningGate.Block("verified_capital_budget_invalid")
+			}
+			return fmt.Errorf("verified Bot capital ceiling is invalid: %w", err)
+		}
+	}
 	if spm := br.superPositionManager(); spm != nil {
 		spm.SetRiskControls(config.RiskControls{Open: br.Config.OpenPositionControl, Grid: br.Config.GridRiskControl})
+		if br.Inner.DynamicAdjuster != nil {
+			br.Inner.DynamicAdjuster.RefreshRiskControls()
+		}
+		if br.Inner.OpeningGate != nil {
+			br.Inner.OpeningGate.Unblock("risk_control_update_unverified")
+		}
+		return nil
 	}
-	if br.Inner != nil && br.Inner.DynamicAdjuster != nil {
-		br.Inner.DynamicAdjuster.RefreshRiskControls()
+	if br.Inner != nil && br.Inner.UpdateOpenControl != nil {
+		if err := br.Inner.UpdateOpenControl(config.CloneOpenPositionControl(br.Config.OpenPositionControl)); err != nil {
+			if br.Inner.OpeningGate != nil {
+				br.Inner.OpeningGate.Block("risk_control_update_unverified")
+			}
+			return err
+		}
+		if br.Inner.OpeningGate != nil {
+			br.Inner.OpeningGate.Unblock("risk_control_update_unverified")
+		}
+		return nil
 	}
+	if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Block("risk_control_update_unverified")
+	}
+	return fmt.Errorf("runtime has no risk-control application path")
 }
 
 // PauseOpening 暂停开仓

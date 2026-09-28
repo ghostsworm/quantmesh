@@ -164,6 +164,136 @@ func TestLoweringExposureLimitCancelsOwnedOpeningsAndKeepsGateOnUncertainty(t *t
 	}
 }
 
+func TestRisingMarkConcurrentUpdatesScheduleOneFailClosedCancellation(t *testing.T) {
+	oe, venue, gate := newOwnedTestExecutor()
+	venue.ackOnly = true
+	book, err := execution.NewExposureBook(execution.ExposureLimits{Notional: 150}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Seed(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetMark(100, time.Now().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	oe.SetExposureBook(book)
+	for _, id := range []string{"rising-mark-open-a", "rising-mark-open-b"} {
+		if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: .5,
+			PositionSide: "LONG", ClientOrderID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	markAt := time.Now()
+	var updates sync.WaitGroup
+	for range 32 {
+		updates.Add(1)
+		go func() {
+			defer updates.Done()
+			if err := oe.ObserveExposureMark(200, markAt); err != nil {
+				t.Errorf("fresh mark: %v", err)
+			}
+		}()
+	}
+	updates.Wait()
+	if !gate.HasBlock(ExposureLimitBlock) {
+		t.Fatal("mark-driven exposure overage did not immediately block opening admission")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		venue.mu.Lock()
+		cancelled := len(venue.cancelled)
+		venue.mu.Unlock()
+		if cancelled == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	venue.mu.Lock()
+	cancelled := len(venue.cancelled)
+	queryCount := venue.queryCount
+	venue.mu.Unlock()
+	if cancelled != 2 {
+		t.Fatalf("mark-driven overage did not cancel both owned opening orders: %d", cancelled)
+	}
+	if snapshot := book.Snapshot(time.Now()); snapshot.PendingQuantity != 1 || snapshot.ProjectedNotional <= snapshot.Limits.Notional {
+		t.Fatalf("unverified cancel acknowledgements must retain projected exposure: %+v", snapshot)
+	}
+	if !gate.HasBlock(ExposureLimitBlock) || !gate.Blocked() {
+		t.Fatal("unverified cancellations released the exposure-limit gate")
+	}
+	if queryCount != 1 {
+		t.Fatalf("concurrent mark updates started %d cancellation workflows, want exactly one", queryCount)
+	}
+}
+
+func TestUnavailableExposureMarkCancelsOwnedOpeningsAndKeepsGateClosed(t *testing.T) {
+	for _, ackOnly := range []bool{false, true} {
+		name := "verified cancellation"
+		if ackOnly {
+			name = "unverified cancellation"
+		}
+		t.Run(name, func(t *testing.T) {
+			oe, venue, gate := newOwnedTestExecutor()
+			venue.ackOnly = ackOnly
+			book, err := execution.NewExposureBook(execution.ExposureLimits{Notional: 500}, 50*time.Millisecond)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := book.Seed(nil); err != nil {
+				t.Fatal(err)
+			}
+			markAt := time.Now()
+			if err := book.SetMark(100, markAt); err != nil {
+				t.Fatal(err)
+			}
+			oe.SetExposureBook(book)
+			if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+				PositionSide: "LONG", ClientOrderID: "stale-mark-open"}); err != nil {
+				t.Fatal(err)
+			}
+
+			time.Sleep(60 * time.Millisecond)
+			if err := oe.ObserveExposureMark(100, markAt); err == nil {
+				t.Fatal("stale exposure quote was accepted")
+			}
+			deadline := time.Now().Add(3 * time.Second)
+			for time.Now().Before(deadline) {
+				venue.mu.Lock()
+				cancelled := len(venue.cancelled)
+				venue.mu.Unlock()
+				if cancelled == 1 {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			venue.mu.Lock()
+			cancelled := len(venue.cancelled)
+			venue.mu.Unlock()
+			if cancelled != 1 {
+				t.Fatalf("unavailable quote did not cancel owned opening: %d", cancelled)
+			}
+			if !gate.HasBlock(ExposureLimitBlock) || !gate.Blocked() {
+				t.Fatal("opening gate released without a usable exposure quote")
+			}
+			if ackOnly && !gate.HasBlock(execution.UnverifiedCancellationBlock) {
+				t.Fatal("unverified cancellation did not retain its independent gate")
+			}
+			if err := oe.ObserveExposureMark(100, time.Now()); err != nil {
+				t.Fatalf("fresh exposure quote: %v", err)
+			}
+			if ackOnly {
+				if !gate.Blocked() {
+					t.Fatal("fresh quote released an unverified cancellation")
+				}
+			} else if gate.Blocked() {
+				t.Fatal("verified cancellation and recovered quote did not release the owned gate")
+			}
+		})
+	}
+}
+
 func TestOwnedCancellationWaitsForInFlightSubmission(t *testing.T) {
 	oe, v, gate := newOwnedTestExecutor()
 	v.placeStart, v.placeFinish = make(chan struct{}), make(chan struct{})

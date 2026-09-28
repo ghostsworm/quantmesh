@@ -248,7 +248,7 @@ func (f *MetricsFeeder) realizedToday(ctx context.Context, now time.Time, marks 
 		return 0, fmt.Errorf("查询今日成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
 	}
 	if len(trades) >= realizedPnLQueryLimit {
-		logger.Warn("⚠️ [熔断喂数] 今日成交超过 %d 笔，已实现盈亏可能被截断", realizedPnLQueryLimit)
+		return 0, fmt.Errorf("今日成交达到 %d 条查询上限，无法确认已实现盈亏完整性", realizedPnLQueryLimit)
 	}
 	total := 0.0
 	for _, t := range trades {
@@ -266,6 +266,9 @@ func (f *MetricsFeeder) consecutiveLosses(ctx context.Context, now time.Time, ma
 	trades, err := f.trades.TradesBetween(ctx, start, now, consecutiveLossQueryLimit)
 	if err != nil {
 		return 0, fmt.Errorf("查询近期成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
+	}
+	if len(trades) >= consecutiveLossQueryLimit {
+		return 0, fmt.Errorf("近期成交达到 %d 条查询上限，无法确认连续亏损完整性", consecutiveLossQueryLimit)
 	}
 	sort.SliceStable(trades, func(i, j int) bool { return trades[i].ClosedAt.After(trades[j].ClosedAt) })
 

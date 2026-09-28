@@ -355,8 +355,16 @@ func putOpeningControlConfig(c *gin.Context) {
 			return
 		}
 	}
-	control, _, err := persistOpeningControl(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, market, req)
+	var clamp func(config.OpenPositionControl) (config.OpenPositionControl, error)
+	if running && rt != nil {
+		clamp = openingControlClamp(rt)
+	}
+	control, _, err := persistOpeningControl(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, market, req, clamp)
 	if err != nil {
+		if clamp != nil {
+			c.JSON(http.StatusConflict, gin.H{"error": "opening_capital_limit_unavailable", "persisted": false, "applied": false})
+			return
+		}
 		code := http.StatusInternalServerError
 		if err == errOpeningTarget {
 			code = http.StatusConflict
@@ -384,6 +392,19 @@ func putOpeningControlConfig(c *gin.Context) {
 		controller.UpdateConfig(&copy)
 	}
 	c.JSON(http.StatusOK, gin.H{"persisted": true, "applied": running && rt != nil})
+}
+
+func openingControlClamp(rt interface{}) func(config.OpenPositionControl) (config.OpenPositionControl, error) {
+	value := reflect.ValueOf(rt)
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
+	}
+	field := value.FieldByName("ClampOpenControl")
+	if !field.IsValid() || field.IsNil() {
+		return nil
+	}
+	clamp, _ := field.Interface().(func(config.OpenPositionControl) (config.OpenPositionControl, error))
+	return clamp
 }
 
 func specializedOpeningControlUpdater(rt interface{}) func(config.OpenPositionControl) error {

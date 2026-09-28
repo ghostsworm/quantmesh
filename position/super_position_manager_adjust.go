@@ -24,12 +24,6 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		return nil // the liquidation owns these slots until completion/reconciliation
 	}
 
-	// 检查是否暂停
-	if spm.IsPaused() {
-		logger.Debug("⏸️ [%s] 交易已暂停，跳過订單調整", spm.logPrefix())
-		return nil
-	}
-
 	// 驗证價格有效性
 	if currentPrice <= 0 {
 		logger.Warn("⚠️ 收到無效價格: %.2f，跳過订單調整", currentPrice)

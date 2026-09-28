@@ -54,33 +54,35 @@ type SymbolRuntime struct {
 	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
 	// OpeningGate covers specialized runtimes that do not use the grid position manager.
-	OpeningGate         *execution.OpeningGate
-	PrepareShutdown     func(context.Context, bool) error
-	CloseForShutdown    func(context.Context) error
-	VerifyShutdownClose func(context.Context) error
-	CloseForManual      func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
-	UpdateOpenControl   func(config.OpenPositionControl) error
-	GetOpenControl      func() config.OpenPositionControl
-	OpeningController   *position.OpeningController
-	OrderCleaner        *safety.OrderCleaner
-	Reconciler          *safety.Reconciler
-	TrendDetector       *strategy.TrendDetector
-	DynamicAdjuster     *strategy.DynamicAdjuster
-	StrategyManager     *strategy.StrategyManager
-	ExchangeExecutor    *order.ExchangeOrderExecutor
-	ExecutorAdapter     *exchangeExecutorAdapter
-	ExchangeAdapter     *positionExchangeAdapter
-	EventBus            *event.EventBus
-	StorageService      *storage.StorageService
-	AccountID           string // 账戶標识
-	AccountScope        string // immutable non-secret digest of exchange/environment/credential identity
-	AccountMarketType   string // immutable valuation scope; do not read mutable Config while sampling
-	Stop                func()
-	shutdownContextMu   sync.RWMutex
-	shutdownContext     context.Context
-	closeManagerMu      sync.Mutex
-	closeManager        *position.ClosePositionManager
-	specialCloseRecords []*position.ClosePositionRecord
+	OpeningGate           *execution.OpeningGate
+	PrepareShutdown       func(context.Context, bool) error
+	CloseForShutdown      func(context.Context) error
+	VerifyShutdownClose   func(context.Context) error
+	CloseForManual        func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
+	UpdateOpenControl     func(config.OpenPositionControl) error
+	GetOpenControl        func() config.OpenPositionControl
+	OpeningController     *position.OpeningController
+	OrderCleaner          *safety.OrderCleaner
+	Reconciler            *safety.Reconciler
+	TrendDetector         *strategy.TrendDetector
+	DynamicAdjuster       *strategy.DynamicAdjuster
+	StrategyManager       *strategy.StrategyManager
+	ExchangeExecutor      *order.ExchangeOrderExecutor
+	ExecutorAdapter       *exchangeExecutorAdapter
+	ExchangeAdapter       *positionExchangeAdapter
+	EventBus              *event.EventBus
+	StorageService        *storage.StorageService
+	AccountID             string  // 账戶標识
+	AccountScope          string  // immutable non-secret digest of exchange/environment/credential identity
+	AccountMarketType     string  // immutable valuation scope; do not read mutable Config while sampling
+	verifiedCapitalBudget float64 // immutable startup-verified gross notional ceiling for this Bot
+	ClampOpenControl      func(config.OpenPositionControl) (config.OpenPositionControl, error)
+	Stop                  func()
+	shutdownContextMu     sync.RWMutex
+	shutdownContext       context.Context
+	closeManagerMu        sync.Mutex
+	closeManager          *position.ClosePositionManager
+	specialCloseRecords   []*position.ClosePositionRecord
 
 	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
 	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。
@@ -494,7 +496,7 @@ func startSymbolRuntime(
 	if balanceErr != nil {
 		capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
 	}
-	accountCapitalTotal, accountCapitalErr := configuredAccountCapitalTotal(baseCfg, symCfg)
+	accountCapitalTotal, accountCapitalErr := configuredAccountCapitalTotalForQuote(baseCfg, symCfg, quoteAsset)
 	if capitalErr == nil && accountCapitalErr != nil {
 		capitalErr = accountCapitalErr
 	}
@@ -647,6 +649,11 @@ func startSymbolRuntime(
 	exchangeExecutor.SetPostOnlyRepriceMaxAttempts(localCfg.Trading.PostOnlyRepriceMaxAttempts)
 
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	if capitalErr == nil {
+		if err := superPositionManager.SetVerifiedCapitalLimit(botCapitalBudget); err != nil {
+			return nil, fmt.Errorf("install verified Bot capital ceiling: %w", err)
+		}
+	}
 	// Initial pause is now owned by the shared gate. Static strategy config must
 	// not retain an initial flag that an explicit runtime resume cannot clear.
 	localCfg.Trading.OpenPositionControl.PauseOpening = false
@@ -1326,6 +1333,9 @@ func startSymbolRuntime(
 					logger.DebugCtx(ctx, "⏹️ [%s] 價格變化 channel 已关闭", symCfg.Symbol)
 					return
 				}
+				if err := exchangeExecutor.ObserveExposureMark(priceChange.NewPrice, priceChange.Timestamp); err != nil {
+					logger.DebugCtx(ctx, "[%s] exposure mark rejected; new openings remain subject to quote readiness: %v", symCfg.Symbol, err)
+				}
 
 				// Update risk before any strategy receives this same tick. A second
 				// monitor subscriber would steal ticks from the trading consumer.
@@ -1559,27 +1569,38 @@ func startSymbolRuntime(
 	}()
 
 	rt := &SymbolRuntime{
-		Config:               symCfg,
-		Exchange:             ex,
-		PriceMonitor:         priceMonitor,
-		RiskMonitor:          riskMonitor,
-		DepthMonitor:         depthMonitor,
-		FundingMonitor:       fundingMonitor,
-		ArbitrageManager:     arbitrageManager,
-		SuperPositionManager: superPositionManager,
-		OrderCleaner:         orderCleaner,
-		Reconciler:           reconciler,
-		TrendDetector:        trendDetector,
-		DynamicAdjuster:      dynamicAdjuster,
-		StrategyManager:      strategyManager,
-		ExchangeExecutor:     exchangeExecutor,
-		ExecutorAdapter:      executorAdapter,
-		ExchangeAdapter:      exchangeAdapter,
-		EventBus:             eventBus,
-		StorageService:       storageService,
-		AccountID:            accountID,
-		AccountScope:         equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
-		AccountMarketType:    symCfg.GetMarketType(),
+		Config:                symCfg,
+		Exchange:              ex,
+		PriceMonitor:          priceMonitor,
+		RiskMonitor:           riskMonitor,
+		DepthMonitor:          depthMonitor,
+		FundingMonitor:        fundingMonitor,
+		ArbitrageManager:      arbitrageManager,
+		SuperPositionManager:  superPositionManager,
+		OrderCleaner:          orderCleaner,
+		Reconciler:            reconciler,
+		TrendDetector:         trendDetector,
+		DynamicAdjuster:       dynamicAdjuster,
+		StrategyManager:       strategyManager,
+		ExchangeExecutor:      exchangeExecutor,
+		ExecutorAdapter:       executorAdapter,
+		ExchangeAdapter:       exchangeAdapter,
+		EventBus:              eventBus,
+		StorageService:        storageService,
+		AccountID:             accountID,
+		AccountScope:          equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+		AccountMarketType:     symCfg.GetMarketType(),
+		verifiedCapitalBudget: botCapitalBudget,
+	}
+	rt.ClampOpenControl = func(control config.OpenPositionControl) (config.OpenPositionControl, error) {
+		control = config.CloneOpenPositionControl(control)
+		if rt.verifiedCapitalBudget <= 0 {
+			return config.OpenPositionControl{}, fmt.Errorf("verified Bot capital budget is unavailable")
+		}
+		if err := applyBotCapitalLimit(&control, rt.verifiedCapitalBudget); err != nil {
+			return config.OpenPositionControl{}, err
+		}
+		return control, nil
 	}
 
 	// 開倉控制器（限倉、定時、週期規則）

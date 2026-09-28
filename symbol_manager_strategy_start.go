@@ -12,9 +12,12 @@ func startStrategiesWithFailClosedGate(start func() error, gate *execution.Openi
 	if start == nil || gate == nil {
 		return fmt.Errorf("strategy startup and opening gate are required")
 	}
+	// Strategy Start may launch asynchronous decision loops before a later
+	// strategy fails to restore. Hold admission closed for the full startup.
+	gate.Block(strategyStartupFailureBlock)
 	if err := start(); err != nil {
-		gate.Block(strategyStartupFailureBlock)
 		return err
 	}
+	gate.Unblock(strategyStartupFailureBlock)
 	return nil
 }

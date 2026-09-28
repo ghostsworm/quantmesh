@@ -350,6 +350,10 @@ func TestMultiStrategyReportEndSettlement(t *testing.T) {
 			LiquidationQty:   0.05,
 			LiquidationAmt:   3250,
 		},
+		Liquidations: []LiquidationEvent{{
+			StrategyID: "strategy-a", StrategyName: "Strategy A", TriggerPrice: 65000,
+			ExecutionPrice: 64900, Qty: 0.05, Fee: 3.245, Slippage: 5,
+		}},
 		RiskMetrics: &MultiStrategyRiskMetrics{},
 	}
 	content2, err := renderMultiStrategyReportTemplate(buildMultiStrategyReportData(resultLiq))
@@ -369,6 +373,9 @@ func TestMultiStrategyReportEndSettlement(t *testing.T) {
 			preview = preview[:800]
 		}
 		t.Errorf("expected liquidation price/qty/amt in report, got: %s", preview)
+	}
+	if !strings.Contains(content2, "Strategy A") || !strings.Contains(content2, "64900.000000") || !strings.Contains(content2, "3.245000") {
+		t.Errorf("expected per-strategy execution price and fee in report: %s", content2)
 	}
 }
 
@@ -398,6 +405,7 @@ func buildMultiStrategyReportData(result *MultiStrategyResult) MultiStrategyRepo
 		EndLiquidationPrice: endLiqPrice,
 		EndLiquidationQty:   endLiqQty,
 		EndLiquidationAmt:   endLiqAmt,
+		Liquidations:        append([]LiquidationEvent(nil), result.Liquidations...),
 		ParamsTable:         nil,
 	}
 }

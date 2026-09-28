@@ -338,6 +338,7 @@ type FundingMonitor interface {
 type SuperPositionManager struct {
 	config                *config.Config
 	riskControls          atomic.Pointer[config.RiskControls]
+	verifiedCapitalLimit  float64      // immutable startup-verified gross notional ceiling
 	volatilityPauseReason atomic.Value // string; independent of manual/scheduled pauses
 	executor              OrderExecutorInterface
 	exchange              IExchange

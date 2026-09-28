@@ -3,6 +3,7 @@ package risk
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -127,6 +128,35 @@ func TestMetricsFeederRequiresTradeHistoryWhenConfigured(t *testing.T) {
 	f := NewMetricsFeeder(&fakeSink{}, nil, nil, nil, MetricsFeederOptions{RequireTradeHistory: true})
 	if _, err := f.Tick(context.Background()); err == nil {
 		t.Fatal("missing realized trade history was treated as zero")
+	}
+}
+
+func TestMetricsFeederRejectsTradeHistoryAtQueryLimit(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name  string
+		count int
+	}{
+		{name: "daily realized PnL", count: realizedPnLQueryLimit},
+		{name: "consecutive losses", count: consecutiveLossQueryLimit},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			trades := make([]TradeOutcome, tc.count)
+			for i := range trades {
+				trades[i] = TradeOutcome{Key: fmt.Sprintf("trade-%d", i), NetPnL: -1, ClosedAt: now.Add(-time.Duration(i+1) * time.Second)}
+			}
+			sink := &fakeSink{}
+			feeder := NewMetricsFeeder(sink, &fakeTradeSource{trades: trades}, nil, nil, MetricsFeederOptions{
+				Now: func() time.Time { return now }, Location: time.UTC, RequireTradeHistory: true,
+			})
+			if _, err := feeder.Tick(context.Background()); err == nil {
+				t.Fatal("potentially truncated trade history was published")
+			}
+			if sink.writes != 0 {
+				t.Fatalf("partial risk metrics were published %d times", sink.writes)
+			}
+		})
 	}
 }
 

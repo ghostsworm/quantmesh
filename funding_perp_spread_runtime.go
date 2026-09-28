@@ -86,7 +86,7 @@ func startFundingPerpSpreadSymbolRuntime(
 					exchange string
 					balance  float64
 				}{{exchange: fp.LegA.Exchange, balance: legABalance}, {exchange: fp.LegB.Exchange, balance: legBBalance}} {
-					allocated, allocationErr := configuredAccountWalletCapitalTotal(baseCfg, walletCandidate, wallet.exchange, "futures")
+					allocated, allocationErr := configuredAccountWalletCapitalForQuote(baseCfg, walletCandidate, wallet.exchange, "futures", spreadCapitalAsset)
 					if allocationErr != nil {
 						balanceErr = fmt.Errorf("calculate configured futures-wallet capital for %s: %w", wallet.exchange, allocationErr)
 						break

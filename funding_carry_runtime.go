@@ -75,7 +75,7 @@ func startFundingCarrySymbolRuntime(
 		market string
 		ex     exchange.IExchange
 	}{{market: "futures", ex: futEx}, {market: "spot", ex: spotEx}} {
-		allocated, err := configuredAccountWalletCapitalTotal(baseCfg, symCfg, symCfg.Exchange, wallet.market)
+		allocated, err := configuredAccountWalletCapitalForQuote(baseCfg, symCfg, symCfg.Exchange, wallet.market, "USDT")
 		if err != nil {
 			return nil, fmt.Errorf("計算同帳戶 %s 錢包配置資金: %w", wallet.market, err)
 		}
@@ -110,7 +110,7 @@ func startFundingCarrySymbolRuntime(
 		if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), marginEx.GetBaseAsset(), marginEx.GetQuoteAsset()); err != nil {
 			return nil, fmt.Errorf("資金費套利現貨/槓桿錢包資產不匹配: %w", err)
 		}
-		allocated, allocationErr := configuredAccountWalletCapitalTotal(baseCfg, symCfg, symCfg.Exchange, "spot_margin")
+		allocated, allocationErr := configuredAccountWalletCapitalForQuote(baseCfg, symCfg, symCfg.Exchange, "spot_margin", "USDT")
 		if allocationErr != nil {
 			return nil, fmt.Errorf("計算同帳戶 spot_margin 錢包配置資金: %w", allocationErr)
 		}
@@ -266,20 +266,21 @@ func startFundingCarrySymbolRuntime(
 	}
 
 	rt := &SymbolRuntime{
-		Config:               symCfg,
-		Exchange:             futEx,
-		PriceMonitor:         priceMonitor,
-		StrategyManager:      strategyManager,
-		EventBus:             eventBus,
-		StorageService:       storageService,
-		AccountID:            accountID,
-		AccountScope:         accountScope,
-		AccountMarketType:    config.MarketTypeFundingCarry,
-		SuperPositionManager: nil,
-		OpeningGate:          openingGate,
-		ExchangeExecutor:     nil,
-		ExecutorAdapter:      nil,
-		ExchangeAdapter:      nil,
+		Config:                symCfg,
+		Exchange:              futEx,
+		PriceMonitor:          priceMonitor,
+		StrategyManager:       strategyManager,
+		EventBus:              eventBus,
+		StorageService:        storageService,
+		AccountID:             accountID,
+		AccountScope:          accountScope,
+		AccountMarketType:     config.MarketTypeFundingCarry,
+		SuperPositionManager:  nil,
+		verifiedCapitalBudget: ownCapital,
+		OpeningGate:           openingGate,
+		ExchangeExecutor:      nil,
+		ExecutorAdapter:       nil,
+		ExchangeAdapter:       nil,
 	}
 	executors := []*order.ExchangeOrderExecutor{futuresOrderExecutor.executor, spotOrderExecutor.executor}
 	if marginOrderExecutor != nil {
@@ -344,6 +345,13 @@ func startFundingCarrySymbolRuntime(
 	rt.UpdateOpenControl = func(control config.OpenPositionControl) error {
 		fc.UpdateOpenPositionControl(control)
 		return nil
+	}
+	rt.ClampOpenControl = func(control config.OpenPositionControl) (config.OpenPositionControl, error) {
+		control = config.CloneOpenPositionControl(control)
+		if err := applyBotCapitalLimit(&control, ownCapital); err != nil {
+			return config.OpenPositionControl{}, err
+		}
+		return control, nil
 	}
 	rt.GetOpenControl = fc.OpenPositionControl
 

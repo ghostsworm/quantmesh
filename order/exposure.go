@@ -77,25 +77,37 @@ func (oe *ExchangeOrderExecutor) SetExposureLimits(limits execution.ExposureLimi
 }
 
 func (oe *ExchangeOrderExecutor) reconcileExposureLimitBlock() {
+	oe.exposureLimitMu.Lock()
+	defer oe.exposureLimitMu.Unlock()
 	if oe.exposureBook == nil || oe.openingGate == nil {
 		return
 	}
-	if !oe.exposureBook.OverLimits() {
+	blocked, cancelOpenings := oe.exposureBook.OpeningRisk(time.Now())
+	if !blocked {
+		if oe.exposureCancellationPending {
+			return
+		}
 		oe.openingGate.Unblock(ExposureLimitBlock)
 		return
 	}
-	wasBlocked := oe.openingGate.HasBlock(ExposureLimitBlock)
 	oe.openingGate.Block(ExposureLimitBlock)
-	if !wasBlocked {
-		go oe.cancelOpeningsAfterLimitReduction()
+	oe.openingGate.Block(ExposureLimitBlock)
+	if cancelOpenings && !oe.exposureCancellationPending {
+		oe.exposureCancellationPending = true
+		go oe.cancelOpeningsForExposureRisk()
 	}
 }
 
-func (oe *ExchangeOrderExecutor) cancelOpeningsAfterLimitReduction() {
+func (oe *ExchangeOrderExecutor) cancelOpeningsForExposureRisk() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if err := oe.CancelOwnedOpeningOrders(ctx); err != nil {
+	err := oe.CancelOwnedOpeningOrders(ctx)
+	if err != nil {
 		logger.ErrorCtx(oe.logCtx(), "exposure limit reduction requires reconciliation; owned opening cancellation incomplete: %v", err)
+	} else {
+		oe.exposureLimitMu.Lock()
+		oe.exposureCancellationPending = false
+		oe.exposureLimitMu.Unlock()
 	}
 	oe.reconcileExposureLimitBlock()
 }
@@ -104,7 +116,9 @@ func (oe *ExchangeOrderExecutor) ObserveExposureMark(price float64, at time.Time
 	if oe.exposureBook == nil {
 		return nil
 	}
-	return oe.exposureBook.ObserveMark(price, at, time.Now())
+	err := oe.exposureBook.ObserveMark(price, at, time.Now())
+	oe.reconcileExposureLimitBlock()
+	return err
 }
 
 func (oe *ExchangeOrderExecutor) InvalidateExposure(reason string) {

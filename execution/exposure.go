@@ -141,6 +141,17 @@ func (b *ExposureBook) OverLimits() bool {
 	return errors.Is(b.checkLimitsLocked(nil), ErrExposureLimit)
 }
 
+// OpeningRisk reports whether opening admission must stay blocked and whether
+// any existing opening remainder requires cancellation.
+func (b *ExposureBook) OpeningRisk(now time.Time) (blocked, cancelOpenings bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	overLimit := errors.Is(b.checkLimitsLocked(nil), ErrExposureLimit)
+	markUnavailable := !b.markValid || b.mark <= 0 || b.markAt.IsZero() || b.markAt.After(now) || now.Sub(b.markAt) > b.maxMarkAge
+	pending := b.totalsLocked(nil).pending.Sign() > 0
+	return overLimit || markUnavailable, pending && (overLimit || markUnavailable)
+}
+
 func (b *ExposureBook) SetMark(price float64, at time.Time) error {
 	if _, err := exposureNumber(price); err != nil || price == 0 || at.IsZero() {
 		return fmt.Errorf("invalid exposure mark")

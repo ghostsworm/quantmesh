@@ -229,3 +229,66 @@ func TestConfiguredAccountWalletCapitalMatchesLegacyBotUsingCurrentExchange(t *t
 		t.Fatalf("legacy candidate allocation was not replaced by its canonical Bot identity: got %.2f, want 500", got)
 	}
 }
+
+func TestQuoteAssetFromConfiguredSymbol(t *testing.T) {
+	tests := []struct {
+		symbol  string
+		want    string
+		wantErr bool
+	}{
+		{symbol: "BTCUSDT", want: "USDT"},
+		{symbol: "btc/usdc", want: "USDC"},
+		{symbol: "BTC-USDT-SWAP", want: "USDT"},
+		{symbol: "ETH_USDC_PERP", want: "USDC"},
+		{symbol: "FOOBARXYZ", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.symbol, func(t *testing.T) {
+			got, err := quoteAssetFromConfiguredSymbol(tt.symbol)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("quoteAssetFromConfiguredSymbol() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && got != tt.want {
+				t.Fatalf("quoteAssetFromConfiguredSymbol() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfiguredAccountWalletCapitalPartitionsQuoteAssets(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "shared-a"}},
+		Bots: []config.BotConfig{
+			{ID: "btc-usdt", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 200},
+			{ID: "eth-usdc", Exchange: "binance", Symbol: "ETHUSDC", MarketType: "futures", TotalAllocatedCapital: 900},
+		},
+	}
+	usdtCandidate := config.SymbolConfig{ID: "candidate-usdt", Exchange: "binance", Symbol: "SOLUSDT", MarketType: "futures", TotalAllocatedCapital: 400}
+	got, err := configuredAccountWalletCapitalForQuote(cfg, usdtCandidate, "binance", "futures", "USDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 600 {
+		t.Fatalf("USDT wallet commitment = %v, want 600", got)
+	}
+
+	usdcCandidate := config.SymbolConfig{ID: "candidate-usdc", Exchange: "binance", Symbol: "ADAUSDC", MarketType: "futures", TotalAllocatedCapital: 250}
+	got, err = configuredAccountWalletCapitalForQuote(cfg, usdcCandidate, "binance", "futures", "USDC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1150 {
+		t.Fatalf("USDC wallet commitment = %v, want 1150", got)
+	}
+}
+
+func TestConfiguredAccountWalletCapitalFailsClosedOnUnknownQuoteAsset(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "shared-a"}},
+		Bots:      []config.BotConfig{{ID: "unknown", Exchange: "binance", Symbol: "FOOBARXYZ", MarketType: "futures", TotalAllocatedCapital: 300}},
+	}
+	candidate := config.SymbolConfig{ID: "candidate", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 200}
+	if _, err := configuredAccountWalletCapitalForQuote(cfg, candidate, "binance", "futures", "USDT"); err == nil {
+		t.Fatal("unknown same-wallet quote asset unexpectedly allowed commitment verification")
+	}
+}

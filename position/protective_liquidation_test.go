@@ -109,6 +109,32 @@ func TestProtectiveLiquidationAllTriggersUseVerification(t *testing.T) {
 	}
 }
 
+func TestManualPauseKeepsProtectivePositionManagementActive(t *testing.T) {
+	venue := newLiqFakeVenue(1)
+	venue.limitFillRatio = 1
+	spm, _ := newLiqTestSPM(t, "LONG", venue)
+	fillSlot(spm, liqTestLast, 1, 60000, "")
+	spm.config.Trading.GridRiskControl = config.GridRiskControl{Enabled: true, StopLossRatio: 0.05}
+	var work func()
+	configureTestProtective(t, spm, venue, func(job func()) { work = job })
+
+	spm.Pause()
+	if !spm.IsOpeningPaused() {
+		t.Fatal("manual pause must block new opening admission")
+	}
+	if err := spm.AdjustOrders(liqTestLast); err != nil {
+		t.Fatal(err)
+	}
+	if work == nil || !spm.IsOpeningPaused() {
+		t.Fatal("manual pause skipped stop-loss protection or released the opening gate")
+	}
+	work()
+	waitTestProtective(t, spm)
+	if !venue.flat() || spm.GetProtectiveLiquidationStatus().State != "completed" {
+		t.Fatal("verified protective close did not run while manually paused")
+	}
+}
+
 func TestProtectiveLiquidationFailureDoesNotStopOrResume(t *testing.T) {
 	base := newLiqFakeVenue(1)
 	venue := &uncertainLiquidationVenue{liqFakeVenue: base, ackOnly: true}

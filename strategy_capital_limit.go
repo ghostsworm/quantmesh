@@ -76,6 +76,14 @@ func applyBotCapitalLimit(control *config.OpenPositionControl, budget float64) e
 // uses the same exchange credential, environment and market account. A Bot's
 // cap is a reservation even while stopped: it may still own live orders or lots.
 func configuredAccountCapitalTotal(cfg *config.Config, candidate config.SymbolConfig) (float64, error) {
+	quoteAsset, err := configuredCandidateQuoteAsset(candidate)
+	if err != nil {
+		return 0, fmt.Errorf("candidate Bot quote asset: %w", err)
+	}
+	return configuredAccountCapitalTotalForQuote(cfg, candidate, quoteAsset)
+}
+
+func configuredAccountCapitalTotalForQuote(cfg *config.Config, candidate config.SymbolConfig, quoteAsset string) (float64, error) {
 	if cfg == nil {
 		return 0, fmt.Errorf("account capital configuration is unavailable")
 	}
@@ -87,5 +95,5 @@ func configuredAccountCapitalTotal(cfg *config.Config, candidate config.SymbolCo
 	if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
 		return 0, fmt.Errorf("account identity is unavailable")
 	}
-	return configuredAccountWalletCapitalTotal(cfg, candidate, exchangeName, candidate.GetMarketType())
+	return configuredAccountWalletCapitalForQuote(cfg, candidate, exchangeName, candidate.GetMarketType(), quoteAsset)
 }

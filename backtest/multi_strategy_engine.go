@@ -45,8 +45,9 @@ type MultiStrategyEngine struct {
 	totalFunding    float64
 	finalEquity     float64
 
-	// 期末結算：強平事件記錄（首次觸發時記錄，用於報告區分估值收官 vs 強平收官）
-	liquidationEvent *LiquidationEvent
+	// 期末結算：保留首筆事件供舊欄位相容，完整事件按策略記錄。
+	liquidationEvent  *LiquidationEvent
+	liquidationEvents []LiquidationEvent
 
 	// 統計
 	statsByStrategy map[string]*StrategyStats
@@ -500,6 +501,14 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 			}
 
 			e.updateEquity(runtime, kline)
+			liquidationPrice := liquidationMarkPrice(runtime.account, kline)
+			if e.checkLiquidation(runtime, liquidationPrice, int64(kline.Timestamp)) {
+				if trade := e.forceClosePosition(runtime, liquidationPrice, int64(kline.Timestamp), true); trade != nil {
+					runtime.strategy.OnTrade(*trade)
+				}
+				totalEquity += runtime.account.Equity
+				continue
+			}
 
 			orders, err := runtime.strategy.OnKline(kline, kline.Timestamp)
 			if err != nil {
@@ -539,8 +548,16 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 			)
 
 			for _, trade := range trades {
-				e.processTrade(runtime, &trade)
+				if !e.processTrade(runtime, &trade) {
+					continue
+				}
 				runtime.strategy.OnTrade(trade)
+				if e.checkLiquidation(runtime, trade.Price, int64(trade.Timestamp)) {
+					if liquidationTrade := e.forceClosePosition(runtime, trade.Price, int64(trade.Timestamp), true); liquidationTrade != nil {
+						runtime.strategy.OnTrade(*liquidationTrade)
+					}
+					break
+				}
 			}
 
 			totalEquity += runtime.account.Equity
@@ -570,8 +587,10 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 		lastKline := e.Klines[len(e.Klines)-1]
 		forceClosedCount := 0
 		for _, runtime := range e.runtimes {
-			if runtime.account.PositionSize != 0 {
-				e.forceClosePosition(runtime, lastKline.Close, int64(lastKline.Timestamp))
+			if runtime.account.PositionSize != 0 && !runtime.account.Liquidated {
+				if trade := e.forceClosePosition(runtime, lastKline.Close, int64(lastKline.Timestamp), false); trade != nil {
+					runtime.strategy.OnTrade(*trade)
+				}
 				forceClosedCount++
 			}
 		}
@@ -614,6 +633,7 @@ func (e *MultiStrategyEngine) reset() {
 	e.totalFunding = 0
 	e.finalEquity = 0
 	e.liquidationEvent = nil
+	e.liquidationEvents = make([]LiquidationEvent, 0)
 
 	for _, runtime := range e.runtimes {
 		runtime.account.Balance = runtime.initialCapital
@@ -747,14 +767,18 @@ func isShortOnly(mode string) bool {
 }
 
 // processTrade 處理成交
-func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *TickTrade) {
+func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *TickTrade) bool {
 	runtime.account.mu.Lock()
 	defer runtime.account.mu.Unlock()
+	if runtime.account.Liquidated && trade.OrderID != "LIQUIDATION" {
+		logger.Warn("[回測] 已強平帳戶拒絕後續成交: strategy=%s order=%s", runtime.strategyName, trade.OrderID)
+		return false
+	}
 
 	// 单向模式防护：禁止开反向仓
 	if trade.Side == "sell" && runtime.account.PositionSize <= 0 && isLongOnly(e.Config.PositionMode) {
 		logger.Warn("[回测] 单向做多模式下拒绝开空，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
-		return
+		return false
 	}
 	if trade.Side == "sell" && isLongOnly(e.Config.PositionMode) && trade.Size > runtime.account.PositionSize {
 		trade.Slippage *= runtime.account.PositionSize / trade.Size
@@ -762,7 +786,7 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 	}
 	if trade.Side == "buy" && runtime.account.PositionSize >= 0 && isShortOnly(e.Config.PositionMode) {
 		logger.Warn("[回测] 单向做空模式下拒绝开多，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
-		return
+		return false
 	}
 	if trade.Side == "buy" && isShortOnly(e.Config.PositionMode) && trade.Size > -runtime.account.PositionSize {
 		trade.Slippage *= -runtime.account.PositionSize / trade.Size
@@ -855,9 +879,7 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 	runtime.stats.SlippageCost += trade.Slippage
 	runtime.stats.FinalEquity = runtime.account.Equity
 	runtime.stats.OpenPositionSize = runtime.account.PositionSize
-
-	// 檢查強平
-	e.checkLiquidation(runtime, trade.Price)
+	return true
 }
 
 // openPosition 开仓
@@ -945,38 +967,61 @@ func (e *MultiStrategyEngine) recordCompletedTrade(runtime *StrategyRuntime, tra
 	runtime.stats.RealizedPnL += pnl
 }
 
+// liquidationMarkPrice 使用已持有倉位方向的 K 線不利極值，避免只看收盤價漏掉盤中可能觸及的維持保證金。
+// OHLC 無法證明盤中路徑；此處採保守極值估算，不代表交易所逐筆標記價格。
+func liquidationMarkPrice(account *BacktestAccount, kline TickKline) float64 {
+	account.mu.RLock()
+	positionSize := account.PositionSize
+	account.mu.RUnlock()
+	if positionSize > 0 && kline.Low > 0 && kline.Low < kline.Close {
+		return kline.Low
+	}
+	if positionSize < 0 && kline.High > kline.Close {
+		return kline.High
+	}
+	return kline.Close
+}
+
 // checkLiquidation 檢查強平
-func (e *MultiStrategyEngine) checkLiquidation(runtime *StrategyRuntime, price float64) {
-	if runtime.account.PositionSize == 0 {
-		return
+func (e *MultiStrategyEngine) checkLiquidation(runtime *StrategyRuntime, price float64, timestamp int64) bool {
+	account := runtime.account
+	account.mu.Lock()
+	defer account.mu.Unlock()
+	if account.Liquidated || account.PositionSize == 0 {
+		return account.Liquidated
 	}
 
-	maintenanceMarginRatio := 0.005 // 维持保证金率0.5%
+	maintenanceMarginRatio := 0.005 // 維持保證金率 0.5%
 
-	positionValue := abs(runtime.account.PositionSize) * price
+	positionValue := abs(account.PositionSize) * price
 	maintenanceMargin := positionValue * maintenanceMarginRatio
-	equityAtPrice := runtime.account.Balance + runtime.account.PositionSize*price
+	equityAtPrice := account.Balance + account.PositionSize*price
 
 	if equityAtPrice <= maintenanceMargin {
-		runtime.account.Liquidated = true
-		runtime.account.LiquidationPrice = price
-		// 記錄強平事件（首次觸發），供期末結算明細使用
+		account.Liquidated = true
+		account.LiquidationPrice = price
+		qty := abs(account.PositionSize)
+		event := LiquidationEvent{
+			Price: price, Qty: qty, Amount: price * qty,
+			StrategyID: runtime.strategyID, StrategyName: runtime.strategyName,
+			AccountID: account.AccountID, Timestamp: timestamp,
+			TriggerPrice: price,
+		}
+		e.liquidationEvents = append(e.liquidationEvents, event)
 		if e.liquidationEvent == nil {
-			qty := abs(runtime.account.PositionSize)
-			e.liquidationEvent = &LiquidationEvent{
-				Price:  price,
-				Qty:    qty,
-				Amount: price * qty,
-			}
+			first := event
+			e.liquidationEvent = &first
 		}
 		logger.Warn("Liquidation triggered at price %.2f", price)
+		return true
 	}
+	return false
 }
 
 // forceClosePosition 强制平倉
-func (e *MultiStrategyEngine) forceClosePosition(runtime *StrategyRuntime, price float64, timestamp int64) {
+func (e *MultiStrategyEngine) forceClosePosition(runtime *StrategyRuntime, price float64, timestamp int64, liquidation bool) *TickTrade {
 	if runtime.account.PositionSize == 0 {
-		return
+		return nil
 	}
 
 	logger.Info("Forcing close position: strategy=%s, size=%.4f, price=%.2f", runtime.strategyName, runtime.account.PositionSize, price)
@@ -986,20 +1031,49 @@ func (e *MultiStrategyEngine) forceClosePosition(runtime *StrategyRuntime, price
 	if runtime.account.PositionSize < 0 {
 		side = "buy"
 	}
+	executionPrice := price * e.Config.MatcherConfig.SellSlippage
+	orderID := "FORCE_CLOSE"
+	label := "期末強制平倉"
+	if side == "buy" {
+		executionPrice = price * e.Config.MatcherConfig.BuySlippage
+	}
+	if liquidation {
+		orderID = "LIQUIDATION"
+		label = "維持保證金強平"
+	}
+	qty := abs(runtime.account.PositionSize)
 
 	trade := &TickTrade{
-		TradeID:    fmt.Sprintf("FORCE_CLOSE_%d", timestamp),
-		OrderID:    "FORCE_CLOSE",
+		TradeID:    fmt.Sprintf("%s_%s_%d", orderID, runtime.strategyID, timestamp),
+		OrderID:    orderID,
 		Side:       side,
-		Price:      price,
-		Size:       abs(runtime.account.PositionSize),
-		Strategy:   runtime.strategyName + " [期末强制平仓]",
+		Price:      executionPrice,
+		Size:       qty,
+		Slippage:   abs(executionPrice-price) * qty,
+		Strategy:   runtime.strategyName + " [" + label + "]",
 		StrategyID: runtime.strategyID,
 		AccountID:  runtime.account.AccountID,
 		Timestamp:  timestamp,
 	}
 
-	e.processTrade(runtime, trade)
+	if !e.processTrade(runtime, trade) {
+		return nil
+	}
+	if liquidation {
+		lastEvent := len(e.liquidationEvents) - 1
+		if lastEvent >= 0 && e.liquidationEvents[lastEvent].StrategyID == runtime.strategyID &&
+			e.liquidationEvents[lastEvent].Timestamp == timestamp && e.liquidationEvents[lastEvent].ExecutionPrice == 0 {
+			e.liquidationEvents[lastEvent].ExecutionPrice = trade.Price
+			e.liquidationEvents[lastEvent].Fee = trade.Price * trade.Size * e.Config.CommissionRate
+			e.liquidationEvents[lastEvent].Slippage = trade.Slippage
+			event := e.liquidationEvents[lastEvent]
+			if e.liquidationEvent != nil && e.liquidationEvent.StrategyID == runtime.strategyID &&
+				e.liquidationEvent.Timestamp == timestamp && e.liquidationEvent.ExecutionPrice == 0 {
+				*e.liquidationEvent = event
+			}
+		}
+	}
+	return trade
 }
 
 // Pause 暂停回测
@@ -1047,17 +1121,26 @@ func (e *MultiStrategyEngine) SetProgressCallback(callback func(float64)) {
 
 // LiquidationEvent 強平事件（用於期末結算明細）
 type LiquidationEvent struct {
-	Price  float64 `json:"price"`  // 強平價格
-	Qty    float64 `json:"qty"`    // 強平數量（持倉絕對值）
-	Amount float64 `json:"amount"` // 強平金額（名義價值 = price * qty）
+	Price          float64 `json:"price"` // 保留舊欄位：強平觸發價
+	Qty            float64 `json:"qty"`
+	Amount         float64 `json:"amount"`
+	StrategyID     string  `json:"strategy_id"`
+	StrategyName   string  `json:"strategy_name"`
+	AccountID      string  `json:"account_id"`
+	Timestamp      int64   `json:"timestamp"`
+	TriggerPrice   float64 `json:"trigger_price"`
+	ExecutionPrice float64 `json:"execution_price"`
+	Fee            float64 `json:"fee"`
+	Slippage       float64 `json:"slippage"`
 }
 
 // EndSettlementDetail 期末結算明細（區分估值收官 vs 強平收官）
 type EndSettlementDetail struct {
-	Liquidated       bool    `json:"liquidated"`         // 期末是否強平
-	LiquidationPrice float64 `json:"liquidation_price"`  // 強平價格（未強平時為 0）
-	LiquidationQty   float64 `json:"liquidation_qty"`    // 強平數量（未強平時為 0）
-	LiquidationAmt   float64 `json:"liquidation_amount"` // 強平金額 USDT（未強平時為 0）
+	Liquidated       bool               `json:"liquidated"`         // 期末是否強平
+	LiquidationPrice float64            `json:"liquidation_price"`  // 強平價格（未強平時為 0）
+	LiquidationQty   float64            `json:"liquidation_qty"`    // 強平數量（未強平時為 0）
+	LiquidationAmt   float64            `json:"liquidation_amount"` // 強平金額 USDT（未強平時為 0）
+	Liquidations     []LiquidationEvent `json:"liquidations,omitempty"`
 }
 
 // MultiStrategyResult 多策略回测結果
@@ -1074,6 +1157,7 @@ type MultiStrategyResult struct {
 
 	// 期末結算明細（一眼區分估值收官 vs 強平收官）
 	EndSettlement  EndSettlementDetail `json:"end_settlement"`
+	Liquidations   []LiquidationEvent  `json:"liquidations,omitempty"`
 	TotalReturn    float64             `json:"total_return"`
 	TotalReturnPct float64             `json:"total_return_pct"`
 
@@ -1165,6 +1249,7 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 			LiquidationPrice: e.liquidationEvent.Price,
 			LiquidationQty:   e.liquidationEvent.Qty,
 			LiquidationAmt:   e.liquidationEvent.Amount,
+			Liquidations:     append([]LiquidationEvent(nil), e.liquidationEvents...),
 		}
 	}
 
@@ -1176,6 +1261,7 @@ func (e *MultiStrategyEngine) generateResult() *MultiStrategyResult {
 		InitialCapital:  e.Config.InitialCapital,
 		FinalEquity:     e.finalEquity,
 		EndSettlement:   endSettlement,
+		Liquidations:    append([]LiquidationEvent(nil), e.liquidationEvents...),
 		TotalReturn:     totalReturn,
 		TotalReturnPct:  totalReturnPct,
 		TotalTrades:     len(e.trades),
@@ -1395,8 +1481,10 @@ func (e *MultiStrategyEngine) applyRuleActions(actions map[string][]RuleAction, 
 
 			case "close_position":
 				// 强制平仓
-				if targetRuntime.account.PositionSize != 0 {
-					e.forceClosePosition(targetRuntime, kline.Close, int64(kline.Timestamp))
+				if targetRuntime.account.PositionSize != 0 && !targetRuntime.account.Liquidated {
+					if trade := e.forceClosePosition(targetRuntime, kline.Close, int64(kline.Timestamp), false); trade != nil {
+						targetRuntime.strategy.OnTrade(*trade)
+					}
 				}
 
 			case "skip_next":

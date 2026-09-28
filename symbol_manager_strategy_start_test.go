@@ -10,9 +10,16 @@ import (
 func TestStrategyStartupFailureBlocksBotWideOpening(t *testing.T) {
 	gate := &execution.OpeningGate{}
 	startupErr := errors.New("persisted strategy state is invalid")
-	err := startStrategiesWithFailClosedGate(func() error { return startupErr }, gate)
+	var blockedDuringStartup bool
+	err := startStrategiesWithFailClosedGate(func() error {
+		blockedDuringStartup = gate.HasBlock(strategyStartupFailureBlock)
+		return startupErr
+	}, gate)
 	if !errors.Is(err, startupErr) {
 		t.Fatalf("startup error should be propagated, got %v", err)
+	}
+	if !blockedDuringStartup {
+		t.Fatal("all strategy restore/start operations must run behind the opening gate")
 	}
 	if !gate.HasBlock(strategyStartupFailureBlock) {
 		t.Fatal("strategy restore failure must block all bot opening paths")
@@ -24,8 +31,15 @@ func TestStrategyStartupFailureBlocksBotWideOpening(t *testing.T) {
 
 func TestSuccessfulStrategyStartupDoesNotAddFailureBlock(t *testing.T) {
 	gate := &execution.OpeningGate{}
-	if err := startStrategiesWithFailClosedGate(func() error { return nil }, gate); err != nil {
+	var blockedDuringStartup bool
+	if err := startStrategiesWithFailClosedGate(func() error {
+		blockedDuringStartup = gate.HasBlock(strategyStartupFailureBlock)
+		return nil
+	}, gate); err != nil {
 		t.Fatalf("startup: %v", err)
+	}
+	if !blockedDuringStartup {
+		t.Fatal("opening gate must remain blocked until all strategies start successfully")
 	}
 	if gate.HasBlock(strategyStartupFailureBlock) {
 		t.Fatal("successful strategy startup must not leave a failure block")
@@ -35,6 +49,20 @@ func TestSuccessfulStrategyStartupDoesNotAddFailureBlock(t *testing.T) {
 		t.Fatalf("opening should be admitted after successful startup: %v", err)
 	}
 	release()
+}
+
+func TestSuccessfulStrategyStartupPreservesIndependentOpeningBlocks(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	gate.Block("operator_pause")
+	if err := startStrategiesWithFailClosedGate(func() error { return nil }, gate); err != nil {
+		t.Fatalf("startup: %v", err)
+	}
+	if gate.HasBlock(strategyStartupFailureBlock) {
+		t.Fatal("successful startup retained its own admission block")
+	}
+	if !gate.HasBlock("operator_pause") {
+		t.Fatal("successful startup cleared an unrelated opening block")
+	}
 }
 
 func TestStrategyStartupRequiresGateAndCallback(t *testing.T) {

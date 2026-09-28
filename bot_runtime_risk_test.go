@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/position"
 	"quantmesh/utils"
 )
@@ -32,6 +34,81 @@ func TestBotRuntimeRiskControlOwnsInputsAndPublishes(t *testing.T) {
 	br.PauseOpening("manual")
 	if br.GetBotRiskControl().Enabled {
 		t.Fatal("manual pause enabled independent risk override")
+	}
+}
+
+func TestBotRuntimeRiskHotUpdateCannotExceedVerifiedCapitalBudget(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	spm := position.NewSuperPositionManager(cfg, &pauseTestExecutor{}, pauseTestExchange{}, 2, 3)
+	br := &BotRuntime{Inner: &SymbolRuntime{SuperPositionManager: spm, verifiedCapitalBudget: 500}}
+	if err := br.SetRiskControls(&config.BotRiskControl{Enabled: true, MaxPositionValue: 900}, config.GridRiskControl{}); err != nil {
+		t.Fatal(err)
+	}
+	got := br.GetBotRiskControl()
+	if got.MaxPositionValue != 500 {
+		t.Fatalf("persistable Bot risk limit = %v, want verified ceiling 500", got.MaxPositionValue)
+	}
+	active := spm.GetRiskControls().Open
+	if active.MaxPositionValue != 500 || active.BotRiskControl == nil || active.BotRiskControl.MaxPositionValue != 500 {
+		t.Fatalf("runtime controls escaped verified capital ceiling: %+v", active)
+	}
+}
+
+func TestSpecializedRiskHotUpdateUsesVerifiedCapitalAndRealApplyPath(t *testing.T) {
+	var applied config.OpenPositionControl
+	br := &BotRuntime{Inner: &SymbolRuntime{
+		verifiedCapitalBudget: 500,
+		UpdateOpenControl: func(control config.OpenPositionControl) error {
+			applied = config.CloneOpenPositionControl(control)
+			return nil
+		},
+	}}
+	if err := br.SetRiskControls(&config.BotRiskControl{Enabled: true, MaxPositionValue: 900}, config.GridRiskControl{}); err != nil {
+		t.Fatal(err)
+	}
+	if applied.BotRiskControl == nil || applied.BotRiskControl.MaxPositionValue != 500 || br.GetBotRiskControl().MaxPositionValue != 500 {
+		t.Fatalf("specialized risk limit escaped its verified cap: applied=%+v config=%+v", applied, br.GetBotRiskControl())
+	}
+	if err := br.SetRiskControls(&config.BotRiskControl{Enabled: true}, config.GridRiskControl{MaxGridLayers: 2}); err == nil {
+		t.Fatal("specialized runtime reported unsupported grid-risk update as applied")
+	}
+
+	unsupported := &BotRuntime{Inner: &SymbolRuntime{verifiedCapitalBudget: 500}}
+	if err := unsupported.SetBotRiskControl(&config.BotRiskControl{Enabled: true, MaxPositionValue: 400}); err == nil {
+		t.Fatal("runtime without a real risk-control application path reported success")
+	}
+}
+
+func TestSpecializedRiskApplyFailureRollsBackAndBlocksOpenings(t *testing.T) {
+	applyErr := errors.New("strategy risk update failed")
+	gate := &execution.OpeningGate{}
+	br := &BotRuntime{Config: config.BotConfig{OpenPositionControl: config.OpenPositionControl{
+		BotRiskControl: &config.BotRiskControl{Enabled: true, MaxPositionValue: 100},
+	}, GridRiskControl: config.GridRiskControl{MaxGridLayers: 3}}, Inner: &SymbolRuntime{
+		verifiedCapitalBudget: 500,
+		OpeningGate:           gate,
+		UpdateOpenControl: func(config.OpenPositionControl) error {
+			return applyErr
+		},
+	}}
+	err := br.SetRiskControls(&config.BotRiskControl{Enabled: true, MaxPositionValue: 400}, br.Config.GridRiskControl)
+	if !errors.Is(err, applyErr) {
+		t.Fatalf("SetRiskControls() error = %v, want strategy apply failure", err)
+	}
+	if got := br.GetBotRiskControl().MaxPositionValue; got != 100 {
+		t.Fatalf("failed update leaked into runtime config: got %v, want previous value 100", got)
+	}
+	if !gate.HasBlock("risk_control_update_unverified") {
+		t.Fatal("failed specialized update did not block new openings")
+	}
+	br.Inner.UpdateOpenControl = func(config.OpenPositionControl) error { return nil }
+	if err := br.SetRiskControls(&config.BotRiskControl{Enabled: true, MaxPositionValue: 400}, br.Config.GridRiskControl); err != nil {
+		t.Fatal(err)
+	}
+	if gate.HasBlock("risk_control_update_unverified") || br.GetBotRiskControl().MaxPositionValue != 400 {
+		t.Fatal("successful verified retry did not publish and clear its own block")
 	}
 }
 

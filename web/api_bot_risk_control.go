@@ -323,6 +323,12 @@ func updateBotRiskControl(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "risk_apply_failed", "applied": false, "persisted": false})
 		return
 	}
+	// Persist and return the effective runtime value: runtime admission may
+	// clamp the requested notional to its immutable startup-verified budget.
+	if effective := bot.GetBotRiskControl(); effective != nil {
+		currentRiskControl = effective
+	}
+	nextGridRiskControl = bot.GetGridRiskControl()
 	if err := persistRiskControlBundle(botID, currentRiskControl, &nextGridRiskControl); err != nil {
 		logger.Warn("[%s] risk configuration applied but not persisted: %v", botID, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "risk_persistence_failed", "applied": true, "persisted": false})
