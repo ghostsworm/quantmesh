@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc260] - 2026-09-28（未发布）
+
+### Fixed
+- 統一 MySQL 資金與提現整合測試的 DSN 環境變數；會刪除資料表欄位的遷移測試另要求明確 destructive-schema opt-in，避免誤改共用資料庫。
+
 ## [3.111.0-rc259] - 2026-09-28（未发布）
 
 ### Fixed
@@ -143,7 +148,7 @@
 
 ### Fixed
 - 修复 MySQL 全新初始化配对成交表时重复声明 `bot_id`、`market_type`、`account_scope` 导致服务启动失败的问题；MySQL bot_id 索引迁移改为存在性检查后再创建。
-- 新增可通过 `QUANTMESH_TEST_MYSQL_DSN` 启用的 MySQL 8.0 存储迁移/并发规则集成测试。
+- 新增可通过 `QUANTMESH_MYSQL_TEST_DSN` 启用的 MySQL 8.0 存储迁移/并发规则集成测试。
 
 ## [3.111.0-rc231] - 2026-09-28（未发布）
 

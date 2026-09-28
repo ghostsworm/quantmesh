@@ -9,12 +9,15 @@ import (
 	"time"
 )
 
-// TestMySQLProfitWithdrawRules requires a disposable, empty MySQL schema in
-// QUANTMESH_TEST_MYSQL_DSN. It exercises the production migration and lock path.
+// TestMySQLProfitWithdrawRules requires a disposable MySQL schema in
+// QUANTMESH_MYSQL_TEST_DSN and explicit opt-in because it resets a production table column.
 func TestMySQLProfitWithdrawRules(t *testing.T) {
-	dsn := os.Getenv("QUANTMESH_TEST_MYSQL_DSN")
+	dsn := os.Getenv("QUANTMESH_MYSQL_TEST_DSN")
 	if dsn == "" {
-		t.Skip("set QUANTMESH_TEST_MYSQL_DSN to a disposable MySQL schema")
+		t.Skip("set QUANTMESH_MYSQL_TEST_DSN to a disposable MySQL schema")
+	}
+	if os.Getenv("QUANTMESH_MYSQL_TEST_ALLOW_DESTRUCTIVE_SCHEMA") != "1" {
+		t.Skip("set QUANTMESH_MYSQL_TEST_ALLOW_DESTRUCTIVE_SCHEMA=1 to allow this migration test to drop a schema column")
 	}
 	st, err := NewStorage("mysql", dsn)
 	if err != nil {
