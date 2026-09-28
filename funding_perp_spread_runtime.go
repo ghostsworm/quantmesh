@@ -80,6 +80,24 @@ func startFundingPerpSpreadSymbolRuntime(
 			if capErr != nil {
 				balanceErr = capErr
 			} else {
+				walletCandidate := symCfg
+				walletCandidate.TotalAllocatedCapital = verifiedCapital
+				for _, wallet := range []struct {
+					exchange string
+					balance  float64
+				}{{exchange: fp.LegA.Exchange, balance: legABalance}, {exchange: fp.LegB.Exchange, balance: legBBalance}} {
+					allocated, allocationErr := configuredAccountWalletCapitalTotal(baseCfg, walletCandidate, wallet.exchange, "futures")
+					if allocationErr != nil {
+						balanceErr = fmt.Errorf("calculate configured futures-wallet capital for %s: %w", wallet.exchange, allocationErr)
+						break
+					}
+					if allocated > wallet.balance {
+						balanceErr = fmt.Errorf("configured futures-wallet capital %.2f USDT exceeds available balance %.2f USDT on %s", allocated, wallet.balance, wallet.exchange)
+						break
+					}
+				}
+			}
+			if balanceErr == nil {
 				if verifiedCapital < requestedCapital {
 					logger.WarnCtx(ctx, "funding_perp_spread budget capped from %.2f to %.2f USDT by verified leg balances", requestedCapital, verifiedCapital)
 				}

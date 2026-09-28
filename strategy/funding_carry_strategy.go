@@ -67,10 +67,13 @@ type FundingCarryStrategy struct {
 	settledThisTick  bool
 
 	// 資金自動劃轉
-	autoTransferEnabled  bool
-	transferReserveSpot  float64
-	profitHarvestEnabled bool
-	profitHarvestMin     float64
+	autoTransferEnabled           bool
+	transferReserveSpot           float64
+	profitHarvestEnabled          bool
+	profitHarvestMin              float64
+	accountFuturesCapitalReserve  float64
+	externalFuturesCapitalReserve float64
+	externalSpotCapitalReserve    float64
 
 	mu                sync.RWMutex
 	ctx               context.Context
@@ -243,6 +246,23 @@ func (s *FundingCarryStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
 	s.mu.Lock()
 	s.runtimeStateStore = store
 	s.mu.Unlock()
+}
+
+// SetAccountCapitalReserves wires the startup-verified cross-Bot wallet budgets.
+// The external reserves are protected during transfers; the total futures
+// commitment is also protected from profit harvesting.
+func (s *FundingCarryStrategy) SetAccountCapitalReserves(futuresTotal, futuresExternal, spotTotal, spotExternal float64) error {
+	if !finiteNonNegative(futuresTotal) || !finiteNonNegative(futuresExternal) ||
+		!finiteNonNegative(spotTotal) || !finiteNonNegative(spotExternal) ||
+		futuresExternal > futuresTotal || spotExternal > spotTotal {
+		return fmt.Errorf("account capital reserves must be finite and non-negative")
+	}
+	s.mu.Lock()
+	s.accountFuturesCapitalReserve = futuresTotal
+	s.externalFuturesCapitalReserve = futuresExternal
+	s.externalSpotCapitalReserve = spotExternal
+	s.mu.Unlock()
+	return nil
 }
 
 type FundingCarryExecutor interface {
@@ -815,20 +835,30 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if !finiteNonNegative(futBal) || !finiteNonNegative(spotBal) {
 		return fmt.Errorf("invalid futures/spot USDT balance: futures %.12g, spot %.12g", futBal, spotBal)
 	}
-	spotReserve := spotOrderReserveUSDT
+	s.mu.RLock()
+	accountFuturesReserve := s.accountFuturesCapitalReserve
+	externalFuturesReserve := s.externalFuturesCapitalReserve
+	externalSpotReserve := s.externalSpotCapitalReserve
+	s.mu.RUnlock()
+	ownFuturesReserve := math.Max(0, accountFuturesReserve-externalFuturesReserve)
+	futuresReserve := math.Max(requiredUSDT, ownFuturesReserve) + externalFuturesReserve
+	if !finitePositive(futuresReserve) {
+		return fmt.Errorf("aggregate futures reserve is invalid")
+	}
+	spotReserve := spotOrderReserveUSDT + externalSpotReserve
 	if s.autoTransferEnabled {
 		spotReserve += s.transferReserveSpot
 	}
 	if !finiteNonNegative(spotReserve) || spotBal < spotReserve {
 		return fmt.Errorf("insufficient spot USDT for pending hedge leg and reserve: balance %.2f, required %.2f", spotBal, spotReserve)
 	}
-	if futBal >= requiredUSDT {
+	if futBal >= futuresReserve {
 		return nil
 	}
 	if !s.autoTransferEnabled {
-		return fmt.Errorf("insufficient futures USDT: available %.2f, required %.2f", futBal, requiredUSDT)
+		return fmt.Errorf("insufficient futures USDT after preserving other Bot budgets: available %.2f, required %.2f", futBal, futuresReserve)
 	}
-	need := requiredUSDT - futBal
+	need := futuresReserve - futBal
 	transferable := spotBal - spotReserve
 	if need > transferable {
 		return fmt.Errorf("insufficient transferable spot USDT after reserving hedge leg: available %.2f, transfer %.2f", transferable, need)
@@ -841,8 +871,8 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if err != nil {
 		return fmt.Errorf("transfer %s accepted but futures balance could not be verified: %w", txID, err)
 	}
-	if !finiteNonNegative(futBal) || futBal < requiredUSDT {
-		return fmt.Errorf("transfer %s completed but futures USDT remains insufficient: %.2f < %.2f", txID, futBal, requiredUSDT)
+	if !finiteNonNegative(futBal) || futBal < futuresReserve {
+		return fmt.Errorf("transfer %s completed but futures USDT remains insufficient after preserving other Bot budgets: %.2f < %.2f", txID, futBal, futuresReserve)
 	}
 	spotBal, err = s.spot.GetBalance(ctx, "USDT")
 	if err != nil {
@@ -883,28 +913,44 @@ func fundingCarrySpotBuyReserve(quantity, limitPrice, feeRate float64) (float64,
 	return reserve, nil
 }
 
+func validateFundingCarryMarginBalance(availableUSDT, requiredUSDT float64) error {
+	if !finiteNonNegative(availableUSDT) || !finitePositive(requiredUSDT) {
+		return fmt.Errorf("spot-margin USDT balance or required collateral is invalid")
+	}
+	if availableUSDT < requiredUSDT {
+		return fmt.Errorf("insufficient spot-margin USDT collateral: available %.2f, required %.2f", availableUSDT, requiredUSDT)
+	}
+	return nil
+}
+
 func (s *FundingCarryStrategy) harvestProfit(ctx context.Context) {
 	if !s.profitHarvestEnabled {
 		return
 	}
 	futBal, err := s.fut.GetBalance(ctx, "USDT")
-	if err != nil {
+	if err != nil || !finiteNonNegative(futBal) {
 		return
 	}
 	s.mu.RLock()
 	dir := s.direction
 	futQ := s.futQty
+	futuresCapitalReserve := s.accountFuturesCapitalReserve
 	s.mu.RUnlock()
 
-	// 估算持倉佔用保證金（簡化：用合約持倉 × 當前價 ÷ 槓桿）
-	var requiredMargin float64
-	if dir != DirectionNone && futQ > 0 {
-		if px, e := s.fut.GetLatestPrice(ctx, s.symbol); e == nil {
-			requiredMargin = futQ * px / 5 // 假設 5x 槓桿
-		}
+	// 策略記錄與持倉方向矛盾時不歸集；也不假設槓桿或跨 Bot 可用資金。
+	if (dir == DirectionNone && futQ != 0) || (dir != DirectionNone && !finitePositive(futQ)) {
+		return
 	}
-	surplus := futBal - requiredMargin - 50 // 留 50 USDT buffer
-	if surplus < s.profitHarvestMin {
+	var futuresPrice float64
+	if dir != DirectionNone {
+		px, priceErr := s.fut.GetLatestPrice(ctx, s.symbol)
+		if priceErr != nil || !finitePositive(px) {
+			return
+		}
+		futuresPrice = px
+	}
+	surplus, ok := fundingCarryHarvestableSurplus(futBal, futQ, futuresPrice, s.profitHarvestMin, futuresCapitalReserve)
+	if !ok {
 		return
 	}
 
@@ -920,6 +966,30 @@ func (s *FundingCarryStrategy) harvestProfit(ctx context.Context) {
 		"tx_id":   txID,
 		"message": fmt.Sprintf("利潤歸集 %.2f USDT 到現貨帳戶", surplus),
 	})
+}
+
+func fundingCarryHarvestableSurplus(futuresBalance, futuresQty, futuresPrice, minAmount, accountCapitalReserve float64) (float64, bool) {
+	const safetyBufferUSDT = 50.0
+	if !finiteNonNegative(futuresBalance) || !finiteNonNegative(futuresQty) ||
+		!finiteNonNegative(accountCapitalReserve) || !finitePositive(minAmount) {
+		return 0, false
+	}
+	var positionNotional float64
+	if futuresQty > 0 {
+		if !finitePositive(futuresPrice) {
+			return 0, false
+		}
+		positionNotional = futuresQty * futuresPrice
+		if !finitePositive(positionNotional) {
+			return 0, false
+		}
+	}
+	protectedCapital := math.Max(positionNotional, accountCapitalReserve)
+	surplus := futuresBalance - protectedCapital - safetyBufferUSDT
+	if !finitePositive(surplus) || surplus < minAmount {
+		return 0, false
+	}
+	return surplus, true
 }
 
 // ---------------------------------------------------------------------------
@@ -1407,6 +1477,13 @@ func (s *FundingCarryStrategy) openReverseHedge(ctx context.Context, futPx, spot
 		return fmt.Errorf("分配資金 %.2f USDT 過小", cap)
 	}
 	legNotional := cap / 2
+	marginBalance, err := s.marginEx.GetBalance(ctx, "USDT")
+	if err != nil {
+		return fmt.Errorf("query spot-margin USDT balance before reverse opening: %w", err)
+	}
+	if err := validateFundingCarryMarginBalance(marginBalance, legNotional); err != nil {
+		return err
+	}
 
 	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
 		return fmt.Errorf("ensure futures opening margin: %w", err)

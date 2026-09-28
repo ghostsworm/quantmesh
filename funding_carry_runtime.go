@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -66,6 +67,30 @@ func startFundingCarrySymbolRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("創建現貨連線失敗: %w", err)
 	}
+	var futuresAccountCapital, spotAccountCapital float64
+	for _, wallet := range []struct {
+		market string
+		ex     exchange.IExchange
+	}{{market: "futures", ex: futEx}, {market: "spot", ex: spotEx}} {
+		allocated, err := configuredAccountWalletCapitalTotal(baseCfg, symCfg, symCfg.Exchange, wallet.market)
+		if err != nil {
+			return nil, fmt.Errorf("計算同帳戶 %s 錢包配置資金: %w", wallet.market, err)
+		}
+		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
+		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
+		cancelBalance()
+		if balanceErr != nil {
+			return nil, fmt.Errorf("讀取 %s USDT 可用餘額: %w", wallet.market, balanceErr)
+		}
+		if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || allocated > available {
+			return nil, fmt.Errorf("同帳戶 %s 配置資金 %.2f USDT 超過或無法核實可用餘額 %.2f USDT", wallet.market, allocated, available)
+		}
+		if wallet.market == "futures" {
+			futuresAccountCapital = allocated
+		} else {
+			spotAccountCapital = allocated
+		}
+	}
 
 	// 嘗試建立保證金帳戶連線（反向套利用，失敗不阻塞啟動）
 	var marginEx exchange.ISpotMarginExchange
@@ -77,6 +102,21 @@ func startFundingCarrySymbolRuntime(
 		}
 	} else {
 		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
+	}
+	if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
+		allocated, allocationErr := configuredAccountWalletCapitalTotal(baseCfg, symCfg, symCfg.Exchange, "spot_margin")
+		if allocationErr != nil {
+			return nil, fmt.Errorf("計算同帳戶 spot_margin 錢包配置資金: %w", allocationErr)
+		}
+		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
+		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
+		cancelBalance()
+		if balanceErr != nil {
+			return nil, fmt.Errorf("讀取 spot_margin USDT 可用餘額: %w", balanceErr)
+		}
+		if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || allocated > available {
+			return nil, fmt.Errorf("同帳戶 spot_margin 配置資金 %.2f USDT 超過或無法核實可用餘額 %.2f USDT", allocated, available)
+		}
 	}
 
 	priceMonitor := monitor.NewPriceMonitor(
@@ -133,6 +173,19 @@ func startFundingCarrySymbolRuntime(
 		}
 	}
 	fc := strategy.NewFundingCarryStrategy("funding_carry", &localCfg, symCfg, futEx, spotEx, marginEx, fcCfg)
+	ownCapital := symCfg.TotalAllocatedCapital
+	if ownCapital <= 0 {
+		ownCapital = symCfg.OrderQuantity
+	}
+	if ownCapital <= 0 {
+		ownCapital = baseCfg.Strategies.CapitalAllocation.TotalCapital
+	}
+	ownLegCapital := ownCapital / 2
+	futuresExternalCapital := math.Max(0, futuresAccountCapital-ownLegCapital)
+	spotExternalCapital := math.Max(0, spotAccountCapital-ownLegCapital)
+	if err := fc.SetAccountCapitalReserves(futuresAccountCapital, futuresExternalCapital, spotAccountCapital, spotExternalCapital); err != nil {
+		return nil, fmt.Errorf("configure account-level funding_carry capital reserves: %w", err)
+	}
 	if storageService != nil {
 		fc.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
 	}
@@ -312,6 +365,17 @@ func startFundingCarrySymbolRuntime(
 	runtimeReady = true
 
 	return rt, nil
+}
+
+func fundingCarryReverseEnabled(symCfg config.SymbolConfig) bool {
+	for _, instance := range symCfg.Strategies {
+		if instance.Type != "funding_carry" || instance.Config == nil {
+			continue
+		}
+		enabled, _ := instance.Config["reverse_enabled"].(bool)
+		return enabled
+	}
+	return false
 }
 
 type fundingCarryOrderExecutor struct {

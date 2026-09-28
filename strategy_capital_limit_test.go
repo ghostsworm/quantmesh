@@ -128,3 +128,72 @@ func TestConfiguredAccountCapitalTotalUsesFallbackAndRejectsUnknown(t *testing.T
 		t.Fatal("missing account identity unexpectedly accepted")
 	}
 }
+
+func TestConfiguredAccountWalletCapitalCountsPairedStrategyLegs(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{
+			"binance": {APIKey: "shared-a"},
+			"okx":     {APIKey: "shared-b"},
+		},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Strategies.CapitalAllocation.TotalCapital = 1000
+	cfg.Bots = []config.BotConfig{
+		{ID: "candidate", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 300},
+		{ID: "standard", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", TotalAllocatedCapital: 200},
+		{ID: "carry", Exchange: "binance", Symbol: "SOLUSDT", MarketType: config.MarketTypeFundingCarry, TotalAllocatedCapital: 800},
+		{ID: "spread", MarketType: config.MarketTypeFundingPerpSpread, TotalAllocatedCapital: 600,
+			FundingPerpSpread: &config.FundingPerpSpreadConfig{
+				LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "XRPUSDT"},
+				LegB: config.FundingPerpLeg{Exchange: "okx", Symbol: "XRPUSDT"},
+			}},
+		{ID: "other", Exchange: "okx", Symbol: "DOGEUSDT", MarketType: "futures", TotalAllocatedCapital: 900},
+	}
+	candidate := config.SymbolConfig{ID: "candidate", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", TotalAllocatedCapital: 500}
+	got, err := configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "futures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1400 { // candidate 500 + standard 200 + carry 400 + spread leg 300
+		t.Fatalf("binance futures wallet commitment=%v, want 1400", got)
+	}
+	got, err = configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "spot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 400 {
+		t.Fatalf("binance spot wallet commitment=%v, want carry half 400", got)
+	}
+	got, err = configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "spot_margin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 400 {
+		t.Fatalf("binance spot-margin wallet commitment=%v, want carry half 400", got)
+	}
+	got, err = configuredAccountWalletCapitalTotal(cfg, candidate, "okx", "futures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1200 { // other 900 + spread leg 300
+		t.Fatalf("okx futures wallet commitment=%v, want 1200", got)
+	}
+}
+
+func TestConfiguredAccountWalletCapitalCountsBothSpreadLegsOnSameWallet(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "shared-a"}}}
+	cfg.Strategies.CapitalAllocation.TotalCapital = 500
+	spread := &config.FundingPerpSpreadConfig{
+		LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
+		LegB: config.FundingPerpLeg{Exchange: "binance", Symbol: "ETHUSDT"},
+	}
+	candidate := config.SymbolConfig{ID: "spread", Exchange: "binance", MarketType: config.MarketTypeFundingPerpSpread,
+		TotalAllocatedCapital: 700, FundingPerpSpread: spread}
+	got, err := configuredAccountWalletCapitalTotal(cfg, candidate, "binance", "futures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 700 {
+		t.Fatalf("same-wallet two-leg spread commitment=%v, want full 700", got)
+	}
+}
