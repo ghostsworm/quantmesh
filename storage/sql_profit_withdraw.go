@@ -449,9 +449,9 @@ func (s *SQLStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID string) erro
 }
 
 // RecoverAbandonedProfitWithdrawRuleClaims reclaims stale claims only when
-// there is no transfer reservation for that exact claim. The record insertion
-// is separately fenced by SaveWithdrawRecordForClaim to prevent stale workers
-// from transferring after their claim has been recovered.
+// there is no unresolved transfer reservation for that exact claim. The record
+// insertion is separately fenced by SaveWithdrawRecordForClaim to prevent
+// stale workers from transferring after their claim has been recovered.
 func (s *SQLStorage) RecoverAbandonedProfitWithdrawRuleClaims(staleBefore time.Time) (int64, error) {
 	if staleBefore.IsZero() {
 		return 0, fmt.Errorf("abandoned withdrawal claim recovery requires a cutoff")
@@ -463,6 +463,7 @@ func (s *SQLStorage) RecoverAbandonedProfitWithdrawRuleClaims(staleBefore time.T
 		  AND NOT EXISTS (
 			SELECT 1 FROM profit_withdraw_records r
 			WHERE r.rule_id = profit_withdraw_rules.id AND r.claim_id = profit_withdraw_rules.claim_id
+			  AND r.status NOT IN ('completed', 'failed', 'cancelled')
 		  )`, updatedAt, staleBefore.UTC())
 	if err != nil {
 		return 0, fmt.Errorf("recover abandoned withdrawal rule claims: %w", err)

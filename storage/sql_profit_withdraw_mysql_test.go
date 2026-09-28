@@ -138,4 +138,15 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 	if err := st.SaveWithdrawRecordForClaim(record); err != nil {
 		t.Fatalf("save current MySQL claim reservation: %v", err)
 	}
+	if err := st.UpdateWithdrawRecordStatus(record.ID, "completed", "mysql-confirmed-transfer", ""); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().Add(time.Hour))
+	if err != nil || recovered != 1 {
+		t.Fatalf("release MySQL claim with completed transfer: count=%d err=%v", recovered, err)
+	}
+	reserved, err = st.SumReservedWithdrawAmountForStream(claimAccount, "mysql-claim-scope", "BINANCE", "ethusdt", time.Now().Add(-time.Hour))
+	if err != nil || reserved != 2 {
+		t.Fatalf("completed MySQL transfer must remain reserved: amount=%v err=%v", reserved, err)
+	}
 }

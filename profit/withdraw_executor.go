@@ -153,7 +153,7 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 		return
 	}
 	if recovered > 0 {
-		logger.Warn("⚠️ [利润提取] 已回收 %d 个无转账预留且超时的崩溃遗留规则 claim", recovered)
+		logger.Warn("⚠️ [利润提取] 已回收 %d 个无未决转账预留且超时的崩溃遗留规则 claim", recovered)
 	}
 	accountIDs, err := e.st.ListAccountIDsWithProfitRules()
 	if err != nil {

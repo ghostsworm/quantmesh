@@ -252,6 +252,20 @@ func TestAbandonedWithdrawalClaimCanRecoverOnlyBeforeReservation(t *testing.T) {
 	if err != nil || recovered != 0 {
 		t.Fatalf("claim with an existing transfer reservation must not be recovered: recovered=%d err=%v", recovered, err)
 	}
+	if err := st.UpdateWithdrawRecordStatus(record.ID, "completed", "confirmed-transfer", ""); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().Add(time.Hour))
+	if err != nil || recovered != 1 {
+		t.Fatalf("stale claim with a terminal, confirmed transfer should be released: recovered=%d err=%v", recovered, err)
+	}
+	reserved, err := st.SumReservedWithdrawAmountForStream("acct", "scope-a", "binance", "BTCUSDT", record.CreatedAt.Add(-time.Minute))
+	if err != nil || reserved != record.Amount {
+		t.Fatalf("confirmed transfer must remain reserved after releasing its claim: reserved=%v err=%v", reserved, err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule(rule.ID, "after-completion"); err != nil || !claimed {
+		t.Fatalf("completed transfer claim should be reclaimable: claimed=%v err=%v", claimed, err)
+	}
 }
 
 func TestWithdrawalClaimRecoveryPreservesLegacyClaimsWithoutTimestamp(t *testing.T) {
