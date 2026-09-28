@@ -235,8 +235,8 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				}
 				// 🔥 累計開倉手續費（平倉時按比例攤銷）
 				slot.BuyFee += fillCommission
-				if fillCommission != 0 && update.CommissionAsset != "" {
-					slot.FeeAsset = update.CommissionAsset
+				if fillCommission != 0 {
+					slot.FeeAsset = spm.feeQuoteAsset()
 				}
 				// D3：成交部分的預留资金轉為槽位持倉占用（平倉成交時再按比例釋放）
 				spm.applyOpeningFillAllocationLocked(slot, orderClientOID, deltaQty, actualBuyPrice, update.Status == "FILLED")
@@ -367,7 +367,9 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 						// 🔥 手續費：買入攤銷 + 賣出本次手續費（feeFromBuy 已在上面计算）
 						totalFee := feeFromBuy + fillCommission
-						feeAsset := update.CommissionAsset
+						// BuyFee and fillCommission are both stored in quote-asset units,
+						// regardless of the venue's original commission token.
+						feeAsset := spm.feeQuoteAsset()
 						if feeAsset == "" {
 							feeAsset = slot.FeeAsset
 						}

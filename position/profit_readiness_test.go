@@ -10,14 +10,46 @@ import (
 )
 
 type auditTradeRecorder struct {
-	pnl  []float64
-	keys []string
+	pnl    []float64
+	keys   []string
+	trades []*storage.Trade
 }
 
 func (s *auditTradeRecorder) SaveTradeIdempotent(trade *storage.Trade) error {
 	s.pnl = append(s.pnl, trade.PnL)
 	s.keys = append(s.keys, trade.ExecutionKey)
+	copy := *trade
+	s.trades = append(s.trades, &copy)
 	return nil
+}
+
+type auditETHQuoteExchange struct{ MockExchange }
+
+func (auditETHQuoteExchange) GetBaseAsset() string { return "ETH" }
+
+func TestGridTradeFeeAssetMatchesConvertedQuoteAmount(t *testing.T) {
+	spm := newFillFeeSPM(t, "spot", &auditETHQuoteExchange{})
+	store := &auditTradeRecorder{}
+	spm.SetTradeStorage(store)
+
+	openID := openBuy(spm, 301)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 301, ClientOrderID: openID, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 1, AvgPrice: 3000, Commission: 0.001, CommissionAsset: "ETH", BaseFeeQty: 0.001})
+	closeID := spm.generateClientOrderID(3000, "SELL", "")
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 302, ClientOrderID: closeID, Symbol: "ETHUSDT", Status: "NEW", Side: "SELL", Price: 3100})
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 302, ClientOrderID: closeID, Symbol: "ETHUSDT", Status: "FILLED", Side: "SELL",
+		ExecutedQty: 0.999, AvgPrice: 3100, Commission: 0.001, CommissionAsset: "ETH"})
+
+	if len(store.trades) != 1 {
+		t.Fatalf("saved trades=%d want 1", len(store.trades))
+	}
+	trade := store.trades[0]
+	if trade.FeeAsset != "USDT" {
+		t.Fatalf("fee amount is quote-valued but FeeAsset=%q; want USDT", trade.FeeAsset)
+	}
+	if math.Abs(trade.Fee-6.1) > 1e-9 {
+		t.Fatalf("quote-converted total fee=%v want 6.1", trade.Fee)
+	}
 }
 
 func (s *auditTradeRecorder) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time, botID string) error {

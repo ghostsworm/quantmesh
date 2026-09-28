@@ -1078,3 +1078,23 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 新增已持久化重复终态回报的确认回归，并对 `main` 与 `sync` 的成交捕获用例运行三轮 race。
 - 验证：`go test -race . ./sync -run 'RuntimeFillCapture|OwnedOrderFills' -count=3` 通过。没有交易所请求或真实订单。
 - **边界：worker 队列拥塞/运行时停止会失败关闭；这里只保证在本进程门控的持久化窗口，不代替跨重启策略账恢复、全账户协调及真实交易所故障演练。原盈利准备度审查的其他未闭合项继续开放。** 未提交、推送或交易。
+
+## 后续续修：网格手续费资产与折算单位一致（3.111.0-rc208）
+
+- 网格订单回报先把基础币手续费折算成计价币金额，但交易记录曾保留原始 `CommissionAsset`；例如金额已是 USDT，`FeeAsset` 却仍写 ETH/BNB，造成金额与单位错配。
+- 网格持仓手续费与平仓费用现统一标记为交易所 quote asset；新增完整现货开/平仓成交回归，验证 ETH 手续费分别按成交价折算后合计为 6.1 USDT，记录币种为 USDT。
+- 定向审计回归、position 包三轮 race、全量 `go test ./... -count=1` 及 `go vet ./position` 通过；全量测试未触发真实交易所请求。**边界：此修复仅保证网格账本单位一致，历史已保存的错误 FeeAsset 尚未批量核账/更正；其他策略账本、账户级现金流和样本外盈利验证仍未完成。** 未提交、推送或交易。
+
+## 后续续修：持仓对账生命周期取消传播（3.111.0-rc209）
+
+- 对账器此前创建了 30 秒 deadline，却在持仓/挂单查询时使用 `context.Background()`；轮询限流还使用不可取消的 `Sleep`，导致停机或上层取消无法及时终止对账 IO。
+- 新增 `ReconcileContext` 并由后台循环传递生命周期 context；两次交易所查询现在使用带 30 秒上限的子 context，限流等待响应取消。释放分布式锁使用独立 5 秒清理 context，避免主操作取消后锁清理也立即失效。
+- 新增持仓读取、挂单读取及限流等待三类取消测试，重复三轮通过；确认被取消流程不发布对账完成计数，也不以已取消上下文释放锁。新增用例 `go test -race ./safety -run 'TestReconcilerContextCancellation' -count=3` 通过；全量 `go test ./... -count=1`、`go vet ./...` 及前端 `yarn verify` 均通过，未调用真实交易所。
+- **边界：此次只修复取消/停机生命周期，不改变持仓差异的自动同步策略；重启时网格成本、历史成交/费用与策略资本恢复仍未完成。** 未提交、推送或交易。
+
+## 后续续修：拒绝未核实的交易所持仓快照（3.111.0-rc210）
+
+- 发现持仓对账曾把 `GetPositions` 的 nil 或无法解析响应当作交易所空仓，进而可能调用 `ForceSyncPositions(0)` 清除本地已成交仓位。现在仅接受明确的非 nil slice/array，校验每行 Symbol/Size、拒绝 nil 行、非有限数量与重复目标交易对；明确的空切片仍表示已核实空仓。
+- 修正测试 mock，使空仓通过显式空切片表达，并覆盖 nil/typed-nil、错误类型、nil 行、NaN 和重复交易对；每种异常均断言返回错误、不执行仓位同步、不发布完成样本。
+- 验证：`go test ./safety -run 'TestReconciler(RejectsUnverifiedPositionSnapshot|ContextCancellation|ContextCancellationInterruptsThrottle|_Reconcile|_Spot|_Direction)' -count=3`、`go test -race ./safety -run 'TestReconciler(RejectsUnverifiedPositionSnapshot|ContextCancellation)' -count=3`、全量 `go test ./... -count=1`、`go vet ./...` 及 `webui/yarn verify` 通过；未调用真实交易所。
+- **边界：重复同交易对快照按歧义失败关闭；对冲持仓模式若交易所适配器按 LONG/SHORT 分行返回同一 symbol，将跳过本轮对账并记录错误，需后续按持仓方向字段设计专门解析。** 盈利准备度其他未闭合项继续开放。未提交、推送或交易。

@@ -114,7 +114,7 @@ func (r *Reconciler) Start(ctx context.Context) {
 				logger.Info("⏹️ 持倉對账协程已停止")
 				return
 			case <-ticker.C:
-				if err := r.Reconcile(); err != nil {
+				if err := r.ReconcileContext(ctx); err != nil {
 					logger.Error("❌ [對账失败] %v", err)
 				}
 			}
@@ -125,6 +125,15 @@ func (r *Reconciler) Start(ctx context.Context) {
 
 // Reconcile 執行對账（通用實現，支援所有交易所）
 func (r *Reconciler) Reconcile() error {
+	return r.ReconcileContext(context.Background())
+}
+
+// ReconcileContext executes one reconciliation using the caller's lifecycle
+// context so shutdown/deadline cancellation reaches throttling and venue IO.
+func (r *Reconciler) ReconcileContext(parent context.Context) error {
+	if parent == nil {
+		parent = context.Background()
+	}
 	// 检查是否暂停（风控触发時不输出日志）
 	if r.pauseChecker != nil && r.pauseChecker() {
 		return nil
@@ -137,7 +146,13 @@ func (r *Reconciler) Reconcile() error {
 		waitTime := r.minReconcileInterval - elapsed
 		r.reconcileMu.Unlock()
 		logger.Debug("⏳ [對账] 等待 %v 后執行（最小间隔限制）", waitTime)
-		time.Sleep(waitTime)
+		timer := time.NewTimer(waitTime)
+		defer timer.Stop()
+		select {
+		case <-parent.Done():
+			return parent.Err()
+		case <-timer.C:
+		}
 		r.reconcileMu.Lock()
 	}
 	r.lastReconcileTime = time.Now()
@@ -155,7 +170,7 @@ func (r *Reconciler) Reconcile() error {
 	// 分布式鎖：防止多實例同時對账造成數據不一致
 	lockKey := fmt.Sprintf("reconcile:%s:%s", exchangeName, symbol)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
 	// 使用阻塞鎖（Lock）而非 TryLock，确保對账一定執行
@@ -165,7 +180,11 @@ func (r *Reconciler) Reconcile() error {
 		return nil // 鎖獲取失败不返回錯误，只是跳過
 	}
 	defer func() {
-		if unlockErr := r.lock.Unlock(ctx, lockKey); unlockErr != nil {
+		// The operation context may already be canceled. Use a bounded cleanup
+		// context so cancellation does not silently strand the distributed lock.
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		if unlockErr := r.lock.Unlock(unlockCtx, lockKey); unlockErr != nil {
 			logger.Warn("⚠️ [%s] 释放對账鎖失败: %v", exchangeName, unlockErr)
 		}
 	}()
@@ -173,13 +192,17 @@ func (r *Reconciler) Reconcile() error {
 	logger.Debugln("🔍 ===== 开始持倉對账 =====")
 
 	// 1. 查詢交易所持倉資訊（使用通用接口）
-	positionsRaw, err := r.exchange.GetPositions(context.Background(), symbol)
+	positionsRaw, err := r.exchange.GetPositions(ctx, symbol)
 	if err != nil {
 		return fmt.Errorf("查詢持倉失败: %w", err)
 	}
+	exchangePosition, err := parseExchangePositionSize(positionsRaw, symbol)
+	if err != nil {
+		return fmt.Errorf("核實交易所持倉响应失败: %w", err)
+	}
 
 	// 2. 查詢所有挂單（使用通用接口）
-	openOrdersRaw, err := r.exchange.GetOpenOrders(context.Background(), symbol)
+	openOrdersRaw, err := r.exchange.GetOpenOrders(ctx, symbol)
 	if err != nil {
 		return fmt.Errorf("查詢挂單失败: %w", err)
 	}
@@ -188,27 +211,7 @@ func (r *Reconciler) Reconcile() error {
 	logger.Debug("📊 交易所持倉資訊類型: %T", positionsRaw)
 	logger.Debug("📊 交易所挂單信息類型: %T", openOrdersRaw)
 
-	// 3a. 解析交易所持倉數量
-	exchangePosition := 0.0
-	vPositions := reflect.ValueOf(positionsRaw)
-	if vPositions.Kind() == reflect.Slice {
-		for i := 0; i < vPositions.Len(); i++ {
-			pos := vPositions.Index(i)
-			if pos.Kind() == reflect.Ptr {
-				pos = pos.Elem()
-			}
-			if pos.Kind() == reflect.Struct {
-				symbolField := pos.FieldByName("Symbol")
-				sizeField := pos.FieldByName("Size")
-				if symbolField.IsValid() && sizeField.IsValid() {
-					if symbolField.String() == symbol {
-						exchangePosition = sizeField.Float()
-						break
-					}
-				}
-			}
-		}
-	}
+	// 3a. 持仓快照必须明确返回可解析的 slice；nil/坏数据不能当成空仓。
 
 	// 4. 计算本地持倉统计
 	var localTotal float64
@@ -361,6 +364,50 @@ func (r *Reconciler) Reconcile() error {
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
 	return nil
+}
+
+func parseExchangePositionSize(raw interface{}, symbol string) (float64, error) {
+	if raw == nil {
+		return 0, fmt.Errorf("持仓响应为 nil，无法证明账户为空仓")
+	}
+	positions := reflect.ValueOf(raw)
+	if positions.Kind() != reflect.Slice && positions.Kind() != reflect.Array {
+		return 0, fmt.Errorf("持仓响应类型不可解析: %T", raw)
+	}
+	if positions.Kind() == reflect.Slice && positions.IsNil() {
+		return 0, fmt.Errorf("持仓响应为 nil 切片，无法证明账户为空仓")
+	}
+	var size float64
+	found := false
+	for i := 0; i < positions.Len(); i++ {
+		position := positions.Index(i)
+		for position.IsValid() && (position.Kind() == reflect.Interface || position.Kind() == reflect.Ptr) {
+			if position.IsNil() {
+				return 0, fmt.Errorf("持仓响应包含 nil 项")
+			}
+			position = position.Elem()
+		}
+		if !position.IsValid() || position.Kind() != reflect.Struct {
+			return 0, fmt.Errorf("持仓响应第 %d 项不是结构体", i)
+		}
+		symbolField := position.FieldByName("Symbol")
+		sizeField := position.FieldByName("Size")
+		if !symbolField.IsValid() || !symbolField.CanInterface() || symbolField.Kind() != reflect.String || !sizeField.IsValid() || !sizeField.CanInterface() || !sizeField.CanFloat() {
+			return 0, fmt.Errorf("持仓响应第 %d 项缺少有效 Symbol/Size 字段", i)
+		}
+		if symbolField.String() != symbol {
+			continue
+		}
+		current := sizeField.Float()
+		if math.IsNaN(current) || math.IsInf(current, 0) {
+			return 0, fmt.Errorf("交易所持仓 %s 数量不是有限值", symbol)
+		}
+		if found {
+			return 0, fmt.Errorf("持仓响应包含重复交易对 %s，无法确定净持仓", symbol)
+		}
+		size, found = current, true
+	}
+	return size, nil
 }
 
 // normalizeExchangePositionForSync 將交易所帶符號淨持倉轉換為可與本地（正數）持倉比較的數量

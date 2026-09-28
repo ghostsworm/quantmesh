@@ -30,3 +30,10 @@ func (spm *SuperPositionManager) commissionInQuote(update OrderUpdate, fillPrice
 	}
 	return 0, false
 }
+
+func (spm *SuperPositionManager) feeQuoteAsset() string {
+	if spm.exchange == nil {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(spm.exchange.GetQuoteAsset()))
+}

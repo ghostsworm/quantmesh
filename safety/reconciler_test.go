@@ -2,11 +2,115 @@ package safety
 
 import (
 	"context"
+	"errors"
+	"math"
 	"quantmesh/config"
 	"quantmesh/lock"
 	"testing"
 	"time"
 )
+
+type blockingReconcileExchange struct {
+	MockReconcileExchange
+	blockPositions bool
+	blockOrders    bool
+	positionsRead  chan struct{}
+	ordersRead     chan struct{}
+}
+
+func (m *blockingReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
+	if m.blockPositions {
+		close(m.positionsRead)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return m.MockReconcileExchange.GetPositions(ctx, symbol)
+}
+
+func (m *blockingReconcileExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
+	if m.blockOrders {
+		close(m.ordersRead)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return m.MockReconcileExchange.GetOpenOrders(ctx, symbol)
+}
+
+type contextRecordingLock struct {
+	*lock.NopLock
+	unlockSawCanceled bool
+}
+
+func (m *contextRecordingLock) Unlock(ctx context.Context, key string) error {
+	m.unlockSawCanceled = ctx.Err() != nil
+	return nil
+}
+
+func TestReconcilerContextCancellationReachesVenueAndReleasesLock(t *testing.T) {
+	for _, stage := range []string{"positions", "open_orders"} {
+		t.Run(stage, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			ex := &blockingReconcileExchange{positionsRead: make(chan struct{}), ordersRead: make(chan struct{})}
+			if stage == "positions" {
+				ex.blockPositions = true
+			} else {
+				ex.blockOrders = true
+			}
+			pm := &MockPositionManager{Symbol: "BTCUSDT", Slots: make(map[float64]interface{})}
+			distLock := &contextRecordingLock{NopLock: lock.NewNopLock()}
+			r := NewReconciler(cfg, ex, pm, distLock)
+			ctx, cancel := context.WithCancel(context.Background())
+			done := make(chan error, 1)
+			go func() { done <- r.ReconcileContext(ctx) }()
+
+			started := ex.positionsRead
+			if stage == "open_orders" {
+				started = ex.ordersRead
+			}
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				cancel()
+				t.Fatal("reconciliation did not reach the expected venue request")
+			}
+			cancel()
+			select {
+			case err := <-done:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("ReconcileContext() error=%v, want context.Canceled", err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("venue request ignored reconciliation cancellation")
+			}
+			if distLock.unlockSawCanceled {
+				t.Fatal("distributed lock cleanup used the canceled operation context")
+			}
+			if pm.ReconcileCount != 0 {
+				t.Fatalf("canceled reconciliation must not publish a completed sample, count=%d", pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerContextCancellationInterruptsThrottle(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	ex := &MockReconcileExchange{}
+	pm := &MockPositionManager{Symbol: "BTCUSDT", Slots: make(map[float64]interface{})}
+	r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+	r.lastReconcileTime = time.Now()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	started := time.Now()
+	err := r.ReconcileContext(ctx)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReconcileContext() error=%v, want context.Canceled", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatal("canceled reconciliation waited for the throttle interval")
+	}
+}
 
 // mockExchangePositionRow 與 reconciler 反射解析一致（Symbol + Size）
 type mockExchangePositionRow struct {
@@ -60,15 +164,63 @@ type MockReconcileExchange struct {
 }
 
 func (m *MockReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
-	if len(m.Positions) > 0 {
-		return m.Positions, nil
+	if m.Positions == nil {
+		return []mockExchangePositionRow{}, nil
 	}
-	return nil, nil
+	return m.Positions, nil
 }
 func (m *MockReconcileExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
 	return nil, nil
 }
 func (m *MockReconcileExchange) GetBaseAsset() string { return "BTC" }
+
+type rawPositionReconcileExchange struct {
+	MockReconcileExchange
+	raw interface{}
+}
+
+func (m *rawPositionReconcileExchange) GetPositions(context.Context, string) (interface{}, error) {
+	return m.raw, nil
+}
+
+func TestReconcilerRejectsUnverifiedPositionSnapshot(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  interface{}
+	}{
+		{name: "nil response", raw: nil},
+		{name: "typed nil slice", raw: []mockExchangePositionRow(nil)},
+		{name: "wrong response type", raw: []string{"BTCUSDT"}},
+		{name: "nil row", raw: []*mockExchangePositionRow{nil}},
+		{name: "non-finite quantity", raw: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: math.NaN()}}},
+		{name: "duplicate symbol", raw: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.1}, {Symbol: "BTCUSDT", Size: 0.2}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "spot"
+			cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+			ex := &rawPositionReconcileExchange{raw: tt.raw}
+			pm := &MockPositionManager{
+				Symbol: "BTCUSDT",
+				Slots: map[float64]interface{}{
+					50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1, OrderSide: "SELL"},
+				},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("Reconcile() succeeded with an unverified position snapshot")
+			}
+			if pm.ForceSyncCount != 0 {
+				t.Fatalf("unverified snapshot triggered ForceSyncPositions(%v)", pm.LastForceSync)
+			}
+			if pm.ReconcileCount != 0 {
+				t.Fatalf("unverified snapshot published a completed sample, count=%d", pm.ReconcileCount)
+			}
+		})
+	}
+}
 
 func TestReconciler_Reconcile(t *testing.T) {
 	cfg := &config.Config{}
@@ -213,7 +365,7 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 
 			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: tt.exchangeSize}}}
 			if tt.exchangeSize == 0 {
-				ex.Positions = nil
+				ex.Positions = []mockExchangePositionRow{}
 			}
 			pm := &MockPositionManager{
 				Symbol:        "BTCUSDT",
