@@ -176,7 +176,7 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			return nil, fmt.Errorf("迁移 MySQL orders 表失败: %w", err)
 		}
 		// orders 必须先就绪，再回填配对成交的 bot_id；否则旧顺序会静默漏数据。
-		if err := backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL); err != nil {
+		if err := backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL, "orders"); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("回填 MySQL 网格配对成交 bot_id 失败: %w", err)
 		}

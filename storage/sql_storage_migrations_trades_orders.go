@@ -143,7 +143,7 @@ func migrateTradesTable(db *sql.DB) error {
 		}
 		logger.Info("✅ bot_id 列添加成功")
 	}
-	if err := backfillTradesBotIDFromOrders(db, "trades"); err != nil {
+	if err := backfillTradesBotIDFromOrders(db, "trades", "orders"); err != nil {
 		return err
 	}
 	if !hasExecutionKeyColumn {
@@ -173,8 +173,11 @@ func migrateTradesTable(db *sql.DB) error {
 	return nil
 }
 
-// backfillTradesBotIDFromOrders 用 orders.bot_id 回填 trades。
-func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) error {
+// backfillTradesBotIDFromOrders 用订单表中的 bot_id 回填配对成交。
+func backfillTradesBotIDFromOrders(db *sql.DB, tableName, ordersTableName string) error {
+	if !isSafeMigrationIdentifier(tableName) || !isSafeMigrationIdentifier(ordersTableName) {
+		return fmt.Errorf("backfill table names must be simple SQL identifiers")
+	}
 	scopeMatch := fmt.Sprintf(`
 		LOWER(TRIM(COALESCE(o.exchange, ''))) = LOWER(TRIM(COALESCE(%[1]s.exchange, '')))
 		AND TRIM(COALESCE(o.account, '')) = TRIM(COALESCE(%[1]s.account, ''))
@@ -182,21 +185,36 @@ func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) error {
 		AND TRIM(COALESCE(o.account_scope, '')) = TRIM(COALESCE(%[1]s.account_scope, ''))
 	`, tableName)
 	orderBot := func(orderColumn string) string {
-		return fmt.Sprintf(`(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %[1]s.%[2]s AND %[3]s LIMIT 1)`, tableName, orderColumn, scopeMatch)
+		return fmt.Sprintf(`(SELECT MIN(NULLIF(TRIM(o.bot_id), '')) FROM %s o WHERE o.order_id = %s.%s AND %s HAVING COUNT(DISTINCT CASE WHEN NULLIF(TRIM(o.bot_id), '') IS NOT NULL THEN HEX(TRIM(o.bot_id)) END) = 1)`, ordersTableName, tableName, orderColumn, scopeMatch)
 	}
-	orderOwned := func(orderColumn string) string {
-		return fmt.Sprintf(`EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %[1]s.%[2]s AND %[3]s AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)`, tableName, orderColumn, scopeMatch)
+	orderOwnerCount := func(orderColumn string) string {
+		return fmt.Sprintf(`(SELECT COUNT(DISTINCT CASE WHEN NULLIF(TRIM(o.bot_id), '') IS NOT NULL THEN HEX(TRIM(o.bot_id)) END) FROM %s o WHERE o.order_id = %s.%s AND %s)`, ordersTableName, tableName, orderColumn, scopeMatch)
 	}
 	q := fmt.Sprintf(`
 		UPDATE %[1]s SET bot_id = COALESCE(%[2]s, %[3]s, '')
 		WHERE (bot_id IS NULL OR bot_id = '')
-			AND (%[4]s OR %[5]s)
-	`, tableName, orderBot("sell_order_id"), orderBot("buy_order_id"), orderOwned("sell_order_id"), orderOwned("buy_order_id"))
+			AND (%[4]s = 1 OR %[5]s = 1)
+			AND %[4]s <= 1 AND %[5]s <= 1
+			AND (%[2]s IS NULL OR %[3]s IS NULL OR %[2]s = %[3]s)
+	`, tableName, orderBot("sell_order_id"), orderBot("buy_order_id"), orderOwnerCount("sell_order_id"), orderOwnerCount("buy_order_id"))
 	if _, err := db.Exec(q); err != nil {
 		return fmt.Errorf("回填 %s.bot_id 失败: %w", tableName, err)
 	}
 	logger.Info("✅ 已嘗試從 orders 回填 %s.bot_id", tableName)
 	return nil
+}
+
+func isSafeMigrationIdentifier(name string) bool {
+	if name == "" || !((name[0] >= 'a' && name[0] <= 'z') || (name[0] >= 'A' && name[0] <= 'Z') || name[0] == '_') {
+		return false
+	}
+	for i := 1; i < len(name); i++ {
+		ch := name[i]
+		if !((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 // migrateOrdersTable 迁移 orders 表，添加 filled_qty / exchange / type / realized_pnl / strategy_name / strategy_type 列

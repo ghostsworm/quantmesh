@@ -24,26 +24,35 @@ func TestBackfillTradesBotIDFromOrdersPreservesAndRecoversOwnership(t *testing.T
 		(101, 'wrong-account-owner', 'binance', 'acct-b', 'futures', 'scope-b'),
 		(101, 'wrong-market-owner', 'binance', 'acct-a', 'spot', 'scope-a'),
 		(101, 'sell-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(102, 'buy-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(102, 'sell-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
 		(103, 'buy-only-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(104, 'wrong-scope-owner', 'binance', 'acct-a', 'futures', 'scope-b');
+		(104, 'wrong-scope-owner', 'binance', 'acct-a', 'futures', 'scope-b'),
+		(105, 'conflicting-owner-a', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(105, 'conflicting-owner-b', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(106, 'sell-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(107, 'different-buy-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(108, 'BotCase', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(108, 'botcase', 'binance', 'acct-a', 'futures', 'scope-a');
 		INSERT INTO legacy_paired_trades (id, sell_order_id, buy_order_id, bot_id, exchange, account, market_type, account_scope) VALUES
 		(1, 101, 102, '', 'binance', 'acct-a', 'futures', 'scope-a'),
 		(2, 999, 103, '', 'binance', 'acct-a', 'futures', 'scope-a'),
 		(3, 101, 102, 'existing-owner', 'binance', 'acct-a', 'futures', 'scope-a'),
 		(4, 999, 998, '', 'binance', 'acct-a', 'futures', 'scope-a'),
-		(5, 104, 998, '', 'binance', 'acct-a', 'futures', 'scope-a');`)
+		(5, 104, 998, '', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(6, 105, 103, '', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(7, 106, 107, '', 'binance', 'acct-a', 'futures', 'scope-a'),
+		(8, 108, 998, '', 'binance', 'acct-a', 'futures', 'scope-a');`)
 	if err != nil {
 		t.Fatal("insert legacy migration rows:", err)
 	}
 
-	if err := backfillTradesBotIDFromOrders(db, "legacy_paired_trades"); err != nil {
+	if err := backfillTradesBotIDFromOrders(db, "legacy_paired_trades", "orders"); err != nil {
 		t.Fatalf("backfill legacy ownership: %v", err)
 	}
-	if err := backfillTradesBotIDFromOrders(db, "legacy_paired_trades"); err != nil {
+	if err := backfillTradesBotIDFromOrders(db, "legacy_paired_trades", "orders"); err != nil {
 		t.Fatalf("repeat legacy ownership backfill: %v", err)
 	}
-	want := map[int]string{1: "sell-owner", 2: "buy-only-owner", 3: "existing-owner", 4: "", 5: ""}
+	want := map[int]string{1: "sell-owner", 2: "buy-only-owner", 3: "existing-owner", 4: "", 5: "", 6: "", 7: "", 8: ""}
 	rows, err := db.Query(`SELECT id, bot_id FROM legacy_paired_trades ORDER BY id`)
 	if err != nil {
 		t.Fatal("read migrated ownership:", err)
@@ -75,7 +84,7 @@ func TestBackfillTradesBotIDFromOrdersReturnsFailure(t *testing.T) {
 	}
 	defer db.Close()
 
-	if err := backfillTradesBotIDFromOrders(db, "missing_legacy_table"); err == nil {
+	if err := backfillTradesBotIDFromOrders(db, "missing_legacy_table", "orders"); err == nil {
 		t.Fatal("backfill must return an error when its migration source tables are missing")
 	}
 }
