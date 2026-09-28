@@ -78,3 +78,27 @@ func TestOrderSyncServiceUnsupportedExchangeFailsInsteadOfReportingSuccess(t *te
 }
 
 type syncStorageStub struct{ storage.Storage }
+
+type orderFillOrderReaderStub struct{ called bool }
+
+func (r *orderFillOrderReaderStub) GetExistingOrderIDsForScope(string, string, string, string, []int64) (map[int64]bool, error) {
+	r.called = true
+	return map[int64]bool{}, nil
+}
+
+func TestPersistTradePageRejectsInvalidSideBeforeAnyPersistence(t *testing.T) {
+	service := NewOrderSyncService(nil, nil, "BTCUSDT", "acct", "binance", time.Minute)
+	service.marketType = "futures"
+	service.accountScope = "scope"
+	reader := &orderFillOrderReaderStub{}
+	writer := &captureFillWriter{}
+	_, err := service.persistTradePage([]*exchange.OrderFill{{
+		OrderID: 1, TradeID: "trade", Symbol: "BTCUSDT", Side: "BID", Price: 100, Quantity: 1, TradeTime: 1_790_000_000_000,
+	}}, reader, writer)
+	if err == nil {
+		t.Fatal("invalid execution side must be rejected")
+	}
+	if reader.called || len(writer.fills) != 0 {
+		t.Fatalf("invalid execution must be rejected before storage access: reader=%v persisted=%d", reader.called, len(writer.fills))
+	}
+}

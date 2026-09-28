@@ -74,16 +74,26 @@ func TestPersistOwnedOrderFillsFailsClosed(t *testing.T) {
 	cases := []struct {
 		name     string
 		provider captureFillProvider
+		side     string
+		noWrite  bool
 	}{
 		{name: "unsupported", provider: captureFillProvider{}},
 		{name: "query error", provider: captureFillProvider{err: errors.New("offline")}},
 		{name: "quantity mismatch", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}},
 		{name: "duplicate ID", provider: captureFillProvider{fills: []*exchange.OrderFill{valid, valid}}},
+		{name: "invalid execution side", provider: captureFillProvider{fills: []*exchange.OrderFill{{OrderID: 7, TradeID: "bad-side", Symbol: "ETHUSDT", Side: "BID", Price: 10, Quantity: 2, TradeTime: 1_790_000_000_000}}}, noWrite: true},
+		{name: "mismatched execution side", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}, side: "BUY", noWrite: true},
+		{name: "invalid parent order side", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}, side: "BID", noWrite: true},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			if err := PersistOwnedOrderFills(context.Background(), test.provider, &captureFillWriter{}, update, "binance", "futures", "scope", "acct", "bot"); err == nil {
+			writer := &captureFillWriter{}
+			update.Side = test.side
+			if err := PersistOwnedOrderFills(context.Background(), test.provider, writer, update, "binance", "futures", "scope", "acct", "bot"); err == nil {
 				t.Fatal("incomplete execution evidence must be rejected")
+			}
+			if test.noWrite && len(writer.fills) != 0 {
+				t.Fatalf("invalid executions must be rejected before persistence, got %d rows", len(writer.fills))
 			}
 		})
 	}

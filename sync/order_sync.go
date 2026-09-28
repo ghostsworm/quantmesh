@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -275,6 +276,10 @@ func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderI
 		if trade.TradeID == "" || trade.OrderID <= 0 || trade.TradeTime <= 0 || trade.Symbol != s.symbol {
 			return 0, fmt.Errorf("exchange returned a trade without valid identity, time, or requested symbol")
 		}
+		side := strings.ToUpper(strings.TrimSpace(string(trade.Side)))
+		if side != string(exchange.SideBuy) && side != string(exchange.SideSell) {
+			return 0, fmt.Errorf("exchange returned execution %q with invalid side %q", trade.TradeID, trade.Side)
+		}
 		if !seenOrderIDs[trade.OrderID] {
 			orderIDs = append(orderIDs, trade.OrderID)
 			seenOrderIDs[trade.OrderID] = true
@@ -286,10 +291,11 @@ func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderI
 	}
 	syncedCount := 0
 	for _, trade := range trades {
+		side := strings.ToUpper(strings.TrimSpace(string(trade.Side)))
 		fill := &storage.OrderFill{
 			Exchange: s.exchangeName, MarketType: s.marketType, AccountScope: s.accountScope,
 			Account: s.accountID, Symbol: trade.Symbol, TradeID: trade.TradeID,
-			OrderID: trade.OrderID, Side: string(trade.Side), Price: trade.Price, Quantity: trade.Quantity,
+			OrderID: trade.OrderID, Side: side, Price: trade.Price, Quantity: trade.Quantity,
 			QuoteQuantity: trade.QuoteQuantity,
 			Commission:    trade.Commission, CommissionAsset: trade.CommissionAsset,
 			CommissionQuote: trade.CommissionQuote, CommissionQuoteRate: trade.CommissionQuoteRate, CommissionQuoteKnown: trade.CommissionQuoteKnown,
@@ -318,7 +324,7 @@ func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderI
 			OrderID:       trade.OrderID,
 			ClientOrderID: "", // 成交记录中没有ClientOrderID
 			Symbol:        trade.Symbol,
-			Side:          string(trade.Side),
+			Side:          side,
 			Exchange:      s.exchangeName,
 			Account:       s.accountID,
 			MarketType:    s.marketType,

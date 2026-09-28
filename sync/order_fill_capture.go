@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"quantmesh/exchange"
@@ -29,6 +30,10 @@ func PersistOwnedOrderFills(ctx context.Context, provider orderFillProvider, wri
 	if update.OrderID <= 0 || update.Symbol == "" || update.ExecutedQty <= 0 || exchangeName == "" || marketType == "" || accountScope == "" {
 		return fmt.Errorf("execution capture requires a complete owned order and account scope")
 	}
+	orderSide := strings.ToUpper(strings.TrimSpace(update.Side))
+	if orderSide != "" && orderSide != string(exchange.SideBuy) && orderSide != string(exchange.SideSell) {
+		return fmt.Errorf("owned order %d has invalid side %q", update.OrderID, update.Side)
+	}
 	fills, err := provider.GetOrderFills(ctx, update.Symbol, update.OrderID)
 	if err != nil {
 		return fmt.Errorf("fetch fills for owned order %d: %w", update.OrderID, err)
@@ -42,6 +47,10 @@ func PersistOwnedOrderFills(ctx context.Context, provider orderFillProvider, wri
 		if fill == nil || fill.TradeID == "" || fill.OrderID != update.OrderID || fill.Symbol != update.Symbol || fill.TradeTime <= 0 || fill.Price <= 0 || fill.Quantity <= 0 || math.IsNaN(fill.Price) || math.IsInf(fill.Price, 0) || math.IsNaN(fill.Quantity) || math.IsInf(fill.Quantity, 0) || math.IsNaN(fill.Commission) || math.IsInf(fill.Commission, 0) {
 			return fmt.Errorf("exchange returned an invalid execution for order %d", update.OrderID)
 		}
+		fillSide := strings.ToUpper(strings.TrimSpace(string(fill.Side)))
+		if (fillSide != string(exchange.SideBuy) && fillSide != string(exchange.SideSell)) || (orderSide != "" && fillSide != orderSide) {
+			return fmt.Errorf("exchange returned execution %q with invalid or mismatched side for order %d", fill.TradeID, update.OrderID)
+		}
 		if _, exists := seen[fill.TradeID]; exists {
 			return fmt.Errorf("exchange returned duplicate execution ID %q for order %d", fill.TradeID, update.OrderID)
 		}
@@ -50,7 +59,7 @@ func PersistOwnedOrderFills(ctx context.Context, provider orderFillProvider, wri
 		row := &storage.OrderFill{
 			Exchange: exchangeName, MarketType: marketType, AccountScope: accountScope,
 			Account: account, BotID: botID, Symbol: update.Symbol, TradeID: fill.TradeID,
-			OrderID: fill.OrderID, Side: string(fill.Side), Price: fill.Price, Quantity: fill.Quantity,
+			OrderID: fill.OrderID, Side: fillSide, Price: fill.Price, Quantity: fill.Quantity,
 			QuoteQuantity: fill.QuoteQuantity,
 			Commission:    fill.Commission, CommissionAsset: fill.CommissionAsset,
 			CommissionQuote: fill.CommissionQuote, CommissionQuoteRate: fill.CommissionQuoteRate, CommissionQuoteKnown: fill.CommissionQuoteKnown,
