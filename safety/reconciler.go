@@ -6,6 +6,7 @@ import (
 	"math"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"reflect"
@@ -33,6 +34,12 @@ type SlotInfo struct {
 
 // IPositionManager 定义對账所需的倉位管理器接口方法
 type IPositionManager interface {
+	// BeginReconciliation freezes this manager's physical order submissions
+	// and drains already-admitted submissions until the returned release runs.
+	BeginReconciliation(ctx context.Context) (release func(), err error)
+	// FailReconciliation holds the manager's physical executor closed if the
+	// distributed snapshot/submission lease is lost.
+	FailReconciliation(err error)
 	// 遍历所有槽位（封装 sync.Map.Range）
 	// 注意：slot 為 interface{} 類型，需要轉换為 SlotInfo
 	IterateSlots(fn func(price float64, slot interface{}) bool)
@@ -169,26 +176,53 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	}
 
 	// 分布式鎖：防止多實例同時對账造成數據不一致
-	lockKey := fmt.Sprintf("reconcile:%s:%s", exchangeName, symbol)
+	lockKey := execution.PositionReconciliationLockKey(exchangeName, symbol)
 
-	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
+	operationCtx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
+	ctx, cancelOnLockLoss := context.WithCancel(operationCtx)
+	defer cancelOnLockLoss()
+	unlockLocal, err := execution.AcquireLocalPositionCoordination(ctx, lockKey)
+	if err != nil {
+		return fmt.Errorf("等待本进程持仓/下单协调屏障失败: %w", err)
+	}
 
 	// 使用阻塞鎖（Lock）而非 TryLock，确保對账一定執行
-	err := r.lock.Lock(ctx, lockKey, 30*time.Second)
+	err = r.lock.Lock(ctx, lockKey, execution.PositionReconciliationLockTTL)
 	if err != nil {
+		unlockLocal()
 		logger.Warn("⚠️ [%s] 獲取對账鎖失败: %v，跳過本次對账", exchangeName, err)
 		return nil // 鎖獲取失败不返回錯误，只是跳過
 	}
-	defer func() {
-		// The operation context may already be canceled. Use a bounded cleanup
-		// context so cancellation does not silently strand the distributed lock.
-		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer unlockCancel()
-		if unlockErr := r.lock.Unlock(unlockCtx, lockKey); unlockErr != nil {
-			logger.Warn("⚠️ [%s] 释放對账鎖失败: %v", exchangeName, unlockErr)
-		}
-	}()
+	stopRenew := lock.StartAutoRenew(r.lock, lockKey, execution.PositionReconciliationLockTTL, func(renewErr error) {
+		logger.Error("[%s] 持倉對账協調鎖續期失败: %v", exchangeName, renewErr)
+		r.pm.FailReconciliation(renewErr)
+		cancelOnLockLoss()
+	})
+	var releaseSubmissions func()
+	var criticalSectionOnce sync.Once
+	releaseCriticalSection := func() {
+		criticalSectionOnce.Do(func() {
+			if releaseSubmissions != nil {
+				releaseSubmissions()
+			}
+			stopRenew()
+			// The operation context may already be canceled. Use a bounded cleanup
+			// context so cancellation does not silently strand the distributed lock.
+			unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer unlockCancel()
+			if unlockErr := r.lock.Unlock(unlockCtx, lockKey); unlockErr != nil {
+				logger.Warn("⚠️ [%s] 释放對账鎖失败: %v", exchangeName, unlockErr)
+			}
+			unlockLocal()
+		})
+	}
+	defer releaseCriticalSection()
+	releaseSubmissions, err = r.pm.BeginReconciliation(ctx)
+	if err != nil {
+		return fmt.Errorf("等待下单提交排空后開始對账失败: %w", err)
+	}
+	defer releaseSubmissions()
 
 	logger.Debugln("🔍 ===== 开始持倉對账 =====")
 
@@ -210,6 +244,9 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	exchangeOpenOrders, err := parseExchangeOpenOrders(openOrdersRaw)
 	if err != nil {
 		return fmt.Errorf("核實交易所挂單响应失败: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("持倉對账协调锁已失效或操作已取消: %w", err)
 	}
 
 	// 3. 解析持倉和挂單信息（通用处理）
@@ -308,15 +345,23 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	logger.Info("📊 [统计] 對账次數: %d, 累计買入: %.2f, 累计賣出: %.2f, 預计盈利: %.2f U",
 		r.pm.GetReconcileCount(), totalBuyQty, totalSellQty, estimatedProfit)
 
-	// 6. 保存對账历史（exchangePosition 為交易所原始帶符號淨持倉）到數據库（如果存儲服務可用）
-	if r.storage != nil {
-		reconcileTime := time.Now()
+	// Persist after the position/order critical section: storage has no context
+	// contract and must not stall physical order submissions while holding the
+	// cross-process reconciliation lock.
+	reconcileTime := time.Now()
+	saveReconciliationHistory := func() {
+		if r.storage == nil {
+			return
+		}
 		positionDiff := localTotal - exchangePosition
 
 		if err := r.storage.SaveReconciliationHistory(symbol, reconcileTime, localTotal, exchangePosition, positionDiff,
 			activeBuyOrders, activeSellOrders, localPendingSellQty, totalBuyQty, totalSellQty, estimatedProfit); err != nil {
 			logger.Warn("⚠️ 保存對账历史失败: %v", err)
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("持倉對账协调锁已失效或操作已取消，拒绝同步槽位: %w", err)
 	}
 
 	// 7. 检查持倉差异並執行同步
@@ -326,6 +371,8 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	exchangePosition, syncAllowed := normalizeExchangePositionForSync(direction, isSpot, exchangePosition)
 	if !syncAllowed {
 		logger.Debugln("🔍 ===== 對账完成（跳過持倉同步）=====")
+		releaseCriticalSection()
+		saveReconciliationHistory()
 		return nil
 	}
 	diff := math.Abs(localTotal - exchangePosition)
@@ -340,6 +387,8 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		if len(exchangeOpenOrders) > 0 || activeBuyOrders > 0 || activeSellOrders > 0 {
 			logger.Warn("⚠️ [對账同步] 存在未完成挂單（交易所: %d, 本地開倉: %d, 本地平倉: %d），跳過持倉同步",
 				len(exchangeOpenOrders), activeBuyOrders, activeSellOrders)
+			releaseCriticalSection()
+			saveReconciliationHistory()
 			return nil
 		}
 
@@ -377,6 +426,8 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	}
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
+	releaseCriticalSection()
+	saveReconciliationHistory()
 	return nil
 }
 

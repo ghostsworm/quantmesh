@@ -13,6 +13,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/metrics"
+	orderpkg "quantmesh/order"
 	"quantmesh/storage"
 	"quantmesh/utils"
 
@@ -155,7 +156,7 @@ type fixNewOrderRequest struct {
 	ClOrdID      string  `json:"cl_ord_id" binding:"required"`
 	Symbol       string  `json:"symbol"`
 	Side         string  `json:"side" binding:"required"`
-	Price        float64 `json:"price" binding:"required,gt=0"`
+	Price        float64 `json:"price"`
 	OrderQty     float64 `json:"order_qty" binding:"required,gt=0"`
 	OrdType      string  `json:"ord_type"`
 	ReduceOnly   bool    `json:"reduce_only"`
@@ -173,7 +174,7 @@ type fixCancelOrderRequest struct {
 type fixReplaceOrderRequest struct {
 	SessionID   string  `json:"session_id" binding:"required"`
 	ClOrdID     string  `json:"cl_ord_id" binding:"required"`
-	OrigClOrdID string `json:"orig_cl_ord_id" binding:"required"`
+	OrigClOrdID string  `json:"orig_cl_ord_id" binding:"required"`
 	Price       float64 `json:"price" binding:"required,gt=0"`
 	OrderQty    float64 `json:"order_qty" binding:"required,gt=0"`
 }
@@ -393,7 +394,7 @@ func fixNewOrder(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
 		return
 	}
-	st, state, botDetail, ex, symbol, err := resolveFixExecutionContext(c, req.SessionID)
+	st, state, botDetail, _, symbol, err := resolveFixExecutionContext(c, req.SessionID)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_session", err)
 		return
@@ -415,12 +416,34 @@ func fixNewOrder(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("ord_type must be LIMIT or MARKET"))
 		return
 	}
+	if ordType == "LIMIT" && req.Price <= 0 {
+		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("price must be greater than zero for LIMIT orders"))
+		return
+	}
+	existing, err := st.GetFixOrderLinkByClOrdID(req.SessionID, req.ClOrdID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	} else if existing != nil {
+		respondError(c, http.StatusConflict, "error.invalid_request", fmt.Errorf("cl_ord_id already exists in this session"))
+		return
+	}
+	runtime, found := symbolManagerProvider.GetEx(botDetail.Exchange, botDetail.Symbol, botDetail.MarketType)
+	if !found {
+		respondError(c, http.StatusServiceUnavailable, "error.invalid_session", fmt.Errorf("bot runtime stopped"))
+		return
+	}
+	executor, err := extractFixOrderExecutor(runtime)
+	if err != nil {
+		respondError(c, http.StatusServiceUnavailable, "error.invalid_session", err)
+		return
+	}
 
-	orderReq := &exchange.OrderRequest{
+	orderReq := &orderpkg.OrderRequest{
 		Symbol:        symbol,
-		Side:          exchange.Side(side),
-		Type:          exchange.OrderType(ordType),
-		TimeInForce:   exchange.TimeInForceGTC,
+		Side:          side,
+		Type:          ordType,
+		TimeInForce:   string(exchange.TimeInForceGTC),
 		Quantity:      req.OrderQty,
 		Price:         req.Price,
 		ReduceOnly:    req.ReduceOnly,
@@ -434,7 +457,7 @@ func fixNewOrder(c *gin.Context) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	exOrder, placeErr := ex.PlaceOrder(ctx, orderReq)
+	exOrder, placeErr := executor.PlaceOrderContext(ctx, orderReq)
 	now := utils.NowUTC()
 	reportStatus := "REJECTED"
 	execType := "8"
@@ -456,7 +479,7 @@ func fixNewOrder(c *gin.Context) {
 		reportText = placeErr.Error()
 	}
 
-	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
+	linkErr := st.UpsertFixOrderLink(&storage.FixOrderLink{
 		SessionID:       req.SessionID,
 		ClOrdID:         req.ClOrdID,
 		BotID:           botDetail.BotID,
@@ -472,8 +495,15 @@ func fixNewOrder(c *gin.Context) {
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	})
+	if linkErr != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", fmt.Errorf("order submission outcome recorded by executor but FIX order link save failed: %w", linkErr))
+		return
+	}
 	bumpFixSessionSeq(state, now)
-	_ = st.UpsertFixSessionState(state)
+	if err := st.UpsertFixSessionState(state); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
+		return
+	}
 
 	statusCode := http.StatusOK
 	orderStatus := "ok"
@@ -515,19 +545,73 @@ func fixCancelOrder(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", fmt.Errorf("orig_cl_ord_id not found"))
 		return
 	}
+	if orig.InternalOrderID <= 0 {
+		respondError(c, http.StatusConflict, "error.invalid_request", fmt.Errorf("original FIX order has no verified exchange order id"))
+		return
+	}
+	newLink, err := st.GetFixOrderLinkByClOrdID(req.SessionID, req.ClOrdID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
+		return
+	}
+	if newLink != nil {
+		respondError(c, http.StatusConflict, "error.invalid_request", fmt.Errorf("cl_ord_id already exists in this session"))
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	cancelErr := ex.CancelOrder(ctx, symbol, orig.InternalOrderID)
+	runtime, found := symbolManagerProvider.GetEx(botDetail.Exchange, botDetail.Symbol, botDetail.MarketType)
+	if !found {
+		respondError(c, http.StatusServiceUnavailable, "error.invalid_session", fmt.Errorf("bot runtime stopped"))
+		return
+	}
+	executor, err := extractFixOrderExecutor(runtime)
+	if err != nil {
+		respondError(c, http.StatusServiceUnavailable, "error.invalid_session", err)
+		return
+	}
+	cancelErr := executor.CancelOrderContext(ctx, orig.InternalOrderID)
 	now := utils.NowUTC()
-	status := "CANCELED"
-	execType := "4"
+	status := "PENDING_CANCEL"
+	execType := "6"
 	text := ""
+	cumQty := orig.CumQty
+	leavesQty := orig.LeavesQty
 	if cancelErr != nil {
 		status = "REJECTED"
 		execType = "8"
 		text = cancelErr.Error()
+	} else {
+		venueOrder, queryErr := ex.GetOrder(ctx, symbol, orig.InternalOrderID)
+		if queryErr != nil || venueOrder == nil {
+			status = "UNKNOWN"
+			if queryErr != nil {
+				text = "cancel submitted; terminal order status could not be verified"
+			}
+		} else {
+			cumQty = venueOrder.ExecutedQty
+			leavesQty = venueOrder.Quantity - venueOrder.ExecutedQty
+			if leavesQty < 0 {
+				leavesQty = 0
+			}
+			if venueOrder.Status == "CANCELED" || venueOrder.Status == "CANCELLED" {
+				status = "CANCELED"
+				execType = "4"
+				leavesQty = 0
+			} else if venueOrder.Status == "FILLED" {
+				status = "FILLED"
+				execType = "F"
+				leavesQty = 0
+			} else {
+				status = mapExchangeOrderStatus(string(venueOrder.Status))
+				if status == "REJECTED" {
+					status = "UNKNOWN"
+				}
+				text = "cancel submitted; order is not confirmed terminal"
+			}
+		}
 	}
-	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
+	linkErr := st.UpsertFixOrderLink(&storage.FixOrderLink{
 		SessionID:       req.SessionID,
 		ClOrdID:         req.ClOrdID,
 		OrigClOrdID:     req.OrigClOrdID,
@@ -538,17 +622,27 @@ func fixCancelOrder(c *gin.Context) {
 		InternalOrderID: orig.InternalOrderID,
 		LastExecID:      fmt.Sprintf("exec-%d", now.UnixNano()),
 		OrdStatus:       status,
-		CumQty:          orig.CumQty,
-		LeavesQty:       0,
+		CumQty:          cumQty,
+		LeavesQty:       leavesQty,
 		AvgPx:           orig.AvgPx,
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	})
+	if linkErr != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", linkErr)
+		return
+	}
 	bumpFixSessionSeq(state, now)
-	_ = st.UpsertFixSessionState(state)
+	if err := st.UpsertFixSessionState(state); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.save_failed", err)
+		return
+	}
 	code := http.StatusOK
 	cancelStatus := "ok"
-	if cancelErr != nil {
+	if status == "UNKNOWN" || status == "PENDING_CANCEL" || status == "NEW" || status == "PARTIALLY_FILLED" {
+		code = http.StatusAccepted
+		cancelStatus = "pending"
+	} else if cancelErr != nil {
 		code = http.StatusBadRequest
 		cancelStatus = "reject"
 	}
@@ -574,7 +668,7 @@ func fixReplaceOrder(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
 		return
 	}
-	st, state, botDetail, ex, symbol, err := resolveFixExecutionContext(c, req.SessionID)
+	st, _, _, _, _, err := resolveFixExecutionContext(c, req.SessionID)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_session", err)
 		return
@@ -585,70 +679,38 @@ func fixReplaceOrder(c *gin.Context) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	_ = ex.CancelOrder(ctx, symbol, orig.InternalOrderID)
-	orderReq := &exchange.OrderRequest{
-		Symbol:        symbol,
-		Side:          exchange.Side(strings.ToUpper(orig.Side)),
-		Type:          exchange.OrderTypeLimit,
-		TimeInForce:   exchange.TimeInForceGTC,
-		Quantity:      req.OrderQty,
-		Price:         req.Price,
-		ClientOrderID: req.ClOrdID,
+	// Cancel/replace is unsafe until venue cancellation is confirmed terminal and
+	// the replacement quantity is reduced by fills that raced with cancellation.
+	// Reject without touching the live order rather than risk duplicate exposure.
+	metrics.GetPrometheusMetrics().RecordFixOrder(req.SessionID, "replace", "reject")
+	respondError(c, http.StatusNotImplemented, "error.invalid_request", fmt.Errorf("FIX cancel/replace is temporarily disabled until terminal cancellation and cumulative-fill reconciliation are supported"))
+}
+
+type fixManagedOrderExecutor interface {
+	PlaceOrderContext(context.Context, *orderpkg.OrderRequest) (*orderpkg.Order, error)
+	CancelOrderContext(context.Context, int64) error
+}
+
+func extractFixOrderExecutor(runtime interface{}) (fixManagedOrderExecutor, error) {
+	v := reflect.ValueOf(runtime)
+	if !v.IsValid() {
+		return nil, fmt.Errorf("bot runtime unavailable")
 	}
-	newOrder, placeErr := ex.PlaceOrder(ctx, orderReq)
-	now := utils.NowUTC()
-	status := "REPLACED"
-	execType := "5"
-	var orderID int64
-	text := ""
-	if placeErr != nil || newOrder == nil {
-		status = "REJECTED"
-		execType = "8"
-		if placeErr != nil {
-			text = placeErr.Error()
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil, fmt.Errorf("bot runtime unavailable")
 		}
-	} else {
-		orderID = newOrder.OrderID
+		v = v.Elem()
 	}
-	_ = st.UpsertFixOrderLink(&storage.FixOrderLink{
-		SessionID:       req.SessionID,
-		ClOrdID:         req.ClOrdID,
-		OrigClOrdID:     req.OrigClOrdID,
-		BotID:           botDetail.BotID,
-		Exchange:        botDetail.Exchange,
-		Symbol:          symbol,
-		Side:            orig.Side,
-		InternalOrderID: orderID,
-		LastExecID:      fmt.Sprintf("exec-%d", now.UnixNano()),
-		OrdStatus:       status,
-		CumQty:          0,
-		LeavesQty:       req.OrderQty,
-		AvgPx:           0,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	})
-	bumpFixSessionSeq(state, now)
-	_ = st.UpsertFixSessionState(state)
-	code := http.StatusOK
-	replaceStatus := "ok"
-	if placeErr != nil {
-		code = http.StatusBadRequest
-		replaceStatus = "reject"
+	field := v.FieldByName("ExchangeExecutor")
+	if !field.IsValid() || !field.CanInterface() || (field.Kind() == reflect.Ptr && field.IsNil()) {
+		return nil, fmt.Errorf("managed order executor unavailable")
 	}
-	metrics.GetPrometheusMetrics().RecordFixOrder(req.SessionID, "replace", replaceStatus)
-	c.JSON(code, gin.H{
-		"session_id":      req.SessionID,
-		"cl_ord_id":       req.ClOrdID,
-		"orig_cl_ord_id":  req.OrigClOrdID,
-		"exec_type":       execType,
-		"ord_status":      status,
-		"order_id":        orderID,
-		"text":            text,
-		"next_sender_seq": state.NextSenderSeq,
-		"next_target_seq": state.NextTargetSeq,
-	})
+	executor, ok := field.Interface().(fixManagedOrderExecutor)
+	if !ok {
+		return nil, fmt.Errorf("managed order executor type assertion failed")
+	}
+	return executor, nil
 }
 
 func resolveFixExecutionContext(c *gin.Context, sessionID string) (storage.Storage, *storage.FixSessionState, *BotDetailResponse, exchange.IExchange, string, error) {

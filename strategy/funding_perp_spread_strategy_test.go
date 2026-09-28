@@ -3,11 +3,244 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/execution"
 )
+
+type fundingSpreadCoordinationLock struct {
+	mu           sync.Mutex
+	held         map[string]bool
+	order        []string
+	extendCalls  map[string]int
+	extendErr    error
+	waitKey      string
+	waitEntered  chan struct{}
+	continueWait chan struct{}
+}
+
+func (l *fundingSpreadCoordinationLock) Lock(ctx context.Context, key string, _ time.Duration) error {
+	if key == l.waitKey {
+		close(l.waitEntered)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-l.continueWait:
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.held == nil {
+		l.held = make(map[string]bool)
+	}
+	if l.held[key] {
+		return fmt.Errorf("already held: %s", key)
+	}
+	l.held[key] = true
+	l.order = append(l.order, key)
+	return nil
+}
+
+func (l *fundingSpreadCoordinationLock) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	if err := l.Lock(ctx, key, ttl); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (l *fundingSpreadCoordinationLock) Unlock(_ context.Context, key string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if !l.held[key] {
+		return fmt.Errorf("not held: %s", key)
+	}
+	delete(l.held, key)
+	return nil
+}
+
+func (l *fundingSpreadCoordinationLock) Extend(ctx context.Context, key string, _ time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.extendCalls == nil {
+		l.extendCalls = make(map[string]int)
+	}
+	l.extendCalls[key]++
+	return l.extendErr
+}
+
+func (*fundingSpreadCoordinationLock) Close() error { return nil }
+
+func (l *fundingSpreadCoordinationLock) allHeld(keys []string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, key := range keys {
+		if !l.held[key] {
+			return false
+		}
+	}
+	return true
+}
+
+func (l *fundingSpreadCoordinationLock) extensions(key string) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.extendCalls[key]
+}
+
+type coordinationCheckingRuntimeStateStore struct {
+	coordinator *fundingSpreadCoordinationLock
+	keys        []string
+	savedLocked bool
+}
+
+func (s *coordinationCheckingRuntimeStateStore) LoadRuntimeState(string) (int, string, bool, error) {
+	return 0, "", false, nil
+}
+
+func (s *coordinationCheckingRuntimeStateStore) SaveRuntimeState(_ string, _ int, _ string) error {
+	s.savedLocked = s.coordinator.allHeld(s.keys)
+	return nil
+}
+
+func TestFundingPerpSpreadCoordinatesBothLegsInStableOrder(t *testing.T) {
+	coordinator := &fundingSpreadCoordinationLock{}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "z"}, legB: &fundingSpreadTestExchange{name: "a"},
+		symA: "BTCUSDT", symB: "ETHUSDT", coordinationLock: coordinator,
+	}
+	keys := []string{
+		execution.PositionReconciliationLockKey("z", "BTCUSDT"),
+		execution.PositionReconciliationLockKey("a", "ETHUSDT"),
+	}
+	called := false
+	if err := st.withLegCoordination(context.Background(), func(context.Context) error {
+		called = true
+		if !coordinator.allHeld(keys) {
+			t.Fatal("operation ran without holding both leg locks")
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("withLegCoordination() error = %v", err)
+	}
+	if !called {
+		t.Fatal("coordinated operation was not called")
+	}
+	coordinator.mu.Lock()
+	gotOrder := append([]string(nil), coordinator.order...)
+	coordinator.mu.Unlock()
+	if gotOrder[0] > gotOrder[1] {
+		t.Fatalf("lock order is not stable: %v", gotOrder)
+	}
+	if coordinator.allHeld(keys) {
+		t.Fatal("coordination locks were not released")
+	}
+}
+
+func TestFundingPerpSpreadRejectsMissingCoordinationLock(t *testing.T) {
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT",
+	}
+	if err := st.withLegCoordination(context.Background(), func(context.Context) error { return nil }); err == nil {
+		t.Fatal("operation should fail closed without configured coordination lock")
+	}
+}
+
+func TestFundingPerpSpreadRenewsFirstLegWhileWaitingForSecondLock(t *testing.T) {
+	firstKey := execution.PositionReconciliationLockKey("a", "BTCUSDT")
+	secondKey := execution.PositionReconciliationLockKey("z", "ETHUSDT")
+	coordinator := &fundingSpreadCoordinationLock{
+		waitKey: secondKey, waitEntered: make(chan struct{}), continueWait: make(chan struct{}),
+	}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "z"},
+		symA: "BTCUSDT", symB: "ETHUSDT", coordinationLock: coordinator, coordinationTTL: 60 * time.Millisecond,
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- st.withLegCoordination(context.Background(), func(context.Context) error { return nil })
+	}()
+	<-coordinator.waitEntered
+	deadline := time.After(time.Second)
+	for coordinator.extensions(firstKey) == 0 {
+		select {
+		case <-deadline:
+			close(coordinator.continueWait)
+			t.Fatal("first leg lock was not renewed while acquiring the second lock")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	close(coordinator.continueWait)
+	if err := <-done; err != nil {
+		t.Fatalf("withLegCoordination() error = %v", err)
+	}
+}
+
+func TestFundingPerpSpreadPersistsStartupOwnershipBeforeReleasingLegLocks(t *testing.T) {
+	coordinator := &fundingSpreadCoordinationLock{}
+	keys := []string{
+		execution.PositionReconciliationLockKey("a", "BTCUSDT"),
+		execution.PositionReconciliationLockKey("b", "ETHUSDT"),
+	}
+	store := &coordinationCheckingRuntimeStateStore{coordinator: coordinator, keys: keys}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, coordinationLock: coordinator,
+	}
+	st.SetRuntimeStateStore(store)
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if !store.savedLocked {
+		t.Fatal("startup ownership state was not persisted while both leg locks were held")
+	}
+	if err := st.Stop(); err != nil {
+		t.Fatalf("Stop() error = %v", err)
+	}
+}
+
+func TestFundingPerpSpreadLeaseLossLatchesUnknownExposure(t *testing.T) {
+	coordinator := &fundingSpreadCoordinationLock{extendErr: errors.New("lease expired")}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", coordinationLock: coordinator,
+		coordinationTTL: 30 * time.Millisecond, ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	started := make(chan struct{})
+	err := st.withLegCoordination(context.Background(), func(ctx context.Context) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	<-started
+	if err == nil {
+		t.Fatal("coordination lease loss did not fail operation")
+	}
+	st.mu.RLock()
+	unknown := st.exposureUnknown
+	st.mu.RUnlock()
+	if !unknown {
+		t.Fatal("coordination lease loss did not latch exposure as unknown")
+	}
+	if coordinator.allHeld([]string{
+		execution.PositionReconciliationLockKey("a", "BTCUSDT"),
+		execution.PositionReconciliationLockKey("b", "ETHUSDT"),
+	}) {
+		t.Fatal("locks remained held after lease loss")
+	}
+}
 
 type emptyFundingSpreadExchange struct{ exchange.IExchange }
 
@@ -69,6 +302,7 @@ func TestFundingPerpSpreadStopWaitsForRunLoopBeforeClosing(t *testing.T) {
 		runDone:        runDone,
 		ownershipReady: true,
 	}
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 
 	go func() {
 		close(started)
@@ -124,6 +358,7 @@ func TestFundingPerpSpreadStartRejectsPreexistingRisk(t *testing.T) {
 			a := &fundingSpreadTestExchange{name: "a", positions: tc.positions, orders: tc.orders}
 			b := &fundingSpreadTestExchange{name: "b"}
 			st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT"}
+			st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 			st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 			if err := st.Start(context.Background()); err == nil {
 				t.Fatal("Start() succeeded despite preexisting positions/orders")
@@ -178,6 +413,7 @@ func TestFundingPerpSpreadRestoresPersistedLegOwnership(t *testing.T) {
 	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}}
 	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", tickInt: time.Hour}
 	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err != nil {
 		t.Fatalf("Start() failed to restore verified ownership: %v", err)
 	}
@@ -205,6 +441,7 @@ func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 		symA: "BTCUSDT", symB: "BTCUSDT",
 	}
 	st.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err == nil {
 		t.Fatal("Start() accepted an unresolved persisted order intent")
 	}

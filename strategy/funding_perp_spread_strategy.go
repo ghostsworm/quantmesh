@@ -12,6 +12,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
 )
@@ -46,6 +47,8 @@ type FundingPerpSpreadStrategy struct {
 	ownedB            float64
 	intentInFlight    bool
 	runtimeStateStore RuntimeStateStore
+	coordinationLock  lock.DistributedLock
+	coordinationTTL   time.Duration
 	eventBus          EventBus
 
 	consecutiveErrors int
@@ -120,6 +123,12 @@ func (s *FundingPerpSpreadStrategy) SetRuntimeStateStore(store RuntimeStateStore
 	s.mu.Unlock()
 }
 
+func (s *FundingPerpSpreadStrategy) SetCoordinationLock(distributedLock lock.DistributedLock) {
+	s.mu.Lock()
+	s.coordinationLock = distributedLock
+	s.mu.Unlock()
+}
+
 func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
 	if s.started {
@@ -149,43 +158,50 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 			return err
 		}
 	}
-	posA, err := s.readLegSnapshot(checkCtx, s.legA, s.symA)
-	if err != nil {
-		s.resetStartAfterFailure()
-		return fmt.Errorf("legA position/order state cannot be safely reconciled: %w", err)
-	}
-	posB, err := s.readLegSnapshot(checkCtx, s.legB, s.symB)
-	if err != nil {
-		s.resetStartAfterFailure()
-		return fmt.Errorf("legB position/order state cannot be safely reconciled: %w", err)
-	}
-	if found {
-		if math.Abs(posA-restored.OwnedA) > s.legTolerance(s.legA) || math.Abs(posB-restored.OwnedB) > s.legTolerance(s.legB) {
-			s.resetStartAfterFailure()
-			return fmt.Errorf("runtime state ownership does not match exchange positions (A %.8f/%.8f, B %.8f/%.8f)", posA, restored.OwnedA, posB, restored.OwnedB)
+	var posA, posB float64
+	err = s.withLegCoordination(checkCtx, func(coordCtx context.Context) error {
+		var snapshotErr error
+		posA, snapshotErr = s.readLegSnapshot(coordCtx, s.legA, s.symA)
+		if snapshotErr != nil {
+			return fmt.Errorf("legA position/order state cannot be safely reconciled: %w", snapshotErr)
 		}
-	} else if posA != 0 || posB != 0 {
+		posB, snapshotErr = s.readLegSnapshot(coordCtx, s.legB, s.symB)
+		if snapshotErr != nil {
+			return fmt.Errorf("legB position/order state cannot be safely reconciled: %w", snapshotErr)
+		}
+		if found {
+			if math.Abs(posA-restored.OwnedA) > s.legTolerance(s.legA) || math.Abs(posB-restored.OwnedB) > s.legTolerance(s.legB) {
+				return fmt.Errorf("runtime state ownership does not match exchange positions (A %.8f/%.8f, B %.8f/%.8f)", posA, restored.OwnedA, posB, restored.OwnedB)
+			}
+		} else if posA != 0 || posB != 0 {
+			return fmt.Errorf("unowned positions exist without a runtime state (A %.8f, B %.8f)", posA, posB)
+		}
+		s.mu.Lock()
+		s.ctx, s.cancel = context.WithCancel(ctx)
+		s.runDone = make(chan struct{})
+		s.ownershipReady = true
+		s.exposureUnknown = false
+		s.ownedA, s.ownedB = 0, 0
+		if found {
+			s.ownedA, s.ownedB = restored.OwnedA, restored.OwnedB
+		}
+		persistErr := s.persistRuntimeStateLocked()
+		if persistErr != nil {
+			s.cancel()
+			s.ctx, s.cancel, s.runDone = nil, nil, nil
+			s.ownershipReady = false
+		}
+		s.mu.Unlock()
+		if persistErr != nil {
+			return fmt.Errorf("persist initial funding_perp_spread runtime state: %w", persistErr)
+		}
+		return nil
+	})
+	if err != nil {
 		s.resetStartAfterFailure()
-		return fmt.Errorf("unowned positions exist without a runtime state (A %.8f, B %.8f)", posA, posB)
+		return err
 	}
 	s.mu.Lock()
-	s.ctx, s.cancel = context.WithCancel(ctx)
-	s.runDone = make(chan struct{})
-	s.ownershipReady = true
-	s.exposureUnknown = false
-	s.ownedA = 0
-	s.ownedB = 0
-	if found {
-		s.ownedA, s.ownedB = restored.OwnedA, restored.OwnedB
-	}
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.cancel()
-		s.ctx, s.cancel, s.runDone = nil, nil, nil
-		s.started = false
-		s.ownershipReady = false
-		s.mu.Unlock()
-		return fmt.Errorf("persist initial funding_perp_spread runtime state: %w", err)
-	}
 	go s.runLoop()
 	s.mu.Unlock()
 	return nil
@@ -193,7 +209,12 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 
 func (s *FundingPerpSpreadStrategy) resetStartAfterFailure() {
 	s.mu.Lock()
+	if s.cancel != nil {
+		s.cancel()
+	}
+	s.ctx, s.cancel, s.runDone = nil, nil, nil
 	s.started = false
+	s.ownershipReady = false
 	s.mu.Unlock()
 }
 
@@ -498,6 +519,12 @@ func (s *FundingPerpSpreadStrategy) capitalUSDT() float64 {
 }
 
 func (s *FundingPerpSpreadStrategy) openSpread(ctx context.Context, shortEx exchange.IExchange, shortSym string, longEx exchange.IExchange, longSym string, pxA, pxB, rA, rB float64) error {
+	return s.withLegCoordination(ctx, func(coordCtx context.Context) error {
+		return s.openSpreadCoordinated(coordCtx, shortEx, shortSym, longEx, longSym, pxA, pxB, rA, rB)
+	})
+}
+
+func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, shortEx exchange.IExchange, shortSym string, longEx exchange.IExchange, longSym string, pxA, pxB, rA, rB float64) error {
 	cap := s.capitalUSDT()
 	if cap < 200 {
 		return fmt.Errorf("分配資金 %.2f USDT 過小，建議 ≥200", cap)
@@ -600,6 +627,12 @@ func (s *FundingPerpSpreadStrategy) openSpread(ctx context.Context, shortEx exch
 }
 
 func (s *FundingPerpSpreadStrategy) closeAll(ctx context.Context, reason string) error {
+	return s.withLegCoordination(ctx, func(coordCtx context.Context) error {
+		return s.closeAllCoordinated(coordCtx, reason)
+	})
+}
+
+func (s *FundingPerpSpreadStrategy) closeAllCoordinated(ctx context.Context, reason string) error {
 	posA, posB, err := s.exposureSnapshot(ctx)
 	if err != nil {
 		return err

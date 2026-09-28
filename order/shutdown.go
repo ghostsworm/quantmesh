@@ -4,17 +4,44 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"quantmesh/execution"
+	"quantmesh/logger"
 )
 
 const RuntimeShutdownBlock = "runtime_shutdown"
+const positionReconciliationBlockPrefix = "position_reconciliation_"
 
 var ErrRuntimeStopping = errors.New("runtime is stopping")
 
 type shutdownCloseKey struct{}
 
 type shutdownCloseOwners map[*ExchangeOrderExecutor]struct{}
+
+// BeginPositionReconciliation prevents new physical order submissions and
+// waits for admitted submissions to finish before the caller reads account
+// snapshots. The returned release is safe to call more than once.
+func (oe *ExchangeOrderExecutor) BeginPositionReconciliation(ctx context.Context) (func(), error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	block := fmt.Sprintf("%s%d", positionReconciliationBlockPrefix, oe.reconciliationSequence.Add(1))
+	oe.submissionGate.Block(block)
+	if err := oe.submissionGate.Drain(ctx); err != nil {
+		oe.submissionGate.Unblock(block)
+		return nil, fmt.Errorf("drain order submissions before reconciliation: %w", err)
+	}
+	var once sync.Once
+	return func() { once.Do(func() { oe.submissionGate.Unblock(block) }) }, nil
+}
+
+// FailPositionReconciliation permanently blocks this executor for the current
+// process after losing the distributed snapshot/submission lease.
+func (oe *ExchangeOrderExecutor) FailPositionReconciliation(err error) {
+	oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
+	logger.ErrorCtx(oe.logCtx(), "持倉對账协调锁已失效，执行器保持关闭: %v", err)
+}
 
 func (oe *ExchangeOrderExecutor) IsShutdownCloseContext(ctx context.Context) bool {
 	owners, ok := ctx.Value(shutdownCloseKey{}).(shutdownCloseOwners)

@@ -172,6 +172,10 @@ func (a *exchangeExecutorAdapter) CancelOwnedOpeningOrders(ctx context.Context) 
 	return a.executor.CancelOwnedOpeningOrders(ctx)
 }
 
+func (a *exchangeExecutorAdapter) BeginPositionReconciliation(ctx context.Context) (func(), error) {
+	return a.executor.BeginPositionReconciliation(ctx)
+}
+
 func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
 	return a.PlaceOrderContext(context.Background(), req)
 }

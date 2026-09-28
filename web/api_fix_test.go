@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	orderpkg "quantmesh/order"
+	"quantmesh/storage"
+
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
-	"quantmesh/storage"
 )
-
 
 type mockFixBotManager struct{}
 
@@ -36,6 +37,28 @@ func (m *mockFixBotManager) GetBot(botID string) (*BotDetailResponse, bool) {
 func (m *mockFixBotManager) StartBot(ctx context.Context, botCfg config.BotConfig) error { return nil }
 func (m *mockFixBotManager) StopBot(botID string) error                                  { return nil }
 func (m *mockFixBotManager) EnableBot(botID string) error                                { return nil }
+
+type mockFixManagedOrderExecutor struct{}
+
+func (mockFixManagedOrderExecutor) PlaceOrderContext(context.Context, *orderpkg.OrderRequest) (*orderpkg.Order, error) {
+	return nil, nil
+}
+
+func (mockFixManagedOrderExecutor) CancelOrderContext(context.Context, int64) error { return nil }
+
+func TestExtractFixOrderExecutor(t *testing.T) {
+	t.Run("available executor", func(t *testing.T) {
+		runtime := struct{ ExchangeExecutor fixManagedOrderExecutor }{ExchangeExecutor: mockFixManagedOrderExecutor{}}
+		if _, err := extractFixOrderExecutor(runtime); err != nil {
+			t.Fatalf("extractFixOrderExecutor() error = %v", err)
+		}
+	})
+	t.Run("missing executor fails closed", func(t *testing.T) {
+		if _, err := extractFixOrderExecutor(struct{}{}); err == nil {
+			t.Fatal("extractFixOrderExecutor() expected missing executor error")
+		}
+	})
+}
 
 func TestGetFixSessions(t *testing.T) {
 	gin.SetMode(gin.TestMode)

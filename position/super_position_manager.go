@@ -584,6 +584,30 @@ func (spm *SuperPositionManager) OpeningGate() *execution.OpeningGate {
 	return &spm.openingGate
 }
 
+// BeginReconciliation freezes and drains the physical executor's order
+// submissions for the complete snapshot-and-sync critical section.
+func (spm *SuperPositionManager) BeginReconciliation(ctx context.Context) (func(), error) {
+	barrier, ok := spm.executor.(interface {
+		BeginPositionReconciliation(context.Context) (func(), error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("order executor does not support reconciliation barrier")
+	}
+	return barrier.BeginPositionReconciliation(ctx)
+}
+
+// FailReconciliation leaves physical submissions blocked when the distributed
+// snapshot/submission lease can no longer be proven to be held.
+func (spm *SuperPositionManager) FailReconciliation(err error) {
+	barrier, ok := spm.executor.(interface{ FailPositionReconciliation(error) })
+	if !ok {
+		spm.openingGate.Block(execution.PositionCoordinationLockLostBlock)
+		logger.Error("[%s] 持倉對账协调锁失效，executor 不支持全量提交屏障", spm.logPrefix())
+		return
+	}
+	barrier.FailPositionReconciliation(err)
+}
+
 // GetOpeningPauseReason 獲取開倉暫停原因
 func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 	if spm.openingGate.HasBlock("strategy_accounting_unverified") {

@@ -7,6 +7,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/lock"
+	"sync"
 	"testing"
 	"time"
 )
@@ -121,14 +122,18 @@ type mockExchangePositionRow struct {
 
 // MockPositionManager 模拟倉位管理器
 type MockPositionManager struct {
-	Slots          map[float64]interface{}
-	TotalBuyQty    float64
-	TotalSellQty   float64
-	ReconcileCount int64
-	Symbol         string
-	PriceInterval  float64
-	ForceSyncCount int
-	LastForceSync  float64
+	Slots           map[float64]interface{}
+	TotalBuyQty     float64
+	TotalSellQty    float64
+	ReconcileCount  int64
+	Symbol          string
+	PriceInterval   float64
+	ForceSyncCount  int
+	LastForceSync   float64
+	BeginReconcile  func(context.Context) (func(), error)
+	BarrierActive   bool
+	ForceSyncInGate bool
+	ForceSyncHook   func()
 }
 
 func (m *MockPositionManager) IterateSlots(fn func(price float64, slot interface{}) bool) {
@@ -149,6 +154,74 @@ func (m *MockPositionManager) GetProfitSpread() float64            { return m.Pr
 func (m *MockPositionManager) ForceSyncPositions(exchangePosition float64) {
 	m.ForceSyncCount++
 	m.LastForceSync = exchangePosition
+	m.ForceSyncInGate = m.BarrierActive
+	if m.ForceSyncHook != nil {
+		m.ForceSyncHook()
+	}
+}
+
+func (m *MockPositionManager) BeginReconciliation(ctx context.Context) (func(), error) {
+	if m.BeginReconcile != nil {
+		return m.BeginReconcile(ctx)
+	}
+	return func() {}, nil
+}
+func (m *MockPositionManager) FailReconciliation(error) {}
+
+type barrierObservingReconcileExchange struct {
+	MockReconcileExchange
+	manager          *MockPositionManager
+	positionsInGate  bool
+	openOrdersInGate bool
+}
+
+type trackingReconcileLock struct {
+	*lock.NopLock
+	mu   sync.Mutex
+	held bool
+}
+
+func (m *trackingReconcileLock) Lock(context.Context, string, time.Duration) error {
+	m.mu.Lock()
+	m.held = true
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *trackingReconcileLock) Unlock(context.Context, string) error {
+	m.mu.Lock()
+	m.held = false
+	m.mu.Unlock()
+	return nil
+}
+
+func (m *trackingReconcileLock) IsHeld() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.held
+}
+
+type lockObservingReconciliationStorage struct {
+	lock               *trackingReconcileLock
+	called             bool
+	savedWhileLockHeld bool
+}
+
+func (m *lockObservingReconciliationStorage) SaveReconciliationHistory(string, time.Time, float64, float64, float64,
+	int, int, float64, float64, float64, float64) error {
+	m.called = true
+	m.savedWhileLockHeld = m.lock.IsHeld()
+	return nil
+}
+
+func (m *barrierObservingReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
+	m.positionsInGate = m.manager.BarrierActive
+	return m.MockReconcileExchange.GetPositions(ctx, symbol)
+}
+
+func (m *barrierObservingReconcileExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
+	m.openOrdersInGate = m.manager.BarrierActive
+	return m.MockReconcileExchange.GetOpenOrders(ctx, symbol)
 }
 
 // TestSlot 用於對账反射
@@ -311,6 +384,67 @@ func TestReconcilerSkipsPositionSyncWhileOrdersRemainOpen(t *testing.T) {
 				t.Fatalf("valid snapshots should complete reconciliation, count=%d", pm.ReconcileCount)
 			}
 		})
+	}
+}
+
+func TestReconcilerHoldsSubmissionBarrierAcrossSnapshotsAndSync(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	cfg.Trading.MarketType = "spot"
+	cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+	pm := &MockPositionManager{
+		Symbol: "BTCUSDT",
+		Slots: map[float64]interface{}{
+			50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.01, OrderStatus: "NOT_PLACED"},
+		},
+	}
+	pm.BeginReconcile = func(context.Context) (func(), error) {
+		pm.BarrierActive = true
+		return func() { pm.BarrierActive = false }, nil
+	}
+	ex := &barrierObservingReconcileExchange{
+		MockReconcileExchange: MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.05}}},
+		manager:               pm,
+	}
+	r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+	if err := r.Reconcile(); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !ex.positionsInGate || !ex.openOrdersInGate || !pm.ForceSyncInGate {
+		t.Fatalf("barrier not held across critical section: positions=%v orders=%v sync=%v",
+			ex.positionsInGate, ex.openOrdersInGate, pm.ForceSyncInGate)
+	}
+	if pm.BarrierActive {
+		t.Fatal("reconciliation did not release the submission barrier")
+	}
+}
+
+func TestReconcilerReleasesCoordinationLockBeforeHistoryStorage(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	cfg.Trading.MarketType = "spot"
+	cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+	distLock := &trackingReconcileLock{NopLock: lock.NewNopLock()}
+	pm := &MockPositionManager{
+		Symbol: "BTCUSDT",
+		Slots: map[float64]interface{}{
+			50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.01, OrderStatus: "NOT_PLACED"},
+		},
+	}
+	forceSyncHeldLock := false
+	pm.ForceSyncHook = func() { forceSyncHeldLock = distLock.IsHeld() }
+	ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.05}}}
+	storage := &lockObservingReconciliationStorage{lock: distLock}
+	r := NewReconciler(cfg, ex, pm, distLock)
+	r.SetStorage(storage)
+	if err := r.Reconcile(); err != nil {
+		t.Fatalf("Reconcile() error = %v", err)
+	}
+	if !forceSyncHeldLock {
+		t.Fatal("position synchronization ran after releasing the distributed lock")
+	}
+	if !storage.called || storage.savedWhileLockHeld {
+		t.Fatalf("history storage lock state: called=%v held=%v, want called after release", storage.called, storage.savedWhileLockHeld)
 	}
 }
 

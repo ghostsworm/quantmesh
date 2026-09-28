@@ -127,6 +127,7 @@ type ExchangeOrderExecutor struct {
 	journalRequired            bool
 	journalLoaded              bool
 	submissionGate             execution.OpeningGate // all ordinary submissions, including closes
+	reconciliationSequence     atomic.Uint64
 }
 
 // SetPostOnlyRepriceMaxAttempts 設置 PostOnly 被拒後重定價的最大次數（<=0 使用預設值，並發安全）
@@ -267,6 +268,12 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	if err := oe.rateLimiter.Wait(waitCtx); err != nil {
 		return nil, fmt.Errorf("速率限制等待失败: %w", err)
 	}
+	positionCtx, releasePositionLock, err := oe.acquirePositionSubmissionLock(ctx, exchangeName, req.Symbol)
+	if err != nil {
+		return nil, err
+	}
+	ctx = positionCtx
+	defer releasePositionLock()
 	// Acquire admission only after lock/rate waits. Queued work must recheck the
 	// pause immediately before submission, not survive under an old lease.
 	finishSubmission, err := oe.admitSubmission(ctx, req)
@@ -444,6 +451,42 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	// Only definitive rate-limit refusals can exhaust this retry loop.
 	pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "max_retries_exceeded")
 	return nil, fmt.Errorf("下單失败（重試%d次）: %w", orderMaxRetries, lastErr)
+}
+
+func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLock(ctx context.Context, exchangeName, symbol string) (context.Context, func(), error) {
+	return oe.acquirePositionSubmissionLockWithTTL(ctx, exchangeName, symbol, execution.PositionReconciliationLockTTL)
+}
+
+func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLockWithTTL(ctx context.Context, exchangeName, symbol string, ttl time.Duration) (context.Context, func(), error) {
+	key := execution.PositionReconciliationLockKey(exchangeName, symbol)
+	lockCtx, cancel := context.WithTimeout(ctx, orderLockAcquireTimeout)
+	unlockLocal, err := execution.AcquireLocalPositionCoordination(lockCtx, key)
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("等待本进程持仓/下单协调屏障失败: %w", err)
+	}
+	err = oe.lock.Lock(lockCtx, key, ttl)
+	cancel()
+	if err != nil {
+		unlockLocal()
+		return nil, nil, fmt.Errorf("等待持倉對账屏障失败: %w", err)
+	}
+	positionCtx, cancelPosition := context.WithCancel(ctx)
+	stopRenew := lock.StartAutoRenew(oe.lock, key, ttl, func(renewErr error) {
+		oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
+		cancelPosition()
+		logger.ErrorCtx(oe.logCtx(), "[%s] 持倉/下單協調鎖續期失败: %v", exchangeName, renewErr)
+	})
+	return positionCtx, func() {
+		stopRenew()
+		cancelPosition()
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+		defer unlockCancel()
+		if unlockErr := oe.lock.Unlock(unlockCtx, key); unlockErr != nil {
+			logger.ErrorCtx(oe.logCtx(), "[%s] 释放持倉/下單協調鎖失败: %v", exchangeName, unlockErr)
+		}
+		unlockLocal()
+	}, nil
 }
 
 // findOrderByClientOrderID 按 ClientOrderID 回查订單（兼容交易所返佣前綴）。

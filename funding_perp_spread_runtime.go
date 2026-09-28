@@ -102,6 +102,7 @@ func startFundingPerpSpreadSymbolRuntime(
 	st := strategy.NewFundingPerpSpreadStrategy("funding_perp_spread", &localCfg, symCfg, legAEx, legBEx, fp, stratCfg)
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
 	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
+	st.SetCoordinationLock(distributedLock)
 	strategyManager.RegisterStrategy("funding_perp_spread", st, 1.0, 0)
 	if err := strategyManager.StartAll(); err != nil {
 		return nil, err
