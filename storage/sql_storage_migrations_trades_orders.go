@@ -175,18 +175,23 @@ func migrateTradesTable(db *sql.DB) error {
 
 // backfillTradesBotIDFromOrders 用 orders.bot_id 回填 trades。
 func backfillTradesBotIDFromOrders(db *sql.DB, tableName string) error {
+	scopeMatch := fmt.Sprintf(`
+		LOWER(TRIM(COALESCE(o.exchange, ''))) = LOWER(TRIM(COALESCE(%[1]s.exchange, '')))
+		AND TRIM(COALESCE(o.account, '')) = TRIM(COALESCE(%[1]s.account, ''))
+		AND LOWER(TRIM(COALESCE(o.market_type, ''))) = LOWER(TRIM(COALESCE(%[1]s.market_type, '')))
+		AND TRIM(COALESCE(o.account_scope, '')) = TRIM(COALESCE(%[1]s.account_scope, ''))
+	`, tableName)
+	orderBot := func(orderColumn string) string {
+		return fmt.Sprintf(`(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %[1]s.%[2]s AND %[3]s LIMIT 1)`, tableName, orderColumn, scopeMatch)
+	}
+	orderOwned := func(orderColumn string) string {
+		return fmt.Sprintf(`EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %[1]s.%[2]s AND %[3]s AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)`, tableName, orderColumn, scopeMatch)
+	}
 	q := fmt.Sprintf(`
-		UPDATE %s SET bot_id = COALESCE(
-			(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %s.sell_order_id LIMIT 1),
-			(SELECT NULLIF(TRIM(o.bot_id), '') FROM orders o WHERE o.order_id = %s.buy_order_id LIMIT 1),
-			''
-		)
+		UPDATE %[1]s SET bot_id = COALESCE(%[2]s, %[3]s, '')
 		WHERE (bot_id IS NULL OR bot_id = '')
-			AND (
-				EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %s.sell_order_id AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)
-				OR EXISTS (SELECT 1 FROM orders o WHERE o.order_id = %s.buy_order_id AND NULLIF(TRIM(o.bot_id), '') IS NOT NULL)
-			)
-	`, tableName, tableName, tableName, tableName, tableName)
+			AND (%[4]s OR %[5]s)
+	`, tableName, orderBot("sell_order_id"), orderBot("buy_order_id"), orderOwned("sell_order_id"), orderOwned("buy_order_id"))
 	if _, err := db.Exec(q); err != nil {
 		return fmt.Errorf("回填 %s.bot_id 失败: %w", tableName, err)
 	}
