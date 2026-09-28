@@ -134,6 +134,25 @@ func TestSettleIntentAcceptsExchangeBrokerPrefix(t *testing.T) {
 	}
 }
 
+func TestSettleZeroFillIntentRejectsLateVenueFill(t *testing.T) {
+	venue := &ownedTestVenue{orders: map[int64]*exchange.Order{18: {
+		OrderID: 18, ClientOrderID: "grid-cancel-late-fill", Symbol: "BTCUSDT", Side: "BUY",
+		Status: exchange.OrderStatusCanceled, Quantity: 1, ExecutedQty: 0.25, AvgPrice: 100,
+	}}}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	oe.intents = map[string]*ownedIntent{"grid-cancel-late-fill": {
+		request: OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, ClientOrderID: "grid-cancel-late-fill"},
+		order:   &Order{OrderID: 18, ClientOrderID: "grid-cancel-late-fill", Symbol: "BTCUSDT", Side: "BUY", Status: "CANCELED", Quantity: 1},
+	}}
+
+	if err := oe.SettleZeroFillIntent(t.Context(), "grid-cancel-late-fill"); err == nil {
+		t.Fatal("zero-fill settlement accepted a terminal order with a late venue fill")
+	}
+	if oe.intents["grid-cancel-late-fill"].settled {
+		t.Fatal("late-filled intent was incorrectly marked settled")
+	}
+}
+
 type journalCheckedVenue struct {
 	*ownedTestVenue
 	t       *testing.T

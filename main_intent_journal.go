@@ -48,7 +48,7 @@ func settleVerifiedGridZeroFill(executor *order.ExchangeOrderExecutor, gate *exe
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), gridZeroFillSettlementTimeout)
 		defer cancel()
-		if err := executor.SettleIntent(ctx, copyUpdate.ClientOrderID); err != nil {
+		if err := executor.SettleZeroFillIntent(ctx, copyUpdate.ClientOrderID); err != nil {
 			markErr := executor.MarkOrderReconciliationRequired(copyUpdate.OrderID, copyUpdate.ClientOrderID, err.Error())
 			logger.Error("[%s] 网格零成交终态意图未能安全结算，保持开仓阻断: cid=%s settle_err=%v journal_err=%v",
 				copyUpdate.Symbol, copyUpdate.ClientOrderID, err, markErr)

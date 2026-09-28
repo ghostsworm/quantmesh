@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -79,11 +80,26 @@ func (oe *ExchangeOrderExecutor) OwnedIntentClientOrderID(clientOrderID string) 
 // SettleIntent is called only after the owning strategy has durably accounted
 // for the terminal venue fill in its own runtime state.
 func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID string) error {
+	return oe.settleIntent(ctx, clientOrderID, false)
+}
+
+// SettleZeroFillIntent is stricter than ordinary strategy settlement: it is
+// reserved for an accounted zero-fill callback and requires the venue's
+// authoritative terminal query and merged journal cursor to remain zero-fill.
+func (oe *ExchangeOrderExecutor) SettleZeroFillIntent(ctx context.Context, clientOrderID string) error {
+	return oe.settleIntent(ctx, clientOrderID, true)
+}
+
+func (oe *ExchangeOrderExecutor) settleIntent(ctx context.Context, clientOrderID string, zeroFillOnly bool) error {
 	oe.intentMu.Lock()
 	intent := oe.intents[clientOrderID]
 	if intent == nil || intent.order == nil || intent.unknown || intent.ledgerPending || intent.rejected {
 		oe.intentMu.Unlock()
 		return fmt.Errorf("execution intent %s is not eligible for settlement", clientOrderID)
+	}
+	if zeroFillOnly && intent.order.ExecutedQty != 0 {
+		oe.intentMu.Unlock()
+		return fmt.Errorf("execution intent %s has previously observed fills", clientOrderID)
 	}
 	orderID := intent.order.OrderID
 	oe.intentMu.Unlock()
@@ -95,7 +111,8 @@ func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID
 		return fmt.Errorf("verify terminal order %d before settlement: %w", orderID, err)
 	}
 	if observed == nil || observed.OrderID != orderID || observed.Symbol != oe.symbol ||
-		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) || !terminalOrderStatus(string(observed.Status)) {
+		(observed.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(clientOrderID, observed.ClientOrderID)) || !terminalOrderStatus(string(observed.Status)) ||
+		(zeroFillOnly && (observed.ExecutedQty != 0 || math.IsNaN(observed.ExecutedQty) || math.IsInf(observed.ExecutedQty, 0))) {
 		return fmt.Errorf("execution intent %s has no matching terminal venue order", clientOrderID)
 	}
 	observed.ClientOrderID = clientOrderID
@@ -107,6 +124,9 @@ func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID
 	intent = oe.intents[clientOrderID]
 	if intent == nil || intent.unknown || intent.ledgerPending || intent.order == nil || !terminalOrderStatus(intent.order.Status) {
 		return fmt.Errorf("execution intent %s became unresolved during settlement", clientOrderID)
+	}
+	if zeroFillOnly && intent.order.ExecutedQty != 0 {
+		return fmt.Errorf("execution intent %s acquired fills during settlement", clientOrderID)
 	}
 	intent.settled = true
 	if err := oe.saveJournalIntentLocked(intent); err != nil {
