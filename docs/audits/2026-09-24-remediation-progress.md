@@ -1338,13 +1338,20 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 驗證：補查/恢復用例 `go test -race ./position -run 'Test(FeeSupplement|GridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot|PersistGridRuntimeStateCapturesCompleteSlotAccountingCursor|RestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch|SupplementCommission)' -count=3` 通過；完整 `go test ./...`、`go vet ./position` 與 `git diff --check` 通過。
 - **邊界：未完成補查崩潰後保持阻斷，仍需 reconciliation；這不是自動恢復 fee query，也不代表盈利或實盤驗收。** 前後端版本 `3.111.0-rc300`，未提交、推送或交易。
 
+## 後續續修：網格舊版快照升級必須失敗關閉（3.111.0-rc301）
+
+- 增加現存 v1 快照（storage schema 與 payload 均為 1）的啟動回歸：即使槽位看似空白，因舊版沒有 pending fee supplement 證據，restore 必須報錯，不能設置 restored 標記或使用空倉快速放行。
+- `go test ./position -run '^TestRestoreGridRuntimeStateRejectsLegacySnapshotWithoutFeePendingEvidence$' -count=1` 與舊/未知 schema 拒絕用例 `go test -race ./position -run 'TestRestoreGridRuntimeStateRejects(LegacySnapshotWithoutFeePendingEvidence|ForeignOwnerAndSchemaMismatch)$' -count=5` 通過；`git diff --check` 通過。前後端版本 `3.111.0-rc301`；未提交、推送或交易。
+
 ## 後續續修：同帳戶資金費策略錢包操作串行化（3.111.0-rc302，2026-09-29）
 
 - 多個 `funding_carry` Bot 可並發讀取同一錢包餘額，再各自劃轉或執行雙腿開倉；啟動時餘額/預算核驗無法防止運行期競態。
 - 為期現雙腿開倉、反向借幣雙腿開倉及利潤劃轉增加進程內帳戶門閂和分布式帳戶鎖，長操作自動續租；鎖續租失敗會取消操作上下文，避免繼續提交後續步驟。新增同帳戶策略實例串行回歸測試。
 - **邊界：**僅協調共享同一帳戶作用域及分布式鎖後端的 `funding_carry` 實例，不覆蓋普通 Bot、人工或其他進程的外部資金操作；不等同於全帳戶原子餘額預留。未連接交易帳戶或執行真實訂單/劃轉。版本 `3.111.0-rc302`，未發布、未部署。
 
-## 後續續修：網格舊版快照升級必須失敗關閉（3.111.0-rc301）
+## 後續續修：平倉路徑納入帳戶錢包協調（3.111.0-rc303，2026-09-29）
 
-- 增加現存 v1 快照（storage schema 與 payload 均為 1）的啟動回歸：即使槽位看似空白，因舊版沒有 pending fee supplement 證據，restore 必須報錯，不能設置 restored 標記或使用空倉快速放行。
-- `go test ./position -run '^TestRestoreGridRuntimeStateRejectsLegacySnapshotWithoutFeePendingEvidence$' -count=1` 與舊/未知 schema 拒絕用例 `go test -race ./position -run 'TestRestoreGridRuntimeStateRejects(LegacySnapshotWithoutFeePendingEvidence|ForeignOwnerAndSchemaMismatch)$' -count=5` 通過；`git diff --check` 通過。前後端版本 `3.111.0-rc301`；未提交、推送或交易。
+- 驗證：資金費策略定向測試、協調/鎖失敗關閉 `-race` 重複 5 輪、`go vet ./strategy`、提升本機回環測試權限後的完整 `go test ./... -count=1` 與 `git diff --check` 均通過。
+
+- 复查 RC302 的入口覆盖后发现，自动退出、人工平仓、停止前平仓及仅剩策略自有现货时的卖出仍未持有账户锁；这些路径现按相同账户作用域串行协调。
+- 开仓失败后的内部补偿平仓继续调用锁内实现，不重复获取同一把锁。锁不可用时顶层平仓不会绕过协调继续改仓；跨普通 Bot、人工交易者和其他应用进程的完整余额预留仍未实现。未连接交易账户或发送真实订单。版本 `3.111.0-rc303`，未发布、未部署。

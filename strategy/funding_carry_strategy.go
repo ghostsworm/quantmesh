@@ -543,14 +543,14 @@ func (s *FundingCarryStrategy) StopContext(ctx context.Context) error {
 	}
 	if dir == DirectionNone {
 		if ownSpot > 0 {
-			s.stopErr = s.closeStrategySpot(ctx)
+			s.stopErr = s.closeStrategySpotWithAccountWalletCoordination(ctx)
 		}
 	} else {
 		logger.Info("⏹️ [%s] 停止前嘗試平倉 (direction=%s)…", s.symbol, dir)
 		if dir == DirectionForward {
-			s.stopErr = s.closeAll(ctx, "bot_stopped")
+			s.stopErr = s.closeAllWithAccountWalletCoordination(ctx, "bot_stopped")
 		} else {
-			s.stopErr = s.closeReverse(ctx, "bot_stopped")
+			s.stopErr = s.closeReverseWithAccountWalletCoordination(ctx, "bot_stopped")
 		}
 	}
 	if s.stopErr != nil {
@@ -714,9 +714,9 @@ func (s *FundingCarryStrategy) tick() error {
 				"message":     "期現對沖腿不平衡，建議手動檢查",
 			})
 			if dir == DirectionForward {
-				return s.closeAll(ctx, "imbalanced_legs")
+				return s.closeAllWithAccountWalletCoordination(ctx, "imbalanced_legs")
 			}
-			return s.closeReverse(ctx, "imbalanced_legs")
+			return s.closeReverseWithAccountWalletCoordination(ctx, "imbalanced_legs")
 		}
 	}
 
@@ -724,11 +724,11 @@ func (s *FundingCarryStrategy) tick() error {
 	if hasPosition {
 		if dir == DirectionForward && rate < s.exitFundingRate {
 			logger.Info("📉 [%s] 資金費 %.5f < 退出閾值 %.5f，正向平倉", s.symbol, rate, s.exitFundingRate)
-			return s.closeAll(ctx, "exit_funding_rate")
+			return s.closeAllWithAccountWalletCoordination(ctx, "exit_funding_rate")
 		}
 		if dir == DirectionReverse && rate > -s.reverseExitRate {
 			logger.Info("📈 [%s] 資金費 %.5f > 反向退出閾值 -%.5f，反向平倉", s.symbol, rate, s.reverseExitRate)
-			return s.closeReverse(ctx, "exit_reverse_rate")
+			return s.closeReverseWithAccountWalletCoordination(ctx, "exit_reverse_rate")
 		}
 		return nil
 	}
@@ -1313,9 +1313,9 @@ func (s *FundingCarryStrategy) CloseOwned(ctx context.Context) (float64, error) 
 	var err error
 	switch direction {
 	case DirectionForward:
-		err = s.closeAll(ctx, "manual")
+		err = s.closeAllWithAccountWalletCoordination(ctx, "manual")
 	case DirectionReverse:
-		err = s.closeReverse(ctx, "manual")
+		err = s.closeReverseWithAccountWalletCoordination(ctx, "manual")
 	case DirectionNone:
 		return 0, errors.New("funding_carry has no strategy-owned position to close")
 	default:
@@ -1502,6 +1502,24 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 func (s *FundingCarryStrategy) openReverseHedge(ctx context.Context, futPx, spotPx, rate float64) error {
 	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
 		return s.openReverseHedgeUnderWalletLock(operationCtx, futPx, spotPx, rate)
+	})
+}
+
+func (s *FundingCarryStrategy) closeAllWithAccountWalletCoordination(ctx context.Context, reason string) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.closeAll(operationCtx, reason)
+	})
+}
+
+func (s *FundingCarryStrategy) closeReverseWithAccountWalletCoordination(ctx context.Context, reason string) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.closeReverse(operationCtx, reason)
+	})
+}
+
+func (s *FundingCarryStrategy) closeStrategySpotWithAccountWalletCoordination(ctx context.Context) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.closeStrategySpot(operationCtx)
 	})
 }
 

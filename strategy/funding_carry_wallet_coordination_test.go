@@ -14,11 +14,15 @@ type walletCoordinationTestLock struct {
 	active   int
 	max      int
 	acquired []string
+	lockErr  error
 }
 
 func (l *walletCoordinationTestLock) Lock(_ context.Context, key string, _ time.Duration) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.lockErr != nil {
+		return l.lockErr
+	}
 	l.active++
 	if l.active > l.max {
 		l.max = l.active
@@ -96,5 +100,32 @@ func TestFundingCarryWalletCoordinationSerializesSameAccountInProcess(t *testing
 	}
 	if len(coordinator.acquired) != 2 || coordinator.acquired[0] != key || coordinator.acquired[1] != key {
 		t.Fatalf("unexpected distributed lock keys: %v", coordinator.acquired)
+	}
+}
+
+func TestFundingCarryClosePathsFailClosedWhenWalletCoordinationIsUnavailable(t *testing.T) {
+	coordinator := &walletCoordinationTestLock{lockErr: context.DeadlineExceeded}
+	strategy := &FundingCarryStrategy{}
+	if err := strategy.SetAccountWalletCoordinationLock(coordinator, "funding_carry_wallet:account-a"); err != nil {
+		t.Fatal(err)
+	}
+	operations := []struct {
+		name string
+		run  func(context.Context) error
+	}{
+		{name: "forward close", run: func(ctx context.Context) error {
+			return strategy.closeAllWithAccountWalletCoordination(ctx, "test")
+		}},
+		{name: "reverse close", run: func(ctx context.Context) error {
+			return strategy.closeReverseWithAccountWalletCoordination(ctx, "test")
+		}},
+		{name: "spot-only close", run: strategy.closeStrategySpotWithAccountWalletCoordination},
+	}
+	for _, operation := range operations {
+		t.Run(operation.name, func(t *testing.T) {
+			if err := operation.run(context.Background()); err == nil {
+				t.Fatal("close proceeded without acquiring the account wallet coordination lock")
+			}
+		})
 	}
 }
