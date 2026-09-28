@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1159,42 +1158,10 @@ func rebalanceCapitalHandler(c *gin.Context) {
 
 // 獲取资金历史記錄
 func getCapitalHistoryHandler(c *gin.Context) {
-	daysStr := c.DefaultQuery("days", "30")
-	days, _ := strconv.Atoi(daysStr)
-	if days <= 0 {
-		days = 30
-	}
-	if days > 365 {
-		days = 365
-	}
-
-	// 生成模拟历史數據
-	history := make([]CapitalHistoryPoint, days)
-	baseTotal := 45000.0
-
-	for i := 0; i < days; i++ {
-		date := time.Now().AddDate(0, 0, -days+i+1)
-		// 模拟资金变化
-		growth := float64(i)*50 + math.Sin(float64(i)*0.2)*500
-		total := baseTotal + growth
-		allocated := total * 0.65
-		available := total - allocated
-
-		dailyPnL := 100 + 50*math.Sin(float64(i)*0.3) + float64(i%7)*20
-
-		history[i] = CapitalHistoryPoint{
-			Timestamp: date.Format("2006-01-02"),
-			Total:     math.Round(total*100) / 100,
-			Allocated: math.Round(allocated*100) / 100,
-			Available: math.Round(available*100) / 100,
-			PnL:       math.Round(dailyPnL*100) / 100,
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"history": history,
-		"days":    days,
+	c.JSON(http.StatusServiceUnavailable, gin.H{
+		"success": false,
+		"message": "资金历史尚未接入可信持久化账本，暂不可用",
+		"history": []CapitalHistoryPoint{},
 	})
 }
 

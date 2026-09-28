@@ -188,7 +188,7 @@ const GlobalDashboard: React.FC = () => {
         getSystemStatuses(),
         getPositionsSummaryAll().catch(() => ({ positions: [] })),
         withTimeout(getCapitalOverview(), 5000, null as any),
-        withTimeout(getCapitalHistory(30), 5000, { history: [] } as any),
+        withTimeout(getCapitalHistory(30).catch(() => ({ history: [] })), 5000, { history: [] }),
         getBots().catch(() => ({ bots: [] as BotInfo[] })),
       ])
 

@@ -159,6 +159,26 @@ func TestRebalanceRejectsInvalidModeAndMalformedWeights(t *testing.T) {
 	}
 }
 
+func TestCapitalHistoryDoesNotReturnSyntheticPerformance(t *testing.T) {
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/capital/history?days=30", nil)
+	getCapitalHistoryHandler(c)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Success bool                  `json:"success"`
+		History []CapitalHistoryPoint `json:"history"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Success || len(body.History) != 0 {
+		t.Fatalf("expected unavailable empty history, got %s", w.Body.String())
+	}
+}
+
 func TestCapitalOverviewAggregatesExchangeBalancesAndCache(t *testing.T) {
 	old := capitalDataSource
 	// 只備份資料欄位：整個結構體含 sync.RWMutex，
