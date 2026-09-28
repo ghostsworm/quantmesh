@@ -154,6 +154,7 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		clear := slot.PositionStatus == PositionStatusEmpty && slot.PositionQty == 0 &&
+			slot.SlotStatus == SlotStatusFree &&
 			slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderFilledQty == 0 && slot.OrderFilledNotional == 0 &&
 			(slot.OrderStatus == OrderStatusNotPlaced || slot.OrderStatus == OrderStatusCanceled) &&
 			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&

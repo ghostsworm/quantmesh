@@ -125,6 +125,13 @@ func TestGridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot(t *testing.T) 
 	if spm.GridRuntimeStateIsVerifiedEmpty() {
 		t.Fatal("snapshot with an order identity must remain blocked")
 	}
+	slot.(*InventorySlot).mu.Lock()
+	slot.(*InventorySlot).ClientOID = ""
+	slot.(*InventorySlot).SlotStatus = SlotStatusLocked
+	slot.(*InventorySlot).mu.Unlock()
+	if spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("empty snapshot with a locked slot must remain blocked")
+	}
 }
 
 func TestRestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch(t *testing.T) {
