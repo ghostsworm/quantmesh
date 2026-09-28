@@ -92,6 +92,9 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	// MaxWithdrawAmount is the exchange-confirmed maximum transferable amount.
+	// Zero means the adapter cannot prove a transferable amount.
+	MaxWithdrawAmount float64
 	// BalanceAsset identifies the unit used by all three balance fields.
 	// Empty means the adapter cannot prove a single valuation currency.
 	BalanceAsset    string
@@ -119,18 +122,19 @@ type OrderUpdate struct {
 
 // OrderFill 訂單成交記錄（用於查詢手續費）
 type OrderFill struct {
-	OrderID         int64   // 訂單ID
-	TradeID         string  // 成交ID（交易所內部）
-	Symbol          string  // 交易對
-	Side            Side    // 買賣方向
-	Price           float64 // 成交價格
-	Quantity        float64 // 成交數量
-	QuoteQuantity   float64 // 交易所回報的計價幣成交金額；0 表示交易所未提供
-	Commission      float64 // 手續費
-	CommissionAsset string  // 手續費幣種
-	TradeTime       int64   // 成交時間（毫秒）
-	RealizedPnL     float64 // 交易所逐筆已實現盈虧
-	IsMaker         bool    // 是否為 Maker 訂單
+	OrderID          int64   // 訂單ID
+	TradeID          string  // 成交ID（交易所內部）
+	Symbol           string  // 交易對
+	Side             Side    // 買賣方向
+	Price            float64 // 成交價格
+	Quantity         float64 // 成交數量
+	QuoteQuantity    float64 // 交易所回報的計價幣成交金額；0 表示交易所未提供
+	Commission       float64 // 手續費
+	CommissionAsset  string  // 手續費幣種
+	TradeTime        int64   // 成交時間（毫秒）
+	RealizedPnL      float64 // 交易所逐筆已實現盈虧
+	RealizedPnLKnown bool    // true 表示交易所明確返回了逐筆盈虧（包括 0）
+	IsMaker          bool    // 是否為 Maker 訂單
 	// BaseFeeQty 本筆成交以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費）。
 	// 僅現貨有意義：其計價幣價值已包含在 Commission 中，上層只用它把買單到帳數量扣減為淨額。
 	BaseFeeQty           float64 `json:"base_fee_qty,omitempty"`

@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/exchange/accounting"
 	"quantmesh/logger"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -86,7 +88,7 @@ func (e *WithdrawExecutor) runScheduledTask(frequency string) {
 	e.processRules(frequency)
 	for {
 		now := e.nowInConfiguredTimezone()
-		wait := nextScheduleTime(frequency, now).Sub(now)
+		wait := nextScheduledRetryWait(frequency, now)
 		timer := time.NewTimer(wait)
 		select {
 		case <-e.ctx.Done():
@@ -96,6 +98,16 @@ func (e *WithdrawExecutor) runScheduledTask(frequency string) {
 			e.processRules(frequency)
 		}
 	}
+}
+
+// nextScheduledRetryWait retries overdue rules periodically after transient
+// accounting/coverage failures instead of deferring them until the next day or week.
+func nextScheduledRetryWait(frequency string, now time.Time) time.Duration {
+	wait := nextScheduleTime(frequency, now).Sub(now)
+	if wait > immediateInterval {
+		return immediateInterval
+	}
+	return wait
 }
 
 // currentPeriodStart 返回 now 所在週期的起點（最近一個 <= now 的目標時刻）
@@ -137,8 +149,14 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 			logger.Warn("⚠️ [利润提取] 獲取规则失败 account=%s: %v", accountID, err)
 			continue
 		}
+		streamCounts := countEnabledWithdrawStreams(rules, accountID)
 		for _, rule := range rules {
 			if !rule.Enabled || rule.Frequency != frequency {
+				continue
+			}
+			if streamCounts[withdrawStreamForRule(rule, accountID)] > 1 {
+				logger.Error("❌ [利润提取] 同一账户/交易所/交易对存在多条启用规则，拒绝重复核算和划转 account=%s exchange=%s symbol=%s rule=%s",
+					rule.AccountID, rule.ExchangeID, rule.StrategyID, rule.ID)
 				continue
 			}
 			if err := ValidateWithdrawRule(rule); err != nil {
@@ -153,6 +171,39 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 			}
 		}
 	}
+}
+
+type withdrawStreamKey struct {
+	accountID    string
+	accountScope string
+	exchange     string
+	symbol       string
+}
+
+func withdrawStreamForRule(rule *storage.ProfitWithdrawRule, accountID string) withdrawStreamKey {
+	if rule == nil {
+		return withdrawStreamKey{}
+	}
+	if strings.TrimSpace(rule.AccountID) != "" {
+		accountID = rule.AccountID
+	}
+	return withdrawStreamKey{accountID: strings.TrimSpace(accountID), accountScope: strings.TrimSpace(rule.AccountScope),
+		exchange: strings.ToLower(strings.TrimSpace(rule.ExchangeID)), symbol: strings.ToUpper(strings.TrimSpace(rule.StrategyID))}
+}
+
+func countEnabledWithdrawStreams(rules []*storage.ProfitWithdrawRule, accountID string) map[withdrawStreamKey]int {
+	counts := make(map[withdrawStreamKey]int)
+	for _, rule := range rules {
+		if rule == nil || !rule.Enabled {
+			continue
+		}
+		key := withdrawStreamForRule(rule, accountID)
+		if key.accountID == "" || key.accountScope == "" || key.exchange == "" || key.symbol == "" {
+			continue
+		}
+		counts[key]++
+	}
+	return counts
 }
 
 // processRule 只提取「上次成功提取之後」新實現的利潤，並扣除該區間內已提取/處理中的金額，
@@ -198,8 +249,35 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr
 	var since time.Time
 	if rule.LastTriggeredAt != nil {
 		since = *rule.LastTriggeredAt
+	} else {
+		since = rule.CreatedAt
 	}
-	windowEnd := e.now()
+	if since.IsZero() {
+		return fmt.Errorf("withdrawal rule lacks a trusted accounting start time; automatic withdrawal is disabled")
+	}
+	coverageReader, ok := e.st.(interface {
+		GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks funding income coverage state; automatic withdrawal is disabled")
+	}
+	coveredFrom, coveredThrough, err := coverageReader.GetFundingIncomeCoverage(rule.ExchangeID, rule.StrategyID, "futures", rule.AccountScope)
+	if err != nil {
+		return fmt.Errorf("read funding income coverage: %w", err)
+	}
+	if coveredFrom.IsZero() || coveredThrough.IsZero() {
+		return fmt.Errorf("funding income coverage is unavailable; automatic withdrawal is disabled")
+	}
+	if coveredFrom.After(since) {
+		return fmt.Errorf("funding income history starts after the withdrawal accounting window; automatic withdrawal is disabled")
+	}
+	windowEnd := coveredThrough
+	if now := e.now(); windowEnd.After(now) {
+		windowEnd = now
+	}
+	if !since.Before(windowEnd) {
+		return nil
+	}
 
 	profit, err := e.calculateRealizedProfit(rule, since, windowEnd)
 	if err != nil {
@@ -219,7 +297,7 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr
 	if withdrawAmount <= 0 || withdrawAmount < rule.MinWithdrawAmount {
 		return nil
 	}
-	return e.executeWithdraw(rule, claimID, withdrawAmount, windowEnd)
+	return e.executeWithdraw(rule, claimID, withdrawAmount, since, windowEnd)
 }
 
 func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequency string) bool {
@@ -262,23 +340,80 @@ func (e *WithdrawExecutor) calculateRealizedProfit(rule *storage.ProfitWithdrawR
 // （pending/processing 結果未知，保守計入，寧可少提也不重複劃轉）
 func (e *WithdrawExecutor) withdrawnSince(rule *storage.ProfitWithdrawRule, since time.Time) (float64, error) {
 	aggregator, ok := e.st.(interface {
-		SumReservedWithdrawAmount(accountID, ruleID string, since time.Time) (float64, error)
+		SumReservedWithdrawAmountForStream(accountID, accountScope, exchange, symbol string, since time.Time) (float64, error)
 	})
 	if !ok {
-		return 0, fmt.Errorf("storage lacks unbounded withdrawal reservation aggregation; automatic withdrawal is disabled")
+		return 0, fmt.Errorf("storage lacks exact-stream withdrawal reservation aggregation; automatic withdrawal is disabled")
 	}
-	total, err := aggregator.SumReservedWithdrawAmount(rule.AccountID, rule.ID, since)
+	total, err := aggregator.SumReservedWithdrawAmountForStream(rule.AccountID, rule.AccountScope, rule.ExchangeID, rule.StrategyID, since)
 	if err != nil {
 		return 0, fmt.Errorf("汇总提取预留金额 account=%s rule=%s: %w", rule.AccountID, rule.ID, err)
 	}
 	return total, nil
 }
 
+// ValidateTransferSafety is shared by manual and automatic transfers. It only
+// proves the requested futures-to-spot transfer is inside the exchange's
+// fresh USDT transfer limits; callers must separately prove profit coverage.
+func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, amount float64, windowStart, windowEnd time.Time) error {
+	if ctx == nil || ex == nil || windowStart.IsZero() || !windowStart.Before(windowEnd) {
+		return fmt.Errorf("withdrawal transfer requires an exchange and complete accounting interval")
+	}
+	ledgerSource, ok := ex.(accounting.Source)
+	if !ok {
+		return fmt.Errorf("exchange does not provide complete account income evidence; withdrawal is disabled")
+	}
+	ledger, err := ledgerSource.ReadAccountEvidence(ctx, windowStart)
+	if err != nil {
+		return fmt.Errorf("read complete account income evidence before transfer: %w", err)
+	}
+	if ledger.Currency != "USDT" || math.IsNaN(ledger.Equity) || math.IsInf(ledger.Equity, 0) ||
+		ledger.ObservedAt.IsZero() || time.Since(ledger.ObservedAt) > 30*time.Second || ledger.ObservedAt.After(time.Now().Add(2*time.Second)) ||
+		ledger.Wallet.ObservedAt.IsZero() || !ledger.Wallet.ObservedAt.Equal(ledger.ObservedAt) ||
+		ledger.Wallet.From.IsZero() || ledger.Wallet.Through.IsZero() || ledger.Wallet.From.After(ledger.Wallet.Through) ||
+		ledger.Wallet.From.After(windowStart) || ledger.Wallet.Through.Before(windowEnd) {
+		return fmt.Errorf("account income evidence does not cover the withdrawal window; withdrawal is disabled")
+	}
+	if _, err := accounting.CanonicalDecimal(ledger.Wallet.Balance); err != nil {
+		return fmt.Errorf("account income evidence wallet balance is invalid: %w", err)
+	}
+	for _, entry := range ledger.Entries {
+		if !entry.At.After(windowStart) || entry.At.After(windowEnd) {
+			continue
+		}
+		switch entry.Kind {
+		case "insurance_clear", "unallocated_fee", "interest":
+			return fmt.Errorf("withdrawal interval contains unallocated account cash flow %q; withdrawal is disabled", entry.Kind)
+		}
+	}
+	freshAccount, ok := ex.(interface {
+		GetAccountFresh(context.Context) (*exchange.Account, error)
+	})
+	if !ok {
+		return fmt.Errorf("exchange does not provide uncached account balances; withdrawal is disabled")
+	}
+	account, err := freshAccount.GetAccountFresh(ctx)
+	if err != nil {
+		return fmt.Errorf("read fresh futures balance before transfer: %w", err)
+	}
+	if account == nil || account.BalanceAsset != "USDT" || math.IsNaN(account.AvailableBalance) || math.IsInf(account.AvailableBalance, 0) || account.AvailableBalance < 0 ||
+		math.IsNaN(account.MaxWithdrawAmount) || math.IsInf(account.MaxWithdrawAmount, 0) || account.MaxWithdrawAmount < 0 || account.MaxWithdrawAmount > account.AvailableBalance {
+		return fmt.Errorf("fresh futures balance is not a verified USDT amount; withdrawal is disabled")
+	}
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 || amount > account.AvailableBalance || amount > account.MaxWithdrawAmount {
+		return fmt.Errorf("withdrawal amount %.8f exceeds fresh transferable futures balance %.8f USDT", amount, math.Min(account.AvailableBalance, account.MaxWithdrawAmount))
+	}
+	return nil
+}
+
 // executeWithdraw 執行劃轉；windowEnd 為本次利潤統計截止時刻，成功後寫入 LastTriggeredAt 作為下次統計起點
-func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowEnd time.Time) error {
+func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowStart, windowEnd time.Time) error {
 	ex := e.getExchange(rule.ExchangeID)
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
+	}
+	if err := ValidateTransferSafety(e.ctx, ex, amount, windowStart, windowEnd); err != nil {
+		return err
 	}
 	record := &storage.ProfitWithdrawRecord{
 		ID:           "wd_" + utils.NewCompactOrderID(),

@@ -80,10 +80,11 @@ export interface WithdrawRecord {
 }
 
 export interface ManualWithdrawRequest {
-  strategyId?: string // 如果為空，從所有策略提取
+  exchangeId: string
+  strategyId: string
   amount: number
   destination: WithdrawDestination
-  walletAddress?: string
+  currency: 'USDT'
 }
 
 export interface WithdrawResponse {

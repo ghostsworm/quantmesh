@@ -17,13 +17,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type ambiguousWithdrawExchange struct{ exchange.IExchange }
+type ambiguousWithdrawExchange struct {
+	exchange.IExchange
+	transferCalled *bool
+}
 
-func (ambiguousWithdrawExchange) InternalTransfer(context.Context, string, string, string, float64) (string, error) {
+func (e ambiguousWithdrawExchange) InternalTransfer(context.Context, string, string, string, float64) (string, error) {
+	*e.transferCalled = true
 	return "", context.DeadlineExceeded
 }
 
-func TestManualWithdrawAmbiguousTransferRemainsPending(t *testing.T) {
+func TestManualWithdrawRejectsUncoveredProfitBeforeTransfer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	dbPath := t.TempDir() + "/withdraw.db"
 	defer os.Remove(dbPath)
@@ -36,7 +40,8 @@ func TestManualWithdrawAmbiguousTransferRemainsPending(t *testing.T) {
 	originalGetter := exchangeGetterFunc
 	originalConfigManager := fileConfigManager
 	SetStorageServiceProvider(&testStorageProvider{st: st})
-	SetExchangeGetter(func(string) exchange.IExchange { return ambiguousWithdrawExchange{} })
+	transferCalled := false
+	SetExchangeGetter(func(string) exchange.IExchange { return ambiguousWithdrawExchange{transferCalled: &transferCalled} })
 	fcm := NewFileConfigManager("")
 	testCfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "withdraw-test-key", SecretKey: "withdraw-test-secret"}}}
 	testCfg.App.CurrentExchange = "binance"
@@ -48,7 +53,7 @@ func TestManualWithdrawAmbiguousTransferRemainsPending(t *testing.T) {
 		SetFileConfigManager(originalConfigManager)
 	})
 
-	request := httptest.NewRequest(http.MethodPost, "/api/profit/withdraw", bytes.NewBufferString(`{"exchangeId":"binance","amount":25,"currency":"USDT"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/profit/withdraw", bytes.NewBufferString(`{"exchangeId":"binance","strategyId":"BTCUSDT","amount":25,"currency":"USDT","destination":"account"}`))
 	request.Header.Set("Content-Type", "application/json")
 	expectedAccount := GetCurrentAccountID()
 	if expectedAccount == "" {
@@ -58,25 +63,51 @@ func TestManualWithdrawAmbiguousTransferRemainsPending(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(response)
 	ctx.Request = request
 	withdrawProfitHandler(ctx)
-	if response.Code != http.StatusAccepted {
+	if response.Code != http.StatusConflict {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
-	var payload struct {
-		Success bool           `json:"success"`
-		Record  WithdrawRecord `json:"record"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
-		t.Fatal(err)
-	}
-	if !payload.Success || payload.Record.Status != "pending" || payload.Record.FailedReason == "" {
-		t.Fatalf("ambiguous transfer must be returned as pending reconciliation: %+v", payload)
+	if transferCalled {
+		t.Fatal("transfer was called despite missing realized-profit coverage")
 	}
 	records, err := st.GetWithdrawRecords(expectedAccount, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Status != "pending" || records[0].FailedReason == "" {
-		t.Fatalf("persisted record=%+v", records)
+	if len(records) != 0 {
+		t.Fatalf("unverified request created a withdrawal reservation: %+v", records)
+	}
+}
+
+func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
+	st, err := storage.NewSQLStorage(t.TempDir() + "/manual-window.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	start := time.Now().UTC().Add(-time.Hour)
+	end := time.Now().UTC().Add(-time.Minute)
+	const scope = "scope-manual"
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", scope, start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", scope, start, end); err != nil {
+		t.Fatal(err)
+	}
+	pnl := 100.0
+	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, Symbol: "BTCUSDT", TradeID: "manual-profit-fill",
+		OrderID: 77, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &pnl, TradeTime: end.Add(-time.Minute)}
+	if err := st.SaveOrderFill(&fill); err != nil {
+		t.Fatal(err)
+	}
+	windowStart, windowEnd, checkpoint, verified, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 50, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint != "" || !windowStart.Equal(start) || !windowEnd.Equal(end) || verified != 98 {
+		t.Fatalf("manual window=(%v,%v] checkpoint=%q verified=%v", windowStart, windowEnd, checkpoint, verified)
+	}
+	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 99, time.Now().UTC()); err == nil {
+		t.Fatal("manual amount above verified realized net profit must be rejected")
 	}
 }
 
@@ -104,7 +135,7 @@ func TestReconcileWithdrawRecordRequiresScopedLedgerEvidenceAndReleasesClaim(t *
 	scope := accountScopeForExchange("binance")
 	if err := st.UpsertProfitWithdrawRule(accountID, &storage.ProfitWithdrawRule{
 		ID: "rule-reconcile", ExchangeID: "binance", AccountScope: scope,
-		WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,5 +197,53 @@ func TestUpsertWithdrawRuleRejectsRatioAboveProfitShare(t *testing.T) {
 	}
 	if len(rules) != 0 {
 		t.Fatalf("invalid rule was persisted: %+v", rules)
+	}
+}
+
+func TestUpsertWithdrawRuleRejectsOverlappingAccountingStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	st, err := storage.NewSQLStorage(t.TempDir() + "/duplicate-rules.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	originalStorage := storageServiceProvider
+	originalConfigManager := fileConfigManager
+	SetStorageServiceProvider(&testStorageProvider{st: st})
+	fcm := NewFileConfigManager("")
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "duplicate-rule-test-key", SecretKey: "duplicate-rule-test-secret"}}}
+	fcm.SetRuntimeConfig(cfg)
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() {
+		SetStorageServiceProvider(originalStorage)
+		SetFileConfigManager(originalConfigManager)
+	})
+	for _, id := range []string{"rule-one", "rule-two"} {
+		body, err := json.Marshal(map[string]interface{}{"id": id, "exchangeId": "binance", "strategyId": "BTCUSDT",
+			"enabled": true, "triggerAmount": 10, "withdrawRatio": 0.5, "frequency": "immediate", "destination": "account"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := httptest.NewRequest(http.MethodPost, "/api/profit/withdraw/rules", bytes.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		response := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(response)
+		ctx.Request = request
+		upsertWithdrawRuleHandler(ctx)
+		want := http.StatusOK
+		if id == "rule-two" {
+			want = http.StatusBadRequest
+		}
+		if response.Code != want {
+			t.Fatalf("id=%s status=%d want=%d body=%s", id, response.Code, want, response.Body.String())
+		}
+	}
+	accountID := GetCurrentAccountID()
+	rules, err := st.ListProfitWithdrawRules(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != "rule-one" {
+		t.Fatalf("duplicate API write changed stored rules: %+v", rules)
 	}
 }

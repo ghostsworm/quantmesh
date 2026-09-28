@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -19,22 +20,22 @@ import (
 
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
-	ExchangeID          string  `json:"exchangeId,omitempty"`
-	TotalProfit         float64 `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
-	GrossProfit         float64 `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
-	TotalFee            float64 `json:"totalFee"`    // 手續費合計
-	FundingNet          float64 `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
-	TodayProfit         float64 `json:"todayProfit"`
-	WeekProfit          float64 `json:"weekProfit"`
-	MonthProfit         float64 `json:"monthProfit"`
-	UnrealizedProfit    float64 `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
-	ExchangeProfit      float64 `json:"exchangeProfit"`   // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
-	WithdrawnProfit     float64 `json:"withdrawnProfit"`
-	AvailableToWithdraw float64 `json:"availableToWithdraw"`
-	PriceDeviationLoss  float64 `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
-	BuyPriceDeviation   float64 `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
-	SellPriceDeviation  float64 `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
-	LastUpdated         string  `json:"lastUpdated"`
+	ExchangeID          string   `json:"exchangeId,omitempty"`
+	TotalProfit         float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
+	GrossProfit         float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
+	TotalFee            float64  `json:"totalFee"`    // 手續費合計
+	FundingNet          float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	TodayProfit         float64  `json:"todayProfit"`
+	WeekProfit          float64  `json:"weekProfit"`
+	MonthProfit         float64  `json:"monthProfit"`
+	UnrealizedProfit    float64  `json:"unrealizedProfit"`         // 未實現盈利（根據當前倉位和價格計算）
+	ExchangeProfit      *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
+	WithdrawnProfit     float64  `json:"withdrawnProfit"`
+	AvailableToWithdraw float64  `json:"availableToWithdraw"`
+	PriceDeviationLoss  float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
+	BuyPriceDeviation   float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation  float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
+	LastUpdated         string   `json:"lastUpdated"`
 }
 
 // StrategyProfit 策略盈利
@@ -124,6 +125,39 @@ type FundingPaymentItem struct {
 	CreatedAt     string  `json:"createdAt"`
 }
 
+type fundingProfitSumReader interface {
+	GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
+}
+
+type fundingProfitTotals struct {
+	Total float64
+	Today float64
+	Week  float64
+	Month float64
+}
+
+func readFundingProfitTotals(reader fundingProfitSumReader, account, exchange string, lifetimeStart, todayStart, weekStart, monthStart, end time.Time) (fundingProfitTotals, error) {
+	var totals fundingProfitTotals
+	queries := []struct {
+		label string
+		start time.Time
+		dest  *float64
+	}{
+		{label: "累計", start: lifetimeStart, dest: &totals.Total},
+		{label: "今日", start: todayStart, dest: &totals.Today},
+		{label: "本週", start: weekStart, dest: &totals.Week},
+		{label: "本月", start: monthStart, dest: &totals.Month},
+	}
+	for _, query := range queries {
+		value, err := reader.GetFundingPaymentsSum(account, exchange, query.start, end)
+		if err != nil {
+			return fundingProfitTotals{}, fmt.Errorf("query %s funding total: %w", query.label, err)
+		}
+		*query.dest = value
+	}
+	return totals, nil
+}
+
 // 獲取盈利彙總
 func getProfitSummaryHandler(c *gin.Context) {
 	exchangeID := c.Query("exchange_id")
@@ -211,19 +245,20 @@ func getProfitSummaryHandler(c *gin.Context) {
 	}
 
 	// 資金費用淨額（正=淨收入，負=淨支出）
-	fundingSum := 0.0
-	todayFunding := 0.0
-	weekFunding := 0.0
-	monthFunding := 0.0
-	if stWithFunding, ok := st.(interface {
+	stWithFunding, ok := st.(interface {
 		GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
-	}); ok {
-		startAll := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-		fundingSum, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, startAll, now)
-		todayFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, todayStart, now)
-		weekFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, weekStart, now)
-		monthFunding, _ = stWithFunding.GetFundingPaymentsSum(accountID, exchangeID, monthStart, now)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲未提供可驗證的資金費彙總，無法生成完整盈利報告"})
+		return
 	}
+	startAll := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	fundingTotals, err := readFundingProfitTotals(stWithFunding, accountID, exchangeID, startAll, todayStart, weekStart, monthStart, now)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢資金費統計失敗: " + err.Error()})
+		return
+	}
+	fundingSum, todayFunding, weekFunding, monthFunding := fundingTotals.Total, fundingTotals.Today, fundingTotals.Week, fundingTotals.Month
 	netWithFunding := summaryStats.TotalPnL + fundingSum
 	todayProfitWithFunding := todayProfit + todayFunding
 	weekProfitWithFunding := weekProfit + weekFunding
@@ -236,18 +271,42 @@ func getProfitSummaryHandler(c *gin.Context) {
 	priceDeviationLoss := summaryStats.TotalBuyDeviation + summaryStats.TotalSellDeviation
 
 	// 4. 計算交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL）
-	exchangeProfit := 0.0
-	// 查詢所有已成交的訂單，累加 RealizedPnL
-	allOrders, err := st.QueryOrdersWithTimeRange(10000, 0, "FILLED", nil, nil) // 查詢最多1萬筆已成交訂單
-	if err == nil {
-		for _, order := range allOrders {
-			// 如果指定了交易所且訂單不屬於該交易所，跳過
-			if exchangeID != "" && order.Exchange != exchangeID {
-				continue
+	var exchangeProfit *float64
+	if scopedPnL, ok := st.(interface {
+		GetExchangePnLByAccountScope(exchange, accountScope string) (float64, error)
+	}); ok {
+		cfg, cfgErr := GetLatestConfig()
+		if cfgErr == nil && cfg != nil {
+			exchanges := make([]string, 0, len(cfg.Exchanges))
+			if exchangeID != "" {
+				exchanges = append(exchanges, exchangeID)
+			} else {
+				for configuredExchange, exchangeConfig := range cfg.Exchanges {
+					if strings.TrimSpace(exchangeConfig.APIKey) != "" {
+						exchanges = append(exchanges, configuredExchange)
+					}
+				}
 			}
-			// 累加交易所返回的已實現盈虧
-			if order.RealizedPnL != nil {
-				exchangeProfit += *order.RealizedPnL
+			if len(exchanges) > 0 {
+				total := 0.0
+				scopedExchanges := 0
+				for _, scopedExchange := range exchanges {
+					scope := accountScopeForExchange(scopedExchange)
+					if scope == "" {
+						continue
+					}
+					value, queryErr := scopedPnL.GetExchangePnLByAccountScope(scopedExchange, scope)
+					if queryErr != nil {
+						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢當前賬戶交易所盈虧失敗: " + queryErr.Error()})
+						return
+					}
+					total += value
+					scopedExchanges++
+				}
+				if scopedExchanges > 0 {
+					rounded := math.Round(total*100) / 100
+					exchangeProfit = &rounded
+				}
 			}
 		}
 	}
@@ -262,7 +321,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 		WeekProfit:          math.Round(weekProfitWithFunding*100) / 100,
 		MonthProfit:         math.Round(monthProfitWithFunding*100) / 100,
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
-		ExchangeProfit:      math.Round(exchangeProfit*100) / 100,
+		ExchangeProfit:      exchangeProfit,
 		WithdrawnProfit:     0, // TODO: 從提現記錄统计
 		AvailableToWithdraw: math.Round(netWithFunding*100) / 100,
 		PriceDeviationLoss:  math.Round(priceDeviationLoss*100) / 100,
@@ -621,6 +680,10 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 
 	// 全量替换规则
 	if err := st.ReplaceProfitWithdrawRules(accountID, newRules); err != nil {
+		if errors.Is(err, storage.ErrOverlappingProfitWithdrawRule) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存规则失败: " + err.Error()})
 		return
 	}
@@ -687,6 +750,10 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 	}
 
 	if err := st.UpsertProfitWithdrawRule(accountID, rule); err != nil {
+		if errors.Is(err, storage.ErrOverlappingProfitWithdrawRule) {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存规则失败: " + err.Error()})
 		return
 	}
@@ -731,12 +798,105 @@ func deleteWithdrawRuleHandler(c *gin.Context) {
 }
 
 // 手动提取
+func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeID, symbol string, amount float64, now time.Time) (time.Time, time.Time, string, float64, error) {
+	coverageReader, hasFundingCoverage := st.(interface {
+		GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
+	})
+	fillReader, hasFillCoverage := st.(interface {
+		GetOrderFillCoverage(exchange, marketType, symbol, accountScope string) (*storage.OrderFillCoverage, error)
+	})
+	pnlReader, hasWithdrawalPnL := st.(interface {
+		GetRealizedPnLForWithdrawal(exchange, symbol, accountScope string, startTime, endTime time.Time) (float64, error)
+	})
+	if !hasFundingCoverage || !hasFillCoverage || !hasWithdrawalPnL {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("storage lacks verified funding, fill, or realized-PnL coverage")
+	}
+	fundingFrom, fundingThrough, err := coverageReader.GetFundingIncomeCoverage(exchangeID, symbol, "futures", accountScope)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read funding income coverage: %w", err)
+	}
+	fills, err := fillReader.GetOrderFillCoverage(exchangeID, "futures", symbol, accountScope)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read execution coverage: %w", err)
+	}
+	if fills == nil || fundingFrom.IsZero() || fundingThrough.IsZero() || fills.CoveredFrom.IsZero() || fills.CoveredThrough.IsZero() {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("complete funding and execution history is unavailable")
+	}
+	windowStart := fundingFrom
+	if fills.CoveredFrom.After(windowStart) {
+		windowStart = fills.CoveredFrom
+	}
+	windowEnd := fundingThrough
+	if fills.CoveredThrough.Before(windowEnd) {
+		windowEnd = fills.CoveredThrough
+	}
+	if now.Before(windowEnd) {
+		windowEnd = now
+	}
+	records, err := st.GetWithdrawRecords(accountID, 1000)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read prior withdrawal records: %w", err)
+	}
+	if len(records) >= 1000 {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("withdrawal history reached its verification limit")
+	}
+	var latest *storage.ProfitWithdrawRecord
+	for _, record := range records {
+		if record == nil || !strings.EqualFold(record.ExchangeID, exchangeID) {
+			continue
+		}
+		if record.AccountScope == "" && (record.StrategyID == "" || strings.EqualFold(record.StrategyID, symbol)) {
+			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy withdrawal lacks account scope; reconcile its ledger before another transfer")
+		}
+		if record.AccountScope != accountScope || !strings.EqualFold(record.StrategyID, symbol) {
+			continue
+		}
+		if record.Status == "pending" || record.Status == "processing" {
+			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("a prior withdrawal is unresolved; reconcile it before another transfer")
+		}
+		if record.Status == "completed" && (latest == nil || record.CreatedAt.After(latest.CreatedAt)) {
+			latest = record
+		}
+	}
+	if rules, err := st.ListProfitWithdrawRules(accountID); err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read automatic withdrawal rules: %w", err)
+	} else {
+		for _, rule := range rules {
+			if rule != nil && rule.Enabled && rule.AccountScope == accountScope && strings.EqualFold(rule.ExchangeID, exchangeID) && strings.EqualFold(rule.StrategyID, symbol) {
+				return time.Time{}, time.Time{}, "", 0, fmt.Errorf("an automatic withdrawal rule is enabled for this accounting stream")
+			}
+		}
+	}
+	if latest != nil {
+		if latest.CreatedAt.IsZero() {
+			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("latest withdrawal has no trusted checkpoint time")
+		}
+		windowStart = latest.CreatedAt
+	}
+	if !windowStart.Before(windowEnd) {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("no fully covered realized-profit interval is available")
+	}
+	verifiedProfit, err := pnlReader.GetRealizedPnLForWithdrawal(exchangeID, symbol, accountScope, windowStart, windowEnd)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("verify realized profit: %w", err)
+	}
+	if math.IsNaN(verifiedProfit) || math.IsInf(verifiedProfit, 0) || verifiedProfit <= 0 || amount > verifiedProfit {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("requested amount exceeds fully covered realized USDT profit")
+	}
+	checkpointID := ""
+	if latest != nil {
+		checkpointID = latest.ID
+	}
+	return windowStart, windowEnd, checkpointID, verifiedProfit, nil
+}
+
 func withdrawProfitHandler(c *gin.Context) {
 	var req struct {
 		ExchangeID    string  `json:"exchangeId"`
 		StrategyID    string  `json:"strategyId"`
 		Amount        float64 `json:"amount"`
-		TargetAddress string  `json:"targetAddress"`
+		Destination   string  `json:"destination"`
+		WalletAddress string  `json:"walletAddress"`
 		Currency      string  `json:"currency"`
 		Note          string  `json:"note"`
 	}
@@ -747,16 +907,20 @@ func withdrawProfitHandler(c *gin.Context) {
 		})
 		return
 	}
-	if req.ExchangeID == "" || req.Amount <= 0 {
+	if strings.TrimSpace(req.ExchangeID) == "" || strings.TrimSpace(req.StrategyID) == "" || req.Amount <= 0 || math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
-			"message": "请提供交易所 ID 和有效提取金額",
+			"message": "请指定单一交易所、交易对和有效提取金额",
 		})
 		return
 	}
 	currency := req.Currency
 	if currency == "" {
 		currency = "USDT"
+	}
+	if !strings.EqualFold(currency, "USDT") || (req.Destination != "" && req.Destination != "account") || strings.TrimSpace(req.WalletAddress) != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "当前仅支持已验证的 USDT 合约到账户划转，不支持钱包提现"})
+		return
 	}
 
 	storageProv := PickStorageProvider(c)
@@ -793,6 +957,19 @@ func withdrawProfitHandler(c *gin.Context) {
 		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "无法确认当前交易所账户作用域，拒绝发起资金划转"})
 		return
 	}
+	windowStart, windowEnd, checkpointID, verifiedProfit, err := manualWithdrawWindow(st, accountID, accountScope, req.ExchangeID, req.StrategyID, req.Amount, time.Now())
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "无法验证可提现利润: " + err.Error()})
+		return
+	}
+	ctx := c.Request.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := profit.ValidateTransferSafety(ctx, ex, req.Amount, windowStart, windowEnd); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "转账前安全校验未通过: " + err.Error()})
+		return
+	}
 
 	record := &storage.ProfitWithdrawRecord{
 		ID:           recordID,
@@ -811,15 +988,18 @@ func withdrawProfitHandler(c *gin.Context) {
 		CreatedAt:    time.Now(),
 		Note:         req.Note,
 	}
-	if err := st.SaveWithdrawRecord(record); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存提取記錄失败: " + err.Error()})
+	reservations, ok := st.(interface {
+		ReserveManualWithdrawRecord(record *storage.ProfitWithdrawRecord, windowStart time.Time, checkpointID string, verifiedProfit float64) error
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲不支持原子化手動提取預留，已拒絕轉賬"})
+		return
+	}
+	if err := reservations.ReserveManualWithdrawRecord(record, windowStart, checkpointID, verifiedProfit); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "提取預留失敗，請刷新收益後重試: " + err.Error()})
 		return
 	}
 
-	ctx := c.Request.Context()
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	transferID, err := ex.InternalTransfer(ctx, "UMFUTURE", "SPOT", currency, req.Amount)
 	if err != nil {
 		const pendingReason = "转账结果未核实；请先核对交易所资金流水，禁止重复提交"
@@ -860,7 +1040,7 @@ func withdrawProfitHandler(c *gin.Context) {
 		Type:          "manual",
 		Status:        status,
 		Destination:   "account",
-		TargetAddress: req.TargetAddress,
+		TargetAddress: req.WalletAddress,
 		CreatedAt:     record.CreatedAt.Format(time.RFC3339),
 		CompletedAt:   completedAt.Format(time.RFC3339),
 		Note:          req.Note,
@@ -1103,9 +1283,11 @@ func getWithdrawDetailHandler(c *gin.Context) {
 // 估算提取费用
 func estimateWithdrawFeeHandler(c *gin.Context) {
 	var req struct {
+		ExchangeID    string  `json:"exchangeId"`
 		StrategyID    string  `json:"strategyId"`
 		Amount        float64 `json:"amount"`
-		TargetAddress string  `json:"targetAddress"`
+		Destination   string  `json:"destination"`
+		WalletAddress string  `json:"walletAddress"`
 		Currency      string  `json:"currency"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -1116,23 +1298,19 @@ func estimateWithdrawFeeHandler(c *gin.Context) {
 		return
 	}
 
-	// 计算手续费（示例逻辑）
-	var fee float64
-	switch req.Currency {
-	case "USDT":
-		fee = 1.0 // TRC20 USDT 固定 1 USDT
-	case "ETH":
-		fee = req.Amount * 0.005 // 0.5% 手续费
-	case "BTC":
-		fee = req.Amount * 0.001 // 0.1% 手续费
-	default:
-		fee = req.Amount * 0.001
+	currency := req.Currency
+	if currency == "" {
+		currency = "USDT"
 	}
-
-	netAmount := req.Amount - fee
-
-	// 預计到账時间
-	estimatedArrival := time.Now().Add(30 * time.Minute).Format(time.RFC3339)
+	if strings.TrimSpace(req.ExchangeID) == "" || strings.TrimSpace(req.StrategyID) == "" || req.Amount <= 0 ||
+		math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) || !strings.EqualFold(currency, "USDT") ||
+		(req.Destination != "" && req.Destination != "account") || strings.TrimSpace(req.WalletAddress) != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "内部到账估算仅支持指定交易所/交易对及有效 USDT 金额"})
+		return
+	}
+	fee := 0.0 // UMFUTURE→SPOT 为内部账户划转，不是链上提现。
+	netAmount := req.Amount
+	estimatedArrival := time.Now().Format(time.RFC3339)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":          true,

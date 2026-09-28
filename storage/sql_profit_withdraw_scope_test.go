@@ -1,12 +1,115 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestProfitWithdrawRulesRejectOverlappingEnabledStreams(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-duplicate-stream.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	first := &ProfitWithdrawRule{ID: "rule-a", AccountScope: "scope-a", ExchangeID: "Binance", StrategyID: "btcusdt",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", first); err != nil {
+		t.Fatal(err)
+	}
+	second := &ProfitWithdrawRule{ID: "rule-b", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "daily", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", second); !errors.Is(err, ErrOverlappingProfitWithdrawRule) {
+		t.Fatalf("upsert duplicate stream error=%v, want overlap sentinel", err)
+	}
+	if err := st.ReplaceProfitWithdrawRules("acct", []*ProfitWithdrawRule{first, second}); !errors.Is(err, ErrOverlappingProfitWithdrawRule) {
+		t.Fatalf("replace duplicate stream error=%v, want overlap sentinel", err)
+	}
+	rules, err := st.ListProfitWithdrawRules("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != "rule-a" {
+		t.Fatalf("rejected replacement must preserve existing rule: %+v", rules)
+	}
+}
+
+func TestConcurrentUpsertCannotCreateOverlappingWithdrawStreams(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-concurrent-rules.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	for _, id := range []string{"concurrent-a", "concurrent-b"} {
+		go func(id string) {
+			<-start
+			results <- st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{
+				ID: id, AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+				Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+			})
+		}(id)
+	}
+	close(start)
+	first, second := <-results, <-results
+	if (first == nil) == (second == nil) {
+		t.Fatalf("concurrent upserts must have exactly one winner: first=%v second=%v", first, second)
+	}
+	loser := first
+	if loser == nil {
+		loser = second
+	}
+	if !errors.Is(loser, ErrOverlappingProfitWithdrawRule) {
+		t.Fatalf("losing upsert should report duplicate accounting stream, got %v", loser)
+	}
+	rules, err := st.ListProfitWithdrawRules("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || !rules[0].Enabled {
+		t.Fatalf("stored overlapping rules=%+v, want exactly one enabled rule", rules)
+	}
+}
+
+func TestProfitWithdrawUpsertUsesDatabaseDialect(t *testing.T) {
+	sqliteSQL := profitWithdrawUpsertSQL("sqlite")
+	mysqlSQL := profitWithdrawUpsertSQL("mysql")
+	if !strings.Contains(sqliteSQL, "ON CONFLICT(id)") || strings.Contains(sqliteSQL, "ON DUPLICATE KEY") {
+		t.Fatalf("unexpected SQLite upsert statement: %s", sqliteSQL)
+	}
+	if !strings.Contains(mysqlSQL, "ON DUPLICATE KEY UPDATE") || strings.Contains(mysqlSQL, "excluded.") {
+		t.Fatalf("unexpected MySQL upsert statement: %s", mysqlSQL)
+	}
+}
+
+func TestUpsertProfitWithdrawRuleCannotTakeOverAnotherAccountID(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-rule-owner.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	owned := &ProfitWithdrawRule{ID: "owned-rule", AccountScope: "scope-b", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("account-b", owned); err != nil {
+		t.Fatal(err)
+	}
+	attack := &ProfitWithdrawRule{ID: "owned-rule", AccountScope: "scope-a", ExchangeID: "bybit", StrategyID: "ETHUSDT",
+		Enabled: true, WithdrawRatio: 1, Frequency: "immediate", Destination: "wallet", WalletAddress: "attacker-controlled"}
+	if err := st.UpsertProfitWithdrawRule("account-a", attack); err == nil {
+		t.Fatal("cross-account rule ID takeover must fail")
+	}
+	rules, err := st.ListProfitWithdrawRules("account-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ExchangeID != "binance" || rules[0].AccountScope != "scope-b" || rules[0].WalletAddress != "" {
+		t.Fatalf("account-b rule changed after rejected takeover: %+v", rules)
+	}
+}
 
 func TestProfitWithdrawRulePersistsImmutableAccountScope(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-rule-scope.db")
@@ -139,6 +242,27 @@ func TestSumReservedWithdrawAmountHasNoHistoryPageLimit(t *testing.T) {
 	}
 }
 
+func TestClaimProfitWithdrawRuleDoesNotClaimDisabledRule(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-disabled-claim.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{
+		ID: "disabled-rule", ExchangeID: "binance", AccountScope: "scope-a", Enabled: false,
+		WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := st.ClaimProfitWithdrawRule("disabled-rule", "claim-disabled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("scheduler must not claim a rule disabled after its in-memory rule snapshot")
+	}
+}
+
 func TestResolvePendingWithdrawReleasesOnlyMatchingClaimAndAuditsEvidence(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-resolution.db")
 	if err != nil {
@@ -147,7 +271,7 @@ func TestResolvePendingWithdrawReleasesOnlyMatchingClaimAndAuditsEvidence(t *tes
 	t.Cleanup(func() { _ = st.Close() })
 	if err := st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{
 		ID: "rule-resolve", ExchangeID: "binance", AccountScope: "scope-a",
-		WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
 	}); err != nil {
 		t.Fatal(err)
 	}

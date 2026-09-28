@@ -351,16 +351,18 @@ func (w *bybitWrapper) GetOrderFills(ctx context.Context, symbol string, orderID
 		}
 
 		fills = append(fills, &OrderFill{
-			OrderID:         bf.OrderID,
-			TradeID:         bf.TradeID,
-			Symbol:          bf.Symbol,
-			Side:            Side(side),
-			Price:           bf.Price,
-			Quantity:        bf.Quantity,
-			Commission:      bf.Commission,
-			CommissionAsset: bf.CommissionAsset,
-			TradeTime:       bf.TradeTime,
-			IsMaker:         bf.IsMaker,
+			OrderID:          bf.OrderID,
+			TradeID:          bf.TradeID,
+			Symbol:           bf.Symbol,
+			Side:             Side(side),
+			Price:            bf.Price,
+			Quantity:         bf.Quantity,
+			Commission:       bf.Commission,
+			CommissionAsset:  bf.CommissionAsset,
+			TradeTime:        bf.TradeTime,
+			IsMaker:          bf.IsMaker,
+			RealizedPnL:      bf.RealizedPnL,
+			RealizedPnLKnown: bf.RealizedPnLKnown,
 		})
 	}
 
@@ -378,7 +380,7 @@ func (w *bybitWrapper) GetOrderHistoryPage(ctx context.Context, symbol string, s
 		if err != nil {
 			return OrderHistoryPage{}, fmt.Errorf("Bybit execution %s side mapping: %w", row.TradeID, err)
 		}
-		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission, CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker, RealizedPnL: row.RealizedPnL})
+		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission, CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker, RealizedPnL: row.RealizedPnL, RealizedPnLKnown: row.RealizedPnLKnown})
 	}
 	return page, nil
 }

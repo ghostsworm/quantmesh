@@ -971,17 +971,18 @@ func (b *BybitAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 // GetSpotPrice 獲取現貨市场價格
 // BybitOrderFill 訂單成交記錄（本地類型，避免循環導入）
 type BybitOrderFill struct {
-	OrderID         int64
-	TradeID         string
-	Symbol          string
-	Side            string
-	Price           float64
-	Quantity        float64
-	Commission      float64
-	CommissionAsset string
-	TradeTime       int64
-	IsMaker         bool
-	RealizedPnL     float64
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             string
+	Price            float64
+	Quantity         float64
+	Commission       float64
+	CommissionAsset  string
+	TradeTime        int64
+	IsMaker          bool
+	RealizedPnL      float64
+	RealizedPnLKnown bool
 }
 
 func (b *BybitAdapter) GetExecutionHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {
@@ -1007,7 +1008,7 @@ func (b *BybitAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, s
 		if err != nil && row.ClosedPnl != "" {
 			return nil, "", fmt.Errorf("parse Bybit closed PnL tradeId=%s: %w", row.TradeId, err)
 		}
-		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl})
+		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: row.ClosedPnl != ""})
 	}
 	return fills, next, nil
 }

@@ -11,6 +11,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/monitor"
@@ -127,11 +128,19 @@ func startFundingPerpSpreadSymbolRuntime(
 		EventBus:             eventBus,
 		StorageService:       storageService,
 		AccountID:            accountID,
+		AccountScope:         stateBotID,
+		AccountMarketType:    "futures",
+		OpeningGate:          &execution.OpeningGate{},
 		SuperPositionManager: nil,
 		ExchangeExecutor:     nil,
 		ExecutorAdapter:      nil,
 		ExchangeAdapter:      nil,
 	}
+	rt.PrepareShutdown = func(shutdownCtx context.Context, _ bool) error {
+		return st.PrepareShutdown(shutdownCtx)
+	}
+	rt.CloseForShutdown = st.CloseForShutdown
+	rt.VerifyShutdownClose = st.VerifyFlat
 
 	rt.Stop = func() {
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)

@@ -98,6 +98,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	MaxWithdrawAmount  float64
 	BalanceAsset       string
 	Positions          []*Position
 	AccountLeverage    int // 账戶级别的杠杆倍數（從持倉中提取）
@@ -1494,21 +1495,40 @@ func (b *BinanceAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeTyp
 	if err != nil {
 		return nil, fmt.Errorf("獲取收入歷史失败: %w", err)
 	}
+	if list == nil {
+		return nil, fmt.Errorf("Binance returned a nil income-history response")
+	}
 
 	out := make([]*income.Income, 0, len(list))
 	for _, h := range list {
-		incomeVal, _ := strconv.ParseFloat(h.Income, 64)
-		out = append(out, &income.Income{
-			Symbol:        h.Symbol,
-			IncomeType:    h.IncomeType,
-			Income:        incomeVal,
-			Asset:         h.Asset,
-			Info:          h.Info,
-			TransactionID: h.TranID,
-			TradeTime:     time.UnixMilli(h.Time),
-		})
+		entry, err := normalizeIncomeRecord(h, symbol, incomeType, startTime, endTime)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entry)
 	}
 	return out, nil
+}
+
+func normalizeIncomeRecord(row *futures.IncomeHistory, symbol, incomeType string, startTime, endTime int64) (*income.Income, error) {
+	if row == nil || row.TranID <= 0 || row.Time <= 0 || strings.TrimSpace(row.Asset) == "" || strings.TrimSpace(row.IncomeType) == "" {
+		return nil, fmt.Errorf("Binance returned income without complete identity or denomination")
+	}
+	if symbol != "" && !strings.EqualFold(strings.TrimSpace(row.Symbol), strings.TrimSpace(symbol)) {
+		return nil, fmt.Errorf("Binance income transaction %d is outside requested symbol", row.TranID)
+	}
+	if incomeType != "" && !strings.EqualFold(strings.TrimSpace(row.IncomeType), strings.TrimSpace(incomeType)) {
+		return nil, fmt.Errorf("Binance income transaction %d is outside requested income type", row.TranID)
+	}
+	if (startTime > 0 && row.Time < startTime) || (endTime > 0 && row.Time > endTime) {
+		return nil, fmt.Errorf("Binance income transaction %d is outside requested time window", row.TranID)
+	}
+	amount, err := strconv.ParseFloat(row.Income, 64)
+	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return nil, fmt.Errorf("Binance income transaction %d has invalid amount", row.TranID)
+	}
+	return &income.Income{Symbol: row.Symbol, IncomeType: row.IncomeType, Income: amount, Asset: row.Asset,
+		Info: row.Info, TransactionID: row.TranID, TradeTime: time.UnixMilli(row.Time)}, nil
 }
 
 // FundingInfo 資金費率詳細信息（本地類型，避免循環引用）
@@ -1833,6 +1853,8 @@ type OrderFill struct {
 	CommissionQuote      float64
 	CommissionQuoteRate  float64
 	CommissionQuoteKnown bool
+	RealizedPnL          float64
+	RealizedPnLKnown     bool
 }
 
 func isFinitePositive(value float64) bool {
@@ -1895,9 +1917,13 @@ func (b *BinanceAdapter) GetOrderFills(ctx context.Context, symbol string, order
 		if row.Side == futures.SideTypeSell {
 			side = SideSell
 		}
+		realizedPnL, pnlErr := strconv.ParseFloat(row.RealizedPnl, 64)
+		if pnlErr != nil || math.IsNaN(realizedPnL) || math.IsInf(realizedPnL, 0) {
+			return nil, fmt.Errorf("Binance execution %d contains invalid realized PnL", row.ID)
+		}
 		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
 			Side: side, Price: price, Quantity: quantity, QuoteQuantity: quoteQuantity, Commission: commission, CommissionAsset: row.CommissionAsset,
-			TradeTime: row.Time, IsMaker: row.Maker})
+			TradeTime: row.Time, IsMaker: row.Maker, RealizedPnL: realizedPnL, RealizedPnLKnown: true})
 	}
 	return fills, nil
 }

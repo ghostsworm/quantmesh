@@ -53,6 +53,21 @@ func TestPersistOwnedOrderFillsPreservesExchangeRebate(t *testing.T) {
 	}
 }
 
+func TestPersistOwnedOrderFillsPreservesKnownZeroAndUnknownPnL(t *testing.T) {
+	provider := captureFillProvider{fills: []*exchange.OrderFill{
+		{OrderID: 42, TradeID: "known-zero", Symbol: "BTCUSDT", Side: exchange.SideSell, Price: 100, Quantity: 0.5, TradeTime: 1_790_000_000_000, RealizedPnLKnown: true},
+		{OrderID: 42, TradeID: "unknown", Symbol: "BTCUSDT", Side: exchange.SideSell, Price: 100, Quantity: 0.5, TradeTime: 1_790_000_000_001},
+	}}
+	writer := &captureFillWriter{}
+	update := position.OrderUpdate{OrderID: 42, Symbol: "BTCUSDT", ExecutedQty: 1}
+	if err := PersistOwnedOrderFills(context.Background(), provider, writer, update, "binance", "futures", "scope", "acct", "bot"); err != nil {
+		t.Fatal(err)
+	}
+	if len(writer.fills) != 2 || writer.fills[0].RealizedPnL == nil || *writer.fills[0].RealizedPnL != 0 || writer.fills[1].RealizedPnL != nil {
+		t.Fatalf("known zero must remain distinct from missing PnL: %+v", writer.fills)
+	}
+}
+
 func TestPersistOwnedOrderFillsFailsClosed(t *testing.T) {
 	update := position.OrderUpdate{OrderID: 7, Symbol: "ETHUSDT", ExecutedQty: 2}
 	valid := &exchange.OrderFill{OrderID: 7, TradeID: "trade", Symbol: "ETHUSDT", Side: exchange.SideSell, Price: 10, Quantity: 1, TradeTime: 1_790_000_000_000}

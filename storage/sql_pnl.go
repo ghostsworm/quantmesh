@@ -227,19 +227,64 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(accountScope) == "" {
 		return 0, fmt.Errorf("withdrawal PnL requires exact exchange and account scope")
 	}
-	query := fmt.Sprintf(`
-		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0)
-		FROM %s
-		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures'
-		  AND created_at > ? AND created_at <= ?`, s.tradesTbl())
-	args := []interface{}{exchange, accountScope, startTime, endTime}
-	if symbol != "" {
-		query += " AND symbol = ?"
-		args = append(args, symbol)
+	if strings.TrimSpace(symbol) == "" || startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
+		return 0, fmt.Errorf("withdrawal PnL requires exact symbol and a non-empty time interval")
+	}
+	coverage, err := s.HasFundingIncomeCoverage(exchange, symbol, "futures", accountScope, startTime, endTime)
+	if err != nil {
+		return 0, fmt.Errorf("verify funding income coverage: %w", err)
+	}
+	if !coverage {
+		return 0, fmt.Errorf("funding income history does not fully cover withdrawal interval exchange=%s symbol=%s", exchange, symbol)
+	}
+	fillCoverage, err := s.GetOrderFillCoverage(exchange, "futures", symbol, accountScope)
+	if err != nil {
+		return 0, fmt.Errorf("verify execution history coverage: %w", err)
+	}
+	if fillCoverage == nil || fillCoverage.CoveredFrom.After(startTime.UTC()) || fillCoverage.CoveredThrough.Before(endTime.UTC()) {
+		return 0, fmt.Errorf("execution history does not fully cover withdrawal interval exchange=%s symbol=%s", exchange, symbol)
 	}
 	var total float64
-	if err := s.db.QueryRow(query, args...).Scan(&total); err != nil {
-		return 0, fmt.Errorf("query attributable withdrawal PnL exchange=%s account_scope=%s symbol=%s: %w", exchange, accountScope, symbol, err)
+	var unknownPnL, unvaluedFees int
+	if err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(realized_pnl), 0) - COALESCE(SUM(commission), 0),
+		       COALESCE(SUM(CASE WHEN realized_pnl IS NULL THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN COALESCE(commission, 0) <> 0 AND UPPER(COALESCE(commission_asset, '')) <> 'USDT' THEN 1 ELSE 0 END), 0)
+		FROM order_fills
+		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
+		  AND trade_time > ? AND trade_time <= ?`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&total, &unknownPnL, &unvaluedFees); err != nil {
+		return 0, fmt.Errorf("query exchange execution PnL exchange=%s account_scope=%s symbol=%s: %w", exchange, accountScope, symbol, err)
+	}
+	if unknownPnL > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d executions without authoritative realized PnL; refusing transfer", unknownPnL)
+	}
+	if unvaluedFees > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d non-USDT or unclassified execution fees; refusing transfer", unvaluedFees)
+	}
+	fundingRows, err := s.db.Query(`
+		SELECT UPPER(COALESCE(asset, '')), COALESCE(SUM(income), 0)
+		FROM funding_payments
+		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
+		  AND UPPER(income_type) = 'FUNDING_FEE' AND identity_key IS NOT NULL AND trade_time > ? AND trade_time <= ?
+		GROUP BY UPPER(COALESCE(asset, ''))
+	`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("query scoped withdrawal funding income exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	defer fundingRows.Close()
+	for fundingRows.Next() {
+		var asset string
+		var amount float64
+		if err := fundingRows.Scan(&asset, &amount); err != nil {
+			return 0, fmt.Errorf("scan scoped withdrawal funding income: %w", err)
+		}
+		if asset != "USDT" {
+			return 0, fmt.Errorf("withdrawal funding income denomination %q is not valued in USDT", asset)
+		}
+		total += amount
+	}
+	if err := fundingRows.Err(); err != nil {
+		return 0, fmt.Errorf("iterate scoped withdrawal funding income: %w", err)
 	}
 	if math.IsNaN(total) || math.IsInf(total, 0) {
 		return 0, fmt.Errorf("withdrawal PnL is non-finite exchange=%s account_scope=%s symbol=%s", exchange, accountScope, symbol)

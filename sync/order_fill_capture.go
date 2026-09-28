@@ -56,6 +56,10 @@ func PersistOwnedOrderFills(ctx context.Context, provider orderFillProvider, wri
 			CommissionQuote: fill.CommissionQuote, CommissionQuoteRate: fill.CommissionQuoteRate, CommissionQuoteKnown: fill.CommissionQuoteKnown,
 			TradeTime: time.UnixMilli(fill.TradeTime).UTC(),
 		}
+		if fill.RealizedPnLKnown {
+			pnl := fill.RealizedPnL
+			row.RealizedPnL = &pnl
+		}
 		if err := writer.SaveOrderFill(row); err != nil {
 			return fmt.Errorf("persist execution %s for order %d: %w", fill.TradeID, update.OrderID, err)
 		}

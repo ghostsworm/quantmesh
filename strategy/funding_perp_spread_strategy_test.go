@@ -245,7 +245,7 @@ func TestFundingPerpSpreadLeaseLossLatchesUnknownExposure(t *testing.T) {
 type emptyFundingSpreadExchange struct{ exchange.IExchange }
 
 func (emptyFundingSpreadExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {
-	return nil, nil
+	return []*exchange.Position{}, nil
 }
 
 func (emptyFundingSpreadExchange) GetName() string { return "test" }
@@ -262,6 +262,7 @@ type fundingSpreadTestExchange struct {
 	positions []*exchange.Position
 	orders    []*exchange.Order
 	placed    int
+	residual  float64
 }
 
 func (e *fundingSpreadTestExchange) GetName() string { return e.name }
@@ -271,6 +272,9 @@ func (e *fundingSpreadTestExchange) GetQuantityDecimals() int { return 3 }
 func (e *fundingSpreadTestExchange) GetPriceDecimals() int { return 2 }
 
 func (e *fundingSpreadTestExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {
+	if e.positions == nil {
+		return []*exchange.Position{}, nil
+	}
 	return e.positions, nil
 }
 
@@ -281,9 +285,62 @@ func (e *fundingSpreadTestExchange) GetOpenOrders(context.Context, string) ([]*e
 func (e *fundingSpreadTestExchange) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	e.placed++
 	if req.ReduceOnly {
-		e.positions = nil
+		if e.residual != 0 {
+			e.positions = []*exchange.Position{{Symbol: req.Symbol, Size: e.residual}}
+		} else {
+			e.positions = []*exchange.Position{}
+		}
 	}
 	return nil, nil
+}
+
+func TestFundingPerpSpreadShutdownClosesAndVerifiesBothLegs(t *testing.T) {
+	for _, failSecondary := range []bool{false, true} {
+		t.Run(fmt.Sprintf("secondary_residual_%t", failSecondary), func(t *testing.T) {
+			a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
+			b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}}
+			if failSecondary {
+				b.residual = 0.005
+			}
+			done := make(chan struct{})
+			close(done)
+			st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT",
+				cancel: func() {}, runDone: done, ownershipReady: true, ownedA: -0.01, ownedB: 0.01}
+			st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+			err := st.CloseForShutdown(context.Background())
+			if failSecondary {
+				if err == nil || st.stopped || a.placed != 1 || b.placed != 1 {
+					t.Fatalf("secondary residual was reported closed: err=%v stopped=%t placements=(%d,%d)", err, st.stopped, a.placed, b.placed)
+				}
+				if err := st.VerifyFlat(context.Background()); err == nil {
+					t.Fatal("VerifyFlat accepted residual exposure on leg B")
+				}
+				return
+			}
+			if err != nil || !st.stopped || a.placed != 1 || b.placed != 1 {
+				t.Fatalf("both-leg close not confirmed: err=%v stopped=%t placements=(%d,%d)", err, st.stopped, a.placed, b.placed)
+			}
+			if err := st.VerifyFlat(context.Background()); err != nil {
+				t.Fatalf("VerifyFlat() after close: %v", err)
+			}
+		})
+	}
+}
+
+func TestFundingPerpSpreadPrepareShutdownHonorsContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	st := &FundingPerpSpreadStrategy{cancel: cancel, runDone: done}
+	shutdownCtx, stop := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer stop()
+	if err := st.PrepareShutdown(shutdownCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("PrepareShutdown() error = %v, want deadline exceeded", err)
+	}
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatal("shutdown preparation did not cancel the strategy loop")
+	}
+	close(done)
 }
 
 func (emptyFundingSpreadExchange) PlaceOrder(context.Context, *exchange.OrderRequest) (*exchange.Order, error) {

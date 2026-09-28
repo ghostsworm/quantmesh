@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/exchange/accounting"
 	"quantmesh/storage"
 )
 
@@ -74,6 +76,25 @@ func TestCurrentPeriodStartAndNextSchedule(t *testing.T) {
 	}
 }
 
+func TestNextScheduledRetryWaitRetriesBeforeNextPeriod(t *testing.T) {
+	loc := time.FixedZone("UTC+8", 8*3600)
+	tests := []struct {
+		name string
+		now  time.Time
+		want time.Duration
+	}{
+		{name: "daily overdue gets recovery retry", now: time.Date(2026, 9, 17, 3, 0, 0, 0, loc), want: immediateInterval},
+		{name: "near target preserves target time", now: time.Date(2026, 9, 17, 1, 59, 0, 0, loc), want: time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := nextScheduledRetryWait(frequencyDaily, tt.now); got != tt.want {
+				t.Fatalf("retry wait=%s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestShouldExecuteAtDedupesByPeriod(t *testing.T) {
 	loc := time.FixedZone("UTC+8", 8*3600)
 	at := func(d, h, min int) *time.Time { v := time.Date(2026, 9, d, h, min, 0, 0, loc); return &v }
@@ -109,17 +130,36 @@ type pnlEvent struct {
 type fakeWithdrawStorage struct {
 	storage.Storage
 	rule          *storage.ProfitWithdrawRule
+	rules         []*storage.ProfitWithdrawRule
 	events        []pnlEvent
 	records       []*storage.ProfitWithdrawRecord
+	coverageFrom  time.Time
+	coverageUntil time.Time
 	failLastTrig  bool
 	transferCalls int
 	claimID       string
+}
+
+func (f *fakeWithdrawStorage) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
+	return f.coverageFrom, f.coverageUntil, nil
 }
 
 func (f *fakeWithdrawStorage) ListAccountIDsWithProfitRules() ([]string, error) {
 	return []string{f.rule.AccountID}, nil
 }
 func (f *fakeWithdrawStorage) ListProfitWithdrawRules(accountID string) ([]*storage.ProfitWithdrawRule, error) {
+	if f.rules != nil {
+		out := make([]*storage.ProfitWithdrawRule, 0, len(f.rules))
+		for _, rule := range f.rules {
+			if rule == nil {
+				out = append(out, nil)
+				continue
+			}
+			cp := *rule
+			out = append(out, &cp)
+		}
+		return out, nil
+	}
 	cp := *f.rule
 	return []*storage.ProfitWithdrawRule{&cp}, nil
 }
@@ -144,10 +184,11 @@ func (f *fakeWithdrawStorage) GetRealizedPnLForWithdrawal(_, _, _ string, start,
 func (f *fakeWithdrawStorage) GetWithdrawRecords(accountID string, limit int) ([]*storage.ProfitWithdrawRecord, error) {
 	return f.records, nil
 }
-func (f *fakeWithdrawStorage) SumReservedWithdrawAmount(accountID, ruleID string, since time.Time) (float64, error) {
+func (f *fakeWithdrawStorage) SumReservedWithdrawAmountForStream(accountID, accountScope, exchange, symbol string, since time.Time) (float64, error) {
 	var total float64
 	for _, r := range f.records {
-		if r != nil && r.AccountID == accountID && r.RuleID == ruleID && r.CreatedAt.After(since) && r.Status != "failed" && r.Status != "cancelled" {
+		if r != nil && r.AccountID == accountID && r.AccountScope == accountScope && strings.EqualFold(r.ExchangeID, exchange) &&
+			strings.EqualFold(r.StrategyID, symbol) && r.CreatedAt.After(since) && r.Status != "failed" && r.Status != "cancelled" {
 			total += r.Amount
 		}
 	}
@@ -191,9 +232,26 @@ func (f *fakeWithdrawStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID str
 
 type fakeTransferExchange struct {
 	exchange.IExchange
-	st      *fakeWithdrawStorage
-	amounts []float64
-	err     error
+	st            *fakeWithdrawStorage
+	amounts       []float64
+	err           error
+	account       *exchange.Account
+	accountErr    error
+	ledgerEntries []accounting.Entry
+	ledgerErr     error
+}
+
+func (f *fakeTransferExchange) GetAccountFresh(context.Context) (*exchange.Account, error) {
+	return f.account, f.accountErr
+}
+
+func (f *fakeTransferExchange) ReadAccountEvidence(_ context.Context, since time.Time) (accounting.Snapshot, error) {
+	if f.ledgerErr != nil {
+		return accounting.Snapshot{}, f.ledgerErr
+	}
+	now := time.Now().UTC()
+	return accounting.Snapshot{Currency: "USDT", ObservedAt: now,
+		Wallet: accounting.Wallet{Balance: "1000", From: since, Through: now, ObservedAt: now}, Entries: f.ledgerEntries}, nil
 }
 
 func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
@@ -204,14 +262,97 @@ func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, a
 	return "tx", nil
 }
 
+func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	for _, kind := range []string{"insurance_clear", "unallocated_fee", "interest"} {
+		t.Run(kind, func(t *testing.T) {
+			st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+				ID: "cashflow-rule", AccountID: "cashflow-account", AccountScope: "scope-a", ExchangeID: "binance",
+				Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+			}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+				events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}}}
+			ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000},
+				ledgerEntries: []accounting.Entry{{ID: "unallocated-1", Kind: kind, Currency: "USDT", Amount: "-1", At: base.Add(time.Minute)}}}
+			e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+			e.now = func() time.Time { return base.Add(2 * time.Minute) }
+			if err := e.processRule(st.rule); err == nil {
+				t.Fatal("unallocated account expense must disable automatic withdrawal")
+			}
+			if len(ex.amounts) != 0 || len(st.records) != 0 {
+				t.Fatalf("unallocated account expense must be rejected before transfer: amounts=%v records=%+v", ex.amounts, st.records)
+			}
+		})
+	}
+}
+
+func TestAutomaticWithdrawRequiresFreshSufficientUSDTBalance(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		name       string
+		account    *exchange.Account
+		accountErr error
+		wantErr    bool
+	}{
+		{name: "sufficient USDT", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 100, MaxWithdrawAmount: 100}},
+		{name: "insufficient free margin", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 49, MaxWithdrawAmount: 49}, wantErr: true},
+		{name: "exchange transfer cap", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 100, MaxWithdrawAmount: 5}, wantErr: true},
+		{name: "unverified denomination", account: &exchange.Account{BalanceAsset: "BTC", AvailableBalance: 100, MaxWithdrawAmount: 100}, wantErr: true},
+		{name: "missing account", account: nil, wantErr: true},
+		{name: "account query error", accountErr: errors.New("offline"), wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+				ID: "balance-rule", AccountID: "balance-account", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+				TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+			}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
+			st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
+			ex := &fakeTransferExchange{st: st, account: test.account, accountErr: test.accountErr}
+			e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+			e.now = func() time.Time { return base.Add(2 * time.Minute) }
+			err := e.processRule(st.rule)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("processRule err=%v, wantErr=%v", err, test.wantErr)
+			}
+			if test.wantErr && (len(ex.amounts) != 0 || len(st.records) != 0) {
+				t.Fatalf("unsafe balance must be rejected before reserving or transferring: amounts=%v records=%+v", ex.amounts, st.records)
+			}
+			if !test.wantErr && (len(ex.amounts) != 1 || ex.amounts[0] != 50) {
+				t.Fatalf("sufficient balance should permit the calculated transfer, got %v", ex.amounts)
+			}
+		})
+	}
+}
+
+func TestAutomaticWithdrawFailsClosedForOverlappingEnabledRules(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	newRule := func(id, frequency string) *storage.ProfitWithdrawRule {
+		return &storage.ProfitWithdrawRule{ID: id, AccountID: "duplicate-account", AccountScope: "scope-a", ExchangeID: "binance",
+			StrategyID: "BTCUSDT", Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5,
+			Frequency: frequency, CreatedAt: base.Add(-time.Hour)}
+	}
+	st := &fakeWithdrawStorage{
+		rule:         newRule("immediate-rule", frequencyImmediate),
+		rules:        []*storage.ProfitWithdrawRule{newRule("immediate-rule", frequencyImmediate), newRule("daily-rule", frequencyDaily)},
+		coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+		events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}},
+	}
+	ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+	e.processRules(frequencyImmediate)
+	if len(ex.amounts) != 0 || len(st.records) != 0 {
+		t.Fatalf("overlapping rules must not transfer the same accounting stream twice: amounts=%v records=%+v", ex.amounts, st.records)
+	}
+}
+
 func TestAutomaticWithdrawAmbiguousTransferErrorIsNeverRetried(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
 		ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
-		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate,
-	}}
+		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
-	ex := &fakeTransferExchange{st: st, err: errors.New("request timeout")}
+	ex := &fakeTransferExchange{st: st, err: errors.New("request timeout"), account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
 	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
 	e.now = func() time.Time { return base.Add(2 * time.Minute) }
 
@@ -236,11 +377,11 @@ func TestConcurrentAutomaticWithdrawForSameRuleTransfersOnlyOnce(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
 		ID: "concurrent-rule", AccountID: "concurrent-account", AccountScope: "scope-a",
-		ExchangeID: "binance", Enabled: true, TriggerAmount: 1,
+		ExchangeID: "binance", Enabled: true, TriggerAmount: 1, CreatedAt: base.Add(-time.Hour),
 		WithdrawRatio: 1, Frequency: frequencyImmediate,
-	}}
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
 	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
-	ex := &fakeTransferExchange{st: st}
+	ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
 	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
 	e.now = func() time.Time { return base.Add(2 * time.Minute) }
 
@@ -260,6 +401,34 @@ func TestConcurrentAutomaticWithdrawForSameRuleTransfersOnlyOnce(t *testing.T) {
 	}
 	if st.claimID != "" {
 		t.Fatalf("confirmed successful transfer should release claim, got %q", st.claimID)
+	}
+}
+
+func TestAutomaticWithdrawStopsAtLastCompleteFundingCoverage(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	coverageEnd := base.Add(2 * time.Minute)
+	st := &fakeWithdrawStorage{
+		rule: &storage.ProfitWithdrawRule{
+			ID: "coverage-rule", AccountID: "coverage-account", AccountScope: "scope-a", ExchangeID: "binance",
+			Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+		},
+		coverageFrom: base.Add(-24 * time.Hour), coverageUntil: coverageEnd,
+		events: []pnlEvent{
+			{at: base.Add(time.Minute), pnl: 100},
+			{at: base.Add(3 * time.Minute), pnl: 1000}, // Not yet covered by the funding-history snapshot.
+		},
+	}
+	ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(10 * time.Minute) }
+	if err := e.processRule(st.rule); err != nil {
+		t.Fatal(err)
+	}
+	if len(ex.amounts) != 1 || ex.amounts[0] != 50 {
+		t.Fatalf("transfer amounts=%v, want only 50 from covered window", ex.amounts)
+	}
+	if len(st.records) != 1 || !st.records[0].CreatedAt.Equal(coverageEnd) {
+		t.Fatalf("withdrawal record must use verified coverage cutoff %s: %+v", coverageEnd, st.records)
 	}
 }
 
@@ -294,11 +463,12 @@ func TestImmediateWithdrawNoRepeatedTransfer(t *testing.T) {
 			st := &fakeWithdrawStorage{
 				rule: &storage.ProfitWithdrawRule{
 					ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
-					TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate",
+					TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate", CreatedAt: base.Add(-time.Hour),
 				},
+				coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
 				failLastTrig: tt.failLastTrig,
 			}
-			ex := &fakeTransferExchange{st: st}
+			ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
 			e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
 			clock := base
 			e.now = func() time.Time { return clock }

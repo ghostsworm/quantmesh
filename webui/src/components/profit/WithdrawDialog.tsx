@@ -32,6 +32,7 @@ import type { ManualWithdrawRequest, WithdrawDestination, StrategyProfit } from 
 interface WithdrawDialogProps {
   isOpen: boolean
   onClose: () => void
+  exchangeId: string
   strategyProfits: StrategyProfit[]
   availableToWithdraw: number
   onWithdrawComplete?: () => void
@@ -40,6 +41,7 @@ interface WithdrawDialogProps {
 const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
   isOpen,
   onClose,
+  exchangeId,
   strategyProfits,
   availableToWithdraw,
   onWithdrawComplete,
@@ -51,7 +53,6 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
   const [strategyId, setStrategyId] = useState<string>('')
   const [amount, setAmount] = useState<string>('')
   const [destination, setDestination] = useState<WithdrawDestination>('account')
-  const [walletAddress, setWalletAddress] = useState<string>('')
   const [loading, setLoading] = useState(false)
   const [estimating, setEstimating] = useState(false)
   const [estimate, setEstimate] = useState<{
@@ -63,7 +64,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
   const selectedStrategy = strategyProfits.find((s) => s.strategyId === strategyId)
   const maxAmount = strategyId
     ? selectedStrategy?.availableToWithdraw || 0
-    : availableToWithdraw
+    : 0
 
   useEffect(() => {
     setEstimate(null)
@@ -71,18 +72,9 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
 
   const handleEstimate = async () => {
     const numAmount = parseFloat(amount) || 0
-    if (numAmount <= 0 || numAmount > maxAmount) {
+    if (!exchangeId || !strategyId || numAmount <= 0 || numAmount > maxAmount) {
       toast({
         title: t('profitManagement.invalidAmount'),
-        status: 'error',
-        duration: 3000,
-      })
-      return
-    }
-
-    if (destination === 'wallet' && !walletAddress) {
-      toast({
-        title: t('profitManagement.walletAddressRequired'),
         status: 'error',
         duration: 3000,
       })
@@ -92,10 +84,11 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
     setEstimating(true)
     try {
       const request: ManualWithdrawRequest = {
-        strategyId: strategyId || undefined,
+        exchangeId,
+        strategyId,
         amount: numAmount,
         destination,
-        walletAddress: destination === 'wallet' ? walletAddress : undefined,
+        currency: 'USDT',
       }
       const result = await estimateWithdrawFee(request)
       setEstimate(result)
@@ -113,7 +106,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
 
   const handleWithdraw = async () => {
     const numAmount = parseFloat(amount) || 0
-    if (numAmount <= 0 || numAmount > maxAmount) {
+    if (!exchangeId || !strategyId || numAmount <= 0 || numAmount > maxAmount) {
       toast({
         title: t('profitManagement.invalidAmount'),
         status: 'error',
@@ -125,10 +118,11 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
     setLoading(true)
     try {
       const request: ManualWithdrawRequest = {
-        strategyId: strategyId || undefined,
+        exchangeId,
+        strategyId,
         amount: numAmount,
         destination,
-        walletAddress: destination === 'wallet' ? walletAddress : undefined,
+        currency: 'USDT',
       }
       const result = await withdrawProfit(request)
       if (result.success) {
@@ -221,25 +215,14 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
 
             <FormControl>
               <FormLabel>{t('profitManagement.destination')}</FormLabel>
-              <Select
-                value={destination}
-                onChange={(e) => setDestination(e.target.value as WithdrawDestination)}
-              >
-                <option value="account">{t('profitManagement.toAccount')}</option>
-                <option value="wallet">{t('profitManagement.toWallet')}</option>
-              </Select>
+      <Select
+        value={destination}
+        onChange={(e) => setDestination(e.target.value as WithdrawDestination)}
+      >
+        <option value="account">{t('profitManagement.toAccount')}</option>
+        <option value="wallet" disabled>{t('profitManagement.toWallet')}</option>
+      </Select>
             </FormControl>
-
-            {destination === 'wallet' && (
-              <FormControl>
-                <FormLabel>{t('profitManagement.walletAddress')}</FormLabel>
-                <Input
-                  value={walletAddress}
-                  onChange={(e) => setWalletAddress(e.target.value)}
-                  placeholder="0x..."
-                />
-              </FormControl>
-            )}
 
             {estimate && (
               <>
@@ -287,7 +270,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
               colorScheme="blue"
               onClick={handleEstimate}
               isLoading={estimating}
-              isDisabled={!amount || parseFloat(amount) <= 0}
+              isDisabled={!exchangeId || !strategyId || !amount || parseFloat(amount) <= 0}
             >
               {t('profitManagement.estimateFee')}
             </Button>
@@ -295,7 +278,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
               colorScheme="blue"
               onClick={handleWithdraw}
               isLoading={loading}
-              isDisabled={!estimate || loading}
+              isDisabled={!exchangeId || !strategyId || !estimate || loading}
             >
               {t('profitManagement.confirmWithdraw')}
             </Button>

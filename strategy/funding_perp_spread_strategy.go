@@ -262,6 +262,94 @@ func (s *FundingPerpSpreadStrategy) Stop() error {
 	return s.stopErr
 }
 
+// PrepareShutdown stops new strategy decisions and waits for any in-flight
+// two-leg operation to finish. It deliberately leaves positions unchanged.
+func (s *FundingPerpSpreadStrategy) PrepareShutdown(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("funding_perp_spread shutdown requires a context")
+	}
+	s.stopMu.Lock()
+	defer s.stopMu.Unlock()
+	return s.prepareShutdownLocked(ctx)
+}
+
+// CloseForShutdown closes and verifies both exchange legs after the run loop
+// has stopped. A successful primary-leg result is never treated as success for
+// the secondary leg.
+func (s *FundingPerpSpreadStrategy) CloseForShutdown(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("funding_perp_spread close requires a context")
+	}
+	s.stopMu.Lock()
+	defer s.stopMu.Unlock()
+	s.mu.RLock()
+	stopped := s.stopped
+	s.mu.RUnlock()
+	if stopped {
+		return nil
+	}
+	if err := s.prepareShutdownLocked(ctx); err != nil {
+		return err
+	}
+	if err := s.closeAll(ctx, "process_shutdown"); err != nil {
+		s.mu.Lock()
+		s.stopErr = err
+		s.mu.Unlock()
+		return err
+	}
+	if err := s.VerifyFlat(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.stopped = true
+	s.stopErr = nil
+	s.mu.Unlock()
+	return nil
+}
+
+// VerifyFlat proves both legs are flat under the same coordination locks used
+// for strategy actions, preventing a concurrent strategy operation from
+// invalidating the final shutdown snapshot.
+func (s *FundingPerpSpreadStrategy) VerifyFlat(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("funding_perp_spread flatness verification requires a context")
+	}
+	return s.withLegCoordination(ctx, func(coordCtx context.Context) error {
+		for _, leg := range []struct {
+			ex     exchange.IExchange
+			symbol string
+		}{{s.legA, s.symA}, {s.legB, s.symB}} {
+			actual, err := s.readLegSnapshot(coordCtx, leg.ex, leg.symbol)
+			if err != nil {
+				return fmt.Errorf("verify shutdown leg %s: %w", leg.symbol, err)
+			}
+			if math.Abs(actual) > s.legTolerance(leg.ex) {
+				return fmt.Errorf("shutdown leg %s remains exposed: %.8f", leg.symbol, actual)
+			}
+		}
+		return nil
+	})
+}
+
+func (s *FundingPerpSpreadStrategy) prepareShutdownLocked(ctx context.Context) error {
+	s.mu.RLock()
+	cancel, runDone := s.cancel, s.runDone
+	s.mu.RUnlock()
+	if cancel == nil {
+		return nil
+	}
+	cancel()
+	if runDone == nil {
+		return errors.New("funding_perp_spread run-loop completion is unavailable")
+	}
+	select {
+	case <-runDone:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("funding_perp_spread run loop did not stop; positions left unchanged: %w", ctx.Err())
+	}
+}
+
 func (s *FundingPerpSpreadStrategy) OnPriceChange(float64) error               { return nil }
 func (s *FundingPerpSpreadStrategy) OnOrderUpdate(*position.OrderUpdate) error { return nil }
 func (s *FundingPerpSpreadStrategy) GetPositions() []*Position                 { return nil }
@@ -380,6 +468,9 @@ func netFutSize(ctx context.Context, ex exchange.IExchange, sym string) (float64
 	pos, err := ex.GetPositions(ctx, sym)
 	if err != nil {
 		return 0, err
+	}
+	if pos == nil {
+		return 0, fmt.Errorf("position snapshot for %s is nil; exposure is unverified", sym)
 	}
 	var sum float64
 	var positive, negative bool

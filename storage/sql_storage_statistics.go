@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -271,6 +272,28 @@ func (s *SQLStorage) GetExchangePnLTotal(exchange, symbol, botID string) (float6
 	var total float64
 	err := s.db.QueryRow(query, args...).Scan(&total)
 	return total, err
+}
+
+// GetExchangePnLByAccountScope returns realized PnL only for orders written
+// under the exact exchange-credential scope. Legacy rows without scope are
+// intentionally excluded from account-facing financial summaries.
+func (s *SQLStorage) GetExchangePnLByAccountScope(exchange, accountScope string) (float64, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(accountScope) == "" {
+		return 0, fmt.Errorf("exchange PnL requires an exact exchange and account scope")
+	}
+	var total float64
+	err := s.db.QueryRow(`
+		SELECT COALESCE(SUM(realized_pnl), 0)
+		FROM orders
+		WHERE status = 'FILLED' AND realized_pnl IS NOT NULL
+		  AND exchange = ? AND account_scope = ?`, exchange, accountScope).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("query exchange PnL for exact account scope: %w", err)
+	}
+	if math.IsNaN(total) || math.IsInf(total, 0) {
+		return 0, fmt.Errorf("exchange PnL is not finite for exchange=%s", exchange)
+	}
+	return total, nil
 }
 
 // GetTodayStatisticsByExchangeAndSymbol 獲取指定交易所、交易對的當日統計

@@ -1240,7 +1240,18 @@ func (br *BotRuntime) CancelAllOpenOrders() error {
 	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
 		return fmt.Errorf("bot not initialized")
 	}
-	br.Inner.SuperPositionManager.CancelAllOpenOrders()
+	if br.Inner.ExchangeExecutor == nil {
+		return fmt.Errorf("Bot-owned order executor is unavailable; refusing unverified cancellation")
+	}
+	const emergencyCancelBlock = "bot_emergency_cancel"
+	gate := br.Inner.SuperPositionManager.OpeningGate()
+	gate.Block(emergencyCancelBlock)
+	defer gate.Unblock(emergencyCancelBlock)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	if err := br.Inner.ExchangeExecutor.CancelOwnedOpeningOrders(ctx); err != nil {
+		return fmt.Errorf("Bot %s opening-order cancellation is not verified: %w", br.BotID, err)
+	}
 	return nil
 }
 

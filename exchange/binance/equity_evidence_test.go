@@ -34,7 +34,7 @@ func equityTestAccount(at time.Time) equityAccountWire {
 	mode := false
 	updated := at.Add(-time.Minute).UnixMilli()
 	return equityAccountWire{MultiAsset: &mode, Wallet: "1000", Unrealized: "-20", Margin: "980",
-		Assets: []equityAssetWire{{Asset: "USDT", Wallet: "1000", Unrealized: "-20", Margin: "980", InitialMargin: "50", UpdatedAt: &updated}}}
+		Assets: []equityAssetWire{{Asset: "USDT", Wallet: "1000", Available: "930", MaxWithdraw: "900", Unrealized: "-20", Margin: "980", InitialMargin: "50", UpdatedAt: &updated}}}
 }
 
 func equityTestIncome(at time.Time, id int64) *equityIncomeWire {
@@ -253,7 +253,7 @@ func TestEquityAccountEvidenceRejectsUnstableCapture(t *testing.T) {
 }
 
 func TestEquityAccountEvidenceRejectsUnsupportedValuation(t *testing.T) {
-	for _, name := range []string{"multi_asset", "missing_mode", "bad_decimal", "wrong_arithmetic", "wrong_totals", "missing_usdt", "duplicate_asset", "missing_cursor", "foreign_balance", "foreign_initial_margin", "invalid_initial_margin"} {
+	for _, name := range []string{"multi_asset", "missing_mode", "bad_decimal", "wrong_arithmetic", "wrong_totals", "missing_usdt", "duplicate_asset", "missing_cursor", "foreign_balance", "foreign_initial_margin", "invalid_initial_margin", "invalid_available", "invalid_max_withdraw", "max_withdraw_above_available"} {
 		t.Run(name, func(t *testing.T) {
 			account := equityTestAccount(time.Now())
 			switch name {
@@ -280,9 +280,72 @@ func TestEquityAccountEvidenceRejectsUnsupportedValuation(t *testing.T) {
 				account.Assets = append(account.Assets, equityAssetWire{Asset: "USDC", Wallet: "0", Margin: "0", Unrealized: "0", InitialMargin: "1"})
 			case "invalid_initial_margin":
 				account.Assets[0].InitialMargin = "-1"
+			case "invalid_available":
+				account.Assets[0].Available = "2000"
+			case "invalid_max_withdraw":
+				account.Assets[0].MaxWithdraw = "NaN"
+			case "max_withdraw_above_available":
+				account.Assets[0].MaxWithdraw = "931"
 			}
 			if _, err := account.sample(); err == nil {
 				t.Fatal("unsupported valuation accepted")
+			}
+		})
+	}
+}
+
+func TestIncomeEvidenceKeepsUnallocatedChargesDistinct(t *testing.T) {
+	for _, test := range []struct {
+		typ, want string
+	}{
+		{typ: "REALIZED_PNL", want: "realized_pnl"},
+		{typ: "INSURANCE_CLEAR", want: "insurance_clear"},
+		{typ: "COMMISSION", want: "fee"},
+		{typ: "POSITION_LIMIT_INCREASE_FEE", want: "unallocated_fee"},
+	} {
+		t.Run(test.typ, func(t *testing.T) {
+			entry, err := incomeEvidence(&equityIncomeWire{Type: test.typ, Amount: "-1", Asset: "USDT", Time: 1, TransactionID: 1})
+			if err != nil || entry.Kind != test.want {
+				t.Fatalf("entry=%+v err=%v, want kind %q", entry, err, test.want)
+			}
+		})
+	}
+}
+
+func TestIncomeEvidenceRejectsNegativeRebateClawback(t *testing.T) {
+	_, err := incomeEvidence(&equityIncomeWire{Type: "COMMISSION_REBATE", Amount: "-1", Asset: "USDT", Time: 1, TransactionID: 1})
+	if err == nil {
+		t.Fatal("negative rebate cannot be silently treated as zero-impact income")
+	}
+}
+
+func TestGetAccountFreshReturnsOnlySingleUSDTAvailableBalance(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	for _, multiAsset := range []bool{false, true} {
+		t.Run(fmt.Sprintf("multi_asset_%v", multiAsset), func(t *testing.T) {
+			var accountCalls atomic.Int32
+			a := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/fapi/v1/time":
+					_ = json.NewEncoder(w).Encode(map[string]int64{"serverTime": now.UnixMilli()})
+				case "/fapi/v2/account":
+					accountCalls.Add(1)
+					account := equityTestAccount(now)
+					*account.MultiAsset = multiAsset
+					_ = json.NewEncoder(w).Encode(account)
+				default:
+					t.Errorf("unexpected endpoint %s", r.URL.Path)
+				}
+			})
+			got, err := a.GetAccountFresh(context.Background())
+			if multiAsset {
+				if err == nil || got != nil {
+					t.Fatal("multi-asset available balance must not be treated as USDT")
+				}
+				return
+			}
+			if err != nil || got == nil || got.BalanceAsset != "USDT" || got.AvailableBalance != 930 || got.MaxWithdrawAmount != 900 || accountCalls.Load() != 1 {
+				t.Fatalf("fresh USDT available balance=%+v calls=%d err=%v", got, accountCalls.Load(), err)
 			}
 		})
 	}

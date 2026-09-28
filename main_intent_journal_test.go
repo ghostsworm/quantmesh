@@ -30,6 +30,9 @@ type runtimeJournalVenue struct {
 func (*runtimeJournalVenue) GetName() string       { return "fake" }
 func (*runtimeJournalVenue) GetMarketType() string { return "futures" }
 func (v *runtimeJournalVenue) GetPositions(context.Context, string) ([]*exchange.Position, error) {
+	if v.positions == nil && v.positionErr == nil {
+		return []*exchange.Position{}, nil
+	}
 	return v.positions, v.positionErr
 }
 func (v *runtimeJournalVenue) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {

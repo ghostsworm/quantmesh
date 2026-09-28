@@ -135,6 +135,12 @@ func closeProcessRuntimeGroup(ctx context.Context, runtimes []*SymbolRuntime) er
 			if err := rt.CloseForShutdown(ctx); err != nil {
 				return errors.Join(errShutdownCloseUnverified, fmt.Errorf("close specialized Bot-owned positions: %w", err))
 			}
+			if rt.VerifyShutdownClose != nil {
+				if err := rt.VerifyShutdownClose(ctx); err != nil {
+					return errors.Join(errShutdownCloseUnverified, fmt.Errorf("verify specialized Bot-owned positions: %w", err))
+				}
+				return nil
+			}
 			remaining, err := queryShutdownPositions(ctx, rt.Exchange, rt.Config.Symbol)
 			if err != nil {
 				return errors.Join(errShutdownCloseUnverified, fmt.Errorf("verify specialized futures position: %w", err))

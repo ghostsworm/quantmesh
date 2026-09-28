@@ -46,14 +46,21 @@ func incomeEvidence(row *equityIncomeWire) (accounting.Entry, error) {
 		}
 	case "FUNDING_FEE":
 		kind = "funding"
-	case "REALIZED_PNL", "INSURANCE_CLEAR":
+	case "REALIZED_PNL":
 		kind = "realized_pnl"
-	case "COMMISSION", "POSITION_LIMIT_INCREASE_FEE":
+	case "INSURANCE_CLEAR":
+		kind = "insurance_clear"
+	case "COMMISSION":
 		kind = "fee"
 		if r.Sign() > 0 {
 			return accounting.Entry{}, fmt.Errorf("positive commission requires explicit rebate classification")
 		}
+	case "POSITION_LIMIT_INCREASE_FEE":
+		kind = "unallocated_fee"
 	case "WELCOME_BONUS", "REFERRAL_KICKBACK", "COMMISSION_REBATE", "API_REBATE", "CONTEST_REWARD", "FEE_RETURN", "BFUSD_REWARD":
+		if r.Sign() < 0 {
+			return accounting.Entry{}, fmt.Errorf("negative rebate requires explicit clawback classification")
+		}
 		kind = "rebate"
 	default:
 		return accounting.Entry{}, fmt.Errorf("unclassified Binance income type")

@@ -51,6 +51,9 @@ func queryShutdownPositions(ctx context.Context, ex exchange.IExchange, symbol s
 	if err != nil {
 		return nil, fmt.Errorf("query shutdown positions: %w", err)
 	}
+	if positions == nil {
+		return nil, fmt.Errorf("query shutdown positions: exchange returned a nil snapshot; flatness is unverified")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

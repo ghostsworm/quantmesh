@@ -94,11 +94,8 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   execution_key VARCHAR(64) NULL,
   buy_order_id BIGINT,
   sell_order_id BIGINT,
-  bot_id VARCHAR(128) DEFAULT '',
-  exchange VARCHAR(64) DEFAULT 'binance',
-  market_type VARCHAR(32) NOT NULL DEFAULT '',
-  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   bot_id VARCHAR(128) NOT NULL DEFAULT '',
+  exchange VARCHAR(64) DEFAULT 'binance',
   account VARCHAR(255) DEFAULT '',
   market_type VARCHAR(32) NOT NULL DEFAULT '',
   account_scope VARCHAR(512) NOT NULL DEFAULT '',
@@ -180,8 +177,14 @@ func migratePairedTradesBotIDMySQL(db *sql.DB) error {
 		}
 		logger.Info("✅ MySQL %s 已添加 bot_id 列", pairedTradesTableMySQL)
 	}
-	_, _ = db.Exec(`CREATE INDEX idx_qm_pt_bot_ex_sym ON ` + pairedTradesTableMySQL + ` (bot_id(64), exchange(32), symbol(32))`)
-	backfillTradesBotIDFromOrders(db, pairedTradesTableMySQL)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = 'idx_qm_pt_bot_ex_sym'`, pairedTradesTableMySQL).Scan(&n); err != nil {
+		return fmt.Errorf("检查 %s.bot_id 索引: %w", pairedTradesTableMySQL, err)
+	}
+	if n == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_qm_pt_bot_ex_sym ON ` + pairedTradesTableMySQL + ` (bot_id(64), exchange(32), symbol(32))`); err != nil {
+			return fmt.Errorf("创建 %s.bot_id 索引: %w", pairedTradesTableMySQL, err)
+		}
+	}
 	return nil
 }
 
@@ -663,7 +666,10 @@ CREATE TABLE IF NOT EXISTS reconciliation_history (
 		return fmt.Errorf("inspect reconciliation history scope index: %w", err)
 	}
 	if indexCount == 0 {
-		if _, err := db.Exec(`CREATE INDEX idx_reconciliation_history_scope ON reconciliation_history(exchange, market_type, symbol, account_scope, bot_id, reconcile_time)`); err != nil {
+		// account_scope is VARCHAR(512) under utf8mb4. Index a bounded prefix so
+		// the composite key remains below InnoDB's 3072-byte limit; the equality
+		// predicate still checks the full value after using the prefix range.
+		if _, err := db.Exec(`CREATE INDEX idx_reconciliation_history_scope ON reconciliation_history(exchange, market_type, symbol, account_scope(256), bot_id, reconcile_time)`); err != nil {
 			return fmt.Errorf("create reconciliation history scope index: %w", err)
 		}
 	}
@@ -789,6 +795,12 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 	if err != nil {
 		return err
 	}
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS profit_withdraw_account_locks (
+  account_id VARCHAR(255) NOT NULL PRIMARY KEY,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`); err != nil {
+		return err
+	}
 	var accountScopeColumns int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'profit_withdraw_rules' AND column_name = 'account_scope'`).Scan(&accountScopeColumns); err != nil {
 		return err
@@ -884,6 +896,7 @@ CREATE TABLE IF NOT EXISTS funding_payments (
   transaction_id BIGINT,
   trade_time TIMESTAMP(3) NOT NULL,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  identity_key CHAR(64) NULL,
   KEY idx_funding_payments_exchange_symbol (exchange, symbol),
   KEY idx_funding_payments_trade_time (trade_time),
   KEY idx_funding_payments_account (account),
@@ -899,6 +912,9 @@ CREATE TABLE IF NOT EXISTS funding_payments (
 	if err := ensureMySQLColumn(db, "funding_payments", "account_scope", `ALTER TABLE funding_payments ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
 		return err
 	}
+	if err := ensureMySQLColumn(db, "funding_payments", "identity_key", `ALTER TABLE funding_payments ADD COLUMN identity_key CHAR(64) NULL`); err != nil {
+		return err
+	}
 	var indexCount int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'funding_payments' AND INDEX_NAME = 'idx_funding_payments_scope_market_symbol_time'`).Scan(&indexCount); err != nil {
 		return err
@@ -907,6 +923,27 @@ CREATE TABLE IF NOT EXISTS funding_payments (
 		if _, err := db.Exec(`CREATE INDEX idx_funding_payments_scope_market_symbol_time ON funding_payments(account_scope, exchange, market_type, symbol, trade_time)`); err != nil {
 			return err
 		}
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'funding_payments' AND INDEX_NAME = 'uk_funding_payments_identity'`).Scan(&indexCount); err != nil {
+		return err
+	}
+	if indexCount == 0 {
+		if _, err := db.Exec(`CREATE UNIQUE INDEX uk_funding_payments_identity ON funding_payments(identity_key)`); err != nil {
+			return fmt.Errorf("create funding payment idempotency index: %w", err)
+		}
+	}
+	if _, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS funding_income_sync_state (
+  scope_key CHAR(64) NOT NULL PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  symbol VARCHAR(64) NOT NULL,
+  market_type VARCHAR(32) NOT NULL,
+  account_scope VARCHAR(512) NOT NULL,
+  covered_from TIMESTAMP(3) NOT NULL,
+  covered_through TIMESTAMP(3) NOT NULL,
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`); err != nil {
+		return fmt.Errorf("create funding income sync state table: %w", err)
 	}
 	logger.Info("✅ MySQL funding_payments 表已就緒")
 	return nil

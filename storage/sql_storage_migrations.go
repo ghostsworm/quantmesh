@@ -43,7 +43,8 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 			info TEXT,
 			transaction_id BIGINT,
 			trade_time TIMESTAMP NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			identity_key TEXT
 		);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_exchange_symbol ON funding_payments(exchange, symbol);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_trade_time ON funding_payments(trade_time);
@@ -55,6 +56,7 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 	for _, column := range []struct{ name, ddl string }{
 		{"market_type", `ALTER TABLE funding_payments ADD COLUMN market_type TEXT NOT NULL DEFAULT ''`},
 		{"account_scope", `ALTER TABLE funding_payments ADD COLUMN account_scope TEXT NOT NULL DEFAULT ''`},
+		{"identity_key", `ALTER TABLE funding_payments ADD COLUMN identity_key TEXT`},
 	} {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('funding_payments') WHERE name = ?`, column.name).Scan(&count); err != nil {
@@ -68,6 +70,22 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 	}
 	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_funding_payments_scope_market_symbol_time ON funding_payments(account_scope, exchange, market_type, symbol, trade_time)`); err != nil {
 		return fmt.Errorf("创建 funding_payments 作用域索引失败: %w", err)
+	}
+	if _, err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uk_funding_payments_identity ON funding_payments(identity_key) WHERE identity_key IS NOT NULL`); err != nil {
+		return fmt.Errorf("创建 funding_payments 幂等索引失败: %w", err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS funding_income_sync_state (
+			scope_key TEXT PRIMARY KEY,
+			exchange TEXT NOT NULL,
+			symbol TEXT NOT NULL,
+			market_type TEXT NOT NULL,
+			account_scope TEXT NOT NULL,
+			covered_from TIMESTAMP NOT NULL,
+			covered_through TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`); err != nil {
+		return fmt.Errorf("创建 funding_income_sync_state 表失败: %w", err)
 	}
 	return nil
 }

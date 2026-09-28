@@ -102,6 +102,14 @@ func TestShutdownRejectsInvalidPositionEvidence(t *testing.T) {
 	if _, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err == nil {
 		t.Fatal("nil position accepted")
 	}
+	f.queryPositions = func(int) ([]*exchange.Position, error) { return nil, nil }
+	if positions, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err == nil || positions != nil {
+		t.Fatalf("nil snapshot accepted as verified flatness: positions=%v err=%v", positions, err)
+	}
+	f.queryPositions = func(int) ([]*exchange.Position, error) { return []*exchange.Position{}, nil }
+	if positions, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err != nil || len(positions) != 0 {
+		t.Fatalf("explicit empty snapshot should prove flatness: positions=%v err=%v", positions, err)
+	}
 }
 
 func TestShutdownRetainsGrossLegsAndDust(t *testing.T) {

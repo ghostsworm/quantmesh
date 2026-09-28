@@ -57,6 +57,7 @@ type SymbolRuntime struct {
 	OpeningGate         *execution.OpeningGate
 	PrepareShutdown     func(context.Context, bool) error
 	CloseForShutdown    func(context.Context) error
+	VerifyShutdownClose func(context.Context) error
 	CloseForManual      func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
 	UpdateOpenControl   func(config.OpenPositionControl) error
 	GetOpenControl      func() config.OpenPositionControl

@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,13 +19,13 @@ func TestDailyFundingPaymentsRequireExactAccountMarketAndSymbolScope(t *testing.
 
 	day := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 	payments := []FundingPayment{
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", Asset: "USDT", Income: -2, TradeTime: day},
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", Asset: "USDT", Income: 0.5, TradeTime: day},
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "spot", AccountScope: "scope-a", Asset: "USDT", Income: 100, TradeTime: day},
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-b", Asset: "USDT", Income: 200, TradeTime: day},
-		{Exchange: "binance", Symbol: "ETHUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", Asset: "USDT", Income: 300, TradeTime: day},
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", Asset: "USDT", Income: 400, TradeTime: day},
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", Asset: "BTC", Income: 0.01, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 1, Asset: "USDT", Income: -2, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 2, Asset: "USDT", Income: 0.5, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "spot", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 3, Asset: "USDT", Income: 100, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-b", IncomeType: "FUNDING_FEE", TransactionID: 4, Asset: "USDT", Income: 200, TradeTime: day},
+		{Exchange: "binance", Symbol: "ETHUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 5, Asset: "USDT", Income: 300, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "spot", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 6, Asset: "USDT", Income: 400, TradeTime: day},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 7, Asset: "BTC", Income: 0.01, TradeTime: day},
 	}
 	for i := range payments {
 		if err := st.SaveFundingPayment(&payments[i]); err != nil {
@@ -41,6 +42,68 @@ func TestDailyFundingPaymentsRequireExactAccountMarketAndSymbolScope(t *testing.
 	}
 	if _, err := st.GetDailyFundingPaymentsByScope("acct", "binance", "futures", "BTCUSDT", "", day, day.Add(24*time.Hour)); err == nil {
 		t.Fatal("missing account scope must not execute an unscoped funding query")
+	}
+}
+
+func TestSaveFundingPaymentIsIdempotentAndRejectsIdentityConflicts(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-idempotency.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	payment := FundingPayment{
+		Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a",
+		IncomeType: "FUNDING_FEE", TransactionID: 991, Income: -1.25, Asset: "USDT",
+		TradeTime: time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC),
+	}
+	if err := st.SaveFundingPayment(&payment); err != nil {
+		t.Fatal(err)
+	}
+	const concurrentReplays = 8
+	var wg sync.WaitGroup
+	errs := make(chan error, concurrentReplays)
+	for i := 0; i < concurrentReplays; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- st.SaveFundingPayment(&payment)
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("identical concurrent replay should be idempotent: %v", err)
+		}
+	}
+	conflict := payment
+	conflict.Income = -9
+	if err := st.SaveFundingPayment(&conflict); err == nil {
+		t.Fatal("reused transaction identity with a different amount must fail")
+	}
+	var count int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM funding_payments`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("funding payment rows=%d, want 1", count)
+	}
+}
+
+func TestSaveFundingPaymentRequiresStableIdentity(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-invalid-identity.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	payment := FundingPayment{Exchange: "binance", IncomeType: "FUNDING_FEE", TransactionID: 1, AccountScope: "scope-a"}
+	if err := st.SaveFundingPayment(&payment); err == nil {
+		t.Fatal("funding payment without a symbol or market must fail")
+	}
+	payment.Symbol, payment.MarketType, payment.TransactionID = "BTCUSDT", "futures", 0
+	if err := st.SaveFundingPayment(&payment); err == nil {
+		t.Fatal("funding payment without a stable transaction id must fail")
 	}
 }
 
@@ -66,5 +129,12 @@ func TestMigrateFundingPaymentScopePreservesLegacyRows(t *testing.T) {
 	}
 	if marketType != "" || accountScope != "" {
 		t.Fatalf("legacy rows must remain unclassified: market=%q scope=%q", marketType, accountScope)
+	}
+	var tableCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='funding_income_sync_state'`).Scan(&tableCount); err != nil {
+		t.Fatal(err)
+	}
+	if tableCount != 1 {
+		t.Fatal("funding income coverage table was not created")
 	}
 }

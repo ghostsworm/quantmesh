@@ -29,6 +29,13 @@ func (w *binanceWrapper) GetName() string {
 	return w.adapter.GetName()
 }
 
+// SupportsFundingIncomeHistory marks Binance as an exchange with a real
+// income-history implementation; other IExchange wrappers currently return
+// an empty nil result for this optional capability.
+func (w *binanceWrapper) SupportsFundingIncomeHistory() bool {
+	return w != nil && w.adapter != nil
+}
+
 func (w *binanceWrapper) GetMarketType() string {
 	return w.adapter.GetMarketType()
 }
@@ -238,10 +245,30 @@ func (w *binanceWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: binanceAccount.TotalWalletBalance,
 		TotalMarginBalance: binanceAccount.TotalMarginBalance,
 		AvailableBalance:   binanceAccount.AvailableBalance,
+		MaxWithdrawAmount:  binanceAccount.MaxWithdrawAmount,
 		BalanceAsset:       binanceAccount.BalanceAsset,
 		Positions:          positions,
 		AccountLeverage:    binanceAccount.AccountLeverage,
 	}, nil
+}
+
+func (w *binanceWrapper) GetAccountFresh(ctx context.Context) (*Account, error) {
+	if w == nil || w.adapter == nil {
+		return nil, fmt.Errorf("Binance account is unavailable")
+	}
+	binanceAccount, err := w.adapter.GetAccountFresh(ctx)
+	if err != nil {
+		return nil, err
+	}
+	positions := make([]*Position, len(binanceAccount.Positions))
+	for i, pos := range binanceAccount.Positions {
+		positions[i] = &Position{Symbol: pos.Symbol, Size: pos.Size, EntryPrice: pos.EntryPrice, MarkPrice: pos.MarkPrice,
+			UnrealizedPNL: pos.UnrealizedPNL, Leverage: pos.Leverage, MarginType: pos.MarginType, IsolatedMargin: pos.IsolatedMargin}
+	}
+	return &Account{TotalWalletBalance: binanceAccount.TotalWalletBalance, TotalMarginBalance: binanceAccount.TotalMarginBalance,
+		AvailableBalance: binanceAccount.AvailableBalance, MaxWithdrawAmount: binanceAccount.MaxWithdrawAmount,
+		BalanceAsset: binanceAccount.BalanceAsset, Positions: positions,
+		AccountLeverage: binanceAccount.AccountLeverage}, nil
 }
 
 func (w *binanceWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
@@ -474,7 +501,7 @@ func binanceOrderHistoryPage(ctx context.Context, adapter interface{}, symbol st
 		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
 			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, QuoteQuantity: row.QuoteQuantity, Commission: row.Commission,
 			CommissionAsset: row.CommissionAsset, TradeTime: row.Time.UnixMilli(), RealizedPnL: row.RealizedPnL,
-			CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
+			RealizedPnLKnown: true, CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
 	}
 	if page.HasMore && len(rows) > 0 {
 		lastID := rows[len(rows)-1].ID

@@ -57,6 +57,48 @@ func seedShutdownOpening(t *testing.T, rt *SymbolRuntime, cid string) {
 	}
 }
 
+func TestBotEmergencyCancellationRequiresOwnedTerminalEvidence(t *testing.T) {
+	t.Run("cancel acknowledgement is not success", func(t *testing.T) {
+		venue := &shutdownBarrierVenue{fakeCloseExchange: newFakeCloseExchange(100, 0), ackOnly: true}
+		rt := newShutdownRuntime(venue, "bot-ack", "account")
+		seedShutdownOpening(t, rt, "bot-ack-open")
+		bot := &BotRuntime{BotID: "bot-ack", Inner: rt}
+		if err := bot.CancelAllOpenOrders(); err == nil {
+			t.Fatal("emergency action reported success although the owned order remained NEW")
+		}
+		for _, live := range venue.orders {
+			if live.Status != exchange.OrderStatusNew {
+				t.Fatal("test venue unexpectedly terminated the acknowledged-only order")
+			}
+		}
+	})
+
+	t.Run("verified owned cancellation succeeds", func(t *testing.T) {
+		venue := &shutdownBarrierVenue{fakeCloseExchange: newFakeCloseExchange(100, 0)}
+		rt := newShutdownRuntime(venue, "bot-verified", "account")
+		seedShutdownOpening(t, rt, "bot-verified-open")
+		bot := &BotRuntime{BotID: "bot-verified", Inner: rt}
+		if err := bot.CancelAllOpenOrders(); err != nil {
+			t.Fatalf("verified cancellation failed: %v", err)
+		}
+		for _, live := range venue.orders {
+			if live.Status != exchange.OrderStatusCanceled {
+				t.Fatalf("order status = %s, want CANCELED", live.Status)
+			}
+		}
+	})
+
+	t.Run("missing executor fails closed", func(t *testing.T) {
+		cfg := &config.Config{}
+		cfg.Trading.Symbol, cfg.Trading.MarketType, cfg.Trading.Direction = "BTCUSDT", "futures", "LONG"
+		spm := position.NewSuperPositionManager(cfg, nil, nil, 1, 1)
+		bot := &BotRuntime{BotID: "bot-no-executor", Inner: &SymbolRuntime{SuperPositionManager: spm}}
+		if err := bot.CancelAllOpenOrders(); err == nil {
+			t.Fatal("cancellation without an owned executor must not report success")
+		}
+	})
+}
+
 func TestProcessShutdownSealsEveryRuntimeBeforeFirstQuery(t *testing.T) {
 	v := &shutdownBarrierVenue{fakeCloseExchange: newFakeCloseExchange(100, 0)}
 	a, b := newShutdownRuntime(v, "a", "account"), newShutdownRuntime(v, "b", "account")

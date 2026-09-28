@@ -410,7 +410,7 @@ const ProfitManagement: React.FC = () => {
               colorScheme="blue"
               leftIcon={<DownloadIcon />}
               onClick={onOpen}
-              isDisabled={!summary || summary.availableToWithdraw <= 0}
+              isDisabled={!summary || summary.availableToWithdraw <= 0 || activeExchange === 'all'}
             >
               {t('profitManagement.withdraw')}
             </Button>
@@ -729,6 +729,7 @@ const ProfitManagement: React.FC = () => {
         <WithdrawDialog
           isOpen={isOpen}
           onClose={onClose}
+          exchangeId={activeExchange === 'all' ? '' : activeExchange}
           strategyProfits={strategyProfits}
           availableToWithdraw={summary.availableToWithdraw}
           onWithdrawComplete={handleWithdrawComplete}

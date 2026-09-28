@@ -1,8 +1,12 @@
 package storage
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -99,12 +103,143 @@ func (s *SQLStorage) GetFundingRateHistory(symbol, exchange string, limit int) (
 
 // SaveFundingPayment 保存資金費用記錄
 func (s *SQLStorage) SaveFundingPayment(payment *FundingPayment) error {
+	if payment == nil {
+		return fmt.Errorf("funding payment is nil")
+	}
+	if payment.TransactionID <= 0 || strings.TrimSpace(payment.Exchange) == "" || strings.TrimSpace(payment.Symbol) == "" ||
+		strings.TrimSpace(payment.MarketType) == "" || strings.TrimSpace(payment.IncomeType) == "" ||
+		strings.TrimSpace(payment.AccountScope) == "" || strings.TrimSpace(payment.Asset) == "" || payment.TradeTime.IsZero() ||
+		math.IsNaN(payment.Income) || math.IsInf(payment.Income, 0) {
+		return fmt.Errorf("funding payment lacks stable identity, denomination, finite amount, or trade time")
+	}
+	identityKey := fundingPaymentIdentityKey(payment)
 	tradeTime := utils.ToUTC(payment.TradeTime)
 	_, err := s.db.Exec(`
-		INSERT INTO funding_payments (exchange, symbol, account, market_type, account_scope, income_type, income, asset, info, transaction_id, trade_time, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, payment.Exchange, payment.Symbol, payment.Account, payment.MarketType, payment.AccountScope, payment.IncomeType, payment.Income, payment.Asset, payment.Info, payment.TransactionID, tradeTime, time.Now().UTC())
-	return err
+		INSERT INTO funding_payments (exchange, symbol, account, market_type, account_scope, income_type, income, asset, info, transaction_id, trade_time, created_at, identity_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, payment.Exchange, payment.Symbol, payment.Account, payment.MarketType, payment.AccountScope, payment.IncomeType, payment.Income, payment.Asset, payment.Info, payment.TransactionID, tradeTime, time.Now().UTC(), identityKey)
+	if err == nil {
+		return nil
+	}
+	// A concurrent replay may win the unique-key race. Accept it only if its
+	// accounting payload is identical; identity reuse with different economics
+	// must remain visible to the caller.
+	var existing FundingPayment
+	var existingTradeTime time.Time
+	lookupErr := s.db.QueryRow(`
+		SELECT exchange, symbol, account, market_type, account_scope, income_type, income, asset, transaction_id, trade_time
+		FROM funding_payments WHERE identity_key = ?
+	`, identityKey).Scan(&existing.Exchange, &existing.Symbol, &existing.Account, &existing.MarketType, &existing.AccountScope,
+		&existing.IncomeType, &existing.Income, &existing.Asset, &existing.TransactionID, &existingTradeTime)
+	if lookupErr == nil {
+		existing.TradeTime = existingTradeTime
+		if sameFundingPayment(existing, *payment) {
+			return nil
+		}
+		return fmt.Errorf("funding payment identity reused with different accounting data exchange=%s type=%s transaction_id=%d", payment.Exchange, payment.IncomeType, payment.TransactionID)
+	}
+	return fmt.Errorf("save funding payment exchange=%s type=%s transaction_id=%d: %w (identity lookup: %v)", payment.Exchange, payment.IncomeType, payment.TransactionID, err, lookupErr)
+}
+
+func fundingPaymentIdentityKey(payment *FundingPayment) string {
+	identity := strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(payment.Exchange)),
+		strings.TrimSpace(payment.AccountScope),
+		strings.TrimSpace(payment.Account),
+		strings.ToLower(strings.TrimSpace(payment.MarketType)),
+		strings.ToUpper(strings.TrimSpace(payment.IncomeType)),
+		strings.ToUpper(strings.TrimSpace(payment.Symbol)),
+		strings.ToUpper(strings.TrimSpace(payment.Asset)),
+		fmt.Sprint(payment.TransactionID),
+	}, "\x00")
+	digest := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(digest[:])
+}
+
+func sameFundingPayment(a, b FundingPayment) bool {
+	return strings.EqualFold(strings.TrimSpace(a.Exchange), strings.TrimSpace(b.Exchange)) &&
+		strings.EqualFold(strings.TrimSpace(a.Symbol), strings.TrimSpace(b.Symbol)) && a.Account == b.Account &&
+		strings.EqualFold(strings.TrimSpace(a.MarketType), strings.TrimSpace(b.MarketType)) &&
+		a.AccountScope == b.AccountScope && strings.EqualFold(strings.TrimSpace(a.IncomeType), strings.TrimSpace(b.IncomeType)) &&
+		a.TransactionID == b.TransactionID && strings.EqualFold(strings.TrimSpace(a.Asset), strings.TrimSpace(b.Asset)) &&
+		math.Abs(a.Income-b.Income) <= 1e-12 && utils.ToUTC(a.TradeTime).Equal(utils.ToUTC(b.TradeTime))
+}
+
+// MarkFundingIncomeCoverage records a successfully fetched and fully persisted
+// exchange interval. Each success replaces the latest snapshot; it does not
+// bridge outages or claim coverage older than the returned interval.
+func (s *SQLStorage) MarkFundingIncomeCoverage(exchange, symbol, marketType, accountScope string, startTime, endTime time.Time) error {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(symbol) == "" || strings.TrimSpace(marketType) == "" ||
+		strings.TrimSpace(accountScope) == "" || startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
+		return fmt.Errorf("funding income coverage requires exact account, market, symbol, and valid interval")
+	}
+	key := fundingIncomeCoverageKey(exchange, symbol, marketType, accountScope)
+	from, through := utils.ToUTC(startTime), utils.ToUTC(endTime)
+	if s.dbType == "mysql" {
+		_, err := s.db.Exec(`
+			INSERT INTO funding_income_sync_state (scope_key, exchange, symbol, market_type, account_scope, covered_from, covered_through, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE covered_from=VALUES(covered_from), covered_through=VALUES(covered_through), updated_at=VALUES(updated_at)
+		`, key, exchange, symbol, marketType, accountScope, from, through, time.Now().UTC())
+		if err != nil {
+			return fmt.Errorf("mark funding income coverage exchange=%s symbol=%s: %w", exchange, symbol, err)
+		}
+		return nil
+	}
+	_, err := s.db.Exec(`
+		INSERT INTO funding_income_sync_state (scope_key, exchange, symbol, market_type, account_scope, covered_from, covered_through, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(scope_key) DO UPDATE SET covered_from=excluded.covered_from, covered_through=excluded.covered_through, updated_at=excluded.updated_at
+	`, key, exchange, symbol, marketType, accountScope, from, through, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("mark funding income coverage exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	return nil
+}
+
+// HasFundingIncomeCoverage is deliberately exact: an empty rule symbol cannot
+// borrow one symbol's watermark to authorize an account-wide transfer.
+func (s *SQLStorage) HasFundingIncomeCoverage(exchange, symbol, marketType, accountScope string, startTime, endTime time.Time) (bool, error) {
+	if startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
+		return false, fmt.Errorf("funding income coverage requires a non-empty interval")
+	}
+	coveredFrom, coveredThrough, err := s.GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope)
+	if err != nil {
+		return false, err
+	}
+	if coveredFrom.IsZero() || coveredThrough.IsZero() {
+		return false, nil
+	}
+	return !coveredFrom.After(utils.ToUTC(startTime)) && !coveredThrough.Before(utils.ToUTC(endTime)), nil
+}
+
+// GetFundingIncomeCoverage returns the most recent fully persisted history
+// interval for exactly one account, market, and symbol.
+func (s *SQLStorage) GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(symbol) == "" || strings.TrimSpace(marketType) == "" ||
+		strings.TrimSpace(accountScope) == "" {
+		return time.Time{}, time.Time{}, fmt.Errorf("funding income coverage requires exact account, market, and symbol")
+	}
+	var coveredFrom, coveredThrough time.Time
+	err := s.db.QueryRow(`
+		SELECT covered_from, covered_through FROM funding_income_sync_state WHERE scope_key = ?
+	`, fundingIncomeCoverageKey(exchange, symbol, marketType, accountScope)).Scan(&coveredFrom, &coveredThrough)
+	if err == sql.ErrNoRows {
+		return time.Time{}, time.Time{}, nil
+	}
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("query funding income coverage exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	return utils.ToUTC(coveredFrom), utils.ToUTC(coveredThrough), nil
+}
+
+func fundingIncomeCoverageKey(exchange, symbol, marketType, accountScope string) string {
+	identity := strings.Join([]string{
+		strings.ToLower(strings.TrimSpace(exchange)), strings.ToUpper(strings.TrimSpace(symbol)),
+		strings.ToLower(strings.TrimSpace(marketType)), strings.TrimSpace(accountScope),
+	}, "\x00")
+	digest := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(digest[:])
 }
 
 // GetDailyFundingPaymentsByScope returns one day's funding totals grouped by

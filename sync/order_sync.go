@@ -137,7 +137,7 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 		return nil
 	}
 
-	const maxHistoryWindow = 24*time.Hour - time.Second
+	const maxHistoryWindow = 30*24*time.Hour - time.Second
 	now := time.Now().UTC()
 	start := now.Add(-maxHistoryWindow)
 	startTime := start.UnixMilli()
@@ -293,7 +293,11 @@ func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderI
 			QuoteQuantity: trade.QuoteQuantity,
 			Commission:    trade.Commission, CommissionAsset: trade.CommissionAsset,
 			CommissionQuote: trade.CommissionQuote, CommissionQuoteRate: trade.CommissionQuoteRate, CommissionQuoteKnown: trade.CommissionQuoteKnown,
-			RealizedPnL: &trade.RealizedPnL, TradeTime: time.UnixMilli(trade.TradeTime).UTC(),
+			TradeTime: time.UnixMilli(trade.TradeTime).UTC(),
+		}
+		if trade.RealizedPnLKnown {
+			pnl := trade.RealizedPnL
+			fill.RealizedPnL = &pnl
 		}
 		if err := fillWriter.SaveOrderFill(fill); err != nil {
 			return syncedCount, fmt.Errorf("persist exchange execution %s: %w", trade.TradeID, err)
