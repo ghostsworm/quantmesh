@@ -150,6 +150,33 @@ func loadObservabilityConfigFromSettings(version string, provider web.SystemSett
 // fundingIncomeHistoryPageSize is Binance's configured income-history page limit.
 const fundingIncomeHistoryPageSize = 1000
 
+func fundingIncomeSyncWindow(coveredFrom, now time.Time) (time.Time, time.Time, error) {
+	if now.IsZero() {
+		return time.Time{}, time.Time{}, fmt.Errorf("funding income sync requires a valid current time")
+	}
+	now = now.UTC()
+	start := now.AddDate(0, 0, -30)
+	if coveredFrom.IsZero() {
+		// A new credential scope must not re-credit profits earned before this
+		// scope was first observed; prior scopes may contain already-withdrawn PnL.
+		start = now.Truncate(time.Millisecond)
+	} else if coveredFrom.After(start) {
+		start = coveredFrom.UTC()
+	}
+	if !start.Before(now) {
+		return time.Time{}, time.Time{}, fmt.Errorf("funding income sync window is empty or starts in the future")
+	}
+	return start, now, nil
+}
+
+func fundingIncomeMarketType(marketType string) string {
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	if marketType == config.MarketTypeFundingCarry || marketType == config.MarketTypeFundingPerpSpread {
+		return "futures"
+	}
+	return marketType
+}
+
 // startFundingIncomeSync 定時從交易所拉取資金費用（FUNDING_FEE）並寫入 funding_payments
 func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, symbol, accountID, marketType, accountScope string) {
 	if st == nil || ex == nil {
@@ -171,61 +198,8 @@ func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange
 	case <-initialDelay.C:
 	}
 	for {
-		endTime := time.Now().UTC()
-		startTime := endTime.AddDate(0, 0, -30)
-		list, err := ex.GetIncomeHistory(ctx, symbol, "FUNDING_FEE", startTime.UnixMilli(), endTime.UnixMilli())
-		if err != nil {
-			logger.Warn("⚠️ 拉取資金費用失敗 exchange=%s symbol=%s: %v", exchangeName, symbol, err)
-		} else {
-			saved := 0
-			fullyPersisted := len(list) < fundingIncomeHistoryPageSize
-			if !fullyPersisted {
-				logger.Warn("⚠️ 資金費 API 返回已達單頁上限，不能證明歷史完整，保留舊覆蓋水位 exchange=%s symbol=%s count=%d", exchangeName, symbol, len(list))
-			}
-			fundingMarketType := strings.ToLower(strings.TrimSpace(marketType))
-			if fundingMarketType == config.MarketTypeFundingCarry || fundingMarketType == config.MarketTypeFundingPerpSpread {
-				fundingMarketType = "futures"
-			}
-			for _, inc := range list {
-				if inc == nil {
-					logger.Warn("⚠️ 跳過空資金費記錄 exchange=%s symbol=%s", exchangeName, symbol)
-					fullyPersisted = false
-					continue
-				}
-				if !strings.EqualFold(strings.TrimSpace(inc.Symbol), strings.TrimSpace(symbol)) || !strings.EqualFold(strings.TrimSpace(inc.IncomeType), "FUNDING_FEE") {
-					logger.Warn("⚠️ 資金費 API 返回記錄與查詢範圍不一致，不能標記完整 exchange=%s requested_symbol=%s returned_symbol=%s income_type=%s", exchangeName, symbol, inc.Symbol, inc.IncomeType)
-					fullyPersisted = false
-					continue
-				}
-				if inc.TradeTime.Before(startTime) || inc.TradeTime.After(endTime) {
-					logger.Warn("⚠️ 資金費 API 返回記錄超出查詢時間窗口，不能標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
-					fullyPersisted = false
-					continue
-				}
-				if err := st.SaveFundingPayment(&storage.FundingPayment{
-					Exchange: exchangeName, Symbol: inc.Symbol, Account: accountID, MarketType: fundingMarketType,
-					AccountScope: accountScope, IncomeType: inc.IncomeType, Income: inc.Income,
-					Asset: inc.Asset, Info: inc.Info, TransactionID: inc.TransactionID, TradeTime: inc.TradeTime,
-				}); err != nil {
-					logger.Warn("⚠️ 保存資金費記錄失敗 exchange=%s symbol=%s transaction_id=%d: %v", exchangeName, symbol, inc.TransactionID, err)
-					fullyPersisted = false
-					continue
-				}
-				saved++
-			}
-			if saved > 0 {
-				logger.Info("💰 資金費用同步: %s %s 核對 %d 筆", exchangeName, symbol, saved)
-			}
-			if fullyPersisted {
-				coverageWriter, ok := st.(interface {
-					MarkFundingIncomeCoverage(string, string, string, string, time.Time, time.Time) error
-				})
-				if !ok {
-					logger.Warn("⚠️ 存儲不支持資金費覆蓋水位，禁止將同步結果用於自動提现 exchange=%s symbol=%s", exchangeName, symbol)
-				} else if err := coverageWriter.MarkFundingIncomeCoverage(exchangeName, symbol, fundingMarketType, accountScope, startTime, endTime); err != nil {
-					logger.Warn("⚠️ 更新資金費覆蓋水位失敗 exchange=%s symbol=%s: %v", exchangeName, symbol, err)
-				}
-			}
+		if err := syncFundingIncomeOnce(ctx, st, ex, exchangeName, symbol, accountID, marketType, accountScope); err != nil {
+			logger.Warn("⚠️ 資金費收入同步失敗 exchange=%s symbol=%s: %v", exchangeName, symbol, err)
 		}
 		select {
 		case <-ctx.Done():
@@ -233,6 +207,76 @@ func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange
 		case <-ticker.C:
 		}
 	}
+}
+
+func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, symbol, accountID, marketType, accountScope string) error {
+	fundingMarketType := fundingIncomeMarketType(marketType)
+	coverageReader, ok := st.(interface {
+		GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error)
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks funding coverage read capability")
+	}
+	coveredFrom, _, err := coverageReader.GetFundingIncomeCoverage(exchangeName, symbol, fundingMarketType, accountScope)
+	if err != nil {
+		return fmt.Errorf("read prior funding coverage: %w", err)
+	}
+	startTime, endTime, err := fundingIncomeSyncWindow(coveredFrom, time.Now())
+	if err != nil {
+		return err
+	}
+	list, err := ex.GetIncomeHistory(ctx, symbol, "FUNDING_FEE", startTime.UnixMilli(), endTime.UnixMilli())
+	if err != nil {
+		return fmt.Errorf("fetch funding history: %w", err)
+	}
+	saved := 0
+	fullyPersisted := len(list) < fundingIncomeHistoryPageSize
+	if !fullyPersisted {
+		logger.Warn("⚠️ 資金費 API 返回已達單頁上限，不能證明歷史完整，保留舊覆蓋水位 exchange=%s symbol=%s count=%d", exchangeName, symbol, len(list))
+	}
+	for _, inc := range list {
+		if inc == nil {
+			logger.Warn("⚠️ 跳過空資金費記錄 exchange=%s symbol=%s", exchangeName, symbol)
+			fullyPersisted = false
+			continue
+		}
+		if !strings.EqualFold(strings.TrimSpace(inc.Symbol), strings.TrimSpace(symbol)) || !strings.EqualFold(strings.TrimSpace(inc.IncomeType), "FUNDING_FEE") {
+			logger.Warn("⚠️ 資金費 API 返回記錄與查詢範圍不一致，不能標記完整 exchange=%s requested_symbol=%s returned_symbol=%s income_type=%s", exchangeName, symbol, inc.Symbol, inc.IncomeType)
+			fullyPersisted = false
+			continue
+		}
+		if inc.TradeTime.Before(startTime) || inc.TradeTime.After(endTime) {
+			logger.Warn("⚠️ 資金費 API 返回記錄超出查詢時間窗口，不能標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
+			fullyPersisted = false
+			continue
+		}
+		if err := st.SaveFundingPayment(&storage.FundingPayment{
+			Exchange: exchangeName, Symbol: inc.Symbol, Account: accountID, MarketType: fundingMarketType,
+			AccountScope: accountScope, IncomeType: inc.IncomeType, Income: inc.Income,
+			Asset: inc.Asset, Info: inc.Info, TransactionID: inc.TransactionID, TradeTime: inc.TradeTime,
+		}); err != nil {
+			logger.Warn("⚠️ 保存資金費記錄失敗 exchange=%s symbol=%s transaction_id=%d: %v", exchangeName, symbol, inc.TransactionID, err)
+			fullyPersisted = false
+			continue
+		}
+		saved++
+	}
+	if saved > 0 {
+		logger.Info("💰 資金費用同步: %s %s 核對 %d 筆", exchangeName, symbol, saved)
+	}
+	if !fullyPersisted {
+		return nil
+	}
+	coverageWriter, ok := st.(interface {
+		MarkFundingIncomeCoverage(string, string, string, string, time.Time, time.Time) error
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks funding coverage write capability")
+	}
+	if err := coverageWriter.MarkFundingIncomeCoverage(exchangeName, symbol, fundingMarketType, accountScope, startTime, endTime); err != nil {
+		return fmt.Errorf("mark complete funding coverage: %w", err)
+	}
+	return nil
 }
 
 // registerWebSymbolProvidersForRuntime 在 Bot 啟動成功後掛接 Web /api/status（熱啟動後與 Bot 詳情「运行中」一致）
