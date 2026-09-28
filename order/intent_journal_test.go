@@ -330,11 +330,14 @@ func TestIntentJournalRestartReleasesOnlyVerifiedZeroFillTerminalOrders(t *testi
 		name        string
 		requestCID  string
 		order       *Order
+		venueOrder  *exchange.Order
 		unknown     bool
 		wantBlocked bool
 	}{
 		{name: "verified canceled without fills", order: &Order{OrderID: 7, ClientOrderID: "cancelled", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Status: "CANCELED"}},
 		{name: "verified expired without fills", order: &Order{OrderID: 8, ClientOrderID: "expired", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Status: "EXPIRED"}},
+		{name: "stale zero-fill snapshot reveals a late fill", order: &Order{OrderID: 12, ClientOrderID: "late-fill", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Status: "CANCELED"},
+			venueOrder: &exchange.Order{OrderID: 12, ClientOrderID: "late-fill", Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.25, AvgPrice: 100, Status: exchange.OrderStatusCanceled}, wantBlocked: true},
 		{name: "terminal fill remains unresolved", order: &Order{OrderID: 9, ClientOrderID: "filled", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, ExecutedQty: 1, Status: "FILLED"}, wantBlocked: true},
 		{name: "unknown terminal remains unresolved", order: &Order{OrderID: 10, ClientOrderID: "unknown", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Status: "CANCELED"}, unknown: true, wantBlocked: true},
 		{name: "mismatched terminal identity remains unresolved", requestCID: "expected", order: &Order{OrderID: 11, ClientOrderID: "foreign", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Status: "CANCELED"}, wantBlocked: true},
@@ -355,7 +358,14 @@ func TestIntentJournalRestartReleasesOnlyVerifiedZeroFillTerminalOrders(t *testi
 			if err := journal.SaveExecutionIntent(t.Context(), key, cid, 0, payload); err != nil {
 				t.Fatal(err)
 			}
-			oe, _, _ := newOwnedTestExecutor()
+			oe, venue, _ := newOwnedTestExecutor()
+			observed := test.venueOrder
+			if observed == nil {
+				observed = &exchange.Order{OrderID: test.order.OrderID, ClientOrderID: test.order.ClientOrderID, Symbol: test.order.Symbol,
+					Side: exchange.Side(test.order.Side), Quantity: test.order.Quantity, ExecutedQty: test.order.ExecutedQty,
+					AvgPrice: test.order.AvgPrice, Status: exchange.OrderStatus(test.order.Status)}
+			}
+			venue.orders[observed.OrderID] = observed
 			err = oe.ConfigureIntentJournal(t.Context(), journal, journalScope())
 			if test.wantBlocked {
 				if !errors.Is(err, execution.ErrOrderUnknown) || !oe.IsOpeningPaused() || len(oe.snapshotOwnedIntents()) != 1 {

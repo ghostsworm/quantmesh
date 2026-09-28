@@ -41,7 +41,12 @@ type persistedIntent struct {
 // their identities and block opening until full strategy reconciliation exists.
 func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, journal execution.IntentJournal, scope execution.IntentScope) error {
 	oe.intentMu.Lock()
-	defer oe.intentMu.Unlock()
+	locked := true
+	defer func() {
+		if locked {
+			oe.intentMu.Unlock()
+		}
+	}()
 	oe.journalRequired = true
 	oe.journalLoaded = false
 	oe.openingGate.Block(IntentRecoveryBlock)
@@ -58,6 +63,7 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 	oe.intentJournal, oe.intentScope, oe.intentScopeKey = journal, scope, key
 	oe.intents = make(map[string]*ownedIntent)
 	var pendingTradeRecovery []*ownedIntent
+	var pendingZeroFillRecovery []string
 	var after int64
 	for {
 		page, err := journal.LoadExecutionIntents(ctx, key, after, intentJournalPageSize)
@@ -89,6 +95,11 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 				continue
 			}
 			if isVerifiedZeroFillTerminalIntent(intent, oe.symbol) {
+				// A previously stored websocket terminal status is not venue proof.
+				// Keep it in the owned set and re-query the venue before clearing the
+				// startup recovery gate.
+				pendingZeroFillRecovery = append(pendingZeroFillRecovery, r.ClientOrderID)
+				oe.intents[r.ClientOrderID] = intent
 				continue
 			}
 			intent.unknown = true // Includes PREPARED and unaccounted terminal fills.
@@ -127,6 +138,28 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 		}
 		delete(oe.intents, intent.request.ClientOrderID)
 	}
+	// Do not trust a stale zero-fill terminal observation across restart. Query
+	// each exact owned order again before marking its journal record settled.
+	locked = false
+	oe.intentMu.Unlock()
+	for _, cid := range pendingZeroFillRecovery {
+		if err := oe.SettleZeroFillIntent(ctx, cid); err != nil {
+			oe.intentMu.Lock()
+			intent := oe.intents[cid]
+			var orderID int64
+			if intent != nil && intent.order != nil {
+				orderID = intent.order.OrderID
+			}
+			oe.intentMu.Unlock()
+			markErr := oe.MarkOrderReconciliationRequired(orderID, cid, err.Error())
+			return fmt.Errorf("re-verify zero-fill intent %s: %w (cause: %v; persist hold: %v)", cid, execution.ErrOrderUnknown, err, markErr)
+		}
+		oe.intentMu.Lock()
+		delete(oe.intents, cid)
+		oe.intentMu.Unlock()
+	}
+	oe.intentMu.Lock()
+	locked = true
 	if len(oe.intents) > 0 {
 		return fmt.Errorf("persisted intents require economic reconciliation: %w", execution.ErrOrderUnknown)
 	}
@@ -134,9 +167,9 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 	return nil
 }
 
-// A verified terminal order with no fills has no position, capital, or PnL
-// effect. It can be omitted from recovery; every other accepted intent remains
-// unresolved until the strategy and financial ledgers are reconciled.
+// isVerifiedZeroFillTerminalIntent identifies journal observations eligible
+// for a fresh venue verification during startup; the stored status alone never
+// authorizes the intent to be omitted from recovery.
 func isVerifiedZeroFillTerminalIntent(intent *ownedIntent, symbol string) bool {
 	if intent == nil || intent.unknown || intent.ledgerPending || intent.order == nil {
 		return false
