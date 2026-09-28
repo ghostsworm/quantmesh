@@ -26,7 +26,7 @@ const (
 // 無未來函數口徑：GetCurrentRate 返回「最後一個結算時間 ≤ 模擬時間」的已結算費率。
 // 實盤 FundingRateMonitor 讀的是交易所的當期預測費率（lastFundingRate，結算前持續變化），
 // 回放沒有該序列，因此用上一期已結算費率近似；序列之前使用 fallbackRate。
-// 下次結算時間按 UTC 00/08/16 對齊（Binance USD-M 默認 8 小時周期）。
+// 有歷史結算序列時，下次結算時間直接取下一個已知事件；序列外使用 UTC 00/08/16 默認時間近似。
 //
 // 偏向係數（GetBuyBias/GetSellBias）與 safety.FundingRateMonitor 的分段規則一致，僅在 funding_rate.bias_enabled 時偏離 1.0。
 type SimFundingMonitor struct {
@@ -61,9 +61,13 @@ func (m *SimFundingMonitor) RateAt(t time.Time) float64 {
 // GetCurrentRate 當前模擬時間可見的費率
 func (m *SimFundingMonitor) GetCurrentRate() float64 { return m.RateAt(m.clock.Now()) }
 
-// GetNextFundingTime 嚴格晚於當前模擬時間的下一個 8 小時結算點（UTC 00/08/16）
+// GetNextFundingTime 優先返回序列中下一個實際結算時間；序列外返回下一個 UTC 8h 默認結算點。
 func (m *SimFundingMonitor) GetNextFundingTime() time.Time {
 	ts := m.clock.Now().UnixMilli()
+	i := sort.Search(len(m.series), func(k int) bool { return m.series[k].Timestamp > ts })
+	if i < len(m.series) {
+		return time.UnixMilli(m.series[i].Timestamp).UTC()
+	}
 	next := ts - ts%FundingIntervalMs + FundingIntervalMs
 	return time.UnixMilli(next).UTC()
 }

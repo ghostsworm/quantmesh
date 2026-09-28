@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -250,6 +251,67 @@ func TestSimExchange_FundingSettlesEvery8h(t *testing.T) {
 		t.Fatalf("funding paid=%v want %v", ex.fundingPaid, want)
 	}
 }
+
+func TestSimExchange_FundingSeriesSettlesAtRecordedIrregularTimes(t *testing.T) {
+	ex, _ := newTestExchange(t, MatchingConfig{})
+	start := testBaseTs
+	ex.setMarket(start, 2000)
+	ex.mu.Lock()
+	ex.applyPositionLocked(sideBuy, 0.5, 2000)
+	ex.mu.Unlock()
+	hour := int64(time.Hour / time.Millisecond)
+	points := []FundingPoint{
+		{Timestamp: start + hour, Rate: 0.0001},
+		{Timestamp: start + 5*hour, Rate: -0.0002},
+		{Timestamp: start + 13*hour, Rate: 0.0003},
+	}
+	ex.settleFundingPoints(start, start+13*hour, points)
+	want := 0.5 * 2000 * (0.0001 - 0.0002 + 0.0003)
+	if math.Abs(ex.fundingPaid-want) > 1e-9 {
+		t.Fatalf("series funding paid=%v want %v", ex.fundingPaid, want)
+	}
+	ex.settleFundingPoints(start+13*hour, start+14*hour, points)
+	if math.Abs(ex.fundingPaid-want) > 1e-9 {
+		t.Fatalf("settlement at fromTs was charged more than once: got %v want %v", ex.fundingPaid, want)
+	}
+}
+
+func TestSimExchange_FundingSeriesUsesRecordedMarkPrice(t *testing.T) {
+	ex, _ := newTestExchange(t, MatchingConfig{})
+	ex.setMarket(testBaseTs, 100)
+	ex.mu.Lock()
+	ex.applyPositionLocked(sideBuy, 1, 100)
+	ex.mu.Unlock()
+	markPrice := 150.0
+	point := FundingPoint{Timestamp: testBaseTs + 1, Rate: 0.01, MarkPrice: &markPrice}
+	ex.settleFundingPoints(testBaseTs, testBaseTs+1, []FundingPoint{point})
+	if want := 1.5; math.Abs(ex.fundingPaid-want) > 1e-9 {
+		t.Fatalf("funding paid = %v, want %v using event mark price", ex.fundingPaid, want)
+	}
+}
+
+func TestReplayConfigRejectsInvalidFundingSeries(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		points []FundingPoint
+	}{
+		{name: "duplicate timestamp", points: []FundingPoint{{Timestamp: testBaseTs, Rate: 0.1}, {Timestamp: testBaseTs, Rate: 0.2}}},
+		{name: "non-finite rate", points: []FundingPoint{{Timestamp: testBaseTs, Rate: math.NaN()}}},
+		{name: "invalid timestamp", points: []FundingPoint{{Timestamp: 0, Rate: 0.1}}},
+		{name: "zero mark price", points: []FundingPoint{{Timestamp: testBaseTs, Rate: 0.1, MarkPrice: fundingTestPrice(0)}}},
+		{name: "non-finite mark price", points: []FundingPoint{{Timestamp: testBaseTs, Rate: 0.1, MarkPrice: fundingTestPrice(math.Inf(1))}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(MatchingConfig{})
+			cfg.FundingSeries = tc.points
+			if _, err := cfg.normalized(2000); err == nil {
+				t.Fatal("normalized() accepted invalid funding series")
+			}
+		})
+	}
+}
+
+func fundingTestPrice(price float64) *float64 { return &price }
 
 func TestCandlesToTicks_PathByDirection(t *testing.T) {
 	candles := []*exchange.Candle{

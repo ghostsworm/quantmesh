@@ -138,7 +138,11 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			continue
 		}
 		if cfg.FundingEnabled && i > 0 {
-			e.ex.settleFunding(prevTs, t.Timestamp, e.fundingRateAt)
+			if len(cfg.FundingSeries) > 0 {
+				e.ex.settleFundingPoints(prevTs, t.Timestamp, cfg.FundingSeries)
+			} else {
+				e.ex.settleFunding(prevTs, t.Timestamp, func(int64) float64 { return cfg.FundingRate })
+			}
 		}
 		prevTs = t.Timestamp
 		e.clock.AdvanceToMillis(t.Timestamp)
@@ -198,22 +202,6 @@ func (e *Engine) deliver() {
 			e.spm.OnOrderUpdate(u)
 		}
 	}
-}
-
-// fundingRateAt 結算時刻的費率：序列中最後一個生效時間 ≤ ts 的點；無序列時用固定費率
-func (e *Engine) fundingRateAt(ts int64) float64 {
-	series := e.cfg.FundingSeries
-	if len(series) == 0 {
-		return e.cfg.FundingRate
-	}
-	rate := e.cfg.FundingRate
-	for _, p := range series {
-		if p.Timestamp > ts {
-			break
-		}
-		rate = p.Rate
-	}
-	return rate
 }
 
 // record 更新回撤、時間加權敞口，並按採樣間隔記錄權益/敞口點

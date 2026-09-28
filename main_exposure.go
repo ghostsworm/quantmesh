@@ -22,6 +22,7 @@ func configureRuntimeExposure(executor *order.ExchangeOrderExecutor, quote func(
 		return nil, err
 	}
 	executor.SetExposureBook(book)
+	executor.RequireExposureBook()
 	executor.SetExposureMarkProvider(quote)
 	return book, nil
 }

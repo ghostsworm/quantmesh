@@ -11,6 +11,7 @@ package replay
 import (
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"quantmesh/config"
@@ -66,8 +67,9 @@ type Tick struct {
 
 // FundingPoint 資金費率序列點
 type FundingPoint struct {
-	Timestamp int64   `json:"timestamp"` // 生效時間（毫秒）
-	Rate      float64 `json:"rate"`      // 每 8 小時費率（如 0.0001）
+	Timestamp int64    `json:"timestamp"`            // 實際資金費結算時間（毫秒）
+	Rate      float64  `json:"rate"`                 // 該次結算採用的費率
+	MarkPrice *float64 `json:"mark_price,omitempty"` // 可選：該結算事件的標記價
 }
 
 // MatchingConfig 撮合模型
@@ -101,7 +103,7 @@ type Config struct {
 	FundingEnabled bool
 	// FundingRate 無資金費序列時使用的固定每 8h 費率
 	FundingRate float64
-	// FundingSeries 資金費率序列（按時間升序）；非空時優先使用
+	// FundingSeries 實際結算時間/費率序列（按時間升序）；非空時逐點結算並優先於固定 8h 費率
 	FundingSeries []FundingPoint
 	// EnforceMargin 是否模擬保證金不足拒單。倉位管理器注入了模擬時鐘，保證金鎖（默認 10 秒）按模擬時間解除。
 	// 回測任務參數 enforce_margin 缺省為 true；直接構造 Config 時零值為關閉，需顯式開啟
@@ -165,6 +167,22 @@ func (c Config) normalized(firstPrice float64) (Config, error) {
 	}
 	if c.Bot.Trading.OrderQuantity <= 0 {
 		return c, fmt.Errorf("replay config: trading.order_quantity must be positive, got %.8f", c.Bot.Trading.OrderQuantity)
+	}
+	if math.IsNaN(c.FundingRate) || math.IsInf(c.FundingRate, 0) {
+		return c, fmt.Errorf("replay config: funding_rate must be finite, got %v", c.FundingRate)
+	}
+	if len(c.FundingSeries) > 0 {
+		c.FundingSeries = append([]FundingPoint(nil), c.FundingSeries...)
+		sort.Slice(c.FundingSeries, func(i, j int) bool { return c.FundingSeries[i].Timestamp < c.FundingSeries[j].Timestamp })
+		for i, point := range c.FundingSeries {
+			if point.Timestamp <= 0 || math.IsNaN(point.Rate) || math.IsInf(point.Rate, 0) ||
+				(point.MarkPrice != nil && (*point.MarkPrice <= 0 || math.IsNaN(*point.MarkPrice) || math.IsInf(*point.MarkPrice, 0))) {
+				return c, fmt.Errorf("replay config: invalid funding series point at index %d", i)
+			}
+			if i > 0 && point.Timestamp == c.FundingSeries[i-1].Timestamp {
+				return c, fmt.Errorf("replay config: duplicate funding settlement timestamp %d", point.Timestamp)
+			}
+		}
 	}
 	if c.InitialCapital <= 0 {
 		c.InitialCapital = DefaultInitialCapital

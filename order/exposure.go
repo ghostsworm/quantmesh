@@ -18,6 +18,12 @@ func (oe *ExchangeOrderExecutor) SetExposureBook(book *execution.ExposureBook) {
 	oe.exposureBook = book
 }
 
+// RequireExposureBook makes missing admission accounting an opening failure.
+// Configure it before the executor is published to runtime workers.
+func (oe *ExchangeOrderExecutor) RequireExposureBook() {
+	oe.exposureRequired = true
+}
+
 func (oe *ExchangeOrderExecutor) ExposureSnapshot() *execution.ExposureSnapshot {
 	if oe.exposureBook == nil {
 		return nil
@@ -61,7 +67,7 @@ func (oe *ExchangeOrderExecutor) exposureRequest(req *OrderRequest) (execution.E
 
 func (oe *ExchangeOrderExecutor) SetExposureLimits(limits execution.ExposureLimits) error {
 	if oe.exposureBook == nil {
-		return nil
+		return fmt.Errorf("cannot apply exposure limits without an exposure book: %w", execution.ErrExposureUnverified)
 	}
 	if err := oe.exposureBook.SetLimits(limits); err != nil {
 		return err

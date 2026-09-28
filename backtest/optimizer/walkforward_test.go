@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 
@@ -65,6 +66,31 @@ func TestBuildWalkForwardWindows_DefaultsAndNoOverlap(t *testing.T) {
 	}
 }
 
+func TestBuildWalkForwardWindowsRejectsIrregularOrInvalidCandles(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func([]*exchange.Candle)
+	}{
+		{name: "duplicate timestamp", mutate: func(cs []*exchange.Candle) { cs[10].Timestamp = cs[9].Timestamp }},
+		{name: "missing interval", mutate: func(cs []*exchange.Candle) {
+			for i := 100; i < len(cs); i++ {
+				cs[i].Timestamp += wfTestHourMs
+			}
+		}},
+		{name: "nil candle", mutate: func(cs []*exchange.Candle) { cs[10] = nil }},
+		{name: "invalid OHLC", mutate: func(cs []*exchange.Candle) { cs[10].High = cs[10].Close - 1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candles := hourlyCandles(wfTestDays)
+			tt.mutate(candles)
+			if _, err := BuildWalkForwardWindows(candles, WalkForwardConfig{Enabled: true}); !errors.Is(err, errWalkForwardInvalidCandles) {
+				t.Fatalf("BuildWalkForwardWindows() error = %v, want invalid candle error", err)
+			}
+		})
+	}
+}
+
 func TestValidateOptimConfigRejectsNonFiniteNumbers(t *testing.T) {
 	for name, cfg := range map[string]OptimConfig{
 		"lambda":           {Lambda: math.NaN()},
@@ -98,9 +124,9 @@ func TestRunWalkForwardSkipsNonFiniteTrainingScores(t *testing.T) {
 	fake := func(_ string, cs []*exchange.Candle, p backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {
 		if len(cs) > 0 && cs[len(cs)-1].Timestamp < 60*24*wfTestHourMs {
 			if p.GridCount == 1 {
-				return &backtest.BacktestResult{Metrics: backtest.Metrics{AnnualizedReturn: math.Inf(1)}}, nil
+				return &backtest.BacktestResult{Equity: equityOver(cs, capital, math.MaxFloat64)}, nil
 			}
-			return &backtest.BacktestResult{Metrics: backtest.Metrics{AnnualizedReturn: 1}}, nil
+			return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital)}, nil
 		}
 		return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital), Metrics: backtest.Metrics{}}, nil
 	}
@@ -111,6 +137,37 @@ func TestRunWalkForwardSkipsNonFiniteTrainingScores(t *testing.T) {
 	}
 	if result.Folds[0].BestParams.GridCount != 2 {
 		t.Fatalf("non-finite training score selected params: %+v", result.Folds[0].BestParams)
+	}
+}
+
+func TestRunWalkForwardRejectsMissingOutOfSampleEquity(t *testing.T) {
+	candles := hourlyCandles(wfTestDays)
+	run := func(_ string, cs []*exchange.Candle, _ backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {
+		if cs[0].Timestamp < 60*24*wfTestHourMs {
+			return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital)}, nil
+		}
+		return &backtest.BacktestResult{Metrics: backtest.Metrics{AnnualizedReturn: 10}}, nil
+	}
+	_, err := runWalkForward(context.Background(), run, "BTCUSDT", candles,
+		[]backtest.GridBacktestParams{{GridCount: 1}}, WalkForwardConfig{Enabled: true}, 0.5, wfTestCapital)
+	if err == nil || !strings.Contains(err.Error(), "test result") {
+		t.Fatalf("walk-forward accepted missing out-of-sample equity curve: %v", err)
+	}
+}
+
+func TestMetricsFromWalkForwardResultRecomputesSlippageFromTrades(t *testing.T) {
+	candles := hourlyCandles(1)[:2]
+	result := &backtest.BacktestResult{
+		Equity:  equityOver(candles, wfTestCapital, wfTestCapital),
+		Trades:  []backtest.Trade{{Timestamp: candles[0].Timestamp, Type: "buy", Price: 100, Quantity: 1, Fee: 0.1, SlippageLoss: 0.25}},
+		Metrics: backtest.Metrics{TotalSlippageLoss: 999},
+	}
+	metrics, err := metricsFromWalkForwardResult(result, candles, wfTestCapital)
+	if err != nil {
+		t.Fatalf("metricsFromWalkForwardResult() error = %v", err)
+	}
+	if metrics.TotalSlippageLoss != 0.25 {
+		t.Fatalf("total slippage = %v, want per-trade evidence sum 0.25", metrics.TotalSlippageLoss)
 	}
 }
 
@@ -139,13 +196,13 @@ func TestRunWalkForward_TrainNeverLeaksIntoTestScoring(t *testing.T) {
 			case inRange(cs, w.TrainStart, w.TrainEnd) && len(cs) == len(w.Train):
 				// 訓練窗口：網格數越多收益越高（誇張的樣本內收益）
 				end := capital * (1 + float64(p.GridCount))
-				return &backtest.BacktestResult{Equity: equityOver(cs, capital, end), Metrics: backtest.Metrics{AnnualizedReturn: 1000 * float64(p.GridCount)}}, nil
+				return &backtest.BacktestResult{Equity: equityOver(cs, capital, end)}, nil
 			case inRange(cs, w.TestStart, w.TestEnd) && len(cs) == len(w.Test):
 				testCalls[w.Index]++
 				if p.GridCount != 3 {
 					t.Errorf("fold %d evaluated test window with params not selected on train: %+v", w.Index, p)
 				}
-				return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital)}, nil
+				return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital), Metrics: backtest.Metrics{AnnualizedReturn: 1e9, TotalSlippageLoss: 1e9}}, nil
 			}
 		}
 		t.Errorf("backtest called with candles [%d,%d] (n=%d) that match no single train/test window — leakage across boundary",
@@ -167,6 +224,9 @@ func TestRunWalkForward_TrainNeverLeaksIntoTestScoring(t *testing.T) {
 		}
 		if f.BestParams.GridCount != 3 {
 			t.Fatalf("fold %d selected %+v, want GridCount=3 (best on train)", f.Index, f.BestParams)
+		}
+		if math.Abs(f.TestScore) > 1e-9 || math.Abs(f.TestMetrics.AnnualizedReturn) > 1e-9 || f.TestMetrics.TotalSlippageLoss != 0 {
+			t.Fatalf("fold %d trusted fabricated runner metrics over its flat test equity: score=%v metrics=%+v", f.Index, f.TestScore, f.TestMetrics)
 		}
 	}
 	if math.Abs(res.Metrics.TotalReturn) > 1e-9 {

@@ -2,6 +2,7 @@ package backtest
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 // 支援单个Bot中的多个策略组合进行回测
 type MultiStrategyEngine struct {
 	// 配置
-	Config *EngineConfig
+	Config    *EngineConfig
+	configErr error
 
 	// 數據
 	Klines []TickKline
@@ -108,6 +110,8 @@ type BacktestAccount struct {
 	Balance            float64 // 余额
 	PositionSize       float64 // 净倉位（正=多，负=空）
 	PositionEntryPrice float64 // 平均入场价
+	PositionEntryFees  float64 // 当前持倉尚未结转的入場手續費
+	PositionEntrySlip  float64 // 当前持倉尚未結轉的入場滑點（已反映在成交價，僅作成本歸屬）
 	UnrealizedPnL      float64 // 未實現盈亏
 	RealizedPnL        float64 // 已實現盈亏
 	MarginUsed         float64 // 已用保证金
@@ -196,18 +200,7 @@ type StrategyResult struct {
 
 // NewMultiStrategyEngine 創建多策略回测引擎
 func NewMultiStrategyEngine(cfg *EngineConfig) *MultiStrategyEngine {
-	if cfg.CommissionRate == 0 {
-		cfg.CommissionRate = 0.0004 // 預設0.04%
-	}
-	if cfg.Leverage == 0 {
-		cfg.Leverage = 1.0
-	}
-	if cfg.MatcherConfig.BuySlippage == 0 {
-		cfg.MatcherConfig = DefaultMatcherConfig()
-	}
-
-	return &MultiStrategyEngine{
-		Config:          cfg,
+	engine := &MultiStrategyEngine{
 		Strategies:      make([]BacktestStrategy, 0),
 		runtimes:        make([]*StrategyRuntime, 0),
 		trades:          make([]TickTrade, 0),
@@ -215,6 +208,93 @@ func NewMultiStrategyEngine(cfg *EngineConfig) *MultiStrategyEngine {
 		completedTrades: make([]CompletedTrade, 0),
 		statsByStrategy: make(map[string]*StrategyStats),
 	}
+	if cfg == nil {
+		engine.configErr = fmt.Errorf("backtest engine config is required")
+		return engine
+	}
+	configCopy := *cfg
+	cfg = &configCopy
+	if cfg.CommissionRate == 0 {
+		cfg.CommissionRate = 0.0004 // 預設0.04%
+	}
+	if cfg.Leverage == 0 {
+		cfg.Leverage = 1.0
+	}
+	defaults := DefaultMatcherConfig()
+	if cfg.MatcherConfig.BuySlippage == 0 {
+		cfg.MatcherConfig.BuySlippage = defaults.BuySlippage
+	}
+	if cfg.MatcherConfig.SellSlippage == 0 {
+		cfg.MatcherConfig.SellSlippage = defaults.SellSlippage
+	}
+	if cfg.MatcherConfig.MaxVolumeRatio == 0 {
+		cfg.MatcherConfig.MaxVolumeRatio = defaults.MaxVolumeRatio
+	}
+	if cfg.MatcherConfig.MaxGridTradesPerMinute == 0 {
+		cfg.MatcherConfig.MaxGridTradesPerMinute = defaults.MaxGridTradesPerMinute
+	}
+
+	engine.Config = cfg
+	engine.configErr = validateEngineConfig(cfg)
+	return engine
+}
+
+func validateEngineConfig(cfg *EngineConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("backtest engine config is required")
+	}
+	if cfg.Symbol == "" {
+		return fmt.Errorf("backtest symbol is required")
+	}
+	if !isFinite(cfg.InitialCapital) || cfg.InitialCapital <= 0 {
+		return fmt.Errorf("initial capital must be finite and greater than zero")
+	}
+	if !isFinite(cfg.CommissionRate) || cfg.CommissionRate < 0 || cfg.CommissionRate > 1 {
+		return fmt.Errorf("commission rate must be finite and between 0 and 1")
+	}
+	if !isFinite(cfg.Leverage) || cfg.Leverage <= 0 {
+		return fmt.Errorf("leverage must be finite and greater than zero")
+	}
+	if !isFinite(cfg.MaxCapitalRatio) || cfg.MaxCapitalRatio < 0 || cfg.MaxCapitalRatio > 1 {
+		return fmt.Errorf("max capital ratio must be between 0 and 1")
+	}
+	if !isFinite(cfg.MaxLongRatio) || cfg.MaxLongRatio < 0 || cfg.MaxLongRatio > 1 {
+		return fmt.Errorf("max long ratio must be between 0 and 1")
+	}
+	if !isFinite(cfg.MaxShortRatio) || cfg.MaxShortRatio < 0 || cfg.MaxShortRatio > 1 {
+		return fmt.Errorf("max short ratio must be between 0 and 1")
+	}
+	if !cfg.StartDate.IsZero() && !cfg.EndDate.IsZero() && cfg.EndDate.Before(cfg.StartDate) {
+		return fmt.Errorf("backtest end date must not precede start date")
+	}
+	matcher := cfg.MatcherConfig
+	if !isFinite(matcher.BuySlippage) || matcher.BuySlippage < 1 {
+		return fmt.Errorf("buy slippage multiplier must be finite and at least 1")
+	}
+	if !isFinite(matcher.SellSlippage) || matcher.SellSlippage <= 0 || matcher.SellSlippage > 1 {
+		return fmt.Errorf("sell slippage multiplier must be finite and in (0, 1]")
+	}
+	if !isFinite(matcher.MaxVolumeRatio) || matcher.MaxVolumeRatio <= 0 || matcher.MaxVolumeRatio > 1 {
+		return fmt.Errorf("max volume ratio must be finite and in (0, 1]")
+	}
+	if matcher.MaxGridTradesPerMinute <= 0 {
+		return fmt.Errorf("max grid trades per minute must be greater than zero")
+	}
+	return nil
+}
+
+func isFinite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func (e *MultiStrategyEngine) validateConfig() error {
+	if e == nil {
+		return fmt.Errorf("backtest engine is required")
+	}
+	if e.configErr != nil {
+		return e.configErr
+	}
+	return validateEngineConfig(e.Config)
 }
 
 // NewBacktestAccount 創建回测帳戶
@@ -244,8 +324,17 @@ func NewBacktestAccount(symbol string, initialBalance, leverage, maxCapitalRatio
 
 // AddStrategy 添加策略
 func (e *MultiStrategyEngine) AddStrategy(strategy BacktestStrategy) error {
+	if err := e.validateConfig(); err != nil {
+		return err
+	}
+	if strategy == nil {
+		return fmt.Errorf("backtest strategy is required")
+	}
 	cfg := strategy.GetConfig()
 	initialCapital := getFloatParam(cfg, "total_capital", e.Config.InitialCapital)
+	if !isFinite(initialCapital) || initialCapital <= 0 {
+		return fmt.Errorf("strategy %s initial capital must be finite and greater than zero", strategy.GetName())
+	}
 	strategyID := getStringParam(cfg, "strategy_id")
 	if strategyID == "" {
 		strategyID = strategy.GetName()
@@ -297,6 +386,10 @@ func (e *MultiStrategyEngine) AddStrategy(strategy BacktestStrategy) error {
 
 // LoadData 加載歷史數據
 func (e *MultiStrategyEngine) LoadData() error {
+	if err := e.validateConfig(); err != nil {
+		return err
+	}
+	e.FundingRates = nil
 	logger.Info("Loading historical data for %s from %s", e.Config.Symbol, e.Config.DataDir)
 
 	loader := NewDataLoader(e.Config.DataDir, e.Config.Symbol)
@@ -331,13 +424,15 @@ func (e *MultiStrategyEngine) LoadData() error {
 
 	// 加載資金費率數據（如果启用）
 	if e.Config.EnableFunding {
-		fundingRates, err := loader.LoadFundingRatesFromDir()
+		fundingRates, err := loader.LoadFundingRatesFromDirStrict()
 		if err != nil {
-			logger.Warn("Failed to load funding rates: %v (continuing without funding)", err)
-		} else {
-			e.FundingRates = fundingRates
-			logger.Info("Loaded %d funding rate records", len(fundingRates))
+			return fmt.Errorf("funding costs are enabled but complete funding data could not be loaded: %w", err)
 		}
+		e.FundingRates = fundingRates
+		if err := validateFundingCoverage(fundingRates, klineRows[0].OpenTime, klineRows[len(klineRows)-1].OpenTime); err != nil {
+			return fmt.Errorf("funding costs are enabled but observations do not cover the backtest range: %w", err)
+		}
+		logger.Info("Loaded %d funding rate records", len(fundingRates))
 	}
 
 	return nil
@@ -345,6 +440,20 @@ func (e *MultiStrategyEngine) LoadData() error {
 
 // Run 運行回测
 func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
+	if err := e.validateConfig(); err != nil {
+		return nil, err
+	}
+	if err := validateFundingRates(e.FundingRates, e.Config.EnableFunding); err != nil {
+		return nil, err
+	}
+	if e.Config.EnableFunding {
+		if len(e.Klines) == 0 {
+			return nil, fmt.Errorf("funding costs are enabled but no klines define a backtest range")
+		}
+		if err := validateFundingCoverage(e.FundingRates, e.Klines[0].Timestamp, e.Klines[len(e.Klines)-1].Timestamp); err != nil {
+			return nil, fmt.Errorf("funding costs are enabled but observations do not cover the backtest range: %w", err)
+		}
+	}
 	e.mu.Lock()
 	e.isRunning = true
 	e.mu.Unlock()
@@ -384,11 +493,13 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 				continue
 			}
 
-			e.updateEquity(runtime, kline)
-
 			if e.Config.EnableFunding && len(e.FundingRates) > 0 {
-				e.processFundingRate(runtime, kline.Timestamp)
+				if err := e.processFundingRate(runtime, kline.Timestamp); err != nil {
+					return nil, err
+				}
 			}
+
+			e.updateEquity(runtime, kline)
 
 			orders, err := runtime.strategy.OnKline(kline, kline.Timestamp)
 			if err != nil {
@@ -474,13 +585,12 @@ func (e *MultiStrategyEngine) Run() (*MultiStrategyResult, error) {
 		e.finalEquity += runtime.account.Equity
 	}
 
-	// 追加權益曲線終點（平倉後），確保報告與導出的最終權益一致
+	// 用平倉後權益覆蓋最後一個 K 線點，避免同一時間戳產生額外收益樣本。
 	if len(e.Klines) > 0 {
-		lastKline := e.Klines[len(e.Klines)-1]
-		e.equityCurve = append(e.equityCurve, EquityPoint{
-			Timestamp: lastKline.Timestamp,
-			Equity:    e.finalEquity,
-		})
+		lastPoint := len(e.equityCurve) - 1
+		if lastPoint >= 0 {
+			e.equityCurve[lastPoint].Equity = e.finalEquity
+		}
 	}
 
 	// 报告最终进度
@@ -511,6 +621,8 @@ func (e *MultiStrategyEngine) reset() {
 		runtime.account.PeakEquity = runtime.initialCapital
 		runtime.account.PositionSize = 0
 		runtime.account.PositionEntryPrice = 0
+		runtime.account.PositionEntryFees = 0
+		runtime.account.PositionEntrySlip = 0
 		runtime.account.RealizedPnL = 0
 		runtime.account.UnrealizedPnL = 0
 		runtime.account.TotalVolume = 0
@@ -555,8 +667,8 @@ func (e *MultiStrategyEngine) updateEquity(runtime *StrategyRuntime, kline TickK
 		runtime.account.UnrealizedPnL = unrealizedPnL
 	}
 
-	// 計算權益
-	runtime.account.Equity = runtime.account.Balance + runtime.account.UnrealizedPnL
+	// Balance 是現金餘額；權益 = 現金 + 帶符號持倉市值。
+	runtime.account.Equity = runtime.account.Balance + runtime.account.PositionSize*kline.Close
 
 	// 更新峰值權益
 	if runtime.account.Equity > runtime.account.PeakEquity {
@@ -571,7 +683,7 @@ func (e *MultiStrategyEngine) updateEquity(runtime *StrategyRuntime, kline TickK
 }
 
 // processFundingRate 處理資金費率
-func (e *MultiStrategyEngine) processFundingRate(runtime *StrategyRuntime, timestamp int64) {
+func (e *MultiStrategyEngine) processFundingRate(runtime *StrategyRuntime, timestamp int64) error {
 	// 查找适用的資金費率
 	for runtime.fundingIdx < len(e.FundingRates) {
 		funding := e.FundingRates[runtime.fundingIdx]
@@ -581,8 +693,15 @@ func (e *MultiStrategyEngine) processFundingRate(runtime *StrategyRuntime, times
 
 		// 計算資金费用
 		if runtime.account.PositionSize != 0 {
-			positionValue := abs(runtime.account.PositionSize) * runtime.account.PositionEntryPrice
-			fundingCost := positionValue * funding.FundingRate
+			// 正费率由多头支付、空头收取；使用结算前最后可用价格，避免用入场价代替结算名义值。
+			markPrice := runtime.account.GetLastPrice()
+			if funding.HasMarkPrice {
+				markPrice = funding.MarkPrice
+			}
+			if markPrice <= 0 {
+				return fmt.Errorf("cannot settle funding at %d for strategy %s without a prior usable price", funding.FundingTime, runtime.strategyName)
+			}
+			fundingCost := runtime.account.PositionSize * markPrice * funding.FundingRate
 			runtime.account.Balance -= fundingCost
 			runtime.totalFunding += fundingCost
 			e.totalFunding += fundingCost
@@ -591,6 +710,7 @@ func (e *MultiStrategyEngine) processFundingRate(runtime *StrategyRuntime, times
 
 		runtime.fundingIdx++
 	}
+	return nil
 }
 
 // calculatePositionLimits 計算倉位限制
@@ -636,13 +756,29 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 		logger.Warn("[回测] 单向做多模式下拒绝开空，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
 		return
 	}
+	if trade.Side == "sell" && isLongOnly(e.Config.PositionMode) && trade.Size > runtime.account.PositionSize {
+		trade.Slippage *= runtime.account.PositionSize / trade.Size
+		trade.Size = runtime.account.PositionSize
+	}
 	if trade.Side == "buy" && runtime.account.PositionSize >= 0 && isShortOnly(e.Config.PositionMode) {
 		logger.Warn("[回测] 单向做空模式下拒绝开多，跳过成交: %s size=%.6f", trade.OrderID, trade.Size)
 		return
 	}
+	if trade.Side == "buy" && isShortOnly(e.Config.PositionMode) && trade.Size > -runtime.account.PositionSize {
+		trade.Slippage *= -runtime.account.PositionSize / trade.Size
+		trade.Size = -runtime.account.PositionSize
+	}
 
 	// 計算手续费
 	fee := trade.Price * trade.Size * e.Config.CommissionRate
+	tradeValue := trade.Price * trade.Size
+	if trade.Side == "buy" {
+		runtime.account.Balance -= tradeValue
+	} else {
+		runtime.account.Balance += tradeValue
+	}
+	runtime.account.Balance -= fee
+	runtime.account.TotalVolume += tradeValue
 
 	// 記錄交易
 	e.trades = append(e.trades, *trade)
@@ -652,52 +788,67 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 	runtime.account.TotalFees += fee
 	runtime.account.TotalSlippage += trade.Slippage
 
-	// 更新帳戶
+	// 更新帳戶；完成交易延後到反手新倉也處理完後記錄，保持餘額/持倉快照一致。
+	var closedSide string
+	var closedSize, closedPnL, closedFee, closedSlippage, closedEntryPrice float64
 	if trade.Side == "buy" {
 		// 买入（开多或平空）
 		if runtime.account.PositionSize < 0 {
 			// 平空
 			closeSize := min(-runtime.account.PositionSize, trade.Size)
+			closeFraction := closeSize / -runtime.account.PositionSize
 			closePnL := (runtime.account.PositionEntryPrice - trade.Price) * closeSize
-			runtime.account.Balance += closePnL - fee
 			runtime.account.RealizedPnL += closePnL
 			runtime.account.PositionSize += closeSize
-
-			// 記錄完成交易
-			e.recordCompletedTrade(runtime, trade, "short", closeSize, closePnL, fee, trade.Slippage)
+			closedSide, closedSize, closedPnL = "short", closeSize, closePnL
+			closedEntryPrice = runtime.account.PositionEntryPrice
+			closedFee = runtime.account.PositionEntryFees*closeFraction + fee*closeSize/trade.Size
+			closedSlippage = runtime.account.PositionEntrySlip*closeFraction + trade.Slippage*closeSize/trade.Size
+			runtime.account.PositionEntryFees *= 1 - closeFraction
+			runtime.account.PositionEntrySlip *= 1 - closeFraction
 
 			// 剩餘部分开多（單向做空時禁止）
 			remaining := trade.Size - closeSize
 			if remaining > 0 && !isShortOnly(e.Config.PositionMode) {
-				e.openPosition(runtime, trade, remaining, "buy", fee)
+				e.openPosition(runtime, trade, remaining, "buy", fee*remaining/trade.Size, trade.Slippage*remaining/trade.Size)
 			}
 		} else {
 			// 开多或加多
-			e.openPosition(runtime, trade, trade.Size, "buy", fee)
+			e.openPosition(runtime, trade, trade.Size, "buy", fee, trade.Slippage)
 		}
 	} else {
 		// 卖出（开空或平多）
 		if runtime.account.PositionSize > 0 {
 			// 平多
 			closeSize := min(runtime.account.PositionSize, trade.Size)
+			closeFraction := closeSize / runtime.account.PositionSize
 			closePnL := (trade.Price - runtime.account.PositionEntryPrice) * closeSize
-			runtime.account.Balance += closePnL - fee
 			runtime.account.RealizedPnL += closePnL
 			runtime.account.PositionSize -= closeSize
-
-			// 記錄完成交易
-			e.recordCompletedTrade(runtime, trade, "long", closeSize, closePnL, fee, trade.Slippage)
+			closedSide, closedSize, closedPnL = "long", closeSize, closePnL
+			closedEntryPrice = runtime.account.PositionEntryPrice
+			closedFee = runtime.account.PositionEntryFees*closeFraction + fee*closeSize/trade.Size
+			closedSlippage = runtime.account.PositionEntrySlip*closeFraction + trade.Slippage*closeSize/trade.Size
+			runtime.account.PositionEntryFees *= 1 - closeFraction
+			runtime.account.PositionEntrySlip *= 1 - closeFraction
 
 			// 剩餘部分开空（單向做多時禁止）
 			remaining := trade.Size - closeSize
 			if remaining > 0 && !isLongOnly(e.Config.PositionMode) {
-				e.openPosition(runtime, trade, remaining, "sell", fee)
+				e.openPosition(runtime, trade, remaining, "sell", fee*remaining/trade.Size, trade.Slippage*remaining/trade.Size)
 			}
 		} else {
 			// 开空或加空
-			e.openPosition(runtime, trade, trade.Size, "sell", fee)
+			e.openPosition(runtime, trade, trade.Size, "sell", fee, trade.Slippage)
 		}
 	}
+	if closedSize > 0 {
+		e.recordCompletedTrade(runtime, trade, closedSide, closedSize, closedEntryPrice, closedPnL, closedFee, closedSlippage)
+	}
+	if runtime.account.lastPrice <= 0 {
+		runtime.account.lastPrice = trade.Price
+	}
+	e.revalueAccountAtLastPrice(runtime)
 
 	// 更新策略統計
 	runtime.stats.TotalTrades++
@@ -710,9 +861,7 @@ func (e *MultiStrategyEngine) processTrade(runtime *StrategyRuntime, trade *Tick
 }
 
 // openPosition 开仓
-func (e *MultiStrategyEngine) openPosition(runtime *StrategyRuntime, trade *TickTrade, size float64, side string, fee float64) {
-	cost := trade.Price*size + fee
-
+func (e *MultiStrategyEngine) openPosition(runtime *StrategyRuntime, trade *TickTrade, size float64, side string, entryFee, entrySlippage float64) {
 	// 更新平均入场价
 	if runtime.account.PositionSize == 0 {
 		runtime.account.PositionEntryPrice = trade.Price
@@ -722,7 +871,7 @@ func (e *MultiStrategyEngine) openPosition(runtime *StrategyRuntime, trade *Tick
 		}
 	} else {
 		// 加仓时重新計算平均价
-		totalCost := runtime.account.PositionEntryPrice*abs(runtime.account.PositionSize) + cost
+		totalCost := runtime.account.PositionEntryPrice*abs(runtime.account.PositionSize) + trade.Price*size
 		totalSize := abs(runtime.account.PositionSize) + size
 		runtime.account.PositionEntryPrice = totalCost / totalSize
 
@@ -732,13 +881,37 @@ func (e *MultiStrategyEngine) openPosition(runtime *StrategyRuntime, trade *Tick
 			runtime.account.PositionSize -= size
 		}
 	}
+	runtime.account.PositionEntryFees += entryFee
+	runtime.account.PositionEntrySlip += entrySlippage
 
-	runtime.account.Balance -= cost
-	runtime.account.TotalVolume += cost
+}
+
+// revalueAccountAtLastPrice 重估現金加帶符號持倉市值，並覆蓋本根 K 線的權益點。
+// 調用方必須已持有 account.mu。
+func (e *MultiStrategyEngine) revalueAccountAtLastPrice(runtime *StrategyRuntime) {
+	account := runtime.account
+	markPrice := account.lastPrice
+	if account.PositionSize > 0 {
+		account.UnrealizedPnL = (markPrice - account.PositionEntryPrice) * account.PositionSize
+	} else if account.PositionSize < 0 {
+		account.UnrealizedPnL = (account.PositionEntryPrice - markPrice) * -account.PositionSize
+	} else {
+		account.UnrealizedPnL = 0
+		account.PositionEntryPrice = 0
+		account.PositionEntryFees = 0
+		account.PositionEntrySlip = 0
+	}
+	account.Equity = account.Balance + account.PositionSize*markPrice
+	if account.Equity > account.PeakEquity {
+		account.PeakEquity = account.Equity
+	}
+	if len(runtime.equityCurve) > 0 {
+		runtime.equityCurve[len(runtime.equityCurve)-1].Equity = account.Equity
+	}
 }
 
 // recordCompletedTrade 記錄完成交易（含交易後持倉、餘額、方向）
-func (e *MultiStrategyEngine) recordCompletedTrade(runtime *StrategyRuntime, trade *TickTrade, side string, size float64, pnl, fee, slippage float64) {
+func (e *MultiStrategyEngine) recordCompletedTrade(runtime *StrategyRuntime, trade *TickTrade, side string, size, entryPrice float64, pnl, fee, slippage float64) {
 	pos := runtime.account.PositionSize
 	bal := runtime.account.Balance
 	posSide := ""
@@ -751,7 +924,7 @@ func (e *MultiStrategyEngine) recordCompletedTrade(runtime *StrategyRuntime, tra
 	completed := CompletedTrade{
 		Timestamp:     trade.Timestamp,
 		Side:          side,
-		EntryPrice:    runtime.account.PositionEntryPrice,
+		EntryPrice:    entryPrice,
 		ExitPrice:     trade.Price,
 		Size:          size,
 		PnL:           pnl,
@@ -782,9 +955,9 @@ func (e *MultiStrategyEngine) checkLiquidation(runtime *StrategyRuntime, price f
 
 	positionValue := abs(runtime.account.PositionSize) * price
 	maintenanceMargin := positionValue * maintenanceMarginRatio
-	remainingMargin := runtime.account.Balance
+	equityAtPrice := runtime.account.Balance + runtime.account.PositionSize*price
 
-	if remainingMargin <= maintenanceMargin {
+	if equityAtPrice <= maintenanceMargin {
 		runtime.account.Liquidated = true
 		runtime.account.LiquidationPrice = price
 		// 記錄強平事件（首次觸發），供期末結算明細使用
@@ -881,7 +1054,7 @@ type LiquidationEvent struct {
 
 // EndSettlementDetail 期末結算明細（區分估值收官 vs 強平收官）
 type EndSettlementDetail struct {
-	Liquidated       bool    `json:"liquidated"`        // 期末是否強平
+	Liquidated       bool    `json:"liquidated"`         // 期末是否強平
 	LiquidationPrice float64 `json:"liquidation_price"`  // 強平價格（未強平時為 0）
 	LiquidationQty   float64 `json:"liquidation_qty"`    // 強平數量（未強平時為 0）
 	LiquidationAmt   float64 `json:"liquidation_amount"` // 強平金額 USDT（未強平時為 0）
@@ -900,9 +1073,9 @@ type MultiStrategyResult struct {
 	FinalEquity    float64 `json:"final_equity"`
 
 	// 期末結算明細（一眼區分估值收官 vs 強平收官）
-	EndSettlement EndSettlementDetail `json:"end_settlement"`
-	TotalReturn    float64 `json:"total_return"`
-	TotalReturnPct float64 `json:"total_return_pct"`
+	EndSettlement  EndSettlementDetail `json:"end_settlement"`
+	TotalReturn    float64             `json:"total_return"`
+	TotalReturnPct float64             `json:"total_return_pct"`
 
 	// 統計信息
 	TotalTrades   int     `json:"total_trades"`
@@ -926,7 +1099,7 @@ type MultiStrategyResult struct {
 	RiskMetrics *MultiStrategyRiskMetrics `json:"risk_metrics"`
 
 	// 交易配置
-	Leverage        float64 `json:"leverage"`         // 杠杆倍数
+	Leverage        float64 `json:"leverage"`          // 杠杆倍数
 	MaxCapitalRatio float64 `json:"max_capital_ratio"` // 最大资金占用比例 (0.1-1.0)
 }
 
@@ -1042,9 +1215,9 @@ type CompletedTrade struct {
 	StrategyID    string  `json:"strategy_id,omitempty"`
 	AccountID     string  `json:"account_id,omitempty"`
 	GridLevel     int     `json:"grid_level,omitempty"`
-	PositionAfter float64 `json:"position_after"`   // 交易後持倉量（正=多，負=空）
-	BalanceAfter  float64 `json:"balance_after"`    // 交易後剩餘資金
-	PositionSide  string  `json:"position_side"`   // 交易後持倉方向：LONG/SHORT/空（無持倉）
+	PositionAfter float64 `json:"position_after"` // 交易後持倉量（正=多，負=空）
+	BalanceAfter  float64 `json:"balance_after"`  // 交易後剩餘資金
+	PositionSide  string  `json:"position_side"`  // 交易後持倉方向：LONG/SHORT/空（無持倉）
 }
 
 func calculateRiskMetricsFrom(equityCurve []EquityPoint, completedTrades []CompletedTrade) *MultiStrategyRiskMetrics {
@@ -1076,16 +1249,17 @@ func calculateRiskMetricsFrom(equityCurve []EquityPoint, completedTrades []Compl
 	largestLoss := 0.0
 
 	for _, trade := range completedTrades {
-		if trade.PnL > 0 {
+		netPnL := trade.PnL - trade.Fee
+		if netPnL > 0 {
 			wins++
-			totalWin += trade.PnL
-			if trade.PnL > largestWin {
-				largestWin = trade.PnL
+			totalWin += netPnL
+			if netPnL > largestWin {
+				largestWin = netPnL
 			}
 		} else {
-			totalLoss += trade.PnL
-			if trade.PnL < largestLoss {
-				largestLoss = trade.PnL
+			totalLoss += netPnL
+			if netPnL < largestLoss {
+				largestLoss = netPnL
 			}
 		}
 	}
@@ -1167,11 +1341,11 @@ func (e *MultiStrategyEngine) publishSignal(strategyID, signalType string, value
 	}
 
 	signal := &BacktestSignal{
-		ID:        fmt.Sprintf("%s_%s_%d", strategyID, signalType, klineIndex),
-		Type:      signalType,
-		Source:    strategyID,
-		Value:     value,
-		Metadata:  metadata,
+		ID:         fmt.Sprintf("%s_%s_%d", strategyID, signalType, klineIndex),
+		Type:       signalType,
+		Source:     strategyID,
+		Value:      value,
+		Metadata:   metadata,
 		KlineIndex: klineIndex,
 	}
 

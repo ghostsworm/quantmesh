@@ -107,6 +107,24 @@ func TestSimFundingMonitor_NoLookaheadRateAndSettlement(t *testing.T) {
 	}
 }
 
+func TestSimFundingMonitorUsesNextRecordedFundingTime(t *testing.T) {
+	hour := int64(time.Hour / time.Millisecond)
+	day := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC).UnixMilli()
+	series := []FundingPoint{
+		{Timestamp: day + hour, Rate: 0.0001},
+		{Timestamp: day + 5*hour, Rate: 0.0002},
+	}
+	clock := NewSimClock(time.UnixMilli(day))
+	monitor := NewSimFundingMonitor(config.FundingRateConfig{}, series, 0, clock)
+	if got := monitor.GetNextFundingTime().UnixMilli(); got != day+hour {
+		t.Fatalf("first next funding time=%d want %d", got, day+hour)
+	}
+	clock.AdvanceToMillis(day + 2*hour)
+	if got := monitor.GetNextFundingTime().UnixMilli(); got != day+5*hour {
+		t.Fatalf("dynamic next funding time=%d want %d", got, day+5*hour)
+	}
+}
+
 func TestSimFundingMonitor_BiasMatchesLiveThresholds(t *testing.T) {
 	clk := NewSimClock(time.UnixMilli(testBaseTs))
 	cases := []struct {

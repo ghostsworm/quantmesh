@@ -73,6 +73,39 @@ func TestExposureWSWithoutQuantityUsesSubmittedQuantity(t *testing.T) {
 	}
 }
 
+func TestRequiredExposureBookBlocksOpeningWhenMissingButAllowsReduction(t *testing.T) {
+	f := &exposureEvidenceExchange{place: func(req *exchange.OrderRequest) (*exchange.Order, error) {
+		return &exchange.Order{OrderID: 1, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Side: req.Side,
+			Price: req.Price, Quantity: req.Quantity, Status: exchange.OrderStatusNew}, nil
+	}}
+	oe := NewExchangeOrderExecutor(f, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	oe.RequireExposureBook()
+
+	_, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "missing-book-open"})
+	if !errors.Is(err, execution.ErrExposureUnverified) {
+		t.Fatalf("opening without required exposure book error = %v, want ErrExposureUnverified", err)
+	}
+	if f.calls != 0 {
+		t.Fatalf("opening without exposure book reached venue %d times", f.calls)
+	}
+
+	_, err = oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "SELL", Price: 100, Quantity: 1,
+		ReduceOnly: true, PositionSide: "LONG", ClientOrderID: "missing-book-close"})
+	if err != nil {
+		t.Fatalf("risk-reducing close should remain available without exposure book: %v", err)
+	}
+	if f.calls != 1 {
+		t.Fatalf("expected only the close to reach venue, got %d calls", f.calls)
+	}
+}
+
+func TestSetExposureLimitsWithoutBookReturnsUnverifiedError(t *testing.T) {
+	oe := NewExchangeOrderExecutor(nil, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := oe.SetExposureLimits(execution.ExposureLimits{Notional: 100}); !errors.Is(err, execution.ErrExposureUnverified) {
+		t.Fatalf("SetExposureLimits() error = %v, want ErrExposureUnverified", err)
+	}
+}
+
 func TestObservedAcceptanceNeverRetriesContradictoryRESTRefusal(t *testing.T) {
 	for _, withBook := range []bool{false, true} {
 		for _, refusal := range []string{"code=-5022", "code=-1003"} {

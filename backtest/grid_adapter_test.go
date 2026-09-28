@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"math"
 	"testing"
 
 	"quantmesh/exchange"
@@ -42,15 +43,15 @@ func TestRunGridBacktest_SHORT(t *testing.T) {
 		{Open: 67400, High: 67700, Low: 67300, Close: 67650, Timestamp: 1000}, // 上漲，開空
 		{Open: 67650, High: 67750, Low: 67450, Close: 67520, Timestamp: 2000}, // 下跌，平空
 		{Open: 67520, High: 67820, Low: 67420, Close: 67700, Timestamp: 3000}, // 上漲，開空
-		{Open: 67700, High: 67800, Low: 67500, Close: 67580, Timestamp: 4000}, // 下跌，平空
+		{Open: 67700, High: 67800, Low: 67350, Close: 67400, Timestamp: 4000}, // 收盤淨穿越平倉檔位，平空
 	}
 	params := GridBacktestParams{
 		PriceLow:      67300,
-		PriceHigh:    67900,
-		GridSpacing:  150,
-		GridCount:    10,
+		PriceHigh:     67900,
+		GridSpacing:   150,
+		GridCount:     10,
 		OrderQuantity: 500,
-		TotalCapital: 10000,
+		TotalCapital:  10000,
 		FeeRate:       0.0004,
 		Direction:     "SHORT",
 	}
@@ -305,8 +306,38 @@ func TestRunGridBacktest_FlashCrashRecovery(t *testing.T) {
 		t.Error("有买卖交易但成对数为 0")
 	}
 
+	var recordedSlippage float64
 	for _, trade := range result.Trades {
+		recordedSlippage += trade.SlippageLoss
 		t.Logf("  %s @ %.2f qty=%.6f pnl=%.4f", trade.Type, trade.Price, trade.Quantity, trade.PnL)
+	}
+	if math.Abs(recordedSlippage-result.Metrics.TotalSlippageLoss) > 1e-9 {
+		t.Fatalf("sum of per-trade slippage %.12f != aggregate %.12f", recordedSlippage, result.Metrics.TotalSlippageLoss)
+	}
+}
+
+func TestRunGridBacktestFinalEquityIncludesLastCandleFills(t *testing.T) {
+	candles := []*exchange.Candle{
+		{Open: 110, High: 110, Low: 110, Close: 110, Timestamp: 1000},
+		{Open: 110, High: 110, Low: 90, Close: 96, Timestamp: 2000},
+	}
+	result, err := RunGridBacktest("BTCUSDT", candles, GridBacktestParams{
+		PriceLow: 95, PriceHigh: 110, GridSpacing: 5, OrderQuantity: 100,
+		TotalCapital: 1000, FeeRate: 0.001, SlippageRatio: 0.01, Direction: "LONG",
+	}, 1000, nil)
+	if err != nil {
+		t.Fatalf("RunGridBacktest() error = %v", err)
+	}
+	if len(result.Trades) == 0 || result.Trades[len(result.Trades)-1].Timestamp != candles[len(candles)-1].Timestamp {
+		t.Fatalf("expected a fill on the final candle, got trades=%+v", result.Trades)
+	}
+	lastEquity := result.Equity[len(result.Equity)-1].Equity
+	if lastEquity != result.FinalCapital {
+		t.Fatalf("last equity point %.12f does not match final capital %.12f", lastEquity, result.FinalCapital)
+	}
+	wantReturn := (result.FinalCapital - 1000) / 1000 * 100
+	if math.Abs(result.Metrics.TotalReturn-wantReturn) > 1e-12 {
+		t.Fatalf("total return %.12f%% does not include final-candle fills; final capital %.12f", result.Metrics.TotalReturn, result.FinalCapital)
 	}
 }
 
@@ -345,6 +376,13 @@ func TestRunGridBacktest_SHORT_FlashPumpRecovery(t *testing.T) {
 	if result.Metrics.BuyCount == 0 {
 		t.Error("暴涨后价格回落，应有买入(平空)交易")
 	}
+	var recordedSlippage float64
+	for _, trade := range result.Trades {
+		recordedSlippage += trade.SlippageLoss
+	}
+	if math.Abs(recordedSlippage-result.Metrics.TotalSlippageLoss) > 1e-9 {
+		t.Fatalf("sum of per-trade slippage %.12f != aggregate %.12f", recordedSlippage, result.Metrics.TotalSlippageLoss)
+	}
 }
 
 func TestFindHighestPositionBelow(t *testing.T) {
@@ -358,11 +396,11 @@ func TestFindHighestPositionBelow(t *testing.T) {
 		target float64
 		want   float64
 	}{
-		{57120, 57050},  // 应找到 57050（有持仓的最高档）
-		{57050, 56840},  // 严格小于 target
+		{57120, 57050}, // 应找到 57050（有持仓的最高档）
+		{57050, 56840}, // 严格小于 target
 		{56840, 56770},
 		{56770, 56700},
-		{56700, -1},     // 没有更低的持仓
+		{56700, -1}, // 没有更低的持仓
 		{56000, -1},
 	}
 	for _, tt := range tests {
@@ -384,11 +422,11 @@ func TestFindLowestPositionAbove(t *testing.T) {
 		target float64
 		want   float64
 	}{
-		{60100, 60200},  // 应找到 60200（有持仓的最低档）
+		{60100, 60200}, // 应找到 60200（有持仓的最低档）
 		{60200, 60300},
 		{60300, 60500},
 		{60500, 60700},
-		{60700, -1},     // 没有更高的持仓
+		{60700, -1}, // 没有更高的持仓
 		{61000, -1},
 	}
 	for _, tt := range tests {
@@ -401,10 +439,10 @@ func TestFindLowestPositionAbove(t *testing.T) {
 
 func TestGetCrossedLevelsIntrabar(t *testing.T) {
 	levels := []float64{67500, 67630, 67760, 67890}
-	// prevClose=67950, Low=67600, High=68000: 穿越 67890,67760,67630 向下
+	// prevClose=67950 到 close=67700 淨穿越 67890,67760；67630 僅影線觸及，不應假設成交
 	got := getCrossedLevelsIntrabar(67950, 67600, 68000, 67700, levels)
-	if len(got) != 3 {
-		t.Errorf("預期 3 個向下穿越，得到 %d", len(got))
+	if len(got) != 2 {
+		t.Errorf("預期 2 個向下淨穿越，得到 %d", len(got))
 	}
 	for _, cl := range got {
 		if !cl.isBuy {
@@ -420,5 +458,9 @@ func TestGetCrossedLevelsIntrabar(t *testing.T) {
 		if cl.isBuy {
 			t.Errorf("預期向上穿越(isBuy=false)，得到 isBuy=%v", cl.isBuy)
 		}
+	}
+	// 高點影線越過 67890，但收盤未越過；OHLC 無法證明可實現的往返成交，不計交易。
+	if got := getCrossedLevelsIntrabar(67400, 67300, 68000, 67650, levels); len(got) != 2 {
+		t.Errorf("影線單獨觸及的檔位不應計入淨穿越，got %v", got)
 	}
 }

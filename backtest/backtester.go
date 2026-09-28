@@ -59,12 +59,13 @@ type EquityPoint struct {
 
 // Trade 交易記錄
 type Trade struct {
-	Timestamp int64   `json:"timestamp"`
-	Type      string  `json:"type"` // "buy" or "sell"
-	Price     float64 `json:"price"`
-	Quantity  float64 `json:"quantity"`
-	Fee       float64 `json:"fee"`
-	PnL       float64 `json:"pnl"` // 僅 sell 時有值
+	Timestamp    int64   `json:"timestamp"`
+	Type         string  `json:"type"` // "buy" or "sell"
+	Price        float64 `json:"price"`
+	Quantity     float64 `json:"quantity"`
+	Fee          float64 `json:"fee"`
+	PnL          float64 `json:"pnl"`                     // 僅 sell 時有值
+	SlippageLoss float64 `json:"slippage_loss,omitempty"` // 本筆成交相對理想價格的滑點損失
 }
 
 // BacktestResult 回测結果
@@ -248,12 +249,13 @@ func (bt *Backtester) executeBuy(candle *exchange.Candle) {
 	bt.cash -= (quantity*price + fee)
 
 	bt.trades = append(bt.trades, Trade{
-		Timestamp: candle.Timestamp,
-		Type:      "buy",
-		Price:     price,
-		Quantity:  quantity,
-		Fee:       fee,
-		PnL:       0,
+		Timestamp:    candle.Timestamp,
+		Type:         "buy",
+		Price:        price,
+		Quantity:     quantity,
+		Fee:          fee,
+		PnL:          0,
+		SlippageLoss: buySlippageLoss,
 	})
 
 	logger.Info("📈 買入: 價格=%.2f, 數量=%.4f, 手续费=%.2f, slippage損失=%.4f", price, quantity, fee, buySlippageLoss)
@@ -286,12 +288,13 @@ func (bt *Backtester) executeSell(candle *exchange.Candle) {
 	bt.position = 0
 
 	bt.trades = append(bt.trades, Trade{
-		Timestamp: candle.Timestamp,
-		Type:      "sell",
-		Price:     price,
-		Quantity:  quantity,
-		Fee:       fee,
-		PnL:       pnl,
+		Timestamp:    candle.Timestamp,
+		Type:         "sell",
+		Price:        price,
+		Quantity:     quantity,
+		Fee:          fee,
+		PnL:          pnl,
+		SlippageLoss: sellSlippageLoss,
 	})
 
 	logger.Info("📉 賣出: 價格=%.2f, 數量=%.4f, 手续费=%.2f, 盈亏=%.2f, slippage損失=%.4f", price, quantity, fee, pnl, sellSlippageLoss)

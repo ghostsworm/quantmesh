@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,7 +22,7 @@ import (
 //	funding_rate：數字 = 固定每 8h 費率（結算與資金費定價共用，舊行為）；對象 = funding_rate 配置段（enabled、pricing_enabled、bias_enabled…）
 //	funding_pricing：true 等同 funding_rate.enabled + pricing_enabled（簡寫）
 //	funding_constant_rate：funding_rate 為對象時的固定每 8h 費率（缺省 0）
-//	funding_series：[{timestamp(ms), rate}] 資金費率序列，提供時優先於固定費率
+//	funding_series：[{timestamp(ms), rate, mark_price?}] 實際結算時間/費率序列，可附結算標記價
 //	max_position_layers：trading.open_position_control.max_position_layers（inventory_skew 按層數計算庫存比例）
 const (
 	paramRegimeFilter        = "regime_filter"
@@ -171,12 +172,21 @@ func parseFundingSeries(raw interface{}) ([]FundingPoint, error) {
 	if err := dec.Decode(&pts); err != nil {
 		return nil, fmt.Errorf("params.%s: want [{timestamp, rate}]: %w", paramFundingSeries, err)
 	}
+	sort.SliceStable(pts, func(i, j int) bool { return pts[i].Timestamp < pts[j].Timestamp })
 	for i, pt := range pts {
 		if pt.Timestamp <= 0 {
 			return nil, fmt.Errorf("params.%s[%d]: timestamp must be positive (ms)", paramFundingSeries, i)
 		}
+		if math.IsNaN(pt.Rate) || math.IsInf(pt.Rate, 0) {
+			return nil, fmt.Errorf("params.%s[%d]: rate must be finite", paramFundingSeries, i)
+		}
+		if pt.MarkPrice != nil && (*pt.MarkPrice <= 0 || math.IsNaN(*pt.MarkPrice) || math.IsInf(*pt.MarkPrice, 0)) {
+			return nil, fmt.Errorf("params.%s[%d]: mark_price must be finite and positive", paramFundingSeries, i)
+		}
+		if i > 0 && pt.Timestamp == pts[i-1].Timestamp {
+			return nil, fmt.Errorf("params.%s[%d]: duplicate settlement timestamp", paramFundingSeries, i)
+		}
 	}
-	sort.SliceStable(pts, func(i, j int) bool { return pts[i].Timestamp < pts[j].Timestamp })
 	return pts, nil
 }
 

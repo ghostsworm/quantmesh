@@ -164,8 +164,6 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 		if totalQty > maxPositionQty {
 			maxPositionQty = totalQty
 		}
-		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + positionValue})
-
 		closePrice := c.Close
 		crossed := getCrossedLevelsIntrabar(prevClose, c.Low, c.High, closePrice, gridLevels)
 		for _, cl := range crossed {
@@ -193,12 +191,13 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 					cash -= qty*execPrice + fee
 					delete(positions, buyLevel)
 					trades = append(trades, Trade{
-						Timestamp: c.Timestamp,
-						Type:      "buy",
-						Price:     execPrice,
-						Quantity:  qty,
-						Fee:       fee,
-						PnL:       pnl - fee,
+						Timestamp:    c.Timestamp,
+						Type:         "buy",
+						Price:        execPrice,
+						Quantity:     qty,
+						Fee:          fee,
+						PnL:          pnl - fee,
+						SlippageLoss: buySlippageLoss,
 					})
 				} else {
 					// 價格上行：賣出開空
@@ -243,12 +242,13 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 						maxPositionQty = totalQtyAfter
 					}
 					trades = append(trades, Trade{
-						Timestamp: c.Timestamp,
-						Type:      "sell",
-						Price:     execPrice,
-						Quantity:  sellQty,
-						Fee:       fee,
-						PnL:       0,
+						Timestamp:    c.Timestamp,
+						Type:         "sell",
+						Price:        execPrice,
+						Quantity:     sellQty,
+						Fee:          fee,
+						PnL:          0,
+						SlippageLoss: sellSlippageLoss,
 					})
 				}
 			} else {
@@ -295,12 +295,13 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 						maxPositionQty = totalQtyAfter
 					}
 					trades = append(trades, Trade{
-						Timestamp: c.Timestamp,
-						Type:      "buy",
-						Price:     execPrice,
-						Quantity:  buyQty,
-						Fee:       buyFee,
-						PnL:       0,
+						Timestamp:    c.Timestamp,
+						Type:         "buy",
+						Price:        execPrice,
+						Quantity:     buyQty,
+						Fee:          buyFee,
+						PnL:          0,
+						SlippageLoss: buySlippageLoss,
 					})
 				} else {
 					sellLevel := findHighestPositionBelow(positions, level)
@@ -319,29 +320,32 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 					cash += qty*execPrice - fee
 					delete(positions, sellLevel)
 					trades = append(trades, Trade{
-						Timestamp: c.Timestamp,
-						Type:      "sell",
-						Price:     execPrice,
-						Quantity:  qty,
-						Fee:       fee,
-						PnL:       pnl - fee,
+						Timestamp:    c.Timestamp,
+						Type:         "sell",
+						Price:        execPrice,
+						Quantity:     qty,
+						Fee:          fee,
+						PnL:          pnl - fee,
+						SlippageLoss: sellSlippageLoss,
 					})
 				}
 			}
 		}
+		// 收益曲線記錄當根撮合完成後的收盤權益，確保末點包含最後一根 K 線的成交/手續費並與 FinalCapital 一致。
+		positionValue = 0
+		for _, qty := range positions {
+			if isShort {
+				positionValue -= qty * c.Close
+			} else {
+				positionValue += qty * c.Close
+			}
+		}
+		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + positionValue})
 		prevClose = closePrice
 	}
 
 	lastClose := candles[len(candles)-1].Close
-	finalEquity := cash
-	for level, qty := range positions {
-		if isShort {
-			finalEquity -= qty * lastClose
-		} else {
-			finalEquity += qty * lastClose
-		}
-		_ = level
-	}
+	finalEquity := equity[len(equity)-1].Equity
 
 	metrics := CalculateMetricsWithPrice(equity, trades, initialCapital, totalSlippageLoss, lastClose)
 	metrics.MaxPosition = maxPositionQty
@@ -483,17 +487,17 @@ type crossedLevel struct {
 	isBuy bool // true=向下穿越(買入), false=向上穿越(賣出)
 }
 
-// getCrossedLevelsIntrabar 利用 K 線 High/Low 檢測檔位穿越（修復：原邏輯僅用收盤價，1 分鐘內很少波動 130+ 導致零交易）
-// 若檔位在 [Low, High] 區間內且與 prevClose 在兩側，則認為該 K 線內穿越了該檔位
+// getCrossedLevelsIntrabar 只回報前收盤至本收盤淨穿越、且位於本根 K 線範圍內的檔位。
+// 單靠 OHLC 無法證明影線觸及後又回到原側的穿越順序，故不將此類不確定觸價當成成交。
 func getCrossedLevelsIntrabar(prevClose, low, high, closePrice float64, levels []float64) []crossedLevel {
 	var result []crossedLevel
 	for _, l := range levels {
 		if l < low-1e-12 || l > high+1e-12 {
 			continue
 		}
-		if prevClose > l+1e-12 {
+		if prevClose > l+1e-12 && closePrice <= l+1e-12 {
 			result = append(result, crossedLevel{level: l, isBuy: true})
-		} else if prevClose < l-1e-12 {
+		} else if prevClose < l-1e-12 && closePrice >= l-1e-12 {
 			result = append(result, crossedLevel{level: l, isBuy: false})
 		}
 	}

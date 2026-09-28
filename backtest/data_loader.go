@@ -5,8 +5,10 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -265,12 +267,69 @@ func KlineToTickKline(k KlineRow) TickKline {
 
 // FundingRateRow 資金費率數據行
 type FundingRateRow struct {
-	FundingTime int64
-	FundingRate float64
+	FundingTime          int64
+	FundingRate          float64
+	FundingIntervalHours int64
+	MarkPrice            float64
+	HasMarkPrice         bool
+}
+
+func validateFundingRates(rates []FundingRateRow, required bool) error {
+	if required && len(rates) == 0 {
+		return fmt.Errorf("funding costs are enabled but no funding observations are available")
+	}
+	for i, row := range rates {
+		if row.FundingTime < 0 || math.IsNaN(row.FundingRate) || math.IsInf(row.FundingRate, 0) || row.FundingIntervalHours < 0 ||
+			(row.HasMarkPrice && (row.MarkPrice <= 0 || math.IsNaN(row.MarkPrice) || math.IsInf(row.MarkPrice, 0))) {
+			return fmt.Errorf("invalid funding observation at index %d", i)
+		}
+		if i > 0 && row.FundingTime <= rates[i-1].FundingTime {
+			return fmt.Errorf("funding observations must have unique, strictly increasing timestamps")
+		}
+	}
+	return nil
+}
+
+func validateFundingCoverage(rates []FundingRateRow, startTime, endTime int64) error {
+	if len(rates) == 0 || startTime <= 0 || endTime < startTime {
+		return fmt.Errorf("funding coverage requires observations and a valid backtest time range")
+	}
+	firstAfterStart := sort.Search(len(rates), func(i int) bool { return rates[i].FundingTime > startTime })
+	if firstAfterStart == 0 {
+		return fmt.Errorf("funding observations do not cover the backtest start at %d", startTime)
+	}
+	left := firstAfterStart - 1
+	right := sort.Search(len(rates), func(i int) bool { return rates[i].FundingTime >= endTime })
+	if right == len(rates) {
+		return fmt.Errorf("funding observations do not cover the backtest end at %d", endTime)
+	}
+	for i := left; i < right; i++ {
+		intervalHours := rates[i].FundingIntervalHours
+		if intervalHours == 0 {
+			intervalHours = rates[i+1].FundingIntervalHours
+		}
+		if intervalHours == 0 {
+			continue
+		}
+		const maxInt64 = int64(1<<63 - 1)
+		const millisPerHour = int64(time.Hour / time.Millisecond)
+		if intervalHours > (maxInt64-int64(time.Minute/time.Millisecond))/millisPerHour {
+			return fmt.Errorf("funding observation declares an unrepresentable interval of %d hours", intervalHours)
+		}
+		maxGapMs := intervalHours*millisPerHour + int64(time.Minute/time.Millisecond)
+		if rates[i+1].FundingTime-rates[i].FundingTime > maxGapMs {
+			return fmt.Errorf("funding observations have a gap exceeding the declared %d-hour interval between %d and %d", intervalHours, rates[i].FundingTime, rates[i+1].FundingTime)
+		}
+	}
+	return nil
 }
 
 // LoadFundingRatesFromCSV 从CSV檔案加載資金費率數據
 func (dl *DataLoader) LoadFundingRatesFromCSV(filePath string) ([]FundingRateRow, error) {
+	return dl.loadFundingRatesFromCSV(filePath, false)
+}
+
+func (dl *DataLoader) loadFundingRatesFromCSV(filePath string, strict bool) ([]FundingRateRow, error) {
 	logger.Info("Loading funding rates from CSV: %s", filePath)
 
 	var reader io.Reader
@@ -295,6 +354,8 @@ func (dl *DataLoader) LoadFundingRatesFromCSV(filePath string) ([]FundingRateRow
 
 	var rates []FundingRateRow
 	lineNum := 0
+	timeIndex, rateIndex, intervalIndex, markPriceIndex := 0, 1, -1, -1
+	headerParsed := false
 
 	for {
 		record, err := csvReader.Read()
@@ -307,33 +368,132 @@ func (dl *DataLoader) LoadFundingRatesFromCSV(filePath string) ([]FundingRateRow
 
 		lineNum++
 		if lineNum == 1 {
-			if len(record) > 0 && strings.ToLower(record[0]) == "funding_time" {
+			if timeCol, rateCol, intervalCol, markCol, isHeader := fundingRateColumnIndexes(record); isHeader {
+				if timeCol < 0 || rateCol < 0 {
+					if strict {
+						return nil, fmt.Errorf("unsupported funding CSV header")
+					}
+					continue
+				}
+				timeIndex, rateIndex, intervalIndex = timeCol, rateCol, intervalCol
+				markPriceIndex = markCol
+				headerParsed = true
 				continue
 			}
 		}
+		if lineNum == 1 && !headerParsed {
+			timeIndex, rateIndex, intervalIndex, markPriceIndex = inferFundingRateColumns(record, strict)
+			if strict && (timeIndex < 0 || rateIndex < 0) {
+				return nil, fmt.Errorf("unsupported funding CSV column layout")
+			}
+		}
 
-		if len(record) < 2 {
+		if timeIndex < 0 || rateIndex < 0 || timeIndex >= len(record) || rateIndex >= len(record) || (intervalIndex >= len(record)) || (markPriceIndex >= len(record)) {
+			if strict {
+				return nil, fmt.Errorf("invalid funding row %d: missing timestamp, rate, or interval field", lineNum)
+			}
 			continue
 		}
 
-		ts, err := strconv.ParseInt(record[0], 10, 64)
-		if err != nil {
+		ts, err := strconv.ParseInt(strings.TrimSpace(record[timeIndex]), 10, 64)
+		if err != nil || (strict && ts < 0) {
+			if strict {
+				return nil, fmt.Errorf("invalid funding timestamp at row %d", lineNum)
+			}
 			continue
 		}
 
-		rate, err := strconv.ParseFloat(record[1], 64)
-		if err != nil {
+		rate, err := strconv.ParseFloat(strings.TrimSpace(record[rateIndex]), 64)
+		if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) {
+			if strict {
+				return nil, fmt.Errorf("invalid funding rate at row %d", lineNum)
+			}
 			continue
 		}
 
-		rates = append(rates, FundingRateRow{
-			FundingTime: ts,
-			FundingRate: rate,
-		})
+		fundingRate := FundingRateRow{FundingTime: ts, FundingRate: rate}
+		if markPriceIndex >= 0 {
+			markPrice, parseErr := strconv.ParseFloat(strings.TrimSpace(record[markPriceIndex]), 64)
+			if parseErr != nil || markPrice <= 0 || math.IsNaN(markPrice) || math.IsInf(markPrice, 0) {
+				if strict {
+					return nil, fmt.Errorf("invalid funding mark price at row %d", lineNum)
+				}
+				continue
+			}
+			fundingRate.MarkPrice = markPrice
+			fundingRate.HasMarkPrice = true
+		}
+		if intervalIndex >= 0 {
+			intervalHours, parseErr := strconv.ParseInt(strings.TrimSpace(record[intervalIndex]), 10, 64)
+			if parseErr != nil || intervalHours <= 0 {
+				if strict {
+					return nil, fmt.Errorf("invalid funding interval at row %d", lineNum)
+				}
+				continue
+			}
+			fundingRate.FundingIntervalHours = intervalHours
+		}
+		rates = append(rates, fundingRate)
 	}
 
+	if strict && len(rates) == 0 {
+		return nil, fmt.Errorf("funding rate file contains no valid observations")
+	}
 	logger.Info("Loaded %d funding rate records", len(rates))
 	return rates, nil
+}
+
+func fundingRateColumnIndexes(record []string) (timeIndex, rateIndex, intervalIndex, markPriceIndex int, isHeader bool) {
+	timeIndex, rateIndex, intervalIndex, markPriceIndex = -1, -1, -1, -1
+	for index, column := range record {
+		normalized := strings.ToLower(strings.TrimSpace(column))
+		normalized = strings.ReplaceAll(normalized, "_", "")
+		switch normalized {
+		case "fundingtime", "calctime", "timestamp":
+			timeIndex = index
+			isHeader = true
+		case "fundingrate", "lastfundingrate":
+			rateIndex = index
+			isHeader = true
+		case "fundingintervalhours":
+			intervalIndex = index
+			isHeader = true
+		case "markprice":
+			markPriceIndex = index
+			isHeader = true
+		case "symbol":
+			isHeader = true
+		}
+	}
+	return timeIndex, rateIndex, intervalIndex, markPriceIndex, isHeader
+}
+
+func inferFundingRateColumns(record []string, strict bool) (timeIndex, rateIndex, intervalIndex, markPriceIndex int) {
+	timeIndex, rateIndex, intervalIndex, markPriceIndex = 0, 1, -1, -1
+	if len(record) == 0 {
+		return -1, -1, -1, -1
+	}
+	if len(record) == 2 {
+		return timeIndex, rateIndex, intervalIndex, markPriceIndex
+	}
+	if timestamp, err := strconv.ParseInt(strings.TrimSpace(record[0]), 10, 64); err == nil {
+		_ = timestamp
+		if len(record) == 3 {
+			if _, err := strconv.ParseInt(strings.TrimSpace(record[1]), 10, 64); err == nil {
+				return 0, 2, 1, -1
+			}
+		}
+		if strict {
+			return -1, -1, -1, -1
+		}
+		return timeIndex, rateIndex, intervalIndex, markPriceIndex
+	}
+	if len(record) == 4 {
+		if _, err := strconv.ParseInt(strings.TrimSpace(record[1]), 10, 64); err == nil {
+			return 1, 2, -1, 3 // Binance funding API export: symbol, fundingTime, fundingRate, markPrice.
+		}
+	}
+	return -1, -1, -1, -1
 }
 
 // LoadFundingRatesFromDir 从目錄加載所有資金費率數據
@@ -364,6 +524,39 @@ func (dl *DataLoader) LoadFundingRatesFromDir() ([]FundingRateRow, error) {
 		allRates = append(allRates, rates...)
 	}
 
+	return allRates, nil
+}
+
+// LoadFundingRatesFromDirStrict requires usable funding evidence for backtests
+// that explicitly enable funding costs. It never skips an unreadable file/row.
+func (dl *DataLoader) LoadFundingRatesFromDirStrict() ([]FundingRateRow, error) {
+	fundingDir := filepath.Join(dl.dataDir, "funding_rate", dl.symbol)
+	info, err := os.Stat(fundingDir)
+	if err != nil {
+		return nil, fmt.Errorf("funding rate directory is unavailable: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("funding rate path is not a directory: %s", fundingDir)
+	}
+	files, err := filepath.Glob(filepath.Join(fundingDir, "*.csv*"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list funding rate files: %w", err)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("funding rate directory contains no CSV files")
+	}
+	var allRates []FundingRateRow
+	for _, file := range files {
+		rates, err := dl.loadFundingRatesFromCSV(file, true)
+		if err != nil {
+			return nil, fmt.Errorf("load required funding data %s: %w", filepath.Base(file), err)
+		}
+		allRates = append(allRates, rates...)
+	}
+	sort.Slice(allRates, func(i, j int) bool { return allRates[i].FundingTime < allRates[j].FundingTime })
+	if err := validateFundingRates(allRates, true); err != nil {
+		return nil, err
+	}
 	return allRates, nil
 }
 

@@ -67,6 +67,9 @@ func startFundingCarrySymbolRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("創建現貨連線失敗: %w", err)
 	}
+	if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), futEx.GetBaseAsset(), futEx.GetQuoteAsset()); err != nil {
+		return nil, fmt.Errorf("資金費套利現貨/合約資產不匹配: %w", err)
+	}
 	var futuresAccountCapital, spotAccountCapital float64
 	for _, wallet := range []struct {
 		market string
@@ -104,6 +107,9 @@ func startFundingCarrySymbolRuntime(
 		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
 	}
 	if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
+		if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), marginEx.GetBaseAsset(), marginEx.GetQuoteAsset()); err != nil {
+			return nil, fmt.Errorf("資金費套利現貨/槓桿錢包資產不匹配: %w", err)
+		}
 		allocated, allocationErr := configuredAccountWalletCapitalTotal(baseCfg, symCfg, symCfg.Exchange, "spot_margin")
 		if allocationErr != nil {
 			return nil, fmt.Errorf("計算同帳戶 spot_margin 錢包配置資金: %w", allocationErr)
@@ -368,6 +374,23 @@ func startFundingCarrySymbolRuntime(
 	runtimeReady = true
 
 	return rt, nil
+}
+
+func validateFundingCarryPairAssets(spotBase, spotQuote, hedgeBase, hedgeQuote string) error {
+	spotBase = strings.ToUpper(strings.TrimSpace(spotBase))
+	spotQuote = strings.ToUpper(strings.TrimSpace(spotQuote))
+	hedgeBase = strings.ToUpper(strings.TrimSpace(hedgeBase))
+	hedgeQuote = strings.ToUpper(strings.TrimSpace(hedgeQuote))
+	if spotBase == "" || hedgeBase == "" || spotQuote == "" || hedgeQuote == "" {
+		return fmt.Errorf("交易所未提供完整基礎幣/報價幣身份")
+	}
+	if spotBase != hedgeBase {
+		return fmt.Errorf("基礎幣不一致：現貨 %s、對沖腿 %s", spotBase, hedgeBase)
+	}
+	if spotQuote != "USDT" || hedgeQuote != "USDT" {
+		return fmt.Errorf("目前資金預算僅核對 USDT 錢包，報價幣必須均為 USDT：現貨 %s、對沖腿 %s", spotQuote, hedgeQuote)
+	}
+	return nil
 }
 
 func fundingCarryReverseEnabled(symCfg config.SymbolConfig) bool {

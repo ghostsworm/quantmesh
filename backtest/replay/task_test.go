@@ -106,7 +106,7 @@ func TestConfigFromTask_FeatureParams(t *testing.T) {
 		"funding_rate":          map[string]interface{}{"enabled": true, "bias_enabled": true, "pricing_enabled": true},
 		"funding_constant_rate": 0.0001,
 		"funding_series": []interface{}{
-			map[string]interface{}{"timestamp": float64(testBaseTs + 8*3600*1000), "rate": 0.0002},
+			map[string]interface{}{"timestamp": float64(testBaseTs + 8*3600*1000), "rate": 0.0002, "mark_price": 150.0},
 			map[string]interface{}{"timestamp": float64(testBaseTs), "rate": 0.0001},
 		},
 	}))
@@ -117,6 +117,9 @@ func TestConfigFromTask_FeatureParams(t *testing.T) {
 		len(cfg.FundingSeries) != 2 || cfg.FundingSeries[0].Timestamp != testBaseTs || !cfg.FundingEnabled {
 		t.Fatalf("funding object/series not applied: %+v rate=%v series=%+v", cfg.Bot.FundingRate, cfg.FundingRate, cfg.FundingSeries)
 	}
+	if cfg.FundingSeries[1].MarkPrice == nil || *cfg.FundingSeries[1].MarkPrice != 150 {
+		t.Fatalf("settlement mark price was not preserved: %+v", cfg.FundingSeries[1])
+	}
 
 	for name, extra := range map[string]map[string]interface{}{
 		"unknown field":      {"regime_filter": map[string]interface{}{"enabeld": true}},
@@ -125,6 +128,16 @@ func TestConfigFromTask_FeatureParams(t *testing.T) {
 		"bad kline interval": {"regime_filter": map[string]interface{}{"enabled": true, "kline_interval": "7s"}},
 		"pricing object":     {"funding_pricing": map[string]interface{}{"enabled": true}},
 		"bad series":         {"funding_series": []interface{}{map[string]interface{}{"ts": 1.0}}},
+		"duplicate series settlement": {"funding_series": []interface{}{
+			map[string]interface{}{"timestamp": float64(testBaseTs), "rate": 0.001},
+			map[string]interface{}{"timestamp": float64(testBaseTs), "rate": 0.002},
+		}},
+		"non-finite series rate": {"funding_series": []interface{}{
+			map[string]interface{}{"timestamp": float64(testBaseTs), "rate": math.Inf(1)},
+		}},
+		"invalid mark price": {"funding_series": []interface{}{
+			map[string]interface{}{"timestamp": float64(testBaseTs), "rate": 0.001, "mark_price": 0.0},
+		}},
 	} {
 		if _, err := ConfigFromTask(base(extra)); err == nil {
 			t.Fatalf("%s: expected error", name)

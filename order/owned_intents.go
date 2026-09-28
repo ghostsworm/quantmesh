@@ -214,6 +214,9 @@ func (oe *ExchangeOrderExecutor) beginIntent(req *OrderRequest) error {
 			return fmt.Errorf("uncertain close %s must be reconciled first: %w", intent.request.ClientOrderID, execution.ErrIntentPending)
 		}
 	}
+	if oe.exposureRequired && oe.exposureBook == nil && oe.isOpeningOrder(req) {
+		return fmt.Errorf("opening exposure book is not configured: %w", execution.ErrExposureUnverified)
+	}
 	if oe.exposureBook != nil {
 		oe.refreshExposureMark()
 		exposure, err := oe.exposureRequest(req)

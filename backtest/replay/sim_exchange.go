@@ -410,6 +410,31 @@ func (ex *simExchange) settleFunding(fromTs, toTs int64, rateAt func(ts int64) f
 	}
 }
 
+// settleFundingPoints 按實際歷史結算時間逐筆結算，支援非固定 8h 的資金費週期。
+func (ex *simExchange) settleFundingPoints(fromTs, toTs int64, points []FundingPoint) {
+	if toTs <= fromTs {
+		return
+	}
+	ex.mu.Lock()
+	defer ex.mu.Unlock()
+	for _, point := range points {
+		if point.Timestamp <= fromTs {
+			continue
+		}
+		if point.Timestamp > toTs {
+			break
+		}
+		markPrice := ex.lastPrice
+		if point.MarkPrice != nil {
+			markPrice = *point.MarkPrice
+		}
+		if ex.netQty == 0 || markPrice <= 0 {
+			continue
+		}
+		ex.fundingPaid += ex.netQty * markPrice * point.Rate
+	}
+}
+
 func (ex *simExchange) pushUpdateLocked(o *restingOrder, status string, commission float64) {
 	average := 0.0
 	if o.filled > 0 {
