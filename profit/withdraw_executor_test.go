@@ -351,12 +351,13 @@ func TestAutomaticWithdrawRejectsCredentialScopeMismatchBeforeReservation(t *tes
 
 func TestAutomaticWithdrawUsesUnscopedCompletedWithdrawalAsCheckpoint(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	completedAt := base
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
 		ID: "legacy-scope-rule", AccountID: "legacy-scope-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
 		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
 	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
 		events:  []pnlEvent{{at: base.Add(time.Minute), pnl: 100}},
-		records: []*storage.ProfitWithdrawRecord{{AccountID: "legacy-scope-account", ExchangeID: "binance", StrategyID: "ETHUSDT", Status: "completed", CreatedAt: base}},
+		records: []*storage.ProfitWithdrawRecord{{AccountID: "legacy-scope-account", ExchangeID: "binance", StrategyID: "ETHUSDT", Status: "completed", CreatedAt: base.Add(-time.Minute), CompletedAt: &completedAt}},
 	}
 	ex := &fakeTransferExchange{st: st, accountScope: "scope-a", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
 	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
@@ -386,6 +387,25 @@ func TestIsReconciledWithdrawalFailureRequiresLedgerEvidence(t *testing.T) {
 				t.Fatalf("IsReconciledWithdrawalFailure()=%v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLegacyWithdrawalCheckpointUsesConfirmedCompletionTime(t *testing.T) {
+	createdAt := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+	completedAt := createdAt.Add(2 * time.Minute)
+	checkpoint, err := LegacyWithdrawalCheckpoint([]*storage.ProfitWithdrawRecord{{
+		ExchangeID: "binance", StrategyID: "ETHUSDT", Status: "completed", CreatedAt: createdAt, CompletedAt: &completedAt,
+	}}, "BINANCE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !checkpoint.Equal(completedAt) {
+		t.Fatalf("checkpoint=%v, want confirmed completion time %v", checkpoint, completedAt)
+	}
+	if _, err := LegacyWithdrawalCheckpoint([]*storage.ProfitWithdrawRecord{{
+		ExchangeID: "binance", Status: "completed", CreatedAt: createdAt,
+	}}, "binance"); err == nil {
+		t.Fatal("completed legacy withdrawal without a completion time must fail closed")
 	}
 }
 

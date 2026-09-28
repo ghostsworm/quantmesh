@@ -332,6 +332,13 @@ func legacyWithdrawalCheckpoint(st storage.Storage, accountID, exchangeID string
 	if len(records) >= 1000 {
 		return time.Time{}, fmt.Errorf("withdrawal history reached its verification limit; automatic withdrawal is disabled")
 	}
+	return LegacyWithdrawalCheckpoint(records, exchangeID)
+}
+
+// LegacyWithdrawalCheckpoint returns the latest confirmed completion time for
+// unscoped withdrawals on an exchange. Both automatic and manual paths use it
+// so an earlier reservation timestamp cannot reopen already withdrawn profit.
+func LegacyWithdrawalCheckpoint(records []*storage.ProfitWithdrawRecord, exchangeID string) (time.Time, error) {
 	var checkpoint time.Time
 	for _, record := range records {
 		if record == nil || !strings.EqualFold(record.ExchangeID, exchangeID) || record.AccountScope != "" {
@@ -341,11 +348,11 @@ func legacyWithdrawalCheckpoint(st storage.Storage, accountID, exchangeID string
 			continue
 		}
 		if record.Status == "completed" {
-			if record.CreatedAt.IsZero() {
-				return time.Time{}, fmt.Errorf("legacy completed withdrawal lacks a trusted checkpoint; reconcile it before automatic transfer")
+			if record.CompletedAt == nil || record.CompletedAt.IsZero() {
+				return time.Time{}, fmt.Errorf("legacy completed withdrawal lacks a trusted completion time; reconcile it before automatic transfer")
 			}
-			if record.CreatedAt.After(checkpoint) {
-				checkpoint = record.CreatedAt
+			if record.CompletedAt.After(checkpoint) {
+				checkpoint = *record.CompletedAt
 			}
 			continue
 		}

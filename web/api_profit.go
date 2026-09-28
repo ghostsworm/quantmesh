@@ -840,25 +840,16 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 	if len(records) >= 1000 {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("withdrawal history reached its verification limit")
 	}
+	legacyCheckpoint, err := profit.LegacyWithdrawalCheckpoint(records, exchangeID)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, err
+	}
 	var latest *storage.ProfitWithdrawRecord
-	var legacyCheckpoint time.Time
 	for _, record := range records {
 		if record == nil || !strings.EqualFold(record.ExchangeID, exchangeID) {
 			continue
 		}
 		if record.AccountScope == "" {
-			if profit.IsReconciledWithdrawalFailure(record) {
-				continue
-			}
-			if record.Status != "completed" {
-				return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy withdrawal outcome is unresolved; reconcile its ledger before another transfer")
-			}
-			if record.CreatedAt.IsZero() {
-				return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy completed withdrawal lacks a trusted checkpoint")
-			}
-			if record.CreatedAt.After(legacyCheckpoint) {
-				legacyCheckpoint = record.CreatedAt
-			}
 			continue
 		}
 		if record.AccountScope != accountScope || !strings.EqualFold(record.StrategyID, symbol) {

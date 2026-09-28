@@ -138,7 +138,7 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	}
 }
 
-func TestManualWithdrawWindowUsesLegacyWithdrawalAsGlobalCheckpoint(t *testing.T) {
+func TestManualWithdrawWindowRejectsLegacyWithdrawalWithoutCompletionTime(t *testing.T) {
 	st, err := storage.NewSQLStorage(t.TempDir() + "/legacy-manual-window.db")
 	if err != nil {
 		t.Fatal(err)
@@ -155,25 +155,12 @@ func TestManualWithdrawWindowUsesLegacyWithdrawalAsGlobalCheckpoint(t *testing.T
 	}
 	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{
 		ID: "legacy-eth-withdrawal", AccountID: "acct", ExchangeID: "binance", StrategyID: "ETHUSDT",
-		Amount: 10, Currency: "USDT", Type: "manual", Status: "completed", CreatedAt: start.Add(10 * time.Minute),
+		Amount: 10, Currency: "USDT", Type: "manual", Status: "completed", CreatedAt: start.Add(5 * time.Minute),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	pnl := 10.0
-	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, Symbol: "BTCUSDT", TradeID: "post-legacy-checkpoint-fill",
-		OrderID: 88, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &pnl, TradeTime: start.Add(20 * time.Minute)}
-	if err := st.SaveOrderFill(&fill); err != nil {
-		t.Fatal(err)
-	}
-	windowStart, _, _, verified, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC())
-	if err != nil {
-		t.Fatalf("completed legacy transfer should establish a global checkpoint: %v", err)
-	}
-	if want := start.Add(10 * time.Minute); !windowStart.Equal(want) {
-		t.Fatalf("windowStart=%v, want legacy transfer checkpoint %v", windowStart, want)
-	}
-	if verified != 10 {
-		t.Fatalf("verified profit=%v, want only post-checkpoint profit 10", verified)
+	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC()); err == nil {
+		t.Fatal("legacy completed withdrawal without a persisted completion time must block manual transfer")
 	}
 }
 
