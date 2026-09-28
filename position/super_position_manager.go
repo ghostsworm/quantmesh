@@ -246,6 +246,62 @@ type TradeStorage interface {
 	SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
 }
 
+// GridRuntimeStateStore persists the grid slot ledger independently of the
+// trade ledger. A snapshot is evidence for later reconciliation, not authority
+// to reopen trading by itself.
+type GridRuntimeStateStore interface {
+	LoadRuntimeState(strategyName string) (int, string, bool, error)
+	SaveRuntimeState(strategyName string, schemaVersion int, payload string) error
+}
+
+const gridRuntimeStateSchemaVersion = 1
+
+type gridRuntimeStateSnapshot struct {
+	Version      int                       `json:"version"`
+	BotID        string                    `json:"bot_id"`
+	Exchange     string                    `json:"exchange"`
+	MarketType   string                    `json:"market_type"`
+	Symbol       string                    `json:"symbol"`
+	Direction    string                    `json:"direction"`
+	AnchorPrice  float64                   `json:"anchor_price"`
+	LastMarket   float64                   `json:"last_market_price"`
+	TotalBuyQty  float64                   `json:"total_buy_qty"`
+	TotalSellQty float64                   `json:"total_sell_qty"`
+	Slots        []gridRuntimeSlotSnapshot `json:"slots"`
+}
+
+type gridRuntimeSlotSnapshot struct {
+	Price               float64      `json:"price"`
+	PositionStatus      string       `json:"position_status"`
+	PositionQty         float64      `json:"position_qty"`
+	OrderID             int64        `json:"order_id"`
+	ClientOID           string       `json:"client_oid"`
+	OrderSide           string       `json:"order_side"`
+	OrderStatus         string       `json:"order_status"`
+	OrderPrice          float64      `json:"order_price"`
+	OrderFilledQty      float64      `json:"order_filled_qty"`
+	OrderFilledNotional float64      `json:"order_filled_notional"`
+	OrderCreatedAt      time.Time    `json:"order_created_at"`
+	SlotStatus          string       `json:"slot_status"`
+	PostOnlyFailCount   int          `json:"post_only_fail_count"`
+	BuyFee              float64      `json:"buy_fee"`
+	FeeAsset            string       `json:"fee_asset"`
+	FeeClientOID        string       `json:"fee_client_oid"`
+	OrderCommission     float64      `json:"order_commission"`
+	FeeValuationUnknown bool         `json:"fee_valuation_unknown"`
+	OrderBaseFeeQty     float64      `json:"order_base_fee_qty"`
+	CycleGen            uint64       `json:"cycle_gen"`
+	FeeSupplementUntil  time.Time    `json:"fee_supplement_until"`
+	LastFilledClientOID string       `json:"last_filled_client_oid"`
+	LastTerminalFill    FillProgress `json:"last_terminal_fill"`
+	BaseFeeUnfloored    bool         `json:"base_fee_unfloored"`
+	AvgBuyPrice         float64      `json:"avg_buy_price"`
+	AllocatedMargin     float64      `json:"allocated_margin"`
+	PositionLeg         string       `json:"position_leg"`
+	StrategyName        string       `json:"strategy_name"`
+	StrategyType        string       `json:"strategy_type"`
+}
+
 // ReconciliationStorage 對账存儲介面（避免循環匯入）
 // 用於恢複對账统计值
 type ReconciliationStorage interface {
@@ -339,7 +395,9 @@ type SuperPositionManager struct {
 	lastOptimizationTime atomic.Value // time.Time - 最后訂單簿優化時间
 
 	// 交易存儲（可選，用於保存交易記錄）
-	tradeStorage TradeStorage
+	tradeStorage          TradeStorage
+	gridRuntimeStateMu    sync.RWMutex
+	gridRuntimeStateStore GridRuntimeStateStore
 
 	// 初始化標志
 	isInitialized atomic.Bool
@@ -773,6 +831,15 @@ func (spm *SuperPositionManager) SetEventBus(eventBus EventBus) {
 // SetTradeStorage 設置交易存儲介面（用於保存交易記錄）
 func (spm *SuperPositionManager) SetTradeStorage(storage TradeStorage) {
 	spm.tradeStorage = storage
+}
+
+// SetGridRuntimeStateStore enables durable grid snapshots. Snapshot persistence
+// failures keep opening blocked; snapshots are not used to bypass startup
+// reconciliation with venue positions and open orders.
+func (spm *SuperPositionManager) SetGridRuntimeStateStore(store GridRuntimeStateStore) {
+	spm.gridRuntimeStateMu.Lock()
+	spm.gridRuntimeStateStore = store
+	spm.gridRuntimeStateMu.Unlock()
 }
 
 // isSpot 是否為現貨交易（現貨不使用 ReduceOnly、杠杆固定為 1）

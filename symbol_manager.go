@@ -633,6 +633,14 @@ func startSymbolRuntime(
 	intentScope := execution.IntentScope{Account: equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 		Exchange: ex.GetName(), Market: ex.GetMarketType(), Symbol: symCfg.Symbol, Bot: botID}
 	if storageService != nil {
+		runtimeStateKey, scopeErr := intentScope.Key()
+		if scopeErr != nil {
+			return nil, fmt.Errorf("grid runtime state owner scope: %w", scopeErr)
+		}
+		superPositionManager.SetGridRuntimeStateStore(&scopedGridRuntimeStateAdapter{
+			base:        &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
+			strategyKey: "grid-" + runtimeStateKey,
+		})
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
 			accountID:      accountID,

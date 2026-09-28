@@ -83,6 +83,28 @@ func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUp
 
 // OnOrderUpdate 订單更新回呼（异步订單同步流）
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
+	spm.onOrderUpdate(update)
+	spm.persistGridRuntimeStateOrHold(update)
+}
+
+func (spm *SuperPositionManager) persistGridRuntimeStateOrHold(update OrderUpdate) {
+	if err := spm.PersistGridRuntimeState(); err != nil {
+		spm.openingGate.Block("grid_runtime_state_unverified")
+		if tracker, ok := spm.executor.(interface {
+			MarkOrderReconciliationRequired(int64, string, string) error
+		}); ok {
+			if markErr := tracker.MarkOrderReconciliationRequired(update.OrderID, update.ClientOrderID, err.Error()); markErr != nil {
+				logger.Error("[%s] 网格运行态快照失败且无法持久化订单核账锁: order=%d cid=%s snapshot_err=%v journal_err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, err, markErr)
+			} else {
+				logger.Error("[%s] 网格运行态快照失败，已持久化订单核账锁并暂停新开仓: order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, err)
+			}
+		} else {
+			logger.Error("[%s] 网格运行态快照失败且执行器不支持持久化订单核账锁: order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, err)
+		}
+	}
+}
+
+func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 	update.Status = normalizeOrderStatus(update.Status)
 	// 任何訂單/成交事件都要求下一個 tick 全量重算掛單（AdjustOrders 去抖）
 	spm.markAdjustDirty()

@@ -267,12 +267,17 @@ func mapFloat(m map[string]interface{}, key string) float64 {
 //   - 平倉腿：交易記錄已保存且存儲不支持按訂單更新手續費，記更正記錄。
 func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot *InventorySlot, tag feeSupplementTag) {
 	defer func() {
+		persistState := false
 		if tag.openLeg {
 			slot.mu.Lock()
 			if slot.cycleGen == tag.cycleGen {
 				slot.feeSupplementUntil = time.Time{}
+				persistState = true
 			}
 			slot.mu.Unlock()
+		}
+		if persistState {
+			spm.persistGridRuntimeStateOrHold(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol})
 		}
 	}()
 

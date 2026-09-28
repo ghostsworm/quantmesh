@@ -213,6 +213,19 @@ type strategyRuntimeStateAdapter struct {
 	botID          string
 }
 
+type scopedGridRuntimeStateAdapter struct {
+	base        *strategyRuntimeStateAdapter
+	strategyKey string
+}
+
+func (a *scopedGridRuntimeStateAdapter) LoadRuntimeState(_ string) (int, string, bool, error) {
+	return a.base.LoadRuntimeState(a.strategyKey)
+}
+
+func (a *scopedGridRuntimeStateAdapter) SaveRuntimeState(_ string, schemaVersion int, payload string) error {
+	return a.base.SaveRuntimeState(a.strategyKey, schemaVersion, payload)
+}
+
 func (a *strategyRuntimeStateAdapter) LoadRuntimeState(strategyName string) (int, string, bool, error) {
 	if a == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
 		return 0, "", false, fmt.Errorf("strategy runtime state storage is unavailable")
