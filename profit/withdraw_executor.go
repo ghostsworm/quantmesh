@@ -466,6 +466,9 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 		return fmt.Errorf("保存記錄失败: %w", err)
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)
+	if err == nil && strings.TrimSpace(transferID) == "" {
+		err = errors.New("exchange confirmed transfer without a verifiable transfer ID")
+	}
 	if err != nil {
 		// A transfer timeout/error can arrive after the exchange completed it.
 		// Keep the record pending so the profit is reserved and never retried

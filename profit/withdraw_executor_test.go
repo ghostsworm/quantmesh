@@ -242,13 +242,14 @@ func (f *fakeWithdrawStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID str
 
 type fakeTransferExchange struct {
 	exchange.IExchange
-	st            *fakeWithdrawStorage
-	amounts       []float64
-	err           error
-	account       *exchange.Account
-	accountErr    error
-	ledgerEntries []accounting.Entry
-	ledgerErr     error
+	st              *fakeWithdrawStorage
+	amounts         []float64
+	err             error
+	emptyTransferID bool
+	account         *exchange.Account
+	accountErr      error
+	ledgerEntries   []accounting.Entry
+	ledgerErr       error
 }
 
 func (f *fakeTransferExchange) GetAccountFresh(context.Context) (*exchange.Account, error) {
@@ -268,6 +269,9 @@ func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, a
 	f.amounts = append(f.amounts, amount)
 	if f.err != nil {
 		return "", f.err
+	}
+	if f.emptyTransferID {
+		return "", nil
 	}
 	return "tx", nil
 }
@@ -399,6 +403,33 @@ func TestAutomaticWithdrawAmbiguousTransferErrorIsNeverRetried(t *testing.T) {
 	}
 	if len(ex.amounts) != 1 {
 		t.Fatalf("ambiguous transfer was retried %d times", len(ex.amounts))
+	}
+}
+
+func TestAutomaticWithdrawEmptyTransferIDRemainsUnresolved(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "empty-transfer-id-rule", AccountID: "empty-transfer-id-account", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour)}
+	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
+	ex := &fakeTransferExchange{st: st, emptyTransferID: true,
+		account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+
+	err := e.processRule(st.rule)
+	if !errors.Is(err, ErrWithdrawOutcomeUnknown) {
+		t.Fatalf("empty transfer ID must remain an unknown outcome, got %v", err)
+	}
+	if len(ex.amounts) != 1 || len(st.records) != 1 || st.records[0].Status != "pending" || st.records[0].FailedReason == "" {
+		t.Fatalf("empty transfer ID must be reserved for reconciliation: calls=%d records=%+v", len(ex.amounts), st.records)
+	}
+	if st.claimID == "" {
+		t.Fatal("unknown transfer result must retain the durable rule claim")
+	}
+	if st.rule.LastTriggeredAt != nil {
+		t.Fatalf("unverified transfer must not advance accounting checkpoint: %v", st.rule.LastTriggeredAt)
 	}
 }
 
