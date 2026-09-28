@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,6 +17,32 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestManualTransferReceiptRequiresVerifiableID(t *testing.T) {
+	transferErr := errors.New("transfer outcome unknown")
+	tests := []struct {
+		name        string
+		transferID  string
+		transferErr error
+		wantErr     bool
+	}{
+		{name: "valid receipt", transferID: "transfer-123"},
+		{name: "empty receipt", wantErr: true},
+		{name: "whitespace receipt", transferID: " \t", wantErr: true},
+		{name: "exchange error", transferErr: transferErr, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateManualTransferReceipt(tt.transferID, tt.transferErr)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateManualTransferReceipt() error=%v, wantErr=%v", err, tt.wantErr)
+			}
+			if tt.transferErr != nil && !errors.Is(err, tt.transferErr) {
+				t.Fatalf("exchange error identity not preserved: %v", err)
+			}
+		})
+	}
+}
 
 type ambiguousWithdrawExchange struct {
 	exchange.IExchange

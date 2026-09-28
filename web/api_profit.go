@@ -890,6 +890,16 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 	return windowStart, windowEnd, checkpointID, verifiedProfit, nil
 }
 
+func validateManualTransferReceipt(transferID string, transferErr error) error {
+	if transferErr != nil {
+		return transferErr
+	}
+	if strings.TrimSpace(transferID) == "" {
+		return errors.New("交易所返回成功但未提供可核验的转账流水号")
+	}
+	return nil
+}
+
 func withdrawProfitHandler(c *gin.Context) {
 	var req struct {
 		ExchangeID    string  `json:"exchangeId"`
@@ -1001,6 +1011,7 @@ func withdrawProfitHandler(c *gin.Context) {
 	}
 
 	transferID, err := ex.InternalTransfer(ctx, "UMFUTURE", "SPOT", currency, req.Amount)
+	err = validateManualTransferReceipt(transferID, err)
 	if err != nil {
 		const pendingReason = "转账结果未核实；请先核对交易所资金流水，禁止重复提交"
 		if updateErr := st.UpdateWithdrawRecordStatus(recordID, "pending", "", pendingReason+": "+err.Error()); updateErr != nil {
