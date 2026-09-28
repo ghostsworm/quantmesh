@@ -10,8 +10,9 @@ import (
 
 // BillingService 计费服務
 type BillingService struct {
-	db           *sql.DB
-	stripeAPIKey string
+	db                    *sql.DB
+	stripeAPIKey          string
+	providerFulfillmentOn bool
 }
 
 // Subscription 订阅信息
@@ -40,6 +41,9 @@ func NewBillingService(db *sql.DB, stripeAPIKey string) *BillingService {
 
 // CreateSubscription 創建订阅
 func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscription, error) {
+	if s == nil || s.db == nil || !s.providerFulfillmentOn {
+		return nil, fmt.Errorf("Stripe 訂閱尚未完成真實收款與履約串接，暫不可建立訂閱")
+	}
 	// 1. 检查用戶是否已有订阅
 	existing, err := s.GetSubscription(userID)
 	if err == nil && existing != nil {
@@ -94,6 +98,9 @@ func (s *BillingService) CreateSubscription(userID, email, plan string) (*Subscr
 
 // GetSubscription 獲取订阅
 func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
+	if s == nil || s.db == nil || userID == "" {
+		return nil, fmt.Errorf("訂閱服務未配置或用戶身份無效")
+	}
 	var sub Subscription
 
 	err := s.db.QueryRow(`
@@ -131,6 +138,9 @@ func (s *BillingService) GetSubscription(userID string) (*Subscription, error) {
 
 // UpdateSubscriptionPlan 更新订阅套餐
 func (s *BillingService) UpdateSubscriptionPlan(userID, newPlan string) error {
+	if s == nil || s.db == nil || !s.providerFulfillmentOn {
+		return fmt.Errorf("Stripe 套餐變更尚未完成真實計費串接，暫不可變更")
+	}
 	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {
@@ -156,6 +166,9 @@ func (s *BillingService) UpdateSubscriptionPlan(userID, newPlan string) error {
 
 // CancelSubscription 取消订阅
 func (s *BillingService) CancelSubscription(userID string, immediately bool) error {
+	if s == nil || s.db == nil || !s.providerFulfillmentOn {
+		return fmt.Errorf("Stripe 取消流程尚未完成供應商同步，暫不可變更訂閱")
+	}
 	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {
@@ -191,6 +204,9 @@ func (s *BillingService) CancelSubscription(userID string, immediately bool) err
 
 // RenewSubscription 续订
 func (s *BillingService) RenewSubscription(userID string) error {
+	if s == nil || s.db == nil || !s.providerFulfillmentOn {
+		return fmt.Errorf("Stripe 續訂尚未完成真實收款與履約串接，暫不可續訂")
+	}
 	// 1. 獲取當前订阅
 	sub, err := s.GetSubscription(userID)
 	if err != nil {

@@ -1,6 +1,8 @@
 package web
 
 import (
+	"io"
+
 	"github.com/gin-gonic/gin"
 
 	"quantmesh/saas"
@@ -18,6 +20,10 @@ func SetBillingService(bs *saas.BillingService) {
 // createSubscriptionHandler 創建订阅
 // POST /api/billing/subscriptions/create
 func createSubscriptionHandler(c *gin.Context) {
+	if billingService == nil {
+		c.JSON(503, gin.H{"error": "計費服務未配置"})
+		return
+	}
 	var req struct {
 		Plan  string `json:"plan" binding:"required"`
 		Email string `json:"email" binding:"required"`
@@ -29,15 +35,16 @@ func createSubscriptionHandler(c *gin.Context) {
 	}
 
 	// 獲取用戶ID
-	userID := c.GetString("user_id")
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(401, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	// 創建订阅
 	subscription, err := billingService.CreateSubscription(userID, req.Email, req.Plan)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(503, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -50,9 +57,14 @@ func createSubscriptionHandler(c *gin.Context) {
 // getSubscriptionHandler 獲取订阅信息
 // GET /api/billing/subscriptions
 func getSubscriptionHandler(c *gin.Context) {
-	userID := c.GetString("user_id")
+	if billingService == nil {
+		c.JSON(503, gin.H{"error": "計費服務未配置"})
+		return
+	}
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(401, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	subscription, err := billingService.GetSubscription(userID)
@@ -69,6 +81,10 @@ func getSubscriptionHandler(c *gin.Context) {
 // updateSubscriptionPlanHandler 更新订阅套餐
 // POST /api/billing/subscriptions/update-plan
 func updateSubscriptionPlanHandler(c *gin.Context) {
+	if billingService == nil {
+		c.JSON(503, gin.H{"error": "計費服務未配置"})
+		return
+	}
 	var req struct {
 		NewPlan string `json:"new_plan" binding:"required"`
 	}
@@ -78,13 +94,14 @@ func updateSubscriptionPlanHandler(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id")
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(401, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	if err := billingService.UpdateSubscriptionPlan(userID, req.NewPlan); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(503, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -94,19 +111,27 @@ func updateSubscriptionPlanHandler(c *gin.Context) {
 // cancelSubscriptionHandler 取消订阅
 // POST /api/billing/subscriptions/cancel
 func cancelSubscriptionHandler(c *gin.Context) {
+	if billingService == nil {
+		c.JSON(503, gin.H{"error": "計費服務未配置"})
+		return
+	}
 	var req struct {
 		Immediately bool `json:"immediately"`
 	}
 
-	c.BindJSON(&req)
+	if err := c.ShouldBindJSON(&req); err != nil && err != io.EOF {
+		c.JSON(400, gin.H{"error": "無效的請求參數"})
+		return
+	}
 
-	userID := c.GetString("user_id")
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(401, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	if err := billingService.CancelSubscription(userID, req.Immediately); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(503, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -169,13 +194,5 @@ func getPlansHandler(c *gin.Context) {
 // stripeWebhookHandler Stripe Webhook 处理
 // POST /api/billing/webhook/stripe
 func stripeWebhookHandler(c *gin.Context) {
-	// 这里应該驗证 Stripe 签名
-	// 然后处理各种事件:
-	// - customer.subscription.created
-	// - customer.subscription.updated
-	// - customer.subscription.deleted
-	// - invoice.paid
-	// - invoice.payment_failed
-
-	c.JSON(200, gin.H{"received": true})
+	c.JSON(503, gin.H{"error": "Stripe webhook 未配置簽名驗證與事件處理，尚未接受事件"})
 }

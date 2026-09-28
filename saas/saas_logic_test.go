@@ -124,6 +124,25 @@ func TestCryptoPaymentMoneyOperationsFailClosed(t *testing.T) {
 	}
 }
 
+func TestBillingServiceMutationsFailClosedWithoutProviderFulfillment(t *testing.T) {
+	service := NewBillingService(nil, "")
+	if _, err := service.CreateSubscription("alice", "alice@example.com", "enterprise"); err == nil {
+		t.Fatal("expected subscription creation to require provider fulfillment")
+	}
+	if err := service.UpdateSubscriptionPlan("alice", "enterprise"); err == nil {
+		t.Fatal("expected plan changes to require provider fulfillment")
+	}
+	if err := service.CancelSubscription("alice", true); err == nil {
+		t.Fatal("expected cancellation to require provider synchronization")
+	}
+	if err := service.RenewSubscription("alice"); err == nil {
+		t.Fatal("expected renewal to require provider fulfillment")
+	}
+	if _, err := service.GetSubscription("alice"); err == nil {
+		t.Fatal("expected nil database to fail safely")
+	}
+}
+
 func TestSubmitDirectTransactionHashRequiresOwnerAndPendingPayment(t *testing.T) {
 	db, err := sql.Open("sqlite3", ":memory:")
 	if err != nil {
