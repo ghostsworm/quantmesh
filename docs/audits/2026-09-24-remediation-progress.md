@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+## 第一百二十四批：提现账户流水分类改为未知项失败关闭（3.111.0-rc244，2026-09-28）
+
+- `ValidateTransferSafety` 之前仅列出 `insurance_clear`、`unallocated_fee`、`interest` 三类拒绝项，其他 `accounting.Source` 返回的未知 `Entry.Kind` 会落空并继续转账；新交易所或适配器扩展类型可能绕过完整账务分类。
+- 现在对已知 `transfer_in/out`、`funding`、`realized_pnl`、`fee`、`rebate` 明确放行（策略利润仍只按逐笔 PnL/资金费/手续费计算），未分配费用类继续拒绝，任何未知 kind 都 fail closed。新增未知类别导致零记录、零划转副作用回归。
+- `go test ./profit -count=1`、最终全仓 `go test ./... -count=1`、`go vet ./...` 和 diff 检查通过。未连接账户或交易。版本 `3.111.0-rc244`，未发布、未部署。
+
 ## 第一百二十三批：历史成交归属增加 symbol 隔离（3.111.0-rc243，2026-09-28）
 
 - rc242 回填已限定交易所、账户、市场类型和账户凭据 scope，但订单 ID 在不同交易对间也不能假定全局唯一；缺少 symbol 会使同账户同市场中另一币种订单错误归属。

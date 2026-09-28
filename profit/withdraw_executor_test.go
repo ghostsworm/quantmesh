@@ -285,6 +285,25 @@ func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 	}
 }
 
+func TestAutomaticWithdrawRejectsUnknownAccountCashFlow(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "unknown-flow-rule", AccountID: "unknown-flow-account", AccountScope: "scope-a", ExchangeID: "binance",
+		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+		events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}}}
+	ex := &fakeTransferExchange{st: st, account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000},
+		ledgerEntries: []accounting.Entry{{ID: "future-income-kind", Kind: "new_exchange_adjustment", Currency: "USDT", Amount: "-1", At: base.Add(time.Minute)}}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+	if err := e.processRule(st.rule); err == nil {
+		t.Fatal("unknown account cash-flow kinds must disable automatic withdrawal")
+	}
+	if len(ex.amounts) != 0 || len(st.records) != 0 {
+		t.Fatalf("unknown account cash flow must be rejected before transfer: amounts=%v records=%+v", ex.amounts, st.records)
+	}
+}
+
 func TestAutomaticWithdrawRequiresFreshSufficientUSDTBalance(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	for _, test := range []struct {

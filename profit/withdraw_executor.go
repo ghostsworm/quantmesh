@@ -384,6 +384,11 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, amount f
 		switch entry.Kind {
 		case "insurance_clear", "unallocated_fee", "interest":
 			return fmt.Errorf("withdrawal interval contains unallocated account cash flow %q; withdrawal is disabled", entry.Kind)
+		case "transfer_in", "transfer_out", "funding", "realized_pnl", "fee", "rebate":
+			// Explicitly classified categories; only realized PnL, funding, and fees
+			// contribute to the strategy-profit calculation.
+		default:
+			return fmt.Errorf("withdrawal interval contains unsupported account cash flow %q; withdrawal is disabled", entry.Kind)
 		}
 	}
 	freshAccount, ok := ex.(interface {
