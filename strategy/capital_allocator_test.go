@@ -125,7 +125,7 @@ func TestDynamicAllocatorWeightsRebalanceAndPerformance(t *testing.T) {
 	zeroDA := NewDynamicAllocator(&config.Config{})
 	zeroDA.RegisterStrategy("flat", 0.4)
 	zeroTargets := zeroDA.CalculateTargetWeights()
-	if zeroTargets["flat"] != 1 {
+	if zeroTargets["flat"] != 0.4 {
 		t.Fatalf("zero-score targets = %#v", zeroTargets)
 	}
 
@@ -133,4 +133,40 @@ func TestDynamicAllocatorWeightsRebalanceAndPerformance(t *testing.T) {
 	allocator.RegisterStrategy("grid", 0.5, 0)
 	da.Start(allocator)
 	da.Stop()
+}
+
+func TestDynamicAllocatorPreservesWeightsWithoutVerifiedMetrics(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
+		"total_pnl": 0.4, "sharpe_ratio": 0.3, "win_rate": 0.2, "max_drawdown": 0.1,
+	}
+	da := NewDynamicAllocator(cfg)
+	da.RegisterStrategy("grid", 0.7)
+	da.RegisterStrategy("dca", 0.3)
+
+	got := da.CalculateTargetWeights()
+	if got["grid"] != 0.7 || got["dca"] != 0.3 {
+		t.Fatalf("weights without any trade samples = %#v, want existing allocations", got)
+	}
+	da.minWeight = 0.5
+	got = da.Rebalance(got)
+	if got["grid"] != 0.7 || got["dca"] != 0.3 {
+		t.Fatalf("rebalance changed weights without evidence: %#v", got)
+	}
+
+	da.UpdatePerformance("grid", 10, true)
+	da.UpdatePerformance("dca", 10, true)
+	da.strategies["grid"].mu.Lock()
+	da.strategies["grid"].SharpeRatio = 3
+	da.strategies["grid"].MaxDrawdown = 0
+	da.strategies["grid"].mu.Unlock()
+	da.strategies["dca"].mu.Lock()
+	da.strategies["dca"].SharpeRatio = 0
+	da.strategies["dca"].MaxDrawdown = 0.9
+	da.strategies["dca"].mu.Unlock()
+
+	got = da.CalculateTargetWeights()
+	if math.Abs(got["grid"]-0.5) > 0.0001 || math.Abs(got["dca"]-0.5) > 0.0001 {
+		t.Fatalf("uncomputed Sharpe/drawdown changed equal observed metrics: %#v", got)
+	}
 }

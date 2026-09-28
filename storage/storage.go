@@ -287,6 +287,15 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 	default:
 		return nil, fmt.Errorf("不支援的存儲類型: %s", cfg.Storage.Type)
 	}
+	if journalStore, ok := ss.storage.(interface {
+		MigrateExecutionIntents(context.Context) error
+	}); ok {
+		if err := journalStore.MigrateExecutionIntents(ctx); err != nil {
+			ss.storage.Close()
+			cancel()
+			return nil, fmt.Errorf("初始化執行意圖日誌失敗: %w", err)
+		}
+	}
 
 	return ss, nil
 }

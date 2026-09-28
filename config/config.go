@@ -2922,10 +2922,8 @@ func (c *Config) Validate() error {
 	}
 	if c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights == nil {
 		c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
-			"total_pnl":    0.4,
-			"sharpe_ratio": 0.3,
-			"win_rate":     0.2,
-			"max_drawdown": 0.1,
+			"total_pnl": 0.7,
+			"win_rate":  0.3,
 		}
 	}
 

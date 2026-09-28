@@ -349,10 +349,8 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	// 設置默认性能权重
 	if da.performanceWeights == nil {
 		da.performanceWeights = map[string]float64{
-			"total_pnl":    0.4,
-			"sharpe_ratio": 0.3,
-			"win_rate":     0.2,
-			"max_drawdown": 0.1,
+			"total_pnl": 0.7,
+			"win_rate":  0.3,
 		}
 	}
 
@@ -412,12 +410,19 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 	defer da.mu.RUnlock()
 
 	scores := make(map[string]float64)
+	allHaveSamples := len(da.strategies) > 0
 
 	for name, perf := range da.strategies {
 		perf.mu.RLock()
+		if perf.TotalTrades == 0 {
+			allHaveSamples = false
+		}
 		score := da.calculateScore(perf)
 		scores[name] = score
 		perf.mu.RUnlock()
+	}
+	if !allHaveSamples {
+		return da.currentWeightsLocked()
 	}
 
 	// 归一化权重
@@ -430,13 +435,7 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 
 	if totalScore == 0 {
 		// 如果所有策略得分都為0，使用當前权重
-		result := make(map[string]float64)
-		for name, perf := range da.strategies {
-			perf.mu.RLock()
-			result[name] = perf.CurrentWeight
-			perf.mu.RUnlock()
-		}
-		return result
+		return da.currentWeightsLocked()
 	}
 
 	result := make(map[string]float64)
@@ -471,6 +470,35 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 	return result
 }
 
+func (da *DynamicAllocator) currentWeightsLocked() map[string]float64 {
+	result := make(map[string]float64, len(da.strategies))
+	for name, perf := range da.strategies {
+		perf.mu.RLock()
+		result[name] = perf.CurrentWeight
+		perf.mu.RUnlock()
+	}
+	return result
+}
+
+func (da *DynamicAllocator) matchesCurrentWeightsLocked(targetWeights map[string]float64) bool {
+	if len(targetWeights) != len(da.strategies) {
+		return false
+	}
+	for name, perf := range da.strategies {
+		target, exists := targetWeights[name]
+		if !exists {
+			return false
+		}
+		perf.mu.RLock()
+		matches := target == perf.CurrentWeight
+		perf.mu.RUnlock()
+		if !matches {
+			return false
+		}
+	}
+	return true
+}
+
 // calculateScore 计算策略得分
 func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 	score := 0.0
@@ -487,19 +515,8 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 		score += perf.WinRate * winRateWeight
 	}
 
-	// 夏普比率得分（越高越好）
-	if sharpeWeight, ok := da.performanceWeights["sharpe_ratio"]; ok && sharpeWeight > 0 {
-		// 归一化夏普比率（假設範圍0-3）
-		sharpeScore := math.Max(0, math.Min(1, perf.SharpeRatio/3))
-		score += sharpeScore * sharpeWeight
-	}
-
-	// 最大回撤得分（越小越好，所以取反）
-	if drawdownWeight, ok := da.performanceWeights["max_drawdown"]; ok && drawdownWeight > 0 {
-		// 回撤越小得分越高
-		drawdownScore := math.Max(0, 1-math.Abs(perf.MaxDrawdown))
-		score += drawdownScore * drawdownWeight
-	}
+	// SharpeRatio and MaxDrawdown are not computed from a verified return/equity
+	// series yet. Never score their zero-value fields as real risk observations.
 
 	return score
 }
@@ -508,6 +525,9 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[string]float64 {
 	da.mu.Lock()
 	defer da.mu.Unlock()
+	if da.matchesCurrentWeightsLocked(targetWeights) {
+		return da.currentWeightsLocked()
+	}
 
 	adjustedWeights := make(map[string]float64)
 
