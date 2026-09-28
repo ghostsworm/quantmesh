@@ -937,9 +937,15 @@ func getCapitalAllocationHandler(c *gin.Context) {
 
 // 更新资金分配
 func updateCapitalAllocationHandler(c *gin.Context) {
-	var req struct {
-		Allocations []CapitalAllocationConfig `json:"allocations"`
-	}
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"success": false,
+		"message": "资金上限配置尚未接入实时下单风控，未修改任何配置",
+	})
+}
+
+// 更新單個策略的资金配置
+func updateStrategyCapitalHandler(c *gin.Context) {
+	var req CapitalAllocationConfig
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
@@ -948,166 +954,9 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		return
 	}
 
-	// 1. 驗证每個策略的 maxPercentage 範圍（这是上限，不是實際分配比例）
-	for _, alloc := range req.Allocations {
-		if alloc.MaxPercentage < 0 || alloc.MaxPercentage > 100 {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"success": false,
-				"message": "策略 " + alloc.StrategyID + " 的分配比例上限必須在 0-100 之间",
-			})
-			return
-		}
-	}
-
-	// 2. 驗证實際分配金額總和不超過總餘額
-	if capitalDataSource != nil {
-		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-		defer cancel()
-
-		exchanges := capitalDataSource.GetExchanges()
-		totalRealBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
-		if balanceErr != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，资金分配未更新"})
-			return
-		}
-
-		if totalRealBalance > 0 {
-			totalFixedCapital := 0.0
-			for _, alloc := range req.Allocations {
-				if alloc.MaxCapital < 0 {
-					c.JSON(http.StatusBadRequest, gin.H{
-						"success": false,
-						"message": "策略 " + alloc.StrategyID + " 的分配金額不能為负數",
-					})
-					return
-				}
-				totalFixedCapital += alloc.MaxCapital
-			}
-
-			// 计算實際分配比例
-			actualTotalPct := (totalFixedCapital / totalRealBalance) * 100
-
-			if actualTotalPct > 100 {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"success": false,
-					"message": fmt.Sprintf("同一资產下的總分配比例不能超過 100%%，當前為 %.2f%%", actualTotalPct),
-				})
-				return
-			}
-		}
-	}
-
-	// 3. 持久化到主庫 app_config
-	if capitalDataSource != nil {
-		globalCfg := capitalDataSource.GetConfig()
-		if globalCfg != nil {
-			updated := false
-
-			// 计算總资金用於计算权重
-			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
-			defer cancel()
-
-			exchanges := capitalDataSource.GetExchanges()
-			totalRealBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
-			if balanceErr != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，资金分配未更新"})
-				return
-			}
-
-			// 更新每個策略的配置
-			for _, alloc := range req.Allocations {
-				// strategyId 应該是策略類型（如 "grid", "martingale"）
-				// 如果包含交易所信息（如 "binance-grid"），需要解析
-				strategyType := alloc.StrategyID
-				if strings.Contains(strategyType, "-") {
-					// 如果包含 "-"，可能是 "exchange-strategy" 格式，提取策略類型
-					parts := strings.Split(strategyType, "-")
-					if len(parts) > 1 {
-						strategyType = parts[len(parts)-1] // 取最后一部分作為策略類型
-					}
-				}
-
-				if sc, ok := globalCfg.Strategies.Configs[strategyType]; ok {
-					// 更新配置
-					if sc.Config == nil {
-						sc.Config = make(map[string]interface{})
-					}
-					sc.Config["max_capital"] = alloc.MaxCapital
-					sc.Config["max_percentage"] = alloc.MaxPercentage
-					sc.Config["reserve_ratio"] = alloc.ReserveRatio
-					sc.Config["auto_rebalance"] = alloc.AutoRebalance
-					sc.Config["priority"] = alloc.Priority
-
-					// 优先使用 maxPercentage 计算权重（因為用戶設置的是百分比）
-					if alloc.MaxPercentage > 0 {
-						// 如果使用百分比模式，直接使用百分比作為权重
-						sc.Weight = alloc.MaxPercentage / 100.0
-						logger.Info("✅ 更新策略 %s 配置: maxPercentage=%.2f%%, weight=%.4f (基於百分比)", strategyType, alloc.MaxPercentage, sc.Weight)
-					} else if totalRealBalance > 0 && alloc.MaxCapital > 0 {
-						// 如果没有百分比，使用金額计算权重
-						newWeight := alloc.MaxCapital / totalRealBalance
-						sc.Weight = newWeight
-						logger.Info("✅ 更新策略 %s 配置: maxCapital=%.2f, weight=%.4f (基於金額)", strategyType, alloc.MaxCapital, sc.Weight)
-					}
-
-					globalCfg.Strategies.Configs[strategyType] = sc
-					updated = true
-				} else {
-					logger.Warn("⚠️ 未找到策略配置: %s (尝試的 strategyType: %s)", alloc.StrategyID, strategyType)
-				}
-			}
-
-			if updated {
-				if fileConfigManager == nil {
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"success": false,
-						"message": "配置管理器未初始化",
-					})
-					return
-				}
-				if err := fileConfigManager.UpdateConfig(globalCfg); err != nil {
-					logger.Error("❌ 保存资金分配配置失败: %v", err)
-					c.JSON(http.StatusInternalServerError, gin.H{
-						"success": false,
-						"message": "保存配置失败: " + err.Error(),
-					})
-					return
-				}
-				SetGlobalConfig(globalCfg)
-				if configHotReloader != nil {
-					_, _ = configHotReloader.UpdateConfig(globalCfg)
-				}
-				logger.Info("✅ 资金分配配置已寫入主庫 app_config")
-			}
-		}
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "资金分配配置已更新並校驗通過",
-	})
-}
-
-// 更新單個策略的资金配置
-func updateStrategyCapitalHandler(c *gin.Context) {
-	strategyID := c.Param("id")
-
-	var config CapitalAllocationConfig
-	if err := c.ShouldBindJSON(&config); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"success": false,
-			"message": "無效的请求數據: " + err.Error(),
-		})
-		return
-	}
-
-	config.StrategyID = strategyID
-
-	// TODO: 保存到配置
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "策略资金配置已更新",
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"success": false,
+		"message": "策略资金上限尚未接入实时下单风控，未修改任何配置",
 	})
 }
 
@@ -1183,7 +1032,19 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		DryRun bool   `json:"dryRun"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		req.Mode = "weighted" // 默认按权重
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "无效的再平衡请求"})
+		return
+	}
+	if req.Mode == "" {
+		req.Mode = "weighted"
+	}
+	if req.Mode != "equal" && req.Mode != "weighted" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "不支持的再平衡模式"})
+		return
+	}
+	if !req.DryRun {
+		c.JSON(http.StatusNotImplemented, gin.H{"success": false, "message": "策略资金上限尚未接入实时下单风控，已拒绝应用再平衡"})
+		return
 	}
 
 	if capitalDataSource == nil {
@@ -1228,7 +1089,12 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	count := float64(len(enabledStrategies))
 	totalWeight := 0.0
 	for _, id := range enabledStrategies {
-		totalWeight += stratConfigs[id].Weight
+		weight := stratConfigs[id].Weight
+		if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略权重配置无效，已取消再平衡预览"})
+			return
+		}
+		totalWeight += weight
 	}
 
 	for _, id := range enabledStrategies {
@@ -1245,11 +1111,12 @@ func rebalanceCapitalHandler(c *gin.Context) {
 			} else {
 				targetAllocation = totalBalance / count
 			}
-		case "priority":
-			// 简化逻辑：高权重的先分（實際生產环境會更複杂）
-			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
 		default:
-			targetAllocation = (cfg.Weight / totalWeight) * totalBalance
+			if totalWeight > 0 {
+				targetAllocation = (cfg.Weight / totalWeight) * totalBalance
+			} else {
+				targetAllocation = totalBalance / count
+			}
 		}
 
 		// 獲取當前分配（從配置读取）
@@ -1277,31 +1144,6 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		})
 	}
 
-	// 4. 如果不是 DryRun，则應用配置（寫入主庫 app_config）
-	if !req.DryRun {
-		globalCfg := capitalDataSource.GetConfig()
-		for _, change := range changes {
-			if sc, ok := globalCfg.Strategies.Configs[change.StrategyID]; ok {
-				if sc.Config == nil {
-					sc.Config = make(map[string]interface{})
-				}
-				sc.Config["max_capital"] = change.NewAllocation
-				globalCfg.Strategies.Configs[change.StrategyID] = sc
-			}
-		}
-		if fileConfigManager == nil {
-			logger.Error("❌ 保存再平衡配置失败: 配置管理器未初始化")
-		} else if err := fileConfigManager.UpdateConfig(globalCfg); err != nil {
-			logger.Error("❌ 保存再平衡配置失败: %v", err)
-		} else {
-			SetGlobalConfig(globalCfg)
-			if configHotReloader != nil {
-				_, _ = configHotReloader.UpdateConfig(globalCfg)
-			}
-			logger.Info("✅ 资金再平衡配置已寫入主庫 app_config")
-		}
-	}
-
 	result := RebalanceResult{
 		Success:        true,
 		Message:        "再平衡计算完成",
@@ -1310,11 +1152,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		ExecutedAt:     time.Now().Format(time.RFC3339),
 	}
 
-	if req.DryRun {
-		result.Message = "模拟再平衡預览（未应用）"
-	} else {
-		result.Message = "再平衡已成功应用到配置"
-	}
+	result.Message = "模拟再平衡预览（未应用；策略资金上限未接入实时风控）"
 
 	c.JSON(http.StatusOK, result)
 }
@@ -1373,7 +1211,7 @@ func setReserveCapitalHandler(c *gin.Context) {
 		return
 	}
 
-	if req.Amount < 0 {
+	if req.Amount < 0 || math.IsNaN(req.Amount) || math.IsInf(req.Amount, 0) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"success": false,
 			"message": "預留保证金不能為负數",
@@ -1381,18 +1219,14 @@ func setReserveCapitalHandler(c *gin.Context) {
 		return
 	}
 
-	// TODO: 保存到配置
-
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "預留保证金已設置為 " + strconv.FormatFloat(req.Amount, 'f', 2, 64),
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"success": false,
+		"message": "预留保证金尚未接入实时保证金管理，未修改任何配置",
 	})
 }
 
 // 鎖定/解鎖策略资金
 func lockStrategyCapitalHandler(c *gin.Context) {
-	strategyID := c.Param("id")
-
 	var req struct {
 		Locked bool `json:"locked"`
 	}
@@ -1404,17 +1238,8 @@ func lockStrategyCapitalHandler(c *gin.Context) {
 		return
 	}
 
-	action := "已鎖定"
-	if !req.Locked {
-		action = "已解鎖"
-	}
-
-	// TODO: 保存到配置
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"message":    "策略资金" + action,
-		"strategyId": strategyID,
-		"locked":     req.Locked,
+	c.JSON(http.StatusNotImplemented, gin.H{
+		"success": false,
+		"message": "策略资金锁定尚未接入实时分配器，未修改任何配置",
 	})
 }

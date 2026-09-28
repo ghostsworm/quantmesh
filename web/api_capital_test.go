@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,6 +83,77 @@ func TestCapitalHandlersReturnNotReadyWithoutDataSource(t *testing.T) {
 			}
 			if body["success"] != false {
 				t.Fatalf("expected success=false, got %s", w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCapitalMutationHandlersFailClosed(t *testing.T) {
+	oldSource, oldManager, oldReloader := capitalDataSource, fileConfigManager, configHotReloader
+	t.Cleanup(func() {
+		capitalDataSource, fileConfigManager, configHotReloader = oldSource, oldManager, oldReloader
+	})
+	capitalDataSource, fileConfigManager, configHotReloader = nil, nil, nil
+
+	tests := []struct {
+		name    string
+		handler func(*gin.Context)
+		path    string
+		body    string
+	}{
+		{"allocation", updateCapitalAllocationHandler, "/api/capital/allocation", `{"allocations":[]}`},
+		{"single allocation", updateStrategyCapitalHandler, "/api/capital/strategy/grid", `{}`},
+		{"reserve", setReserveCapitalHandler, "/api/capital/reserve", `{"amount":100}`},
+		{"lock", lockStrategyCapitalHandler, "/api/capital/strategy/grid/lock", `{"locked":true}`},
+		{"rebalance apply", rebalanceCapitalHandler, "/api/capital/rebalance", `{"mode":"equal","dryRun":false}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			if tc.name == "single allocation" || tc.name == "lock" {
+				c.Params = gin.Params{{Key: "id", Value: "grid"}}
+			}
+			tc.handler(c)
+			if w.Code != http.StatusNotImplemented {
+				t.Fatalf("status = %d, want 501: %s", w.Code, w.Body.String())
+			}
+			var body map[string]interface{}
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatalf("decode response: %v", err)
+			}
+			if body["success"] != false {
+				t.Fatalf("expected success=false, got %s", w.Body.String())
+			}
+		})
+	}
+}
+
+func TestRebalanceRejectsInvalidModeAndMalformedWeights(t *testing.T) {
+	old := capitalDataSource
+	t.Cleanup(func() { capitalDataSource = old })
+	capitalDataSource = fakeCapitalDataSource{
+		exchanges: []exchange.IExchange{fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 100, BalanceAsset: "USDT"}}},
+		strategy:  map[string]config.StrategyConfig{"grid": {Enabled: true, Weight: math.NaN()}},
+	}
+	for _, tc := range []struct {
+		name string
+		body string
+		code int
+	}{
+		{"unknown mode", `{"mode":"priority","dryRun":true}`, http.StatusBadRequest},
+		{"invalid weight", `{"mode":"weighted","dryRun":true}`, http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/capital/rebalance", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			rebalanceCapitalHandler(c)
+			if w.Code != tc.code {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tc.code, w.Body.String())
 			}
 		})
 	}
