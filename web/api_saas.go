@@ -8,7 +8,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"quantmesh/logger"
 	"quantmesh/saas"
 )
 
@@ -23,69 +22,63 @@ func SetInstanceManager(im *saas.InstanceManagerV2) {
 	instanceManagerV2 = im
 }
 
+func getSaaSManager(c *gin.Context) (*saas.InstanceManagerV2, bool) {
+	if instanceManagerV2 == nil || instanceManagerV2.InstanceManager == nil {
+		c.JSON(503, gin.H{"error": "SaaS 實例服務未配置"})
+		return nil, false
+	}
+	return instanceManagerV2, true
+}
+
+func getSaaSUserID(c *gin.Context) (string, bool) {
+	userID := cryptoPaymentUserID(c)
+	if userID == "" {
+		c.JSON(401, gin.H{"error": "需要有效的用戶身份"})
+		return "", false
+	}
+	return userID, true
+}
+
+func getOwnedSaaSInstance(c *gin.Context, manager *saas.InstanceManagerV2, userID, instanceID string) (*saas.Instance, bool) {
+	instance, err := manager.GetInstance(instanceID)
+	if err != nil || instance == nil {
+		c.JSON(404, gin.H{"error": "實例不存在"})
+		return nil, false
+	}
+	if instance.UserID != userID {
+		c.JSON(403, gin.H{"error": "無權操作此實例"})
+		return nil, false
+	}
+	return instance, true
+}
+
+func requireOwnedSaaSInstance(c *gin.Context) (*saas.InstanceManagerV2, *saas.Instance, bool) {
+	manager, ok := getSaaSManager(c)
+	if !ok {
+		return nil, nil, false
+	}
+	userID, ok := getSaaSUserID(c)
+	if !ok {
+		return nil, nil, false
+	}
+	instance, ok := getOwnedSaaSInstance(c, manager, userID, c.Param("id"))
+	if !ok {
+		return nil, nil, false
+	}
+	return manager, instance, true
+}
+
 // createInstanceHandler 創建實例
 // POST /api/saas/instances/create
 func createInstanceHandler(c *gin.Context) {
-	var req struct {
-		Plan string `json:"plan" binding:"required"` // starter/professional/enterprise
-	}
-
-	if err := c.BindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "無效的请求参數"})
-		return
-	}
-
-	// 驗证套餐
-	validPlans := map[string]bool{
-		"starter":      true,
-		"professional": true,
-		"enterprise":   true,
-	}
-
-	if !validPlans[req.Plan] {
-		c.JSON(400, gin.H{"error": "無效的套餐類型"})
-		return
-	}
-
-	// 從 session 或 JWT 中獲取用戶ID (这里简化处理)
-	userID := c.GetString("user_id")
-	if userID == "" {
-		userID = "demo_user" // 演示用
-	}
-
-	// 創建實例
-	instance, err := instanceManagerV2.CreateInstanceWithMonitoring(c.Request.Context(), userID, req.Plan)
-	if err != nil {
-		logger.Error("創建實例失败: %v", err)
-		c.JSON(500, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(200, gin.H{
-		"instance_id": instance.ID,
-		"status":      instance.Status,
-		"plan":        instance.Plan,
-		"url":         fmt.Sprintf("https://%s.quantmesh.cloud", instance.ID),
-		"port":        instance.Port,
-		"created_at":  instance.CreatedAt,
-	})
+	c.JSON(503, gin.H{"error": "SaaS 付費實例尚未接通已驗證的訂閱與支付履約，未建立實例"})
 }
 
 // getInstanceHandler 獲取實例信息
 // GET /api/saas/instances/:id
 func getInstanceHandler(c *gin.Context) {
-	instanceID := c.Param("id")
-
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	// 驗证权限 (简化处理)
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权访问"})
+	_, instance, ok := requireOwnedSaaSInstance(c)
+	if !ok {
 		return
 	}
 
@@ -97,19 +90,22 @@ func getInstanceHandler(c *gin.Context) {
 // listInstancesHandler 列出所有實例
 // GET /api/saas/instances
 func listInstancesHandler(c *gin.Context) {
-	instances := instanceManagerV2.ListInstances()
-
-	// 如果有用戶ID,只返回該用戶的實例
-	userID := c.GetString("user_id")
-	if userID != "" {
-		filtered := []*saas.Instance{}
-		for _, inst := range instances {
-			if inst.UserID == userID {
-				filtered = append(filtered, inst)
-			}
-		}
-		instances = filtered
+	manager, ok := getSaaSManager(c)
+	if !ok {
+		return
 	}
+	userID, ok := getSaaSUserID(c)
+	if !ok {
+		return
+	}
+	instances := manager.ListInstances()
+	filtered := make([]*saas.Instance, 0, len(instances))
+	for _, instance := range instances {
+		if instance != nil && instance.UserID == userID {
+			filtered = append(filtered, instance)
+		}
+	}
+	instances = filtered
 
 	c.JSON(200, gin.H{
 		"instances": instances,
@@ -120,23 +116,14 @@ func listInstancesHandler(c *gin.Context) {
 // stopInstanceHandler 停止實例
 // POST /api/saas/instances/:id/stop
 func stopInstanceHandler(c *gin.Context) {
+	manager, _, ok := requireOwnedSaaSInstance(c)
+	if !ok {
+		return
+	}
 	instanceID := c.Param("id")
 
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权操作"})
-		return
-	}
-
 	// 停止實例
-	if err := instanceManagerV2.StopInstance(instanceID); err != nil {
+	if err := manager.StopInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -147,23 +134,14 @@ func stopInstanceHandler(c *gin.Context) {
 // startInstanceHandler 啟动實例
 // POST /api/saas/instances/:id/start
 func startInstanceHandler(c *gin.Context) {
+	manager, _, ok := requireOwnedSaaSInstance(c)
+	if !ok {
+		return
+	}
 	instanceID := c.Param("id")
 
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权操作"})
-		return
-	}
-
 	// 啟动實例
-	if err := instanceManagerV2.StartInstance(instanceID); err != nil {
+	if err := manager.StartInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -174,23 +152,14 @@ func startInstanceHandler(c *gin.Context) {
 // restartInstanceHandler 重啟實例
 // POST /api/saas/instances/:id/restart
 func restartInstanceHandler(c *gin.Context) {
+	manager, _, ok := requireOwnedSaaSInstance(c)
+	if !ok {
+		return
+	}
 	instanceID := c.Param("id")
 
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权操作"})
-		return
-	}
-
 	// 重啟實例
-	if err := instanceManagerV2.RestartInstance(instanceID); err != nil {
+	if err := manager.RestartInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -201,23 +170,14 @@ func restartInstanceHandler(c *gin.Context) {
 // deleteInstanceHandler 刪除實例
 // DELETE /api/saas/instances/:id
 func deleteInstanceHandler(c *gin.Context) {
+	manager, _, ok := requireOwnedSaaSInstance(c)
+	if !ok {
+		return
+	}
 	instanceID := c.Param("id")
 
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权操作"})
-		return
-	}
-
 	// 刪除實例
-	if err := instanceManagerV2.DeleteInstance(instanceID); err != nil {
+	if err := manager.DeleteInstance(instanceID); err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
 	}
@@ -228,18 +188,8 @@ func deleteInstanceHandler(c *gin.Context) {
 // getInstanceLogsHandler 獲取實例日志
 // GET /api/saas/instances/:id/logs
 func getInstanceLogsHandler(c *gin.Context) {
-	instanceID := c.Param("id")
-
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权访问"})
+	_, instance, ok := requireOwnedSaaSInstance(c)
+	if !ok {
 		return
 	}
 
@@ -249,6 +199,12 @@ func getInstanceLogsHandler(c *gin.Context) {
 		if l, err := strconv.Atoi(linesStr); err == nil {
 			lines = l
 		}
+	}
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 1000 {
+		lines = 1000
 	}
 
 	// 獲取容器日志
@@ -267,23 +223,13 @@ func getInstanceLogsHandler(c *gin.Context) {
 // getInstanceMetricsHandler 獲取實例指標
 // GET /api/saas/instances/:id/metrics
 func getInstanceMetricsHandler(c *gin.Context) {
-	instanceID := c.Param("id")
-
-	// 驗证权限
-	instance, err := instanceManagerV2.GetInstance(instanceID)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "實例不存在"})
-		return
-	}
-
-	userID := c.GetString("user_id")
-	if userID != "" && instance.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权访问"})
+	manager, _, ok := requireOwnedSaaSInstance(c)
+	if !ok {
 		return
 	}
 
 	// 獲取指標
-	metrics, err := instanceManagerV2.GetInstanceMetrics(instanceID)
+	metrics, err := manager.GetInstanceMetrics(c.Param("id"))
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
@@ -295,7 +241,17 @@ func getInstanceMetricsHandler(c *gin.Context) {
 // getAllInstancesMetricsHandler 獲取所有實例指標
 // GET /api/saas/metrics
 func getAllInstancesMetricsHandler(c *gin.Context) {
-	metrics, err := instanceManagerV2.GetAllInstancesMetrics()
+	manager, ok := getSaaSManager(c)
+	if !ok {
+		return
+	}
+	sessionValue, ok := c.Get("session")
+	session, isSession := sessionValue.(*Session)
+	if c.GetBool("local_dev_mode") || !ok || !isSession || session.Role != "admin" {
+		c.JSON(403, gin.H{"error": "需要管理員權限"})
+		return
+	}
+	metrics, err := manager.GetAllInstancesMetrics()
 	if err != nil {
 		c.JSON(500, gin.H{"error": err.Error()})
 		return
