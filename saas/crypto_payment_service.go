@@ -2,7 +2,10 @@ package saas
 
 import (
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -18,6 +21,7 @@ type CryptoPaymentService struct {
 	coinbaseAPIKey        string
 	coinbaseWebhookSecret string
 	httpClient            *http.Client
+	fulfillmentEnabled    bool
 
 	// 直接钱包地址 (备选方案)
 	walletAddresses map[string]string
@@ -60,17 +64,23 @@ func NewCryptoPaymentService(db *sql.DB, coinbaseAPIKey string) *CryptoPaymentSe
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		walletAddresses: map[string]string{
-			"BTC":  "bc1q...", // 你的 BTC 地址
-			"ETH":  "0x...",   // 你的 ETH 地址
-			"USDT": "0x...",   // 你的 USDT (ERC20) 地址
-			"USDC": "0x...",   // 你的 USDC 地址
-		},
+		walletAddresses: make(map[string]string),
 	}
+}
+
+// SetCoinbaseWebhookSecret configures the secret used to authenticate Coinbase webhooks.
+func (s *CryptoPaymentService) SetCoinbaseWebhookSecret(secret string) {
+	s.coinbaseWebhookSecret = secret
 }
 
 // CreateCoinbaseCharge 創建 Coinbase Commerce 支付
 func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, amount float64) (*CryptoPayment, error) {
+	if s == nil || s.db == nil || s.coinbaseAPIKey == "" {
+		return nil, fmt.Errorf("Coinbase 支付服務未配置")
+	}
+	if !s.fulfillmentEnabled {
+		return nil, fmt.Errorf("Coinbase 支付暫不可用：訂閱履約尚未配置")
+	}
 	// 1. 創建 Coinbase Charge
 	chargeData := map[string]interface{}{
 		"name":         fmt.Sprintf("QuantMesh %s Plan", plan),
@@ -144,12 +154,12 @@ func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, 
 	}
 
 	err = s.db.QueryRow(`
-		INSERT INTO crypto_payments (
-			user_id, email, plan, amount, currency, payment_method,
-			status, charge_id, payment_address, expires_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		RETURNING id
-	`, payment.UserID, payment.Email, payment.Plan, payment.Amount, payment.Currency,
+			INSERT INTO crypto_payments (
+				user_id, email, plan, amount, currency, payment_method,
+				status, charge_id, payment_address, expires_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+			RETURNING id
+		`, payment.UserID, payment.Email, payment.Plan, payment.Amount, payment.Currency,
 		payment.PaymentMethod, payment.Status, payment.ChargeID, payment.PaymentAddress,
 		payment.ExpiresAt, payment.CreatedAt, payment.UpdatedAt,
 	).Scan(&payment.ID)
@@ -165,6 +175,9 @@ func (s *CryptoPaymentService) CreateCoinbaseCharge(userID, email, plan string, 
 
 // CreateDirectPayment 創建直接钱包支付
 func (s *CryptoPaymentService) CreateDirectPayment(userID, email, plan, cryptoCurrency string, amount float64) (*CryptoPayment, error) {
+	if s == nil || !s.fulfillmentEnabled {
+		return nil, fmt.Errorf("直接錢包支付暫不可用：尚未配置經驗證的收款地址、即時報價及訂閱履約")
+	}
 	// 獲取钱包地址
 	walletAddress, exists := s.walletAddresses[cryptoCurrency]
 	if !exists {
@@ -191,12 +204,12 @@ func (s *CryptoPaymentService) CreateDirectPayment(userID, email, plan, cryptoCu
 	}
 
 	err := s.db.QueryRow(`
-		INSERT INTO crypto_payments (
-			user_id, email, plan, amount, currency, crypto_currency, crypto_amount,
-			payment_method, status, payment_address, expires_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-		RETURNING id
-	`, payment.UserID, payment.Email, payment.Plan, payment.Amount, payment.Currency,
+			INSERT INTO crypto_payments (
+				user_id, email, plan, amount, currency, crypto_currency, crypto_amount,
+				payment_method, status, payment_address, expires_at, created_at, updated_at
+			) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+			RETURNING id
+		`, payment.UserID, payment.Email, payment.Plan, payment.Amount, payment.Currency,
 		payment.CryptoCurrency, payment.CryptoAmount, payment.PaymentMethod, payment.Status,
 		payment.PaymentAddress, payment.ExpiresAt, payment.CreatedAt, payment.UpdatedAt,
 	).Scan(&payment.ID)
@@ -212,10 +225,9 @@ func (s *CryptoPaymentService) CreateDirectPayment(userID, email, plan, cryptoCu
 
 // HandleCoinbaseWebhook 处理 Coinbase Webhook
 func (s *CryptoPaymentService) HandleCoinbaseWebhook(webhookData []byte, signature string) error {
-	// 1. 驗证签名 (生產环境必須驗证)
-	// if !s.verifyCoinbaseSignature(webhookData, signature) {
-	//     return errors.New("無效的 webhook 签名")
-	// }
+	if s == nil || s.db == nil || s.coinbaseWebhookSecret == "" || !s.verifyCoinbaseSignature(webhookData, signature) {
+		return fmt.Errorf("Coinbase webhook 簽名無效或服務未配置")
+	}
 
 	// 2. 解析 webhook 數據
 	var webhook struct {
@@ -259,15 +271,28 @@ func (s *CryptoPaymentService) HandleCoinbaseWebhook(webhookData []byte, signatu
 	return nil
 }
 
+func (s *CryptoPaymentService) verifyCoinbaseSignature(payload []byte, signature string) bool {
+	if s.coinbaseWebhookSecret == "" || signature == "" {
+		return false
+	}
+	mac := hmac.New(sha256.New, []byte(s.coinbaseWebhookSecret))
+	_, _ = mac.Write(payload)
+	provided, err := hex.DecodeString(signature)
+	return err == nil && hmac.Equal(mac.Sum(nil), provided)
+}
+
 // completePayment 完成支付
 func (s *CryptoPaymentService) completePayment(chargeID string) error {
+	if s == nil || !s.fulfillmentEnabled {
+		return fmt.Errorf("支付已收到，但訂閱履約尚未配置；拒絕將付款標記為完成（charge_id=%s）", chargeID)
+	}
 	now := time.Now()
 
 	_, err := s.db.Exec(`
-		UPDATE crypto_payments
-		SET status = 'completed', completed_at = $1, updated_at = $2
-		WHERE charge_id = $3
-	`, now, now, chargeID)
+			UPDATE crypto_payments
+			SET status = 'completed', completed_at = $1, updated_at = $2
+			WHERE charge_id = $3
+		`, now, now, chargeID)
 
 	if err != nil {
 		return err
@@ -276,10 +301,10 @@ func (s *CryptoPaymentService) completePayment(chargeID string) error {
 	// 獲取支付信息
 	var payment CryptoPayment
 	err = s.db.QueryRow(`
-		SELECT user_id, email, plan
-		FROM crypto_payments
-		WHERE charge_id = $1
-	`, chargeID).Scan(&payment.UserID, &payment.Email, &payment.Plan)
+			SELECT user_id, email, plan
+			FROM crypto_payments
+			WHERE charge_id = $1
+		`, chargeID).Scan(&payment.UserID, &payment.Email, &payment.Plan)
 
 	if err != nil {
 		return err
@@ -307,13 +332,16 @@ func (s *CryptoPaymentService) failPayment(chargeID string) error {
 
 // ConfirmDirectPayment 确认直接支付 (管理员手动确认)
 func (s *CryptoPaymentService) ConfirmDirectPayment(paymentID int, transactionHash string) error {
+	if s == nil || !s.fulfillmentEnabled {
+		return fmt.Errorf("直接錢包支付未配置鏈上核驗與訂閱履約；拒絕手動確認（payment_id=%d）", paymentID)
+	}
 	now := time.Now()
 
 	_, err := s.db.Exec(`
-		UPDATE crypto_payments
-		SET status = 'completed', transaction_hash = $1, completed_at = $2, updated_at = $3
-		WHERE id = $4
-	`, transactionHash, now, now, paymentID)
+			UPDATE crypto_payments
+			SET status = 'completed', transaction_hash = $1, completed_at = $2, updated_at = $3
+			WHERE id = $4
+		`, transactionHash, now, now, paymentID)
 
 	if err != nil {
 		return err
@@ -322,10 +350,10 @@ func (s *CryptoPaymentService) ConfirmDirectPayment(paymentID int, transactionHa
 	// 獲取支付信息並激活订阅
 	var payment CryptoPayment
 	err = s.db.QueryRow(`
-		SELECT user_id, email, plan
-		FROM crypto_payments
-		WHERE id = $1
-	`, paymentID).Scan(&payment.UserID, &payment.Email, &payment.Plan)
+			SELECT user_id, email, plan
+			FROM crypto_payments
+			WHERE id = $1
+		`, paymentID).Scan(&payment.UserID, &payment.Email, &payment.Plan)
 
 	if err != nil {
 		return err
@@ -336,6 +364,30 @@ func (s *CryptoPaymentService) ConfirmDirectPayment(paymentID int, transactionHa
 	// TODO: 激活订阅
 	// billingService.CreateSubscription(payment.UserID, payment.Email, payment.Plan)
 
+	return nil
+}
+
+// SubmitDirectTransactionHash records a customer's claim; it is not proof of payment.
+func (s *CryptoPaymentService) SubmitDirectTransactionHash(paymentID int, userID, transactionHash string) error {
+	if s == nil || s.db == nil || paymentID <= 0 || userID == "" || transactionHash == "" {
+		return fmt.Errorf("支付提交資料無效或服務未配置")
+	}
+	result, err := s.db.Exec(`
+		UPDATE crypto_payments
+		SET transaction_hash = $1, status = 'pending_confirmation', updated_at = $2
+		WHERE id = $3 AND user_id = $4 AND payment_method = 'direct'
+		  AND status = 'pending' AND (transaction_hash = '' OR transaction_hash IS NULL)
+	`, transactionHash, time.Now(), paymentID, userID)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated != 1 {
+		return fmt.Errorf("支付不存在、非本人所有或已提交交易哈希")
+	}
 	return nil
 }
 

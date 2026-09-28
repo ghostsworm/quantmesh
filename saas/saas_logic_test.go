@@ -1,6 +1,14 @@
 package saas
 
-import "testing"
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"testing"
+
+	_ "github.com/mattn/go-sqlite3"
+)
 
 func TestInstanceManagerAllocateResources(t *testing.T) {
 	manager := NewInstanceManager(nil)
@@ -79,6 +87,78 @@ func TestCryptoPaymentServiceCalculateCryptoAmount(t *testing.T) {
 				t.Fatalf("calculateCryptoAmount(%v, %q) = %v, want %v", tt.usd, tt.currency, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCoinbaseWebhookSignatureRequiredAndVerified(t *testing.T) {
+	service := NewCryptoPaymentService(nil, "")
+	service.SetCoinbaseWebhookSecret("test-secret")
+	payload := []byte(`{"event":{"type":"charge:pending"}}`)
+	mac := hmac.New(sha256.New, []byte("test-secret"))
+	_, _ = mac.Write(payload)
+	signature := hex.EncodeToString(mac.Sum(nil))
+	if !service.verifyCoinbaseSignature(payload, signature) {
+		t.Fatal("expected valid signature to pass")
+	}
+	if service.verifyCoinbaseSignature(payload, signature+"00") {
+		t.Fatal("expected malformed signature to fail")
+	}
+	if service.verifyCoinbaseSignature(payload, "") {
+		t.Fatal("expected empty signature to fail")
+	}
+}
+
+func TestCryptoPaymentMoneyOperationsFailClosed(t *testing.T) {
+	service := NewCryptoPaymentService(nil, "")
+	if _, err := service.CreateCoinbaseCharge("u", "u@example.com", "starter", 49); err == nil {
+		t.Fatal("expected Coinbase creation to remain disabled until fulfillment is configured")
+	}
+	if _, err := service.CreateDirectPayment("u", "u@example.com", "starter", "BTC", 49); err == nil {
+		t.Fatal("expected direct wallet payment to remain disabled")
+	}
+	if err := service.ConfirmDirectPayment(1, "tx"); err == nil {
+		t.Fatal("expected manual confirmation to remain disabled")
+	}
+	if err := service.HandleCoinbaseWebhook([]byte(`{}`), ""); err == nil {
+		t.Fatal("expected webhook without configured database and signature to fail")
+	}
+}
+
+func TestSubmitDirectTransactionHashRequiresOwnerAndPendingPayment(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	_, err = db.Exec(`CREATE TABLE crypto_payments (
+		id INTEGER PRIMARY KEY, user_id TEXT, payment_method TEXT, status TEXT,
+		transaction_hash TEXT, updated_at DATETIME
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.Exec(`INSERT INTO crypto_payments (id, user_id, payment_method, status, transaction_hash)
+		VALUES (1, 'alice', 'direct', 'pending', '')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewCryptoPaymentService(db, "")
+	if err := service.SubmitDirectTransactionHash(1, "bob", "0xclaimed"); err == nil {
+		t.Fatal("expected another user's transaction submission to be rejected")
+	}
+	if err := service.SubmitDirectTransactionHash(1, "alice", "0xclaimed"); err != nil {
+		t.Fatalf("submit transaction hash: %v", err)
+	}
+	var status, transactionHash string
+	if err := db.QueryRow(`SELECT status, transaction_hash FROM crypto_payments WHERE id = 1`).Scan(&status, &transactionHash); err != nil {
+		t.Fatal(err)
+	}
+	if status != "pending_confirmation" || transactionHash != "0xclaimed" {
+		t.Fatalf("stored payment = (%q, %q), want pending_confirmation and submitted hash", status, transactionHash)
+	}
+	if err := service.SubmitDirectTransactionHash(1, "alice", "0xsecond"); err == nil {
+		t.Fatal("expected duplicate transaction submission to be rejected")
 	}
 }
 

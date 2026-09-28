@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"io"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,9 +19,30 @@ func SetCryptoPaymentService(cps *saas.CryptoPaymentService) {
 	cryptoPaymentService = cps
 }
 
+func cryptoPaymentUnavailable(c *gin.Context) bool {
+	if cryptoPaymentService != nil {
+		return false
+	}
+	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "加密貨幣支付服務未配置"})
+	return true
+}
+
+func cryptoPaymentUserID(c *gin.Context) string {
+	if c.GetBool("local_dev_mode") {
+		return ""
+	}
+	if userID := c.GetString("user_id"); userID != "" {
+		return userID
+	}
+	return c.GetString("username")
+}
+
 // createCoinbasePaymentHandler 創建 Coinbase Commerce 支付
 // POST /api/payment/crypto/coinbase/create
 func createCoinbasePaymentHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	var req struct {
 		Plan  string `json:"plan" binding:"required"`
 		Email string `json:"email" binding:"required"`
@@ -31,9 +53,10 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id")
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	// 獲取套餐價格
@@ -52,7 +75,7 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 	// 創建 Coinbase Charge
 	payment, err := cryptoPaymentService.CreateCoinbaseCharge(userID, req.Email, req.Plan, amount)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -71,6 +94,9 @@ func createCoinbasePaymentHandler(c *gin.Context) {
 // createDirectPaymentHandler 創建直接钱包支付
 // POST /api/payment/crypto/direct/create
 func createDirectPaymentHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	var req struct {
 		Plan           string `json:"plan" binding:"required"`
 		Email          string `json:"email" binding:"required"`
@@ -82,9 +108,10 @@ func createDirectPaymentHandler(c *gin.Context) {
 		return
 	}
 
-	userID := c.GetString("user_id")
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	// 獲取套餐價格
@@ -105,7 +132,7 @@ func createDirectPaymentHandler(c *gin.Context) {
 		userID, req.Email, req.Plan, req.CryptoCurrency, amount,
 	)
 	if err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -129,6 +156,9 @@ func createDirectPaymentHandler(c *gin.Context) {
 // getPaymentStatusHandler 獲取支付状態
 // GET /api/payment/crypto/:id
 func getPaymentStatusHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	paymentID := c.Param("id")
 
 	var id int
@@ -144,8 +174,12 @@ func getPaymentStatusHandler(c *gin.Context) {
 	}
 
 	// 驗证权限
-	userID := c.GetString("user_id")
-	if userID != "" && payment.UserID != userID {
+	userID := cryptoPaymentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "需要有效的用戶身份"})
+		return
+	}
+	if payment.UserID != userID {
 		c.JSON(403, gin.H{"error": "無权访问"})
 		return
 	}
@@ -158,9 +192,13 @@ func getPaymentStatusHandler(c *gin.Context) {
 // listUserPaymentsHandler 列出用戶的所有支付
 // GET /api/payment/crypto/list
 func listUserPaymentsHandler(c *gin.Context) {
-	userID := c.GetString("user_id")
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
+	userID := cryptoPaymentUserID(c)
 	if userID == "" {
-		userID = "demo_user"
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "需要有效的用戶身份"})
+		return
 	}
 
 	payments, err := cryptoPaymentService.ListUserPayments(userID)
@@ -178,6 +216,9 @@ func listUserPaymentsHandler(c *gin.Context) {
 // submitTransactionHashHandler 提交交易哈希 (直接支付)
 // POST /api/payment/crypto/:id/submit-tx
 func submitTransactionHashHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	paymentID := c.Param("id")
 
 	var id int
@@ -195,22 +236,15 @@ func submitTransactionHashHandler(c *gin.Context) {
 		return
 	}
 
-	// 獲取支付信息
-	payment, err := cryptoPaymentService.GetPayment(id)
-	if err != nil {
-		c.JSON(404, gin.H{"error": "支付記錄不存在"})
+	userID := cryptoPaymentUserID(c)
+	if userID == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "需要有效的用戶身份"})
 		return
 	}
-
-	// 驗证权限
-	userID := c.GetString("user_id")
-	if userID != "" && payment.UserID != userID {
-		c.JSON(403, gin.H{"error": "無权操作"})
+	if err := cryptoPaymentService.SubmitDirectTransactionHash(id, userID, req.TransactionHash); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
-
-	// 保存交易哈希 (等待管理员确认)
-	// TODO: 實現保存交易哈希的逻辑
 
 	c.JSON(200, gin.H{
 		"message":          "交易哈希已提交,等待管理员确认",
@@ -223,6 +257,9 @@ func submitTransactionHashHandler(c *gin.Context) {
 // confirmDirectPaymentHandler 确认直接支付 (管理员)
 // POST /api/payment/crypto/:id/confirm
 func confirmDirectPaymentHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	paymentID := c.Param("id")
 
 	var id int
@@ -240,11 +277,16 @@ func confirmDirectPaymentHandler(c *gin.Context) {
 		return
 	}
 
-	// TODO: 驗证管理员权限
+	sessionValue, ok := c.Get("session")
+	session, isSession := sessionValue.(*Session)
+	if !ok || !isSession || session.Role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "需要管理員權限"})
+		return
+	}
 
 	// 确认支付
 	if err := cryptoPaymentService.ConfirmDirectPayment(id, req.TransactionHash); err != nil {
-		c.JSON(500, gin.H{"error": err.Error()})
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -257,6 +299,9 @@ func confirmDirectPaymentHandler(c *gin.Context) {
 // coinbaseWebhookHandler Coinbase Commerce Webhook
 // POST /api/payment/crypto/webhook/coinbase
 func coinbaseWebhookHandler(c *gin.Context) {
+	if cryptoPaymentUnavailable(c) {
+		return
+	}
 	// 读取 webhook 數據
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
