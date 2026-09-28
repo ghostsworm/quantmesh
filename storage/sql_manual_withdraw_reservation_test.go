@@ -69,6 +69,40 @@ func TestReserveManualWithdrawRecordRejectsUnsafeCases(t *testing.T) {
 	}
 }
 
+func TestReplaceProfitWithdrawRulesRejectsManualWithdrawalInFlight(t *testing.T) {
+	for _, status := range []string{"pending", "processing"} {
+		t.Run(status, func(t *testing.T) {
+			st, err := NewSQLStorage(t.TempDir() + "/replace-manual-withdraw-" + status + ".db")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			original := &ProfitWithdrawRule{ID: "existing-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+				Enabled: false, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+			if err := st.UpsertProfitWithdrawRule("acct", original); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "manual-" + status, AccountID: "acct", AccountScope: "scope-a",
+				ExchangeID: "BINANCE", StrategyID: "btcusdt", Amount: 20, Currency: "USDT", Type: "manual", Status: status,
+				Destination: "account", CreatedAt: time.Now().UTC()}); err != nil {
+				t.Fatal(err)
+			}
+			requested := &ProfitWithdrawRule{ID: "replacement-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+				Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+			if err := st.ReplaceProfitWithdrawRules("acct", []*ProfitWithdrawRule{requested}); err == nil {
+				t.Fatal("replacement must not enable automatic withdrawal while a manual transfer is unresolved")
+			}
+			rules, err := st.ListProfitWithdrawRules("acct")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(rules) != 1 || rules[0].ID != original.ID || rules[0].Enabled {
+				t.Fatalf("rejected replacement must preserve original rule: %+v", rules)
+			}
+		})
+	}
+}
+
 func TestSumReservedWithdrawAmountForStreamIncludesManualAndAutomatic(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/manual-withdraw-stream.db")
 	if err != nil {

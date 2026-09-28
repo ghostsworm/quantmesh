@@ -189,6 +189,22 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 	if err := lockProfitWithdrawAccount(tx, s.dbType, accountID); err != nil {
 		return err
 	}
+	for _, rule := range rules {
+		if rule == nil || !rule.Enabled {
+			continue
+		}
+		var manualInFlight int
+		if err := tx.QueryRow(`
+			SELECT COUNT(*) FROM profit_withdraw_records
+			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			  AND type = 'manual' AND status IN ('pending', 'processing')`, accountID, rule.AccountScope,
+			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
+			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
+		}
+		if manualInFlight != 0 {
+			return fmt.Errorf("同一收益流存在未核实的手动提取，拒绝启用自动提取")
+		}
+	}
 
 	if _, err := tx.Exec(`DELETE FROM profit_withdraw_rules WHERE account_id = ? AND COALESCE(claim_id, '') = ''`, accountID); err != nil {
 		return fmt.Errorf("清空舊规则失败: %w", err)
