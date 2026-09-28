@@ -272,6 +272,13 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr
 	if since.IsZero() {
 		return fmt.Errorf("withdrawal rule lacks a trusted accounting start time; automatic withdrawal is disabled")
 	}
+	legacyCheckpoint, err := legacyWithdrawalCheckpoint(e.st, rule.AccountID, rule.ExchangeID)
+	if err != nil {
+		return err
+	}
+	if legacyCheckpoint.After(since) {
+		since = legacyCheckpoint
+	}
 	coverageReader, ok := e.st.(interface {
 		GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
 	})
@@ -315,6 +322,43 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr
 		return nil
 	}
 	return e.executeWithdraw(rule, claimID, withdrawAmount, since, windowEnd)
+}
+
+func legacyWithdrawalCheckpoint(st storage.Storage, accountID, exchangeID string) (time.Time, error) {
+	records, err := st.GetWithdrawRecords(accountID, 1000)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("read legacy withdrawal records: %w", err)
+	}
+	if len(records) >= 1000 {
+		return time.Time{}, fmt.Errorf("withdrawal history reached its verification limit; automatic withdrawal is disabled")
+	}
+	var checkpoint time.Time
+	for _, record := range records {
+		if record == nil || !strings.EqualFold(record.ExchangeID, exchangeID) || record.AccountScope != "" {
+			continue
+		}
+		if IsReconciledWithdrawalFailure(record) {
+			continue
+		}
+		if record.Status == "completed" {
+			if record.CreatedAt.IsZero() {
+				return time.Time{}, fmt.Errorf("legacy completed withdrawal lacks a trusted checkpoint; reconcile it before automatic transfer")
+			}
+			if record.CreatedAt.After(checkpoint) {
+				checkpoint = record.CreatedAt
+			}
+			continue
+		}
+		return time.Time{}, fmt.Errorf("legacy withdrawal outcome is unresolved; reconcile it before automatic transfer")
+	}
+	return checkpoint, nil
+}
+
+// IsReconciledWithdrawalFailure only exempts an unscoped legacy record when a
+// human reconciliation explicitly confirmed the transfer did not occur.
+func IsReconciledWithdrawalFailure(record *storage.ProfitWithdrawRecord) bool {
+	const verifiedFailurePrefix = "人工核账确认交易所流水未发生划转："
+	return record != nil && record.Status == "failed" && strings.HasPrefix(record.FailedReason, verifiedFailurePrefix) && strings.TrimSpace(record.TransferID) != ""
 }
 
 func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequency string) bool {

@@ -841,12 +841,25 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("withdrawal history reached its verification limit")
 	}
 	var latest *storage.ProfitWithdrawRecord
+	var legacyCheckpoint time.Time
 	for _, record := range records {
 		if record == nil || !strings.EqualFold(record.ExchangeID, exchangeID) {
 			continue
 		}
-		if record.AccountScope == "" && (record.StrategyID == "" || strings.EqualFold(record.StrategyID, symbol)) {
-			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy withdrawal lacks account scope; reconcile its ledger before another transfer")
+		if record.AccountScope == "" {
+			if profit.IsReconciledWithdrawalFailure(record) {
+				continue
+			}
+			if record.Status != "completed" {
+				return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy withdrawal outcome is unresolved; reconcile its ledger before another transfer")
+			}
+			if record.CreatedAt.IsZero() {
+				return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy completed withdrawal lacks a trusted checkpoint")
+			}
+			if record.CreatedAt.After(legacyCheckpoint) {
+				legacyCheckpoint = record.CreatedAt
+			}
+			continue
 		}
 		if record.AccountScope != accountScope || !strings.EqualFold(record.StrategyID, symbol) {
 			continue
@@ -872,6 +885,9 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("latest withdrawal has no trusted checkpoint time")
 		}
 		windowStart = latest.CreatedAt
+	}
+	if legacyCheckpoint.After(windowStart) {
+		windowStart = legacyCheckpoint
 	}
 	if !windowStart.Before(windowEnd) {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("no fully covered realized-profit interval is available")

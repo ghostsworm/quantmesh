@@ -138,6 +138,45 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	}
 }
 
+func TestManualWithdrawWindowUsesLegacyWithdrawalAsGlobalCheckpoint(t *testing.T) {
+	st, err := storage.NewSQLStorage(t.TempDir() + "/legacy-manual-window.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	start := time.Now().UTC().Add(-time.Hour)
+	end := time.Now().UTC().Add(-time.Minute)
+	const scope = "scope-legacy-manual"
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", scope, start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", scope, start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{
+		ID: "legacy-eth-withdrawal", AccountID: "acct", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		Amount: 10, Currency: "USDT", Type: "manual", Status: "completed", CreatedAt: start.Add(10 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	pnl := 10.0
+	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, Symbol: "BTCUSDT", TradeID: "post-legacy-checkpoint-fill",
+		OrderID: 88, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &pnl, TradeTime: start.Add(20 * time.Minute)}
+	if err := st.SaveOrderFill(&fill); err != nil {
+		t.Fatal(err)
+	}
+	windowStart, _, _, verified, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC())
+	if err != nil {
+		t.Fatalf("completed legacy transfer should establish a global checkpoint: %v", err)
+	}
+	if want := start.Add(10 * time.Minute); !windowStart.Equal(want) {
+		t.Fatalf("windowStart=%v, want legacy transfer checkpoint %v", windowStart, want)
+	}
+	if verified != 10 {
+		t.Fatalf("verified profit=%v, want only post-checkpoint profit 10", verified)
+	}
+}
+
 func TestReconcileWithdrawRecordRequiresScopedLedgerEvidenceAndReleasesClaim(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	st, err := storage.NewSQLStorage(t.TempDir() + "/reconcile-withdraw.db")

@@ -349,6 +349,46 @@ func TestAutomaticWithdrawRejectsCredentialScopeMismatchBeforeReservation(t *tes
 	}
 }
 
+func TestAutomaticWithdrawUsesUnscopedCompletedWithdrawalAsCheckpoint(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "legacy-scope-rule", AccountID: "legacy-scope-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+		events:  []pnlEvent{{at: base.Add(time.Minute), pnl: 100}},
+		records: []*storage.ProfitWithdrawRecord{{AccountID: "legacy-scope-account", ExchangeID: "binance", StrategyID: "ETHUSDT", Status: "completed", CreatedAt: base}},
+	}
+	ex := &fakeTransferExchange{st: st, accountScope: "scope-a", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+	if err := e.processRule(st.rule); err != nil {
+		t.Fatalf("completed legacy withdrawal should establish a global checkpoint: %v", err)
+	}
+	if len(ex.amounts) != 1 || len(st.records) != 2 {
+		t.Fatalf("post-checkpoint profit should remain withdrawable: amounts=%v records=%+v", ex.amounts, st.records)
+	}
+}
+
+func TestIsReconciledWithdrawalFailureRequiresLedgerEvidence(t *testing.T) {
+	tests := []struct {
+		name   string
+		record *storage.ProfitWithdrawRecord
+		want   bool
+	}{
+		{name: "evidence-confirmed failure", record: &storage.ProfitWithdrawRecord{Status: "failed", TransferID: "ledger-ref-1", FailedReason: "人工核账确认交易所流水未发生划转：逐笔核实金额、币种及账户流水。"}, want: true},
+		{name: "legacy failed status without evidence", record: &storage.ProfitWithdrawRecord{Status: "failed", FailedReason: "transfer error"}},
+		{name: "cancelled without verified ledger", record: &storage.ProfitWithdrawRecord{Status: "cancelled"}},
+		{name: "failure without reference", record: &storage.ProfitWithdrawRecord{Status: "failed", FailedReason: "人工核账确认交易所流水未发生划转：逐笔核实。"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsReconciledWithdrawalFailure(tt.record); got != tt.want {
+				t.Fatalf("IsReconciledWithdrawalFailure()=%v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAutomaticWithdrawRejectsUnknownAccountCashFlow(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
