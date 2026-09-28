@@ -212,6 +212,74 @@ func TestClaimProfitWithdrawRuleIsAtomicAcrossCallers(t *testing.T) {
 	}
 }
 
+func TestAbandonedWithdrawalClaimCanRecoverOnlyBeforeReservation(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-abandoned-claim.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rule := &ProfitWithdrawRule{ID: "recover-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", rule); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule(rule.ID, "old-claim"); err != nil || !claimed {
+		t.Fatalf("initial claim failed: claimed=%v err=%v", claimed, err)
+	}
+	cutoff := time.Now().UTC()
+	if _, err := st.db.Exec(`UPDATE profit_withdraw_rules SET claim_started_at = ? WHERE id = ?`, cutoff.Add(-time.Hour), rule.ID); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := st.RecoverAbandonedProfitWithdrawRuleClaims(cutoff)
+	if err != nil || recovered != 1 {
+		t.Fatalf("orphaned claim should be recovered: recovered=%d err=%v", recovered, err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule(rule.ID, "new-claim"); err != nil || !claimed {
+		t.Fatalf("recovered rule should be claimable: claimed=%v err=%v", claimed, err)
+	}
+	record := &ProfitWithdrawRecord{ID: "stale-reservation", RuleID: rule.ID, AccountID: "acct", AccountScope: "scope-a",
+		ClaimID: "old-claim", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 1, NetAmount: 1,
+		Currency: "USDT", Type: "auto", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.SaveWithdrawRecordForClaim(record); err == nil {
+		t.Fatal("stale worker must not create a transfer reservation after its claim is recovered")
+	}
+	record.ID = "current-reservation"
+	record.ClaimID = "new-claim"
+	if err := st.SaveWithdrawRecordForClaim(record); err != nil {
+		t.Fatalf("current claim should atomically create its reservation: %v", err)
+	}
+	recovered, err = st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().Add(time.Hour))
+	if err != nil || recovered != 0 {
+		t.Fatalf("claim with an existing transfer reservation must not be recovered: recovered=%d err=%v", recovered, err)
+	}
+}
+
+func TestWithdrawalClaimRecoveryPreservesLegacyClaimsWithoutTimestamp(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-legacy-claim.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{ID: "legacy-claim-rule", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Enabled: true, WithdrawRatio: 0.5,
+		Frequency: "immediate", Destination: "account"}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule("legacy-claim-rule", "legacy-claim"); err != nil || !claimed {
+		t.Fatalf("initial claim failed: claimed=%v err=%v", claimed, err)
+	}
+	if _, err := st.db.Exec(`UPDATE profit_withdraw_rules SET claim_started_at = NULL WHERE id = ?`, "legacy-claim-rule"); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().Add(24 * time.Hour))
+	if err != nil || recovered != 0 {
+		t.Fatalf("claim with unknown legacy age must remain protected: recovered=%d err=%v", recovered, err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule("legacy-claim-rule", "replacement"); err != nil || claimed {
+		t.Fatalf("recovery must not steal a legacy claim: claimed=%v err=%v", claimed, err)
+	}
+}
+
 func TestSumReservedWithdrawAmountHasNoHistoryPageLimit(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-reservations.db")
 	if err != nil {

@@ -17,6 +17,8 @@ import (
 
 var ErrWithdrawOutcomeUnknown = errors.New("profit withdrawal outcome is unknown")
 
+const abandonedWithdrawClaimAge = 15 * time.Minute
+
 const (
 	immediateInterval = 5 * time.Minute
 	dailyHour         = 2
@@ -138,6 +140,21 @@ func nextScheduleTime(frequency string, now time.Time) time.Time {
 }
 
 func (e *WithdrawExecutor) processRules(frequency string) {
+	recoverer, ok := e.st.(interface {
+		RecoverAbandonedProfitWithdrawRuleClaims(time.Time) (int64, error)
+	})
+	if !ok {
+		logger.Error("❌ [利润提取] 存储不支持安全回收崩溃遗留的规则 claim，自动提取已禁用")
+		return
+	}
+	recovered, err := recoverer.RecoverAbandonedProfitWithdrawRuleClaims(e.now().UTC().Add(-abandonedWithdrawClaimAge))
+	if err != nil {
+		logger.Error("❌ [利润提取] 回收遗留规则 claim 失败，自动提取本轮停止: %v", err)
+		return
+	}
+	if recovered > 0 {
+		logger.Warn("⚠️ [利润提取] 已回收 %d 个无转账预留且超时的崩溃遗留规则 claim", recovered)
+	}
 	accountIDs, err := e.st.ListAccountIDsWithProfitRules()
 	if err != nil {
 		logger.Warn("⚠️ [利润提取] 獲取帳戶列表失败: %v", err)
@@ -439,7 +456,13 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 		// 若 LastTriggeredAt 更新失敗，本記錄仍落在舊區間內，會被扣減從而避免重複劃轉
 		CreatedAt: windowEnd,
 	}
-	if err := e.st.SaveWithdrawRecord(record); err != nil {
+	recorder, ok := e.st.(interface {
+		SaveWithdrawRecordForClaim(*storage.ProfitWithdrawRecord) error
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks claim-fenced withdrawal reservation; automatic transfer is disabled")
+	}
+	if err := recorder.SaveWithdrawRecordForClaim(record); err != nil {
 		return fmt.Errorf("保存記錄失败: %w", err)
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)

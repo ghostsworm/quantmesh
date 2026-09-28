@@ -198,6 +198,16 @@ func (f *fakeWithdrawStorage) SaveWithdrawRecord(r *storage.ProfitWithdrawRecord
 	f.records = append(f.records, r)
 	return nil
 }
+func (f *fakeWithdrawStorage) SaveWithdrawRecordForClaim(r *storage.ProfitWithdrawRecord) error {
+	if r == nil || r.ClaimID == "" || f.claimID != r.ClaimID {
+		return errors.New("withdrawal claim was lost")
+	}
+	f.records = append(f.records, r)
+	return nil
+}
+func (f *fakeWithdrawStorage) RecoverAbandonedProfitWithdrawRuleClaims(time.Time) (int64, error) {
+	return 0, nil
+}
 func (f *fakeWithdrawStorage) UpdateWithdrawRecordStatus(id, status, transferID, failedReason string) error {
 	for _, r := range f.records {
 		if r.ID == id {

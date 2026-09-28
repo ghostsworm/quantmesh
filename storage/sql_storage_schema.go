@@ -227,6 +227,7 @@ func createTables(db *sql.DB) error {
 		account_id TEXT NOT NULL,
 		account_scope TEXT NOT NULL DEFAULT '',
 		claim_id TEXT NOT NULL DEFAULT '',
+		claim_started_at TIMESTAMP,
 		exchange_id TEXT NOT NULL,
 		strategy_id TEXT NOT NULL DEFAULT '',
 		enabled INTEGER NOT NULL DEFAULT 1,
@@ -340,6 +341,9 @@ func createTables(db *sql.DB) error {
 	}
 	if err := migrateProfitWithdrawRulesClaimID(db); err != nil {
 		return fmt.Errorf("迁移 profit_withdraw_rules claim_id 失败: %w", err)
+	}
+	if err := migrateProfitWithdrawRulesClaimStartedAt(db); err != nil {
+		return fmt.Errorf("迁移 profit_withdraw_rules claim_started_at 失败: %w", err)
 	}
 
 	// 迁移：确保 profit_withdraw_records 表存在

@@ -774,6 +774,7 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
   account_id VARCHAR(255) NOT NULL,
   account_scope VARCHAR(128) NOT NULL DEFAULT '',
   claim_id VARCHAR(128) NOT NULL DEFAULT '',
+  claim_started_at TIMESTAMP(3) NULL,
   exchange_id VARCHAR(64) NOT NULL,
   strategy_id VARCHAR(128) NOT NULL DEFAULT '',
   enabled TINYINT NOT NULL DEFAULT 1,
@@ -811,6 +812,9 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 		}
 	}
 	if err := ensureMySQLColumn(db, "profit_withdraw_rules", "claim_id", `ALTER TABLE profit_withdraw_rules ADD COLUMN claim_id VARCHAR(128) NOT NULL DEFAULT '' AFTER account_scope`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "profit_withdraw_rules", "claim_started_at", `ALTER TABLE profit_withdraw_rules ADD COLUMN claim_started_at TIMESTAMP(3) NULL AFTER claim_id`); err != nil {
 		return err
 	}
 	logger.Info("✅ MySQL profit_withdraw_rules 表已就緒")

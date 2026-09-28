@@ -548,6 +548,7 @@ func migrateProfitWithdrawRulesTable(db *sql.DB) error {
 			account_id TEXT NOT NULL,
 			account_scope TEXT NOT NULL DEFAULT '',
 			claim_id TEXT NOT NULL DEFAULT '',
+			claim_started_at TIMESTAMP,
 			exchange_id TEXT NOT NULL,
 			strategy_id TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 1,
@@ -601,6 +602,18 @@ func migrateProfitWithdrawRulesClaimID(db *sql.DB) error {
 	}
 	if count == 0 {
 		_, err := db.Exec(`ALTER TABLE profit_withdraw_rules ADD COLUMN claim_id TEXT NOT NULL DEFAULT ''`)
+		return err
+	}
+	return nil
+}
+
+func migrateProfitWithdrawRulesClaimStartedAt(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profit_withdraw_rules') WHERE name='claim_started_at'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`ALTER TABLE profit_withdraw_rules ADD COLUMN claim_started_at TIMESTAMP`)
 		return err
 	}
 	return nil

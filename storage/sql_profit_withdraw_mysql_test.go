@@ -21,6 +21,12 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 		t.Fatalf("initialize MySQL storage and migrations: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.db.Exec(`ALTER TABLE profit_withdraw_rules DROP COLUMN claim_started_at`); err != nil {
+		t.Fatalf("prepare legacy MySQL withdrawal rules schema: %v", err)
+	}
+	if err := migrateProfitWithdrawRulesTableMySQL(st.db); err != nil {
+		t.Fatalf("migrate legacy MySQL withdrawal rules schema: %v", err)
+	}
 
 	accountID := fmt.Sprintf("codex-profit-readiness-%d", time.Now().UnixNano())
 	start := make(chan struct{})
@@ -97,5 +103,39 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 	reserved, err := st.SumReservedWithdrawAmountForStream(accountID, "mysql-scope", "BINANCE", "btcusdt", since)
 	if err != nil || reserved != 40 {
 		t.Fatalf("MySQL manual stream reservation=%v err=%v, want 40", reserved, err)
+	}
+
+	claimAccount := accountID + "-claim-recovery"
+	claimRuleID := claimAccount + "-rule"
+	if err := st.UpsertProfitWithdrawRule(claimAccount, &ProfitWithdrawRule{
+		ID: claimRuleID, AccountScope: "mysql-claim-scope", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule(claimRuleID, "mysql-old-claim"); err != nil || !claimed {
+		t.Fatalf("claim MySQL rule: claimed=%v err=%v", claimed, err)
+	}
+	if _, err := st.db.Exec(`UPDATE profit_withdraw_rules SET claim_started_at = ? WHERE id = ?`, time.Now().Add(-time.Hour), claimRuleID); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err := st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().UTC())
+	if err != nil || recovered != 1 {
+		t.Fatalf("recover stale MySQL claim: count=%d err=%v", recovered, err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule(claimRuleID, "mysql-current-claim"); err != nil || !claimed {
+		t.Fatalf("reclaim MySQL rule: claimed=%v err=%v", claimed, err)
+	}
+	record := &ProfitWithdrawRecord{ID: claimAccount + "-stale-reservation", RuleID: claimRuleID,
+		AccountID: claimAccount, AccountScope: "mysql-claim-scope", ClaimID: "mysql-old-claim",
+		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 2, NetAmount: 2, Currency: "USDT",
+		Type: "auto", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.SaveWithdrawRecordForClaim(record); err == nil {
+		t.Fatal("stale MySQL worker must not create a reservation after claim recovery")
+	}
+	record.ID = claimAccount + "-current-reservation"
+	record.ClaimID = "mysql-current-claim"
+	if err := st.SaveWithdrawRecordForClaim(record); err != nil {
+		t.Fatalf("save current MySQL claim reservation: %v", err)
 	}
 }

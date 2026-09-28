@@ -421,7 +421,7 @@ func (s *SQLStorage) ClaimProfitWithdrawRule(ruleID, claimID string) (bool, erro
 	if ruleID == "" || claimID == "" {
 		return false, fmt.Errorf("ruleID 和 claimID 不能為空")
 	}
-	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = ? WHERE id = ? AND enabled = 1 AND COALESCE(claim_id, '') = ''`, claimID, ruleID)
+	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = ?, claim_started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND enabled = 1 AND COALESCE(claim_id, '') = ''`, claimID, ruleID)
 	if err != nil {
 		return false, fmt.Errorf("认领利润提取规则失败 rule=%s: %w", ruleID, err)
 	}
@@ -434,7 +434,7 @@ func (s *SQLStorage) ClaimProfitWithdrawRule(ruleID, claimID string) (bool, erro
 
 // ReleaseProfitWithdrawRuleClaim releases only the caller's own claim.
 func (s *SQLStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID string) error {
-	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = '' WHERE id = ? AND claim_id = ?`, ruleID, claimID)
+	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = '', claim_started_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND claim_id = ?`, ruleID, claimID)
 	if err != nil {
 		return fmt.Errorf("释放利润提取规则认领失败 rule=%s: %w", ruleID, err)
 	}
@@ -448,6 +448,32 @@ func (s *SQLStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID string) erro
 	return nil
 }
 
+// RecoverAbandonedProfitWithdrawRuleClaims reclaims stale claims only when
+// there is no transfer reservation for that exact claim. The record insertion
+// is separately fenced by SaveWithdrawRecordForClaim to prevent stale workers
+// from transferring after their claim has been recovered.
+func (s *SQLStorage) RecoverAbandonedProfitWithdrawRuleClaims(staleBefore time.Time) (int64, error) {
+	if staleBefore.IsZero() {
+		return 0, fmt.Errorf("abandoned withdrawal claim recovery requires a cutoff")
+	}
+	updatedAt := utils.NowUTC()
+	result, err := s.db.Exec(`UPDATE profit_withdraw_rules
+		SET claim_id = '', claim_started_at = NULL, updated_at = ?
+		WHERE COALESCE(claim_id, '') <> '' AND claim_started_at IS NOT NULL AND claim_started_at < ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM profit_withdraw_records r
+			WHERE r.rule_id = profit_withdraw_rules.id AND r.claim_id = profit_withdraw_rules.claim_id
+		  )`, updatedAt, staleBefore.UTC())
+	if err != nil {
+		return 0, fmt.Errorf("recover abandoned withdrawal rule claims: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("read recovered withdrawal claim count: %w", err)
+	}
+	return rows, nil
+}
+
 // SaveWithdrawRecord 保存提取記錄
 func (s *SQLStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 	_, err := s.db.Exec(`
@@ -458,6 +484,33 @@ func (s *SQLStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 		record.TransferID, record.CreatedAt, nil, record.FailedReason, record.Note)
 	if err != nil {
 		return fmt.Errorf("保存 profit_withdraw_records 失败: %w", err)
+	}
+	return nil
+}
+
+// SaveWithdrawRecordForClaim atomically fences reservation creation against a
+// stale worker whose durable claim was reclaimed by another executor.
+func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord) error {
+	if record == nil || record.ID == "" || record.RuleID == "" || record.ClaimID == "" {
+		return fmt.Errorf("claimed withdrawal reservation requires record, rule, and claim identities")
+	}
+	result, err := s.db.Exec(`
+		INSERT INTO profit_withdraw_records
+		(id, rule_id, account_id, account_scope, claim_id, exchange_id, strategy_id, amount, fee, net_amount, currency, type, status, destination, transfer_id, created_at, completed_at, failed_reason, note)
+		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+		WHERE EXISTS (SELECT 1 FROM profit_withdraw_rules WHERE id = ? AND enabled = 1 AND claim_id = ?)`,
+		record.ID, record.RuleID, record.AccountID, record.AccountScope, record.ClaimID, record.ExchangeID, record.StrategyID,
+		record.Amount, record.Fee, record.NetAmount, record.Currency, record.Type, record.Status, record.Destination,
+		record.TransferID, record.CreatedAt, nil, record.FailedReason, record.Note, record.RuleID, record.ClaimID)
+	if err != nil {
+		return fmt.Errorf("save claimed withdrawal reservation: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read claimed withdrawal reservation result: %w", err)
+	}
+	if rows != 1 {
+		return fmt.Errorf("withdrawal rule claim was lost before transfer reservation; refusing transfer")
 	}
 	return nil
 }
@@ -566,7 +619,7 @@ func (s *SQLStorage) ResolvePendingWithdrawRecord(accountID, recordID, outcome, 
 		return fmt.Errorf("提取记录已被其他操作处理")
 	}
 	if claimID != "" {
-		result, err := tx.Exec(`UPDATE profit_withdraw_rules SET claim_id = '' WHERE id = ? AND claim_id = ?`, ruleID, claimID)
+		result, err := tx.Exec(`UPDATE profit_withdraw_rules SET claim_id = '', claim_started_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND claim_id = ?`, ruleID, claimID)
 		if err != nil {
 			return fmt.Errorf("释放对应自动提取规则 claim 失败: %w", err)
 		}
