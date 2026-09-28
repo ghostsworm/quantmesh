@@ -106,6 +106,41 @@ func TestRuntimeExposureSharedGridStrategyAndHotLimits(t *testing.T) {
 	}
 }
 
+func TestBotCapitalNotionalLimitIsSharedByGridAndStrategyOrders(t *testing.T) {
+	v := &runtimeJournalVenue{}
+	executor, spm, _, _ := runtimeExposureFixture(t, v)
+	budget, err := capStrategyCapitalLimit(5000, 500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openControl := config.OpenPositionControl{}
+	if err := applyBotCapitalLimit(&openControl, budget); err != nil {
+		t.Fatal(err)
+	}
+	spm.SetRiskControls(config.RiskControls{Open: openControl})
+
+	grid := &exchangeExecutorAdapter{executor: executor}
+	if _, err := grid.PlaceOrder(&position.OrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 4, ClientOrderID: "budget-grid", ExposureKey: "grid:LONG:100",
+	}); err != nil {
+		t.Fatalf("grid order within Bot budget rejected: %v", err)
+	}
+
+	allocator := strategy.NewCapitalAllocator(&config.Config{}, budget)
+	allocator.RegisterStrategy("dca", 1, 0)
+	allocator.Allocate()
+	strategyExecutor := strategy.NewMultiStrategyExecutor(executor, allocator)
+	strategyAdapter := strategy.NewMultiStrategyExecutorAdapter(strategyExecutor, "dca")
+	if _, err := strategyAdapter.PlaceOrder(&position.OrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", PositionSide: "LONG", Price: 100, Quantity: 2, ClientOrderID: "budget-dca",
+	}); !errors.Is(err, execution.ErrExposureLimit) {
+		t.Fatalf("strategy order exceeded shared Bot budget: %v", err)
+	}
+	if v.sends != 1 {
+		t.Fatalf("over-budget strategy request reached venue: sends=%d", v.sends)
+	}
+}
+
 func TestRuntimeExposureUsesQuoteEvidenceAtAdmission(t *testing.T) {
 	v := &runtimeJournalVenue{}
 	executor, _, _, _ := runtimeExposureFixture(t, v)

@@ -476,6 +476,31 @@ func startSymbolRuntime(
 		logger.InfoCtx(ctx, "✅ [%s] 交易所實例已創建 (symbol=%s)", ex.GetName(), symCfg.Symbol)
 	}
 
+	requestedCapital := symCfg.TotalAllocatedCapital
+	if requestedCapital == 0 {
+		requestedCapital = localCfg.Strategies.CapitalAllocation.TotalCapital
+	}
+	quoteAsset := strings.TrimSpace(ex.GetQuoteAsset())
+	availableBalance := 0.0
+	var balanceErr error
+	if quoteAsset == "" {
+		balanceErr = fmt.Errorf("exchange quote asset is unavailable")
+	} else {
+		balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
+		cancel()
+	}
+	botCapitalBudget, capitalErr := capStrategyCapitalLimit(requestedCapital, availableBalance)
+	if balanceErr != nil {
+		capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
+	}
+	if capitalErr == nil {
+		capitalErr = applyBotCapitalLimit(&localCfg.Trading.OpenPositionControl, botCapitalBudget)
+	}
+	if capitalErr == nil {
+		localCfg.Strategies.CapitalAllocation.TotalCapital = botCapitalBudget
+	}
+
 	// K 線 regime 檢測器（trading.regime_filter / adaptive_interval / upper_bound_freeze）：
 	// 在啟動任何後台組件前校驗配置，配置非法時直接拒絕啟動
 	gridRegime, err := newGridRegimeRuntime(&localCfg, symCfg.Symbol, ex)
@@ -621,6 +646,13 @@ func startSymbolRuntime(
 		localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening = false
 	}
 	exchangeExecutor.SetOpeningGate(superPositionManager.OpeningGate(), localCfg.Trading.Direction)
+	if capitalErr != nil {
+		superPositionManager.OpeningGate().Block("capital_balance_unverified")
+		logger.ErrorCtx(ctx, "🚨 [%s] Bot 資金上限无法核实，已封锁所有新開倉: %v", botID, capitalErr)
+	} else if requestedCapital > botCapitalBudget {
+		logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過交易所可用余额 %.2f %s，Bot 总名义敞口已下調至可用余额",
+			botID, requestedCapital, quoteAsset, botCapitalBudget, quoteAsset)
+	}
 	exposureBook, err := configureRuntimeExposure(exchangeExecutor, priceMonitor.GetQuoteEvidence)
 	if err != nil {
 		return nil, fmt.Errorf("configure runtime exposure: %w", err)
@@ -967,32 +999,7 @@ func startSymbolRuntime(
 	}
 
 	if localCfg.Strategies.Enabled {
-		configuredCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
-		quoteAsset := strings.TrimSpace(ex.GetQuoteAsset())
-		availableBalance := 0.0
-		var balanceErr error
-		if quoteAsset != "" {
-			availableBalance, balanceErr = ex.GetBalance(ctx, quoteAsset)
-		} else {
-			balanceErr = fmt.Errorf("exchange quote asset is unavailable")
-		}
-		totalCapital, capitalErr := capStrategyCapitalLimit(configuredCapital, availableBalance)
-		if balanceErr != nil {
-			capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
-		}
-		if capitalErr != nil {
-			totalCapital = 0
-			superPositionManager.OpeningGate().Block("strategy_capital_unverified")
-			logger.ErrorCtx(ctx, "🚨 [%s] 策略資金上限无法核实，已封锁本 Bot 新開倉: %v", botID, capitalErr)
-		} else if configuredCapital > totalCapital {
-			logger.WarnCtx(ctx, "⚠️ [%s] 配置策略资金上限 %.2f %s 超過交易所可用余额 %.2f %s，已下調至可用余额",
-				botID, configuredCapital, quoteAsset, totalCapital, quoteAsset)
-		} else {
-			logger.InfoCtx(ctx, "💰 [%s] 策略資金預算 %.2f %s（配置上限 %.2f，可用余额 %.2f）",
-				botID, totalCapital, quoteAsset, configuredCapital, availableBalance)
-		}
-
-		strategyManager = strategy.NewStrategyManager(&localCfg, totalCapital)
+		strategyManager = strategy.NewStrategyManager(&localCfg, botCapitalBudget)
 		strategyManager.SetOrderUpdateErrorHandler(func(strategyName string, updateErr error) {
 			superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
 			logger.ErrorCtx(ctx, "[%s] 策略 %s 成交账未能确认，已封锁 Bot 新开仓: %v", botID, strategyName, updateErr)

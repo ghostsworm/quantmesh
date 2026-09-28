@@ -3,6 +3,8 @@ package main
 import (
 	"math"
 	"testing"
+
+	"quantmesh/config"
 )
 
 func TestCapStrategyCapitalLimit(t *testing.T) {
@@ -31,5 +33,26 @@ func TestCapStrategyCapitalLimit(t *testing.T) {
 				t.Fatalf("capStrategyCapitalLimit() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyBotCapitalLimit(t *testing.T) {
+	control := &config.OpenPositionControl{
+		MaxPositionValue: 1000,
+		BotRiskControl:   &config.BotRiskControl{Enabled: true, MaxPositionValue: 800},
+	}
+	if err := applyBotCapitalLimit(control, 500); err != nil {
+		t.Fatal(err)
+	}
+	if control.MaxPositionValue != 500 || control.BotRiskControl.MaxPositionValue != 500 {
+		t.Fatalf("capital limit not applied to all active controls: %+v", control)
+	}
+
+	control = &config.OpenPositionControl{MaxPositionValue: 250}
+	if err := applyBotCapitalLimit(control, 500); err != nil {
+		t.Fatal(err)
+	}
+	if control.MaxPositionValue != 250 {
+		t.Fatalf("stricter user limit was relaxed: %+v", control)
 	}
 }
