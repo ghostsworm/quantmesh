@@ -137,6 +137,133 @@ type fundingProfitTotals struct {
 	Month float64
 }
 
+const withdrawProfitHistoryLimit = 1000
+
+type withdrawProfitStream struct {
+	exchange string
+	symbol   string
+}
+
+type withdrawProfitAmounts struct {
+	withdrawn float64
+	reserved  float64
+}
+
+type withdrawProfitLedger map[withdrawProfitStream]withdrawProfitAmounts
+
+type verifiedWithdrawProfit map[withdrawProfitStream]float64
+
+func newWithdrawProfitStream(exchangeID, symbol string) withdrawProfitStream {
+	return withdrawProfitStream{
+		exchange: strings.ToUpper(strings.TrimSpace(exchangeID)),
+		symbol:   strings.ToUpper(strings.TrimSpace(symbol)),
+	}
+}
+
+func readWithdrawProfitLedger(st storage.Storage, accountID string) (withdrawProfitLedger, error) {
+	records, err := st.GetWithdrawRecords(accountID, withdrawProfitHistoryLimit)
+	if err != nil {
+		return nil, fmt.Errorf("read withdrawal ledger: %w", err)
+	}
+	if len(records) >= withdrawProfitHistoryLimit {
+		return nil, fmt.Errorf("withdrawal ledger reached verification limit of %d records", withdrawProfitHistoryLimit)
+	}
+	return aggregateWithdrawProfitLedger(records)
+}
+
+func aggregateWithdrawProfitLedger(records []*storage.ProfitWithdrawRecord) (withdrawProfitLedger, error) {
+	ledger := make(withdrawProfitLedger)
+	for _, record := range records {
+		if record == nil {
+			return nil, errors.New("withdrawal ledger contains a nil record")
+		}
+		if record.Status == "failed" || record.Status == "cancelled" {
+			continue
+		}
+		if record.Amount < 0 || math.IsNaN(record.Amount) || math.IsInf(record.Amount, 0) {
+			return nil, fmt.Errorf("withdrawal ledger contains an invalid amount for record %s", record.ID)
+		}
+		key := newWithdrawProfitStream(record.ExchangeID, record.StrategyID)
+		amounts := ledger[key]
+		if record.Status == "completed" {
+			amounts.withdrawn += record.Amount
+		} else {
+			// Unknown states are conservatively reserved until explicitly resolved.
+			amounts.reserved += record.Amount
+		}
+		ledger[key] = amounts
+	}
+	return ledger, nil
+}
+
+func (ledger withdrawProfitLedger) amountsFor(exchangeID, symbol string) withdrawProfitAmounts {
+	exchangeFilter := strings.ToUpper(strings.TrimSpace(exchangeID))
+	symbolFilter := strings.ToUpper(strings.TrimSpace(symbol))
+	var total withdrawProfitAmounts
+	for key, amounts := range ledger {
+		if exchangeFilter != "" && key.exchange != exchangeFilter {
+			continue
+		}
+		if symbolFilter != "" && key.symbol != symbolFilter {
+			continue
+		}
+		total.withdrawn += amounts.withdrawn
+		total.reserved += amounts.reserved
+	}
+	return total
+}
+
+func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, symbol string) float64 {
+	exchangeFilter := strings.ToUpper(strings.TrimSpace(exchangeID))
+	symbolFilter := strings.ToUpper(strings.TrimSpace(symbol))
+	var total float64
+	for key, amount := range available {
+		if exchangeFilter != "" && key.exchange != exchangeFilter {
+			continue
+		}
+		if symbolFilter != "" && key.symbol != symbolFilter {
+			continue
+		}
+		total += amount
+	}
+	if math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
+		return 0
+	}
+	return math.Round(total*100) / 100
+}
+
+func readVerifiedWithdrawProfit(st storage.Storage, accountID, exchangeID string, now time.Time) (verifiedWithdrawProfit, error) {
+	streams, err := st.GetPnLByTimeRange(accountID, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), now)
+	if err != nil {
+		return nil, fmt.Errorf("read PnL streams for withdrawal availability: %w", err)
+	}
+	if len(streams) >= 1000 {
+		return nil, errors.New("PnL stream count reached verification limit")
+	}
+	available := make(verifiedWithdrawProfit)
+	for _, stream := range streams {
+		if stream == nil || !strings.EqualFold(stream.MarketType, "futures") {
+			continue
+		}
+		if exchangeID != "" && !strings.EqualFold(stream.Exchange, exchangeID) {
+			continue
+		}
+		key := newWithdrawProfitStream(stream.Exchange, stream.Symbol)
+		if _, exists := available[key]; exists {
+			continue
+		}
+		scope := accountScopeForExchange(stream.Exchange)
+		if scope == "" {
+			continue
+		}
+		_, _, _, amount, verifyErr := manualWithdrawWindow(st, accountID, scope, stream.Exchange, stream.Symbol, 0, now)
+		if verifyErr == nil && amount > 0 && !math.IsNaN(amount) && !math.IsInf(amount, 0) {
+			available[key] = amount
+		}
+	}
+	return available, nil
+}
+
 func readFundingProfitTotals(reader fundingProfitSumReader, account, exchange string, lifetimeStart, todayStart, weekStart, monthStart, end time.Time) (fundingProfitTotals, error) {
 	var totals fundingProfitTotals
 	queries := []struct {
@@ -312,6 +439,18 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 	}
 
+	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
+		return
+	}
+	withdrawnAmounts := withdrawLedger.amountsFor(exchangeID, "")
+	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, exchangeID, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
+		return
+	}
+
 	summary := ProfitSummary{
 		ExchangeID:          exchangeID,
 		TotalProfit:         math.Round(netWithFunding*100) / 100,
@@ -323,8 +462,8 @@ func getProfitSummaryHandler(c *gin.Context) {
 		MonthProfit:         math.Round(monthProfitWithFunding*100) / 100,
 		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
 		ExchangeProfit:      exchangeProfit,
-		WithdrawnProfit:     0, // TODO: 從提現記錄统计
-		AvailableToWithdraw: math.Round(netWithFunding*100) / 100,
+		WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		AvailableToWithdraw: sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, ""),
 		PriceDeviationLoss:  math.Round(priceDeviationLoss*100) / 100,
 		BuyPriceDeviation:   math.Round(summaryStats.TotalBuyDeviation*100) / 100,
 		SellPriceDeviation:  math.Round(summaryStats.TotalSellDeviation*100) / 100,
@@ -422,12 +561,20 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
-
-	// 查詢所有時间的盈亏（按币种和交易所分组）
-	// 使用一個很早的時间作為起点
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := utils.NowConfiguredTimezone()
+	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
+		return
+	}
+	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, exchangeID, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
+		return
+	}
 
+	// 查詢所有時间的盈亏（按币种和交易所分组）
 	pnlList, err := st.GetPnLByTimeRange(accountID, startTime, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏失败: " + err.Error()})
@@ -479,6 +626,11 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		if strings.Contains(strategyID, "usdt") {
 			strategyID = strings.ReplaceAll(strategyID, "usdt", "")
 		}
+		withdrawnAmounts := withdrawLedger.amountsFor(p.Exchange, p.Symbol)
+		verifiedAmount := 0.0
+		if strings.EqualFold(p.MarketType, "futures") {
+			verifiedAmount = verifiedAvailable[newWithdrawProfitStream(p.Exchange, p.Symbol)]
+		}
 
 		profits = append(profits, StrategyProfit{
 			ExchangeID:          p.Exchange,
@@ -490,8 +642,8 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			TodayProfit:         math.Round(todayPnlMap[key]*100) / 100,
 			UnrealizedProfit:    math.Round(unrealizedPnlMap[key]*100) / 100,
 			RealizedProfit:      math.Round(p.TotalPnL*100) / 100,
-			WithdrawnProfit:     0,
-			AvailableToWithdraw: math.Round(p.TotalPnL*100) / 100,
+			WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
+			AvailableToWithdraw: verifiedAmount,
 			TradeCount:          p.TotalTrades,
 			WinRate:             math.Round(p.WinRate*100) / 100,         // 网格方式胜率
 			ExchangeWinRate:     math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
@@ -530,6 +682,17 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏详情失败: " + err.Error()})
 		return
 	}
+	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
+		return
+	}
+	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, "", now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
+		return
+	}
+	withdrawnAmounts := withdrawLedger.amountsFor("", strategyID)
 
 	// 獲取未實現盈亏
 	unrealizedPnL := 0.0
@@ -559,8 +722,8 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		TodayProfit:         0, // 需要額外查詢
 		UnrealizedProfit:    math.Round(unrealizedPnL*100) / 100,
 		RealizedProfit:      math.Round(summary.TotalPnL*100) / 100,
-		WithdrawnProfit:     0,
-		AvailableToWithdraw: math.Round(summary.TotalPnL*100) / 100,
+		WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		AvailableToWithdraw: sumVerifiedWithdrawProfit(verifiedAvailable, "", strategyID),
 		WinRate:             math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
 		TradeCount:          summary.TotalTrades,
 		AvgProfitPerTrade:   0,
