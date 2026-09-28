@@ -395,9 +395,11 @@ type SuperPositionManager struct {
 	lastOptimizationTime atomic.Value // time.Time - 最后訂單簿優化時间
 
 	// 交易存儲（可選，用於保存交易記錄）
-	tradeStorage          TradeStorage
-	gridRuntimeStateMu    sync.RWMutex
-	gridRuntimeStateStore GridRuntimeStateStore
+	tradeStorage             TradeStorage
+	gridRuntimeStateMu       sync.RWMutex
+	gridRuntimeStateSaveMu   sync.Mutex
+	gridRuntimeStateStore    GridRuntimeStateStore
+	gridRuntimeStateRestored atomic.Bool
 
 	// 初始化標志
 	isInitialized atomic.Bool
@@ -1114,7 +1116,9 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	}
 
 	// 1. 設置價格锚点（精度信息已經在構造函數中設置，從交易所獲取）
-	spm.setAnchorPrice(initialPrice)
+	if !spm.gridRuntimeStateRestored.Load() {
+		spm.setAnchorPrice(initialPrice)
+	}
 	spm.lastMarketPrice.Store(initialPrice) // 初始化最后市场價格
 	logger.Info("✅ 價格锚点已設置: %s, 價格精度:%d, 數量精度:%d",
 		formatPrice(initialPrice, spm.priceDecimals), spm.priceDecimals, spm.quantityDecimals)
@@ -1250,6 +1254,10 @@ func (spm *SuperPositionManager) parseClientOrderID(clientOrderID string) (float
 func (spm *SuperPositionManager) placeInitialOpenOrders() error {
 	// 🔥 修改：只恢複持倉槽位，不再主动下單
 	// 所有下單操作由 AdjustOrders 统一处理，避免時序问题
+	if spm.gridRuntimeStateRestored.Load() {
+		logger.Info("✅ [初始化] 已加载网格运行态快照，保留原槽位与持仓成本；待启动核账完成后再调整委托")
+		return nil
+	}
 	existingPosition := spm.getExistingPosition()
 	if existingPosition > 0 {
 		if spm.isShort() {

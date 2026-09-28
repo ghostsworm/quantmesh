@@ -641,6 +641,14 @@ func startSymbolRuntime(
 			base:        &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
 			strategyKey: "grid-" + runtimeStateKey,
 		})
+		if restored, restoreErr := superPositionManager.RestoreGridRuntimeState(); restoreErr != nil {
+			return nil, fmt.Errorf("restore grid runtime state for %s: %w", botID, restoreErr)
+		} else if restored {
+			logger.InfoCtx(ctx, "[%s] 已加载网格运行态快照；仍需交易所持仓、挂单和执行意图核对后才允许开仓", botID)
+			if !superPositionManager.GridRuntimeStateIsVerifiedEmpty() {
+				superPositionManager.OpeningGate().Block("grid_runtime_state_reconciliation")
+			}
+		}
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
 			accountID:      accountID,

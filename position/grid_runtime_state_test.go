@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -11,14 +12,15 @@ type gridRuntimeStateTestStore struct {
 	version int
 	payload string
 	err     error
+	found   bool
 }
 
 func (s *gridRuntimeStateTestStore) LoadRuntimeState(string) (int, string, bool, error) {
-	return 0, "", false, nil
+	return s.version, s.payload, s.found, s.err
 }
 
 func (s *gridRuntimeStateTestStore) SaveRuntimeState(_ string, version int, payload string) error {
-	s.version, s.payload = version, payload
+	s.version, s.payload, s.found = version, payload, true
 	return s.err
 }
 
@@ -67,6 +69,81 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 || state.AllocatedMargin != 147.75 {
 		t.Fatalf("snapshot lost grid accounting cursor: %+v", state)
 	}
+
+	restored, _ := newStateTestSPM("LONG", "futures")
+	restored.botID = "bot-1"
+	restored.SetGridRuntimeStateStore(store)
+	found, err := restored.RestoreGridRuntimeState()
+	if err != nil || !found || !restored.gridRuntimeStateRestored.Load() {
+		t.Fatalf("restore snapshot: found=%v restored=%v err=%v", found, restored.gridRuntimeStateRestored.Load(), err)
+	}
+	if restored.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("non-empty restored inventory was misclassified as a safe empty bootstrap")
+	}
+	restoredSlot, ok := restored.slots.Load(99.0)
+	if !ok {
+		t.Fatal("restored slot not found")
+	}
+	restoredSlot.(*InventorySlot).mu.RLock()
+	defer restoredSlot.(*InventorySlot).mu.RUnlock()
+	if restoredSlot.(*InventorySlot).PositionQty != 1.5 || restoredSlot.(*InventorySlot).feeClientOID != "owned-cid" ||
+		restoredSlot.(*InventorySlot).lastTerminalFill.Quantity != .1 || restored.anchorPrice() != 100 {
+		t.Fatalf("restored accounting state mismatch: %+v", restoredSlot.(*InventorySlot))
+	}
+	if err := restored.Initialize(120, "120"); err != nil {
+		t.Fatal(err)
+	}
+	if restored.anchorPrice() != 100 || restoredSlot.(*InventorySlot).PositionQty != 1.5 {
+		t.Fatal("grid initialization overwrote restored anchor or inventory cost state")
+	}
+}
+
+func TestGridRuntimeStateAllowsEmptyBootstrapOnlyForEmptySnapshot(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-empty"
+	snapshot := gridRuntimeStateSnapshot{
+		Version: gridRuntimeStateSchemaVersion, BotID: "bot-empty", Exchange: "binance",
+		MarketType: "futures", Symbol: "BTCUSDT", Direction: "LONG", AnchorPrice: 100,
+		Slots: []gridRuntimeSlotSnapshot{{Price: 100, PositionStatus: PositionStatusEmpty, OrderStatus: OrderStatusNotPlaced, SlotStatus: SlotStatusFree}},
+	}
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &gridRuntimeStateTestStore{version: gridRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	spm.SetGridRuntimeStateStore(store)
+	if restored, err := spm.RestoreGridRuntimeState(); err != nil || !restored {
+		t.Fatalf("restore empty snapshot: restored=%v err=%v", restored, err)
+	}
+	if !spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("strictly empty grid snapshot should use authoritative empty-account bootstrap")
+	}
+	slot, _ := spm.slots.Load(100.0)
+	slot.(*InventorySlot).mu.Lock()
+	slot.(*InventorySlot).ClientOID = "pending"
+	slot.(*InventorySlot).mu.Unlock()
+	if spm.GridRuntimeStateIsVerifiedEmpty() {
+		t.Fatal("snapshot with an order identity must remain blocked")
+	}
+}
+
+func TestRestoreGridRuntimeStateRejectsForeignOwnerAndSchemaMismatch(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-expected"
+	payload, err := json.Marshal(gridRuntimeStateSnapshot{Version: gridRuntimeStateSchemaVersion, BotID: "bot-other", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Direction: "LONG"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &gridRuntimeStateTestStore{version: gridRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	spm.SetGridRuntimeStateStore(store)
+	if _, err := spm.RestoreGridRuntimeState(); err == nil {
+		t.Fatal("foreign Bot snapshot must be rejected")
+	}
+	store.payload = strings.ReplaceAll(string(payload), `"bot-other"`, `"bot-expected"`)
+	store.version = gridRuntimeStateSchemaVersion + 1
+	if _, err := spm.RestoreGridRuntimeState(); err == nil {
+		t.Fatal("storage and payload schema mismatch must be rejected")
+	}
 }
 
 func TestPersistGridRuntimeStateRejectsNonFiniteEconomics(t *testing.T) {
@@ -94,6 +171,7 @@ func (e *gridRuntimeStateHoldExecutor) MarkOrderReconciliationRequired(int64, st
 
 func TestGridSnapshotPersistenceFailureBlocksOpeningsAndPersistsOrderHold(t *testing.T) {
 	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.setAnchorPrice(100)
 	executor := &gridRuntimeStateHoldExecutor{}
 	spm.executor = executor
 	spm.SetGridRuntimeStateStore(&gridRuntimeStateTestStore{err: errors.New("database unavailable")})
