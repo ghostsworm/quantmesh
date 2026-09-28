@@ -113,7 +113,7 @@ const ConfigSetup: React.FC = () => {
       showValidationToast(t('configSetup.exchangeRequiresPassphrase'))
       return
     }
-    if (!formData.symbol.trim()) {
+    if (!formData.symbol?.trim()) {
       showValidationToast(t('configSetup.enterSymbol'))
       return
     }
@@ -557,4 +557,3 @@ const ConfigSetup: React.FC = () => {
 }
 
 export default ConfigSetup
-

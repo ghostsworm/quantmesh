@@ -69,11 +69,15 @@ type MetricsResetMarks struct {
 
 // circuitMetrics 统计数据快照
 type circuitMetrics struct {
-	dailyPnL          float64
-	maxDrawdown       float64
-	consecutiveLosses int
-	authFailCount     int
-	lastWSDisconnect  time.Time
+	health              MetricsHealth
+	dailyPnL            float64
+	maxDrawdown         float64
+	consecutiveLosses   int
+	authFailCount       int
+	lastWSDisconnect    time.Time
+	allocationAvailable bool
+	allocationExceeded  bool
+	allocationReason    string
 }
 
 // GlobalCircuitBreaker 全局熔断器
@@ -85,12 +89,19 @@ type GlobalCircuitBreaker struct {
 	botProvider BotProvider
 
 	// 统计数据（受 statusMu 保护）
-	dailyPnL          float64 // 当日总盈亏
-	maxDrawdown       float64 // 最大回撤
-	consecutiveLosses int     // 连续亏损次数
-	authFailCount     int     // API认证失败次数
-	lastWSDisconnect  time.Time
-	resetMarks        MetricsResetMarks
+	dailyPnL             float64 // 当日总盈亏
+	maxDrawdown          float64 // 最大回撤
+	metricsHealth        MetricsHealth
+	metricsHealthApplyMu sync.Mutex
+	consecutiveLosses    int // 连续亏损次数
+	authFailCount        int // API认证失败次数
+	lastWSDisconnect     time.Time
+	allocationAvailable  bool
+	allocationExceeded   bool
+	allocationReason     string
+	allocationError      string
+	resetMarks           MetricsResetMarks
+	wsDisconnected       map[string]time.Time // 各數據流首次斷線時間，受 statusMu 保護
 
 	// 熔断历史
 	events    []*CircuitBreakerEvent
@@ -118,6 +129,16 @@ type BotController interface {
 	CancelAllOpenOrders() error
 	CloseAllPositions(ctx context.Context, method string, timeout int) error
 	GetPositionSummary() (float64, float64, error) // (unrealizedPnL, totalValue, error)
+}
+
+// AllocationRiskProvider reports whether the current Bot allocation exceeds
+// its configured fixed limit. Missing or unsupported measurements are errors.
+type AllocationRiskProvider interface {
+	AllocationRiskStatus() (exceeded bool, reason string, err error)
+}
+
+type allocationRiskHold interface {
+	SetAllocationRiskHold(bool)
 }
 
 // NewGlobalCircuitBreaker 创建全局熔断器
@@ -180,9 +201,11 @@ func (gcb *GlobalCircuitBreaker) SubscribeConnectivityEvents(ctx context.Context
 				}
 				switch evt.Type {
 				case event.EventTypeWebSocketDisconnected:
-					gcb.ReportWebSocketDisconnect()
+					gcb.ReportWebSocketDisconnect(connectivityEventKey(evt))
 				case event.EventTypeWebSocketReconnected:
-					gcb.ReportWebSocketReconnected()
+					gcb.ReportWebSocketReconnected(connectivityEventKey(evt))
+				case event.EventTypeWebSocketStopped:
+					gcb.ReportWebSocketStopped(connectivityEventKey(evt))
 				case event.EventTypeAPIAuthFailed:
 					gcb.ReportAuthFailure()
 				}
@@ -208,16 +231,22 @@ func (gcb *GlobalCircuitBreaker) snapshotMetrics() circuitMetrics {
 	gcb.statusMu.RLock()
 	defer gcb.statusMu.RUnlock()
 	return circuitMetrics{
-		dailyPnL:          gcb.dailyPnL,
-		maxDrawdown:       gcb.maxDrawdown,
-		consecutiveLosses: gcb.consecutiveLosses,
-		authFailCount:     gcb.authFailCount,
-		lastWSDisconnect:  gcb.lastWSDisconnect,
+		health:              gcb.metricsHealth,
+		dailyPnL:            gcb.dailyPnL,
+		maxDrawdown:         gcb.maxDrawdown,
+		consecutiveLosses:   gcb.consecutiveLosses,
+		authFailCount:       gcb.authFailCount,
+		lastWSDisconnect:    gcb.lastWSDisconnect,
+		allocationAvailable: gcb.allocationAvailable,
+		allocationExceeded:  gcb.allocationExceeded,
+		allocationReason:    gcb.allocationReason,
 	}
 }
 
 // checkTriggers 检查所有触发条件
 func (gcb *GlobalCircuitBreaker) checkTriggers() {
+	gcb.refreshAllocationRisk()
+	gcb.applyMetricsHealthGate()
 	gcb.statusMu.RLock()
 	currentStatus := gcb.status
 	cooldownUntil := gcb.cooldownUntil
@@ -276,6 +305,10 @@ func (gcb *GlobalCircuitBreaker) checkMaxDrawdownTrigger(m circuitMetrics) (Circ
 	if !t.Enabled || t.Threshold <= 0 {
 		return "", "", false
 	}
+	health := m.health.validAt(time.Now())
+	if !health.CheckedAt.IsZero() && !health.verifiedDrawdown() {
+		return "", "", false // unavailable/unadjusted data pauses new risk, never forces a liquidation
+	}
 	if m.maxDrawdown >= t.Threshold {
 		return TriggerMaxDrawdown, fmt.Sprintf("最大回撤超限: %.2f%% (阈值 %.2f%%)", m.maxDrawdown, t.Threshold), true
 	}
@@ -320,15 +353,24 @@ func (gcb *GlobalCircuitBreaker) checkAPIAuthTrigger(m circuitMetrics) (CircuitB
 }
 
 // checkAllocationTrigger 检查配额超限触发
-func (gcb *GlobalCircuitBreaker) checkAllocationTrigger(_ circuitMetrics) (CircuitBreakerTrigger, string, bool) {
-	// 配额超限目前没有数据来源，即使启用也不会触发（已在审查报告中记录）
-	return "", "", false
+func (gcb *GlobalCircuitBreaker) checkAllocationTrigger(m circuitMetrics) (CircuitBreakerTrigger, string, bool) {
+	if !gcb.config.Triggers.AllocationExceeded.Enabled || !m.allocationAvailable || !m.allocationExceeded {
+		return "", "", false
+	}
+	return TriggerAllocationExceeded, m.allocationReason, true
 }
 
 // autoResumeBlockers 自动恢复前检查：会随时间/行情自然回到阈值内的指标必须已恢复。
 // 连续亏损与认证失败计数在恢复时重置，不作为阻塞条件（否则停止交易后永远无法恢复）。
 func (gcb *GlobalCircuitBreaker) autoResumeBlockers(m circuitMetrics) []string {
 	var blockers []string
+	health := m.health.validAt(time.Now())
+	if gcb.config.Triggers.MaxDrawdown.Enabled && !health.CheckedAt.IsZero() && (!health.Available || !health.DrawdownAvailable || !health.CashFlowAdjusted || !health.Persisted) {
+		blockers = append(blockers, "账户权益/现金流或持久化尚未核实")
+	}
+	if gcb.config.Triggers.AllocationExceeded.Enabled && (!m.allocationAvailable || m.allocationExceeded) {
+		blockers = append(blockers, "资金分配状态未核实或仍超限")
+	}
 	if _, reason, hit := gcb.checkDailyLossTrigger(m); hit {
 		blockers = append(blockers, reason)
 	}
@@ -600,12 +642,26 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 
 // UpdateMetrics 更新统计数据
 func (gcb *GlobalCircuitBreaker) UpdateMetrics(dailyPnL, maxDrawdown float64, consecutiveLosses int) {
+	if err := gcb.UpdateExternalMetrics(dailyPnL, maxDrawdown, consecutiveLosses); err != nil {
+		logger.Warn("[全局熔断] 拒绝外部指标覆盖: %v", err)
+	}
+}
+
+// UpdateExternalMetrics cannot overwrite an authoritative feeder sample or
+// certify hand-entered numbers as reconciled account evidence.
+func (gcb *GlobalCircuitBreaker) UpdateExternalMetrics(dailyPnL, maxDrawdown float64, consecutiveLosses int) error {
 	gcb.statusMu.Lock()
 	defer gcb.statusMu.Unlock()
-
+	if !gcb.metricsHealth.CheckedAt.IsZero() {
+		return fmt.Errorf("账户指标由内部喂数器管理，禁止外部覆盖")
+	}
+	if !finiteEquity(dailyPnL) || !finiteEquity(maxDrawdown) || maxDrawdown < 0 || consecutiveLosses < 0 {
+		return fmt.Errorf("无效风险指标")
+	}
 	gcb.dailyPnL = dailyPnL
 	gcb.maxDrawdown = maxDrawdown
 	gcb.consecutiveLosses = consecutiveLosses
+	return nil
 }
 
 // MetricsResetMarks 返回统计基线（供 MetricsFeeder 使用）
@@ -625,23 +681,28 @@ func (gcb *GlobalCircuitBreaker) ReportAuthFailure() {
 }
 
 // ReportWebSocketDisconnect 报告 WebSocket 断线
-func (gcb *GlobalCircuitBreaker) ReportWebSocketDisconnect() {
+func (gcb *GlobalCircuitBreaker) ReportWebSocketDisconnect(connectionID ...string) {
 	gcb.statusMu.Lock()
 	defer gcb.statusMu.Unlock()
 
-	// 已在断线状态时保留首次断线时间，否则重复上报会不断推迟超时判定
-	if gcb.lastWSDisconnect.IsZero() {
-		gcb.lastWSDisconnect = time.Now()
+	if gcb.wsDisconnected == nil {
+		gcb.wsDisconnected = make(map[string]time.Time)
 	}
+	key := connectivityKey(connectionID)
+	if _, exists := gcb.wsDisconnected[key]; !exists {
+		gcb.wsDisconnected[key] = time.Now()
+	}
+	gcb.refreshDisconnectTimeLocked()
 	logger.Warn("⚠️ [全局熔断] WebSocket断线")
 }
 
 // ReportWebSocketReconnected 报告 WebSocket 重连
-func (gcb *GlobalCircuitBreaker) ReportWebSocketReconnected() {
+func (gcb *GlobalCircuitBreaker) ReportWebSocketReconnected(connectionID ...string) {
 	gcb.statusMu.Lock()
 	defer gcb.statusMu.Unlock()
 
-	gcb.lastWSDisconnect = time.Time{} // 重置
+	delete(gcb.wsDisconnected, connectivityKey(connectionID))
+	gcb.refreshDisconnectTimeLocked()
 	logger.Info("✅ [全局熔断] WebSocket重连成功")
 }
 

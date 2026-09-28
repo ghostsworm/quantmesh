@@ -2,9 +2,11 @@ package position
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -64,6 +66,7 @@ func (slot *InventorySlot) takeOrderFeeStateLocked(clientOID string) orderFeeSta
 func (slot *InventorySlot) resetPositionCycleLocked() {
 	slot.cycleGen++
 	slot.BuyFee = 0
+	slot.feeValuationUnknown = false
 	slot.baseFeeUnfloored = false
 	slot.feeSupplementUntil = time.Time{}
 }
@@ -146,29 +149,38 @@ func (spm *SuperPositionManager) startFeeSupplementLocked(slot *InventorySlot, u
 
 // fillFeeSummary 成交明細匯總
 type fillFeeSummary struct {
-	commission float64 // 計價幣口徑手續費合計
-	asset      string
-	baseFeeQty float64 // 基礎幣扣收的手續費數量合計
-	notional   float64 // Σ price×qty
-	qty        float64 // Σ qty
+	commission     float64 // 計價幣口徑手續費合計
+	asset          string
+	valuationKnown bool
+	baseFeeQty     float64 // 基礎幣扣收的手續費數量合計
+	notional       float64 // Σ price×qty
+	qty            float64 // Σ qty
 }
 
 // summarizeFills 解析適配層返回的成交明細（[]*exchange.OrderFill 等具體類型切片或 []map）並匯總手續費
-func summarizeFills(fillsRaw interface{}) (fillFeeSummary, int) {
-	sum := fillFeeSummary{asset: defaultFeeAsset}
+func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummary, int) {
+	quoteAsset, baseAsset := defaultFeeAsset, ""
+	if len(quoteAndBase) > 0 && quoteAndBase[0] != "" {
+		quoteAsset = quoteAndBase[0]
+	}
+	if len(quoteAndBase) > 1 {
+		baseAsset = quoteAndBase[1]
+	}
+	quoteAsset, baseAsset = strings.ToUpper(quoteAsset), strings.ToUpper(baseAsset)
+	sum := fillFeeSummary{asset: quoteAsset, valuationKnown: true}
 	// 適配層返回的是具體類型切片（如 []*exchange.OrderFill），不能直接斷言為 []interface{}，用反射展開
 	fills := interfaceSliceOf(fillsRaw)
 	for _, fillRaw := range fills {
 		var price, qty float64
 		if fillMap, ok := fillRaw.(map[string]interface{}); ok {
-			sum.commission += mapFloat(fillMap, "Commission")
-			if asset, ok := fillMap["CommissionAsset"].(string); ok && asset != "" {
-				sum.asset = asset
-			}
+			asset, _ := fillMap["CommissionAsset"].(string)
+			price, qty = mapFloat(fillMap, "Price"), mapFloat(fillMap, "Quantity")
+			converted, known := mapFloat(fillMap, "CommissionQuote"), false
+			known, _ = fillMap["CommissionQuoteKnown"].(bool)
+			addFillCommission(&sum, mapFloat(fillMap, "Commission"), asset, price, quoteAsset, baseAsset, converted, known)
 			if v := mapFloat(fillMap, "BaseFeeQty"); v > 0 {
 				sum.baseFeeQty += v
 			}
-			price, qty = mapFloat(fillMap, "Price"), mapFloat(fillMap, "Quantity")
 		} else {
 			rv := reflect.ValueOf(fillRaw)
 			if rv.Kind() == reflect.Ptr {
@@ -177,14 +189,17 @@ func summarizeFills(fillsRaw interface{}) (fillFeeSummary, int) {
 			if rv.Kind() != reflect.Struct {
 				continue
 			}
-			sum.commission += structFloat(rv, "Commission")
-			if f := rv.FieldByName("CommissionAsset"); f.IsValid() && f.Kind() == reflect.String && f.String() != "" {
-				sum.asset = f.String()
+			asset := ""
+			if f := rv.FieldByName("CommissionAsset"); f.IsValid() && f.Kind() == reflect.String {
+				asset = f.String()
 			}
+			price, qty = structFloat(rv, "Price"), structFloat(rv, "Quantity")
+			knownField := rv.FieldByName("CommissionQuoteKnown")
+			converted := structFloat(rv, "CommissionQuote")
+			addFillCommission(&sum, structFloat(rv, "Commission"), asset, price, quoteAsset, baseAsset, converted, knownField.IsValid() && knownField.Kind() == reflect.Bool && knownField.Bool())
 			if v := structFloat(rv, "BaseFeeQty"); v > 0 {
 				sum.baseFeeQty += v
 			}
-			price, qty = structFloat(rv, "Price"), structFloat(rv, "Quantity")
 		}
 		if price > 0 && qty > 0 {
 			sum.notional += price * qty
@@ -192,6 +207,38 @@ func summarizeFills(fillsRaw interface{}) (fillFeeSummary, int) {
 		}
 	}
 	return sum, len(fills)
+}
+
+func addFillCommission(sum *fillFeeSummary, amount float64, asset string, price float64, quoteAsset, baseAsset string, converted float64, convertedKnown bool) {
+	if amount == 0 {
+		return
+	}
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		sum.valuationKnown = false
+		sum.asset = asset
+		return
+	}
+	switch {
+	case convertedKnown && !math.IsNaN(converted) && !math.IsInf(converted, 0):
+		sum.commission += converted
+		sum.asset = quoteAsset
+	case asset == quoteAsset:
+		sum.commission += amount
+		sum.asset = quoteAsset
+	case asset == baseAsset && baseAsset != "" && price > 0:
+		value := amount * price
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			sum.valuationKnown = false
+			sum.asset = asset
+		} else {
+			sum.commission += value
+			sum.asset = quoteAsset
+		}
+	default:
+		sum.valuationKnown = false
+		sum.asset = asset
+	}
 }
 
 func structFloat(rv reflect.Value, name string) float64 {
@@ -236,9 +283,15 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 		logger.Debug("🔍 [手續費補充] 訂單 %d 查詢成交記錄失敗或不支援: %v", tag.orderID, err)
 		return
 	}
-	sum, n := summarizeFills(fillsRaw)
+	sum, n := summarizeFills(fillsRaw, spm.exchange.GetQuoteAsset(), spm.exchange.GetBaseAsset())
 	if n == 0 {
 		logger.Debug("🔍 [手續費補充] 訂單 %d 無成交記錄", tag.orderID)
+		return
+	}
+	if !sum.valuationKnown {
+		update := OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}
+		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", sum.asset))
+		spm.recordFeeCorrection(tag, sum, "成交手续费币种没有可验证的历史计价币换算")
 		return
 	}
 	if sum.commission == 0 && sum.baseFeeQty == 0 {

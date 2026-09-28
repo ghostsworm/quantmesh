@@ -89,7 +89,7 @@ func (b *BinanceSpotMarginAdapter) PlaceOrder(ctx context.Context, req *OrderReq
 		Price:         price,
 		Quantity:      qty,
 		ExecutedQty:   0,
-		AvgPrice:      price,
+		AvgPrice:      0,
 		Status:        OrderStatusNew,
 		CreatedAt:     time.Now(),
 		UpdateTime:    0,
@@ -106,29 +106,26 @@ func (b *BinanceSpotMarginAdapter) GetAccount(ctx context.Context) (*Account, er
 	}); err != nil {
 		return nil, err
 	}
-	var totalWallet, available float64
-	for _, ua := range acc.UserAssets {
-		free, _ := strconv.ParseFloat(ua.Free, 64)
-		borr, _ := strconv.ParseFloat(ua.Borrowed, 64)
-		net, _ := strconv.ParseFloat(ua.NetAsset, 64)
-		totalWallet += net + borr
-		available += free
+	if acc == nil {
+		return nil, fmt.Errorf("Binance margin account response is nil")
 	}
-	// 計價資產可用餘額
 	quoteAsset := b.quoteAsset
 	if quoteAsset == "" {
 		quoteAsset = "USDT"
 	}
-	for _, ua := range acc.UserAssets {
-		if ua.Asset == quoteAsset || ua.Asset == "USDT" || ua.Asset == "USDC" {
-			f, _ := strconv.ParseFloat(ua.Free, 64)
-			available += f
-		}
+	btcQuotePrice, err := b.GetLatestPrice(ctx, "BTC"+quoteAsset)
+	if err != nil {
+		return nil, fmt.Errorf("value Binance margin account in %s: %w", quoteAsset, err)
+	}
+	totalWallet, totalMargin, available, err := summarizeMarginAccount(acc, quoteAsset, btcQuotePrice)
+	if err != nil {
+		return nil, err
 	}
 	return &Account{
 		TotalWalletBalance: totalWallet,
-		TotalMarginBalance:  totalWallet,
+		TotalMarginBalance: totalMargin,
 		AvailableBalance:   available,
+		BalanceAsset:       quoteAsset,
 		Positions:          nil,
 	}, nil
 }
@@ -143,6 +140,9 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 	}); err != nil {
 		return nil, err
 	}
+	if acc == nil {
+		return nil, fmt.Errorf("Binance margin account response is nil")
+	}
 	base := b.baseAsset
 	if base == "" {
 		for _, suffix := range []string{"USDT", "USDC", "BUSD", "U"} {
@@ -156,24 +156,28 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 			base = symbol
 		}
 	}
-	var borrowed float64
+	var debt float64
 	for _, ua := range acc.UserAssets {
 		if ua.Asset == base {
-			borrowed, _ = strconv.ParseFloat(ua.Borrowed, 64)
+			_, borrowed, interest, _, err := parseMarginUserAsset(ua)
+			if err != nil {
+				return nil, fmt.Errorf("parse Binance margin debt for %s: %w", base, err)
+			}
+			debt = borrowed + interest
 			break
 		}
 	}
-	if borrowed <= 0 {
+	if debt <= 0 {
 		return nil, nil
 	}
 	price, _ := b.GetLatestPrice(ctx, symbol)
 	if price <= 0 {
 		price = 0
 	}
-	// 空倉：Size 為負
+	// 空倉負債包括本金與已累計利息。
 	return []*Position{{
 		Symbol:         symbol,
-		Size:           -borrowed,
+		Size:           -debt,
 		EntryPrice:     price,
 		MarkPrice:      price,
 		UnrealizedPNL:  0,
@@ -181,6 +185,73 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 		MarginType:     "cross",
 		IsolatedMargin: 0,
 	}}, nil
+}
+
+func parseMarginUserAsset(asset binancesdk.UserAsset) (free, borrowed, interest, net float64, err error) {
+	parse := func(name, raw string, allowNegative bool) (float64, error) {
+		value, parseErr := strconv.ParseFloat(raw, 64)
+		if parseErr != nil || math.IsNaN(value) || math.IsInf(value, 0) || (!allowNegative && value < 0) {
+			if parseErr == nil {
+				parseErr = fmt.Errorf("invalid finite non-negative amount %q", raw)
+			}
+			return 0, fmt.Errorf("invalid %s %q: %w", name, raw, parseErr)
+		}
+		return value, nil
+	}
+	if free, err = parse("free", asset.Free, false); err != nil {
+		return
+	}
+	if borrowed, err = parse("borrowed", asset.Borrowed, false); err != nil {
+		return
+	}
+	if interest, err = parse("interest", asset.Interest, false); err != nil {
+		return
+	}
+	if net, err = parse("net asset", asset.NetAsset, true); err != nil {
+		return
+	}
+	return
+}
+
+func summarizeMarginAccount(account *binancesdk.MarginAccount, quoteAsset string, btcQuotePrice float64) (totalWallet, totalMargin, available float64, err error) {
+	if account == nil {
+		return 0, 0, 0, fmt.Errorf("Binance margin account response is nil")
+	}
+	if quoteAsset == "" {
+		return 0, 0, 0, fmt.Errorf("quote asset is required to summarize Binance margin account")
+	}
+	if math.IsNaN(btcQuotePrice) || math.IsInf(btcQuotePrice, 0) || btcQuotePrice <= 0 {
+		return 0, 0, 0, fmt.Errorf("invalid BTC/%s valuation price", quoteAsset)
+	}
+	assetBTC, parseErr := strconv.ParseFloat(account.TotalAssetOfBTC, 64)
+	if parseErr != nil || math.IsNaN(assetBTC) || math.IsInf(assetBTC, 0) || assetBTC < 0 {
+		return 0, 0, 0, fmt.Errorf("invalid totalAssetOfBtc %q", account.TotalAssetOfBTC)
+	}
+	netAssetBTC, parseErr := strconv.ParseFloat(account.TotalNetAssetOfBTC, 64)
+	if parseErr != nil || math.IsNaN(netAssetBTC) || math.IsInf(netAssetBTC, 0) {
+		return 0, 0, 0, fmt.Errorf("invalid totalNetAssetOfBtc %q", account.TotalNetAssetOfBTC)
+	}
+	totalWallet = assetBTC * btcQuotePrice
+	totalMargin = netAssetBTC * btcQuotePrice
+	if math.IsInf(totalWallet, 0) || math.IsInf(totalMargin, 0) {
+		return 0, 0, 0, fmt.Errorf("Binance margin valuation overflow")
+	}
+	foundQuote := false
+	for _, asset := range account.UserAssets {
+		if !strings.EqualFold(asset.Asset, quoteAsset) {
+			continue
+		}
+		if foundQuote {
+			return 0, 0, 0, fmt.Errorf("duplicate %s margin asset entries", quoteAsset)
+		}
+		foundQuote = true
+		free, _, _, _, parseErr := parseMarginUserAsset(asset)
+		if parseErr != nil {
+			return 0, 0, 0, fmt.Errorf("parse Binance margin balance for %s: %w", asset.Asset, parseErr)
+		}
+		available = free
+	}
+	return totalWallet, totalMargin, available, nil
 }
 
 // GetMarginClient 獲取 margin 客戶端（借還、查最大可借）
@@ -237,7 +308,8 @@ func (b *BinanceSpotMarginAdapter) GetOrder(ctx context.Context, symbol string, 
 	price, _ := strconv.ParseFloat(o.Price, 64)
 	qty, _ := strconv.ParseFloat(o.OrigQuantity, 64)
 	execQty, _ := strconv.ParseFloat(o.ExecutedQuantity, 64)
-	avgPrice, _ := strconv.ParseFloat(o.Price, 64)
+	cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
+	avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 	return &Order{
 		OrderID:       o.OrderID,
 		ClientOrderID: o.ClientOrderID,
@@ -249,8 +321,56 @@ func (b *BinanceSpotMarginAdapter) GetOrder(ctx context.Context, symbol string, 
 		ExecutedQty:   execQty,
 		AvgPrice:      avgPrice,
 		Status:        OrderStatus(o.Status),
+		CreatedAt:     time.UnixMilli(o.Time),
 		UpdateTime:    o.UpdateTime,
 	}, nil
+}
+
+// GetOrderFills queries the margin-account trade ledger for a specific order.
+// Base-asset commissions are preserved separately so repayment uses net received quantity.
+func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	if b == nil || b.marginClient == nil || b.BinanceSpotAdapter == nil {
+		return nil, fmt.Errorf("Binance spot margin adapter is unavailable")
+	}
+	sym := symbol
+	if sym == "" {
+		sym = b.symbol
+	}
+	order, err := b.GetOrder(ctx, sym, orderID)
+	if err != nil {
+		return nil, fmt.Errorf("load margin order %d before querying fills: %w", orderID, err)
+	}
+	if order.CreatedAt.IsZero() {
+		return nil, fmt.Errorf("margin order %d has no creation time; refusing incomplete fill lookup", orderID)
+	}
+	trades, err := b.marginClient.GetTradesByOrder(ctx, sym, orderID, order.CreatedAt.Add(-time.Second).UnixMilli(), false)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*OrderFill, 0, len(trades))
+	for _, trade := range trades {
+		price, priceErr := strconv.ParseFloat(trade.Price, 64)
+		qty, qtyErr := strconv.ParseFloat(trade.Quantity, 64)
+		commission, commissionErr := strconv.ParseFloat(trade.Commission, 64)
+		if priceErr != nil || qtyErr != nil || commissionErr != nil || price <= 0 || qty <= 0 || commission < 0 {
+			return nil, fmt.Errorf("margin order %d trade %d contains invalid price, quantity, or commission", orderID, trade.ID)
+		}
+		commissionAsset := trade.CommissionAsset
+		baseFeeQty := 0.0
+		if strings.EqualFold(commissionAsset, b.baseAsset) {
+			baseFeeQty = commission
+		}
+		side := SideSell
+		if trade.IsBuyer {
+			side = SideBuy
+		}
+		fills = append(fills, &OrderFill{
+			OrderID: orderID, TradeID: strconv.FormatInt(trade.ID, 10), Symbol: trade.Symbol,
+			Side: side, Price: price, Quantity: qty, Commission: commission,
+			CommissionAsset: commissionAsset, TradeTime: trade.Time, IsMaker: trade.IsMaker, BaseFeeQty: baseFeeQty,
+		})
+	}
+	return fills, nil
 }
 
 // GetOpenOrders 查詢未完成訂單（使用 margin API）
@@ -268,6 +388,7 @@ func (b *BinanceSpotMarginAdapter) GetOpenOrders(ctx context.Context, symbol str
 		price, _ := strconv.ParseFloat(o.Price, 64)
 		qty, _ := strconv.ParseFloat(o.OrigQuantity, 64)
 		execQty, _ := strconv.ParseFloat(o.ExecutedQuantity, 64)
+		cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
 		orders = append(orders, &Order{
 			OrderID:       o.OrderID,
 			ClientOrderID: o.ClientOrderID,
@@ -277,7 +398,7 @@ func (b *BinanceSpotMarginAdapter) GetOpenOrders(ctx context.Context, symbol str
 			Price:         price,
 			Quantity:      qty,
 			ExecutedQty:   execQty,
-			AvgPrice:      price,
+			AvgPrice:      cumulativeAveragePrice(cumulativeQuote, execQty),
 			Status:        OrderStatus(o.Status),
 			UpdateTime:    o.UpdateTime,
 		})

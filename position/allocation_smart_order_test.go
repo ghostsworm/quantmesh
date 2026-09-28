@@ -28,6 +28,18 @@ func positionAllocationConfig() *config.Config {
 	return cfg
 }
 
+func TestAllocationStatusExposesPercentageLimitForRiskValidation(t *testing.T) {
+	cfg := positionAllocationConfig()
+	manager := NewAllocationManager(cfg)
+	status := manager.GetStatus("binance", "BTCUSDT")
+	if status == nil || status.MaxAmount != 1000 || status.MaxPercentage != 50 {
+		t.Fatalf("allocation risk status omitted configured limit evidence: %+v", status)
+	}
+	if !manager.PercentageBasedLimitsConfigured("binance", "BTCUSDT") || manager.PercentageBasedLimitsConfigured("binance", "ETHUSDT") {
+		t.Fatal("percentage allocation detection did not match the exact exchange/symbol scope")
+	}
+}
+
 func TestAllocationManagerReserveLimitsStatusesAndTieredRecovery(t *testing.T) {
 	cfg := positionAllocationConfig()
 	am := NewAllocationManager(cfg)
@@ -116,6 +128,42 @@ func TestAllocationManagerReserveLimitsStatusesAndTieredRecovery(t *testing.T) {
 	}
 	disabled.SetUsedAmount("binance", "BTCUSDT", 1)
 	disabled.Release("binance", "BTCUSDT", 1)
+}
+
+func TestAllocationManagerPercentageOnlyRequiresBalanceAndEnforcesEffectiveLimit(t *testing.T) {
+	cfg := positionAllocationConfig()
+	cfg.PositionAllocation.Allocations[0].MaxAmountUSDT = 0
+	cfg.PositionAllocation.Allocations[0].TieredLimits.Enabled = false
+	am := NewAllocationManager(cfg)
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 1, 0); err == nil {
+		t.Fatal("percentage-only allocation accepted a missing balance")
+	}
+	if got := am.GetStatus("binance", "BTCUSDT").UsedAmount; got != 0 {
+		t.Fatalf("failed reservation changed usage: %v", got)
+	}
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 500, 1000); err != nil {
+		t.Fatalf("reserve at percentage limit: %v", err)
+	}
+	status := am.GetStatus("binance", "BTCUSDT")
+	if status.EffectiveLimit != 500 || status.LimitObservedAt.IsZero() {
+		t.Fatalf("authoritative effective limit was not recorded: %+v", status)
+	}
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 0.01, 1000); err == nil {
+		t.Fatal("reservation above percentage-only cap was accepted")
+	}
+}
+
+func TestAllocationManagerMixedLimitDoesNotFallbackWhenBalanceMissing(t *testing.T) {
+	am := NewAllocationManager(positionAllocationConfig())
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 1, math.NaN()); err == nil {
+		t.Fatal("mixed allocation accepted an unavailable balance")
+	}
+	if err := am.CheckAndReserve("binance", "BTCUSDT", 400, 1000); err != nil {
+		t.Fatalf("valid mixed-limit reservation failed: %v", err)
+	}
+	if got := am.GetStatus("binance", "BTCUSDT").EffectiveLimit; got != 500 {
+		t.Fatalf("effective limit = %v, want min(1000, 500)", got)
+	}
 }
 
 func TestSmartOrderSlotSelectionAndSorting(t *testing.T) {

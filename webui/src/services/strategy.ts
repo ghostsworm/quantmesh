@@ -76,7 +76,7 @@ export async function getStrategyTemplatesFull(): Promise<{
 // 獲取單個策略模板詳情
 export async function getStrategyTemplateById(templateId: string): Promise<StrategyTemplateFull | null> {
   try {
-    const res = await fetchWithAuth<{ templates: StrategyTemplateFull[] }>(`${API_BASE_URL}/strategy-templates`)
+    const res = await getStrategyTemplatesFull()
     if (res?.templates) {
       return res.templates.find(t => t.id === templateId) || null
     }

@@ -386,28 +386,30 @@ func (b *BybitSpotAdapter) convertOrder(order *BybitOrder) *Order {
 
 // GetAccount 現貨账戶餘額
 func (b *BybitSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
-	balances, err := b.client.GetBalance(ctx, "SPOT")
+	balances, err := b.client.GetAllCoinsBalance(ctx, "SPOT")
 	if err != nil {
 		return nil, err
 	}
-	var totalEquity, totalAvail float64
-	for _, bal := range balances {
-		eq, _ := strconv.ParseFloat(bal.TotalEquity, 64)
-		avail, _ := strconv.ParseFloat(bal.TotalAvailableBalance, 64)
-		totalEquity += eq
-		totalAvail += avail
+	quoteAsset := strings.ToUpper(strings.TrimSpace(b.quoteAsset))
+	if quoteAsset == "" {
+		return nil, fmt.Errorf("Bybit spot account snapshot requires a configured quote asset")
+	}
+	totalEquity, transferBalance, err := summarizeBybitSpotQuoteBalance(balances, quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 	return &Account{
 		TotalWalletBalance: totalEquity,
 		TotalMarginBalance: totalEquity,
-		AvailableBalance:   totalAvail,
+		AvailableBalance:   transferBalance,
+		BalanceAsset:       quoteAsset,
 		Positions:          nil,
 	}, nil
 }
 
 // GetPositions 現貨“持倉”由基础资產餘額構成
 func (b *BybitSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	balances, err := b.client.GetBalance(ctx, "SPOT")
+	balances, err := b.client.GetAllCoinsBalance(ctx, "SPOT")
 	if err != nil {
 		return nil, err
 	}
@@ -415,21 +417,9 @@ func (b *BybitSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*
 	if base == "" {
 		base = strings.TrimSuffix(symbol, "USDT")
 	}
-	var size float64
-	for _, bal := range balances {
-		for _, c := range bal.Coin {
-			if c.Coin == base {
-				wb, _ := strconv.ParseFloat(c.WalletBalance, 64)
-				aw, _ := strconv.ParseFloat(c.AvailableToWithdraw, 64)
-				if wb > size {
-					size = wb
-				}
-				if aw > size {
-					size = aw
-				}
-				break
-			}
-		}
+	size, _, err := summarizeBybitSpotQuoteBalance(balances, base)
+	if err != nil {
+		return nil, err
 	}
 	if size <= 0 {
 		return nil, nil
@@ -452,18 +442,41 @@ func (b *BybitSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*
 
 // GetBalance 某资產餘額
 func (b *BybitSpotAdapter) GetBalance(ctx context.Context, asset string) (float64, error) {
-	balances, err := b.client.GetBalance(ctx, "SPOT")
+	balances, err := b.client.GetAllCoinsBalance(ctx, "SPOT")
 	if err != nil {
 		return 0, err
 	}
-	for _, bal := range balances {
-		for _, c := range bal.Coin {
-			if c.Coin == asset {
-				return strconv.ParseFloat(c.AvailableToWithdraw, 64)
-			}
+	_, transferBalance, err := summarizeBybitSpotQuoteBalance(balances, asset)
+	if err != nil {
+		return 0, err
+	}
+	return transferBalance, nil
+}
+
+func summarizeBybitSpotQuoteBalance(balances []AssetCoinBalance, asset string) (walletBalance, transferBalance float64, err error) {
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if asset == "" {
+		return 0, 0, fmt.Errorf("Bybit spot asset is required")
+	}
+	found := false
+	for _, balance := range balances {
+		if !strings.EqualFold(strings.TrimSpace(balance.Coin), asset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate Bybit spot %s balance rows", asset)
+		}
+		found = true
+		walletBalance, err = strconv.ParseFloat(balance.WalletBalance, 64)
+		if err != nil || math.IsNaN(walletBalance) || math.IsInf(walletBalance, 0) || walletBalance < 0 {
+			return 0, 0, fmt.Errorf("invalid Bybit spot %s wallet balance %q", asset, balance.WalletBalance)
+		}
+		transferBalance, err = strconv.ParseFloat(balance.TransferBalance, 64)
+		if err != nil || math.IsNaN(transferBalance) || math.IsInf(transferBalance, 0) || transferBalance < 0 || transferBalance > walletBalance {
+			return 0, 0, fmt.Errorf("invalid Bybit spot %s transfer balance %q", asset, balance.TransferBalance)
 		}
 	}
-	return 0, nil
+	return walletBalance, transferBalance, nil
 }
 
 // StartOrderStream 現貨訂單流（v5/private，topic order）。
@@ -552,6 +565,9 @@ func (b *BybitSpotAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 历史K線
 func (b *BybitSpotAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
+	if interval == "1h" {
+		interval = "60"
+	}
 	klines, err := b.client.GetKlines(ctx, bybitCategorySpot, symbol, interval, limit)
 	if err != nil {
 		return nil, err
@@ -668,6 +684,31 @@ type BybitSpotOrderFill struct {
 	BybitOrderFill
 	// BaseFeeQty 本筆以基礎幣扣收的手續費（基礎幣單位，>=0）；其計價幣價值已包含在 Commission 中
 	BaseFeeQty float64
+}
+
+func (b *BybitSpotAdapter) GetExecutionHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {
+	return b.client.GetExecutionHistoryPage(ctx, bybitCategorySpot, b.symbol, startTime, endTime, cursor, limit)
+}
+
+func (b *BybitSpotAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]*BybitSpotOrderFill, string, error) {
+	rows, next, err := b.GetExecutionHistoryPage(ctx, symbol, startTime, endTime, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	fills := make([]*BybitSpotOrderFill, 0, len(rows))
+	for _, row := range rows {
+		orderID, e1 := strconv.ParseInt(row.OrderId, 10, 64)
+		price, e2 := strconv.ParseFloat(row.ExecPrice, 64)
+		qty, e3 := strconv.ParseFloat(row.ExecQty, 64)
+		fee, e4 := strconv.ParseFloat(row.ExecFee, 64)
+		tradeTime, e5 := strconv.ParseInt(row.ExecTime, 10, 64)
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || orderID <= 0 || row.TradeId == "" || row.Symbol != symbol || price <= 0 || qty <= 0 || tradeTime <= 0 {
+			return nil, "", fmt.Errorf("Bybit returned invalid spot execution tradeId=%s", row.TradeId)
+		}
+		commission, commissionAsset := b.spotCommissionToQuote(fee, row.FeeCurrency, price)
+		fills = append(fills, &BybitSpotOrderFill{BybitOrderFill: BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: commission, CommissionAsset: commissionAsset, TradeTime: tradeTime, IsMaker: row.IsMaker}, BaseFeeQty: spotBaseFeeQty(fee, row.FeeCurrency, b.baseAsset)})
+	}
+	return fills, next, nil
 }
 
 // spotBaseFeeQty 手續費幣種為基礎幣且為支出時返回基礎幣數量，否則為 0

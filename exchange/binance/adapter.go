@@ -98,6 +98,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 	AccountLeverage    int // 账戶级别的杠杆倍數（從持倉中提取）
 }
@@ -167,11 +168,11 @@ type BinanceAdapter struct {
 	minAPIInterval  time.Duration // 最小API調用间隔
 
 	// GetAccount 短期緩存，降低 REST 調用頻率
-	accountCache           *Account
-	accountCacheTime       time.Time
-	accountCacheTTL        time.Duration
+	accountCache            *Account
+	accountCacheTime        time.Time
+	accountCacheTTL         time.Duration
 	accountCacheInvalidated bool
-	accountCacheMu         sync.RWMutex
+	accountCacheMu          sync.RWMutex
 }
 
 // APIPermissions API 权限信息（临時定义，避免循環匯入）
@@ -186,113 +187,6 @@ type APIPermissions struct {
 	CreateTime    int64
 	SecurityScore int
 	RiskLevel     string
-}
-
-// NewBinanceAdapter 創建币安适配器
-func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
-	apiKey := cfg["api_key"]
-	secretKey := cfg["secret_key"]
-	testnetStr := cfg["testnet"]
-
-	// 解析測試網配置
-	useTestnet := false
-	if testnetStr == "true" {
-		useTestnet = true
-		logger.Info("🌐 [Binance] 使用測試網模式")
-	}
-
-	if apiKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("Binance API 配置不完整")
-	}
-
-	// 交易適配器需要 WS（用戶數據流 / WS API），其端點由 go-binance 進程全局變量決定：
-	// 首個交易適配器認領網絡，之後拒絕混用（詳見 network.go）
-	if err := claimFuturesNetwork(useTestnet); err != nil {
-		return nil, err
-	}
-
-	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
-}
-
-// NewBinanceAdapterForPublicData 創建僅用於獲取公開數據（K 線、交易所信息）的適配器。
-// 當 apiKey/secretKey 為空時使用占位符，適用於回測等無需交易權限的場景。Binance K 線為公開 API，無需認證。
-func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
-	apiKey := cfg["api_key"]
-	secretKey := cfg["secret_key"]
-	testnetStr := cfg["testnet"]
-
-	useTestnet := false
-	if testnetStr == "true" {
-		useTestnet = true
-		logger.Info("🌐 [Binance] 使用測試網模式（公開數據）")
-	}
-
-	// 公開數據只走 REST（按實例設置 BaseURL），不得改寫 futures.UseTestnet，
-	// 否則會把同進程內測試網 Bot 的 WS 連接翻到主網（X1）
-
-	// 公開 API 無需認證，使用占位符通過客戶端構造
-	if apiKey == "" {
-		apiKey = "backtest_public"
-	}
-	if secretKey == "" {
-		secretKey = "backtest_public"
-	}
-
-	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
-}
-
-// newBinanceAdapterWithKeys 內部實現，支持占位密鑰（用於僅拉取公開數據如 K 線）
-func newBinanceAdapterWithKeys(apiKey, secretKey, symbol string, useTestnet bool) (*BinanceAdapter, error) {
-	symbol = normalizeBinanceSymbolTypo(symbol)
-
-	client := newFuturesClient(apiKey, secretKey, useTestnet)
-
-	// 同步服務器時间（失敗不阻斷構造；後續遇到 -1021 會自動重同步）
-	syncCtx, syncCancel := context.WithTimeout(context.Background(), serverTimeResyncTimeout)
-	if _, err := client.NewSetServerTimeService().Do(syncCtx); err != nil {
-		logger.Warn("⚠️ [Binance] 初始同步服務器時間失敗 (testnet=%v): %v", useTestnet, err)
-	}
-	syncCancel()
-
-	wsManager := NewWebSocketManager(apiKey, secretKey, useTestnet)
-	wsManager.symbol = symbol
-
-	adapter := &BinanceAdapter{
-		client:                  client,
-		symbol:                  symbol,
-		apiKey:                  apiKey,
-		secretKey:               secretKey,
-		wsManager:               wsManager,
-		useTestnet:              useTestnet,
-		minAPIInterval:          200 * time.Millisecond, // 最小API調用间隔200ms，避免触发限流
-		accountCacheTTL:        5 * time.Second,        // 賬戶緩存 5 秒，ACCOUNT_UPDATE 時失效
-		accountCacheInvalidated: true,                  // 啟動時無緩存
-	}
-
-	// 獲取合約信息（價格精度、數量精度等）
-	ctxInit, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := adapter.fetchExchangeInfo(ctxInit); err != nil {
-		logger.Warn("⚠️ [Binance] 獲取合約信息失败: %v，使用默认精度", err)
-		// 使用默认值
-		adapter.priceDecimals = 2
-		adapter.quantityDecimals = 3
-	}
-	if adapter.baseAsset == "" || adapter.quoteAsset == "" {
-		b, q := parseFuturesSymbolBaseQuote(adapter.symbol)
-		if adapter.baseAsset == "" {
-			adapter.baseAsset = b
-		}
-		if adapter.quoteAsset == "" {
-			adapter.quoteAsset = q
-		}
-	}
-
-	// 註冊 ACCOUNT_UPDATE 回調，WebSocket 收到賬戶變更時失效緩存
-	adapter.wsManager.SetOnAccountUpdate(adapter.invalidateAccountCache)
-
-	return adapter, nil
 }
 
 // invalidateAccountCache 失效賬戶緩存（由 WebSocket ACCOUNT_UPDATE 觸發）
@@ -1069,10 +963,10 @@ func (b *BinanceAdapter) fetchAccountViaWebSocket(ctx context.Context) (*account
 	}
 	for _, a := range r.Assets {
 		data.Assets = append(data.Assets, &futures.AccountAsset{
-			Asset:             a.Asset,
-			WalletBalance:     a.WalletBalance,
-			AvailableBalance:  a.AvailableBalance,
-			MarginBalance:     a.MarginBalance,
+			Asset:            a.Asset,
+			WalletBalance:    a.WalletBalance,
+			AvailableBalance: a.AvailableBalance,
+			MarginBalance:    a.MarginBalance,
 		})
 	}
 	for _, p := range r.Positions {
@@ -1904,19 +1798,49 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 
 // UserTrade 用户成交记录
 type UserTrade struct {
-	ID             int64     // 成交ID
-	OrderID        int64     // 订单ID
-	Symbol         string    // 交易对
-	Side           Side      // 买卖方向
-	Price          float64   // 成交价格
-	Quantity       float64   // 成交数量
-	QuoteQuantity  float64   // 成交金额
-	Commission     float64   // 手续费
-	CommissionAsset string   // 手续费资产
-	RealizedPnL    float64   // 已实现盈亏（仅平仓时有效）
-	Time           time.Time // 成交时间
-	IsMaker        bool      // 是否为Maker
-	PositionSide   string    // 持仓方向（LONG/SHORT）
+	ID                   int64     // 成交ID
+	OrderID              int64     // 订单ID
+	Symbol               string    // 交易对
+	Side                 Side      // 买卖方向
+	Price                float64   // 成交价格
+	Quantity             float64   // 成交数量
+	QuoteQuantity        float64   // 成交金额
+	Commission           float64   // 手续费
+	CommissionAsset      string    // 手续费资产
+	CommissionQuote      float64   // 历史折算后的计价资产手续费；CommissionQuoteKnown 为 true 时有效
+	CommissionQuoteRate  float64   // 手续费资产兑计价资产的历史汇率
+	CommissionQuoteKnown bool      // 是否有可验证的历史折算
+	RealizedPnL          float64   // 已实现盈亏（仅平仓时有效）
+	Time                 time.Time // 成交时间
+	IsMaker              bool      // 是否为Maker
+	PositionSide         string    // 持仓方向（LONG/SHORT）
+}
+
+// OrderFill is the normalized per-trade record exposed by adapters.
+type OrderFill struct {
+	OrderID              int64
+	TradeID              string
+	Symbol               string
+	Side                 Side
+	Price                float64
+	Quantity             float64
+	QuoteQuantity        float64
+	Commission           float64
+	CommissionAsset      string
+	TradeTime            int64
+	IsMaker              bool
+	BaseFeeQty           float64
+	CommissionQuote      float64
+	CommissionQuoteRate  float64
+	CommissionQuoteKnown bool
+}
+
+func isFinitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func isFiniteNonNegative(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 // GetUserTrades 获取用户成交记录（历史成交）
@@ -1924,6 +1848,62 @@ type UserTrade struct {
 // startTime, endTime: 毫秒时间戳，0表示不限制
 // limit: 返回数量限制，最大1000
 func (b *BinanceAdapter) GetUserTrades(ctx context.Context, symbol string, startTime, endTime int64, limit int) ([]*UserTrade, error) {
+	return b.GetUserTradesFromID(ctx, symbol, startTime, endTime, 0, limit)
+}
+
+// GetOrderFills returns the exchange execution ledger for one futures order.
+func (b *BinanceAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	if b == nil || b.client == nil || b.apiKey == "" || b.secretKey == "" || orderID <= 0 || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance execution lookup requires a configured adapter, symbol, and order ID")
+	}
+	b.apiCallMu.Lock()
+	wait := b.minAPIInterval - time.Since(b.lastAPICallTime)
+	if wait > 0 {
+		b.apiCallMu.Unlock()
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	rows, err := b.client.NewListAccountTradeService().Symbol(symbol).OrderID(orderID).Limit(1000).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query Binance futures executions for order %d: %w", orderID, err)
+	}
+	if len(rows) == 1000 {
+		return nil, fmt.Errorf("Binance futures order %d reached the execution page limit; completeness is unknown", orderID)
+	}
+	fills := make([]*OrderFill, 0, len(rows))
+	for _, row := range rows {
+		if row == nil || row.OrderID != orderID || row.Symbol != symbol || row.ID <= 0 {
+			return nil, fmt.Errorf("Binance returned an invalid execution for order %d", orderID)
+		}
+		price, priceErr := strconv.ParseFloat(row.Price, 64)
+		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
+		quoteQuantity, quoteErr := strconv.ParseFloat(row.QuoteQuantity, 64)
+		commission, commissionErr := strconv.ParseFloat(row.Commission, 64)
+		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 || quoteQuantity <= 0 || commission < 0 {
+			return nil, fmt.Errorf("Binance execution %d contains invalid economic fields", row.ID)
+		}
+		side := SideBuy
+		if row.Side == futures.SideTypeSell {
+			side = SideSell
+		}
+		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
+			Side: side, Price: price, Quantity: quantity, QuoteQuantity: quoteQuantity, Commission: commission, CommissionAsset: row.CommissionAsset,
+			TradeTime: row.Time, IsMaker: row.Maker})
+	}
+	return fills, nil
+}
+
+// GetUserTradesFromID 查询账户成交并支持按成交 ID 翻页；调用方应将下一页游标设为末条 ID+1。
+func (b *BinanceAdapter) GetUserTradesFromID(ctx context.Context, symbol string, startTime, endTime, fromID int64, limit int) ([]*UserTrade, error) {
 	if b.apiKey == "" || b.secretKey == "" {
 		return nil, fmt.Errorf("API 密钥未配置")
 	}
@@ -1942,11 +1922,15 @@ func (b *BinanceAdapter) GetUserTrades(ctx context.Context, symbol string, start
 
 	// 使用币安SDK的NewListAccountTradeService获取用户成交记录
 	svc := b.client.NewListAccountTradeService().Symbol(symbol)
-	if startTime > 0 {
-		svc = svc.StartTime(startTime)
-	}
-	if endTime > 0 {
-		svc = svc.EndTime(endTime)
+	if fromID > 0 {
+		svc = svc.FromID(fromID)
+	} else {
+		if startTime > 0 {
+			svc = svc.StartTime(startTime)
+		}
+		if endTime > 0 {
+			svc = svc.EndTime(endTime)
+		}
 	}
 	if limit > 0 {
 		if limit > 1000 {
@@ -1964,28 +1948,53 @@ func (b *BinanceAdapter) GetUserTrades(ctx context.Context, symbol string, start
 
 	result := make([]*UserTrade, 0, len(trades))
 	for _, trade := range trades {
-		price, _ := strconv.ParseFloat(trade.Price, 64)
-		qty, _ := strconv.ParseFloat(trade.Quantity, 64)
-		quoteQty, _ := strconv.ParseFloat(trade.QuoteQuantity, 64)
-		commission, _ := strconv.ParseFloat(trade.Commission, 64)
-		realizedPnL, _ := strconv.ParseFloat(trade.RealizedPnl, 64)
-
-		result = append(result, &UserTrade{
-			ID:              trade.ID,
-			OrderID:         trade.OrderID,
-			Symbol:          trade.Symbol,
-			Side:            Side(trade.Side),
-			Price:           price,
-			Quantity:        qty,
-			QuoteQuantity:   quoteQty,
-			Commission:      commission,
-			CommissionAsset: trade.CommissionAsset,
-			RealizedPnL:     realizedPnL,
-			Time:            time.UnixMilli(trade.Time),
-			IsMaker:         trade.Maker,
-			PositionSide:    string(trade.PositionSide),
-		})
+		parsed, err := parseFuturesUserTrade(trade, symbol)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, parsed)
 	}
 
 	return result, nil
+}
+
+func parseFuturesUserTrade(trade *futures.AccountTrade, symbol string) (*UserTrade, error) {
+	if trade == nil {
+		return nil, fmt.Errorf("Binance returned an empty futures execution")
+	}
+	parse := func(field, value string) (float64, error) {
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse Binance futures execution %d %s: %w", trade.ID, field, err)
+		}
+		return parsed, nil
+	}
+	price, err := parse("price", trade.Price)
+	if err != nil {
+		return nil, err
+	}
+	qty, err := parse("quantity", trade.Quantity)
+	if err != nil {
+		return nil, err
+	}
+	quoteQty, err := parse("quote quantity", trade.QuoteQuantity)
+	if err != nil {
+		return nil, err
+	}
+	commission, err := parse("commission", trade.Commission)
+	if err != nil {
+		return nil, err
+	}
+	realizedPnL, err := parse("realized PnL", trade.RealizedPnl)
+	if err != nil {
+		return nil, err
+	}
+	side := strings.ToUpper(strings.TrimSpace(string(trade.Side)))
+	if trade.ID <= 0 || trade.OrderID <= 0 || trade.Symbol != symbol || trade.Time <= 0 || (side != "BUY" && side != "SELL") ||
+		!isFinitePositive(price) || !isFinitePositive(qty) || !isFinitePositive(quoteQty) || !isFiniteNonNegative(commission) || math.IsNaN(realizedPnL) || math.IsInf(realizedPnL, 0) || (commission > 0 && strings.TrimSpace(trade.CommissionAsset) == "") {
+		return nil, fmt.Errorf("Binance returned invalid futures execution economics or identity for trade %d", trade.ID)
+	}
+	return &UserTrade{ID: trade.ID, OrderID: trade.OrderID, Symbol: trade.Symbol, Side: Side(side), Price: price, Quantity: qty,
+		QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: trade.CommissionAsset, RealizedPnL: realizedPnL,
+		Time: time.UnixMilli(trade.Time), IsMaker: trade.Maker, PositionSide: string(trade.PositionSide)}, nil
 }

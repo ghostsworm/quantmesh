@@ -157,6 +157,7 @@ func (w *gateSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: account.TotalWalletBalance,
 		TotalMarginBalance: account.TotalMarginBalance,
 		AvailableBalance:   account.AvailableBalance,
+		BalanceAsset:       account.BalanceAsset,
 		Positions:          nil,
 	}, nil
 }

@@ -2,7 +2,9 @@ package profit
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"quantmesh/exchange"
@@ -10,6 +12,8 @@ import (
 	"quantmesh/storage"
 	"quantmesh/utils"
 )
+
+var ErrWithdrawOutcomeUnknown = errors.New("profit withdrawal outcome is unknown")
 
 const (
 	immediateInterval = 5 * time.Minute
@@ -20,9 +24,6 @@ const (
 	frequencyImmediate = "immediate"
 	frequencyDaily     = "daily"
 	frequencyWeekly    = "weekly"
-
-	// withdrawRecordLookupLimit 計算已提取額時回查的記錄上限（storage 單次最多 1000）
-	withdrawRecordLookupLimit = 1000
 )
 
 // ExchangeGetter 根據交易所 ID 獲取交易所實例（用於內部轉帳）
@@ -140,6 +141,10 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 			if !rule.Enabled || rule.Frequency != frequency {
 				continue
 			}
+			if err := ValidateWithdrawRule(rule); err != nil {
+				logger.Error("❌ [利润提取] 规则配置未通过安全校验 rule=%s: %v", rule.ID, err)
+				continue
+			}
 			if !e.shouldExecute(rule, frequency) {
 				continue
 			}
@@ -152,7 +157,44 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 
 // processRule 只提取「上次成功提取之後」新實現的利潤，並扣除該區間內已提取/處理中的金額，
 // 保證重複 tick（含 LastTriggeredAt 更新失敗的情況）不會重複劃轉
-func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) error {
+func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr error) {
+	if err := ValidateWithdrawRule(rule); err != nil {
+		return err
+	}
+	// A pending reservation is written only after calculating the amount. Serialize
+	// the complete calculation/reserve/transfer path per rule inside this process.
+	unlock := withdrawRuleLocks.lock(rule.AccountID + "\x00" + rule.ID)
+	defer unlock()
+	claimer, ok := e.st.(interface {
+		ClaimProfitWithdrawRule(ruleID, claimID string) (bool, error)
+		ReleaseProfitWithdrawRuleClaim(ruleID, claimID string) error
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks durable rule claim; automatic withdrawal is disabled")
+	}
+	claimID := "claim_" + utils.NewCompactOrderID()
+	claimed, err := claimer.ClaimProfitWithdrawRule(rule.ID, claimID)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return nil
+	}
+	keepClaim := false
+	defer func() {
+		if errors.Is(retErr, ErrWithdrawOutcomeUnknown) {
+			keepClaim = true
+		}
+		if keepClaim {
+			return
+		}
+		if releaseErr := claimer.ReleaseProfitWithdrawRuleClaim(rule.ID, claimID); releaseErr != nil {
+			logger.Error("❌ [利润提取] 规则 claim 无法释放 rule=%s: %v", rule.ID, releaseErr)
+			if retErr == nil {
+				retErr = releaseErr
+			}
+		}
+	}()
 	var since time.Time
 	if rule.LastTriggeredAt != nil {
 		since = *rule.LastTriggeredAt
@@ -177,7 +219,7 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) error {
 	if withdrawAmount <= 0 || withdrawAmount < rule.MinWithdrawAmount {
 		return nil
 	}
-	return e.executeWithdraw(rule, withdrawAmount, windowEnd)
+	return e.executeWithdraw(rule, claimID, withdrawAmount, windowEnd)
 }
 
 func (e *WithdrawExecutor) shouldExecute(rule *storage.ProfitWithdrawRule, frequency string) bool {
@@ -202,66 +244,57 @@ func shouldExecuteAt(rule *storage.ProfitWithdrawRule, frequency string, now tim
 
 // calculateRealizedProfit 計算 (since, end] 區間內已實現利潤
 func (e *WithdrawExecutor) calculateRealizedProfit(rule *storage.ProfitWithdrawRule, since, end time.Time) (float64, error) {
-	if rule.StrategyID != "" {
-		summary, err := e.st.GetPnLBySymbol(rule.StrategyID, rule.AccountID, since, end)
-		if err != nil {
-			return 0, fmt.Errorf("查詢盈虧失败 strategy=%s account=%s: %w", rule.StrategyID, rule.AccountID, err)
-		}
-		if summary == nil {
-			return 0, nil
-		}
-		return summary.TotalPnL, nil
+	reader, ok := e.st.(interface {
+		GetRealizedPnLForWithdrawal(exchange, symbol, accountScope string, startTime, endTime time.Time) (float64, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("storage lacks exact exchange/account-scope/futures PnL query; automatic withdrawal is disabled")
 	}
-	list, err := e.st.GetPnLByTimeRange(rule.AccountID, since, end)
-	if err != nil {
-		return 0, fmt.Errorf("查詢盈虧失败 account=%s: %w", rule.AccountID, err)
+	// StrategyID is currently populated with the trading symbol by the UI/API.
+	// The paired-trades table has no strategy identity, so do not pretend it does.
+	if strings.TrimSpace(rule.AccountScope) == "" {
+		return 0, fmt.Errorf("withdrawal rule lacks immutable account scope; automatic withdrawal is disabled")
 	}
-	var total float64
-	for _, p := range list {
-		total += p.TotalPnL
-	}
-	return total, nil
+	return reader.GetRealizedPnLForWithdrawal(rule.ExchangeID, rule.StrategyID, rule.AccountScope, since, end)
 }
 
 // withdrawnSince 統計該規則在 since 之後創建、已完成或仍在處理中的提取金額
 // （pending/processing 結果未知，保守計入，寧可少提也不重複劃轉）
 func (e *WithdrawExecutor) withdrawnSince(rule *storage.ProfitWithdrawRule, since time.Time) (float64, error) {
-	records, err := e.st.GetWithdrawRecords(rule.AccountID, withdrawRecordLookupLimit)
-	if err != nil {
-		return 0, fmt.Errorf("查詢提取記錄失败 account=%s: %w", rule.AccountID, err)
+	aggregator, ok := e.st.(interface {
+		SumReservedWithdrawAmount(accountID, ruleID string, since time.Time) (float64, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("storage lacks unbounded withdrawal reservation aggregation; automatic withdrawal is disabled")
 	}
-	var total float64
-	for _, rec := range records {
-		if rec == nil || rec.RuleID != rule.ID || !rec.CreatedAt.After(since) {
-			continue
-		}
-		if rec.Status == "failed" {
-			continue
-		}
-		total += rec.Amount
+	total, err := aggregator.SumReservedWithdrawAmount(rule.AccountID, rule.ID, since)
+	if err != nil {
+		return 0, fmt.Errorf("汇总提取预留金额 account=%s rule=%s: %w", rule.AccountID, rule.ID, err)
 	}
 	return total, nil
 }
 
 // executeWithdraw 執行劃轉；windowEnd 為本次利潤統計截止時刻，成功後寫入 LastTriggeredAt 作為下次統計起點
-func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amount float64, windowEnd time.Time) error {
+func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowEnd time.Time) error {
 	ex := e.getExchange(rule.ExchangeID)
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
 	}
 	record := &storage.ProfitWithdrawRecord{
-		ID:          fmt.Sprintf("wd_%d", e.now().UnixNano()),
-		RuleID:      rule.ID,
-		AccountID:   rule.AccountID,
-		ExchangeID:  rule.ExchangeID,
-		StrategyID:  rule.StrategyID,
-		Amount:      amount,
-		Fee:         0,
-		NetAmount:   amount,
-		Currency:    "USDT",
-		Type:        "auto",
-		Status:      "pending",
-		Destination: rule.Destination,
+		ID:           "wd_" + utils.NewCompactOrderID(),
+		RuleID:       rule.ID,
+		AccountID:    rule.AccountID,
+		AccountScope: rule.AccountScope,
+		ClaimID:      claimID,
+		ExchangeID:   rule.ExchangeID,
+		StrategyID:   rule.StrategyID,
+		Amount:       amount,
+		Fee:          0,
+		NetAmount:    amount,
+		Currency:     "USDT",
+		Type:         "auto",
+		Status:       "processing",
+		Destination:  rule.Destination,
 		// CreatedAt 與 windowEnd 對齊：下次以 LastTriggeredAt=windowEnd 起算時，本記錄不會被重複扣減；
 		// 若 LastTriggeredAt 更新失敗，本記錄仍落在舊區間內，會被扣減從而避免重複劃轉
 		CreatedAt: windowEnd,
@@ -271,16 +304,20 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, amo
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)
 	if err != nil {
-		if updErr := e.st.UpdateWithdrawRecordStatus(record.ID, "failed", "", err.Error()); updErr != nil {
-			logger.Warn("⚠️ [利润提取] 更新失败記錄状態失败 record=%s: %v", record.ID, updErr)
+		// A transfer timeout/error can arrive after the exchange completed it.
+		// Keep the record pending so the profit is reserved and never retried
+		// automatically until an operator reconciles the exchange ledger.
+		const pendingReason = "转账结果未核实；请先核对交易所资金流水，禁止自动重试"
+		if updErr := e.st.UpdateWithdrawRecordStatus(record.ID, "pending", "", pendingReason+": "+err.Error()); updErr != nil {
+			logger.Error("⚠️ [利润提取] 转账结果未知且无法更新记录，记录保持 pending record=%s: %v", record.ID, updErr)
 		}
-		return fmt.Errorf("劃轉失败 rule=%s amount=%.2f: %w", rule.ID, amount, err)
+		return fmt.Errorf("%w: transfer result unverified rule=%s amount=%.2f; reconcile exchange ledger before action: %v", ErrWithdrawOutcomeUnknown, rule.ID, amount, err)
 	}
 	if err := e.st.UpdateWithdrawRecordStatus(record.ID, "completed", transferID, ""); err != nil {
-		logger.Warn("⚠️ [利润提取] 更新記錄状態失败: %v", err)
+		logger.Error("⚠️ [利润提取] 转账已确认，但完成状态未写入；pending 预留继续阻止重复划转 rule=%s: %v", rule.ID, err)
 	}
 	if err := e.st.UpdateRuleLastTriggeredAt(rule.ID, windowEnd); err != nil {
-		logger.Warn("⚠️ [利润提取] 更新规则執行時间失败: %v", err)
+		return fmt.Errorf("转账已确认但更新规则执行时间失败 rule=%s: %w", rule.ID, err)
 	}
 	logger.Info("✅ [利润提取] 執行成功 rule=%s amount=%.2f USDT transferId=%s", rule.ID, amount, transferID)
 	return nil

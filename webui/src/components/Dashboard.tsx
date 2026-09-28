@@ -40,7 +40,7 @@ import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
-import { getStatus, startTrading, stopTrading, stopBot, closePositionsV2, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols } from '../services/api'
+import { getStatus, startTrading, stopTrading, stopBot, closePositionsV2, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols, type PositionsSummary } from '../services/api'
 import { getStrategyRuntimeStatus } from '../services/strategy'
 import StrategyVisualization from './strategy-visualization/StrategyVisualization'
 import type { StrategyRuntimeStatus } from '../services/strategy'
@@ -120,7 +120,7 @@ const Dashboard: React.FC = () => {
   const [slotsInfo, setSlotsInfo] = useState<SlotsResponse | null>(null)
   const [strategyAllocation, setStrategyAllocation] = useState<StrategyAllocationResponse | null>(null)
   const [pendingOrders, setPendingOrders] = useState<PendingOrdersResponse | null>(null)
-  const [positionsSummary, setPositionsSummary] = useState<any>(null)
+  const [positionsSummary, setPositionsSummary] = useState<PositionsSummary | null>(null)
   const [strategyRuntimeStatuses, setStrategyRuntimeStatuses] = useState<StrategyRuntimeStatus[]>([])
   const [isTrading, setIsTrading] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -311,7 +311,6 @@ const Dashboard: React.FC = () => {
       toast({
         title: isStop ? t('dashboard.tradingStopped') : t('dashboard.tradingStarted'),
         status: isStop ? 'info' : 'success',
-        borderRadius: 'full',
       })
     } catch (err) {
       if (err instanceof Error && err.message === 'TIMEOUT') {
@@ -319,7 +318,6 @@ const Dashboard: React.FC = () => {
           title: t('dashboard.startStopTimeout'),
           status: 'warning',
           duration: 5000,
-          borderRadius: 'full',
         })
       } else {
         toast({
@@ -342,10 +340,10 @@ const Dashboard: React.FC = () => {
     try {
       await Promise.race([stopBot(botId), timeoutPromise])
       setIsTrading(false)
-      toast({ title: t('dashboard.tradingStopped'), status: 'info', borderRadius: 'full' })
+      toast({ title: t('dashboard.tradingStopped'), status: 'info' })
     } catch (err) {
       if (err instanceof Error && err.message === 'TIMEOUT') {
-        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000, borderRadius: 'full' })
+        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000 })
       } else {
         toast({
           title: t('dashboard.operationFailed'),
@@ -371,7 +369,7 @@ const Dashboard: React.FC = () => {
       toast({ title: t('globalDashboard.closePositions.success'), status: 'success', duration: 2000 })
     } catch (err) {
       if (err instanceof Error && err.message === 'TIMEOUT') {
-        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000, borderRadius: 'full' })
+        toast({ title: t('dashboard.startStopTimeout'), status: 'warning', duration: 5000 })
       } else {
         toast({
           title: t('globalDashboard.closePositions.failed'),
@@ -917,7 +915,7 @@ const Dashboard: React.FC = () => {
                       <Text fontSize="xs" color="gray.400">{formatTime(order.created_at, timezone, i18n.language)}</Text>
                     </Flex>
                   ))}
-                  {pendingOrders.count > 3 && (
+                  {pendingOrders.orders.length > 3 && (
                     <Text 
                       fontSize="xs" 
                       color="blue.500" 
@@ -927,7 +925,7 @@ const Dashboard: React.FC = () => {
                       _hover={{ color: 'blue.600', textDecoration: 'underline' }}
                       transition="all 0.2s"
                     >
-                      {t('dashboard.viewAllOrders', { count: pendingOrders.count })}
+                      {t('dashboard.viewAllOrders', { count: pendingOrders.orders.length })}
                     </Text>
                   )}
                 </VStack>
@@ -982,8 +980,8 @@ const Dashboard: React.FC = () => {
                   >
                     <StrategyVisualization
                       strategy={strategyStatus}
-                      exchange={selectedExchange}
-                      symbol={selectedSymbol}
+                      exchange={selectedExchange ?? undefined}
+                      symbol={selectedSymbol ?? undefined}
                     />
                   </GlassCard>
                 )

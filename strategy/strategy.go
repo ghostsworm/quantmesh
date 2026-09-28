@@ -2,6 +2,9 @@ package strategy
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sort"
 	"sync"
 
 	"quantmesh/config"
@@ -35,19 +38,22 @@ type Position struct {
 	Symbol       string
 	Size         float64
 	EntryPrice   float64
+	OpeningFee   float64
 	CurrentPrice float64
 	PnL          float64
 }
 
 // Order 订單信息
 type Order struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          string
-	Price         float64
-	Quantity      float64
-	Status        string
+	OrderID          int64
+	ClientOrderID    string
+	Symbol           string
+	Side             string
+	Price            float64
+	Quantity         float64
+	Status           string
+	FillProgress     position.FillProgress
+	clientOrderAlias string // broker-qualified CID, also retained before a REST acknowledgement
 }
 
 // StrategyStatistics 策略统计
@@ -60,14 +66,16 @@ type StrategyStatistics struct {
 
 // StrategyManager 策略管理器
 type StrategyManager struct {
-	strategies       map[string]Strategy
-	allocator        *CapitalAllocator
-	dynamicAllocator *DynamicAllocator
-	cfg              *config.Config
-	mu               sync.RWMutex
-	ctx              context.Context
-	cancel           context.CancelFunc
-	eventBus         EventBus // 新增
+	strategies              map[string]Strategy
+	allocator               *CapitalAllocator
+	dynamicAllocator        *DynamicAllocator
+	cfg                     *config.Config
+	mu                      sync.RWMutex
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	eventBus                EventBus // 新增
+	orderUpdateErrorHandler func(strategyName string, err error)
+	orderUpdateMu           sync.Mutex
 }
 
 // NewStrategyManager 創建策略管理器
@@ -99,6 +107,24 @@ func (sm *StrategyManager) SetEventBus(eb EventBus) {
 	// 同步给所有已注册的策略
 	for _, s := range sm.strategies {
 		s.SetEventBus(eb)
+	}
+}
+
+func (sm *StrategyManager) SetOrderUpdateErrorHandler(handler func(strategyName string, err error)) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.orderUpdateErrorHandler = handler
+}
+
+func (sm *StrategyManager) reportOrderUpdateError(strategyName string, err error) {
+	if err == nil {
+		return
+	}
+	sm.mu.RLock()
+	handler := sm.orderUpdateErrorHandler
+	sm.mu.RUnlock()
+	if handler != nil {
+		handler(strategyName, err)
 	}
 }
 
@@ -162,20 +188,36 @@ func (sm *StrategyManager) StartAll() error {
 	// 1. 分配资金
 	sm.allocator.Allocate()
 
-	// 2. 啟动每個策略
+	// 2. Start synchronously so startup/recovery failures reach the Bot runtime.
+	type namedStrategy struct {
+		name     string
+		strategy Strategy
+	}
+	var enabled []namedStrategy
 	sm.mu.RLock()
 	for name, strategy := range sm.strategies {
 		if sm.isStrategyEnabledLocked(name) {
-			go func(n string, s Strategy) {
-				if err := s.Start(sm.ctx); err != nil {
-					logger.Error("❌ 策略 %s 啟动失败: %v", n, err)
-				} else {
-					logger.Info("✅ 策略 %s 已啟动", n)
-				}
-			}(name, strategy)
+			enabled = append(enabled, namedStrategy{name: name, strategy: strategy})
 		}
 	}
 	sm.mu.RUnlock()
+	sort.Slice(enabled, func(i, j int) bool { return enabled[i].name < enabled[j].name })
+	started := make([]namedStrategy, 0, len(enabled))
+	for _, item := range enabled {
+		if err := item.strategy.Start(sm.ctx); err != nil {
+			if stopErr := item.strategy.Stop(); stopErr != nil {
+				logger.Error("❌ 回滚启动失败的策略 %s 时停止失败: %v", item.name, stopErr)
+			}
+			for i := len(started) - 1; i >= 0; i-- {
+				if stopErr := started[i].strategy.Stop(); stopErr != nil {
+					logger.Error("❌ 启动回滚时停止策略 %s 失败: %v", started[i].name, stopErr)
+				}
+			}
+			return fmt.Errorf("start strategy %s: %w", item.name, err)
+		}
+		started = append(started, item)
+		logger.Info("✅ 策略 %s 已启动", item.name)
+	}
 
 	// 3. 啟动动態分配（如果啟用）
 	if sm.dynamicAllocator != nil && sm.cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled {
@@ -230,6 +272,7 @@ func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 		if sm.isStrategyEnabledLocked(name) {
 			go func(n string, s Strategy) {
 				if err := s.OnOrderUpdate(update); err != nil {
+					sm.reportOrderUpdateError(n, err)
 					logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 				}
 			}(name, strategy)
@@ -246,6 +289,7 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 			if sm.isStrategyEnabledLocked(name) {
 				go func(n string, s Strategy) {
 					if err := s.OnOrderUpdate(update); err != nil {
+						sm.reportOrderUpdateError(n, err)
 						logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 					}
 				}(name, strategy)
@@ -255,13 +299,60 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 	}
 	strategy, ok := sm.strategies[strategyName]
 	if !ok || !sm.isStrategyEnabledLocked(strategyName) {
+		go sm.reportOrderUpdateError(strategyName, fmt.Errorf("owned order routed to unavailable strategy"))
 		return
 	}
 	go func(n string, s Strategy) {
 		if err := s.OnOrderUpdate(update); err != nil {
+			sm.reportOrderUpdateError(n, err)
 			logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 		}
 	}(strategyName, strategy)
+}
+
+// ApplyOrderUpdateForStrategy applies one exchange event synchronously so the
+// caller can hold the shared opening gate on any accounting/persistence error.
+func (sm *StrategyManager) ApplyOrderUpdateForStrategy(strategyName string, update *position.OrderUpdate) error {
+	if update == nil {
+		return nil
+	}
+	sm.orderUpdateMu.Lock()
+	defer sm.orderUpdateMu.Unlock()
+
+	sm.mu.RLock()
+	targets := make([]struct {
+		name string
+		impl Strategy
+	}, 0, len(sm.strategies))
+	if strategyName != "" {
+		impl, ok := sm.strategies[strategyName]
+		if !ok || !sm.isStrategyEnabledLocked(strategyName) {
+			sm.mu.RUnlock()
+			return fmt.Errorf("owned order routed to unavailable strategy %q", strategyName)
+		}
+		targets = append(targets, struct {
+			name string
+			impl Strategy
+		}{strategyName, impl})
+	} else {
+		for name, impl := range sm.strategies {
+			if sm.isStrategyEnabledLocked(name) {
+				targets = append(targets, struct {
+					name string
+					impl Strategy
+				}{name, impl})
+			}
+		}
+	}
+	sm.mu.RUnlock()
+
+	var updateErrors []error
+	for _, target := range targets {
+		if err := target.impl.OnOrderUpdate(update); err != nil {
+			updateErrors = append(updateErrors, fmt.Errorf("strategy %s order update: %w", target.name, err))
+		}
+	}
+	return errors.Join(updateErrors...)
 }
 
 // GetCapitalAllocator 獲取资金分配器

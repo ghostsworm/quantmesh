@@ -43,7 +43,7 @@ type OptimResult struct {
 // HeatmapData 热力图數據，供前端 ECharts 使用
 type HeatmapData struct {
 	XAxis []interface{} `json:"x_axis"` // 如 GridCount 列表
-	YAxis []interface{} `json:"y_axis"`  // 如 "P_low–P_high" 或区间描述
+	YAxis []interface{} `json:"y_axis"` // 如 "P_low–P_high" 或区间描述
 	Data  [][]float64   `json:"data"`   // [y_idx][x_idx] = score
 }
 

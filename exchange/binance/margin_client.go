@@ -67,6 +67,61 @@ func (m *MarginClient) GetMaxBorrowable(ctx context.Context, asset string, isIso
 	return strconv.ParseFloat(res.Amount, 64)
 }
 
+// GetTradesByOrder returns margin-account trades for one order, paginating from
+// the supplied creation time so old fills are not silently omitted by the API's
+// default recent-trade window.
+func (m *MarginClient) GetTradesByOrder(ctx context.Context, symbol string, orderID int64, startTime int64, isIsolated bool) ([]*binancesdk.TradeV3, error) {
+	if m == nil || m.client == nil {
+		return nil, fmt.Errorf("margin client is unavailable")
+	}
+	if symbol == "" || orderID <= 0 || startTime <= 0 {
+		return nil, fmt.Errorf("symbol, positive order ID, and start time are required to query margin trades")
+	}
+	const pageSize = 1000
+	const maxPages = 100
+	var fromID int64
+	trades := make([]*binancesdk.TradeV3, 0)
+	seenTradeIDs := make(map[int64]struct{})
+	for page := 0; page < maxPages; page++ {
+		service := m.client.NewListMarginTradesService().Symbol(symbol).StartTime(startTime).Limit(pageSize).IsIsolated(isIsolated)
+		if fromID > 0 {
+			service = service.FromID(fromID)
+		}
+		rows, err := service.Do(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("query margin trades page %d for %s/order %d: %w", page+1, symbol, orderID, err)
+		}
+		if len(rows) == 0 {
+			return trades, nil
+		}
+		lastID := int64(0)
+		for _, row := range rows {
+			if row == nil || row.ID <= 0 {
+				return nil, fmt.Errorf("margin trades returned invalid trade identity for %s/order %d", symbol, orderID)
+			}
+			if row.ID > lastID {
+				lastID = row.ID
+			}
+			if row.OrderID != orderID {
+				continue
+			}
+			if _, duplicate := seenTradeIDs[row.ID]; duplicate {
+				return nil, fmt.Errorf("margin trades returned duplicate trade ID %d for order %d", row.ID, orderID)
+			}
+			seenTradeIDs[row.ID] = struct{}{}
+			trades = append(trades, row)
+		}
+		if len(rows) < pageSize {
+			return trades, nil
+		}
+		if lastID <= fromID {
+			return nil, fmt.Errorf("margin trade pagination did not advance for order %d", orderID)
+		}
+		fromID = lastID + 1
+	}
+	return nil, fmt.Errorf("margin trade history exceeded %d pages for %s/order %d", maxPages, symbol, orderID)
+}
+
 // PlaceMarginOrder 杠杆账户下单（用于做空：先借后卖 / 买回归还）
 func (m *MarginClient) PlaceMarginOrder(ctx context.Context, symbol, side, orderType, quantity, price string, isIsolated bool) (orderID int64, err error) {
 	srv := m.client.NewCreateMarginOrderService().

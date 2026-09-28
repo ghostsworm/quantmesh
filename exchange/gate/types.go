@@ -70,6 +70,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 	PosMode            string // "dual_long_short" or "single"
 	AccountLeverage    int    // 账戶级别的杠杆倍數

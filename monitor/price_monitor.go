@@ -45,10 +45,11 @@ type PriceChange struct {
 // PriceMonitor 價格監控器
 type PriceMonitor struct {
 	symbol        string
-	exchange      exchange.IExchange // 依赖交易所接口
-	lastPrice     atomic.Value       // float64
-	lastPriceStr  atomic.Value       // string - 原始價格字符串（用於检测小數位數）
-	lastPriceTime atomic.Value       // time.Time
+	exchange      exchange.IExchange          // 依赖交易所接口
+	lastPrice     atomic.Value                // float64
+	lastPriceStr  atomic.Value                // string - 原始價格字符串（用於检测小數位數）
+	lastPriceTime atomic.Value                // time.Time
+	lastQuote     atomic.Pointer[PriceChange] // atomic price/time pair for risk admission
 
 	priceChangeCh     chan PriceChange
 	latestPriceChange atomic.Value // *PriceChange - 保存最新的價格更新（不阻塞）
@@ -134,6 +135,7 @@ func (pm *PriceMonitor) startSender() {
 
 // updatePrice 更新價格状態
 func (pm *PriceMonitor) updatePrice(newPrice float64) {
+	pm.lastQuote.Store(&PriceChange{NewPrice: newPrice, Timestamp: time.Now()})
 	if newPrice <= 0 {
 		return
 	}
@@ -165,6 +167,7 @@ func (pm *PriceMonitor) updatePrice(newPrice float64) {
 
 // UpdatePriceWithOHLCV 更新價格并带有 OHLCV 数据（用于波动率检测）
 func (pm *PriceMonitor) UpdatePriceWithOHLCV(price, high, low, volume float64) {
+	pm.lastQuote.Store(&PriceChange{NewPrice: price, Timestamp: time.Now()})
 	if price <= 0 {
 		return
 	}

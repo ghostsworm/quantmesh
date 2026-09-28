@@ -180,6 +180,16 @@ const DailyPnLBreakdown: React.FC = () => {
           {t('dailyBreakdown.calculationSteps')}
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+          {s.pnl_method === 'exchange_realized' ? (
+            <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '8px', background: '#fafafa' }}>
+              <div style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: '8px' }}>1. {t('dailyBreakdown.exchangeCalc')}</div>
+              <div style={{ fontSize: '14px' }}>{t('dailyBreakdown.exchangeRealizedPnl')}</div>
+              <div style={{ fontSize: '18px', fontWeight: 'bold', color: colorOf(s.net_trading_pnl), marginTop: '8px' }}>
+                {formatNum(s.net_trading_pnl)}
+              </div>
+            </div>
+          ) : (
+            <>
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '8px', background: '#fafafa' }}>
             <div style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: '8px' }}>1. {t('dailyBreakdown.stepCashFlow')}</div>
             <div style={{ fontSize: '14px' }}>
@@ -210,6 +220,8 @@ const DailyPnLBreakdown: React.FC = () => {
               {formatNum(s.net_trading_pnl)}
             </div>
           </div>
+            </>
+          )}
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '8px', background: '#fafafa' }}>
             <div style={{ fontSize: '12px', color: '#8c8c8c', marginBottom: '8px' }}>4. {t('dailyBreakdown.stepFeeCalculation')}</div>
             <div style={{ fontSize: '14px' }}>{t('dailyBreakdown.totalFee')}</div>

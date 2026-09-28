@@ -7,11 +7,13 @@ import (
 	"math"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/metrics"
 	"quantmesh/utils"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,7 +30,7 @@ const (
 	orderLockAcquireTimeout = 5 * time.Second
 	// orderLookupTimeout 下單結果不確定時按 ClientOrderID 回查的超時
 	orderLookupTimeout = 10 * time.Second
-	// orderMaxRetries 非 PostOnly 類錯誤（網路、限流等）的最大重試次數
+	// orderMaxRetries 明確限流拒單的最大重試次數；未知結果不可重發
 	orderMaxRetries = 5
 	// postOnlyRepriceDelay PostOnly 被拒後重定價重掛前的等待
 	postOnlyRepriceDelay = 100 * time.Millisecond
@@ -67,15 +69,20 @@ func isMarginInsufficientError(errStr string) bool {
 type OrderRequest struct {
 	Symbol        string
 	Side          string
+	Type          string // empty defaults to LIMIT; MARKET also uses the intent/gate path
+	TimeInForce   string // empty defaults to GTC for LIMIT, omitted for MARKET
 	Price         float64
 	Quantity      float64
 	PriceDecimals int    // 價格小數位數（用於格式化價格字符串）
 	ReduceOnly    bool   // 是否只减倉（平倉單）
+	PositionSide  string // 經濟持倉腿；用於現貨平倉與共享開倉門控
 	PostOnly      bool   // 是否只做 Maker（Post Only）
 	ClientOrderID string // 自定义订單ID
 	StrategyName  string // 策略名称（可選，用於日志追踪）
 	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
 	OrderSource   string // 订單來源（"normal"=正常限價, "stop_loss"=止損平倉, "liquidation"=強制平倉）
+	ExposureKey   string // stable owned inventory lot, e.g. grid slot; never an account-wide identifier
+	BotWideClose  bool   // explicit Bot-owned manual close across strategy groups
 }
 
 // Order 订單信息
@@ -88,6 +95,8 @@ type Order struct {
 	Quantity      float64
 	Status        string
 	CreatedAt     time.Time
+	ExecutedQty   float64
+	AvgPrice      float64
 }
 
 // ExchangeOrderExecutor 基於 exchange.IExchange 的订單執行器
@@ -104,6 +113,20 @@ type ExchangeOrderExecutor struct {
 
 	// postOnlyRepriceMaxAttempts PostOnly 被拒後重定價重掛的最大次數（<=0 用預設值）
 	postOnlyRepriceMaxAttempts atomic.Int32
+	openingGate                *execution.OpeningGate
+	positionDirection          string
+	intentMu                   sync.Mutex
+	cancellationMu             sync.Mutex
+	intents                    map[string]*ownedIntent
+	unknownOrderHandler        func(OrderRequest)
+	exposureBook               *execution.ExposureBook
+	exposureMarkProvider       func() (float64, time.Time) // immutable after startup
+	intentJournal              execution.IntentJournal
+	intentScope                execution.IntentScope
+	intentScopeKey             string
+	journalRequired            bool
+	journalLoaded              bool
+	submissionGate             execution.OpeningGate // all ordinary submissions, including closes
 }
 
 // SetPostOnlyRepriceMaxAttempts 設置 PostOnly 被拒後重定價的最大次數（<=0 使用預設值，並發安全）
@@ -125,6 +148,8 @@ func NewExchangeOrderExecutor(ex exchange.IExchange, symbol string, rateLimitRet
 		lock:                distributedLock,
 		rateLimitRetryDelay: time.Duration(rateLimitRetryDelay) * time.Second,
 		orderRetryDelay:     time.Duration(orderRetryDelay) * time.Millisecond,
+		openingGate:         &execution.OpeningGate{},
+		positionDirection:   "LONG",
 	}
 }
 
@@ -164,6 +189,43 @@ func isReduceOnlyError(err error) bool {
 
 // PlaceOrder 下單（带重試）
 func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
+	return oe.PlaceOrderContext(context.Background(), req)
+}
+
+// PlaceOrderContext propagates the caller's deadline through admission, lock,
+// rate waiting, venue submission, definitive-refusal backoff and CID lookup.
+// Cancellation after entering the venue call remains UNKNOWN, never rejection.
+func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *OrderRequest) (placed *Order, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req == nil {
+		return nil, fmt.Errorf("order request is nil")
+	}
+	if req.Symbol != oe.symbol {
+		return nil, fmt.Errorf("order symbol %q does not match executor %q", req.Symbol, oe.symbol)
+	}
+	if req.Side != "BUY" && req.Side != "SELL" {
+		return nil, fmt.Errorf("invalid order side %q", req.Side)
+	}
+	orderType, tif, err := validateOrderExecution(req)
+	if err != nil {
+		return nil, err
+	}
+	if req.ClientOrderID == "" {
+		req.ClientOrderID = utils.NewCompactOrderID()
+	}
+	if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
+		return nil, execution.ErrOpeningPaused
+	}
+	// Market opens need a live notional bound before capital can be reserved.
+	// Until that admission path exists, expose MARKET only for protective closes.
+	if orderType == exchange.OrderTypeMarket && oe.isOpeningOrder(req) {
+		return nil, fmt.Errorf("MARKET opening requires a bounded exposure admission")
+	}
 	startTime := time.Now()
 	pm := metrics.GetPrometheusMetrics()
 	exchangeName := oe.exchange.GetName()
@@ -173,7 +235,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	priceLevel := math.Floor(req.Price/10) * 10
 	lockKey := fmt.Sprintf("order:%s:%s:%.0f", exchangeName, req.Symbol, priceLevel)
 
-	lockCtx, lockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+	lockCtx, lockCancel := context.WithTimeout(ctx, orderLockAcquireTimeout)
 	acquired, err := oe.lock.TryLock(lockCtx, lockKey, orderLockTTL)
 	lockCancel()
 	if err != nil {
@@ -200,9 +262,32 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	}()
 
 	// 限流
-	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
-		return nil, fmt.Errorf("速率限制等待失败: %v", err)
+	waitCtx, waitCancel := context.WithTimeout(ctx, orderLookupTimeout)
+	defer waitCancel()
+	if err := oe.rateLimiter.Wait(waitCtx); err != nil {
+		return nil, fmt.Errorf("速率限制等待失败: %w", err)
 	}
+	// Acquire admission only after lock/rate waits. Queued work must recheck the
+	// pause immediately before submission, not survive under an old lease.
+	finishSubmission, err := oe.admitSubmission(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	defer finishSubmission()
+	release, err := oe.admitOrder(req)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if err := oe.beginIntent(req); err != nil {
+		return nil, err
+	}
+	defer func() {
+		err = oe.finishIntent(req, placed, err)
+		if errors.Is(err, execution.ErrOrderUnknown) && oe.unknownOrderHandler != nil {
+			oe.unknownOrderHandler(*req)
+		}
+	}()
 
 	var lastErr error
 	// PostOnly 被拒時不降級為 GTC（會變成吃單、手續費翻倍），而是往遠離盤口方向移一個 tick 重掛
@@ -212,12 +297,28 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	priceDecimals := req.PriceDecimals
 
 	for i := 0; i <= orderMaxRetries; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err // no ambiguous call is retried through this branch
+		}
+		// Only definitive refusals are retried. A pause during that backoff
+		// cancels the remaining unaccepted attempts, while closes remain allowed.
+		if i > 0 || postOnlyRejects > 0 {
+			if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
+				return nil, execution.ErrOpeningPaused
+			}
+		}
 		// 轉换為通用订單请求
+		if oe.exposureBook != nil {
+			oe.refreshExposureMark()
+			if err := oe.exposureBook.Reprice(req.ClientOrderID, orderPrice, time.Now()); err != nil {
+				return nil, err
+			}
+		}
 		exchangeReq := &exchange.OrderRequest{
 			Symbol:        req.Symbol,
 			Side:          exchange.Side(req.Side),
-			Type:          exchange.OrderTypeLimit,
-			TimeInForce:   exchange.TimeInForceGTC,
+			Type:          orderType,
+			TimeInForce:   tif,
 			Quantity:      req.Quantity,
 			Price:         orderPrice,
 			PriceDecimals: req.PriceDecimals,
@@ -229,19 +330,27 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 		}
 
 		// 呼叫交易所接口
-		exchangeOrder, err := oe.exchange.PlaceOrder(context.Background(), exchangeReq)
+		if err := oe.prepareJournalSubmission(req.ClientOrderID, orderPrice); err != nil {
+			return nil, err
+		}
+		callCtx, callCancel := context.WithTimeout(ctx, orderLookupTimeout)
+		exchangeOrder, err := oe.exchange.PlaceOrder(callCtx, exchangeReq)
+		callCancel()
+		mapped := oe.mapVenueOrder(req, orderPrice, exchangeOrder)
+		if err != nil && mapped != nil {
+			// A usable venue identity is acceptance evidence even when the
+			// adapter also reports an error. Never release or resend this intent.
+			return mapped, fmt.Errorf("venue acknowledgement requires reconciliation: %w", execution.ErrOrderUnknown)
+		}
+		if err == nil && mapped == nil {
+			err = fmt.Errorf("venue returned no usable order acknowledgement")
+		}
+		if err != nil && oe.intentAcceptanceObserved(req.ClientOrderID) {
+			return mapped, fmt.Errorf("REST refusal conflicts with observed acceptance; retry forbidden: %w", execution.ErrOrderUnknown)
+		}
 		if err == nil {
 			// 轉换回 Order 格式（價格為實際掛單價，可能已被 PostOnly 重定價）
-			order := &Order{
-				OrderID:       exchangeOrder.OrderID,
-				ClientOrderID: exchangeOrder.ClientOrderID,
-				Symbol:        req.Symbol,
-				Side:          req.Side,
-				Price:         orderPrice,
-				Quantity:      req.Quantity,
-				Status:        string(exchangeOrder.Status),
-				CreatedAt:     time.Now(),
-			}
+			order := mapped
 
 			// 記錄 Prometheus 指標
 			duration := time.Since(startTime)
@@ -272,7 +381,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			// 速率限制，等待后重試
 			pm.RecordAPIRateLimitHit(exchangeName)
 			logger.WarnCtx(oe.logCtx(), "⚠️ 触发速率限制，等待后重試...")
-			time.Sleep(oe.rateLimitRetryDelay)
+			if err := waitForOrderRetry(ctx, oe.rateLimitRetryDelay); err != nil {
+				return nil, err
+			}
 			continue
 		} else if req.PostOnly && isPostOnlyError(err) {
 			// 🔥 PostOnly錯误：價格會立即成交（必須放在其他检查之前!）。
@@ -296,7 +407,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 				exchangeName, postOnlyRejects, postOnlyMaxAttempts, req.Side, priceDecimals, orderPrice, priceDecimals, next)
 			orderPrice = next
 			i--
-			time.Sleep(postOnlyRepriceDelay)
+			if err := waitForOrderRetry(ctx, postOnlyRepriceDelay); err != nil {
+				return nil, err
+			}
 			continue
 		} else if isMarginInsufficientError(errStr) {
 			// 保证金不足，不重試
@@ -317,25 +430,18 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 			return nil, fmt.Errorf("ReduceOnly订單被拒绝（無持倉）: %w", err)
 		}
 
-		// 其他錯误，短暂等待后重試
-		if i < orderMaxRetries {
-			time.Sleep(oe.orderRetryDelay)
+		// A network error or unknown venue error can follow an accepted/finally
+		// filled order. Reusing even the same CID can create a second fill on
+		// venues where uniqueness only applies to OPEN orders. Query, never resend.
+		lookupReq := *req
+		lookupReq.Price = orderPrice
+		if found := oe.findOrderByClientOrderIDContext(ctx, &lookupReq); found != nil {
+			return found, nil
 		}
+		return nil, fmt.Errorf("clientOrderID %s: %w: %v", req.ClientOrderID, execution.ErrOrderUnknown, err)
 	}
 
-	// 重試耗盡時結果可能不確定（超時/網路錯誤但交易所已受理，或重試時報 ClientOrderID 重複）：
-	// 按 ClientOrderID 回查，找到則視為成功，避免上層釋放槽位後以新 ID 重複挂單
-	lookupReq := *req
-	lookupReq.Price = orderPrice // 可能已被 PostOnly 重定價
-	if found := oe.findOrderByClientOrderID(&lookupReq); found != nil {
-		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 下單重試失败但交易所已存在同 ClientOrderID 订單，視為成功: %s 订單ID: %d (最後錯誤: %v)",
-			exchangeName, req.ClientOrderID, found.OrderID, lastErr)
-		pm.RecordOrder(exchangeName, req.Symbol, req.Side, found.Status)
-		pm.RecordOrderSuccess(exchangeName, req.Symbol, req.Side, time.Since(startTime))
-		return found, nil
-	}
-
-	// 記錄失败指標
+	// Only definitive rate-limit refusals can exhaust this retry loop.
 	pm.RecordOrderFailure(exchangeName, req.Symbol, req.Side, "max_retries_exceeded")
 	return nil, fmt.Errorf("下單失败（重試%d次）: %w", orderMaxRetries, lastErr)
 }
@@ -344,30 +450,31 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 // 交易所實現 exchange.OrderByClientIDQuerier 時直接查單（可找回已成交/已撤銷订單）；
 // 否則或查詢出錯時，退回在未完成订單中掃描（已完全成交的订單無法找回）。
 func (oe *ExchangeOrderExecutor) findOrderByClientOrderID(req *OrderRequest) *Order {
+	return oe.findOrderByClientOrderIDContext(context.Background(), req)
+}
+
+func (oe *ExchangeOrderExecutor) findOrderByClientOrderIDContext(parent context.Context, req *OrderRequest) *Order {
 	if req.ClientOrderID == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), orderLookupTimeout)
+	if parent.Err() != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(parent, orderLookupTimeout)
 	defer cancel()
 
 	if querier, ok := oe.exchange.(exchange.OrderByClientIDQuerier); ok {
 		o, err := querier.GetOrderByClientOrderID(ctx, req.Symbol, req.ClientOrderID)
 		if err == nil {
 			if o == nil {
-				return nil // 交易所確認不存在
+				return nil // 單次未找到不構成拒單證據；調用者保留 UNKNOWN
 			}
-			return &Order{
-				OrderID:       o.OrderID,
-				ClientOrderID: o.ClientOrderID,
-				Symbol:        req.Symbol,
-				Side:          req.Side,
-				Price:         req.Price,
-				Quantity:      req.Quantity,
-				Status:        string(o.Status),
-				CreatedAt:     time.Now(),
-			}
+			return oe.mapVenueOrder(req, req.Price, o)
 		}
 		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 按 ClientOrderID 直接查單失败 cid=%s，改為掃描挂單: %v", oe.exchange.GetName(), req.ClientOrderID, err)
+	}
+	if ctx.Err() != nil {
+		return nil
 	}
 
 	openOrders, err := oe.exchange.GetOpenOrders(ctx, req.Symbol)
@@ -380,15 +487,8 @@ func (oe *ExchangeOrderExecutor) findOrderByClientOrderID(req *OrderRequest) *Or
 		if o == nil || (o.ClientOrderID != req.ClientOrderID && o.ClientOrderID != prefixed) {
 			continue
 		}
-		return &Order{
-			OrderID:       o.OrderID,
-			ClientOrderID: o.ClientOrderID,
-			Symbol:        req.Symbol,
-			Side:          req.Side,
-			Price:         req.Price,
-			Quantity:      req.Quantity,
-			Status:        string(o.Status),
-			CreatedAt:     time.Now(),
+		if found := oe.mapVenueOrder(req, req.Price, o); found != nil {
+			return found
 		}
 	}
 	return nil
@@ -399,6 +499,7 @@ type BatchPlaceOrdersResult struct {
 	PlacedOrders     []*Order        // 成功下單的订單列表
 	HasMarginError   bool            // 是否出現保证金不足錯误
 	ReduceOnlyErrors map[string]bool // ReduceOnly錯误的订單（key為ClientOrderID）
+	UnknownOrders    map[string]bool // May be accepted: never release reservation.
 }
 
 // BatchPlaceOrders 批量下單
@@ -410,14 +511,27 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrders(orders []*OrderRequest) ([]*Or
 
 // BatchPlaceOrdersWithDetails 批量下單（返回详细結果）
 func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequest) *BatchPlaceOrdersResult {
+	return oe.BatchPlaceOrdersWithDetailsContext(context.Background(), orders)
+}
+
+func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*OrderRequest) *BatchPlaceOrdersResult {
 	result := &BatchPlaceOrdersResult{
 		PlacedOrders:     make([]*Order, 0, len(orders)),
 		HasMarginError:   false,
 		ReduceOnlyErrors: make(map[string]bool),
+		UnknownOrders:    make(map[string]bool),
 	}
 
 	for _, orderReq := range orders {
-		order, err := oe.PlaceOrder(orderReq)
+		if orderReq == nil {
+			continue
+		}
+		order, err := oe.PlaceOrderContext(ctx, orderReq)
+		if errors.Is(err, execution.ErrOrderUnknown) {
+			result.UnknownOrders[orderReq.ClientOrderID] = true
+			logger.ErrorCtx(oe.logCtx(), "[%s] 訂單結果未知，保留資金與槽位，停止新增風險: %v", oe.exchange.GetName(), err)
+			continue
+		}
 		if errors.Is(err, ErrLockNotAcquired) {
 			logger.DebugCtx(oe.logCtx(), "🔒 [%s] %s 價格位 %.*f 被其他實例鎖定，本輪跳過",
 				oe.exchange.GetName(), orderReq.Symbol, orderReq.PriceDecimals, orderReq.Price)
@@ -452,12 +566,19 @@ func (oe *ExchangeOrderExecutor) BatchPlaceOrdersWithDetails(orders []*OrderRequ
 
 // CancelOrder 取消訂單
 func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
+	return oe.CancelOrderContext(context.Background(), orderID)
+}
+
+func (oe *ExchangeOrderExecutor) CancelOrderContext(parent context.Context, orderID int64) error {
 	exchangeName := oe.exchange.GetName()
 
 	// 分布式鎖：防止多實例同時取消同一订單
 	lockKey := fmt.Sprintf("cancel:%s:%d", exchangeName, orderID)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 	defer cancel()
 
 	acquired, err := oe.lock.TryLock(ctx, lockKey, 3*time.Second)
@@ -477,11 +598,11 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 	}
 
 	// 限流
-	if err := oe.rateLimiter.Wait(context.Background()); err != nil {
+	if err := oe.rateLimiter.Wait(ctx); err != nil {
 		return fmt.Errorf("速率限制等待失败: %v", err)
 	}
 
-	err = oe.exchange.CancelOrder(context.Background(), oe.symbol, orderID)
+	err = oe.exchange.CancelOrder(ctx, oe.symbol, orderID)
 	if err != nil {
 		// 如果是"Unknown order"錯误，說明订單已經不存在（可能已成交或已取消），不算錯误
 		errStr := err.Error()

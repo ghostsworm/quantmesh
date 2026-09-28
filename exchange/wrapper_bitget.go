@@ -2,7 +2,9 @@ package exchange
 
 import (
 	"context"
+	"time"
 
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/income"
 )
@@ -18,6 +20,10 @@ func (w *bitgetWrapper) GetName() string {
 
 func (w *bitgetWrapper) GetMarketType() string {
 	return w.adapter.GetMarketType()
+}
+
+func (w *bitgetWrapper) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	return w.adapter.ReadAccountEvidence(ctx, since)
 }
 
 func (w *bitgetWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {

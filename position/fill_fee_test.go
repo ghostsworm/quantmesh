@@ -16,8 +16,12 @@ const (
 )
 
 type fakeFill struct {
-	Commission      float64
-	CommissionAsset string
+	Commission           float64
+	CommissionAsset      string
+	Price                float64
+	Quantity             float64
+	CommissionQuote      float64
+	CommissionQuoteKnown bool
 }
 
 // fillsExchange 返回具體類型切片（與真實適配層 []*exchange.OrderFill 一致）並統計補查次數

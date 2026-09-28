@@ -3,6 +3,7 @@ package bitrue
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -143,28 +144,51 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 		return nil, err
 	}
 
-	// 计算總餘額（USDT）
-	totalBalance := 0.0
-	availableBalance := 0.0
-
-	for _, balance := range account.Balances {
-		if balance.Asset == "USDT" {
-			if free, err := strconv.ParseFloat(balance.Free, 64); err == nil {
-				availableBalance = free
-				totalBalance += free
-			}
-			if locked, err := strconv.ParseFloat(balance.Locked, 64); err == nil {
-				totalBalance += locked
-			}
-			break
-		}
+	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if quoteAsset == "" {
+		return nil, fmt.Errorf("Bitrue account snapshot requires a configured quote asset")
+	}
+	totalBalance, availableBalance, err := summarizeBitrueQuoteBalance(account.Balances, quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AccountLocal{
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availableBalance,
+		BalanceAsset:       quoteAsset,
 	}, nil
+}
+
+func summarizeBitrueQuoteBalance(balances []Balance, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("Bitrue quote asset is required")
+	}
+	found := false
+	for _, balance := range balances {
+		if !strings.EqualFold(strings.TrimSpace(balance.Asset), quoteAsset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate Bitrue %s balance rows", quoteAsset)
+		}
+		found = true
+		available, err = strconv.ParseFloat(balance.Free, 64)
+		if err != nil || math.IsNaN(available) || math.IsInf(available, 0) || available < 0 {
+			return 0, 0, fmt.Errorf("invalid Bitrue %s free balance %q", quoteAsset, balance.Free)
+		}
+		locked, parseErr := strconv.ParseFloat(balance.Locked, 64)
+		if parseErr != nil || math.IsNaN(locked) || math.IsInf(locked, 0) || locked < 0 {
+			return 0, 0, fmt.Errorf("invalid Bitrue %s locked balance %q", quoteAsset, balance.Locked)
+		}
+		total = available + locked
+		if math.IsInf(total, 0) {
+			return 0, 0, fmt.Errorf("Bitrue %s balance overflow", quoteAsset)
+		}
+	}
+	return total, available, nil
 }
 
 // GetPositions 獲取持倉（Bitrue 現貨交易所，返回空）
@@ -179,15 +203,12 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 		return 0, err
 	}
 
-	for _, balance := range account.Balances {
-		if balance.Asset == "USDT" {
-			if free, err := strconv.ParseFloat(balance.Free, 64); err == nil {
-				return free, nil
-			}
-		}
+	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if quoteAsset == "" {
+		return 0, fmt.Errorf("Bitrue quote asset is unavailable")
 	}
-
-	return 0, nil
+	_, available, err := summarizeBitrueQuoteBalance(account.Balances, quoteAsset)
+	return available, err
 }
 
 // StartOrderStream 啟動訂單流

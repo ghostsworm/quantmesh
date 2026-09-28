@@ -39,12 +39,13 @@ const (
 
 // ConnectivityEvent 連線事件
 type ConnectivityEvent struct {
-	Type     ConnectivityEventType
-	Exchange string
-	Stream   string
-	Symbol   string
-	Testnet  bool
-	Reason   string
+	Type         ConnectivityEventType
+	Exchange     string
+	Stream       string
+	Symbol       string
+	Testnet      bool
+	Reason       string
+	ConnectionID string // 隨機流實例標識，不包含 API Key 或 listenKey
 }
 
 // ConnectivityEventHandler 連線事件處理函數，需快速返回（在 WS 協程內同步調用）

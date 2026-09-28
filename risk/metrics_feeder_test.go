@@ -87,7 +87,6 @@ func TestMetricsFeederDailyPnLAndConsecutiveLosses(t *testing.T) {
 	sink := &fakeSink{}
 	bots := &circuitBreakerMockProvider{bots: []BotController{
 		&pnlBot{pnl: -15},
-		&pnlBot{err: errors.New("bot not initialized")}, // 跳过
 	}}
 	f := NewMetricsFeeder(sink, trades, nil, bots, MetricsFeederOptions{Location: loc, Now: func() time.Time { return now }})
 
@@ -106,6 +105,28 @@ func TestMetricsFeederDailyPnLAndConsecutiveLosses(t *testing.T) {
 	}
 	if snap.DrawdownAvailable {
 		t.Fatal("无权益数据源时回撤应不可用")
+	}
+}
+
+func TestMetricsFeederPositionSummaryFailureDoesNotPublishPartialPnL(t *testing.T) {
+	sink := &fakeSink{}
+	bots := &circuitBreakerMockProvider{bots: []BotController{
+		&pnlBot{pnl: -15},
+		&pnlBot{err: errors.New("current mark unavailable")},
+	}}
+	f := NewMetricsFeeder(sink, nil, nil, bots, MetricsFeederOptions{})
+	if _, err := f.Tick(context.Background()); err == nil {
+		t.Fatal("partial unrealized PnL should not be published as a complete metric")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("partial metric was published %d times", sink.writes)
+	}
+}
+
+func TestMetricsFeederRequiresTradeHistoryWhenConfigured(t *testing.T) {
+	f := NewMetricsFeeder(&fakeSink{}, nil, nil, nil, MetricsFeederOptions{RequireTradeHistory: true})
+	if _, err := f.Tick(context.Background()); err == nil {
+		t.Fatal("missing realized trade history was treated as zero")
 	}
 }
 
@@ -140,7 +161,7 @@ func TestMetricsFeederDrawdownIsTransferImmune(t *testing.T) {
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	clock := now
 	trades := &fakeTradeSource{}
-	equity := &fakeEquitySource{equity: 1000}
+	equity := &fakeLedgerSource{observation: testEquityObservation(now, 1000)}
 	sink := &fakeSink{}
 	bot := &pnlBot{pnl: 0}
 	f := NewMetricsFeeder(sink, trades, equity, &circuitBreakerMockProvider{bots: []BotController{bot}},
@@ -152,13 +173,15 @@ func TestMetricsFeederDrawdownIsTransferImmune(t *testing.T) {
 	}
 	// 盈利 100 → 高水位 1100
 	clock = now.Add(time.Minute)
+	equity.observation = testEquityObservation(clock, 1100)
 	trades.add(TradeOutcome{Key: "p", NetPnL: 100, ClosedAt: clock.Add(-10 * time.Second)})
 	if _, err := f.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	// 同一笔成交在重叠窗口内再次被查到不应重复累计；浮亏 -110 → 990，回撤 10%
-	equity.equity = 500 // 交易所余额变化（如利润划转）不影响回撤计算
 	clock = now.Add(2 * time.Minute)
+	equity.observation = testEquityObservation(clock, 500)
+	equity.observation.Flows = []EquityCashFlow{{ID: "transfer", Kind: "transfer_out", Currency: "USDT", Amount: -490, At: clock.Add(-10 * time.Second)}}
 	bot.pnl = -110
 	snap, err := f.Tick(context.Background())
 	if err != nil {
@@ -167,18 +190,19 @@ func TestMetricsFeederDrawdownIsTransferImmune(t *testing.T) {
 	if !snap.DrawdownAvailable || !approxEqual(snap.MaxDrawdownPct, 10) {
 		t.Fatalf("drawdown=%v available=%v, want 10%%", snap.MaxDrawdownPct, snap.DrawdownAvailable)
 	}
-	if equity.calls != 1 {
-		t.Fatalf("基准建立后不应重复查询交易所权益，calls=%d", equity.calls)
+	if equity.calls != 3 {
+		t.Fatalf("每轮都必须查询权益，calls=%d", equity.calls)
 	}
 
 	// 手动恢复重置基线 → 重新取权益，回撤归零
 	sink.marks.All = clock
 	clock = now.Add(3 * time.Minute)
+	equity.observation = testEquityObservation(clock, 500)
 	snap, err = f.Tick(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if equity.calls != 2 || snap.MaxDrawdownPct != 0 {
+	if equity.calls != 4 || snap.MaxDrawdownPct != 0 {
 		t.Fatalf("重置后应重新建立基准: calls=%d dd=%v", equity.calls, snap.MaxDrawdownPct)
 	}
 }
@@ -195,16 +219,13 @@ func TestMetricsFeederSourceErrorKeepsPreviousMetrics(t *testing.T) {
 	}
 }
 
-func TestMetricsFeederEquityErrorDoesNotBlockOtherMetrics(t *testing.T) {
+func TestMetricsFeederEquityErrorDoesNotPublishIncompleteMetrics(t *testing.T) {
 	sink := &fakeSink{}
 	equity := &fakeEquitySource{err: ErrEquityUnavailable}
 	f := NewMetricsFeeder(sink, nil, equity, &circuitBreakerMockProvider{bots: []BotController{&pnlBot{pnl: -7}}}, MetricsFeederOptions{})
 	snap, err := f.Tick(context.Background())
-	if err != nil {
-		t.Fatalf("Tick() error=%v", err)
-	}
-	if snap.DrawdownAvailable || !approxEqual(sink.daily, -7) {
-		t.Fatalf("权益不可用时仍应更新日内盈亏: daily=%v available=%v", sink.daily, snap.DrawdownAvailable)
+	if err == nil || snap.DrawdownAvailable || sink.writes != 0 {
+		t.Fatalf("权益不可用时不得发布零回撤: err=%v writes=%d available=%v", err, sink.writes, snap.DrawdownAvailable)
 	}
 }
 

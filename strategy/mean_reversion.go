@@ -36,9 +36,11 @@ type MeanReversionStrategy struct {
 	pendingAction string
 	stats         *StrategyStatistics
 
-	isPaused  bool
-	isRunning bool
-	eventBus  EventBus
+	isPaused          bool
+	isRunning         bool
+	eventBus          EventBus
+	runtimeStateStore RuntimeStateStore
+	runtimeStateErr   error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -109,6 +111,9 @@ func (mrs *MeanReversionStrategy) Initialize(cfg *config.Config, executor positi
 
 // Start 啟动策略
 func (mrs *MeanReversionStrategy) Start(ctx context.Context) error {
+	if err := mrs.restoreRuntimeState(); err != nil {
+		return err
+	}
 	mrs.mu.Lock()
 	mrs.isRunning = true
 	mrs.mu.Unlock()
@@ -212,12 +217,20 @@ func (mrs *MeanReversionStrategy) calculateBollingerBands() (upper, middle, lowe
 
 // OnPriceChange 價格變化处理
 func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
-	mrs.mu.RLock()
-	if !mrs.isRunning || mrs.isPaused || mrs.activeOrder != nil {
-		mrs.mu.RUnlock()
+	mrs.mu.Lock()
+	stateErr := mrs.runtimeStateErr
+	shouldEvaluate := mrs.isRunning && !mrs.isPaused && mrs.activeOrder == nil
+	priceErr := updateSignalPositionMark(mrs.position, price)
+	mrs.mu.Unlock()
+	if priceErr != nil {
+		return priceErr
+	}
+	if stateErr != nil {
+		return signalRuntimeStateDecisionError(mrs.name, stateErr)
+	}
+	if !shouldEvaluate {
 		return nil
 	}
-	mrs.mu.RUnlock()
 	mrs.addPrice(price)
 
 	upper, middle, lower := mrs.calculateBollingerBands()
@@ -228,7 +241,6 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 
 	mrs.mu.Lock()
 	defer mrs.mu.Unlock()
-
 	// 價格低於下轨：買入信号
 	if price < lower && mrs.position == nil {
 		logger.Info("📊 [%s] 價格低於下轨，買入信号: 價格=%.2f, 下轨=%.2f", mrs.name, price, lower)
@@ -254,6 +266,9 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 }
 
 func (mrs *MeanReversionStrategy) placeSignalOrder(action string, price float64) error {
+	if action == signalActionOpenLong && signalOpeningPaused(mrs.executor, mrs.cfg) {
+		return nil
+	}
 	if mrs.executor == nil {
 		return nil
 	}
@@ -280,40 +295,24 @@ func (mrs *MeanReversionStrategy) placeSignalOrder(action string, price float64)
 		return nil
 	}
 
-	order, err := mrs.executor.PlaceOrder(&position.OrderRequest{
+	req := &position.OrderRequest{
 		Symbol:        symbol,
 		Side:          side,
 		Price:         orderPrice,
 		Quantity:      quantity,
 		PriceDecimals: priceDecimals,
 		ReduceOnly:    reduceOnly,
+		PositionSide:  position.PositionSideLong,
 		PostOnly:      false,
 		ClientOrderID: signalClientOrderID(mrs.name, action),
 		StrategyName:  mrs.name,
 		StrategyType:  "mean_reversion",
-	})
-	if err != nil {
-		return err
 	}
-	if order == nil {
-		return nil
+	venue := ""
+	if mrs.exchange != nil {
+		venue = mrs.exchange.GetName()
 	}
-
-	tracked := &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          order.Side,
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		Status:        order.Status,
-	}
-	mrs.activeOrder = tracked
-	mrs.pendingAction = action
-	if signalOrderStatusFilled(order.Status) {
-		mrs.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
-	}
-	return nil
+	return submitSignalOrder(mrs.executor, venue, req, action, &mrs.activeOrder, &mrs.pendingAction, &mrs.position, &mrs.entryPrice, mrs.stats, mrs.exchange, mrs.persistRuntimeStateLocked)
 }
 
 // OnOrderUpdate 订單更新处理
@@ -324,61 +323,8 @@ func (mrs *MeanReversionStrategy) OnOrderUpdate(update *position.OrderUpdate) er
 	mrs.mu.Lock()
 	defer mrs.mu.Unlock()
 
-	if !signalOrderMatches(mrs.activeOrder, update) {
-		return nil
-	}
-	mrs.activeOrder.Status = update.Status
-	if signalOrderStatusTerminal(update.Status) {
-		mrs.activeOrder = nil
-		mrs.pendingAction = ""
-		return nil
-	}
-	if !signalOrderStatusFilled(update.Status) {
-		return nil
-	}
-	fillPrice := update.AvgPrice
-	if fillPrice <= 0 {
-		fillPrice = update.Price
-	}
-	fillQty := update.ExecutedQty
-	if fillQty <= 0 {
-		fillQty = mrs.activeOrder.Quantity
-	}
-	mrs.applyFilledOrderLocked(mrs.activeOrder, fillQty, fillPrice)
-	return nil
-}
-
-func (mrs *MeanReversionStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
-	if order == nil {
-		return
-	}
-	if price <= 0 {
-		price = order.Price
-	}
-	if quantity <= 0 {
-		quantity = order.Quantity
-	}
-	switch mrs.pendingAction {
-	case signalActionOpenLong:
-		mrs.entryPrice = price
-		mrs.position = &Position{
-			Symbol:       order.Symbol,
-			Size:         quantity,
-			EntryPrice:   price,
-			CurrentPrice: price,
-			PnL:          0,
-		}
-	case signalActionCloseLong:
-		if mrs.position != nil && mrs.entryPrice > 0 {
-			mrs.stats.TotalPnL += (price - mrs.entryPrice) * mrs.position.Size
-		}
-		mrs.position = nil
-		mrs.entryPrice = 0
-		mrs.stats.TotalTrades++
-	}
-	mrs.stats.TotalVolume += quantity * price
-	mrs.activeOrder = nil
-	mrs.pendingAction = ""
+	applySignalOrderUpdate(&mrs.activeOrder, &mrs.pendingAction, &mrs.position, &mrs.entryPrice, mrs.stats, mrs.exchange, mrs.executor, update)
+	return mrs.persistRuntimeStateLocked()
 }
 
 // GetPositions 獲取持倉

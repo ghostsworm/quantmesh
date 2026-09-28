@@ -34,27 +34,32 @@ type SystemSettingsProvider interface {
 
 // SetStorageProvider 设置存储提供者
 func SetStorageProvider(provider SystemSettingsProvider) {
+	localDevModeCache.mu.Lock()
+	defer localDevModeCache.mu.Unlock()
 	storageProvider = provider
 }
 
 // isLocalDevMode 检查是否启用本地开发模式（免登录）
 func isLocalDevMode() bool {
 	localDevModeCache.mu.RLock()
-	defer localDevModeCache.mu.RUnlock()
+	provider := storageProvider
+	localDevModeCache.mu.RUnlock()
 
-	if storageProvider == nil {
+	if provider == nil {
 		return false
 	}
 
 	// 每次都从数据库读取最新值
 	ctx := context.Background()
-	enabled, err := storageProvider.GetSystemSettingBool(ctx, "local_dev_mode", false)
+	enabled, err := provider.GetSystemSettingBool(ctx, "local_dev_mode", false)
 	if err != nil {
 		logger.Warn("读取 local_dev_mode 设置失败: %v", err)
 		return false
 	}
 
+	localDevModeCache.mu.Lock()
 	localDevModeCache.value = enabled
+	localDevModeCache.mu.Unlock()
 	return enabled
 }
 
@@ -79,7 +84,7 @@ func refreshLocalDevModeCache() {
 func authMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 检查是否启用本地开发模式（免登录）
-		if isLocalDevMode() {
+		if isDirectLoopbackRequest(c.Request) && isLocalDevMode() {
 			// 本地开发模式：设置默认用户，跳过认证
 			c.Set("session", nil)
 			c.Set("username", "local_dev_user")
@@ -103,20 +108,6 @@ func authMiddleware() gin.HandlerFunc {
 			// 认证失败日志：写入Web日志文件（而不是標准输出）
 			cookies := c.Request.Cookies()
 			logMessage := fmt.Sprintf("[AUTH] 认证失败，请求路径: %s, Cookie 數量: %d", c.Request.URL.Path, len(cookies))
-			if len(cookies) > 0 {
-				cookieInfo := ""
-				for _, cookie := range cookies {
-					val := cookie.Value
-					if len(val) > 20 {
-						val = val[:20] + "..."
-					}
-					if cookieInfo != "" {
-						cookieInfo += ", "
-					}
-					cookieInfo += fmt.Sprintf("%s=%s", cookie.Name, val)
-				}
-				logMessage += fmt.Sprintf(", Cookies: [%s]", cookieInfo)
-			}
 			logger.WriteWebLog(logMessage)
 			respondError(c, http.StatusUnauthorized, "error.not_logged_in")
 			c.Abort()
@@ -136,7 +127,7 @@ func authMiddleware() gin.HandlerFunc {
 func optionalAuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// 检查是否启用本地开发模式
-		if isLocalDevMode() {
+		if isDirectLoopbackRequest(c.Request) && isLocalDevMode() {
 			c.Set("local_dev_mode", true)
 			c.Set("username", "local_dev_user")
 		}

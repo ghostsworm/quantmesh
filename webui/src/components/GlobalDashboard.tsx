@@ -976,7 +976,11 @@ const GlobalDashboard: React.FC = () => {
                         const key = `${normalizedExchange}:${sym.symbol}:${sym.market_type || 'futures'}`
                         const status = symbolStatuses.get(key)
                         const isRunning = status?.running || false
-                        const pnlInfo = exchange.symbols.find(s => s.symbol === sym.symbol && (s.market_type || 'futures') === (sym.market_type || 'futures'))
+                        const sameSymbolMarkets = exchange.symbolList.filter(item => item.symbol === sym.symbol)
+                        // The PnL endpoint aggregates by symbol only; do not duplicate an ambiguous total across spot and futures cards.
+                        const pnlInfo = sameSymbolMarkets.length === 1
+                          ? exchange.symbols.find(item => item.symbol === sym.symbol)
+                          : undefined
                         const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
                         
                         return (

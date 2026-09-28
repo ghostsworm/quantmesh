@@ -32,14 +32,16 @@ func TestVolatilityRegimeDetectorClassifiesAndReportsState(t *testing.T) {
 		t.Fatalf("new detector sudden change=%v reason=%q", changed, reason)
 	}
 
-	eventCh := make(chan VolatilityRegimeEvent, 1)
-	detector.SetRegimeChangeCallback(func(event VolatilityRegimeEvent) {
-		eventCh <- event
-	})
-	prices := []float64{100, 100.1, 100.2, 111, 95, 120}
-	for _, p := range prices {
-		detector.UpdatePrice(p, p*1.01, p*0.99, 1000)
+	prices := []float64{100, 100.1, 100.2, 111, 95, 120, 90, 130}
+	asOf := time.Now().UTC().Truncate(time.Hour)
+	points := hourlyTestPoints(prices, asOf)
+	if err := detector.ReplaceHourlyHistory(points, asOf); err != nil {
+		t.Fatal(err)
 	}
+	// Real detection now emits transitions. Isolate this explicit callback
+	// assertion from the preceding sequence; confirmations have their own test.
+	eventCh := make(chan VolatilityRegimeEvent, 1)
+	detector.SetRegimeChangeCallback(func(event VolatilityRegimeEvent) { eventCh <- event })
 	detector.triggerRegimeChange(VolatilityPoint{
 		Timestamp:        time.Now(),
 		ShortVolatility:  9,
@@ -128,6 +130,7 @@ func TestVolatilityRegimeInternalHelpers(t *testing.T) {
 		{Price: 100, High: 101, Low: 99},
 		{Price: 102, High: 103, Low: 100},
 		{Price: 101, High: 104, Low: 98},
+		{Price: 104, High: 105, Low: 100},
 	}
 	if d.calculateVolatility(3) == 0 {
 		t.Fatalf("volatility should be positive")

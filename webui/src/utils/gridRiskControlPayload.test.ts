@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { toRatio, normalizeGridRiskControlPayload } from './gridRiskControlPayload'
+import { toRatio, normalizeGridRiskControlPayload, normalizeBotRiskControlPayload, riskPercentDisplay } from './gridRiskControlPayload'
 
 describe('toRatio', () => {
   it('converts percentage string to 0-1 ratio', () => {
@@ -14,19 +14,19 @@ describe('toRatio', () => {
     expect(toRatio(1)).toBe(1)
   })
 
-  it('converts percentage number > 1 to 0-1', () => {
-    expect(toRatio(15)).toBe(0.15)
-    expect(toRatio(10)).toBe(0.1)
+  it('rejects out-of-range API ratios instead of guessing units', () => {
+    expect(() => toRatio(15)).toThrow()
+    expect(() => toRatio(10)).toThrow()
   })
 
   it('handles null/undefined', () => {
-    expect(toRatio(null)).toBe(0)
-    expect(toRatio(undefined)).toBe(0)
+    expect(() => toRatio(null)).toThrow()
+    expect(() => toRatio(undefined)).toThrow()
   })
 
   it('handles invalid string', () => {
-    expect(toRatio('')).toBe(0)
-    expect(toRatio('abc')).toBe(0)
+    expect(() => toRatio('')).toThrow()
+    expect(() => toRatio('abc')).toThrow()
   })
 })
 
@@ -78,12 +78,42 @@ describe('normalizeGridRiskControlPayload', () => {
   it('normalizes close_condition_profit_target and close_condition_loss_limit', () => {
     const input = {
       close_condition_enabled: true,
-      close_condition_profit_target: 20,
+      close_condition_profit_target: 0.2,
       close_condition_loss_limit: '10',
     }
     const out = normalizeGridRiskControlPayload(input)
     expect(out.close_condition_profit_target).toBe(0.2)
     expect(out.close_condition_loss_limit).toBe(0.1)
     expect(out.close_condition_enabled).toBe(true)
+  })
+})
+
+describe('explicit risk editor units', () => {
+  it('preserves sub-one percentages and partially typed decimal display', () => {
+    expect(toRatio('0.5')).toBe(0.005)
+    expect(toRatio('1.')).toBe(0.01)
+    expect(riskPercentDisplay('0.')).toBe('0.')
+    expect(riskPercentDisplay(0.005)).toBe(0.5)
+  })
+
+  it('does not create zero limits for absent fields and preserves explicit zero', () => {
+    expect(JSON.parse(JSON.stringify(normalizeBotRiskControlPayload({ enabled: true })))).toEqual({ enabled: true })
+    expect(normalizeBotRiskControlPayload({ max_position_quantity: '0', stop_loss_ratio: '0' })).toMatchObject({ max_position_quantity: 0, stop_loss_ratio: 0 })
+  })
+
+  it.each(['', ' ', '2oops', 'Infinity', '-1', Infinity, NaN])('rejects malformed limits %s', (value) => {
+    expect(() => normalizeBotRiskControlPayload({ max_position_value: value })).toThrow()
+  })
+
+  it('rejects fractional grid limits and percent overflow', () => {
+    expect(() => normalizeGridRiskControlPayload({ max_grid_layers: '2.5' })).toThrow()
+    expect(() => normalizeGridRiskControlPayload({ stop_loss_ratio: '101' })).toThrow()
+    expect(() => normalizeBotRiskControlPayload({ max_open_orders: NaN })).toThrow()
+  })
+
+  it('normalizes root and nested drafts without changing their display values', () => {
+    const draft = { stop_loss_ratio: '0.5', grid_risk_control: { stop_loss_ratio: '0.5', max_grid_layers: '12' } }
+    expect(normalizeBotRiskControlPayload(draft)).toMatchObject({ stop_loss_ratio: 0.005, grid_risk_control: { stop_loss_ratio: 0.005, max_grid_layers: 12 } })
+    expect(draft.grid_risk_control.stop_loss_ratio).toBe('0.5')
   })
 })

@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"quantmesh/indicators"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/storage"
 )
 
 // DCAEnhancedStrategy 增强型 DCA (定投) 策略
@@ -52,14 +54,17 @@ type DCAEnhancedStrategy struct {
 	takeProfitTriggered bool    // 是否触发止盈追踪
 
 	// 状態
-	ctx          context.Context
-	cancel       context.CancelFunc
-	isRunning    bool
-	isPaused     bool // 暂停加倉（瀑布下跌保护）
-	pauseUntil   time.Time
-	isClosing    bool
-	closeOrderID int64
-	closeLayer   *DCALayer // 非 nil 表示當前平倉單只平該层（尾單止盈），nil 表示全倉平倉
+	ctx               context.Context
+	cancel            context.CancelFunc
+	isRunning         bool
+	isPaused          bool // 暂停加倉（瀑布下跌保护）
+	pauseUntil        time.Time
+	isClosing         bool
+	closeOrderID      int64
+	closeLayer        *DCALayer // 非 nil 表示當前平倉單只平該层（尾單止盈），nil 表示全倉平倉
+	closeProgress     position.FillProgress
+	closeRequestedQty float64
+	closeLimitPrice   float64
 
 	// 统计
 	stats *StrategyStatistics
@@ -68,7 +73,34 @@ type DCAEnhancedStrategy struct {
 	eventBus EventBus
 
 	// 交易存儲（用於保存交易記錄）
-	tradeStorage TradeStorage
+	tradeStorage      TradeStorage
+	runtimeStateStore RuntimeStateStore
+	runtimeStateErr   error
+}
+
+const dcaRuntimeStateSchemaVersion = 1
+
+type dcaRuntimeState struct {
+	BotID               string                `json:"bot_id"`
+	StrategyName        string                `json:"strategy_name"`
+	Symbol              string                `json:"symbol"`
+	Layers              []*DCALayer           `json:"layers"`
+	TotalCost           float64               `json:"total_cost"`
+	TotalQty            float64               `json:"total_qty"`
+	AvgEntryPrice       float64               `json:"avg_entry_price"`
+	CurrentLayer        int                   `json:"current_layer"`
+	DynamicInterval     float64               `json:"dynamic_interval"`
+	HighestProfit       float64               `json:"highest_profit"`
+	TakeProfitTriggered bool                  `json:"take_profit_triggered"`
+	IsPaused            bool                  `json:"is_paused"`
+	PauseUntil          time.Time             `json:"pause_until"`
+	IsClosing           bool                  `json:"is_closing"`
+	CloseOrderID        int64                 `json:"close_order_id"`
+	CloseLayerIndex     int                   `json:"close_layer_index"`
+	CloseProgress       position.FillProgress `json:"close_progress"`
+	CloseRequestedQty   float64               `json:"close_requested_qty"`
+	CloseLimitPrice     float64               `json:"close_limit_price"`
+	Stats               StrategyStatistics    `json:"stats"`
 }
 
 // DCAEnhancedConfig 增强型 DCA 配置
@@ -111,18 +143,18 @@ type DCAEnhancedConfig struct {
 	TrendPeriod        int    `yaml:"trend_period"`         // 趋势周期
 }
 
-// dcaEstimatedFeeRate 平倉記錄的估算手續費率（實際手續費由訂單回報補充）
-const dcaEstimatedFeeRate = 0.001
-
 // DCALayer 分层倉位
 type DCALayer struct {
-	Index    int       // 层级索引
-	Price    float64   // 入场價格
-	Quantity float64   // 持倉數量
-	Cost     float64   // 成本
-	OrderID  int64     // 订單ID
-	Status   string    // 状態: pending/filled/closed
-	FilledAt time.Time // 成交時间
+	Index             int       // 层级索引
+	Price             float64   // 入场價格
+	Quantity          float64   // 持倉數量
+	Cost              float64   // 成本
+	OrderID           int64     // 订單ID
+	Status            string    // 状態: pending/filled/closed
+	FilledAt          time.Time // 成交時间
+	OpeningFee        float64   // 剩餘持倉應分攤的實際開倉手續費（計價幣）
+	FillProgress      position.FillProgress
+	RequestedQuantity float64
 }
 
 // NewDCAEnhancedStrategy 創建增强型 DCA 策略
@@ -308,6 +340,118 @@ func (s *DCAEnhancedStrategy) SetTradeStorage(storage TradeStorage) {
 	s.tradeStorage = storage
 }
 
+// SetRuntimeStateStore wires durable recovery before Start is called.
+func (s *DCAEnhancedStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeStateStore = store
+}
+
+func (s *DCAEnhancedStrategy) runtimeStateSnapshotLocked() dcaRuntimeState {
+	state := dcaRuntimeState{
+		BotID: s.effectiveBotID(), StrategyName: s.name, Symbol: s.strategyCfg.Symbol,
+		TotalCost: s.totalCost, TotalQty: s.totalQty, AvgEntryPrice: s.avgEntryPrice,
+		CurrentLayer: s.currentLayer, DynamicInterval: s.dynamicInterval,
+		HighestProfit: s.highestProfit, TakeProfitTriggered: s.takeProfitTriggered,
+		IsPaused: s.isPaused, PauseUntil: s.pauseUntil, IsClosing: s.isClosing,
+		CloseOrderID: s.closeOrderID, CloseLayerIndex: -1, CloseProgress: s.closeProgress,
+		CloseRequestedQty: s.closeRequestedQty, CloseLimitPrice: s.closeLimitPrice,
+	}
+	if s.stats != nil {
+		state.Stats = *s.stats
+	}
+	for _, layer := range s.layers {
+		if layer != nil {
+			copyLayer := *layer
+			state.Layers = append(state.Layers, &copyLayer)
+		}
+	}
+	if s.closeLayer != nil {
+		state.CloseLayerIndex = s.closeLayer.Index
+	}
+	return state
+}
+
+func (s *DCAEnhancedStrategy) persistRuntimeStateLocked() error {
+	if s.runtimeStateStore == nil {
+		s.runtimeStateErr = fmt.Errorf("DCA runtime state store is unavailable")
+		return s.runtimeStateErr
+	}
+	payload, err := json.Marshal(s.runtimeStateSnapshotLocked())
+	if err != nil {
+		s.runtimeStateErr = fmt.Errorf("encode DCA runtime state: %w", err)
+		return s.runtimeStateErr
+	}
+	if err := s.runtimeStateStore.SaveRuntimeState(s.name, dcaRuntimeStateSchemaVersion, string(payload)); err != nil {
+		s.runtimeStateErr = fmt.Errorf("persist DCA runtime state: %w", err)
+		return s.runtimeStateErr
+	}
+	s.runtimeStateErr = nil
+	return nil
+}
+
+func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
+	if s.runtimeStateStore == nil {
+		return nil
+	}
+	version, payload, found, err := s.runtimeStateStore.LoadRuntimeState(s.name)
+	if err != nil {
+		return fmt.Errorf("load DCA runtime state: %w", err)
+	}
+	if !found {
+		return nil
+	}
+	if version != dcaRuntimeStateSchemaVersion {
+		return fmt.Errorf("unsupported DCA runtime state schema version %d", version)
+	}
+	var state dcaRuntimeState
+	if err := json.Unmarshal([]byte(payload), &state); err != nil {
+		return fmt.Errorf("decode DCA runtime state: %w", err)
+	}
+	if state.BotID != s.effectiveBotID() || state.StrategyName != s.name || state.Symbol != s.strategyCfg.Symbol {
+		return fmt.Errorf("DCA runtime state identity mismatch")
+	}
+	if state.TotalCost < 0 || state.TotalQty < 0 || !finiteNumber(state.TotalCost) || !finiteNumber(state.TotalQty) || !finiteNumber(state.AvgEntryPrice) || len(state.Layers) > s.maxLayers {
+		return fmt.Errorf("DCA runtime state contains invalid inventory")
+	}
+	var totalQty, totalCost float64
+	for _, layer := range state.Layers {
+		if layer == nil || layer.Quantity < 0 || layer.Cost < 0 || !finiteNumber(layer.Quantity) || !finiteNumber(layer.Cost) || !finiteNumber(layer.OpeningFee) || !finiteNumber(layer.FillProgress.Quantity) || !finiteNumber(layer.FillProgress.Notional) {
+			return fmt.Errorf("DCA runtime state contains invalid layer")
+		}
+		if entryHasFill(layer.Status) {
+			totalQty += layer.Quantity
+			totalCost += layer.Cost
+		}
+	}
+	if math.Abs(totalQty-state.TotalQty) > entryQtyEpsilon || math.Abs(totalCost-state.TotalCost) > math.Max(1e-8, math.Abs(state.TotalCost)*1e-8) {
+		return fmt.Errorf("DCA runtime state inventory totals do not reconcile")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.layers = state.Layers
+	s.totalCost, s.totalQty, s.avgEntryPrice = state.TotalCost, state.TotalQty, state.AvgEntryPrice
+	s.currentLayer, s.dynamicInterval = state.CurrentLayer, state.DynamicInterval
+	s.highestProfit, s.takeProfitTriggered = state.HighestProfit, state.TakeProfitTriggered
+	s.isPaused, s.pauseUntil, s.isClosing = state.IsPaused, state.PauseUntil, state.IsClosing
+	s.closeOrderID, s.closeProgress = state.CloseOrderID, state.CloseProgress
+	s.closeRequestedQty, s.closeLimitPrice = state.CloseRequestedQty, state.CloseLimitPrice
+	s.closeLayer = nil
+	if state.IsClosing && state.CloseLayerIndex >= 0 {
+		for _, layer := range s.layers {
+			if layer.Index == state.CloseLayerIndex {
+				s.closeLayer = layer
+				break
+			}
+		}
+	}
+	if state.IsClosing && state.CloseOrderID <= 0 {
+		return fmt.Errorf("DCA close state is missing its order identity")
+	}
+	s.stats = &state.Stats
+	return nil
+}
+
 // effectiveBotID 與 SymbolRuntime / SuperPositionManager 一致，供寫入 trades.bot_id
 func (s *DCAEnhancedStrategy) effectiveBotID() string {
 	if s.cfg == nil {
@@ -317,9 +461,9 @@ func (s *DCAEnhancedStrategy) effectiveBotID() string {
 	if bid != "" {
 		return bid
 	}
-	ex := strings.ToLower(strings.TrimSpace(s.exchange.GetName()))
-	if ex == "" {
-		ex = "binance"
+	ex := "binance"
+	if s.exchange != nil && strings.TrimSpace(s.exchange.GetName()) != "" {
+		ex = strings.ToLower(strings.TrimSpace(s.exchange.GetName()))
 	}
 	sym := strings.TrimSpace(s.strategyCfg.Symbol)
 	if sym == "" {
@@ -334,6 +478,12 @@ func (s *DCAEnhancedStrategy) effectiveBotID() string {
 
 // Start 啟动策略
 func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
+	if s.runtimeStateStore == nil {
+		return fmt.Errorf("DCA runtime state store is required")
+	}
+	if err := s.restoreRuntimeState(); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.ctx = ctx
 	s.isRunning = true
@@ -393,6 +543,9 @@ func (s *DCAEnhancedStrategy) onPrice(price float64, allowOpening bool) error {
 
 	if !s.isRunning || s.isClosing {
 		return nil
+	}
+	if s.runtimeStateErr != nil {
+		return fmt.Errorf("DCA runtime state is not durable; new decisions are paused: %w", s.runtimeStateErr)
 	}
 
 	// 检查瀑布保护（S1：暂停只影响开倉/加倉，止盈止损照常执行）
@@ -607,6 +760,10 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	layer.OrderID = order.OrderID
 	s.layers = append(s.layers, layer)
 	s.currentLayer = 1
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA order accepted but runtime state persistence failed")
+		return err
+	}
 
 	logger.Info("📈 [%s:%s] [%s] 基础订單已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, s.strategyCfg.BaseOrderAmount)
@@ -696,6 +853,10 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 	layer.OrderID = order.OrderID
 	s.layers = append(s.layers, layer)
 	s.currentLayer++
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA safety order accepted but runtime state persistence failed")
+		return err
+	}
 
 	logger.Info("📉 [%s:%s] [%s] 安全订單 #%d 已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f, 平均成本=%.2f",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, layer.Index, price, quantity, orderAmount, s.avgEntryPrice)
@@ -866,23 +1027,20 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	// 计算盈亏
 	pnl := s.totalQty*price - s.totalCost
 
-	// 🔥 保存交易記錄到數據库（止损单和止盈单都需要保存）
-	if len(s.layers) > 0 {
-		avgBuyPrice := s.avgEntryPrice
-		if avgBuyPrice <= 0 && s.totalCost > 0 && s.totalQty > 0 {
-			avgBuyPrice = s.totalCost / s.totalQty
-		}
-		s.saveCloseTrade(order.OrderID, avgBuyPrice, orderPrice, qty, pnl, s.totalCost)
-	}
-
-	s.recordCloseStats(pnl, s.totalCost)
-
 	logger.Info("✅ [%s] 平倉單已下 (%s): 订單ID=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
 		s.name, reason, order.OrderID, s.totalQty, price, pnl)
 
 	s.isClosing = true
 	s.closeOrderID = order.OrderID
 	s.closeLayer = nil
+	s.closeProgress = position.FillProgress{}
+	s.closeRequestedQty, s.closeLimitPrice = qty, orderPrice
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA close order accepted but runtime state persistence failed")
+		return err
+	}
+	// A placement acknowledgement has no fee fields and may not carry authoritative
+	// cumulative fills. Wait for the order stream/polling update before accounting.
 
 	return nil
 }
@@ -923,8 +1081,6 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 
 	layerCost := layer.Cost * qty / layer.Quantity
 	pnl := qty*price - layerCost
-	s.saveCloseTrade(order.OrderID, layer.Price, orderPrice, qty, pnl, layerCost)
-	s.recordCloseStats(pnl, layerCost)
 
 	logger.Info("✅ [%s] 尾單止盈單已下: 订單ID=%d, 层级=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
 		s.name, order.OrderID, layer.Index, qty, price, pnl)
@@ -932,6 +1088,14 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 	s.isClosing = true
 	s.closeOrderID = order.OrderID
 	s.closeLayer = layer
+	s.closeProgress = position.FillProgress{}
+	s.closeRequestedQty, s.closeLimitPrice = qty, orderPrice
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA layer close accepted but runtime state persistence failed")
+		return err
+	}
+	// A placement acknowledgement has no fee fields and may not carry authoritative
+	// cumulative fills. Wait for the order stream/polling update before accounting.
 	return nil
 }
 
@@ -965,13 +1129,11 @@ func (s *DCAEnhancedStrategy) recordCloseStats(pnl, volume float64) {
 }
 
 // saveCloseTrade 保存平倉交易記錄
-func (s *DCAEnhancedStrategy) saveCloseTrade(sellOrderID int64, avgBuyPrice, orderPrice, qty, pnl, cost float64) {
+func (s *DCAEnhancedStrategy) saveCloseTrade(executionKey string, sellOrderID int64, avgBuyPrice, orderPrice, qty, pnl, fee, exchangePnL float64, feeAsset string) bool {
 	if s.tradeStorage == nil {
-		return
+		logger.Error("[%s] 成交账本未配置，拒绝确认 DCA 平仓成交", s.name)
+		return false
 	}
-
-	// 计算手续费（简化处理：使用成本的0.1%作为买入手续费，卖出手续费为0，实际手续费会在订单更新时补充）
-	estimatedFee := cost * dcaEstimatedFeeRate
 
 	buyOrderID := int64(0) // DCA策略无法追溯历史买入订单ID
 	exchangeName := strings.ToLower(s.exchange.GetName())
@@ -980,20 +1142,27 @@ func (s *DCAEnhancedStrategy) saveCloseTrade(sellOrderID int64, avgBuyPrice, ord
 	}
 
 	var err error
-	// 🔥 尝试使用带交易所盈亏的新接口（初始为0，后续订单更新时会更新）
-	if tradeStWithPnL, ok := s.tradeStorage.(interface {
-		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-	}); ok {
-		err = tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, 0, estimatedFee, "USDT", 0, 0, time.Now(), s.effectiveBotID())
-	} else {
-		// 降级：使用旧接口
-		err = s.tradeStorage.SaveTrade(buyOrderID, sellOrderID, exchangeName, s.strategyCfg.Symbol, avgBuyPrice, orderPrice, qty, pnl, estimatedFee, "USDT", time.Now(), s.effectiveBotID())
+	// 成交账本必须使用幂等写入，否则提交成功但确认丢失后重试会重复记账。
+	marketType := "futures"
+	if s.cfg != nil && strings.TrimSpace(s.cfg.Trading.MarketType) != "" {
+		marketType = strings.ToLower(strings.TrimSpace(s.cfg.Trading.MarketType))
 	}
+	idempotent, ok := s.tradeStorage.(interface{ SaveTradeIdempotent(*storage.Trade) error })
+	if !ok {
+		logger.Error("[%s] 成交账本不支持幂等写入，拒绝确认 DCA 平仓成交", s.name)
+		return false
+	}
+	err = idempotent.SaveTradeIdempotent(&storage.Trade{
+		ExecutionKey: executionKey, BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: s.effectiveBotID(),
+		Exchange: exchangeName, MarketType: marketType, Symbol: s.strategyCfg.Symbol,
+		BuyPrice: avgBuyPrice, SellPrice: orderPrice, Quantity: qty, PnL: pnl, ExchangePnL: exchangePnL,
+		Fee: fee, FeeAsset: feeAsset, CreatedAt: time.Now(),
+	})
 
 	if err != nil {
 		logger.Warn("⚠️ [%s] 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.2f)",
 			s.name, err, avgBuyPrice, orderPrice, qty, pnl)
-		return
+		return false
 	}
 	if pnl < 0 {
 		logger.Warn("🛑 [%s] [止损/亏损交易已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f, OrderID: %d",
@@ -1002,6 +1171,7 @@ func (s *DCAEnhancedStrategy) saveCloseTrade(sellOrderID int64, avgBuyPrice, ord
 		logger.Debug("💰 [%s] [交易記錄已保存] 買入價: %.2f, 賣出價: %.2f, 數量: %.6f, 盈亏: %.4f",
 			s.name, avgBuyPrice, orderPrice, qty, pnl)
 	}
+	return true
 }
 
 // removeLayer 移除指定层并重算層數與總计
@@ -1028,6 +1198,7 @@ func (s *DCAEnhancedStrategy) reduceLayer(layer *DCALayer, qty float64) {
 	}
 	remainRatio := (layer.Quantity - qty) / layer.Quantity
 	layer.Cost *= remainRatio
+	layer.OpeningFee *= remainRatio
 	layer.Quantity -= qty
 	s.updateTotals()
 }
@@ -1045,6 +1216,7 @@ func (s *DCAEnhancedStrategy) reduceAllLayers(qty float64) {
 	for _, layer := range s.filledLayers() {
 		layer.Quantity *= remainRatio
 		layer.Cost *= remainRatio
+		layer.OpeningFee *= remainRatio
 	}
 	s.updateTotals()
 }
@@ -1060,6 +1232,8 @@ func (s *DCAEnhancedStrategy) resetPositionState() {
 	s.isClosing = false
 	s.closeOrderID = 0
 	s.closeLayer = nil
+	s.closeProgress = position.FillProgress{}
+	s.closeRequestedQty, s.closeLimitPrice = 0, 0
 }
 
 // isTrendUp 判断趋势是否向上
@@ -1109,97 +1283,65 @@ func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error 
 
 	if s.isClosing && update.OrderID == s.closeOrderID {
 		s.handleCloseOrderUpdate(update)
-		return nil
+		return s.persistRuntimeStateLocked()
 	}
 
 	// 查找對应的层级
 	for _, layer := range s.layers {
 		if layer.OrderID == update.OrderID {
 			s.handleLayerOrderUpdate(layer, update)
-			break
+			return s.persistRuntimeStateLocked()
 		}
 	}
 
 	return nil
 }
 
-// handleCloseOrderUpdate 处理平倉單回報：成交才清理倉位；撤單/拒單/過期退出 closing（S3）
-func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdate) {
-	switch {
-	case signalOrderStatusFilled(update.Status):
-		if s.closeLayer != nil {
-			layer := s.closeLayer
-			qty := update.ExecutedQty
-			if qty <= 0 {
-				qty = layer.Quantity
-			}
-			logger.Info("✅ [%s] 尾單止盈單 #%d 已成交，移除层级 %d (數量=%.6f)", s.name, update.OrderID, layer.Index, qty)
-			s.reduceLayer(layer, qty)
-			s.isClosing = false
-			s.closeOrderID = 0
-			s.closeLayer = nil
-			s.highestProfit = 0
-			s.takeProfitTriggered = false
-			return
-		}
-		logger.Info("✅ [%s] 平倉單 #%d 已成交，清理 DCA 倉位狀態", s.name, update.OrderID)
-		s.resetPositionState()
-	case signalOrderStatusTerminal(update.Status):
-		logger.Warn("⚠️ [%s] 平倉單 #%d 狀態 %s (已成交 %.6f)，保留剩余倉位等待重新平倉",
-			s.name, update.OrderID, update.Status, update.ExecutedQty)
-		if update.ExecutedQty > 0 {
-			if s.closeLayer != nil {
-				s.reduceLayer(s.closeLayer, update.ExecutedQty)
-			} else {
-				s.reduceAllLayers(update.ExecutedQty)
-			}
-		}
-		s.isClosing = false
-		s.closeOrderID = 0
-		s.closeLayer = nil
-	}
-}
+func finiteNumber(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // handleLayerOrderUpdate 处理开倉/加倉單回報：按實際成交數量/均價計入持倉；未成交即終止则回滚该层（S3）
 func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *position.OrderUpdate) {
 	filled := signalOrderStatusFilled(update.Status)
-	switch {
-	case filled || signalOrderStatusPartiallyFilled(update.Status):
-		qty, price := entryFillFromUpdate(update, layer.Quantity, layer.Price)
-		if qty <= 0 {
+	terminal := signalOrderStatusTerminal(update.Status)
+	if !filled && !terminal && !signalOrderStatusPartiallyFilled(update.Status) {
+		return
+	}
+	if layer.RequestedQuantity == 0 {
+		layer.RequestedQuantity = layer.Quantity
+	}
+	qty, _ := entryFillFromUpdate(update)
+	if qty > layer.FillProgress.Quantity && update.AvgPrice <= 0 {
+		return
+	}
+	nextProgress := layer.FillProgress
+	delta, incrementalPrice := nextProgress.Advance(qty, update.AvgPrice, 0)
+	if delta > 0 {
+		openingFee, feeKnown := s.commissionInQuote(update.Commission, update.CommissionAsset, incrementalPrice)
+		if !feeKnown {
+			s.requireDCAOrderReconciliation(update, "DCA open fee is not denominated in a supported quote asset")
 			return
 		}
-		layer.Quantity = qty
-		layer.Price = price
-		layer.Cost = qty * price
+		if layer.Status == entryStatusPending {
+			layer.Quantity, layer.Cost = 0, 0
+		}
+		layer.Quantity += delta
+		layer.Cost += delta * incrementalPrice
+		layer.Price = layer.Cost / layer.Quantity
+		layer.OpeningFee += openingFee
+		layer.FillProgress = nextProgress
 		layer.FilledAt = time.Now()
-		if filled {
+	} else {
+		layer.FillProgress = nextProgress
+	}
+	if layer.FillProgress.Quantity > 0 || layer.Status == entryStatusFilled {
+		if filled || terminal {
 			layer.Status = entryStatusFilled
 		} else {
 			layer.Status = entryStatusPartiallyFilled
 		}
 		s.updateTotals()
-		logger.Info("📊 [%s] 订單 #%d %s: 层级=%d, 成交數量=%.6f, 均價=%.2f, 平均成本=%.2f",
-			s.name, update.OrderID, update.Status, layer.Index, qty, price, s.avgEntryPrice)
-	case signalOrderStatusTerminal(update.Status):
-		if layer.Status == entryStatusFilled {
-			return
-		}
-		if update.ExecutedQty > 0 || layer.Status == entryStatusPartiallyFilled {
-			if update.ExecutedQty > 0 {
-				_, price := entryFillFromUpdate(update, layer.Quantity, layer.Price)
-				layer.Quantity = update.ExecutedQty
-				layer.Price = price
-				layer.Cost = update.ExecutedQty * price
-			}
-			layer.Status = entryStatusFilled
-			s.updateTotals()
-			logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s: 层级=%d 按部分成交 %.6f 保留",
-				s.name, update.OrderID, update.Status, layer.Index, layer.Quantity)
-			return
-		}
+	} else if terminal {
 		s.removeLayer(layer)
-		logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s 且未成交: 回滚层级=%d", s.name, update.OrderID, update.Status, layer.Index)
 	}
 }
 
@@ -1213,8 +1355,12 @@ func (s *DCAEnhancedStrategy) GetPositions() []*Position {
 	}
 
 	currentPnL := 0.0
+	openingFee := 0.0
+	for _, layer := range s.filledLayers() {
+		openingFee += layer.OpeningFee
+	}
 	if s.lastPrice > 0 {
-		currentPnL = s.totalQty*s.lastPrice - s.totalCost
+		currentPnL = s.totalQty*s.lastPrice - s.totalCost - openingFee
 	}
 
 	return []*Position{
@@ -1222,6 +1368,7 @@ func (s *DCAEnhancedStrategy) GetPositions() []*Position {
 			Symbol:       s.strategyCfg.Symbol,
 			Size:         s.totalQty,
 			EntryPrice:   s.avgEntryPrice,
+			OpeningFee:   openingFee,
 			CurrentPrice: s.lastPrice,
 			PnL:          currentPnL,
 		},

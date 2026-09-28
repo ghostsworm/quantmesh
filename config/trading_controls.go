@@ -165,22 +165,22 @@ type BotRiskControl struct {
 // VolatilityPauseConfig 波動率暫停開倉配置
 type VolatilityPauseConfig struct {
 	// 暫停觸發條件
-	PauseOnHighVolatility    bool `yaml:"pause_on_high_volatility"`    // 高波動時暫停開倉
-	PauseOnExtremeVolatility bool `yaml:"pause_on_extreme_volatility"` // 極端波動時暫停開倉
-	PauseOnSuddenIncrease    bool `yaml:"pause_on_sudden_increase"`    // 波動率突增時暫停開倉
+	PauseOnHighVolatility    bool `yaml:"pause_on_high_volatility" json:"pause_on_high_volatility"`       // 高波動時暫停開倉
+	PauseOnExtremeVolatility bool `yaml:"pause_on_extreme_volatility" json:"pause_on_extreme_volatility"` // 極端波動時暫停開倉
+	PauseOnSuddenIncrease    bool `yaml:"pause_on_sudden_increase" json:"pause_on_sudden_increase"`       // 波動率突增時暫停開倉
 
 	// 策略方向過濾（根據策略方向和市場行情決定是否暫停）
-	PauseOnDowntrend bool `yaml:"pause_on_downtrend"` // 做多策略在高波動下跌行情中暫停開倉
-	PauseOnUptrend   bool `yaml:"pause_on_uptrend"`   // 做空策略在高波動上漲行情中暫停開倉
+	PauseOnDowntrend bool `yaml:"pause_on_downtrend" json:"pause_on_downtrend"` // 做多策略在高波動下跌行情中暫停開倉
+	PauseOnUptrend   bool `yaml:"pause_on_uptrend" json:"pause_on_uptrend"`     // 做空策略在高波動上漲行情中暫停開倉
 
 	// 自動恢復
-	AutoResumeOnNormal bool    `yaml:"auto_resume_on_normal"` // 波動率回歸正常時自動恢復開倉
-	ResumeThreshold    float64 `yaml:"resume_threshold"`      // 恢復開倉的波動率閾值（%），低於此值時恢復
+	AutoResumeOnNormal bool    `yaml:"auto_resume_on_normal" json:"auto_resume_on_normal"` // 波動率回歸正常時自動恢復開倉
+	ResumeThreshold    float64 `yaml:"resume_threshold" json:"resume_threshold"`           // 恢復開倉的波動率閾值（%），低於此值時恢復
 
 	// 趨勢判斷配置（用於判斷上漲/下跌行情）
-	TrendCheckPeriod   int     `yaml:"trend_check_period"`   // 趨勢檢查週期（分鐘），預設 15
-	TrendDownThreshold float64 `yaml:"trend_down_threshold"` // 下跌趨勢閾值（%），低於此值視為下跌
-	TrendUpThreshold   float64 `yaml:"trend_up_threshold"`   // 上漲趨勢閾值（%），高於此值視為上漲
+	TrendCheckPeriod   int     `yaml:"trend_check_period" json:"trend_check_period"`     // 趨勢檢查週期（分鐘），預設 15
+	TrendDownThreshold float64 `yaml:"trend_down_threshold" json:"trend_down_threshold"` // 下跌趨勢閾值（%），低於此值視為下跌
+	TrendUpThreshold   float64 `yaml:"trend_up_threshold" json:"trend_up_threshold"`     // 上漲趨勢閾值（%），高於此值視為上漲
 }
 
 // FundingRateConfig 資金費率監控與套利配置

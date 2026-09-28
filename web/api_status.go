@@ -33,6 +33,7 @@ func enrichOpeningStatus(st *SystemStatus) {
 	if spm, ok := spmField.Interface().(*position.SuperPositionManager); ok && spm != nil {
 		st.OpeningPaused = spm.IsOpeningPaused()
 		st.PauseReason = spm.GetOpeningPauseReason()
+		st.ProtectiveLiquidation = spm.GetProtectiveLiquidationStatus()
 	}
 }
 

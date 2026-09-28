@@ -31,7 +31,11 @@ import {
   Link as ChakraLink,
 } from '@chakra-ui/react'
 import DecimalNumberInput from './DecimalNumberInput'
-import { normalizeGridRiskControlPayload } from '../utils/gridRiskControlPayload'
+import { RiskPositionValueMetrics } from './RiskPositionValueMetrics'
+import { ExecutionExposureMetrics } from './ExecutionExposureMetrics'
+import type { ExecutionPositionStatus } from '../services/executionExposure'
+import { RiskDraftGuard } from '../utils/riskDraftGuard'
+import { normalizeBotRiskControlPayload, riskPercentDisplay, type BotRiskControlDraft } from '../utils/gridRiskControlPayload'
 import { ChevronDownIcon, ChevronUpIcon, WarningIcon } from '@chakra-ui/icons'
 
 // @chakra-ui/icons 不提供 PauseIcon/PlayIcon，使用自定义 SVG
@@ -53,8 +57,6 @@ import {
   getBotPositionStatus,
   pauseBotOpening,
   resumeBotOpening,
-  BotRiskControl as BotRiskControlType,
-  PositionStatus,
   getBotConfigFile,
   updateBotConfigFile,
   type BotConfigFile,
@@ -85,8 +87,8 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
   const toast = useToast()
   const { isOpen: showConfig, onToggle: toggleConfig } = useDisclosure({ defaultIsOpen: true })
 
-  const [riskControl, setRiskControl] = useState<BotRiskControlType | null>(null)
-  const [positionStatus, setPositionStatus] = useState<PositionStatus | null>(null)
+  const [riskControl, setRiskControl] = useState<BotRiskControlDraft | null>(null)
+  const [positionStatus, setPositionStatus] = useState<ExecutionPositionStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
   const [pausing, setPausing] = useState(false)
@@ -99,10 +101,17 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
 
   // 使用 ref 避免依赖项变化导致定时器重建
   const botIdRef = useRef(botId)
+  const draftGuard = useRef(new RiskDraftGuard())
 
   // 当 botId 变化时更新 ref
   useEffect(() => {
     botIdRef.current = botId
+    draftGuard.current.reset(botId)
+    setRiskControl(null)
+    setPositionStatus(null)
+    setLoading(true)
+    setUpdating(false)
+    return () => draftGuard.current.reset('')
   }, [botId])
 
   useEffect(() => {
@@ -178,17 +187,20 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
 
   // 使用 useCallback 缓存函数，避免不必要的重新渲染
   const fetchRiskControl = useCallback(async () => {
-    const currentBotId = botIdRef.current
-    if (!currentBotId) return
+    const currentBotId = botId
+    const ticket = draftGuard.current.beginFetch(currentBotId)
+    if (!ticket) return
 
     try {
       const [rc, ps] = await Promise.all([
         getBotRiskControl(currentBotId),
         getBotPositionStatus(currentBotId),
       ])
-      setRiskControl(rc)
+      if (!draftGuard.current.accepts(ticket)) return
+      if (draftGuard.current.acceptsDraft(ticket)) setRiskControl(rc)
       setPositionStatus(ps)
     } catch (err) {
+      if (!draftGuard.current.accepts(ticket)) return
       console.error('Failed to fetch risk control:', err)
       // 已停止的 Bot 由后端返回 200+stopped，不会进 catch；进 catch 多为网络等真实错误
       if (botRunning) {
@@ -196,9 +208,9 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
       }
       // 停止的 bot 不弹 toast，在仓位区域会显示 stoppedBotNoPosition
     } finally {
-      setLoading(false)
+      if (draftGuard.current.accepts(ticket)) setLoading(false)
     }
-  }, [t, toast, botRunning])
+  }, [botId, t, toast, botRunning])
 
   useEffect(() => {
     fetchRiskControl()
@@ -208,31 +220,24 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
   }, [fetchRiskControl])
 
   const handleUpdateConfig = useCallback(async () => {
-    if (!riskControl || !botIdRef.current) return
+    if (!riskControl) return
+    const ticket = draftGuard.current.beginSave(botId)
+    if (!ticket) return
     setUpdating(true)
     try {
-      const toSend: BotRiskControlType = { ...riskControl }
-      if (typeof toSend.stop_loss_ratio === 'string') toSend.stop_loss_ratio = parseFloat(toSend.stop_loss_ratio || '0') / 100
-      if (typeof toSend.take_profit_ratio === 'string') toSend.take_profit_ratio = parseFloat(toSend.take_profit_ratio || '0') / 100
-      if (typeof toSend.trailing_stop_ratio === 'string') toSend.trailing_stop_ratio = parseFloat(toSend.trailing_stop_ratio || '0') / 100
-      const mpq = toSend.max_position_quantity ?? toSend.max_position_qty
-      if (mpq != null) toSend.max_position_quantity = typeof mpq === 'string' ? parseFloat(mpq || '0') : mpq
-      if (typeof toSend.max_position_value === 'string') toSend.max_position_value = parseFloat(toSend.max_position_value || '0')
-      if (typeof toSend.open_order_distance === 'string') toSend.open_order_distance = parseFloat(toSend.open_order_distance || '0')
-      // 網格風控比例轉換（前端用 % 顯示，後端用 0-1）；DecimalNumberInput 可能傳 string，需統一轉 number
-      if (toSend.grid_risk_control) {
-        toSend.grid_risk_control = normalizeGridRiskControlPayload(toSend.grid_risk_control) as typeof toSend.grid_risk_control
-      }
-      await updateBotRiskControl(botIdRef.current, toSend)
+      const toSend = normalizeBotRiskControlPayload(riskControl)
+      await updateBotRiskControl(ticket.botId, toSend)
+      if (!draftGuard.current.finishSave(ticket, true)) return
       toast({ title: t('botRiskControl.configUpdateSuccess'), status: 'success', duration: 2000 })
       await fetchRiskControl()
     } catch (err) {
+      if (!draftGuard.current.finishSave(ticket, false)) return
       console.error('Failed to update risk control:', err)
       toast({ title: t('botRiskControl.configUpdateFailed'), status: 'error', duration: 3000 })
     } finally {
-      setUpdating(false)
+      if (draftGuard.current.owns(ticket)) setUpdating(false)
     }
-  }, [riskControl, fetchRiskControl, t, toast])
+  }, [botId, riskControl, fetchRiskControl, t, toast])
 
   const handlePauseOpening = useCallback(async () => {
     if (!botIdRef.current) return
@@ -274,22 +279,24 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
   }, [positionStatus?.paused])
 
   // 缓存配置更新处理函数，避免子组件不必要的重新渲染
-  const updateConfigField = useCallback(<K extends keyof BotRiskControlType>(
+  const updateConfigField = useCallback(<K extends keyof BotRiskControlDraft>(
     key: K,
-    value: BotRiskControlType[K]
+    value: BotRiskControlDraft[K]
   ) => {
+    if (!draftGuard.current.edit(botId)) return
     setRiskControl(prev => prev ? { ...prev, [key]: value } : null)
-  }, [])
+  }, [botId])
 
-  const updateGridRiskControlField = useCallback(<K extends keyof NonNullable<BotRiskControlType['grid_risk_control']>>(
+  const updateGridRiskControlField = useCallback(<K extends keyof NonNullable<BotRiskControlDraft['grid_risk_control']>>(
     key: K,
-    value: NonNullable<BotRiskControlType['grid_risk_control']>[K]
+    value: NonNullable<BotRiskControlDraft['grid_risk_control']>[K]
   ) => {
+    if (!draftGuard.current.edit(botId)) return
     setRiskControl(prev => prev ? {
       ...prev,
       grid_risk_control: { ...(prev.grid_risk_control || {}), [key]: value },
     } : null)
-  }, [])
+  }, [botId])
 
   const marketRiskBanner = !!riskTriggered && (
     <Alert status="error" borderRadius="md" variant="subtle">
@@ -463,31 +470,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                 <Badge colorScheme="red" size="sm">{t('botRiskControl.reachedLimitQty')}</Badge>
               )}
             </Box>
-            <Box>
-              <Text fontSize="sm" color="gray.500">{t('botRiskControl.totalPositionValue')}</Text>
-              <Text fontSize="xs" color="gray.600">
-                ${positionStatus?.total_position_value?.toFixed(2) || '-'}
-              </Text>
-            </Box>
-            <Box>
-              <Text fontSize="sm" color="gray.500">{t('botRiskControl.totalActualMargin')}</Text>
-              <Text fontSize="lg" fontWeight="bold">
-                ${positionStatus?.total_actual_margin?.toFixed(2) || '-'}
-                {positionStatus?.max_position_value && (
-                  <Text as="span" fontSize="sm" color="gray.500">
-                    {' '} / ${positionStatus.max_position_value}
-                  </Text>
-                )}
-              </Text>
-              {positionStatus?.leverage && positionStatus.leverage > 1 && (
-                <Text fontSize="xs" color="gray.500">
-                  ({positionStatus.leverage}x杠杆)
-                </Text>
-              )}
-              {positionStatus?.reached_limit_value && (
-                <Badge colorScheme="red" size="sm">{t('botRiskControl.reachedLimitValue')}</Badge>
-              )}
-            </Box>
+            <RiskPositionValueMetrics status={positionStatus} />
             <Box>
               <Text fontSize="sm" color="gray.500">{t('botRiskControl.positionLayers')}</Text>
               <Text fontSize="lg" fontWeight="bold">
@@ -513,6 +496,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
             </Box>
           </SimpleGrid>
 
+          <ExecutionExposureMetrics exposure={positionStatus?.execution_exposure} />
           {shouldStopOpening && (
             <Alert status="warning" borderRadius="md">
               <AlertIcon />
@@ -670,7 +654,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.stopLossRatio')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.stop_loss_ratio === 'string' ? riskControl.stop_loss_ratio : (riskControl.stop_loss_ratio ?? 0) * 100}
+                      value={riskPercentDisplay(riskControl.stop_loss_ratio)}
                       onChange={(val) => updateConfigField('stop_loss_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -684,7 +668,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.takeProfitRatio')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.take_profit_ratio === 'string' ? riskControl.take_profit_ratio : (riskControl.take_profit_ratio ?? 0) * 100}
+                      value={riskPercentDisplay(riskControl.take_profit_ratio)}
                       onChange={(val) => updateConfigField('take_profit_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -698,7 +682,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.trailingStopRatio')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.trailing_stop_ratio === 'string' ? riskControl.trailing_stop_ratio : (riskControl.trailing_stop_ratio ?? 0) * 100}
+                      value={riskPercentDisplay(riskControl.trailing_stop_ratio)}
                       onChange={(val) => updateConfigField('trailing_stop_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -729,9 +713,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.gridStopLossRatio')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.grid_risk_control?.stop_loss_ratio === 'number'
-                        ? (riskControl.grid_risk_control.stop_loss_ratio <= 1 ? riskControl.grid_risk_control.stop_loss_ratio * 100 : riskControl.grid_risk_control.stop_loss_ratio)
-                        : 0}
+                      value={riskPercentDisplay(riskControl.grid_risk_control?.stop_loss_ratio)}
                       onChange={(val) => updateGridRiskControlField('stop_loss_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -744,9 +726,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.gridTakeProfitTrigger')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.grid_risk_control?.take_profit_trigger_ratio === 'number'
-                        ? (riskControl.grid_risk_control.take_profit_trigger_ratio <= 1 ? riskControl.grid_risk_control.take_profit_trigger_ratio * 100 : riskControl.grid_risk_control.take_profit_trigger_ratio)
-                        : 0}
+                      value={riskPercentDisplay(riskControl.grid_risk_control?.take_profit_trigger_ratio)}
                       onChange={(val) => updateGridRiskControlField('take_profit_trigger_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -758,9 +738,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.gridTrailingTakeProfit')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.grid_risk_control?.trailing_take_profit_ratio === 'number'
-                        ? (riskControl.grid_risk_control.trailing_take_profit_ratio <= 1 ? riskControl.grid_risk_control.trailing_take_profit_ratio * 100 : riskControl.grid_risk_control.trailing_take_profit_ratio)
-                        : 0}
+                      value={riskPercentDisplay(riskControl.grid_risk_control?.trailing_take_profit_ratio)}
                       onChange={(val) => updateGridRiskControlField('trailing_take_profit_ratio', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}
@@ -814,9 +792,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.closeConditionProfitTarget')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.grid_risk_control?.close_condition_profit_target === 'number'
-                        ? (riskControl.grid_risk_control.close_condition_profit_target <= 1 ? riskControl.grid_risk_control.close_condition_profit_target * 100 : riskControl.grid_risk_control.close_condition_profit_target)
-                        : 0}
+                      value={riskPercentDisplay(riskControl.grid_risk_control?.close_condition_profit_target)}
                       onChange={(val) => updateGridRiskControlField('close_condition_profit_target', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={1000}
@@ -829,9 +805,7 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
                   <FormControl>
                     <FormLabel fontSize="sm">{t('botRiskControl.closeConditionLossLimit')} (%)</FormLabel>
                     <DecimalNumberInput
-                      value={typeof riskControl.grid_risk_control?.close_condition_loss_limit === 'number'
-                        ? (riskControl.grid_risk_control.close_condition_loss_limit <= 1 ? riskControl.grid_risk_control.close_condition_loss_limit * 100 : riskControl.grid_risk_control.close_condition_loss_limit)
-                        : 0}
+                      value={riskPercentDisplay(riskControl.grid_risk_control?.close_condition_loss_limit)}
                       onChange={(val) => updateGridRiskControlField('close_condition_loss_limit', typeof val === 'number' ? val / 100 : val)}
                       min={0}
                       max={100}

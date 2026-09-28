@@ -45,11 +45,14 @@ type MartingaleStrategy struct {
 	currentLevel int    // 當前马丁层级
 
 	// 状態
-	ctx          context.Context
-	cancel       context.CancelFunc
-	isRunning    bool
-	isClosing    bool
-	closeOrderID int64
+	ctx               context.Context
+	cancel            context.CancelFunc
+	isRunning         bool
+	isClosing         bool
+	closeOrderID      int64
+	closeRequestedQty float64
+	closeProgress     position.FillProgress
+	closeRealizedPnL  float64
 
 	// 统计
 	stats *StrategyStatistics
@@ -58,7 +61,9 @@ type MartingaleStrategy struct {
 	eventBus EventBus
 
 	// 暂停標志
-	isPaused bool
+	isPaused          bool
+	runtimeStateStore RuntimeStateStore
+	runtimeStateErr   error
 }
 
 // MartingaleConfig 马丁格尔配置
@@ -98,13 +103,16 @@ type MartingaleConfig struct {
 
 // MartingaleEntry 马丁入场記錄
 type MartingaleEntry struct {
-	Level     int       // 层级
-	Price     float64   // 入场價格
-	Quantity  float64   // 數量
-	Cost      float64   // 成本
-	OrderID   int64     // 订單ID
-	Status    string    // pending/filled/closed
-	Timestamp time.Time // 時间戳
+	Level             int     // 层级
+	Price             float64 // 入场價格
+	Quantity          float64 // 數量
+	RequestedQuantity float64 // 委託數量（非已成交持倉）
+	Cost              float64 // 成本
+	OpeningFee        float64 // 已折算至计價币的入场手續費
+	FillProgress      position.FillProgress
+	OrderID           int64     // 订單ID
+	Status            string    // pending/filled/closed
+	Timestamp         time.Time // 時间戳
 }
 
 // NewMartingaleStrategy 創建马丁格尔策略
@@ -269,6 +277,21 @@ func (s *MartingaleStrategy) Name() string {
 	return s.name
 }
 
+func (s *MartingaleStrategy) effectiveBotID() string {
+	if s.cfg != nil && strings.TrimSpace(s.cfg.Trading.BotID) != "" {
+		return strings.TrimSpace(s.cfg.Trading.BotID)
+	}
+	exchangeName := "binance"
+	if s.exchange != nil && strings.TrimSpace(s.exchange.GetName()) != "" {
+		exchangeName = strings.ToLower(strings.TrimSpace(s.exchange.GetName()))
+	}
+	marketType := "futures"
+	if s.cfg != nil && strings.TrimSpace(s.cfg.Trading.MarketType) != "" {
+		marketType = strings.ToLower(strings.TrimSpace(s.cfg.Trading.MarketType))
+	}
+	return config.GenerateBotID(exchangeName, s.strategyCfg.Symbol, marketType)
+}
+
 // Initialize 初始化策略
 func (s *MartingaleStrategy) Initialize(cfg *config.Config, executor position.OrderExecutorInterface, exchange position.IExchange) error {
 	s.cfg = cfg
@@ -288,6 +311,12 @@ func (s *MartingaleStrategy) SetEventBus(bus EventBus) {
 func (s *MartingaleStrategy) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if s.runtimeStateStore == nil {
+		return fmt.Errorf("martingale runtime state store is required")
+	}
+	if err := s.restoreRuntimeState(); err != nil {
+		return err
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 
@@ -352,6 +381,9 @@ func (s *MartingaleStrategy) onPrice(price float64, allowOpening bool) error {
 
 	if !s.isRunning || s.isClosing {
 		return nil
+	}
+	if s.runtimeStateErr != nil {
+		return fmt.Errorf("martingale runtime state is not durable; new decisions are paused: %w", s.runtimeStateErr)
 	}
 
 	// 更新價格历史
@@ -479,12 +511,11 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 	quantity = quantityRounded
 
 	entry := &MartingaleEntry{
-		Level:     0,
-		Price:     price,
-		Quantity:  quantity,
-		Cost:      s.strategyCfg.InitialAmount,
-		Status:    entryStatusPending,
-		Timestamp: time.Now(),
+		Level:             0,
+		Price:             price,
+		RequestedQuantity: quantity,
+		Status:            entryStatusPending,
+		Timestamp:         time.Now(),
 	}
 
 	// 下單
@@ -510,6 +541,10 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 	entry.OrderID = order.OrderID
 	s.entries = append(s.entries, entry)
 	s.currentLevel = 1
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale order accepted but runtime state persistence failed")
+		return err
+	}
 
 	logger.Info("📈 [%s:%s] [%s] 初始订單已挂單: 價格=%.2f, 數量=%.6f, 方向=%s",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, side)
@@ -580,12 +615,11 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 	}
 
 	entry := &MartingaleEntry{
-		Level:     s.currentLevel,
-		Price:     price,
-		Quantity:  quantity,
-		Cost:      amount,
-		Status:    entryStatusPending,
-		Timestamp: time.Now(),
+		Level:             s.currentLevel,
+		Price:             price,
+		RequestedQuantity: quantity,
+		Status:            entryStatusPending,
+		Timestamp:         time.Now(),
 	}
 
 	// 下單
@@ -611,6 +645,10 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 	entry.OrderID = order.OrderID
 	s.entries = append(s.entries, entry)
 	s.currentLevel++
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale add order accepted but runtime state persistence failed")
+		return err
+	}
 
 	logger.Info("📉 [%s] 马丁加倉 #%d 已挂單:價格=%.2f, 數量=%.6f, 金額=%.2f, 倍數=%.2f, 平均成本=%.2f",
 		s.name, entry.Level, price, quantity, amount, multiplier, s.avgEntryPrice)
@@ -650,12 +688,11 @@ func (s *MartingaleStrategy) checkReverseMartingale(price float64) error {
 	}
 
 	entry := &MartingaleEntry{
-		Level:     s.currentLevel,
-		Price:     price,
-		Quantity:  quantity,
-		Cost:      amount,
-		Status:    entryStatusPending,
-		Timestamp: time.Now(),
+		Level:             s.currentLevel,
+		Price:             price,
+		RequestedQuantity: quantity,
+		Status:            entryStatusPending,
+		Timestamp:         time.Now(),
 	}
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
@@ -680,6 +717,10 @@ func (s *MartingaleStrategy) checkReverseMartingale(price float64) error {
 	entry.OrderID = order.OrderID
 	s.entries = append(s.entries, entry)
 	s.currentLevel++
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "reverse martingale order accepted but runtime state persistence failed")
+		return err
+	}
 
 	logger.Info("📈 [%s] 反向马丁加倉 #%d 已挂單:價格=%.2f, 數量=%.6f, 金額=%.2f",
 		s.name, entry.Level, price, quantity, amount)
@@ -820,33 +861,17 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 		return nil
 	}
 
-	// 计算盈亏
-	var pnl float64
-	if s.direction == "LONG" {
-		pnl = s.totalQty*price - s.totalCost
-	} else {
-		pnl = s.totalCost - s.totalQty*price
-	}
-
-	// 更新统计
-	s.stats.TotalTrades++
-	s.stats.TotalPnL += pnl
-	s.stats.TotalVolume += s.totalCost
-
-	if pnl > 0 {
-		winCount := s.stats.WinRate * float64(s.stats.TotalTrades-1)
-		winCount++
-		s.stats.WinRate = winCount / float64(s.stats.TotalTrades)
-	} else {
-		winCount := s.stats.WinRate * float64(s.stats.TotalTrades-1)
-		s.stats.WinRate = winCount / float64(s.stats.TotalTrades)
-	}
-
-	logger.Info("✅ [%s] 平倉完成 (%s): 订單ID=%d, 层數=%d, 盈亏=%.2f USDT",
-		s.name, reason, order.OrderID, len(s.entries), pnl)
-
 	s.isClosing = true
 	s.closeOrderID = order.OrderID
+	s.closeRequestedQty = s.totalQty
+	s.closeProgress = position.FillProgress{}
+	s.closeRealizedPnL = 0
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale close order accepted but runtime state persistence failed")
+		return err
+	}
+	logger.Info("⏳ [%s] 平倉委託已提交 (%s): 订單ID=%d, 层數=%d；等待實際成交回報",
+		s.name, reason, order.OrderID, len(s.entries))
 
 	return nil
 }
@@ -859,6 +884,9 @@ func (s *MartingaleStrategy) resetPositionState() {
 	s.currentLevel = 0
 	s.isClosing = false
 	s.closeOrderID = 0
+	s.closeRequestedQty = 0
+	s.closeProgress = position.FillProgress{}
+	s.closeRealizedPnL = 0
 }
 
 // checkTrendFilter 趨勢過濾
@@ -897,81 +925,152 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 
 	if s.isClosing && update.OrderID == s.closeOrderID {
-		switch {
-		case signalOrderStatusFilled(update.Status):
-			logger.Info("✅ [%s] 平倉單 #%d 已成交，清理马丁倉位狀態", s.name, update.OrderID)
-			s.resetPositionState()
-		case signalOrderStatusTerminal(update.Status):
-			// S3：撤單/拒單/過期都必须退出 closing，否则策略永久卡死
-			logger.Warn("⚠️ [%s] 平倉單 #%d 狀態 %s (已成交 %.6f)，保留剩余倉位等待重新平倉",
-				s.name, update.OrderID, update.Status, update.ExecutedQty)
-			if update.ExecutedQty > 0 {
-				s.reduceAllEntries(update.ExecutedQty)
+		terminal := signalOrderStatusFilled(update.Status) || signalOrderStatusTerminal(update.Status)
+		if signalOrderStatusFilled(update.Status) && update.ExecutedQty <= 0 {
+			return nil
+		}
+		if update.ExecutedQty < s.closeProgress.Quantity {
+			return nil
+		}
+		var actualFilled float64
+		oldProgress := s.closeProgress.Quantity
+		deltaQty := update.ExecutedQty - oldProgress
+		if deltaQty > s.totalQty+entryQtyEpsilon {
+			return nil
+		}
+		realizedDelta := 0.0
+		if update.ExecutedQty > s.closeProgress.Quantity {
+			if update.AvgPrice <= 0 {
+				// Do not reduce inventory or book PnL against an unverified price.
+				return nil
 			}
+			nextProgress := s.closeProgress
+			delta, executionPrice := nextProgress.Advance(update.ExecutedQty, update.AvgPrice, 0)
+			if delta <= 0 || math.Abs(delta-deltaQty) > entryQtyEpsilon {
+				return nil
+			}
+			closeFee, feeKnown := commissionInQuote(s.exchange, update.Commission, update.CommissionAsset, executionPrice)
+			if !feeKnown {
+				s.requireMartingaleOrderReconciliation(update, "martingale close fee cannot be valued in quote asset")
+				return nil
+			}
+			basis := s.avgEntryPrice
+			realizedDelta = delta * (executionPrice - basis)
+			if s.direction == "SHORT" {
+				realizedDelta = -realizedDelta
+			}
+			openingFee := s.openingFeeTotal() * delta / s.totalQty
+			realizedDelta -= closeFee + openingFee
+			s.closeProgress = nextProgress
+			actualFilled = s.closeProgress.Quantity
+			s.closeRealizedPnL += realizedDelta
+			s.stats.TotalPnL += realizedDelta
+			s.stats.TotalVolume += delta * executionPrice
+		}
+		if terminal && s.closeProgress.Quantity > 0 {
+			actualFilled = s.closeProgress.Quantity
+			s.recordCloseResult(s.closeRealizedPnL)
+		}
+		if deltaQty > 0 {
+			s.reduceAllEntries(deltaQty)
+		}
+		if terminal {
+			logger.Info("✅ [%s] 平倉單 #%d 已終結 (%s, 實際成交 %.8f)，剩餘持倉 %.8f",
+				s.name, update.OrderID, update.Status, actualFilled, s.totalQty)
 			s.isClosing = false
 			s.closeOrderID = 0
+			s.closeRequestedQty = 0
+			s.closeProgress = position.FillProgress{}
+			s.closeRealizedPnL = 0
 		}
-		return nil
+		return s.persistRuntimeStateLocked()
 	}
 
 	for _, entry := range s.entries {
 		if entry.OrderID == update.OrderID {
 			s.handleEntryOrderUpdate(entry, update)
-			break
+			return s.persistRuntimeStateLocked()
 		}
 	}
 
 	return nil
 }
 
+func (s *MartingaleStrategy) recordCloseResult(pnl float64) {
+	s.stats.TotalTrades++
+	wins := s.stats.WinRate * float64(s.stats.TotalTrades-1)
+	if pnl > 0 {
+		wins++
+	}
+	s.stats.WinRate = wins / float64(s.stats.TotalTrades)
+}
+
+func (s *MartingaleStrategy) openingFeeTotal() float64 {
+	var total float64
+	for _, entry := range s.entries {
+		if entryHasFill(entry.Status) {
+			total += entry.OpeningFee
+		}
+	}
+	return total
+}
+
+func (s *MartingaleStrategy) requireMartingaleOrderReconciliation(update *position.OrderUpdate, reason string) {
+	if tracker, ok := s.executor.(interface {
+		MarkOrderReconciliationRequired(int64, string, string) error
+	}); ok {
+		if err := tracker.MarkOrderReconciliationRequired(update.OrderID, update.ClientOrderID, reason); err != nil {
+			logger.Error("[%s] 马丁手续费无法估值且持久化对账锁失败: order=%d err=%v", s.name, update.OrderID, err)
+		}
+	} else {
+		logger.Error("[%s] 马丁手续费无法估值且执行器不支持持久化对账锁: order=%d reason=%s", s.name, update.OrderID, reason)
+	}
+}
+
 // handleEntryOrderUpdate 处理开倉/加倉單回報：按實際成交數量/均價計入持倉；未成交即終止则回滚（S3）
 func (s *MartingaleStrategy) handleEntryOrderUpdate(entry *MartingaleEntry, update *position.OrderUpdate) {
-	filled := signalOrderStatusFilled(update.Status)
-	switch {
-	case filled || signalOrderStatusPartiallyFilled(update.Status):
-		qty, price := entryFillFromUpdate(update, entry.Quantity, entry.Price)
-		if qty <= 0 {
+	qty := update.ExecutedQty
+	if qty < entry.FillProgress.Quantity || (signalOrderStatusFilled(update.Status) && qty <= 0) {
+		return
+	}
+	if qty > entry.FillProgress.Quantity {
+		if update.AvgPrice <= 0 {
 			return
 		}
-		entry.Quantity = qty
-		entry.Price = price
-		entry.Cost = qty * price
-		if filled {
+		nextProgress := entry.FillProgress
+		delta, price := nextProgress.Advance(qty, update.AvgPrice, 0)
+		fee, feeKnown := commissionInQuote(s.exchange, update.Commission, update.CommissionAsset, price)
+		if !feeKnown {
+			s.requireMartingaleOrderReconciliation(update, "martingale entry fee cannot be valued in quote asset")
+			return
+		}
+		if delta <= 0 {
+			return
+		}
+		entry.Quantity += delta
+		entry.Cost += delta * price
+		entry.Price = entry.Cost / entry.Quantity
+		entry.OpeningFee += fee
+		entry.FillProgress = nextProgress
+	}
+	if signalOrderStatusFilled(update.Status) || signalOrderStatusTerminal(update.Status) {
+		if entry.FillProgress.Quantity > 0 {
 			entry.Status = entryStatusFilled
 		} else {
-			entry.Status = entryStatusPartiallyFilled
-		}
-		s.updateTotals()
-		logger.Info("📊 [%s] 订單 #%d %s: 层级=%d, 成交數量=%.6f, 均價=%.2f, 平均成本=%.2f",
-			s.name, update.OrderID, update.Status, entry.Level, qty, price, s.avgEntryPrice)
-	case signalOrderStatusTerminal(update.Status):
-		if entry.Status == entryStatusFilled {
-			return
-		}
-		if update.ExecutedQty > 0 || entry.Status == entryStatusPartiallyFilled {
-			if update.ExecutedQty > 0 {
-				_, price := entryFillFromUpdate(update, entry.Quantity, entry.Price)
-				entry.Quantity = update.ExecutedQty
-				entry.Price = price
-				entry.Cost = update.ExecutedQty * price
+			for i, candidate := range s.entries {
+				if candidate == entry {
+					s.entries = append(s.entries[:i], s.entries[i+1:]...)
+					break
+				}
 			}
-			entry.Status = entryStatusFilled
-			s.updateTotals()
-			logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s: 层级=%d 按部分成交 %.6f 保留",
-				s.name, update.OrderID, update.Status, entry.Level, entry.Quantity)
-			return
+			s.currentLevel = len(s.entries)
 		}
-		kept := make([]*MartingaleEntry, 0, len(s.entries))
-		for _, e := range s.entries {
-			if e != entry {
-				kept = append(kept, e)
-			}
-		}
-		s.entries = kept
-		s.currentLevel = len(s.entries)
-		s.updateTotals()
-		logger.Warn("⚠️ [%s] 订單 #%d 狀態 %s 且未成交: 回滚层级=%d", s.name, update.OrderID, update.Status, entry.Level)
+	} else if entry.FillProgress.Quantity > 0 {
+		entry.Status = entryStatusPartiallyFilled
 	}
+	s.updateTotals()
+	logger.Info("📊 [%s] 订單 #%d %s: 层级=%d, 成交數量=%.6f, 均價=%.2f, 平均成本=%.2f, 开倉费=%.6f",
+		s.name, update.OrderID, update.Status, entry.Level, entry.Quantity, entry.Price, s.avgEntryPrice, entry.OpeningFee)
 }
 
 // reduceAllEntries 平倉單部分成交後被撤：按比例缩减已成交入场記錄
@@ -988,6 +1087,7 @@ func (s *MartingaleStrategy) reduceAllEntries(qty float64) {
 		if entryHasFill(entry.Status) {
 			entry.Quantity *= remainRatio
 			entry.Cost *= remainRatio
+			entry.OpeningFee *= remainRatio
 		}
 	}
 	s.updateTotals()
@@ -1004,9 +1104,9 @@ func (s *MartingaleStrategy) GetPositions() []*Position {
 
 	var pnl float64
 	if s.direction == "LONG" {
-		pnl = s.totalQty*s.lastPrice - s.totalCost
+		pnl = s.totalQty*s.lastPrice - s.totalCost - s.openingFeeTotal()
 	} else {
-		pnl = s.totalCost - s.totalQty*s.lastPrice
+		pnl = s.totalCost - s.totalQty*s.lastPrice - s.openingFeeTotal()
 	}
 
 	return []*Position{
@@ -1014,6 +1114,7 @@ func (s *MartingaleStrategy) GetPositions() []*Position {
 			Symbol:       s.strategyCfg.Symbol,
 			Size:         s.totalQty,
 			EntryPrice:   s.avgEntryPrice,
+			OpeningFee:   s.openingFeeTotal(),
 			CurrentPrice: s.lastPrice,
 			PnL:          pnl,
 		},
@@ -1036,7 +1137,7 @@ func (s *MartingaleStrategy) GetOrders() []*Order {
 			Symbol:   s.strategyCfg.Symbol,
 			Side:     side,
 			Price:    entry.Price,
-			Quantity: entry.Quantity,
+			Quantity: max(entry.Quantity, entry.RequestedQuantity),
 			Status:   entry.Status,
 		})
 	}

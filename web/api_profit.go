@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/logger"
+	"quantmesh/profit"
 	"quantmesh/storage"
 	"quantmesh/utils"
 
@@ -26,12 +28,12 @@ type ProfitSummary struct {
 	WeekProfit          float64 `json:"weekProfit"`
 	MonthProfit         float64 `json:"monthProfit"`
 	UnrealizedProfit    float64 `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
-	ExchangeProfit      float64 `json:"exchangeProfit"`    // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
+	ExchangeProfit      float64 `json:"exchangeProfit"`   // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
 	WithdrawnProfit     float64 `json:"withdrawnProfit"`
 	AvailableToWithdraw float64 `json:"availableToWithdraw"`
 	PriceDeviationLoss  float64 `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
-	BuyPriceDeviation    float64 `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
-	SellPriceDeviation   float64 `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
+	BuyPriceDeviation   float64 `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation  float64 `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
 	LastUpdated         string  `json:"lastUpdated"`
 }
 
@@ -41,16 +43,16 @@ type StrategyProfit struct {
 	StrategyID          string  `json:"strategyId"`
 	StrategyName        string  `json:"strategyName"`
 	StrategyType        string  `json:"strategyType"`
-	TotalProfit         float64 `json:"totalProfit"`          // 网格方式盈亏
-	ExchangeTotalProfit float64 `json:"exchangeTotalProfit"`  // 交易所方式盈亏
+	TotalProfit         float64 `json:"totalProfit"`         // 网格方式盈亏
+	ExchangeTotalProfit float64 `json:"exchangeTotalProfit"` // 交易所方式盈亏
 	TodayProfit         float64 `json:"todayProfit"`
 	UnrealizedProfit    float64 `json:"unrealizedProfit"`
 	RealizedProfit      float64 `json:"realizedProfit"`
 	WithdrawnProfit     float64 `json:"withdrawnProfit"`
 	AvailableToWithdraw float64 `json:"availableToWithdraw"`
 	TradeCount          int     `json:"tradeCount"`
-	WinRate             float64 `json:"winRate"`            // 网格方式胜率
-	ExchangeWinRate     float64 `json:"exchangeWinRate"`    // 交易所方式胜率
+	WinRate             float64 `json:"winRate"`         // 网格方式胜率
+	ExchangeWinRate     float64 `json:"exchangeWinRate"` // 交易所方式胜率
 	AvgProfitPerTrade   float64 `json:"avgProfitPerTrade"`
 	LastTradeAt         string  `json:"lastTradeAt,omitempty"`
 }
@@ -99,6 +101,7 @@ type WithdrawRecord struct {
 	CompletedAt   string  `json:"completedAt,omitempty"`
 	FailedReason  string  `json:"failedReason,omitempty"`
 	Note          string  `json:"note,omitempty"`
+	AccountScope  string  `json:"-"`
 }
 
 // ProfitTrendPoint 盈利趋势点
@@ -421,9 +424,9 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			ExchangeID:          p.Exchange,
 			StrategyID:          p.Symbol, // 使用 Symbol 作為唯一標识
 			StrategyName:        p.Symbol + " 策略",
-			StrategyType:        "grid", // 默认為网格，實際应從配置獲取
-			TotalProfit:         math.Round(p.TotalPnL*100) / 100,          // 网格方式盈亏
-			ExchangeTotalProfit: math.Round(p.ExchangePnL*100) / 100,     // 交易所方式盈亏
+			StrategyType:        "grid",                              // 默认為网格，實際应從配置獲取
+			TotalProfit:         math.Round(p.TotalPnL*100) / 100,    // 网格方式盈亏
+			ExchangeTotalProfit: math.Round(p.ExchangePnL*100) / 100, // 交易所方式盈亏
 			TodayProfit:         math.Round(todayPnlMap[key]*100) / 100,
 			UnrealizedProfit:    math.Round(unrealizedPnlMap[key]*100) / 100,
 			RealizedProfit:      math.Round(p.TotalPnL*100) / 100,
@@ -432,7 +435,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			TradeCount:          p.TotalTrades,
 			WinRate:             math.Round(p.WinRate*100) / 100,         // 网格方式胜率
 			ExchangeWinRate:     math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
-			AvgProfitPerTrade:   0,                                          // 可计算
+			AvgProfitPerTrade:   0,                                       // 可计算
 		})
 	}
 
@@ -588,6 +591,7 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 		rule := &storage.ProfitWithdrawRule{
 			ID:                r.ID,
 			AccountID:         accountID,
+			AccountScope:      accountScopeForExchange(r.ExchangeID),
 			ExchangeID:        r.ExchangeID,
 			StrategyID:        r.StrategyID,
 			Enabled:           r.IsEnabled,
@@ -604,6 +608,13 @@ func updateWithdrawRulesHandler(c *gin.Context) {
 		if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
 			rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
 			now = now.Add(time.Nanosecond) // 确保唯一
+		}
+		if rule.Enabled && rule.Destination == "" {
+			rule.Destination = "account"
+		}
+		if err := profit.ValidateWithdrawRule(rule); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "提取规则无效: " + err.Error()})
+			return
 		}
 		newRules = append(newRules, rule)
 	}
@@ -649,6 +660,7 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 	rule := &storage.ProfitWithdrawRule{
 		ID:                req.ID,
 		AccountID:         accountID,
+		AccountScope:      accountScopeForExchange(req.ExchangeID),
 		ExchangeID:        req.ExchangeID,
 		StrategyID:        req.StrategyID,
 		Enabled:           req.IsEnabled,
@@ -665,6 +677,13 @@ func upsertWithdrawRuleHandler(c *gin.Context) {
 	// 如果没有 ID，生成一個新的
 	if rule.ID == "" || strings.HasPrefix(rule.ID, "temp-") {
 		rule.ID = fmt.Sprintf("rule_%s_%d", accountID, now.UnixNano())
+	}
+	if rule.Enabled && rule.Destination == "" {
+		rule.Destination = "account"
+	}
+	if err := profit.ValidateWithdrawRule(rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "提取规则无效: " + err.Error()})
+		return
 	}
 
 	if err := st.UpsertProfitWithdrawRule(accountID, rule); err != nil {
@@ -764,24 +783,33 @@ func withdrawProfitHandler(c *gin.Context) {
 	// 內部轉帳通常無手续费
 	fee := 0.0
 	netAmount := req.Amount
-	recordID := "wd_" + time.Now().Format("20060102150405")
+	recordID := "wd_" + utils.NewCompactOrderID()
 	accountID := GetCurrentAccountID()
+	if accountID == "" {
+		accountID = "default"
+	}
+	accountScope := accountScopeForExchange(req.ExchangeID)
+	if accountScope == "" {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "无法确认当前交易所账户作用域，拒绝发起资金划转"})
+		return
+	}
 
 	record := &storage.ProfitWithdrawRecord{
-		ID:          recordID,
-		RuleID:      "",
-		AccountID:   accountID,
-		ExchangeID:  req.ExchangeID,
-		StrategyID:  req.StrategyID,
-		Amount:      req.Amount,
-		Fee:         fee,
-		NetAmount:   netAmount,
-		Currency:    currency,
-		Type:        "manual",
-		Status:      "pending",
-		Destination: "account",
-		CreatedAt:   time.Now(),
-		Note:        req.Note,
+		ID:           recordID,
+		RuleID:       "",
+		AccountID:    accountID,
+		AccountScope: accountScope,
+		ExchangeID:   req.ExchangeID,
+		StrategyID:   req.StrategyID,
+		Amount:       req.Amount,
+		Fee:          fee,
+		NetAmount:    netAmount,
+		Currency:     currency,
+		Type:         "manual",
+		Status:       "processing",
+		Destination:  "account",
+		CreatedAt:    time.Now(),
+		Note:         req.Note,
 	}
 	if err := st.SaveWithdrawRecord(record); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "保存提取記錄失败: " + err.Error()})
@@ -794,12 +822,30 @@ func withdrawProfitHandler(c *gin.Context) {
 	}
 	transferID, err := ex.InternalTransfer(ctx, "UMFUTURE", "SPOT", currency, req.Amount)
 	if err != nil {
-		_ = st.UpdateWithdrawRecordStatus(recordID, "failed", "", err.Error())
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "內部轉帳失败: " + err.Error()})
+		const pendingReason = "转账结果未核实；请先核对交易所资金流水，禁止重复提交"
+		if updateErr := st.UpdateWithdrawRecordStatus(recordID, "pending", "", pendingReason+": "+err.Error()); updateErr != nil {
+			logger.Error("手动利润提取结果未知且记录更新失败 record=%s: %v", recordID, updateErr)
+		}
+		c.JSON(http.StatusAccepted, gin.H{
+			"success": true,
+			"message": pendingReason,
+			"record": WithdrawRecord{
+				ID: recordID, ExchangeID: req.ExchangeID, StrategyID: req.StrategyID,
+				Amount: req.Amount, Fee: fee, NetAmount: netAmount, Currency: currency,
+				Type: "manual", Status: "pending", Destination: "account",
+				CreatedAt: record.CreatedAt.Format(time.RFC3339), FailedReason: pendingReason, Note: req.Note,
+			},
+		})
 		return
 	}
 
-	_ = st.UpdateWithdrawRecordStatus(recordID, "completed", transferID, "")
+	status := "completed"
+	message := "提取已完成"
+	if updateErr := st.UpdateWithdrawRecordStatus(recordID, "completed", transferID, ""); updateErr != nil {
+		logger.Error("手动利润提取已转账但完成状态持久化失败 record=%s: %v", recordID, updateErr)
+		status = "pending"
+		message = "转账可能已完成，但记录尚未核实；请核对交易所资金流水，勿重复提交"
+	}
 	completedAt := time.Now()
 
 	respRecord := WithdrawRecord{
@@ -812,16 +858,20 @@ func withdrawProfitHandler(c *gin.Context) {
 		NetAmount:     netAmount,
 		Currency:      currency,
 		Type:          "manual",
-		Status:        "completed",
+		Status:        status,
 		Destination:   "account",
 		TargetAddress: req.TargetAddress,
 		CreatedAt:     record.CreatedAt.Format(time.RFC3339),
 		CompletedAt:   completedAt.Format(time.RFC3339),
 		Note:          req.Note,
 	}
-	c.JSON(http.StatusOK, gin.H{
+	responseCode := http.StatusOK
+	if status == "pending" {
+		responseCode = http.StatusAccepted
+	}
+	c.JSON(responseCode, gin.H{
 		"success": true,
-		"message": "提取已完成",
+		"message": message,
 		"record":  respRecord,
 	})
 }
@@ -884,6 +934,55 @@ func getWithdrawHistoryHandler(c *gin.Context) {
 		"records": records,
 		"total":   len(records),
 	})
+}
+
+func reconcileWithdrawRecordHandler(c *gin.Context) {
+	var req struct {
+		Outcome   string `json:"outcome"`
+		Reference string `json:"reference"`
+		Evidence  string `json:"evidence"`
+		Confirmed bool   `json:"confirmed"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || !req.Confirmed {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "必须确认已逐项核对交易所资金流水"})
+		return
+	}
+	if (req.Outcome != "completed" && req.Outcome != "failed") || strings.TrimSpace(req.Reference) == "" || len(strings.TrimSpace(req.Evidence)) < 24 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "核账结果无效；必须提供流水参考和至少 24 字的核账依据"})
+		return
+	}
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil || storageProv.GetStorage() == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "提取记录存储不可用，无法核账"})
+		return
+	}
+	st := storageProv.GetStorage()
+	reader, ok := st.(interface {
+		GetWithdrawRecord(accountID, recordID string) (*storage.ProfitWithdrawRecord, error)
+		ResolvePendingWithdrawRecord(accountID, recordID, outcome, reference, evidence string) error
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储后端不支持安全核账，自动划转保持锁定"})
+		return
+	}
+	accountID := GetCurrentAccountID()
+	if accountID == "" {
+		accountID = "default"
+	}
+	record, err := reader.GetWithdrawRecord(accountID, c.Param("id"))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "提取记录不存在或不属于当前账户"})
+		return
+	}
+	if record.AccountScope == "" || record.AccountScope != accountScopeForExchange(record.ExchangeID) {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "提取记录缺少或不匹配当前账户作用域；拒绝自动释放，需人工按原始账户流水处理"})
+		return
+	}
+	if err := reader.ResolvePendingWithdrawRecord(accountID, record.ID, req.Outcome, req.Reference, req.Evidence); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "核账未完成：" + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "message": "核账决定已留痕；对应自动规则 claim 已在同一事务中处理", "status": req.Outcome})
 }
 
 // 獲取盈利趋势

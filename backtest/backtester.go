@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -120,13 +121,13 @@ func NewBacktester(
 	initialCapital float64,
 ) *Backtester {
 	return &Backtester{
-		symbol:         symbol,
-		candles:        candles,
-		strategy:       strategy,
-		initialCapital: initialCapital,
-		takerFee:       0.0004, // Binance 合約 Taker 費率
-		makerFee:       0.0002, // Binance 合約 Maker 費率
-		slippage:       0.0003, // 0.03% 滑点
+		symbol:            symbol,
+		candles:           candles,
+		strategy:          strategy,
+		initialCapital:    initialCapital,
+		takerFee:          0.0004, // Binance 合約 Taker 費率
+		makerFee:          0.0002, // Binance 合約 Maker 費率
+		slippage:          0.0003, // 0.03% 滑点
 		equity:            make([]EquityPoint, 0),
 		trades:            make([]Trade, 0),
 		totalSlippageLoss: 0,
@@ -142,6 +143,18 @@ func (bt *Backtester) SetFees(takerFee, makerFee, slippage float64) {
 
 // Run 運行回测
 func (bt *Backtester) Run() (*BacktestResult, error) {
+	return bt.RunContext(context.Background())
+}
+
+func (bt *Backtester) RunContext(ctx context.Context) (result *BacktestResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// Bug Fix 1: 檢查 candles 是否為空
 	if len(bt.candles) == 0 {
 		logger.Error("❌ 回测失敗: K線數據為空")
@@ -154,6 +167,9 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 	logger.Info("🚀 开始回测: %s 策略, %d 根K線", bt.strategy.GetName(), len(bt.candles))
 
 	for i, candle := range bt.candles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		// 1. 更新權益
 		currentEquity := bt.cash + bt.position*candle.Close
 		bt.equity = append(bt.equity, EquityPoint{
@@ -163,6 +179,9 @@ func (bt *Backtester) Run() (*BacktestResult, error) {
 
 		// 2. 調用策略
 		signal := bt.strategy.OnCandle(candle)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 
 		// 3. 執行交易
 		if signal.Action == "buy" && bt.position == 0 {

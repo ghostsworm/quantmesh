@@ -39,13 +39,13 @@ import {
   getOptimizerResult,
   postOptimizerStop,
   getOptimizerPrice,
-  type OptimSearchSpace,
   type OptimConfig,
   type OptimResult,
   type OptimizerTaskStatus,
 } from '../services/optimizer'
 import { getBacktestExchanges, getBacktestSymbols, type BacktestExchangeInfo, type BacktestSymbolInfo } from '../services/backtest'
-import DecimalNumberInput from './DecimalNumberInput'
+import DecimalNumberInput, { type DecimalNumberInputValue } from './DecimalNumberInput'
+import { optimizerNumber, optimizerSearchSpace } from '../utils/optimizerInput'
 
 const KLINE_INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
 const MARKET_TYPE = 'futures' // 网格优化默认合约
@@ -58,29 +58,29 @@ export default function OptimizerPage() {
   const [symbolList, setSymbolList] = useState<BacktestSymbolInfo[]>([])
   const [symbol, setSymbol] = useState('BTCUSDT')
   const [interval, setInterval] = useState('1h')
-  const [days, setDays] = useState(90)
+  const [days, setDays] = useState<DecimalNumberInputValue>(90)
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [initialCapital, setInitialCapital] = useState(10000)
+  const [initialCapital, setInitialCapital] = useState<DecimalNumberInputValue>(10000)
 
   // 搜索空间
-  const [priceLowMin, setPriceLowMin] = useState(2200)
-  const [priceLowMax, setPriceLowMax] = useState(2400)
-  const [priceLowStep, setPriceLowStep] = useState(50)
-  const [priceHighMin, setPriceHighMin] = useState(2400)
-  const [priceHighMax, setPriceHighMax] = useState(2800)
-  const [priceHighStep, setPriceHighStep] = useState(50)
-  const [gridCountMin, setGridCountMin] = useState(10)
-  const [gridCountMax, setGridCountMax] = useState(30)
-  const [gridCountStep, setGridCountStep] = useState(5)
-  const [orderQtyMin, setOrderQtyMin] = useState(50)
-  const [orderQtyMax, setOrderQtyMax] = useState(200)
-  const [orderQtyStep, setOrderQtyStep] = useState(50)
+  const [priceLowMin, setPriceLowMin] = useState<DecimalNumberInputValue>(2200)
+  const [priceLowMax, setPriceLowMax] = useState<DecimalNumberInputValue>(2400)
+  const [priceLowStep, setPriceLowStep] = useState<DecimalNumberInputValue>(50)
+  const [priceHighMin, setPriceHighMin] = useState<DecimalNumberInputValue>(2400)
+  const [priceHighMax, setPriceHighMax] = useState<DecimalNumberInputValue>(2800)
+  const [priceHighStep, setPriceHighStep] = useState<DecimalNumberInputValue>(50)
+  const [gridCountMin, setGridCountMin] = useState<DecimalNumberInputValue>(10)
+  const [gridCountMax, setGridCountMax] = useState<DecimalNumberInputValue>(30)
+  const [gridCountStep, setGridCountStep] = useState<DecimalNumberInputValue>(5)
+  const [orderQtyMin, setOrderQtyMin] = useState<DecimalNumberInputValue>(50)
+  const [orderQtyMax, setOrderQtyMax] = useState<DecimalNumberInputValue>(200)
+  const [orderQtyStep, setOrderQtyStep] = useState<DecimalNumberInputValue>(50)
 
   // 优化配置
   const [method, setMethod] = useState<'grid' | 'bayesian' | 'genetic'>('grid')
-  const [lambda, setLambda] = useState(0.5)
-  const [maxIterations, setMaxIterations] = useState(50)
+  const [lambda, setLambda] = useState<DecimalNumberInputValue>(0.5)
+  const [maxIterations, setMaxIterations] = useState<DecimalNumberInputValue>(50)
 
   // 任務状態
   const [taskId, setTaskId] = useState<string | null>(null)
@@ -154,16 +154,12 @@ export default function OptimizerPage() {
       .catch(() => {})
   }, [exchange, symbol])
 
-  const toNum = (v: number | string | undefined, fallback: number) => {
-    if (typeof v === 'number' && !Number.isNaN(v)) return v
-    const n = parseFloat(String(v))
-    return !Number.isNaN(n) ? n : fallback
-  }
-
   useEffect(() => {
     const end = new Date()
     const start = new Date()
-    start.setDate(start.getDate() - toNum(days, 90))
+    const count = optimizerNumber(days)
+    if (count === undefined || !Number.isSafeInteger(count) || count < 7 || count > 365) return
+    start.setDate(start.getDate() - count)
     setStartDate(start.toISOString().slice(0, 10))
     setEndDate(end.toISOString().slice(0, 10))
   }, [days])
@@ -250,16 +246,26 @@ export default function OptimizerPage() {
       toast({ title: t('optimizer.fillAllParams'), status: 'warning' })
       return
     }
-    const searchSpace: OptimSearchSpace = {
-      price_low_range: { min: toNum(priceLowMin, 2200), max: toNum(priceLowMax, 2400), step: toNum(priceLowStep, 50) },
-      price_high_range: { min: toNum(priceHighMin, 2400), max: toNum(priceHighMax, 2800), step: toNum(priceHighStep, 50) },
-      grid_count_range: { min: Math.round(toNum(gridCountMin, 10)), max: Math.round(toNum(gridCountMax, 30)), step: Math.round(toNum(gridCountStep, 5)) },
-      order_qty_range: { min: toNum(orderQtyMin, 50), max: toNum(orderQtyMax, 200), step: toNum(orderQtyStep, 50) },
+    const searchSpace = optimizerSearchSpace(
+      [priceLowMin, priceLowMax, priceLowStep],
+      [priceHighMin, priceHighMax, priceHighStep],
+      [gridCountMin, gridCountMax, gridCountStep],
+      [orderQtyMin, orderQtyMax, orderQtyStep],
+    )
+    const capital = optimizerNumber(initialCapital)
+    const weight = optimizerNumber(lambda)
+    const iterations = optimizerNumber(maxIterations)
+    if (!searchSpace || capital === undefined || capital < 100 ||
+        weight === undefined || weight < 0 || weight > 1 ||
+        iterations === undefined || !Number.isSafeInteger(iterations) || iterations < 10 || iterations > 500 ||
+        !Number.isFinite(Date.parse(startDate)) || !Number.isFinite(Date.parse(endDate)) || startDate > endDate) {
+      toast({ title: t('optimizer.fillAllParams'), status: 'warning' })
+      return
     }
     const config: OptimConfig = {
       method,
-      lambda: toNum(lambda, 0.5),
-      max_iterations: Math.round(toNum(maxIterations, 50)),
+      lambda: weight,
+      max_iterations: iterations,
       tolerance: 1e-4,
       parallelism: 0,
     }
@@ -276,7 +282,7 @@ export default function OptimizerPage() {
         interval,
         start_time: start.toISOString(),
         end_time: end.toISOString(),
-        initial_capital: toNum(initialCapital, 10000),
+        initial_capital: capital,
         search_space: searchSpace,
         config,
       })
@@ -343,11 +349,11 @@ export default function OptimizerPage() {
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.backtestDays')}</FormLabel>
-                  <DecimalNumberInput size="sm" value={days} min={7} max={365} step={1} onChange={(v) => setDays(v ?? 7)} />
+                  <DecimalNumberInput size="sm" value={days} min={7} max={365} step={1} onChange={setDays} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.initialCapital')}</FormLabel>
-                  <DecimalNumberInput size="sm" value={initialCapital} min={100} step={0.01} onChange={(v) => setInitialCapital(v ?? 100)} />
+                  <DecimalNumberInput size="sm" value={initialCapital} min={100} step={0.01} onChange={setInitialCapital} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.startDate')}</FormLabel>
@@ -366,27 +372,27 @@ export default function OptimizerPage() {
             <CardBody>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceLowRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceLowMin} step={0.01} onChange={(v) => setPriceLowMin(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceLowMax} step={0.01} onChange={(v) => setPriceLowMax(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceLowStep} step={0.01} onChange={(v) => setPriceLowStep(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceLowMin} step={0.01} onChange={setPriceLowMin} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceLowMax} step={0.01} onChange={setPriceLowMax} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceLowStep} step={0.01} onChange={setPriceLowStep} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.priceHighRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceHighMin} step={0.01} onChange={(v) => setPriceHighMin(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceHighMax} step={0.01} onChange={(v) => setPriceHighMax(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceHighStep} step={0.01} onChange={(v) => setPriceHighStep(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={priceHighMin} step={0.01} onChange={setPriceHighMin} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={priceHighMax} step={0.01} onChange={setPriceHighMax} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={priceHighStep} step={0.01} onChange={setPriceHighStep} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.gridCountRange')}</Text>
               <HStack mb={3}>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={gridCountMin} step={1} onChange={(v) => setGridCountMin(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={gridCountMax} step={1} onChange={(v) => setGridCountMax(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={gridCountStep} step={1} onChange={(v) => setGridCountStep(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={gridCountMin} step={1} onChange={setGridCountMin} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={gridCountMax} step={1} onChange={setGridCountMax} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={gridCountStep} step={1} onChange={setGridCountStep} /></FormControl>
               </HStack>
               <Text fontSize="xs" color="gray.500" mb={2}>{t('optimizer.orderQtyRange')}</Text>
               <HStack>
-                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={orderQtyMin} step={0.01} onChange={(v) => setOrderQtyMin(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={orderQtyMax} step={0.01} onChange={(v) => setOrderQtyMax(v ?? 0)} /></FormControl>
-                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={orderQtyStep} step={0.01} onChange={(v) => setOrderQtyStep(v ?? 0)} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Min</FormLabel><DecimalNumberInput size="sm" value={orderQtyMin} step={0.01} onChange={setOrderQtyMin} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Max</FormLabel><DecimalNumberInput size="sm" value={orderQtyMax} step={0.01} onChange={setOrderQtyMax} /></FormControl>
+                <FormControl><FormLabel fontSize="xs">Step</FormLabel><DecimalNumberInput size="sm" value={orderQtyStep} step={0.01} onChange={setOrderQtyStep} /></FormControl>
               </HStack>
             </CardBody>
           </Card>
@@ -405,11 +411,11 @@ export default function OptimizerPage() {
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.riskWeight')}</FormLabel>
-                  <DecimalNumberInput size="sm" value={lambda} min={0} max={1} step={0.01} onChange={(v) => setLambda(v ?? 0)} />
+                  <DecimalNumberInput size="sm" value={lambda} min={0} max={1} step={0.01} onChange={setLambda} />
                 </FormControl>
                 <FormControl>
                   <FormLabel fontSize="sm">{t('optimizer.maxIterations')}</FormLabel>
-                  <DecimalNumberInput size="sm" value={maxIterations} min={10} max={500} step={1} onChange={(v) => setMaxIterations(v ?? 10)} />
+                  <DecimalNumberInput size="sm" value={maxIterations} min={10} max={500} step={1} onChange={setMaxIterations} />
                 </FormControl>
               </SimpleGrid>
               <HStack mt={4}>
@@ -441,6 +447,7 @@ export default function OptimizerPage() {
                      taskStatus.status === 'failed' ? t('optimizer.statusFailed') :
                      taskStatus.status === 'pending' ? t('optimizer.statusPending') :
                      taskStatus.status === 'stopped' ? t('optimizer.statusStopped') :
+                     taskStatus.status === 'stopping' ? t('optimizer.stopRequested') :
                      taskStatus.status}
                   </Badge>
                   <Text fontSize="sm" color="gray.500">ID: {taskStatus.task_id}</Text>

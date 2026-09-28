@@ -58,8 +58,59 @@ func TestBuildWalkForwardWindows_DefaultsAndNoOverlap(t *testing.T) {
 			t.Fatalf("test windows overlap: fold %d starts %d before previous end %d", i, w.TestStart, windows[i-1].TestEnd)
 		}
 	}
-	if _, err := BuildWalkForwardWindows(hourlyCandles(wfTestDays), WalkForwardConfig{Enabled: true, TestDays: 15, StepDays: 5}); !errors.Is(err, errWalkForwardInvalidWindow) {
-		t.Fatalf("step < test must be rejected, got %v", err)
+	for _, stepDays := range []float64{5, 20} {
+		if _, err := BuildWalkForwardWindows(hourlyCandles(wfTestDays), WalkForwardConfig{Enabled: true, TestDays: 15, StepDays: stepDays}); !errors.Is(err, errWalkForwardInvalidWindow) {
+			t.Fatalf("step_days=%v must be rejected when it differs from test_days, got %v", stepDays, err)
+		}
+	}
+}
+
+func TestValidateOptimConfigRejectsNonFiniteNumbers(t *testing.T) {
+	for name, cfg := range map[string]OptimConfig{
+		"lambda":           {Lambda: math.NaN()},
+		"fee rate":         {FeeRate: math.Inf(1)},
+		"slippage":         {SlippageRatio: math.Inf(-1)},
+		"validation ratio": {ValidationRatio: math.NaN()},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateOptimConfig(cfg); !errors.Is(err, errInvalidOptimizerConfig) {
+				t.Fatalf("expected non-finite config rejection, got %v", err)
+			}
+		})
+	}
+	for _, cfg := range []WalkForwardConfig{
+		{Enabled: true, TrainDays: math.NaN()},
+		{Enabled: true, TestDays: math.Inf(1)},
+		{Enabled: true, StepDays: math.Inf(-1)},
+		{Enabled: true, TrainDays: 1e-20, TestDays: 1e-20, StepDays: 1e-20},
+	} {
+		if _, err := BuildWalkForwardWindows(hourlyCandles(wfTestDays), cfg); !errors.Is(err, errInvalidOptimizerConfig) {
+			t.Fatalf("expected non-finite walk-forward window rejection, got %v", err)
+		}
+	}
+	if _, err := runWalkForward(context.Background(), nil, "BTCUSDT", nil, []backtest.GridBacktestParams{{}}, WalkForwardConfig{}, math.NaN(), wfTestCapital); !errors.Is(err, errInvalidOptimizerConfig) {
+		t.Fatalf("expected direct walk-forward to reject non-finite lambda, got %v", err)
+	}
+}
+
+func TestRunWalkForwardSkipsNonFiniteTrainingScores(t *testing.T) {
+	candles := hourlyCandles(wfTestDays)
+	fake := func(_ string, cs []*exchange.Candle, p backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {
+		if len(cs) > 0 && cs[len(cs)-1].Timestamp < 60*24*wfTestHourMs {
+			if p.GridCount == 1 {
+				return &backtest.BacktestResult{Metrics: backtest.Metrics{AnnualizedReturn: math.Inf(1)}}, nil
+			}
+			return &backtest.BacktestResult{Metrics: backtest.Metrics{AnnualizedReturn: 1}}, nil
+		}
+		return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital), Metrics: backtest.Metrics{}}, nil
+	}
+	result, err := runWalkForward(context.Background(), fake, "BTCUSDT", candles,
+		[]backtest.GridBacktestParams{{GridCount: 1}, {GridCount: 2}}, WalkForwardConfig{Enabled: true}, 0.5, wfTestCapital)
+	if err != nil {
+		t.Fatalf("walk-forward: %v", err)
+	}
+	if result.Folds[0].BestParams.GridCount != 2 {
+		t.Fatalf("non-finite training score selected params: %+v", result.Folds[0].BestParams)
 	}
 }
 

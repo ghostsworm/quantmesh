@@ -1487,6 +1487,7 @@ Group=quantmesh
 WorkingDirectory=/opt/quantmesh
 ExecStart=/opt/quantmesh/quantmesh
 ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=6min
 
 # Restart policy
 Restart=on-failure

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -17,11 +18,13 @@ import (
 type fakeCapitalExchange struct {
 	exchange.IExchange
 	name    string
+	quote   string
 	account *exchange.Account
 	err     error
 }
 
-func (f fakeCapitalExchange) GetName() string { return f.name }
+func (f fakeCapitalExchange) GetName() string       { return f.name }
+func (f fakeCapitalExchange) GetQuoteAsset() string { return f.quote }
 func (f fakeCapitalExchange) GetAccount(ctx context.Context) (*exchange.Account, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -134,10 +137,10 @@ func TestCapitalOverviewAggregatesExchangeBalancesAndCache(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &first); err != nil {
 		t.Fatalf("decode first overview: %v", err)
 	}
-	if !first.Success || first.Overview.TotalBalance != 1000 || first.Overview.AvailableCapital != 700 {
+	if !first.Success || first.Overview.TotalBalance != 0 || first.Overview.AvailableCapital != 0 || first.Overview.ValuationComplete || first.Overview.ValuationError == "" {
 		t.Fatalf("unexpected overview: %#v", first)
 	}
-	if first.Overview.AllocatedCapital != 250 || first.Overview.UnrealizedPnL != 100 {
+	if first.Overview.AllocatedCapital != 0 || first.Overview.UnrealizedPnL != 0 {
 		t.Fatalf("unexpected allocation/pnl: %#v", first.Overview)
 	}
 	if len(first.Overview.Exchanges) != 2 || first.Overview.Exchanges[1].Status != "error" {
@@ -155,8 +158,55 @@ func TestCapitalOverviewAggregatesExchangeBalancesAndCache(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &second); err != nil {
 		t.Fatalf("decode second overview: %v", err)
 	}
-	if !second.Success || second.Overview.TotalBalance != first.Overview.TotalBalance {
+	if !second.Success || second.Overview.TotalBalance != first.Overview.TotalBalance || second.Overview.ValuationComplete {
 		t.Fatalf("cached overview mismatch: %#v", second)
+	}
+}
+
+func TestGetCompleteExchangeBalanceRejectsIncompleteAndInvalidSnapshots(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name      string
+		exchanges []exchange.IExchange
+		wantErr   bool
+	}{
+		{name: "complete and deduplicated", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 12, BalanceAsset: "USDT"}},
+			fakeCapitalExchange{name: "BINANCE", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 900, BalanceAsset: "USDT"}},
+			fakeCapitalExchange{name: "okx", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 8, BalanceAsset: "USDT"}},
+		}},
+		{name: "partial account failure", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 12, BalanceAsset: "USDT"}},
+			fakeCapitalExchange{name: "okx", quote: "USDT", err: errors.New("unavailable")},
+		}, wantErr: true},
+		{name: "nil snapshot", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT"},
+		}, wantErr: true},
+		{name: "non finite balance", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: math.NaN(), BalanceAsset: "USDT"}},
+		}, wantErr: true},
+		{name: "different valuation assets", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 12, BalanceAsset: "USDT"}},
+			fakeCapitalExchange{name: "okx", quote: "USD", account: &exchange.Account{TotalMarginBalance: 8, BalanceAsset: "USD"}},
+		}, wantErr: true},
+		{name: "missing valuation asset", exchanges: []exchange.IExchange{
+			fakeCapitalExchange{name: "binance", quote: "USDT", account: &exchange.Account{TotalMarginBalance: 12}},
+		}, wantErr: true},
+		{name: "no exchanges", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := getCompleteExchangeBalance(ctx, tt.exchanges)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != 20 {
+				t.Fatalf("balance = %v, want deduplicated total 20", got)
+			}
+			if tt.wantErr && got != 0 {
+				t.Fatalf("failed snapshot exposed partial balance %v", got)
+			}
+		})
 	}
 }
 

@@ -2,412 +2,269 @@ package position
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"math"
+	"quantmesh/config"
+	"quantmesh/execution"
+	"quantmesh/utils"
 	"sync"
 	"time"
-
-	"quantmesh/config"
-	"quantmesh/logger"
-	"quantmesh/utils"
 )
 
-// CloseMethod 平仓方式
 type CloseMethod string
 
 const (
-	CloseMethodMarket CloseMethod = "market" // 市价平仓
-	CloseMethodLimit  CloseMethod = "limit"  // 限价平仓
+	CloseMethodMarket   CloseMethod = "market"
+	CloseMethodLimit    CloseMethod = "limit"
+	CloseStatusPending              = "PENDING"
+	CloseStatusFilled               = "FILLED"
+	CloseStatusTimeout              = "TIMEOUT"
+	CloseStatusFailed               = "FAILED"
+	CloseStatusCanceled             = "CANCELED"
+	CloseStatusUnknown              = "UNKNOWN"
+	closePollInterval               = 250 * time.Millisecond
+	closeRequestTimeout             = 10 * time.Second
 )
 
-// ClosePositionStatus 平仓状态常量
-const (
-	CloseStatusPending  = "PENDING"   // 等待成交
-	CloseStatusFilled   = "FILLED"    // 已成交
-	CloseStatusTimeout  = "TIMEOUT"   // 已超时
-	CloseStatusFailed   = "FAILED"    // 失败
-	CloseStatusCanceled = "CANCELED"  // 已取消
-)
-
-// ClosePositionRecord 平仓记录（用于状态追踪）
+// Exported records are immutable snapshots, never shared with polling workers.
 type ClosePositionRecord struct {
-	RecordID     string       `json:"record_id"`      // 记录唯一ID
-	BotID        string       `json:"bot_id"`         // 所属Bot
-	Symbol       string       `json:"symbol"`         // 交易对
-	Side         string       `json:"side"`           // 方向：BUY/SELL
-	TargetQty    float64      `json:"target_qty"`     // 目标平仓数量
-	FilledQty    float64      `json:"filled_qty"`     // 已平仓数量
-	Method       CloseMethod  `json:"method"`         // 平仓方式
-	Price        float64      `json:"price"`          // 限价（仅限价单）
-	OrderID      int64        `json:"order_id"`       // 订单ID
-	Status       string       `json:"status"`         // 状态：PENDING/FILLED/TIMEOUT/FAILED
-	CreatedAt    time.Time    `json:"created_at"`     // 创建时间
-	UpdatedAt    time.Time    `json:"updated_at"`     // 更新时间
-	TimeoutAt    time.Time    `json:"timeout_at"`     // 超时时间
-	RetryCount   int          `json:"retry_count"`    // 重试次数
-	ErrorMessage string       `json:"error_message"`  // 错误信息
-	mu           sync.RWMutex `json:"-"`              // 内部锁
+	RecordID      string      `json:"record_id"`
+	BotID         string      `json:"bot_id"`
+	Symbol        string      `json:"symbol"`
+	Side          string      `json:"side"`
+	TargetQty     float64     `json:"target_qty"`
+	FilledQty     float64     `json:"filled_qty"`
+	Method        CloseMethod `json:"method"`
+	Price         float64     `json:"price"`
+	OrderID       int64       `json:"order_id"`
+	ClientOrderID string      `json:"client_order_id"`
+	Status        string      `json:"status"`
+	CreatedAt     time.Time   `json:"created_at"`
+	UpdatedAt     time.Time   `json:"updated_at"`
+	TimeoutAt     time.Time   `json:"timeout_at"`
+	RetryCount    int         `json:"retry_count"`
+	ErrorMessage  string      `json:"error_message"`
 }
-
-// ClosePositionManager 平仓管理器
+type closeOperation struct {
+	mu                   sync.Mutex
+	record               ClosePositionRecord
+	request              ExchangeOrderRequest
+	baseFilled, progress float64
+	terminal             bool
+	done                 chan struct{}
+}
 type ClosePositionManager struct {
-	exchange ExchangeWrapper
-	botID    string
-	symbol   string
-	// priceDecimals 价格精度（限价单使用），未知时为 -1
+	exchange      ExchangeWrapper
+	botID, symbol string
 	priceDecimals int
-
-	// 平仓记录存储
-	records map[string]*ClosePositionRecord
-	recordsMu sync.RWMutex
-
-	// 超时检查
-	ctx    context.Context
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu            sync.Mutex
+	records       map[string]*closeOperation
+	stopped       bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	stopOnce      sync.Once
+	done          chan struct{}
+	pollInterval  time.Duration
 }
-
-// ExchangeWrapper 交易所包装接口（简化版，避免循环依赖）
 type ExchangeWrapper interface {
 	GetName() string
-	PlaceOrder(ctx context.Context, req *ExchangeOrderRequest) (*ExchangeOrder, error)
-	GetOrder(ctx context.Context, symbol string, orderID int64) (*ExchangeOrder, error)
-	CancelOrder(ctx context.Context, symbol string, orderID int64) error
-	GetLatestPrice(ctx context.Context, symbol string) (float64, error)
+	PlaceOrder(context.Context, *ExchangeOrderRequest) (*ExchangeOrder, error)
+	GetOrder(context.Context, string, int64) (*ExchangeOrder, error)
+	CancelOrder(context.Context, string, int64) error
+	GetLatestPrice(context.Context, string) (float64, error)
 }
-
-// ExchangeOrderRequest 交易所订单请求
 type ExchangeOrderRequest struct {
-	Symbol        string
-	Side          string
-	Type          string
-	Quantity      float64
-	Price         float64
-	ReduceOnly    bool
-	PostOnly      bool   // 限价单时使用，获取 Maker 手续费
-	TimeInForce   string
-	PriceDecimals int
+	Symbol, Side, Type, ClientOrderID string
+	Quantity, Price                   float64
+	ReduceOnly, PostOnly              bool
+	TimeInForce                       string
+	PriceDecimals                     int
 }
-
-// ExchangeOrder 交易所订单响应
 type ExchangeOrder struct {
-	OrderID     int64
-	Status      string
-	ExecutedQty float64
+	OrderID                             int64
+	ClientOrderID, Symbol, Side, Status string
+	Quantity, ExecutedQty, AvgPrice     float64
 }
+type priceDecimalsProvider interface{ GetPriceDecimals() int }
 
-// NewClosePositionManager 创建平仓管理器
-func NewClosePositionManager(exchange ExchangeWrapper, botID, symbol string) *ClosePositionManager {
+func NewClosePositionManager(ex ExchangeWrapper, botID, symbol string) *ClosePositionManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	priceDecimals := -1
-	if p, ok := exchange.(priceDecimalsProvider); ok {
-		priceDecimals = p.GetPriceDecimals()
+	decimals := -1
+	if p, ok := ex.(priceDecimalsProvider); ok {
+		decimals = p.GetPriceDecimals()
 	}
-	return &ClosePositionManager{
-		exchange:      exchange,
-		botID:         botID,
-		symbol:        symbol,
-		priceDecimals: priceDecimals,
-		records:       make(map[string]*ClosePositionRecord),
-		ctx:           ctx,
-		cancel:        cancel,
+	return &ClosePositionManager{exchange: ex, botID: botID, symbol: symbol, priceDecimals: decimals,
+		records: make(map[string]*closeOperation), ctx: ctx, cancel: cancel, done: make(chan struct{}), pollInterval: closePollInterval}
+}
+func (cpm *ClosePositionManager) SetPriceDecimals(n int) {
+	cpm.mu.Lock()
+	defer cpm.mu.Unlock()
+	cpm.priceDecimals = n
+}
+func (op *closeOperation) snapshot() *ClosePositionRecord {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	copy := op.record
+	return &copy
+}
+func (op *closeOperation) fail(status string, err error) {
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	op.record.Status, op.record.ErrorMessage, op.record.UpdatedAt = status, err.Error(), time.Now()
+}
+func (cpm *ClosePositionManager) ClosePositions(ctx context.Context, side string, qty float64, cfg config.ClosePositionConfig) (*ClosePositionRecord, error) {
+	if err := validateCloseRequest(side, qty, cfg); err != nil {
+		return nil, err
 	}
-}
-
-// priceDecimalsProvider 可选接口：交易所包装器能提供价格精度时使用
-type priceDecimalsProvider interface {
-	GetPriceDecimals() int
-}
-
-// SetPriceDecimals 设置价格精度（覆盖交易所包装器提供的值）
-func (cpm *ClosePositionManager) SetPriceDecimals(decimals int) {
-	cpm.priceDecimals = decimals
-}
-
-// ClosePositions 平仓（支持市价/限价）
-func (cpm *ClosePositionManager) ClosePositions(
-	ctx context.Context,
-	side string,
-	quantity float64,
-	cfg config.ClosePositionConfig,
-) (*ClosePositionRecord, error) {
-	record := &ClosePositionRecord{
-		RecordID:  generateRecordID(),
-		BotID:     cpm.botID,
-		Symbol:    cpm.symbol,
-		Side:      side,
-		TargetQty: quantity,
-		Method:    CloseMethod(cfg.Method),
-		Status:    CloseStatusPending,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
+	cpm.mu.Lock()
+	if cpm.stopped {
+		cpm.mu.Unlock()
+		return nil, fmt.Errorf("close manager stopped")
+	}
+	for _, prior := range cpm.records {
+		s := prior.snapshot().Status
+		if s == CloseStatusPending || s == CloseStatusUnknown {
+			cpm.mu.Unlock()
+			return nil, execution.ErrIntentPending
+		}
+	}
+	decimals := cpm.priceDecimals
+	if decimals < 0 {
+		decimals = fallbackClosePriceDecimals
+	}
+	now := time.Now()
+	op := &closeOperation{record: ClosePositionRecord{RecordID: "close_" + utils.NewCompactOrderID(), BotID: cpm.botID,
+		Symbol: cpm.symbol, Side: side, TargetQty: qty, Method: CloseMethod(cfg.Method), Status: CloseStatusPending, CreatedAt: now, UpdatedAt: now}, done: make(chan struct{})}
 	if cfg.TimeoutSec > 0 {
-		record.TimeoutAt = record.CreatedAt.Add(time.Duration(cfg.TimeoutSec) * time.Second)
+		op.record.TimeoutAt = now.Add(time.Duration(cfg.TimeoutSec) * time.Second)
 	}
-
-	// 构建订单请求：优先使用交易所真实价格精度，未知时退回旧默认值
-	reqPriceDecimals := cpm.priceDecimals
-	if reqPriceDecimals < 0 {
-		reqPriceDecimals = fallbackClosePriceDecimals
-	}
-	orderReq := &ExchangeOrderRequest{
-		Symbol:        cpm.symbol,
-		Side:          side,
-		Quantity:      quantity,
-		ReduceOnly:    true,
-		PriceDecimals: reqPriceDecimals,
-	}
-
-	if CloseMethod(cfg.Method) == CloseMethodMarket {
-		orderReq.Type = "MARKET"
-	} else {
-		// 限价单：根据当前价计算限价
-		currentPrice, err := cpm.exchange.GetLatestPrice(ctx, cpm.symbol)
-		if err != nil {
-			record.Status = CloseStatusFailed
-			record.ErrorMessage = fmt.Sprintf("获取价格失败: %v", err)
-			record.UpdatedAt = time.Now()
-			return record, err
+	op.request = ExchangeOrderRequest{Symbol: cpm.symbol, Side: side, Quantity: qty, ReduceOnly: true,
+		ClientOrderID: utils.NewCompactOrderID(), PriceDecimals: decimals, Type: "MARKET"}
+	op.record.ClientOrderID = op.request.ClientOrderID
+	cpm.records[op.record.RecordID] = op
+	cpm.wg.Add(1)
+	cpm.mu.Unlock()
+	callCtx, cancel := context.WithTimeout(ctx, closeRequestTimeout)
+	stopCancel := context.AfterFunc(cpm.ctx, cancel)
+	defer func() { stopCancel(); cancel() }()
+	if cfg.Method == string(CloseMethodLimit) {
+		if err := cpm.prepareCloseLimit(callCtx, op, cfg); err != nil {
+			op.fail(CloseStatusFailed, err)
+			close(op.done)
+			cpm.wg.Done()
+			return op.snapshot(), err
 		}
-		if currentPrice <= 0 {
-			err = fmt.Errorf("获取价格失败: %s 最新价无效 %.8f", cpm.symbol, currentPrice)
-			record.Status = CloseStatusFailed
-			record.ErrorMessage = err.Error()
-			record.UpdatedAt = time.Now()
-			return record, err
-		}
-		price := calculateLimitPrice(currentPrice, side, cfg.PriceOffset)
-		if cpm.priceDecimals >= 0 {
-			price = utils.RoundToDecimals(price, cpm.priceDecimals)
-		}
-		orderReq.Type = "LIMIT"
-		orderReq.Price = price
-		orderReq.TimeInForce = "GTC"
-		// 平仓（含熔断/紧急平仓）不使用 PostOnly：吃单价会被交易所直接拒绝，导致仓位平不掉
-		orderReq.PostOnly = false
-		record.Price = price
 	}
-
-	// 下单
-	order, err := cpm.exchange.PlaceOrder(ctx, orderReq)
+	if err := cpm.submitClose(callCtx, op); err != nil {
+		close(op.done)
+		cpm.wg.Done()
+		return op.snapshot(), err
+	}
+	// Accepted operations belong to the runtime rather than an HTTP connection.
+	// Preserve coordinator context values; Stop still cancels all future calls.
+	workerCtx, workerCancel := context.WithCancel(context.WithoutCancel(ctx))
+	stopWorker := context.AfterFunc(cpm.ctx, workerCancel)
+	go func() {
+		defer cpm.wg.Done()
+		defer close(op.done)
+		defer workerCancel()
+		defer stopWorker()
+		cpm.watchClose(workerCtx, op, cfg)
+	}()
+	return op.snapshot(), nil
+}
+func (cpm *ClosePositionManager) prepareCloseLimit(ctx context.Context, op *closeOperation, cfg config.ClosePositionConfig) error {
+	price, err := cpm.exchange.GetLatestPrice(ctx, cpm.symbol)
 	if err != nil {
-		record.Status = CloseStatusFailed
-		record.ErrorMessage = err.Error()
-		record.UpdatedAt = time.Now()
-		cpm.saveRecord(record)
-		return record, err
+		return err
 	}
-
-	record.OrderID = order.OrderID
-
-	// 检查订单状态（立即成交的情况）
-	if order.Status == "FILLED" {
-		record.Status = CloseStatusFilled
-		record.FilledQty = order.ExecutedQty
-		record.UpdatedAt = time.Now()
-	} else {
-		record.Status = CloseStatusPending
+	if !positiveFinite(price) {
+		return fmt.Errorf("invalid close reference price")
 	}
-
-	// 保存记录
-	cpm.saveRecord(record)
-
-	// 启动超时检查（仅限价单且设置了超时）
-	if cfg.TimeoutSec > 0 && CloseMethod(cfg.Method) == CloseMethodLimit {
-		cpm.wg.Add(1)
-		go cpm.watchTimeout(record, cfg)
+	op.mu.Lock()
+	defer op.mu.Unlock()
+	price = utils.RoundToDecimals(calculateLimitPrice(price, op.record.Side, cfg.PriceOffset), op.request.PriceDecimals)
+	if !positiveFinite(price) {
+		return fmt.Errorf("invalid rounded close price")
 	}
-
-	logger.Info("📤 [平仓] 已下单: %s %s %.4f 方法:%s 订单ID:%d",
-		cpm.symbol, side, quantity, cfg.Method, order.OrderID)
-
-	return record, nil
+	op.request.Type, op.request.Price, op.request.TimeInForce, op.record.Price = "LIMIT", price, "GTC", price
+	return nil
 }
-
-// watchTimeout 监控超时
-func (cpm *ClosePositionManager) watchTimeout(
-	record *ClosePositionRecord,
-	cfg config.ClosePositionConfig,
-) {
-	defer cpm.wg.Done()
-
-	for {
-		select {
-		case <-cpm.ctx.Done():
-			return
-		case <-time.After(time.Until(record.TimeoutAt)):
-			record.mu.Lock()
-			if record.Status != CloseStatusPending {
-				record.mu.Unlock()
-				return
-			}
-
-			// 检查订单状态
-			order, err := cpm.exchange.GetOrder(context.Background(), cpm.symbol, record.OrderID)
-			if err == nil && (order.Status == "FILLED" || order.Status == "PARTIALLY_FILLED") {
-				record.FilledQty = order.ExecutedQty
-				if order.Status == "FILLED" {
-					record.Status = CloseStatusFilled
-				}
-				record.UpdatedAt = time.Now()
-				record.mu.Unlock()
-				return
-			}
-
-			// 确实超时
-			if cfg.AutoRetry && record.Method == CloseMethodLimit && record.RetryCount < cfg.MaxRetries {
-				// 取消原订单
-				_ = cpm.exchange.CancelOrder(context.Background(), cpm.symbol, record.OrderID)
-
-				// 重试为市价单
-				record.Method = CloseMethodMarket
-				record.RetryCount++
-				record.UpdatedAt = time.Now()
-				// 在鎖內取出重试所需的字段：UpdateRecord 會併發改寫 FilledQty，
-				// 放到 goroutine 裡再讀就是數據競態，可能按錯誤的剩餘量下單
-				remainingQty := record.TargetQty - record.FilledQty
-				side := record.Side
-				record.mu.Unlock()
-
-				go func() {
-					if remainingQty > 0 {
-						_, err := cpm.ClosePositions(context.Background(), side,
-							remainingQty, config.ClosePositionConfig{
-								Method:     string(CloseMethodMarket),
-								TimeoutSec: 0, // 重试的市价单不设置超时
-							})
-						if err != nil {
-							logger.Warn("⚠️ [平仓] 重试失败: %v", err)
-						}
-					}
-				}()
-
-				return
-			}
-
-			record.Status = CloseStatusTimeout
-			record.UpdatedAt = time.Now()
-			record.mu.Unlock()
-
-			logger.Warn("⏰ [平仓] 订单超时: RecordID=%s OrderID=%d",
-				record.RecordID, record.OrderID)
-			return
-		}
+func (cpm *ClosePositionManager) GetRecord(id string) (*ClosePositionRecord, bool) {
+	cpm.mu.Lock()
+	op, ok := cpm.records[id]
+	cpm.mu.Unlock()
+	if !ok {
+		return nil, false
 	}
+	return op.snapshot(), true
 }
-
-// saveRecord 保存记录（内部方法）
-func (cpm *ClosePositionManager) saveRecord(record *ClosePositionRecord) {
-	cpm.recordsMu.Lock()
-	defer cpm.recordsMu.Unlock()
-	cpm.records[record.RecordID] = record
-}
-
-// GetRecord 获取平仓记录
-func (cpm *ClosePositionManager) GetRecord(recordID string) (*ClosePositionRecord, bool) {
-	cpm.recordsMu.RLock()
-	defer cpm.recordsMu.RUnlock()
-	record, ok := cpm.records[recordID]
-	return record, ok
-}
-
-// ListRecords 获取所有平仓记录
 func (cpm *ClosePositionManager) ListRecords() []*ClosePositionRecord {
-	cpm.recordsMu.RLock()
-	defer cpm.recordsMu.RUnlock()
-
-	records := make([]*ClosePositionRecord, 0, len(cpm.records))
-	for _, r := range cpm.records {
-		records = append(records, r)
+	cpm.mu.Lock()
+	defer cpm.mu.Unlock()
+	out := make([]*ClosePositionRecord, 0, len(cpm.records))
+	for _, op := range cpm.records {
+		out = append(out, op.snapshot())
 	}
-	return records
+	return out
 }
-
-// UpdateRecord 更新记录（用于外部订单更新回调）
-func (cpm *ClosePositionManager) UpdateRecord(orderID int64, status string, executedQty float64) {
-	cpm.recordsMu.RLock()
-	defer cpm.recordsMu.RUnlock()
-
-	for _, record := range cpm.records {
-		record.mu.Lock()
-		if record.OrderID == orderID && record.Status == CloseStatusPending {
-			record.Status = status
-			record.FilledQty = executedQty
-			record.UpdatedAt = time.Now()
-			record.mu.Unlock()
-			break
+func (cpm *ClosePositionManager) WaitRecord(ctx context.Context, id string) (*ClosePositionRecord, error) {
+	cpm.mu.Lock()
+	op := cpm.records[id]
+	cpm.mu.Unlock()
+	if op == nil {
+		return nil, fmt.Errorf("unknown close record")
+	}
+	select {
+	case <-ctx.Done():
+		return op.snapshot(), ctx.Err()
+	case <-op.done:
+	}
+	snapshot := op.snapshot()
+	if snapshot.Status != CloseStatusFilled {
+		return snapshot, fmt.Errorf("close not filled: %s: %s", snapshot.Status, snapshot.ErrorMessage)
+	}
+	return snapshot, nil
+}
+func (cpm *ClosePositionManager) StopContext(ctx context.Context) error {
+	cpm.stopOnce.Do(func() {
+		cpm.mu.Lock()
+		cpm.stopped = true
+		cpm.cancel()
+		cpm.mu.Unlock()
+		go func() { cpm.wg.Wait(); close(cpm.done) }()
+	})
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-cpm.done:
+		return nil
+	}
+}
+func (cpm *ClosePositionManager) Stop() { _ = cpm.StopContext(context.Background()) }
+func (cpm *ClosePositionManager) submitClose(ctx context.Context, op *closeOperation) error {
+	op.mu.Lock()
+	req := op.request
+	op.mu.Unlock()
+	ord, err := cpm.exchange.PlaceOrder(ctx, &req)
+	if err != nil {
+		status := CloseStatusFailed
+		if ord != nil || errors.Is(err, execution.ErrOrderUnknown) {
+			status = CloseStatusUnknown
 		}
-		record.mu.Unlock()
-	}
-}
-
-// Stop 停止管理器
-func (cpm *ClosePositionManager) Stop() {
-	cpm.cancel()
-	cpm.wg.Wait()
-}
-
-// ClosePlan 平仓计划：方向 + 数量
-type ClosePlan struct {
-	Side     string  // BUY（平空）/ SELL（平多）
-	Quantity float64 // 平仓数量（已按数量精度向下取整）
-}
-
-// PlanCloseOrder 根据 Bot 自身净持仓（多为正、空为负）计算平仓方向与数量
-//   - exchangeNetQty/hasExchange：交易所该交易对的净持仓（可选），用于封顶，避免 reduceOnly 超量被拒
-//   - ratio：平仓比例 0~1，0 或 1 表示全仓
-//   - quantityDecimals：数量精度，向下取整，避免超过实际持仓
-func PlanCloseOrder(botNetQty, exchangeNetQty float64, hasExchange bool, ratio float64, quantityDecimals int) (*ClosePlan, error) {
-	if ratio < 0 || ratio > 1 {
-		return nil, fmt.Errorf("平仓比例无效: %.4f（应在 0~1 之间）", ratio)
-	}
-	if ratio == 0 {
-		ratio = 1
-	}
-	if math.Abs(botNetQty) < closeQtyEpsilon {
-		return nil, fmt.Errorf("没有可平的持仓")
-	}
-
-	side := "SELL"
-	if botNetQty < 0 {
-		side = "BUY"
-	}
-	qty := math.Abs(botNetQty)
-
-	if hasExchange {
-		if math.Abs(exchangeNetQty) < closeQtyEpsilon || (exchangeNetQty > 0) != (botNetQty > 0) {
-			return nil, fmt.Errorf("交易所持仓与本地方向不一致: 本地=%.8f 交易所=%.8f", botNetQty, exchangeNetQty)
+		if ord != nil {
+			_ = cpm.observeClose(op, ord)
 		}
-		qty = math.Min(qty, math.Abs(exchangeNetQty))
+		op.fail(status, err)
+		return err
 	}
-
-	qty *= ratio
-	if quantityDecimals >= 0 {
-		qty = utils.FloorToDecimals(qty, quantityDecimals)
+	if err := cpm.observeClose(op, ord); err != nil {
+		op.fail(CloseStatusUnknown, err)
+		return err
 	}
-	if qty <= 0 {
-		return nil, fmt.Errorf("平仓数量按精度取整后为 0（持仓=%.8f, 比例=%.4f, 精度=%d）", math.Abs(botNetQty), ratio, quantityDecimals)
-	}
-	return &ClosePlan{Side: side, Quantity: qty}, nil
-}
-
-// fallbackClosePriceDecimals 无法获取交易所价格精度时的兜底值
-const fallbackClosePriceDecimals = 2
-
-// closeQtyEpsilon 持仓数量视为 0 的阈值
-const closeQtyEpsilon = 1e-12
-
-// calculateLimitPrice 计算限价
-func calculateLimitPrice(currentPrice float64, side string, offsetPercent float64) float64 {
-	// offsetPercent: 负数=更激进（卖低价/买高价），正数=更保守
-	if side == "SELL" {
-		return currentPrice * (1 + offsetPercent/100)
-	}
-	return currentPrice * (1 - offsetPercent/100)
-}
-
-func generateRecordID() string {
-	return fmt.Sprintf("close_%d", time.Now().UnixNano())
+	return nil
 }

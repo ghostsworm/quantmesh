@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"quantmesh/logger"
+	"quantmesh/storage"
 	"quantmesh/utils"
 
 	"github.com/gin-gonic/gin"
@@ -18,14 +19,28 @@ import (
 
 // ReconciliationStatus 對账状態
 type ReconciliationStatus struct {
-	ReconcileCount     int64     `json:"reconcile_count"`      // 對账次數（運行時自增，重啟後歸零）
-	HistoryRecordCount int64     `json:"history_record_count"` // 對账歷史記錄數（數據庫，與下方列表一致）
-	LastReconcileTime  time.Time `json:"last_reconcile_time"`  // 最后對账時间
-	LocalPosition      float64   `json:"local_position"`       // 本地持倉
-	TotalBuyQty        float64   `json:"total_buy_qty"`        // 累计買入
-	TotalSellQty       float64   `json:"total_sell_qty"`       // 累计賣出
-	EstimatedProfit    float64   `json:"estimated_profit"`     // 預计盈利
-	ActualProfit       float64   `json:"actual_profit"`        // 實際盈利（来自 trades 表）
+	Exchange             string    `json:"exchange,omitempty"`
+	Symbol               string    `json:"symbol,omitempty"`
+	MarketType           string    `json:"market_type,omitempty"`
+	DataScopeVerified    bool      `json:"data_scope_verified"`
+	HistoryScopeVerified bool      `json:"history_scope_verified"`
+	ReconcileCount       int64     `json:"reconcile_count"`      // 對账次數（運行時自增，重啟後歸零）
+	HistoryRecordCount   int64     `json:"history_record_count"` // 對账歷史記錄數（數據庫，與下方列表一致）
+	LastReconcileTime    time.Time `json:"last_reconcile_time"`  // 最后對账時间
+	LocalPosition        float64   `json:"local_position"`       // 本地持倉
+	TotalBuyQty          float64   `json:"total_buy_qty"`        // 累计買入
+	TotalSellQty         float64   `json:"total_sell_qty"`       // 累计賣出
+	EstimatedProfit      float64   `json:"estimated_profit"`     // 預计盈利
+	ActualProfit         float64   `json:"actual_profit"`        // 實際盈利（来自 trades 表）
+}
+
+type marketScopedReconciliationStorage interface {
+	GetActualProfitBySymbolMarketScope(exchange, marketType, symbol, account, accountScope string, beforeTime time.Time, botID string) (float64, error)
+	GetTotalBuySellQtyByMarketScope(exchange, marketType, symbol, account, accountScope, botID string) (float64, float64, error)
+	HasUnclassifiedMarketTrades(exchange, symbol, account, accountScope, botID string) (bool, error)
+	QueryReconciliationHistoryByScope(exchange, symbol, account, marketType, accountScope, botID string, startTime, endTime time.Time, limit, offset int) ([]*storage.ReconciliationHistory, error)
+	GetReconciliationCountByScope(exchange, symbol, account, marketType, accountScope, botID string) (int64, error)
+	HasUnscopedReconciliationHistory(exchange, symbol, account string) (bool, error)
 }
 
 // ReconciliationHistoryInfo 對账历史信息
@@ -33,6 +48,9 @@ type ReconciliationHistoryInfo struct {
 	ID               int64     `json:"id"`
 	Exchange         string    `json:"exchange"`
 	Symbol           string    `json:"symbol"`
+	AccountScope     string    `json:"account_scope,omitempty"`
+	MarketType       string    `json:"market_type,omitempty"`
+	BotID            string    `json:"bot_id,omitempty"`
 	ReconcileTime    time.Time `json:"reconcile_time"`
 	LocalPosition    float64   `json:"local_position"`
 	ExchangePosition float64   `json:"exchange_position"`
@@ -53,25 +71,74 @@ func getReconciliationStatus(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	symbol := c.Query("symbol")
 	exchange := c.Query("exchange")
-	if symbol == "" {
-		if st := pickStatus(c); st != nil {
-			symbol = st.Symbol
-			if exchange == "" {
-				exchange = st.Exchange
-			}
+	marketType := strings.TrimSpace(c.Query("market_type"))
+	statusProvider := pickStatus(c)
+	accountScope := ""
+	if statusProvider != nil {
+		if symbol == "" {
+			symbol = statusProvider.Symbol
+		}
+		if exchange == "" && strings.EqualFold(symbol, statusProvider.Symbol) {
+			exchange = statusProvider.Exchange
+		}
+		if marketType == "" && strings.EqualFold(symbol, statusProvider.Symbol) && strings.EqualFold(exchange, statusProvider.Exchange) {
+			marketType = strings.TrimSpace(statusProvider.MarketType)
+		}
+		if strings.EqualFold(symbol, statusProvider.Symbol) && strings.EqualFold(exchange, statusProvider.Exchange) && strings.EqualFold(marketType, statusProvider.MarketType) {
+			accountScope = strings.TrimSpace(statusProvider.AccountScope)
+		}
+	}
+	exchange = strings.TrimSpace(exchange)
+	if symbol != "" {
+		if exchange == "" || marketType == "" || accountScope == "" || strings.TrimSpace(c.Query("bot_id")) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "reconciliation requires exchange, symbol, market_type, verified account scope, and bot_id"})
+			return
+		}
+		if storageProv == nil || storageProv.GetStorage() == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "market-scoped reconciliation storage is unavailable"})
+			return
+		}
+		scopedStore, ok := storageProv.GetStorage().(marketScopedReconciliationStorage)
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "storage does not support market-scoped reconciliation"})
+			return
+		}
+		legacy, err := scopedStore.HasUnclassifiedMarketTrades(exchange, symbol, GetCurrentAccountID(), accountScope, strings.TrimSpace(c.Query("bot_id")))
+		if err != nil {
+			logger.Error("check legacy reconciliation market scope failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify reconciliation market attribution"})
+			return
+		}
+		if legacy {
+			c.JSON(http.StatusConflict, gin.H{"error": "legacy trade rows lack market attribution and must be reconciled before scoped totals can be shown", "exchange": exchange, "symbol": symbol, "market_type": marketType, "data_scope_verified": false})
+			return
 		}
 	}
 
 	historyRecordCount := int64(0)
-	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
-		accountID := GetCurrentAccountID()
-		if cnt, err := storageProv.GetStorage().GetReconciliationCount(exchange, symbol, accountID); err == nil {
-			historyRecordCount = cnt
+	historyScopeVerified := false
+	if symbol != "" {
+		scopedStore := storageProv.GetStorage().(marketScopedReconciliationStorage)
+		unscoped, err := scopedStore.HasUnscopedReconciliationHistory(exchange, symbol, GetCurrentAccountID())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify reconciliation history scope"})
+			return
 		}
+		historyScopeVerified = !unscoped
+		count, err := scopedStore.GetReconciliationCountByScope(exchange, symbol, GetCurrentAccountID(), marketType, accountScope, strings.TrimSpace(c.Query("bot_id")))
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query scoped reconciliation history count"})
+			return
+		}
+		historyRecordCount = count
 	}
 
 	pmProvider := PickPositionProvider(c)
 	if pmProvider == nil {
+		if symbol != "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "position reconciliation provider is unavailable", "exchange": exchange, "symbol": symbol, "market_type": marketType, "data_scope_verified": false})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"reconcile_count":      0,
 			"history_record_count": historyRecordCount,
@@ -98,26 +165,15 @@ func getReconciliationStatus(c *gin.Context) {
 	totalSellQty := 0.0
 
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
-		// 從數據库直接计算累计買入和累计賣出（更高效）
 		accountID := GetCurrentAccountID()
-		buyQty, sellQty, err := storageProv.GetStorage().GetTotalBuySellQty(symbol, accountID, reconcileBotID)
-		if err == nil {
-			totalBuyQty = buyQty
-			totalSellQty = sellQty
-			logger.Info("📊 [對账状態] 從數據库查詢: symbol=%s, accountID=%s, bot_id=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, accountID, reconcileBotID, buyQty, sellQty)
-		} else {
-			logger.Warn("⚠️ 查詢累计買賣數量失败: symbol=%s, accountID=%s, error=%v", symbol, accountID, err)
+		scopedStore := storageProv.GetStorage().(marketScopedReconciliationStorage)
+		buyQty, sellQty, err := scopedStore.GetTotalBuySellQtyByMarketScope(exchange, marketType, symbol, accountID, accountScope, reconcileBotID)
+		if err != nil {
+			logger.Error("query scoped reconciliation quantities failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query market-scoped reconciliation quantities"})
+			return
 		}
-
-		// 如果數據库查詢返回0，尝試不限制account再查詢一次（兼容舊數據）；bot_id 仍保留以免混入其他 Bot
-		if totalBuyQty == 0 && totalSellQty == 0 && accountID != "" {
-			buyQty2, sellQty2, err2 := storageProv.GetStorage().GetTotalBuySellQty(symbol, "", reconcileBotID)
-			if err2 == nil && (buyQty2 > 0 || sellQty2 > 0) {
-				totalBuyQty = buyQty2
-				totalSellQty = sellQty2
-				logger.Info("📊 [對账状態] 從數據库查詢(無account限制): symbol=%s, bot_id=%s, 累计買入=%.4f, 累计賣出=%.4f", symbol, reconcileBotID, buyQty2, sellQty2)
-			}
-		}
+		totalBuyQty, totalSellQty = buyQty, sellQty
 	}
 
 	// 如果數據库中没有數據，尝試從記憶體獲取（作為后备）
@@ -137,6 +193,9 @@ func getReconciliationStatus(c *gin.Context) {
 	slots := pmProvider.GetAllSlots()
 	localPosition := 0.0
 	for _, slot := range slots {
+		if symbol != "" && (!strings.EqualFold(slot.Symbol, symbol) || !strings.EqualFold(slot.Exchange, exchange)) {
+			continue
+		}
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 {
 			localPosition += slot.PositionQty
 		}
@@ -145,20 +204,31 @@ func getReconciliationStatus(c *gin.Context) {
 	// 獲取實際盈利
 	actualProfit := 0.0
 	if symbol != "" && storageProv != nil && storageProv.GetStorage() != nil {
-		// 查詢截止到現在的累计實際盈利
 		accountID := GetCurrentAccountID()
-		actualProfit, _ = storageProv.GetStorage().GetActualProfitBySymbol(symbol, accountID, time.Now().UTC(), reconcileBotID)
+		scopedStore := storageProv.GetStorage().(marketScopedReconciliationStorage)
+		profit, err := scopedStore.GetActualProfitBySymbolMarketScope(exchange, marketType, symbol, accountID, accountScope, time.Now().UTC(), reconcileBotID)
+		if err != nil {
+			logger.Error("query scoped reconciliation PnL failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query market-scoped reconciliation PnL"})
+			return
+		}
+		actualProfit = profit
 	}
 
 	status := ReconciliationStatus{
-		ReconcileCount:     reconcileCount,
-		HistoryRecordCount: historyRecordCount,
-		LastReconcileTime:  utils.ToUTC8(lastReconcileTime),
-		LocalPosition:      localPosition,
-		TotalBuyQty:        totalBuyQty,
-		TotalSellQty:       totalSellQty,
-		EstimatedProfit:    estimatedProfit,
-		ActualProfit:       actualProfit,
+		Exchange:             exchange,
+		Symbol:               symbol,
+		MarketType:           marketType,
+		DataScopeVerified:    symbol != "",
+		HistoryScopeVerified: historyScopeVerified,
+		ReconcileCount:       reconcileCount,
+		HistoryRecordCount:   historyRecordCount,
+		LastReconcileTime:    utils.ToUTC8(lastReconcileTime),
+		LocalPosition:        localPosition,
+		TotalBuyQty:          totalBuyQty,
+		TotalSellQty:         totalSellQty,
+		EstimatedProfit:      estimatedProfit,
+		ActualProfit:         actualProfit,
 	}
 
 	c.JSON(http.StatusOK, status)
@@ -223,9 +293,25 @@ func getReconciliationHistory(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
+	marketType := strings.TrimSpace(c.Query("market_type"))
+	botID := strings.TrimSpace(c.Query("bot_id"))
+	statusProvider := pickStatus(c)
+	accountScope := ""
+	if statusProvider != nil && strings.EqualFold(symbol, statusProvider.Symbol) && strings.EqualFold(exchangeName, statusProvider.Exchange) && strings.EqualFold(marketType, statusProvider.MarketType) {
+		accountScope = strings.TrimSpace(statusProvider.AccountScope)
+	}
+	if exchangeName == "" || symbol == "" || marketType == "" || accountScope == "" || botID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scoped reconciliation history requires exchange, symbol, market_type, verified account scope, and bot_id"})
+		return
+	}
+	scopedStorage, ok := storage.(marketScopedReconciliationStorage)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "storage does not support scoped reconciliation history"})
+		return
+	}
 
 	// 查詢對账历史
-	histories, err := storage.QueryReconciliationHistory(exchangeName, symbol, accountID, startTime, endTime, limit, offset)
+	histories, err := scopedStorage.QueryReconciliationHistoryByScope(exchangeName, symbol, accountID, marketType, accountScope, botID, startTime, endTime, limit, offset)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -238,6 +324,9 @@ func getReconciliationHistory(c *gin.Context) {
 			ID:               h.ID,
 			Exchange:         h.Exchange,
 			Symbol:           h.Symbol,
+			AccountScope:     h.AccountScope,
+			MarketType:       h.MarketType,
+			BotID:            h.BotID,
 			ReconcileTime:    utils.ToUTC8(h.ReconcileTime),
 			LocalPosition:    h.LocalPosition,
 			ExchangePosition: h.ExchangePosition,
@@ -253,7 +342,12 @@ func getReconciliationHistory(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"history": result})
+	unscoped, err := scopedStorage.HasUnscopedReconciliationHistory(exchangeName, symbol, accountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify legacy reconciliation history"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"history": result, "scope_verified": !unscoped, "unscoped_legacy_records": unscoped})
 }
 
 // ReconciliationAggregatedData 聚合的對账數據
@@ -325,9 +419,25 @@ func getReconciliationAggregated(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
+	marketType := strings.TrimSpace(c.Query("market_type"))
+	botID := strings.TrimSpace(c.Query("bot_id"))
+	statusProvider := pickStatus(c)
+	accountScope := ""
+	if statusProvider != nil && strings.EqualFold(symbol, statusProvider.Symbol) && strings.EqualFold(exchangeName, statusProvider.Exchange) && strings.EqualFold(marketType, statusProvider.MarketType) {
+		accountScope = strings.TrimSpace(statusProvider.AccountScope)
+	}
+	if exchangeName == "" || symbol == "" || marketType == "" || accountScope == "" || botID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "scoped reconciliation aggregation requires exchange, symbol, market_type, verified account scope, and bot_id"})
+		return
+	}
+	scopedStorage, ok := storage.(marketScopedReconciliationStorage)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "storage does not support scoped reconciliation aggregation"})
+		return
+	}
 
 	// 查詢對账历史（獲取所有數據用於聚合）
-	histories, err := storage.QueryReconciliationHistory(exchangeName, symbol, accountID, startTime, endTime, 10000, 0)
+	histories, err := scopedStorage.QueryReconciliationHistoryByScope(exchangeName, symbol, accountID, marketType, accountScope, botID, startTime, endTime, 10000, 0)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -394,5 +504,10 @@ func getReconciliationAggregated(c *gin.Context) {
 		return result[i].Date < result[j].Date
 	})
 
-	c.JSON(http.StatusOK, gin.H{"data": result})
+	unscoped, err := scopedStorage.HasUnscopedReconciliationHistory(exchangeName, symbol, accountID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify legacy reconciliation history"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": result, "scope_verified": !unscoped, "unscoped_legacy_records": unscoped})
 }

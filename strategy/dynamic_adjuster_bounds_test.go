@@ -88,10 +88,12 @@ func TestDynamicAdjusterWindowSizeRefusesWithoutUtilizationData(t *testing.T) {
 func newVolatilityPauseAdjuster(t *testing.T) (*config.Config, *position.SuperPositionManager, *DynamicAdjuster) {
 	t.Helper()
 	cfg, manager, da := newBoundsTestAdjuster(t)
-	botRisk := &config.BotRiskControl{VolatilityPauseEnabled: true}
+	botRisk := &config.BotRiskControl{Enabled: true, VolatilityPauseEnabled: true}
 	botRisk.VolatilityPauseConfig.PauseOnExtremeVolatility = true
 	botRisk.VolatilityPauseConfig.AutoResumeOnNormal = true
 	cfg.Trading.Symbols[0].OpenPositionControl.BotRiskControl = botRisk
+	manager.SetOpenPositionControl(config.OpenPositionControl{BotRiskControl: botRisk})
+	t.Cleanup(da.Stop)
 	return cfg, manager, da
 }
 
@@ -130,6 +132,7 @@ func TestDynamicAdjusterVolatilityResumeDoesNotLiftRiskPause(t *testing.T) {
 func TestDynamicAdjusterAutoResumeDisabledKeepsPause(t *testing.T) {
 	cfg, manager, da := newVolatilityPauseAdjuster(t)
 	cfg.Trading.Symbols[0].OpenPositionControl.BotRiskControl.VolatilityPauseConfig.AutoResumeOnNormal = false
+	manager.SetOpenPositionControl(cfg.Trading.Symbols[0].OpenPositionControl)
 
 	da.checkVolatilityPause(indicators.VolatilityRegimeEvent{NewRegime: indicators.RegimeExtreme})
 	da.checkVolatilityPause(indicators.VolatilityRegimeEvent{NewRegime: indicators.RegimeLow})

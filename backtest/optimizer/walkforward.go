@@ -21,7 +21,7 @@ const (
 )
 
 var (
-	errWalkForwardInvalidWindow = errors.New("optimizer: walk-forward windows must be positive and step >= test window")
+	errWalkForwardInvalidWindow = errors.New("optimizer: walk-forward windows must be positive and step must equal test window")
 	errWalkForwardNoFolds       = errors.New("optimizer: not enough candles for any walk-forward fold")
 	errWalkForwardNoCandidates  = errors.New("optimizer: walk-forward needs at least one parameter set")
 	errWalkForwardGridOnly      = errors.New("optimizer: walk-forward is only supported by grid search")
@@ -35,12 +35,15 @@ type WalkForwardConfig struct {
 	TrainDays float64 `json:"train_days"`
 	// TestDays 測試窗口長度（天）；<=0 用默認 15
 	TestDays float64 `json:"test_days"`
-	// StepDays 每折前移步長（天）；<=0 等於 TestDays。必須 >= TestDays，保證測試窗口互不重疊（拼接不重複計算）
+	// StepDays 每折前移步長（天）；<=0 等於 TestDays。必須等於 TestDays，確保匯總收益序列時間間隔連續且可比。
 	StepDays float64 `json:"step_days"`
 }
 
 func (c WalkForwardConfig) windowsMs() (train, test, step int64, err error) {
 	trainDays, testDays, stepDays := c.TrainDays, c.TestDays, c.StepDays
+	if !finiteNumber(trainDays) || !finiteNumber(testDays) || !finiteNumber(stepDays) {
+		return 0, 0, 0, errInvalidOptimizerConfig
+	}
 	if trainDays <= 0 {
 		trainDays = DefaultWalkForwardTrainDays
 	}
@@ -50,10 +53,18 @@ func (c WalkForwardConfig) windowsMs() (train, test, step int64, err error) {
 	if stepDays <= 0 {
 		stepDays = testDays
 	}
-	if stepDays < testDays {
-		return 0, 0, 0, fmt.Errorf("step_days=%.2f < test_days=%.2f: %w", stepDays, testDays, errWalkForwardInvalidWindow)
+	if stepDays != testDays {
+		return 0, 0, 0, fmt.Errorf("step_days=%.2f != test_days=%.2f: %w", stepDays, testDays, errWalkForwardInvalidWindow)
 	}
-	return int64(trainDays * msPerDay), int64(testDays * msPerDay), int64(stepDays * msPerDay), nil
+	maxDays := float64(int64(1<<63-1)) / msPerDay
+	if trainDays > maxDays || testDays > maxDays || stepDays > maxDays {
+		return 0, 0, 0, errInvalidOptimizerConfig
+	}
+	train, test, step = int64(trainDays*msPerDay), int64(testDays*msPerDay), int64(stepDays*msPerDay)
+	if train <= 0 || test <= 0 || step <= 0 {
+		return 0, 0, 0, errInvalidOptimizerConfig
+	}
+	return train, test, step, nil
 }
 
 // WalkForwardWindow 一折的時間窗口（毫秒，左閉右開）
@@ -146,14 +157,28 @@ type backtestFunc func(symbol string, candles []*exchange.Candle, params backtes
 
 // RunWalkForward 對候選參數集執行滾動 walk-forward
 func RunWalkForward(ctx context.Context, symbol string, candles []*exchange.Candle, candidates []backtest.GridBacktestParams, cfg WalkForwardConfig, lambda, initialCapital float64) (*WalkForwardResult, error) {
-	return runWalkForward(ctx, BacktestRunner, symbol, candles, candidates, cfg, lambda, initialCapital)
+	run := func(symbol string, candles []*exchange.Candle, params backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {
+		return BacktestRunnerContext(ctx, symbol, candles, params, capital)
+	}
+	return runWalkForward(ctx, run, symbol, candles, candidates, cfg, lambda, initialCapital)
 }
 
-func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candles []*exchange.Candle, candidates []backtest.GridBacktestParams, cfg WalkForwardConfig, lambda, initialCapital float64) (*WalkForwardResult, error) {
+func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candles []*exchange.Candle, candidates []backtest.GridBacktestParams, cfg WalkForwardConfig, lambda, initialCapital float64) (result *WalkForwardResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(candidates) == 0 {
 		return nil, errWalkForwardNoCandidates
 	}
-	if initialCapital <= 0 {
+	if !finiteNumber(lambda) {
+		return nil, errInvalidOptimizerConfig
+	}
+	if initialCapital <= 0 || !finiteNumber(initialCapital) {
 		return nil, fmt.Errorf("walk-forward: initial capital must be positive, got %.4f", initialCapital)
 	}
 	windows, err := BuildWalkForwardWindows(candles, cfg)
@@ -171,12 +196,18 @@ func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candle
 		fold := WalkForwardFold{WalkForwardWindow: w, TrainScore: math.Inf(-1)}
 		found := false
 		for _, p := range candidates {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			res, runErr := run(symbol, w.Train, p, initialCapital)
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if runErr != nil || res == nil {
 				continue
 			}
 			s := CalculateScore(res.Metrics, lambda)
-			if math.IsNaN(s) {
+			if !finiteNumber(s) {
 				continue
 			}
 			if !found || s > fold.TrainScore {
@@ -187,11 +218,17 @@ func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candle
 			return nil, fmt.Errorf("walk-forward fold %d [%d,%d): all %d candidates failed on train window", w.Index, w.TrainStart, w.TrainEnd, len(candidates))
 		}
 		testRes, runErr := run(symbol, w.Test, fold.BestParams, initialCapital)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if runErr != nil || testRes == nil {
 			return nil, fmt.Errorf("walk-forward fold %d test [%d,%d): %v", w.Index, w.TestStart, w.TestEnd, runErr)
 		}
 		fold.TestMetrics = testRes.Metrics
 		fold.TestScore = CalculateScore(testRes.Metrics, lambda)
+		if !finiteNumber(fold.TestScore) {
+			return nil, fmt.Errorf("walk-forward fold %d test score is not finite", w.Index)
+		}
 
 		// 複利拼接：本折權益按 capital/initialCapital 縮放
 		scale := capital / initialCapital

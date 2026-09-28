@@ -88,6 +88,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 }
 
@@ -929,6 +930,9 @@ func (o *OKXAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 獲取歷史K線數據
 func (o *OKXAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
+	if interval == "1h" {
+		interval = "1H"
+	}
 	klines, err := o.client.GetKlines(ctx, o.instId, interval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)

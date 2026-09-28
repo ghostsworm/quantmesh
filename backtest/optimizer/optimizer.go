@@ -2,6 +2,7 @@ package optimizer
 
 import (
 	"context"
+	"math"
 
 	"quantmesh/backtest"
 	"quantmesh/exchange"
@@ -58,7 +59,11 @@ type Optimizer interface {
 
 // BacktestRunner 單次回测執行器，供各优化器調用
 func BacktestRunner(symbol string, candles []*exchange.Candle, params backtest.GridBacktestParams, initialCapital float64) (*backtest.BacktestResult, error) {
-	return backtest.RunGridBacktest(symbol, candles, params, initialCapital, nil)
+	return BacktestRunnerContext(context.Background(), symbol, candles, params, initialCapital)
+}
+
+func BacktestRunnerContext(ctx context.Context, symbol string, candles []*exchange.Candle, params backtest.GridBacktestParams, initialCapital float64) (*backtest.BacktestResult, error) {
+	return backtest.RunGridBacktestContext(ctx, symbol, candles, params, initialCapital, nil)
 }
 
 // ParamsFromSpace 從搜索空间生成單组回测参數（用於固定 FeeRate 等）
@@ -93,6 +98,9 @@ func DefaultOptimConfig() OptimConfig {
 
 // ValidateOptimConfig 校驗可選優化參數（驗證集比例等）。validation_ratio=0 表示不啟用樣本外。
 func ValidateOptimConfig(cfg OptimConfig) error {
+	if !finiteNumber(cfg.Lambda) || !finiteNumber(cfg.FeeRate) || !finiteNumber(cfg.SlippageRatio) || !finiteNumber(cfg.ValidationRatio) {
+		return errInvalidOptimizerConfig
+	}
 	if cfg.ValidationRatio < 0 {
 		return errInvalidValidationRatio
 	}
@@ -107,8 +115,20 @@ func ValidateOptimConfig(cfg OptimConfig) error {
 	return nil
 }
 
+func finiteNumber(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
 // ValidateSearchSpace 校驗搜索空间合法性
 func ValidateSearchSpace(space OptimSearchSpace) error {
+	for _, r := range []Range{space.PriceLowRange, space.PriceHighRange, space.OrderQtyRange} {
+		if r.Min <= 0 || !finiteRange(r.Min, r.Max, r.Step) {
+			return errInvalidRange
+		}
+	}
+	if space.GridCountRange.Step <= 0 {
+		return errInvalidRange
+	}
 	if space.PriceLowRange.Min >= space.PriceLowRange.Max {
 		return errInvalidRange
 	}

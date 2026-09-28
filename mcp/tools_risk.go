@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"quantmesh/storage"
 )
 
 // RegisterRiskTools 注册系统健康、风控事件和权益快照等只读工具。
@@ -109,18 +111,20 @@ func RegisterRiskTools(s *Server, p Providers) {
 			Name:        "qm_daily_snapshots",
 			Description: "查询每日权益快照，用于核对账户权益、未实现盈亏与日内回撤。days 默认 7，最大 90。",
 			InputSchema: schemaObject(map[string]any{
-				"exchange": schemaString("交易所代码（可选）"),
-				"symbol":   schemaString("交易对（可选）"),
-				"account":  schemaString("账户 ID（可选）"),
-				"days":     schemaInt("回看天数（1-90，默认 7）", 1, 90),
+				"exchange":    schemaString("交易所代码（可选）"),
+				"market_type": schemaString("市场类型 spot/futures；不传时仅返回未分类旧快照（可选）"),
+				"symbol":      schemaString("交易对（可选）"),
+				"account":     schemaString("账户 ID（可选）"),
+				"days":        schemaInt("回看天数（1-90，默认 7）", 1, 90),
 			}),
 		},
 		Handler: func(_ context.Context, args json.RawMessage) (any, error) {
 			var q struct {
-				Exchange string `json:"exchange"`
-				Symbol   string `json:"symbol"`
-				Account  string `json:"account"`
-				Days     int    `json:"days"`
+				Exchange   string `json:"exchange"`
+				MarketType string `json:"market_type"`
+				Symbol     string `json:"symbol"`
+				Account    string `json:"account"`
+				Days       int    `json:"days"`
 			}
 			_ = json.Unmarshal(args, &q)
 			if q.Days <= 0 || q.Days > 90 {
@@ -128,7 +132,15 @@ func RegisterRiskTools(s *Server, p Providers) {
 			}
 			end := time.Now()
 			start := end.AddDate(0, 0, -q.Days)
-			rows, err := p.Storage.QueryDailySnapshots(q.Exchange, q.Symbol, q.Account, start, end)
+			var rows []*storage.DailySnapshot
+			var err error
+			if marketStorage, ok := p.Storage.(interface {
+				QueryDailySnapshotsByMarketType(exchange, marketType, symbol, account string, startDate, endDate time.Time) ([]*storage.DailySnapshot, error)
+			}); ok && q.MarketType != "" {
+				rows, err = marketStorage.QueryDailySnapshotsByMarketType(q.Exchange, q.MarketType, q.Symbol, q.Account, start, end)
+			} else {
+				rows, err = p.Storage.QueryDailySnapshots(q.Exchange, q.Symbol, q.Account, start, end)
+			}
 			if err != nil {
 				return nil, err
 			}

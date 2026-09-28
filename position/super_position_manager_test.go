@@ -194,13 +194,23 @@ func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 	}
 
 	// 模拟订單成交
+	filledQty := 0.0
+	for _, req := range executor.PlacedOrders {
+		if req.ClientOrderID == testSlot.ClientOID {
+			filledQty = req.Quantity
+		}
+	}
+	if filledQty <= 0 {
+		t.Fatal("missing submitted quantity for fill fixture")
+	}
 	update := OrderUpdate{
 		OrderID:       testSlot.OrderID,
 		ClientOrderID: testSlot.ClientOID,
 		Symbol:        "BTCUSDT",
 		Status:        OrderStatusFilled,
-		ExecutedQty:   testSlot.OrderFilledQty,
+		ExecutedQty:   filledQty,
 		Price:         testSlot.OrderPrice,
+		AvgPrice:      testSlot.OrderPrice,
 		Side:          testSlot.OrderSide,
 	}
 

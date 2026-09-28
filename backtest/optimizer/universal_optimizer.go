@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math"
 	"runtime"
 	"sort"
 	"sync"
@@ -54,6 +53,7 @@ type UniversalOptimResult struct {
 	Elapsed       time.Duration          `json:"elapsed"`
 	TotalCombos   int                    `json:"total_combos"`
 	Completed     int                    `json:"completed"`
+	Failed        int                    `json:"failed"`
 }
 
 // UniversalOptimizer 通用多策略优化器
@@ -61,6 +61,10 @@ type UniversalOptimizer struct{}
 
 // EnumerateParamCombos 枚举搜索空间内的所有参数组合
 func (u *UniversalOptimizer) EnumerateParamCombos(space UniversalSearchSpace) []map[string]interface{} {
+	count, err := CountUniversalParamCombos(space)
+	if err != nil {
+		return nil
+	}
 	if space.Ranges == nil || len(space.Ranges) == 0 {
 		return []map[string]interface{}{{}} // 无范围时返回默认一组
 	}
@@ -80,7 +84,7 @@ func (u *UniversalOptimizer) EnumerateParamCombos(space UniversalSearchSpace) []
 	}
 
 	// 笛卡尔积
-	var combos []map[string]interface{}
+	combos := make([]map[string]interface{}, 0, count)
 	u.cartesian(paramKeys, valueLists, 0, map[string]interface{}{}, &combos)
 	return combos
 }
@@ -104,30 +108,23 @@ func (u *UniversalOptimizer) cartesian(keys []string, valueLists [][]float64, id
 }
 
 func stepsRange(min, max, step float64) []float64 {
-	if step <= 0 {
-		return []float64{min}
-	}
-	var s []float64
-	for v := min; v <= max+1e-9; v += step {
-		s = append(s, math.Round(v*1e9)/1e9) // 避免浮点误差
-	}
-	if len(s) == 0 {
-		s = []float64{min}
-	}
-	return s
+	return steps(min, max, step)
 }
 
 // RunOne 执行单次回测（供外部调用）
 func (u *UniversalOptimizer) RunOne(ctx context.Context, symbol, interval string, candles []*exchange.Candle, strategy string, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	switch strategy {
 	case "grid":
 		return u.runGrid(ctx, symbol, candles, params, totalCapital)
 	case "dca":
-		return u.runDCA(symbol, interval, candles, params, totalCapital)
+		return u.runDCA(ctx, symbol, interval, candles, params, totalCapital)
 	case "martingale":
-		return u.runMartingale(symbol, interval, candles, params, totalCapital)
+		return u.runMartingale(ctx, symbol, interval, candles, params, totalCapital)
 	case "momentum", "mean_reversion", "trend_following":
-		return u.runIndicatorStrategy(symbol, candles, strategy, params, totalCapital)
+		return u.runIndicatorStrategy(ctx, symbol, candles, strategy, params, totalCapital)
 	default:
 		return nil, fmt.Errorf("不支援的策略: %s", strategy)
 	}
@@ -153,20 +150,20 @@ func (u *UniversalOptimizer) runGrid(ctx context.Context, symbol string, candles
 			AverageWindow:    riskAW,
 		})
 	}
-	return backtest.RunGridBacktest(symbol, candles, gridParams, totalCapital, riskSim)
+	return backtest.RunGridBacktestContext(ctx, symbol, candles, gridParams, totalCapital, riskSim)
 }
 
-func (u *UniversalOptimizer) runDCA(symbol, interval string, candles []*exchange.Candle, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
+func (u *UniversalOptimizer) runDCA(ctx context.Context, symbol, interval string, candles []*exchange.Candle, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
 	p := backtest.DCABacktestParams{
 		IntervalDays:   getIntParam(params, "interval_days", 7),
 		AmountPerTrade: getFloatParam(params, "amount_per_trade", 100),
 		TotalCapital:   totalCapital,
 		FeeRate:        getFloatParam(params, "fee_rate", 0.0004),
 	}
-	return backtest.RunDCABacktest(symbol, interval, candles, p, totalCapital)
+	return backtest.RunDCABacktestContext(ctx, symbol, interval, candles, p, totalCapital)
 }
 
-func (u *UniversalOptimizer) runMartingale(symbol, interval string, candles []*exchange.Candle, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
+func (u *UniversalOptimizer) runMartingale(ctx context.Context, symbol, interval string, candles []*exchange.Candle, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
 	p := backtest.MartingaleBacktestParams{
 		BaseAmount:    getFloatParam(params, "base_amount", 100),
 		Multiplier:    getFloatParam(params, "multiplier", 2),
@@ -175,10 +172,10 @@ func (u *UniversalOptimizer) runMartingale(symbol, interval string, candles []*e
 		TakeProfitPct: 1,
 		StopLossPct:   2,
 	}
-	return backtest.RunMartingaleBacktest(symbol, interval, candles, p, totalCapital)
+	return backtest.RunMartingaleBacktestContext(ctx, symbol, interval, candles, p, totalCapital)
 }
 
-func (u *UniversalOptimizer) runIndicatorStrategy(symbol string, candles []*exchange.Candle, strategy string, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
+func (u *UniversalOptimizer) runIndicatorStrategy(ctx context.Context, symbol string, candles []*exchange.Candle, strategy string, params map[string]interface{}, totalCapital float64) (*backtest.BacktestResult, error) {
 	var adapter backtest.StrategyAdapter
 	switch strategy {
 	case "momentum":
@@ -191,7 +188,7 @@ func (u *UniversalOptimizer) runIndicatorStrategy(symbol string, candles []*exch
 		return nil, fmt.Errorf("不支援的策略: %s", strategy)
 	}
 	bt := backtest.NewBacktester(symbol, candles, adapter, totalCapital)
-	return bt.Run()
+	return bt.RunContext(ctx)
 }
 
 func getFloatParam(m map[string]interface{}, key string, def float64) float64 {
@@ -240,6 +237,12 @@ func getIntParam(m map[string]interface{}, key string, def int) int {
 
 // Run 执行完整优化（阻塞），支持进度回调
 func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval string, candles []*exchange.Candle, space UniversalSearchSpace, totalCapital float64, onProgress func(completed, total int)) (*UniversalOptimResult, error) {
+	if _, err := CountUniversalParamCombos(space); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	combos := u.EnumerateParamCombos(space)
 	if len(combos) == 0 {
 		return nil, fmt.Errorf("搜索空间为空")
@@ -252,8 +255,10 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 
 	start := time.Now()
 	results := make([]UniversalParamResult, len(combos))
+	validResults := make([]bool, len(combos))
 	var mu sync.Mutex
 	completed := 0
+	failed := 0
 
 	type job struct {
 		idx   int
@@ -278,11 +283,14 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 				}
 				res, err := u.RunOne(ctx, symbol, interval, candles, space.Strategy, j.param, totalCapital)
 				pr := UniversalParamResult{Params: j.param}
-				if err != nil || res == nil {
-					pr.TotalReturn = math.Inf(-1)
-					pr.MaxDrawdown = 100
-					pr.SharpeRatio = math.Inf(-1)
-				} else {
+				valid := err == nil && res != nil
+				if valid {
+					// Results must survive persistence without NaN/Infinity silently
+					// contaminating rankings or failing the final JSON write.
+					_, metricErr := json.Marshal(res.Metrics)
+					valid = metricErr == nil
+				}
+				if valid {
 					pr.Metrics = res.Metrics
 					pr.TotalReturn = res.Metrics.TotalReturn
 					pr.MaxDrawdown = res.Metrics.MaxDrawdown
@@ -292,24 +300,33 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 				}
 				mu.Lock()
 				results[j.idx] = pr
-				completed++
-				curCompleted := completed
-				mu.Unlock()
-				if onProgress != nil {
-					onProgress(curCompleted, len(combos))
+				validResults[j.idx] = valid
+				if !valid {
+					failed++
 				}
+				completed++
+				if onProgress != nil {
+					onProgress(completed, len(combos))
+				}
+				mu.Unlock()
 			}
 		}()
 	}
 	wg.Wait()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	elapsed := time.Since(start)
 
 	// 过滤有效结果
 	var valid []UniversalParamResult
-	for _, r := range results {
-		if !math.IsInf(r.TotalReturn, -1) {
+	for i, r := range results {
+		if validResults[i] {
 			valid = append(valid, r)
 		}
+	}
+	if len(valid) == 0 {
+		return nil, fmt.Errorf("optimizer: no successful parameter evaluations (%d failed)", failed)
 	}
 
 	// 找最佳
@@ -334,7 +351,8 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 		BestBySharpe: bestBySharpe,
 		Elapsed:      elapsed,
 		TotalCombos:  len(combos),
-		Completed:    len(valid),
+		Completed:    completed,
+		Failed:       failed,
 	}, nil
 }
 

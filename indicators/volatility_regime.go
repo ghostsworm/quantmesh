@@ -41,13 +41,13 @@ func (vr VolatilityRegime) String() string {
 func (vr VolatilityRegime) Color() string {
 	switch vr {
 	case RegimeLow:
-		return "green"    // 绿色 - 安全
+		return "green" // 绿色 - 安全
 	case RegimeNormal:
-		return "blue"     // 蓝色 - 正常
+		return "blue" // 蓝色 - 正常
 	case RegimeHigh:
-		return "orange"   // 橙色 - 警告
+		return "orange" // 橙色 - 警告
 	case RegimeExtreme:
-		return "red"      // 红色 - 危险
+		return "red" // 红色 - 危险
 	default:
 		return "gray"
 	}
@@ -56,9 +56,9 @@ func (vr VolatilityRegime) Color() string {
 // VolatilityRegimeConfig 波动率区间检测配置
 type VolatilityRegimeConfig struct {
 	// 检测周期（单位：小时）
-	ShortPeriod int  // 短期波动率周期（默认 24 小时）
+	ShortPeriod  int // 短期波动率周期（默认 24 小时）
 	MediumPeriod int // 中期波动率周期（默认 3 天 = 72 小时）
-	LongPeriod int   // 长期波动率周期（默认 7 天 = 168 小时）
+	LongPeriod   int // 长期波动率周期（默认 7 天 = 168 小时）
 
 	// 波动率阈值（百分比）
 	LowThreshold     float64 // 低波动阈值（默认 1%）
@@ -67,7 +67,7 @@ type VolatilityRegimeConfig struct {
 	ExtremeThreshold float64 // 极端波动阈值（默认 10%）
 
 	// 价格范围检测（用于检测低波动）
-	PriceRangePeriod   int     // 价格范围检测周期（默认 3 天）
+	PriceRangePeriod    int     // 价格范围检测周期（默认 3 天）
 	PriceRangeThreshold float64 // 价格范围阈值（默认 1.5%）
 
 	// 波动率突变检测
@@ -81,18 +81,18 @@ type VolatilityRegimeConfig struct {
 // DefaultVolatilityRegimeConfig 返回默认配置
 func DefaultVolatilityRegimeConfig() VolatilityRegimeConfig {
 	return VolatilityRegimeConfig{
-		ShortPeriod:              24,
-		MediumPeriod:             72,  // 3天
-		LongPeriod:               168, // 7天
-		LowThreshold:             1.0,
-		NormalThreshold:          3.0,
-		HighThreshold:            5.0,
-		ExtremeThreshold:         10.0,
-		PriceRangePeriod:         72,  // 3天
-		PriceRangeThreshold:      1.5,
-		SuddenIncreaseThreshold:  2.0,
-		SuddenDecreaseThreshold:  0.5,
-		ConsecutivePeriods:       2,
+		ShortPeriod:             24,
+		MediumPeriod:            72,  // 3天
+		LongPeriod:              168, // 7天
+		LowThreshold:            1.0,
+		NormalThreshold:         3.0,
+		HighThreshold:           5.0,
+		ExtremeThreshold:        10.0,
+		PriceRangePeriod:        72, // 3天
+		PriceRangeThreshold:     1.5,
+		SuddenIncreaseThreshold: 2.0,
+		SuddenDecreaseThreshold: 0.5,
+		ConsecutivePeriods:      2,
 	}
 }
 
@@ -106,12 +106,12 @@ type VolatilityRegimeDetector struct {
 	volatilityHistory []VolatilityPoint
 
 	// 当前状态
-	currentRegime     VolatilityRegime
-	previousRegime    VolatilityRegime
-	consecutiveCount  int
+	currentRegime    VolatilityRegime
+	previousRegime   VolatilityRegime
+	consecutiveCount int
 
 	// 检测结果回调
-	onRegimeChange    func(VolatilityRegimeEvent)
+	onRegimeChange func(VolatilityRegimeEvent)
 }
 
 // PricePoint 价格数据点
@@ -125,26 +125,26 @@ type PricePoint struct {
 
 // VolatilityPoint 波动率数据点
 type VolatilityPoint struct {
-	Timestamp       time.Time
-	ShortVolatility float64 // 短期波动率
+	Timestamp        time.Time
+	ShortVolatility  float64 // 短期波动率
 	MediumVolatility float64 // 中期波动率
-	LongVolatility  float64 // 长期波动率
-	PriceRange      float64 // 价格范围百分比
-	Regime          VolatilityRegime
+	LongVolatility   float64 // 长期波动率
+	PriceRange       float64 // 价格范围百分比
+	Regime           VolatilityRegime
 }
 
 // VolatilityRegimeEvent 波动率区间变化事件
 type VolatilityRegimeEvent struct {
-	Timestamp       time.Time
-	OldRegime       VolatilityRegime
-	NewRegime       VolatilityRegime
-	TriggerReason   string
-	ShortVolatility float64
+	Timestamp        time.Time
+	OldRegime        VolatilityRegime
+	NewRegime        VolatilityRegime
+	TriggerReason    string
+	ShortVolatility  float64
 	MediumVolatility float64
-	LongVolatility  float64
-	PriceRange      float64
-	Recommendations []string
-	Severity        string // "info", "warning", "critical"
+	LongVolatility   float64
+	PriceRange       float64
+	Recommendations  []string
+	Severity         string // "info", "warning", "critical"
 }
 
 // NewVolatilityRegimeDetector 创建波动率区间检测器
@@ -154,11 +154,11 @@ func NewVolatilityRegimeDetector(config VolatilityRegimeConfig) *VolatilityRegim
 	}
 
 	return &VolatilityRegimeDetector{
-		config:         config,
-		priceHistory:   make([]PricePoint, 0, 1000),
+		config:            config,
+		priceHistory:      make([]PricePoint, 0, 1000),
 		volatilityHistory: make([]VolatilityPoint, 0, 1000),
-		currentRegime:  RegimeNormal,
-		previousRegime: RegimeNormal,
+		currentRegime:     RegimeNormal,
+		previousRegime:    RegimeNormal,
 	}
 }
 
@@ -169,35 +169,9 @@ func (vrd *VolatilityRegimeDetector) SetRegimeChangeCallback(callback func(Volat
 	vrd.onRegimeChange = callback
 }
 
-// UpdatePrice 更新价格数据
-func (vrd *VolatilityRegimeDetector) UpdatePrice(price, high, low, volume float64) {
-	vrd.mu.Lock()
-	defer vrd.mu.Unlock()
-
-	now := time.Now()
-	point := PricePoint{
-		Timestamp: now,
-		Price:     price,
-		High:      high,
-		Low:       low,
-		Volume:    volume,
-	}
-
-	vrd.priceHistory = append(vrd.priceHistory, point)
-
-	// 限制历史数据长度
-	maxLength := vrd.config.LongPeriod * 2 // 保留2倍长期周期的数据
-	if len(vrd.priceHistory) > maxLength {
-		vrd.priceHistory = vrd.priceHistory[len(vrd.priceHistory)-maxLength:]
-	}
-
-	// 检测波动率区间
-	vrd.detectRegime(now)
-}
-
 // detectRegime 检测波动率区间
 func (vrd *VolatilityRegimeDetector) detectRegime(timestamp time.Time) {
-	if len(vrd.priceHistory) < vrd.config.ShortPeriod {
+	if len(vrd.priceHistory) < vrd.windowHours()+1 {
 		return
 	}
 
@@ -220,19 +194,26 @@ func (vrd *VolatilityRegimeDetector) detectRegime(timestamp time.Time) {
 		Regime:           newRegime,
 	}
 	vrd.volatilityHistory = append(vrd.volatilityHistory, volPoint)
+	maxHistory := vrd.config.LongPeriod * 2
+	if maxHistory < 2 {
+		maxHistory = 2
+	}
+	if len(vrd.volatilityHistory) > maxHistory {
+		vrd.volatilityHistory = append([]VolatilityPoint(nil), vrd.volatilityHistory[len(vrd.volatilityHistory)-maxHistory:]...)
+	}
 
 	// 检查是否需要触发区间变化事件
 	if newRegime != vrd.currentRegime {
 		if newRegime == vrd.previousRegime {
-			// 确认变化
 			vrd.consecutiveCount++
-			if vrd.consecutiveCount >= vrd.config.ConsecutivePeriods {
-				vrd.triggerRegimeChange(volPoint)
-			}
 		} else {
-			// 首次检测到变化
-			vrd.previousRegime = vrd.currentRegime
+			// Track the candidate, not the unchanged current regime.
+			vrd.previousRegime = newRegime
 			vrd.consecutiveCount = 1
+		}
+		if vrd.consecutiveCount >= vrd.config.ConsecutivePeriods {
+			vrd.triggerRegimeChange(volPoint)
+			vrd.consecutiveCount = 0
 		}
 	} else {
 		vrd.consecutiveCount = 0
@@ -290,7 +271,8 @@ func (vrd *VolatilityRegimeDetector) triggerRegimeChange(volPoint VolatilityPoin
 
 	// 触发回调
 	if vrd.onRegimeChange != nil {
-		go vrd.onRegimeChange(event)
+		callback := vrd.onRegimeChange
+		go callback(event)
 	}
 }
 
@@ -375,12 +357,12 @@ func (vrd *VolatilityRegimeDetector) generateRecommendations(oldRegime, newRegim
 
 // calculateVolatility 计算指定周期的波动率（使用标准差）
 func (vrd *VolatilityRegimeDetector) calculateVolatility(period int) float64 {
-	if len(vrd.priceHistory) < period {
+	if period < 2 || len(vrd.priceHistory) < period+1 {
 		return 0
 	}
 
 	// 获取最近period个数据点
-	start := len(vrd.priceHistory) - period
+	start := len(vrd.priceHistory) - period - 1
 	points := vrd.priceHistory[start:]
 
 	// 计算收益率

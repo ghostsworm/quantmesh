@@ -163,7 +163,7 @@ const Orders: React.FC = () => {
     const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
     const fetchPendingOrders = async () => {
       try {
-        const data = await getPendingOrders(selectedExchange, selectedSymbol, mt)
+        const data = await getPendingOrders(selectedExchange ?? undefined, selectedSymbol ?? undefined, mt)
         setPendingOrders(data.orders || [])
         setPendingLeverage(data.leverage ?? 1)
       } catch (err) {
@@ -187,8 +187,8 @@ const Orders: React.FC = () => {
       
       try {
         const data = await getOrderHistory({
-          exchange: selectedExchange,
-          symbol: selectedSymbol,
+          exchange: selectedExchange ?? undefined,
+          symbol: selectedSymbol ?? undefined,
           market_type: mt,
           limit: 500,
           start_time: toRFC3339(historyStartTime),
@@ -256,7 +256,7 @@ const Orders: React.FC = () => {
   const refreshPendingOrders = async () => {
     try {
       const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
-      const data = await getPendingOrders(selectedExchange, selectedSymbol, mt)
+      const data = await getPendingOrders(selectedExchange ?? undefined, selectedSymbol ?? undefined, mt)
       setPendingOrders(data.orders || [])
       setPendingLeverage(data.leverage ?? 1)
     } catch (err) {
@@ -281,8 +281,8 @@ const Orders: React.FC = () => {
     try {
       const mt = selectedExchange && selectedSymbol ? (selectedMarketType ?? 'futures') : undefined
       const data = await getOrderHistory({
-        exchange: selectedExchange,
-        symbol: selectedSymbol,
+        exchange: selectedExchange ?? undefined,
+        symbol: selectedSymbol ?? undefined,
         market_type: mt,
         limit: 500,
         start_time: toRFC3339(historyStartTime),
@@ -867,7 +867,7 @@ const Orders: React.FC = () => {
                 <Text fontSize="sm" fontWeight="medium" mb={2}>{t('orders.timeRange')}</Text>
                 <Text fontSize="xs" color="gray.500" mb={2}>{t('orders.timeRangeFilterHint')}</Text>
                 <Flex gap={2} wrap="wrap" align="center">
-                  <FormControl isInvalid={!validateTimeRange().valid && historyStartTime && historyEndTime} maxW="200px">
+                  <FormControl isInvalid={Boolean(!validateTimeRange().valid && historyStartTime && historyEndTime)} maxW="200px">
                     <FormLabel fontSize="xs">{t('orders.startTime')}</FormLabel>
                     <Input
                       type="datetime-local"
@@ -879,7 +879,7 @@ const Orders: React.FC = () => {
                       <FormErrorMessage fontSize="xs">{validateTimeRange().error}</FormErrorMessage>
                     )}
                   </FormControl>
-                  <FormControl isInvalid={!validateTimeRange().valid && historyStartTime && historyEndTime} maxW="200px">
+                  <FormControl isInvalid={Boolean(!validateTimeRange().valid && historyStartTime && historyEndTime)} maxW="200px">
                     <FormLabel fontSize="xs">{t('orders.endTime')}</FormLabel>
                     <Input
                       type="datetime-local"

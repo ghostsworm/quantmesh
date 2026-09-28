@@ -13,6 +13,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/logger"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -44,6 +45,7 @@ type BatchPlaceOrdersResult struct {
 	PlacedOrders     []*Order        // 成功下單的订單列表
 	HasMarginError   bool            // 是否出現保证金不足錯误
 	ReduceOnlyErrors map[string]bool // ReduceOnly錯误的订單（key為ClientOrderID）
+	UnknownOrders    map[string]bool // 結果不確定，必須保留槽位與資金
 }
 
 // OrderExecutorInterface 订單執行器介面（避免循環匯入）
@@ -58,6 +60,8 @@ type OrderExecutorInterface interface {
 type OrderRequest struct {
 	Symbol        string
 	Side          string
+	Type          string // empty=LIMIT, MARKET allowed only through capable executors
+	TimeInForce   string
 	Price         float64
 	Quantity      float64
 	PriceDecimals int    // 價格小數位數（用於格式化價格字符串）
@@ -68,6 +72,8 @@ type OrderRequest struct {
 	StrategyName  string // 策略名称（可選，用於日志追踪）
 	StrategyType  string // 策略類型（可選，如 "grid", "dca", "martingale"）
 	OrderSource   string // 订單來源（"normal"=正常限價, "stop_loss"=止損平倉, "liquidation"=強制平倉）
+	ExposureKey   string // stable owned inventory lot for pending-inclusive risk admission
+	BotWideClose  bool   // explicit Bot-owned manual close, not strategy-generated
 }
 
 // OrderRequest.PositionSide 取值
@@ -86,6 +92,8 @@ type Order struct {
 	Quantity      float64
 	Status        string
 	CreatedAt     time.Time
+	ExecutedQty   float64
+	AvgPrice      float64
 }
 
 // 订單状態常量
@@ -97,6 +105,7 @@ const (
 	OrderStatusFilled          = "FILLED"           // 全部成交
 	OrderStatusCancelRequested = "CANCEL_REQUESTED" // 已申请撤單
 	OrderStatusCanceled        = "CANCELED"         // 已撤單
+	OrderStatusUnknown         = "UNKNOWN"          // 提交可能已受理，待核實
 )
 
 // 持倉状態常量
@@ -126,13 +135,14 @@ type InventorySlot struct {
 	PositionQty    float64 // 持倉數量（支援小數点后3位）
 
 	// 订單信息 (買賣互斥)
-	OrderID        int64     // 订單ID
-	ClientOID      string    // 自定义订單ID
-	OrderSide      string    // 订單方向 (BUY/SELL)
-	OrderStatus    string    // 订單状態
-	OrderPrice     float64   // 订單價格
-	OrderFilledQty float64   // 成交數量
-	OrderCreatedAt time.Time // 創建時间
+	OrderID             int64     // 订單ID
+	ClientOID           string    // 自定义订單ID
+	OrderSide           string    // 订單方向 (BUY/SELL)
+	OrderStatus         string    // 订單状態
+	OrderPrice          float64   // 订單價格
+	OrderFilledQty      float64   // 成交數量
+	OrderFilledNotional float64   // 已處理累計成交額，與 OrderFilledQty 同一游標
+	OrderCreatedAt      time.Time // 創建時间
 
 	// 🔥 新增：槽位鎖定状態，防止並发重複操作
 	SlotStatus string // FREE/PENDING/LOCKED
@@ -146,8 +156,9 @@ type InventorySlot struct {
 
 	// feeClientOID/orderCommission 當前訂單（按 ClientOrderID）已由推送累計的手續費，
 	// 用於判斷是否需要 REST 補查手續費，避免推送已帶手續費時補查重複累加。
-	feeClientOID    string
-	orderCommission float64
+	feeClientOID        string
+	orderCommission     float64
+	feeValuationUnknown bool
 	// orderBaseFeeQty 當前訂單推送已攜帶並已從持倉扣除的基礎幣手續費數量（防止 REST 補查重複扣減）
 	orderBaseFeeQty float64
 	// cycleGen 持倉週期代號：槽位持倉清空（平倉完成/強制同步清倉）時遞增。
@@ -159,6 +170,8 @@ type InventorySlot struct {
 	// lastFilledClientOID 最近一筆已完全成交（FILLED）的 ClientOrderID：
 	// 槽位訂單信息重置後，同一訂單的重放/延遲推送不得再次記賬。
 	lastFilledClientOID string
+	// Terminal execution survives clearing the active cursor for REST/WS checks.
+	lastTerminalFill FillProgress
 	// baseFeeUnfloored 當前開倉訂單扣過現貨基礎幣手續費、持倉尚未按數量精度向下取整
 	baseFeeUnfloored bool
 
@@ -263,11 +276,13 @@ type FundingMonitor interface {
 
 // SuperPositionManager 超级倉位管理器
 type SuperPositionManager struct {
-	config       *config.Config
-	executor     OrderExecutorInterface
-	exchange     IExchange
-	exchangeName string // 交易所名称（配置中的名称，如 "binance"）
-	botID        string // Bot 唯一標識，用於日誌區分同交易所同幣多實例
+	config                *config.Config
+	riskControls          atomic.Pointer[config.RiskControls]
+	volatilityPauseReason atomic.Value // string; independent of manual/scheduled pauses
+	executor              OrderExecutorInterface
+	exchange              IExchange
+	exchangeName          string // 交易所名称（配置中的名称，如 "binance"）
+	botID                 string // Bot 唯一標識，用於日誌區分同交易所同幣多實例
 
 	// 策略信息（用於追踪订單来源）
 	strategyName string // 策略名称（如 "Grid-BTCUSDT-1"）
@@ -337,6 +352,7 @@ type SuperPositionManager struct {
 	openingPauseReason atomic.Value // string - 暫停原因
 	// openingPauseMu 串行化暫停狀態的「檢查原因 + 修改」，供按來源的條件暫停/恢復使用
 	openingPauseMu sync.Mutex
+	openingGate    execution.OpeningGate
 
 	// 資金費率監控器（可選，用於費率偏向策略）
 	fundingMonitor FundingMonitor
@@ -363,6 +379,11 @@ type SuperPositionManager struct {
 
 	// 關閉條件：滿足時調用此回調以停止 Bot（由 symbol_manager 注入）
 	requestStopFunc func()
+	protective      protectiveLiquidation
+
+	liquidationMu                  sync.Mutex
+	liquidationActive              atomic.Bool
+	liquidationNeedsReconciliation atomic.Bool
 
 	// 時鐘（默認牆鐘；回放注入模擬時鐘，見 clock.go）
 	clk clockHolder
@@ -423,6 +444,10 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 	spm.totalSellQty.Store(0.0)
 	spm.lastReconcileTime.Store(time.Now())
 	spm.lastMarketPrice.Store(0.0)
+	if cfg.Trading.OpenPositionControl.PauseOpening ||
+		(cfg.Trading.OpenPositionControl.BotRiskControl != nil && cfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening) {
+		spm.setOpeningPausedLocked("configured opening pause")
+	}
 
 	// 現貨不支援賣開空，BOTH 降級為 LONG
 	if strings.EqualFold(cfg.Trading.Direction, "BOTH") && cfg.Trading.MarketType == "spot" {
@@ -450,12 +475,14 @@ func (spm *SuperPositionManager) logPrefix() string {
 
 // Pause 暂停交易
 func (spm *SuperPositionManager) Pause() {
+	spm.openingGate.Block("trading_pause")
 	spm.isPaused.Store(true)
 	logger.Warn("⏸️ [%s] 倉位管理器已暂停交易", spm.logPrefix())
 }
 
 // Resume 恢複交易
 func (spm *SuperPositionManager) Resume() {
+	spm.openingGate.Unblock("trading_pause")
 	spm.isPaused.Store(false)
 	spm.markAdjustDirty()
 	logger.Info("▶️ [%s] 倉位管理器已恢複交易", spm.logPrefix())
@@ -503,11 +530,13 @@ func (spm *SuperPositionManager) ResumeOpeningIfOwned(owned func(reason string) 
 }
 
 func (spm *SuperPositionManager) setOpeningPausedLocked(reason string) {
+	spm.openingGate.Block("opening_manager")
 	spm.isOpeningPaused.Store(true)
 	spm.openingPauseReason.Store(reason)
 }
 
 func (spm *SuperPositionManager) clearOpeningPausedLocked() {
+	spm.openingGate.Unblock("opening_manager")
 	spm.isOpeningPaused.Store(false)
 	spm.openingPauseReason.Store("")
 }
@@ -521,65 +550,7 @@ func (spm *SuperPositionManager) afterOpeningPaused(reason string) {
 	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
 
-	// 為了確保萬無一失，特別是在幣安合約等場景，
-	// 如果本地 slots 狀態同步有延遲，直接調用交易所接口撤銷開倉方向的所有訂單
-	go func() {
-		// 延遲一小段時間，等待可能的本地狀態更新
-		spm.sleep(pauseResidualCancelDelay)
-
-		openSideBuy := "BUY"
-		if spm.isShort() {
-			openSideBuy = "SELL"
-		}
-
-		// 網絡超時保持牆鐘
-		ctx, cancel := context.WithTimeout(context.Background(), pauseResidualCancelTimeout)
-		defer cancel()
-
-		// 獲取交易所所有掛單
-		openOrdersInterface, err := spm.exchange.GetOpenOrders(ctx, spm.config.Trading.Symbol)
-		if err != nil {
-			logger.Error("❌ [%s] 暫停開倉時獲取掛單失敗: %v", spm.logPrefix(), err)
-			return
-		}
-
-		var toCancel []int64
-
-		v := reflect.ValueOf(openOrdersInterface)
-		if v.Kind() == reflect.Slice {
-			for i := 0; i < v.Len(); i++ {
-				orderVal := v.Index(i)
-				if orderVal.Kind() == reflect.Ptr {
-					orderVal = orderVal.Elem()
-				}
-
-				if orderVal.Kind() == reflect.Struct {
-					sideField := orderVal.FieldByName("Side")
-					idField := orderVal.FieldByName("OrderID")
-
-					if sideField.IsValid() && idField.IsValid() {
-						sideStr := fmt.Sprintf("%v", sideField.Interface())
-						if spm.isBoth() {
-							if sideStr == "BUY" || sideStr == "SELL" {
-								toCancel = append(toCancel, idField.Int())
-							}
-						} else if sideStr == openSideBuy {
-							toCancel = append(toCancel, idField.Int())
-						}
-					}
-				}
-			}
-		}
-
-		if len(toCancel) > 0 {
-			logger.Warn("🔄 [%s] 暫停開倉：發現 %d 個殘留開倉委託，正在強制撤銷", spm.logPrefix(), len(toCancel))
-			if err := spm.executor.BatchCancelOrders(toCancel); err != nil {
-				logger.Error("❌ [%s] 強制撤銷殘留委託失敗: %v", spm.logPrefix(), err)
-			} else {
-				logger.Info("✅ [%s] 強制撤銷殘留委託完成", spm.logPrefix())
-			}
-		}
-	}()
+	go spm.CancelResidualOpeningOrders()
 }
 
 // ResumeOpening 恢復開倉
@@ -592,6 +563,12 @@ func (spm *SuperPositionManager) ResumeOpening() {
 
 func (spm *SuperPositionManager) afterOpeningResumed() {
 	spm.markAdjustDirty()
+	if spm.IsOpeningPaused() {
+		reason := spm.GetOpeningPauseReason()
+		logger.Warn("[%s] 恢復請求已處理，但獨立風控仍阻止開倉: %s", spm.logPrefix(), reason)
+		storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, "opening_manager")
+		return
+	}
 	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
 
 	storage.AppendBotRiskControlEvent(spm.botID, "resumed", "", "opening_manager")
@@ -599,16 +576,60 @@ func (spm *SuperPositionManager) afterOpeningResumed() {
 
 // IsOpeningPaused 是否已暫停開倉
 func (spm *SuperPositionManager) IsOpeningPaused() bool {
-	return spm.isOpeningPaused.Load()
+	return spm.isOpeningPaused.Load() || spm.openingGate.Blocked()
+}
+
+// OpeningGate is shared by every strategy executor belonging to this bot.
+func (spm *SuperPositionManager) OpeningGate() *execution.OpeningGate {
+	return &spm.openingGate
 }
 
 // GetOpeningPauseReason 獲取開倉暫停原因
 func (spm *SuperPositionManager) GetOpeningPauseReason() string {
-	v := spm.openingPauseReason.Load()
-	if v == nil {
-		return ""
+	if spm.openingGate.HasBlock("strategy_accounting_unverified") {
+		return "策略成交账未核实，等待策略持仓与交易所成交对账"
 	}
-	return v.(string)
+	if spm.openingGate.HasBlock("strategy_startup_unverified") {
+		return "策略启动或状态恢复失败，等待运行态核实"
+	}
+	v := spm.openingPauseReason.Load()
+	if v != nil && v.(string) != "" {
+		return v.(string)
+	}
+	if spm.openingGate.HasBlock("unknown_orders") {
+		return "訂單結果 UNKNOWN，等待成交與持倉核實"
+	}
+	if spm.openingGate.HasBlock("trade_ledger_unverified") {
+		return "成交账本持久化失败，等待财务记录与持仓对账"
+	}
+	if spm.openingGate.HasBlock(liquidationBlockSource) {
+		return "全平倉尚未完成核實，等待成交與持倉對賬"
+	}
+	if spm.openingGate.HasBlock(protectiveLiquidationBlock) {
+		return "保護性平倉已觸發；完成後須明確恢復，失敗時須先對賬"
+	}
+	if spm.openingGate.HasBlock(execution.UnverifiedCancellationBlock) {
+		return "殘餘開倉單尚未確認終止，等待撤單核實"
+	}
+	if spm.openingGate.HasBlock("market_risk") {
+		return "行情或深度風控尚未解除"
+	}
+	if spm.openingGate.HasBlock(priceFeedStaleBlock) {
+		return "價格推送已過期，新開倉已封鎖，等待行情恢復"
+	}
+	if spm.openingGate.HasBlock(volatilityRiskBlock) {
+		if reason := spm.volatilityPauseReason.Load(); reason != nil {
+			return reason.(string)
+		}
+		return "波动率暂停：等待行情核实"
+	}
+	if spm.openingGate.HasBlock(equityDataBlock) {
+		return "帳戶權益、現金流水或高水位持久化尚未核實"
+	}
+	if spm.openingGate.Blocked() {
+		return "其他風控來源仍暫停開倉"
+	}
+	return ""
 }
 
 // CancelAllOpenOrders 撤銷所有開倉委託（根據 direction 自動判斷 BUY 或 SELL）
@@ -623,8 +644,8 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 		slot.mu.RLock()
 		match := false
 		if spm.isBoth() {
-			// 空槽上的買開或賣開
-			if slot.PositionStatus == PositionStatusEmpty && slot.PositionQty < 1e-12 &&
+			// 已部分成交的開倉餘單仍需撤銷，不能只檢查空槽。
+			if bothSideIsOpen(slot.OrderSide, slot) &&
 				slot.OrderID > 0 &&
 				slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
 				match = slot.OrderSide == "BUY" || slot.OrderSide == "SELL"
@@ -664,13 +685,15 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 		}
 		if err := spm.executor.BatchCancelOrders(orderIDs); err != nil {
 			logger.Error("❌ [開倉管理] 批量撤單失敗: %v", err)
-		}
-
-		for _, price := range prices {
-			slot := spm.getOrCreateSlot(price)
-			slot.mu.Lock()
-			slot.OrderStatus = OrderStatusCancelRequested
-			slot.mu.Unlock()
+		} else {
+			for _, price := range prices {
+				slot := spm.getOrCreateSlot(price)
+				slot.mu.Lock()
+				if slot.OrderStatus != OrderStatusFilled && slot.OrderStatus != OrderStatusCanceled {
+					slot.OrderStatus = OrderStatusCancelRequested
+				}
+				slot.mu.Unlock()
+			}
 		}
 
 		// 按注入時鐘等待撤單回報；回放中不真實等待
@@ -685,7 +708,7 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 				slot.mu.RLock()
 				match := false
 				if spm.isBoth() {
-					if slot.PositionStatus == PositionStatusEmpty && slot.PositionQty < 1e-12 &&
+					if bothSideIsOpen(slot.OrderSide, slot) &&
 						slot.OrderID > 0 &&
 						slot.OrderStatus != OrderStatusCanceled && slot.OrderStatus != OrderStatusCancelRequested {
 						match = slot.OrderSide == "BUY" || slot.OrderSide == "SELL"
@@ -706,7 +729,7 @@ func (spm *SuperPositionManager) CancelAllOpenOrders() {
 				return true
 			})
 			if len(orderIDs) == 0 {
-				logger.Info("✅ [開倉管理] 所有開倉委託已清理完成")
+				logger.Info("[開倉管理] 本輪撤單請求已提交，終態仍以回報與查單核實為準")
 				break
 			}
 			logger.Warn("⚠️ [開倉管理] 檢測到 %d 個殘留委託，繼續清理", len(orderIDs))
@@ -1220,7 +1243,6 @@ func (spm *SuperPositionManager) SetSpotInventoryPolicy(p string) {
 	spm.config.Trading.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(p)
 }
 
-
 // normalizeOrderStatus 將各交易所訂單狀態統一為 SPM 內使用的枚舉（與 Binance 等一致的大寫）。
 // OKX v5 WebSocket 的 state 為 live / partially_filled / filled / canceled（小寫+下劃線），
 // 若不在此處歸一化，OnOrderUpdate 的 switch 無法命中，槽位會永久卡在 CANCEL_REQUESTED+LOCKED。
@@ -1251,7 +1273,6 @@ func normalizeOrderStatus(s string) string {
 		return strings.ToUpper(strings.ReplaceAll(lower, " ", "_"))
 	}
 }
-
 
 // getOrCreateSlot 獲取或創建槽位
 func (spm *SuperPositionManager) getOrCreateSlot(price float64) *InventorySlot {
@@ -1921,7 +1942,6 @@ func (spm *SuperPositionManager) GetLeverage() int {
 
 	return leverage
 }
-
 
 // 辅助函數
 // roundPrice 價格四舍五入

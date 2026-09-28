@@ -194,7 +194,7 @@ func TestSimExchange_PartialFillsByParticipation(t *testing.T) {
 	if len(ups) != 1 || ups[0].Status != statusFilled || math.Abs(ups[0].ExecutedQty-1) > testFloatDelta {
 		t.Fatalf("want final fill to 1.0, got %+v", ups)
 	}
-	if ups[0].Commission <= 0 || ups[0].AvgPrice != 1990 {
+	if ups[0].Commission <= 0 || math.Abs(ups[0].AvgPrice-1990) > testFloatDelta {
 		t.Fatalf("fill must be at limit price with maker commission, got %+v", ups[0])
 	}
 }

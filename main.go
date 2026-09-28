@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc1"
+var Version = "3.111.0-rc207"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -337,6 +337,10 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 			Running:       true,
 			Exchange:      exchange,
 			Symbol:        symbol,
+			MarketType:    rt.Config.GetMarketType(),
+			QuoteAsset:    rt.Exchange.GetQuoteAsset(),
+			BaseAsset:     rt.Exchange.GetBaseAsset(),
+			AccountScope:  rt.AccountScope,
 			CurrentPrice:  0,
 			TotalPnL:      0,
 			TotalTrades:   0,
@@ -534,7 +538,7 @@ func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.
 	defer cancel()
 
 	// 調用平倉函數並獲取結果
-	successCount, failCount, err := closeAllPositionsWithResult(ctx, rt.Exchange, symbol, rt.PriceMonitor)
+	successCount, failCount, err := a.manager.closeLegacyPositions(ctx, rt)
 	if err != nil {
 		return nil, err
 	}
@@ -1917,6 +1921,9 @@ func main() {
 				Exchange:      rt.Config.Exchange,
 				Symbol:        rt.Config.Symbol,
 				MarketType:    marketType,
+				QuoteAsset:    rt.Exchange.GetQuoteAsset(),
+				BaseAsset:     rt.Exchange.GetBaseAsset(),
+				AccountScope:  rt.AccountScope,
 				CurrentPrice:  0,
 				TotalPnL:      0,
 				TotalTrades:   0,
@@ -2051,7 +2058,7 @@ func main() {
 
 			// 資金費用同步：定時從交易所拉取 FUNDING_FEE 並寫入 funding_payments
 			go startFundingIncomeSync(ctx, storageService.GetStorage(), firstRuntime.Exchange,
-				firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID)
+				firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID, firstRuntime.AccountMarketType, firstRuntime.AccountScope)
 
 			// 初始化價差監控（支持數據庫配置覆蓋 config.yaml，UI 可動態啟停）
 			logger.Info("🔍 初始化價差監控...")
@@ -2710,34 +2717,34 @@ func main() {
 		})
 	}
 
-	// 🔥 第一优先级：撤销各交易對的订單（僅在配置完整時）
+	// Seal every runtime before any cancellation/close. Do not sweep a shared
+	// account's symbol orders: other Bots and manual protection are not ours.
 	if configComplete {
-		if cfg.System.CancelOnExit {
-			for _, rt := range symbolManager.List() {
-				logger.Info("🔄 [%s:%s] 正在撤销所有订單...", rt.Config.Exchange, rt.Config.Symbol)
-				cancelCtx, cancelTimeout := context.WithTimeout(context.Background(), 10*time.Second)
-				if err := rt.Exchange.CancelAllOrders(cancelCtx, rt.Config.Symbol); err != nil {
-					logger.Error("❌ [%s:%s] 撤销订單失败: %v", rt.Config.Exchange, rt.Config.Symbol, err)
-				} else {
-					logger.Info("✅ [%s:%s] 已撤销所有订單", rt.Config.Exchange, rt.Config.Symbol)
-				}
-				cancelTimeout()
-			}
+		processShutdownCtx, processShutdownCancel := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
+		sealCtx, sealCancel := context.WithTimeout(processShutdownCtx, runtimeShutdownPrepareTimeout)
+		runtimes, sealErr := symbolManager.GetBotManager().sealProcessRuntimes(sealCtx)
+		sealCancel()
+		if sealErr != nil {
+			logger.Error("Bot 启停尚未排空，不追加账户平仓: %v", sealErr)
+		}
+		if err := prepareProcessShutdown(processShutdownCtx, runtimes, cfg.System.CancelOnExit || cfg.System.ClosePositionsOnExit); err != nil {
+			logger.Error("退出准备不完整，相关账户保留待对账状态，不追加平仓: %v", err)
 		}
 
 		// 🔥 平倉（可選）
 		// 與 Bot 級 close_on_stop 互斥（見 runProcessLevelCloseOnExit），避免同一持倉被提交兩輪平倉單
-		runProcessLevelCloseOnExit(cfg.System.ClosePositionsOnExit, symbolManager.List(),
-			func(ctx context.Context, rt *SymbolRuntime) (int, error) {
-				return closeAllPositions(ctx, rt.Exchange, rt.Config.Symbol, rt.PriceMonitor)
+		runProcessLevelCloseOnExitContext(processShutdownCtx, cfg.System.ClosePositionsOnExit, runtimes,
+			func(ctx context.Context, group []*SymbolRuntime) error {
+				return closeProcessRuntimeGroup(ctx, group)
 			})
-
 		// 🔥 停止所有交易對组件
-		for _, rt := range symbolManager.List() {
+		for _, rt := range runtimes {
+			rt.setShutdownContext(processShutdownCtx)
 			if rt.Stop != nil {
 				rt.Stop()
 			}
 		}
+		processShutdownCancel()
 	}
 
 	// 🔥 第三优先级：停止所有协程（取消 context）

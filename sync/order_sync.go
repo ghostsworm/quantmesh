@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"quantmesh/exchange"
-	"quantmesh/exchange/binance"
 	"quantmesh/logger"
 	"quantmesh/storage"
 )
@@ -22,11 +21,17 @@ type OrderSyncService struct {
 	symbol       string
 	accountID    string
 	exchangeName string
+	marketType   string
+	accountScope string
 	syncInterval time.Duration
-	lastSyncTime time.Time
 	mu           sync.RWMutex
 	isRunning    bool
 	stopC        chan struct{}
+}
+
+func (s *OrderSyncService) SetTradeScope(marketType, accountScope string) {
+	s.marketType = marketType
+	s.accountScope = accountScope
 }
 
 // NewOrderSyncService 创建订单同步服务
@@ -132,70 +137,168 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 		return nil
 	}
 
-	s.mu.Lock()
-	lastSync := s.lastSyncTime
-	s.mu.Unlock()
+	const maxHistoryWindow = 24*time.Hour - time.Second
+	now := time.Now().UTC()
+	start := now.Add(-maxHistoryWindow)
+	startTime := start.UnixMilli()
+	endTime := now.UnixMilli()
 
-	// 同步最近1天的数据
-	startTime := time.Now().Add(-1 * 24 * time.Hour).UnixMilli()
-	if !lastSync.IsZero() {
-		// 从上次同步时间开始，往前推10分钟（避免遗漏）
-		startTime = lastSync.Add(-10 * time.Minute).UnixMilli()
+	historySource, ok := s.exchange.(exchange.OrderHistoryPageSource)
+	if !ok {
+		return fmt.Errorf("order history sync is unsupported for exchange %q: paginated execution history is unavailable", s.exchangeName)
 	}
-	endTime := time.Now().UnixMilli()
 
+	// Each source owns venue-specific cursor semantics; coverage advances only at an explicit terminal page.
+	const pageSize = 100
+	const maxTradePages = 1000
+	if s.marketType == "" || s.accountScope == "" {
+		return fmt.Errorf("order synchronization requires complete account scope")
+	}
+	coverageReader, ok := s.storage.(interface {
+		GetOrderFillCoverage(exchange, marketType, symbol, accountScope string) (*storage.OrderFillCoverage, error)
+	})
+	if !ok {
+		return fmt.Errorf("order synchronization requires persistent history coverage")
+	}
+	coverageWriter, ok := s.storage.(interface {
+		AdvanceOrderFillCoverage(exchange, marketType, symbol, accountScope string, from, through time.Time) error
+	})
+	if !ok {
+		return fmt.Errorf("order synchronization requires persistent history coverage")
+	}
+	coverage, err := coverageReader.GetOrderFillCoverage(s.exchangeName, s.marketType, s.symbol, s.accountScope)
+	if err != nil {
+		return fmt.Errorf("load persistent history coverage: %w", err)
+	}
+	if coverage != nil {
+		start = coverage.CoveredThrough.Add(-10 * time.Minute)
+		startTime = start.UnixMilli()
+	}
+	if windowEnd := start.Add(maxHistoryWindow); windowEnd.UnixMilli() < endTime {
+		endTime = windowEnd.UnixMilli()
+	}
 	logger.Info("🔄 [订单同步] 开始同步订单 (symbol=%s, startTime=%s, endTime=%s)",
 		s.symbol, time.UnixMilli(startTime).Format("2006-01-02 15:04:05"),
 		time.UnixMilli(endTime).Format("2006-01-02 15:04:05"))
-
-	// 检查是否是币安交易所（通过类型断言获取GetAdapter方法）
-	type adapterGetter interface {
-		GetAdapter() interface{}
-	}
-
-	adapterGetterImpl, ok := s.exchange.(adapterGetter)
+	orderIDReader, ok := s.storage.(interface {
+		GetExistingOrderIDsForScope(exchange, marketType, symbol, accountScope string, orderIDs []int64) (map[int64]bool, error)
+	})
 	if !ok {
-		logger.Warn("⚠️ [订单同步] 当前交易所不支持订单同步: %s", s.exchangeName)
-		return nil
+		return fmt.Errorf("order synchronization requires scoped order lookup storage")
 	}
-
-	// 获取币安adapter
-	adapter := adapterGetterImpl.GetAdapter()
-	if adapter == nil {
-		return fmt.Errorf("无法获取币安adapter")
-	}
-
-	binanceAdapterImpl, ok := adapter.(*binance.BinanceAdapter)
+	fillWriter, ok := s.storage.(interface {
+		SaveOrderFill(*storage.OrderFill) error
+	})
 	if !ok {
-		return fmt.Errorf("adapter类型错误，期望 *binance.BinanceAdapter，实际: %T", adapter)
+		return fmt.Errorf("order synchronization requires idempotent execution-ledger storage")
 	}
-
-	// 获取用户成交记录（限制500条）
-	trades, err := binanceAdapterImpl.GetUserTrades(ctx, s.symbol, startTime, endTime, 500)
-	if err != nil {
-		return fmt.Errorf("获取用户成交记录失败: %w", err)
+	cursor := ""
+	var totalTrades, syncedOrders int
+	complete := false
+	for page := 0; page < maxTradePages; page++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("order history sync canceled before all pages were collected: %w", err)
+		}
+		result, err := historySource.GetOrderHistoryPage(ctx, s.symbol, startTime, endTime, cursor, pageSize)
+		if err != nil {
+			return fmt.Errorf("fetch %s execution history page %d: %w", s.exchangeName, page+1, err)
+		}
+		if len(result.Fills) == 0 {
+			if result.HasMore {
+				return fmt.Errorf("%s returned an empty execution page with more pages available", s.exchangeName)
+			}
+			complete = true
+			break
+		}
+		inWindow := make([]*exchange.OrderFill, 0, len(result.Fills))
+		pastWindow := false
+		for _, row := range result.Fills {
+			if row == nil || row.TradeID == "" || row.OrderID <= 0 || row.TradeTime <= 0 || row.Symbol != s.symbol {
+				return fmt.Errorf("exchange returned an invalid execution history row")
+			}
+			if row.TradeTime < startTime {
+				return fmt.Errorf("exchange returned execution older than requested history window")
+			}
+			if row.TradeTime > endTime {
+				pastWindow = true
+				continue
+			}
+			inWindow = append(inWindow, row)
+		}
+		added, err := s.persistTradePage(inWindow, orderIDReader, fillWriter)
+		if err != nil {
+			return fmt.Errorf("persist order history page %d: %w", page+1, err)
+		}
+		totalTrades += len(inWindow)
+		syncedOrders += added
+		if pastWindow || !result.HasMore {
+			complete = true
+			break
+		}
+		if result.NextCursor == "" || result.NextCursor == cursor {
+			return fmt.Errorf("%s returned an invalid execution pagination cursor", s.exchangeName)
+		}
+		cursor = result.NextCursor
+		if page == maxTradePages-1 {
+			return fmt.Errorf("order history exceeded %d pages; refusing to advance sync watermark", maxTradePages)
+		}
 	}
-
-	if len(trades) == 0 {
+	if !complete {
+		return fmt.Errorf("order history pagination ended without a completeness boundary")
+	}
+	if totalTrades == 0 {
 		logger.Debug("📭 [订单同步] 没有新的成交记录")
-		s.mu.Lock()
-		s.lastSyncTime = time.Now()
-		s.mu.Unlock()
-		return nil
+	} else {
+		logger.Info("📊 [订单同步] 完整读取 %d 条成交记录", totalTrades)
 	}
+	if err := coverageWriter.AdvanceOrderFillCoverage(s.exchangeName, s.marketType, s.symbol, s.accountScope,
+		time.UnixMilli(startTime).UTC(), time.UnixMilli(endTime).UTC()); err != nil {
+		return fmt.Errorf("persist complete history coverage: %w", err)
+	}
+	if syncedOrders > 0 {
+		logger.Info("✅ [订单同步] 同步完成: 新增 %d 个订单", syncedOrders)
+	}
+	return nil
+}
 
-	logger.Info("📊 [订单同步] 获取到 %d 条成交记录", len(trades))
-
-	// 获取数据库中已存在的订单ID集合
-	existingOrderIDs, err := s.getExistingOrderIDs(ctx)
+func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderIDReader interface {
+	GetExistingOrderIDsForScope(exchange, marketType, symbol, accountScope string, orderIDs []int64) (map[int64]bool, error)
+}, fillWriter interface {
+	SaveOrderFill(*storage.OrderFill) error
+}) (int, error) {
+	orderIDs := make([]int64, 0, len(trades))
+	seenOrderIDs := make(map[int64]bool, len(trades))
+	for _, trade := range trades {
+		if trade == nil {
+			return 0, fmt.Errorf("exchange returned an empty trade record")
+		}
+		if trade.TradeID == "" || trade.OrderID <= 0 || trade.TradeTime <= 0 || trade.Symbol != s.symbol {
+			return 0, fmt.Errorf("exchange returned a trade without valid identity, time, or requested symbol")
+		}
+		if !seenOrderIDs[trade.OrderID] {
+			orderIDs = append(orderIDs, trade.OrderID)
+			seenOrderIDs[trade.OrderID] = true
+		}
+	}
+	existingOrderIDs, err := orderIDReader.GetExistingOrderIDsForScope(s.exchangeName, s.marketType, s.symbol, s.accountScope, orderIDs)
 	if err != nil {
-		logger.Warn("⚠️ [订单同步] 获取已存在订单ID失败: %v", err)
-		existingOrderIDs = make(map[int64]bool)
+		return 0, fmt.Errorf("query scoped existing orders: %w", err)
 	}
-
-	// 同步缺失的订单
 	syncedCount := 0
 	for _, trade := range trades {
+		fill := &storage.OrderFill{
+			Exchange: s.exchangeName, MarketType: s.marketType, AccountScope: s.accountScope,
+			Account: s.accountID, Symbol: trade.Symbol, TradeID: trade.TradeID,
+			OrderID: trade.OrderID, Side: string(trade.Side), Price: trade.Price, Quantity: trade.Quantity,
+			QuoteQuantity: trade.QuoteQuantity,
+			Commission:    trade.Commission, CommissionAsset: trade.CommissionAsset,
+			CommissionQuote: trade.CommissionQuote, CommissionQuoteRate: trade.CommissionQuoteRate, CommissionQuoteKnown: trade.CommissionQuoteKnown,
+			RealizedPnL: &trade.RealizedPnL, TradeTime: time.UnixMilli(trade.TradeTime).UTC(),
+		}
+		if err := fillWriter.SaveOrderFill(fill); err != nil {
+			return syncedCount, fmt.Errorf("persist exchange execution %s: %w", trade.TradeID, err)
+		}
+
 		// 检查订单是否已存在
 		if existingOrderIDs[trade.OrderID] {
 			continue
@@ -212,53 +315,27 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 			ClientOrderID: "", // 成交记录中没有ClientOrderID
 			Symbol:        trade.Symbol,
 			Side:          string(trade.Side),
-			Exchange:      "binance",
+			Exchange:      s.exchangeName,
+			Account:       s.accountID,
+			MarketType:    s.marketType,
+			AccountScope:  s.accountScope,
 			Price:         trade.Price,
 			Quantity:      trade.Quantity,
 			FilledQty:     trade.Quantity, // 成交记录 = 已成交
 			Status:        "FILLED",       // 成交记录都是已成交的
 			RealizedPnL:   realizedPnL,
-			CreatedAt:     trade.Time,
-			UpdatedAt:     trade.Time,
+			CreatedAt:     time.UnixMilli(trade.TradeTime).UTC(),
+			UpdatedAt:     time.UnixMilli(trade.TradeTime).UTC(),
 		}
 
 		if err := s.storage.SaveOrder(order); err != nil {
-			logger.Warn("⚠️ [订单同步] 保存订单失败 (OrderID=%d): %v", trade.OrderID, err)
-			continue
+			return syncedCount, fmt.Errorf("save imported order %d after persisting execution %s: %w", trade.OrderID, trade.TradeID, err)
 		}
 
 		syncedCount++
+		existingOrderIDs[trade.OrderID] = true
 		logger.Debug("✅ [订单同步] 同步订单: OrderID=%d, Side=%s, Price=%.2f, Quantity=%.4f, RealizedPnL=%.4f",
 			trade.OrderID, trade.Side, trade.Price, trade.Quantity, trade.RealizedPnL)
 	}
-
-	s.mu.Lock()
-	s.lastSyncTime = time.Now()
-	s.mu.Unlock()
-
-	if syncedCount > 0 {
-		logger.Info("✅ [订单同步] 同步完成: 新增 %d 个订单", syncedCount)
-	} else {
-		logger.Debug("✅ [订单同步] 同步完成: 没有新订单")
-	}
-
-	return nil
-}
-
-// getExistingOrderIDs 获取数据库中已存在的订单ID集合
-func (s *OrderSyncService) getExistingOrderIDs(ctx context.Context) (map[int64]bool, error) {
-	// 查询最近7天的订单
-	orders, err := s.storage.QueryOrdersWithTimeRange(1000, 0, "FILLED", nil, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	orderIDs := make(map[int64]bool)
-	for _, order := range orders {
-		if order.Symbol == s.symbol {
-			orderIDs[order.OrderID] = true
-		}
-	}
-
-	return orderIDs, nil
+	return syncedCount, nil
 }

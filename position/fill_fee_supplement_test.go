@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"quantmesh/storage"
 )
 
 // detailedFill 與 exchange.OrderFill 字段名一致（上層按字段名反射讀取）
@@ -55,6 +57,21 @@ type eventTradeStorage struct {
 	mu     sync.Mutex
 	fees   []float64
 	events []map[string]interface{}
+	keys   map[string]bool
+}
+
+func (s *eventTradeStorage) SaveTradeIdempotent(trade *storage.Trade) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.keys == nil {
+		s.keys = make(map[string]bool)
+	}
+	if s.keys[trade.ExecutionKey] {
+		return nil
+	}
+	s.keys[trade.ExecutionKey] = true
+	s.fees = append(s.fees, trade.Fee)
+	return nil
 }
 
 func (s *eventTradeStorage) SaveTrade(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, createdAt time.Time, botID string) error {
@@ -258,7 +275,7 @@ func TestSummarizeFills(t *testing.T) {
 		t.Fatalf("unexpected %+v n=%d", sum, n)
 	}
 	sum, n = summarizeFills([]interface{}{map[string]interface{}{"Commission": "0.5", "CommissionAsset": "BNB", "BaseFeeQty": 0.002, "Price": 10.0, "Quantity": 2.0}})
-	if n != 1 || sum.commission != 0.5 || sum.asset != "BNB" || sum.baseFeeQty != 0.002 || sum.notional != 20 {
+	if n != 1 || sum.commission != 0 || sum.valuationKnown || sum.asset != "BNB" || sum.baseFeeQty != 0.002 || sum.notional != 20 {
 		t.Fatalf("map fill unexpected %+v", sum)
 	}
 }

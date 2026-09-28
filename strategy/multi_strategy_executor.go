@@ -1,12 +1,14 @@
 package strategy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"sync"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/order"
 	"quantmesh/position"
 )
@@ -34,6 +36,7 @@ type orderCapital struct {
 	filledQty     float64 // 已處理的累計成交數量
 	orderID       int64
 	clientOrderID string
+	terminal      bool // prevents late REST acknowledgements from resurrecting settled capital
 }
 
 // legUsage 策略某條腿上已成交持倉占用的資金
@@ -56,6 +59,7 @@ type MultiStrategyExecutor struct {
 	positionUsage        map[string]*legUsage     // strategy|leg -> 持倉占用
 	strategyPositionSide map[string]string        // strategyName -> 固定持倉腿（如 spot_short=SHORT）
 	mu                   sync.RWMutex
+	submissions          sync.Map // CID -> placement currently registering/submitting
 }
 
 // NewMultiStrategyExecutor 創建多策略订單執行器
@@ -118,6 +122,7 @@ func (mse *MultiStrategyExecutor) trackOrderLocked(rec *orderCapital, orderID in
 
 // untrackOrderLocked 刪除訂單的記賬與路由
 func (mse *MultiStrategyExecutor) untrackOrderLocked(rec *orderCapital) {
+	rec.terminal = true
 	for clientOID, r := range mse.ordersByClient {
 		if r == rec {
 			delete(mse.ordersByClient, clientOID)
@@ -241,6 +246,24 @@ func (mse *MultiStrategyExecutor) isReducePositionOrder(strategyName string, req
 
 // PlaceOrder 下單（带策略標記）
 func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.OrderRequest) (*position.Order, error) {
+	return mse.PlaceOrderContext(context.Background(), strategyName, req)
+}
+
+func (mse *MultiStrategyExecutor) PlaceOrderContext(ctx context.Context, strategyName string, req *position.OrderRequest) (*position.Order, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req == nil || (!strings.EqualFold(req.Side, "BUY") && !strings.EqualFold(req.Side, "SELL")) {
+		return nil, fmt.Errorf("策略 %s 訂單請求或方向無效", strategyName)
+	}
+	releaseSubmission, err := mse.beginSubmission(req)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseSubmission()
 	leg, opening := mse.classifyOrder(strategyName, req)
 
 	var estimatedAmount float64
@@ -280,8 +303,7 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 	if req.ClientOrderID != "" {
 		// 下單前先記賬，處理「成交回報先於下單回執到達」
 		mse.mu.Lock()
-		mse.clientStrategies[req.ClientOrderID] = strategyName
-		mse.trackOrderLocked(rec, 0, req.ClientOrderID)
+		mse.registerCapitalIntentLocked(rec, req.ClientOrderID)
 		mse.mu.Unlock()
 	}
 
@@ -289,18 +311,27 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 	orderReq := &order.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          req.Side,
+		Type:          req.Type,
+		TimeInForce:   req.TimeInForce,
 		Price:         req.Price,
 		Quantity:      req.Quantity, // 交易所會自动調整數量
 		PriceDecimals: req.PriceDecimals,
 		ReduceOnly:    req.ReduceOnly,
+		PositionSide:  leg,
+		ExposureKey:   req.ExposureKey,
 		PostOnly:      req.PostOnly,
 		ClientOrderID: req.ClientOrderID,
 		StrategyName:  strategyName,
 		StrategyType:  extractStrategyType(strategyName),
+		OrderSource:   req.OrderSource,
 	}
 
-	ord, err := mse.executor.PlaceOrder(orderReq)
+	ord, err := mse.executor.PlaceOrderContext(ctx, orderReq)
 	if err != nil {
+		if errors.Is(err, execution.ErrOrderUnknown) {
+			// Preserve the pre-registered CID route and its full reservation.
+			return nil, fmt.Errorf("策略 %s 等待訂單核實: %w", strategyName, err)
+		}
 		// 下單失败，释放资金（僅對開倉操作）
 		if opening && estimatedAmount > 0 {
 			mse.allocator.Release(strategyName, estimatedAmount)
@@ -317,12 +348,9 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 
 	// 標記订單所属策略，並記錄資金記賬（成交/取消回報時用於轉換或釋放資金）
 	mse.mu.Lock()
-	mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
-	if req.ClientOrderID != "" && req.ClientOrderID != ord.ClientOrderID {
-		mse.bindOrderRouteLocked(ord.OrderID, req.ClientOrderID, strategyName)
-	}
-	mse.trackOrderLocked(rec, ord.OrderID, ord.ClientOrderID)
+	mse.acknowledgeCapitalLocked(rec, ord)
 	mse.mu.Unlock()
+	mse.applyCapitalAcknowledgement(ord)
 
 	// 轉换為 position.Order
 	return &position.Order{
@@ -334,6 +362,8 @@ func (mse *MultiStrategyExecutor) PlaceOrder(strategyName string, req *position.
 		Quantity:      ord.Quantity,
 		Status:        ord.Status,
 		CreatedAt:     ord.CreatedAt,
+		ExecutedQty:   ord.ExecutedQty,
+		AvgPrice:      ord.AvgPrice,
 	}, nil
 }
 
@@ -345,17 +375,37 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders [
 
 // BatchPlaceOrdersWithDetails 批量下單（回傳詳細結果）
 func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName string, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	return mse.BatchPlaceOrdersWithDetailsContext(context.Background(), strategyName, orders)
+}
+
+func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context.Context, strategyName string, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	result := &position.BatchPlaceOrdersResult{
 		PlacedOrders:     make([]*position.Order, 0),
 		HasMarginError:   false,
 		ReduceOnlyErrors: make(map[string]bool),
+		UnknownOrders:    make(map[string]bool),
 	}
 
 	// 轉换為 order.OrderRequest
 	orderReqs := make([]*order.OrderRequest, 0, len(orders))
 	records := make(map[string]*orderCapital) // ClientOrderID -> 資金記賬
+	recordAliases := make(map[string]*orderCapital)
 
 	for _, req := range orders {
+		if ctx.Err() != nil {
+			break
+		}
+		if req == nil {
+			continue
+		}
+		releaseSubmission, err := mse.beginSubmission(req)
+		if err != nil {
+			continue
+		}
+		defer releaseSubmission()
 		leg, opening := mse.classifyOrder(strategyName, req)
 
 		var estimatedAmount float64
@@ -382,41 +432,49 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 		orderReq := &order.OrderRequest{
 			Symbol:        req.Symbol,
 			Side:          req.Side,
+			Type:          req.Type,
+			TimeInForce:   req.TimeInForce,
 			Price:         req.Price,
 			Quantity:      req.Quantity, // 交易所會自动調整數量
 			PriceDecimals: req.PriceDecimals,
 			ReduceOnly:    req.ReduceOnly,
+			PositionSide:  leg,
+			ExposureKey:   req.ExposureKey,
 			PostOnly:      req.PostOnly,
 			ClientOrderID: req.ClientOrderID,
 			StrategyName:  strategyName,
 			StrategyType:  extractStrategyType(strategyName),
+			OrderSource:   req.OrderSource,
 		}
 		orderReqs = append(orderReqs, orderReq)
 
 		rec := &orderCapital{strategy: strategyName, leg: leg, opening: opening, reserved: estimatedAmount, quantity: req.Quantity}
 		if req.ClientOrderID != "" {
 			records[req.ClientOrderID] = rec
+			recordAliases[req.ClientOrderID] = rec
+			recordAliases[mse.venueClientOrderID(req.ClientOrderID)] = rec
 			mse.mu.Lock()
-			mse.clientStrategies[req.ClientOrderID] = strategyName
-			mse.trackOrderLocked(rec, 0, req.ClientOrderID)
+			mse.registerCapitalIntentLocked(rec, req.ClientOrderID)
 			mse.mu.Unlock()
 		}
 	}
 
 	// 批量下單
-	batchResult := mse.executor.BatchPlaceOrdersWithDetails(orderReqs)
+	batchResult := mse.executor.BatchPlaceOrdersWithDetailsContext(ctx, orderReqs)
 	result.HasMarginError = batchResult.HasMarginError
 	result.ReduceOnlyErrors = batchResult.ReduceOnlyErrors
+	result.UnknownOrders = batchResult.UnknownOrders
 
 	// 处理成功的订單
+	placedRecords := make(map[*orderCapital]bool)
 	for _, ord := range batchResult.PlacedOrders {
 		// 標記订單
+		rec := recordAliases[ord.ClientOrderID]
+		placedRecords[rec] = true
 		mse.mu.Lock()
-		mse.bindOrderRouteLocked(ord.OrderID, ord.ClientOrderID, strategyName)
-		if rec, ok := records[ord.ClientOrderID]; ok {
-			mse.trackOrderLocked(rec, ord.OrderID, ord.ClientOrderID)
-		}
+		mse.acknowledgeCapitalLocked(rec, ord)
 		mse.mu.Unlock()
+		mse.applyCapitalAcknowledgement(ord)
 
 		result.PlacedOrders = append(result.PlacedOrders, &position.Order{
 			OrderID:       ord.OrderID,
@@ -427,16 +485,14 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetails(strategyName strin
 			Quantity:      ord.Quantity,
 			Status:        ord.Status,
 			CreatedAt:     ord.CreatedAt,
+			ExecutedQty:   ord.ExecutedQty,
+			AvgPrice:      ord.AvgPrice,
 		})
 	}
 
 	// 释放失败订單的资金
-	placedClientOIDs := make(map[string]bool)
-	for _, ord := range batchResult.PlacedOrders {
-		placedClientOIDs[ord.ClientOrderID] = true
-	}
 	for clientOID, rec := range records {
-		if !placedClientOIDs[clientOID] {
+		if !placedRecords[rec] && !batchResult.UnknownOrders[clientOID] {
 			if rec.opening && rec.reserved > 0 {
 				mse.allocator.Release(strategyName, rec.reserved)
 			}
@@ -483,8 +539,9 @@ func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
 	}
 
 	switch status {
-	case orderStatusPartiallyFilled, orderStatusFilled:
+	case orderStatusPartiallyFilled, orderStatusFilled, orderStatusCanceled, "CANCELLED", orderStatusExpired, orderStatusRejected:
 		final := status == orderStatusFilled
+		terminal := status != orderStatusPartiallyFilled
 		delta := update.ExecutedQty - rec.filledQty
 		if delta < 0 {
 			delta = 0
@@ -528,14 +585,14 @@ func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
 			}
 			releaseStrategy, releaseAmount = rec.strategy, release
 		}
-		if final {
+		if terminal {
+			// A cancel/expiry report may be the first report containing fills.
+			// Convert those fills before releasing only the unexecuted remainder.
+			if rec.opening && !final {
+				releaseStrategy, releaseAmount = rec.strategy, rec.reserved-rec.converted
+			}
 			mse.untrackOrderLocked(rec)
 		}
-	case orderStatusCanceled, orderStatusExpired, orderStatusRejected:
-		if rec.opening {
-			releaseStrategy, releaseAmount = rec.strategy, rec.reserved-rec.converted
-		}
-		mse.untrackOrderLocked(rec)
 	}
 	mse.mu.Unlock()
 

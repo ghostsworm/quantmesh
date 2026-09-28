@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
@@ -15,7 +15,6 @@ import {
   useColorModeValue,
 } from '@chakra-ui/react'
 import { TriangleUpIcon, TriangleDownIcon } from '@chakra-ui/icons'
-import PriceChart from './PriceChart'
 import type { MeanReversionVisualizationData } from '../../services/strategy'
 
 interface MeanReversionVisualizationProps {
@@ -29,22 +28,11 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
-  // 生成价格图表数据
-  const chartData = useMemo(() => {
-    if (!data.currentPrice) return []
-    const prices: Array<{ time: string; price: number }> = []
-    const basePrice = data.currentPrice
-    for (let i = 20; i >= 0; i--) {
-      prices.push({
-        time: `${i}`,
-        price: basePrice * (1 + (Math.random() - 0.5) * 0.02),
-      })
-    }
-    return prices
-  }, [data.currentPrice])
-
   // 计算价格在布林带中的位置百分比
-  const positionPercent = data.positionInBand || 50
+  const rawPositionPercent = data.positionInBand ?? 50
+  const positionPercent = Number.isFinite(rawPositionPercent)
+    ? Math.min(100, Math.max(0, rawPositionPercent))
+    : 50
 
   return (
     <VStack spacing={4} align="stretch">
@@ -104,14 +92,6 @@ const MeanReversionVisualization: React.FC<MeanReversionVisualizationProps> = ({
               {t('strategyViz.meanReversion.position')}: {positionPercent.toFixed(1)}% ({positionPercent < 20 ? t('strategyViz.meanReversion.nearLower') : positionPercent > 80 ? t('strategyViz.meanReversion.nearUpper') : t('strategyViz.meanReversion.middleZone')})
             </Text>
           </VStack>
-        </Box>
-      )}
-
-      {/* 价格图表 */}
-      {chartData.length > 0 && (
-        <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.meanReversion.priceAndBollinger')}</Text>
-          <PriceChart data={chartData} height={250} />
         </Box>
       )}
 

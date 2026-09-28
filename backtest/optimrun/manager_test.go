@@ -15,6 +15,7 @@ type fakeOptimStore struct {
 	createErr    error
 	statusCalls  []string
 	progressDone int
+	deleteCalls  int
 }
 
 func (s *fakeOptimStore) CreateOptimTask(task *backtest.OptimTask) error {
@@ -45,7 +46,7 @@ func (s *fakeOptimStore) UpdateOptimTaskStatus(id, status string, startedAt, com
 	s.statusCalls = append(s.statusCalls, status)
 	return nil
 }
-func (s *fakeOptimStore) DeleteOptimTask(id string) error { return nil }
+func (s *fakeOptimStore) DeleteOptimTask(id string) error { s.deleteCalls++; return nil }
 
 func TestOptimTaskManagerHelpersAndFailurePaths(t *testing.T) {
 	store := &fakeOptimStore{}
@@ -90,7 +91,7 @@ func TestOptimTaskManagerHelpersAndFailurePaths(t *testing.T) {
 		t.Fatalf("missing task should be marked failed: %+v", store.statusCalls)
 	}
 
-	manager.running["busy"] = struct{}{}
+	manager.running["busy"] = &taskRun{}
 	if err := manager.RunTask("busy"); err == nil {
 		t.Fatal("RunTask should reject already running task")
 	}

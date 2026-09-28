@@ -19,6 +19,7 @@ func newSpotLegTestStrategy(spotBalance float64, futShort float64) (*FundingCarr
 		futEx.positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -futShort}}
 	}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, nil, nil)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	return s, spotEx, futEx
 }
 
@@ -29,22 +30,36 @@ func TestSyncPositions_UsesRecordedSpotQuantity(t *testing.T) {
 		known         bool
 		balance       float64
 		futShort      float64
+		direction     CarryDirection
+		ownedFut      float64
 		wantSpot      float64
 		wantDirection CarryDirection
+		wantErr       bool
 	}{
-		{name: "user holds extra coins", recorded: 0.5, known: true, balance: 3, futShort: 0.5, wantSpot: 0.5, wantDirection: DirectionForward},
-		{name: "balance below record clamps", recorded: 0.5, known: true, balance: 0.3, futShort: 0.5, wantSpot: 0.3, wantDirection: DirectionForward},
+		{name: "user holds extra coins", recorded: 0.5, known: true, balance: 3, futShort: 0.5, direction: DirectionForward, ownedFut: 0.5, wantSpot: 0.5, wantDirection: DirectionForward},
+		{name: "balance below record requires reconciliation", recorded: 0.5, known: true, balance: 0.3, futShort: 0.5, direction: DirectionForward, ownedFut: 0.5, wantErr: true},
 		{name: "only user coins is not a position", recorded: 0, known: true, balance: 2, futShort: 0, wantSpot: 0, wantDirection: DirectionNone},
 		{name: "restart without record and no short", recorded: 0, known: false, balance: 2, futShort: 0, wantSpot: 0, wantDirection: DirectionNone},
+		{name: "restart cannot claim existing short", recorded: 0, known: false, balance: 2, futShort: 0.5, wantErr: true},
+		{name: "recorded spot residual is recoverable", recorded: 0.5, known: true, balance: 0.5, direction: DirectionForward, wantSpot: 0.5, wantDirection: DirectionForward},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _, _ := newSpotLegTestStrategy(tc.balance, tc.futShort)
 			s.strategySpotQty = tc.recorded
 			s.strategySpotKnown = tc.known
+			s.direction = tc.direction
+			s.futQty = tc.ownedFut
 
-			if err := s.syncPositions(context.Background()); err != nil {
-				t.Fatalf("syncPositions: %v", err)
+			err := s.syncPositions(context.Background())
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("syncPositions error=%v wantErr=%v", err, tc.wantErr)
+			}
+			if tc.wantErr {
+				if !s.unownedExposure {
+					t.Fatal("unsafe exposure did not latch the trading block")
+				}
+				return
 			}
 			if s.spotQty != tc.wantSpot {
 				t.Fatalf("spotQty=%v want %v", s.spotQty, tc.wantSpot)
@@ -60,6 +75,8 @@ func TestCloseAll_SellsOnlyStrategySpotQuantity(t *testing.T) {
 	s, spotEx, _ := newSpotLegTestStrategy(3, 0.5)
 	spotEx.getOrderExecQty = 0.5
 	s.recordStrategySpot(0.5)
+	s.direction = DirectionForward
+	s.futQty = 0.5
 
 	if err := s.closeAll(context.Background(), "test_exit"); err != nil {
 		t.Fatalf("closeAll: %v", err)

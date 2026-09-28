@@ -45,7 +45,8 @@ func newReservationTestSPM(t *testing.T, direction string) (*SuperPositionManage
 		Exchange:      "binance",
 		Symbol:        "BTCUSDT",
 		MaxAmountUSDT: reservationTestLimit,
-		MaxPercentage: 100,
+		// Fixed-cap reservation tests deliberately omit a percentage cap so the
+		// zero balance passed by these unit fixtures remains representative.
 	}}
 	ex := &countingExchange{}
 	return NewSuperPositionManager(cfg, &MockExecutor{}, ex, 2, 3), ex
@@ -176,7 +177,7 @@ func TestAllocationReservation_PartialFillCancelThenClose(t *testing.T) {
 			}
 			assertUsed(t, spm, 500)
 
-			spm.OnOrderUpdate(OrderUpdate{OrderID: 7, ClientOrderID: coid, Symbol: "BTCUSDT", Status: "CANCELED", Side: tc.openSide})
+			spm.OnOrderUpdate(OrderUpdate{OrderID: 7, ClientOrderID: coid, Symbol: "BTCUSDT", Status: "CANCELED", Side: tc.openSide, ExecutedQty: 0.004, AvgPrice: reservationTestPrice})
 			assertUsed(t, spm, 200)
 			if slot.PositionStatus != PositionStatusFilled || slot.SlotStatus != SlotStatusFree {
 				t.Fatalf("partial-fill cancel should keep position: %s/%s", slot.PositionStatus, slot.SlotStatus)

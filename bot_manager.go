@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/feerate"
 	"quantmesh/lock"
 	"quantmesh/logger"
@@ -36,34 +39,36 @@ type botStartFailure struct {
 
 // BotManager 管理多個 BotRuntime，按 BotID 進行生命週期管理
 type BotManager struct {
-	cfg               *config.Config
-	runtimes          map[string]*BotRuntime
-	runtimesMu        sync.RWMutex
-	groupLegAlerted   map[string]bool
-	groupLegTimers    map[string]*time.Timer
-	singleLegGraceSec int
-	eventBus          *event.EventBus
-	storageService    *storage.StorageService
-	distributedLock   lock.DistributedLock
-	botStatesFileOverride string // 測試用，空時用默認 ./data/bot_states.json
-	startFailMu           sync.RWMutex
-	startFail             map[string]botStartFailure
-	primaryYAMLPath       string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
+	runtimeAdmissions            execution.OpeningGate // drains admitted start/stop transitions during process shutdown
+	shutdownTransitionUnverified atomic.Bool
+	cfg                          *config.Config
+	runtimes                     map[string]*BotRuntime
+	runtimesMu                   sync.RWMutex
+	groupLegAlerted              map[string]bool
+	groupLegTimers               map[string]*time.Timer
+	singleLegGraceSec            int
+	eventBus                     *event.EventBus
+	storageService               *storage.StorageService
+	distributedLock              lock.DistributedLock
+	botStatesFileOverride        string // 測試用，空時用默認 ./data/bot_states.json
+	startFailMu                  sync.RWMutex
+	startFail                    map[string]botStartFailure
+	primaryYAMLPath              string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
 }
 
 // NewBotManager 創建 Bot 管理器。primaryYAMLPath 為啟動時傳入的主 YAML 路徑（無則傳空），用於與 app_config 一致的刷新順序。
 func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock, primaryYAMLPath string) *BotManager {
 	return &BotManager{
-		cfg:             cfg,
-		runtimes:        make(map[string]*BotRuntime),
-		groupLegAlerted: make(map[string]bool),
-		groupLegTimers:  make(map[string]*time.Timer),
+		cfg:               cfg,
+		runtimes:          make(map[string]*BotRuntime),
+		groupLegAlerted:   make(map[string]bool),
+		groupLegTimers:    make(map[string]*time.Timer),
 		singleLegGraceSec: 30,
-		eventBus:        eventBus,
-		storageService:  storageService,
-		distributedLock: distributedLock,
-		startFail:       make(map[string]botStartFailure),
-		primaryYAMLPath: strings.TrimSpace(primaryYAMLPath),
+		eventBus:          eventBus,
+		storageService:    storageService,
+		distributedLock:   distributedLock,
+		startFail:         make(map[string]botStartFailure),
+		primaryYAMLPath:   strings.TrimSpace(primaryYAMLPath),
 	}
 }
 
@@ -308,6 +313,11 @@ func (bm *BotManager) GetLastStartFailure(botID string) (message string, failedA
 
 // StartBot 啟動指定 Bot
 func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
+	finishTransition, err := bm.runtimeAdmissions.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("process shutdown rejects Bot start: %w", err)
+	}
+	defer finishTransition()
 	botID := config.BotIDOrGenerate(botCfg)
 	botCfg.ID = botID
 	bm.clearStartFailure(botID)
@@ -375,6 +385,15 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 		bm.recordStartFailure(botID, err)
 		return nil, err
 	}
+	if bm.runtimeAdmissions.Blocked() {
+		bm.shutdownTransitionUnverified.Store(true)
+		sealRuntimeShutdown(rt)
+		rt.markShutdownCloseUnverified("Bot 启动与进程退出重叠，需核账后再平仓")
+		if rt.Stop != nil {
+			rt.Stop()
+		}
+		return nil, fmt.Errorf("process shutdown interrupted Bot start")
+	}
 	br := &BotRuntime{
 		Config:   botCfg,
 		BotID:    botID,
@@ -429,20 +448,34 @@ func (bm *BotManager) StopBot(botID string) error {
 
 // StopBotWithReason 停止指定 Bot 並記錄原因（供關閉條件等自動停止場景使用）
 func (bm *BotManager) StopBotWithReason(botID, updatedBy, reason string) error {
+	finishTransition, err := bm.runtimeAdmissions.Begin()
+	if err != nil {
+		return fmt.Errorf("process shutdown owns Bot stop: %w", err)
+	}
+	defer finishTransition()
 	bm.runtimesMu.Lock()
 	br, ok := bm.runtimes[botID]
 	if !ok {
 		bm.runtimesMu.Unlock()
 		return nil
 	}
-	delete(bm.runtimes, botID)
 	bm.runtimesMu.Unlock()
 
 	unregisterWebSymbolProvidersForRuntime(&br.Config)
 
 	if br.Inner != nil && br.Inner.Stop != nil {
 		br.Inner.Stop()
+		if bm.runtimeAdmissions.Blocked() && br.Inner.shutdownCloseUnverifiedReason() != "" {
+			bm.shutdownTransitionUnverified.Store(true)
+		}
 	}
+	// Keep the owner registered until its stop/close has finished. Otherwise a
+	// concurrent StartBot can claim the same symbol while the old Bot is closing.
+	bm.runtimesMu.Lock()
+	if bm.runtimes[botID] == br {
+		delete(bm.runtimes, botID)
+	}
+	bm.runtimesMu.Unlock()
 
 	// 🔥 保存停止狀態到數據庫（持久化，重啟後仍然有效）
 	bm.saveBotStateToDB(botID, false, updatedBy, reason)
@@ -743,7 +776,11 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 		)
 		br.Inner.SuperPositionManager.SetSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
 		// 始終同步 Config，確保 smart_order、風控等配置變更在刷新頁面時正確顯示
+		br.configMu.Lock()
 		br.Config = botCfg
+		br.Config.OpenPositionControl = config.CloneOpenPositionControl(botCfg.OpenPositionControl)
+		br.publishRiskControlsLocked()
+		br.configMu.Unlock()
 		br.Inner.Config = symCfg
 		if changed {
 			updatedBotIDs = append(updatedBotIDs, botID)
@@ -754,8 +791,21 @@ func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (upda
 
 // ClosePositions 平倉（支持市價/限價）
 func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositionConfig) (*position.ClosePositionRecord, error) {
-	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
+	if br.Inner == nil {
 		return nil, fmt.Errorf("bot not initialized")
+	}
+	if br.Inner.shutdownCloseUnverifiedReason() != "" {
+		return nil, fmt.Errorf("previous account close remains unverified: %w", errShutdownCloseUnverified)
+	}
+	if br.Inner.CloseForManual != nil {
+		record, err := br.Inner.CloseForManual(ctx, cfg)
+		if record != nil {
+			br.Inner.recordSpecializedClose(record)
+		}
+		return record, err
+	}
+	if br.Inner.SuperPositionManager == nil {
+		return nil, fmt.Errorf("manual close is not supported for this strategy runtime; use its strategy-owned close workflow")
 	}
 
 	// 獲取交易所
@@ -770,16 +820,20 @@ func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositi
 		return nil, fmt.Errorf("bot %s 計算平倉數量失敗: %w", br.BotID, err)
 	}
 
-	// 創建平倉管理器
-	closeMgr := position.NewClosePositionManager(
-		position.NewExchangeAdapterWrapper(exchange),
-		br.BotID,
-		br.Config.Symbol,
-	)
+	closeMgr, shutdown, err := br.ownedCloseManager(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if shutdown {
+		defer closeMgr.Stop()
+	}
 
 	record, err := closeMgr.ClosePositions(ctx, plan.Side, plan.Quantity, cfg)
 	if err != nil {
 		return record, fmt.Errorf("bot %s 平倉下單失敗 (%s %.8f): %w", br.BotID, plan.Side, plan.Quantity, err)
+	}
+	if shutdown {
+		return closeMgr.WaitRecord(ctx, record.RecordID)
 	}
 
 	return record, nil
@@ -824,8 +878,16 @@ func (br *BotRuntime) planClosePosition(ctx context.Context, ratio float64) (*po
 
 // GetCloseRecords 獲取平倉記錄
 func (br *BotRuntime) GetCloseRecords() []*position.ClosePositionRecord {
-	// 暫時返回空列表，實際需要從平倉管理器獲取
-	return []*position.ClosePositionRecord{}
+	if br.Inner == nil {
+		return nil
+	}
+	br.Inner.closeManagerMu.Lock()
+	mgr := br.Inner.closeManager
+	br.Inner.closeManagerMu.Unlock()
+	if mgr == nil {
+		return br.Inner.specializedCloseRecords()
+	}
+	return append(mgr.ListRecords(), br.Inner.specializedCloseRecords()...)
 }
 
 // GetSlotFilter 獲取槽位過濾器
@@ -854,7 +916,7 @@ func (br *BotRuntime) GetSlots() []map[string]interface{} {
 	result := make([]map[string]interface{}, len(slots))
 	for i, slot := range slots {
 		result[i] = map[string]interface{}{
-			"price":          slot.Price,
+			"price":           slot.Price,
 			"position_status": slot.PositionStatus,
 			"position_qty":    slot.PositionQty,
 			"order_id":        slot.OrderID,
@@ -869,10 +931,13 @@ func (br *BotRuntime) GetSlots() []map[string]interface{} {
 
 // GetBotRiskControl 获取 Bot 风控配置
 func (br *BotRuntime) GetBotRiskControl() *config.BotRiskControl {
+	br.configMu.RLock()
+	defer br.configMu.RUnlock()
 	if br.Config.OpenPositionControl.BotRiskControl == nil {
 		return &config.BotRiskControl{}
 	}
-	return br.Config.OpenPositionControl.BotRiskControl
+	copy := *br.Config.OpenPositionControl.BotRiskControl
+	return &copy
 }
 
 // SetBotRiskControl 设置 Bot 风控配置
@@ -880,10 +945,12 @@ func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) erro
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 
-	if br.Config.OpenPositionControl.BotRiskControl == nil {
-		br.Config.OpenPositionControl.BotRiskControl = &config.BotRiskControl{}
+	copy := config.BotRiskControl{}
+	if riskControl != nil {
+		copy = *riskControl
 	}
-	br.Config.OpenPositionControl.BotRiskControl = riskControl
+	br.Config.OpenPositionControl.BotRiskControl = &copy
+	br.publishRiskControlsLocked()
 	return nil
 }
 
@@ -899,10 +966,32 @@ func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 	br.Config.GridRiskControl = grc
-	if br.Inner != nil && br.Inner.SuperPositionManager != nil {
-		br.Inner.SuperPositionManager.SetGridRiskControl(grc)
-	}
+	br.publishRiskControlsLocked()
 	return nil
+}
+
+// SetRiskControls atomically applies a combined Bot/grid API patch to the real
+// executor snapshot; readers never observe only half of the request.
+func (br *BotRuntime) SetRiskControls(rc *config.BotRiskControl, grid config.GridRiskControl) error {
+	br.configMu.Lock()
+	defer br.configMu.Unlock()
+	copy := config.BotRiskControl{}
+	if rc != nil {
+		copy = *rc
+	}
+	br.Config.OpenPositionControl.BotRiskControl = &copy
+	br.Config.GridRiskControl = grid
+	br.publishRiskControlsLocked()
+	return nil
+}
+
+func (br *BotRuntime) publishRiskControlsLocked() {
+	if spm := br.superPositionManager(); spm != nil {
+		spm.SetRiskControls(config.RiskControls{Open: br.Config.OpenPositionControl, Grid: br.Config.GridRiskControl})
+	}
+	if br.Inner != nil && br.Inner.DynamicAdjuster != nil {
+		br.Inner.DynamicAdjuster.RefreshRiskControls()
+	}
 }
 
 // PauseOpening 暂停开仓
@@ -910,6 +999,7 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	br.configMu.Lock()
 
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
+	br.Config.OpenPositionControl = config.CloneOpenPositionControl(br.Config.OpenPositionControl)
 	br.Config.OpenPositionControl.PauseOpening = true
 
 	// 同时更新 BotRiskControl 中的状态
@@ -918,7 +1008,6 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	}
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpening = true
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
-	br.Config.OpenPositionControl.BotRiskControl.Enabled = true
 	autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
 	br.configMu.Unlock()
 
@@ -926,6 +1015,9 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	// （SPM.PauseOpening 會撤銷開倉委託並記錄風控事件）。在釋放 configMu 後調用，避免持鎖做網絡請求。
 	if spm := br.superPositionManager(); spm != nil {
 		spm.PauseOpening(reason)
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Block("manual")
+		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "runtime_gate")
 	} else {
 		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "config")
 	}
@@ -944,14 +1036,96 @@ func (br *BotRuntime) superPositionManager() *position.SuperPositionManager {
 	return br.Inner.SuperPositionManager
 }
 
+// SetRiskDataUnavailable implements the independently owned equity-data hold.
+func (br *BotRuntime) SetRiskDataUnavailable(paused bool) {
+	if spm := br.superPositionManager(); spm != nil {
+		if changed := spm.SetEquityRiskPaused(paused); changed && paused {
+			go spm.CancelResidualOpeningOrders()
+		}
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Unblock("manual")
+	}
+}
+
+func (br *BotRuntime) AllocationRiskStatus() (bool, string, error) {
+	spm := br.superPositionManager()
+	if spm == nil || spm.GetAllocationManager() == nil {
+		return false, "", fmt.Errorf("Bot allocation manager is unavailable")
+	}
+	br.configMu.RLock()
+	exchangeName, symbol := br.Config.Exchange, br.Config.Symbol
+	br.configMu.RUnlock()
+	manager := spm.GetAllocationManager()
+	statuses := manager.GetAllStatuses()
+	var match *position.AllocationStatus
+	for _, status := range statuses {
+		if status != nil && strings.EqualFold(status.Exchange, exchangeName) && strings.EqualFold(status.Symbol, symbol) {
+			match = status
+			break
+		}
+	}
+	if match == nil || match.MaxAmount < 0 || match.UsedAmount < 0 || math.IsNaN(match.MaxAmount) || math.IsInf(match.MaxAmount, 0) || math.IsNaN(match.UsedAmount) || math.IsInf(match.UsedAmount, 0) {
+		return false, "", fmt.Errorf("Bot allocation limit or usage sample is unavailable or invalid")
+	}
+	limit := match.MaxAmount
+	if manager.PercentageBasedLimitsConfigured(exchangeName, symbol) {
+		if match.LimitObservedAt.IsZero() || time.Since(match.LimitObservedAt) > 5*time.Minute || match.EffectiveLimit <= 0 || math.IsNaN(match.EffectiveLimit) || math.IsInf(match.EffectiveLimit, 0) {
+			return false, "", fmt.Errorf("percentage-based allocation limit has no fresh authoritative effective-limit sample")
+		}
+		limit = match.EffectiveLimit
+		if match.MaxAmount > 0 && match.MaxAmount < limit {
+			limit = match.MaxAmount
+		}
+	}
+	if match.UsedAmount > limit+1e-8 {
+		return true, fmt.Sprintf("%s:%s used %.8f exceeds allocation limit %.8f USDT", match.Exchange, match.Symbol, match.UsedAmount, limit), nil
+	}
+	return false, "", nil
+}
+
+func (br *BotRuntime) SetAllocationRiskHold(held bool) {
+	spm := br.superPositionManager()
+	if spm == nil {
+		return
+	}
+	gate := spm.OpeningGate()
+	const source = "allocation_risk_unverified"
+	if held {
+		wasBlocked := gate.HasBlock(source)
+		gate.Block(source)
+		if !wasBlocked {
+			go spm.CancelResidualOpeningOrders()
+		}
+		return
+	}
+	gate.Unblock(source)
+}
+
 // ResumeOpening 恢复开仓
 func (br *BotRuntime) ResumeOpening() {
 	br.resumeOpening("config")
 }
 
+// ResumeOpeningManually is reserved for an explicit user recovery request.
+func (br *BotRuntime) ResumeOpeningManually() error {
+	if br.Inner != nil && br.Inner.DynamicAdjuster != nil {
+		if err := br.Inner.DynamicAdjuster.ResumeVolatilityManually(); err != nil {
+			return err
+		}
+	}
+	if spm := br.superPositionManager(); spm != nil {
+		if err := spm.ResumeOpeningManually(); err != nil {
+			return err
+		}
+	}
+	br.resumeOpening("manual")
+	return nil
+}
+
 func (br *BotRuntime) resumeOpening(source string) {
 	br.configMu.Lock()
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
+	br.Config.OpenPositionControl = config.CloneOpenPositionControl(br.Config.OpenPositionControl)
 	br.Config.OpenPositionControl.PauseOpening = false
 
 	// 同时更新 BotRiskControl 中的状态
@@ -966,11 +1140,22 @@ func (br *BotRuntime) resumeOpening(source string) {
 		spm.ResumeOpening()
 		return
 	}
+	if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Unblock("manual")
+	}
 	storage.AppendBotRiskControlEvent(br.BotID, "resumed", "", source)
 }
 
 // GetPositionStatus 获取仓位状态（包括是否达到限制）
 func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
+	if br.Inner != nil && br.Inner.SuperPositionManager == nil && br.Inner.OpeningGate != nil {
+		paused := br.Inner.OpeningGate.Blocked()
+		return map[string]interface{}{
+			"paused": paused, "pause_reason": "specialized_strategy_gate",
+			"valuation_available":          false,
+			"position_managed_by_strategy": true,
+		}
+	}
 	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
 		return map[string]interface{}{
 			"error": "bot not initialized",
@@ -979,13 +1164,11 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 
 	spm := br.Inner.SuperPositionManager
 
-	// 使用公开方法获取仓位信息
-	positionLayers := spm.GetActiveLayers()
-	totalPositionValue := spm.GetTotalPositionValueUSDT()
-
-	// 获取当前价格
 	currentPrice := spm.GetLastMarketPrice()
-	totalPositionQty := totalPositionValue / currentPrice
+	totalPositionQty, totalPositionValue, positionLayers, valued := spm.GetPositionExposure(currentPrice)
+	if !valued {
+		currentPrice = 0
+	}
 
 	// 获取杠杆并计算实际占用资金
 	leverage := spm.GetLeverage()
@@ -994,63 +1177,60 @@ func (br *BotRuntime) GetPositionStatus() map[string]interface{} {
 	}
 	actualMargin := totalPositionValue / float64(leverage)
 
-	// 读取风控配置（使用读锁保护）
-	br.configMu.RLock()
-	riskControl := br.Config.OpenPositionControl.BotRiskControl
-	openControl := br.Config.OpenPositionControl
-	br.configMu.RUnlock()
-
-	// 计算暂停状态（安全处理 nil 情况）
-	paused := openControl.PauseOpening
-	if riskControl != nil && riskControl.Enabled && riskControl.PauseOpening {
-		paused = true
-	}
+	// Use the actual executor revision, not a display-only configuration copy.
+	maxQty, maxValue, maxLayers := spm.GetRiskControls().Open.PositionLimits()
+	paused := spm.IsOpeningPaused()
 
 	status := map[string]interface{}{
-		"total_position_qty":    totalPositionQty,
-		"total_position_value":  totalPositionValue,
-		"total_actual_margin":   actualMargin,
-		"leverage":              leverage,
-		"position_layers":       positionLayers,
-		"current_price":         currentPrice,
-		"paused":                paused,
+		"total_position_qty":     totalPositionQty,
+		"total_position_value":   totalPositionValue,
+		"total_actual_margin":    actualMargin,
+		"leverage":               leverage,
+		"position_layers":        positionLayers,
+		"current_price":          currentPrice,
+		"paused":                 paused,
+		"pause_reason":           spm.GetOpeningPauseReason(),
+		"protective_liquidation": spm.GetProtectiveLiquidationStatus(),
+		"valuation_available":    valued,
 	}
 
 	// 检查是否达到数量限制
 	reachedLimitQty := false
-	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionQuantity > 0 {
-		status["max_position_qty"] = riskControl.MaxPositionQuantity
-		reachedLimitQty = totalPositionQty >= riskControl.MaxPositionQuantity
-	} else if openControl.MaxPositionQuantity > 0 {
-		status["max_position_qty"] = openControl.MaxPositionQuantity
-		reachedLimitQty = totalPositionQty >= openControl.MaxPositionQuantity
+	if maxQty > 0 {
+		status["max_position_qty"] = maxQty
+		reachedLimitQty = totalPositionQty >= maxQty
 	}
 	status["reached_limit_qty"] = reachedLimitQty
 
-	// 检查是否达到价值限制（使用实际占用资金）
+	// All limit checks use nominal position value, never leveraged margin.
 	reachedLimitValue := false
-	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionValue > 0 {
-		status["max_position_value"] = riskControl.MaxPositionValue
-		reachedLimitValue = actualMargin >= riskControl.MaxPositionValue
-	} else if openControl.MaxPositionValue > 0 {
-		status["max_position_value"] = openControl.MaxPositionValue
-		reachedLimitValue = actualMargin >= openControl.MaxPositionValue
+	if maxValue > 0 {
+		status["max_position_value"] = maxValue
+		reachedLimitValue = totalPositionValue >= maxValue
 	}
 	status["reached_limit_value"] = reachedLimitValue
 
 	// 检查是否达到层数限制
 	reachedLimitLayers := false
-	if riskControl != nil && riskControl.Enabled && riskControl.MaxPositionLayers > 0 {
-		status["max_position_layers"] = riskControl.MaxPositionLayers
-		reachedLimitLayers = positionLayers >= riskControl.MaxPositionLayers
-	} else if openControl.MaxPositionLayers > 0 {
-		status["max_position_layers"] = openControl.MaxPositionLayers
-		reachedLimitLayers = positionLayers >= openControl.MaxPositionLayers
+	if maxLayers > 0 {
+		status["max_position_layers"] = maxLayers
+		reachedLimitLayers = positionLayers >= maxLayers
 	}
 	status["reached_limit_layers"] = reachedLimitLayers
 
 	// 是否应该停止开仓
-	status["should_stop_opening"] = reachedLimitQty || reachedLimitValue || reachedLimitLayers || paused
+	status["should_stop_opening"] = reachedLimitQty || reachedLimitValue || reachedLimitLayers || paused || (maxValue > 0 && !valued && totalPositionQty > 0)
+	if br.Inner.DynamicAdjuster != nil {
+		status["volatility_evidence"] = br.Inner.DynamicAdjuster.GetVolatilityEvidenceStatus()
+	}
+	if br.Inner.ExchangeExecutor != nil {
+		if exposure := br.Inner.ExchangeExecutor.ExposureSnapshot(); exposure != nil {
+			status["execution_exposure"] = exposure
+			if !exposure.Ready || !exposure.OpeningAvailable {
+				status["should_stop_opening"] = true
+			}
+		}
+	}
 
 	return status
 }
@@ -1074,16 +1254,30 @@ func (br *BotRuntime) CloseAllPositions(ctx context.Context, method string, time
 	if br.Inner == nil || br.Inner.SuperPositionManager == nil {
 		return fmt.Errorf("bot not initialized")
 	}
+	if br.Inner.shutdownCloseUnverifiedReason() != "" {
+		return fmt.Errorf("previous account close remains unverified: %w", errShutdownCloseUnverified)
+	}
 	if br.Inner.Exchange == nil {
 		return fmt.Errorf("exchange not initialized")
 	}
 	spm := br.Inner.SuperPositionManager
 	logger.Warn("🚨 [%s] 全部平仓（请求 method=%s，按核实型全平仓执行，超时 %ds）", br.BotID, method, timeout)
-	venue := position.NewExchangeLiquidationVenue(br.Inner.Exchange)
+	venue := spm.NewLiquidationVenue(br.Inner.Exchange)
 	if err := spm.LiquidateAllVerified(ctx, venue, time.Duration(timeout)*time.Second); err != nil {
 		return fmt.Errorf("bot %s 全部平仓未核实完成: %w", br.BotID, err)
 	}
 	return nil
+}
+
+// CloseScopeKey identifies Bot controllers that share one netted venue position.
+func (br *BotRuntime) CloseScopeKey() string {
+	if br == nil || br.Inner == nil {
+		return ""
+	}
+	if br.Inner.AccountScope == "" {
+		return strings.ToLower(br.Inner.Config.Exchange) + "|unknown-account|" + strings.ToLower(br.Inner.AccountMarketType) + "|" + strings.ToUpper(br.Inner.Config.Symbol)
+	}
+	return shutdownRuntimeScopeKey(br.Inner)
 }
 
 // GetPositionSummary 获取仓位摘要信息
@@ -1106,7 +1300,6 @@ func (br *BotRuntime) GetPositionSummary() (float64, float64, error) {
 
 	return unrealizedPnL, totalValue, nil
 }
-
 
 // autoResumeAfter 在指定秒数后自动恢复开仓
 func (br *BotRuntime) autoResumeAfter(seconds int) {
@@ -1315,4 +1508,3 @@ func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
 	}
 	return os.WriteFile(path, data, 0644)
 }
-

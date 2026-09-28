@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -86,6 +87,44 @@ func (e *simExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, e
 		}
 		price = next
 	}
+}
+
+func (e *simExecutor) PlaceOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req != nil && req.Type == "MARKET" {
+		if req.PostOnly || req.TimeInForce != "" {
+			return nil, errInvalidOrder
+		}
+		price, err := e.ex.GetLatestPrice(ctx, req.Symbol)
+		if err != nil {
+			return nil, err
+		}
+		return e.ex.placeLimit(req, price) // immediate taker match against current tick
+	}
+	return e.PlaceOrder(req)
+}
+
+func (e *simExecutor) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	res := &position.BatchPlaceOrdersResult{ReduceOnlyErrors: make(map[string]bool)}
+	for _, req := range orders {
+		if ctx.Err() != nil {
+			break
+		}
+		ord, err := e.PlaceOrderContext(ctx, req)
+		if err != nil {
+			if errors.Is(err, errMarginInsufficient) {
+				res.HasMarginError = true
+			}
+			if req != nil && errors.Is(err, errReduceOnlyRejected) {
+				res.ReduceOnlyErrors[req.ClientOrderID] = true
+			}
+			continue
+		}
+		res.PlacedOrders = append(res.PlacedOrders, ord)
+	}
+	return res
 }
 
 func (e *simExecutor) countFinalReject(repriced int) {

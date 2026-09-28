@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -319,6 +320,13 @@ type BalanceCoin struct {
 	AvailableToWithdraw string `json:"availableToWithdraw"`
 }
 
+type AssetCoinBalance struct {
+	Coin            string `json:"coin"`
+	WalletBalance   string `json:"walletBalance"`
+	TransferBalance string `json:"transferBalance"`
+	Bonus           string `json:"bonus"`
+}
+
 // GetBalance 獲取帳戶餘額
 func (c *BybitClient) GetBalance(ctx context.Context, accountType string) ([]Balance, error) {
 	params := map[string]interface{}{
@@ -339,6 +347,28 @@ func (c *BybitClient) GetBalance(ctx context.Context, accountType string) ([]Bal
 	}
 
 	return result.List, nil
+}
+
+func (c *BybitClient) GetAllCoinsBalance(ctx context.Context, accountType string) ([]AssetCoinBalance, error) {
+	if strings.TrimSpace(accountType) == "" {
+		return nil, fmt.Errorf("Bybit account type is required")
+	}
+	params := map[string]interface{}{"accountType": accountType}
+	data, err := c.request(ctx, "GET", "/v5/asset/transfer/query-account-coins-balance", params)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		AccountType string             `json:"accountType"`
+		Balance     []AssetCoinBalance `json:"balance"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("parse Bybit all-coins balance: %w", err)
+	}
+	if !strings.EqualFold(result.AccountType, accountType) {
+		return nil, fmt.Errorf("Bybit all-coins response account type %q does not match requested %q", result.AccountType, accountType)
+	}
+	return result.Balance, nil
 }
 
 // BybitPosition 持倉資訊
@@ -394,6 +424,29 @@ type BybitExecution struct {
 	IsMaker     bool   `json:"isMaker"`     // 是否為 Maker
 	ExecTime    string `json:"execTime"`    // 執行時間（毫秒）
 	TradeId     string `json:"tradeId"`     // 成交ID
+	ClosedPnl   string `json:"closedPnl"`
+}
+
+func (c *BybitClient) GetExecutionHistoryPage(ctx context.Context, category, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {
+	if limit <= 0 || limit > 100 {
+		return nil, "", fmt.Errorf("Bybit execution page limit must be between 1 and 100")
+	}
+	params := map[string]interface{}{"category": category, "symbol": symbol, "startTime": startTime, "endTime": endTime, "limit": limit}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+	data, err := c.request(ctx, "GET", "/v5/execution/list", params)
+	if err != nil {
+		return nil, "", err
+	}
+	var result struct {
+		List           []BybitExecution `json:"list"`
+		NextPageCursor string           `json:"nextPageCursor"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, "", fmt.Errorf("parse Bybit execution history page: %w", err)
+	}
+	return result.List, result.NextPageCursor, nil
 }
 
 // GetOrderFills 查詢訂單成交記錄
@@ -513,11 +566,11 @@ func (c *BybitClient) GetFundingRate(ctx context.Context, category, symbol strin
 
 // FundingTicker 市場 ticker 中的資金費與結算時間（/v5/market/tickers）
 type FundingTicker struct {
-	Symbol            string `json:"symbol"`
-	FundingRate       string `json:"fundingRate"`
-	NextFundingTime   string `json:"nextFundingTime"`
-	MarkPrice         string `json:"markPrice"`
-	IndexPrice        string `json:"indexPrice"`
+	Symbol          string `json:"symbol"`
+	FundingRate     string `json:"fundingRate"`
+	NextFundingTime string `json:"nextFundingTime"`
+	MarkPrice       string `json:"markPrice"`
+	IndexPrice      string `json:"indexPrice"`
 }
 
 // GetFundingTicker 從市場 ticker 獲取資金費率、下次結算時間與標記/指數價
@@ -632,11 +685,11 @@ func (c *BybitClient) GetOrderBook(ctx context.Context, category, symbol string,
 // CreateUniversalTransfer POST /v5/asset/transfer — 帳戶內部劃轉（如合約↔現貨）
 func (c *BybitClient) CreateUniversalTransfer(ctx context.Context, transferID, coin, amount, fromAccountType, toAccountType string) (string, error) {
 	params := map[string]interface{}{
-		"transferId":       transferID,
-		"coin":             coin,
-		"amount":           amount,
-		"fromAccountType":  fromAccountType,
-		"toAccountType":    toAccountType,
+		"transferId":      transferID,
+		"coin":            coin,
+		"amount":          amount,
+		"fromAccountType": fromAccountType,
+		"toAccountType":   toAccountType,
 	}
 	data, err := c.request(ctx, "POST", "/v5/asset/transfer", params)
 	if err != nil {

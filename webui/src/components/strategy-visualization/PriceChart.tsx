@@ -32,6 +32,8 @@ const PriceChart: React.FC<PriceChartProps> = ({
   const { t } = useTranslation()
   const gridColor = useColorModeValue('rgba(0,0,0,0.05)', 'rgba(255,255,255,0.05)')
   const axisColor = useColorModeValue('gray.400', 'gray.500')
+  const tooltipBgColor = useColorModeValue('white', 'gray.800')
+  const tooltipBorderColor = useColorModeValue('#e2e8f0', '#4a5568')
 
   if (!data || data.length === 0) {
     return (
@@ -61,8 +63,8 @@ const PriceChart: React.FC<PriceChartProps> = ({
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: useColorModeValue('white', 'gray.800'),
-              border: `1px solid ${useColorModeValue('#e2e8f0', '#4a5568')}`,
+              backgroundColor: tooltipBgColor,
+              border: `1px solid ${tooltipBorderColor}`,
               borderRadius: '8px',
             }}
             formatter={(value: number) => [`$${value.toFixed(2)}`, t('strategyVisualization.price')]}

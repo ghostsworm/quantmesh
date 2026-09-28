@@ -24,20 +24,25 @@ func newShutdownCloseFake() *shutdownCloseFake {
 	}
 }
 
-func (f *shutdownCloseFake) processClose(_ context.Context, rt *SymbolRuntime) (int, error) {
+func (f *shutdownCloseFake) processClose(_ context.Context, runtimes []*SymbolRuntime) error {
 	if f.processErr != nil {
-		return 0, f.processErr
+		return f.processErr
 	}
-	f.processCalls[rt.Config.Symbol]++
-	// 進程級平倉成功後交易所持倉歸零
-	f.exchangeFlat[rt.Config.Symbol] = true
-	return 0, nil
+	for _, rt := range runtimes {
+		if decideShutdownCloseOwner(true, rt.Config) != shutdownCloseProcess {
+			continue
+		}
+		f.processCalls[rt.Config.Symbol]++
+		// The fixture models each owner-scoped close as successful.
+		f.exchangeFlat[rt.Config.Symbol] = true
+	}
+	return nil
 }
 
 // simulateStop 模擬 rt.Stop 中的 close_on_stop 流程（shouldRunBotCloseOnStop 門控 + runCloseOnStop）
 func (f *shutdownCloseFake) simulateStop(rt *SymbolRuntime) {
 	sc := rt.Config
-	if !sc.CloseOnStop || rt.shutdownCloseHandledReason() != "" {
+	if !sc.CloseOnStop || rt.shutdownCloseHandledReason() != "" || rt.shutdownCloseUnverifiedReason() != "" {
 		return
 	}
 	symbol := sc.Symbol
@@ -101,15 +106,18 @@ func TestShutdownCloseBothFlagsExactlyOneSubmissionPerSymbol(t *testing.T) {
 	}
 }
 
-func TestShutdownCloseDedupesSharedSymbolAcrossBots(t *testing.T) {
+func TestShutdownCloseRunsEachSharedAccountBotThroughItsOwnerPath(t *testing.T) {
 	f := newShutdownCloseFake()
-	a := &SymbolRuntime{Config: config.SymbolConfig{ID: "a", Symbol: "ETHUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc"}
-	b := &SymbolRuntime{Config: config.SymbolConfig{ID: "b", Symbol: "ETHUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc"}
-	c := &SymbolRuntime{Config: config.SymbolConfig{ID: "c", Symbol: "BTCUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc"}
+	a := &SymbolRuntime{Config: config.SymbolConfig{ID: "a", Symbol: "ETHUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc", AccountScope: "verified-account"}
+	b := &SymbolRuntime{Config: config.SymbolConfig{ID: "b", Symbol: "ETHUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc", AccountScope: "verified-account"}
+	c := &SymbolRuntime{Config: config.SymbolConfig{ID: "c", Symbol: "BTCUSDT", Exchange: "binance", CloseOnStop: true}, AccountID: "acc", AccountScope: "verified-account"}
 	runShutdown(f, true, []*SymbolRuntime{a, b, c})
-	for _, sym := range []string{"ETHUSDT", "BTCUSDT"} {
-		if total := f.processCalls[sym] + f.botCalls[sym]; total != 1 {
-			t.Fatalf("%s total close submissions = %d, want 1 (process=%d bot=%d)", sym, total, f.processCalls[sym], f.botCalls[sym])
+	for _, tc := range []struct {
+		symbol string
+		owners int
+	}{{"ETHUSDT", 2}, {"BTCUSDT", 1}} {
+		if total := f.processCalls[tc.symbol] + f.botCalls[tc.symbol]; total != tc.owners {
+			t.Fatalf("%s total owner close operations = %d, want %d (process=%d bot=%d)", tc.symbol, total, tc.owners, f.processCalls[tc.symbol], f.botCalls[tc.symbol])
 		}
 	}
 }

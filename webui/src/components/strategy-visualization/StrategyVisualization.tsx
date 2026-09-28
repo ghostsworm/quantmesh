@@ -5,7 +5,37 @@ import DCAVisualization from './DCAVisualization'
 import TrendFollowingVisualization from './TrendFollowingVisualization'
 import MeanReversionVisualization from './MeanReversionVisualization'
 import GridVisualization from './GridVisualization'
-import type { StrategyRuntimeStatus } from '../../services/strategy'
+import type {
+  DCAVisualizationData,
+  GridVisualizationData,
+  MeanReversionVisualizationData,
+  StrategyRuntimeStatus,
+  TrendFollowingVisualizationData,
+} from '../../services/strategy'
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function hasNumericField(data: unknown, fields: string[]): boolean {
+  return isRecord(data) && fields.some(field => typeof data[field] === 'number' && Number.isFinite(data[field]))
+}
+
+function isDcaData(data: unknown): data is DCAVisualizationData {
+  return (isRecord(data) && Array.isArray(data.layers)) || hasNumericField(data, ['avgEntryPrice', 'totalCost', 'nextBuyPrice'])
+}
+
+function isTrendData(data: unknown): data is TrendFollowingVisualizationData {
+  return hasNumericField(data, ['fastMA', 'slowMA', 'entryPrice', 'maDiff'])
+}
+
+function isMeanReversionData(data: unknown): data is MeanReversionVisualizationData {
+  return hasNumericField(data, ['upperBand', 'middleBand', 'lowerBand', 'positionInBand'])
+}
+
+function isGridData(data: unknown): data is GridVisualizationData {
+  return (isRecord(data) && Array.isArray(data.slots)) || hasNumericField(data, ['slotCount', 'filledCount', 'emptyCount'])
+}
 
 interface StrategyVisualizationProps {
   strategy: StrategyRuntimeStatus
@@ -30,7 +60,7 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
   // 根据策略类型路由到对应的可视化组件
   const strategyType = strategy.type.toLowerCase()
   
-  if (strategyType.includes('dca') || strategyType.includes('定投')) {
+  if ((strategyType.includes('dca') || strategyType.includes('定投')) && isDcaData(strategy.visualizationData)) {
     return (
       <DCAVisualization
         data={strategy.visualizationData}
@@ -40,7 +70,7 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
     )
   }
   
-  if (strategyType.includes('trend') || strategyType.includes('趋势') || strategyType.includes('trending')) {
+  if ((strategyType.includes('trend') || strategyType.includes('趋势') || strategyType.includes('trending')) && isTrendData(strategy.visualizationData)) {
     return (
       <TrendFollowingVisualization
         data={strategy.visualizationData}
@@ -50,7 +80,7 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
     )
   }
   
-  if (strategyType.includes('mean') || strategyType.includes('均值') || strategyType.includes('reversion')) {
+  if ((strategyType.includes('mean') || strategyType.includes('均值') || strategyType.includes('reversion')) && isMeanReversionData(strategy.visualizationData)) {
     return (
       <MeanReversionVisualization
         data={strategy.visualizationData}
@@ -60,7 +90,7 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
     )
   }
   
-  if (strategyType.includes('grid') || strategyType.includes('网格')) {
+  if ((strategyType.includes('grid') || strategyType.includes('网格')) && isGridData(strategy.visualizationData)) {
     return (
       <GridVisualization
         data={strategy.visualizationData}

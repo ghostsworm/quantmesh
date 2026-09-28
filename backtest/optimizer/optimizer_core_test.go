@@ -120,6 +120,13 @@ func TestGridSearchEnumerationHeatmapAndParallel(t *testing.T) {
 	if _, ok := PickBestParamResult([]ParamResult{{Score: math.Inf(-1)}}); ok {
 		t.Fatalf("all invalid scores should not yield best result")
 	}
+	if _, ok := PickBestParamResult([]ParamResult{{Score: math.Inf(1)}, {Score: math.NaN()}}); ok {
+		t.Fatalf("positive infinity and NaN must not yield a best result")
+	}
+	best, ok = PickBestParamResult([]ParamResult{{Score: 2}, {Score: math.Inf(1)}, {Score: math.NaN()}})
+	if !ok || best.Score != 2 {
+		t.Fatalf("non-finite candidates displaced a finite score: %#v, %v", best, ok)
+	}
 
 	heatmap := BuildHeatmapFromResults(results, "order_quantity", "price_low")
 	if heatmap == nil || len(heatmap.XAxis) == 0 || len(heatmap.YAxis) == 0 || len(heatmap.Data) == 0 {
@@ -174,10 +181,10 @@ func TestValidationSplitAndUniversalOptimizerHelpers(t *testing.T) {
 	if len(combos) != 6 {
 		t.Fatalf("universal combos = %d, want 6", len(combos))
 	}
-	if vals := stepsRange(3, 1, 1); len(vals) != 1 || vals[0] != 3 {
+	if vals := stepsRange(3, 1, 1); vals != nil {
 		t.Fatalf("reversed steps range = %#v", vals)
 	}
-	if vals := stepsRange(1, 2, 0); len(vals) != 1 || vals[0] != 1 {
+	if vals := stepsRange(1, 2, 0); vals != nil {
 		t.Fatalf("zero step range = %#v", vals)
 	}
 

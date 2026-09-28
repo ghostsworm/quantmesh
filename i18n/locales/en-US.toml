@@ -54,6 +54,15 @@ other = "Storage service unavailable"
 [error.missing_symbol_param]
 other = "Missing symbol parameter"
 
+[error.market_type_required]
+other = "market_type is required when this symbol has trades in multiple markets"
+
+[error.exchange_market_required]
+other = "exchange and market_type are required when this symbol has trades in multiple exchange/market scopes"
+
+[error.market_scoped_pnl_unavailable]
+other = "Market-scoped P&L queries are unavailable for this storage backend"
+
 [error.get_pnl_failed]
 other = "Failed to get P&L data"
 

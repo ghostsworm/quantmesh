@@ -2,6 +2,7 @@ package storage
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -41,9 +42,9 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 	botID := strings.TrimSpace(trade.BotID)
 	_, err := s.db.Exec(fmt.Sprintf(`
 		INSERT INTO %s
-		(buy_order_id, sell_order_id, bot_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, s.tradesTbl()), trade.BuyOrderID, trade.SellOrderID, botID, exchange, trade.Account, trade.Symbol,
+		(execution_key, buy_order_id, sell_order_id, bot_id, exchange, market_type, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, s.tradesTbl()), trade.ExecutionKey, trade.BuyOrderID, trade.SellOrderID, botID, exchange, strings.ToLower(strings.TrimSpace(trade.MarketType)), trade.AccountScope, trade.Account, trade.Symbol,
 		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
 		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
@@ -54,6 +55,47 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 		globalAuditLogger.LogTrade(trade)
 	}
 	return nil
+}
+
+// SaveTradeIdempotent retries safely when the database committed a row but the
+// acknowledgement was lost. A reused key with different economics is rejected.
+func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
+	if trade == nil || strings.TrimSpace(trade.ExecutionKey) == "" {
+		return fmt.Errorf("idempotent trade write requires an execution key")
+	}
+	canonical := *trade
+	canonical.ExecutionKey = strings.TrimSpace(canonical.ExecutionKey)
+	canonical.BotID = strings.TrimSpace(canonical.BotID)
+	canonical.MarketType = strings.ToLower(strings.TrimSpace(canonical.MarketType))
+	if strings.TrimSpace(canonical.Exchange) == "" {
+		canonical.Exchange = "binance"
+	}
+	trade = &canonical
+	if err := s.SaveTrade(trade); err == nil {
+		return nil
+	} else {
+		var existing Trade
+		query := fmt.Sprintf(`SELECT buy_order_id, sell_order_id, bot_id, exchange, market_type, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation FROM %s WHERE execution_key = ?`, s.tradesTbl())
+		if readErr := s.db.QueryRow(query, trade.ExecutionKey).Scan(
+			&existing.BuyOrderID, &existing.SellOrderID, &existing.BotID, &existing.Exchange, &existing.MarketType, &existing.AccountScope, &existing.Account, &existing.Symbol,
+			&existing.BuyPrice, &existing.SellPrice, &existing.Quantity, &existing.PnL, &existing.ExchangePnL, &existing.Fee,
+			&existing.FeeAsset, &existing.BuyPriceDeviation, &existing.SellPriceDeviation,
+		); readErr != nil {
+			return err
+		}
+		if !sameTradeEconomics(existing, *trade) {
+			return fmt.Errorf("execution key %q already exists with different trade economics: %w", trade.ExecutionKey, err)
+		}
+		return nil
+	}
+}
+
+func sameTradeEconomics(a, b Trade) bool {
+	close := func(x, y float64) bool { return math.Abs(x-y) <= 0.00000001 }
+	return a.BuyOrderID == b.BuyOrderID && a.SellOrderID == b.SellOrderID && strings.TrimSpace(a.BotID) == strings.TrimSpace(b.BotID) && a.AccountScope == b.AccountScope && a.Account == b.Account &&
+		strings.EqualFold(a.Exchange, b.Exchange) && strings.EqualFold(a.MarketType, b.MarketType) && a.Symbol == b.Symbol && a.FeeAsset == b.FeeAsset &&
+		close(a.BuyPrice, b.BuyPrice) && close(a.SellPrice, b.SellPrice) && close(a.Quantity, b.Quantity) && close(a.PnL, b.PnL) &&
+		close(a.ExchangePnL, b.ExchangePnL) && close(a.Fee, b.Fee) && close(a.BuyPriceDeviation, b.BuyPriceDeviation) && close(a.SellPriceDeviation, b.SellPriceDeviation)
 }
 
 // SaveTradeWithDeviation 保存交易記錄（包含價格偏差）
@@ -95,6 +137,18 @@ func (s *SQLStorage) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exc
 		BuyPriceDeviation:  buyPriceDeviation,
 		SellPriceDeviation: sellPriceDeviation,
 		CreatedAt:          createdAt,
+	}
+	return s.SaveTrade(trade)
+}
+
+// SaveTradeWithExchangePnLAndMarketType persists market identity when the execution owner knows it.
+func (s *SQLStorage) SaveTradeWithExchangePnLAndMarketType(buyOrderID, sellOrderID int64, exchange, marketType, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
+	trade := &Trade{
+		BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: strings.TrimSpace(botID),
+		Exchange: exchange, MarketType: strings.ToLower(strings.TrimSpace(marketType)), Symbol: symbol,
+		BuyPrice: buyPrice, SellPrice: sellPrice, Quantity: quantity, PnL: pnl, ExchangePnL: exchangePnL,
+		Fee: fee, FeeAsset: feeAsset, BuyPriceDeviation: buyPriceDeviation,
+		SellPriceDeviation: sellPriceDeviation, CreatedAt: createdAt,
 	}
 	return s.SaveTrade(trade)
 }
@@ -162,10 +216,10 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 	}
 
 	rows, err := s.db.Query(fmt.Sprintf(`
-		SELECT buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
+		SELECT id, buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
 		FROM %s
 		WHERE created_at >= ? AND created_at <= ?
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT ? OFFSET ?
 	`, s.tradesTbl()), startTime, endTime, limit, offset)
 	if err != nil {
@@ -177,6 +231,7 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 	for rows.Next() {
 		trade := &Trade{}
 		err := rows.Scan(
+			&trade.ID,
 			&trade.BuyOrderID,
 			&trade.SellOrderID,
 			&trade.Exchange,
@@ -190,7 +245,7 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 			&trade.CreatedAt,
 		)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("解析成交記錄失败: %w", err)
 		}
 		// 兼容舊數據：如果 exchange 為空，默认為 binance
 		if trade.Exchange == "" {
@@ -237,7 +292,7 @@ func (s *SQLStorage) GetTradesBySellOrderIDs(sellOrderIDs []int64) (map[int64]fl
 			// 金額聚合不能跳行：少一筆就是盈亏數字直接算錯
 			return nil, fmt.Errorf("解析成交盈亏失败: %w", err)
 		}
-		result[sellOrderID] = pnl
+		result[sellOrderID] += pnl
 	}
 	return result, rows.Err()
 }

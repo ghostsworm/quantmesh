@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -134,17 +135,17 @@ func (g *GateSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*O
 		return nil, err
 	}
 	var result struct {
-		ID            string `json:"id"`
-		Text          string `json:"text"`
-		CurrencyPair  string `json:"currency_pair"`
-		Side          string `json:"side"`
-		Type          string `json:"type"`
-		Amount        string `json:"amount"`
-		Price         string `json:"price"`
-		FilledAmount  string `json:"filled_amount"`
-		AvgDealPrice  string `json:"avg_deal_price"`
-		Status        string `json:"status"`
-		UpdateTime    string `json:"update_time"`
+		ID           string `json:"id"`
+		Text         string `json:"text"`
+		CurrencyPair string `json:"currency_pair"`
+		Side         string `json:"side"`
+		Type         string `json:"type"`
+		Amount       string `json:"amount"`
+		Price        string `json:"price"`
+		FilledAmount string `json:"filled_amount"`
+		AvgDealPrice string `json:"avg_deal_price"`
+		Status       string `json:"status"`
+		UpdateTime   string `json:"update_time"`
 	}
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, fmt.Errorf("解析下單响应失败: %w", err)
@@ -228,17 +229,17 @@ func (g *GateSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID i
 		return nil, err
 	}
 	var result struct {
-		ID            string `json:"id"`
-		Text          string `json:"text"`
-		CurrencyPair  string `json:"currency_pair"`
-		Side          string `json:"side"`
-		Type          string `json:"type"`
-		Amount        string `json:"amount"`
-		Price         string `json:"price"`
-		FilledAmount  string `json:"filled_amount"`
-		AvgDealPrice  string `json:"avg_deal_price"`
-		Status        string `json:"status"`
-		UpdateTimeMs  string `json:"update_time_ms"`
+		ID           string `json:"id"`
+		Text         string `json:"text"`
+		CurrencyPair string `json:"currency_pair"`
+		Side         string `json:"side"`
+		Type         string `json:"type"`
+		Amount       string `json:"amount"`
+		Price        string `json:"price"`
+		FilledAmount string `json:"filled_amount"`
+		AvgDealPrice string `json:"avg_deal_price"`
+		Status       string `json:"status"`
+		UpdateTimeMs string `json:"update_time_ms"`
 	}
 	if err := json.Unmarshal(resp, &result); err != nil {
 		return nil, err
@@ -279,17 +280,17 @@ func (g *GateSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*
 		return nil, err
 	}
 	var list []struct {
-		ID            string `json:"id"`
-		Text          string `json:"text"`
-		CurrencyPair  string `json:"currency_pair"`
-		Side          string `json:"side"`
-		Type          string `json:"type"`
-		Amount        string `json:"amount"`
-		Price         string `json:"price"`
-		FilledAmount  string `json:"filled_amount"`
-		AvgDealPrice  string `json:"avg_deal_price"`
-		Status        string `json:"status"`
-		UpdateTimeMs  string `json:"update_time_ms"`
+		ID           string `json:"id"`
+		Text         string `json:"text"`
+		CurrencyPair string `json:"currency_pair"`
+		Side         string `json:"side"`
+		Type         string `json:"type"`
+		Amount       string `json:"amount"`
+		Price        string `json:"price"`
+		FilledAmount string `json:"filled_amount"`
+		AvgDealPrice string `json:"avg_deal_price"`
+		Status       string `json:"status"`
+		UpdateTimeMs string `json:"update_time_ms"`
 	}
 	if err := json.Unmarshal(resp, &list); err != nil {
 		return nil, err
@@ -331,29 +332,57 @@ func (g *GateSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	var list []struct {
-		Currency  string `json:"currency"`
-		Available string `json:"available"`
-		Locked    string `json:"locked"`
-	}
+	var list []gateSpotAccountBalance
 	if err := json.Unmarshal(resp, &list); err != nil {
 		return nil, err
 	}
-	var total, available float64
-	for _, c := range list {
-		avail, _ := strconv.ParseFloat(c.Available, 64)
-		locked, _ := strconv.ParseFloat(c.Locked, 64)
-		total += avail + locked
-		if c.Currency == "USDT" || c.Currency == "USDC" {
-			available += avail
-		}
+	total, available, err := summarizeGateSpotQuoteBalance(list, g.quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 	return &Account{
 		TotalWalletBalance: total,
 		TotalMarginBalance: total,
 		AvailableBalance:   available,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(g.quoteAsset)),
 		Positions:          nil,
 	}, nil
+}
+
+type gateSpotAccountBalance struct {
+	Currency  string `json:"currency"`
+	Available string `json:"available"`
+	Locked    string `json:"locked"`
+}
+
+func summarizeGateSpotQuoteBalance(rows []gateSpotAccountBalance, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("Gate spot quote asset is unavailable")
+	}
+	found := false
+	for _, row := range rows {
+		if !strings.EqualFold(strings.TrimSpace(row.Currency), quoteAsset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate Gate spot %s balance rows", quoteAsset)
+		}
+		found = true
+		available, err = strconv.ParseFloat(row.Available, 64)
+		if err != nil || math.IsNaN(available) || math.IsInf(available, 0) || available < 0 {
+			return 0, 0, fmt.Errorf("invalid Gate spot %s available balance %q", quoteAsset, row.Available)
+		}
+		locked, parseErr := strconv.ParseFloat(row.Locked, 64)
+		if parseErr != nil || math.IsNaN(locked) || math.IsInf(locked, 0) || locked < 0 {
+			return 0, 0, fmt.Errorf("invalid Gate spot %s locked balance %q", quoteAsset, row.Locked)
+		}
+		total = available + locked
+		if math.IsInf(total, 0) {
+			return 0, 0, fmt.Errorf("Gate spot %s balance overflow", quoteAsset)
+		}
+	}
+	return total, available, nil
 }
 
 // GetPositions 現貨"持倉"由基础资產餘額構成
@@ -581,9 +610,9 @@ func (g *GateSpotAdapter) GetOrderBook(ctx context.Context, symbol string, limit
 	var depth struct {
 		Asks         [][]string `json:"asks"`
 		Bids         [][]string `json:"bids"`
-		OrderBookID  int64      `json:"order_book_id"`   // 订單簿版本 ID
-		UpdateTimeMs int64      `json:"update_time_ms"`  // 更新時间（毫秒）
-		Current      float64    `json:"current"`         // 部分接口返回秒级時间戳
+		OrderBookID  int64      `json:"order_book_id"`  // 订單簿版本 ID
+		UpdateTimeMs int64      `json:"update_time_ms"` // 更新時间（毫秒）
+		Current      float64    `json:"current"`        // 部分接口返回秒级時间戳
 	}
 	if err := json.Unmarshal(resp, &depth); err != nil {
 		return nil, err

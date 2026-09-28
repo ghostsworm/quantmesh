@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -71,12 +72,12 @@ func (b *BitgetSpotAdapter) fetchSpotSymbol(ctx context.Context) error {
 		return err
 	}
 	var list []struct {
-		Symbol             string `json:"symbol"`
-		BaseCoin           string `json:"baseCoin"`
-		QuoteCoin          string `json:"quoteCoin"`
-		PricePrecision     string `json:"pricePrecision"`
-		QuantityPrecision  string `json:"quantityPrecision"`
-		MinOrderAmount     string `json:"minOrderAmount"`
+		Symbol            string `json:"symbol"`
+		BaseCoin          string `json:"baseCoin"`
+		QuoteCoin         string `json:"quoteCoin"`
+		PricePrecision    string `json:"pricePrecision"`
+		QuantityPrecision string `json:"quantityPrecision"`
+		MinOrderAmount    string `json:"minOrderAmount"`
 	}
 	if err := json.Unmarshal(resp.Data, &list); err != nil || len(list) == 0 {
 		return fmt.Errorf("未找到現貨交易對: %s", b.symbol)
@@ -230,17 +231,17 @@ func (b *BitgetSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID
 		return nil, err
 	}
 	var list []struct {
-		OrderID     string `json:"orderId"`
-		ClientOid   string `json:"clientOid"`
-		Symbol      string `json:"symbol"`
-		Side        string `json:"side"`
-		OrderType   string `json:"orderType"`
-		Price       string `json:"price"`
-		Size        string `json:"size"`
-		FilledSize  string `json:"filledSize"`
-		AvgPrice    string `json:"avgPrice"`
-		Status      string `json:"status"`
-		UpdateTime  string `json:"updateTime"`
+		OrderID    string `json:"orderId"`
+		ClientOid  string `json:"clientOid"`
+		Symbol     string `json:"symbol"`
+		Side       string `json:"side"`
+		OrderType  string `json:"orderType"`
+		Price      string `json:"price"`
+		Size       string `json:"size"`
+		FilledSize string `json:"filledSize"`
+		AvgPrice   string `json:"avgPrice"`
+		Status     string `json:"status"`
+		UpdateTime string `json:"updateTime"`
 	}
 	if err := json.Unmarshal(resp.Data, &list); err != nil || len(list) == 0 {
 		return nil, fmt.Errorf("订單不存在: %d", orderID)
@@ -281,17 +282,17 @@ func (b *BitgetSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([
 		return nil, err
 	}
 	var list []struct {
-		OrderID     string `json:"orderId"`
-		ClientOid   string `json:"clientOid"`
-		Symbol      string `json:"symbol"`
-		Side        string `json:"side"`
-		OrderType   string `json:"orderType"`
-		Price       string `json:"price"`
-		Size        string `json:"size"`
-		FilledSize  string `json:"filledSize"`
-		AvgPrice    string `json:"avgPrice"`
-		Status      string `json:"status"`
-		UpdateTime  string `json:"updateTime"`
+		OrderID    string `json:"orderId"`
+		ClientOid  string `json:"clientOid"`
+		Symbol     string `json:"symbol"`
+		Side       string `json:"side"`
+		OrderType  string `json:"orderType"`
+		Price      string `json:"price"`
+		Size       string `json:"size"`
+		FilledSize string `json:"filledSize"`
+		AvgPrice   string `json:"avgPrice"`
+		Status     string `json:"status"`
+		UpdateTime string `json:"updateTime"`
 	}
 	if err := json.Unmarshal(resp.Data, &list); err != nil {
 		return nil, err
@@ -333,29 +334,57 @@ func (b *BitgetSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	var list []struct {
-		Coin      string `json:"coin"`
-		Available string `json:"available"`
-		Locked    string `json:"locked"`
-	}
+	var list []bitgetSpotAccountAsset
 	if err := json.Unmarshal(resp.Data, &list); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode Bitget spot balances: %w", err)
 	}
-	var total, available float64
-	for _, c := range list {
-		avail, _ := strconv.ParseFloat(c.Available, 64)
-		locked, _ := strconv.ParseFloat(c.Locked, 64)
-		total += avail + locked
-		if c.Coin == "USDT" || c.Coin == "USDC" {
-			available += avail
-		}
+	total, available, err := summarizeBitgetSpotQuoteBalance(list, b.quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 	return &Account{
 		TotalWalletBalance: total,
-		TotalMarginBalance:  total,
+		TotalMarginBalance: total,
 		AvailableBalance:   available,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(b.quoteAsset)),
 		Positions:          nil,
 	}, nil
+}
+
+type bitgetSpotAccountAsset struct {
+	Coin      string `json:"coin"`
+	Available string `json:"available"`
+	Locked    string `json:"locked"`
+}
+
+func summarizeBitgetSpotQuoteBalance(balances []bitgetSpotAccountAsset, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("Bitget spot quote asset is required for balance valuation")
+	}
+	found := false
+	for _, balance := range balances {
+		if !strings.EqualFold(balance.Coin, quoteAsset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate Bitget %s balance entries", quoteAsset)
+		}
+		found = true
+		free, parseErr := strconv.ParseFloat(balance.Available, 64)
+		if parseErr != nil || math.IsNaN(free) || math.IsInf(free, 0) || free < 0 {
+			return 0, 0, fmt.Errorf("invalid Bitget %s available balance %q", quoteAsset, balance.Available)
+		}
+		locked, parseErr := strconv.ParseFloat(balance.Locked, 64)
+		if parseErr != nil || math.IsNaN(locked) || math.IsInf(locked, 0) || locked < 0 {
+			return 0, 0, fmt.Errorf("invalid Bitget %s locked balance %q", quoteAsset, balance.Locked)
+		}
+		total, available = free+locked, free
+		if math.IsInf(total, 0) {
+			return 0, 0, fmt.Errorf("Bitget %s balance overflow", quoteAsset)
+		}
+	}
+	return total, available, nil
 }
 
 // GetPositions 現貨“持倉”由基础资產餘額構成

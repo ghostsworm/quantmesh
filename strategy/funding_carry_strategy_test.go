@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/exchange/income"
+	"quantmesh/execution"
 )
 
 func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
@@ -135,14 +137,15 @@ type mockFCExchange struct {
 	placedOrders     []*exchange.OrderRequest
 	getOrderStatus   exchange.OrderStatus
 	getOrderExecQty  float64
+	repayCalls       int
 	mu               sync.Mutex
 }
 
-func (m *mockFCExchange) GetName() string       { return m.name }
-func (m *mockFCExchange) GetMarketType() string  { return m.marketType }
-func (m *mockFCExchange) GetBaseAsset() string   { return m.baseAsset }
-func (m *mockFCExchange) GetQuoteAsset() string  { return "USDT" }
-func (m *mockFCExchange) GetPriceDecimals() int  { return m.priceDecimals }
+func (m *mockFCExchange) GetName() string          { return m.name }
+func (m *mockFCExchange) GetMarketType() string    { return m.marketType }
+func (m *mockFCExchange) GetBaseAsset() string     { return m.baseAsset }
+func (m *mockFCExchange) GetQuoteAsset() string    { return "USDT" }
+func (m *mockFCExchange) GetPriceDecimals() int    { return m.priceDecimals }
 func (m *mockFCExchange) GetQuantityDecimals() int { return m.quantityDecimals }
 func (m *mockFCExchange) StartOrderStream(ctx context.Context, cb func(interface{})) error {
 	return nil
@@ -211,12 +214,36 @@ func (m *mockFCExchange) GetPositions(ctx context.Context, symbol string) ([]*ex
 func (m *mockFCExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return m.balance, nil
 }
+func (m *mockFCExchange) Borrow(context.Context, string, float64) (int64, error) { return 1, nil }
+func (m *mockFCExchange) Repay(context.Context, string, float64) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repayCalls++
+	return int64(m.repayCalls), nil
+}
 func (m *mockFCExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.placedOrders = append(m.placedOrders, req)
 	if m.placeOrderErr != nil {
 		return nil, m.placeOrderErr
+	}
+	if req.ReduceOnly {
+		remaining := req.Quantity
+		for _, position := range m.positions {
+			if position == nil || position.Symbol != req.Symbol || remaining <= 0 {
+				continue
+			}
+			if req.Side == exchange.SideBuy && position.Size < 0 {
+				closed := math.Min(math.Abs(position.Size), remaining)
+				position.Size += closed
+				remaining -= closed
+			} else if req.Side == exchange.SideSell && position.Size > 0 {
+				closed := math.Min(position.Size, remaining)
+				position.Size -= closed
+				remaining -= closed
+			}
+		}
 	}
 	return &exchange.Order{
 		OrderID:     int64(len(m.placedOrders)),
@@ -251,6 +278,7 @@ func TestOpenHedge_AtomicSuccess(t *testing.T) {
 		config.SymbolConfig{Symbol: "BTCUSDT", TotalAllocatedCapital: 500},
 		futEx, spotEx, nil, nil)
 	s.SetEventBus(bus)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 
 	err := s.openHedge(context.Background(), 50050, 50000, 0.001)
 	if err != nil {
@@ -291,11 +319,15 @@ func TestSyncPositions_Forward(t *testing.T) {
 	s := NewFundingCarryStrategy("fc", nil,
 		config.SymbolConfig{Symbol: "ETHUSDT"},
 		futEx, spotEx, nil, nil)
+	s.direction = DirectionForward
+	s.futQty = 1.2
+	s.strategySpotQty = 1.2
+	s.strategySpotKnown = true
 
 	if err := s.syncPositions(context.Background()); err != nil {
 		t.Fatalf("syncPositions: %v", err)
 	}
-	// 無記賬時保守推導為 min(合約空頭, 現貨餘額)，多出的 0.3 視為用戶自有持幣
+	// 只認策略自己的 1.2 現貨記賬，多出的 0.3 視為用戶自有持幣
 	if s.spotQty != 1.2 {
 		t.Errorf("spotQty = %v, want 1.2", s.spotQty)
 	}
@@ -327,7 +359,7 @@ func TestCloseAll_PublishesEvent(t *testing.T) {
 	spotEx := &mockFCExchange{
 		baseAsset: "BTC", balance: 0.01, latestPrice: 50000,
 		priceDecimals: 2, quantityDecimals: 5,
-		getOrderStatus: exchange.OrderStatusFilled,
+		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.01,
 	}
 	futEx := &mockFCExchange{
 		positions:        []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}},
@@ -339,6 +371,10 @@ func TestCloseAll_PublishesEvent(t *testing.T) {
 		config.SymbolConfig{Symbol: "BTCUSDT"},
 		futEx, spotEx, nil, nil)
 	s.SetEventBus(bus)
+	s.direction = DirectionForward
+	s.futQty = 0.01
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.recordStrategySpot(0.01)
 
 	err := s.closeAll(context.Background(), "test_exit")
 	if err != nil {
@@ -357,6 +393,30 @@ func TestCloseAll_PublishesEvent(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected EventTypePositionClosed event")
+	}
+}
+
+func TestCloseReverse_DoesNotRepayBeforeDebtBuybackIsComplete(t *testing.T) {
+	spotEx := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
+	futEx := &mockFCExchange{quantityDecimals: 3, priceDecimals: 2}
+	marginEx := &mockFCExchange{
+		baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2,
+		positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4}},
+		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.2,
+	}
+	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, marginEx, nil)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.direction, s.marginDebt = DirectionReverse, 0.4
+
+	err := s.closeReverse(context.Background(), "test")
+	if err == nil {
+		t.Fatal("expected incomplete buyback error")
+	}
+	if marginEx.repayCalls != 0 {
+		t.Fatalf("repay called %d times before full debt buyback", marginEx.repayCalls)
+	}
+	if s.direction != DirectionReverse || s.marginDebt != 0.4 || !s.unownedExposure {
+		t.Fatalf("incomplete reverse close lost ownership record: direction=%v debt=%v blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
 	}
 }
 
@@ -475,5 +535,55 @@ func TestCombineErrors(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected non-nil error")
+	}
+}
+
+func TestFundingCarryOpeningLimitsCapPairedExposure(t *testing.T) {
+	s := &FundingCarryStrategy{symCfg: config.SymbolConfig{TotalAllocatedCapital: 1000},
+		openControl: config.OpenPositionControl{MaxPositionValue: 700, MaxPositionQuantity: 5}}
+	got, err := s.capitalWithinOpeningLimits(101, 100)
+	if err != nil || got <= 500 || got > 505 || got*(0.5/101+0.5/100) > 5+1e-9 {
+		t.Fatalf("paired notional/quantity limits not applied: cap=%v err=%v", got, err)
+	}
+	s.openControl = config.OpenPositionControl{MaxPositionValue: 250}
+	got, err = s.capitalWithinOpeningLimits(101, 100)
+	if err != nil || got != 250 {
+		t.Fatalf("notional limit not applied: cap=%v err=%v", got, err)
+	}
+}
+
+func TestFundingCarryScheduleControlsOnlyItsOwnOpeningGateSource(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	gate.Block("manual")
+	s := &FundingCarryStrategy{openingGate: gate, lastScheduleRun: make(map[string]string)}
+	s.UpdateOpenPositionControl(config.OpenPositionControl{ScheduleRules: []config.ScheduleRule{{
+		Enabled: true, Action: "pause", Time: "09:30", Weekdays: []int{1},
+	}}})
+	now := time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC) // Monday
+	s.applyOpeningSchedule(now)
+	if !gate.HasBlock("schedule") || !gate.HasBlock("manual") {
+		t.Fatalf("schedule did not add an independent pause source")
+	}
+	s.UpdateOpenPositionControl(config.OpenPositionControl{})
+	if gate.HasBlock("schedule") || !gate.HasBlock("manual") {
+		t.Fatal("control update removed another owner's pause or retained stale schedule pause")
+	}
+}
+
+func TestFundingCarryPeriodicControlClosesAndReopensOnlyItsOwnSource(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	s := &FundingCarryStrategy{openingGate: gate, lastScheduleRun: make(map[string]string)}
+	s.UpdateOpenPositionControl(config.OpenPositionControl{PeriodicRule: &config.PeriodicRule{
+		Enabled: true, OpenDurationMin: 1, CloseDurationMin: 2,
+	}})
+	start := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
+	s.applyOpeningSchedule(start)
+	s.applyOpeningSchedule(start.Add(time.Minute))
+	if !gate.HasBlock("periodic") {
+		t.Fatal("periodic close window did not block openings")
+	}
+	s.applyOpeningSchedule(start.Add(3 * time.Minute))
+	if gate.HasBlock("periodic") {
+		t.Fatal("periodic open window did not resume its own gate source")
 	}
 }

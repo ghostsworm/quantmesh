@@ -38,9 +38,11 @@ type MomentumStrategy struct {
 	pendingAction string
 	stats         *StrategyStatistics
 
-	isPaused  bool
-	isRunning bool
-	eventBus  EventBus
+	isPaused          bool
+	isRunning         bool
+	eventBus          EventBus
+	runtimeStateStore RuntimeStateStore
+	runtimeStateErr   error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -118,6 +120,9 @@ func (ms *MomentumStrategy) Initialize(cfg *config.Config, executor position.Ord
 
 // Start 啟动策略
 func (ms *MomentumStrategy) Start(ctx context.Context) error {
+	if err := ms.restoreRuntimeState(); err != nil {
+		return err
+	}
 	ms.mu.Lock()
 	ms.isRunning = true
 	ms.mu.Unlock()
@@ -214,12 +219,20 @@ func (ms *MomentumStrategy) calculateRSI() float64 {
 
 // OnPriceChange 價格變化处理
 func (ms *MomentumStrategy) OnPriceChange(price float64) error {
-	ms.mu.RLock()
-	if !ms.isRunning || ms.isPaused || ms.activeOrder != nil {
-		ms.mu.RUnlock()
+	ms.mu.Lock()
+	stateErr := ms.runtimeStateErr
+	shouldEvaluate := ms.isRunning && !ms.isPaused && ms.activeOrder == nil
+	priceErr := updateSignalPositionMark(ms.position, price)
+	ms.mu.Unlock()
+	if priceErr != nil {
+		return priceErr
+	}
+	if stateErr != nil {
+		return signalRuntimeStateDecisionError(ms.name, stateErr)
+	}
+	if !shouldEvaluate {
 		return nil
 	}
-	ms.mu.RUnlock()
 	ms.addPrice(price)
 
 	rsi := ms.calculateRSI()
@@ -229,7 +242,6 @@ func (ms *MomentumStrategy) OnPriceChange(price float64) error {
 
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
-
 	// RSI < 30：超賣，買入信号
 	if rsi < ms.oversold && ms.position == nil {
 		logger.Info("📊 [%s] RSI超賣，買入信号: RSI=%.2f, 價格=%.2f", ms.name, rsi, price)
@@ -246,6 +258,9 @@ func (ms *MomentumStrategy) OnPriceChange(price float64) error {
 }
 
 func (ms *MomentumStrategy) placeSignalOrder(action string, price float64) error {
+	if action == signalActionOpenLong && signalOpeningPaused(ms.executor, ms.cfg) {
+		return nil
+	}
 	if ms.executor == nil {
 		return nil
 	}
@@ -272,39 +287,24 @@ func (ms *MomentumStrategy) placeSignalOrder(action string, price float64) error
 		return nil
 	}
 
-	order, err := ms.executor.PlaceOrder(&position.OrderRequest{
+	req := &position.OrderRequest{
 		Symbol:        symbol,
 		Side:          side,
 		Price:         orderPrice,
 		Quantity:      quantity,
 		PriceDecimals: priceDecimals,
 		ReduceOnly:    reduceOnly,
+		PositionSide:  position.PositionSideLong,
 		PostOnly:      false,
 		ClientOrderID: signalClientOrderID(ms.name, action),
 		StrategyName:  ms.name,
 		StrategyType:  "momentum",
-	})
-	if err != nil {
-		return err
 	}
-	if order == nil {
-		return nil
+	venue := ""
+	if ms.exchange != nil {
+		venue = ms.exchange.GetName()
 	}
-	tracked := &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          order.Side,
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		Status:        order.Status,
-	}
-	ms.activeOrder = tracked
-	ms.pendingAction = action
-	if signalOrderStatusFilled(order.Status) {
-		ms.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
-	}
-	return nil
+	return submitSignalOrder(ms.executor, venue, req, action, &ms.activeOrder, &ms.pendingAction, &ms.position, &ms.entryPrice, ms.stats, ms.exchange, ms.persistRuntimeStateLocked)
 }
 
 // OnOrderUpdate 订單更新处理
@@ -315,61 +315,8 @@ func (ms *MomentumStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
-	if !signalOrderMatches(ms.activeOrder, update) {
-		return nil
-	}
-	ms.activeOrder.Status = update.Status
-	if signalOrderStatusTerminal(update.Status) {
-		ms.activeOrder = nil
-		ms.pendingAction = ""
-		return nil
-	}
-	if !signalOrderStatusFilled(update.Status) {
-		return nil
-	}
-	fillPrice := update.AvgPrice
-	if fillPrice <= 0 {
-		fillPrice = update.Price
-	}
-	fillQty := update.ExecutedQty
-	if fillQty <= 0 {
-		fillQty = ms.activeOrder.Quantity
-	}
-	ms.applyFilledOrderLocked(ms.activeOrder, fillQty, fillPrice)
-	return nil
-}
-
-func (ms *MomentumStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
-	if order == nil {
-		return
-	}
-	if price <= 0 {
-		price = order.Price
-	}
-	if quantity <= 0 {
-		quantity = order.Quantity
-	}
-	switch ms.pendingAction {
-	case signalActionOpenLong:
-		ms.entryPrice = price
-		ms.position = &Position{
-			Symbol:       order.Symbol,
-			Size:         quantity,
-			EntryPrice:   price,
-			CurrentPrice: price,
-			PnL:          0,
-		}
-	case signalActionCloseLong:
-		if ms.position != nil && ms.entryPrice > 0 {
-			ms.stats.TotalPnL += (price - ms.entryPrice) * ms.position.Size
-		}
-		ms.position = nil
-		ms.entryPrice = 0
-		ms.stats.TotalTrades++
-	}
-	ms.stats.TotalVolume += quantity * price
-	ms.activeOrder = nil
-	ms.pendingAction = ""
+	applySignalOrderUpdate(&ms.activeOrder, &ms.pendingAction, &ms.position, &ms.entryPrice, ms.stats, ms.exchange, ms.executor, update)
+	return ms.persistRuntimeStateLocked()
 }
 
 // GetPositions 獲取持倉

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts'
+import { createChart, ColorType, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts'
 import { Box, HStack, Button } from '@chakra-ui/react'
 import { useSymbol } from '../contexts/SymbolContext'
 import { getStatus, getKlines, KlineData } from '../services/api'
@@ -8,10 +8,12 @@ import VolatilityIndicator from './VolatilityIndicator'
 
 const INTERVALS = ['1m', '5m', '15m', '30m', '1h', '4h', '1d'] as const
 type Interval = typeof INTERVALS[number]
+type CandlePoint = { time: UTCTimestamp; open: number; high: number; low: number; close: number }
+type VolumePoint = { time: UTCTimestamp; value: number; color: string }
 
 // 节流函數
 function throttle<T extends (...args: any[]) => any>(func: T, wait: number): T {
-  let timeout: NodeJS.Timeout | null = null
+  let timeout: ReturnType<typeof setTimeout> | null = null
   let previous = 0
   
   return ((...args: Parameters<T>) => {
@@ -88,11 +90,11 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
   // 用於取消正在進行的请求
   const abortControllerRef = useRef<AbortController | null>(null)
   // 防抖定時器
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 缓存已加載的數據，用於增量更新
   const cachedDataRef = useRef<{
-    candleData: Array<{ time: number; open: number; high: number; low: number; close: number }>
-    volumeData: Array<{ time: number; value: number; color: string }>
+    candleData: CandlePoint[]
+    volumeData: VolumePoint[]
     lastUpdateTime: number
   } | null>(null)
   // 標記是否是首次加載
@@ -139,10 +141,6 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
         type: 'volume',
       },
       priceScaleId: 'volume',
-      scaleMargins: {
-        top: 0.8,
-        bottom: 0,
-      },
     })
     volumeSeriesRef.current = volumeSeries
 
@@ -175,7 +173,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
   // 轉换K線數據格式（使用useMemo缓存）
   const transformKlineData = useCallback((klines: KlineData[]) => {
     const candleData = klines.map((k) => ({
-      time: k.time as number,
+      time: Math.trunc(k.time) as UTCTimestamp,
       open: k.open,
       high: k.high,
       low: k.low,
@@ -183,7 +181,7 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
     }))
 
     const volumeData = klines.map((k) => ({
-      time: k.time as number,
+      time: Math.trunc(k.time) as UTCTimestamp,
       value: k.volume,
       color: k.close >= k.open ? '#26a69a80' : '#ef535080',
     }))
@@ -193,8 +191,8 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
 
   // 增量更新數據（只更新新增或变更的K線）
   const updateChartIncremental = useCallback((
-    newCandleData: Array<{ time: number; open: number; high: number; low: number; close: number }>,
-    newVolumeData: Array<{ time: number; value: number; color: string }>
+    newCandleData: CandlePoint[],
+    newVolumeData: VolumePoint[]
   ) => {
     const cached = cachedDataRef.current
     const isFirstLoad = isFirstLoadRef.current
@@ -235,7 +233,14 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
         // 所以先更新最后一根（如果存在），然后添加新K線
         const lastCachedIndex = newCandleData.findIndex(d => d.time === lastCachedTime)
         
-        if (lastCachedIndex >= 0 && lastCachedIndex < newCandleData.length - 1) {
+        if (lastCachedIndex < 0) {
+          if (candlestickSeriesRef.current) {
+            candlestickSeriesRef.current.setData(newCandleData)
+          }
+          if (volumeSeriesRef.current) {
+            volumeSeriesRef.current.setData(newVolumeData)
+          }
+        } else if (lastCachedIndex < newCandleData.length - 1) {
           // 更新最后一根已存在的K線
           if (candlestickSeriesRef.current) {
             candlestickSeriesRef.current.update(newCandleData[lastCachedIndex])
@@ -246,8 +251,8 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
         }
         
         // 添加新K線（lightweight-charts 會自动添加時间戳更新的K線）
-        const newCandles = newCandleData.slice(lastCachedIndex + 1)
-        const newVolumes = newVolumeData.slice(lastCachedIndex + 1)
+        const newCandles = lastCachedIndex < 0 ? [] : newCandleData.slice(lastCachedIndex + 1)
+        const newVolumes = lastCachedIndex < 0 ? [] : newVolumeData.slice(lastCachedIndex + 1)
         
         for (let i = 0; i < newCandles.length; i++) {
           if (candlestickSeriesRef.current) {
@@ -352,12 +357,12 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
 
     // 根據interval設置定時刷新
     const refreshInterval = getRefreshInterval(interval)
-    const intervalId = setInterval(() => {
+    const intervalId = window.setInterval(() => {
       loadKlines(interval, false) // 后续更新不是初始加載
     }, refreshInterval)
 
     return () => {
-      clearInterval(intervalId)
+      window.clearInterval(intervalId)
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current)
       }
@@ -462,4 +467,3 @@ const KlineChart: React.FC<KlineChartProps> = ({ overrideExchange, overrideSymbo
 }
 
 export default KlineChart
-

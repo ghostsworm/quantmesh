@@ -273,6 +273,7 @@ func TestProtectedRoutesSmokeEarlyExitPaths(t *testing.T) {
 		{http.MethodPost, "/api/profit/withdraw/estimate", `{}`},
 		{http.MethodPost, "/api/profit/withdraw/w1/cancel", `{}`},
 		{http.MethodGet, "/api/profit/withdraw/w1", ""},
+		{http.MethodPost, "/api/profit/withdraw/w1/reconcile", `{}`},
 		{http.MethodGet, "/api/capital/overview", ""},
 		{http.MethodGet, "/api/capital/usage", ""},
 		{http.MethodGet, "/api/capital/allocation", ""},
@@ -347,6 +348,7 @@ func TestProtectedRoutesSmokeEarlyExitPaths(t *testing.T) {
 		t.Run(tc.method+" "+tc.path, func(t *testing.T) {
 			body := bytes.NewBufferString(tc.body)
 			req := httptest.NewRequest(tc.method, tc.path, body)
+			req.RemoteAddr = "127.0.0.1:12345" // smoke paths explicitly exercise local development mode
 			if tc.body != "" {
 				req.Header.Set("Content-Type", "application/json")
 			}

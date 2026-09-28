@@ -10,18 +10,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/adshao/go-binance/v2/futures"
+	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/logger"
 )
 
 // SetupStatusResponse 配置状態响应
 type SetupStatusResponse struct {
-	NeedsSetup bool                            `json:"needs_setup"`
-	ConfigPath string                          `json:"config_path"`
+	NeedsSetup bool                             `json:"needs_setup"`
+	ConfigPath string                           `json:"config_path"`
 	Exchanges  map[string]config.ExchangeConfig `json:"exchanges,omitempty"`
-	Symbols    []config.SymbolConfig           `json:"symbols,omitempty"`
+	Symbols    []config.SymbolConfig            `json:"symbols,omitempty"`
 }
 
 // getSetupStatusHandler 獲取配置状態
@@ -67,10 +67,10 @@ type SetupInitRequest struct {
 	APIKey         string   `json:"api_key" binding:"required"`
 	SecretKey      string   `json:"secret_key" binding:"required"`
 	Passphrase     string   `json:"passphrase,omitempty"`
-	Symbol         string   `json:"symbol,omitempty"`        // 向后兼容，但优先使用 Symbols
-	Symbols        []string `json:"symbols,omitempty"`       // 多交易對支援
+	Symbol         string   `json:"symbol,omitempty"`  // 向后兼容，但优先使用 Symbols
+	Symbols        []string `json:"symbols,omitempty"` // 多交易對支援
 	PriceInterval  float64  `json:"price_interval" binding:"required,gt=0"`
-	ProfitSpread   float64  `json:"profit_spread,omitempty"`                  // 利潤間距（可選，為 0 時等於 PriceInterval）
+	ProfitSpread   float64  `json:"profit_spread,omitempty"` // 利潤間距（可選，為 0 時等於 PriceInterval）
 	OrderQuantity  float64  `json:"order_quantity" binding:"required,gt=0"`
 	MinOrderValue  float64  `json:"min_order_value,omitempty"`
 	BuyWindowSize  int      `json:"buy_window_size" binding:"required,gt=0"`
@@ -90,28 +90,10 @@ type SetupInitResponse struct {
 // initSetupHandler 初始化配置（僅首次設置或已认证用戶可用）
 // POST /api/setup/init
 func initSetupHandler(c *gin.Context) {
-	// 🔒 安全检查：如果已經設置過密碼，则需要认证
-	if globalPasswordManager != nil {
-		username := "admin"
-		hasPassword, err := globalPasswordManager.HasPassword(username)
-		if err == nil && hasPassword {
-			// 已設置密碼，检查是否已认证
-			sm := GetSessionManager()
-			if sm != nil {
-				session, exists := sm.GetSessionFromRequest(c.Request)
-				if !exists || session == nil {
-					logger.Warn("⚠️ [SECURITY] 拒绝未认证的配置初始化请求，IP: %s", c.ClientIP())
-					c.JSON(http.StatusUnauthorized, SetupInitResponse{
-						Success: false,
-						Message: "系统已初始化，需要登錄后才能修改配置",
-					})
-					return
-				}
-				logger.Info("✅ [SECURITY] 已认证用戶 %s 正在修改配置", session.Username)
-			}
-		}
+	if !authorizeSetupMutation(c) {
+		return
 	}
-	
+
 	var req SetupInitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, SetupInitResponse{
@@ -149,7 +131,7 @@ func initSetupHandler(c *gin.Context) {
 
 	// 設置交易所
 	if cfg.App.CurrentExchange == "" {
-	cfg.App.CurrentExchange = req.Exchange
+		cfg.App.CurrentExchange = req.Exchange
 	}
 
 	// 設置交易所配置
@@ -495,10 +477,10 @@ func getBinanceSpotSymbols(ctx context.Context, testnet bool) ([]string, error) 
 	}
 	var info struct {
 		Symbols []struct {
-			Symbol      string `json:"symbol"`
-			Status      string `json:"status"`
-			QuoteAsset  string `json:"quoteAsset"`
-			BaseAsset   string `json:"baseAsset"`
+			Symbol     string `json:"symbol"`
+			Status     string `json:"status"`
+			QuoteAsset string `json:"quoteAsset"`
+			BaseAsset  string `json:"baseAsset"`
 		} `json:"symbols"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
@@ -626,9 +608,9 @@ func getBitgetSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
 	var result struct {
 		Code string `json:"code"`
 		Data []struct {
-			Symbol      string `json:"symbol"`
-			QuoteCoin   string `json:"quoteCoin"`
-			Status      string `json:"status"`
+			Symbol    string `json:"symbol"`
+			QuoteCoin string `json:"quoteCoin"`
+			Status    string `json:"status"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -680,9 +662,9 @@ func getBybitSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 		RetMsg  string `json:"retMsg"`
 		Result  struct {
 			List []struct {
-				Symbol     string `json:"symbol"`
-				Status     string `json:"status"`
-				QuoteCoin  string `json:"quoteCoin"`
+				Symbol    string `json:"symbol"`
+				Status    string `json:"status"`
+				QuoteCoin string `json:"quoteCoin"`
 			} `json:"list"`
 		} `json:"result"`
 	}
@@ -726,7 +708,7 @@ func getBybitSpotSymbols(ctx context.Context, testnet bool) ([]string, error) {
 		return nil, fmt.Errorf("API 回傳 %d", resp.StatusCode)
 	}
 	var result struct {
-		RetCode int    `json:"retCode"`
+		RetCode int `json:"retCode"`
 		Result  struct {
 			List []struct {
 				Symbol    string `json:"symbol"`
@@ -910,7 +892,7 @@ func getOKXSymbols(ctx context.Context, apiKey, secretKey, passphrase string, te
 		Msg  string `json:"msg"`
 		Data []struct {
 			InstID string `json:"instId"`
-			State  string `json:"state"` // "live" 表示在線
+			State  string `json:"state"`  // "live" 表示在線
 			CtType string `json:"ctType"` // "linear" 表示線性合約
 		} `json:"data"`
 	}
@@ -1010,8 +992,8 @@ func getHuobiSymbols(ctx context.Context, apiKey, secretKey string, testnet bool
 	var result struct {
 		Status string `json:"status"`
 		Data   []struct {
-			Symbol    string `json:"symbol"`
-			ContractStatus int `json:"contract_status"` // 1 表示正常交易
+			Symbol         string `json:"symbol"`
+			ContractStatus int    `json:"contract_status"` // 1 表示正常交易
 		} `json:"data"`
 	}
 

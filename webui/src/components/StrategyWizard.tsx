@@ -402,7 +402,7 @@ const StrategyWizard: React.FC<StrategyWizardProps> = ({
                 <FormLabel>{t('strategyWizard.tradingPair')}</FormLabel>
                 <Box as="select"
                   value={symbol}
-                  onChange={(e) => setSymbol(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setSymbol(e.target.value)}
                   p={2}
                   border="1px solid"
                   borderColor="gray.300"
@@ -419,7 +419,10 @@ const StrategyWizard: React.FC<StrategyWizardProps> = ({
                 <FormLabel>{t('strategyWizard.tradingDirection')}</FormLabel>
                 <Box as="select"
                   value={direction}
-                  onChange={(e) => setDirection(e.target.value as any)}
+                  onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                    const next = e.target.value
+                    if (next === 'LONG' || next === 'SHORT' || next === 'BOTH') setDirection(next)
+                  }}
                   p={2}
                   border="1px solid"
                   borderColor="gray.300"

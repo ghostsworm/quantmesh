@@ -17,7 +17,8 @@ type lockedExecutorExchange struct {
 	placed int
 }
 
-func (f *lockedExecutorExchange) GetName() string { return "fake" }
+func (f *lockedExecutorExchange) GetName() string       { return "fake" }
+func (f *lockedExecutorExchange) GetMarketType() string { return "futures" }
 func (f *lockedExecutorExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	f.placed++
 	return &exchange.Order{OrderID: int64(f.placed), ClientOrderID: req.ClientOrderID, Status: exchange.OrderStatusNew}, nil
@@ -39,7 +40,9 @@ func TestExchangeExecutorAdapterLockSkippedIsNilSafe(t *testing.T) {
 		want int // 期望成功订單數
 	}{
 		{name: "lock busy", lock: alwaysBusyLock{}, want: 0},
-		{name: "lock free", lock: lock.NewNopLock(), want: 2},
+		// The first CID was already submitted above; batching it again must not
+		// create another physical order. Only the second, new CID is accepted.
+		{name: "lock free", lock: lock.NewNopLock(), want: 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -71,6 +74,9 @@ func TestExchangeExecutorAdapterLockSkippedIsNilSafe(t *testing.T) {
 				if o == nil {
 					t.Fatalf("PlacedOrders[%d] is nil", i)
 				}
+			}
+			if tt.want > 0 && ex.placed != 2 {
+				t.Fatalf("duplicate CID reached venue: %d physical orders, want 2", ex.placed)
 			}
 		})
 	}

@@ -2,12 +2,14 @@ package strategy
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/utils"
@@ -29,9 +31,12 @@ type SpotLongStrategy struct {
 	eventBus        EventBus
 	subscribableBus interface{ Subscribe() <-chan *event.Event }
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.RWMutex
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	mu                       sync.RWMutex
+	pendingOrders            map[int64]spotLongPendingOrder
+	runtimeStateStore        RuntimeStateStore
+	runtimeStateErrorHandler func(error)
 
 	positions []*Position
 	orders    []*Order
@@ -54,17 +59,18 @@ func NewSpotLongStrategy(name string, cfg *config.Config, executor position.Orde
 		baseAsset = ex.GetBaseAsset()
 	}
 	return &SpotLongStrategy{
-		name:       name,
-		cfg:        cfg,
-		executor:   executor,
-		ex:         ex,
-		groupID:    groupID,
-		symbol:     symbol,
-		baseAsset:  baseAsset,
-		quoteAsset: quoteAsset,
-		positions:  []*Position{},
-		orders:     []*Order{},
-		stats:      &StrategyStatistics{},
+		name:          name,
+		cfg:           cfg,
+		executor:      executor,
+		ex:            ex,
+		groupID:       groupID,
+		symbol:        symbol,
+		baseAsset:     baseAsset,
+		quoteAsset:    quoteAsset,
+		positions:     []*Position{},
+		orders:        []*Order{},
+		stats:         &StrategyStatistics{},
+		pendingOrders: make(map[int64]spotLongPendingOrder),
 	}
 }
 
@@ -86,7 +92,49 @@ func (s *SpotLongStrategy) SetEventBus(bus EventBus) {
 
 func (s *SpotLongStrategy) OnPriceChange(price float64) error { return nil }
 
-func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error { return nil }
+func (s *SpotLongStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeStateStore = store
+}
+
+func (s *SpotLongStrategy) SetRuntimeStateErrorHandler(handler func(error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeStateErrorHandler = handler
+}
+
+func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	if update == nil {
+		return nil
+	}
+	s.mu.Lock()
+	pending, ok := s.pendingOrders[update.OrderID]
+	if !ok {
+		s.mu.Unlock()
+		return nil
+	}
+	if (update.Side != "" && update.Side != pending.Side) || (update.Symbol != "" && update.Symbol != s.symbol) {
+		s.mu.Unlock()
+		return fmt.Errorf("spot long order update identity mismatch for order %d", update.OrderID)
+	}
+	if update.ExecutedQty < pending.ExecutedQty || update.ExecutedQty > pending.Quantity || math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) {
+		s.mu.Unlock()
+		return fmt.Errorf("invalid cumulative fill for spot long order %d: %.12g (previous %.12g, requested %.12g)", update.OrderID, update.ExecutedQty, pending.ExecutedQty, pending.Quantity)
+	}
+	pending.ExecutedQty = update.ExecutedQty
+	if update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "CANCELLED" || update.Status == "EXPIRED" || update.Status == "REJECTED" {
+		delete(s.pendingOrders, update.OrderID)
+	} else {
+		s.pendingOrders[update.OrderID] = pending
+	}
+	err := s.persistRuntimeStateLocked()
+	if err != nil {
+		s.pendingOrders[update.OrderID] = pending
+	}
+	s.mu.Unlock()
+	return err
+}
 
 func (s *SpotLongStrategy) GetPositions() []*Position {
 	s.mu.RLock()
@@ -107,6 +155,15 @@ func (s *SpotLongStrategy) GetStatistics() *StrategyStatistics {
 }
 
 func (s *SpotLongStrategy) Start(ctx context.Context) error {
+	s.mu.Lock()
+	if err := s.restoreRuntimeStateLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	if err := s.reconcilePendingOrders(ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.subscribableBus == nil {
 		s.mu.Unlock()
@@ -134,6 +191,60 @@ func (s *SpotLongStrategy) Start(ctx context.Context) error {
 	}()
 	logger.Info("✅ SpotLongStrategy 已啟動 (group=%s)", s.groupID)
 	return nil
+}
+
+func (s *SpotLongStrategy) reconcilePendingOrders(ctx context.Context) error {
+	s.mu.RLock()
+	ids := make([]int64, 0, len(s.pendingOrders))
+	for id := range s.pendingOrders {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	if len(ids) == 0 {
+		return nil
+	}
+	if s.ex == nil {
+		return fmt.Errorf("spot long exchange unavailable while reconciling %d persisted orders", len(ids))
+	}
+	for _, id := range ids {
+		result, err := s.ex.GetOrder(ctx, s.symbol, id)
+		if err != nil {
+			return fmt.Errorf("reconcile spot long order %d: %w", id, err)
+		}
+		update, err := strategyOrderUpdateFromExchange(result)
+		if err != nil {
+			return fmt.Errorf("reconcile spot long order %d: %w", id, err)
+		}
+		if update.OrderID == 0 {
+			update.OrderID = id
+		}
+		if update.Symbol == "" {
+			update.Symbol = s.symbol
+		}
+		if err := s.OnOrderUpdate(update); err != nil {
+			return fmt.Errorf("apply reconciled spot long order %d: %w", id, err)
+		}
+	}
+	return nil
+}
+
+func strategyOrderUpdateFromExchange(raw interface{}) (*position.OrderUpdate, error) {
+	switch order := raw.(type) {
+	case *exchange.Order:
+		if order == nil {
+			return nil, fmt.Errorf("exchange returned nil order")
+		}
+		return &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Status: string(order.Status), ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, Side: string(order.Side), UpdateTime: order.UpdateTime}, nil
+	case *position.Order:
+		if order == nil {
+			return nil, fmt.Errorf("exchange returned nil order")
+		}
+		return &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Status: order.Status, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, Side: order.Side}, nil
+	default:
+		return nil, fmt.Errorf("unsupported exchange order response %T", raw)
+	}
 }
 
 func (s *SpotLongStrategy) Stop() error {
@@ -166,7 +277,17 @@ func (s *SpotLongStrategy) onHedgeSignal(evt *event.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	currentLong := s.getCurrentLongPosition(ctx)
+	s.mu.RLock()
+	hasPendingOrders := len(s.pendingOrders) > 0
+	s.mu.RUnlock()
+	if hasPendingOrders {
+		return
+	}
+	currentLong, err := s.getCurrentLongPosition(ctx)
+	if err != nil {
+		logger.Error("SpotLongStrategy 读取现货持仓失败，已跳过本次对冲决策: %v", err)
+		return
+	}
 	diff := targetLong - currentLong
 
 	if math.Abs(diff) < 0.000001 {
@@ -174,36 +295,47 @@ func (s *SpotLongStrategy) onHedgeSignal(evt *event.Event) {
 	}
 
 	if diff > 0 {
-		s.increaseLong(ctx, diff)
+		if err := s.increaseLong(ctx, diff); err != nil {
+			logger.Error("SpotLongStrategy 買入/持久化失敗: %v", err)
+		}
 	} else {
-		s.decreaseLong(ctx, -diff)
+		if err := s.decreaseLong(ctx, -diff); err != nil {
+			logger.Error("SpotLongStrategy 賣出/持久化失敗: %v", err)
+		}
 	}
 }
 
-func (s *SpotLongStrategy) getCurrentLongPosition(ctx context.Context) float64 {
+func (s *SpotLongStrategy) getCurrentLongPosition(ctx context.Context) (float64, error) {
+	if s.ex == nil {
+		return 0, fmt.Errorf("spot long exchange is unavailable")
+	}
 	raw, err := s.ex.GetPositions(ctx, s.symbol)
-	if err != nil || raw == nil {
-		return 0
+	if err != nil {
+		return 0, fmt.Errorf("get positions for %s: %w", s.symbol, err)
+	}
+	if raw == nil {
+		return 0, fmt.Errorf("get positions for %s returned no data", s.symbol)
 	}
 	if infos, ok := raw.([]*position.PositionInfo); ok {
 		for _, p := range infos {
 			if p != nil && p.Symbol == s.symbol && p.Size > 0 {
-				return p.Size
+				return p.Size, nil
 			}
 		}
+		return 0, nil
 	}
-	return 0
+	return 0, fmt.Errorf("unsupported position response type %T for %s", raw, s.symbol)
 }
 
-func (s *SpotLongStrategy) increaseLong(ctx context.Context, amount float64) {
+func (s *SpotLongStrategy) increaseLong(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
 		logger.Error("SpotLongStrategy 獲取價格失敗: %v", err)
-		return
+		return fmt.Errorf("get price for spot long buy %s: %w", s.symbol, err)
 	}
 	price = s.roundPrice(price)
 	req := &position.OrderRequest{
@@ -214,22 +346,33 @@ func (s *SpotLongStrategy) increaseLong(ctx context.Context, amount float64) {
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
 	}
-	if _, err := s.executor.PlaceOrder(req); err != nil {
-		logger.Error("SpotLongStrategy 買入失敗: %v", err)
-		return
+	ord, err := s.executor.PlaceOrder(req)
+	if err != nil {
+		return fmt.Errorf("place spot long buy %s: %w", s.symbol, err)
+	}
+	if ord == nil || ord.OrderID <= 0 {
+		return fmt.Errorf("spot long buy %s returned invalid order identity", s.symbol)
+	}
+	s.mu.Lock()
+	s.pendingOrders[ord.OrderID] = spotLongPendingOrder{Side: "BUY", Quantity: amount}
+	err = s.persistRuntimeStateLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	logger.Info("📥 SpotLongStrategy: 買入 %.6f %s 增加多倉", amount, s.baseAsset)
+	return nil
 }
 
-func (s *SpotLongStrategy) decreaseLong(ctx context.Context, amount float64) {
+func (s *SpotLongStrategy) decreaseLong(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
 		logger.Error("SpotLongStrategy 獲取價格失敗: %v", err)
-		return
+		return fmt.Errorf("get price for spot long sell %s: %w", s.symbol, err)
 	}
 	price = s.roundPrice(price * 0.999)
 	req := &position.OrderRequest{
@@ -240,11 +383,22 @@ func (s *SpotLongStrategy) decreaseLong(ctx context.Context, amount float64) {
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
 	}
-	if _, err := s.executor.PlaceOrder(req); err != nil {
-		logger.Error("SpotLongStrategy 賣出失敗: %v", err)
-		return
+	ord, err := s.executor.PlaceOrder(req)
+	if err != nil {
+		return fmt.Errorf("place spot long sell %s: %w", s.symbol, err)
+	}
+	if ord == nil || ord.OrderID <= 0 {
+		return fmt.Errorf("spot long sell %s returned invalid order identity", s.symbol)
+	}
+	s.mu.Lock()
+	s.pendingOrders[ord.OrderID] = spotLongPendingOrder{Side: "SELL", Quantity: amount}
+	err = s.persistRuntimeStateLocked()
+	s.mu.Unlock()
+	if err != nil {
+		return err
 	}
 	logger.Info("📤 SpotLongStrategy: 賣出 %.6f %s 減少多倉", amount, s.baseAsset)
+	return nil
 }
 
 // roundQuantity 將數量向下取整到交易所精度。

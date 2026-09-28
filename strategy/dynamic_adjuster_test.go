@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/indicators"
@@ -105,22 +106,30 @@ func TestDynamicAdjusterCalculationsAndVolatilityRegimeAdjustments(t *testing.T)
 	if da.currentRegime != indicators.RegimeHigh {
 		t.Fatalf("current regime not updated")
 	}
+	alert := da.volatilityAlert
+	da.volatilityAlert = nil
 	if da.GetCurrentVolatilityRegime() != indicators.RegimeNormal || !da.IsGridFriendly() || da.GetVolatilityRiskLevel() != 3 {
 		t.Fatalf("nil volatility alert fallback mismatch")
 	}
 	if stats := da.GetVolatilityStatistics(); stats["enabled"] != false {
 		t.Fatalf("fallback stats=%#v", stats)
 	}
+	da.volatilityAlert = alert
 
-	for _, price := range []float64{100, 101, 102, 104, 106} {
-		da.updateTrend(price)
+	at := time.Now().Truncate(time.Minute)
+	for i, price := range []float64{100, 101, 102, 104, 106} {
+		da.priceEvidenceAt = at.Add(time.Duration(i) * time.Minute)
+		da.recordTrendLocked(da.priceEvidenceAt, price)
 	}
+	da.currentTrend = da.trendLocked(config.VolatilityPauseConfig{TrendCheckPeriod: 4})
 	if da.currentTrend != "up" {
 		t.Fatalf("trend=%s", da.currentTrend)
 	}
-	for _, price := range []float64{104, 100, 96, 92} {
-		da.updateTrend(price)
+	for i, price := range []float64{104, 100, 96, 92} {
+		da.priceEvidenceAt = at.Add(time.Duration(i+5) * time.Minute)
+		da.recordTrendLocked(da.priceEvidenceAt, price)
 	}
+	da.currentTrend = da.trendLocked(config.VolatilityPauseConfig{TrendCheckPeriod: 4})
 	if da.currentTrend != "down" {
 		t.Fatalf("trend=%s", da.currentTrend)
 	}

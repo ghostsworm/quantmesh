@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -45,8 +46,12 @@ type ComboStrategy struct {
 	isRunning bool
 	isPaused  bool // 暂停標志
 
-	// 组合风控：權益高水位（僅內存，重啟重新起算）
-	peakEquity float64
+	// 组合风控：持久化的权益高水位及其恢复状态
+	peakEquity               float64
+	runtimeStateStore        RuntimeStateStore
+	runtimeStateErrorHandler func(error)
+	runtimeStateDirty        bool
+	runtimeStateFound        bool
 
 	// 统计
 	stats *StrategyStatistics
@@ -380,6 +385,43 @@ func (s *ComboStrategy) Initialize(cfg *config.Config, executor position.OrderEx
 	return nil
 }
 
+// SetRuntimeStateStore injects Bot-scoped durable storage into every stateful
+// Combo child. Child keys are namespaced so sibling and top-level strategies
+// cannot overwrite each other's recovery checkpoints.
+func (s *ComboStrategy) SetRuntimeStateStore(store RuntimeStateStore) error {
+	if store == nil {
+		return fmt.Errorf("combo runtime state store is unavailable")
+	}
+	seen := make(map[string]struct{}, len(s.strategies))
+	for i, child := range s.strategies {
+		name := strings.TrimSpace(child.Name())
+		if name == "" {
+			return fmt.Errorf("combo child strategy name is empty")
+		}
+		if _, exists := seen[name]; exists {
+			return fmt.Errorf("duplicate combo child strategy name %q", name)
+		}
+		seen[name] = struct{}{}
+		if _, ok := child.(interface{ SetRuntimeStateStore(RuntimeStateStore) }); !ok {
+			return fmt.Errorf("combo child strategy %q does not support durable runtime state", s.strategyNames[i])
+		}
+	}
+	for _, child := range s.strategies {
+		scoped := comboChildRuntimeStateStore{store: store, comboName: s.name, childName: child.Name()}
+		child.(interface{ SetRuntimeStateStore(RuntimeStateStore) }).SetRuntimeStateStore(scoped)
+	}
+	s.mu.Lock()
+	s.runtimeStateStore = store
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *ComboStrategy) SetRuntimeStateErrorHandler(handler func(error)) {
+	s.mu.Lock()
+	s.runtimeStateErrorHandler = handler
+	s.mu.Unlock()
+}
+
 // SetEventBus 設置事件總線
 func (s *ComboStrategy) SetEventBus(bus EventBus) {
 	s.mu.Lock()
@@ -394,6 +436,20 @@ func (s *ComboStrategy) SetEventBus(bus EventBus) {
 
 // Start 啟动策略
 func (s *ComboStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := s.restoreRuntimeState(); err != nil {
+		return fmt.Errorf("restore combo runtime state: %w", err)
+	}
+	needsBaseline := s.strategyCfg != nil && s.strategyCfg.TotalCapital > 0 && s.strategyCfg.MaxDrawdown > 0 && !s.runtimeStateFound
+	if needsBaseline {
+		missingStateErr := errors.New("combo drawdown checkpoint is missing; validating child recovery before creating a baseline")
+		if s.runtimeStateErrorHandler == nil {
+			return fmt.Errorf("combo drawdown checkpoint is missing and no shared opening gate is available")
+		}
+		s.reportRuntimeStateError(missingStateErr)
+	}
 	s.mu.Lock()
 	s.ctx = ctx
 	s.isRunning = true
@@ -402,8 +458,44 @@ func (s *ComboStrategy) Start(ctx context.Context) error {
 	// 啟动所有子策略
 	for i, strategy := range s.strategies {
 		if err := strategy.Start(ctx); err != nil {
-			logger.Error("❌ [%s] 子策略 %s 啟动失败: %v", s.name, s.strategyNames[i], err)
+			failures := []error{fmt.Errorf("start combo sub-strategy %s: %w", s.strategyNames[i], err)}
+			if stopErr := strategy.Stop(); stopErr != nil {
+				failures = append(failures, fmt.Errorf("stop failed sub-strategy %s: %w", s.strategyNames[i], stopErr))
+			}
+			for started := i - 1; started >= 0; started-- {
+				if stopErr := s.strategies[started].Stop(); stopErr != nil {
+					failures = append(failures, fmt.Errorf("rollback combo sub-strategy %s: %w", s.strategyNames[started], stopErr))
+				}
+			}
+			s.mu.Lock()
+			s.isRunning = false
+			s.mu.Unlock()
+			return errors.Join(failures...)
 		}
+	}
+	if needsBaseline {
+		if s.hasPriorEconomicActivity() {
+			stateErr := errors.New("combo drawdown checkpoint is missing while child strategy history or exposure exists; reconciliation required")
+			s.stopStartedChildren(len(s.strategies) - 1)
+			s.mu.Lock()
+			s.isRunning = false
+			s.mu.Unlock()
+			s.reportRuntimeStateError(stateErr)
+			return stateErr
+		}
+		s.mu.Lock()
+		s.peakEquity = s.strategyCfg.TotalCapital
+		s.runtimeStateDirty = true
+		s.mu.Unlock()
+		if err := s.persistRuntimeState(); err != nil {
+			s.stopStartedChildren(len(s.strategies) - 1)
+			s.mu.Lock()
+			s.isRunning = false
+			s.mu.Unlock()
+			s.reportRuntimeStateError(err)
+			return fmt.Errorf("initialize combo drawdown checkpoint: %w", err)
+		}
+		s.reportRuntimeStateError(nil)
 	}
 
 	// 啟动市况检测循环
@@ -424,6 +516,27 @@ func (s *ComboStrategy) Start(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *ComboStrategy) hasPriorEconomicActivity() bool {
+	for _, child := range s.strategies {
+		if len(child.GetOrders()) > 0 || len(child.GetPositions()) > 0 {
+			return true
+		}
+		stats := child.GetStatistics()
+		if stats != nil && (stats.TotalTrades > 0 || stats.TotalPnL != 0 || stats.TotalVolume != 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *ComboStrategy) stopStartedChildren(last int) {
+	for i := last; i >= 0; i-- {
+		if err := s.strategies[i].Stop(); err != nil {
+			logger.Error("❌ [%s] Combo 启动回滚时停止子策略 %s 失败: %v", s.name, s.strategyNames[i], err)
+		}
+	}
 }
 
 // Stop 停止策略
@@ -558,9 +671,18 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 		s.mu.Lock()
 		if equity > s.peakEquity {
 			s.peakEquity = equity
+			s.runtimeStateDirty = true
 		}
 		peak := s.peakEquity
+		dirty := s.runtimeStateDirty
 		s.mu.Unlock()
+		if dirty {
+			if err := s.persistRuntimeState(); err != nil {
+				s.reportRuntimeStateError(err)
+				return false, "组合回撤高水位未能持久化"
+			}
+			s.reportRuntimeStateError(nil)
+		}
 		if peak > 0 {
 			drawdown := (peak - equity) / peak * comboPercentBase
 			if drawdown >= maxDrawdown {

@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strconv"
@@ -332,7 +334,7 @@ func AddBrokerPrefix(exchange, clientOrderID string) string {
 		if len(result) > 36 {
 			maxIDLen := 36 - len(prefix)
 			if maxIDLen > 0 {
-				result = prefix + clientOrderID[:maxIDLen]
+				result = prefix + compactOpaqueOrderID(clientOrderID, maxIDLen)
 			} else {
 				result = prefix
 			}
@@ -353,7 +355,7 @@ func AddBrokerPrefix(exchange, clientOrderID string) string {
 		if len(result) > 30 {
 			maxIDLen := 30 - len(prefix)
 			if maxIDLen > 0 {
-				result = prefix + clientOrderID[:maxIDLen]
+				result = prefix + compactOpaqueOrderID(clientOrderID, maxIDLen)
 			} else {
 				result = prefix
 			}
@@ -363,6 +365,13 @@ func AddBrokerPrefix(exchange, clientOrderID string) string {
 	default:
 		return clientOrderID
 	}
+}
+
+// Hash the complete opaque ID, including its sequence suffix. Keeping only a
+// prefix discards the part that distinguishes repeated orders of one strategy.
+func compactOpaqueOrderID(id string, length int) string {
+	digest := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(digest[:])[:length]
 }
 
 // RemoveBrokerPrefix 移除交易所返佣前缀

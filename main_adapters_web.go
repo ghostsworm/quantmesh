@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"quantmesh/ai"
@@ -99,12 +101,15 @@ func (w *webAuthnLoggerAdapter) Debugf(format string, args ...interface{}) {
 type reconciliationStorageAdapter struct {
 	storageService *storage.StorageService
 	accountID      string
+	accountScope   string
+	marketType     string
+	botID          string
 	exchange       string
 }
 
 func (a *reconciliationStorageAdapter) SaveReconciliationHistory(symbol string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 	activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error {
-	return a.storageService.SaveReconciliationHistoryDirect(a.exchange, symbol, a.accountID, reconcileTime, localPosition, exchangePosition, positionDiff,
+	return a.storageService.SaveReconciliationHistoryDirect(a.exchange, symbol, a.accountID, a.accountScope, a.marketType, a.botID, reconcileTime, localPosition, exchangePosition, positionDiff,
 		activeBuyOrders, activeSellOrders, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit)
 }
 
@@ -160,30 +165,107 @@ func (a *polymarketSignalAdapter) PerformAnalysis() error {
 
 // reconciliationRestoreAdapter 對账恢複适配器（用於從數據库恢複對账统计）
 type reconciliationRestoreAdapter struct {
-	storage storage.Storage
+	storage      storage.Storage
+	accountID    string
+	accountScope string
+	marketType   string
+	botID        string
 }
 
 func (a *reconciliationRestoreAdapter) GetLatestReconciliationHistory(exchange, symbol string) (interface{}, error) {
 	if a.storage == nil {
 		return nil, nil
 	}
-	accountID := web.GetCurrentAccountID()
-	return a.storage.GetLatestReconciliationHistory(exchange, symbol, accountID)
+	scoped, ok := a.storage.(interface {
+		GetLatestReconciliationHistoryByScope(exchange, symbol, account, marketType, accountScope, botID string) (*storage.ReconciliationHistory, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("storage does not support scoped reconciliation restore")
+	}
+	return scoped.GetLatestReconciliationHistoryByScope(exchange, symbol, a.accountID, a.marketType, a.accountScope, a.botID)
 }
 
 func (a *reconciliationRestoreAdapter) GetReconciliationCount(exchange, symbol string) (int64, error) {
 	if a.storage == nil {
 		return 0, nil
 	}
-	accountID := web.GetCurrentAccountID()
-	return a.storage.GetReconciliationCount(exchange, symbol, accountID)
+	scoped, ok := a.storage.(interface {
+		GetReconciliationCountByScope(exchange, symbol, account, marketType, accountScope, botID string) (int64, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("storage does not support scoped reconciliation counts")
+	}
+	return scoped.GetReconciliationCountByScope(exchange, symbol, a.accountID, a.marketType, a.accountScope, a.botID)
 }
 
 // tradeStorageAdapter 交易存儲适配器
 type tradeStorageAdapter struct {
 	storageService *storage.StorageService
 	accountID      string // 账戶標识
+	accountScope   string // 不可逆凭据作用域摘要
 	botID          string // 與運行時 Bot 一致，寫入 trades.bot_id
+}
+
+type strategyRuntimeStateAdapter struct {
+	storageService *storage.StorageService
+	botID          string
+}
+
+func (a *strategyRuntimeStateAdapter) LoadRuntimeState(strategyName string) (int, string, bool, error) {
+	if a == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
+		return 0, "", false, fmt.Errorf("strategy runtime state storage is unavailable")
+	}
+	reader, ok := a.storageService.GetStorage().(storage.StrategyRuntimeStateStore)
+	if !ok {
+		return 0, "", false, fmt.Errorf("storage backend does not support strategy runtime state")
+	}
+	state, err := reader.GetStrategyRuntimeState(a.botID, strategyName)
+	if err != nil || state == nil {
+		return 0, "", false, err
+	}
+	return state.SchemaVersion, state.Payload, true, nil
+}
+
+func (a *strategyRuntimeStateAdapter) SaveRuntimeState(strategyName string, schemaVersion int, payload string) error {
+	if a == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
+		return fmt.Errorf("strategy runtime state storage is unavailable")
+	}
+	writer, ok := a.storageService.GetStorage().(storage.StrategyRuntimeStateStore)
+	if !ok {
+		return fmt.Errorf("storage backend does not support strategy runtime state")
+	}
+	return writer.SetStrategyRuntimeState(&storage.StrategyRuntimeState{
+		BotID: a.botID, StrategyName: strategyName, SchemaVersion: schemaVersion, Payload: payload,
+	})
+}
+
+func (a *tradeStorageAdapter) SaveTradeIdempotent(trade *storage.Trade) error {
+	if trade == nil || strings.TrimSpace(trade.ExecutionKey) == "" {
+		return fmt.Errorf("保存幂等成交失败: 成交记录或执行键为空")
+	}
+	if a.storageService == nil {
+		return fmt.Errorf("保存幂等成交失败: 存储服务未初始化")
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return fmt.Errorf("保存幂等成交失败: 存储不可用")
+	}
+	writer, ok := st.(interface{ SaveTradeIdempotent(*storage.Trade) error })
+	if !ok {
+		return fmt.Errorf("保存幂等成交失败: 存储后端不支持执行幂等键")
+	}
+	canonical := *trade
+	if canonical.BotID == "" {
+		canonical.BotID = a.botID
+	}
+	if canonical.Account == "" {
+		canonical.Account = a.accountID
+	}
+	if canonical.AccountScope == "" {
+		canonical.AccountScope = a.accountScope
+	}
+	canonical.MarketType = strings.ToLower(strings.TrimSpace(canonical.MarketType))
+	return writer.SaveTradeIdempotent(&canonical)
 }
 
 // SaveEvent 寫入通用事件（如手續費補查更正 trade_fee_correction），自動補上 bot_id。
@@ -215,11 +297,11 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange,
 
 func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
 	if a.storageService == nil {
-		return nil
+		return fmt.Errorf("保存成交失败: 存储服务未初始化")
 	}
 	st := a.storageService.GetStorage()
 	if st == nil {
-		return nil
+		return fmt.Errorf("保存成交失败: 存储不可用")
 	}
 	bid := botID
 	if bid == "" {
@@ -257,11 +339,11 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 // SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈亏和價格偏差）
 func (a *tradeStorageAdapter) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
 	if a.storageService == nil {
-		return nil
+		return fmt.Errorf("保存带交易所盈亏的成交失败: 存储服务未初始化")
 	}
 	st := a.storageService.GetStorage()
 	if st == nil {
-		return nil
+		return fmt.Errorf("保存带交易所盈亏的成交失败: 存储不可用")
 	}
 	bid := botID
 	if bid == "" {
@@ -275,14 +357,38 @@ func (a *tradeStorageAdapter) SaveTradeWithExchangePnL(buyOrderID, sellOrderID i
 	return a.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt, bid)
 }
 
+// SaveTradeWithExchangePnLAndMarketType preserves market identity through the runtime adapter.
+func (a *tradeStorageAdapter) SaveTradeWithExchangePnLAndMarketType(buyOrderID, sellOrderID int64, exchange, marketType, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
+	if a.storageService == nil {
+		return fmt.Errorf("保存带市场类型的成交失败: 存储服务未初始化")
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return fmt.Errorf("保存带市场类型的成交失败: 存储不可用")
+	}
+	bid := botID
+	if bid == "" {
+		bid = a.botID
+	}
+	return st.SaveTrade(&storage.Trade{
+		BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: bid,
+		Exchange: exchange, MarketType: strings.ToLower(strings.TrimSpace(marketType)),
+		Account: a.accountID, Symbol: symbol, BuyPrice: buyPrice, SellPrice: sellPrice,
+		Quantity: quantity, PnL: pnl, ExchangePnL: exchangePnL, Fee: fee, FeeAsset: feeAsset,
+		BuyPriceDeviation: buyPriceDeviation, SellPriceDeviation: sellPriceDeviation, CreatedAt: createdAt,
+	})
+}
+
 // snapshotRuntimeAdapter 適配 SymbolRuntime 為 monitor.RuntimeSnapshotSource（用於每日快照）
 type snapshotRuntimeAdapter struct {
 	rt *SymbolRuntime
 }
 
-func (a *snapshotRuntimeAdapter) Exchange() string { return a.rt.Config.Exchange }
-func (a *snapshotRuntimeAdapter) Symbol() string   { return a.rt.Config.Symbol }
-func (a *snapshotRuntimeAdapter) Account() string  { return a.rt.AccountID }
+func (a *snapshotRuntimeAdapter) Exchange() string     { return a.rt.Config.Exchange }
+func (a *snapshotRuntimeAdapter) MarketType() string   { return a.rt.Config.GetMarketType() }
+func (a *snapshotRuntimeAdapter) Symbol() string       { return a.rt.Config.Symbol }
+func (a *snapshotRuntimeAdapter) Account() string      { return a.rt.AccountID }
+func (a *snapshotRuntimeAdapter) AccountScope() string { return a.rt.AccountScope }
 func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL, totalPositionValue float64) {
 	if a.rt.PriceMonitor == nil || a.rt.SuperPositionManager == nil {
 		return 0, 0, 0
@@ -293,9 +399,35 @@ func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL,
 	return currentPrice, unrealizedPnL, totalPositionValue
 }
 
+func (a *snapshotRuntimeAdapter) SpotInventoryQty(ctx context.Context) (float64, bool) {
+	if a == nil || a.rt == nil || a.rt.Exchange == nil || !strings.EqualFold(a.rt.Config.GetMarketType(), "spot") {
+		return 0, false
+	}
+	sampler, ok := a.rt.Exchange.(interface {
+		SpotInventoryQty(context.Context) (float64, error)
+	})
+	if !ok {
+		return 0, false
+	}
+	qty, err := sampler.SpotInventoryQty(ctx)
+	return qty, err == nil && !math.IsNaN(qty) && !math.IsInf(qty, 0) && qty >= 0
+}
+
 // AccountEquityUSDT 從交易所 GetAccount 拉取帳戶權益（U 本位總權益），用于統計頁真實淨值曲線
 func (a *snapshotRuntimeAdapter) AccountEquityUSDT(ctx context.Context) (float64, bool) {
 	if a.rt == nil || a.rt.Exchange == nil {
+		return 0, false
+	}
+	if source, ok := a.rt.Exchange.(interface {
+		AccountEquityUSDT(context.Context) (float64, bool)
+	}); ok {
+		value, available := source.AccountEquityUSDT(ctx)
+		return value, available && !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
+	}
+	if strings.EqualFold(a.rt.Config.GetMarketType(), "spot") {
+		// Generic Account totals may add balances denominated in different assets.
+		// Until an adapter provides complete quote-currency valuation, omit rather
+		// than persist a dimensionally invalid equity sample.
 		return 0, false
 	}
 	acc, err := a.rt.Exchange.GetAccount(ctx)
@@ -306,5 +438,5 @@ func (a *snapshotRuntimeAdapter) AccountEquityUSDT(ctx context.Context) (float64
 	if total <= 0 {
 		total = acc.TotalWalletBalance
 	}
-	return total, true
+	return total, !math.IsNaN(total) && !math.IsInf(total, 0) && total >= 0
 }

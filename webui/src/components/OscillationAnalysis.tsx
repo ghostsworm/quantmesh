@@ -63,7 +63,7 @@ function getGridRecommendation(
   shakeStrength: number,
   gridFriendly: number,
   mid: number,
-  t: (k: string) => string
+  t: (k: string, options?: { interval: string }) => string
 ): string {
   if (gridFriendly < 0.4) return t('oscillation.recommendNo')
   if (gridFriendly < 0.7 && shakeStrength < 0.5) return t('oscillation.recommendNo')

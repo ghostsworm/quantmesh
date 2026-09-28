@@ -15,6 +15,7 @@ import (
 	"quantmesh/event"
 	"quantmesh/exchange"
 	"quantmesh/exchange/binance"
+	"quantmesh/execution"
 	"quantmesh/feerate"
 	"quantmesh/lock"
 	"quantmesh/logger"
@@ -24,13 +25,15 @@ import (
 	"quantmesh/safety"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	ordersync "quantmesh/sync"
 	"quantmesh/utils"
 	"quantmesh/web"
 )
 
 // SymbolManager 管理多個 SymbolRuntime（委託給 BotManager 實現）
 type SymbolManager struct {
-	botManager *BotManager
+	botManager    *BotManager
+	legacyCloseMu sync.Mutex // serializes the legacy account-level close API
 }
 
 // NewSymbolManager 創建管理器（內部創建 BotManager，需傳入完整依賴）。primaryYAMLPath 為主配置 YAML 路徑（無則空），用於啟動 Bot 前與主庫同步刷新費率等。
@@ -50,23 +53,66 @@ type SymbolRuntime struct {
 	FundingMonitor       *safety.FundingRateMonitor
 	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
-	OpeningController    *position.OpeningController
-	OrderCleaner         *safety.OrderCleaner
-	Reconciler           *safety.Reconciler
-	TrendDetector        *strategy.TrendDetector
-	DynamicAdjuster      *strategy.DynamicAdjuster
-	StrategyManager      *strategy.StrategyManager
-	ExchangeExecutor     *order.ExchangeOrderExecutor
-	ExecutorAdapter      *exchangeExecutorAdapter
-	ExchangeAdapter      *positionExchangeAdapter
-	EventBus             *event.EventBus
-	StorageService       *storage.StorageService
-	AccountID            string // 账戶標识
-	Stop                 func()
+	// OpeningGate covers specialized runtimes that do not use the grid position manager.
+	OpeningGate         *execution.OpeningGate
+	PrepareShutdown     func(context.Context, bool) error
+	CloseForShutdown    func(context.Context) error
+	CloseForManual      func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
+	UpdateOpenControl   func(config.OpenPositionControl) error
+	GetOpenControl      func() config.OpenPositionControl
+	OpeningController   *position.OpeningController
+	OrderCleaner        *safety.OrderCleaner
+	Reconciler          *safety.Reconciler
+	TrendDetector       *strategy.TrendDetector
+	DynamicAdjuster     *strategy.DynamicAdjuster
+	StrategyManager     *strategy.StrategyManager
+	ExchangeExecutor    *order.ExchangeOrderExecutor
+	ExecutorAdapter     *exchangeExecutorAdapter
+	ExchangeAdapter     *positionExchangeAdapter
+	EventBus            *event.EventBus
+	StorageService      *storage.StorageService
+	AccountID           string // 账戶標识
+	AccountScope        string // immutable non-secret digest of exchange/environment/credential identity
+	AccountMarketType   string // immutable valuation scope; do not read mutable Config while sampling
+	Stop                func()
+	shutdownContextMu   sync.RWMutex
+	shutdownContext     context.Context
+	closeManagerMu      sync.Mutex
+	closeManager        *position.ClosePositionManager
+	specialCloseRecords []*position.ClosePositionRecord
 
 	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
 	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。
 	shutdownCloseHandled atomic.Pointer[string]
+	// Separate from success: an uncertain process close prevents independent
+	// close_on_stop retries even if a later position snapshot happens to be flat.
+	shutdownCloseUnverified atomic.Pointer[string]
+}
+
+func (rt *SymbolRuntime) recordSpecializedClose(record *position.ClosePositionRecord) {
+	if rt == nil || record == nil {
+		return
+	}
+	copy := *record
+	rt.closeManagerMu.Lock()
+	rt.specialCloseRecords = append(rt.specialCloseRecords, &copy)
+	rt.closeManagerMu.Unlock()
+}
+
+func (rt *SymbolRuntime) specializedCloseRecords() []*position.ClosePositionRecord {
+	if rt == nil {
+		return nil
+	}
+	rt.closeManagerMu.Lock()
+	defer rt.closeManagerMu.Unlock()
+	result := make([]*position.ClosePositionRecord, 0, len(rt.specialCloseRecords))
+	for _, record := range rt.specialCloseRecords {
+		if record != nil {
+			copy := *record
+			result = append(result, &copy)
+		}
+	}
+	return result
 }
 
 // singleLegStrategyPositionSides 單腿對沖策略的固定持倉方向（策略名 -> LONG/SHORT）
@@ -397,8 +443,7 @@ func startSymbolRuntime(
 	localCfg.Trading.RocketTieredGrid = symCfg.RocketTieredGrid
 	localCfg.Trading.CloseOnStop = symCfg.CloseOnStop
 	localCfg.Trading.SpotInventoryPolicy = config.NormalizeSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
-	localCfg.Trading.GridRiskControl = symCfg.GridRiskControl
-	config.InheritStopLossBasis(&localCfg.Trading.GridRiskControl, baseCfg.Trading.GridRiskControl)
+	config.ApplyBotRiskControls(&localCfg, symCfg)
 	localCfg.Trading.SmartOrder = symCfg.SmartOrder
 	if symCfg.SmartOrder.Enabled && symCfg.SmartOrder.MaxOpenOrders <= 0 {
 		localCfg.Trading.SmartOrder.MaxOpenOrders = 3
@@ -565,6 +610,43 @@ func startSymbolRuntime(
 	exchangeExecutor.SetPostOnlyRepriceMaxAttempts(localCfg.Trading.PostOnlyRepriceMaxAttempts)
 
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	// Initial pause is now owned by the shared gate. Static strategy config must
+	// not retain an initial flag that an explicit runtime resume cannot clear.
+	localCfg.Trading.OpenPositionControl.PauseOpening = false
+	if localCfg.Trading.OpenPositionControl.BotRiskControl != nil {
+		localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening = false
+	}
+	exchangeExecutor.SetOpeningGate(superPositionManager.OpeningGate(), localCfg.Trading.Direction)
+	exposureBook, err := configureRuntimeExposure(exchangeExecutor, priceMonitor.GetQuoteEvidence)
+	if err != nil {
+		return nil, fmt.Errorf("configure runtime exposure: %w", err)
+	}
+	superPositionManager.SetRiskControls(config.RiskControls{Open: localCfg.Trading.OpenPositionControl, Grid: localCfg.Trading.GridRiskControl})
+	var intentBackend runtimeIntentBackend
+	if storageService != nil {
+		intentBackend, _ = storageService.GetStorage().(runtimeIntentBackend)
+	}
+	intentScope := execution.IntentScope{Account: equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+		Exchange: ex.GetName(), Market: ex.GetMarketType(), Symbol: symCfg.Symbol, Bot: botID}
+	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook); err != nil {
+		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
+	}
+	if localCfg.CircuitBreaker.Enabled && localCfg.CircuitBreaker.Triggers.MaxDrawdown.Enabled {
+		superPositionManager.SetEquityRiskPaused(true) // no opening before the first verified equity sample
+	}
+	if err := superPositionManager.ConfigureProtectiveLiquidation(ctx, superPositionManager.NewLiquidationVenue(ex), nil); err != nil {
+		return nil, fmt.Errorf("configure protective liquidation: %w", err)
+	}
+	exchangeExecutor.SetUnknownOrderHandler(func(req order.OrderRequest) {
+		logger.ErrorCtx(ctx, "[%s] 訂單 %s 結果 UNKNOWN：已保留資金並停止新增風險，需核實成交與策略倉位", botID, req.ClientOrderID)
+		if eventBus != nil {
+			eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+				"bot_id": botID, "symbol": req.Symbol, "exchange": symCfg.Exchange,
+				"reason": "order_outcome_unknown", "client_order_id": req.ClientOrderID,
+				"strategy_name": req.StrategyName, "requires_reconciliation": true,
+			}})
+		}
+	})
 	// 費率感知最小利差：注入 maker/taker 費率（交易所接口優先，失敗回退配置 fee_rate）
 	applyGridFeeRates(ctx, &localCfg, symCfg, feeRate, superPositionManager)
 	// 配置的槽位過濾在首輪掛單（Initialize / AdjustOrders）之前生效
@@ -573,6 +655,7 @@ func startSymbolRuntime(
 		tradeStorageAdapter := &tradeStorageAdapter{
 			storageService: storageService,
 			accountID:      accountID,
+			accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 			botID:          botID,
 		}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
@@ -639,6 +722,9 @@ func startSymbolRuntime(
 		reconciler.SetStorage(&reconciliationStorageAdapter{
 			storageService: storageService,
 			accountID:      accountID,
+			accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+			marketType:     symCfg.GetMarketType(),
+			botID:          botID,
 			exchange:       symCfg.Exchange,
 		})
 	}
@@ -646,6 +732,16 @@ func startSymbolRuntime(
 	// 提前宣告，供訂單流回調在成交/取消時通知策略並釋放預留資金（閉包可引用）
 	var strategyManager *strategy.StrategyManager
 	var multiExecutor *strategy.MultiStrategyExecutor
+	fillCapture := newRuntimeFillCapture()
+	var fillWriter interface {
+		SaveOrderFill(*storage.OrderFill) error
+	}
+	accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
+	if storageService != nil {
+		fillWriter, _ = storageService.GetStorage().(interface {
+			SaveOrderFill(*storage.OrderFill) error
+		})
+	}
 
 	// 訂單流
 	if err := ex.StartOrderStream(ctx, func(updateInterface interface{}) {
@@ -661,6 +757,30 @@ func startSymbolRuntime(
 			logger.DebugCtx(ctx, "⏭️ [订單過滤] 跳過其他交易對的订單: Symbol=%s (當前交易對: %s), ClientOID=%s",
 				posUpdate.Symbol, symCfg.Symbol, posUpdate.ClientOrderID)
 			return
+		}
+		if !observeOwnedRuntimeOrder(exchangeExecutor, posUpdate) {
+			logger.DebugCtx(ctx, "[%s] ignore order update without verified Bot intent ownership", botID)
+			return
+		}
+		if terminalOrderUpdate(posUpdate.Status) && posUpdate.ExecutedQty > 0 {
+			blockReason := fmt.Sprintf("execution_ledger_unverified:%d", posUpdate.OrderID)
+			// Capture is asynchronous. Close the admission window before starting
+			// it; only a complete, durably persisted fill history may reopen it.
+			superPositionManager.OpeningGate().Block(blockReason)
+			fillCapture.Observe(ctx, ex, fillWriter, *posUpdate, ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID,
+				func(err error) {
+					superPositionManager.OpeningGate().Block(blockReason)
+					logger.ErrorCtx(ctx, "[%s] 成交执行账本无法核实，已阻止新开仓: %v", botID, err)
+					if eventBus != nil {
+						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+							"reason": "execution_ledger_unverified", "order_id": posUpdate.OrderID,
+							"requires_reconciliation": true,
+						}})
+					}
+				}, func() {
+					superPositionManager.OpeningGate().Unblock(blockReason)
+				})
 		}
 
 		// 发布订單事件
@@ -711,7 +831,16 @@ func startSymbolRuntime(
 					routedStrategy = multiExecutor.GetStrategyByClientOrderID(posUpdate.ClientOrderID)
 				}
 			}
-			strategyManager.OnOrderUpdateForStrategy(routedStrategy, posUpdate)
+			if err := strategyManager.ApplyOrderUpdateForStrategy(routedStrategy, posUpdate); err != nil {
+				superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+				logger.ErrorCtx(ctx, "[%s] 策略成交账未能确认，已封锁 Bot 新开仓: %v", botID, err)
+				if eventBus != nil {
+					eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+						"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+						"reason": "strategy_accounting_unverified", "requires_reconciliation": true,
+					}})
+				}
+			}
 		}
 		if multiExecutor != nil {
 			// D5：開倉成交轉為持倉占用、平倉成交按比例釋放、撤單/拒單/過期釋放未成交預留
@@ -724,6 +853,32 @@ func startSymbolRuntime(
 		}
 		logger.WarnCtx(ctx, "⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
 	}
+	if storageService != nil && (ex.GetMarketType() == "futures" || ex.GetMarketType() == "spot") {
+		type adapterGetter interface{ GetAdapter() interface{} }
+		if getter, ok := ex.(adapterGetter); ok {
+			if _, ok := getter.GetAdapter().(interface {
+				GetUserTradesFromID(ctx context.Context, symbol string, startTime, endTime, fromID int64, limit int) ([]*binance.UserTrade, error)
+			}); ok {
+				orderSyncService := ordersync.NewOrderSyncService(ex, storageService.GetStorage(), symCfg.Symbol, accountID, ex.GetName(), 5*time.Minute)
+				orderSyncService.SetTradeScope(ex.GetMarketType(), accountScope)
+				orderSyncService.Start(ctx)
+				logger.InfoCtx(ctx, "[%s] Binance %s 成交历史后台补偿已启动（5 分钟间隔）", symCfg.Symbol, ex.GetMarketType())
+			}
+		}
+	}
+
+	// Publish risk admission before Initialize/first grid placement/StartAll.
+	dynamicAdjuster := strategy.NewDynamicAdjuster(&localCfg, priceMonitor, superPositionManager)
+	if err := dynamicAdjuster.SetVolatilityHistoryLoader(runtimeVolatilityHistoryLoader(ex, symCfg.Symbol)); err != nil {
+		return nil, err
+	}
+	dynamicAdjuster.StartWithExternalPrices()
+	dynamicOwnedByRuntime := false
+	defer func() {
+		if !dynamicOwnedByRuntime {
+			dynamicAdjuster.Stop()
+		}
+	}()
 
 	if err := superPositionManager.Initialize(currentPrice, currentPriceStr); err != nil {
 		return nil, fmt.Errorf("初始化倉位管理器失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
@@ -746,7 +901,11 @@ func startSymbolRuntime(
 
 	if storageService != nil {
 		if st := storageService.GetStorage(); st != nil {
-			restoreAdapter := &reconciliationRestoreAdapter{storage: st}
+			restoreAdapter := &reconciliationRestoreAdapter{
+				storage: st, accountID: accountID,
+				accountScope: equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+				marketType:   symCfg.GetMarketType(), botID: botID,
+			}
 			if err := superPositionManager.RestoreReconciliationStats(restoreAdapter, symCfg.Exchange, symCfg.Symbol); err != nil {
 				logger.WarnCtx(ctx, "⚠️ [%s] 恢複對账统计失败: %v", symCfg.Symbol, err)
 			}
@@ -767,13 +926,6 @@ func startSymbolRuntime(
 	}
 	if arbitrageManager != nil {
 		go arbitrageManager.Start(ctx)
-	}
-
-	// 可選组件
-	var dynamicAdjuster *strategy.DynamicAdjuster
-	if localCfg.Trading.DynamicAdjustment.Enabled {
-		dynamicAdjuster = strategy.NewDynamicAdjuster(&localCfg, priceMonitor, superPositionManager)
-		dynamicAdjuster.Start()
 	}
 
 	// K 線 regime：注入倉位管理器並啟動檢測器 + 間隔控制循環（stopFn 中停止）
@@ -810,6 +962,17 @@ func startSymbolRuntime(
 		}
 
 		strategyManager = strategy.NewStrategyManager(&localCfg, totalCapital)
+		strategyManager.SetOrderUpdateErrorHandler(func(strategyName string, updateErr error) {
+			superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+			logger.ErrorCtx(ctx, "[%s] 策略 %s 成交账未能确认，已封锁 Bot 新开仓: %v", botID, strategyName, updateErr)
+			if eventBus != nil {
+				eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+					"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+					"reason": "strategy_accounting_unverified", "strategy_name": strategyName,
+					"requires_reconciliation": true,
+				}})
+			}
+		})
 		// 設置事件總線
 		if eventBus != nil {
 			strategyManager.SetEventBus(eventBus)
@@ -835,6 +998,9 @@ func startSymbolRuntime(
 		if trendCfg, exists := localCfg.Strategies.Configs["trend"]; exists && trendCfg.Enabled {
 			trendExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "trend")
 			trendStrategy := strategy.NewTrendFollowingStrategy("trend", &localCfg, trendExecutor, exchangeAdapter, trendCfg.Config)
+			if storageService != nil {
+				trendStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			fixedPool := 0.0
 			if pool, ok := trendCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -846,6 +1012,9 @@ func startSymbolRuntime(
 		if meanCfg, exists := localCfg.Strategies.Configs["mean_reversion"]; exists && meanCfg.Enabled {
 			meanExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "mean_reversion")
 			meanStrategy := strategy.NewMeanReversionStrategy("mean_reversion", &localCfg, meanExecutor, exchangeAdapter, meanCfg.Config)
+			if storageService != nil {
+				meanStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			fixedPool := 0.0
 			if pool, ok := meanCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -857,6 +1026,9 @@ func startSymbolRuntime(
 		if momentumCfg, exists := localCfg.Strategies.Configs["momentum"]; exists && momentumCfg.Enabled {
 			momentumExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "momentum")
 			momentumStrategy := strategy.NewMomentumStrategy("momentum", &localCfg, momentumExecutor, exchangeAdapter, momentumCfg.Config)
+			if storageService != nil {
+				momentumStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			fixedPool := 0.0
 			if pool, ok := momentumCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -868,6 +1040,9 @@ func startSymbolRuntime(
 		if martinCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martinCfg.Enabled {
 			martinExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "martingale")
 			martinStrategy := strategy.NewMartingaleStrategy("martingale", symCfg.Symbol, &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
+			if storageService != nil {
+				martinStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			fixedPool := 0.0
 			if pool, ok := martinCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -880,11 +1055,15 @@ func startSymbolRuntime(
 		if dcaCfg, exists := localCfg.Strategies.Configs["dca"]; exists && dcaCfg.Enabled {
 			dcaExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca")
 			dcaStrategy := strategy.NewDCAEnhancedStrategy("dca", symCfg.Symbol, &localCfg, dcaExecutor, exchangeAdapter, dcaCfg.Config)
+			if storageService != nil {
+				dcaStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			// 🔥 設置交易存儲，用於保存止损单的交易記錄
 			if storageService != nil {
 				tradeStorageAdapter := &tradeStorageAdapter{
 					storageService: storageService,
 					accountID:      accountID,
+					accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 					botID:          botID,
 				}
 				dcaStrategy.SetTradeStorage(tradeStorageAdapter)
@@ -901,11 +1080,15 @@ func startSymbolRuntime(
 		if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled {
 			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
 			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
+			if storageService != nil {
+				dcaEnhancedStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+			}
 			// 🔥 設置交易存儲，用於保存止损单的交易記錄
 			if storageService != nil {
 				tradeStorageAdapter := &tradeStorageAdapter{
 					storageService: storageService,
 					accountID:      accountID,
+					accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 					botID:          botID,
 				}
 				dcaEnhancedStrategy.SetTradeStorage(tradeStorageAdapter)
@@ -921,6 +1104,19 @@ func startSymbolRuntime(
 		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
 			comboExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "combo")
 			comboStrategy := strategy.NewComboStrategy("combo", symCfg.Symbol, &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
+			if storageService != nil {
+				if err := comboStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID}); err != nil {
+					return nil, fmt.Errorf("configure combo runtime state recovery: %w", err)
+				}
+			}
+			comboStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
+				if stateErr != nil {
+					superPositionManager.OpeningGate().Block("combo_runtime_state_unverified")
+					logger.ErrorCtx(ctx, "[%s] Combo 回撤高水位持久化失败，已封锁 Bot 开仓: %v", botID, stateErr)
+					return
+				}
+				superPositionManager.OpeningGate().Unblock("combo_runtime_state_unverified")
+			})
 			fixedPool := 0.0
 			if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
 				fixedPool = pool
@@ -939,6 +1135,31 @@ func startSymbolRuntime(
 					}
 					spotShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_short")
 					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
+					if storageService != nil {
+						spotShortStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+					}
+					spotShortStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
+						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+						logger.ErrorCtx(ctx, "[%s] SpotShort 运行态未能持久化，已封锁 Bot 新开仓: %v", botID, stateErr)
+						if eventBus != nil {
+							eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+								"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+								"reason": "strategy_accounting_unverified", "strategy_name": "spot_short",
+								"requires_reconciliation": true,
+							}})
+						}
+					})
+					spotShortStrategy.SetUnresolvedDebtHandler(func(debtErr error) {
+						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+						logger.ErrorCtx(ctx, "[%s] SpotShort 借贷结果/补偿还款未核实，已封锁 Bot 新开仓: %v", botID, debtErr)
+						if eventBus != nil {
+							eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+								"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+								"reason": "strategy_accounting_unverified", "strategy_name": "spot_short",
+								"requires_reconciliation": true,
+							}})
+						}
+					})
 					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 現貨做空策略已注册 (group=%v)", symCfg.Symbol, spotShortCfg["group_id"])
 					break
@@ -955,6 +1176,20 @@ func startSymbolRuntime(
 					}
 					spotLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_long")
 					spotLongStrategy := strategy.NewSpotLongStrategy("spot_long", &localCfg, spotLongExecutor, exchangeAdapter, spotLongCfg)
+					if storageService != nil {
+						spotLongStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+					}
+					spotLongStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
+						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+						logger.ErrorCtx(ctx, "[%s] SpotLong 运行态未能持久化，已封锁 Bot 新开仓: %v", botID, stateErr)
+						if eventBus != nil {
+							eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+								"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+								"reason": "strategy_accounting_unverified", "strategy_name": "spot_long",
+								"requires_reconciliation": true,
+							}})
+						}
+					})
 					strategyManager.RegisterStrategy("spot_long", spotLongStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 現貨做多對沖策略已注册 (group=%v)", symCfg.Symbol, spotLongCfg["group_id"])
 					break
@@ -994,27 +1229,13 @@ func startSymbolRuntime(
 			}
 		}
 
-		// 重啟恢復：從持久化訂單恢復 orderID/clientOrderID -> strategy 路由，避免回報廣播錯配
-		if storageService != nil {
-			if st := storageService.GetStorage(); st != nil {
-				restoreStatuses := []string{"NEW", "PARTIALLY_FILLED"}
-				for _, restoreStatus := range restoreStatuses {
-					orders, err := st.QueryOrdersWithFilter(2000, 0, restoreStatus, symCfg.Exchange, symCfg.Symbol, nil, nil)
-					if err != nil {
-						logger.WarnCtx(ctx, "⚠️ [%s] 恢復策略路由失敗(status=%s): %v", symCfg.Symbol, restoreStatus, err)
-						continue
-					}
-					for _, o := range orders {
-						if o == nil || o.StrategyName == "" {
-							continue
-						}
-						multiExecutor.RestoreOrderRoute(o.OrderID, o.ClientOrderID, o.StrategyName)
-					}
-				}
-			}
+		// Routes come only from validated account/Bot-scoped intent records.
+		// A restored route is not proof that strategy capital/fills are settled.
+		for _, route := range exchangeExecutor.RecoveredOrderRoutes() {
+			multiExecutor.RestoreOrderRoute(route.OrderID, route.ClientOrderID, route.StrategyName)
 		}
 
-		if err := strategyManager.StartAll(); err != nil {
+		if err := startStrategiesWithFailClosedGate(strategyManager.StartAll, superPositionManager.OpeningGate()); err != nil {
 			logger.ErrorCtx(ctx, "❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
 		} else {
 			logger.InfoCtx(ctx, "✅ [%s] 多策略系统已啟动", symCfg.Symbol)
@@ -1022,6 +1243,19 @@ func startSymbolRuntime(
 	}
 
 	// 價格变动处理
+	go watchPriceFeedHealth(ctx, priceFeedCheckEvery, func() bool {
+		return priceMonitor.IsStale(priceFeedStaleAfter)
+	}, func(stale bool) {
+		superPositionManager.SetPriceFeedStale(stale)
+		if stale {
+			logger.ErrorCtx(ctx, "[%s] 價格 WebSocket 超過 %s 無有效推送：封鎖新開倉並撤銷本 Bot 開倉委託", symCfg.Symbol, priceFeedStaleAfter)
+			superPositionManager.CancelAllOpenOrders()
+			go superPositionManager.CancelResidualOpeningOrders()
+			return
+		}
+		logger.InfoCtx(ctx, "[%s] 價格 WebSocket 已恢復；僅解除行情過期開倉封鎖", symCfg.Symbol)
+	})
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1044,12 +1278,19 @@ func startSymbolRuntime(
 					return
 				}
 
+				// Update risk before any strategy receives this same tick. A second
+				// monitor subscriber would steal ticks from the trading consumer.
+				dynamicAdjuster.OnPriceChange(priceChange)
 				isTriggered := riskMonitor.IsTriggered() || depthMonitor.IsTriggered()
+				if isTriggered != lastTriggered {
+					superPositionManager.SetMarketRiskPaused(isTriggered)
+				}
 				if isTriggered {
 					if !lastTriggered {
-						logger.WarnCtx(ctx, "🚨 [%s][风控触发] 撤销所有開倉單並暂停交易...", symCfg.Symbol)
+						logger.WarnCtx(ctx, "🚨 [%s][风控触发] 暂停新開倉並撤销開倉單，继续持倉保护", symCfg.Symbol)
 						// 按方向撤銷開倉單（LONG 撤買單、SHORT 撤賣單），避免做空時誤撤平倉單
 						superPositionManager.CancelAllOpenOrders()
+						go superPositionManager.CancelResidualOpeningOrders()
 						lastTriggered = true
 						if eventBus != nil {
 							// 匯集觸發原因，便於事件中心展示
@@ -1084,10 +1325,9 @@ func startSymbolRuntime(
 							})
 						}
 					}
-					continue
 				}
 
-				if lastTriggered {
+				if lastTriggered && !isTriggered {
 					logger.InfoCtx(ctx, "✅ [%s][风控解除] 恢複自动交易", symCfg.Symbol)
 					lastTriggered = false
 					if eventBus != nil {
@@ -1289,6 +1529,8 @@ func startSymbolRuntime(
 		EventBus:             eventBus,
 		StorageService:       storageService,
 		AccountID:            accountID,
+		AccountScope:         equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+		AccountMarketType:    symCfg.GetMarketType(),
 	}
 
 	// 開倉控制器（限倉、定時、週期規則）
@@ -1301,43 +1543,59 @@ func startSymbolRuntime(
 	// 網格自動重建同樣放在所有提前返回之後；停止時先停它，避免平倉過程中重新錨定網格
 	stopAutoRebuild := startConfiguredAutoRebuild(ctx, symCfg, superPositionManager, !config.ShouldSkipInitialGridAdjustOrders(&localCfg))
 
+	var stopOnce sync.Once
 	stopFn := func() {
-		stopFeeRefresh()
-		stopAutoRebuild()
-		// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
-		closeOnStopForRuntime(ctx, symCfg, rt)
-		logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
-		if rt.OpeningController != nil {
-			rt.OpeningController.Stop()
-		}
-		logger.InfoCtx(ctx, "⏹️ [%s] 停止價格監控...", symCfg.Symbol)
-		if priceMonitor != nil {
-			priceMonitor.Stop()
-		}
-		logger.InfoCtx(ctx, "⏹️ [%s] 停止訂單流...", symCfg.Symbol)
-		ex.StopOrderStream()
-		logger.InfoCtx(ctx, "⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
-		if riskMonitor != nil {
-			riskMonitor.Stop()
-		}
-		if fundingMonitor != nil {
-			fundingMonitor.Stop()
-		}
-		if arbitrageManager != nil {
-			arbitrageManager.Stop()
-		}
-		if dynamicAdjuster != nil {
-			dynamicAdjuster.Stop()
-		}
-		if trendDetector != nil {
-			trendDetector.Stop()
-		}
-		gridRegime.stop()
-		if strategyManager != nil {
-			strategyManager.StopAll()
-		}
+		stopOnce.Do(func() {
+			sealRuntimeShutdown(rt)
+			stopFeeRefresh()
+			stopAutoRebuild()
+			protectiveSettled := true
+			shutdownCtx := rt.stopContext(ctx)
+			liquidationStopCtx, liquidationStopCancel := context.WithTimeout(shutdownCtx, runtimeShutdownPrepareTimeout)
+			if err := prepareRuntimeShutdown(liquidationStopCtx, rt, symCfg.CloseOnStop); err != nil {
+				protectiveSettled = false
+				rt.markShutdownCloseUnverified(err.Error())
+				logger.ErrorCtx(ctx, "[%s] 停止時保護性平倉未核實，保留待對賬阻斷: %v", symCfg.Symbol, err)
+			}
+			liquidationStopCancel()
+			// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
+			if protectiveSettled {
+				closeOnStopForRuntime(shutdownCtx, symCfg, rt)
+			}
+			logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
+			if rt.OpeningController != nil {
+				rt.OpeningController.Stop()
+			}
+			logger.InfoCtx(ctx, "⏹️ [%s] 停止價格監控...", symCfg.Symbol)
+			if priceMonitor != nil {
+				priceMonitor.Stop()
+			}
+			logger.InfoCtx(ctx, "⏹️ [%s] 停止訂單流...", symCfg.Symbol)
+			ex.StopOrderStream()
+			logger.InfoCtx(ctx, "⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
+			if riskMonitor != nil {
+				riskMonitor.Stop()
+			}
+			if fundingMonitor != nil {
+				fundingMonitor.Stop()
+			}
+			if arbitrageManager != nil {
+				arbitrageManager.Stop()
+			}
+			if dynamicAdjuster != nil {
+				dynamicAdjuster.Stop()
+			}
+			if trendDetector != nil {
+				trendDetector.Stop()
+			}
+			gridRegime.stop()
+			if strategyManager != nil {
+				strategyManager.StopAll()
+			}
+		})
 	}
 	rt.Stop = stopFn
+	dynamicOwnedByRuntime = true
 
 	return rt, nil
 }

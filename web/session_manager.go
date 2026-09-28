@@ -420,22 +420,21 @@ func (sm *SessionManager) GetSessionFromRequest(r *http.Request) (*Session, bool
 
 // SetSessionCookie 設置會话Cookie
 func (sm *SessionManager) SetSessionCookie(w http.ResponseWriter, sessionID string, secure bool) {
-	// 在本地开发环境（localhost）中，强制 secure=false
-	// 因為 localhost 通常使用 HTTP 而不是 HTTPS
+	// Caller determines transport security; local HTTP explicitly passes false.
 	cookie := &http.Cookie{
 		Name:     "session_id",
 		Value:    sessionID,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   false,                // 本地开发环境使用 HTTP，不需要 Secure 標志
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode, // 使用 Lax 模式，确保同站请求能正常携带 Cookie
 		MaxAge:   int(sm.sessionTimeout.Seconds()),
 	}
 	http.SetCookie(w, cookie)
 
 	// 調試日志：写入Web日志文件（而不是標准输出）
-	logger.WriteWebLog(fmt.Sprintf("[SESSION] Cookie 已設置: Name=%s, Value=%s..., Path=%s, MaxAge=%d, HttpOnly=%v, Secure=%v, SameSite=%v",
-		cookie.Name, sessionID[:20], cookie.Path, cookie.MaxAge, cookie.HttpOnly, cookie.Secure, cookie.SameSite))
+	logger.WriteWebLog(fmt.Sprintf("[SESSION] Cookie 已設置: Name=%s, Path=%s, MaxAge=%d, HttpOnly=%v, Secure=%v, SameSite=%v",
+		cookie.Name, cookie.Path, cookie.MaxAge, cookie.HttpOnly, cookie.Secure, cookie.SameSite))
 }
 
 // ClearSessionCookie 清除會话Cookie

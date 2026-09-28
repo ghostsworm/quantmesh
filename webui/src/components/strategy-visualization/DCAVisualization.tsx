@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
@@ -11,11 +11,9 @@ import {
   StatLabel,
   StatNumber,
   StatHelpText,
-  Divider,
   useColorModeValue,
 } from '@chakra-ui/react'
 import { TriangleUpIcon, TriangleDownIcon, WarningIcon } from '@chakra-ui/icons'
-import PriceChart from './PriceChart'
 import type { DCAVisualizationData } from '../../services/strategy'
 
 interface DCAVisualizationProps {
@@ -28,49 +26,7 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
   const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
-
-  // 生成价格图表数据（模拟最近的价格走势）
-  const chartData = useMemo(() => {
-    if (!data.currentPrice) return []
-    const prices: Array<{ time: string; price: number }> = []
-    const basePrice = data.currentPrice
-    for (let i = 20; i >= 0; i--) {
-      prices.push({
-        time: `${i}`,
-        price: basePrice * (1 + (Math.random() - 0.5) * 0.02),
-      })
-    }
-    return prices
-  }, [data.currentPrice])
-
-  // 生成参考线（止盈止损）
-  const referenceLines = useMemo(() => {
-    const lines: Array<{ value: number; label: string; color: string }> = []
-    if (data.avgEntryPrice) {
-      if (data.firstOrderTakeProfit) {
-        lines.push({
-          value: data.firstOrderTakeProfit,
-          label: t('strategyViz.dca.firstOrderTP'),
-          color: '#38A169',
-        })
-      }
-      if (data.totalTakeProfit) {
-        lines.push({
-          value: data.totalTakeProfit,
-          label: t('strategyViz.dca.totalTP'),
-          color: '#38A169',
-        })
-      }
-      if (data.stopLoss) {
-        lines.push({
-          value: data.stopLoss,
-          label: t('strategyViz.dca.stopLoss'),
-          color: '#E53E3E',
-        })
-      }
-    }
-    return lines
-  }, [data.avgEntryPrice, data.firstOrderTakeProfit, data.totalTakeProfit, data.stopLoss, t])
+  const layerBgColor = useColorModeValue('gray.50', 'gray.700')
 
   return (
     <VStack spacing={4} align="stretch">
@@ -97,14 +53,6 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
         </Stat>
       </SimpleGrid>
 
-      {/* 价格图表 */}
-      {chartData.length > 0 && (
-        <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.dca.priceTrend')}</Text>
-          <PriceChart data={chartData} height={250} referenceLines={referenceLines} />
-        </Box>
-      )}
-
       {/* 分层持仓 */}
       {data.layers && data.layers.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
@@ -116,7 +64,7 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
                 <Box
                   key={index}
                   p={3}
-                  bg={useColorModeValue('gray.50', 'gray.700')}
+                  bg={layerBgColor}
                   borderRadius="md"
                   borderLeft="4px solid"
                   borderLeftColor={isProfit ? 'green.500' : 'red.500'}
@@ -157,6 +105,24 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
       <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
         <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.dca.decisionBasis')}</Text>
         <VStack spacing={2} align="stretch" fontSize="sm">
+          {typeof data.firstOrderTakeProfit === 'number' && Number.isFinite(data.firstOrderTakeProfit) && data.firstOrderTakeProfit > 0 && (
+            <HStack justify="space-between">
+              <Text color="gray.600">{t('strategyViz.dca.firstOrderTP')}</Text>
+              <Text fontWeight="bold">${data.firstOrderTakeProfit.toFixed(2)}</Text>
+            </HStack>
+          )}
+          {typeof data.totalTakeProfit === 'number' && Number.isFinite(data.totalTakeProfit) && data.totalTakeProfit > 0 && (
+            <HStack justify="space-between">
+              <Text color="gray.600">{t('strategyViz.dca.totalTP')}</Text>
+              <Text fontWeight="bold">${data.totalTakeProfit.toFixed(2)}</Text>
+            </HStack>
+          )}
+          {typeof data.stopLoss === 'number' && Number.isFinite(data.stopLoss) && data.stopLoss > 0 && (
+            <HStack justify="space-between">
+              <Text color="gray.600">{t('strategyViz.dca.stopLoss')}</Text>
+              <Text fontWeight="bold" color="red.500">${data.stopLoss.toFixed(2)}</Text>
+            </HStack>
+          )}
           {data.nextBuyPrice && data.distanceToNextBuy !== undefined && (
             <HStack justify="space-between">
               <Text color="gray.600">{t('strategyViz.dca.nextBuyPoint')}</Text>
@@ -185,7 +151,9 @@ const DCAVisualization: React.FC<DCAVisualizationProps> = ({ data }) => {
           {data.takeProfitTriggered && (
             <HStack>
               <Text color="green.600">{t('strategyViz.dca.trailingTPActive')}</Text>
-              <Text color="gray.500">{t('strategyViz.dca.highestProfit')}: {data.highestProfit?.toFixed(2)}%</Text>
+              {typeof data.highestProfit === 'number' && Number.isFinite(data.highestProfit) && (
+                <Text color="gray.500">{t('strategyViz.dca.highestProfit')}: {data.highestProfit.toFixed(2)}%</Text>
+              )}
             </HStack>
           )}
         </VStack>

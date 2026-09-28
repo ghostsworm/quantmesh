@@ -79,7 +79,7 @@ const StrategyDetail: React.FC = () => {
   }
 
   const handleGoToDashboard = () => {
-    setSymbolPair(exchange, symbol, marketType)
+    setSymbolPair(exchange, symbol, marketType === 'spot' ? 'spot' : marketType === 'futures' ? 'futures' : undefined)
   }
 
   if (!exchange || !symbol || !strategyName) {

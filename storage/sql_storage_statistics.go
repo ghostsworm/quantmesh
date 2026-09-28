@@ -458,6 +458,76 @@ func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr, botID str
 	return count, grossPnl, totalFee, nil
 }
 
+// QueryDailyPnLTrades returns a dimension-filtered summary and the exact top
+// winning/losing paired trades. Unlike the legacy date-only summary, every
+// supplied owner and market dimension is an exact predicate; unclassified
+// legacy rows are never attributed to a classified report.
+func (s *SQLStorage) QueryDailyPnLTrades(exchange, marketType, symbol, account, accountScope, botID string, start, end time.Time) (count int, grossPnL, totalFee float64, winners, losers []*Trade, err error) {
+	if !start.Before(end) {
+		return 0, 0, 0, nil, nil, fmt.Errorf("invalid daily PnL interval")
+	}
+	where, args := dailyPnLTradeFilter(exchange, marketType, symbol, account, accountScope, botID, start, end)
+	query := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0) FROM %s WHERE %s`, s.tradesTbl(), where)
+	if err = s.db.QueryRow(query, args...).Scan(&count, &grossPnL, &totalFee); err != nil {
+		return 0, 0, 0, nil, nil, fmt.Errorf("query filtered daily trade summary: %w", err)
+	}
+	winners, err = s.queryDailyPnLTradeExtremes(where, args, true)
+	if err != nil {
+		return 0, 0, 0, nil, nil, err
+	}
+	losers, err = s.queryDailyPnLTradeExtremes(where, args, false)
+	if err != nil {
+		return 0, 0, 0, nil, nil, err
+	}
+	return count, grossPnL, totalFee, winners, losers, nil
+}
+
+func dailyPnLTradeFilter(exchange, marketType, symbol, account, accountScope, botID string, start, end time.Time) (string, []interface{}) {
+	conditions := []string{"created_at >= ?", "created_at < ?"}
+	args := []interface{}{start, end}
+	for _, filter := range []struct{ column, value string }{
+		{"exchange", strings.TrimSpace(exchange)},
+		{"market_type", strings.ToLower(strings.TrimSpace(marketType))},
+		{"symbol", strings.TrimSpace(symbol)},
+		{"account", strings.TrimSpace(account)},
+		{"account_scope", strings.TrimSpace(accountScope)},
+		{"bot_id", strings.TrimSpace(botID)},
+	} {
+		if filter.value == "" {
+			continue
+		}
+		conditions = append(conditions, "COALESCE("+filter.column+", '') = ?")
+		args = append(args, filter.value)
+	}
+	return strings.Join(conditions, " AND "), args
+}
+
+func (s *SQLStorage) queryDailyPnLTradeExtremes(where string, args []interface{}, winners bool) ([]*Trade, error) {
+	comparison, direction := "<", "ASC"
+	if winners {
+		comparison, direction = ">", "DESC"
+	}
+	query := fmt.Sprintf(`SELECT id, buy_order_id, sell_order_id, COALESCE(bot_id, ''), COALESCE(exchange, ''), COALESCE(market_type, ''), COALESCE(account, ''), COALESCE(symbol, ''), buy_price, sell_price, quantity, pnl, COALESCE(fee, 0), created_at FROM %s WHERE %s AND pnl %s 0 ORDER BY pnl %s, id DESC LIMIT 20`, s.tradesTbl(), where, comparison, direction)
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query top daily trade PnL: %w", err)
+	}
+	defer rows.Close()
+	var trades []*Trade
+	for rows.Next() {
+		trade := &Trade{}
+		if err := rows.Scan(&trade.ID, &trade.BuyOrderID, &trade.SellOrderID, &trade.BotID, &trade.Exchange, &trade.MarketType, &trade.Account, &trade.Symbol,
+			&trade.BuyPrice, &trade.SellPrice, &trade.Quantity, &trade.PnL, &trade.Fee, &trade.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan top daily trade PnL: %w", err)
+		}
+		trades = append(trades, trade)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate top daily trade PnL: %w", err)
+	}
+	return trades, nil
+}
+
 // QueryDailyStatisticsFromTrades 從 trades 表查詢每日统计
 func (s *SQLStorage) QueryDailyStatisticsFromTrades(account string, startDate, endDate time.Time, botID string) ([]*DailyStatisticsWithTradeCount, error) {
 	return s.QueryDailyStatisticsByExchange("", "", account, startDate, endDate, botID)

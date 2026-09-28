@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"quantmesh/logger"
@@ -117,11 +118,61 @@ func closePositionsOnBots(parent context.Context, bots []BotController, method s
 	}
 	timeout := botActionTimeout(timeoutSec)
 	effectiveSec := int(timeout / time.Second)
-	return runOnBots("close_all_positions", bots, func(_ int, bot BotController) error {
-		ctx, cancel := context.WithTimeout(parent, timeout)
-		defer cancel()
-		return bot.CloseAllPositions(ctx, method, effectiveSec)
-	})
+	type scopedBot interface{ CloseScopeKey() string }
+	type botEntry struct {
+		index int
+		bot   BotController
+	}
+	groups := make(map[string][]botEntry)
+	for i, bot := range bots {
+		key := ""
+		if scoped, ok := bot.(scopedBot); ok {
+			key = scoped.CloseScopeKey()
+		}
+		if key == "" {
+			key = fmt.Sprintf("unscoped:%d", i)
+		}
+		groups[key] = append(groups[key], botEntry{index: i, bot: bot})
+	}
+	errs := make([]error, len(bots))
+	var succeeded atomic.Int32
+	var wg sync.WaitGroup
+	for _, group := range groups {
+		group := group
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for position, entry := range group {
+				func() {
+					defer func() {
+						if recovered := recover(); recovered != nil {
+							errs[entry.index] = fmt.Errorf("bot#%d close_all_positions panic: %v", entry.index, recovered)
+						}
+					}()
+					ctx, cancel := context.WithTimeout(parent, timeout)
+					defer cancel()
+					if err := entry.bot.CloseAllPositions(ctx, method, effectiveSec); err != nil {
+						errs[entry.index] = fmt.Errorf("bot#%d close_all_positions: %w", entry.index, err)
+					}
+				}()
+				if errs[entry.index] != nil {
+					for _, skipped := range group[position+1:] {
+						errs[skipped.index] = fmt.Errorf("same account close skipped after prior Bot result was unverified")
+					}
+					break
+				}
+				succeeded.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	report := BotActionReport{Action: "close_all_positions", Total: len(bots), Succeeded: int(succeeded.Load())}
+	for _, err := range errs {
+		if err != nil {
+			report.Errors = append(report.Errors, err)
+		}
+	}
+	return report
 }
 
 // OpeningPauseCoordinator 多來源暫停開倉協調器。

@@ -30,7 +30,7 @@ import {
   Code,
   useDisclosure,
 } from '@chakra-ui/react'
-import { DownloadIcon, UploadIcon, CopyIcon, CheckIcon } from '@chakra-ui/icons'
+import { DownloadIcon, AttachmentIcon, CopyIcon, CheckIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import {
   exportBotConfig,
@@ -227,7 +227,7 @@ const ConfigImportExport: React.FC<ConfigImportExportProps> = ({ botId, botName,
                 {t('bot.export_config')}
               </Button>
               <Button
-                leftIcon={<UploadIcon />}
+                leftIcon={<AttachmentIcon />}
                 onClick={onImportOpen}
                 flex={1}
                 colorScheme="green"
@@ -355,7 +355,7 @@ const ConfigImportExport: React.FC<ConfigImportExportProps> = ({ botId, botName,
               colorScheme="green"
               onClick={handleImport}
               isLoading={loading}
-              leftIcon={<UploadIcon />}
+              leftIcon={<AttachmentIcon />}
             >
               {t('bot.import')}
             </Button>

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,9 +16,6 @@ import (
 	"quantmesh/position"
 	"quantmesh/utils"
 )
-
-// spotShortRepayTimeout 借幣後操作失敗時歸還借幣的超時
-const spotShortRepayTimeout = 15 * time.Second
 
 // SpotShortStrategy 現貨借幣做空策略
 // 訂閱 HedgeCoordinator 發送的 EventTypeHedgeSignal，根據目標空倉執行借幣/賣出或買回/還幣
@@ -35,10 +34,15 @@ type SpotShortStrategy struct {
 	eventBus        EventBus
 	subscribableBus interface{ Subscribe() <-chan *event.Event }
 
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.RWMutex
-	pendingRepay map[int64]float64 // orderID -> 待還數量
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	mu                       sync.RWMutex
+	borrowMu                 sync.Mutex
+	pendingRepay             map[int64]spotShortPendingRepay
+	pendingBorrow            map[string]spotShortPendingBorrow
+	runtimeStateStore        RuntimeStateStore
+	runtimeStateErrorHandler func(error)
+	unresolvedDebtHandler    func(error)
 
 	positions []*Position
 	orders    []*Order
@@ -66,24 +70,34 @@ func NewSpotShortStrategy(name string, cfg *config.Config, executor position.Ord
 		}
 	}
 	var smEx exchange.ISpotMarginExchange
-	if rawEx != nil {
+	if !isNilSpotRawExchange(rawEx) {
 		smEx, _ = rawEx.(exchange.ISpotMarginExchange)
 	}
 	return &SpotShortStrategy{
-		name:       name,
-		cfg:        cfg,
-		executor:   executor,
-		ex:         ex,
-		rawEx:      rawEx,
-		smEx:       smEx,
-		groupID:    groupID,
-		symbol:     symbol,
-		baseAsset:  baseAsset,
-		quoteAsset: quoteAsset,
-		positions:  []*Position{},
-		orders:     []*Order{},
-		stats:      &StrategyStatistics{},
+		name:          name,
+		cfg:           cfg,
+		executor:      executor,
+		ex:            ex,
+		rawEx:         rawEx,
+		smEx:          smEx,
+		groupID:       groupID,
+		symbol:        symbol,
+		baseAsset:     baseAsset,
+		quoteAsset:    quoteAsset,
+		pendingRepay:  make(map[int64]spotShortPendingRepay),
+		pendingBorrow: make(map[string]spotShortPendingBorrow),
+		positions:     []*Position{},
+		orders:        []*Order{},
+		stats:         &StrategyStatistics{},
 	}
+}
+
+func isNilSpotRawExchange(rawEx exchange.IExchange) bool {
+	if rawEx == nil {
+		return true
+	}
+	value := reflect.ValueOf(rawEx)
+	return value.Kind() == reflect.Pointer && value.IsNil()
 }
 
 func (s *SpotShortStrategy) Name() string { return s.name }
@@ -102,31 +116,111 @@ func (s *SpotShortStrategy) SetEventBus(bus EventBus) {
 	}
 }
 
+// SetRuntimeStateStore wires durable recovery before Start is called.
+func (s *SpotShortStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeStateStore = store
+}
+
+func (s *SpotShortStrategy) SetRuntimeStateErrorHandler(handler func(error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeStateErrorHandler = handler
+}
+
+func (s *SpotShortStrategy) SetUnresolvedDebtHandler(handler func(error)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.unresolvedDebtHandler = handler
+}
+
+func (s *SpotShortStrategy) reportUnresolvedDebt(err error) {
+	s.mu.RLock()
+	handler := s.unresolvedDebtHandler
+	s.mu.RUnlock()
+	if handler != nil {
+		handler(err)
+	}
+}
+
 func (s *SpotShortStrategy) OnPriceChange(price float64) error { return nil }
 
 func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	if update == nil || update.Status != "FILLED" || update.Side != "BUY" {
+	if update == nil || update.Side != "BUY" {
 		return nil
 	}
 	s.mu.Lock()
-	amount, ok := s.pendingRepay[update.OrderID]
+	pending, ok := s.pendingRepay[update.OrderID]
+	if !ok {
+		s.mu.Unlock()
+		return nil
+	}
+	if pending.RepayUncertain {
+		s.mu.Unlock()
+		return fmt.Errorf("spot short repayment outcome for order %d requires exchange reconciliation", update.OrderID)
+	}
+	if update.ExecutedQty < pending.ExecutedQty || update.ExecutedQty > pending.OrderQuantity || math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) {
+		s.mu.Unlock()
+		return fmt.Errorf("invalid cumulative filled quantity %.12g for spot short order %d (previous %.12g, requested %.12g)", update.ExecutedQty, update.OrderID, pending.ExecutedQty, pending.OrderQuantity)
+	}
+	delta := update.ExecutedQty - pending.ExecutedQty
+	baseFeeDelta := update.BaseFeeQty
+	if delta == 0 {
+		baseFeeDelta = 0 // Duplicate cumulative order updates must not reapply per-fill fees.
+	}
+	repayAmount := delta - baseFeeDelta
+	if baseFeeDelta < 0 || baseFeeDelta > delta || math.IsNaN(baseFeeDelta) || math.IsInf(baseFeeDelta, 0) {
+		s.mu.Unlock()
+		return fmt.Errorf("invalid base-asset fee %.12g for spot short order %d fill delta %.12g", baseFeeDelta, update.OrderID, delta)
+	}
+	if repayAmount > 0 {
+		if s.smEx == nil {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short repay executor unavailable for filled buy order %d", update.OrderID)
+		}
+		pending.RepayUncertain = true
+		s.pendingRepay[update.OrderID] = pending
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	s.mu.Unlock()
-	if !ok || amount <= 0 {
-		return nil
-	}
-	if s.smEx == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	if _, err := s.smEx.Repay(ctx, s.baseAsset, amount); err != nil {
-		logger.Error("SpotShortStrategy 還幣失敗 (order=%d): %v", update.OrderID, err)
-		return nil
+	if repayAmount > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		_, err := s.smEx.Repay(ctx, s.baseAsset, repayAmount)
+		cancel()
+		if err != nil {
+			logger.Error("SpotShortStrategy 還幣失敗 (order=%d): %v", update.OrderID, err)
+			return fmt.Errorf("repay borrowed %s after filled buy order %d; outcome requires reconciliation: %w", s.baseAsset, update.OrderID, err)
+		}
 	}
 	s.mu.Lock()
-	delete(s.pendingRepay, update.OrderID)
+	pending, ok = s.pendingRepay[update.OrderID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("spot short order %d disappeared during repayment", update.OrderID)
+	}
+	pending.ExecutedQty = update.ExecutedQty
+	pending.BaseFeeQty += baseFeeDelta
+	pending.RepayUncertain = false
+	if update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "CANCELLED" || update.Status == "EXPIRED" || update.Status == "REJECTED" {
+		delete(s.pendingRepay, update.OrderID)
+	} else {
+		s.pendingRepay[update.OrderID] = pending
+	}
+	err := s.persistRuntimeStateLocked()
+	if err != nil {
+		s.pendingRepay[update.OrderID] = pending
+	}
 	s.mu.Unlock()
-	logger.Info("📤 SpotShortStrategy: 買回成交後已還幣 %.6f %s", amount, s.baseAsset)
+	if err != nil {
+		return err
+	}
+	if repayAmount > 0 {
+		logger.Info("📤 SpotShortStrategy: 買回成交後已還幣 %.6f %s", repayAmount, s.baseAsset)
+	}
 	return nil
 }
 
@@ -149,6 +243,15 @@ func (s *SpotShortStrategy) GetStatistics() *StrategyStatistics {
 }
 
 func (s *SpotShortStrategy) Start(ctx context.Context) error {
+	s.mu.Lock()
+	if err := s.restoreRuntimeStateLocked(); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	if err := s.reconcilePendingRepayOrders(ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.subscribableBus == nil {
 		s.mu.Unlock()
@@ -175,6 +278,78 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 		}
 	}()
 	logger.Info("✅ SpotShortStrategy 已啟動 (group=%s)", s.groupID)
+	return nil
+}
+
+func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) error {
+	s.mu.RLock()
+	pendingByID := make(map[int64]spotShortPendingRepay, len(s.pendingRepay))
+	for id, pending := range s.pendingRepay {
+		pendingByID[id] = pending
+	}
+	s.mu.RUnlock()
+	for id, pending := range pendingByID {
+		if s.ex == nil {
+			return fmt.Errorf("spot short exchange unavailable while reconciling buy order %d", id)
+		}
+		raw, err := s.ex.GetOrder(ctx, s.symbol, id)
+		if err != nil {
+			return fmt.Errorf("query spot short buy order %d: %w", id, err)
+		}
+		update, err := strategyOrderUpdateFromExchange(raw)
+		if err != nil {
+			return fmt.Errorf("query spot short buy order %d: %w", id, err)
+		}
+		if update.OrderID != 0 && update.OrderID != id {
+			return fmt.Errorf("exchange returned order %d while reconciling spot short order %d", update.OrderID, id)
+		}
+		if update.Side != "BUY" || (update.Symbol != "" && update.Symbol != s.symbol) {
+			return fmt.Errorf("exchange order identity mismatch while reconciling spot short order %d", id)
+		}
+		if update.ExecutedQty < pending.ExecutedQty {
+			return fmt.Errorf("exchange cumulative fill regressed for spot short order %d: %.12g < %.12g", id, update.ExecutedQty, pending.ExecutedQty)
+		}
+		if update.ExecutedQty > pending.ExecutedQty {
+			rawFills, err := s.ex.GetOrderFills(ctx, s.symbol, id)
+			if err != nil {
+				return fmt.Errorf("query spot short order %d fills: %w", id, err)
+			}
+			fills, ok := rawFills.([]*exchange.OrderFill)
+			if !ok || len(fills) == 0 {
+				return fmt.Errorf("spot short order %d has unaccounted fills but exchange returned no supported fill details", id)
+			}
+			totalQty, totalBaseFee := 0.0, 0.0
+			seen := make(map[string]struct{}, len(fills))
+			for _, fill := range fills {
+				if fill == nil || fill.TradeID == "" || fill.OrderID != 0 && fill.OrderID != id || fill.Side != "" && fill.Side != exchange.SideBuy || fill.Symbol != "" && fill.Symbol != s.symbol ||
+					fill.Quantity <= 0 || math.IsNaN(fill.Quantity) || math.IsInf(fill.Quantity, 0) ||
+					fill.BaseFeeQty < 0 || math.IsNaN(fill.BaseFeeQty) || math.IsInf(fill.BaseFeeQty, 0) || fill.BaseFeeQty > fill.Quantity {
+					return fmt.Errorf("spot short order %d returned invalid fill evidence", id)
+				}
+				if strings.EqualFold(fill.CommissionAsset, s.baseAsset) && fill.Commission > 0 && fill.BaseFeeQty == 0 {
+					return fmt.Errorf("spot short order %d fill %s reports base-asset commission without a base fee quantity", id, fill.TradeID)
+				}
+				if fill.TradeID != "" {
+					if _, duplicate := seen[fill.TradeID]; duplicate {
+						return fmt.Errorf("spot short order %d returned duplicate trade id %q", id, fill.TradeID)
+					}
+					seen[fill.TradeID] = struct{}{}
+				}
+				totalQty += fill.Quantity
+				totalBaseFee += fill.BaseFeeQty
+			}
+			tolerance := math.Max(1e-10, update.ExecutedQty*1e-8)
+			if math.Abs(totalQty-update.ExecutedQty) > tolerance || totalBaseFee+tolerance < pending.BaseFeeQty {
+				return fmt.Errorf("spot short order %d fill evidence does not reconcile: fills=%.12g fees=%.12g order_executed=%.12g saved_fees=%.12g", id, totalQty, totalBaseFee, update.ExecutedQty, pending.BaseFeeQty)
+			}
+			update.BaseFeeQty = totalBaseFee - pending.BaseFeeQty
+		}
+		update.OrderID = id
+		update.Symbol = s.symbol
+		if err := s.OnOrderUpdate(update); err != nil {
+			return fmt.Errorf("apply reconciled spot short order %d: %w", id, err)
+		}
+	}
 	return nil
 }
 
@@ -212,7 +387,11 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	currentShort := s.getCurrentShortPosition(ctx)
+	currentShort, err := s.getCurrentShortPosition(ctx)
+	if err != nil {
+		logger.Error("SpotShortStrategy 無法核實當前空倉，拒絕執行 hedge signal: %v", err)
+		return
+	}
 	diff := targetShort - currentShort
 
 	if math.Abs(diff) < 0.000001 {
@@ -224,42 +403,113 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 			logger.Error("SpotShortStrategy 增加空倉失敗 (target=%.8f current=%.8f): %v", targetShort, currentShort, err)
 		}
 	} else {
-		s.decreaseShort(ctx, -diff)
+		s.mu.RLock()
+		hasPendingBuy := len(s.pendingRepay) > 0
+		s.mu.RUnlock()
+		if hasPendingBuy {
+			return
+		}
+		if err := s.decreaseShort(ctx, -diff); err != nil {
+			logger.Error("SpotShortStrategy 買回/持久化待還狀態失敗: %v", err)
+		}
 	}
 }
 
-func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) float64 {
+func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) (float64, error) {
 	raw, err := s.ex.GetPositions(ctx, s.symbol)
-	if err != nil || raw == nil {
-		return 0
+	if err != nil {
+		return 0, fmt.Errorf("query current position for %s: %w", s.symbol, err)
+	}
+	if raw == nil {
+		return 0, fmt.Errorf("exchange returned nil position data for %s", s.symbol)
 	}
 	// positionExchangeAdapter 返回 []*position.PositionInfo
 	if infos, ok := raw.([]*position.PositionInfo); ok {
+		current := 0.0
+		found := false
 		for _, p := range infos {
-			if p != nil && p.Symbol == s.symbol && p.Size < 0 {
-				return -p.Size
+			if p == nil {
+				return 0, fmt.Errorf("exchange returned a nil position entry for %s", s.symbol)
 			}
+			if p.Symbol != s.symbol {
+				continue
+			}
+			if found || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || p.Size > 0 {
+				return 0, fmt.Errorf("exchange returned ambiguous or invalid spot short position for %s", s.symbol)
+			}
+			found = true
+			current = -p.Size
 		}
+		return current, nil
 	}
-	return 0
+	return 0, fmt.Errorf("exchange returned unsupported position data %T for %s", raw, s.symbol)
 }
 
 func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) error {
+	s.borrowMu.Lock()
+	defer s.borrowMu.Unlock()
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
 		return nil
 	}
-	if _, err := s.smEx.Borrow(ctx, s.baseAsset, amount); err != nil {
-		return fmt.Errorf("借幣 %.8f %s: %w", amount, s.baseAsset, err)
+	s.mu.RLock()
+	var unresolvedClientOrderID string
+	for clientOrderID := range s.pendingBorrow {
+		unresolvedClientOrderID = clientOrderID
+		break
+	}
+	s.mu.RUnlock()
+	if unresolvedClientOrderID != "" {
+		err := fmt.Errorf("spot short has unresolved borrow intent %s; refusing another borrow until exchange reconciliation", unresolvedClientOrderID)
+		s.reportUnresolvedDebt(err)
+		return err
+	}
+	if s.smEx == nil || s.ex == nil || s.executor == nil {
+		return fmt.Errorf("spot short borrow dependencies are unavailable")
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err == nil && price <= 0 {
-		err = fmt.Errorf("價格無效 %.8f", price)
+		err = fmt.Errorf("invalid price %.8f", price)
 	}
 	if err != nil {
-		return s.repayAfterFailedShort(ctx, amount, fmt.Errorf("借幣後獲取 %s 價格: %w", s.symbol, err))
+		return fmt.Errorf("fetch %s price before borrowing: %w", s.symbol, err)
 	}
 	price = s.roundPrice(price)
+	clientOrderID := utils.GenerateOrderID(price, "SELL", s.getPriceDecimals())
+	intent := spotShortPendingBorrow{Amount: amount, Phase: "prepared", CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
+	s.mu.Lock()
+	if s.pendingBorrow == nil {
+		s.pendingBorrow = make(map[string]spotShortPendingBorrow)
+	}
+	s.pendingBorrow[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		delete(s.pendingBorrow, clientOrderID)
+		s.mu.Unlock()
+		return fmt.Errorf("persist borrow intent before borrowing: %w", err)
+	}
+	s.mu.Unlock()
+	transferID, err := s.smEx.Borrow(ctx, s.baseAsset, amount)
+	if err != nil {
+		wrapped := fmt.Errorf("借幣 %.8f %s 結果未核實: %w", amount, s.baseAsset, err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	if transferID <= 0 {
+		wrapped := fmt.Errorf("借币请求返回无效流水号，借币结果未核实 (transfer_id=%d)", transferID)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	s.mu.Lock()
+	intent.Phase = "borrowed"
+	intent.BorrowTransferID = transferID
+	s.pendingBorrow[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.mu.Unlock()
+		wrapped := fmt.Errorf("borrow succeeded but its transfer id could not be durably recorded: %w", err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	s.mu.Unlock()
 	req := &position.OrderRequest{
 		Symbol:        s.symbol,
 		Side:          "SELL",
@@ -267,38 +517,46 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) e
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
+		ClientOrderID: clientOrderID,
+		StrategyName:  s.name,
+		StrategyType:  "spot_short",
 	}
-	if _, err := s.executor.PlaceOrder(req); err != nil {
-		return s.repayAfterFailedShort(ctx, amount, fmt.Errorf("借幣後賣出 %.8f %s: %w", amount, s.symbol, err))
+	order, err := s.executor.PlaceOrder(req)
+	if err != nil {
+		wrapped := fmt.Errorf("借币成功但卖出订单结果未核实 (client_order_id=%s): %w", clientOrderID, err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	if order == nil || order.OrderID <= 0 || (order.ClientOrderID != "" && order.ClientOrderID != clientOrderID) {
+		wrapped := fmt.Errorf("借币成功但卖出订单回执无效，结果未核实 (client_order_id=%s)", clientOrderID)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	s.mu.Lock()
+	delete(s.pendingBorrow, clientOrderID)
+	err = s.persistRuntimeStateLocked()
+	if err != nil {
+		s.pendingBorrow[clientOrderID] = intent
+	}
+	s.mu.Unlock()
+	if err != nil {
+		wrapped := fmt.Errorf("卖出订单已受理但借币意图清理未持久化，结果未核实 (client_order_id=%s): %w", clientOrderID, err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
 	}
 	logger.Info("📤 SpotShortStrategy: 借幣 %.6f %s 並賣出", amount, s.baseAsset)
 	return nil
 }
 
-// repayAfterFailedShort 借幣成功但後續步驟失敗時歸還借幣，避免負債殘留並在下次信號重複借入。
-// 返回包裝後的原始錯誤；還幣也失敗時同時帶上還幣錯誤並記錄日誌。
-func (s *SpotShortStrategy) repayAfterFailedShort(ctx context.Context, amount float64, cause error) error {
-	// 原 ctx 可能已超時（例如取價超時），還幣使用獨立超時，保證回滾有機會執行
-	repayCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), spotShortRepayTimeout)
-	defer cancel()
-	if _, repayErr := s.smEx.Repay(repayCtx, s.baseAsset, amount); repayErr != nil {
-		logger.Error("SpotShortStrategy 還幣失敗，借幣 %.8f %s 未歸還，請手動處理: %v (原因: %v)",
-			amount, s.baseAsset, repayErr, cause)
-		return fmt.Errorf("%w；還幣 %.8f %s 也失敗: %v", cause, amount, s.baseAsset, repayErr)
-	}
-	logger.Warn("SpotShortStrategy 借幣後操作失敗，已歸還 %.8f %s: %v", amount, s.baseAsset, cause)
-	return cause
-}
-
-func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) {
+func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
 		logger.Error("SpotShortStrategy 獲取價格失敗: %v", err)
-		return
+		return err
 	}
 	// 限價買單略高於市價以提高成交率
 	price = s.roundPrice(price * 1.001)
@@ -313,15 +571,20 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) {
 	ord, err := s.executor.PlaceOrder(req)
 	if err != nil {
 		logger.Error("SpotShortStrategy 買回失敗: %v", err)
-		return
+		return err
 	}
 	s.mu.Lock()
 	if s.pendingRepay == nil {
-		s.pendingRepay = make(map[int64]float64)
+		s.pendingRepay = make(map[int64]spotShortPendingRepay)
 	}
-	s.pendingRepay[ord.OrderID] = amount
+	s.pendingRepay[ord.OrderID] = spotShortPendingRepay{OrderQuantity: amount}
+	err = s.persistRuntimeStateLocked()
 	s.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("persist spot short pending repay for order %d: %w", ord.OrderID, err)
+	}
 	logger.Info("📥 SpotShortStrategy: 已下買回單 %.6f %s (order=%d)，成交後還幣", amount, s.baseAsset, ord.OrderID)
+	return nil
 }
 
 // roundQuantity 將數量向下取整到交易所精度。

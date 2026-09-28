@@ -31,6 +31,21 @@ import {
   TabPanels,
   TabPanel,
   useColorModeValue,
+  Modal,
+  ModalOverlay,
+  ModalContent,
+  ModalHeader,
+  ModalBody,
+  ModalFooter,
+  ModalCloseButton,
+  Alert,
+  AlertIcon,
+  Checkbox,
+  FormControl,
+  FormLabel,
+  Input,
+  Select,
+  Textarea,
 } from '@chakra-ui/react'
 import { DownloadIcon, TimeIcon, CheckCircleIcon, WarningIcon } from '@chakra-ui/icons'
 import { motion } from 'framer-motion'
@@ -45,6 +60,7 @@ import {
   updateWithdrawRules,
   getDailyKlines,
   getFundingHistory,
+  reconcileWithdrawRecord,
 } from '../services/profit'
 import { getExchanges, getSymbols } from '../services/api'
 import type {
@@ -63,6 +79,7 @@ const ProfitManagement: React.FC = () => {
   const { t } = useTranslation()
   const toast = useToast()
   const { isOpen, onOpen, onClose } = useDisclosure()
+  const reconcileDialog = useDisclosure()
 
   const [summary, setSummary] = useState<ProfitSummary | null>(null)
   const [strategyProfits, setStrategyProfits] = useState<StrategyProfit[]>([])
@@ -81,6 +98,12 @@ const ProfitManagement: React.FC = () => {
   const [fundingRecords, setFundingRecords] = useState<FundingPaymentItem[]>([])
   const [loadingFunding, setLoadingFunding] = useState(false)
   const [fundingTabIndex, setFundingTabIndex] = useState(0)
+  const [reconcileRecord, setReconcileRecord] = useState<WithdrawRecord | null>(null)
+  const [reconcileOutcome, setReconcileOutcome] = useState<'completed' | 'failed'>('completed')
+  const [reconcileReference, setReconcileReference] = useState('')
+  const [reconcileEvidence, setReconcileEvidence] = useState('')
+  const [reconcileConfirmed, setReconcileConfirmed] = useState(false)
+  const [isReconciling, setIsReconciling] = useState(false)
 
   const normalizeExchangeId = (id: string) => (id || '').trim().toLowerCase()
 
@@ -232,6 +255,39 @@ const ProfitManagement: React.FC = () => {
       })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const openReconciliation = (record: WithdrawRecord) => {
+    setReconcileRecord(record)
+    setReconcileOutcome('completed')
+    setReconcileReference('')
+    setReconcileEvidence('')
+    setReconcileConfirmed(false)
+    reconcileDialog.onOpen()
+  }
+
+  const submitReconciliation = async () => {
+    if (!reconcileRecord || !reconcileConfirmed || reconcileReference.trim().length === 0 || reconcileEvidence.trim().length < 24) return
+    setIsReconciling(true)
+    try {
+      const result = await reconcileWithdrawRecord(reconcileRecord.id, {
+        outcome: reconcileOutcome,
+        reference: reconcileReference.trim(),
+        evidence: reconcileEvidence.trim(),
+        confirmed: reconcileConfirmed,
+      })
+      toast({ title: result.message, status: 'success', duration: 5000, isClosable: true })
+      reconcileDialog.onClose()
+      await fetchData()
+    } catch (err) {
+      toast({
+        title: t('profitManagement.reconciliationFailed'),
+        description: err instanceof Error ? err.message : String(err),
+        status: 'error', duration: 7000, isClosable: true,
+      })
+    } finally {
+      setIsReconciling(false)
     }
   }
 
@@ -510,12 +566,13 @@ const ProfitManagement: React.FC = () => {
                       <Th isNumeric>{t('profitManagement.netAmount')}</Th>
                       <Th>{t('profitManagement.type')}</Th>
                       <Th>{t('profitManagement.status')}</Th>
+                      <Th>{t('profitManagement.actions')}</Th>
                     </Tr>
                   </Thead>
                   <Tbody>
                     {withdrawHistory.length === 0 ? (
                       <Tr>
-                        <Td colSpan={7} textAlign="center" py={8} color="gray.500">
+                        <Td colSpan={8} textAlign="center" py={8} color="gray.500">
                           {t('profitManagement.noHistory')}
                         </Td>
                       </Tr>
@@ -551,6 +608,13 @@ const ProfitManagement: React.FC = () => {
                             </Badge>
                           </Td>
                           <Td>{getStatusBadge(record.status)}</Td>
+                          <Td>
+                            {(record.status === 'pending' || (record.status === 'processing' && Date.now() - Date.parse(record.createdAt) >= 10 * 60 * 1000)) && (
+                              <Button size="xs" colorScheme="orange" onClick={() => openReconciliation(record)}>
+                                {t('profitManagement.reconcile')}
+                              </Button>
+                            )}
+                          </Td>
                         </Tr>
                       ))
                     )}
@@ -618,6 +682,46 @@ const ProfitManagement: React.FC = () => {
             </TabPanel>
           </TabPanels>
         </Tabs>
+
+        <Modal isOpen={reconcileDialog.isOpen} onClose={reconcileDialog.onClose} size="lg">
+          <ModalOverlay />
+          <ModalContent>
+            <ModalHeader>{t('profitManagement.reconcileTitle')}</ModalHeader>
+            <ModalCloseButton />
+            <ModalBody>
+              <Alert status="warning" mb={4}>
+                <AlertIcon />
+                <Text>{t('profitManagement.reconcileWarning')}</Text>
+              </Alert>
+              {reconcileRecord && <Text mb={4}>{`${reconcileRecord.exchangeId} · ${reconcileRecord.amount.toFixed(2)} ${reconcileRecord.currency || 'USDT'} · ${reconcileRecord.id}`}</Text>}
+              <FormControl mb={3}>
+                <FormLabel>{t('profitManagement.reconcileOutcome')}</FormLabel>
+                <Select value={reconcileOutcome} onChange={(event) => setReconcileOutcome(event.target.value as 'completed' | 'failed')}>
+                  <option value="completed">{t('profitManagement.transferFound')}</option>
+                  <option value="failed">{t('profitManagement.transferNotFound')}</option>
+                </Select>
+              </FormControl>
+              <FormControl mb={3} isRequired>
+                <FormLabel>{t('profitManagement.exchangeReference')}</FormLabel>
+                <Input value={reconcileReference} onChange={(event) => setReconcileReference(event.target.value)} />
+              </FormControl>
+              <FormControl mb={3} isRequired>
+                <FormLabel>{t('profitManagement.reconcileEvidence')}</FormLabel>
+                <Textarea value={reconcileEvidence} onChange={(event) => setReconcileEvidence(event.target.value)} minH="100px" />
+              </FormControl>
+              <Checkbox isChecked={reconcileConfirmed} onChange={(event) => setReconcileConfirmed(event.target.checked)}>
+                {t('profitManagement.confirmLedgerReview')}
+              </Checkbox>
+            </ModalBody>
+            <ModalFooter>
+              <Button mr={3} onClick={reconcileDialog.onClose}>{t('common.cancel')}</Button>
+              <Button colorScheme="orange" onClick={submitReconciliation} isLoading={isReconciling}
+                isDisabled={!reconcileConfirmed || !reconcileReference.trim() || reconcileEvidence.trim().length < 24}>
+                {t('profitManagement.submitReconciliation')}
+              </Button>
+            </ModalFooter>
+          </ModalContent>
+        </Modal>
       </VStack>
 
       {/* Withdraw Dialog */}

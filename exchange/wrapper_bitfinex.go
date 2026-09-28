@@ -123,6 +123,7 @@ func (w *bitfinexWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: bitfinexAccount.TotalBalance,
 		TotalMarginBalance: bitfinexAccount.MarginBalance,
 		AvailableBalance:   bitfinexAccount.AvailableBalance,
+		BalanceAsset:       bitfinexAccount.BalanceAsset,
 	}, nil
 }
 

@@ -66,7 +66,7 @@ func TestSessionManagerPersistenceCookiesAndDeletion(t *testing.T) {
 	w := httptest.NewRecorder()
 	sm.SetSessionCookie(w, session.SessionID, true)
 	cookies := w.Result().Cookies()
-	if len(cookies) != 1 || cookies[0].Name != "session_id" || cookies[0].Secure {
+	if len(cookies) != 1 || cookies[0].Name != "session_id" || !cookies[0].Secure {
 		t.Fatalf("unexpected session cookie: %#v", cookies)
 	}
 

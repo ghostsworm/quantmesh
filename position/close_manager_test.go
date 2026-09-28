@@ -16,10 +16,10 @@ type fakeCloseExchange struct {
 func (f *fakeCloseExchange) GetName() string { return "fake" }
 func (f *fakeCloseExchange) PlaceOrder(ctx context.Context, req *ExchangeOrderRequest) (*ExchangeOrder, error) {
 	f.lastReq = req
-	return &ExchangeOrder{OrderID: 1, Status: "NEW"}, nil
+	return &ExchangeOrder{OrderID: 1, Status: "NEW", Symbol: req.Symbol, Side: req.Side, ClientOrderID: req.ClientOrderID, Quantity: req.Quantity}, nil
 }
 func (f *fakeCloseExchange) GetOrder(ctx context.Context, symbol string, orderID int64) (*ExchangeOrder, error) {
-	return &ExchangeOrder{OrderID: orderID, Status: "NEW"}, nil
+	return &ExchangeOrder{OrderID: orderID, Status: "NEW", Symbol: symbol, Side: f.lastReq.Side, ClientOrderID: f.lastReq.ClientOrderID, Quantity: f.lastReq.Quantity}, nil
 }
 func (f *fakeCloseExchange) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
 	return nil

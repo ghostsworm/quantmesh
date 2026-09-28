@@ -54,17 +54,21 @@ func respondError(c *gin.Context, status int, messageKey string, args ...interfa
 
 // SystemStatus 系统状態
 type SystemStatus struct {
-	Running       bool    `json:"running"`
-	Exchange      string  `json:"exchange"`
-	Symbol        string  `json:"symbol"`
-	MarketType    string  `json:"market_type,omitempty"` // 市場類型：spot/futures
-	CurrentPrice  float64 `json:"current_price"`
-	TotalPnL      float64 `json:"total_pnl"`
-	TotalTrades   int     `json:"total_trades"`
-	RiskTriggered bool    `json:"risk_triggered"`
-	Uptime        int64   `json:"uptime"`         // 运行時间（秒）
-	OpeningPaused bool    `json:"opening_paused"` // 是否暫停開倉
-	PauseReason   string  `json:"pause_reason"`   // 暫停原因：manual / schedule / periodic / position_limit
+	Running               bool                                 `json:"running"`
+	Exchange              string                               `json:"exchange"`
+	Symbol                string                               `json:"symbol"`
+	MarketType            string                               `json:"market_type,omitempty"` // 市場類型：spot/futures
+	QuoteAsset            string                               `json:"quote_asset,omitempty"`
+	BaseAsset             string                               `json:"base_asset,omitempty"`
+	AccountScope          string                               `json:"-"`
+	CurrentPrice          float64                              `json:"current_price"`
+	TotalPnL              float64                              `json:"total_pnl"`
+	TotalTrades           int                                  `json:"total_trades"`
+	RiskTriggered         bool                                 `json:"risk_triggered"`
+	Uptime                int64                                `json:"uptime"`         // 运行時间（秒）
+	OpeningPaused         bool                                 `json:"opening_paused"` // 是否暫停開倉
+	PauseReason           string                               `json:"pause_reason"`   // 暫停原因：manual / schedule / periodic / position_limit
+	ProtectiveLiquidation position.ProtectiveLiquidationStatus `json:"protective_liquidation"`
 }
 
 var (
@@ -702,6 +706,12 @@ func syncOrders(c *gin.Context) {
 		exchangeName,
 		10*time.Minute, // syncInterval，这里只是用于创建，不会实际使用
 	)
+	status := pickStatus(c)
+	if status == nil || strings.TrimSpace(status.AccountScope) == "" || strings.TrimSpace(status.MarketType) == "" || status.Exchange != exchangeName || status.Symbol != symbol {
+		respondError(c, http.StatusServiceUnavailable, "error.account_scope_unavailable", fmt.Errorf("无法确认订单同步的账户凭据和市场归属"))
+		return
+	}
+	orderSync.SetTradeScope(status.MarketType, status.AccountScope)
 
 	// 执行同步
 	if err := orderSync.Sync(ctx); err != nil {
@@ -1143,8 +1153,8 @@ func getStatistics(c *gin.Context) {
 	})
 }
 
-// lastAccountEquityPerDayFromHourly 從 hourly_equity_records 聚合每個日曆日「時间戳最晚的一條非空 account_equity」，供日統計在 daily_snapshots 未帶權益時回填淨值曲線。
-func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, symbol, account string, rangeStart, rangeEnd time.Time) map[string]float64 {
+// lastAccountEquityPerDayFromHourly reads the account-scoped equity stream; old symbol samples are fallback only.
+func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, marketType, symbol, account, accountScope string, rangeStart, rangeEnd time.Time) map[string]float64 {
 	out := make(map[string]float64)
 	lastTs := make(map[string]time.Time)
 	if st == nil || exchange == "" || symbol == "" {
@@ -1154,19 +1164,78 @@ func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, symbol, acc
 	if loc == nil {
 		loc = time.Local
 	}
-	recs, err := st.QueryHourlyEquityRecords(exchange, symbol, account, rangeStart, rangeEnd)
+	setDaily := func(timestamp time.Time, value float64, preserve bool) {
+		dayKey := timestamp.In(loc).Format("2006-01-02")
+		if preserve {
+			if _, alreadySet := out[dayKey]; alreadySet {
+				return
+			}
+		}
+		if prev, ok := lastTs[dayKey]; !ok || timestamp.After(prev) {
+			lastTs[dayKey] = timestamp
+			out[dayKey] = value
+		}
+	}
+	if accountScope != "" {
+		if accountStorage, ok := st.(interface {
+			QueryAccountEquityRecordsByScope(exchange, marketType, accountScope string, startTime, endTime time.Time) ([]*storage.AccountEquityRecord, error)
+		}); ok {
+			accountRecords, err := accountStorage.QueryAccountEquityRecordsByScope(exchange, marketType, accountScope, rangeStart, rangeEnd)
+			if err == nil {
+				for _, record := range accountRecords {
+					if record != nil {
+						setDaily(record.Timestamp, record.AccountEquity, false)
+					}
+				}
+			}
+		}
+	} else if marketType == "" || marketType == "unknown" {
+		if accountStorage, ok := st.(interface {
+			QueryAccountEquityRecordsByMarketType(exchange, marketType, account string, startTime, endTime time.Time) ([]*storage.AccountEquityRecord, error)
+		}); ok {
+			accountRecords, err := accountStorage.QueryAccountEquityRecordsByMarketType(exchange, marketType, account, rangeStart, rangeEnd)
+			if err == nil {
+				for _, record := range accountRecords {
+					if record != nil {
+						setDaily(record.Timestamp, record.AccountEquity, false)
+					}
+				}
+			}
+		}
+		// Legacy account rows have no market dimension. Never mix them into a
+		// known spot/futures series where the wallet identity is ambiguous.
+		if accountStorage, ok := st.(interface {
+			QueryAccountEquityRecords(exchange, account string, startTime, endTime time.Time) ([]*storage.AccountEquityRecord, error)
+		}); ok {
+			accountRecords, err := accountStorage.QueryAccountEquityRecords(exchange, account, rangeStart, rangeEnd)
+			if err == nil {
+				for _, record := range accountRecords {
+					if record != nil {
+						setDaily(record.Timestamp, record.AccountEquity, false)
+					}
+				}
+			}
+		}
+	}
+	var legacyRecords []*storage.HourlyEquityRecord
+	var err error
+	if accountScope == "" {
+		if legacyMarketStorage, ok := st.(interface {
+			QueryHourlyEquityRecordsByMarketType(exchange, marketType, symbol, account string, startTime, endTime time.Time) ([]*storage.HourlyEquityRecord, error)
+		}); ok {
+			legacyRecords, err = legacyMarketStorage.QueryHourlyEquityRecordsByMarketType(exchange, marketType, symbol, account, rangeStart, rangeEnd)
+		} else {
+			legacyRecords, err = st.QueryHourlyEquityRecords(exchange, symbol, account, rangeStart, rangeEnd)
+		}
+	}
 	if err != nil {
 		return out
 	}
-	for _, rec := range recs {
+	for _, rec := range legacyRecords {
 		if rec == nil || rec.AccountEquity == nil {
 			continue
 		}
-		dayKey := rec.Timestamp.In(loc).Format("2006-01-02")
-		if prev, ok := lastTs[dayKey]; !ok || rec.Timestamp.After(prev) {
-			lastTs[dayKey] = rec.Timestamp
-			out[dayKey] = *rec.AccountEquity
-		}
+		setDaily(rec.Timestamp, *rec.AccountEquity, true)
 	}
 	return out
 }
@@ -1243,7 +1312,21 @@ func getDailyStatistics(c *gin.Context) {
 	// 3b. 從每日快照表查詢未實現盈虧與日內最大回撤
 	snapshotMap := make(map[string]*storage.DailySnapshot)
 	if status != nil && status.Exchange != "" && status.Symbol != "" {
-		snapshots, errSnap := st.QueryDailySnapshots(status.Exchange, status.Symbol, accountID, startDate, endDate)
+		var snapshots []*storage.DailySnapshot
+		var errSnap error
+		if status.AccountScope != "" {
+			if scopeStorage, ok := st.(interface {
+				QueryDailySnapshotsByScope(exchange, marketType, symbol, accountScope string, startDate, endDate time.Time) ([]*storage.DailySnapshot, error)
+			}); ok {
+				snapshots, errSnap = scopeStorage.QueryDailySnapshotsByScope(status.Exchange, status.MarketType, status.Symbol, status.AccountScope, startDate, endDate)
+			}
+		} else if marketStorage, ok := st.(interface {
+			QueryDailySnapshotsByMarketType(exchange, marketType, symbol, account string, startDate, endDate time.Time) ([]*storage.DailySnapshot, error)
+		}); ok {
+			snapshots, errSnap = marketStorage.QueryDailySnapshotsByMarketType(status.Exchange, status.MarketType, status.Symbol, accountID, startDate, endDate)
+		} else {
+			snapshots, errSnap = st.QueryDailySnapshots(status.Exchange, status.Symbol, accountID, startDate, endDate)
+		}
 		if errSnap == nil {
 			for _, snap := range snapshots {
 				dateKey := snap.Date.Format("2006-01-02")
@@ -1262,7 +1345,7 @@ func getDailyStatistics(c *gin.Context) {
 		startDay, _ := time.ParseInLocation("2006-01-02", startDate.Format("2006-01-02"), loc)
 		endDay, _ := time.ParseInLocation("2006-01-02", endDate.Format("2006-01-02"), loc)
 		rangeEnd := endDay.Add(24*time.Hour - time.Nanosecond)
-		hourlyAcctByDay = lastAccountEquityPerDayFromHourly(st, status.Exchange, status.Symbol, accountID, startDay, rangeEnd)
+		hourlyAcctByDay = lastAccountEquityPerDayFromHourly(st, status.Exchange, status.MarketType, status.Symbol, accountID, status.AccountScope, startDay, rangeEnd)
 	}
 
 	// 4. 獲取日K線數據用於计算开盘/收盘價和涨跌幅

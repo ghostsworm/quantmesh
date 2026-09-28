@@ -212,26 +212,50 @@ func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, e
 
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
+	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if quoteAsset == "" {
+		return nil, fmt.Errorf("Bitfinex account snapshot requires a configured quote asset")
+	}
 	wallets, err := a.client.GetWallets(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get account error: %w", err)
 	}
 
-	var totalBalance, availableBalance float64
-	for _, wallet := range wallets {
-		if wallet.Type == "exchange" && wallet.Currency == a.quoteAsset {
-			totalBalance += wallet.Balance
-			availableBalance += wallet.BalanceAvailable
-		}
+	totalBalance, availableBalance, err := summarizeBitfinexQuoteWallets(wallets, quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 
 	account := &Account{
 		TotalBalance:     totalBalance,
 		AvailableBalance: availableBalance,
 		MarginBalance:    totalBalance,
+		BalanceAsset:     quoteAsset,
 	}
 
 	return account, nil
+}
+
+func summarizeBitfinexQuoteWallets(wallets []WalletInfo, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("Bitfinex quote asset is required")
+	}
+	found := false
+	for _, wallet := range wallets {
+		if wallet.Type != "exchange" || !strings.EqualFold(strings.TrimSpace(wallet.Currency), quoteAsset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate Bitfinex exchange wallet rows for %s", quoteAsset)
+		}
+		found = true
+		if math.IsNaN(wallet.Balance) || math.IsInf(wallet.Balance, 0) || wallet.Balance < 0 || math.IsNaN(wallet.BalanceAvailable) || math.IsInf(wallet.BalanceAvailable, 0) || wallet.BalanceAvailable < 0 || wallet.BalanceAvailable > wallet.Balance {
+			return 0, 0, fmt.Errorf("invalid Bitfinex %s exchange wallet balance", quoteAsset)
+		}
+		total, available = wallet.Balance, wallet.BalanceAvailable
+	}
+	return total, available, nil
 }
 
 // GetPositions 獲取持倉信息

@@ -284,7 +284,7 @@ const HybridStrategyConfig: React.FC<HybridStrategyConfigProps> = ({
       ])
 
       if (configResp.hybrid_mode) {
-        setConfig(configResp.config)
+        setConfig(configResp.config ?? null)
       }
       setStatus(statusResp)
     } catch (error) {

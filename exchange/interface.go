@@ -163,6 +163,20 @@ type IExchange interface {
 	InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error)
 }
 
+// OrderHistoryPage is one bounded page of exchange execution history. Cursor is
+// opaque to callers; HasMore must reflect the venue's pagination boundary.
+type OrderHistoryPage struct {
+	Fills      []*OrderFill
+	NextCursor string
+	HasMore    bool
+}
+
+// OrderHistoryPageSource is an optional capability for complete, scoped fill
+// history synchronization. Implementations must honor the requested time range.
+type OrderHistoryPageSource interface {
+	GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error)
+}
+
 // OrderByClientIDQuerier 可選介面：按自定義訂單 ID 查詢訂單（含已成交/已撤銷訂單）。
 // clientOrderID 傳下單時使用的原始 ID（實現方自行處理返佣前綴）；訂單不存在時返回 nil, nil。
 type OrderByClientIDQuerier interface {

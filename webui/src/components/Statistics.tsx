@@ -65,6 +65,7 @@ interface DailyStatistics {
 
 interface PnLBySymbol {
   symbol: string
+  market_type: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -127,6 +128,7 @@ const Statistics: React.FC = () => {
             statistics: [],
             max_drawdown: 0,
             max_drawdown_pct: 0,
+            market_type: undefined,
           })),
         ])
         setStats(statsData)
@@ -537,7 +539,7 @@ const Statistics: React.FC = () => {
               <tbody>
                 {pnlByTimeRange.map((item, index) => (
                   <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '12px' }}>{item.symbol}</td>
+                    <td style={{ padding: '12px' }}>{item.symbol} · {t(`statistics.marketType.${item.market_type}`, { defaultValue: item.market_type })}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_trades}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_volume.toFixed(4)}</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: item.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>

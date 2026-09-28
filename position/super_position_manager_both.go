@@ -73,10 +73,10 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	if priceInterval <= 0 {
 		priceInterval = 1
 	}
-	openCtrl := spm.config.Trading.OpenPositionControl
+	openCtrl := spm.openingControl()
 	maxOpenOrders := 0
 	openOrderDist := 0.0
-	if openCtrl.BotRiskControl != nil && openCtrl.BotRiskControl.MaxOpenOrders > 0 {
+	if openCtrl.BotRiskControl != nil && openCtrl.BotRiskControl.Enabled && openCtrl.BotRiskControl.MaxOpenOrders > 0 {
 		maxOpenOrders = openCtrl.BotRiskControl.MaxOpenOrders
 		openOrderDist = openCtrl.BotRiskControl.OpenOrderDistance
 		if openOrderDist <= 0 {
@@ -124,8 +124,11 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 		allowedNewShortSells = remainingOrders
 	}
 
-	skipLongBuy := false
-	skipShortSell := false
+	skipLongBuy := spm.triggerPricePending(currentPrice)
+	skipShortSell := spm.triggerPricePending(currentPrice)
+	if spm.positionLimitReached(currentPrice) {
+		skipLongBuy, skipShortSell = true, true
+	}
 	if priceLow > 0 && currentPrice < priceLow {
 		logger.Debug("⏸️ [價格範圍] BOTH 當前價 %.2f < 下限 %.2f，暫停買開", currentPrice, priceLow)
 		skipLongBuy = true
@@ -146,7 +149,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	}
 
 	// 舊 tick 級趨勢過濾（已廢棄；啟用 regime_filter 時由 K 線 regime 策略取代）
-	if spm.config.Trading.GridRiskControl.Enabled && spm.config.Trading.GridRiskControl.TrendFilterEnabled && spm.trendDetector != nil && !regimeView.filterActive() {
+	if spm.gridRiskControl().Enabled && spm.gridRiskControl().TrendFilterEnabled && spm.trendDetector != nil && !regimeView.filterActive() {
 		trend := spm.trendDetector.GetCurrentTrend()
 		if trend == "down" {
 			logger.Warn("📉 [趨勢過濾:BOTH] 下跌趨勢，暫停買開")
@@ -158,13 +161,14 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 		}
 	}
 
-	if spm.config.Trading.GridRiskControl.Enabled {
-		maxLayers := spm.config.Trading.GridRiskControl.MaxGridLayers
+	if spm.gridRiskControl().Enabled {
+		maxLayers := spm.gridRiskControl().MaxGridLayers
 		if maxLayers > 0 {
 			cur := spm.GetActiveLayers()
 			if cur >= maxLayers {
 				logger.Warn("🚫 [层數限制:BOTH] 已达到 %d 層，暫停買開", maxLayers)
 				skipLongBuy = true
+				skipShortSell = true
 			}
 		}
 	}
@@ -172,15 +176,8 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 	if trend, trendOK := spm.syncTrend(regimeView); trendOK && spm.config.FundingRate.TrendSyncEnabled &&
 		spm.fundingMonitor != nil && spm.config.FundingRate.BiasEnabled {
 		buyBias := spm.fundingMonitor.GetBuyBias()
-		if buyBias > 1 && trend == "up" {
-			if skipLongBuy {
-				skipLongBuy = false
-				if allowedNewLongBuys == 0 {
-					allowedNewLongBuys = 1
-				}
-				logger.Info("🔥 [費率趨勢聯動:BOTH] 負費率+上漲：放寬買開限制")
-			}
-		} else if buyBias < 1 && trend == "down" {
+		// 與單向模式一致：策略偏好只能收緊，不得解除硬限制。
+		if buyBias < 1 && trend == "down" {
 			skipLongBuy = true
 			allowedNewLongBuys = 0
 			logger.Warn("🔥 [費率趨勢聯動:BOTH] 高費率+下跌：暫停買開")
@@ -229,6 +226,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			slot.SlotStatus = SlotStatusPending
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol: spm.config.Trading.Symbol, Side: "BUY", Price: orderPrice, Quantity: qty,
+				PositionSide: PositionLegLong, ExposureKey: gridExposureKey(price, PositionLegLong),
 				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			longBuys++
@@ -272,6 +270,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 			slot.SlotStatus = SlotStatusPending
 			ordersToPlace = append(ordersToPlace, &OrderRequest{
 				Symbol: spm.config.Trading.Symbol, Side: "SELL", Price: orderPrice, Quantity: qty,
+				PositionSide: PositionLegShort, ExposureKey: gridExposureKey(price, PositionLegShort),
 				PriceDecimals: spm.priceDecimals, PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 			})
 			shortSells++
@@ -383,6 +382,7 @@ func (spm *SuperPositionManager) adjustOrdersBoth(currentPrice float64) error {
 		coid := spm.generateClientOrderID(c.SlotPrice, c.CloseSide, "")
 		ordersToPlace = append(ordersToPlace, &OrderRequest{
 			Symbol: spm.config.Trading.Symbol, Side: c.CloseSide, Price: c.ClosePrice, Quantity: c.Quantity,
+			PositionSide: gridExposureLeg(c.CloseSide, false), ExposureKey: gridExposureKey(c.SlotPrice, gridExposureLeg(c.CloseSide, false)),
 			PriceDecimals: spm.priceDecimals, ReduceOnly: !spm.isSpot(), PostOnly: gridOrdersPostOnly, ClientOrderID: coid,
 		})
 		closeN++
@@ -573,8 +573,9 @@ func (spm *SuperPositionManager) placeAdjustOrderBatch(ordersToPlace []*OrderReq
 		}
 	}
 
+	spm.retainUnknownOrders(ordersToPlace, result.UnknownOrders)
 	for _, req := range ordersToPlace {
-		if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] {
+		if !placedClientOIDs[req.ClientOrderID] && !result.ReduceOnlyErrors[req.ClientOrderID] && !result.UnknownOrders[req.ClientOrderID] {
 			if price, _, valid := spm.parseClientOrderID(req.ClientOrderID); valid {
 				slot := spm.getOrCreateSlot(price)
 				slot.mu.Lock()

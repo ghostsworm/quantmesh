@@ -297,7 +297,7 @@ func (ss *StorageService) GetStorage() Storage {
 }
 
 // SaveReconciliationHistoryDirect 直接保存對账历史（用於 Reconciler）
-func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, account string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
+func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, account, accountScope, marketType, botID string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 	activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error {
 	if ss.storage == nil {
 		return nil
@@ -306,16 +306,24 @@ func (ss *StorageService) SaveReconciliationHistoryDirect(exchange, symbol, acco
 	// 计算實際盈利（從 trades 表统计截止到對账時间的累计盈亏）
 	// 🔥 重要：先將 reconcileTime 轉换為 UTC，因為數據库中的 created_at 是 UTC 時间
 	reconcileTimeUTC := utils.ToUTC(reconcileTime)
-	actualProfit, err := ss.storage.GetActualProfitBySymbol(symbol, account, reconcileTimeUTC, "")
+	scopedPnL, ok := ss.storage.(interface {
+		GetActualProfitBySymbolMarketScope(exchange, marketType, symbol, account, accountScope string, beforeTime time.Time, botID string) (float64, error)
+	})
+	if !ok || accountScope == "" || marketType == "" || botID == "" {
+		return fmt.Errorf("cannot persist reconciliation history without verified market, account, and bot scope")
+	}
+	actualProfit, err := scopedPnL.GetActualProfitBySymbolMarketScope(exchange, marketType, symbol, account, accountScope, reconcileTimeUTC, botID)
 	if err != nil {
-		logger.Warn("⚠️ 计算實際盈利失败: %v，使用 0 作為默认值", err)
-		actualProfit = 0
+		return fmt.Errorf("calculate scoped reconciliation PnL: %w", err)
 	}
 
 	history := &ReconciliationHistory{
 		Exchange:         exchange,
 		Symbol:           symbol,
 		Account:          account,
+		AccountScope:     accountScope,
+		MarketType:       marketType,
+		BotID:            botID,
 		ReconcileTime:    utils.ToUTC(reconcileTime),
 		LocalPosition:    localPosition,
 		ExchangePosition: exchangePosition,

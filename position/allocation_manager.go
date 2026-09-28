@@ -2,6 +2,8 @@ package position
 
 import (
 	"fmt"
+	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,32 +28,37 @@ func (am *AllocationManager) SetClock(c Clock) {
 
 // SymbolAllocationInfo 币种分配信息
 type SymbolAllocationInfo struct {
-	Exchange   string
-	Symbol     string
-	MaxAmount  float64 // 最大允許金額（已计算好的值）
-	UsedAmount float64 // 已使用金額
-	
+	Exchange        string
+	Symbol          string
+	MaxAmount       float64 // 最大允許金額（已计算好的值）
+	UsedAmount      float64 // 已使用金額
+	EffectiveLimit  float64
+	LimitObservedAt time.Time
+
 	// 分级限額状態
-	IsEmergencyMode   bool      // 是否处於紧急模式
+	IsEmergencyMode      bool      // 是否处於紧急模式
 	EmergencyTriggeredAt time.Time // 紧急模式触发時间
-	NormalLimit       float64   // 正常限額
-	EmergencyLimit    float64   // 紧急限額
+	NormalLimit          float64   // 正常限額
+	EmergencyLimit       float64   // 紧急限額
 }
 
 // AllocationStatus 资金使用状態
 type AllocationStatus struct {
-	Exchange        string  `json:"exchange"`
-	Symbol          string  `json:"symbol"`
-	MaxAmount       float64 `json:"max_amount"`
-	UsedAmount      float64 `json:"used_amount"`
-	AvailableAmount float64 `json:"available_amount"`
-	UsagePercentage float64 `json:"usage_percentage"`
-	
+	Exchange        string    `json:"exchange"`
+	Symbol          string    `json:"symbol"`
+	MaxAmount       float64   `json:"max_amount"`
+	MaxPercentage   float64   `json:"max_percentage"`
+	EffectiveLimit  float64   `json:"effective_limit"`
+	LimitObservedAt time.Time `json:"limit_observed_at"`
+	UsedAmount      float64   `json:"used_amount"`
+	AvailableAmount float64   `json:"available_amount"`
+	UsagePercentage float64   `json:"usage_percentage"`
+
 	// 分级限額状態
-	IsEmergencyMode  bool    `json:"is_emergency_mode"`  // 是否处於紧急模式
-	NormalLimit      float64 `json:"normal_limit"`       // 正常限額
-	EmergencyLimit   float64 `json:"emergency_limit"`    // 紧急限額
-	LimitMode        string  `json:"limit_mode"`         // 限額模式：normal/emergency
+	IsEmergencyMode bool    `json:"is_emergency_mode"` // 是否处於紧急模式
+	NormalLimit     float64 `json:"normal_limit"`      // 正常限額
+	EmergencyLimit  float64 `json:"emergency_limit"`   // 紧急限額
+	LimitMode       string  `json:"limit_mode"`        // 限額模式：normal/emergency
 }
 
 // NewAllocationManager 創建资金分配管理器
@@ -65,24 +72,24 @@ func NewAllocationManager(cfg *config.Config) *AllocationManager {
 	if cfg.PositionAllocation.Enabled {
 		for _, alloc := range cfg.PositionAllocation.Allocations {
 			key := fmt.Sprintf("%s:%s", alloc.Exchange, alloc.Symbol)
-			
+
 			// 确定正常限額和紧急限額
 			normalLimit := alloc.MaxAmountUSDT
 			emergencyLimit := normalLimit
 			if alloc.TieredLimits.Enabled && alloc.TieredLimits.EmergencyLimit > normalLimit {
 				emergencyLimit = alloc.TieredLimits.EmergencyLimit
 			}
-			
+
 			am.allocations[key] = &SymbolAllocationInfo{
-				Exchange:         alloc.Exchange,
-				Symbol:           alloc.Symbol,
-				MaxAmount:        normalLimit, // 初始使用正常限額
-				UsedAmount:       0,
-				IsEmergencyMode:  false,
-				NormalLimit:      normalLimit,
-				EmergencyLimit:   emergencyLimit,
+				Exchange:        alloc.Exchange,
+				Symbol:          alloc.Symbol,
+				MaxAmount:       normalLimit, // 初始使用正常限額
+				UsedAmount:      0,
+				IsEmergencyMode: false,
+				NormalLimit:     normalLimit,
+				EmergencyLimit:  emergencyLimit,
 			}
-			
+
 			if alloc.TieredLimits.Enabled {
 				logger.Info("📊 [资金分配] 初始化 %s:%s - 正常限額: %.2f USDT, 紧急限額: %.2f USDT (百分比: %.1f%%)",
 					alloc.Exchange, alloc.Symbol, normalLimit, emergencyLimit, alloc.MaxPercentage)
@@ -128,17 +135,17 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 
 	triggers := configAlloc.TieredLimits.Triggers
 	recovery := configAlloc.TieredLimits.Recovery
-	
+
 	// 计算價格下跌百分比
 	priceDropPercent := 0.0
 	if anchorPrice > 0 {
 		priceDropPercent = ((anchorPrice - currentPrice) / anchorPrice) * 100
 	}
-	
+
 	// 检查是否应該触发紧急限額
 	shouldTriggerEmergency := false
 	triggerReason := ""
-	
+
 	if !alloc.IsEmergencyMode {
 		// 當前是正常模式，检查是否应該触发紧急模式
 		if triggers.PriceDropPercent > 0 && priceDropPercent >= triggers.PriceDropPercent {
@@ -151,16 +158,16 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 			shouldTriggerEmergency = true
 			triggerReason = fmt.Sprintf("未實現亏损 %.2f USDT (触发阈值: %.2f USDT)", unrealizedPnL, triggers.UnrealizedLossUSD)
 		}
-		
+
 		if shouldTriggerEmergency {
 			// 触发紧急限額
 			alloc.MaxAmount = alloc.EmergencyLimit
 			alloc.IsEmergencyMode = true
 			alloc.EmergencyTriggeredAt = am.clk.get().Now()
-			
+
 			logger.Warn("🚨 [资金分配] %s:%s 触发紧急限額: %.2f USDT -> %.2f USDT, 原因: %s",
 				exchange, symbol, alloc.NormalLimit, alloc.EmergencyLimit, triggerReason)
-			
+
 			// 发送通知事件
 			if am.eventBus != nil && configAlloc.TieredLimits.Notification.OnTrigger {
 				am.eventBus.Publish(&event.Event{
@@ -183,7 +190,7 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 		// 當前是紧急模式，检查是否应該恢複正常模式
 		shouldRecover := false
 		recoverReason := ""
-		
+
 		// 检查冷却時间
 		cooldownSeconds := recovery.CooldownSeconds
 		if cooldownSeconds <= 0 {
@@ -194,26 +201,26 @@ func (am *AllocationManager) CheckAndAdjustLimit(exchange, symbol string, curren
 			// 还在冷却期内，不恢複
 			return
 		}
-		
+
 		// 检查價格是否恢複
 		priceRecoverPercent := recovery.PriceRecoverPercent
 		if priceRecoverPercent <= 0 {
 			priceRecoverPercent = 5 // 默认價格恢複到下跌5%以内
 		}
-		
+
 		if priceDropPercent <= priceRecoverPercent {
 			shouldRecover = true
 			recoverReason = fmt.Sprintf("價格已恢複，當前下跌 %.2f%% (恢複阈值: %.2f%%)", priceDropPercent, priceRecoverPercent)
 		}
-		
+
 		if shouldRecover {
 			// 恢複正常限額
 			alloc.MaxAmount = alloc.NormalLimit
 			alloc.IsEmergencyMode = false
-			
+
 			logger.Info("✅ [资金分配] %s:%s 恢複正常限額: %.2f USDT -> %.2f USDT, 原因: %s",
 				exchange, symbol, alloc.EmergencyLimit, alloc.NormalLimit, recoverReason)
-			
+
 			// 发送通知事件
 			if am.eventBus != nil && configAlloc.TieredLimits.Notification.OnRecovery {
 				am.eventBus.Publish(&event.Event{
@@ -252,15 +259,24 @@ func (am *AllocationManager) CheckAndReserve(exchange, symbol string, amount flo
 		return nil
 	}
 
-	// 计算本次生效限制（取固定金額和百分比的较小值）
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return fmt.Errorf("invalid allocation reservation amount: %v", amount)
+	}
+	// 计算本次生效限制（取固定金额和百分比的较小值）
 	// D4：只用局部變量，不回寫 alloc.MaxAmount，否則餘額暫時下降會把限額永久壓低
 	effectiveLimit := alloc.MaxAmount
 	configAlloc := am.getConfigAllocation(exchange, symbol)
-	if configAlloc != nil && accountBalance > 0 {
+	if configAlloc != nil && configAlloc.MaxPercentage > 0 {
+		if accountBalance <= 0 || math.IsNaN(accountBalance) || math.IsInf(accountBalance, 0) {
+			return fmt.Errorf("cannot enforce percentage allocation for %s:%s: account balance is unavailable or invalid", exchange, symbol)
+		}
 		percentageLimit := accountBalance * (configAlloc.MaxPercentage / 100.0)
-		if percentageLimit > 0 && percentageLimit < effectiveLimit {
+		if effectiveLimit <= 0 || percentageLimit < effectiveLimit {
 			effectiveLimit = percentageLimit
 		}
+	}
+	if effectiveLimit <= 0 || math.IsNaN(effectiveLimit) || math.IsInf(effectiveLimit, 0) {
+		return fmt.Errorf("allocation limit for %s:%s is unavailable or invalid", exchange, symbol)
 	}
 
 	// 检查是否超出限制
@@ -272,6 +288,8 @@ func (am *AllocationManager) CheckAndReserve(exchange, symbol string, amount flo
 		return fmt.Errorf("超出资金分配限制(%s): %s:%s 已用 %.2f USDT, 限額 %.2f USDT, 本次需要 %.2f USDT",
 			limitType, exchange, symbol, alloc.UsedAmount, effectiveLimit, amount)
 	}
+	alloc.EffectiveLimit = effectiveLimit
+	alloc.LimitObservedAt = am.clk.get().Now()
 
 	// 預留资金
 	alloc.UsedAmount += amount
@@ -368,6 +386,11 @@ func (am *AllocationManager) GetStatus(exchange, symbol string) *AllocationStatu
 	if !exists {
 		return nil
 	}
+	configAlloc := am.getConfigAllocation(exchange, symbol)
+	maxPercentage := 0.0
+	if configAlloc != nil {
+		maxPercentage = configAlloc.MaxPercentage
+	}
 
 	availableAmount := alloc.MaxAmount - alloc.UsedAmount
 	if availableAmount < 0 {
@@ -378,7 +401,7 @@ func (am *AllocationManager) GetStatus(exchange, symbol string) *AllocationStatu
 	if alloc.MaxAmount > 0 {
 		usagePercentage = (alloc.UsedAmount / alloc.MaxAmount) * 100
 	}
-	
+
 	limitMode := "normal"
 	if alloc.IsEmergencyMode {
 		limitMode = "emergency"
@@ -388,6 +411,9 @@ func (am *AllocationManager) GetStatus(exchange, symbol string) *AllocationStatu
 		Exchange:        alloc.Exchange,
 		Symbol:          alloc.Symbol,
 		MaxAmount:       alloc.MaxAmount,
+		MaxPercentage:   maxPercentage,
+		EffectiveLimit:  alloc.EffectiveLimit,
+		LimitObservedAt: alloc.LimitObservedAt,
 		UsedAmount:      alloc.UsedAmount,
 		AvailableAmount: availableAmount,
 		UsagePercentage: usagePercentage,
@@ -405,6 +431,11 @@ func (am *AllocationManager) GetAllStatuses() []*AllocationStatus {
 
 	statuses := make([]*AllocationStatus, 0, len(am.allocations))
 	for _, alloc := range am.allocations {
+		configAlloc := am.getConfigAllocation(alloc.Exchange, alloc.Symbol)
+		maxPercentage := 0.0
+		if configAlloc != nil {
+			maxPercentage = configAlloc.MaxPercentage
+		}
 		availableAmount := alloc.MaxAmount - alloc.UsedAmount
 		if availableAmount < 0 {
 			availableAmount = 0
@@ -414,7 +445,7 @@ func (am *AllocationManager) GetAllStatuses() []*AllocationStatus {
 		if alloc.MaxAmount > 0 {
 			usagePercentage = (alloc.UsedAmount / alloc.MaxAmount) * 100
 		}
-		
+
 		limitMode := "normal"
 		if alloc.IsEmergencyMode {
 			limitMode = "emergency"
@@ -424,6 +455,9 @@ func (am *AllocationManager) GetAllStatuses() []*AllocationStatus {
 			Exchange:        alloc.Exchange,
 			Symbol:          alloc.Symbol,
 			MaxAmount:       alloc.MaxAmount,
+			MaxPercentage:   maxPercentage,
+			EffectiveLimit:  alloc.EffectiveLimit,
+			LimitObservedAt: alloc.LimitObservedAt,
 			UsedAmount:      alloc.UsedAmount,
 			AvailableAmount: availableAmount,
 			UsagePercentage: usagePercentage,
@@ -437,6 +471,18 @@ func (am *AllocationManager) GetAllStatuses() []*AllocationStatus {
 	return statuses
 }
 
+func (am *AllocationManager) PercentageBasedLimitsConfigured(exchange, symbol string) bool {
+	if am == nil || am.cfg == nil || !am.cfg.PositionAllocation.Enabled {
+		return false
+	}
+	for _, allocation := range am.cfg.PositionAllocation.Allocations {
+		if strings.EqualFold(allocation.Exchange, exchange) && strings.EqualFold(allocation.Symbol, symbol) && allocation.MaxPercentage > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // getConfigAllocation 獲取配置中的分配信息
 func (am *AllocationManager) getConfigAllocation(exchange, symbol string) *config.SymbolAllocation {
 	for _, alloc := range am.cfg.PositionAllocation.Allocations {
@@ -446,4 +492,3 @@ func (am *AllocationManager) getConfigAllocation(exchange, symbol string) *confi
 	}
 	return nil
 }
-

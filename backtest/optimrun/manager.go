@@ -2,6 +2,7 @@ package optimrun
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -20,7 +21,8 @@ type OptimTaskManager struct {
 	binanceConfig map[string]string
 	resultsDir    string
 	mu            sync.Mutex
-	running       map[string]struct{}
+	running       map[string]*taskRun
+	deleting      map[string]bool
 }
 
 // NewOptimTaskManager 创建优化任务管理器
@@ -29,7 +31,8 @@ func NewOptimTaskManager(store backtest.OptimTaskStore, binanceConfig map[string
 		store:         store,
 		binanceConfig: binanceConfig,
 		resultsDir:    filepath.Join("backtest", "optim_results"),
-		running:       make(map[string]struct{}),
+		running:       make(map[string]*taskRun),
+		deleting:      make(map[string]bool),
 	}
 }
 
@@ -41,7 +44,11 @@ func (m *OptimTaskManager) GetStore() backtest.OptimTaskStore {
 // CreateAndRun 创建任务并异步执行
 func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	if task.ID == "" {
-		task.ID = fmt.Sprintf("opt_%d", time.Now().UnixMilli())
+		var randomID [16]byte
+		if _, err := rand.Read(randomID[:]); err != nil {
+			return err
+		}
+		task.ID = fmt.Sprintf("opt_%x", randomID)
 	}
 	task.Status = "pending"
 	task.Progress = 0
@@ -49,34 +56,43 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	task.CreatedAt = time.Now()
 
 	// 计算总组合数
-	opt := &optimizer.UniversalOptimizer{}
 	space := toOptimizerSearchSpace(task.SearchSpace)
-	task.TotalCombos = len(opt.EnumerateParamCombos(space))
-	if task.TotalCombos <= 0 {
-		return fmt.Errorf("搜索空间为空，请检查参数范围")
+	count, err := optimizer.CountUniversalParamCombos(space)
+	if err != nil {
+		return fmt.Errorf("invalid optimizer search space: %w", err)
 	}
+	task.TotalCombos = count
 
-	if err := m.store.CreateOptimTask(task); err != nil {
+	run, err := m.beginRun(task.ID)
+	if err != nil {
 		return err
 	}
-	go m.RunTask(task.ID)
+	if err := m.store.CreateOptimTask(task); err != nil {
+		m.finishRun(task.ID, run)
+		return err
+	}
+	id := task.ID
+	go func() {
+		if err := m.executeRun(id, run); err != nil {
+			logger.Error("optimizer task %s ended: %v", id, err)
+		}
+	}()
 	return nil
 }
 
 // RunTask 执行指定任务
 func (m *OptimTaskManager) RunTask(id string) error {
-	m.mu.Lock()
-	if _, ok := m.running[id]; ok {
-		m.mu.Unlock()
-		return fmt.Errorf("task %s already running", id)
+	run, err := m.beginRun(id)
+	if err != nil {
+		return err
 	}
-	m.running[id] = struct{}{}
-	m.mu.Unlock()
-	defer func() {
-		m.mu.Lock()
-		delete(m.running, id)
-		m.mu.Unlock()
-	}()
+	return m.executeRun(id, run)
+}
+
+func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	task, err := m.store.GetOptimTask(id)
 	if err != nil || task == nil {
@@ -88,7 +104,10 @@ func (m *OptimTaskManager) RunTask(id string) error {
 	_ = m.store.UpdateOptimTaskStatus(id, "running", &now, nil, "", "")
 
 	// 获取 K 线数据
-	candles, err := backtest.GetHistoricalData(task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
+	candles, err := backtest.GetHistoricalDataContext(ctx, task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
 	if err != nil {
 		m.failTask(id, fmt.Sprintf("获取历史数据失败: %v", err))
 		return nil
@@ -109,7 +128,6 @@ func (m *OptimTaskManager) RunTask(id string) error {
 		_ = m.store.UpdateOptimTaskProgress(id, completed, progress)
 	}
 
-	ctx := context.Background()
 	result, err := opt.Run(ctx, id, task.Symbol, task.Interval, candles, space, task.TotalCapital, onProgress)
 	if err != nil {
 		m.failTask(id, fmt.Sprintf("优化执行失败: %v", err))
@@ -133,6 +151,9 @@ func (m *OptimTaskManager) RunTask(id string) error {
 	}
 
 	// 保存结果
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(m.resultsDir, 0755); err != nil {
 		m.failTask(id, fmt.Sprintf("创建结果目录失败: %v", err))
 		return nil
@@ -179,6 +200,9 @@ func toOptimizerSearchSpace(s backtest.OptimSearchSpace) optimizer.UniversalSear
 
 // LoadOptimResult 加载优化结果
 func LoadOptimResult(resultsDir, taskID string) (*optimizer.UniversalOptimResult, error) {
+	if !IsValidTaskID(taskID) {
+		return nil, fmt.Errorf("invalid optimizer task id")
+	}
 	path := filepath.Join(resultsDir, taskID+".json")
 	data, err := os.ReadFile(path)
 	if err != nil {

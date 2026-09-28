@@ -404,23 +404,45 @@ func (o *OKXSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	var total, available float64
-	for _, b := range balances {
-		for _, d := range b.Details {
-			eq, _ := strconv.ParseFloat(d.Eq, 64)
-			avail, _ := strconv.ParseFloat(d.AvailBal, 64)
-			total += eq
-			if d.Ccy == "USDT" || d.Ccy == "USDC" {
-				available += avail
-			}
-		}
+	total, available, err := summarizeOKXSpotQuoteBalance(balances, o.quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 	return &Account{
 		TotalWalletBalance: total,
 		TotalMarginBalance: total,
 		AvailableBalance:   available,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(o.quoteAsset)),
 		Positions:          nil,
 	}, nil
+}
+
+func summarizeOKXSpotQuoteBalance(balances []Balance, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("OKX spot quote asset is unavailable")
+	}
+	found := false
+	for _, balance := range balances {
+		for _, detail := range balance.Details {
+			if !strings.EqualFold(strings.TrimSpace(detail.Ccy), quoteAsset) {
+				continue
+			}
+			if found {
+				return 0, 0, fmt.Errorf("duplicate OKX spot %s balance rows", quoteAsset)
+			}
+			found = true
+			total, err = strconv.ParseFloat(detail.Eq, 64)
+			if err != nil || math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
+				return 0, 0, fmt.Errorf("invalid OKX spot %s equity %q", quoteAsset, detail.Eq)
+			}
+			available, err = strconv.ParseFloat(detail.AvailBal, 64)
+			if err != nil || math.IsNaN(available) || math.IsInf(available, 0) || available < 0 || available > total {
+				return 0, 0, fmt.Errorf("invalid OKX spot %s available balance %q", quoteAsset, detail.AvailBal)
+			}
+		}
+	}
+	return total, available, nil
 }
 
 // GetPositions 現貨“持倉”由基础资產餘額構成
@@ -632,6 +654,9 @@ func (o *OKXSpotAdapter) StopKlineStream() error {
 // GetHistoricalKlines 历史K線
 func (o *OKXSpotAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
 	bar := interval
+	if bar == "1h" {
+		bar = "1H"
+	}
 	if bar == "" {
 		bar = "1m"
 	}

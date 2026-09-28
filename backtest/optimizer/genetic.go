@@ -40,7 +40,15 @@ type individual struct {
 }
 
 // Run 執行遗傳算法优化
-func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
+func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (result *OptimResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
 	}
@@ -79,9 +87,12 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 	var allResults []ParamResult
 	for i := 0; i < popSize; i++ {
 		p := g.sampleParams(space, initialCapital, feeRate, slip)
-		pr := EvalParamSet(symbol, train, val, holdOut, p, lambda, initialCapital)
+		pr, evalErr := EvalParamSetContext(ctx, symbol, train, val, holdOut, p, lambda, initialCapital)
+		if evalErr != nil {
+			return nil, evalErr
+		}
 		ts := pr.TrainScore
-		if math.IsInf(ts, -1) {
+		if !finiteNumber(ts) {
 			ts = math.Inf(-1)
 		}
 		pop[i] = individual{
@@ -90,14 +101,16 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 			params:     p,
 			metrics:    pr.Metrics,
 		}
-		allResults = append(allResults, pr)
+		if finiteNumber(pr.Score) {
+			allResults = append(allResults, pr)
+		}
 	}
 
 	start := time.Now()
 	for gen := 0; gen < generations; gen++ {
 		select {
 		case <-ctx.Done():
-			return g.buildResultFromPopulation(pop, allResults, time.Since(start), "genetic", holdOut, feeRate, slip)
+			return nil, ctx.Err()
 		default:
 		}
 
@@ -121,9 +134,12 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 			childGenes := g.crossover(parent1.genes, parent2.genes)
 			g.mutate(childGenes)
 			childParams := g.vecToParams(childGenes, bounds, space, initialCapital, feeRate, slip)
-			pr := EvalParamSet(symbol, train, val, holdOut, childParams, lambda, initialCapital)
+			pr, evalErr := EvalParamSetContext(ctx, symbol, train, val, holdOut, childParams, lambda, initialCapital)
+			if evalErr != nil {
+				return nil, evalErr
+			}
 			ts := pr.TrainScore
-			if math.IsInf(ts, -1) {
+			if !finiteNumber(ts) {
 				ts = math.Inf(-1)
 			}
 			newPop[i] = individual{
@@ -132,7 +148,9 @@ func (g *GeneticOptimizer) Run(ctx context.Context, symbol string, candles []*ex
 				params:     childParams,
 				metrics:    pr.Metrics,
 			}
-			allResults = append(allResults, pr)
+			if finiteNumber(pr.Score) {
+				allResults = append(allResults, pr)
+			}
 		}
 		pop = newPop
 	}
@@ -252,20 +270,20 @@ func (g *GeneticOptimizer) buildResultFromPopulation(pop []individual, allResult
 	}
 	bestPR, ok := PickBestParamResult(allResults)
 	if !ok {
-		bestPR = ParamResult{}
+		return nil, errNoValidOptimizationResults
 	}
 	heatmap := BuildHeatmapFromResults(allResults, "grid_count", "price_range")
 	return &OptimResult{
-		BestParams:       bestPR.Params,
-		BestScore:        bestPR.Score,
-		BestMetrics:      bestPR.Metrics,
-		AllResults:       allResults,
-		HeatmapData:      heatmap,
-		Elapsed:          elapsed,
-		Iterations:       len(allResults),
-		Method:           method,
-		HoldOutEnabled:   holdOut,
-		FeeRateUsed:      feeRate,
-		SlippageUsed:     slip,
+		BestParams:     bestPR.Params,
+		BestScore:      bestPR.Score,
+		BestMetrics:    bestPR.Metrics,
+		AllResults:     allResults,
+		HeatmapData:    heatmap,
+		Elapsed:        elapsed,
+		Iterations:     len(allResults),
+		Method:         method,
+		HoldOutEnabled: holdOut,
+		FeeRateUsed:    feeRate,
+		SlippageUsed:   slip,
 	}, nil
 }

@@ -38,6 +38,7 @@ import { useTranslation } from 'react-i18next'
 import {
   getPositionsSummaryAll,
   getPendingOrders,
+  type PendingOrderInfo,
   type PositionSummaryItem,
 } from '../services/api'
 import {

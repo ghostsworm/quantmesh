@@ -12,7 +12,6 @@ import {
   Heading,
   Input,
   Select,
-  HStack,
   Flex,
   Spacer,
   Tooltip,
@@ -40,7 +39,6 @@ import {
 } from '@chakra-ui/react'
 import { InfoIcon, CheckIcon, StarIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
-import { api } from '../services/api'
 import { getStrategyTemplatesFull, type StrategyTemplateFull, type TemplateParam } from '../services/strategy'
 
 interface StrategyTemplatesProps {
@@ -460,6 +458,7 @@ const TemplateCard: React.FC<TemplateCardProps> = ({
   getRiskColor,
   getRiskLabel,
 }) => {
+  const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 

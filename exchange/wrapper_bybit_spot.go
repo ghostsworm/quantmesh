@@ -127,6 +127,7 @@ func (w *bybitSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: account.TotalWalletBalance,
 		TotalMarginBalance: account.TotalMarginBalance,
 		AvailableBalance:   account.AvailableBalance,
+		BalanceAsset:       account.BalanceAsset,
 		Positions:          positions,
 	}, nil
 }
@@ -272,6 +273,22 @@ func (w *bybitSpotWrapper) GetOrderFills(ctx context.Context, symbol string, ord
 		})
 	}
 	return out, nil
+}
+
+func (w *bybitSpotWrapper) GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error) {
+	rows, next, err := w.adapter.GetOrderHistoryPage(ctx, symbol, startTime, endTime, cursor, limit)
+	if err != nil {
+		return OrderHistoryPage{}, err
+	}
+	page := OrderHistoryPage{NextCursor: next, HasMore: next != "", Fills: make([]*OrderFill, 0, len(rows))}
+	for _, row := range rows {
+		side, err := bybit.ToInternalSide(bybit.Side(row.Side))
+		if err != nil {
+			return OrderHistoryPage{}, fmt.Errorf("Bybit spot execution %s side mapping: %w", row.TradeID, err)
+		}
+		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission, CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker, BaseFeeQty: row.BaseFeeQty, QuoteQuantity: row.Price * row.Quantity})
+	}
+	return page, nil
 }
 
 func (w *bybitSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

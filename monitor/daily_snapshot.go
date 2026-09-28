@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"math"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -13,6 +14,34 @@ import (
 // accountEquitySampler 可選：由 snapshotRuntimeAdapter 實現，小時任務中調用交易所 GetAccount
 type accountEquitySampler interface {
 	AccountEquityUSDT(ctx context.Context) (float64, bool)
+}
+
+type spotInventorySampler interface {
+	SpotInventoryQty(ctx context.Context) (float64, bool)
+}
+
+type marketTypeSnapshotSource interface {
+	MarketType() string
+}
+
+type accountScopeSnapshotSource interface {
+	AccountScope() string
+}
+
+type marketAwareEquityStorage interface {
+	QueryHourlyEquityRecordsByMarketType(exchange, marketType, symbol, account string, startTime, endTime time.Time) ([]*storage.HourlyEquityRecord, error)
+}
+
+type scopedEquityStorage interface {
+	QueryHourlyEquityRecordsByScope(exchange, marketType, symbol, accountScope string, startTime, endTime time.Time) ([]*storage.HourlyEquityRecord, error)
+}
+
+type accountEquityRecordWriter interface {
+	SaveAccountEquityRecord(*storage.AccountEquityRecord) error
+}
+
+type accountEquityRecordCleaner interface {
+	DeleteAccountEquityRecordsBefore(time.Time) error
 }
 
 // RuntimeSnapshotSource 提供單個交易對的當前快照數據（由 main 注入）
@@ -118,22 +147,56 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 	runtimes := r.getRuntimes()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	sampledAccounts := make(map[string]bool)
+	legacyAccountEquity := make(map[string]float64)
+	accountEquityStore, hasAccountEquityStore := r.storage.(accountEquityRecordWriter)
 	for _, rt := range runtimes {
-		_, unrealized, totalVal := rt.CurrentSnapshot()
+		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
+		marketType := snapshotMarketType(rt)
+		accountScope := snapshotAccountScope(rt)
+		var spotPositionQty *float64
+		if strings.EqualFold(marketType, "spot") {
+			if sampler, ok := rt.(spotInventorySampler); ok {
+				if qty, available := sampler.SpotInventoryQty(ctx); available && !math.IsNaN(qty) && !math.IsInf(qty, 0) && qty >= 0 {
+					spotPositionQty = &qty
+				}
+			}
+		}
 		equity := totalVal // 持倉市值（與日內回撤計算一致）
 		rec := &storage.HourlyEquityRecord{
 			Exchange:           rt.Exchange(),
+			MarketType:         marketType,
+			AccountScope:       accountScope,
 			Symbol:             rt.Symbol(),
 			Account:            rt.Account(),
 			Timestamp:          ts,
 			Equity:             equity,
 			UnrealizedPnL:      unrealized,
 			TotalPositionValue: totalVal,
+			MarketPrice:        marketPrice,
+			SpotPositionQty:    spotPositionQty,
 		}
-		if s, ok := rt.(accountEquitySampler); ok {
-			if v, ok2 := s.AccountEquityUSDT(ctx); ok2 {
-				rec.AccountEquity = &v
+		accountIdentity := accountScope
+		if accountIdentity == "" {
+			accountIdentity = "legacy:" + rt.Account()
+		}
+		accountKey := rt.Exchange() + "\x00" + marketType + "\x00" + accountIdentity
+		if sampler, ok := rt.(accountEquitySampler); ok && !sampledAccounts[accountKey] {
+			sampledAccounts[accountKey] = true
+			if value, available := sampler.AccountEquityUSDT(ctx); available {
+				if hasAccountEquityStore {
+					if err := accountEquityStore.SaveAccountEquityRecord(&storage.AccountEquityRecord{Exchange: rt.Exchange(), MarketType: marketType, AccountScope: accountScope, Account: rt.Account(), Timestamp: ts, AccountEquity: value}); err != nil {
+						logger.Warn("⚠️ 保存账户级权益记录失败 %s: %v", rt.Exchange(), err)
+					}
+				} else {
+					// Legacy storage fallback: keep one sample only, never duplicate it per symbol.
+					legacyAccountEquity[accountKey] = value
+				}
 			}
+		}
+		if value, ok := legacyAccountEquity[accountKey]; ok {
+			rec.AccountEquity = &value
+			delete(legacyAccountEquity, accountKey)
 		}
 		if err := r.storage.SaveHourlyEquityRecord(rec); err != nil {
 			logger.Warn("⚠️ 保存小時權益記錄失敗 %s:%s: %v", rt.Exchange(), rt.Symbol(), err)
@@ -149,12 +212,22 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 		loc = time.Local
 	}
 	startOfDay := time.Date(date.Year(), date.Month(), date.Day(), 0, 0, 0, 0, loc)
-	endOfDay := startOfDay.Add(24 * time.Hour)
+	endOfDay := startOfDay.AddDate(0, 0, 1)
 
 	runtimes := r.getRuntimes()
 	for _, rt := range runtimes {
 		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
-		records, err := r.storage.QueryHourlyEquityRecords(exchange, symbol, account, startOfDay, endOfDay)
+		marketType := snapshotMarketType(rt)
+		accountScope := snapshotAccountScope(rt)
+		var records []*storage.HourlyEquityRecord
+		var err error
+		if scopedStorage, ok := r.storage.(scopedEquityStorage); ok && accountScope != "" {
+			records, err = scopedStorage.QueryHourlyEquityRecordsByScope(exchange, marketType, symbol, accountScope, startOfDay, endOfDay)
+		} else if marketStorage, ok := r.storage.(marketAwareEquityStorage); ok {
+			records, err = marketStorage.QueryHourlyEquityRecordsByMarketType(exchange, marketType, symbol, account, startOfDay, endOfDay)
+		} else {
+			records, err = r.storage.QueryHourlyEquityRecords(exchange, symbol, account, startOfDay, endOfDay)
+		}
 		if err != nil {
 			logger.Warn("⚠️ 查詢小時權益失敗 %s:%s: %v", exchange, symbol, err)
 			continue
@@ -186,28 +259,23 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 			maxDrawdownPct = 0
 		}
 
-		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條小時記錄；帳戶權益取當日末條有效採樣
+		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條市場小時記錄。
 		last := records[len(records)-1]
-		var closingAcct *float64
-		for i := len(records) - 1; i >= 0; i-- {
-			if records[i].AccountEquity != nil {
-				closingAcct = records[i].AccountEquity
-				break
-			}
-		}
 		snap := &storage.DailySnapshot{
 			Exchange:               exchange,
+			MarketType:             marketType,
+			AccountScope:           accountScope,
 			Symbol:                 symbol,
 			Account:                account,
 			Date:                   startOfDay,
 			UnrealizedPnL:          last.UnrealizedPnL,
 			TotalPositionValue:     last.TotalPositionValue,
+			ClosingPrice:           last.MarketPrice,
+			SpotPositionQty:        last.SpotPositionQty,
 			IntradayMaxDrawdown:    maxDrawdown,
 			IntradayMaxDrawdownPct: maxDrawdownPct,
 			IntradayPeakEquity:     peakEquity,
-			ClosingPrice:           0, // 可從 K 線或 API 補齊
 			SnapshotTime:           last.Timestamp,
-			AccountEquity:          closingAcct,
 		}
 		if err := r.storage.SaveDailySnapshot(snap); err != nil {
 			logger.Warn("⚠️ 保存每日快照失敗 %s:%s %s: %v", exchange, symbol, date.Format("2006-01-02"), err)
@@ -225,28 +293,62 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 	runtimes := r.getRuntimes()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
+	accountEquityStore, hasAccountEquityStore := r.storage.(accountEquityRecordWriter)
+	sampledAccounts := make(map[string]bool)
+	legacyAccountEquity := make(map[string]float64)
+	for _, rt := range runtimes {
+		marketType := snapshotMarketType(rt)
+		accountKey := rt.Exchange() + "\x00" + marketType + "\x00" + snapshotIdentity(rt)
+		if sampledAccounts[accountKey] {
+			continue
+		}
+		sampler, ok := rt.(accountEquitySampler)
+		if !ok {
+			continue
+		}
+		sampledAccounts[accountKey] = true
+		if value, available := sampler.AccountEquityUSDT(ctx); available {
+			if hasAccountEquityStore {
+				if err := accountEquityStore.SaveAccountEquityRecord(&storage.AccountEquityRecord{Exchange: rt.Exchange(), MarketType: marketType, AccountScope: snapshotAccountScope(rt), Account: rt.Account(), Timestamp: ts, AccountEquity: value}); err != nil {
+					logger.Warn("⚠️ 保存 0 点账户级权益记录失败 %s: %v", rt.Exchange(), err)
+				}
+			} else {
+				legacyAccountEquity[accountKey] = value
+			}
+		}
+	}
 	for _, rt := range runtimes {
 		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
-		_, unrealized, totalVal := rt.CurrentSnapshot()
-		var acct *float64
-		if s, ok := rt.(accountEquitySampler); ok {
-			if v, ok2 := s.AccountEquityUSDT(ctx); ok2 {
-				acct = &v
+		marketType := snapshotMarketType(rt)
+		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
+		var spotPositionQty *float64
+		if strings.EqualFold(marketType, "spot") {
+			if sampler, ok := rt.(spotInventorySampler); ok {
+				if qty, available := sampler.SpotInventoryQty(ctx); available && !math.IsNaN(qty) && !math.IsInf(qty, 0) && qty >= 0 {
+					spotPositionQty = &qty
+				}
 			}
 		}
 		snap := &storage.DailySnapshot{
 			Exchange:               exchange,
+			MarketType:             marketType,
+			AccountScope:           snapshotAccountScope(rt),
 			Symbol:                 symbol,
 			Account:                account,
 			Date:                   today,
 			UnrealizedPnL:          unrealized,
 			TotalPositionValue:     totalVal,
+			ClosingPrice:           marketPrice,
+			SpotPositionQty:        spotPositionQty,
 			IntradayMaxDrawdown:    0,
 			IntradayMaxDrawdownPct: 0,
 			IntradayPeakEquity:     totalVal,
-			ClosingPrice:           0,
 			SnapshotTime:           ts,
-			AccountEquity:          acct,
+		}
+		accountKey := exchange + "\x00" + marketType + "\x00" + snapshotIdentity(rt)
+		if value, ok := legacyAccountEquity[accountKey]; ok {
+			snap.AccountEquity = &value
+			delete(legacyAccountEquity, accountKey)
 		}
 		if err := r.storage.SaveDailySnapshot(snap); err != nil {
 			logger.Warn("⚠️ 保存 0 點未實現快照失敗 %s:%s %s: %v", exchange, symbol, today.Format("2006-01-02"), err)
@@ -254,10 +356,36 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 	}
 }
 
+func snapshotMarketType(rt RuntimeSnapshotSource) string {
+	if source, ok := rt.(marketTypeSnapshotSource); ok {
+		return source.MarketType()
+	}
+	return ""
+}
+
+func snapshotAccountScope(rt RuntimeSnapshotSource) string {
+	if source, ok := rt.(accountScopeSnapshotSource); ok {
+		return source.AccountScope()
+	}
+	return ""
+}
+
+func snapshotIdentity(rt RuntimeSnapshotSource) string {
+	if scope := snapshotAccountScope(rt); scope != "" {
+		return scope
+	}
+	return "legacy:" + rt.Account()
+}
+
 // cleanupOldHourlyData 刪除超過保留天數的小時級數據
 func (r *DailySnapshotRunner) cleanupOldHourlyData() {
 	cutoff := time.Now().AddDate(0, 0, -r.cleanupRetentionDays)
 	if err := r.storage.DeleteHourlyEquityRecordsBefore(cutoff); err != nil {
 		logger.Warn("⚠️ 清理過期小時數據失敗: %v", err)
+	}
+	if cleaner, ok := r.storage.(accountEquityRecordCleaner); ok {
+		if err := cleaner.DeleteAccountEquityRecordsBefore(cutoff); err != nil {
+			logger.Warn("⚠️ 清理過期账户权益数据失败: %v", err)
+		}
 	}
 }

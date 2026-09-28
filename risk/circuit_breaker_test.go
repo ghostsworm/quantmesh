@@ -2,6 +2,7 @@ package risk
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -13,6 +14,46 @@ type circuitBreakerMockBot struct {
 	cancelCount int
 	closeCount  int
 	resumeCount int
+}
+
+type allocationRiskTestBot struct {
+	circuitBreakerMockBot
+	exceeded bool
+	reason   string
+	err      error
+}
+
+func (b *allocationRiskTestBot) AllocationRiskStatus() (bool, string, error) {
+	return b.exceeded, b.reason, b.err
+}
+
+func TestAllocationCircuitBreakerUsesLiveStatusAndFailsClosed(t *testing.T) {
+	cfg := newCircuitBreakerTestConfig()
+	cfg.Triggers.AllocationExceeded.Enabled = true
+	bot := &allocationRiskTestBot{err: errors.New("allocation sample unavailable")}
+	gcb := NewGlobalCircuitBreaker(cfg, nil, &circuitBreakerMockProvider{bots: []BotController{bot}})
+	gcb.SetPauseCoordinator(NewOpeningPauseCoordinator())
+	gcb.refreshAllocationRisk()
+	if m := gcb.snapshotMetrics(); m.allocationAvailable || bot.pauseCount != 1 {
+		t.Fatalf("unavailable allocation state did not hold opening: metrics=%+v pauses=%d", m, bot.pauseCount)
+	}
+
+	bot.err = nil
+	bot.exceeded = true
+	bot.reason = "BTCUSDT exceeds cap"
+	gcb.refreshAllocationRisk()
+	if trigger, reason, hit := gcb.checkAllocationTrigger(gcb.snapshotMetrics()); !hit || trigger != TriggerAllocationExceeded || reason != bot.reason {
+		t.Fatalf("live allocation breach did not trip: trigger=%s reason=%q hit=%v", trigger, reason, hit)
+	}
+	if bot.pauseCount != 1 {
+		t.Fatalf("allocation breach duplicated the independent opening hold: pauses=%d", bot.pauseCount)
+	}
+
+	bot.exceeded = false
+	gcb.refreshAllocationRisk()
+	if m := gcb.snapshotMetrics(); !m.allocationAvailable || bot.resumeCount != 1 {
+		t.Fatalf("verified recovery did not release only allocation hold: metrics=%+v resumes=%d", m, bot.resumeCount)
+	}
 }
 
 func (b *circuitBreakerMockBot) PauseOpening(reason string) {

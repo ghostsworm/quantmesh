@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"context"
 	"quantmesh/position"
 )
 
@@ -8,6 +9,10 @@ import (
 type MultiStrategyExecutorAdapter struct {
 	executor     *MultiStrategyExecutor
 	strategyName string
+}
+
+func (a *MultiStrategyExecutorAdapter) IsOpeningPaused() bool {
+	return a.executor.executor.IsOpeningPaused()
 }
 
 // NewMultiStrategyExecutorAdapter 創建适配器
@@ -21,6 +26,14 @@ func NewMultiStrategyExecutorAdapter(executor *MultiStrategyExecutor, strategyNa
 // PlaceOrder 下單
 func (a *MultiStrategyExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
 	return a.executor.PlaceOrder(a.strategyName, req)
+}
+
+func (a *MultiStrategyExecutorAdapter) PlaceOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
+	return a.executor.PlaceOrderContext(ctx, a.strategyName, req)
+}
+
+func (a *MultiStrategyExecutorAdapter) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	return a.executor.BatchPlaceOrdersWithDetailsContext(ctx, a.strategyName, orders)
 }
 
 // BatchPlaceOrders 批量下單

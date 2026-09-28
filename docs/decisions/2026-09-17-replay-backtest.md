@@ -62,7 +62,7 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 
 ### 5. Walk-forward（`optimizer.WalkForwardConfig`）
 
-- 滚动窗口：train `[s, s+60d)`、test `[s+60d, s+75d)`，`s` 每折前移 `step_days`（默认 = test_days=15）；要求 `step ≥ test`，保证测试窗口不重叠。只保留测试窗口完整落在数据内、且训练/测试 K 线数足够的折。
+- 滚动窗口：train `[s, s+60d)`、test `[s+60d, s+75d)`，`s` 每折前移 `step_days`（默认 = test_days=15）；当前要求 `step = test`，保证测试窗口连续且不重叠，避免汇总风险指标把不等时间间隔误当等间隔收益。只保留测试窗口完整落在数据内、且训练/测试 K 线数足够的折。
 - 每折在训练窗口上对全部候选参数回测并按 `CalculateScore` 选最优，然后只在测试窗口评估该参数；
   最终 `Score/Metrics` 由各测试窗口的权益曲线按复利拼接后计算，训练结果只出现在逐折明细里。
 - 接入 `GridSearchOptimizer`（`OptimConfig.WalkForward.enabled=true`），`OptimResult.WalkForward` 返回逐折结果，`BestParams` 为最后一折选出的参数；贝叶斯/遗传暂不支持（明确报错）。原单次切分 `ValidationRatio` 路径保持不变。

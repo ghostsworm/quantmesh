@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/position"
 	"quantmesh/utils"
 )
@@ -132,5 +133,41 @@ func TestBotRuntimePauseOpeningWithoutSPM(t *testing.T) {
 	br.ResumeOpening()
 	if br.Config.OpenPositionControl.PauseOpening {
 		t.Fatalf("config not resumed")
+	}
+}
+
+func TestBotRuntimePauseOpeningUsesSpecializedRuntimeGate(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	br := &BotRuntime{BotID: "carry", Config: config.BotConfig{ID: "carry"}, Inner: &SymbolRuntime{OpeningGate: gate}}
+	br.PauseOpening("manual")
+	if !gate.HasBlock("manual") {
+		t.Fatal("specialized runtime opening was not blocked")
+	}
+	status := br.GetPositionStatus()
+	if status["paused"] != true || status["valuation_available"] != false {
+		t.Fatalf("specialized strategy status claimed invalid exposure: %+v", status)
+	}
+	if err := br.ResumeOpeningManually(); err != nil {
+		t.Fatal(err)
+	}
+	if gate.HasBlock("manual") {
+		t.Fatal("manual resume did not clear the manual block")
+	}
+}
+
+func TestBotRuntimeManualCloseRoutesThroughSpecializedOwner(t *testing.T) {
+	called := false
+	inner := &SymbolRuntime{CloseForManual: func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error) {
+		called = true
+		return &position.ClosePositionRecord{RecordID: "carry-close-1", Status: position.CloseStatusFilled}, nil
+	}}
+	bot := &BotRuntime{BotID: "carry", Inner: inner}
+	record, err := bot.ClosePositions(context.Background(), config.ClosePositionConfig{Method: "market"})
+	if err != nil || !called || record == nil || record.RecordID != "carry-close-1" {
+		t.Fatalf("specialized close not routed: record=%+v called=%v err=%v", record, called, err)
+	}
+	rows := bot.GetCloseRecords()
+	if len(rows) != 1 || rows[0].RecordID != record.RecordID {
+		t.Fatalf("specialized close not listed: %+v", rows)
 	}
 }

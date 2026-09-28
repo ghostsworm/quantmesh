@@ -136,6 +136,22 @@ func (v *liqFakeVenue) PlaceOrder(req *OrderRequest) (*Order, error) {
 	return res.PlacedOrders[0], nil
 }
 
+func (v *liqFakeVenue) PlaceOrderContext(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if req.Type != "MARKET" {
+		return v.PlaceOrder(req)
+	}
+	id, err := v.PlaceMarketOrder(ctx, req.Symbol, req.Side, req.Quantity, req.ReduceOnly)
+	if err != nil {
+		return nil, err
+	}
+	st, err := v.GetOrderState(ctx, req.Symbol, id)
+	return &Order{OrderID: id, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Side: req.Side,
+		Quantity: req.Quantity, Status: st.Status, ExecutedQty: st.ExecutedQty, AvgPrice: st.AvgPrice}, err
+}
+
 func (v *liqFakeVenue) BatchPlaceOrders(orders []*OrderRequest) ([]*Order, bool) {
 	res := v.BatchPlaceOrdersWithDetails(orders)
 	return res.PlacedOrders, false
@@ -165,6 +181,13 @@ func (v *liqFakeVenue) BatchPlaceOrdersWithDetails(orders []*OrderRequest) *Batc
 	return res
 }
 
+func (v *liqFakeVenue) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*OrderRequest) *BatchPlaceOrdersResult {
+	if ctx.Err() != nil {
+		return &BatchPlaceOrdersResult{}
+	}
+	return v.BatchPlaceOrdersWithDetails(orders)
+}
+
 func (v *liqFakeVenue) BatchCancelOrders(orderIDs []int64) error {
 	for _, id := range orderIDs {
 		_ = v.CancelOrder(context.Background(), liqTestSymbol, id)
@@ -191,7 +214,7 @@ func (v *liqFakeVenue) GetOrderState(ctx context.Context, symbol string, orderID
 	if !ok {
 		return LiquidationOrderState{}, fmt.Errorf("order %d not found", orderID)
 	}
-	return LiquidationOrderState{Status: o.status, ExecutedQty: o.executed}, nil
+	return LiquidationOrderState{Status: o.status, ExecutedQty: o.executed, AvgPrice: o.price, Price: o.price}, nil
 }
 
 func (v *liqFakeVenue) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
@@ -214,6 +237,10 @@ func (v *liqFakeVenue) PlaceMarketOrder(ctx context.Context, symbol, side string
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	o := v.addOrder(&liqFakeOrder{side: side, typ: "MARKET", qty: qty, status: "NEW", reduceOnly: reduceOnly})
+	o.price = v.bid
+	if side == "BUY" {
+		o.price = v.ask
+	}
 	v.marketReqs = append(v.marketReqs, o)
 	if !v.marketNoFill {
 		o.executed = v.applyFill(side, qty)
@@ -308,11 +335,11 @@ func TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual(t *testin
 		math.Abs(venue.marketReqs[0].qty-1) > liqTestEps {
 		t.Fatalf("want one MARKET reduceOnly SELL 1, got %+v", venue.marketReqs)
 	}
-	if !venue.flat() || venue.openCount() != 0 {
-		t.Fatalf("flat=%v open=%d, want flat and no open orders", venue.flat(), venue.openCount())
+	if !venue.flat() || venue.openCount() != 1 {
+		t.Fatalf("flat=%v open=%d, want flat with the foreign order preserved", venue.flat(), venue.openCount())
 	}
-	if venue.orders[unrelated].status != OrderStatusCanceled {
-		t.Fatalf("unrelated resting order must be cleaned up, status=%s", venue.orders[unrelated].status)
+	if venue.orders[unrelated].status != "NEW" {
+		t.Fatalf("unrelated resting order must remain untouched, status=%s", venue.orders[unrelated].status)
 	}
 }
 
@@ -404,14 +431,11 @@ func TestLiquidateAllVerified_BothNetPositionCappedByLeg(t *testing.T) {
 	fillSlot(spm, 50000, 2, 0, PositionLegLong)
 	fillSlot(spm, 50100, 1, 0, PositionLegShort)
 
-	if err := runVerified(t, spm, venue); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err := runVerified(t, spm, venue); err == nil {
+		t.Fatal("net account snapshot cannot prove settlement of both local economic legs")
 	}
-	if len(venue.marketReqs) != 1 || venue.marketReqs[0].side != "SELL" || math.Abs(venue.marketReqs[0].qty-1) > liqTestEps {
-		t.Fatalf("net +1 must be closed by one SELL 1, got %+v", venue.marketReqs)
-	}
-	if !venue.flat() {
-		t.Fatal("position must be flat")
+	if len(venue.marketReqs) != 0 || !spm.IsOpeningPaused() {
+		t.Fatal("inconsistent gross/net inventory triggered blind fallback or released risk")
 	}
 }
 
@@ -429,8 +453,11 @@ func TestLiquidateAllVerified_TimeoutReportsResidual(t *testing.T) {
 		t.Fatal("residual position must return error")
 	}
 	msg := err.Error()
-	if !strings.Contains(msg, "1.50000000") || !strings.Contains(msg, fmt.Sprintf("%d", stuck)) {
-		t.Fatalf("error must list residual qty and stuck order id %d: %v", stuck, err)
+	if !strings.Contains(msg, "1.50000000") || strings.Contains(msg, fmt.Sprintf("#%d", stuck)) {
+		t.Fatalf("error must report our residual qty without claiming the foreign order %d: %v", stuck, err)
+	}
+	if venue.orders[stuck].status != "NEW" {
+		t.Fatal("foreign order was cancelled during failed liquidation")
 	}
 	if got := clk.Now().Sub(simStart); got < liqTestTimeout {
 		t.Fatalf("verification must poll until timeout on injected clock, advanced %s", got)
@@ -446,8 +473,14 @@ func TestLiquidateAllVerified_DoesNotCloseOtherBotsPosition(t *testing.T) {
 	if len(venue.marketReqs) != 1 || math.Abs(venue.marketReqs[0].qty-1) > liqTestEps {
 		t.Fatalf("market residual must be capped to this bot's 1, got %+v", venue.marketReqs)
 	}
-	if err == nil || !strings.Contains(err.Error(), "2.00000000") {
-		t.Fatalf("remaining exchange position must be reported, got %v", err)
+	if err != nil {
+		t.Fatalf("foreign inventory must not prevent verified own close: %v", err)
+	}
+	if len(venue.positions) != 1 || venue.positions[0] != 2 {
+		t.Fatalf("foreign inventory changed: %v", venue.positions)
+	}
+	if got := spm.getOrCreateSlot(50000).PositionQty; got != 0 {
+		t.Fatalf("own book not settled: %v", got)
 	}
 }
 

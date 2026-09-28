@@ -102,13 +102,14 @@ const StrategyParamForm: React.FC<StrategyParamFormProps> = ({ strategyIds, valu
             <VStack align="stretch" spacing={3} mt={2}>
               {params.map((p) => {
                 const current = (value[sid] || {})[p.name] ?? p.default
+                const numericValue = typeof current === 'number' || typeof current === 'string' ? current : undefined
                 const key = `${sid}.${p.name}`
                 return (
                   <FormControl key={key}>
                     <FormLabel fontSize="sm">{t(`botCreate.strategyParams.${p.name}`, { defaultValue: p.name })}</FormLabel>
                     {p.type === 'number' && (
                       <DecimalNumberInput
-                        value={current !== undefined && current !== null ? current : (p.default ?? 0)}
+                        value={numericValue}
                         min={p.min}
                         max={p.max}
                         onChange={(v) => updateParam(sid, p.name, v)}

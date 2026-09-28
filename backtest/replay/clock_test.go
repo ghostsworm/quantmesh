@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -78,8 +79,7 @@ func TestReplay_LiquidateAllDoesNotWaitWallClock(t *testing.T) {
 	cfg.Bot.Trading.GridRiskControl.Enabled = true
 	cfg.Bot.Trading.GridRiskControl.StopLossRatio = clockTestStopLoss
 	// 1990 買單成交後價格跌到 1975（1980 也成交），浮虧超過 0.2% 觸發硬止損 →
-	// LiquidateAll → CancelAllOpenOrders 撤下方仍掛著的買單（含 2s 撤單等待）
-	// tick 間隔 500ms：撤單等待 2s 推進的模擬時間必然越過最後一個 tick
+	// 核實任務在 tick 後排空：模擬交易所即刻回報撤單與吃單終態，不需舊路徑固定等 2s。
 	ticks := ticksFromPrices([]float64{2000, 1985, 1975, 1975}, 10)
 	for i := range ticks {
 		ticks[i].Timestamp = testBaseTs + int64(i)*clockTestLiqTickGapMs
@@ -99,8 +99,11 @@ func TestReplay_LiquidateAllDoesNotWaitWallClock(t *testing.T) {
 		t.Fatalf("replay with liquidation took %s wall time, want < %s", elapsed, clockTestWallBudget)
 	}
 	lastTs := time.UnixMilli(ticks[len(ticks)-1].Timestamp)
-	if !eng.Clock().Now().After(lastTs) {
-		t.Fatalf("cancel settle waits must consume simulated time: clock=%s last tick=%s", eng.Clock().Now(), lastTs)
+	if !eng.Clock().Now().Equal(lastTs) {
+		t.Fatalf("immediate verified terminal must not invent a future tick: clock=%s last tick=%s", eng.Clock().Now(), lastTs)
+	}
+	if eng.spm.GetProtectiveLiquidationStatus().State != "completed" || math.Abs(eng.spm.GetNetPositionQty()) > testFloatDelta || math.Abs(eng.ex.snapshot().netQty) > testFloatDelta {
+		t.Fatal("stop loss returned without verified local/exchange settlement")
 	}
 }
 

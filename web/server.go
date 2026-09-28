@@ -568,6 +568,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				profit.DELETE("/withdraw-rules/:id", deleteWithdrawRuleHandler)
 				profit.POST("/withdraw", withdrawProfitHandler)
 				profit.GET("/history", getWithdrawHistoryHandler)
+				profit.POST("/withdraw/:id/reconcile", reconcileWithdrawRecordHandler)
 				profit.GET("/trend", getProfitTrendHandler)
 				profit.POST("/withdraw/estimate", estimateWithdrawFeeHandler)
 				profit.POST("/withdraw/:id/cancel", cancelWithdrawHandler)

@@ -41,13 +41,19 @@ func installSetupAPITestGlobals(t *testing.T, cfg *config.Config) *FileConfigMan
 	}
 	SetFileConfigManager(fcm)
 	SetConfigHotReloader(nil)
-	globalPasswordManager = nil
+	pm, err := NewPasswordManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pm.db.Close() })
+	globalPasswordManager = pm
 	return fcm
 }
 
 func performSetupAPIRequest(router http.Handler, method, path, body string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w

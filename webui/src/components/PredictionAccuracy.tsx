@@ -18,6 +18,7 @@ import {
 } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
 import { getPredictionsAccuracy, getPredictionsHistory, PredictionHistoryItem } from '../services/api'
+import type { PredictionAccuracyResponse } from '../services/api'
 
 const PredictionAccuracy: React.FC = () => {
   const { t } = useTranslation()

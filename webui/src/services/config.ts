@@ -168,7 +168,6 @@ export interface AIModuleConfig {
     }
   }
   api_url?: string
-  analysis_interval?: number
   markets?: {
     keywords: string[]
     min_liquidity: number
@@ -206,6 +205,7 @@ export interface Config {
     min_order_value: number
     buy_window_size: number
     sell_window_size: number
+    direction?: 'LONG' | 'SHORT'
     reconcile_interval: number
     order_cleanup_threshold: number
     cleanup_batch_size: number
@@ -701,4 +701,3 @@ export async function updateConfigYAML(yamlContent: string): Promise<{
   }
   return await response.json()
 }
-

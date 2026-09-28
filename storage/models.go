@@ -7,6 +7,8 @@ type Order struct {
 	OrderID       int64
 	BotID         string
 	Account       string // 账戶標识（为空时回退 bot_id）
+	MarketType    string
+	AccountScope  string
 	ClientOrderID string
 	Symbol        string
 	Side          string
@@ -24,6 +26,29 @@ type Order struct {
 	UpdatedAt     time.Time
 }
 
+// OrderFill 是交易所逐笔执行回报；TradeID 在账户凭据、市场和交易对范围内唯一。
+type OrderFill struct {
+	Exchange             string
+	MarketType           string
+	AccountScope         string
+	Account              string
+	BotID                string
+	Symbol               string
+	TradeID              string
+	OrderID              int64
+	Side                 string
+	Price                float64
+	Quantity             float64
+	QuoteQuantity        float64
+	Commission           float64
+	CommissionAsset      string
+	CommissionQuote      float64
+	CommissionQuoteRate  float64
+	CommissionQuoteKnown bool
+	RealizedPnL          *float64
+	TradeTime            time.Time
+}
+
 // Position 持倉模型
 type Position struct {
 	SlotPrice    float64
@@ -38,10 +63,14 @@ type Position struct {
 
 // Trade 交易模型（買賣配對）
 type Trade struct {
+	ID                 int64  // 持久化成交記錄主鍵；同一訂單的各次部分成交必須可區分
+	ExecutionKey       string // Optional stable key for idempotent execution-ledger writes
 	BuyOrderID         int64
 	SellOrderID        int64
 	BotID              string // Bot 唯一標識（與 orders.bot_id 對齊，空表示歷史未標記）
 	Exchange           string
+	MarketType         string // spot/futures/etc; empty means legacy or unclassified data
+	AccountScope       string // irreversible credential-scope digest; empty means legacy/unattributed
 	Account            string // 账戶標识（如 API Key 的哈希或前缀）
 	Symbol             string
 	BuyPrice           float64
@@ -100,14 +129,30 @@ type DailyStatisticsWithTradeCount struct {
 type HourlyEquityRecord struct {
 	ID                 int64
 	Exchange           string
+	MarketType         string
+	AccountScope       string
 	Symbol             string
 	Account            string
 	Timestamp          time.Time
 	Equity             float64 // 持倉市值（與未實現相關的倉位價值語義，見 monitor）
 	UnrealizedPnL      float64
 	TotalPositionValue float64
+	MarketPrice        float64
+	SpotPositionQty    *float64
 	// AccountEquity 交易所 GetAccount 返回的帳戶權益（U 本位總權益/錢包+保證金，依各所實現），用於真實淨值曲線
 	AccountEquity *float64
+	CreatedAt     time.Time
+}
+
+// AccountEquityRecord is sampled once per exchange/market/account, never once per symbol runtime.
+type AccountEquityRecord struct {
+	ID            int64
+	Exchange      string
+	MarketType    string
+	AccountScope  string
+	Account       string
+	Timestamp     time.Time
+	AccountEquity float64
 	CreatedAt     time.Time
 }
 
@@ -115,11 +160,14 @@ type HourlyEquityRecord struct {
 type DailySnapshot struct {
 	ID                     int64
 	Exchange               string
+	MarketType             string
+	AccountScope           string
 	Symbol                 string
 	Account                string
 	Date                   time.Time
 	UnrealizedPnL          float64 // 收盤時的未實現盈虧
 	TotalPositionValue     float64
+	SpotPositionQty        *float64
 	IntradayMaxDrawdown    float64 // 日內最大回撤金額
 	IntradayMaxDrawdownPct float64 // 日內最大回撤百分比
 	IntradayPeakEquity     float64
@@ -161,6 +209,9 @@ type ReconciliationHistory struct {
 	Exchange         string
 	Symbol           string
 	Account          string // 账戶標识
+	AccountScope     string
+	MarketType       string
+	BotID            string
 	ReconcileTime    time.Time
 	LocalPosition    float64
 	ExchangePosition float64
@@ -178,6 +229,8 @@ type ReconciliationHistory struct {
 // PnLSummary 盈亏彙總（按币种對）
 type PnLSummary struct {
 	Symbol          string
+	Exchange        string
+	MarketType      string
 	TotalPnL        float64 // 网格方式盈亏
 	ExchangePnL     float64 // 交易所方式盈亏
 	TotalTrades     int
@@ -191,6 +244,7 @@ type PnLSummary struct {
 // PnLBySymbol 按币种對的盈亏數據
 type PnLBySymbol struct {
 	Exchange        string
+	MarketType      string
 	Symbol          string
 	TotalPnL        float64 // 网格方式盈亏
 	ExchangePnL     float64 // 交易所方式盈亏
@@ -256,6 +310,8 @@ type FundingPayment struct {
 	Exchange      string
 	Symbol        string
 	Account       string
+	MarketType    string
+	AccountScope  string
 	IncomeType    string  // FUNDING_FEE 等
 	Income        float64 // 正=收入，負=支出
 	Asset         string
@@ -302,6 +358,7 @@ type BasisStats struct {
 type ProfitWithdrawRule struct {
 	ID                string
 	AccountID         string
+	AccountScope      string
 	ExchangeID        string
 	StrategyID        string
 	Enabled           bool
@@ -392,6 +449,8 @@ type ProfitWithdrawRecord struct {
 	ID           string
 	RuleID       string
 	AccountID    string
+	AccountScope string
+	ClaimID      string
 	ExchangeID   string
 	StrategyID   string
 	Amount       float64
@@ -415,6 +474,15 @@ type BotState struct {
 	UpdatedAt time.Time // 最後更新時間
 	UpdatedBy string    // 更新來源: web_ui, api, system
 	Reason    string    // 停用原因（可選）
+}
+
+// StrategyRuntimeState stores a versioned strategy snapshot scoped to one bot and strategy.
+type StrategyRuntimeState struct {
+	BotID         string
+	StrategyName  string
+	SchemaVersion int
+	Payload       string
+	UpdatedAt     time.Time
 }
 
 // FixSessionState FIX 会话状态（用于断线重连与序号恢复）

@@ -96,6 +96,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("創建表失败: %w", err)
 		}
+		if err := migrateOrderFillsTable(db, false); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 order_fills 表失败: %w", err)
+		}
 
 		// 迁移：添加 exchange 字段（如果不存在）
 		if err := migrateTradesTable(db); err != nil {
@@ -107,6 +111,14 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 		if err := migrateTradesExchangePnL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 trades exchange_pnl 字段失败: %w", err)
+		}
+		if err := migrateTradesMarketType(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trades market_type 字段失败: %w", err)
+		}
+		if err := migrateTradesAccountScope(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trades account_scope 字段失败: %w", err)
 		}
 
 		// 迁移：orders 表增加 filled_qty / exchange / type / realized_pnl 列
@@ -142,6 +154,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 bot_states 表失败: %w", err)
 		}
+		if err := migrateStrategyRuntimeStateTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 strategy_runtime_states 表失败: %w", err)
+		}
 		if err := migrateAppConfigDocumentTablesMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 app_config 文檔表失败: %w", err)
@@ -157,6 +173,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 		if err := migrateOrdersTableMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL orders 表失败: %w", err)
+		}
+		if err := migrateOrderFillsTable(db, true); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL order_fills 表失败: %w", err)
 		}
 		if err := migrateStatisticsTableMySQL(db); err != nil {
 			db.Close()
@@ -205,6 +225,7 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			{"market_interpret_tasks", migrateMarketInterpretTasksTableMySQL},
 			{"hourly_equity_records", migrateHourlyEquityRecordsTableMySQL},
 			{"daily_snapshots", migrateDailySnapshotsTableMySQL},
+			{"account_equity_records", migrateAccountEquityRecordsTableMySQL},
 			{"backtest_tasks", migrateBacktestTasksTableMySQL},
 			{"optim_tasks", migrateOptimTasksTableMySQL},
 			{"news_analysis_history", migrateNewsAnalysisHistoryTableMySQL},

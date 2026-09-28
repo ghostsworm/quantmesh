@@ -3,7 +3,10 @@ package exchange
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"time"
 
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/income"
 )
@@ -12,6 +15,15 @@ import (
 type binanceWrapper struct {
 	adapter *binance.BinanceAdapter
 }
+
+func (w *binanceWrapper) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	if w == nil || w.adapter == nil {
+		return accounting.Snapshot{}, fmt.Errorf("Binance account evidence unavailable")
+	}
+	return w.adapter.ReadAccountEvidence(ctx, since)
+}
+
+var _ accounting.Source = (*binanceWrapper)(nil)
 
 func (w *binanceWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -226,6 +238,7 @@ func (w *binanceWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: binanceAccount.TotalWalletBalance,
 		TotalMarginBalance: binanceAccount.TotalMarginBalance,
 		AvailableBalance:   binanceAccount.AvailableBalance,
+		BalanceAsset:       binanceAccount.BalanceAsset,
 		Positions:          positions,
 		AccountLeverage:    binanceAccount.AccountLeverage,
 	}, nil
@@ -355,10 +368,22 @@ func (w *binanceWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeTyp
 	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }
 
-// GetOrderFills 查詢訂單成交記錄（Binance WebSocket 已提供手續費，此方法可選實現）
+// GetOrderFills 查詢 Binance 合約逐笔成交账本。
 func (w *binanceWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	// Binance WebSocket 已提供手續費，此處可返回 nil 或實現查詢邏輯
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*OrderFill, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			return nil, fmt.Errorf("Binance returned an empty execution for order %d", orderID)
+		}
+		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol,
+			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
+			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime})
+	}
+	return fills, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格
@@ -412,4 +437,51 @@ func (w *binanceWrapper) InternalTransfer(ctx context.Context, fromAccount, toAc
 // GetAdapter 获取底层BinanceAdapter（用于订单同步等特殊功能）
 func (w *binanceWrapper) GetAdapter() interface{} {
 	return w.adapter
+}
+
+func (w *binanceWrapper) GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error) {
+	return binanceOrderHistoryPage(ctx, w.adapter, symbol, startTime, endTime, cursor, limit)
+}
+
+func binanceOrderHistoryPage(ctx context.Context, adapter interface{}, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error) {
+	source, ok := adapter.(interface {
+		GetUserTradesFromID(context.Context, string, int64, int64, int64, int) ([]*binance.UserTrade, error)
+	})
+	if !ok || source == nil {
+		return OrderHistoryPage{}, fmt.Errorf("Binance adapter does not expose paginated user trades: %T", adapter)
+	}
+	fromID := int64(0)
+	if cursor != "" {
+		parsed, err := strconv.ParseInt(cursor, 10, 64)
+		if err != nil || parsed <= 0 {
+			return OrderHistoryPage{}, fmt.Errorf("invalid Binance execution cursor")
+		}
+		fromID = parsed
+	}
+	rows, err := source.GetUserTradesFromID(ctx, symbol, startTime, endTime, fromID, limit)
+	if err != nil {
+		return OrderHistoryPage{}, err
+	}
+	page := OrderHistoryPage{Fills: make([]*OrderFill, 0, len(rows)), HasMore: len(rows) == limit}
+	for _, row := range rows {
+		if row == nil {
+			return OrderHistoryPage{}, fmt.Errorf("Binance returned a nil execution")
+		}
+		if row.Time.UnixMilli() > endTime {
+			page.HasMore = false
+			break
+		}
+		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
+			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, QuoteQuantity: row.QuoteQuantity, Commission: row.Commission,
+			CommissionAsset: row.CommissionAsset, TradeTime: row.Time.UnixMilli(), RealizedPnL: row.RealizedPnL,
+			CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
+	}
+	if page.HasMore && len(rows) > 0 {
+		lastID := rows[len(rows)-1].ID
+		if lastID == int64(^uint64(0)>>1) {
+			return OrderHistoryPage{}, fmt.Errorf("Binance execution cursor overflow")
+		}
+		page.NextCursor = strconv.FormatInt(lastID+1, 10)
+	}
+	return page, nil
 }

@@ -254,7 +254,7 @@ func TestRunCloseOnStop(t *testing.T) {
 		{name: "legacy bool only", sc: config.SymbolConfig{CloseOnStop: true}, wantCalls: "liquidate"},
 		{name: "configured method", sc: config.SymbolConfig{CloseOnStop: true, CloseOnStopConfig: limitCfg}, wantCalls: "cancel,close"},
 		{name: "both direction", sc: config.SymbolConfig{CloseOnStop: true, Direction: "BOTH", CloseOnStopConfig: limitCfg}, wantCalls: "liquidate"},
-		{name: "full close fails falls back", sc: config.SymbolConfig{CloseOnStop: true, CloseOnStopConfig: limitCfg}, closeErr: closeErr, wantCalls: "cancel,close,liquidate"},
+		{name: "full close failure never blindly submits a second close", sc: config.SymbolConfig{CloseOnStop: true, CloseOnStopConfig: limitCfg}, closeErr: closeErr, wantCalls: "cancel,close"},
 		{name: "partial close fails no fallback", sc: config.SymbolConfig{CloseOnStop: true, CloseOnStopConfig: partialCfg}, closeErr: closeErr, wantCalls: "cancel,close"},
 	}
 	for _, tc := range cases {

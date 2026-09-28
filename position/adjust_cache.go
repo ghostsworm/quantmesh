@@ -157,7 +157,7 @@ func (spm *SuperPositionManager) accountEquityForStopLoss() float64 {
 
 // stopLossDenominator 硬止損比例分母：position 用持倉名義價值；equity 用帳戶權益（暫無權益數據時回退持倉價值）
 func (spm *SuperPositionManager) stopLossDenominator(positionValue float64) (float64, string) {
-	if spm.config.Trading.GridRiskControl.GetStopLossBasis() != config.StopLossBasisEquity {
+	if spm.gridRiskControl().GetStopLossBasis() != config.StopLossBasisEquity {
 		return positionValue, config.StopLossBasisPosition
 	}
 	if equity := spm.accountEquityForStopLoss(); equity > 0 {

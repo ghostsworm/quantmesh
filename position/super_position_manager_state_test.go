@@ -3,6 +3,7 @@ package position
 import (
 	"context"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,6 +91,23 @@ func TestSuperPositionManagerStateAccessorsAndCounters(t *testing.T) {
 	}
 	if spm.GetAllocationManager() == nil {
 		t.Fatalf("GetAllocationManager() = nil")
+	}
+}
+
+func TestStrategyRecoveryBlocksAreVisibleAsOpeningPauseReasons(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	for _, tc := range []struct {
+		block  string
+		phrase string
+	}{
+		{"strategy_startup_unverified", "策略启动或状态恢复失败"},
+		{"strategy_accounting_unverified", "策略成交账未核实"},
+	} {
+		spm.OpeningGate().Block(tc.block)
+		if got := spm.GetOpeningPauseReason(); !strings.Contains(got, tc.phrase) {
+			t.Errorf("block %q pause reason=%q, want phrase %q", tc.block, got, tc.phrase)
+		}
+		spm.OpeningGate().Unblock(tc.block)
 	}
 }
 

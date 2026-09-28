@@ -272,7 +272,9 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
 
       const response = await getExchangeSymbols({
         exchange,
-        market_type: marketTypeOverride || formData.market_type || 'futures',
+        market_type: marketTypeOverride === 'spot' || marketTypeOverride === 'futures'
+          ? marketTypeOverride
+          : formData.market_type === 'spot' ? 'spot' : 'futures',
         api_key: exchangeConfig.api_key,
         secret_key: exchangeConfig.secret_key,
         passphrase: exchangeConfig.passphrase,
@@ -1003,7 +1005,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                 {formData.order_quantity > 0 && (() => {
                   const rec = calculateRecommendations(formData.symbol, currentPrice, allocatedCapital)
                   const suggested = rec.min_order_value.suggested
-                  const isReasonable = formData.min_order_value >= suggested * 0.5
+                  const isReasonable = (formData.min_order_value ?? 0) >= suggested * 0.5
                   return (
                     <Text fontSize="xs" color={isReasonable ? "green.500" : "orange.500"} mt={1}>
                       {isReasonable ? "✓" : "⚠"} {t('symbolManager.suggestedWithPercent', { value: suggested, percent: ((suggested / formData.order_quantity) * 100).toFixed(0) })}
@@ -1103,7 +1105,7 @@ const SymbolManager: React.FC<SymbolManagerProps> = ({ config, onUpdate }) => {
                       </Text>
                     )}
                   </HStack>
-                  {quickSetupMarketType === 'spot' && config.app?.current_exchange && !spotSupportedExchanges.includes(config.app.current_exchange) && (
+                  {quickSetupMarketType === 'spot' && config.app?.current_exchange && !spotSupportedExchanges.some(exchange => exchange === config.app.current_exchange) && (
                     <Alert status="warning" size="sm" borderRadius="md" mt={2}>
                       <AlertIcon boxSize={3} />
                       <AlertDescription fontSize="xs">

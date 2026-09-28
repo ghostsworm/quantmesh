@@ -164,20 +164,42 @@ type exchangeExecutorAdapter struct {
 	accountID string
 }
 
+func (a *exchangeExecutorAdapter) MarkOrderReconciliationRequired(orderID int64, clientOrderID, reason string) error {
+	return a.executor.MarkOrderReconciliationRequired(orderID, clientOrderID, reason)
+}
+
+func (a *exchangeExecutorAdapter) CancelOwnedOpeningOrders(ctx context.Context) error {
+	return a.executor.CancelOwnedOpeningOrders(ctx)
+}
+
 func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
+	return a.PlaceOrderContext(context.Background(), req)
+}
+
+func (a *exchangeExecutorAdapter) PlaceOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
+	if req == nil {
+		return nil, fmt.Errorf("order request is nil")
+	}
 	orderReq := &order.OrderRequest{
 		Symbol:        req.Symbol,
 		Side:          req.Side,
+		Type:          req.Type,
+		TimeInForce:   req.TimeInForce,
 		Price:         req.Price,
 		Quantity:      req.Quantity,
 		PriceDecimals: req.PriceDecimals,
 		ReduceOnly:    req.ReduceOnly,
+		PositionSide:  req.PositionSide,
+		ExposureKey:   req.ExposureKey,
+		BotWideClose:  req.BotWideClose,
 		PostOnly:      req.PostOnly,
 		ClientOrderID: req.ClientOrderID,
 		StrategyName:  req.StrategyName,
 		StrategyType:  req.StrategyType,
+		OrderSource:   req.OrderSource,
 	}
-	ord, err := a.executor.PlaceOrder(orderReq)
+	ord, err := a.executor.PlaceOrderContext(ctx, orderReq)
+	req.ClientOrderID = orderReq.ClientOrderID
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +238,8 @@ func (a *exchangeExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*posit
 		Quantity:      ord.Quantity,
 		Status:        ord.Status,
 		CreatedAt:     ord.CreatedAt,
+		ExecutedQty:   ord.ExecutedQty,
+		AvgPrice:      ord.AvgPrice,
 	}, nil
 }
 
@@ -225,17 +249,29 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderReque
 }
 
 func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	return a.BatchPlaceOrdersWithDetailsContext(context.Background(), orders)
+}
+
+func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
 	// 建立 ClientOrderID -> 策略信息 的映射，用於事件发布時回填
 	strategyMap := make(map[string][3]string) // ClientOrderID -> [StrategyName, StrategyType, OrderSource]
 	orderReqs := make([]*order.OrderRequest, len(orders))
 	for i, req := range orders {
+		if req == nil {
+			continue
+		}
 		orderReqs[i] = &order.OrderRequest{
 			Symbol:        req.Symbol,
 			Side:          req.Side,
+			Type:          req.Type,
+			TimeInForce:   req.TimeInForce,
 			Price:         req.Price,
 			Quantity:      req.Quantity,
 			PriceDecimals: req.PriceDecimals,
 			ReduceOnly:    req.ReduceOnly,
+			PositionSide:  req.PositionSide,
+			ExposureKey:   req.ExposureKey,
+			BotWideClose:  req.BotWideClose,
 			PostOnly:      req.PostOnly,
 			ClientOrderID: req.ClientOrderID,
 			StrategyName:  req.StrategyName,
@@ -252,12 +288,18 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			}
 		}
 	}
-	batchResult := a.executor.BatchPlaceOrdersWithDetails(orderReqs)
+	batchResult := a.executor.BatchPlaceOrdersWithDetailsContext(ctx, orderReqs)
+	for i, req := range orders {
+		if req != nil {
+			req.ClientOrderID = orderReqs[i].ClientOrderID
+		}
+	}
 
 	result := &position.BatchPlaceOrdersResult{
 		PlacedOrders:     make([]*position.Order, 0, len(batchResult.PlacedOrders)),
 		HasMarginError:   batchResult.HasMarginError,
 		ReduceOnlyErrors: batchResult.ReduceOnlyErrors,
+		UnknownOrders:    batchResult.UnknownOrders,
 	}
 
 	for _, ord := range batchResult.PlacedOrders {
@@ -273,6 +315,8 @@ func (a *exchangeExecutorAdapter) BatchPlaceOrdersWithDetails(orders []*position
 			Quantity:      ord.Quantity,
 			Status:        ord.Status,
 			CreatedAt:     ord.CreatedAt,
+			ExecutedQty:   ord.ExecutedQty,
+			AvgPrice:      ord.AvgPrice,
 		})
 
 		// 发布订單下單事件（回填策略信息）

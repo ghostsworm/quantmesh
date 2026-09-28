@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -112,6 +113,7 @@ type fakeWithdrawStorage struct {
 	records       []*storage.ProfitWithdrawRecord
 	failLastTrig  bool
 	transferCalls int
+	claimID       string
 }
 
 func (f *fakeWithdrawStorage) ListAccountIDsWithProfitRules() ([]string, error) {
@@ -130,8 +132,26 @@ func (f *fakeWithdrawStorage) GetPnLByTimeRange(account string, start, end time.
 	}
 	return []*storage.PnLBySymbol{{Symbol: "BTCUSDT", TotalPnL: total}}, nil
 }
+func (f *fakeWithdrawStorage) GetRealizedPnLForWithdrawal(_, _, _ string, start, end time.Time) (float64, error) {
+	var total float64
+	for _, ev := range f.events {
+		if ev.at.After(start) && !ev.at.After(end) {
+			total += ev.pnl
+		}
+	}
+	return total, nil
+}
 func (f *fakeWithdrawStorage) GetWithdrawRecords(accountID string, limit int) ([]*storage.ProfitWithdrawRecord, error) {
 	return f.records, nil
+}
+func (f *fakeWithdrawStorage) SumReservedWithdrawAmount(accountID, ruleID string, since time.Time) (float64, error) {
+	var total float64
+	for _, r := range f.records {
+		if r != nil && r.AccountID == accountID && r.RuleID == ruleID && r.CreatedAt.After(since) && r.Status != "failed" && r.Status != "cancelled" {
+			total += r.Amount
+		}
+	}
+	return total, nil
 }
 func (f *fakeWithdrawStorage) SaveWithdrawRecord(r *storage.ProfitWithdrawRecord) error {
 	f.records = append(f.records, r)
@@ -142,6 +162,7 @@ func (f *fakeWithdrawStorage) UpdateWithdrawRecordStatus(id, status, transferID,
 		if r.ID == id {
 			r.Status = status
 			r.TransferID = transferID
+			r.FailedReason = failedReason
 		}
 	}
 	return nil
@@ -153,16 +174,93 @@ func (f *fakeWithdrawStorage) UpdateRuleLastTriggeredAt(ruleID string, at time.T
 	f.rule.LastTriggeredAt = &at
 	return nil
 }
+func (f *fakeWithdrawStorage) ClaimProfitWithdrawRule(ruleID, claimID string) (bool, error) {
+	if f.claimID != "" {
+		return false, nil
+	}
+	f.claimID = claimID
+	return true, nil
+}
+func (f *fakeWithdrawStorage) ReleaseProfitWithdrawRuleClaim(ruleID, claimID string) error {
+	if f.claimID != claimID {
+		return errors.New("claim identity mismatch")
+	}
+	f.claimID = ""
+	return nil
+}
 
 type fakeTransferExchange struct {
 	exchange.IExchange
 	st      *fakeWithdrawStorage
 	amounts []float64
+	err     error
 }
 
 func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
 	f.amounts = append(f.amounts, amount)
+	if f.err != nil {
+		return "", f.err
+	}
 	return "tx", nil
+}
+
+func TestAutomaticWithdrawAmbiguousTransferErrorIsNeverRetried(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
+		TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate,
+	}}
+	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
+	ex := &fakeTransferExchange{st: st, err: errors.New("request timeout")}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+
+	if err := e.processRule(st.rule); err == nil {
+		t.Fatal("ambiguous transfer error must be surfaced")
+	}
+	if len(st.records) != 1 || st.records[0].Status != "pending" || st.records[0].FailedReason == "" {
+		t.Fatalf("transfer outcome must remain reserved for reconciliation: %+v", st.records)
+	}
+	if st.claimID == "" {
+		t.Fatal("unknown transfer outcome must retain the durable rule claim")
+	}
+	if err := e.processRule(st.rule); err != nil {
+		t.Fatalf("pending record should suppress automatic retry without failing processing: %v", err)
+	}
+	if len(ex.amounts) != 1 {
+		t.Fatalf("ambiguous transfer was retried %d times", len(ex.amounts))
+	}
+}
+
+func TestConcurrentAutomaticWithdrawForSameRuleTransfersOnlyOnce(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "concurrent-rule", AccountID: "concurrent-account", AccountScope: "scope-a",
+		ExchangeID: "binance", Enabled: true, TriggerAmount: 1,
+		WithdrawRatio: 1, Frequency: frequencyImmediate,
+	}}
+	st.events = append(st.events, pnlEvent{at: base.Add(time.Minute), pnl: 100})
+	ex := &fakeTransferExchange{st: st}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := e.processRule(st.rule); err != nil {
+				t.Errorf("process rule: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if len(ex.amounts) != 1 || len(st.records) != 1 {
+		t.Fatalf("concurrent rule produced %d transfers and %d reservations; want one each", len(ex.amounts), len(st.records))
+	}
+	if st.claimID != "" {
+		t.Fatalf("confirmed successful transfer should release claim, got %q", st.claimID)
+	}
 }
 
 // TestImmediateWithdrawNoRepeatedTransfer 多次 tick 只提取新增利潤，不重複劃轉累計利潤
@@ -195,7 +293,7 @@ func TestImmediateWithdrawNoRepeatedTransfer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := &fakeWithdrawStorage{
 				rule: &storage.ProfitWithdrawRule{
-					ID: "r1", AccountID: "acc", ExchangeID: "binance", Enabled: true,
+					ID: "r1", AccountID: "acc", AccountScope: "scope-a", ExchangeID: "binance", Enabled: true,
 					TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate",
 				},
 				failLastTrig: tt.failLastTrig,

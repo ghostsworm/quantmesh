@@ -1,20 +1,29 @@
 package strategy
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"quantmesh/config"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 const (
 	signalActionOpenLong  = "open_long"
 	signalActionCloseLong = "close_long"
 )
+
+// Production reads the shared runtime gate, not a potentially stale config
+// snapshot. Standalone strategy users still respect their configured pause.
+func signalOpeningPaused(executor position.OrderExecutorInterface, cfg *config.Config) bool {
+	if gate, ok := executor.(interface{ IsOpeningPaused() bool }); ok {
+		return gate.IsOpeningPaused()
+	}
+	return cfg != nil && (cfg.Trading.OpenPositionControl.PauseOpening ||
+		(cfg.Trading.OpenPositionControl.BotRiskControl != nil && cfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening))
+}
 
 func signalStrategyFloat(cfg map[string]interface{}, keys []string, defaultValue float64) float64 {
 	for _, key := range keys {
@@ -164,20 +173,10 @@ func entryHasFill(status string) bool {
 	return status == entryStatusFilled || status == entryStatusPartiallyFilled
 }
 
-// entryFillFromUpdate 從成交回報取累計成交數量與均價；回報缺數量時對 FILLED 回退到下單數量
-func entryFillFromUpdate(update *position.OrderUpdate, plannedQty, plannedPrice float64) (qty, price float64) {
-	qty = update.ExecutedQty
-	if qty <= 0 && signalOrderStatusFilled(update.Status) {
-		qty = plannedQty
-	}
-	price = update.AvgPrice
-	if price <= 0 {
-		price = update.Price
-	}
-	if price <= 0 {
-		price = plannedPrice
-	}
-	return qty, price
+// entryFillFromUpdate returns only venue-reported cumulative quantity and average
+// execution price. Requested order values are not evidence of an actual fill.
+func entryFillFromUpdate(update *position.OrderUpdate) (qty, price float64) {
+	return update.ExecutedQty, update.AvgPrice
 }
 
 func signalOrderStatusTerminal(status string) bool {
@@ -189,13 +188,18 @@ func signalOrderMatches(order *Order, update *position.OrderUpdate) bool {
 	if order == nil || update == nil {
 		return false
 	}
-	if update.OrderID > 0 && order.OrderID == update.OrderID {
-		return true
+	if (update.Symbol != "" && order.Symbol != "" && update.Symbol != order.Symbol) ||
+		(update.Side != "" && order.Side != "" && !strings.EqualFold(update.Side, order.Side)) {
+		return false
 	}
-	return update.ClientOrderID != "" && order.ClientOrderID == update.ClientOrderID
+	if update.OrderID > 0 && order.OrderID > 0 {
+		return order.OrderID == update.OrderID
+	}
+	return update.ClientOrderID != "" && (order.ClientOrderID == update.ClientOrderID || order.clientOrderAlias == update.ClientOrderID)
 }
 
-func signalClientOrderID(strategyName, action string) string {
-	clean := strings.NewReplacer(" ", "_", "/", "_", ":", "_").Replace(strategyName)
-	return fmt.Sprintf("%s_%s_%d", clean, action, time.Now().UnixNano())
+func signalClientOrderID(_, _ string) string {
+	// 128-bit random identity, 26 alphanumeric bytes: fits all supported signal
+	// order ID limits including broker prefixes. Strategy routing is explicit.
+	return utils.NewCompactOrderID()
 }

@@ -10,6 +10,7 @@ Group=quantmesh
 WorkingDirectory=/opt/quantmesh
 ExecStart=/opt/quantmesh/quantmesh
 ExecStop=/bin/kill -s TERM $MAINPID
+TimeoutStopSec=6min
 
 # 环境变量（可选）
 # Environment="BACKUP_UPLOAD_ENABLED=true"
@@ -39,4 +40,3 @@ SyslogIdentifier=quantmesh
 
 [Install]
 WantedBy=multi-user.target
-

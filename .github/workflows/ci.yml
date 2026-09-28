@@ -59,7 +59,7 @@ jobs:
       working-directory: webui
       run: |
         yarn install --immutable
-        yarn test
+        yarn verify
 
   # 构建
   build:
@@ -146,7 +146,9 @@ jobs:
         done
         
         # 构建
-        VERSION=$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "dev")
+        VERSION=$(node -p "require('./webui/package.json').version")
+        BACKEND_VERSION=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go)
+        test -n "$VERSION" && test "$VERSION" = "$BACKEND_VERSION"
         go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.name }} .
         
         # 恢复工具文件

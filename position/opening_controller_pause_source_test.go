@@ -29,6 +29,7 @@ func runScheduleAtCurrentMinute(t *testing.T, oc *OpeningController, symbolCfg *
 		symbolCfg.OpenPositionControl.ScheduleRules = []config.ScheduleRule{{
 			Enabled: true, Action: action, Time: fmt.Sprintf("%02d:%02d", now.Hour(), now.Minute()),
 		}}
+		oc.UpdateConfig(symbolCfg)
 		oc.check()
 		if time.Now().UTC().Minute() == now.Minute() {
 			return
@@ -84,6 +85,7 @@ func TestOpeningControllerPeriodicOpenPhaseDoesNotLiftRiskPause(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			spm, oc, symbolCfg := newPauseSourceTestController(t)
 			symbolCfg.OpenPositionControl.PeriodicRule = &config.PeriodicRule{Enabled: true, OpenDurationMin: 5, CloseDurationMin: 5}
+			oc.UpdateConfig(symbolCfg)
 			spm.PauseOpening(tc.pauseReason)
 			oc.periodicState = false // 關倉期已到期，下一次檢查切換到開倉期
 

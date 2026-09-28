@@ -66,14 +66,11 @@ func inventoryRatio(layers, maxLayers int) float64 {
 
 // inventoryMaxLayers 庫存偏斜的最大層數來源：Bot 獨立風控 max_position_layers → 開倉管理 max_position_layers → 網格風控 max_grid_layers；均未配置返回 0
 func (spm *SuperPositionManager) inventoryMaxLayers() int {
-	oc := spm.config.Trading.OpenPositionControl
-	if oc.BotRiskControl != nil && oc.BotRiskControl.Enabled && oc.BotRiskControl.MaxPositionLayers > 0 {
-		return oc.BotRiskControl.MaxPositionLayers
+	oc := spm.openingControl()
+	if _, _, layers := oc.PositionLimits(); layers > 0 {
+		return layers
 	}
-	if oc.MaxPositionLayers > 0 {
-		return oc.MaxPositionLayers
-	}
-	if g := spm.config.Trading.GridRiskControl; g.Enabled && g.MaxGridLayers > 0 {
+	if g := spm.gridRiskControl(); g.Enabled && g.MaxGridLayers > 0 {
 		return g.MaxGridLayers
 	}
 	return 0

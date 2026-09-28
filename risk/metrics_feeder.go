@@ -19,9 +19,10 @@ MetricsFeeder 熔断器内部数据喂入（审查报告 C1）。
 
   - 单日盈亏 = 今日（配置时区）已实现净盈亏（trades.pnl - fee）+ 所有 Bot 当前未实现盈亏。
     未实现盈亏按“当前值”计入而非“今日变化量”，偏保守：隔夜浮亏也会计入当日亏损。
-  - 最大回撤(%) = 以首次观测到的账户权益为基准，
-    调整权益 = 基准权益 + 基准后已实现净盈亏 + (当前未实现 - 基准时未实现)，相对高水位的回撤百分比。
-    不直接用交易所余额做曲线，避免利润划转（合约→现货）被误判为回撤。高水位只在内存中，进程重启后重新起算。
+  - 回撤(%) 每轮读取实际账户权益，扣除已核实的外部净入金后相对高水位计算。
+    费用/资金费/借息留在实际权益中，不按本地 trades 重构，也不再次扣费。
+    无完整现金流水的旧数据源仅报告未调整回撤；严格模式拒绝其作为风险依据。
+    配置持久化时先保存高水位/流水凭据再发布指标，重启不重建基准。
   - 连续亏损 = 最近成交（按时间倒序）从最新一笔开始连续净亏损的笔数，净盈亏为 0 的成交跳过。
 
 熔断恢复后通过 MetricsResetMarks 重置基线，避免同一批历史再次触发。
@@ -76,13 +77,20 @@ type MetricsSnapshot struct {
 	MaxDrawdownPct    float64
 	ConsecutiveLosses int
 	DrawdownAvailable bool
+	CashFlowAdjusted  bool
+	EquityObservedAt  time.Time
 }
 
 // MetricsFeederOptions 可选参数
 type MetricsFeederOptions struct {
-	Interval time.Duration
-	Location *time.Location   // 日界时区，nil 使用 time.Local
-	Now      func() time.Time // 测试注入
+	Interval                      time.Duration
+	Location                      *time.Location   // 日界时区，nil 使用 time.Local
+	Now                           func() time.Time // 测试注入
+	MaxEquityAge                  time.Duration
+	EquityStore                   EquityStateStore
+	RequirePersistence            bool
+	RequireCashFlowReconciliation bool
+	RequireTradeHistory           bool
 }
 
 // MetricsFeeder 周期性计算并喂入熔断指标
@@ -93,18 +101,9 @@ type MetricsFeeder struct {
 	bots   BotProvider
 	opts   MetricsFeederOptions
 
-	mu sync.Mutex
-	// 回撤基准
-	hasBase        bool
-	baseAt         time.Time
-	baseEquity     float64
-	baseUnrealized float64
-	highWater      float64
-	baseAllMark    time.Time
-	// 基准后已实现盈亏的增量统计
-	realizedSinceBase float64
-	realizedCursor    time.Time
-	seenTrades        map[string]time.Time
+	mu           sync.Mutex
+	equityLoaded bool
+	equityState  *EquityCheckpoint
 }
 
 // NewMetricsFeeder 创建喂数器；trades/equity/bots 均可为 nil（对应指标记为 0）
@@ -118,13 +117,15 @@ func NewMetricsFeeder(sink MetricsSink, trades TradeHistorySource, equity Equity
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
+	if opts.MaxEquityAge <= 0 {
+		opts.MaxEquityAge = 2 * opts.Interval
+	}
 	return &MetricsFeeder{
-		sink:       sink,
-		trades:     trades,
-		equity:     equity,
-		bots:       bots,
-		opts:       opts,
-		seenTrades: make(map[string]time.Time),
+		sink:   sink,
+		trades: trades,
+		equity: equity,
+		bots:   bots,
+		opts:   opts,
 	}
 }
 
@@ -157,15 +158,22 @@ func (f *MetricsFeeder) tickAndLog(ctx context.Context) {
 }
 
 // Tick 计算一次指标并写入 sink；数据源出错时不写入（避免用残缺数据清零指标）
-func (f *MetricsFeeder) Tick(ctx context.Context) (MetricsSnapshot, error) {
+func (f *MetricsFeeder) Tick(ctx context.Context) (snap MetricsSnapshot, resultErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	defer func() { f.reportHealth(snap, resultErr) }()
 
 	now := f.opts.Now()
 	marks := f.sink.MetricsResetMarks()
-	var snap MetricsSnapshot
 
-	snap.UnrealizedPnL = f.totalUnrealized()
+	unrealizedPnL, err := f.totalUnrealized()
+	if err != nil {
+		return snap, err
+	}
+	snap.UnrealizedPnL = unrealizedPnL
+	if f.opts.RequireTradeHistory && f.trades == nil {
+		return snap, fmt.Errorf("trade history source required by enabled circuit-breaker triggers")
+	}
 
 	realizedToday, err := f.realizedToday(ctx, now, marks)
 	if err != nil {
@@ -173,6 +181,9 @@ func (f *MetricsFeeder) Tick(ctx context.Context) (MetricsSnapshot, error) {
 	}
 	snap.RealizedToday = realizedToday
 	snap.DailyPnL = realizedToday + snap.UnrealizedPnL
+	if !finiteEquity(snap.RealizedToday) || !finiteEquity(snap.UnrealizedPnL) || !finiteEquity(snap.DailyPnL) {
+		return snap, fmt.Errorf("non-finite PnL source; risk metrics are unavailable")
+	}
 
 	losses, err := f.consecutiveLosses(ctx, now, marks)
 	if err != nil {
@@ -180,36 +191,40 @@ func (f *MetricsFeeder) Tick(ctx context.Context) (MetricsSnapshot, error) {
 	}
 	snap.ConsecutiveLosses = losses
 
-	dd, ok, err := f.drawdown(ctx, now, marks, snap.UnrealizedPnL)
+	dd, ok, err := f.drawdown(ctx, now, marks)
 	if err != nil {
 		return snap, err
 	}
 	snap.MaxDrawdownPct = dd
 	snap.DrawdownAvailable = ok
+	if ok && f.equityState != nil {
+		snap.CashFlowAdjusted = f.equityState.CashFlowAdjusted
+		snap.EquityObservedAt = f.equityState.LastAt
+	}
 
-	f.sink.UpdateMetrics(snap.DailyPnL, snap.MaxDrawdownPct, snap.ConsecutiveLosses)
+	if _, atomic := f.sink.(observedMetricsSink); !atomic {
+		f.sink.UpdateMetrics(snap.DailyPnL, snap.MaxDrawdownPct, snap.ConsecutiveLosses)
+	}
 	return snap, nil
 }
 
 // totalUnrealized 汇总所有 Bot 未实现盈亏；未初始化/无价格的 Bot 跳过
-func (f *MetricsFeeder) totalUnrealized() float64 {
+func (f *MetricsFeeder) totalUnrealized() (float64, error) {
 	if f.bots == nil {
-		return 0
+		return 0, nil
 	}
 	total := 0.0
-	for _, bot := range f.bots.GetAllBots() {
+	for index, bot := range f.bots.GetAllBots() {
 		if bot == nil {
 			continue
 		}
 		pnl, _, err := bot.GetPositionSummary()
 		if err != nil {
-			// 未启动或暂无价格的 Bot 属正常情况，不计入也不告警
-			logger.Debug("🔍 [熔断喂数] 跳过 Bot 未实现盈亏: %v", err)
-			continue
+			return 0, fmt.Errorf("read unrealized PnL for bot index %d: %w", index, err)
 		}
 		total += pnl
 	}
-	return total
+	return total, nil
 }
 
 func maxTime(a, b time.Time) time.Time {
@@ -264,95 +279,4 @@ func (f *MetricsFeeder) consecutiveLosses(ctx context.Context, now time.Time, ma
 		}
 	}
 	return count, nil
-}
-
-// drawdown 计算相对高水位的回撤百分比；无权益数据时返回 ok=false
-func (f *MetricsFeeder) drawdown(ctx context.Context, now time.Time, marks MetricsResetMarks, unrealized float64) (float64, bool, error) {
-	if f.equity == nil {
-		return 0, false, nil
-	}
-
-	if !f.hasBase || marks.All.After(f.baseAllMark) {
-		equity, err := f.equity.TotalEquity(ctx)
-		if err != nil {
-			// 权益暂不可得时不阻断其他指标，下轮重试
-			if errors.Is(err, ErrEquityUnavailable) {
-				logger.Debug("🔍 [熔断喂数] 暂无权益数据，本轮回撤不可用: %v", err)
-			} else {
-				logger.Warn("⚠️ [熔断喂数] 获取账户权益失败，本轮回撤不可用: %v", err)
-			}
-			return 0, false, nil
-		}
-		if equity <= 0 {
-			logger.Warn("⚠️ [熔断喂数] 账户权益 %.2f 无效，本轮回撤不可用", equity)
-			return 0, false, nil
-		}
-		f.hasBase = true
-		f.baseAt = now
-		f.baseEquity = equity
-		f.baseUnrealized = unrealized
-		f.highWater = equity
-		f.baseAllMark = marks.All
-		f.realizedSinceBase = 0
-		f.realizedCursor = now
-		f.seenTrades = make(map[string]time.Time)
-		logger.Info("📊 [熔断喂数] 回撤基准权益 %.2f USDT", equity)
-		return 0, true, nil
-	}
-
-	if err := f.accumulateRealized(ctx, now); err != nil {
-		return 0, false, err
-	}
-
-	adjusted := f.baseEquity + f.realizedSinceBase + (unrealized - f.baseUnrealized)
-	if adjusted > f.highWater {
-		f.highWater = adjusted
-	}
-	if f.highWater <= 0 {
-		return 0, true, nil
-	}
-	dd := (f.highWater - adjusted) / f.highWater * percentMultiplier
-	if dd < 0 {
-		dd = 0
-	}
-	return dd, true, nil
-}
-
-// accumulateRealized 增量累加基准之后的已实现净盈亏（带重叠窗口去重）
-func (f *MetricsFeeder) accumulateRealized(ctx context.Context, now time.Time) error {
-	if f.trades == nil {
-		return nil
-	}
-	start := maxTime(f.realizedCursor.Add(-realizedCursorOverlap), f.baseAt)
-	trades, err := f.trades.TradesBetween(ctx, start, now, realizedPnLQueryLimit)
-	if err != nil {
-		return fmt.Errorf("增量查询成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
-	}
-	prevCursor := f.realizedCursor
-	for _, t := range trades {
-		if t.ClosedAt.Before(f.baseAt) {
-			continue
-		}
-		if t.Key == "" {
-			// 无唯一键无法去重：只统计上次游标之后的成交
-			if t.ClosedAt.After(prevCursor) {
-				f.realizedSinceBase += t.NetPnL
-			}
-			continue
-		}
-		if _, seen := f.seenTrades[t.Key]; seen {
-			continue
-		}
-		f.seenTrades[t.Key] = t.ClosedAt
-		f.realizedSinceBase += t.NetPnL
-	}
-	f.realizedCursor = now
-
-	// 下轮查询起点不早于本轮起点，本轮起点之前的去重记录不会再被查到
-	for k, ts := range f.seenTrades {
-		if ts.Before(start) {
-			delete(f.seenTrades, k)
-		}
-	}
-	return nil
 }

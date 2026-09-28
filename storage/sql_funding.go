@@ -101,10 +101,46 @@ func (s *SQLStorage) GetFundingRateHistory(symbol, exchange string, limit int) (
 func (s *SQLStorage) SaveFundingPayment(payment *FundingPayment) error {
 	tradeTime := utils.ToUTC(payment.TradeTime)
 	_, err := s.db.Exec(`
-		INSERT INTO funding_payments (exchange, symbol, account, income_type, income, asset, info, transaction_id, trade_time, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, payment.Exchange, payment.Symbol, payment.Account, payment.IncomeType, payment.Income, payment.Asset, payment.Info, payment.TransactionID, tradeTime, time.Now().UTC())
+		INSERT INTO funding_payments (exchange, symbol, account, market_type, account_scope, income_type, income, asset, info, transaction_id, trade_time, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, payment.Exchange, payment.Symbol, payment.Account, payment.MarketType, payment.AccountScope, payment.IncomeType, payment.Income, payment.Asset, payment.Info, payment.TransactionID, tradeTime, time.Now().UTC())
 	return err
+}
+
+// GetDailyFundingPaymentsByScope returns one day's funding totals grouped by
+// denomination. Legacy rows without an immutable account scope are excluded.
+func (s *SQLStorage) GetDailyFundingPaymentsByScope(account, exchange, marketType, symbol, accountScope string, startTime, endTime time.Time) (map[string]float64, error) {
+	if accountScope == "" || marketType == "" || exchange == "" || symbol == "" || !startTime.Before(endTime) {
+		return nil, fmt.Errorf("daily funding query requires complete account and market scope")
+	}
+	query := `SELECT UPPER(COALESCE(asset, '')), COALESCE(SUM(income), 0) FROM funding_payments WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND trade_time >= ? AND trade_time < ?`
+	args := []interface{}{exchange, marketType, symbol, accountScope, utils.ToUTC(startTime), utils.ToUTC(endTime)}
+	if account != "" {
+		query += ` AND account = ?`
+		args = append(args, account)
+	}
+	query += ` GROUP BY UPPER(COALESCE(asset, ''))`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query scoped daily funding payments: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]float64)
+	for rows.Next() {
+		var asset string
+		var total float64
+		if err := rows.Scan(&asset, &total); err != nil {
+			return nil, fmt.Errorf("scan scoped daily funding payments: %w", err)
+		}
+		if asset == "" {
+			return nil, fmt.Errorf("daily funding payment has no denomination")
+		}
+		result[asset] = total
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scoped daily funding payments: %w", err)
+	}
+	return result, nil
 }
 
 // GetFundingPayments 獲取資金費用記錄（按時間區間）

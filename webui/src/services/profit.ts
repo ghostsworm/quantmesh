@@ -1,5 +1,6 @@
 // 盈利管理 API 服務
 import { fetchWithAuth, getKlines } from './api'
+import type { KlinesResponse } from './api'
 import type {
   ProfitSummary,
   StrategyProfit,
@@ -99,6 +100,16 @@ export async function getWithdrawHistory(
 
   const url = `${API_BASE_URL}/profit/history${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url)
+}
+
+export async function reconcileWithdrawRecord(
+  recordId: string,
+  request: { outcome: 'completed' | 'failed'; reference: string; evidence: string; confirmed: boolean }
+): Promise<{ success: boolean; message: string; status: 'completed' | 'failed' }> {
+  return fetchWithAuth(`${API_BASE_URL}/profit/withdraw/${encodeURIComponent(recordId)}/reconcile`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
 }
 
 // 獲取日 K 線數據（用於價格變化對比）

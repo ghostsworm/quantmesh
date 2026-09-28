@@ -70,11 +70,15 @@ func sweepPrice(levels []OrderBookLevel, qty float64) float64 {
 
 // fetchLiquidationBookPrices 查詢盤口計算全平倉價格。調用方不得持有槽位鎖（含網絡請求）。
 func (spm *SuperPositionManager) fetchLiquidationBookPrices(sellQty, buyQty float64) liquidationBookPrices {
+	return spm.fetchLiquidationBookPricesContext(context.Background(), sellQty, buyQty)
+}
+
+func (spm *SuperPositionManager) fetchLiquidationBookPricesContext(parent context.Context, sellQty, buyQty float64) liquidationBookPrices {
 	var out liquidationBookPrices
 	if spm.exchange == nil || (sellQty <= 0 && buyQty <= 0) {
 		return out
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), liquidationOrderBookTimeout)
+	ctx, cancel := context.WithTimeout(parent, liquidationOrderBookTimeout)
 	defer cancel()
 	book, err := spm.exchange.GetOrderBook(ctx, spm.config.Trading.Symbol, liquidationOrderBookDepth)
 	if err != nil {

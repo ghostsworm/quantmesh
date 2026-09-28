@@ -68,6 +68,7 @@ export interface WithdrawRecord {
   amount: number
   fee: number
   netAmount: number
+  currency?: string
   type: WithdrawType
   status: WithdrawStatus
   destination: WithdrawDestination

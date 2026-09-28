@@ -90,6 +90,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 }
 
@@ -584,34 +585,50 @@ func (b *BybitAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if len(balance) == 0 {
-		return &Account{
-			TotalWalletBalance: 0,
-			TotalMarginBalance: 0,
-			AvailableBalance:   0,
-			Positions:          []*Position{},
-		}, nil
+	totalBalance, availableBalance, marginBalance, err := summarizeBybitUnifiedBalance(balance)
+	if err != nil {
+		return nil, err
 	}
-
-	// Bybit 返回账戶餘額
-	totalBalance, _ := strconv.ParseFloat(balance[0].TotalEquity, 64)
-	availBalance, _ := strconv.ParseFloat(balance[0].TotalAvailableBalance, 64)
-	marginBalance, _ := strconv.ParseFloat(balance[0].TotalMarginBalance, 64)
 
 	// 獲取持倉
 	positions, err := b.GetPositions(ctx, b.symbol)
 	if err != nil {
-		logger.Warn("⚠️ [Bybit] 獲取持倉失败: %v", err)
-		positions = []*Position{}
+		return nil, fmt.Errorf("query Bybit positions for account snapshot: %w", err)
 	}
 
 	return &Account{
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: marginBalance,
-		AvailableBalance:   availBalance,
+		AvailableBalance:   availableBalance,
+		BalanceAsset:       "USD",
 		Positions:          positions,
 	}, nil
+}
+
+func summarizeBybitUnifiedBalance(balances []Balance) (equity, available, margin float64, err error) {
+	if len(balances) == 0 {
+		return 0, 0, 0, nil
+	}
+	if len(balances) != 1 {
+		return 0, 0, 0, fmt.Errorf("Bybit unified balance returned %d account rows, expected one", len(balances))
+	}
+	parse := func(name, value string) (float64, error) {
+		parsed, parseErr := strconv.ParseFloat(value, 64)
+		if parseErr != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 {
+			return 0, fmt.Errorf("invalid Bybit unified %s USD value %q", name, value)
+		}
+		return parsed, nil
+	}
+	if equity, err = parse("totalEquity", balances[0].TotalEquity); err != nil {
+		return 0, 0, 0, err
+	}
+	if available, err = parse("totalAvailableBalance", balances[0].TotalAvailableBalance); err != nil {
+		return 0, 0, 0, err
+	}
+	if margin, err = parse("totalMarginBalance", balances[0].TotalMarginBalance); err != nil {
+		return 0, 0, 0, err
+	}
+	return equity, available, margin, nil
 }
 
 // GetPositions 獲取持倉信息
@@ -776,7 +793,11 @@ func (b *BybitAdapter) StopKlineStream() error {
 
 // GetHistoricalKlines 獲取歷史K線數據
 func (b *BybitAdapter) GetHistoricalKlines(ctx context.Context, symbol string, interval string, limit int) ([]*Candle, error) {
-	interval = strings.TrimSuffix(interval, "m")
+	if interval == "1h" {
+		interval = "60"
+	} else {
+		interval = strings.TrimSuffix(interval, "m")
+	}
 	klines, err := b.client.GetKlines(ctx, "linear", symbol, interval, limit)
 	if err != nil {
 		return nil, fmt.Errorf("獲取歷史K線失败: %w", err)
@@ -960,6 +981,35 @@ type BybitOrderFill struct {
 	CommissionAsset string
 	TradeTime       int64
 	IsMaker         bool
+	RealizedPnL     float64
+}
+
+func (b *BybitAdapter) GetExecutionHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {
+	return b.client.GetExecutionHistoryPage(ctx, "linear", symbol, startTime, endTime, cursor, limit)
+}
+
+func (b *BybitAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]*BybitOrderFill, string, error) {
+	rows, next, err := b.GetExecutionHistoryPage(ctx, symbol, startTime, endTime, cursor, limit)
+	if err != nil {
+		return nil, "", err
+	}
+	fills := make([]*BybitOrderFill, 0, len(rows))
+	for _, row := range rows {
+		orderID, e1 := strconv.ParseInt(row.OrderId, 10, 64)
+		price, e2 := strconv.ParseFloat(row.ExecPrice, 64)
+		qty, e3 := strconv.ParseFloat(row.ExecQty, 64)
+		fee, e4 := strconv.ParseFloat(row.ExecFee, 64)
+		tradeTime, e5 := strconv.ParseInt(row.ExecTime, 10, 64)
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || orderID <= 0 || row.TradeId == "" || row.Symbol != symbol || price <= 0 || qty <= 0 || tradeTime <= 0 {
+			return nil, "", fmt.Errorf("Bybit returned invalid linear execution tradeId=%s", row.TradeId)
+		}
+		pnl, err := strconv.ParseFloat(row.ClosedPnl, 64)
+		if err != nil && row.ClosedPnl != "" {
+			return nil, "", fmt.Errorf("parse Bybit closed PnL tradeId=%s: %w", row.TradeId, err)
+		}
+		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl})
+	}
+	return fills, next, nil
 }
 
 // GetOrderFills 查詢訂單成交記錄（用於獲取手續費）

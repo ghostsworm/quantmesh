@@ -37,10 +37,10 @@ func NewWebServer(cfg *config.Config) *WebServer {
 
 	// 使用 gin.New() 代替 gin.Default()，手动添加中间件
 	r := gin.New()
-	
+
 	// 添加 Recovery 中间件（panic 恢複 + 可观测性上报）
 	r.Use(GinRecoveryMiddleware())
-	
+
 	// 添加自定义日志中间件
 	// debug 模式输出全量请求日志；非 debug 僅記錄异常
 	r.Use(GinLoggerMiddleware(cfg.System.LogLevel == "debug"))
@@ -106,6 +106,9 @@ func NewWebServer(cfg *config.Config) *WebServer {
 func (ws *WebServer) Start(ctx context.Context) error {
 	if ws == nil {
 		return nil
+	}
+	if isLocalDevMode() && !isLoopbackBindHost(ws.cfg.Web.Host) {
+		return fmt.Errorf("local_dev_mode requires a loopback-only web.host; refusing public unauthenticated listener")
 	}
 
 	go func() {

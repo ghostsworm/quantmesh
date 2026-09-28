@@ -110,7 +110,10 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			price, _ := strconv.ParseFloat(o.Price, 64)
 			qty, _ := strconv.ParseFloat(o.Volume, 64)
 			filled, _ := strconv.ParseFloat(o.FilledVolume, 64)
-			avgPx, _ := strconv.ParseFloat(o.LatestPrice, 64)
+			// LatestPrice is Binance's last-fill price (L), not the order's
+			// cumulative average. Use cumulative quote / executed quantity (Z / z).
+			filledQuote, _ := strconv.ParseFloat(o.FilledQuoteVolume, 64)
+			avgPx := cumulativeAveragePrice(filledQuote, filled)
 			comm, _ := strconv.ParseFloat(o.FeeCost, 64)
 
 			up := OrderUpdate{
@@ -171,6 +174,13 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			time.Sleep(5 * time.Second)
 		}
 	}
+}
+
+func cumulativeAveragePrice(cumulativeQuote, executedQty float64) float64 {
+	if cumulativeQuote <= 0 || executedQty <= 0 {
+		return 0
+	}
+	return cumulativeQuote / executedQty
 }
 
 // Stop 停止訂單流

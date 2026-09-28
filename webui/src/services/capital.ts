@@ -1,5 +1,6 @@
 // 资金管理 API 服務
 import { fetchWithAuth } from './api'
+export type { ExchangeCapitalDetail } from '../types/capital'
 import type {
   CapitalOverview,
   StrategyCapitalInfo,

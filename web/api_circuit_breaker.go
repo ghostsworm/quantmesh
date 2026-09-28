@@ -46,7 +46,8 @@ func getCircuitBreakerStatus(c *gin.Context) {
 
 	status := globalCircuitBreaker.GetStatus()
 	c.JSON(http.StatusOK, gin.H{
-		"status": status,
+		"status":         status,
+		"metrics_health": globalCircuitBreaker.GetMetricsHealth(),
 	})
 }
 
@@ -71,9 +72,9 @@ func manualTriggerCircuitBreaker(c *gin.Context) {
 	logger.Info("🚨 [全局熔断] 手动触发熔断，操作人: %s，原因: %s", req.TriggeredBy, req.Reason)
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":      "tripped",
+		"status":       "tripped",
 		"triggered_by": req.TriggeredBy,
-		"reason":      req.Reason,
+		"reason":       req.Reason,
 	})
 }
 
@@ -148,7 +149,10 @@ func updateCircuitBreakerMetrics(c *gin.Context) {
 		return
 	}
 
-	globalCircuitBreaker.UpdateMetrics(req.DailyPnL, req.MaxDrawdown, req.ConsecutiveLosses)
+	if err := globalCircuitBreaker.UpdateExternalMetrics(req.DailyPnL, req.MaxDrawdown, req.ConsecutiveLosses); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
+		return
+	}
 	logger.Debug("📊 [全局熔断] 更新统计数据: DailyPnL=%.2f, MaxDrawdown=%.2f%%, ConsecutiveLosses=%d",
 		req.DailyPnL, req.MaxDrawdown, req.ConsecutiveLosses)
 

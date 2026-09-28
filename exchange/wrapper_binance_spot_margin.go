@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/income"
@@ -168,8 +169,9 @@ func (w *binanceSpotMarginWrapper) GetAccount(ctx context.Context) (*Account, er
 	}
 	return &Account{
 		TotalWalletBalance: binanceAccount.TotalWalletBalance,
-		TotalMarginBalance:  binanceAccount.TotalMarginBalance,
+		TotalMarginBalance: binanceAccount.TotalMarginBalance,
 		AvailableBalance:   binanceAccount.AvailableBalance,
+		BalanceAsset:       binanceAccount.BalanceAsset,
 		Positions:          positions,
 	}, nil
 }
@@ -286,7 +288,23 @@ func (w *binanceSpotMarginWrapper) GetIncomeHistory(ctx context.Context, symbol,
 }
 
 func (w *binanceSpotMarginWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*OrderFill, len(rows))
+	for i, row := range rows {
+		if row == nil {
+			return nil, fmt.Errorf("Binance margin order %d returned a nil fill at index %d", orderID, i)
+		}
+		fills[i] = &OrderFill{
+			OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(row.Side),
+			Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
+			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker,
+			BaseFeeQty: row.BaseFeeQty,
+		}
+	}
+	return fills, nil
 }
 
 func (w *binanceSpotMarginWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

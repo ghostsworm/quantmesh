@@ -115,12 +115,20 @@ func closePositionsV2(c *gin.Context) {
 		QuantityRatio: req.QuantityRatio,
 	}
 
-	result, err := bot.ClosePositions(context.Background(), cfg)
+	result, err := bot.ClosePositions(c.Request.Context(), cfg)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, ClosePositionsV2Response{
+		response := ClosePositionsV2Response{
 			Success:      false,
 			ErrorMessage: err.Error(),
-		})
+		}
+		if result != nil {
+			response.RecordID, response.OrderID, response.Status = result.RecordID, result.OrderID, result.Status
+		}
+		c.JSON(http.StatusInternalServerError, response)
+		return
+	}
+	if result == nil {
+		c.JSON(http.StatusInternalServerError, ClosePositionsV2Response{Success: false, ErrorMessage: "close result unavailable"})
 		return
 	}
 

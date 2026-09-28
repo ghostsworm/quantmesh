@@ -12,11 +12,11 @@ import (
 
 // VolatilityAlertService 波动率预警服务
 type VolatilityAlertService struct {
-	detector     *indicators.VolatilityRegimeDetector
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
-	subscribers  map[string][]chan indicators.VolatilityRegimeEvent
+	detector    *indicators.VolatilityRegimeDetector
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
+	subscribers map[string][]chan indicators.VolatilityRegimeEvent
 
 	// 预警历史
 	alertHistory []VolatilityAlertRecord
@@ -42,10 +42,10 @@ func NewVolatilityAlertService(config indicators.VolatilityRegimeConfig) *Volati
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &VolatilityAlertService{
-		detector:    indicators.NewVolatilityRegimeDetector(config),
-		ctx:         ctx,
-		cancel:      cancel,
-		subscribers: make(map[string][]chan indicators.VolatilityRegimeEvent),
+		detector:     indicators.NewVolatilityRegimeDetector(config),
+		ctx:          ctx,
+		cancel:       cancel,
+		subscribers:  make(map[string][]chan indicators.VolatilityRegimeEvent),
 		alertHistory: make([]VolatilityAlertRecord, 0, 100),
 		maxHistory:   100,
 	}
@@ -67,29 +67,25 @@ func (vas *VolatilityAlertService) Stop() {
 	logger.Info("🛑 波动率预警服务已停止")
 }
 
-// UpdatePrice 更新价格数据
-func (vas *VolatilityAlertService) UpdatePrice(price, high, low, volume float64) {
-	vas.detector.UpdatePrice(price, high, low, volume)
-
-	// 检查突变
-	hasChange, message := vas.detector.DetectSuddenChange()
-	if hasChange {
-		logger.Warn("⚠️ %s", message)
-
-		// 发送突变通知
-		event := indicators.VolatilityRegimeEvent{
-			Timestamp: time.Now(),
-			Severity:  "warning",
-			TriggerReason: message,
-		}
-		vas.notifySubscribers(event)
+// ReplaceHourlyHistory accepts completed hourly evidence, never tick counts.
+func (vas *VolatilityAlertService) ReplaceHourlyHistory(points []indicators.PricePoint, asOf time.Time) error {
+	if err := vas.ctx.Err(); err != nil {
+		return err
 	}
+	return vas.detector.ReplaceHourlyHistory(points, asOf)
+}
+
+func (vas *VolatilityAlertService) RequiredHourlyHistory() (int, error) {
+	return vas.detector.RequiredHourlyHistory()
 }
 
 // handleRegimeChange 处理区间变化
 func (vas *VolatilityAlertService) handleRegimeChange(event indicators.VolatilityRegimeEvent) {
 	vas.mu.Lock()
 	defer vas.mu.Unlock()
+	if vas.ctx.Err() != nil {
+		return
+	}
 
 	// 记录预警历史
 	record := VolatilityAlertRecord{

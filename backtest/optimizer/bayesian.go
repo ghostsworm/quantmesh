@@ -27,7 +27,15 @@ func NewBayesianOptimizer() *BayesianOptimizer {
 }
 
 // Run 執行贝叶斯优化
-func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (*OptimResult, error) {
+func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*exchange.Candle, space OptimSearchSpace, config OptimConfig, initialCapital float64) (result *OptimResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := ValidateSearchSpace(space); err != nil {
 		return nil, err
 	}
@@ -70,25 +78,30 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 	for i := 0; i < nInit; i++ {
 		select {
 		case <-ctx.Done():
-			return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
+			return nil, ctx.Err()
 		default:
 		}
 		p := b.sampleParams(space, initialCapital, feeRate, slip)
-		pr := EvalParamSet(symbol, train, val, holdOut, p, lambda, initialCapital)
-		if math.IsInf(pr.TrainScore, -1) {
+		pr, evalErr := EvalParamSetContext(ctx, symbol, train, val, holdOut, p, lambda, initialCapital)
+		if evalErr != nil {
+			return nil, evalErr
+		}
+		if !finiteNumber(pr.TrainScore) {
 			continue
 		}
 		x := b.paramsToVec(p, bounds)
 		X = append(X, x)
 		y = append(y, pr.TrainScore)
-		allParamResults = append(allParamResults, pr)
+		if finiteNumber(pr.Score) {
+			allParamResults = append(allParamResults, pr)
+		}
 	}
 
 	// 迭代：用 GP 預测 EI，取最大 EI 点评估
 	for iter := nInit; iter < nCalls; iter++ {
 		select {
 		case <-ctx.Done():
-			return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
+			return nil, ctx.Err()
 		default:
 		}
 
@@ -116,13 +129,18 @@ func (b *BayesianOptimizer) Run(ctx context.Context, symbol string, candles []*e
 			}
 		}
 
-		pr := EvalParamSet(symbol, train, val, holdOut, nextP, lambda, initialCapital)
-		if math.IsInf(pr.TrainScore, -1) {
+		pr, evalErr := EvalParamSetContext(ctx, symbol, train, val, holdOut, nextP, lambda, initialCapital)
+		if evalErr != nil {
+			return nil, evalErr
+		}
+		if !finiteNumber(pr.TrainScore) {
 			continue
 		}
 		X = append(X, nextX)
 		y = append(y, pr.TrainScore)
-		allParamResults = append(allParamResults, pr)
+		if finiteNumber(pr.Score) {
+			allParamResults = append(allParamResults, pr)
+		}
 	}
 
 	return b.buildResultFromParamResults(allParamResults, "bayesian", holdOut, feeRate, slip)
@@ -306,19 +324,19 @@ func (b *BayesianOptimizer) buildResultFromParamResults(allResults []ParamResult
 	}
 	best, ok := PickBestParamResult(allResults)
 	if !ok {
-		best = ParamResult{}
+		return nil, errNoValidOptimizationResults
 	}
 	heatmap := BuildHeatmapFromResults(allResults, "grid_count", "price_range")
 	return &OptimResult{
-		BestParams:       best.Params,
-		BestScore:        best.Score,
-		BestMetrics:      best.Metrics,
-		AllResults:       allResults,
-		HeatmapData:      heatmap,
-		Iterations:       len(allResults),
-		Method:           method,
-		HoldOutEnabled:   holdOut,
-		FeeRateUsed:      feeRate,
-		SlippageUsed:     slip,
+		BestParams:     best.Params,
+		BestScore:      best.Score,
+		BestMetrics:    best.Metrics,
+		AllResults:     allResults,
+		HeatmapData:    heatmap,
+		Iterations:     len(allResults),
+		Method:         method,
+		HoldOutEnabled: holdOut,
+		FeeRateUsed:    feeRate,
+		SlippageUsed:   slip,
 	}, nil
 }

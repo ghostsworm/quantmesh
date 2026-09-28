@@ -1,6 +1,7 @@
 package optimizer
 
 import (
+	"context"
 	"math"
 	"sort"
 
@@ -52,12 +53,25 @@ func SplitCandlesForValidation(candles []*exchange.Candle, ratio float64) (train
 // EvalParamSet 單次評估。啟用 hold-out 時 Score 與 Metrics 為驗證集；TrainScore/TrainMetrics 為訓練集。
 // 贝叶斯/遗传的 GP 與適應度應使用 TrainScore，最終最優參數按 Score（驗證）選取。
 func EvalParamSet(symbol string, train, val []*exchange.Candle, holdOut bool, p backtest.GridBacktestParams, lambda, initialCapital float64) ParamResult {
-	resTrain, err := BacktestRunner(symbol, train, p, initialCapital)
+	result, _ := EvalParamSetContext(context.Background(), symbol, train, val, holdOut, p, lambda, initialCapital)
+	return result
+}
+
+func EvalParamSetContext(ctx context.Context, symbol string, train, val []*exchange.Candle, holdOut bool, p backtest.GridBacktestParams, lambda, initialCapital float64) (result ParamResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = ParamResult{Params: p, Score: math.Inf(-1), TrainScore: math.Inf(-1)}, err
+		}
+	}()
+	resTrain, err := BacktestRunnerContext(ctx, symbol, train, p, initialCapital)
 	if err != nil {
-		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: math.Inf(-1)}
+		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: math.Inf(-1)}, nil
 	}
 	trainMet := resTrain.Metrics
 	trainScore := CalculateScore(trainMet, lambda)
+	if !finiteNumber(trainScore) {
+		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: math.Inf(-1)}, nil
+	}
 	if !holdOut || len(val) == 0 {
 		return ParamResult{
 			Params:       p,
@@ -65,14 +79,17 @@ func EvalParamSet(symbol string, train, val []*exchange.Candle, holdOut bool, p 
 			TrainScore:   trainScore,
 			Metrics:      trainMet,
 			TrainMetrics: trainMet,
-		}
+		}, nil
 	}
-	resVal, err := BacktestRunner(symbol, val, p, initialCapital)
+	resVal, err := BacktestRunnerContext(ctx, symbol, val, p, initialCapital)
 	if err != nil {
-		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: trainScore, TrainMetrics: trainMet}
+		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: trainScore, TrainMetrics: trainMet}, nil
 	}
 	valMet := resVal.Metrics
 	valScore := CalculateScore(valMet, lambda)
+	if !finiteNumber(valScore) {
+		return ParamResult{Params: p, Score: math.Inf(-1), TrainScore: trainScore, TrainMetrics: trainMet}, nil
+	}
 	return ParamResult{
 		Params:            p,
 		Score:             valScore,
@@ -80,14 +97,14 @@ func EvalParamSet(symbol string, train, val []*exchange.Candle, holdOut bool, p 
 		Metrics:           valMet,
 		TrainMetrics:      trainMet,
 		ValidationMetrics: valMet,
-	}
+	}, nil
 }
 
 // PickBestParamResult 按 Score（樣本外時為驗證集得分）選取最優。
 func PickBestParamResult(results []ParamResult) (best ParamResult, ok bool) {
 	bestScore := math.Inf(-1)
 	for _, r := range results {
-		if math.IsInf(r.Score, -1) {
+		if !finiteNumber(r.Score) {
 			continue
 		}
 		if r.Score > bestScore {

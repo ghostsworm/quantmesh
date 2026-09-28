@@ -193,7 +193,7 @@ func (spm *SuperPositionManager) syncTrend(t regimeTick) (string, bool) {
 			return "", false
 		}
 	}
-	if spm.trendDetector != nil && spm.config.Trading.GridRiskControl.TrendFilterEnabled {
+	if spm.trendDetector != nil && spm.gridRiskControl().TrendFilterEnabled {
 		return spm.trendDetector.GetCurrentTrend(), true
 	}
 	return "", false

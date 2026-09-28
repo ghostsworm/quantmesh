@@ -53,13 +53,13 @@ type NotificationService interface {
 // NewEventCenter 創建事件中心
 func NewEventCenter(db database.Database, eventBus *EventBus, notifier NotificationService, config *EventCenterConfig) *EventCenter {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// 構建監控交易對映射
 	monitoredSymbols := make(map[string]bool)
 	for _, symbol := range config.MonitoredSymbols {
 		monitoredSymbols[symbol] = true
 	}
-	
+
 	ec := &EventCenter{
 		db:                       db,
 		eventBus:                 eventBus,
@@ -70,7 +70,7 @@ func NewEventCenter(db database.Database, eventBus *EventBus, notifier Notificat
 		priceVolatilityThreshold: config.PriceVolatilityThreshold,
 		monitoredSymbols:         monitoredSymbols,
 	}
-	
+
 	return ec
 }
 
@@ -78,31 +78,31 @@ func NewEventCenter(db database.Database, eventBus *EventBus, notifier Notificat
 func (ec *EventCenter) Start() error {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
-	
+
 	// 如果已經在运行，直接返回
 	if ec.running {
 		logger.Info("⚠️ 事件中心已在运行中")
 		return nil
 	}
-	
+
 	if !ec.config.Enabled {
 		logger.Info("⏸️ 事件中心未啟用（配置文件）")
 		// 即使配置文件中未啟用，也允許通過 API 动態啟动
 	}
-	
+
 	logger.Info("🚀 啟动事件中心...")
-	
+
 	// 創建新的 context
 	ec.ctx, ec.cancel = context.WithCancel(context.Background())
-	
+
 	// 啟动事件处理协程
 	ec.wg.Add(1)
 	go ec.processEvents()
-	
+
 	// 啟动清理任務
 	ec.wg.Add(1)
 	go ec.cleanupTask()
-	
+
 	ec.running = true
 	logger.Info("✅ 事件中心已啟动")
 	return nil
@@ -112,13 +112,13 @@ func (ec *EventCenter) Start() error {
 func (ec *EventCenter) Stop() {
 	ec.mu.Lock()
 	defer ec.mu.Unlock()
-	
+
 	// 如果未运行，直接返回
 	if !ec.running {
 		logger.Info("⚠️ 事件中心未在运行")
 		return
 	}
-	
+
 	logger.Info("🛑 停止事件中心...")
 	ec.cancel()
 	ec.wg.Wait()
@@ -136,9 +136,9 @@ func (ec *EventCenter) IsRunning() bool {
 // processEvents 处理事件
 func (ec *EventCenter) processEvents() {
 	defer ec.wg.Done()
-	
+
 	eventCh := ec.eventBus.Subscribe()
-	
+
 	for {
 		select {
 		case <-ec.ctx.Done():
@@ -157,12 +157,12 @@ func (ec *EventCenter) handleEvent(event *Event) {
 	if event == nil {
 		return
 	}
-	
+
 	// 獲取事件元數據
 	severity := GetEventSeverity(event.Type)
 	source := GetEventSource(event.Type)
 	title := GetEventTitle(event.Type)
-	
+
 	// 验证必要字段
 	if string(severity) == "" {
 		logger.Warn("⚠️ 事件严重程度为空，使用默认值: %s", event.Type)
@@ -176,29 +176,29 @@ func (ec *EventCenter) handleEvent(event *Event) {
 		logger.Warn("⚠️ 事件标题为空，使用事件类型: %s", event.Type)
 		title = string(event.Type)
 	}
-	
+
 	// 提取交易所和交易對信息
 	exchange := ec.extractString(event.Data, "exchange")
 	symbol := ec.extractString(event.Data, "symbol")
-	
+
 	// 構建消息
 	message := ec.buildMessage(event)
 	if message == "" {
 		message = fmt.Sprintf("事件类型: %s", event.Type)
 	}
-	
+
 	// 序列化详细信息
 	detailsJSON, err := json.Marshal(event.Data)
 	if err != nil {
 		logger.Warn("⚠️ 序列化事件详情失败: %v", err)
 		detailsJSON = []byte("{}")
 	}
-	
+
 	// 确保事件数据不为空
 	if len(detailsJSON) == 0 || string(detailsJSON) == "null" {
 		detailsJSON = []byte("{}")
 	}
-	
+
 	// 保存到數據库
 	record := &database.EventRecord{
 		Type:      string(event.Type),
@@ -211,15 +211,15 @@ func (ec *EventCenter) handleEvent(event *Event) {
 		Details:   string(detailsJSON),
 		CreatedAt: event.Timestamp,
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := ec.db.SaveEvent(ctx, record); err != nil {
 		logger.Error("❌ 保存事件失败: %v", err)
 		return
 	}
-	
+
 	// 触发通知（如果需要）
 	if ec.shouldNotify(event.Type, severity) {
 		ec.notifier.Send(event)
@@ -241,7 +241,7 @@ func (ec *EventCenter) buildMessage(event *Event) string {
 	switch event.Type {
 	case EventTypeOrderPlaced, EventTypeOrderFilled, EventTypeOrderCanceled, EventTypeOrderFailed:
 		return ec.buildOrderMessage(event)
-	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected:
+	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected, EventTypeWebSocketStopped:
 		return ec.buildWebSocketMessage(event)
 	case EventTypeAPIRateLimited, EventTypeAPIServerError, EventTypeAPIRequestFailed:
 		return ec.buildAPIMessage(event)
@@ -270,7 +270,7 @@ func (ec *EventCenter) buildOrderMessage(event *Event) string {
 	side := ec.extractString(event.Data, "side")
 	price := event.Data["price"]
 	quantity := event.Data["quantity"]
-	
+
 	return fmt.Sprintf("%s %s %.8f @ %.2f", symbol, side, quantity, price)
 }
 
@@ -279,7 +279,7 @@ func (ec *EventCenter) buildWebSocketMessage(event *Event) string {
 	exchange := ec.extractString(event.Data, "exchange")
 	symbol := ec.extractString(event.Data, "symbol")
 	reason := ec.extractString(event.Data, "reason")
-	
+
 	if reason != "" {
 		return fmt.Sprintf("%s %s WebSocket: %s", exchange, symbol, reason)
 	}
@@ -291,7 +291,7 @@ func (ec *EventCenter) buildAPIMessage(event *Event) string {
 	exchange := ec.extractString(event.Data, "exchange")
 	endpoint := ec.extractString(event.Data, "endpoint")
 	errorMsg := ec.extractString(event.Data, "error")
-	
+
 	if endpoint != "" {
 		return fmt.Sprintf("%s API [%s]: %s", exchange, endpoint, errorMsg)
 	}
@@ -304,8 +304,8 @@ func (ec *EventCenter) buildPriceVolatilityMessage(event *Event) string {
 	oldPrice := event.Data["old_price"]
 	newPrice := event.Data["new_price"]
 	changePercent := event.Data["change_percent"]
-	
-	return fmt.Sprintf("%s 價格波動: %.2f → %.2f (%.2f%%)", 
+
+	return fmt.Sprintf("%s 價格波動: %.2f → %.2f (%.2f%%)",
 		symbol, oldPrice, newPrice, changePercent)
 }
 
@@ -314,8 +314,8 @@ func (ec *EventCenter) buildSystemResourceMessage(event *Event) string {
 	resourceType := ec.extractString(event.Data, "resource_type")
 	usage := event.Data["usage"]
 	threshold := event.Data["threshold"]
-	
-	return fmt.Sprintf("%s 使用率 %.2f%% (阈值: %.2f%%)", 
+
+	return fmt.Sprintf("%s 使用率 %.2f%% (阈值: %.2f%%)",
 		resourceType, usage, threshold)
 }
 
@@ -325,12 +325,12 @@ func (ec *EventCenter) buildPrecisionAdjustmentMessage(event *Event) string {
 	calculatedQty := event.Data["calculated_qty"]
 	minQty := event.Data["min_qty"]
 	action := ec.extractString(event.Data, "action")
-	
+
 	if action == "pause" {
-		return fmt.Sprintf("[%s] 下單數量 %.8f 低於最小精度 %.8f，交易已自动暂停", 
+		return fmt.Sprintf("[%s] 下單數量 %.8f 低於最小精度 %.8f，交易已自动暂停",
 			symbol, calculatedQty, minQty)
 	}
-	return fmt.Sprintf("[%s] 下單數量精度調整: %.8f -> %.8f", 
+	return fmt.Sprintf("[%s] 下單數量精度調整: %.8f -> %.8f",
 		symbol, calculatedQty, minQty)
 }
 
@@ -391,11 +391,11 @@ func (ec *EventCenter) shouldNotify(eventType EventType, severity EventSeverity)
 // cleanupTask 清理任務
 func (ec *EventCenter) cleanupTask() {
 	defer ec.wg.Done()
-	
+
 	// 首次等待1小時后再开始清理
 	timer := time.NewTimer(1 * time.Hour)
 	defer timer.Stop()
-	
+
 	for {
 		select {
 		case <-ec.ctx.Done():
@@ -411,37 +411,37 @@ func (ec *EventCenter) cleanupTask() {
 // performCleanup 執行清理
 func (ec *EventCenter) performCleanup() {
 	logger.Info("🧹 开始清理舊事件...")
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	
+
 	// 清理 Critical 事件
-	if err := ec.db.CleanupOldEvents(ctx, "critical", 
-		ec.config.Retention.CriticalMaxCount, 
+	if err := ec.db.CleanupOldEvents(ctx, "critical",
+		ec.config.Retention.CriticalMaxCount,
 		ec.config.Retention.CriticalDays); err != nil {
 		logger.Error("❌ 清理 Critical 事件失败: %v", err)
 	} else {
 		logger.Info("✅ Critical 事件清理完成")
 	}
-	
+
 	// 清理 Warning 事件
-	if err := ec.db.CleanupOldEvents(ctx, "warning", 
-		ec.config.Retention.WarningMaxCount, 
+	if err := ec.db.CleanupOldEvents(ctx, "warning",
+		ec.config.Retention.WarningMaxCount,
 		ec.config.Retention.WarningDays); err != nil {
 		logger.Error("❌ 清理 Warning 事件失败: %v", err)
 	} else {
 		logger.Info("✅ Warning 事件清理完成")
 	}
-	
+
 	// 清理 Info 事件
-	if err := ec.db.CleanupOldEvents(ctx, "info", 
-		ec.config.Retention.InfoMaxCount, 
+	if err := ec.db.CleanupOldEvents(ctx, "info",
+		ec.config.Retention.InfoMaxCount,
 		ec.config.Retention.InfoDays); err != nil {
 		logger.Error("❌ 清理 Info 事件失败: %v", err)
 	} else {
 		logger.Info("✅ Info 事件清理完成")
 	}
-	
+
 	logger.Info("✅ 事件清理完成")
 }
 
@@ -461,18 +461,18 @@ func (ec *EventCenter) CheckPriceVolatility(symbol string, oldPrice, newPrice fl
 	if len(ec.monitoredSymbols) > 0 && !ec.monitoredSymbols[symbol] {
 		return
 	}
-	
+
 	if oldPrice <= 0 || newPrice <= 0 {
 		return
 	}
-	
+
 	// 计算变化百分比
 	changePercent := ((newPrice - oldPrice) / oldPrice) * 100
 	absChangePercent := changePercent
 	if absChangePercent < 0 {
 		absChangePercent = -absChangePercent
 	}
-	
+
 	// 检查是否超過阈值
 	if absChangePercent >= ec.priceVolatilityThreshold {
 		ec.PublishEvent(EventTypePriceVolatility, map[string]interface{}{
@@ -484,4 +484,3 @@ func (ec *EventCenter) CheckPriceVolatility(symbol string, oldPrice, newPrice fl
 		})
 	}
 }
-

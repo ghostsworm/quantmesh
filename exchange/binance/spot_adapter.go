@@ -39,11 +39,12 @@ type BinanceSpotAdapter struct {
 	orderWS   *SpotUserDataWebSocketManager
 	klineWS   *KlineWebSocketManager // NewSpotKlineWebSocketManager
 
-	// 手續費換算：非計價幣/基礎幣（如 BNB）按 ASSET+QUOTE 最新價折算，結果短 TTL 緩存
-	feePriceMu      sync.Mutex
-	feePriceCache   map[string]spotFeeAssetPrice
-	feeWarned       map[string]bool
-	feePriceFetcher func(ctx context.Context, pair string) (float64, error) // 測試注入；nil 時走 REST ticker
+	// 最新行情價格缓存在资产估值用途；成交费用必须通过历史成交分钟K线折算。
+	feePriceMu               sync.Mutex
+	feePriceCache            map[string]spotFeeAssetPrice
+	feeWarned                map[string]bool
+	feePriceFetcher          func(ctx context.Context, pair string) (float64, error) // 測試注入；nil 時走 REST ticker
+	feeHistoricalRateFetcher func(ctx context.Context, asset, quote string, tradeTime int64) (float64, error)
 }
 
 // NewBinanceSpotAdapter 創建币安現貨适配器
@@ -228,12 +229,8 @@ func (b *BinanceSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) 
 	price, _ := strconv.ParseFloat(resp.Price, 64)
 	qty, _ := strconv.ParseFloat(resp.OrigQuantity, 64)
 	execQty, _ := strconv.ParseFloat(resp.ExecutedQuantity, 64)
-	avgPrice := price
-	if resp.ExecutedQuantity != "0" && resp.ExecutedQuantity != "" && resp.CummulativeQuoteQuantity != "" {
-		if cumQuote, err := strconv.ParseFloat(resp.CummulativeQuoteQuantity, 64); err == nil && execQty > 0 {
-			avgPrice = cumQuote / execQty
-		}
-	}
+	cumulativeQuote, _ := strconv.ParseFloat(resp.CummulativeQuoteQuantity, 64)
+	avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 
 	return &Order{
 		OrderID:       resp.OrderID,
@@ -325,7 +322,8 @@ func (b *BinanceSpotAdapter) GetOrder(ctx context.Context, symbol string, orderI
 	price, _ := strconv.ParseFloat(o.Price, 64)
 	qty, _ := strconv.ParseFloat(o.OrigQuantity, 64)
 	execQty, _ := strconv.ParseFloat(o.ExecutedQuantity, 64)
-	avgPrice, _ := strconv.ParseFloat(o.Price, 64)
+	cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
+	avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 	return &Order{
 		OrderID:       o.OrderID,
 		ClientOrderID: o.ClientOrderID,
@@ -352,7 +350,8 @@ func (b *BinanceSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) (
 		price, _ := strconv.ParseFloat(o.Price, 64)
 		qty, _ := strconv.ParseFloat(o.OrigQuantity, 64)
 		execQty, _ := strconv.ParseFloat(o.ExecutedQuantity, 64)
-		avgPrice, _ := strconv.ParseFloat(o.Price, 64)
+		cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
+		avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 		result = append(result, &Order{
 			OrderID:       o.OrderID,
 			ClientOrderID: o.ClientOrderID,
@@ -399,31 +398,50 @@ func (b *BinanceSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}); err != nil {
 		return nil, err
 	}
-	var totalWallet, available float64
-	for _, bal := range acc.Balances {
-		free, _ := strconv.ParseFloat(bal.Free, 64)
-		locked, _ := strconv.ParseFloat(bal.Locked, 64)
-		totalWallet += free + locked
-		available += free
-	}
-	// 僅统计常用计價资產作為可用餘額（USDT/USDC/BUSD/U 等）
-	available = 0
 	quoteAsset := b.quoteAsset
 	if quoteAsset == "" {
 		quoteAsset = "USDT"
 	}
-	for _, bal := range acc.Balances {
-		if bal.Asset == quoteAsset || bal.Asset == "USDT" || bal.Asset == "USDC" || bal.Asset == "BUSD" || bal.Asset == "U" {
-			f, _ := strconv.ParseFloat(bal.Free, 64)
-			available += f
-		}
+	totalWallet, available, err := summarizeSpotQuoteBalance(acc.Balances, quoteAsset)
+	if err != nil {
+		return nil, fmt.Errorf("parse Binance spot %s balance: %w", quoteAsset, err)
 	}
 	return &Account{
 		TotalWalletBalance: totalWallet,
-		TotalMarginBalance:  totalWallet,
+		TotalMarginBalance: totalWallet,
 		AvailableBalance:   available,
+		BalanceAsset:       quoteAsset,
 		Positions:          nil,
 	}, nil
+}
+
+func summarizeSpotQuoteBalance(balances []binancesdk.Balance, quoteAsset string) (total, available float64, err error) {
+	if strings.TrimSpace(quoteAsset) == "" {
+		return 0, 0, fmt.Errorf("quote asset is required")
+	}
+	found := false
+	for _, balance := range balances {
+		if !strings.EqualFold(balance.Asset, quoteAsset) {
+			continue
+		}
+		if found {
+			return 0, 0, fmt.Errorf("duplicate %s balance entries", quoteAsset)
+		}
+		found = true
+		free, parseErr := strconv.ParseFloat(balance.Free, 64)
+		if parseErr != nil || math.IsNaN(free) || math.IsInf(free, 0) || free < 0 {
+			return 0, 0, fmt.Errorf("invalid %s free balance %q", quoteAsset, balance.Free)
+		}
+		locked, parseErr := strconv.ParseFloat(balance.Locked, 64)
+		if parseErr != nil || math.IsNaN(locked) || math.IsInf(locked, 0) || locked < 0 {
+			return 0, 0, fmt.Errorf("invalid %s locked balance %q", quoteAsset, balance.Locked)
+		}
+		total, available = free+locked, free
+		if math.IsInf(total, 0) {
+			return 0, 0, fmt.Errorf("%s balance overflow", quoteAsset)
+		}
+	}
+	return total, available, nil
 }
 
 // GetPositions 現貨無合約持倉，返回基础资產餘額構成的“持倉”（用於网格賣單逻辑）
@@ -497,6 +515,40 @@ func (b *BinanceSpotAdapter) GetBalance(ctx context.Context, asset string) (floa
 	return 0, nil
 }
 
+// GetSpotInventoryQty returns total free+locked balance for this market's base asset.
+func (b *BinanceSpotAdapter) GetSpotInventoryQty(ctx context.Context) (float64, error) {
+	if b == nil || b.client == nil || b.baseAsset == "" {
+		return 0, fmt.Errorf("spot inventory requires a configured market")
+	}
+	var acc *binancesdk.Account
+	if err := b.withRateLimit(ctx, func() error {
+		var err error
+		acc, err = b.client.NewGetAccountService().Do(ctx)
+		return err
+	}); err != nil {
+		return 0, fmt.Errorf("query spot account inventory: %w", err)
+	}
+	for _, balance := range acc.Balances {
+		if balance.Asset != b.baseAsset {
+			continue
+		}
+		free, err := strconv.ParseFloat(balance.Free, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse free %s balance: %w", b.baseAsset, err)
+		}
+		locked, err := strconv.ParseFloat(balance.Locked, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse locked %s balance: %w", b.baseAsset, err)
+		}
+		total := free + locked
+		if math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
+			return 0, fmt.Errorf("spot %s inventory is invalid", b.baseAsset)
+		}
+		return total, nil
+	}
+	return 0, nil
+}
+
 // StartOrderStream 現貨 User Data Stream（executionReport）
 func (b *BinanceSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	if b.orderWS == nil {
@@ -518,7 +570,7 @@ type SpotStreamOrderUpdate struct {
 // toSpotStreamUpdate 把 executionReport 的手續費（commissionAsset 計）換算為計價幣口徑：
 //   - 計價幣 → 原樣；
 //   - 基礎幣 → × 本筆成交價（L，缺失時退回委託價），並把原始數量填入 BaseFeeQty；
-//   - 其他幣種（如 BNB 抵扣）→ × ASSET+QUOTE 最新價（REST ticker，短 TTL 緩存）。
+//   - 其他幣種（如 BNB 抵扣）→ × 成交所在 UTC 分鐘的歷史K線收盤價。
 //
 // 降級約定：無法換算時 Commission 保留原幣種數量、CommissionAsset 保留原幣種，並按幣種只告警一次。
 // 下游（position 包）把 Commission 當計價幣累加，因此此時費用口徑會有偏差，可通過 CommissionAsset != 計價幣識別。
@@ -527,18 +579,18 @@ func (b *BinanceSpotAdapter) toSpotStreamUpdate(up OrderUpdate) SpotStreamOrderU
 	if up.Commission == 0 || up.CommissionAsset == "" {
 		return out
 	}
-	asset := up.CommissionAsset
-	if b.baseAsset != "" && asset == b.baseAsset && up.Commission > 0 {
+	asset := strings.ToUpper(strings.TrimSpace(up.CommissionAsset))
+	if b.baseAsset != "" && strings.EqualFold(asset, b.baseAsset) && up.Commission > 0 {
 		out.BaseFeeQty = up.Commission
 	}
 	if b.quoteAsset == "" {
 		b.warnFeeConversionOnce(asset, "計價幣未知（交易對信息未加載）")
 		return out
 	}
-	switch asset {
-	case b.quoteAsset:
+	switch {
+	case strings.EqualFold(asset, b.quoteAsset):
 		return out
-	case b.baseAsset:
+	case strings.EqualFold(asset, b.baseAsset):
 		px := up.AvgPrice
 		if px <= 0 {
 			px = up.Price
@@ -550,9 +602,11 @@ func (b *BinanceSpotAdapter) toSpotStreamUpdate(up OrderUpdate) SpotStreamOrderU
 		out.Commission = up.Commission * px
 		out.CommissionAsset = b.quoteAsset
 	default:
-		px, err := b.feeAssetQuotePrice(asset)
+		ctx, cancel := context.WithTimeout(context.Background(), spotFeeAssetPriceTimeout)
+		px, err := b.historicalFeeAssetQuoteRate(ctx, asset, up.UpdateTime)
+		cancel()
 		if err != nil || px <= 0 {
-			b.warnFeeConversionOnce(asset, fmt.Sprintf("查詢 %s%s 價格失敗: %v", asset, b.quoteAsset, err))
+			b.warnFeeConversionOnce(asset, fmt.Sprintf("查詢成交時點 %s%s 歷史價格失敗: %v", asset, b.quoteAsset, err))
 			return out
 		}
 		out.Commission = up.Commission * px
@@ -720,7 +774,151 @@ func (b *BinanceSpotAdapter) GetQuantityDecimals() int {
 	return b.quantityDecimals
 }
 
-// GetBaseAsset 基础资產
+// GetOrderFills returns the spot execution ledger for a single order.
+func (b *BinanceSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	if b == nil || b.client == nil || b.apiKey == "" || b.secretKey == "" || orderID <= 0 || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance spot execution lookup requires a configured adapter, symbol, and order ID")
+	}
+	b.apiCallMu.Lock()
+	wait := b.minAPIInterval - time.Since(b.lastAPICallTime)
+	if wait > 0 {
+		b.apiCallMu.Unlock()
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	rows, err := b.client.NewListTradesService().Symbol(symbol).OrderId(orderID).Limit(1000).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query Binance spot executions for order %d: %w", orderID, err)
+	}
+	if len(rows) == 1000 {
+		return nil, fmt.Errorf("Binance spot order %d reached the execution page limit; completeness is unknown", orderID)
+	}
+	fills := make([]*OrderFill, 0, len(rows))
+	historicalFeeRows := make([]*UserTrade, 0, len(rows))
+	for _, row := range rows {
+		if row == nil || row.OrderID != orderID || row.Symbol != symbol || row.ID <= 0 {
+			return nil, fmt.Errorf("Binance returned an invalid spot execution for order %d", orderID)
+		}
+		price, priceErr := strconv.ParseFloat(row.Price, 64)
+		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
+		quoteQty, quoteErr := strconv.ParseFloat(row.QuoteQuantity, 64)
+		commission, commissionErr := strconv.ParseFloat(row.Commission, 64)
+		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 || quoteQty <= 0 || commission < 0 {
+			return nil, fmt.Errorf("Binance spot execution %d contains invalid economic fields", row.ID)
+		}
+		side := SideSell
+		if row.IsBuyer {
+			side = SideBuy
+		}
+		baseFee := 0.0
+		if strings.EqualFold(row.CommissionAsset, b.baseAsset) {
+			baseFee = commission
+		}
+		fill := &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
+			Side: side, Price: price, Quantity: quantity, QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: row.CommissionAsset,
+			TradeTime: row.Time, IsMaker: row.IsMaker, BaseFeeQty: baseFee}
+		trade := &UserTrade{ID: row.ID, OrderID: row.OrderID, Symbol: row.Symbol, Side: side, Price: price, Quantity: quantity,
+			QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: row.CommissionAsset, Time: time.UnixMilli(row.Time), IsMaker: row.IsMaker}
+		asset := strings.ToUpper(strings.TrimSpace(row.CommissionAsset))
+		switch {
+		case strings.EqualFold(asset, b.quoteAsset):
+			trade.CommissionQuote, trade.CommissionQuoteRate, trade.CommissionQuoteKnown = commission, 1, true
+		case strings.EqualFold(asset, b.baseAsset):
+			trade.CommissionQuote, trade.CommissionQuoteRate, trade.CommissionQuoteKnown = commission*price, price, true
+		}
+		fills = append(fills, fill)
+		historicalFeeRows = append(historicalFeeRows, trade)
+	}
+	b.convertThirdAssetFeesAtHistoricalMinute(ctx, historicalFeeRows)
+	for index, trade := range historicalFeeRows {
+		fills[index].CommissionQuote = trade.CommissionQuote
+		fills[index].CommissionQuoteRate = trade.CommissionQuoteRate
+		fills[index].CommissionQuoteKnown = trade.CommissionQuoteKnown
+	}
+	return fills, nil
+}
+
+// GetUserTradesFromID 获取现货账户成交并支持成交 ID 分页。
+func (b *BinanceSpotAdapter) GetUserTradesFromID(ctx context.Context, symbol string, startTime, endTime, fromID int64, limit int) ([]*UserTrade, error) {
+	if b == nil || b.client == nil || b.apiKey == "" || b.secretKey == "" || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance spot history requires a configured adapter and symbol")
+	}
+	b.apiCallMu.Lock()
+	wait := b.minAPIInterval - time.Since(b.lastAPICallTime)
+	if wait > 0 {
+		b.apiCallMu.Unlock()
+		timer := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	service := b.client.NewListTradesService().Symbol(symbol)
+	if fromID > 0 {
+		service = service.FromID(fromID)
+	} else {
+		if startTime > 0 {
+			service = service.StartTime(startTime)
+		}
+		if endTime > 0 {
+			service = service.EndTime(endTime)
+		}
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 1000
+	}
+	rows, err := service.Limit(limit).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query Binance spot trade history: %w", err)
+	}
+	trades := make([]*UserTrade, 0, len(rows))
+	for _, row := range rows {
+		if row == nil || row.ID <= 0 || row.Symbol != symbol {
+			return nil, fmt.Errorf("Binance returned an invalid spot history row")
+		}
+		price, priceErr := strconv.ParseFloat(row.Price, 64)
+		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
+		quoteQty, quoteErr := strconv.ParseFloat(row.QuoteQuantity, 64)
+		commission, commissionErr := strconv.ParseFloat(row.Commission, 64)
+		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 || commission < 0 {
+			return nil, fmt.Errorf("Binance spot history trade %d contains invalid economic fields", row.ID)
+		}
+		side := SideSell
+		if row.IsBuyer {
+			side = SideBuy
+		}
+		trade := &UserTrade{ID: row.ID, OrderID: row.OrderID, Symbol: row.Symbol, Side: side,
+			Price: price, Quantity: quantity, QuoteQuantity: quoteQty, Commission: commission,
+			CommissionAsset: row.CommissionAsset, Time: time.UnixMilli(row.Time), IsMaker: row.IsMaker}
+		asset := strings.ToUpper(strings.TrimSpace(row.CommissionAsset))
+		switch asset {
+		case strings.ToUpper(b.quoteAsset):
+			trade.CommissionQuote, trade.CommissionQuoteRate, trade.CommissionQuoteKnown = commission, 1, true
+		case strings.ToUpper(b.baseAsset):
+			trade.CommissionQuote, trade.CommissionQuoteRate, trade.CommissionQuoteKnown = commission*price, price, true
+		}
+		trades = append(trades, trade)
+	}
+	b.convertThirdAssetFeesAtHistoricalMinute(ctx, trades)
+	return trades, nil
+}
+
+// GetBaseAsset 基础資產
 func (b *BinanceSpotAdapter) GetBaseAsset() string {
 	return b.baseAsset
 }

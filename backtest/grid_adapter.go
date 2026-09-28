@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -70,6 +71,18 @@ func deriveGridRangeNoLookahead(first *exchange.Candle, priceLow, priceHigh, rat
 // 不使用回測期內的未來最高/最低價（避免未來函數）。
 // riskSimulator 可選，為 nil 時不啟用風控；非 nil 時在觸發風控時跳過買入信號。
 func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBacktestParams, initialCapital float64, riskSimulator *RiskSimulator) (*BacktestResult, error) {
+	return RunGridBacktestContext(context.Background(), symbol, candles, params, initialCapital, riskSimulator)
+}
+
+func RunGridBacktestContext(ctx context.Context, symbol string, candles []*exchange.Candle, params GridBacktestParams, initialCapital float64, riskSimulator *RiskSimulator) (result *BacktestResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
@@ -127,6 +140,9 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 
 	prevClose := candles[0].Close
 	for candleIdx, c := range candles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		riskSkipBuy := false
 		if riskSimulator != nil {
 			skipBuy, _ := riskSimulator.Check(candles, candleIdx)
@@ -153,6 +169,9 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 		closePrice := c.Close
 		crossed := getCrossedLevelsIntrabar(prevClose, c.Low, c.High, closePrice, gridLevels)
 		for _, cl := range crossed {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			level := cl.level
 			if isShort {
 				// 做空：價格上漲賣出開空，價格下跌買入平空
@@ -283,31 +302,31 @@ func RunGridBacktest(symbol string, candles []*exchange.Candle, params GridBackt
 						Fee:       buyFee,
 						PnL:       0,
 					})
-			} else {
-				sellLevel := findHighestPositionBelow(positions, level)
-				if sellLevel < 0 {
-					continue
+				} else {
+					sellLevel := findHighestPositionBelow(positions, level)
+					if sellLevel < 0 {
+						continue
+					}
+					qty := positions[sellLevel]
+					if qty <= 0 {
+						continue
+					}
+					execPrice := level * (1 - slippage)
+					fee := qty * execPrice * feeRate
+					pnl := (execPrice - sellLevel) * qty
+					sellSlippageLoss := (level - execPrice) * qty
+					totalSlippageLoss += sellSlippageLoss
+					cash += qty*execPrice - fee
+					delete(positions, sellLevel)
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "sell",
+						Price:     execPrice,
+						Quantity:  qty,
+						Fee:       fee,
+						PnL:       pnl - fee,
+					})
 				}
-				qty := positions[sellLevel]
-				if qty <= 0 {
-					continue
-				}
-				execPrice := level * (1 - slippage)
-				fee := qty * execPrice * feeRate
-				pnl := (execPrice - sellLevel) * qty
-				sellSlippageLoss := (level - execPrice) * qty
-				totalSlippageLoss += sellSlippageLoss
-				cash += qty*execPrice - fee
-				delete(positions, sellLevel)
-				trades = append(trades, Trade{
-					Timestamp: c.Timestamp,
-					Type:      "sell",
-					Price:     execPrice,
-					Quantity:  qty,
-					Fee:       fee,
-					PnL:       pnl - fee,
-				})
-			}
 			}
 		}
 		prevClose = closePrice

@@ -51,7 +51,7 @@ import {
 import { ViewIcon, ViewOffIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import { generateAIConfig, applyAIConfig, createAIConfigTask, pollAITaskUntilComplete, AIGenerateConfigRequest, AIGenerateConfigResponse, SymbolCapitalConfig } from '../services/api'
-import { getConfig, StrategyInstance, WithdrawalPolicy } from '../services/config'
+import { getConfig, StrategyInstance, WithdrawalPolicy, PrincipalProtection, WithdrawSchedule } from '../services/config'
 import { getStrategyTypes } from '../services/strategy'
 import { getExchanges } from '../services/api'
 import { getCapitalAllocation, type ExchangeCapitalDetail } from '../services/capital'
@@ -64,6 +64,16 @@ interface AIConfigWizardProps {
   exchange?: string
   symbols?: string[]
 }
+
+const defaultPrincipalProtection = (): PrincipalProtection => ({
+  enabled: true,
+  breakeven_protection: true,
+  withdraw_principal: false,
+  principal_withdraw_at: 1,
+  max_loss_ratio: 0.2,
+})
+
+const defaultWithdrawSchedule = (): WithdrawSchedule => ({ enabled: true, frequency: 'daily', time_of_day: '23:00' })
 
 type WizardStep = 
   | 'ai-setup' 
@@ -2045,7 +2055,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                               value={withdrawalPolicy.schedule?.frequency || 'daily'}
                               onChange={(e) => setWithdrawalPolicy(prev => ({ 
                                 ...prev, 
-                                schedule: { ...prev.schedule, enabled: true, frequency: e.target.value as any } 
+                                schedule: { ...(prev.schedule ?? defaultWithdrawSchedule()), enabled: true, frequency: e.target.value as WithdrawSchedule['frequency'] }
                               }))}
                               borderRadius="xl"
                             >
@@ -2061,7 +2071,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                               value={withdrawalPolicy.schedule?.time_of_day || '23:00'}
                               onChange={(e) => setWithdrawalPolicy(prev => ({ 
                                 ...prev, 
-                                schedule: { ...prev.schedule, time_of_day: e.target.value } 
+                                schedule: { ...(prev.schedule ?? defaultWithdrawSchedule()), time_of_day: e.target.value }
                               }))}
                               borderRadius="xl"
                             />
@@ -2108,7 +2118,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       onChange={(v) => setWithdrawalPolicy(prev => ({ 
                         ...prev, 
                         principal_protection: { 
-                          ...prev.principal_protection, 
+                          ...(prev.principal_protection ?? defaultPrincipalProtection()),
                           enabled: true,
                           breakeven_protection: v === 'true' 
                         } 
@@ -2131,7 +2141,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                       onChange={(v) => setWithdrawalPolicy(prev => ({ 
                         ...prev, 
                         principal_protection: { 
-                          ...prev.principal_protection, 
+                          ...(prev.principal_protection ?? defaultPrincipalProtection()),
                           enabled: true,
                           withdraw_principal: v === 'true' 
                         } 
@@ -2154,7 +2164,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
                         onChange={(_, val) => setWithdrawalPolicy(prev => ({ 
                           ...prev, 
                           principal_protection: { 
-                            ...prev.principal_protection, 
+                            ...(prev.principal_protection ?? defaultPrincipalProtection()),
                             enabled: true,
                             max_loss_ratio: val / 100 
                           } 

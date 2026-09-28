@@ -327,9 +327,9 @@ const Configuration: React.FC = () => {
   const [feeRateInputs, setFeeRateInputs] = useState<Record<string, string>>({})
   /** 未填寫憑證的交易所：使用者展開後可再收合為單行 */
   const [expandedEmptyExchangeSlots, setExpandedEmptyExchangeSlots] = useState<Record<string, boolean>>({})
-  const [directionConfirm, setDirectionConfirm] = useState<{ isOpen: boolean; newDirection: string; loading: boolean }>({
+  const [directionConfirm, setDirectionConfirm] = useState<{ isOpen: boolean; newDirection: 'LONG' | 'SHORT'; loading: boolean }>({
     isOpen: false,
-    newDirection: '',
+    newDirection: 'LONG',
     loading: false,
   })
   const [saveOptionsOpen, setSaveOptionsOpen] = useState(false)
@@ -1072,7 +1072,7 @@ const Configuration: React.FC = () => {
             size="sm"
             w="100px"
             value={feeRateInputs[exchange] ?? ''}
-            onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? v : '' }))}
+            onChange={(v) => setFeeRateInputs((prev) => ({ ...prev, [exchange]: v !== undefined && v !== '' ? String(v) : '' }))}
             onBlur={() => {
               const rawValue = feeRateInputs[exchange] ?? ''
               const trimmed = String(rawValue).trim()
@@ -2691,7 +2691,7 @@ const Configuration: React.FC = () => {
                           <Select
                             value={(getSelectedSymbolConfig()?.direction ?? config.trading?.direction) || 'LONG'}
                             onChange={(e) => {
-                              const newDir = e.target.value
+                              const newDir = e.target.value === 'SHORT' ? 'SHORT' : 'LONG'
                               const curDir = (getSelectedSymbolConfig()?.direction ?? config.trading?.direction) || 'LONG'
                               if (newDir !== curDir) {
                                 setDirectionConfirm({ isOpen: true, newDirection: newDir, loading: false })
@@ -3014,7 +3014,7 @@ const Configuration: React.FC = () => {
                               onChange={(_, v) => updateSelectedSymbolField('grid_risk_control', {
                                 ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
                                 enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
-                                max_grid_layers: v === undefined || v === '' ? 0 : Number(v),
+                                max_grid_layers: Number.isFinite(v) ? v : 0,
                                 max_open_orders_at_cap: getSelectedSymbolConfig()?.grid_risk_control?.max_open_orders_at_cap ?? 0,
                                 stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
                                 take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
@@ -3036,7 +3036,7 @@ const Configuration: React.FC = () => {
                                 ...(getSelectedSymbolConfig()?.grid_risk_control || {}),
                                 enabled: !!getSelectedSymbolConfig()?.grid_risk_control?.enabled,
                                 max_grid_layers: getSelectedSymbolConfig()?.grid_risk_control?.max_grid_layers ?? 0,
-                                max_open_orders_at_cap: v === undefined || v === '' ? 0 : Number(v),
+                                max_open_orders_at_cap: Number.isFinite(v) ? v : 0,
                                 stop_loss_ratio: getSelectedSymbolConfig()?.grid_risk_control?.stop_loss_ratio ?? 0,
                                 take_profit_trigger_ratio: getSelectedSymbolConfig()?.grid_risk_control?.take_profit_trigger_ratio ?? 0,
                                 trailing_take_profit_ratio: getSelectedSymbolConfig()?.grid_risk_control?.trailing_take_profit_ratio ?? 0,
@@ -3111,7 +3111,7 @@ const Configuration: React.FC = () => {
                                     precision={6}
                                     step={0.01}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" />
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
@@ -3137,7 +3137,7 @@ const Configuration: React.FC = () => {
                                     step={0.01}
                                     min={0}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" placeholder={t('configuration.profitSpreadHint')} />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" placeholder={t('configuration.profitSpreadHint')} />
                                   </NumberInput>
                                   <Text fontSize="2xs" color="gray.500" mt={0.5}>{t('configuration.profitSpreadHint')}</Text>
                                 </FormControl>
@@ -3162,7 +3162,7 @@ const Configuration: React.FC = () => {
                                     }}
                                     precision={2}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" />
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
@@ -3238,7 +3238,7 @@ const Configuration: React.FC = () => {
                                     precision={6}
                                     step={0.01}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" />
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
@@ -3264,7 +3264,7 @@ const Configuration: React.FC = () => {
                                     step={0.01}
                                     min={0}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" placeholder={t('configuration.profitSpreadHint')} />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" placeholder={t('configuration.profitSpreadHint')} />
                                   </NumberInput>
                                   <Text fontSize="2xs" color="gray.500" mt={0.5}>{t('configuration.profitSpreadHint')}</Text>
                                 </FormControl>
@@ -3289,7 +3289,7 @@ const Configuration: React.FC = () => {
                                     }}
                                     precision={2}
                                   >
-                                    <NumberInputField borderRadius="xl" size="sm" />
+                                    <NumberInputField borderRadius="xl" fontSize="sm" />
                                   </NumberInput>
                                 </FormControl>
                                 <FormControl>
@@ -3366,7 +3366,7 @@ const Configuration: React.FC = () => {
                                 precision={4}
                                 step={0.01}
                               >
-                                <NumberInputField borderRadius="xl" size="sm" />
+                                <NumberInputField borderRadius="xl" fontSize="sm" />
                               </NumberInput>
                               <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.fundingRateThresholdDesc')}</Text>
                             </FormControl>
@@ -3389,7 +3389,7 @@ const Configuration: React.FC = () => {
                                 precision={4}
                                 step={0.01}
                               >
-                                <NumberInputField borderRadius="xl" size="sm" />
+                                <NumberInputField borderRadius="xl" fontSize="sm" />
                               </NumberInput>
                               <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.feeRateThresholdDesc')}</Text>
                             </FormControl>
@@ -3410,7 +3410,7 @@ const Configuration: React.FC = () => {
                                 min={60}
                                 max={3600}
                               >
-                                <NumberInputField borderRadius="xl" size="sm" />
+                                <NumberInputField borderRadius="xl" fontSize="sm" />
                               </NumberInput>
                               <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.cooldownSecondsDesc')}</Text>
                             </FormControl>

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"fmt"
 
 	"quantmesh/logger"
 )
@@ -34,6 +35,8 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 			exchange TEXT NOT NULL,
 			symbol TEXT NOT NULL,
 			account TEXT,
+			market_type TEXT NOT NULL DEFAULT '',
+			account_scope TEXT NOT NULL DEFAULT '',
 			income_type TEXT NOT NULL,
 			income DECIMAL(20,8) NOT NULL,
 			asset TEXT,
@@ -46,7 +49,27 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_trade_time ON funding_payments(trade_time);
 		CREATE INDEX IF NOT EXISTS idx_funding_payments_account ON funding_payments(account);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"market_type", `ALTER TABLE funding_payments ADD COLUMN market_type TEXT NOT NULL DEFAULT ''`},
+		{"account_scope", `ALTER TABLE funding_payments ADD COLUMN account_scope TEXT NOT NULL DEFAULT ''`},
+	} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('funding_payments') WHERE name = ?`, column.name).Scan(&count); err != nil {
+			return fmt.Errorf("检查 funding_payments.%s 字段失败: %w", column.name, err)
+		}
+		if count == 0 {
+			if _, err := db.Exec(column.ddl); err != nil {
+				return fmt.Errorf("添加 funding_payments.%s 字段失败: %w", column.name, err)
+			}
+		}
+	}
+	if _, err := db.Exec(`CREATE INDEX IF NOT EXISTS idx_funding_payments_scope_market_symbol_time ON funding_payments(account_scope, exchange, market_type, symbol, trade_time)`); err != nil {
+		return fmt.Errorf("创建 funding_payments 作用域索引失败: %w", err)
+	}
+	return nil
 }
 
 // migrateMarketInterpretTable 遷移市場 AI 解讀任務表
@@ -112,12 +135,16 @@ func migrateHourlyEquityAndDailySnapshotTables(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS hourly_equity_records (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			exchange TEXT NOT NULL,
+			market_type TEXT NOT NULL DEFAULT '',
+			account_scope TEXT NOT NULL DEFAULT '',
 			symbol TEXT NOT NULL,
 			account TEXT NOT NULL,
 			timestamp DATETIME NOT NULL,
 			equity REAL NOT NULL,
 			unrealized_pnl REAL NOT NULL,
 			total_position_value REAL NOT NULL,
+			market_price REAL NOT NULL DEFAULT 0,
+			spot_position_qty REAL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_hourly_equity_exchange_symbol_account ON hourly_equity_records(exchange, symbol, account);
@@ -125,23 +152,173 @@ func migrateHourlyEquityAndDailySnapshotTables(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS daily_snapshots (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			exchange TEXT NOT NULL,
+			market_type TEXT NOT NULL DEFAULT '',
+			account_scope TEXT NOT NULL DEFAULT '',
 			symbol TEXT NOT NULL,
 			account TEXT NOT NULL,
 			date DATE NOT NULL,
 			unrealized_pnl REAL NOT NULL,
 			total_position_value REAL NOT NULL,
+			spot_position_qty REAL,
 			intraday_max_drawdown REAL NOT NULL,
 			intraday_max_drawdown_pct REAL NOT NULL,
 			intraday_peak_equity REAL NOT NULL,
 			closing_price REAL NOT NULL,
 			snapshot_time TIMESTAMP NOT NULL,
+			account_equity REAL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(exchange, symbol, account, date)
+			UNIQUE(exchange, market_type, account_scope, symbol, date)
 		);
 		CREATE INDEX IF NOT EXISTS idx_daily_snapshots_exchange_symbol_account ON daily_snapshots(exchange, symbol, account);
 		CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date ON daily_snapshots(date);
+		CREATE TABLE IF NOT EXISTS account_equity_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			exchange TEXT NOT NULL,
+			market_type TEXT NOT NULL DEFAULT '',
+			account_scope TEXT NOT NULL DEFAULT '',
+			account TEXT NOT NULL,
+			timestamp DATETIME NOT NULL,
+			account_equity REAL NOT NULL,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(exchange, market_type, account_scope, timestamp)
+		);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	if err := migrateAccountEquityMarketTypeSQLite(db); err != nil {
+		return err
+	}
+	if err := migrateMarketTypeSnapshotColumnsSQLite(db); err != nil {
+		return err
+	}
+	for _, column := range []struct{ table, name, definition string }{{"hourly_equity_records", "market_price", "market_price REAL NOT NULL DEFAULT 0"}, {"hourly_equity_records", "spot_position_qty", "spot_position_qty REAL"}, {"daily_snapshots", "spot_position_qty", "spot_position_qty REAL"}} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('`+column.table+`') WHERE name = ?`, column.name).Scan(&count); err != nil {
+			return fmt.Errorf("check %s.%s migration: %w", column.table, column.name, err)
+		}
+		if count == 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + column.table + ` ADD COLUMN ` + column.definition); err != nil {
+				return fmt.Errorf("migrate %s.%s: %w", column.table, column.name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func migrateAccountEquityMarketTypeSQLite(db *sql.DB) error {
+	var hasMarketType, hasAccountScope int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('account_equity_records') WHERE name = 'market_type'`).Scan(&hasMarketType); err != nil {
+		return fmt.Errorf("检查 account_equity_records.market_type 失败: %w", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('account_equity_records') WHERE name = 'account_scope'`).Scan(&hasAccountScope); err != nil {
+		return fmt.Errorf("检查 account_equity_records.account_scope 失败: %w", err)
+	}
+	if hasMarketType > 0 && hasAccountScope > 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("开始账户权益维度迁移失败: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE account_equity_records RENAME TO account_equity_records_legacy`); err != nil {
+		return fmt.Errorf("重命名旧账户权益表失败: %w", err)
+	}
+	marketTypeSelect := `''`
+	if hasMarketType > 0 {
+		marketTypeSelect = `market_type`
+	}
+	if _, err := tx.Exec(`CREATE TABLE account_equity_records (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, exchange TEXT NOT NULL, market_type TEXT NOT NULL DEFAULT '', account_scope TEXT NOT NULL DEFAULT '',
+		account TEXT NOT NULL, timestamp DATETIME NOT NULL, account_equity REAL NOT NULL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(exchange, market_type, account_scope, timestamp))`); err != nil {
+		return fmt.Errorf("创建作用域隔离账户权益表失败: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO account_equity_records(id, exchange, market_type, account_scope, account, timestamp, account_equity, created_at)
+		SELECT id, exchange, ` + marketTypeSelect + `, 'legacy:' || account, account, timestamp, account_equity, created_at FROM account_equity_records_legacy`); err != nil {
+		return fmt.Errorf("复制旧账户权益样本失败: %w", err)
+	}
+	if _, err := tx.Exec(`DROP TABLE account_equity_records_legacy`); err != nil {
+		return fmt.Errorf("删除旧账户权益表失败: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("提交账户权益维度迁移失败: %w", err)
+	}
+	return nil
+}
+
+// migrateMarketTypeSnapshotColumnsSQLite keeps legacy snapshots explicitly unclassified,
+// while rebuilding the daily key so one account/symbol/date can store each market separately.
+func migrateMarketTypeSnapshotColumnsSQLite(db *sql.DB) error {
+	for _, column := range []string{"market_type", "account_scope"} {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('hourly_equity_records') WHERE name = ?`, column).Scan(&exists); err != nil {
+			return fmt.Errorf("检查 hourly_equity_records.%s 失败: %w", column, err)
+		}
+		if exists == 0 {
+			if _, err := db.Exec(`ALTER TABLE hourly_equity_records ADD COLUMN ` + column + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+				return fmt.Errorf("添加 hourly_equity_records.%s 失败: %w", column, err)
+			}
+		}
+	}
+	var marketTypeCount, accountScopeCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('daily_snapshots') WHERE name = 'market_type'`).Scan(&marketTypeCount); err != nil {
+		return fmt.Errorf("检查 daily_snapshots.market_type 失败: %w", err)
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('daily_snapshots') WHERE name = 'account_scope'`).Scan(&accountScopeCount); err != nil {
+		return fmt.Errorf("检查 daily_snapshots.account_scope 失败: %w", err)
+	}
+	if marketTypeCount > 0 && accountScopeCount > 0 {
+		return nil
+	}
+	var accountEquityCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('daily_snapshots') WHERE name = 'account_equity'`).Scan(&accountEquityCount); err != nil {
+		return fmt.Errorf("检查 daily_snapshots.account_equity 失败: %w", err)
+	}
+	accountEquitySelect := "NULL"
+	if accountEquityCount > 0 {
+		accountEquitySelect = "account_equity"
+	}
+	marketTypeSelect := `''`
+	if marketTypeCount > 0 {
+		marketTypeSelect = `market_type`
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("開始快照維度迁移失败: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`ALTER TABLE daily_snapshots RENAME TO daily_snapshots_market_legacy`); err != nil {
+		return fmt.Errorf("保留旧日快照表失败: %w", err)
+	}
+	if _, err = tx.Exec(`CREATE TABLE daily_snapshots (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, exchange TEXT NOT NULL, market_type TEXT NOT NULL DEFAULT '', account_scope TEXT NOT NULL DEFAULT '',
+		symbol TEXT NOT NULL, account TEXT NOT NULL, date DATE NOT NULL, unrealized_pnl REAL NOT NULL,
+		total_position_value REAL NOT NULL, intraday_max_drawdown REAL NOT NULL,
+		intraday_max_drawdown_pct REAL NOT NULL, intraday_peak_equity REAL NOT NULL,
+		closing_price REAL NOT NULL, snapshot_time TIMESTAMP NOT NULL, account_equity REAL, spot_position_qty REAL,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(exchange, market_type, account_scope, symbol, date))`); err != nil {
+		return fmt.Errorf("創建帶市場維度的日快照表失败: %w", err)
+	}
+	copySQL := `INSERT INTO daily_snapshots (id, exchange, market_type, account_scope, symbol, account, date, unrealized_pnl, total_position_value,
+		intraday_max_drawdown, intraday_max_drawdown_pct, intraday_peak_equity, closing_price, snapshot_time, account_equity, created_at)
+		SELECT id, exchange, ` + marketTypeSelect + `, 'legacy:' || account, symbol, account, date, unrealized_pnl, total_position_value, intraday_max_drawdown,
+		intraday_max_drawdown_pct, intraday_peak_equity, closing_price, snapshot_time, ` + accountEquitySelect + `, created_at
+		FROM daily_snapshots_market_legacy`
+	if _, err = tx.Exec(copySQL); err != nil {
+		return fmt.Errorf("複製舊日快照失败: %w", err)
+	}
+	if _, err = tx.Exec(`DROP TABLE daily_snapshots_market_legacy`); err != nil {
+		return fmt.Errorf("清理舊日快照表失败: %w", err)
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS idx_daily_snapshots_exchange_symbol_account ON daily_snapshots(exchange, symbol, account);
+		CREATE INDEX IF NOT EXISTS idx_daily_snapshots_date ON daily_snapshots(date)`); err != nil {
+		return fmt.Errorf("重建日快照索引失败: %w", err)
+	}
+	return tx.Commit()
 }
 
 // migrateAccountEquitySnapshotColumns 為快照表增加交易所帳戶權益列（用於淨值曲線；SQLite pragma 檢測）
@@ -351,6 +528,8 @@ func migrateProfitWithdrawRulesTable(db *sql.DB) error {
 		CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 			id TEXT PRIMARY KEY,
 			account_id TEXT NOT NULL,
+			account_scope TEXT NOT NULL DEFAULT '',
+			claim_id TEXT NOT NULL DEFAULT '',
 			exchange_id TEXT NOT NULL,
 			strategy_id TEXT NOT NULL DEFAULT '',
 			enabled INTEGER NOT NULL DEFAULT 1,
@@ -385,6 +564,30 @@ func migrateProfitWithdrawRulesLastTriggered(db *sql.DB) error {
 	return nil
 }
 
+func migrateProfitWithdrawRulesAccountScope(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profit_withdraw_rules') WHERE name='account_scope'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`ALTER TABLE profit_withdraw_rules ADD COLUMN account_scope TEXT NOT NULL DEFAULT ''`)
+		return err
+	}
+	return nil
+}
+
+func migrateProfitWithdrawRulesClaimID(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profit_withdraw_rules') WHERE name='claim_id'`).Scan(&count); err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err := db.Exec(`ALTER TABLE profit_withdraw_rules ADD COLUMN claim_id TEXT NOT NULL DEFAULT ''`)
+		return err
+	}
+	return nil
+}
+
 // migrateProfitWithdrawRecordsTable 确保 profit_withdraw_records 表存在
 func migrateProfitWithdrawRecordsTable(db *sql.DB) error {
 	_, err := db.Exec(`
@@ -392,6 +595,8 @@ func migrateProfitWithdrawRecordsTable(db *sql.DB) error {
 			id TEXT PRIMARY KEY,
 			rule_id TEXT NOT NULL,
 			account_id TEXT NOT NULL,
+			account_scope TEXT NOT NULL DEFAULT '',
+			claim_id TEXT NOT NULL DEFAULT '',
 			exchange_id TEXT NOT NULL,
 			strategy_id TEXT DEFAULT '',
 			amount REAL NOT NULL,
@@ -411,7 +616,21 @@ func migrateProfitWithdrawRecordsTable(db *sql.DB) error {
 		CREATE INDEX IF NOT EXISTS idx_withdraw_records_created_at ON profit_withdraw_records(created_at);
 		CREATE INDEX IF NOT EXISTS idx_withdraw_records_rule_id ON profit_withdraw_records(rule_id);
 	`)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, column := range []string{"account_scope", "claim_id"} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('profit_withdraw_records') WHERE name = ?`, column).Scan(&count); err != nil {
+			return err
+		}
+		if count == 0 {
+			if _, err := db.Exec(`ALTER TABLE profit_withdraw_records ADD COLUMN ` + column + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrateEventsTable 迁移 events 表，添加 event_type 字段
@@ -437,6 +656,21 @@ func migrateEventsTable(db *sql.DB) error {
 
 // migrateReconciliationHistory 迁移對账历史表，添加 actual_profit、account 和 created_at 字段（如果不存在）
 func migrateReconciliationHistory(db *sql.DB) error {
+	for _, column := range []struct{ name, ddl string }{
+		{"account_scope", "TEXT NOT NULL DEFAULT ''"},
+		{"market_type", "TEXT NOT NULL DEFAULT ''"},
+		{"bot_id", "TEXT NOT NULL DEFAULT ''"},
+	} {
+		var exists int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('reconciliation_history') WHERE name = ?`, column.name).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			if _, err := db.Exec(`ALTER TABLE reconciliation_history ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
+				return fmt.Errorf("add reconciliation_history.%s: %w", column.name, err)
+			}
+		}
+	}
 	// 检查 actual_profit 字段是否存在
 	row := db.QueryRow(`
 		SELECT COUNT(*) FROM pragma_table_info('reconciliation_history')
@@ -533,6 +767,10 @@ func migrateReconciliationHistory(db *sql.DB) error {
 	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_reconciliation_history_account_exchange_symbol ON reconciliation_history(account, exchange, symbol)`)
 	if err != nil {
 		logger.Warn("⚠️ 确保 reconciliation_history account+exchange+symbol 索引失败: %v", err)
+	}
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_reconciliation_history_scope ON reconciliation_history(exchange, market_type, symbol, account_scope, bot_id, reconcile_time)`)
+	if err != nil {
+		return fmt.Errorf("create reconciliation history scoped index: %w", err)
 	}
 
 	return nil

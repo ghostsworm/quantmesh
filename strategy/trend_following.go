@@ -44,9 +44,11 @@ type TrendFollowingStrategy struct {
 	pendingAction string
 	stats         *StrategyStatistics
 
-	isPaused  bool
-	isRunning bool
-	eventBus  EventBus
+	isPaused          bool
+	isRunning         bool
+	eventBus          EventBus
+	runtimeStateStore RuntimeStateStore
+	runtimeStateErr   error
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -140,6 +142,9 @@ func (tfs *TrendFollowingStrategy) Initialize(cfg *config.Config, executor posit
 func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := tfs.restoreRuntimeState(); err != nil {
+		return err
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 
@@ -241,12 +246,20 @@ func (tfs *TrendFollowingStrategy) detectTrend() Trend {
 
 // OnPriceChange 價格變化处理
 func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
-	tfs.mu.RLock()
-	if !tfs.isRunning || tfs.isPaused || tfs.activeOrder != nil {
-		tfs.mu.RUnlock()
+	tfs.mu.Lock()
+	stateErr := tfs.runtimeStateErr
+	shouldEvaluate := tfs.isRunning && !tfs.isPaused && tfs.activeOrder == nil
+	priceErr := updateSignalPositionMark(tfs.position, price)
+	tfs.mu.Unlock()
+	if priceErr != nil {
+		return priceErr
+	}
+	if stateErr != nil {
+		return signalRuntimeStateDecisionError(tfs.name, stateErr)
+	}
+	if !shouldEvaluate {
 		return nil
 	}
-	tfs.mu.RUnlock()
 	tfs.addPrice(price)
 
 	trend := tfs.detectTrend()
@@ -292,6 +305,9 @@ func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
 }
 
 func (tfs *TrendFollowingStrategy) placeSignalOrder(action string, price float64) error {
+	if action == signalActionOpenLong && signalOpeningPaused(tfs.executor, tfs.cfg) {
+		return nil
+	}
 	if tfs.executor == nil {
 		return nil
 	}
@@ -318,39 +334,24 @@ func (tfs *TrendFollowingStrategy) placeSignalOrder(action string, price float64
 		return nil
 	}
 
-	order, err := tfs.executor.PlaceOrder(&position.OrderRequest{
+	req := &position.OrderRequest{
 		Symbol:        symbol,
 		Side:          side,
 		Price:         orderPrice,
 		Quantity:      quantity,
 		PriceDecimals: priceDecimals,
 		ReduceOnly:    reduceOnly,
+		PositionSide:  position.PositionSideLong,
 		PostOnly:      false,
 		ClientOrderID: signalClientOrderID(tfs.name, action),
 		StrategyName:  tfs.name,
 		StrategyType:  "trend",
-	})
-	if err != nil {
-		return err
 	}
-	if order == nil {
-		return nil
+	venue := ""
+	if tfs.exchange != nil {
+		venue = tfs.exchange.GetName()
 	}
-	tracked := &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          order.Side,
-		Price:         order.Price,
-		Quantity:      order.Quantity,
-		Status:        order.Status,
-	}
-	tfs.activeOrder = tracked
-	tfs.pendingAction = action
-	if signalOrderStatusFilled(order.Status) {
-		tfs.applyFilledOrderLocked(tracked, order.Quantity, order.Price)
-	}
-	return nil
+	return submitSignalOrder(tfs.executor, venue, req, action, &tfs.activeOrder, &tfs.pendingAction, &tfs.position, &tfs.entryPrice, tfs.stats, tfs.exchange, tfs.persistRuntimeStateLocked)
 }
 
 // OnOrderUpdate 订單更新处理
@@ -361,61 +362,8 @@ func (tfs *TrendFollowingStrategy) OnOrderUpdate(update *position.OrderUpdate) e
 	tfs.mu.Lock()
 	defer tfs.mu.Unlock()
 
-	if !signalOrderMatches(tfs.activeOrder, update) {
-		return nil
-	}
-	tfs.activeOrder.Status = update.Status
-	if signalOrderStatusTerminal(update.Status) {
-		tfs.activeOrder = nil
-		tfs.pendingAction = ""
-		return nil
-	}
-	if !signalOrderStatusFilled(update.Status) {
-		return nil
-	}
-	fillPrice := update.AvgPrice
-	if fillPrice <= 0 {
-		fillPrice = update.Price
-	}
-	fillQty := update.ExecutedQty
-	if fillQty <= 0 {
-		fillQty = tfs.activeOrder.Quantity
-	}
-	tfs.applyFilledOrderLocked(tfs.activeOrder, fillQty, fillPrice)
-	return nil
-}
-
-func (tfs *TrendFollowingStrategy) applyFilledOrderLocked(order *Order, quantity, price float64) {
-	if order == nil {
-		return
-	}
-	if price <= 0 {
-		price = order.Price
-	}
-	if quantity <= 0 {
-		quantity = order.Quantity
-	}
-	switch tfs.pendingAction {
-	case signalActionOpenLong:
-		tfs.entryPrice = price
-		tfs.position = &Position{
-			Symbol:       order.Symbol,
-			Size:         quantity,
-			EntryPrice:   price,
-			CurrentPrice: price,
-			PnL:          0,
-		}
-	case signalActionCloseLong:
-		if tfs.position != nil && tfs.entryPrice > 0 {
-			tfs.stats.TotalPnL += (price - tfs.entryPrice) * tfs.position.Size
-		}
-		tfs.position = nil
-		tfs.entryPrice = 0
-		tfs.stats.TotalTrades++
-	}
-	tfs.stats.TotalVolume += quantity * price
-	tfs.activeOrder = nil
-	tfs.pendingAction = ""
+	applySignalOrderUpdate(&tfs.activeOrder, &tfs.pendingAction, &tfs.position, &tfs.entryPrice, tfs.stats, tfs.exchange, tfs.executor, update)
+	return tfs.persistRuntimeStateLocked()
 }
 
 // GetPositions 獲取持倉

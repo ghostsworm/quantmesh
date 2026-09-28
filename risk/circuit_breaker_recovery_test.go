@@ -25,6 +25,13 @@ type safeMockBot struct {
 	closeTimeout int
 }
 
+type scopedSafeMockBot struct {
+	*safeMockBot
+	scope string
+}
+
+func (b *scopedSafeMockBot) CloseScopeKey() string { return b.scope }
+
 func (b *safeMockBot) PauseOpening(string) { b.pauses.Add(1) }
 func (b *safeMockBot) ResumeOpening()      { b.resumes.Add(1) }
 func (b *safeMockBot) CancelAllOpenOrders() error {
@@ -271,6 +278,19 @@ func TestRunOnBotsAggregatesErrorsAndPanics(t *testing.T) {
 	err := report.Err()
 	if err == nil || !strings.Contains(err.Error(), "reduceOnly rejected") || !strings.Contains(err.Error(), "panic") {
 		t.Fatalf("应聚合全部错误, got %v", err)
+	}
+}
+
+func TestClosePositionsSerializesAndStopsWithinSharedAccount(t *testing.T) {
+	failed := &scopedSafeMockBot{safeMockBot: &safeMockBot{closeErr: errors.New("unverified")}, scope: "account-a"}
+	skipped := &scopedSafeMockBot{safeMockBot: &safeMockBot{}, scope: "account-a"}
+	independent := &scopedSafeMockBot{safeMockBot: &safeMockBot{}, scope: "account-b"}
+	report := closePositionsOnBots(context.Background(), []BotController{failed, skipped, independent}, "market", 1)
+	if failed.closes.Load() != 1 || skipped.closes.Load() != 0 || independent.closes.Load() != 1 {
+		t.Fatalf("closes: failed=%d skipped=%d independent=%d", failed.closes.Load(), skipped.closes.Load(), independent.closes.Load())
+	}
+	if report.Succeeded != 1 || report.Failed() != 2 {
+		t.Fatalf("report=%+v", report)
 	}
 }
 

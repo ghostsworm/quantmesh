@@ -89,9 +89,13 @@ func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	}
 
 	grc := config.GridRiskControl{Enabled: true, StopLossRatio: 0.2}
+	initial := spm.config.Trading.GridRiskControl
 	spm.SetGridRiskControl(grc)
-	if !spm.config.Trading.GridRiskControl.Enabled || spm.config.Trading.GridRiskControl.StopLossRatio != 0.2 {
+	if got := spm.GetRiskControls().Grid; !got.Enabled || got.StopLossRatio != 0.2 {
 		t.Fatalf("grid risk control not updated")
+	}
+	if spm.config.Trading.GridRiskControl != initial {
+		t.Fatal("hot update mutated original config retained by other components")
 	}
 }
 

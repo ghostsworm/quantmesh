@@ -41,7 +41,8 @@ type fakeOrderExchange struct {
 	placeErr        error
 }
 
-func (f *fakeOrderExchange) GetName() string { return "fake" }
+func (f *fakeOrderExchange) GetName() string       { return "fake" }
+func (f *fakeOrderExchange) GetMarketType() string { return "futures" }
 func (f *fakeOrderExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	f.placed = append(f.placed, req)
 	if f.placeErr != nil {

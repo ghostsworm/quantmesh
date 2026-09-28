@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -10,10 +12,29 @@ import (
 	"quantmesh/position"
 )
 
+type startOutcomeStrategy struct {
+	routingTestStrategy
+	startErr error
+	stopped  bool
+}
+
+func (s *startOutcomeStrategy) Start(context.Context) error { return s.startErr }
+func (s *startOutcomeStrategy) Stop() error {
+	s.stopped = true
+	return nil
+}
+
 type routingTestStrategy struct {
 	name string
 	hit  atomic.Int64
 }
+
+type failingOrderUpdateStrategy struct {
+	routingTestStrategy
+	err error
+}
+
+func (s *failingOrderUpdateStrategy) OnOrderUpdate(*position.OrderUpdate) error { return s.err }
 
 func (s *routingTestStrategy) Name() string { return s.name }
 func (s *routingTestStrategy) Initialize(cfg *config.Config, executor position.OrderExecutorInterface, exchange position.IExchange) error {
@@ -65,6 +86,79 @@ func TestStrategyManagerOnOrderUpdateForStrategy(t *testing.T) {
 	}
 }
 
+type failedOrderUpdateStrategy struct {
+	routingTestStrategy
+	err error
+}
+
+func (s *failedOrderUpdateStrategy) OnOrderUpdate(*position.OrderUpdate) error { return s.err }
+
+func TestApplyOrderUpdateForStrategyIsSynchronousAndReturnsPersistenceErrors(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{"trend": {Enabled: true}}
+	sm := NewStrategyManager(cfg, 1000)
+	want := errors.New("runtime state persistence failed")
+	trend := &failedOrderUpdateStrategy{routingTestStrategy: routingTestStrategy{name: "trend"}, err: want}
+	sm.RegisterStrategy("trend", trend, 1, 0)
+	if err := sm.ApplyOrderUpdateForStrategy("trend", &position.OrderUpdate{OrderID: 1002, Status: "FILLED"}); !errors.Is(err, want) {
+		t.Fatalf("expected synchronous accounting error, got %v", err)
+	}
+	if got := trend.hit.Load(); got != 0 {
+		t.Fatalf("failing implementation should not run embedded success handler, got %d", got)
+	}
+}
+
+func TestApplyOrderUpdateForStrategyRejectsMissingRoute(t *testing.T) {
+	sm := NewStrategyManager(&config.Config{}, 1000)
+	err := sm.ApplyOrderUpdateForStrategy("missing", &position.OrderUpdate{OrderID: 1003, Status: "FILLED"})
+	if err == nil || !strings.Contains(err.Error(), "unavailable strategy") {
+		t.Fatalf("expected missing strategy route error, got %v", err)
+	}
+}
+
+func TestStrategyManagerReportsOrderUpdateAccountingFailure(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{"trend": {Enabled: true}}
+	sm := NewStrategyManager(cfg, 1000)
+	wantErr := errors.New("runtime state persistence failed")
+	sm.RegisterStrategy("trend", &failingOrderUpdateStrategy{
+		routingTestStrategy: routingTestStrategy{name: "trend"}, err: wantErr,
+	}, 1, 0)
+	got := make(chan error, 1)
+	sm.SetOrderUpdateErrorHandler(func(name string, err error) {
+		if name != "trend" {
+			got <- errors.New("unexpected strategy name")
+			return
+		}
+		got <- err
+	})
+	sm.OnOrderUpdateForStrategy("trend", &position.OrderUpdate{OrderID: 1002, Status: "FILLED"})
+	select {
+	case err := <-got:
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("reported error=%v, want wrapped persistence error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("order update failure was not propagated to runtime handler")
+	}
+}
+
+func TestStrategyManagerReportsUnavailableOwnedOrderRoute(t *testing.T) {
+	cfg := &config.Config{}
+	sm := NewStrategyManager(cfg, 1000)
+	got := make(chan error, 1)
+	sm.SetOrderUpdateErrorHandler(func(name string, err error) { got <- err })
+	sm.OnOrderUpdateForStrategy("missing", &position.OrderUpdate{OrderID: 1003, Status: "FILLED"})
+	select {
+	case err := <-got:
+		if err == nil || !strings.Contains(err.Error(), "unavailable strategy") {
+			t.Fatalf("unexpected route error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("unavailable owned route did not trigger reconciliation handler")
+	}
+}
+
 func TestStrategyManagerStatusUsesRuntimeState(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Strategies.Configs = map[string]config.StrategyConfig{
@@ -96,5 +190,29 @@ func TestStrategyManagerStatusUsesRuntimeState(t *testing.T) {
 	}
 	if status.IsRunning {
 		t.Fatal("策略配置被禁用时不应显示 running=true")
+	}
+}
+
+func TestStrategyManagerStartAllReturnsFailureAndStopsEarlierStrategies(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{
+		"a": {Enabled: true},
+		"b": {Enabled: true},
+	}
+	sm := NewStrategyManager(cfg, 1000)
+	first := &startOutcomeStrategy{routingTestStrategy: routingTestStrategy{name: "a"}}
+	failing := &startOutcomeStrategy{routingTestStrategy: routingTestStrategy{name: "b"}, startErr: errors.New("state snapshot is invalid")}
+	sm.RegisterStrategy("a", first, 1, 0)
+	sm.RegisterStrategy("b", failing, 1, 0)
+
+	err := sm.StartAll()
+	if err == nil || !strings.Contains(err.Error(), "strategy b") {
+		t.Fatalf("StartAll error=%v, want failed strategy context", err)
+	}
+	if !first.stopped {
+		t.Fatal("previously started strategy was not stopped after startup failure")
+	}
+	if !failing.stopped {
+		t.Fatal("strategy that returned a start error was not stopped")
 	}
 }

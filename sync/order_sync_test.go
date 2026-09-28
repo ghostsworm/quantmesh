@@ -4,7 +4,16 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"quantmesh/exchange"
+	"quantmesh/storage"
 )
+
+type syncExchangeWithoutAdapter struct{ exchange.IExchange }
+
+type syncExchangeWithoutTradeHistory struct{ exchange.IExchange }
+
+func (syncExchangeWithoutTradeHistory) GetAdapter() interface{} { return struct{}{} }
 
 func TestOrderSyncServiceCanRestartAfterContextCancel(t *testing.T) {
 	service := NewOrderSyncService(nil, nil, "BTCUSDT", "acct", "mock", 0)
@@ -50,3 +59,22 @@ func TestOrderSyncServiceNilDependenciesSkipSafely(t *testing.T) {
 		t.Fatalf("依赖为空时应安全跳过，got %v", err)
 	}
 }
+
+func TestOrderSyncServiceUnsupportedExchangeFailsInsteadOfReportingSuccess(t *testing.T) {
+	t.Run("no adapter access", func(t *testing.T) {
+		service := NewOrderSyncService(syncExchangeWithoutAdapter{}, nil, "BTCUSDT", "acct", "venue-x", time.Second)
+		service.storage = &syncStorageStub{}
+		if err := service.Sync(context.Background()); err == nil {
+			t.Fatal("unsupported adapter access must not report success")
+		}
+	})
+	t.Run("adapter without paginated trade history", func(t *testing.T) {
+		service := NewOrderSyncService(syncExchangeWithoutTradeHistory{}, nil, "BTCUSDT", "acct", "venue-y", time.Second)
+		service.storage = &syncStorageStub{}
+		if err := service.Sync(context.Background()); err == nil {
+			t.Fatal("missing trade-history capability must not report success")
+		}
+	})
+}
+
+type syncStorageStub struct{ storage.Storage }

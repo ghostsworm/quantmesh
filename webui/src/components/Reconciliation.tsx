@@ -10,6 +10,7 @@ import './Reconciliation.css'
 interface ReconciliationStatus {
   reconcile_count: number
   history_record_count?: number // 對账歷史記錄數（數據庫），與下方列表一致
+  history_scope_verified?: boolean
   last_reconcile_time: string
   local_position: number
   total_buy_qty: number
@@ -280,6 +281,12 @@ const Reconciliation: React.FC = () => {
           </span>
         )}
       </h2>
+
+      {status && !status.history_scope_verified && (
+        <div className="reconciliation-scope-warning" role="alert">
+          {t('reconciliation.historyScopeUnverified')}
+        </div>
+      )}
 
       {status && (
         <div className="status-cards">
@@ -1576,4 +1583,3 @@ const Reconciliation: React.FC = () => {
 }
 
 export default Reconciliation
-

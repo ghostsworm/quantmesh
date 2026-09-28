@@ -1,12 +1,56 @@
 package position
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
-	"time"
 
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
+
+func gridTradeExecutionKey(spm *SuperPositionManager, orderID int64, cumulativeQty float64) string {
+	identity := fmt.Sprintf("grid|%s|%s|%s|%d|%s|%s", strings.TrimSpace(spm.botID), strings.ToLower(strings.TrimSpace(spm.exchangeName)), strings.ToLower(strings.TrimSpace(spm.config.Trading.MarketType)), orderID, strings.TrimSpace(spm.config.Trading.Symbol), strconv.FormatFloat(cumulativeQty, 'f', -1, 64))
+	sum := sha256.Sum256([]byte(identity))
+	return hex.EncodeToString(sum[:])
+}
+
+func (spm *SuperPositionManager) saveGridTradeIdempotently(trade *storage.Trade) error {
+	writer, ok := spm.tradeStorage.(interface{ SaveTradeIdempotent(*storage.Trade) error })
+	if !ok {
+		return fmt.Errorf("trade storage does not support idempotent writes")
+	}
+	return writer.SaveTradeIdempotent(trade)
+}
+
+func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUpdate, cause error) {
+	spm.openingGate.Block("trade_ledger_unverified")
+	if tracker, ok := spm.executor.(interface {
+		MarkTradeLedgerReconciliationRequired(int64, string, string) error
+	}); ok {
+		if err := tracker.MarkTradeLedgerReconciliationRequired(update.OrderID, update.ClientOrderID, cause.Error()); err != nil {
+			logger.Error("[%s] 成交账本失败；经济对账状态持久化失败：order=%d cid=%s err=%v tracker_err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause, err)
+			return
+		}
+		logger.Error("[%s] 成交账本失败；订单结果仍可核实，已持久化经济对账锁：order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause)
+		return
+	}
+	tracker, ok := spm.executor.(interface {
+		MarkOrderReconciliationRequired(int64, string, string) error
+	})
+	if !ok {
+		logger.Error("[%s] 成交账本写入失败且执行器不支持持久对账锁：order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause)
+		return
+	}
+	if err := tracker.MarkOrderReconciliationRequired(update.OrderID, update.ClientOrderID, cause.Error()); err != nil {
+		logger.Error("[%s] 成交账本写入失败；持久化执行意图对账锁失败：order=%d cid=%s err=%v tracker_err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause, err)
+		return
+	}
+	logger.Error("[%s] 成交账本写入失败；已持久化对账锁并暂停新开仓：order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, update.ClientOrderID, cause)
+}
 
 // ========== 訂單更新事件處理（OnOrderUpdate）==========
 
@@ -22,16 +66,21 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	var slot *InventorySlot
 	if !valid {
 		// 兜底：若 ClientOrderID 無法解析，改用 OrderID 在現有槽位中反查，避免因前綴截斷直接丟回報
-		foundSlot, foundPrice, ok := spm.findSlotByOrderID(update.OrderID)
+		foundSlot, foundPrice, ok := spm.findSlotByClientOrderID(update.ClientOrderID)
+		if !ok {
+			foundSlot, foundPrice, ok = spm.findSlotByOrderID(update.OrderID)
+		}
 		if !ok {
 			logger.Debug("⏳ [忽略] 無法识别的订單更新: ID=%d, ClientOID=%s", update.OrderID, update.ClientOrderID)
 			return
 		}
 		slot = foundSlot
 		price = foundPrice
+		slot.mu.RLock()
 		if slot.OrderSide != "" {
 			side = slot.OrderSide
 		}
+		slot.mu.RUnlock()
 	} else {
 		slot = spm.getOrCreateSlot(price)
 	}
@@ -40,6 +89,12 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	}
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
+	// Normalize broker aliases before matching ownership and fee cursors.
+	if spm.sameClientOrderID(slot.ClientOID, update.ClientOrderID) {
+		update.ClientOrderID = slot.ClientOID
+	} else if spm.sameClientOrderID(slot.lastFilledClientOID, update.ClientOrderID) {
+		update.ClientOrderID = slot.lastFilledClientOID
+	}
 
 	// 校驗：确保這個更新属於當前的订單 (防止舊订單的延迟推送干扰新订單)
 	// 优先使用 ClientOrderID 匹配 (某些交易所如 Gate.io 的 OrderID 可能略有差异)
@@ -73,28 +128,59 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 	if orderClientOID == "" {
 		orderClientOID = slot.ClientOID
 	}
+	fillBearingStatus := update.Status == "PARTIALLY_FILLED" || update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "EXPIRED" || update.Status == "REJECTED"
+	if fillBearingStatus && update.ExecutedQty > slot.OrderFilledQty && !positiveFinite(update.AvgPrice) {
+		slot.OrderStatus = OrderStatusUnknown
+		slot.SlotStatus = SlotStatusLocked
+		spm.openingGate.Block("unknown_orders")
+		if tracker, ok := spm.executor.(interface {
+			MarkOrderReconciliationRequired(int64, string, string) error
+		}); ok {
+			if err := tracker.MarkOrderReconciliationRequired(update.OrderID, orderClientOID, "grid fill has no valid cumulative average price"); err != nil {
+				logger.Error("[%s] 网格成交均价缺失且无法持久化对账锁: order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, orderClientOID, err)
+			}
+		}
+		logger.Error("[%s] 网格订单 #%d 新增成交缺少有效累计均价，保留订单/槽位待对账", spm.logPrefix(), update.OrderID)
+		return
+	}
 
-	// 处理状態轉换
+	terminal := update.Status == "CANCELED" || update.Status == "EXPIRED" || update.Status == "REJECTED"
+	// 終態回報也可能攜帶尚未收到的成交；先處理成交，再清理未成交部分。
 	switch update.Status {
 	case "NEW":
 		if slot.OrderStatus == OrderStatusPlaced {
 			slot.OrderStatus = OrderStatusConfirmed
 		}
 
-	case "PARTIALLY_FILLED", "FILLED":
-		// 计算增量
-		deltaQty := update.ExecutedQty - slot.OrderFilledQty
-		if deltaQty < 0 {
-			deltaQty = 0
+	case "PARTIALLY_FILLED", "FILLED", "CANCELED", "EXPIRED", "REJECTED":
+		progress := FillProgress{Quantity: slot.OrderFilledQty, Notional: slot.OrderFilledNotional}
+		deltaQty, incrementalPrice := progress.Advance(update.ExecutedQty, update.AvgPrice, 0)
+		if math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) || update.ExecutedQty < 0 ||
+			((terminal || update.Status == "FILLED") && update.ExecutedQty < slot.OrderFilledQty) ||
+			(update.Status == "FILLED" && update.ExecutedQty == 0) ||
+			(update.ExecutedQty > slot.OrderFilledQty && progress.Quantity != update.ExecutedQty) {
+			// A terminal label cannot release an unconsumable execution record.
+			slot.OrderStatus = OrderStatusUnknown
+			slot.SlotStatus = SlotStatusLocked
+			spm.openingGate.Block("unknown_orders")
+			logger.Error("[%s] 訂單 #%d 成交資料無效，保留歸屬並等待對賬", spm.logPrefix(), update.OrderID)
+			return
 		}
-
-		slot.OrderFilledQty = update.ExecutedQty
+		slot.OrderFilledQty, slot.OrderFilledNotional = progress.Quantity, progress.Notional
+		if terminal || update.Status == "FILLED" {
+			slot.lastTerminalFill = progress
+		}
 
 		// 手續費按「每筆成交」累計：交易所在每次 PARTIALLY_FILLED/FILLED 推送中攜帶的是本筆成交的手續費。
 		// 僅在成交數量有正增量時記賬，重複/重放的同一推送（增量為 0）不會重複累加。
 		fillCommission := 0.0
 		if deltaQty > 0 {
-			fillCommission = update.Commission
+			var feeKnown bool
+			fillCommission, feeKnown = spm.commissionInQuote(update, incrementalPrice)
+			if !feeKnown {
+				slot.feeValuationUnknown = true
+				spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", update.CommissionAsset))
+			}
 			slot.addOrderCommissionLocked(orderClientOID, fillCommission, update.BaseFeeQty)
 		}
 
@@ -110,13 +196,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					}
 				}
 				// 🔥 更新平均买入价格（使用实际成交价格）
-				actualBuyPrice := update.AvgPrice
-				if actualBuyPrice <= 0 {
-					actualBuyPrice = update.Price
-				}
-				if actualBuyPrice <= 0 {
-					actualBuyPrice = slot.OrderPrice
-				}
+				actualBuyPrice := incrementalPrice
 
 				// 🔥 监控价格偏差：实际成交价格与委托价格的差异
 				if slot.OrderPrice > 0 && actualBuyPrice > 0 {
@@ -178,6 +258,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.ClientOID = ""
 				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
+				slot.OrderFilledNotional = 0
 				slot.lastFilledClientOID = orderClientOID
 
 				slot.PositionStatus = PositionStatusFilled // 標記為有倉
@@ -192,7 +273,6 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.SlotStatus = SlotStatusFree
 				// 🔥 買單成交，重置PostOnly失败计數
 				slot.PostOnlyFailCount = 0
-
 
 				logger.Info("✅ [買單成交] 價格: %s, 持倉: %.4f, 槽位状態: %s -> %s, 订單状態: %s -> %s, SlotStatus: FREE",
 					formatPrice(price, spm.priceDecimals), slot.PositionQty,
@@ -241,20 +321,11 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					// 这样可以准确反映实际盈亏，特别是当实际买入价格与槽位价格不同时
 					buyPrice := slot.AvgBuyPrice
 					if buyPrice <= 0 {
-						// 如果没有平均买入价格（异常情况），回退到槽位价格
-						buyPrice = slot.Price
-						logger.Warn("⚠️ [交易記錄] 槽位 %s 没有平均买入价格，使用槽位价格 %.2f",
-							formatPrice(slot.Price, spm.priceDecimals), buyPrice)
+						logger.Error("[%s] 槽位缺少实际开仓均价，拒绝用槽位委托价伪造已实现盈亏", spm.logPrefix())
 					}
 
 					// 賣出價格使用成交均價，如果没有则使用订單價格
-					sellPrice := update.AvgPrice
-					if sellPrice <= 0 {
-						sellPrice = update.Price
-					}
-					if sellPrice <= 0 {
-						sellPrice = slot.OrderPrice
-					}
+					sellPrice := incrementalPrice
 
 					// 🔥 监控卖出价格偏差：实际成交价格与委托价格的差异
 					if slot.OrderPrice > 0 && sellPrice > 0 {
@@ -271,9 +342,12 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 					}
 
 					// 🔥 驗证價格和數量的合理性
-					if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
+					if slot.feeValuationUnknown {
+						spm.requireTradeLedgerReconciliation(update, fmt.Errorf("grid cycle contains an execution fee without verified quote conversion"))
+					} else if buyPrice <= 0 || sellPrice <= 0 || deltaQty <= 0 {
 						logger.Warn("⚠️ [交易記錄异常] 買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 跳過保存",
 							buyPrice, sellPrice, deltaQty)
+						spm.requireTradeLedgerReconciliation(update, fmt.Errorf("invalid realized trade economics: buy=%.8f sell=%.8f quantity=%.8f", buyPrice, sellPrice, deltaQty))
 					} else {
 						// 计算盈亏：(賣出價格 - 實際買入價格) * 數量（毛利，未扣手續費）
 						// 注意：對於USDT本位合約（如BTCUSDT），價格是USDT，數量是BTC，盈亏單位是USDT
@@ -281,6 +355,10 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 
 						// 🔥 检查价格偏差对策略的影响：如果实际盈亏与理论盈亏差异过大，警告
 						theoreticalPnL := (slot.OrderPrice - slot.Price) * deltaQty // 理论盈亏（基于槽位价格）
+						if spm.isShort() || (spm.isBoth() && slot.PositionLeg == PositionLegShort) {
+							pnl = -pnl
+							theoreticalPnL = -theoreticalPnL
+						}
 						if theoreticalPnL > 0 && pnl < 0 {
 							// 理论应该盈利，但实际亏损了（价格偏差导致策略失效）
 							logger.Error("🚨 [策略失效警告] 理論應盈利但實際虧損: 槽位價=%.2f, 委託賣價=%.2f, 實際買價=%.2f, 實際賣價=%.2f, 理論盈虧=%.4f, 實際盈虧=%.4f, 數量=%.4f",
@@ -322,38 +400,22 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 						// 🔥 获取交易所计算的已实现盈亏（从订单更新中获取）
 						exchangePnL := update.RealizedPnL
 
-						// 🔥 使用SaveTradeWithExchangePnL保存交易所盈亏和价格偏差
-						if tradeStWithPnL, ok := spm.tradeStorage.(interface {
-							SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-						}); ok {
-							if err := tradeStWithPnL.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, exchangePnL, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, spm.now(), spm.botID); err != nil {
-								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
-							} else {
-								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 網格盈亏: %.4f, 交易所盈亏: %.4f, 手續費: %.4f %s, 買入偏差: %.4f, 賣出偏差: %.4f",
-									formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, exchangePnL, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation)
-							}
-						} else if tradeStWithDev, ok := spm.tradeStorage.(interface {
-							SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-						}); ok {
-							// 降级：使用带偏差的接口（不含交易所盈亏）
-							if err := tradeStWithDev.SaveTradeWithDeviation(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation, spm.now(), spm.botID); err != nil {
-								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
-							} else {
-								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s, 買入偏差: %.4f, 賣出偏差: %.4f",
-									formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset, buyPriceDeviation, sellPriceDeviation)
-							}
-						} else {
-							// 降级：使用旧接口
-							if err := spm.tradeStorage.SaveTrade(buyOrderID, sellOrderID, spm.exchangeName, update.Symbol, buyPrice, sellPrice, deltaQty, pnl, totalFee, feeAsset, spm.now(), spm.botID); err != nil {
-								logger.Warn("⚠️ 保存交易記錄失败: %v (買入價: %.2f, 賣出價: %.2f, 數量: %.4f, 盈亏: %.4f)", err, buyPrice, sellPrice, deltaQty, pnl)
-							} else {
-								logger.Debug("💰 [交易記錄已保存] 買入價: %s, 賣出價: %s, 數量: %.4f, 盈亏: %.4f, 手續費: %.4f %s",
-									formatPrice(buyPrice, spm.priceDecimals), formatPrice(sellPrice, spm.priceDecimals), deltaQty, pnl, totalFee, feeAsset)
-							}
+						trade := &storage.Trade{
+							ExecutionKey: gridTradeExecutionKey(spm, sellOrderID, slot.OrderFilledQty),
+							BuyOrderID:   buyOrderID, SellOrderID: sellOrderID, BotID: spm.botID,
+							Exchange: spm.exchangeName, MarketType: spm.config.Trading.MarketType, Symbol: update.Symbol,
+							BuyPrice: buyPrice, SellPrice: sellPrice, Quantity: deltaQty, PnL: pnl, ExchangePnL: exchangePnL,
+							Fee: totalFee, FeeAsset: feeAsset, BuyPriceDeviation: buyPriceDeviation,
+							SellPriceDeviation: sellPriceDeviation, CreatedAt: spm.now(),
+						}
+						if err := spm.saveGridTradeIdempotently(trade); err != nil {
+							spm.requireTradeLedgerReconciliation(update, err)
 						}
 						slot.BuyFee -= feeFromBuy
 					}
 				}
+			} else if deltaQty > 0 {
+				spm.requireTradeLedgerReconciliation(update, fmt.Errorf("trade storage unavailable"))
 			}
 
 			if update.Status == "FILLED" {
@@ -364,6 +426,7 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 				slot.ClientOID = ""
 				slot.OrderSide = "" // 🔥 清除订單方向，避免误判
 				slot.OrderFilledQty = 0
+				slot.OrderFilledNotional = 0
 				slot.lastFilledClientOID = orderClientOID
 
 				if slot.PositionQty < 0.000001 {
@@ -397,7 +460,8 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 			}
 		}
 
-	case "CANCELED", "EXPIRED", "REJECTED":
+	}
+	if terminal {
 		logger.Info("⚠️ [订單%s] 價格: %s, 方向: %s, 原因: %s, 已成交: %.4f",
 			update.Status, formatPrice(price, spm.priceDecimals), side, update.Status, slot.OrderFilledQty)
 
@@ -464,6 +528,8 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) {
 		slot.OrderID = 0
 		slot.ClientOID = ""
 		slot.OrderFilledQty = 0
+		slot.OrderFilledNotional = 0
+		slot.lastFilledClientOID = orderClientOID
 		// 保留 OrderSide 用於日志調試
 	}
 }

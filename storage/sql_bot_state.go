@@ -91,11 +91,17 @@ func migratePairedTradesTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  execution_key VARCHAR(64) NULL,
   buy_order_id BIGINT,
   sell_order_id BIGINT,
   bot_id VARCHAR(128) DEFAULT '',
   exchange VARCHAR(64) DEFAULT 'binance',
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
+  bot_id VARCHAR(128) NOT NULL DEFAULT '',
   account VARCHAR(255) DEFAULT '',
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   symbol VARCHAR(64),
   buy_price DECIMAL(20,8),
   sell_price DECIMAL(20,8),
@@ -110,13 +116,50 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   KEY idx_qm_pt_created_at (created_at),
   KEY idx_qm_pt_account_symbol (account(64), symbol(32)),
   KEY idx_qm_pt_exchange_symbol (exchange(32), symbol(32)),
-  KEY idx_qm_pt_bot_ex_sym (bot_id(64), exchange(32), symbol(32))
+  KEY idx_qm_pt_bot_ex_sym (bot_id(64), exchange(32), symbol(32)),
+  UNIQUE KEY uk_qm_pt_execution_key (execution_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `)
 	if err != nil {
 		return err
 	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'market_type'`, pairedTradesTableMySQL).Scan(&count); err != nil {
+		return fmt.Errorf("检查 %s.market_type 字段失败: %w", pairedTradesTableMySQL, err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`ALTER TABLE ` + pairedTradesTableMySQL + ` ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER exchange`); err != nil {
+			return fmt.Errorf("添加 %s.market_type 字段失败: %w", pairedTradesTableMySQL, err)
+		}
+	}
+	if err := ensureMySQLColumn(db, pairedTradesTableMySQL, "account_scope", `ALTER TABLE `+pairedTradesTableMySQL+` ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	if err := ensureMySQLExecutionKey(db, pairedTradesTableMySQL); err != nil {
+		return err
+	}
 	logger.Info("✅ MySQL 網格配對成交表已就緒: %s", pairedTradesTableMySQL)
+	return nil
+}
+
+func ensureMySQLExecutionKey(db *sql.DB, table string) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = 'execution_key'`, table).Scan(&count); err != nil {
+		return fmt.Errorf("检查 %s.execution_key 字段失败: %w", table, err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN execution_key VARCHAR(64) NULL`); err != nil {
+			return fmt.Errorf("添加 %s.execution_key 字段失败: %w", table, err)
+		}
+	}
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = 'uk_qm_pt_execution_key'`, table).Scan(&count); err != nil {
+		return fmt.Errorf("检查 %s.execution_key 唯一索引失败: %w", table, err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`CREATE UNIQUE INDEX uk_qm_pt_execution_key ON ` + table + ` (execution_key)`); err != nil {
+			return fmt.Errorf("创建 %s.execution_key 唯一索引失败: %w", table, err)
+		}
+	}
 	return nil
 }
 
@@ -183,6 +226,8 @@ CREATE TABLE IF NOT EXISTS orders (
 	}{
 		{"bot_id", "ALTER TABLE orders ADD COLUMN bot_id VARCHAR(128) DEFAULT ''"},
 		{"account", "ALTER TABLE orders ADD COLUMN account VARCHAR(255) DEFAULT ''"},
+		{"market_type", "ALTER TABLE orders ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT ''"},
+		{"account_scope", "ALTER TABLE orders ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT ''"},
 		{"client_order_id", "ALTER TABLE orders ADD COLUMN client_order_id VARCHAR(255)"},
 		{"exchange", "ALTER TABLE orders ADD COLUMN exchange VARCHAR(64) DEFAULT ''"},
 		{"type", "ALTER TABLE orders ADD COLUMN `type` VARCHAR(32) DEFAULT ''"},
@@ -219,6 +264,7 @@ CREATE TABLE IF NOT EXISTS orders (
 		{"idx_orders_bot_id", "CREATE INDEX idx_orders_bot_id ON orders(bot_id)"},
 		{"idx_orders_account", "CREATE INDEX idx_orders_account ON orders(account)"},
 		{"idx_orders_exchange_symbol", "CREATE INDEX idx_orders_exchange_symbol ON orders(exchange, symbol)"},
+		{"idx_orders_scope_market_symbol_time", "CREATE INDEX idx_orders_scope_market_symbol_time ON orders(account_scope, exchange, market_type, symbol, created_at)"},
 	}
 	for _, idx := range indexes {
 		var count int
@@ -576,6 +622,8 @@ CREATE TABLE IF NOT EXISTS reconciliation_history (
   exchange VARCHAR(64),
   symbol VARCHAR(64),
   account VARCHAR(255),
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   reconcile_time TIMESTAMP(3) NULL,
   local_position DECIMAL(20,8),
   exchange_position DECIMAL(20,8),
@@ -594,6 +642,30 @@ CREATE TABLE IF NOT EXISTS reconciliation_history (
 `)
 	if err != nil {
 		return err
+	}
+	for _, column := range []struct{ name, ddl string }{
+		{"account_scope", `VARCHAR(512) NOT NULL DEFAULT ''`},
+		{"market_type", `VARCHAR(32) NOT NULL DEFAULT ''`},
+		{"bot_id", `VARCHAR(128) NOT NULL DEFAULT ''`},
+	} {
+		var count int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'reconciliation_history' AND column_name = ?`, column.name).Scan(&count); err != nil {
+			return fmt.Errorf("inspect reconciliation_history.%s: %w", column.name, err)
+		}
+		if count == 0 {
+			if _, err := db.Exec(`ALTER TABLE reconciliation_history ADD COLUMN ` + column.name + ` ` + column.ddl); err != nil {
+				return fmt.Errorf("add reconciliation_history.%s: %w", column.name, err)
+			}
+		}
+	}
+	var indexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'reconciliation_history' AND index_name = 'idx_reconciliation_history_scope'`).Scan(&indexCount); err != nil {
+		return fmt.Errorf("inspect reconciliation history scope index: %w", err)
+	}
+	if indexCount == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_reconciliation_history_scope ON reconciliation_history(exchange, market_type, symbol, account_scope, bot_id, reconcile_time)`); err != nil {
+			return fmt.Errorf("create reconciliation history scope index: %w", err)
+		}
 	}
 	logger.Info("✅ MySQL reconciliation_history 表已就緒")
 	return nil
@@ -694,6 +766,8 @@ func migrateProfitWithdrawRulesTableMySQL(db *sql.DB) error {
 CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
   id VARCHAR(128) NOT NULL PRIMARY KEY,
   account_id VARCHAR(255) NOT NULL,
+  account_scope VARCHAR(128) NOT NULL DEFAULT '',
+  claim_id VARCHAR(128) NOT NULL DEFAULT '',
   exchange_id VARCHAR(64) NOT NULL,
   strategy_id VARCHAR(128) NOT NULL DEFAULT '',
   enabled TINYINT NOT NULL DEFAULT 1,
@@ -715,6 +789,18 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 	if err != nil {
 		return err
 	}
+	var accountScopeColumns int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = 'profit_withdraw_rules' AND column_name = 'account_scope'`).Scan(&accountScopeColumns); err != nil {
+		return err
+	}
+	if accountScopeColumns == 0 {
+		if _, err := db.Exec(`ALTER TABLE profit_withdraw_rules ADD COLUMN account_scope VARCHAR(128) NOT NULL DEFAULT '' AFTER account_id`); err != nil {
+			return err
+		}
+	}
+	if err := ensureMySQLColumn(db, "profit_withdraw_rules", "claim_id", `ALTER TABLE profit_withdraw_rules ADD COLUMN claim_id VARCHAR(128) NOT NULL DEFAULT '' AFTER account_scope`); err != nil {
+		return err
+	}
 	logger.Info("✅ MySQL profit_withdraw_rules 表已就緒")
 	return nil
 }
@@ -725,6 +811,8 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_records (
   id VARCHAR(128) NOT NULL PRIMARY KEY,
   rule_id VARCHAR(128) NOT NULL,
   account_id VARCHAR(255) NOT NULL,
+  account_scope VARCHAR(128) NOT NULL DEFAULT '',
+  claim_id VARCHAR(128) NOT NULL DEFAULT '',
   exchange_id VARCHAR(64) NOT NULL,
   strategy_id VARCHAR(128) DEFAULT '',
   amount DOUBLE NOT NULL,
@@ -745,6 +833,12 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_records (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `)
 	if err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "profit_withdraw_records", "account_scope", `ALTER TABLE profit_withdraw_records ADD COLUMN account_scope VARCHAR(128) NOT NULL DEFAULT '' AFTER account_id`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "profit_withdraw_records", "claim_id", `ALTER TABLE profit_withdraw_records ADD COLUMN claim_id VARCHAR(128) NOT NULL DEFAULT '' AFTER account_scope`); err != nil {
 		return err
 	}
 	logger.Info("✅ MySQL profit_withdraw_records 表已就緒")
@@ -781,6 +875,8 @@ CREATE TABLE IF NOT EXISTS funding_payments (
   exchange VARCHAR(64) NOT NULL,
   symbol VARCHAR(64) NOT NULL,
   account VARCHAR(255),
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   income_type VARCHAR(64) NOT NULL,
   income DECIMAL(20,8) NOT NULL,
   asset VARCHAR(32),
@@ -790,11 +886,27 @@ CREATE TABLE IF NOT EXISTS funding_payments (
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY idx_funding_payments_exchange_symbol (exchange, symbol),
   KEY idx_funding_payments_trade_time (trade_time),
-  KEY idx_funding_payments_account (account)
+  KEY idx_funding_payments_account (account),
+  KEY idx_funding_payments_scope_market_symbol_time (account_scope, exchange, market_type, symbol, trade_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `)
 	if err != nil {
 		return err
+	}
+	if err := ensureMySQLColumn(db, "funding_payments", "market_type", `ALTER TABLE funding_payments ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER account`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "funding_payments", "account_scope", `ALTER TABLE funding_payments ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	var indexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'funding_payments' AND INDEX_NAME = 'idx_funding_payments_scope_market_symbol_time'`).Scan(&indexCount); err != nil {
+		return err
+	}
+	if indexCount == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_funding_payments_scope_market_symbol_time ON funding_payments(account_scope, exchange, market_type, symbol, trade_time)`); err != nil {
+			return err
+		}
 	}
 	logger.Info("✅ MySQL funding_payments 表已就緒")
 	return nil
@@ -822,17 +934,35 @@ CREATE TABLE IF NOT EXISTS market_interpret_tasks (
 	return nil
 }
 
+func ensureMySQLColumn(db *sql.DB, table, column, alterSQL string) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, table, column).Scan(&count); err != nil {
+		return fmt.Errorf("檢查 %s.%s 欄位失敗: %w", table, column, err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := db.Exec(alterSQL); err != nil {
+		return fmt.Errorf("添加 %s.%s 欄位失敗: %w", table, column, err)
+	}
+	return nil
+}
+
 func migrateHourlyEquityRecordsTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS hourly_equity_records (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   exchange VARCHAR(64) NOT NULL,
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   symbol VARCHAR(64) NOT NULL,
   account VARCHAR(255) NOT NULL,
   timestamp DATETIME(3) NOT NULL,
   equity DOUBLE NOT NULL,
   unrealized_pnl DOUBLE NOT NULL,
   total_position_value DOUBLE NOT NULL,
+  market_price DOUBLE NOT NULL DEFAULT 0,
+  spot_position_qty DOUBLE,
   account_equity DOUBLE,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   KEY idx_hourly_equity_exchange_symbol_account (exchange, symbol, account),
@@ -840,6 +970,18 @@ CREATE TABLE IF NOT EXISTS hourly_equity_records (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 `)
 	if err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "hourly_equity_records", "market_type", `ALTER TABLE hourly_equity_records ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER exchange`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "hourly_equity_records", "account_scope", `ALTER TABLE hourly_equity_records ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "hourly_equity_records", "spot_position_qty", `ALTER TABLE hourly_equity_records ADD COLUMN spot_position_qty DOUBLE NULL AFTER total_position_value`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "hourly_equity_records", "market_price", `ALTER TABLE hourly_equity_records ADD COLUMN market_price DOUBLE NOT NULL DEFAULT 0 AFTER total_position_value`); err != nil {
 		return err
 	}
 	logger.Info("✅ MySQL hourly_equity_records 表已就緒")
@@ -851,6 +993,8 @@ func migrateDailySnapshotsTableMySQL(db *sql.DB) error {
 CREATE TABLE IF NOT EXISTS daily_snapshots (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
   exchange VARCHAR(64) NOT NULL,
+  market_type VARCHAR(32) NOT NULL DEFAULT '',
+  account_scope VARCHAR(512) NOT NULL DEFAULT '',
   symbol VARCHAR(64) NOT NULL,
   account VARCHAR(255) NOT NULL,
   date DATE NOT NULL,
@@ -862,8 +1006,9 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
   closing_price DOUBLE NOT NULL,
   snapshot_time TIMESTAMP(3) NOT NULL,
   account_equity DOUBLE,
+  spot_position_qty DOUBLE,
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-  UNIQUE KEY uk_daily_snapshots_dim (exchange, symbol, account, date),
+  UNIQUE KEY uk_daily_snapshots_market_dim (exchange, market_type, account_scope, symbol, date),
   KEY idx_daily_snapshots_exchange_symbol_account (exchange, symbol, account),
   KEY idx_daily_snapshots_date (date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -871,7 +1016,107 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
 	if err != nil {
 		return err
 	}
+	if err := ensureMySQLColumn(db, "daily_snapshots", "market_type", `ALTER TABLE daily_snapshots ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER exchange`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "daily_snapshots", "account_scope", `ALTER TABLE daily_snapshots ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "daily_snapshots", "spot_position_qty", `ALTER TABLE daily_snapshots ADD COLUMN spot_position_qty DOUBLE NULL AFTER account_equity`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE daily_snapshots SET account_scope = CONCAT('legacy:', SHA2(account, 256)) WHERE account_scope = ''`); err != nil {
+		return fmt.Errorf("回填旧每日快照凭据占位作用域失败: %w", err)
+	}
+	var marketUniqueColumns sql.NullString
+	if err := db.QueryRow(`SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_snapshots' AND INDEX_NAME = 'uk_daily_snapshots_market_dim'`).Scan(&marketUniqueColumns); err != nil {
+		return fmt.Errorf("檢查 daily_snapshots 唯一鍵失敗: %w", err)
+	}
+	if !marketUniqueColumns.Valid {
+		if _, err := db.Exec(`ALTER TABLE daily_snapshots ADD UNIQUE KEY uk_daily_snapshots_market_dim (exchange, market_type, account_scope, symbol, date)`); err != nil {
+			return fmt.Errorf("建立市場作用域 daily_snapshots 唯一鍵失敗: %w", err)
+		}
+	} else if marketUniqueColumns.String != "exchange,market_type,account_scope,symbol,date" {
+		if marketUniqueColumns.Valid {
+			if _, err := db.Exec(`ALTER TABLE daily_snapshots DROP INDEX uk_daily_snapshots_market_dim`); err != nil {
+				return fmt.Errorf("移除旧 daily_snapshots 唯一键失败: %w", err)
+			}
+			if _, err := db.Exec(`ALTER TABLE daily_snapshots ADD UNIQUE KEY uk_daily_snapshots_market_dim (exchange, market_type, account_scope, symbol, date)`); err != nil {
+				return fmt.Errorf("重建市場作用域 daily_snapshots 唯一鍵失敗: %w", err)
+			}
+		}
+	}
+	var legacyIndexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'daily_snapshots' AND INDEX_NAME = 'uk_daily_snapshots_dim'`).Scan(&legacyIndexCount); err != nil {
+		return fmt.Errorf("檢查旧 daily_snapshots 唯一鍵失败: %w", err)
+	}
+	if legacyIndexCount > 0 {
+		if _, err := db.Exec(`ALTER TABLE daily_snapshots DROP INDEX uk_daily_snapshots_dim`); err != nil {
+			return fmt.Errorf("移除旧 daily_snapshots 唯一键失败: %w", err)
+		}
+	}
 	logger.Info("✅ MySQL daily_snapshots 表已就緒")
+	return nil
+}
+
+func migrateAccountEquityRecordsTableMySQL(db *sql.DB) error {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS account_equity_records (
+		id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+		exchange VARCHAR(64) NOT NULL,
+		market_type VARCHAR(32) NOT NULL DEFAULT '',
+		account_scope VARCHAR(512) NOT NULL DEFAULT '',
+		account VARCHAR(255) NOT NULL,
+		timestamp DATETIME(3) NOT NULL,
+		account_equity DOUBLE NOT NULL,
+		created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+		UNIQUE KEY uk_account_equity_market_time (exchange, market_type, account_scope, timestamp)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	if err != nil {
+		return fmt.Errorf("创建 account_equity_records 表失败: %w", err)
+	}
+	if err := ensureMySQLColumn(db, "account_equity_records", "market_type", `ALTER TABLE account_equity_records ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER exchange`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "account_equity_records", "account_scope", `ALTER TABLE account_equity_records ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE account_equity_records SET account_scope = CONCAT('legacy:', SHA2(account, 256)) WHERE account_scope = ''`); err != nil {
+		return fmt.Errorf("回填旧账户权益凭据占位作用域失败: %w", err)
+	}
+	var columns sql.NullString
+	if err := db.QueryRow(`SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'account_equity_records' AND INDEX_NAME = 'uk_account_equity_market_time'`).Scan(&columns); err != nil {
+		return fmt.Errorf("检查账户权益市场唯一键失败: %w", err)
+	}
+	if !columns.Valid {
+		if _, err := db.Exec(`ALTER TABLE account_equity_records ADD UNIQUE KEY uk_account_equity_market_time (exchange, market_type, account_scope, timestamp)`); err != nil {
+			return fmt.Errorf("创建账户权益市场唯一键失败: %w", err)
+		}
+	} else if columns.String != "exchange,market_type,account_scope,timestamp" {
+		if _, err := db.Exec(`ALTER TABLE account_equity_records DROP INDEX uk_account_equity_market_time`); err != nil {
+			return fmt.Errorf("移除旧账户权益市场唯一键失败: %w", err)
+		}
+		if _, err := db.Exec(`ALTER TABLE account_equity_records ADD UNIQUE KEY uk_account_equity_market_time (exchange, market_type, account_scope, timestamp)`); err != nil {
+			return fmt.Errorf("重建账户权益市场唯一键失败: %w", err)
+		}
+	}
+	var legacyCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'account_equity_records' AND INDEX_NAME = 'uk_account_equity_exchange_account_time'`).Scan(&legacyCount); err != nil {
+		return fmt.Errorf("检查旧账户权益唯一键失败: %w", err)
+	}
+	if legacyCount > 0 {
+		if _, err := db.Exec(`ALTER TABLE account_equity_records DROP INDEX uk_account_equity_exchange_account_time`); err != nil {
+			return fmt.Errorf("移除旧账户权益唯一键失败: %w", err)
+		}
+	}
+	var oldMarketIndexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'account_equity_records' AND INDEX_NAME = 'uk_account_equity_market_time_legacy'`).Scan(&oldMarketIndexCount); err != nil {
+		return fmt.Errorf("检查旧市场账户权益唯一键失败: %w", err)
+	}
+	if oldMarketIndexCount > 0 {
+		if _, err := db.Exec(`ALTER TABLE account_equity_records DROP INDEX uk_account_equity_market_time_legacy`); err != nil {
+			return fmt.Errorf("移除旧市场账户权益唯一键失败: %w", err)
+		}
+	}
 	return nil
 }
 

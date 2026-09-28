@@ -91,7 +91,6 @@ import {
   cancelAllExchangeOrders,
   BotDetailInfo,
   UpdateBotStrategyRequest,
-  PositionStatus,
   ExchangeOpenOrderInfo,
   getMarketTicker,
   MarketTickerResponse,
@@ -99,6 +98,9 @@ import {
   BotAccountBalancesResponse,
 } from '../services/api'
 import { useSymbol } from '../contexts/SymbolContext'
+import type { ExecutionPositionStatus } from '../services/executionExposure'
+import { ExecutionExposureMetrics } from './ExecutionExposureMetrics'
+import { RiskPositionValueMetrics } from './RiskPositionValueMetrics'
 import { useConfig } from '../contexts/ConfigContext'
 import { formatTime as formatTimeUtil } from '../utils/dateFormat'
 import { buildBacktestUrl } from '../utils/backtestUrl'
@@ -172,7 +174,7 @@ const BotDetail: React.FC = () => {
   const [actioning, setActioning] = useState(false)
   const [positionsSummary, setPositionsSummary] = useState<any>(null)
   const [statistics, setStatistics] = useState<any>(null)
-  const [positionStatus, setPositionStatus] = useState<PositionStatus | null>(null)
+  const [positionStatus, setPositionStatus] = useState<ExecutionPositionStatus | null>(null)
   const [logs, setLogs] = useState<any[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logsTotal, setLogsTotal] = useState(0)
@@ -375,8 +377,7 @@ const BotDetail: React.FC = () => {
         end_time: now.toISOString(),
       })
       const orders = (res.orders || []).filter(
-        (o: { order_source?: string }) =>
-          o.order_source === 'stop_loss' || o.order_source === 'take_profit'
+        o => o.order_source === 'stop_loss' || o.order_source === 'take_profit'
       )
       setTpSlOrders(orders)
     } catch {
@@ -437,7 +438,7 @@ const BotDetail: React.FC = () => {
   const handlePauseOpening = async () => {
     if (!botId) return
     try {
-      await pauseBotOpening(botId)
+      await pauseBotOpening(botId, 'manual')
       toast({ title: t('botRiskControl.pauseSuccess'), status: 'success', duration: 2000 })
       const ps = await getBotPositionStatus(botId)
       setPositionStatus(ps)
@@ -652,7 +653,7 @@ const BotDetail: React.FC = () => {
                     const orderQty = bot.order_quantity || 100
 
                     // 调试输出
-                    if (process.env.NODE_ENV === 'development') {
+                    if (import.meta.env.DEV) {
                       console.debug('[BotDetail] 计算强平价:', {
                         botId: bot.bot_id,
                         symbol: bot.symbol,
@@ -676,7 +677,7 @@ const BotDetail: React.FC = () => {
                       maxCapitalRatio,
                     })
 
-                    if (process.env.NODE_ENV === 'development') {
+                    if (import.meta.env.DEV) {
                       console.debug('[BotDetail] 计算结果:', {
                         botId: bot.bot_id,
                         liqEstimate
@@ -1223,30 +1224,11 @@ const BotDetail: React.FC = () => {
                           </Stat>
                         </CardBody>
                       </Card>
-                      <Card>
+                      <Card gridColumn={{ base: 'auto', md: 'span 2' }}>
                         <CardBody>
-                          <Stat>
-                            <StatLabel>{t('botRiskControl.totalPositionValue')}</StatLabel>
-                            <StatNumber fontSize="lg">${positionStatus.total_position_value?.toFixed(2) || '-'}</StatNumber>
-                          </Stat>
-                        </CardBody>
-                      </Card>
-                      <Card>
-                        <CardBody>
-                          <Stat>
-                            <StatLabel>{t('botRiskControl.totalActualMargin')}</StatLabel>
-                            <StatNumber fontSize="lg">
-                              ${positionStatus.total_actual_margin?.toFixed(2) || '-'}
-                              {positionStatus.max_position_value && (
-                                <Text as="span" fontSize="sm" color="gray.500" fontWeight="normal">
-                                  {' '}/ ${positionStatus.max_position_value}
-                                </Text>
-                              )}
-                            </StatNumber>
-                            {positionStatus.reached_limit_value && (
-                              <Badge colorScheme="red" size="sm" mt={1}>{t('botRiskControl.reachedLimitValue')}</Badge>
-                            )}
-                          </Stat>
+                          <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
+                            <RiskPositionValueMetrics status={positionStatus} />
+                          </SimpleGrid>
                         </CardBody>
                       </Card>
                       <Card>
@@ -1279,6 +1261,7 @@ const BotDetail: React.FC = () => {
                         </CardBody>
                       </Card>
                     </SimpleGrid>
+                    <ExecutionExposureMetrics exposure={positionStatus.execution_exposure} />
                     {(positionStatus.should_stop_opening || positionStatus.paused) && (
                       <Alert status="warning" borderRadius="md" mb={4}>
                         <AlertIcon />
@@ -1454,7 +1437,9 @@ const BotDetail: React.FC = () => {
             )}
           </TabPanel>
           <TabPanel px={0}>
-            <BotStrategyConfigPanel botId={botId!} bot={bot} onSaved={fetchBot} />
+            {bot && botId && (
+              <BotStrategyConfigPanel botId={botId} bot={bot} onSaved={() => { void fetchBot() }} />
+            )}
           </TabPanel>
           <TabPanel px={0}>
             {botId && (
@@ -1810,6 +1795,8 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
   const cfg = bot?.config as Record<string, unknown> | undefined
   const openCtrl = cfg?.open_position_control as Record<string, unknown> | undefined
   const strategies = cfg?.strategies as Array<{ type?: string; weight?: number; config?: Record<string, unknown> }> | undefined
+  const displayNumber = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) ? value : 0
 
   // 计算网格数量
   const gridCount = (() => {
@@ -1865,23 +1852,23 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
             <Stat>
               <StatLabel>{t('botDetail.maxPositionValue')}</StatLabel>
               <StatNumber>
-                {openCtrl?.max_position_value ?? 0} USDT
+                {displayNumber(openCtrl?.max_position_value)} USDT
               </StatNumber>
               <StatHelpText>{t('backtest.actualMarginUsed')}</StatHelpText>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.priceInterval')}</StatLabel>
-              <StatNumber>{cfg?.price_interval ?? 0} USDT</StatNumber>
+              <StatNumber>{displayNumber(cfg?.price_interval)} USDT</StatNumber>
               <StatHelpText>{t('botDetail.strategy.priceIntervalHint')}</StatHelpText>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.profitSpread')}</StatLabel>
-              <StatNumber>{cfg?.profit_spread ?? 0} USDT</StatNumber>
+              <StatNumber>{displayNumber(cfg?.profit_spread)} USDT</StatNumber>
               <StatHelpText>{t('botDetail.strategy.profitSpreadHint')}</StatHelpText>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.orderQuantity')}</StatLabel>
-              <StatNumber>{cfg?.order_quantity ?? 0} USDT</StatNumber>
+              <StatNumber>{displayNumber(cfg?.order_quantity)} USDT</StatNumber>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.gridCount')}</StatLabel>
@@ -1890,11 +1877,11 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.priceLow')}</StatLabel>
-              <StatNumber>{cfg?.price_low ?? 0} USDT</StatNumber>
+              <StatNumber>{displayNumber(cfg?.price_low)} USDT</StatNumber>
             </Stat>
             <Stat>
               <StatLabel>{t('botDetail.priceHigh')}</StatLabel>
-              <StatNumber>{cfg?.price_high ?? 0} USDT</StatNumber>
+              <StatNumber>{displayNumber(cfg?.price_high)} USDT</StatNumber>
             </Stat>
           </SimpleGrid>
 
@@ -1963,13 +1950,14 @@ const BotBacktestPanel: React.FC<{ bot: BotDetailInfo | null }> = ({ bot }) => {
 // BotStrategyConfigPanel Bot 策略配置面板
 interface BotStrategyConfigPanelProps {
   botId: string
-  bot: BotDetailInfo | null
+  bot: BotDetailInfo
   onSaved?: () => void | Promise<void>
 }
 
 const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, bot, onSaved }) => {
   const { t } = useTranslation()
   const toast = useToast()
+  const { navigateToBot } = useSymbol()
 
   const [strategyType, setStrategyType] = useState<string>('grid')
   const [originalStrategyType, setOriginalStrategyType] = useState<string>('')
@@ -1998,7 +1986,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
 
   // 策略类型选项（根据当前策略类型限制可切换的类型）
   const getAvailableStrategies = () => {
-    if (!bot?.config?.strategies || bot.config.strategies.length === 0) {
+    if (!bot.config?.strategies || bot.config.strategies.length === 0) {
       return getGridRelatedStrategies(t)
     }
     const strategies = bot.config.strategies
@@ -2024,8 +2012,8 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
 
   // 初始化表单数据
   useEffect(() => {
-    if (bot?.config) {
-      const cfg = bot.config as any
+    if (bot.config) {
+      const cfg = bot.config
       if (cfg.strategies && cfg.strategies.length > 0) {
         const type = cfg.strategies[0].type || 'grid'
         setStrategyType(type)
@@ -2045,10 +2033,10 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
       setSmartOrderOpenOrderDistance(smartOrder.open_order_distance?.toString() || '5')
 
       // 三级火箭网格
-      const rtg = cfg.rocket_tiered_grid as { enabled?: boolean } | undefined
+      const rtg = cfg.rocket_tiered_grid
       setRocketTieredGridEnabled(rtg?.enabled ?? false)
 
-      const sip = String((cfg as { spot_inventory_policy?: string }).spot_inventory_policy || '')
+      const sip = cfg.spot_inventory_policy || ''
       setSpotInventoryPolicy(sip === 'adopt_all' ? 'adopt_all' : 'conservative')
 
       const firstType = cfg.strategies?.[0]?.type || 'grid'
@@ -2546,7 +2534,7 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
                 <Alert status="success" borderRadius="md" py={2} mt={2}>
                   <AlertIcon />
                   <AlertDescription fontSize="xs">
-                    {t('botDetail.strategy.smartOrderEffect', { count: smartOrderMaxOpenOrders })}
+                    {t('botDetail.strategy.smartOrderEffect', { count: Number(smartOrderMaxOpenOrders) })}
                   </AlertDescription>
                 </Alert>
               </>

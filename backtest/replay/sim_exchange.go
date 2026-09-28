@@ -38,13 +38,14 @@ const (
 
 // restingOrder 掛單簿中的訂單
 type restingOrder struct {
-	id         int64
-	clientOID  string
-	side       string
-	price      float64
-	qty        float64
-	filled     float64
-	reduceOnly bool
+	id             int64
+	clientOID      string
+	side           string
+	price          float64
+	qty            float64
+	filled         float64
+	filledNotional float64
+	reduceOnly     bool
 	// queueAhead 觸價成交前需先消耗的排隊量（排隊模型）
 	queueAhead float64
 }
@@ -74,6 +75,7 @@ type simExchange struct {
 
 	nextOrderID int64
 	orders      map[int64]*restingOrder
+	orderStates map[int64]position.OrderUpdate
 	lastPrice   float64
 	now         int64
 
@@ -99,6 +101,7 @@ func newSimExchange(cfg Config) *simExchange {
 		leverage:         cfg.Leverage,
 		enforceMargin:    cfg.EnforceMargin,
 		orders:           make(map[int64]*restingOrder),
+		orderStates:      make(map[int64]position.OrderUpdate),
 		initialCapital:   cfg.InitialCapital,
 	}
 }
@@ -313,6 +316,7 @@ func (ex *simExchange) fillLocked(o *restingOrder, qty, price float64, maker boo
 	notional := qty * price
 	fee := notional * rate
 	o.filled += qty
+	o.filledNotional += qty * price
 	if o.filled > o.qty {
 		o.filled = o.qty
 	}
@@ -407,12 +411,17 @@ func (ex *simExchange) settleFunding(fromTs, toTs int64, rateAt func(ts int64) f
 }
 
 func (ex *simExchange) pushUpdateLocked(o *restingOrder, status string, commission float64) {
+	average := 0.0
+	if o.filled > 0 {
+		average = o.filledNotional / o.filled
+	}
 	ex.pending = append(ex.pending, position.OrderUpdate{
 		OrderID:         o.id,
 		ClientOrderID:   o.clientOID,
 		Symbol:          ex.symbol,
 		Status:          status,
 		ExecutedQty:     o.filled,
+		AvgPrice:        average,
 		Price:           o.price,
 		Side:            o.side,
 		Type:            "LIMIT",
@@ -420,6 +429,7 @@ func (ex *simExchange) pushUpdateLocked(o *restingOrder, status string, commissi
 		Commission:      commission,
 		CommissionAsset: "USDT",
 	})
+	ex.orderStates[o.id] = ex.pending[len(ex.pending)-1]
 }
 
 func (ex *simExchange) pushFillUpdateLocked(o *restingOrder, status string, fillPrice, commission, realized float64) {
@@ -430,7 +440,7 @@ func (ex *simExchange) pushFillUpdateLocked(o *restingOrder, status string, fill
 		Status:          status,
 		ExecutedQty:     o.filled,
 		Price:           o.price,
-		AvgPrice:        fillPrice,
+		AvgPrice:        o.filledNotional / o.filled,
 		Side:            o.side,
 		Type:            "LIMIT",
 		UpdateTime:      ex.now,
@@ -438,6 +448,7 @@ func (ex *simExchange) pushFillUpdateLocked(o *restingOrder, status string, fill
 		CommissionAsset: "USDT",
 		RealizedPnL:     realized,
 	})
+	ex.orderStates[o.id] = ex.pending[len(ex.pending)-1]
 }
 
 // drainUpdates 取出待投遞的訂單回報（模擬 WebSocket 異步推送）

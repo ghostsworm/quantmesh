@@ -38,6 +38,18 @@ func GetHistoricalDataEx(
 	endTime time.Time,
 	config map[string]string,
 ) ([]*exchange.Candle, error) {
+	return GetHistoricalDataExContext(context.Background(), exchangeName, symbol, interval, startTime, endTime, config)
+}
+
+// GetHistoricalDataContext propagates a task's cancellation through pagination.
+func GetHistoricalDataContext(ctx context.Context, symbol, interval string, startTime, endTime time.Time, config map[string]string) ([]*exchange.Candle, error) {
+	return GetHistoricalDataExContext(ctx, "binance", symbol, interval, startTime, endTime, config)
+}
+
+func GetHistoricalDataExContext(ctx context.Context, exchangeName, symbol, interval string, startTime, endTime time.Time, config map[string]string) ([]*exchange.Candle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// 歷史數據當前主要從 Binance 獲取（流动性最好）
 	// Bitget 等交易所的 USDT 現貨對與 Binance 數據通常一致
 	if exchangeName != "binance" && exchangeName != "bitget" {
@@ -62,6 +74,9 @@ func GetHistoricalDataEx(
 
 	// 2. 檢查缓存
 	if candles, err := LoadFromCache(cacheKey); err == nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		logger.Info("✅ 從缓存加載: %s (%d 根K線)", cacheKey, len(candles))
 		return candles, nil
 	}
@@ -72,7 +87,7 @@ func GetHistoricalDataEx(
 		startTime.Format("2006-01-02"),
 		endTime.Format("2006-01-02"))
 
-	candles, err := fetchFromBinance(symbol, interval, startTime, endTime, binanceConfig)
+	candles, err := fetchFromBinance(ctx, symbol, interval, startTime, endTime, binanceConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +99,9 @@ func GetHistoricalDataEx(
 	}
 
 	// 4. 保存缓存
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := SaveToCache(cacheKey, candles); err != nil {
 		logger.Warn("⚠️ 缓存保存失敗: %v", err)
 	} else {
@@ -96,29 +114,32 @@ func GetHistoricalDataEx(
 
 // fetchFromBinance 從 Binance 分批獲取數據
 func fetchFromBinance(
+	ctx context.Context,
 	symbol string,
 	interval string,
 	startTime time.Time,
 	endTime time.Time,
 	binanceConfig map[string]string,
 ) ([]*exchange.Candle, error) {
-
-	// 創建 Binance adapter（API 為空時使用公開數據適配器，K 線為公開接口無需認證）
-	var adapter *binance.BinanceAdapter
-	if binanceConfig["api_key"] != "" && binanceConfig["secret_key"] != "" {
-		var err error
-		adapter, err = binance.NewBinanceAdapter(binanceConfig, symbol)
-		if err != nil {
-			return nil, fmt.Errorf("創建 Binance adapter 失敗: %w", err)
-		}
-	} else {
-		var err error
-		adapter, err = binance.NewBinanceAdapterForPublicData(binanceConfig, symbol)
-		if err != nil {
-			return nil, fmt.Errorf("創建 Binance adapter 失敗: %w", err)
-		}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 
+	// Historical candles are public REST data, even when credentials exist.
+	// Do not claim/change the process-wide trading WebSocket network here.
+	adapter, err := binance.NewBinanceAdapterForPublicDataContext(ctx, binanceConfig, symbol)
+	if err != nil {
+		return nil, fmt.Errorf("創建 Binance adapter 失敗: %w", err)
+	}
+
+	return fetchHistoricalPages(ctx, adapter, symbol, interval, startTime, endTime)
+}
+
+type historicalPageSource interface {
+	GetHistoricalKlinesFrom(context.Context, string, string, int64, int) ([]*binance.Candle, error)
+}
+
+func fetchHistoricalPages(ctx context.Context, adapter historicalPageSource, symbol, interval string, startTime, endTime time.Time) ([]*exchange.Candle, error) {
 	allCandles := make([]*exchange.Candle, 0)
 	currentStart := startTime
 
@@ -133,11 +154,17 @@ func fetchFromBinance(
 
 	// Binance 單次最多 1000 根，按起始時間分批請求（傳入 startTime 才能拉取指定區間，否則只會拿到「最近 1000 根」）
 	for currentStart.Before(endTime) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		batchNum++
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		pageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		startMs := currentStart.UnixMilli()
-		candles, err := adapter.GetHistoricalKlinesFrom(ctx, symbol, interval, startMs, 1000)
+		candles, err := adapter.GetHistoricalKlinesFrom(pageCtx, symbol, interval, startMs, 1000)
 		cancel()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 
 		if err != nil {
 			return nil, fmt.Errorf("獲取第 %d 批數據失敗: %w", batchNum, err)
@@ -149,6 +176,12 @@ func fetchFromBinance(
 
 		// 過滤時间範圍内的數據
 		for _, candle := range candles {
+			if candle == nil {
+				return nil, fmt.Errorf("historical data contains a nil candle")
+			}
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			candleTime := time.Unix(candle.Timestamp/1000, 0)
 			if candleTime.After(endTime) {
 				break
@@ -171,8 +204,15 @@ func fetchFromBinance(
 
 		// 計算下一批的起始時间
 		if len(candles) > 0 {
+			if candles[len(candles)-1] == nil {
+				return nil, fmt.Errorf("historical data contains a nil final candle")
+			}
 			lastTimestamp := candles[len(candles)-1].Timestamp
-			currentStart = time.Unix(lastTimestamp/1000, 0).Add(time.Second)
+			nextStart := time.Unix(lastTimestamp/1000, 0).Add(time.Second)
+			if !nextStart.After(currentStart) {
+				return nil, fmt.Errorf("historical page did not advance")
+			}
+			currentStart = nextStart
 
 			// 如果已經超過結束時间，退出
 			if currentStart.After(endTime) {
@@ -190,7 +230,13 @@ func fetchFromBinance(
 		logger.Info("📊 下載進度: %.1f%% (已獲取 %d 根K線)", progress, len(allCandles))
 
 		// 避免触发限流
-		time.Sleep(100 * time.Millisecond)
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
 	}
 
 	logger.Info("✅ 下載完成: 共 %d 根K線", len(allCandles))

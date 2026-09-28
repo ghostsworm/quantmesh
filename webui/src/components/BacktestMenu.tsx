@@ -173,6 +173,11 @@ interface BacktestResultData {
   }
 }
 
+function hasBacktestResultData(value: unknown): value is BacktestResultData {
+  if (typeof value !== 'object' || value === null) return false
+  return ['result', 'comparison', 'multi_result', 'hedge_result'].some((key) => key in value)
+}
+
 const formatDate = (s: string) => {
   try {
     const d = new Date(s)
@@ -1717,7 +1722,7 @@ export default function BacktestMenu() {
                       <FormControl mb={3}>
                         <FormLabel fontSize="sm">{t('backtest.direction')}</FormLabel>
                         <Select
-                          value={params['direction'] || 'LONG'}
+                          value={typeof params.direction === 'string' ? params.direction : 'LONG'}
                           onChange={(e) => setParams((prev) => ({ ...prev, direction: e.target.value }))}
                           size="sm"
                         >
@@ -2005,10 +2010,10 @@ export default function BacktestMenu() {
                     }
                     return null
                   })()}
-                  {resultData && typeof resultData === 'object' && ('result' in resultData || 'comparison' in resultData || 'multi_result' in resultData || 'hedge_result' in resultData) && (
+                  {hasBacktestResultData(resultData) && (
                     <Box mb={4}>
                       {(() => {
-                        const data = resultData as BacktestResultData
+                        const data = resultData
                         const multi = data.multi_result
                         const hedge = data.hedge_result
                         const comp = data.comparison
@@ -2100,7 +2105,6 @@ export default function BacktestMenu() {
                             </Tr>
                           )
                           
-                          const direction = (data as BacktestResultData).task?.params?.direction as string | undefined
                           const directionLabel = direction === 'SHORT' ? t('backtest.gridDirectionShort') : direction === 'BOTH' ? t('backtest.gridDirectionBoth') : t('backtest.gridDirectionLong')
                           return (
                             <>
@@ -2454,7 +2458,7 @@ export default function BacktestMenu() {
               }}
               result={optimResultData}
               task={selectedOptimTask}
-              isLoading={optimResultModal.isOpen && selectedOptimTaskId && !optimResultData}
+              isLoading={Boolean(optimResultModal.isOpen && selectedOptimTaskId && !optimResultData)}
             />
           </TabPanel>
           <TabPanel>

@@ -79,7 +79,7 @@ const BotBacktestDialog: React.FC<BotBacktestDialogProps> = ({
   const [task, setTask] = useState<BotBacktestTask | null>(null)
   const [result, setResult] = useState<BotBacktestResult | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null)
+  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null)
 
   // 表單狀態
   const [formData, setFormData] = useState<BotBacktestRequest>({

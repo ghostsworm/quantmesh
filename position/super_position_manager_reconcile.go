@@ -2,6 +2,7 @@ package position
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -268,6 +269,10 @@ func (spm *SuperPositionManager) CancelExcessOpenOrders(maxAllowed int) {
 // 只提交限價平倉單即返回，不等待成交、不核實持倉；可在持有 spm.mu 的熱路徑（AdjustOrders 止損）中調用。
 // 需要確認平乾淨的路徑（退出、熔斷、緊急平倉）使用 LiquidateAllVerified。
 func (spm *SuperPositionManager) LiquidateAll() {
+	if spm.protective.queued.Load() || spm.liquidationActive.Load() || spm.liquidationNeedsReconciliation.Load() {
+		logger.Error("[%s] 已有全平倉核實中或待對賬，禁止舊平倉路徑重複提交", spm.logPrefix())
+		return
+	}
 	logger.Warn("🚨 [全平倉] 正在執行全平操作，撤销掛單並限價平倉持倉...")
 
 	// 按方向撤銷開倉委託（LONG 撤 BUY、SHORT 撤 SELL、BOTH 撤空槽上的開倉單）
@@ -279,6 +284,7 @@ func (spm *SuperPositionManager) LiquidateAll() {
 // liquidationPlacedOrder 全平倉提交成功的平倉單
 type liquidationPlacedOrder struct {
 	orderID   int64
+	clientOID string
 	slotPrice float64
 	side      string
 	qty       float64
@@ -291,13 +297,28 @@ type liquidationSubmission struct {
 	buyQty  float64 // 本 Bot 槽位上待 BUY 平（空腿）的總量
 	wanted  int     // 需要提交的平倉單數
 	failed  int     // 提交失敗（已回滾為 FREE）的平倉單數
+	unknown bool    // 可能已成交，禁止未經核實再以市價補平
+	err     error
 }
 
 // submitLiquidationCloses 按槽位提交全平倉限價單。marketable=true 時價格保證穿價
-// （SELL ≤ 買一、BUY ≥ 賣一），且執行器支持時使用 IOC。
+// （SELL ≤ 買一、BUY ≥ 賣一），使用帶父 ctx 的批量執行器；剩餘單須撤單核實。
 // 網絡請求（撤單、盤口、下單）均不在槽位鎖內執行；調用方不得持有槽位鎖。
 func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquidationSubmission {
+	return spm.submitLiquidationClosesContext(context.Background(), marketable)
+}
+
+func (spm *SuperPositionManager) submitLiquidationClosesContext(ctx context.Context, marketable bool) liquidationSubmission {
 	var sub liquidationSubmission
+	if err := ctx.Err(); err != nil {
+		sub.err = err
+		return sub
+	}
+	contextExec, supportsContext := spm.executor.(ContextBatchOrderExecutor)
+	if marketable && !supportsContext {
+		sub.err = fmt.Errorf("verified liquidation requires a context-aware batch executor")
+		return sub
+	}
 	// 先統計各方向待平數量與槽位上的現有訂單，在不持有槽位鎖時撤單、查一次盤口，按可成交價平倉
 	var existingOrderIDs []int64
 	spm.slots.Range(func(key, value interface{}) bool {
@@ -305,6 +326,9 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+			if slot.OrderStatus == OrderStatusUnknown {
+				sub.unknown = true
+			}
 			leg := slot.PositionLeg
 			if leg == PositionLegNone {
 				leg = PositionLegLong
@@ -322,12 +346,22 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 		slot.mu.RUnlock()
 		return true
 	})
-	if len(existingOrderIDs) > 0 {
+	if marketable && len(existingOrderIDs) > 0 {
+		// Verified preflight must have settled these already. A new identity is
+		// evidence of concurrent/late activity, not permission to cancel blindly.
+		sub.err = fmt.Errorf("owned orders changed after liquidation preflight")
+		return sub
+	}
+	if !marketable && len(existingOrderIDs) > 0 {
 		if err := spm.executor.BatchCancelOrders(existingOrderIDs); err != nil {
 			logger.Warn("⚠️ [%s] [全平倉] 撤銷槽位現有訂單失敗 %v: %v", spm.logPrefix(), existingOrderIDs, err)
 		}
 	}
-	bookPrices := spm.fetchLiquidationBookPrices(sub.sellQty, sub.buyQty)
+	bookPrices := spm.fetchLiquidationBookPricesContext(ctx, sub.sellQty, sub.buyQty)
+	if err := ctx.Err(); err != nil {
+		sub.err = err
+		return sub
+	}
 
 	var closeOrders []*OrderRequest
 	// 記錄被標為 Pending 的槽位，下單失敗時回滾，避免槽位永久卡死
@@ -337,7 +371,7 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 		slot := value.(*InventorySlot)
 
 		slot.mu.Lock()
-		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 && slot.OrderStatus != OrderStatusUnknown {
 			slot.SlotStatus = SlotStatusPending
 			pendingPrices = append(pendingPrices, price)
 
@@ -355,12 +389,22 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 			if spm.liquidationIsShortLeg(leg) {
 				side = "BUY"
 			}
+			leg = gridExposureLeg(side, false)
 			px := roundPrice(liquidationLimitPrice(side, lastPrice, bookPrices), spm.priceDecimals)
 			if marketable {
 				px = marketableLiquidationPrice(side, px, bookPrices)
 			}
 
 			clientOID := spm.generateClientOrderID(price, side, "stop_loss")
+			// Register before sending so early WS updates own the right cursor.
+			slot.OrderID = 0
+			slot.ClientOID = clientOID
+			slot.OrderSide = side
+			slot.OrderPrice = px
+			slot.OrderStatus = OrderStatusNotPlaced
+			slot.OrderFilledQty = 0
+			slot.OrderFilledNotional = 0
+			slot.OrderCreatedAt = spm.now()
 
 			closeOrders = append(closeOrders, &OrderRequest{
 				Symbol:        spm.config.Trading.Symbol,
@@ -369,6 +413,8 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 				Quantity:      slot.PositionQty,
 				PriceDecimals: spm.priceDecimals,
 				ReduceOnly:    !spm.isSpot(),
+				PositionSide:  leg,
+				ExposureKey:   gridExposureKey(price, leg),
 				PostOnly:      false,
 				ClientOrderID: clientOID,
 				OrderSource:   "stop_loss",
@@ -382,51 +428,57 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 	if len(closeOrders) > 0 {
 		logger.Info("🔄 [全平倉] 提交 %d 個平倉單", len(closeOrders))
 		var result *BatchPlaceOrdersResult
-		if iocExec, ok := spm.executor.(IOCOrderExecutor); ok && marketable {
-			result = iocExec.BatchPlaceIOCOrdersWithDetails(closeOrders)
+		if supportsContext {
+			result = contextExec.BatchPlaceOrdersWithDetailsContext(ctx, closeOrders)
 		} else {
 			result = spm.executor.BatchPlaceOrdersWithDetails(closeOrders)
 		}
 		if result == nil {
 			result = &BatchPlaceOrdersResult{}
 		}
-		qtyByClientOID := make(map[string]float64, len(closeOrders))
-		for _, req := range closeOrders {
-			qtyByClientOID[req.ClientOrderID] = req.Quantity
-		}
-
 		for _, ord := range result.PlacedOrders {
 			if ord == nil {
 				continue
 			}
-			price, side, valid := spm.parseClientOrderID(ord.ClientOrderID)
-			if valid {
-				qty := ord.Quantity
-				if q, ok := qtyByClientOID[ord.ClientOrderID]; ok {
-					qty = q
+			var request *OrderRequest
+			for _, req := range closeOrders {
+				if spm.sameClientOrderID(req.ClientOrderID, ord.ClientOrderID) {
+					request = req
+					break
 				}
+			}
+			if request == nil {
+				sub.err = errors.Join(sub.err, fmt.Errorf("平倉回執缺少已登記意圖: #%d", ord.OrderID))
+				continue
+			}
+			price, side, valid := spm.parseClientOrderID(request.ClientOrderID)
+			if valid {
+				qty := request.Quantity
 				if ord.Side != "" {
 					side = ord.Side
 				}
-				sub.placed = append(sub.placed, liquidationPlacedOrder{orderID: ord.OrderID, slotPrice: price, side: side, qty: qty})
-				slot := spm.getOrCreateSlot(price)
-				slot.mu.Lock()
-				slot.OrderID = ord.OrderID
-				slot.ClientOID = ord.ClientOrderID
-				slot.OrderSide = ord.Side
-				slot.OrderStatus = OrderStatusPlaced
-				slot.SlotStatus = SlotStatusLocked
-				slot.mu.Unlock()
+				p := liquidationPlacedOrder{orderID: ord.OrderID, clientOID: request.ClientOrderID, slotPrice: price, side: side, qty: qty}
+				sub.placed = append(sub.placed, p)
+				if err := spm.acknowledgeLiquidationOrder(p, ord); err != nil {
+					sub.err = errors.Join(sub.err, err)
+				}
 			}
 		}
 
 		// 回滾：下單失敗（仍停留在 Pending）的槽位恢復為 FREE，讓下一輪可重新掛平倉單
+		spm.retainUnknownOrders(closeOrders, result.UnknownOrders)
+		if len(result.UnknownOrders) > 0 {
+			sub.unknown = true
+		}
 		rolledBack := 0
 		for _, price := range pendingPrices {
 			slot := spm.getOrCreateSlot(price)
 			slot.mu.Lock()
 			if slot.SlotStatus == SlotStatusPending {
 				slot.SlotStatus = SlotStatusFree
+				slot.OrderID = 0
+				slot.ClientOID = ""
+				slot.OrderSide = ""
 				rolledBack++
 			}
 			slot.mu.Unlock()
@@ -436,6 +488,7 @@ func (spm *SuperPositionManager) submitLiquidationCloses(marketable bool) liquid
 			logger.Error("❌ [全平倉] %d/%d 個平倉單提交失敗（保證金不足=%v），已回滾槽位狀態為 FREE",
 				rolledBack, len(closeOrders), result.HasMarginError)
 		}
+		sub.err = errors.Join(sub.err, ctx.Err())
 	} else {
 		logger.Info("ℹ️ [全平倉] 没有发現需要平倉的持倉")
 	}
@@ -448,15 +501,6 @@ func (spm *SuperPositionManager) liquidationIsShortLeg(leg string) bool {
 		return leg == PositionLegShort
 	}
 	return spm.isShort()
-}
-
-// SetGridRiskControl 更新網格風控配置（運行時熱更新，供 API 調用）
-func (spm *SuperPositionManager) SetGridRiskControl(grc config.GridRiskControl) {
-	if spm.config == nil {
-		return
-	}
-	spm.config.Trading.GridRiskControl = grc
-	logger.Info("✅ [%s] 網格風控已熱更新: enabled=%v, stop_loss=%.1f%%", spm.botID, grc.Enabled, grc.StopLossRatio*100)
 }
 
 // ShiftGrid 整體移動網格錨點（上移或下移），並撤銷開倉委託以便下一輪按新錨點掛單
@@ -490,15 +534,25 @@ func (spm *SuperPositionManager) ShiftGrid(direction string, step float64) {
 // StartReconciliation 和 Reconcile 方法已移至 safety/reconciler.go
 // SetPauseChecker 也已移至 Reconciler
 
-// CancelAllOrders 撤销所有订單（退出時使用）
-// 委托给交易所适配器實現具体逻辑
+// CancelAllOrders 撤销本 Bot 已持久归属的委托（退出时使用）。
+// 不再按 symbol 调用交易所 CancelAllOrders，以免取消同账户其他 Bot/人工委托。
 func (spm *SuperPositionManager) CancelAllOrders() {
-	ctx := context.Background()
-	if err := spm.exchange.CancelAllOrders(ctx, spm.config.Trading.Symbol); err != nil {
-		logger.Error("❌ [%s] 撤销所有订單失败: %v", spm.exchange.GetName(), err)
-	} else {
-		logger.Info("✅ [%s] 撤销所有订單完成", spm.exchange.GetName())
+	canceller, ok := spm.executor.(interface {
+		CancelOwnedShutdownOrders(context.Context) error
+	})
+	if !ok {
+		spm.openingGate.Block("shutdown_orders_unverified")
+		logger.Error("❌ [%s] 执行器不支持按 Bot 归属核验撤单，拒绝执行交易对级全撤", spm.logPrefix())
+		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := canceller.CancelOwnedShutdownOrders(ctx); err != nil {
+		spm.openingGate.Block("shutdown_orders_unverified")
+		logger.Error("❌ [%s] 本 Bot 委托撤单未核实，保持开仓封锁: %v", spm.logPrefix(), err)
+		return
+	}
+	logger.Info("✅ [%s] 本 Bot 已归属委托撤单并核实完成", spm.logPrefix())
 }
 
 // getExistingPosition 獲取當前持倉數量（容錯处理）
@@ -566,6 +620,10 @@ func (spm *SuperPositionManager) getExistingPosition() float64 {
 
 // ForceSyncPositions 强制同步持倉（當對账发現重大不一致時調用）
 func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
+	if spm.openingGate.HasBlock("unknown_orders") {
+		logger.Error("[%s] 存在 UNKNOWN 訂單，禁止用單次持倉快照覆寫槽位與資金；需先按訂單核實", spm.logPrefix())
+		return
+	}
 	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
 	// 且我们不希望在對账時阻塞下單逻辑
 
@@ -670,7 +728,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 		slot.mu.Lock()
 
 		// 再次確認槽位仍然是 FILLED 狀態
-		if slot.PositionStatus != PositionStatusFilled || slot.PositionQty <= 0 {
+		if slot.PositionStatus != PositionStatusFilled || slot.PositionQty <= 0 || slot.OrderStatus == OrderStatusUnknown {
 			slot.mu.Unlock()
 			continue
 		}
@@ -949,6 +1007,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		slot.OrderSide = "SELL" // 恢複持倉時標記為賣單方向
 		slot.ClientOID = ""
 		slot.OrderFilledQty = 0
+		slot.OrderFilledNotional = 0
 
 		slot.mu.Unlock()
 
@@ -957,7 +1016,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 锚点價格是市场當前價格，接近實際買入的平均價格
 		// 不能用賣出價格（sellPrice），因為賣出價格是目標價，會高估成本
 		// 對於有杠杆的交易，實際使用的保证金 = 倉位價值 / 杠杆倍數
-		positionValue := spm.anchorPrice() * slotQty        // 倉位價值
+		positionValue := spm.anchorPrice() * slotQty      // 倉位價值
 		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
 		totalUsedAmount += actualMargin
 		// 記入槽位持倉占用，平倉成交時按比例釋放（D3）
@@ -1050,6 +1109,7 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 		slot.OrderSide = "BUY" // 做空平倉為買單
 		slot.ClientOID = ""
 		slot.OrderFilledQty = 0
+		slot.OrderFilledNotional = 0
 		slot.mu.Unlock()
 		allocatedQty += slotQty
 	}

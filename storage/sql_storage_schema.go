@@ -14,6 +14,8 @@ func createTables(db *sql.DB) error {
 		order_id BIGINT,
 		bot_id TEXT DEFAULT '',
 		account TEXT DEFAULT '',
+		market_type TEXT NOT NULL DEFAULT '',
+		account_scope TEXT NOT NULL DEFAULT '',
 		client_order_id TEXT,
 		symbol TEXT,
 		side TEXT,
@@ -50,10 +52,13 @@ func createTables(db *sql.DB) error {
 	tradesSQL := `
 	CREATE TABLE IF NOT EXISTS trades (
 		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		execution_key TEXT,
 		buy_order_id BIGINT,
 		sell_order_id BIGINT,
 		bot_id TEXT DEFAULT '',
 		exchange TEXT,
+		market_type TEXT DEFAULT '',
+		account_scope TEXT NOT NULL DEFAULT '',
 		account TEXT,
 		symbol TEXT,
 		buy_price DECIMAL(20,8),
@@ -121,6 +126,9 @@ func createTables(db *sql.DB) error {
 		exchange TEXT,
 		symbol TEXT,
 		account TEXT,
+		account_scope TEXT NOT NULL DEFAULT '',
+		market_type TEXT NOT NULL DEFAULT '',
+		bot_id TEXT NOT NULL DEFAULT '',
 		reconcile_time TIMESTAMP,
 		local_position DECIMAL(20,8),
 		exchange_position DECIMAL(20,8),
@@ -217,6 +225,8 @@ func createTables(db *sql.DB) error {
 	CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 		id TEXT PRIMARY KEY,
 		account_id TEXT NOT NULL,
+		account_scope TEXT NOT NULL DEFAULT '',
+		claim_id TEXT NOT NULL DEFAULT '',
 		exchange_id TEXT NOT NULL,
 		strategy_id TEXT NOT NULL DEFAULT '',
 		enabled INTEGER NOT NULL DEFAULT 1,
@@ -240,6 +250,8 @@ func createTables(db *sql.DB) error {
 		id TEXT PRIMARY KEY,
 		rule_id TEXT NOT NULL,
 		account_id TEXT NOT NULL,
+		account_scope TEXT NOT NULL DEFAULT '',
+		claim_id TEXT NOT NULL DEFAULT '',
 		exchange_id TEXT NOT NULL,
 		strategy_id TEXT DEFAULT '',
 		amount REAL NOT NULL,
@@ -319,6 +331,12 @@ func createTables(db *sql.DB) error {
 	if err := migrateProfitWithdrawRulesLastTriggered(db); err != nil {
 		return fmt.Errorf("迁移 profit_withdraw_rules last_triggered_at 失败: %w", err)
 	}
+	if err := migrateProfitWithdrawRulesAccountScope(db); err != nil {
+		return fmt.Errorf("迁移 profit_withdraw_rules account_scope 失败: %w", err)
+	}
+	if err := migrateProfitWithdrawRulesClaimID(db); err != nil {
+		return fmt.Errorf("迁移 profit_withdraw_rules claim_id 失败: %w", err)
+	}
 
 	// 迁移：确保 profit_withdraw_records 表存在
 	if err := migrateProfitWithdrawRecordsTable(db); err != nil {
@@ -373,6 +391,9 @@ func createTables(db *sql.DB) error {
 	}
 	if err := migrateBotStatesTable(db); err != nil {
 		return fmt.Errorf("迁移 bot_states 表失败: %w", err)
+	}
+	if err := migrateStrategyRuntimeStateTable(db); err != nil {
+		return fmt.Errorf("迁移 strategy_runtime_states 表失败: %w", err)
 	}
 	if err := migrateFixTables(db); err != nil {
 		return fmt.Errorf("迁移 fix tables 失败: %w", err)

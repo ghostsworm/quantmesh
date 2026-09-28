@@ -55,26 +55,76 @@ func SetCapitalDataSource(ds CapitalDataSource) {
 
 // CapitalOverview 资金概览（彙總或分交易所）
 type CapitalOverview struct {
-	TotalBalance     float64                  `json:"totalBalance"`     // 總权益
-	AllocatedCapital float64                  `json:"allocatedCapital"` // 已分配给策略的资金
-	UsedCapital      float64                  `json:"usedCapital"`      // 實際已占用保证金
-	AvailableCapital float64                  `json:"availableCapital"` // 交易所可用餘額
-	ReservedCapital  float64                  `json:"reservedCapital"`  // 用戶預留资金（不可用於策略）
-	UnrealizedPnL    float64                  `json:"unrealizedPnL"`    // 未實現盈亏
-	MarginRatio      float64                  `json:"marginRatio"`      // 保证金占用率
-	Exchanges        []ExchangeCapitalSummary `json:"exchanges,omitempty"`
-	LastUpdated      string                   `json:"lastUpdated"`
+	TotalBalance      float64                  `json:"totalBalance"`     // 總权益
+	AllocatedCapital  float64                  `json:"allocatedCapital"` // 已分配给策略的资金
+	UsedCapital       float64                  `json:"usedCapital"`      // 實際已占用保证金
+	AvailableCapital  float64                  `json:"availableCapital"` // 交易所可用餘額
+	ReservedCapital   float64                  `json:"reservedCapital"`  // 用戶預留资金（不可用於策略）
+	UnrealizedPnL     float64                  `json:"unrealizedPnL"`    // 未實現盈亏
+	MarginRatio       float64                  `json:"marginRatio"`      // 保证金占用率
+	Exchanges         []ExchangeCapitalSummary `json:"exchanges,omitempty"`
+	ValuationComplete bool                     `json:"valuationComplete"`
+	ValuationError    string                   `json:"valuationError,omitempty"`
+	ValuationAsset    string                   `json:"valuationAsset,omitempty"`
+	LastUpdated       string                   `json:"lastUpdated"`
+}
+
+// getCompleteExchangeBalance only returns an aggregate when every unique
+// exchange account produced a finite balance. Partial snapshots must never
+// drive allocation or rebalancing decisions.
+func getCompleteExchangeBalance(ctx context.Context, exchanges []exchange.IExchange) (float64, error) {
+	seen := make(map[string]struct{}, len(exchanges))
+	var total float64
+	valuationAsset := ""
+	for _, ex := range exchanges {
+		if ex == nil {
+			return 0, fmt.Errorf("exchange account source contains a nil exchange")
+		}
+		name := strings.ToLower(strings.TrimSpace(ex.GetName()))
+		if name == "" {
+			return 0, fmt.Errorf("exchange account source contains an unnamed exchange")
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		account, err := ex.GetAccount(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("read %s account balance: %w", name, err)
+		}
+		if account == nil || math.IsNaN(account.TotalMarginBalance) || math.IsInf(account.TotalMarginBalance, 0) || account.TotalMarginBalance < 0 {
+			return 0, fmt.Errorf("%s account returned an invalid balance snapshot", name)
+		}
+		asset := strings.ToUpper(strings.TrimSpace(account.BalanceAsset))
+		if asset == "" || !strings.EqualFold(asset, ex.GetQuoteAsset()) {
+			return 0, fmt.Errorf("%s account balance valuation asset is missing or inconsistent", name)
+		}
+		if valuationAsset == "" {
+			valuationAsset = asset
+		} else if valuationAsset != asset {
+			return 0, fmt.Errorf("cannot aggregate exchange balances denominated in different assets (%s and %s)", valuationAsset, asset)
+		}
+		total += account.TotalMarginBalance
+		if math.IsNaN(total) || math.IsInf(total, 0) {
+			return 0, fmt.Errorf("aggregate account balance is not finite")
+		}
+	}
+	if len(seen) == 0 {
+		return 0, fmt.Errorf("no exchange account balances are available")
+	}
+	return total, nil
 }
 
 // ExchangeCapitalSummary 交易所资金摘要
 type ExchangeCapitalSummary struct {
 	ExchangeID   string  `json:"exchangeId"`
 	ExchangeName string  `json:"exchangeName"`
+	BalanceAsset string  `json:"balanceAsset,omitempty"`
 	TotalBalance float64 `json:"totalBalance"`
 	Available    float64 `json:"available"`
 	Used         float64 `json:"used"`
 	PnL          float64 `json:"pnl"`
-	Status       string  `json:"status"` // online, offline, error
+	Status       string  `json:"status"`    // online, offline, error
 	IsTestnet    bool    `json:"isTestnet"` // 是否使用測試網
 }
 
@@ -88,12 +138,12 @@ type ExchangeCapitalDetail struct {
 
 // AssetAllocation 资產分配（如 USDT 下的策略分配）
 type AssetAllocation struct {
-	Asset            string                  `json:"asset"`
-	TotalBalance     float64                 `json:"totalBalance"`
-	AvailableBalance float64                 `json:"availableBalance"`
-	AllocatedToStrategies float64            `json:"allocatedToStrategies"`
-	Unallocated      float64                 `json:"unallocated"`
-	Strategies       []StrategyCapitalDetail `json:"strategies"`
+	Asset                 string                  `json:"asset"`
+	TotalBalance          float64                 `json:"totalBalance"`
+	AvailableBalance      float64                 `json:"availableBalance"`
+	AllocatedToStrategies float64                 `json:"allocatedToStrategies"`
+	Unallocated           float64                 `json:"unallocated"`
+	Strategies            []StrategyCapitalDetail `json:"strategies"`
 }
 
 // StrategyCapitalDetail 策略资金详情
@@ -174,7 +224,7 @@ type ExchangeUsageDetail struct {
 	TotalBalance float64        `json:"totalBalance"`
 	Available    float64        `json:"available"`
 	Used         float64        `json:"used"`
-	PnL          float64       `json:"pnl"`
+	PnL          float64        `json:"pnl"`
 	Status       string         `json:"status"`
 	IsTestnet    bool           `json:"isTestnet"`
 	Bots         []BotUsageInfo `json:"bots"`
@@ -182,14 +232,14 @@ type ExchangeUsageDetail struct {
 
 // BotUsageInfo Bot 资金占用信息
 type BotUsageInfo struct {
-	BotID          string  `json:"botId"`
-	Symbol         string  `json:"symbol"`
-	OrderValue     float64 `json:"orderValue"`     // 委托资金（挂单占用）
-	PositionValue  float64 `json:"positionValue"`  // 持仓占用
-	TotalUsed      float64 `json:"totalUsed"`      // 合计占用
-	OrderPct       float64 `json:"orderPct"`       // 委托占比（占该交易所总余额）
-	PositionPct    float64 `json:"positionPct"`    // 持仓占比
-	TotalUsedPct   float64 `json:"totalUsedPct"`  // 合计占比
+	BotID         string  `json:"botId"`
+	Symbol        string  `json:"symbol"`
+	OrderValue    float64 `json:"orderValue"`    // 委托资金（挂单占用）
+	PositionValue float64 `json:"positionValue"` // 持仓占用
+	TotalUsed     float64 `json:"totalUsed"`     // 合计占用
+	OrderPct      float64 `json:"orderPct"`      // 委托占比（占该交易所总余额）
+	PositionPct   float64 `json:"positionPct"`   // 持仓占比
+	TotalUsedPct  float64 `json:"totalUsedPct"`  // 合计占比
 }
 
 // 獲取资金概览
@@ -198,8 +248,8 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		if r := recover(); r != nil {
 			logger.Error("❌ [资金概览] panic: %v", r)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
-				"success": false,
-				"message": fmt.Sprintf("资金概览处理异常: %v", r),
+				"success":  false,
+				"message":  fmt.Sprintf("资金概览处理异常: %v", r),
 				"overview": CapitalOverview{LastUpdated: time.Now().Format(time.RFC3339)},
 			})
 		}
@@ -236,10 +286,12 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	posManagers := capitalDataSource.GetPositionManagers()
 
 	var overview CapitalOverview
+	overview.ValuationComplete = true
 	overview.LastUpdated = time.Now().Format(time.RFC3339)
 
 	// 1. 彙總交易所實時數據
 	exchangeMap := make(map[string]bool)
+	valuationAsset := ""
 	for _, ex := range exchanges {
 		name := ex.GetName()
 		if exchangeMap[name] {
@@ -249,6 +301,10 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 		acc, err := ex.GetAccount(ctx)
 		if err != nil {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = fmt.Sprintf("%s account balance is unavailable", name)
+			}
 			logger.Error("❌ [资金概览] 獲取交易所 %s 帳戶資訊失败: %v", name, err)
 			// 🔥 改進：报錯也要加進列表，显示為 error 状態
 			// 從配置中獲取測試網状態
@@ -269,9 +325,35 @@ func getCapitalOverviewHandler(c *gin.Context) {
 			continue
 		}
 		if acc == nil {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = fmt.Sprintf("%s account returned no balance snapshot", name)
+			}
 			logger.Warn("⚠️ [资金概览] 交易所 %s 返回空帳戶", name)
 			continue
 		}
+		if !finiteCapitalValue(acc.TotalMarginBalance) || !finiteCapitalValue(acc.TotalWalletBalance) || !finiteCapitalValue(acc.AvailableBalance) ||
+			acc.TotalMarginBalance < 0 || acc.TotalWalletBalance < 0 || acc.AvailableBalance < 0 ||
+			strings.TrimSpace(acc.BalanceAsset) == "" || !strings.EqualFold(acc.BalanceAsset, ex.GetQuoteAsset()) {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = fmt.Sprintf("%s account returned an invalid balance snapshot", name)
+			}
+			overview.Exchanges = append(overview.Exchanges, ExchangeCapitalSummary{
+				ExchangeID: name, ExchangeName: name, Status: "error",
+			})
+			continue
+		}
+		asset := strings.ToUpper(strings.TrimSpace(acc.BalanceAsset))
+		if valuationAsset == "" {
+			valuationAsset = asset
+		} else if valuationAsset != asset {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = "exchange balances use different valuation assets"
+			}
+		}
+		overview.ValuationAsset = valuationAsset
 
 		// 從配置中獲取測試網状態
 		isTestnet := false
@@ -284,6 +366,7 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		summary := ExchangeCapitalSummary{
 			ExchangeID:   name,
 			ExchangeName: name,
+			BalanceAsset: asset,
 			TotalBalance: math.Round(acc.TotalMarginBalance*100) / 100,
 			Available:    math.Round(acc.AvailableBalance*100) / 100,
 			Used:         math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100,
@@ -295,6 +378,11 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		overview.TotalBalance += acc.TotalMarginBalance
 		overview.AvailableCapital += acc.AvailableBalance
 		overview.UnrealizedPnL += (acc.TotalMarginBalance - acc.TotalWalletBalance)
+	}
+	if !overview.ValuationComplete {
+		overview.TotalBalance = 0
+		overview.AvailableCapital = 0
+		overview.UnrealizedPnL = 0
 	}
 
 	// 2. 彙總策略分配數據
@@ -334,6 +422,10 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		"success":  true,
 		"overview": overview,
 	})
+}
+
+func finiteCapitalValue(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 // 獲取资金使用视图（主打查看：各交易所、各 Bot 的委托/持仓占用）
@@ -554,8 +646,8 @@ func getCapitalUsageHandler(c *gin.Context) {
 func getCapitalAllocationHandler(c *gin.Context) {
 	if capitalDataSource == nil {
 		c.JSON(http.StatusOK, gin.H{
-			"success": false, 
-			"message": "资金數據源未就绪",
+			"success":   false,
+			"message":   "资金數據源未就绪",
 			"exchanges": []ExchangeCapitalDetail{},
 		})
 		return
@@ -684,22 +776,39 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					ExchangeName: formatExchangeName(exNameLower),
 					Assets: []AssetAllocation{
 						{
-							Asset:            "USDT",
+							Asset:            "UNVERIFIED",
 							TotalBalance:     0,
 							AvailableBalance: 0,
 						},
 					},
 					IsTestnet: isTestnet,
 				}
+			} else if acc == nil {
+				exDetail = &ExchangeCapitalDetail{
+					ExchangeID: exNameLower, ExchangeName: formatExchangeName(exNameLower),
+					Assets: []AssetAllocation{{Asset: "UNVERIFIED"}}, IsTestnet: isTestnet,
+				}
 			} else {
+				balanceAsset := strings.ToUpper(strings.TrimSpace(acc.BalanceAsset))
+				balanceVerified := balanceAsset != "" && strings.EqualFold(balanceAsset, ex.GetQuoteAsset()) &&
+					finiteCapitalValue(acc.TotalMarginBalance) && finiteCapitalValue(acc.AvailableBalance) &&
+					acc.TotalMarginBalance >= 0 && acc.AvailableBalance >= 0
+				if !balanceVerified {
+					balanceAsset = "UNVERIFIED"
+				}
+				totalBalance, availableBalance := 0.0, 0.0
+				if balanceVerified {
+					totalBalance = math.Round(acc.TotalMarginBalance*100) / 100
+					availableBalance = math.Round(acc.AvailableBalance*100) / 100
+				}
 				exDetail = &ExchangeCapitalDetail{
 					ExchangeID:   exNameLower,
 					ExchangeName: formatExchangeName(exNameLower),
 					Assets: []AssetAllocation{
 						{
-							Asset:            "USDT",
-							TotalBalance:     math.Round(acc.TotalMarginBalance*100) / 100,
-							AvailableBalance: math.Round(acc.AvailableBalance*100) / 100,
+							Asset:            balanceAsset,
+							TotalBalance:     totalBalance,
+							AvailableBalance: availableBalance,
 						},
 					},
 					IsTestnet: isTestnet,
@@ -713,7 +822,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				ExchangeName: formatExchangeName(exNameLower),
 				Assets: []AssetAllocation{
 					{
-						Asset:            "USDT",
+						Asset:            "UNVERIFIED",
 						TotalBalance:     0,
 						AvailableBalance: 0,
 					},
@@ -735,9 +844,9 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		for i := range details {
 			for j := range details[i].Assets {
 				asset := &details[i].Assets[j]
-				
+
 				alloc := asset.TotalBalance * cfg.Weight
-				
+
 				// 從配置中读取 maxCapital 和 maxPercentage
 				maxCapital := 0.0
 				maxPercentage := 100.0
@@ -753,20 +862,20 @@ func getCapitalAllocationHandler(c *gin.Context) {
 						maxPercentage = float64(val)
 					}
 				}
-				
+
 				strategy := StrategyCapitalDetail{
-					StrategyID:      strategyID,
-					StrategyName:    getStrategyName(strategyID),
-					StrategyType:    strategyID,
-					ExchangeID:      details[i].ExchangeID,
-					Asset:           asset.Asset,
-					Allocated:       math.Round(alloc*100) / 100,
-					Weight:          cfg.Weight,
-					MaxCapital:      maxCapital,
-					MaxPercentage:  maxPercentage,
-					Status:          "active",
+					StrategyID:    strategyID,
+					StrategyName:  getStrategyName(strategyID),
+					StrategyType:  strategyID,
+					ExchangeID:    details[i].ExchangeID,
+					Asset:         asset.Asset,
+					Allocated:     math.Round(alloc*100) / 100,
+					Weight:        cfg.Weight,
+					MaxCapital:    maxCapital,
+					MaxPercentage: maxPercentage,
+					Status:        "active",
 				}
-				
+
 				// 從配置中读取其他字段
 				if cfg.Config != nil {
 					if val, ok := cfg.Config["reserve_ratio"].(float64); ok {
@@ -798,9 +907,9 @@ func getCapitalAllocationHandler(c *gin.Context) {
 						strategy.Used += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 					}
 				}
-				
+
 				strategy.Used = math.Round(strategy.Used*100) / 100
-				strategy.Available = math.Round((strategy.Allocated - strategy.Used)*100) / 100
+				strategy.Available = math.Round((strategy.Allocated-strategy.Used)*100) / 100
 				if strategy.Allocated > 0 {
 					strategy.UtilizationRate = strategy.Used / strategy.Allocated
 				}
@@ -816,7 +925,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 		for j := range details[i].Assets {
 			asset := &details[i].Assets[j]
 			asset.AllocatedToStrategies = math.Round(asset.AllocatedToStrategies*100) / 100
-			asset.Unallocated = math.Round((asset.TotalBalance - asset.AllocatedToStrategies)*100) / 100
+			asset.Unallocated = math.Round((asset.TotalBalance-asset.AllocatedToStrategies)*100) / 100
 		}
 	}
 
@@ -854,13 +963,12 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 	if capitalDataSource != nil {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
-		
+
 		exchanges := capitalDataSource.GetExchanges()
-		var totalRealBalance float64
-		for _, ex := range exchanges {
-			if acc, err := ex.GetAccount(ctx); err == nil {
-				totalRealBalance += acc.TotalMarginBalance
-			}
+		totalRealBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
+		if balanceErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，资金分配未更新"})
+			return
 		}
 
 		if totalRealBalance > 0 {
@@ -878,7 +986,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 
 			// 计算實際分配比例
 			actualTotalPct := (totalFixedCapital / totalRealBalance) * 100
-			
+
 			if actualTotalPct > 100 {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"success": false,
@@ -894,19 +1002,18 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 		globalCfg := capitalDataSource.GetConfig()
 		if globalCfg != nil {
 			updated := false
-			
+
 			// 计算總资金用於计算权重
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 			defer cancel()
-			
+
 			exchanges := capitalDataSource.GetExchanges()
-			var totalRealBalance float64
-			for _, ex := range exchanges {
-				if acc, err := ex.GetAccount(ctx); err == nil {
-					totalRealBalance += acc.TotalMarginBalance
-				}
+			totalRealBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
+			if balanceErr != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，资金分配未更新"})
+				return
 			}
-			
+
 			// 更新每個策略的配置
 			for _, alloc := range req.Allocations {
 				// strategyId 应該是策略類型（如 "grid", "martingale"）
@@ -919,7 +1026,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 						strategyType = parts[len(parts)-1] // 取最后一部分作為策略類型
 					}
 				}
-				
+
 				if sc, ok := globalCfg.Strategies.Configs[strategyType]; ok {
 					// 更新配置
 					if sc.Config == nil {
@@ -930,7 +1037,7 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 					sc.Config["reserve_ratio"] = alloc.ReserveRatio
 					sc.Config["auto_rebalance"] = alloc.AutoRebalance
 					sc.Config["priority"] = alloc.Priority
-					
+
 					// 优先使用 maxPercentage 计算权重（因為用戶設置的是百分比）
 					if alloc.MaxPercentage > 0 {
 						// 如果使用百分比模式，直接使用百分比作為权重
@@ -942,14 +1049,14 @@ func updateCapitalAllocationHandler(c *gin.Context) {
 						sc.Weight = newWeight
 						logger.Info("✅ 更新策略 %s 配置: maxCapital=%.2f, weight=%.4f (基於金額)", strategyType, alloc.MaxCapital, sc.Weight)
 					}
-					
+
 					globalCfg.Strategies.Configs[strategyType] = sc
 					updated = true
 				} else {
 					logger.Warn("⚠️ 未找到策略配置: %s (尝試的 strategyType: %s)", alloc.StrategyID, strategyType)
 				}
 			}
-			
+
 			if updated {
 				if fileConfigManager == nil {
 					c.JSON(http.StatusInternalServerError, gin.H{
@@ -1028,11 +1135,12 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 	posManagers := capitalDataSource.GetPositionManagers()
 
 	var totalAllocated, totalUsed float64
-	for _, ex := range exchanges {
-		if acc, err := ex.GetAccount(ctx); err == nil {
-			totalAllocated += acc.TotalMarginBalance * cfg.Weight
-		}
+	totalBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
+	if balanceErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，策略资金详情不可用"})
+		return
 	}
+	totalAllocated = totalBalance * cfg.Weight
 
 	for _, pm := range posManagers {
 		// 简化逻辑：这里应該判断 PM 是否属於該策略
@@ -1047,15 +1155,15 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 	}
 
 	capital := StrategyCapitalDetail{
-		StrategyID:      strategyID,
-		StrategyName:    getStrategyName(strategyID),
-		StrategyType:    strategyID,
-		Allocated:       math.Round(totalAllocated*100) / 100,
-		Used:            math.Round(totalUsed*100) / 100,
-		Available:       math.Round((totalAllocated-totalUsed)*100) / 100,
-		Weight:          cfg.Weight,
-		MaxCapital:      maxCap,
-		Status:          "active",
+		StrategyID:   strategyID,
+		StrategyName: getStrategyName(strategyID),
+		StrategyType: strategyID,
+		Allocated:    math.Round(totalAllocated*100) / 100,
+		Used:         math.Round(totalUsed*100) / 100,
+		Available:    math.Round((totalAllocated-totalUsed)*100) / 100,
+		Weight:       cfg.Weight,
+		MaxCapital:   maxCap,
+		Status:       "active",
 	}
 	if totalAllocated > 0 {
 		capital.UtilizationRate = totalUsed / totalAllocated
@@ -1088,12 +1196,10 @@ func rebalanceCapitalHandler(c *gin.Context) {
 
 	// 1. 獲取總资產 (實時從交易所取)
 	exchanges := capitalDataSource.GetExchanges()
-	totalBalance := 0.0
-	for _, ex := range exchanges {
-		acc, err := ex.GetAccount(ctx)
-		if err == nil {
-			totalBalance += acc.TotalMarginBalance
-		}
+	totalBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
+	if balanceErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，已取消资金再平衡"})
+		return
 	}
 
 	if totalBalance <= 0 {
@@ -1118,7 +1224,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 	// 3. 计算新分配
 	changes := make([]RebalanceChange, 0)
 	newAllocations := make([]StrategyCapitalDetail, 0)
-	
+
 	count := float64(len(enabledStrategies))
 	totalWeight := 0.0
 	for _, id := range enabledStrategies {
@@ -1127,7 +1233,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 
 	for _, id := range enabledStrategies {
 		cfg := stratConfigs[id]
-		
+
 		// 计算目標分配
 		var targetAllocation float64
 		switch req.Mode {
@@ -1155,7 +1261,7 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		}
 
 		diff := targetAllocation - prevAllocation
-		
+
 		changes = append(changes, RebalanceChange{
 			StrategyID:         id,
 			PreviousAllocation: math.Round(prevAllocation*100) / 100,
@@ -1231,7 +1337,7 @@ func getCapitalHistoryHandler(c *gin.Context) {
 	for i := 0; i < days; i++ {
 		date := time.Now().AddDate(0, 0, -days+i+1)
 		// 模拟资金变化
-		growth := float64(i) * 50 + math.Sin(float64(i)*0.2)*500
+		growth := float64(i)*50 + math.Sin(float64(i)*0.2)*500
 		total := baseTotal + growth
 		allocated := total * 0.65
 		available := total - allocated

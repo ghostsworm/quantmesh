@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +22,8 @@ type fakeComboSubStrategy struct {
 	positions  []*Position
 	orders     []*Order
 	visualData map[string]interface{}
+	startErr   error
+	stateStore RuntimeStateStore
 }
 
 func (f *fakeComboSubStrategy) Name() string { return f.name }
@@ -36,15 +40,181 @@ func (f *fakeComboSubStrategy) GetOrders() []*Order                             
 func (f *fakeComboSubStrategy) GetStatistics() *StrategyStatistics               { return f.stats }
 func (f *fakeComboSubStrategy) Start(ctx context.Context) error {
 	f.started = true
-	return nil
+	return f.startErr
+}
+
+func TestComboStrategyStartPropagatesSubStrategyRecoveryFailureAndRollsBack(t *testing.T) {
+	first := &fakeComboSubStrategy{name: "restored", stats: &StrategyStatistics{}}
+	failure := errors.New("runtime state does not reconcile")
+	second := &fakeComboSubStrategy{name: "corrupt", stats: &StrategyStatistics{}, startErr: failure}
+	combo := &ComboStrategy{name: "combo", strategies: []Strategy{first, second}, strategyNames: []string{"restored", "corrupt"}}
+
+	err := combo.Start(context.Background())
+	if !errors.Is(err, failure) {
+		t.Fatalf("sub-strategy recovery failure was swallowed: %v", err)
+	}
+	if !first.stopped || !second.stopped {
+		t.Fatalf("failed startup was not rolled back: first=%v second=%v", first.stopped, second.stopped)
+	}
+	if combo.IsRunning() {
+		t.Fatal("combo remained running after child recovery failed")
+	}
 }
 func (f *fakeComboSubStrategy) Stop() error {
 	f.stopped = true
 	return nil
 }
 func (f *fakeComboSubStrategy) SetEventBus(bus EventBus) { f.eventBus = bus }
+func (f *fakeComboSubStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
+	f.stateStore = store
+}
 func (f *fakeComboSubStrategy) GetVisualizationData() map[string]interface{} {
 	return f.visualData
+}
+
+type comboStateCapture struct {
+	values map[string]string
+}
+
+func (s *comboStateCapture) LoadRuntimeState(name string) (int, string, bool, error) {
+	value, ok := s.values[name]
+	return 1, value, ok, nil
+}
+
+func (s *comboStateCapture) SaveRuntimeState(name string, _ int, payload string) error {
+	if s.values == nil {
+		s.values = make(map[string]string)
+	}
+	s.values[name] = payload
+	return nil
+}
+
+func TestComboStrategyInjectsNamespacedRuntimeStateStores(t *testing.T) {
+	store := &comboStateCapture{}
+	makeCombo := func(name string) (*ComboStrategy, *fakeComboSubStrategy) {
+		child := &fakeComboSubStrategy{name: "dca"}
+		combo := &ComboStrategy{name: name, strategies: []Strategy{child}, strategyNames: []string{"dca"}}
+		if err := combo.SetRuntimeStateStore(store); err != nil {
+			t.Fatal(err)
+		}
+		if child.stateStore == nil {
+			t.Fatal("combo child did not receive runtime state store")
+		}
+		return combo, child
+	}
+	_, first := makeCombo("combo-one")
+	_, second := makeCombo("combo-two")
+	if err := first.stateStore.SaveRuntimeState("dca", 1, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.stateStore.SaveRuntimeState("dca", 1, "second"); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.values) != 2 {
+		t.Fatalf("combo children collided in durable state store: %#v", store.values)
+	}
+	for key, value := range store.values {
+		if !strings.HasPrefix(key, "combo:") || (value != "first" && value != "second") {
+			t.Fatalf("unexpected scoped runtime state entry %q=%q", key, value)
+		}
+	}
+}
+
+func TestComboStrategyRestoresAndPersistsPeakEquity(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "bot-a", "BTCUSDT"
+	store := &comboStateCapture{}
+	firstChild := &fakeComboSubStrategy{name: "dca", stats: &StrategyStatistics{}, positions: []*Position{{Symbol: "BTCUSDT", Size: 1, CurrentPrice: 100}}}
+	first := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{firstChild}, strategyNames: []string{"dca"}, weights: []float64{1}}
+	if err := first.SetRuntimeStateStore(store); err != nil {
+		t.Fatal(err)
+	}
+	if allowed, _ := first.checkComboRiskLimits(100); !allowed {
+		t.Fatal("initial peak equity sample unexpectedly blocked")
+	}
+	if store.values["combo"] == "" {
+		t.Fatal("combo peak equity was not persisted")
+	}
+
+	secondChild := &fakeComboSubStrategy{name: "dca", stats: &StrategyStatistics{}, positions: []*Position{{Symbol: "BTCUSDT", Size: 1, CurrentPrice: 80, PnL: -20}}}
+	second := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{secondChild}, strategyNames: []string{"dca"}, weights: []float64{1}}
+	if err := second.SetRuntimeStateStore(store); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatalf("restore combo peak equity: %v", err)
+	}
+	if allowed, reason := second.checkComboRiskLimits(80); allowed || reason == "" {
+		t.Fatalf("restored high-water drawdown did not block openings: allowed=%v reason=%q", allowed, reason)
+	}
+	if second.peakEquity != 100 {
+		t.Fatalf("recovered peak equity = %v, want 100", second.peakEquity)
+	}
+}
+
+type failingComboStateStore struct{ comboStateCapture }
+
+func (s *failingComboStateStore) SaveRuntimeState(string, int, string) error {
+	return errors.New("storage unavailable")
+}
+
+func TestComboStrategyStatePersistenceFailureReportsRiskHold(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "bot-a", "BTCUSDT"
+	child := &fakeComboSubStrategy{name: "dca", stats: &StrategyStatistics{}}
+	combo := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{child}}
+	store := &failingComboStateStore{}
+	if err := combo.SetRuntimeStateStore(store); err != nil {
+		t.Fatal(err)
+	}
+	var reported error
+	combo.SetRuntimeStateErrorHandler(func(err error) { reported = err })
+	if allowed, _ := combo.checkComboRiskLimits(100); allowed {
+		t.Fatal("combo permitted opening after peak-equity persistence failed")
+	}
+	if reported == nil {
+		t.Fatal("persistence failure was not reported to the shared opening gate handler")
+	}
+}
+
+func TestComboStrategyMissingDrawdownStateRejectsRecoveredHistory(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "bot-a", "BTCUSDT"
+	child := &fakeComboSubStrategy{name: "dca", stats: &StrategyStatistics{TotalTrades: 3}, positions: []*Position{{Symbol: "BTCUSDT", Size: 1}}}
+	combo := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{child}, strategyNames: []string{"dca"}, weights: []float64{1}}
+	if err := combo.SetRuntimeStateStore(&comboStateCapture{}); err != nil {
+		t.Fatal(err)
+	}
+	var gateErr error
+	combo.SetRuntimeStateErrorHandler(func(err error) { gateErr = err })
+	if err := combo.Start(t.Context()); err == nil {
+		t.Fatal("missing combo checkpoint with restored economic history must reject startup")
+	}
+	if child.started && !child.stopped {
+		t.Fatal("child with incomplete combo risk baseline was not rolled back")
+	}
+	if gateErr == nil || combo.runtimeStateFound {
+		t.Fatalf("missing checkpoint did not remain blocked: gateErr=%v found=%v", gateErr, combo.runtimeStateFound)
+	}
+}
+
+func TestComboStrategyInitialDrawdownBaselineIsPersistedBeforeOpening(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "bot-a", "BTCUSDT"
+	store := &comboStateCapture{}
+	child := &fakeComboSubStrategy{name: "dca", stats: &StrategyStatistics{}}
+	combo := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{child}, strategyNames: []string{"dca"}, weights: []float64{1}}
+	if err := combo.SetRuntimeStateStore(store); err != nil {
+		t.Fatal(err)
+	}
+	var gateCleared bool
+	combo.SetRuntimeStateErrorHandler(func(err error) { gateCleared = err == nil })
+	if err := combo.Start(t.Context()); err != nil {
+		t.Fatalf("initialize new combo checkpoint: %v", err)
+	}
+	if store.values["combo"] == "" || combo.peakEquity != 100 || !gateCleared {
+		t.Fatalf("initial baseline was not durably established before opening: state=%q peak=%v gateCleared=%v", store.values["combo"], combo.peakEquity, gateCleared)
+	}
 }
 
 func TestParseComboConfigDefaultsAndCustomValues(t *testing.T) {

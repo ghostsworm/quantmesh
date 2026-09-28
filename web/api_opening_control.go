@@ -7,6 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/logger"
 	"quantmesh/position"
 )
@@ -45,44 +46,52 @@ func findOpeningControlConfigFromConfig(exchange, symbol, marketType, preferredB
 	if err != nil || cfg == nil {
 		return nil
 	}
-	mt := strings.TrimSpace(strings.ToLower(marketType))
-	if mt != "spot" && mt != "futures" {
-		mt = "futures"
+	target, _, err := openingControlTarget(cfg, strings.TrimSpace(preferredBotID), exchange, symbol, marketType)
+	if err != nil {
+		return nil
 	}
-	if id := strings.TrimSpace(preferredBotID); id != "" {
-		for i := range cfg.Bots {
-			b := &cfg.Bots[i]
-			if strings.EqualFold(strings.TrimSpace(b.ID), id) {
-				return &b.OpenPositionControl
-			}
+	copy := config.CloneOpenPositionControl(*target)
+	return &copy
+}
+
+func openingLimitStatus(control config.OpenPositionControl) gin.H {
+	quantity, value, layers := control.PositionLimits()
+	overridden := control.BotRiskControl != nil && control.BotRiskControl.Enabled
+	return gin.H{
+		"max_position_value":                control.MaxPositionValue,
+		"max_position_layers":               control.MaxPositionLayers,
+		"effective_max_position_quantity":   quantity,
+		"effective_max_position_value":      value,
+		"effective_max_position_layers":     layers,
+		"bot_risk_control_overrides_limits": overridden,
+		"schedule_rules":                    control.ScheduleRules,
+		"periodic_rule":                     control.PeriodicRule,
+	}
+}
+
+func getSpecializedOpeningRuntime(c *gin.Context, exchange, symbol string) (*execution.OpeningGate, config.OpenPositionControl, bool) {
+	rt, _, ok := getOpeningControlRuntimeAndController(c, exchange, symbol)
+	if !ok || c.Writer.Written() {
+		return nil, config.OpenPositionControl{}, false
+	}
+	value := reflect.ValueOf(rt)
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
+	}
+	manager := value.FieldByName("SuperPositionManager")
+	gateField := value.FieldByName("OpeningGate")
+	if !manager.IsValid() || !manager.IsNil() || !gateField.IsValid() || gateField.IsNil() {
+		return nil, config.OpenPositionControl{}, false
+	}
+	gate, _ := gateField.Interface().(*execution.OpeningGate)
+	control := config.OpenPositionControl{}
+	getter := value.FieldByName("GetOpenControl")
+	if getter.IsValid() && !getter.IsNil() {
+		if get, ok := getter.Interface().(func() config.OpenPositionControl); ok {
+			control = get()
 		}
 	}
-	// 優先從 Bots 查找
-	for i := range cfg.Bots {
-		b := &cfg.Bots[i]
-		bmt := b.GetMarketType()
-		if bmt == "spot_margin" {
-			bmt = "spot"
-		}
-		if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == mt {
-			return &b.OpenPositionControl
-		}
-	}
-	// 兼容舊配置：從 Trading.Symbols 查找
-	for i := range cfg.Trading.Symbols {
-		s := &cfg.Trading.Symbols[i]
-		symMT := s.GetMarketType()
-		if symMT == "" {
-			symMT = "futures"
-		}
-		if symMT == "spot_margin" {
-			symMT = "spot"
-		}
-		if strings.EqualFold(s.Exchange, exchange) && strings.EqualFold(s.Symbol, symbol) && symMT == mt {
-			return &s.OpenPositionControl
-		}
-	}
-	return nil
+	return gate, control, gate != nil
 }
 
 // getOpeningControlStatus 獲取開倉控制狀態
@@ -94,9 +103,30 @@ func getOpeningControlStatus(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.exchange_symbol_required")
 		return
 	}
+	gate, control, specialized := getSpecializedOpeningRuntime(c, exchange, symbol)
+	if c.Writer.Written() {
+		return
+	}
+	if specialized {
+		reason := ""
+		for _, source := range []string{"manual", "position_limit", "schedule", "periodic", "runtime_shutdown", "funding_carry_exposure_unverified"} {
+			if gate.HasBlock(source) {
+				reason = source
+				break
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"exchange": exchange, "symbol": symbol, "opening_paused": gate.Blocked(),
+			"pause_reason": reason, "valuation_available": false, "position_managed_by_strategy": true,
+			"current_position_value_usdt": 0.0, "current_actual_margin_usdt": 0.0, "current_leverage": 1,
+			"current_layers": 0, "config": openingLimitStatus(control)})
+		return
+	}
 
 	spm, cfg, ok := getOpeningControlComponents(c, exchange, symbol)
 	if !ok {
+		if c.Writer.Written() {
+			return
+		}
 		// Bot 未運行時，從配置返回降級狀態（僅配置，無實時倉位數據）
 		marketType := c.DefaultQuery("market_type", "futures")
 		if marketType != "spot" && marketType != "futures" {
@@ -113,15 +143,11 @@ func getOpeningControlStatus(c *gin.Context) {
 				"current_actual_margin_usdt":  0.0,
 				"current_leverage":            1,
 				"current_layers":              0,
-				"config": gin.H{
-					"max_position_value":  cfgFallback.MaxPositionValue,
-					"max_position_layers": cfgFallback.MaxPositionLayers,
-					"schedule_rules":      cfgFallback.ScheduleRules,
-					"periodic_rule":       cfgFallback.PeriodicRule,
-				},
+				"config":                      openingLimitStatus(*cfgFallback),
 			})
 			return
 		}
+		respondError(c, http.StatusNotFound, "error.symbol_not_found")
 		return
 	}
 
@@ -140,35 +166,53 @@ func getOpeningControlStatus(c *gin.Context) {
 	layers := spm.GetActiveLayers()
 
 	c.JSON(http.StatusOK, gin.H{
-		"exchange":                      exchange,
-		"symbol":                        symbol,
-		"opening_paused":                spm.IsOpeningPaused(),
-		"pause_reason":                  spm.GetOpeningPauseReason(),
-		"current_position_value_usdt":   totalValue,      // 倉位價值（供參考）
-		"current_actual_margin_usdt":    actualMargin,    // 實際占用資金
-		"current_leverage":              leverage,         // 槓桿倍數
-		"current_layers":                layers,
-		"config": gin.H{
-			"max_position_value":  cfg.OpenPositionControl.MaxPositionValue,
-			"max_position_layers": cfg.OpenPositionControl.MaxPositionLayers,
-			"schedule_rules":      cfg.OpenPositionControl.ScheduleRules,
-			"periodic_rule":       cfg.OpenPositionControl.PeriodicRule,
-		},
+		"exchange":                    exchange,
+		"symbol":                      symbol,
+		"opening_paused":              spm.IsOpeningPaused(),
+		"pause_reason":                spm.GetOpeningPauseReason(),
+		"protective_liquidation":      spm.GetProtectiveLiquidationStatus(),
+		"current_position_value_usdt": totalValue,   // 倉位價值（供參考）
+		"current_actual_margin_usdt":  actualMargin, // 實際占用資金
+		"current_leverage":            leverage,     // 槓桿倍數
+		"current_layers":              layers,
+		"config":                      openingLimitStatus(cfg.OpenPositionControl),
 	})
 }
 
 // pauseOpening 手動暫停開倉
 // POST /api/opening-control/pause?exchange=xxx&symbol=xxx
 func pauseOpening(c *gin.Context) {
+	riskControlUpdateMu.Lock()
+	defer riskControlUpdateMu.Unlock()
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
 	if exchange == "" || symbol == "" {
 		respondError(c, http.StatusBadRequest, "error.exchange_symbol_required")
 		return
 	}
+	gate, _, specialized := getSpecializedOpeningRuntime(c, exchange, symbol)
+	if c.Writer.Written() {
+		return
+	}
+	if specialized {
+		if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), true); err != nil {
+			respondError(c, http.StatusInternalServerError, "error.opening_pause_persist_failed")
+			return
+		}
+		gate.Block("manual")
+		c.JSON(http.StatusOK, gin.H{"message": "開倉已暫停", "opening_paused": true})
+		return
+	}
 
 	spm, _, ok := getOpeningControlComponents(c, exchange, symbol)
 	if !ok {
+		if !c.Writer.Written() {
+			c.JSON(http.StatusConflict, gin.H{"error": "opening_bot_stopped"})
+		}
+		return
+	}
+	if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), true); err != nil {
+		respondError(c, http.StatusInternalServerError, "error.opening_pause_persist_failed")
 		return
 	}
 
@@ -180,21 +224,47 @@ func pauseOpening(c *gin.Context) {
 // resumeOpening 手動恢復開倉
 // POST /api/opening-control/resume?exchange=xxx&symbol=xxx
 func resumeOpening(c *gin.Context) {
+	riskControlUpdateMu.Lock()
+	defer riskControlUpdateMu.Unlock()
 	exchange := c.Query("exchange")
 	symbol := c.Query("symbol")
 	if exchange == "" || symbol == "" {
 		respondError(c, http.StatusBadRequest, "error.exchange_symbol_required")
 		return
 	}
-
-	spm, _, ok := getOpeningControlComponents(c, exchange, symbol)
-	if !ok {
+	gate, _, specialized := getSpecializedOpeningRuntime(c, exchange, symbol)
+	if c.Writer.Written() {
+		return
+	}
+	if specialized {
+		if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "opening_resume_persist_failed", "opening_paused": true})
+			return
+		}
+		gate.Unblock("manual")
+		c.JSON(http.StatusOK, gin.H{"message": "恢復請求已處理", "opening_paused": gate.Blocked()})
 		return
 	}
 
-	spm.ResumeOpening()
+	spm, _, ok := getOpeningControlComponents(c, exchange, symbol)
+	if !ok {
+		if !c.Writer.Written() {
+			c.JSON(http.StatusConflict, gin.H{"error": "opening_bot_stopped"})
+		}
+		return
+	}
+
+	if err := spm.ResumeOpeningManually(); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "opening_paused": spm.IsOpeningPaused(), "protective_liquidation": spm.GetProtectiveLiquidationStatus()})
+		return
+	}
+	if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+		spm.PauseOpening("manual")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "opening_resume_persist_failed", "opening_paused": true})
+		return
+	}
 	logger.Info("🔄 [開倉管理] 手動恢復開倉 [%s:%s]", exchange, symbol)
-	c.JSON(http.StatusOK, gin.H{"message": "開倉已恢復", "opening_paused": false})
+	c.JSON(http.StatusOK, gin.H{"message": "恢復請求已處理", "opening_paused": spm.IsOpeningPaused(), "pause_reason": spm.GetOpeningPauseReason()})
 }
 
 // getOpeningControlConfig 獲取開倉控制配置
@@ -206,9 +276,20 @@ func getOpeningControlConfig(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.exchange_symbol_required")
 		return
 	}
+	_, control, specialized := getSpecializedOpeningRuntime(c, exchange, symbol)
+	if c.Writer.Written() {
+		return
+	}
+	if specialized {
+		c.JSON(http.StatusOK, control)
+		return
+	}
 
 	_, cfg, ok := getOpeningControlComponents(c, exchange, symbol)
 	if !ok {
+		if c.Writer.Written() {
+			return
+		}
 		marketType := c.DefaultQuery("market_type", "futures")
 		if marketType != "spot" && marketType != "futures" {
 			marketType = "futures"
@@ -218,6 +299,7 @@ func getOpeningControlConfig(c *gin.Context) {
 			c.JSON(http.StatusOK, cfgFallback)
 			return
 		}
+		respondError(c, http.StatusNotFound, "error.symbol_not_found")
 		return
 	}
 
@@ -227,145 +309,96 @@ func getOpeningControlConfig(c *gin.Context) {
 // putOpeningControlConfig 更新開倉控制配置
 // PUT /api/opening-control/config?exchange=xxx&symbol=xxx
 func putOpeningControlConfig(c *gin.Context) {
-	exchange := c.Query("exchange")
-	symbol := c.Query("symbol")
-	if exchange == "" || symbol == "" {
-		respondError(c, http.StatusBadRequest, "error.exchange_symbol_required")
+	riskControlUpdateMu.Lock()
+	defer riskControlUpdateMu.Unlock()
+	exchange, symbol := strings.TrimSpace(c.Query("exchange")), strings.TrimSpace(c.Query("symbol"))
+	market := c.DefaultQuery("market_type", "futures")
+	if exchange == "" || symbol == "" || (market != "spot" && market != "futures") {
+		respondError(c, http.StatusBadRequest, "error.invalid_request")
 		return
 	}
-
-	var req config.OpenPositionControl
-	if err := c.ShouldBindJSON(&req); err != nil {
-		respondError(c, http.StatusBadRequest, "error.invalid_request", err.Error())
+	var payload struct {
+		MaxPositionValue  *float64              `json:"max_position_value"`
+		MaxPositionLayers *int                  `json:"max_position_layers"`
+		ScheduleRules     []config.ScheduleRule `json:"schedule_rules"`
+		PeriodicRule      *config.PeriodicRule  `json:"periodic_rule"`
+	}
+	if err := c.ShouldBindJSON(&payload); err != nil || payload.MaxPositionValue == nil || payload.MaxPositionLayers == nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request")
 		return
 	}
-
-	marketType := c.DefaultQuery("market_type", "futures")
-	if marketType != "spot" && marketType != "futures" {
-		marketType = "futures"
+	req := config.OpenPositionControl{MaxPositionValue: *payload.MaxPositionValue, MaxPositionLayers: *payload.MaxPositionLayers,
+		ScheduleRules: payload.ScheduleRules, PeriodicRule: payload.PeriodicRule}
+	if err := validateOpeningControl(req); err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_request")
+		return
 	}
-
-	rtInterface, oc, ok := getOpeningControlRuntimeAndController(c, exchange, symbol)
-	if ok {
-		// 更新運行時 Config 中的 OpenPositionControl（不包含 PauseOpening 運行時狀態）
-		rtVal := reflect.ValueOf(rtInterface)
-		if rtVal.Kind() == reflect.Ptr {
-			rtVal = rtVal.Elem()
-		}
-		configField := rtVal.FieldByName("Config")
-		if configField.IsValid() && configField.CanSet() {
-			cfg := configField.Addr().Interface().(*config.SymbolConfig)
-			cfg.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-			cfg.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-			cfg.OpenPositionControl.ScheduleRules = req.ScheduleRules
-			cfg.OpenPositionControl.PeriodicRule = req.PeriodicRule
-		}
-
-		// 更新 OpeningController 的配置指針（Config 已在上方更新，oc 持有 &rt.Config 會自動看到）
-		if oc != nil {
-			rtVal := reflect.ValueOf(rtInterface)
-			if rtVal.Kind() == reflect.Ptr {
-				rtVal = rtVal.Elem()
-			}
-			configField := rtVal.FieldByName("Config")
-			if configField.IsValid() {
-				cfgPtr := configField.Addr().Interface().(*config.SymbolConfig)
-				oc.UpdateConfig(cfgPtr)
-			}
-		}
-	}
-
-	// 持久化到配置文件（Bot 運行與否都需持久化，從 GetLatestConfig 獲取最新配置）
-	cfg, err := GetLatestConfig()
-	if err != nil || cfg == nil || fileConfigManager == nil {
-		if !ok {
-			respondError(c, http.StatusNotFound, "error.symbol_not_found")
+	// Do not persist a live change that the runtime cannot apply. This matters
+	// for strategy-owned runtimes without the grid OpeningController.
+	var rt interface{}
+	var running bool
+	var specializedUpdate func(config.OpenPositionControl) error
+	if symbolManagerProvider != nil {
+		rt, _, running = getOpeningControlRuntimeAndController(c, exchange, symbol)
+		if c.Writer.Written() {
 			return
 		}
-		logger.Warn("⚠️ [開倉管理] 配置持久化跳過（配置管理器不可用）")
-		c.JSON(http.StatusOK, gin.H{"message": "配置已更新"})
+	}
+	var controller *position.OpeningController
+	if running && rt != nil {
+		_, controller, _ = extractOpeningControllerFromRuntime(rt)
+		if controller == nil {
+			specializedUpdate = specializedOpeningControlUpdater(rt)
+		}
+		if controller == nil && specializedUpdate == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "opening_runtime_unavailable", "persisted": false, "applied": false})
+			return
+		}
+	}
+	control, _, err := persistOpeningControl(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, market, req)
+	if err != nil {
+		code := http.StatusInternalServerError
+		if err == errOpeningTarget {
+			code = http.StatusConflict
+		}
+		c.JSON(code, gin.H{"error": "opening_config_save_failed", "persisted": false, "applied": false})
 		return
 	}
+	if running && rt != nil {
+		if specializedUpdate != nil {
+			if err := specializedUpdate(control); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "opening_runtime_unavailable", "persisted": true, "applied": false})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"persisted": true, "applied": true})
+			return
+		}
+		// OpeningController clones the value and publishes the SPM immutable
+		// controls; never write the runtime's shared Config via reflection.
+		value := reflect.ValueOf(rt)
+		if value.Kind() == reflect.Ptr {
+			value = value.Elem()
+		}
+		copy := *value.FieldByName("Config").Addr().Interface().(*config.SymbolConfig)
+		copy.OpenPositionControl = control
+		controller.UpdateConfig(&copy)
+	}
+	c.JSON(http.StatusOK, gin.H{"persisted": true, "applied": running && rt != nil})
+}
 
-	persisted := false
-	var syncedBotID string
-	botIDQ := strings.TrimSpace(c.Query("bot_id"))
-	if botIDQ != "" {
-		for i := range cfg.Bots {
-			b := &cfg.Bots[i]
-			if strings.EqualFold(strings.TrimSpace(b.ID), botIDQ) {
-				b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
-				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
-				syncedBotID = b.ID
-				if syncedBotID == "" {
-					syncedBotID = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
-				}
-				persisted = true
-				break
-			}
-		}
+func specializedOpeningControlUpdater(rt interface{}) func(config.OpenPositionControl) error {
+	value := reflect.ValueOf(rt)
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
 	}
-	// 更新 Bots 中的開倉控制配置（無 bot_id 或按 ID 未命中時按交易對匹配）
-	if !persisted {
-		for i := range cfg.Bots {
-			b := &cfg.Bots[i]
-			bmt := b.GetMarketType()
-			if bmt == "spot_margin" {
-				bmt = "spot"
-			}
-			if strings.EqualFold(b.Exchange, exchange) && strings.EqualFold(b.Symbol, symbol) && bmt == marketType {
-				b.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-				b.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-				b.OpenPositionControl.ScheduleRules = req.ScheduleRules
-				b.OpenPositionControl.PeriodicRule = req.PeriodicRule
-				syncedBotID = b.ID
-				if syncedBotID == "" {
-					syncedBotID = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
-				}
-				persisted = true
-				break
-			}
-		}
+	field := value.FieldByName("UpdateOpenControl")
+	if !field.IsValid() || field.IsNil() {
+		return nil
 	}
-	// 兼容舊配置：更新 Trading.Symbols
-	if !persisted {
-		for i := range cfg.Trading.Symbols {
-			sym := &cfg.Trading.Symbols[i]
-			symMT := sym.GetMarketType()
-			if symMT == "" {
-				symMT = "futures"
-			}
-			if symMT == "spot_margin" {
-				symMT = "spot"
-			}
-			if strings.EqualFold(sym.Exchange, exchange) && strings.EqualFold(sym.Symbol, symbol) && symMT == marketType {
-				sym.OpenPositionControl.MaxPositionValue = req.MaxPositionValue
-				sym.OpenPositionControl.MaxPositionLayers = req.MaxPositionLayers
-				sym.OpenPositionControl.ScheduleRules = req.ScheduleRules
-				sym.OpenPositionControl.PeriodicRule = req.PeriodicRule
-				persisted = true
-				break
-			}
-		}
+	if updater, ok := field.Interface().(func(config.OpenPositionControl) error); ok {
+		return updater
 	}
-
-	if persisted {
-		if syncedBotID != "" {
-			if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_opening_control"); err != nil {
-				logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
-			}
-		} else if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-			logger.Warn("⚠️ [開倉管理] 配置持久化失敗: %v", err)
-		}
-	} else if !ok {
-		respondError(c, http.StatusNotFound, "error.symbol_not_found")
-		return
-	}
-
-	logger.Info("🔄 [開倉管理] 配置已更新 [%s:%s]", exchange, symbol)
-	c.JSON(http.StatusOK, gin.H{"message": "配置已更新"})
+	return nil
 }
 
 // getOpeningControlComponents 獲取 SuperPositionManager 和 SymbolConfig
@@ -398,36 +431,46 @@ func getOpeningControlComponents(c *gin.Context, exchange, symbol string) (*posi
 	}
 	cfg := configField.Addr().Interface().(*config.SymbolConfig)
 
-	return spm, cfg, true
+	copy := *cfg
+	copy.OpenPositionControl = spm.GetRiskControls().Open
+	return spm, &copy, true
 }
 
 // getOpeningControlRuntimeAndController 獲取 SymbolRuntime 和 OpeningController
 func getOpeningControlRuntimeAndController(c *gin.Context, exchange, symbol string) (rtInterface interface{}, oc *position.OpeningController, ok bool) {
+	market := c.DefaultQuery("market_type", "futures")
+	if market != "spot" && market != "futures" {
+		respondError(c, http.StatusBadRequest, "error.invalid_request")
+		return nil, nil, false
+	}
 	if symbolManagerProvider == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.symbol_manager_unavailable")
 		return nil, nil, false
 	}
-
-	marketType := c.DefaultQuery("market_type", "futures")
-	if marketType != "spot" && marketType != "futures" {
-		marketType = "futures"
-	}
-
-	// 帶 UUID 的 Bot 運行時鍵為 bot_id，GetEx 仍按 exchange:symbol:mt 生成鍵查找，會誤判為「未運行」
-	if botID := strings.TrimSpace(c.Query("bot_id")); botID != "" {
-		if rtByID, idOK := symbolManagerProvider.GetByBotID(botID); idOK && rtByID != nil {
-			if openingControlRuntimeMatchesQuery(rtByID, exchange, symbol, marketType) {
-				return extractOpeningControllerFromRuntime(rtByID)
-			}
-		}
-	}
-
-	rtInterface, exists := symbolManagerProvider.GetEx(exchange, symbol, marketType)
-	if !exists {
-		// 不發送 HTTP 響應，僅返回 false，讓調用者決定如何處理（例如從配置文件讀取）
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil {
+		respondError(c, http.StatusServiceUnavailable, "error.config_unavailable")
 		return nil, nil, false
 	}
-
+	_, id, err := openingControlTarget(cfg, strings.TrimSpace(c.Query("bot_id")), exchange, symbol, market)
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "opening_target_unavailable"})
+		return nil, nil, false
+	}
+	var exists bool
+	if id != "" {
+		rtInterface, exists = symbolManagerProvider.GetByBotID(id)
+	} else {
+		rtInterface, exists = symbolManagerProvider.GetEx(exchange, symbol, market)
+	}
+	if !exists || rtInterface == nil {
+		// A resolved but stopped target permits configuration-only GET responses.
+		return nil, nil, false
+	}
+	if !openingControlRuntimeMatchesQuery(rtInterface, exchange, symbol, market) {
+		c.JSON(http.StatusConflict, gin.H{"error": "opening_runtime_mismatch"})
+		return nil, nil, false
+	}
 	return extractOpeningControllerFromRuntime(rtInterface)
 }
 

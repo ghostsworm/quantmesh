@@ -324,7 +324,7 @@ func (c *CoinsphSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) 
 	price, _ := strconv.ParseFloat(resp.Price, 64)
 	qty, _ := strconv.ParseFloat(resp.OrigQty, 64)
 	execQty, _ := strconv.ParseFloat(resp.ExecutedQty, 64)
-	avgPrice := price
+	avgPrice := 0.0
 	if resp.CummulativeQuoteQty != "" && execQty > 0 {
 		cumQuote, _ := strconv.ParseFloat(resp.CummulativeQuoteQty, 64)
 		avgPrice = cumQuote / execQty
@@ -425,7 +425,7 @@ func (c *CoinsphSpotAdapter) convertOrderInfoToOrder(info *OrderInfo, symbol str
 	price, _ := strconv.ParseFloat(info.Price, 64)
 	qty, _ := strconv.ParseFloat(info.OrigQty, 64)
 	execQty, _ := strconv.ParseFloat(info.ExecutedQty, 64)
-	avgPrice := price
+	avgPrice := 0.0
 	if info.CummulativeQuoteQty != "" && execQty > 0 {
 		cumQuote, _ := strconv.ParseFloat(info.CummulativeQuoteQty, 64)
 		avgPrice = cumQuote / execQty

@@ -57,6 +57,15 @@ other = "存储服务不可用"
 [error.missing_symbol_param]
 other = "缺少币种对参数"
 
+[error.market_type_required]
+other = "该交易对同时存在多个市场的成交记录，请指定 market_type"
+
+[error.exchange_market_required]
+other = "该交易对存在多个交易所/市场账本，请同时指定 exchange 和 market_type"
+
+[error.market_scoped_pnl_unavailable]
+other = "当前存储后端不支持按市场查询盈亏"
+
 [error.get_pnl_failed]
 other = "获取盈亏数据失败"
 

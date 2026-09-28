@@ -24,22 +24,23 @@ const (
 	EventTypeTradingStopFailed  EventType = "trading_stop_failed"  // 交易停止失败
 
 	// 持倉相关事件
-	EventTypePositionOpened EventType = "position_opened"
-	EventTypePositionClosed EventType = "position_closed"
+	EventTypePositionOpened        EventType = "position_opened"
+	EventTypePositionClosed        EventType = "position_closed"
 	EventTypePositionPlanCompleted EventType = "position_plan_completed" // 倉位计划达成
 
 	// 风控相关事件
-	EventTypeRiskTriggered      EventType = "risk_triggered"
-	EventTypeRiskRecovered      EventType = "risk_recovered"
-	EventTypeStopLoss           EventType = "stop_loss"
-	EventTypeTakeProfit         EventType = "take_profit"
-	EventTypeMarginInsufficient    EventType = "margin_insufficient"      // 保证金不足
-	EventTypeAllocationExceeded    EventType = "allocation_exceeded"     // 超出资金分配限制
+	EventTypeRiskTriggered          EventType = "risk_triggered"
+	EventTypeRiskRecovered          EventType = "risk_recovered"
+	EventTypeStopLoss               EventType = "stop_loss"
+	EventTypeTakeProfit             EventType = "take_profit"
+	EventTypeMarginInsufficient     EventType = "margin_insufficient"      // 保证金不足
+	EventTypeAllocationExceeded     EventType = "allocation_exceeded"      // 超出资金分配限制
 	EventTypeAllocationLimitChanged EventType = "allocation_limit_changed" // 资金限額变更（正常/紧急模式切换）
 
 	// 网络相关事件
 	EventTypeWebSocketDisconnected EventType = "websocket_disconnected" // WebSocket 断连
 	EventTypeWebSocketReconnected  EventType = "websocket_reconnected"  // WebSocket 重连
+	EventTypeWebSocketStopped      EventType = "websocket_stopped"      // 主動停止單一數據流
 	EventTypeAPIRequestFailed      EventType = "api_request_failed"     // API 请求失败
 	EventTypeConnectionTimeout     EventType = "connection_timeout"     // 连接超時
 
@@ -126,6 +127,7 @@ func GetEventSeverity(eventType EventType) EventSeverity {
 		EventTypePositionPlanCompleted,
 		EventTypeTakeProfit,
 		EventTypeWebSocketReconnected,
+		EventTypeWebSocketStopped,
 		EventTypeSystemStart,
 		EventTypeTradingStarted,
 		EventTypeTradingStopped,
@@ -150,12 +152,12 @@ type HedgeSignalPayload struct {
 	GroupID             string  `json:"group_id"`
 	Symbol              string  `json:"symbol"`
 	Exchange            string  `json:"exchange"`
-	TargetSpotShort     float64 `json:"target_spot_short"`      // 目標現貨空倉數量（做多網格用）
+	TargetSpotShort     float64 `json:"target_spot_short"`     // 目標現貨空倉數量（做多網格用）
 	TargetSpotLong      float64 `json:"target_spot_long"`      // 目標現貨多倉數量（做空網格用）
-	TargetFuturesShort  float64 `json:"target_futures_short"`   // 目標合約空倉數量（現貨網格做多用）
+	TargetFuturesShort  float64 `json:"target_futures_short"`  // 目標合約空倉數量（現貨網格做多用）
 	TargetFuturesLong   float64 `json:"target_futures_long"`   // 目標合約多倉數量（現貨網格做空用）
-	FuturesFilledLayers int     `json:"futures_filled_layers"`  // 網格已買入/賣出層數
-	FuturesPosition     float64 `json:"futures_position"`       // 合約持倉數量（正=多，負=空）
+	FuturesFilledLayers int     `json:"futures_filled_layers"` // 網格已買入/賣出層數
+	FuturesPosition     float64 `json:"futures_position"`      // 合約持倉數量（正=多，負=空）
 }
 
 // EventSource 事件源
@@ -187,7 +189,7 @@ func GetEventSource(eventType EventType) EventSource {
 		EventTypePositionPlanCompleted:
 		return SourceRisk
 
-	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected,
+	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected, EventTypeWebSocketStopped,
 		EventTypeAPIRequestFailed, EventTypeConnectionTimeout:
 		return SourceNetwork
 
@@ -224,22 +226,23 @@ func GetEventTitle(eventType EventType) string {
 		EventTypeTradingStopFailed:  "交易停止失败",
 
 		// 持倉相关
-		EventTypePositionOpened: "持倉已开倉",
-		EventTypePositionClosed: "持倉已平倉",
+		EventTypePositionOpened:        "持倉已开倉",
+		EventTypePositionClosed:        "持倉已平倉",
 		EventTypePositionPlanCompleted: "倉位计划达成",
 
 		// 风控相关
-		EventTypeRiskTriggered:      "风控触发",
-		EventTypeRiskRecovered:      "风控恢複",
-		EventTypeStopLoss:           "止损触发",
-		EventTypeTakeProfit:            "止盈触发",
-		EventTypeMarginInsufficient:    "保证金不足",
-		EventTypeAllocationExceeded:    "资金分配超限",
+		EventTypeRiskTriggered:          "风控触发",
+		EventTypeRiskRecovered:          "风控恢複",
+		EventTypeStopLoss:               "止损触发",
+		EventTypeTakeProfit:             "止盈触发",
+		EventTypeMarginInsufficient:     "保证金不足",
+		EventTypeAllocationExceeded:     "资金分配超限",
 		EventTypeAllocationLimitChanged: "资金限額变更",
 
 		// 网络相关
 		EventTypeWebSocketDisconnected: "WebSocket 断开连接",
 		EventTypeWebSocketReconnected:  "WebSocket 重新连接",
+		EventTypeWebSocketStopped:      "WebSocket 已主动停止",
 		EventTypeAPIRequestFailed:      "API 请求失败",
 		EventTypeConnectionTimeout:     "连接超時",
 
@@ -334,12 +337,12 @@ func (eb *EventBus) startDedupCleanup() {
 func (eb *EventBus) shouldDeduplicate(eventType EventType) bool {
 	// 需要去重的事件類型（频繁触发且重複無意义的）
 	dedupTypes := map[EventType]bool{
-		EventTypeAllocationExceeded:     true, // 资金分配超限
+		EventTypeAllocationExceeded:     true,  // 资金分配超限
 		EventTypeAllocationLimitChanged: false, // 资金限額变更（不去重，每次都通知）
-		EventTypeMarginInsufficient:     true, // 保证金不足
-		EventTypeAPIRateLimited:         true, // API 限流
-		EventTypeAPIRequestFailed:    true, // API 请求失败
-		EventTypePrecisionAdjustment: true, // 精度調整
+		EventTypeMarginInsufficient:     true,  // 保证金不足
+		EventTypeAPIRateLimited:         true,  // API 限流
+		EventTypeAPIRequestFailed:       true,  // API 请求失败
+		EventTypePrecisionAdjustment:    true,  // 精度調整
 	}
 	return dedupTypes[eventType]
 }

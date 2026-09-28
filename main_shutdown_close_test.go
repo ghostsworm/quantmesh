@@ -56,13 +56,14 @@ func (f *fakeCloseExchange) PlaceOrder(_ context.Context, req *exchange.OrderReq
 	defer f.mu.Unlock()
 	f.placed = append(f.placed, *req)
 	f.nextID++
-	ord := &exchange.Order{OrderID: f.nextID, Symbol: req.Symbol, Side: req.Side, Type: req.Type, Price: req.Price, Quantity: req.Quantity, Status: exchange.OrderStatusNew}
+	ord := &exchange.Order{OrderID: f.nextID, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Side: req.Side, Type: req.Type, Price: req.Price, Quantity: req.Quantity, Status: exchange.OrderStatusNew}
 	marketable := req.Type == exchange.OrderTypeMarket ||
 		(!f.limitNeverFills && ((req.Side == exchange.SideSell && req.Price <= f.market) || (req.Side == exchange.SideBuy && req.Price >= f.market)))
 	if marketable {
 		f.fill(req.Side, req.Quantity)
 		ord.Status = exchange.OrderStatusFilled
 		ord.ExecutedQty = req.Quantity
+		ord.AvgPrice = f.market
 	}
 	f.orders[ord.OrderID] = ord
 	return ord, nil
@@ -106,6 +107,19 @@ func (f *fakeCloseExchange) GetOpenOrders(context.Context, string) ([]*exchange.
 		}
 	}
 	return out, nil
+}
+
+func (f *fakeCloseExchange) GetOrderFills(context.Context, string, int64) ([]*exchange.OrderFill, error) {
+	return nil, nil
+}
+
+func (*fakeCloseExchange) GetBaseAsset() string  { return "BTC" }
+func (*fakeCloseExchange) GetQuoteAsset() string { return "USDT" }
+
+func (*fakeCloseExchange) GetOrderBook(_ context.Context, symbol string, _ int) (*exchange.OrderBook, error) {
+	return &exchange.OrderBook{Symbol: symbol,
+		Bids: []exchange.OrderBookLevel{{Price: 99, Quantity: 10}},
+		Asks: []exchange.OrderBookLevel{{Price: 101, Quantity: 10}}}, nil
 }
 
 func fastCloseOpts() shutdownCloseOptions {
@@ -183,15 +197,15 @@ func TestCloseAllPositionsMarketable(t *testing.T) {
 	}
 }
 
-func TestCloseAllPositionsMarketable_CancelsUnrelatedRestingOrders(t *testing.T) {
+func TestCloseAllPositionsMarketable_PreservesUnrelatedRestingOrders(t *testing.T) {
 	f := newFakeCloseExchange(76348, 0.0014)
-	// 模擬撤單後網格重掛的止盈單
+	// 未證明歸屬本次操作的掛單不能被平倉收尾掃掉。
 	f.orders[1] = &exchange.Order{OrderID: 1, Side: exchange.SideSell, Price: 76796.58, Status: exchange.OrderStatusNew}
 	if _, err := closeAllPositionsMarketable(context.Background(), f, "BTCUSDT", 0, fastCloseOpts()); err != nil {
 		t.Fatal(err)
 	}
-	if open, _ := f.GetOpenOrders(context.Background(), "BTCUSDT"); len(open) != 0 {
-		t.Fatalf("殘留掛單未清理: %d", len(open))
+	if open, _ := f.GetOpenOrders(context.Background(), "BTCUSDT"); len(open) != 1 || open[0].OrderID != 1 {
+		t.Fatalf("無關掛單被修改: %+v", open)
 	}
 }
 

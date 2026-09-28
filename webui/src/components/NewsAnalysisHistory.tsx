@@ -168,7 +168,7 @@ const NewsAnalysisHistory: React.FC = () => {
               <Spinner />
             ) : detail ? (
               <VStack align="stretch" spacing={4}>
-                {detail.assessment && (
+                {detail.assessment != null && (
                   <Box>
                     <Text fontWeight="600" mb={2}>{t('newsAnalysis.evaluationResult')}</Text>
                     <Code as="pre" p={4} display="block" overflow="auto" maxH="400px" fontSize="xs" whiteSpace="pre-wrap">
@@ -176,11 +176,11 @@ const NewsAnalysisHistory: React.FC = () => {
                     </Code>
                   </Box>
                 )}
-                {detail.recent_news_summary && (
+                {typeof detail.recent_news_summary === 'string' && detail.recent_news_summary.length > 0 && (
                   <Box>
                     <Text fontWeight="600" mb={2}>{t('newsAnalysis.newsSummary')}</Text>
                     <Code as="pre" p={4} display="block" overflow="auto" maxH="200px" fontSize="xs" whiteSpace="pre-wrap">
-                      {(detail.recent_news_summary as string).slice(0, 2000)}
+                      {detail.recent_news_summary.slice(0, 2000)}
                     </Code>
                   </Box>
                 )}

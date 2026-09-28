@@ -95,6 +95,22 @@ func TestCoinsphSpotAdapterConvertOrderInfoToOrder(t *testing.T) {
 	}
 }
 
+func TestCoinsphSpotOrderDoesNotInferAverageFromLimitPrice(t *testing.T) {
+	adapter := &CoinsphSpotAdapter{}
+	order := adapter.convertOrderInfoToOrder(&OrderInfo{
+		ExecutedQty: "2",
+		OrigQty:     "5",
+		Price:       "100",
+		Side:        "BUY",
+		Status:      "PARTIALLY_FILLED",
+		Symbol:      "BTCPHP",
+		Type:        "LIMIT",
+	}, "BTCPHP")
+	if order.ExecutedQty != 2 || order.AvgPrice != 0 {
+		t.Fatalf("missing cumulative quote must not be inferred from limit price: %+v", order)
+	}
+}
+
 func TestCoinsphSpotUnsupportedSpotMethods(t *testing.T) {
 	adapter := &CoinsphSpotAdapter{}
 	ctx := context.Background()

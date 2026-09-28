@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -33,6 +34,7 @@ func TestDCAEnhancedPauseExpires(t *testing.T) {
 		"trend_filter_enabled": false,
 		"cascade_protection":   false,
 	})
+	setTestRuntimeStateStore(t, strategy)
 	if err := strategy.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -60,6 +62,7 @@ func TestDCAEnhancedManualPauseWithoutDeadlineStaysPaused(t *testing.T) {
 		"trend_filter_enabled": false,
 		"cascade_protection":   false,
 	})
+	setTestRuntimeStateStore(t, strategy)
 	if err := strategy.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -88,6 +91,7 @@ func TestDCAAndMartingaleSkipNilOrdersWithoutStateMutation(t *testing.T) {
 		"trend_filter_enabled": false,
 		"cascade_protection":   false,
 	})
+	setTestRuntimeStateStore(t, dca)
 	if err := dca.Start(t.Context()); err != nil {
 		t.Fatalf("DCA Start() error=%v", err)
 	}
@@ -101,6 +105,7 @@ func TestDCAAndMartingaleSkipNilOrdersWithoutStateMutation(t *testing.T) {
 	martin := NewMartingaleStrategy("martin", "BTCUSDT", cfg, &nilOrderExecutor{}, ex, map[string]interface{}{
 		"trend_filter": false,
 	})
+	setTestRuntimeStateStore(t, martin)
 	if err := martin.Start(t.Context()); err != nil {
 		t.Fatalf("Martingale Start() error=%v", err)
 	}
@@ -119,6 +124,8 @@ func TestDCACloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 		"trend_filter_enabled": false,
 		"cascade_protection":   false,
 	})
+	setTestRuntimeStateStore(t, strategy)
+	strategy.SetTradeStorage(&dcaFillRecorder{})
 	if err := strategy.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -158,6 +165,12 @@ func TestDCACloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled}); err != nil {
 		t.Fatalf("OnOrderUpdate(fill) error=%v", err)
 	}
+	if !strategy.isClosing || len(strategy.layers) == 0 || strategy.totalQty != 1 {
+		t.Fatal("FILLED without executed quantity must retain the close and inventory")
+	}
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000}); err != nil {
+		t.Fatalf("OnOrderUpdate(verified fill) error=%v", err)
+	}
 	if strategy.isClosing || len(strategy.layers) != 0 || strategy.totalQty != 0 || strategy.currentLayer != 0 {
 		t.Fatalf("平仓成交后应清空状态: closing=%v layers=%d qty=%.8f layer=%d", strategy.isClosing, len(strategy.layers), strategy.totalQty, strategy.currentLayer)
 	}
@@ -169,6 +182,7 @@ func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	strategy := NewMartingaleStrategy("martin", "BTCUSDT", cfg, executor, &hedgeExchange{price: 51000}, map[string]interface{}{
 		"trend_filter": false,
 	})
+	setTestRuntimeStateStore(t, strategy)
 	if err := strategy.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -208,8 +222,27 @@ func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled}); err != nil {
 		t.Fatalf("OnOrderUpdate(fill) error=%v", err)
 	}
+	if !strategy.isClosing || len(strategy.entries) == 0 || strategy.totalQty != 1 || strategy.stats.TotalTrades != 0 {
+		t.Fatal("FILLED without executed quantity must retain martingale inventory and avoid realized PnL")
+	}
+	partial := &position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.4, AvgPrice: 50500}
+	if err := strategy.OnOrderUpdate(partial); err != nil {
+		t.Fatalf("OnOrderUpdate(partial fill) error=%v", err)
+	}
+	if err := strategy.OnOrderUpdate(partial); err != nil {
+		t.Fatalf("OnOrderUpdate(duplicate partial fill) error=%v", err)
+	}
+	if strategy.totalQty != 0.6 || strategy.stats.TotalPnL != 200 || strategy.stats.TotalTrades != 0 {
+		t.Fatalf("partial or duplicate fill was accounted incorrectly: qty=%v stats=%+v", strategy.totalQty, strategy.stats)
+	}
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000}); err != nil {
+		t.Fatalf("OnOrderUpdate(verified fill) error=%v", err)
+	}
 	if strategy.isClosing || len(strategy.entries) != 0 || strategy.totalQty != 0 || strategy.currentLevel != 0 {
 		t.Fatalf("平仓成交后应清空状态: closing=%v entries=%d qty=%.8f level=%d", strategy.isClosing, len(strategy.entries), strategy.totalQty, strategy.currentLevel)
+	}
+	if strategy.stats.TotalTrades != 1 || math.Abs(strategy.stats.TotalPnL-1000) > 1e-8 || strategy.stats.TotalVolume != 51000 {
+		t.Fatalf("martingale close stats must reflect verified fill, got %+v", strategy.stats)
 	}
 }
 
@@ -221,6 +254,7 @@ func TestStopLossCloseOrdersAreNotPostOnly(t *testing.T) {
 		"trend_filter_enabled": false,
 		"cascade_protection":   false,
 	})
+	setTestRuntimeStateStore(t, dca)
 	if err := dca.Start(t.Context()); err != nil {
 		t.Fatalf("DCA Start() error=%v", err)
 	}
@@ -242,6 +276,7 @@ func TestStopLossCloseOrdersAreNotPostOnly(t *testing.T) {
 	martin := NewMartingaleStrategy("martin", "BTCUSDT", cfg, martinExecutor, &hedgeExchange{price: 49000}, map[string]interface{}{
 		"trend_filter": false,
 	})
+	setTestRuntimeStateStore(t, martin)
 	if err := martin.Start(t.Context()); err != nil {
 		t.Fatalf("Martingale Start() error=%v", err)
 	}

@@ -6,6 +6,7 @@ import resourcesToBackend from 'i18next-resources-to-backend'
 // 静态导入 zh-CN、en-US：首屏无额外请求，且 PWA 离线时仍可用（其余语言仍按需 chunk）
 import zhCN from './locales/zh-CN.json'
 import enUS from './locales/en-US.json'
+import { withExecutionExposure } from './executionExposure'
 
 // 排除已静态打包的語言，避免與上方重複打入 lazy chunk（見 Vite glob 說明）
 const lazyLocaleModules = import.meta.glob<{ default: Record<string, unknown> }>(
@@ -25,17 +26,17 @@ i18n
   // 动态加载语言包：除 zh-CN / en-US 外，Vite 为各 locale JSON 生成独立 chunk，按需下载
   .use(resourcesToBackend((language: string, namespace: string) => {
     if (language === 'zh-CN' && namespace === 'translation') {
-      return Promise.resolve(zhCN)
+      return Promise.resolve(withExecutionExposure(language, zhCN))
     }
     if (language === 'en-US' && namespace === 'translation') {
-      return Promise.resolve(enUS)
+      return Promise.resolve(withExecutionExposure(language, enUS))
     }
     const path = `./locales/${language}.json`
     const loader = lazyLocaleModules[path]
     if (!loader) {
       return Promise.reject(new Error(`未找到語言包: ${language}`))
     }
-    return loader().then((m) => m.default as typeof zhCN)
+    return loader().then((m) => withExecutionExposure(language, m.default))
   }))
   .init({
     fallbackLng: 'zh-CN',
@@ -43,8 +44,8 @@ i18n
     // 预加载 fallback 语言，其他语言按需加载
     partialBundledLanguages: true,
     resources: {
-      'zh-CN': { translation: zhCN },
-      'en-US': { translation: enUS },
+      'zh-CN': { translation: withExecutionExposure('zh-CN', zhCN) },
+      'en-US': { translation: withExecutionExposure('en-US', enUS) },
     },
     interpolation: {
       escapeValue: false,

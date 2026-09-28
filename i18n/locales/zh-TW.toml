@@ -54,6 +54,15 @@ other = "儲存服務不可用"
 [error.missing_symbol_param]
 other = "缺少幣種對參數"
 
+[error.market_type_required]
+other = "此交易對同時存在多個市場的成交紀錄，請指定 market_type"
+
+[error.exchange_market_required]
+other = "此交易對存在多個交易所/市場帳本，請同時指定 exchange 和 market_type"
+
+[error.market_scoped_pnl_unavailable]
+other = "目前儲存後端不支援依市場查詢盈虧"
+
 [error.get_pnl_failed]
 other = "獲取盈虧資料失敗"
 

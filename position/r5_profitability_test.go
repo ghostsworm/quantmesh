@@ -195,38 +195,45 @@ func TestShouldSkipAdjust(t *testing.T) {
 
 // TestAdjustOrdersDebounceStillRunsStopLoss 去抖跳過全量重算時，硬止損仍每個 tick 檢查
 func TestAdjustOrdersDebounceStillRunsStopLoss(t *testing.T) {
-	exec := &MockExecutor{}
-	spm := newR5SPM(t, nil, exec)
+	exec := newLiqFakeVenue(1)
+	exec.bid, exec.ask = 2999.9, 3000.1
+	spm := newR5SPM(t, exec, exec)
+	configureTestProtective(t, spm, exec, nil)
 	spm.setAnchorPrice(3000)
 	slot := fillSlot(spm, 3000, 1, 0, "")
 	spm.config.Trading.GridRiskControl = config.GridRiskControl{Enabled: true, StopLossRatio: 0.05}
 
 	_ = spm.AdjustOrders(2999.95) // 全量一次（掛出平倉單）
-	placed := len(exec.PlacedOrders)
+	placed := len(exec.limitReqs)
 	if placed == 0 {
 		t.Fatalf("first run should place close order")
 	}
 	// 模擬平倉單被撤但不經 OnOrderUpdate（無 dirty）：同桶 tick 應跳過全量，不重掛
 	slot.mu.Lock()
+	_ = exec.CancelOrder(t.Context(), liqTestSymbol, slot.OrderID)
 	slot.OrderID, slot.ClientOID, slot.OrderStatus, slot.SlotStatus = 0, "", OrderStatusCanceled, SlotStatusFree
 	slot.mu.Unlock()
 	_ = spm.AdjustOrders(2999.96)
-	if len(exec.PlacedOrders) != placed {
-		t.Fatalf("debounced tick should not place orders: %d -> %d", placed, len(exec.PlacedOrders))
+	if len(exec.limitReqs) != placed {
+		t.Fatalf("debounced tick should not place orders: %d -> %d", placed, len(exec.limitReqs))
 	}
 	// 同一分桶內浮虧超過止損線（均價 4000）：風控在去抖之前執行，仍須觸發止損
 	slot.mu.Lock()
 	slot.AvgBuyPrice = 4000
 	slot.mu.Unlock()
-	_ = spm.AdjustOrders(2999.97)
+	exec.limitFillRatio = 1
+	if err := spm.AdjustOrders(2999.97); err != nil {
+		t.Fatal(err)
+	}
+	waitTestProtective(t, spm)
 	var stopLoss bool
-	for _, req := range exec.PlacedOrders[placed:] {
+	for _, req := range exec.limitReqs[placed:] {
 		if req.OrderSource == "stop_loss" {
 			stopLoss = true
 		}
 	}
 	if !stopLoss {
-		t.Fatalf("stop-loss not triggered: %+v", exec.PlacedOrders[placed:])
+		t.Fatalf("stop-loss not triggered: %+v", exec.limitReqs[placed:])
 	}
 }
 

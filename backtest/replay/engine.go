@@ -23,10 +23,11 @@ type Result struct {
 
 // Engine 回放引擎（單次使用：一個 Engine 只能 Run 一次）
 type Engine struct {
-	cfg  Config
-	ex   *simExchange
-	exec *simExecutor
-	spm  *position.SuperPositionManager
+	cfg            Config
+	ex             *simExchange
+	exec           *simExecutor
+	spm            *position.SuperPositionManager
+	protectiveJobs []func()
 	// clock 由 tick 時間戳驅動的模擬時鐘（注入倉位管理器）
 	clock *SimClock
 	ran   bool
@@ -98,6 +99,11 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	// 模擬時鐘：保證金鎖、reduce-only 冷卻、去抖兜底、緩存 TTL、撤單等待均按 tick 時間生效
 	e.clock = NewSimClock(time.UnixMilli(first.Timestamp))
 	e.spm.SetClock(e.clock)
+	if err := e.spm.ConfigureProtectiveLiquidation(context.Background(), &replayLiquidationVenue{engine: e}, func(work func()) {
+		e.protectiveJobs = append(e.protectiveJobs, work)
+	}); err != nil {
+		return nil, err
+	}
 	// 與實盤 symbol_manager 注入真實費率一致：費率感知最小利差使用回放的 maker/taker
 	if cfg.Matching.TakerFeeRate > 0 {
 		e.spm.SetFeeRates(cfg.Matching.MakerFeeRate, cfg.Matching.TakerFeeRate)
@@ -151,6 +157,15 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			}
 			e.adjustCalls++
 			e.deliver()
+			for len(e.protectiveJobs) > 0 {
+				job := e.protectiveJobs[0]
+				e.protectiveJobs = e.protectiveJobs[1:]
+				job()
+				if err := e.spm.WaitProtectiveLiquidation(context.Background()); err != nil {
+					return nil, fmt.Errorf("replay protective liquidation: %w", err)
+				}
+				e.deliver()
+			}
 		}
 		e.record(t.Timestamp, false)
 	}

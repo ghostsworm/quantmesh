@@ -46,6 +46,7 @@ services:
     image: quantmesh/market-maker:latest
     container_name: quantmesh_instance_1
     restart: unless-stopped
+    stop_grace_period: 6m
     depends_on:
       redis:
         condition: service_healthy
@@ -77,6 +78,7 @@ services:
     image: quantmesh/market-maker:latest
     container_name: quantmesh_instance_2
     restart: unless-stopped
+    stop_grace_period: 6m
     depends_on:
       redis:
         condition: service_healthy
@@ -108,6 +110,7 @@ services:
     image: quantmesh/market-maker:latest
     container_name: quantmesh_instance_3
     restart: unless-stopped
+    stop_grace_period: 6m
     depends_on:
       redis:
         condition: service_healthy
@@ -166,6 +169,5 @@ volumes:
 networks:
   quantmesh:
     driver: bridge
-
 
 

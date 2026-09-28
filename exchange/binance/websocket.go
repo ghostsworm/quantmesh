@@ -12,22 +12,25 @@ import (
 	"quantmesh/logger"
 
 	"github.com/adshao/go-binance/v2/futures"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
 // WebSocketManager 币安 WebSocket 訂單流管理器
 type WebSocketManager struct {
-	client     *futures.Client
-	apiKey     string
-	secretKey  string
-	listenKey  string
-	doneC      chan struct{}
-	stopC      chan struct{}
-	mu         sync.RWMutex
-	callbacks  []OrderUpdateCallback
-	isRunning  bool
-	useTestnet bool   // 是否使用測試網
-	symbol     string // 所屬適配器交易對（僅用於連線事件標註）
+	connectionIDOnce sync.Once
+	connectionID     string
+	client           *futures.Client
+	apiKey           string
+	secretKey        string
+	listenKey        string
+	doneC            chan struct{}
+	stopC            chan struct{}
+	mu               sync.RWMutex
+	callbacks        []OrderUpdateCallback
+	isRunning        bool
+	useTestnet       bool   // 是否使用測試網
+	symbol           string // 所屬適配器交易對（僅用於連線事件標註）
 
 	// 價格缓存
 	latestPrice float64
@@ -434,12 +437,14 @@ func (w *WebSocketManager) markStoppedIfCurrent(stopC chan struct{}) {
 
 // emitConnectivity 發布用戶數據流連線事件
 func (w *WebSocketManager) emitConnectivity(typ ConnectivityEventType, reason string) {
+	w.connectionIDOnce.Do(func() { w.connectionID = uuid.NewString() })
 	emitConnectivityEvent(ConnectivityEvent{
-		Type:    typ,
-		Stream:  connectivityStreamUserData,
-		Symbol:  w.symbol,
-		Testnet: w.useTestnet,
-		Reason:  reason,
+		ConnectionID: w.connectionID,
+		Type:         typ,
+		Stream:       connectivityStreamUserData,
+		Symbol:       w.symbol,
+		Testnet:      w.useTestnet,
+		Reason:       reason,
 	})
 }
 

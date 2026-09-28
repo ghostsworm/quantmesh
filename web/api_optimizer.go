@@ -67,6 +67,12 @@ func postOptimizerRun(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 		return
 	}
+	if req.Config.Method == "grid" {
+		if err := optimizer.ValidateGridSearchSize(req.SearchSpace); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+	}
 	validMethods := map[string]bool{"grid": true, "bayesian": true, "genetic": true}
 	if !validMethods[req.Config.Method] {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": fmt.Sprintf("不支援的优化方法: %s", req.Config.Method)})
@@ -84,7 +90,11 @@ func postOptimizerRun(c *gin.Context) {
 	}
 
 	// 立即創建任務並返回，數據獲取移到後台執行（避免 HTTP 請求超時）
-	taskID := fmt.Sprintf("opt_%d", time.Now().UnixMilli())
+	taskID, err := newOptimizerTaskID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "failed to allocate task id"})
+		return
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	task := &optimizerTask{
 		ID:        taskID,
@@ -106,52 +116,20 @@ func postOptimizerRun(c *gin.Context) {
 
 // runOptimizerTaskWithDataFetch 包含數據獲取的完整任務流程
 func runOptimizerTaskWithDataFetch(ctx context.Context, taskID, exchangeName, symbol, interval string, startTime, endTime time.Time, space optimizer.OptimSearchSpace, config optimizer.OptimConfig, initialCapital float64) {
-	// 更新任務状態為 "loading_data"
-	optimizerTasksMu.Lock()
-	task, ok := optimizerTasks[taskID]
-	if !ok {
-		optimizerTasksMu.Unlock()
+	if !beginOptimizerPhase(ctx, taskID, "loading_data") {
 		return
 	}
-	task.Status = "loading_data"
-	task.UpdatedAt = time.Now()
-	optimizerTasksMu.Unlock()
 
 	// 獲取历史數據
 	exConfig := getExchangeConfig(exchangeName)
-	candles, err := backtest.GetHistoricalDataEx(exchangeName, symbol, interval, startTime, endTime, exConfig)
-
-	// 检查是否被取消
-	if ctx.Err() != nil {
-		optimizerTasksMu.Lock()
-		if t, ok := optimizerTasks[taskID]; ok {
-			t.Status = "stopped"
-			t.UpdatedAt = time.Now()
-		}
-		optimizerTasksMu.Unlock()
-		return
-	}
+	candles, err := backtest.GetHistoricalDataExContext(ctx, exchangeName, symbol, interval, startTime, endTime, exConfig)
 
 	if err != nil {
-		logger.Error("优化器獲取歷史數據失败: %v", err)
-		optimizerTasksMu.Lock()
-		if t, ok := optimizerTasks[taskID]; ok {
-			t.Status = "failed"
-			t.Error = fmt.Sprintf("獲取歷史數據失败: %v", err)
-			t.UpdatedAt = time.Now()
-		}
-		optimizerTasksMu.Unlock()
+		finishOptimizerTask(ctx, taskID, nil, fmt.Errorf("historical data: %w", err))
 		return
 	}
-
-	if len(candles) == 0 {
-		optimizerTasksMu.Lock()
-		if t, ok := optimizerTasks[taskID]; ok {
-			t.Status = "failed"
-			t.Error = "未獲取到历史 K 線數據"
-			t.UpdatedAt = time.Now()
-		}
-		optimizerTasksMu.Unlock()
+	if len(candles) == 0 || ctx.Err() != nil {
+		finishOptimizerTask(ctx, taskID, nil, fmt.Errorf("no historical candles"))
 		return
 	}
 
@@ -162,16 +140,9 @@ func runOptimizerTaskWithDataFetch(ctx context.Context, taskID, exchangeName, sy
 }
 
 func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exchange.Candle, space optimizer.OptimSearchSpace, config optimizer.OptimConfig, initialCapital float64) {
-	optimizerTasksMu.Lock()
-	t, ok := optimizerTasks[taskID]
-	if !ok {
-		optimizerTasksMu.Unlock()
+	if !beginOptimizerPhase(ctx, taskID, "running") {
 		return
 	}
-	t.Status = "running"
-	t.Progress = 0
-	t.UpdatedAt = time.Now()
-	optimizerTasksMu.Unlock()
 
 	var opt optimizer.Optimizer
 	switch config.Method {
@@ -186,25 +157,9 @@ func runOptimizerTask(ctx context.Context, taskID, symbol string, candles []*exc
 	}
 
 	result, err := opt.Run(ctx, symbol, candles, space, config, initialCapital)
-	optimizerTasksMu.Lock()
-	defer optimizerTasksMu.Unlock()
-	task, ok := optimizerTasks[taskID]
-	if !ok {
+	if !finishOptimizerTask(ctx, taskID, result, err) {
 		return
 	}
-	task.UpdatedAt = time.Now()
-	if err != nil {
-		if ctx.Err() != nil {
-			task.Status = "stopped"
-		} else {
-			task.Status = "failed"
-			task.Error = err.Error()
-		}
-		return
-	}
-	task.Status = "completed"
-	task.Progress = 100
-	task.Result = result
 	logger.Info("优化任務 %s 完成: hold_out=%v fee_rate=%.6f slippage=%.6f best_score=%.6f",
 		taskID, result.HoldOutEnabled, result.FeeRateUsed, result.SlippageUsed, result.BestScore)
 }
@@ -216,9 +171,7 @@ func getOptimizerStatus(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
-	optimizerTasksMu.RLock()
-	task, ok := optimizerTasks[id]
-	optimizerTasksMu.RUnlock()
+	task, ok := snapshotOptimizerTask(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
@@ -241,9 +194,7 @@ func getOptimizerResult(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
-	optimizerTasksMu.RLock()
-	task, ok := optimizerTasks[id]
-	optimizerTasksMu.RUnlock()
+	task, ok := snapshotOptimizerTask(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
@@ -298,13 +249,18 @@ func postOptimizerStop(c *gin.Context) {
 	}
 	optimizerTasksMu.Lock()
 	task, ok := optimizerTasks[id]
-	optimizerTasksMu.Unlock()
 	if !ok {
+		optimizerTasksMu.Unlock()
 		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "任務不存在"})
 		return
 	}
-	if task.cancel != nil {
-		task.cancel()
+	if !optimizerTerminal(task.Status) {
+		task.Status = "stopping"
+		task.UpdatedAt = time.Now()
+		if task.cancel != nil {
+			task.cancel()
+		}
 	}
+	optimizerTasksMu.Unlock()
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已发送停止请求"})
 }

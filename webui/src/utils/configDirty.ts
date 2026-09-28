@@ -11,7 +11,7 @@ export function mergeFeeRateInputsIntoConfig(config: Config, feeRateInputs: Reco
     const trimmed = String(raw).trim()
     const parsed = trimmed === '' ? 0 : Number(trimmed)
     if (Number.isNaN(parsed)) continue
-    const slot = exchanges[ex]
+    const slot = exchanges[ex as keyof typeof exchanges]
     if (slot) slot.fee_rate = parsed
   }
   return cloned

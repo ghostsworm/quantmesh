@@ -37,6 +37,7 @@ func newR3DCA(t *testing.T, executor position.OrderExecutorInterface, extra map[
 		params[k] = v
 	}
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 100}, params)
+	setTestRuntimeStateStore(t, s)
 	if err := s.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -86,6 +87,7 @@ func TestDCACascadePauseBlocksOpeningOnly(t *testing.T) {
 func TestDCATailTakeProfitClosesOnlyLastLayer(t *testing.T) {
 	executor := &hedgeOrderExecutor{}
 	s := newR3DCA(t, executor, nil)
+	s.SetTradeStorage(&dcaFillRecorder{})
 	first := &DCALayer{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}
 	last := &DCALayer{Index: 1, Price: 90, Quantity: 1, Cost: 90, Status: entryStatusFilled}
 	s.layers = []*DCALayer{first, last}
@@ -178,13 +180,14 @@ func TestDCACloseOrderRejectedOrExpiredReleasesClosing(t *testing.T) {
 	for _, status := range []string{"REJECTED", "EXPIRED", "CANCELLED"} {
 		executor := &hedgeOrderExecutor{}
 		s := newR3DCA(t, executor, nil)
+		s.SetTradeStorage(&dcaFillRecorder{})
 		s.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 2, Cost: 200, Status: entryStatusFilled}}
 		s.currentLayer = 1
 		s.updateTotals()
 		if err := s.closeAllPositions(90, "止损"); err != nil {
 			t.Fatalf("closeAllPositions() error=%v", err)
 		}
-		if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: status, ExecutedQty: 0.5}); err != nil {
+		if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: status, ExecutedQty: 0.5, AvgPrice: 90}); err != nil {
 			t.Fatalf("OnOrderUpdate(%s) error=%v", status, err)
 		}
 		if s.isClosing || s.closeOrderID != 0 {
@@ -203,6 +206,7 @@ func TestShortMartingaleEntryLifecycle(t *testing.T) {
 		"trend_filter": false,
 		"direction":    "short",
 	})
+	setTestRuntimeStateStore(t, s)
 	if err := s.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -263,6 +267,7 @@ func TestMartingalePausedStillRunsStopLoss(t *testing.T) {
 	s := NewMartingaleStrategy("martin", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 50000}, map[string]interface{}{
 		"trend_filter": false,
 	})
+	setTestRuntimeStateStore(t, s)
 	if err := s.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)
 	}
@@ -383,6 +388,10 @@ func TestComboExposureAndDrawdownLimitsBlockOpening(t *testing.T) {
 		positions: []*Position{{Symbol: "BTCUSDT", Size: 0.01, CurrentPrice: 100, PnL: 0}},
 	}}
 	ddCombo := newR3Combo(ctx, cancel, &ComboConfig{TotalCapital: 1000, MaxDrawdown: 5, Strategies: []StrategyConfig{{Name: "dd"}}}, ddSub)
+	ddCombo.cfg = &config.Config{}
+	ddCombo.cfg.Trading.BotID = "test-bot"
+	ddCombo.cfg.Trading.Symbol = "BTCUSDT"
+	ddCombo.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	if err := ddCombo.OnPriceChange(100); err != nil {
 		t.Fatalf("OnPriceChange() error=%v", err)
 	}

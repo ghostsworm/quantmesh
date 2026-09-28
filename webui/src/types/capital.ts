@@ -40,6 +40,9 @@ export interface CapitalOverview {
   unrealizedPnL: number // 未實現盈亏
   marginRatio: number // 保证金占用率
   exchanges?: ExchangeCapitalSummary[] // 各交易所摘要
+  valuationComplete?: boolean
+  valuationAsset?: string
+  valuationError?: string
   lastUpdated: string
 }
 
@@ -52,6 +55,7 @@ export interface ExchangeCapitalSummary {
   pnl: number
   status: 'online' | 'offline' | 'error'
   isTestnet?: boolean // 是否使用測試網
+  balanceAsset?: string
 }
 
 export interface ExchangeCapitalDetail {

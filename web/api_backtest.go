@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -496,17 +497,17 @@ func postBacktestTasks(c *gin.Context) {
 		return
 	}
 	var req struct {
-		Mode         backtest.TaskMode      `json:"mode"`
-		BotID        string                 `json:"bot_id"`
-		GroupID      string                 `json:"group_id"`
-		Strategy     string                 `json:"strategy"`
+		Mode         backtest.TaskMode       `json:"mode"`
+		BotID        string                  `json:"bot_id"`
+		GroupID      string                  `json:"group_id"`
+		Strategy     string                  `json:"strategy"`
 		Strategies   []backtest.TaskStrategy `json:"strategies"`
-		Symbol       string                 `json:"symbol"`
-		Interval     string                 `json:"interval"`
-		StartTime    time.Time              `json:"start_time"`
-		EndTime      time.Time              `json:"end_time"`
-		Params       map[string]interface{} `json:"params"`
-		TotalCapital float64                `json:"total_capital" binding:"required"`
+		Symbol       string                  `json:"symbol"`
+		Interval     string                  `json:"interval"`
+		StartTime    time.Time               `json:"start_time"`
+		EndTime      time.Time               `json:"end_time"`
+		Params       map[string]interface{}  `json:"params"`
+		TotalCapital float64                 `json:"total_capital" binding:"required"`
 		// 数据来源相关字段
 		DataSource string `json:"data_source"`
 		KlineFile  string `json:"kline_file"`
@@ -790,15 +791,15 @@ func getBacktestTaskReport(c *gin.Context) {
 
 // exportTradeRow 統一導出格式（單策略 Trade 與多策略 TickTrade 共用）
 type exportTradeRow struct {
-	Timestamp      string  `json:"timestamp"`
-	Type           string  `json:"type"`
-	Price          float64 `json:"price"`
-	Quantity       float64 `json:"quantity"`
-	Fee            float64 `json:"fee"`
-	PnL            float64 `json:"pnl"`
-	PositionAfter  float64 `json:"position_after,omitempty"`  // 交易後持倉量（正=多，負=空）
-	BalanceAfter   float64 `json:"balance_after,omitempty"`   // 交易後剩餘資金
-	PositionSide   string  `json:"position_side,omitempty"`   // 交易後持倉方向：LONG/SHORT/空
+	Timestamp     string  `json:"timestamp"`
+	Type          string  `json:"type"`
+	Price         float64 `json:"price"`
+	Quantity      float64 `json:"quantity"`
+	Fee           float64 `json:"fee"`
+	PnL           float64 `json:"pnl"`
+	PositionAfter float64 `json:"position_after,omitempty"` // 交易後持倉量（正=多，負=空）
+	BalanceAfter  float64 `json:"balance_after,omitempty"`  // 交易後剩餘資金
+	PositionSide  string  `json:"position_side,omitempty"`  // 交易後持倉方向：LONG/SHORT/空
 }
 
 // getBacktestTaskTradesExport 導出回測交易記錄 (CSV/JSON) GET /api/backtest/tasks/:id/trades/export
@@ -997,7 +998,6 @@ func getBacktestTaskTrades(c *gin.Context) {
 		},
 	})
 }
-
 
 // deleteBacktestTask 刪除任務 DELETE /api/backtest/tasks/:id
 func deleteBacktestTask(c *gin.Context) {
@@ -1705,7 +1705,7 @@ func getOptimTaskByID(c *gin.Context) {
 // getOptimTaskResult 獲取參數優化結果 GET /api/backtest/optim/tasks/:id/result
 func getOptimTaskResult(c *gin.Context) {
 	id := c.Param("id")
-	if id == "" {
+	if !optimrun.IsValidTaskID(id) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
@@ -1725,7 +1725,7 @@ func getOptimTaskResult(c *gin.Context) {
 // deleteOptimTask 刪除參數優化任務 DELETE /api/backtest/optim/tasks/:id
 func deleteOptimTask(c *gin.Context) {
 	id := c.Param("id")
-	if id == "" {
+	if !optimrun.IsValidTaskID(id) {
 		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "缺少任務 id"})
 		return
 	}
@@ -1738,12 +1738,13 @@ func deleteOptimTask(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲不可用"})
 		return
 	}
-	if err := store.DeleteOptimTask(id); err != nil {
+	const optimizerDeleteWait = 10 * time.Second
+	ctx, cancel := context.WithTimeout(c.Request.Context(), optimizerDeleteWait)
+	defer cancel()
+	if err := optimTaskManager.DeleteTask(ctx, id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}
-	// 可選：刪除結果文件
-	_ = os.Remove(filepath.Join("backtest", "optim_results", id+".json"))
 	c.JSON(http.StatusOK, gin.H{"success": true, "message": "已刪除"})
 }
 

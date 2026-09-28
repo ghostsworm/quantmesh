@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
@@ -13,7 +13,6 @@ import {
   StatHelpText,
   useColorModeValue,
 } from '@chakra-ui/react'
-import PriceChart from './PriceChart'
 import type { GridVisualizationData } from '../../services/strategy'
 
 interface GridVisualizationProps {
@@ -26,23 +25,7 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
   const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
-
-  // 生成价格区间图表数据
-  const chartData = useMemo(() => {
-    if (!data.minPrice || !data.maxPrice) return []
-    const prices: Array<{ time: string; price: number }> = []
-    const range = data.maxPrice - data.minPrice
-    const midPrice = (data.minPrice + data.maxPrice) / 2
-    
-    // 生成模拟价格数据
-    for (let i = 20; i >= 0; i--) {
-      prices.push({
-        time: `${i}`,
-        price: midPrice + (Math.random() - 0.5) * range * 0.8,
-      })
-    }
-    return prices
-  }, [data.minPrice, data.maxPrice])
+  const slotBgColor = useColorModeValue('gray.50', 'gray.700')
 
   // 计算填充率
   const fillRate = data.slotCount && data.filledCount
@@ -76,21 +59,6 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
         </Stat>
       </SimpleGrid>
 
-      {/* 价格区间图表 */}
-      {chartData.length > 0 && (
-        <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.grid.gridPriceRange')}</Text>
-          <PriceChart data={chartData} height={250} />
-          {data.minPrice && data.maxPrice && (
-            <HStack mt={2} fontSize="xs" color="gray.500" justify="space-between">
-              <Text>{t('strategyViz.grid.lowestPrice')}: ${data.minPrice.toFixed(2)}</Text>
-              <Text>{t('strategyViz.grid.priceSpan')}: ${data.priceRange?.toFixed(2) || '—'}</Text>
-              <Text>{t('strategyViz.grid.highestPrice')}: ${data.maxPrice.toFixed(2)}</Text>
-            </HStack>
-          )}
-        </Box>
-      )}
-
       {/* 槽位状态概览 */}
       {data.slots && data.slots.length > 0 && (
         <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
@@ -101,7 +69,7 @@ const GridVisualization: React.FC<GridVisualizationProps> = ({ data }) => {
               <Box
                 key={index}
                 p={2}
-                bg={useColorModeValue('gray.50', 'gray.700')}
+                bg={slotBgColor}
                 borderRadius="md"
                 borderLeft="4px solid"
                 borderLeftColor={

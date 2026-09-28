@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -98,6 +100,8 @@ func startFundingPerpSpreadSymbolRuntime(
 		}
 	}
 	st := strategy.NewFundingPerpSpreadStrategy("funding_perp_spread", &localCfg, symCfg, legAEx, legBEx, fp, stratCfg)
+	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
+	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	strategyManager.RegisterStrategy("funding_perp_spread", st, 1.0, 0)
 	if err := strategyManager.StartAll(); err != nil {
 		return nil, err
@@ -141,6 +145,31 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	return rt, nil
+}
+
+// fundingPerpSpreadStateScope isolates durable strategy state by bot, both legs,
+// and credential identity without persisting or logging credential material.
+func fundingPerpSpreadStateScope(botID string, cfg *config.Config, fp *config.FundingPerpSpreadConfig) string {
+	h := sha256.New()
+	write := func(value string) {
+		_, _ = h.Write([]byte(value))
+		_, _ = h.Write([]byte{0})
+	}
+	write(botID)
+	for _, leg := range []config.FundingPerpLeg{fp.LegA, fp.LegB} {
+		write(strings.ToLower(strings.TrimSpace(leg.Exchange)))
+		write(strings.ToUpper(strings.TrimSpace(leg.Symbol)))
+		exCfg, ok := cfg.Exchanges[strings.TrimSpace(leg.Exchange)]
+		if !ok {
+			write("missing-exchange-config")
+			continue
+		}
+		write(exCfg.APIKey)
+		write(exCfg.SecretKey)
+		write(exCfg.Passphrase)
+		write(fmt.Sprintf("testnet=%t", exCfg.Testnet))
+	}
+	return "funding_perp_spread:" + hex.EncodeToString(h.Sum(nil))
 }
 
 func mergeFundingPerpSpreadStrategyConfig(localCfg *config.Config, symCfg config.SymbolConfig) {

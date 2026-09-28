@@ -2,9 +2,7 @@ package strategy
 
 import (
 	"context"
-	"fmt"
 	"math"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,22 +17,36 @@ import (
 
 // DynamicAdjuster 動態調整器
 type DynamicAdjuster struct {
-	cfg          *config.Config
-	priceMonitor *monitor.PriceMonitor
-	manager      *position.SuperPositionManager
-	priceHistory []float64
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	cfg                 *config.Config
+	priceMonitor        *monitor.PriceMonitor
+	manager             *position.SuperPositionManager
+	priceHistory        []float64
+	mu                  sync.RWMutex
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	priceMu             sync.Mutex // serialize price delivery with Stop
+	workers             sync.WaitGroup
+	stopOnce            sync.Once
+	stopDone            chan struct{}
+	started             bool
+	stopped             bool
+	observation         *indicators.VolatilityRegimeEvent
+	priceEvidenceAt     time.Time
+	quoteValid          bool
+	volatilityTriggered bool // risk latch; data warmup alone is not a manual-resume latch
+	historyLoader       VolatilityHistoryLoader
+	historyThrough      time.Time
+	historyFailed       bool
+	historyWake         chan struct{}
 
 	// 波动率检测
-	volatilityAlert       *event.VolatilityAlertService
-	currentRegime         indicators.VolatilityRegime
-	currentSymbol         string // 当前交易对
+	volatilityAlert *event.VolatilityAlertService
+	currentRegime   indicators.VolatilityRegime
+	currentSymbol   string // 当前交易对
 
 	// 趋势状态（用于判断上涨/下跌行情）
-	currentTrend         string // "up", "down", "sideways"
-	trendHistory         []float64 // 价格历史用于趋势判断
+	currentTrend string       // "up", "down", "sideways"
+	trendHistory []trendPrice // minute samples, not an assumed tick frequency
 
 	// utilizationWarned 资金利用率不可用的告警只打印一次
 	utilizationWarned atomic.Bool
@@ -56,23 +68,26 @@ func NewDynamicAdjuster(
 		priceMonitor: priceMonitor,
 		manager:      manager,
 		priceHistory: make([]float64, 0, 100),
-		trendHistory: make([]float64, 0, 100),
+		trendHistory: make([]trendPrice, 0, 100),
 		ctx:          ctx,
 		cancel:       cancel,
+		stopDone:     make(chan struct{}),
+		historyWake:  make(chan struct{}, 1),
 	}
 
 	// 获取当前交易对符号
-	if len(cfg.Trading.Symbols) > 0 {
+	da.currentSymbol = cfg.Trading.Symbol
+	if da.currentSymbol == "" && len(cfg.Trading.Symbols) > 0 {
 		da.currentSymbol = cfg.Trading.Symbols[0].Symbol
 	}
 
 	// 初始化波动率检测服务
-	if cfg.Trading.DynamicAdjustment.VolatilityDetection.Enabled {
+	{ // Risk observation stays available even when parameter adjustment is disabled.
 		var volConfig indicators.VolatilityRegimeConfig
 
 		// 优先使用内置预设
-		if len(cfg.Trading.Symbols) > 0 {
-			symbol := cfg.Trading.Symbols[0].Symbol
+		if da.currentSymbol != "" {
+			symbol := da.currentSymbol
 			preset := indicators.GetVolatilityPreset(symbol)
 			volConfig = preset.ConvertToConfig()
 			logger.Info("📊 [波动率检测] 使用 %s 预设配置: %s",
@@ -85,6 +100,12 @@ func NewDynamicAdjuster(
 		userConfig := cfg.Trading.DynamicAdjustment.VolatilityDetection
 		if userConfig.ShortPeriod > 0 {
 			volConfig.ShortPeriod = userConfig.ShortPeriod
+		}
+		if userConfig.MediumPeriod > 0 {
+			volConfig.MediumPeriod = userConfig.MediumPeriod
+		}
+		if userConfig.LongPeriod > 0 {
+			volConfig.LongPeriod = userConfig.LongPeriod
 		}
 		if userConfig.LowThreshold > 0 {
 			volConfig.LowThreshold = userConfig.LowThreshold
@@ -107,9 +128,6 @@ func NewDynamicAdjuster(
 
 		da.volatilityAlert = event.NewVolatilityAlertService(volConfig)
 
-		// 订阅波动率预警
-		alertCh := da.volatilityAlert.Subscribe("dynamic_adjuster")
-		go da.handleVolatilityAlerts(alertCh)
 	}
 
 	return da
@@ -117,31 +135,52 @@ func NewDynamicAdjuster(
 
 // Start 啟动動態調整器
 func (da *DynamicAdjuster) Start() {
-	if !da.cfg.Trading.DynamicAdjustment.Enabled {
+	da.start(false)
+}
+
+// StartWithExternalPrices uses the runtime's single price consumer. Starting a
+// second PriceMonitor.Subscribe would compete for, rather than broadcast, ticks.
+func (da *DynamicAdjuster) StartWithExternalPrices() { da.start(true) }
+
+func (da *DynamicAdjuster) start(externalPrices bool) {
+	da.mu.Lock()
+	defer da.mu.Unlock()
+	if da.started || da.stopped {
 		return
 	}
+	da.started = true
 
 	// 啟动波动率检测
 	if da.volatilityAlert != nil {
 		da.volatilityAlert.Start()
+		alertCh := da.volatilityAlert.Subscribe("dynamic_adjuster")
+		da.runWorker(func() { da.handleVolatilityAlerts(alertCh) })
 	}
 
 	// 订阅價格變化
-	go da.watchPriceChanges()
+	if !externalPrices && da.priceMonitor != nil {
+		da.runWorker(da.watchPriceChanges)
+	}
+	da.runWorker(da.riskRefreshLoop)
+	da.runWorker(da.volatilityHistoryLoop)
+	da.refreshRiskControlsLocked()
+	if !da.cfg.Trading.DynamicAdjustment.Enabled {
+		return
+	}
 
 	// 啟動價格间隔調整
 	if da.cfg.Trading.DynamicAdjustment.PriceInterval.Enabled {
-		go da.adjustPriceIntervalLoop()
+		da.runWorker(da.adjustPriceIntervalLoop)
 	}
 
 	// 啟动窗口大小調整
 	if da.cfg.Trading.DynamicAdjustment.WindowSize.Enabled {
-		go da.adjustWindowSizeLoop()
+		da.runWorker(da.adjustWindowSizeLoop)
 	}
 
 	// 啟动單筆金額動態調整
 	if da.cfg.Trading.DynamicAdjustment.OrderQuantity.Enabled {
-		go da.adjustOrderQuantityLoop()
+		da.runWorker(da.adjustOrderQuantityLoop)
 	}
 
 	logger.Info("✅ 動態調整器已啟动")
@@ -149,12 +188,45 @@ func (da *DynamicAdjuster) Start() {
 
 // Stop 停止動態調整器
 func (da *DynamicAdjuster) Stop() {
-	if da.cancel != nil {
+	_ = da.StopContext(context.Background())
+}
+
+func (da *DynamicAdjuster) StopContext(ctx context.Context) error {
+	for !da.mu.TryLock() {
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+	da.stopOnce.Do(func() {
+		da.stopped = true
 		da.cancel()
+		if da.volatilityAlert != nil {
+			da.volatilityAlert.Stop()
+		}
+		go func() {
+			da.priceMu.Lock()
+			da.priceMu.Unlock()
+			da.workers.Wait()
+			close(da.stopDone)
+		}()
+	})
+	da.mu.Unlock()
+	select {
+	case <-da.stopDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	if da.volatilityAlert != nil {
-		da.volatilityAlert.Stop()
-	}
+}
+
+// Called only while mu is held, before Stop can begin waiting.
+func (da *DynamicAdjuster) runWorker(work func()) {
+	da.workers.Add(1)
+	go func() { defer da.workers.Done(); work() }()
 }
 
 // watchPriceChanges 監听價格變化
@@ -170,27 +242,7 @@ func (da *DynamicAdjuster) watchPriceChanges() {
 				// 必须 return，否则会无限读取零值导致 CPU 100% 空转。
 				return
 			}
-			da.addPrice(priceChange.NewPrice)
-
-			// 更新趋势状态
-			da.updateTrend(priceChange.NewPrice)
-
-			// 更新波动率检测器
-			if da.volatilityAlert != nil {
-				// 使用价格变动中的高低价，如果没有则使用当前价格
-				high := priceChange.HighPrice
-				low := priceChange.LowPrice
-				volume := priceChange.Volume
-
-				if high == 0 {
-					high = priceChange.NewPrice
-				}
-				if low == 0 {
-					low = priceChange.NewPrice
-				}
-
-				da.volatilityAlert.UpdatePrice(priceChange.NewPrice, high, low, volume)
-			}
+			da.OnPriceChange(priceChange)
 		}
 	}
 }
@@ -606,8 +658,17 @@ func (da *DynamicAdjuster) updateOrderQuantity(newQty float64) {
 
 // handleVolatilityAlerts 处理波动率预警
 func (da *DynamicAdjuster) handleVolatilityAlerts(alertCh <-chan indicators.VolatilityRegimeEvent) {
-	for event := range alertCh {
-		da.handleVolatilityRegimeChange(event)
+	defer da.volatilityAlert.Unsubscribe("dynamic_adjuster", alertCh)
+	for {
+		select {
+		case <-da.ctx.Done():
+			return
+		case event, ok := <-alertCh:
+			if !ok {
+				return
+			}
+			da.handleVolatilityRegimeChange(event)
+		}
 	}
 }
 
@@ -615,6 +676,9 @@ func (da *DynamicAdjuster) handleVolatilityAlerts(alertCh <-chan indicators.Vola
 func (da *DynamicAdjuster) handleVolatilityRegimeChange(event indicators.VolatilityRegimeEvent) {
 	da.mu.Lock()
 	defer da.mu.Unlock()
+	if da.stopped {
+		return
+	}
 
 	oldRegime := da.currentRegime
 	da.currentRegime = event.NewRegime
@@ -622,10 +686,11 @@ func (da *DynamicAdjuster) handleVolatilityRegimeChange(event indicators.Volatil
 	logger.Info("📊 [波动率] 区间变化: %s -> %s", oldRegime, event.NewRegime)
 
 	// 根据新的波动率区间调整策略参数
-	da.adjustForVolatilityRegime(event.NewRegime, event.Severity)
-
-	// 检查是否需要暂停开仓
-	da.checkVolatilityPause(event)
+	if da.cfg.Trading.DynamicAdjustment.Enabled && da.cfg.Trading.DynamicAdjustment.VolatilityDetection.Enabled {
+		da.adjustForVolatilityRegime(event.NewRegime, event.Severity)
+	}
+	// Protection consumes the synchronous latest observation, never queued alerts
+	// that may arrive after a newer tick or a hot configuration change.
 }
 
 // adjustForVolatilityRegime 根据波动率区间调整策略
@@ -808,159 +873,3 @@ func (da *DynamicAdjuster) GetVolatilityStatistics() map[string]interface{} {
 
 	return da.volatilityAlert.GetStatistics()
 }
-
-// ========== 波动率暂停开仓相关方法 ==========
-
-// updateTrend 更新趋势状态
-func (da *DynamicAdjuster) updateTrend(price float64) {
-	da.mu.Lock()
-	defer da.mu.Unlock()
-
-	// 添加到趋势历史
-	da.trendHistory = append(da.trendHistory, price)
-
-	// 保持历史长度
-	if len(da.trendHistory) > 100 {
-		da.trendHistory = da.trendHistory[len(da.trendHistory)-100:]
-	}
-
-	// 至少需要2个点才能判断趋势
-	if len(da.trendHistory) < 2 {
-		da.currentTrend = "sideways"
-		return
-	}
-
-	// 计算最近N个点的变化率
-	checkPeriod := 15 // 默认检查15分钟
-	if len(da.trendHistory) < checkPeriod {
-		checkPeriod = len(da.trendHistory)
-	}
-
-	start := len(da.trendHistory) - checkPeriod
-	firstPrice := da.trendHistory[start]
-	lastPrice := da.trendHistory[len(da.trendHistory)-1]
-
-	changePercent := (lastPrice - firstPrice) / firstPrice * 100
-
-	// 获取配置的阈值
-	downThreshold := -2.0 // 默认下跌2%视为下跌
-	upThreshold := 2.0    // 默认上涨2%视为上涨
-
-	if len(da.cfg.Trading.Symbols) > 0 {
-		botRisk := da.cfg.Trading.Symbols[0].OpenPositionControl.BotRiskControl
-		if botRisk != nil && botRisk.VolatilityPauseConfig.TrendDownThreshold != 0 {
-			downThreshold = -botRisk.VolatilityPauseConfig.TrendDownThreshold
-		}
-		if botRisk != nil && botRisk.VolatilityPauseConfig.TrendUpThreshold != 0 {
-			upThreshold = botRisk.VolatilityPauseConfig.TrendUpThreshold
-		}
-	}
-
-	// 判断趋势
-	if changePercent <= downThreshold {
-		da.currentTrend = "down"
-	} else if changePercent >= upThreshold {
-		da.currentTrend = "up"
-	} else {
-		da.currentTrend = "sideways"
-	}
-}
-
-// checkVolatilityPause 检查是否需要暂停开仓
-func (da *DynamicAdjuster) checkVolatilityPause(event indicators.VolatilityRegimeEvent) {
-	if len(da.cfg.Trading.Symbols) == 0 {
-		return
-	}
-
-	symbolConfig := &da.cfg.Trading.Symbols[0]
-	botRisk := symbolConfig.OpenPositionControl.BotRiskControl
-
-	// 检查是否启用了波动率暂停开仓
-	if botRisk == nil || !botRisk.VolatilityPauseEnabled {
-		return
-	}
-
-	volConfig := botRisk.VolatilityPauseConfig
-	shouldPause := false
-	reason := ""
-
-	// 检查高波动暂停
-	if volConfig.PauseOnHighVolatility && event.NewRegime == indicators.RegimeHigh {
-		shouldPause = true
-		reason = fmt.Sprintf("高波动区间 (波动率 %.2f%%)", event.ShortVolatility)
-	}
-
-	// 检查极端波动暂停
-	if volConfig.PauseOnExtremeVolatility && event.NewRegime == indicators.RegimeExtreme {
-		shouldPause = true
-		reason = fmt.Sprintf("极端波动区间 (波动率 %.2f%%)", event.ShortVolatility)
-	}
-
-	// 检查突变暂停
-	if volConfig.PauseOnSuddenIncrease && event.Severity == "critical" {
-		shouldPause = true
-		reason = fmt.Sprintf("波动率突然增加 (从 %s 到 %s)", event.OldRegime, event.NewRegime)
-	}
-
-	// 检查趋势+波动率组合暂停
-	if da.currentTrend != "" {
-		// 获取策略方向（这里简化处理，实际需要从策略配置获取）
-		strategyDirection := da.getStrategyDirection()
-
-		// 做多策略 + 下跌趋势 + 高波动
-		if volConfig.PauseOnDowntrend && strategyDirection == "long" &&
-			da.currentTrend == "down" && event.NewRegime >= indicators.RegimeHigh {
-			shouldPause = true
-			reason = fmt.Sprintf("做多策略遇到高波动下跌行情 (趋势: %s, 波动率: %.2f%%)",
-				da.currentTrend, event.ShortVolatility)
-		}
-
-		// 做空策略 + 上涨趋势 + 高波动
-		if volConfig.PauseOnUptrend && strategyDirection == "short" &&
-			da.currentTrend == "up" && event.NewRegime >= indicators.RegimeHigh {
-			shouldPause = true
-			reason = fmt.Sprintf("做空策略遇到高波动上涨行情 (趋势: %s, 波动率: %.2f%%)",
-				da.currentTrend, event.ShortVolatility)
-		}
-	}
-
-	// 执行暂停或恢复
-	if da.manager == nil {
-		return
-	}
-	if shouldPause {
-		reason := volatilityPauseReasonPrefix + ": " + reason
-		// 已被熔斷 / 複合風控 / 手動等其他來源暫停時不覆蓋原因，否則回落後會誤把風控暫停當成自己的解除
-		if da.manager.PauseOpeningUnlessHeld(reason, isVolatilityPauseReason) {
-			botRisk.PauseOpening = true
-			botRisk.PauseOpeningReason = reason
-			logger.Error("🚨 [波动率暂停] 已暂停开仓: %s", reason)
-		}
-	} else if volConfig.AutoResumeOnNormal && event.NewRegime <= indicators.RegimeNormal {
-		// 波动率回到正常或低波动即自动恢复；只解除波动率自己设置的暂停，不解除风控暂停
-		if da.manager.ResumeOpeningIfOwned(isVolatilityPauseReason) {
-			botRisk.PauseOpening = false
-			botRisk.PauseOpeningReason = ""
-			logger.Info("✅ [波动率恢复] 波动率回归 %s，已恢复开仓", event.NewRegime)
-		}
-	}
-}
-
-// isVolatilityPauseReason 暂停原因是否由波动率暂停设置
-func isVolatilityPauseReason(reason string) bool {
-	return strings.HasPrefix(reason, volatilityPauseReasonPrefix)
-}
-
-// getStrategyDirection 获取策略方向（简化版）
-func (da *DynamicAdjuster) getStrategyDirection() string {
-	// 检查 Symbols 配置中的策略方向
-	if len(da.cfg.Trading.Symbols) > 0 {
-		direction := da.cfg.Trading.Symbols[0].Direction
-		if direction == "short" || direction == "short_only" {
-			return "short"
-		}
-	}
-	// 默认返回做多
-	return "long"
-}
-

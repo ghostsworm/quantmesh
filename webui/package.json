@@ -1,12 +1,14 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.111.0-rc1",
+  "version": "3.111.0-rc207",
   "type": "module",
   "packageManager": "yarn@4.12.0",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "verify": "yarn typecheck && yarn test && yarn build",
     "preview": "vite preview",
     "dev:backend": "echo 'Starting backend server...' && cd .. && go run main.go"
   },

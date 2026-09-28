@@ -191,9 +191,6 @@ const (
 	shutdownCloseBot                               // Bot 級 close_on_stop（Stop 中執行）
 )
 
-// exchangePositionFlatEpsilon 交易所淨持倉絕對值小於該值視為無持倉
-const exchangePositionFlatEpsilon = 1e-12
-
 // decideShutdownCloseOwner 決定退出時的平倉負責方：
 //   - 只開一個開關：由該開關負責；
 //   - 兩個都開：配置了 close_on_stop_config（method/ratio 等）或現貨（進程級按合約持倉查不到現貨餘額）時交給 Bot 級，
@@ -267,12 +264,7 @@ func runCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, act closeOn
 	// 先撤掉掛單：網格止盈單會佔用現貨餘額，也會和平倉單重複平倉
 	act.cancelAllOrders()
 	if err := act.closePositions(ctx, cfg); err != nil {
-		if isFullCloseRatio(cfg.QuantityRatio) {
-			logger.ErrorCtx(ctx, "❌ [%s] 終止時按 close_on_stop_config 平倉失敗，回退全平: %v", symCfg.Symbol, err)
-			runVerifiedLiquidation(ctx, symCfg, act)
-			return
-		}
-		logger.ErrorCtx(ctx, "❌ [%s] 終止時部分平倉失敗（ratio=%v，不回退全平，請手動處理）: %v", symCfg.Symbol, cfg.QuantityRatio, err)
+		logger.ErrorCtx(ctx, "❌ [%s] 終止時平倉未核實（ratio=%v，不追加全平，需核账處理）: %v", symCfg.Symbol, cfg.QuantityRatio, err)
 	}
 }
 
@@ -290,7 +282,7 @@ func closeOnStopActionsForRuntime(symCfg config.SymbolConfig, rt *SymbolRuntime)
 	return closeOnStopActions{
 		cancelAllOrders: spm.CancelAllOrders,
 		liquidateAll: func(ctx context.Context) error {
-			venue := position.NewExchangeLiquidationVenue(rt.Exchange)
+			venue := spm.NewLiquidationVenue(rt.Exchange)
 			if venue == nil {
 				spm.LiquidateAll()
 				return fmt.Errorf("交易所實例不可用，已提交限價平倉單但無法核實成交")
@@ -306,6 +298,9 @@ func closeOnStopActionsForRuntime(symCfg config.SymbolConfig, rt *SymbolRuntime)
 				return nil
 			}
 			_, err := br.ClosePositions(ctx, cfg)
+			if err != nil {
+				rt.markShutdownCloseUnverified(err.Error())
+			}
 			return err
 		},
 		exchangePositionFlat: exchangePositionFlatChecker(symCfg, rt),
@@ -319,24 +314,21 @@ func exchangePositionFlatChecker(symCfg config.SymbolConfig, rt *SymbolRuntime) 
 	}
 	ex := rt.Exchange
 	return func(ctx context.Context) (bool, error) {
-		positions, err := ex.GetPositions(ctx, symCfg.Symbol)
+		positions, err := queryShutdownPositions(ctx, ex, symCfg.Symbol)
 		if err != nil {
 			return false, fmt.Errorf("查詢 %s 交易所持倉失敗: %w", symCfg.Symbol, err)
 		}
-		var net float64
-		for _, p := range positions {
-			if p == nil || (p.Symbol != "" && !strings.EqualFold(p.Symbol, symCfg.Symbol)) {
-				continue
-			}
-			net += p.Size
-		}
-		return net < exchangePositionFlatEpsilon && net > -exchangePositionFlatEpsilon, nil
+		return len(positions) == 0, nil
 	}
 }
 
 // shouldRunBotCloseOnStop Stop 中是否執行 close_on_stop：已由進程級平倉處理時跳過並記錄原因
 func shouldRunBotCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) bool {
 	if !symCfg.CloseOnStop || rt == nil {
+		return false
+	}
+	if reason := rt.shutdownCloseUnverifiedReason(); reason != "" {
+		logger.ErrorCtx(ctx, "[%s] close_on_stop 已阻斷，不能重試未核實平倉：%s", symCfg.Symbol, reason)
 		return false
 	}
 	if reason := rt.shutdownCloseHandledReason(); reason != "" {
@@ -346,12 +338,45 @@ func shouldRunBotCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, rt
 	return rt.SuperPositionManager != nil
 }
 
+func (rt *SymbolRuntime) setShutdownContext(ctx context.Context) {
+	if rt == nil {
+		return
+	}
+	rt.shutdownContextMu.Lock()
+	rt.shutdownContext = ctx
+	rt.shutdownContextMu.Unlock()
+}
+
+func (rt *SymbolRuntime) stopContext(fallback context.Context) context.Context {
+	if rt != nil {
+		rt.shutdownContextMu.RLock()
+		ctx := rt.shutdownContext
+		rt.shutdownContextMu.RUnlock()
+		if ctx != nil {
+			return ctx
+		}
+	}
+	if fallback == nil {
+		return context.Background()
+	}
+	return context.WithoutCancel(fallback)
+}
+
 // closeOnStopForRuntime 停止流程調用入口（帶超時，不依賴可能已取消的啟動 ctx）
 func closeOnStopForRuntime(logCtx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) {
 	if !shouldRunBotCloseOnStop(logCtx, symCfg, rt) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(logCtx), closeOnStopBaseTimeout)
+	ctx, cancel := context.WithTimeout(rt.stopContext(logCtx), closeOnStopBaseTimeout)
 	defer cancel()
+	if rt.ExchangeExecutor != nil {
+		var err error
+		ctx, err = rt.ExchangeExecutor.ShutdownCloseContext(ctx)
+		if err != nil {
+			rt.markShutdownCloseUnverified(err.Error())
+			logger.ErrorCtx(logCtx, "[%s] 退出平仓未取得排空后的专用提交许可: %v", symCfg.Symbol, err)
+			return
+		}
+	}
 	runCloseOnStop(ctx, symCfg, closeOnStopActionsForRuntime(symCfg, rt))
 }

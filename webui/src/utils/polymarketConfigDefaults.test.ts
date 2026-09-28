@@ -49,7 +49,7 @@ describe('applyPolymarketEnabledToConfig', () => {
       },
     } as unknown as Config
     const out = applyPolymarketEnabledToConfig(cfg, false)
-    const ps = (out as Config).ai?.modules?.polymarket_signal as Record<string, unknown>
+    const ps = (out as Config).ai?.modules?.polymarket_signal as unknown as Record<string, unknown>
     expect(ps.enabled).toBe(false)
     expect(ps.api_url).toBe('https://keep.me')
   })

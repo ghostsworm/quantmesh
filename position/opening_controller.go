@@ -49,9 +49,14 @@ type OpeningController struct {
 
 // NewOpeningController 創建開倉控制器
 func NewOpeningController(spm *SuperPositionManager, configPtr *config.SymbolConfig) *OpeningController {
+	copy := *configPtr
+	copy.OpenPositionControl = config.CloneOpenPositionControl(configPtr.OpenPositionControl)
+	if spm != nil {
+		spm.SetOpenPositionControl(copy.OpenPositionControl)
+	}
 	return &OpeningController{
 		spm:           spm,
-		configPtr:     configPtr,
+		configPtr:     &copy,
 		stopCh:        make(chan struct{}),
 		periodicState: true, // 初始為開倉狀態
 	}
@@ -109,9 +114,10 @@ func (oc *OpeningController) run(ticker Ticker, stopCh <-chan struct{}) {
 }
 
 func (oc *OpeningController) check() {
-	oc.mu.RLock()
-	cfg := oc.configPtr.OpenPositionControl
-	oc.mu.RUnlock()
+	if oc.spm == nil {
+		return
+	}
+	cfg := oc.spm.GetRiskControls().Open
 
 	// 1. 限倉檢查
 	if oc.checkPositionLimit(&cfg) {
@@ -149,34 +155,23 @@ func (oc *OpeningController) resume(rule string) {
 
 // checkPositionLimit 限倉檢查：超限則暫停開倉並撤銷開倉委託
 func (oc *OpeningController) checkPositionLimit(cfg *config.OpenPositionControl) bool {
-	if cfg.MaxPositionValue <= 0 && cfg.MaxPositionLayers <= 0 {
+	maxQty, maxValue, maxLayers := cfg.PositionLimits()
+	if maxQty <= 0 && maxValue <= 0 && maxLayers <= 0 {
 		return false
 	}
 
 	currentPrice := oc.spm.GetLastMarketPrice()
-	if currentPrice <= 0 {
-		return false
-	}
-
-	totalValue := oc.spm.GetTotalPositionValueAtPrice(currentPrice)
-	layers := oc.spm.GetActiveLayers()
+	totalQty, totalValue, layers, valued := oc.spm.GetPositionExposure(currentPrice)
 
 	shouldPause := false
-	if cfg.MaxPositionValue > 0 {
-		// 計算實際占用資金（保證金）= 倉位價值 / 杠桿倍數
-		leverage := oc.spm.GetLeverage()
-		if leverage <= 0 {
-			leverage = 1 // 默認無槓桿
-		}
-		actualMargin := totalValue / float64(leverage)
-		if actualMargin >= cfg.MaxPositionValue {
-			logger.Warn("🚫 [開倉管理] 實際占用資金 %.2f USDT（倉位價值 %.2f USDT / %dx槓桿）已達上限 %.2f USDT，暫停開倉",
-				actualMargin, totalValue, leverage, cfg.MaxPositionValue)
-			shouldPause = true
-		}
+	if maxValue > 0 && (totalValue >= maxValue || (!valued && totalQty > 0)) {
+		shouldPause = true
 	}
-	if cfg.MaxPositionLayers > 0 && layers >= cfg.MaxPositionLayers {
-		logger.Warn("🚫 [開倉管理] 持倉層數 %d 已達上限 %d，暫停開倉", layers, cfg.MaxPositionLayers)
+	if maxQty > 0 && totalQty >= maxQty {
+		shouldPause = true
+	}
+	if maxLayers > 0 && layers >= maxLayers {
+		logger.Warn("🚫 [開倉管理] 持倉層數 %d 已達上限 %d，暫停開倉", layers, maxLayers)
 		shouldPause = true
 	}
 
@@ -287,7 +282,12 @@ func (oc *OpeningController) checkPeriodicRule(cfg *config.OpenPositionControl) 
 
 // UpdateConfig 更新配置指針（熱更新時調用）
 func (oc *OpeningController) UpdateConfig(configPtr *config.SymbolConfig) {
+	copy := *configPtr
+	copy.OpenPositionControl = config.CloneOpenPositionControl(configPtr.OpenPositionControl)
+	if oc.spm != nil {
+		oc.spm.SetOpenPositionControl(copy.OpenPositionControl)
+	}
 	oc.mu.Lock()
-	oc.configPtr = configPtr
+	oc.configPtr = &copy
 	oc.mu.Unlock()
 }

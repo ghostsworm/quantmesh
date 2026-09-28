@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -19,6 +20,8 @@ import (
 // PnLSummaryResponse 盈亏彙總响应
 type PnLSummaryResponse struct {
 	Symbol        string  `json:"symbol"`
+	Exchange      string  `json:"exchange"`
+	MarketType    string  `json:"market_type"`
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
 	TotalVolume   float64 `json:"total_volume"`
@@ -36,8 +39,8 @@ func getPnLBySymbol(c *gin.Context) {
 		return
 	}
 
-	storage := storageProv.GetStorage()
-	if storage == nil {
+	store := storageProv.GetStorage()
+	if store == nil {
 		respondError(c, http.StatusOK, "error.storage_unavailable")
 		return
 	}
@@ -78,15 +81,39 @@ func getPnLBySymbol(c *gin.Context) {
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
 
-	// 查詢盈亏數據
-	summary, err := storage.GetPnLBySymbol(symbol, accountID, startTime, endTime)
+	// A symbol can refer to different exchanges and markets. Never merge those ledgers.
+	exchange := strings.ToLower(strings.TrimSpace(c.Query("exchange")))
+	marketType := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
+	var summary *storage.PnLSummary
+	if exchange != "" || marketType != "" {
+		if exchange == "" || marketType == "" {
+			respondError(c, http.StatusBadRequest, "error.exchange_market_required")
+			return
+		}
+		scopeReader, ok := store.(interface {
+			GetPnLBySymbolScope(symbol, account, exchange, marketType string, startTime, endTime time.Time) (*storage.PnLSummary, error)
+		})
+		if !ok {
+			respondError(c, http.StatusNotImplemented, "error.market_scoped_pnl_unavailable")
+			return
+		}
+		summary, err = scopeReader.GetPnLBySymbolScope(symbol, accountID, exchange, marketType, startTime, endTime)
+	} else {
+		summary, err = store.GetPnLBySymbol(symbol, accountID, startTime, endTime)
+	}
 	if err != nil {
+		if errors.Is(err, storage.ErrPnLScopeRequired) {
+			respondError(c, http.StatusBadRequest, "error.exchange_market_required")
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	response := PnLSummaryResponse{
 		Symbol:        summary.Symbol,
+		Exchange:      summary.Exchange,
+		MarketType:    summary.MarketType,
 		TotalPnL:      summary.TotalPnL,
 		TotalTrades:   summary.TotalTrades,
 		TotalVolume:   summary.TotalVolume,
@@ -101,6 +128,7 @@ func getPnLBySymbol(c *gin.Context) {
 // PnLBySymbolResponse 按币种對的盈亏數據
 type PnLBySymbolResponse struct {
 	Symbol        string  `json:"symbol"`
+	MarketType    string  `json:"market_type"`
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
 	TotalVolume   float64 `json:"total_volume"`
@@ -117,8 +145,8 @@ func getPnLByTimeRange(c *gin.Context) {
 		return
 	}
 
-	storage := storageProv.GetStorage()
-	if storage == nil {
+	store := storageProv.GetStorage()
+	if store == nil {
 		c.JSON(http.StatusOK, gin.H{"pnl_by_symbol": []interface{}{}})
 		return
 	}
@@ -152,27 +180,52 @@ func getPnLByTimeRange(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
+	accountScope := ""
+	accountScopeExchange := ""
+	if status := pickStatus(c); status != nil {
+		accountScope = status.AccountScope
+		accountScopeExchange = status.Exchange
+	}
 
 	// 查詢盈亏數據
-	results, err := storage.GetPnLByTimeRange(accountID, startTime, endTime)
+	results, err := store.GetPnLByTimeRange(accountID, startTime, endTime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 轉换為 API 响应格式，並補齊未實現盈虧（取自時段最後一天的每日快照）
+	// 轉换為 API 响应格式，並按交易市場讀取時段最後一天的每日快照。
 	response := make([]PnLBySymbolResponse, len(results))
 	endDate := time.Date(endTime.Year(), endTime.Month(), endTime.Day(), 0, 0, 0, 0, endTime.Location())
 	for i, r := range results {
 		resp := PnLBySymbolResponse{
 			Symbol:      r.Symbol,
+			MarketType:  r.MarketType,
 			TotalPnL:    r.TotalPnL,
 			TotalTrades: r.TotalTrades,
 			TotalVolume: r.TotalVolume,
 			WinRate:     r.WinRate,
 		}
-		if snap, err := storage.GetDailySnapshot(r.Exchange, r.Symbol, accountID, endDate); err == nil && snap != nil {
-			resp.UnrealizedPnL = snap.UnrealizedPnL
+		// Older storage implementations may not support market-scoped snapshots;
+		// only attach their aggregate to unclassified legacy rows.
+		if accountScope != "" && accountScopeExchange == r.Exchange {
+			if scopeSnapshots, ok := store.(interface {
+				GetDailySnapshotByScope(exchange, marketType, symbol, accountScope string, date time.Time) (*storage.DailySnapshot, error)
+			}); ok {
+				if snap, err := scopeSnapshots.GetDailySnapshotByScope(r.Exchange, r.MarketType, r.Symbol, accountScope, endDate); err == nil && snap != nil {
+					resp.UnrealizedPnL = snap.UnrealizedPnL
+				}
+			}
+		} else if marketSnapshots, ok := store.(interface {
+			GetDailySnapshotByMarketType(exchange, marketType, symbol, account string, date time.Time) (*storage.DailySnapshot, error)
+		}); ok {
+			if snap, err := marketSnapshots.GetDailySnapshotByMarketType(r.Exchange, r.MarketType, r.Symbol, accountID, endDate); err == nil && snap != nil {
+				resp.UnrealizedPnL = snap.UnrealizedPnL
+			}
+		} else if r.MarketType == "unknown" {
+			if snap, err := store.GetDailySnapshot(r.Exchange, r.Symbol, accountID, endDate); err == nil && snap != nil {
+				resp.UnrealizedPnL = snap.UnrealizedPnL
+			}
 		}
 		response[i] = resp
 	}

@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"time"
@@ -20,6 +21,18 @@ type MartingaleBacktestParams struct {
 
 // RunMartingaleBacktest 運行马丁格尔回测（简化版：定期“下注”，亏损加倍，總資金限制）
 func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, params MartingaleBacktestParams, initialCapital float64) (*BacktestResult, error) {
+	return RunMartingaleBacktestContext(context.Background(), symbol, interval, candles, params, initialCapital)
+}
+
+func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, candles []*exchange.Candle, params MartingaleBacktestParams, initialCapital float64) (result *BacktestResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
@@ -52,6 +65,9 @@ func RunMartingaleBacktest(symbol, interval string, candles []*exchange.Candle, 
 	consecutiveLosses := 0
 
 	for i, c := range candles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		equity = append(equity, EquityPoint{
 			Timestamp: c.Timestamp,
 			Equity:    cash + position*c.Close,

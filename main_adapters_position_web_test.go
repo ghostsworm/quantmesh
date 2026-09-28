@@ -268,5 +268,12 @@ func TestSnapshotRuntimeAdapter(t *testing.T) {
 	if equity, ok := (&snapshotRuntimeAdapter{}).AccountEquityUSDT(context.Background()); ok || equity != 0 {
 		t.Fatalf("nil AccountEquityUSDT() = %.2f/%v", equity, ok)
 	}
+	spot := &snapshotRuntimeAdapter{rt: &SymbolRuntime{
+		Config:   config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot"},
+		Exchange: ex,
+	}}
+	if equity, ok := spot.AccountEquityUSDT(context.Background()); ok || equity != 0 {
+		t.Fatalf("unvalued multi-asset spot total must not be reported as USDT equity: %.2f/%v", equity, ok)
+	}
 
 }

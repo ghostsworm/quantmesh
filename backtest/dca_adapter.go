@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -41,6 +42,18 @@ func candlesPerDay(interval string) int {
 
 // RunDCABacktest 運行 DCA 定投策略回测：每隔 N 天買入固定金額，持有至結束
 func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params DCABacktestParams, initialCapital float64) (*BacktestResult, error) {
+	return RunDCABacktestContext(context.Background(), symbol, interval, candles, params, initialCapital)
+}
+
+func RunDCABacktestContext(ctx context.Context, symbol, interval string, candles []*exchange.Candle, params DCABacktestParams, initialCapital float64) (result *BacktestResult, resultErr error) {
+	defer func() {
+		if err := ctx.Err(); err != nil {
+			result, resultErr = nil, err
+		}
+	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
@@ -65,6 +78,9 @@ func RunDCABacktest(symbol, interval string, candles []*exchange.Candle, params 
 	spent := 0.0
 
 	for i, c := range candles {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		equity = append(equity, EquityPoint{
 			Timestamp: c.Timestamp,
 			Equity:    cash + position*c.Close,

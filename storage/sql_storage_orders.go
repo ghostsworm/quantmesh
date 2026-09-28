@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -33,11 +34,13 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 		// MySQL 使用 ON DUPLICATE KEY UPDATE
 		query = `
 			INSERT INTO orders
-			(order_id, bot_id, account, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(order_id, bot_id, account, market_type, account_scope, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE
 				bot_id          = COALESCE(NULLIF(VALUES(bot_id), ''), orders.bot_id),
 				account         = COALESCE(NULLIF(VALUES(account), ''), orders.account),
+				market_type     = COALESCE(NULLIF(VALUES(market_type), ''), orders.market_type),
+				account_scope   = COALESCE(NULLIF(VALUES(account_scope), ''), orders.account_scope),
 				client_order_id = COALESCE(NULLIF(VALUES(client_order_id), ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(VALUES(symbol), ''), orders.symbol),
 				side            = COALESCE(NULLIF(VALUES(side), ''), orders.side),
@@ -54,7 +57,7 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 				updated_at      = VALUES(updated_at)
 		`
 		args = []interface{}{
-			order.OrderID, order.BotID, order.Account, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.Account, order.MarketType, order.AccountScope, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -63,11 +66,13 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 		// PostgreSQL 使用 ON CONFLICT
 		query = `
 			INSERT INTO orders
-			(order_id, bot_id, account, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+			(order_id, bot_id, account, market_type, account_scope, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 			ON CONFLICT(exchange, account, symbol, order_id) DO UPDATE SET
 				bot_id          = COALESCE(NULLIF(EXCLUDED.bot_id, ''), orders.bot_id),
 				account         = COALESCE(NULLIF(EXCLUDED.account, ''), orders.account),
+				market_type     = COALESCE(NULLIF(EXCLUDED.market_type, ''), orders.market_type),
+				account_scope   = COALESCE(NULLIF(EXCLUDED.account_scope, ''), orders.account_scope),
 				client_order_id = COALESCE(NULLIF(EXCLUDED.client_order_id, ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(EXCLUDED.symbol, ''), orders.symbol),
 				side            = COALESCE(NULLIF(EXCLUDED.side, ''), orders.side),
@@ -84,7 +89,7 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 				updated_at      = EXCLUDED.updated_at
 		`
 		args = []interface{}{
-			order.OrderID, order.BotID, order.Account, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.Account, order.MarketType, order.AccountScope, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -93,11 +98,13 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 		// SQLite 使用 ON CONFLICT
 		query = `
 			INSERT INTO orders
-			(order_id, bot_id, account, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(order_id, bot_id, account, market_type, account_scope, client_order_id, symbol, side, exchange, type, price, quantity, filled_qty, status, realized_pnl, strategy_name, strategy_type, order_source, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(exchange, account, symbol, order_id) DO UPDATE SET
 				bot_id          = COALESCE(NULLIF(excluded.bot_id, ''), orders.bot_id),
 				account         = COALESCE(NULLIF(excluded.account, ''), orders.account),
+				market_type     = COALESCE(NULLIF(excluded.market_type, ''), orders.market_type),
+				account_scope   = COALESCE(NULLIF(excluded.account_scope, ''), orders.account_scope),
 				client_order_id = COALESCE(NULLIF(excluded.client_order_id, ''), orders.client_order_id),
 				symbol          = COALESCE(NULLIF(excluded.symbol, ''), orders.symbol),
 				side            = COALESCE(NULLIF(excluded.side, ''), orders.side),
@@ -114,7 +121,7 @@ func (s *SQLStorage) SaveOrder(order *Order) error {
 				updated_at      = excluded.updated_at
 		`
 		args = []interface{}{
-			order.OrderID, order.BotID, order.Account, order.ClientOrderID, order.Symbol, order.Side,
+			order.OrderID, order.BotID, order.Account, order.MarketType, order.AccountScope, order.ClientOrderID, order.Symbol, order.Side,
 			order.Exchange, order.Type, order.Price, order.Quantity, order.FilledQty,
 			order.Status, realizedPnL, order.StrategyName, order.StrategyType, order.OrderSource, createdAt, updatedAt,
 		}
@@ -485,4 +492,154 @@ func (s *SQLStorage) GetFilledOrderQtySumBeforeTime(exchange, symbol string, bef
 		sellQty = sq.Float64
 	}
 	return buyQty, sellQty, nil
+}
+
+type DailyOrderCashflow struct {
+	BuyOrders, SellOrders                int
+	BuyQty, BuyValue, SellQty, SellValue float64
+	StartBuyQty, StartSellQty            float64
+	RealizedPnL                          float64
+}
+
+func (s *SQLStorage) GetExistingOrderIDsByScope(exchange, marketType, symbol, accountScope string) (map[int64]bool, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(marketType) == "" || strings.TrimSpace(symbol) == "" || strings.TrimSpace(accountScope) == "" {
+		return nil, fmt.Errorf("existing order lookup requires complete account and market scope")
+	}
+	rows, err := s.db.Query(`SELECT order_id FROM orders WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ?`, exchange, marketType, symbol, accountScope)
+	if err != nil {
+		return nil, fmt.Errorf("query scoped existing order IDs: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[int64]bool)
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			return nil, fmt.Errorf("scan scoped existing order ID: %w", err)
+		}
+		result[orderID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scoped existing order IDs: %w", err)
+	}
+	return result, nil
+}
+
+// GetExistingOrderIDsForScope 查询本批成交触及的订单 ID，避免把账户全部历史 ID 装入内存。
+func (s *SQLStorage) GetExistingOrderIDsForScope(exchange, marketType, symbol, accountScope string, orderIDs []int64) (map[int64]bool, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(marketType) == "" || strings.TrimSpace(symbol) == "" || strings.TrimSpace(accountScope) == "" {
+		return nil, fmt.Errorf("existing order lookup requires complete account and market scope")
+	}
+	result := make(map[int64]bool, len(orderIDs))
+	if len(orderIDs) == 0 {
+		return result, nil
+	}
+	query := `SELECT order_id FROM orders WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND order_id IN (`
+	args := []interface{}{exchange, marketType, symbol, accountScope}
+	for i, orderID := range orderIDs {
+		if orderID <= 0 {
+			return nil, fmt.Errorf("invalid order ID in scoped lookup")
+		}
+		if i > 0 {
+			query += ","
+		}
+		query += "?"
+		args = append(args, orderID)
+	}
+	query += ")"
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query scoped existing order IDs: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var orderID int64
+		if err := rows.Scan(&orderID); err != nil {
+			return nil, fmt.Errorf("scan scoped existing order ID: %w", err)
+		}
+		result[orderID] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scoped existing order IDs: %w", err)
+	}
+	return result, nil
+}
+
+// QueryDailyOrderCashflowByScope computes the day's cash flow and beginning
+// inventory inside one immutable account/market/symbol scope without paging
+// order rows into application memory.
+func (s *SQLStorage) QueryDailyOrderCashflowByScope(account, exchange, marketType, symbol, accountScope, botID string, start, end time.Time) (DailyOrderCashflow, error) {
+	var result DailyOrderCashflow
+	if accountScope == "" || marketType == "" || exchange == "" || symbol == "" || !start.Before(end) {
+		return result, fmt.Errorf("daily order query requires complete account and market scope")
+	}
+	query := `SELECT
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'BUY' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'SELL' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'BUY' THEN COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'BUY' THEN price * COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'SELL' THEN COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? AND side = 'SELL' THEN price * COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at < ? AND side = 'BUY' THEN COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at < ? AND side = 'SELL' THEN COALESCE(NULLIF(filled_qty, 0), quantity) ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN created_at >= ? THEN COALESCE(realized_pnl, 0) ELSE 0 END), 0)
+		FROM orders WHERE status = 'FILLED' AND created_at < ? AND exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ?`
+	args := []interface{}{start, start, start, start, start, start, start, start, start, end, exchange, marketType, symbol, accountScope}
+	if account != "" {
+		query += ` AND account = ?`
+		args = append(args, account)
+	}
+	if botID = strings.TrimSpace(botID); botID != "" {
+		query += ` AND COALESCE(bot_id, '') = ?`
+		args = append(args, botID)
+	}
+	err := s.db.QueryRow(query, args...).Scan(&result.BuyOrders, &result.SellOrders, &result.BuyQty, &result.BuyValue, &result.SellQty, &result.SellValue, &result.StartBuyQty, &result.StartSellQty, &result.RealizedPnL)
+	if err != nil {
+		return DailyOrderCashflow{}, fmt.Errorf("query scoped daily order cashflow: %w", err)
+	}
+	return result, nil
+}
+
+func (s *SQLStorage) QueryTopDailyOrdersByScope(account, exchange, marketType, symbol, accountScope, botID string, start, end time.Time) (winners, losers []*Order, err error) {
+	if accountScope == "" || marketType == "" || exchange == "" || symbol == "" || !start.Before(end) {
+		return nil, nil, fmt.Errorf("daily order ranking requires complete account and market scope")
+	}
+	where := `status = 'FILLED' AND created_at >= ? AND created_at < ? AND exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND realized_pnl IS NOT NULL`
+	args := []interface{}{start, end, exchange, marketType, symbol, accountScope}
+	if account != "" {
+		where += ` AND account = ?`
+		args = append(args, account)
+	}
+	if botID = strings.TrimSpace(botID); botID != "" {
+		where += ` AND COALESCE(bot_id, '') = ?`
+		args = append(args, botID)
+	}
+	queryTop := func(comparison, direction string) ([]*Order, error) {
+		query := `SELECT order_id, side, price, COALESCE(NULLIF(filled_qty, 0), quantity), realized_pnl FROM orders WHERE ` + where + ` AND realized_pnl ` + comparison + ` 0 ORDER BY realized_pnl ` + direction + `, order_id DESC LIMIT 20`
+		rows, err := s.db.Query(query, args...)
+		if err != nil {
+			return nil, fmt.Errorf("query daily realized pnl ranking: %w", err)
+		}
+		defer rows.Close()
+		var result []*Order
+		for rows.Next() {
+			order := &Order{RealizedPnL: new(float64)}
+			if err := rows.Scan(&order.OrderID, &order.Side, &order.Price, &order.FilledQty, order.RealizedPnL); err != nil {
+				return nil, fmt.Errorf("scan daily realized pnl ranking: %w", err)
+			}
+			result = append(result, order)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("iterate daily realized pnl ranking: %w", err)
+		}
+		return result, nil
+	}
+	winners, err = queryTop(">", "DESC")
+	if err != nil {
+		return nil, nil, err
+	}
+	losers, err = queryTop("<", "ASC")
+	if err != nil {
+		return nil, nil, err
+	}
+	return winners, losers, nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
@@ -27,6 +28,12 @@ func TestTradeStorageAdapterSaveEvent_Unavailable(t *testing.T) {
 	a.storageService = ss
 	if err := a.SaveEvent("trade_fee_correction", map[string]interface{}{"fee": 1.0}); err == nil {
 		t.Fatal("disabled storage must return an error")
+	}
+	if err := a.SaveTrade(1, 2, "binance", "BTCUSDT", 100, 101, 1, 1, 0, "USDT", time.Now(), "bot-1"); err == nil {
+		t.Fatal("legacy SaveTrade must not report success without storage")
+	}
+	if err := a.SaveTradeWithExchangePnL(1, 2, "binance", "BTCUSDT", 100, 101, 1, 1, 1, 0, "USDT", 0, 0, time.Now(), "bot-1"); err == nil {
+		t.Fatal("SaveTradeWithExchangePnL must not report success without storage")
 	}
 }
 
@@ -70,5 +77,45 @@ func TestTradeStorageAdapterSaveEvent_PersistsWithBotID(t *testing.T) {
 	}
 	if got["bot_id"] != "bot-42" || got["fee"] != 0.12 {
 		t.Fatalf("unexpected persisted event: %v", got)
+	}
+}
+
+func TestTradeStorageAdapterPersistsMarketType(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "market-trades.db")
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = dbPath
+	cfg.Storage.BufferSize = 10
+	cfg.Storage.BatchSize = 10
+	ss, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatalf("NewStorageService: %v", err)
+	}
+	t.Cleanup(func() { _ = ss.GetStorage().Close() })
+	a := &tradeStorageAdapter{storageService: ss, botID: "bot-spot", accountID: "acct-1", accountScope: "scope-immutable"}
+	trade := &storage.Trade{ExecutionKey: "adapter-execution-1", BuyOrderID: 1, SellOrderID: 2, Exchange: "binance", MarketType: "SPOT", Symbol: "BTCUSDT", BuyPrice: 100, SellPrice: 110, Quantity: 1, PnL: 10, ExchangePnL: 10, FeeAsset: "USDT", CreatedAt: time.Now()}
+	if err := a.SaveTradeIdempotent(trade); err != nil {
+		t.Fatalf("SaveTradeIdempotent: %v", err)
+	}
+	if err := a.SaveTradeIdempotent(trade); err != nil {
+		t.Fatalf("SaveTradeWithExchangePnLAndMarketType: %v", err)
+	}
+
+	var marketType, botID, account, accountScope string
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.QueryRow(`SELECT market_type, bot_id, account, account_scope FROM trades WHERE sell_order_id = 2`).Scan(&marketType, &botID, &account, &accountScope); err != nil {
+		t.Fatal(err)
+	}
+	if marketType != "spot" || botID != "bot-spot" || account != "acct-1" || accountScope != "scope-immutable" {
+		t.Fatalf("trade identity was not preserved: market=%q bot=%q account=%q scope=%q", marketType, botID, account, accountScope)
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM trades WHERE execution_key = ?`, trade.ExecutionKey).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("adapter retry duplicated trade: count=%d err=%v", count, err)
 	}
 }

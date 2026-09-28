@@ -85,6 +85,9 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
   const currentWeight = pendingWeight !== undefined ? pendingWeight : strategy.weight
   const currentPercentage = currentWeight * 100
   const allocatedAmount = totalCapital * currentWeight
+  const currencyUnit = strategy.asset && strategy.asset !== 'UNVERIFIED'
+    ? strategy.asset
+    : t('strategyAllocation.valuationUnverified')
 
   const handleSliderChange = (value: number) => {
     onChange(strategy.strategyId, value / 100)
@@ -145,7 +148,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
               {currentPercentage.toFixed(1)}%
             </Text>
             <Text fontSize="xs" color="gray.500">
-              ≈ {allocatedAmount.toFixed(2)} {t('common.currencyUnit')}
+              ≈ {allocatedAmount.toFixed(2)} {currencyUnit}
             </Text>
           </VStack>
         </HStack>
@@ -169,7 +172,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
             color="white"
             placement="top"
             isOpen={showTooltip && !disabled}
-            label={`${currentPercentage.toFixed(1)}% (${allocatedAmount.toFixed(2)} ${t('common.currencyUnit')})`}
+            label={`${currentPercentage.toFixed(1)}% (${allocatedAmount.toFixed(2)} ${currencyUnit})`}
           >
             <SliderThumb boxSize={4} />
           </Tooltip>
@@ -190,7 +193,7 @@ const StrategyWeightSlider: React.FC<StrategyWeightSliderProps> = ({
             <InputRightAddon>%</InputRightAddon>
           </InputGroup>
           <HStack spacing={4} fontSize="xs" color="gray.500">
-            <Text>{t('strategyAllocation.used')}: {strategy.used.toFixed(2)} {t('common.currencyUnit')}</Text>
+            <Text>{t('strategyAllocation.used')}: {strategy.used.toFixed(2)} {currencyUnit}</Text>
             <Text>{t('strategyAllocation.utilization')}: {strategy.utilizationRate.toFixed(1)}%</Text>
           </HStack>
         </HStack>
@@ -279,6 +282,18 @@ const StrategyAllocation: React.FC = () => {
     return summary?.totalBalance || 0
   }, [overview, exchanges, selectedExchangeIndex])
 
+  const selectedExchangeAsset = exchanges[selectedExchangeIndex - 1]?.assets?.[0]?.asset
+  const selectedExchangeValuationVerified = Boolean(
+    selectedExchangeAsset && selectedExchangeAsset !== 'UNVERIFIED'
+  )
+  const currentCurrencyUnit = selectedExchangeIndex === 0
+    ? overview?.valuationComplete && overview.valuationAsset
+      ? overview.valuationAsset
+      : t('strategyAllocation.valuationUnavailable')
+    : selectedExchangeValuationVerified
+      ? selectedExchangeAsset
+      : t('strategyAllocation.valuationUnverified')
+
   // 计算總权重
   const totalWeight = useMemo(() => {
     return currentStrategies.reduce((sum, s) => {
@@ -291,7 +306,7 @@ const StrategyAllocation: React.FC = () => {
 
   const handleWeightChange = (strategyId: string, weight: number) => {
     // 只有在选中具体交易所時才能調整
-    if (selectedExchangeIndex === 0) {
+    if (selectedExchangeIndex === 0 || !selectedExchangeValuationVerified) {
       return
     }
     setPendingChanges((prev) => ({
@@ -303,7 +318,7 @@ const StrategyAllocation: React.FC = () => {
   const hasPendingChanges = Object.keys(pendingChanges).length > 0
 
   const handleSaveChanges = async () => {
-    if (selectedExchangeIndex === 0) {
+    if (selectedExchangeIndex === 0 || !selectedExchangeValuationVerified) {
       toast({
         title: t('capitalManagement.selectExchangeFirst'),
         description: t('capitalManagement.selectExchangeFirstDesc'),
@@ -358,6 +373,7 @@ const StrategyAllocation: React.FC = () => {
   }
 
   const handleRebalance = async () => {
+    if (!overview?.valuationComplete) return
     setRebalancing(true)
     try {
       const result = await rebalanceCapital({ mode: 'weighted', dryRun: false })
@@ -425,6 +441,7 @@ const StrategyAllocation: React.FC = () => {
                     leftIcon={<RepeatIcon />}
                     onClick={handleRebalance}
                     isLoading={rebalancing}
+                    isDisabled={!overview?.valuationComplete}
                     loadingText={t('capitalManagement.rebalancing')}
                   >
                     {t('capitalManagement.rebalance')}
@@ -439,6 +456,7 @@ const StrategyAllocation: React.FC = () => {
                         leftIcon={<CheckIcon />}
                         onClick={handleSaveChanges}
                         isLoading={saving}
+                        isDisabled={!selectedExchangeValuationVerified}
                       >
                         {t('strategyAllocation.saveChanges')}
                       </Button>
@@ -506,7 +524,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
+                <StatHelpText>{currentCurrencyUnit}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -523,7 +541,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
+                <StatHelpText>{currentCurrencyUnit}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -540,7 +558,7 @@ const StrategyAllocation: React.FC = () => {
                     minimumFractionDigits: 2,
                   })}
                 </StatNumber>
-                <StatHelpText>{t('common.currencyUnit')}</StatHelpText>
+                <StatHelpText>{currentCurrencyUnit}</StatHelpText>
               </Stat>
             </Box>
             <Box
@@ -662,7 +680,7 @@ const StrategyAllocation: React.FC = () => {
                         totalCapital={currentTotalBalance}
                         pendingWeight={pendingChanges[strategy.strategyId]}
                         onChange={handleWeightChange}
-                        disabled={selectedExchangeIndex === 0}
+                        disabled={selectedExchangeIndex === 0 || !selectedExchangeValuationVerified}
                         isPercentageMode={isPercentageMode}
                       />
                     )

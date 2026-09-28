@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Box,
@@ -14,7 +14,6 @@ import {
   useColorModeValue,
 } from '@chakra-ui/react'
 import { TriangleUpIcon, TriangleDownIcon } from '@chakra-ui/icons'
-import PriceChart from './PriceChart'
 import type { TrendFollowingVisualizationData } from '../../services/strategy'
 
 interface TrendFollowingVisualizationProps {
@@ -27,29 +26,6 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
   const { t } = useTranslation()
   const bgColor = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
-
-  // 生成价格图表数据（包含均线）
-  const chartData = useMemo(() => {
-    if (!data.currentPrice) return []
-    const prices: Array<{ time: string; price: number; fastMA: number; slowMA: number }> = []
-    const basePrice = data.currentPrice
-    for (let i = 30; i >= 0; i--) {
-      const price = basePrice * (1 + (Math.random() - 0.5) * 0.02)
-      prices.push({
-        time: `${i}`,
-        price,
-        fastMA: data.fastMA ? data.fastMA * (1 + (Math.random() - 0.5) * 0.01) : price,
-        slowMA: data.slowMA ? data.slowMA * (1 + (Math.random() - 0.5) * 0.01) : price,
-      })
-    }
-    return prices
-  }, [data.currentPrice, data.fastMA, data.slowMA])
-
-  const trendColor = useMemo(() => {
-    if (data.trend === 'up') return 'green.500'
-    if (data.trend === 'down') return 'red.500'
-    return 'gray.500'
-  }, [data.trend])
 
   return (
     <VStack spacing={4} align="stretch">
@@ -77,17 +53,6 @@ const TrendFollowingVisualization: React.FC<TrendFollowingVisualizationProps> = 
           </StatNumber>
         </Stat>
       </SimpleGrid>
-
-      {/* 价格图表（带均线） */}
-      {chartData.length > 0 && (
-        <Box p={4} bg={bgColor} borderRadius="lg" border="1px solid" borderColor={borderColor}>
-          <Text fontSize="sm" fontWeight="bold" mb={3}>{t('strategyViz.trendFollowing.priceAndMA')}</Text>
-          <Box h="300px">
-            {/* 这里应该使用支持多条线的图表组件，暂时用PriceChart */}
-            <PriceChart data={chartData.map(d => ({ time: d.time, price: d.price }))} height={300} />
-          </Box>
-        </Box>
-      )}
 
       {/* 信号状态 */}
       <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>

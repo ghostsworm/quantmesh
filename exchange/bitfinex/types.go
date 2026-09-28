@@ -85,6 +85,7 @@ type Account struct {
 	AvailableBalance float64
 	UnrealizedPnL    float64
 	MarginBalance    float64
+	BalanceAsset     string
 }
 
 // BitfinexCandle K線數據

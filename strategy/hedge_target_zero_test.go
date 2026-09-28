@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"errors"
+	"math"
 	"testing"
 
 	"quantmesh/config"
@@ -37,13 +39,21 @@ func (e *hedgeOrderExecutor) BatchCancelOrders(orderIDs []int64) error {
 }
 
 type hedgeExchange struct {
-	positions []*position.PositionInfo
-	price     float64
+	positions    []*position.PositionInfo
+	positionsRaw interface{}
+	positionsErr error
+	price        float64
 }
 
 func (e *hedgeExchange) GetName() string { return "mock" }
 
 func (e *hedgeExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
+	if e.positionsErr != nil {
+		return nil, e.positionsErr
+	}
+	if e.positionsRaw != nil {
+		return e.positionsRaw, nil
+	}
 	return e.positions, nil
 }
 
@@ -116,5 +126,37 @@ func TestFuturesHedgeStrategiesCloseWhenTargetZero(t *testing.T) {
 	}
 	if got := longExec.orders[0]; got.Side != "SELL" || !got.ReduceOnly || got.Quantity != 2 {
 		t.Fatalf("平多单=%+v want SELL reduce-only qty=2", got)
+	}
+}
+
+func TestFuturesHedgeStrategiesDoNotAssumeFlatWhenPositionQueryIsUnverified(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	for _, failure := range []struct {
+		name         string
+		makeExchange func() *hedgeExchange
+	}{
+		{name: "query error", makeExchange: func() *hedgeExchange { return &hedgeExchange{positionsErr: errors.New("temporarily unavailable")} }},
+		{name: "nil response", makeExchange: func() *hedgeExchange { return &hedgeExchange{positionsRaw: []*position.PositionInfo(nil)} }},
+		{name: "unexpected response type", makeExchange: func() *hedgeExchange { return &hedgeExchange{positionsRaw: "unknown"} }},
+		{name: "non-finite size", makeExchange: func() *hedgeExchange {
+			return &hedgeExchange{positions: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: math.NaN()}}}
+		}},
+	} {
+		t.Run(failure.name, func(t *testing.T) {
+			shortExec := &hedgeOrderExecutor{}
+			shortStrategy := NewFuturesShortStrategy("futures_short", cfg, shortExec, failure.makeExchange(), map[string]interface{}{})
+			shortStrategy.onHedgeSignal(&event.Event{Data: map[string]interface{}{"symbol": "BTCUSDT", "target_futures_short": 1.0}})
+			if len(shortExec.orders) != 0 {
+				t.Fatalf("unverified short position submitted %d orders", len(shortExec.orders))
+			}
+
+			longExec := &hedgeOrderExecutor{}
+			longStrategy := NewFuturesLongStrategy("futures_long", cfg, longExec, failure.makeExchange(), map[string]interface{}{})
+			longStrategy.onHedgeSignal(&event.Event{Data: map[string]interface{}{"symbol": "BTCUSDT", "target_futures_long": 1.0}})
+			if len(longExec.orders) != 0 {
+				t.Fatalf("unverified long position submitted %d orders", len(longExec.orders))
+			}
+		})
 	}
 }

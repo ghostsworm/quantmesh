@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -231,6 +232,23 @@ func GetCurrentAccountID() string {
 	}
 
 	return ""
+}
+
+func accountScopeForExchange(exchange string) string {
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil || strings.TrimSpace(exchange) == "" {
+		return ""
+	}
+	exConfig, ok := cfg.Exchanges[exchange]
+	if !ok || strings.TrimSpace(exConfig.APIKey) == "" {
+		return ""
+	}
+	identity, err := json.Marshal([]interface{}{exchange, exConfig.Testnet, exConfig.APIKey})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(identity)
+	return fmt.Sprintf("%x", sum)
 }
 
 // GetConfig 獲取當前配置

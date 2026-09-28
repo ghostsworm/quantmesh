@@ -24,7 +24,7 @@ func BuildMessageFromData(eventType EventType, data map[string]interface{}) stri
 		price := data["price"]
 		quantity := data["quantity"]
 		return fmt.Sprintf("%s %s %.8f @ %v", symbol, side, quantity, price)
-	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected:
+	case EventTypeWebSocketDisconnected, EventTypeWebSocketReconnected, EventTypeWebSocketStopped:
 		exchange := extract("exchange")
 		symbol := extract("symbol")
 		reason := extract("reason")

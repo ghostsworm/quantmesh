@@ -3,6 +3,7 @@ package coinex
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -145,29 +146,56 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	// 计算總餘額（USDT）
-	totalBalance := 0.0
-	availableBalance := 0.0
-
-	if usdtAvailable, ok := balance.Available["USDT"]; ok {
-		if val, err := strconv.ParseFloat(usdtAvailable, 64); err == nil {
-			availableBalance = val
-			totalBalance += val
-		}
+	if balance == nil {
+		return nil, fmt.Errorf("CoinEx returned an empty account balance response")
 	}
 
-	if usdtFrozen, ok := balance.Frozen["USDT"]; ok {
-		if val, err := strconv.ParseFloat(usdtFrozen, 64); err == nil {
-			totalBalance += val
-		}
+	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if quoteAsset == "" {
+		return nil, fmt.Errorf("CoinEx account snapshot requires a configured quote asset")
+	}
+	totalBalance, availableBalance, err := summarizeCoinExQuoteBalance(*balance, quoteAsset)
+	if err != nil {
+		return nil, err
 	}
 
 	return &AccountLocal{
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availableBalance,
+		BalanceAsset:       quoteAsset,
 	}, nil
+}
+
+func summarizeCoinExQuoteBalance(balance Balance, quoteAsset string) (total, available float64, err error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, 0, fmt.Errorf("CoinEx quote asset is required")
+	}
+	parse := func(field string, values map[string]string) (float64, error) {
+		value, exists := values[quoteAsset]
+		if !exists {
+			return 0, nil
+		}
+		parsed, parseErr := strconv.ParseFloat(value, 64)
+		if parseErr != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) || parsed < 0 {
+			return 0, fmt.Errorf("invalid CoinEx quote %s balance %q", field, value)
+		}
+		return parsed, nil
+	}
+	var parseErr error
+	if available, parseErr = parse("available", balance.Available); parseErr != nil {
+		return 0, 0, parseErr
+	}
+	frozen, parseErr := parse("frozen", balance.Frozen)
+	if parseErr != nil {
+		return 0, 0, parseErr
+	}
+	total = available + frozen
+	if math.IsInf(total, 0) {
+		return 0, 0, fmt.Errorf("CoinEx quote balance overflow")
+	}
+	return total, available, nil
 }
 
 // GetPositions 獲取持倉（CoinEx 現貨交易所，返回空）
@@ -181,14 +209,16 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-
-	if usdtAvailable, ok := balance.Available["USDT"]; ok {
-		if val, err := strconv.ParseFloat(usdtAvailable, 64); err == nil {
-			return val, nil
-		}
+	if balance == nil {
+		return 0, fmt.Errorf("CoinEx returned an empty account balance response")
 	}
 
-	return 0, nil
+	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if quoteAsset == "" {
+		return 0, fmt.Errorf("CoinEx quote asset is unavailable")
+	}
+	_, available, err := summarizeCoinExQuoteBalance(*balance, quoteAsset)
+	return available, err
 }
 
 // StartOrderStream 啟動訂單流

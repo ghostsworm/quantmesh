@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/income"
@@ -14,6 +15,12 @@ type binanceSpotWrapper struct {
 
 func (w *binanceSpotWrapper) GetName() string {
 	return w.adapter.GetName()
+}
+
+func (w *binanceSpotWrapper) GetAdapter() interface{} { return w.adapter }
+
+func (w *binanceSpotWrapper) GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error) {
+	return binanceOrderHistoryPage(ctx, w.adapter, symbol, startTime, endTime, cursor, limit)
 }
 
 func (w *binanceSpotWrapper) GetMarketType() string {
@@ -170,8 +177,16 @@ func (w *binanceSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: binanceAccount.TotalWalletBalance,
 		TotalMarginBalance: binanceAccount.TotalMarginBalance,
 		AvailableBalance:   binanceAccount.AvailableBalance,
+		BalanceAsset:       binanceAccount.BalanceAsset,
 		Positions:          positions,
 	}, nil
+}
+
+func (w *binanceSpotWrapper) AccountEquityUSDT(ctx context.Context) (float64, bool) {
+	if w == nil || w.adapter == nil {
+		return 0, false
+	}
+	return w.adapter.AccountEquityUSDT(ctx)
 }
 
 func (w *binanceSpotWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
@@ -197,6 +212,10 @@ func (w *binanceSpotWrapper) GetPositions(ctx context.Context, symbol string) ([
 
 func (w *binanceSpotWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return w.adapter.GetBalance(ctx, asset)
+}
+
+func (w *binanceSpotWrapper) SpotInventoryQty(ctx context.Context) (float64, error) {
+	return w.adapter.GetSpotInventoryQty(ctx)
 }
 
 func (w *binanceSpotWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
@@ -285,9 +304,23 @@ func (w *binanceSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incom
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills 查詢 Binance 現貨逐笔成交账本。
 func (w *binanceSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*OrderFill, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			return nil, fmt.Errorf("Binance returned an empty spot execution for order %d", orderID)
+		}
+		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol,
+			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
+			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, BaseFeeQty: row.BaseFeeQty,
+			CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
+	}
+	return fills, nil
 }
 
 func (w *binanceSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

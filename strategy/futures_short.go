@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"time"
@@ -166,7 +167,11 @@ func (s *FuturesShortStrategy) onHedgeSignal(evt *event.Event) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	currentShort := s.getCurrentShortPosition(ctx)
+	currentShort, err := s.getCurrentShortPosition(ctx)
+	if err != nil {
+		logger.Error("FuturesShortStrategy 無法核實當前空倉，拒絕調整對沖倉位: %v", err)
+		return
+	}
 	diff := targetShort - currentShort
 
 	if math.Abs(diff) < 0.000001 {
@@ -180,19 +185,34 @@ func (s *FuturesShortStrategy) onHedgeSignal(evt *event.Event) {
 	}
 }
 
-func (s *FuturesShortStrategy) getCurrentShortPosition(ctx context.Context) float64 {
-	raw, err := s.ex.GetPositions(ctx, s.symbol)
-	if err != nil || raw == nil {
-		return 0
+func (s *FuturesShortStrategy) getCurrentShortPosition(ctx context.Context) (float64, error) {
+	if s.ex == nil {
+		return 0, fmt.Errorf("query futures short position %s: exchange unavailable", s.symbol)
 	}
-	if infos, ok := raw.([]*position.PositionInfo); ok {
-		for _, p := range infos {
-			if p != nil && p.Symbol == s.symbol && p.Size < 0 {
-				return -p.Size
+	raw, err := s.ex.GetPositions(ctx, s.symbol)
+	if err != nil {
+		return 0, fmt.Errorf("query futures short position %s: %w", s.symbol, err)
+	}
+	infos, ok := raw.([]*position.PositionInfo)
+	if !ok || infos == nil {
+		return 0, fmt.Errorf("query futures short position %s returned unverifiable data", s.symbol)
+	}
+	var total float64
+	for _, p := range infos {
+		if p == nil || p.Symbol != s.symbol {
+			continue
+		}
+		if math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
+			return 0, fmt.Errorf("query futures short position %s returned non-finite size", s.symbol)
+		}
+		if p.Size < 0 {
+			total -= p.Size
+			if math.IsInf(total, 0) {
+				return 0, fmt.Errorf("query futures short position %s returned overflowing size", s.symbol)
 			}
 		}
 	}
-	return 0
+	return total, nil
 }
 
 func (s *FuturesShortStrategy) increaseShort(ctx context.Context, amount float64) {

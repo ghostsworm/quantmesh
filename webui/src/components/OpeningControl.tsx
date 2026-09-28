@@ -31,15 +31,14 @@ import { useTranslation } from 'react-i18next'
 import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import SymbolSelector from './SymbolSelector'
+import { openingControlConfig } from '../utils/openingControlInput'
 import {
   getOpeningControlStatus,
   pauseOpening,
   resumeOpening,
   updateOpeningControlConfig,
   OpeningControlStatus,
-  OpenPositionControlConfig,
   ScheduleRule,
-  PeriodicRule,
 } from '../services/api'
 
 const WEEKDAYS = [
@@ -91,13 +90,13 @@ const OpeningControl: React.FC = () => {
       setStatus(data)
       setError(null)
 
-      setMaxPositionValue(data.config.max_position_value ? String(data.config.max_position_value) : '')
-      setMaxPositionLayers(data.config.max_position_layers ? String(data.config.max_position_layers) : '')
+      setMaxPositionValue(String(data.config.max_position_value))
+      setMaxPositionLayers(String(data.config.max_position_layers))
       setScheduleRules(data.config.schedule_rules || [])
       if (data.config.periodic_rule) {
         setPeriodicEnabled(data.config.periodic_rule.enabled)
-        setOpenDurationMin(String(data.config.periodic_rule.open_duration_min || 60))
-        setCloseDurationMin(String(data.config.periodic_rule.close_duration_min || 30))
+        setOpenDurationMin(String(data.config.periodic_rule.open_duration_min))
+        setCloseDurationMin(String(data.config.periodic_rule.close_duration_min))
       } else {
         setPeriodicEnabled(false)
         setOpenDurationMin('60')
@@ -140,13 +139,11 @@ const OpeningControl: React.FC = () => {
     if (!selectedExchange || !selectedSymbol) return
     setSaving(true)
     try {
-      const cfg: Partial<OpenPositionControlConfig> = {
-        max_position_value: maxPositionValue ? parseFloat(maxPositionValue) : 0,
-        max_position_layers: maxPositionLayers ? parseInt(maxPositionLayers, 10) : 0,
-        schedule_rules: scheduleRules,
-        periodic_rule: periodicEnabled
-          ? { enabled: true, open_duration_min: parseInt(openDurationMin, 10) || 60, close_duration_min: parseInt(closeDurationMin, 10) || 30 }
-          : { enabled: false, open_duration_min: 60, close_duration_min: 30 },
+      const cfg = openingControlConfig({ maxPositionValue, maxPositionLayers, scheduleRules,
+        periodicEnabled, openDurationMin, closeDurationMin })
+      if (!cfg) {
+        toast({ title: t('openingControl.invalidConfig'), status: 'error' })
+        return
       }
       await updateOpeningControlConfig(
         selectedExchange,
@@ -168,10 +165,8 @@ const OpeningControl: React.FC = () => {
     setScheduleRules([...scheduleRules, { enabled: true, action: 'pause', time: '22:00', weekdays: [] }])
   }
 
-  const updateScheduleRule = (index: number, field: keyof ScheduleRule, value: unknown) => {
-    const next = [...scheduleRules]
-    ;(next[index] as Record<string, unknown>)[field] = value
-    setScheduleRules(next)
+  const updateScheduleRule = <K extends keyof ScheduleRule,>(index: number, field: K, value: ScheduleRule[K]) => {
+    setScheduleRules(previous => previous.map((rule, i) => i === index ? { ...rule, [field]: value } : rule))
   }
 
   const removeScheduleRule = (index: number) => {
@@ -257,7 +252,7 @@ const OpeningControl: React.FC = () => {
               <Flex gap={6} flexWrap="wrap">
                 <FormControl maxW="200px">
                   <FormLabel>{t('openingControl.maxPositionValue')}</FormLabel>
-                  <NumberInput value={maxPositionValue} onChange={(_, v) => setMaxPositionValue(v || '')} min={0}>
+                  <NumberInput value={maxPositionValue} onChange={setMaxPositionValue} min={0} clampValueOnBlur={false}>
                     <NumberInputField placeholder="0 = " />
                     <NumberInputStepper>
                       <NumberIncrementStepper />
@@ -268,7 +263,7 @@ const OpeningControl: React.FC = () => {
                 </FormControl>
                 <FormControl maxW="200px">
                   <FormLabel>{t('openingControl.maxPositionLayers')}</FormLabel>
-                  <NumberInput value={maxPositionLayers} onChange={(_, v) => setMaxPositionLayers(v || '')} min={0}>
+                  <NumberInput value={maxPositionLayers} onChange={setMaxPositionLayers} min={0} clampValueOnBlur={false}>
                     <NumberInputField placeholder="0 = " />
                     <NumberInputStepper>
                       <NumberIncrementStepper />
@@ -278,6 +273,15 @@ const OpeningControl: React.FC = () => {
                   <FormHelperText>{t('openingControl.maxPositionLayersHint')}</FormHelperText>
                 </FormControl>
               </Flex>
+              {status.config.bot_risk_control_overrides_limits && (
+                <Text mt={3} color="orange.600">
+                  {t('openingControl.botRiskOverride', {
+                    value: status.config.effective_max_position_value,
+                    layers: status.config.effective_max_position_layers,
+                    quantity: status.config.effective_max_position_quantity,
+                  })}
+                </Text>
+              )}
             </CardBody>
           </Card>
 
@@ -301,7 +305,10 @@ const OpeningControl: React.FC = () => {
                       <Select
                         size="sm"
                         value={rule.action}
-                        onChange={(e) => updateScheduleRule(i, 'action', e.target.value)}
+                        onChange={(e) => {
+                          const action = e.target.value
+                          if (action === 'pause' || action === 'resume') updateScheduleRule(i, 'action', action)
+                        }}
                       >
                         <option value="pause">{t('openingControl.actionPause')}</option>
                         <option value="resume">{t('openingControl.actionResume')}</option>
@@ -311,7 +318,7 @@ const OpeningControl: React.FC = () => {
                       <FormLabel fontSize="sm">{t('openingControl.timeUTC')}</FormLabel>
                       <Input
                         type="time"
-                        value={rule.time || '22:00'}
+                        value={rule.time}
                         onChange={(e) => updateScheduleRule(i, 'time', e.target.value)}
                         size="sm"
                       />
@@ -366,7 +373,7 @@ const OpeningControl: React.FC = () => {
                 <Flex gap={6} flexWrap="wrap">
                   <FormControl maxW="180px">
                     <FormLabel>{t('openingControl.openDurationMin')}</FormLabel>
-                    <NumberInput value={openDurationMin} onChange={(_, v) => setOpenDurationMin(v || '60')} min={1}>
+                    <NumberInput value={openDurationMin} onChange={setOpenDurationMin} min={1} clampValueOnBlur={false}>
                       <NumberInputField />
                       <NumberInputStepper>
                         <NumberIncrementStepper />
@@ -377,7 +384,7 @@ const OpeningControl: React.FC = () => {
                   </FormControl>
                   <FormControl maxW="180px">
                     <FormLabel>{t('openingControl.closeDurationMin')}</FormLabel>
-                    <NumberInput value={closeDurationMin} onChange={(_, v) => setCloseDurationMin(v || '30')} min={1}>
+                    <NumberInput value={closeDurationMin} onChange={setCloseDurationMin} min={1} clampValueOnBlur={false}>
                       <NumberInputField />
                       <NumberInputStepper>
                         <NumberIncrementStepper />

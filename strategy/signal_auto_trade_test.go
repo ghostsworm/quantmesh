@@ -151,3 +151,37 @@ func TestMomentumAndTrendVisualizationReportAutoTrading(t *testing.T) {
 		t.Fatalf("trend should report auto_trade mode, got %v", got)
 	}
 }
+
+func TestSignalStrategiesMarkInventoryWhilePausedOrOrderPending(t *testing.T) {
+	cases := []struct {
+		name  string
+		apply func(float64) (*Position, error)
+	}{
+		{name: "trend", apply: func(price float64) (*Position, error) {
+			s := &TrendFollowingStrategy{name: "trend", isRunning: true, isPaused: true, position: &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100, OpeningFee: 0.1}}
+			err := s.OnPriceChange(price)
+			return s.position, err
+		}},
+		{name: "mean_reversion", apply: func(price float64) (*Position, error) {
+			s := &MeanReversionStrategy{name: "mean_reversion", isRunning: true, activeOrder: &Order{ClientOrderID: "pending"}, position: &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100, OpeningFee: 0.1}}
+			err := s.OnPriceChange(price)
+			return s.position, err
+		}},
+		{name: "momentum", apply: func(price float64) (*Position, error) {
+			s := &MomentumStrategy{name: "momentum", isRunning: true, isPaused: true, position: &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100, OpeningFee: 0.1}}
+			err := s.OnPriceChange(price)
+			return s.position, err
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := tc.apply(110)
+			if err != nil {
+				t.Fatalf("OnPriceChange: %v", err)
+			}
+			if got.CurrentPrice != 110 || got.PnL != 9.9 {
+				t.Fatalf("mark not updated with opening fee: current=%v pnl=%v", got.CurrentPrice, got.PnL)
+			}
+		})
+	}
+}

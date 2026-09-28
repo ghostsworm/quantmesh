@@ -11,15 +11,19 @@ import (
 // 這將 exchange.IExchange 包裝成 ClosePositionManager 需要的接口
 type ExchangeAdapterWrapper struct {
 	exchange exchange.IExchange
-	symbol   string
+	executor ContextOrderExecutor
+	observe  func(*exchange.Order) bool
 }
 
 // NewExchangeAdapterWrapper 創建包裝器
 func NewExchangeAdapterWrapper(ex exchange.IExchange) *ExchangeAdapterWrapper {
 	return &ExchangeAdapterWrapper{
 		exchange: ex,
-		symbol:   "", // 將在調用時設置
 	}
+}
+
+func NewOwnedExchangeAdapterWrapper(ex exchange.IExchange, executor ContextOrderExecutor, observe func(*exchange.Order) bool) *ExchangeAdapterWrapper {
+	return &ExchangeAdapterWrapper{exchange: ex, executor: executor, observe: observe}
 }
 
 // GetName 獲取交易所名稱
@@ -29,32 +33,36 @@ func (w *ExchangeAdapterWrapper) GetName() string {
 
 // PlaceOrder 下單
 func (w *ExchangeAdapterWrapper) PlaceOrder(ctx context.Context, req *ExchangeOrderRequest) (*ExchangeOrder, error) {
-	side := exchange.Side(req.Side)
-	orderType := exchange.OrderType(req.Type)
-	tif := exchange.TimeInForce(req.TimeInForce)
-
-	exchangeReq := &exchange.OrderRequest{
+	if w.executor == nil {
+		return nil, fmt.Errorf("close submission requires owned executor")
+	}
+	leg := PositionSideLong
+	if req.Side == "BUY" {
+		leg = PositionSideShort
+	}
+	exchangeReq := &OrderRequest{
 		Symbol:        req.Symbol,
-		Side:          side,
-		Type:          orderType,
+		Side:          req.Side,
+		Type:          req.Type,
 		Quantity:      req.Quantity,
 		Price:         req.Price,
 		ReduceOnly:    req.ReduceOnly,
 		PostOnly:      req.PostOnly,
-		TimeInForce:   tif,
+		TimeInForce:   req.TimeInForce,
 		PriceDecimals: req.PriceDecimals,
+		ClientOrderID: req.ClientOrderID,
+		PositionSide:  leg,
+		StrategyName:  "manual_close",
+		BotWideClose:  true,
+		OrderSource:   "liquidation",
 	}
 
-	order, err := w.exchange.PlaceOrder(ctx, exchangeReq)
-	if err != nil {
+	order, err := w.executor.PlaceOrderContext(ctx, exchangeReq)
+	if order == nil {
 		return nil, err
 	}
-
-	return &ExchangeOrder{
-		OrderID:     order.OrderID,
-		Status:      string(order.Status),
-		ExecutedQty: order.Quantity,
-	}, nil
+	return &ExchangeOrder{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: order.Side,
+		Status: order.Status, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice}, err
 }
 
 // GetOrder 獲取訂單
@@ -63,12 +71,24 @@ func (w *ExchangeAdapterWrapper) GetOrder(ctx context.Context, symbol string, or
 	if err != nil {
 		return nil, err
 	}
+	if order == nil {
+		return nil, fmt.Errorf("empty close order query")
+	}
 
 	return &ExchangeOrder{
-		OrderID:     order.OrderID,
-		Status:      string(order.Status),
-		ExecutedQty: order.ExecutedQty,
+		OrderID:       order.OrderID,
+		Status:        string(order.Status),
+		ExecutedQty:   order.ExecutedQty,
+		ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: string(order.Side), Quantity: order.Quantity, AvgPrice: order.AvgPrice,
 	}, nil
+}
+
+func (w *ExchangeAdapterWrapper) ConfirmCloseOrder(o *ExchangeOrder) error {
+	if w.observe == nil || !w.observe(&exchange.Order{OrderID: o.OrderID, ClientOrderID: o.ClientOrderID,
+		Symbol: o.Symbol, Side: exchange.Side(o.Side), Status: exchange.OrderStatus(o.Status), Quantity: o.Quantity, ExecutedQty: o.ExecutedQty, AvgPrice: o.AvgPrice}) {
+		return fmt.Errorf("close observation not durably owned")
+	}
+	return nil
 }
 
 // CancelOrder 取消訂單
