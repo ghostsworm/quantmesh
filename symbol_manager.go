@@ -967,20 +967,29 @@ func startSymbolRuntime(
 	}
 
 	if localCfg.Strategies.Enabled {
-		totalCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
-		if totalCapital <= 0 {
-			quoteAsset := ex.GetQuoteAsset()
-			if quoteAsset == "" {
-				quoteAsset = "USDT"
-			}
-			balance, err := ex.GetBalance(ctx, quoteAsset)
-			if err == nil && balance > 0 {
-				totalCapital = balance
-				logger.InfoCtx(ctx, "💰 [%s] 從账戶獲取總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
-			} else {
-				totalCapital = 5000
-				logger.WarnCtx(ctx, "⚠️ [%s] 無法獲取帳戶餘額，使用默认總资金: %.2f %s", symCfg.Symbol, totalCapital, quoteAsset)
-			}
+		configuredCapital := localCfg.Strategies.CapitalAllocation.TotalCapital
+		quoteAsset := strings.TrimSpace(ex.GetQuoteAsset())
+		availableBalance := 0.0
+		var balanceErr error
+		if quoteAsset != "" {
+			availableBalance, balanceErr = ex.GetBalance(ctx, quoteAsset)
+		} else {
+			balanceErr = fmt.Errorf("exchange quote asset is unavailable")
+		}
+		totalCapital, capitalErr := capStrategyCapitalLimit(configuredCapital, availableBalance)
+		if balanceErr != nil {
+			capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
+		}
+		if capitalErr != nil {
+			totalCapital = 0
+			superPositionManager.OpeningGate().Block("strategy_capital_unverified")
+			logger.ErrorCtx(ctx, "🚨 [%s] 策略資金上限无法核实，已封锁本 Bot 新開倉: %v", botID, capitalErr)
+		} else if configuredCapital > totalCapital {
+			logger.WarnCtx(ctx, "⚠️ [%s] 配置策略资金上限 %.2f %s 超過交易所可用余额 %.2f %s，已下調至可用余额",
+				botID, configuredCapital, quoteAsset, totalCapital, quoteAsset)
+		} else {
+			logger.InfoCtx(ctx, "💰 [%s] 策略資金預算 %.2f %s（配置上限 %.2f，可用余额 %.2f）",
+				botID, totalCapital, quoteAsset, configuredCapital, availableBalance)
 		}
 
 		strategyManager = strategy.NewStrategyManager(&localCfg, totalCapital)
