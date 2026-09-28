@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -225,6 +226,43 @@ func TestPlaceOrderLockOutcomes(t *testing.T) {
 	}
 }
 
+func TestCancelOrderLockFailuresFailClosed(t *testing.T) {
+	tests := []struct {
+		name      string
+		lock      lock.DistributedLock
+		wantCause error
+	}{
+		{name: "lock held", lock: denyOrderLock{}, wantCause: ErrCancelLockNotAcquired},
+		{name: "backend unavailable", lock: errOrderLock{}, wantCause: errors.New("redis down")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			venue := &fakeOrderExchange{}
+			executor := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, tt.lock, "")
+			err := executor.CancelOrderContext(t.Context(), 12)
+			if err == nil || len(venue.cancelled) != 0 {
+				t.Fatalf("CancelOrderContext() err=%v venue calls=%v; want fail closed without cancel", err, venue.cancelled)
+			}
+			if tt.name == "lock held" && !errors.Is(err, tt.wantCause) {
+				t.Fatalf("error = %v, want ErrCancelLockNotAcquired", err)
+			}
+		})
+	}
+}
+
+func TestCancelOrderRejectsInvalidIdentityBeforeLock(t *testing.T) {
+	venue := &fakeOrderExchange{}
+	executor := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+	for _, orderID := range []int64{0, -1} {
+		if err := executor.CancelOrderContext(t.Context(), orderID); err == nil {
+			t.Fatalf("CancelOrderContext(%d) unexpectedly succeeded", orderID)
+		}
+	}
+	if len(venue.cancelled) != 0 {
+		t.Fatalf("invalid order ids reached venue: %v", venue.cancelled)
+	}
+}
+
 // TestBatchPlaceOrdersSkipsLockedWithoutNil 批量下單時被鎖跳過的订單不得以 nil 形式加入結果
 func TestBatchPlaceOrdersSkipsLockedWithoutNil(t *testing.T) {
 	oe := NewExchangeOrderExecutor(&fakeOrderExchange{}, "BTCUSDT", 0, 0, denyOrderLock{}, "")
@@ -329,6 +367,61 @@ func TestFindOrderByClientOrderIDUsesQuerier(t *testing.T) {
 				t.Fatalf("openScanned = %v, want %v", ex.openScanned, tt.wantOpenScan)
 			}
 		})
+	}
+}
+
+type blockingCancelVenue struct {
+	fakeOrderExchange
+	entered chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	calls   int
+}
+
+func (v *blockingCancelVenue) CancelOrder(ctx context.Context, _ string, _ int64) error {
+	v.mu.Lock()
+	v.calls++
+	v.mu.Unlock()
+	select {
+	case v.entered <- struct{}{}:
+	default:
+	}
+	select {
+	case <-v.release:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func TestCancelOrderSerializesSameProcessWithNoopDistributedLock(t *testing.T) {
+	venue := &blockingCancelVenue{entered: make(chan struct{}, 2), release: make(chan struct{})}
+	first := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	second := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-b")
+	firstDone := make(chan error, 1)
+	go func() { firstDone <- first.CancelOrderContext(context.Background(), 42) }()
+	select {
+	case <-venue.entered:
+	case <-time.After(time.Second):
+		t.Fatal("first cancellation did not reach venue")
+	}
+
+	secondCtx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	secondErr := second.CancelOrderContext(secondCtx, 42)
+	if !errors.Is(secondErr, context.DeadlineExceeded) {
+		t.Fatalf("second cancellation error = %v, want local wait cancellation", secondErr)
+	}
+	venue.mu.Lock()
+	callsWhileFirstOwned := venue.calls
+	venue.mu.Unlock()
+	if callsWhileFirstOwned != 1 {
+		t.Fatalf("venue received %d concurrent cancels while first owned the key", callsWhileFirstOwned)
+	}
+
+	close(venue.release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first cancellation error = %v", err)
 	}
 }
 

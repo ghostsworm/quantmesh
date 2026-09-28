@@ -93,7 +93,11 @@ func (w *ExchangeAdapterWrapper) ConfirmCloseOrder(o *ExchangeOrder) error {
 
 // CancelOrder 取消訂單
 func (w *ExchangeAdapterWrapper) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
-	return w.exchange.CancelOrder(ctx, symbol, orderID)
+	canceler, ok := w.executor.(ContextOrderCanceler)
+	if !ok {
+		return fmt.Errorf("close cancellation requires managed executor")
+	}
+	return canceler.CancelOrderContext(ctx, orderID)
 }
 
 // GetLatestPrice 獲取最新價格（委託底層交易所實現）

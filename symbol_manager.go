@@ -373,6 +373,9 @@ func startSymbolRuntime(
 	if symCfg.GetMarketType() == config.MarketTypeFundingPerpSpread {
 		return startFundingPerpSpreadSymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
 	}
+	if err := validateLegacyFundingArbitrageReadiness(baseCfg, symCfg.GetMarketType()); err != nil {
+		return nil, fmt.Errorf("期現套利配置無法安全啟動(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	}
 
 	// 按 Bot 覆蓋的 R5 配置（trading_overrides）與全局合併後校驗；非法時只拒絕本 Bot 啟動
 	if err := config.ValidateBotTradingOverrides(baseCfg, symCfg.TradingOverrides); err != nil {
@@ -1598,6 +1601,13 @@ func startSymbolRuntime(
 	dynamicOwnedByRuntime = true
 
 	return rt, nil
+}
+
+func validateLegacyFundingArbitrageReadiness(cfg *config.Config, marketType string) error {
+	if cfg == nil || marketType != "futures" || !cfg.FundingRate.Enabled || !cfg.FundingRate.ArbitrageEnabled {
+		return nil
+	}
+	return fmt.Errorf("funding_rate.arbitrage_enabled is unsupported: spot orders are not wired to the managed execution journal and risk admission; disable it until the managed spot hedge path is implemented")
 }
 
 // toPositionOrderUpdate 提取订單更新為 position.OrderUpdate

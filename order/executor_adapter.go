@@ -23,6 +23,9 @@ import (
 // ErrLockNotAcquired 價格位分布式鎖已被其他實例持有，本次下單被跳過（未向交易所提交）
 var ErrLockNotAcquired = errors.New("order lock not acquired")
 
+// ErrCancelLockNotAcquired means this caller does not own the cancellation operation.
+var ErrCancelLockNotAcquired = errors.New("cancel lock not acquired")
+
 const (
 	// orderLockTTL 下單鎖 TTL；持有期間由 lock.StartAutoRenew 按 TTL/3 續期，覆蓋整個重試過程
 	orderLockTTL = 10 * time.Second
@@ -30,6 +33,8 @@ const (
 	orderLockAcquireTimeout = 5 * time.Second
 	// orderLookupTimeout 下單結果不確定時按 ClientOrderID 回查的超時
 	orderLookupTimeout = 10 * time.Second
+	// orderCancelLockTTL bounds the cancellation lease and venue call.
+	orderCancelLockTTL = 3 * time.Second
 	// orderMaxRetries 明確限流拒單的最大重試次數；未知結果不可重發
 	orderMaxRetries = 5
 	// postOnlyRepriceDelay PostOnly 被拒後重定價重掛前的等待
@@ -613,6 +618,9 @@ func (oe *ExchangeOrderExecutor) CancelOrder(orderID int64) error {
 }
 
 func (oe *ExchangeOrderExecutor) CancelOrderContext(parent context.Context, orderID int64) error {
+	if orderID <= 0 {
+		return fmt.Errorf("invalid order id %d for cancellation", orderID)
+	}
 	exchangeName := oe.exchange.GetName()
 
 	// 分布式鎖：防止多實例同時取消同一订單
@@ -621,24 +629,29 @@ func (oe *ExchangeOrderExecutor) CancelOrderContext(parent context.Context, orde
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	ctx, cancel := context.WithTimeout(parent, orderCancelLockTTL)
 	defer cancel()
-
-	acquired, err := oe.lock.TryLock(ctx, lockKey, 3*time.Second)
+	localRelease, err := execution.AcquireLocalPositionCoordination(ctx, lockKey)
 	if err != nil {
-		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 獲取取消鎖失败: %v", exchangeName, err)
-		// 鎖獲取失败不阻塞，继续執行（降级策略）
-	} else if !acquired {
-		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 订單 %d 正在被其他實例取消，跳過", exchangeName, orderID)
-		return nil // 跳過，不是錯误
-	} else {
-		// 成功獲取鎖，defer 释放
-		defer func() {
-			if unlockErr := oe.lock.Unlock(ctx, lockKey); unlockErr != nil {
-				logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放取消鎖失败: %v", exchangeName, unlockErr)
-			}
-		}()
+		return fmt.Errorf("wait for local cancellation owner %s failed; venue cancellation not submitted: %w", lockKey, err)
 	}
+	defer localRelease()
+
+	acquired, err := oe.lock.TryLock(ctx, lockKey, orderCancelLockTTL)
+	if err != nil {
+		return fmt.Errorf("acquire cancel lock %s failed; venue cancellation not submitted: %w", lockKey, err)
+	}
+	if !acquired {
+		logger.DebugCtx(oe.logCtx(), "🔒 [%s] 订單 %d 正在被其他實例取消，跳過", exchangeName, orderID)
+		return fmt.Errorf("cancel operation already owned by another worker for order %d: %w", orderID, ErrCancelLockNotAcquired)
+	}
+	defer func() {
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+		defer unlockCancel()
+		if unlockErr := oe.lock.Unlock(unlockCtx, lockKey); unlockErr != nil {
+			logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 释放取消鎖失败 key=%s: %v", exchangeName, lockKey, unlockErr)
+		}
+	}()
 
 	// 限流
 	if err := oe.rateLimiter.Wait(ctx); err != nil {

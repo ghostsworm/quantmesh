@@ -247,6 +247,10 @@ func (a *exchangeExecutorAdapter) PlaceOrderContext(ctx context.Context, req *po
 	}, nil
 }
 
+func (a *exchangeExecutorAdapter) CancelOrderContext(ctx context.Context, orderID int64) error {
+	return a.executor.CancelOrderContext(ctx, orderID)
+}
+
 func (a *exchangeExecutorAdapter) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
 	result := a.BatchPlaceOrdersWithDetails(orders)
 	return result.PlacedOrders, result.HasMarginError

@@ -9,6 +9,29 @@ import (
 	"quantmesh/exchange"
 )
 
+func TestValidateLegacyFundingArbitrageReadiness(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        *config.Config
+		marketType string
+		wantErr    bool
+	}{
+		{name: "nil config", cfg: nil, marketType: "futures"},
+		{name: "spot runtime", cfg: &config.Config{FundingRate: config.FundingRateConfig{Enabled: true, ArbitrageEnabled: true}}, marketType: "spot"},
+		{name: "monitor disabled", cfg: &config.Config{FundingRate: config.FundingRateConfig{ArbitrageEnabled: true}}, marketType: "futures"},
+		{name: "arbitrage disabled", cfg: &config.Config{FundingRate: config.FundingRateConfig{Enabled: true}}, marketType: "futures"},
+		{name: "legacy managed path missing", cfg: &config.Config{FundingRate: config.FundingRateConfig{Enabled: true, ArbitrageEnabled: true}}, marketType: "futures", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateLegacyFundingArbitrageReadiness(tt.cfg, tt.marketType)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateLegacyFundingArbitrageReadiness() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestSymbolManagerRuntimeMapAndProfileSelection(t *testing.T) {
 	cfg := config.CreateMinimalConfig()
 	cfg.Exchanges["binance"] = config.ExchangeConfig{Testnet: true}

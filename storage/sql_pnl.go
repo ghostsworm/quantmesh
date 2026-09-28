@@ -231,7 +231,7 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 		SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0)
 		FROM %s
 		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures'
-		  AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
+		  AND created_at > ? AND created_at <= ?`, s.tradesTbl())
 	args := []interface{}{exchange, accountScope, startTime, endTime}
 	if symbol != "" {
 		query += " AND symbol = ?"

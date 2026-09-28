@@ -47,6 +47,15 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 			}
 		})
 	}
+	// Profit windows are (since, end]. The exact previous boundary must not be
+	// counted again by the next automatic-withdrawal run.
+	boundaryPnL, err := st.GetRealizedPnLForWithdrawal("binance", "", "scope-a", now, now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundaryPnL != 0 {
+		t.Fatalf("PnL at exclusive lower boundary was counted again: %v", boundaryPnL)
+	}
 	if _, err := st.GetRealizedPnLForWithdrawal("", "", "scope-a", now, now); err == nil {
 		t.Fatal("missing exchange identity must fail closed")
 	}

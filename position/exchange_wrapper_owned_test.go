@@ -10,7 +10,8 @@ import (
 
 type ownedCloseReadVenue struct {
 	exchange.IExchange
-	state *exchange.Order
+	state       *exchange.Order
+	cancelCalls int
 }
 
 func (*ownedCloseReadVenue) GetName() string       { return "fake" }
@@ -18,15 +19,24 @@ func (*ownedCloseReadVenue) GetPriceDecimals() int { return 2 }
 func (v *ownedCloseReadVenue) GetOrder(context.Context, string, int64) (*exchange.Order, error) {
 	return v.state, nil
 }
+func (v *ownedCloseReadVenue) CancelOrder(context.Context, string, int64) error {
+	v.cancelCalls++
+	return nil
+}
 
 type ownedCloseSubmitter struct {
-	req *OrderRequest
-	err error
+	req         *OrderRequest
+	err         error
+	cancelCalls int
 }
 
 func (s *ownedCloseSubmitter) PlaceOrderContext(_ context.Context, r *OrderRequest) (*Order, error) {
 	s.req = r
 	return &Order{OrderID: 1, Symbol: r.Symbol, Side: r.Side, ClientOrderID: r.ClientOrderID, Quantity: r.Quantity, ExecutedQty: 0.25, AvgPrice: 100, Status: "PARTIALLY_FILLED"}, s.err
+}
+func (s *ownedCloseSubmitter) CancelOrderContext(context.Context, int64) error {
+	s.cancelCalls++
+	return nil
 }
 
 func TestOwnedCloseWrapperPreservesCumulativeFillAndIntentOptions(t *testing.T) {
@@ -59,5 +69,20 @@ func TestUnownedCloseWrapperCannotSubmitAndNilQueryIsNotFilled(t *testing.T) {
 	}
 	if _, err := w.GetOrder(t.Context(), "BTCUSDT", 1); err == nil {
 		t.Fatal("nil query accepted")
+	}
+	if err := w.CancelOrder(t.Context(), "BTCUSDT", 1); err == nil {
+		t.Fatal("raw venue cancellation allowed without managed executor")
+	}
+}
+
+func TestOwnedCloseCancellationUsesManagedExecutor(t *testing.T) {
+	venue := &ownedCloseReadVenue{}
+	submitter := &ownedCloseSubmitter{}
+	w := NewOwnedExchangeAdapterWrapper(venue, submitter, nil)
+	if err := w.CancelOrder(t.Context(), "BTCUSDT", 9); err != nil {
+		t.Fatalf("CancelOrder() error = %v", err)
+	}
+	if submitter.cancelCalls != 1 || venue.cancelCalls != 0 {
+		t.Fatalf("managed cancel calls=%d raw venue calls=%d", submitter.cancelCalls, venue.cancelCalls)
 	}
 }
