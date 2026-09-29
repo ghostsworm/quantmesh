@@ -61,11 +61,19 @@ func (oe *ExchangeOrderExecutor) BeginPositionSnapshot(ctx context.Context) (con
 	}, nil
 }
 
-// FailPositionReconciliation permanently blocks this executor for the current
-// process when reconciliation cannot establish trustworthy position evidence.
+// FailPositionReconciliation blocks this executor until a complete trusted
+// reconciliation succeeds. Independent lock-loss and order-unknown blocks are
+// intentionally retained by CompletePositionReconciliation.
 func (oe *ExchangeOrderExecutor) FailPositionReconciliation(err error) {
-	oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
+	oe.submissionGate.Block(execution.PositionReconciliationUnverifiedBlock)
 	logger.ErrorCtx(oe.logCtx(), "持倉對账失败，执行器保持关闭: %v", err)
+}
+
+// CompletePositionReconciliation removes only the block owned by failed
+// position reconciliation. It must be called after the full snapshot and any
+// required local-ledger synchronization have succeeded.
+func (oe *ExchangeOrderExecutor) CompletePositionReconciliation() {
+	oe.submissionGate.Unblock(execution.PositionReconciliationUnverifiedBlock)
 }
 
 func (oe *ExchangeOrderExecutor) IsShutdownCloseContext(ctx context.Context) bool {

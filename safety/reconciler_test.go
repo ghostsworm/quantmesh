@@ -175,20 +175,21 @@ type mockExchangePositionRow struct {
 
 // MockPositionManager 模拟倉位管理器
 type MockPositionManager struct {
-	Slots            map[float64]interface{}
-	TotalBuyQty      float64
-	TotalSellQty     float64
-	ReconcileCount   int64
-	Symbol           string
-	PriceInterval    float64
-	ForceSyncCount   int
-	LastForceSync    float64
-	BeginReconcile   func(context.Context) (func(), error)
-	BarrierActive    bool
-	ForceSyncInGate  bool
-	ForceSyncHook    func()
-	ForceSyncErr     error
-	FailReconcileErr error
+	Slots                        map[float64]interface{}
+	TotalBuyQty                  float64
+	TotalSellQty                 float64
+	ReconcileCount               int64
+	Symbol                       string
+	PriceInterval                float64
+	ForceSyncCount               int
+	LastForceSync                float64
+	BeginReconcile               func(context.Context) (func(), error)
+	BarrierActive                bool
+	ForceSyncInGate              bool
+	ForceSyncHook                func()
+	ForceSyncErr                 error
+	FailReconcileErr             error
+	CompletedReconciliationCount int
 }
 
 func (m *MockPositionManager) IterateSlots(fn func(price float64, slot interface{}) bool) {
@@ -223,6 +224,7 @@ func (m *MockPositionManager) BeginReconciliation(ctx context.Context) (func(), 
 	return func() {}, nil
 }
 func (m *MockPositionManager) FailReconciliation(err error) { m.FailReconcileErr = err }
+func (m *MockPositionManager) CompleteReconciliation()      { m.CompletedReconciliationCount++ }
 
 func TestReconcilerRejectsInvalidLocalPositionLedger(t *testing.T) {
 	tests := []struct {
@@ -577,8 +579,8 @@ func TestReconcilerFailsClosedWhenPositionDiffHasOpenOrders(t *testing.T) {
 			if pm.FailReconcileErr == nil {
 				t.Fatal("unresolved position difference did not retain fail-closed gate")
 			}
-			if pm.ReconcileCount != 0 {
-				t.Fatalf("unresolved position difference was counted as reconciled, count=%d", pm.ReconcileCount)
+			if pm.ReconcileCount != 0 || pm.CompletedReconciliationCount != 0 {
+				t.Fatalf("unresolved position difference reported completion: count=%d gateCompletions=%d", pm.ReconcileCount, pm.CompletedReconciliationCount)
 			}
 			if storage.called {
 				t.Fatal("unresolved position difference was persisted as successful reconciliation history")
@@ -864,6 +866,11 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 				if pm.ReconcileCount != 0 {
 					t.Fatalf("unowned futures position difference was counted as reconciled: %d", pm.ReconcileCount)
 				}
+				if pm.CompletedReconciliationCount != 0 {
+					t.Fatalf("failed reconciliation cleared the gate %d times", pm.CompletedReconciliationCount)
+				}
+			} else if pm.CompletedReconciliationCount != 1 {
+				t.Fatalf("successful reconciliation completions = %d, want 1", pm.CompletedReconciliationCount)
 			}
 		})
 	}

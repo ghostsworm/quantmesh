@@ -40,6 +40,9 @@ type IPositionManager interface {
 	// FailReconciliation holds physical submissions closed when position
 	// evidence cannot be trusted.
 	FailReconciliation(err error)
+	// CompleteReconciliation clears only the dedicated unverified-position
+	// gate source after a fully successful reconciliation.
+	CompleteReconciliation()
 	// 遍历所有槽位（封装 sync.Map.Range）
 	// 注意：slot 為 interface{} 類型，需要轉换為 SlotInfo
 	IterateSlots(fn func(price float64, slot interface{}) bool)
@@ -519,6 +522,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	}
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
+	r.pm.CompleteReconciliation()
 	markReconciled()
 	releaseCriticalSection()
 	saveReconciliationHistory()

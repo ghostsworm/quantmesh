@@ -677,11 +677,22 @@ func (spm *SuperPositionManager) BeginReconciliation(ctx context.Context) (func(
 func (spm *SuperPositionManager) FailReconciliation(err error) {
 	barrier, ok := spm.executor.(interface{ FailPositionReconciliation(error) })
 	if !ok {
-		spm.openingGate.Block(execution.PositionCoordinationLockLostBlock)
+		spm.openingGate.Block(execution.PositionReconciliationUnverifiedBlock)
 		logger.Error("[%s] 持倉對账协调锁失效，executor 不支持全量提交屏障", spm.logPrefix())
 		return
 	}
 	barrier.FailPositionReconciliation(err)
+}
+
+// CompleteReconciliation releases only the dedicated unverified-position
+// block after a successful authoritative snapshot. Other gate sources remain.
+func (spm *SuperPositionManager) CompleteReconciliation() {
+	barrier, ok := spm.executor.(interface{ CompletePositionReconciliation() })
+	if !ok {
+		spm.openingGate.Unblock(execution.PositionReconciliationUnverifiedBlock)
+		return
+	}
+	barrier.CompletePositionReconciliation()
 }
 
 // GetOpeningPauseReason 獲取開倉暫停原因

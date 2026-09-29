@@ -278,3 +278,20 @@ func TestPositionSubmissionLockRenewalFailureCancelsAndBlocksExecutor(t *testing
 		t.Fatalf("submission after coordination lock loss = %v, want ErrRuntimeStopping", err)
 	}
 }
+
+func TestSuccessfulPositionReconciliationClearsOnlyItsOwnGate(t *testing.T) {
+	oe := &ExchangeOrderExecutor{}
+	oe.FailPositionReconciliation(errors.New("position evidence unavailable"))
+	oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
+
+	if !oe.submissionGate.HasBlock(execution.PositionReconciliationUnverifiedBlock) {
+		t.Fatal("failed reconciliation did not block physical submissions")
+	}
+	oe.CompletePositionReconciliation()
+	if oe.submissionGate.HasBlock(execution.PositionReconciliationUnverifiedBlock) {
+		t.Fatal("successful reconciliation did not clear its own block")
+	}
+	if !oe.submissionGate.HasBlock(execution.PositionCoordinationLockLostBlock) {
+		t.Fatal("successful reconciliation incorrectly cleared independent lock-loss block")
+	}
+}

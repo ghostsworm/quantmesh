@@ -2271,3 +2271,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 发现持仓差异遇到交易所活动委托或本地未决委托时，原流程虽跳过不安全的槽位同步，却仍计入成功对账并返回 nil；这会把未解决的经济状态误记为已核实。
 - 现在该分支调用 `FailReconciliation` 并返回错误，不写成功计数/历史。当前 executor 对此类失败采用进程内永久开仓阻断；即使委托随后终态，也没有自动解除与重新核账流程，必须保持人工核验边界，不将其描述为下一轮自动恢复。回归覆盖交易所外部活动委托和本地待确认委托两种情况，断言不开槽位同步且门控保持。
 - 定向回归重复 10 轮、相关用例 race 重复 10 轮，`go test ./safety -count=1`、`go vet ./safety` 和 `git diff --check` 均通过；断言活动委托分支不调用槽位同步、不增加成功计数且不写成功历史。未连接真实账户或下单。BOTH 双向逐腿核账、可审计的门控恢复流程、跨重启经济恢复、全账户额度与盈利证据仍未闭合。
+
+## 后续续修：可信持仓核账恢复专属门控（3.111.0-rc445，2026-09-30）
+
+- rc444 引入失败时保持阻断后，发现执行器原先把一般对账失败复用到永久锁丢失门控，且无成功核账解除路径；会导致可恢复的 API/快照故障也只能重启恢复。
+- 现使用独立 `position_reconciliation_unverified` source；只有本轮快照、委托证据、本地核验及必要同步全部成功后才解除该 source。`position_coordination_lock_lost` 与 UNKNOWN、风控和人工门控不受影响；失败分支不调用完成回调。
+- `go test ./safety ./order ./position -run 'TestReconciler|TestSuccessfulPositionReconciliationClearsOnlyItsOwnGate|TestPositionSubmissionLockRenewalFailure' -count=5`、相关 `-race` 五轮、三个包全量 `-count=1`、`go vet ./safety ./order ./position` 与 `git diff --check` 均通过。回归确认完整核账成功才清除对账专属 source，锁丢失 source 保留；未连接真实账户、未下单。其他盈利准备度未闭合项继续有效。
