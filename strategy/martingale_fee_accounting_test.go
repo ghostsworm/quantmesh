@@ -140,6 +140,24 @@ func TestMartingaleUnknownEntryPreservesPreviouslyVerifiedPartialInventoryAcross
 	}
 }
 
+func TestMartingaleUnknownEntryBlocksAutomaticCloseUntilReconciled(t *testing.T) {
+	executor := &hedgeOrderExecutor{}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	s.direction = "LONG"
+	s.entries = []*MartingaleEntry{{
+		Level: 1, OrderID: 44, Price: 100, Quantity: 0.4, RequestedQuantity: 1,
+		Cost: 40, FillProgress: position.FillProgress{Quantity: 0.4, Notional: 40},
+		Status: position.OrderStatusUnknown,
+	}}
+	s.updateTotals()
+	if err := s.closeAllPositions(90, "止损"); err == nil {
+		t.Fatal("must not submit a close while an entry order has unresolved execution")
+	}
+	if len(executor.orders) != 0 || s.totalQty != 0.4 || s.isClosing {
+		t.Fatalf("unresolved entry should block auto-close without changing verified inventory: orders=%d qty=%v closing=%v", len(executor.orders), s.totalQty, s.isClosing)
+	}
+}
+
 func TestMartingaleUnknownFeeAssetDoesNotConsumeFill(t *testing.T) {
 	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)

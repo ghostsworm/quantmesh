@@ -834,6 +834,11 @@ func (s *MartingaleStrategy) checkTakeProfitStopLoss(price float64) error {
 
 // closeAllPositions 平倉
 func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) error {
+	for _, entry := range s.entries {
+		if entry != nil && entry.Status == position.OrderStatusUnknown {
+			return fmt.Errorf("马丁策略无法确认入场订单 #%d 的最终成交，完成核账前拒绝自动平仓", entry.OrderID)
+		}
+	}
 	if s.totalQty <= 0 {
 		return nil
 	}
