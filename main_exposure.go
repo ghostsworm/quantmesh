@@ -45,7 +45,10 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 		if position == nil {
 			return fmt.Errorf("startup exposure position response contains an unverifiable nil entry for %s", scope.Symbol)
 		}
-		if position.Symbol == scope.Symbol && position.Size != 0 {
+		if position.Symbol != scope.Symbol {
+			return fmt.Errorf("startup exposure position response contains unexpected symbol %q while verifying %s", position.Symbol, scope.Symbol)
+		}
+		if position.Size != 0 {
 			return fmt.Errorf("startup exposure is not empty for %s: position requires reconciliation", scope.Symbol)
 		}
 	}

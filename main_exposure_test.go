@@ -243,6 +243,8 @@ func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T)
 		{name: "position query failure", positionErr: errors.New("unavailable")},
 		{name: "order query failure", orderErr: errors.New("unavailable")},
 		{name: "nil position entry", positions: []*exchange.Position{nil}},
+		{name: "position without symbol", positions: []*exchange.Position{{Size: 0}}},
+		{name: "position query returned another symbol", positions: []*exchange.Position{{Symbol: "ETHUSDT", Size: 0}}},
 		{name: "existing position", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}},
 		{name: "existing order", orders: []*exchange.Order{{Symbol: "BTCUSDT", Status: exchange.OrderStatusNew}}},
 	}
