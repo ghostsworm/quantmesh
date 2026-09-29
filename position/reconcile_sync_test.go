@@ -186,7 +186,7 @@ func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	}
 }
 
-func TestForceSyncPositionsRejectsUnresolvedInventory(t *testing.T) {
+func TestForceSyncPositionsRejectsUnresolvedInventoryWithoutMutatingOtherSlots(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"
 	cfg.Trading.PriceInterval = 100
@@ -199,8 +199,15 @@ func TestForceSyncPositionsRejectsUnresolvedInventory(t *testing.T) {
 	slot := spm.getOrCreateSlot(1000)
 	slot.PositionStatus = PositionStatusFilled
 	slot.PositionQty = math.NaN()
-	if err := spm.ForceSyncPositions(0.1); err == nil {
+	validSlot := spm.getOrCreateSlot(1100)
+	validSlot.PositionStatus = PositionStatusFilled
+	validSlot.PositionQty = 0.5
+	validSlot.AvgBuyPrice = 925
+	if err := spm.ForceSyncPositions(0.25); err == nil {
 		t.Fatal("ForceSyncPositions() succeeded despite unresolved NaN inventory")
+	}
+	if validSlot.PositionStatus != PositionStatusFilled || validSlot.PositionQty != 0.5 || validSlot.AvgBuyPrice != 925 {
+		t.Fatalf("failed synchronization mutated valid slot: status=%s qty=%v avgBuy=%v", validSlot.PositionStatus, validSlot.PositionQty, validSlot.AvgBuyPrice)
 	}
 }
 

@@ -631,6 +631,16 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 	}
 	defer spm.refreshCostBasisOpeningGate()
 	const syncQuantityTolerance = 0.00000001
+	if _, err := spm.reconciliationPositionTotal(); err != nil {
+		return fmt.Errorf("同步前本地持仓台账无效，拒绝修改槽位: %w", err)
+	}
+	if _, exposureLimitsEnabled := spm.executor.(interface {
+		SetExposureLimits(execution.ExposureLimits) error
+	}); exposureLimitsEnabled {
+		if _, err := spm.gridExposureInventory(); err != nil {
+			return fmt.Errorf("同步前额度库存身份无效，拒绝修改槽位: %w", err)
+		}
+	}
 	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
 	// 且我们不希望在對账時阻塞下單逻辑
 
@@ -698,6 +708,14 @@ func (spm *SuperPositionManager) reconcileExposureInventory() error {
 	if !ok {
 		return fmt.Errorf("physical executor has limits but no inventory reconciliation capability")
 	}
+	positions, err := spm.gridExposureInventory()
+	if err != nil {
+		return err
+	}
+	return reconciler.ReconcileExposurePositions(positions)
+}
+
+func (spm *SuperPositionManager) gridExposureInventory() ([]execution.ExposurePosition, error) {
 	positions := make([]execution.ExposurePosition, 0)
 	var inventoryErr error
 	spm.slots.Range(func(key, raw interface{}) bool {
@@ -745,9 +763,9 @@ func (spm *SuperPositionManager) reconcileExposureInventory() error {
 		return true
 	})
 	if inventoryErr != nil {
-		return inventoryErr
+		return nil, inventoryErr
 	}
-	return reconciler.ReconcileExposurePositions(positions)
+	return positions, nil
 }
 
 func exposureLeg(leg string) bool {
