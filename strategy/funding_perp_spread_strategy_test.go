@@ -281,6 +281,15 @@ type fundingSpreadTestExchange struct {
 	residual       float64
 }
 
+type fundingSpreadOrderLookupExchange struct {
+	*fundingSpreadTestExchange
+	order *exchange.Order
+}
+
+func (e *fundingSpreadOrderLookupExchange) GetOrderByClientOrderID(context.Context, string, string) (*exchange.Order, error) {
+	return e.order, nil
+}
+
 func (e *fundingSpreadTestExchange) GetName() string { return e.name }
 
 func (e *fundingSpreadTestExchange) GetQuantityDecimals() int { return 3 }
@@ -522,6 +531,82 @@ func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err == nil {
 		t.Fatal("Start() accepted an unresolved persisted order intent")
+	}
+}
+
+func TestFundingPerpSpreadStartRecoversExactZeroFillTerminalOrder(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true, ExposureUnknown: true,
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "recover-me", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	a := &fundingSpreadOrderLookupExchange{
+		fundingSpreadTestExchange: &fundingSpreadTestExchange{name: "a"},
+		order:                     &exchange.Order{ClientOrderID: "recover-me", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, Status: exchange.OrderStatusCanceled},
+	}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour}
+	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed to recover a provably unfilled terminal order: %v", err)
+	}
+	st.mu.RLock()
+	cancel, done := st.cancel, st.runDone
+	st.mu.RUnlock()
+	cancel()
+	<-done
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.IntentInFlight || persisted.PendingOrder != nil || persisted.ExposureUnknown {
+		t.Fatalf("verified zero-fill order was not durably reconciled: %+v", persisted)
+	}
+}
+
+func TestFundingPerpSpreadStartRejectsFilledPendingOrder(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "filled-order", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &fundingSpreadOrderLookupExchange{
+		fundingSpreadTestExchange: &fundingSpreadTestExchange{name: "a"},
+		order:                     &exchange.Order{ClientOrderID: "filled-order", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, ExecutedQty: 0.01, Status: exchange.OrderStatusFilled},
+	}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT"}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err == nil {
+		t.Fatal("Start() released a filled pending order without economic replay")
+	}
+}
+
+func TestFundingPerpSpreadStartRejectsZeroFillOrderWhenPositionChanged(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "zero-fill-position-changed", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &fundingSpreadOrderLookupExchange{
+		fundingSpreadTestExchange: &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}},
+		order:                     &exchange.Order{ClientOrderID: "zero-fill-position-changed", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, Status: exchange.OrderStatusCanceled},
+	}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT"}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted a zero-fill order despite an unexpected position change")
 	}
 }
 

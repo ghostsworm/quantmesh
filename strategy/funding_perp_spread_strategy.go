@@ -162,6 +162,11 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 	}
 	var posA, posB float64
 	err = s.withLegCoordination(checkCtx, func(coordCtx context.Context) error {
+		if found && restored.IntentInFlight {
+			if err := s.reconcileUnfilledOrderIntent(coordCtx, &restored); err != nil {
+				return fmt.Errorf("reconcile persisted funding_perp_spread order intent: %w", err)
+			}
+		}
 		var snapshotErr error
 		posA, snapshotErr = s.readLegSnapshot(coordCtx, s.legA, s.symA)
 		if snapshotErr != nil {
@@ -207,6 +212,62 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 	go s.runLoop()
 	s.mu.Unlock()
 	return nil
+}
+
+// reconcileUnfilledOrderIntent only clears an intent when the venue proves that
+// the exact client order is terminal with zero fills and both position and open
+// order snapshots remain consistent with the pre-submit state.
+func (s *FundingPerpSpreadStrategy) reconcileUnfilledOrderIntent(ctx context.Context, state *fundingPerpSpreadRuntimeState) error {
+	intent := state.PendingOrder
+	if intent == nil {
+		return errors.New("pending order lacks a recoverable durable identity")
+	}
+	ex, ok := s.exchangeForPendingOrder(intent)
+	if !ok {
+		return errors.New("pending order exchange is outside the configured legs")
+	}
+	query, ok := ex.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return fmt.Errorf("exchange %s cannot query historical orders by ClientOrderID", ex.GetName())
+	}
+	order, err := query.GetOrderByClientOrderID(ctx, intent.Symbol, intent.ClientOrderID)
+	if err != nil {
+		return fmt.Errorf("query order %s: %w", intent.ClientOrderID, err)
+	}
+	if order == nil {
+		return fmt.Errorf("order %s is not found; absence does not prove rejection", intent.ClientOrderID)
+	}
+	returnedClientOrderID := utils.RemoveBrokerPrefix(strings.ToLower(ex.GetName()), order.ClientOrderID)
+	if returnedClientOrderID != intent.ClientOrderID || !strings.EqualFold(order.Symbol, intent.Symbol) ||
+		string(order.Side) != intent.Side || math.Abs(order.Quantity-intent.Quantity) > 1e-12 || order.ExecutedQty != 0 {
+		return fmt.Errorf("order %s identity or fill quantity does not match the durable intent", intent.ClientOrderID)
+	}
+	switch order.Status {
+	case exchange.OrderStatusCanceled, exchange.OrderStatusRejected, exchange.OrderStatusExpired:
+	default:
+		return fmt.Errorf("order %s is not in a no-fill terminal state: %s", intent.ClientOrderID, order.Status)
+	}
+	actual, err := s.readLegSnapshot(ctx, ex, intent.Symbol)
+	if err != nil {
+		return fmt.Errorf("verify unchanged %s position: %w", intent.Symbol, err)
+	}
+	if math.Abs(actual-intent.PositionBefore) > s.legTolerance(ex) {
+		return fmt.Errorf("position changed while order %s was pending (before %.8f, now %.8f)", intent.ClientOrderID, intent.PositionBefore, actual)
+	}
+	state.IntentInFlight = false
+	state.PendingOrder = nil
+	state.ExposureUnknown = false
+	return nil
+}
+
+func (s *FundingPerpSpreadStrategy) exchangeForPendingOrder(intent *fundingPerpSpreadOrderIntent) (exchange.IExchange, bool) {
+	if strings.EqualFold(intent.LegExchange, s.legA.GetName()) && strings.EqualFold(intent.Symbol, s.symA) {
+		return s.legA, true
+	}
+	if strings.EqualFold(intent.LegExchange, s.legB.GetName()) && strings.EqualFold(intent.Symbol, s.symB) {
+		return s.legB, true
+	}
+	return nil, false
 }
 
 func (s *FundingPerpSpreadStrategy) resetStartAfterFailure() {
@@ -578,7 +639,8 @@ func (s *FundingPerpSpreadStrategy) beginOrderIntent(intent fundingPerpSpreadOrd
 	}
 	if strings.TrimSpace(intent.ClientOrderID) == "" || strings.TrimSpace(intent.LegExchange) == "" ||
 		strings.TrimSpace(intent.Symbol) == "" || (intent.Side != "BUY" && intent.Side != "SELL") ||
-		math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 {
+		math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 ||
+		math.IsNaN(intent.PositionBefore) || math.IsInf(intent.PositionBefore, 0) {
 		return errors.New("funding_perp_spread order intent identity is invalid")
 	}
 	s.intentInFlight = true
@@ -658,8 +720,12 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		return fmt.Errorf("refuse new spread: %w", err)
 	}
 	shortClientOrderID := utils.NewCompactOrderID()
+	shortPositionBefore := currentA
+	if strings.EqualFold(shortEx.GetName(), s.legB.GetName()) && strings.EqualFold(shortSym, s.symB) {
+		shortPositionBefore = currentB
+	}
 	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
-		ClientOrderID: shortClientOrderID, LegExchange: shortEx.GetName(), Symbol: shortSym, Side: "SELL", Quantity: qtyShort,
+		ClientOrderID: shortClientOrderID, LegExchange: shortEx.GetName(), Symbol: shortSym, Side: "SELL", Quantity: qtyShort, PositionBefore: shortPositionBefore,
 	}); err != nil {
 		return err
 	}
@@ -692,8 +758,12 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		return err
 	}
 	longClientOrderID := utils.NewCompactOrderID()
+	longPositionBefore := currentA
+	if strings.EqualFold(longEx.GetName(), s.legB.GetName()) && strings.EqualFold(longSym, s.symB) {
+		longPositionBefore = currentB
+	}
 	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
-		ClientOrderID: longClientOrderID, LegExchange: longEx.GetName(), Symbol: longSym, Side: "BUY", Quantity: qtyLong,
+		ClientOrderID: longClientOrderID, LegExchange: longEx.GetName(), Symbol: longSym, Side: "BUY", Quantity: qtyLong, PositionBefore: longPositionBefore,
 	}); err != nil {
 		return fmt.Errorf("short leg is open but long-leg intent could not be persisted: %w", err)
 	}
@@ -780,7 +850,7 @@ func (s *FundingPerpSpreadStrategy) closeLeg(ctx context.Context, ex exchange.IE
 	}
 	clientOrderID := utils.NewCompactOrderID()
 	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
-		ClientOrderID: clientOrderID, LegExchange: ex.GetName(), Symbol: sym, Side: string(side), Quantity: math.Abs(owned),
+		ClientOrderID: clientOrderID, LegExchange: ex.GetName(), Symbol: sym, Side: string(side), Quantity: math.Abs(owned), PositionBefore: actual,
 	}); err != nil {
 		return err
 	}

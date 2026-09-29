@@ -7,14 +7,15 @@ import (
 	"strings"
 )
 
-const fundingPerpSpreadRuntimeStateVersion = 2
+const fundingPerpSpreadRuntimeStateVersion = 3
 
 type fundingPerpSpreadOrderIntent struct {
-	ClientOrderID string  `json:"client_order_id"`
-	LegExchange   string  `json:"leg_exchange"`
-	Symbol        string  `json:"symbol"`
-	Side          string  `json:"side"`
-	Quantity      float64 `json:"quantity"`
+	ClientOrderID  string  `json:"client_order_id"`
+	LegExchange    string  `json:"leg_exchange"`
+	Symbol         string  `json:"symbol"`
+	Side           string  `json:"side"`
+	Quantity       float64 `json:"quantity"`
+	PositionBefore float64 `json:"position_before"`
 }
 
 type fundingPerpSpreadRuntimeState struct {
@@ -56,7 +57,7 @@ func (s *FundingPerpSpreadStrategy) persistRuntimeStateLocked() error {
 }
 
 func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchange, legASymbol, legBExchange, legBSymbol string) (fundingPerpSpreadRuntimeState, error) {
-	if version != 1 && version != fundingPerpSpreadRuntimeStateVersion {
+	if version < 1 || version > fundingPerpSpreadRuntimeStateVersion {
 		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("unsupported funding_perp_spread runtime state schema %d", version)
 	}
 	var state fundingPerpSpreadRuntimeState
@@ -68,10 +69,10 @@ func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchan
 		!strings.EqualFold(state.LegBExchange, legBExchange) || !strings.EqualFold(state.LegBSymbol, legBSymbol) {
 		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread runtime state identity mismatch")
 	}
-	if version == 1 && state.IntentInFlight {
-		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("legacy funding_perp_spread order intent has no durable client order identity")
+	if version < 3 && state.IntentInFlight {
+		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("legacy funding_perp_spread order intent lacks the durable pre-submit position snapshot required for safe recovery")
 	}
-	if version == fundingPerpSpreadRuntimeStateVersion {
+	if version == 3 {
 		if state.IntentInFlight != (state.PendingOrder != nil) {
 			return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending order identity does not match intent state")
 		}
@@ -79,12 +80,13 @@ func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchan
 			validLeg := (strings.EqualFold(intent.LegExchange, legAExchange) && strings.EqualFold(intent.Symbol, legASymbol)) ||
 				(strings.EqualFold(intent.LegExchange, legBExchange) && strings.EqualFold(intent.Symbol, legBSymbol))
 			if strings.TrimSpace(intent.ClientOrderID) == "" || len(intent.ClientOrderID) > 64 || !validLeg ||
-				(intent.Side != "BUY" && intent.Side != "SELL") || math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 {
+				(intent.Side != "BUY" && intent.Side != "SELL") || math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 ||
+				math.IsNaN(intent.PositionBefore) || math.IsInf(intent.PositionBefore, 0) {
 				return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending order identity is invalid")
 			}
 		}
 	}
-	if !state.OwnershipReady || state.IntentInFlight || state.ExposureUnknown ||
+	if !state.OwnershipReady || (state.ExposureUnknown && !state.IntentInFlight) ||
 		math.IsNaN(state.OwnedA) || math.IsInf(state.OwnedA, 0) ||
 		math.IsNaN(state.OwnedB) || math.IsInf(state.OwnedB, 0) {
 		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread runtime state is unresolved")
