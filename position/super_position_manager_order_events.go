@@ -280,6 +280,17 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 		// BOTH：依槽位 PositionLeg 判斷開倉/平倉
 		if spm.isOpenLegOrderSide(side, slot) {
 			if deltaQty > 0 {
+				if update.OrderID <= 0 {
+					slot.PositionEntryOrderAmbiguous = true
+					slot.PositionEntryOrderID = 0
+				} else if !slot.PositionEntryOrderAmbiguous {
+					if slot.PositionEntryOrderID == 0 {
+						slot.PositionEntryOrderID = update.OrderID
+					} else if slot.PositionEntryOrderID != update.OrderID {
+						slot.PositionEntryOrderID = 0
+						slot.PositionEntryOrderAmbiguous = true
+					}
+				}
 				if spm.isBoth() && slot.PositionLeg == "" {
 					if side == "BUY" {
 						slot.PositionLeg = PositionLegLong
@@ -484,8 +495,11 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 						// 卖出价格偏差：实际卖出价格 - 委托卖出价格
 						sellPriceDeviation := (sellPrice - slot.OrderPrice) * deltaQty // USDT单位
 
-						// 保存交易記錄（買入订單ID設為0，因為無法追溯历史订單）
+						// 保存經驗證的唯一開倉訂單歸屬；多訂單混合/缺少 ID 時保守留空。
 						buyOrderID := int64(0)
+						if !slot.PositionEntryOrderAmbiguous {
+							buyOrderID = slot.PositionEntryOrderID
+						}
 						sellOrderID := update.OrderID
 						// 🔥 添加详细日志，特别是对于亏损交易
 						if pnl < 0 {

@@ -47,7 +47,9 @@ func (spm *SuperPositionManager) PersistGridRuntimeState() error {
 			OrderCreatedAt: slot.OrderCreatedAt, SlotStatus: slot.SlotStatus, PostOnlyFailCount: slot.PostOnlyFailCount,
 			BuyFee: slot.BuyFee, FeeAsset: slot.FeeAsset, FeeClientOID: slot.feeClientOID,
 			OrderCommission: slot.orderCommission, FeeValuationUnknown: slot.feeValuationUnknown,
-			OrderBaseFeeQty: slot.orderBaseFeeQty, CycleGen: slot.cycleGen, FeeSupplementUntil: slot.feeSupplementUntil,
+			OrderBaseFeeQty: slot.orderBaseFeeQty, CycleGen: slot.cycleGen,
+			PositionEntryOrderID: slot.PositionEntryOrderID, PositionEntryOrderUnknown: slot.PositionEntryOrderAmbiguous,
+			FeeSupplementUntil:        slot.feeSupplementUntil,
 			PendingFeeSupplementCount: slot.pendingFeeSupplementCount,
 			LastFilledClientOID:       slot.lastFilledClientOID, LastTerminalFill: slot.lastTerminalFill,
 			BaseFeeUnfloored: slot.baseFeeUnfloored, AvgBuyPrice: slot.AvgBuyPrice,
@@ -98,6 +100,17 @@ func (spm *SuperPositionManager) RestoreGridRuntimeState() (bool, error) {
 			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
 				slot.CostBasisUnverified = true
 				slot.AvgBuyPrice = 0
+			}
+		}
+		snapshot.Version = 3
+		schemaVersion = 3
+	}
+	if schemaVersion == 3 && snapshot.Version == 3 {
+		migratedSchema = true
+		for i := range snapshot.Slots {
+			slot := &snapshot.Slots[i]
+			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+				slot.PositionEntryOrderUnknown = true
 			}
 		}
 		snapshot.Version = gridRuntimeStateSchemaVersion
@@ -170,6 +183,7 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			BuyFee: state.BuyFee, FeeAsset: state.FeeAsset, feeClientOID: state.FeeClientOID,
 			orderCommission: state.OrderCommission, feeValuationUnknown: state.FeeValuationUnknown,
 			orderBaseFeeQty: state.OrderBaseFeeQty, cycleGen: state.CycleGen, feeSupplementUntil: state.FeeSupplementUntil,
+			PositionEntryOrderID: state.PositionEntryOrderID, PositionEntryOrderAmbiguous: state.PositionEntryOrderUnknown,
 			pendingFeeSupplementCount: state.PendingFeeSupplementCount,
 			lastFilledClientOID:       state.LastFilledClientOID, lastTerminalFill: state.LastTerminalFill,
 			baseFeeUnfloored: state.BaseFeeUnfloored, AvgBuyPrice: state.AvgBuyPrice,

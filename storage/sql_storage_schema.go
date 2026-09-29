@@ -95,6 +95,7 @@ func createTables(db *sql.DB) error {
 		fee REAL NOT NULL,
 		fee_asset TEXT NOT NULL DEFAULT '',
 		base_fee_qty REAL NOT NULL DEFAULT 0,
+		executed_qty REAL NOT NULL DEFAULT 0,
 		reason TEXT NOT NULL,
 		evidence_note TEXT NOT NULL DEFAULT '',
 		status TEXT NOT NULL DEFAULT 'pending',

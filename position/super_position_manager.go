@@ -164,6 +164,10 @@ type InventorySlot struct {
 	// cycleGen 持倉週期代號：槽位持倉清空（平倉完成/強制同步清倉）時遞增。
 	// 異步手續費補查攜帶發起時的代號，回來時不一致即說明原週期已結束，不得寫入新週期的 BuyFee/持倉。
 	cycleGen uint64
+	// A closed grid trade can safely receive a late opening-fee correction only
+	// when its position cycle came from exactly one identified opening order.
+	PositionEntryOrderID        int64
+	PositionEntryOrderAmbiguous bool
 	// feeSupplementUntil 現貨開倉買單正在 REST 補查手續費（可能需扣減基礎幣到帳數量）的截止時間；
 	// 截止前暫緩為該槽位掛平倉單，避免按毛數量掛單超出實際可用餘額。零值表示無補查在途。
 	feeSupplementUntil time.Time
@@ -258,7 +262,7 @@ type GridRuntimeStateStore interface {
 	SaveRuntimeState(strategyName string, schemaVersion int, payload string) error
 }
 
-const gridRuntimeStateSchemaVersion = 3
+const gridRuntimeStateSchemaVersion = 4
 
 type gridRuntimeStateSnapshot struct {
 	Version      int                       `json:"version"`
@@ -295,6 +299,8 @@ type gridRuntimeSlotSnapshot struct {
 	FeeValuationUnknown       bool         `json:"fee_valuation_unknown"`
 	OrderBaseFeeQty           float64      `json:"order_base_fee_qty"`
 	CycleGen                  uint64       `json:"cycle_gen"`
+	PositionEntryOrderID      int64        `json:"position_entry_order_id"`
+	PositionEntryOrderUnknown bool         `json:"position_entry_order_unknown"`
 	FeeSupplementUntil        time.Time    `json:"fee_supplement_until"`
 	PendingFeeSupplementCount int          `json:"pending_fee_supplement_count"`
 	LastFilledClientOID       string       `json:"last_filled_client_oid"`

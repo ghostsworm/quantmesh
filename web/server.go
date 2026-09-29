@@ -560,6 +560,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			{
 				profit.GET("/summary", getProfitSummaryHandler)
 				profit.GET("/fee-corrections", getPendingTradeFeeCorrectionsHandler)
+				profit.POST("/fee-corrections/:id/reconcile", reconcileTradeFeeCorrectionHandler)
 				profit.GET("/funding", getFundingHistoryHandler)
 				profit.GET("/by-strategy", getStrategyProfitsHandler)
 				profit.GET("/by-strategy/:id", getStrategyProfitDetailHandler)

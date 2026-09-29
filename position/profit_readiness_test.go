@@ -48,11 +48,39 @@ func TestGridTradeFeeAssetMatchesConvertedQuoteAmount(t *testing.T) {
 		t.Fatalf("saved trades=%d want 1", len(store.trades))
 	}
 	trade := store.trades[0]
+	if trade.BuyOrderID != 301 || trade.SellOrderID != 302 {
+		t.Fatalf("paired trade order ownership = open:%d close:%d, want open:301 close:302", trade.BuyOrderID, trade.SellOrderID)
+	}
 	if trade.FeeAsset != "USDT" {
 		t.Fatalf("fee amount is quote-valued but FeeAsset=%q; want USDT", trade.FeeAsset)
 	}
 	if math.Abs(trade.Fee-6.1) > 1e-9 {
 		t.Fatalf("quote-converted total fee=%v want 6.1", trade.Fee)
+	}
+}
+
+func TestGridTradeLeavesOpeningOrderUnlinkedWhenPositionUsesMultipleOrders(t *testing.T) {
+	spm := newFillFeeSPM(t, "futures", &MockExchange{})
+	store := &auditTradeRecorder{}
+	spm.SetTradeStorage(store)
+
+	firstClientID := openBuy(spm, 311)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 311, ClientOrderID: firstClientID, Symbol: "ETHUSDT", Status: "CANCELED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice, Commission: 0.01, CommissionAsset: "USDT"})
+	secondClientID := openBuy(spm, 312)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 312, ClientOrderID: secondClientID, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice, Commission: 0.01, CommissionAsset: "USDT"})
+
+	closeClientID := spm.generateClientOrderID(fillFeeTestPrice, "SELL", "")
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 313, ClientOrderID: closeClientID, Symbol: "ETHUSDT", Status: "NEW", Side: "SELL", Price: fillFeeTestPrice + 10})
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 313, ClientOrderID: closeClientID, Symbol: "ETHUSDT", Status: "FILLED", Side: "SELL",
+		ExecutedQty: 1, AvgPrice: fillFeeTestPrice + 10, Commission: 0.01, CommissionAsset: "USDT", RealizedPnL: 10})
+
+	if len(store.trades) != 1 {
+		t.Fatalf("saved trades=%d want 1", len(store.trades))
+	}
+	if store.trades[0].BuyOrderID != 0 || store.trades[0].SellOrderID != 313 {
+		t.Fatalf("ambiguous paired trade order ownership = open:%d close:%d, want open unknown and close 313", store.trades[0].BuyOrderID, store.trades[0].SellOrderID)
 	}
 }
 

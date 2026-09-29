@@ -40,6 +40,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	slot.BuyFee, slot.FeeAsset = 0.03, "USDT"
 	slot.feeClientOID, slot.orderCommission, slot.orderBaseFeeQty = "owned-cid", 0.01, 0.0001
 	slot.feeValuationUnknown, slot.cycleGen = true, 4
+	slot.PositionEntryOrderID, slot.PositionEntryOrderAmbiguous = 7001, false
 	slot.pendingFeeSupplementCount = 2
 	slot.lastFilledClientOID = "previous-cid"
 	slot.lastTerminalFill = FillProgress{Quantity: 0.1, Notional: 9.9}
@@ -69,7 +70,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 ||
 		!state.FeeValuationUnknown || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
 		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 ||
-		!state.CostBasisUnverified || state.AllocatedMargin != 147.75 {
+		!state.CostBasisUnverified || state.AllocatedMargin != 147.75 || state.PositionEntryOrderID != 7001 || state.PositionEntryOrderUnknown {
 		t.Fatalf("snapshot lost grid accounting cursor: %+v", state)
 	}
 
@@ -91,6 +92,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	defer restoredSlot.(*InventorySlot).mu.RUnlock()
 	if restoredSlot.(*InventorySlot).PositionQty != 1.5 || restoredSlot.(*InventorySlot).feeClientOID != "owned-cid" ||
 		restoredSlot.(*InventorySlot).lastTerminalFill.Quantity != .1 || restoredSlot.(*InventorySlot).pendingFeeSupplementCount != 2 ||
+		restoredSlot.(*InventorySlot).PositionEntryOrderID != 7001 || restoredSlot.(*InventorySlot).PositionEntryOrderAmbiguous ||
 		restored.anchorPrice() != 100 {
 		t.Fatalf("restored accounting state mismatch: %+v", restoredSlot.(*InventorySlot))
 	}
@@ -128,7 +130,7 @@ func TestRestoreGridRuntimeStateMigratesUnprovenLegacyCostBasis(t *testing.T) {
 	slot := spm.getOrCreateSlot(110)
 	slot.mu.RLock()
 	defer slot.mu.RUnlock()
-	if !slot.CostBasisUnverified || !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
+	if !slot.CostBasisUnverified || !slot.PositionEntryOrderAmbiguous || slot.PositionEntryOrderID != 0 || !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
 		t.Fatal("legacy position without terminal fill evidence was trusted")
 	}
 }

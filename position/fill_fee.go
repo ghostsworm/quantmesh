@@ -69,6 +69,8 @@ func (slot *InventorySlot) resetPositionCycleLocked() {
 	slot.BuyFee = 0
 	slot.AvgBuyPrice = 0
 	slot.CostBasisUnverified = false
+	slot.PositionEntryOrderID = 0
+	slot.PositionEntryOrderAmbiguous = false
 	slot.feeValuationUnknown = false
 	slot.baseFeeUnfloored = false
 	slot.feeSupplementUntil = time.Time{}
@@ -436,6 +438,7 @@ func (spm *SuperPositionManager) recordFeeCorrection(tag feeSupplementTag, sum f
 	data := map[string]interface{}{
 		"bot_id":          spm.botID,
 		"exchange":        spm.exchangeName,
+		"market_type":     spm.config.Trading.MarketType,
 		"symbol":          tag.symbol,
 		"order_id":        tag.orderID,
 		"client_order_id": tag.clientOID,
@@ -444,6 +447,7 @@ func (spm *SuperPositionManager) recordFeeCorrection(tag feeSupplementTag, sum f
 		"fee":             sum.commission,
 		"fee_asset":       sum.asset,
 		"base_fee_qty":    sum.baseFeeQty,
+		"executed_qty":    sum.qty,
 		"reason":          reason,
 	}
 	if writer, ok := spm.tradeStorage.(interface {
@@ -453,7 +457,8 @@ func (spm *SuperPositionManager) recordFeeCorrection(tag feeSupplementTag, sum f
 			Exchange: spm.exchangeName, Symbol: tag.symbol, OrderID: tag.orderID,
 			ClientOrderID: tag.clientOID, Leg: leg, Side: tag.side,
 			Fee: sum.commission, FeeAsset: sum.asset, BaseFeeQty: sum.baseFeeQty, Reason: reason,
-			CreatedAt: spm.now(),
+			ExecutedQty: sum.qty,
+			CreatedAt:   spm.now(),
 		}
 		correctionID, err := writer.SaveTradeFeeCorrection(correction)
 		if err != nil {

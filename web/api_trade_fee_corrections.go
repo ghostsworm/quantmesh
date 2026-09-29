@@ -13,6 +13,10 @@ type pendingTradeFeeCorrectionStorage interface {
 	GetPendingTradeFeeCorrections(exchange, marketType, symbol, accountScope, botID string) ([]*storage.TradeFeeCorrection, error)
 }
 
+type tradeFeeCorrectionReconciler interface {
+	ResolveTradeFeeCorrection(correctionID, exchange, marketType, symbol, accountScope, botID, evidence string, resolvedAt time.Time) error
+}
+
 type pendingTradeFeeCorrectionResponse struct {
 	CorrectionID  string    `json:"correction_id"`
 	BotID         string    `json:"bot_id"`
@@ -25,7 +29,10 @@ type pendingTradeFeeCorrectionResponse struct {
 	Side          string    `json:"side"`
 	Fee           float64   `json:"fee"`
 	FeeAsset      string    `json:"fee_asset,omitempty"`
+	ExecutedQty   float64   `json:"executed_qty"`
 	Reason        string    `json:"reason"`
+	LegacyEvent   bool      `json:"legacy_unscoped_event"`
+	CanApply      bool      `json:"basic_apply_eligibility"`
 	CreatedAt     time.Time `json:"created_at"`
 }
 
@@ -78,8 +85,59 @@ func getPendingTradeFeeCorrectionsHandler(c *gin.Context) {
 			CorrectionID: correction.CorrectionID, BotID: correction.BotID, Exchange: correction.Exchange,
 			MarketType: correction.MarketType, Symbol: correction.Symbol, OrderID: correction.OrderID,
 			ClientOrderID: correction.ClientOrderID, Leg: correction.Leg, Side: correction.Side,
-			Fee: correction.Fee, FeeAsset: correction.FeeAsset, Reason: correction.Reason, CreatedAt: correction.CreatedAt,
+			Fee: correction.Fee, FeeAsset: correction.FeeAsset, ExecutedQty: correction.ExecutedQty,
+			Reason: correction.Reason, LegacyEvent: correction.LegacyEvent,
+			CanApply:  !correction.LegacyEvent && correction.Fee > 0 && correction.FeeAsset != "" && correction.ExecutedQty > 0 && correction.BaseFeeQty == 0,
+			CreatedAt: correction.CreatedAt,
 		})
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true, "pending": response, "resolution_supported": false})
+	c.JSON(http.StatusOK, gin.H{"success": true, "pending": response, "resolution_supported": true})
+}
+
+type reconcileTradeFeeCorrectionRequest struct {
+	BotID      string `json:"bot_id" binding:"required"`
+	Exchange   string `json:"exchange" binding:"required"`
+	MarketType string `json:"market_type" binding:"required"`
+	Symbol     string `json:"symbol" binding:"required"`
+	Evidence   string `json:"evidence" binding:"required"`
+	Confirm    bool   `json:"confirm_apply"`
+}
+
+// reconcileTradeFeeCorrectionHandler applies only a full, exact, quote-asset
+// fee allocation. The running opening gate stays held until a restart reloads
+// the persisted pending-correction set.
+func reconcileTradeFeeCorrectionHandler(c *gin.Context) {
+	correctionID := strings.TrimSpace(c.Param("id"))
+	var request reconcileTradeFeeCorrectionRequest
+	if correctionID == "" || c.ShouldBindJSON(&request) != nil || !request.Confirm || len(strings.TrimSpace(request.Evidence)) < 12 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "valid correction identity, evidence, and explicit confirmation are required"})
+		return
+	}
+	status := pickStatus(c)
+	if status == nil || !strings.EqualFold(status.Exchange, request.Exchange) || !strings.EqualFold(status.Symbol, request.Symbol) ||
+		!strings.EqualFold(status.MarketType, request.MarketType) || strings.TrimSpace(status.AccountScope) == "" {
+		c.JSON(http.StatusConflict, gin.H{"error": "requested scope does not match a verified active runtime"})
+		return
+	}
+	storageProvider := PickStorageProvider(c)
+	if storageProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fee reconciliation storage is unavailable"})
+		return
+	}
+	store := storageProvider.GetStorage()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fee reconciliation storage is unavailable"})
+		return
+	}
+	reconciler, ok := store.(tradeFeeCorrectionReconciler)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "fee reconciliation storage is unsupported"})
+		return
+	}
+	if err := reconciler.ResolveTradeFeeCorrection(correctionID, request.Exchange, request.MarketType,
+		request.Symbol, status.AccountScope, strings.TrimSpace(request.BotID), strings.TrimSpace(request.Evidence), time.Now().UTC()); err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "fee correction could not be applied; the opening hold remains active"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "restart_required": true})
 }

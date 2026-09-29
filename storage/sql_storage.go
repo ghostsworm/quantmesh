@@ -96,6 +96,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("創建表失败: %w", err)
 		}
+		if err := migrateTradeFeeCorrectionsTableSQLite(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trade_fee_corrections 表失败: %w", err)
+		}
 		if err := migrateOrderFillsTable(db, false); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 order_fills 表失败: %w", err)

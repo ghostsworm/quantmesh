@@ -104,9 +104,11 @@ type TradeFeeCorrection struct {
 	Fee           float64
 	FeeAsset      string
 	BaseFeeQty    float64
+	ExecutedQty   float64
 	Reason        string
 	Evidence      string
 	Status        string
+	LegacyEvent   bool
 	CreatedAt     time.Time
 }
 

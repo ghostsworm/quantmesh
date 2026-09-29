@@ -53,7 +53,7 @@ func TestTradeStorageAdapterPersistsOwnerScopedFeeCorrection(t *testing.T) {
 	defer ss.GetStorage().Close()
 
 	adapter := &tradeStorageAdapter{storageService: ss, accountID: "acct", accountScope: "credential-a", botID: "bot-a", marketType: "futures"}
-	correction := &storage.TradeFeeCorrection{Exchange: "BINANCE", Symbol: "btcusdt", OrderID: 919, Leg: "close", Side: "SELL", Fee: 0.5, FeeAsset: "USDT", Reason: "late REST supplement"}
+	correction := &storage.TradeFeeCorrection{Exchange: "BINANCE", Symbol: "btcusdt", OrderID: 919, Leg: "close", Side: "SELL", Fee: 0.5, FeeAsset: "USDT", ExecutedQty: 0.2, Reason: "late REST supplement"}
 	firstID, err := adapter.SaveTradeFeeCorrection(correction)
 	if err != nil {
 		t.Fatalf("persist scoped fee correction: %v", err)
