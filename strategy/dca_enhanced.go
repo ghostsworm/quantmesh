@@ -426,6 +426,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	}
 	var totalQty, totalCost float64
 	closeLayerFound := state.CloseLayerIndex < 0
+	layerIndexes := make(map[int]struct{}, len(state.Layers))
 	for _, layer := range state.Layers {
 		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.RequestedQuantity < 0 ||
 			layer.FillProgress.Quantity < 0 || layer.FillProgress.Notional < 0 ||
@@ -433,6 +434,22 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 			!finiteNumber(layer.RequestedQuantity) || !finiteNumber(layer.FillProgress.Quantity) || !finiteNumber(layer.FillProgress.Notional) ||
 			layer.FillProgress.Quantity > layer.RequestedQuantity+entryQtyEpsilon {
 			return fmt.Errorf("DCA runtime state contains invalid layer")
+		}
+		if _, duplicate := layerIndexes[layer.Index]; duplicate {
+			return fmt.Errorf("DCA runtime state contains duplicate layer index %d", layer.Index)
+		}
+		layerIndexes[layer.Index] = struct{}{}
+		switch layer.Status {
+		case entryStatusPending:
+			if layer.Quantity != 0 || layer.Cost != 0 || layer.OpeningFee != 0 || layer.FillProgress.Quantity != 0 {
+				return fmt.Errorf("DCA pending layer %d contains attributed fills", layer.Index)
+			}
+		case entryStatusPartiallyFilled, entryStatusFilled:
+			if layer.Quantity <= 0 || layer.Cost <= 0 || layer.FillProgress.Quantity+entryQtyEpsilon < layer.Quantity {
+				return fmt.Errorf("DCA filled layer %d has inconsistent inventory", layer.Index)
+			}
+		default:
+			return fmt.Errorf("DCA runtime state contains unknown layer status %q", layer.Status)
 		}
 		if state.CloseLayerIndex == layer.Index {
 			closeLayerFound = true

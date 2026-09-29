@@ -386,7 +386,7 @@ func TestSpotShortRefusesStartWithoutDurableStateStore(t *testing.T) {
 
 func TestDCAStateSnapshotRoundTripsCloseOrderLayerIdentity(t *testing.T) {
 	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, nil, nil, nil)
-	dca.layers = []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	dca.layers = []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, RequestedQuantity: 1, FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
 	dca.totalQty, dca.totalCost, dca.avgEntryPrice = 1, 100, 100
 	dca.closeLayer = dca.layers[0]
 	dca.isClosing, dca.closeOrderID = true, 99
@@ -411,7 +411,7 @@ func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
 	base := dcaRuntimeState{
 		BotID: "", StrategyName: "dca", Symbol: "BTCUSDT", TotalCost: 100, TotalQty: 1, AvgEntryPrice: 100,
 		CurrentLayer: 1, IsClosing: true, CloseOrderID: 99, CloseLayerIndex: 3, CloseRequestedQty: 1,
-		Layers: []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+		Layers: []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, RequestedQuantity: 1, FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}},
 	}
 	tests := []struct {
 		name  string
@@ -422,7 +422,19 @@ func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
 		{name: "negative opening fee", state: func() dcaRuntimeState {
 			x := base
 			x.CloseLayerIndex = -1
-			x.Layers = []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, OpeningFee: -0.1, Status: entryStatusFilled}}
+			x.Layers = []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, OpeningFee: -0.1, RequestedQuantity: 1, FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
+			return x
+		}()},
+		{name: "duplicate layer index", state: func() dcaRuntimeState {
+			x := base
+			x.CloseLayerIndex = -1
+			x.Layers = append(x.Layers, &DCALayer{Index: 0, Status: entryStatusPending})
+			return x
+		}()},
+		{name: "unknown layer status", state: func() dcaRuntimeState {
+			x := base
+			x.CloseLayerIndex = -1
+			x.Layers[0].Status = "mystery"
 			return x
 		}()},
 	}
