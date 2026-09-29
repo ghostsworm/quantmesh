@@ -45,14 +45,16 @@ type MartingaleStrategy struct {
 	currentLevel int    // 當前马丁层级
 
 	// 状態
-	ctx               context.Context
-	cancel            context.CancelFunc
-	isRunning         bool
-	isClosing         bool
-	closeOrderID      int64
-	closeRequestedQty float64
-	closeProgress     position.FillProgress
-	closeRealizedPnL  float64
+	ctx                context.Context
+	cancel             context.CancelFunc
+	isRunning          bool
+	isClosing          bool
+	closeOrderID       int64
+	closeRequestedQty  float64
+	closeProgress      position.FillProgress
+	closeRealizedPnL   float64
+	pendingCloseReason string
+	lastEntryCancelAt  time.Time
 
 	// 统计
 	stats *StrategyStatistics
@@ -65,6 +67,8 @@ type MartingaleStrategy struct {
 	runtimeStateStore RuntimeStateStore
 	runtimeStateErr   error
 }
+
+const martingaleEntryCancelRetryInterval = 3 * time.Second
 
 // MartingaleConfig 马丁格尔配置
 type MartingaleConfig struct {
@@ -796,6 +800,10 @@ func martingaleEntryHasAttributedFill(entry *MartingaleEntry) bool {
 
 // cancelPendingEntries 撤销所有未完全成交的开倉單（撤單回報到達後再回滚入场記錄）
 func (s *MartingaleStrategy) cancelPendingEntries() {
+	now := time.Now()
+	if !s.lastEntryCancelAt.IsZero() && now.Sub(s.lastEntryCancelAt) < martingaleEntryCancelRetryInterval {
+		return
+	}
 	ids := make([]int64, 0)
 	for _, entry := range s.entries {
 		if (entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled) && entry.OrderID > 0 {
@@ -805,6 +813,7 @@ func (s *MartingaleStrategy) cancelPendingEntries() {
 	if len(ids) == 0 {
 		return
 	}
+	s.lastEntryCancelAt = now
 	if err := s.executor.BatchCancelOrders(ids); err != nil {
 		logger.Warn("⚠️ [%s] 平倉前撤销未成交开倉單失败 (订單=%v): %v", s.name, ids, err)
 	}
@@ -812,6 +821,9 @@ func (s *MartingaleStrategy) cancelPendingEntries() {
 
 // checkTakeProfitStopLoss 检查止盈止损
 func (s *MartingaleStrategy) checkTakeProfitStopLoss(price float64) error {
+	if s.pendingCloseReason != "" {
+		return s.closeAllPositions(price, s.pendingCloseReason)
+	}
 	if len(s.entries) == 0 || s.totalQty == 0 || s.avgEntryPrice <= 0 {
 		return nil
 	}
@@ -849,12 +861,23 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 		}
 	}
 	if s.totalQty <= 0 {
+		if s.pendingCloseReason != "" {
+			s.pendingCloseReason = ""
+			return s.persistRuntimeStateLocked()
+		}
 		return nil
+	}
+	if s.pendingCloseReason == "" {
+		s.pendingCloseReason = reason
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			return fmt.Errorf("持久化马丁平仓意图失败，未发送撤单或平仓请求: %w", err)
+		}
 	}
 	if s.hasCancelablePendingEntry() {
 		s.cancelPendingEntries()
 		return nil
 	}
+	reason = s.pendingCloseReason
 
 	side := "SELL"
 	if s.direction == "SHORT" {
@@ -892,6 +915,7 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 	s.closeRequestedQty = s.totalQty
 	s.closeProgress = position.FillProgress{}
 	s.closeRealizedPnL = 0
+	s.pendingCloseReason = ""
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale close order accepted but runtime state persistence failed")
 		return err

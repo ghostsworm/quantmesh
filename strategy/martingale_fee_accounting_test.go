@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -174,6 +175,15 @@ func TestMartingaleCloseWaitsForPendingEntryTerminalBeforeSubmitting(t *testing.
 	if len(executor.canceled) != 1 || executor.canceled[0] != 45 || len(executor.orders) != 0 || s.isClosing {
 		t.Fatalf("close submitted before pending entry reached terminal state: canceled=%v orders=%d closing=%v", executor.canceled, len(executor.orders), s.isClosing)
 	}
+	if s.pendingCloseReason != "止损" {
+		t.Fatalf("pending close reason was not retained: %q", s.pendingCloseReason)
+	}
+	if err := s.closeAllPositions(80, "止损"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 1 {
+		t.Fatalf("repeated close evaluation should throttle duplicate cancel requests: %v", executor.canceled)
+	}
 	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: 45, Status: "CANCELED"}); err != nil {
 		t.Fatal(err)
 	}
@@ -185,6 +195,46 @@ func TestMartingaleCloseWaitsForPendingEntryTerminalBeforeSubmitting(t *testing.
 	}
 	if len(executor.orders) != 1 || executor.orders[0].Quantity != 1 || !s.isClosing {
 		t.Fatalf("close was not submitted against confirmed inventory after terminal cancel: orders=%+v qty=%v closing=%v", executor.orders, s.totalQty, s.isClosing)
+	}
+}
+
+func TestMartingalePendingCloseIntentSurvivesRestartAndUsesFreshPrice(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	firstExecutor := &cancelRecordingExecutor{}
+	first := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, firstExecutor, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, first)
+	first.direction = "LONG"
+	first.entries = []*MartingaleEntry{
+		{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled},
+		{Level: 2, OrderID: 46, Price: 90, RequestedQuantity: 0.5, Status: entryStatusPending},
+	}
+	first.updateTotals()
+	first.SetRuntimeStateStore(store)
+	if err := first.closeAllPositions(80, "止损"); err != nil {
+		t.Fatal(err)
+	}
+	var persisted martingaleRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &persisted) != nil || persisted.PendingCloseReason != "止损" {
+		t.Fatalf("close intent was not durably persisted before cancellation: %s", store.payload)
+	}
+
+	secondExecutor := &hedgeOrderExecutor{}
+	second := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, secondExecutor, &hedgeExchange{}, nil)
+	second.SetRuntimeStateStore(store)
+	if err := second.Start(t.Context()); err != nil {
+		t.Fatalf("restore pending close: %v", err)
+	}
+	if second.pendingCloseReason != "止损" || !second.hasPendingEntry() {
+		t.Fatalf("restored state lost pending close/entry order: reason=%q entries=%+v", second.pendingCloseReason, second.entries)
+	}
+	if err := second.OnOrderUpdate(&position.OrderUpdate{OrderID: 46, Status: "CANCELED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.OnPriceChange(85); err != nil {
+		t.Fatalf("resume pending close at fresh price: %v", err)
+	}
+	if len(secondExecutor.orders) != 1 || secondExecutor.orders[0].Price != 85 || secondExecutor.orders[0].Quantity != 1 || !second.isClosing || second.pendingCloseReason != "" {
+		t.Fatalf("pending stop was not resumed with fresh price and confirmed inventory: orders=%+v qty=%v closing=%v pending=%q", secondExecutor.orders, second.totalQty, second.isClosing, second.pendingCloseReason)
 	}
 }
 

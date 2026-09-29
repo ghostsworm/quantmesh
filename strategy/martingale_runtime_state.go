@@ -12,23 +12,24 @@ import (
 const martingaleRuntimeStateSchemaVersion = 1
 
 type martingaleRuntimeState struct {
-	BotID             string                `json:"bot_id"`
-	StrategyName      string                `json:"strategy_name"`
-	Symbol            string                `json:"symbol"`
-	Direction         string                `json:"direction"`
-	Entries           []*MartingaleEntry    `json:"entries"`
-	TotalCost         float64               `json:"total_cost"`
-	TotalQty          float64               `json:"total_qty"`
-	AvgEntryPrice     float64               `json:"avg_entry_price"`
-	CurrentLevel      int                   `json:"current_level"`
-	IsPaused          bool                  `json:"is_paused"`
-	IsClosing         bool                  `json:"is_closing"`
-	CloseOrderID      int64                 `json:"close_order_id"`
-	CloseRequestedQty float64               `json:"close_requested_qty"`
-	CloseProgress     position.FillProgress `json:"close_progress"`
-	CloseRealizedPnL  float64               `json:"close_realized_pnl"`
-	Stats             StrategyStatistics    `json:"stats"`
-	UpdatedAt         time.Time             `json:"updated_at"`
+	BotID              string                `json:"bot_id"`
+	StrategyName       string                `json:"strategy_name"`
+	Symbol             string                `json:"symbol"`
+	Direction          string                `json:"direction"`
+	Entries            []*MartingaleEntry    `json:"entries"`
+	TotalCost          float64               `json:"total_cost"`
+	TotalQty           float64               `json:"total_qty"`
+	AvgEntryPrice      float64               `json:"avg_entry_price"`
+	CurrentLevel       int                   `json:"current_level"`
+	IsPaused           bool                  `json:"is_paused"`
+	IsClosing          bool                  `json:"is_closing"`
+	CloseOrderID       int64                 `json:"close_order_id"`
+	CloseRequestedQty  float64               `json:"close_requested_qty"`
+	CloseProgress      position.FillProgress `json:"close_progress"`
+	CloseRealizedPnL   float64               `json:"close_realized_pnl"`
+	PendingCloseReason string                `json:"pending_close_reason,omitempty"`
+	Stats              StrategyStatistics    `json:"stats"`
+	UpdatedAt          time.Time             `json:"updated_at"`
 }
 
 func (s *MartingaleStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
@@ -44,7 +45,7 @@ func (s *MartingaleStrategy) runtimeStateSnapshotLocked() martingaleRuntimeState
 		AvgEntryPrice: s.avgEntryPrice, CurrentLevel: s.currentLevel,
 		IsPaused: s.isPaused, IsClosing: s.isClosing, CloseOrderID: s.closeOrderID,
 		CloseRequestedQty: s.closeRequestedQty, CloseProgress: s.closeProgress,
-		CloseRealizedPnL: s.closeRealizedPnL, UpdatedAt: time.Now().UTC(),
+		CloseRealizedPnL: s.closeRealizedPnL, PendingCloseReason: s.pendingCloseReason, UpdatedAt: time.Now().UTC(),
 	}
 	if s.stats != nil {
 		state.Stats = *s.stats
@@ -126,6 +127,9 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	if state.IsClosing && state.CloseOrderID <= 0 {
 		return fmt.Errorf("martingale close state is missing its order identity")
 	}
+	if state.IsClosing && state.PendingCloseReason != "" {
+		return fmt.Errorf("martingale runtime state has both an active close order and a pending close intent")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.entries = state.Entries
@@ -133,6 +137,7 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	s.currentLevel = state.CurrentLevel
 	s.isPaused, s.isClosing, s.closeOrderID = state.IsPaused, state.IsClosing, state.CloseOrderID
 	s.closeRequestedQty, s.closeProgress, s.closeRealizedPnL = state.CloseRequestedQty, state.CloseProgress, state.CloseRealizedPnL
+	s.pendingCloseReason = state.PendingCloseReason
 	s.stats = &state.Stats
 	return nil
 }
