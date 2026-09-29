@@ -214,6 +214,14 @@ func (c *Client) GetOrder(ctx context.Context, settle, orderID string) (*Futures
 	return &order, nil
 }
 
+// GetOrderByClientOrderID 查询合约订单；Gate 支持将自定义 text 作为 order_id。
+func (c *Client) GetOrderByClientOrderID(ctx context.Context, settle, clientOrderID string) (*FuturesOrder, error) {
+	if settle == "" || clientOrderID == "" {
+		return nil, fmt.Errorf("settle and client order ID are required")
+	}
+	return c.GetOrder(ctx, settle, clientOrderID)
+}
+
 // BatchCancelOrders 批量取消訂單
 // POST /futures/{settle}/batch_cancel_orders
 // 一次最多撤销20個订單
@@ -345,7 +353,7 @@ func (c *Client) GetOpenOrders(ctx context.Context, settle, contract string) ([]
 // PUT /futures/{settle}/positions/{contract}/leverage
 func (c *Client) SetLeverage(ctx context.Context, settle, contract string, leverage int) error {
 	path := fmt.Sprintf("/futures/%s/positions/%s/leverage", settle, contract)
-	
+
 	body := map[string]interface{}{
 		"leverage": strconv.Itoa(leverage),
 	}

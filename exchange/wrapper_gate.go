@@ -13,6 +13,8 @@ type gateWrapper struct {
 	adapter *gate.GateAdapter
 }
 
+var _ OrderByClientIDQuerier = (*gateWrapper)(nil)
+
 func (w *gateWrapper) GetName() string {
 	return w.adapter.GetName()
 }
@@ -156,6 +158,20 @@ func (w *gateWrapper) GetOrder(ctx context.Context, symbol string, orderID int64
 		Status:        OrderStatus(gateOrder.Status),
 		CreatedAt:     gateOrder.CreatedAt,
 		UpdateTime:    gateOrder.UpdateTime,
+	}, nil
+}
+
+func (w *gateWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	return &Order{
+		OrderID: order.OrderID, ClientOrderID: utils.RemoveBrokerPrefix("gate", order.ClientOrderID),
+		Symbol: order.Symbol, Side: Side(order.Side), Type: OrderType(order.Type),
+		Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty,
+		AvgPrice: order.AvgPrice, Status: OrderStatus(order.Status), CreatedAt: order.CreatedAt,
+		UpdateTime: order.UpdateTime,
 	}, nil
 }
 

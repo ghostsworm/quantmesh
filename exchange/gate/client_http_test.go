@@ -62,6 +62,57 @@ func TestGateClientDoRequestAndErrorLabels(t *testing.T) {
 	}
 }
 
+func TestGateClientGetOrderByClientOrderID(t *testing.T) {
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/futures/usdt/orders/t-close-1" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3,"fill_size":2,"price":"60000","fill_price":"59990"}`))
+	})
+	defer closeServer()
+
+	order, err := client.GetOrderByClientOrderID(context.Background(), "usdt", "t-close-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if order.ID != 17 || order.Text != "t-close-1" || order.Contract != "BTC_USDT" || order.FillSize != 2 {
+		t.Fatalf("unexpected order: %#v", order)
+	}
+}
+
+func TestGateAdapterGetOrderByClientOrderIDValidatesIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, response string
+		wantErr        bool
+	}{
+		{"exact identity", `{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3,"fill_size":2,"price":"60000","fill_price":"59990"}`, false},
+		{"wrong text", `{"id":17,"contract":"BTC_USDT","text":"t-other","status":"finished","size":-3}`, true},
+		{"wrong contract", `{"id":17,"contract":"ETH_USDT","text":"t-close-1","status":"finished","size":-3}`, true},
+		{"missing native ID", `{"id":0,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(tc.response))
+			})
+			defer closeServer()
+			adapter := &GateAdapter{client: client, symbol: "BTCUSDT", gateSymbol: "BTC_USDT", settle: "usdt"}
+			order, err := adapter.GetOrderByClientOrderID(context.Background(), "BTCUSDT", "close-1")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected identity validation error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if order.OrderID != 17 || order.ClientOrderID != "t-close-1" || order.ExecutedQty != 2 || order.AvgPrice != 59990 {
+				t.Fatalf("unexpected converted order: %#v", order)
+			}
+		})
+	}
+}
+
 func TestGateClientFuturesMethodsWithMockServer(t *testing.T) {
 	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

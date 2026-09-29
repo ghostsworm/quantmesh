@@ -1,5 +1,12 @@
 # 实盘准备度整改进度
 
+# 后续续修：Gate 合约 CID 查询接入马丁平仓恢复（3.111.0-rc399）
+
+- Gate USDT/BTC 合约单订单查询可将自定义 `text` 用作 `order_id`。新增恢复查询并核对返回 `text`、合约和正数原生订单 ID，避免错认；订单 fills 仍通过原生数字 ID 查询。
+- BitMEX 暂不接入：项目通用接口以 `int64` 表示订单 ID，但 BitMEX ID 是 UUID 字符串，现有 wrapper 返回 `0`，且成交核验无法由此安全串接。
+- Gate 官方文档提示：默认历史订单查询范围为 6 个月，未成交后取消订单在 60 秒后不能继续用 `text` 查询；因此超出可查范围时恢复必须保持失败关闭，不代表覆盖所有历史状态。
+- 本轮尚未接真实账户或执行实盘订单。
+
 # 后续续修：Bitget CID 查询接入马丁平仓恢复（3.111.0-rc398）
 
 - Bitget 合约使用 `/api/v2/mix/order/detail` 的 `clientOid`，现货使用 `/api/v2/spot/trade/orderInfo` 的 `clientOid`；恢复适配器校验回包 CID、交易对与订单 ID，现货多条匹配拒绝自动认领。

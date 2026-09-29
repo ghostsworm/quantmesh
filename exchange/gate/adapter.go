@@ -445,6 +445,35 @@ func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64
 	return order, nil
 }
 
+// GetOrderByClientOrderID 查询含终态的合约订单，供提交结果不明时恢复使用。
+func (g *GateAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	if symbol != g.symbol || clientOrderID == "" {
+		return nil, fmt.Errorf("invalid Gate order lookup identity: symbol=%q", symbol)
+	}
+	gateClientOrderID := utils.AddBrokerPrefix("gate", clientOrderID)
+	futuresOrder, err := g.client.GetOrderByClientOrderID(ctx, g.settle, gateClientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	if futuresOrder.Text != gateClientOrderID || futuresOrder.Contract != g.gateSymbol || futuresOrder.ID <= 0 {
+		return nil, fmt.Errorf("Gate order lookup identity mismatch for client order ID %q", clientOrderID)
+	}
+	order := &Order{
+		OrderID: futuresOrder.ID, ClientOrderID: futuresOrder.Text, Symbol: g.symbol,
+		Side: convertSide(float64(futuresOrder.Size)), Type: OrderTypeLimit,
+		Quantity: abs(float64(futuresOrder.Size)), ExecutedQty: abs(float64(futuresOrder.FillSize)),
+		Status: convertStatus(futuresOrder.Status), CreatedAt: time.Unix(int64(futuresOrder.CreateTime), 0),
+		UpdateTime: int64(futuresOrder.FinishTime * 1000),
+	}
+	if futuresOrder.Price != "" {
+		order.Price, _ = strconv.ParseFloat(futuresOrder.Price, 64)
+	}
+	if futuresOrder.FillPrice != "" {
+		order.AvgPrice, _ = strconv.ParseFloat(futuresOrder.FillPrice, 64)
+	}
+	return order, nil
+}
+
 // GetOpenOrders 查詢未完成订單
 func (g *GateAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	futuresOrders, err := g.client.GetOpenOrders(ctx, g.settle, g.gateSymbol)
