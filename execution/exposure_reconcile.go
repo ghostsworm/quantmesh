@@ -29,6 +29,7 @@ func (b *ExposureBook) ReconcileGroupPositions(group string, positions []Exposur
 	}
 	for _, intent := range b.intents {
 		if intent.request.Group == group && (!intent.terminal || intent.unknown) {
+			b.reconcileBlocks[group] = struct{}{}
 			b.ready = false
 			return fmt.Errorf("cannot reconcile inventory with unresolved group orders: %w", ErrExposureUnverified)
 		}
@@ -46,12 +47,15 @@ func (b *ExposureBook) ReconcileGroupPositions(group string, positions []Exposur
 	}
 	for _, key := range order {
 		if _, exists := nextLots[key]; exists {
+			b.reconcileBlocks[group] = struct{}{}
 			b.ready = false
 			return fmt.Errorf("reconciled exposure lot conflicts with another group")
 		}
 		nextLots[key] = updated[key]
 		nextOrder = append(nextOrder, key)
 	}
-	b.lots, b.lotOrder, b.ready = nextLots, nextOrder, true
+	b.lots, b.lotOrder = nextLots, nextOrder
+	delete(b.reconcileBlocks, group)
+	b.ready = len(b.reconcileBlocks) == 0
 	return nil
 }

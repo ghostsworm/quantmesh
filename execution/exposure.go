@@ -75,19 +75,20 @@ type exposureIntent struct {
 // must share ONE book. Wiring/restoration must complete before opening begins.
 // No method infers flatness from process restart or from a cancel ACK.
 type ExposureBook struct {
-	mu             sync.Mutex
-	limits         ExposureLimits
-	ready          bool
-	initialized    bool
-	reason         string
-	mark           float64
-	markAt         time.Time
-	markValid      bool
-	markEvidenceAt time.Time
-	maxMarkAge     time.Duration
-	lots           map[string]*exposureLot
-	lotOrder       []string
-	intents        map[string]*exposureIntent
+	mu              sync.Mutex
+	limits          ExposureLimits
+	ready           bool
+	initialized     bool
+	reason          string
+	mark            float64
+	markAt          time.Time
+	markValid       bool
+	markEvidenceAt  time.Time
+	maxMarkAge      time.Duration
+	lots            map[string]*exposureLot
+	lotOrder        []string
+	intents         map[string]*exposureIntent
+	reconcileBlocks map[string]struct{}
 }
 
 func NewExposureBook(limits ExposureLimits, maxMarkAge time.Duration) (*ExposureBook, error) {
@@ -97,7 +98,7 @@ func NewExposureBook(limits ExposureLimits, maxMarkAge time.Duration) (*Exposure
 	if maxMarkAge <= 0 {
 		return nil, fmt.Errorf("positive exposure mark age required")
 	}
-	return &ExposureBook{limits: limits, maxMarkAge: maxMarkAge, lots: make(map[string]*exposureLot), intents: make(map[string]*exposureIntent)}, nil
+	return &ExposureBook{limits: limits, maxMarkAge: maxMarkAge, lots: make(map[string]*exposureLot), intents: make(map[string]*exposureIntent), reconcileBlocks: make(map[string]struct{})}, nil
 }
 
 func exposureNumber(value float64) (*big.Rat, error) {

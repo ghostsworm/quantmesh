@@ -54,3 +54,31 @@ func TestReconcileGroupPositionsRejectsUnresolvedOrdersAndBlocksOpening(t *testi
 		t.Fatalf("verified reconciliation did not restore opening admission: %v", err)
 	}
 }
+
+func TestReconcileOtherGroupCannotClearUnresolvedReconciliationBlock(t *testing.T) {
+	b, now := exposureFixture(t, ExposureLimits{Quantity: 5},
+		ExposurePosition{Key: "grid:slot", Group: "grid", Leg: "LONG", Quantity: 1},
+		ExposurePosition{Key: "dca:lot", Group: "dca", Leg: "LONG", Quantity: 0.5},
+	)
+	if err := b.Reserve(ExposureRequest{ID: "pending-grid", Group: "grid", Lot: "grid:slot", Leg: "LONG", Opening: true, Quantity: 1, Price: 100}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ReconcileGroupPositions("grid", nil); err == nil {
+		t.Fatal("grid reconciliation succeeded with a pending order")
+	}
+	if err := b.ReconcileGroupPositions("dca", []ExposurePosition{{Key: "dca:restored", Group: "dca", Leg: "LONG", Quantity: 0.5}}); err != nil {
+		t.Fatalf("independent DCA inventory reconciliation failed: %v", err)
+	}
+	if err := b.Reserve(ExposureRequest{ID: "must-stay-blocked", Group: "grid", Lot: "new", Leg: "LONG", Opening: true, Quantity: 0.1, Price: 100}, now); err == nil {
+		t.Fatal("reconciling another group cleared the unresolved grid reconciliation block")
+	}
+	if err := b.Observe("pending-grid", ExposureUpdate{Status: "CANCELED", OrderQty: 1, Price: 100}); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.ReconcileGroupPositions("grid", nil); err != nil {
+		t.Fatalf("verified grid retry failed to clear its reconciliation block: %v", err)
+	}
+	if err := b.Reserve(ExposureRequest{ID: "verified-after", Group: "grid", Lot: "new", Leg: "LONG", Opening: true, Quantity: 0.1, Price: 100}, now); err != nil {
+		t.Fatalf("all resolved groups did not restore readiness: %v", err)
+	}
+}
