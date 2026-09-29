@@ -755,9 +755,10 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 		closeSide     string
 		wantSyncCount int
 		wantSyncValue float64
+		wantErr       bool
 	}{
 		{name: "SHORT 本地超出交易所空倉時修剪到絕對值", direction: "SHORT", exchangeSize: -0.03, localQty: 0.05, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0.03},
-		{name: "SHORT 本地少於交易所空倉時補齊到絕對值", direction: "SHORT", exchangeSize: -0.05, localQty: 0.03, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0.05},
+		{name: "SHORT 本地少於交易所空倉時拒絕收編無歸屬差額", direction: "SHORT", exchangeSize: -0.05, localQty: 0.03, closeSide: "BUY", wantErr: true},
 		{name: "SHORT 數量一致不同步", direction: "SHORT", exchangeSize: -0.02, localQty: 0.02, closeSide: "BUY", wantSyncCount: 0},
 		{name: "SHORT 交易所已平倉且無挂單時清空", direction: "SHORT", exchangeSize: 0, localQty: 0.02, closeSide: "BUY", wantSyncCount: 1, wantSyncValue: 0},
 		{name: "SHORT 交易所出現多倉方向不符跳過", direction: "SHORT", exchangeSize: 0.02, localQty: 0.05, closeSide: "BUY", wantSyncCount: 0},
@@ -765,6 +766,7 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 		{name: "BOTH 淨持倉小於本地不修剪", direction: "BOTH", exchangeSize: 0.01, localQty: 0.05, closeSide: "SELL", wantSyncCount: 0},
 		{name: "LONG 交易所出現空倉方向不符跳過", direction: "LONG", exchangeSize: -0.02, localQty: 0.05, closeSide: "SELL", wantSyncCount: 0},
 		{name: "LONG 本地超出交易所時修剪", direction: "LONG", exchangeSize: 0.03, localQty: 0.05, closeSide: "SELL", wantSyncCount: 1, wantSyncValue: 0.03},
+		{name: "LONG 本地少於交易所多倉時拒絕收編無歸屬差額", direction: "LONG", exchangeSize: 0.05, localQty: 0.03, closeSide: "SELL", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -783,14 +785,23 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 				Slots:         map[float64]interface{}{50000.0: filled(tt.localQty, tt.closeSide)},
 			}
 			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
-			if err := r.Reconcile(); err != nil {
-				t.Fatalf("Reconcile() error = %v", err)
+			err := r.Reconcile()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Reconcile() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			if pm.ForceSyncCount != tt.wantSyncCount {
 				t.Fatalf("ForceSyncCount = %d, want %d", pm.ForceSyncCount, tt.wantSyncCount)
 			}
 			if tt.wantSyncCount > 0 && pm.LastForceSync != tt.wantSyncValue {
 				t.Fatalf("ForceSyncPositions(%v), want %v", pm.LastForceSync, tt.wantSyncValue)
+			}
+			if tt.wantErr {
+				if pm.FailReconcileErr == nil {
+					t.Fatal("unowned futures position difference did not engage fail-closed gate")
+				}
+				if pm.ReconcileCount != 0 {
+					t.Fatalf("unowned futures position difference was counted as reconciled: %d", pm.ReconcileCount)
+				}
 			}
 		})
 	}

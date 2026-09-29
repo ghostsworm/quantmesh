@@ -496,8 +496,15 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 				return fmt.Errorf("修剪本地持仓状态失败，拒绝将本轮记为对账成功: %w", err)
 			}
 		} else if localTotal < exchangePosition && exchangePosition > 0.00000001 {
-			// 🔥 本地持倉少於交易所：以交易所為準補齊（現貨 conservative 時不自動收編外部基礎幣）
-			if isSpot && spotInvPolicy != config.SpotInventoryPolicyAdoptAll {
+			// Account-level derivatives positions do not prove ownership by this
+			// Bot. Never adopt the unexplained difference into strategy slots.
+			if !isSpot {
+				ownershipErr := fmt.Errorf("交易所合约持仓 %.8f 大于本 Bot 台账 %.8f，无法证明差额归属；拒绝自动收编并保持交易门控", exchangePosition, localTotal)
+				r.pm.FailReconciliation(ownershipErr)
+				return ownershipErr
+			}
+			// 現貨 conservative 時不自動收編外部基礎幣。
+			if spotInvPolicy != config.SpotInventoryPolicyAdoptAll {
 				logger.Debug("ℹ️ [對账同步] 現貨庫存策略為 conservative，跳過從交易所補齊本地網格庫存（本地: %.6f, 交易所: %.6f）",
 					localTotal, exchangePosition)
 			} else {
