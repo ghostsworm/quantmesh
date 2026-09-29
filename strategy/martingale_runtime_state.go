@@ -111,9 +111,35 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 		return fmt.Errorf("martingale runtime state contains invalid close progress")
 	}
 	var totalQty, totalCost float64
+	seenLevels := make(map[int]struct{}, len(state.Entries))
+	seenActiveOrderIDs := make(map[int64]struct{}, len(state.Entries))
 	for _, entry := range state.Entries {
-		if entry == nil || entry.Quantity < 0 || entry.Cost < 0 || entry.OpeningFee < 0 || entry.RequestedQuantity < 0 || !finiteNumber(entry.Quantity) || !finiteNumber(entry.Cost) || !finiteNumber(entry.OpeningFee) || !finiteNumber(entry.FillProgress.Quantity) || !finiteNumber(entry.FillProgress.Notional) {
+		if entry == nil || entry.Level < 0 || entry.Level >= s.strategyCfg.MaxLevels || entry.Quantity < 0 || entry.Cost < 0 || entry.OpeningFee < 0 || entry.RequestedQuantity < 0 || entry.FillProgress.Quantity < 0 || entry.FillProgress.Notional < 0 || !finiteNumber(entry.Price) || !finiteNumber(entry.Quantity) || !finiteNumber(entry.Cost) || !finiteNumber(entry.OpeningFee) || !finiteNumber(entry.RequestedQuantity) || !finiteNumber(entry.FillProgress.Quantity) || !finiteNumber(entry.FillProgress.Notional) || entry.OrderID < 0 {
 			return fmt.Errorf("martingale runtime state contains invalid entry")
+		}
+		if _, exists := seenLevels[entry.Level]; exists {
+			return fmt.Errorf("martingale runtime state contains duplicate entry levels")
+		}
+		seenLevels[entry.Level] = struct{}{}
+		switch entry.Status {
+		case entryStatusPending, entryStatusPartiallyFilled, entryStatusFilled, position.OrderStatusUnknown:
+		default:
+			return fmt.Errorf("martingale runtime state contains unsupported entry status %q", entry.Status)
+		}
+		if entry.RequestedQuantity > 0 && (entry.Quantity > entry.RequestedQuantity+entryQtyEpsilon || entry.FillProgress.Quantity > entry.RequestedQuantity+entryQtyEpsilon) {
+			return fmt.Errorf("martingale runtime state entry execution exceeds requested quantity")
+		}
+		if entry.Status == entryStatusPending && (entry.Quantity > 0 || entry.Cost > 0 || entry.FillProgress.Quantity > 0) {
+			return fmt.Errorf("martingale pending entry contains attributed fills")
+		}
+		if entry.Status == entryStatusPartiallyFilled && (entry.Quantity <= 0 || entry.FillProgress.Quantity <= 0) {
+			return fmt.Errorf("martingale partially filled entry is missing fill progress")
+		}
+		if (entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled) && entry.OrderID > 0 {
+			if _, exists := seenActiveOrderIDs[entry.OrderID]; exists {
+				return fmt.Errorf("martingale runtime state contains duplicate active entry order IDs")
+			}
+			seenActiveOrderIDs[entry.OrderID] = struct{}{}
 		}
 		if martingaleEntryHasAttributedFill(entry) {
 			totalQty += entry.Quantity

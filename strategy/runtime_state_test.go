@@ -205,6 +205,53 @@ func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {
 	}
 }
 
+func TestMartingaleRuntimeStateRejectsInvalidEntrySnapshots(t *testing.T) {
+	validEntry := func() *MartingaleEntry {
+		return &MartingaleEntry{Level: 1, Price: 100, Quantity: 1, RequestedQuantity: 1, Cost: 100,
+			FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, OrderID: 81, Status: entryStatusFilled}
+	}
+	tests := []struct {
+		name    string
+		entries []*MartingaleEntry
+	}{
+		{name: "duplicate levels", entries: []*MartingaleEntry{validEntry(), validEntry()}},
+		{name: "unknown status", entries: []*MartingaleEntry{{Level: 1, Quantity: 1, Cost: 100, Status: "mystery"}}},
+		{name: "fill exceeds request", entries: []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1.1, RequestedQuantity: 1, Cost: 110, FillProgress: position.FillProgress{Quantity: 1.1, Notional: 110}, Status: entryStatusFilled}}},
+		{name: "partial fill without progress", entries: []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusPartiallyFilled}}},
+		{name: "duplicate active order IDs", entries: []*MartingaleEntry{
+			{Level: 1, RequestedQuantity: 1, OrderID: 82, Status: entryStatusPending},
+			{Level: 2, RequestedQuantity: 1, OrderID: 82, Status: entryStatusPending},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			state := martingaleRuntimeState{StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG", Entries: tc.entries}
+			for _, entry := range tc.entries {
+				if martingaleEntryHasAttributedFill(entry) {
+					state.TotalQty += entry.Quantity
+					state.TotalCost += entry.Cost
+				}
+			}
+			if state.TotalQty > 0 {
+				state.AvgEntryPrice = state.TotalCost / state.TotalQty
+			}
+			payload, err := json.Marshal(state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+			martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			martin.SetRuntimeStateStore(store)
+			if err := martin.Start(context.Background()); err == nil {
+				t.Fatal("martingale started with an invalid persisted entry")
+			}
+			if martin.IsRunning() {
+				t.Fatal("martingale entered running state despite an invalid persisted entry")
+			}
+		})
+	}
+}
+
 func TestMartingaleRuntimeStateRejectsInconsistentCloseProgress(t *testing.T) {
 	tests := []struct {
 		name  string
