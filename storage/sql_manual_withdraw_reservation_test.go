@@ -76,6 +76,52 @@ func TestWithdrawalReservationsSerializeAcrossSymbolsInOneAccountScope(t *testin
 	}
 }
 
+func TestUpdateWithdrawRecordStatusOnlyAllowsProcessingTransitions(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-status-transition.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	newProcessing := func(id string) {
+		t.Helper()
+		if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: id, AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance",
+			StrategyID: "BTCUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual", Status: "processing", Destination: "account",
+			CreatedAt: time.Now().UTC()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newProcessing("pending-record")
+	if err := st.UpdateWithdrawRecordStatus("pending-record", "pending", "", "unknown transfer outcome"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateWithdrawRecordStatus("pending-record", "completed", "late-id", ""); err == nil {
+		t.Fatal("generic status update must not resolve a pending transfer")
+	}
+	newProcessing("completed-record")
+	if err := st.UpdateWithdrawRecordStatus("completed-record", "completed", "", ""); err == nil {
+		t.Fatal("completed withdrawal requires a verifiable transfer ID")
+	}
+	if err := st.UpdateWithdrawRecordStatus("completed-record", "completed", "venue-transfer-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateWithdrawRecordStatus("completed-record", "failed", "", "overwrite"); err == nil {
+		t.Fatal("generic status update must not overwrite a terminal transfer")
+	}
+	if err := st.UpdateWithdrawRecordStatus("missing-record", "failed", "", "no-op must not look successful"); err == nil {
+		t.Fatal("updating an absent withdrawal record must return an error")
+	}
+	if err := st.UpdateWithdrawRecordStatus("pending-record", "cancelled", "", ""); err == nil {
+		t.Fatal("unsupported status transition must be rejected")
+	}
+	got, err := st.GetWithdrawRecord("acct", "pending-record")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "pending" {
+		t.Fatalf("pending reconciliation lock was overwritten: status=%s", got.Status)
+	}
+}
+
 func TestReserveManualWithdrawRecordRejectsUnsafeCases(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/manual-withdraw-reject.db")
 	if err != nil {

@@ -717,17 +717,30 @@ func scanProfitWithdrawRecord(row withdrawRecordScanner) (*ProfitWithdrawRecord,
 
 // UpdateWithdrawRecordStatus 更新提取記錄状態
 func (s *SQLStorage) UpdateWithdrawRecordStatus(id, status, transferID, failedReason string) error {
+	if strings.TrimSpace(id) == "" || (status != "pending" && status != "completed" && status != "failed") {
+		return fmt.Errorf("invalid withdrawal status transition request")
+	}
+	if status == "completed" && strings.TrimSpace(transferID) == "" {
+		return fmt.Errorf("completed withdrawal requires a verifiable transfer ID")
+	}
 	var completedAt interface{}
 	if status == "completed" || status == "failed" {
 		completedAt = time.Now()
 	} else {
 		completedAt = nil
 	}
-	_, err := s.db.Exec(`
-		UPDATE profit_withdraw_records SET status = ?, transfer_id = ?, failed_reason = ?, completed_at = ? WHERE id = ?`,
+	result, err := s.db.Exec(`
+		UPDATE profit_withdraw_records SET status = ?, transfer_id = ?, failed_reason = ?, completed_at = ? WHERE id = ? AND status = 'processing'`,
 		status, transferID, failedReason, completedAt, id)
 	if err != nil {
 		return fmt.Errorf("更新 profit_withdraw_records 状態失败: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("read withdrawal status update result: %w", err)
+	}
+	if updated != 1 {
+		return fmt.Errorf("withdrawal record %s is missing or no longer processing", id)
 	}
 	return nil
 }
