@@ -102,6 +102,12 @@ func TestShutdownRejectsInvalidPositionEvidence(t *testing.T) {
 	if _, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err == nil {
 		t.Fatal("nil position accepted")
 	}
+	for _, position := range []*exchange.Position{{Size: 0}, {Symbol: "ETHUSDT", Size: 0}} {
+		f.queryPositions = func(int) ([]*exchange.Position, error) { return []*exchange.Position{position}, nil }
+		if _, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err == nil {
+			t.Fatalf("unscoped position accepted as BTCUSDT evidence: %+v", position)
+		}
+	}
 	f.queryPositions = func(int) ([]*exchange.Position, error) { return nil, nil }
 	if positions, err := queryShutdownPositions(context.Background(), f, "BTCUSDT"); err == nil || positions != nil {
 		t.Fatalf("nil snapshot accepted as verified flatness: positions=%v err=%v", positions, err)

@@ -61,8 +61,8 @@ func queryShutdownPositions(ctx context.Context, ex exchange.IExchange, symbol s
 		if p == nil {
 			return nil, fmt.Errorf("shutdown positions contain nil entry")
 		}
-		if p.Symbol != "" && !strings.EqualFold(p.Symbol, symbol) {
-			continue
+		if !strings.EqualFold(p.Symbol, symbol) {
+			return nil, fmt.Errorf("shutdown position response contains unexpected symbol %q while verifying %s", p.Symbol, symbol)
 		}
 		if math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
 			return nil, fmt.Errorf("shutdown position quantity is not finite")
