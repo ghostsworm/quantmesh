@@ -896,8 +896,9 @@ func startSymbolRuntime(
 
 		gridZeroFillAccounted := superPositionManager.OnOrderUpdate(*posUpdate)
 		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
+		routedStrategy := ""
+		strategyAccountingVerified := false
 		if strategyManager != nil {
-			routedStrategy := ""
 			if multiExecutor != nil {
 				routedStrategy = multiExecutor.GetStrategyByOrderID(posUpdate.OrderID)
 				if routedStrategy == "" {
@@ -913,11 +914,24 @@ func startSymbolRuntime(
 						"reason": "strategy_accounting_unverified", "requires_reconciliation": true,
 					}})
 				}
+			} else if routedStrategy != "" {
+				strategyAccountingVerified = true
 			}
 		}
 		if multiExecutor != nil {
 			// D5：開倉成交轉為持倉占用、平倉成交按比例釋放、撤單/拒單/過期釋放未成交預留
 			multiExecutor.OnOrderUpdate(posUpdate)
+		}
+		if strategyAccountingVerified {
+			if err := settleVerifiedStrategyIntent(ctx, exchangeExecutor, superPositionManager.OpeningGate(), routedStrategy, posUpdate); err != nil {
+				logger.ErrorCtx(ctx, "[%s] 策略终态订单的执行意图尚未核实结算，已暂停新开仓并保留恢复阻断状态: order_id=%d error=%v", botID, posUpdate.OrderID, err)
+				if eventBus != nil {
+					eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+						"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+						"reason": strategyIntentSettlementBlock, "requires_reconciliation": true,
+					}})
+				}
+			}
 		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
 	}); err != nil {

@@ -184,9 +184,15 @@ func closeProcessRuntimeGroup(ctx context.Context, runtimes []*SymbolRuntime) er
 	}
 	var ownedLong, ownedShort float64
 	for _, rt := range runtimes {
-		long, short := rt.SuperPositionManager.GetPositionLegQuantities()
+		long, short, err := rt.SuperPositionManager.GetPositionLegQuantities()
+		if err != nil {
+			return fmt.Errorf("shutdown Bot %s inventory ledger is unverifiable: %w", rt.Config.ID, err)
+		}
 		ownedLong += long
 		ownedShort += short
+		if math.IsNaN(ownedLong) || math.IsInf(ownedLong, 0) || math.IsNaN(ownedShort) || math.IsInf(ownedShort, 0) {
+			return fmt.Errorf("shutdown Bot inventory aggregate is invalid or overflowing")
+		}
 	}
 	tolerance := shutdownQuantityTolerance(venue.GetQuantityDecimals())
 	if math.Abs(accountLong-ownedLong) > tolerance || math.Abs(accountShort-ownedShort) > tolerance {
@@ -238,9 +244,15 @@ func closeProcessRuntimeGroup(ctx context.Context, runtimes []*SymbolRuntime) er
 	}
 	var expectedLong, expectedShort float64
 	for _, rt := range botOwners {
-		long, short := rt.SuperPositionManager.GetPositionLegQuantities()
+		long, short, err := rt.SuperPositionManager.GetPositionLegQuantities()
+		if err != nil {
+			return errors.Join(errShutdownCloseUnverified, fmt.Errorf("shutdown residual Bot %s inventory is unverifiable: %w", rt.Config.ID, err))
+		}
 		expectedLong += long
 		expectedShort += short
+		if math.IsNaN(expectedLong) || math.IsInf(expectedLong, 0) || math.IsNaN(expectedShort) || math.IsInf(expectedShort, 0) {
+			return errors.Join(errShutdownCloseUnverified, fmt.Errorf("shutdown residual Bot inventory aggregate is invalid or overflowing"))
+		}
 	}
 	if math.Abs(remainingLong-expectedLong) > tolerance || math.Abs(remainingShort-expectedShort) > tolerance {
 		return errors.Join(errShutdownCloseUnverified, fmt.Errorf("shutdown residual does not match Bot-owned close_on_stop inventory: exchange %.12g/%.12g, expected %.12g/%.12g", remainingLong, remainingShort, expectedLong, expectedShort))

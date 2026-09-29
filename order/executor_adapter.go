@@ -377,13 +377,15 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		exchangeOrder, err := oe.exchange.PlaceOrder(callCtx, exchangeReq)
 		callCancel()
 		mapped := oe.mapVenueOrder(req, orderPrice, exchangeOrder)
-		if err != nil && mapped != nil {
-			// A usable venue identity is acceptance evidence even when the
-			// adapter also reports an error. Never release or resend this intent.
-			return mapped, fmt.Errorf("venue acknowledgement requires reconciliation: %w", execution.ErrOrderUnknown)
+		if err != nil && exchangeOrder != nil {
+			// Any non-nil response object contradicts deterministic rejection, even
+			// when its identity is malformed and cannot be mapped safely.
+			return mapped, fmt.Errorf("venue acknowledgement requires reconciliation: %w: %v", execution.ErrOrderUnknown, err)
 		}
 		if err == nil && mapped == nil {
-			err = fmt.Errorf("venue returned no usable order acknowledgement")
+			// A nil/invalid acknowledgement after a successful submission call is
+			// not proof that the venue rejected the order; retain the intent.
+			err = fmt.Errorf("venue returned no usable order acknowledgement: %w", execution.ErrOrderUnknown)
 		}
 		if err != nil && oe.intentAcceptanceObserved(req.ClientOrderID) {
 			return mapped, fmt.Errorf("REST refusal conflicts with observed acceptance; retry forbidden: %w", execution.ErrOrderUnknown)

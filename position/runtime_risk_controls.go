@@ -102,20 +102,36 @@ func (spm *SuperPositionManager) positionLimitReached(price float64) bool {
 // GetPositionExposure measures gross filled inventory, never netting opposite
 // legs or deriving quantity from entry cost. A missing mark does not hide qty.
 func (spm *SuperPositionManager) GetPositionExposure(price float64) (quantity, notional float64, layers int, valued bool) {
+	invalidInventory := false
 	spm.slots.Range(func(_, raw interface{}) bool {
 		slot := raw.(*InventorySlot)
 		slot.mu.RLock()
-		// Opening orders can already hold inventory while still PARTIALLY_FILLED.
-		if slot.PositionQty > 0 {
-			quantity += slot.PositionQty
+		qty := slot.PositionQty
+		// Slots store positive economic quantity for both legs. Treat malformed
+		// values and aggregate overflow as unknown inventory, never as flat.
+		if math.IsNaN(qty) || math.IsInf(qty, 0) || qty < 0 {
+			invalidInventory = true
+		} else if qty > 0 {
+			quantity += qty
+			if math.IsInf(quantity, 0) || math.IsNaN(quantity) {
+				invalidInventory = true
+			}
 			layers++
 		}
 		slot.mu.RUnlock()
 		return true
 	})
+	if invalidInventory {
+		// A finite sentinel keeps API serialization valid while ensuring both
+		// quantity and value limits fail closed at their existing call sites.
+		return math.MaxFloat64, 0, layers, false
+	}
 	valued = price > 0 && !math.IsNaN(price) && !math.IsInf(price, 0)
 	if valued {
 		notional = quantity * price
+		if math.IsNaN(notional) || math.IsInf(notional, 0) {
+			return quantity, 0, layers, false
+		}
 	}
 	return
 }
@@ -124,21 +140,34 @@ func (spm *SuperPositionManager) GetPositionExposure(price float64) (quantity, n
 // side. Opposite legs are deliberately not netted, which is required when a
 // shutdown coordinator reconciles several Bot ledgers against hedge-mode venue
 // positions.
-func (spm *SuperPositionManager) GetPositionLegQuantities() (long, short float64) {
+
+func (spm *SuperPositionManager) GetPositionLegQuantities() (long, short float64, err error) {
+	invalidInventory := false
 	spm.slots.Range(func(_, raw interface{}) bool {
 		slot := raw.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.PositionQty > 0 {
-			if spm.liquidationIsShortLeg(slot.PositionLeg) {
+		qty := slot.PositionQty
+		if math.IsNaN(qty) || math.IsInf(qty, 0) || qty < 0 {
+			invalidInventory = true
+		} else if qty > 0 {
+			if spm.isBoth() && slot.PositionLeg != PositionLegLong && slot.PositionLeg != PositionLegShort {
+				invalidInventory = true
+			} else if spm.liquidationIsShortLeg(slot.PositionLeg) {
 				short += slot.PositionQty
 			} else {
 				long += slot.PositionQty
+			}
+			if math.IsInf(long, 0) || math.IsInf(short, 0) {
+				invalidInventory = true
 			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return long, short
+	if invalidInventory {
+		return 0, 0, fmt.Errorf("position leg inventory is invalid or overflowing")
+	}
+	return long, short, nil
 }
 
 func (spm *SuperPositionManager) SetOpenPositionControl(control config.OpenPositionControl) {

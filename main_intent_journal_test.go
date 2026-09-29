@@ -24,6 +24,7 @@ type runtimeJournalVenue struct {
 	liveOrders  map[int64]*exchange.Order
 	positionErr error
 	orderErr    error
+	getOrderErr error
 	sends       int
 }
 
@@ -66,6 +67,9 @@ func (v *runtimeJournalVenue) PlaceOrder(_ context.Context, req *exchange.OrderR
 func (v *runtimeJournalVenue) GetOrder(_ context.Context, _ string, id int64) (*exchange.Order, error) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.getOrderErr != nil {
+		return nil, v.getOrderErr
+	}
 	if placed := v.liveOrders[id]; placed != nil {
 		copy := *placed
 		return &copy, nil
@@ -196,6 +200,79 @@ func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) 
 			}
 			if venue.sends != 0 {
 				t.Fatal("bootstrap itself submitted an order")
+			}
+		})
+	}
+}
+
+func TestSettleVerifiedStrategyIntentOnlyAfterExactOwnerAccounting(t *testing.T) {
+	for _, scenario := range []struct {
+		name       string
+		strategy   string
+		queryError bool
+	}{
+		{name: "matching_owner", strategy: "dca"},
+		{name: "mismatched_owner", strategy: "trend_following"},
+		{name: "exact_query_failure", strategy: "dca", queryError: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "runtime.db")
+			store, err := storage.NewSQLStorage(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			if err := store.MigrateExecutionIntents(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			scope := runtimeJournalScope()
+			venue := &runtimeJournalVenue{}
+			if scenario.queryError {
+				venue.getOrderErr = errors.New("exact order query unavailable")
+			}
+			executor, gate := newJournalRuntime(venue, scope)
+			if err := configureRuntimeIntentJournal(t.Context(), executor, gate, venue, store, scope); err != nil {
+				t.Fatal(err)
+			}
+			const clientOrderID = "dca-filled"
+			if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+				ClientOrderID: clientOrderID, StrategyName: "dca"}); err != nil {
+				t.Fatal(err)
+			}
+			venue.mu.Lock()
+			venue.liveOrders[1].Status = exchange.OrderStatusFilled
+			venue.liveOrders[1].ExecutedQty = 1
+			venue.liveOrders[1].AvgPrice = 100
+			venue.mu.Unlock()
+			update := &position.OrderUpdate{OrderID: 1, ClientOrderID: clientOrderID, Symbol: scope.Symbol, Side: "BUY",
+				Status: "FILLED", ExecutedQty: 1, AvgPrice: 100}
+			if !observeOwnedRuntimeOrder(executor, update) {
+				t.Fatal("terminal owned order update was not durably observed")
+			}
+
+			err = settleVerifiedStrategyIntent(t.Context(), executor, gate, scenario.strategy, update)
+			if scenario.name == "matching_owner" {
+				if err != nil {
+					t.Fatalf("exact owning strategy could not settle its accounted fill: %v", err)
+				}
+				if gate.HasBlock(strategyIntentSettlementBlock) {
+					t.Fatal("verified settlement left its failure gate blocked")
+				}
+				restarted, restartedGate := newJournalRuntime(venue, scope)
+				if err := configureRuntimeIntentJournal(t.Context(), restarted, restartedGate, venue, store, scope); err != nil || restartedGate.Blocked() {
+					t.Fatalf("settled fill incorrectly blocked restart: err=%v blocked=%t", err, restartedGate.Blocked())
+				}
+				return
+			}
+			if err == nil {
+				t.Fatal("unverified strategy fill was settled")
+			}
+			if !gate.HasBlock(strategyIntentSettlementBlock) {
+				t.Fatal("unverified terminal fill did not immediately block new openings")
+			}
+			restarted, restartedGate := newJournalRuntime(venue, scope)
+			if err := configureRuntimeIntentJournal(t.Context(), restarted, restartedGate, venue, store, scope); !errors.Is(err, execution.ErrOrderUnknown) {
+				t.Fatalf("unsettled mismatched-owner fill did not remain fail-closed on restart: %v", err)
 			}
 		})
 	}

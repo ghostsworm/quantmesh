@@ -18,7 +18,8 @@ func (oe *ExchangeOrderExecutor) VenueClientOrderID(clientOrderID string) string
 // acknowledgement followed by a FILLED lookup must not invent execution at the
 // originally requested price/quantity (venues can quantize/upsize orders).
 func (oe *ExchangeOrderExecutor) mapVenueOrder(req *OrderRequest, fallbackPrice float64, raw *exchange.Order) *Order {
-	if raw == nil || raw.OrderID <= 0 || (raw.Symbol != "" && raw.Symbol != req.Symbol) {
+	if raw == nil || raw.OrderID <= 0 || (raw.Symbol != "" && raw.Symbol != req.Symbol) ||
+		(raw.Side != "" && !strings.EqualFold(string(raw.Side), req.Side)) {
 		return nil
 	}
 	cid := raw.ClientOrderID

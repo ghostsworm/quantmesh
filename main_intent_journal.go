@@ -15,6 +15,7 @@ import (
 )
 
 const runtimeIntentBootstrapBlock = "execution_bootstrap_unverified"
+const strategyIntentSettlementBlock = "strategy_execution_intent_unverified"
 
 // Claim/persist venue evidence before any slot, strategy or capital consumer.
 // Matching a symbol alone is not proof of Bot ownership on a shared account.
@@ -27,7 +28,51 @@ func observeOwnedRuntimeOrder(executor *order.ExchangeOrderExecutor, update *pos
 		Price: update.Price, AvgPrice: update.AvgPrice, ExecutedQty: update.ExecutedQty})
 }
 
-const gridZeroFillSettlementTimeout = 10 * time.Second
+// settleVerifiedStrategyIntent closes the normal positive-fill intent lifecycle
+// only after the exact owning strategy has durably applied its terminal update.
+// The executor performs a fresh exact-order venue query before persisting the
+// settlement, so websocket state alone can never clear the durable intent.
+func settleVerifiedStrategyIntent(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, strategyName string, update *position.OrderUpdate) error {
+	if update == nil || !terminalOrderUpdate(update.Status) || update.ExecutedQty <= 0 || math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) {
+		return nil
+	}
+	if executor == nil || gate == nil {
+		err := fmt.Errorf("terminal strategy fill cannot be reconciled without its executor and opening gate")
+		if gate != nil {
+			gate.Block(strategyIntentSettlementBlock)
+		}
+		return err
+	}
+	var settleErr error
+	defer func() {
+		if settleErr != nil {
+			gate.Block(strategyIntentSettlementBlock)
+		}
+	}()
+	if strategyName == "" || update.OrderID <= 0 || update.ClientOrderID == "" {
+		settleErr = fmt.Errorf("terminal strategy fill is missing its route or exact order identity")
+		return settleErr
+	}
+	clientOrderID, owned := executor.OwnedIntentClientOrderID(update.ClientOrderID)
+	if !owned {
+		settleErr = fmt.Errorf("terminal strategy update has no matching durable execution intent")
+		return settleErr
+	}
+	ownerStrategy, _, found := executor.IntentStrategyType(clientOrderID)
+	if !found || ownerStrategy == "" || ownerStrategy != strategyName {
+		settleErr = fmt.Errorf("terminal strategy update route %q does not match durable intent owner %q", strategyName, ownerStrategy)
+		return settleErr
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, intentSettlementTimeout)
+	defer cancel()
+	settleErr = executor.SettleIntent(queryCtx, clientOrderID)
+	return settleErr
+}
+
+const intentSettlementTimeout = 10 * time.Second
 
 // settleVerifiedGridZeroFill asynchronously settles only a grid intent whose
 // strategy slot was durably updated and whose terminal update reports zero fill.
@@ -46,7 +91,7 @@ func settleVerifiedGridZeroFill(executor *order.ExchangeOrderExecutor, gate *exe
 	copyUpdate := *update
 	copyUpdate.ClientOrderID = canonicalCID
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), gridZeroFillSettlementTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), intentSettlementTimeout)
 		defer cancel()
 		if err := executor.SettleZeroFillIntent(ctx, copyUpdate.ClientOrderID); err != nil {
 			markErr := executor.MarkOrderReconciliationRequired(copyUpdate.OrderID, copyUpdate.ClientOrderID, err.Error())

@@ -189,7 +189,7 @@ func TestProcessShutdownClosesThroughBotIntentJournal(t *testing.T) {
 	}
 	rt.SuperPositionManager.OnOrderUpdate(position.OrderUpdate{OrderID: opened.OrderID, ClientOrderID: opened.ClientOrderID,
 		Symbol: "BTCUSDT", Side: "BUY", Status: "FILLED", ExecutedQty: 1, AvgPrice: 100})
-	if long, short := rt.SuperPositionManager.GetPositionLegQuantities(); long != 1 || short != 0 {
+	if long, short, err := rt.SuperPositionManager.GetPositionLegQuantities(); err != nil || long != 1 || short != 0 {
 		t.Fatalf("Bot ledger not seeded: long=%v short=%v", long, short)
 	}
 	if err := prepareProcessShutdown(t.Context(), []*SymbolRuntime{rt}, true); err != nil {

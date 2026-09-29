@@ -44,6 +44,57 @@ func TestAcknowledgementWithErrorCannotReleaseAcceptedIntent(t *testing.T) {
 	}
 }
 
+type malformedAcknowledgementVenue struct {
+	fakeOrderExchange
+	ack         *exchange.Order
+	responseErr error
+}
+
+func (v *malformedAcknowledgementVenue) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
+	v.placed = append(v.placed, req)
+	if v.ack == nil {
+		return nil, v.responseErr
+	}
+	ack := *v.ack
+	return &ack, v.responseErr
+}
+
+func TestUnverifiableSuccessfulAcknowledgementRetainsUnknownIntent(t *testing.T) {
+	tests := []struct {
+		name string
+		ack  *exchange.Order
+		err  error
+	}{
+		{name: "nil acknowledgement"},
+		{name: "missing venue order id", ack: &exchange.Order{ClientOrderID: "bad-ack", Symbol: "BTCUSDT", Side: exchange.SideBuy, Status: exchange.OrderStatusNew}},
+		{name: "conflicting venue side", ack: &exchange.Order{OrderID: 1, ClientOrderID: "bad-ack", Symbol: "BTCUSDT", Side: exchange.SideSell, Status: exchange.OrderStatusNew}},
+		{name: "malformed acknowledgement with rejection error", ack: &exchange.Order{ClientOrderID: "bad-ack", Symbol: "BTCUSDT", Side: exchange.SideBuy}, err: errors.New("insufficient balance")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			venue := &malformedAcknowledgementVenue{ack: tt.ack, responseErr: tt.err}
+			executor := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot")
+			req := &OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "bad-ack"}
+			if _, err := executor.PlaceOrder(req); !errors.Is(err, execution.ErrOrderUnknown) {
+				t.Fatalf("unverifiable acceptance was reported as deterministic failure: %v", err)
+			}
+			intents := executor.snapshotOwnedIntents()
+			if len(venue.placed) != 1 || len(intents) != 1 || !intents[0].unknown || !executor.IsOpeningPaused() {
+				t.Fatalf("ambiguous intent was released or resent: calls=%d intents=%+v paused=%t", len(venue.placed), intents, executor.IsOpeningPaused())
+			}
+		})
+	}
+}
+
+func TestMapVenueOrderAcceptsCaseVariantMatchingSide(t *testing.T) {
+	executor := NewExchangeOrderExecutor(&fakeOrderExchange{}, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+	got := executor.mapVenueOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "cid"}, 100,
+		&exchange.Order{OrderID: 1, ClientOrderID: "cid", Symbol: "BTCUSDT", Side: exchange.Side("buy"), Status: exchange.OrderStatusNew})
+	if got == nil || got.Side != "BUY" {
+		t.Fatalf("case-insensitive matching venue side was not normalized: %+v", got)
+	}
+}
+
 func TestUnknownSubmissionNeverBlindlyRetries(t *testing.T) {
 	ex := &gatedOrderExchange{market: "futures", fakeOrderExchange: fakeOrderExchange{placeErr: errors.New("connection reset after send")}}
 	oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, lock.NewNopLock(), "test")

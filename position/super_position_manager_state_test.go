@@ -94,6 +94,37 @@ func TestSuperPositionManagerStateAccessorsAndCounters(t *testing.T) {
 	}
 }
 
+func TestGetPositionExposureFailsClosedOnInvalidInventory(t *testing.T) {
+	tests := []struct {
+		name string
+		qtys []float64
+	}{
+		{name: "nan quantity", qtys: []float64{math.NaN()}},
+		{name: "infinite quantity", qtys: []float64{math.Inf(1)}},
+		{name: "negative quantity", qtys: []float64{-1}},
+		{name: "aggregate overflow", qtys: []float64{math.MaxFloat64, math.MaxFloat64}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			spm, _ := newStateTestSPM("LONG", "futures")
+			spm.config.Trading.OpenPositionControl.MaxPositionValue = 100
+			for i, qty := range tt.qtys {
+				slot := spm.getOrCreateSlot(float64(100 + i))
+				slot.mu.Lock()
+				slot.PositionQty = qty
+				slot.mu.Unlock()
+			}
+			qty, value, _, valued := spm.GetPositionExposure(100)
+			if qty != math.MaxFloat64 || value != 0 || valued {
+				t.Fatalf("invalid inventory was not represented as unknown risk: qty=%v value=%v valued=%v", qty, value, valued)
+			}
+			if !spm.positionLimitReached(100) {
+				t.Fatal("value limit treated invalid inventory as flat")
+			}
+		})
+	}
+}
+
 func TestStrategyRecoveryBlocksAreVisibleAsOpeningPauseReasons(t *testing.T) {
 	spm, _ := newStateTestSPM("LONG", "futures")
 	for _, tc := range []struct {
