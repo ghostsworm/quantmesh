@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：Binance 欢迎奖励不计为策略收益（3.111.0-rc432）
+
+- Binance 官方促销说明显示欢迎奖励会记入 Futures 账户，作为保证金/奖励使用且可能受条件限制或被收回；将 `WELCOME_BONUS` 记作策略 rebate 会让非 Bot 交易产生的赠金改写收益表现。
+- 现正数奖励归为 `transfer_in`，负数收回归为 `transfer_out`，新增两种方向测试。此处将奖励/回收视作非交易资本流，是基于官方促销说明及权益中和原则的账务分类推断；未据此泛化到其他收入类型。
+- 仅覆盖 Binance USDⓈ-M Futures `WELCOME_BONUS` USDT 收入流水；不代表其他奖励类型、账户模式、真实账户流水或盈利已验证，R10 仍开放。
+
 # 后续续修：Bitget 体验金不计为策略收益（3.111.0-rc431）
 
 - 官方 Bitget Classic Futures 账单枚举把 `cash_gift_issue/recycle` 与 `bonus_issue/recycle/expired` 定义为体验金/活动金发放、回收或过期；旧分类将其记为 `rebate`（非外部资本），可能让赠金增加策略调整后权益。

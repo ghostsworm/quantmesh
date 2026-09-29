@@ -61,7 +61,14 @@ func incomeEvidence(row *equityIncomeWire) (accounting.Entry, error) {
 			return accounting.Entry{}, fmt.Errorf("positive position-limit fee requires explicit rebate classification")
 		}
 		kind = "fee"
-	case "WELCOME_BONUS", "REFERRAL_KICKBACK", "COMMISSION_REBATE", "API_REBATE", "CONTEST_REWARD", "FEE_RETURN", "BFUSD_REWARD":
+	case "WELCOME_BONUS":
+		// Welcome bonuses are promotional Futures-account credits, not Bot trading
+		// performance. A negative clawback must likewise be neutralized as capital outflow.
+		kind = "transfer_in"
+		if r.Sign() < 0 {
+			kind = "transfer_out"
+		}
+	case "REFERRAL_KICKBACK", "COMMISSION_REBATE", "API_REBATE", "CONTEST_REWARD", "FEE_RETURN", "BFUSD_REWARD":
 		if r.Sign() < 0 {
 			return accounting.Entry{}, fmt.Errorf("negative rebate requires explicit clawback classification")
 		}

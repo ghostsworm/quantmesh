@@ -329,6 +329,22 @@ func TestIncomeEvidenceClassifiesPerformanceEntries(t *testing.T) {
 	}
 }
 
+func TestIncomeEvidenceClassifiesWelcomeBonusAsCapitalFlow(t *testing.T) {
+	for _, test := range []struct {
+		name, amount, want string
+	}{
+		{name: "credit", amount: "10", want: "transfer_in"},
+		{name: "clawback", amount: "-10", want: "transfer_out"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry, err := incomeEvidence(&equityIncomeWire{Type: "WELCOME_BONUS", Amount: test.amount, Asset: "USDT", Time: 1, TransactionID: 1})
+			if err != nil || entry.Kind != test.want {
+				t.Fatalf("entry=%+v err=%v, want kind %q", entry, err, test.want)
+			}
+		})
+	}
+}
+
 func TestIncomeEvidenceRejectsPositivePositionLimitFee(t *testing.T) {
 	_, err := incomeEvidence(&equityIncomeWire{Type: "POSITION_LIMIT_INCREASE_FEE", Amount: "1", Asset: "USDT", Time: 1, TransactionID: 1})
 	if err == nil {
