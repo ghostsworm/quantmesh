@@ -39,9 +39,10 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 			t.Fatal(err)
 		}
 	}
-	realizedBTC, realizedETH := 100.0, 50.0
+	realizedBTC, realizedETH, openFillPnL := 100.0, 50.0, 0.0
 	fills := []OrderFill{
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-open-execution", OrderID: 503, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.5, CommissionAsset: "USDT", RealizedPnL: &openFillPnL, RealizedPnLAsset: "USDT", TradeTime: now},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
 	}
 	for i := range fills {
@@ -66,8 +67,8 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if math.Abs(got-93) > 1e-9 {
-		t.Fatalf("exchange execution PnL with scoped funding=%v, want 93", got)
+	if math.Abs(got-92.5) > 1e-9 {
+		t.Fatalf("exchange execution PnL with zero-PnL opening execution and scoped funding=%v, want 92.5", got)
 	}
 	ethPnL, err := st.GetRealizedPnLForWithdrawal("binance", "ETHUSDT", "scope-a", start, end)
 	if err != nil {

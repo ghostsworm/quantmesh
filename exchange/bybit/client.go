@@ -442,20 +442,20 @@ func (c *BybitClient) GetPositions(ctx context.Context, category, symbol string)
 
 // BybitExecution 訂單執行記錄
 type BybitExecution struct {
-	OrderId     string `json:"orderId"`
-	OrderLinkId string `json:"orderLinkId"`
-	Symbol      string `json:"symbol"`
-	Side        string `json:"side"`
-	ExecPrice   string `json:"execPrice"`
-	ExecQty     string `json:"execQty"`
-	ExecValue   string `json:"execValue"`
-	ExecFee     string `json:"execFee"`     // 手續費
-	FeeRate     string `json:"feeRate"`     // 費率
-	FeeCurrency string `json:"feeCurrency"` // 手續費幣種
-	IsMaker     bool   `json:"isMaker"`     // 是否為 Maker
-	ExecTime    string `json:"execTime"`    // 執行時間（毫秒）
-	TradeId     string `json:"tradeId"`     // 成交ID
-	ClosedPnl   string `json:"closedPnl"`
+	OrderId     string  `json:"orderId"`
+	OrderLinkId string  `json:"orderLinkId"`
+	Symbol      string  `json:"symbol"`
+	Side        string  `json:"side"`
+	ExecPrice   string  `json:"execPrice"`
+	ExecQty     string  `json:"execQty"`
+	ExecValue   string  `json:"execValue"`
+	ExecFee     string  `json:"execFee"`     // 手續費
+	FeeRate     string  `json:"feeRate"`     // 費率
+	FeeCurrency string  `json:"feeCurrency"` // 手續費幣種
+	IsMaker     bool    `json:"isMaker"`     // 是否為 Maker
+	ExecTime    string  `json:"execTime"`    // 執行時間（毫秒）
+	TradeId     string  `json:"tradeId"`     // 成交ID
+	ClosedSize  *string `json:"closedSize"`  // 官方字段：本次執行平倉數量；空值表示未平倉
 }
 
 func (c *BybitClient) GetExecutionHistoryPage(ctx context.Context, category, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {

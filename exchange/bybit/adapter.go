@@ -1060,14 +1060,9 @@ func (b *BybitAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, s
 		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || orderID <= 0 || row.TradeId == "" || row.Symbol != symbol || price <= 0 || qty <= 0 || tradeTime <= 0 {
 			return nil, "", fmt.Errorf("Bybit returned invalid linear execution tradeId=%s", row.TradeId)
 		}
-		pnl, err := strconv.ParseFloat(row.ClosedPnl, 64)
-		if err != nil && row.ClosedPnl != "" {
-			return nil, "", fmt.Errorf("parse Bybit closed PnL tradeId=%s: %w", row.TradeId, err)
-		}
-		pnlKnown := row.ClosedPnl != ""
-		pnlAsset := ""
-		if pnlKnown {
-			pnlAsset = b.settleAsset
+		pnl, pnlKnown, pnlAsset, err := bybitExecutionRealizedPnL(row, b.settleAsset)
+		if err != nil {
+			return nil, "", fmt.Errorf("parse Bybit realized PnL tradeId=%s: %w", row.TradeId, err)
 		}
 		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: pnlKnown, RealizedPnLAsset: pnlAsset})
 	}
@@ -1087,22 +1082,49 @@ func (b *BybitAdapter) GetOrderFills(ctx context.Context, symbol string, orderID
 		qty, _ := strconv.ParseFloat(exec.ExecQty, 64)
 		commission, _ := strconv.ParseFloat(exec.ExecFee, 64)
 		tradeTime, _ := strconv.ParseInt(exec.ExecTime, 10, 64)
+		pnl, pnlKnown, pnlAsset, err := bybitExecutionRealizedPnL(exec, b.settleAsset)
+		if err != nil {
+			return nil, fmt.Errorf("parse Bybit realized PnL tradeId=%s: %w", exec.TradeId, err)
+		}
 
 		fills = append(fills, &BybitOrderFill{
-			OrderID:         orderID,
-			TradeID:         exec.TradeId,
-			Symbol:          exec.Symbol,
-			Side:            exec.Side,
-			Price:           price,
-			Quantity:        qty,
-			Commission:      commission,
-			CommissionAsset: exec.FeeCurrency,
-			TradeTime:       tradeTime,
-			IsMaker:         exec.IsMaker,
+			OrderID:          orderID,
+			TradeID:          exec.TradeId,
+			Symbol:           exec.Symbol,
+			Side:             exec.Side,
+			Price:            price,
+			Quantity:         qty,
+			Commission:       commission,
+			CommissionAsset:  exec.FeeCurrency,
+			TradeTime:        tradeTime,
+			IsMaker:          exec.IsMaker,
+			RealizedPnL:      pnl,
+			RealizedPnLKnown: pnlKnown,
+			RealizedPnLAsset: pnlAsset,
 		})
 	}
 
 	return fills, nil
+}
+
+func bybitExecutionRealizedPnL(row BybitExecution, settlementAsset string) (float64, bool, string, error) {
+	if row.ClosedSize == nil {
+		return 0, false, "", nil
+	}
+	closedSizeText := strings.TrimSpace(*row.ClosedSize)
+	if closedSizeText == "" {
+		return 0, true, settlementAsset, nil
+	}
+	closedSize, err := strconv.ParseFloat(closedSizeText, 64)
+	if err != nil || math.IsNaN(closedSize) || math.IsInf(closedSize, 0) || closedSize < 0 {
+		return 0, false, "", fmt.Errorf("invalid closedSize %q", closedSizeText)
+	}
+	if closedSize == 0 {
+		return 0, true, settlementAsset, nil
+	}
+	// REST /v5/execution/list documents closedSize but not per-execution
+	// realized PnL. Do not consume an undocumented closedPnl extension here.
+	return 0, false, "", nil
 }
 
 func (b *BybitAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

@@ -193,57 +193,74 @@ func (s *OrderSyncService) Sync(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("order synchronization requires idempotent execution-ledger storage")
 	}
-	cursor := ""
-	var totalTrades, syncedOrders int
-	complete := false
-	for page := 0; page < maxTradePages; page++ {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("order history sync canceled before all pages were collected: %w", err)
-		}
-		result, err := historySource.GetOrderHistoryPage(ctx, s.symbol, startTime, endTime, cursor, pageSize)
-		if err != nil {
-			return fmt.Errorf("fetch %s execution history page %d: %w", s.exchangeName, page+1, err)
-		}
-		if len(result.Fills) == 0 {
-			if result.HasMore {
-				return fmt.Errorf("%s returned an empty execution page with more pages available", s.exchangeName)
-			}
-			complete = true
-			break
-		}
-		inWindow := make([]*exchange.OrderFill, 0, len(result.Fills))
-		for _, row := range result.Fills {
-			if row == nil || row.TradeID == "" || row.OrderID <= 0 || row.TradeTime <= 0 || row.Symbol != s.symbol {
-				return fmt.Errorf("exchange returned an invalid execution history row")
-			}
-			if row.TradeTime < startTime {
-				return fmt.Errorf("exchange returned execution older than requested history window")
-			}
-			if row.TradeTime > endTime {
-				return fmt.Errorf("exchange returned execution newer than requested history window")
-			}
-			inWindow = append(inWindow, row)
-		}
-		added, err := s.persistTradePage(inWindow, orderIDReader, fillWriter)
-		if err != nil {
-			return fmt.Errorf("persist order history page %d: %w", page+1, err)
-		}
-		totalTrades += len(inWindow)
-		syncedOrders += added
-		if !result.HasMore {
-			complete = true
-			break
-		}
-		if result.NextCursor == "" || result.NextCursor == cursor {
-			return fmt.Errorf("%s returned an invalid execution pagination cursor", s.exchangeName)
-		}
-		cursor = result.NextCursor
-		if page == maxTradePages-1 {
-			return fmt.Errorf("order history exceeded %d pages; refusing to advance sync watermark", maxTradePages)
+	queryRange := time.Duration(endTime-startTime) * time.Millisecond
+	if limited, ok := s.exchange.(exchange.OrderHistoryRangeLimitedSource); ok {
+		queryRange = limited.MaxOrderHistoryRange()
+		if queryRange < time.Millisecond {
+			return fmt.Errorf("%s returned an invalid maximum execution-history range", s.exchangeName)
 		}
 	}
-	if !complete {
-		return fmt.Errorf("order history pagination ended without a completeness boundary")
+	var totalTrades, syncedOrders int
+	for rangeStart := startTime; rangeStart <= endTime; {
+		rangeEnd := rangeStart + queryRange.Milliseconds()
+		if rangeEnd > endTime {
+			rangeEnd = endTime
+		}
+		cursor := ""
+		complete := false
+		for page := 0; page < maxTradePages; page++ {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("order history sync canceled before all pages were collected: %w", err)
+			}
+			result, err := historySource.GetOrderHistoryPage(ctx, s.symbol, rangeStart, rangeEnd, cursor, pageSize)
+			if err != nil {
+				return fmt.Errorf("fetch %s execution history page %d: %w", s.exchangeName, page+1, err)
+			}
+			if len(result.Fills) == 0 {
+				if result.HasMore {
+					return fmt.Errorf("%s returned an empty execution page with more pages available", s.exchangeName)
+				}
+				complete = true
+				break
+			}
+			inWindow := make([]*exchange.OrderFill, 0, len(result.Fills))
+			for _, row := range result.Fills {
+				if row == nil || row.TradeID == "" || row.OrderID <= 0 || row.TradeTime <= 0 || row.Symbol != s.symbol {
+					return fmt.Errorf("exchange returned an invalid execution history row")
+				}
+				if row.TradeTime < rangeStart {
+					return fmt.Errorf("exchange returned execution older than requested history window")
+				}
+				if row.TradeTime > rangeEnd {
+					return fmt.Errorf("exchange returned execution newer than requested history window")
+				}
+				inWindow = append(inWindow, row)
+			}
+			added, err := s.persistTradePage(inWindow, orderIDReader, fillWriter)
+			if err != nil {
+				return fmt.Errorf("persist order history page %d: %w", page+1, err)
+			}
+			totalTrades += len(inWindow)
+			syncedOrders += added
+			if !result.HasMore {
+				complete = true
+				break
+			}
+			if result.NextCursor == "" || result.NextCursor == cursor {
+				return fmt.Errorf("%s returned an invalid execution pagination cursor", s.exchangeName)
+			}
+			cursor = result.NextCursor
+			if page == maxTradePages-1 {
+				return fmt.Errorf("order history exceeded %d pages; refusing to advance sync watermark", maxTradePages)
+			}
+		}
+		if !complete {
+			return fmt.Errorf("order history pagination ended without a completeness boundary")
+		}
+		if rangeEnd == endTime {
+			break
+		}
+		rangeStart = rangeEnd + 1 // API timestamps are millisecond-precision; avoid gaps and boundary duplicates.
 	}
 	if totalTrades == 0 {
 		logger.Debug("📭 [订单同步] 没有新的成交记录")

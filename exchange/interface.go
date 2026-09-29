@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"errors"
+	"time"
 
 	"quantmesh/exchange/income"
 )
@@ -175,6 +176,12 @@ type OrderHistoryPage struct {
 // history synchronization. Implementations must honor the requested time range.
 type OrderHistoryPageSource interface {
 	GetOrderHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error)
+}
+
+// OrderHistoryRangeLimitedSource exposes a venue-specific maximum time range
+// for a single execution-history query.
+type OrderHistoryRangeLimitedSource interface {
+	MaxOrderHistoryRange() time.Duration
 }
 
 // OrderByClientIDQuerier 可選介面：按自定義訂單 ID 查詢訂單（含已成交/已撤銷訂單）。

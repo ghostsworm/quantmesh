@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/income"
@@ -299,6 +300,10 @@ func (w *bybitSpotWrapper) GetOrderHistoryPage(ctx context.Context, symbol strin
 		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission, CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker, BaseFeeQty: row.BaseFeeQty, QuoteQuantity: row.Price * row.Quantity})
 	}
 	return page, nil
+}
+
+func (w *bybitSpotWrapper) MaxOrderHistoryRange() time.Duration {
+	return 7*24*time.Hour - time.Second
 }
 
 func (w *bybitSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

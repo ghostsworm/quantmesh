@@ -480,6 +480,10 @@ func binanceOrderHistoryPage(ctx context.Context, adapter interface{}, symbol st
 	if !ok || source == nil {
 		return OrderHistoryPage{}, fmt.Errorf("Binance adapter does not expose paginated user trades: %T", adapter)
 	}
+	settlementAsset := ""
+	if metadata, ok := adapter.(interface{ GetQuoteAsset() string }); ok && metadata != nil {
+		settlementAsset = metadata.GetQuoteAsset()
+	}
 	fromID := int64(0)
 	if cursor != "" {
 		parsed, err := strconv.ParseInt(cursor, 10, 64)
@@ -504,7 +508,7 @@ func binanceOrderHistoryPage(ctx context.Context, adapter interface{}, symbol st
 		page.Fills = append(page.Fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
 			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, QuoteQuantity: row.QuoteQuantity, Commission: row.Commission,
 			CommissionAsset: row.CommissionAsset, TradeTime: row.Time.UnixMilli(), RealizedPnL: row.RealizedPnL,
-			RealizedPnLKnown: true, RealizedPnLAsset: row.CommissionAsset, CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
+			RealizedPnLKnown: true, RealizedPnLAsset: settlementAsset, CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
 	}
 	if page.HasMore && len(rows) > 0 {
 		lastID := rows[len(rows)-1].ID

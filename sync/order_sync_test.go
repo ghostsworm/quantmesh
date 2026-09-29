@@ -108,6 +108,20 @@ type futureFillHistoryExchange struct {
 	futureFill *exchange.OrderFill
 }
 
+type limitedFillHistoryExchange struct {
+	exchange.IExchange
+	calls [][2]int64
+}
+
+func (e *limitedFillHistoryExchange) MaxOrderHistoryRange() time.Duration {
+	return 7*24*time.Hour - time.Second
+}
+
+func (e *limitedFillHistoryExchange) GetOrderHistoryPage(_ context.Context, _ string, startTime, endTime int64, _ string, _ int) (exchange.OrderHistoryPage, error) {
+	e.calls = append(e.calls, [2]int64{startTime, endTime})
+	return exchange.OrderHistoryPage{}, nil
+}
+
 func (e futureFillHistoryExchange) GetOrderHistoryPage(context.Context, string, int64, int64, string, int) (exchange.OrderHistoryPage, error) {
 	return exchange.OrderHistoryPage{Fills: []*exchange.OrderFill{e.futureFill}, HasMore: true, NextCursor: "older-page"}, nil
 }
@@ -154,5 +168,29 @@ func TestOrderSyncRejectsOutOfRangeFillWithoutAdvancingCoverage(t *testing.T) {
 	}
 	if store.fillsSaved != 0 {
 		t.Fatalf("out-of-range execution must not be persisted, got %d fills", store.fillsSaved)
+	}
+}
+
+func TestOrderSyncSplitsVenueLimitedHistoryRangeBeforeAdvancingCoverage(t *testing.T) {
+	store := &orderSyncCoverageStorage{}
+	source := &limitedFillHistoryExchange{}
+	service := NewOrderSyncService(source, store, "BTCUSDT", "acct", "limited", time.Minute)
+	service.SetTradeScope("futures", "scope")
+	if err := service.Sync(context.Background()); err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if len(source.calls) < 4 {
+		t.Fatalf("30-day history should split into multiple bounded requests, got %d", len(source.calls))
+	}
+	for index, request := range source.calls {
+		if request[1]-request[0] > source.MaxOrderHistoryRange().Milliseconds() {
+			t.Fatalf("request %d exceeds venue range: %v", index, request)
+		}
+		if index > 0 && source.calls[index-1][1]+1 != request[0] {
+			t.Fatalf("history windows are not contiguous: previous=%v current=%v", source.calls[index-1], request)
+		}
+	}
+	if !store.coverageAdvanced {
+		t.Fatal("complete bounded history windows should advance coverage")
 	}
 }

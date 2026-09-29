@@ -17,28 +17,44 @@ var btcLinear = Instrument{
 	LotSizeFilter: LotSizeFilter{QtyStep: "0.001", MinOrderQty: "0.001"},
 }
 
-func TestBybitExecutionPnLAssetUsesInstrumentSettlementCoin(t *testing.T) {
+func TestBybitExecutionRealizedPnLRequiresDocumentedEvidence(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v5/execution/list" {
 			http.Error(w, "unexpected path", http.StatusNotFound)
 			return
 		}
 		_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"list":[
-			{"orderId":"1","tradeId":"exec-closed","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000000","closedPnl":"2.5"},
-			{"orderId":"2","tradeId":"exec-open","symbol":"BTCUSDT","side":"Buy","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000001","closedPnl":""}
+			{"orderId":"1","tradeId":"exec-closed","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000000","closedPnl":"2.5","closedSize":"1"},
+			{"orderId":"2","tradeId":"exec-open","symbol":"BTCUSDT","side":"Buy","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000001","closedPnl":"","closedSize":""},
+			{"orderId":"3","tradeId":"exec-unpriced-close","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000002","closedPnl":"","closedSize":"0.5"},
+			{"orderId":"4","tradeId":"exec-no-close-evidence","symbol":"BTCUSDT","side":"Buy","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000003","closedPnl":""}
 		]}}`)
 	}))
 	defer server.Close()
 	b := newTestBybitAdapter(t, server.URL)
-	fills, _, err := b.GetOrderHistoryPage(context.Background(), "BTCUSDT", 1, 1700000000002, "", 10)
+	fills, _, err := b.GetOrderHistoryPage(context.Background(), "BTCUSDT", 1, 1700000000004, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(fills) != 2 || !fills[0].RealizedPnLKnown || fills[0].RealizedPnLAsset != "USDT" {
-		t.Fatalf("closed fill settlement evidence=%+v", fills)
+	if len(fills) != 4 || fills[0].RealizedPnLKnown || fills[0].RealizedPnLAsset != "" {
+		t.Fatalf("REST closed execution must not trust undocumented closedPnl: %+v", fills[0])
 	}
-	if fills[1].RealizedPnLKnown || fills[1].RealizedPnLAsset != "" {
-		t.Fatalf("open fill must not claim a realized PnL asset: %+v", fills[1])
+	if !fills[1].RealizedPnLKnown || fills[1].RealizedPnL != 0 || fills[1].RealizedPnLAsset != "USDT" {
+		t.Fatalf("explicitly unclosed execution must carry verified zero PnL: %+v", fills[1])
+	}
+	if fills[2].RealizedPnLKnown || fills[2].RealizedPnLAsset != "" {
+		t.Fatalf("closed execution without PnL must remain unknown: %+v", fills[2])
+	}
+	if fills[3].RealizedPnLKnown || fills[3].RealizedPnLAsset != "" {
+		t.Fatalf("execution without close-size evidence must remain unknown: %+v", fills[3])
+	}
+
+	orderFills, err := b.GetOrderFills(context.Background(), "BTCUSDT", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orderFills) != 4 || !orderFills[1].RealizedPnLKnown || orderFills[1].RealizedPnLAsset != "USDT" || orderFills[0].RealizedPnLKnown {
+		t.Fatalf("owned-order fill capture must preserve explicit zero-PnL evidence: %+v", orderFills)
 	}
 }
 

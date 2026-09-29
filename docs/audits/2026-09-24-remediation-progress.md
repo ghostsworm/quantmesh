@@ -1,5 +1,9 @@
 # 实盘准备度整改进度
 
+- rc479 核对 [Bybit 官方成交历史接口](https://bybit-exchange.github.io/docs/v5/order/execution)：单次 `startTime`/`endTime` 区间上限为 7 天，而同步器回补区间最长 30 天。为 Bybit 现货/合约声明单次范围限制，历史同步切为连续毫秒窗口、各自独立分页，所有窗口完整结束后才推进覆盖水位；回归验证不超范围、窗口无缝相接及完成后推进覆盖。只验证模拟同步行为，未连接真实账户；Binance 两类接口限制尚待进一步核对。
+- rc478 复核 Bybit 官方 REST 执行列表文档后发现其响应字段无逐笔 PnL；changelog 所记 `execPnl` 是 WebSocket Execution 字段。移除 REST 对未文档化 `closedPnl` 的财务依赖：官方 `closedSize` 明确为空/零时记录结算币种下零 PnL，非零平仓成交继续未知并由提现核算拒绝。官方 REST closed-PnL 为订单级数据；把该聚合值拆分到成交行会引入归属/重复计数问题，尚未接入独立订单级台账和覆盖校验，因此 Bybit 平仓提现能力仍待实现/验证。
+- rc477 据 [Bybit 官方执行接口](https://bybit-exchange.github.io/docs/v5/order/execution) `closedSize` 语义，将明确空/零平仓数量的普通开仓成交记为结算资产下零盈亏，避免正常开仓成交触发提现账本未知 PnL 阻断；非零平仓数量但缺 PnL、或完全缺少平仓证据仍保留未知并失败关闭。回归覆盖定期历史同步、按订单即时补成交、零盈亏提现核算及平仓证据缺失。
+- rc476 复核 Binance 成交历史映射发现 realized PnL 资产错误复用 commissionAsset；现改读 Binance 合约 quote/settlement 元数据，缺失时保留未知。回归覆盖费用 BNB / 结算 USDT 与结算元数据缺失。未连接真实交易账户；其它交易所仍需逐一核验盈亏与手续费字段语义。
 - rc469 策略盈利列表/详情改用精确 AccountScope + PnLAsset，并要求非零手续费币种与 PnLAsset 一致；已知的其它计价资产不并入 USDT 报表，未知币种或交易所内未归属记录使查询失败。USDT 可提现额只从 USDT futures 流计算，持仓浮盈只有交易所报告的结算资产与报表资产相符才标记 verified。
 - 同一版本资金费利润汇总现在拒绝计入时段内存在的空交易所、空账户作用域或空资产资金费记录，并拒绝非有限合计；已知非 USDT 记录仍仅从 USDT 汇总中排除。
 - 狀態更正：下方 rc468 記錄中的「策略盈利/详情仍有旧查询」仅描述 rc468 检查时状态，已由 rc469 收敛；剩余旧查询主要在 `/api/statistics/pnl/*` 等通用报表，订单表 realized_pnl 的计价资产证据仍待补齐，因此 `exchangeProfit` 继续不返回。

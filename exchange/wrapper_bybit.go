@@ -3,6 +3,7 @@ package exchange
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/income"
@@ -382,6 +383,10 @@ func (w *bybitWrapper) GetOrderHistoryPage(ctx context.Context, symbol string, s
 		page.Fills = append(page.Fills, bybitOrderFillToExchange(row, Side(side)))
 	}
 	return page, nil
+}
+
+func (w *bybitWrapper) MaxOrderHistoryRange() time.Duration {
+	return 7*24*time.Hour - time.Second
 }
 
 func bybitOrderFillToExchange(row *bybit.BybitOrderFill, side Side) *OrderFill {
