@@ -534,7 +534,7 @@ func TestReconcilerFailsClosedOnVenueQueryErrors(t *testing.T) {
 	}
 }
 
-func TestReconcilerSkipsPositionSyncWhileOrdersRemainOpen(t *testing.T) {
+func TestReconcilerFailsClosedWhenPositionDiffHasOpenOrders(t *testing.T) {
 	tests := []struct {
 		name       string
 		openOrders []*exchange.Order
@@ -564,15 +564,24 @@ func TestReconcilerSkipsPositionSyncWhileOrdersRemainOpen(t *testing.T) {
 					50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1, OrderSide: "SELL", OrderStatus: tt.orderState},
 				},
 			}
-			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
-			if err := r.Reconcile(); err != nil {
-				t.Fatalf("Reconcile() error = %v", err)
+			distLock := &trackingReconcileLock{NopLock: lock.NewNopLock()}
+			storage := &lockObservingReconciliationStorage{lock: distLock}
+			r := NewReconciler(cfg, ex, pm, distLock)
+			r.SetStorage(storage)
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("unresolved position difference with open orders reported successful reconciliation")
 			}
 			if pm.ForceSyncCount != 0 {
 				t.Fatalf("open orders must prevent ForceSyncPositions, got %v", pm.LastForceSync)
 			}
-			if pm.ReconcileCount != 1 {
-				t.Fatalf("valid snapshots should complete reconciliation, count=%d", pm.ReconcileCount)
+			if pm.FailReconcileErr == nil {
+				t.Fatal("unresolved position difference did not retain fail-closed gate")
+			}
+			if pm.ReconcileCount != 0 {
+				t.Fatalf("unresolved position difference was counted as reconciled, count=%d", pm.ReconcileCount)
+			}
+			if storage.called {
+				t.Fatal("unresolved position difference was persisted as successful reconciliation history")
 			}
 		})
 	}
@@ -609,14 +618,14 @@ func TestReconcilerDoesNotSyncWhileLocalOrderIsUnknown(t *testing.T) {
 				},
 			}
 			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
-			if err := r.Reconcile(); err != nil {
-				t.Fatalf("Reconcile() error = %v", err)
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("position difference with UNKNOWN order was reported as reconciled")
 			}
 			if pm.ForceSyncCount != 0 {
 				t.Fatalf("UNKNOWN local order must prevent ForceSyncPositions, got %v", pm.LastForceSync)
 			}
-			if pm.ReconcileCount != 1 {
-				t.Fatalf("valid snapshots should count as reconciled without applying unsafe sync, count=%d", pm.ReconcileCount)
+			if pm.FailReconcileErr == nil || pm.ReconcileCount != 0 {
+				t.Fatalf("UNKNOWN order with position difference did not stay fail-closed: failure=%v reconciled=%d", pm.FailReconcileErr, pm.ReconcileCount)
 			}
 		})
 	}
@@ -717,13 +726,12 @@ func TestReconciler_Reconcile(t *testing.T) {
 
 	// 模拟執行對账
 	err := r.Reconcile()
-	if err != nil {
-		t.Fatalf("對账執行失败: %v", err)
+	if err == nil {
+		t.Fatal("position difference with outstanding local orders was reported as reconciled")
 	}
 
-	// 驗证對账次數增加
-	if pm.ReconcileCount != 1 {
-		t.Errorf("對账次數应為 1, 得到 %d", pm.ReconcileCount)
+	if pm.FailReconcileErr == nil || pm.ReconcileCount != 0 {
+		t.Fatalf("unresolved orders did not stay fail-closed: failure=%v reconciled=%d", pm.FailReconcileErr, pm.ReconcileCount)
 	}
 }
 
@@ -752,11 +760,14 @@ func TestReconciler_SpotConservative_SkipsForceSyncWhenLocalLessThanExchange(t *
 	}
 
 	r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
-	if err := r.Reconcile(); err != nil {
-		t.Fatalf("對账執行失败: %v", err)
+	if err := r.Reconcile(); err == nil {
+		t.Fatal("spot inventory discrepancy with an outstanding order was reported as reconciled")
 	}
 	if pm.ForceSyncCount != 0 {
 		t.Fatalf("conservative 現貨不應調用 ForceSyncPositions，得到調用次數 %d", pm.ForceSyncCount)
+	}
+	if pm.FailReconcileErr == nil || pm.ReconcileCount != 0 {
+		t.Fatalf("spot inventory discrepancy did not stay fail-closed: failure=%v reconciled=%d", pm.FailReconcileErr, pm.ReconcileCount)
 	}
 }
 

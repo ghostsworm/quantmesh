@@ -464,10 +464,9 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		if len(exchangeOpenOrders) > 0 || activeLocalOrders > 0 {
 			logger.Warn("⚠️ [對账同步] 存在未完成/未核实挂單（交易所: %d, 本地: %d，開倉方向: %d，平倉方向: %d），跳過持倉同步",
 				len(exchangeOpenOrders), activeLocalOrders, activeBuyOrders, activeSellOrders)
-			markReconciled()
-			releaseCriticalSection()
-			saveReconciliationHistory()
-			return nil
+			err := fmt.Errorf("持仓差异无法在存在未决委托时安全核实；交易所活动委托 %d，本地活动委托 %d", len(exchangeOpenOrders), activeLocalOrders)
+			r.pm.FailReconciliation(err)
+			return err
 		}
 
 		// 🔥 自动同步逻辑：如果交易所持倉為0，但本地认為有持倉
