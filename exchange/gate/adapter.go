@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,6 +37,7 @@ type GateAdapter struct {
 	orderPriceRound  int     // 價格精度
 	orderSizeMin     float64 // 最小下單數量
 	volumePlace      int     // 數量小數位
+	quantityDecimals int     // 基礎幣數量精度
 	pricePlace       int     // 價格小數位
 
 	priceCacheMu   sync.RWMutex
@@ -90,6 +92,7 @@ func NewGateAdapter(cfg map[string]string, symbol string) (*GateAdapter, error) 
 		logger.Warn("⚠️ [Gate] 獲取合約信息失败: %v", err)
 		// 使用默认值
 		adapter.volumePlace = 0
+		adapter.quantityDecimals = -1
 		adapter.pricePlace = 2
 		adapter.orderSizeMin = 1
 	}
@@ -145,7 +148,7 @@ func (g *GateAdapter) GetPriceDecimals() int {
 
 // GetQuantityDecimals 獲取數量精度
 func (g *GateAdapter) GetQuantityDecimals() int {
-	return g.volumePlace
+	return g.quantityDecimals
 }
 
 // fetchContractInfo 獲取合約信息
@@ -159,6 +162,11 @@ func (g *GateAdapter) fetchContractInfo(ctx context.Context) error {
 	// 解析合約乘數
 	if contract.QuantoMultiplier != "" {
 		g.quantoMultiplier, _ = strconv.ParseFloat(contract.QuantoMultiplier, 64)
+	}
+	if g.quantoMultiplier > 0 && !math.IsNaN(g.quantoMultiplier) && !math.IsInf(g.quantoMultiplier, 0) {
+		g.quantityDecimals = calculateDecimalPlaces(g.quantoMultiplier)
+	} else {
+		g.quantityDecimals = -1
 	}
 
 	// 解析價格精度（如 "0.1" -> 1位小數）
@@ -210,20 +218,14 @@ func (g *GateAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order
 
 // placeOrderViaREST 通過 REST API 下單
 func (g *GateAdapter) placeOrderViaREST(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if g.quantoMultiplier <= 0 || math.IsNaN(g.quantoMultiplier) || math.IsInf(g.quantoMultiplier, 0) {
+		return nil, fmt.Errorf("Gate contract multiplier is unavailable; refusing quantity conversion")
+	}
 	// Gate.io 的 size 是张數,需要從實際币數量换算
-	// 如果合約乘數為 0,则直接使用數量
-	var contractSize int64
-	if g.quantoMultiplier > 0 {
-		// 计算张數 = 實際數量 / 每张合約數量
-		contracts := req.Quantity / g.quantoMultiplier
-		contractSize = int64(contracts)
-		// 如果小於1张,至少下1张
-		if contractSize == 0 && req.Quantity > 0 {
-			contractSize = 1
-		}
-	} else {
-		// 直接使用數量(整數)
-		contractSize = int64(req.Quantity)
+	// 只向下取整；不足一张时拒绝，不得向上扩张用户请求的名义敞口。
+	contractSize, err := gateContractsFromBaseQuantity(req.Quantity, g.quantoMultiplier)
+	if err != nil {
+		return nil, err
 	}
 
 	// 轉换方向和數量: Gate.io 使用正负數表示方向
@@ -541,6 +543,10 @@ func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posit
 	if fp.Size == 0 {
 		return positions, nil
 	}
+	baseSize, err := gateBaseQuantityFromContracts(fp.Size, g.quantoMultiplier)
+	if err != nil {
+		return nil, err
+	}
 
 	// 检查是否為逐倉模式
 	leverage, _ := strconv.Atoi(fp.Leverage)
@@ -561,7 +567,7 @@ func (g *GateAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posit
 
 	position := &Position{
 		Symbol:        g.symbol,
-		Size:          float64(fp.Size),
+		Size:          baseSize,
 		EntryPrice:    entryPrice,
 		MarkPrice:     markPrice,
 		UnrealizedPNL: unrealisedPnl,
@@ -1010,24 +1016,40 @@ func (g *GateAdapter) GetSpotPrice(ctx context.Context, symbol string) (float64,
 
 // calculateDecimalPlaces 计算小數位數
 func calculateDecimalPlaces(value float64) int {
-	if value >= 1 {
+	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0
 	}
 
-	str := fmt.Sprintf("%.10f", value)
+	str := strconv.FormatFloat(value, 'f', -1, 64)
+	str = strings.TrimRight(str, "0")
+	str = strings.TrimSuffix(str, ".")
 	parts := strings.Split(str, ".")
 	if len(parts) != 2 {
 		return 0
 	}
+	return len(parts[1])
+}
 
-	// 计算小數点后第一個非零數字的位置
-	for i, c := range parts[1] {
-		if c != '0' {
-			return i + 1
-		}
+func gateBaseQuantityFromContracts(contracts int64, multiplier float64) (float64, error) {
+	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return 0, fmt.Errorf("Gate contract multiplier is unavailable; base position size cannot be verified")
 	}
+	baseQuantity := float64(contracts) * multiplier
+	if math.IsNaN(baseQuantity) || math.IsInf(baseQuantity, 0) {
+		return 0, fmt.Errorf("Gate contract position converts to a non-finite base quantity")
+	}
+	return baseQuantity, nil
+}
 
-	return 0
+func gateContractsFromBaseQuantity(baseQuantity, multiplier float64) (int64, error) {
+	if multiplier <= 0 || math.IsNaN(multiplier) || math.IsInf(multiplier, 0) {
+		return 0, fmt.Errorf("Gate contract multiplier is unavailable; refusing quantity conversion")
+	}
+	contracts := math.Floor(baseQuantity / multiplier)
+	if math.IsNaN(contracts) || math.IsInf(contracts, 0) || contracts < 1 || contracts >= float64(math.MaxInt64) {
+		return 0, fmt.Errorf("requested base quantity %.12g cannot form a safe Gate contract quantity", baseQuantity)
+	}
+	return int64(contracts), nil
 }
 
 // GetOrderBook 獲取訂單簿深度
