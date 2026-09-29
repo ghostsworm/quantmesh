@@ -630,12 +630,13 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 		return fmt.Errorf("交易所持仓数量无效: %v", exchangePosition)
 	}
 	defer spm.refreshCostBasisOpeningGate()
+	const syncQuantityTolerance = 0.00000001
 	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
 	// 且我们不希望在對账時阻塞下單逻辑
 
 	logger.Warn("🚨 [强制同步] 正在同步持倉状態，期望持倉: %.4f", exchangePosition)
 
-	if exchangePosition <= 0.000001 {
+	if exchangePosition <= syncQuantityTolerance {
 		// 交易所持倉為空，清空本地所有槽位的持倉
 		count := 0
 		spm.slots.Range(func(key, value interface{}) bool {
@@ -673,7 +674,6 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 	if err != nil {
 		return fmt.Errorf("同步后本地持仓台账无效: %w", err)
 	}
-	const syncQuantityTolerance = 0.00000001
 	if math.Abs(localPosition-exchangePosition) > syncQuantityTolerance {
 		return fmt.Errorf("持仓同步后仍未对齐: 本地 %.12g，交易所快照 %.12g", localPosition, exchangePosition)
 	}

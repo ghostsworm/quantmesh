@@ -65,6 +65,30 @@ func TestForceSyncPositionsReconcilesHardExposureLedger(t *testing.T) {
 	}
 }
 
+func TestForceSyncPositionsPreservesSubMicroInventoryAboveFlatTolerance(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.Direction = "LONG"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.ProfitSpread = 50
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 4)
+	spm.setAnchorPrice(1000)
+	slot := spm.getOrCreateSlot(1000)
+	slot.PositionStatus = PositionStatusFilled
+	slot.PositionQty = 0.0000005
+	slot.AvgBuyPrice = 925
+
+	if err := spm.ForceSyncPositions(0.0000005); err != nil {
+		t.Fatalf("sub-micro but material inventory sync failed: %v", err)
+	}
+	if slot.PositionStatus != PositionStatusFilled || slot.PositionQty != 0.0000005 || slot.AvgBuyPrice != 925 {
+		t.Fatalf("sub-micro inventory or cost basis was erased: status=%s qty=%.10g avgBuy=%.10g", slot.PositionStatus, slot.PositionQty, slot.AvgBuyPrice)
+	}
+}
+
 func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"
