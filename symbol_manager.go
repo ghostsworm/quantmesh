@@ -429,13 +429,9 @@ func startSymbolRuntime(
 	var ownershipGate atomic.Pointer[execution.OpeningGate]
 	var ownershipExecutor atomic.Pointer[order.ExchangeOrderExecutor]
 	var ownershipRuntime atomic.Pointer[SymbolRuntime]
-	ownershipLease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, execution.IntentScope{
-		Account:  equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
-		Exchange: strings.ToLower(strings.TrimSpace(symCfg.Exchange)),
-		Market:   strings.ToLower(strings.TrimSpace(symCfg.GetMarketType())),
-		Symbol:   strings.ToUpper(strings.TrimSpace(symCfg.Symbol)),
-		Bot:      botID,
-	}, runtimeOwnershipLeaseTTL, func(renewErr error) {
+	ownershipLease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, runtimeOwnershipScope(
+		equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]), symCfg.Exchange, symCfg.GetMarketType(), symCfg.Symbol,
+	), runtimeOwnershipLeaseTTL, func(renewErr error) {
 		logger.ErrorCtx(ctx, "[%s] Bot 运行所有权租约续期失败，停止后续提交并封锁开仓: %v", botID, renewErr)
 		if gate := ownershipGate.Load(); gate != nil {
 			gate.Block("runtime_ownership_unverified")

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,17 @@ import (
 )
 
 const runtimeOwnershipLeaseTTL = 30 * time.Second
+const runtimeOwnershipScopeOwner = "shared-symbol-position-scope"
+
+func runtimeOwnershipScope(account, exchangeName, market, symbol string) execution.IntentScope {
+	return execution.IntentScope{
+		Account:  account,
+		Exchange: strings.ToLower(strings.TrimSpace(exchangeName)),
+		Market:   strings.ToLower(strings.TrimSpace(market)),
+		Symbol:   strings.ToUpper(strings.TrimSpace(symbol)),
+		Bot:      runtimeOwnershipScopeOwner,
+	}
+}
 
 type runtimeOwnershipLease struct {
 	distributedLock lock.DistributedLock

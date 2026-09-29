@@ -80,15 +80,34 @@ func (l *runtimeLeaseTestLock) Extend(_ context.Context, key string, _ time.Dura
 
 func (*runtimeLeaseTestLock) Close() error { return nil }
 
-func TestRuntimeOwnershipLeaseAllowsOneOwnerAndReleases(t *testing.T) {
+func TestRuntimeOwnershipLeaseSerializesSharedPositionScope(t *testing.T) {
 	distributedLock := &runtimeLeaseTestLock{}
-	scope := execution.IntentScope{Account: "account", Exchange: "binance", Market: "futures", Symbol: "BTCUSDT", Bot: "bot-a"}
+	scope := runtimeOwnershipScope("account", " Binance ", " FUTURES ", "btcusdt")
+	if scope != runtimeOwnershipScope("account", "binance", "futures", "BTCUSDT") {
+		t.Fatal("runtime ownership scope is not normalized")
+	}
+	if scope.Bot != runtimeOwnershipScopeOwner {
+		t.Fatalf("scope owner = %q, want shared physical-position owner", scope.Bot)
+	}
 	first, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil); err == nil {
-		t.Fatal("duplicate runtime acquired a second ownership lease")
+		t.Fatal("different Bot instances for one exchange position scope acquired separate ownership leases")
+	}
+	for _, independent := range []execution.IntentScope{
+		runtimeOwnershipScope("other-account", "binance", "futures", "BTCUSDT"),
+		runtimeOwnershipScope("account", "binance", "spot", "BTCUSDT"),
+		runtimeOwnershipScope("account", "binance", "futures", "ETHUSDT"),
+	} {
+		lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, independent, time.Second, nil)
+		if err != nil {
+			t.Fatalf("independent position scope %+v could not acquire its own lease: %v", independent, err)
+		}
+		if err := lease.Release(); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := first.Release(); err != nil {
 		t.Fatal(err)
