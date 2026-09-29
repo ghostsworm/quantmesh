@@ -69,3 +69,11 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 func (a *exchangeExecutorAdapter) SetExposureLimits(limits execution.ExposureLimits) error {
 	return a.executor.SetExposureLimits(limits)
 }
+
+func (a *exchangeExecutorAdapter) ReconcileExposurePositions(positions []execution.ExposurePosition) error {
+	if err := a.executor.ReconcileExposureGroup("grid", positions); err != nil {
+		return err
+	}
+	a.executor.RefreshExposureRisk()
+	return nil
+}

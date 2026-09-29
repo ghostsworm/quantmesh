@@ -1,13 +1,69 @@
 package position
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"testing"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 )
+
+type exposureReconcileExecutor struct {
+	MockExecutor
+	book *execution.ExposureBook
+}
+
+func (e *exposureReconcileExecutor) SetExposureLimits(limits execution.ExposureLimits) error {
+	return e.book.SetLimits(limits)
+}
+
+func (e *exposureReconcileExecutor) ReconcileExposurePositions(positions []execution.ExposurePosition) error {
+	return e.book.ReconcileGroupPositions("grid", positions)
+}
+
+func TestForceSyncPositionsReconcilesHardExposureLedger(t *testing.T) {
+	book, err := execution.NewExposureBook(execution.ExposureLimits{Quantity: 0.5}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Seed(nil); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := book.SetMark(1000, now); err != nil {
+		t.Fatal(err)
+	}
+	executor := &exposureReconcileExecutor{book: book}
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.MarketType = "spot"
+	cfg.Trading.Direction = "LONG"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.ProfitSpread = 50
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	spm := NewSuperPositionManager(cfg, executor, &MockExchange{}, 2, 4)
+	spm.setAnchorPrice(1000)
+	slot := spm.getOrCreateSlot(1000)
+	slot.PositionStatus = PositionStatusFilled
+	slot.PositionQty = 0.25
+
+	if err := spm.ForceSyncPositions(0.75); err != nil {
+		t.Fatalf("ForceSyncPositions() error = %v", err)
+	}
+	if snapshot := book.Snapshot(now); snapshot.PositionQuantity != 0.75 {
+		t.Fatalf("exposure book position = %v, want reconciled grid quantity 0.75", snapshot.PositionQuantity)
+	}
+	if err := book.Reserve(execution.ExposureRequest{
+		ID: "over-limit", Group: "grid", Lot: "grid:LONG:1100", Leg: "LONG", Opening: true, Quantity: 0.01, Price: 1000,
+	}, now); !errors.Is(err, execution.ErrExposureLimit) {
+		t.Fatalf("opening after inventory reconciliation error = %v, want exposure limit", err)
+	}
+}
 
 func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	cfg := &config.Config{}

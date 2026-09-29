@@ -106,6 +106,29 @@ func TestRuntimeExposureSharedGridStrategyAndHotLimits(t *testing.T) {
 	}
 }
 
+func TestReconciledGridInventoryUpdatesPhysicalExposureAndBlocksOverLimit(t *testing.T) {
+	v := &runtimeJournalVenue{}
+	executor, spm, book, _ := runtimeExposureFixture(t, v)
+	spm.SetOpenPositionControl(config.OpenPositionControl{MaxPositionQuantity: 0.5})
+	if err := book.ReconcileGroupPositions("dca", []execution.ExposurePosition{
+		{Key: "dca:lot", Group: "dca", Leg: "LONG", Quantity: 0.4},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &exchangeExecutorAdapter{executor: executor}
+	if err := adapter.ReconcileExposurePositions([]execution.ExposurePosition{
+		{Key: "grid:LONG:1000", Group: "grid", Leg: "LONG", Quantity: 0.75},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot := executor.ExposureSnapshot(); snapshot.PositionQuantity != 1.15 {
+		t.Fatalf("physical exposure quantity = %v, want grid plus preserved DCA inventory 1.15", snapshot.PositionQuantity)
+	}
+	if !spm.OpeningGate().HasBlock(order.ExposureLimitBlock) {
+		t.Fatal("reconciled over-limit inventory did not block further openings")
+	}
+}
+
 func TestOpeningControllerLimitUpdatesCannotExceedVerifiedCapitalCeiling(t *testing.T) {
 	v := &runtimeJournalVenue{}
 	executor, spm, _, _ := runtimeExposureFixture(t, v)

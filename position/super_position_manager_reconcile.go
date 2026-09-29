@@ -7,9 +7,11 @@ import (
 	"math"
 	"reflect"
 	"sort"
+	"strings"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/logger"
 )
 
@@ -675,7 +677,81 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 	if math.Abs(localPosition-exchangePosition) > syncQuantityTolerance {
 		return fmt.Errorf("持仓同步后仍未对齐: 本地 %.12g，交易所快照 %.12g", localPosition, exchangePosition)
 	}
+	if err := spm.reconcileExposureInventory(); err != nil {
+		spm.openingGate.Block("exposure_reconciliation_required")
+		return fmt.Errorf("持仓槽位已同步，但额度账本未能同步；保持开仓门控: %w", err)
+	}
+	spm.openingGate.Unblock("exposure_reconciliation_required")
 	return nil
+}
+
+func (spm *SuperPositionManager) reconcileExposureInventory() error {
+	_, exposureLimitsEnabled := spm.executor.(interface {
+		SetExposureLimits(execution.ExposureLimits) error
+	})
+	if !exposureLimitsEnabled {
+		return nil
+	}
+	reconciler, ok := spm.executor.(interface {
+		ReconcileExposurePositions([]execution.ExposurePosition) error
+	})
+	if !ok {
+		return fmt.Errorf("physical executor has limits but no inventory reconciliation capability")
+	}
+	positions := make([]execution.ExposurePosition, 0)
+	var inventoryErr error
+	spm.slots.Range(func(key, raw interface{}) bool {
+		price, ok := key.(float64)
+		if !ok || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+			inventoryErr = fmt.Errorf("invalid grid exposure slot price %v", key)
+			return false
+		}
+		slot, ok := raw.(*InventorySlot)
+		if !ok || slot == nil {
+			inventoryErr = fmt.Errorf("invalid grid exposure slot at %.8f", price)
+			return false
+		}
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		if math.IsNaN(slot.PositionQty) || math.IsInf(slot.PositionQty, 0) || slot.PositionQty < 0 {
+			inventoryErr = fmt.Errorf("invalid grid exposure quantity at %.8f", price)
+			return false
+		}
+		if slot.PositionStatus != PositionStatusFilled || slot.PositionQty == 0 {
+			return true
+		}
+		leg := slot.PositionLeg
+		if leg == PositionLegNone {
+			if strings.EqualFold(spm.config.Trading.Direction, "BOTH") {
+				inventoryErr = fmt.Errorf("missing position leg for BOTH-mode exposure slot %.8f", price)
+				return false
+			}
+			if spm.isShort() {
+				leg = PositionLegShort
+			} else {
+				leg = PositionLegLong
+			}
+		}
+		if !exposureLeg(leg) {
+			inventoryErr = fmt.Errorf("invalid grid exposure inventory at %.8f", price)
+			return false
+		}
+		positions = append(positions, execution.ExposurePosition{
+			Key:      gridExposureKey(price, leg),
+			Group:    "grid",
+			Leg:      leg,
+			Quantity: slot.PositionQty,
+		})
+		return true
+	})
+	if inventoryErr != nil {
+		return inventoryErr
+	}
+	return reconciler.ReconcileExposurePositions(positions)
+}
+
+func exposureLeg(leg string) bool {
+	return leg == PositionLegLong || leg == PositionLegShort
 }
 
 func (spm *SuperPositionManager) reconciliationPositionTotal() (float64, error) {

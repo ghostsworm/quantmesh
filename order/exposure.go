@@ -76,6 +76,17 @@ func (oe *ExchangeOrderExecutor) SetExposureLimits(limits execution.ExposureLimi
 	return nil
 }
 
+func (oe *ExchangeOrderExecutor) ReconcileExposureGroup(group string, positions []execution.ExposurePosition) error {
+	if oe.exposureBook == nil {
+		return fmt.Errorf("cannot reconcile exposure without an exposure book: %w", execution.ErrExposureUnverified)
+	}
+	return oe.exposureBook.ReconcileGroupPositions(group, positions)
+}
+
+func (oe *ExchangeOrderExecutor) RefreshExposureRisk() {
+	oe.reconcileExposureLimitBlock()
+}
+
 func (oe *ExchangeOrderExecutor) reconcileExposureLimitBlock() {
 	oe.exposureLimitMu.Lock()
 	defer oe.exposureLimitMu.Unlock()
