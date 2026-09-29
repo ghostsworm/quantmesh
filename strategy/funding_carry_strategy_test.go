@@ -124,21 +124,23 @@ func (m *mockEventBus) getEvents() []*event.Event {
 }
 
 type mockFCExchange struct {
-	name             string
-	marketType       string
-	latestPrice      float64
-	fundingRate      float64
-	positions        []*exchange.Position
-	balance          float64
-	baseAsset        string
-	priceDecimals    int
-	quantityDecimals int
-	placeOrderErr    error
-	placedOrders     []*exchange.OrderRequest
-	getOrderStatus   exchange.OrderStatus
-	getOrderExecQty  float64
-	repayCalls       int
-	mu               sync.Mutex
+	name               string
+	marketType         string
+	latestPrice        float64
+	fundingRate        float64
+	positions          []*exchange.Position
+	balance            float64
+	baseAsset          string
+	priceDecimals      int
+	quantityDecimals   int
+	placeOrderErr      error
+	placedOrders       []*exchange.OrderRequest
+	getOrderStatus     exchange.OrderStatus
+	getOrderExecQty    float64
+	repayCalls         int
+	returnNilPositions bool
+	returnNilOrders    bool
+	mu                 sync.Mutex
 }
 
 func (m *mockFCExchange) GetName() string          { return m.name }
@@ -172,7 +174,10 @@ func (m *mockFCExchange) BatchCancelOrders(ctx context.Context, symbol string, o
 }
 func (m *mockFCExchange) CancelAllOrders(ctx context.Context, symbol string) error { return nil }
 func (m *mockFCExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*exchange.Order, error) {
-	return nil, nil
+	if m.returnNilOrders {
+		return nil, nil
+	}
+	return []*exchange.Order{}, nil
 }
 func (m *mockFCExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*exchange.OrderFill, error) {
 	return nil, nil
@@ -209,6 +214,12 @@ func (m *mockFCExchange) GetFundingRate(ctx context.Context, symbol string) (flo
 	return m.fundingRate, nil
 }
 func (m *mockFCExchange) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
+	if m.returnNilPositions {
+		return nil, nil
+	}
+	if m.positions == nil {
+		return []*exchange.Position{}, nil
+	}
 	return m.positions, nil
 }
 func (m *mockFCExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
@@ -351,6 +362,79 @@ func TestSyncPositions_None(t *testing.T) {
 	}
 	if s.direction != DirectionNone {
 		t.Errorf("direction = %v, want None", s.direction)
+	}
+}
+
+func TestFundingCarryCleanStartRejectsNilPositionOrOrderSnapshots(t *testing.T) {
+	tests := []struct {
+		name             string
+		nilFuturesPos    bool
+		nilMarginPos     bool
+		nilFuturesOrders bool
+		nilSpotOrders    bool
+		nilMarginOrders  bool
+	}{
+		{name: "futures positions", nilFuturesPos: true},
+		{name: "spot-margin positions", nilMarginPos: true},
+		{name: "futures open orders", nilFuturesOrders: true},
+		{name: "spot open orders", nilSpotOrders: true},
+		{name: "spot-margin open orders", nilMarginOrders: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", returnNilPositions: tc.nilFuturesPos, returnNilOrders: tc.nilFuturesOrders}
+			spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", returnNilOrders: tc.nilSpotOrders}
+			margin := &mockFCExchange{name: "binance", marketType: "spot_margin", baseAsset: "BTC", returnNilPositions: tc.nilMarginPos, returnNilOrders: tc.nilMarginOrders}
+			store := &memoryRuntimeStateStore{}
+			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+			s.SetRuntimeStateStore(store)
+			if err := s.Start(context.Background()); err == nil {
+				t.Fatal("funding_carry started without authoritative empty startup snapshots")
+			}
+			if s.started || store.found {
+				t.Fatalf("unverified startup changed runtime state: started=%v statePersisted=%v", s.started, store.found)
+			}
+		})
+	}
+}
+
+func TestFundingCarryRuntimePositionSyncBlocksOnNilSnapshots(t *testing.T) {
+	tests := []struct {
+		name       string
+		nilFutures bool
+		nilMargin  bool
+	}{
+		{name: "futures", nilFutures: true},
+		{name: "spot margin", nilMargin: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", returnNilPositions: tc.nilFutures}
+			spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC"}
+			margin := &mockFCExchange{name: "binance", marketType: "spot_margin", baseAsset: "BTC", returnNilPositions: tc.nilMargin}
+			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+			s.strategySpotKnown = true
+			if err := s.syncPositions(context.Background()); err == nil {
+				t.Fatal("accepted nil inventory response as flat")
+			}
+			if !s.unownedExposure {
+				t.Fatal("unverified inventory did not latch the unowned-exposure block")
+			}
+		})
+	}
+}
+
+func TestFundingCarryRecoveredStateRejectsNilOpenOrderSnapshots(t *testing.T) {
+	for _, scope := range []string{"futures", "spot", "spot_margin"} {
+		t.Run(scope, func(t *testing.T) {
+			futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", positions: []*exchange.Position{}, returnNilOrders: scope == "futures"}
+			spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", returnNilOrders: scope == "spot"}
+			margin := &mockFCExchange{name: "binance", marketType: "spot_margin", baseAsset: "BTC", positions: []*exchange.Position{}, returnNilOrders: scope == "spot_margin"}
+			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+			if err := s.requireNoOpenOrders(context.Background()); err == nil {
+				t.Fatal("accepted nil open-order response as authoritative empty")
+			}
+		})
 	}
 }
 

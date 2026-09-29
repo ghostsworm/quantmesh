@@ -321,6 +321,9 @@ func (s *FundingPerpSpreadStrategy) readLegSnapshot(ctx context.Context, ex exch
 	if err != nil {
 		return 0, fmt.Errorf("read open orders: %w", err)
 	}
+	if orders == nil {
+		return 0, fmt.Errorf("open-order snapshot for %s is nil; order state is unverified", symbol)
+	}
 	if len(orders) != 0 {
 		return 0, fmt.Errorf("%d open order(s) exist", len(orders))
 	}
@@ -967,9 +970,9 @@ func (s *FundingPerpSpreadStrategy) closeLeg(ctx context.Context, ex exchange.IE
 		return fmt.Errorf("close %s result cannot be reconciled: %w", sym, readErr)
 	}
 	orders, ordersErr := ex.GetOpenOrders(ctx, sym)
-	if ordersErr != nil || len(orders) > 0 {
+	if ordersErr != nil || orders == nil || len(orders) > 0 {
 		s.markExposureUnknown()
-		return fmt.Errorf("close %s remains unverified because open orders may remain (count=%d, error=%v)", sym, len(orders), ordersErr)
+		return fmt.Errorf("close %s remains unverified because open-order evidence is incomplete or orders may remain (count=%d, nil_snapshot=%t, error=%v)", sym, len(orders), orders == nil, ordersErr)
 	}
 	if math.Abs(after) <= s.legTolerance(ex) {
 		if err := s.setOwnedLeg(ex, sym, 0); err != nil {

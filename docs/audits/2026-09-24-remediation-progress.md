@@ -2308,6 +2308,30 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 启动路径现在拒绝 nil 集合，仅显式非 nil 的空切片可证明空结果。测试 venue 明确区分权威空切片与 nil 响应；新增两类 nil 快照均保持启动门控且不初始化 ExposureBook 的回归。
 - `go test . -run 'TestRuntimeExposureBootstrap' -count=1`、`go test . -count=1`、`go vet .`、改动后的 `go test ./... -count=1` 与 `git diff --check` 通过。未连接真实账户、未下单或部署。现有非空账户恢复、账户级额度与盈利验证仍未闭合。
 
+## 后续续修：SpotLong 持仓快照歧义时失败关闭（3.111.0-rc455，2026-09-30）
+
+- R09/R12 信号后现货持仓读取复核发现 SpotLong 对 `[]*PositionInfo` 中的 nil 行、负数/NaN/Inf 数量及同交易对重复行静默跳过/取首项，可能把不可信库存返回为零并启动错误调仓。
+- 现在空的非 nil 快照仍代表权威空仓；任何 nil 行、目标币重复行、非有限或负数量均返回错误，不再产生可被调仓循环消费的零仓位结论。新增坏数据拒绝及权威空/单行正向数量通过测试。
+- `go test ./strategy -run 'TestSpotLong(PositionReadFailureDoesNotAssumeFlat|PositionRejectsAmbiguousOrInvalidSnapshots|PendingOrderPersistsAndRestores|OrderHistoryFailureBlocksStartup)' -count=1`、`go test ./strategy -count=1`、SpotLong 持仓读取/恢复 race 回归 `-count=3`、`go vet ./strategy`、整仓 `go test ./... -count=1` 与 `git diff --check` 通过。未连接真实账户、未下单或部署。跨策略经济恢复、账户级硬额度和盈利验证仍未闭合。
+
+## 后续续修：funding_perp_spread 拒绝 nil 活动单快照（3.111.0-rc454，2026-09-30）
+
+- R09/R04 复核发现双永续价差策略用活动单快照证明每条腿“无挂单”，以及平仓后证明委托终态；此前 `nil, nil` 会被 `len==0` 当成空单，错误放行持仓归属核验或清除平仓意图。
+- `readLegSnapshot` 现在拒绝 nil 委托响应；减仓提交后的活动单响应若为 nil，则将结果标为 exposure unknown 并保留持久化中的 in-flight intent，不清除所有权/执行状态。
+- 新增启动 nil 响应保持策略未启动，以及平仓后 nil 响应保留意图/阻断的回归；定向启动/平仓与正常恢复用例、`go test ./strategy -count=1`、相关 race 回归 `-count=3`、`go vet ./strategy`、整仓 `go test ./... -count=1` 和 `git diff --check` 均通过。未连接真实账户、未下单或部署；R09 完整成交/费用恢复、R12 账户级额度及盈利验证仍未闭合。
+
+## 后续续修：funding_carry 对 nil 仓位/委托响应失败关闭（3.111.0-rc453，2026-09-30）
+
+- R09/R12 复核发现 `funding_carry` 的 `requireCleanStart`、`requireNoOpenOrders` 和周期 `syncPositions` 将 `nil, nil` 查询结果当作空仓/无委托；无法证明空账户时可能初始化策略归属状态或继续按旧状态运行。
+- futures、spot、spot-margin 启动检查现在均要求非 nil 的权威仓位/活动单快照；恢复后的活动单核验也拒绝 nil。周期 futures/margin 持仓核对遇 nil 时锁存 unowned-exposure 阻断，绝不按零数量覆盖。
+- 新增首次启动五种 nil 证据、恢复订单核验三种 nil 响应及周期 futures/margin nil 持仓回归；`go test ./strategy -run 'TestFundingCarry(CleanStartRejectsNilPositionOrOrderSnapshots|RuntimePositionSyncBlocksOnNilSnapshots|RecoveredStateRejectsNilOpenOrderSnapshots|SyncPositions_Forward|SyncPositions_None)' -count=1`、`go test ./strategy -count=1`、相关 `-race -count=3`、`go vet ./strategy`、整仓 `go test ./... -count=1` 与 `git diff --check` 通过。未连接真实账户、未下单或部署；其他策略完整跨重启经济恢复、账户级额度与盈利验证仍未闭合。
+
+## 后续续修：拒绝信号策略快照中的错向活动单（3.111.0-rc452，2026-09-30）
+
+- R09 信号策略恢复复核发现，版本化快照虽然校验活动单数量、价格和成交进度，却没有验证 `open_long` 必须对应 BUY、`close_long` 必须对应 SELL；不一致的持久化内容可能被按错误策略动作应用成交，污染策略内部持仓。
+- 加载阶段现要求活动订单具有正数交易所订单 ID、非空 ClientOrderID，且订单方向与待执行动作一致；矛盾/不完整状态直接拒绝恢复，策略启动保持失败关闭。新增开多/平多反向单及两类缺失身份测试。
+- `go test ./strategy -run 'TestSignalRuntimeStateRejectsActiveOrderIdentityOrActionMismatch|TestSignalStrategiesRestoreFeeBearingPositionAndActiveOrder|TestSignalStrategyStartReplaysMissedActiveOrderFillAndFee|TestSignalStrategyStartBlocksWhenActiveOrderEvidenceIsMissing' -count=1`、`go test ./strategy -count=1`、上述边界 race 回归 `-count=3`、`go vet ./strategy` 与 `git diff --check` 通过。此修复只加固三类信号策略快照入口，不代表成交/资本/费用完整跨重启恢复，也未连接真实账户或下单。R09/R12 及盈利验证仍未闭合。
+
 ## 后续续修：验证对账门控跨周期恢复（3.111.0-rc451，2026-09-30）
 
 - 审计说明曾将活动委托导致的失败描述为只能人工恢复；rc445 已引入专属 source 的成功核账解除逻辑，但缺少从活动委托失败到后续权威快照成功的完整生命周期回归。

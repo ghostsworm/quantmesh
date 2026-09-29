@@ -431,6 +431,9 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("read futures positions: %w", err)
 	}
+	if positions == nil {
+		return errors.New("futures position snapshot is nil, not an authoritative empty snapshot")
+	}
 	for _, p := range positions {
 		if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
 			return errors.New("futures position snapshot contains invalid data")
@@ -444,6 +447,9 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read %s open orders: %w", name, err)
 		}
+		if orders == nil {
+			return fmt.Errorf("read %s open orders: nil response is not an authoritative empty snapshot", name)
+		}
 		if len(orders) != 0 {
 			return fmt.Errorf("%s has %d open orders", name, len(orders))
 		}
@@ -452,6 +458,9 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 		marginPositions, err := s.marginEx.GetPositions(ctx, s.symbol)
 		if err != nil {
 			return fmt.Errorf("read spot-margin positions: %w", err)
+		}
+		if marginPositions == nil {
+			return errors.New("spot-margin position snapshot is nil, not an authoritative empty snapshot")
 		}
 		for _, p := range marginPositions {
 			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
@@ -464,6 +473,9 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 		orders, err := s.marginEx.GetOpenOrders(ctx, s.symbol)
 		if err != nil {
 			return fmt.Errorf("read spot-margin open orders: %w", err)
+		}
+		if orders == nil {
+			return errors.New("read spot-margin open orders: nil response is not an authoritative empty snapshot")
 		}
 		if len(orders) != 0 {
 			return fmt.Errorf("spot-margin has %d open orders", len(orders))
@@ -478,6 +490,9 @@ func (s *FundingCarryStrategy) requireNoOpenOrders(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("read %s open orders: %w", name, err)
 		}
+		if orders == nil {
+			return fmt.Errorf("read %s open orders: nil response is not an authoritative empty snapshot", name)
+		}
 		if len(orders) != 0 {
 			return fmt.Errorf("%s has %d open orders", name, len(orders))
 		}
@@ -486,6 +501,9 @@ func (s *FundingCarryStrategy) requireNoOpenOrders(ctx context.Context) error {
 		orders, err := s.marginEx.GetOpenOrders(ctx, s.symbol)
 		if err != nil {
 			return fmt.Errorf("read spot-margin open orders: %w", err)
+		}
+		if orders == nil {
+			return errors.New("read spot-margin open orders: nil response is not an authoritative empty snapshot")
 		}
 		if len(orders) != 0 {
 			return fmt.Errorf("spot-margin has %d open orders", len(orders))
@@ -1032,6 +1050,9 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fut.GetPositions: %w", err)
 	}
+	if pos == nil {
+		return s.blockOnUnownedExposure(errors.New("futures position snapshot is nil, not an authoritative empty snapshot"))
+	}
 	for _, p := range pos {
 		if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
 			return s.blockOnUnownedExposure(errors.New("futures position snapshot contains invalid data"))
@@ -1059,6 +1080,9 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 		marginPos, e := s.marginEx.GetPositions(ctx, s.symbol)
 		if e != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("marginEx.GetPositions: %w", e))
+		}
+		if marginPos == nil {
+			return s.blockOnUnownedExposure(errors.New("spot-margin position snapshot is nil, not an authoritative empty snapshot"))
 		}
 		for _, mp := range marginPos {
 			if mp == nil || math.IsNaN(mp.Size) || math.IsInf(mp.Size, 0) {

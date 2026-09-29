@@ -119,12 +119,17 @@ func loadSignalRuntimeState(store RuntimeStateStore, cfg *config.Config, exchang
 		if state.PendingAction != signalActionOpenLong && state.PendingAction != signalActionCloseLong {
 			return nil, false, fmt.Errorf("signal strategy state has invalid pending action")
 		}
-		if o.Symbol != symbol || o.Quantity <= 0 || o.Price <= 0 || !signalFinite(o.Quantity) || !signalFinite(o.Price) ||
+		wantSide := "BUY"
+		if state.PendingAction == signalActionCloseLong {
+			wantSide = "SELL"
+		}
+		if o.OrderID <= 0 || strings.TrimSpace(o.ClientOrderID) == "" ||
+			!strings.EqualFold(o.Side, wantSide) || o.Symbol != symbol || o.Quantity <= 0 || o.Price <= 0 || !signalFinite(o.Quantity) || !signalFinite(o.Price) ||
 			o.FillProgress.Quantity < 0 || o.FillProgress.Notional < 0 || !signalFinite(o.FillProgress.Quantity) || !signalFinite(o.FillProgress.Notional) ||
 			o.FillProgress.Quantity > o.Quantity+entryQtyEpsilon || o.FeeVerifiedQty < 0 || !signalFinite(o.FeeVerifiedQty) ||
 			o.FeeProgress < 0 || !signalFinite(o.FeeProgress) ||
 			math.Abs(o.FeeVerifiedQty-o.FillProgress.Quantity) > entryQtyEpsilon {
-			return nil, false, fmt.Errorf("signal strategy state contains invalid active order")
+			return nil, false, fmt.Errorf("signal strategy state contains invalid or action-inconsistent active order")
 		}
 		if state.PendingAction == signalActionCloseLong && state.Position == nil {
 			return nil, false, fmt.Errorf("signal close intent has no persisted inventory")

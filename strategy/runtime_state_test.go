@@ -717,3 +717,50 @@ func TestSignalRuntimeStateRejectsFilledOrderWithoutFeeCursor(t *testing.T) {
 		t.Fatal("restored partially-filled signal order without fee evidence cursor")
 	}
 }
+
+func TestSignalRuntimeStateRejectsActiveOrderIdentityOrActionMismatch(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-invalid-active-order", "BTCUSDT"
+	validPosition := &Position{Symbol: "BTCUSDT", Size: 0.5, EntryPrice: 100, CurrentPrice: 100}
+	tests := []struct {
+		name  string
+		state signalRuntimeState
+	}{
+		{
+			name: "open-long cannot restore a sell order",
+			state: signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT",
+				PendingAction: signalActionOpenLong,
+				ActiveOrder:   &Order{OrderID: 901, ClientOrderID: "open-901", Symbol: "BTCUSDT", Side: "SELL", Price: 100, Quantity: 1}},
+		},
+		{
+			name: "close-long cannot restore a buy order",
+			state: signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT",
+				Position: validPosition, EntryPrice: 100, PendingAction: signalActionCloseLong,
+				ActiveOrder: &Order{OrderID: 902, ClientOrderID: "close-902", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 0.5}},
+		},
+		{
+			name: "active order requires exchange order id",
+			state: signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT",
+				PendingAction: signalActionOpenLong,
+				ActiveOrder:   &Order{ClientOrderID: "open-no-id", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1}},
+		},
+		{
+			name: "active order requires client order id",
+			state: signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT",
+				PendingAction: signalActionOpenLong,
+				ActiveOrder:   &Order{OrderID: 904, Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(tc.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true}
+			if _, _, err := loadSignalRuntimeState(store, cfg, &hedgeExchange{}, "trend", "BTCUSDT"); err == nil {
+				t.Fatal("accepted persisted active order with inconsistent action or incomplete identity")
+			}
+		})
+	}
+}

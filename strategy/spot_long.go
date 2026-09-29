@@ -317,12 +317,25 @@ func (s *SpotLongStrategy) getCurrentLongPosition(ctx context.Context) (float64,
 		return 0, fmt.Errorf("get positions for %s returned no data", s.symbol)
 	}
 	if infos, ok := raw.([]*position.PositionInfo); ok {
+		var current float64
+		found := false
 		for _, p := range infos {
-			if p != nil && p.Symbol == s.symbol && p.Size > 0 {
-				return p.Size, nil
+			if p == nil {
+				return 0, fmt.Errorf("get positions for %s returned a nil position entry", s.symbol)
 			}
+			if p.Symbol != s.symbol {
+				continue
+			}
+			if found {
+				return 0, fmt.Errorf("get positions for %s returned duplicate symbol entries", s.symbol)
+			}
+			if !finiteNumber(p.Size) || p.Size < 0 {
+				return 0, fmt.Errorf("get positions for %s returned invalid long inventory %v", s.symbol, p.Size)
+			}
+			found = true
+			current = p.Size
 		}
-		return 0, nil
+		return current, nil
 	}
 	return 0, fmt.Errorf("unsupported position response type %T for %s", raw, s.symbol)
 }

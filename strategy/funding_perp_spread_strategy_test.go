@@ -349,17 +349,19 @@ func (emptyFundingSpreadExchange) GetName() string { return "test" }
 func (emptyFundingSpreadExchange) GetQuantityDecimals() int { return 3 }
 
 func (emptyFundingSpreadExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
-	return nil, nil
+	return []*exchange.Order{}, nil
 }
 
 type fundingSpreadTestExchange struct {
 	exchange.IExchange
-	name           string
-	positions      []*exchange.Position
-	orders         []*exchange.Order
-	placed         int
-	clientOrderIDs []string
-	residual       float64
+	name                string
+	positions           []*exchange.Position
+	orders              []*exchange.Order
+	returnNilOrders     bool
+	nilOrdersAfterPlace bool
+	placed              int
+	clientOrderIDs      []string
+	residual            float64
 }
 
 type fundingSpreadOrderLookupExchange struct {
@@ -389,6 +391,12 @@ func (e *fundingSpreadTestExchange) GetPositions(context.Context, string) ([]*ex
 }
 
 func (e *fundingSpreadTestExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
+	if e.returnNilOrders || e.nilOrdersAfterPlace && e.placed > 0 {
+		return nil, nil
+	}
+	if e.orders == nil {
+		return []*exchange.Order{}, nil
+	}
 	return e.orders, nil
 }
 
@@ -652,6 +660,44 @@ func TestFundingPerpSpreadStartRejectsPersistedUnhedgedExposure(t *testing.T) {
 				t.Fatal("rejected unhedged startup left strategy active")
 			}
 		})
+	}
+}
+
+func TestFundingPerpSpreadStartRejectsNilOpenOrderSnapshot(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	a := &fundingSpreadTestExchange{name: "a", returnNilOrders: true}
+	b := &fundingSpreadTestExchange{name: "b"}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "ETHUSDT"}
+	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err == nil {
+		t.Fatal("startup accepted nil open-order evidence as an empty leg")
+	}
+	if st.started || st.cancel != nil || store.found {
+		t.Fatalf("unverified startup changed state: started=%v cancel=%v persisted=%v", st.started, st.cancel != nil, store.found)
+	}
+}
+
+func TestFundingPerpSpreadCloseKeepsIntentUnknownWhenPostCloseOrdersAreNil(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	ex := &fundingSpreadTestExchange{
+		name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}, nilOrdersAfterPlace: true,
+	}
+	st := &FundingPerpSpreadStrategy{legA: ex, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT"}
+	st.ownershipReady, st.ownedA = true, -0.01
+	st.SetRuntimeStateStore(store)
+	if err := st.closeLeg(context.Background(), ex, "BTCUSDT", -0.01); err == nil {
+		t.Fatal("close was marked verified without an authoritative post-close order snapshot")
+	}
+	if !st.exposureUnknown || ex.placed != 1 || !store.found {
+		t.Fatalf("uncertain close not retained: exposureUnknown=%v placed=%d stateSaved=%v", st.exposureUnknown, ex.placed, store.found)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.IntentInFlight || persisted.PendingOrder == nil {
+		t.Fatalf("uncertain close intent was cleared: %+v", persisted)
 	}
 }
 

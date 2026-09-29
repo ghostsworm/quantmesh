@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"testing"
 
 	"quantmesh/config"
@@ -30,6 +31,52 @@ func TestSpotLongPositionReadFailureDoesNotAssumeFlat(t *testing.T) {
 	s := NewSpotLongStrategy("spot_long", &config.Config{}, nil, &failingSpotLongPositionExchange{err: errors.New("venue unavailable")}, nil)
 	if got, err := s.getCurrentLongPosition(context.Background()); err == nil || got != 0 {
 		t.Fatalf("position read failure must be surfaced, got qty=%v err=%v", got, err)
+	}
+}
+
+type spotLongPositionResponseExchange struct {
+	signalTestExchange
+	response interface{}
+	err      error
+}
+
+func (e *spotLongPositionResponseExchange) GetPositions(context.Context, string) (interface{}, error) {
+	return e.response, e.err
+}
+
+func TestSpotLongPositionRejectsAmbiguousOrInvalidSnapshots(t *testing.T) {
+	tests := []struct {
+		name     string
+		response interface{}
+		want     float64
+		wantErr  bool
+	}{
+		{name: "authoritative empty", response: []*position.PositionInfo{}, want: 0},
+		{name: "single long position", response: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: 0.25}}, want: 0.25},
+		{name: "nil entry", response: []*position.PositionInfo{nil}, wantErr: true},
+		{name: "negative quantity", response: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}}, wantErr: true},
+		{name: "nan quantity", response: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: math.NaN()}}, wantErr: true},
+		{name: "infinite quantity", response: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: math.Inf(1)}}, wantErr: true},
+		{name: "duplicate symbol rows", response: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: 0.25}, {Symbol: "BTCUSDT", Size: 0.25}}, wantErr: true},
+		{name: "nil response", response: nil, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &spotLongPositionResponseExchange{response: tc.response}
+			cfg := &config.Config{}
+			cfg.Trading.Symbol = "BTCUSDT"
+			s := NewSpotLongStrategy("spot_long", cfg, nil, ex, nil)
+			got, err := s.getCurrentLongPosition(context.Background())
+			if tc.wantErr {
+				if err == nil || got != 0 {
+					t.Fatalf("invalid position evidence accepted: quantity=%v err=%v", got, err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("quantity=%v err=%v, want quantity=%v", got, err, tc.want)
+			}
+		})
 	}
 }
 
