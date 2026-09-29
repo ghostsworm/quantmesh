@@ -57,7 +57,10 @@ func incomeEvidence(row *equityIncomeWire) (accounting.Entry, error) {
 			return accounting.Entry{}, fmt.Errorf("positive commission requires explicit rebate classification")
 		}
 	case "POSITION_LIMIT_INCREASE_FEE":
-		kind = "unallocated_fee"
+		if r.Sign() > 0 {
+			return accounting.Entry{}, fmt.Errorf("positive position-limit fee requires explicit rebate classification")
+		}
+		kind = "fee"
 	case "WELCOME_BONUS", "REFERRAL_KICKBACK", "COMMISSION_REBATE", "API_REBATE", "CONTEST_REWARD", "FEE_RETURN", "BFUSD_REWARD":
 		if r.Sign() < 0 {
 			return accounting.Entry{}, fmt.Errorf("negative rebate requires explicit clawback classification")

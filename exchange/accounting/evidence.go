@@ -13,6 +13,8 @@ import (
 
 type Entry struct {
 	ID, Kind, Currency, Amount, Symbol string
+	ValuationRate, ValuationSource     string
+	ValuationAt                        time.Time
 	At                                 time.Time
 }
 
@@ -24,6 +26,7 @@ const (
 // Wallet's cursor is in the exchange's clock domain; it is NOT the local
 // observation timestamp. Balances remain decimal strings for exact checking.
 type Wallet struct {
+	Currency   string    `json:"currency,omitempty"`
 	Balance    string    `json:"balance"`
 	From       time.Time `json:"from"`
 	Through    time.Time `json:"through"`
@@ -38,6 +41,7 @@ type Snapshot struct {
 	Equity     float64
 	ObservedAt time.Time
 	Wallet     Wallet
+	Wallets    map[string]Wallet
 	Entries    []Entry
 }
 

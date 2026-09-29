@@ -3,10 +3,18 @@ package risk
 import (
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"quantmesh/exchange/accounting"
 )
+
+func walletCurrency(w accounting.Wallet, fallback string) string {
+	if w.Currency != "" {
+		return w.Currency
+	}
+	return fallback
+}
 
 func validateWallet(w accounting.Wallet) error {
 	if _, err := accounting.Decimal(w.Balance); err != nil {
@@ -21,22 +29,67 @@ func validateWallet(w accounting.Wallet) error {
 	return nil
 }
 
-func exactFlow(f EquityCashFlow, currency string) (*big.Rat, error) {
+func exactFlow(f EquityCashFlow, currency, expectedWalletCurrency string) (*big.Rat, error) {
 	if _, err := f.externalAmount(currency); err != nil {
 		return nil, err
 	}
 	if f.Account == "" {
 		return nil, fmt.Errorf("ledger account missing")
 	}
+	flowCurrency := f.WalletCurrency
+	if flowCurrency == "" {
+		flowCurrency = f.Currency
+	}
+	if flowCurrency != expectedWalletCurrency {
+		return nil, fmt.Errorf("ledger wallet currency mismatch")
+	}
 	exact, err := accounting.Decimal(f.ExactAmount)
 	if err != nil {
 		return nil, err
 	}
-	approx, _ := exact.Float64()
+	rateText := f.ValuationRate
+	if rateText == "" {
+		if expectedWalletCurrency != currency {
+			return nil, fmt.Errorf("non-valuation wallet currency lacks a verified conversion rate")
+		}
+		rateText = "1"
+	}
+	rate, err := accounting.Decimal(rateText)
+	if err != nil || rate.Sign() <= 0 {
+		return nil, fmt.Errorf("invalid ledger valuation rate")
+	}
+	if expectedWalletCurrency == currency {
+		if rate.Cmp(big.NewRat(1, 1)) != 0 {
+			return nil, fmt.Errorf("same-currency ledger valuation rate must equal one")
+		}
+		if f.ValuationSource != "" || !f.ValuationAt.IsZero() {
+			return nil, fmt.Errorf("same-currency ledger has unexpected conversion provenance")
+		}
+	} else if strings.TrimSpace(f.ValuationSource) == "" || f.ValuationAt.IsZero() || f.ValuationAt.After(f.At) || f.At.Sub(f.ValuationAt) > time.Minute {
+		return nil, fmt.Errorf("non-valuation ledger amount lacks timely conversion provenance")
+	}
+	valued := new(big.Rat).Mul(exact, rate)
+	approx, _ := valued.Float64()
 	if approx != f.Amount {
-		return nil, fmt.Errorf("ledger amount differs from exact amount")
+		return nil, fmt.Errorf("valued ledger amount differs from exact amount and rate")
 	}
 	return exact, nil
+}
+
+func exactValuedFlow(f EquityCashFlow) (*big.Rat, error) {
+	amount, err := accounting.Decimal(f.ExactAmount)
+	if err != nil {
+		return nil, err
+	}
+	rate := f.ValuationRate
+	if rate == "" {
+		rate = "1"
+	}
+	parsedRate, err := accounting.Decimal(rate)
+	if err != nil || parsedRate.Sign() <= 0 {
+		return nil, fmt.Errorf("invalid ledger valuation rate")
+	}
+	return new(big.Rat).Mul(amount, parsedRate), nil
 }
 
 // Validate the entire durable journal against its immutable per-account wallet
@@ -51,6 +104,10 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		base, ok := s.BaseWallets[account]
 		if account == "" || !ok {
 			return 0, fmt.Errorf("wallet checkpoint account changed")
+		}
+		currency := walletCurrency(wallet, s.Currency)
+		if currency == "" || walletCurrency(base, s.Currency) != currency {
+			return 0, fmt.Errorf("wallet currency missing")
 		}
 		if err := validateWallet(wallet); err != nil {
 			return 0, err
@@ -79,7 +136,8 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		if !ok || id != flow.ID || flow.At.Before(base.From) || flow.At.After(wallet.Through) {
 			return 0, fmt.Errorf("wallet receipt outside account coverage")
 		}
-		amount, err := exactFlow(flow, s.Currency)
+		walletCurrency := walletCurrency(wallet, s.Currency)
+		amount, err := exactFlow(flow, s.Currency, walletCurrency)
 		if err != nil {
 			return 0, err
 		}
@@ -89,7 +147,11 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		sums[flow.Account].Add(sums[flow.Account], amount)
 		switch flow.Kind {
 		case "deposit", "withdrawal", "transfer_in", "transfer_out":
-			external.Add(external, amount)
+			valued, err := exactValuedFlow(flow)
+			if err != nil {
+				return 0, err
+			}
+			external.Add(external, valued)
 		}
 	}
 	for account, wallet := range s.Wallets {
@@ -119,7 +181,7 @@ func walletObservation(o EquityObservation, now time.Time, maxAge time.Duration)
 		return nil, fmt.Errorf("wallet ledger coverage is incomplete")
 	}
 	wallets := cloneWallets(o.Wallets)
-	var oldest time.Time
+	var oldest, newest time.Time
 	for account, wallet := range wallets {
 		if account == "" {
 			return nil, fmt.Errorf("empty wallet account identity")
@@ -133,21 +195,28 @@ func walletObservation(o EquityObservation, now time.Time, maxAge time.Duration)
 		if oldest.IsZero() || wallet.ObservedAt.Before(oldest) {
 			oldest = wallet.ObservedAt
 		}
+		if newest.IsZero() || wallet.ObservedAt.After(newest) {
+			newest = wallet.ObservedAt
+		}
 		canonical, err := accounting.CanonicalDecimal(wallet.Balance)
 		if err != nil {
 			return nil, err
 		}
 		wallet.Balance = canonical
+		wallet.Currency = walletCurrency(wallet, o.Currency)
 		wallets[account] = wallet
 	}
 	if !oldest.Equal(o.ObservedAt) {
 		return nil, fmt.Errorf("aggregate equity time must match oldest account capture")
 	}
+	if newest.Sub(oldest) > accounting.MaxCaptureDuration {
+		return nil, fmt.Errorf("account equity captures exceed maximum aggregate window")
+	}
 	return wallets, nil
 }
 
 func sameWalletReceipt(a, b EquityCashFlow) bool {
-	return a.ID == b.ID && a.Account == b.Account && a.Kind == b.Kind && a.Currency == b.Currency && a.Amount == b.Amount && a.ExactAmount == b.ExactAmount && a.At.Equal(b.At)
+	return a.ID == b.ID && a.Account == b.Account && a.Kind == b.Kind && a.Currency == b.Currency && a.WalletCurrency == b.WalletCurrency && a.ValuationRate == b.ValuationRate && a.ValuationSource == b.ValuationSource && a.ValuationAt.Equal(b.ValuationAt) && a.Amount == b.Amount && a.ExactAmount == b.ExactAmount && a.At.Equal(b.At)
 }
 
 func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation, now, reset time.Time, maxAge time.Duration) (EquityCheckpoint, error) {
@@ -205,12 +274,18 @@ func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation,
 		if !ok || flow.At.Before(wallet.From) || flow.At.After(wallet.Through) {
 			return s, fmt.Errorf("ledger receipt outside account observation")
 		}
-		if _, err := exactFlow(flow, o.Currency); err != nil {
+		if _, err := exactFlow(flow, o.Currency, walletCurrency(wallet, s.Currency)); err != nil {
 			return s, err
 		}
 		flow.ExactAmount, err = accounting.CanonicalDecimal(flow.ExactAmount)
 		if err != nil {
 			return s, err
+		}
+		if flow.ValuationRate != "" {
+			flow.ValuationRate, err = accounting.CanonicalDecimal(flow.ValuationRate)
+			if err != nil {
+				return s, err
+			}
 		}
 		if old, ok := observed[flow.ID]; ok && !sameWalletReceipt(old, flow) {
 			return s, fmt.Errorf("conflicting wallet receipt identity")

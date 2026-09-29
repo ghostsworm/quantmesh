@@ -67,6 +67,31 @@ func TestRuntimeEquityWalletAggregatesAccountsAndPreservesCursors(t *testing.T) 
 	}
 }
 
+func TestRuntimeEquityWalletAggregatesCurrenciesAndValuesLedgerReceipts(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	snapshot := accounting.Snapshot{Currency: "USDT", Equity: 76000, ObservedAt: now,
+		Wallets: map[string]accounting.Wallet{
+			"USDT": {Balance: "10000", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now},
+			"BTC":  {Balance: "1.1", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now},
+		},
+		Entries: []accounting.Entry{{ID: "deposit-btc", Kind: "deposit", Currency: "BTC", Amount: "0.1", ValuationRate: "60000", ValuationSource: "binance:BTCUSDT:historical", ValuationAt: now.Add(-time.Second), At: now.Add(-time.Second)}}}
+	ex := &equityLedgerExchange{snapshot: snapshot}
+	observation, err := observeRuntimeEquity(t.Context(), []*SymbolRuntime{walletRuntimeFixture("acct", ex)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !observation.CashFlowComplete || len(observation.Wallets) != 2 || len(observation.Flows) != 1 || observation.Flows[0].Currency != "USDT" || observation.Flows[0].WalletCurrency != "BTC" || observation.Flows[0].Amount != 6000 {
+		t.Fatalf("multi-currency observation=%+v", observation)
+	}
+	cursors := make(map[string]time.Time, len(observation.Wallets))
+	for identity, wallet := range observation.Wallets {
+		cursors[identity] = wallet.From
+	}
+	if _, err := observeRuntimeEquityCursors(t.Context(), []*SymbolRuntime{walletRuntimeFixture("acct", ex)}, cursors); err != nil {
+		t.Fatalf("multi-currency durable cursors were not mapped to account: %v", err)
+	}
+}
+
 func TestRuntimeEquityWalletFailuresDoNotReturnAdjustedPartialTotals(t *testing.T) {
 	for _, name := range []string{"read_error", "currency", "nan", "capture_mismatch", "missing_id", "invalid_amount", "future", "missing_capture"} {
 		t.Run(name, func(t *testing.T) {

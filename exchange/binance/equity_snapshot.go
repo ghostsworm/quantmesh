@@ -95,7 +95,7 @@ func (a equityAccountWire) sample() (equityAccountSample, error) {
 			return sample, fmt.Errorf("invalid account maximum withdrawal amount")
 		}
 		if asset.Asset != "USDT" {
-			if wallet.Sign() != 0 || margin.Sign() != 0 || initial.Sign() != 0 {
+			if wallet.Sign() != 0 || margin.Sign() != 0 || initial.Sign() != 0 || available.Sign() != 0 || maxWithdraw.Sign() != 0 {
 				return sample, fmt.Errorf("non-USDT account exposure requires valuation")
 			}
 			continue

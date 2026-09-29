@@ -16,19 +16,24 @@ const equityStateVersion = 1
 // Amount is signed in the observation's valuation currency. Only external
 // capital flows are neutralized; fees/funding/interest remain in performance.
 type EquityCashFlow struct {
-	Account     string    `json:"account,omitempty"`
-	ExactAmount string    `json:"exact_amount,omitempty"`
-	ID          string    `json:"id"`
-	Kind        string    `json:"kind"`
-	Currency    string    `json:"currency"`
-	Amount      float64   `json:"amount"`
-	At          time.Time `json:"at"`
+	Account         string    `json:"account,omitempty"`
+	ExactAmount     string    `json:"exact_amount,omitempty"`
+	WalletCurrency  string    `json:"wallet_currency,omitempty"`
+	ValuationRate   string    `json:"valuation_rate,omitempty"`
+	ValuationSource string    `json:"valuation_source,omitempty"`
+	ValuationAt     time.Time `json:"valuation_at,omitempty"`
+	ID              string    `json:"id"`
+	Kind            string    `json:"kind"`
+	Currency        string    `json:"currency"`
+	Amount          float64   `json:"amount"`
+	At              time.Time `json:"at"`
 }
 
 // EquityObservation must refer to one stable account/market/valuation scope.
 // Complete asserts all requested ledger pages were read. With Wallets, cursors
-// are per-account exchange time and the checkpoint additionally reconciles exact
-// balances. Legacy observations use local ObservedAt and FlowFrom/FlowThrough.
+// are per-wallet exchange time and the checkpoint additionally reconciles exact
+// balances in each wallet's currency. Legacy observations use local ObservedAt
+// and FlowFrom/FlowThrough.
 // Unsupported/empty APIs are not proof.
 type EquityObservation struct {
 	Scope            string
@@ -148,7 +153,7 @@ func (f EquityCashFlow) externalAmount(currency string) (float64, error) {
 			return 0, fmt.Errorf("positive expense without rebate classification")
 		}
 		return 0, nil
-	case "funding", "realized_pnl", "rebate":
+	case "funding", "realized_pnl", "rebate", "insurance_clear":
 		return 0, nil
 	default:
 		return 0, fmt.Errorf("unclassified equity cash flow %q", f.Kind)

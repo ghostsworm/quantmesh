@@ -164,6 +164,152 @@ func TestEquityWalletNoToleranceForMissingDecimalDebit(t *testing.T) {
 	}
 }
 
+func TestEquityWalletReconcilesForeignCurrencyAndValuesExternalFlow(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	through := base.Add(-time.Millisecond)
+	from := through.Add(-realizedCursorOverlap)
+	wallet := func(currency, balance string, observed time.Time) accounting.Wallet {
+		return accounting.Wallet{Currency: currency, Balance: balance, From: from, Through: observed.Add(-time.Millisecond), ObservedAt: observed}
+	}
+	observation := EquityObservation{Scope: "multi-wallet", Currency: "USDT", Equity: 70000, ObservedAt: base, CashFlowComplete: true,
+		Wallets: map[string]accounting.Wallet{
+			"acct:USDT": wallet("USDT", "10000", base),
+			"acct:BTC":  wallet("BTC", "1", base),
+		}}
+	previous, err := nextEquityCheckpoint(nil, observation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation = EquityObservation{Scope: "multi-wallet", Currency: "USDT", Equity: 76000, ObservedAt: now, CashFlowComplete: true,
+		Wallets: map[string]accounting.Wallet{
+			"acct:USDT": wallet("USDT", "10000", now),
+			"acct:BTC":  wallet("BTC", "1.1", now),
+		},
+		Flows: []EquityCashFlow{{ID: "deposit-btc", Account: "acct:BTC", Kind: "deposit", Currency: "USDT", WalletCurrency: "BTC",
+			ExactAmount: "0.1", ValuationRate: "60000", ValuationSource: "binance:BTCUSDT:historical", ValuationAt: now.Add(-time.Second), Amount: 6000, At: now.Add(-time.Second)}}}
+	next, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ExternalFlows != 6000 || next.AdjustedEquity != 70000 || next.HighWater != 70000 || len(next.Wallets) != 2 {
+		t.Fatalf("multi-currency checkpoint=%+v", next)
+	}
+	for _, name := range []string{"missing_rate", "missing_source", "missing_rate_time", "future_rate", "stale_rate", "wrong_wallet_currency", "wrong_valuation"} {
+		t.Run(name, func(t *testing.T) {
+			broken := observation
+			broken.Flows = append([]EquityCashFlow(nil), observation.Flows...)
+			switch name {
+			case "missing_rate":
+				broken.Flows[0].ValuationRate = ""
+			case "missing_source":
+				broken.Flows[0].ValuationSource = ""
+			case "missing_rate_time":
+				broken.Flows[0].ValuationAt = time.Time{}
+			case "future_rate":
+				broken.Flows[0].ValuationAt = broken.Flows[0].At.Add(time.Second)
+			case "stale_rate":
+				broken.Flows[0].ValuationAt = broken.Flows[0].At.Add(-time.Minute - time.Millisecond)
+			case "wrong_wallet_currency":
+				broken.Flows[0].WalletCurrency = "ETH"
+			case "wrong_valuation":
+				broken.Flows[0].Amount = 6001
+			}
+			if _, err := nextEquityCheckpoint(&previous, broken, now, time.Time{}, time.Minute, true); err == nil {
+				t.Fatal("incomplete or inconsistent conversion evidence accepted")
+			}
+		})
+	}
+}
+
+func TestEquityWalletRejectsNonUnitRateForValuationCurrency(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
+	previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := testWalletObservation(now, 0, "110", 110, previous.Wallets["a"].Through)
+	observation.Flows = []EquityCashFlow{{ID: "deposit", Account: "a", ExactAmount: "10", ValuationRate: "2", Kind: "deposit", Currency: "USDT", Amount: 20, At: now.Add(-time.Second)}}
+	if _, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true); err == nil {
+		t.Fatal("same-currency external flow accepted a non-unit valuation rate")
+	}
+}
+
+func TestEquityWalletInsuranceClearRemainsPerformance(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
+	previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := testWalletObservation(now, 0, "90", 90, previous.BaseWallets["a"].From)
+	observation.Flows = []EquityCashFlow{testWalletFlow("insurance-clear", "insurance_clear", "-10", observation.Wallets["a"].Through)}
+	next, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ExternalFlows != 0 || next.AdjustedEquity != 90 || next.DrawdownPct != 10 {
+		t.Fatalf("insurance clearing must remain performance, checkpoint=%+v", next)
+	}
+}
+
+func TestEquityWalletPositionLimitFeeRemainsPerformance(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
+	previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := testWalletObservation(now, 0, "90", 90, previous.BaseWallets["a"].From)
+	observation.Flows = []EquityCashFlow{testWalletFlow("position-limit-fee", "fee", "-10", observation.Wallets["a"].Through)}
+	next, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.ExternalFlows != 0 || next.AdjustedEquity != 90 || next.DrawdownPct != 10 {
+		t.Fatalf("position-limit fee must remain performance, checkpoint=%+v", next)
+	}
+}
+
+func TestEquityWalletRejectsAggregateCaptureSkew(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name    string
+		skew    time.Duration
+		wantErr bool
+	}{
+		{name: "at_limit", skew: accounting.MaxCaptureDuration},
+		{name: "over_limit", skew: accounting.MaxCaptureDuration + time.Millisecond, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			first := accounting.Wallet{Currency: "USDT", Balance: "100", From: base.Add(-time.Minute), Through: base.Add(-time.Millisecond), ObservedAt: base}
+			secondAt := base.Add(tc.skew)
+			second := accounting.Wallet{Currency: "USDT", Balance: "200", From: secondAt.Add(-time.Minute), Through: secondAt.Add(-time.Millisecond), ObservedAt: secondAt}
+			observation := EquityObservation{Scope: "two-accounts", Currency: "USDT", Equity: 300, ObservedAt: base, CashFlowComplete: true,
+				Wallets: map[string]accounting.Wallet{"account-a": first, "account-b": second}}
+			_, err := nextEquityCheckpoint(nil, observation, base.Add(time.Minute), time.Time{}, time.Minute, true)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("capture skew %s err=%v, wantErr=%v", tc.skew, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestEquityWalletLoadsLegacySingleCurrencyCheckpoint(t *testing.T) {
+	const legacy = `{"version":1,"revision":1,"scope":"legacy","currency":"USDT","cash_flow_adjusted":true,"base_at":"2026-09-24T00:00:00Z","reset_at":"0001-01-01T00:00:00Z","last_at":"2026-09-24T00:00:00Z","last_equity":100,"external_flows":0,"adjusted_equity":100,"high_water":100,"drawdown_pct":0,"receipts":{},"base_wallets":{"a":{"balance":"100","from":"2026-09-23T23:55:00Z","through":"2026-09-23T23:59:59.999Z","observed_at":"2026-09-24T00:00:00Z"}},"wallets":{"a":{"balance":"100","from":"2026-09-23T23:55:00Z","through":"2026-09-23T23:59:59.999Z","observed_at":"2026-09-24T00:00:00Z"}}}`
+	var checkpoint EquityCheckpoint
+	if err := json.Unmarshal([]byte(legacy), &checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkpoint.validate(); err != nil {
+		t.Fatalf("legacy USDT-only checkpoint no longer validates: %v", err)
+	}
+}
+
 func TestEquityWalletModeRequiresExplicitReset(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	o := testEquityObservation(base, 1000)

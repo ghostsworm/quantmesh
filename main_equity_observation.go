@@ -69,15 +69,9 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 		return observation, err
 	}
 	observation.Scope = fmt.Sprintf("futures:%x", sha256.Sum256(identity))
-	if len(cursors) > 0 {
-		if len(cursors) != len(accounts) {
-			return observation, fmt.Errorf("equity account membership changed; reconciliation required")
-		}
-		for key := range cursors {
-			if _, ok := accounts[key]; !ok {
-				return observation, fmt.Errorf("equity account identity changed; reconciliation required")
-			}
-		}
+	accountCursors, err := cursorsByAccount(cursors, accounts)
+	if err != nil {
+		return observation, err
 	}
 	providers := make(map[string]accounting.Source, len(accounts))
 	for _, key := range keys {
@@ -86,7 +80,7 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 		}
 	}
 	if len(providers) == len(accounts) {
-		return observeAccountEvidence(ctx, observation, keys, providers, cursors)
+		return observeAccountEvidence(ctx, observation, keys, providers, accountCursors)
 	}
 	for _, key := range keys {
 		rt := accounts[key]
@@ -102,4 +96,33 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 		observation.Equity += account.TotalMarginBalance
 	}
 	return observation, nil
+}
+
+// Wallet checkpoints may contain one cursor per currency. Current exchange
+// sources accept one lower-bound cursor per account, so use the oldest durable
+// cursor while retaining each wallet's own overlap validation downstream.
+func cursorsByAccount(cursors map[string]time.Time, accounts map[string]*SymbolRuntime) (map[string]time.Time, error) {
+	result := make(map[string]time.Time, len(accounts))
+	for identity, cursor := range cursors {
+		account := identity
+		var composite []string
+		if err := json.Unmarshal([]byte(identity), &composite); err == nil {
+			if len(composite) == 2 && composite[0] != "" && composite[1] != "" {
+				if _, ok := accounts[composite[0]]; ok {
+					account = composite[0]
+				}
+			}
+		}
+		if _, ok := accounts[account]; !ok {
+			return nil, fmt.Errorf("equity account identity changed; reconciliation required")
+		}
+		oldest, ok := result[account]
+		if !ok || cursor.Before(oldest) {
+			result[account] = cursor
+		}
+	}
+	if len(cursors) > 0 && len(result) != len(accounts) {
+		return nil, fmt.Errorf("equity account membership changed; reconciliation required")
+	}
+	return result, nil
 }
