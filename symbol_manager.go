@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -144,6 +145,11 @@ func logAdjustOrdersError(ctx context.Context, symbol string, err error) {
 // fetchExchangeFeeRates 從交易所接口拉取 maker/taker 費率（測試可替換）
 var fetchExchangeFeeRates = feerate.FetchFromExchangeAPI
 
+func validResolvedGridFeeRates(maker, taker float64) bool {
+	return !math.IsNaN(maker) && !math.IsInf(maker, 0) && maker >= -1 && maker <= 1 &&
+		!math.IsNaN(taker) && !math.IsInf(taker, 0) && taker > 0 && taker <= 1
+}
+
 // gridFeeRateSource 網格費率來源（日誌用）
 const (
 	gridFeeRateSourceExchange = "exchange_api"
@@ -159,7 +165,7 @@ func resolveGridFeeRates(cfg *config.Config, symCfg config.SymbolConfig, configF
 		return maker, taker, source
 	}
 	m, t, err := fetchExchangeFeeRates(cfg, symCfg.Exchange, symCfg.Symbol)
-	if err != nil || t <= 0 {
+	if err != nil || !validResolvedGridFeeRates(m, t) {
 		logger.Info("ℹ️ [%s:%s] 從交易所拉取 maker/taker 費率失敗，使用配置 fee_rate=%.4f%%: %v",
 			symCfg.Exchange, symCfg.Symbol, configFeeRate*100, err)
 		return maker, taker, source

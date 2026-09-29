@@ -27,9 +27,10 @@ type feeRateState struct {
 }
 
 // SetFeeRates 注入 maker/taker 費率（如 0.0002 表示 0.02%）。
-// maker 可為負（返佣），計算下界時按 0 處理；taker <= 0 時忽略本次設置。
+// maker 可為負（返佣），計算下界時按 0 處理；非有限或超出 [-1, 1] 的
+// 費率視為不可信，忽略本次設置以免污染委託價格。
 func (spm *SuperPositionManager) SetFeeRates(maker, taker float64) {
-	if taker <= 0 {
+	if !validGridFeeRates(maker, taker) {
 		logger.Warn("⚠️ [%s] 忽略無效手續費率 maker=%.6f taker=%.6f", spm.logPrefix(), maker, taker)
 		return
 	}
@@ -42,6 +43,11 @@ func (spm *SuperPositionManager) SetFeeRates(maker, taker float64) {
 	if changed {
 		logger.Info("💳 [%s] 費率感知利差使用手續費: maker %.4f%% / taker %.4f%%", spm.logPrefix(), maker*100, taker*100)
 	}
+}
+
+func validGridFeeRates(maker, taker float64) bool {
+	return !math.IsNaN(maker) && !math.IsInf(maker, 0) && maker >= -1 && maker <= 1 &&
+		!math.IsNaN(taker) && !math.IsInf(taker, 0) && taker > 0 && taker <= 1
 }
 
 // GetFeeRates 返回當前 maker/taker 費率及是否已設置
@@ -69,7 +75,11 @@ func (spm *SuperPositionManager) feeAwareSpreadFloor(entryPrice float64, postOnl
 	if postOnly {
 		rate = math.Max(maker, 0)
 	}
-	return entryPrice * (feeFloorRoundTrips*rate + fa.GetSafetyMarginRatio())
+	floor := entryPrice * (feeFloorRoundTrips*rate + fa.GetSafetyMarginRatio())
+	if math.IsNaN(floor) || math.IsInf(floor, 0) || floor < 0 {
+		return 0
+	}
+	return floor
 }
 
 // applyFeeAwareSpread 返回 max(配置利差, 費率下界)；配置利差低於下界時每個 Bot 只告警一次

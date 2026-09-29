@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"quantmesh/config"
@@ -24,6 +25,8 @@ func TestResolveGridFeeRates(t *testing.T) {
 		{name: "合約優先交易所費率", marketType: "futures", allowExchange: true, fetchMaker: 0.0002, fetchTaker: 0.0005, wantMaker: 0.0002, wantTaker: 0.0005, wantSource: gridFeeRateSourceExchange, wantFetch: true},
 		{name: "拉取失敗回退配置", marketType: "futures", allowExchange: true, fetchErr: errors.New("no key"), wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig, wantFetch: true},
 		{name: "交易所返回無效 taker 回退配置", marketType: "futures", allowExchange: true, fetchTaker: 0, wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig, wantFetch: true},
+		{name: "交易所 NaN 費率回退配置", marketType: "futures", allowExchange: true, fetchMaker: math.NaN(), fetchTaker: 0.0005, wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig, wantFetch: true},
+		{name: "交易所超範圍費率回退配置", marketType: "futures", allowExchange: true, fetchMaker: 0.0002, fetchTaker: 1.01, wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig, wantFetch: true},
 		{name: "跳過交易所拉取", marketType: "futures", allowExchange: false, wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig},
 		{name: "現貨不調合約費率端點", marketType: "spot", allowExchange: true, wantMaker: 0.0004, wantTaker: 0.0004, wantSource: gridFeeRateSourceConfig},
 	}

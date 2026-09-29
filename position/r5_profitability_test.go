@@ -67,6 +67,22 @@ func TestFeeAwareSpreadFloor(t *testing.T) {
 	}
 }
 
+func TestSetFeeRatesRejectsNonFiniteAndOutOfRangeValues(t *testing.T) {
+	spm := newR5SPM(t, nil, nil)
+	spm.SetFeeRates(0.0002, 0.0005)
+	invalid := [][2]float64{
+		{math.NaN(), 0.001}, {math.Inf(1), 0.001}, {-1.01, 0.001},
+		{0.001, math.NaN()}, {0.001, math.Inf(1)}, {0.001, 0}, {0.001, 1.01},
+	}
+	for _, rates := range invalid {
+		spm.SetFeeRates(rates[0], rates[1])
+		maker, taker, ok := spm.GetFeeRates()
+		if !ok || maker != 0.0002 || taker != 0.0005 {
+			t.Fatalf("invalid rates %v replaced trusted rates: maker=%v taker=%v ok=%v", rates, maker, taker, ok)
+		}
+	}
+}
+
 func TestGetEffectiveProfitSpreadRaisesToFeeFloorAndWarnsOnce(t *testing.T) {
 	spm := newR5SPM(t, nil, nil)
 	spm.lastMarketPrice.Store(3000.0)
