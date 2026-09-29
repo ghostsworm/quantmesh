@@ -514,6 +514,41 @@ func TestFundingPerpSpreadRestoresPersistedLegOwnership(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadStartRejectsPersistedUnhedgedExposure(t *testing.T) {
+	cases := []struct {
+		name string
+		a    float64
+		b    float64
+	}{
+		{name: "only short leg", a: -0.01},
+		{name: "only long leg", b: 0.01},
+		{name: "same direction", a: -0.01, b: -0.02},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+				Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+				LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, OwnedA: tc.a, OwnedB: tc.b,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+			a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: tc.a}}}
+			b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "ETHUSDT", Size: tc.b}}}
+			st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "ETHUSDT"}
+			st.SetRuntimeStateStore(store)
+			st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+			if err := st.Start(context.Background()); err == nil {
+				t.Fatal("Start() accepted a persisted single-leg or same-direction exposure")
+			}
+			if st.started || st.cancel != nil {
+				t.Fatal("rejected unhedged startup left strategy active")
+			}
+		})
+	}
+}
+
 func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",

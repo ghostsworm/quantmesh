@@ -180,6 +180,9 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 			if math.Abs(posA-restored.OwnedA) > s.legTolerance(s.legA) || math.Abs(posB-restored.OwnedB) > s.legTolerance(s.legB) {
 				return fmt.Errorf("runtime state ownership does not match exchange positions (A %.8f/%.8f, B %.8f/%.8f)", posA, restored.OwnedA, posB, restored.OwnedB)
 			}
+			if err := validateFundingPerpSpreadHedgeShape(posA, posB, s.legTolerance(s.legA), s.legTolerance(s.legB)); err != nil {
+				return fmt.Errorf("persisted funding_perp_spread exposure is not a valid two-leg hedge: %w", err)
+			}
 		} else if posA != 0 || posB != 0 {
 			return fmt.Errorf("unowned positions exist without a runtime state (A %.8f, B %.8f)", posA, posB)
 		}
@@ -211,6 +214,21 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 	s.mu.Lock()
 	go s.runLoop()
 	s.mu.Unlock()
+	return nil
+}
+
+func validateFundingPerpSpreadHedgeShape(posA, posB, toleranceA, toleranceB float64) error {
+	if math.IsNaN(posA) || math.IsInf(posA, 0) || math.IsNaN(posB) || math.IsInf(posB, 0) {
+		return errors.New("position snapshot contains a non-finite quantity")
+	}
+	openA := math.Abs(posA) > toleranceA
+	openB := math.Abs(posB) > toleranceB
+	if openA != openB {
+		return fmt.Errorf("only one hedge leg is open (A %.8f, B %.8f)", posA, posB)
+	}
+	if openA && (posA > 0) == (posB > 0) {
+		return fmt.Errorf("both hedge legs have the same direction (A %.8f, B %.8f)", posA, posB)
+	}
 	return nil
 }
 
