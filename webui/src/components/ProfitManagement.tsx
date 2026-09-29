@@ -539,7 +539,7 @@ const ProfitManagement: React.FC = () => {
             <TabPanel p={0} pt={4}>
               <WithdrawRuleForm
                 rules={visibleWithdrawRules}
-                strategyOptions={strategyProfits.map((s) => ({
+                strategyOptions={strategyProfits.filter((s) => s.pnlAsset === 'USDT').map((s) => ({
                   id: s.strategyId,
                   name: s.strategyName,
                 }))}

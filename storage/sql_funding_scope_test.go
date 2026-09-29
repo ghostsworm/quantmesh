@@ -45,6 +45,82 @@ func TestDailyFundingPaymentsRequireExactAccountMarketAndSymbolScope(t *testing.
 	}
 }
 
+func TestFundingPaymentAggregatesRequireExactAccountScope(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-account-scope.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, payment := range []FundingPayment{
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "old-key-label", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 11, Asset: "USDT", Income: 4, TradeTime: now},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "opaque-new-label", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 12, Asset: "USDT", Income: 3, TradeTime: now},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "old-key-label", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 16, Asset: "BTC", Income: 0.02, TradeTime: now},
+		{Exchange: "binance", Symbol: "BTCUSDT", Account: "old-key-label", MarketType: "futures", AccountScope: "scope-b", IncomeType: "FUNDING_FEE", TransactionID: 13, Asset: "USDT", Income: 100, TradeTime: now},
+		{Exchange: "binance", Symbol: "ETHUSDT", Account: "opaque-new-label", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 14, Asset: "USDT", Income: 200, TradeTime: now},
+	} {
+		p := payment
+		if err := st.SaveFundingPayment(&p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.db.Exec(`INSERT INTO funding_payments (exchange, symbol, account, market_type, account_scope, income_type, income, asset, transaction_id, trade_time, created_at, identity_key) VALUES ('binance', 'BTCUSDT', '', 'futures', '', 'FUNDING_FEE', 500, 'USDT', 15, ?, ?, 'legacy-unscoped-row')`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	start, end := now.Add(-time.Minute), now.Add(time.Minute)
+	total, err := st.GetFundingPaymentsSumByScope("binance", "futures", "BTCUSDT", "USDT", "scope-a", start, end)
+	if err != nil || total != 7 {
+		t.Fatalf("scoped funding total=%v err=%v, want 7", total, err)
+	}
+	daily, err := st.GetDailyFundingPaymentsByAccountScopeAndAsset("binance", "futures", "USDT", "scope-a", start, end)
+	if err != nil || daily[now.Format("2006-01-02")] != 207 {
+		t.Fatalf("scoped daily funding=%v err=%v, want only exact-scope rows totalling 207", daily, err)
+	}
+	history, err := st.GetFundingPaymentsByAccountScope("scope-a", "binance", start, end)
+	if err != nil || len(history) != 4 {
+		t.Fatalf("scoped history rows=%d err=%v, want four attributable rows", len(history), err)
+	}
+	for _, payment := range history {
+		if payment.AccountScope != "scope-a" {
+			t.Fatalf("history crossed account scope: %+v", payment)
+		}
+	}
+	legacyAccountTotal, err := st.GetFundingPaymentsSum("opaque-new-label", "binance", start, end)
+	if err != nil || legacyAccountTotal != 203 {
+		t.Fatalf("account-filtered funding included blank/other account rows: total=%v err=%v", legacyAccountTotal, err)
+	}
+	if _, err := st.GetFundingPaymentsSumByScope("binance", "futures", "BTCUSDT", "USDT", "", start, end); err == nil {
+		t.Fatal("sum without immutable account scope must fail")
+	}
+	if _, err := st.GetFundingPaymentsSumByAccountScopeAndAsset("binance", "USDT", "scope-a", start, end); err == nil {
+		t.Fatal("profit summary must reject funding totals when exchange has unattributed payments")
+	}
+}
+
+func TestProfitFundingSumRejectsUnknownAssetAndSumsVerifiedUSDT(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-profit-scope.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	payment := FundingPayment{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 301, Asset: "USDT", Income: 4.5, TradeTime: now}
+	if err := st.SaveFundingPayment(&payment); err != nil {
+		t.Fatal(err)
+	}
+	start, end := now.Add(-time.Minute), now.Add(time.Minute)
+	got, err := st.GetFundingPaymentsSumByAccountScopeAndAsset("binance", "USDT", "scope-a", start, end)
+	if err != nil || got != 4.5 {
+		t.Fatalf("verified scoped funding sum=%v err=%v, want 4.5", got, err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO funding_payments (exchange, symbol, account, market_type, account_scope, income_type, income, asset, transaction_id, trade_time, created_at, identity_key) VALUES ('binance', 'BTCUSDT', '', 'futures', 'scope-a', 'FUNDING_FEE', 2, '', 302, ?, ?, 'unknown-asset-row')`, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetFundingPaymentsSumByAccountScopeAndAsset("binance", "USDT", "scope-a", start, end); err == nil {
+		t.Fatal("profit funding sum accepted a payment with unknown denomination")
+	}
+}
+
 func TestSaveFundingPaymentIsIdempotentAndRejectsIdentityConflicts(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/funding-idempotency.db")
 	if err != nil {

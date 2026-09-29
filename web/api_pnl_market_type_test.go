@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/storage"
 
 	"github.com/gin-gonic/gin"
@@ -25,9 +26,23 @@ func TestPnLBySymbolRequiresExplicitExchangeAndMarketWhenAmbiguous(t *testing.T)
 	if accountID == "" {
 		accountID = "default"
 	}
+	const apiKey = "pnl-scope-test-key"
+	const secretKey = "pnl-scope-test-secret"
+	fcm := NewFileConfigManager("")
+	cfg := config.CreateMinimalConfig()
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: apiKey, SecretKey: secretKey}}
+	cfg.App.CurrentExchange = "binance"
+	if err := fcm.SetRuntimeConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	originalConfigManager := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(originalConfigManager) })
+	accountScope := accountScopeForExchange("binance")
 	for _, trade := range []storage.Trade{
-		{Account: accountID, MarketType: "spot", Symbol: "BTCUSDT", Quantity: 1, PnL: 10, CreatedAt: now},
-		{Account: accountID, MarketType: "futures", Symbol: "BTCUSDT", Quantity: 2, PnL: 20, CreatedAt: now},
+		{Account: accountID, AccountScope: accountScope, Exchange: "binance", MarketType: "spot", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 1, PnL: 10, CreatedAt: now},
+		{Account: accountID, AccountScope: accountScope, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 2, PnL: 20, CreatedAt: now},
+		{Account: accountID, AccountScope: accountScope, Exchange: "binance", MarketType: "futures", PnLAsset: "USDC", FeeAsset: "USDC", Symbol: "BTCUSDC", Quantity: 2, PnL: 200, CreatedAt: now},
 	} {
 		if err := st.SaveTrade(&trade); err != nil {
 			t.Fatal(err)
@@ -67,7 +82,48 @@ func TestPnLBySymbolRequiresExplicitExchangeAndMarketWhenAmbiguous(t *testing.T)
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Exchange != "binance" || result.MarketType != "spot" || result.TotalPnL != 10 || result.TotalTrades != 1 {
+	if result.Exchange != "binance" || result.MarketType != "spot" || result.PnLAsset != "USDT" || result.TotalPnL != 10 || result.TotalTrades != 1 {
 		t.Fatalf("exchange/market-scoped PnL response includes unrelated ledger: %+v", result)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/statistics/pnl/symbol?symbol=BTCUSDC&exchange=binance&market_type=futures&pnl_asset=USDC", nil)
+	response = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(response)
+	ctx.Request = request
+	getPnLBySymbol(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("explicit asset-scoped query status=%d body=%s", response.Code, response.Body.String())
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.PnLAsset != "USDC" || result.TotalPnL != 200 {
+		t.Fatalf("explicit asset query mixed or lost ledgers: %+v", result)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/statistics/pnl/diagnosis?symbol=BTCUSDT&exchange=binance&market_type=futures&pnl_asset=USDT", nil)
+	response = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(response)
+	ctx.Request = request
+	getExchangePnLDiagnosis(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("scoped diagnosis status=%d body=%s", response.Code, response.Body.String())
+	}
+	var diagnosis map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &diagnosis); err != nil {
+		t.Fatal(err)
+	}
+	comparison, ok := diagnosis["pnl_comparison"].(map[string]any)
+	if !ok || comparison["exchange_pnl"] != nil || comparison["discrepancy"] != nil || comparison["grid_pnl"] != float64(20) {
+		t.Fatalf("diagnosis exposed unverified exchange PnL or wrong scoped grid result: %+v", diagnosis)
+	}
+
+	request = httptest.NewRequest(http.MethodGet, "/api/statistics/anomalous-trades?symbol=BTCUSDT&exchange=binance&market_type=futures&pnl_asset=USDT", nil)
+	response = httptest.NewRecorder()
+	ctx, _ = gin.CreateTestContext(response)
+	ctx.Request = request
+	getAnomalousTrades(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("scoped anomalous-trades query status=%d body=%s", response.Code, response.Body.String())
 	}
 }

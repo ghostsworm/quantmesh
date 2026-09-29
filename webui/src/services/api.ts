@@ -1018,6 +1018,7 @@ export interface PnLSummary {
   symbol: string
   exchange: string
   market_type: string
+  pnl_asset: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -1039,8 +1040,10 @@ export async function getPnLBySymbol(symbol: string, startTime?: string, endTime
 }
 
 export interface PnLBySymbol {
+  exchange: string
   symbol: string
   market_type: string
+  pnl_asset: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -1059,6 +1062,7 @@ export async function getPnLByTimeRange(startTime: string, endTime: string): Pro
 
 export interface SymbolPnLInfo {
   symbol: string
+  pnl_asset: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -1067,6 +1071,7 @@ export interface SymbolPnLInfo {
 
 export interface ExchangePnLResponse {
   exchange: string
+  pnl_asset: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -1093,16 +1098,18 @@ export async function getPnLByExchange(startTime?: string, endTime?: string): Pr
 /** 网格盈亏 vs 交易所盈亏 诊断 */
 export interface DiagnosisPnLComparison {
   grid_pnl: number
-  exchange_pnl: number
-  discrepancy: number
+  exchange_pnl: number | null
+  discrepancy: number | null
   discrepancy_explanation: string
-  orders_with_realized_pnl: number
-  sell_orders_missing_pnl: number
+  orders_with_realized_pnl: number | null
+  sell_orders_missing_pnl: number | null
 }
 
 export interface ExchangePnLDiagnosisResponse {
   exchange?: string
   symbol?: string
+  market_type?: string
+  pnl_asset?: string
   error?: string
   time_range?: { start: string; end: string }
   pnl_comparison?: DiagnosisPnLComparison

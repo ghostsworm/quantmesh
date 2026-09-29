@@ -46,6 +46,7 @@ type OrderFill struct {
 	CommissionQuoteRate  float64
 	CommissionQuoteKnown bool
 	RealizedPnL          *float64
+	RealizedPnLAsset     string
 	TradeTime            time.Time
 }
 
@@ -258,6 +259,7 @@ type PnLSummary struct {
 	Symbol          string
 	Exchange        string
 	MarketType      string
+	PnLAsset        string
 	TotalPnL        float64 // 网格方式盈亏
 	ExchangePnL     float64 // 交易所方式盈亏
 	TotalTrades     int
@@ -273,12 +275,15 @@ type PnLBySymbol struct {
 	Exchange        string
 	MarketType      string
 	Symbol          string
+	PnLAsset        string
 	TotalPnL        float64 // 网格方式盈亏
 	ExchangePnL     float64 // 交易所方式盈亏
 	TotalTrades     int
 	TotalVolume     float64
 	WinRate         float64 // 网格方式胜率
 	ExchangeWinRate float64 // 交易所方式胜率
+	WinningTrades   int
+	LosingTrades    int
 }
 
 // RiskCheckRecord 风控检查記錄（單条）

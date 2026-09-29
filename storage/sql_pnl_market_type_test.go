@@ -107,6 +107,95 @@ func TestGetPnLBySymbolAccountScopeReadsLegacyAccountLabelWithoutCrossingScopes(
 	}
 }
 
+func TestGetPnLByAccountScopeAndAssetSeparatesAssetsAndCredentialScopes(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC()
+	trades := []Trade{
+		{BuyOrderID: 1, SellOrderID: 101, Account: "old-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 1, PnL: 12, Fee: 2, ExchangePnL: 10, CreatedAt: now},
+		{BuyOrderID: 2, SellOrderID: 102, Account: "opaque-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "ETHUSDT", Quantity: 2, PnL: 8, Fee: 1, ExchangePnL: 7, CreatedAt: now},
+		{BuyOrderID: 3, SellOrderID: 103, Account: "opaque-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDC", FeeAsset: "USDC", Symbol: "BTCUSDC", Quantity: 3, PnL: 9, Fee: 1, ExchangePnL: 8, CreatedAt: now},
+		{BuyOrderID: 4, SellOrderID: 104, Account: "foreign", AccountScope: "scope-b", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 100, PnL: 1000, Fee: 0, CreatedAt: now},
+	}
+	for i := range trades {
+		if err := st.SaveTrade(&trades[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := st.GetPnLByAccountScopeAndAsset("BINANCE", "scope-a", "usdt", now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("USDT query returned wrong grouped rows: %+v", rows)
+	}
+	got := make(map[string]float64, len(rows))
+	for _, row := range rows {
+		if row.PnLAsset != "USDT" || row.Exchange != "binance" || row.MarketType != "futures" {
+			t.Fatalf("scope/asset metadata mismatch: %+v", row)
+		}
+		got[row.Symbol] = row.TotalPnL
+	}
+	if got["BTCUSDT"] != 10 || got["ETHUSDT"] != 7 {
+		t.Fatalf("unexpected scoped USDT PnL: %#v", got)
+	}
+	if _, err := st.GetPnLByAccountScopeAndAsset("binance", "scope-a", "BTC", now.Add(-time.Minute), now.Add(time.Minute)); err != nil {
+		t.Fatalf("known non-requested asset rows should be safely excluded: %v", err)
+	}
+}
+
+func TestGetPnLByAccountScopeAndAssetRejectsUnknownOwnershipAndFeeAsset(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name   string
+		trades []Trade
+	}{
+		{name: "unscoped exchange trade", trades: []Trade{{BuyOrderID: 1, SellOrderID: 11, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", PnL: 1, CreatedAt: now}}},
+		{name: "unknown fee denomination", trades: []Trade{{BuyOrderID: 2, SellOrderID: 12, Exchange: "binance", AccountScope: "scope-a", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "BNB", Symbol: "BTCUSDT", PnL: 1, Fee: 0.1, CreatedAt: now}}},
+		{name: "unknown PnL denomination", trades: []Trade{{BuyOrderID: 3, SellOrderID: 13, Exchange: "binance", AccountScope: "scope-a", MarketType: "futures", FeeAsset: "USDT", Symbol: "BTCUSDT", PnL: 1, CreatedAt: now}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newSQLStorageForTest(t)
+			for i := range tt.trades {
+				if err := st.SaveTrade(&tt.trades[i]); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := st.GetPnLByAccountScopeAndAsset("binance", "scope-a", "USDT", now.Add(-time.Minute), now.Add(time.Minute)); err == nil {
+				t.Fatal("PnL query accepted incomplete ownership or fee denomination evidence")
+			}
+		})
+	}
+}
+
+func TestQueryTradesByAccountScopeAndAssetFailsClosedOnIncompleteEvidence(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name  string
+		trade Trade
+	}{
+		{
+			name:  "unattributed exchange trade",
+			trade: Trade{Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", CreatedAt: now},
+		},
+		{
+			name:  "mismatched fee denomination",
+			trade: Trade{Exchange: "binance", AccountScope: "scope-a", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "BNB", Fee: 0.01, Symbol: "BTCUSDT", CreatedAt: now},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st := newSQLStorageForTest(t)
+			if err := st.SaveTrade(&tt.trade); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.QueryTradesByAccountScopeAndAsset("binance", "scope-a", "futures", "USDT", now.Add(-time.Minute), now.Add(time.Minute), 100); err == nil {
+				t.Fatal("scoped diagnostic query accepted incomplete ownership/asset evidence")
+			}
+		})
+	}
+}
+
 func TestMigrateTradesMarketTypePreservesLegacyRowsAndIsIdempotent(t *testing.T) {
 	path := t.TempDir() + "/legacy-trades.db"
 	db, err := sql.Open("sqlite3", path)

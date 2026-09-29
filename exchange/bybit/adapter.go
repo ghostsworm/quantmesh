@@ -149,6 +149,7 @@ type BybitAdapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+	settleAsset      string
 	useTestnet       bool
 
 	// 合約規格
@@ -277,6 +278,7 @@ func (b *BybitAdapter) applyInstrument(inst Instrument) error {
 	b.quantityDecimals = getPrecision(qtyStep)
 	b.baseAsset = inst.BaseCoin
 	b.quoteAsset = inst.QuoteCoin
+	b.settleAsset = strings.TrimSpace(inst.SettleCoin)
 
 	logger.Info("ℹ️ [Bybit 合約信息] %s - qtyStep:%v, minOrderQty:%v, tickSize:%v, 數量精度:%d, 價格精度:%d, 基础币种:%s, 计價币种:%s",
 		b.symbol, qtyStep, minQty, tickSize, b.quantityDecimals, b.priceDecimals, b.baseAsset, b.quoteAsset)
@@ -1036,6 +1038,7 @@ type BybitOrderFill struct {
 	IsMaker          bool
 	RealizedPnL      float64
 	RealizedPnLKnown bool
+	RealizedPnLAsset string
 }
 
 func (b *BybitAdapter) GetExecutionHistoryPage(ctx context.Context, symbol string, startTime, endTime int64, cursor string, limit int) ([]BybitExecution, string, error) {
@@ -1061,7 +1064,12 @@ func (b *BybitAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, s
 		if err != nil && row.ClosedPnl != "" {
 			return nil, "", fmt.Errorf("parse Bybit closed PnL tradeId=%s: %w", row.TradeId, err)
 		}
-		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: row.ClosedPnl != ""})
+		pnlKnown := row.ClosedPnl != ""
+		pnlAsset := ""
+		if pnlKnown {
+			pnlAsset = b.settleAsset
+		}
+		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: pnlKnown, RealizedPnLAsset: pnlAsset})
 	}
 	return fills, next, nil
 }

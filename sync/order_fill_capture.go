@@ -62,7 +62,8 @@ func PersistOwnedOrderFills(ctx context.Context, provider orderFillProvider, wri
 			OrderID: fill.OrderID, Side: fillSide, Price: fill.Price, Quantity: fill.Quantity,
 			QuoteQuantity: fill.QuoteQuantity,
 			Commission:    fill.Commission, CommissionAsset: fill.CommissionAsset,
-			CommissionQuote: fill.CommissionQuote, CommissionQuoteRate: fill.CommissionQuoteRate, CommissionQuoteKnown: fill.CommissionQuoteKnown,
+			RealizedPnLAsset: fill.RealizedPnLAsset,
+			CommissionQuote:  fill.CommissionQuote, CommissionQuoteRate: fill.CommissionQuoteRate, CommissionQuoteKnown: fill.CommissionQuoteKnown,
 			TradeTime: time.UnixMilli(fill.TradeTime).UTC(),
 		}
 		if fill.RealizedPnLKnown {

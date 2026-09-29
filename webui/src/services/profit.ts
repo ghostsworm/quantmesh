@@ -35,9 +35,16 @@ export async function getStrategyProfits(exchangeId?: string): Promise<StrategyP
 
 // 獲取單個策略的盈利详情
 export async function getStrategyProfitDetail(
-  strategyId: string
+  strategyId: string,
+  exchangeId?: string,
+  marketType?: string,
 ): Promise<{ profit: StrategyProfit }> {
-  return fetchWithAuth(`${API_BASE_URL}/profit/by-strategy/${strategyId}`)
+  const params = new URLSearchParams()
+  if (exchangeId) params.set('exchange_id', exchangeId)
+  if (marketType) params.set('market_type', marketType)
+  const queryString = params.toString()
+  const query = queryString ? `?${queryString}` : ''
+  return fetchWithAuth(`${API_BASE_URL}/profit/by-strategy/${encodeURIComponent(strategyId)}${query}`)
 }
 
 // 獲取提取规则

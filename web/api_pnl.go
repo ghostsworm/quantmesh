@@ -1,7 +1,6 @@
 package web
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -22,12 +21,51 @@ type PnLSummaryResponse struct {
 	Symbol        string  `json:"symbol"`
 	Exchange      string  `json:"exchange"`
 	MarketType    string  `json:"market_type"`
+	PnLAsset      string  `json:"pnl_asset"`
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
 	TotalVolume   float64 `json:"total_volume"`
 	WinRate       float64 `json:"win_rate"`
 	WinningTrades int     `json:"winning_trades"`
 	LosingTrades  int     `json:"losing_trades"`
+}
+
+func requestedPnLAsset(c *gin.Context) (string, error) {
+	asset := strings.ToUpper(strings.TrimSpace(c.Query("pnl_asset")))
+	if asset == "" {
+		asset = profitSummaryAsset
+	}
+	if len(asset) > 16 {
+		return "", fmt.Errorf("invalid pnl_asset")
+	}
+	for _, r := range asset {
+		if (r < 'A' || r > 'Z') && (r < '0' || r > '9') {
+			return "", fmt.Errorf("invalid pnl_asset")
+		}
+	}
+	return asset, nil
+}
+
+func queryScopedPnLStreams(st storage.Storage, exchangeID, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, []profitAccountScope, error) {
+	scopes, err := resolveProfitAccountScopes(exchangeID)
+	if err != nil {
+		return nil, nil, err
+	}
+	reader, ok := st.(interface {
+		GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+	})
+	if !ok {
+		return nil, nil, fmt.Errorf("storage does not support account-scope and asset verified PnL")
+	}
+	var all []*storage.PnLBySymbol
+	for _, scope := range scopes {
+		rows, queryErr := reader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, asset, startTime, endTime)
+		if queryErr != nil {
+			return nil, nil, fmt.Errorf("query verified PnL for %s: %w", scope.exchange, queryErr)
+		}
+		all = append(all, rows...)
+	}
+	return all, scopes, nil
 }
 
 // getPnLBySymbol 按币种對查詢盈亏數據
@@ -78,8 +116,11 @@ func getPnLBySymbol(c *gin.Context) {
 		endTime = time.Now()
 	}
 
-	// 獲取當前账戶標识
-	accountID := GetCurrentAccountID()
+	asset, err := requestedPnLAsset(c)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_pnl_asset")
+		return
+	}
 
 	// A symbol can refer to different exchanges and markets. Never merge those ledgers.
 	exchange := strings.ToLower(strings.TrimSpace(c.Query("exchange")))
@@ -90,30 +131,47 @@ func getPnLBySymbol(c *gin.Context) {
 			respondError(c, http.StatusBadRequest, "error.exchange_market_required")
 			return
 		}
-		scopeReader, ok := store.(interface {
-			GetPnLBySymbolScope(symbol, account, exchange, marketType string, startTime, endTime time.Time) (*storage.PnLSummary, error)
-		})
-		if !ok {
-			respondError(c, http.StatusNotImplemented, "error.market_scoped_pnl_unavailable")
-			return
-		}
-		summary, err = scopeReader.GetPnLBySymbolScope(symbol, accountID, exchange, marketType, startTime, endTime)
-	} else {
-		summary, err = store.GetPnLBySymbol(symbol, accountID, startTime, endTime)
 	}
-	if err != nil {
-		if errors.Is(err, storage.ErrPnLScopeRequired) {
-			respondError(c, http.StatusBadRequest, "error.exchange_market_required")
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	rows, _, queryErr := queryScopedPnLStreams(store, exchange, asset, startTime, endTime)
+	if queryErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法按账户作用域和计价币核验 PnL: " + queryErr.Error()})
 		return
+	}
+	var matches []*storage.PnLBySymbol
+	for _, row := range rows {
+		if !strings.EqualFold(row.Symbol, symbol) {
+			continue
+		}
+		if exchange != "" && (!strings.EqualFold(row.Exchange, exchange) || !strings.EqualFold(row.MarketType, marketType)) {
+			continue
+		}
+		matches = append(matches, row)
+	}
+	if len(matches) > 1 {
+		respondError(c, http.StatusBadRequest, "error.exchange_market_required")
+		return
+	}
+	summary = &storage.PnLSummary{Symbol: symbol, PnLAsset: asset}
+	if len(matches) == 1 {
+		row := matches[0]
+		summary.Exchange = row.Exchange
+		summary.MarketType = row.MarketType
+		summary.PnLAsset = row.PnLAsset
+		summary.TotalPnL = row.TotalPnL
+		summary.ExchangePnL = row.ExchangePnL
+		summary.TotalTrades = row.TotalTrades
+		summary.TotalVolume = row.TotalVolume
+		summary.WinRate = row.WinRate
+		summary.ExchangeWinRate = row.ExchangeWinRate
+		summary.WinningTrades = row.WinningTrades
+		summary.LosingTrades = row.LosingTrades
 	}
 
 	response := PnLSummaryResponse{
 		Symbol:        summary.Symbol,
 		Exchange:      summary.Exchange,
 		MarketType:    summary.MarketType,
+		PnLAsset:      summary.PnLAsset,
 		TotalPnL:      summary.TotalPnL,
 		TotalTrades:   summary.TotalTrades,
 		TotalVolume:   summary.TotalVolume,
@@ -127,8 +185,10 @@ func getPnLBySymbol(c *gin.Context) {
 
 // PnLBySymbolResponse 按币种對的盈亏數據
 type PnLBySymbolResponse struct {
+	Exchange      string  `json:"exchange"`
 	Symbol        string  `json:"symbol"`
 	MarketType    string  `json:"market_type"`
+	PnLAsset      string  `json:"pnl_asset"`
 	TotalPnL      float64 `json:"total_pnl"`
 	TotalTrades   int     `json:"total_trades"`
 	TotalVolume   float64 `json:"total_volume"`
@@ -178,20 +238,19 @@ func getPnLByTimeRange(c *gin.Context) {
 		endTime = time.Now()
 	}
 
-	// 獲取當前账戶標识
-	accountID := GetCurrentAccountID()
-	accountScope := ""
-	accountScopeExchange := ""
-	if status := pickStatus(c); status != nil {
-		accountScope = status.AccountScope
-		accountScopeExchange = status.Exchange
-	}
-
-	// 查詢盈亏數據
-	results, err := store.GetPnLByTimeRange(accountID, startTime, endTime)
+	asset, err := requestedPnLAsset(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "error.invalid_pnl_asset")
 		return
+	}
+	results, scopes, err := queryScopedPnLStreams(store, "", asset, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法按账户作用域和计价币核验 PnL: " + err.Error()})
+		return
+	}
+	scopeByExchange := make(map[string]string, len(scopes))
+	for _, scope := range scopes {
+		scopeByExchange[strings.ToLower(scope.exchange)] = scope.scope
 	}
 
 	// 轉换為 API 响应格式，並按交易市場讀取時段最後一天的每日快照。
@@ -199,32 +258,22 @@ func getPnLByTimeRange(c *gin.Context) {
 	endDate := time.Date(endTime.Year(), endTime.Month(), endTime.Day(), 0, 0, 0, 0, endTime.Location())
 	for i, r := range results {
 		resp := PnLBySymbolResponse{
+			Exchange:    r.Exchange,
 			Symbol:      r.Symbol,
 			MarketType:  r.MarketType,
+			PnLAsset:    r.PnLAsset,
 			TotalPnL:    r.TotalPnL,
 			TotalTrades: r.TotalTrades,
 			TotalVolume: r.TotalVolume,
 			WinRate:     r.WinRate,
 		}
-		// Older storage implementations may not support market-scoped snapshots;
-		// only attach their aggregate to unclassified legacy rows.
-		if accountScope != "" && accountScopeExchange == r.Exchange {
+		if scope := scopeByExchange[strings.ToLower(r.Exchange)]; scope != "" {
 			if scopeSnapshots, ok := store.(interface {
 				GetDailySnapshotByScope(exchange, marketType, symbol, accountScope string, date time.Time) (*storage.DailySnapshot, error)
 			}); ok {
-				if snap, err := scopeSnapshots.GetDailySnapshotByScope(r.Exchange, r.MarketType, r.Symbol, accountScope, endDate); err == nil && snap != nil {
+				if snap, snapErr := scopeSnapshots.GetDailySnapshotByScope(r.Exchange, r.MarketType, r.Symbol, scope, endDate); snapErr == nil && snap != nil {
 					resp.UnrealizedPnL = snap.UnrealizedPnL
 				}
-			}
-		} else if marketSnapshots, ok := store.(interface {
-			GetDailySnapshotByMarketType(exchange, marketType, symbol, account string, date time.Time) (*storage.DailySnapshot, error)
-		}); ok {
-			if snap, err := marketSnapshots.GetDailySnapshotByMarketType(r.Exchange, r.MarketType, r.Symbol, accountID, endDate); err == nil && snap != nil {
-				resp.UnrealizedPnL = snap.UnrealizedPnL
-			}
-		} else if r.MarketType == "unknown" {
-			if snap, err := store.GetDailySnapshot(r.Exchange, r.Symbol, accountID, endDate); err == nil && snap != nil {
-				resp.UnrealizedPnL = snap.UnrealizedPnL
 			}
 		}
 		response[i] = resp
@@ -236,6 +285,7 @@ func getPnLByTimeRange(c *gin.Context) {
 // ExchangePnLResponse 按交易所分组的盈亏响应
 type ExchangePnLResponse struct {
 	Exchange    string          `json:"exchange"`
+	PnLAsset    string          `json:"pnl_asset"`
 	TotalPnL    float64         `json:"total_pnl"`
 	TotalTrades int             `json:"total_trades"`
 	TotalVolume float64         `json:"total_volume"`
@@ -246,6 +296,7 @@ type ExchangePnLResponse struct {
 // SymbolPnLInfo 币种盈亏信息
 type SymbolPnLInfo struct {
 	Symbol      string  `json:"symbol"`
+	PnLAsset    string  `json:"pnl_asset"`
 	TotalPnL    float64 `json:"total_pnl"`
 	TotalTrades int     `json:"total_trades"`
 	TotalVolume float64 `json:"total_volume"`
@@ -308,13 +359,14 @@ func getPnLByExchange(c *gin.Context) {
 		rangeClamped = true
 	}
 
-	// 獲取當前账戶標识
-	accountID := GetCurrentAccountID()
-
-	// 查詢所有币种的盈亏數據（現在包含 exchange 字段）
-	results, err := storage.GetPnLByTimeRange(accountID, startTime, endTime)
+	asset, err := requestedPnLAsset(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "error.invalid_pnl_asset")
+		return
+	}
+	results, _, err := queryScopedPnLStreams(storage, "", asset, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法按账户作用域和计价币核验 PnL: " + err.Error()})
 		return
 	}
 
@@ -323,13 +375,14 @@ func getPnLByExchange(c *gin.Context) {
 	for _, r := range results {
 		exchange := strings.ToLower(r.Exchange)
 		if exchange == "" {
-			// 兼容舊數據：如果没有 exchange，默认為 binance
-			exchange = "binance"
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 记录缺少交易所归属"})
+			return
 		}
 
 		if _, exists := exchangeMap[exchange]; !exists {
 			exchangeMap[exchange] = &ExchangePnLResponse{
 				Exchange:    exchange,
+				PnLAsset:    r.PnLAsset,
 				TotalPnL:    0,
 				TotalTrades: 0,
 				TotalVolume: 0,
@@ -346,6 +399,7 @@ func getPnLByExchange(c *gin.Context) {
 		// 添加币种信息
 		exData.Symbols = append(exData.Symbols, SymbolPnLInfo{
 			Symbol:      r.Symbol,
+			PnLAsset:    r.PnLAsset,
 			TotalPnL:    r.TotalPnL,
 			TotalTrades: r.TotalTrades,
 			TotalVolume: r.TotalVolume,
@@ -402,21 +456,62 @@ func getAnomalousTrades(c *gin.Context) {
 	}
 
 	symbol := c.Query("symbol")
-	if symbol == "" {
-		respondError(c, http.StatusBadRequest, "error.missing_symbol_param")
+	exchange := strings.ToLower(strings.TrimSpace(c.Query("exchange")))
+	marketType := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
+	if symbol == "" || exchange == "" || marketType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "symbol, exchange and market_type are required for scoped trade diagnostics"})
 		return
 	}
-
-	// 查詢所有交易記錄
-	trades, err := st.QueryTrades(time.Time{}, time.Now(), 1000, 0)
+	asset, err := requestedPnLAsset(c)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondError(c, http.StatusBadRequest, "error.invalid_pnl_asset")
+		return
+	}
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -30)
+	if value := c.Query("start_time"); value != "" {
+		startTime, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_start_time")
+			return
+		}
+	}
+	if value := c.Query("end_time"); value != "" {
+		endTime, err = time.Parse(time.RFC3339, value)
+		if err != nil {
+			respondError(c, http.StatusBadRequest, "error.invalid_end_time")
+			return
+		}
+	}
+	if endTime.Before(startTime) {
+		respondError(c, http.StatusBadRequest, "error.invalid_time_range")
+		return
+	}
+	if _, _, err := queryScopedPnLStreams(st, exchange, asset, startTime, endTime); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法核验异常交易的账户作用域和计价币: " + err.Error()})
+		return
+	}
+	scopes, err := resolveProfitAccountScopes(exchange)
+	if err != nil || len(scopes) != 1 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法确定唯一交易凭据作用域"})
+		return
+	}
+	reader, ok := st.(interface {
+		QueryTradesByAccountScopeAndAsset(exchange, accountScope, marketType, asset string, startTime, endTime time.Time, limit int) ([]*storage.Trade, error)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储不支持按精确账户与币种查询诊断流水"})
+		return
+	}
+	trades, err := reader.QueryTradesByAccountScopeAndAsset(exchange, scopes[0].scope, marketType, asset, startTime, endTime, 10000)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 
 	var anomalousTrades []map[string]interface{}
 	for _, trade := range trades {
-		if trade.Symbol != symbol {
+		if !strings.EqualFold(trade.Symbol, symbol) {
 			continue
 		}
 
@@ -429,10 +524,16 @@ func getAnomalousTrades(c *gin.Context) {
 				"buy_order_id":  trade.BuyOrderID,
 				"sell_order_id": trade.SellOrderID,
 				"symbol":        trade.Symbol,
+				"exchange":      trade.Exchange,
+				"market_type":   trade.MarketType,
+				"pnl_asset":     trade.PnLAsset,
 				"buy_price":     trade.BuyPrice,
 				"sell_price":    trade.SellPrice,
 				"quantity":      trade.Quantity,
 				"pnl":           trade.PnL,
+				"fee":           trade.Fee,
+				"fee_asset":     trade.FeeAsset,
+				"pnl_net":       trade.PnL - trade.Fee,
 				"order_amount":  orderAmount,
 				"pnl_rate":      (trade.PnL / orderAmount) * 100,
 				"created_at":    utils.ToUTC8(trade.CreatedAt),
@@ -461,13 +562,22 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		return
 	}
 
-	exchangeID := strings.ToLower(c.DefaultQuery("exchange", "binance"))
-	symbolID := c.Query("symbol") // 可選，用於篩選交易對
+	exchangeID := strings.ToLower(strings.TrimSpace(c.Query("exchange")))
+	symbolID := strings.TrimSpace(c.Query("symbol"))
+	marketType := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
+	asset, err := requestedPnLAsset(c)
+	if err != nil {
+		respondError(c, http.StatusBadRequest, "error.invalid_pnl_asset")
+		return
+	}
+	if exchangeID == "" || symbolID == "" || marketType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "exchange, symbol and market_type are required for PnL diagnosis"})
+		return
+	}
 	startTimeStr := c.Query("start_time")
 	endTimeStr := c.Query("end_time")
 
 	var startTime, endTime time.Time
-	var err error
 
 	if startTimeStr != "" {
 		startTime, err = time.Parse(time.RFC3339, startTimeStr)
@@ -490,10 +600,29 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		endTime = time.Now()
 	}
 
-	// 查詢該交易所的所有交易記錄
-	trades, err := st.QueryTrades(startTime, endTime, 100000, 0)
+	if endTime.Before(startTime) {
+		respondError(c, http.StatusBadRequest, "error.invalid_time_range")
+		return
+	}
+	if _, _, err := queryScopedPnLStreams(st, exchangeID, asset, startTime, endTime); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法核验诊断账本的账户作用域和计价币: " + err.Error()})
+		return
+	}
+	scopes, err := resolveProfitAccountScopes(exchangeID)
+	if err != nil || len(scopes) != 1 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法确定唯一交易凭据作用域"})
+		return
+	}
+	tradeReader, ok := st.(interface {
+		QueryTradesByAccountScopeAndAsset(exchange, accountScope, marketType, asset string, startTime, endTime time.Time, limit int) ([]*storage.Trade, error)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "存储不支持按精确账户与币种查询诊断流水"})
+		return
+	}
+	trades, err := tradeReader.QueryTradesByAccountScopeAndAsset(exchangeID, scopes[0].scope, marketType, asset, startTime, endTime, 100000)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -512,26 +641,19 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	dateStats := make(map[string]map[string]interface{})
 
 	for _, trade := range trades {
-		tradeExchange := strings.ToLower(trade.Exchange)
-		if tradeExchange == "" {
-			tradeExchange = "binance" // 兼容舊數據
-		}
-
-		if tradeExchange != exchangeID {
-			continue
-		}
 		if symbolID != "" && !strings.EqualFold(trade.Symbol, symbolID) {
 			continue
 		}
 
 		filteredTrades = append(filteredTrades, trade)
-		totalPnL += trade.PnL
+		netPnL := trade.PnL - trade.Fee
+		totalPnL += netPnL
 		totalTrades++
 		totalVolume += trade.Quantity
 
-		if trade.PnL > 0 {
+		if netPnL > 0 {
 			winningTrades++
-		} else if trade.PnL < 0 {
+		} else if netPnL < 0 {
 			losingTrades++
 		}
 
@@ -546,12 +668,12 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 			}
 		}
 		stats := symbolStats[trade.Symbol]
-		stats["total_pnl"] = stats["total_pnl"].(float64) + trade.PnL
+		stats["total_pnl"] = stats["total_pnl"].(float64) + netPnL
 		stats["total_trades"] = stats["total_trades"].(int) + 1
 		stats["total_volume"] = stats["total_volume"].(float64) + trade.Quantity
-		if trade.PnL > 0 {
+		if netPnL > 0 {
 			stats["winning_trades"] = stats["winning_trades"].(int) + 1
-		} else if trade.PnL < 0 {
+		} else if netPnL < 0 {
 			stats["losing_trades"] = stats["losing_trades"].(int) + 1
 		}
 
@@ -564,7 +686,7 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 			}
 		}
 		dateStat := dateStats[dateStr]
-		dateStat["total_pnl"] = dateStat["total_pnl"].(float64) + trade.PnL
+		dateStat["total_pnl"] = dateStat["total_pnl"].(float64) + netPnL
 		dateStat["total_trades"] = dateStat["total_trades"].(int) + 1
 	}
 
@@ -584,11 +706,12 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	maxProfit := 0.0
 	maxLoss := 0.0
 	for _, trade := range filteredTrades {
-		if trade.PnL > maxProfit {
-			maxProfit = trade.PnL
+		netPnL := trade.PnL - trade.Fee
+		if netPnL > maxProfit {
+			maxProfit = netPnL
 		}
-		if trade.PnL < maxLoss {
-			maxLoss = trade.PnL
+		if netPnL < maxLoss {
+			maxLoss = netPnL
 		}
 	}
 
@@ -618,53 +741,27 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		return dateList[i]["date"].(string) < dateList[j]["date"].(string)
 	})
 
-	// 🔥 對比網格盈虧與交易所盈虧
+	// Orders lack denomination and credential-scope evidence, so their realized
+	// PnL must not be presented as a comparable figure.
 	gridPnL := math.Round((totalPnL)*100) / 100
-	exchangePnL := 0.0
-	orderStatsWithPnL := 0
-	orderStatsMissingPnL := 0
-	if epGetter, ok := st.(interface {
-		GetExchangePnLTotal(exchange, symbol, botID string) (float64, error)
-	}); ok {
-		if ep, err := epGetter.GetExchangePnLTotal(exchangeID, symbolID, ""); err == nil {
-			exchangePnL = math.Round(ep*100) / 100
-		}
-	}
-	if statsGetter, ok := st.(interface {
-		GetExchangePnLOrderStats(exchange, symbol string) (withPnLCount, missingPnLCount int, totalPnL float64, err error)
-	}); ok {
-		if withCnt, missingCnt, _, err := statsGetter.GetExchangePnLOrderStats(exchangeID, symbolID); err == nil {
-			orderStatsWithPnL = withCnt
-			orderStatsMissingPnL = missingCnt
-		}
-	}
-	discrepancy := math.Round((gridPnL-exchangePnL)*100) / 100
-	discrepancyExplanation := ""
-	if math.Abs(discrepancy) > 1 {
-		if (gridPnL > 0 && exchangePnL < 0) || (gridPnL < 0 && exchangePnL > 0) {
-			discrepancyExplanation = "盈虧性質相反：網格按槽位買賣配對計算（每格低買高賣），交易所按持倉加權均價計算。若持倉均價高於多數賣出價，交易所會顯示虧損，而網格可能顯示盈利。"
-		} else {
-			discrepancyExplanation = "差異較大：計算口徑不同。網格=按槽位配對；交易所=按持倉加權均價。持倉結構（買入價分佈）會導致兩者差異。"
-		}
-		if orderStatsMissingPnL > 0 {
-			discrepancyExplanation += fmt.Sprintf(" 另：有 %d 筆 FILLED 賣單缺少 realized_pnl，可能漏記交易所數據。", orderStatsMissingPnL)
-		}
-	}
+	discrepancyExplanation := "交易所订单 realized_pnl 缺少计价币与凭据作用域证据，未与成交账本比较。"
 
 	c.JSON(http.StatusOK, gin.H{
-		"exchange": exchangeID,
-		"symbol":   symbolID,
+		"exchange":    exchangeID,
+		"symbol":      symbolID,
+		"market_type": marketType,
+		"pnl_asset":   asset,
 		"time_range": gin.H{
 			"start": startTime.Format(time.RFC3339),
 			"end":   endTime.Format(time.RFC3339),
 		},
 		"pnl_comparison": gin.H{
 			"grid_pnl":                 gridPnL,
-			"exchange_pnl":             exchangePnL,
-			"discrepancy":              discrepancy,
+			"exchange_pnl":             nil,
+			"discrepancy":              nil,
 			"discrepancy_explanation":  discrepancyExplanation,
-			"orders_with_realized_pnl": orderStatsWithPnL,
-			"sell_orders_missing_pnl":  orderStatsMissingPnL,
+			"orders_with_realized_pnl": nil,
+			"sell_orders_missing_pnl":  nil,
 		},
 		"summary": gin.H{
 			"total_pnl":      gridPnL,
@@ -679,6 +776,6 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		},
 		"by_symbol": symbolList,
 		"by_date":   dateList,
-		"note":      "網格盈虧按買賣配對計算（未扣手續費）；交易所盈虧為交易所 API 返回的已實現盈虧。兩者計算口徑不同，存在差異屬正常。",
+		"note":      "仅展示指定凭据、交易所、市场与计价币下已扣除同币种手续费的配对成交盈亏。交易所订单 realized_pnl 尚无法证明计价币和账户归属，故不参与对比。",
 	})
 }

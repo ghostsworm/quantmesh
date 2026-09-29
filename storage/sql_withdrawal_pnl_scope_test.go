@@ -41,8 +41,8 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	}
 	realizedBTC, realizedETH := 100.0, 50.0
 	fills := []OrderFill{
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, TradeTime: now},
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &realizedETH, TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
 	}
 	for i := range fills {
 		if err := st.SaveOrderFill(&fills[i]); err != nil {
@@ -158,7 +158,7 @@ func TestGetRealizedPnLForWithdrawalRejectsNonUSDTTradeFees(t *testing.T) {
 		t.Fatal(err)
 	}
 	realized := 10.0
-	fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "non-usdt-fee", OrderID: 503, Side: "SELL", Price: 10, Quantity: 1, Commission: 0.01, CommissionAsset: "BNB", RealizedPnL: &realized, TradeTime: now}
+	fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "non-usdt-fee", OrderID: 503, Side: "SELL", Price: 10, Quantity: 1, Commission: 0.01, CommissionAsset: "BNB", RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now}
 	if err := st.SaveOrderFill(&fill); err != nil {
 		t.Fatal(err)
 	}
@@ -190,6 +190,34 @@ func TestGetRealizedPnLForWithdrawalRejectsUnknownExecutionPnL(t *testing.T) {
 	}
 }
 
+func TestGetRealizedPnLForWithdrawalRejectsUnknownOrNonUSDTExecutionPnLAsset(t *testing.T) {
+	for _, asset := range []string{"", "BTC"} {
+		t.Run("asset="+asset, func(t *testing.T) {
+			st, err := NewSQLStorage(t.TempDir() + "/withdrawal-pnl-asset.db")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			now := time.Now().UTC()
+			start, end := now.Add(-time.Minute), now.Add(time.Minute)
+			if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+				t.Fatal(err)
+			}
+			realized := 10.0
+			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "pnl-asset", OrderID: 505, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, RealizedPnLAsset: asset, TradeTime: now}
+			if err := st.SaveOrderFill(&fill); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+				t.Fatalf("realized PnL asset %q must block USDT withdrawal computation", asset)
+			}
+		})
+	}
+}
+
 func TestGetRealizedPnLForWithdrawalBlocksPendingFeeCorrections(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -217,7 +245,7 @@ func TestGetRealizedPnLForWithdrawalBlocksPendingFeeCorrections(t *testing.T) {
 				t.Fatal(err)
 			}
 			realized := 25.0
-			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "covered-execution", OrderID: 601, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, TradeTime: now}
+			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "covered-execution", OrderID: 601, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now}
 			if err := st.SaveOrderFill(&fill); err != nil {
 				t.Fatal(err)
 			}

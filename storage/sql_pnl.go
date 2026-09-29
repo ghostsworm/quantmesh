@@ -76,7 +76,7 @@ func (s *SQLStorage) listPnLMarketScopes(symbol, account string, startTime, endT
 	query := fmt.Sprintf(`SELECT DISTINCT COALESCE(NULLIF(LOWER(TRIM(exchange)), ''), 'unknown'), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown') FROM %s WHERE symbol = ? AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
 	args := []interface{}{symbol, startTime, endTime}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	query += " ORDER BY 1, 2"
@@ -120,8 +120,7 @@ func (s *SQLStorage) getPnLBySymbolScope(symbol, account, exchange, marketType s
 		args = append(args, marketType)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 
@@ -188,8 +187,7 @@ func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.T
 		`, s.tradesTbl())
 	args := []interface{}{startTime, endTime}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	query += " GROUP BY exchange, COALESCE(NULLIF(market_type, ''), 'unknown'), symbol ORDER BY total_pnl DESC LIMIT ?"
@@ -247,6 +245,60 @@ func (s *SQLStorage) GetPnLByTimeRange(account string, startTime, endTime time.T
 	return results, nil
 }
 
+// GetPnLByAccountScopeAndAsset returns exact-scope PnL grouped by symbol,
+// market and denomination. Known non-requested assets are excluded, while
+// missing ownership or fee-denomination evidence makes the result incomplete.
+func (s *SQLStorage) GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*PnLBySymbol, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	accountScope = strings.TrimSpace(accountScope)
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || accountScope == "" || asset == "" || startTime.IsZero() || endTime.IsZero() || endTime.Before(startTime) {
+		return nil, fmt.Errorf("exchange, account_scope, asset and a valid time range are required")
+	}
+	var unscoped int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE (LOWER(TRIM(exchange)) = ? AND (account_scope IS NULL OR TRIM(account_scope) = '')) OR TRIM(COALESCE(exchange, '')) = ''`, s.tradesTbl()), exchange).Scan(&unscoped); err != nil {
+		return nil, fmt.Errorf("check unscoped PnL rows: %w", err)
+	}
+	if unscoped > 0 {
+		return nil, fmt.Errorf("PnL report is incomplete: exchange %s has %d trades without account scope", exchange, unscoped)
+	}
+	var unclassified int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND (TRIM(COALESCE(pnl_asset, '')) = '' OR (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> UPPER(TRIM(COALESCE(pnl_asset, '')))))`, s.tradesTbl()), exchange, accountScope).Scan(&unclassified); err != nil {
+		return nil, fmt.Errorf("validate PnL/fee asset evidence: %w", err)
+	}
+	if unclassified > 0 {
+		return nil, fmt.Errorf("PnL report is incomplete: scope %s has %d trades with unknown or mismatched PnL/fee assets", accountScope, unclassified)
+	}
+	query := fmt.Sprintf(`SELECT LOWER(TRIM(exchange)), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown'), symbol, UPPER(TRIM(pnl_asset)), COUNT(*),
+		COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0),
+		COALESCE(SUM(exchange_pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0), COALESCE(SUM(quantity), 0),
+		CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*),
+		CAST(SUM(CASE WHEN exchange_pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*),
+		COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), 0)
+		FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND UPPER(TRIM(pnl_asset)) = ? AND created_at >= ? AND created_at <= ?
+		GROUP BY LOWER(TRIM(exchange)), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown'), symbol, UPPER(TRIM(pnl_asset)) ORDER BY symbol, market_type LIMIT 1000`, s.tradesTbl())
+	rows, err := s.db.Query(query, exchange, accountScope, asset, startTime, endTime)
+	if err != nil {
+		return nil, fmt.Errorf("query scoped PnL by asset: %w", err)
+	}
+	defer rows.Close()
+	var results []*PnLBySymbol
+	for rows.Next() {
+		item := &PnLBySymbol{}
+		if err := rows.Scan(&item.Exchange, &item.MarketType, &item.Symbol, &item.PnLAsset, &item.TotalTrades, &item.TotalPnL, &item.ExchangePnL, &item.TotalVolume, &item.WinRate, &item.ExchangeWinRate, &item.WinningTrades, &item.LosingTrades); err != nil {
+			return nil, fmt.Errorf("scan scoped PnL by asset: %w", err)
+		}
+		if math.IsNaN(item.TotalPnL) || math.IsInf(item.TotalPnL, 0) || math.IsNaN(item.ExchangePnL) || math.IsInf(item.ExchangePnL, 0) || math.IsNaN(item.TotalVolume) || math.IsInf(item.TotalVolume, 0) {
+			return nil, fmt.Errorf("scoped PnL contains non-finite values for %s %s %s", item.Exchange, item.MarketType, item.Symbol)
+		}
+		results = append(results, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scoped PnL by asset: %w", err)
+	}
+	return results, nil
+}
+
 // GetRealizedPnLForWithdrawal returns only exactly attributable USDT-margined
 // futures profit for one account and exchange. Legacy rows without an account
 // or market identity are intentionally excluded from money-transfer decisions.
@@ -279,18 +331,22 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 		return 0, fmt.Errorf("execution history does not fully cover withdrawal interval exchange=%s symbol=%s", exchange, symbol)
 	}
 	var total float64
-	var unknownPnL, unvaluedFees int
+	var unknownPnL, unvaluedPnLAsset, unvaluedFees int
 	if err := s.db.QueryRow(`
 		SELECT COALESCE(SUM(realized_pnl), 0) - COALESCE(SUM(commission), 0),
 		       COALESCE(SUM(CASE WHEN realized_pnl IS NULL THEN 1 ELSE 0 END), 0),
+		       COALESCE(SUM(CASE WHEN realized_pnl IS NOT NULL AND UPPER(TRIM(COALESCE(realized_pnl_asset, ''))) <> 'USDT' THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN COALESCE(commission, 0) <> 0 AND UPPER(COALESCE(commission_asset, '')) <> 'USDT' THEN 1 ELSE 0 END), 0)
 		FROM order_fills
 		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
-		  AND trade_time > ? AND trade_time <= ?`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&total, &unknownPnL, &unvaluedFees); err != nil {
+		  AND trade_time > ? AND trade_time <= ?`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&total, &unknownPnL, &unvaluedPnLAsset, &unvaluedFees); err != nil {
 		return 0, fmt.Errorf("query exchange execution PnL exchange=%s account_scope=%s symbol=%s: %w", exchange, accountScope, symbol, err)
 	}
 	if unknownPnL > 0 {
 		return 0, fmt.Errorf("withdrawal interval includes %d executions without authoritative realized PnL; refusing transfer", unknownPnL)
+	}
+	if unvaluedPnLAsset > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d executions without verified USDT realized PnL denomination; refusing transfer", unvaluedPnLAsset)
 	}
 	if unvaluedFees > 0 {
 		return 0, fmt.Errorf("withdrawal interval includes %d non-USDT or unclassified execution fees; refusing transfer", unvaluedFees)
@@ -336,8 +392,7 @@ func (s *SQLStorage) GetActualProfitBySymbol(symbol, account string, beforeTime 
 		`, s.tradesTbl())
 	args := []interface{}{symbol, beforeTime}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {
@@ -370,10 +425,6 @@ func (s *SQLStorage) GetActualProfitBySymbolMarketScope(exchange, marketType, sy
 	}
 	query := fmt.Sprintf(`SELECT COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0) FROM %s WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND created_at <= ?`, s.tradesTbl())
 	args := []interface{}{exchange, marketType, symbol, accountScope, beforeTime}
-	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
-		args = append(args, account)
-	}
 	if botID = strings.TrimSpace(botID); botID != "" {
 		query += " AND bot_id = ?"
 		args = append(args, botID)
@@ -395,10 +446,6 @@ func (s *SQLStorage) GetTotalBuySellQtyByMarketScope(exchange, marketType, symbo
 	}
 	query := fmt.Sprintf(`SELECT COALESCE(SUM(quantity), 0) FROM %s WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ?`, s.tradesTbl())
 	args := []interface{}{exchange, marketType, symbol, accountScope}
-	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
-		args = append(args, account)
-	}
 	if botID = strings.TrimSpace(botID); botID != "" {
 		query += " AND bot_id = ?"
 		args = append(args, botID)
@@ -448,9 +495,7 @@ func (s *SQLStorage) GetTotalBuySellQty(symbol, account, botID string) (totalBuy
 	`, s.tradesTbl())
 	args := []interface{}{symbol}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		// 这样可以确保即使舊數據的account字段為空，也能查詢到累计買賣數量
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {

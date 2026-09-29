@@ -264,6 +264,68 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 	return trades, nil
 }
 
+// QueryTradesByAccountScopeAndAsset returns diagnostic execution rows from one
+// exact exchange credential scope and PnL denomination. Callers must first
+// validate that the scope has complete ownership and fee-asset evidence.
+func (s *SQLStorage) QueryTradesByAccountScopeAndAsset(exchange, accountScope, marketType, asset string, startTime, endTime time.Time, limit int) ([]*Trade, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	accountScope = strings.TrimSpace(accountScope)
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || accountScope == "" || marketType == "" || asset == "" || startTime.IsZero() || endTime.IsZero() || endTime.Before(startTime) {
+		return nil, fmt.Errorf("exchange, account_scope, market_type, asset and a valid time range are required")
+	}
+	if limit <= 0 || limit > 100000 {
+		limit = 100000
+	}
+	var unscoped int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s
+		WHERE (LOWER(TRIM(exchange)) = ? AND TRIM(COALESCE(account_scope, '')) = '') OR TRIM(COALESCE(exchange, '')) = ''`, s.tradesTbl()), exchange).Scan(&unscoped); err != nil {
+		return nil, fmt.Errorf("validate diagnostic trade ownership: %w", err)
+	}
+	if unscoped > 0 {
+		return nil, fmt.Errorf("diagnostic trade history is incomplete: exchange %s has %d unattributed trades", exchange, unscoped)
+	}
+	var unclassified int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s
+		WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND
+		(TRIM(COALESCE(pnl_asset, '')) = '' OR
+		 (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> UPPER(TRIM(COALESCE(pnl_asset, '')))))`, s.tradesTbl()), exchange, accountScope).Scan(&unclassified); err != nil {
+		return nil, fmt.Errorf("validate diagnostic trade denomination: %w", err)
+	}
+	if unclassified > 0 {
+		return nil, fmt.Errorf("diagnostic trade history is incomplete: scope %s has %d trades with unknown or mismatched PnL/fee assets", accountScope, unclassified)
+	}
+	rows, err := s.db.Query(fmt.Sprintf(`
+		SELECT id, buy_order_id, sell_order_id, bot_id, LOWER(TRIM(exchange)), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown'),
+			COALESCE(pnl_asset, ''), account_scope, account, symbol, buy_price, sell_price, quantity, pnl,
+			COALESCE(exchange_pnl, 0), COALESCE(fee, 0), COALESCE(fee_asset, ''), created_at
+		FROM %s
+		WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(pnl_asset)) = ? AND created_at >= ? AND created_at <= ?
+		ORDER BY created_at DESC, id DESC LIMIT ?`, s.tradesTbl()), exchange, accountScope, marketType, asset, startTime, endTime, limit+1)
+	if err != nil {
+		return nil, fmt.Errorf("query scoped diagnostic trades: %w", err)
+	}
+	defer rows.Close()
+	trades := make([]*Trade, 0)
+	for rows.Next() {
+		trade := &Trade{}
+		if err := rows.Scan(&trade.ID, &trade.BuyOrderID, &trade.SellOrderID, &trade.BotID, &trade.Exchange, &trade.MarketType,
+			&trade.PnLAsset, &trade.AccountScope, &trade.Account, &trade.Symbol, &trade.BuyPrice, &trade.SellPrice, &trade.Quantity,
+			&trade.PnL, &trade.ExchangePnL, &trade.Fee, &trade.FeeAsset, &trade.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan scoped diagnostic trade: %w", err)
+		}
+		trades = append(trades, trade)
+		if len(trades) > limit {
+			return nil, fmt.Errorf("scoped diagnostic result exceeds limit %d", limit)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate scoped diagnostic trades: %w", err)
+	}
+	return trades, nil
+}
+
 // ScanTradesContext streams trades newest-first without materializing or truncating the result set.
 // Returning false from visit stops the scan successfully.
 func (s *SQLStorage) ScanTradesContext(ctx context.Context, startTime, endTime time.Time, visit func(*Trade) bool) error {

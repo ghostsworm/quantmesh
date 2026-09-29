@@ -88,6 +88,7 @@ func (s *SQLStorage) HasUnscopedReconciliationHistory(exchange, symbol, account 
 	query := `SELECT COUNT(*) FROM reconciliation_history WHERE exchange = ? AND symbol = ? AND (market_type IS NULL OR market_type = '' OR account_scope IS NULL OR account_scope = '' OR bot_id IS NULL OR bot_id = '')`
 	args := []interface{}{exchange, symbol}
 	if account != "" {
+		// Unknown-owner legacy rows conservatively invalidate scope verification.
 		query += ` AND (account = ? OR account IS NULL OR account = '')`
 		args = append(args, account)
 	}
@@ -136,9 +137,7 @@ func (s *SQLStorage) QueryReconciliationHistory(exchange, symbol, account string
 		args = append(args, symbol)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		// 这样可以确保即使舊數據的account字段為空，也能查詢到對账历史
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 
@@ -200,8 +199,7 @@ func (s *SQLStorage) GetLatestReconciliationHistory(exchange, symbol, account st
 		args = append(args, exchange)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	query += " ORDER BY reconcile_time DESC LIMIT 1"
@@ -247,8 +245,7 @@ func (s *SQLStorage) GetReconciliationCount(exchange, symbol, account string) (i
 		args = append(args, exchange)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 

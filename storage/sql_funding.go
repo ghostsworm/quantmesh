@@ -278,6 +278,101 @@ func (s *SQLStorage) GetDailyFundingPaymentsByScope(account, exchange, marketTyp
 	return result, nil
 }
 
+// GetFundingPaymentsSumByScope returns funding income for one immutable
+// account/market/symbol scope. Rows without that exact scope are never inferred.
+func (s *SQLStorage) GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || marketType == "" || strings.TrimSpace(symbol) == "" || asset == "" || strings.TrimSpace(accountScope) == "" {
+		return 0, fmt.Errorf("funding sum requires exchange, market_type, symbol, asset and account_scope")
+	}
+	var total sql.NullFloat64
+	err := s.db.QueryRow(`SELECT SUM(income) FROM funding_payments
+		WHERE LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(symbol)) = ?
+		AND UPPER(TRIM(asset)) = ? AND account_scope = ? AND trade_time >= ? AND trade_time <= ?`,
+		exchange, marketType, strings.ToUpper(strings.TrimSpace(symbol)), asset, accountScope,
+		utils.ToUTC(startTime), utils.ToUTC(endTime)).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("query scoped funding sum exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	if !total.Valid {
+		return 0, nil
+	}
+	return total.Float64, nil
+}
+
+// GetFundingPaymentsSumByAccountScopeAndAsset aggregates one exchange/account
+// scope and denomination while allowing legacy account display labels.
+func (s *SQLStorage) GetFundingPaymentsSumByAccountScopeAndAsset(exchange, asset, accountScope string, startTime, endTime time.Time) (float64, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	accountScope = strings.TrimSpace(accountScope)
+	if exchange == "" || asset == "" || accountScope == "" || endTime.Before(startTime) {
+		return 0, fmt.Errorf("funding sum requires exchange, asset, account_scope and a valid time range")
+	}
+	var incomplete int64
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM funding_payments
+		WHERE trade_time >= ? AND trade_time <= ? AND (
+			(TRIM(COALESCE(exchange, '')) = '') OR
+			(LOWER(TRIM(exchange)) = ? AND (TRIM(COALESCE(account_scope, '')) = '' OR
+				(account_scope = ? AND TRIM(COALESCE(asset, '')) = ''))))`,
+		utils.ToUTC(startTime), utils.ToUTC(endTime), exchange, accountScope, accountScope).Scan(&incomplete)
+	if err != nil {
+		return 0, fmt.Errorf("validate funding ownership and denomination evidence: %w", err)
+	}
+	if incomplete > 0 {
+		return 0, fmt.Errorf("funding total is incomplete: %d payments have unknown exchange, account scope or asset", incomplete)
+	}
+	var total sql.NullFloat64
+	err = s.db.QueryRow(`SELECT SUM(income) FROM funding_payments WHERE LOWER(TRIM(exchange)) = ?
+		AND UPPER(TRIM(asset)) = ? AND account_scope = ? AND trade_time >= ? AND trade_time <= ?`,
+		exchange, asset, accountScope, utils.ToUTC(startTime), utils.ToUTC(endTime)).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("query funding sum by account scope exchange=%s asset=%s: %w", exchange, asset, err)
+	}
+	if !total.Valid {
+		return 0, nil
+	}
+	if math.IsNaN(total.Float64) || math.IsInf(total.Float64, 0) {
+		return 0, fmt.Errorf("funding sum is not finite for exchange=%s asset=%s", exchange, asset)
+	}
+	return total.Float64, nil
+}
+
+// GetDailyFundingPaymentsByAccountScope returns date totals only for one
+// exact account, exchange and market scope; unattributed legacy rows are excluded.
+func (s *SQLStorage) GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || marketType == "" || asset == "" || strings.TrimSpace(accountScope) == "" || !startTime.Before(endTime) {
+		return nil, fmt.Errorf("daily funding query requires exchange, market_type, asset and account_scope")
+	}
+	dateExpr := s.dateExprInConfiguredTimezone("trade_time")
+	query := fmt.Sprintf(`SELECT %s, COALESCE(SUM(income), 0) FROM funding_payments
+		WHERE LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(asset)) = ? AND account_scope = ?
+		AND trade_time >= ? AND trade_time <= ? GROUP BY %s`, dateExpr, dateExpr)
+	rows, err := s.db.Query(query, exchange, marketType, asset, accountScope, utils.ToUTC(startTime), utils.ToUTC(endTime))
+	if err != nil {
+		return nil, fmt.Errorf("query daily funding by account scope: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]float64)
+	for rows.Next() {
+		var day string
+		var total float64
+		if err := rows.Scan(&day, &total); err != nil {
+			return nil, fmt.Errorf("scan daily funding by account scope: %w", err)
+		}
+		result[day] = total
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily funding by account scope: %w", err)
+	}
+	return result, nil
+}
+
 // GetFundingPayments 獲取資金費用記錄（按時間區間）
 func (s *SQLStorage) GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error) {
 	startUTC := utils.ToUTC(startTime)
@@ -293,7 +388,7 @@ func (s *SQLStorage) GetFundingPayments(account, exchange string, startTime, end
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	query += " ORDER BY trade_time DESC LIMIT 10000"
@@ -319,6 +414,39 @@ func (s *SQLStorage) GetFundingPayments(account, exchange string, startTime, end
 	return list, rows.Err()
 }
 
+// GetFundingPaymentsByAccountScope lists funding rows for an exact immutable
+// credential scope. Account labels are presentation metadata and are not used
+// for authorization or ownership filtering.
+func (s *SQLStorage) GetFundingPaymentsByAccountScope(accountScope, exchange string, startTime, endTime time.Time) ([]*FundingPayment, error) {
+	accountScope = strings.TrimSpace(accountScope)
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	if accountScope == "" || exchange == "" || endTime.Before(startTime) {
+		return nil, fmt.Errorf("funding history requires account_scope, exchange and a valid time range")
+	}
+	rows, err := s.db.Query(`SELECT id, exchange, symbol, account, market_type, account_scope, income_type,
+		income, asset, info, transaction_id, trade_time, created_at FROM funding_payments
+		WHERE account_scope = ? AND LOWER(TRIM(exchange)) = ? AND trade_time >= ? AND trade_time <= ?
+		ORDER BY trade_time DESC LIMIT 10000`, accountScope, exchange, utils.ToUTC(startTime), utils.ToUTC(endTime))
+	if err != nil {
+		return nil, fmt.Errorf("query funding history by account scope exchange=%s: %w", exchange, err)
+	}
+	defer rows.Close()
+	var payments []*FundingPayment
+	for rows.Next() {
+		var payment FundingPayment
+		if err := rows.Scan(&payment.ID, &payment.Exchange, &payment.Symbol, &payment.Account, &payment.MarketType,
+			&payment.AccountScope, &payment.IncomeType, &payment.Income, &payment.Asset, &payment.Info,
+			&payment.TransactionID, &payment.TradeTime, &payment.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan funding history by account scope: %w", err)
+		}
+		payments = append(payments, &payment)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate funding history by account scope: %w", err)
+	}
+	return payments, nil
+}
+
 // GetFundingPaymentsSum 獲取資金費用淨額（收入 - 支出，正數表示淨收入）
 func (s *SQLStorage) GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error) {
 	startUTC := utils.ToUTC(startTime)
@@ -333,7 +461,7 @@ func (s *SQLStorage) GetFundingPaymentsSum(account, exchange string, startTime, 
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 
@@ -366,7 +494,7 @@ func (s *SQLStorage) GetDailyFundingPayments(account, exchange string, startTime
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	query += " GROUP BY " + dateExpr

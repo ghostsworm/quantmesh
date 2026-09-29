@@ -107,6 +107,65 @@ func TestSQLStorage(t *testing.T) {
 	}
 }
 
+func TestAccountFilteredProfitQueriesExcludeUnattributedRows(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC()
+	for _, trade := range []Trade{
+		{Account: "account-current", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 1, PnL: 10, CreatedAt: now},
+		{Account: "", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 100, PnL: 10000, CreatedAt: now},
+		{Account: "account-other", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 1000, PnL: 100000, CreatedAt: now},
+	} {
+		if err := st.SaveTrade(&trade); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := st.GetStatisticsSummaryByExchange("binance", "account-current")
+	if err != nil || summary.TotalTrades != 1 || summary.TotalPnL != 10 {
+		t.Fatalf("account-filtered stats included foreign or unattributed data: summary=%+v err=%v", summary, err)
+	}
+	rows, err := st.GetPnLByTimeRange("account-current", now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil || len(rows) != 1 || rows[0].TotalPnL != 10 {
+		t.Fatalf("account-filtered PnL included foreign or unattributed data: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestProfitSummaryByAccountScopeIncludesLegacyLabelsAndRejectsInvalidDenomination(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, trade := range []Trade{
+		{Account: "old-key-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", Symbol: "BTCUSDT", Quantity: 1, PnL: 10, Fee: 2, FeeAsset: "USDT", CreatedAt: now},
+		{Account: "opaque-new-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "usdt", Symbol: "ETHUSDT", Quantity: 1, PnL: 6, Fee: 1, FeeAsset: "usdt", CreatedAt: now},
+		{Account: "other-label", AccountScope: "scope-b", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", Symbol: "BTCUSDT", Quantity: 100, PnL: 1000, FeeAsset: "USDT", CreatedAt: now},
+	} {
+		p := trade
+		if err := st.SaveTrade(&p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := st.GetStatisticsSummaryByAccountScope("binance", "scope-a", "USDT")
+	if err != nil || summary.TotalTrades != 2 || summary.GrossPnL != 16 || summary.TotalFee != 3 || summary.TotalPnL != 13 {
+		t.Fatalf("scope-aware summary=%+v err=%v; want old/new labels in scope-a only", summary, err)
+	}
+	daily, err := st.QueryDailyPnLByAccountScopeAndAsset("binance", "scope-a", "USDT", now.Add(-time.Hour), now.Add(time.Hour))
+	if err != nil || len(daily) != 1 || daily[0].TotalPnL != 13 {
+		t.Fatalf("scope-aware daily PnL=%+v err=%v", daily, err)
+	}
+	wrongFee := Trade{Account: "old-key-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", Symbol: "SOLUSDT", Quantity: 1, PnL: 5, Fee: 0.1, FeeAsset: "BNB", CreatedAt: now}
+	if err := st.SaveTrade(&wrongFee); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetStatisticsSummaryByAccountScope("binance", "scope-a", "USDT"); err == nil {
+		t.Fatal("non-USDT fee was summed as USDT")
+	}
+	unscoped := Trade{Account: "", AccountScope: "", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", Symbol: "ADAUSDT", Quantity: 1, PnL: -50, CreatedAt: now}
+	if err := st.SaveTrade(&unscoped); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetStatisticsSummaryByAccountScope("binance", "scope-a", "USDT"); err == nil {
+		t.Fatal("unattributed exchange trade did not block completeness verification")
+	}
+}
+
 func newSQLStorageForTest(t *testing.T) *SQLStorage {
 	t.Helper()
 	st, err := NewSQLStorage(filepath.Join(t.TempDir(), "quantmesh.db"))
@@ -284,7 +343,7 @@ func TestSQLStoragePositionTradeMetricsAndAggregateQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStatisticsSummary: %v", err)
 	}
-	if summary.TotalTrades != 4 || summary.GrossPnL != 50 || summary.TotalFee != 2.3 || summary.TotalPnL != 47.7 {
+	if summary.TotalTrades != 1 || summary.GrossPnL != 40 || summary.TotalFee != 1.5 || summary.TotalPnL != 38.5 {
 		t.Fatalf("unexpected account summary: %+v", summary)
 	}
 	exchangeSummary, err := st.GetStatisticsSummaryByExchange("okx", "")
@@ -298,7 +357,7 @@ func TestSQLStoragePositionTradeMetricsAndAggregateQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetStatisticsSummaryByExchangeAndSymbol: %v", err)
 	}
-	if symbolSummary.TotalTrades != 2 || symbolSummary.TotalBuyDeviation != 1 || symbolSummary.TotalSellDeviation != -2 {
+	if symbolSummary.TotalTrades != 1 || symbolSummary.TotalBuyDeviation != 1 || symbolSummary.TotalSellDeviation != -2 {
 		t.Fatalf("unexpected symbol summary: %+v", symbolSummary)
 	}
 
@@ -339,7 +398,7 @@ func TestSQLStoragePositionTradeMetricsAndAggregateQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDailyTradesSummary: %v", err)
 	}
-	if count != 2 || grossPnL != 45 || totalFee != 1.6 {
+	if count != 1 || grossPnL != 40 || totalFee != 1.5 {
 		t.Fatalf("unexpected daily trade summary: count=%d gross=%v fee=%v", count, grossPnL, totalFee)
 	}
 	dailyStats, err := st.QueryDailyStatisticsByExchange("binance", "BTCUSDT", "acct-a", now.AddDate(0, 0, -1), now.AddDate(0, 0, 1), "bot-a")
@@ -829,7 +888,7 @@ func TestGetReconciliationCount(t *testing.T) {
 		t.Errorf("不同 account 應為 0，得到 %d", cntOther)
 	}
 
-	// 空 account 時兼容舊數據（匹配 account 為空或 NULL 的記錄）
+	// 空 account 的歷史記錄無法歸屬給任一指定 account，必須從其統計中排除。
 	hNoAccount := &ReconciliationHistory{
 		Exchange: "binance", Symbol: "ETHUSDT", Account: "",
 		ReconcileTime: now, LocalPosition: 0, ExchangePosition: 0, PositionDiff: 0,
@@ -840,8 +899,12 @@ func TestGetReconciliationCount(t *testing.T) {
 		t.Fatalf("保存對账歷史(無account)失败: %v", err)
 	}
 	cntEmpty, _ := st.GetReconciliationCount("binance", "ETHUSDT", "acc1")
-	if cntEmpty != 1 {
-		t.Errorf("空 account 記錄應被 acc1 查詢到(兼容)，期望 1，得到 %d", cntEmpty)
+	if cntEmpty != 0 {
+		t.Errorf("空 account 記錄不應歸屬給 acc1，期望 0，得到 %d", cntEmpty)
+	}
+	unscoped, err := st.HasUnscopedReconciliationHistory("binance", "ETHUSDT", "acc1")
+	if err != nil || !unscoped {
+		t.Errorf("空 account 記錄必須阻止 scope 完整性驗證，found=%v err=%v", unscoped, err)
 	}
 }
 

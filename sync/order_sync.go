@@ -296,7 +296,8 @@ func (s *OrderSyncService) persistTradePage(trades []*exchange.OrderFill, orderI
 			OrderID: trade.OrderID, Side: side, Price: trade.Price, Quantity: trade.Quantity,
 			QuoteQuantity: trade.QuoteQuantity,
 			Commission:    trade.Commission, CommissionAsset: trade.CommissionAsset,
-			CommissionQuote: trade.CommissionQuote, CommissionQuoteRate: trade.CommissionQuoteRate, CommissionQuoteKnown: trade.CommissionQuoteKnown,
+			RealizedPnLAsset: trade.RealizedPnLAsset,
+			CommissionQuote:  trade.CommissionQuote, CommissionQuoteRate: trade.CommissionQuoteRate, CommissionQuoteKnown: trade.CommissionQuoteKnown,
 			TradeTime: time.UnixMilli(trade.TradeTime).UTC(),
 		}
 		if trade.RealizedPnLKnown {

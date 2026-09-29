@@ -47,25 +47,30 @@ func TestManualTransferReceiptRequiresVerifiableID(t *testing.T) {
 
 func TestWithdrawProfitLedgerSeparatesCompletedAndReservedAmounts(t *testing.T) {
 	ledger, err := aggregateWithdrawProfitLedger([]*storage.ProfitWithdrawRecord{
-		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 100, Status: "completed"},
-		{ExchangeID: "BINANCE", StrategyID: "btcusdt", Amount: 30, Status: "pending"},
-		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 20, Status: "processing"},
-		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 40, Status: "future_state"},
-		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 15, Status: "failed"},
-		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, Status: "cancelled"},
-		{ExchangeID: "gate", StrategyID: "BTCUSDT", Amount: 50, Status: "completed"},
-		{ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 25, Status: "completed"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 100, Currency: "USDT", Status: "completed"},
+		{ExchangeID: "BINANCE", StrategyID: "btcusdt", Amount: 30, Currency: "USDT", Status: "pending"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 20, Currency: "USDT", Status: "processing"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 40, Currency: "USDT", Status: "future_state"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 15, Currency: "USDT", Status: "failed"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, Currency: "USDT", Status: "cancelled"},
+		{ExchangeID: "gate", StrategyID: "BTCUSDT", Amount: 50, Currency: "USDT", Status: "completed"},
+		{ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 25, Currency: "USDT", Status: "completed"},
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 7, Currency: "BTC", Status: "completed"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	stream := ledger.amountsFor("Binance", "BTCUSDT")
-	if stream.withdrawn != 100 || stream.reserved != 90 {
+	if stream.withdrawn != 107 || stream.reserved != 90 {
 		t.Fatalf("unexpected BTC withdrawal totals: %+v", stream)
 	}
 	allExchanges := ledger.amountsFor("", "BTCUSDT")
-	if allExchanges.withdrawn != 150 || allExchanges.reserved != 90 {
+	if allExchanges.withdrawn != 157 || allExchanges.reserved != 90 {
 		t.Fatalf("unexpected all-exchange totals: %+v", allExchanges)
+	}
+	usdtAmounts := ledger.amountsForAsset("", "BTCUSDT", "USDT")
+	if usdtAmounts.withdrawn != 150 || usdtAmounts.reserved != 90 {
+		t.Fatalf("non-USDT withdrawal leaked into USDT totals: %+v", usdtAmounts)
 	}
 	verified := verifiedWithdrawProfit{
 		newWithdrawProfitStream("binance", "BTCUSDT"): 60,
@@ -88,6 +93,11 @@ func TestWithdrawProfitLedgerRejectsUnverifiableAmountsAndRecords(t *testing.T) 
 		{nil},
 		{{ID: "invalid-amount", Amount: -1, Status: "pending"}},
 		{{ID: "nan-amount", Amount: math.NaN(), Status: "completed"}},
+		{{ID: "missing-currency", Amount: 1, Status: "completed"}},
+		{
+			{ID: "large-amount-a", Amount: math.MaxFloat64, Currency: "USDT", Status: "completed"},
+			{ID: "large-amount-b", Amount: math.MaxFloat64, Currency: "USDT", Status: "completed"},
+		},
 	} {
 		if _, err := aggregateWithdrawProfitLedger(records); err == nil {
 			t.Fatalf("ledger accepted unverifiable records: %+v", records)
@@ -244,7 +254,7 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	}
 	pnl := 100.0
 	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, Symbol: "BTCUSDT", TradeID: "manual-profit-fill",
-		OrderID: 77, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &pnl, TradeTime: end.Add(-time.Minute)}
+		OrderID: 77, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &pnl, RealizedPnLAsset: "USDT", TradeTime: end.Add(-time.Minute)}
 	if err := st.SaveOrderFill(&fill); err != nil {
 		t.Fatal(err)
 	}
@@ -284,14 +294,14 @@ func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *t
 	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", scope, coveredFrom, coveredThrough); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SaveTrade(&storage.Trade{Account: accountID, AccountScope: scope, Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT",
+	if err := st.SaveTrade(&storage.Trade{Account: accountID, AccountScope: scope, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", Symbol: "BTCUSDT",
 		Quantity: 1, PnL: 100, Fee: 2, FeeAsset: "USDT", CreatedAt: now.Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 	realized := 100.0
 	if err := st.SaveOrderFill(&storage.OrderFill{Exchange: "binance", Account: accountID, AccountScope: scope, MarketType: "futures", Symbol: "BTCUSDT",
 		TradeID: "verified-available-fill", OrderID: 9, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT",
-		RealizedPnL: &realized, TradeTime: now.Add(-time.Minute)}); err != nil {
+		RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now.Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
 	}
 

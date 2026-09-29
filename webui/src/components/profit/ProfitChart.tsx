@@ -283,7 +283,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
             <VStack align="stretch" spacing={2}>
               {strategyProfits.map((sp, index) => (
                 <HStack
-                  key={sp.strategyId}
+                  key={`${sp.exchangeId}:${sp.strategyId}:${sp.pnlAsset}`}
                   justify="space-between"
                   p={3}
                   bg="gray.50"
@@ -303,10 +303,10 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                       fontWeight="bold"
                       color={(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0) >= 0 ? 'green.500' : 'red.500'}
                     >
-                      {(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0) >= 0 ? '+' : ''}{(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0).toFixed(2)} USDT
+                      {(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0) >= 0 ? '+' : ''}{(sp.exchangeTotalProfit ?? sp.totalProfit ?? 0).toFixed(2)} {sp.pnlAsset}
                     </Text>
                     <Text fontSize="xs" color="gray.500">
-                      {t('profitManagement.today')}: {(sp.todayProfit || 0) >= 0 ? '+' : ''}{(sp.todayProfit || 0).toFixed(2)}
+                      {t('profitManagement.today')}: {(sp.todayProfit || 0) >= 0 ? '+' : ''}{(sp.todayProfit || 0).toFixed(2)} {sp.pnlAsset}
                     </Text>
                   </VStack>
                 </HStack>

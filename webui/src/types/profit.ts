@@ -28,6 +28,7 @@ export interface ProfitSummary {
 export interface StrategyProfit {
   exchangeId: string
   strategyId: string
+  pnlAsset: string
   strategyName: string
   strategyType: string
   totalProfit: number          // 网格方式盈亏

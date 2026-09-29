@@ -22,7 +22,7 @@ func migrateOrderFillsTable(db *sql.DB, mysql bool) error {
 			price DECIMAL(38,18) NOT NULL, quantity DECIMAL(38,18) NOT NULL, quote_quantity DECIMAL(38,18) NOT NULL DEFAULT 0,
 			commission DECIMAL(38,18) NOT NULL DEFAULT 0, commission_asset VARCHAR(32) NOT NULL DEFAULT '',
 			commission_quote DECIMAL(38,18) NOT NULL DEFAULT 0, commission_quote_rate DECIMAL(38,18) NOT NULL DEFAULT 0, commission_quote_known BOOLEAN NOT NULL DEFAULT FALSE,
-			realized_pnl DECIMAL(38,18), trade_time TIMESTAMP(3) NOT NULL,
+			realized_pnl DECIMAL(38,18), realized_pnl_asset VARCHAR(32) NOT NULL DEFAULT '', trade_time TIMESTAMP(3) NOT NULL,
 			created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 			UNIQUE KEY uk_order_fills_identity (exchange, market_type, account_scope(128), symbol, trade_id),
 			KEY idx_order_fills_scope_time (account_scope(128), exchange, market_type, symbol, trade_time)
@@ -51,6 +51,7 @@ func migrateOrderFillsTable(db *sql.DB, mysql bool) error {
 			return fmt.Errorf("migrate order_fills.quote_quantity: %w", err)
 		}
 		for _, col := range []struct{ name, ddl string }{
+			{"realized_pnl_asset", `ALTER TABLE order_fills ADD COLUMN realized_pnl_asset VARCHAR(32) NOT NULL DEFAULT ''`},
 			{"commission_quote", `ALTER TABLE order_fills ADD COLUMN commission_quote DECIMAL(38,18) NOT NULL DEFAULT 0`},
 			{"commission_quote_rate", `ALTER TABLE order_fills ADD COLUMN commission_quote_rate DECIMAL(38,18) NOT NULL DEFAULT 0`},
 			{"commission_quote_known", `ALTER TABLE order_fills ADD COLUMN commission_quote_known BOOLEAN NOT NULL DEFAULT FALSE`},
@@ -74,7 +75,7 @@ func migrateOrderFillsTable(db *sql.DB, mysql bool) error {
 		price DECIMAL(38,18) NOT NULL, quantity DECIMAL(38,18) NOT NULL, quote_quantity DECIMAL(38,18) NOT NULL DEFAULT 0,
 		commission DECIMAL(38,18) NOT NULL DEFAULT 0, commission_asset TEXT NOT NULL DEFAULT '',
 		commission_quote DECIMAL(38,18) NOT NULL DEFAULT 0, commission_quote_rate DECIMAL(38,18) NOT NULL DEFAULT 0, commission_quote_known INTEGER NOT NULL DEFAULT 0,
-		realized_pnl DECIMAL(38,18), trade_time TIMESTAMP NOT NULL,
+		realized_pnl DECIMAL(38,18), realized_pnl_asset TEXT NOT NULL DEFAULT '', trade_time TIMESTAMP NOT NULL,
 		created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 		UNIQUE(exchange, market_type, account_scope, symbol, trade_id)
 	);
@@ -102,6 +103,7 @@ func migrateOrderFillsTable(db *sql.DB, mysql bool) error {
 		return err
 	}
 	for _, col := range []struct{ name, ddl string }{
+		{"realized_pnl_asset", `ALTER TABLE order_fills ADD COLUMN realized_pnl_asset TEXT NOT NULL DEFAULT ''`},
 		{"commission_quote", `ALTER TABLE order_fills ADD COLUMN commission_quote DECIMAL(38,18) NOT NULL DEFAULT 0`},
 		{"commission_quote_rate", `ALTER TABLE order_fills ADD COLUMN commission_quote_rate DECIMAL(38,18) NOT NULL DEFAULT 0`},
 		{"commission_quote_known", `ALTER TABLE order_fills ADD COLUMN commission_quote_known INTEGER NOT NULL DEFAULT 0`},
@@ -253,8 +255,11 @@ func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
 	if !finiteNonNegative(fill.CommissionQuoteRate) || math.IsNaN(fill.CommissionQuote) || math.IsInf(fill.CommissionQuote, 0) || (fill.CommissionQuoteKnown && fill.Commission != 0 && !finitePositive(fill.CommissionQuoteRate)) {
 		return fmt.Errorf("order fill commission conversion must be finite with a positive rate")
 	}
-	args := []interface{}{fill.Exchange, fill.MarketType, fill.AccountScope, fill.Account, fill.BotID, fill.Symbol, fill.TradeID, fill.OrderID, fill.Side, fill.Price, fill.Quantity, fill.QuoteQuantity, fill.Commission, fill.CommissionAsset, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, realized, tradeTime}
-	_, err := s.db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, trade_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args...)
+	if fill.RealizedPnL == nil && strings.TrimSpace(fill.RealizedPnLAsset) != "" {
+		return fmt.Errorf("order fill cannot claim a realized PnL asset without realized PnL")
+	}
+	args := []interface{}{fill.Exchange, fill.MarketType, fill.AccountScope, fill.Account, fill.BotID, fill.Symbol, fill.TradeID, fill.OrderID, fill.Side, fill.Price, fill.Quantity, fill.QuoteQuantity, fill.Commission, fill.CommissionAsset, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, realized, fill.RealizedPnLAsset, tradeTime}
+	_, err := s.db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args...)
 	if err == nil {
 		return nil
 	}
@@ -263,21 +268,22 @@ func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
 	var oldQuoteQuantity float64
 	var oldPnL sql.NullFloat64
 	var oldTime time.Time
-	readErr := s.db.QueryRow(`SELECT exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, trade_time FROM order_fills WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID).Scan(&old.Exchange, &old.MarketType, &old.AccountScope, &old.Account, &old.BotID, &old.Symbol, &old.TradeID, &old.OrderID, &old.Side, &old.Price, &old.Quantity, &oldQuoteQuantity, &old.Commission, &old.CommissionAsset, &old.CommissionQuote, &old.CommissionQuoteRate, &oldCommissionQuoteKnown, &oldPnL, &oldTime)
+	readErr := s.db.QueryRow(`SELECT exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time FROM order_fills WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID).Scan(&old.Exchange, &old.MarketType, &old.AccountScope, &old.Account, &old.BotID, &old.Symbol, &old.TradeID, &old.OrderID, &old.Side, &old.Price, &old.Quantity, &oldQuoteQuantity, &old.Commission, &old.CommissionAsset, &old.CommissionQuote, &old.CommissionQuoteRate, &oldCommissionQuoteKnown, &oldPnL, &old.RealizedPnLAsset, &oldTime)
 	old.CommissionQuoteKnown = oldCommissionQuoteKnown
 	if readErr != nil {
 		return fmt.Errorf("insert order fill: %w (identity lookup: %v)", err, readErr)
 	}
 	samePnL := !oldPnL.Valid || fill.RealizedPnL == nil || *fill.RealizedPnL == oldPnL.Float64
+	samePnLAsset := old.RealizedPnLAsset == "" || fill.RealizedPnLAsset == "" || strings.EqualFold(old.RealizedPnLAsset, fill.RealizedPnLAsset)
 	sameAccount := old.Account == fill.Account || old.Account == "" || fill.Account == ""
 	sameBot := old.BotID == fill.BotID || old.BotID == "" || fill.BotID == ""
 	sameQuoteQuantity := oldQuoteQuantity == fill.QuoteQuantity || oldQuoteQuantity == 0 || fill.QuoteQuantity == 0
 	sameFeeConversion := !old.CommissionQuoteKnown || !fill.CommissionQuoteKnown || (old.CommissionQuote == fill.CommissionQuote && old.CommissionQuoteRate == fill.CommissionQuoteRate)
-	if old.OrderID != fill.OrderID || old.Side != fill.Side || old.Price != fill.Price || old.Quantity != fill.Quantity || !sameQuoteQuantity || old.Commission != fill.Commission || old.CommissionAsset != fill.CommissionAsset || !samePnL || !sameFeeConversion || !oldTime.Equal(tradeTime) || !sameAccount || !sameBot {
+	if old.OrderID != fill.OrderID || old.Side != fill.Side || old.Price != fill.Price || old.Quantity != fill.Quantity || !sameQuoteQuantity || old.Commission != fill.Commission || old.CommissionAsset != fill.CommissionAsset || !samePnL || !samePnLAsset || !sameFeeConversion || !oldTime.Equal(tradeTime) || !sameAccount || !sameBot {
 		return fmt.Errorf("order fill identity collision has conflicting economic fields: %s/%s", fill.Exchange, fill.TradeID)
 	}
-	if (!oldPnL.Valid && fill.RealizedPnL != nil) || (old.Account == "" && fill.Account != "") || (old.BotID == "" && fill.BotID != "") || (oldQuoteQuantity == 0 && fill.QuoteQuantity > 0) || (!old.CommissionQuoteKnown && fill.CommissionQuoteKnown) {
-		_, err := s.db.Exec(`UPDATE order_fills SET account = CASE WHEN account = '' THEN ? ELSE account END, bot_id = CASE WHEN bot_id = '' THEN ? ELSE bot_id END, realized_pnl = COALESCE(realized_pnl, ?), quote_quantity = CASE WHEN quote_quantity = 0 THEN ? ELSE quote_quantity END, commission_quote = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote END, commission_quote_rate = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_rate END, commission_quote_known = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_known END WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Account, fill.BotID, realized, fill.QuoteQuantity, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID)
+	if (!oldPnL.Valid && fill.RealizedPnL != nil) || (old.RealizedPnLAsset == "" && fill.RealizedPnLAsset != "") || (old.Account == "" && fill.Account != "") || (old.BotID == "" && fill.BotID != "") || (oldQuoteQuantity == 0 && fill.QuoteQuantity > 0) || (!old.CommissionQuoteKnown && fill.CommissionQuoteKnown) {
+		_, err := s.db.Exec(`UPDATE order_fills SET account = CASE WHEN account = '' THEN ? ELSE account END, bot_id = CASE WHEN bot_id = '' THEN ? ELSE bot_id END, realized_pnl = COALESCE(realized_pnl, ?), realized_pnl_asset = CASE WHEN realized_pnl_asset = '' THEN ? ELSE realized_pnl_asset END, quote_quantity = CASE WHEN quote_quantity = 0 THEN ? ELSE quote_quantity END, commission_quote = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote END, commission_quote_rate = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_rate END, commission_quote_known = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_known END WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Account, fill.BotID, realized, fill.RealizedPnLAsset, fill.QuoteQuantity, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID)
 		if err != nil {
 			return fmt.Errorf("enrich existing execution attribution: %w", err)
 		}

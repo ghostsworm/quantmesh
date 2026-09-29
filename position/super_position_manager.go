@@ -1822,6 +1822,15 @@ func (spm *SuperPositionManager) GetExchange() string {
 	return spm.exchangeName
 }
 
+// GetPnLAsset returns the exchange-reported quote/settlement asset used by
+// this position manager; an empty value means the denomination is unknown.
+func (spm *SuperPositionManager) GetPnLAsset() string {
+	if spm == nil || spm.exchange == nil {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(spm.exchange.GetQuoteAsset()))
+}
+
 func (spm *SuperPositionManager) GetDirection() string {
 	return strings.ToUpper(strings.TrimSpace(spm.config.Trading.Direction))
 }

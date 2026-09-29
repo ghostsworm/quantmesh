@@ -12,9 +12,34 @@ import (
 )
 
 var btcLinear = Instrument{
-	Symbol: "BTCUSDT", BaseCoin: "BTC", QuoteCoin: "USDT",
+	Symbol: "BTCUSDT", BaseCoin: "BTC", QuoteCoin: "USDT", SettleCoin: "USDT",
 	PriceFilter:   PriceFilter{TickSize: "0.1"},
 	LotSizeFilter: LotSizeFilter{QtyStep: "0.001", MinOrderQty: "0.001"},
+}
+
+func TestBybitExecutionPnLAssetUsesInstrumentSettlementCoin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v5/execution/list" {
+			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"list":[
+			{"orderId":"1","tradeId":"exec-closed","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000000","closedPnl":"2.5"},
+			{"orderId":"2","tradeId":"exec-open","symbol":"BTCUSDT","side":"Buy","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000001","closedPnl":""}
+		]}}`)
+	}))
+	defer server.Close()
+	b := newTestBybitAdapter(t, server.URL)
+	fills, _, err := b.GetOrderHistoryPage(context.Background(), "BTCUSDT", 1, 1700000000002, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fills) != 2 || !fills[0].RealizedPnLKnown || fills[0].RealizedPnLAsset != "USDT" {
+		t.Fatalf("closed fill settlement evidence=%+v", fills)
+	}
+	if fills[1].RealizedPnLKnown || fills[1].RealizedPnLAsset != "" {
+		t.Fatalf("open fill must not claim a realized PnL asset: %+v", fills[1])
+	}
 }
 
 func newTestBybitAdapter(t *testing.T, baseURL string) *BybitAdapter {

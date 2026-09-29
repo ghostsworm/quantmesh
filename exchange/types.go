@@ -135,6 +135,7 @@ type OrderFill struct {
 	TradeTime        int64   // 成交時間（毫秒）
 	RealizedPnL      float64 // 交易所逐筆已實現盈虧
 	RealizedPnLKnown bool    // true 表示交易所明確返回了逐筆盈虧（包括 0）
+	RealizedPnLAsset string  // 已實現盈虧資產；仅适用于交易所回报能证明与结算/费用币种一致的合约
 	IsMaker          bool    // 是否為 Maker 訂單
 	// BaseFeeQty 本筆成交以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費）。
 	// 僅現貨有意義：其計價幣價值已包含在 Commission 中，上層只用它把買單到帳數量扣減為淨額。

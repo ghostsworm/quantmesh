@@ -571,6 +571,7 @@ const GlobalDashboard: React.FC = () => {
       } else {
         exchangeMap.set(exchange, {
           exchange,
+          pnl_asset: 'USDT',
           total_pnl: 0,
           total_trades: 0,
           total_volume: 0,
@@ -957,7 +958,7 @@ const GlobalDashboard: React.FC = () => {
                       <HStack spacing={4}>
                         <Heading size="md" fontWeight="700">{exchangeKey.toUpperCase()}</Heading>
                         <Badge colorScheme={exchange.total_pnl >= 0 ? 'green' : 'red'} variant="subtle">
-                          {t('globalDashboard.pnlLabel')} {exchange.total_pnl >= 0 ? '+' : ''}{exchange.total_pnl.toFixed(2)}
+                          {t('globalDashboard.pnlLabel')} ({exchange.pnl_asset}) {exchange.total_pnl >= 0 ? '+' : ''}{exchange.total_pnl.toFixed(2)}
                         </Badge>
                         <Badge colorScheme="blue" variant="subtle">
                           {t('globalDashboard.tradeCountBadge')} {exchange.total_trades}
@@ -979,7 +980,7 @@ const GlobalDashboard: React.FC = () => {
                         const sameSymbolMarkets = exchange.symbolList.filter(item => item.symbol === sym.symbol)
                         // The PnL endpoint aggregates by symbol only; do not duplicate an ambiguous total across spot and futures cards.
                         const pnlInfo = sameSymbolMarkets.length === 1
-                          ? exchange.symbols.find(item => item.symbol === sym.symbol)
+                          ? exchange.symbols.find(item => item.symbol === sym.symbol && item.pnl_asset === exchange.pnl_asset)
                           : undefined
                         const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
                         
@@ -1068,7 +1069,7 @@ const GlobalDashboard: React.FC = () => {
                                       fontWeight="800" 
                                       fontSize="sm"
                                     >
-                                      {pnlInfo.total_pnl >= 0 ? '+' : ''}{pnlInfo.total_pnl.toFixed(2)}
+                                      ({pnlInfo.pnl_asset}) {pnlInfo.total_pnl >= 0 ? '+' : ''}{pnlInfo.total_pnl.toFixed(2)}
                                     </Text>
                                   </HStack>
                                   <HStack justify="space-between">

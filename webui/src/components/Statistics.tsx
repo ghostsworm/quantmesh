@@ -64,8 +64,10 @@ interface DailyStatistics {
 }
 
 interface PnLBySymbol {
+  exchange: string
   symbol: string
   market_type: string
+  pnl_asset: string
   total_pnl: number
   total_trades: number
   total_volume: number
@@ -539,7 +541,7 @@ const Statistics: React.FC = () => {
               <tbody>
                 {pnlByTimeRange.map((item, index) => (
                   <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                    <td style={{ padding: '12px' }}>{item.symbol} · {t(`statistics.marketType.${item.market_type}`, { defaultValue: item.market_type })}</td>
+                    <td style={{ padding: '12px' }}>{item.exchange.toUpperCase()} · {item.symbol} · {t(`statistics.marketType.${item.market_type}`, { defaultValue: item.market_type })} · {item.pnl_asset}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_trades}</td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{item.total_volume.toFixed(4)}</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: item.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
@@ -585,16 +587,16 @@ const Statistics: React.FC = () => {
                     </Text>
                   </div>
                   <div style={{ padding: '12px', border: '1px solid #e8e8e8', borderRadius: '8px' }}>
-                    <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisExchangePnL')}</Text>
-                    <Text fontSize="xl" fontWeight="bold" color={diagnosisData.pnl_comparison.exchange_pnl >= 0 ? 'green.500' : 'red.500'}>
-                      {diagnosisData.pnl_comparison.exchange_pnl >= 0 ? '+' : ''}{diagnosisData.pnl_comparison.exchange_pnl.toFixed(2)}
+                    <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisExchangePnL')} ({diagnosisData.pnl_asset})</Text>
+                    <Text fontSize="xl" fontWeight="bold" color={diagnosisData.pnl_comparison.exchange_pnl == null ? 'gray.500' : diagnosisData.pnl_comparison.exchange_pnl >= 0 ? 'green.500' : 'red.500'}>
+                      {diagnosisData.pnl_comparison.exchange_pnl == null ? t('servicesStatus.unavailable') : `${diagnosisData.pnl_comparison.exchange_pnl >= 0 ? '+' : ''}${diagnosisData.pnl_comparison.exchange_pnl.toFixed(2)}`}
                     </Text>
                   </div>
                 </SimpleGrid>
                 <div style={{ padding: '12px', border: '1px solid #e8e8e8', borderRadius: '8px' }}>
                   <Text fontSize="sm" color="gray.600">{t('statistics.diagnosisDiscrepancy')}</Text>
                   <Text fontSize="lg" fontWeight="bold">
-                    {diagnosisData.pnl_comparison.discrepancy >= 0 ? '+' : ''}{diagnosisData.pnl_comparison.discrepancy.toFixed(2)}
+                    {diagnosisData.pnl_comparison.discrepancy == null ? t('servicesStatus.unavailable') : `${diagnosisData.pnl_comparison.discrepancy >= 0 ? '+' : ''}${diagnosisData.pnl_comparison.discrepancy.toFixed(2)}`}
                   </Text>
                 </div>
                 {diagnosisData.pnl_comparison.discrepancy_explanation && (
@@ -604,8 +606,8 @@ const Statistics: React.FC = () => {
                   </Alert>
                 )}
                 <SimpleGrid columns={2} spacing={2} fontSize="sm" color="gray.600">
-                  <Text>{t('statistics.diagnosisOrdersWithPnL')}: {diagnosisData.pnl_comparison.orders_with_realized_pnl}</Text>
-                  <Text>{t('statistics.diagnosisSellOrdersMissingPnL')}: {diagnosisData.pnl_comparison.sell_orders_missing_pnl}</Text>
+                  {diagnosisData.pnl_comparison.orders_with_realized_pnl != null && <Text>{t('statistics.diagnosisOrdersWithPnL')}: {diagnosisData.pnl_comparison.orders_with_realized_pnl}</Text>}
+                  {diagnosisData.pnl_comparison.sell_orders_missing_pnl != null && <Text>{t('statistics.diagnosisSellOrdersMissingPnL')}: {diagnosisData.pnl_comparison.sell_orders_missing_pnl}</Text>}
                 </SimpleGrid>
                 <Text fontSize="xs" color="gray.500" fontStyle="italic">{diagnosisData.note}</Text>
               </VStack>

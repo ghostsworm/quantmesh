@@ -150,6 +150,7 @@ type Instrument struct {
 	Symbol        string        `json:"symbol"`
 	BaseCoin      string        `json:"baseCoin"`
 	QuoteCoin     string        `json:"quoteCoin"`
+	SettleCoin    string        `json:"settleCoin"`
 	PriceFilter   PriceFilter   `json:"priceFilter"`
 	LotSizeFilter LotSizeFilter `json:"lotSizeFilter"`
 }

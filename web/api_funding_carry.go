@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 // BatchCreateFundingRequest 批量建立 funding_carry Bot
@@ -25,6 +26,8 @@ type BatchCreateFundingResponse struct {
 	Created []string `json:"created"`
 	Errors  []string `json:"errors,omitempty"`
 }
+
+const fundingCarryReportingAsset = "USDT"
 
 // postBatchCreateFunding POST /api/funding-carry/batch-create
 func postBatchCreateFunding(c *gin.Context) {
@@ -166,6 +169,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 		Income7d  float64 `json:"income_7d"`
 	}
 	var symbols []symbolInfo
+	seenSymbolIncome := make(map[string]struct{})
 
 	for _, bc := range cfg.Bots {
 		if bc.MarketType != config.MarketTypeFundingCarry {
@@ -188,15 +192,25 @@ func getFundingCarryDashboard(c *gin.Context) {
 		var inc24h, inc7d float64
 		if storageProv != nil {
 			st := storageProv.GetStorage()
-			if st != nil {
-				accountID := accountIDForExchange(cfg, bc.Exchange)
-				inc24h, _ = st.GetFundingPaymentsSum(accountID, bc.Exchange, now.Add(-24*time.Hour), now)
-				inc7d, _ = st.GetFundingPaymentsSum(accountID, bc.Exchange, now.Add(-7*24*time.Hour), now)
+			if scoped, ok := st.(interface {
+				GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error)
+			}); ok && st != nil {
+				accountScope := accountIDForExchange(cfg, bc.Exchange)
+				marketType := bc.GetMarketType()
+				if marketType == config.MarketTypeFundingCarry {
+					marketType = "futures"
+				}
+				inc24h, _ = scoped.GetFundingPaymentsSumByScope(bc.Exchange, marketType, bc.Symbol, fundingCarryReportingAsset, accountScope, now.Add(-24*time.Hour), now)
+				inc7d, _ = scoped.GetFundingPaymentsSumByScope(bc.Exchange, marketType, bc.Symbol, fundingCarryReportingAsset, accountScope, now.Add(-7*24*time.Hour), now)
 			}
 		}
 
-		totalIncome24h += inc24h
-		totalIncome7d += inc7d
+		incomeKey := strings.ToLower(bc.Exchange) + "\x00" + strings.ToUpper(bc.Symbol) + "\x00" + accountIDForExchange(cfg, bc.Exchange)
+		if _, alreadyCounted := seenSymbolIncome[incomeKey]; !alreadyCounted {
+			seenSymbolIncome[incomeKey] = struct{}{}
+			totalIncome24h += inc24h
+			totalIncome7d += inc7d
+		}
 
 		symbols = append(symbols, symbolInfo{
 			Symbol:    bc.Symbol,
@@ -209,14 +223,30 @@ func getFundingCarryDashboard(c *gin.Context) {
 	}
 
 	if storageProv != nil {
-		st := storageProv.GetStorage()
-		if st != nil {
-			accountID := ""
-			if len(cfg.Bots) > 0 {
-				accountID = accountIDForExchange(cfg, cfg.Bots[0].Exchange)
+		if scoped, ok := storageProv.GetStorage().(interface {
+			GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error)
+		}); ok {
+			seen := make(map[string]struct{})
+			for _, bc := range cfg.Bots {
+				if bc.MarketType != config.MarketTypeFundingCarry {
+					continue
+				}
+				scope := accountIDForExchange(cfg, bc.Exchange)
+				key := strings.ToLower(bc.Exchange) + "\x00" + strings.ToUpper(bc.Symbol) + "\x00" + scope
+				if scope == "" {
+					continue
+				}
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				income30d, err30d := scoped.GetFundingPaymentsSumByScope(bc.Exchange, "futures", bc.Symbol, fundingCarryReportingAsset, scope, now.Add(-30*24*time.Hour), now)
+				incomeAll, errAll := scoped.GetFundingPaymentsSumByScope(bc.Exchange, "futures", bc.Symbol, fundingCarryReportingAsset, scope, time.Time{}, now)
+				if err30d == nil && errAll == nil {
+					totalIncome30d += income30d
+					totalIncomeAll += incomeAll
+				}
 			}
-			totalIncome30d, _ = st.GetFundingPaymentsSum(accountID, "", now.Add(-30*24*time.Hour), now)
-			totalIncomeAll, _ = st.GetFundingPaymentsSum(accountID, "", time.Time{}, now)
 		}
 	}
 
@@ -229,16 +259,34 @@ func getFundingCarryDashboard(c *gin.Context) {
 	if storageProv != nil {
 		st := storageProv.GetStorage()
 		if st != nil {
-			accountID := ""
-			if len(cfg.Bots) > 0 {
-				accountID = accountIDForExchange(cfg, cfg.Bots[0].Exchange)
-			}
-			daily, _ := st.GetDailyFundingPayments(accountID, "", now.Add(-30*24*time.Hour), now)
-			for date, income := range daily {
-				dailyIncome = append(dailyIncome, map[string]interface{}{
-					"date":   date,
-					"income": income,
-				})
+			if scoped, ok := st.(interface {
+				GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
+			}); ok {
+				dailyTotals := make(map[string]float64)
+				seenScopes := make(map[string]struct{})
+				for _, bc := range cfg.Bots {
+					if bc.MarketType != config.MarketTypeFundingCarry {
+						continue
+					}
+					scope := accountIDForExchange(cfg, bc.Exchange)
+					key := strings.ToLower(bc.Exchange) + "\x00futures\x00" + scope
+					if scope == "" {
+						continue
+					}
+					if _, exists := seenScopes[key]; exists {
+						continue
+					}
+					seenScopes[key] = struct{}{}
+					daily, err := scoped.GetDailyFundingPaymentsByAccountScopeAndAsset(bc.Exchange, "futures", fundingCarryReportingAsset, scope, now.Add(-30*24*time.Hour), now)
+					if err == nil {
+						for date, income := range daily {
+							dailyTotals[date] += income
+						}
+					}
+				}
+				for date, income := range dailyTotals {
+					dailyIncome = append(dailyIncome, map[string]interface{}{"date": date, "income": income})
+				}
 			}
 		}
 	}
@@ -315,19 +363,25 @@ func getFundingIncomeHistory(c *gin.Context) {
 	}
 
 	cfg, _ := GetLatestConfig()
-	accountID := ""
+	accountScope := ""
 	exchangeID := ""
 	if cfg != nil {
 		for _, bc := range cfg.Bots {
 			if bc.MarketType == config.MarketTypeFundingCarry {
 				exchangeID = bc.Exchange
-				accountID = accountIDForExchange(cfg, bc.Exchange)
+				accountScope = accountIDForExchange(cfg, bc.Exchange)
 				break
 			}
 		}
 	}
-
-	records, err := st.GetFundingPayments(accountID, exchangeID, start, now)
+	fundingReader, ok := st.(interface {
+		GetFundingPaymentsByAccountScope(accountScope, exchange string, startTime, endTime time.Time) ([]*storage.FundingPayment, error)
+	})
+	if !ok || accountScope == "" || exchangeID == "" {
+		respondError(c, http.StatusServiceUnavailable, "error.storage_unavailable")
+		return
+	}
+	records, err := fundingReader.GetFundingPaymentsByAccountScope(accountScope, exchangeID, start, now)
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "error.query_failed", err)
 		return

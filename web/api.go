@@ -1366,18 +1366,18 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
-	// 4b. 獲取每日資金費用（賬戶級，無法按 bot 拆分；帶 bot_id 時不展示以免誤導）
+	// 4b. 獲取每日資金費用（賬戶級 USDT；帶 bot_id 時不展示以免誤導）
 	fundingMap := make(map[string]float64)
 	type dailyFundingGetter interface {
-		GetDailyFundingPayments(account, exchange string, startTime, endTime time.Time) (map[string]float64, error)
+		GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
 	}
-	if botID == "" {
+	if botID == "" && status != nil && status.AccountScope != "" && status.Exchange != "" {
 		if stWithFunding, ok := st.(dailyFundingGetter); ok {
-			exchangeID := ""
-			if status != nil {
-				exchangeID = status.Exchange
+			marketType := strings.ToLower(strings.TrimSpace(status.MarketType))
+			if marketType == config.MarketTypeFundingCarry || marketType == config.MarketTypeFundingPerpSpread {
+				marketType = "futures"
 			}
-			dailyFunding, err := stWithFunding.GetDailyFundingPayments(accountID, exchangeID, startDate, endDate)
+			dailyFunding, err := stWithFunding.GetDailyFundingPaymentsByAccountScopeAndAsset(status.Exchange, marketType, fundingCarryReportingAsset, status.AccountScope, startDate, endDate)
 			if err == nil {
 				fundingMap = dailyFunding
 			}
@@ -2129,6 +2129,13 @@ func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 // GetVerifiedUnrealizedPnL exposes the strategy's fail-closed local valuation.
 func (a *positionManagerAdapter) GetVerifiedUnrealizedPnL(currentPrice float64) (float64, bool) {
 	if a == nil || a.manager == nil {
+		return 0, false
+	}
+	return a.manager.GetUnrealizedPnLVerified(currentPrice)
+}
+
+func (a *positionManagerAdapter) GetVerifiedUnrealizedPnLForAsset(currentPrice float64, asset string) (float64, bool) {
+	if a == nil || a.manager == nil || !strings.EqualFold(a.manager.GetPnLAsset(), asset) {
 		return 0, false
 	}
 	return a.manager.GetUnrealizedPnLVerified(currentPrice)

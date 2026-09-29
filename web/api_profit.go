@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,7 @@ type ProfitSummary struct {
 type StrategyProfit struct {
 	ExchangeID               string  `json:"exchangeId"`
 	StrategyID               string  `json:"strategyId"`
+	PnLAsset                 string  `json:"pnlAsset"`
 	StrategyName             string  `json:"strategyName"`
 	StrategyType             string  `json:"strategyType"`
 	TotalProfit              float64 `json:"totalProfit"`         // 网格方式盈亏
@@ -65,8 +67,12 @@ type verifiedUnrealizedPnLProvider interface {
 	GetVerifiedUnrealizedPnL(currentPrice float64) (float64, bool)
 }
 
-func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exchange string, currentPrice float64) (float64, bool) {
-	if provider == nil || !isFiniteNumber(currentPrice) || currentPrice <= 0 {
+type verifiedAssetUnrealizedPnLProvider interface {
+	GetVerifiedUnrealizedPnLForAsset(currentPrice float64, asset string) (float64, bool)
+}
+
+func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exchange, asset string, currentPrice float64) (float64, bool) {
+	if provider == nil || strings.TrimSpace(asset) == "" || !isFiniteNumber(currentPrice) || currentPrice <= 0 {
 		return 0, false
 	}
 	for _, slot := range slots {
@@ -75,10 +81,15 @@ func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exc
 		}
 	}
 	verifiedProvider, ok := provider.(verifiedUnrealizedPnLProvider)
-	if !ok {
+	assetProvider, assetOK := provider.(verifiedAssetUnrealizedPnLProvider)
+	if !ok || !assetOK {
 		return 0, false
 	}
 	pnl, verified := verifiedProvider.GetVerifiedUnrealizedPnL(currentPrice)
+	assetPnL, assetVerified := assetProvider.GetVerifiedUnrealizedPnLForAsset(currentPrice, asset)
+	if !assetVerified || assetPnL != pnl {
+		return 0, false
+	}
 	if !verified || !isFiniteNumber(pnl) {
 		return 0, false
 	}
@@ -156,6 +167,75 @@ type fundingProfitSumReader interface {
 	GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
 }
 
+type profitAccountScope struct {
+	exchange string
+	scope    string
+}
+
+type scopedProfitSummaryReader interface {
+	GetStatisticsSummaryByAccountScope(exchange, accountScope, asset string) (*storage.Statistics, error)
+	QueryDailyPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startDate, endDate time.Time) ([]*storage.DailyStatisticsWithTradeCount, error)
+	GetFundingPaymentsSumByAccountScopeAndAsset(exchange, asset, accountScope string, startTime, endTime time.Time) (float64, error)
+}
+
+func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error) {
+	cfg, err := GetLatestConfig()
+	if err != nil {
+		return nil, fmt.Errorf("load account configuration for profit scope: %w", err)
+	}
+	if cfg == nil {
+		return nil, fmt.Errorf("account configuration for profit scope is unavailable")
+	}
+	exchanges := make([]string, 0, len(cfg.Exchanges))
+	if exchangeID != "" {
+		exchanges = append(exchanges, strings.TrimSpace(exchangeID))
+	} else {
+		for exchange, exchangeConfig := range cfg.Exchanges {
+			if strings.TrimSpace(exchangeConfig.APIKey) != "" {
+				exchanges = append(exchanges, exchange)
+			}
+		}
+	}
+	sort.Strings(exchanges)
+	scopes := make([]profitAccountScope, 0, len(exchanges))
+	for _, exchange := range exchanges {
+		scope := accountIDForExchange(cfg, exchange)
+		if scope != "" {
+			scopes = append(scopes, profitAccountScope{exchange: exchange, scope: scope})
+		}
+	}
+	if len(scopes) == 0 {
+		return nil, fmt.Errorf("no configured credential scope is available for profit summary")
+	}
+	return scopes, nil
+}
+
+func readScopedFundingProfitTotals(reader scopedProfitSummaryReader, scopes []profitAccountScope, lifetimeStart, todayStart, weekStart, monthStart, end time.Time) (fundingProfitTotals, error) {
+	var totals fundingProfitTotals
+	queries := []struct {
+		label string
+		start time.Time
+		dest  *float64
+	}{
+		{label: "累計", start: lifetimeStart, dest: &totals.Total},
+		{label: "今日", start: todayStart, dest: &totals.Today},
+		{label: "本週", start: weekStart, dest: &totals.Week},
+		{label: "本月", start: monthStart, dest: &totals.Month},
+	}
+	for _, scope := range scopes {
+		for _, query := range queries {
+			value, err := reader.GetFundingPaymentsSumByAccountScopeAndAsset(scope.exchange, profitSummaryAsset, scope.scope, query.start, end)
+			if err != nil {
+				return fundingProfitTotals{}, fmt.Errorf("query %s scoped funding total for %s: %w", query.label, scope.exchange, err)
+			}
+			*query.dest += value
+		}
+	}
+	return totals, nil
+}
+
+const profitSummaryAsset = "USDT"
+
 type fundingProfitTotals struct {
 	Total float64
 	Today float64
@@ -168,6 +248,7 @@ const withdrawProfitHistoryLimit = 1000
 type withdrawProfitStream struct {
 	exchange string
 	symbol   string
+	asset    string
 }
 
 type withdrawProfitAmounts struct {
@@ -179,10 +260,15 @@ type withdrawProfitLedger map[withdrawProfitStream]withdrawProfitAmounts
 
 type verifiedWithdrawProfit map[withdrawProfitStream]float64
 
-func newWithdrawProfitStream(exchangeID, symbol string) withdrawProfitStream {
+func newWithdrawProfitStream(exchangeID, symbol string, assets ...string) withdrawProfitStream {
+	asset := ""
+	if len(assets) > 0 {
+		asset = assets[0]
+	}
 	return withdrawProfitStream{
 		exchange: strings.ToUpper(strings.TrimSpace(exchangeID)),
 		symbol:   strings.ToUpper(strings.TrimSpace(symbol)),
+		asset:    strings.ToUpper(strings.TrimSpace(asset)),
 	}
 }
 
@@ -209,7 +295,10 @@ func aggregateWithdrawProfitLedger(records []*storage.ProfitWithdrawRecord) (wit
 		if record.Amount < 0 || math.IsNaN(record.Amount) || math.IsInf(record.Amount, 0) {
 			return nil, fmt.Errorf("withdrawal ledger contains an invalid amount for record %s", record.ID)
 		}
-		key := newWithdrawProfitStream(record.ExchangeID, record.StrategyID)
+		if strings.TrimSpace(record.Currency) == "" {
+			return nil, fmt.Errorf("withdrawal ledger record %s has no currency", record.ID)
+		}
+		key := newWithdrawProfitStream(record.ExchangeID, record.StrategyID, record.Currency)
 		amounts := ledger[key]
 		if record.Status == "completed" {
 			amounts.withdrawn += record.Amount
@@ -217,20 +306,31 @@ func aggregateWithdrawProfitLedger(records []*storage.ProfitWithdrawRecord) (wit
 			// Unknown states are conservatively reserved until explicitly resolved.
 			amounts.reserved += record.Amount
 		}
+		if math.IsNaN(amounts.withdrawn) || math.IsInf(amounts.withdrawn, 0) || math.IsNaN(amounts.reserved) || math.IsInf(amounts.reserved, 0) {
+			return nil, fmt.Errorf("withdrawal ledger total is not finite for %s %s %s", key.exchange, key.symbol, key.asset)
+		}
 		ledger[key] = amounts
 	}
 	return ledger, nil
 }
 
 func (ledger withdrawProfitLedger) amountsFor(exchangeID, symbol string) withdrawProfitAmounts {
+	return ledger.amountsForAsset(exchangeID, symbol, "")
+}
+
+func (ledger withdrawProfitLedger) amountsForAsset(exchangeID, symbol, asset string) withdrawProfitAmounts {
 	exchangeFilter := strings.ToUpper(strings.TrimSpace(exchangeID))
 	symbolFilter := strings.ToUpper(strings.TrimSpace(symbol))
+	assetFilter := strings.ToUpper(strings.TrimSpace(asset))
 	var total withdrawProfitAmounts
 	for key, amounts := range ledger {
 		if exchangeFilter != "" && key.exchange != exchangeFilter {
 			continue
 		}
 		if symbolFilter != "" && key.symbol != symbolFilter {
+			continue
+		}
+		if assetFilter != "" && key.asset != assetFilter {
 			continue
 		}
 		total.withdrawn += amounts.withdrawn
@@ -259,32 +359,34 @@ func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, sym
 }
 
 func readVerifiedWithdrawProfit(st storage.Storage, accountID, exchangeID string, now time.Time) (verifiedWithdrawProfit, error) {
-	streams, err := st.GetPnLByTimeRange(accountID, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), now)
+	scopes, err := resolveProfitAccountScopes(exchangeID)
 	if err != nil {
-		return nil, fmt.Errorf("read PnL streams for withdrawal availability: %w", err)
+		return nil, fmt.Errorf("resolve withdrawal PnL account scopes: %w", err)
 	}
-	if len(streams) >= 1000 {
-		return nil, errors.New("PnL stream count reached verification limit")
+	reader, ok := st.(interface {
+		GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+	})
+	if !ok {
+		return nil, errors.New("storage does not support scope- and asset-verified PnL streams")
 	}
 	available := make(verifiedWithdrawProfit)
-	for _, stream := range streams {
-		if stream == nil || !strings.EqualFold(stream.MarketType, "futures") {
-			continue
+	for _, scope := range scopes {
+		streams, queryErr := reader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC), now)
+		if queryErr != nil {
+			return nil, fmt.Errorf("read verified USDT PnL streams for %s: %w", scope.exchange, queryErr)
 		}
-		if exchangeID != "" && !strings.EqualFold(stream.Exchange, exchangeID) {
-			continue
-		}
-		key := newWithdrawProfitStream(stream.Exchange, stream.Symbol)
-		if _, exists := available[key]; exists {
-			continue
-		}
-		scope := accountScopeForExchange(stream.Exchange)
-		if scope == "" {
-			continue
-		}
-		_, _, _, amount, verifyErr := manualWithdrawWindow(st, accountID, scope, stream.Exchange, stream.Symbol, 0, now)
-		if verifyErr == nil && amount > 0 && !math.IsNaN(amount) && !math.IsInf(amount, 0) {
-			available[key] = amount
+		for _, stream := range streams {
+			if stream == nil || !strings.EqualFold(stream.MarketType, "futures") || !strings.EqualFold(stream.PnLAsset, profitSummaryAsset) {
+				continue
+			}
+			key := newWithdrawProfitStream(stream.Exchange, stream.Symbol)
+			if _, exists := available[key]; exists {
+				continue
+			}
+			_, _, _, amount, verifyErr := manualWithdrawWindow(st, accountID, scope.scope, stream.Exchange, stream.Symbol, 0, now)
+			if verifyErr == nil && amount > 0 && !math.IsNaN(amount) && !math.IsInf(amount, 0) {
+				available[key] = amount
+			}
 		}
 	}
 	return available, nil
@@ -330,12 +432,32 @@ func getProfitSummaryHandler(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
+	profitScopes, err := resolveProfitAccountScopes(exchangeID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法验证当前账户的盈利数据作用域: " + err.Error()})
+		return
+	}
+	scopedProfitReader, ok := st.(scopedProfitSummaryReader)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储未提供按账户作用域和计价币核验的盈利查询"})
+		return
+	}
 
 	// 1. 獲取累计盈利
-	summaryStats, err := st.GetStatisticsSummaryByExchange(exchangeID, accountID)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢统计彙總失败: " + err.Error()})
-		return
+	summaryStats := &storage.Statistics{}
+	for _, scope := range profitScopes {
+		part, queryErr := scopedProfitReader.GetStatisticsSummaryByAccountScope(scope.exchange, scope.scope, profitSummaryAsset)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		summaryStats.TotalTrades += part.TotalTrades
+		summaryStats.TotalVolume += part.TotalVolume
+		summaryStats.GrossPnL += part.GrossPnL
+		summaryStats.TotalFee += part.TotalFee
+		summaryStats.TotalPnL += part.TotalPnL
+		summaryStats.TotalBuyDeviation += part.TotalBuyDeviation
+		summaryStats.TotalSellDeviation += part.TotalSellDeviation
 	}
 
 	// 2. 獲取今日/本周/本月盈利（按配置時區）
@@ -351,23 +473,31 @@ func getProfitSummaryHandler(c *gin.Context) {
 	// 本月开始
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, utils.GlobalLocation)
 
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, monthStart, now, "")
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
-		return
+	dailyStatsByDate := make(map[string]float64)
+	for _, scope := range profitScopes {
+		dailyStats, queryErr := scopedProfitReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, monthStart, now)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日盈利未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		for _, stat := range dailyStats {
+			day := stat.Date.Format("2006-01-02")
+			dailyStatsByDate[day] += stat.TotalPnL
+		}
 	}
 
 	todayProfit := 0.0
 	weekProfit := 0.0
 	monthProfit := 0.0
 
-	for _, s := range dailyStats {
-		monthProfit += s.TotalPnL
-		if s.Date.After(todayStart) || s.Date.Equal(todayStart) {
-			todayProfit += s.TotalPnL
+	todayKey, weekKey := todayStart.Format("2006-01-02"), weekStart.Format("2006-01-02")
+	for day, pnl := range dailyStatsByDate {
+		monthProfit += pnl
+		if day >= todayKey {
+			todayProfit += pnl
 		}
-		if s.Date.After(weekStart) || s.Date.Equal(weekStart) {
-			weekProfit += s.TotalPnL
+		if day >= weekKey {
+			weekProfit += pnl
 		}
 	}
 
@@ -384,19 +514,12 @@ func getProfitSummaryHandler(c *gin.Context) {
 			currentPrice = priceProv.GetLastPrice()
 		}
 
-		unrealizedProfit, unrealizedProfitVerified = verifiedProviderPnL(pmProvider, slots, exchangeID, currentPrice)
+		unrealizedProfit, unrealizedProfitVerified = verifiedProviderPnL(pmProvider, slots, exchangeID, profitSummaryAsset, currentPrice)
 	}
 
 	// 資金費用淨額（正=淨收入，負=淨支出）
-	stWithFunding, ok := st.(interface {
-		GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
-	})
-	if !ok {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲未提供可驗證的資金費彙總，無法生成完整盈利報告"})
-		return
-	}
 	startAll := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
-	fundingTotals, err := readFundingProfitTotals(stWithFunding, accountID, exchangeID, startAll, todayStart, weekStart, monthStart, now)
+	fundingTotals, err := readScopedFundingProfitTotals(scopedProfitReader, profitScopes, startAll, todayStart, weekStart, monthStart, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢資金費統計失敗: " + err.Error()})
 		return
@@ -413,53 +536,16 @@ func getProfitSummaryHandler(c *gin.Context) {
 	// 总偏差损失 = 买入偏差（通常为负）+ 卖出偏差（通常为负）
 	priceDeviationLoss := summaryStats.TotalBuyDeviation + summaryStats.TotalSellDeviation
 
-	// 4. 計算交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL）
+	// orders.realized_pnl 沒有記錄計價資產，不能與 USDT 損益混合後對外呈現。
+	// exchangeProfit 保留 API 欄位相容性，但在訂單幣種證據補齊前不返回。
 	var exchangeProfit *float64
-	if scopedPnL, ok := st.(interface {
-		GetExchangePnLByAccountScope(exchange, accountScope string) (float64, error)
-	}); ok {
-		cfg, cfgErr := GetLatestConfig()
-		if cfgErr == nil && cfg != nil {
-			exchanges := make([]string, 0, len(cfg.Exchanges))
-			if exchangeID != "" {
-				exchanges = append(exchanges, exchangeID)
-			} else {
-				for configuredExchange, exchangeConfig := range cfg.Exchanges {
-					if strings.TrimSpace(exchangeConfig.APIKey) != "" {
-						exchanges = append(exchanges, configuredExchange)
-					}
-				}
-			}
-			if len(exchanges) > 0 {
-				total := 0.0
-				scopedExchanges := 0
-				for _, scopedExchange := range exchanges {
-					scope := accountScopeForExchange(scopedExchange)
-					if scope == "" {
-						continue
-					}
-					value, queryErr := scopedPnL.GetExchangePnLByAccountScope(scopedExchange, scope)
-					if queryErr != nil {
-						c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢當前賬戶交易所盈虧失敗: " + queryErr.Error()})
-						return
-					}
-					total += value
-					scopedExchanges++
-				}
-				if scopedExchanges > 0 {
-					rounded := math.Round(total*100) / 100
-					exchangeProfit = &rounded
-				}
-			}
-		}
-	}
 
 	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
 		return
 	}
-	withdrawnAmounts := withdrawLedger.amountsFor(exchangeID, "")
+	withdrawnAmounts := withdrawLedger.amountsForAsset(exchangeID, "", profitSummaryAsset)
 	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, exchangeID, now)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
@@ -509,15 +595,21 @@ func getFundingHistoryHandler(c *gin.Context) {
 		return
 	}
 
+	fundingExchange := strings.TrimSpace(exchangeID)
+	if fundingExchange == "" {
+		if cfg, cfgErr := GetLatestConfig(); cfgErr == nil && cfg != nil {
+			fundingExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+		}
+	}
+	accountScope := accountScopeForExchange(fundingExchange)
 	stWithFunding, ok := st.(interface {
-		GetFundingPayments(account, exchange string, startTime, endTime time.Time) ([]*storage.FundingPayment, error)
+		GetFundingPaymentsByAccountScope(accountScope, exchange string, startTime, endTime time.Time) ([]*storage.FundingPayment, error)
 	})
-	if !ok {
-		c.JSON(http.StatusOK, gin.H{"success": true, "records": []FundingPaymentItem{}})
+	if !ok || accountScope == "" || fundingExchange == "" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "無法驗證資金費歷史帳戶作用域", "records": []FundingPaymentItem{}})
 		return
 	}
 
-	accountID := GetCurrentAccountID()
 	now := utils.NowConfiguredTimezone()
 	// 默認最近 30 天
 	endTime := now
@@ -536,7 +628,7 @@ func getFundingHistoryHandler(c *gin.Context) {
 		startTime, endTime = endTime, startTime
 	}
 
-	list, err := stWithFunding.GetFundingPayments(accountID, exchangeID, startTime, endTime)
+	list, err := stWithFunding.GetFundingPaymentsByAccountScope(accountScope, fundingExchange, startTime, endTime)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢資金費用失敗: " + err.Error(), "records": []FundingPaymentItem{}})
 		return
@@ -579,6 +671,18 @@ func getStrategyProfitsHandler(c *gin.Context) {
 	accountID := GetCurrentAccountID()
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := utils.NowConfiguredTimezone()
+	scopes, err := resolveProfitAccountScopes(exchangeID)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法验证策略盈利账户作用域: " + err.Error()})
+		return
+	}
+	pnlReader, ok := st.(interface {
+		GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储未提供按账户作用域和计价币核验的策略盈亏查询"})
+		return
+	}
 	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
@@ -591,18 +695,30 @@ func getStrategyProfitsHandler(c *gin.Context) {
 	}
 
 	// 查詢所有時间的盈亏（按币种和交易所分组）
-	pnlList, err := st.GetPnLByTimeRange(accountID, startTime, now)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏失败: " + err.Error()})
-		return
+	var pnlList []*storage.PnLBySymbol
+	for _, scope := range scopes {
+		streams, queryErr := pnlReader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, startTime, now)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略盈利未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		pnlList = append(pnlList, streams...)
 	}
 
 	// 獲取今日盈亏用於计算 TodayProfit（按配置時區）
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, utils.GlobalLocation)
-	todayPnlList, _ := st.GetPnLByTimeRange(accountID, todayStart, now)
+	var todayPnlList []*storage.PnLBySymbol
+	for _, scope := range scopes {
+		streams, queryErr := pnlReader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, todayStart, now)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "今日策略盈利未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		todayPnlList = append(todayPnlList, streams...)
+	}
 	todayPnlMap := make(map[string]float64)
 	for _, p := range todayPnlList {
-		key := p.Exchange + ":" + p.Symbol
+		key := p.Exchange + ":" + p.Symbol + ":" + p.PnLAsset
 		todayPnlMap[key] = p.TotalPnL
 	}
 
@@ -619,8 +735,8 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		}
 
 		if len(slots) > 0 {
-			key := slots[0].Exchange + ":" + slots[0].Symbol
-			unrealizedPnlMap[key], unrealizedPnlVerifiedMap[key] = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, currentPrice)
+			key := slots[0].Exchange + ":" + slots[0].Symbol + ":" + profitSummaryAsset
+			unrealizedPnlMap[key], unrealizedPnlVerifiedMap[key] = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, profitSummaryAsset, currentPrice)
 		}
 	}
 
@@ -631,22 +747,25 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			continue
 		}
 
-		key := p.Exchange + ":" + p.Symbol
+		key := p.Exchange + ":" + p.Symbol + ":" + p.PnLAsset
 
 		// 暂時將 symbol 作為 strategyId
 		strategyID := strings.ToLower(p.Symbol)
 		if strings.Contains(strategyID, "usdt") {
 			strategyID = strings.ReplaceAll(strategyID, "usdt", "")
 		}
-		withdrawnAmounts := withdrawLedger.amountsFor(p.Exchange, p.Symbol)
+		withdrawnAmounts := withdrawLedger.amountsForAsset(p.Exchange, p.Symbol, p.PnLAsset)
 		verifiedAmount := 0.0
 		if strings.EqualFold(p.MarketType, "futures") {
-			verifiedAmount = verifiedAvailable[newWithdrawProfitStream(p.Exchange, p.Symbol)]
+			if strings.EqualFold(p.PnLAsset, profitSummaryAsset) {
+				verifiedAmount = verifiedAvailable[newWithdrawProfitStream(p.Exchange, p.Symbol)]
+			}
 		}
 
 		profits = append(profits, StrategyProfit{
 			ExchangeID:               p.Exchange,
 			StrategyID:               p.Symbol, // 使用 Symbol 作為唯一標识
+			PnLAsset:                 p.PnLAsset,
 			StrategyName:             p.Symbol + " 策略",
 			StrategyType:             "grid",                              // 默认為网格，實際应從配置獲取
 			TotalProfit:              math.Round(p.TotalPnL*100) / 100,    // 网格方式盈亏
@@ -690,9 +809,51 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 	startTime := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	now := time.Now()
 	accountID := GetCurrentAccountID()
-	summary, err := st.GetPnLBySymbol(strategyID, accountID, startTime, now)
+	exchangeFilter := strings.ToLower(strings.TrimSpace(c.Query("exchange_id")))
+	marketFilter := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
+	if (exchangeFilter == "") != (marketFilter == "") {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "exchange_id 与 market_type 必须同时提供"})
+		return
+	}
+	scopes, err := resolveProfitAccountScopes(exchangeFilter)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢策略盈亏详情失败: " + err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法验证策略详情账户作用域: " + err.Error()})
+		return
+	}
+	pnlReader, ok := st.(interface {
+		GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储未提供按账户作用域和计价币核验的策略盈亏查询"})
+		return
+	}
+	var matches []*storage.PnLBySymbol
+	for _, scope := range scopes {
+		streams, queryErr := pnlReader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, startTime, now)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略详情未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		for _, stream := range streams {
+			if stream == nil || !strings.EqualFold(stream.Symbol, strategyID) {
+				continue
+			}
+			if exchangeFilter != "" && (!strings.EqualFold(stream.Exchange, exchangeFilter) || !strings.EqualFold(stream.MarketType, marketFilter)) {
+				continue
+			}
+			matches = append(matches, stream)
+		}
+	}
+	if len(matches) > 1 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "该交易对存在多个交易所或市场账本，请提供 exchange_id 与 market_type"})
+		return
+	}
+	summary := &storage.PnLBySymbol{Symbol: strategyID, PnLAsset: profitSummaryAsset}
+	if len(matches) == 1 {
+		summary = matches[0]
+	}
+	if summary == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "策略盈亏查询结果无效"})
 		return
 	}
 	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
@@ -700,12 +861,12 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
 		return
 	}
-	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, "", now)
+	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, exchangeFilter, now)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
 		return
 	}
-	withdrawnAmounts := withdrawLedger.amountsFor("", strategyID)
+	withdrawnAmounts := withdrawLedger.amountsForAsset(summary.Exchange, strategyID, summary.PnLAsset)
 
 	// 獲取未實現盈亏
 	unrealizedPnL := 0.0
@@ -719,13 +880,15 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 			currentPrice = priceProv.GetLastPrice()
 		}
 
-		if len(slots) > 0 && strings.EqualFold(slots[0].Symbol, strategyID) {
-			unrealizedPnL, unrealizedPnLVerified = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, currentPrice)
+		if len(slots) > 0 && strings.EqualFold(slots[0].Symbol, strategyID) && strings.EqualFold(slots[0].Exchange, summary.Exchange) {
+			unrealizedPnL, unrealizedPnLVerified = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, summary.PnLAsset, currentPrice)
 		}
 	}
 
 	profit := StrategyProfit{
+		ExchangeID:               summary.Exchange,
 		StrategyID:               strategyID,
+		PnLAsset:                 summary.PnLAsset,
 		StrategyName:             strategyID + " 策略",
 		StrategyType:             "grid",
 		TotalProfit:              math.Round(summary.TotalPnL*100) / 100,
@@ -734,11 +897,14 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		UnrealizedProfitVerified: unrealizedPnLVerified,
 		RealizedProfit:           math.Round(summary.TotalPnL*100) / 100,
 		WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
-		AvailableToWithdraw:      sumVerifiedWithdrawProfit(verifiedAvailable, "", strategyID),
+		AvailableToWithdraw:      0,
 		WinRate:                  math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
 		TradeCount:               summary.TotalTrades,
 		AvgProfitPerTrade:        0,
 		LastTradeAt:              now.Format(time.RFC3339),
+	}
+	if strings.EqualFold(summary.PnLAsset, profitSummaryAsset) && strings.EqualFold(summary.MarketType, "futures") {
+		profit.AvailableToWithdraw = sumVerifiedWithdrawProfit(verifiedAvailable, summary.Exchange, strategyID)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1393,26 +1559,48 @@ func getProfitTrendHandler(c *gin.Context) {
 
 	now := utils.NowConfiguredTimezone()
 	startDate := now.AddDate(0, 0, -days)
-	accountID := GetCurrentAccountID()
-
-	dailyStats, err := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, startDate, now, "")
+	profitScopes, err := resolveProfitAccountScopes(exchangeID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢每日统计失败: " + err.Error()})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法验证趋势数据账户作用域: " + err.Error()})
 		return
 	}
-
+	dailyReader, ok := st.(interface {
+		QueryDailyPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startDate, endDate time.Time) ([]*storage.DailyStatisticsWithTradeCount, error)
+	})
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存储未提供按账户作用域核验的每日 PnL 查询"})
+		return
+	}
+	dailyStatsByDate := make(map[string]float64)
+	allStatsBeforeByDate := make(map[string]float64)
+	for _, scope := range profitScopes {
+		dailyStats, queryErr := dailyReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, startDate, now)
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势 PnL 未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		for _, stat := range dailyStats {
+			key := stat.Date.Format("2006-01-02")
+			dailyStatsByDate[key] += stat.TotalPnL
+		}
+		allStatsBefore, queryErr := dailyReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
+		if queryErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势基线未能通过账户/币种完整性核验: " + queryErr.Error()})
+			return
+		}
+		for _, stat := range allStatsBefore {
+			key := stat.Date.Format("2006-01-02")
+			allStatsBeforeByDate[key] += stat.TotalPnL
+		}
+	}
 	// 獲取起始之前的累计盈利作為 base
-	allStatsBefore, _ := st.QueryDailyStatisticsByExchange(exchangeID, "", accountID, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1), "")
 	baseProfit := 0.0
-	for _, s := range allStatsBefore {
-		baseProfit += s.TotalPnL
+	for _, pnl := range allStatsBeforeByDate {
+		baseProfit += pnl
 	}
 
 	// 將結果按日期填充，缺失的日期补0
-	trendMap := make(map[string]float64)
-	for _, s := range dailyStats {
-		trendMap[s.Date.Format("2006-01-02")] = s.TotalPnL
-	}
+	trendMap := dailyStatsByDate
 
 	trend := make([]ProfitTrendPoint, days+1)
 	cumProfit := baseProfit

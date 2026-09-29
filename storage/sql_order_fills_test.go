@@ -49,6 +49,33 @@ func TestSaveOrderFillIsIdempotentAndRejectsConflictingReplay(t *testing.T) {
 	}
 }
 
+func TestMigrateOrderFillsAddsPnLAssetWithoutGuessingLegacyRows(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/legacy-pnl-asset.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	pnl := 4.0
+	fill := &OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "legacy-scope", Symbol: "BTCUSDT", TradeID: "legacy-exec", OrderID: 77, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &pnl, RealizedPnLAsset: "USDT", TradeTime: time.Now().UTC()}
+	if err := st.SaveOrderFill(fill); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`ALTER TABLE order_fills DROP COLUMN realized_pnl_asset`); err != nil {
+		t.Fatalf("prepare pre-rc473 schema: %v", err)
+	}
+	if err := migrateOrderFillsTable(st.db, false); err != nil {
+		t.Fatalf("migrate legacy executions: %v", err)
+	}
+	var storedPnL float64
+	var storedAsset string
+	if err := st.db.QueryRow(`SELECT realized_pnl, realized_pnl_asset FROM order_fills WHERE trade_id = 'legacy-exec'`).Scan(&storedPnL, &storedAsset); err != nil {
+		t.Fatal(err)
+	}
+	if storedPnL != pnl || storedAsset != "" {
+		t.Fatalf("legacy execution migration guessed or lost data: pnl=%v asset=%q", storedPnL, storedAsset)
+	}
+}
+
 func TestSaveOrderFillRequiresCompleteIdentityAndFiniteEconomics(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/fills.db")
 	if err != nil {

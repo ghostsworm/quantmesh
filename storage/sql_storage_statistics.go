@@ -114,9 +114,7 @@ func (s *SQLStorage) GetStatisticsSummaryByExchange(exchange, account string) (*
 		args = append(args, exchange)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		// 这样可以确保即使舊數據的account字段為空，也能查詢到统计信息
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 
@@ -168,6 +166,42 @@ func (s *SQLStorage) GetStatisticsSummaryByExchange(exchange, account string) (*
 	return stat, nil
 }
 
+// GetStatisticsSummaryByAccountScope returns only profit denominated in asset
+// for one exact exchange credential scope. It rejects incomplete ownership or
+// fee denomination evidence rather than presenting a partial total as complete.
+func (s *SQLStorage) GetStatisticsSummaryByAccountScope(exchange, accountScope, asset string) (*Statistics, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	accountScope = strings.TrimSpace(accountScope)
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || accountScope == "" || asset == "" {
+		return nil, fmt.Errorf("exchange, account_scope and pnl_asset are required")
+	}
+	var unscopedTrades int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE (LOWER(TRIM(exchange)) = ? AND (account_scope IS NULL OR TRIM(account_scope) = '')) OR TRIM(COALESCE(exchange, '')) = ''`, s.tradesTbl()), exchange).Scan(&unscopedTrades); err != nil {
+		return nil, fmt.Errorf("check unscoped trades for profit summary: %w", err)
+	}
+	if unscopedTrades > 0 {
+		return nil, fmt.Errorf("profit summary is incomplete: exchange %s has %d trades without account scope", exchange, unscopedTrades)
+	}
+	var invalidDenominations int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND (UPPER(TRIM(COALESCE(pnl_asset, ''))) <> ? OR (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> ?))`, s.tradesTbl()), exchange, accountScope, asset, asset).Scan(&invalidDenominations); err != nil {
+		return nil, fmt.Errorf("validate profit and fee denomination: %w", err)
+	}
+	if invalidDenominations > 0 {
+		return nil, fmt.Errorf("profit summary is incomplete: scope %s has %d trades with missing or non-%s pnl/fee denomination", accountScope, invalidDenominations, asset)
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(quantity), 0), COALESCE(SUM(pnl), 0),
+		COALESCE(SUM(COALESCE(fee, 0)), 0), COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0),
+		CASE WHEN COUNT(*) > 0 THEN CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) ELSE 0 END,
+		COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0), COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0)
+		FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND UPPER(TRIM(COALESCE(pnl_asset, ''))) = ?`, s.tradesTbl())
+	var summary Statistics
+	if err := s.db.QueryRow(query, exchange, accountScope, asset).Scan(&summary.TotalTrades, &summary.TotalVolume, &summary.GrossPnL, &summary.TotalFee, &summary.TotalPnL, &summary.WinRate, &summary.TotalBuyDeviation, &summary.TotalSellDeviation); err != nil {
+		return nil, fmt.Errorf("query profit summary by account scope: %w", err)
+	}
+	return &summary, nil
+}
+
 // GetStatisticsSummaryByExchangeAndSymbol 獲取指定交易所、指定交易對的统计彙總
 func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, account, botID string) (*Statistics, error) {
 	query := fmt.Sprintf(`
@@ -197,7 +231,7 @@ func (s *SQLStorage) GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, a
 		args = append(args, symbol)
 	}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {
@@ -321,7 +355,7 @@ func (s *SQLStorage) GetTodayStatisticsByExchangeAndSymbol(exchange, symbol, acc
 		gridArgs = append(gridArgs, symbol)
 	}
 	if account != "" {
-		gridQuery += " AND (account = ? OR account IS NULL OR account = '')"
+		gridQuery += " AND account = ?"
 		gridArgs = append(gridArgs, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {
@@ -456,7 +490,7 @@ func (s *SQLStorage) GetDailyTradesSummary(exchange, account, dateStr, botID str
 		args = append(args, exchange)
 	}
 	if account != "" {
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {
@@ -598,9 +632,7 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 		args = append(args, symbol)
 	}
 	if account != "" {
-		// 兼容舊數據：如果account不為空，同時匹配account字段為NULL或空字符串的記錄
-		// 这样可以确保即使舊數據的account字段為空，也能查詢到统计信息
-		query += " AND (account = ? OR account IS NULL OR account = '')"
+		query += " AND account = ?"
 		args = append(args, account)
 	}
 	if bid := strings.TrimSpace(botID); bid != "" {
@@ -683,4 +715,40 @@ func (s *SQLStorage) QueryDailyStatisticsByExchange(exchange, symbol, account st
 	}
 
 	return stats, nil
+}
+
+// QueryDailyPnLByAccountScopeAndAsset returns daily net PnL only after verifying
+// that all rows in the exchange scope have attributable ownership and matching
+// PnL/fee denomination.
+func (s *SQLStorage) QueryDailyPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+	if _, err := s.GetStatisticsSummaryByAccountScope(exchange, accountScope, asset); err != nil {
+		return nil, err
+	}
+	dateExpr := s.dateExprInConfiguredTimezone("created_at")
+	query := fmt.Sprintf(`SELECT %s, COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0)
+		FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND UPPER(TRIM(COALESCE(pnl_asset, ''))) = ?
+		AND %s >= ? AND %s <= ? GROUP BY %s ORDER BY %s DESC LIMIT 3650`, dateExpr, s.tradesTbl(), dateExpr, dateExpr, dateExpr, dateExpr)
+	rows, err := s.db.Query(query, strings.ToLower(strings.TrimSpace(exchange)), strings.TrimSpace(accountScope), strings.ToUpper(strings.TrimSpace(asset)), startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+	if err != nil {
+		return nil, fmt.Errorf("query daily PnL by account scope: %w", err)
+	}
+	defer rows.Close()
+	var result []*DailyStatisticsWithTradeCount
+	for rows.Next() {
+		var day string
+		var summary DailyStatisticsWithTradeCount
+		if err := rows.Scan(&day, &summary.TotalPnL); err != nil {
+			return nil, fmt.Errorf("scan daily PnL by account scope: %w", err)
+		}
+		parsed, err := time.Parse("2006-01-02", day)
+		if err != nil {
+			return nil, fmt.Errorf("parse daily PnL date %q: %w", day, err)
+		}
+		summary.Date = parsed
+		result = append(result, &summary)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily PnL by account scope: %w", err)
+	}
+	return result, nil
 }
