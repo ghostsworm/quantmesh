@@ -207,7 +207,7 @@ func applyGridFeeRates(ctx context.Context, cfg *config.Config, symCfg config.Sy
 		return
 	}
 	maker, taker, source := resolveGridFeeRates(cfg, symCfg, configFeeRate, cfg != nil && !cfg.Timing.SkipExchangeFeeOnBotStart)
-	if taker <= 0 {
+	if !validResolvedGridFeeRates(maker, taker) {
 		if gridFeeRatesRequired(cfg) {
 			spm.OpeningGate().Block(gridFeeRateUnverifiedBlock)
 			logger.ErrorCtx(ctx, "🚨 [%s] 無法核實 maker 手續費率，已封鎖網格新開倉；請配置 exchanges.%s.fee_rate 或恢復交易所費率查詢", symCfg.Symbol, symCfg.Exchange)
@@ -227,7 +227,7 @@ func refreshGridFeeRates(cfg *config.Config, symCfg config.SymbolConfig, configF
 		return
 	}
 	maker, taker, _ := resolveGridFeeRates(cfg, symCfg, configFeeRate, true)
-	if taker <= 0 {
+	if !validResolvedGridFeeRates(maker, taker) {
 		return
 	}
 	spm.SetFeeRates(maker, taker)

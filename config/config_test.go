@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,27 @@ func TestConfigValidate(t *testing.T) {
 	}
 	if cfgWithDefaults.Timing.WebSocketReconnectDelay != 5 {
 		t.Errorf("期望默认重连時间為5, 得到 %d", cfgWithDefaults.Timing.WebSocketReconnectDelay)
+	}
+}
+
+func TestConfigValidateRejectsUnusableFeeRates(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		rate float64
+	}{
+		{name: "nan", rate: math.NaN()},
+		{name: "positive_infinity", rate: math.Inf(1)},
+		{name: "above_one", rate: 1.01},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := createValidConfig()
+			exchangeCfg := cfg.Exchanges["binance"]
+			exchangeCfg.FeeRate = test.rate
+			cfg.Exchanges["binance"] = exchangeCfg
+			if err := cfg.Validate(); err == nil {
+				t.Fatalf("fee rate %v must be rejected", test.rate)
+			}
+		})
 	}
 }
 

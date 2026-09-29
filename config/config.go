@@ -1643,6 +1643,10 @@ type ExchangeConfig struct {
 	Leverage   int     `yaml:"leverage" json:"leverage"`     // 杠杆倍數（僅 Gate.io 支援，0 表示不設置）
 }
 
+func validConfiguredFeeRate(rate float64) bool {
+	return rate >= 0 && rate <= 1
+}
+
 // SymbolAllocation 單個币种的资金分配配置
 type SymbolAllocation struct {
 	Exchange      string  `yaml:"exchange"`
@@ -2132,6 +2136,9 @@ func CreateConfigFromSetup(setup *SetupData) (*Config, error) {
 		FeeRate:    setup.FeeRate,
 	}
 
+	if !validConfiguredFeeRate(setup.FeeRate) {
+		return nil, fmt.Errorf("手续费率必须是有限且位于 [0,1] 范围内")
+	}
 	// 如果手续费率未設置，使用預設值
 	if exchangeCfg.FeeRate <= 0 {
 		exchangeCfg.FeeRate = 0.0002
@@ -2211,8 +2218,8 @@ func (c *Config) Validate() error {
 	}
 
 	// 驗证手续费率配置
-	if exchangeCfg.FeeRate < 0 {
-		return fmt.Errorf("交易所 %s 的手续费率不能為负數", c.App.CurrentExchange)
+	if !validConfiguredFeeRate(exchangeCfg.FeeRate) {
+		return fmt.Errorf("交易所 %s 的手续费率必须是有限且位于 [0,1] 范围内", c.App.CurrentExchange)
 	}
 
 	// ==== 多交易對配置校驗（相容舊配置）====
@@ -2233,8 +2240,8 @@ func (c *Config) Validate() error {
 		if exCfg.APIKey == "" || exCfg.SecretKey == "" {
 			return sc, fmt.Errorf("交易所 %s 的 API 配置不完整", sc.Exchange)
 		}
-		if exCfg.FeeRate < 0 {
-			return sc, fmt.Errorf("交易所 %s 的手续费率不能為负數", sc.Exchange)
+		if !validConfiguredFeeRate(exCfg.FeeRate) {
+			return sc, fmt.Errorf("交易所 %s 的手续费率必须是有限且位于 [0,1] 范围内", sc.Exchange)
 		}
 
 		// 交易對

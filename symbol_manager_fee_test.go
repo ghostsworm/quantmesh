@@ -121,3 +121,34 @@ func TestDisabledFeeAwareSpreadDoesNotRequireFeeRate(t *testing.T) {
 		t.Fatal("explicitly disabling fee-aware spread must not create a fee-rate opening hold")
 	}
 }
+
+func TestInvalidConfiguredFeeRateCannotReleaseGridOpeningHold(t *testing.T) {
+	orig := fetchExchangeFeeRates
+	t.Cleanup(func() { fetchExchangeFeeRates = orig })
+	fetchExchangeFeeRates = func(*config.Config, string, string) (float64, float64, error) {
+		return 0, 0, errors.New("fee API unavailable")
+	}
+	for _, test := range []struct {
+		name string
+		rate float64
+	}{
+		{name: "nan", rate: math.NaN()},
+		{name: "infinity", rate: math.Inf(1)},
+		{name: "above_one", rate: 1.01},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.Symbol = "ETHUSDT"
+			spm := position.NewSuperPositionManager(cfg, nil, nil, 2, 3)
+			symCfg := config.SymbolConfig{Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}
+			applyGridFeeRates(t.Context(), cfg, symCfg, test.rate, spm)
+			if !spm.OpeningGate().HasBlock(gridFeeRateUnverifiedBlock) {
+				t.Fatal("invalid fallback fee must not open the grid gate")
+			}
+			refreshGridFeeRates(cfg, symCfg, test.rate, spm)
+			if !spm.OpeningGate().HasBlock(gridFeeRateUnverifiedBlock) {
+				t.Fatal("invalid fallback fee must not release the grid gate during refresh")
+			}
+		})
+	}
+}

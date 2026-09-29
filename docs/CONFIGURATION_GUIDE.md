@@ -196,7 +196,7 @@ trading:
 
 | 配置项 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `fee_aware_spread.enabled` | bool | true（未配置即啟用） | 平倉利差取 `max(profit_spread, 開倉基準價 × (2×費率 + safety_margin_ratio))`。網格單一律 PostOnly，按 maker 費率計算；費率在 Bot 啟動時從交易所接口拉取（受 `timing.skip_exchange_fee_on_bot_start` 控制，目前支持 Binance/Bitget 合約），失敗或現貨時回退 `exchanges.<name>.fee_rate`（maker 保守取同值），並按 `timing.fee_rate_refresh_minutes` 定期刷新。**保護啟用但沒有可用費率時會封鎖網格新開倉；Binance/Bitget 合約查詢失敗且未配置重試週期時每分鐘重試，核實成功後自動解除。其他交易所/現貨須配置有效 `fee_rate`，或明確關閉此保護。** 配置利差低於下界時自動抬高，每個 Bot 只告警一次 |
+| `fee_aware_spread.enabled` | bool | true（未配置即啟用） | 平倉利差取 `max(profit_spread, 開倉基準價 × (2×費率 + safety_margin_ratio))`。網格單一律 PostOnly，按 maker 費率計算；費率在 Bot 啟動時從交易所接口拉取（受 `timing.skip_exchange_fee_on_bot_start` 控制，目前支持 Binance/Bitget 合約），失敗或現貨時回退 `exchanges.<name>.fee_rate`（maker 保守取同值；配置值需有限且在 `[0,1]`）。**保護啟用但沒有可用費率時會封鎖網格新開倉；Binance/Bitget 合約查詢失敗且未配置重試週期時每分鐘重試，核實成功後自動解除。其他交易所/現貨須配置有效 `fee_rate`，或明確關閉此保護。** 配置利差低於下界時自動抬高，每個 Bot 只告警一次 |
 | `fee_aware_spread.safety_margin_ratio` | float64 | 0.0002 | 安全邊際（價格比例，0.0002=0.02%）；<=0 使用預設值 |
 | `post_only_reprice_max_attempts` | int | 3 | PostOnly 被拒（如 Binance -5022）時往遠離盤口方向移一個 tick 重掛的最大次數；超過後本輪放棄，下一輪重新計算。**永不降級為 GTC 吃單**。平倉單被交易所撤銷/過期後，下次掛單價至少在現價外 `(1+連續被拒次數)` 個 tick（封頂此值） |
 
