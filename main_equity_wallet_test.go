@@ -193,6 +193,29 @@ func TestRuntimeEquityRejectsConfiguredScopeChangeDuringSampling(t *testing.T) {
 	}
 }
 
+func TestRuntimeEquityAllowsNonScopeConfigChangeDuringSampling(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	exchangeConfig := config.ExchangeConfig{APIKey: "stable-account-key", Testnet: true}
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},
+		Bots:      []config.BotConfig{{ID: "bot-a", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Name: "before"}},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), provider)
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "bot-a", Inner: runtime})
+	updatedConfig := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},
+		Bots:      []config.BotConfig{{ID: "bot-a", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Name: "renamed"}},
+	}
+	provider.onEvidence = func() { manager.botManager.UpdateRuntimeTradingParams(updatedConfig) }
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err != nil || observation.Equity != 1000 || !observation.CashFlowComplete {
+		t.Fatalf("unrelated config update invalidated unchanged account scope: observation=%+v err=%v", observation, err)
+	}
+}
+
 func TestRuntimeEquityWalletAggregatesCurrenciesAndValuesLedgerReceipts(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	snapshot := accounting.Snapshot{Currency: "USDT", Equity: 76000, ObservedAt: now,

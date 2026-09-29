@@ -85,7 +85,11 @@ func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
 	}
 	snapshot := buildEquityScopeSnapshot(cfg)
 	bm.equityScopeMu.Lock()
-	snapshot.revision = bm.equityScope.revision + 1
+	previous := bm.equityScope
+	snapshot.revision = previous.revision
+	if snapshot.configured != previous.configured || snapshot.scope != previous.scope || snapshot.err != previous.err {
+		snapshot.revision++
+	}
 	bm.equityScope = snapshot
 	bm.equityScopeMu.Unlock()
 }
