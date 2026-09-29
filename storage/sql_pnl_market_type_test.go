@@ -86,6 +86,27 @@ func TestGetPnLBySymbolRequiresExchangeMarketScopeWhenAmbiguous(t *testing.T) {
 	}
 }
 
+func TestGetPnLBySymbolAccountScopeReadsLegacyAccountLabelWithoutCrossingScopes(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC()
+	for _, trade := range []Trade{
+		{Account: "old-key-prefix", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 2, PnL: 20, Fee: 2, CreatedAt: now},
+		{Account: "opaque-new-id", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 1, PnL: 10, Fee: 1, CreatedAt: now},
+		{Account: "old-key-prefix", AccountScope: "scope-b", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", Quantity: 100, PnL: 1000, Fee: 100, CreatedAt: now},
+	} {
+		if err := st.SaveTrade(&trade); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := st.GetPnLBySymbolAccountScope("BTCUSDT", "scope-a", "binance", "futures", now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.TotalTrades != 2 || summary.TotalPnL != 27 || summary.TotalVolume != 3 {
+		t.Fatalf("scope-filtered historical PnL = %+v, want two scoped rows totalling 27", summary)
+	}
+}
+
 func TestMigrateTradesMarketTypePreservesLegacyRowsAndIsIdempotent(t *testing.T) {
 	path := t.TempDir() + "/legacy-trades.db"
 	db, err := sql.Open("sqlite3", path)

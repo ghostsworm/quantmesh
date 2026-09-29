@@ -1858,9 +1858,7 @@ func SanitizeForExport(cfg *Config) *Config {
 		out.Exchanges = make(map[string]ExchangeConfig)
 		for k, v := range cfg.Exchanges {
 			ec := v
-			if len(ec.APIKey) > 4 {
-				ec.APIKey = ec.APIKey[:4] + "****"
-			} else if ec.APIKey != "" {
+			if ec.APIKey != "" {
 				ec.APIKey = "****"
 			}
 			if ec.SecretKey != "" {

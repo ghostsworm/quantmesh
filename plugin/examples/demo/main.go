@@ -93,8 +93,7 @@ func demoCommercialPlugin(loader *plugin.PluginLoader) {
 		return
 	}
 
-	fmt.Println("\n生成的許可证密钥:")
-	fmt.Println(licenseKey[:80] + "...")
+	fmt.Printf("\n演示許可证已生成（%d 字符；密钥不输出）\n", len(licenseKey))
 
 	// 注意：LoadPlugin 需要插件文件路径，这里只是演示插件元數據和許可证生成
 	// 實際使用時，需要先编譯插件為 .so 文件，然后使用路径加載
@@ -124,7 +123,7 @@ func demoLicenseSystem() {
 	}
 
 	fmt.Printf("✅ 許可证已生成 (长度: %d 字符)\n", len(licenseKey))
-	fmt.Printf("前80個字符: %s...\n", licenseKey[:80])
+	fmt.Printf("✅ 許可证已生成 (长度: %d 字符；密钥不输出)\n", len(licenseKey))
 
 	// 2. 解析許可证
 	fmt.Println("\n步骤2: 解析許可证")

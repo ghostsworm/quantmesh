@@ -256,7 +256,7 @@ func TestConfigSyncSetupLoadSaveAndSanitize(t *testing.T) {
 	}
 
 	export := SanitizeForExport(setupCfg)
-	if export.Exchanges["binance"].APIKey != "api-****" || export.Exchanges["binance"].SecretKey != "****" || export.Exchanges["binance"].Passphrase != "****" {
+	if export.Exchanges["binance"].APIKey != "****" || export.Exchanges["binance"].SecretKey != "****" || export.Exchanges["binance"].Passphrase != "****" {
 		t.Fatalf("exchange fields were not sanitized: %+v", export.Exchanges["binance"])
 	}
 	setupCfg.AI.APIKey = "ai-key"

@@ -705,14 +705,10 @@ func startSymbolRuntime(
 	logger.InfoCtx(ctx, "✅ [%s] 持倉安全性检查通過", botID)
 
 	// 核心组件
-	// 生成账戶標识（使用 API Key 的前 8 位）
+	// Legacy Account 字段也使用不可逆摘要；不可把 API Key 片段落入账本或统计数据。
 	accountID := ""
-	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok {
-		if len(exCfg.APIKey) > 8 {
-			accountID = exCfg.APIKey[:8]
-		} else {
-			accountID = exCfg.APIKey
-		}
+	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok && strings.TrimSpace(exCfg.APIKey) != "" {
+		accountID = equityAccountScopeID(symCfg.Exchange, exCfg)
 	}
 
 	exchangeExecutor := order.NewExchangeOrderExecutor(

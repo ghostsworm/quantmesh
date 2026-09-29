@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,49 @@ func TestPersistedEquityStateRevisionAndCorruption(t *testing.T) {
 	}
 	if _, err := store.LoadEquityState(t.Context()); err == nil {
 		t.Fatal("revision mismatch ignored")
+	}
+}
+
+func TestEquityAccountScopeIDIsOpaqueAndEnvironmentScoped(t *testing.T) {
+	apiKey := "secret-key-prefix-and-suffix"
+	live := equityAccountScopeID("binance", config.ExchangeConfig{APIKey: apiKey})
+	repeated := equityAccountScopeID("binance", config.ExchangeConfig{APIKey: apiKey})
+	testnet := equityAccountScopeID("binance", config.ExchangeConfig{APIKey: apiKey, Testnet: true})
+	if len(live) != 64 || live == apiKey || strings.Contains(live, apiKey[:8]) || repeated != live {
+		t.Fatalf("account identity is not stable and opaque: %q", live)
+	}
+	if live == testnet {
+		t.Fatal("live and testnet account identities collided")
+	}
+}
+
+type runtimePnLReaderFixture struct {
+	legacyCalls int
+	scopedCalls int
+	scope       string
+}
+
+func (r *runtimePnLReaderFixture) GetPnLBySymbol(string, string, time.Time, time.Time) (*storage.PnLSummary, error) {
+	r.legacyCalls++
+	return &storage.PnLSummary{TotalPnL: 999}, nil
+}
+
+func (r *runtimePnLReaderFixture) GetPnLBySymbolAccountScope(_, scope, _, _ string, _, _ time.Time) (*storage.PnLSummary, error) {
+	r.scopedCalls++
+	r.scope = scope
+	return &storage.PnLSummary{TotalPnL: 25}, nil
+}
+
+func TestRuntimePnLSummaryUsesExactImmutableAccountScope(t *testing.T) {
+	runtime := &SymbolRuntime{
+		AccountID:    "opaque-account-id",
+		AccountScope: "credential-scope-digest",
+		Config:       config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance", MarketType: "futures"},
+	}
+	reader := &runtimePnLReaderFixture{}
+	summary, err := getRuntimePnLSummary(reader, runtime, time.Unix(0, 0), time.Now())
+	if err != nil || summary.TotalPnL != 25 || reader.scopedCalls != 1 || reader.legacyCalls != 0 || reader.scope != runtime.AccountScope {
+		t.Fatalf("runtime PnL did not use exact account scope: summary=%+v reader=%+v err=%v", summary, reader, err)
 	}
 }
 

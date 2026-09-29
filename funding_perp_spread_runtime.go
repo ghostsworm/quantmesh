@@ -163,12 +163,9 @@ func startFundingPerpSpreadSymbolRuntime(
 
 	accountID := ""
 	if fp != nil {
-		if exCfg, ok := baseCfg.Exchanges[strings.TrimSpace(fp.LegA.Exchange)]; ok && len(exCfg.APIKey) > 0 {
-			if len(exCfg.APIKey) > 8 {
-				accountID = exCfg.APIKey[:8]
-			} else {
-				accountID = exCfg.APIKey
-			}
+		legAExchange := strings.TrimSpace(fp.LegA.Exchange)
+		if exCfg, ok := baseCfg.Exchanges[legAExchange]; ok && strings.TrimSpace(exCfg.APIKey) != "" {
+			accountID = equityAccountScopeID(legAExchange, exCfg)
 		}
 	}
 

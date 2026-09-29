@@ -189,10 +189,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 		if storageProv != nil {
 			st := storageProv.GetStorage()
 			if st != nil {
-				accountID := ""
-				if exCfg, ok := cfg.Exchanges[bc.Exchange]; ok && len(exCfg.APIKey) > 8 {
-					accountID = exCfg.APIKey[:8]
-				}
+				accountID := accountIDForExchange(cfg, bc.Exchange)
 				inc24h, _ = st.GetFundingPaymentsSum(accountID, bc.Exchange, now.Add(-24*time.Hour), now)
 				inc7d, _ = st.GetFundingPaymentsSum(accountID, bc.Exchange, now.Add(-7*24*time.Hour), now)
 			}
@@ -216,9 +213,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 		if st != nil {
 			accountID := ""
 			if len(cfg.Bots) > 0 {
-				if exCfg, ok := cfg.Exchanges[cfg.Bots[0].Exchange]; ok && len(exCfg.APIKey) > 8 {
-					accountID = exCfg.APIKey[:8]
-				}
+				accountID = accountIDForExchange(cfg, cfg.Bots[0].Exchange)
 			}
 			totalIncome30d, _ = st.GetFundingPaymentsSum(accountID, "", now.Add(-30*24*time.Hour), now)
 			totalIncomeAll, _ = st.GetFundingPaymentsSum(accountID, "", time.Time{}, now)
@@ -236,9 +231,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 		if st != nil {
 			accountID := ""
 			if len(cfg.Bots) > 0 {
-				if exCfg, ok := cfg.Exchanges[cfg.Bots[0].Exchange]; ok && len(exCfg.APIKey) > 8 {
-					accountID = exCfg.APIKey[:8]
-				}
+				accountID = accountIDForExchange(cfg, cfg.Bots[0].Exchange)
 			}
 			daily, _ := st.GetDailyFundingPayments(accountID, "", now.Add(-30*24*time.Hour), now)
 			for date, income := range daily {
@@ -285,10 +278,10 @@ func getFundingCarryStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"bot_id":  botID,
-		"symbol":  detail.Symbol,
+		"bot_id":   botID,
+		"symbol":   detail.Symbol,
 		"exchange": detail.Exchange,
-		"running": detail.Running,
+		"running":  detail.Running,
 	})
 }
 
@@ -328,9 +321,7 @@ func getFundingIncomeHistory(c *gin.Context) {
 		for _, bc := range cfg.Bots {
 			if bc.MarketType == config.MarketTypeFundingCarry {
 				exchangeID = bc.Exchange
-				if exCfg, ok := cfg.Exchanges[bc.Exchange]; ok && len(exCfg.APIKey) > 8 {
-					accountID = exCfg.APIKey[:8]
-				}
+				accountID = accountIDForExchange(cfg, bc.Exchange)
 				break
 			}
 		}

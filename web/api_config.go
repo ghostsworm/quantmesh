@@ -241,20 +241,11 @@ func GetCurrentAccountID() string {
 		return ""
 	}
 
-	if exCfg, ok := cfg.Exchanges[exchange]; ok {
-		apiKey := exCfg.APIKey
-		if len(apiKey) > 8 {
-			return apiKey[:8]
-		}
-		return apiKey
-	}
-
-	return ""
+	return accountIDForExchange(cfg, exchange)
 }
 
-func accountScopeForExchange(exchange string) string {
-	cfg, err := GetLatestConfig()
-	if err != nil || cfg == nil || strings.TrimSpace(exchange) == "" {
+func accountIDForExchange(cfg *config.Config, exchange string) string {
+	if cfg == nil {
 		return ""
 	}
 	exConfig, ok := cfg.Exchanges[exchange]
@@ -267,6 +258,14 @@ func accountScopeForExchange(exchange string) string {
 	}
 	sum := sha256.Sum256(identity)
 	return fmt.Sprintf("%x", sum)
+}
+
+func accountScopeForExchange(exchange string) string {
+	cfg, err := GetLatestConfig()
+	if err != nil || cfg == nil || strings.TrimSpace(exchange) == "" {
+		return ""
+	}
+	return accountIDForExchange(cfg, exchange)
 }
 
 // GetConfig 獲取當前配置

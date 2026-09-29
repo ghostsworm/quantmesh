@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc466"
+var Version = "3.111.0-rc467"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -390,7 +390,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 								dbQueryCounter = 0
 								now := utils.NowUTC()
 								allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-								pnlSummary, err := storage.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, allHistoryStart, now)
+								pnlSummary, err := getRuntimePnLSummary(storage.GetStorage(), r, allHistoryStart, now)
 								if err == nil {
 									st.TotalPnL = pnlSummary.TotalPnL
 									st.TotalTrades = pnlSummary.TotalTrades
@@ -1991,7 +1991,7 @@ func main() {
 									allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
 
 									// 查詢所有历史累计盈亏
-									pnlSummary, err := storageService.GetStorage().GetPnLBySymbol(r.Config.Symbol, r.AccountID, allHistoryStart, now)
+									pnlSummary, err := getRuntimePnLSummary(storageService.GetStorage(), r, allHistoryStart, now)
 									if err == nil {
 										st.TotalPnL = pnlSummary.TotalPnL
 										st.TotalTrades = pnlSummary.TotalTrades

@@ -45,6 +45,33 @@ func (s *SQLStorage) GetPnLBySymbolScope(symbol, account, exchange, marketType s
 	return s.getPnLBySymbolScope(symbol, account, exchange, marketType, startTime, endTime)
 }
 
+// GetPnLBySymbolAccountScope queries exact credential scope, including legacy
+// rows whose display/account column still contains an API-key prefix.
+func (s *SQLStorage) GetPnLBySymbolAccountScope(symbol, accountScope, exchange, marketType string, startTime, endTime time.Time) (*PnLSummary, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	if strings.TrimSpace(accountScope) == "" || exchange == "" || marketType == "" {
+		return nil, fmt.Errorf("account_scope, exchange and market_type are required")
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0),
+		COALESCE(SUM(quantity), 0), COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), 0)
+		FROM %s WHERE symbol = ? AND account_scope = ? AND LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ?
+		AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
+	var summary PnLSummary
+	summary.Symbol, summary.Exchange, summary.MarketType = symbol, exchange, marketType
+	var totalTrades, winners, losers int
+	if err := s.db.QueryRow(query, symbol, accountScope, exchange, marketType, startTime, endTime).
+		Scan(&totalTrades, &summary.TotalPnL, &summary.TotalVolume, &winners, &losers); err != nil {
+		return nil, fmt.Errorf("query PnL by account scope for %s: %w", symbol, err)
+	}
+	summary.TotalTrades, summary.WinningTrades, summary.LosingTrades = totalTrades, winners, losers
+	if totalTrades > 0 {
+		summary.WinRate = float64(winners) / float64(totalTrades)
+	}
+	return &summary, nil
+}
+
 func (s *SQLStorage) listPnLMarketScopes(symbol, account string, startTime, endTime time.Time) ([]PnLMarketScope, error) {
 	query := fmt.Sprintf(`SELECT DISTINCT COALESCE(NULLIF(LOWER(TRIM(exchange)), ''), 'unknown'), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown') FROM %s WHERE symbol = ? AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
 	args := []interface{}{symbol, startTime, endTime}

@@ -252,12 +252,8 @@ func startFundingCarrySymbolRuntime(
 	}
 
 	accountID := ""
-	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok && len(exCfg.APIKey) > 0 {
-		if len(exCfg.APIKey) > 8 {
-			accountID = exCfg.APIKey[:8]
-		} else {
-			accountID = exCfg.APIKey
-		}
+	if exCfg, ok := baseCfg.Exchanges[symCfg.Exchange]; ok && strings.TrimSpace(exCfg.APIKey) != "" {
+		accountID = equityAccountScopeID(symCfg.Exchange, exCfg)
 	}
 
 	// 每個 funding_carry bot 獨立同步資金費收入

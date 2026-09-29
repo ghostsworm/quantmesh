@@ -34,7 +34,7 @@ func main() {
 		fmt.Println("❌ 未找到 Gemini API Key，请在 config.yaml 中配置 ai.gemini_api_key")
 		os.Exit(1)
 	}
-	fmt.Printf("✅ 已從配置文件读取 Gemini API Key: %s...\n", geminiAPIKey[:10])
+	fmt.Println("✅ 已從配置文件读取 Gemini API Key: 已配置（值不予输出）")
 
 	// 3. 初始化數據库（用於任務系统）
 	fmt.Println("\n初始化數據库和任務系统...")
@@ -96,7 +96,7 @@ func main() {
 			{Symbol: "ETHUSDT", Capital: 3000.0},
 		},
 		CapitalMode:   "per_symbol",
-		RiskProfile:    "balanced", // 平衡型风險偏好
+		RiskProfile:   "balanced", // 平衡型风險偏好
 		CurrentPrices: currentPrices,
 	}
 
