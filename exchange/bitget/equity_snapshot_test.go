@@ -41,6 +41,13 @@ func TestBitgetBillEvidenceClassifiesAndRejectsUnknownTypes(t *testing.T) {
 	}
 	for _, mutate := range []func(*bitgetBill){
 		func(b *bitgetBill) { b.BusinessType = "unknown" },
+		func(b *bitgetBill) { b.BusinessType = "append_margin" },
+		func(b *bitgetBill) { b.BusinessType = "adjust_down_lever_append_margin" },
+		func(b *bitgetBill) { b.BusinessType = "reduce_margin" },
+		func(b *bitgetBill) { b.BusinessType = "auto_append_margin" },
+		func(b *bitgetBill) { b.BusinessType = "risk_captital_user_transfer" },
+		func(b *bitgetBill) { b.BusinessType = "user_exchange_buy" },
+		func(b *bitgetBill) { b.BusinessType = "user_exchange_sell" },
 		func(b *bitgetBill) { b.Coin = "BTC" },
 		func(b *bitgetBill) { b.FeeByCoupon = "0.01" },
 		func(b *bitgetBill) { b.ID = "" },
@@ -68,7 +75,7 @@ func TestBitgetReadAccountEvidenceCapturesUSDTBills(t *testing.T) {
 			_, _ = w.Write([]byte(`{"code":"00000","data":[{"marginCoin":"USDT","accountEquity":"999","unrealizedPL":"-1","coupon":"0","grant":"0","assetMode":"single"}],"requestTime":` + strconv.FormatInt(serverTime.UnixMilli(), 10) + `}`))
 		case "/api/v2/mix/account/bill":
 			q := r.URL.Query()
-			if q.Get("productType") != "USDT-FUTURES" || q.Get("limit") != "100" {
+			if q.Get("productType") != "USDT-FUTURES" || q.Get("onlyFunding") != "yes" || q.Get("limit") != "100" {
 				t.Fatalf("bill query=%v", q)
 			}
 			if _, err := url.ParseQuery(q.Encode()); err != nil {

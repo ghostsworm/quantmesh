@@ -127,7 +127,7 @@ func bitgetBillKind(businessType string, amount *big.Rat) (string, error) {
 	case "open_long", "open_short", "close_long", "close_short", "force_close_long", "force_close_short",
 		"burst_long_loss_query", "burst_short_loss_query", "buy", "sell", "force_buy", "force_sell", "burst_buy", "burst_sell",
 		"delivery_long", "delivery_short", "adl_close_long", "adl_close_short", "adl_buy_in_single_side_mode", "adl_sell_in_single_side_mode",
-		"append_margin", "adjust_down_lever_append_margin", "reduce_margin", "auto_append_margin", "tracking_follow_pay", "tracking_follow_back", "tracking_trader_income":
+		"tracking_follow_pay", "tracking_follow_back", "tracking_trader_income":
 		return "realized_pnl", nil
 	default:
 		return "", fmt.Errorf("unclassified Bitget account bill type %q", businessType)
@@ -171,6 +171,7 @@ func (b *BitgetAdapter) readEquityBills(ctx context.Context, from, through time.
 		for pageNumber := 0; pageNumber < bitgetBillMaxPages; pageNumber++ {
 			query := url.Values{
 				"productType": {"USDT-FUTURES"},
+				"onlyFunding": {"yes"},
 				"startTime":   {strconv.FormatInt(start.UnixMilli(), 10)},
 				"endTime":     {strconv.FormatInt(end.UnixMilli(), 10)},
 				"limit":       {strconv.Itoa(bitgetBillPageSize)},

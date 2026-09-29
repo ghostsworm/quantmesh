@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：Bitget 权益账单排除非资金类保证金调整（3.111.0-rc421）
+
+- 官方账单接口明确把 `append_margin`、`adjust_down_lever_append_margin`、`reduce_margin`、`auto_append_margin` 定义为可由 `onlyFunding=yes` 排除的非资金类流水；旧适配器却将它们归为 `realized_pnl`，可能污染钱包差额核对。现在请求官方过滤参数，并将意外返回的此类记录保持为未知而失败关闭。
+- 风险准备金用户划转与联合保证金兑换仍缺少足以判断外部资本归属、币种转换及估值时点的语义，继续失败关闭。新增四种保证金调整拒绝及请求参数断言回归。
+- `go test ./exchange/bitget -count=1`、`go vet ./exchange/bitget` 与 `git diff --check` 通过；未连接真实账户，R10 账户范围/现货估值/真实账单核验仍开放，不代表盈利或实盘验收。
+
 # 后续续修：闭合 Binance 持仓限额费用账本分类（3.111.0-rc419）
 
 - 与 `INSURANCE_CLEAR` 同轮交叉检查时发现，Binance 适配器已输出 `POSITION_LIMIT_INCREASE_FEE`，却使用风险层不认识的 `unallocated_fee` 类别，导致此流水存在时检查点失败关闭。
