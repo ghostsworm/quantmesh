@@ -74,6 +74,59 @@ func TestSignalFilledWithoutCumulativeQuantityRetainsOrder(t *testing.T) {
 	}
 }
 
+func TestSignalUnderfilledFilledRetainsOrderAndRecoversAfterVerification(t *testing.T) {
+	for _, actionName := range []string{signalActionOpenLong, signalActionCloseLong} {
+		t.Run(actionName, func(t *testing.T) {
+			active := &Order{OrderID: 84, Symbol: "BTCUSDT", Quantity: 1, Price: 100}
+			action := actionName
+			var holding *Position
+			if actionName == signalActionCloseLong {
+				holding = &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 90}
+			}
+			entry := 0.0
+			stats := &StrategyStatistics{}
+			executor := &signalReconciliationExecutor{}
+			apply := func(quantity float64) {
+				applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, executor, &position.OrderUpdate{
+					OrderID: 84, Status: "FILLED", ExecutedQty: quantity, AvgPrice: 100,
+				})
+			}
+
+			apply(0.4)
+			if active == nil || active.Status != position.OrderStatusUnknown || action != actionName || active.FillProgress.Quantity != 0.4 || executor.calls != 1 {
+				t.Fatalf("underfilled FILLED erased order state: active=%+v action=%q", active, action)
+			}
+			if actionName == signalActionOpenLong && (holding == nil || holding.Size != 0.4) {
+				t.Fatalf("verified partial opening fill was not accounted: %+v", holding)
+			}
+			if actionName == signalActionCloseLong && (holding == nil || math.Abs(holding.Size-0.6) > entryQtyEpsilon) {
+				t.Fatalf("verified partial closing fill was not accounted: %+v", holding)
+			}
+
+			apply(1)
+			if active != nil || action != "" || executor.calls != 1 {
+				t.Fatalf("fully verified cumulative fill did not settle: active=%+v action=%q", active, action)
+			}
+			if actionName == signalActionOpenLong && (holding == nil || holding.Size != 1) {
+				t.Fatalf("opening fill remainder not applied: %+v", holding)
+			}
+			if actionName == signalActionCloseLong && holding != nil {
+				t.Fatalf("closing fill remainder not applied: %+v", holding)
+			}
+		})
+	}
+}
+
+type signalReconciliationExecutor struct {
+	position.OrderExecutorInterface
+	calls int
+}
+
+func (e *signalReconciliationExecutor) MarkOrderReconciliationRequired(int64, string, string) error {
+	e.calls++
+	return nil
+}
+
 func TestSignalOverfillsRemainPendingForReconciliation(t *testing.T) {
 	tests := []struct {
 		name   string

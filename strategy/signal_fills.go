@@ -60,6 +60,14 @@ func applySignalOrderUpdate(active **Order, action *string, holding **Position, 
 		order.FillProgress = nextProgress
 		applySignalFill(order.Symbol, *action, holding, entry, stats, delta, price, fee)
 	}
+	if signalOrderStatusFilled(update.Status) && quantity < order.Quantity-entryQtyEpsilon {
+		// Account the verified cumulative fill above, but do not let an
+		// inconsistent FILLED label erase the strategy's owned order identity.
+		// A later authoritative query may confirm the full quantity. Conflicting
+		// venue terminal evidence remains held by the durable executor journal.
+		retainSignalOrderForReconciliation(order, executor, update, "filled signal order quantity is below submitted quantity")
+		return
+	}
 	order.Status = update.Status
 	if signalOrderStatusFilled(update.Status) || signalOrderStatusTerminal(update.Status) {
 		if *action == signalActionCloseLong && order.FillProgress.Quantity > 0 {
