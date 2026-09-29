@@ -8,6 +8,16 @@ import (
 	"quantmesh/position"
 )
 
+type martingaleReconciliationExecutor struct {
+	hedgeOrderExecutor
+	marked bool
+}
+
+func (e *martingaleReconciliationExecutor) MarkOrderReconciliationRequired(int64, string, string) error {
+	e.marked = true
+	return nil
+}
+
 func TestMartingaleRealizedPnLIncludesQuoteValuedEntryAndExitFees(t *testing.T) {
 	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)
@@ -73,6 +83,24 @@ func TestMartingaleNonFiniteCloseFillDoesNotConsumeInventory(t *testing.T) {
 				t.Fatalf("invalid close fill consumed state: closing=%v qty=%v progress=%+v pnl=%v", s.isClosing, s.totalQty, s.closeProgress, s.stats.TotalPnL)
 			}
 		})
+	}
+}
+
+func TestMartingaleCloseBeyondAttributedInventoryRequestsReconciliation(t *testing.T) {
+	executor := &martingaleReconciliationExecutor{}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, s)
+	s.direction = "LONG"
+	s.entries = []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 0.5, Cost: 50, Status: entryStatusFilled}}
+	s.updateTotals()
+	s.isClosing, s.closeOrderID, s.closeRequestedQty = true, 42, 1
+	if err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 42, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 110,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !executor.marked || !s.isClosing || s.totalQty != 0.5 || s.closeProgress.Quantity != 0 || s.stats.TotalPnL != 0 {
+		t.Fatalf("over-close must request reconciliation without consuming inventory: marked=%v closing=%v qty=%v progress=%+v pnl=%v", executor.marked, s.isClosing, s.totalQty, s.closeProgress, s.stats.TotalPnL)
 	}
 }
 

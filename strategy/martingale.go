@@ -941,6 +941,7 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		oldProgress := s.closeProgress.Quantity
 		deltaQty := update.ExecutedQty - oldProgress
 		if deltaQty > s.totalQty+entryQtyEpsilon {
+			s.requireMartingaleOrderReconciliation(update, "martingale close execution exceeds strategy-attributed inventory")
 			return nil
 		}
 		realizedDelta := 0.0
@@ -953,6 +954,7 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 			nextProgress := s.closeProgress
 			delta, executionPrice := nextProgress.Advance(update.ExecutedQty, update.AvgPrice, 0)
 			if delta <= 0 || math.Abs(delta-deltaQty) > entryQtyEpsilon {
+				s.requireMartingaleOrderReconciliation(update, "martingale close execution progress is inconsistent")
 				return nil
 			}
 			closeFee, feeKnown := commissionInQuote(s.exchange, update.Commission, update.CommissionAsset, executionPrice)
