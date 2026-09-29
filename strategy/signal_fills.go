@@ -58,6 +58,8 @@ func applySignalOrderUpdate(active **Order, action *string, holding **Position, 
 			return
 		}
 		order.FillProgress = nextProgress
+		order.FeeVerifiedQty += delta
+		order.FeeProgress += fee
 		applySignalFill(order.Symbol, *action, holding, entry, stats, delta, price, fee)
 	}
 	if signalOrderStatusFilled(update.Status) && quantity < order.Quantity-entryQtyEpsilon {

@@ -1,12 +1,17 @@
 package strategy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"sort"
 	"strings"
 
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 const signalRuntimeStateSchemaVersion = 1
@@ -116,7 +121,9 @@ func loadSignalRuntimeState(store RuntimeStateStore, cfg *config.Config, exchang
 		}
 		if o.Symbol != symbol || o.Quantity <= 0 || o.Price <= 0 || !signalFinite(o.Quantity) || !signalFinite(o.Price) ||
 			o.FillProgress.Quantity < 0 || o.FillProgress.Notional < 0 || !signalFinite(o.FillProgress.Quantity) || !signalFinite(o.FillProgress.Notional) ||
-			o.FillProgress.Quantity > o.Quantity+entryQtyEpsilon {
+			o.FillProgress.Quantity > o.Quantity+entryQtyEpsilon || o.FeeVerifiedQty < 0 || !signalFinite(o.FeeVerifiedQty) ||
+			o.FeeProgress < 0 || !signalFinite(o.FeeProgress) ||
+			math.Abs(o.FeeVerifiedQty-o.FillProgress.Quantity) > entryQtyEpsilon {
 			return nil, false, fmt.Errorf("signal strategy state contains invalid active order")
 		}
 		if state.PendingAction == signalActionCloseLong && state.Position == nil {
@@ -152,6 +159,132 @@ func updateSignalPositionMark(holding *Position, price float64) error {
 	return nil
 }
 
+func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, symbol string, active *Order,
+	apply func(*position.OrderUpdate) error) error {
+	if active == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ex == nil || active.OrderID <= 0 || active.Quantity <= 0 {
+		return fmt.Errorf("active signal order lacks an exchange, order ID, or requested quantity")
+	}
+	raw, err := ex.GetOrder(ctx, symbol, active.OrderID)
+	if err != nil {
+		return fmt.Errorf("query active signal order %d: %w", active.OrderID, err)
+	}
+	order, ok := dcaExchangeOrder(raw)
+	if !ok || order == nil {
+		return fmt.Errorf("exchange returned unsupported or missing signal order evidence (%T)", raw)
+	}
+	wantSide := active.Side
+	if order.ClientOrderID != "" && active.ClientOrderID != "" && order.ClientOrderID != active.ClientOrderID &&
+		order.ClientOrderID != active.clientOrderAlias && utils.RemoveBrokerPrefix(strings.ToLower(ex.GetName()), order.ClientOrderID) != active.ClientOrderID {
+		return fmt.Errorf("exchange signal order client identity conflicts with persisted state")
+	}
+	if order.OrderID != active.OrderID || !strings.EqualFold(order.Symbol, symbol) || !strings.EqualFold(string(order.Side), wantSide) ||
+		!finiteNumber(order.Quantity) || math.Abs(order.Quantity-active.Quantity) > math.Max(entryQtyEpsilon, active.Quantity*1e-8) ||
+		!finiteNumber(order.ExecutedQty) || order.ExecutedQty < 0 || order.ExecutedQty > active.Quantity+entryQtyEpsilon ||
+		order.ExecutedQty+entryQtyEpsilon < active.FillProgress.Quantity {
+		return fmt.Errorf("exchange signal order identity or quantity conflicts with persisted state")
+	}
+	status := strings.ToUpper(strings.TrimSpace(string(order.Status)))
+	switch status {
+	case "NEW", "PARTIALLY_FILLED", "FILLED", "FULLY_FILLED", "CLOSED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "FAILED":
+	default:
+		return fmt.Errorf("exchange signal order has unrecognized status %q", order.Status)
+	}
+	if status == "NEW" && order.ExecutedQty > entryQtyEpsilon || status == "PARTIALLY_FILLED" && order.ExecutedQty <= 0 ||
+		(signalOrderStatusFilled(status) && order.ExecutedQty <= 0) {
+		return fmt.Errorf("exchange signal order status conflicts with cumulative execution")
+	}
+	update := &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: active.ClientOrderID,
+		Symbol: order.Symbol, Side: string(order.Side), Status: status, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice}
+	if order.ExecutedQty > 0 || active.FeeVerifiedQty > 0 {
+		fee, avgPrice, err := reconcileSignalFills(ctx, ex, symbol, active, order)
+		if err != nil {
+			return err
+		}
+		update.Commission, update.CommissionAsset, update.AvgPrice = fee, ex.GetQuoteAsset(), avgPrice
+	}
+	if err := apply(update); err != nil {
+		return fmt.Errorf("apply reconciled signal order %d: %w", order.OrderID, err)
+	}
+	return nil
+}
+
+func reconcileSignalFills(ctx context.Context, ex position.IExchange, symbol string, active *Order, order *exchange.Order) (float64, float64, error) {
+	raw, err := ex.GetOrderFills(ctx, symbol, order.OrderID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query signal order fills: %w", err)
+	}
+	fills, ok := dcaExchangeOrderFills(raw)
+	if !ok || len(fills) == 0 {
+		return 0, 0, fmt.Errorf("signal order execution has no supported fill evidence")
+	}
+	sort.Slice(fills, func(i, j int) bool {
+		if fills[i] == nil {
+			return false
+		}
+		if fills[j] == nil {
+			return true
+		}
+		if fills[i].TradeTime != fills[j].TradeTime {
+			return fills[i].TradeTime < fills[j].TradeTime
+		}
+		return fills[i].TradeID < fills[j].TradeID
+	})
+	seen := make(map[string]struct{}, len(fills))
+	var qty, notional, prefixQty, prefixNotional, prefixFee, addedFee float64
+	for _, fill := range fills {
+		if fill == nil || strings.TrimSpace(fill.TradeID) == "" || fill.OrderID != 0 && fill.OrderID != order.OrderID ||
+			fill.Symbol != "" && !strings.EqualFold(fill.Symbol, symbol) || fill.Side != "" && !strings.EqualFold(string(fill.Side), active.Side) ||
+			!finiteNumber(fill.Price) || fill.Price <= 0 || !finiteNumber(fill.Quantity) || fill.Quantity <= 0 ||
+			!finiteNumber(fill.Commission) || fill.BaseFeeQty != 0 {
+			return 0, 0, fmt.Errorf("signal order returned invalid or unsupported fill evidence")
+		}
+		if _, exists := seen[fill.TradeID]; exists {
+			return 0, 0, fmt.Errorf("signal order returned duplicate trade ID %q", fill.TradeID)
+		}
+		seen[fill.TradeID] = struct{}{}
+		fee, known := 0.0, false
+		if fill.CommissionQuoteKnown {
+			fee, known = fill.CommissionQuote, finiteNumber(fill.CommissionQuote) && fill.CommissionQuote >= 0
+		} else if fill.Commission == 0 && strings.TrimSpace(fill.CommissionAsset) == "" {
+			return 0, 0, fmt.Errorf("signal fill %s has no verifiable commission evidence", fill.TradeID)
+		} else {
+			fee, known = commissionInQuote(ex, fill.Commission, fill.CommissionAsset, fill.Price)
+		}
+		if !known {
+			return 0, 0, fmt.Errorf("signal fill %s commission cannot be valued in quote asset", fill.TradeID)
+		}
+		qty += fill.Quantity
+		notional += fill.Price * fill.Quantity
+		if prefixQty < active.FillProgress.Quantity-entryQtyEpsilon {
+			if prefixQty+fill.Quantity > active.FillProgress.Quantity+entryQtyEpsilon {
+				return 0, 0, fmt.Errorf("persisted signal progress splits an exchange fill")
+			}
+			prefixQty += fill.Quantity
+			prefixNotional += fill.Price * fill.Quantity
+			prefixFee += fee
+			continue
+		}
+		addedFee += fee
+	}
+	tol := math.Max(entryQtyEpsilon, order.ExecutedQty*1e-8)
+	if math.Abs(qty-order.ExecutedQty) > tol || math.Abs(prefixQty-active.FillProgress.Quantity) > tol ||
+		active.FillProgress.Quantity > 0 && math.Abs(prefixNotional-active.FillProgress.Notional) > math.Max(1e-8, active.FillProgress.Notional*1e-8) ||
+		math.Abs(prefixFee-active.FeeProgress) > math.Max(1e-8, active.FeeProgress*1e-8) {
+		return 0, 0, fmt.Errorf("signal order fill history does not reconcile with persisted quantity, notional, or fee cursor")
+	}
+	avg := notional / qty
+	if !finiteNumber(avg) || avg <= 0 || !finiteNumber(order.AvgPrice) || order.AvgPrice > 0 && math.Abs(avg-order.AvgPrice) > math.Max(1e-8, order.AvgPrice*1e-8) {
+		return 0, 0, fmt.Errorf("signal order fill notional does not match exchange order")
+	}
+	return addedFee, avg, nil
+}
+
 func (tfs *TrendFollowingStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
 	tfs.mu.Lock()
 	defer tfs.mu.Unlock()
@@ -177,6 +310,17 @@ func (tfs *TrendFollowingStrategy) restoreRuntimeState() error {
 	tfs.activeOrder, tfs.pendingAction = state.ActiveOrder, state.PendingAction
 	tfs.stats, tfs.isPaused = &state.Statistics, state.IsPaused
 	return nil
+}
+
+func (tfs *TrendFollowingStrategy) reconcileRuntimeOrder(ctx context.Context) error {
+	tfs.mu.RLock()
+	var active *Order
+	if tfs.activeOrder != nil {
+		copied := *tfs.activeOrder
+		active = &copied
+	}
+	tfs.mu.RUnlock()
+	return reconcileSignalRuntimeOrder(ctx, tfs.exchange, signalStrategySymbol(tfs.cfg, tfs.strategyCfg), active, tfs.OnOrderUpdate)
 }
 
 func (mrs *MeanReversionStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
@@ -206,6 +350,17 @@ func (mrs *MeanReversionStrategy) restoreRuntimeState() error {
 	return nil
 }
 
+func (mrs *MeanReversionStrategy) reconcileRuntimeOrder(ctx context.Context) error {
+	mrs.mu.RLock()
+	var active *Order
+	if mrs.activeOrder != nil {
+		copied := *mrs.activeOrder
+		active = &copied
+	}
+	mrs.mu.RUnlock()
+	return reconcileSignalRuntimeOrder(ctx, mrs.exchange, signalStrategySymbol(mrs.cfg, mrs.strategyCfg), active, mrs.OnOrderUpdate)
+}
+
 func (ms *MomentumStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
@@ -231,6 +386,17 @@ func (ms *MomentumStrategy) restoreRuntimeState() error {
 	ms.activeOrder, ms.pendingAction = state.ActiveOrder, state.PendingAction
 	ms.stats, ms.isPaused = &state.Statistics, state.IsPaused
 	return nil
+}
+
+func (ms *MomentumStrategy) reconcileRuntimeOrder(ctx context.Context) error {
+	ms.mu.RLock()
+	var active *Order
+	if ms.activeOrder != nil {
+		copied := *ms.activeOrder
+		active = &copied
+	}
+	ms.mu.RUnlock()
+	return reconcileSignalRuntimeOrder(ctx, ms.exchange, signalStrategySymbol(ms.cfg, ms.strategyCfg), active, ms.OnOrderUpdate)
 }
 
 func signalRuntimeStateDecisionError(strategyName string, err error) error {

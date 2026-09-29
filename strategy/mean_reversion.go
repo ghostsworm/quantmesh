@@ -114,6 +114,9 @@ func (mrs *MeanReversionStrategy) Start(ctx context.Context) error {
 	if err := mrs.restoreRuntimeState(); err != nil {
 		return err
 	}
+	if err := mrs.reconcileRuntimeOrder(ctx); err != nil {
+		return err
+	}
 	mrs.mu.Lock()
 	mrs.isRunning = true
 	mrs.mu.Unlock()

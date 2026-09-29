@@ -123,6 +123,9 @@ func (ms *MomentumStrategy) Start(ctx context.Context) error {
 	if err := ms.restoreRuntimeState(); err != nil {
 		return err
 	}
+	if err := ms.reconcileRuntimeOrder(ctx); err != nil {
+		return err
+	}
 	ms.mu.Lock()
 	ms.isRunning = true
 	ms.mu.Unlock()

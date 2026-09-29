@@ -146,6 +146,9 @@ func (tfs *TrendFollowingStrategy) Start(ctx context.Context) error {
 	if err := tfs.restoreRuntimeState(); err != nil {
 		return err
 	}
+	if err := tfs.reconcileRuntimeOrder(ctx); err != nil {
+		return err
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 
 	tfs.mu.Lock()

@@ -53,6 +53,8 @@ type Order struct {
 	Quantity         float64
 	Status           string
 	FillProgress     position.FillProgress
+	FeeVerifiedQty   float64
+	FeeProgress      float64
 	clientOrderAlias string // broker-qualified CID, also retained before a REST acknowledgement
 }
 

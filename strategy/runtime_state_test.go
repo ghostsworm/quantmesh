@@ -610,7 +610,9 @@ func TestSignalStrategiesRestoreFeeBearingPositionAndActiveOrder(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Trading.BotID = "bot-signal-restore"
 			cfg.Trading.Symbol = "BTCUSDT"
-			ex := &hedgeExchange{}
+			ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+				OrderID: 83, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.5, Status: exchange.OrderStatusNew,
+			}}
 			store := &memoryRuntimeStateStore{}
 			state := signalRuntimeState{
 				BotID: cfg.Trading.BotID, StrategyName: strategyName, Symbol: "BTCUSDT",
@@ -651,5 +653,67 @@ func TestSignalStrategiesRestoreFeeBearingPositionAndActiveOrder(t *testing.T) {
 				t.Fatal("restored active order lost its matching identity")
 			}
 		})
+	}
+}
+
+func TestSignalStrategyStartReplaysMissedActiveOrderFillAndFee(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-replay", "BTCUSDT"
+	ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 84, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.4,
+		AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled,
+	}, fills: []*exchange.OrderFill{{OrderID: 84, TradeID: "signal-fill-84", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.4, Commission: 0.04, CommissionAsset: "USDT"}}}
+	state := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", PendingAction: signalActionOpenLong,
+		ActiveOrder: &Order{OrderID: 84, ClientOrderID: "signal-cid-84", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, Status: position.OrderStatusUnknown}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	trend := NewTrendFollowingStrategy("trend", cfg, nil, ex, nil)
+	trend.SetRuntimeStateStore(store)
+	if err := trend.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	positions, orders := trend.GetPositions(), trend.GetOrders()
+	if len(positions) != 1 || math.Abs(positions[0].Size-0.4) > 1e-9 || math.Abs(positions[0].OpeningFee-0.04) > 1e-9 ||
+		len(orders) != 1 || math.Abs(orders[0].FillProgress.Quantity-0.4) > 1e-9 || math.Abs(orders[0].FeeVerifiedQty-0.4) > 1e-9 {
+		t.Fatalf("missed signal fill or fee was not recovered: positions=%+v orders=%+v", positions, orders)
+	}
+}
+
+func TestSignalStrategyStartBlocksWhenActiveOrderEvidenceIsMissing(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-missing", "BTCUSDT"
+	state := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", PendingAction: signalActionOpenLong,
+		ActiveOrder: &Order{OrderID: 85, ClientOrderID: "signal-cid-85", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, Status: position.OrderStatusUnknown}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trend := NewTrendFollowingStrategy("trend", cfg, nil, &hedgeExchange{}, nil)
+	trend.SetRuntimeStateStore(&memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true})
+	if err := trend.Start(context.Background()); err == nil {
+		t.Fatal("strategy started without exchange evidence for active order")
+	}
+	if trend.IsRunning() {
+		t.Fatal("strategy entered running state without active order reconciliation")
+	}
+}
+
+func TestSignalRuntimeStateRejectsFilledOrderWithoutFeeCursor(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-old-cursor", "BTCUSDT"
+	state := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", PendingAction: signalActionOpenLong,
+		ActiveOrder: &Order{OrderID: 86, ClientOrderID: "signal-cid-86", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+			FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}, Status: position.OrderStatusPartiallyFilled}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := loadSignalRuntimeState(&memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true},
+		cfg, &hedgeExchange{}, "trend", "BTCUSDT"); err == nil {
+		t.Fatal("restored partially-filled signal order without fee evidence cursor")
 	}
 }
