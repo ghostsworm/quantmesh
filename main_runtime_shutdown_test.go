@@ -23,6 +23,7 @@ type shutdownBarrierVenue struct {
 	*fakeCloseExchange
 	beforeQuery func()
 	ackOnly     bool
+	feeFills    map[int64][]*exchange.OrderFill
 }
 
 func (v *shutdownBarrierVenue) GetOrder(ctx context.Context, symbol string, id int64) (*exchange.Order, error) {
@@ -37,6 +38,13 @@ func (v *shutdownBarrierVenue) CancelOrder(ctx context.Context, symbol string, i
 		return nil
 	}
 	return v.fakeCloseExchange.CancelOrder(ctx, symbol, id)
+}
+
+func (v *shutdownBarrierVenue) GetOrderFills(ctx context.Context, symbol string, id int64) ([]*exchange.OrderFill, error) {
+	if fills, ok := v.feeFills[id]; ok {
+		return fills, nil
+	}
+	return v.fakeCloseExchange.GetOrderFills(ctx, symbol, id)
 }
 
 func newShutdownRuntime(venue exchange.IExchange, bot, account string) *SymbolRuntime {
@@ -186,6 +194,9 @@ func TestProcessShutdownClosesThroughBotIntentJournal(t *testing.T) {
 	opened, err := rt.ExchangeExecutor.PlaceOrder(&order.OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Type: "LIMIT", Quantity: 1, Price: 100, ClientOrderID: cid})
 	if err != nil || opened == nil || venue.position != 1 {
 		t.Fatalf("seed Bot-owned position: order=%+v err=%v position=%v", opened, err, venue.position)
+	}
+	venue.feeFills = map[int64][]*exchange.OrderFill{
+		opened.OrderID: {{OrderID: opened.OrderID, Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 1, CommissionAsset: "USDT"}},
 	}
 	rt.SuperPositionManager.OnOrderUpdate(position.OrderUpdate{OrderID: opened.OrderID, ClientOrderID: opened.ClientOrderID,
 		Symbol: "BTCUSDT", Side: "BUY", Status: "FILLED", ExecutedQty: 1, AvgPrice: 100})

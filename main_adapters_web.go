@@ -6,6 +6,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -208,6 +210,56 @@ type tradeStorageAdapter struct {
 	botID          string // 與運行時 Bot 一致，寫入 trades.bot_id
 	marketType     string
 	pnlAsset       string
+}
+
+const tradeFeeCorrectionOpeningBlock = "trade_fee_correction_unverified"
+
+func restorePendingTradeFeeCorrectionHold(gate *execution.OpeningGate, pending int, lookupErr error) bool {
+	if gate == nil || (lookupErr == nil && pending == 0) {
+		return false
+	}
+	gate.Block(tradeFeeCorrectionOpeningBlock)
+	return true
+}
+
+func (a *tradeStorageAdapter) SaveTradeFeeCorrection(correction *storage.TradeFeeCorrection) (string, error) {
+	if a == nil || correction == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
+		return "", fmt.Errorf("trade fee correction storage is unavailable")
+	}
+	writer, ok := a.storageService.GetStorage().(interface {
+		SaveTradeFeeCorrection(*storage.TradeFeeCorrection) error
+	})
+	if !ok {
+		return "", fmt.Errorf("storage backend does not support durable trade fee corrections")
+	}
+	canonical := *correction
+	canonical.BotID = a.botID
+	canonical.Exchange = strings.ToLower(strings.TrimSpace(canonical.Exchange))
+	canonical.MarketType = a.marketType
+	canonical.Symbol = strings.ToUpper(strings.TrimSpace(canonical.Symbol))
+	canonical.AccountScope = a.accountScope
+	canonical.Account = a.accountID
+	identity := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%s\x00%d\x00%s", canonical.BotID,
+		canonical.Exchange, canonical.MarketType, canonical.Symbol, canonical.AccountScope, canonical.OrderID, canonical.Leg)
+	digest := sha256.Sum256([]byte(identity))
+	canonical.CorrectionID = hex.EncodeToString(digest[:])
+	if err := writer.SaveTradeFeeCorrection(&canonical); err != nil {
+		return "", fmt.Errorf("persist scoped trade fee correction: %w", err)
+	}
+	return canonical.CorrectionID, nil
+}
+
+func (a *tradeStorageAdapter) CountPendingTradeFeeCorrections(exchange, symbol string) (int, error) {
+	if a == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
+		return 0, fmt.Errorf("trade fee correction storage is unavailable")
+	}
+	reader, ok := a.storageService.GetStorage().(interface {
+		CountPendingTradeFeeCorrections(exchange, marketType, symbol, accountScope, botID string) (int, error)
+	})
+	if !ok {
+		return 0, fmt.Errorf("storage backend does not support durable trade fee correction reads")
+	}
+	return reader.CountPendingTradeFeeCorrections(exchange, a.marketType, symbol, a.accountScope, a.botID)
 }
 
 type strategyRuntimeStateAdapter struct {

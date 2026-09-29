@@ -709,6 +709,12 @@ func startSymbolRuntime(
 		}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
 		exchangeExecutor.SetTradeLedgerRecoveryHandler(tradeStorageAdapter.ReplayPendingGridTrade)
+		pendingCorrections, correctionErr := tradeStorageAdapter.CountPendingTradeFeeCorrections(symCfg.Exchange, symCfg.Symbol)
+		if restorePendingTradeFeeCorrectionHold(superPositionManager.OpeningGate(), pendingCorrections, correctionErr) && correctionErr != nil {
+			logger.ErrorCtx(ctx, "🚨 [%s] 無法核實持久化手續費更正狀態，已封鎖新開倉: %v", botID, correctionErr)
+		} else if pendingCorrections > 0 {
+			logger.ErrorCtx(ctx, "🚨 [%s] 發現 %d 筆尚未核賬的持久化手續費更正，已封鎖新開倉", botID, pendingCorrections)
+		}
 	}
 	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook); err != nil {
 		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)

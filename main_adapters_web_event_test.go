@@ -39,6 +39,64 @@ func TestTradeStorageAdapterSaveEvent_Unavailable(t *testing.T) {
 	}
 }
 
+func TestTradeStorageAdapterPersistsOwnerScopedFeeCorrection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "adapter-fee-corrections.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	ss, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.GetStorage().Close()
+
+	adapter := &tradeStorageAdapter{storageService: ss, accountID: "acct", accountScope: "credential-a", botID: "bot-a", marketType: "futures"}
+	correction := &storage.TradeFeeCorrection{Exchange: "BINANCE", Symbol: "btcusdt", OrderID: 919, Leg: "close", Side: "SELL", Fee: 0.5, FeeAsset: "USDT", Reason: "late REST supplement"}
+	firstID, err := adapter.SaveTradeFeeCorrection(correction)
+	if err != nil {
+		t.Fatalf("persist scoped fee correction: %v", err)
+	}
+	secondID, err := adapter.SaveTradeFeeCorrection(correction)
+	if err != nil || secondID != firstID {
+		t.Fatalf("same correction replay id=%q err=%v, want stable id %q", secondID, err, firstID)
+	}
+	otherOwner := *adapter
+	otherOwner.accountScope = "credential-b"
+	otherID, err := otherOwner.SaveTradeFeeCorrection(correction)
+	if err != nil || otherID == firstID {
+		t.Fatalf("different credential scope id=%q err=%v, want distinct identity", otherID, err)
+	}
+	count, err := adapter.CountPendingTradeFeeCorrections("binance", "BTCUSDT")
+	if err != nil || count != 1 {
+		t.Fatalf("adapter pending count=%d err=%v, want one row in exact owner scope", count, err)
+	}
+}
+
+func TestRestorePendingTradeFeeCorrectionHoldFailsClosed(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		pending   int
+		lookupErr error
+		wantBlock bool
+	}{
+		{name: "no corrections", wantBlock: false},
+		{name: "pending correction", pending: 1, wantBlock: true},
+		{name: "lookup failure", lookupErr: context.DeadlineExceeded, wantBlock: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gate := &execution.OpeningGate{}
+			if got := restorePendingTradeFeeCorrectionHold(gate, test.pending, test.lookupErr); got != test.wantBlock {
+				t.Fatalf("restore hold returned %v, want %v", got, test.wantBlock)
+			}
+			if gate.HasBlock(tradeFeeCorrectionOpeningBlock) != test.wantBlock {
+				t.Fatalf("hold state=%v, want %v", gate.HasBlock(tradeFeeCorrectionOpeningBlock), test.wantBlock)
+			}
+		})
+	}
+}
+
 func TestTradeStorageAdapterSaveEvent_PersistsWithBotID(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "events.db")
 	cfg := &config.Config{}

@@ -43,14 +43,14 @@ func TestCalculateUnrealizedPnL_DirectionSign(t *testing.T) {
 		current   float64
 		want      float64
 	}{
-		{"LONG 上漲盈利", "LONG", 50000, 0, "", 51000, 1000},
-		{"LONG 下跌虧損", "LONG", 50000, 0, "", 49000, -1000},
+		{"LONG 上漲盈利", "LONG", 50000, 50000, "", 51000, 1000},
+		{"LONG 下跌虧損", "LONG", 50000, 50000, "", 49000, -1000},
 		{"LONG 優先使用均價", "LONG", 50000, 49500, "", 50000, 500},
-		{"SHORT 上漲虧損", "SHORT", 50000, 0, "", 51000, -1000},
-		{"SHORT 下跌盈利", "SHORT", 50000, 0, "", 49000, 1000},
+		{"SHORT 上漲虧損", "SHORT", 50000, 50000, "", 51000, -1000},
+		{"SHORT 下跌盈利", "SHORT", 50000, 50000, "", 49000, 1000},
 		{"SHORT 優先使用開空均價", "SHORT", 50000, 50200, "", 50000, 200},
-		{"BOTH 空腿下跌盈利", "BOTH", 50000, 0, PositionLegShort, 49000, 1000},
-		{"BOTH 多腿下跌虧損", "BOTH", 50000, 0, PositionLegLong, 49000, -1000},
+		{"BOTH 空腿下跌盈利", "BOTH", 50000, 50000, PositionLegShort, 49000, 1000},
+		{"BOTH 多腿下跌虧損", "BOTH", 50000, 50000, PositionLegLong, 49000, -1000},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -60,6 +60,38 @@ func TestCalculateUnrealizedPnL_DirectionSign(t *testing.T) {
 			if math.Abs(got-tc.want) > 1e-9 {
 				t.Fatalf("pnl=%.4f want %.4f", got, tc.want)
 			}
+		})
+	}
+}
+
+func TestCalculateUnrealizedPnLSubtractsVerifiedEntryFees(t *testing.T) {
+	spm := newDirectionTestSPM(t, "LONG", nil)
+	slot := fillSlot(spm, 100, 2, 100, "")
+	slot.mu.Lock()
+	slot.BuyFee = 0.5
+	slot.mu.Unlock()
+	if got, verified := spm.calculateUnrealizedPnLVerified(110); !verified || math.Abs(got-19.5) > 1e-9 {
+		t.Fatalf("verified net unrealized PnL = %v/%v, want 19.5/true", got, verified)
+	}
+
+	for _, tc := range []struct {
+		name string
+		set  func(*InventorySlot)
+	}{
+		{name: "fee conversion unknown", set: func(slot *InventorySlot) { slot.feeValuationUnknown = true }},
+		{name: "fee supplement pending", set: func(slot *InventorySlot) { slot.pendingFeeSupplementCount = 1 }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slot.mu.Lock()
+			tc.set(slot)
+			slot.mu.Unlock()
+			if got, verified := spm.calculateUnrealizedPnLVerified(110); verified || got != 0 {
+				t.Fatalf("unverified fee PnL = %v/%v, want 0/false", got, verified)
+			}
+			slot.mu.Lock()
+			slot.feeValuationUnknown = false
+			slot.pendingFeeSupplementCount = 0
+			slot.mu.Unlock()
 		})
 	}
 }

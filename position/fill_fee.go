@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 const (
@@ -66,6 +67,8 @@ func (slot *InventorySlot) takeOrderFeeStateLocked(clientOID string) orderFeeSta
 func (slot *InventorySlot) resetPositionCycleLocked() {
 	slot.cycleGen++
 	slot.BuyFee = 0
+	slot.AvgBuyPrice = 0
+	slot.CostBasisUnverified = false
 	slot.feeValuationUnknown = false
 	slot.baseFeeUnfloored = false
 	slot.feeSupplementUntil = time.Time{}
@@ -145,7 +148,14 @@ func (spm *SuperPositionManager) startPendingFeeSupplements() {
 // 調用方需持有 slot.mu。
 func (spm *SuperPositionManager) startFeeSupplementLocked(slot *InventorySlot, update OrderUpdate, clientOID, side string, openLeg bool) {
 	st := slot.takeOrderFeeStateLocked(clientOID)
-	if !st.missing || update.OrderID <= 0 || spm.exchange == nil {
+	if !st.missing {
+		return
+	}
+	if update.OrderID <= 0 || spm.exchange == nil {
+		if openLeg {
+			slot.feeValuationUnknown = true
+		}
+		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee is missing and cannot be queried"))
 		return
 	}
 	tag := feeSupplementTag{
@@ -197,7 +207,11 @@ func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummar
 			price, qty = mapFloat(fillMap, "Price"), mapFloat(fillMap, "Quantity")
 			converted, known := mapFloat(fillMap, "CommissionQuote"), false
 			known, _ = fillMap["CommissionQuoteKnown"].(bool)
-			addFillCommission(&sum, mapFloat(fillMap, "Commission"), asset, price, quoteAsset, baseAsset, converted, known)
+			commission := mapFloat(fillMap, "Commission")
+			if commission == 0 && asset == "" && !known {
+				sum.valuationKnown = false
+			}
+			addFillCommission(&sum, commission, asset, price, quoteAsset, baseAsset, converted, known)
 			if v := mapFloat(fillMap, "BaseFeeQty"); v > 0 {
 				sum.baseFeeQty += v
 			}
@@ -214,9 +228,14 @@ func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummar
 				asset = f.String()
 			}
 			price, qty = structFloat(rv, "Price"), structFloat(rv, "Quantity")
+			commission := structFloat(rv, "Commission")
 			knownField := rv.FieldByName("CommissionQuoteKnown")
 			converted := structFloat(rv, "CommissionQuote")
-			addFillCommission(&sum, structFloat(rv, "Commission"), asset, price, quoteAsset, baseAsset, converted, knownField.IsValid() && knownField.Kind() == reflect.Bool && knownField.Bool())
+			convertedKnown := knownField.IsValid() && knownField.Kind() == reflect.Bool && knownField.Bool()
+			if commission == 0 && asset == "" && !convertedKnown {
+				sum.valuationKnown = false
+			}
+			addFillCommission(&sum, commission, asset, price, quoteAsset, baseAsset, converted, convertedKnown)
 			if v := structFloat(rv, "BaseFeeQty"); v > 0 {
 				sum.baseFeeQty += v
 			}
@@ -305,16 +324,25 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 	defer cancel()
 	fillsRaw, err := spm.exchange.GetOrderFills(ctx, tag.symbol, tag.orderID)
 	if err != nil || fillsRaw == nil {
-		logger.Debug("🔍 [手續費補充] 訂單 %d 查詢成交記錄失敗或不支援: %v", tag.orderID, err)
+		spm.markFeeSupplementUnverified(slot, tag)
+		cause := fmt.Errorf("query execution fees for order %d: %w", tag.orderID, err)
+		if err == nil {
+			cause = fmt.Errorf("query execution fees for order %d returned no fill evidence", tag.orderID)
+		}
+		spm.requireTradeLedgerReconciliation(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}, cause)
+		logger.Warn("⚠️ [手續費補充] 訂單 %d 查詢成交記錄失敗或不支援: %v", tag.orderID, cause)
 		return
 	}
 	sum, n := summarizeFills(fillsRaw, spm.exchange.GetQuoteAsset(), spm.exchange.GetBaseAsset())
 	if n == 0 {
-		logger.Debug("🔍 [手續費補充] 訂單 %d 無成交記錄", tag.orderID)
+		spm.markFeeSupplementUnverified(slot, tag)
+		spm.requireTradeLedgerReconciliation(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}, fmt.Errorf("query execution fees for order %d returned an empty fill set", tag.orderID))
+		logger.Warn("⚠️ [手續費補充] 訂單 %d 無成交記錄，费用保持未核实", tag.orderID)
 		return
 	}
 	if !sum.valuationKnown {
 		update := OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}
+		spm.markFeeSupplementUnverified(slot, tag)
 		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", sum.asset))
 		spm.recordFeeCorrection(tag, sum, "成交手续费币种没有可验证的历史计价币换算")
 		return
@@ -343,6 +371,20 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 		slot.FeeAsset = sum.asset
 	}
 	spm.applySupplementBaseFeeLocked(slot, tag, sum)
+	if slot.cycleGen == tag.cycleGen && slot.pendingFeeSupplementCount == 1 && slot.OrderID == 0 && slot.ClientOID == "" {
+		slot.feeValuationUnknown = false
+	}
+	slot.mu.Unlock()
+}
+
+func (spm *SuperPositionManager) markFeeSupplementUnverified(slot *InventorySlot, tag feeSupplementTag) {
+	if !tag.openLeg {
+		return
+	}
+	slot.mu.Lock()
+	if slot.cycleGen == tag.cycleGen && slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+		slot.feeValuationUnknown = true
+	}
 	slot.mu.Unlock()
 }
 
@@ -403,6 +445,22 @@ func (spm *SuperPositionManager) recordFeeCorrection(tag feeSupplementTag, sum f
 		"fee_asset":       sum.asset,
 		"base_fee_qty":    sum.baseFeeQty,
 		"reason":          reason,
+	}
+	if writer, ok := spm.tradeStorage.(interface {
+		SaveTradeFeeCorrection(*storage.TradeFeeCorrection) (string, error)
+	}); ok {
+		correction := &storage.TradeFeeCorrection{
+			Exchange: spm.exchangeName, Symbol: tag.symbol, OrderID: tag.orderID,
+			ClientOrderID: tag.clientOID, Leg: leg, Side: tag.side,
+			Fee: sum.commission, FeeAsset: sum.asset, BaseFeeQty: sum.baseFeeQty, Reason: reason,
+			CreatedAt: spm.now(),
+		}
+		correctionID, err := writer.SaveTradeFeeCorrection(correction)
+		if err != nil {
+			logger.Error("🚨 [手續費更正] 訂單 %d 持久化核賬項失敗，重啟後風險鎖可能無法恢復: %v", tag.orderID, err)
+		} else {
+			data["correction_id"] = correctionID
+		}
 	}
 	if st, ok := spm.tradeStorage.(interface {
 		SaveEvent(eventType string, data map[string]interface{}) error

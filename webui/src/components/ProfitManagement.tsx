@@ -476,9 +476,11 @@ const ProfitManagement: React.FC = () => {
               <Stat>
                 <StatLabel>{t('profitManagement.unrealizedProfit')}</StatLabel>
                 <StatNumber color="orange.500">
-                  {(summary.unrealizedProfit || 0) >= 0 ? '+' : ''}{(summary.unrealizedProfit || 0).toFixed(2)}
+                  {summary.unrealizedProfitVerified === false
+                    ? t('servicesStatus.unavailable')
+                    : `${(summary.unrealizedProfit || 0) >= 0 ? '+' : ''}${(summary.unrealizedProfit || 0).toFixed(2)}`}
                 </StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>{summary.unrealizedProfitVerified === false ? t('profitManagement.unrealizedProfitUnverified') : t('currencyUnit')}</StatHelpText>
               </Stat>
             </Box>
             {summary.exchangeProfit !== undefined && (

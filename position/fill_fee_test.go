@@ -65,6 +65,27 @@ func slotSnapshot(spm *SuperPositionManager) (qty, buyFee float64) {
 	return slot.PositionQty, slot.BuyFee
 }
 
+func TestSummarizeFillsRequiresEvidenceForZeroCommission(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		asset     string
+		known     bool
+		wantKnown bool
+	}{
+		{name: "missing fee fields", wantKnown: false},
+		{name: "explicit zero fee asset", asset: "USDT", wantKnown: true},
+		{name: "explicit quote valuation", known: true, wantKnown: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fills := []*fakeFill{{Price: fillFeeTestPrice, Quantity: 1, CommissionAsset: tc.asset, CommissionQuoteKnown: tc.known}}
+			summary, count := summarizeFills(fills, "USDT", "ETH")
+			if count != 1 || summary.valuationKnown != tc.wantKnown {
+				t.Fatalf("fill evidence count/known = %d/%v, want 1/%v", count, summary.valuationKnown, tc.wantKnown)
+			}
+		})
+	}
+}
+
 func TestOnOrderUpdate_PartialFillCommissionAccumulates(t *testing.T) {
 	for _, market := range []string{"futures", "spot"} {
 		t.Run(market, func(t *testing.T) {

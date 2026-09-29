@@ -30,12 +30,40 @@ type gatedFillsExchange struct {
 	started chan struct{}
 }
 
+type failedFeeLookupExchange struct{ MockExchange }
+
+func (failedFeeLookupExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
+	return nil, errors.New("fee history unavailable")
+}
+
 func newGatedFillsExchange(gated bool) *gatedFillsExchange {
 	g := &gatedFillsExchange{fills: map[int64][]*detailedFill{}, release: make(chan struct{}), started: make(chan struct{}, 1)}
 	if !gated {
 		close(g.release)
 	}
 	return g
+}
+
+func TestOpeningFeeLookupFailureKeepsPnLUnverifiedAndBlocksOpenings(t *testing.T) {
+	spm := newFillFeeSPM(t, "futures", &failedFeeLookupExchange{})
+	executor := &tradeLedgerHoldTestExecutor{}
+	spm.executor = executor
+	spm.SetTradeStorage(&auditTradeRecorder{})
+	clientOID := openBuy(spm, 71)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 71, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice})
+	waitFor(t, func() bool {
+		slot := spm.getOrCreateSlot(fillFeeTestPrice)
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		return slot.pendingFeeSupplementCount == 0 && slot.feeValuationUnknown
+	})
+	if _, verified := spm.calculateUnrealizedPnLVerified(fillFeeTestPrice * 1.1); verified {
+		t.Fatal("PnL was trusted after fee lookup failure")
+	}
+	if !spm.OpeningGate().HasBlock("trade_ledger_unverified") || executor.ledgerCalls == 0 {
+		t.Fatal("fee lookup failure did not persist an economic reconciliation hold")
+	}
 }
 
 func (g *gatedFillsExchange) setFills(orderID int64, fills ...*detailedFill) {

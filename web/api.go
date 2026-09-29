@@ -2043,21 +2043,27 @@ type PositionManagerProvider interface {
 
 // SlotInfo 槽位信息
 type SlotInfo struct {
-	Exchange       string    `json:"exchange"`
-	Symbol         string    `json:"symbol"`
-	Price          float64   `json:"price"`
-	PositionStatus string    `json:"position_status"` // EMPTY/FILLED
-	PositionQty    float64   `json:"position_qty"`
-	OrderID        int64     `json:"order_id"`
-	ClientOID      string    `json:"client_order_id"`
-	OrderSide      string    `json:"order_side"`   // BUY/SELL
-	OrderStatus    string    `json:"order_status"` // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
-	OrderPrice     float64   `json:"order_price"`
-	OrderFilledQty float64   `json:"order_filled_qty"`
-	OrderCreatedAt time.Time `json:"order_created_at"`
-	SlotStatus     string    `json:"slot_status"`   // FREE/PENDING/LOCKED
-	StrategyName   string    `json:"strategy_name"` // 策略名称
-	StrategyType   string    `json:"strategy_type"` // 策略類型
+	Exchange              string    `json:"exchange"`
+	Symbol                string    `json:"symbol"`
+	Price                 float64   `json:"price"`
+	PositionStatus        string    `json:"position_status"` // EMPTY/FILLED
+	PositionQty           float64   `json:"position_qty"`
+	AvgBuyPrice           float64   `json:"avg_buy_price"`
+	BuyFee                float64   `json:"buy_fee"`
+	CostBasisUnverified   bool      `json:"cost_basis_unverified"`
+	FeeValuationUnknown   bool      `json:"fee_valuation_unknown"`
+	PendingFeeSupplements int       `json:"pending_fee_supplements"`
+	PositionLeg           string    `json:"position_leg"`
+	OrderID               int64     `json:"order_id"`
+	ClientOID             string    `json:"client_order_id"`
+	OrderSide             string    `json:"order_side"`   // BUY/SELL
+	OrderStatus           string    `json:"order_status"` // NOT_PLACED/PLACED/CONFIRMED/PARTIALLY_FILLED/FILLED/CANCELED
+	OrderPrice            float64   `json:"order_price"`
+	OrderFilledQty        float64   `json:"order_filled_qty"`
+	OrderCreatedAt        time.Time `json:"order_created_at"`
+	SlotStatus            string    `json:"slot_status"`   // FREE/PENDING/LOCKED
+	StrategyName          string    `json:"strategy_name"` // 策略名称
+	StrategyType          string    `json:"strategy_type"` // 策略類型
 }
 
 // SetPositionManagerProvider 設置槽位數據提供者
@@ -2089,25 +2095,41 @@ func (a *positionManagerAdapter) GetAllSlots() []SlotInfo {
 	slots := make([]SlotInfo, len(detailedSlots))
 	for i, ds := range detailedSlots {
 		slots[i] = SlotInfo{
-			Exchange:       exchange,
-			Symbol:         symbol,
-			Price:          ds.Price,
-			PositionStatus: ds.PositionStatus,
-			PositionQty:    ds.PositionQty,
-			OrderID:        ds.OrderID,
-			ClientOID:      ds.ClientOID,
-			OrderSide:      ds.OrderSide,
-			OrderStatus:    ds.OrderStatus,
-			OrderPrice:     ds.OrderPrice,
-			OrderFilledQty: ds.OrderFilledQty,
-			OrderCreatedAt: utils.ToUTC8(ds.OrderCreatedAt),
-			SlotStatus:     ds.SlotStatus,
-			StrategyName:   ds.StrategyName,
-			StrategyType:   ds.StrategyType,
+			Exchange:              exchange,
+			Symbol:                symbol,
+			Price:                 ds.Price,
+			PositionStatus:        ds.PositionStatus,
+			PositionQty:           ds.PositionQty,
+			AvgBuyPrice:           ds.AvgBuyPrice,
+			BuyFee:                ds.BuyFee,
+			CostBasisUnverified:   ds.CostBasisUnverified,
+			FeeValuationUnknown:   ds.FeeValuationUnknown,
+			PendingFeeSupplements: ds.PendingFeeSupplements,
+			PositionLeg:           ds.PositionLeg,
+			OrderID:               ds.OrderID,
+			ClientOID:             ds.ClientOID,
+			OrderSide:             ds.OrderSide,
+			OrderStatus:           ds.OrderStatus,
+			OrderPrice:            ds.OrderPrice,
+			OrderFilledQty:        ds.OrderFilledQty,
+			OrderCreatedAt:        utils.ToUTC8(ds.OrderCreatedAt),
+			SlotStatus:            ds.SlotStatus,
+			StrategyName:          ds.StrategyName,
+			StrategyType:          ds.StrategyType,
 		}
 	}
 	return slots
 }
+
+// GetVerifiedUnrealizedPnL exposes the strategy's fail-closed local valuation.
+func (a *positionManagerAdapter) GetVerifiedUnrealizedPnL(currentPrice float64) (float64, bool) {
+	if a == nil || a.manager == nil {
+		return 0, false
+	}
+	return a.manager.GetUnrealizedPnLVerified(currentPrice)
+}
+
+func (a *positionManagerAdapter) GetDirection() string { return a.manager.GetDirection() }
 
 // GetSlotCount 獲取槽位總數
 func (a *positionManagerAdapter) GetSlotCount() int {

@@ -15,6 +15,7 @@ export interface ProfitSummary {
   weekProfit: number // 本周盈利
   monthProfit: number // 本月盈利
   unrealizedProfit: number // 未實現盈利（根據當前倉位和價格計算）
+  unrealizedProfitVerified?: boolean
   exchangeProfit?: number // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
   withdrawnProfit: number // 已提取盈利
   availableToWithdraw: number // 可提取盈利
@@ -33,6 +34,7 @@ export interface StrategyProfit {
   exchangeTotalProfit: number  // 交易所方式盈亏
   todayProfit: number
   unrealizedProfit: number
+  unrealizedProfitVerified?: boolean
   realizedProfit: number
   withdrawnProfit: number
   availableToWithdraw: number

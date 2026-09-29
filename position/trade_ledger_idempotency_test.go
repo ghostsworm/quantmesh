@@ -40,7 +40,8 @@ func (e *tradeLedgerHoldTestExecutor) MarkOrderReconciliationRequired(int64, str
 }
 
 func TestGridMissingCostBasisKeepsVenueOrderKnownAndBlocksOpenings(t *testing.T) {
-	spm := newFillFeeSPM(t, "futures", nil)
+	feeHistory := &fillsExchange{fills: []*fakeFill{{Price: fillFeeTestPrice + 10, Quantity: 1, CommissionAsset: "USDT"}}}
+	spm := newFillFeeSPM(t, "futures", feeHistory)
 	executor := &tradeLedgerHoldTestExecutor{}
 	spm.executor = executor
 	spm.SetTradeStorage(&auditTradeRecorder{})
@@ -63,7 +64,8 @@ func TestGridMissingCostBasisKeepsVenueOrderKnownAndBlocksOpenings(t *testing.T)
 }
 
 func TestGridTradeWriteFailurePersistsExactReplayPayload(t *testing.T) {
-	spm := newFillFeeSPM(t, "futures", nil)
+	feeHistory := &fillsExchange{fills: []*fakeFill{{Price: fillFeeTestPrice + 10, Quantity: 1, CommissionAsset: "USDT"}}}
+	spm := newFillFeeSPM(t, "futures", feeHistory)
 	executor := &tradeLedgerHoldTestExecutor{}
 	spm.executor = executor
 	spm.SetTradeStorage(&auditTradeRecorder{err: errors.New("injected trade database failure")})

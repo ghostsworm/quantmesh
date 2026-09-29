@@ -1,10 +1,33 @@
 package position
 
 import (
+	"math"
 	"testing"
 
 	"quantmesh/config"
 )
+
+func TestAdjustOrdersRejectsNonFiniteMarketPrices(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		price float64
+	}{
+		{name: "nan", price: math.NaN()},
+		{name: "positive_infinity", price: math.Inf(1)},
+		{name: "negative_infinity", price: math.Inf(-1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			exec := &MockExecutor{}
+			spm := newDirectionTestSPM(t, "LONG", exec)
+			if err := spm.AdjustOrders(tc.price); err != nil {
+				t.Fatalf("AdjustOrders(%v): %v", tc.price, err)
+			}
+			if len(exec.PlacedOrders) != 0 {
+				t.Fatalf("invalid market price produced orders: %+v", exec.PlacedOrders)
+			}
+		})
+	}
+}
 
 func TestTriggerPricePreservesProtectiveCloses(t *testing.T) {
 	for _, tc := range []struct {

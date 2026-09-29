@@ -79,6 +79,30 @@ func createTables(db *sql.DB) error {
 		created_at TIMESTAMP
 	);`
 
+	tradeFeeCorrectionsSQL := `
+	CREATE TABLE IF NOT EXISTS trade_fee_corrections (
+		correction_id TEXT PRIMARY KEY,
+		bot_id TEXT NOT NULL,
+		exchange TEXT NOT NULL,
+		market_type TEXT NOT NULL,
+		symbol TEXT NOT NULL,
+		account_scope TEXT NOT NULL,
+		account TEXT NOT NULL DEFAULT '',
+		order_id BIGINT NOT NULL,
+		client_order_id TEXT NOT NULL DEFAULT '',
+		leg TEXT NOT NULL,
+		side TEXT NOT NULL,
+		fee REAL NOT NULL,
+		fee_asset TEXT NOT NULL DEFAULT '',
+		base_fee_qty REAL NOT NULL DEFAULT 0,
+		reason TEXT NOT NULL,
+		evidence_note TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL DEFAULT 'pending',
+		created_at TIMESTAMP NOT NULL,
+		resolved_at TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_trade_fee_corrections_scope_status ON trade_fee_corrections(exchange, market_type, symbol, account_scope, bot_id, status);`
+
 	// 系统監控细粒度數據表
 	systemMetricsSQL := `
 	CREATE TABLE IF NOT EXISTS system_metrics (
@@ -293,6 +317,7 @@ func createTables(db *sql.DB) error {
 		positionsSQL,
 		tradesSQL,
 		eventsSQL,
+		tradeFeeCorrectionsSQL,
 		systemMetricsSQL,
 		dailySystemMetricsSQL,
 		statisticsSQL,

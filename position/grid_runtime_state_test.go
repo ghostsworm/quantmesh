@@ -44,6 +44,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	slot.lastFilledClientOID = "previous-cid"
 	slot.lastTerminalFill = FillProgress{Quantity: 0.1, Notional: 9.9}
 	slot.AvgBuyPrice, slot.AllocatedMargin = 98.5, 147.75
+	slot.CostBasisUnverified = true
 	slot.PositionLeg, slot.StrategyName, slot.StrategyType = PositionLegLong, "Grid-BTCUSDT", "grid"
 	slot.mu.Unlock()
 	store := &gridRuntimeStateTestStore{}
@@ -67,7 +68,8 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	if state.PositionQty != 1.5 || state.ClientOID != "owned-cid" || state.OrderFilledQty != .25 || state.OrderFilledNotional != 25.5 ||
 		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 ||
 		!state.FeeValuationUnknown || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
-		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 || state.AllocatedMargin != 147.75 {
+		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 ||
+		!state.CostBasisUnverified || state.AllocatedMargin != 147.75 {
 		t.Fatalf("snapshot lost grid accounting cursor: %+v", state)
 	}
 
@@ -97,6 +99,37 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	}
 	if restored.anchorPrice() != 100 || restoredSlot.(*InventorySlot).PositionQty != 1.5 {
 		t.Fatal("grid initialization overwrote restored anchor or inventory cost state")
+	}
+}
+
+func TestRestoreGridRuntimeStateMigratesUnprovenLegacyCostBasis(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-migrate"
+	legacy := gridRuntimeStateSnapshot{
+		Version: 2, BotID: "bot-migrate", Exchange: "binance", MarketType: "futures",
+		Symbol: "BTCUSDT", Direction: "LONG", AnchorPrice: 100,
+		Slots: []gridRuntimeSlotSnapshot{{
+			Price: 110, PositionStatus: PositionStatusFilled, PositionQty: 0.25,
+			OrderStatus: OrderStatusNotPlaced, SlotStatus: SlotStatusFree, AvgBuyPrice: 110,
+		}},
+	}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &gridRuntimeStateTestStore{version: 2, payload: string(payload), found: true}
+	spm.SetGridRuntimeStateStore(store)
+	if restored, err := spm.RestoreGridRuntimeState(); err != nil || !restored {
+		t.Fatalf("legacy restore: restored=%v err=%v", restored, err)
+	}
+	if store.version != gridRuntimeStateSchemaVersion {
+		t.Fatalf("migrated snapshot version = %d, want %d", store.version, gridRuntimeStateSchemaVersion)
+	}
+	slot := spm.getOrCreateSlot(110)
+	slot.mu.RLock()
+	defer slot.mu.RUnlock()
+	if !slot.CostBasisUnverified || !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
+		t.Fatal("legacy position without terminal fill evidence was trusted")
 	}
 }
 

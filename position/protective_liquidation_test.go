@@ -109,6 +109,54 @@ func TestProtectiveLiquidationAllTriggersUseVerification(t *testing.T) {
 	}
 }
 
+func TestUnverifiedCostBasisDoesNotMasqueradeAsZeroPnLForRiskControls(t *testing.T) {
+	for _, trigger := range []string{"stop_loss", "trailing_take_profit", "close_condition"} {
+		t.Run(trigger, func(t *testing.T) {
+			venue := newLiqFakeVenue(1)
+			spm, _ := newLiqTestSPM(t, "LONG", venue)
+			fillSlot(spm, liqTestLast, 1, 60000, "")
+			slotRaw, ok := spm.slots.Load(liqTestLast)
+			if !ok {
+				t.Fatal("filled inventory slot is missing")
+			}
+			slot := slotRaw.(*InventorySlot)
+			slot.mu.Lock()
+			slot.AvgBuyPrice = 0
+			slot.CostBasisUnverified = true
+			slot.mu.Unlock()
+			spm.refreshCostBasisOpeningGate()
+
+			grc := config.GridRiskControl{Enabled: true}
+			switch trigger {
+			case "stop_loss":
+				grc.StopLossRatio = 0.05
+			case "trailing_take_profit":
+				grc.TakeProfitTriggerRatio = 0.05
+				grc.TrailingTakeProfitRatio = 0.02
+				spm.peakPnL = 0.1
+			case "close_condition":
+				grc.CloseConditionEnabled = true
+				grc.CloseConditionLossLimit = 0.05
+			}
+			spm.config.Trading.GridRiskControl = grc
+			var queued []func()
+			configureTestProtective(t, spm, venue, func(work func()) { queued = append(queued, work) })
+			if err := spm.AdjustOrders(liqTestLast - 10000); err != nil {
+				t.Fatal(err)
+			}
+			if len(queued) != 0 || spm.GetProtectiveLiquidationStatus().Reason != "" {
+				t.Fatal("unverified zero PnL triggered an automatic PnL-based liquidation")
+			}
+			if trigger == "trailing_take_profit" && spm.peakPnL != 0.1 {
+				t.Fatalf("unverified PnL changed trailing peak: got %v", spm.peakPnL)
+			}
+			if !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
+				t.Fatal("unverified position did not retain the opening gate")
+			}
+		})
+	}
+}
+
 func TestManualPauseKeepsProtectivePositionManagementActive(t *testing.T) {
 	venue := newLiqFakeVenue(1)
 	venue.limitFillRatio = 1

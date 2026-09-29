@@ -51,7 +51,8 @@ func (spm *SuperPositionManager) PersistGridRuntimeState() error {
 			PendingFeeSupplementCount: slot.pendingFeeSupplementCount,
 			LastFilledClientOID:       slot.lastFilledClientOID, LastTerminalFill: slot.lastTerminalFill,
 			BaseFeeUnfloored: slot.baseFeeUnfloored, AvgBuyPrice: slot.AvgBuyPrice,
-			AllocatedMargin: slot.AllocatedMargin, PositionLeg: slot.PositionLeg,
+			CostBasisUnverified: slot.CostBasisUnverified,
+			AllocatedMargin:     slot.AllocatedMargin, PositionLeg: slot.PositionLeg,
 			StrategyName: slot.StrategyName, StrategyType: slot.StrategyType,
 		})
 		slot.mu.RUnlock()
@@ -89,6 +90,19 @@ func (spm *SuperPositionManager) RestoreGridRuntimeState() (bool, error) {
 	if err := json.Unmarshal([]byte(payload), &snapshot); err != nil {
 		return true, fmt.Errorf("decode grid runtime state: %w", err)
 	}
+	migratedSchema := false
+	if schemaVersion == 2 && snapshot.Version == 2 {
+		migratedSchema = true
+		for i := range snapshot.Slots {
+			slot := &snapshot.Slots[i]
+			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
+				slot.CostBasisUnverified = true
+				slot.AvgBuyPrice = 0
+			}
+		}
+		snapshot.Version = gridRuntimeStateSchemaVersion
+		schemaVersion = gridRuntimeStateSchemaVersion
+	}
 	if schemaVersion != snapshot.Version {
 		return true, fmt.Errorf("grid runtime state storage/payload schema mismatch: %d/%d", schemaVersion, snapshot.Version)
 	}
@@ -108,7 +122,34 @@ func (spm *SuperPositionManager) RestoreGridRuntimeState() (bool, error) {
 		return true, err
 	}
 	spm.gridRuntimeStateRestored.Store(true)
+	spm.refreshCostBasisOpeningGate()
+	if migratedSchema {
+		if err := spm.PersistGridRuntimeState(); err != nil {
+			return true, fmt.Errorf("persist grid runtime schema/cost-basis migration: %w", err)
+		}
+	}
 	return true, nil
+}
+
+func (spm *SuperPositionManager) refreshCostBasisOpeningGate() {
+	unverified := false
+	spm.slots.Range(func(_, value any) bool {
+		slot, ok := value.(*InventorySlot)
+		if !ok || slot == nil {
+			unverified = true
+			return false
+		}
+		slot.mu.RLock()
+		unverified = slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 &&
+			(slot.CostBasisUnverified || slot.AvgBuyPrice <= 0)
+		slot.mu.RUnlock()
+		return !unverified
+	})
+	if unverified {
+		spm.openingGate.Block("grid_cost_basis_unverified")
+	} else {
+		spm.openingGate.Unblock("grid_cost_basis_unverified")
+	}
 }
 
 func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeStateSnapshot) error {
@@ -132,7 +173,8 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			pendingFeeSupplementCount: state.PendingFeeSupplementCount,
 			lastFilledClientOID:       state.LastFilledClientOID, lastTerminalFill: state.LastTerminalFill,
 			baseFeeUnfloored: state.BaseFeeUnfloored, AvgBuyPrice: state.AvgBuyPrice,
-			AllocatedMargin: state.AllocatedMargin, PositionLeg: state.PositionLeg,
+			CostBasisUnverified: state.CostBasisUnverified,
+			AllocatedMargin:     state.AllocatedMargin, PositionLeg: state.PositionLeg,
 			StrategyName: state.StrategyName, StrategyType: state.StrategyType,
 		}
 		spm.slots.Store(state.Price, slot)
@@ -162,7 +204,7 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&
 			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.feeValuationUnknown &&
 			slot.feeSupplementUntil.IsZero() && slot.pendingFeeSupplementCount == 0 &&
-			!slot.baseFeeUnfloored && slot.PositionLeg == PositionLegNone
+			!slot.baseFeeUnfloored && !slot.CostBasisUnverified && slot.PositionLeg == PositionLegNone
 		slot.mu.RUnlock()
 		if !clear {
 			empty = false
@@ -191,6 +233,9 @@ func validateGridRuntimeSnapshot(snapshot gridRuntimeStateSnapshot) error {
 			if !finiteGridValue(value) {
 				return fmt.Errorf("grid runtime snapshot slot %d contains non-finite economics", i)
 			}
+		}
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 && slot.AvgBuyPrice <= 0 && !slot.CostBasisUnverified {
+			return fmt.Errorf("grid runtime snapshot slot %d has filled inventory without verified cost basis", i)
 		}
 		if slot.Price <= 0 || slot.PositionQty < 0 || slot.OrderFilledQty < 0 || slot.OrderFilledNotional < 0 ||
 			slot.OrderBaseFeeQty < 0 || slot.PostOnlyFailCount < 0 || (i > 0 && snapshot.Slots[i-1].Price >= slot.Price) {

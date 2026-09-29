@@ -2009,6 +2009,7 @@
     "netProfit": "净盈利",
     "todayProfit": "今日盈利",
     "unrealizedProfit": "未实现盈利",
+    "unrealizedProfitUnverified": "成本或手续费依据尚未核实",
     "exchangeProfit": "交易所盈利",
     "availableToWithdraw": "可提取盈利",
     "profitTrend": "盈利趋势",

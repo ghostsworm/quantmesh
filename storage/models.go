@@ -86,6 +86,30 @@ type Trade struct {
 	CreatedAt          time.Time
 }
 
+// TradeFeeCorrection is durable evidence for an execution fee that could not
+// be included in its realized trade rows. Pending corrections keep the owning
+// runtime's opening gate closed until a scoped reconciliation workflow resolves it.
+type TradeFeeCorrection struct {
+	CorrectionID  string
+	BotID         string
+	Exchange      string
+	MarketType    string
+	Symbol        string
+	AccountScope  string
+	Account       string
+	OrderID       int64
+	ClientOrderID string
+	Leg           string
+	Side          string
+	Fee           float64
+	FeeAsset      string
+	BaseFeeQty    float64
+	Reason        string
+	Evidence      string
+	Status        string
+	CreatedAt     time.Time
+}
+
 // Statistics 统计模型
 type Statistics struct {
 	Date               time.Time

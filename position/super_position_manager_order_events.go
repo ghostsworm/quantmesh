@@ -85,6 +85,7 @@ func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUp
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
 	update.Status = normalizeOrderStatus(update.Status)
 	spm.onOrderUpdate(update)
+	spm.refreshCostBasisOpeningGate()
 	if !spm.persistGridRuntimeStateOrHold(update) {
 		spm.gridRuntimeStateMu.RLock()
 		storeMissing := spm.gridRuntimeStateStore == nil
@@ -262,11 +263,15 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 		// 僅在成交數量有正增量時記賬，重複/重放的同一推送（增量為 0）不會重複累加。
 		fillCommission := 0.0
 		if deltaQty > 0 {
+			openingFill := spm.isOpenLegOrderSide(side, slot)
 			var feeKnown bool
 			fillCommission, feeKnown = spm.commissionInQuote(update, incrementalPrice)
 			if !feeKnown {
 				slot.feeValuationUnknown = true
 				spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", update.CommissionAsset))
+			} else if openingFill && fillCommission == 0 && strings.TrimSpace(update.CommissionAsset) == "" {
+				// 零值且未提供費用幣種無法區分真實零費用與缺失回報；終態 REST 補查前不將浮盈視為完整。
+				slot.feeValuationUnknown = true
 			}
 			slot.addOrderCommissionLocked(orderClientOID, fillCommission, update.BaseFeeQty)
 		}
@@ -302,7 +307,9 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 				// 現貨買入且手續費以基礎幣扣收：實際到帳 = 成交增量 − 基礎幣手續費
 				receivedQty := spm.netReceivedQty(side, deltaQty, update.BaseFeeQty)
 				// 计算新的平均买入价格
-				if slot.PositionQty > 0 && slot.AvgBuyPrice > 0 {
+				if slot.CostBasisUnverified {
+					slot.AvgBuyPrice = 0
+				} else if slot.PositionQty > 0 && slot.AvgBuyPrice > 0 {
 					// 加权平均：(旧价格 * 旧数量 + 新价格 * 新数量) / 总数量
 					totalCost := slot.AvgBuyPrice*slot.PositionQty + actualBuyPrice*receivedQty
 					if total := slot.PositionQty + receivedQty; total > 0 {

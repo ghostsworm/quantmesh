@@ -181,7 +181,8 @@ type InventorySlot struct {
 	// 🔥 实际平均买入价格（用於准确计算盈亏）
 	// 当买入订单成交时，使用实际成交价格更新此字段
 	// 计算公式：AvgBuyPrice = (旧AvgBuyPrice * 旧持仓 + 新买入价格 * 新买入数量) / 总持仓
-	AvgBuyPrice float64
+	AvgBuyPrice         float64
+	CostBasisUnverified bool // 恢复/补差仓位缺少可核实的实际入场成本
 
 	// AllocatedMargin 該槽位持倉占用的資金分配額度（開倉成交時由訂單預留轉入，平倉成交時按比例釋放）
 	AllocatedMargin float64
@@ -257,7 +258,7 @@ type GridRuntimeStateStore interface {
 	SaveRuntimeState(strategyName string, schemaVersion int, payload string) error
 }
 
-const gridRuntimeStateSchemaVersion = 2
+const gridRuntimeStateSchemaVersion = 3
 
 type gridRuntimeStateSnapshot struct {
 	Version      int                       `json:"version"`
@@ -300,6 +301,7 @@ type gridRuntimeSlotSnapshot struct {
 	LastTerminalFill          FillProgress `json:"last_terminal_fill"`
 	BaseFeeUnfloored          bool         `json:"base_fee_unfloored"`
 	AvgBuyPrice               float64      `json:"avg_buy_price"`
+	CostBasisUnverified       bool         `json:"cost_basis_unverified"`
 	AllocatedMargin           float64      `json:"allocated_margin"`
 	PositionLeg               string       `json:"position_leg"`
 	StrategyName              string       `json:"strategy_name"`
@@ -1623,13 +1625,14 @@ func (spm *SuperPositionManager) inferRocketSlotIndex(priceDiff float64, tiers [
 
 // SlotData 槽位數據結構（用於傳遞给外部）
 type SlotData struct {
-	Price          float64
-	PositionStatus string
-	PositionQty    float64
-	OrderID        int64
-	OrderSide      string
-	OrderStatus    string
-	OrderCreatedAt time.Time
+	Price               float64
+	PositionStatus      string
+	PositionQty         float64
+	CostBasisUnverified bool
+	OrderID             int64
+	OrderSide           string
+	OrderStatus         string
+	OrderCreatedAt      time.Time
 }
 
 // IterateSlots 遍历所有槽位（封装 sync.Map.Range）
@@ -1644,13 +1647,14 @@ func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interf
 
 		// 構造槽位數據
 		data := SlotData{
-			Price:          price,
-			PositionStatus: slot.PositionStatus,
-			PositionQty:    slot.PositionQty,
-			OrderID:        slot.OrderID,
-			OrderSide:      slot.OrderSide,
-			OrderStatus:    slot.OrderStatus,
-			OrderCreatedAt: slot.OrderCreatedAt,
+			Price:               price,
+			PositionStatus:      slot.PositionStatus,
+			PositionQty:         slot.PositionQty,
+			CostBasisUnverified: slot.CostBasisUnverified,
+			OrderID:             slot.OrderID,
+			OrderSide:           slot.OrderSide,
+			OrderStatus:         slot.OrderStatus,
+			OrderCreatedAt:      slot.OrderCreatedAt,
 		}
 
 		// 返回槽位數據
@@ -1660,19 +1664,25 @@ func (spm *SuperPositionManager) IterateSlots(fn func(price float64, slot interf
 
 // DetailedSlotData 详细槽位數據結構（包含所有字段）
 type DetailedSlotData struct {
-	Price          float64
-	PositionStatus string
-	PositionQty    float64
-	OrderID        int64
-	ClientOID      string
-	OrderSide      string
-	OrderStatus    string
-	OrderPrice     float64
-	OrderFilledQty float64
-	OrderCreatedAt time.Time
-	SlotStatus     string
-	StrategyName   string // 策略名称
-	StrategyType   string // 策略類型
+	Price                 float64
+	PositionStatus        string
+	PositionQty           float64
+	AvgBuyPrice           float64
+	BuyFee                float64
+	CostBasisUnverified   bool
+	FeeValuationUnknown   bool
+	PendingFeeSupplements int
+	PositionLeg           string
+	OrderID               int64
+	ClientOID             string
+	OrderSide             string
+	OrderStatus           string
+	OrderPrice            float64
+	OrderFilledQty        float64
+	OrderCreatedAt        time.Time
+	SlotStatus            string
+	StrategyName          string // 策略名称
+	StrategyType          string // 策略類型
 }
 
 // GetAllSlotsDetailed 獲取所有槽位的详细信息
@@ -1694,19 +1704,25 @@ func (spm *SuperPositionManager) GetAllSlotsDetailed() []DetailedSlotData {
 		slot.mu.RLock()
 
 		slots = append(slots, DetailedSlotData{
-			Price:          price,
-			PositionStatus: slot.PositionStatus,
-			PositionQty:    slot.PositionQty,
-			OrderID:        slot.OrderID,
-			ClientOID:      slot.ClientOID,
-			OrderSide:      slot.OrderSide,
-			OrderStatus:    slot.OrderStatus,
-			OrderPrice:     slot.OrderPrice,
-			OrderFilledQty: slot.OrderFilledQty,
-			OrderCreatedAt: slot.OrderCreatedAt,
-			SlotStatus:     slot.SlotStatus,
-			StrategyName:   slot.StrategyName,
-			StrategyType:   slot.StrategyType,
+			Price:                 price,
+			PositionStatus:        slot.PositionStatus,
+			PositionQty:           slot.PositionQty,
+			AvgBuyPrice:           slot.AvgBuyPrice,
+			BuyFee:                slot.BuyFee,
+			CostBasisUnverified:   slot.CostBasisUnverified,
+			FeeValuationUnknown:   slot.feeValuationUnknown,
+			PendingFeeSupplements: slot.pendingFeeSupplementCount,
+			PositionLeg:           slot.PositionLeg,
+			OrderID:               slot.OrderID,
+			ClientOID:             slot.ClientOID,
+			OrderSide:             slot.OrderSide,
+			OrderStatus:           slot.OrderStatus,
+			OrderPrice:            slot.OrderPrice,
+			OrderFilledQty:        slot.OrderFilledQty,
+			OrderCreatedAt:        slot.OrderCreatedAt,
+			SlotStatus:            slot.SlotStatus,
+			StrategyName:          slot.StrategyName,
+			StrategyType:          slot.StrategyType,
 		})
 
 		slot.mu.RUnlock()
@@ -1768,6 +1784,10 @@ func (spm *SuperPositionManager) GetSymbol() string {
 // GetExchange 獲取交易所名称
 func (spm *SuperPositionManager) GetExchange() string {
 	return spm.exchangeName
+}
+
+func (spm *SuperPositionManager) GetDirection() string {
+	return strings.ToUpper(strings.TrimSpace(spm.config.Trading.Direction))
 }
 
 // GetAllocationManager 獲取资金分配管理器（供倉位计划等模塊按交易對設置限額）
@@ -2066,6 +2086,12 @@ func (spm *SuperPositionManager) GetUnrealizedPnL(currentPrice float64) float64 
 	return spm.calculateUnrealizedPnL(currentPrice)
 }
 
+// GetUnrealizedPnLVerified returns both the local unrealized PnL and whether
+// every open lot has verified cost and fee evidence at the supplied price.
+func (spm *SuperPositionManager) GetUnrealizedPnLVerified(currentPrice float64) (float64, bool) {
+	return spm.calculateUnrealizedPnLVerified(currentPrice)
+}
+
 // GetTotalPositionValueAtPrice 獲取在給定價格下的持倉總價值（供快照、API 等使用）
 func (spm *SuperPositionManager) GetTotalPositionValueAtPrice(currentPrice float64) float64 {
 	return spm.calculateTotalPositionValue(currentPrice)
@@ -2073,17 +2099,32 @@ func (spm *SuperPositionManager) GetTotalPositionValueAtPrice(currentPrice float
 
 // calculateUnrealizedPnL 计算未實現盈亏
 func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) float64 {
+	pnl, verified := spm.calculateUnrealizedPnLVerified(currentPrice)
+	if !verified {
+		return 0
+	}
+	return pnl
+}
+
+func (spm *SuperPositionManager) calculateUnrealizedPnLVerified(currentPrice float64) (float64, bool) {
+	if math.IsNaN(currentPrice) || math.IsInf(currentPrice, 0) || currentPrice <= 0 {
+		return 0, false
+	}
 	totalPnL := 0.0
-	spm.slots.Range(func(key, value interface{}) bool {
-		slotPrice := key.(float64)
+	costBasisUnverified := false
+	spm.slots.Range(func(_, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
 		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			// 開倉均價優先（SHORT 模式下 AvgBuyPrice 存儲的是實際開空均價），缺失時退回槽位價
-			entry := slot.AvgBuyPrice
-			if entry <= 0 {
-				entry = slotPrice
+			if slot.CostBasisUnverified || slot.AvgBuyPrice <= 0 ||
+				slot.feeValuationUnknown || slot.pendingFeeSupplementCount != 0 ||
+				math.IsNaN(slot.BuyFee) || math.IsInf(slot.BuyFee, 0) || slot.BuyFee < 0 {
+				costBasisUnverified = true
+				slot.mu.RUnlock()
+				return true
 			}
+			// SHORT 模式下 AvgBuyPrice 儲存實際開空均價。
+			entry := slot.AvgBuyPrice
 			isShortLeg := false
 			if spm.isBoth() {
 				isShortLeg = slot.PositionLeg == PositionLegShort
@@ -2097,11 +2138,18 @@ func (spm *SuperPositionManager) calculateUnrealizedPnL(currentPrice float64) fl
 				// 多頭盈虧 = (當前價 - 開倉價) * 數量
 				totalPnL += (currentPrice - entry) * slot.PositionQty
 			}
+			totalPnL -= slot.BuyFee
+			if math.IsNaN(totalPnL) || math.IsInf(totalPnL, 0) {
+				costBasisUnverified = true
+			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return totalPnL
+	if costBasisUnverified {
+		return 0, false
+	}
+	return totalPnL, true
 }
 
 // calculateTotalPositionValue 计算當前持倉總價值

@@ -25,7 +25,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	}
 
 	// 驗证價格有效性
-	if currentPrice <= 0 {
+	if math.IsNaN(currentPrice) || math.IsInf(currentPrice, 0) || currentPrice <= 0 {
 		logger.Warn("⚠️ 收到無效價格: %.2f，跳過订單調整", currentPrice)
 		return nil
 	}
@@ -43,9 +43,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		// 1. 硬為止损检查
 		stopLossRatio := spm.gridRiskControl().StopLossRatio
 		if stopLossRatio > 0 {
-			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if totalValue > 0 {
+			if pnlVerified && totalValue > 0 {
 				// 分母：position=持倉名義價值（預設）；equity=帳戶權益（緩存，後台刷新，不在 tick 中同步請求）
 				denominator, basis := spm.stopLossDenominator(totalValue)
 				pnlRatio := unrealizedPnL / denominator
@@ -79,9 +79,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		triggerRatio := spm.gridRiskControl().TakeProfitTriggerRatio
 		trailingRatio := spm.gridRiskControl().TrailingTakeProfitRatio
 		if triggerRatio > 0 && trailingRatio > 0 {
-			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if totalValue > 0 {
+			if pnlVerified && totalValue > 0 {
 				currentProfitRatio := unrealizedPnL / totalValue
 
 				// 更新最高盈利
@@ -100,7 +100,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						return spm.scheduleProtectiveLiquidation("trailing_take_profit", false)
 					}
 				}
-			} else {
+			} else if totalValue <= 0 {
 				// 無持倉時重置最高盈利点
 				spm.peakPnL = -math.MaxFloat64
 			}
@@ -113,9 +113,9 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		profitTarget := spm.gridRiskControl().CloseConditionProfitTarget
 		lossLimit := spm.gridRiskControl().CloseConditionLossLimit
 		if profitTarget > 0 || lossLimit > 0 {
-			unrealizedPnL := spm.calculateUnrealizedPnL(currentPrice)
+			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if totalValue > 0 {
+			if pnlVerified && totalValue > 0 {
 				pnlRatio := unrealizedPnL / totalValue
 				triggered := false
 				reason := ""

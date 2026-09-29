@@ -2009,6 +2009,7 @@
     "netProfit": "Net Profit",
     "todayProfit": "Today's Profit",
     "unrealizedProfit": "Unrealized Profit",
+    "unrealizedProfitUnverified": "Cost basis or fee evidence is incomplete",
     "exchangeProfit": "Exchange Profit",
     "availableToWithdraw": "Available to Withdraw",
     "profitTrend": "Profit Trend",

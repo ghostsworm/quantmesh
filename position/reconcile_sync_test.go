@@ -124,6 +124,44 @@ func TestForceSyncPositionsRejectsUnresolvedInventory(t *testing.T) {
 	}
 }
 
+func TestForceSyncPositionsMarksAdoptedQuantityCostUnverified(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.ProfitSpread = 50
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 4)
+	spm.setAnchorPrice(1000)
+	slot := spm.getOrCreateSlot(1000)
+	slot.PositionStatus = PositionStatusFilled
+	slot.PositionQty = 0.5
+	slot.AvgBuyPrice = 900
+
+	if err := spm.ForceSyncPositions(1); err != nil {
+		t.Fatalf("ForceSyncPositions() error = %v", err)
+	}
+	slot.mu.RLock()
+	gotQty, gotEntry, gotUnverified := slot.PositionQty, slot.AvgBuyPrice, slot.CostBasisUnverified
+	slot.mu.RUnlock()
+	if gotQty != 1 || gotEntry != 0 || !gotUnverified {
+		t.Fatalf("adopted slot qty/entry/unverified = %v/%v/%v, want 1/0/true", gotQty, gotEntry, gotUnverified)
+	}
+	if !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
+		t.Fatal("unverified cost basis did not block new openings")
+	}
+	if got := spm.GetUnrealizedPnL(1200); got != 0 {
+		t.Fatalf("unverified inventory fabricated unrealized PnL %v, want 0", got)
+	}
+	if err := spm.ForceSyncPositions(0); err != nil {
+		t.Fatalf("flat position sync: %v", err)
+	}
+	if spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
+		t.Fatal("flat inventory did not clear the cost-basis opening block")
+	}
+}
+
 type fakeReconciliationHistory struct {
 	TotalBuyQty   float64
 	TotalSellQty  float64

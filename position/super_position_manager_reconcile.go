@@ -627,6 +627,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 	if math.IsNaN(exchangePosition) || math.IsInf(exchangePosition, 0) || exchangePosition < 0 {
 		return fmt.Errorf("交易所持仓数量无效: %v", exchangePosition)
 	}
+	defer spm.refreshCostBasisOpeningGate()
 	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
 	// 且我们不希望在對账時阻塞下單逻辑
 
@@ -881,6 +882,8 @@ func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) 
 	}
 
 	slot.PositionQty += deficit
+	slot.AvgBuyPrice = 0
+	slot.CostBasisUnverified = true
 	logger.Info("✅ [强制同步] 以交易所為準補齊持倉：槽位 %s 增加 %.6f，本地持倉 %.6f -> %.6f",
 		formatPrice(slot.Price, spm.priceDecimals), deficit, localTotal, localTotal+deficit)
 }
@@ -1045,9 +1048,8 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 
 		// 🔥 設置平均买入价格（恢复持仓时，使用槽位价格作为平均买入价格）
 		// 因为无法知道实际买入价格，使用槽位价格作为近似值
-		if slot.AvgBuyPrice <= 0 {
-			slot.AvgBuyPrice = price
-		}
+		slot.AvgBuyPrice = 0
+		slot.CostBasisUnverified = true
 
 		// 清空订單信息，但設置方向為SELL（因為这是恢複的持倉，將来要挂賣單）
 		slot.OrderID = 0
@@ -1102,6 +1104,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 8. 提示用戶后续會自动下賣單
 	logger.Info("💡 [持倉恢複] 前 %d 個槽位的賣單將在價格調整時自动創建", sellWindowSize)
 	logger.Info("💡 [持倉恢複] 其餘 %d 個槽位保持有倉状態，價格接近時自动挂單", totalSlotsNeeded-sellWindowSize)
+	spm.refreshCostBasisOpeningGate()
 }
 
 // initializeBuySlotsFromPosition 從現有做空持倉初始化買單平倉槽位（SHORT 方向專用）
@@ -1149,9 +1152,8 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 		slot.mu.Lock()
 		slot.PositionStatus = PositionStatusFilled
 		slot.PositionQty = slotQty
-		if slot.AvgBuyPrice <= 0 {
-			slot.AvgBuyPrice = price
-		}
+		slot.AvgBuyPrice = 0
+		slot.CostBasisUnverified = true
 		slot.OrderID = 0
 		slot.OrderStatus = OrderStatusNotPlaced
 		slot.OrderSide = "BUY" // 做空平倉為買單
@@ -1162,6 +1164,7 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 		allocatedQty += slotQty
 	}
 	logger.Info("✅ [持倉恢複] 做空持倉恢複完成，總持倉: %.4f，已分配: %.4f", totalPosition, allocatedQty)
+	spm.refreshCostBasisOpeningGate()
 }
 
 // ===== 状態打印功能 =====

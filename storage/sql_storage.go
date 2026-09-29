@@ -216,6 +216,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL system_settings 表失败: %w", err)
 		}
+		if err := migrateTradeFeeCorrectionsTableMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 MySQL trade_fee_corrections 表失败: %w", err)
+		}
 		// SQLite createTables / migrate*Table 已建但 MySQL 路徑歷史漏掉的 17 張表，
 		// 按 SQLite 中出現的順序補齊；觸發任何相關功能（對賬/風控歷史/資金費/AI 提示/基差/
 		// 利潤提取/巡檢/市場解讀/權益快照/回測/參數優化/新聞分析/價格快照/預測校驗）前必須就緒。

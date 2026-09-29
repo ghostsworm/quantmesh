@@ -62,6 +62,13 @@ type liqFakeOrder struct {
 	price      float64
 }
 
+type liqVerifiedZeroFeeFill struct {
+	Price           float64
+	Quantity        float64
+	Commission      float64
+	CommissionAsset string
+}
+
 // liqFakeVenue 同時扮演執行器、交易所（盤口）與 LiquidationVenue 的內存撮合
 type liqFakeVenue struct {
 	MockExchange
@@ -287,6 +294,20 @@ func (v *liqFakeVenue) flat() bool {
 func (v *liqFakeVenue) openCount() int {
 	ids, _ := v.GetOpenOrderIDs(context.Background(), liqTestSymbol)
 	return len(ids)
+}
+
+func (v *liqFakeVenue) GetOrderFills(_ context.Context, _ string, orderID int64) (interface{}, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	order := v.orders[orderID]
+	if order == nil || order.executed <= 0 {
+		return nil, nil
+	}
+	price := order.price
+	if price <= 0 {
+		price = liqTestLast
+	}
+	return []*liqVerifiedZeroFeeFill{{Price: price, Quantity: order.executed, CommissionAsset: "USDT"}}, nil
 }
 
 func newLiqTestSPM(t *testing.T, direction string, venue *liqFakeVenue) (*SuperPositionManager, *autoClock) {

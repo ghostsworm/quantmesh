@@ -21,42 +21,68 @@ import (
 
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
-	ExchangeID          string   `json:"exchangeId,omitempty"`
-	TotalProfit         float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
-	GrossProfit         float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
-	TotalFee            float64  `json:"totalFee"`    // 手續費合計
-	FundingNet          float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
-	TodayProfit         float64  `json:"todayProfit"`
-	WeekProfit          float64  `json:"weekProfit"`
-	MonthProfit         float64  `json:"monthProfit"`
-	UnrealizedProfit    float64  `json:"unrealizedProfit"`         // 未實現盈利（根據當前倉位和價格計算）
-	ExchangeProfit      *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
-	WithdrawnProfit     float64  `json:"withdrawnProfit"`
-	AvailableToWithdraw float64  `json:"availableToWithdraw"`
-	PriceDeviationLoss  float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
-	BuyPriceDeviation   float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
-	SellPriceDeviation  float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
-	LastUpdated         string   `json:"lastUpdated"`
+	ExchangeID               string   `json:"exchangeId,omitempty"`
+	TotalProfit              float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
+	GrossProfit              float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
+	TotalFee                 float64  `json:"totalFee"`    // 手續費合計
+	FundingNet               float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	TodayProfit              float64  `json:"todayProfit"`
+	WeekProfit               float64  `json:"weekProfit"`
+	MonthProfit              float64  `json:"monthProfit"`
+	UnrealizedProfit         float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
+	UnrealizedProfitVerified bool     `json:"unrealizedProfitVerified"`
+	ExchangeProfit           *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
+	WithdrawnProfit          float64  `json:"withdrawnProfit"`
+	AvailableToWithdraw      float64  `json:"availableToWithdraw"`
+	PriceDeviationLoss       float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
+	BuyPriceDeviation        float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation       float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
+	LastUpdated              string   `json:"lastUpdated"`
 }
 
 // StrategyProfit 策略盈利
 type StrategyProfit struct {
-	ExchangeID          string  `json:"exchangeId"`
-	StrategyID          string  `json:"strategyId"`
-	StrategyName        string  `json:"strategyName"`
-	StrategyType        string  `json:"strategyType"`
-	TotalProfit         float64 `json:"totalProfit"`         // 网格方式盈亏
-	ExchangeTotalProfit float64 `json:"exchangeTotalProfit"` // 交易所方式盈亏
-	TodayProfit         float64 `json:"todayProfit"`
-	UnrealizedProfit    float64 `json:"unrealizedProfit"`
-	RealizedProfit      float64 `json:"realizedProfit"`
-	WithdrawnProfit     float64 `json:"withdrawnProfit"`
-	AvailableToWithdraw float64 `json:"availableToWithdraw"`
-	TradeCount          int     `json:"tradeCount"`
-	WinRate             float64 `json:"winRate"`         // 网格方式胜率
-	ExchangeWinRate     float64 `json:"exchangeWinRate"` // 交易所方式胜率
-	AvgProfitPerTrade   float64 `json:"avgProfitPerTrade"`
-	LastTradeAt         string  `json:"lastTradeAt,omitempty"`
+	ExchangeID               string  `json:"exchangeId"`
+	StrategyID               string  `json:"strategyId"`
+	StrategyName             string  `json:"strategyName"`
+	StrategyType             string  `json:"strategyType"`
+	TotalProfit              float64 `json:"totalProfit"`         // 网格方式盈亏
+	ExchangeTotalProfit      float64 `json:"exchangeTotalProfit"` // 交易所方式盈亏
+	TodayProfit              float64 `json:"todayProfit"`
+	UnrealizedProfit         float64 `json:"unrealizedProfit"`
+	UnrealizedProfitVerified bool    `json:"unrealizedProfitVerified"`
+	RealizedProfit           float64 `json:"realizedProfit"`
+	WithdrawnProfit          float64 `json:"withdrawnProfit"`
+	AvailableToWithdraw      float64 `json:"availableToWithdraw"`
+	TradeCount               int     `json:"tradeCount"`
+	WinRate                  float64 `json:"winRate"`         // 网格方式胜率
+	ExchangeWinRate          float64 `json:"exchangeWinRate"` // 交易所方式胜率
+	AvgProfitPerTrade        float64 `json:"avgProfitPerTrade"`
+	LastTradeAt              string  `json:"lastTradeAt,omitempty"`
+}
+
+type verifiedUnrealizedPnLProvider interface {
+	GetVerifiedUnrealizedPnL(currentPrice float64) (float64, bool)
+}
+
+func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exchange string, currentPrice float64) (float64, bool) {
+	if provider == nil || !isFiniteNumber(currentPrice) || currentPrice <= 0 {
+		return 0, false
+	}
+	for _, slot := range slots {
+		if exchange != "" && !strings.EqualFold(slot.Exchange, exchange) {
+			return 0, false
+		}
+	}
+	verifiedProvider, ok := provider.(verifiedUnrealizedPnLProvider)
+	if !ok {
+		return 0, false
+	}
+	pnl, verified := verifiedProvider.GetVerifiedUnrealizedPnL(currentPrice)
+	if !verified || !isFiniteNumber(pnl) {
+		return 0, false
+	}
+	return pnl, true
 }
 
 // ProfitWithdrawRule 提取规则
@@ -347,6 +373,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 
 	// 3. 獲取未實現盈利 (Unrealized Profit)
 	unrealizedProfit := 0.0
+	unrealizedProfitVerified := false
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
 
@@ -357,19 +384,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 			currentPrice = priceProv.GetLastPrice()
 		}
 
-		for _, slot := range slots {
-			// 如果指定了交易所且槽位不属於該交易所，跳過
-			if exchangeID != "" && slot.Exchange != exchangeID {
-				continue
-			}
-
-			if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-				price := slot.Price
-				if currentPrice > 0 {
-					unrealizedProfit += (currentPrice - price) * slot.PositionQty
-				}
-			}
-		}
+		unrealizedProfit, unrealizedProfitVerified = verifiedProviderPnL(pmProvider, slots, exchangeID, currentPrice)
 	}
 
 	// 資金費用淨額（正=淨收入，負=淨支出）
@@ -452,22 +467,23 @@ func getProfitSummaryHandler(c *gin.Context) {
 	}
 
 	summary := ProfitSummary{
-		ExchangeID:          exchangeID,
-		TotalProfit:         math.Round(netWithFunding*100) / 100,
-		GrossProfit:         math.Round(summaryStats.GrossPnL*100) / 100,
-		TotalFee:            math.Round(summaryStats.TotalFee*100) / 100,
-		FundingNet:          math.Round(fundingSum*100) / 100,
-		TodayProfit:         math.Round(todayProfitWithFunding*100) / 100,
-		WeekProfit:          math.Round(weekProfitWithFunding*100) / 100,
-		MonthProfit:         math.Round(monthProfitWithFunding*100) / 100,
-		UnrealizedProfit:    math.Round(unrealizedProfit*100) / 100,
-		ExchangeProfit:      exchangeProfit,
-		WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
-		AvailableToWithdraw: sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, ""),
-		PriceDeviationLoss:  math.Round(priceDeviationLoss*100) / 100,
-		BuyPriceDeviation:   math.Round(summaryStats.TotalBuyDeviation*100) / 100,
-		SellPriceDeviation:  math.Round(summaryStats.TotalSellDeviation*100) / 100,
-		LastUpdated:         time.Now().Format(time.RFC3339),
+		ExchangeID:               exchangeID,
+		TotalProfit:              math.Round(netWithFunding*100) / 100,
+		GrossProfit:              math.Round(summaryStats.GrossPnL*100) / 100,
+		TotalFee:                 math.Round(summaryStats.TotalFee*100) / 100,
+		FundingNet:               math.Round(fundingSum*100) / 100,
+		TodayProfit:              math.Round(todayProfitWithFunding*100) / 100,
+		WeekProfit:               math.Round(weekProfitWithFunding*100) / 100,
+		MonthProfit:              math.Round(monthProfitWithFunding*100) / 100,
+		UnrealizedProfit:         math.Round(unrealizedProfit*100) / 100,
+		UnrealizedProfitVerified: unrealizedProfitVerified,
+		ExchangeProfit:           exchangeProfit,
+		WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		AvailableToWithdraw:      sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, ""),
+		PriceDeviationLoss:       math.Round(priceDeviationLoss*100) / 100,
+		BuyPriceDeviation:        math.Round(summaryStats.TotalBuyDeviation*100) / 100,
+		SellPriceDeviation:       math.Round(summaryStats.TotalSellDeviation*100) / 100,
+		LastUpdated:              time.Now().Format(time.RFC3339),
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -592,6 +608,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	// 獲取未實現盈亏
 	unrealizedPnlMap := make(map[string]float64)
+	unrealizedPnlVerifiedMap := make(map[string]bool)
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
 	if pmProvider != nil {
@@ -601,14 +618,9 @@ func getStrategyProfitsHandler(c *gin.Context) {
 			currentPrice = priceProv.GetLastPrice()
 		}
 
-		for _, slot := range slots {
-			if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-				key := slot.Exchange + ":" + slot.Symbol
-				price := slot.Price
-				if currentPrice > 0 {
-					unrealizedPnlMap[key] += (currentPrice - price) * slot.PositionQty
-				}
-			}
+		if len(slots) > 0 {
+			key := slots[0].Exchange + ":" + slots[0].Symbol
+			unrealizedPnlMap[key], unrealizedPnlVerifiedMap[key] = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, currentPrice)
 		}
 	}
 
@@ -633,21 +645,22 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		}
 
 		profits = append(profits, StrategyProfit{
-			ExchangeID:          p.Exchange,
-			StrategyID:          p.Symbol, // 使用 Symbol 作為唯一標识
-			StrategyName:        p.Symbol + " 策略",
-			StrategyType:        "grid",                              // 默认為网格，實際应從配置獲取
-			TotalProfit:         math.Round(p.TotalPnL*100) / 100,    // 网格方式盈亏
-			ExchangeTotalProfit: math.Round(p.ExchangePnL*100) / 100, // 交易所方式盈亏
-			TodayProfit:         math.Round(todayPnlMap[key]*100) / 100,
-			UnrealizedProfit:    math.Round(unrealizedPnlMap[key]*100) / 100,
-			RealizedProfit:      math.Round(p.TotalPnL*100) / 100,
-			WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
-			AvailableToWithdraw: verifiedAmount,
-			TradeCount:          p.TotalTrades,
-			WinRate:             math.Round(p.WinRate*100) / 100,         // 网格方式胜率
-			ExchangeWinRate:     math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
-			AvgProfitPerTrade:   0,                                       // 可计算
+			ExchangeID:               p.Exchange,
+			StrategyID:               p.Symbol, // 使用 Symbol 作為唯一標识
+			StrategyName:             p.Symbol + " 策略",
+			StrategyType:             "grid",                              // 默认為网格，實際应從配置獲取
+			TotalProfit:              math.Round(p.TotalPnL*100) / 100,    // 网格方式盈亏
+			ExchangeTotalProfit:      math.Round(p.ExchangePnL*100) / 100, // 交易所方式盈亏
+			TodayProfit:              math.Round(todayPnlMap[key]*100) / 100,
+			UnrealizedProfit:         math.Round(unrealizedPnlMap[key]*100) / 100,
+			UnrealizedProfitVerified: unrealizedPnlVerifiedMap[key],
+			RealizedProfit:           math.Round(p.TotalPnL*100) / 100,
+			WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
+			AvailableToWithdraw:      verifiedAmount,
+			TradeCount:               p.TotalTrades,
+			WinRate:                  math.Round(p.WinRate*100) / 100,         // 网格方式胜率
+			ExchangeWinRate:          math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
+			AvgProfitPerTrade:        0,                                       // 可计算
 		})
 	}
 
@@ -696,6 +709,7 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 
 	// 獲取未實現盈亏
 	unrealizedPnL := 0.0
+	unrealizedPnLVerified := false
 	pmProvider := PickPositionProvider(c)
 	priceProv := PickPriceProvider(c)
 	if pmProvider != nil {
@@ -705,29 +719,26 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 			currentPrice = priceProv.GetLastPrice()
 		}
 
-		for _, slot := range slots {
-			if slot.Symbol == strategyID && slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-				if currentPrice > 0 {
-					unrealizedPnL += (currentPrice - slot.Price) * slot.PositionQty
-				}
-			}
+		if len(slots) > 0 && strings.EqualFold(slots[0].Symbol, strategyID) {
+			unrealizedPnL, unrealizedPnLVerified = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, currentPrice)
 		}
 	}
 
 	profit := StrategyProfit{
-		StrategyID:          strategyID,
-		StrategyName:        strategyID + " 策略",
-		StrategyType:        "grid",
-		TotalProfit:         math.Round(summary.TotalPnL*100) / 100,
-		TodayProfit:         0, // 需要額外查詢
-		UnrealizedProfit:    math.Round(unrealizedPnL*100) / 100,
-		RealizedProfit:      math.Round(summary.TotalPnL*100) / 100,
-		WithdrawnProfit:     math.Round(withdrawnAmounts.withdrawn*100) / 100,
-		AvailableToWithdraw: sumVerifiedWithdrawProfit(verifiedAvailable, "", strategyID),
-		WinRate:             math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
-		TradeCount:          summary.TotalTrades,
-		AvgProfitPerTrade:   0,
-		LastTradeAt:         now.Format(time.RFC3339),
+		StrategyID:               strategyID,
+		StrategyName:             strategyID + " 策略",
+		StrategyType:             "grid",
+		TotalProfit:              math.Round(summary.TotalPnL*100) / 100,
+		TodayProfit:              0, // 需要額外查詢
+		UnrealizedProfit:         math.Round(unrealizedPnL*100) / 100,
+		UnrealizedProfitVerified: unrealizedPnLVerified,
+		RealizedProfit:           math.Round(summary.TotalPnL*100) / 100,
+		WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		AvailableToWithdraw:      sumVerifiedWithdrawProfit(verifiedAvailable, "", strategyID),
+		WinRate:                  math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
+		TradeCount:               summary.TotalTrades,
+		AvgProfitPerTrade:        0,
+		LastTradeAt:              now.Format(time.RFC3339),
 	}
 
 	c.JSON(http.StatusOK, gin.H{
