@@ -283,6 +283,29 @@ WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND 
 	return count, nil
 }
 
+// CountPendingTradeFeeCorrectionsForAccount blocks money movement whenever any
+// Bot in the exact account/symbol stream has an unresolved fee correction.
+// Legacy events lack credential scope, so they conservatively block every
+// account with the same exchange and symbol.
+func (s *SQLStorage) CountPendingTradeFeeCorrectionsForAccount(exchange, marketType, symbol, accountScope string) (int, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(marketType) == "" ||
+		strings.TrimSpace(symbol) == "" || strings.TrimSpace(accountScope) == "" {
+		return 0, fmt.Errorf("pending fee correction check requires exact account and market scope")
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM trade_fee_corrections
+WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND status = 'pending'`,
+		strings.ToLower(strings.TrimSpace(exchange)), strings.ToLower(strings.TrimSpace(marketType)),
+		strings.ToUpper(strings.TrimSpace(symbol)), strings.TrimSpace(accountScope)).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count account-scoped pending fee corrections: %w", err)
+	}
+	legacyCount, err := s.countLegacyTradeFeeCorrectionEvents(exchange, symbol, "")
+	if err != nil {
+		return 0, err
+	}
+	return count + legacyCount, nil
+}
+
 func (s *SQLStorage) countLegacyTradeFeeCorrectionEvents(exchange, symbol, botID string) (int, error) {
 	jsonValue := func(column, path string) string {
 		if s.dbType == "mysql" {
@@ -294,12 +317,19 @@ func (s *SQLStorage) countLegacyTradeFeeCorrectionEvents(exchange, symbol, botID
 	exchangeExpr := jsonValue("e.data", "$.exchange")
 	symbolExpr := jsonValue("e.data", "$.symbol")
 	correctionIDExpr := jsonValue("e.data", "$.correction_id")
+	botFilter := ""
+	args := []interface{}{"trade_fee_correction"}
+	if strings.TrimSpace(botID) != "" {
+		botFilter = " AND " + botExpr + " = ?"
+		args = append(args, strings.TrimSpace(botID))
+	}
 	query := fmt.Sprintf(`SELECT COUNT(*) FROM events e
-WHERE e.event_type = ? AND %s = ? AND LOWER(%s) = LOWER(?) AND UPPER(%s) = UPPER(?)
+WHERE e.event_type = ?%s AND LOWER(%s) = LOWER(?) AND UPPER(%s) = UPPER(?)
 AND (%s = '' OR NOT EXISTS (SELECT 1 FROM trade_fee_corrections c WHERE c.correction_id = %s))`,
-		botExpr, exchangeExpr, symbolExpr, correctionIDExpr, correctionIDExpr)
+		botFilter, exchangeExpr, symbolExpr, correctionIDExpr, correctionIDExpr)
 	var count int
-	if err := s.db.QueryRow(query, "trade_fee_correction", strings.TrimSpace(botID), strings.TrimSpace(exchange), strings.TrimSpace(symbol)).Scan(&count); err != nil {
+	args = append(args, strings.TrimSpace(exchange), strings.TrimSpace(symbol))
+	if err := s.db.QueryRow(query, args...).Scan(&count); err != nil {
 		return 0, fmt.Errorf("count legacy trade fee correction events: %w", err)
 	}
 	return count, nil

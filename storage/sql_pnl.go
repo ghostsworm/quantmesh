@@ -230,6 +230,13 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if strings.TrimSpace(symbol) == "" || startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
 		return 0, fmt.Errorf("withdrawal PnL requires exact symbol and a non-empty time interval")
 	}
+	pendingCorrections, err := s.CountPendingTradeFeeCorrectionsForAccount(exchange, "futures", symbol, accountScope)
+	if err != nil {
+		return 0, fmt.Errorf("verify unresolved execution fee corrections: %w", err)
+	}
+	if pendingCorrections > 0 {
+		return 0, fmt.Errorf("withdrawal interval has %d unresolved execution fee corrections; refusing transfer", pendingCorrections)
+	}
 	coverage, err := s.HasFundingIncomeCoverage(exchange, symbol, "futures", accountScope, startTime, endTime)
 	if err != nil {
 		return 0, fmt.Errorf("verify funding income coverage: %w", err)

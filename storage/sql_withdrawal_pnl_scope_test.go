@@ -190,6 +190,58 @@ func TestGetRealizedPnLForWithdrawalRejectsUnknownExecutionPnL(t *testing.T) {
 	}
 }
 
+func TestGetRealizedPnLForWithdrawalBlocksPendingFeeCorrections(t *testing.T) {
+	tests := []struct {
+		name    string
+		account string
+		legacy  bool
+		wantErr bool
+	}{
+		{name: "same account across bots", account: "scope-a", wantErr: true},
+		{name: "different account", account: "scope-b", wantErr: false},
+		{name: "legacy event without account scope", legacy: true, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, err := NewSQLStorage(t.TempDir() + "/withdrawal-fee-correction.db")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer st.Close()
+			now := time.Now().UTC()
+			start, end := now.Add(-time.Minute), now.Add(time.Minute)
+			if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+				t.Fatal(err)
+			}
+			if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+				t.Fatal(err)
+			}
+			realized := 25.0
+			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "covered-execution", OrderID: 601, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, TradeTime: now}
+			if err := st.SaveOrderFill(&fill); err != nil {
+				t.Fatal(err)
+			}
+			if tt.legacy {
+				if err := st.SaveEvent("trade_fee_correction", map[string]interface{}{"bot_id": "other-bot", "exchange": "binance", "symbol": "BTCUSDT", "order_id": 602}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				correction := TradeFeeCorrection{CorrectionID: "correction-" + tt.account, BotID: "another-bot", Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", AccountScope: tt.account, OrderID: 602, Leg: "open", Side: "BUY", Fee: 0.1, FeeAsset: "USDT", ExecutedQty: 1, Reason: "late exchange fee evidence"}
+				if err := st.SaveTradeFeeCorrection(&correction); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err = st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end)
+			if tt.wantErr && err == nil {
+				t.Fatal("pending fee correction must block withdrawal")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("correction in another account scope must not block withdrawal: %v", err)
+			}
+		})
+	}
+}
+
 func TestFundingIncomeCoverageReplacesSnapshotInsteadOfBridgingOutage(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/funding-coverage-gap.db")
 	if err != nil {
