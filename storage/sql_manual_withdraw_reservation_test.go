@@ -43,6 +43,39 @@ func TestReserveManualWithdrawRecordSerializesAccountingWindow(t *testing.T) {
 	}
 }
 
+func TestWithdrawalReservationsSerializeAcrossSymbolsInOneAccountScope(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/account-withdraw-reserve.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	since := time.Now().UTC().Add(-time.Hour)
+	manual := &ProfitWithdrawRecord{ID: "manual-btc", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Amount: 40, NetAmount: 40, Currency: "USDT", Type: "manual", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.ReserveManualWithdrawRecord(manual, since, "", 50); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{ID: "eth-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule("eth-rule", "eth-claim"); err != nil || !claimed {
+		t.Fatalf("claim separate-symbol auto rule: claimed=%v err=%v", claimed, err)
+	}
+	auto := &ProfitWithdrawRecord{ID: "auto-eth", RuleID: "eth-rule", AccountID: "acct", AccountScope: "scope-a", ClaimID: "eth-claim",
+		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "auto", Status: "processing",
+		Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.SaveWithdrawRecordForClaim(auto); err == nil {
+		t.Fatal("automatic reservation for another symbol must wait for the unresolved account transfer")
+	}
+	manualOtherSymbol := *manual
+	manualOtherSymbol.ID = "manual-eth"
+	manualOtherSymbol.StrategyID = "ETHUSDT"
+	if err := st.ReserveManualWithdrawRecord(&manualOtherSymbol, since, "", 50); err == nil {
+		t.Fatal("manual reservation for another symbol must wait for the unresolved account transfer")
+	}
+}
+
 func TestReserveManualWithdrawRecordRejectsUnsafeCases(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/manual-withdraw-reject.db")
 	if err != nil {

@@ -1147,11 +1147,6 @@ func withdrawProfitHandler(c *gin.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if err := profit.ValidateTransferSafety(ctx, ex, req.StrategyID, accountScope, req.Amount, windowStart, windowEnd); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "转账前安全校验未通过: " + err.Error()})
-		return
-	}
-
 	record := &storage.ProfitWithdrawRecord{
 		ID:           recordID,
 		RuleID:       "",
@@ -1181,6 +1176,13 @@ func withdrawProfitHandler(c *gin.Context) {
 		return
 	}
 
+	if err := profit.ValidateTransferSafety(ctx, ex, req.StrategyID, accountScope, req.Amount, windowStart, windowEnd); err != nil {
+		if updateErr := st.UpdateWithdrawRecordStatus(recordID, "failed", "", "转账前安全校验失败，未发起划转: "+err.Error()); updateErr != nil {
+			logger.Error("手动利润提取预留未能释放 record=%s safety_err=%v: %v", recordID, err, updateErr)
+		}
+		c.JSON(http.StatusConflict, gin.H{"success": false, "message": "转账前安全校验未通过，未提交划转: " + err.Error()})
+		return
+	}
 	transferID, err := ex.InternalTransfer(ctx, "UMFUTURE", "SPOT", currency, req.Amount)
 	err = validateManualTransferReceipt(transferID, err)
 	if err != nil {

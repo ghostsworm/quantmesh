@@ -508,10 +508,30 @@ func (s *SQLStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 // SaveWithdrawRecordForClaim atomically fences reservation creation against a
 // stale worker whose durable claim was reclaimed by another executor.
 func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord) error {
-	if record == nil || record.ID == "" || record.RuleID == "" || record.ClaimID == "" {
+	if record == nil || record.ID == "" || record.RuleID == "" || record.ClaimID == "" ||
+		record.AccountID == "" || record.AccountScope == "" || record.ExchangeID == "" ||
+		record.StrategyID == "" || record.Type != "auto" || record.Status != "processing" ||
+		record.Currency != "USDT" || record.Amount <= 0 || math.IsNaN(record.Amount) || math.IsInf(record.Amount, 0) {
 		return fmt.Errorf("claimed withdrawal reservation requires record, rule, and claim identities")
 	}
-	result, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin claimed withdrawal reservation: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := lockProfitWithdrawAccount(tx, s.dbType, record.AccountID); err != nil {
+		return err
+	}
+	var unresolved int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
+		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND status IN ('processing', 'pending')`,
+		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
+		return fmt.Errorf("check account withdrawal reservation: %w", err)
+	}
+	if unresolved != 0 {
+		return fmt.Errorf("another transfer in this account scope is unresolved; reconcile it before withdrawing")
+	}
+	result, err := tx.Exec(`
 		INSERT INTO profit_withdraw_records
 		(id, rule_id, account_id, account_scope, claim_id, exchange_id, strategy_id, amount, fee, net_amount, currency, type, status, destination, transfer_id, created_at, completed_at, failed_reason, note)
 		SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
@@ -528,6 +548,9 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord) er
 	}
 	if rows != 1 {
 		return fmt.Errorf("withdrawal rule claim was lost before transfer reservation; refusing transfer")
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit claimed withdrawal reservation: %w", err)
 	}
 	return nil
 }
@@ -550,6 +573,15 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	defer func() { _ = tx.Rollback() }()
 	if err := lockProfitWithdrawAccount(tx, s.dbType, record.AccountID); err != nil {
 		return err
+	}
+	var unresolved int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
+		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND status IN ('processing', 'pending')`,
+		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
+		return fmt.Errorf("check account withdrawal reservation: %w", err)
+	}
+	if unresolved != 0 {
+		return fmt.Errorf("another transfer in this account scope is unresolved; reconcile it before withdrawing")
 	}
 	var staleCount int
 	if err := tx.QueryRow(`

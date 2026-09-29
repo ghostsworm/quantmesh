@@ -324,8 +324,8 @@ func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 			if err := e.processRule(st.rule); err == nil {
 				t.Fatal("unallocated account expense must disable automatic withdrawal")
 			}
-			if len(ex.amounts) != 0 || len(st.records) != 0 {
-				t.Fatalf("unallocated account expense must be rejected before transfer: amounts=%v records=%+v", ex.amounts, st.records)
+			if len(ex.amounts) != 0 || len(st.records) != 1 || st.records[0].Status != "failed" {
+				t.Fatalf("unallocated account expense must release its preflight reservation without transferring: amounts=%v records=%+v", ex.amounts, st.records)
 			}
 		})
 	}
@@ -344,8 +344,8 @@ func TestAutomaticWithdrawRejectsCredentialScopeMismatchBeforeReservation(t *tes
 	if err := e.processRule(st.rule); err == nil {
 		t.Fatal("old profit rule must not transfer funds using another credential scope")
 	}
-	if len(ex.amounts) != 0 || len(st.records) != 0 {
-		t.Fatalf("scope mismatch must reject before reservation and transfer: amounts=%v records=%+v", ex.amounts, st.records)
+	if len(ex.amounts) != 0 || len(st.records) != 1 || st.records[0].Status != "failed" {
+		t.Fatalf("scope mismatch must release its preflight reservation without transferring: amounts=%v records=%+v", ex.amounts, st.records)
 	}
 }
 
@@ -423,8 +423,8 @@ func TestAutomaticWithdrawRejectsUnknownAccountCashFlow(t *testing.T) {
 	if err := e.processRule(st.rule); err == nil {
 		t.Fatal("unknown account cash-flow kinds must disable automatic withdrawal")
 	}
-	if len(ex.amounts) != 0 || len(st.records) != 0 {
-		t.Fatalf("unknown account cash flow must be rejected before transfer: amounts=%v records=%+v", ex.amounts, st.records)
+	if len(ex.amounts) != 0 || len(st.records) != 1 || st.records[0].Status != "failed" {
+		t.Fatalf("unknown account cash flow must release its preflight reservation without transferring: amounts=%v records=%+v", ex.amounts, st.records)
 	}
 }
 
@@ -456,8 +456,8 @@ func TestAutomaticWithdrawRequiresFreshSufficientUSDTBalance(t *testing.T) {
 			if (err != nil) != test.wantErr {
 				t.Fatalf("processRule err=%v, wantErr=%v", err, test.wantErr)
 			}
-			if test.wantErr && (len(ex.amounts) != 0 || len(st.records) != 0) {
-				t.Fatalf("unsafe balance must be rejected before reserving or transferring: amounts=%v records=%+v", ex.amounts, st.records)
+			if test.wantErr && (len(ex.amounts) != 0 || len(st.records) != 1 || st.records[0].Status != "failed") {
+				t.Fatalf("unsafe balance must release its preflight reservation without transferring: amounts=%v records=%+v", ex.amounts, st.records)
 			}
 			if !test.wantErr && (len(ex.amounts) != 1 || ex.amounts[0] != 50) {
 				t.Fatalf("sufficient balance should permit the calculated transfer, got %v", ex.amounts)

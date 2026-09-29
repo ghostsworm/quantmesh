@@ -493,9 +493,6 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
 	}
-	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, rule.AccountScope, amount, windowStart, windowEnd); err != nil {
-		return err
-	}
 	record := &storage.ProfitWithdrawRecord{
 		ID:           "wd_" + utils.NewCompactOrderID(),
 		RuleID:       rule.ID,
@@ -523,6 +520,12 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 	}
 	if err := recorder.SaveWithdrawRecordForClaim(record); err != nil {
 		return fmt.Errorf("保存記錄失败: %w", err)
+	}
+	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, rule.AccountScope, amount, windowStart, windowEnd); err != nil {
+		if updateErr := e.st.UpdateWithdrawRecordStatus(record.ID, "failed", "", "转账前安全校验失败，未发起划转: "+err.Error()); updateErr != nil {
+			return fmt.Errorf("pre-transfer safety check failed (%v) and reservation could not be released: %w", err, updateErr)
+		}
+		return fmt.Errorf("pre-transfer safety check failed; no transfer was submitted: %w", err)
 	}
 	transferID, err := ex.InternalTransfer(e.ctx, "UMFUTURE", "SPOT", "USDT", amount)
 	if err == nil && strings.TrimSpace(transferID) == "" {
