@@ -159,6 +159,53 @@ func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {
 	}
 }
 
+func TestMartingaleRuntimeStateRejectsInconsistentCloseProgress(t *testing.T) {
+	tests := []struct {
+		name  string
+		state martingaleRuntimeState
+	}{
+		{
+			name: "active close without requested quantity",
+			state: martingaleRuntimeState{
+				StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG", IsClosing: true, CloseOrderID: 9,
+				Entries:  []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+				TotalQty: 1, TotalCost: 100, AvgEntryPrice: 100,
+			},
+		},
+		{
+			name: "progress without active close",
+			state: martingaleRuntimeState{
+				StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG", CloseRequestedQty: 1,
+				Entries:  []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+				TotalQty: 1, TotalCost: 100, AvgEntryPrice: 100,
+			},
+		},
+		{
+			name: "pending intent without inventory",
+			state: martingaleRuntimeState{
+				StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG", PendingCloseReason: "止损",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, err := json.Marshal(tc.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+			martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			martin.SetRuntimeStateStore(store)
+			if err := martin.Start(context.Background()); err == nil {
+				t.Fatal("martingale started with inconsistent persisted close state")
+			}
+			if martin.IsRunning() {
+				t.Fatal("martingale entered running state despite inconsistent close state")
+			}
+		})
+	}
+}
+
 func TestSpotShortPendingRepaymentRestoresBeforeStart(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.BotID = "bot-spot-short"

@@ -101,6 +101,11 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	if state.TotalCost < 0 || state.TotalQty < 0 || !finiteNumber(state.TotalCost) || !finiteNumber(state.TotalQty) || !finiteNumber(state.AvgEntryPrice) || len(state.Entries) > s.strategyCfg.MaxLevels {
 		return fmt.Errorf("martingale runtime state contains invalid inventory")
 	}
+	if state.CurrentLevel < 0 || state.CurrentLevel > s.strategyCfg.MaxLevels ||
+		state.CloseOrderID < 0 || state.CloseRequestedQty < 0 || state.CloseProgress.Quantity < 0 || state.CloseProgress.Notional < 0 ||
+		!finiteNumber(state.CloseRequestedQty) || !finiteNumber(state.CloseProgress.Quantity) || !finiteNumber(state.CloseProgress.Notional) || !finiteNumber(state.CloseRealizedPnL) {
+		return fmt.Errorf("martingale runtime state contains invalid close progress")
+	}
 	var totalQty, totalCost float64
 	for _, entry := range state.Entries {
 		if entry == nil || entry.Quantity < 0 || entry.Cost < 0 || entry.OpeningFee < 0 || entry.RequestedQuantity < 0 || !finiteNumber(entry.Quantity) || !finiteNumber(entry.Cost) || !finiteNumber(entry.OpeningFee) || !finiteNumber(entry.FillProgress.Quantity) || !finiteNumber(entry.FillProgress.Notional) {
@@ -127,8 +132,17 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	if state.IsClosing && state.CloseOrderID <= 0 {
 		return fmt.Errorf("martingale close state is missing its order identity")
 	}
+	if state.IsClosing && (state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon || state.CloseProgress.Notional < 0) {
+		return fmt.Errorf("martingale close state contains inconsistent execution progress")
+	}
+	if !state.IsClosing && (state.CloseOrderID != 0 || state.CloseRequestedQty != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseRealizedPnL != 0) {
+		return fmt.Errorf("martingale runtime state has close progress without an active close order")
+	}
 	if state.IsClosing && state.PendingCloseReason != "" {
 		return fmt.Errorf("martingale runtime state has both an active close order and a pending close intent")
+	}
+	if state.PendingCloseReason != "" && state.TotalQty <= 0 {
+		return fmt.Errorf("martingale pending close intent has no attributed inventory")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
