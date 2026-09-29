@@ -30,7 +30,19 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 	if s == nil || s.manager == nil {
 		return risk.EquityObservation{}, risk.ErrEquityUnavailable
 	}
-	return observeRuntimeEquityCursors(ctx, s.manager.List(), cursors)
+	runtimes := s.manager.List()
+	observation, err := observeRuntimeEquityCursors(ctx, runtimes, cursors)
+	if err != nil {
+		return risk.EquityObservation{}, err
+	}
+	_, _, currentScope, err := runtimeEquityAccounts(s.manager.List())
+	if err != nil {
+		return risk.EquityObservation{}, err
+	}
+	if currentScope != observation.Scope {
+		return risk.EquityObservation{}, fmt.Errorf("equity account membership changed during observation; retry required")
+	}
+	return observation, nil
 }
 
 func observeRuntimeEquity(ctx context.Context, runtimes []*SymbolRuntime) (risk.EquityObservation, error) {
@@ -42,33 +54,11 @@ func observeRuntimeEquity(ctx context.Context, runtimes []*SymbolRuntime) (risk.
 // Unsupported providers remain explicitly raw; nil income APIs are not proof.
 func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime, cursors map[string]time.Time) (risk.EquityObservation, error) {
 	observation := risk.EquityObservation{Currency: "USDT", ObservedAt: time.Now()}
-	accounts := make(map[string]*SymbolRuntime)
-	for _, rt := range runtimes {
-		if rt == nil || rt.Exchange == nil {
-			return observation, fmt.Errorf("equity runtime is incomplete")
-		}
-		if rt.AccountMarketType != "futures" || rt.AccountScope == "" {
-			return observation, fmt.Errorf("spot account valuation is not reconciled: %w", risk.ErrEquityUnavailable)
-		}
-		identity, err := json.Marshal([]string{rt.AccountMarketType, rt.AccountScope})
-		if err != nil {
-			return observation, err
-		}
-		accounts[string(identity)] = rt
-	}
-	if len(accounts) == 0 {
-		return observation, risk.ErrEquityUnavailable
-	}
-	keys := make([]string, 0, len(accounts))
-	for key := range accounts {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	identity, err := json.Marshal(keys)
+	accounts, keys, scope, err := runtimeEquityAccounts(runtimes)
 	if err != nil {
 		return observation, err
 	}
-	observation.Scope = fmt.Sprintf("futures:%x", sha256.Sum256(identity))
+	observation.Scope = scope
 	accountCursors, err := cursorsByAccount(cursors, accounts)
 	if err != nil {
 		return observation, err
@@ -96,6 +86,36 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 		observation.Equity += account.TotalMarginBalance
 	}
 	return observation, nil
+}
+
+func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime, []string, string, error) {
+	accounts := make(map[string]*SymbolRuntime)
+	for _, rt := range runtimes {
+		if rt == nil || rt.Exchange == nil {
+			return nil, nil, "", fmt.Errorf("equity runtime is incomplete")
+		}
+		if rt.AccountMarketType != "futures" || rt.AccountScope == "" {
+			return nil, nil, "", fmt.Errorf("spot account valuation is not reconciled: %w", risk.ErrEquityUnavailable)
+		}
+		identity, err := json.Marshal([]string{rt.AccountMarketType, rt.AccountScope})
+		if err != nil {
+			return nil, nil, "", err
+		}
+		accounts[string(identity)] = rt
+	}
+	if len(accounts) == 0 {
+		return nil, nil, "", risk.ErrEquityUnavailable
+	}
+	keys := make([]string, 0, len(accounts))
+	for key := range accounts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	identity, err := json.Marshal(keys)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return accounts, keys, fmt.Sprintf("futures:%x", sha256.Sum256(identity)), nil
 }
 
 // Wallet checkpoints may contain one cursor per currency. Current exchange

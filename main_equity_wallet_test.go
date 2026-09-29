@@ -19,11 +19,15 @@ type equityLedgerExchange struct {
 	evidenceErr   error
 	evidenceCalls int
 	since         time.Time
+	onEvidence    func()
 }
 
 func (e *equityLedgerExchange) ReadAccountEvidence(_ context.Context, since time.Time) (accounting.Snapshot, error) {
 	e.evidenceCalls++
 	e.since = since
+	if e.onEvidence != nil {
+		e.onEvidence()
+	}
 	return e.snapshot, e.evidenceErr
 }
 
@@ -64,6 +68,27 @@ func TestRuntimeEquityWalletAggregatesAccountsAndPreservesCursors(t *testing.T) 
 	}
 	if _, err := observeRuntimeEquityCursors(t.Context(), []*SymbolRuntime{a}, cursors); err == nil {
 		t.Fatal("disappeared account silently removed")
+	}
+}
+
+func TestRuntimeEquityRejectsMembershipChangeDuringAccountRead(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	first := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
+	firstRuntime := walletRuntimeFixture("account-a", first)
+	secondRuntime := walletRuntimeFixture("account-b", &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "200", 200)})
+	manager := &SymbolManager{botManager: &BotManager{runtimes: make(map[string]*BotRuntime)}}
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "bot-a", Inner: firstRuntime})
+	added := false
+	first.onEvidence = func() {
+		if !added {
+			added = true
+			manager.botManager.AddRuntime(&BotRuntime{BotID: "bot-b", Inner: secondRuntime})
+		}
+	}
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.CashFlowComplete || observation.Equity != 0 {
+		t.Fatalf("membership changed mid-sample but equity was published: observation=%+v err=%v", observation, err)
 	}
 }
 

@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：采样期间权益账户成员变更即丢弃样本（3.111.0-rc424）
+
+- `SymbolManager.List` 只在取列表时持读锁；之后各账户证据按网络请求串行采集。若期间启动/移除最后一个 Bot 使账户集合改变，旧逻辑仍可按采样开始时的成员集返回结果，短暂地让旧子集权益推进并持久化高水位。
+- `runtimeEquitySource` 现在在整轮采样后重新计算去重后的账户 scope；与采样起始 scope 不同则返回错误、丢弃全部观察值。相同账户内 Bot 增减不改变账户 scope，不造成无谓阻断；新增账户回归验证不返回现金流完整数据或部分权益总额。
+- `go test . ./risk -count=1`、`go vet . ./risk` 与 `git diff --check` 通过；账户集合仍只基于活动 futures runtimes，未包含无 Bot 的配置账户和 Spot，R10 仍开放，不代表实盘或盈利验收。
+
 # 后续续修：Bitget 单资产权益拒绝联合资产残留字段（3.111.0-rc423）
 
 - Bitget 账户接口将 `unionTotalMargin`、`unionAvailable`、`unionMm`、`assetList` 定义为联合保证金/多资产模式字段；适配器虽然要求 `assetMode=single`，却未检查这些字段。相互矛盾的响应可能将非 USDT 资产或联合负债遗漏在单币权益样本之外。
