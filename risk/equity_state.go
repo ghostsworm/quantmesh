@@ -148,12 +148,12 @@ func (f EquityCashFlow) externalAmount(currency string) (float64, error) {
 			return 0, fmt.Errorf("positive outgoing capital")
 		}
 		return f.Amount, nil
-	case "fee", "interest":
+	case "fee":
 		if f.Amount > 0 {
 			return 0, fmt.Errorf("positive expense without rebate classification")
 		}
 		return 0, nil
-	case "funding", "realized_pnl", "rebate", "insurance_clear":
+	case "interest", "funding", "realized_pnl", "rebate", "insurance_clear":
 		return 0, nil
 	default:
 		return 0, fmt.Errorf("unclassified equity cash flow %q", f.Kind)

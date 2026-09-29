@@ -275,6 +275,38 @@ func TestEquityWalletPositionLimitFeeRemainsPerformance(t *testing.T) {
 	}
 }
 
+func TestEquityWalletInterestBothSignsRemainPerformance(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		amount  string
+		balance string
+		equity  float64
+		dd      float64
+	}{
+		{name: "credit", amount: "10", balance: "110", equity: 110},
+		{name: "charge", amount: "-10", balance: "90", equity: 90, dd: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+			previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
+			previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			now := base.Add(time.Minute)
+			observation := testWalletObservation(now, 0, tc.balance, tc.equity, previous.Wallets["a"].From)
+			observation.Flows = []EquityCashFlow{testWalletFlow("interest", "interest", tc.amount, observation.Wallets["a"].Through)}
+			next, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if next.ExternalFlows != 0 || next.AdjustedEquity != tc.equity || next.DrawdownPct != tc.dd {
+				t.Fatalf("interest is performance, not external capital: checkpoint=%+v", next)
+			}
+		})
+	}
+}
+
 func TestEquityWalletRejectsAggregateCaptureSkew(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	for _, tc := range []struct {
