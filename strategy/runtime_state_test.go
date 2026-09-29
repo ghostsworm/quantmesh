@@ -97,7 +97,11 @@ func TestDCAOrderFillPersistsAndRestoresFeeBearingInventory(t *testing.T) {
 		t.Fatal("fill transition was not durably stored")
 	}
 
-	second := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	secondExchange := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 77, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 0.5,
+		ExecutedQty: 0.5, AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled,
+	}}
+	second := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, secondExchange, nil)
 	second.SetRuntimeStateStore(store)
 	if err := second.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -435,6 +439,23 @@ func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
 			x := base
 			x.CloseLayerIndex = -1
 			x.Layers[0].Status = "mystery"
+			return x
+		}()},
+		{name: "duplicate active order identity", state: func() dcaRuntimeState {
+			return dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 2, CloseLayerIndex: -1,
+				Layers: []*DCALayer{{Index: 0, OrderID: 91, RequestedQuantity: 1, Status: entryStatusPending},
+					{Index: 1, OrderID: 91, RequestedQuantity: 1, Status: entryStatusPending}}}
+		}()},
+		{name: "targeted close exceeds its layer", state: func() dcaRuntimeState {
+			x := base
+			x.TotalQty, x.TotalCost, x.AvgEntryPrice = 1, 100, 100
+			x.CloseLayerIndex = 0
+			x.CloseRequestedQty = 0.75
+			x.CurrentLayer = 2
+			x.Layers = []*DCALayer{
+				{Index: 0, Quantity: 0.5, Cost: 50, RequestedQuantity: 0.5, FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}, Status: entryStatusFilled},
+				{Index: 1, Quantity: 0.5, Cost: 50, RequestedQuantity: 0.5, FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}, Status: entryStatusFilled},
+			}
 			return x
 		}()},
 	}

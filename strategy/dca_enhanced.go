@@ -427,6 +427,8 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	var totalQty, totalCost float64
 	closeLayerFound := state.CloseLayerIndex < 0
 	layerIndexes := make(map[int]struct{}, len(state.Layers))
+	activeOrderIDs := make(map[int64]struct{}, len(state.Layers)+1)
+	var closeTargetLayer *DCALayer
 	for _, layer := range state.Layers {
 		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.RequestedQuantity < 0 ||
 			layer.FillProgress.Quantity < 0 || layer.FillProgress.Notional < 0 ||
@@ -444,15 +446,28 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 			if layer.Quantity != 0 || layer.Cost != 0 || layer.OpeningFee != 0 || layer.FillProgress.Quantity != 0 {
 				return fmt.Errorf("DCA pending layer %d contains attributed fills", layer.Index)
 			}
+			if layer.OrderID <= 0 {
+				return fmt.Errorf("DCA pending layer %d is missing its order identity", layer.Index)
+			}
 		case entryStatusPartiallyFilled, entryStatusFilled:
 			if layer.Quantity <= 0 || layer.Cost <= 0 || layer.FillProgress.Quantity+entryQtyEpsilon < layer.Quantity {
 				return fmt.Errorf("DCA filled layer %d has inconsistent inventory", layer.Index)
 			}
+			if layer.Status == entryStatusPartiallyFilled && layer.OrderID <= 0 {
+				return fmt.Errorf("DCA partially filled layer %d is missing its order identity", layer.Index)
+			}
 		default:
 			return fmt.Errorf("DCA runtime state contains unknown layer status %q", layer.Status)
 		}
+		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled {
+			if _, duplicate := activeOrderIDs[layer.OrderID]; duplicate {
+				return fmt.Errorf("DCA runtime state contains duplicate active order ID %d", layer.OrderID)
+			}
+			activeOrderIDs[layer.OrderID] = struct{}{}
+		}
 		if state.CloseLayerIndex == layer.Index {
 			closeLayerFound = true
+			closeTargetLayer = layer
 		}
 		if entryHasFill(layer.Status) {
 			totalQty += layer.Quantity
@@ -471,8 +486,11 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	}
 	if state.IsClosing {
 		if state.CloseOrderID <= 0 || state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon ||
-			state.CloseLayerIndex >= 0 && state.CloseRequestedQty > state.TotalQty+entryQtyEpsilon {
+			state.CloseLayerIndex >= 0 && state.CloseRequestedQty > closeTargetLayer.Quantity+entryQtyEpsilon {
 			return fmt.Errorf("DCA close state contains inconsistent execution progress")
+		}
+		if _, duplicate := activeOrderIDs[state.CloseOrderID]; duplicate {
+			return fmt.Errorf("DCA close order ID conflicts with an active entry order")
 		}
 	} else if state.CloseOrderID != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
 		return fmt.Errorf("DCA runtime state has close progress without an active close order")
@@ -533,6 +551,9 @@ func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 	}
 	if err := s.restoreRuntimeState(); err != nil {
 		return err
+	}
+	if err := s.reconcilePersistedOrders(ctx); err != nil {
+		return fmt.Errorf("DCA persisted order recovery failed; strategy remains stopped: %w", err)
 	}
 	s.mu.Lock()
 	s.ctx = ctx
