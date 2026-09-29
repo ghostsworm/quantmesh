@@ -414,21 +414,51 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	if state.BotID != s.effectiveBotID() || state.StrategyName != s.name || state.Symbol != s.strategyCfg.Symbol {
 		return fmt.Errorf("DCA runtime state identity mismatch")
 	}
-	if state.TotalCost < 0 || state.TotalQty < 0 || !finiteNumber(state.TotalCost) || !finiteNumber(state.TotalQty) || !finiteNumber(state.AvgEntryPrice) || len(state.Layers) > s.maxLayers {
+	if state.TotalCost < 0 || state.TotalQty < 0 || state.CurrentLayer < 0 || state.CurrentLayer > s.maxLayers ||
+		state.CloseOrderID < 0 || state.CloseLayerIndex < -1 || state.CloseRequestedQty < 0 || state.CloseLimitPrice < 0 ||
+		state.CloseProgress.Quantity < 0 || state.CloseProgress.Notional < 0 ||
+		!finiteNumber(state.TotalCost) || !finiteNumber(state.TotalQty) || !finiteNumber(state.AvgEntryPrice) ||
+		!finiteNumber(state.DynamicInterval) || !finiteNumber(state.HighestProfit) ||
+		!finiteNumber(state.CloseRequestedQty) || !finiteNumber(state.CloseLimitPrice) ||
+		!finiteNumber(state.CloseProgress.Quantity) || !finiteNumber(state.CloseProgress.Notional) ||
+		!finiteNumber(state.Stats.TotalPnL) || !finiteNumber(state.Stats.TotalVolume) || !finiteNumber(state.Stats.WinRate) || len(state.Layers) > s.maxLayers {
 		return fmt.Errorf("DCA runtime state contains invalid inventory")
 	}
 	var totalQty, totalCost float64
+	closeLayerFound := state.CloseLayerIndex < 0
 	for _, layer := range state.Layers {
-		if layer == nil || layer.Quantity < 0 || layer.Cost < 0 || !finiteNumber(layer.Quantity) || !finiteNumber(layer.Cost) || !finiteNumber(layer.OpeningFee) || !finiteNumber(layer.FillProgress.Quantity) || !finiteNumber(layer.FillProgress.Notional) {
+		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.RequestedQuantity < 0 ||
+			layer.FillProgress.Quantity < 0 || layer.FillProgress.Notional < 0 ||
+			!finiteNumber(layer.Price) || !finiteNumber(layer.Quantity) || !finiteNumber(layer.Cost) || !finiteNumber(layer.OpeningFee) ||
+			!finiteNumber(layer.RequestedQuantity) || !finiteNumber(layer.FillProgress.Quantity) || !finiteNumber(layer.FillProgress.Notional) ||
+			layer.FillProgress.Quantity > layer.RequestedQuantity+entryQtyEpsilon {
 			return fmt.Errorf("DCA runtime state contains invalid layer")
+		}
+		if state.CloseLayerIndex == layer.Index {
+			closeLayerFound = true
 		}
 		if entryHasFill(layer.Status) {
 			totalQty += layer.Quantity
 			totalCost += layer.Cost
 		}
 	}
+	if !closeLayerFound {
+		return fmt.Errorf("DCA close state references a missing layer")
+	}
 	if math.Abs(totalQty-state.TotalQty) > entryQtyEpsilon || math.Abs(totalCost-state.TotalCost) > math.Max(1e-8, math.Abs(state.TotalCost)*1e-8) {
 		return fmt.Errorf("DCA runtime state inventory totals do not reconcile")
+	}
+	if state.TotalQty == 0 && state.AvgEntryPrice != 0 || state.TotalQty > 0 &&
+		(state.AvgEntryPrice <= 0 || math.Abs(state.AvgEntryPrice-state.TotalCost/state.TotalQty) > math.Max(1e-8, math.Abs(state.AvgEntryPrice)*1e-8)) {
+		return fmt.Errorf("DCA runtime state average entry price does not match inventory cost")
+	}
+	if state.IsClosing {
+		if state.CloseOrderID <= 0 || state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon ||
+			state.CloseLayerIndex >= 0 && state.CloseRequestedQty > state.TotalQty+entryQtyEpsilon {
+			return fmt.Errorf("DCA close state contains inconsistent execution progress")
+		}
+	} else if state.CloseOrderID != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
+		return fmt.Errorf("DCA runtime state has close progress without an active close order")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

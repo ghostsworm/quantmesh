@@ -390,6 +390,7 @@ func TestDCAStateSnapshotRoundTripsCloseOrderLayerIdentity(t *testing.T) {
 	dca.totalQty, dca.totalCost, dca.avgEntryPrice = 1, 100, 100
 	dca.closeLayer = dca.layers[0]
 	dca.isClosing, dca.closeOrderID = true, 99
+	dca.closeRequestedQty, dca.closeLimitPrice = 1, 110
 	state := dca.runtimeStateSnapshotLocked()
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -403,6 +404,44 @@ func TestDCAStateSnapshotRoundTripsCloseOrderLayerIdentity(t *testing.T) {
 	}
 	if copy.closeLayer == nil || copy.closeLayer.Index != 0 {
 		t.Fatalf("close layer identity was not restored: %+v", copy.closeLayer)
+	}
+}
+
+func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
+	base := dcaRuntimeState{
+		BotID: "", StrategyName: "dca", Symbol: "BTCUSDT", TotalCost: 100, TotalQty: 1, AvgEntryPrice: 100,
+		CurrentLayer: 1, IsClosing: true, CloseOrderID: 99, CloseLayerIndex: 3, CloseRequestedQty: 1,
+		Layers: []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+	}
+	tests := []struct {
+		name  string
+		state dcaRuntimeState
+	}{
+		{name: "missing targeted layer", state: base},
+		{name: "fill exceeds requested quantity", state: func() dcaRuntimeState { x := base; x.CloseLayerIndex = -1; x.CloseProgress.Quantity = 2; return x }()},
+		{name: "negative opening fee", state: func() dcaRuntimeState {
+			x := base
+			x.CloseLayerIndex = -1
+			x.Layers = []*DCALayer{{Index: 0, Quantity: 1, Cost: 100, OpeningFee: -0.1, Status: entryStatusFilled}}
+			return x
+		}()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			payload, err := json.Marshal(tt.state)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			s.SetRuntimeStateStore(store)
+			if err := s.restoreRuntimeState(); err == nil {
+				t.Fatal("expected invalid persisted DCA state to be rejected")
+			}
+			if len(s.layers) != 0 || s.closeOrderID != 0 {
+				t.Fatalf("invalid state partially restored: layers=%+v closeOrderID=%d", s.layers, s.closeOrderID)
+			}
+		})
 	}
 }
 
