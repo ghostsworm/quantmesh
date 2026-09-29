@@ -2,6 +2,7 @@ package exchange
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"quantmesh/exchange/accounting"
@@ -23,8 +24,13 @@ func (w *bitgetWrapper) GetMarketType() string {
 }
 
 func (w *bitgetWrapper) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	if w == nil || w.adapter == nil {
+		return accounting.Snapshot{}, fmt.Errorf("Bitget account evidence unavailable")
+	}
 	return w.adapter.ReadAccountEvidence(ctx, since)
 }
+
+var _ accounting.Source = (*bitgetWrapper)(nil)
 
 func (w *bitgetWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
 	// 轉换请求類型

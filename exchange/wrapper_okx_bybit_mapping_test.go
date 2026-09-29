@@ -1,11 +1,24 @@
 package exchange
 
 import (
+	"context"
 	"testing"
+	"time"
 
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/okx"
 )
+
+func TestBitgetWrapperAccountEvidenceUnavailableWithoutAdapter(t *testing.T) {
+	var source accounting.Source = (*bitgetWrapper)(nil)
+	if _, err := source.ReadAccountEvidence(context.Background(), time.Time{}); err == nil {
+		t.Fatal("nil Bitget adapter must fail closed")
+	}
+	if _, err := (&bitgetWrapper{}).ReadAccountEvidence(context.Background(), time.Time{}); err == nil {
+		t.Fatal("missing Bitget adapter must fail closed")
+	}
+}
 
 // TestOKXBybitInternalConstantsMirror okx/bybit 包因循環匯入鏡像了內部常量，這裡保證兩邊一致
 func TestOKXBybitInternalConstantsMirror(t *testing.T) {
