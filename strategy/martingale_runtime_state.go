@@ -24,6 +24,8 @@ type martingaleRuntimeState struct {
 	IsPaused           bool                  `json:"is_paused"`
 	IsClosing          bool                  `json:"is_closing"`
 	CloseOrderID       int64                 `json:"close_order_id"`
+	CloseClientOrderID string                `json:"close_client_order_id,omitempty"`
+	CloseReason        string                `json:"close_reason,omitempty"`
 	CloseRequestedQty  float64               `json:"close_requested_qty"`
 	CloseProgress      position.FillProgress `json:"close_progress"`
 	CloseRealizedPnL   float64               `json:"close_realized_pnl"`
@@ -44,7 +46,9 @@ func (s *MartingaleStrategy) runtimeStateSnapshotLocked() martingaleRuntimeState
 		Direction: s.direction, TotalCost: s.totalCost, TotalQty: s.totalQty,
 		AvgEntryPrice: s.avgEntryPrice, CurrentLevel: s.currentLevel,
 		IsPaused: s.isPaused, IsClosing: s.isClosing, CloseOrderID: s.closeOrderID,
-		CloseRequestedQty: s.closeRequestedQty, CloseProgress: s.closeProgress,
+		CloseClientOrderID: s.closeClientOrderID,
+		CloseReason:        s.closeReason,
+		CloseRequestedQty:  s.closeRequestedQty, CloseProgress: s.closeProgress,
 		CloseRealizedPnL: s.closeRealizedPnL, PendingCloseReason: s.pendingCloseReason, UpdatedAt: time.Now().UTC(),
 	}
 	if s.stats != nil {
@@ -132,10 +136,16 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	if state.IsClosing && state.CloseOrderID <= 0 {
 		return fmt.Errorf("martingale close state is missing its order identity")
 	}
+	if state.CloseClientOrderID != "" && (state.CloseRequestedQty <= 0 || state.PendingCloseReason != "" || state.CloseReason == "") {
+		return fmt.Errorf("martingale close submission intent is inconsistent")
+	}
+	if state.CloseClientOrderID == "" && state.CloseReason != "" {
+		return fmt.Errorf("martingale runtime state has a close reason without a close order identity")
+	}
 	if state.IsClosing && (state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon || state.CloseProgress.Notional < 0) {
 		return fmt.Errorf("martingale close state contains inconsistent execution progress")
 	}
-	if !state.IsClosing && (state.CloseOrderID != 0 || state.CloseRequestedQty != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseRealizedPnL != 0) {
+	if !state.IsClosing && (state.CloseOrderID != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseRealizedPnL != 0 || state.CloseRequestedQty != 0 && state.CloseClientOrderID == "") {
 		return fmt.Errorf("martingale runtime state has close progress without an active close order")
 	}
 	if state.IsClosing && state.PendingCloseReason != "" {
@@ -150,6 +160,8 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	s.totalCost, s.totalQty, s.avgEntryPrice = state.TotalCost, state.TotalQty, state.AvgEntryPrice
 	s.currentLevel = state.CurrentLevel
 	s.isPaused, s.isClosing, s.closeOrderID = state.IsPaused, state.IsClosing, state.CloseOrderID
+	s.closeClientOrderID = state.CloseClientOrderID
+	s.closeReason = state.CloseReason
 	s.closeRequestedQty, s.closeProgress, s.closeRealizedPnL = state.CloseRequestedQty, state.CloseProgress, state.CloseRealizedPnL
 	s.pendingCloseReason = state.PendingCloseReason
 	s.stats = &state.Stats

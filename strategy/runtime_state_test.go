@@ -9,6 +9,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/position"
 )
 
@@ -17,6 +18,47 @@ type memoryRuntimeStateStore struct {
 	payload string
 	found   bool
 	err     error
+}
+
+type martingaleCloseReconcileExchange struct {
+	*hedgeExchange
+	order *exchange.Order
+	fills []*exchange.OrderFill
+}
+
+type martingaleCloseOpenOnlyExchange struct {
+	*hedgeExchange
+	orders []*exchange.Order
+}
+
+func (e *martingaleCloseOpenOnlyExchange) GetOpenOrders(context.Context, string) (interface{}, error) {
+	return e.orders, nil
+}
+
+type martingaleCloseIntentExecutor struct {
+	hedgeOrderExecutor
+	store *memoryRuntimeStateStore
+	calls int
+}
+
+func (e *martingaleCloseIntentExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
+	e.calls++
+	var state martingaleRuntimeState
+	if err := json.Unmarshal([]byte(e.store.payload), &state); err != nil {
+		return nil, err
+	}
+	if req.ClientOrderID == "" || state.CloseClientOrderID != req.ClientOrderID || state.CloseRequestedQty != req.Quantity || state.CloseReason == "" {
+		return nil, errors.New("close identity was not durably persisted before submission")
+	}
+	return nil, execution.ErrOrderUnknown
+}
+
+func (e *martingaleCloseReconcileExchange) GetOrderByClientOrderID(context.Context, string, string) (*exchange.Order, error) {
+	return e.order, nil
+}
+
+func (e *martingaleCloseReconcileExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
+	return e.fills, nil
 }
 
 func setTestRuntimeStateStore(t *testing.T, strategy interface{ SetRuntimeStateStore(RuntimeStateStore) }) {
@@ -203,6 +245,106 @@ func TestMartingaleRuntimeStateRejectsInconsistentCloseProgress(t *testing.T) {
 				t.Fatal("martingale entered running state despite inconsistent close state")
 			}
 		})
+	}
+}
+
+func TestMartingaleStartReconcilesPersistedCloseCIDAndFills(t *testing.T) {
+	state := martingaleRuntimeState{
+		StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries:  []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+		TotalQty: 1, TotalCost: 100, AvgEntryPrice: 100,
+		CloseClientOrderID: "close-intent-1", CloseReason: "止损", CloseRequestedQty: 1,
+	}
+	ex := &martingaleCloseReconcileExchange{
+		hedgeExchange: &hedgeExchange{},
+		order: &exchange.Order{OrderID: 77, ClientOrderID: "close-intent-1", Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 1, ExecutedQty: 0.4, AvgPrice: 110, Status: exchange.OrderStatusPartiallyFilled},
+		fills: []*exchange.OrderFill{{OrderID: 77, TradeID: "trade-1", Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Price: 110, Quantity: 0.4, Commission: 0.01, CommissionAsset: "USDT"}},
+	}
+	executor := &hedgeOrderExecutor{}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, ex, nil)
+	state.BotID = martin.effectiveBotID()
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	martin.SetRuntimeStateStore(store)
+	if err := martin.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !martin.isClosing || martin.closeOrderID != 77 || martin.closeClientOrderID != "close-intent-1" ||
+		math.Abs(martin.closeProgress.Quantity-0.4) > 1e-9 || math.Abs(martin.totalQty-0.6) > 1e-9 || math.Abs(martin.stats.TotalPnL-3.99) > 1e-9 {
+		t.Fatalf("close order/fill was not reconciled: closing=%v id=%d cid=%s progress=%+v qty=%v pnl=%v",
+			martin.isClosing, martin.closeOrderID, martin.closeClientOrderID, martin.closeProgress, martin.totalQty, martin.stats.TotalPnL)
+	}
+	if len(executor.orders) != 0 {
+		t.Fatalf("reconciliation unexpectedly submitted %d new order(s)", len(executor.orders))
+	}
+}
+
+func TestMartingaleStartBlocksWhenPersistedCloseCIDIsNotFound(t *testing.T) {
+	state := martingaleRuntimeState{
+		StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries:  []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+		TotalQty: 1, TotalCost: 100, AvgEntryPrice: 100,
+		CloseClientOrderID: "uncertain-close", CloseReason: "止损", CloseRequestedQty: 1,
+	}
+	ex := &martingaleCloseReconcileExchange{hedgeExchange: &hedgeExchange{}}
+	executor := &hedgeOrderExecutor{}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, ex, nil)
+	state.BotID = martin.effectiveBotID()
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	martin.SetRuntimeStateStore(store)
+	if err := martin.Start(context.Background()); err == nil {
+		t.Fatal("strategy started although order lookup returned no evidence")
+	}
+	if martin.IsRunning() || len(executor.orders) != 0 {
+		t.Fatalf("uncertain close was retried or strategy started: running=%v orders=%d", martin.IsRunning(), len(executor.orders))
+	}
+}
+
+func TestMartingaleCloseLookupFallsBackToExactOpenOrderCID(t *testing.T) {
+	ex := &martingaleCloseOpenOnlyExchange{
+		hedgeExchange: &hedgeExchange{},
+		orders: []*exchange.Order{{OrderID: 81, ClientOrderID: "open-close-cid", Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 1, Status: exchange.OrderStatusNew}},
+	}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	order, err := martin.lookupCloseOrder(context.Background(), "BTCUSDT", "open-close-cid")
+	if err != nil || order == nil || order.OrderID != 81 {
+		t.Fatalf("open-order fallback result=%+v err=%v", order, err)
+	}
+}
+
+func TestMartingaleClosePersistsCIDBeforeSubmitAndBlocksRetriesWhenUnknown(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	executor := &martingaleCloseIntentExecutor{store: store}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	martin.SetRuntimeStateStore(store)
+	martin.isRunning = true
+	martin.entries = []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	martin.updateTotals()
+	martin.pendingCloseReason = "止损"
+	martin.mu.Lock()
+	err := martin.closeAllPositions(90, "止损")
+	martin.mu.Unlock()
+	if !errors.Is(err, execution.ErrOrderUnknown) {
+		t.Fatalf("uncertain submission error=%v want ErrOrderUnknown", err)
+	}
+	if martin.closeClientOrderID == "" || executor.calls != 1 {
+		t.Fatalf("durable close marker was not retained: cid=%q calls=%d", martin.closeClientOrderID, executor.calls)
+	}
+	if err := martin.onPrice(91, true); err == nil {
+		t.Fatal("new strategy decisions were not blocked while close submission was unresolved")
+	}
+	if executor.calls != 1 {
+		t.Fatalf("uncertain close was submitted again: calls=%d", executor.calls)
 	}
 }
 

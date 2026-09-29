@@ -83,6 +83,16 @@ func (w *ExchangeAdapterWrapper) GetOrder(ctx context.Context, symbol string, or
 	}, nil
 }
 
+// GetOrderByClientOrderID exposes the optional durable order lookup capability
+// through the position adapter without widening its base exchange interface.
+func (w *ExchangeAdapterWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	query, ok := w.exchange.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return nil, fmt.Errorf("exchange %s cannot query orders by ClientOrderID", w.exchange.GetName())
+	}
+	return query.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+}
+
 func (w *ExchangeAdapterWrapper) ConfirmCloseOrder(o *ExchangeOrder) error {
 	if w.observe == nil || !w.observe(&exchange.Order{OrderID: o.OrderID, ClientOrderID: o.ClientOrderID,
 		Symbol: o.Symbol, Side: exchange.Side(o.Side), Status: exchange.OrderStatus(o.Status), Quantity: o.Quantity, ExecutedQty: o.ExecutedQty, AvgPrice: o.AvgPrice}) {

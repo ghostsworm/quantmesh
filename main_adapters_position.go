@@ -66,6 +66,14 @@ func (a *positionExchangeAdapter) GetOrder(ctx context.Context, symbol string, o
 	return a.exchange.GetOrder(ctx, symbol, orderID)
 }
 
+func (a *positionExchangeAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	query, ok := a.exchange.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return nil, fmt.Errorf("exchange %s cannot query orders by ClientOrderID", a.exchange.GetName())
+	}
+	return query.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+}
+
 // GetOrderForReconciler 為對賬服務提供 GetOrder 方法（返回 *exchange.Order）
 func (a *positionExchangeAdapter) GetOrderForReconciler(ctx context.Context, symbol string, orderID int64) (*exchange.Order, error) {
 	return a.exchange.GetOrder(ctx, symbol, orderID)

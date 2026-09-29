@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -10,9 +11,11 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/indicators"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 // MartingaleStrategy 马丁格尔策略
@@ -50,6 +53,8 @@ type MartingaleStrategy struct {
 	isRunning          bool
 	isClosing          bool
 	closeOrderID       int64
+	closeClientOrderID string
+	closeReason        string
 	closeRequestedQty  float64
 	closeProgress      position.FillProgress
 	closeRealizedPnL   float64
@@ -322,6 +327,10 @@ func (s *MartingaleStrategy) Start(ctx context.Context) error {
 	if err := s.restoreRuntimeState(); err != nil {
 		return err
 	}
+	if err := s.reconcileCloseSubmission(ctx); err != nil {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: s.closeClientOrderID}, err.Error())
+		return fmt.Errorf("martingale close order reconciliation required: %w", err)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 
 	s.mu.Lock()
@@ -388,6 +397,9 @@ func (s *MartingaleStrategy) onPrice(price float64, allowOpening bool) error {
 	}
 	if s.runtimeStateErr != nil {
 		return fmt.Errorf("martingale runtime state is not durable; new decisions are paused: %w", s.runtimeStateErr)
+	}
+	if s.closeClientOrderID != "" && !s.isClosing {
+		return fmt.Errorf("martingale close order %s is awaiting exchange reconciliation; all strategy decisions are paused", s.closeClientOrderID)
 	}
 
 	// 更新價格历史
@@ -855,6 +867,9 @@ func (s *MartingaleStrategy) checkTakeProfitStopLoss(price float64) error {
 
 // closeAllPositions 平倉
 func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) error {
+	if s.closeClientOrderID != "" && !s.isClosing {
+		return fmt.Errorf("马丁平仓订单 %s 的提交结果尚未核实，拒绝再次提交", s.closeClientOrderID)
+	}
 	for _, entry := range s.entries {
 		if entry != nil && entry.Status == position.OrderStatusUnknown {
 			return fmt.Errorf("马丁策略无法确认入场订单 #%d 的最终成交，完成核账前拒绝自动平仓", entry.OrderID)
@@ -889,35 +904,66 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 	if !strings.Contains(reason, "止损") {
 		orderSource = "normal"
 	}
+	if s.closeClientOrderID == "" {
+		s.closeClientOrderID = utils.NewCompactOrderID()
+		s.closeRequestedQty = s.totalQty
+		pendingReason := s.pendingCloseReason
+		s.closeReason = pendingReason
+		s.pendingCloseReason = ""
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.closeClientOrderID = ""
+			s.closeReason = ""
+			s.closeRequestedQty = 0
+			s.pendingCloseReason = pendingReason
+			return fmt.Errorf("持久化马丁平仓提交身份失败，未提交订单: %w", err)
+		}
+	}
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         side,
-		Quantity:     s.totalQty,
-		Price:        price,
-		ReduceOnly:   true,
-		PositionSide: s.positionSide(),
-		PostOnly:     orderSource != "stop_loss",
-		OrderSource:  orderSource,
+		Symbol:        s.strategyCfg.Symbol,
+		Side:          side,
+		Quantity:      s.totalQty,
+		Price:         price,
+		ReduceOnly:    true,
+		PositionSide:  s.positionSide(),
+		PostOnly:      orderSource != "stop_loss",
+		OrderSource:   orderSource,
+		ClientOrderID: s.closeClientOrderID,
 	})
 
 	if err != nil {
+		if !errors.Is(err, execution.ErrOrderUnknown) {
+			clientOrderID, closeReason, requestedQty := s.closeClientOrderID, s.closeReason, s.closeRequestedQty
+			s.closeClientOrderID, s.closeReason, s.closeRequestedQty = "", "", 0
+			s.pendingCloseReason = closeReason
+			if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+				s.closeClientOrderID, s.closeReason, s.closeRequestedQty = clientOrderID, closeReason, requestedQty
+				s.pendingCloseReason = ""
+				return fmt.Errorf("马丁平倉被明確拒絕且回滾提交意圖失敗: submit=%v persist=%w", err, persistErr)
+			}
+			return fmt.Errorf("马丁策略 %s 平倉(%s)下單被明確拒絕: %w", s.name, reason, err)
+		}
 		logger.Error("❌ [%s] 平倉失败 (%s, 數量=%.6f, 價格=%.2f): %v", s.name, reason, s.totalQty, price, err)
-		return fmt.Errorf("马丁策略 %s 平倉(%s)下單失败: %w", s.name, reason, err)
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{ClientOrderID: s.closeClientOrderID}, "martingale close submission outcome is unknown")
+		return fmt.Errorf("马丁策略 %s 平倉(%s)提交結果待核實: %w", s.name, reason, err)
 	}
 	if order == nil {
 		logger.Debug("🔒 [%s] 平倉单被执行器跳过，等待下一轮", s.name)
 		return nil
 	}
+	if order.OrderID <= 0 || order.Quantity <= 0 || !finiteNumber(order.Quantity) || order.Quantity > s.closeRequestedQty+math.Max(entryQtyEpsilon, s.totalQty*1e-8) ||
+		order.ClientOrderID != "" && utils.RemoveBrokerPrefix(strings.ToLower(s.exchange.GetName()), order.ClientOrderID) != s.closeClientOrderID {
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: s.closeClientOrderID}, "martingale close acknowledgement does not match its durable submission identity")
+		return fmt.Errorf("martingale close acknowledgement conflicts with durable intent: %w", execution.ErrOrderUnknown)
+	}
 
 	s.isClosing = true
 	s.closeOrderID = order.OrderID
-	s.closeRequestedQty = s.totalQty
 	s.closeProgress = position.FillProgress{}
 	s.closeRealizedPnL = 0
 	s.pendingCloseReason = ""
 	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale close order accepted but runtime state persistence failed")
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: s.closeClientOrderID}, "martingale close order accepted but runtime state persistence failed")
 		return err
 	}
 	logger.Info("⏳ [%s] 平倉委託已提交 (%s): 订單ID=%d, 层數=%d；等待實際成交回報",
@@ -934,6 +980,8 @@ func (s *MartingaleStrategy) resetPositionState() {
 	s.currentLevel = 0
 	s.isClosing = false
 	s.closeOrderID = 0
+	s.closeClientOrderID = ""
+	s.closeReason = ""
 	s.closeRequestedQty = 0
 	s.closeProgress = position.FillProgress{}
 	s.closeRealizedPnL = 0
@@ -972,6 +1020,16 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 
 	if update == nil || update.OrderID == 0 {
 		return nil
+	}
+	exchangeName := ""
+	if s.exchange != nil {
+		exchangeName = strings.ToLower(s.exchange.GetName())
+	}
+	if !s.isClosing && s.closeClientOrderID != "" &&
+		utils.RemoveBrokerPrefix(exchangeName, update.ClientOrderID) == s.closeClientOrderID {
+		s.isClosing = true
+		s.closeOrderID = update.OrderID
+		s.pendingCloseReason = ""
 	}
 
 	if s.isClosing && update.OrderID == s.closeOrderID {
@@ -1029,6 +1087,10 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 			actualFilled = s.closeProgress.Quantity
 			s.recordCloseResult(s.closeRealizedPnL)
 		}
+		closeReason := ""
+		if terminal {
+			closeReason = s.closeReason
+		}
 		if deltaQty > 0 {
 			s.reduceAllEntries(deltaQty)
 		}
@@ -1037,9 +1099,14 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 				s.name, update.OrderID, update.Status, actualFilled, s.totalQty)
 			s.isClosing = false
 			s.closeOrderID = 0
+			s.closeClientOrderID = ""
+			s.closeReason = ""
 			s.closeRequestedQty = 0
 			s.closeProgress = position.FillProgress{}
 			s.closeRealizedPnL = 0
+			if s.totalQty > entryQtyEpsilon {
+				s.pendingCloseReason = closeReason
+			}
 		}
 		return s.persistRuntimeStateLocked()
 	}
