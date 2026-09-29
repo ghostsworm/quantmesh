@@ -173,13 +173,13 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 	}
 
 	fileConfigManager.mu.Lock()
-	defer fileConfigManager.mu.Unlock()
 
 	// 确保有最新配置
 	cfg := fileConfigManager.currentConfig
 	if cfg == nil {
 		loaded, err := loadConfigFromPrimaryDB()
 		if err != nil || loaded == nil {
+			fileConfigManager.mu.Unlock()
 			if err != nil {
 				return err
 			}
@@ -207,18 +207,19 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 		}
 	}
 	if !found {
+		fileConfigManager.mu.Unlock()
 		return fmt.Errorf("未找到交易對配置: %s:%s (market_type=%s)", exchange, symbol, mt)
 	}
 
 	if err := persistAppConfigToDB(cfg, "system", "symbol_enabled", ""); err != nil {
+		fileConfigManager.mu.Unlock()
 		return err
 	}
 
 	// 更新記憶體中的配置
 	fileConfigManager.currentConfig = cfg
-	if updater, ok := symbolManagerProvider.(EquityScopeConfigUpdater); ok {
-		updater.UpdateEquityScopeConfig(cfg)
-	}
+	fileConfigManager.mu.Unlock()
+	notifyEquityScopeConfigSync(cfg)
 
 	// 尝試热更新（失败不影响持久化）
 	if configHotReloader != nil {
