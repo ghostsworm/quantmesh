@@ -25,6 +25,94 @@ func testWalletFlow(id, kind, amount string, at time.Time) EquityCashFlow {
 	return EquityCashFlow{ID: id, Account: "a", ExactAmount: amount, Kind: kind, Currency: "USDT", Amount: f, At: at}
 }
 
+func TestEquityWalletCompactsReceiptsWithoutChangingLedgerTotals(t *testing.T) {
+	base := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	o := testWalletObservation(base, 0, "1000", 1000, time.Time{})
+	state, err := nextEquityCheckpoint(nil, o, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := base.Add(10 * time.Minute)
+	o = testWalletObservation(now, 0, "1389", 1380, state.BaseWallets["a"].From)
+	cutoff := o.Wallets["a"].Through.Add(-realizedCursorOverlap)
+	transfer := testWalletFlow("transfer", "transfer_in", "500", cutoff.Add(-time.Second))
+	loss := testWalletFlow("loss", "realized_pnl", "-100", cutoff.Add(-time.Second))
+	oldFee := testWalletFlow("old-fee", "fee", "-10", cutoff.Add(-time.Second))
+	recentFee := testWalletFlow("recent-fee", "fee", "-1", cutoff.Add(time.Second))
+	o.Flows = []EquityCashFlow{transfer, loss, oldFee, recentFee}
+	state, err = nextEquityCheckpoint(&state, o, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Receipts) != 1 || state.ExternalFlows != 500 || state.AdjustedEquity != 880 {
+		t.Fatalf("unexpected compacted checkpoint: receipts=%d external=%v adjusted=%v", len(state.Receipts), state.ExternalFlows, state.AdjustedEquity)
+	}
+	archive := state.ArchivedReceipts["a"]
+	if !archive.Through.Equal(cutoff) || archive.BalanceDelta != "390.000000000000000000" || archive.ExternalFlow != "500" {
+		t.Fatalf("unexpected archive summary: %+v", archive)
+	}
+
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored EquityCheckpoint
+	if err = json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if err = restored.validate(); err != nil {
+		t.Fatalf("restored archived checkpoint is invalid: %v", err)
+	}
+
+	now = now.Add(10 * time.Minute)
+	o = testWalletObservation(now, 0, "1287", 1275, restored.BaseWallets["a"].From)
+	withdrawal := testWalletFlow("withdrawal", "transfer_out", "-100", o.Wallets["a"].Through.Add(-2*time.Second))
+	newFee := testWalletFlow("new-fee", "fee", "-2", o.Wallets["a"].Through.Add(-time.Second))
+	o.Flows = []EquityCashFlow{recentFee, withdrawal, newFee}
+	state, err = nextEquityCheckpoint(&restored, o, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Receipts) != 2 || state.ExternalFlows != 400 || state.AdjustedEquity != 875 || state.ArchivedReceipts["a"].BalanceDelta != "389.000000000000000000" {
+		t.Fatalf("archive did not preserve bounded overlap: %+v", state)
+	}
+
+	now = now.Add(10 * time.Minute)
+	o = testWalletObservation(now, 0, "1287", 1275, restored.BaseWallets["a"].From)
+	o.Flows = []EquityCashFlow{withdrawal, newFee}
+	state, err = nextEquityCheckpoint(&state, o, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Receipts) != 0 || state.ExternalFlows != 400 || state.AdjustedEquity != 875 || state.ArchivedReceipts["a"].BalanceDelta != "287.000000000000000000" {
+		t.Fatalf("archive failed to roll forward: %+v", state)
+	}
+}
+
+func TestEquityWalletRejectsLateReceiptBeforeArchiveWatermark(t *testing.T) {
+	base := time.Date(2026, 9, 30, 0, 0, 0, 0, time.UTC)
+	o := testWalletObservation(base, 0, "1000", 1000, time.Time{})
+	state, err := nextEquityCheckpoint(nil, o, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(10 * time.Minute)
+	o = testWalletObservation(now, 0, "1000", 1000, state.BaseWallets["a"].From)
+	state, err = nextEquityCheckpoint(&state, o, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(time.Minute)
+	o = testWalletObservation(now, 0, "1000", 1000, state.BaseWallets["a"].From)
+	late := testWalletFlow("late", "fee", "0", state.ArchivedReceipts["a"].Through.Add(-time.Second))
+	o.Flows = []EquityCashFlow{late}
+	if _, err = nextEquityCheckpoint(&state, o, now, time.Time{}, time.Minute, true); err == nil {
+		t.Fatal("late receipt before compacted watermark was accepted")
+	}
+}
+
 func TestEquityWalletExactReconciliationAndRestart(t *testing.T) {
 	for _, skew := range []time.Duration{-time.Second, time.Second} {
 		t.Run(skew.String(), func(t *testing.T) {
@@ -41,9 +129,9 @@ func TestEquityWalletExactReconciliationAndRestart(t *testing.T) {
 			deposit := testWalletFlow("deposit", "transfer_in", "500", o.Wallets["a"].Through.Add(-2*time.Second))
 			loss := testWalletFlow("loss", "realized_pnl", "-100", o.Wallets["a"].Through.Add(-time.Second))
 			fee := testWalletFlow("fee", "fee", "-10", o.Wallets["a"].Through)
-			o.Flows = []EquityCashFlow{oldFee, deposit, fee, loss, deposit}
+			o.Flows = []EquityCashFlow{deposit, fee, loss, deposit}
 			s, err = nextEquityCheckpoint(&s, o, now, time.Time{}, time.Minute, true)
-			if err != nil || s.ExternalFlows != 500 || s.AdjustedEquity != 880 || s.DrawdownPct != 12 || len(s.Receipts) != 4 {
+			if err != nil || s.ExternalFlows != 500 || s.AdjustedEquity != 880 || s.DrawdownPct != 12 || len(s.Receipts) != 3 {
 				t.Fatalf("wallet checkpoint=%+v err=%v", s, err)
 			}
 			encoded, err := json.Marshal(s)
@@ -57,7 +145,7 @@ func TestEquityWalletExactReconciliationAndRestart(t *testing.T) {
 			now = now.Add(time.Minute)
 			o = testWalletObservation(now, skew, "1090", 1080, restored.BaseWallets["a"].From)
 			withdraw := testWalletFlow("withdraw", "transfer_out", "-300", o.Wallets["a"].Through)
-			o.Flows = []EquityCashFlow{oldFee, deposit, fee, loss, withdraw}
+			o.Flows = []EquityCashFlow{deposit, fee, loss, withdraw}
 			next, err := nextEquityCheckpoint(&restored, o, now, time.Time{}, time.Minute, true)
 			if err != nil || next.DrawdownPct != 12 || next.ExternalFlows != 200 || next.HighWater != 1000 {
 				t.Fatalf("restart/withdrawal=%+v err=%v", next, err)
@@ -69,17 +157,23 @@ func TestEquityWalletExactReconciliationAndRestart(t *testing.T) {
 func TestEquityWalletRejectsIncompleteOrConflictingProof(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	o := testWalletObservation(base, 0, "1000", 1000, time.Time{})
+	previous, err := nextEquityCheckpoint(nil, o, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstUpdate := base.Add(10 * time.Minute)
+	o = testWalletObservation(firstUpdate, 0, "999", 999, previous.BaseWallets["a"].From)
 	old := testWalletFlow("prior-fee", "fee", "-1", o.Wallets["a"].Through.Add(-time.Second))
 	o.Flows = []EquityCashFlow{old}
-	previous, err := nextEquityCheckpoint(nil, o, base, time.Time{}, time.Minute, true)
+	previous, err = nextEquityCheckpoint(&previous, o, firstUpdate, time.Time{}, time.Minute, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	before, _ := json.Marshal(previous)
 	for _, name := range []string{"missing_new_fee", "missing_old", "changed_old", "late_unseen", "duplicate_conflict", "wrong_account", "wrong_exact", "wrong_currency", "missing_exact", "future_receipt", "coverage_gap", "reversed_coverage", "raw_downgrade", "account_changed", "account_added", "cursor_regressed", "bad_clock", "capture_identity", "future_capture", "unclassified", "invalid_amount", "incomplete"} {
 		t.Run(name, func(t *testing.T) {
-			now := base.Add(time.Minute)
-			o := testWalletObservation(now, 0, "990", 990, previous.BaseWallets["a"].From)
+			now := firstUpdate.Add(time.Minute)
+			o := testWalletObservation(now, 0, "989", 989, previous.BaseWallets["a"].From)
 			fee := testWalletFlow("fee", "fee", "-10", o.Wallets["a"].Through)
 			o.Flows = []EquityCashFlow{old, fee}
 			wallet := o.Wallets["a"]

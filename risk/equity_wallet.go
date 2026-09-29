@@ -9,6 +9,8 @@ import (
 	"quantmesh/exchange/accounting"
 )
 
+const maxRetainedEquityReceipts = 10000
+
 func walletCurrency(w accounting.Wallet, fallback string) string {
 	if w.Currency != "" {
 		return w.Currency
@@ -130,6 +132,23 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		return 0, fmt.Errorf("wallet checkpoint observation identity changed")
 	}
 	external := new(big.Rat)
+	for account, archived := range s.ArchivedReceipts {
+		wallet, ok := s.Wallets[account]
+		base, baseOK := s.BaseWallets[account]
+		if !ok || !baseOK || archived.Through.IsZero() || archived.Through.Before(base.Through) || archived.Through.After(wallet.Through) {
+			return 0, fmt.Errorf("invalid archived equity receipt watermark")
+		}
+		balanceDelta, err := accounting.Decimal(archived.BalanceDelta)
+		if err != nil {
+			return 0, fmt.Errorf("invalid archived wallet delta")
+		}
+		archivedExternal, ok := new(big.Rat).SetString(archived.ExternalFlow)
+		if !ok {
+			return 0, fmt.Errorf("invalid archived external capital")
+		}
+		sums[account].Add(sums[account], balanceDelta)
+		external.Add(external, archivedExternal)
+	}
 	for id, flow := range s.Receipts {
 		wallet, ok := s.Wallets[flow.Account]
 		base := s.BaseWallets[flow.Account]
@@ -137,6 +156,9 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 			return 0, fmt.Errorf("wallet receipt outside account coverage")
 		}
 		walletCurrency := walletCurrency(wallet, s.Currency)
+		if archived, ok := s.ArchivedReceipts[flow.Account]; ok && flow.At.Before(archived.Through) {
+			return 0, fmt.Errorf("wallet receipt overlaps compacted ledger history")
+		}
 		amount, err := exactFlow(flow, s.Currency, walletCurrency)
 		if err != nil {
 			return 0, err
@@ -257,6 +279,7 @@ func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation,
 			for id, receipt := range previous.Receipts {
 				s.Receipts[id] = receipt
 			}
+			s.ArchivedReceipts = cloneArchivedEquityReceipts(previous.ArchivedReceipts)
 			if o.ObservedAt.Equal(previous.LastAt) && o.Equity != previous.LastEquity {
 				return s, fmt.Errorf("equity changed without new observation")
 			}
@@ -291,11 +314,17 @@ func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation,
 			return s, fmt.Errorf("conflicting wallet receipt identity")
 		}
 		observed[flow.ID] = flow
+		if !flow.At.After(s.BaseWallets[flow.Account].Through) {
+			continue
+		}
 		if old, ok := s.Receipts[flow.ID]; ok {
 			if !sameWalletReceipt(old, flow) {
 				return s, fmt.Errorf("durable wallet receipt changed; reconciliation required")
 			}
 			continue
+		}
+		if archived, ok := s.ArchivedReceipts[flow.Account]; ok && flow.At.Before(archived.Through) {
+			return s, fmt.Errorf("late wallet receipt predates compacted ledger history; reconciliation required")
 		}
 		if !baseline && !flow.At.After(previous.Wallets[flow.Account].Through) {
 			return s, fmt.Errorf("late wallet receipt requires historical reconciliation")
@@ -312,9 +341,79 @@ func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation,
 		}
 	}
 	s.LastAt = o.ObservedAt
+	if !baseline {
+		if err := compactWalletReceipts(&s); err != nil {
+			return s, err
+		}
+	}
 	s.ExternalFlows, err = s.walletLedgerTotal()
 	if err != nil {
 		return s, err
 	}
 	return finishEquityCheckpoint(s, o)
+}
+
+func cloneArchivedEquityReceipts(archived map[string]ArchivedEquityReceipts) map[string]ArchivedEquityReceipts {
+	copy := make(map[string]ArchivedEquityReceipts, len(archived))
+	for account, summary := range archived {
+		copy[account] = summary
+	}
+	return copy
+}
+
+func compactWalletReceipts(s *EquityCheckpoint) error {
+	if s.ArchivedReceipts == nil {
+		s.ArchivedReceipts = make(map[string]ArchivedEquityReceipts, len(s.Wallets))
+	}
+	for account, wallet := range s.Wallets {
+		base, ok := s.BaseWallets[account]
+		if !ok {
+			return fmt.Errorf("cannot compact an unknown wallet")
+		}
+		cutoff := maxTime(base.Through, wallet.Through.Add(-realizedCursorOverlap))
+		archived, exists := s.ArchivedReceipts[account]
+		balanceDelta := new(big.Rat)
+		externalFlow := new(big.Rat)
+		if exists {
+			parsedDelta, err := accounting.Decimal(archived.BalanceDelta)
+			if err != nil {
+				return err
+			}
+			balanceDelta.Set(parsedDelta)
+			if _, ok := externalFlow.SetString(archived.ExternalFlow); !ok {
+				return fmt.Errorf("invalid archived external capital")
+			}
+		}
+		for id, flow := range s.Receipts {
+			if flow.Account != account || !flow.At.Before(cutoff) {
+				continue
+			}
+			if flow.At.After(base.Through) {
+				amount, err := accounting.Decimal(flow.ExactAmount)
+				if err != nil {
+					return err
+				}
+				balanceDelta.Add(balanceDelta, amount)
+				switch flow.Kind {
+				case "deposit", "withdrawal", "transfer_in", "transfer_out":
+					valued, err := exactValuedFlow(flow)
+					if err != nil {
+						return err
+					}
+					externalFlow.Add(externalFlow, valued)
+				}
+			}
+			delete(s.Receipts, id)
+		}
+		through := maxTime(archived.Through, cutoff)
+		s.ArchivedReceipts[account] = ArchivedEquityReceipts{
+			Through:      through,
+			BalanceDelta: balanceDelta.FloatString(18),
+			ExternalFlow: externalFlow.RatString(),
+		}
+	}
+	if len(s.Receipts) > maxRetainedEquityReceipts {
+		return fmt.Errorf("equity ledger overlap exceeds retained receipt safety limit")
+	}
+	return nil
 }

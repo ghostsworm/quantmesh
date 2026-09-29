@@ -29,6 +29,16 @@ type EquityCashFlow struct {
 	At              time.Time `json:"at"`
 }
 
+// ArchivedEquityReceipts keeps exact wallet deltas and capital-flow totals
+// after individual receipts age beyond the exchange cursor-overlap window.
+// Through is an exclusive watermark: an unseen receipt strictly before it
+// requires historical reconciliation.
+type ArchivedEquityReceipts struct {
+	Through      time.Time `json:"through"`
+	BalanceDelta string    `json:"balance_delta"`
+	ExternalFlow string    `json:"external_flow"`
+}
+
 // EquityObservation must refer to one stable account/market/valuation scope.
 // Complete asserts all requested ledger pages were read. With Wallets, cursors
 // are per-wallet exchange time and the checkpoint additionally reconciles exact
@@ -63,22 +73,23 @@ type ReconciledEquitySource interface {
 // A reset is explicit (MetricsResetMarks.All), never inferred from restart,
 // account membership change, corrupt data, or a failed database read.
 type EquityCheckpoint struct {
-	Version          int                          `json:"version"`
-	Revision         int64                        `json:"revision"`
-	Scope            string                       `json:"scope"`
-	Currency         string                       `json:"currency"`
-	CashFlowAdjusted bool                         `json:"cash_flow_adjusted"`
-	BaseAt           time.Time                    `json:"base_at"`
-	ResetAt          time.Time                    `json:"reset_at"`
-	LastAt           time.Time                    `json:"last_at"`
-	LastEquity       float64                      `json:"last_equity"`
-	ExternalFlows    float64                      `json:"external_flows"`
-	AdjustedEquity   float64                      `json:"adjusted_equity"`
-	HighWater        float64                      `json:"high_water"`
-	DrawdownPct      float64                      `json:"drawdown_pct"`
-	Receipts         map[string]EquityCashFlow    `json:"receipts"`
-	BaseWallets      map[string]accounting.Wallet `json:"base_wallets,omitempty"`
-	Wallets          map[string]accounting.Wallet `json:"wallets,omitempty"`
+	Version          int                               `json:"version"`
+	Revision         int64                             `json:"revision"`
+	Scope            string                            `json:"scope"`
+	Currency         string                            `json:"currency"`
+	CashFlowAdjusted bool                              `json:"cash_flow_adjusted"`
+	BaseAt           time.Time                         `json:"base_at"`
+	ResetAt          time.Time                         `json:"reset_at"`
+	LastAt           time.Time                         `json:"last_at"`
+	LastEquity       float64                           `json:"last_equity"`
+	ExternalFlows    float64                           `json:"external_flows"`
+	AdjustedEquity   float64                           `json:"adjusted_equity"`
+	HighWater        float64                           `json:"high_water"`
+	DrawdownPct      float64                           `json:"drawdown_pct"`
+	Receipts         map[string]EquityCashFlow         `json:"receipts"`
+	ArchivedReceipts map[string]ArchivedEquityReceipts `json:"archived_receipts,omitempty"`
+	BaseWallets      map[string]accounting.Wallet      `json:"base_wallets,omitempty"`
+	Wallets          map[string]accounting.Wallet      `json:"wallets,omitempty"`
 }
 
 // EquityStateStore returns nil only for a confirmed absent record. Save must
@@ -105,7 +116,7 @@ func (s EquityCheckpoint) validate() error {
 	if !equityNumbersEqual(s.AdjustedEquity, s.LastEquity-s.ExternalFlows) || !equityNumbersEqual(s.DrawdownPct, (s.HighWater-s.AdjustedEquity)/s.HighWater*percentMultiplier) {
 		return fmt.Errorf("inconsistent equity checkpoint calculation")
 	}
-	if len(s.Wallets) > 0 || len(s.BaseWallets) > 0 {
+	if len(s.Wallets) > 0 || len(s.BaseWallets) > 0 || len(s.ArchivedReceipts) > 0 {
 		external, err := s.walletLedgerTotal()
 		if err != nil {
 			return err
