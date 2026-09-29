@@ -2283,3 +2283,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - `Position` 增加方向字段并由 Binance、Bybit、OKX 适配器及 wrapper 保留；Bybit positionIdx 映射到 NET/LONG/SHORT，单向模式按 `side` 还原 signed size，拒绝无效方向和数量（依据 [Bybit V5 Position Info](https://bybit-exchange.github.io/docs/v5/position)）。
 - Reconciler 对 BOTH 要求交易所同时提供 LONG/SHORT 两行（包括零仓腿）且各腿分别与本地 `PositionLeg` 一致；同 gross 但多空分布不同、净仓证据、缺腿或本地缺腿均失败关闭，绝不将腿差额互相抵消或按净值改槽位。
 - 定向对账与适配器测试重复 10 轮、`-race` 对账测试重复 10 轮，`go test ./safety ./exchange/binance ./exchange/bybit ./exchange/okx -count=1`、`go vet` 四个对应包和 `git diff --check` 均通过。交易所返回零仓腿的真实适配器行为仍须按环境/API 集成验证；未提供完整逐腿 ForceSync（任何腿偏差继续封锁），未连接真实账户或下单。跨重启经济恢复、账户额度和盈利证据仍未闭合。
+
+## 后续续修：双向模式禁止毛额强制同步（3.111.0-rc447，2026-09-30）
+
+- 复核发现通用 `ForceSyncPositions(float64)` 仍对外暴露总量同步入口；即使当前 Reconciler 对 BOTH 腿差异失败关闭，后续调用方仍可能把同毛额的错腿快照传入，并按总量修改局部槽位。
+- 该接口现在在任何修改前拒绝 BOTH 模式；新增 LONG/SHORT 两腿分别持有且毛额同步输入试图扩仓的回归，断言拒绝且两腿槽位数量与身份均不变。逐腿修复/恢复接口仍未实现，因此错腿会保持门控等待人工核验。
+- 尚未运行本轮测试；未连接真实账户、未下单或部署。双向逐腿自动恢复、跨重启经济恢复、账户级额度和盈利证据仍未闭合。

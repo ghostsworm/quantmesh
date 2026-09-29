@@ -629,6 +629,9 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 	if math.IsNaN(exchangePosition) || math.IsInf(exchangePosition, 0) || exchangePosition < 0 {
 		return fmt.Errorf("交易所持仓数量无效: %v", exchangePosition)
 	}
+	if spm.isBoth() {
+		return fmt.Errorf("双向模式拒绝按总持仓同步；必须提供并核验 LONG/SHORT 两腿快照")
+	}
 	defer spm.refreshCostBasisOpeningGate()
 	const syncQuantityTolerance = 0.00000001
 	if _, err := spm.reconciliationPositionTotal(); err != nil {

@@ -89,6 +89,33 @@ func TestForceSyncPositionsPreservesSubMicroInventoryAboveFlatTolerance(t *testi
 	}
 }
 
+func TestForceSyncPositionsRejectsGrossOnlySnapshotInBothModeWithoutMutation(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.Direction = "BOTH"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.ProfitSpread = 50
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 4)
+	spm.setAnchorPrice(1000)
+	long := spm.getOrCreateSlot(900)
+	long.PositionStatus, long.PositionQty, long.PositionLeg = PositionStatusFilled, 0.4, PositionLegLong
+	short := spm.getOrCreateSlot(1100)
+	short.PositionStatus, short.PositionQty, short.PositionLeg = PositionStatusFilled, 0.6, PositionLegShort
+
+	if err := spm.ForceSyncPositions(1.5); err == nil {
+		t.Fatal("ForceSyncPositions() accepted a gross-only snapshot in BOTH mode")
+	}
+	if long.PositionStatus != PositionStatusFilled || long.PositionQty != 0.4 || long.PositionLeg != PositionLegLong {
+		t.Fatalf("rejected sync mutated LONG slot: %#v", long)
+	}
+	if short.PositionStatus != PositionStatusFilled || short.PositionQty != 0.6 || short.PositionLeg != PositionLegShort {
+		t.Fatalf("rejected sync mutated SHORT slot: %#v", short)
+	}
+}
+
 func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"
