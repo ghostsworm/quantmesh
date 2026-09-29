@@ -1149,7 +1149,7 @@ func (s *DCAEnhancedStrategy) recordCloseStats(pnl, volume float64) {
 }
 
 // saveCloseTrade 保存平倉交易記錄
-func (s *DCAEnhancedStrategy) saveCloseTrade(executionKey string, sellOrderID int64, avgBuyPrice, orderPrice, qty, pnl, fee, exchangePnL float64, feeAsset string) bool {
+func (s *DCAEnhancedStrategy) saveCloseTrade(executionKey string, sellOrderID int64, avgBuyPrice, orderPrice, qty, pnl, fee, exchangePnL float64) bool {
 	if s.tradeStorage == nil {
 		logger.Error("[%s] 成交账本未配置，拒绝确认 DCA 平仓成交", s.name)
 		return false
@@ -1172,11 +1172,16 @@ func (s *DCAEnhancedStrategy) saveCloseTrade(executionKey string, sellOrderID in
 		logger.Error("[%s] 成交账本不支持幂等写入，拒绝确认 DCA 平仓成交", s.name)
 		return false
 	}
+	pnlAsset := strings.ToUpper(strings.TrimSpace(s.exchange.GetQuoteAsset()))
+	if pnlAsset == "" {
+		logger.Error("[%s] 计价币缺失，拒绝写入 DCA 平仓成交", s.name)
+		return false
+	}
 	err = idempotent.SaveTradeIdempotent(&storage.Trade{
 		ExecutionKey: executionKey, BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: s.effectiveBotID(),
-		Exchange: exchangeName, MarketType: marketType, PnLAsset: strings.ToUpper(strings.TrimSpace(s.exchange.GetQuoteAsset())), Symbol: s.strategyCfg.Symbol,
+		Exchange: exchangeName, MarketType: marketType, PnLAsset: pnlAsset, Symbol: s.strategyCfg.Symbol,
 		BuyPrice: avgBuyPrice, SellPrice: orderPrice, Quantity: qty, PnL: pnl, ExchangePnL: exchangePnL,
-		Fee: fee, FeeAsset: feeAsset, CreatedAt: time.Now(),
+		Fee: fee, FeeAsset: pnlAsset, CreatedAt: time.Now(),
 	})
 
 	if err != nil {

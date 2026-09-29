@@ -265,6 +265,7 @@ func TestSignalClientIDsConcurrentAndBrokerSafe(t *testing.T) {
 
 type dcaFillRecorder struct {
 	pnls, fees []float64
+	feeAssets  []string
 	failures   int
 	keys       map[string]bool
 }
@@ -284,14 +285,39 @@ func (r *dcaFillRecorder) SaveTradeIdempotent(trade *storage.Trade) error {
 	return nil
 }
 
-func (r *dcaFillRecorder) SaveTrade(_, _ int64, _, _ string, _, _, _, pnl, fee float64, _ string, _ time.Time, _ string) error {
+func (r *dcaFillRecorder) SaveTrade(_, _ int64, _, _ string, _, _, _, pnl, fee float64, feeAsset string, _ time.Time, _ string) error {
 	if r.failures > 0 {
 		r.failures--
 		return errors.New("injected trade ledger failure")
 	}
 	r.pnls = append(r.pnls, pnl)
 	r.fees = append(r.fees, fee)
+	r.feeAssets = append(r.feeAssets, feeAsset)
 	return nil
+}
+
+func TestDCACloseRecordsConvertedBaseFeeInQuoteAsset(t *testing.T) {
+	s := newR3DCA(t, &hedgeOrderExecutor{}, nil)
+	defer s.Stop()
+	s.layers = []*DCALayer{{Price: 100, Quantity: 1, Cost: 100, OpeningFee: 0.2, Status: entryStatusFilled}}
+	s.updateTotals()
+	recorder := &dcaFillRecorder{}
+	s.SetTradeStorage(recorder)
+	if err := s.closeAllPositions(110, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: s.closeOrderID, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 110,
+		Commission: 0.001, CommissionAsset: "BTC",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(recorder.fees) != 1 || math.Abs(recorder.fees[0]-0.31) > 1e-9 {
+		t.Fatalf("converted quote fee=%v, want 0.31", recorder.fees)
+	}
+	if len(recorder.feeAssets) != 1 || recorder.feeAssets[0] != "USDT" {
+		t.Fatalf("fee asset=%v, want USDT for quote-denominated fee", recorder.feeAssets)
+	}
 }
 
 func TestDCACloseLedgerFailureRetainsFillForRetry(t *testing.T) {

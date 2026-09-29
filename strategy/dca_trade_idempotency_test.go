@@ -29,7 +29,7 @@ func TestDCACloseRequiresIdempotentTradeStorage(t *testing.T) {
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", nil, nil, &hedgeExchange{}, nil)
 	legacy := &dcaLegacyOnlyTradeStorage{}
 	strategy.tradeStorage = legacy
-	if strategy.saveCloseTrade("execution-1", 42, 100, 110, 1, 10, 0.1, 9.9, "USDT") {
+	if strategy.saveCloseTrade("execution-1", 42, 100, 110, 1, 10, 0.1, 9.9) {
 		t.Fatal("non-idempotent ledger must not confirm a close")
 	}
 	if legacy.calls != 0 {
@@ -41,7 +41,7 @@ func TestDCACloseWritesStableExecutionIdentityIdempotently(t *testing.T) {
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", nil, nil, &hedgeExchange{}, nil)
 	ledger := &dcaIdempotentTradeStorage{}
 	strategy.tradeStorage = ledger
-	if !strategy.saveCloseTrade("execution-2", 43, 100, 110, 1, 10, 0.1, 9.9, "USDT") {
+	if !strategy.saveCloseTrade("execution-2", 43, 100, 110, 1, 10, 0.1, 9.9) {
 		t.Fatal("idempotent ledger should confirm a saved close")
 	}
 	if ledger.trade == nil || ledger.trade.ExecutionKey != "execution-2" || ledger.trade.SellOrderID != 43 {

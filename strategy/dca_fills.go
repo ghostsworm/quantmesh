@@ -73,7 +73,7 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 			fee := openingFee*closed/available + closeFee
 			pnl := closed * (price - entryPrice)
 			executionKey := dcaFillExecutionKey(s, update.OrderID, nextProgress.Quantity)
-			if !s.saveCloseTrade(executionKey, update.OrderID, entryPrice, price, closed, pnl, fee, update.RealizedPnL, update.CommissionAsset) {
+			if !s.saveCloseTrade(executionKey, update.OrderID, entryPrice, price, closed, pnl, fee, update.RealizedPnL) {
 				s.requireDCAOrderReconciliation(update, "DCA trade ledger persistence failed")
 				return
 			}
