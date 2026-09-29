@@ -1,6 +1,9 @@
 package exchange
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // PermissionChecker API 权限检测接口
 type PermissionChecker interface {
@@ -66,17 +69,22 @@ func (p *APIPermissions) CalculateSecurityScore() {
 
 // IsSecure 判断 API 密钥是否安全（用於交易）
 func (p *APIPermissions) IsSecure() bool {
-	// 不能有提現权限
-	if p.CanWithdraw {
-		return false
-	}
+	return p.ValidateForTrading() == nil
+}
 
-	// 必須有交易权限
+// ValidateForTrading refuses missing evidence, disabled trade access and any
+// permission capable of moving assets out of the trading account.
+func (p *APIPermissions) ValidateForTrading() error {
+	if p == nil {
+		return fmt.Errorf("API permissions were not returned")
+	}
 	if !p.CanTrade {
-		return false
+		return fmt.Errorf("API key does not have verified trading permission")
 	}
-
-	return true
+	if p.CanWithdraw || p.CanTransfer {
+		return fmt.Errorf("API key can withdraw or transfer assets")
+	}
+	return nil
 }
 
 // GetWarnings 獲取安全警告列表

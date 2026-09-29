@@ -35,7 +35,7 @@ func CheckExchangePermissions(ctx context.Context, ex exchange.IExchange, exchan
 	checker, ok := ex.(exchange.PermissionChecker)
 	if !ok {
 		result.ErrorMessage = "該交易所暫不支援权限检测"
-		result.IsSecure = true // 假設安全，不阻止啟动
+		result.IsSecure = false
 		logger.Warn("⚠️ [%s] 不支援 API 权限检测接口", exchangeName)
 		return result
 	}
@@ -44,12 +44,17 @@ func CheckExchangePermissions(ctx context.Context, ex exchange.IExchange, exchan
 	permissions, err := checker.CheckAPIPermissions(ctx)
 	if err != nil {
 		result.ErrorMessage = fmt.Sprintf("权限检测失败: %v", err)
-		result.IsSecure = true // 检测失败不阻止啟动
+		result.IsSecure = false
 		logger.Error("❌ [%s] API 权限检测失败: %v", exchangeName, err)
 		return result
 	}
 
 	result.Permissions = permissions
+	if permissions == nil {
+		result.ErrorMessage = "权限检测未返回结果"
+		result.IsSecure = false
+		return result
+	}
 	result.IsSecure = permissions.IsSecure()
 	result.Warnings = permissions.GetWarnings()
 
@@ -115,12 +120,14 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 
 	hasHighRisk := false
 	hasMediumRisk := false
+	allVerifiedSecure := true
 
 	for i, result := range results {
 		report += fmt.Sprintf("%d. 交易所: %s (%s)\n", i+1, result.Exchange, result.Symbol)
 		report += fmt.Sprintf("   检测時间: %s\n", result.CheckTime.Format("2006-01-02 15:04:05"))
 
 		if result.ErrorMessage != "" {
+			allVerifiedSecure = false
 			report += fmt.Sprintf("   ❌ 錯误: %s\n", result.ErrorMessage)
 		} else if result.Permissions != nil {
 			p := result.Permissions
@@ -148,13 +155,20 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 			if result.IsSecure {
 				report += "   ✅ 状態: 安全\n"
 			} else {
+				allVerifiedSecure = false
 				report += "   🚨 状態: 存在安全风險\n"
 			}
+		} else {
+			allVerifiedSecure = false
+			report += "   ⚠️ 状態: 权限未核实\n"
 		}
 		report += "\n"
 	}
 
 	report += "═══════════════════════════════════════════════════════════════\n"
+	if !allVerifiedSecure {
+		report += "⚠️ 存在权限未核实或不安全的 API 密钥；不得将此报告视为安全通过\n"
+	}
 
 	if hasHighRisk {
 		report += "🚨 警告: 检测到高风險 API 密钥！\n"
@@ -168,7 +182,7 @@ func FormatPermissionReport(results []*PermissionCheckResult) string {
 		report += "   建议:\n"
 		report += "   1. 啟用 IP 白名單限制以提高安全性\n"
 		report += "   2. 定期检查 API 密钥使用情况\n"
-	} else {
+	} else if allVerifiedSecure {
 		report += "✅ 所有 API 密钥安全检测通過\n"
 	}
 

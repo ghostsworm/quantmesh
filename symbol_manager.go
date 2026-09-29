@@ -533,17 +533,18 @@ func startSymbolRuntime(
 	if checker, ok := ex.(exchange.PermissionChecker); ok {
 		permissions, err := checker.CheckAPIPermissions(permCheckCtx)
 		if err != nil {
-			logger.WarnCtx(ctx, "⚠️ [%s:%s] API 权限检测失败: %v (將继续啟动)", symCfg.Exchange, symCfg.Symbol, err)
+			return nil, fmt.Errorf("API permission verification failed for %s:%s: %w", symCfg.Exchange, symCfg.Symbol, err)
 		} else {
 			// 检查是否安全
 			if !permissions.IsSecure() {
 				logger.ErrorCtx(ctx, "🚨 [%s:%s] API 密钥存在安全风險！", symCfg.Exchange, symCfg.Symbol)
-				warnings := permissions.GetWarnings()
-				for _, warning := range warnings {
-					logger.ErrorCtx(ctx, "   %s", warning)
+				if permissions != nil {
+					for _, warning := range permissions.GetWarnings() {
+						logger.ErrorCtx(ctx, "   %s", warning)
+					}
 				}
-				// 可以选擇是否继续啟动，这里我们記錄錯误但继续
-				logger.WarnCtx(ctx, "⚠️ [%s:%s] 尽管存在安全风險，系统仍將继续啟动。强烈建议修改 API 权限設置！", symCfg.Exchange, symCfg.Symbol)
+				// 权限不安全时中止启动，避免风险 API Key 进入交易运行态。
+				return nil, fmt.Errorf("API permissions are not safe for trading %s:%s", symCfg.Exchange, symCfg.Symbol)
 			} else {
 				logger.InfoCtx(ctx, "✅ [%s:%s] API 权限检测通過 (安全评分: %d/100, 风險等级: %s)",
 					symCfg.Exchange, symCfg.Symbol, permissions.SecurityScore, permissions.RiskLevel)

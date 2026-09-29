@@ -145,13 +145,17 @@ func TestParamAdvisorFeeAndRoundingHelpers(t *testing.T) {
 
 func TestPermissionChecksAndReports(t *testing.T) {
 	unsupported := CheckExchangePermissions(context.Background(), struct{ exchange.IExchange }{}, "demo", "BTCUSDT")
-	if unsupported.ErrorMessage == "" || !unsupported.IsSecure {
+	if unsupported.ErrorMessage == "" || unsupported.IsSecure {
 		t.Fatalf("unsupported permission check = %#v", unsupported)
 	}
 
 	failing := CheckExchangePermissions(context.Background(), fakePermissionExchange{err: errors.New("api down")}, "demo", "BTCUSDT")
-	if !strings.Contains(failing.ErrorMessage, "api down") || !failing.IsSecure {
+	if !strings.Contains(failing.ErrorMessage, "api down") || failing.IsSecure {
 		t.Fatalf("failing permission check = %#v", failing)
+	}
+	missing := CheckExchangePermissions(context.Background(), fakePermissionExchange{}, "demo", "BTCUSDT")
+	if missing.ErrorMessage == "" || missing.IsSecure {
+		t.Fatalf("missing permission evidence = %#v", missing)
 	}
 
 	permissions := &exchange.APIPermissions{
@@ -186,7 +190,7 @@ func TestPermissionChecksAndReports(t *testing.T) {
 			ErrorMessage: "not supported",
 		},
 	})
-	for _, expected := range []string{"API 权限安全检测报告", "高风險", "not supported"} {
+	for _, expected := range []string{"API 权限安全检测报告", "高风險", "not supported", "不得将此报告视为安全通过"} {
 		if !strings.Contains(report, expected) {
 			t.Fatalf("report missing %q:\n%s", expected, report)
 		}

@@ -1,5 +1,12 @@
 # 实盘准备度整改进度
 
+## 第一百九十二批：API 权限未核实或危险时拒绝交易启动（3.111.0-rc380，2026-09-29）
+
+- 运行时此前在 API 权限查询失败或检测到提币风险时仍继续初始化交易 Bot；Binance 权限检测器还会在 futures account 请求失败后把 `CanTrade` 设为 true，并假定期货 API Key 没有资产转出权限。
+- 已实现 `PermissionChecker` 的查询错误、nil 结果、无交易权、提币或资产转出权限均拒绝该交易 Bot 启动；不支持自动检测的交易所仍允许按既有人工核验流程启动，但权限检查 API 将其标记为未核实/不安全，不再假报安全通过。汇总报告存在错误或缺失证据时也明确不能通过。
+- Binance USDⓈ-M 改用签名 `GET /fapi/v1/accountConfig` 读取 `canTrade`/`canWithdraw`，错误和空结果均失败关闭；`canWithdraw` 按端点定义保守映射为资产转出/转账风险。新增权限判定表、Binance HTTP mock、失败响应、未知/不支持状态与报告回归。
+- `go test ./exchange ./exchange/binance ./web . -run 'Permission|APIPermissions|CheckAPIPermissions|PermissionChecksAndReports' -count=1` 通过；沙箱内 Binance `httptest` 本地监听受限，获准本机回环监听后通过。尚未用真实 Binance 账户或密钥验证端点权限语义/可达性；其余交易所多数不实现自动权限检测，仍需人工核实。此修复不代表实盘或盈利验收。
+
 ## 第一百九十一批：撤回未举证的盈利与商业指标宣传（3.111.0-rc379，2026-09-29）
 
 - 历史零手续费回测报告把无法复现的结果外推为“实盘盈利原因”和“策略有效”，并用成交笔数乘单笔滑点百分比估算账户损失；该算式没有纳入成交名义金额、换手、方向及资金复利，推论无效。

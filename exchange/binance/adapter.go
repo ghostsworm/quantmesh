@@ -1646,36 +1646,20 @@ func (b *BinanceAdapter) GetSpotPrice(ctx context.Context, symbol string) (float
 
 // CheckAPIPermissions 检查 API 密钥权限
 func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissions, error) {
+	accountConfig, err := b.client.NewGetAccountConfigService().Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query Binance USDⓈ-M futures account permissions: %w", err)
+	}
+	if accountConfig == nil {
+		return nil, fmt.Errorf("query Binance USDⓈ-M futures account permissions: empty response")
+	}
 	permissions := &APIPermissions{
-		CanRead:  true, // 能調用 API 就說明有读权限
-		CanTrade: false,
+		CanRead:      true,
+		CanTrade:     accountConfig.CanTrade,
+		CanWithdraw:  accountConfig.CanWithdraw,
+		CanTransfer:  accountConfig.CanWithdraw,
+		IPRestricted: false,
 	}
-
-	// 币安期货 API 权限判断：
-	// 尝試獲取帳戶信息来判断是否有交易权限
-	_, err := b.client.NewGetAccountService().Do(ctx)
-	if err == nil {
-		permissions.CanTrade = true
-		logger.Info("✅ [Binance] API 具有交易权限")
-	} else {
-		logger.Warn("⚠️ [Binance] API 可能没有交易权限或調用失败: %v", err)
-		// 即使失败也继续，可能是网络问题
-		permissions.CanTrade = true // 假設有权限
-	}
-
-	// 币安期货 API 不支援提現功能
-	// 期貨帳戶的资金轉账需要通過現貨 API 或网页操作
-	// 因此期货 API Key 默认不具有提現权限
-	permissions.CanWithdraw = false
-	permissions.CanTransfer = false
-
-	// 检查 IP 限制
-	// 币安 API 没有直接查詢 IP 限制的接口
-	// 如果設置了 IP 白名單，從非白名單 IP 調用會回傳 -2015 錯误
-	// 这里我们假設能成功調用說明 IP 是允許的或没有限制
-	permissions.IPRestricted = false // 無法直接判断，需要用戶在交易所后台确认
-
-	// 计算安全评分
 	permissions.SecurityScore = 100
 	if permissions.CanWithdraw {
 		permissions.SecurityScore -= 50
@@ -1686,7 +1670,6 @@ func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissio
 	if !permissions.IPRestricted {
 		permissions.SecurityScore -= 20
 	}
-
 	if permissions.SecurityScore >= 80 {
 		permissions.RiskLevel = "low"
 	} else if permissions.SecurityScore >= 50 {
@@ -1694,10 +1677,6 @@ func (b *BinanceAdapter) CheckAPIPermissions(ctx context.Context) (*APIPermissio
 	} else {
 		permissions.RiskLevel = "high"
 	}
-
-	logger.Info("🔐 [Binance] API 权限检测完成: 交易=%v, 提現=%v, 安全评分=%d, 风險等级=%s",
-		permissions.CanTrade, permissions.CanWithdraw, permissions.SecurityScore, permissions.RiskLevel)
-
 	return permissions, nil
 }
 
