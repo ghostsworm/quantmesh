@@ -204,3 +204,44 @@ func TestDCAUnvaluedOpenFeeDoesNotConsumeFillProgress(t *testing.T) {
 		t.Fatalf("unvalued fee consumed fill or changed inventory: layer=%+v total=%v", layer, strategy.totalQty)
 	}
 }
+
+func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	layer := &DCALayer{Index: 0, OrderID: 96, Status: entryStatusPending, RequestedQuantity: 1}
+	strategy.layers = []*DCALayer{layer}
+	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
+		OrderID: 96, Side: "BUY", Status: "FILLED", ExecutedQty: 1, AvgPrice: 100,
+		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001,
+	})
+	if layer.Quantity != 0.999 || layer.Cost != 99.9 || math.Abs(layer.OpeningFee-0.1) > 1e-12 ||
+		layer.EntryBaseFeeQty != 0.001 || layer.FillProgress.Quantity != 1 || strategy.totalQty != 0.999 {
+		t.Fatalf("spot base fee did not preserve gross cursor and net inventory accounting: layer=%+v total=%v", layer, strategy.totalQty)
+	}
+}
+
+func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	layer := &DCALayer{Index: 0, OrderID: 97, Status: entryStatusPending, RequestedQuantity: 1}
+	strategy.layers = []*DCALayer{layer}
+	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
+		OrderID: 97, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 100,
+		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001,
+	})
+	if executor.marked != 1 || layer.FillProgress.Quantity != 0 || strategy.totalQty != 0 {
+		t.Fatalf("unsupported entry base fee was not held for reconciliation: marks=%d layer=%+v qty=%v", executor.marked, layer, strategy.totalQty)
+	}
+
+	strategy.isClosing, strategy.closeOrderID, strategy.closeRequestedQty = true, 98, 1
+	strategy.closeProgress = position.FillProgress{}
+	strategy.totalQty, strategy.totalCost = 1, 100
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	strategy.handleCloseOrderUpdate(&position.OrderUpdate{
+		OrderID: 98, Side: "SELL", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, BaseFeeQty: 0.001,
+	})
+	if executor.marked != 2 || strategy.closeProgress.Quantity != 0 || strategy.totalQty != 1 {
+		t.Fatalf("close base fee mutated inventory before reconciliation: marks=%d progress=%+v qty=%v", executor.marked, strategy.closeProgress, strategy.totalQty)
+	}
+}

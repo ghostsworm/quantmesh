@@ -12,12 +12,13 @@ import (
 )
 
 type dcaOrderIntent struct {
-	orderID  int64
-	symbol   string
-	side     exchange.Side
-	quantity float64
-	progress position.FillProgress
-	close    bool
+	orderID    int64
+	symbol     string
+	side       exchange.Side
+	quantity   float64
+	progress   position.FillProgress
+	baseFeeQty float64
+	close      bool
 }
 
 // reconcilePersistedOrders settles orders whose callbacks may have been missed
@@ -29,7 +30,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrders(ctx context.Context) erro
 	for _, layer := range s.layers {
 		if layer != nil && (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled) {
 			intents = append(intents, dcaOrderIntent{orderID: layer.OrderID, symbol: s.strategyCfg.Symbol,
-				side: exchange.SideBuy, quantity: layer.RequestedQuantity, progress: layer.FillProgress})
+				side: exchange.SideBuy, quantity: layer.RequestedQuantity, progress: layer.FillProgress, baseFeeQty: layer.EntryBaseFeeQty})
 		}
 	}
 	if s.isClosing {
@@ -87,12 +88,13 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 	update := &position.OrderUpdate{OrderID: order.OrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
 		ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice}
 	if order.ExecutedQty > intent.progress.Quantity {
-		fee, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)
+		fee, baseFeeQty, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)
 		if err != nil {
 			return err
 		}
 		update.Commission = fee
 		update.CommissionAsset = s.exchange.GetQuoteAsset()
+		update.BaseFeeQty = baseFeeQty
 		update.AvgPrice = averagePrice
 	}
 	if status == "NEW" || status == "PARTIALLY_FILLED" || isDCAOrderTerminal(status) || order.ExecutedQty > intent.progress.Quantity {
@@ -123,14 +125,14 @@ func isDCAOrderTerminal(status string) bool {
 	}
 }
 
-func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, intent dcaOrderIntent, order *exchange.Order) (float64, float64, error) {
+func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, intent dcaOrderIntent, order *exchange.Order) (float64, float64, float64, error) {
 	raw, err := s.exchange.GetOrderFills(ctx, intent.symbol, order.OrderID)
 	if err != nil {
-		return 0, 0, fmt.Errorf("query order fills: %w", err)
+		return 0, 0, 0, fmt.Errorf("query order fills: %w", err)
 	}
 	fills, ok := dcaExchangeOrderFills(raw)
 	if !ok || len(fills) == 0 {
-		return 0, 0, fmt.Errorf("new cumulative execution has no supported fill evidence (%T)", raw)
+		return 0, 0, 0, fmt.Errorf("new cumulative execution has no supported fill evidence (%T)", raw)
 	}
 	sort.Slice(fills, func(i, j int) bool {
 		if fills[i] == nil {
@@ -145,52 +147,58 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 		return fills[i].TradeID < fills[j].TradeID
 	})
 	seen := make(map[string]struct{}, len(fills))
-	var quantity, notional, prefixQty, prefixNotional, feeQuote float64
+	var quantity, notional, prefixQty, prefixNotional, prefixBaseFee, feeQuote, addedBaseFee float64
 	for _, fill := range fills {
 		if fill == nil || strings.TrimSpace(fill.TradeID) == "" || fill.OrderID != 0 && fill.OrderID != order.OrderID ||
 			fill.Symbol != "" && !strings.EqualFold(fill.Symbol, intent.symbol) || fill.Side != "" && fill.Side != intent.side ||
 			!finiteNumber(fill.Price) || fill.Price <= 0 || !finiteNumber(fill.Quantity) || fill.Quantity <= 0 ||
-			!finiteNumber(fill.Commission) || !finiteNumber(fill.BaseFeeQty) || fill.BaseFeeQty != 0 {
-			return 0, 0, fmt.Errorf("order returned invalid fill evidence or base-asset fee")
+			!finiteNumber(fill.Commission) || !finiteNumber(fill.BaseFeeQty) || fill.BaseFeeQty < 0 || fill.BaseFeeQty > fill.Quantity+entryQtyEpsilon {
+			return 0, 0, 0, fmt.Errorf("order returned invalid fill evidence")
 		}
 		if _, duplicate := seen[fill.TradeID]; duplicate {
-			return 0, 0, fmt.Errorf("order returned duplicate trade ID %q", fill.TradeID)
+			return 0, 0, 0, fmt.Errorf("order returned duplicate trade ID %q", fill.TradeID)
+		}
+		if fill.BaseFeeQty > 0 && (intent.close || !s.supportsSpotBaseFee() || intent.side != exchange.SideBuy) {
+			return 0, 0, 0, fmt.Errorf("base-asset fee is unsupported for this DCA order recovery")
 		}
 		seen[fill.TradeID] = struct{}{}
 		quantity += fill.Quantity
 		notional += fill.Price * fill.Quantity
 		if prefixQty < intent.progress.Quantity-entryQtyEpsilon {
 			if prefixQty+fill.Quantity > intent.progress.Quantity+entryQtyEpsilon {
-				return 0, 0, fmt.Errorf("persisted fill cursor splits an exchange trade")
+				return 0, 0, 0, fmt.Errorf("persisted fill cursor splits an exchange trade")
 			}
 			prefixQty += fill.Quantity
 			prefixNotional += fill.Price * fill.Quantity
+			prefixBaseFee += fill.BaseFeeQty
 			continue
 		}
 		converted, known := 0.0, false
 		if fill.CommissionQuoteKnown {
 			converted, known = fill.CommissionQuote, finiteNumber(fill.CommissionQuote)
 		} else if fill.Commission == 0 && strings.TrimSpace(fill.CommissionAsset) == "" {
-			return 0, 0, fmt.Errorf("fill %s has no verifiable fee denomination", fill.TradeID)
+			return 0, 0, 0, fmt.Errorf("fill %s has no verifiable fee denomination", fill.TradeID)
 		} else {
 			converted, known = commissionInQuote(s.exchange, fill.Commission, fill.CommissionAsset, fill.Price)
 		}
 		if !known {
-			return 0, 0, fmt.Errorf("fill %s commission cannot be valued in quote asset", fill.TradeID)
+			return 0, 0, 0, fmt.Errorf("fill %s commission cannot be valued in quote asset", fill.TradeID)
 		}
 		feeQuote += converted
+		addedBaseFee += fill.BaseFeeQty
 	}
 	tolerance := math.Max(entryQtyEpsilon, order.ExecutedQty*1e-8)
 	if math.Abs(quantity-order.ExecutedQty) > tolerance || math.Abs(prefixQty-intent.progress.Quantity) > tolerance ||
+		math.Abs(prefixBaseFee-intent.baseFeeQty) > tolerance ||
 		intent.progress.Quantity > 0 && math.Abs(prefixNotional-intent.progress.Notional) > math.Max(1e-8, intent.progress.Notional*1e-8) {
-		return 0, 0, fmt.Errorf("fill history does not reconcile to the order and persisted cursor")
+		return 0, 0, 0, fmt.Errorf("fill history does not reconcile to the order and persisted cursor")
 	}
 	average := notional / quantity
 	if !finiteNumber(feeQuote) || !finiteNumber(notional) || !finiteNumber(average) || average <= 0 || !finiteNumber(order.AvgPrice) ||
 		order.AvgPrice > 0 && math.Abs(average-order.AvgPrice) > math.Max(1e-8, order.AvgPrice*1e-8) {
-		return 0, 0, fmt.Errorf("fill notional does not reconcile to exchange order average")
+		return 0, 0, 0, fmt.Errorf("fill notional does not reconcile to exchange order average")
 	}
-	return feeQuote, average, nil
+	return feeQuote, addedBaseFee, average, nil
 }
 
 func dcaExchangeOrderFills(raw interface{}) ([]*exchange.OrderFill, bool) {

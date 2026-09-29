@@ -29,8 +29,12 @@ func (e *dcaRecoveryExchange) GetOrderFills(context.Context, string, int64) (int
 }
 
 func newPersistedDCAStrategy(t *testing.T, ex *dcaRecoveryExchange, state dcaRuntimeState) *DCAEnhancedStrategy {
+	return newPersistedDCAStrategyWithConfig(t, ex, state, &config.Config{})
+}
+
+func newPersistedDCAStrategyWithConfig(t *testing.T, ex *dcaRecoveryExchange, state dcaRuntimeState, cfg *config.Config) *DCAEnhancedStrategy {
 	t.Helper()
-	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
 	state.BotID = s.effectiveBotID()
 	payload, err := json.Marshal(state)
 	if err != nil {
@@ -38,6 +42,90 @@ func newPersistedDCAStrategy(t *testing.T, ex *dcaRecoveryExchange, state dcaRun
 	}
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true})
 	return s
+}
+
+func TestDCAStartReplaysSpotEntryBaseFeeAsNetInventoryAndQuoteCost(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 94, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1,
+		AvgPrice: 100, Status: exchange.OrderStatusFilled,
+	}, fills: []*exchange.OrderFill{{
+		OrderID: 94, TradeID: "trade-94", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 1, Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001,
+	}}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 94, Status: entryStatusPending, RequestedQuantity: 1}},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed to replay spot base-asset fee: %v", err)
+	}
+	defer s.Stop()
+	layer := s.layers[0]
+	if layer.Quantity != 0.999 || layer.Cost != 99.9 || math.Abs(layer.OpeningFee-0.1) > 1e-12 ||
+		layer.EntryBaseFeeQty != 0.001 || layer.FillProgress.Quantity != 1 || layer.FillProgress.Notional != 100 {
+		t.Fatalf("spot base fee was not reconciled into net inventory and quote accounting: %+v", layer)
+	}
+}
+
+func TestDCAStartRejectsBaseFeePrefixMismatch(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 95, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1,
+		AvgPrice: 100, Status: exchange.OrderStatusFilled,
+	}, fills: []*exchange.OrderFill{{
+		OrderID: 95, TradeID: "trade-95", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, Commission: 0.0005, CommissionAsset: "BTC", BaseFeeQty: 0.0005,
+	}, {
+		OrderID: 95, TradeID: "trade-96", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, Commission: 0.0005, CommissionAsset: "BTC", BaseFeeQty: 0.0005,
+	}}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		TotalCost: 49.95, TotalQty: 0.4995, AvgEntryPrice: 100,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.4995, Cost: 49.95, EntryBaseFeeQty: 0.0004,
+			OrderID: 95, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
+			FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
+	if err := s.Start(context.Background()); err == nil {
+		t.Fatal("Start() succeeded despite persisted base-fee cursor mismatch")
+	}
+	if s.IsRunning() || s.totalQty != 0.4995 || s.layers[0].FillProgress.Quantity != 0.5 {
+		t.Fatalf("failed recovery mutated persisted inventory or cursor: running=%v layer=%+v", s.IsRunning(), s.layers[0])
+	}
+}
+
+func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 96, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,
+		AvgPrice: 101, Status: exchange.OrderStatusPartiallyFilled,
+	}, fills: []*exchange.OrderFill{
+		{OrderID: 96, TradeID: "trade-96a", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+			Price: 100, Quantity: 0.25, Commission: 0.00025, CommissionAsset: "BTC", BaseFeeQty: 0.00025},
+		{OrderID: 96, TradeID: "trade-96b", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+			Price: 102, Quantity: 0.25, Commission: 0.00026, CommissionAsset: "BTC", BaseFeeQty: 0.00026},
+	}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		TotalCost: 24.975, TotalQty: 0.24975, AvgEntryPrice: 100,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.24975, Cost: 24.975, OpeningFee: 0.025,
+			EntryBaseFeeQty: 0.00025, OrderID: 96, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
+			FillProgress: position.FillProgress{Quantity: 0.25, Notional: 25}}},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed to replay verified base-fee suffix: %v", err)
+	}
+	defer s.Stop()
+	layer := s.layers[0]
+	if math.Abs(layer.Quantity-0.49949) > 1e-12 || math.Abs(layer.Cost-50.44848) > 1e-10 ||
+		math.Abs(layer.OpeningFee-0.05152) > 1e-12 || math.Abs(layer.EntryBaseFeeQty-0.00051) > 1e-12 ||
+		layer.FillProgress.Quantity != 0.5 || layer.FillProgress.Notional != 50.5 {
+		t.Fatalf("recovery did not apply only the spot base-fee suffix: %+v", layer)
+	}
 }
 
 func TestDCAStartReplaysVerifiedCloseFillMissedWhileOffline(t *testing.T) {

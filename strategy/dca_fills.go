@@ -15,6 +15,10 @@ func (s *DCAEnhancedStrategy) commissionInQuote(commission float64, asset string
 	return commissionInQuote(s.exchange, commission, asset, fillPrice)
 }
 
+func (s *DCAEnhancedStrategy) supportsSpotBaseFee() bool {
+	return s.cfg != nil && strings.EqualFold(strings.TrimSpace(s.cfg.Trading.MarketType), "spot")
+}
+
 func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.OrderUpdate, reason string) {
 	if tracker, ok := s.executor.(interface {
 		MarkOrderReconciliationRequired(int64, string, string) error
@@ -30,6 +34,17 @@ func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.Ord
 // handleCloseOrderUpdate accounts for fills while the order is live. A terminal
 // cancel releases only its remainder and never reverses an executed trade.
 func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdate) {
+	if !finiteNumber(update.BaseFeeQty) || update.BaseFeeQty < 0 {
+		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee is invalid")
+		return
+	}
+	if update.BaseFeeQty > 0 {
+		// A base-denominated sell fee consumes extra inventory. The current DCA
+		// trade ledger has no fee-lot split for that extra quantity, so do not
+		// advance the close cursor or report a settled trade.
+		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee requires inventory-cost reconciliation")
+		return
+	}
 	if !finiteNumber(update.ExecutedQty) || update.ExecutedQty < 0 {
 		s.requireDCAOrderReconciliation(update, "DCA close execution quantity is not finite and non-negative")
 		return

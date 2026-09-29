@@ -155,6 +155,7 @@ type DCALayer struct {
 	Status            string    // 状態: pending/filled/closed
 	FilledAt          time.Time // 成交時间
 	OpeningFee        float64   // 剩餘持倉應分攤的實際開倉手續費（計價幣）
+	EntryBaseFeeQty   float64   // 累計以基礎幣扣收的開倉手續費數量；成交游標口徑，非剩餘庫存
 	FillProgress      position.FillProgress
 	RequestedQuantity float64
 	CancelRequestedAt time.Time `json:"-"`
@@ -430,11 +431,11 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	activeOrderIDs := make(map[int64]struct{}, len(state.Layers)+1)
 	var closeTargetLayer *DCALayer
 	for _, layer := range state.Layers {
-		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.RequestedQuantity < 0 ||
+		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.EntryBaseFeeQty < 0 || layer.RequestedQuantity < 0 ||
 			layer.FillProgress.Quantity < 0 || layer.FillProgress.Notional < 0 ||
-			!finiteNumber(layer.Price) || !finiteNumber(layer.Quantity) || !finiteNumber(layer.Cost) || !finiteNumber(layer.OpeningFee) ||
+			!finiteNumber(layer.Price) || !finiteNumber(layer.Quantity) || !finiteNumber(layer.Cost) || !finiteNumber(layer.OpeningFee) || !finiteNumber(layer.EntryBaseFeeQty) ||
 			!finiteNumber(layer.RequestedQuantity) || !finiteNumber(layer.FillProgress.Quantity) || !finiteNumber(layer.FillProgress.Notional) ||
-			layer.FillProgress.Quantity > layer.RequestedQuantity+entryQtyEpsilon {
+			layer.FillProgress.Quantity > layer.RequestedQuantity+entryQtyEpsilon || layer.EntryBaseFeeQty > layer.FillProgress.Quantity+entryQtyEpsilon {
 			return fmt.Errorf("DCA runtime state contains invalid layer")
 		}
 		if _, duplicate := layerIndexes[layer.Index]; duplicate {
@@ -1409,6 +1410,17 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 	nextProgress := layer.FillProgress
 	delta, incrementalPrice := nextProgress.Advance(qty, update.AvgPrice, 0)
 	if delta > 0 {
+		baseFeeQty := update.BaseFeeQty
+		if !finiteNumber(baseFeeQty) || baseFeeQty < 0 || baseFeeQty > delta+entryQtyEpsilon ||
+			baseFeeQty > 0 && (!s.supportsSpotBaseFee() || !strings.EqualFold(strings.TrimSpace(update.Side), "BUY")) {
+			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee is invalid for this market or execution")
+			return
+		}
+		receivedQty := delta - baseFeeQty
+		if !finiteNumber(receivedQty) || receivedQty <= 0 {
+			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee consumes the entire fill")
+			return
+		}
 		openingFee, feeKnown := s.commissionInQuote(update.Commission, update.CommissionAsset, incrementalPrice)
 		if !feeKnown {
 			s.requireDCAOrderReconciliation(update, "DCA open fee is not denominated in a supported quote asset")
@@ -1417,10 +1429,11 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 		if layer.Status == entryStatusPending {
 			layer.Quantity, layer.Cost = 0, 0
 		}
-		layer.Quantity += delta
-		layer.Cost += delta * incrementalPrice
+		layer.Quantity += receivedQty
+		layer.Cost += receivedQty * incrementalPrice
 		layer.Price = layer.Cost / layer.Quantity
 		layer.OpeningFee += openingFee
+		layer.EntryBaseFeeQty += baseFeeQty
 		layer.FillProgress = nextProgress
 		layer.FilledAt = time.Now()
 	} else {
