@@ -25,12 +25,16 @@ const (
 )
 
 type bitgetEquityAccount struct {
-	MarginCoin   string `json:"marginCoin"`
-	Equity       string `json:"accountEquity"`
-	UnrealizedPL string `json:"unrealizedPL"`
-	Coupon       string `json:"coupon"`
-	Grant        string `json:"grant"`
-	AssetMode    string `json:"assetMode"`
+	MarginCoin       string            `json:"marginCoin"`
+	Equity           string            `json:"accountEquity"`
+	UnrealizedPL     string            `json:"unrealizedPL"`
+	Coupon           string            `json:"coupon"`
+	Grant            string            `json:"grant"`
+	AssetMode        string            `json:"assetMode"`
+	UnionTotalMargin string            `json:"unionTotalMargin"`
+	UnionAvailable   string            `json:"unionAvailable"`
+	UnionMaintenance string            `json:"unionMm"`
+	UnionAssets      []json.RawMessage `json:"assetList"`
 }
 
 type bitgetBill struct {
@@ -51,6 +55,22 @@ type bitgetBillPage struct {
 func bitgetSingleUSDTWallet(account bitgetEquityAccount) (string, error) {
 	if account.MarginCoin != "USDT" || account.AssetMode != "single" {
 		return "", fmt.Errorf("Bitget equity requires single-asset USDT margin mode")
+	}
+	for field, raw := range map[string]string{
+		"unionTotalMargin": account.UnionTotalMargin,
+		"unionAvailable":   account.UnionAvailable,
+		"unionMm":          account.UnionMaintenance,
+	} {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		value, err := accounting.Decimal(strings.TrimSpace(raw))
+		if err != nil || value.Sign() != 0 {
+			return "", fmt.Errorf("Bitget single-asset account has unsupported %s", field)
+		}
+	}
+	if len(account.UnionAssets) != 0 {
+		return "", fmt.Errorf("Bitget single-asset account contains union asset rows")
 	}
 	equity, err := accounting.Decimal(account.Equity)
 	if err != nil {

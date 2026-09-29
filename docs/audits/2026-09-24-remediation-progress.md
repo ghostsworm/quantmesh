@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：Bitget 单资产权益拒绝联合资产残留字段（3.111.0-rc423）
+
+- Bitget 账户接口将 `unionTotalMargin`、`unionAvailable`、`unionMm`、`assetList` 定义为联合保证金/多资产模式字段；适配器虽然要求 `assetMode=single`，却未检查这些字段。相互矛盾的响应可能将非 USDT 资产或联合负债遗漏在单币权益样本之外。
+- 单资产模式现在允许这些可选数字字段缺省或为零，但拒绝非法/非零数值及任何多资产列表；回归覆盖三项余额字段、负值、坏格式与 BTC 资产残留。
+- `go test ./exchange/bitget -count=1`、`go vet ./exchange/bitget` 与 `git diff --check` 通过；未连接真实账户，R10 账户范围、现货估值和账单完整性仍开放，不代表实盘或盈利验收。
+
 # 后续续修：正向利息属于绩效而非非法正费用（3.111.0-rc422）
 
 - 权益分类器原先把 `interest` 与 `fee` 共用“正数费用必须显式标为返还”的校验；但利息结算可为贷记或扣款，Bitget 官方将 `settle_interest` 记为利息结算而未限定方向。合法正利息会令整轮权益/回撤核账失败。

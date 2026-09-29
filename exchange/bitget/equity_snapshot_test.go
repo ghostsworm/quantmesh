@@ -23,6 +23,13 @@ func TestBitgetSingleUSDTWalletRequiresProvableMode(t *testing.T) {
 		func(a *bitgetEquityAccount) { a.MarginCoin = "USDC" },
 		func(a *bitgetEquityAccount) { a.Coupon = "0.1" },
 		func(a *bitgetEquityAccount) { a.Grant = "1" },
+		func(a *bitgetEquityAccount) { a.UnionTotalMargin = "1" },
+		func(a *bitgetEquityAccount) { a.UnionAvailable = "0.01" },
+		func(a *bitgetEquityAccount) { a.UnionMaintenance = "-1" },
+		func(a *bitgetEquityAccount) { a.UnionTotalMargin = "invalid" },
+		func(a *bitgetEquityAccount) {
+			a.UnionAssets = []json.RawMessage{json.RawMessage(`{"coin":"BTC","balance":"1"}`)}
+		},
 		func(a *bitgetEquityAccount) { a.Equity = "NaN" },
 	} {
 		account := base
