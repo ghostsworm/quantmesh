@@ -186,6 +186,7 @@ func (w *bybitWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		positions[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,
@@ -216,6 +217,7 @@ func (w *bybitWrapper) GetPositions(ctx context.Context, symbol string) ([]*Posi
 		result[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,

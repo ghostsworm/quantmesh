@@ -86,6 +86,7 @@ type Order struct {
 type Position struct {
 	Symbol         string
 	Size           float64
+	PositionSide   string
 	EntryPrice     float64
 	MarkPrice      float64
 	UnrealizedPNL  float64
@@ -1076,7 +1077,14 @@ func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 		if err == nil {
 			result := make([]*Position, 0)
 			for _, pos := range positionRisks {
-				posAmt, _ := strconv.ParseFloat(pos.PositionAmt, 64)
+				posAmt, parseErr := strconv.ParseFloat(pos.PositionAmt, 64)
+				if parseErr != nil || math.IsNaN(posAmt) || math.IsInf(posAmt, 0) {
+					return nil, fmt.Errorf("Binance returned invalid position amount %q for %s", pos.PositionAmt, pos.Symbol)
+				}
+				positionSide := strings.ToUpper(strings.TrimSpace(pos.PositionSide))
+				if positionSide != "BOTH" && positionSide != "LONG" && positionSide != "SHORT" {
+					return nil, fmt.Errorf("Binance returned invalid position side %q for %s", pos.PositionSide, pos.Symbol)
+				}
 				entryPrice, _ := strconv.ParseFloat(pos.EntryPrice, 64)
 				unrealizedPNL, _ := strconv.ParseFloat(pos.UnRealizedProfit, 64)
 				markPrice, _ := strconv.ParseFloat(pos.MarkPrice, 64)
@@ -1086,6 +1094,7 @@ func (b *BinanceAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 				result = append(result, &Position{
 					Symbol:         pos.Symbol,
 					Size:           posAmt,
+					PositionSide:   positionSide,
 					EntryPrice:     entryPrice,
 					MarkPrice:      markPrice,
 					UnrealizedPNL:  unrealizedPNL,

@@ -76,6 +76,7 @@ type Position = PositionInfo
 type PositionInfo struct {
 	Symbol         string
 	Size           float64
+	PositionSide   string
 	EntryPrice     float64
 	MarkPrice      float64
 	UnrealizedPNL  float64
@@ -721,9 +722,9 @@ func (o *OKXAdapter) GetPositions(ctx context.Context, symbol string) ([]*Positi
 
 	result := make([]*Position, 0)
 	for _, pos := range positions {
-		size, _ := strconv.ParseFloat(pos.Pos, 64)
-		if size == 0 {
-			continue
+		size, parseErr := strconv.ParseFloat(pos.Pos, 64)
+		if parseErr != nil || math.IsNaN(size) || math.IsInf(size, 0) {
+			return nil, fmt.Errorf("OKX returned invalid position size %q for %s", pos.Pos, pos.InstId)
 		}
 
 		entryPrice, _ := strconv.ParseFloat(pos.AvgPx, 64)
@@ -734,6 +735,7 @@ func (o *OKXAdapter) GetPositions(ctx context.Context, symbol string) ([]*Positi
 		result = append(result, &Position{
 			Symbol:         o.symbol,
 			Size:           o.contractsToBase(size), // pos 單位為張（net_mode 下帶符號），換算為基礎幣
+			PositionSide:   pos.PosSide,
 			EntryPrice:     entryPrice,
 			MarkPrice:      markPrice,
 			UnrealizedPNL:  unrealizedPNL,

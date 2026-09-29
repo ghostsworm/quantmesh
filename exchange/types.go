@@ -79,6 +79,7 @@ type Order struct {
 type Position struct {
 	Symbol         string
 	Size           float64 // 正數表示多倉，负數表示空倉
+	PositionSide   string  // LONG/SHORT 仅在交易所提供逐腿权威快照时填写；BOTH/NET 表示净仓模式
 	EntryPrice     float64
 	MarkPrice      float64
 	UnrealizedPNL  float64

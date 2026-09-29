@@ -190,6 +190,7 @@ func (w *okxWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		positions[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,
@@ -219,6 +220,7 @@ func (w *okxWrapper) GetPositions(ctx context.Context, symbol string) ([]*Positi
 		result[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,

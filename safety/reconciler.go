@@ -10,6 +10,7 @@ import (
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 )
@@ -66,6 +67,16 @@ type IPositionManager interface {
 type ReconciliationStorage interface {
 	SaveReconciliationHistory(symbol string, reconcileTime time.Time, localPosition, exchangePosition, positionDiff float64,
 		activeBuyOrders, activeSellOrders int, pendingSellQty, totalBuyQty, totalSellQty, estimatedProfit float64) error
+}
+
+type exchangePositionSnapshot struct {
+	netSize     float64
+	longQty     float64
+	shortQty    float64
+	hasNet      bool
+	hasLong     bool
+	hasShort    bool
+	directional bool
 }
 
 // Reconciler 持倉對账器
@@ -239,7 +250,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	if err != nil {
 		return failUnverified(fmt.Errorf("查詢持倉失败: %w", err))
 	}
-	exchangePosition, err := parseExchangePositionSize(positionsRaw, symbol)
+	exchangeSnapshot, err := parseExchangePositionSnapshot(positionsRaw, symbol)
 	if err != nil {
 		return failUnverified(fmt.Errorf("核實交易所持倉响应失败: %w", err))
 	}
@@ -267,6 +278,9 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	var localTotal float64
 	var localPendingSellQty float64
 	var localFilledPosition float64
+	var localLongPosition float64
+	var localShortPosition float64
+	var exchangePosition float64
 	var localInventoryErr error
 	var activeLocalOrders int
 	var activeBuyOrders int  // 開倉方向挂單數（LONG=BUY，SHORT=SELL）
@@ -285,6 +299,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 
 	// 平倉方向：LONG 持倉以 SELL 平倉；SHORT 持倉以 BUY 平倉（本地 PositionQty 恆為正數）
 	direction := config.NormalizeDirection(r.cfg.Trading.Direction)
+	isSpot := config.IsSpotMarketType(r.cfg.Trading.MarketType)
 	closeSide, openSide := "SELL", "BUY"
 	if direction == "SHORT" {
 		closeSide, openSide = "BUY", "SELL"
@@ -342,6 +357,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 
 		positionStatus := getStringField("PositionStatus")
 		positionQty := getFloat64Field("PositionQty")
+		positionLeg := getStringField("PositionLeg")
 		orderSide := getStringField("OrderSide")
 		orderStatus := getStringField("OrderStatus")
 		if positionStatus != "EMPTY" && positionStatus != PositionStatusFilled {
@@ -384,6 +400,22 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 			if math.IsNaN(localFilledPosition) || math.IsInf(localFilledPosition, 0) {
 				localInventoryErr = fmt.Errorf("汇总已成交库存数量溢出")
 				return false
+			}
+			if direction == "BOTH" && !isSpot && positionQty > 0 {
+				switch positionLeg {
+				case "LONG":
+					localLongPosition += positionQty
+				case "SHORT":
+					localShortPosition += positionQty
+				default:
+					localInventoryErr = fmt.Errorf("双向模式槽位 %.8f 缺少有效 PositionLeg: %q", price, positionLeg)
+					return false
+				}
+				if math.IsNaN(localLongPosition) || math.IsInf(localLongPosition, 0) ||
+					math.IsNaN(localShortPosition) || math.IsInf(localShortPosition, 0) {
+					localInventoryErr = fmt.Errorf("汇总双向模式逐腿持仓数量溢出")
+					return false
+				}
 			}
 			if orderSide == closeSide && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
 				orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusCancelRequested ||
@@ -448,7 +480,29 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	// 7. 检查持倉差异並執行同步
 	// 交易所 Position.Size 帶符號（多倉為正、空倉為負），本地 PositionQty 恆為正數，需按方向歸一化後再比較
 	spotInvPolicy := config.NormalizeSpotInventoryPolicy(r.cfg.Trading.SpotInventoryPolicy)
-	isSpot := config.IsSpotMarketType(r.cfg.Trading.MarketType)
+	if direction == "BOTH" && !isSpot {
+		if exchangeSnapshot.hasNet || !exchangeSnapshot.directional || !exchangeSnapshot.hasLong || !exchangeSnapshot.hasShort {
+			err := fmt.Errorf("双向模式需要交易所同时提供 LONG/SHORT 逐腿快照，当前响应仅能证明净仓或缺少一侧")
+			r.pm.FailReconciliation(err)
+			return err
+		}
+		const legTolerance = 0.00000001
+		if math.Abs(localLongPosition-exchangeSnapshot.longQty) > legTolerance ||
+			math.Abs(localShortPosition-exchangeSnapshot.shortQty) > legTolerance {
+			err := fmt.Errorf("双向持仓逐腿不一致：本地 LONG %.12g/SHORT %.12g，交易所 LONG %.12g/SHORT %.12g；拒绝按净仓修剪或收编",
+				localLongPosition, localShortPosition, exchangeSnapshot.longQty, exchangeSnapshot.shortQty)
+			r.pm.FailReconciliation(err)
+			return err
+		}
+		exchangePosition = exchangeSnapshot.longQty + exchangeSnapshot.shortQty
+	} else {
+		if exchangeSnapshot.directional {
+			err := fmt.Errorf("单向/现货模式收到逐腿交易所快照，无法与当前配置安全比较")
+			r.pm.FailReconciliation(err)
+			return err
+		}
+		exchangePosition = exchangeSnapshot.netSize
+	}
 	exchangePosition, syncAllowed := normalizeExchangePositionForSync(direction, isSpot, exchangePosition)
 	if !syncAllowed {
 		err := fmt.Errorf("交易所净持仓 %g 无法与本地 %s 方向持仓安全比较；本轮对账未完成", exchangePosition, direction)
@@ -548,55 +602,79 @@ func parseExchangeOpenOrders(raw interface{}) ([]*exchange.Order, error) {
 	return orders, nil
 }
 
-func parseExchangePositionSize(raw interface{}, symbol string) (float64, error) {
+func parseExchangePositionSnapshot(raw interface{}, symbol string) (exchangePositionSnapshot, error) {
+	var snapshot exchangePositionSnapshot
 	if raw == nil {
-		return 0, fmt.Errorf("持仓响应为 nil，无法证明账户为空仓")
+		return snapshot, fmt.Errorf("持仓响应为 nil，无法证明账户为空仓")
 	}
 	positions := reflect.ValueOf(raw)
 	if positions.Kind() != reflect.Slice && positions.Kind() != reflect.Array {
-		return 0, fmt.Errorf("持仓响应类型不可解析: %T", raw)
+		return snapshot, fmt.Errorf("持仓响应类型不可解析: %T", raw)
 	}
 	if positions.Kind() == reflect.Slice && positions.IsNil() {
-		return 0, fmt.Errorf("持仓响应为 nil 切片，无法证明账户为空仓")
+		return snapshot, fmt.Errorf("持仓响应为 nil 切片，无法证明账户为空仓")
 	}
-	var size float64
-	found := false
 	for i := 0; i < positions.Len(); i++ {
 		position := positions.Index(i)
 		for position.IsValid() && (position.Kind() == reflect.Interface || position.Kind() == reflect.Ptr) {
 			if position.IsNil() {
-				return 0, fmt.Errorf("持仓响应包含 nil 项")
+				return snapshot, fmt.Errorf("持仓响应包含 nil 项")
 			}
 			position = position.Elem()
 		}
 		if !position.IsValid() || position.Kind() != reflect.Struct {
-			return 0, fmt.Errorf("持仓响应第 %d 项不是结构体", i)
+			return snapshot, fmt.Errorf("持仓响应第 %d 项不是结构体", i)
 		}
 		symbolField := position.FieldByName("Symbol")
 		sizeField := position.FieldByName("Size")
 		if !symbolField.IsValid() || !symbolField.CanInterface() || symbolField.Kind() != reflect.String || !sizeField.IsValid() || !sizeField.CanInterface() || !sizeField.CanFloat() {
-			return 0, fmt.Errorf("持仓响应第 %d 项缺少有效 Symbol/Size 字段", i)
+			return snapshot, fmt.Errorf("持仓响应第 %d 项缺少有效 Symbol/Size 字段", i)
 		}
 		if symbolField.String() != symbol {
 			continue
 		}
 		current := sizeField.Float()
 		if math.IsNaN(current) || math.IsInf(current, 0) {
-			return 0, fmt.Errorf("交易所持仓 %s 数量不是有限值", symbol)
+			return snapshot, fmt.Errorf("交易所持仓 %s 数量不是有限值", symbol)
 		}
-		if found {
-			return 0, fmt.Errorf("持仓响应包含重复交易对 %s，无法确定净持仓", symbol)
+		sideField := position.FieldByName("PositionSide")
+		side := ""
+		if sideField.IsValid() && sideField.Kind() == reflect.String && sideField.CanInterface() {
+			side = strings.ToUpper(strings.TrimSpace(sideField.String()))
 		}
-		size, found = current, true
+		switch side {
+		case "LONG":
+			if snapshot.hasNet || snapshot.hasLong {
+				return snapshot, fmt.Errorf("持仓响应存在混合模式或重复 LONG 逐腿快照 %s", symbol)
+			}
+			snapshot.longQty = math.Abs(current)
+			snapshot.hasLong = true
+			snapshot.directional = true
+		case "SHORT":
+			if snapshot.hasNet || snapshot.hasShort {
+				return snapshot, fmt.Errorf("持仓响应存在混合模式或重复 SHORT 逐腿快照 %s", symbol)
+			}
+			snapshot.shortQty = math.Abs(current)
+			snapshot.hasShort = true
+			snapshot.directional = true
+		case "", "BOTH", "NET":
+			if snapshot.directional || snapshot.hasNet {
+				return snapshot, fmt.Errorf("持仓响应包含重复或混合模式交易对 %s", symbol)
+			}
+			snapshot.netSize = current
+			snapshot.hasNet = true
+		default:
+			return snapshot, fmt.Errorf("交易所持仓 %s 方向字段无效: %q", symbol, side)
+		}
 	}
-	return size, nil
+	return snapshot, nil
 }
 
 // normalizeExchangePositionForSync 將交易所帶符號淨持倉轉換為可與本地（正數）持倉比較的數量
 // 回傳 (歸一化持倉, 是否允許自動同步)：
 //   - LONG / 現貨：要求淨持倉 >= 0，出現空倉時方向不符，跳過同步
 //   - SHORT：取絕對值；出現多倉時方向不符，跳過同步
-//   - BOTH：交易所僅提供單一淨持倉，無法按多/空腿分別對賬，跳過同步避免按淨值誤清/誤修剪
+//   - BOTH：呼叫方先證明 LONG/SHORT 兩腿逐一相等；此處收到的是已核實的毛額之和
 func normalizeExchangePositionForSync(direction string, isSpot bool, signedSize float64) (float64, bool) {
 	const eps = 0.00000001
 	if isSpot {
@@ -604,8 +682,9 @@ func normalizeExchangePositionForSync(direction string, isSpot bool, signedSize 
 	}
 	switch direction {
 	case "BOTH":
-		logger.Warn("⚠️ [對账同步] BOTH 雙向模式：交易所僅返回淨持倉 %.6f，無法按多/空腿分別對賬，跳過自動同步（請人工核對）", signedSize)
-		return signedSize, false
+		// The caller has already validated both exchange legs against the local
+		// PositionLeg totals; this is their gross sum, not a signed net snapshot.
+		return signedSize, true
 	case "SHORT":
 		if signedSize > eps {
 			logger.Warn("🚨 [對账同步] SHORT 模式但交易所持倉為多倉 %.6f，方向不符，跳過自動同步（請人工核對）", signedSize)

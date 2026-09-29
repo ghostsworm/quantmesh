@@ -78,6 +78,7 @@ type Position = PositionInfo
 type PositionInfo struct {
 	Symbol         string
 	Size           float64
+	PositionSide   string
 	EntryPrice     float64
 	MarkPrice      float64
 	UnrealizedPNL  float64
@@ -650,9 +651,13 @@ func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 
 	result := make([]*Position, 0)
 	for _, pos := range positions {
-		size, _ := strconv.ParseFloat(pos.Size, 64)
-		if size == 0 {
-			continue
+		size, err := strconv.ParseFloat(pos.Size, 64)
+		if err != nil {
+			return nil, fmt.Errorf("Bybit returned invalid position size %q for %s", pos.Size, pos.Symbol)
+		}
+		size, positionSide, err := normalizeBybitPositionSide(pos.PositionIdx.String(), pos.Side, size, pos.Symbol)
+		if err != nil {
+			return nil, err
 		}
 
 		entryPrice, _ := strconv.ParseFloat(pos.AvgPrice, 64)
@@ -663,6 +668,7 @@ func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 		result = append(result, &Position{
 			Symbol:         pos.Symbol,
 			Size:           size,
+			PositionSide:   positionSide,
 			EntryPrice:     entryPrice,
 			MarkPrice:      markPrice,
 			UnrealizedPNL:  unrealizedPNL,
@@ -673,6 +679,42 @@ func (b *BybitAdapter) GetPositions(ctx context.Context, symbol string) ([]*Posi
 	}
 
 	return result, nil
+}
+
+func normalizeBybitPositionSide(positionIdx, side string, size float64, symbol string) (float64, string, error) {
+	if math.IsNaN(size) || math.IsInf(size, 0) || size < 0 {
+		return 0, "", fmt.Errorf("Bybit returned invalid position size %v for %s", size, symbol)
+	}
+	side = strings.ToUpper(strings.TrimSpace(side))
+	switch positionIdx {
+	case "0":
+		if size == 0 {
+			if side != "" {
+				return 0, "", fmt.Errorf("Bybit returned side %q for empty one-way position %s", side, symbol)
+			}
+			return 0, "NET", nil
+		}
+		switch side {
+		case "BUY":
+			return size, "NET", nil
+		case "SELL":
+			return -size, "NET", nil
+		default:
+			return 0, "", fmt.Errorf("Bybit returned invalid one-way position side %q for non-zero position %s", side, symbol)
+		}
+	case "1":
+		if size > 0 && side != "BUY" || size == 0 && side != "" && side != "BUY" {
+			return 0, "", fmt.Errorf("Bybit LONG position has inconsistent side %q for %s", side, symbol)
+		}
+		return size, "LONG", nil
+	case "2":
+		if size > 0 && side != "SELL" || size == 0 && side != "" && side != "SELL" {
+			return 0, "", fmt.Errorf("Bybit SHORT position has inconsistent side %q for %s", side, symbol)
+		}
+		return size, "SHORT", nil
+	default:
+		return 0, "", fmt.Errorf("Bybit returned unsupported positionIdx %q for %s", positionIdx, symbol)
+	}
 }
 
 // GetBalance 獲取餘額

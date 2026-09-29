@@ -169,8 +169,9 @@ func TestReconcilerFailsClosedWhenPositionSyncIsRejected(t *testing.T) {
 
 // mockExchangePositionRow 與 reconciler 反射解析一致（Symbol + Size）
 type mockExchangePositionRow struct {
-	Symbol string
-	Size   float64
+	Symbol       string
+	Size         float64
+	PositionSide string
 }
 
 // MockPositionManager 模拟倉位管理器
@@ -370,6 +371,7 @@ func (m *barrierObservingReconcileExchange) GetOpenOrders(ctx context.Context, s
 type TestSlot struct {
 	PositionStatus string
 	PositionQty    float64
+	PositionLeg    string
 	OrderSide      string
 	OrderStatus    string
 }
@@ -443,6 +445,7 @@ func TestReconcilerRejectsUnverifiedPositionSnapshot(t *testing.T) {
 		{name: "nil row", raw: []*mockExchangePositionRow{nil}},
 		{name: "non-finite quantity", raw: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: math.NaN()}}},
 		{name: "duplicate symbol", raw: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.1}, {Symbol: "BTCUSDT", Size: 0.2}}},
+		{name: "unknown position side", raw: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.1, PositionSide: "HEDGE"}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -871,6 +874,74 @@ func TestReconciler_DirectionAwareSync(t *testing.T) {
 				}
 			} else if pm.CompletedReconciliationCount != 1 {
 				t.Fatalf("successful reconciliation completions = %d, want 1", pm.CompletedReconciliationCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerBothModeRequiresMatchingDirectionalLegs(t *testing.T) {
+	tests := []struct {
+		name         string
+		exchangeRows []mockExchangePositionRow
+		localLong    float64
+		localShort   float64
+		wantErr      bool
+	}{
+		{
+			name: "matching long and short legs",
+			exchangeRows: []mockExchangePositionRow{
+				{Symbol: "BTCUSDT", Size: 0.04, PositionSide: "LONG"},
+				{Symbol: "BTCUSDT", Size: 0.03, PositionSide: "SHORT"},
+			},
+			localLong: 0.04, localShort: 0.03,
+		},
+		{
+			name: "equal gross netting mismatch must fail",
+			exchangeRows: []mockExchangePositionRow{
+				{Symbol: "BTCUSDT", Size: 0.03, PositionSide: "LONG"},
+				{Symbol: "BTCUSDT", Size: 0.04, PositionSide: "SHORT"},
+			},
+			localLong: 0.04, localShort: 0.03, wantErr: true,
+		},
+		{
+			name:         "net position cannot prove gross legs",
+			exchangeRows: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.01, PositionSide: "NET"}},
+			localLong:    0.04, localShort: 0.03, wantErr: true,
+		},
+		{
+			name:         "missing flat opposite leg is not proof of zero",
+			exchangeRows: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.04, PositionSide: "LONG"}},
+			localLong:    0.04, wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "futures"
+			cfg.Trading.Direction = "BOTH"
+			ex := &MockReconcileExchange{Positions: tt.exchangeRows}
+			pm := &MockPositionManager{
+				Symbol: "BTCUSDT",
+				Slots: map[float64]interface{}{
+					49900: TestSlot{PositionStatus: "FILLED", PositionQty: tt.localLong, PositionLeg: "LONG", OrderStatus: "NOT_PLACED"},
+					50100: TestSlot{PositionStatus: "FILLED", PositionQty: tt.localShort, PositionLeg: "SHORT", OrderStatus: "NOT_PLACED"},
+				},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			err := r.Reconcile()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Reconcile() error=%v, wantErr=%v", err, tt.wantErr)
+			}
+			if pm.ForceSyncCount != 0 {
+				t.Fatalf("directional reconciliation must not mutate positions, sync count=%d", pm.ForceSyncCount)
+			}
+			if tt.wantErr {
+				if pm.FailReconcileErr == nil || pm.ReconcileCount != 0 || pm.CompletedReconciliationCount != 0 {
+					t.Fatalf("mismatching legs did not fail closed: failure=%v count=%d complete=%d", pm.FailReconcileErr, pm.ReconcileCount, pm.CompletedReconciliationCount)
+				}
+			} else if pm.ReconcileCount != 1 || pm.CompletedReconciliationCount != 1 {
+				t.Fatalf("matching legs should complete without mutation: count=%d complete=%d", pm.ReconcileCount, pm.CompletedReconciliationCount)
 			}
 		})
 	}

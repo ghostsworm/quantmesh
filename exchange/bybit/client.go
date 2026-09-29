@@ -404,6 +404,7 @@ func (c *BybitClient) GetAllCoinsBalance(ctx context.Context, accountType string
 type BybitPosition struct {
 	Symbol        string `json:"symbol"`
 	Size          string `json:"size"`
+	Side          string `json:"side"` // Buy=long, Sell=short; empty for a zero position
 	AvgPrice      string `json:"avgPrice"`
 	MarkPrice     string `json:"markPrice"`
 	UnrealisedPnl string `json:"unrealisedPnl"`

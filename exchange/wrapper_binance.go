@@ -232,6 +232,7 @@ func (w *binanceWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		positions[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,
@@ -262,7 +263,7 @@ func (w *binanceWrapper) GetAccountFresh(ctx context.Context) (*Account, error) 
 	}
 	positions := make([]*Position, len(binanceAccount.Positions))
 	for i, pos := range binanceAccount.Positions {
-		positions[i] = &Position{Symbol: pos.Symbol, Size: pos.Size, EntryPrice: pos.EntryPrice, MarkPrice: pos.MarkPrice,
+		positions[i] = &Position{Symbol: pos.Symbol, Size: pos.Size, PositionSide: pos.PositionSide, EntryPrice: pos.EntryPrice, MarkPrice: pos.MarkPrice,
 			UnrealizedPNL: pos.UnrealizedPNL, Leverage: pos.Leverage, MarginType: pos.MarginType, IsolatedMargin: pos.IsolatedMargin}
 	}
 	return &Account{TotalWalletBalance: binanceAccount.TotalWalletBalance, TotalMarginBalance: binanceAccount.TotalMarginBalance,
@@ -282,6 +283,7 @@ func (w *binanceWrapper) GetPositions(ctx context.Context, symbol string) ([]*Po
 		positions[i] = &Position{
 			Symbol:         pos.Symbol,
 			Size:           pos.Size,
+			PositionSide:   pos.PositionSide,
 			EntryPrice:     pos.EntryPrice,
 			MarkPrice:      pos.MarkPrice,
 			UnrealizedPNL:  pos.UnrealizedPNL,

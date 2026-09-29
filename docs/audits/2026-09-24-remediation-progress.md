@@ -2277,3 +2277,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc444 引入失败时保持阻断后，发现执行器原先把一般对账失败复用到永久锁丢失门控，且无成功核账解除路径；会导致可恢复的 API/快照故障也只能重启恢复。
 - 现使用独立 `position_reconciliation_unverified` source；只有本轮快照、委托证据、本地核验及必要同步全部成功后才解除该 source。`position_coordination_lock_lost` 与 UNKNOWN、风控和人工门控不受影响；失败分支不调用完成回调。
 - `go test ./safety ./order ./position -run 'TestReconciler|TestSuccessfulPositionReconciliationClearsOnlyItsOwnGate|TestPositionSubmissionLockRenewalFailure' -count=5`、相关 `-race` 五轮、三个包全量 `-count=1`、`go vet ./safety ./order ./position` 与 `git diff --check` 均通过。回归确认完整核账成功才清除对账专属 source，锁丢失 source 保留；未连接真实账户、未下单。其他盈利准备度未闭合项继续有效。
+
+## 后续续修：双向期货按多空腿核账（3.111.0-rc446，2026-09-30）
+
+- `Position` 增加方向字段并由 Binance、Bybit、OKX 适配器及 wrapper 保留；Bybit positionIdx 映射到 NET/LONG/SHORT，单向模式按 `side` 还原 signed size，拒绝无效方向和数量（依据 [Bybit V5 Position Info](https://bybit-exchange.github.io/docs/v5/position)）。
+- Reconciler 对 BOTH 要求交易所同时提供 LONG/SHORT 两行（包括零仓腿）且各腿分别与本地 `PositionLeg` 一致；同 gross 但多空分布不同、净仓证据、缺腿或本地缺腿均失败关闭，绝不将腿差额互相抵消或按净值改槽位。
+- 定向对账与适配器测试重复 10 轮、`-race` 对账测试重复 10 轮，`go test ./safety ./exchange/binance ./exchange/bybit ./exchange/okx -count=1`、`go vet` 四个对应包和 `git diff --check` 均通过。交易所返回零仓腿的真实适配器行为仍须按环境/API 集成验证；未提供完整逐腿 ForceSync（任何腿偏差继续封锁），未连接真实账户或下单。跨重启经济恢复、账户额度和盈利证据仍未闭合。
