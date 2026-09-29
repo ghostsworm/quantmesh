@@ -243,11 +243,24 @@ func TestShortMartingaleEntryLifecycle(t *testing.T) {
 		t.Fatalf("部分成交应计入: qty=%.6f avg=%.2f", s.totalQty, s.avgEntryPrice)
 	}
 
+	ordersBeforeClose := len(executor.orders)
 	if err := s.closeAllPositions(49000, "止盈"); err != nil {
 		t.Fatalf("closeAllPositions() error=%v", err)
 	}
 	if len(executor.canceled) != 1 || executor.canceled[0] != entryID {
 		t.Fatalf("平仓前应撤掉未完全成交的开仓单: %v", executor.canceled)
+	}
+	if len(executor.orders) != ordersBeforeClose || s.isClosing {
+		t.Fatalf("撤单请求未确认前不能提交平仓: orders=%d closing=%v", len(executor.orders), s.isClosing)
+	}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: entryID, Status: "CANCELED", ExecutedQty: 0.001, AvgPrice: 50010}); err != nil {
+		t.Fatalf("OnOrderUpdate(cancel terminal) error=%v", err)
+	}
+	if err := s.closeAllPositions(49000, "止盈"); err != nil {
+		t.Fatalf("closeAllPositions() after entry terminal error=%v", err)
+	}
+	if len(executor.orders) != ordersBeforeClose+1 {
+		t.Fatalf("confirmed entry terminal should allow one close order, got %d orders", len(executor.orders))
 	}
 	closeReq := executor.orders[len(executor.orders)-1]
 	if closeReq.Side != "BUY" || !closeReq.ReduceOnly || closeReq.PositionSide != position.PositionSideShort {

@@ -774,6 +774,15 @@ func (s *MartingaleStrategy) hasPendingEntry() bool {
 	return false
 }
 
+func (s *MartingaleStrategy) hasCancelablePendingEntry() bool {
+	for _, entry := range s.entries {
+		if entry != nil && (entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled) {
+			return true
+		}
+	}
+	return false
+}
+
 func martingaleEntryHasAttributedFill(entry *MartingaleEntry) bool {
 	if entry == nil {
 		return false
@@ -842,6 +851,10 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 	if s.totalQty <= 0 {
 		return nil
 	}
+	if s.hasCancelablePendingEntry() {
+		s.cancelPendingEntries()
+		return nil
+	}
 
 	side := "SELL"
 	if s.direction == "SHORT" {
@@ -853,9 +866,6 @@ func (s *MartingaleStrategy) closeAllPositions(price float64, reason string) err
 	if !strings.Contains(reason, "止损") {
 		orderSource = "normal"
 	}
-
-	// 先撤掉未成交的开倉單，避免平倉後又成交出孤兒倉位
-	s.cancelPendingEntries()
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
 		Symbol:       s.strategyCfg.Symbol,

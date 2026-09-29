@@ -158,6 +158,36 @@ func TestMartingaleUnknownEntryBlocksAutomaticCloseUntilReconciled(t *testing.T)
 	}
 }
 
+func TestMartingaleCloseWaitsForPendingEntryTerminalBeforeSubmitting(t *testing.T) {
+	executor := &cancelRecordingExecutor{}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, s)
+	s.direction = "LONG"
+	s.entries = []*MartingaleEntry{
+		{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled},
+		{Level: 2, OrderID: 45, Price: 90, RequestedQuantity: 0.5, Status: entryStatusPending},
+	}
+	s.updateTotals()
+	if err := s.closeAllPositions(80, "止损"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 1 || executor.canceled[0] != 45 || len(executor.orders) != 0 || s.isClosing {
+		t.Fatalf("close submitted before pending entry reached terminal state: canceled=%v orders=%d closing=%v", executor.canceled, len(executor.orders), s.isClosing)
+	}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: 45, Status: "CANCELED"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.entries) != 1 || s.totalQty != 1 {
+		t.Fatalf("canceled unfilled entry not released: entries=%+v qty=%v", s.entries, s.totalQty)
+	}
+	if err := s.closeAllPositions(80, "止损"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.orders) != 1 || executor.orders[0].Quantity != 1 || !s.isClosing {
+		t.Fatalf("close was not submitted against confirmed inventory after terminal cancel: orders=%+v qty=%v closing=%v", executor.orders, s.totalQty, s.isClosing)
+	}
+}
+
 func TestMartingaleUnknownFeeAssetDoesNotConsumeFill(t *testing.T) {
 	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)
