@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"strings"
 )
 
@@ -97,12 +98,23 @@ func (sm *SymbolManager) closeLegacyPositions(ctx context.Context, rt *SymbolRun
 	if err != nil {
 		return markManualCloseUnverified(peers, fmt.Errorf("verify remaining open orders: %w", err))
 	}
-	for _, order := range openOrders {
-		if order == nil || order.Symbol == "" || strings.EqualFold(order.Symbol, rt.Config.Symbol) {
-			return markManualCloseUnverified(peers, fmt.Errorf("account still has an unverified open order after Bot close"))
-		}
+	if err := validateManualCloseOpenOrders(openOrders, rt.Config.Symbol); err != nil {
+		return markManualCloseUnverified(peers, err)
 	}
 	return 1, 0, nil
+}
+
+func validateManualCloseOpenOrders(orders []*exchange.Order, symbol string) error {
+	for _, order := range orders {
+		if order == nil || strings.TrimSpace(order.Symbol) == "" {
+			return fmt.Errorf("account has an unverified open order after Bot close")
+		}
+		if !strings.EqualFold(strings.TrimSpace(order.Symbol), symbol) {
+			return fmt.Errorf("open-order response contains unexpected symbol %q while verifying %s", order.Symbol, symbol)
+		}
+		return fmt.Errorf("account still has an open order for %s after Bot close", symbol)
+	}
+	return nil
 }
 
 func markManualCloseUnverified(peers []*SymbolRuntime, cause error) (int, int, error) {

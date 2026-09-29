@@ -184,3 +184,26 @@ func TestManualCloseWebAdapterReturnsOnlyVerifiedResult(t *testing.T) {
 		}
 	}
 }
+
+func TestManualCloseOpenOrderSnapshotMustMatchRequestedSymbol(t *testing.T) {
+	tests := []struct {
+		name   string
+		orders []*exchange.Order
+		wantOK bool
+	}{
+		{name: "empty", orders: []*exchange.Order{}, wantOK: true},
+		{name: "matching open order", orders: []*exchange.Order{{Symbol: "BTCUSDT"}}},
+		{name: "missing symbol", orders: []*exchange.Order{{}}},
+		{name: "nil row", orders: []*exchange.Order{nil}},
+		{name: "unexpected symbol", orders: []*exchange.Order{{Symbol: "ETHUSDT"}}},
+		{name: "case insensitive match", orders: []*exchange.Order{{Symbol: "btcusdt"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateManualCloseOpenOrders(test.orders, "BTCUSDT")
+			if (err == nil) != test.wantOK {
+				t.Fatalf("validation error=%v wantOK=%v", err, test.wantOK)
+			}
+		})
+	}
+}
