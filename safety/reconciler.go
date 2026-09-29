@@ -448,11 +448,9 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	isSpot := config.IsSpotMarketType(r.cfg.Trading.MarketType)
 	exchangePosition, syncAllowed := normalizeExchangePositionForSync(direction, isSpot, exchangePosition)
 	if !syncAllowed {
-		logger.Debugln("🔍 ===== 對账完成（跳過持倉同步）=====")
-		markReconciled()
-		releaseCriticalSection()
-		saveReconciliationHistory()
-		return nil
+		err := fmt.Errorf("交易所净持仓 %g 无法与本地 %s 方向持仓安全比较；本轮对账未完成", exchangePosition, direction)
+		r.pm.FailReconciliation(err)
+		return err
 	}
 	diff := math.Abs(localTotal - exchangePosition)
 	// 使用相對较小的阈值，但要考虑到浮点數精度
