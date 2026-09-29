@@ -44,6 +44,15 @@ func notifyNewsMonitorRuntimeSync(cfg *config.Config) {
 	newsMonitorRuntimeSync(cfg)
 }
 
+func notifyEquityScopeConfigSync(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	if updater, ok := symbolManagerProvider.(EquityScopeConfigUpdater); ok {
+		updater.UpdateEquityScopeConfig(cfg)
+	}
+}
+
 // SetPrimaryStorageForAppConfig 設置主庫存儲（啟動時注入），用於寫入 app_config。
 func SetPrimaryStorageForAppConfig(st storage.Storage) {
 	primaryStorageForAppConfig = st
@@ -332,6 +341,7 @@ func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config
 	}
 	fcm.currentConfig = snapshot
 	fcm.mu.Unlock()
+	notifyEquityScopeConfigSync(snapshot)
 	// 必須在釋放鎖之後再同步新聞監控：ApplyRuntimeConfig 內 stopInternalLocked 可能阻塞數秒～十餘秒
 	//（等待 analysisLoopDone），若持鎖調用會拖慢所有依賴 GetLatestConfig/UpdateConfig 的 API（如 PUT /api/bots/:id/strategy）。
 	notifyNewsMonitorRuntimeSync(snapshot)

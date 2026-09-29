@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：主配置持久化统一刷新权益账户范围（3.111.0-rc428）
+
+- 复核 R10 配置发布路径发现，`UpdateRuntimeTradingParams` 与旧式启停路径会刷新权益 scope，但 Bot 创建、批量资金费配置及 AI/通用主配置持久化并不保证经过这些入口。配置已提交后，权益采样可能继续使用旧账户清单。
+- `FileConfigManager.UpdateConfigWithBotHistorySource` 现于配置快照持久化并释放管理器锁后统一通知 `EquityScopeConfigUpdater`；新增 SQLite 持久化回归验证 updater 收到新 Bot 清单。
+- 仅补足应用内配置发布与权益范围同步，不表示交易所账户采集、闲置账户/Spot 多资产、历史更正或真实账单已闭环；R10 仍开放，不代表实盘或盈利验收。
+
 # 后续续修：费率 HTTP 查询不占用配置快照锁（3.111.0-rc427）
 
 - rc425/rc426 引入的账户范围登记与配置锁复核发现：Bot 启动前和周期性费率更新在配置刷新锁内执行交易所 HTTP 请求（最长十秒/请求）；旧式启停接口在 FileConfigManager 锁内通知范围登记，可能被无关费率网络延迟阻塞。
