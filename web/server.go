@@ -559,6 +559,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			profit := protected.Group("/profit")
 			{
 				profit.GET("/summary", getProfitSummaryHandler)
+				profit.GET("/fee-corrections", getPendingTradeFeeCorrectionsHandler)
 				profit.GET("/funding", getFundingHistoryHandler)
 				profit.GET("/by-strategy", getStrategyProfitsHandler)
 				profit.GET("/by-strategy/:id", getStrategyProfitDetailHandler)
