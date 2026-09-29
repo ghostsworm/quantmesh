@@ -254,6 +254,25 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 			logger.Error("[%s] 訂單 #%d 成交資料無效，保留歸屬並等待對賬", spm.logPrefix(), update.OrderID)
 			return
 		}
+		if deltaQty > 0 && !spm.isOpenLegOrderSide(side, slot) &&
+			(!positiveFinite(slot.PositionQty) || deltaQty > slot.PositionQty) {
+			// Never clamp an execution that exceeds this Bot's attributable
+			// inventory. The exchange may have closed foreign/manual exposure;
+			// preserve our last verified lot and order cursor until reconciliation.
+			reason := fmt.Sprintf("grid close fill %.12g exceeds attributable inventory %.12g", deltaQty, slot.PositionQty)
+			slot.OrderStatus = OrderStatusUnknown
+			slot.SlotStatus = SlotStatusLocked
+			spm.openingGate.Block("unknown_orders")
+			if tracker, ok := spm.executor.(interface {
+				MarkOrderReconciliationRequired(int64, string, string) error
+			}); ok {
+				if err := tracker.MarkOrderReconciliationRequired(update.OrderID, orderClientOID, reason); err != nil {
+					logger.Error("[%s] 超量平倉回報且無法持久化核賬鎖: order=%d cid=%s err=%v", spm.logPrefix(), update.OrderID, orderClientOID, err)
+				}
+			}
+			logger.Error("[%s] %s；保留持倉與成交游標並等待核賬", spm.logPrefix(), reason)
+			return
+		}
 		slot.OrderFilledQty, slot.OrderFilledNotional = progress.Quantity, progress.Notional
 		if terminal || update.Status == "FILLED" {
 			slot.lastTerminalFill = progress

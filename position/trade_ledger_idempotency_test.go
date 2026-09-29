@@ -87,3 +87,39 @@ func TestGridTradeWriteFailurePersistsExactReplayPayload(t *testing.T) {
 		t.Fatal("trade ledger failure must continue blocking new openings")
 	}
 }
+
+func TestGridCloseOverfillKeepsInventoryAndPersistsReconciliationHold(t *testing.T) {
+	for _, test := range []struct {
+		name, direction, side string
+	}{
+		{name: "long sell close", direction: "LONG", side: "SELL"},
+		{name: "short buy close", direction: "SHORT", side: "BUY"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			executor := &tradeLedgerHoldTestExecutor{}
+			spm := newDirectionTestSPM(t, test.direction, executor)
+			trades := &auditTradeRecorder{}
+			spm.SetTradeStorage(trades)
+			slot := fillSlot(spm, 100, 0.5, 100, "")
+			cid := spm.generateClientOrderID(100, test.side, "")
+			spm.OnOrderUpdate(OrderUpdate{OrderID: 909, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "NEW", Side: test.side, Price: 90})
+			spm.OnOrderUpdate(OrderUpdate{OrderID: 909, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "FILLED", Side: test.side,
+				ExecutedQty: 1, AvgPrice: 90, Commission: 0.01, CommissionAsset: "USDT"})
+
+			if len(trades.trades) != 0 {
+				t.Fatalf("over-close persisted a realized trade: %+v", trades.trades)
+			}
+			if executor.orderCalls != 1 {
+				t.Fatalf("reconciliation holds=%d, want 1", executor.orderCalls)
+			}
+			if !spm.OpeningGate().HasBlock("unknown_orders") {
+				t.Fatal("over-close did not block new openings")
+			}
+			slot.mu.RLock()
+			defer slot.mu.RUnlock()
+			if slot.PositionQty != 0.5 || slot.OrderFilledQty != 0 || slot.PositionStatus != PositionStatusFilled || slot.OrderStatus != OrderStatusUnknown || slot.SlotStatus != SlotStatusLocked {
+				t.Fatalf("over-close mutated inventory/order state: qty=%v filled=%v position=%s order=%s slot=%s", slot.PositionQty, slot.OrderFilledQty, slot.PositionStatus, slot.OrderStatus, slot.SlotStatus)
+			}
+		})
+	}
+}
