@@ -105,7 +105,7 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 		if entry == nil || entry.Quantity < 0 || entry.Cost < 0 || entry.OpeningFee < 0 || entry.RequestedQuantity < 0 || !finiteNumber(entry.Quantity) || !finiteNumber(entry.Cost) || !finiteNumber(entry.OpeningFee) || !finiteNumber(entry.FillProgress.Quantity) || !finiteNumber(entry.FillProgress.Notional) {
 			return fmt.Errorf("martingale runtime state contains invalid entry")
 		}
-		if entryHasFill(entry.Status) {
+		if martingaleEntryHasAttributedFill(entry) {
 			totalQty += entry.Quantity
 			totalCost += entry.Cost
 		}

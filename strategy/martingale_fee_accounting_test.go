@@ -104,6 +104,42 @@ func TestMartingaleCloseBeyondAttributedInventoryRequestsReconciliation(t *testi
 	}
 }
 
+func TestMartingaleUnknownEntryPreservesPreviouslyVerifiedPartialInventoryAcrossRestore(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	s.SetRuntimeStateStore(store)
+	s.direction = "LONG"
+	entry := &MartingaleEntry{
+		Level: 1, OrderID: 43, Price: 100, Quantity: 0.4, RequestedQuantity: 1,
+		Cost: 40, OpeningFee: 0.1, FillProgress: position.FillProgress{Quantity: 0.4, Notional: 40},
+		Status: entryStatusPartiallyFilled,
+	}
+	s.entries = []*MartingaleEntry{entry}
+	s.updateTotals()
+	if err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 43, Status: "PARTIALLY_FILLED", ExecutedQty: 0.8, AvgPrice: math.NaN(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if entry.Status != position.OrderStatusUnknown || s.totalQty != 0.4 || s.totalCost != 40 || s.openingFeeTotal() != 0.1 || !s.hasPendingEntry() {
+		t.Fatalf("unknown order lost verified inventory or failed to block entries: entry=%+v qty=%v cost=%v fee=%v pending=%v", entry, s.totalQty, s.totalCost, s.openingFeeTotal(), s.hasPendingEntry())
+	}
+	s.updateTotals()
+	if s.totalQty != 0.4 || s.totalCost != 40 {
+		t.Fatalf("recalculation dropped verified unknown-entry inventory: qty=%v cost=%v", s.totalQty, s.totalCost)
+	}
+
+	restored := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	restored.direction = "LONG"
+	restored.SetRuntimeStateStore(store)
+	if err := restored.restoreRuntimeState(); err != nil {
+		t.Fatalf("restore unknown entry: %v", err)
+	}
+	if restored.totalQty != 0.4 || restored.totalCost != 40 || restored.openingFeeTotal() != 0.1 || !restored.hasPendingEntry() {
+		t.Fatalf("restored unknown entry lost verified position or lock: entry=%+v qty=%v cost=%v fee=%v pending=%v", restored.entries[0], restored.totalQty, restored.totalCost, restored.openingFeeTotal(), restored.hasPendingEntry())
+	}
+}
+
 func TestMartingaleUnknownFeeAssetDoesNotConsumeFill(t *testing.T) {
 	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)

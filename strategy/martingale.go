@@ -751,7 +751,7 @@ func (s *MartingaleStrategy) updateTotals() {
 	s.totalQty = 0
 
 	for _, entry := range s.entries {
-		if entryHasFill(entry.Status) {
+		if martingaleEntryHasAttributedFill(entry) {
 			s.totalCost += entry.Cost
 			s.totalQty += entry.Quantity
 		}
@@ -767,11 +767,22 @@ func (s *MartingaleStrategy) updateTotals() {
 // hasPendingEntry 是否存在未完全成交的开倉單
 func (s *MartingaleStrategy) hasPendingEntry() bool {
 	for _, entry := range s.entries {
-		if entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled {
+		if entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled || entry.Status == position.OrderStatusUnknown {
 			return true
 		}
 	}
 	return false
+}
+
+func martingaleEntryHasAttributedFill(entry *MartingaleEntry) bool {
+	if entry == nil {
+		return false
+	}
+	if entryHasFill(entry.Status) {
+		return true
+	}
+	return entry.Status == position.OrderStatusUnknown &&
+		(entry.Quantity > 0 || entry.Cost > 0 || entry.OpeningFee > 0 || entry.FillProgress.Quantity > 0)
 }
 
 // cancelPendingEntries 撤销所有未完全成交的开倉單（撤單回報到達後再回滚入场記錄）
@@ -1016,7 +1027,7 @@ func (s *MartingaleStrategy) recordCloseResult(pnl float64) {
 func (s *MartingaleStrategy) openingFeeTotal() float64 {
 	var total float64
 	for _, entry := range s.entries {
-		if entryHasFill(entry.Status) {
+		if martingaleEntryHasAttributedFill(entry) {
 			total += entry.OpeningFee
 		}
 	}
@@ -1099,7 +1110,7 @@ func (s *MartingaleStrategy) reduceAllEntries(qty float64) {
 	}
 	remainRatio := (s.totalQty - qty) / s.totalQty
 	for _, entry := range s.entries {
-		if entryHasFill(entry.Status) {
+		if martingaleEntryHasAttributedFill(entry) {
 			entry.Quantity *= remainRatio
 			entry.Cost *= remainRatio
 			entry.OpeningFee *= remainRatio
