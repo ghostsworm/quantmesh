@@ -104,6 +104,22 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	}
 }
 
+func TestCompleteReconciliationClearsOnlyVerifiedRuntimeRestoreHold(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.OpeningGate().Block("grid_runtime_state_reconciliation")
+	spm.OpeningGate().Block("unknown_orders")
+	spm.OpeningGate().Block("operator_pause")
+
+	spm.CompleteReconciliation()
+
+	if spm.OpeningGate().HasBlock("grid_runtime_state_reconciliation") {
+		t.Fatal("successful complete reconciliation left the restored-runtime hold active")
+	}
+	if !spm.OpeningGate().HasBlock("unknown_orders") || !spm.OpeningGate().HasBlock("operator_pause") {
+		t.Fatal("complete reconciliation cleared an unrelated opening hold")
+	}
+}
+
 func TestRestoreGridRuntimeStateMigratesUnprovenLegacyCostBasis(t *testing.T) {
 	spm, _ := newStateTestSPM("LONG", "futures")
 	spm.botID = "bot-migrate"

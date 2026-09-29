@@ -688,11 +688,15 @@ func (spm *SuperPositionManager) FailReconciliation(err error) {
 // block after a successful authoritative snapshot. Other gate sources remain.
 func (spm *SuperPositionManager) CompleteReconciliation() {
 	barrier, ok := spm.executor.(interface{ CompletePositionReconciliation() })
-	if !ok {
+	if ok {
+		barrier.CompletePositionReconciliation()
+	} else {
 		spm.openingGate.Unblock(execution.PositionReconciliationUnverifiedBlock)
-		return
 	}
-	barrier.CompletePositionReconciliation()
+	// A restored non-empty grid snapshot has its own startup hold. Only this
+	// callback, reached after the reconciler validates positions, orders, and
+	// execution intents, may release that hold.
+	spm.openingGate.Unblock("grid_runtime_state_reconciliation")
 }
 
 // GetOpeningPauseReason 獲取開倉暫停原因
