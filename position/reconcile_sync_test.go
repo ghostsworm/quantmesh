@@ -2,6 +2,7 @@ package position
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -74,16 +75,22 @@ func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	filledB.OrderID = 333
 	filledB.OrderStatus = OrderStatusPlaced
 
-	spm.ForceSyncPositions(1.0)
+	if err := spm.ForceSyncPositions(1.0); err != nil {
+		t.Fatalf("trim sync: %v", err)
+	}
 	if filledB.PositionStatus != PositionStatusEmpty && filledB.PositionQty >= 0.8 {
 		t.Fatalf("far excess slot should be trimmed: %#v", filledB)
 	}
 	before := filledA.PositionQty
-	spm.ForceSyncPositions(before + 0.5)
+	if err := spm.ForceSyncPositions(before + 0.5); err != nil {
+		t.Fatalf("deficit sync: %v", err)
+	}
 	if filledA.PositionQty <= before {
 		t.Fatalf("nearest slot should be filled up: before=%f after=%f", before, filledA.PositionQty)
 	}
-	spm.ForceSyncPositions(0)
+	if err := spm.ForceSyncPositions(0); err != nil {
+		t.Fatalf("zero sync: %v", err)
+	}
 	if filledA.PositionStatus != PositionStatusEmpty || filledA.PositionQty != 0 {
 		t.Fatalf("zero exchange position should clear local slots")
 	}
@@ -96,6 +103,24 @@ func TestSuperPositionManagerReconciliationAndForceSync(t *testing.T) {
 	}
 	if spm.config.Trading.GridRiskControl != initial {
 		t.Fatal("hot update mutated original config retained by other components")
+	}
+}
+
+func TestForceSyncPositionsRejectsUnresolvedInventory(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.ProfitSpread = 50
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.SellWindowSize = 2
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 4)
+	spm.setAnchorPrice(1000)
+	slot := spm.getOrCreateSlot(1000)
+	slot.PositionStatus = PositionStatusFilled
+	slot.PositionQty = math.NaN()
+	if err := spm.ForceSyncPositions(0.1); err == nil {
+		t.Fatal("ForceSyncPositions() succeeded despite unresolved NaN inventory")
 	}
 }
 

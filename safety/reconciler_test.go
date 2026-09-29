@@ -6,6 +6,7 @@ import (
 	"math"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"sync"
 	"testing"
@@ -114,6 +115,58 @@ func TestReconcilerContextCancellationInterruptsThrottle(t *testing.T) {
 	}
 }
 
+func TestReconcilerFailsClosedWhenDistributedLockCannotBeAcquired(t *testing.T) {
+	wantErr := errors.New("distributed lock backend unavailable")
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	pm := &MockPositionManager{Symbol: "BTCUSDT"}
+	ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0}}}
+	r := NewReconciler(cfg, ex, pm, &failingReconcileLock{NopLock: lock.NewNopLock(), err: wantErr})
+	err := r.Reconcile()
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("Reconcile() error = %v, want wrapped %v", err, wantErr)
+	}
+	if pm.FailReconcileErr == nil {
+		t.Fatal("lock failure did not engage fail-closed order gate")
+	}
+	if pm.ReconcileCount != 0 || pm.ForceSyncCount != 0 {
+		t.Fatalf("lock failure changed reconciliation state: count=%d sync=%d", pm.ReconcileCount, pm.ForceSyncCount)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	release, err := execution.AcquireLocalPositionCoordination(ctx, execution.PositionReconciliationLockKey("unknown", "BTCUSDT"))
+	if err != nil {
+		t.Fatalf("local coordination barrier remained held after lock failure: %v", err)
+	}
+	release()
+}
+
+func TestReconcilerFailsClosedWhenPositionSyncIsRejected(t *testing.T) {
+	syncErr := errors.New("UNKNOWN order blocks position sync")
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	cfg.Trading.MarketType = "futures"
+	pm := &MockPositionManager{
+		Symbol: "BTCUSDT",
+		Slots: map[float64]interface{}{
+			50000: TestSlot{PositionStatus: "FILLED", PositionQty: 0.2, OrderSide: "SELL", OrderStatus: "NOT_PLACED"},
+		},
+		ForceSyncErr: syncErr,
+	}
+	ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.1}}}
+	r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+	err := r.Reconcile()
+	if !errors.Is(err, syncErr) {
+		t.Fatalf("Reconcile() error = %v, want wrapped %v", err, syncErr)
+	}
+	if pm.FailReconcileErr == nil {
+		t.Fatal("rejected position sync did not engage fail-closed order gate")
+	}
+	if pm.ReconcileCount != 0 {
+		t.Fatalf("rejected position sync was counted as successful, count=%d", pm.ReconcileCount)
+	}
+}
+
 // mockExchangePositionRow 與 reconciler 反射解析一致（Symbol + Size）
 type mockExchangePositionRow struct {
 	Symbol string
@@ -122,18 +175,20 @@ type mockExchangePositionRow struct {
 
 // MockPositionManager 模拟倉位管理器
 type MockPositionManager struct {
-	Slots           map[float64]interface{}
-	TotalBuyQty     float64
-	TotalSellQty    float64
-	ReconcileCount  int64
-	Symbol          string
-	PriceInterval   float64
-	ForceSyncCount  int
-	LastForceSync   float64
-	BeginReconcile  func(context.Context) (func(), error)
-	BarrierActive   bool
-	ForceSyncInGate bool
-	ForceSyncHook   func()
+	Slots            map[float64]interface{}
+	TotalBuyQty      float64
+	TotalSellQty     float64
+	ReconcileCount   int64
+	Symbol           string
+	PriceInterval    float64
+	ForceSyncCount   int
+	LastForceSync    float64
+	BeginReconcile   func(context.Context) (func(), error)
+	BarrierActive    bool
+	ForceSyncInGate  bool
+	ForceSyncHook    func()
+	ForceSyncErr     error
+	FailReconcileErr error
 }
 
 func (m *MockPositionManager) IterateSlots(fn func(price float64, slot interface{}) bool) {
@@ -151,13 +206,14 @@ func (m *MockPositionManager) UpdateLastReconcileTime(t time.Time) {}
 func (m *MockPositionManager) GetSymbol() string                   { return m.Symbol }
 func (m *MockPositionManager) GetPriceInterval() float64           { return m.PriceInterval }
 func (m *MockPositionManager) GetProfitSpread() float64            { return m.PriceInterval }
-func (m *MockPositionManager) ForceSyncPositions(exchangePosition float64) {
+func (m *MockPositionManager) ForceSyncPositions(exchangePosition float64) error {
 	m.ForceSyncCount++
 	m.LastForceSync = exchangePosition
 	m.ForceSyncInGate = m.BarrierActive
 	if m.ForceSyncHook != nil {
 		m.ForceSyncHook()
 	}
+	return m.ForceSyncErr
 }
 
 func (m *MockPositionManager) BeginReconciliation(ctx context.Context) (func(), error) {
@@ -166,7 +222,82 @@ func (m *MockPositionManager) BeginReconciliation(ctx context.Context) (func(), 
 	}
 	return func() {}, nil
 }
-func (m *MockPositionManager) FailReconciliation(error) {}
+func (m *MockPositionManager) FailReconciliation(err error) { m.FailReconcileErr = err }
+
+func TestReconcilerRejectsInvalidLocalPositionLedger(t *testing.T) {
+	tests := []struct {
+		name  string
+		slots map[float64]interface{}
+	}{
+		{name: "NaN", slots: map[float64]interface{}{50000: TestSlot{PositionStatus: "FILLED", PositionQty: math.NaN()}}},
+		{name: "positive infinity", slots: map[float64]interface{}{50000: TestSlot{PositionStatus: "FILLED", PositionQty: math.Inf(1)}}},
+		{name: "negative quantity", slots: map[float64]interface{}{50000: TestSlot{PositionStatus: "FILLED", PositionQty: -0.1}}},
+		{name: "aggregate overflow", slots: map[float64]interface{}{
+			50000: TestSlot{PositionStatus: "FILLED", PositionQty: math.MaxFloat64},
+			50001: TestSlot{PositionStatus: "FILLED", PositionQty: math.MaxFloat64},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "spot"
+			cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+			pm := &MockPositionManager{Symbol: "BTCUSDT", Slots: tt.slots}
+			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0}}}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("Reconcile() succeeded with an invalid local position ledger")
+			}
+			if pm.FailReconcileErr == nil {
+				t.Fatal("invalid local ledger did not engage the reconciliation fail-closed gate")
+			}
+			if pm.ForceSyncCount != 0 || pm.ReconcileCount != 0 {
+				t.Fatalf("invalid local ledger changed state: sync=%d reconcile=%d", pm.ForceSyncCount, pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerRejectsMalformedLocalSlotEvidence(t *testing.T) {
+	tests := []struct {
+		name  string
+		price float64
+		slot  interface{}
+	}{
+		{name: "non-struct slot", price: 50000, slot: "corrupt"},
+		{name: "nil slot pointer", price: 50000, slot: (*TestSlot)(nil)},
+		{name: "missing order evidence", price: 50000, slot: struct {
+			PositionStatus string
+			PositionQty    float64
+		}{PositionStatus: "FILLED", PositionQty: 0.1}},
+		{name: "unknown position status", price: 50000, slot: TestSlot{PositionStatus: "CORRUPT", PositionQty: 0.1}},
+		{name: "non-finite slot price", price: math.NaN(), slot: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1}},
+		{name: "unknown order status", price: 50000, slot: TestSlot{PositionStatus: "EMPTY", OrderSide: "BUY", OrderStatus: "PENDING_SUBMIT"}},
+		{name: "invalid order side", price: 50000, slot: TestSlot{PositionStatus: "EMPTY", OrderSide: "BID", OrderStatus: "UNKNOWN"}},
+		{name: "active order missing side", price: 50000, slot: TestSlot{PositionStatus: "EMPTY", OrderStatus: "UNKNOWN"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "spot"
+			cfg.Trading.SpotInventoryPolicy = config.SpotInventoryPolicyAdoptAll
+			pm := &MockPositionManager{Symbol: "BTCUSDT", Slots: map[float64]interface{}{tt.price: tt.slot}}
+			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0}}}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err == nil {
+				t.Fatal("Reconcile() succeeded with malformed local slot evidence")
+			}
+			if pm.FailReconcileErr == nil {
+				t.Fatal("malformed slot evidence did not engage the fail-closed gate")
+			}
+			if pm.ForceSyncCount != 0 || pm.ReconcileCount != 0 {
+				t.Fatalf("malformed slot evidence changed state: sync=%d reconcile=%d", pm.ForceSyncCount, pm.ReconcileCount)
+			}
+		})
+	}
+}
 
 type barrierObservingReconcileExchange struct {
 	MockReconcileExchange
@@ -179,6 +310,15 @@ type trackingReconcileLock struct {
 	*lock.NopLock
 	mu   sync.Mutex
 	held bool
+}
+
+type failingReconcileLock struct {
+	*lock.NopLock
+	err error
+}
+
+func (m *failingReconcileLock) Lock(context.Context, string, time.Duration) error {
+	return m.err
 }
 
 func (m *trackingReconcileLock) Lock(context.Context, string, time.Duration) error {
@@ -382,6 +522,50 @@ func TestReconcilerSkipsPositionSyncWhileOrdersRemainOpen(t *testing.T) {
 			}
 			if pm.ReconcileCount != 1 {
 				t.Fatalf("valid snapshots should complete reconciliation, count=%d", pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerDoesNotSyncWhileLocalOrderIsUnknown(t *testing.T) {
+	tests := []struct {
+		name         string
+		direction    string
+		position     string
+		orderSide    string
+		positionQty  float64
+		exchangeSize float64
+	}{
+		{name: "LONG open", direction: "LONG", position: "EMPTY", orderSide: "BUY", exchangeSize: 0.1},
+		{name: "LONG close", direction: "LONG", position: "FILLED", orderSide: "SELL", positionQty: 0.1, exchangeSize: 0},
+		{name: "SHORT open", direction: "SHORT", position: "EMPTY", orderSide: "SELL", exchangeSize: -0.1},
+		{name: "SHORT close", direction: "SHORT", position: "FILLED", orderSide: "BUY", positionQty: 0.1, exchangeSize: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "futures"
+			cfg.Trading.Direction = tt.direction
+			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: tt.exchangeSize}}}
+			if tt.exchangeSize == 0 {
+				ex.Positions = []mockExchangePositionRow{}
+			}
+			pm := &MockPositionManager{
+				Symbol: "BTCUSDT",
+				Slots: map[float64]interface{}{
+					50000: TestSlot{PositionStatus: tt.position, PositionQty: tt.positionQty, OrderSide: tt.orderSide, OrderStatus: "UNKNOWN"},
+				},
+			}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			if err := r.Reconcile(); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			if pm.ForceSyncCount != 0 {
+				t.Fatalf("UNKNOWN local order must prevent ForceSyncPositions, got %v", pm.LastForceSync)
+			}
+			if pm.ReconcileCount != 1 {
+				t.Fatalf("valid snapshots should count as reconciled without applying unsafe sync, count=%d", pm.ReconcileCount)
 			}
 		})
 	}

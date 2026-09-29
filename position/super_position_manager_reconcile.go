@@ -619,10 +619,13 @@ func (spm *SuperPositionManager) getExistingPosition() float64 {
 }
 
 // ForceSyncPositions 强制同步持倉（當對账发現重大不一致時調用）
-func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
+func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) error {
 	if spm.openingGate.HasBlock("unknown_orders") {
 		logger.Error("[%s] 存在 UNKNOWN 訂單，禁止用單次持倉快照覆寫槽位與資金；需先按訂單核實", spm.logPrefix())
-		return
+		return fmt.Errorf("存在 UNKNOWN 订单，拒绝通过单次持仓快照覆盖槽位")
+	}
+	if math.IsNaN(exchangePosition) || math.IsInf(exchangePosition, 0) || exchangePosition < 0 {
+		return fmt.Errorf("交易所持仓数量无效: %v", exchangePosition)
 	}
 	// 注意：这里不需要全局鎖 spm.mu.Lock()，因為 slots 是 sync.Map，槽位更新有自己的鎖
 	// 且我们不希望在對账時阻塞下單逻辑
@@ -663,6 +666,51 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) {
 		spm.trimExcessPositions(exchangePosition)
 		spm.fillDeficitPositions(exchangePosition)
 	}
+	localPosition, err := spm.reconciliationPositionTotal()
+	if err != nil {
+		return fmt.Errorf("同步后本地持仓台账无效: %w", err)
+	}
+	const syncQuantityTolerance = 0.00000001
+	if math.Abs(localPosition-exchangePosition) > syncQuantityTolerance {
+		return fmt.Errorf("持仓同步后仍未对齐: 本地 %.12g，交易所快照 %.12g", localPosition, exchangePosition)
+	}
+	return nil
+}
+
+func (spm *SuperPositionManager) reconciliationPositionTotal() (float64, error) {
+	var total float64
+	var inventoryErr error
+	spm.slots.Range(func(key, value interface{}) bool {
+		price, ok := key.(float64)
+		if !ok || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+			inventoryErr = fmt.Errorf("槽位价格无效: %v", key)
+			return false
+		}
+		slot, ok := value.(*InventorySlot)
+		if !ok || slot == nil {
+			inventoryErr = fmt.Errorf("槽位 %.8f 的台账对象无效", price)
+			return false
+		}
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		if slot.PositionStatus != PositionStatusEmpty && slot.PositionStatus != PositionStatusFilled {
+			inventoryErr = fmt.Errorf("槽位 %.8f 的持仓状态未知: %q", price, slot.PositionStatus)
+			return false
+		}
+		if math.IsNaN(slot.PositionQty) || math.IsInf(slot.PositionQty, 0) || slot.PositionQty < 0 {
+			inventoryErr = fmt.Errorf("槽位 %.8f 的数量无效: %v", price, slot.PositionQty)
+			return false
+		}
+		if slot.PositionStatus == PositionStatusFilled {
+			total += slot.PositionQty
+			if math.IsNaN(total) || math.IsInf(total, 0) {
+				inventoryErr = fmt.Errorf("本地持仓汇总溢出")
+				return false
+			}
+		}
+		return true
+	})
+	return total, inventoryErr
 }
 
 // trimExcessPositions 修剪多餘的本地持倉槽位

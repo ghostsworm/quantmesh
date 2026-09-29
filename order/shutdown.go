@@ -62,10 +62,10 @@ func (oe *ExchangeOrderExecutor) BeginPositionSnapshot(ctx context.Context) (con
 }
 
 // FailPositionReconciliation permanently blocks this executor for the current
-// process after losing the distributed snapshot/submission lease.
+// process when reconciliation cannot establish trustworthy position evidence.
 func (oe *ExchangeOrderExecutor) FailPositionReconciliation(err error) {
 	oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
-	logger.ErrorCtx(oe.logCtx(), "持倉對账协调锁已失效，执行器保持关闭: %v", err)
+	logger.ErrorCtx(oe.logCtx(), "持倉對账失败，执行器保持关闭: %v", err)
 }
 
 func (oe *ExchangeOrderExecutor) IsShutdownCloseContext(ctx context.Context) bool {

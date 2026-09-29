@@ -37,8 +37,8 @@ type IPositionManager interface {
 	// BeginReconciliation freezes this manager's physical order submissions
 	// and drains already-admitted submissions until the returned release runs.
 	BeginReconciliation(ctx context.Context) (release func(), err error)
-	// FailReconciliation holds the manager's physical executor closed if the
-	// distributed snapshot/submission lease is lost.
+	// FailReconciliation holds physical submissions closed when position
+	// evidence cannot be trusted.
 	FailReconciliation(err error)
 	// 遍历所有槽位（封装 sync.Map.Range）
 	// 注意：slot 為 interface{} 類型，需要轉换為 SlotInfo
@@ -56,7 +56,7 @@ type IPositionManager interface {
 	GetProfitSpread() float64
 
 	// 强制同步持倉
-	ForceSyncPositions(exchangePosition float64)
+	ForceSyncPositions(exchangePosition float64) error
 }
 
 // ReconciliationStorage 對账存儲介面（避免循環匯入，使用函數類型）
@@ -190,9 +190,11 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	// 使用阻塞鎖（Lock）而非 TryLock，确保對账一定執行
 	err = r.lock.Lock(ctx, lockKey, execution.PositionReconciliationLockTTL)
 	if err != nil {
+		if parent.Err() == nil {
+			r.pm.FailReconciliation(err)
+		}
 		unlockLocal()
-		logger.Warn("⚠️ [%s] 獲取對账鎖失败: %v，跳過本次對账", exchangeName, err)
-		return nil // 鎖獲取失败不返回錯误，只是跳過
+		return fmt.Errorf("获取持仓对账分布式锁失败，拒绝继续开仓: %w", err)
 	}
 	stopRenew := lock.StartAutoRenew(r.lock, lockKey, execution.PositionReconciliationLockTTL, func(renewErr error) {
 		logger.Error("[%s] 持倉對账協調鎖續期失败: %v", exchangeName, renewErr)
@@ -259,6 +261,8 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	var localTotal float64
 	var localPendingSellQty float64
 	var localFilledPosition float64
+	var localInventoryErr error
+	var activeLocalOrders int
 	var activeBuyOrders int  // 開倉方向挂單數（LONG=BUY，SHORT=SELL）
 	var activeSellOrders int // 平倉方向挂單數（LONG=SELL，SHORT=BUY）
 
@@ -268,6 +272,8 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		OrderStatusConfirmed       = "CONFIRMED"
 		OrderStatusPartiallyFilled = "PARTIALLY_FILLED"
 		OrderStatusCancelRequested = "CANCEL_REQUESTED"
+		OrderStatusUnknown         = "UNKNOWN"
+		OrderStatusFilled          = "FILLED"
 		PositionStatusFilled       = "FILLED"
 	)
 
@@ -279,10 +285,36 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	}
 
 	r.pm.IterateSlots(func(price float64, slotRaw interface{}) bool {
+		if localInventoryErr != nil {
+			return false
+		}
 		// 使用反射提取槽位字段
 		v := reflect.ValueOf(slotRaw)
+		if v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				localInventoryErr = fmt.Errorf("槽位价格 %.8f 的本地台账记录为 nil", price)
+				return false
+			}
+			v = v.Elem()
+		}
 		if v.Kind() != reflect.Struct {
-			return true
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的本地台账类型无效: %T", price, slotRaw)
+			return false
+		}
+		if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+			localInventoryErr = fmt.Errorf("槽位价格无效: %v", price)
+			return false
+		}
+		positionStatusField := v.FieldByName("PositionStatus")
+		positionQtyField := v.FieldByName("PositionQty")
+		orderSideField := v.FieldByName("OrderSide")
+		orderStatusField := v.FieldByName("OrderStatus")
+		if !positionStatusField.IsValid() || positionStatusField.Kind() != reflect.String ||
+			!positionQtyField.IsValid() || !positionQtyField.CanFloat() ||
+			!orderSideField.IsValid() || orderSideField.Kind() != reflect.String ||
+			!orderStatusField.IsValid() || orderStatusField.Kind() != reflect.String {
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的本地台账字段缺失或类型无效", price)
+			return false
 		}
 
 		// 提取字段的辅助函數
@@ -306,37 +338,76 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		positionQty := getFloat64Field("PositionQty")
 		orderSide := getStringField("OrderSide")
 		orderStatus := getStringField("OrderStatus")
+		if positionStatus != "EMPTY" && positionStatus != PositionStatusFilled {
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的持仓状态未知: %q", price, positionStatus)
+			return false
+		}
+		if math.IsNaN(positionQty) || math.IsInf(positionQty, 0) || positionQty < 0 {
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的库存数量无效: %v", price, positionQty)
+			return false
+		}
+		if orderSide != "" && orderSide != "BUY" && orderSide != "SELL" {
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的订单方向无效: %q", price, orderSide)
+			return false
+		}
+		switch orderStatus {
+		case "", "NOT_PLACED", OrderStatusPlaced, OrderStatusConfirmed, OrderStatusPartiallyFilled,
+			OrderStatusCancelRequested, OrderStatusUnknown, OrderStatusFilled, "CANCELED", "EXPIRED", "REJECTED":
+		default:
+			localInventoryErr = fmt.Errorf("槽位价格 %.8f 的订单状态未知: %q", price, orderStatus)
+			return false
+		}
+		switch orderStatus {
+		case OrderStatusPlaced, OrderStatusConfirmed, OrderStatusPartiallyFilled, OrderStatusCancelRequested,
+			OrderStatusUnknown, OrderStatusFilled:
+			if orderSide == "" {
+				localInventoryErr = fmt.Errorf("槽位价格 %.8f 的活跃订单缺少方向", price)
+				return false
+			}
+		}
+
+		orderMayAffectPosition := orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
+			orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusCancelRequested ||
+			orderStatus == OrderStatusUnknown || orderStatus == OrderStatusFilled
+		if orderMayAffectPosition {
+			activeLocalOrders++
+		}
 
 		if positionStatus == PositionStatusFilled {
 			localFilledPosition += positionQty
+			if math.IsNaN(localFilledPosition) || math.IsInf(localFilledPosition, 0) {
+				localInventoryErr = fmt.Errorf("汇总已成交库存数量溢出")
+				return false
+			}
 			if orderSide == closeSide && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
-				orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusCancelRequested) {
+				orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusCancelRequested ||
+				orderStatus == OrderStatusUnknown) {
 				localPendingSellQty += positionQty
 				activeSellOrders++
 			}
 		}
 
 		if orderSide == openSide && positionStatus != PositionStatusFilled && (orderStatus == OrderStatusPlaced || orderStatus == OrderStatusConfirmed ||
-			orderStatus == OrderStatusPartiallyFilled) {
+			orderStatus == OrderStatusPartiallyFilled || orderStatus == OrderStatusUnknown) {
 			activeBuyOrders++
 		}
 
 		return true
 	})
+	if localInventoryErr != nil {
+		r.pm.FailReconciliation(localInventoryErr)
+		return fmt.Errorf("本地持仓台账无法核实，已阻断后续开仓: %w", localInventoryErr)
+	}
 
 	localTotal = localFilledPosition
 
 	logger.Debug("📊 [對账统计] 本地持倉: %.4f, 挂單賣單: %d 個 (%.4f), 挂單買單: %d 個",
 		localTotal, activeSellOrders, localPendingSellQty, activeBuyOrders)
 
-	r.pm.IncrementReconcileCount()
-
-	// 5. 输出對账统计（從交易所接口獲取基础币种，支援U本位和币本位合約）
+	// 5. 输出已验证快照统计（從交易所接口獲取基础币种，支援U本位和币本位合約）
 	baseCurrency := r.exchange.GetBaseAsset()
-	logger.Info("✅ [對账完成] 本地持倉: %.4f %s, 挂單賣單: %d 個 (%.4f), 挂單買單: %d 個",
+	logger.Info("📊 [對账快照] 本地持倉: %.4f %s, 挂單賣單: %d 個 (%.4f), 挂單買單: %d 個",
 		localTotal, baseCurrency, activeSellOrders, localPendingSellQty, activeBuyOrders)
-
-	r.pm.UpdateLastReconcileTime(time.Now())
 
 	totalBuyQty := r.pm.GetTotalBuyQty()
 	totalSellQty := r.pm.GetTotalSellQty()
@@ -349,6 +420,10 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	// contract and must not stall physical order submissions while holding the
 	// cross-process reconciliation lock.
 	reconcileTime := time.Now()
+	markReconciled := func() {
+		r.pm.IncrementReconcileCount()
+		r.pm.UpdateLastReconcileTime(reconcileTime)
+	}
 	saveReconciliationHistory := func() {
 		if r.storage == nil {
 			return
@@ -371,6 +446,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	exchangePosition, syncAllowed := normalizeExchangePositionForSync(direction, isSpot, exchangePosition)
 	if !syncAllowed {
 		logger.Debugln("🔍 ===== 對账完成（跳過持倉同步）=====")
+		markReconciled()
 		releaseCriticalSection()
 		saveReconciliationHistory()
 		return nil
@@ -384,9 +460,10 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 		// A single position snapshot is not safe to apply while any order can
 		// still change account exposure. This includes venue orders not owned by
 		// this grid and local orders awaiting their venue acknowledgement.
-		if len(exchangeOpenOrders) > 0 || activeBuyOrders > 0 || activeSellOrders > 0 {
-			logger.Warn("⚠️ [對账同步] 存在未完成挂單（交易所: %d, 本地開倉: %d, 本地平倉: %d），跳過持倉同步",
-				len(exchangeOpenOrders), activeBuyOrders, activeSellOrders)
+		if len(exchangeOpenOrders) > 0 || activeLocalOrders > 0 {
+			logger.Warn("⚠️ [對账同步] 存在未完成/未核实挂單（交易所: %d, 本地: %d，開倉方向: %d，平倉方向: %d），跳過持倉同步",
+				len(exchangeOpenOrders), activeLocalOrders, activeBuyOrders, activeSellOrders)
+			markReconciled()
 			releaseCriticalSection()
 			saveReconciliationHistory()
 			return nil
@@ -404,14 +481,20 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 					localTotal, exchangePosition, localPendingSellQty)
 			} else {
 				logger.Warn("⚠️ [對账同步] 交易所持倉已清空且無挂單，正在强制同步本地状態...")
-				r.pm.ForceSyncPositions(0)
+				if err := r.pm.ForceSyncPositions(0); err != nil {
+					r.pm.FailReconciliation(err)
+					return fmt.Errorf("清理本地持仓状态失败，拒绝将本轮记为对账成功: %w", err)
+				}
 			}
 		} else if localTotal > exchangePosition && exchangePosition > 0.00000001 {
 			// 🔥 本地持倉超出交易所實際持倉：存在「幻影」槽位
 			// 这会導致平倉委託总量超過實際持倉，必須修剪多餘的本地槽位
 			logger.Warn("🚨 [對账同步] 本地持倉(%.6f) > 交易所持倉(%.6f)，存在幻影槽位，開始修剪...",
 				localTotal, exchangePosition)
-			r.pm.ForceSyncPositions(exchangePosition)
+			if err := r.pm.ForceSyncPositions(exchangePosition); err != nil {
+				r.pm.FailReconciliation(err)
+				return fmt.Errorf("修剪本地持仓状态失败，拒绝将本轮记为对账成功: %w", err)
+			}
 		} else if localTotal < exchangePosition && exchangePosition > 0.00000001 {
 			// 🔥 本地持倉少於交易所：以交易所為準補齊（現貨 conservative 時不自動收編外部基礎幣）
 			if isSpot && spotInvPolicy != config.SpotInventoryPolicyAdoptAll {
@@ -420,12 +503,16 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 			} else {
 				logger.Warn("🚨 [對账同步] 本地持倉(%.6f) < 交易所持倉(%.6f)，以交易所為準補齊本地持倉...",
 					localTotal, exchangePosition)
-				r.pm.ForceSyncPositions(exchangePosition)
+				if err := r.pm.ForceSyncPositions(exchangePosition); err != nil {
+					r.pm.FailReconciliation(err)
+					return fmt.Errorf("补齐本地持仓状态失败，拒绝将本轮记为对账成功: %w", err)
+				}
 			}
 		}
 	}
 
 	logger.Debugln("🔍 ===== 對账完成 =====")
+	markReconciled()
 	releaseCriticalSection()
 	saveReconciliationHistory()
 	return nil

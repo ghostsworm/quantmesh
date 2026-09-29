@@ -74,7 +74,9 @@ func TestUnknownLiquidationIsNotRetriedOrOverwrittenBySnapshot(t *testing.T) {
 	if slot.OrderStatus != OrderStatusUnknown || slot.SlotStatus != SlotStatusLocked || len(exec.PlacedOrders) != 1 {
 		t.Fatalf("unknown close released: status=%s slot=%s calls=%d", slot.OrderStatus, slot.SlotStatus, len(exec.PlacedOrders))
 	}
-	spm.ForceSyncPositions(0) // a temporarily empty snapshot is not order evidence
+	if err := spm.ForceSyncPositions(0); err == nil { // a temporarily empty snapshot is not order evidence
+		t.Fatal("ForceSyncPositions() should report the UNKNOWN-order rejection")
+	}
 	if slot.PositionQty != 1 || slot.OrderStatus != OrderStatusUnknown {
 		t.Fatal("snapshot erased uncertain inventory/identity")
 	}

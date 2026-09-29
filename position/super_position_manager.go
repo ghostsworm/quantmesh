@@ -663,8 +663,8 @@ func (spm *SuperPositionManager) BeginReconciliation(ctx context.Context) (func(
 	return barrier.BeginPositionReconciliation(ctx)
 }
 
-// FailReconciliation leaves physical submissions blocked when the distributed
-// snapshot/submission lease can no longer be proven to be held.
+// FailReconciliation leaves physical submissions blocked when reconciliation
+// cannot establish trustworthy local/exchange position evidence.
 func (spm *SuperPositionManager) FailReconciliation(err error) {
 	barrier, ok := spm.executor.(interface{ FailPositionReconciliation(error) })
 	if !ok {
