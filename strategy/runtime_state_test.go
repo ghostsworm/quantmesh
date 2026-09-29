@@ -138,6 +138,27 @@ func TestMartingaleRuntimeStateLoadFailureBlocksStart(t *testing.T) {
 	}
 }
 
+func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {
+	state := martingaleRuntimeState{
+		StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries:  []*MartingaleEntry{{Level: 1, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}},
+		TotalQty: 1, TotalCost: 100, AvgEntryPrice: 90,
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	martin.SetRuntimeStateStore(store)
+	if err := martin.Start(context.Background()); err == nil {
+		t.Fatal("martingale started with an average entry price inconsistent with inventory cost")
+	}
+	if martin.IsRunning() {
+		t.Fatal("martingale marked itself running despite an invalid restored risk basis")
+	}
+}
+
 func TestSpotShortPendingRepaymentRestoresBeforeStart(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.BotID = "bot-spot-short"

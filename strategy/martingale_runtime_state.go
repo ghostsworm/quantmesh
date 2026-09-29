@@ -113,6 +113,16 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	if math.Abs(totalQty-state.TotalQty) > entryQtyEpsilon || math.Abs(totalCost-state.TotalCost) > math.Max(1e-8, math.Abs(state.TotalCost)*1e-8) {
 		return fmt.Errorf("martingale runtime state inventory totals do not reconcile")
 	}
+	if state.TotalQty == 0 {
+		if state.AvgEntryPrice != 0 {
+			return fmt.Errorf("martingale runtime state has an average entry price without inventory")
+		}
+	} else {
+		expectedAverage := state.TotalCost / state.TotalQty
+		if expectedAverage <= 0 || math.Abs(state.AvgEntryPrice-expectedAverage) > math.Max(1e-8, math.Abs(expectedAverage)*1e-8) {
+			return fmt.Errorf("martingale runtime state average entry price does not match inventory cost")
+		}
+	}
 	if state.IsClosing && state.CloseOrderID <= 0 {
 		return fmt.Errorf("martingale close state is missing its order identity")
 	}
