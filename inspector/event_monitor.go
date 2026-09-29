@@ -137,13 +137,16 @@ func (e *EventMonitor) Check(current *InspectionSnapshot) []InspectorEventPayloa
 	}
 
 	// 賬戶餘額異常變動
-	if prev != nil && prev.AccountSummary.TotalBalance > 0 {
+	if prev != nil && prev.AccountSummary.TotalBalance > 0 &&
+		prev.AccountSummary.Exchange == current.AccountSummary.Exchange &&
+		prev.AccountSummary.Account == current.AccountSummary.Account &&
+		prev.AccountSummary.Currency != "" && prev.AccountSummary.Currency == current.AccountSummary.Currency {
 		pct := math.Abs(current.AccountSummary.TotalBalance-prev.AccountSummary.TotalBalance) / prev.AccountSummary.TotalBalance * 100
 		if pct >= e.thresholds.BalanceChangePct {
 			out = append(out, InspectorEventPayload{
 				EventType: EventBalanceChange,
 				Title:     "賬戶餘額變動",
-				Message:   "總餘額變化 " + formatFloat(pct) + "%，當前 " + formatFloat(current.AccountSummary.TotalBalance) + " USDT。",
+				Message:   "總餘額變化 " + formatFloat(pct) + "%，當前 " + formatFloat(current.AccountSummary.TotalBalance) + " " + current.AccountSummary.Currency + "。",
 				Data:      map[string]interface{}{"prev": prev.AccountSummary.TotalBalance, "current": current.AccountSummary.TotalBalance, "pct": pct},
 				Snapshot:  current,
 				At:        now,

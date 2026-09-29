@@ -630,6 +630,7 @@ func (g *GateAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: total,
 		AvailableBalance:   available,
 		TotalMarginBalance: total + unrealisedPnl,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(futuresAcc.Currency)),
 		AccountLeverage:    leverage,
 		PosMode:            posMode,
 	}

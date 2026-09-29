@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc479"
+var Version = "3.111.0-rc488"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2346,40 +2346,24 @@ func main() {
 				}
 				return false, ""
 			}
-			getExchangeForInspector := func(exchangeName string) exchange.IExchange {
+			getExchangeForInspector := func(exchangeName, accountID string) exchange.IExchange {
 				for _, rt := range symbolManager.List() {
-					if rt != nil && rt.Config.Exchange == exchangeName {
+					if rt != nil && rt.Config.Exchange == exchangeName && rt.AccountID == accountID {
 						return rt.Exchange
 					}
 				}
 				return nil
 			}
 			getAccountSummaryForInspector := func(ctx context.Context, exchangeName, accountID string) (inspector.AccountSummary, error) {
-				ex := getExchangeForInspector(exchangeName)
+				ex := getExchangeForInspector(exchangeName, accountID)
 				if ex == nil {
 					return inspector.AccountSummary{}, fmt.Errorf("exchange not found: %s", exchangeName)
 				}
 				acc, err := ex.GetAccount(ctx)
-				if err != nil || acc == nil {
+				if err != nil {
 					return inspector.AccountSummary{}, err
 				}
-				total := acc.TotalMarginBalance
-				if total == 0 {
-					total = acc.TotalWalletBalance
-				}
-				used := total - acc.AvailableBalance
-				currency := ex.GetQuoteAsset()
-				if currency == "" {
-					currency = "USDT"
-				}
-				return inspector.AccountSummary{
-					Exchange:         exchangeName,
-					Account:          accountID,
-					TotalBalance:     total,
-					AvailableBalance: acc.AvailableBalance,
-					UsedMargin:       used,
-					Currency:         currency,
-				}, nil
+				return inspectorAccountSummary(exchangeName, accountID, acc)
 			}
 			collector := &inspector.Collector{
 				GetSnapshotSources: getRuntimesForInspector,

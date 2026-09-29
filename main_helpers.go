@@ -33,22 +33,28 @@ import (
 var observabilityBootstrapped sync.Once
 
 type runtimePnLReader interface {
-	GetPnLBySymbol(string, string, time.Time, time.Time) (*storage.PnLSummary, error)
+	GetPnLBySymbolAccountScopeAndAsset(symbol, accountScope, exchange, marketType, asset string, startTime, endTime time.Time) (*storage.PnLSummary, error)
 }
 
-func getRuntimePnLSummary(reader runtimePnLReader, rt *SymbolRuntime, start, end time.Time) (*storage.PnLSummary, error) {
+func getRuntimePnLSummary(reader interface{}, rt *SymbolRuntime, start, end time.Time) (*storage.PnLSummary, error) {
 	if rt == nil || reader == nil {
 		return nil, fmt.Errorf("runtime PnL source is unavailable")
 	}
-	if rt.AccountScope != "" {
-		if scoped, ok := reader.(interface {
-			GetPnLBySymbolAccountScope(string, string, string, string, time.Time, time.Time) (*storage.PnLSummary, error)
-		}); ok {
-			return scoped.GetPnLBySymbolAccountScope(rt.Config.Symbol, rt.AccountScope, rt.Config.Exchange, rt.Config.GetMarketType(), start, end)
-		}
-		return nil, fmt.Errorf("storage cannot query PnL by immutable account scope")
+	if strings.TrimSpace(rt.AccountScope) == "" {
+		return nil, fmt.Errorf("runtime PnL requires immutable account scope")
 	}
-	return reader.GetPnLBySymbol(rt.Config.Symbol, rt.AccountID, start, end)
+	if rt.Exchange == nil {
+		return nil, fmt.Errorf("runtime PnL denomination source is unavailable")
+	}
+	asset := strings.ToUpper(strings.TrimSpace(rt.Exchange.GetQuoteAsset()))
+	if asset == "" {
+		return nil, fmt.Errorf("runtime PnL denomination is unavailable")
+	}
+	scopedReader, ok := reader.(runtimePnLReader)
+	if !ok {
+		return nil, fmt.Errorf("storage cannot query PnL by immutable scope and denomination")
+	}
+	return scopedReader.GetPnLBySymbolAccountScopeAndAsset(rt.Config.Symbol, rt.AccountScope, rt.Config.Exchange, rt.Config.GetMarketType(), asset, start, end)
 }
 
 // ordersSchemaRepairer 由 *storage.SQLStorage 實現；接口定義在使用方。

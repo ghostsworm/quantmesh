@@ -871,6 +871,7 @@ func (b *BitgetAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: equity,
 		TotalMarginBalance: equity,
 		AvailableBalance:   available,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(data.MarginCoin)),
 		Positions:          []*Position{}, // 持倉資訊需要單独查詢
 		PosMode:            data.PosMode,
 		AccountLeverage:    accountLeverage, // 添加账戶级别的杠杆倍數

@@ -207,6 +207,7 @@ func (w *bitgetWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: bitgetAccount.TotalWalletBalance,
 		TotalMarginBalance: bitgetAccount.TotalMarginBalance,
 		AvailableBalance:   bitgetAccount.AvailableBalance,
+		BalanceAsset:       bitgetAccount.BalanceAsset,
 		Positions:          positions,
 		AccountLeverage:    bitgetAccount.AccountLeverage,
 	}, nil

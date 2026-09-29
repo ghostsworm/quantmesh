@@ -71,6 +71,7 @@ type runtimePnLReaderFixture struct {
 	legacyCalls int
 	scopedCalls int
 	scope       string
+	asset       string
 }
 
 func (r *runtimePnLReaderFixture) GetPnLBySymbol(string, string, time.Time, time.Time) (*storage.PnLSummary, error) {
@@ -78,9 +79,10 @@ func (r *runtimePnLReaderFixture) GetPnLBySymbol(string, string, time.Time, time
 	return &storage.PnLSummary{TotalPnL: 999}, nil
 }
 
-func (r *runtimePnLReaderFixture) GetPnLBySymbolAccountScope(_, scope, _, _ string, _, _ time.Time) (*storage.PnLSummary, error) {
+func (r *runtimePnLReaderFixture) GetPnLBySymbolAccountScopeAndAsset(_, scope, _, _, asset string, _, _ time.Time) (*storage.PnLSummary, error) {
 	r.scopedCalls++
 	r.scope = scope
+	r.asset = asset
 	return &storage.PnLSummary{TotalPnL: 25}, nil
 }
 
@@ -88,14 +90,49 @@ func TestRuntimePnLSummaryUsesExactImmutableAccountScope(t *testing.T) {
 	runtime := &SymbolRuntime{
 		AccountID:    "opaque-account-id",
 		AccountScope: "credential-scope-digest",
+		Exchange:     &pnlAssetExchange{asset: "USDT"},
 		Config:       config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance", MarketType: "futures"},
 	}
 	reader := &runtimePnLReaderFixture{}
 	summary, err := getRuntimePnLSummary(reader, runtime, time.Unix(0, 0), time.Now())
-	if err != nil || summary.TotalPnL != 25 || reader.scopedCalls != 1 || reader.legacyCalls != 0 || reader.scope != runtime.AccountScope {
+	if err != nil || summary.TotalPnL != 25 || reader.scopedCalls != 1 || reader.legacyCalls != 0 || reader.scope != runtime.AccountScope || reader.asset != "USDT" {
 		t.Fatalf("runtime PnL did not use exact account scope: summary=%+v reader=%+v err=%v", summary, reader, err)
 	}
 }
+
+func TestRuntimePnLSummaryRejectsMissingScopeOrAssetWithoutLegacyQuery(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		scope string
+		asset string
+	}{
+		{name: "missing immutable scope", asset: "USDT"},
+		{name: "missing denomination", scope: "credential-scope-digest"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := &SymbolRuntime{
+				AccountID:    "legacy-account-label",
+				AccountScope: test.scope,
+				Exchange:     &pnlAssetExchange{asset: test.asset},
+				Config:       config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance", MarketType: "futures"},
+			}
+			reader := &runtimePnLReaderFixture{}
+			if summary, err := getRuntimePnLSummary(reader, runtime, time.Unix(0, 0), time.Now()); err == nil || summary != nil {
+				t.Fatalf("runtime without complete ownership/asset proof must fail closed: summary=%+v err=%v", summary, err)
+			}
+			if reader.scopedCalls != 0 || reader.legacyCalls != 0 {
+				t.Fatalf("unsafe ledger query was attempted: %+v", reader)
+			}
+		})
+	}
+}
+
+type pnlAssetExchange struct {
+	exchange.IExchange
+	asset string
+}
+
+func (e *pnlAssetExchange) GetQuoteAsset() string { return e.asset }
 
 type equityAccountExchange struct {
 	exchange.IExchange

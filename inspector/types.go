@@ -33,6 +33,7 @@ type AccountSummary struct {
 type PositionInfo struct {
 	Exchange      string
 	Symbol        string
+	PnLAsset      string
 	Size          float64
 	EntryPrice    float64
 	CurrentPrice  float64
@@ -50,6 +51,8 @@ type PnLSummary struct {
 	TodayTrades     int
 	WeekTrades      int
 	MonthTrades     int
+	PnLAsset        string
+	Verified        bool
 }
 
 // RiskStatus 風控狀態

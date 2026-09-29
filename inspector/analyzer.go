@@ -62,12 +62,12 @@ func (a *Analyzer) fallbackAnalysis(snap *InspectionSnapshot) *InspectionAnalysi
 				Category:    "risk",
 			})
 		}
-		var totalUnrealized float64
-		for _, p := range snap.Positions {
-			totalUnrealized += p.UnrealizedPnL
+		if snap.PnLSummary.Verified {
+			out.Summary = fmt.Sprintf("持倉 %d 個交易對，今日已實現盈虧 %.2f %s。",
+				len(snap.Positions), snap.PnLSummary.TodayRealized, snap.PnLSummary.PnLAsset)
+		} else {
+			out.Summary = fmt.Sprintf("持倉 %d 個交易對；已實現盈虧因账本范围或币种证据不足未核实。", len(snap.Positions))
 		}
-		out.Summary = fmt.Sprintf("持倉 %d 個交易對，未實現盈虧 %.2f USDT，今日已實現 %.2f USDT。",
-			len(snap.Positions), totalUnrealized, snap.PnLSummary.TodayRealized)
 	}
 	return out
 }
@@ -78,16 +78,21 @@ func (a *Analyzer) buildPrompt(snap *InspectionSnapshot) string {
 
 	b.WriteString("## 當前狀態\n")
 	b.WriteString(fmt.Sprintf("- 時間: %s\n", snap.Timestamp.Format("2006-01-02 15:04:05")))
-	b.WriteString(fmt.Sprintf("- 總權益/餘額: %.2f USDT，未實現盈虧: %.2f USDT\n",
-		snap.AccountSummary.TotalBalance, snap.AccountSummary.UnrealizedPnL))
-	b.WriteString(fmt.Sprintf("- 今日已實現盈虧: %.2f USDT，本週: %.2f，本月: %.2f\n",
-		snap.PnLSummary.TodayRealized, snap.PnLSummary.WeekRealized, snap.PnLSummary.MonthRealized))
+	if snap.AccountSummary.Currency != "" {
+		b.WriteString(fmt.Sprintf("- 單一账户權益/餘額 (%s): %.2f\n", snap.AccountSummary.Currency, snap.AccountSummary.TotalBalance))
+	}
+	if snap.PnLSummary.Verified {
+		b.WriteString(fmt.Sprintf("- 已實現盈虧 (%s): 今日 %.2f，本週 %.2f，本月 %.2f\n",
+			snap.PnLSummary.PnLAsset, snap.PnLSummary.TodayRealized, snap.PnLSummary.WeekRealized, snap.PnLSummary.MonthRealized))
+	} else {
+		b.WriteString("- 已實現盈虧: 未核實（账户范围或计价币种证据不完整）\n")
+	}
 	b.WriteString(fmt.Sprintf("- 風控狀態: %s\n", formatRiskTriggered(snap.RiskStatus.Triggered, snap.RiskStatus.Reason)))
 
 	b.WriteString("\n## 持倉概覽\n")
 	for _, p := range snap.Positions {
-		b.WriteString(fmt.Sprintf("- %s (%s): 當前價 %.2f，未實現盈虧 %.2f USDT，持倉價值 %.2f\n",
-			p.Symbol, p.Exchange, p.CurrentPrice, p.UnrealizedPnL, p.PositionValue))
+		b.WriteString(fmt.Sprintf("- %s (%s): 當前價 %.2f，未實現盈虧 %.2f %s，持倉價值 %.2f\n",
+			p.Symbol, p.Exchange, p.CurrentPrice, p.UnrealizedPnL, displayAsset(p.PnLAsset), p.PositionValue))
 	}
 
 	b.WriteString("\n## 新聞風險\n")

@@ -294,7 +294,7 @@ func (c *MEXCClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderI
 }
 
 // GetAccount 獲取帳戶信息
-func (c *MEXCClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
+func (c *MEXCClient) GetAccount(ctx context.Context) ([]AccountInfo, error) {
 	path := "/api/v1/private/account/assets"
 	params := url.Values{}
 
@@ -304,9 +304,9 @@ func (c *MEXCClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	}
 
 	var resp struct {
-		Code    int         `json:"code"`
-		Data    AccountInfo `json:"data"`
-		Success bool        `json:"success"`
+		Code    int           `json:"code"`
+		Data    []AccountInfo `json:"data"`
+		Success bool          `json:"success"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
@@ -316,7 +316,7 @@ func (c *MEXCClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 		return nil, fmt.Errorf("get account info failed")
 	}
 
-	return &resp.Data, nil
+	return resp.Data, nil
 }
 
 // GetPositions 獲取持倉

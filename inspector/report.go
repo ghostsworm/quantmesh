@@ -65,16 +65,22 @@ func (r *ReportGenerator) buildScheduledBody(snap *InspectionSnapshot, analysis 
 
 	// 資金概覽
 	b.WriteString("💰 資金概覽\n")
-	b.WriteString(fmt.Sprintf("- 總資產: $%.2f %s\n", snap.AccountSummary.TotalBalance, snap.AccountSummary.Currency))
-	b.WriteString(fmt.Sprintf("- 未實現盈虧: $%.2f\n", snap.AccountSummary.UnrealizedPnL))
-	b.WriteString(fmt.Sprintf("- 今日已實現: $%.2f | 本週: $%.2f | 本月: $%.2f\n\n",
-		snap.PnLSummary.TodayRealized, snap.PnLSummary.WeekRealized, snap.PnLSummary.MonthRealized))
+	if snap.AccountSummary.Currency != "" {
+		b.WriteString(fmt.Sprintf("- 單一账户總資產: %.2f %s\n", snap.AccountSummary.TotalBalance, snap.AccountSummary.Currency))
+		b.WriteString(fmt.Sprintf("- 單一账户未實現盈虧: %.2f %s\n", snap.AccountSummary.UnrealizedPnL, snap.AccountSummary.Currency))
+	}
+	if snap.PnLSummary.Verified {
+		b.WriteString(fmt.Sprintf("- 已實現盈虧 (%s): 今日 %.2f | 本週 %.2f | 本月 %.2f\n\n",
+			snap.PnLSummary.PnLAsset, snap.PnLSummary.TodayRealized, snap.PnLSummary.WeekRealized, snap.PnLSummary.MonthRealized))
+	} else {
+		b.WriteString("- 已實現盈虧: 未核實（账户范围或计价币种证据不完整）\n\n")
+	}
 
 	// 持倉狀態
 	b.WriteString("📈 持倉狀態\n")
 	for _, p := range snap.Positions {
-		b.WriteString(fmt.Sprintf("- %s (%s): 現價 $%.2f | 未實現 PnL: $%.2f | 持倉價值: $%.2f\n",
-			p.Symbol, p.Exchange, p.CurrentPrice, p.UnrealizedPnL, p.PositionValue))
+		b.WriteString(fmt.Sprintf("- %s (%s): 現價 %.2f | 未實現 PnL: %.2f %s | 持倉價值: %.2f\n",
+			p.Symbol, p.Exchange, p.CurrentPrice, p.UnrealizedPnL, displayAsset(p.PnLAsset), p.PositionValue))
 	}
 	b.WriteString("\n")
 
@@ -148,9 +154,10 @@ func (r *ReportGenerator) buildUrgentBody(payload InspectorEventPayload) string 
 	b.WriteString(fmt.Sprintf("🚨 %s | %s\n\n", r.Config.Name, payload.Title))
 	b.WriteString(payload.Message + "\n\n")
 	b.WriteString("時間: " + payload.At.Format("2006-01-02 15:04:05") + "\n")
-	if payload.Snapshot != nil {
-		b.WriteString(fmt.Sprintf("\n當前總資產: $%.2f，未實現盈虧: $%.2f\n",
-			payload.Snapshot.AccountSummary.TotalBalance, payload.Snapshot.AccountSummary.UnrealizedPnL))
+	if payload.Snapshot != nil && payload.Snapshot.AccountSummary.Currency != "" {
+		b.WriteString(fmt.Sprintf("\n當前總資產: %.2f %s，未實現盈虧: %.2f %s\n",
+			payload.Snapshot.AccountSummary.TotalBalance, payload.Snapshot.AccountSummary.Currency,
+			payload.Snapshot.AccountSummary.UnrealizedPnL, payload.Snapshot.AccountSummary.Currency))
 	}
 	return b.String()
 }

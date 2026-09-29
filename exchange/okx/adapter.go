@@ -688,12 +688,22 @@ func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		}, nil
 	}
 
-	// OKX 返回多币种餘額，取 USDT
+	// OKX 返回多币种餘額；只取當前合約明確的結算币。
+	settleAsset := strings.ToUpper(strings.TrimSpace(o.quoteAsset))
 	var totalBalance, availBalance float64
+	var balanceAsset string
 	for _, detail := range balance[0].Details {
-		if detail.Ccy == "USDT" {
-			totalBalance, _ = strconv.ParseFloat(detail.Eq, 64)
-			availBalance, _ = strconv.ParseFloat(detail.AvailBal, 64)
+		if settleAsset != "" && strings.EqualFold(strings.TrimSpace(detail.Ccy), settleAsset) {
+			equity, parseErr := strconv.ParseFloat(detail.Eq, 64)
+			if parseErr != nil || math.IsNaN(equity) || math.IsInf(equity, 0) {
+				return nil, fmt.Errorf("OKX returned invalid %s account equity %q", settleAsset, detail.Eq)
+			}
+			available, parseErr := strconv.ParseFloat(detail.AvailBal, 64)
+			if parseErr != nil || math.IsNaN(available) || math.IsInf(available, 0) {
+				return nil, fmt.Errorf("OKX returned invalid %s available balance %q", settleAsset, detail.AvailBal)
+			}
+			totalBalance, availBalance = equity, available
+			balanceAsset = strings.ToUpper(strings.TrimSpace(detail.Ccy))
 			break
 		}
 	}
@@ -709,6 +719,7 @@ func (o *OKXAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availBalance,
+		BalanceAsset:       balanceAsset,
 		Positions:          positions,
 	}, nil
 }

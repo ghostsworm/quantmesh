@@ -473,6 +473,10 @@ func (w *binanceWrapper) GetOrderHistoryPage(ctx context.Context, symbol string,
 	return binanceOrderHistoryPage(ctx, w.adapter, symbol, startTime, endTime, cursor, limit)
 }
 
+func (w *binanceWrapper) MaxOrderHistoryRange() time.Duration {
+	return 7*24*time.Hour - time.Second
+}
+
 func binanceOrderHistoryPage(ctx context.Context, adapter interface{}, symbol string, startTime, endTime int64, cursor string, limit int) (OrderHistoryPage, error) {
 	source, ok := adapter.(interface {
 		GetUserTradesFromID(context.Context, string, int64, int64, int64, int) ([]*binance.UserTrade, error)

@@ -1,6 +1,15 @@
 # 实盘准备度整改进度
 
-- rc479 核对 [Bybit 官方成交历史接口](https://bybit-exchange.github.io/docs/v5/order/execution)：单次 `startTime`/`endTime` 区间上限为 7 天，而同步器回补区间最长 30 天。为 Bybit 现货/合约声明单次范围限制，历史同步切为连续毫秒窗口、各自独立分页，所有窗口完整结束后才推进覆盖水位；回归验证不超范围、窗口无缝相接及完成后推进覆盖。只验证模拟同步行为，未连接真实账户；Binance 两类接口限制尚待进一步核对。
+- rc488 策略状态刷新仍可通过 legacy 账户标签查询，且精确作用域查询会把不同 PnL 资产相加。现要求运行时具备不可变凭据作用域、明确交易所与结算报价币；存储按交易所/作用域/市场/符号/PnL 资产精确筛选，对同区间未归属记录、未知 PnL 币种和异币手续费拒绝返回汇总。新增 runtime 缺失证据拒绝及 USDT/USDC、跨账户/市场和未归属流水回归。定向 Go 测试通过；状态页估算盈亏是否仍被当作实账展示，继续审查中，未连接真实账户，不代表实盘或盈利验收。
+- rc487 对照 [MEXC Futures 官方账户与交易接口](https://mexcdevelop.github.io/apidocs/contract_v1_en/)发现 `/api/v1/private/account/assets` 的 `data` 是按 currency 展开的数组，旧客户端按单个对象解码；适配器还默认把结果作为一个币种账户。现改为数组解码、按合约详情 settleCoin 选唯一余额行，`GetBalance` 使用同一精确行，并向通用 Account 传递 BalanceAsset；缺结算币元数据、无匹配行或重复行时失败关闭。新增多币响应、BTC 结算选择及缺行测试。
+- rc486 OKX 合约账户响应含多个币种的 `details`，旧实现固定找 USDT，且 wrapper 丢弃底层 `BalanceAsset`。现按合约 `SettleCcy`（适配器的结算币）精确挑账户行，校验权益/可用余额为有限数并向上透传；无匹配行时保持币种空，不伪报 0 USDT。新增 BTC+USDT 混合账户与结算币缺行测试。
+- rc485 对适配器覆盖审计中证据充分的两条路径补齐 `BalanceAsset`：Bitget 取 `/mix/account/account` 响应 `marginCoin`，并由合约包装器传递；Gate 合约取 `/futures/{settle}/accounts` 响应 `currency`，同样由包装器传递。新增 API 响应币种回归。其余未明确币种的适配器仍不能用 quoteAsset 代填，需逐家核对账户资产模式与余额汇总字段。
+- rc484 账户汇总此前用交易对 quote asset 推断 `GetAccount()` 汇总字段的币种，并在元数据缺失时默认 USDT；通用 Account 已有专门的 `BalanceAsset`，故改为只信任该显式来源，缺失时不产出账户数字，并拒绝 NaN/Inf。新增币种规范化、钱包余额回退和无效/缺失值回归；交易所适配器覆盖率仍需持续核验，未声明 BalanceAsset 的账户暂不显示权益。
+- rc483 关闭 Inspector 账户总权益与未实现盈亏的跨账户/跨币误报：账户摘要只对唯一明确账户查询，多个账户时不显示伪总额；逐持仓携带盈亏币种，AI 提示词与报告不再固定标成 USDT 或合并混币值；余额变动告警只比较同一交易所/账户/计价币。另修正账户摘要回调按 exchange + account 精确定位交易所实例。rc484 随后将账户摘要币种改为只接受 Account.BalanceAsset 显式元数据。
+- rc482 收敛 Inspector 已实现盈亏报告：不再用可变 account 标签跨交易所/币种聚合或硬标 USDT；每个来源必须暴露 account_scope/market_type/PnLAsset，存储以精确 exchange + account_scope + PnLAsset 查询，并去重同一凭据来源。只有所有来源币种相同且所有区间查询都成功才输出数值；混币、缺作用域或错误均保持零占位并由 Verified=false 驱动 AI/报告标注“未核实”。新增重复来源去重、混币/缺作用域拒绝与查询失败不泄露部分合计回归；账户摘要币种证据和跨账户聚合由后续 rc483/rc484 收敛。
+- rc481 审查财务查询消费者发现 MCP `qm_pnl_range` 默认可跨账户读取，`qm_pnl_today` 把实际不参与底层过滤的 symbol 回显成结果维度，且二者使用可变 account 标签/旧的宽口径聚合。两工具现强制要求 exchange + account_scope + pnl_asset，改走精确账户作用域/币种存储查询；今日工具返回已配对成交净 PnL 与成交数，并使用配置时区日界线。新增调用参数隔离、范围和缺失作用域拒绝测试。其它调用 legacy `GetPnLByTimeRange` 的 MCP/Inspector 路径仍需继续审计。
+- rc480 核对 [Binance 官方 USDⓈ-M Futures Account Trade List](https://developers.binance.com/docs/derivatives/usds-margined-futures/account/rest-api/Account-Trade-List)：单次时间范围上限 7 天，且 `fromId` 不得与起止时间混传。合约订单同步切为 7 天以内连续毫秒窗口，每窗独立从时间查询并按成交 ID 游标分页；完整完成全窗后推进覆盖水位。Spot `/api/v3/myTrades` 未观察到相同的硬时间范围说明，因此未对现货添加限制。模拟同步与包装器范围回归验证；未连接真实账户。
+- rc479 核对 [Bybit 官方成交历史接口](https://bybit-exchange.github.io/docs/v5/order/execution)：单次 `startTime`/`endTime` 区间上限为 7 天，而同步器回补区间最长 30 天。为 Bybit 现货/合约声明单次范围限制，历史同步切为连续毫秒窗口、各自独立分页，所有窗口完整结束后才推进覆盖水位；回归验证不超范围、窗口无缝相接及完成后推进覆盖。只验证模拟同步行为，未连接真实账户；Binance 合约范围由 rc480 单独补齐，现货历史接口的适用限制仍待核验。
 - rc478 复核 Bybit 官方 REST 执行列表文档后发现其响应字段无逐笔 PnL；changelog 所记 `execPnl` 是 WebSocket Execution 字段。移除 REST 对未文档化 `closedPnl` 的财务依赖：官方 `closedSize` 明确为空/零时记录结算币种下零 PnL，非零平仓成交继续未知并由提现核算拒绝。官方 REST closed-PnL 为订单级数据；把该聚合值拆分到成交行会引入归属/重复计数问题，尚未接入独立订单级台账和覆盖校验，因此 Bybit 平仓提现能力仍待实现/验证。
 - rc477 据 [Bybit 官方执行接口](https://bybit-exchange.github.io/docs/v5/order/execution) `closedSize` 语义，将明确空/零平仓数量的普通开仓成交记为结算资产下零盈亏，避免正常开仓成交触发提现账本未知 PnL 阻断；非零平仓数量但缺 PnL、或完全缺少平仓证据仍保留未知并失败关闭。回归覆盖定期历史同步、按订单即时补成交、零盈亏提现核算及平仓证据缺失。
 - rc476 复核 Binance 成交历史映射发现 realized PnL 资产错误复用 commissionAsset；现改读 Binance 合约 quote/settlement 元数据，缺失时保留未知。回归覆盖费用 BNB / 结算 USDT 与结算元数据缺失。未连接真实交易账户；其它交易所仍需逐一核验盈亏与手续费字段语义。
@@ -2450,3 +2459,4 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 继续核查 Bybit `/v5/execution/list` 文档发现，`feeCurrency` 是手续费币种，不是明确的盈亏币种；该接口可按 `settleCoin` 过滤，但执行行没有声明 closed PnL 的资产。不能将手续费币种作为计价证明。
 - 合约规格现解析并保留 `settleCoin`，仅在逐笔 realized PnL 明确存在时将其作为 PnL 资产；结算元数据缺失则不赋值，USDT 提现仍会拒绝这类记录。测试覆盖手续费 BNB、结算币 USDT 以及 open fill 无 PnL 的路径。
 - 新增合约 settlement 元数据、closed fill 与 open fill 对照测试；`go test ./exchange/bybit ./exchange ./storage ./sync ./web -count=1`、对应 `go vet` 与 `git diff --check` 通过。尚未验证真实 Bybit 数据/账户，亦未连接真实账户、下单或部署。R05/R10 及盈利验证仍未闭合。
+- rc483 关闭 Inspector 账户总权益与未实现盈亏的跨账户/跨币误报：账户摘要只对唯一明确账户查询，多个账户时不显示伪总额；逐持仓携带盈亏币种，AI 提示词与报告不再固定标成 USDT 或合并混币值；余额变动告警只比较同一交易所/账户/计价币。另修正账户摘要回调按 exchange + account 精确定位交易所实例。此处尚未提供跨资产折算，因此不代表全账户净值已核实。

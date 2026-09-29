@@ -50,7 +50,7 @@ func TestMEXCClientHTTPMethodsWithMockServer(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"orderId":"order-2","symbol":"BTC_USDT"}]}`))
 		case "/api/v1/private/account/assets":
-			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":{"currency":"USDT","availableBalance":100,"equity":120}}`))
+			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"currency":"BTC","availableBalance":2,"equity":2.5},{"currency":"USDT","availableBalance":100,"equity":120}]}`))
 		case "/api/v1/private/position/open_positions":
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"positionId":1,"symbol":"BTC_USDT","holdVol":2,"unrealizedPNL":3}]}`))
 		case "/api/v1/contract/ticker":
@@ -92,7 +92,7 @@ func TestMEXCClientHTTPMethodsWithMockServer(t *testing.T) {
 		t.Fatalf("GetOpenOrders() = %#v, %v", openOrders, err)
 	}
 	account, err := client.GetAccount(ctx)
-	if err != nil || account.AvailableBalance != 100 {
+	if err != nil || len(account) != 2 || account[1].AvailableBalance != 100 {
 		t.Fatalf("GetAccount() = %#v, %v", account, err)
 	}
 	positions, err := client.GetPositions(ctx, "BTC_USDT")

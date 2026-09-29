@@ -18,11 +18,37 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/execution"
+	"quantmesh/inspector"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/web"
 )
+
+func inspectorAccountSummary(exchangeName, accountID string, account *exchange.Account) (inspector.AccountSummary, error) {
+	if account == nil {
+		return inspector.AccountSummary{}, fmt.Errorf("account summary unavailable for %s/%s", exchangeName, accountID)
+	}
+	currency := strings.ToUpper(strings.TrimSpace(account.BalanceAsset))
+	if currency == "" {
+		return inspector.AccountSummary{}, fmt.Errorf("account balance asset unavailable for %s/%s", exchangeName, accountID)
+	}
+	total := account.TotalMarginBalance
+	if total == 0 {
+		total = account.TotalWalletBalance
+	}
+	if math.IsNaN(total) || math.IsInf(total, 0) || math.IsNaN(account.AvailableBalance) || math.IsInf(account.AvailableBalance, 0) {
+		return inspector.AccountSummary{}, fmt.Errorf("account balances are not finite for %s/%s", exchangeName, accountID)
+	}
+	return inspector.AccountSummary{
+		Exchange:         exchangeName,
+		Account:          accountID,
+		TotalBalance:     total,
+		AvailableBalance: account.AvailableBalance,
+		UsedMargin:       total - account.AvailableBalance,
+		Currency:         currency,
+	}, nil
+}
 
 // capitalDataSourceAdapter 资金數據源适配器
 type capitalDataSourceAdapter struct {
@@ -490,6 +516,12 @@ func (a *snapshotRuntimeAdapter) MarketType() string   { return a.rt.Config.GetM
 func (a *snapshotRuntimeAdapter) Symbol() string       { return a.rt.Config.Symbol }
 func (a *snapshotRuntimeAdapter) Account() string      { return a.rt.AccountID }
 func (a *snapshotRuntimeAdapter) AccountScope() string { return a.rt.AccountScope }
+func (a *snapshotRuntimeAdapter) PnLAsset() string {
+	if a == nil || a.rt == nil || a.rt.SuperPositionManager == nil {
+		return ""
+	}
+	return a.rt.SuperPositionManager.GetPnLAsset()
+}
 func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL, totalPositionValue float64) {
 	if a.rt.PriceMonitor == nil || a.rt.SuperPositionManager == nil {
 		return 0, 0, 0

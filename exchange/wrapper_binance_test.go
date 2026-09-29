@@ -60,3 +60,10 @@ func TestBinanceOrderHistoryLeavesPnLAssetUnknownWithoutSettlementMetadata(t *te
 		t.Fatalf("PnL asset=%q, want unknown without settlement metadata", got)
 	}
 }
+
+func TestBinanceFuturesHistoryWindowMatchesVenueLimit(t *testing.T) {
+	wrapper := &binanceWrapper{}
+	if got, want := wrapper.MaxOrderHistoryRange(), 7*24*time.Hour-time.Second; got != want {
+		t.Fatalf("MaxOrderHistoryRange() = %s, want %s", got, want)
+	}
+}

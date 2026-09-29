@@ -72,6 +72,57 @@ func (s *SQLStorage) GetPnLBySymbolAccountScope(symbol, accountScope, exchange, 
 	return &summary, nil
 }
 
+// GetPnLBySymbolAccountScopeAndAsset returns one strategy's PnL only when its
+// immutable account, market and denomination are all explicit.
+func (s *SQLStorage) GetPnLBySymbolAccountScopeAndAsset(symbol, accountScope, exchange, marketType, asset string, startTime, endTime time.Time) (*PnLSummary, error) {
+	symbol = strings.TrimSpace(symbol)
+	accountScope = strings.TrimSpace(accountScope)
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if symbol == "" || accountScope == "" || exchange == "" || marketType == "" || asset == "" || startTime.IsZero() || endTime.IsZero() || endTime.Before(startTime) {
+		return nil, fmt.Errorf("symbol, account_scope, exchange, market_type, asset and a valid time range are required")
+	}
+	var unowned int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE symbol = ? AND created_at >= ? AND created_at <= ?
+		AND (TRIM(COALESCE(exchange, '')) = '' OR (LOWER(TRIM(exchange)) = ? AND (account_scope IS NULL OR TRIM(account_scope) = '' OR market_type IS NULL OR TRIM(market_type) = '')))`, s.tradesTbl()), symbol, startTime, endTime, exchange).Scan(&unowned); err != nil {
+		return nil, fmt.Errorf("check incomplete runtime PnL ownership: %w", err)
+	}
+	if unowned > 0 {
+		return nil, fmt.Errorf("runtime PnL is incomplete: %d trades lack exchange, account scope or market type", unowned)
+	}
+	var unclassified int64
+	if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE symbol = ? AND account_scope = ? AND LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND created_at >= ? AND created_at <= ?
+		AND (TRIM(COALESCE(pnl_asset, '')) = '' OR (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> UPPER(TRIM(COALESCE(pnl_asset, '')))))`, s.tradesTbl()), symbol, accountScope, exchange, marketType, startTime, endTime).Scan(&unclassified); err != nil {
+		return nil, fmt.Errorf("check runtime PnL denomination evidence: %w", err)
+	}
+	if unclassified > 0 {
+		return nil, fmt.Errorf("runtime PnL is incomplete: %d trades have unknown or mismatched PnL/fee assets", unclassified)
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0),
+		COALESCE(SUM(exchange_pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0), COALESCE(SUM(quantity), 0),
+		COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN exchange_pnl > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN exchange_pnl < 0 THEN 1 ELSE 0 END), 0)
+		FROM %s WHERE symbol = ? AND account_scope = ? AND LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(pnl_asset)) = ? AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
+	var summary PnLSummary
+	var winners, losers, exchangeWinners, exchangeLosers int
+	summary.Symbol, summary.Exchange, summary.MarketType, summary.PnLAsset = symbol, exchange, marketType, asset
+	if err := s.db.QueryRow(query, symbol, accountScope, exchange, marketType, asset, startTime, endTime).Scan(&summary.TotalTrades, &summary.TotalPnL, &summary.ExchangePnL, &summary.TotalVolume, &winners, &losers, &exchangeWinners, &exchangeLosers); err != nil {
+		return nil, fmt.Errorf("query runtime scoped PnL for %s %s: %w", symbol, asset, err)
+	}
+	summary.WinningTrades, summary.LosingTrades = winners, losers
+	if summary.TotalTrades > 0 {
+		summary.WinRate = float64(winners) / float64(summary.TotalTrades)
+		summary.ExchangeWinRate = float64(exchangeWinners) / float64(summary.TotalTrades)
+	}
+	for _, value := range []float64{summary.TotalPnL, summary.ExchangePnL, summary.TotalVolume, summary.WinRate} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return nil, fmt.Errorf("runtime PnL contains non-finite values for %s %s", symbol, asset)
+		}
+	}
+	return &summary, nil
+}
+
 func (s *SQLStorage) listPnLMarketScopes(symbol, account string, startTime, endTime time.Time) ([]PnLMarketScope, error) {
 	query := fmt.Sprintf(`SELECT DISTINCT COALESCE(NULLIF(LOWER(TRIM(exchange)), ''), 'unknown'), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown') FROM %s WHERE symbol = ? AND created_at >= ? AND created_at <= ?`, s.tradesTbl())
 	args := []interface{}{symbol, startTime, endTime}

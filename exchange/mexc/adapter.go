@@ -19,6 +19,7 @@ type Adapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+	settleAsset      string
 }
 
 // NewAdapter 創建 MEXC 适配器
@@ -56,6 +57,7 @@ func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 		logger.Warn("Failed to get MEXC exchange info: %v", err)
 	} else {
 		if detail, ok := exchangeInfo.Symbols[adapter.symbol]; ok {
+			adapter.settleAsset = strings.ToUpper(strings.TrimSpace(detail.SettleCoin))
 			if detail.PriceScale > 0 {
 				adapter.priceDecimals = detail.PriceScale
 			}
@@ -168,16 +170,42 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
-	accountInfo, err := a.client.GetAccount(ctx)
+	accountInfo, err := a.getSettlementAccount(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AccountLocal{
 		TotalWalletBalance: accountInfo.Equity,
-		TotalMarginBalance: accountInfo.Equity - accountInfo.Unrealized,
+		TotalMarginBalance: accountInfo.Equity,
 		AvailableBalance:   accountInfo.AvailableBalance,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(accountInfo.Currency)),
 	}, nil
+}
+
+func (a *Adapter) getSettlementAccount(ctx context.Context) (*AccountInfo, error) {
+	settleAsset := strings.ToUpper(strings.TrimSpace(a.settleAsset))
+	if settleAsset == "" {
+		return nil, fmt.Errorf("MEXC contract settlement asset is unavailable for %s", a.symbol)
+	}
+	accounts, err := a.client.GetAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var match *AccountInfo
+	for i := range accounts {
+		if !strings.EqualFold(strings.TrimSpace(accounts[i].Currency), settleAsset) {
+			continue
+		}
+		if match != nil {
+			return nil, fmt.Errorf("MEXC returned duplicate %s account asset rows", settleAsset)
+		}
+		match = &accounts[i]
+	}
+	if match == nil {
+		return nil, fmt.Errorf("MEXC account response has no %s settlement asset row", settleAsset)
+	}
+	return match, nil
 }
 
 // GetPositions 獲取持倉
@@ -213,7 +241,7 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 
 // GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
-	accountInfo, err := a.client.GetAccount(ctx)
+	accountInfo, err := a.getSettlementAccount(ctx)
 	if err != nil {
 		return 0, err
 	}

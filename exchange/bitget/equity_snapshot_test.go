@@ -40,6 +40,24 @@ func TestBitgetSingleUSDTWalletRequiresProvableMode(t *testing.T) {
 	}
 }
 
+func TestBitgetAccountReportsExplicitMarginCoin(t *testing.T) {
+	client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/mix/account/account" || r.URL.Query().Get("marginCoin") != "USDC" {
+			t.Fatalf("unexpected account query: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`{"code":"00000","data":{"marginCoin":"USDC","available":"90","accountEquity":"100","marginMode":"crossed","crossedMarginLeverage":3,"posMode":"one_way_mode"},"requestTime":1}`))
+	})
+	defer closeServer()
+	adapter := &BitgetAdapter{client: client, symbol: "BTCUSDC", productType: "USDC-FUTURES", marginCoin: "USDC"}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.BalanceAsset != "USDC" || account.TotalMarginBalance != 100 {
+		t.Fatalf("account balance denomination not preserved: %+v", account)
+	}
+}
+
 func TestBitgetBillEvidenceClassifiesAndRejectsUnknownTypes(t *testing.T) {
 	row := &bitgetBill{ID: "19", Amount: "-0.25", Fee: "-0.01", BusinessType: "trans_to_exchange", Coin: "USDT", Time: "1790000000000"}
 	entry, err := bitgetBillEvidence(row)

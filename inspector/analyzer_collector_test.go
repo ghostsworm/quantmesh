@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"quantmesh/monitor"
+	"quantmesh/storage"
 )
 
 func TestAnalyzerFallbackParseAndCollector(t *testing.T) {
@@ -30,11 +31,14 @@ func TestAnalyzerFallbackParseAndCollector(t *testing.T) {
 	if err != nil || fallback.RiskLevel != "elevated" || len(fallback.KeyFindings) == 0 {
 		t.Fatalf("fallback=%#v err=%v", fallback, err)
 	}
+	if !strings.Contains(fallback.Summary, "未核实") {
+		t.Fatalf("unverified realized PnL must not be presented as a verified amount: %q", fallback.Summary)
+	}
 	nilSnap, err := analyzer.Analyze(context.Background(), nil)
 	if err != nil || nilSnap.RiskLevel != "overall" {
 		t.Fatalf("nil snap analysis=%#v err=%v", nilSnap, err)
 	}
-	if prompt := analyzer.buildPrompt(snap); !strings.Contains(prompt, "BTCUSDT") || !strings.Contains(prompt, "黃金") {
+	if prompt := analyzer.buildPrompt(snap); !strings.Contains(prompt, "BTCUSDT") || !strings.Contains(prompt, "黃金") || !strings.Contains(prompt, "未核實") {
 		t.Fatalf("prompt=%q", prompt)
 	}
 	if formatRiskTriggered(true, "x") != "已觸發 - x" || formatRiskTriggered(false, "") != "正常" {
@@ -110,6 +114,122 @@ type fakeSnapshotSource struct {
 	price    float64
 	pnl      float64
 	value    float64
+}
+
+type scopedFakeSnapshotSource struct {
+	fakeSnapshotSource
+	scope    string
+	market   string
+	pnlAsset string
+}
+
+func TestCollectorDoesNotAggregateEquityAcrossAccountsAndLabelsPositionAsset(t *testing.T) {
+	first := scopedFakeSnapshotSource{
+		fakeSnapshotSource: fakeSnapshotSource{exchange: "binance", symbol: "BTCUSDT", account: "account-a", pnl: 3},
+		scope:              "scope-a", market: "futures", pnlAsset: "USDT",
+	}
+	second := scopedFakeSnapshotSource{
+		fakeSnapshotSource: fakeSnapshotSource{exchange: "okx", symbol: "ETHBTC", account: "account-b", pnl: 0.2},
+		scope:              "scope-b", market: "spot", pnlAsset: "BTC",
+	}
+	providerCalls := 0
+	collector := &Collector{
+		GetSnapshotSources: func() []SnapshotSource { return []SnapshotSource{first, second} },
+		GetAccountSummary: func(context.Context, string, string) (AccountSummary, error) {
+			providerCalls++
+			return AccountSummary{TotalBalance: 100, Currency: "USDT"}, nil
+		},
+	}
+	snapshot := collector.Collect(context.Background())
+	if snapshot.AccountSummary.Currency != "" || snapshot.AccountSummary.TotalBalance != 0 {
+		t.Fatalf("mixed-account equity should remain unavailable: %+v", snapshot.AccountSummary)
+	}
+	if providerCalls != 1 {
+		t.Fatalf("expected at most one exact-account summary request, got %d", providerCalls)
+	}
+	if snapshot.Positions[0].PnLAsset != "USDT" || snapshot.Positions[1].PnLAsset != "BTC" {
+		t.Fatalf("position PnL assets not preserved: %+v", snapshot.Positions)
+	}
+	prompt := (&Analyzer{}).buildPrompt(snapshot)
+	if strings.Contains(prompt, "未實現盈虧 3.20") || !strings.Contains(prompt, "0.20 BTC") {
+		t.Fatalf("prompt has mixed/incorrect PnL denomination: %q", prompt)
+	}
+}
+
+func TestBalanceAlertRequiresSameAccountAndCurrency(t *testing.T) {
+	thresholds := DefaultEventThresholds()
+	monitor := NewEventMonitor(thresholds)
+	previous := &InspectionSnapshot{Timestamp: time.Now(), AccountSummary: AccountSummary{
+		Exchange: "binance", Account: "main", Currency: "BTC", TotalBalance: 1,
+	}}
+	monitor.Check(previous)
+	changedCurrency := &InspectionSnapshot{Timestamp: time.Now(), AccountSummary: AccountSummary{
+		Exchange: "binance", Account: "main", Currency: "USDT", TotalBalance: 1000,
+	}}
+	if events := monitor.Check(changedCurrency); len(events) != 0 {
+		t.Fatalf("currency change must not be reported as balance movement: %+v", events)
+	}
+	changedBalance := &InspectionSnapshot{Timestamp: time.Now(), AccountSummary: AccountSummary{
+		Exchange: "binance", Account: "main", Currency: "USDT", TotalBalance: 2000,
+	}}
+	monitor.Check(changedBalance)
+	confirmedChange := &InspectionSnapshot{Timestamp: time.Now(), AccountSummary: AccountSummary{
+		Exchange: "binance", Account: "main", Currency: "USDT", TotalBalance: 3000,
+	}}
+	events := monitor.Check(confirmedChange)
+	if len(events) != 1 || !strings.Contains(events[0].Message, "USDT") {
+		t.Fatalf("same-account same-currency alert should show its asset: %+v", events)
+	}
+}
+
+func (s scopedFakeSnapshotSource) AccountScope() string { return s.scope }
+func (s scopedFakeSnapshotSource) MarketType() string   { return s.market }
+func (s scopedFakeSnapshotSource) PnLAsset() string     { return s.pnlAsset }
+
+type inspectorPnLStorageFixture struct {
+	storage.Storage
+	calls int
+	err   error
+}
+
+func (f *inspectorPnLStorageFixture) GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, start, end time.Time) ([]*storage.PnLBySymbol, error) {
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []*storage.PnLBySymbol{{Exchange: exchange, PnLAsset: asset, TotalPnL: 2, TotalTrades: 1}}, nil
+}
+
+func TestInspectorRealizedPnLRequiresUniformAssetAndExactScopes(t *testing.T) {
+	first := scopedFakeSnapshotSource{fakeSnapshotSource: fakeSnapshotSource{exchange: "binance", symbol: "BTCUSDT"}, scope: "scope-a", market: "futures", pnlAsset: "USDT"}
+	duplicate := scopedFakeSnapshotSource{fakeSnapshotSource: fakeSnapshotSource{exchange: "BINANCE", symbol: "ETHUSDT"}, scope: "scope-a", market: "futures", pnlAsset: "usdt"}
+	store := &inspectorPnLStorageFixture{}
+	summary := collectScopedPnLSummary(store, []SnapshotSource{first, duplicate}, time.Now())
+	if !summary.Verified || summary.PnLAsset != "USDT" || summary.TodayRealized != 2 || summary.TodayTrades != 1 || store.calls != 4 {
+		t.Fatalf("same-scope duplicates should be queried once with verified units: summary=%+v calls=%d", summary, store.calls)
+	}
+
+	foreignAsset := scopedFakeSnapshotSource{fakeSnapshotSource: fakeSnapshotSource{exchange: "okx", symbol: "BTCUSD"}, scope: "scope-b", market: "futures", pnlAsset: "USD"}
+	store.calls = 0
+	summary = collectScopedPnLSummary(store, []SnapshotSource{first, foreignAsset}, time.Now())
+	if summary.Verified || summary.PnLAsset != "" || summary.TodayRealized != 0 || store.calls != 0 {
+		t.Fatalf("mixed denomination must not produce a scalar PnL total: summary=%+v calls=%d", summary, store.calls)
+	}
+
+	store.calls = 0
+	summary = collectScopedPnLSummary(store, []SnapshotSource{first, fakeSnapshotSource{exchange: "binance"}}, time.Now())
+	if summary.Verified || summary.TodayRealized != 0 || store.calls != 0 {
+		t.Fatalf("source without exact scope evidence must not contribute PnL: summary=%+v calls=%d", summary, store.calls)
+	}
+}
+
+func TestInspectorRealizedPnLQueryFailureDoesNotPublishPartialTotals(t *testing.T) {
+	source := scopedFakeSnapshotSource{fakeSnapshotSource: fakeSnapshotSource{exchange: "binance"}, scope: "scope-a", market: "futures", pnlAsset: "USDT"}
+	store := &inspectorPnLStorageFixture{err: fmt.Errorf("ledger unavailable")}
+	summary := collectScopedPnLSummary(store, []SnapshotSource{source}, time.Now())
+	if summary.Verified || summary.TodayRealized != 0 || summary.WeekRealized != 0 || summary.TotalRealized != 0 {
+		t.Fatalf("failed exact-scope query must not leak partial values: %+v", summary)
+	}
 }
 
 func (s fakeSnapshotSource) Exchange() string { return s.exchange }

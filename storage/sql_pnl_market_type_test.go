@@ -143,6 +143,47 @@ func TestGetPnLByAccountScopeAndAssetSeparatesAssetsAndCredentialScopes(t *testi
 	}
 }
 
+func TestGetPnLBySymbolAccountScopeAndAssetSeparatesRuntimeLedger(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC()
+	trades := []Trade{
+		{BuyOrderID: 21, SellOrderID: 121, AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 2, PnL: 12, ExchangePnL: 10, Fee: 2, CreatedAt: now},
+		{BuyOrderID: 22, SellOrderID: 122, AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 1, PnL: 8, ExchangePnL: 7, Fee: 1, CreatedAt: now},
+		{BuyOrderID: 23, SellOrderID: 123, AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDC", FeeAsset: "USDC", Symbol: "BTCUSDT", Quantity: 30, PnL: 300, ExchangePnL: 280, Fee: 5, CreatedAt: now},
+		{BuyOrderID: 24, SellOrderID: 124, AccountScope: "scope-b", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 100, PnL: 1000, CreatedAt: now},
+		{BuyOrderID: 25, SellOrderID: 125, AccountScope: "scope-a", Exchange: "binance", MarketType: "spot", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 40, PnL: 400, CreatedAt: now},
+	}
+	for i := range trades {
+		if err := st.SaveTrade(&trades[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	summary, err := st.GetPnLBySymbolAccountScopeAndAsset("BTCUSDT", "scope-a", "BINANCE", "FUTURES", "usdt", now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.TotalPnL != 17 || summary.ExchangePnL != 14 || summary.TotalTrades != 2 || summary.TotalVolume != 3 || summary.PnLAsset != "USDT" {
+		t.Fatalf("runtime PnL query mixed or lost its scope/asset: %+v", summary)
+	}
+}
+
+func TestGetPnLBySymbolAccountScopeAndAssetRejectsUnvaluedRows(t *testing.T) {
+	now := time.Now().UTC()
+	for _, trade := range []Trade{
+		{BuyOrderID: 31, SellOrderID: 131, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", PnL: 1, CreatedAt: now},
+		{BuyOrderID: 32, SellOrderID: 132, AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", FeeAsset: "USDT", Symbol: "BTCUSDT", PnL: 1, CreatedAt: now},
+		{BuyOrderID: 33, SellOrderID: 133, AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "BNB", Symbol: "BTCUSDT", PnL: 1, Fee: 0.1, CreatedAt: now},
+	} {
+		st := newSQLStorageForTest(t)
+		if err := st.SaveTrade(&trade); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.GetPnLBySymbolAccountScopeAndAsset("BTCUSDT", "scope-a", "binance", "futures", "USDT", now.Add(-time.Minute), now.Add(time.Minute)); err == nil {
+			t.Fatalf("runtime PnL accepted incomplete ownership or denomination evidence: %+v", trade)
+		}
+	}
+}
+
 func TestGetPnLByAccountScopeAndAssetRejectsUnknownOwnershipAndFeeAsset(t *testing.T) {
 	now := time.Now().UTC()
 	tests := []struct {
