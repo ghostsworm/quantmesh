@@ -480,3 +480,57 @@ func TestBotManager_LastStartFailureRoundTrip(t *testing.T) {
 		t.Fatalf("clear 後應無記錄")
 	}
 }
+
+func TestPeriodicFeeLookupReleasesConfigLockAndRejectsStaleCredentials(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{
+			"binance": {APIKey: "old-key", SecretKey: "old-secret", FeeRate: 0.001},
+		},
+		Bots: []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}},
+	}
+	bm := NewBotManager(cfg, nil, nil, nil, "")
+	fetchStarted := make(chan struct{})
+	finishFetch := make(chan struct{})
+	bm.feeRateFetcher = func(_ *config.Config, _, _ string) (float64, float64, error) {
+		close(fetchStarted)
+		<-finishFetch
+		return 0.0005, 0.02, nil
+	}
+	refreshDone := make(chan struct{})
+	go func() {
+		bm.runPeriodicFeeRefresh()
+		close(refreshDone)
+	}()
+	select {
+	case <-fetchStarted:
+	case <-time.After(3 * time.Second):
+		t.Fatal("periodic fee lookup did not start")
+	}
+
+	configUpdateDone := make(chan struct{})
+	go func() {
+		bm.registerEquityScopeConfig(cfg)
+		close(configUpdateDone)
+	}()
+	select {
+	case <-configUpdateDone:
+	case <-time.After(time.Second):
+		t.Fatal("account scope registration blocked behind exchange fee network request")
+	}
+
+	bm.equityConfigRefreshMu.Lock()
+	rotated := bm.cfg.Exchanges["binance"]
+	rotated.APIKey = "rotated-key"
+	rotated.SecretKey = "rotated-secret"
+	bm.cfg.Exchanges["binance"] = rotated
+	bm.equityConfigRefreshMu.Unlock()
+	close(finishFetch)
+	select {
+	case <-refreshDone:
+	case <-time.After(3 * time.Second):
+		t.Fatal("periodic fee refresh did not finish")
+	}
+	if got := bm.cfg.Exchanges["binance"].FeeRate; got != 0.001 {
+		t.Fatalf("stale API response overwrote fee after credential rotation: got %v", got)
+	}
+}

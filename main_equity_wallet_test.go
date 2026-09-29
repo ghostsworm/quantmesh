@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/exchange/accounting"
 	"quantmesh/risk"
 	"quantmesh/storage"
@@ -89,6 +90,106 @@ func TestRuntimeEquityRejectsMembershipChangeDuringAccountRead(t *testing.T) {
 	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
 	if err == nil || observation.CashFlowComplete || observation.Equity != 0 {
 		t.Fatalf("membership changed mid-sample but equity was published: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityRequiresAllEnabledConfiguredAccounts(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	firstConfig := config.ExchangeConfig{APIKey: "account-a-key", Testnet: true}
+	secondConfig := config.ExchangeConfig{APIKey: "account-b-key", Testnet: true}
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": firstConfig, "bitget": secondConfig},
+		Bots: []config.BotConfig{
+			{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+			{Exchange: "bitget", Symbol: "ETHUSDT", MarketType: "futures"},
+		},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", firstConfig), &equityLedgerExchange{
+		snapshot: runtimeWalletFixture(now, "1000", 1000),
+	})
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
+		t.Fatalf("missing configured account was silently omitted: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityConfiguredScopeDeduplicatesBotsOnSameAccount(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	exchangeConfig := config.ExchangeConfig{APIKey: "shared-account-key", Testnet: true}
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},
+		Bots: []config.BotConfig{
+			{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+			{Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"},
+		},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), &equityLedgerExchange{
+		snapshot: runtimeWalletFixture(now, "1000", 1000),
+	})
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err != nil || observation.Equity != 1000 || !observation.CashFlowComplete {
+		t.Fatalf("Bot-level duplicates incorrectly expanded the account scope: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityRejectsEnabledSpotScopeUntilValuationIsSupported(t *testing.T) {
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "spot-account-key"}},
+		Bots:      []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot"}},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
+		t.Fatalf("enabled Spot account scope was silently treated as Futures-only: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestBuildEquityScopeSnapshotSupportsLegacyEnabledSymbols(t *testing.T) {
+	exchangeConfig := config.ExchangeConfig{APIKey: "legacy-account-key", Testnet: false}
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.Symbols = []config.SymbolConfig{{Symbol: "BTCUSDT", MarketType: "futures"}}
+	snapshot := buildEquityScopeSnapshot(cfg)
+	_, _, want, err := runtimeEquityAccounts([]*SymbolRuntime{walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), &equityLedgerExchange{})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.configured || snapshot.err != "" || snapshot.scope != want {
+		t.Fatalf("legacy Trading.Symbols scope=%+v want digest=%q", snapshot, want)
+	}
+}
+
+func TestRuntimeEquityRejectsConfiguredScopeChangeDuringSampling(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	exchangeConfig := config.ExchangeConfig{APIKey: "account-a-key", Testnet: true}
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},
+		Bots:      []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), provider)
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
+	updatedConfig := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig, "bitget": {APIKey: "account-b-key", Testnet: true}},
+		Bots: []config.BotConfig{
+			{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+			{Exchange: "bitget", Symbol: "ETHUSDT", MarketType: "futures"},
+		},
+	}
+	provider.onEvidence = func() { manager.botManager.UpdateRuntimeTradingParams(updatedConfig) }
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
+		t.Fatalf("configuration changed during sampling but observation was published: observation=%+v err=%v", observation, err)
 	}
 }
 

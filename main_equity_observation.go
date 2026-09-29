@@ -7,12 +7,75 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange/accounting"
 	"quantmesh/risk"
 )
+
+type equityScopeSnapshot struct {
+	scope      string
+	revision   uint64
+	configured bool
+	err        string
+}
+
+func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
+	if cfg == nil {
+		return equityScopeSnapshot{}
+	}
+	accounts := make(map[string]struct{})
+	add := func(exchangeName, marketType string, enabled bool) error {
+		if !enabled {
+			return nil
+		}
+		exchangeName = strings.TrimSpace(exchangeName)
+		if exchangeName == "" {
+			exchangeName = strings.TrimSpace(cfg.App.CurrentExchange)
+		}
+		if exchangeName == "" {
+			return fmt.Errorf("enabled equity Bot has no exchange identity")
+		}
+		if marketType != "futures" {
+			return fmt.Errorf("enabled Bot market %q is not supported by equity reconciliation", marketType)
+		}
+		exchangeConfig, ok := cfg.Exchanges[exchangeName]
+		if !ok || strings.TrimSpace(exchangeConfig.APIKey) == "" {
+			return fmt.Errorf("enabled equity Bot %s has no configured account credentials", exchangeName)
+		}
+		identity, err := json.Marshal([]string{marketType, equityAccountScopeID(exchangeName, exchangeConfig)})
+		if err != nil {
+			return err
+		}
+		accounts[string(identity)] = struct{}{}
+		return nil
+	}
+	if len(cfg.Bots) > 0 {
+		for _, bot := range cfg.Bots {
+			if err := add(bot.Exchange, bot.GetMarketType(), bot.IsEnabled()); err != nil {
+				return equityScopeSnapshot{configured: true, err: err.Error()}
+			}
+		}
+	} else {
+		for _, symbol := range cfg.Trading.Symbols {
+			if err := add(symbol.Exchange, symbol.GetMarketType(), symbol.IsEnabled()); err != nil {
+				return equityScopeSnapshot{configured: true, err: err.Error()}
+			}
+		}
+	}
+	keys := make([]string, 0, len(accounts))
+	for key := range accounts {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	identity, err := json.Marshal(keys)
+	if err != nil {
+		return equityScopeSnapshot{configured: true, err: err.Error()}
+	}
+	return equityScopeSnapshot{configured: true, scope: fmt.Sprintf("futures:%x", sha256.Sum256(identity))}
+}
 
 func equityAccountScopeID(name string, cfg config.ExchangeConfig) string {
 	identity, _ := json.Marshal([]interface{}{name, cfg.Testnet, cfg.APIKey})
@@ -30,6 +93,10 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 	if s == nil || s.manager == nil {
 		return risk.EquityObservation{}, risk.ErrEquityUnavailable
 	}
+	configuredScope := s.manager.botManager.equityScopeSnapshot()
+	if configuredScope.err != "" {
+		return risk.EquityObservation{}, fmt.Errorf("configured equity account scope is unsupported: %s", configuredScope.err)
+	}
 	runtimes := s.manager.List()
 	observation, err := observeRuntimeEquityCursors(ctx, runtimes, cursors)
 	if err != nil {
@@ -41,6 +108,16 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 	}
 	if currentScope != observation.Scope {
 		return risk.EquityObservation{}, fmt.Errorf("equity account membership changed during observation; retry required")
+	}
+	latestConfiguredScope := s.manager.botManager.equityScopeSnapshot()
+	if configuredScope.revision != latestConfiguredScope.revision {
+		return risk.EquityObservation{}, fmt.Errorf("configured equity account scope changed during observation; retry required")
+	}
+	if latestConfiguredScope.err != "" {
+		return risk.EquityObservation{}, fmt.Errorf("configured equity account scope is unsupported: %s", latestConfiguredScope.err)
+	}
+	if latestConfiguredScope.configured && latestConfiguredScope.scope != observation.Scope {
+		return risk.EquityObservation{}, fmt.Errorf("running equity accounts do not cover all enabled configured Bots; reconciliation required")
 	}
 	return observation, nil
 }

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc424"
+var Version = "3.111.0-rc427"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -524,6 +524,14 @@ func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) str
 // 将最新配置推送到所有运行中的 SymbolRuntime，解决配置修改后内存不同步问题
 func (a *symbolManagerWebAdapter) UpdateTradingParams(latestConfig *config.Config) []string {
 	return a.manager.UpdateRuntimeTradingParams(latestConfig)
+}
+
+// UpdateEquityScopeConfig synchronizes configured account coverage without reconfiguring live strategies.
+func (a *symbolManagerWebAdapter) UpdateEquityScopeConfig(latestConfig *config.Config) {
+	if a == nil || a.manager == nil || a.manager.botManager == nil {
+		return
+	}
+	a.manager.botManager.registerEquityScopeConfig(latestConfig)
 }
 
 func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.ClosePositionsResponse, error) {
@@ -1496,7 +1504,9 @@ func main() {
 			})
 		}
 		fileConfigManager := web.NewFileConfigManager("")
-		fileConfigManager.SetRuntimeConfig(cfg)
+		if err := fileConfigManager.SetRuntimeConfig(cfg); err != nil {
+			logger.Fatalf("❌ 複製運行時配置快照失敗: %v", err)
+		}
 		web.SetFileConfigManager(fileConfigManager)
 		web.SetGlobalConfig(cfg)
 		logger.Info("✅ 配置管理器已初始化")

@@ -100,16 +100,21 @@ func NewFileConfigManager(_ string) *FileConfigManager {
 	return &FileConfigManager{}
 }
 
-// SetRuntimeConfig 將主進程已加載的配置寫入管理器（與磁盤一致或來自 app_config）。
+// SetRuntimeConfig stores an isolated copy of the runtime configuration.
 // 避免首次 GET /api/config/json 僅從可能為「最小化」的 YAML 讀取，導致 exchanges 密鑰為空，
 // 進而前端無法調用 exchange-symbols 拉取交易對。
-func (fcm *FileConfigManager) SetRuntimeConfig(cfg *config.Config) {
+func (fcm *FileConfigManager) SetRuntimeConfig(cfg *config.Config) error {
 	if fcm == nil || cfg == nil {
-		return
+		return nil
+	}
+	snapshot, err := cloneConfigSnapshot(cfg)
+	if err != nil {
+		return err
 	}
 	fcm.mu.Lock()
 	defer fcm.mu.Unlock()
-	fcm.currentConfig = cfg
+	fcm.currentConfig = snapshot
+	return nil
 }
 
 // SetFileConfigManager 設置配置文件管理器
@@ -202,6 +207,9 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 
 	// 更新記憶體中的配置
 	fileConfigManager.currentConfig = cfg
+	if updater, ok := symbolManagerProvider.(EquityScopeConfigUpdater); ok {
+		updater.UpdateEquityScopeConfig(cfg)
+	}
 
 	// 尝試热更新（失败不影响持久化）
 	if configHotReloader != nil {
@@ -255,16 +263,16 @@ func accountScopeForExchange(exchange string) string {
 func (fcm *FileConfigManager) GetConfig() (*config.Config, error) {
 	fcm.mu.RLock()
 	if fcm.currentConfig != nil {
-		c := fcm.currentConfig
+		c, err := cloneConfigSnapshot(fcm.currentConfig)
 		fcm.mu.RUnlock()
-		return c, nil
+		return c, err
 	}
 	fcm.mu.RUnlock()
 
 	fcm.mu.Lock()
 	defer fcm.mu.Unlock()
 	if fcm.currentConfig != nil {
-		return fcm.currentConfig, nil
+		return cloneConfigSnapshot(fcm.currentConfig)
 	}
 	cfg, err := loadConfigFromPrimaryDB()
 	if err != nil {
@@ -274,7 +282,24 @@ func (fcm *FileConfigManager) GetConfig() (*config.Config, error) {
 		return nil, fmt.Errorf("無可用配置（請先完成引導或確保主庫 app_config 有快照）")
 	}
 	fcm.currentConfig = cfg
-	return cfg, nil
+	return cloneConfigSnapshot(cfg)
+}
+
+// cloneConfigSnapshot prevents readers and update handlers from mutating the
+// manager's authoritative nested maps/slices after its lock has been released.
+func cloneConfigSnapshot(cfg *config.Config) (*config.Config, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	encoded, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("serialize config snapshot: %w", err)
+	}
+	var snapshot config.Config
+	if err := yaml.Unmarshal(encoded, &snapshot); err != nil {
+		return nil, fmt.Errorf("deserialize config snapshot: %w", err)
+	}
+	return &snapshot, nil
 }
 
 // GetConfigPath 已廢棄：主配置不再使用磁盤 YAML，保留方法返回空字串避免舊代碼崩潰。
@@ -289,20 +314,27 @@ func (fcm *FileConfigManager) UpdateConfig(newConfig *config.Config) error {
 
 // UpdateConfigWithBotHistorySource 同上，但寫入 bot_configs / bot_config_history 時使用指定 source（空則與 file_config_update 相同）。
 func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config.Config, botHistorySource string) error {
+	if newConfig == nil {
+		return fmt.Errorf("configuration is required")
+	}
+	snapshot, err := cloneConfigSnapshot(newConfig)
+	if err != nil {
+		return err
+	}
 	fcm.mu.Lock()
-	if err := newConfig.Validate(); err != nil {
+	if err := snapshot.Validate(); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}
-	if err := persistAppConfigToDB(newConfig, "web", "file_config_update", botHistorySource); err != nil {
+	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", botHistorySource); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}
-	fcm.currentConfig = newConfig
+	fcm.currentConfig = snapshot
 	fcm.mu.Unlock()
 	// 必須在釋放鎖之後再同步新聞監控：ApplyRuntimeConfig 內 stopInternalLocked 可能阻塞數秒～十餘秒
 	//（等待 analysisLoopDone），若持鎖調用會拖慢所有依賴 GetLatestConfig/UpdateConfig 的 API（如 PUT /api/bots/:id/strategy）。
-	notifyNewsMonitorRuntimeSync(newConfig)
+	notifyNewsMonitorRuntimeSync(snapshot)
 	return nil
 }
 

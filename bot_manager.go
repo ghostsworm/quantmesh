@@ -41,6 +41,9 @@ type botStartFailure struct {
 type BotManager struct {
 	runtimeAdmissions            execution.OpeningGate // drains admitted start/stop transitions during process shutdown
 	shutdownTransitionUnverified atomic.Bool
+	equityConfigRefreshMu        sync.Mutex
+	equityScopeMu                sync.RWMutex
+	equityScope                  equityScopeSnapshot
 	cfg                          *config.Config
 	runtimes                     map[string]*BotRuntime
 	runtimesMu                   sync.RWMutex
@@ -50,6 +53,7 @@ type BotManager struct {
 	eventBus                     *event.EventBus
 	storageService               *storage.StorageService
 	distributedLock              lock.DistributedLock
+	feeRateFetcher               func(*config.Config, string, string) (float64, float64, error)
 	botStatesFileOverride        string // 測試用，空時用默認 ./data/bot_states.json
 	startFailMu                  sync.RWMutex
 	startFail                    map[string]botStartFailure
@@ -58,7 +62,7 @@ type BotManager struct {
 
 // NewBotManager 創建 Bot 管理器。primaryYAMLPath 為啟動時傳入的主 YAML 路徑（無則傳空），用於與 app_config 一致的刷新順序。
 func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock, primaryYAMLPath string) *BotManager {
-	return &BotManager{
+	bm := &BotManager{
 		cfg:               cfg,
 		runtimes:          make(map[string]*BotRuntime),
 		groupLegAlerted:   make(map[string]bool),
@@ -67,9 +71,41 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 		eventBus:          eventBus,
 		storageService:    storageService,
 		distributedLock:   distributedLock,
+		feeRateFetcher:    feerate.FetchFromExchangeAPI,
 		startFail:         make(map[string]botStartFailure),
 		primaryYAMLPath:   strings.TrimSpace(primaryYAMLPath),
 	}
+	bm.updateEquityScopeConfig(cfg)
+	return bm
+}
+
+func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
+	if bm == nil {
+		return
+	}
+	snapshot := buildEquityScopeSnapshot(cfg)
+	bm.equityScopeMu.Lock()
+	snapshot.revision = bm.equityScope.revision + 1
+	bm.equityScope = snapshot
+	bm.equityScopeMu.Unlock()
+}
+
+func (bm *BotManager) equityScopeSnapshot() equityScopeSnapshot {
+	if bm == nil {
+		return equityScopeSnapshot{}
+	}
+	bm.equityScopeMu.RLock()
+	defer bm.equityScopeMu.RUnlock()
+	return bm.equityScope
+}
+
+func (bm *BotManager) registerEquityScopeConfig(cfg *config.Config) {
+	if bm == nil {
+		return
+	}
+	bm.equityConfigRefreshMu.Lock()
+	bm.updateEquityScopeConfig(cfg)
+	bm.equityConfigRefreshMu.Unlock()
 }
 
 func (bm *BotManager) refreshConfigBeforeBotStart() error {
@@ -80,7 +116,13 @@ func (bm *BotManager) refreshConfigBeforeBotStart() error {
 	if bm.storageService != nil {
 		st = bm.storageService.GetStorage()
 	}
-	return storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg)
+	bm.equityConfigRefreshMu.Lock()
+	defer bm.equityConfigRefreshMu.Unlock()
+	if err := storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg); err != nil {
+		return err
+	}
+	bm.updateEquityScopeConfig(bm.cfg)
+	return nil
 }
 
 // resolveLatestStartConfig 在真正啟動前重新對齊 Bot 配置：
@@ -177,13 +219,21 @@ func (bm *BotManager) prepareBotStartConfig(botCfg config.BotConfig) (config.Bot
 //
 // 代價是 Bot 啟動時多一次費率 REST 請求（受 timing.skip_exchange_fee_on_bot_start 控制）。
 func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
-	if bm == nil || bm.cfg == nil || botCfg.Exchange == "" || botCfg.Symbol == "" {
+	if bm == nil || botCfg.Exchange == "" || botCfg.Symbol == "" {
 		return
 	}
-	if bm.cfg.Timing.SkipExchangeFeeOnBotStart {
+	bm.equityConfigRefreshMu.Lock()
+	if bm.cfg == nil || bm.cfg.Timing.SkipExchangeFeeOnBotStart {
+		bm.equityConfigRefreshMu.Unlock()
 		return
 	}
-	maker, taker, err := feerate.FetchFromExchangeAPI(bm.cfg, botCfg.Exchange, botCfg.Symbol)
+	lookupConfig := feeLookupConfig(bm.cfg)
+	fetcher := bm.feeRateFetcher
+	bm.equityConfigRefreshMu.Unlock()
+	if fetcher == nil {
+		fetcher = feerate.FetchFromExchangeAPI
+	}
+	maker, taker, err := fetcher(lookupConfig, botCfg.Exchange, botCfg.Symbol)
 	if err != nil {
 		logger.Info("ℹ️ 啟動前從交易所拉取手續費跳過: %v", err)
 		return
@@ -191,9 +241,7 @@ func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
 	if taker <= 0 {
 		return
 	}
-	if exCfg, ok := bm.cfg.Exchanges[botCfg.Exchange]; ok {
-		exCfg.FeeRate = taker
-		bm.cfg.Exchanges[botCfg.Exchange] = exCfg
+	if expected, ok := lookupConfig.Exchanges[botCfg.Exchange]; ok && bm.storeFetchedExchangeFee(botCfg.Exchange, expected, taker) {
 		logger.Info("💳 啟動前已依交易所接口更新 %s Taker 手續費: %.4f%%（maker %.4f%%，用於持倉安全檢查）",
 			botCfg.Exchange, taker*100, maker*100)
 	}
@@ -201,7 +249,12 @@ func (bm *BotManager) applyExchangeFeeFromAPIForBot(botCfg config.BotConfig) {
 
 // runPeriodicFeeRefresh 先從主庫/YAML 刷新內存配置，再按各交易所拉取 Taker 費率寫入內存（不強制寫回數據庫）。
 func (bm *BotManager) runPeriodicFeeRefresh() {
-	if bm == nil || bm.cfg == nil {
+	if bm == nil {
+		return
+	}
+	bm.equityConfigRefreshMu.Lock()
+	if bm.cfg == nil {
+		bm.equityConfigRefreshMu.Unlock()
 		return
 	}
 	var st storage.Storage
@@ -211,6 +264,7 @@ func (bm *BotManager) runPeriodicFeeRefresh() {
 	if err := storage.RefreshTradingConfigFromPrimarySource(bm.primaryYAMLPath, st, &bm.cfg); err != nil {
 		logger.Warn("⚠️ 定期刷新主配置失敗（仍嘗試拉取交易所費率）: %v", err)
 	}
+	bm.updateEquityScopeConfig(bm.cfg)
 
 	seen := make(map[string]bool)
 	type pair struct{ ex, sym string }
@@ -240,8 +294,14 @@ func (bm *BotManager) runPeriodicFeeRefresh() {
 			pairs = append(pairs, pair{s.Exchange, s.Symbol})
 		}
 	}
+	lookupConfig := feeLookupConfig(bm.cfg)
+	fetcher := bm.feeRateFetcher
+	bm.equityConfigRefreshMu.Unlock()
+	if fetcher == nil {
+		fetcher = feerate.FetchFromExchangeAPI
+	}
 	for _, p := range pairs {
-		maker, taker, err := feerate.FetchFromExchangeAPI(bm.cfg, p.ex, p.sym)
+		maker, taker, err := fetcher(lookupConfig, p.ex, p.sym)
 		if err != nil {
 			logger.Info("ℹ️ 定期拉取 %s 手續費失敗: %v", p.ex, err)
 			continue
@@ -249,12 +309,44 @@ func (bm *BotManager) runPeriodicFeeRefresh() {
 		if taker <= 0 {
 			continue
 		}
-		if exCfg, ok := bm.cfg.Exchanges[p.ex]; ok {
-			exCfg.FeeRate = taker
-			bm.cfg.Exchanges[p.ex] = exCfg
+		if expected, ok := lookupConfig.Exchanges[p.ex]; ok && bm.storeFetchedExchangeFee(p.ex, expected, taker) {
 			logger.Info("💳 定期同步 %s Taker 手續費: %.4f%%（maker %.4f%%）", p.ex, taker*100, maker*100)
 		}
 	}
+}
+
+func feeLookupConfig(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	snapshot := *cfg
+	snapshot.Exchanges = make(map[string]config.ExchangeConfig, len(cfg.Exchanges))
+	for exchangeName, exchangeConfig := range cfg.Exchanges {
+		snapshot.Exchanges[exchangeName] = exchangeConfig
+	}
+	return &snapshot
+}
+
+func sameExchangeCredentials(left, right config.ExchangeConfig) bool {
+	return left.APIKey == right.APIKey && left.SecretKey == right.SecretKey && left.Passphrase == right.Passphrase && left.Testnet == right.Testnet
+}
+
+func (bm *BotManager) storeFetchedExchangeFee(exchangeName string, expected config.ExchangeConfig, taker float64) bool {
+	if bm == nil {
+		return false
+	}
+	bm.equityConfigRefreshMu.Lock()
+	defer bm.equityConfigRefreshMu.Unlock()
+	if bm.cfg == nil {
+		return false
+	}
+	current, ok := bm.cfg.Exchanges[exchangeName]
+	if !ok || !sameExchangeCredentials(current, expected) {
+		return false
+	}
+	current.FeeRate = taker
+	bm.cfg.Exchanges[exchangeName] = current
+	return true
 }
 
 // StartFeeRateRefreshLoop 按 timing.fee_rate_refresh_minutes 週期刷新主配置並拉取交易所費率；分鐘數 <= 0 時不啟動。
@@ -800,6 +892,7 @@ func (bm *BotManager) ListSymbolRuntimes() []*SymbolRuntime {
 // UpdateRuntimeTradingParams 更新運行中的 Bot 交易參數（熱更新）
 // 始終同步 Config 到運行時，確保 smart_order 等非交易參數變更也能反映到 GetBot 返回的詳情中
 func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedBotIDs []string) {
+	bm.registerEquityScopeConfig(latestCfg)
 	for _, botCfg := range latestCfg.Bots {
 		botID := botCfg.ID
 		if botID == "" {

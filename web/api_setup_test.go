@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -57,6 +58,97 @@ func performSetupAPIRequest(router http.Handler, method, path, body string) *htt
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	return w
+}
+
+func TestFileConfigManagerGetConfigReturnsDetachedSnapshot(t *testing.T) {
+	cfg := config.CreateMinimalConfig()
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.PriceInterval = 100
+	cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "key-original", SecretKey: "secret-original"}
+	cfg.Bots = []config.BotConfig{{ID: config.GenerateBotID("binance", "BTCUSDT", "futures"), Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Name: "original", PriceInterval: 100, OrderQuantity: 0.01, BuyWindowSize: 1, SellWindowSize: 1}}
+	cfg.Trading.Symbols = []config.SymbolConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 0.01, BuyWindowSize: 1, SellWindowSize: 1}}
+	manager := NewFileConfigManager("")
+	if err := manager.SetRuntimeConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "source-mutated"}
+	cfg.Bots[0].Name = "source-mutated"
+	cfg.Trading.Symbols[0].Symbol = "SOLUSDT"
+
+	snapshot, err := manager.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.Exchanges["binance"] = config.ExchangeConfig{APIKey: "key-mutated"}
+	snapshot.Bots[0].Name = "mutated"
+	snapshot.Trading.Symbols[0].Symbol = "ETHUSDT"
+
+	authoritative := manager.getCurrentConfig()
+	if authoritative.Exchanges["binance"].APIKey != "key-original" || authoritative.Exchanges["binance"].SecretKey != "secret-original" ||
+		authoritative.Bots[0].Name != "original" || authoritative.Trading.Symbols[0].Symbol != "BTCUSDT" {
+		t.Fatalf("mutating read snapshot changed authoritative config: %+v", authoritative)
+	}
+}
+
+func TestFileConfigManagerUpdateConfigStoresDetachedSnapshot(t *testing.T) {
+	restoreStorage := setupTestPrimaryAppConfigStorage(t)
+	t.Cleanup(restoreStorage)
+	cfg := config.CreateMinimalConfig()
+	cfg.App.CurrentExchange = "binance"
+	cfg.Trading.PriceInterval = 100
+	cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "key-original", SecretKey: "secret-original"}
+	cfg.Bots = []config.BotConfig{{ID: config.GenerateBotID("binance", "BTCUSDT", "futures"), Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Name: "original", PriceInterval: 100, OrderQuantity: 0.01, BuyWindowSize: 1, SellWindowSize: 1}}
+	cfg.Trading.Symbols = []config.SymbolConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 0.01, BuyWindowSize: 1, SellWindowSize: 1}}
+	manager := NewFileConfigManager("")
+	if err := manager.UpdateConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "source-mutated"}
+	cfg.Bots[0].Name = "source-mutated"
+
+	authoritative, err := manager.GetConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if authoritative.Exchanges["binance"].APIKey != "key-original" || authoritative.Exchanges["binance"].SecretKey != "secret-original" || authoritative.Bots[0].Name != "original" {
+		t.Fatalf("mutating the update input changed the stored config: %+v", authoritative)
+	}
+}
+
+func TestFileConfigManagerSnapshotsAreRaceSafeAcrossReplacement(t *testing.T) {
+	manager := NewFileConfigManager("")
+	initial := config.CreateMinimalConfig()
+	initial.Exchanges["binance"] = config.ExchangeConfig{APIKey: "initial"}
+	if err := manager.SetRuntimeConfig(initial); err != nil {
+		t.Fatal(err)
+	}
+	var workers sync.WaitGroup
+	workers.Add(3)
+	go func() {
+		defer workers.Done()
+		for i := 0; i < 100; i++ {
+			cfg := config.CreateMinimalConfig()
+			cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "writer"}
+			if err := manager.SetRuntimeConfig(cfg); err != nil {
+				t.Errorf("replace runtime config: %v", err)
+				return
+			}
+		}
+	}()
+	for worker := 0; worker < 2; worker++ {
+		go func() {
+			defer workers.Done()
+			for i := 0; i < 100; i++ {
+				cfg, err := manager.GetConfig()
+				if err != nil {
+					t.Errorf("read config snapshot: %v", err)
+					return
+				}
+				cfg.Exchanges["binance"] = config.ExchangeConfig{APIKey: "reader"}
+			}
+		}()
+	}
+	workers.Wait()
 }
 
 func TestGetSetupStatusHandlerReportsMissingAndCompleteConfig(t *testing.T) {

@@ -1834,6 +1834,11 @@ type TradingParamsUpdater interface {
 	UpdateTradingParams(latestConfig *config.Config) []string
 }
 
+// EquityScopeConfigUpdater synchronizes the configured portfolio scope independently from live trading parameters.
+type EquityScopeConfigUpdater interface {
+	UpdateEquityScopeConfig(latestConfig *config.Config)
+}
+
 // RegisterSymbolManager 注册 SymbolManager
 func RegisterSymbolManager(provider SymbolManagerProvider) {
 	symbolManagerProvider = provider

@@ -194,7 +194,9 @@ func applyConfigMigrationBundle(ctx context.Context, bundle *configMigrationBund
 		return nil, err
 	}
 
-	fileConfigManager.SetRuntimeConfig(cfg)
+	if err := fileConfigManager.SetRuntimeConfig(cfg); err != nil {
+		return nil, fmt.Errorf("复制导入配置快照失败: %w", err)
+	}
 	notifyNewsMonitorRuntimeSync(cfg)
 	if configHotReloader != nil {
 		_, _ = configHotReloader.UpdateConfig(cfg)
