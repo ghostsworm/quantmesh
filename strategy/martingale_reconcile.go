@@ -224,3 +224,153 @@ func (s *MartingaleStrategy) reconcileCloseFills(ctx context.Context, symbol str
 	}
 	return addedFee, averagePrice, nil
 }
+
+// reconcilePersistedEntryOrders repairs fills missed while the process was
+// offline. Every active/unknown entry must be proven against exchange order
+// state before Start can enable price decisions.
+func (s *MartingaleStrategy) reconcilePersistedEntryOrders(ctx context.Context) error {
+	s.mu.RLock()
+	entries := make([]MartingaleEntry, 0, len(s.entries))
+	for _, entry := range s.entries {
+		if entry != nil && (entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled || entry.Status == position.OrderStatusUnknown) {
+			entries = append(entries, *entry)
+		}
+	}
+	s.mu.RUnlock()
+	if len(entries) == 0 {
+		return nil
+	}
+	if s.exchange == nil {
+		return fmt.Errorf("exchange is unavailable for entry-order reconciliation")
+	}
+	for _, entry := range entries {
+		if entry.OrderID <= 0 || entry.RequestedQuantity <= 0 {
+			return fmt.Errorf("entry level %d has invalid persisted order identity or requested quantity", entry.Level)
+		}
+		if err := s.reconcilePersistedEntryOrder(ctx, entry); err != nil {
+			return fmt.Errorf("reconcile entry order %d at level %d: %w", entry.OrderID, entry.Level, err)
+		}
+	}
+	return nil
+}
+
+func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, entry MartingaleEntry) error {
+	raw, err := s.exchange.GetOrder(ctx, s.strategyCfg.Symbol, entry.OrderID)
+	if err != nil {
+		return fmt.Errorf("query order: %w", err)
+	}
+	order, ok := dcaExchangeOrder(raw)
+	if !ok || order == nil {
+		return fmt.Errorf("exchange returned unsupported or missing order evidence (%T)", raw)
+	}
+	wantSide := exchange.SideBuy
+	if s.direction == "SHORT" {
+		wantSide = exchange.SideSell
+	}
+	decimals := s.exchange.GetQuantityDecimals()
+	if decimals < 0 || decimals > 18 {
+		return fmt.Errorf("invalid exchange quantity precision %d", decimals)
+	}
+	tolerance := math.Max(entryQtyEpsilon, math.Pow10(-decimals)*1.01)
+	if order.OrderID != entry.OrderID || !strings.EqualFold(order.Symbol, s.strategyCfg.Symbol) || order.Side != wantSide ||
+		!finiteNumber(order.Quantity) || order.Quantity <= 0 || math.Abs(order.Quantity-entry.RequestedQuantity) > tolerance ||
+		!finiteNumber(order.ExecutedQty) || order.ExecutedQty < 0 || order.ExecutedQty > order.Quantity+tolerance ||
+		order.ExecutedQty > entry.RequestedQuantity+tolerance || order.ExecutedQty+tolerance < entry.FillProgress.Quantity {
+		return fmt.Errorf("exchange order identity or quantities conflict with persisted intent")
+	}
+	status := strings.ToUpper(strings.TrimSpace(string(order.Status)))
+	switch status {
+	case "NEW", "PARTIALLY_FILLED", "FILLED", "FULLY_FILLED", "CLOSED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "FAILED":
+	default:
+		return fmt.Errorf("unrecognized exchange order status %q", order.Status)
+	}
+	if status == "NEW" && order.ExecutedQty > tolerance || status == "PARTIALLY_FILLED" && order.ExecutedQty <= 0 ||
+		(status == "FILLED" || status == "FULLY_FILLED" || status == "CLOSED") && order.ExecutedQty <= 0 {
+		return fmt.Errorf("order status conflicts with cumulative execution")
+	}
+	update := &position.OrderUpdate{OrderID: order.OrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
+		ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice}
+	if order.ExecutedQty > entry.FillProgress.Quantity {
+		fee, averagePrice, err := s.reconcileEntryFills(ctx, s.strategyCfg.Symbol, order, entry.FillProgress)
+		if err != nil {
+			return err
+		}
+		update.Commission = fee
+		update.CommissionAsset = s.exchange.GetQuoteAsset()
+		update.AvgPrice = averagePrice
+	}
+	if status == "NEW" || status == "PARTIALLY_FILLED" || signalOrderStatusTerminal(status) || order.ExecutedQty > entry.FillProgress.Quantity {
+		if err := s.OnOrderUpdate(update); err != nil {
+			return fmt.Errorf("apply recovered order state: %w", err)
+		}
+	}
+	return nil
+}
+
+func (s *MartingaleStrategy) reconcileEntryFills(ctx context.Context, symbol string, order *exchange.Order, progress position.FillProgress) (float64, float64, error) {
+	raw, err := s.exchange.GetOrderFills(ctx, symbol, order.OrderID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("query entry order fills: %w", err)
+	}
+	fills, ok := dcaExchangeOrderFills(raw)
+	if !ok || len(fills) == 0 {
+		return 0, 0, fmt.Errorf("new cumulative execution has no supported fill evidence (%T)", raw)
+	}
+	sort.Slice(fills, func(i, j int) bool {
+		if fills[i] == nil {
+			return false
+		}
+		if fills[j] == nil {
+			return true
+		}
+		if fills[i].TradeTime != fills[j].TradeTime {
+			return fills[i].TradeTime < fills[j].TradeTime
+		}
+		return fills[i].TradeID < fills[j].TradeID
+	})
+	seen := make(map[string]struct{}, len(fills))
+	var qty, notional, prefixQty, prefixNotional, addedFee float64
+	for _, fill := range fills {
+		if fill == nil || strings.TrimSpace(fill.TradeID) == "" || fill.OrderID != 0 && fill.OrderID != order.OrderID ||
+			fill.Symbol != "" && !strings.EqualFold(fill.Symbol, symbol) || fill.Side != "" && fill.Side != order.Side ||
+			!finiteNumber(fill.Price) || fill.Price <= 0 || !finiteNumber(fill.Quantity) || fill.Quantity <= 0 || !finiteNumber(fill.Commission) || fill.BaseFeeQty != 0 {
+			return 0, 0, fmt.Errorf("entry order returned invalid or unsupported fill evidence")
+		}
+		if _, exists := seen[fill.TradeID]; exists {
+			return 0, 0, fmt.Errorf("entry order returned duplicate trade ID %q", fill.TradeID)
+		}
+		seen[fill.TradeID] = struct{}{}
+		qty += fill.Quantity
+		notional += fill.Price * fill.Quantity
+		if prefixQty < progress.Quantity-entryQtyEpsilon {
+			if prefixQty+fill.Quantity > progress.Quantity+entryQtyEpsilon {
+				return 0, 0, fmt.Errorf("persisted entry progress splits an exchange fill")
+			}
+			prefixQty += fill.Quantity
+			prefixNotional += fill.Price * fill.Quantity
+			continue
+		}
+		converted, known := 0.0, false
+		if fill.CommissionQuoteKnown {
+			converted, known = fill.CommissionQuote, finiteNumber(fill.CommissionQuote) && fill.CommissionQuote >= 0
+		} else if fill.Commission == 0 && strings.TrimSpace(fill.CommissionAsset) == "" {
+			return 0, 0, fmt.Errorf("entry fill %s has no verifiable commission evidence", fill.TradeID)
+		} else {
+			converted, known = commissionInQuote(s.exchange, fill.Commission, fill.CommissionAsset, fill.Price)
+		}
+		if !known {
+			return 0, 0, fmt.Errorf("entry fill %s commission cannot be valued in %s", fill.TradeID, s.exchange.GetQuoteAsset())
+		}
+		addedFee += converted
+	}
+	tolerance := math.Max(entryQtyEpsilon, order.ExecutedQty*1e-8)
+	if math.Abs(qty-order.ExecutedQty) > tolerance || math.Abs(prefixQty-progress.Quantity) > tolerance ||
+		progress.Quantity > 0 && math.Abs(prefixNotional-progress.Notional) > math.Max(1e-8, progress.Notional*1e-8) {
+		return 0, 0, fmt.Errorf("entry fill history does not reconcile with cumulative execution")
+	}
+	averagePrice := notional / qty
+	if !finiteNumber(averagePrice) || averagePrice <= 0 || !finiteNumber(order.AvgPrice) || order.AvgPrice > 0 && math.Abs(averagePrice-order.AvgPrice) > math.Max(1e-8, order.AvgPrice*1e-8) {
+		return 0, 0, fmt.Errorf("entry fill notional does not match exchange order")
+	}
+	return addedFee, averagePrice, nil
+}

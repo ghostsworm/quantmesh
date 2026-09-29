@@ -26,6 +26,21 @@ type martingaleCloseReconcileExchange struct {
 	fills []*exchange.OrderFill
 }
 
+type martingaleEntryReconcileExchange struct {
+	*hedgeExchange
+	order    *exchange.Order
+	fills    []*exchange.OrderFill
+	orderErr error
+}
+
+func (e *martingaleEntryReconcileExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
+	return e.order, e.orderErr
+}
+
+func (e *martingaleEntryReconcileExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
+	return e.fills, nil
+}
+
 type martingaleCloseOpenOnlyExchange struct {
 	*hedgeExchange
 	orders []*exchange.Order
@@ -332,6 +347,70 @@ func TestMartingaleStartReconcilesPersistedCloseCIDAndFills(t *testing.T) {
 	}
 	if len(executor.orders) != 0 {
 		t.Fatalf("reconciliation unexpectedly submitted %d new order(s)", len(executor.orders))
+	}
+}
+
+func TestMartingaleStartReconcilesPersistedEntryFillAndFee(t *testing.T) {
+	ex := &martingaleEntryReconcileExchange{
+		hedgeExchange: &hedgeExchange{},
+		order: &exchange.Order{OrderID: 91, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1,
+			ExecutedQty: 0.5, AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled},
+		fills: []*exchange.OrderFill{{OrderID: 91, TradeID: "trade-91", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+			Price: 100, Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT"}},
+	}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	state := martingaleRuntimeState{BotID: martin.effectiveBotID(), StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries: []*MartingaleEntry{{Level: 0, Price: 100, RequestedQuantity: 1, OrderID: 91, Status: entryStatusPending}}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	martin.SetRuntimeStateStore(&memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true})
+	if err := martin.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(martin.entries) != 1 || martin.entries[0].Status != entryStatusPartiallyFilled ||
+		math.Abs(martin.totalQty-0.5) > 1e-9 || math.Abs(martin.totalCost-50) > 1e-9 ||
+		math.Abs(martin.entries[0].OpeningFee-0.05) > 1e-9 || math.Abs(martin.entries[0].FillProgress.Quantity-0.5) > 1e-9 {
+		t.Fatalf("persisted entry fill/fee was not recovered: entries=%+v qty=%v cost=%v", martin.entries, martin.totalQty, martin.totalCost)
+	}
+}
+
+func TestMartingaleStartBlocksWhenPersistedEntryCannotBeReconciled(t *testing.T) {
+	ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	state := martingaleRuntimeState{BotID: martin.effectiveBotID(), StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries: []*MartingaleEntry{{Level: 0, Price: 100, RequestedQuantity: 1, OrderID: 92, Status: entryStatusPending}}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	martin.SetRuntimeStateStore(&memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true})
+	if err := martin.Start(context.Background()); err == nil {
+		t.Fatal("strategy started without exchange evidence for persisted entry")
+	}
+	if martin.IsRunning() {
+		t.Fatal("strategy entered running state without reconciling persisted entry")
+	}
+}
+
+func TestMartingaleStartResolvesUnknownEntryWithAuthoritativeOpenOrder(t *testing.T) {
+	ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 93, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, Status: exchange.OrderStatusNew,
+	}}
+	martin := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	state := martingaleRuntimeState{BotID: martin.effectiveBotID(), StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",
+		Entries: []*MartingaleEntry{{Level: 0, Price: 100, RequestedQuantity: 1, OrderID: 93, Status: position.OrderStatusUnknown}}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	martin.SetRuntimeStateStore(&memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true})
+	if err := martin.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(martin.entries) != 1 || martin.entries[0].Status != entryStatusPending {
+		t.Fatalf("verified open entry was not restored to pending: %+v", martin.entries)
 	}
 }
 

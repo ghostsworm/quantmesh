@@ -327,6 +327,9 @@ func (s *MartingaleStrategy) Start(ctx context.Context) error {
 	if err := s.restoreRuntimeState(); err != nil {
 		return err
 	}
+	if err := s.reconcilePersistedEntryOrders(ctx); err != nil {
+		return fmt.Errorf("martingale entry order reconciliation required: %w", err)
+	}
 	if err := s.reconcileCloseSubmission(ctx); err != nil {
 		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: s.closeClientOrderID}, err.Error())
 		return fmt.Errorf("martingale close order reconciliation required: %w", err)
@@ -1199,6 +1202,8 @@ func (s *MartingaleStrategy) handleEntryOrderUpdate(entry *MartingaleEntry, upda
 		}
 	} else if entry.FillProgress.Quantity > 0 {
 		entry.Status = entryStatusPartiallyFilled
+	} else if strings.EqualFold(strings.TrimSpace(update.Status), "NEW") {
+		entry.Status = entryStatusPending
 	}
 	s.updateTotals()
 	logger.Info("📊 [%s] 订單 #%d %s: 层级=%d, 成交數量=%.6f, 均價=%.2f, 平均成本=%.2f, 开倉费=%.6f",

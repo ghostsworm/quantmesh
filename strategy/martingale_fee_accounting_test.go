@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/position"
 )
 
@@ -219,7 +220,10 @@ func TestMartingalePendingCloseIntentSurvivesRestartAndUsesFreshPrice(t *testing
 	}
 
 	secondExecutor := &hedgeOrderExecutor{}
-	second := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, secondExecutor, &hedgeExchange{}, nil)
+	secondExchange := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 46, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 0.5, Status: exchange.OrderStatusNew,
+	}}
+	second := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, secondExecutor, secondExchange, nil)
 	second.SetRuntimeStateStore(store)
 	if err := second.Start(t.Context()); err != nil {
 		t.Fatalf("restore pending close: %v", err)
