@@ -183,6 +183,19 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 			if err := validateFundingPerpSpreadHedgeShape(posA, posB, s.legTolerance(s.legA), s.legTolerance(s.legB)); err != nil {
 				return fmt.Errorf("persisted funding_perp_spread exposure is not a valid two-leg hedge: %w", err)
 			}
+			if math.Abs(posA) > s.legTolerance(s.legA) && math.Abs(posB) > s.legTolerance(s.legB) {
+				priceA, priceErr := s.legA.GetLatestPrice(coordCtx, s.symA)
+				if priceErr != nil {
+					return fmt.Errorf("read legA price to verify restored hedge notional: %w", priceErr)
+				}
+				priceB, priceErr := s.legB.GetLatestPrice(coordCtx, s.symB)
+				if priceErr != nil {
+					return fmt.Errorf("read legB price to verify restored hedge notional: %w", priceErr)
+				}
+				if err := validateFundingPerpSpreadNotional(posA, posB, priceA, priceB, s.maxBasis); err != nil {
+					return fmt.Errorf("persisted funding_perp_spread notional is not balanced: %w", err)
+				}
+			}
 		} else if posA != 0 || posB != 0 {
 			return fmt.Errorf("unowned positions exist without a runtime state (A %.8f, B %.8f)", posA, posB)
 		}
@@ -514,6 +527,12 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 		return err
 	}
 	hasPos := posA != 0 || posB != 0
+	if hasPos && posA != 0 && posB != 0 {
+		if err := validateFundingPerpSpreadNotional(posA, posB, pxA, pxB, s.maxBasis); err != nil {
+			logger.Warn("⚠️ [funding_perp_spread] 兩腿名義敞口失衡，執行受管平倉: %v", err)
+			return s.closeAll(ctx, "hedge_notional_imbalance")
+		}
+	}
 
 	if hasPos && posA != 0 && posB != 0 && posA*posB > 0 {
 		logger.Warn("⚠️ [funding_perp_spread] 兩腿同向 posA=%.8f posB=%.8f", posA, posB)
@@ -575,6 +594,28 @@ func normalizeFundingRateToEightHours(info *exchange.FundingInfo, symbol string)
 		return 0, fmt.Errorf("normalized funding rate is non-finite for %s", symbol)
 	}
 	return rate, nil
+}
+
+func validateFundingPerpSpreadNotional(posA, posB, priceA, priceB, maxImbalancePct float64) error {
+	if math.IsNaN(priceA) || math.IsInf(priceA, 0) || priceA <= 0 ||
+		math.IsNaN(priceB) || math.IsInf(priceB, 0) || priceB <= 0 ||
+		math.IsNaN(maxImbalancePct) || math.IsInf(maxImbalancePct, 0) || maxImbalancePct < 0 {
+		return fmt.Errorf("invalid hedge price or imbalance threshold")
+	}
+	notionalA := math.Abs(posA) * priceA
+	notionalB := math.Abs(posB) * priceB
+	if math.IsNaN(notionalA) || math.IsInf(notionalA, 0) || math.IsNaN(notionalB) || math.IsInf(notionalB, 0) {
+		return fmt.Errorf("non-finite hedge notional")
+	}
+	denominator := math.Max(notionalA, notionalB)
+	if denominator == 0 {
+		return nil
+	}
+	imbalancePct := math.Abs(notionalA-notionalB) / denominator * 100
+	if imbalancePct > maxImbalancePct {
+		return fmt.Errorf("notional imbalance %.6f%% exceeds allowed %.6f%% (A %.8f, B %.8f)", imbalancePct, maxImbalancePct, notionalA, notionalB)
+	}
+	return nil
 }
 
 func fundingPerpSpreadCarryDirectionFavorable(posA, posB, rateA, rateB float64) bool {

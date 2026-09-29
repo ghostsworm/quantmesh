@@ -68,6 +68,32 @@ func TestNormalizeFundingRateToEightHours(t *testing.T) {
 	}
 }
 
+func TestValidateFundingPerpSpreadNotional(t *testing.T) {
+	tests := []struct {
+		name    string
+		posA    float64
+		posB    float64
+		priceA  float64
+		priceB  float64
+		maxPct  float64
+		wantErr bool
+	}{
+		{name: "balanced notional", posA: 1, posB: -2, priceA: 100, priceB: 50, maxPct: 1},
+		{name: "within tolerance", posA: 1, posB: -1, priceA: 100, priceB: 99.5, maxPct: 1},
+		{name: "imbalanced restored positions", posA: 1, posB: -0.8, priceA: 100, priceB: 100, maxPct: 1, wantErr: true},
+		{name: "invalid mark price", posA: 1, posB: -1, priceA: math.NaN(), priceB: 100, maxPct: 1, wantErr: true},
+		{name: "negative threshold", posA: 1, posB: -1, priceA: 100, priceB: 100, maxPct: -1, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFundingPerpSpreadNotional(tc.posA, tc.posB, tc.priceA, tc.priceB, tc.maxPct)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("error = %v, wantErr %t", err, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestFundingPerpSpreadCarryDirectionFollowsCurrentFundingRanking(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -351,6 +377,10 @@ func (e *fundingSpreadTestExchange) GetQuantityDecimals() int { return 3 }
 
 func (e *fundingSpreadTestExchange) GetPriceDecimals() int { return 2 }
 
+func (e *fundingSpreadTestExchange) GetLatestPrice(context.Context, string) (float64, error) {
+	return 100, nil
+}
+
 func (e *fundingSpreadTestExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {
 	if e.positions == nil {
 		return []*exchange.Position{}, nil
@@ -552,7 +582,7 @@ func TestFundingPerpSpreadRestoresPersistedLegOwnership(t *testing.T) {
 	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
 	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
 	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}}
-	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", tickInt: time.Hour}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", tickInt: time.Hour, maxBasis: 1}
 	st.SetRuntimeStateStore(store)
 	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err != nil {
@@ -566,6 +596,27 @@ func TestFundingPerpSpreadRestoresPersistedLegOwnership(t *testing.T) {
 	}
 	if err := st.Stop(); err != nil {
 		t.Fatalf("Stop() failed to close restored owned positions: %v", err)
+	}
+}
+
+func TestFundingPerpSpreadStartRejectsImbalancedPersistedNotional(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "BTCUSDT", OwnershipReady: true,
+		OwnedA: -0.01, OwnedB: 0.005,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
+	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.005}}}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", maxBasis: 1}
+	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err == nil {
+		_ = st.Stop()
+		t.Fatal("Start() accepted persisted hedge with a 50% notional imbalance")
 	}
 }
 
