@@ -213,7 +213,7 @@ func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
 	strategy.layers = []*DCALayer{layer}
 	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
 		OrderID: 96, Side: "BUY", Status: "FILLED", ExecutedQty: 1, AvgPrice: 100,
-		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001,
+		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001, CommissionKnown: true,
 	})
 	if layer.Quantity != 0.999 || layer.Cost != 99.9 || math.Abs(layer.OpeningFee-0.1) > 1e-12 ||
 		layer.EntryBaseFeeQty != 0.001 || layer.FillProgress.Quantity != 1 || strategy.totalQty != 0.999 {
@@ -228,7 +228,7 @@ func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
 	strategy.layers = []*DCALayer{layer}
 	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
 		OrderID: 97, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 100,
-		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001,
+		Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001, CommissionKnown: true,
 	})
 	if executor.marked != 1 || layer.FillProgress.Quantity != 0 || strategy.totalQty != 0 {
 		t.Fatalf("unsupported entry base fee was not held for reconciliation: marks=%d layer=%+v qty=%v", executor.marked, layer, strategy.totalQty)
@@ -255,7 +255,7 @@ func TestDCARejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
 	strategy.layers = []*DCALayer{layer}
 	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
 		OrderID: 99, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
-		Commission: 0.0005, CommissionAsset: "BTC",
+		Commission: 0.0005, CommissionAsset: "BTC", CommissionKnown: true,
 	})
 	if executor.marked != 1 || layer.FillProgress.Quantity != 0 || layer.Quantity != 0 || strategy.totalQty != 0 {
 		t.Fatalf("unmapped base commission was accepted as gross inventory: marks=%d layer=%+v total=%v", executor.marked, layer, strategy.totalQty)

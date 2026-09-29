@@ -6,10 +6,13 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/position"
 )
+
+const dcaFillEvidenceTimeout = 15 * time.Second
 
 type dcaOrderIntent struct {
 	orderID    int64
@@ -19,6 +22,54 @@ type dcaOrderIntent struct {
 	progress   position.FillProgress
 	baseFeeQty float64
 	close      bool
+}
+
+// resolveUnverifiedSpotCommission replaces spot order-stream fee placeholders
+// with complete per-fill evidence before DCA mutates its inventory or ledger.
+func (s *DCAEnhancedStrategy) resolveUnverifiedSpotCommission(update *position.OrderUpdate) error {
+	if !s.supportsSpotBaseFee() || update.CommissionKnown || !finiteNumber(update.ExecutedQty) || update.ExecutedQty <= 0 {
+		return nil
+	}
+
+	s.mu.RLock()
+	var intent dcaOrderIntent
+	found := false
+	for _, layer := range s.layers {
+		if layer != nil && layer.OrderID == update.OrderID {
+			intent = dcaOrderIntent{orderID: layer.OrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideBuy,
+				quantity: layer.RequestedQuantity, progress: layer.FillProgress, baseFeeQty: layer.EntryBaseFeeQty}
+			found = true
+			break
+		}
+	}
+	if s.isClosing && s.closeOrderID == update.OrderID {
+		intent = dcaOrderIntent{orderID: s.closeOrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideSell,
+			quantity: s.closeRequestedQty, progress: s.closeProgress, close: true}
+		found = true
+	}
+	s.mu.RUnlock()
+	if !found || update.ExecutedQty <= intent.progress.Quantity {
+		return nil
+	}
+	if s.exchange == nil || intent.orderID <= 0 || intent.quantity <= 0 {
+		return fmt.Errorf("DCA cannot verify spot commission without exchange and persisted order intent")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), dcaFillEvidenceTimeout)
+	defer cancel()
+	order := &exchange.Order{OrderID: intent.orderID, Symbol: intent.symbol, Side: intent.side,
+		Quantity: intent.quantity, ExecutedQty: update.ExecutedQty, AvgPrice: update.AvgPrice,
+		Status: exchange.OrderStatus(strings.ToUpper(strings.TrimSpace(update.Status)))}
+	feeQuote, baseFeeQty, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)
+	if err != nil {
+		s.requireDCAOrderReconciliation(update, "DCA spot commission evidence is incomplete: "+err.Error())
+		return fmt.Errorf("verify DCA spot order %d fill fees before accounting: %w", update.OrderID, err)
+	}
+	update.Commission = feeQuote
+	update.CommissionAsset = s.exchange.GetQuoteAsset()
+	update.BaseFeeQty = baseFeeQty
+	update.AvgPrice = averagePrice
+	update.CommissionKnown = true
+	return nil
 }
 
 // reconcilePersistedOrders settles orders whose callbacks may have been missed
@@ -86,7 +137,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 		return fmt.Errorf("order status conflicts with cumulative execution")
 	}
 	update := &position.OrderUpdate{OrderID: order.OrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
-		ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice}
+		ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, CommissionKnown: true}
 	if order.ExecutedQty > intent.progress.Quantity {
 		fee, baseFeeQty, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)
 		if err != nil {

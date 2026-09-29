@@ -33,6 +33,7 @@ type OrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64 // 本次成交手續費（僅本筆成交，非累計；現貨適配器已換算為計價幣）
 	CommissionAsset string  // 手續費幣種
+	CommissionKnown bool    // true 表示適配器确认该成交的 Commission 字段权威（含明确零费用）
 	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 	// BaseFeeQty 本次成交中以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費或未知）。
 	// 僅現貨有意義：買單實際到帳數量 = 本次成交增量 − BaseFeeQty。

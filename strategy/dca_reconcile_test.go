@@ -82,7 +82,7 @@ func TestDCAStartRejectsBaseFeePrefixMismatch(t *testing.T) {
 	}}}
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		TotalCost: 49.95, TotalQty: 0.4995, AvgEntryPrice: 100,
-		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.4995, Cost: 49.95, EntryBaseFeeQty: 0.0004,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.4995, Cost: 49.95, EntryBaseFeeQty: 0.0004, FeeVerifiedQty: 0.5,
 			OrderID: 95, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
 			FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}},
 	}
@@ -109,7 +109,7 @@ func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
 	}}
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		TotalCost: 24.975, TotalQty: 0.24975, AvgEntryPrice: 100,
-		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.24975, Cost: 24.975, OpeningFee: 0.025,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.24975, Cost: 24.975, OpeningFee: 0.025, FeeVerifiedQty: 0.25,
 			EntryBaseFeeQty: 0.00025, OrderID: 96, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
 			FillProgress: position.FillProgress{Quantity: 0.25, Notional: 25}}},
 	}
@@ -147,6 +147,79 @@ func TestDCAStartRejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
 	}
 	if s.IsRunning() || s.totalQty != 0 || s.layers[0].FillProgress.Quantity != 0 {
 		t.Fatalf("failed recovery changed strategy economics: running=%v layer=%+v", s.IsRunning(), s.layers[0])
+	}
+}
+
+func TestDCAOnOrderUpdateVerifiesUnreportedSpotFeeBeforeAccounting(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fills: []*exchange.OrderFill{{
+		OrderID: 98, TradeID: "trade-98", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT",
+	}}}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
+	setTestRuntimeStateStore(t, s)
+	s.layers = []*DCALayer{{Index: 0, OrderID: 98, Status: entryStatusPending, RequestedQuantity: 1}}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 98, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+		CommissionAsset: "USDT", CommissionKnown: false,
+	}); err != nil {
+		t.Fatalf("OnOrderUpdate() failed to verify fee evidence: %v", err)
+	}
+	layer := s.layers[0]
+	if layer.Quantity != 0.5 || layer.Cost != 50 || layer.OpeningFee != 0.05 || layer.FillProgress.Quantity != 0.5 {
+		t.Fatalf("DCA did not account using verified fill fees: %+v", layer)
+	}
+}
+
+func TestDCAOnOrderUpdatePreservesStateWhenSpotFeeEvidenceIsUnavailable(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fillsErr: errors.New("fills unavailable")}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, ex, nil)
+	setTestRuntimeStateStore(t, s)
+	layer := &DCALayer{Index: 0, OrderID: 99, Status: entryStatusPending, RequestedQuantity: 1}
+	s.layers = []*DCALayer{layer}
+	err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 99, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+		CommissionAsset: "USDT", CommissionKnown: false,
+	})
+	if err == nil || executor.marked != 1 || layer.Quantity != 0 || layer.FillProgress.Quantity != 0 {
+		t.Fatalf("unverified spot fee changed DCA state: err=%v marks=%d layer=%+v", err, executor.marked, layer)
+	}
+}
+
+func TestDCAStartRejectsLegacySpotSnapshotWithUnverifiedFeeCursor(t *testing.T) {
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", TotalCost: 100, TotalQty: 1, AvgEntryPrice: 100,
+		CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, OrderID: 100,
+			Status: entryStatusFilled, RequestedQuantity: 1,
+			FillProgress: position.FillProgress{Quantity: 1, Notional: 100}}},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, state, cfg)
+	if err := s.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted a legacy spot snapshot whose execution fee history was never verified")
+	}
+	if s.IsRunning() || s.totalQty != 0 {
+		t.Fatalf("legacy snapshot refusal applied unverified economics: running=%v qty=%v", s.IsRunning(), s.totalQty)
+	}
+}
+
+func TestDCAUnverifiedZeroFillCancellationDoesNotRequireFeeHistory(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, s)
+	layer := &DCALayer{Index: 0, OrderID: 101, Status: entryStatusPending, RequestedQuantity: 1}
+	s.layers = []*DCALayer{layer}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: 101, Status: "CANCELED", CommissionKnown: false}); err != nil {
+		t.Fatalf("zero-fill cancellation should not require fee query: %v", err)
+	}
+	if len(s.layers) != 0 {
+		t.Fatalf("zero-fill terminal order was not released: %+v", s.layers)
 	}
 }
 

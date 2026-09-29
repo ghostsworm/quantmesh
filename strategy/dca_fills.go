@@ -42,6 +42,10 @@ func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.Ord
 // handleCloseOrderUpdate accounts for fills while the order is live. A terminal
 // cancel releases only its remainder and never reverses an executed trade.
 func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdate) {
+	if s.supportsSpotBaseFee() && !update.CommissionKnown && update.ExecutedQty > s.closeProgress.Quantity+entryQtyEpsilon {
+		s.requireDCAOrderReconciliation(update, "DCA spot close fee evidence is not authoritative")
+		return
+	}
 	if !finiteNumber(update.BaseFeeQty) || update.BaseFeeQty < 0 {
 		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee is invalid")
 		return
@@ -105,6 +109,9 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 				return
 			}
 			s.closeProgress = nextProgress
+			if s.supportsSpotBaseFee() {
+				s.closeFeeVerifiedQty += delta
+			}
 			s.recordCloseStats(pnl-fee, closed*price)
 			if s.closeLayer != nil {
 				s.reduceLayer(s.closeLayer, closed)
@@ -120,6 +127,7 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 		s.closeOrderID = 0
 		s.closeLayer = nil
 		s.closeProgress = position.FillProgress{}
+		s.closeFeeVerifiedQty = 0
 		s.closeRequestedQty, s.closeLimitPrice = 0, 0
 		s.highestProfit = 0
 		s.takeProfitTriggered = false

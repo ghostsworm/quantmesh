@@ -721,6 +721,7 @@ type StreamOrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64
 	CommissionAsset string
+	CommissionKnown bool // Bybit order topic has no per-execution fee; REST execution history must verify it.
 	RealizedPnL     float64
 }
 

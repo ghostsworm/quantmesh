@@ -30,6 +30,13 @@ type SpotOrderWebSocketManager struct {
 	callback func(interface{})
 }
 
+// SpotStreamOrderUpdate marks spot.orders commission as unknown: Gate's order
+// stream does not include per-fill commission, so consumers must query my_trades.
+type SpotStreamOrderUpdate struct {
+	OrderUpdate
+	CommissionKnown bool
+}
+
 // NewSpotOrderWebSocketManager 創建現貨訂單流管理器
 func NewSpotOrderWebSocketManager(apiKey, secretKey, gateSymbol string, testnet bool) *SpotOrderWebSocketManager {
 	return &SpotOrderWebSocketManager{
@@ -243,7 +250,7 @@ func (m *SpotOrderWebSocketManager) emitOrder(row map[string]interface{}) {
 		CommissionAsset: "USDT",
 	}
 	if m.callback != nil {
-		m.callback(up)
+		m.callback(SpotStreamOrderUpdate{OrderUpdate: up, CommissionKnown: false})
 	}
 }
 

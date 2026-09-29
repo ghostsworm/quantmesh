@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"quantmesh/exchange/binance"
+	"quantmesh/exchange/bybit"
+	"quantmesh/exchange/gate"
 	"quantmesh/exchange/okx"
 )
 
@@ -39,5 +41,23 @@ func TestToPositionOrderUpdateBaseFeeQty(t *testing.T) {
 				t.Fatalf("got %+v", *got)
 			}
 		})
+	}
+}
+
+func TestToPositionOrderUpdatePreservesCommissionAuthority(t *testing.T) {
+	legacyKnown := toPositionOrderUpdate(okx.StreamOrderUpdate{OrderID: 1, Status: "FILLED", Commission: 0.1, CommissionAsset: "USDT"})
+	bybitUnknown := toPositionOrderUpdate(bybit.StreamOrderUpdate{OrderID: 2, Status: "FILLED", CommissionAsset: "USDT", CommissionKnown: false})
+	gateUnknown := toPositionOrderUpdate(gate.SpotStreamOrderUpdate{
+		OrderUpdate:     gate.OrderUpdate{OrderID: 3, Status: "FILLED", CommissionAsset: "USDT"},
+		CommissionKnown: false,
+	})
+	if legacyKnown == nil || !legacyKnown.CommissionKnown {
+		t.Fatalf("legacy fee-bearing stream was not treated as authoritative: %+v", legacyKnown)
+	}
+	if bybitUnknown == nil || bybitUnknown.CommissionKnown {
+		t.Fatalf("Bybit's missing per-execution fee was lost: %+v", bybitUnknown)
+	}
+	if gateUnknown == nil || gateUnknown.CommissionKnown {
+		t.Fatalf("Gate's missing per-execution fee was lost: %+v", gateUnknown)
 	}
 }

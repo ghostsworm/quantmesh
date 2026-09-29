@@ -1787,6 +1787,10 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		}
 		return 0.0
 	}
+	commissionKnown := true // legacy stream types are treated as authoritative unless they explicitly say otherwise.
+	if field := v.FieldByName("CommissionKnown"); field.IsValid() && field.Kind() == reflect.Bool {
+		commissionKnown = field.Bool()
+	}
 
 	return &position.OrderUpdate{
 		OrderID:         getInt64Field("OrderID"),
@@ -1801,6 +1805,7 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		UpdateTime:      getInt64Field("UpdateTime"),
 		Commission:      getFloat64Field("Commission"),
 		CommissionAsset: getStringField("CommissionAsset"),
+		CommissionKnown: commissionKnown,
 		RealizedPnL:     getFloat64Field("RealizedPnL"),
 		BaseFeeQty:      getFloat64Field("BaseFeeQty"),
 	}
