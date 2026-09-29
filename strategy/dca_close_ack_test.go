@@ -1,11 +1,24 @@
 package strategy
 
 import (
+	"math"
 	"testing"
 
 	"quantmesh/config"
 	"quantmesh/position"
 )
+
+type dcaReconciliationExecutor struct {
+	*hedgeOrderExecutor
+	marked int
+	reason string
+}
+
+func (e *dcaReconciliationExecutor) MarkOrderReconciliationRequired(_ int64, _ string, reason string) error {
+	e.marked++
+	e.reason = reason
+	return nil
+}
 
 type filledAckExecutor struct{ *hedgeOrderExecutor }
 
@@ -29,6 +42,69 @@ func TestDCAPlacementAckCannotSettleCloseWithoutActualFillAndFee(t *testing.T) {
 	}
 	if len(executor.orders) != 1 || executor.orders[0].Quantity != 1 {
 		t.Fatalf("unexpected close order: %+v", executor.orders)
+	}
+}
+
+func TestDCAOverfilledCloseRetainsInventoryAndRequiresReconciliation(t *testing.T) {
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+	strategy.SetTradeStorage(&dcaFillRecorder{})
+	if err := strategy.closeAllPositions(110, "take profit"); err != nil {
+		t.Fatal(err)
+	}
+	orderID := strategy.closeOrderID
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: orderID, Status: "PARTIALLY_FILLED", ExecutedQty: 1.1, AvgPrice: 110, CommissionAsset: "USDT",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if executor.marked != 1 || executor.reason == "" {
+		t.Fatalf("overfill must request executor-level reconciliation: %+v", executor)
+	}
+	if !strategy.isClosing || strategy.closeOrderID != orderID || strategy.closeProgress.Quantity != 0 || strategy.totalQty != 1 {
+		t.Fatalf("overfill must preserve close intent and attributed inventory: closing=%v order=%d progress=%+v qty=%v",
+			strategy.isClosing, strategy.closeOrderID, strategy.closeProgress, strategy.totalQty)
+	}
+	if got := strategy.GetStatistics().TotalTrades; got != 0 {
+		t.Fatalf("unreconciled overfill must not affect trade statistics, got %d trades", got)
+	}
+}
+
+func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
+	tests := []struct {
+		name  string
+		qty   float64
+		price float64
+	}{
+		{name: "NaN quantity", qty: math.NaN(), price: 110},
+		{name: "infinite quantity", qty: math.Inf(1), price: 110},
+		{name: "NaN average price", qty: 1, price: math.NaN()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+			setTestRuntimeStateStore(t, strategy)
+			strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+			strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+			strategy.SetTradeStorage(&dcaFillRecorder{})
+			if err := strategy.closeAllPositions(110, "take profit"); err != nil {
+				t.Fatal(err)
+			}
+			orderID := strategy.closeOrderID
+			if err := strategy.OnOrderUpdate(&position.OrderUpdate{
+				OrderID: orderID, Status: "FILLED", ExecutedQty: tt.qty, AvgPrice: tt.price, CommissionAsset: "USDT",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if executor.marked != 1 || !strategy.isClosing || strategy.closeOrderID != orderID || strategy.totalQty != 1 {
+				t.Fatalf("malformed terminal fill must preserve intent and inventory: marked=%d closing=%v order=%d qty=%v",
+					executor.marked, strategy.isClosing, strategy.closeOrderID, strategy.totalQty)
+			}
+		})
 	}
 }
 

@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc376"
+var Version = "3.111.0-rc377"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage

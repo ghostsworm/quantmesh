@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -31,20 +30,39 @@ func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.Ord
 // handleCloseOrderUpdate accounts for fills while the order is live. A terminal
 // cancel releases only its remainder and never reverses an executed trade.
 func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdate) {
+	if !finiteNumber(update.ExecutedQty) || update.ExecutedQty < 0 {
+		s.requireDCAOrderReconciliation(update, "DCA close execution quantity is not finite and non-negative")
+		return
+	}
 	if signalOrderStatusFilled(update.Status) && update.ExecutedQty <= 0 {
 		// A terminal label cannot substitute for the venue's cumulative fill.
 		// Keep the close intent active so strategy state is not falsely cleared.
 		return
 	}
-	if update.ExecutedQty > s.closeProgress.Quantity && update.AvgPrice <= 0 {
+	if !finiteNumber(s.closeRequestedQty) || s.closeRequestedQty <= 0 || update.ExecutedQty > s.closeRequestedQty+entryQtyEpsilon {
+		s.requireDCAOrderReconciliation(update, "DCA close execution exceeds the persisted requested quantity")
 		return
+	}
+	if update.ExecutedQty > s.closeProgress.Quantity {
+		if !finiteNumber(update.AvgPrice) {
+			s.requireDCAOrderReconciliation(update, "DCA close execution average price is non-finite")
+			return
+		}
+		if update.AvgPrice <= 0 {
+			return
+		}
 	}
 	quantity, _ := entryFillFromUpdate(update)
 	nextProgress := s.closeProgress
 	delta, price := nextProgress.Advance(quantity, update.AvgPrice, 0)
 	if delta > 0 {
 		available, cost, openingFee := s.closingInventory()
-		closed := math.Min(delta, available)
+		if !finiteNumber(available) || available <= 0 || !finiteNumber(cost) || cost <= 0 ||
+			!finiteNumber(openingFee) || delta > available+entryQtyEpsilon {
+			s.requireDCAOrderReconciliation(update, "DCA close execution exceeds strategy-attributed inventory")
+			return
+		}
+		closed := delta
 		if closed > 0 {
 			closeFee, feeKnown := s.commissionInQuote(update.Commission, update.CommissionAsset, price)
 			if !feeKnown {
