@@ -159,6 +159,7 @@ func (u *UniversalOptimizer) runDCA(ctx context.Context, symbol, interval string
 		AmountPerTrade: getFloatParam(params, "amount_per_trade", 100),
 		TotalCapital:   totalCapital,
 		FeeRate:        getFloatParam(params, "fee_rate", 0.0004),
+		SlippageRatio:  getFloatParam(params, "slippage_ratio", 0.0003),
 	}
 	return backtest.RunDCABacktestContext(ctx, symbol, interval, candles, p, totalCapital)
 }
@@ -169,6 +170,7 @@ func (u *UniversalOptimizer) runMartingale(ctx context.Context, symbol, interval
 		Multiplier:    getFloatParam(params, "multiplier", 2),
 		TotalCapital:  totalCapital,
 		FeeRate:       getFloatParam(params, "fee_rate", 0.0004),
+		SlippageRatio: getFloatParam(params, "slippage_ratio", 0.0003),
 		TakeProfitPct: 1,
 		StopLossPct:   2,
 	}

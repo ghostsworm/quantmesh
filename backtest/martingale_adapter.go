@@ -15,6 +15,7 @@ type MartingaleBacktestParams struct {
 	Multiplier    float64 // 亏损后加倍倍數
 	TotalCapital  float64
 	FeeRate       float64
+	SlippageRatio float64
 	TakeProfitPct float64 // 止盈百分比，如 1 表示 1%
 	StopLossPct   float64 // 止损百分比，如 2 表示 2%
 }
@@ -36,7 +37,8 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
-	if params.BaseAmount <= 0 || params.TotalCapital <= 0 {
+	if params.BaseAmount <= 0 || params.TotalCapital <= 0 ||
+		math.IsNaN(params.SlippageRatio) || math.IsInf(params.SlippageRatio, 0) || params.SlippageRatio < 0 || params.SlippageRatio >= 1 {
 		return nil, fmt.Errorf("invalid martingale params")
 	}
 	tp := params.TakeProfitPct / 100
@@ -57,6 +59,7 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 	var entryPrice float64
 	var trades []Trade
 	var equity []EquityPoint
+	totalSlippageLoss := 0.0
 	feeRate := params.FeeRate
 	if feeRate <= 0 {
 		feeRate = 0.0004
@@ -68,11 +71,6 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		equity = append(equity, EquityPoint{
-			Timestamp: c.Timestamp,
-			Equity:    cash + position*c.Close,
-		})
-
 		// 有持倉：檢查止盈止损
 		if position > 0 && entryPrice > 0 {
 			ret := (c.Close - entryPrice) / entryPrice
@@ -80,10 +78,11 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 				// 止盈
 				qty := position
 				position = 0
-				price := c.Close
+				price := c.Close * (1 - params.SlippageRatio)
 				fee := qty * price * feeRate
 				pnl := (price-entryPrice)*qty - fee
 				cash += qty*price - fee
+				totalSlippageLoss += (c.Close - price) * qty
 				trades = append(trades, Trade{
 					Timestamp: c.Timestamp,
 					Type:      "sell",
@@ -95,16 +94,18 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 				consecutiveLosses = 0
 				nextBet = params.BaseAmount
 				entryPrice = 0
+				equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash})
 				continue
 			}
 			if ret <= -sl {
 				// 止损
 				qty := position
 				position = 0
-				price := c.Close
+				price := c.Close * (1 - params.SlippageRatio)
 				fee := qty * price * feeRate
 				pnl := (price-entryPrice)*qty - fee
 				cash += qty*price - fee
+				totalSlippageLoss += (c.Close - price) * qty
 				trades = append(trades, Trade{
 					Timestamp: c.Timestamp,
 					Type:      "sell",
@@ -119,6 +120,7 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 					nextBet = cash * 0.95
 				}
 				entryPrice = 0
+				equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash})
 				continue
 			}
 		}
@@ -129,9 +131,11 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 			cpd = 24
 		}
 		if position > 0 {
+			equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + position*c.Close})
 			continue
 		}
 		if i%cpd != 0 && i > 0 {
+			equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash})
 			continue
 		}
 
@@ -140,53 +144,55 @@ func RunMartingaleBacktestContext(ctx context.Context, symbol, interval string, 
 			amount = cash
 		}
 		if amount < 1e-6 {
+			equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash})
 			continue
 		}
 
-		price := c.Close
-		qty := amount / price
+		price := c.Close * (1 + params.SlippageRatio)
+		qty := amount / (price * (1 + feeRate))
 		fee := qty * price * feeRate
 		totalCost := qty*price + fee
-		if totalCost > cash {
-			qty = (cash - fee) / price
-			if qty <= 0 {
-				continue
-			}
-			fee = qty * price * feeRate
+		if qty > 0 && totalCost <= cash+1e-9 {
+			cash -= totalCost
+			position = qty
+			entryPrice = price
+			totalSlippageLoss += (price - c.Close) * qty
+			trades = append(trades, Trade{
+				Timestamp: c.Timestamp,
+				Type:      "buy",
+				Price:     price,
+				Quantity:  qty,
+				Fee:       fee,
+				PnL:       0,
+			})
 		}
-		cash -= totalCost
-		position = qty
-		entryPrice = price
-		trades = append(trades, Trade{
-			Timestamp: c.Timestamp,
-			Type:      "buy",
-			Price:     price,
-			Quantity:  qty,
-			Fee:       fee,
-			PnL:       0,
-		})
+		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + position*c.Close})
 	}
 
 	// 期末若仍有持倉，按最后價平倉
 	if position > 0 && len(candles) > 0 {
 		last := candles[len(candles)-1]
-		fee := position * last.Close * feeRate
-		pnl := (last.Close-entryPrice)*position - fee
-		cash += position*last.Close - fee
+		price := last.Close * (1 - params.SlippageRatio)
+		fee := position * price * feeRate
+		pnl := (price-entryPrice)*position - fee
+		cash += position*price - fee
+		totalSlippageLoss += (last.Close - price) * position
 		trades = append(trades, Trade{
 			Timestamp: last.Timestamp,
 			Type:      "sell",
-			Price:     last.Close,
+			Price:     price,
 			Quantity:  position,
 			Fee:       fee,
 			PnL:       pnl,
 		})
 		position = 0
+		if len(equity) > 0 {
+			equity[len(equity)-1].Equity = cash
+		}
 	}
 
 	finalEquity := cash
-	// martingale策略未使用slippage，设为0
-	metrics := CalculateMetrics(equity, trades, initialCapital, 0)
+	metrics := CalculateMetrics(equity, trades, initialCapital, totalSlippageLoss)
 	riskMetrics := CalculateRiskMetrics(equity)
 
 	return &BacktestResult{

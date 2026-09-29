@@ -3,6 +3,7 @@ package backtest
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"quantmesh/exchange"
@@ -14,6 +15,7 @@ type DCABacktestParams struct {
 	AmountPerTrade float64 // 每次投入金額 USDT
 	TotalCapital   float64
 	FeeRate        float64
+	SlippageRatio  float64
 }
 
 // candlesPerDay 按 K 線周期返回每天根數（近似）
@@ -57,7 +59,8 @@ func RunDCABacktestContext(ctx context.Context, symbol, interval string, candles
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
-	if params.AmountPerTrade <= 0 || params.TotalCapital <= 0 || params.IntervalDays <= 0 {
+	if params.AmountPerTrade <= 0 || params.TotalCapital <= 0 || params.IntervalDays <= 0 ||
+		math.IsNaN(params.SlippageRatio) || math.IsInf(params.SlippageRatio, 0) || params.SlippageRatio < 0 || params.SlippageRatio >= 1 {
 		return nil, fmt.Errorf("invalid DCA params")
 	}
 
@@ -71,6 +74,7 @@ func RunDCABacktestContext(ctx context.Context, symbol, interval string, candles
 	var position float64
 	var trades []Trade
 	var equity []EquityPoint
+	totalSlippageLoss := 0.0
 	feeRate := params.FeeRate
 	if feeRate <= 0 {
 		feeRate = 0.0004
@@ -81,57 +85,34 @@ func RunDCABacktestContext(ctx context.Context, symbol, interval string, candles
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		equity = append(equity, EquityPoint{
-			Timestamp: c.Timestamp,
-			Equity:    cash + position*c.Close,
-		})
-
-		if spent >= params.TotalCapital {
-			continue
-		}
-		if i%candlesBetweenBuys != 0 && i > 0 {
-			continue
-		}
-
-		amount := params.AmountPerTrade
-		if amount > cash {
-			amount = cash
-		}
-		if amount+spent > params.TotalCapital {
-			amount = params.TotalCapital - spent
-		}
-		if amount < 1e-6 {
-			continue
-		}
-
-		price := c.Close
-		qty := amount / price
-		fee := qty * price * feeRate
-		totalCost := qty*price + fee
-		if totalCost > cash {
-			qty = (cash - fee) / price
-			if qty <= 0 {
-				continue
+		if spent < params.TotalCapital && (i == 0 || i%candlesBetweenBuys == 0) {
+			amount := math.Min(params.AmountPerTrade, math.Min(cash, params.TotalCapital-spent))
+			price := c.Close * (1 + params.SlippageRatio)
+			if amount >= 1e-6 && price > 0 {
+				qty := amount / (price * (1 + feeRate))
+				fee := qty * price * feeRate
+				totalCost := qty*price + fee
+				if qty > 0 && totalCost <= cash+1e-9 && totalCost <= params.TotalCapital-spent+1e-9 {
+					cash -= totalCost
+					position += qty
+					spent += totalCost
+					totalSlippageLoss += (price - c.Close) * qty
+					trades = append(trades, Trade{
+						Timestamp: c.Timestamp,
+						Type:      "buy",
+						Price:     price,
+						Quantity:  qty,
+						Fee:       fee,
+						PnL:       0,
+					})
+				}
 			}
-			fee = qty * price * feeRate
-			totalCost = qty*price + fee
 		}
-		cash -= totalCost
-		position += qty
-		spent += totalCost
-		trades = append(trades, Trade{
-			Timestamp: c.Timestamp,
-			Type:      "buy",
-			Price:     price,
-			Quantity:  qty,
-			Fee:       fee,
-			PnL:       0,
-		})
+		equity = append(equity, EquityPoint{Timestamp: c.Timestamp, Equity: cash + position*c.Close})
 	}
 
 	finalEquity := cash + position*candles[len(candles)-1].Close
-	// DCA策略未使用slippage，设为0
-	metrics := CalculateMetrics(equity, trades, initialCapital, 0)
+	metrics := CalculateMetrics(equity, trades, initialCapital, totalSlippageLoss)
 	riskMetrics := CalculateRiskMetrics(equity)
 
 	return &BacktestResult{

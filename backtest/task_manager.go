@@ -442,6 +442,7 @@ func (m *TaskManager) dcaParamsFromTask(task *BacktestTask) DCABacktestParams {
 		AmountPerTrade: getFloat(task.Params, "amount_per_trade", 100),
 		TotalCapital:   task.TotalCapital,
 		FeeRate:        getFloat(task.Params, "fee_rate", 0.0004),
+		SlippageRatio:  getFloat(task.Params, "slippage_ratio", 0.0003),
 	}
 }
 
@@ -451,6 +452,7 @@ func (m *TaskManager) martingaleParamsFromTask(task *BacktestTask) MartingaleBac
 		Multiplier:    getFloat(task.Params, "multiplier", 2),
 		TotalCapital:  task.TotalCapital,
 		FeeRate:       getFloat(task.Params, "fee_rate", 0.0004),
+		SlippageRatio: getFloat(task.Params, "slippage_ratio", 0.0003),
 		TakeProfitPct: 1,
 		StopLossPct:   2,
 	}
