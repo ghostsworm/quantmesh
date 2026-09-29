@@ -704,6 +704,8 @@ func startSymbolRuntime(
 			accountID:      accountID,
 			accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 			botID:          botID,
+			marketType:     strings.ToLower(strings.TrimSpace(ex.GetMarketType())),
+			pnlAsset:       strings.ToUpper(strings.TrimSpace(quoteAsset)),
 		}
 		superPositionManager.SetTradeStorage(tradeStorageAdapter)
 		exchangeExecutor.SetTradeLedgerRecoveryHandler(tradeStorageAdapter.ReplayPendingGridTrade)
@@ -1121,6 +1123,8 @@ func startSymbolRuntime(
 					accountID:      accountID,
 					accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 					botID:          botID,
+					marketType:     strings.ToLower(strings.TrimSpace(symCfg.GetMarketType())),
+					pnlAsset:       strings.ToUpper(strings.TrimSpace(exchangeAdapter.GetQuoteAsset())),
 				}
 				dcaStrategy.SetTradeStorage(tradeStorageAdapter)
 			}
@@ -1146,6 +1150,8 @@ func startSymbolRuntime(
 					accountID:      accountID,
 					accountScope:   equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 					botID:          botID,
+					marketType:     strings.ToLower(strings.TrimSpace(symCfg.GetMarketType())),
+					pnlAsset:       strings.ToUpper(strings.TrimSpace(exchangeAdapter.GetQuoteAsset())),
 				}
 				dcaEnhancedStrategy.SetTradeStorage(tradeStorageAdapter)
 			}

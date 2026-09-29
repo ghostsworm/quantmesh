@@ -70,6 +70,7 @@ type Trade struct {
 	BotID              string // Bot 唯一標識（與 orders.bot_id 對齊，空表示歷史未標記）
 	Exchange           string
 	MarketType         string // spot/futures/etc; empty means legacy or unclassified data
+	PnLAsset           string // quote/settlement asset in which PnL is denominated
 	AccountScope       string // irreversible credential-scope digest; empty means legacy/unattributed
 	Account            string // 账戶標识（如 API Key 的哈希或前缀）
 	Symbol             string

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
@@ -42,9 +43,9 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 	botID := strings.TrimSpace(trade.BotID)
 	_, err := s.db.Exec(fmt.Sprintf(`
 		INSERT INTO %s
-		(execution_key, buy_order_id, sell_order_id, bot_id, exchange, market_type, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
-		VALUES (NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, s.tradesTbl()), trade.ExecutionKey, trade.BuyOrderID, trade.SellOrderID, botID, exchange, strings.ToLower(strings.TrimSpace(trade.MarketType)), trade.AccountScope, trade.Account, trade.Symbol,
+		(execution_key, buy_order_id, sell_order_id, bot_id, exchange, market_type, pnl_asset, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation, created_at)
+		VALUES (NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, s.tradesTbl()), trade.ExecutionKey, trade.BuyOrderID, trade.SellOrderID, botID, exchange, strings.ToLower(strings.TrimSpace(trade.MarketType)), strings.ToUpper(strings.TrimSpace(trade.PnLAsset)), trade.AccountScope, trade.Account, trade.Symbol,
 		trade.BuyPrice, trade.SellPrice, trade.Quantity, trade.PnL, trade.ExchangePnL, trade.Fee, trade.FeeAsset,
 		trade.BuyPriceDeviation, trade.SellPriceDeviation, createdAt)
 	if err != nil {
@@ -75,9 +76,9 @@ func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
 		return nil
 	} else {
 		var existing Trade
-		query := fmt.Sprintf(`SELECT buy_order_id, sell_order_id, bot_id, exchange, market_type, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation FROM %s WHERE execution_key = ?`, s.tradesTbl())
+		query := fmt.Sprintf(`SELECT buy_order_id, sell_order_id, bot_id, exchange, market_type, pnl_asset, account_scope, account, symbol, buy_price, sell_price, quantity, pnl, exchange_pnl, fee, fee_asset, buy_price_deviation, sell_price_deviation FROM %s WHERE execution_key = ?`, s.tradesTbl())
 		if readErr := s.db.QueryRow(query, trade.ExecutionKey).Scan(
-			&existing.BuyOrderID, &existing.SellOrderID, &existing.BotID, &existing.Exchange, &existing.MarketType, &existing.AccountScope, &existing.Account, &existing.Symbol,
+			&existing.BuyOrderID, &existing.SellOrderID, &existing.BotID, &existing.Exchange, &existing.MarketType, &existing.PnLAsset, &existing.AccountScope, &existing.Account, &existing.Symbol,
 			&existing.BuyPrice, &existing.SellPrice, &existing.Quantity, &existing.PnL, &existing.ExchangePnL, &existing.Fee,
 			&existing.FeeAsset, &existing.BuyPriceDeviation, &existing.SellPriceDeviation,
 		); readErr != nil {
@@ -93,7 +94,7 @@ func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
 func sameTradeEconomics(a, b Trade) bool {
 	close := func(x, y float64) bool { return math.Abs(x-y) <= 0.00000001 }
 	return a.BuyOrderID == b.BuyOrderID && a.SellOrderID == b.SellOrderID && strings.TrimSpace(a.BotID) == strings.TrimSpace(b.BotID) && a.AccountScope == b.AccountScope && a.Account == b.Account &&
-		strings.EqualFold(a.Exchange, b.Exchange) && strings.EqualFold(a.MarketType, b.MarketType) && a.Symbol == b.Symbol && a.FeeAsset == b.FeeAsset &&
+		strings.EqualFold(a.Exchange, b.Exchange) && strings.EqualFold(a.MarketType, b.MarketType) && strings.EqualFold(a.PnLAsset, b.PnLAsset) && a.Symbol == b.Symbol && a.FeeAsset == b.FeeAsset &&
 		close(a.BuyPrice, b.BuyPrice) && close(a.SellPrice, b.SellPrice) && close(a.Quantity, b.Quantity) && close(a.PnL, b.PnL) &&
 		close(a.ExchangePnL, b.ExchangePnL) && close(a.Fee, b.Fee) && close(a.BuyPriceDeviation, b.BuyPriceDeviation) && close(a.SellPriceDeviation, b.SellPriceDeviation)
 }
@@ -216,7 +217,7 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 	}
 
 	rows, err := s.db.Query(fmt.Sprintf(`
-		SELECT id, buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, created_at
+		SELECT id, buy_order_id, sell_order_id, exchange, account, symbol, buy_price, sell_price, quantity, pnl, COALESCE(fee, 0) as fee, COALESCE(fee_asset, ''), COALESCE(pnl_asset, ''), created_at
 		FROM %s
 		WHERE created_at >= ? AND created_at <= ?
 		ORDER BY created_at DESC, id DESC
@@ -242,6 +243,8 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 			&trade.Quantity,
 			&trade.PnL,
 			&trade.Fee,
+			&trade.FeeAsset,
+			&trade.PnLAsset,
 			&trade.CreatedAt,
 		)
 		if err != nil {
@@ -259,6 +262,41 @@ func (s *SQLStorage) QueryTrades(startTime, endTime time.Time, limit, offset int
 	}
 
 	return trades, nil
+}
+
+// ScanTradesContext streams trades newest-first without materializing or truncating the result set.
+// Returning false from visit stops the scan successfully.
+func (s *SQLStorage) ScanTradesContext(ctx context.Context, startTime, endTime time.Time, visit func(*Trade) bool) error {
+	if visit == nil {
+		return fmt.Errorf("scan trades requires a visitor")
+	}
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`
+		SELECT id, exchange, account, symbol, pnl, COALESCE(fee, 0) AS fee, COALESCE(fee_asset, ''), COALESCE(pnl_asset, ''), created_at
+		FROM %s
+		WHERE created_at >= ? AND created_at <= ?
+		ORDER BY created_at DESC, id DESC
+	`, s.tradesTbl()), startTime, endTime)
+	if err != nil {
+		return fmt.Errorf("stream trades (%s ~ %s): %w", startTime.Format(time.RFC3339), endTime.Format(time.RFC3339), err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		trade := &Trade{}
+		if err := rows.Scan(&trade.ID, &trade.Exchange, &trade.Account, &trade.Symbol, &trade.PnL, &trade.Fee, &trade.FeeAsset, &trade.PnLAsset, &trade.CreatedAt); err != nil {
+			return fmt.Errorf("scan trade row: %w", err)
+		}
+		if trade.Exchange == "" {
+			trade.Exchange = "binance"
+		}
+		if !visit(trade) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate trades: %w", err)
+	}
+	return nil
 }
 
 // GetTradesBySellOrderIDs 根據賣單 ID 查詢對應的成交盈虧，返回 sell_order_id -> pnl 的映射

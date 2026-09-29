@@ -327,6 +327,8 @@ func TestSupplementCommission_StaleCycleRoutedToCorrection(t *testing.T) {
 	ex.setFills(20, &detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.6, CommissionAsset: "USDT", BaseFeeQty: 0.0002})
 	store := &eventTradeStorage{}
 	spm := newFillFeeSPM(t, "spot", ex)
+	executor := &tradeLedgerHoldTestExecutor{}
+	spm.executor = executor
 	spm.SetTradeStorage(store)
 
 	fillOrder(spm, 20, "BUY", 0.5, 0, 0)    // 推送無手續費 → 補查阻塞在途
@@ -335,6 +337,9 @@ func TestSupplementCommission_StaleCycleRoutedToCorrection(t *testing.T) {
 
 	close(ex.release)
 	waitFor(t, func() bool { return store.eventCount() == 1 })
+	if !spm.OpeningGate().HasBlock("trade_ledger_unverified") || executor.ledgerCalls != 1 {
+		t.Fatalf("stale open-leg fee correction must persist an economic reconciliation hold: gate=%v calls=%d", spm.OpeningGate().HasBlock("trade_ledger_unverified"), executor.ledgerCalls)
+	}
 	time.Sleep(20 * time.Millisecond)
 
 	qty, fee, _, _ := slotState(spm)
@@ -358,11 +363,16 @@ func TestSupplementCommission_CloseLegWritesCorrection(t *testing.T) {
 	ex.setFills(31, &detailedFill{Price: fillFeeTestPrice + 1, Quantity: 0.5, Commission: 0.75, CommissionAsset: "USDT"})
 	store := &eventTradeStorage{}
 	spm := newFillFeeSPM(t, "futures", ex)
+	executor := &tradeLedgerHoldTestExecutor{}
+	spm.executor = executor
 	spm.SetTradeStorage(store)
 
 	fillOrder(spm, 30, "BUY", 0.5, 0.6, 0)
 	fillOrder(spm, 31, "SELL", 0.5, 0, 0)
 	waitFor(t, func() bool { return store.eventCount() == 1 })
+	if !spm.OpeningGate().HasBlock("trade_ledger_unverified") || executor.ledgerCalls != 1 {
+		t.Fatalf("close-leg fee correction must persist an economic reconciliation hold: gate=%v calls=%d", spm.OpeningGate().HasBlock("trade_ledger_unverified"), executor.ledgerCalls)
+	}
 
 	store.mu.Lock()
 	defer store.mu.Unlock()

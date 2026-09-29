@@ -95,8 +95,8 @@ func TestTradeStorageAdapterPersistsMarketType(t *testing.T) {
 		t.Fatalf("NewStorageService: %v", err)
 	}
 	t.Cleanup(func() { _ = ss.GetStorage().Close() })
-	a := &tradeStorageAdapter{storageService: ss, botID: "bot-spot", accountID: "acct-1", accountScope: "scope-immutable"}
-	trade := &storage.Trade{ExecutionKey: "adapter-execution-1", BuyOrderID: 1, SellOrderID: 2, Exchange: "binance", MarketType: "SPOT", Symbol: "BTCUSDT", BuyPrice: 100, SellPrice: 110, Quantity: 1, PnL: 10, ExchangePnL: 10, FeeAsset: "USDT", CreatedAt: time.Now()}
+	a := &tradeStorageAdapter{storageService: ss, botID: "bot-spot", accountID: "acct-1", accountScope: "scope-immutable", pnlAsset: "USDT", marketType: "spot"}
+	trade := &storage.Trade{ExecutionKey: "adapter-execution-1", BuyOrderID: 1, SellOrderID: 2, Exchange: "binance", MarketType: "SPOT", PnLAsset: "USDT", Symbol: "BTCUSDT", BuyPrice: 100, SellPrice: 110, Quantity: 1, PnL: 10, ExchangePnL: 10, FeeAsset: "USDT", CreatedAt: time.Now()}
 	if err := a.SaveTradeIdempotent(trade); err != nil {
 		t.Fatalf("SaveTradeIdempotent: %v", err)
 	}
@@ -104,17 +104,17 @@ func TestTradeStorageAdapterPersistsMarketType(t *testing.T) {
 		t.Fatalf("SaveTradeWithExchangePnLAndMarketType: %v", err)
 	}
 
-	var marketType, botID, account, accountScope string
+	var marketType, botID, account, accountScope, pnlAsset string
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := db.QueryRow(`SELECT market_type, bot_id, account, account_scope FROM trades WHERE sell_order_id = 2`).Scan(&marketType, &botID, &account, &accountScope); err != nil {
+	if err := db.QueryRow(`SELECT market_type, bot_id, account, account_scope, pnl_asset FROM trades WHERE sell_order_id = 2`).Scan(&marketType, &botID, &account, &accountScope, &pnlAsset); err != nil {
 		t.Fatal(err)
 	}
-	if marketType != "spot" || botID != "bot-spot" || account != "acct-1" || accountScope != "scope-immutable" {
-		t.Fatalf("trade identity was not preserved: market=%q bot=%q account=%q scope=%q", marketType, botID, account, accountScope)
+	if marketType != "spot" || botID != "bot-spot" || account != "acct-1" || accountScope != "scope-immutable" || pnlAsset != "USDT" {
+		t.Fatalf("trade identity or PnL denomination was not preserved: market=%q bot=%q account=%q scope=%q pnl_asset=%q", marketType, botID, account, accountScope, pnlAsset)
 	}
 	var count int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM trades WHERE execution_key = ?`, trade.ExecutionKey).Scan(&count); err != nil || count != 1 {

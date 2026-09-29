@@ -694,6 +694,10 @@ type storageTradeHistorySource struct {
 	storageService *storage.StorageService
 }
 
+type tradeHistoryStorageScanner interface {
+	ScanTradesContext(ctx context.Context, start, end time.Time, visit func(*storage.Trade) bool) error
+}
+
 func (s *storageTradeHistorySource) TradesBetween(_ context.Context, start, end time.Time, limit int) ([]risk.TradeOutcome, error) {
 	if s.storageService == nil || s.storageService.GetStorage() == nil {
 		return nil, nil
@@ -710,10 +714,36 @@ func (s *storageTradeHistorySource) TradesBetween(_ context.Context, start, end 
 		out = append(out, risk.TradeOutcome{
 			Key:      fmt.Sprintf("trade:%s:%s:%d", t.Exchange, t.Account, t.ID),
 			NetPnL:   t.PnL - t.Fee,
+			PnLAsset: t.PnLAsset,
+			Fee:      t.Fee,
+			FeeAsset: t.FeeAsset,
 			ClosedAt: t.CreatedAt,
 		})
 	}
 	return out, nil
+}
+
+func (s *storageTradeHistorySource) ScanTradesBetween(ctx context.Context, start, end time.Time, visit func(risk.TradeOutcome) bool) error {
+	if s.storageService == nil || s.storageService.GetStorage() == nil {
+		return fmt.Errorf("trade history storage unavailable")
+	}
+	scanner, ok := s.storageService.GetStorage().(tradeHistoryStorageScanner)
+	if !ok {
+		return fmt.Errorf("trade history storage does not support complete streaming scans")
+	}
+	return scanner.ScanTradesContext(ctx, start, end, func(trade *storage.Trade) bool {
+		if trade == nil {
+			return true
+		}
+		return visit(risk.TradeOutcome{
+			Key:      fmt.Sprintf("trade:%s:%s:%d", trade.Exchange, trade.Account, trade.ID),
+			NetPnL:   trade.PnL - trade.Fee,
+			PnLAsset: trade.PnLAsset,
+			Fee:      trade.Fee,
+			FeeAsset: trade.FeeAsset,
+			ClosedAt: trade.CreatedAt,
+		})
+	})
 }
 
 // runtimeEquitySource 匯總所有合約運行時所屬賬戶的保證金餘額（含未實現盈虧），按交易所+賬戶去重

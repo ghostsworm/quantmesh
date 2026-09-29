@@ -2,12 +2,17 @@ package optimrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"time"
 )
+
+const maxConcurrentOptimizerTasks = 1
+
+var ErrOptimizerCapacity = errors.New("optimizer capacity is full")
 
 var taskIDPattern = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
@@ -27,6 +32,9 @@ func (m *OptimTaskManager) beginRun(id string) (*taskRun, error) {
 	defer m.mu.Unlock()
 	if _, exists := m.running[id]; exists || m.deleting[id] {
 		return nil, fmt.Errorf("task %s already running or deleting", id)
+	}
+	if len(m.running) >= maxConcurrentOptimizerTasks {
+		return nil, ErrOptimizerCapacity
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	run := &taskRun{ctx: ctx, cancel: cancel, done: make(chan struct{})}

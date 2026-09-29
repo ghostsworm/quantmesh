@@ -126,6 +126,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 trades account_scope 字段失败: %w", err)
 		}
+		if err := migrateTradesPnLAsset(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 trades pnl_asset 字段失败: %w", err)
+		}
 
 		// 迁移：risk_check_history 表增加 bot_id / exchange / market_type 列
 		if err := migrateRiskCheckHistoryTable(db); err != nil {

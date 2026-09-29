@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,6 +42,8 @@ const (
 	realizedCursorOverlap = 5 * time.Minute
 	// percentMultiplier 比例转百分比
 	percentMultiplier = 100.0
+	// circuitBreakerPnLAsset matches the configured monetary trigger unit in CircuitBreakerConfig.
+	circuitBreakerPnLAsset = "USDT"
 )
 
 // ErrEquityUnavailable 暂无可用的权益数据源（如尚无运行中的合约 Bot），属预期情况
@@ -50,12 +53,21 @@ var ErrEquityUnavailable = errors.New("账户权益暂不可用")
 type TradeOutcome struct {
 	Key      string    // 唯一键（如 buyOrderID:sellOrderID），用于增量去重
 	NetPnL   float64   // 净盈亏（扣手续费）
+	PnLAsset string    // 报价/結算資產；不同資產不得直接相加
+	Fee      float64   // 未换算前记录的手续费量
+	FeeAsset string    // 手续费计价资产
 	ClosedAt time.Time // 成交时间
 }
 
 // TradeHistorySource 成交历史数据源（由 main 用 storage 实现）
 type TradeHistorySource interface {
 	TradesBetween(ctx context.Context, start, end time.Time, limit int) ([]TradeOutcome, error)
+}
+
+// TradeHistoryScanner optionally streams an ordered trade range without an in-memory result limit.
+// Implementations must visit trades newest-first so consecutive-loss scans can stop early.
+type TradeHistoryScanner interface {
+	ScanTradesBetween(ctx context.Context, start, end time.Time, visit func(TradeOutcome) bool) error
 }
 
 // EquitySource 账户权益数据源（由 main 用交易所 GetAccount 实现）
@@ -166,7 +178,7 @@ func (f *MetricsFeeder) Tick(ctx context.Context) (snap MetricsSnapshot, resultE
 	now := f.opts.Now()
 	marks := f.sink.MetricsResetMarks()
 
-	unrealizedPnL, err := f.totalUnrealized()
+	unrealizedPnL, unrealizedAsset, err := f.totalUnrealized()
 	if err != nil {
 		return snap, err
 	}
@@ -175,9 +187,12 @@ func (f *MetricsFeeder) Tick(ctx context.Context) (snap MetricsSnapshot, resultE
 		return snap, fmt.Errorf("trade history source required by enabled circuit-breaker triggers")
 	}
 
-	realizedToday, err := f.realizedToday(ctx, now, marks)
+	realizedToday, realizedAsset, err := f.realizedToday(ctx, now, marks)
 	if err != nil {
 		return snap, err
+	}
+	if realizedAsset != "" && unrealizedAsset != "" && !strings.EqualFold(realizedAsset, unrealizedAsset) {
+		return snap, fmt.Errorf("daily realized PnL asset %s differs from unrealized PnL asset %s", realizedAsset, unrealizedAsset)
 	}
 	snap.RealizedToday = realizedToday
 	snap.DailyPnL = realizedToday + snap.UnrealizedPnL
@@ -209,22 +224,50 @@ func (f *MetricsFeeder) Tick(ctx context.Context) (snap MetricsSnapshot, resultE
 }
 
 // totalUnrealized 汇总所有 Bot 未实现盈亏；未初始化/无价格的 Bot 跳过
-func (f *MetricsFeeder) totalUnrealized() (float64, error) {
+func (f *MetricsFeeder) totalUnrealized() (float64, string, error) {
 	if f.bots == nil {
-		return 0, nil
+		return 0, "", nil
 	}
 	total := 0.0
+	asset := ""
 	for index, bot := range f.bots.GetAllBots() {
 		if bot == nil {
 			continue
 		}
 		pnl, _, err := bot.GetPositionSummary()
 		if err != nil {
-			return 0, fmt.Errorf("read unrealized PnL for bot index %d: %w", index, err)
+			return 0, "", fmt.Errorf("read unrealized PnL for bot index %d: %w", index, err)
+		}
+		if !finiteEquity(pnl) {
+			return 0, "", fmt.Errorf("unrealized PnL for bot index %d is non-finite", index)
+		}
+		if pnl != 0 {
+			provider, ok := bot.(botPnLAssetProvider)
+			if !ok {
+				return 0, "", fmt.Errorf("unrealized PnL currency is unavailable for bot index %d", index)
+			}
+			botAsset := strings.ToUpper(strings.TrimSpace(provider.RiskPnLQuoteAsset()))
+			if botAsset == "" {
+				return 0, "", fmt.Errorf("unrealized PnL currency is unavailable for bot index %d", index)
+			}
+			if botAsset != circuitBreakerPnLAsset {
+				return 0, "", fmt.Errorf("unrealized PnL currency %s cannot be compared with circuit-breaker threshold in %s", botAsset, circuitBreakerPnLAsset)
+			}
+			if asset != "" && asset != botAsset {
+				return 0, "", fmt.Errorf("unrealized PnL currencies differ: %s and %s", asset, botAsset)
+			}
+			asset = botAsset
 		}
 		total += pnl
+		if !finiteEquity(total) {
+			return 0, "", fmt.Errorf("aggregate unrealized PnL is non-finite")
+		}
 	}
-	return total, nil
+	return total, asset, nil
+}
+
+type botPnLAssetProvider interface {
+	RiskPnLQuoteAsset() string
 }
 
 func maxTime(a, b time.Time) time.Time {
@@ -235,26 +278,82 @@ func maxTime(a, b time.Time) time.Time {
 }
 
 // realizedToday 今日（配置时区）已实现净盈亏，手动恢复基线之后
-func (f *MetricsFeeder) realizedToday(ctx context.Context, now time.Time, marks MetricsResetMarks) (float64, error) {
+func (f *MetricsFeeder) realizedToday(ctx context.Context, now time.Time, marks MetricsResetMarks) (float64, string, error) {
 	if f.trades == nil {
-		return 0, nil
+		return 0, "", nil
 	}
 	local := now.In(f.opts.Location)
 	dayStart := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, f.opts.Location)
 	start := maxTime(dayStart, marks.All)
+	if scanner, ok := f.trades.(TradeHistoryScanner); ok {
+		total := 0.0
+		asset := ""
+		invalidTrade := false
+		err := scanner.ScanTradesBetween(ctx, start, now, func(t TradeOutcome) bool {
+			tradeAsset := strings.ToUpper(strings.TrimSpace(t.PnLAsset))
+			feeAsset := strings.ToUpper(strings.TrimSpace(t.FeeAsset))
+			if t.ClosedAt.Before(start) || t.ClosedAt.After(now) || !validTradePnL(t) || tradeAsset != circuitBreakerPnLAsset || (t.Fee != 0 && feeAsset != tradeAsset) || (asset != "" && asset != tradeAsset) {
+				invalidTrade = true
+				return false
+			}
+			asset = tradeAsset
+			total += t.NetPnL
+			if !finiteEquity(total) {
+				invalidTrade = true
+				return false
+			}
+			return true
+		})
+		if err != nil {
+			return 0, "", fmt.Errorf("流式查询今日成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
+		}
+		if invalidTrade || !finiteEquity(total) {
+			return 0, "", fmt.Errorf("今日成交包含未知/混合计价资产、未换算手续费或无效盈亏，无法确认已实现盈亏完整性")
+		}
+		return total, asset, nil
+	}
 
 	trades, err := f.trades.TradesBetween(ctx, start, now, realizedPnLQueryLimit)
 	if err != nil {
-		return 0, fmt.Errorf("查询今日成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
+		return 0, "", fmt.Errorf("查询今日成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
 	}
 	if len(trades) >= realizedPnLQueryLimit {
-		return 0, fmt.Errorf("今日成交达到 %d 条查询上限，无法确认已实现盈亏完整性", realizedPnLQueryLimit)
+		return 0, "", fmt.Errorf("今日成交达到 %d 条查询上限，无法确认已实现盈亏完整性", realizedPnLQueryLimit)
 	}
 	total := 0.0
+	asset := ""
 	for _, t := range trades {
+		tradeAsset := strings.ToUpper(strings.TrimSpace(t.PnLAsset))
+		feeAsset := strings.ToUpper(strings.TrimSpace(t.FeeAsset))
+		if t.ClosedAt.Before(start) || t.ClosedAt.After(now) || !validTradePnL(t) || tradeAsset != circuitBreakerPnLAsset || (t.Fee != 0 && feeAsset != tradeAsset) || (asset != "" && asset != tradeAsset) {
+			return 0, "", fmt.Errorf("今日成交包含未知/混合计价资产、未换算手续费或无效盈亏，无法确认已实现盈亏完整性")
+		}
+		asset = tradeAsset
 		total += t.NetPnL
+		if !finiteEquity(total) {
+			return 0, "", fmt.Errorf("今日成交累计盈亏溢出，无法确认已实现盈亏完整性")
+		}
 	}
-	return total, nil
+	return total, asset, nil
+}
+
+func validTradePnL(trade TradeOutcome) bool {
+	return finiteEquity(trade.NetPnL) && finiteEquity(trade.Fee)
+}
+
+// validTradeStreak does not require a denomination when no fee is present:
+// the sign of PnL is currency-invariant. A non-zero fee must be proven to use
+// the same unit as PnL before it can affect the sign.
+func validTradeStreak(trade TradeOutcome) bool {
+	if !validTradePnL(trade) {
+		return false
+	}
+	if trade.Fee == 0 {
+		return true
+	}
+	pnlAsset := strings.ToUpper(strings.TrimSpace(trade.PnLAsset))
+	feeAsset := strings.ToUpper(strings.TrimSpace(trade.FeeAsset))
+	return pnlAsset != "" && pnlAsset == feeAsset
 }
 
 // consecutiveLosses 从最新成交起连续净亏损笔数（基线之后）
@@ -263,6 +362,30 @@ func (f *MetricsFeeder) consecutiveLosses(ctx context.Context, now time.Time, ma
 		return 0, nil
 	}
 	start := maxTime(now.Add(-consecutiveLossLookback), maxTime(marks.Streak, marks.All))
+	if scanner, ok := f.trades.(TradeHistoryScanner); ok {
+		count := 0
+		invalidTrade := false
+		err := scanner.ScanTradesBetween(ctx, start, now, func(t TradeOutcome) bool {
+			if t.ClosedAt.Before(start) || t.ClosedAt.After(now) || !validTradeStreak(t) {
+				invalidTrade = true
+				return false
+			}
+			if t.NetPnL > 0 {
+				return false
+			}
+			if t.NetPnL < 0 {
+				count++
+			}
+			return true
+		})
+		if err != nil {
+			return 0, fmt.Errorf("流式查询近期成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
+		}
+		if invalidTrade {
+			return 0, fmt.Errorf("近期成交包含未能核实计价关系的手续费、超出查询范围或无效盈亏，无法确认连续亏损完整性")
+		}
+		return count, nil
+	}
 	trades, err := f.trades.TradesBetween(ctx, start, now, consecutiveLossQueryLimit)
 	if err != nil {
 		return 0, fmt.Errorf("查询近期成交失败 (start=%s): %w", start.Format(time.RFC3339), err)
@@ -274,6 +397,9 @@ func (f *MetricsFeeder) consecutiveLosses(ctx context.Context, now time.Time, ma
 
 	count := 0
 	for _, t := range trades {
+		if t.ClosedAt.Before(start) || t.ClosedAt.After(now) || !validTradeStreak(t) {
+			return 0, fmt.Errorf("近期成交包含未能核实计价关系的手续费、超出查询范围或无效盈亏，无法确认连续亏损完整性")
+		}
 		if t.NetPnL > 0 {
 			break
 		}

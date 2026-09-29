@@ -58,6 +58,7 @@ func createTables(db *sql.DB) error {
 		bot_id TEXT DEFAULT '',
 		exchange TEXT,
 		market_type TEXT DEFAULT '',
+		pnl_asset TEXT NOT NULL DEFAULT '',
 		account_scope TEXT NOT NULL DEFAULT '',
 		account TEXT,
 		symbol TEXT,

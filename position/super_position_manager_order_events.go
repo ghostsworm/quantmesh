@@ -492,7 +492,7 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 						trade := &storage.Trade{
 							ExecutionKey: gridTradeExecutionKey(spm, sellOrderID, slot.OrderFilledQty),
 							BuyOrderID:   buyOrderID, SellOrderID: sellOrderID, BotID: spm.botID,
-							Exchange: spm.exchangeName, MarketType: spm.config.Trading.MarketType, Symbol: update.Symbol,
+							Exchange: spm.exchangeName, MarketType: spm.config.Trading.MarketType, PnLAsset: spm.feeQuoteAsset(), Symbol: update.Symbol,
 							BuyPrice: buyPrice, SellPrice: sellPrice, Quantity: deltaQty, PnL: pnl, ExchangePnL: exchangePnL,
 							Fee: totalFee, FeeAsset: feeAsset, BuyPriceDeviation: buyPriceDeviation,
 							SellPriceDeviation: sellPriceDeviation, CreatedAt: spm.now(),

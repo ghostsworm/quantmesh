@@ -10,10 +10,83 @@ import (
 	"time"
 )
 
+func TestMetricsFeederRejectsOverflowingRealizedPnLAggregate(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	trades := &fakeTradeSource{trades: []TradeOutcome{
+		{Key: "large-a", NetPnL: math.MaxFloat64, PnLAsset: "USDT", ClosedAt: now},
+		{Key: "large-b", NetPnL: math.MaxFloat64, PnLAsset: "USDT", ClosedAt: now.Add(-time.Second)},
+	}}
+	sink := &fakeSink{}
+	feeder := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("overflowing realized PnL aggregate must fail closed")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
+type unfilteredTradeSource []TradeOutcome
+
+func (s unfilteredTradeSource) TradesBetween(context.Context, time.Time, time.Time, int) ([]TradeOutcome, error) {
+	return s, nil
+}
+
+func TestMetricsFeederRejectsOutOfWindowTradeFromBoundedSource(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	trades := unfilteredTradeSource{{Key: "yesterday", NetPnL: -25, PnLAsset: "USDT", ClosedAt: now.Add(-24 * time.Hour)}}
+	sink := &fakeSink{}
+	feeder := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("out-of-window trade must not be included in daily risk metrics")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
+func TestMetricsFeederRejectsOverflowingUnrealizedPnLAggregate(t *testing.T) {
+	sink := &fakeSink{}
+	bots := &circuitBreakerMockProvider{bots: []BotController{
+		&pnlBot{pnl: math.MaxFloat64, asset: "USDT"},
+		&pnlBot{pnl: math.MaxFloat64, asset: "USDT"},
+	}}
+	feeder := NewMetricsFeeder(sink, nil, nil, bots, MetricsFeederOptions{})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("overflowing unrealized PnL aggregate must fail closed")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
 type fakeTradeSource struct {
 	mu     sync.Mutex
 	trades []TradeOutcome
 	err    error
+}
+
+type fakeStreamingTradeSource struct {
+	trades []TradeOutcome
+	seen   int
+}
+
+func (s *fakeStreamingTradeSource) TradesBetween(context.Context, time.Time, time.Time, int) ([]TradeOutcome, error) {
+	return nil, errors.New("bounded query must not be used for streaming source")
+}
+
+func (s *fakeStreamingTradeSource) ScanTradesBetween(_ context.Context, start, end time.Time, visit func(TradeOutcome) bool) error {
+	s.seen = 0
+	for _, trade := range s.trades {
+		if trade.ClosedAt.Before(start) || trade.ClosedAt.After(end) {
+			continue
+		}
+		s.seen++
+		if !visit(trade) {
+			break
+		}
+	}
+	return nil
 }
 
 func (s *fakeTradeSource) add(t TradeOutcome) {
@@ -67,11 +140,13 @@ func (s *fakeSink) MetricsResetMarks() MetricsResetMarks { return s.marks }
 
 type pnlBot struct {
 	circuitBreakerMockBot
-	pnl float64
-	err error
+	pnl   float64
+	asset string
+	err   error
 }
 
 func (b *pnlBot) GetPositionSummary() (float64, float64, error) { return b.pnl, 0, b.err }
+func (b *pnlBot) RiskPnLQuoteAsset() string                     { return b.asset }
 
 func approxEqual(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
@@ -79,15 +154,15 @@ func TestMetricsFeederDailyPnLAndConsecutiveLosses(t *testing.T) {
 	loc := time.UTC
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, loc)
 	trades := &fakeTradeSource{trades: []TradeOutcome{
-		{Key: "y", NetPnL: -50, ClosedAt: now.Add(-24 * time.Hour)}, // 昨日，不计入日内
-		{Key: "a", NetPnL: 30, ClosedAt: now.Add(-3 * time.Hour)},
-		{Key: "b", NetPnL: -10, ClosedAt: now.Add(-2 * time.Hour)},
-		{Key: "c", NetPnL: 0, ClosedAt: now.Add(-90 * time.Minute)}, // 持平跳过
-		{Key: "d", NetPnL: -20, ClosedAt: now.Add(-1 * time.Hour)},
+		{Key: "y", NetPnL: -50, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-24 * time.Hour)}, // 昨日，不计入日内
+		{Key: "a", NetPnL: 30, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-3 * time.Hour)},
+		{Key: "b", NetPnL: -10, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-2 * time.Hour)},
+		{Key: "c", NetPnL: 0, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-90 * time.Minute)}, // 持平跳过
+		{Key: "d", NetPnL: -20, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-1 * time.Hour)},
 	}}
 	sink := &fakeSink{}
 	bots := &circuitBreakerMockProvider{bots: []BotController{
-		&pnlBot{pnl: -15},
+		&pnlBot{pnl: -15, asset: "USDT"},
 	}}
 	f := NewMetricsFeeder(sink, trades, nil, bots, MetricsFeederOptions{Location: loc, Now: func() time.Time { return now }})
 
@@ -112,7 +187,7 @@ func TestMetricsFeederDailyPnLAndConsecutiveLosses(t *testing.T) {
 func TestMetricsFeederPositionSummaryFailureDoesNotPublishPartialPnL(t *testing.T) {
 	sink := &fakeSink{}
 	bots := &circuitBreakerMockProvider{bots: []BotController{
-		&pnlBot{pnl: -15},
+		&pnlBot{pnl: -15, asset: "USDT"},
 		&pnlBot{err: errors.New("current mark unavailable")},
 	}}
 	f := NewMetricsFeeder(sink, nil, nil, bots, MetricsFeederOptions{})
@@ -144,7 +219,7 @@ func TestMetricsFeederRejectsTradeHistoryAtQueryLimit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			trades := make([]TradeOutcome, tc.count)
 			for i := range trades {
-				trades[i] = TradeOutcome{Key: fmt.Sprintf("trade-%d", i), NetPnL: -1, ClosedAt: now.Add(-time.Duration(i+1) * time.Second)}
+				trades[i] = TradeOutcome{Key: fmt.Sprintf("trade-%d", i), NetPnL: -1, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-time.Duration(i+1) * time.Second)}
 			}
 			sink := &fakeSink{}
 			feeder := NewMetricsFeeder(sink, &fakeTradeSource{trades: trades}, nil, nil, MetricsFeederOptions{
@@ -160,12 +235,123 @@ func TestMetricsFeederRejectsTradeHistoryAtQueryLimit(t *testing.T) {
 	}
 }
 
+func TestMetricsFeederStreamsTradeHistoryPastBoundedQueryLimits(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	trades := &fakeStreamingTradeSource{trades: make([]TradeOutcome, 0, realizedPnLQueryLimit+2)}
+	for i := 0; i < realizedPnLQueryLimit+1; i++ {
+		trades.trades = append(trades.trades, TradeOutcome{Key: fmt.Sprintf("loss-%d", i), NetPnL: -1, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-time.Duration(i) * time.Second)})
+	}
+	trades.trades = append(trades.trades, TradeOutcome{Key: "older-win", NetPnL: 1, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-24 * time.Hour)})
+	sink := &fakeSink{}
+	f := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+
+	snap, err := f.Tick(context.Background())
+	if err != nil {
+		t.Fatalf("Tick() error=%v", err)
+	}
+	if snap.RealizedToday != -realizedPnLQueryLimit-1 {
+		t.Fatalf("RealizedToday=%v, want %d", snap.RealizedToday, -realizedPnLQueryLimit-1)
+	}
+	if snap.ConsecutiveLosses != realizedPnLQueryLimit+1 {
+		t.Fatalf("ConsecutiveLosses=%d, want %d", snap.ConsecutiveLosses, realizedPnLQueryLimit+1)
+	}
+	if trades.seen != realizedPnLQueryLimit+2 {
+		t.Fatalf("consecutive-loss stream visited %d records; expected it to stop at the first older winning trade", trades.seen)
+	}
+}
+
+func TestMetricsFeederRejectsUnknownOrMixedPnLUnits(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		trades []TradeOutcome
+	}{
+		{name: "unknown legacy denomination", trades: []TradeOutcome{{Key: "unknown", NetPnL: -1, ClosedAt: now}}},
+		{name: "single non USDT quote asset", trades: []TradeOutcome{{Key: "usd", NetPnL: -1, PnLAsset: "USD", FeeAsset: "USD", ClosedAt: now}}},
+		{name: "mixed quote assets", trades: []TradeOutcome{
+			{Key: "usdt", NetPnL: -1, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now},
+			{Key: "usd", NetPnL: -1, PnLAsset: "USD", FeeAsset: "USD", ClosedAt: now.Add(-time.Minute)},
+		}},
+		{name: "unconverted fee asset", trades: []TradeOutcome{{Key: "bnb-fee", NetPnL: -1, PnLAsset: "USDT", Fee: 0.01, FeeAsset: "BNB", ClosedAt: now}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sink := &fakeSink{}
+			feeder := NewMetricsFeeder(sink, &fakeTradeSource{trades: tt.trades}, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+			if _, err := feeder.Tick(context.Background()); err == nil {
+				t.Fatal("incompatible or unknown PnL units must not be published")
+			}
+			if sink.writes != 0 {
+				t.Fatalf("published %d incomplete metrics", sink.writes)
+			}
+		})
+	}
+}
+
+func TestMetricsFeederRejectsMixedUnrealizedPnLUnits(t *testing.T) {
+	sink := &fakeSink{}
+	bots := &circuitBreakerMockProvider{bots: []BotController{
+		&pnlBot{pnl: -2, asset: "USDT"},
+		&pnlBot{pnl: -3, asset: "USD"},
+	}}
+	feeder := NewMetricsFeeder(sink, nil, nil, bots, MetricsFeederOptions{})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("unrealized PnL in different quote currencies must not be added")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
+func TestMetricsFeederRejectsNonUSDTUnrealizedPnL(t *testing.T) {
+	sink := &fakeSink{}
+	bots := &circuitBreakerMockProvider{bots: []BotController{&pnlBot{pnl: -2, asset: "USDC"}}}
+	feeder := NewMetricsFeeder(sink, nil, nil, bots, MetricsFeederOptions{})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("USDC unrealized PnL must not be compared directly with a USDT threshold")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
+func TestMetricsFeederCountsLegacyZeroFeeStreakWithoutGuessingCurrency(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	trades := &fakeTradeSource{trades: []TradeOutcome{
+		{Key: "legacy-loss-new", NetPnL: -2, ClosedAt: now.Add(-24 * time.Hour)},
+		{Key: "legacy-loss-old", NetPnL: -3, ClosedAt: now.Add(-48 * time.Hour)},
+		{Key: "legacy-win", NetPnL: 1, ClosedAt: now.Add(-72 * time.Hour)},
+	}}
+	sink := &fakeSink{}
+	feeder := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+	snap, err := feeder.Tick(context.Background())
+	if err != nil {
+		t.Fatalf("Tick() should count denomination-free zero-fee streaks: %v", err)
+	}
+	if snap.RealizedToday != 0 || snap.ConsecutiveLosses != 2 || sink.losses != 2 {
+		t.Fatalf("unexpected legacy-safe metrics: realized=%v streak=%d published=%d", snap.RealizedToday, snap.ConsecutiveLosses, sink.losses)
+	}
+}
+
+func TestMetricsFeederRejectsLegacyStreakWhenFeeUnitCannotBeVerified(t *testing.T) {
+	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
+	trades := &fakeTradeSource{trades: []TradeOutcome{{Key: "legacy-fee", NetPnL: -1, Fee: 0.1, FeeAsset: "BNB", ClosedAt: now.Add(-24 * time.Hour)}}}
+	sink := &fakeSink{}
+	feeder := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("non-zero fee without a verified PnL denomination must fail closed")
+	}
+	if sink.writes != 0 {
+		t.Fatalf("published %d incomplete metrics", sink.writes)
+	}
+}
+
 func TestMetricsFeederResetMarksExcludeHistory(t *testing.T) {
 	now := time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC)
 	trades := &fakeTradeSource{trades: []TradeOutcome{
-		{Key: "a", NetPnL: -10, ClosedAt: now.Add(-2 * time.Hour)},
-		{Key: "b", NetPnL: -10, ClosedAt: now.Add(-1 * time.Hour)},
-		{Key: "c", NetPnL: -5, ClosedAt: now.Add(-10 * time.Minute)},
+		{Key: "a", NetPnL: -10, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-2 * time.Hour)},
+		{Key: "b", NetPnL: -10, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-1 * time.Hour)},
+		{Key: "c", NetPnL: -5, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: now.Add(-10 * time.Minute)},
 	}}
 	sink := &fakeSink{}
 	f := NewMetricsFeeder(sink, trades, nil, nil, MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return now }})
@@ -193,7 +379,7 @@ func TestMetricsFeederDrawdownIsTransferImmune(t *testing.T) {
 	trades := &fakeTradeSource{}
 	equity := &fakeLedgerSource{observation: testEquityObservation(now, 1000)}
 	sink := &fakeSink{}
-	bot := &pnlBot{pnl: 0}
+	bot := &pnlBot{pnl: 0, asset: "USDT"}
 	f := NewMetricsFeeder(sink, trades, equity, &circuitBreakerMockProvider{bots: []BotController{bot}},
 		MetricsFeederOptions{Location: time.UTC, Now: func() time.Time { return clock }})
 
@@ -204,7 +390,7 @@ func TestMetricsFeederDrawdownIsTransferImmune(t *testing.T) {
 	// 盈利 100 → 高水位 1100
 	clock = now.Add(time.Minute)
 	equity.observation = testEquityObservation(clock, 1100)
-	trades.add(TradeOutcome{Key: "p", NetPnL: 100, ClosedAt: clock.Add(-10 * time.Second)})
+	trades.add(TradeOutcome{Key: "p", NetPnL: 100, PnLAsset: "USDT", FeeAsset: "USDT", ClosedAt: clock.Add(-10 * time.Second)})
 	if _, err := f.Tick(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +438,7 @@ func TestMetricsFeederSourceErrorKeepsPreviousMetrics(t *testing.T) {
 func TestMetricsFeederEquityErrorDoesNotPublishIncompleteMetrics(t *testing.T) {
 	sink := &fakeSink{}
 	equity := &fakeEquitySource{err: ErrEquityUnavailable}
-	f := NewMetricsFeeder(sink, nil, equity, &circuitBreakerMockProvider{bots: []BotController{&pnlBot{pnl: -7}}}, MetricsFeederOptions{})
+	f := NewMetricsFeeder(sink, nil, equity, &circuitBreakerMockProvider{bots: []BotController{&pnlBot{pnl: -7, asset: "USDT"}}}, MetricsFeederOptions{})
 	snap, err := f.Tick(context.Background())
 	if err == nil || snap.DrawdownAvailable || sink.writes != 0 {
 		t.Fatalf("权益不可用时不得发布零回撤: err=%v writes=%d available=%v", err, sink.writes, snap.DrawdownAvailable)
@@ -263,7 +449,7 @@ func TestMetricsFeederDrivesCircuitBreakerTrip(t *testing.T) {
 	cfg := newCircuitBreakerTestConfig()
 	cfg.Triggers.TotalDailyLoss.Enabled = true
 	cfg.Triggers.TotalDailyLoss.Threshold = 100
-	bot := &pnlBot{pnl: -150}
+	bot := &pnlBot{pnl: -150, asset: "USDT"}
 	gcb := NewGlobalCircuitBreaker(cfg, nil, &circuitBreakerMockProvider{bots: []BotController{bot}})
 
 	f := NewMetricsFeeder(gcb, nil, nil, &circuitBreakerMockProvider{bots: []BotController{bot}}, MetricsFeederOptions{})

@@ -276,6 +276,21 @@ func migrateTradesAccountScope(db *sql.DB) error {
 	return nil
 }
 
+// migrateTradesPnLAsset adds explicit denomination metadata; legacy rows remain unknown and are never guessed.
+func migrateTradesPnLAsset(db *sql.DB) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('trades') WHERE name = ?`, "pnl_asset").Scan(&count); err != nil {
+		return fmt.Errorf("檢查 trades.pnl_asset 欄位失敗: %w", err)
+	}
+	if count > 0 {
+		return nil
+	}
+	if _, err := db.Exec(`ALTER TABLE trades ADD COLUMN pnl_asset TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("添加 trades.pnl_asset 欄位失敗: %w", err)
+	}
+	return nil
+}
+
 func migrateOrdersTable(db *sql.DB) error {
 	columns := []struct {
 		name string

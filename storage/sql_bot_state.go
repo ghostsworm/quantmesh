@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
   exchange VARCHAR(64) DEFAULT 'binance',
   account VARCHAR(255) DEFAULT '',
   market_type VARCHAR(32) NOT NULL DEFAULT '',
+  pnl_asset VARCHAR(32) NOT NULL DEFAULT '',
   account_scope VARCHAR(512) NOT NULL DEFAULT '',
   symbol VARCHAR(64),
   buy_price DECIMAL(20,8),
@@ -130,6 +131,9 @@ CREATE TABLE IF NOT EXISTS ` + pairedTradesTableMySQL + ` (
 		}
 	}
 	if err := ensureMySQLColumn(db, pairedTradesTableMySQL, "account_scope", `ALTER TABLE `+pairedTradesTableMySQL+` ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, pairedTradesTableMySQL, "pnl_asset", `ALTER TABLE `+pairedTradesTableMySQL+` ADD COLUMN pnl_asset VARCHAR(32) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
 		return err
 	}
 	if err := ensureMySQLExecutionKey(db, pairedTradesTableMySQL); err != nil {

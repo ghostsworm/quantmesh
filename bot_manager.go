@@ -1423,6 +1423,14 @@ func (br *BotRuntime) GetPositionSummary() (float64, float64, error) {
 	return unrealizedPnL, totalValue, nil
 }
 
+// RiskPnLQuoteAsset identifies the denomination returned by GetPositionSummary.
+func (br *BotRuntime) RiskPnLQuoteAsset() string {
+	if br == nil || br.Inner == nil || br.Inner.Exchange == nil {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(br.Inner.Exchange.GetQuoteAsset()))
+}
+
 // autoResumeAfter 在指定秒数后自动恢复开仓
 func (br *BotRuntime) autoResumeAfter(seconds int) {
 	if seconds <= 0 {

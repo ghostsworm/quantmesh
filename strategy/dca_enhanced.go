@@ -1154,7 +1154,7 @@ func (s *DCAEnhancedStrategy) saveCloseTrade(executionKey string, sellOrderID in
 	}
 	err = idempotent.SaveTradeIdempotent(&storage.Trade{
 		ExecutionKey: executionKey, BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: s.effectiveBotID(),
-		Exchange: exchangeName, MarketType: marketType, Symbol: s.strategyCfg.Symbol,
+		Exchange: exchangeName, MarketType: marketType, PnLAsset: strings.ToUpper(strings.TrimSpace(s.exchange.GetQuoteAsset())), Symbol: s.strategyCfg.Symbol,
 		BuyPrice: avgBuyPrice, SellPrice: orderPrice, Quantity: qty, PnL: pnl, ExchangePnL: exchangePnL,
 		Fee: fee, FeeAsset: feeAsset, CreatedAt: time.Now(),
 	})

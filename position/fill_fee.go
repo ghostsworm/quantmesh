@@ -381,6 +381,12 @@ func (spm *SuperPositionManager) applySupplementBaseFeeLocked(slot *InventorySlo
 
 // recordFeeCorrection 補查手續費無法寫回已保存的交易記錄：存儲支持事件時寫入更正記錄，否則明確告警。
 func (spm *SuperPositionManager) recordFeeCorrection(tag feeSupplementTag, sum fillFeeSummary, reason string) {
+	// 事件記錄不是已實現交易帳本的修正。對帳完成前，若仍允許新增風險，
+	// 熔斷器會按偏低的費用計算淨盈虧；因此持久化經濟對帳鎖，等待人工核驗。
+	spm.requireTradeLedgerReconciliation(
+		OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol},
+		fmt.Errorf("unapplied execution fee correction (%s, %.8f %s): %s", tag.side, sum.commission, sum.asset, reason),
+	)
 	leg := "close"
 	if tag.openLeg {
 		leg = "open"

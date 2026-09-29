@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -1648,6 +1649,10 @@ func postOptimTasks(c *gin.Context) {
 		SearchSpace:  space,
 	}
 	if err := optimTaskManager.CreateAndRun(task); err != nil {
+		if errors.Is(err, optimrun.ErrOptimizerCapacity) {
+			c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "message": "已有参数优化任务运行中，请稍后重试。"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})
 		return
 	}

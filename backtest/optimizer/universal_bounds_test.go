@@ -45,6 +45,27 @@ func TestUniversalBoundsDimensionsAndParameterCells(t *testing.T) {
 	}
 }
 
+func TestOptimizerWorkerCountReservesCPUCapacity(t *testing.T) {
+	tests := []struct {
+		name   string
+		cpus   int
+		combos int
+		want   int
+	}{
+		{name: "many cores", cpus: 16, combos: 100, want: 8},
+		{name: "single core", cpus: 1, combos: 100, want: 1},
+		{name: "bounded by combinations", cpus: 8, combos: 2, want: 2},
+		{name: "empty workload", cpus: 8, combos: 0, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := optimizerWorkerCount(tt.cpus, tt.combos); got != tt.want {
+				t.Fatalf("optimizerWorkerCount(%d, %d)=%d, want %d", tt.cpus, tt.combos, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUniversalCountsMatchEnumerationAndPreserveTinyValues(t *testing.T) {
 	u := &UniversalOptimizer{}
 	spaces := []UniversalSearchSpace{

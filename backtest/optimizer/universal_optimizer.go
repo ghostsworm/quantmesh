@@ -248,10 +248,7 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 		return nil, fmt.Errorf("搜索空间为空")
 	}
 
-	workers := runtime.NumCPU()
-	if workers > len(combos) {
-		workers = len(combos)
-	}
+	workers := optimizerWorkerCount(runtime.GOMAXPROCS(0), len(combos))
 
 	start := time.Now()
 	results := make([]UniversalParamResult, len(combos))
@@ -354,6 +351,25 @@ func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval s
 		Completed:    completed,
 		Failed:       failed,
 	}, nil
+}
+
+// optimizerWorkerCount deliberately leaves at least half the reported CPUs
+// available to the trading runtime and other service work.
+func optimizerWorkerCount(cpuCount, combinationCount int) int {
+	if combinationCount <= 0 {
+		return 0
+	}
+	if cpuCount < 1 {
+		cpuCount = 1
+	}
+	workers := cpuCount / 2
+	if workers < 1 {
+		workers = 1
+	}
+	if workers > combinationCount {
+		workers = combinationCount
+	}
+	return workers
 }
 
 // GetDefaultSearchSpace 获取策略的默认搜索空间

@@ -1,6 +1,7 @@
 package risk
 
 import (
+	"context"
 	"errors"
 	"sync"
 	"testing"
@@ -13,6 +14,15 @@ type ownedEquityBot struct {
 }
 
 func (b *ownedEquityBot) SetRiskDataUnavailable(held bool) { b.held = held }
+
+type assetPnLBot struct {
+	ownedEquityBot
+	pnl   float64
+	asset string
+}
+
+func (b *assetPnLBot) GetPositionSummary() (float64, float64, error) { return b.pnl, 0, nil }
+func (b *assetPnLBot) RiskPnLQuoteAsset() string                     { return b.asset }
 
 func TestMetricsHealthUnverifiedEquityPausesWithoutLiquidating(t *testing.T) {
 	cfg := newCircuitBreakerTestConfig()
@@ -119,6 +129,37 @@ func TestMetricsHealthDataFailureBlocksDailyLossAndStreakTriggers(t *testing.T) 
 	}
 	if bot.cancelCount != 0 || bot.closeCount != 0 {
 		t.Fatal("data-health hold should not cancel orders or liquidate positions")
+	}
+}
+
+func TestUnknownPnLAssetMarksHealthUnavailableAndPreservesLastMetrics(t *testing.T) {
+	cfg := newCircuitBreakerTestConfig()
+	cfg.Triggers.TotalDailyLoss.Enabled = true
+	bot := &assetPnLBot{}
+	gcb := NewGlobalCircuitBreaker(cfg, nil, &circuitBreakerMockProvider{bots: []BotController{bot}})
+	cfg.Enabled = true
+	now := time.Now()
+	valid := MetricsHealth{Available: true, CheckedAt: now, ValidUntil: now.Add(time.Minute)}
+	gcb.UpdateMetricsObservation(MetricsSnapshot{DailyPnL: -25}, valid)
+	if bot.held {
+		t.Fatal("valid initial observation unexpectedly blocked opening")
+	}
+
+	trades := &fakeTradeSource{trades: []TradeOutcome{{Key: "usd", NetPnL: -4, PnLAsset: "USD", FeeAsset: "USD", ClosedAt: now}}}
+	feeder := NewMetricsFeeder(gcb, trades, nil, &circuitBreakerMockProvider{bots: []BotController{bot}}, MetricsFeederOptions{
+		Now: func() time.Time { return now }, Location: time.UTC, RequireTradeHistory: true,
+	})
+	if _, err := feeder.Tick(context.Background()); err == nil {
+		t.Fatal("USD trade was incorrectly compared to the USDT circuit-breaker threshold")
+	}
+	if health := gcb.GetMetricsHealth(); health.Available || health.Error == "" || !bot.held {
+		t.Fatalf("invalid denomination did not fail closed: held=%v health=%+v", bot.held, health)
+	}
+	if got := gcb.snapshotMetrics().dailyPnL; got != -25 {
+		t.Fatalf("failed observation replaced last valid metrics: got %v, want -25", got)
+	}
+	if bot.cancelCount != 0 || bot.closeCount != 0 {
+		t.Fatal("denomination uncertainty should block new risk without cancelling or liquidating")
 	}
 }
 

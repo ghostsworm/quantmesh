@@ -206,6 +206,8 @@ type tradeStorageAdapter struct {
 	accountID      string // 账戶標识
 	accountScope   string // 不可逆凭据作用域摘要
 	botID          string // 與運行時 Bot 一致，寫入 trades.bot_id
+	marketType     string
+	pnlAsset       string
 }
 
 type strategyRuntimeStateAdapter struct {
@@ -279,7 +281,14 @@ func (a *tradeStorageAdapter) SaveTradeIdempotent(trade *storage.Trade) error {
 	if canonical.AccountScope == "" {
 		canonical.AccountScope = a.accountScope
 	}
+	if canonical.MarketType == "" {
+		canonical.MarketType = a.marketType
+	}
 	canonical.MarketType = strings.ToLower(strings.TrimSpace(canonical.MarketType))
+	if canonical.PnLAsset == "" {
+		canonical.PnLAsset = a.pnlAsset
+	}
+	canonical.PnLAsset = strings.ToUpper(strings.TrimSpace(canonical.PnLAsset))
 	return writer.SaveTradeIdempotent(&canonical)
 }
 
@@ -341,32 +350,17 @@ func (a *tradeStorageAdapter) SaveTrade(buyOrderID, sellOrderID int64, exchange,
 }
 
 func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
-	if a.storageService == nil {
-		return fmt.Errorf("保存成交失败: 存储服务未初始化")
-	}
-	st := a.storageService.GetStorage()
-	if st == nil {
-		return fmt.Errorf("保存成交失败: 存储不可用")
-	}
 	bid := botID
 	if bid == "" {
 		bid = a.botID
 	}
-	if sqliteSt, ok := st.(interface {
-		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-	}); ok {
-		return sqliteSt.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, 0, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt, bid)
-	}
-	if sqliteSt, ok := st.(interface {
-		SaveTradeWithDeviation(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-	}); ok {
-		return sqliteSt.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt, bid)
-	}
-	return st.SaveTrade(&storage.Trade{
+	return a.persistTrade(&storage.Trade{
 		BuyOrderID:         buyOrderID,
 		SellOrderID:        sellOrderID,
 		BotID:              bid,
 		Exchange:           exchange,
+		MarketType:         a.marketType,
+		PnLAsset:           a.pnlAsset,
 		Account:            a.accountID,
 		Symbol:             symbol,
 		BuyPrice:           buyPrice,
@@ -383,45 +377,55 @@ func (a *tradeStorageAdapter) SaveTradeWithDeviation(buyOrderID, sellOrderID int
 
 // SaveTradeWithExchangePnL 保存交易記錄（包含交易所盈亏和價格偏差）
 func (a *tradeStorageAdapter) SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
-	if a.storageService == nil {
-		return fmt.Errorf("保存带交易所盈亏的成交失败: 存储服务未初始化")
-	}
-	st := a.storageService.GetStorage()
-	if st == nil {
-		return fmt.Errorf("保存带交易所盈亏的成交失败: 存储不可用")
-	}
 	bid := botID
 	if bid == "" {
 		bid = a.botID
 	}
-	if sqliteSt, ok := st.(interface {
-		SaveTradeWithExchangePnL(buyOrderID, sellOrderID int64, exchange, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error
-	}); ok {
-		return sqliteSt.SaveTradeWithExchangePnL(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt, bid)
-	}
-	return a.SaveTradeWithDeviation(buyOrderID, sellOrderID, exchange, symbol, buyPrice, sellPrice, quantity, pnl, fee, feeAsset, buyPriceDeviation, sellPriceDeviation, createdAt, bid)
+	return a.persistTrade(&storage.Trade{
+		BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: bid, Exchange: exchange,
+		MarketType: a.marketType, PnLAsset: a.pnlAsset, Account: a.accountID, AccountScope: a.accountScope,
+		Symbol: symbol, BuyPrice: buyPrice, SellPrice: sellPrice, Quantity: quantity, PnL: pnl,
+		ExchangePnL: exchangePnL, Fee: fee, FeeAsset: feeAsset,
+		BuyPriceDeviation: buyPriceDeviation, SellPriceDeviation: sellPriceDeviation, CreatedAt: createdAt,
+	})
 }
 
 // SaveTradeWithExchangePnLAndMarketType preserves market identity through the runtime adapter.
 func (a *tradeStorageAdapter) SaveTradeWithExchangePnLAndMarketType(buyOrderID, sellOrderID int64, exchange, marketType, symbol string, buyPrice, sellPrice, quantity, pnl, exchangePnL, fee float64, feeAsset string, buyPriceDeviation, sellPriceDeviation float64, createdAt time.Time, botID string) error {
-	if a.storageService == nil {
-		return fmt.Errorf("保存带市场类型的成交失败: 存储服务未初始化")
-	}
-	st := a.storageService.GetStorage()
-	if st == nil {
-		return fmt.Errorf("保存带市场类型的成交失败: 存储不可用")
-	}
 	bid := botID
 	if bid == "" {
 		bid = a.botID
 	}
-	return st.SaveTrade(&storage.Trade{
+	return a.persistTrade(&storage.Trade{
 		BuyOrderID: buyOrderID, SellOrderID: sellOrderID, BotID: bid,
-		Exchange: exchange, MarketType: strings.ToLower(strings.TrimSpace(marketType)),
+		Exchange: exchange, MarketType: strings.ToLower(strings.TrimSpace(marketType)), PnLAsset: a.pnlAsset,
 		Account: a.accountID, Symbol: symbol, BuyPrice: buyPrice, SellPrice: sellPrice,
 		Quantity: quantity, PnL: pnl, ExchangePnL: exchangePnL, Fee: fee, FeeAsset: feeAsset,
 		BuyPriceDeviation: buyPriceDeviation, SellPriceDeviation: sellPriceDeviation, CreatedAt: createdAt,
 	})
+}
+
+func (a *tradeStorageAdapter) persistTrade(trade *storage.Trade) error {
+	if a.storageService == nil {
+		return fmt.Errorf("保存成交失败: 存储服务未初始化")
+	}
+	st := a.storageService.GetStorage()
+	if st == nil {
+		return fmt.Errorf("保存成交失败: 存储不可用")
+	}
+	if trade.Account == "" {
+		trade.Account = a.accountID
+	}
+	if trade.AccountScope == "" {
+		trade.AccountScope = a.accountScope
+	}
+	if trade.MarketType == "" {
+		trade.MarketType = a.marketType
+	}
+	if trade.PnLAsset == "" {
+		trade.PnLAsset = a.pnlAsset
+	}
+	return st.SaveTrade(trade)
 }
 
 // snapshotRuntimeAdapter 適配 SymbolRuntime 為 monitor.RuntimeSnapshotSource（用於每日快照）
