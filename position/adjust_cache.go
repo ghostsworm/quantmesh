@@ -155,7 +155,7 @@ func (spm *SuperPositionManager) accountEquityForStopLoss() float64 {
 	return accountEquityFromResult(res)
 }
 
-// stopLossDenominator 硬止損比例分母：position 用持倉名義價值；equity 用帳戶權益（暫無權益數據時回退持倉價值）
+// stopLossDenominator 硬止損比例分母：權益口徑缺失時返回 0，避免靜默改用另一種風險口徑。
 func (spm *SuperPositionManager) stopLossDenominator(positionValue float64) (float64, string) {
 	if spm.gridRiskControl().GetStopLossBasis() != config.StopLossBasisEquity {
 		return positionValue, config.StopLossBasisPosition
@@ -164,9 +164,9 @@ func (spm *SuperPositionManager) stopLossDenominator(positionValue float64) (flo
 		return equity, config.StopLossBasisEquity
 	}
 	if spm.account.equityFallbackWarned.CompareAndSwap(false, true) {
-		logger.Warn("⚠️ [%s] [网格风控] stop_loss_basis=equity 但暫無帳戶權益數據，暫按持倉價值計算止損", spm.logPrefix())
+		logger.Warn("⚠️ [%s] [网格风控] stop_loss_basis=equity 但暫無帳戶權益數據，本輪跳過權益口徑止損計算並在後台刷新", spm.logPrefix())
 	}
-	return positionValue, config.StopLossBasisPosition
+	return 0, config.StopLossBasisEquity
 }
 
 // accountEquityFromResult 反射解析帳戶權益（兼容多交易所帳戶類型）

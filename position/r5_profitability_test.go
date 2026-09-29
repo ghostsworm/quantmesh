@@ -316,12 +316,12 @@ func TestStopLossDenominator(t *testing.T) {
 			t.Fatalf("fresh equity cache must not query account")
 		}
 	})
-	t.Run("無權益數據回退持倉並後台刷新", func(t *testing.T) {
+	t.Run("無權益數據不切換口徑並後台刷新", func(t *testing.T) {
 		ex := &accountExchange{account: &r5Account{TotalWalletBalance: 7000}}
 		spm := newR5SPM(t, ex, nil)
 		spm.config.Trading.GridRiskControl.StopLossBasis = config.StopLossBasisEquity
-		if d, basis := spm.stopLossDenominator(500); d != 500 || basis != config.StopLossBasisPosition {
-			t.Fatalf("fallback denominator = %v %s", d, basis)
+		if d, basis := spm.stopLossDenominator(500); d != 0 || basis != config.StopLossBasisEquity {
+			t.Fatalf("missing equity must preserve equity basis without inventing a denominator: %v %s", d, basis)
 		}
 		deadline := time.Now().Add(2 * time.Second)
 		for {

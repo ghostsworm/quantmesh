@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/execution"
 )
@@ -546,6 +547,24 @@ func TestFundingPerpSpreadStartRejectsPreexistingRisk(t *testing.T) {
 				t.Fatal("failed startup left strategy marked as running")
 			}
 		})
+	}
+}
+
+func TestFundingPerpSpreadOpeningRespectsSharedRuntimeGate(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	gate.Block("manual")
+	a := &fundingSpreadTestExchange{name: "a"}
+	b := &fundingSpreadTestExchange{name: "b"}
+	st := &FundingPerpSpreadStrategy{
+		openingGate: gate, legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT",
+		ownershipReady: true, symCfg: config.SymbolConfig{TotalAllocatedCapital: 400},
+	}
+	err := st.openSpreadCoordinated(context.Background(), a, "BTCUSDT", b, "BTCUSDT", 100, 100, 0.001, 0)
+	if !errors.Is(err, execution.ErrOpeningPaused) {
+		t.Fatalf("openSpread() error = %v, want ErrOpeningPaused", err)
+	}
+	if a.placed != 0 || b.placed != 0 {
+		t.Fatalf("blocked paired opening reached the venues: legA=%d legB=%d", a.placed, b.placed)
 	}
 }
 

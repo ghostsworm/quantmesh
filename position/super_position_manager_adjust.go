@@ -48,8 +48,11 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 			if pnlVerified && totalValue > 0 {
 				// 分母：position=持倉名義價值（預設）；equity=帳戶權益（緩存，後台刷新，不在 tick 中同步請求）
 				denominator, basis := spm.stopLossDenominator(totalValue)
-				pnlRatio := unrealizedPnL / denominator
-				if pnlRatio <= -stopLossRatio {
+				pnlRatio := math.NaN()
+				if denominator > 0 {
+					pnlRatio = unrealizedPnL / denominator
+				}
+				if denominator > 0 && pnlRatio <= -stopLossRatio {
 					logger.Error("🚨 [网格风控] 触发硬為止损! 當前浮亏率: %.2f%% (分母=%s %.2f), 阈值: %.2f%%", pnlRatio*100, basis, denominator, -stopLossRatio*100)
 					// 发布止损事件，触发飞书/邮件等通知
 					if spm.eventBus != nil {

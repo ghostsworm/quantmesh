@@ -147,7 +147,12 @@ func startFundingPerpSpreadSymbolRuntime(
 			break
 		}
 	}
+	openingGate := &execution.OpeningGate{}
+	if localCfg.Trading.OpenPositionControl.PauseOpening || (localCfg.Trading.OpenPositionControl.BotRiskControl != nil && localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening) {
+		openingGate.Block("manual")
+	}
 	st := strategy.NewFundingPerpSpreadStrategy("funding_perp_spread", &localCfg, symCfg, legAEx, legBEx, fp, stratCfg)
+	st.SetOpeningGate(openingGate)
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
 	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	st.SetCoordinationLock(distributedLock)
@@ -177,7 +182,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		AccountID:            accountID,
 		AccountScope:         stateBotID,
 		AccountMarketType:    "futures",
-		OpeningGate:          &execution.OpeningGate{},
+		OpeningGate:          openingGate,
 		SuperPositionManager: nil,
 		ExchangeExecutor:     nil,
 		ExecutorAdapter:      nil,

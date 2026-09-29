@@ -31,6 +31,8 @@ type BotRuntime struct {
 	configMu sync.RWMutex // 保護 Config 的並發訪問
 }
 
+const equityDataUnavailableBlock = "equity_data_unverified"
+
 // botStartFailure 記錄異步啟動失敗原因（供 Web API 與前端輪詢展示）
 type botStartFailure struct {
 	Message string
@@ -1251,7 +1253,23 @@ func (br *BotRuntime) SetRiskDataUnavailable(paused bool) {
 			go spm.CancelResidualOpeningOrders()
 		}
 	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
-		br.Inner.OpeningGate.Unblock("manual")
+		gate := br.Inner.OpeningGate
+		wasBlocked := gate.HasBlock(equityDataUnavailableBlock)
+		if paused {
+			gate.Block(equityDataUnavailableBlock)
+		} else {
+			gate.Unblock(equityDataUnavailableBlock)
+		}
+		if paused && !wasBlocked && br.Inner.CancelOpeningOrders != nil {
+			cancelOpenings := br.Inner.CancelOpeningOrders
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := cancelOpenings(ctx); err != nil {
+					logger.Error("Bot %s: equity-data hold could not verify cancellation of owned opening orders: %v", br.BotID, err)
+				}
+			}()
+		}
 	}
 }
 

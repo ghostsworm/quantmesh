@@ -56,6 +56,7 @@ type SymbolRuntime struct {
 	SuperPositionManager *position.SuperPositionManager
 	// OpeningGate covers specialized runtimes that do not use the grid position manager.
 	OpeningGate           *execution.OpeningGate
+	CancelOpeningOrders   func(context.Context) error
 	PrepareShutdown       func(context.Context, bool) error
 	CloseForShutdown      func(context.Context) error
 	VerifyShutdownClose   func(context.Context) error

@@ -13,8 +13,46 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/storage"
 )
+
+func TestSpecializedRiskDataGateDoesNotClearManualPause(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	gate.Block("manual")
+	cancelRequested := make(chan struct{}, 1)
+	runtime := &BotRuntime{BotID: "specialized-bot", Inner: &SymbolRuntime{
+		OpeningGate: gate,
+		CancelOpeningOrders: func(context.Context) error {
+			cancelRequested <- struct{}{}
+			return nil
+		},
+	}}
+
+	runtime.SetRiskDataUnavailable(true)
+	select {
+	case <-cancelRequested:
+	case <-time.After(time.Second):
+		t.Fatal("equity-data hold did not request cancellation of owned opening orders")
+	}
+	if !gate.HasBlock(equityDataUnavailableBlock) || !gate.HasBlock("manual") {
+		t.Fatal("unavailable equity data did not add an independent hold")
+	}
+	runtime.SetRiskDataUnavailable(false)
+	if gate.HasBlock(equityDataUnavailableBlock) || !gate.HasBlock("manual") || !gate.Blocked() {
+		t.Fatal("equity recovery cleared or bypassed the user's manual pause")
+	}
+
+	gate.Unblock("manual")
+	runtime.SetRiskDataUnavailable(true)
+	if !gate.Blocked() || !gate.HasBlock(equityDataUnavailableBlock) {
+		t.Fatal("specialized runtime remained open while equity data was unavailable")
+	}
+	runtime.SetRiskDataUnavailable(false)
+	if gate.Blocked() {
+		t.Fatal("equity recovery did not clear its own hold")
+	}
+}
 
 func TestBotManagerResolveLatestStartConfigUsesRefreshedBotSnapshot(t *testing.T) {
 	botID := "bot-start-refresh"

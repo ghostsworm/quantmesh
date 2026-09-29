@@ -12,6 +12,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -52,6 +53,7 @@ type FundingPerpSpreadStrategy struct {
 	coordinationLock  lock.DistributedLock
 	coordinationTTL   time.Duration
 	eventBus          EventBus
+	openingGate       *execution.OpeningGate
 
 	consecutiveErrors int
 }
@@ -96,19 +98,29 @@ func NewFundingPerpSpreadStrategy(
 	}
 
 	return &FundingPerpSpreadStrategy{
-		name:       name,
-		cfg:        cfg,
-		symCfg:     symCfg,
-		fp:         fp,
-		legA:       legA,
-		legB:       legB,
-		symA:       fp.LegA.Symbol,
-		symB:       fp.LegB.Symbol,
-		minSpread:  minS,
-		exitSpread: exitS,
-		maxBasis:   maxB,
-		tickInt:    time.Duration(intervalSec) * time.Second,
+		name:        name,
+		cfg:         cfg,
+		symCfg:      symCfg,
+		fp:          fp,
+		legA:        legA,
+		legB:        legB,
+		symA:        fp.LegA.Symbol,
+		symB:        fp.LegB.Symbol,
+		minSpread:   minS,
+		exitSpread:  exitS,
+		maxBasis:    maxB,
+		openingGate: &execution.OpeningGate{},
+		tickInt:     time.Duration(intervalSec) * time.Second,
 	}
+}
+
+func (s *FundingPerpSpreadStrategy) SetOpeningGate(gate *execution.OpeningGate) {
+	if gate == nil {
+		gate = &execution.OpeningGate{}
+	}
+	s.mu.Lock()
+	s.openingGate = gate
+	s.mu.Unlock()
 }
 
 func (s *FundingPerpSpreadStrategy) Name() string { return s.name }
@@ -824,6 +836,17 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	if err := s.verifyOwnedExposure(currentA, currentB); err != nil {
 		return fmt.Errorf("refuse new spread: %w", err)
 	}
+	s.mu.RLock()
+	gate := s.openingGate
+	s.mu.RUnlock()
+	if gate == nil {
+		return fmt.Errorf("funding_perp_spread opening gate is unavailable: %w", execution.ErrExposureUnverified)
+	}
+	releaseOpening, err := gate.Begin()
+	if err != nil {
+		return err
+	}
+	defer releaseOpening()
 	shortClientOrderID := utils.NewCompactOrderID()
 	shortPositionBefore := currentA
 	if strings.EqualFold(shortEx.GetName(), s.legB.GetName()) && strings.EqualFold(shortSym, s.symB) {

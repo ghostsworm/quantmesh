@@ -3,6 +3,9 @@ package order
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +18,17 @@ type exposureEvidenceExchange struct {
 	fakeOrderExchange
 	place func(*exchange.OrderRequest) (*exchange.Order, error)
 	calls int
+}
+
+type concurrentExposureExchange struct {
+	fakeOrderExchange
+	calls atomic.Int32
+}
+
+func (f *concurrentExposureExchange) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
+	id := f.calls.Add(1)
+	return &exchange.Order{OrderID: int64(id), ClientOrderID: req.ClientOrderID, Symbol: req.Symbol,
+		Side: req.Side, Price: req.Price, Quantity: req.Quantity, Status: exchange.OrderStatusNew}, nil
 }
 
 func (f *exposureEvidenceExchange) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
@@ -151,5 +165,57 @@ func TestExposureDuplicateCloseNeverReachesVenue(t *testing.T) {
 	}
 	if f.calls != 1 {
 		t.Fatalf("physical submissions=%d", f.calls)
+	}
+}
+
+func TestConcurrentStrategyOpeningsCannotExceedSharedLayerLimit(t *testing.T) {
+	const requestCount = 24
+	venue := &concurrentExposureExchange{}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	book := bindTestExposureBook(t, oe)
+	if err := book.SetLimits(execution.ExposureLimits{Quantity: requestCount, Layers: 1}); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	var workers sync.WaitGroup
+	var accepted atomic.Int32
+	var failuresMu sync.Mutex
+	var failures []error
+	for i := 0; i < requestCount; i++ {
+		workers.Add(1)
+		go func(index int) {
+			defer workers.Done()
+			<-start
+			id := fmt.Sprintf("strategy-%d-open", index)
+			_, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+				StrategyName: fmt.Sprintf("strategy-%d", index), ExposureKey: id, ClientOrderID: id})
+			if err == nil {
+				accepted.Add(1)
+				return
+			}
+			if errors.Is(err, execution.ErrExposureLimit) {
+				return
+			}
+			failuresMu.Lock()
+			failures = append(failures, err)
+			failuresMu.Unlock()
+		}(i)
+	}
+	close(start)
+	workers.Wait()
+
+	if len(failures) != 0 {
+		t.Fatalf("unexpected concurrent submission errors: %v", failures)
+	}
+	if got := accepted.Load(); got != 1 {
+		t.Fatalf("accepted openings = %d, want exactly one under a one-layer cap", got)
+	}
+	if got := venue.calls.Load(); got != 1 {
+		t.Fatalf("physical venue submissions = %d, want exactly one", got)
+	}
+	snapshot := book.Snapshot(time.Now())
+	if snapshot.Layers != 1 || snapshot.ProjectedQuantity != 1 || snapshot.PendingQuantity != 1 {
+		t.Fatalf("shared exposure book exceeded or lost its one-layer reservation: %+v", snapshot)
 	}
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -285,6 +286,15 @@ func startFundingCarrySymbolRuntime(
 	executors := []*order.ExchangeOrderExecutor{futuresOrderExecutor.executor, spotOrderExecutor.executor}
 	if marginOrderExecutor != nil {
 		executors = append(executors, marginOrderExecutor.executor)
+	}
+	rt.CancelOpeningOrders = func(cancelCtx context.Context) error {
+		var cancelErrors []error
+		for _, executor := range executors {
+			if err := executor.CancelOwnedOpeningOrders(cancelCtx); err != nil {
+				cancelErrors = append(cancelErrors, err)
+			}
+		}
+		return errors.Join(cancelErrors...)
 	}
 	rt.PrepareShutdown = func(shutdownCtx context.Context, cancelOrders bool) error {
 		for _, executor := range executors {
