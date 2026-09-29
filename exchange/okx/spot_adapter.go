@@ -551,6 +551,7 @@ func (o *OKXSpotAdapter) StartOrderStream(ctx context.Context, callback func(int
 // 上層按字段名反射讀取（嵌入字段會被提升），BaseFeeQty 映射到 position.OrderUpdate.BaseFeeQty。
 type SpotStreamOrderUpdate struct {
 	StreamOrderUpdate
+	CommissionKnown bool
 	// BaseFeeQty 本筆成交以基礎幣扣收的手續費（基礎幣單位，>=0）；其計價幣價值已包含在 Commission 中
 	BaseFeeQty float64
 }
@@ -561,7 +562,7 @@ func (o *OKXSpotAdapter) normalizeSpotStreamUpdate(update OrderUpdate) (SpotStre
 	if err != nil {
 		return SpotStreamOrderUpdate{}, err
 	}
-	out := SpotStreamOrderUpdate{StreamOrderUpdate: normalized}
+	out := SpotStreamOrderUpdate{StreamOrderUpdate: normalized, CommissionKnown: update.CommissionKnown}
 	if o.baseAsset != "" && update.CommissionAsset == o.baseAsset && update.Commission > 0 {
 		out.BaseFeeQty = update.Commission
 	}

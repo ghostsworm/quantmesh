@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -520,7 +521,9 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 		realizedPnL, _ := strconv.ParseFloat(getString(orderData, "pnl"), 64)
 
 		// 本次成交手續費：fillFee 扣費為負、返佣為正，轉為「支出為正」
-		fillFee, _ := strconv.ParseFloat(getString(orderData, "fillFee"), 64)
+		fillFeeRaw, fillFeePresent := orderData["fillFee"].(string)
+		fillFee, fillFeeErr := strconv.ParseFloat(fillFeeRaw, 64)
+		commissionKnown := fillFeePresent && fillFeeErr == nil && !math.IsNaN(fillFee) && !math.IsInf(fillFee, 0)
 		fillPx, _ := strconv.ParseFloat(getString(orderData, "fillPx"), 64)
 		feeCcy := getString(orderData, "fillFeeCcy")
 		if feeCcy == "" {
@@ -541,6 +544,7 @@ func (w *WebSocketManager) handleOrderUpdate(msg map[string]interface{}) {
 			UpdateTime:      updateTime,
 			Commission:      okxFeeToCommission(fillFee),
 			CommissionAsset: feeCcy,
+			CommissionKnown: commissionKnown,
 			RealizedPnL:     realizedPnL,
 			FillPrice:       fillPx,
 		}

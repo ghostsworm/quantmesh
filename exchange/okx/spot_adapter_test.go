@@ -66,6 +66,36 @@ func TestOKXSpotApplyInstrument(t *testing.T) {
 	}
 }
 
+func TestOKXSpotOrderFeeAuthorityRequiresPresentParseableField(t *testing.T) {
+	tests := []struct {
+		name string
+		data map[string]interface{}
+		want bool
+	}{
+		{name: "explicit zero fee", data: map[string]interface{}{"fillFee": "0", "fillFeeCcy": "USDT"}, want: true},
+		{name: "missing fee", data: map[string]interface{}{"fillFeeCcy": "USDT"}},
+		{name: "malformed fee", data: map[string]interface{}{"fillFee": "unknown", "fillFeeCcy": "USDT"}},
+		{name: "non-finite fee", data: map[string]interface{}{"fillFee": "NaN", "fillFeeCcy": "USDT"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got OrderUpdate
+			manager := &WebSocketManager{orderCallback: func(update OrderUpdate) { got = update }}
+			data := map[string]interface{}{
+				"ordId": "7", "instId": "BTC-USDT", "side": "buy", "ordType": "limit",
+				"state": "partially_filled", "sz": "1", "accFillSz": "0.5", "avgPx": "100",
+			}
+			for key, value := range tt.data {
+				data[key] = value
+			}
+			manager.handleOrderUpdate(map[string]interface{}{"data": []interface{}{data}})
+			if got.CommissionKnown != tt.want {
+				t.Fatalf("CommissionKnown=%v, want %v", got.CommissionKnown, tt.want)
+			}
+		})
+	}
+}
+
 func TestOKXSpotPlaceOrderBodyAndRounding(t *testing.T) {
 	tests := []struct {
 		name    string
