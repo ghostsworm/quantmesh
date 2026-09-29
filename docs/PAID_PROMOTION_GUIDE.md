@@ -1,6 +1,6 @@
 # 付费推广与 Telegram 私域推广指南
 
-本文档提供 QuantMesh 项目的付费推广和 Telegram 私域推广策略。
+本文档提供 QuantMesh 项目的付费推广和 Telegram 私域推广策略。宣传内容须按当前版本核验；性能数字需注明测量条件，交易量/盈利数据还须可审计且获公开授权，否则不得发布。
 
 ## 📱 Telegram 私域推广策略
 
@@ -51,9 +51,9 @@
 大家好，我开源了一个高性能加密货币做市商系统 QuantMesh，想和大家分享：
 
 ✨ 核心特性：
-• 支持 20+ 交易所（Binance、OKX、Bybit 等）
-• WebSocket 驱动，延迟 <10ms
-• $1亿+ 交易量实战验证
+• 仅列出当前版本已实现并验证的交易所适配器
+• 性能数字必须注明硬件、网络、负载与测量方法
+• 真实交易量须有可审计证据和公开授权；无证据时不作此类声明
 • 完整 React Web UI
 • 多策略支持：网格、DCA、马丁格尔等
 
@@ -86,11 +86,10 @@ GitHub: https://github.com/ghostsworm/quantmesh
 
 **广告文案建议：**
 ```
-🚀 开源发布：QuantMesh - 毫秒级高频加密货币做市商系统
+🚀 开源项目：QuantMesh - 加密货币交易与回测系统
 
-• 支持 20+ 交易所
-• WebSocket 驱动，延迟 <10ms  
-• $1亿+ 交易量实战验证
+• 按当前版本列出已实现并验证的功能
+• 性能与交易量数据仅在证据可审计、测量条件明确且获准公开时填写
 • 完整 Web UI + 多策略支持
 
 👉 GitHub: github.com/ghostsworm/quantmesh
@@ -167,8 +166,8 @@ GitHub: https://github.com/ghostsworm/quantmesh
 
 **广告文案示例：**
 ```
-标题：开源加密货币做市商系统 | 20+ 交易所支持
-描述：QuantMesh - 毫秒级延迟，$1亿+交易量验证。支持网格、DCA等多种策略，完整Web UI。
+标题：开源加密货币交易与回测系统 | QuantMesh
+描述：仅描述当前版本已核验的功能。未经审计的数据不得用于交易量、延迟或盈利宣传。
 链接：https://github.com/ghostsworm/quantmesh
 ```
 

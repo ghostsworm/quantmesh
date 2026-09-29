@@ -6,7 +6,7 @@
 
 ### 1. GitHub 仓库设置（5分钟）
 在 GitHub 网页上设置：
-- [ ] **Description**：`High-performance crypto grid market maker, 20+ exchanges, Go + React, $100M+ trading volume verified`
+- [ ] **Description**：只填写当前版本已核验的功能；交易所数量、性能或交易量必须有可公开的测量/审计证据，否则不写数字
 - [ ] **Topics**：添加以下标签（至少选 5-8 个）：
   - `cryptocurrency`
   - `trading-bot`
@@ -49,15 +49,15 @@
 
 **发布模板：**
 ```
-标题：[开源] QuantMesh - 毫秒级高频加密货币做市商系统，$1亿+交易量验证
+标题：[开源] QuantMesh - 开源加密货币交易与回测系统
 
 正文：
 我开源了一个高性能的加密货币做市商系统 QuantMesh，想和大家分享并征求反馈。
 
 核心特性：
-- 支持 20+ 主流交易所（Binance, OKX, Bybit 等）
-- 毫秒级延迟（WebSocket 驱动，<10ms）
-- 实战验证：$1亿+ 交易量
+- 仅列出当前版本已实现并验证的交易所适配器
+- 性能数字须注明硬件、网络、负载与测量方法
+- 真实交易量须有可审计证据和公开授权；无证据时省略
 - 完整 Web UI（React + TypeScript）
 - 多策略支持：网格、DCA、马丁格尔等
 - 强大的风控系统
@@ -78,7 +78,7 @@ GitHub: https://github.com/ghostsworm/quantmesh
 #### 2. Hacker News（20分钟）
 **发布方式：**
 - 访问 https://news.ycombinator.com/submit
-- 标题：`Show HN: QuantMesh – High-performance crypto market maker, 20+ exchanges, $100M+ verified`
+- 标题：`Show HN: QuantMesh – Open-source crypto trading and backtesting system`
 - URL：`https://github.com/ghostsworm/quantmesh`
 - 正文（可选）：简短说明核心亮点和技术栈
 
@@ -88,12 +88,10 @@ GitHub: https://github.com/ghostsworm/quantmesh
 #### 3. Twitter/X（15分钟）
 **发布内容：**
 ```
-🚀 开源发布：QuantMesh - 毫秒级高频加密货币做市商系统
+🚀 开源发布：QuantMesh - 加密货币交易与回测系统
 
 ✨ 核心特性：
-• 支持 20+ 交易所
-• WebSocket 驱动，延迟 <10ms
-• $1亿+ 交易量实战验证
+• 交易所范围、性能及交易量只使用当前版本可核验且获准公开的证据；否则省略相关数字
 • 完整 React Web UI
 • 多策略支持
 
@@ -126,7 +124,7 @@ GitHub: https://github.com/ghostsworm/quantmesh
 
 **PR 格式示例：**
 ```markdown
-- [QuantMesh](https://github.com/ghostsworm/quantmesh) - High-performance crypto market maker supporting 20+ exchanges, WebSocket-driven, $100M+ trading volume verified. `Go` `React`
+- [QuantMesh](https://github.com/ghostsworm/quantmesh) - Open-source crypto trading and backtesting system. Describe only capabilities verified in the current release. `Go` `React`
 ```
 
 #### 5. Product Hunt（如果适用）
@@ -194,13 +192,12 @@ GitHub: https://github.com/ghostsworm/quantmesh
 ## 💡 推广技巧
 
 ### 1. 标题优化
-- 突出数字：`20+ exchanges`、`$100M+ volume`
-- 突出技术：`WebSocket`、`<10ms latency`
-- 突出验证：`battle-tested`、`production-ready`
+- 只使用有当前版本实现证据的功能描述；性能、交易所数量和交易量须附可复核来源及测量条件
+- 不使用 `battle-tested`、`production-ready` 等暗示生产验证的表述，除非有范围明确、可公开审计的证据
 
 ### 2. 内容角度
 - **技术角度**：架构设计、性能优化、技术选型
-- **实战角度**：交易量数据、风控经验、踩坑分享
+- **实战角度**：只有取得可审计数据及公开授权后才分享交易量；否则分享可复现的工程经验和已验证的风控行为
 - **对比角度**：与其他方案的对比（已在 README 中）
 
 ### 3. 互动策略
@@ -227,17 +224,15 @@ GitHub: https://github.com/ghostsworm/quantmesh
 
 ### 邮件推广（如果有邮件列表）
 ```
-主题：开源发布：QuantMesh - 高性能加密货币做市商系统
+主题：开源发布：QuantMesh - 加密货币交易与回测系统
 
 正文：
 大家好，
 
-我很高兴地宣布开源 QuantMesh - 一个高性能、低延迟的加密货币做市商系统。
+我很高兴地分享开源项目 QuantMesh - 一个加密货币交易与回测系统。以下只介绍当前版本已核验的功能。
 
 核心亮点：
-• 支持 20+ 主流交易所
-• WebSocket 驱动，延迟 <10ms
-• $1亿+ 交易量实战验证
+• 仅填写已核验的当前版本功能；未取得可审计证据和公开授权前，不宣称交易量、延迟或盈利表现
 • 完整 React Web UI
 • 多策略支持
 
