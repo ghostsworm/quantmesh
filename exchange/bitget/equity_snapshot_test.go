@@ -68,6 +68,44 @@ func TestBitgetBillEvidenceClassifiesAndRejectsUnknownTypes(t *testing.T) {
 	}
 }
 
+func TestBitgetPromotionalFundsAreExternalCapitalAdjustments(t *testing.T) {
+	tests := []struct {
+		businessType string
+		amount       int64
+		wantKind     string
+	}{
+		{businessType: "cash_gift_issue", amount: 10, wantKind: "transfer_in"},
+		{businessType: "bonus_issue", amount: 10, wantKind: "transfer_in"},
+		{businessType: "cash_gift_recycle", amount: -10, wantKind: "transfer_out"},
+		{businessType: "bonus_recycle", amount: -10, wantKind: "transfer_out"},
+		{businessType: "bonus_expired", amount: -10, wantKind: "transfer_out"},
+	}
+	for _, test := range tests {
+		t.Run(test.businessType, func(t *testing.T) {
+			entry, err := bitgetBillEvidence(&bitgetBill{ID: "bill", Amount: fmt.Sprint(test.amount), Fee: "0", BusinessType: test.businessType, Coin: "USDT", Time: "1790000000000"})
+			if err != nil || entry.Kind != test.wantKind {
+				t.Fatalf("entry=%+v err=%v, want kind %q", entry, err, test.wantKind)
+			}
+		})
+	}
+	for _, test := range []struct {
+		businessType string
+		amount       string
+	}{
+		{businessType: "cash_gift_issue", amount: "-10"},
+		{businessType: "bonus_issue", amount: "-10"},
+		{businessType: "cash_gift_recycle", amount: "10"},
+		{businessType: "bonus_recycle", amount: "10"},
+		{businessType: "bonus_expired", amount: "10"},
+	} {
+		t.Run("invalid-direction/"+test.businessType, func(t *testing.T) {
+			if _, err := bitgetBillEvidence(&bitgetBill{ID: "bill", Amount: test.amount, Fee: "0", BusinessType: test.businessType, Coin: "USDT", Time: "1790000000000"}); err == nil {
+				t.Fatal("promotional capital entry with contradictory direction was accepted")
+			}
+		})
+	}
+}
+
 func TestBitgetReadAccountEvidenceCapturesUSDTBills(t *testing.T) {
 	serverTime := time.Now().UTC().Truncate(time.Millisecond)
 	client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {

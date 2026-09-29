@@ -142,8 +142,16 @@ func bitgetBillKind(businessType string, amount *big.Rat) (string, error) {
 		return "funding", nil
 	case "settle_interest":
 		return "interest", nil
-	case "cash_gift_issue", "cash_gift_recycle", "bonus_issue", "bonus_recycle", "bonus_expired":
-		return "rebate", nil
+	case "cash_gift_issue", "bonus_issue":
+		if amount.Sign() < 0 {
+			return "", fmt.Errorf("negative Bitget promotional capital credit")
+		}
+		return "transfer_in", nil
+	case "cash_gift_recycle", "bonus_recycle", "bonus_expired":
+		if amount.Sign() > 0 {
+			return "", fmt.Errorf("positive Bitget promotional capital debit")
+		}
+		return "transfer_out", nil
 	case "open_long", "open_short", "close_long", "close_short", "force_close_long", "force_close_short",
 		"burst_long_loss_query", "burst_short_loss_query", "buy", "sell", "force_buy", "force_sell", "burst_buy", "burst_sell",
 		"delivery_long", "delivery_short", "adl_close_long", "adl_close_short", "adl_buy_in_single_side_mode", "adl_sell_in_single_side_mode",
