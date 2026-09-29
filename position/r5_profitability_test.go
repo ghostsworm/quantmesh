@@ -2,12 +2,14 @@ package position
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 )
 
 const r5Eps = 1e-9
@@ -32,6 +34,29 @@ func newR5SPM(t *testing.T, ex IExchange, exec OrderExecutorInterface) *SuperPos
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+type blockingEquityCancellationExecutor struct {
+	MockExecutor
+	gate    *execution.OpeningGate
+	started chan struct{}
+	finish  chan struct{}
+	done    chan struct{}
+}
+
+func (e *blockingEquityCancellationExecutor) CancelOwnedOpeningOrders(ctx context.Context) error {
+	defer close(e.done)
+	if !e.gate.HoldIfBlocked(execution.UnverifiedCancellationBlock) {
+		return execution.ErrOpeningPaused
+	}
+	close(e.started)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-e.finish:
+		e.gate.Unblock(execution.UnverifiedCancellationBlock)
+		return nil
+	}
+}
 
 func TestFeeAwareSpreadFloor(t *testing.T) {
 	tests := []struct {
@@ -258,6 +283,7 @@ type r5Account struct {
 	TotalMarginBalance float64
 	AvailableBalance   float64
 	AccountLeverage    int
+	BalanceAsset       string
 }
 
 // accountExchange GetAccount 計數並返回固定帳戶
@@ -295,7 +321,7 @@ func TestGetAccountCachedTTLAndInvalidate(t *testing.T) {
 
 func TestStopLossDenominator(t *testing.T) {
 	t.Run("預設按持倉價值", func(t *testing.T) {
-		ex := &accountExchange{account: &r5Account{TotalMarginBalance: 10000}}
+		ex := &accountExchange{account: &r5Account{TotalMarginBalance: 10000, BalanceAsset: "USDT"}}
 		spm := newR5SPM(t, ex, nil)
 		if d, basis := spm.stopLossDenominator(500); d != 500 || basis != config.StopLossBasisPosition {
 			t.Fatalf("denominator = %v %s", d, basis)
@@ -305,10 +331,10 @@ func TestStopLossDenominator(t *testing.T) {
 		}
 	})
 	t.Run("權益緩存命中不發請求", func(t *testing.T) {
-		ex := &accountExchange{account: &r5Account{TotalMarginBalance: 10000}}
+		ex := &accountExchange{account: &r5Account{TotalMarginBalance: 10000, BalanceAsset: "USDT"}}
 		spm := newR5SPM(t, ex, nil)
 		spm.config.Trading.GridRiskControl.StopLossBasis = "Equity"
-		spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 8000, TotalWalletBalance: 9000}, time.Now())
+		spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 8000, TotalWalletBalance: 9000, BalanceAsset: "USDT"}, time.Now())
 		if d, basis := spm.stopLossDenominator(500); d != 8000 || basis != config.StopLossBasisEquity {
 			t.Fatalf("denominator = %v %s", d, basis)
 		}
@@ -317,7 +343,7 @@ func TestStopLossDenominator(t *testing.T) {
 		}
 	})
 	t.Run("無權益數據不切換口徑並後台刷新", func(t *testing.T) {
-		ex := &accountExchange{account: &r5Account{TotalWalletBalance: 7000}}
+		ex := &accountExchange{account: &r5Account{TotalWalletBalance: 7000, TotalMarginBalance: 7000, BalanceAsset: "USDT"}}
 		spm := newR5SPM(t, ex, nil)
 		spm.config.Trading.GridRiskControl.StopLossBasis = config.StopLossBasisEquity
 		if d, basis := spm.stopLossDenominator(500); d != 0 || basis != config.StopLossBasisEquity {
@@ -334,6 +360,132 @@ func TestStopLossDenominator(t *testing.T) {
 			time.Sleep(5 * time.Millisecond)
 		}
 	})
+	t.Run("過期權益不參與止損計算", func(t *testing.T) {
+		ex := &accountExchange{account: &r5Account{TotalMarginBalance: 7000, BalanceAsset: "USDT"}}
+		spm := newR5SPM(t, ex, nil)
+		spm.config.Trading.GridRiskControl.StopLossBasis = config.StopLossBasisEquity
+		spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 9000, BalanceAsset: "USDT"}, time.Now().Add(-2*stopLossEquityRefreshInterval))
+		if d, basis := spm.stopLossDenominator(500); d != 0 || basis != config.StopLossBasisEquity {
+			t.Fatalf("stale equity must not be used as denominator: %v %s", d, basis)
+		}
+	})
+}
+
+func TestStopLossDenominatorRejectsUnprovenValuationAsset(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		asset string
+	}{
+		{name: "缺失資產標記"},
+		{name: "不同計價資產", asset: "BTC"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &accountExchange{account: &r5Account{TotalMarginBalance: 8000, BalanceAsset: tc.asset}}
+			spm := newR5SPM(t, ex, nil)
+			spm.config.Trading.GridRiskControl.StopLossBasis = config.StopLossBasisEquity
+			spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 8000, BalanceAsset: tc.asset}, time.Now())
+			if d, basis := spm.stopLossDenominator(500); d != 0 || basis != config.StopLossBasisEquity {
+				t.Fatalf("unproven equity unit was accepted: denominator=%v basis=%s", d, basis)
+			}
+		})
+	}
+}
+
+func TestStopLossDenominatorRejectsInvalidMarginEquityWithoutWalletFallback(t *testing.T) {
+	for _, value := range []float64{0, -1, math.NaN(), math.Inf(1), math.Inf(-1)} {
+		t.Run(fmt.Sprint(value), func(t *testing.T) {
+			ex := &accountExchange{account: &r5Account{TotalMarginBalance: value, TotalWalletBalance: 9000, BalanceAsset: "USDT"}}
+			spm := newR5SPM(t, ex, nil)
+			spm.config.Trading.GridRiskControl.StopLossBasis = config.StopLossBasisEquity
+			spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: value, TotalWalletBalance: 9000, BalanceAsset: "USDT"}, time.Now())
+			if d, basis := spm.stopLossDenominator(500); d != 0 || basis != config.StopLossBasisEquity {
+				t.Fatalf("invalid margin equity fell back to wallet balance: denominator=%v basis=%s", d, basis)
+			}
+		})
+	}
+}
+
+func TestStopLossEquityUnavailableBlocksOpeningsWithoutClearingOtherHolds(t *testing.T) {
+	ex := &accountExchange{account: &r5Account{TotalMarginBalance: 7000, BalanceAsset: "USDT"}}
+	spm := newR5SPM(t, ex, nil)
+	spm.config.Trading.GridRiskControl = config.GridRiskControl{Enabled: true, StopLossRatio: 0.05, StopLossBasis: config.StopLossBasisEquity}
+	spm.OpeningGate().Block("manual")
+
+	spm.refreshStopLossEquityOpeningGate()
+	if !spm.OpeningGate().HasBlock(stopLossEquityDataBlock) {
+		t.Fatal("missing equity did not block new exposure")
+	}
+	spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 7000, BalanceAsset: "USDT"}, time.Now())
+	spm.refreshStopLossEquityOpeningGate()
+	if spm.OpeningGate().HasBlock(stopLossEquityDataBlock) {
+		t.Fatal("fresh equity did not release the stop-loss-owned hold")
+	}
+	if !spm.OpeningGate().HasBlock("manual") {
+		t.Fatal("equity recovery cleared the independent manual hold")
+	}
+
+	spm.config.Trading.GridRiskControl.Enabled = false
+	spm.refreshStopLossEquityOpeningGate()
+	if spm.OpeningGate().HasBlock(stopLossEquityDataBlock) {
+		t.Fatal("disabling equity stop-loss left its opening hold behind")
+	}
+}
+
+func TestStopLossEquityRecoveryWaitsForQueuedOwnedCancellation(t *testing.T) {
+	executor := &blockingEquityCancellationExecutor{
+		started: make(chan struct{}), finish: make(chan struct{}), done: make(chan struct{}),
+	}
+	spm := newR5SPM(t, nil, executor)
+	executor.gate = spm.OpeningGate()
+	spm.SetClock(newManualClock())
+	spm.config.Trading.GridRiskControl = config.GridRiskControl{Enabled: true, StopLossRatio: 0.05, StopLossBasis: config.StopLossBasisEquity}
+	spm.OpeningGate().Block("manual")
+
+	spm.refreshStopLossEquityOpeningGate()
+	select {
+	case <-executor.started:
+	case <-time.After(time.Second):
+		t.Fatal("owned cancellation did not start")
+	}
+	if !spm.OpeningGate().HasBlock(execution.UnverifiedCancellationBlock) {
+		t.Fatal("cancellation did not retain its independent gate source")
+	}
+
+	spm.storeAccountSnapshot(&r5Account{TotalMarginBalance: 7000, BalanceAsset: "USDT"}, spm.now())
+	spm.refreshStopLossEquityOpeningGate()
+	if spm.OpeningGate().HasBlock(stopLossEquityDataBlock) {
+		t.Fatal("fresh equity did not release its own gate source")
+	}
+	if !spm.OpeningGate().HasBlock(execution.UnverifiedCancellationBlock) || !spm.OpeningGate().HasBlock("manual") {
+		t.Fatal("equity recovery reopened admission before cancellation completed or cleared manual pause")
+	}
+
+	close(executor.finish)
+	select {
+	case <-executor.done:
+	case <-time.After(time.Second):
+		t.Fatal("owned cancellation did not finish")
+	}
+	if spm.OpeningGate().HasBlock(execution.UnverifiedCancellationBlock) || !spm.OpeningGate().HasBlock("manual") {
+		t.Fatal("verified cancellation did not release only its own gate source")
+	}
+}
+
+func TestAdjustOrdersBlocksGridOpeningsWhenConfiguredStopLossEquityIsMissing(t *testing.T) {
+	executor := &MockExecutor{}
+	spm := newR5SPM(t, nil, executor)
+	spm.config.Trading.GridRiskControl = config.GridRiskControl{Enabled: true, StopLossRatio: 0.05, StopLossBasis: config.StopLossBasisEquity}
+	if err := spm.AdjustOrders(3000); err != nil {
+		t.Fatal(err)
+	}
+	if !spm.OpeningGate().HasBlock(stopLossEquityDataBlock) {
+		t.Fatal("AdjustOrders did not hold the equity stop-loss opening gate")
+	}
+	for _, order := range executor.PlacedOrders {
+		if order != nil && !order.ReduceOnly {
+			t.Fatalf("grid opening submitted without required equity stop-loss data: %+v", order)
+		}
+	}
 }
 
 func TestSweepPriceAndLiquidationLimitPrice(t *testing.T) {

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -84,6 +85,12 @@ func TestValidateGridR5Features(t *testing.T) {
 			c.Trading.RegimeFilter.ADXExitThreshold = 25
 		}, wantErr: "adx_exit_threshold"},
 		{name: "結算前暫停分鐘為負", mutate: func(c *Config) { c.FundingRate.PreSettlementPauseMinutes = -1 }, wantErr: "pre_settlement_pause_minutes"},
+		{name: "止損比例為 NaN", mutate: func(c *Config) { c.Trading.GridRiskControl.StopLossRatio = math.NaN() }, wantErr: "stop_loss_ratio"},
+		{name: "止盈比例為正無窮", mutate: func(c *Config) { c.Trading.GridRiskControl.TakeProfitTriggerRatio = math.Inf(1) }, wantErr: "take_profit_trigger_ratio"},
+		{name: "Bot 止盈比例越界", mutate: func(c *Config) {
+			c.Trading.Symbols = []SymbolConfig{{GridRiskControl: GridRiskControl{TrailingTakeProfitRatio: 1.1}}}
+		}, wantErr: "trailing_take_profit_ratio"},
+		{name: "未知止損口徑", mutate: func(c *Config) { c.Trading.GridRiskControl.StopLossBasis = "equitty" }, wantErr: "stop_loss_basis"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

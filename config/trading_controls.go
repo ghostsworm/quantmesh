@@ -1,6 +1,10 @@
 package config
 
-import "strings"
+import (
+	"fmt"
+	"math"
+	"strings"
+)
 
 // 本文件存放交易風控/開倉控制相關的配置類型（自 config.go 拆出，保持單文件 < 3000 行）。
 
@@ -33,6 +37,32 @@ func (g GridRiskControl) GetStopLossBasis() string {
 		return StopLossBasisEquity
 	}
 	return StopLossBasisPosition
+}
+
+// Validate checks persisted grid risk values before they can reach runtime math.
+func (g GridRiskControl) Validate(path string) error {
+	if path == "" {
+		path = "trading.grid_risk_control"
+	}
+	if g.MaxGridLayers < 0 || g.MaxOpenOrdersAtCap < 0 {
+		return fmt.Errorf("%s layer/order limits must be >= 0", path)
+	}
+	for name, value := range map[string]float64{
+		"stop_loss_ratio":               g.StopLossRatio,
+		"take_profit_trigger_ratio":     g.TakeProfitTriggerRatio,
+		"trailing_take_profit_ratio":    g.TrailingTakeProfitRatio,
+		"close_condition_profit_target": g.CloseConditionProfitTarget,
+		"close_condition_loss_limit":    g.CloseConditionLossLimit,
+	} {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > 1 {
+			return fmt.Errorf("%s.%s must be finite and between 0 and 1", path, name)
+		}
+	}
+	basis := strings.TrimSpace(g.StopLossBasis)
+	if basis != "" && !strings.EqualFold(basis, StopLossBasisPosition) && !strings.EqualFold(basis, StopLossBasisEquity) {
+		return fmt.Errorf("%s.stop_loss_basis must be %q or %q", path, StopLossBasisPosition, StopLossBasisEquity)
+	}
+	return nil
 }
 
 // DefaultFeeAwareSafetyMarginRatio 費率感知利差的預設安全邊際（按價格比例，0.0002 = 0.02%）

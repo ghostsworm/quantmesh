@@ -4,6 +4,7 @@ import (
 	"context"
 	"math"
 	"reflect"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,7 +35,7 @@ type accountCache struct {
 	result     interface{}
 	fetchedAt  time.Time
 	refreshing atomic.Bool
-	// equityFallbackWarned 權益止損無權益數據時回退持倉分母，每個 Bot 只告警一次
+	// equityFallbackWarned 權益止損無有效淨值時，每個 Bot 只告警一次
 	equityFallbackWarned atomic.Bool
 }
 
@@ -151,8 +152,13 @@ func (spm *SuperPositionManager) accountEquityForStopLoss() float64 {
 	res, fresh := spm.cachedAccount(stopLossEquityRefreshInterval)
 	if !fresh {
 		spm.refreshAccountAsync()
+		return 0
 	}
-	return accountEquityFromResult(res)
+	expectedAsset := ""
+	if spm.exchange != nil {
+		expectedAsset = spm.exchange.GetQuoteAsset()
+	}
+	return accountEquityFromResult(res, expectedAsset)
 }
 
 // stopLossDenominator 硬止損比例分母：權益口徑缺失時返回 0，避免靜默改用另一種風險口徑。
@@ -170,7 +176,7 @@ func (spm *SuperPositionManager) stopLossDenominator(positionValue float64) (flo
 }
 
 // accountEquityFromResult 反射解析帳戶權益（兼容多交易所帳戶類型）
-func accountEquityFromResult(result interface{}) float64 {
+func accountEquityFromResult(result interface{}, expectedAsset string) float64 {
 	v := reflect.ValueOf(result)
 	for v.IsValid() && (v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface) {
 		if v.IsNil() {
@@ -181,14 +187,33 @@ func accountEquityFromResult(result interface{}) float64 {
 	if !v.IsValid() || v.Kind() != reflect.Struct {
 		return 0
 	}
-	for _, name := range []string{"TotalMarginBalance", "TotalWalletBalance"} {
-		if f := v.FieldByName(name); f.IsValid() && f.CanInterface() {
-			if val, ok := f.Interface().(float64); ok && val > 0 {
-				return val
-			}
+	expectedAsset = strings.ToUpper(strings.TrimSpace(expectedAsset))
+	asset := v.FieldByName("BalanceAsset")
+	if expectedAsset == "" || !asset.IsValid() || asset.Kind() != reflect.String ||
+		strings.ToUpper(strings.TrimSpace(asset.String())) != expectedAsset {
+		return 0
+	}
+	if margin := v.FieldByName("TotalMarginBalance"); margin.IsValid() {
+		if margin.Kind() != reflect.Float64 {
+			return 0
+		}
+		value := margin.Float()
+		if !finiteAccountEquity(value) || value <= 0 {
+			return 0
+		}
+		return value
+	}
+	if wallet := v.FieldByName("TotalWalletBalance"); wallet.IsValid() && wallet.Kind() == reflect.Float64 {
+		value := wallet.Float()
+		if finiteAccountEquity(value) && value > 0 {
+			return value
 		}
 	}
 	return 0
+}
+
+func finiteAccountEquity(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 // accountAvailableBalance 反射解析可用餘額

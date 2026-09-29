@@ -69,6 +69,7 @@ func TestCalculateUnrealizedPnLSubtractsVerifiedEntryFees(t *testing.T) {
 	slot := fillSlot(spm, 100, 2, 100, "")
 	slot.mu.Lock()
 	slot.BuyFee = 0.5
+	slot.FeeAsset = "USDT"
 	slot.mu.Unlock()
 	if got, verified := spm.calculateUnrealizedPnLVerified(110); !verified || math.Abs(got-19.5) > 1e-9 {
 		t.Fatalf("verified net unrealized PnL = %v/%v, want 19.5/true", got, verified)
@@ -80,6 +81,8 @@ func TestCalculateUnrealizedPnLSubtractsVerifiedEntryFees(t *testing.T) {
 	}{
 		{name: "fee conversion unknown", set: func(slot *InventorySlot) { slot.feeValuationUnknown = true }},
 		{name: "fee supplement pending", set: func(slot *InventorySlot) { slot.pendingFeeSupplementCount = 1 }},
+		{name: "fee asset mismatch", set: func(slot *InventorySlot) { slot.FeeAsset = "BTC" }},
+		{name: "fee asset missing", set: func(slot *InventorySlot) { slot.FeeAsset = "" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			slot.mu.Lock()

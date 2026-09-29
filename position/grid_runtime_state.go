@@ -153,8 +153,26 @@ func (spm *SuperPositionManager) refreshCostBasisOpeningGate() {
 			return false
 		}
 		slot.mu.RLock()
-		unverified = slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 &&
-			(slot.CostBasisUnverified || slot.AvgBuyPrice <= 0)
+		qty := slot.PositionQty
+		unverified = !finiteGridValue(qty) || qty < 0 ||
+			(slot.PositionStatus != PositionStatusEmpty && slot.PositionStatus != PositionStatusFilled) ||
+			(slot.PositionStatus == PositionStatusEmpty && qty != 0)
+		if !unverified && slot.PositionStatus == PositionStatusFilled && qty > 0 {
+			legValid := true
+			if spm.isBoth() {
+				legValid = exposureLeg(slot.PositionLeg)
+			} else if slot.PositionLeg != PositionLegNone {
+				expectedLeg := PositionLegLong
+				if spm.isShort() {
+					expectedLeg = PositionLegShort
+				}
+				legValid = slot.PositionLeg == expectedLeg
+			}
+			unverified = !legValid || slot.CostBasisUnverified || !finiteGridValue(slot.AvgBuyPrice) || slot.AvgBuyPrice <= 0 ||
+				!finiteGridValue(slot.BuyFee) || slot.BuyFee < 0 ||
+				(slot.BuyFee > 0 && (spm.feeQuoteAsset() == "" || !strings.EqualFold(strings.TrimSpace(slot.FeeAsset), spm.feeQuoteAsset()))) ||
+				slot.feeValuationUnknown || slot.pendingFeeSupplementCount != 0
+		}
 		slot.mu.RUnlock()
 		return !unverified
 	})

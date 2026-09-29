@@ -23,6 +23,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 	if spm.protective.queued.Load() || spm.liquidationActive.Load() || spm.liquidationNeedsReconciliation.Load() {
 		return nil // the liquidation owns these slots until completion/reconciliation
 	}
+	spm.refreshCostBasisOpeningGate()
+	spm.refreshStopLossEquityOpeningGate()
 
 	// 驗证價格有效性
 	if math.IsNaN(currentPrice) || math.IsInf(currentPrice, 0) || currentPrice <= 0 {
@@ -35,6 +37,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 
 	// 更新最后市场價格（用於打印状態）
 	spm.lastMarketPrice.Store(currentPrice)
+	spm.refreshGridRiskNotionalGate(currentPrice)
 
 	// 觸發價僅限制新開倉，不得跳過已有持倉的風控和平倉維護。
 
@@ -45,7 +48,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if stopLossRatio > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && totalValue > 0 {
+			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
 				// 分母：position=持倉名義價值（預設）；equity=帳戶權益（緩存，後台刷新，不在 tick 中同步請求）
 				denominator, basis := spm.stopLossDenominator(totalValue)
 				pnlRatio := math.NaN()
@@ -84,7 +87,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if triggerRatio > 0 && trailingRatio > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && totalValue > 0 {
+			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
 				currentProfitRatio := unrealizedPnL / totalValue
 
 				// 更新最高盈利
@@ -118,7 +121,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		if profitTarget > 0 || lossLimit > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
 			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && totalValue > 0 {
+			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
 				pnlRatio := unrealizedPnL / totalValue
 				triggered := false
 				reason := ""

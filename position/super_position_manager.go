@@ -2148,25 +2148,51 @@ func (spm *SuperPositionManager) calculateUnrealizedPnLVerified(currentPrice flo
 	}
 	totalPnL := 0.0
 	costBasisUnverified := false
+	feeAsset := spm.feeQuoteAsset()
 	spm.slots.Range(func(_, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			if slot.CostBasisUnverified || slot.AvgBuyPrice <= 0 ||
+		if (slot.PositionStatus != PositionStatusFilled && slot.PositionStatus != PositionStatusEmpty) ||
+			math.IsNaN(slot.PositionQty) || math.IsInf(slot.PositionQty, 0) || slot.PositionQty < 0 ||
+			(slot.PositionStatus == PositionStatusEmpty && slot.PositionQty != 0) {
+			costBasisUnverified = true
+			slot.mu.RUnlock()
+			return true
+		}
+		if slot.PositionStatus == PositionStatusFilled {
+			qty := slot.PositionQty
+			if qty == 0 {
+				slot.mu.RUnlock()
+				return true
+			}
+			isShortLeg := spm.isShort()
+			if spm.isBoth() {
+				switch slot.PositionLeg {
+				case PositionLegLong:
+					isShortLeg = false
+				case PositionLegShort:
+					isShortLeg = true
+				default:
+					costBasisUnverified = true
+					slot.mu.RUnlock()
+					return true
+				}
+			} else if slot.PositionLeg != PositionLegNone &&
+				((isShortLeg && slot.PositionLeg != PositionLegShort) || (!isShortLeg && slot.PositionLeg != PositionLegLong)) {
+				costBasisUnverified = true
+				slot.mu.RUnlock()
+				return true
+			}
+			if slot.CostBasisUnverified || !finiteGridValue(slot.AvgBuyPrice) || slot.AvgBuyPrice <= 0 ||
 				slot.feeValuationUnknown || slot.pendingFeeSupplementCount != 0 ||
-				math.IsNaN(slot.BuyFee) || math.IsInf(slot.BuyFee, 0) || slot.BuyFee < 0 {
+				!finiteGridValue(slot.BuyFee) || slot.BuyFee < 0 ||
+				(slot.BuyFee > 0 && (feeAsset == "" || !strings.EqualFold(strings.TrimSpace(slot.FeeAsset), feeAsset))) {
 				costBasisUnverified = true
 				slot.mu.RUnlock()
 				return true
 			}
 			// SHORT 模式下 AvgBuyPrice 儲存實際開空均價。
 			entry := slot.AvgBuyPrice
-			isShortLeg := false
-			if spm.isBoth() {
-				isShortLeg = slot.PositionLeg == PositionLegShort
-			} else {
-				isShortLeg = spm.isShort()
-			}
 			if isShortLeg {
 				// 空頭盈虧 = (開倉價 - 當前價) * 數量
 				totalPnL += (entry - currentPrice) * slot.PositionQty

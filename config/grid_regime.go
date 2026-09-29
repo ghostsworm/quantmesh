@@ -84,6 +84,14 @@ func (c InventorySkewConfig) WithDefaults() InventorySkewConfig {
 // regime 相關的完整校驗在啟動時由 regime.NewDetector 完成（失敗會阻止 Bot 啟動）。
 func (c *Config) validateGridR5Features() error {
 	t := c.Trading
+	if err := t.GridRiskControl.Validate("trading.grid_risk_control"); err != nil {
+		return err
+	}
+	for i, symbol := range t.Symbols {
+		if err := symbol.GridRiskControl.Validate(fmt.Sprintf("trading.symbols[%d].grid_risk_control", i)); err != nil {
+			return err
+		}
+	}
 	if t.InventorySkew.Strength < 0 || t.InventorySkew.Strength > maxInventorySkewStrength {
 		return fmt.Errorf("trading.inventory_skew.strength 必須在 [0, 1] 範圍內，當前值: %v", t.InventorySkew.Strength)
 	}
