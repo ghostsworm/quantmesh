@@ -142,6 +142,12 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	if parent == nil {
 		parent = context.Background()
 	}
+	failUnverified := func(err error) error {
+		if parent.Err() == nil {
+			r.pm.FailReconciliation(err)
+		}
+		return err
+	}
 	// 检查是否暂停（风控触发時不输出日志）
 	if r.pauseChecker != nil && r.pauseChecker() {
 		return nil
@@ -184,17 +190,14 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	defer cancelOnLockLoss()
 	unlockLocal, err := execution.AcquireLocalPositionCoordination(ctx, lockKey)
 	if err != nil {
-		return fmt.Errorf("等待本进程持仓/下单协调屏障失败: %w", err)
+		return failUnverified(fmt.Errorf("等待本进程持仓/下单协调屏障失败: %w", err))
 	}
 
 	// 使用阻塞鎖（Lock）而非 TryLock，确保對账一定執行
 	err = r.lock.Lock(ctx, lockKey, execution.PositionReconciliationLockTTL)
 	if err != nil {
-		if parent.Err() == nil {
-			r.pm.FailReconciliation(err)
-		}
 		unlockLocal()
-		return fmt.Errorf("获取持仓对账分布式锁失败，拒绝继续开仓: %w", err)
+		return failUnverified(fmt.Errorf("获取持仓对账分布式锁失败，拒绝继续开仓: %w", err))
 	}
 	stopRenew := lock.StartAutoRenew(r.lock, lockKey, execution.PositionReconciliationLockTTL, func(renewErr error) {
 		logger.Error("[%s] 持倉對账協調鎖續期失败: %v", exchangeName, renewErr)
@@ -222,7 +225,7 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	defer releaseCriticalSection()
 	releaseSubmissions, err = r.pm.BeginReconciliation(ctx)
 	if err != nil {
-		return fmt.Errorf("等待下单提交排空后開始對账失败: %w", err)
+		return failUnverified(fmt.Errorf("等待下单提交排空后開始對账失败: %w", err))
 	}
 	defer releaseSubmissions()
 
@@ -231,24 +234,24 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	// 1. 查詢交易所持倉資訊（使用通用接口）
 	positionsRaw, err := r.exchange.GetPositions(ctx, symbol)
 	if err != nil {
-		return fmt.Errorf("查詢持倉失败: %w", err)
+		return failUnverified(fmt.Errorf("查詢持倉失败: %w", err))
 	}
 	exchangePosition, err := parseExchangePositionSize(positionsRaw, symbol)
 	if err != nil {
-		return fmt.Errorf("核實交易所持倉响应失败: %w", err)
+		return failUnverified(fmt.Errorf("核實交易所持倉响应失败: %w", err))
 	}
 
 	// 2. 查詢所有挂單（使用通用接口）
 	openOrdersRaw, err := r.exchange.GetOpenOrders(ctx, symbol)
 	if err != nil {
-		return fmt.Errorf("查詢挂單失败: %w", err)
+		return failUnverified(fmt.Errorf("查詢挂單失败: %w", err))
 	}
 	exchangeOpenOrders, err := parseExchangeOpenOrders(openOrdersRaw)
 	if err != nil {
-		return fmt.Errorf("核實交易所挂單响应失败: %w", err)
+		return failUnverified(fmt.Errorf("核實交易所挂單响应失败: %w", err))
 	}
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("持倉對账协调锁已失效或操作已取消: %w", err)
+		return failUnverified(fmt.Errorf("持倉對账协调锁已失效或操作已取消: %w", err))
 	}
 
 	// 3. 解析持倉和挂單信息（通用处理）

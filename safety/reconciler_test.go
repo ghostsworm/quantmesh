@@ -410,6 +410,26 @@ func (m *rawPositionReconcileExchange) GetPositions(context.Context, string) (in
 	return m.raw, nil
 }
 
+type failingReconcileExchange struct {
+	MockReconcileExchange
+	positionsErr error
+	ordersErr    error
+}
+
+func (m *failingReconcileExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
+	if m.positionsErr != nil {
+		return nil, m.positionsErr
+	}
+	return m.MockReconcileExchange.GetPositions(ctx, symbol)
+}
+
+func (m *failingReconcileExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
+	if m.ordersErr != nil {
+		return nil, m.ordersErr
+	}
+	return m.MockReconcileExchange.GetOpenOrders(ctx, symbol)
+}
+
 func TestReconcilerRejectsUnverifiedPositionSnapshot(t *testing.T) {
 	tests := []struct {
 		name string
@@ -438,6 +458,9 @@ func TestReconcilerRejectsUnverifiedPositionSnapshot(t *testing.T) {
 			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
 			if err := r.Reconcile(); err == nil {
 				t.Fatal("Reconcile() succeeded with an unverified position snapshot")
+			}
+			if pm.FailReconcileErr == nil {
+				t.Fatal("unverified position snapshot did not engage the fail-closed gate")
 			}
 			if pm.ForceSyncCount != 0 {
 				t.Fatalf("unverified snapshot triggered ForceSyncPositions(%v)", pm.LastForceSync)
@@ -476,8 +499,36 @@ func TestReconcilerRejectsUnverifiedOpenOrderSnapshot(t *testing.T) {
 			if err := r.Reconcile(); err == nil {
 				t.Fatal("Reconcile() succeeded with an unverified open-order snapshot")
 			}
+			if pm.FailReconcileErr == nil {
+				t.Fatal("unverified open-order snapshot did not engage the fail-closed gate")
+			}
 			if pm.ForceSyncCount != 0 || pm.ReconcileCount != 0 {
 				t.Fatalf("unverified snapshot changed state: sync=%d reconcile=%d", pm.ForceSyncCount, pm.ReconcileCount)
+			}
+		})
+	}
+}
+
+func TestReconcilerFailsClosedOnVenueQueryErrors(t *testing.T) {
+	tests := []struct {
+		name  string
+		venue *failingReconcileExchange
+	}{
+		{name: "position query", venue: &failingReconcileExchange{positionsErr: errors.New("position API unavailable")}},
+		{name: "open-order query", venue: &failingReconcileExchange{ordersErr: errors.New("open-order API unavailable")}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "futures"
+			pm := &MockPositionManager{Symbol: "BTCUSDT"}
+			r := NewReconciler(cfg, test.venue, pm, lock.NewNopLock())
+			if err := r.ReconcileContext(context.Background()); err == nil {
+				t.Fatal("venue query error reported a successful reconciliation")
+			}
+			if pm.FailReconcileErr == nil || pm.ReconcileCount != 0 {
+				t.Fatalf("query failure did not retain fail-closed state: failure=%v reconciled=%d", pm.FailReconcileErr, pm.ReconcileCount)
 			}
 		})
 	}
