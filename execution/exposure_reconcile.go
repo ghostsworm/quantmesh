@@ -24,12 +24,13 @@ func (b *ExposureBook) ReconcileGroupPositions(group string, positions []Exposur
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if !b.initialized || !b.ready || b.reason != "" {
+	if !b.initialized || b.reason != "" {
 		return fmt.Errorf("exposure book is not eligible for inventory reconciliation: %w", ErrExposureUnverified)
 	}
 	for _, intent := range b.intents {
 		if intent.request.Group == group && (!intent.terminal || intent.unknown) {
-			return b.failLocked("cannot reconcile inventory with unresolved group orders")
+			b.ready = false
+			return fmt.Errorf("cannot reconcile inventory with unresolved group orders: %w", ErrExposureUnverified)
 		}
 	}
 
@@ -45,11 +46,12 @@ func (b *ExposureBook) ReconcileGroupPositions(group string, positions []Exposur
 	}
 	for _, key := range order {
 		if _, exists := nextLots[key]; exists {
+			b.ready = false
 			return fmt.Errorf("reconciled exposure lot conflicts with another group")
 		}
 		nextLots[key] = updated[key]
 		nextOrder = append(nextOrder, key)
 	}
-	b.lots, b.lotOrder = nextLots, nextOrder
+	b.lots, b.lotOrder, b.ready = nextLots, nextOrder, true
 	return nil
 }

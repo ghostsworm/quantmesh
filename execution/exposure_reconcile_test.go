@@ -42,4 +42,15 @@ func TestReconcileGroupPositionsRejectsUnresolvedOrdersAndBlocksOpening(t *testi
 	if err := b.Reserve(ExposureRequest{ID: "after", Group: "grid", Lot: "next", Leg: "LONG", Opening: true, Quantity: 0.1, Price: 100}, now); err == nil {
 		t.Fatal("failed inventory reconciliation left opening admission enabled")
 	}
+	if err := b.Observe("pending", ExposureUpdate{Status: "CANCELED", OrderQty: 1, Price: 100}); err != nil {
+		t.Fatalf("terminal cancellation report error = %v", err)
+	}
+	if err := b.ReconcileGroupPositions("grid", []ExposurePosition{
+		{Key: "grid:adopted", Group: "grid", Leg: "LONG", Quantity: 2},
+	}); err != nil {
+		t.Fatalf("verified follow-up reconciliation should restore readiness: %v", err)
+	}
+	if err := b.Reserve(ExposureRequest{ID: "recovered", Group: "grid", Lot: "next", Leg: "LONG", Opening: true, Quantity: 0.1, Price: 100}, now); err != nil {
+		t.Fatalf("verified reconciliation did not restore opening admission: %v", err)
+	}
 }
