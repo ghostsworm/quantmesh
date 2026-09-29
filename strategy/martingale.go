@@ -925,6 +925,11 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 
 	if s.isClosing && update.OrderID == s.closeOrderID {
+		if !finiteNumber(update.ExecutedQty) || update.ExecutedQty < 0 ||
+			(s.closeRequestedQty > 0 && update.ExecutedQty > s.closeRequestedQty+entryQtyEpsilon) {
+			s.requireMartingaleOrderReconciliation(update, "martingale close execution quantity is invalid or exceeds the requested amount")
+			return nil
+		}
 		terminal := signalOrderStatusFilled(update.Status) || signalOrderStatusTerminal(update.Status)
 		if signalOrderStatusFilled(update.Status) && update.ExecutedQty <= 0 {
 			return nil
@@ -940,8 +945,9 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		}
 		realizedDelta := 0.0
 		if update.ExecutedQty > s.closeProgress.Quantity {
-			if update.AvgPrice <= 0 {
+			if !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 {
 				// Do not reduce inventory or book PnL against an unverified price.
+				s.requireMartingaleOrderReconciliation(update, "martingale close execution price is invalid")
 				return nil
 			}
 			nextProgress := s.closeProgress
@@ -1030,11 +1036,18 @@ func (s *MartingaleStrategy) requireMartingaleOrderReconciliation(update *positi
 // handleEntryOrderUpdate 处理开倉/加倉單回報：按實際成交數量/均價計入持倉；未成交即終止则回滚（S3）
 func (s *MartingaleStrategy) handleEntryOrderUpdate(entry *MartingaleEntry, update *position.OrderUpdate) {
 	qty := update.ExecutedQty
+	if !finiteNumber(qty) || qty < 0 || (entry.RequestedQuantity > 0 && qty > entry.RequestedQuantity+entryQtyEpsilon) {
+		entry.Status = position.OrderStatusUnknown
+		s.requireMartingaleOrderReconciliation(update, "martingale entry execution quantity is invalid or exceeds the requested amount")
+		return
+	}
 	if qty < entry.FillProgress.Quantity || (signalOrderStatusFilled(update.Status) && qty <= 0) {
 		return
 	}
 	if qty > entry.FillProgress.Quantity {
-		if update.AvgPrice <= 0 {
+		if !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 {
+			entry.Status = position.OrderStatusUnknown
+			s.requireMartingaleOrderReconciliation(update, "martingale entry execution price is invalid")
 			return
 		}
 		nextProgress := entry.FillProgress
