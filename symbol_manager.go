@@ -426,6 +426,38 @@ func startSymbolRuntime(
 	if botID == "" {
 		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
 	}
+	var ownershipGate atomic.Pointer[execution.OpeningGate]
+	var ownershipExecutor atomic.Pointer[order.ExchangeOrderExecutor]
+	var ownershipRuntime atomic.Pointer[SymbolRuntime]
+	ownershipLease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, execution.IntentScope{
+		Account:  equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+		Exchange: strings.ToLower(strings.TrimSpace(symCfg.Exchange)),
+		Market:   strings.ToLower(strings.TrimSpace(symCfg.GetMarketType())),
+		Symbol:   strings.ToUpper(strings.TrimSpace(symCfg.Symbol)),
+		Bot:      botID,
+	}, runtimeOwnershipLeaseTTL, func(renewErr error) {
+		logger.ErrorCtx(ctx, "[%s] Bot 运行所有权租约续期失败，停止后续提交并封锁开仓: %v", botID, renewErr)
+		if gate := ownershipGate.Load(); gate != nil {
+			gate.Block("runtime_ownership_unverified")
+		}
+		if executor := ownershipExecutor.Load(); executor != nil {
+			executor.BeginShutdown()
+		}
+		if runtime := ownershipRuntime.Load(); runtime != nil {
+			runtime.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
+		}
+	})
+	if err != nil {
+		return nil, fmt.Errorf("Bot %s 无法取得唯一运行所有权: %w", botID, err)
+	}
+	ownershipLeaseTransferred := false
+	defer func() {
+		if !ownershipLeaseTransferred {
+			if releaseErr := ownershipLease.Release(); releaseErr != nil {
+				logger.WarnCtx(ctx, "[%s] 初始化失败后释放运行所有权租约: %v", botID, releaseErr)
+			}
+		}
+	}()
 	localCfg.Trading.BotID = botID
 	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol
@@ -472,7 +504,6 @@ func startSymbolRuntime(
 	// 創建交易所實例（根據交易對配置的市场類型：spot / futures）
 	// 如果之前创建了临时实例，重用它；否则创建新实例
 	var ex exchange.IExchange
-	var err error
 	if tempEx != nil {
 		ex = tempEx
 		logger.InfoCtx(ctx, "✅ [%s] 重用交易所實例 (symbol=%s)", ex.GetName(), symCfg.Symbol)
@@ -668,6 +699,12 @@ func startSymbolRuntime(
 		localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening = false
 	}
 	exchangeExecutor.SetOpeningGate(superPositionManager.OpeningGate(), localCfg.Trading.Direction)
+	ownershipGate.Store(superPositionManager.OpeningGate())
+	ownershipExecutor.Store(exchangeExecutor)
+	if ownershipLease.Lost() {
+		superPositionManager.OpeningGate().Block("runtime_ownership_unverified")
+		exchangeExecutor.BeginShutdown()
+	}
 	if capitalErr != nil {
 		superPositionManager.OpeningGate().Block("capital_balance_unverified")
 		logger.ErrorCtx(ctx, "🚨 [%s] Bot 資金上限无法核实，已封锁所有新開倉: %v", botID, capitalErr)
@@ -1625,6 +1662,10 @@ func startSymbolRuntime(
 		AccountMarketType:     symCfg.GetMarketType(),
 		verifiedCapitalBudget: botCapitalBudget,
 	}
+	ownershipRuntime.Store(rt)
+	if ownershipLease.Lost() {
+		rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
+	}
 	rt.ClampOpenControl = func(control config.OpenPositionControl) (config.OpenPositionControl, error) {
 		control = config.CloneOpenPositionControl(control)
 		if rt.verifiedCapitalBudget <= 0 {
@@ -1650,6 +1691,9 @@ func startSymbolRuntime(
 	stopFn := func() {
 		stopOnce.Do(func() {
 			sealRuntimeShutdown(rt)
+			if ownershipLease.Lost() {
+				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
+			}
 			stopFeeRefresh()
 			stopAutoRebuild()
 			protectiveSettled := true
@@ -1662,8 +1706,10 @@ func startSymbolRuntime(
 			}
 			liquidationStopCancel()
 			// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
-			if protectiveSettled {
+			if protectiveSettled && !ownershipLease.Lost() {
 				closeOnStopForRuntime(shutdownCtx, symCfg, rt)
+			} else if ownershipLease.Lost() {
+				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，停止时不执行独立平仓")
 			}
 			logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
 			if rt.OpeningController != nil {
@@ -1695,9 +1741,13 @@ func startSymbolRuntime(
 			if strategyManager != nil {
 				strategyManager.StopAll()
 			}
+			if releaseErr := ownershipLease.Release(); releaseErr != nil {
+				logger.WarnCtx(ctx, "[%s] 释放 Bot 运行所有权租约失败: %v", botID, releaseErr)
+			}
 		})
 	}
 	rt.Stop = stopFn
+	ownershipLeaseTransferred = true
 	dynamicOwnedByRuntime = true
 
 	return rt, nil
