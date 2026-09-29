@@ -385,6 +385,7 @@ func (w *binanceWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fu
 	return &FundingInfo{
 		Symbol:          info.Symbol,
 		Rate:            info.Rate,
+		FundingInterval: info.FundingInterval,
 		NextFundingTime: info.NextFundingTime,
 		MarkPrice:       info.MarkPrice,
 		IndexPrice:      info.IndexPrice,

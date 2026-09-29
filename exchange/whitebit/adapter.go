@@ -374,12 +374,12 @@ func (w *WhiteBITAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderR
 			}
 
 			bulkOrders = append(bulkOrders, BulkOrderRequest{
-				Side:         side,
-				Amount:       amount,
-				Price:        price,
-				Market:       w.market,
-				PostOnly:     orderReq.PostOnly,
-				IOC:          orderReq.TimeInForce == "IOC",
+				Side:          side,
+				Amount:        amount,
+				Price:         price,
+				Market:        w.market,
+				PostOnly:      orderReq.PostOnly,
+				IOC:           orderReq.TimeInForce == "IOC",
 				ClientOrderID: clientOrderID,
 			})
 		}
@@ -662,6 +662,7 @@ func (w *WhiteBITAdapter) GetPositions(ctx context.Context, symbol string) ([]*A
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -715,6 +716,7 @@ func (w *WhiteBITAdapter) GetFundingInfo(ctx context.Context, symbol string) (*F
 	return &FundingInfo{
 		Symbol:          out,
 		Rate:            rate,
+		FundingInterval: time.Duration(m.FundingIntervalMinutes) * time.Minute,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      idx,

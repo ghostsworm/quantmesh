@@ -323,6 +323,7 @@ func (w *whitebitWrapper) GetFundingInfo(ctx context.Context, symbol string) (*F
 	return &FundingInfo{
 		Symbol:          info.Symbol,
 		Rate:            info.Rate,
+		FundingInterval: info.FundingInterval,
 		NextFundingTime: info.NextFundingTime,
 		MarkPrice:       info.MarkPrice,
 		IndexPrice:      info.IndexPrice,

@@ -39,6 +39,35 @@ func TestFundingPerpSpreadOrderQuantityNeverExceedsPerLegNotional(t *testing.T) 
 	}
 }
 
+func TestNormalizeFundingRateToEightHours(t *testing.T) {
+	tests := []struct {
+		name    string
+		info    *exchange.FundingInfo
+		symbol  string
+		want    float64
+		wantErr bool
+	}{
+		{name: "eight hour", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0008, FundingInterval: 8 * time.Hour}, symbol: "BTCUSDT", want: 0.0008},
+		{name: "hourly normalized", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0001, FundingInterval: time.Hour}, symbol: "BTCUSDT", want: 0.0008},
+		{name: "negative hourly normalized", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: -0.0001, FundingInterval: time.Hour}, symbol: "BTCUSDT", want: -0.0008},
+		{name: "unknown interval", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0001}, symbol: "BTCUSDT", wantErr: true},
+		{name: "mismatched symbol", info: &exchange.FundingInfo{Symbol: "ETHUSDT", Rate: 0.0001, FundingInterval: time.Hour}, symbol: "BTCUSDT", wantErr: true},
+		{name: "non-finite rate", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: math.NaN(), FundingInterval: time.Hour}, symbol: "BTCUSDT", wantErr: true},
+		{name: "interval over one day", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0001, FundingInterval: 25 * time.Hour}, symbol: "BTCUSDT", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := normalizeFundingRateToEightHours(tc.info, tc.symbol)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("error = %v, wantErr %t", err, tc.wantErr)
+			}
+			if err == nil && math.Abs(got-tc.want) > 1e-12 {
+				t.Fatalf("normalized rate = %.12g, want %.12g", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestFundingPerpSpreadCarryDirectionFollowsCurrentFundingRanking(t *testing.T) {
 	tests := []struct {
 		name  string

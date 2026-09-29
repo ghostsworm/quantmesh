@@ -142,6 +142,7 @@ type ContractInfo struct {
 	OrderbookID       int64   `json:"orderbook_id"`        // 订單簿ID
 	TradeSize         float64 `json:"trade_size"`          // 最小交易张數
 	MarkPriceRound    string  `json:"mark_price_round"`    // 標記價格精度
+	FundingInterval   int64   `json:"funding_interval"`    // 資金費結算間隔（秒）
 }
 
 // FuturesAccount Gate.io 合約帳戶資訊

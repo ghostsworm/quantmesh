@@ -30,6 +30,9 @@ type GateAdapter struct {
 
 	posMode          string  // 持倉模式：dual_long_short 或 single
 	quantoMultiplier float64 // 合約乘數
+	fundingMu        sync.Mutex
+	fundingInterval  time.Duration
+	fundingCheckedAt time.Time
 	orderPriceRound  int     // 價格精度
 	orderSizeMin     float64 // 最小下單數量
 	volumePlace      int     // 數量小數位
@@ -151,6 +154,7 @@ func (g *GateAdapter) fetchContractInfo(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("獲取合約信息失败: %w", err)
 	}
+	g.setFundingInterval(contract.FundingInterval)
 
 	// 解析合約乘數
 	if contract.QuantoMultiplier != "" {
@@ -826,6 +830,7 @@ func (g *GateAdapter) GetFundingRate(ctx context.Context, symbol string) (float6
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -845,8 +850,44 @@ func gateEstimateNextFundingUTC8h(now time.Time) time.Time {
 	}
 }
 
+func (g *GateAdapter) setFundingInterval(seconds int64) {
+	g.fundingMu.Lock()
+	defer g.fundingMu.Unlock()
+	g.fundingCheckedAt = time.Now()
+	if seconds > 0 && seconds <= int64((24*time.Hour)/time.Second) {
+		g.fundingInterval = time.Duration(seconds) * time.Second
+		return
+	}
+	g.fundingInterval = 0
+}
+
+func (g *GateAdapter) currentFundingInterval(ctx context.Context) (time.Duration, error) {
+	g.fundingMu.Lock()
+	defer g.fundingMu.Unlock()
+	if g.fundingInterval > 0 && time.Since(g.fundingCheckedAt) < 5*time.Minute {
+		return g.fundingInterval, nil
+	}
+	contract, err := g.client.GetContract(ctx, g.settle, g.gateSymbol)
+	if err != nil {
+		g.fundingInterval = 0
+		g.fundingCheckedAt = time.Now()
+		return 0, fmt.Errorf("refresh Gate funding interval: %w", err)
+	}
+	g.fundingCheckedAt = time.Now()
+	if contract.FundingInterval <= 0 || contract.FundingInterval > int64((24*time.Hour)/time.Second) {
+		g.fundingInterval = 0
+		return 0, fmt.Errorf("Gate returned invalid funding interval: %d seconds", contract.FundingInterval)
+	}
+	g.fundingInterval = time.Duration(contract.FundingInterval) * time.Second
+	return g.fundingInterval, nil
+}
+
 // GetFundingInfo 從期貨 tickers 獲取資金費、下次結算時間與標記/指數價
 func (g *GateAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
+	interval, err := g.currentFundingInterval(ctx)
+	if err != nil {
+		return nil, err
+	}
 	gateSymbol := convertToGateSymbol(symbol)
 	path := fmt.Sprintf("/futures/%s/tickers", g.settle)
 	queryString := fmt.Sprintf("contract=%s", gateSymbol)
@@ -855,12 +896,12 @@ func (g *GateAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fundi
 		return nil, fmt.Errorf("獲取期貨 tickers 失败: %w", err)
 	}
 	var rows []struct {
-		Contract           string  `json:"contract"`
-		Last               string  `json:"last"`
-		FundingRate        string  `json:"funding_rate"`
-		FundingNextApply   float64 `json:"funding_next_apply"` // Unix 時間戳（秒，浮點）
-		MarkPrice          string  `json:"mark_price"`
-		IndexPrice         string  `json:"index_price"`
+		Contract         string  `json:"contract"`
+		Last             string  `json:"last"`
+		FundingRate      string  `json:"funding_rate"`
+		FundingNextApply float64 `json:"funding_next_apply"` // Unix 時間戳（秒，浮點）
+		MarkPrice        string  `json:"mark_price"`
+		IndexPrice       string  `json:"index_price"`
 	}
 	if err := json.Unmarshal(respBody, &rows); err != nil {
 		return nil, fmt.Errorf("解析 tickers 失败: %w", err)
@@ -888,6 +929,7 @@ func (g *GateAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fundi
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: interval,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      idx,

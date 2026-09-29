@@ -203,10 +203,11 @@ type OrderBook struct {
 
 // FundingInfo 資金費率詳細信息
 type FundingInfo struct {
-	Symbol          string    // 交易對
-	Rate            float64   // 當前資金費率
-	NextFundingTime time.Time // 下次結算時間
-	MarkPrice       float64   // 標記價格
-	IndexPrice      float64   // 指數價格
-	EstSettlePnl    float64   // 預估結算 PnL（可選）
+	Symbol          string        // 交易對
+	Rate            float64       // 當前資金費率
+	FundingInterval time.Duration // 該費率對應的資金費結算間隔；未知時為零
+	NextFundingTime time.Time     // 下次結算時間
+	MarkPrice       float64       // 標記價格
+	IndexPrice      float64       // 指數價格
+	EstSettlePnl    float64       // 預估結算 PnL（可選）
 }

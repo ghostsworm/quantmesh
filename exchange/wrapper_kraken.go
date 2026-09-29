@@ -269,6 +269,7 @@ func (w *krakenWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 	return &FundingInfo{
 		Symbol:          info.Symbol,
 		Rate:            info.Rate,
+		FundingInterval: info.FundingInterval,
 		NextFundingTime: info.NextFundingTime,
 		MarkPrice:       info.MarkPrice,
 		IndexPrice:      info.IndexPrice,

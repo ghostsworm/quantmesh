@@ -1535,6 +1535,7 @@ func normalizeIncomeRecord(row *futures.IncomeHistory, symbol, incomeType string
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -1555,6 +1556,20 @@ func (b *BinanceAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fu
 	}
 
 	pi := premiumIndexList[0]
+	interval := 8 * time.Hour // Binance USD-M 默认周期；fundingInfo 返回的调整周期优先覆盖。
+	intervals, err := b.client.NewFundingRateInfoService().Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("獲取 Binance 資金費週期失敗: %w", err)
+	}
+	for _, item := range intervals {
+		if item != nil && strings.EqualFold(item.Symbol, symbol) {
+			if item.FundingIntervalHours <= 0 || item.FundingIntervalHours > 24 {
+				return nil, fmt.Errorf("Binance 返回無效資金費週期 %d 小時: %s", item.FundingIntervalHours, symbol)
+			}
+			interval = time.Duration(item.FundingIntervalHours) * time.Hour
+			break
+		}
+	}
 
 	// 解析資金費率
 	rate, err := strconv.ParseFloat(pi.LastFundingRate, 64)
@@ -1580,6 +1595,7 @@ func (b *BinanceAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fu
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: interval,
 		NextFundingTime: nextFundingTime,
 		MarkPrice:       markPrice,
 		IndexPrice:      indexPrice,

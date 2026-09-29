@@ -415,6 +415,7 @@ func (a *Adapter) GetQuoteAsset() string {
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -439,6 +440,7 @@ func (a *Adapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingIn
 	return &FundingInfo{
 		Symbol:          out,
 		Rate:            t.FundingRate,
+		FundingInterval: time.Hour,
 		NextFundingTime: nextKrakenFundingUTC(time.Now().UTC()),
 		MarkPrice:       t.MarkPrice,
 		IndexPrice:      t.IndexPrice,

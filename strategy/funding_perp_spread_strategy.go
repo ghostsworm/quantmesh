@@ -471,13 +471,21 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
 	defer cancel()
 
-	rA, err := s.legA.GetFundingRate(ctx, s.symA)
+	infoA, err := s.legA.GetFundingInfo(ctx, s.symA)
 	if err != nil {
-		return fmt.Errorf("legA GetFundingRate: %w", err)
+		return fmt.Errorf("legA GetFundingInfo: %w", err)
 	}
-	rB, err := s.legB.GetFundingRate(ctx, s.symB)
+	infoB, err := s.legB.GetFundingInfo(ctx, s.symB)
 	if err != nil {
-		return fmt.Errorf("legB GetFundingRate: %w", err)
+		return fmt.Errorf("legB GetFundingInfo: %w", err)
+	}
+	rA, err := normalizeFundingRateToEightHours(infoA, s.symA)
+	if err != nil {
+		return fmt.Errorf("legA funding rate: %w", err)
+	}
+	rB, err := normalizeFundingRateToEightHours(infoB, s.symB)
+	if err != nil {
+		return fmt.Errorf("legB funding rate: %w", err)
 	}
 	spread := math.Abs(rA - rB)
 	if rA == rB {
@@ -547,6 +555,26 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 	}
 
 	return s.openSpread(ctx, shortEx, shortSym, longEx, longSym, pxA, pxB, rA, rB)
+}
+
+func normalizeFundingRateToEightHours(info *exchange.FundingInfo, symbol string) (float64, error) {
+	if info == nil {
+		return 0, fmt.Errorf("funding info is nil for %s", symbol)
+	}
+	if !strings.EqualFold(strings.TrimSpace(info.Symbol), strings.TrimSpace(symbol)) {
+		return 0, fmt.Errorf("funding info symbol mismatch: got %q, want %q", info.Symbol, symbol)
+	}
+	if info.FundingInterval <= 0 || info.FundingInterval > 24*time.Hour {
+		return 0, fmt.Errorf("unsupported or unknown funding interval for %s: %s", symbol, info.FundingInterval)
+	}
+	if math.IsNaN(info.Rate) || math.IsInf(info.Rate, 0) {
+		return 0, fmt.Errorf("non-finite funding rate for %s", symbol)
+	}
+	rate := info.Rate * float64(8*time.Hour) / float64(info.FundingInterval)
+	if math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0, fmt.Errorf("normalized funding rate is non-finite for %s", symbol)
+	}
+	return rate, nil
 }
 
 func fundingPerpSpreadCarryDirectionFavorable(posA, posB, rateA, rateB float64) bool {
