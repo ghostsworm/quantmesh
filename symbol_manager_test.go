@@ -2,12 +2,30 @@ package main
 
 import (
 	"context"
+	"errors"
+	"strings"
 	"testing"
 
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/exchange/binance"
 )
+
+func TestOrderStreamStartupErrorFailsClosedWithContext(t *testing.T) {
+	streamErr := errors.New("private stream unavailable")
+	wrapped := orderStreamStartupError("okx", "BTCUSDT", streamErr)
+	if !errors.Is(wrapped, streamErr) || !strings.Contains(wrapped.Error(), "okx:BTCUSDT") || !strings.Contains(wrapped.Error(), "拒絕啟動 Bot") {
+		t.Fatalf("unexpected fail-closed error: %v", wrapped)
+	}
+}
+
+func TestOrderStreamStartupErrorKeepsBinancePositionModeGuidance(t *testing.T) {
+	wrapped := orderStreamStartupError("binance", "BTCUSDT", binance.ErrHedgePositionMode)
+	if !errors.Is(wrapped, binance.ErrHedgePositionMode) || !strings.Contains(wrapped.Error(), "切換為單向持倉模式") {
+		t.Fatalf("unexpected Binance order-stream error: %v", wrapped)
+	}
+}
 
 func TestValidateLegacyFundingArbitrageReadiness(t *testing.T) {
 	tests := []struct {

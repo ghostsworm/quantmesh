@@ -133,6 +133,13 @@ func isOrderSkippedError(err error) bool {
 	return errors.Is(err, order.ErrLockNotAcquired)
 }
 
+func orderStreamStartupError(exchangeName, symbol string, err error) error {
+	if errors.Is(err, binance.ErrHedgePositionMode) {
+		return fmt.Errorf("啟動訂單流失败(%s:%s)，請將賬戶切換為單向持倉模式: %w", exchangeName, symbol, err)
+	}
+	return fmt.Errorf("啟動訂單流失败(%s:%s)，為避免無法核實成交而拒絕啟動 Bot: %w", exchangeName, symbol, err)
+}
+
 // logAdjustOrdersError 記錄 AdjustOrders 錯誤：鎖未取得按跳過處理（Debug），其餘按失敗處理（Error）
 func logAdjustOrdersError(ctx context.Context, symbol string, err error) {
 	if isOrderSkippedError(err) {
@@ -981,11 +988,8 @@ func startSymbolRuntime(
 		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
 	}); err != nil {
-		if errors.Is(err, binance.ErrHedgePositionMode) {
-			// 對沖（雙向）持倉模式下所有訂單都會被拒，繼續啟動只會空轉，直接中止
-			return nil, fmt.Errorf("啟動訂單流失败(%s:%s)，請將賬戶切換為單向持倉模式: %w", symCfg.Exchange, symCfg.Symbol, err)
-		}
-		logger.WarnCtx(ctx, "⚠️ [%s] 啟動訂單流失败: %v", symCfg.Symbol, err)
+		priceMonitor.Stop()
+		return nil, orderStreamStartupError(symCfg.Exchange, symCfg.Symbol, err)
 	}
 	if storageService != nil && (ex.GetMarketType() == "futures" || ex.GetMarketType() == "spot") {
 		type adapterGetter interface{ GetAdapter() interface{} }
