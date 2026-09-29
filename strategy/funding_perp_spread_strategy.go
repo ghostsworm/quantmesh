@@ -513,6 +513,10 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 			"message": "雙永续兩腿同向，請手動檢查", "pos_a": posA, "pos_b": posB,
 		})
 	}
+	if hasPos && !fundingPerpSpreadCarryDirectionFavorable(posA, posB, rA, rB) {
+		logger.Info("📉 [funding_perp_spread] 費率排序已不支持當前持倉方向，執行受管平倉")
+		return s.closeAll(ctx, "funding_direction_reversed")
+	}
 
 	if hasPos && spread < s.exitSpread {
 		logger.Info("📉 [funding_perp_spread] 價差 %.6f < 退出 %.6f，平倉", spread, s.exitSpread)
@@ -543,6 +547,17 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 	}
 
 	return s.openSpread(ctx, shortEx, shortSym, longEx, longSym, pxA, pxB, rA, rB)
+}
+
+func fundingPerpSpreadCarryDirectionFavorable(posA, posB, rateA, rateB float64) bool {
+	switch {
+	case posA < 0 && posB > 0:
+		return rateA >= rateB
+	case posA > 0 && posB < 0:
+		return rateB > rateA
+	default:
+		return false
+	}
 }
 
 func netFutSize(ctx context.Context, ex exchange.IExchange, sym string) (float64, error) {

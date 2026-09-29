@@ -39,6 +39,32 @@ func TestFundingPerpSpreadOrderQuantityNeverExceedsPerLegNotional(t *testing.T) 
 	}
 }
 
+func TestFundingPerpSpreadCarryDirectionFollowsCurrentFundingRanking(t *testing.T) {
+	tests := []struct {
+		name  string
+		posA  float64
+		posB  float64
+		rateA float64
+		rateB float64
+		want  bool
+	}{
+		{name: "short A positive rates favorable", posA: -1, posB: 1, rateA: 0.001, rateB: 0.0002, want: true},
+		{name: "short A negative rates favorable", posA: -1, posB: 1, rateA: -0.001, rateB: -0.002, want: true},
+		{name: "short A ranking reversed", posA: -1, posB: 1, rateA: 0.0001, rateB: 0.0008},
+		{name: "short B positive rates favorable", posA: 1, posB: -1, rateA: 0.0002, rateB: 0.001, want: true},
+		{name: "short B negative rates favorable", posA: 1, posB: -1, rateA: -0.002, rateB: -0.001, want: true},
+		{name: "short B ranking reversed", posA: 1, posB: -1, rateA: 0.0008, rateB: 0.0001},
+		{name: "unhedged is not favorable", posA: -1, rateA: 0.001, rateB: 0.0001},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fundingPerpSpreadCarryDirectionFavorable(tc.posA, tc.posB, tc.rateA, tc.rateB); got != tc.want {
+				t.Fatalf("favorable = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func (l *fundingSpreadCoordinationLock) Lock(ctx context.Context, key string, _ time.Duration) error {
 	if key == l.waitKey {
 		close(l.waitEntered)
