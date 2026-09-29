@@ -157,6 +157,27 @@ func validResolvedGridFeeRates(maker, taker float64) bool {
 		!math.IsNaN(taker) && !math.IsInf(taker, 0) && taker > 0 && taker <= 1
 }
 
+const (
+	gridFeeRateUnverifiedBlock = "grid_fee_rate_unverified"
+	gridFeeRateRetryInterval   = time.Minute
+)
+
+func gridFeeRatesRequired(cfg *config.Config) bool {
+	return cfg != nil && cfg.Trading.FeeAwareSpread.IsEnabled() && !config.ShouldSkipInitialGridAdjustOrders(cfg)
+}
+
+func supportsGridFeeRateAPI(symCfg config.SymbolConfig) bool {
+	if symCfg.GetMarketType() != "futures" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(symCfg.Exchange)) {
+	case "binance", "bitget":
+		return true
+	default:
+		return false
+	}
+}
+
 // gridFeeRateSource 網格費率來源（日誌用）
 const (
 	gridFeeRateSourceExchange = "exchange_api"
@@ -187,19 +208,45 @@ func applyGridFeeRates(ctx context.Context, cfg *config.Config, symCfg config.Sy
 	}
 	maker, taker, source := resolveGridFeeRates(cfg, symCfg, configFeeRate, cfg != nil && !cfg.Timing.SkipExchangeFeeOnBotStart)
 	if taker <= 0 {
-		logger.WarnCtx(ctx, "⚠️ [%s] 無可用手續費率，費率感知最小利差不生效", symCfg.Symbol)
+		if gridFeeRatesRequired(cfg) {
+			spm.OpeningGate().Block(gridFeeRateUnverifiedBlock)
+			logger.ErrorCtx(ctx, "🚨 [%s] 無法核實 maker 手續費率，已封鎖網格新開倉；請配置 exchanges.%s.fee_rate 或恢復交易所費率查詢", symCfg.Symbol, symCfg.Exchange)
+		} else {
+			spm.OpeningGate().Unblock(gridFeeRateUnverifiedBlock)
+			logger.WarnCtx(ctx, "⚠️ [%s] 無可用手續費率，費率感知最小利差不生效", symCfg.Symbol)
+		}
 		return
 	}
 	spm.SetFeeRates(maker, taker)
+	spm.OpeningGate().Unblock(gridFeeRateUnverifiedBlock)
 	logger.InfoCtx(ctx, "💳 [%s] 網格費率來源: %s (maker %.4f%% / taker %.4f%%)", symCfg.Symbol, source, maker*100, taker*100)
+}
+
+func refreshGridFeeRates(cfg *config.Config, symCfg config.SymbolConfig, configFeeRate float64, spm *position.SuperPositionManager) {
+	if spm == nil || cfg == nil {
+		return
+	}
+	maker, taker, _ := resolveGridFeeRates(cfg, symCfg, configFeeRate, true)
+	if taker <= 0 {
+		return
+	}
+	spm.SetFeeRates(maker, taker)
+	spm.OpeningGate().Unblock(gridFeeRateUnverifiedBlock)
 }
 
 // startGridFeeRateRefresh 按 timing.fee_rate_refresh_minutes 定期刷新倉位管理器費率；返回停止函數（可重複調用）
 func startGridFeeRateRefresh(ctx context.Context, cfg *config.Config, symCfg config.SymbolConfig, configFeeRate float64, spm *position.SuperPositionManager) func() {
-	if spm == nil || cfg == nil || cfg.Timing.FeeRateRefreshMinutes <= 0 {
+	if spm == nil || cfg == nil {
 		return func() {}
 	}
 	interval := time.Duration(cfg.Timing.FeeRateRefreshMinutes) * time.Minute
+	if interval <= 0 {
+		_, _, hasFees := spm.GetFeeRates()
+		if !gridFeeRatesRequired(cfg) || hasFees || !supportsGridFeeRateAPI(symCfg) {
+			return func() {}
+		}
+		interval = gridFeeRateRetryInterval
+	}
 	done := make(chan struct{})
 	var once sync.Once
 	go func() {
@@ -212,9 +259,7 @@ func startGridFeeRateRefresh(ctx context.Context, cfg *config.Config, symCfg con
 			case <-done:
 				return
 			case <-ticker.C:
-				if maker, taker, _ := resolveGridFeeRates(cfg, symCfg, configFeeRate, true); taker > 0 {
-					spm.SetFeeRates(maker, taker)
-				}
+				refreshGridFeeRates(cfg, symCfg, configFeeRate, spm)
 			}
 		}
 	}()

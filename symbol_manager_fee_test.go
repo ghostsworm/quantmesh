@@ -78,3 +78,46 @@ func TestApplyGridFeeRatesRespectsSkipFlag(t *testing.T) {
 	stop()
 	stop()
 }
+
+func TestGridOpeningWaitsForVerifiedFeeRate(t *testing.T) {
+	orig := fetchExchangeFeeRates
+	t.Cleanup(func() { fetchExchangeFeeRates = orig })
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "ETHUSDT"
+	spm := position.NewSuperPositionManager(cfg, nil, nil, 2, 3)
+	symCfg := config.SymbolConfig{Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}
+	fetchExchangeFeeRates = func(*config.Config, string, string) (float64, float64, error) {
+		return 0, 0, errors.New("temporary fee API failure")
+	}
+	applyGridFeeRates(t.Context(), cfg, symCfg, 0, spm)
+	if !spm.OpeningGate().HasBlock(gridFeeRateUnverifiedBlock) {
+		t.Fatal("grid openings must remain blocked while the enabled fee floor has no verified rate")
+	}
+
+	fetchExchangeFeeRates = func(*config.Config, string, string) (float64, float64, error) {
+		return 0.0002, 0.0005, nil
+	}
+	refreshGridFeeRates(cfg, symCfg, 0, spm)
+	if spm.OpeningGate().HasBlock(gridFeeRateUnverifiedBlock) {
+		t.Fatal("verified exchange fee rates must release only the fee-rate hold")
+	}
+	if maker, taker, ok := spm.GetFeeRates(); !ok || maker != 0.0002 || taker != 0.0005 {
+		t.Fatalf("refreshed fees = %v %v %v", maker, taker, ok)
+	}
+}
+
+func TestDisabledFeeAwareSpreadDoesNotRequireFeeRate(t *testing.T) {
+	orig := fetchExchangeFeeRates
+	t.Cleanup(func() { fetchExchangeFeeRates = orig })
+	fetchExchangeFeeRates = func(*config.Config, string, string) (float64, float64, error) {
+		return 0, 0, errors.New("fee API unavailable")
+	}
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "ETHUSDT"
+	cfg.Trading.FeeAwareSpread.Enabled = config.BoolPtr(false)
+	spm := position.NewSuperPositionManager(cfg, nil, nil, 2, 3)
+	applyGridFeeRates(t.Context(), cfg, config.SymbolConfig{Exchange: "other", Symbol: "ETHUSDT", MarketType: "futures"}, 0, spm)
+	if spm.OpeningGate().HasBlock(gridFeeRateUnverifiedBlock) {
+		t.Fatal("explicitly disabling fee-aware spread must not create a fee-rate opening hold")
+	}
+}
