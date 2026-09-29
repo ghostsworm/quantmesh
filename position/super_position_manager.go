@@ -697,6 +697,20 @@ func (spm *SuperPositionManager) CompleteReconciliation() {
 	// callback, reached after the reconciler validates positions, orders, and
 	// execution intents, may release that hold.
 	spm.openingGate.Unblock("grid_runtime_state_reconciliation")
+	if spm.openingGate.HasBlock("grid_runtime_state_unverified") {
+		spm.gridRuntimeStateMu.RLock()
+		hasStore := spm.gridRuntimeStateStore != nil
+		spm.gridRuntimeStateMu.RUnlock()
+		if !hasStore {
+			logger.Error("[%s] 核账已完成，但网格运行态存储不可用；保留持久化失败门控", spm.logPrefix())
+			return
+		}
+		if err := spm.PersistGridRuntimeState(); err != nil {
+			logger.Error("[%s] 核账已完成，但无法持久化已核实网格运行态；保留门控: %v", spm.logPrefix(), err)
+			return
+		}
+		spm.openingGate.Unblock("grid_runtime_state_unverified")
+	}
 }
 
 // GetOpeningPauseReason 獲取開倉暫停原因

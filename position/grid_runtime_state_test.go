@@ -120,6 +120,30 @@ func TestCompleteReconciliationClearsOnlyVerifiedRuntimeRestoreHold(t *testing.T
 	}
 }
 
+func TestCompleteReconciliationPersistsBeforeClearingRuntimeStateFailureHold(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-persist-recovery"
+	spm.setAnchorPrice(100)
+	store := &gridRuntimeStateTestStore{err: errors.New("temporary storage failure")}
+	spm.SetGridRuntimeStateStore(store)
+	spm.OpeningGate().Block("grid_runtime_state_unverified")
+	spm.OpeningGate().Block("unknown_orders")
+
+	spm.CompleteReconciliation()
+	if !spm.OpeningGate().HasBlock("grid_runtime_state_unverified") {
+		t.Fatal("runtime-state persistence failure hold cleared despite failed durable checkpoint")
+	}
+
+	store.err = nil
+	spm.CompleteReconciliation()
+	if spm.OpeningGate().HasBlock("grid_runtime_state_unverified") || !store.found {
+		t.Fatal("runtime-state hold did not clear after a successful durable checkpoint")
+	}
+	if !spm.OpeningGate().HasBlock("unknown_orders") {
+		t.Fatal("durable checkpoint cleared unrelated UNKNOWN-order hold")
+	}
+}
+
 func TestRestoreGridRuntimeStateMigratesUnprovenLegacyCostBasis(t *testing.T) {
 	spm, _ := newStateTestSPM("LONG", "futures")
 	spm.botID = "bot-migrate"
