@@ -222,6 +222,39 @@ func (c *Client) GetOrderByClientOrderID(ctx context.Context, settle, clientOrde
 	return c.GetOrder(ctx, settle, clientOrderID)
 }
 
+// GetMyFuturesTrades returns all executions for one futures order, paging until exhaustion.
+func (c *Client) GetMyFuturesTrades(ctx context.Context, settle, contract string, orderID int64) ([]FuturesTrade, error) {
+	if settle == "" || contract == "" || orderID <= 0 {
+		return nil, fmt.Errorf("settle, contract and positive order ID are required")
+	}
+	const pageSize = 1000
+	const maxPages = 100
+	path := fmt.Sprintf("/futures/%s/my_trades", settle)
+	trades := make([]FuturesTrade, 0)
+	for page := 0; page < maxPages; page++ {
+		offset := page * pageSize
+		query := fmt.Sprintf("contract=%s&limit=%d&offset=%d&order=%d", contract, pageSize, offset, orderID)
+		body, err := c.DoRequest(ctx, http.MethodGet, path, query, nil)
+		if err != nil {
+			return nil, err
+		}
+		var rows []FuturesTrade
+		if err := json.Unmarshal(body, &rows); err != nil {
+			return nil, fmt.Errorf("parse Gate futures trades for order %d: %w", orderID, err)
+		}
+		for _, row := range rows {
+			if row.OrderID != strconv.FormatInt(orderID, 10) || row.Contract != contract {
+				return nil, fmt.Errorf("Gate futures trade identity mismatch for order %d", orderID)
+			}
+		}
+		trades = append(trades, rows...)
+		if len(rows) < pageSize {
+			return trades, nil
+		}
+	}
+	return nil, fmt.Errorf("Gate futures trade history for order %d exceeded %d pages", orderID, maxPages)
+}
+
 // BatchCancelOrders 批量取消訂單
 // POST /futures/{settle}/batch_cancel_orders
 // 一次最多撤销20個订單

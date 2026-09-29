@@ -67,7 +67,7 @@ func TestGateClientGetOrderByClientOrderID(t *testing.T) {
 		if r.Method != http.MethodGet || r.URL.Path != "/futures/usdt/orders/t-close-1" {
 			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
 		}
-		_, _ = w.Write([]byte(`{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3,"fill_size":2,"price":"60000","fill_price":"59990"}`))
+		_, _ = w.Write([]byte(`{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","finish_as":"cancelled","size":"-3","left":"-1","price":"60000","fill_price":"59990"}`))
 	})
 	defer closeServer()
 
@@ -80,22 +80,63 @@ func TestGateClientGetOrderByClientOrderID(t *testing.T) {
 	}
 }
 
+func TestGateClientGetMyFuturesTradesPagesByOrder(t *testing.T) {
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/futures/usdt/my_trades" || r.URL.Query().Get("contract") != "BTC_USDT" ||
+			r.URL.Query().Get("order") != "17" || r.URL.Query().Get("limit") != "1000" || r.URL.Query().Get("offset") != "0" {
+			t.Fatalf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`[{"id":91,"create_time":1700000000.25,"contract":"BTC_USDT","order_id":"17","size":"-2","price":"59990","text":"t-close-1","fee":"0.01","role":"maker"}]`))
+	})
+	defer closeServer()
+
+	trades, err := client.GetMyFuturesTrades(context.Background(), "usdt", "BTC_USDT", 17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trades) != 1 || trades[0].ID != 91 || trades[0].OrderID != "17" || trades[0].Size != "-2" {
+		t.Fatalf("unexpected trades: %#v", trades)
+	}
+}
+
+func TestGateAdapterGetOrderFillsConvertsContractsAndFee(t *testing.T) {
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/futures/usdt/my_trades" || r.URL.Query().Get("order") != "17" {
+			t.Fatalf("unexpected request: %s?%s", r.URL.Path, r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`[{"id":91,"create_time":1700000000.25,"contract":"BTC_USDT","order_id":"17","size":"-2","price":"59990","text":"t-close-1","fee":"0.01","role":"maker"}]`))
+	})
+	defer closeServer()
+	adapter := &GateAdapter{client: client, symbol: "BTCUSDT", gateSymbol: "BTC_USDT", settle: "usdt", quantoMultiplier: 0.01}
+
+	fills, err := adapter.GetOrderFills(context.Background(), "BTCUSDT", 17)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fills) != 1 || fills[0].TradeID != "91" || fills[0].Side != SideSell ||
+		fills[0].Quantity != 0.02 || fills[0].Price != 59990 || fills[0].Commission != 0.01 ||
+		fills[0].CommissionAsset != "USDT" || fills[0].TradeTime != 1700000000250 {
+		t.Fatalf("unexpected converted fills: %#v", fills)
+	}
+}
+
 func TestGateAdapterGetOrderByClientOrderIDValidatesIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name, response string
 		wantErr        bool
 	}{
-		{"exact identity", `{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3,"fill_size":2,"price":"60000","fill_price":"59990"}`, false},
+		{"exact identity", `{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","finish_as":"cancelled","size":"-3","left":"-1","price":"60000","fill_price":"59990"}`, false},
 		{"wrong text", `{"id":17,"contract":"BTC_USDT","text":"t-other","status":"finished","size":-3}`, true},
 		{"wrong contract", `{"id":17,"contract":"ETH_USDT","text":"t-close-1","status":"finished","size":-3}`, true},
 		{"missing native ID", `{"id":0,"contract":"BTC_USDT","text":"t-close-1","status":"finished","size":-3}`, true},
+		{"missing remaining quantity", `{"id":17,"contract":"BTC_USDT","text":"t-close-1","status":"finished","finish_as":"filled","size":"-3"}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
 				_, _ = w.Write([]byte(tc.response))
 			})
 			defer closeServer()
-			adapter := &GateAdapter{client: client, symbol: "BTCUSDT", gateSymbol: "BTC_USDT", settle: "usdt"}
+			adapter := &GateAdapter{client: client, symbol: "BTCUSDT", gateSymbol: "BTC_USDT", settle: "usdt", quantoMultiplier: 0.01}
 			order, err := adapter.GetOrderByClientOrderID(context.Background(), "BTCUSDT", "close-1")
 			if tc.wantErr {
 				if err == nil {
@@ -106,10 +147,82 @@ func TestGateAdapterGetOrderByClientOrderIDValidatesIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if order.OrderID != 17 || order.ClientOrderID != "t-close-1" || order.ExecutedQty != 2 || order.AvgPrice != 59990 {
+			if order.OrderID != 17 || order.ClientOrderID != "t-close-1" || order.Quantity != 0.03 || order.ExecutedQty != 0.02 || order.AvgPrice != 59990 || order.Status != "CANCELED" {
 				t.Fatalf("unexpected converted order: %#v", order)
 			}
 		})
+	}
+}
+
+func TestFuturesOrderUnmarshalDerivesExecutedContractsFromLeft(t *testing.T) {
+	tests := []struct {
+		name, data string
+		want       int64
+		known      bool
+		wantErr    bool
+	}{
+		{"documented string fields", `{"size":"-5","left":"-2"}`, 3, true, false},
+		{"numeric fields", `{"size":5,"left":2}`, 3, true, false},
+		{"positive remaining on sell", `{"size":"-5","left":"2"}`, 3, true, false},
+		{"missing left", `{"size":"5"}`, 0, false, false},
+		{"remaining exceeds size", `{"size":"2","left":"3"}`, 0, false, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var order FuturesOrder
+			err := json.Unmarshal([]byte(tc.data), &order)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected inconsistent quantity error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if order.FillSize != tc.want || order.LeftKnown != tc.known {
+				t.Fatalf("FillSize=%d LeftKnown=%v; want %d, %v", order.FillSize, order.LeftKnown, tc.want, tc.known)
+			}
+		})
+	}
+}
+
+func TestConvertRecoveryOrderStatusUsesFinishReason(t *testing.T) {
+	tests := []struct {
+		status, finishAs string
+		fillSize         int64
+		want             OrderStatus
+		wantErr          bool
+	}{
+		{"open", "", 0, "NEW", false},
+		{"open", "", 1, "PARTIALLY_FILLED", false},
+		{"finished", "filled", 3, "FILLED", false},
+		{"finished", "cancelled", 1, "CANCELED", false},
+		{"finished", "ioc", 1, "CANCELED", false},
+		{"finished", "", 0, "", true},
+		{"unknown", "", 0, "", true},
+	}
+	for _, tc := range tests {
+		got, err := convertRecoveryOrderStatus(tc.status, tc.finishAs, tc.fillSize)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("convertRecoveryOrderStatus(%q, %q, %d) expected error", tc.status, tc.finishAs, tc.fillSize)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("convertRecoveryOrderStatus(%q, %q, %d) = %q, %v; want %q", tc.status, tc.finishAs, tc.fillSize, got, err, tc.want)
+		}
+	}
+}
+
+func TestGateAdapterRecoveryRejectsNonUSDTSettlement(t *testing.T) {
+	adapter := &GateAdapter{symbol: "BTCUSD", settle: "btc"}
+	if _, err := adapter.GetOrderByClientOrderID(context.Background(), "BTCUSD", "close-1"); err == nil {
+		t.Fatal("expected non-USDT order recovery to fail closed")
+	}
+	if _, err := adapter.GetOrderFills(context.Background(), "BTCUSD", 17); err == nil {
+		t.Fatal("expected non-USDT fill recovery to fail closed")
 	}
 }
 

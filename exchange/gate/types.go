@@ -1,6 +1,13 @@
 package gate
 
-import "time"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"math"
+	"strconv"
+	"time"
+)
 
 // 為了避免循環匯入，在这里定义需要的接口和類型
 // 这些類型应該與 exchange/types.go 中的定义保持一致
@@ -195,17 +202,18 @@ type FuturesPosition struct {
 
 // FuturesOrder Gate.io 合約订單
 type FuturesOrder struct {
-	ID            int64   `json:"id"`             // 订單ID
-	User          int64   `json:"user"`           // 用戶ID
-	Contract      string  `json:"contract"`       // 合約名称
-	CreateTime    float64 `json:"create_time"`    // 創建時间（秒级時间戳）
-	FinishTime    float64 `json:"finish_time"`    // 完成時间
-	FinishAs      string  `json:"finish_as"`      // 完成類型 filled/cancelled/liquidated/ioc/auto_deleveraged/reduce_only/position_closed
-	Status        string  `json:"status"`         // 订單状態 open/finished
-	Size          int64   `json:"size"`           // 订單數量（正數買入，负數賣出）
-	Price         string  `json:"price"`          // 委托價格（0表示市價）
-	FillPrice     string  `json:"fill_price"`     // 成交均價
-	Left          int64   `json:"left"`           // 未成交數量
+	ID            int64   `json:"id"`          // 订單ID
+	User          int64   `json:"user"`        // 用戶ID
+	Contract      string  `json:"contract"`    // 合約名称
+	CreateTime    float64 `json:"create_time"` // 創建時间（秒级時间戳）
+	FinishTime    float64 `json:"finish_time"` // 完成時间
+	FinishAs      string  `json:"finish_as"`   // 完成類型 filled/cancelled/liquidated/ioc/auto_deleveraged/reduce_only/position_closed
+	Status        string  `json:"status"`      // 订單状態 open/finished
+	Size          int64   `json:"size"`        // 订單數量（正數買入，负數賣出）
+	Price         string  `json:"price"`       // 委托價格（0表示市價）
+	FillPrice     string  `json:"fill_price"`  // 成交均價
+	Left          int64   `json:"left"`        // 未成交數量
+	LeftKnown     bool    `json:"-"`
 	Text          string  `json:"text"`           // 用戶自定义信息
 	Tif           string  `json:"tif"`            // Time in force: gtc/ioc/poc
 	IsLiq         bool    `json:"is_liq"`         // 是否强平單
@@ -219,6 +227,100 @@ type FuturesOrder struct {
 	FillSize      int64   `json:"fill_size"`      // 已成交數量
 	RealisedPnl   string  `json:"realised_pnl"`   // 已實現盈亏
 	RealisedPoint string  `json:"realised_point"` // 已實現点卡收益
+}
+
+func (o *FuturesOrder) UnmarshalJSON(data []byte) error {
+	type futuresOrderAlias FuturesOrder
+	var wire struct {
+		*futuresOrderAlias
+		Size     json.RawMessage `json:"size"`
+		Left     json.RawMessage `json:"left"`
+		FillSize json.RawMessage `json:"fill_size"`
+	}
+	wire.futuresOrderAlias = (*futuresOrderAlias)(o)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	parseInt := func(field string, raw json.RawMessage) (int64, bool, error) {
+		if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+			return 0, false, nil
+		}
+		value := string(raw)
+		if raw[0] == '"' {
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return 0, false, fmt.Errorf("decode Gate order %s: %w", field, err)
+			}
+		}
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return 0, false, fmt.Errorf("parse Gate order %s: %w", field, err)
+		}
+		return parsed, true, nil
+	}
+	var err error
+	if o.Size, _, err = parseInt("size", wire.Size); err != nil {
+		return err
+	}
+	if o.Left, o.LeftKnown, err = parseInt("left", wire.Left); err != nil {
+		return err
+	}
+	if o.FillSize, _, err = parseInt("fill_size", wire.FillSize); err != nil {
+		return err
+	}
+	if o.LeftKnown {
+		executed, err := gateExecutedContracts(o.Size, o.Left)
+		if err != nil {
+			return err
+		}
+		if len(wire.FillSize) > 0 && o.FillSize != executed {
+			return fmt.Errorf("Gate order fill_size conflicts with size-left execution")
+		}
+		o.FillSize = executed
+	}
+	return nil
+}
+
+func gateExecutedContracts(size, left int64) (int64, error) {
+	if size == 0 {
+		return 0, fmt.Errorf("Gate recovery order size is zero")
+	}
+	magnitude := func(value int64) uint64 {
+		if value >= 0 {
+			return uint64(value)
+		}
+		return uint64(-(value + 1)) + 1
+	}
+	sizeAbs, leftAbs := magnitude(size), magnitude(left)
+	if leftAbs > sizeAbs || sizeAbs-leftAbs > math.MaxInt64 {
+		return 0, fmt.Errorf("Gate recovery order left quantity is inconsistent with size")
+	}
+	return int64(sizeAbs - leftAbs), nil
+}
+
+// FuturesTrade represents one authenticated futures execution returned by my_trades.
+type FuturesTrade struct {
+	ID         int64   `json:"id"`
+	CreateTime float64 `json:"create_time"`
+	Contract   string  `json:"contract"`
+	OrderID    string  `json:"order_id"`
+	Size       string  `json:"size"`
+	Price      string  `json:"price"`
+	Text       string  `json:"text"`
+	Fee        string  `json:"fee"`
+	Role       string  `json:"role"`
+}
+
+type OrderFill struct {
+	OrderID         int64
+	TradeID         string
+	Symbol          string
+	Side            Side
+	Price           float64
+	Quantity        float64
+	Commission      float64
+	CommissionAsset string
+	TradeTime       int64
+	IsMaker         bool
 }
 
 // WSRequest WebSocket 请求結構

@@ -447,7 +447,7 @@ func (g *GateAdapter) GetOrder(ctx context.Context, symbol string, orderID int64
 
 // GetOrderByClientOrderID 查询含终态的合约订单，供提交结果不明时恢复使用。
 func (g *GateAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
-	if symbol != g.symbol || clientOrderID == "" {
+	if symbol != g.symbol || clientOrderID == "" || !strings.EqualFold(g.settle, "usdt") {
 		return nil, fmt.Errorf("invalid Gate order lookup identity: symbol=%q", symbol)
 	}
 	gateClientOrderID := utils.AddBrokerPrefix("gate", clientOrderID)
@@ -458,11 +458,30 @@ func (g *GateAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clien
 	if futuresOrder.Text != gateClientOrderID || futuresOrder.Contract != g.gateSymbol || futuresOrder.ID <= 0 {
 		return nil, fmt.Errorf("Gate order lookup identity mismatch for client order ID %q", clientOrderID)
 	}
+	if !futuresOrder.LeftKnown {
+		return nil, fmt.Errorf("Gate order %d omitted its remaining quantity", futuresOrder.ID)
+	}
+	quantity, err := gateBaseQuantityFromContracts(futuresOrder.Size, g.quantoMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	executedQuantity, err := gateBaseQuantityFromContracts(futuresOrder.FillSize, g.quantoMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	status, err := convertRecoveryOrderStatus(futuresOrder.Status, futuresOrder.FinishAs, futuresOrder.FillSize)
+	if err != nil {
+		return nil, err
+	}
+	if futuresOrder.Size == 0 || futuresOrder.FillSize < 0 || abs(quantity) < abs(executedQuantity) ||
+		status == "FILLED" && abs(quantity)-abs(executedQuantity) > math.Max(1e-12, abs(quantity)*1e-9) {
+		return nil, fmt.Errorf("Gate order %d has inconsistent requested and executed quantities", futuresOrder.ID)
+	}
 	order := &Order{
 		OrderID: futuresOrder.ID, ClientOrderID: futuresOrder.Text, Symbol: g.symbol,
 		Side: convertSide(float64(futuresOrder.Size)), Type: OrderTypeLimit,
-		Quantity: abs(float64(futuresOrder.Size)), ExecutedQty: abs(float64(futuresOrder.FillSize)),
-		Status: convertStatus(futuresOrder.Status), CreatedAt: time.Unix(int64(futuresOrder.CreateTime), 0),
+		Quantity: abs(quantity), ExecutedQty: abs(executedQuantity),
+		Status: status, CreatedAt: time.Unix(int64(futuresOrder.CreateTime), 0),
 		UpdateTime: int64(futuresOrder.FinishTime * 1000),
 	}
 	if futuresOrder.Price != "" {
@@ -472,6 +491,66 @@ func (g *GateAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clien
 		order.AvgPrice, _ = strconv.ParseFloat(futuresOrder.FillPrice, 64)
 	}
 	return order, nil
+}
+
+func convertRecoveryOrderStatus(status, finishAs string, fillSize int64) (OrderStatus, error) {
+	if status == "open" {
+		if fillSize > 0 {
+			return "PARTIALLY_FILLED", nil
+		}
+		return "NEW", nil
+	}
+	if status != "finished" {
+		return "", fmt.Errorf("unrecognized Gate order status %q", status)
+	}
+	switch finishAs {
+	case "filled":
+		return "FILLED", nil
+	case "cancelled", "liquidated", "ioc", "auto_deleveraged", "reduce_only", "position_closed", "reduce_out", "stp":
+		return "CANCELED", nil
+	default:
+		return "", fmt.Errorf("unrecognized Gate order finish reason %q", finishAs)
+	}
+}
+
+// GetOrderFills returns verified fills for durable order reconciliation.
+func (g *GateAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]OrderFill, error) {
+	if symbol != g.symbol || orderID <= 0 || !strings.EqualFold(g.settle, "usdt") {
+		return nil, fmt.Errorf("invalid Gate fill lookup identity: symbol=%q order_id=%d", symbol, orderID)
+	}
+	trades, err := g.client.GetMyFuturesTrades(ctx, g.settle, g.gateSymbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]OrderFill, 0, len(trades))
+	for _, trade := range trades {
+		tradeID := strconv.FormatInt(trade.ID, 10)
+		contracts, sizeErr := strconv.ParseInt(trade.Size, 10, 64)
+		price, priceErr := strconv.ParseFloat(trade.Price, 64)
+		fee, feeErr := strconv.ParseFloat(trade.Fee, 64)
+		if trade.ID <= 0 || sizeErr != nil || contracts == 0 || priceErr != nil || price <= 0 || feeErr != nil ||
+			math.IsNaN(fee) || math.IsInf(fee, 0) || trade.CreateTime <= 0 || math.IsNaN(trade.CreateTime) || math.IsInf(trade.CreateTime, 0) {
+			return nil, fmt.Errorf("Gate returned invalid fill data for order %d trade %q", orderID, tradeID)
+		}
+		quantity, err := gateBaseQuantityFromContracts(int64(contracts), g.quantoMultiplier)
+		if err != nil {
+			return nil, fmt.Errorf("Gate returned unconvertible fill quantity for order %d trade %q: %w", orderID, tradeID, err)
+		}
+		quantity = math.Abs(quantity)
+		if quantity <= 0 {
+			return nil, fmt.Errorf("Gate returned zero fill quantity for order %d trade %q", orderID, tradeID)
+		}
+		side := SideBuy
+		if contracts < 0 {
+			side = SideSell
+		}
+		fills = append(fills, OrderFill{
+			OrderID: orderID, TradeID: tradeID, Symbol: symbol, Side: side, Price: price,
+			Quantity: quantity, Commission: fee, CommissionAsset: strings.ToUpper(g.settle),
+			TradeTime: int64(trade.CreateTime * 1000), IsMaker: trade.Role == "maker",
+		})
+	}
+	return fills, nil
 }
 
 // GetOpenOrders 查詢未完成订單
