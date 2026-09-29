@@ -9,6 +9,8 @@ import (
 	"quantmesh/logger"
 )
 
+var _ OrderByClientIDQuerier = (*okxSpotWrapper)(nil)
+
 // okxSpotWrapper 包装 OKX 現貨适配器以實現 IExchange 接口
 type okxSpotWrapper struct {
 	adapter *okx.OKXSpotAdapter
@@ -85,6 +87,14 @@ func (w *okxSpotWrapper) GetOrder(ctx context.Context, symbol string, orderID in
 		return nil, err
 	}
 	return fromOKXOrder(ord)
+}
+
+func (w *okxSpotWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
+		return nil, err
+	}
+	return fromOKXOrder(order)
 }
 
 func (w *okxSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {

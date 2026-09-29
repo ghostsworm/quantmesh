@@ -420,6 +420,16 @@ func (c *CoinsphSpotAdapter) GetOrder(ctx context.Context, symbol string, orderI
 	return c.convertOrderInfoToOrder(orderInfo, symbol), nil
 }
 
+// GetOrderByClientOrderID 按原始客戶端訂單 ID 查詢現貨訂單。
+func (c *CoinsphSpotAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	clientOrderID = utils.AddBrokerPrefix("coinsph", clientOrderID)
+	info, err := c.client.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	return c.convertOrderInfoToOrder(info, symbol), nil
+}
+
 // convertOrderInfoToOrder 轉换OrderInfo為Order
 func (c *CoinsphSpotAdapter) convertOrderInfoToOrder(info *OrderInfo, symbol string) *Order {
 	price, _ := strconv.ParseFloat(info.Price, 64)

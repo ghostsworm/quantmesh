@@ -149,6 +149,14 @@ func (w *okxWrapper) GetOrder(ctx context.Context, symbol string, orderID int64)
 	return fromOKXOrder(order)
 }
 
+func (w *okxWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
+		return nil, err
+	}
+	return fromOKXOrder(order)
+}
+
 // GetOpenOrders 查詢未完成订單
 func (w *okxWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := w.adapter.GetOpenOrders(ctx, symbol)
@@ -167,6 +175,8 @@ func (w *okxWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order
 
 	return result, nil
 }
+
+var _ OrderByClientIDQuerier = (*okxWrapper)(nil)
 
 // GetAccount 獲取帳戶信息
 func (w *okxWrapper) GetAccount(ctx context.Context) (*Account, error) {

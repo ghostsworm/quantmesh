@@ -539,6 +539,16 @@ func (b *BybitAdapter) GetOrder(ctx context.Context, symbol string, orderID int6
 	return b.convertOrder(order), nil
 }
 
+// GetOrderByClientOrderID queries Bybit's order-history endpoint, which includes terminal orders.
+func (b *BybitAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	clientOrderID = utils.AddBrokerPrefix("bybit", clientOrderID)
+	order, err := b.client.GetOrderHistoryByClientID(ctx, bybitCategoryLinear, symbol, clientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	return b.convertOrder(order), nil
+}
+
 // GetOpenOrders 查詢未完成订單
 func (b *BybitAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := b.client.GetOpenOrders(ctx, "linear", symbol)

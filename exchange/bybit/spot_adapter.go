@@ -348,6 +348,16 @@ func (b *BybitSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID 
 	return b.convertOrder(order), nil
 }
 
+// GetOrderByClientOrderID queries Bybit's spot order history by orderLinkId.
+func (b *BybitSpotAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	clientOrderID = utils.AddBrokerPrefix("bybit", clientOrderID)
+	order, err := b.client.GetOrderHistoryByClientID(ctx, bybitCategorySpot, b.symbol, clientOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 現貨按客戶端訂單 ID 查單失敗(symbol=%s): %w", b.symbol, err)
+	}
+	return b.convertOrder(order), nil
+}
+
 // GetOpenOrders 未完成订單
 func (b *BybitSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := b.client.GetOpenOrders(ctx, bybitCategorySpot, b.symbol)

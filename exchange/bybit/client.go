@@ -280,6 +280,35 @@ func (c *BybitClient) GetOrder(ctx context.Context, category, symbol, orderId, o
 	return &result.List[0], nil
 }
 
+// GetOrderHistoryByClientID queries terminal and recent orders by orderLinkId.
+func (c *BybitClient) GetOrderHistoryByClientID(ctx context.Context, category, symbol, orderLinkID string) (*BybitOrder, error) {
+	params := map[string]interface{}{"category": category, "symbol": symbol, "orderLinkId": orderLinkID, "limit": 50}
+	data, err := c.request(ctx, "GET", "/v5/order/history", params)
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		List []BybitOrder `json:"list"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, fmt.Errorf("解析 Bybit 歷史訂單失敗: %w", err)
+	}
+	var matched *BybitOrder
+	for i := range result.List {
+		if result.List[i].OrderLinkId != orderLinkID {
+			continue
+		}
+		if matched != nil {
+			return nil, fmt.Errorf("Bybit 歷史訂單 ID 不唯一(orderLinkId=%s)", orderLinkID)
+		}
+		matched = &result.List[i]
+	}
+	if matched != nil {
+		return matched, nil
+	}
+	return nil, fmt.Errorf("Bybit 歷史訂單不存在(orderLinkId=%s)", orderLinkID)
+}
+
 // GetOpenOrders 查詢未完成订單
 func (c *BybitClient) GetOpenOrders(ctx context.Context, category, symbol string) ([]BybitOrder, error) {
 	params := map[string]interface{}{

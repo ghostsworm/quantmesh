@@ -8,6 +8,8 @@ import (
 	"quantmesh/exchange/income"
 )
 
+var _ OrderByClientIDQuerier = (*coinsphSpotWrapper)(nil)
+
 // coinsphSpotWrapper Coins.ph Spot 包装器
 type coinsphSpotWrapper struct {
 	adapter *coinsph.CoinsphSpotAdapter
@@ -134,6 +136,14 @@ func (w *coinsphSpotWrapper) GetOrder(ctx context.Context, symbol string, orderI
 		Status:        OrderStatus(order.Status),
 		UpdateTime:    order.UpdateTime,
 	}, nil
+}
+
+func (w *coinsphSpotWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
+		return nil, err
+	}
+	return &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: Side(order.Side), Type: OrderType(order.Type), Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, Status: OrderStatus(order.Status), CreatedAt: order.CreatedAt, UpdateTime: order.UpdateTime}, nil
 }
 
 // GetOpenOrders 查詢未完成订單

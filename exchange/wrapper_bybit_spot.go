@@ -9,6 +9,8 @@ import (
 	"quantmesh/logger"
 )
 
+var _ OrderByClientIDQuerier = (*bybitSpotWrapper)(nil)
+
 // bybitSpotWrapper 包装 Bybit 現貨适配器以實現 IExchange 接口
 type bybitSpotWrapper struct {
 	adapter *bybit.BybitSpotAdapter
@@ -82,6 +84,14 @@ func (w *bybitSpotWrapper) CancelAllOrders(ctx context.Context, symbol string) e
 func (w *bybitSpotWrapper) GetOrder(ctx context.Context, symbol string, orderID int64) (*Order, error) {
 	order, err := w.adapter.GetOrder(ctx, symbol, orderID)
 	if err != nil {
+		return nil, err
+	}
+	return fromBybitOrder(order)
+}
+
+func (w *bybitSpotWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
 		return nil, err
 	}
 	return fromBybitOrder(order)

@@ -620,6 +620,16 @@ func (o *OKXAdapter) GetOrder(ctx context.Context, symbol string, orderID int64)
 	return o.convertOrder(order), nil
 }
 
+// GetOrderByClientOrderID 查詢含終態的訂單，供提交結果不明時恢復使用。
+func (o *OKXAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	clientOrderID = utils.AddBrokerPrefix("okx", clientOrderID)
+	order, err := o.client.GetOrder(ctx, o.instId, "", clientOrderID)
+	if err != nil {
+		return nil, err
+	}
+	return o.convertOrder(order), nil
+}
+
 // GetOpenOrders 查詢未完成订單
 func (o *OKXAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := o.client.GetOpenOrders(ctx, o.instId)

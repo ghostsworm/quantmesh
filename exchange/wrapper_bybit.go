@@ -145,6 +145,14 @@ func (w *bybitWrapper) GetOrder(ctx context.Context, symbol string, orderID int6
 	return fromBybitOrder(order)
 }
 
+func (w *bybitWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
+		return nil, err
+	}
+	return fromBybitOrder(order)
+}
+
 // GetOpenOrders 查詢未完成订單
 func (w *bybitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := w.adapter.GetOpenOrders(ctx, symbol)
@@ -163,6 +171,8 @@ func (w *bybitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 
 	return result, nil
 }
+
+var _ OrderByClientIDQuerier = (*bybitWrapper)(nil)
 
 // GetAccount 獲取帳戶信息
 func (w *bybitWrapper) GetAccount(ctx context.Context) (*Account, error) {

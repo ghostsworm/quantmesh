@@ -385,6 +385,16 @@ func (o *OKXSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID in
 	return order, nil
 }
 
+// GetOrderByClientOrderID 按客戶端訂單 ID 查詢現貨訂單（包含終態）。
+func (o *OKXSpotAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	clientOrderID = utils.AddBrokerPrefix("okx", clientOrderID)
+	ord, err := o.client.GetOrder(ctx, o.instId, "", clientOrderID)
+	if err != nil {
+		return nil, fmt.Errorf("OKX 現貨按客戶端訂單 ID 查單失敗(instId=%s): %w", o.instId, err)
+	}
+	return o.convertOrder(ord), nil
+}
+
 // GetOpenOrders 未完成订單
 func (o *OKXSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	orders, err := o.client.GetOpenOrdersByInstType(ctx, okxInstTypeSpot, o.instId)
