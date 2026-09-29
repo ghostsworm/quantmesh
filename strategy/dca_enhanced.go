@@ -1416,6 +1416,10 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee is invalid for this market or execution")
 			return
 		}
+		if s.hasUnmappedBaseFee(update.Commission, update.CommissionAsset, baseFeeQty) {
+			s.requireDCAOrderReconciliation(update, "DCA entry reports a base-asset commission without its inventory fee quantity")
+			return
+		}
 		receivedQty := delta - baseFeeQty
 		if !finiteNumber(receivedQty) || receivedQty <= 0 {
 			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee consumes the entire fill")

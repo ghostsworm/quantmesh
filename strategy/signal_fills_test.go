@@ -296,7 +296,7 @@ func (r *dcaFillRecorder) SaveTrade(_, _ int64, _, _ string, _, _, _, pnl, fee f
 	return nil
 }
 
-func TestDCACloseRecordsConvertedBaseFeeInQuoteAsset(t *testing.T) {
+func TestDCACloseBaseCommissionWithoutInventoryFeeQuantityFailsClosed(t *testing.T) {
 	s := newR3DCA(t, &hedgeOrderExecutor{}, nil)
 	defer s.Stop()
 	s.layers = []*DCALayer{{Price: 100, Quantity: 1, Cost: 100, OpeningFee: 0.2, Status: entryStatusFilled}}
@@ -312,11 +312,12 @@ func TestDCACloseRecordsConvertedBaseFeeInQuoteAsset(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(recorder.fees) != 1 || math.Abs(recorder.fees[0]-0.31) > 1e-9 {
-		t.Fatalf("converted quote fee=%v, want 0.31", recorder.fees)
+	if len(recorder.fees) != 0 || s.totalQty != 1 || s.closeProgress.Quantity != 0 || !s.isClosing {
+		t.Fatalf("unmapped base fee must not settle a close: fees=%v qty=%v progress=%+v closing=%v",
+			recorder.fees, s.totalQty, s.closeProgress, s.isClosing)
 	}
-	if len(recorder.feeAssets) != 1 || recorder.feeAssets[0] != "USDT" {
-		t.Fatalf("fee asset=%v, want USDT for quote-denominated fee", recorder.feeAssets)
+	if len(recorder.feeAssets) != 0 {
+		t.Fatalf("unmapped base fee must not be recorded in the trade ledger: %v", recorder.feeAssets)
 	}
 }
 

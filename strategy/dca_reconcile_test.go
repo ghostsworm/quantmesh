@@ -128,6 +128,28 @@ func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
 	}
 }
 
+func TestDCAStartRejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 97, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,
+		AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled,
+	}, fills: []*exchange.OrderFill{{
+		OrderID: 97, TradeID: "trade-97", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, Commission: 0.0005, CommissionAsset: "BTC",
+	}}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 97, Status: entryStatusPending, RequestedQuantity: 1}},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
+	if err := s.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted base-asset commission with unknown inventory fee quantity")
+	}
+	if s.IsRunning() || s.totalQty != 0 || s.layers[0].FillProgress.Quantity != 0 {
+		t.Fatalf("failed recovery changed strategy economics: running=%v layer=%+v", s.IsRunning(), s.layers[0])
+	}
+}
+
 func TestDCAStartReplaysVerifiedCloseFillMissedWhileOffline(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
 		OrderID: 90, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 1, ExecutedQty: 1,

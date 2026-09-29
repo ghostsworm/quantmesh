@@ -19,6 +19,14 @@ func (s *DCAEnhancedStrategy) supportsSpotBaseFee() bool {
 	return s.cfg != nil && strings.EqualFold(strings.TrimSpace(s.cfg.Trading.MarketType), "spot")
 }
 
+func (s *DCAEnhancedStrategy) hasUnmappedBaseFee(commission float64, asset string, baseFeeQty float64) bool {
+	if s.exchange == nil || commission <= 0 || baseFeeQty > 0 {
+		return false
+	}
+	baseAsset := strings.TrimSpace(s.exchange.GetBaseAsset())
+	return baseAsset != "" && strings.EqualFold(strings.TrimSpace(asset), baseAsset)
+}
+
 func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.OrderUpdate, reason string) {
 	if tracker, ok := s.executor.(interface {
 		MarkOrderReconciliationRequired(int64, string, string) error
@@ -43,6 +51,10 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 		// trade ledger has no fee-lot split for that extra quantity, so do not
 		// advance the close cursor or report a settled trade.
 		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee requires inventory-cost reconciliation")
+		return
+	}
+	if s.hasUnmappedBaseFee(update.Commission, update.CommissionAsset, update.BaseFeeQty) {
+		s.requireDCAOrderReconciliation(update, "DCA close reports a base-asset commission without its inventory fee quantity")
 		return
 	}
 	if !finiteNumber(update.ExecutedQty) || update.ExecutedQty < 0 {

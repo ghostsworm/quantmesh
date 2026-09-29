@@ -161,6 +161,9 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 		if fill.BaseFeeQty > 0 && (intent.close || !s.supportsSpotBaseFee() || intent.side != exchange.SideBuy) {
 			return 0, 0, 0, fmt.Errorf("base-asset fee is unsupported for this DCA order recovery")
 		}
+		if s.hasUnmappedBaseFee(fill.Commission, fill.CommissionAsset, fill.BaseFeeQty) {
+			return 0, 0, 0, fmt.Errorf("fill %s reports a base-asset commission without its inventory fee quantity", fill.TradeID)
+		}
 		seen[fill.TradeID] = struct{}{}
 		quantity += fill.Quantity
 		notional += fill.Price * fill.Quantity

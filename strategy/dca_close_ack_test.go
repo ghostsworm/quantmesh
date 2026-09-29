@@ -245,3 +245,19 @@ func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
 		t.Fatalf("close base fee mutated inventory before reconciliation: marks=%d progress=%+v qty=%v", executor.marked, strategy.closeProgress, strategy.totalQty)
 	}
 }
+
+func TestDCARejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "spot"
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{}, nil)
+	layer := &DCALayer{Index: 0, OrderID: 99, Status: entryStatusPending, RequestedQuantity: 1}
+	strategy.layers = []*DCALayer{layer}
+	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
+		OrderID: 99, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+		Commission: 0.0005, CommissionAsset: "BTC",
+	})
+	if executor.marked != 1 || layer.FillProgress.Quantity != 0 || layer.Quantity != 0 || strategy.totalQty != 0 {
+		t.Fatalf("unmapped base commission was accepted as gross inventory: marks=%d layer=%+v total=%v", executor.marked, layer, strategy.totalQty)
+	}
+}
