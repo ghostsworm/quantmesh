@@ -86,3 +86,34 @@ func TestBitgetDoRequestEdgeResponses(t *testing.T) {
 		}
 	})
 }
+
+func TestBitgetOrderLookupByClientOrderID(t *testing.T) {
+	t.Run("futures", func(t *testing.T) {
+		client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/mix/order/detail" || r.URL.Query().Get("clientOid") != "close-1" || r.URL.Query().Get("productType") != "USDT-FUTURES" {
+				t.Fatalf("unexpected request: %s", r.URL.String())
+			}
+			_, _ = w.Write([]byte(`{"code":"00000","msg":"success","data":{"symbol":"BTCUSDT","size":"2","orderId":"7","clientOid":"close-1","filledQty":"2","price":"100","side":"sell","status":"full-fill","priceAvg":"99","uTime":"1000"}}`))
+		})
+		defer closeServer()
+		adapter := &BitgetAdapter{client: client, symbol: "BTCUSDT", productType: "USDT-FUTURES"}
+		order, err := adapter.GetOrderByClientOrderID(context.Background(), "BTCUSDT", "close-1")
+		if err != nil || order.OrderID != 7 || order.Status != "FILLED" || order.ExecutedQty != 2 {
+			t.Fatalf("order=%+v error=%v", order, err)
+		}
+	})
+
+	t.Run("spot duplicate is rejected", func(t *testing.T) {
+		client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v2/spot/trade/orderInfo" || r.URL.Query().Get("clientOid") != "close-1" {
+				t.Fatalf("unexpected request: %s", r.URL.String())
+			}
+			_, _ = w.Write([]byte(`{"code":"00000","msg":"success","data":[{"symbol":"BTCUSDT","orderId":"7","clientOid":"close-1"},{"symbol":"BTCUSDT","orderId":"8","clientOid":"close-1"}]}`))
+		})
+		defer closeServer()
+		adapter := &BitgetSpotAdapter{client: client, symbol: "BTCUSDT"}
+		if _, err := adapter.GetOrderByClientOrderID(context.Background(), "BTCUSDT", "close-1"); err == nil {
+			t.Fatal("expected duplicate client IDs to fail closed")
+		}
+	})
+}

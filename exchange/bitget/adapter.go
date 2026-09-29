@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"quantmesh/logger"
+	"quantmesh/utils"
 )
 
 // 為了避免循環匯入，在这里定义需要的接口和類型
@@ -673,6 +674,59 @@ func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int
 		Status:        status,
 		UpdateTime:    updateTime,
 	}, nil
+}
+
+// GetOrderByClientOrderID queries the order detail endpoint by clientOid.
+func (b *BitgetAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	if clientOrderID == "" {
+		return nil, fmt.Errorf("Bitget 查詢訂單需要客戶端訂單 ID")
+	}
+	clientOrderID = utils.AddBrokerPrefix("bitget", clientOrderID)
+	path := fmt.Sprintf("/api/v2/mix/order/detail?symbol=%s&productType=%s&clientOid=%s", b.symbol, b.productType, clientOrderID)
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var data struct {
+		Symbol    string `json:"symbol"`
+		Size      string `json:"size"`
+		OrderId   string `json:"orderId"`
+		ClientOid string `json:"clientOid"`
+		FilledQty string `json:"filledQty"`
+		Price     string `json:"price"`
+		Side      string `json:"side"`
+		Status    string `json:"status"`
+		PriceAvg  string `json:"priceAvg"`
+		UTime     string `json:"uTime"`
+	}
+	if err := json.Unmarshal(resp.Data, &data); err != nil {
+		return nil, fmt.Errorf("解析 Bitget CID 訂單详情失败: %w", err)
+	}
+	if data.ClientOid != clientOrderID || !strings.EqualFold(data.Symbol, b.symbol) || data.OrderId == "" {
+		return nil, fmt.Errorf("Bitget CID 訂單響應與查詢身份不匹配")
+	}
+	orderID, _ := strconv.ParseInt(data.OrderId, 10, 64)
+	price, _ := strconv.ParseFloat(data.Price, 64)
+	quantity, _ := strconv.ParseFloat(data.Size, 64)
+	executedQty, _ := strconv.ParseFloat(data.FilledQty, 64)
+	avgPrice, _ := strconv.ParseFloat(data.PriceAvg, 64)
+	updateTime, _ := strconv.ParseInt(data.UTime, 10, 64)
+	side := SideBuy
+	if data.Side == "sell" {
+		side = SideSell
+	}
+	var status OrderStatus = "NEW"
+	switch data.Status {
+	case "new":
+		status = "NEW"
+	case "partial-fill":
+		status = "PARTIALLY_FILLED"
+	case "full-fill":
+		status = "FILLED"
+	case "cancelled":
+		status = "CANCELED"
+	}
+	return &Order{OrderID: orderID, ClientOrderID: data.ClientOid, Symbol: data.Symbol, Side: side, Type: OrderTypeLimit, Price: price, Quantity: quantity, ExecutedQty: executedQty, AvgPrice: avgPrice, Status: status, UpdateTime: updateTime}, nil
 }
 
 // GetOpenOrders 查詢未完成订單

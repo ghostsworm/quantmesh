@@ -146,6 +146,16 @@ func (w *bitgetWrapper) GetOrder(ctx context.Context, symbol string, orderID int
 	}, nil
 }
 
+func (w *bitgetWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	order, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || order == nil {
+		return nil, err
+	}
+	return &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: Side(order.Side), Type: OrderType(order.Type), Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, Status: OrderStatus(order.Status), CreatedAt: order.CreatedAt, UpdateTime: order.UpdateTime}, nil
+}
+
+var _ OrderByClientIDQuerier = (*bitgetWrapper)(nil)
+
 func (w *bitgetWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	bitgetOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {

@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：Bitget CID 查询接入马丁平仓恢复（3.111.0-rc398）
+
+- Bitget 合约使用 `/api/v2/mix/order/detail` 的 `clientOid`，现货使用 `/api/v2/spot/trade/orderInfo` 的 `clientOid`；恢复适配器校验回包 CID、交易对与订单 ID，现货多条匹配拒绝自动认领。
+- 请求模拟测试覆盖合约已成交订单映射、现货端点/参数与重复 CID 失败关闭。官方接口支持通过 clientOid 查询订单详情；本地模拟未连真实账户。
+- 其他交易所的 CID 历史端点、CID 编码兼容性和历史窗口审查仍在继续；未实盘下单或验证盈利。
+
 # 后续续修：马丁平仓 CID 查询适配器扩展（3.111.0-rc397）
 
 - 为 OKX 合约/现货、Coins.ph 现货适配器和包装层暴露按 ClientOrderID 查询；Bybit 合约/现货新增使用 `/v5/order/history` 的查询路径。

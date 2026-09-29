@@ -274,6 +274,60 @@ func (b *BitgetSpotAdapter) GetOrder(ctx context.Context, symbol string, orderID
 	}, nil
 }
 
+// GetOrderByClientOrderID queries spot order details by clientOid.
+func (b *BitgetSpotAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	if clientOrderID == "" {
+		return nil, fmt.Errorf("Bitget 現貨查詢訂單需要客戶端訂單 ID")
+	}
+	clientOrderID = utils.AddBrokerPrefix("bitget", clientOrderID)
+	path := fmt.Sprintf("/api/v2/spot/trade/orderInfo?symbol=%s&clientOid=%s", b.symbol, clientOrderID)
+	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
+	if err != nil {
+		return nil, err
+	}
+	var orders []struct {
+		OrderID    string `json:"orderId"`
+		ClientOid  string `json:"clientOid"`
+		Symbol     string `json:"symbol"`
+		Side       string `json:"side"`
+		OrderType  string `json:"orderType"`
+		Price      string `json:"price"`
+		Size       string `json:"size"`
+		FilledSize string `json:"filledSize"`
+		AvgPrice   string `json:"avgPrice"`
+		Status     string `json:"status"`
+		UpdateTime string `json:"updateTime"`
+	}
+	if err := json.Unmarshal(resp.Data, &orders); err != nil {
+		return nil, fmt.Errorf("解析 Bitget 現貨 CID 訂單详情失败: %w", err)
+	}
+	matchedIndex := -1
+	for i := range orders {
+		if orders[i].ClientOid != clientOrderID || !strings.EqualFold(orders[i].Symbol, b.symbol) {
+			continue
+		}
+		if matchedIndex >= 0 {
+			return nil, fmt.Errorf("Bitget 現貨 CID 訂單不唯一(clientOid=%s)", clientOrderID)
+		}
+		matchedIndex = i
+	}
+	if matchedIndex < 0 {
+		return nil, fmt.Errorf("Bitget 現貨 CID 訂單不存在或無精確匹配")
+	}
+	matched := orders[matchedIndex]
+	price, _ := strconv.ParseFloat(matched.Price, 64)
+	quantity, _ := strconv.ParseFloat(matched.Size, 64)
+	executedQty, _ := strconv.ParseFloat(matched.FilledSize, 64)
+	avgPrice, _ := strconv.ParseFloat(matched.AvgPrice, 64)
+	updateTime, _ := strconv.ParseInt(matched.UpdateTime, 10, 64)
+	orderID, _ := strconv.ParseInt(matched.OrderID, 10, 64)
+	side := SideBuy
+	if strings.EqualFold(matched.Side, "sell") {
+		side = SideSell
+	}
+	return &Order{OrderID: orderID, ClientOrderID: matched.ClientOid, Symbol: matched.Symbol, Side: side, Type: OrderType(matched.OrderType), Price: price, Quantity: quantity, ExecutedQty: executedQty, AvgPrice: avgPrice, Status: OrderStatus(matched.Status), UpdateTime: updateTime}, nil
+}
+
 // GetOpenOrders 未完成订單
 func (b *BitgetSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	path := fmt.Sprintf("/api/v2/spot/trade/unfilled-orders?symbol=%s", b.symbol)
