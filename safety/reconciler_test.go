@@ -191,6 +191,7 @@ type MockPositionManager struct {
 	ForceSyncErr                 error
 	FailReconcileErr             error
 	CompletedReconciliationCount int
+	OpeningGate                  *execution.OpeningGate
 }
 
 func (m *MockPositionManager) IterateSlots(fn func(price float64, slot interface{}) bool) {
@@ -224,8 +225,59 @@ func (m *MockPositionManager) BeginReconciliation(ctx context.Context) (func(), 
 	}
 	return func() {}, nil
 }
-func (m *MockPositionManager) FailReconciliation(err error) { m.FailReconcileErr = err }
-func (m *MockPositionManager) CompleteReconciliation()      { m.CompletedReconciliationCount++ }
+func (m *MockPositionManager) FailReconciliation(err error) {
+	m.FailReconcileErr = err
+	if m.OpeningGate != nil {
+		m.OpeningGate.Block(execution.PositionReconciliationUnverifiedBlock)
+	}
+}
+func (m *MockPositionManager) CompleteReconciliation() {
+	m.CompletedReconciliationCount++
+	if m.OpeningGate != nil {
+		m.OpeningGate.Unblock(execution.PositionReconciliationUnverifiedBlock)
+	}
+}
+
+func TestReconcilerRecoversDedicatedGateAfterLaterAuthoritativeSnapshot(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.ReconcileInterval = 30
+	cfg.Trading.MarketType = "futures"
+	cfg.Trading.Direction = "LONG"
+	gate := &execution.OpeningGate{}
+	gate.Block("unknown_orders")
+	pm := &MockPositionManager{
+		Symbol:      "BTCUSDT",
+		OpeningGate: gate,
+		Slots: map[float64]interface{}{
+			100: TestSlot{PositionStatus: "FILLED", PositionQty: 0.1, OrderStatus: "NOT_PLACED"},
+		},
+	}
+	ex := &MockReconcileExchange{
+		Positions:  []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.2}},
+		OpenOrders: []*exchange.Order{{Symbol: "BTCUSDT", Status: exchange.OrderStatusNew}},
+	}
+	r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+	r.minReconcileInterval = 0
+
+	if err := r.Reconcile(); err == nil {
+		t.Fatal("difference with an active venue order was reported reconciled")
+	}
+	if !gate.HasBlock(execution.PositionReconciliationUnverifiedBlock) || pm.CompletedReconciliationCount != 0 {
+		t.Fatal("unresolved first snapshot did not retain its dedicated opening gate")
+	}
+
+	ex.Positions = []mockExchangePositionRow{{Symbol: "BTCUSDT", Size: 0.1}}
+	ex.OpenOrders = []*exchange.Order{}
+	if err := r.Reconcile(); err != nil {
+		t.Fatalf("later authoritative matching snapshot did not recover: %v", err)
+	}
+	if gate.HasBlock(execution.PositionReconciliationUnverifiedBlock) || pm.CompletedReconciliationCount != 1 {
+		t.Fatal("successful later snapshot did not clear only the reconciliation gate")
+	}
+	if !gate.HasBlock("unknown_orders") {
+		t.Fatal("successful later snapshot cleared unrelated UNKNOWN-order gate")
+	}
+}
 
 func TestReconcilerRejectsInvalidLocalPositionLedger(t *testing.T) {
 	tests := []struct {

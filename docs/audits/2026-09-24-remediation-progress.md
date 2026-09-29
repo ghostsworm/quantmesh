@@ -2307,3 +2307,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - `bootstrapRuntimeExposure` 先前只检查查询 error 和切片长度；`nil, nil` 持仓或挂单响应会被当成权威空结果，随后调用 `Seed(nil)`，可能在未取得账户快照时放行硬额度账本。
 - 启动路径现在拒绝 nil 集合，仅显式非 nil 的空切片可证明空结果。测试 venue 明确区分权威空切片与 nil 响应；新增两类 nil 快照均保持启动门控且不初始化 ExposureBook 的回归。
 - `go test . -run 'TestRuntimeExposureBootstrap' -count=1`、`go test . -count=1`、`go vet .`、改动后的 `go test ./... -count=1` 与 `git diff --check` 通过。未连接真实账户、未下单或部署。现有非空账户恢复、账户级额度与盈利验证仍未闭合。
+
+## 后续续修：验证对账门控跨周期恢复（3.111.0-rc451，2026-09-30）
+
+- 审计说明曾将活动委托导致的失败描述为只能人工恢复；rc445 已引入专属 source 的成功核账解除逻辑，但缺少从活动委托失败到后续权威快照成功的完整生命周期回归。
+- 新增同一 Reconciler 两轮测试：第一轮仓位差异+交易所活动委托保持对账阻断；委托消失且第二轮快照与本地仓位完全一致后，专属 source 清除，UNKNOWN source 保留。此行为仅在后续完整核账确实成功时成立，差异/订单仍 unresolved 时继续 fail-closed。
+- Reconciler 两轮生命周期测试 `-count=5`、`go test ./safety ./order ./position -count=1`、`go test -race ./safety -run '^TestReconcilerRecoversDedicatedGateAfterLaterAuthoritativeSnapshot$' -count=3`、`go vet ./safety ./order ./position` 与 `git diff --check` 通过。未连接真实账户、未下单或部署。非空账户启动恢复、账户级额度与盈利验证仍未闭合。
