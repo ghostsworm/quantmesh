@@ -1,5 +1,11 @@
 # 实盘准备度整改进度
 
+# 后续续修：Binance/Bitget 现货 DCA 手续费权威性（3.111.0-rc409）
+
+- 现货 DCA 可用的 Binance 与 Bitget 订单事件尚未传递费用可信标记；Binance 解析 `FeeCost` 忽略错误，Bitget 缺少/多条 `feeDetail` 时取默认 0/首条，可能漏记真实费用。
+- 两适配器现显式标记费用金额（及非零费用资产）存在且可解析时才可信；Bitget 多项费用明细整体视为不完整。未知事件由 DCA 查完整逐笔成交并核对，不足则保持失败关闭。
+- 新增 Binance fee 值解析及 Bitget feeDetail 缺失、非法、多资产回归；真实交易所账户与历史逐笔接口可用性未验证，不构成实盘或盈利验收。
+
 # 后续续修：私有订单流启动失败时拒绝交易运行（3.111.0-rc408）
 
 - `startSymbolRuntime` 原先对大多数交易所的 `StartOrderStream` 错误只记 warning，随后仍会启动风险循环、策略和挂单；Bitkub 现货明确不支持订单流，Coins.ph 现货订单流仍未实现，但两者被允许创建。

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"quantmesh/exchange/binance"
+	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/bybit"
 	"quantmesh/exchange/gate"
 	"quantmesh/exchange/okx"
@@ -51,6 +52,10 @@ func TestToPositionOrderUpdatePreservesCommissionAuthority(t *testing.T) {
 		OrderUpdate:     gate.OrderUpdate{OrderID: 3, Status: "FILLED", CommissionAsset: "USDT"},
 		CommissionKnown: false,
 	})
+	binanceKnown := toPositionOrderUpdate(binance.SpotStreamOrderUpdate{
+		OrderUpdate: binance.OrderUpdate{OrderID: 4, Status: "FILLED", Commission: 0.01, CommissionAsset: "USDT", CommissionKnown: true},
+	})
+	bitgetUnknown := toPositionOrderUpdate(bitget.OrderUpdate{OrderID: 5, Status: "FILLED", CommissionAsset: "USDT", CommissionKnown: false})
 	if legacyKnown == nil || !legacyKnown.CommissionKnown {
 		t.Fatalf("legacy fee-bearing stream was not treated as authoritative: %+v", legacyKnown)
 	}
@@ -59,5 +64,11 @@ func TestToPositionOrderUpdatePreservesCommissionAuthority(t *testing.T) {
 	}
 	if gateUnknown == nil || gateUnknown.CommissionKnown {
 		t.Fatalf("Gate's missing per-execution fee was lost: %+v", gateUnknown)
+	}
+	if binanceKnown == nil || !binanceKnown.CommissionKnown {
+		t.Fatalf("Binance's verified fee marker was lost: %+v", binanceKnown)
+	}
+	if bitgetUnknown == nil || bitgetUnknown.CommissionKnown {
+		t.Fatalf("Bitget's missing fee marker was lost: %+v", bitgetUnknown)
 	}
 }

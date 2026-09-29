@@ -27,6 +27,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -885,13 +886,20 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 	// 解析手續費：feeDetail 格式為 [{"fee":"0.00000000","feeCoin":"USDT"}]
 	commission := 0.0
 	commissionAsset := "USDT"
+	commissionKnown := false
 	if feeDetailRaw, ok := data["feeDetail"].([]interface{}); ok && len(feeDetailRaw) > 0 {
-		if feeItem, ok := feeDetailRaw[0].(map[string]interface{}); ok {
-			if feeStr, ok := feeItem["fee"].(string); ok {
-				commission, _ = strconv.ParseFloat(feeStr, 64)
-			}
-			if feeCoin, ok := feeItem["feeCoin"].(string); ok && feeCoin != "" {
-				commissionAsset = feeCoin
+		if len(feeDetailRaw) == 1 {
+			if feeItem, ok := feeDetailRaw[0].(map[string]interface{}); ok {
+				feeStr, feePresent := feeItem["fee"].(string)
+				parsedFee, feeErr := strconv.ParseFloat(feeStr, 64)
+				feeCoin, feeCoinPresent := feeItem["feeCoin"].(string)
+				commissionKnown = feePresent && feeErr == nil && !math.IsNaN(parsedFee) && !math.IsInf(parsedFee, 0) && (parsedFee == 0 || feeCoinPresent && feeCoin != "")
+				if feePresent && feeErr == nil {
+					commission = parsedFee
+				}
+				if feeCoinPresent && feeCoin != "" {
+					commissionAsset = feeCoin
+				}
 			}
 		}
 	}
@@ -953,6 +961,7 @@ func (w *WebSocketManager) parseOrderUpdate(data map[string]interface{}) *OrderU
 		UpdateTime:      updateTime,
 		Commission:      commission,
 		CommissionAsset: commissionAsset,
+		CommissionKnown: commissionKnown,
 		RealizedPnL:     realizedPnL,
 	}
 }

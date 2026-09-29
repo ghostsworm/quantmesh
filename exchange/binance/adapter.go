@@ -118,6 +118,7 @@ type OrderUpdate struct {
 	UpdateTime      int64
 	Commission      float64 // 本次成交手續費
 	CommissionAsset string  // 手續費幣種
+	CommissionKnown bool    // 訂單流是否提供有效的本次成交手續費字段
 	RealizedPnL     float64 // 已實現盈虧（交易所計算）
 }
 

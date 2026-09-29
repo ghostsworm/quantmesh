@@ -50,6 +50,29 @@ func TestCumulativeAveragePrice(t *testing.T) {
 	}
 }
 
+func TestParseSpotCommissionAuthority(t *testing.T) {
+	tests := []struct {
+		name, raw, asset string
+		want             float64
+		known            bool
+	}{
+		{name: "explicit zero", raw: "0", known: true},
+		{name: "valid fee and asset", raw: "0.001", asset: "BTC", want: 0.001, known: true},
+		{name: "missing fee", asset: "USDT"},
+		{name: "positive fee without asset", raw: "0.001", want: 0.001},
+		{name: "malformed fee", raw: "unknown", asset: "USDT"},
+		{name: "non-finite fee", raw: "NaN", asset: "USDT", want: math.NaN()},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, known := parseSpotCommission(tt.raw, tt.asset)
+			if known != tt.known || tt.known && got != tt.want || !tt.known && !math.IsNaN(tt.want) && got != tt.want {
+				t.Fatalf("parseSpotCommission()=(%v,%v), want (%v,%v)", got, known, tt.want, tt.known)
+			}
+		})
+	}
+}
+
 const binanceFeeTestEps = 1e-9
 
 func TestBinanceSpotStreamUpdateFeeConversion(t *testing.T) {

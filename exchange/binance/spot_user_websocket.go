@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -34,6 +35,12 @@ func NewSpotUserDataWebSocketManager(client *binancesdk.Client, useTestnet bool)
 		useTestnet: useTestnet,
 		stopC:      make(chan struct{}),
 	}
+}
+
+func parseSpotCommission(raw, asset string) (float64, bool) {
+	commission, err := strconv.ParseFloat(raw, 64)
+	known := raw != "" && err == nil && !math.IsNaN(commission) && !math.IsInf(commission, 0) && (commission == 0 || asset != "")
+	return commission, known
 }
 
 // Start 啟動現貨訂單推送
@@ -114,7 +121,7 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			// cumulative average. Use cumulative quote / executed quantity (Z / z).
 			filledQuote, _ := strconv.ParseFloat(o.FilledQuoteVolume, 64)
 			avgPx := cumulativeAveragePrice(filledQuote, filled)
-			comm, _ := strconv.ParseFloat(o.FeeCost, 64)
+			comm, commissionKnown := parseSpotCommission(o.FeeCost, o.FeeAsset)
 
 			up := OrderUpdate{
 				OrderID:         o.Id,
@@ -130,6 +137,7 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 				UpdateTime:      o.TransactionTime,
 				Commission:      comm,
 				CommissionAsset: o.FeeAsset,
+				CommissionKnown: commissionKnown,
 				RealizedPnL:     0,
 			}
 
