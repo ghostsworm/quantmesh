@@ -273,11 +273,12 @@ func (emptyFundingSpreadExchange) GetOpenOrders(context.Context, string) ([]*exc
 
 type fundingSpreadTestExchange struct {
 	exchange.IExchange
-	name      string
-	positions []*exchange.Position
-	orders    []*exchange.Order
-	placed    int
-	residual  float64
+	name           string
+	positions      []*exchange.Position
+	orders         []*exchange.Order
+	placed         int
+	clientOrderIDs []string
+	residual       float64
 }
 
 func (e *fundingSpreadTestExchange) GetName() string { return e.name }
@@ -299,6 +300,7 @@ func (e *fundingSpreadTestExchange) GetOpenOrders(context.Context, string) ([]*e
 
 func (e *fundingSpreadTestExchange) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	e.placed++
+	e.clientOrderIDs = append(e.clientOrderIDs, req.ClientOrderID)
 	if req.ReduceOnly {
 		if e.residual != 0 {
 			e.positions = []*exchange.Position{{Symbol: req.Symbol, Size: e.residual}}
@@ -335,6 +337,9 @@ func TestFundingPerpSpreadShutdownClosesAndVerifiesBothLegs(t *testing.T) {
 			}
 			if err != nil || !st.stopped || a.placed != 1 || b.placed != 1 {
 				t.Fatalf("both-leg close not confirmed: err=%v stopped=%t placements=(%d,%d)", err, st.stopped, a.placed, b.placed)
+			}
+			if len(a.clientOrderIDs) != 1 || a.clientOrderIDs[0] == "" || len(b.clientOrderIDs) != 1 || b.clientOrderIDs[0] == "" || a.clientOrderIDs[0] == b.clientOrderIDs[0] {
+				t.Fatalf("each close leg needs a unique ClientOrderID: A=%v B=%v", a.clientOrderIDs, b.clientOrderIDs)
 			}
 			if err := st.VerifyFlat(context.Background()); err != nil {
 				t.Fatalf("VerifyFlat() after close: %v", err)
@@ -504,6 +509,7 @@ func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "BTCUSDT", OwnershipReady: true, IntentInFlight: true,
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "spread-order-1", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -516,5 +522,74 @@ func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err == nil {
 		t.Fatal("Start() accepted an unresolved persisted order intent")
+	}
+}
+
+func TestFundingPerpSpreadPersistsOrderIdentityBeforeSubmission(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(store)
+	intent := fundingPerpSpreadOrderIntent{
+		ClientOrderID: "stable-order-id", LegExchange: "b", Symbol: "ETHUSDT", Side: "BUY", Quantity: 0.25,
+	}
+	if err := st.beginOrderIntent(intent); err != nil {
+		t.Fatalf("beginOrderIntent() error = %v", err)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if store.version != fundingPerpSpreadRuntimeStateVersion || !persisted.IntentInFlight || persisted.PendingOrder == nil || *persisted.PendingOrder != intent {
+		t.Fatalf("order identity was not durably persisted before submission: version=%d state=%+v", store.version, persisted)
+	}
+	if err := st.finishOrderIntent(); err != nil {
+		t.Fatalf("finishOrderIntent() error = %v", err)
+	}
+	persisted = fundingPerpSpreadRuntimeState{}
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.IntentInFlight || persisted.PendingOrder != nil {
+		t.Fatalf("settled intent retained pending identity: %+v", persisted)
+	}
+}
+
+func TestFundingPerpSpreadRuntimeStateRejectsInvalidPendingOrderIdentity(t *testing.T) {
+	state := fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "bad-scope", LegExchange: "a", Symbol: "ETHUSDT", Side: "BUY", Quantity: 1},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFundingPerpSpreadRuntimeState(fundingPerpSpreadRuntimeStateVersion, string(payload), "a", "BTCUSDT", "b", "ETHUSDT"); err == nil {
+		t.Fatal("accepted pending order identity outside both configured legs")
+	}
+}
+
+func TestFundingPerpSpreadRuntimeStateMigratesResolvedV1AndRejectsUnknownV1Intent(t *testing.T) {
+	state := fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true,
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFundingPerpSpreadRuntimeState(1, string(payload), "a", "BTCUSDT", "b", "ETHUSDT"); err != nil {
+		t.Fatalf("resolved v1 state failed migration: %v", err)
+	}
+	state.IntentInFlight = true
+	payload, err = json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFundingPerpSpreadRuntimeState(1, string(payload), "a", "BTCUSDT", "b", "ETHUSDT"); err == nil {
+		t.Fatal("legacy in-flight intent without a ClientOrderID was accepted")
 	}
 }

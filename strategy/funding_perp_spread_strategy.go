@@ -15,6 +15,7 @@ import (
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/utils"
 )
 
 // FundingPerpSpreadStrategy 雙永续跨所資金費差：高費率所做空、低費率所做多，名義對齊
@@ -46,6 +47,7 @@ type FundingPerpSpreadStrategy struct {
 	ownedA            float64
 	ownedB            float64
 	intentInFlight    bool
+	pendingOrder      *fundingPerpSpreadOrderIntent
 	runtimeStateStore RuntimeStateStore
 	coordinationLock  lock.DistributedLock
 	coordinationTTL   time.Duration
@@ -568,13 +570,19 @@ func (s *FundingPerpSpreadStrategy) recordOpenedLeg(ex exchange.IExchange, symbo
 	return nil
 }
 
-func (s *FundingPerpSpreadStrategy) beginOrderIntent() error {
+func (s *FundingPerpSpreadStrategy) beginOrderIntent(intent fundingPerpSpreadOrderIntent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.ownershipReady || s.exposureUnknown || s.intentInFlight {
 		return errors.New("funding_perp_spread execution state is unresolved; new order blocked")
 	}
+	if strings.TrimSpace(intent.ClientOrderID) == "" || strings.TrimSpace(intent.LegExchange) == "" ||
+		strings.TrimSpace(intent.Symbol) == "" || (intent.Side != "BUY" && intent.Side != "SELL") ||
+		math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 {
+		return errors.New("funding_perp_spread order intent identity is invalid")
+	}
 	s.intentInFlight = true
+	s.pendingOrder = cloneFundingPerpSpreadOrderIntent(&intent)
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.exposureUnknown = true
 		return fmt.Errorf("persist order intent before exchange submission: %w", err)
@@ -586,8 +594,11 @@ func (s *FundingPerpSpreadStrategy) finishOrderIntent() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.intentInFlight = false
+	pending := s.pendingOrder
+	s.pendingOrder = nil
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.intentInFlight = true
+		s.pendingOrder = pending
 		s.exposureUnknown = true
 		return fmt.Errorf("persist reconciled order result: %w", err)
 	}
@@ -646,14 +657,17 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	if err := s.verifyOwnedExposure(currentA, currentB); err != nil {
 		return fmt.Errorf("refuse new spread: %w", err)
 	}
-	if err := s.beginOrderIntent(); err != nil {
+	shortClientOrderID := utils.NewCompactOrderID()
+	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
+		ClientOrderID: shortClientOrderID, LegExchange: shortEx.GetName(), Symbol: shortSym, Side: "SELL", Quantity: qtyShort,
+	}); err != nil {
 		return err
 	}
 
 	_, err = shortEx.PlaceOrder(ctx, &exchange.OrderRequest{
 		Symbol: shortSym, Side: exchange.SideSell, Type: exchange.OrderTypeMarket,
 		Quantity: qtyShort, Price: 0, PriceDecimals: shortEx.GetPriceDecimals(),
-		StrategyType: "funding_perp_spread",
+		StrategyType: "funding_perp_spread", ClientOrderID: shortClientOrderID,
 	})
 	shortActual, readErr := s.readLegSnapshot(ctx, shortEx, shortSym)
 	if readErr != nil {
@@ -677,13 +691,16 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	if err := s.finishOrderIntent(); err != nil {
 		return err
 	}
-	if err := s.beginOrderIntent(); err != nil {
+	longClientOrderID := utils.NewCompactOrderID()
+	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
+		ClientOrderID: longClientOrderID, LegExchange: longEx.GetName(), Symbol: longSym, Side: "BUY", Quantity: qtyLong,
+	}); err != nil {
 		return fmt.Errorf("short leg is open but long-leg intent could not be persisted: %w", err)
 	}
 	_, err = longEx.PlaceOrder(ctx, &exchange.OrderRequest{
 		Symbol: longSym, Side: exchange.SideBuy, Type: exchange.OrderTypeMarket,
 		Quantity: qtyLong, Price: 0, PriceDecimals: longEx.GetPriceDecimals(),
-		StrategyType: "funding_perp_spread",
+		StrategyType: "funding_perp_spread", ClientOrderID: longClientOrderID,
 	})
 	longActual, readErr := s.readLegSnapshot(ctx, longEx, longSym)
 	if readErr != nil {
@@ -757,17 +774,20 @@ func (s *FundingPerpSpreadStrategy) closeLeg(ctx context.Context, ex exchange.IE
 	if owned == 0 {
 		return nil
 	}
-	if err := s.beginOrderIntent(); err != nil {
-		return err
-	}
 	side := exchange.SideBuy
 	if owned > 0 {
 		side = exchange.SideSell
 	}
+	clientOrderID := utils.NewCompactOrderID()
+	if err := s.beginOrderIntent(fundingPerpSpreadOrderIntent{
+		ClientOrderID: clientOrderID, LegExchange: ex.GetName(), Symbol: sym, Side: string(side), Quantity: math.Abs(owned),
+	}); err != nil {
+		return err
+	}
 	_, orderErr := ex.PlaceOrder(ctx, &exchange.OrderRequest{
 		Symbol: sym, Side: side, Type: exchange.OrderTypeMarket,
 		Quantity: math.Abs(owned), ReduceOnly: true, PriceDecimals: ex.GetPriceDecimals(),
-		StrategyType: "funding_perp_spread",
+		StrategyType: "funding_perp_spread", ClientOrderID: clientOrderID,
 	})
 	after, readErr := netFutSize(ctx, ex, sym)
 	if readErr != nil {
