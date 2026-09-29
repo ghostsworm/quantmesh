@@ -82,6 +82,18 @@ type denyOrderLock struct {
 	lock.DistributedLock
 }
 
+type failOrderLockRenewal struct {
+	lock.DistributedLock
+}
+
+func (failOrderLockRenewal) TryLock(context.Context, string, time.Duration) (bool, error) {
+	return true, nil
+}
+
+func (failOrderLockRenewal) Extend(context.Context, string, time.Duration) error {
+	return errors.New("simulated lock renewal failure")
+}
+
 func (d denyOrderLock) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	return false, nil
 }
@@ -148,6 +160,23 @@ func TestExchangeOrderExecutorPlaceCancelAndQueryPaths(t *testing.T) {
 	}
 	if oe.GetSymbol() != "BTCUSDT" {
 		t.Fatalf("GetSymbol = %s", oe.GetSymbol())
+	}
+}
+
+func TestPlaceOrderStopsRetriesAfterPriceLockRenewalFailure(t *testing.T) {
+	ex := &fakeOrderExchange{placeErr: errors.New("-1003 rate limit")}
+	oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 60, 0, failOrderLockRenewal{DistributedLock: lock.NewNopLock()}, "")
+	_, err := oe.PlaceOrderContext(context.Background(), &OrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "renewal-failure",
+	})
+	if !errors.Is(err, ErrOrderLockLost) {
+		t.Fatalf("PlaceOrder error = %v, want ErrOrderLockLost", err)
+	}
+	if len(ex.placed) != 1 {
+		t.Fatalf("venue submissions = %d, want exactly one before lease loss", len(ex.placed))
+	}
+	if got := oe.snapshotOwnedIntents(); len(got) != 0 {
+		t.Fatalf("definitively refused order retained ownership after renewal loss: %+v", got)
 	}
 }
 

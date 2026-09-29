@@ -23,6 +23,9 @@ import (
 // ErrLockNotAcquired 價格位分布式鎖已被其他實例持有，本次下單被跳過（未向交易所提交）
 var ErrLockNotAcquired = errors.New("order lock not acquired")
 
+// ErrOrderLockLost means renewal failed and this executor will not submit another attempt.
+var ErrOrderLockLost = errors.New("order lock lease lost")
+
 // ErrCancelLockNotAcquired means this caller does not own the cancellation operation.
 var ErrCancelLockNotAcquired = errors.New("cancel lock not acquired")
 
@@ -267,7 +270,12 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		return nil, fmt.Errorf("價格位 %.2f 下單跳過 key=%s: %w", req.Price, lockKey, ErrLockNotAcquired)
 	}
 	// 持鎖期間自動續期，確保重試總時長超過 TTL 時鎖仍有效
+	orderCtx, cancelOrder := context.WithCancel(ctx)
+	defer cancelOrder()
+	var orderLockLost atomic.Bool
 	stopRenew := lock.StartAutoRenew(oe.lock, lockKey, orderLockTTL, func(renewErr error) {
+		orderLockLost.Store(true)
+		cancelOrder()
 		logger.WarnCtx(oe.logCtx(), "⚠️ [%s] 下單鎖續期失败（鎖可能已過期）key=%s: %v", exchangeName, lockKey, renewErr)
 	})
 	defer func() {
@@ -281,6 +289,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	}()
 
 	// 限流
+	ctx = orderCtx
 	waitCtx, waitCancel := context.WithTimeout(ctx, orderLookupTimeout)
 	defer waitCancel()
 	if err := oe.rateLimiter.Wait(waitCtx); err != nil {
@@ -322,6 +331,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	priceDecimals := req.PriceDecimals
 
 	for i := 0; i <= orderMaxRetries; i++ {
+		if orderLockLost.Load() {
+			return nil, ErrOrderLockLost
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, err // no ambiguous call is retried through this branch
 		}
@@ -357,6 +369,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		// 呼叫交易所接口
 		if err := oe.prepareJournalSubmission(req.ClientOrderID, orderPrice); err != nil {
 			return nil, err
+		}
+		if orderLockLost.Load() {
+			return nil, ErrOrderLockLost
 		}
 		callCtx, callCancel := context.WithTimeout(ctx, orderLookupTimeout)
 		exchangeOrder, err := oe.exchange.PlaceOrder(callCtx, exchangeReq)
@@ -407,6 +422,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 			pm.RecordAPIRateLimitHit(exchangeName)
 			logger.WarnCtx(oe.logCtx(), "⚠️ 触发速率限制，等待后重試...")
 			if err := waitForOrderRetry(ctx, oe.rateLimitRetryDelay); err != nil {
+				if orderLockLost.Load() {
+					return nil, ErrOrderLockLost
+				}
 				return nil, err
 			}
 			continue
@@ -433,6 +451,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 			orderPrice = next
 			i--
 			if err := waitForOrderRetry(ctx, postOnlyRepriceDelay); err != nil {
+				if orderLockLost.Load() {
+					return nil, ErrOrderLockLost
+				}
 				return nil, err
 			}
 			continue

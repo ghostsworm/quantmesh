@@ -95,6 +95,29 @@ func TestOrderContextCancellationAfterSendRemainsUnknown(t *testing.T) {
 	}
 }
 
+func TestPriceLockRenewalFailureDuringSendRemainsUnknown(t *testing.T) {
+	v := &contextOrderVenue{}
+	v.onPlace = func(callCtx context.Context, _ *exchange.OrderRequest) (*exchange.Order, error) {
+		<-callCtx.Done()
+		return nil, callCtx.Err()
+	}
+	oe := NewExchangeOrderExecutor(v, "BTCUSDT", 0, 0,
+		failOrderLockRenewal{DistributedLock: lock.NewNopLock()}, "")
+	_, err := oe.PlaceOrderContext(context.Background(), &OrderRequest{
+		Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "lost-lease-in-flight",
+	})
+	if !errors.Is(err, execution.ErrOrderUnknown) || errors.Is(err, ErrOrderLockLost) {
+		t.Fatalf("in-flight lease loss error = %v, want UNKNOWN", err)
+	}
+	if len(v.placed) != 1 {
+		t.Fatalf("venue submissions = %d, want one", len(v.placed))
+	}
+	intents := oe.snapshotOwnedIntents()
+	if len(intents) != 1 || !intents[0].unknown || !oe.IsOpeningPaused() {
+		t.Fatalf("in-flight order uncertainty not retained: intents=%+v paused=%t", intents, oe.IsOpeningPaused())
+	}
+}
+
 func TestOrderContextCancelledDefinitiveRefusalDoesNotRetry(t *testing.T) {
 	for _, refusal := range []string{"-1003 rate limit", "-5022 Post Only"} {
 		t.Run(refusal, func(t *testing.T) {
