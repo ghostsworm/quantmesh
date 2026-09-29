@@ -41,6 +41,9 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 	if err != nil {
 		return fmt.Errorf("verify startup exposure positions for %s: %w", scope.Symbol, err)
 	}
+	if positions == nil {
+		return fmt.Errorf("verify startup exposure positions for %s: response is nil, not an authoritative empty snapshot", scope.Symbol)
+	}
 	for _, position := range positions {
 		if position == nil {
 			return fmt.Errorf("startup exposure position response contains an unverifiable nil entry for %s", scope.Symbol)
@@ -55,6 +58,9 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 	openOrders, err := ex.GetOpenOrders(snapshotCtx, scope.Symbol)
 	if err != nil {
 		return fmt.Errorf("verify startup exposure orders for %s: %w", scope.Symbol, err)
+	}
+	if openOrders == nil {
+		return fmt.Errorf("verify startup exposure orders for %s: response is nil, not an authoritative empty snapshot", scope.Symbol)
 	}
 	if len(openOrders) != 0 {
 		return fmt.Errorf("startup exposure is not empty for %s: %d open orders require reconciliation", scope.Symbol, len(openOrders))

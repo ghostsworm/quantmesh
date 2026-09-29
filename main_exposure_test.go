@@ -234,14 +234,18 @@ func TestRuntimeExposureBootstrapCannotSeedExistingAccount(t *testing.T) {
 
 func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T) {
 	tests := []struct {
-		name        string
-		positions   []*exchange.Position
-		orders      []*exchange.Order
-		positionErr error
-		orderErr    error
+		name         string
+		positions    []*exchange.Position
+		orders       []*exchange.Order
+		positionsNil bool
+		ordersNil    bool
+		positionErr  error
+		orderErr     error
 	}{
 		{name: "position query failure", positionErr: errors.New("unavailable")},
 		{name: "order query failure", orderErr: errors.New("unavailable")},
+		{name: "nil position collection", positionsNil: true},
+		{name: "nil order collection", ordersNil: true},
 		{name: "nil position entry", positions: []*exchange.Position{nil}},
 		{name: "position without symbol", positions: []*exchange.Position{{Size: 0}}},
 		{name: "position query returned another symbol", positions: []*exchange.Position{{Symbol: "ETHUSDT", Size: 0}}},
@@ -250,7 +254,9 @@ func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T)
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			v := &runtimeJournalVenue{positions: test.positions, orders: test.orders, positionErr: test.positionErr, orderErr: test.orderErr}
+			v := &runtimeJournalVenue{positions: test.positions, orders: test.orders,
+				positionsNil: test.positionsNil, ordersNil: test.ordersNil,
+				positionErr: test.positionErr, orderErr: test.orderErr}
 			executor, gate := newJournalRuntime(v, runtimeJournalScope())
 			book, err := configureRuntimeExposure(executor, func() (float64, time.Time) { return 100, time.Now() })
 			if err != nil {

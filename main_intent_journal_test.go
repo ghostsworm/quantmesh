@@ -18,19 +18,24 @@ import (
 
 type runtimeJournalVenue struct {
 	exchange.IExchange
-	mu          sync.Mutex
-	positions   []*exchange.Position
-	orders      []*exchange.Order
-	liveOrders  map[int64]*exchange.Order
-	positionErr error
-	orderErr    error
-	getOrderErr error
-	sends       int
+	mu           sync.Mutex
+	positions    []*exchange.Position
+	orders       []*exchange.Order
+	liveOrders   map[int64]*exchange.Order
+	positionErr  error
+	orderErr     error
+	positionsNil bool
+	ordersNil    bool
+	getOrderErr  error
+	sends        int
 }
 
 func (*runtimeJournalVenue) GetName() string       { return "fake" }
 func (*runtimeJournalVenue) GetMarketType() string { return "futures" }
 func (v *runtimeJournalVenue) GetPositions(context.Context, string) ([]*exchange.Position, error) {
+	if v.positionsNil {
+		return nil, v.positionErr
+	}
 	if v.positions == nil && v.positionErr == nil {
 		return []*exchange.Position{}, nil
 	}
@@ -42,7 +47,11 @@ func (v *runtimeJournalVenue) GetOpenOrders(context.Context, string) ([]*exchang
 	if v.orderErr != nil {
 		return nil, v.orderErr
 	}
-	result := append([]*exchange.Order(nil), v.orders...)
+	if v.ordersNil {
+		return nil, nil
+	}
+	result := make([]*exchange.Order, 0, len(v.orders)+len(v.liveOrders))
+	result = append(result, v.orders...)
 	for _, o := range v.liveOrders {
 		if o.Status != exchange.OrderStatusFilled && o.Status != exchange.OrderStatusCanceled && o.Status != exchange.OrderStatusRejected && o.Status != exchange.OrderStatusExpired {
 			copy := *o
