@@ -80,6 +80,8 @@ type DCAEnhancedStrategy struct {
 
 const dcaRuntimeStateSchemaVersion = 1
 
+const dcaPendingCancelRetryInterval = 3 * time.Second
+
 type dcaRuntimeState struct {
 	BotID               string                `json:"bot_id"`
 	StrategyName        string                `json:"strategy_name"`
@@ -155,6 +157,7 @@ type DCALayer struct {
 	OpeningFee        float64   // 剩餘持倉應分攤的實際開倉手續費（計價幣）
 	FillProgress      position.FillProgress
 	RequestedQuantity float64
+	CancelRequestedAt time.Time `json:"-"`
 }
 
 // NewDCAEnhancedStrategy 創建增强型 DCA 策略
@@ -1001,7 +1004,10 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	}
 
 	// 先撤掉未成交的开倉單，避免平倉後又成交出孤兒倉位
-	s.cancelPendingLayers()
+	if s.cancelPendingLayers() {
+		logger.Warn("⚠️ [%s] 等待未成交 DCA 開倉單撤單終態，暫不提交平倉單", s.name)
+		return nil
+	}
 
 	// 下賣單
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
@@ -1058,7 +1064,10 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 	}
 	orderPrice := s.roundPrice(price)
 
-	s.cancelPendingLayers()
+	if s.cancelPendingLayers() {
+		logger.Warn("⚠️ [%s] 等待未成交 DCA 開倉單撤單終態，暫不提交尾層平倉單", s.name)
+		return nil
+	}
 
 	order, err := s.executor.PlaceOrder(&position.OrderRequest{
 		Symbol:       s.strategyCfg.Symbol,
@@ -1100,19 +1109,30 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 }
 
 // cancelPendingLayers 撤销所有未完全成交的开倉單（撤單回報到達後再回滚层状態）
-func (s *DCAEnhancedStrategy) cancelPendingLayers() {
+func (s *DCAEnhancedStrategy) cancelPendingLayers() bool {
 	ids := make([]int64, 0)
+	pending := false
+	now := time.Now()
+	retryBefore := now.Add(-dcaPendingCancelRetryInterval)
 	for _, layer := range s.layers {
-		if (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled) && layer.OrderID > 0 {
+		if layer == nil || (layer.Status != entryStatusPending && layer.Status != entryStatusPartiallyFilled) {
+			continue
+		}
+		pending = true
+		if layer.OrderID <= 0 {
+			continue
+		}
+		if layer.CancelRequestedAt.IsZero() || !layer.CancelRequestedAt.After(retryBefore) {
+			layer.CancelRequestedAt = now
 			ids = append(ids, layer.OrderID)
 		}
 	}
-	if len(ids) == 0 {
-		return
+	if len(ids) > 0 {
+		if err := s.executor.BatchCancelOrders(ids); err != nil {
+			logger.Warn("⚠️ [%s] 平倉前撤銷未成交開倉單未確認 (訂單=%v): %v", s.name, ids, err)
+		}
 	}
-	if err := s.executor.BatchCancelOrders(ids); err != nil {
-		logger.Warn("⚠️ [%s] 平倉前撤销未成交开倉單失败 (订單=%v): %v", s.name, ids, err)
-	}
+	return pending
 }
 
 // recordCloseStats 更新平倉统计

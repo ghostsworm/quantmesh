@@ -3,6 +3,7 @@ package strategy
 import (
 	"math"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/position"
@@ -105,6 +106,70 @@ func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
 					executor.marked, strategy.isClosing, strategy.closeOrderID, strategy.totalQty)
 			}
 		})
+	}
+}
+
+func TestDCACloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
+	executor := &cancelRecordingExecutor{}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	filled := &DCALayer{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}
+	pending := &DCALayer{Index: 1, Price: 90, Quantity: 1, Cost: 90, OrderID: 77, Status: entryStatusPartiallyFilled}
+	strategy.layers = []*DCALayer{filled, pending}
+	strategy.updateTotals()
+
+	if err := strategy.closeAllPositions(110, "stop loss"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 1 || executor.canceled[0] != 77 || len(executor.orders) != 0 {
+		t.Fatalf("cancel ACK must not permit close submission: canceled=%v orders=%+v", executor.canceled, executor.orders)
+	}
+	if err := strategy.closeAllPositions(110, "stop loss"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 1 {
+		t.Fatalf("cancel retry must be throttled while awaiting terminal update: %v", executor.canceled)
+	}
+	pending.CancelRequestedAt = time.Now().Add(-dcaPendingCancelRetryInterval)
+	if err := strategy.closeAllPositions(110, "stop loss"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 2 || len(executor.orders) != 0 {
+		t.Fatalf("unconfirmed cancellation should retry but continue blocking close: canceled=%v orders=%+v", executor.canceled, executor.orders)
+	}
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 77, Status: "CANCELED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := strategy.closeAllPositions(110, "stop loss"); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.orders) != 1 || !executor.orders[0].ReduceOnly || executor.orders[0].Quantity != 1 {
+		t.Fatalf("after terminal cancel, close should use reconciled filled inventory only: %+v", executor.orders)
+	}
+}
+
+func TestDCATailCloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
+	executor := &cancelRecordingExecutor{}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	last := &DCALayer{Index: 2, Price: 100, Quantity: 0.5, Cost: 50, Status: entryStatusFilled}
+	pending := &DCALayer{Index: 3, Price: 90, Quantity: 0.5, Cost: 45, OrderID: 78, Status: entryStatusPending}
+	strategy.layers = []*DCALayer{last, pending}
+	strategy.updateTotals()
+	if err := strategy.closeLastLayer(last, 110); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.canceled) != 1 || len(executor.orders) != 0 {
+		t.Fatalf("tail close must wait for opening-order terminal status: canceled=%v orders=%+v", executor.canceled, executor.orders)
+	}
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 78, Status: "CANCELED"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := strategy.closeLastLayer(last, 110); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.orders) != 1 || executor.orders[0].Quantity != 0.5 || !executor.orders[0].ReduceOnly {
+		t.Fatalf("tail close should submit only after pending entry terminal: %+v", executor.orders)
 	}
 }
 
