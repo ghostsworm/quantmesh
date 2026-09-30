@@ -297,7 +297,7 @@ func (w *coinexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 }
 
 func (w *coinexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }
 
 // GetOrderFills queries CoinEx's signed paginated futures deal ledger.

@@ -290,6 +290,95 @@ type FuturesOrderDealV2 struct {
 	RealizedPnL string      `json:"realized_pnl"`
 }
 
+type FuturesPositionFundingV2 struct {
+	Market       string      `json:"market"`
+	MarketType   string      `json:"market_type"`
+	Currency     string      `json:"ccy"`
+	PositionID   json.Number `json:"position_id"`
+	Side         string      `json:"side"`
+	FundingRate  string      `json:"funding_rate"`
+	FundingValue string      `json:"funding_value"`
+	CreatedAt    json.Number `json:"created_at"`
+}
+
+const coinExPositionFundingPageSize = 100
+
+// GetPositionFundingHistoryV2 reads all signed futures position funding entries in a time range.
+func (c *CoinExClient) GetPositionFundingHistoryV2(ctx context.Context, market string, startTime, endTime int64) ([]FuturesPositionFundingV2, error) {
+	if strings.TrimSpace(market) == "" || startTime <= 0 || endTime < startTime {
+		return nil, fmt.Errorf("CoinEx funding query requires market and a valid time range")
+	}
+	const path = "/v2/futures/position-funding-history"
+	var entries []FuturesPositionFundingV2
+	seen := make(map[string]struct{})
+	for page := 1; ; page++ {
+		query := url.Values{}
+		query.Set("market", market)
+		query.Set("market_type", "FUTURES")
+		query.Set("start_time", strconv.FormatInt(startTime, 10))
+		query.Set("end_time", strconv.FormatInt(endTime, 10))
+		query.Set("page", strconv.Itoa(page))
+		query.Set("limit", strconv.Itoa(coinExPositionFundingPageSize))
+		requestPath := path + "?" + query.Encode()
+		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+		signature := hmac.New(sha256.New, []byte(c.secretKey))
+		_, _ = signature.Write([]byte(http.MethodGet + requestPath + timestamp))
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+requestPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create CoinEx funding-history request: %w", err)
+		}
+		request.Header.Set("X-COINEX-KEY", c.apiKey)
+		request.Header.Set("X-COINEX-SIGN", hex.EncodeToString(signature.Sum(nil)))
+		request.Header.Set("X-COINEX-TIMESTAMP", timestamp)
+		response, err := c.httpClient.Do(request)
+		if err != nil {
+			return nil, fmt.Errorf("send CoinEx funding-history request page %d: %w", page, err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		closeErr := response.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read CoinEx funding-history response: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close CoinEx funding-history response: %w", closeErr)
+		}
+		if response.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("CoinEx funding-history HTTP %d: %s", response.StatusCode, string(body))
+		}
+		var result struct {
+			Code       int                        `json:"code"`
+			Message    string                     `json:"message"`
+			Data       []FuturesPositionFundingV2 `json:"data"`
+			Pagination struct {
+				HasNext bool `json:"has_next"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return nil, fmt.Errorf("decode CoinEx funding-history response: %w", err)
+		}
+		if result.Code != 0 {
+			return nil, fmt.Errorf("CoinEx funding-history API error: code=%d message=%s", result.Code, result.Message)
+		}
+		for _, entry := range result.Data {
+			key := entry.Market + ":" + entry.PositionID.String() + ":" + entry.Side + ":" + entry.CreatedAt.String()
+			if entry.PositionID.String() == "" || entry.CreatedAt.String() == "" {
+				return nil, fmt.Errorf("CoinEx funding-history page %d contains missing identity fields", page)
+			}
+			if _, duplicate := seen[key]; duplicate {
+				return nil, fmt.Errorf("CoinEx funding-history contains duplicate entry %s", key)
+			}
+			seen[key] = struct{}{}
+			entries = append(entries, entry)
+		}
+		if !result.Pagination.HasNext {
+			return entries, nil
+		}
+		if len(result.Data) == 0 {
+			return nil, fmt.Errorf("CoinEx funding-history pagination claims more data with an empty page")
+		}
+	}
+}
+
 const coinExFuturesOrderDealsPageSize = 100
 
 // GetFuturesOrderDealsV2 queries every execution for one CoinEx futures order.
