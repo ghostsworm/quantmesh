@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc512 修复普通 Bot 停机错误被吞：Bot 生命周期现在接收并聚合订单/保护性平仓准备、`close_on_stop`、`StrategyManager.StopAllWithError` 与运行租约释放错误；失败时给运行时加不确定性原因/开仓阻断，由 BotManager 保留运行时且不写入“已停止”。`close_on_stop` 的交易所持仓重查失败现拒绝继续提交新平仓单，并向调用方返回错误；全平和按配置平仓错误也不再只记日志。回归验证重查超时时不提交平仓，以及 liquidation 错误正确传播。此举改善生命周期可观测性，但不自动证明普通 Bot 持仓已平、释放其资金 claim 或覆盖进程强制退出；真实交易所验证未做。版本前后端同步至 `3.111.0-rc512`。
 - rc511 为 Funding Carry 增加停止后预算安全收敛：`StopWithError` 先 seal/drain/cancel 所有自有委托，再经带错误传播的策略 Stop/平仓路径；随后在账户钱包分布式协调锁内重新读取 futures/spot/margin positions、各腿活动委托、策略所有权持久快照及内存状态。只有所有腿可证实为空/归属现货为零/无 in-flight 或 unknown intent 时，才调用 SQL 释放；核验超时、nil/不一致快照、活动委托、持久化状态缺失、关闭错误或 SQL 删除失败均返回错误并保留 claim。加入释放前核验顺序及平仓/挂单/持久状态失败用例。普通 Bot claim 不自动释放；Funding Carry 启动失败造成的陈旧 claim 仍需人工核账。尚未实测真实 Binance/MySQL/多实例。版本前后端同步至 `3.111.0-rc511`。
 - rc510 修复 CI/CD 发布验证 job 的顺序：此前全量 Go 测试发生在 React build 之前，干净 runner 没有 `web/dist/*` 导致 `go:embed` 编译失败；现先执行 `yarn verify`，将 `webui/dist` 复制到 `web/dist` 后再跑 Go tests。另将 risk simulator 时间测试期望改为用 `time.Unix` 按当前 runner 本地时区生成，移除硬编码 +08:00；生产时间格式化行为未改。待新的 GitHub run 验证。版本前后端同步至 `3.111.0-rc510`。
 - rc509 增加 `Instance.Total > 1` 且 SQLite 的账户钱包资本预留回归测试：即使传入 NopLock，也必须在触及预留写入前因缺少共享 MySQL 行锁能力而拒绝；持续保护多进程账本 fail-closed 边界。该测试不替代真实 MySQL 并发/故障注入验证。版本前后端同步至 `3.111.0-rc509`。

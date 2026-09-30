@@ -235,44 +235,56 @@ func (rt *SymbolRuntime) shutdownCloseHandledReason() string {
 //   - 否則撤銷本交易對掛單後按 close_on_stop_config 走 BotRuntime.ClosePositions；
 //     下單失敗（此時沒有平倉單掛出）且是全倉平倉時回退 LiquidateAll。
 func runCloseOnStop(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) {
+	if err := runCloseOnStopWithError(ctx, symCfg, act); err != nil {
+		logger.ErrorCtx(ctx, "❌ [%s] 停止平仓未核实完成: %v", symCfg.Symbol, err)
+	}
+}
+
+func runCloseOnStopWithError(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) error {
 	if !symCfg.CloseOnStop {
-		return
+		return nil
 	}
 	// 平倉前重查交易所持倉：已被其他路徑平掉（或本就無倉）時不再提交一輪平倉單
 	if act.exchangePositionFlat != nil {
 		flat, err := act.exchangePositionFlat(ctx)
 		if err != nil {
-			logger.WarnCtx(ctx, "⚠️ [%s] 終止時重查交易所持倉失敗，按本地槽位繼續平倉: %v", symCfg.Symbol, err)
+			return fmt.Errorf("停止时无法核实交易所持仓: %w", err)
 		} else if flat {
 			logger.InfoCtx(ctx, "ℹ️ [%s] 終止時交易所持倉已為 0，跳過 close_on_stop 平倉", symCfg.Symbol)
-			return
+			return nil
 		}
 	}
 	cfg := symCfg.CloseOnStopConfig
 	if !closeOnStopConfigSet(cfg) {
 		logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (close_on_stop=true)...", symCfg.Symbol)
-		runVerifiedLiquidation(ctx, symCfg, act)
-		return
+		return runVerifiedLiquidationWithError(ctx, symCfg, act)
 	}
 	if symCfg.GetDirection() == directionBoth {
 		logger.InfoCtx(ctx, "🔄 [%s] 終止時全部平倉 (direction=BOTH 按槽位腿別平倉，close_on_stop_config.method 不適用)...", symCfg.Symbol)
-		runVerifiedLiquidation(ctx, symCfg, act)
-		return
+		return runVerifiedLiquidationWithError(ctx, symCfg, act)
 	}
 	logger.InfoCtx(ctx, "🔄 [%s] 終止時平倉 (method=%s, ratio=%v, timeout=%ds)...",
 		symCfg.Symbol, cfg.Method, cfg.QuantityRatio, cfg.TimeoutSec)
 	// 先撤掉掛單：網格止盈單會佔用現貨餘額，也會和平倉單重複平倉
 	act.cancelAllOrders()
 	if err := act.closePositions(ctx, cfg); err != nil {
-		logger.ErrorCtx(ctx, "❌ [%s] 終止時平倉未核實（ratio=%v，不追加全平，需核账處理）: %v", symCfg.Symbol, cfg.QuantityRatio, err)
+		return fmt.Errorf("停止时按配置平仓未核实（ratio=%v，不追加全平）: %w", cfg.QuantityRatio, err)
+	}
+	return nil
+}
+
+// runVerifiedLiquidation 保留給只需記錄日志的兼容調用；生命周期停止路径使用错误返回版本。
+func runVerifiedLiquidation(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) {
+	if err := runVerifiedLiquidationWithError(ctx, symCfg, act); err != nil {
+		logger.ErrorCtx(ctx, "❌ [%s] 終止時全平倉未核實完成，請手動處理: %v", symCfg.Symbol, err)
 	}
 }
 
-// runVerifiedLiquidation 執行核實型全平倉；殘留持倉/掛單時記 ERROR（退出流程不因此阻斷）
-func runVerifiedLiquidation(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) {
+func runVerifiedLiquidationWithError(ctx context.Context, symCfg config.SymbolConfig, act closeOnStopActions) error {
 	if err := act.liquidateAll(ctx); err != nil {
-		logger.ErrorCtx(ctx, "❌ [%s] 終止時全平倉未核實完成，請手動處理: %v", symCfg.Symbol, err)
+		return fmt.Errorf("停止时全平未核实完成: %w", err)
 	}
+	return nil
 }
 
 // closeOnStopActionsForRuntime 綁定到真實運行時：平倉走 R1 修正後的 BotRuntime.ClosePositions，
@@ -363,9 +375,12 @@ func (rt *SymbolRuntime) stopContext(fallback context.Context) context.Context {
 }
 
 // closeOnStopForRuntime 停止流程調用入口（帶超時，不依賴可能已取消的啟動 ctx）
-func closeOnStopForRuntime(logCtx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) {
+func closeOnStopForRuntime(logCtx context.Context, symCfg config.SymbolConfig, rt *SymbolRuntime) error {
 	if !shouldRunBotCloseOnStop(logCtx, symCfg, rt) {
-		return
+		if symCfg.CloseOnStop && rt != nil && rt.shutdownCloseUnverifiedReason() != "" {
+			return fmt.Errorf("close_on_stop blocked: %s", rt.shutdownCloseUnverifiedReason())
+		}
+		return nil
 	}
 	ctx, cancel := context.WithTimeout(rt.stopContext(logCtx), closeOnStopBaseTimeout)
 	defer cancel()
@@ -375,8 +390,12 @@ func closeOnStopForRuntime(logCtx context.Context, symCfg config.SymbolConfig, r
 		if err != nil {
 			rt.markShutdownCloseUnverified(err.Error())
 			logger.ErrorCtx(logCtx, "[%s] 退出平仓未取得排空后的专用提交许可: %v", symCfg.Symbol, err)
-			return
+			return fmt.Errorf("未取得排空后的专用平仓许可: %w", err)
 		}
 	}
-	runCloseOnStop(ctx, symCfg, closeOnStopActionsForRuntime(symCfg, rt))
+	if err := runCloseOnStopWithError(ctx, symCfg, closeOnStopActionsForRuntime(symCfg, rt)); err != nil {
+		rt.markShutdownCloseUnverified(err.Error())
+		return err
+	}
+	return nil
 }

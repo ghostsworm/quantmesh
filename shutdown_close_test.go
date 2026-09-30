@@ -135,15 +135,28 @@ func TestRunCloseOnStopSkipsWhenExchangeFlat(t *testing.T) {
 		t.Fatalf("exchange flat must skip close_on_stop, got %d calls", calls)
 	}
 
-	// 重查失敗時不阻斷平倉
-	runCloseOnStop(context.Background(), sc, closeOnStopActions{
+	// 无法证明交易所持仓时，不应继续提交可能重复的平仓订单。
+	err := runCloseOnStopWithError(context.Background(), sc, closeOnStopActions{
 		cancelAllOrders:      func() {},
 		liquidateAll:         func(context.Context) error { calls++; return nil },
 		closePositions:       func(context.Context, config.ClosePositionConfig) error { return nil },
 		exchangePositionFlat: func(context.Context) (bool, error) { return false, errors.New("timeout") },
 	})
-	if calls != 1 {
-		t.Fatalf("recheck error must fall through to liquidate once, got %d", calls)
+	if err == nil || calls != 0 {
+		t.Fatalf("recheck failure must be returned without a new close, err=%v calls=%d", err, calls)
+	}
+}
+
+func TestRunCloseOnStopWithErrorReturnsLiquidationFailure(t *testing.T) {
+	closeErr := errors.New("venue rejected liquidation")
+	err := runCloseOnStopWithError(context.Background(), config.SymbolConfig{
+		Symbol: "BTCUSDT", CloseOnStop: true,
+	}, closeOnStopActions{
+		cancelAllOrders: func() {},
+		liquidateAll:    func(context.Context) error { return closeErr },
+	})
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("runCloseOnStopWithError() = %v, want wrapped liquidation error", err)
 	}
 }
 

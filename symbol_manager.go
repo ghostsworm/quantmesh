@@ -1743,8 +1743,10 @@ func startSymbolRuntime(
 	stopAutoRebuild := startConfiguredAutoRebuild(ctx, symCfg, superPositionManager, !config.ShouldSkipInitialGridAdjustOrders(&localCfg))
 
 	var stopOnce sync.Once
-	stopFn := func() {
+	var stopErr error
+	stopFn := func() error {
 		stopOnce.Do(func() {
+			var stopErrors []error
 			sealRuntimeShutdown(rt)
 			if ownershipLease.Lost() {
 				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
@@ -1757,14 +1759,18 @@ func startSymbolRuntime(
 			if err := prepareRuntimeShutdown(liquidationStopCtx, rt, symCfg.CloseOnStop); err != nil {
 				protectiveSettled = false
 				rt.markShutdownCloseUnverified(err.Error())
+				stopErrors = append(stopErrors, fmt.Errorf("停止前订单/保护性平仓准备未核实: %w", err))
 				logger.ErrorCtx(ctx, "[%s] 停止時保護性平倉未核實，保留待對賬阻斷: %v", symCfg.Symbol, err)
 			}
 			liquidationStopCancel()
 			// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
 			if protectiveSettled && !ownershipLease.Lost() {
-				closeOnStopForRuntime(shutdownCtx, symCfg, rt)
+				if err := closeOnStopForRuntime(shutdownCtx, symCfg, rt); err != nil {
+					stopErrors = append(stopErrors, err)
+				}
 			} else if ownershipLease.Lost() {
 				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，停止时不执行独立平仓")
+				stopErrors = append(stopErrors, fmt.Errorf("Bot 运行所有权租约已丢失，停止平仓无法安全执行"))
 			}
 			logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
 			if rt.OpeningController != nil {
@@ -1794,14 +1800,26 @@ func startSymbolRuntime(
 			}
 			gridRegime.stop()
 			if strategyManager != nil {
-				strategyManager.StopAll()
+				if err := strategyManager.StopAllWithError(); err != nil {
+					rt.markShutdownCloseUnverified(err.Error())
+					stopErrors = append(stopErrors, fmt.Errorf("策略停止未核实: %w", err))
+				}
 			}
 			if releaseErr := ownershipLease.Release(); releaseErr != nil {
 				logger.WarnCtx(ctx, "[%s] 释放 Bot 运行所有权租约失败: %v", botID, releaseErr)
+				stopErrors = append(stopErrors, fmt.Errorf("释放 Bot 运行所有权租约失败: %w", releaseErr))
 			}
+			if len(stopErrors) == 0 {
+				if reason := rt.shutdownCloseUnverifiedReason(); reason != "" {
+					stopErrors = append(stopErrors, fmt.Errorf("停止状态仍需对账: %s", reason))
+				}
+			}
+			stopErr = errors.Join(stopErrors...)
 		})
+		return stopErr
 	}
-	rt.Stop = stopFn
+	rt.StopWithError = stopFn
+	rt.Stop = func() { _ = stopFn() }
 	ownershipLeaseTransferred = true
 	dynamicOwnedByRuntime = true
 
