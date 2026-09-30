@@ -252,7 +252,7 @@ func TestMiscWebAdapters(t *testing.T) {
 }
 
 func TestSnapshotRuntimeAdapter(t *testing.T) {
-	ex := &adapterFakeExchange{account: &exchange.Account{TotalWalletBalance: 900, TotalMarginBalance: 0}}
+	ex := &adapterFakeExchange{account: &exchange.Account{TotalWalletBalance: 900, TotalMarginBalance: 900, BalanceAsset: "USDT"}}
 	rt := &SymbolRuntime{Config: config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}, AccountID: "acct", Exchange: ex}
 	adapter := &snapshotRuntimeAdapter{rt: rt}
 	if adapter.Exchange() != "binance" || adapter.Symbol() != "BTCUSDT" || adapter.Account() != "acct" {
@@ -274,6 +274,24 @@ func TestSnapshotRuntimeAdapter(t *testing.T) {
 	}}
 	if equity, ok := spot.AccountEquityUSDT(context.Background()); ok || equity != 0 {
 		t.Fatalf("unvalued multi-asset spot total must not be reported as USDT equity: %.2f/%v", equity, ok)
+	}
+	for _, asset := range []string{"BTC", ""} {
+		ex.account = &exchange.Account{TotalMarginBalance: 900, BalanceAsset: asset}
+		if equity, ok := adapter.AccountEquityUSDT(context.Background()); ok || equity != 0 {
+			t.Fatalf("account equity with asset %q must not be labeled USDT: %.2f/%v", asset, equity, ok)
+		}
+	}
+	ex.account = &exchange.Account{TotalMarginBalance: 0, TotalWalletBalance: 900, BalanceAsset: " usdt "}
+	if equity, ok := adapter.AccountEquityUSDT(context.Background()); ok || equity != 0 {
+		t.Fatalf("ambiguous zero margin balance must not fall back to wallet balance: %.2f/%v", equity, ok)
+	}
+	ex.account = &exchange.Account{TotalMarginBalance: -10, TotalWalletBalance: 900, BalanceAsset: "USDT"}
+	if equity, ok := adapter.AccountEquityUSDT(context.Background()); ok || equity != 0 {
+		t.Fatalf("negative margin equity must not be hidden by wallet balance: %.2f/%v", equity, ok)
+	}
+	ex.account = &exchange.Account{TotalMarginBalance: 125, TotalWalletBalance: 900, BalanceAsset: "USDT"}
+	if equity, ok := adapter.AccountEquityUSDT(context.Background()); !ok || equity != 125 {
+		t.Fatalf("verified positive USDT margin balance = %.2f/%v", equity, ok)
 	}
 
 }

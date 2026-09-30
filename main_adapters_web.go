@@ -567,9 +567,17 @@ func (a *snapshotRuntimeAdapter) AccountEquityUSDT(ctx context.Context) (float64
 	if err != nil || acc == nil {
 		return 0, false
 	}
-	total := acc.TotalMarginBalance
-	if total <= 0 {
-		total = acc.TotalWalletBalance
+	if !strings.EqualFold(strings.TrimSpace(acc.BalanceAsset), "USDT") {
+		return 0, false
 	}
-	return total, !math.IsNaN(total) && !math.IsInf(total, 0) && total >= 0
+	total := acc.TotalMarginBalance
+	if math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
+		return 0, false
+	}
+	if total == 0 && acc.TotalWalletBalance != 0 {
+		// A zero margin balance may be a real zero-equity account or an
+		// unavailable field. Wallet balance alone cannot disambiguate it.
+		return 0, false
+	}
+	return total, true
 }
