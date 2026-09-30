@@ -179,7 +179,7 @@ func TestRuntimeIntentJournalSQLiteRestartDoesNotReopen(t *testing.T) {
 }
 
 func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) {
-	for _, scenario := range []string{"missing_schema", "missing_storage", "legacy", "position", "order", "position_error", "order_error", "orders_nil", "flat"} {
+	for _, scenario := range []string{"missing_schema", "missing_storage", "legacy", "position", "order", "out_of_scope_order", "malformed_order", "position_error", "order_error", "orders_nil", "flat"} {
 		t.Run(scenario, func(t *testing.T) {
 			store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "runtime.db"))
 			if err != nil {
@@ -205,6 +205,10 @@ func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) 
 				venue.positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: 1}}
 			case "order":
 				venue.orders = []*exchange.Order{{Symbol: "BTCUSDT", OrderID: 10}}
+			case "out_of_scope_order":
+				venue.orders = []*exchange.Order{{Symbol: "ETHUSDT", OrderID: 10}}
+			case "malformed_order":
+				venue.orders = []*exchange.Order{{OrderID: 10}}
 			case "position_error":
 				venue.positionErr = errors.New("offline")
 			case "order_error":

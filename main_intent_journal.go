@@ -154,9 +154,13 @@ func configureRuntimeIntentJournal(ctx context.Context, executor *order.Exchange
 		return fmt.Errorf("verify initial open orders: exchange returned a nil snapshot; order state is unverified")
 	}
 	for _, o := range orders {
-		if o == nil || o.Symbol == "" || strings.EqualFold(o.Symbol, scope.Symbol) {
-			return fmt.Errorf("existing or malformed open orders require reconciliation")
+		if o == nil {
+			return fmt.Errorf("verify initial open orders: snapshot contains an unverifiable nil order")
 		}
+		if o.Symbol == "" || !strings.EqualFold(o.Symbol, scope.Symbol) {
+			return fmt.Errorf("verify initial open orders: snapshot contains an out-of-scope order for %q", scope.Symbol)
+		}
+		return fmt.Errorf("existing open orders for %q require reconciliation", scope.Symbol)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
