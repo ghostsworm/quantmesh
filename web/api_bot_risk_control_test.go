@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -125,6 +126,53 @@ func TestUpdateBotRiskControlRejectsUnsafeValues(t *testing.T) {
 			updateBotRiskControl(c)
 			if w.Code != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
+type pauseRequestTestBot struct {
+	BotExtended
+	safePauses     int
+	ordinaryPauses int
+}
+
+func (b *pauseRequestTestBot) GetBotRiskControl() *config.BotRiskControl {
+	return &config.BotRiskControl{AutoResumeAfter: 30}
+}
+
+func (b *pauseRequestTestBot) PauseOpeningWithoutAutoResume(string) { b.safePauses++ }
+func (b *pauseRequestTestBot) PauseOpening(string)                  { b.ordinaryPauses++ }
+
+func TestPauseBotOpeningOnlyUsesExplicitNonNegativeAutoResume(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	original := botExtendedProvider
+	t.Cleanup(func() { botExtendedProvider = original })
+
+	for _, tc := range []struct {
+		name       string
+		body       string
+		wantCode   int
+		wantPauses int
+	}{
+		{name: "no_duration_does_not_inherit_saved_duration", body: `{}`, wantCode: http.StatusOK, wantPauses: 1},
+		{name: "negative_duration_rejected", body: `{"auto_resume_sec":-1}`, wantCode: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bot := &pauseRequestTestBot{}
+			botExtendedProvider = protectiveResumeProvider{bot: bot}
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/api/v2/bots/test/pause", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			c.Params = gin.Params{{Key: "id", Value: "test"}}
+
+			pauseBotOpening(c)
+			if w.Code != tc.wantCode {
+				t.Fatalf("response: %d %s", w.Code, w.Body.String())
+			}
+			if bot.safePauses != tc.wantPauses || bot.ordinaryPauses != 0 {
+				t.Fatalf("pause calls: safe=%d ordinary=%d", bot.safePauses, bot.ordinaryPauses)
 			}
 		})
 	}

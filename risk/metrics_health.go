@@ -78,7 +78,7 @@ func (gcb *GlobalCircuitBreaker) applyMetricsHealthGate() {
 		if owned, ok := bot.(interface{ SetRiskDataUnavailable(bool) }); ok {
 			owned.SetRiskDataUnavailable(paused)
 		} else if paused {
-			bot.PauseOpening("账户权益或现金流水尚未核实")
+			pauseBotWithoutAutoResume(bot, "账户权益或现金流水尚未核实")
 		}
 	}
 }

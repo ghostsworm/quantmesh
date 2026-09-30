@@ -1387,8 +1387,25 @@ func (br *BotRuntime) publishRiskControlsLocked() error {
 	return fmt.Errorf("runtime has no risk-control application path")
 }
 
-// PauseOpening 暂停开仓
+// PauseOpening 暂停开仓。自动恢复必须由显式限时暂停请求指定，风控调用默认保持暂停。
 func (br *BotRuntime) PauseOpening(reason string) {
+	br.pauseOpening(reason, 0)
+}
+
+// PauseOpeningWithoutAutoResume 用于熔断、紧急操作及其他必须由来源显式解除的暂停。
+func (br *BotRuntime) PauseOpeningWithoutAutoResume(reason string) {
+	br.pauseOpening(reason, 0)
+}
+
+// PauseOpeningWithAutoResume 仅供用户明确指定时长的限时暂停使用。
+func (br *BotRuntime) PauseOpeningWithAutoResume(reason string, seconds int) {
+	if seconds <= 0 || int64(seconds) > (1<<63-1)/int64(time.Second) {
+		seconds = 0
+	}
+	br.pauseOpening(reason, seconds)
+}
+
+func (br *BotRuntime) pauseOpening(reason string, autoResumeSec int) {
 	br.pauseTransitionMu.Lock()
 	defer br.pauseTransitionMu.Unlock()
 	br.autoResumeGeneration++
@@ -1405,7 +1422,6 @@ func (br *BotRuntime) PauseOpening(reason string) {
 	}
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpening = true
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
-	autoResumeSec := br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
 	br.configMu.Unlock()
 
 	// C2：br.Config 只是展示用拷贝，SPM 持有自己的配置；必須直接通知 SPM 才能真正停止開倉

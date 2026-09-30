@@ -75,7 +75,7 @@ func (gcb *GlobalCircuitBreaker) refreshAllocationRisk() {
 			if owner, ok := bot.(allocationRiskHold); ok {
 				owner.SetAllocationRiskHold(held)
 			} else if held {
-				bot.PauseOpening(reason)
+				pauseBotWithoutAutoResume(bot, reason)
 			}
 		}
 	}

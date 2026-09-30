@@ -4,10 +4,12 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/execution"
 	"quantmesh/position"
+	"quantmesh/risk"
 	"quantmesh/utils"
 )
 
@@ -121,6 +123,44 @@ func TestBotRuntimePauseOpeningPropagatesToSuperPositionManager(t *testing.T) {
 	}
 	if br.Config.OpenPositionControl.PauseOpening {
 		t.Fatalf("display config still paused after ResumeOpening")
+	}
+}
+
+func TestRiskPauseCoordinatorCannotBeBypassedByBotAutoResume(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	bot := &BotRuntime{
+		BotID: "coordinated-risk-pause",
+		Config: config.BotConfig{OpenPositionControl: config.OpenPositionControl{
+			BotRiskControl: &config.BotRiskControl{AutoResumeAfter: 1},
+		}},
+		Inner: &SymbolRuntime{OpeningGate: gate},
+	}
+	coordinator := risk.NewOpeningPauseCoordinator()
+	bots := []risk.BotController{bot}
+
+	coordinator.Pause("global_circuit_breaker", "circuit_breaker:daily_loss", bots)
+	time.Sleep(1100 * time.Millisecond)
+	if !coordinator.IsHeldBy("global_circuit_breaker") || !gate.HasBlock("manual") {
+		t.Fatal("configured Bot auto-resume bypassed an active coordinated risk hold")
+	}
+	if !coordinator.Release("global_circuit_breaker", bots) || gate.HasBlock("manual") {
+		t.Fatal("explicit coordinator release did not release its own hold")
+	}
+}
+
+func TestExplicitPauseAutoResumeUsesRequestedDuration(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	bot := &BotRuntime{
+		BotID: "explicit-auto-resume",
+		Config: config.BotConfig{OpenPositionControl: config.OpenPositionControl{
+			BotRiskControl: &config.BotRiskControl{AutoResumeAfter: 1},
+		}},
+		Inner: &SymbolRuntime{OpeningGate: gate},
+	}
+	bot.PauseOpeningWithAutoResume("user_requested_timed_pause", 1)
+	time.Sleep(1100 * time.Millisecond)
+	if gate.HasBlock("manual") {
+		t.Fatal("explicitly requested automatic resume did not release the pause")
 	}
 }
 

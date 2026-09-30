@@ -184,6 +184,21 @@ type OpeningPauseCoordinator struct {
 	holders map[string]string // source -> reason
 }
 
+type nonAutoResumingBot interface {
+	PauseOpeningWithoutAutoResume(reason string)
+}
+
+func pauseBotWithoutAutoResume(bot BotController, reason string) {
+	if bot == nil {
+		return
+	}
+	if pauser, ok := bot.(nonAutoResumingBot); ok {
+		pauser.PauseOpeningWithoutAutoResume(reason)
+		return
+	}
+	bot.PauseOpening(reason)
+}
+
 // NewOpeningPauseCoordinator 創建協調器
 func NewOpeningPauseCoordinator() *OpeningPauseCoordinator {
 	return &OpeningPauseCoordinator{holders: make(map[string]string)}
@@ -195,7 +210,7 @@ func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotControl
 	c.holders[source] = reason
 	c.mu.Unlock()
 	for _, bot := range bots {
-		bot.PauseOpening(reason)
+		pauseBotWithoutAutoResume(bot, reason)
 	}
 }
 

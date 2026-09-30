@@ -593,9 +593,9 @@ func TestAutoResumeTimerCannotClearNewerPause(t *testing.T) {
 		Inner: &SymbolRuntime{OpeningGate: gate},
 	}
 
-	bot.PauseOpening("first_pause")
+	bot.PauseOpeningWithAutoResume("first_pause", 4)
 	time.Sleep(900 * time.Millisecond)
-	bot.PauseOpening("newer_manual_pause")
+	bot.PauseOpeningWithAutoResume("newer_manual_pause", 4)
 	time.Sleep(3500 * time.Millisecond)
 
 	bot.configMu.RLock()

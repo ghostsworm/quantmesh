@@ -502,7 +502,7 @@ func (gcb *GlobalCircuitBreaker) pauseAllBots(trigger string) string {
 		pauser.Pause(circuitBreakerPauseSource, reason, bots)
 	} else {
 		for _, bot := range bots {
-			bot.PauseOpening(reason)
+			pauseBotWithoutAutoResume(bot, reason)
 		}
 	}
 	logger.Info("⏸️ [全局熔断] 已暂停 %d 个 Bot 的开仓", len(bots))

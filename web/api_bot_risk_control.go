@@ -53,6 +53,14 @@ type PauseOpeningRequest struct {
 	AutoResumeSec *int   `json:"auto_resume_sec"` // 自动恢复时间（秒），0=不自动恢复
 }
 
+type autoResumeOpeningPauser interface {
+	PauseOpeningWithAutoResume(reason string, seconds int)
+}
+
+type safeOpeningPauser interface {
+	PauseOpeningWithoutAutoResume(reason string)
+}
+
 func validateBotRiskControlRequest(req *BotRiskControlRequest) error {
 	if err := validateVolatilityPausePatch(req.VolatilityPauseConfig); err != nil {
 		return err
@@ -444,6 +452,10 @@ func pauseBotOpening(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if req.AutoResumeSec != nil && (*req.AutoResumeSec < 0 || int64(*req.AutoResumeSec) > (1<<63-1)/int64(time.Second)) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "auto_resume_sec is outside the supported range"})
+		return
+	}
 
 	// 获取当前风控配置
 	riskControl := bot.GetBotRiskControl()
@@ -452,8 +464,11 @@ func pauseBotOpening(c *gin.Context) {
 		riskControl = &copy
 	}
 
-	// 如果设置了自动恢复时间，也更新到风控配置中
-	if req.AutoResumeSec != nil && *req.AutoResumeSec > 0 {
+	autoResumeSeconds := 0
+	autoResumeError := ""
+	autoResumePersisted := false
+	// 只有本次请求明确指定非零时长，才允许创建自动恢复计时器。
+	if req.AutoResumeSec != nil {
 		if riskControl == nil {
 			riskControl = &config.BotRiskControl{}
 		}
@@ -461,24 +476,42 @@ func pauseBotOpening(c *gin.Context) {
 		// 保存风控配置
 		if err := bot.SetBotRiskControl(riskControl); err != nil {
 			logger.Warn("⚠️ [%s] 保存自动恢复时间失败: %v", botID, err)
-		} else if riskControl != nil {
+			autoResumeError = "auto_resume_configuration_failed"
+		} else {
+			autoResumeSeconds = *req.AutoResumeSec
 			if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
 				logger.Warn("⚠️ [%s] 保存自动恢复时间到配置失败: %v", botID, err)
+				autoResumeError = "auto_resume_persistence_failed"
+			} else {
+				autoResumePersisted = true
 			}
 		}
-		resumeAt := time.Now().Add(time.Duration(*req.AutoResumeSec) * time.Second)
-		logger.Info("⏸️ [%s] 暂停开仓（原因: %s），将在 %s 自动恢复", botID, req.Reason, resumeAt.Format("15:04:05"))
+	}
+	if autoResumeSeconds > 0 {
+		if pauser, ok := bot.(autoResumeOpeningPauser); ok {
+			pauser.PauseOpeningWithAutoResume(req.Reason, autoResumeSeconds)
+			resumeAt := time.Now().Add(time.Duration(autoResumeSeconds) * time.Second)
+			logger.Info("⏸️ [%s] 暂停开仓（原因: %s），将在 %s 自动恢复", botID, req.Reason, resumeAt.Format("15:04:05"))
+		} else {
+			autoResumeSeconds = 0
+			autoResumeError = "auto_resume_unsupported"
+			bot.PauseOpening(req.Reason)
+		}
 	} else {
+		if pauser, ok := bot.(safeOpeningPauser); ok {
+			pauser.PauseOpeningWithoutAutoResume(req.Reason)
+		} else {
+			bot.PauseOpening(req.Reason)
+		}
 		logger.Info("⏸️ [%s] 暂停开仓（原因: %s）", botID, req.Reason)
 	}
 
-	// 设置暂停状态和原因
-	bot.PauseOpening(req.Reason)
-
 	c.JSON(http.StatusOK, gin.H{
-		"status":         "paused",
-		"reason":         req.Reason,
-		"auto_resume_at": req.AutoResumeSec,
+		"status":                "paused",
+		"reason":                req.Reason,
+		"auto_resume_at":        autoResumeSeconds,
+		"auto_resume_persisted": autoResumePersisted,
+		"auto_resume_error":     autoResumeError,
 	})
 }
 

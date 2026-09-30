@@ -321,7 +321,7 @@ func (ec *EmergencyCenter) executeAction(ctx context.Context, action EmergencyAc
 func (ec *EmergencyCenter) stopAllBots(bots []BotController) (string, error) {
 	successCount := 0
 	for _, bot := range bots {
-		bot.PauseOpening("紧急停止")
+		pauseBotWithoutAutoResume(bot, "紧急停止")
 		successCount++
 	}
 	return fmt.Sprintf("已停止 %d 个Bot", successCount), nil
@@ -341,7 +341,7 @@ func (ec *EmergencyCenter) closeAllPositions(ctx context.Context, bots []BotCont
 func (ec *EmergencyCenter) pauseAllBots(bots []BotController) (string, error) {
 	successCount := 0
 	for _, bot := range bots {
-		bot.PauseOpening("紧急暂停")
+		pauseBotWithoutAutoResume(bot, "紧急暂停")
 		successCount++
 	}
 	return fmt.Sprintf("已暂停 %d 个Bot开仓", successCount), nil
