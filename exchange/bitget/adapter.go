@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -144,6 +145,48 @@ type BitgetAdapter struct {
 	quoteAsset   string // 计價资產（結算币种），如 USDT、USD
 	testnet      bool   // 是否使用測試網
 }
+
+type BitgetOrderFill struct {
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             Side
+	Price            float64
+	Quantity         float64
+	QuoteQuantity    float64
+	Commission       float64
+	CommissionAsset  string
+	TradeTime        int64
+	RealizedPnL      float64
+	RealizedPnLKnown bool
+	RealizedPnLAsset string
+	IsMaker          bool
+}
+
+type bitgetOrderFillResponse struct {
+	FillList []bitgetOrderFillRow `json:"fillList"`
+	EndID    string               `json:"endId"`
+}
+
+type bitgetOrderFillRow struct {
+	TradeID     string `json:"tradeId"`
+	Symbol      string `json:"symbol"`
+	OrderID     string `json:"orderId"`
+	Price       string `json:"price"`
+	BaseVolume  string `json:"baseVolume"`
+	QuoteVolume string `json:"quoteVolume"`
+	FeeDetail   []struct {
+		FeeCoin  string `json:"feeCoin"`
+		TotalFee string `json:"totalFee"`
+	} `json:"feeDetail"`
+	Side       string `json:"side"`
+	Profit     string `json:"profit"`
+	TradeSide  string `json:"tradeSide"`
+	TradeScope string `json:"tradeScope"`
+	CTime      string `json:"cTime"`
+}
+
+const bitgetOrderFillPageLimit = 100
 
 // NewBitgetAdapter 創建 Bitget 适配器
 func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, error) {
@@ -676,6 +719,119 @@ func (b *BitgetAdapter) GetOrder(ctx context.Context, symbol string, orderID int
 		UpdateTime:    updateTime,
 	}, nil
 }
+
+// GetOrderFills reads the authenticated contract execution ledger for one order.
+// It follows Bitget's idLessThan cursor and rejects malformed or mixed fee evidence.
+func (b *BitgetAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]BitgetOrderFill, error) {
+	if b == nil || b.client == nil || orderID <= 0 || strings.TrimSpace(symbol) == "" || strings.TrimSpace(b.productType) == "" {
+		return nil, fmt.Errorf("Bitget order fill query requires client, product type, symbol, and positive order ID")
+	}
+	var fills []BitgetOrderFill
+	seenTradeIDs := make(map[string]struct{})
+	cursor := ""
+	for {
+		query := url.Values{}
+		query.Set("productType", b.productType)
+		query.Set("symbol", convertToBitgetSymbol(symbol))
+		query.Set("orderId", strconv.FormatInt(orderID, 10))
+		query.Set("limit", strconv.Itoa(bitgetOrderFillPageLimit))
+		if cursor != "" {
+			query.Set("idLessThan", cursor)
+		}
+		path := "/api/v2/mix/order/fills?" + query.Encode()
+		response, err := b.client.DoRequest(ctx, "GET", path, nil)
+		if err != nil {
+			return nil, fmt.Errorf("query Bitget fills for order %d: %w", orderID, err)
+		}
+		var page bitgetOrderFillResponse
+		if err := json.Unmarshal(response.Data, &page); err != nil {
+			return nil, fmt.Errorf("decode Bitget fills for order %d: %w", orderID, err)
+		}
+		for _, row := range page.FillList {
+			fill, err := parseBitgetOrderFill(row, orderID, symbol, b.marginCoin)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := seenTradeIDs[fill.TradeID]; exists {
+				return nil, fmt.Errorf("Bitget returned duplicate trade ID %s for order %d", fill.TradeID, orderID)
+			}
+			seenTradeIDs[fill.TradeID] = struct{}{}
+			fills = append(fills, fill)
+		}
+		if len(page.FillList) < bitgetOrderFillPageLimit {
+			break
+		}
+		if page.EndID == "" || page.EndID == cursor {
+			return nil, fmt.Errorf("Bitget fill pagination did not advance for order %d", orderID)
+		}
+		cursor = page.EndID
+	}
+	return fills, nil
+}
+
+func parseBitgetOrderFill(row bitgetOrderFillRow, expectedOrderID int64, expectedSymbol, pnlAsset string) (BitgetOrderFill, error) {
+	orderID, err := strconv.ParseInt(row.OrderID, 10, 64)
+	if err != nil || orderID != expectedOrderID || row.TradeID == "" || !strings.EqualFold(row.Symbol, convertToBitgetSymbol(expectedSymbol)) {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget returned an execution with mismatched order identity for order %d", expectedOrderID)
+	}
+	price, err := strconv.ParseFloat(row.Price, 64)
+	if err != nil || !finiteBitgetValue(price) || price <= 0 {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid price", row.TradeID)
+	}
+	quantity, err := strconv.ParseFloat(row.BaseVolume, 64)
+	if err != nil || !finiteBitgetValue(quantity) || quantity <= 0 {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid base volume", row.TradeID)
+	}
+	quoteQuantity, err := strconv.ParseFloat(row.QuoteVolume, 64)
+	if err != nil || !finiteBitgetValue(quoteQuantity) || quoteQuantity <= 0 {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid quote volume", row.TradeID)
+	}
+	tradeTime, err := strconv.ParseInt(row.CTime, 10, 64)
+	if err != nil || tradeTime <= 0 {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid timestamp", row.TradeID)
+	}
+	side := Side(strings.ToUpper(row.Side))
+	if side != SideBuy && side != SideSell {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid side %q", row.TradeID, row.Side)
+	}
+	if len(row.FeeDetail) == 0 || strings.TrimSpace(row.FeeDetail[0].FeeCoin) == "" {
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has no fee-coin evidence", row.TradeID)
+	}
+	feeCoin := strings.ToUpper(row.FeeDetail[0].FeeCoin)
+	var fee float64
+	for _, item := range row.FeeDetail {
+		if !strings.EqualFold(item.FeeCoin, feeCoin) {
+			return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has mixed fee currencies", row.TradeID)
+		}
+		amount, parseErr := strconv.ParseFloat(item.TotalFee, 64)
+		if parseErr != nil || !finiteBitgetValue(amount) {
+			return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has invalid fee amount", row.TradeID)
+		}
+		fee -= amount // Bitget reports fees as negative amounts; internal convention is expense-positive.
+	}
+	fill := BitgetOrderFill{OrderID: orderID, TradeID: row.TradeID, Symbol: convertToBitgetSymbol(row.Symbol), Side: side,
+		Price: price, Quantity: quantity, QuoteQuantity: quoteQuantity, Commission: fee, CommissionAsset: feeCoin,
+		TradeTime: tradeTime, IsMaker: strings.EqualFold(row.TradeScope, "maker")}
+	switch strings.ToLower(row.TradeSide) {
+	case "open":
+		fill.RealizedPnL = 0
+		fill.RealizedPnLKnown = pnlAsset != ""
+	case "close", "reduce_close_long", "reduce_close_short", "burst_close_long", "burst_close_short", "offset_close_long", "offset_close_short":
+		profit, parseErr := strconv.ParseFloat(row.Profit, 64)
+		if parseErr == nil && finiteBitgetValue(profit) && pnlAsset != "" {
+			fill.RealizedPnL = profit
+			fill.RealizedPnLKnown = true
+		}
+	default:
+		return BitgetOrderFill{}, fmt.Errorf("Bitget execution %s has unsupported trade side %q", row.TradeID, row.TradeSide)
+	}
+	if fill.RealizedPnLKnown {
+		fill.RealizedPnLAsset = strings.ToUpper(pnlAsset)
+	}
+	return fill, nil
+}
+
+func finiteBitgetValue(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 
 // GetOrderByClientOrderID queries the order detail endpoint by clientOid.
 func (b *BitgetAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
