@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc501 Inspector 账户摘要审查发现，`inspectorAccountSummary` 将 `TotalMarginBalance == 0` 静默替换为 `TotalWalletBalance`，该摘要随后用于 AI 分析、余额变动告警及报告；若真实权益为零或字段不可用，可能被描述为正权益。现要求相关金额均有限，且零 margin 与非零钱包并存时拒绝摘要，不再用钱包推测权益。回归覆盖该歧义场景。未连接真实账户，不代表所有交易所字段口径或实盘/盈利验收。
 - rc500 R10 账户净值审查发现，`snapshotRuntimeAdapter.AccountEquityUSDT` 的通用合约回退路径会把任意 `BalanceAsset` 的 TotalMarginBalance 标成 USDT；且负/零 margin balance 会回退到 TotalWalletBalance，可能掩盖亏损或字段缺失。现仅接受明确 USDT 且有限、非负的 margin balance；零值与非零钱包并存时因无法区分真实零权益/字段缺失而拒绝，完全移除钱包余额替代。回归覆盖错币种、缺失币种、歧义零值、负净值和有效正 USDT。未连接真实账户，不代表跨资产估值或实盘/盈利验收。
 - rc499 资金费同步覆盖核查发现，同一凭据/币对的并发同步若完成顺序与请求区间顺序相反，`MarkFundingIncomeCoverage` 的普通 upsert 可被旧请求覆盖回退。现改为单条 upsert 原子维护：覆盖重叠的区间做并集；结束时间较旧的迟到同步不改水位；较新的断档区间替换当前快照但不填补断档。SQLite 回归覆盖重叠合并、乱序旧写忽略和新断档替换；MySQL SQL 路径与 SQLite 使用相同单调规则，MySQL 专属集成测试受环境可用性限制尚未实跑。未连真实交易所账户，不代表资金费采集完整或实盘盈利验收。
 - rc498 DCA 费用审查发现反射映射将未声明 `CommissionKnown` 的旧订单事件默认视作权威；Bybit/Huobi 等事件实际以 0 占位或不提供逐笔费，导致成交可能零费用入账。现无标记默认未核实；DCA 任一市场的新增成交都必须由显式权威费用标记或完整 `GetOrderFills` 数据补核，缺证据时持久化执行核账锁且不推进库存/费用/成交游标。futures 费用补核成功/不可用回归、`go test ./strategy -count=1`、根包映射回归及 `go vet ./strategy .` 通过。未连真实交易账户，不代表盈利或实盘验收。

@@ -21,6 +21,13 @@ func TestInspectorAccountSummaryRequiresExplicitBalanceAsset(t *testing.T) {
 	if summary.Currency != "BTC" || summary.TotalBalance != 10 || summary.AvailableBalance != 4 || summary.UsedMargin != 6 {
 		t.Fatalf("unexpected explicit-asset account summary: %+v", summary)
 	}
+	account.TotalMarginBalance = 0
+	account.TotalWalletBalance = 12
+	if summary, err := inspectorAccountSummary("binance", "main", account); err == nil || summary.Currency != "" {
+		t.Fatalf("zero margin balance with nonzero wallet must not be guessed as equity: summary=%+v err=%v", summary, err)
+	}
+	account.TotalMarginBalance = 10
+	account.TotalWalletBalance = 12
 
 	account.BalanceAsset = ""
 	if summary, err := inspectorAccountSummary("binance", "main", account); err == nil || summary.Currency != "" {

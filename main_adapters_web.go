@@ -33,12 +33,14 @@ func inspectorAccountSummary(exchangeName, accountID string, account *exchange.A
 	if currency == "" {
 		return inspector.AccountSummary{}, fmt.Errorf("account balance asset unavailable for %s/%s", exchangeName, accountID)
 	}
-	total := account.TotalMarginBalance
-	if total == 0 {
-		total = account.TotalWalletBalance
-	}
-	if math.IsNaN(total) || math.IsInf(total, 0) || math.IsNaN(account.AvailableBalance) || math.IsInf(account.AvailableBalance, 0) {
+	if math.IsNaN(account.TotalMarginBalance) || math.IsInf(account.TotalMarginBalance, 0) ||
+		math.IsNaN(account.TotalWalletBalance) || math.IsInf(account.TotalWalletBalance, 0) ||
+		math.IsNaN(account.AvailableBalance) || math.IsInf(account.AvailableBalance, 0) {
 		return inspector.AccountSummary{}, fmt.Errorf("account balances are not finite for %s/%s", exchangeName, accountID)
+	}
+	total := account.TotalMarginBalance
+	if total == 0 && account.TotalWalletBalance != 0 {
+		return inspector.AccountSummary{}, fmt.Errorf("account equity is ambiguous for %s/%s", exchangeName, accountID)
 	}
 	return inspector.AccountSummary{
 		Exchange:         exchangeName,
