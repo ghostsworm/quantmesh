@@ -8,6 +8,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,6 +51,10 @@ type BotManager struct {
 	cfg                          *config.Config
 	runtimes                     map[string]*BotRuntime
 	runtimesMu                   sync.RWMutex
+	botLifecycleLocksMu          sync.Mutex
+	botLifecycleLocks            map[string]*sync.Mutex
+	startConfigValidatorMu       sync.RWMutex
+	startConfigValidator         func(config.BotConfig) error
 	groupLegAlerted              map[string]bool
 	groupLegTimers               map[string]*time.Timer
 	singleLegGraceSec            int
@@ -80,6 +85,31 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 	}
 	bm.updateEquityScopeConfig(cfg)
 	return bm
+}
+
+func (bm *BotManager) lockBotLifecycle(botID string) func() {
+	bm.botLifecycleLocksMu.Lock()
+	if bm.botLifecycleLocks == nil {
+		bm.botLifecycleLocks = make(map[string]*sync.Mutex)
+	}
+	mu := bm.botLifecycleLocks[botID]
+	if mu == nil {
+		mu = &sync.Mutex{}
+		bm.botLifecycleLocks[botID] = mu
+	}
+	bm.botLifecycleLocksMu.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
+
+// SetStartConfigValidator installs a persisted-config check executed under the Bot lifecycle lock.
+func (bm *BotManager) SetStartConfigValidator(validator func(config.BotConfig) error) {
+	if bm == nil {
+		return
+	}
+	bm.startConfigValidatorMu.Lock()
+	bm.startConfigValidator = validator
+	bm.startConfigValidatorMu.Unlock()
 }
 
 func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
@@ -447,13 +477,38 @@ func (bm *BotManager) GetLastStartFailure(botID string) (message string, failedA
 
 // StartBot 啟動指定 Bot
 func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
+	return bm.startBotWithValidation(ctx, botCfg)
+}
+
+func (bm *BotManager) startBotWithValidation(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
+	if bm == nil {
+		return nil, fmt.Errorf("Bot start requires manager")
+	}
+	botID := config.BotIDOrGenerate(botCfg)
+	unlockLifecycle := bm.lockBotLifecycle(botID)
+	defer unlockLifecycle()
 	finishTransition, err := bm.runtimeAdmissions.Begin()
 	if err != nil {
 		return nil, fmt.Errorf("process shutdown rejects Bot start: %w", err)
 	}
 	defer finishTransition()
+	bm.startConfigValidatorMu.RLock()
+	configuredValidator := bm.startConfigValidator
+	bm.startConfigValidatorMu.RUnlock()
+	if configuredValidator != nil {
+		if err := configuredValidator(botCfg); err != nil {
+			startErr := fmt.Errorf("validate Bot configuration before start: %w", err)
+			bm.recordStartFailure(botID, startErr)
+			return nil, startErr
+		}
+	}
+	return bm.startBotUnderTransition(ctx, botCfg)
+}
+
+func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
 	botID := config.BotIDOrGenerate(botCfg)
 	botCfg.ID = botID
+	var err error
 	bm.clearStartFailure(botID)
 	bm.runtimesMu.RLock()
 	_, exists := bm.runtimes[botID]
@@ -592,11 +647,59 @@ func (bm *BotManager) StopBot(botID string) error {
 
 // StopBotWithReason 停止指定 Bot 並記錄原因（供關閉條件等自動停止場景使用）
 func (bm *BotManager) StopBotWithReason(botID, updatedBy, reason string) error {
+	if bm == nil || botID == "" {
+		return fmt.Errorf("Bot stop requires manager and Bot identity")
+	}
+	unlockLifecycle := bm.lockBotLifecycle(botID)
+	defer unlockLifecycle()
 	finishTransition, err := bm.runtimeAdmissions.Begin()
 	if err != nil {
 		return fmt.Errorf("process shutdown owns Bot stop: %w", err)
 	}
 	defer finishTransition()
+	return bm.stopBotWithReason(botID, updatedBy, reason)
+}
+
+// StopBotsAndPersistRemoval keeps Bot starts excluded until all requested
+// runtimes are safely stopped and their removal is durably persisted.
+func (bm *BotManager) StopBotsAndPersistRemoval(botIDs []string, persistRemoval func() error) error {
+	if bm == nil || persistRemoval == nil {
+		return fmt.Errorf("Bot removal requires a manager and persistence callback")
+	}
+	orderedIDs := append([]string(nil), botIDs...)
+	sort.Strings(orderedIDs)
+	uniqueIDs := orderedIDs[:0]
+	for _, botID := range orderedIDs {
+		if botID == "" {
+			return fmt.Errorf("Bot removal contains an empty Bot identity")
+		}
+		if len(uniqueIDs) == 0 || uniqueIDs[len(uniqueIDs)-1] != botID {
+			uniqueIDs = append(uniqueIDs, botID)
+		}
+	}
+	unlockLifecycle := make([]func(), 0, len(uniqueIDs))
+	for _, botID := range uniqueIDs {
+		unlockLifecycle = append(unlockLifecycle, bm.lockBotLifecycle(botID))
+	}
+	defer func() {
+		for index := len(unlockLifecycle) - 1; index >= 0; index-- {
+			unlockLifecycle[index]()
+		}
+	}()
+	finishTransition, err := bm.runtimeAdmissions.Begin()
+	if err != nil {
+		return fmt.Errorf("process shutdown owns Bot removal: %w", err)
+	}
+	defer finishTransition()
+	for _, botID := range uniqueIDs {
+		if err := bm.stopBotWithReason(botID, "web_ui", "用戶通過 Web UI 刪除"); err != nil {
+			return err
+		}
+	}
+	return persistRemoval()
+}
+
+func (bm *BotManager) stopBotWithReason(botID, updatedBy, reason string) error {
 	bm.runtimesMu.Lock()
 	br, ok := bm.runtimes[botID]
 	if !ok {

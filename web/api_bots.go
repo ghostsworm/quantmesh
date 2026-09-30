@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 // BotResponse Bot 列表項
@@ -69,6 +71,11 @@ type BotManagerProvider interface {
 	EnableBot(botID string) error // 啟用 Bot（從數據庫移除禁用標記）
 }
 
+// BotRemovalCoordinator serializes safe stops and config removal against Bot starts.
+type BotRemovalCoordinator interface {
+	StopBotsAndPersistRemoval(botIDs []string, persistRemoval func() error) error
+}
+
 // Bot 管理提供者由 main 在啟動時註冊，但 postBotStart 等處會在
 // 新起的 goroutine 裡讀取它，構成跨 goroutine 的共享狀態，必須加鎖。
 var (
@@ -103,6 +110,57 @@ func botManagerProvider() BotManagerProvider {
 	bmProviderMu.RLock()
 	defer bmProviderMu.RUnlock()
 	return bmProviderRef
+}
+
+func botHasAccountWalletCapitalReservation(parent context.Context, botID string) (bool, error) {
+	if parent == nil {
+		return false, fmt.Errorf("account wallet reservation check requires request context")
+	}
+	var store storage.Storage
+	if primaryStorageForAppConfig != nil {
+		store = primaryStorageForAppConfig
+	} else if storageServiceProvider != nil {
+		store = storageServiceProvider.GetStorage()
+	}
+	if store == nil {
+		return false, fmt.Errorf("account wallet reservation storage is unavailable")
+	}
+	checker, ok := store.(storage.AccountWalletCapitalReservationBotChecker)
+	if !ok {
+		return false, fmt.Errorf("storage cannot verify account wallet reservations")
+	}
+	ctx, cancel := context.WithTimeout(parent, 5*time.Second)
+	defer cancel()
+	reserved, err := checker.HasAccountWalletCapitalReservation(ctx, botID)
+	if err != nil {
+		return false, fmt.Errorf("verify Bot account wallet reservations: %w", err)
+	}
+	return reserved, nil
+}
+
+func runCoordinatedBotRemoval(provider BotManagerProvider, botIDs []string, persistRemoval func() error) error {
+	coordinator, ok := provider.(BotRemovalCoordinator)
+	if !ok {
+		return fmt.Errorf("Bot manager cannot serialize removal against concurrent starts")
+	}
+	return coordinator.StopBotsAndPersistRemoval(botIDs, persistRemoval)
+}
+
+func sameBotIDs(first, second []string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	counts := make(map[string]int, len(first))
+	for _, botID := range first {
+		counts[botID]++
+	}
+	for _, botID := range second {
+		if counts[botID] == 0 {
+			return false
+		}
+		counts[botID]--
+	}
+	return true
 }
 
 // CreateBotRequest Bot 創建請求（含策略配置）
@@ -624,7 +682,6 @@ func deleteBot(c *gin.Context) {
 		return
 	}
 	var found bool
-	var newBots []config.BotConfig
 	for _, b := range cfg.Bots {
 		id := b.ID
 		if id == "" {
@@ -632,28 +689,79 @@ func deleteBot(c *gin.Context) {
 		}
 		if id == botID {
 			found = true
-			continue
 		}
-		newBots = append(newBots, b)
 	}
 	if !found {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
-	// Stop before persisting removal so a failed safety shutdown cannot leave
-	// an active runtime whose configuration and recovery snapshot were deleted.
-	if provider := botManagerProvider(); provider != nil {
-		if err := provider.StopBot(botID); err != nil {
-			respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
-			return
-		}
-	}
-	cfg.Bots = newBots
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+	provider := botManagerProvider()
+	if provider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_manager_unavailable"})
 		return
 	}
-	removeBotConfigSnapshotBestEffort(botID)
+	failureKind := ""
+	persistRemoval := func() error {
+		reserved, err := botHasAccountWalletCapitalReservation(c.Request.Context(), botID)
+		if err != nil {
+			failureKind = "reservation_verification"
+			return err
+		}
+		if reserved {
+			failureKind = "reservation_retained"
+			return fmt.Errorf("Bot %s still owns an account wallet capital reservation", botID)
+		}
+		if err := fileConfigManager.UpdateConfigUsing(func(current *config.Config) error {
+			if groupName := FindGroupNameByBotID(current, botID); groupName != "" {
+				failureKind = "group_changed"
+				return fmt.Errorf("Bot %s was added to group %s while deletion was pending", botID, groupName)
+			}
+			var currentBots []config.BotConfig
+			foundCurrent := false
+			for _, bot := range current.Bots {
+				id := bot.ID
+				if id == "" {
+					id = config.GenerateBotID(bot.Exchange, bot.Symbol, bot.GetMarketType())
+				}
+				if id == botID {
+					foundCurrent = true
+					continue
+				}
+				currentBots = append(currentBots, bot)
+			}
+			if !foundCurrent {
+				failureKind = "bot_disappeared"
+				return fmt.Errorf("Bot %s was already removed from the current configuration", botID)
+			}
+			current.Bots = currentBots
+			return nil
+		}); err != nil {
+			if failureKind == "" {
+				failureKind = "config_persist"
+			}
+			return err
+		}
+		removeBotConfigSnapshotBestEffort(botID)
+		return nil
+	}
+	if err := runCoordinatedBotRemoval(provider, []string{botID}, persistRemoval); err != nil {
+		switch failureKind {
+		case "reservation_verification":
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_capital_reservation_verification_unavailable"})
+		case "reservation_retained":
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_capital_reservation_not_released"})
+		case "group_changed":
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_in_hedge_group"})
+		case "bot_disappeared":
+			c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
+		case "config_persist":
+			respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
+		}
+		logger.Warn("⚠️ [Bot刪除] %s 未完成：%v", botID, err)
+		return
+	}
 	logger.Info("✅ [Bot刪除] 已移除 %s", botID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 }
@@ -1162,12 +1270,9 @@ func deleteBotGroup(c *gin.Context) {
 		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
 	}
-	var newGroups []config.BotGroup
 	var botIDsToRemove []string
 	for _, g := range cfg.BotGroups {
-		if g.ID != groupID {
-			newGroups = append(newGroups, g)
-		} else {
+		if g.ID == groupID {
 			botIDsToRemove = g.BotIDs
 		}
 	}
@@ -1175,37 +1280,88 @@ func deleteBotGroup(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot group not found"})
 		return
 	}
-	// 先停止组内所有运行中的 Bot，避免删除配置后出现“孤儿腿”继续交易
-	if botManagerProvider() != nil {
-		for _, botID := range botIDsToRemove {
-			if err := botManagerProvider().StopBot(botID); err != nil {
-				respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
-				return
-			}
-		}
-	}
-	removeSet := make(map[string]bool)
-	for _, id := range botIDsToRemove {
-		removeSet[id] = true
-	}
-	var newBots []config.BotConfig
-	for _, b := range cfg.Bots {
-		id := b.ID
-		if id == "" {
-			id = config.GenerateBotID(b.Exchange, b.Symbol, b.GetMarketType())
-		}
-		if !removeSet[id] {
-			newBots = append(newBots, b)
-		}
-	}
-	cfg.BotGroups = newGroups
-	cfg.Bots = newBots
-	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
-		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+	provider := botManagerProvider()
+	if provider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_manager_unavailable"})
 		return
 	}
-	for _, id := range botIDsToRemove {
-		removeBotConfigSnapshotBestEffort(id)
+	failureKind := ""
+	persistRemoval := func() error {
+		for _, botID := range botIDsToRemove {
+			reserved, err := botHasAccountWalletCapitalReservation(c.Request.Context(), botID)
+			if err != nil {
+				failureKind = "reservation_verification"
+				return err
+			}
+			if reserved {
+				failureKind = "reservation_retained"
+				return fmt.Errorf("Bot %s still owns an account wallet capital reservation", botID)
+			}
+		}
+		if err := fileConfigManager.UpdateConfigUsing(func(current *config.Config) error {
+			var currentGroup *config.BotGroup
+			var currentGroups []config.BotGroup
+			for index := range current.BotGroups {
+				group := current.BotGroups[index]
+				if group.ID == groupID {
+					currentGroup = &group
+					continue
+				}
+				currentGroups = append(currentGroups, group)
+			}
+			if currentGroup == nil {
+				failureKind = "group_disappeared"
+				return fmt.Errorf("Bot group %s was already removed", groupID)
+			}
+			if !sameBotIDs(currentGroup.BotIDs, botIDsToRemove) {
+				failureKind = "group_changed"
+				return fmt.Errorf("Bot group %s changed while deletion was pending", groupID)
+			}
+			removeSet := make(map[string]bool, len(botIDsToRemove))
+			for _, id := range botIDsToRemove {
+				removeSet[id] = true
+			}
+			var currentBots []config.BotConfig
+			for _, bot := range current.Bots {
+				id := bot.ID
+				if id == "" {
+					id = config.GenerateBotID(bot.Exchange, bot.Symbol, bot.GetMarketType())
+				}
+				if !removeSet[id] {
+					currentBots = append(currentBots, bot)
+				}
+			}
+			current.BotGroups = currentGroups
+			current.Bots = currentBots
+			return nil
+		}); err != nil {
+			if failureKind == "" {
+				failureKind = "config_persist"
+			}
+			return err
+		}
+		for _, id := range botIDsToRemove {
+			removeBotConfigSnapshotBestEffort(id)
+		}
+		return nil
+	}
+	if err := runCoordinatedBotRemoval(provider, botIDsToRemove, persistRemoval); err != nil {
+		switch failureKind {
+		case "reservation_verification":
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_capital_reservation_verification_unavailable"})
+		case "reservation_retained":
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_capital_reservation_not_released"})
+		case "group_changed":
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_group_changed"})
+		case "group_disappeared":
+			c.JSON(http.StatusNotFound, gin.H{"error": "Bot group not found"})
+		case "config_persist":
+			respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
+		default:
+			respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
+		}
+		logger.Warn("⚠️ [Bot組刪除] %s 未完成：%v", groupID, err)
+		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "group_id": groupID})
 }

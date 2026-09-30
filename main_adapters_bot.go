@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -306,12 +307,39 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 }
 
 func (a *botManagerProviderAdapter) StartBot(ctx context.Context, botCfg config.BotConfig) error {
-	_, err := a.manager.StartBot(ctx, botCfg)
+	_, err := a.manager.GetBotManager().StartBot(ctx, botCfg)
 	return err
+}
+
+func validateBotConfigInLatestSnapshot(botCfg config.BotConfig) error {
+	cfg, err := web.GetLatestConfig()
+	if err != nil {
+		return fmt.Errorf("load current Bot configuration: %w", err)
+	}
+	if cfg == nil {
+		return fmt.Errorf("current Bot configuration is unavailable")
+	}
+	botID := config.BotIDOrGenerate(botCfg)
+	for _, configured := range cfg.Bots {
+		if config.BotIDOrGenerate(configured) == botID {
+			return nil
+		}
+	}
+	for _, symbol := range cfg.Trading.Symbols {
+		configured := config.SymbolConfigToBotConfig(symbol, cfg.EffectiveTestnetForExchange(symbol.Exchange, false))
+		if config.BotIDOrGenerate(configured) == botID {
+			return nil
+		}
+	}
+	return fmt.Errorf("Bot %s is no longer present in the persisted configuration", botID)
 }
 
 func (a *botManagerProviderAdapter) StopBot(botID string) error {
 	return a.manager.GetBotManager().StopBot(botID)
+}
+
+func (a *botManagerProviderAdapter) StopBotsAndPersistRemoval(botIDs []string, persistRemoval func() error) error {
+	return a.manager.GetBotManager().StopBotsAndPersistRemoval(botIDs, persistRemoval)
 }
 
 func (a *botManagerProviderAdapter) EnableBot(botID string) error {

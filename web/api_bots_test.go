@@ -354,13 +354,21 @@ func (m *mockBotManagerForDeleteGroupTest) StopBot(botID string) error {
 	return m.stopErr
 }
 func (m *mockBotManagerForDeleteGroupTest) EnableBot(botID string) error { return nil }
+func (m *mockBotManagerForDeleteGroupTest) StopBotsAndPersistRemoval(botIDs []string, persistRemoval func() error) error {
+	for _, botID := range botIDs {
+		if err := m.StopBot(botID); err != nil {
+			return err
+		}
+	}
+	return persistRemoval()
+}
 
 func TestDeleteBotKeepsConfigWhenStopFails(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
 
 	cfg := &config.Config{
-		Bots: []config.BotConfig{{ID: "bot-1", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}},
+		Bots: []config.BotConfig{{ID: "bot-1", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10}},
 	}
 	cfg.App.CurrentExchange = "binance"
 	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: "k", SecretKey: "s"}}
@@ -395,6 +403,66 @@ func TestDeleteBotKeepsConfigWhenStopFails(t *testing.T) {
 	}
 	if len(latest.Bots) != 1 || latest.Bots[0].ID != "bot-1" {
 		t.Fatalf("Bot config must remain recoverable after stop failure, got %+v", latest.Bots)
+	}
+}
+
+func TestDeleteBotKeepsConfigWhileCapitalReservationExists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+
+	cfg := &config.Config{
+		Bots: []config.BotConfig{{ID: "bot-1", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", PriceInterval: 100, OrderQuantity: 100, MinOrderValue: 6, BuyWindowSize: 10, SellWindowSize: 10}},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: "k", SecretKey: "s"}}
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	store, ok := primaryStorageForAppConfig.(*storage.SQLStorage)
+	if !ok {
+		t.Fatal("primary app config storage must be SQLStorage")
+	}
+	claim := storage.AccountWalletCapitalClaim{
+		WalletKey:        strings.Repeat("a", 64),
+		ReservationToken: strings.Repeat("b", 64),
+		Amount:           50,
+		Available:        100,
+		Exchange:         "binance",
+		Market:           "futures",
+		QuoteAsset:       "USDT",
+		Symbol:           "BTCUSDT",
+	}
+	if err := store.ReserveAccountWalletCapital(context.Background(), "bot-1", []storage.AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatalf("ReserveAccountWalletCapital: %v", err)
+	}
+	mock := &mockBotManagerForDeleteGroupTest{}
+	origProvider := botManagerProvider()
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/bots/bot-1", nil)
+	c.Params = gin.Params{{Key: "id", Value: "bot-1"}}
+	deleteBot(c)
+
+	if w.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d body=%s", w.Code, w.Body.String())
+	}
+	latest, err := GetLatestConfig()
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	if len(latest.Bots) != 1 || latest.Bots[0].ID != "bot-1" {
+		t.Fatalf("Bot config must remain while a capital reservation exists, got %+v", latest.Bots)
 	}
 }
 

@@ -54,6 +54,11 @@ type AccountWalletCapitalReservationReader interface {
 	ListAccountWalletCapitalReservations(ctx context.Context, afterWalletKey, afterBotKey string, limit int) ([]AccountWalletCapitalReservation, error)
 }
 
+// AccountWalletCapitalReservationBotChecker checks whether a Bot still owns any persistent wallet claim.
+type AccountWalletCapitalReservationBotChecker interface {
+	HasAccountWalletCapitalReservation(ctx context.Context, botID string) (bool, error)
+}
+
 const AccountWalletCapitalReservationAuditPageSize = 100
 
 // FundingSpreadCapitalReservationStore remains for source compatibility.
@@ -331,6 +336,18 @@ func (s *SQLStorage) ListAccountWalletCapitalReservations(ctx context.Context, a
 		return nil, fmt.Errorf("iterate account wallet capital reservations: %w", err)
 	}
 	return items, nil
+}
+
+// HasAccountWalletCapitalReservation reports whether the Bot has any wallet claim still recorded.
+func (s *SQLStorage) HasAccountWalletCapitalReservation(ctx context.Context, botID string) (bool, error) {
+	if ctx == nil || s == nil || strings.TrimSpace(botID) == "" {
+		return false, errors.New("account wallet reservation check requires context, storage, and Bot identity")
+	}
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM funding_spread_capital_reservations WHERE bot_key = ?`, fundingSpreadBotKey(botID)).Scan(&count); err != nil {
+		return false, fmt.Errorf("check account wallet reservations for Bot: %w", err)
+	}
+	return count > 0, nil
 }
 
 func validateCapitalReservationMetadata(claim AccountWalletCapitalClaim) error {

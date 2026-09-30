@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +52,51 @@ func TestSpecializedRiskDataGateDoesNotClearManualPause(t *testing.T) {
 	runtime.SetRiskDataUnavailable(false)
 	if gate.Blocked() {
 		t.Fatal("equity recovery did not clear its own hold")
+	}
+}
+
+func TestBotRemovalSerializesAgainstStaleStartRequest(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
+	persistEntered := make(chan struct{})
+	allowPersist := make(chan struct{})
+	startAttempted := make(chan struct{})
+	validationEntered := make(chan struct{})
+	startResult := make(chan error, 1)
+	var removed atomic.Bool
+	removeResult := make(chan error, 1)
+	bm.SetStartConfigValidator(func(config.BotConfig) error {
+		close(validationEntered)
+		if removed.Load() {
+			return errors.New("Bot configuration was removed")
+		}
+		return nil
+	})
+	go func() {
+		removeResult <- bm.StopBotsAndPersistRemoval([]string{"bot-1"}, func() error {
+			close(persistEntered)
+			<-allowPersist
+			removed.Store(true)
+			return nil
+		})
+	}()
+	<-persistEntered
+	go func() {
+		close(startAttempted)
+		_, err := bm.StartBot(context.Background(), config.BotConfig{ID: "bot-1"})
+		startResult <- err
+	}()
+	<-startAttempted
+	select {
+	case <-validationEntered:
+		t.Fatal("stale start validation ran during the removal persistence callback")
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(allowPersist)
+	if err := <-removeResult; err != nil {
+		t.Fatalf("StopBotsAndPersistRemoval: %v", err)
+	}
+	if err := <-startResult; err == nil {
+		t.Fatal("stale start request succeeded after the Bot configuration was removed")
 	}
 }
 
@@ -150,6 +196,36 @@ func TestBotManagerStopAllRetainsRuntimeWhenSafeStopFails(t *testing.T) {
 	}
 	if !gate.HasBlock("strategy_stop_unverified") || runtime.Inner.shutdownCloseUnverifiedReason() == "" {
 		t.Fatal("StopAll did not preserve failure hold and reconciliation reason")
+	}
+}
+
+func TestBotRemovalDoesNotPersistWhenSafeStopFails(t *testing.T) {
+	stopFailure := errors.New("position close remains unverified")
+	runtime := &BotRuntime{
+		BotID: "bot-removal-stop-failure",
+		Config: config.BotConfig{
+			ID:         "bot-removal-stop-failure",
+			Exchange:   "binance",
+			Symbol:     "BTCUSDT",
+			MarketType: "futures",
+		},
+		Inner: &SymbolRuntime{StopWithError: func() error { return stopFailure }},
+	}
+	bm := &BotManager{runtimes: make(map[string]*BotRuntime)}
+	bm.AddRuntime(runtime)
+	persisted := false
+	err := bm.StopBotsAndPersistRemoval([]string{runtime.BotID}, func() error {
+		persisted = true
+		return nil
+	})
+	if !errors.Is(err, stopFailure) {
+		t.Fatalf("removal error = %v, want stop failure", err)
+	}
+	if persisted {
+		t.Fatal("configuration persistence ran after an unverified stop")
+	}
+	if got, ok := bm.Get(runtime.BotID); !ok || got != runtime {
+		t.Fatal("runtime was removed despite unverified stop")
 	}
 }
 

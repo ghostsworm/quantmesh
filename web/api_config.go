@@ -348,6 +348,40 @@ func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config
 	return nil
 }
 
+// UpdateConfigUsing mutates the latest in-memory snapshot and persists it while holding the config lock.
+func (fcm *FileConfigManager) UpdateConfigUsing(mutator func(*config.Config) error) error {
+	if fcm == nil || mutator == nil {
+		return fmt.Errorf("configuration manager and mutation are required")
+	}
+	fcm.mu.Lock()
+	if fcm.currentConfig == nil {
+		fcm.mu.Unlock()
+		return fmt.Errorf("current configuration is unavailable")
+	}
+	snapshot, err := cloneConfigSnapshot(fcm.currentConfig)
+	if err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
+	if err := mutator(snapshot); err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
+	if err := snapshot.Validate(); err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
+	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", ""); err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
+	fcm.currentConfig = snapshot
+	fcm.mu.Unlock()
+	notifyEquityScopeConfigSync(snapshot)
+	notifyNewsMonitorRuntimeSync(snapshot)
+	return nil
+}
+
 // getConfigHandler 獲取當前配置（YAML格式）
 // GET /api/config
 func getConfigHandler(c *gin.Context) {

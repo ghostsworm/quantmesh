@@ -206,6 +206,34 @@ func TestAccountWalletCapitalReleaseCannotDeleteReplacementGeneration(t *testing
 	}
 }
 
+func TestAccountWalletCapitalReservationBotChecker(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-bot-check.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	claim := fundingSpreadTestClaim(25, 30, 100)
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-check", []AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := store.HasAccountWalletCapitalReservation(ctx, "bot-check")
+	if err != nil || !reserved {
+		t.Fatalf("claim check for owning Bot = %v, err=%v; want true", reserved, err)
+	}
+	reserved, err = store.HasAccountWalletCapitalReservation(ctx, "different-bot")
+	if err != nil || reserved {
+		t.Fatalf("claim check for other Bot = %v, err=%v; want false", reserved, err)
+	}
+	if err := store.ReleaseAccountWalletCapital(ctx, "bot-check", []AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err = store.HasAccountWalletCapitalReservation(ctx, "bot-check")
+	if err != nil || reserved {
+		t.Fatalf("claim check after release = %v, err=%v; want false", reserved, err)
+	}
+}
+
 func TestFundingSpreadCapitalTokenMigrationPreservesLegacyReservations(t *testing.T) {
 	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-capital-reservation.db"))
 	if err != nil {

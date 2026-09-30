@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc536"
+var Version = "3.111.0-rc537"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1763,6 +1763,7 @@ func main() {
 	web.RegisterSymbolManager(symbolManagerAdapter)
 	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
 	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
+	symbolManager.GetBotManager().SetStartConfigValidator(validateBotConfigInLatestSnapshot)
 	web.RegisterBotExtendedProvider(&botExtendedProviderAdapter{manager: symbolManager}) // 註冊擴展的 Bot 提供者
 
 	// 熔斷器與複合風控共用暫停協調器，避免一方恢復時覆蓋另一方的暫停

@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc537 修复 Bot 删除绕过陈旧 claim 保留边界：Bot 与对冲组删除前须在按 Bot 生命周期锁内安全停止、核实 SQL 账户钱包预留已释放，再基于配置管理器当前快照执行原子变更；存储不可核验、claim 仍存在、Bot/组配置并发变化或安全停止失败均保留配置。Bot 生命周期锁按排序后的 Bot ID 获取，直接与 Web 路由的启动共用；主程序注入当前持久配置校验器，排队中的过期启动不能在删除后复活。验证：`go test -p 1 -vet=off ./storage -run '^TestAccountWalletCapitalReservationBotChecker$' -count=1`、Web 删除定向测试、`go test -race -p 1 -vet=off . -run '^TestBot(RemovalSerializesAgainstStaleStartRequest|RemovalDoesNotPersistWhenSafeStopFails)$' -count=3` 与 `go vet -p 1 ./storage ./web .` 通过；`go test -p 1 -vet=off ./storage ./web . -count=1` 中 storage/web 全包通过，但根包测试超过 7 分钟仍在条件变量等待，已中断，不能记为通过。未连接真实交易所或账户、未下单或部署。陈旧 claim 的安全人工核账/恢复工具及强制退出恢复仍未闭合；禁止按时间自动删 claim。
 - rc530 增加隔离 schema opt-in 的 MySQL 账户钱包预留集成测试，验证 InnoDB 行锁下同钱包并发仅一方成功，以及双钱包第二腿争用失败后第一腿完整回滚。测试要求显式提供 `QUANTMESH_MYSQL_TEST_DSN`，不会自行创建/删除 schema。在一次性本机 MySQL 9.5 隔离实例上以 `-count=10` 通过。此结果覆盖本机 MySQL 9.5，不代替生产 MySQL 版本、网络分区、多实例进程与 Redis 失锁故障注入。
 - rc529 补齐 spot 启动核账的专用回归覆盖：明确空的总基础币库存 + 非 nil 空订单快照才允许通过；非零库存、库存查询失败及 nil 订单快照都保持启动门控。`go test . -count=1`、`go vet .`、定向启动核验测试与 `git diff --check` 通过；尚未连接真实交易所或账户。
 - rc528 审计发现普通 Bot 启动恢复将交易所 `GetOpenOrders` 的 nil 响应当成空列表并可能解除开仓门控；现将 nil 与 API 错误一样视为未知状态并保持门控，新增 `orders_nil` 启动回归。`go test . -count=1`、`go vet .` 与 `git diff --check` 通过；`-race -count=3` 因临时磁盘空间不足，在编译期失败，未获得 race 结果。仍未连接真实交易所或账户。
