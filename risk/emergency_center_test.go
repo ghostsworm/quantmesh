@@ -12,13 +12,14 @@ type emergencyMockBot struct {
 	closeCount   int
 	closeMethod  string
 	closeTimeout int
+	resumeCount  int
 }
 
 func (b *emergencyMockBot) PauseOpening(reason string) {
 	b.pauseReasons = append(b.pauseReasons, reason)
 }
 
-func (b *emergencyMockBot) ResumeOpening() {}
+func (b *emergencyMockBot) ResumeOpening() { b.resumeCount++ }
 
 func (b *emergencyMockBot) CancelAllOpenOrders() error {
 	b.cancelCount++
@@ -52,5 +53,21 @@ func TestEmergencyReducePositionFallsBackToCloseAll(t *testing.T) {
 	}
 	if !strings.Contains(result, "已执行全平保护") {
 		t.Fatalf("结果应明确说明全平兜底，got %q", result)
+	}
+}
+
+func TestDisableEmergencyModeDoesNotResumeRiskPausedBots(t *testing.T) {
+	bot := &emergencyMockBot{}
+	ec := NewEmergencyCenter(nil, nil, &circuitBreakerMockProvider{bots: []BotController{bot}})
+	ec.emergencyMode = true
+
+	if err := ec.DisableEmergencyMode("operator"); err != nil {
+		t.Fatalf("DisableEmergencyMode() error=%v", err)
+	}
+	if ec.IsEmergencyMode() {
+		t.Fatal("emergency mode should be disabled")
+	}
+	if bot.resumeCount != 0 {
+		t.Fatalf("disabling emergency mode must not clear another risk source pause; resumeCount=%d", bot.resumeCount)
 	}
 }

@@ -375,12 +375,6 @@ func (ec *EmergencyCenter) DisableEmergencyMode(triggeredBy string) error {
 	ec.emergencyMode = false
 	logger.Info("✅ [紧急中心] 已退出紧急模式，操作人: %s", triggeredBy)
 
-	// 恢复所有Bot
-	bots := ec.botProvider.GetAllBots()
-	for _, bot := range bots {
-		bot.ResumeOpening()
-	}
-
 	return nil
 }
 
