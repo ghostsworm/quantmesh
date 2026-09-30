@@ -543,6 +543,8 @@ func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
 		invalidReason = fmt.Sprintf("cumulative executed quantity %v exceeds order quantity %v", update.ExecutedQty, rec.quantity)
 	} else if status == orderStatusFilled && rec.opening && update.ExecutedQty <= 0 {
 		invalidReason = "filled opening order has no executed quantity"
+	} else if status == orderStatusFilled && update.ExecutedQty+capitalQtyEpsilon < rec.filledQty {
+		invalidReason = fmt.Sprintf("filled cumulative executed quantity %v regressed below previously observed %v", update.ExecutedQty, rec.filledQty)
 	}
 	if invalidReason != "" {
 		mse.mu.Unlock()

@@ -269,3 +269,19 @@ func TestOnOrderUpdateZeroQuantityFilledKeepsOpeningReservation(t *testing.T) {
 		t.Fatal("zero-quantity FILLED update must retain order routes for reconciliation")
 	}
 }
+
+func TestOnOrderUpdateRegressiveFilledKeepsCapitalForReconciliation(t *testing.T) {
+	mse, allocator := newCapitalTestExecutor(t, "LONG")
+	trackTestOrder(t, mse, "dca", &position.OrderRequest{Side: "BUY", Quantity: 1, ClientOrderID: "open-regressive-filled"}, 22, 100)
+
+	mse.OnOrderUpdate(&position.OrderUpdate{OrderID: 22, ClientOrderID: "open-regressive-filled", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5})
+	mse.OnOrderUpdate(&position.OrderUpdate{OrderID: 22, ClientOrderID: "open-regressive-filled", Status: "FILLED", ExecutedQty: 0.4})
+
+	assertStrategyUsed(t, allocator, 100)
+	if got := mse.GetPositionCapital("dca", "LONG"); got != 50 {
+		t.Fatalf("position capital=%v want 50 (existing confirmed partial only)", got)
+	}
+	if mse.GetStrategyByOrderID(22) != "dca" || mse.GetStrategyByClientOrderID("open-regressive-filled") != "dca" {
+		t.Fatal("regressive FILLED update must retain order routes for reconciliation")
+	}
+}

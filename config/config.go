@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -2925,10 +2926,29 @@ func (c *Config) Validate() error {
 	if c.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight <= 0 {
 		c.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7 // 預設70%
 	}
-	if c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights == nil {
+	if len(c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights) == 0 {
 		c.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
 			"total_pnl": 0.7,
 			"win_rate":  0.3,
+		}
+	}
+	if c.Strategies.CapitalAllocation.DynamicAllocation.Enabled {
+		dynamic := c.Strategies.CapitalAllocation.DynamicAllocation
+		if math.IsNaN(dynamic.MaxChangePerRebalance) || math.IsInf(dynamic.MaxChangePerRebalance, 0) ||
+			dynamic.MaxChangePerRebalance > 1 || math.IsNaN(dynamic.MinWeight) || math.IsInf(dynamic.MinWeight, 0) ||
+			math.IsNaN(dynamic.MaxWeight) || math.IsInf(dynamic.MaxWeight, 0) || dynamic.MinWeight > dynamic.MaxWeight || dynamic.MaxWeight > 1 {
+			return fmt.Errorf("dynamic capital allocation requires finite weights with 0 <= min_weight <= max_weight <= 1 and 0 < max_change_per_rebalance <= 1")
+		}
+		for name, weight := range dynamic.PerformanceWeights {
+			if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 || weight > 1 {
+				return fmt.Errorf("dynamic performance weight %q must be finite and within [0,1]", name)
+			}
+			if weight > 0 && name != "total_pnl" && name != "win_rate" {
+				return fmt.Errorf("dynamic performance metric %q is not supported by verified runtime data", name)
+			}
+		}
+		if dynamic.PerformanceWeights["total_pnl"]+dynamic.PerformanceWeights["win_rate"] <= 0 {
+			return fmt.Errorf("dynamic capital allocation requires a positive total_pnl or win_rate score weight")
 		}
 	}
 

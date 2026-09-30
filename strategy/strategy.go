@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 
@@ -78,6 +79,14 @@ type StrategyManager struct {
 	eventBus                EventBus // 新增
 	orderUpdateErrorHandler func(strategyName string, err error)
 	orderUpdateMu           sync.Mutex
+	performanceMu           sync.Mutex
+	performanceSnapshots    map[string]strategyPerformanceSnapshot
+}
+
+type strategyPerformanceSnapshot struct {
+	totalPnL float64
+	trades   int
+	wins     int
 }
 
 // NewStrategyManager 創建策略管理器
@@ -85,11 +94,12 @@ func NewStrategyManager(cfg *config.Config, totalCapital float64) *StrategyManag
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sm := &StrategyManager{
-		strategies: make(map[string]Strategy),
-		allocator:  NewCapitalAllocator(cfg, totalCapital),
-		cfg:        cfg,
-		ctx:        ctx,
-		cancel:     cancel,
+		strategies:           make(map[string]Strategy),
+		allocator:            NewCapitalAllocator(cfg, totalCapital),
+		cfg:                  cfg,
+		ctx:                  ctx,
+		cancel:               cancel,
+		performanceSnapshots: make(map[string]strategyPerformanceSnapshot),
 	}
 
 	// 如果啟用动態分配，創建动態分配器
@@ -223,11 +233,60 @@ func (sm *StrategyManager) StartAll() error {
 
 	// 3. 啟动动態分配（如果啟用）
 	if sm.dynamicAllocator != nil && sm.cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled {
-		sm.dynamicAllocator.Start(sm.allocator)
+		sm.dynamicAllocator.StartWithPerformanceProvider(sm.allocator, sm.syncDynamicPerformance)
 		logger.Info("✅ 动態资金分配已啟动")
 	}
 
 	return nil
+}
+
+func (sm *StrategyManager) syncDynamicPerformance() {
+	if sm.dynamicAllocator == nil {
+		return
+	}
+	sm.mu.RLock()
+	strategies := make(map[string]Strategy, len(sm.strategies))
+	for name, strategy := range sm.strategies {
+		strategies[name] = strategy
+	}
+	sm.mu.RUnlock()
+
+	sm.performanceMu.Lock()
+	defer sm.performanceMu.Unlock()
+	for name, strategy := range strategies {
+		stats := strategy.GetStatistics()
+		if stats == nil || stats.TotalTrades < 0 || !finiteNumber(stats.TotalPnL) || !finiteNumber(stats.WinRate) ||
+			stats.WinRate < 0 || stats.WinRate > 1 || stats.TotalTrades == 0 {
+			continue
+		}
+		winsFloat := stats.WinRate * float64(stats.TotalTrades)
+		maxInt := int(^uint(0) >> 1)
+		if !finiteNumber(winsFloat) || winsFloat < 0 || winsFloat >= float64(maxInt) {
+			continue
+		}
+		wins := int(math.Round(winsFloat))
+		if wins < 0 || wins > stats.TotalTrades {
+			continue
+		}
+
+		current := strategyPerformanceSnapshot{totalPnL: stats.TotalPnL, trades: stats.TotalTrades, wins: wins}
+		previous, exists := sm.performanceSnapshots[name]
+		if exists && (current.trades < previous.trades || current.wins < previous.wins) {
+			sm.performanceSnapshots[name] = current
+			continue
+		}
+		if exists {
+			deltaPnL := current.totalPnL - previous.totalPnL
+			if !finiteNumber(deltaPnL) {
+				sm.performanceSnapshots[name] = current
+				continue
+			}
+			sm.dynamicAllocator.updatePerformance(name, deltaPnL, current.trades-previous.trades, current.wins-previous.wins)
+		} else {
+			sm.dynamicAllocator.updatePerformance(name, current.totalPnL, current.trades, current.wins)
+		}
+		sm.performanceSnapshots[name] = current
+	}
 }
 
 // StopAll 停止所有策略

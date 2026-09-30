@@ -86,6 +86,49 @@ func TestConfigValidateRejectsUnusableFeeRates(t *testing.T) {
 	}
 }
 
+func TestConfigValidateDynamicCapitalAllocationSettings(t *testing.T) {
+	t.Run("empty score weights use supported defaults", func(t *testing.T) {
+		cfg := createValidConfig()
+		cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled = true
+		cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{}
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+		weights := cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights
+		if weights["total_pnl"] != 0.7 || weights["win_rate"] != 0.3 {
+			t.Fatalf("default performance weights = %#v", weights)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{name: "non-finite adjustment", mutate: func(cfg *Config) {
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance = math.NaN()
+		}},
+		{name: "weight bounds reversed", mutate: func(cfg *Config) {
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.MinWeight = 0.8
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7
+		}},
+		{name: "unsupported sharpe metric", mutate: func(cfg *Config) {
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{"sharpe_ratio": 0.5, "win_rate": 0.5}
+		}},
+		{name: "nan score weight", mutate: func(cfg *Config) {
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{"total_pnl": math.NaN(), "win_rate": 1}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := createValidConfig()
+			cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled = true
+			tc.mutate(cfg)
+			if err := cfg.Validate(); err == nil {
+				t.Fatal("unsafe or unsupported dynamic allocation settings must fail validation")
+			}
+		})
+	}
+}
+
 func TestNormalizeDirectionPreservesBoth(t *testing.T) {
 	tests := []struct {
 		name string

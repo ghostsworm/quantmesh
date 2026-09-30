@@ -30,6 +30,10 @@ type CapitalAllocator struct {
 
 // NewCapitalAllocator 創建资金分配器
 func NewCapitalAllocator(cfg *config.Config, totalCapital float64) *CapitalAllocator {
+	if math.IsNaN(totalCapital) || math.IsInf(totalCapital, 0) || totalCapital < 0 {
+		logger.Warn("⚠️ [资金分配] 总资金无效，按零资金关闭策略额度: %.4f", totalCapital)
+		totalCapital = 0
+	}
 	return &CapitalAllocator{
 		totalCapital: totalCapital,
 		strategies:   make(map[string]*StrategyCapital),
@@ -47,12 +51,12 @@ func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedP
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
-	if weight < 0 {
-		logger.Warn("⚠️ [资金分配] 策略 %s 权重为负数 %.4f，已归零", name, weight)
+	if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
+		logger.Warn("⚠️ [资金分配] 策略 %s 权重无效 %.4f，已归零", name, weight)
 		weight = 0
 	}
-	if fixedPool < 0 {
-		logger.Warn("⚠️ [资金分配] 策略 %s 固定资金池为负数 %.4f，已归零", name, fixedPool)
+	if math.IsNaN(fixedPool) || math.IsInf(fixedPool, 0) || fixedPool < 0 {
+		logger.Warn("⚠️ [资金分配] 策略 %s 固定资金池无效 %.4f，已归零", name, fixedPool)
 		fixedPool = 0
 	}
 
@@ -80,6 +84,16 @@ func (ca *CapitalAllocator) Allocate() {
 		} else {
 			weightTotal += capital.Weight
 		}
+	}
+	if math.IsNaN(fixedPoolTotal) || math.IsInf(fixedPoolTotal, 0) ||
+		math.IsNaN(weightTotal) || math.IsInf(weightTotal, 0) ||
+		math.IsNaN(ca.totalCapital) || math.IsInf(ca.totalCapital, 0) || ca.totalCapital < 0 {
+		for _, capital := range ca.strategies {
+			capital.Allocated = 0
+			capital.Available = 0
+		}
+		logger.Error("[资金分配] 分配输入或汇总溢出，已将所有策略可用额度置零")
+		return
 	}
 
 	// 剩餘资金用於权重分配
@@ -119,6 +133,9 @@ func (ca *CapitalAllocator) Allocate() {
 
 // CheckAvailable 检查策略可用资金
 func (ca *CapitalAllocator) CheckAvailable(strategyName string, amount float64) bool {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return false
+	}
 	if amount <= 0 {
 		return true
 	}
@@ -139,6 +156,9 @@ func (ca *CapitalAllocator) CheckAvailable(strategyName string, amount float64) 
 
 // Reserve 預留资金
 func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return false
+	}
 	if amount <= 0 {
 		return true
 	}
@@ -165,6 +185,9 @@ func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
 
 // Release 释放资金
 func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return
+	}
 	if amount <= 0 {
 		return
 	}
@@ -336,22 +359,36 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 	if da.rebalanceInterval <= 0 {
 		da.rebalanceInterval = 3600 * time.Second // 預設 1 小時
 	}
-	if da.maxChangePerRebalance <= 0 {
+	if math.IsNaN(da.maxChangePerRebalance) || math.IsInf(da.maxChangePerRebalance, 0) || da.maxChangePerRebalance <= 0 || da.maxChangePerRebalance > 1 {
 		da.maxChangePerRebalance = 0.05 // 默认5%
 	}
-	if da.minWeight <= 0 {
+	if math.IsNaN(da.minWeight) || math.IsInf(da.minWeight, 0) || da.minWeight <= 0 || da.minWeight > 1 {
 		da.minWeight = 0.1 // 預設 10%
 	}
-	if da.maxWeight <= 0 {
+	if math.IsNaN(da.maxWeight) || math.IsInf(da.maxWeight, 0) || da.maxWeight <= 0 || da.maxWeight > 1 {
 		da.maxWeight = 0.7 // 默认70%
+	}
+	if da.minWeight > da.maxWeight {
+		da.minWeight, da.maxWeight = 0.1, 0.7
 	}
 
 	// 設置默认性能权重
-	if da.performanceWeights == nil {
+	if len(da.performanceWeights) == 0 {
 		da.performanceWeights = map[string]float64{
 			"total_pnl": 0.7,
 			"win_rate":  0.3,
 		}
+	} else {
+		weights := make(map[string]float64, len(da.performanceWeights))
+		for name, weight := range da.performanceWeights {
+			if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 || weight > 1 ||
+				(weight > 0 && name != "total_pnl" && name != "win_rate") {
+				logger.Warn("⚠️ [动態分配] 忽略无效或未支持的绩效权重: %s", name)
+				continue
+			}
+			weights[name] = weight
+		}
+		da.performanceWeights = weights
 	}
 
 	return da
@@ -359,6 +396,10 @@ func NewDynamicAllocator(cfg *config.Config) *DynamicAllocator {
 
 // RegisterStrategy 注册策略
 func (da *DynamicAllocator) RegisterStrategy(name string, initialWeight float64) {
+	if math.IsNaN(initialWeight) || math.IsInf(initialWeight, 0) || initialWeight < 0 || initialWeight > 1 {
+		logger.Warn("⚠️ [动態分配] 策略 %s 初始权重无效，已设为零", name)
+		initialWeight = 0
+	}
 	da.mu.Lock()
 	defer da.mu.Unlock()
 
@@ -377,6 +418,22 @@ func (da *DynamicAllocator) RegisterStrategy(name string, initialWeight float64)
 
 // UpdatePerformance 更新策略表現
 func (da *DynamicAllocator) UpdatePerformance(strategyName string, pnl float64, isWin bool) {
+	wins := 0
+	if isWin {
+		wins = 1
+	}
+	da.updatePerformance(strategyName, pnl, 1, wins)
+}
+
+func (da *DynamicAllocator) updatePerformance(strategyName string, pnl float64, trades, wins int) {
+	if math.IsNaN(pnl) || math.IsInf(pnl, 0) {
+		logger.Warn("⚠️ [动態分配] 策略 %s 收到非有限盈亏样本，已忽略", strategyName)
+		return
+	}
+	if trades < 0 || wins < 0 || wins > trades {
+		logger.Warn("⚠️ [动態分配] 策略 %s 收到无效的成交统计增量，已忽略", strategyName)
+		return
+	}
 	da.mu.Lock()
 	defer da.mu.Unlock()
 
@@ -388,14 +445,20 @@ func (da *DynamicAllocator) UpdatePerformance(strategyName string, pnl float64, 
 	perf.mu.Lock()
 	defer perf.mu.Unlock()
 
-	perf.TotalPnL += pnl
-	perf.TotalTrades++
-
-	if isWin {
-		perf.WinningTrades++
-	} else {
-		perf.LosingTrades++
+	nextPnL := perf.TotalPnL + pnl
+	if math.IsNaN(nextPnL) || math.IsInf(nextPnL, 0) {
+		logger.Warn("⚠️ [动態分配] 策略 %s 累计盈亏溢出，已忽略本次样本", strategyName)
+		return
 	}
+	perf.TotalPnL = nextPnL
+	maxInt := int(^uint(0) >> 1)
+	if perf.TotalTrades > maxInt-trades || perf.WinningTrades > maxInt-wins || perf.LosingTrades > maxInt-(trades-wins) {
+		logger.Warn("⚠️ [动態分配] 策略 %s 成交统计溢出，已忽略本次样本", strategyName)
+		return
+	}
+	perf.TotalTrades += trades
+	perf.WinningTrades += wins
+	perf.LosingTrades += trades - wins
 
 	if perf.TotalTrades > 0 {
 		perf.WinRate = float64(perf.WinningTrades) / float64(perf.TotalTrades)
@@ -514,6 +577,9 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 	if winRateWeight, ok := da.performanceWeights["win_rate"]; ok && winRateWeight > 0 {
 		score += perf.WinRate * winRateWeight
 	}
+	if math.IsNaN(score) || math.IsInf(score, 0) || score < 0 {
+		return 0
+	}
 
 	// SharpeRatio and MaxDrawdown are not computed from a verified return/equity
 	// series yet. Never score their zero-value fields as real risk observations.
@@ -534,6 +600,10 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 	for name, targetWeight := range targetWeights {
 		perf, exists := da.strategies[name]
 		if !exists {
+			continue
+		}
+		if math.IsNaN(targetWeight) || math.IsInf(targetWeight, 0) || targetWeight < 0 || targetWeight > 1 {
+			logger.Warn("⚠️ [动態分配] 策略 %s 目標权重无效，保留当前值", name)
 			continue
 		}
 
@@ -576,6 +646,10 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 
 // Start 啟动动態分配器
 func (da *DynamicAllocator) Start(allocator *CapitalAllocator) {
+	da.StartWithPerformanceProvider(allocator, nil)
+}
+
+func (da *DynamicAllocator) StartWithPerformanceProvider(allocator *CapitalAllocator, syncPerformance func()) {
 	if da.rebalanceInterval <= 0 {
 		return
 	}
@@ -589,6 +663,9 @@ func (da *DynamicAllocator) Start(allocator *CapitalAllocator) {
 			case <-da.ctx.Done():
 				return
 			case <-ticker.C:
+				if syncPerformance != nil {
+					syncPerformance()
+				}
 				// 计算目標权重
 				targetWeights := da.CalculateTargetWeights()
 

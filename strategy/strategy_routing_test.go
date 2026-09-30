@@ -29,6 +29,16 @@ type routingTestStrategy struct {
 	hit  atomic.Int64
 }
 
+type dynamicPerformanceTestStrategy struct {
+	routingTestStrategy
+	stats StrategyStatistics
+}
+
+func (s *dynamicPerformanceTestStrategy) GetStatistics() *StrategyStatistics {
+	stats := s.stats
+	return &stats
+}
+
 type failingOrderUpdateStrategy struct {
 	routingTestStrategy
 	err error
@@ -83,6 +93,40 @@ func TestStrategyManagerOnOrderUpdateForStrategy(t *testing.T) {
 	}
 	if got := martingale.hit.Load(); got != 0 {
 		t.Fatalf("martingale 策略不应收到回调，实际 %d", got)
+	}
+}
+
+func TestStrategyManagerFeedsOnlyRealizedPerformanceDeltasToDynamicAllocator(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled = true
+	sm := NewStrategyManager(cfg, 1000)
+	dca := &dynamicPerformanceTestStrategy{
+		routingTestStrategy: routingTestStrategy{name: "dca"},
+		stats:               StrategyStatistics{TotalTrades: 2, WinRate: 0.5, TotalPnL: 100},
+	}
+	grid := &dynamicPerformanceTestStrategy{
+		routingTestStrategy: routingTestStrategy{name: "grid"},
+		stats:               StrategyStatistics{TotalPnL: 1000}, // grid statistics are unrealized and have no closed trades
+	}
+	sm.RegisterStrategy("dca", dca, 0.5, 0)
+	sm.RegisterStrategy("grid", grid, 0.5, 0)
+
+	sm.syncDynamicPerformance()
+	sm.syncDynamicPerformance()
+	dcaStats := sm.dynamicAllocator.GetPerformance("dca")
+	if dcaStats == nil || dcaStats.TotalTrades != 2 || dcaStats.WinningTrades != 1 || dcaStats.TotalPnL != 100 {
+		t.Fatalf("first cumulative sample was duplicated or misread: %+v", dcaStats)
+	}
+	gridStats := sm.dynamicAllocator.GetPerformance("grid")
+	if gridStats == nil || gridStats.TotalTrades != 0 || gridStats.TotalPnL != 0 {
+		t.Fatalf("unrealized grid statistics affected allocation: %+v", gridStats)
+	}
+
+	dca.stats = StrategyStatistics{TotalTrades: 3, WinRate: 2.0 / 3.0, TotalPnL: 145}
+	sm.syncDynamicPerformance()
+	dcaStats = sm.dynamicAllocator.GetPerformance("dca")
+	if dcaStats.TotalTrades != 3 || dcaStats.WinningTrades != 2 || dcaStats.TotalPnL != 145 {
+		t.Fatalf("incremental cumulative sample was not applied exactly once: %+v", dcaStats)
 	}
 }
 

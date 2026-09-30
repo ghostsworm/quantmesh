@@ -83,6 +83,62 @@ func TestCapitalAllocatorFixedWeightedReserveAndRelease(t *testing.T) {
 	}
 }
 
+func TestCapitalAllocatorRejectsNonFiniteAmounts(t *testing.T) {
+	allocator := NewCapitalAllocator(&config.Config{}, 1000)
+	allocator.RegisterStrategy("strategy", 1, 0)
+	allocator.Allocate()
+
+	if allocator.Reserve("strategy", math.NaN()) || allocator.Reserve("strategy", math.Inf(1)) {
+		t.Fatal("non-finite reserve must fail")
+	}
+	if !allocator.Reserve("strategy", 100) {
+		t.Fatal("finite reserve should succeed")
+	}
+	allocator.Release("strategy", math.NaN())
+	allocator.Release("strategy", math.Inf(1))
+	if got := allocator.GetUsed("strategy"); got != 100 {
+		t.Fatalf("invalid release changed used capital: got %v want 100", got)
+	}
+	if allocator.CheckAvailable("strategy", math.NaN()) || allocator.CheckAvailable("strategy", math.Inf(1)) {
+		t.Fatal("non-finite availability checks must fail")
+	}
+}
+
+func TestCapitalAllocatorFailsClosedForInvalidAllocationInputs(t *testing.T) {
+	tests := []struct {
+		name         string
+		totalCapital float64
+		weight       float64
+		fixedPool    float64
+		secondWeight float64
+	}{
+		{name: "nan total", totalCapital: math.NaN(), weight: 1},
+		{name: "infinite total", totalCapital: math.Inf(1), weight: 1},
+		{name: "nan weight", totalCapital: 1000, weight: math.NaN()},
+		{name: "infinite fixed pool", totalCapital: 1000, fixedPool: math.Inf(1)},
+		{name: "weight sum overflow", totalCapital: 1000, weight: 1e308, secondWeight: 1e308},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			allocator := NewCapitalAllocator(&config.Config{}, tc.totalCapital)
+			allocator.RegisterStrategy("strategy", tc.weight, tc.fixedPool)
+			if tc.secondWeight != 0 {
+				allocator.RegisterStrategy("strategy-2", tc.secondWeight, 0)
+			}
+			allocator.Allocate()
+			if got := allocator.GetAllocated("strategy"); got != 0 {
+				t.Fatalf("allocated=%v want 0", got)
+			}
+			if got := allocator.GetAvailable("strategy"); got != 0 {
+				t.Fatalf("available=%v want 0", got)
+			}
+			if allocator.Reserve("strategy", 1) {
+				t.Fatal("invalid allocation input must not allow reserve")
+			}
+		})
+	}
+}
+
 func TestDynamicAllocatorWeightsRebalanceAndPerformance(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Strategies.CapitalAllocation.DynamicAllocation.RebalanceInterval = 0
@@ -168,5 +224,52 @@ func TestDynamicAllocatorPreservesWeightsWithoutVerifiedMetrics(t *testing.T) {
 	got = da.CalculateTargetWeights()
 	if math.Abs(got["grid"]-0.5) > 0.0001 || math.Abs(got["dca"]-0.5) > 0.0001 {
 		t.Fatalf("uncomputed Sharpe/drawdown changed equal observed metrics: %#v", got)
+	}
+}
+
+func TestDynamicAllocatorRejectsNonFinitePerformanceSamples(t *testing.T) {
+	for _, pnl := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		da := NewDynamicAllocator(&config.Config{})
+		da.RegisterStrategy("grid", 0.6)
+		da.UpdatePerformance("grid", pnl, true)
+		got := da.GetPerformance("grid")
+		if got == nil || got.TotalTrades != 0 || got.TotalPnL != 0 || got.WinRate != 0 {
+			t.Fatalf("invalid pnl %v mutated performance: %+v", pnl, got)
+		}
+		if weights := da.CalculateTargetWeights(); weights["grid"] != 0.6 {
+			t.Fatalf("invalid pnl %v changed capital weight: %#v", pnl, weights)
+		}
+	}
+
+	da := NewDynamicAllocator(&config.Config{})
+	da.RegisterStrategy("grid", 0.6)
+	da.UpdatePerformance("grid", math.MaxFloat64, true)
+	da.UpdatePerformance("grid", math.MaxFloat64, true)
+	got := da.GetPerformance("grid")
+	if got == nil || got.TotalTrades != 1 || got.TotalPnL != math.MaxFloat64 {
+		t.Fatalf("overflowing pnl mutated performance: %+v", got)
+	}
+}
+
+func TestDynamicAllocatorRejectsInvalidWeights(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{
+		"total_pnl": math.NaN(),
+		"win_rate":  math.Inf(1),
+	}
+	da := NewDynamicAllocator(cfg)
+	da.RegisterStrategy("a", 0.5)
+	da.RegisterStrategy("b", 0.5)
+	da.UpdatePerformance("a", 100, true)
+	da.UpdatePerformance("b", 0, false)
+	targets := da.CalculateTargetWeights()
+	if targets["a"] != 0.5 || targets["b"] != 0.5 {
+		t.Fatalf("invalid score weights changed targets: %#v", targets)
+	}
+	if got := da.Rebalance(map[string]float64{"a": math.NaN(), "b": math.Inf(1)}); len(got) != 0 {
+		t.Fatalf("invalid targets should not be applied: %#v", got)
+	}
+	if da.GetPerformance("a").CurrentWeight != 0.5 || da.GetPerformance("b").CurrentWeight != 0.5 {
+		t.Fatal("invalid targets changed current weights")
 	}
 }
