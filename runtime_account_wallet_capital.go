@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/storage"
 )
@@ -54,6 +55,17 @@ func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storag
 	if err := store.ReserveAccountWalletCapital(reserveCtx, botID, claims); err != nil {
 		return fmt.Errorf("atomically reserve Bot %s account wallet capital: %w", botID, err)
 	}
+	return nil
+}
+
+func reserveRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim, gate *execution.OpeningGate) error {
+	if gate == nil || !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		return fmt.Errorf("Bot opening gate must remain blocked until its wallet capital reservation commits")
+	}
+	if err := reserveAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, claims); err != nil {
+		return err
+	}
+	gate.Unblock(accountWalletCapitalReservationPendingBlock)
 	return nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/storage"
 )
@@ -86,6 +87,40 @@ func TestAccountWalletCapitalRejectsMultiInstanceSQLite(t *testing.T) {
 	}})
 	if err == nil || !strings.Contains(err.Error(), "require shared MySQL storage") {
 		t.Fatalf("multi-instance SQLite reservation error = %v, want shared-MySQL rejection", err)
+	}
+}
+
+func TestRuntimeAccountWalletCapitalKeepsOpeningBlockedUntilReservationSucceeds(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "runtime-wallet-capital.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storageService.Stop()
+	gate := &execution.OpeningGate{}
+	gate.Block(accountWalletCapitalReservationPendingBlock)
+	claim := storage.AccountWalletCapitalClaim{WalletKey: strings.Repeat("b", 64), Amount: 10, Available: 100}
+
+	cfg.Instance.Total = 2
+	err = reserveRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, gate)
+	if err == nil {
+		t.Fatal("runtime reservation accepted SQLite for multiple instances")
+	}
+	if !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		t.Fatal("failed reservation released the opening gate")
+	}
+
+	cfg.Instance.Total = 1
+	if err := reserveRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, gate); err != nil {
+		t.Fatalf("single-instance reservation: %v", err)
+	}
+	if gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		t.Fatal("successful reservation retained the pending gate")
 	}
 }
 

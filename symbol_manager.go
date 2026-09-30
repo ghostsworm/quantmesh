@@ -160,8 +160,10 @@ func validResolvedGridFeeRates(maker, taker float64) bool {
 }
 
 const (
-	gridFeeRateUnverifiedBlock = "grid_fee_rate_unverified"
-	gridFeeRateRetryInterval   = time.Minute
+	gridFeeRateUnverifiedBlock                  = "grid_fee_rate_unverified"
+	gridFeeRateRetryInterval                    = time.Minute
+	capitalBalanceUnverifiedBlock               = "capital_balance_unverified"
+	accountWalletCapitalReservationPendingBlock = "account_wallet_capital_reservation_pending"
 )
 
 func gridFeeRatesRequired(cfg *config.Config) bool {
@@ -580,6 +582,8 @@ func startSymbolRuntime(
 		cancel()
 	}
 	botCapitalBudget, capitalErr := capStrategyCapitalLimit(requestedCapital, availableBalance)
+	var capitalClaim storage.AccountWalletCapitalClaim
+	capitalClaimReady := false
 	if balanceErr != nil {
 		capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
 	}
@@ -605,8 +609,9 @@ func startSymbolRuntime(
 		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, walletExchange, ex.GetMarketType(), quoteAsset, botCapitalBudget, availableBalance)
 		if claimErr != nil {
 			capitalErr = claimErr
-		} else if reserveErr := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, []storage.AccountWalletCapitalClaim{claim}); reserveErr != nil {
-			capitalErr = reserveErr
+		} else {
+			capitalClaim = claim
+			capitalClaimReady = true
 		}
 	}
 
@@ -764,14 +769,20 @@ func startSymbolRuntime(
 		exchangeExecutor.BeginShutdown()
 	}
 	if capitalErr != nil {
-		superPositionManager.OpeningGate().Block("capital_balance_unverified")
+		superPositionManager.OpeningGate().Block(capitalBalanceUnverifiedBlock)
 		logger.ErrorCtx(ctx, "🚨 [%s] Bot 資金上限无法核实，已封锁所有新開倉: %v", botID, capitalErr)
-	} else if requestedCapital > botCapitalBudget {
-		logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過交易所可用余额 %.2f %s，Bot 总名义敞口已下調至可用余额",
-			botID, requestedCapital, quoteAsset, botCapitalBudget, quoteAsset)
 	} else {
-		logger.InfoCtx(ctx, "💰 [%s] 同账户已配置 Bot 资金预算合计 %.2f %s，当前可用余额 %.2f %s",
-			botID, accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
+		// The persistent claim is intentionally acquired immediately before the
+		// first order-capable initialization. Earlier startup failures must not
+		// strand a reservation for a Bot that never reached trading admission.
+		superPositionManager.OpeningGate().Block(accountWalletCapitalReservationPendingBlock)
+		if requestedCapital > botCapitalBudget {
+			logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過交易所可用余额 %.2f %s，Bot 总名义敞口已下調至可用余额",
+				botID, requestedCapital, quoteAsset, botCapitalBudget, quoteAsset)
+		} else {
+			logger.InfoCtx(ctx, "💰 [%s] 同账户已配置 Bot 资金预算合计 %.2f %s，当前可用余额 %.2f %s",
+				botID, accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
+		}
 	}
 	exposureBook, err := configureRuntimeExposure(exchangeExecutor, priceMonitor.GetQuoteEvidence)
 	if err != nil {
@@ -1064,6 +1075,14 @@ func startSymbolRuntime(
 	dynamicAdjuster := strategy.NewDynamicAdjuster(&localCfg, priceMonitor, superPositionManager)
 	if err := dynamicAdjuster.SetVolatilityHistoryLoader(runtimeVolatilityHistoryLoader(ex, symCfg.Symbol)); err != nil {
 		return nil, err
+	}
+	if capitalErr == nil {
+		if !capitalClaimReady {
+			return nil, fmt.Errorf("verified Bot capital claim is unavailable before order initialization")
+		}
+		if err := reserveRuntimeAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, []storage.AccountWalletCapitalClaim{capitalClaim}, superPositionManager.OpeningGate()); err != nil {
+			return nil, fmt.Errorf("reserve Bot account wallet capital before order initialization: %w", err)
+		}
 	}
 	dynamicAdjuster.StartWithExternalPrices()
 	dynamicOwnedByRuntime := false
