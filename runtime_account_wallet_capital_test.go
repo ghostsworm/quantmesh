@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/lock"
+	"quantmesh/storage"
 )
 
 func TestAccountWalletCapitalClaimIsolatesCredentialMarketAndQuoteAsset(t *testing.T) {
@@ -44,5 +49,27 @@ func TestAccountWalletCapitalClaimIsolatesCredentialMarketAndQuoteAsset(t *testi
 				t.Fatalf("wallet key match = %v, want %v", matches, tc.wantMatch)
 			}
 		})
+	}
+}
+
+func TestAccountWalletCapitalRejectsMultiInstanceSQLite(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Instance.Total = 2
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "wallet-capital.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storageService.Stop()
+
+	err = reserveAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{{
+		WalletKey: strings.Repeat("a", 64), Amount: 10, Available: 100,
+	}})
+	if err == nil || !strings.Contains(err.Error(), "require shared MySQL storage") {
+		t.Fatalf("multi-instance SQLite reservation error = %v, want shared-MySQL rejection", err)
 	}
 }
