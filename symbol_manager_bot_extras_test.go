@@ -9,8 +9,25 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/position"
+	"quantmesh/storage"
 )
+
+func TestApplyStartupOpeningPauseHoldersKeepsEachOwnerIndependent(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	applyStartupOpeningPauseHolders(gate, []storage.OpeningPauseHolder{
+		{Source: "circuit_breaker", Reason: "loss"},
+		{Source: "composite_risk", Reason: "stop"},
+	})
+	if !gate.HasBlock("circuit_breaker") || !gate.HasBlock("composite_risk") {
+		t.Fatalf("startup holders not installed: %v", gate.Sources())
+	}
+	gate.Unblock("circuit_breaker")
+	if gate.HasBlock("circuit_breaker") || !gate.HasBlock("composite_risk") || !gate.Blocked() {
+		t.Fatalf("releasing one restored owner affected another: %v", gate.Sources())
+	}
+}
 
 const autoRebuilderRunFrame = "(*GridAutoRebuilder).run"
 
@@ -103,7 +120,7 @@ func TestStartSymbolRuntimeRejectsInvalidBotExtras(t *testing.T) {
 		MarketType: "futures",
 		SlotFilter: config.SlotFilterConfig{Rules: []config.SlotFilterRule{{Type: "oops", Prices: []float64{1}}}},
 	}
-	rt, err := startSymbolRuntime(context.Background(), &config.Config{}, symCfg, nil, nil, nil, nil)
+	rt, err := startSymbolRuntime(context.Background(), &config.Config{}, symCfg, nil, nil, nil, nil, nil)
 	if err == nil || rt != nil {
 		t.Fatalf("expected start failure, got rt=%v err=%v", rt, err)
 	}

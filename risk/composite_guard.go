@@ -36,7 +36,12 @@ func NewCompositeRiskGuard(bots BotProvider, pauser *OpeningPauseCoordinator, no
 	if pauser == nil {
 		pauser = NewOpeningPauseCoordinator()
 	}
-	return &CompositeRiskGuard{bots: bots, pauser: pauser, notifier: notifier}
+	return &CompositeRiskGuard{
+		bots:     bots,
+		pauser:   pauser,
+		notifier: notifier,
+		paused:   pauser.IsHeldBy(compositeRiskPauseSource),
+	}
 }
 
 // Apply 根据信号暂停/解除开仓；返回当前是否由复合风控暂停
@@ -51,7 +56,9 @@ func (g *CompositeRiskGuard) Apply(signal CompositeRiskSignal, level string, sco
 		}
 		bots := g.bots.GetAllBots()
 		reason := compositeRiskPauseSource + ":" + level
-		g.pauser.Pause(compositeRiskPauseSource, reason, bots)
+		if err := g.pauser.Pause(compositeRiskPauseSource, reason, bots); err != nil {
+			logger.Error("[复合风控] 暂停已施加，但持久化风险来源失败，需保持人工核查: %v", err)
+		}
 		g.paused = true
 		logger.Error("🛑 [复合风控] 综合分 %.1f 达到 %s，已暂停 %d 个 Bot 开仓，原因: %v", score, level, len(bots), reasons)
 		g.notify(event.EventTypeRiskTriggered, level, score, reasons)
@@ -60,7 +67,11 @@ func (g *CompositeRiskGuard) Apply(signal CompositeRiskSignal, level string, sco
 			return false
 		}
 		bots := g.bots.GetAllBots()
-		resumed := g.pauser.Release(compositeRiskPauseSource, bots)
+		resumed, err := g.pauser.ReleaseChecked(compositeRiskPauseSource, bots)
+		if err != nil {
+			logger.Error("[复合风控] 持久化解除失败，继续保留本地暂停来源: %v", err)
+			return true
+		}
 		g.paused = false
 		logger.Info("▶️ [复合风控] 综合分回落至 %.1f (%s)，解除复合风控暂停，实际恢复=%v", score, level, resumed)
 		g.notify(event.EventTypeRiskRecovered, level, score, reasons)

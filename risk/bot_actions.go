@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"quantmesh/logger"
+	"quantmesh/storage"
 )
 
 // DefaultBotActionTimeout 單個 Bot 撤單/平倉的預設超時。
@@ -183,10 +185,16 @@ type OpeningPauseCoordinator struct {
 	transitionMu sync.Mutex
 	mu           sync.Mutex
 	holders      map[string]string // source -> reason
+	stateStore   storage.OpeningPauseStateStore
 }
 
 type nonAutoResumingBot interface {
 	PauseOpeningWithoutAutoResume(reason string)
+}
+
+type sourceOwnedOpeningPauseBot interface {
+	PauseOpeningForSource(source, reason string)
+	ResumeOpeningForSource(source string)
 }
 
 func pauseBotWithoutAutoResume(bot BotController, reason string) {
@@ -205,22 +213,86 @@ func NewOpeningPauseCoordinator() *OpeningPauseCoordinator {
 	return &OpeningPauseCoordinator{holders: make(map[string]string)}
 }
 
+// NewOpeningPauseCoordinatorWithStore restores durable risk owners before any
+// Bot is allowed to start. A read error is fatal to construction so callers
+// cannot silently restart with an empty owner set.
+func NewOpeningPauseCoordinatorWithStore(ctx context.Context, store storage.OpeningPauseStateStore) (*OpeningPauseCoordinator, error) {
+	if store == nil {
+		return nil, fmt.Errorf("durable opening pause state store is required")
+	}
+	rows, err := store.LoadOpeningPauseHolders(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load durable opening pause owners: %w", err)
+	}
+	c := &OpeningPauseCoordinator{holders: make(map[string]string, len(rows)), stateStore: store}
+	for _, row := range rows {
+		source := strings.TrimSpace(row.Source)
+		if source == "" || len(source) > 128 {
+			return nil, fmt.Errorf("durable opening pause state contains an invalid source")
+		}
+		if _, duplicate := c.holders[source]; duplicate {
+			return nil, fmt.Errorf("durable opening pause state contains duplicate source %q", source)
+		}
+		c.holders[source] = row.Reason
+	}
+	return c, nil
+}
+
 // Pause 以 source 身份暫停所有 Bot 開倉
-func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotController) {
+func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotController) error {
+	source = strings.TrimSpace(source)
+	if c == nil || source == "" {
+		return fmt.Errorf("opening pause coordinator and source are required")
+	}
 	c.transitionMu.Lock()
 	defer c.transitionMu.Unlock()
+	var persistErr error
+	if c.stateStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		persistErr = c.stateStore.UpsertOpeningPauseHolder(ctx, storage.OpeningPauseHolder{Source: source, Reason: reason})
+		cancel()
+	}
 	c.mu.Lock()
 	c.holders[source] = reason
 	c.mu.Unlock()
 	for _, bot := range bots {
-		pauseBotWithoutAutoResume(bot, reason)
+		if sourceOwned, ok := bot.(sourceOwnedOpeningPauseBot); ok {
+			sourceOwned.PauseOpeningForSource(source, reason)
+		} else {
+			pauseBotWithoutAutoResume(bot, reason)
+		}
 	}
+	if persistErr != nil {
+		return fmt.Errorf("persist opening pause owner %q: %w", source, persistErr)
+	}
+	return nil
 }
 
 // Release 解除 source 的暫停；若仍有其他來源持有暫停則不恢復，返回是否真正恢復
 func (c *OpeningPauseCoordinator) Release(source string, bots []BotController) bool {
+	resumed, err := c.ReleaseChecked(source, bots)
+	if err != nil {
+		logger.Error("risk pause source %q remains held because durable release failed: %v", source, err)
+	}
+	return resumed
+}
+
+// ReleaseChecked preserves the hold and reports persistence errors to callers
+// that expose an operator-visible recovery result.
+func (c *OpeningPauseCoordinator) ReleaseChecked(source string, bots []BotController) (bool, error) {
+	if c == nil || strings.TrimSpace(source) == "" {
+		return false, fmt.Errorf("opening pause coordinator and source are required")
+	}
 	c.transitionMu.Lock()
 	defer c.transitionMu.Unlock()
+	if c.stateStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := c.stateStore.DeleteOpeningPauseHolder(ctx, source)
+		cancel()
+		if err != nil {
+			return false, fmt.Errorf("persist release of opening pause owner %q: %w", source, err)
+		}
+	}
 	c.mu.Lock()
 	delete(c.holders, source)
 	remaining := make([]string, 0, len(c.holders))
@@ -228,16 +300,38 @@ func (c *OpeningPauseCoordinator) Release(source string, bots []BotController) b
 		remaining = append(remaining, s)
 	}
 	c.mu.Unlock()
+	for _, bot := range bots {
+		if sourceOwned, ok := bot.(sourceOwnedOpeningPauseBot); ok {
+			sourceOwned.ResumeOpeningForSource(source)
+		}
+	}
 
 	if len(remaining) > 0 {
 		sort.Strings(remaining)
 		logger.Warn("⏸️ [风控协调] %s 已解除，但仍被 %v 暂停开仓，暂不恢复", source, remaining)
-		return false
+		return false, nil
 	}
 	for _, bot := range bots {
-		bot.ResumeOpening()
+		if _, sourceOwned := bot.(sourceOwnedOpeningPauseBot); !sourceOwned {
+			bot.ResumeOpening()
+		}
 	}
-	return true
+	return true, nil
+}
+
+// BeginBotStart serializes startup gate installation against risk transitions.
+// The returned unlock function must be called only after the runtime is
+// registered (or startup has failed).
+func (c *OpeningPauseCoordinator) BeginBotStart() ([]storage.OpeningPauseHolder, func()) {
+	c.transitionMu.Lock()
+	c.mu.Lock()
+	holders := make([]storage.OpeningPauseHolder, 0, len(c.holders))
+	for source, reason := range c.holders {
+		holders = append(holders, storage.OpeningPauseHolder{Source: source, Reason: reason})
+	}
+	c.mu.Unlock()
+	sort.Slice(holders, func(i, j int) bool { return holders[i].Source < holders[j].Source })
+	return holders, c.transitionMu.Unlock
 }
 
 // RunIfUnheld atomically checks that no coordinated risk source is holding the

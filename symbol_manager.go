@@ -434,12 +434,13 @@ func startSymbolRuntime(
 	storageService *storage.StorageService,
 	distributedLock lock.DistributedLock,
 	onRequestStop func(botID string),
+	startupPauseHolders []storage.OpeningPauseHolder,
 ) (*SymbolRuntime, error) {
 	if symCfg.GetMarketType() == config.MarketTypeFundingCarry {
-		return startFundingCarrySymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
+		return startFundingCarrySymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop, startupPauseHolders)
 	}
 	if symCfg.GetMarketType() == config.MarketTypeFundingPerpSpread {
-		return startFundingPerpSpreadSymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop)
+		return startFundingPerpSpreadSymbolRuntime(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop, startupPauseHolders)
 	}
 	if err := validateLegacyFundingArbitrageReadiness(baseCfg, symCfg.GetMarketType()); err != nil {
 		return nil, fmt.Errorf("期現套利配置無法安全啟動(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
@@ -757,6 +758,7 @@ func startSymbolRuntime(
 	exchangeExecutor.SetPostOnlyRepriceMaxAttempts(localCfg.Trading.PostOnlyRepriceMaxAttempts)
 
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
+	applyStartupOpeningPauseHolders(superPositionManager.OpeningGate(), startupPauseHolders)
 	if capitalErr == nil {
 		if err := superPositionManager.SetVerifiedCapitalLimit(botCapitalBudget); err != nil {
 			return nil, fmt.Errorf("install verified Bot capital ceiling: %w", err)
@@ -1923,6 +1925,17 @@ func startSymbolRuntime(
 	dynamicOwnedByRuntime = true
 
 	return rt, nil
+}
+
+func applyStartupOpeningPauseHolders(gate *execution.OpeningGate, holders []storage.OpeningPauseHolder) {
+	if gate == nil {
+		return
+	}
+	for _, holder := range holders {
+		if holder.Source != "" {
+			gate.Block(holder.Source)
+		}
+	}
 }
 
 func validateLegacyFundingArbitrageReadiness(cfg *config.Config, marketType string) error {

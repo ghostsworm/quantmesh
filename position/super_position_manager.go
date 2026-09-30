@@ -870,10 +870,14 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 			return reason
 		}
 	}
-	for _, source := range spm.openingGate.Sources() {
+	sources := spm.openingGate.Sources()
+	for _, source := range sources {
 		if strings.HasPrefix(source, "single_leg_group:") {
 			return "对冲组仍存在未运行腿，等待组状态恢复一致"
 		}
+	}
+	if len(sources) > 0 {
+		return fmt.Sprintf("风险来源 %s 仍暂停开仓", sources[0])
 	}
 	if spm.openingGate.Blocked() {
 		return "其他風控來源仍暫停開倉"

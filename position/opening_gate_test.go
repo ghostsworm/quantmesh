@@ -42,6 +42,14 @@ func TestConfiguredOpeningPauseIsEffectiveBeforeStart(t *testing.T) {
 	}
 }
 
+func TestRestoredOpeningPauseReasonExposesPersistedSource(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.OpeningGate().Block("opening_pause_legacy_state_unverified")
+	if got := spm.GetOpeningPauseReason(); got != "风险来源 opening_pause_legacy_state_unverified 仍暂停开仓" {
+		t.Fatalf("restored pause reason = %q", got)
+	}
+}
+
 func TestMarketOpeningGateKeepsInventoryProtectionRunning(t *testing.T) {
 	spm, exec := newR5bSPM(t, "LONG", 4)
 	fillSlot(spm, 100, 1, 100, "")

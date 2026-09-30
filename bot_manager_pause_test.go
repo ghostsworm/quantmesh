@@ -153,10 +153,10 @@ func TestRiskPauseCoordinatorCannotBeBypassedByBotAutoResume(t *testing.T) {
 
 	coordinator.Pause("global_circuit_breaker", "circuit_breaker:daily_loss", bots)
 	time.Sleep(1100 * time.Millisecond)
-	if !coordinator.IsHeldBy("global_circuit_breaker") || !gate.HasBlock("opening_manager") {
+	if !coordinator.IsHeldBy("global_circuit_breaker") || !gate.HasBlock("global_circuit_breaker") {
 		t.Fatal("configured Bot auto-resume bypassed an active coordinated risk hold")
 	}
-	if !coordinator.Release("global_circuit_breaker", bots) || gate.HasBlock("opening_manager") {
+	if !coordinator.Release("global_circuit_breaker", bots) || gate.HasBlock("global_circuit_breaker") {
 		t.Fatal("explicit coordinator release did not release its own hold")
 	}
 }
@@ -175,8 +175,8 @@ func TestCoordinatorReleasePreservesExplicitManualPause(t *testing.T) {
 	if !coordinator.Release("global_circuit_breaker", bots) {
 		t.Fatal("coordinator did not release its own risk hold")
 	}
-	if !spm.OpeningGate().HasBlock("manual") || spm.OpeningGate().HasBlock("opening_manager") {
-		t.Fatalf("risk release changed wrong pause owner: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("opening_manager"))
+	if !spm.OpeningGate().HasBlock("manual") || spm.OpeningGate().HasBlock("global_circuit_breaker") {
+		t.Fatalf("risk release changed wrong pause owner: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("global_circuit_breaker"))
 	}
 	if !bot.Config.OpenPositionControl.PauseOpening {
 		t.Fatal("coordinator release cleared persisted/runtime-visible manual pause state")
@@ -185,7 +185,7 @@ func TestCoordinatorReleasePreservesExplicitManualPause(t *testing.T) {
 		t.Fatalf("explicit manual resume failed: %v", err)
 	}
 	if spm.OpeningGate().Blocked() {
-		t.Fatalf("manual resume left gate blocked: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("opening_manager"))
+		t.Fatalf("manual resume left gate blocked: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("global_circuit_breaker"))
 	}
 	if bot.Config.OpenPositionControl.PauseOpening {
 		t.Fatal("explicit manual resume left runtime config paused")
@@ -263,8 +263,8 @@ func TestTimedManualPauseExpiryPreservesCoordinatedRiskHold(t *testing.T) {
 	bot.PauseOpeningManuallyWithAutoResume("operator_pause", 1)
 	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
 	time.Sleep(1100 * time.Millisecond)
-	if !gate.HasBlock("opening_manager") || gate.HasBlock("manual") {
-		t.Fatalf("manual timer cleared or retained the wrong source: risk=%v manual=%v", gate.HasBlock("opening_manager"), gate.HasBlock("manual"))
+	if !gate.HasBlock("global_circuit_breaker") || gate.HasBlock("manual") {
+		t.Fatalf("manual timer cleared or retained the wrong source: risk=%v manual=%v", gate.HasBlock("global_circuit_breaker"), gate.HasBlock("manual"))
 	}
 	if !coordinator.IsHeldBy("global_circuit_breaker") {
 		t.Fatal("manual timer released the coordinated risk source")

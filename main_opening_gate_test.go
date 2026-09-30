@@ -52,7 +52,9 @@ func TestBotOpeningGateReachesGridAndAllStrategyAdapters(t *testing.T) {
 				t.Fatalf("protective close blocked: %v", err)
 			}
 			spm.SetMarketRiskPaused(true)
-			spm.ResumeOpening()
+			if err := spm.ReleaseManualOpeningPause(); err != nil {
+				t.Fatalf("explicit manual resume failed: %v", err)
+			}
 			if _, err := adapter.PlaceOrder(open); !errors.Is(err, execution.ErrOpeningPaused) {
 				t.Fatalf("manual resume cleared market risk: %v", err)
 			}

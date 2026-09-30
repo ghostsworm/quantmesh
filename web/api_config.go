@@ -308,6 +308,20 @@ func cloneConfigSnapshot(cfg *config.Config) (*config.Config, error) {
 	if err := yaml.Unmarshal(encoded, &snapshot); err != nil {
 		return nil, fmt.Errorf("deserialize config snapshot: %w", err)
 	}
+	// PauseOpening is intentionally omitted from YAML but is part of JSON/API
+	// state and the durable app_config snapshot. Preserve it across this clone
+	// for every configuration scope instead of silently losing the risk gate.
+	snapshot.Trading.OpenPositionControl.PauseOpening = cfg.Trading.OpenPositionControl.PauseOpening
+	for i := range snapshot.Trading.Symbols {
+		if i < len(cfg.Trading.Symbols) {
+			snapshot.Trading.Symbols[i].OpenPositionControl.PauseOpening = cfg.Trading.Symbols[i].OpenPositionControl.PauseOpening
+		}
+	}
+	for i := range snapshot.Bots {
+		if i < len(cfg.Bots) {
+			snapshot.Bots[i].OpenPositionControl.PauseOpening = cfg.Bots[i].OpenPositionControl.PauseOpening
+		}
+	}
 	return &snapshot, nil
 }
 

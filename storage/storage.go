@@ -296,7 +296,6 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 			return nil, fmt.Errorf("初始化執行意圖日誌失敗: %w", err)
 		}
 	}
-
 	return ss, nil
 }
 

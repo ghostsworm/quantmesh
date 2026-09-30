@@ -31,6 +31,7 @@ func startFundingPerpSpreadSymbolRuntime(
 	storageService *storage.StorageService,
 	distributedLock lock.DistributedLock,
 	onRequestStop func(botID string),
+	startupPauseHolders []storage.OpeningPauseHolder,
 ) (*SymbolRuntime, error) {
 	fp := symCfg.FundingPerpSpread
 	if fp == nil {
@@ -126,6 +127,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		}
 	}
 	openingGate := &execution.OpeningGate{}
+	applyStartupOpeningPauseHolders(openingGate, startupPauseHolders)
 	if localCfg.Trading.OpenPositionControl.PauseOpening || (localCfg.Trading.OpenPositionControl.BotRiskControl != nil && localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening) {
 		openingGate.Block("manual")
 	}

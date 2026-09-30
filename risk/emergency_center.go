@@ -118,6 +118,11 @@ type EmergencyCenter struct {
 // SetPauseCoordinator connects emergency pauses to shared risk-source ownership.
 func (ec *EmergencyCenter) SetPauseCoordinator(pauser *OpeningPauseCoordinator) {
 	ec.pauser = pauser
+	if pauser != nil && pauser.IsHeldBy(emergencyCenterPauseSource) {
+		ec.emergencyModeMu.Lock()
+		ec.emergencyMode = true
+		ec.emergencyModeMu.Unlock()
+	}
 }
 
 // NewEmergencyCenter 创建紧急操作中心
@@ -329,7 +334,9 @@ func (ec *EmergencyCenter) executeAction(ctx context.Context, action EmergencyAc
 func (ec *EmergencyCenter) stopAllBots(bots []BotController) (string, error) {
 	successCount := 0
 	if ec.pauser != nil {
-		ec.pauser.Pause(emergencyCenterPauseSource, "紧急停止", bots)
+		if err := ec.pauser.Pause(emergencyCenterPauseSource, "紧急停止", bots); err != nil {
+			return "", fmt.Errorf("Bot 已在本进程暂停，但持久化紧急暂停失败: %w", err)
+		}
 		successCount = len(bots)
 	} else {
 		for _, bot := range bots {
@@ -354,7 +361,9 @@ func (ec *EmergencyCenter) closeAllPositions(ctx context.Context, bots []BotCont
 func (ec *EmergencyCenter) pauseAllBots(bots []BotController) (string, error) {
 	successCount := 0
 	if ec.pauser != nil {
-		ec.pauser.Pause(emergencyCenterPauseSource, "紧急暂停", bots)
+		if err := ec.pauser.Pause(emergencyCenterPauseSource, "紧急暂停", bots); err != nil {
+			return "", fmt.Errorf("Bot 已在本进程暂停，但持久化紧急暂停失败: %w", err)
+		}
 		successCount = len(bots)
 	} else {
 		for _, bot := range bots {
@@ -397,7 +406,12 @@ func (ec *EmergencyCenter) DisableEmergencyMode(triggeredBy string) error {
 		if ec.botProvider != nil {
 			bots = ec.botProvider.GetAllBots()
 		}
-		ec.pauser.Release(emergencyCenterPauseSource, bots)
+		if _, err := ec.pauser.ReleaseChecked(emergencyCenterPauseSource, bots); err != nil {
+			ec.emergencyModeMu.Lock()
+			ec.emergencyMode = true
+			ec.emergencyModeMu.Unlock()
+			return fmt.Errorf("緊急暫停來源持久化解除失敗，仍保持暫停: %w", err)
+		}
 	}
 	return nil
 }

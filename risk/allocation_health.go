@@ -63,7 +63,9 @@ func (gcb *GlobalCircuitBreaker) refreshAllocationRisk() {
 	}
 	if _, pauser := gcb.deps(); pauser != nil {
 		if held && !pauser.IsHeldBy(allocationRiskPauseSource) {
-			pauser.Pause(allocationRiskPauseSource, reason, bots)
+			if err := pauser.Pause(allocationRiskPauseSource, reason, bots); err != nil {
+				logger.Error("[额度风控] 暂停已施加，但持久化风险来源失败，需保持人工核查: %v", err)
+			}
 		} else if !held && pauser.IsHeldBy(allocationRiskPauseSource) {
 			pauser.Release(allocationRiskPauseSource, bots)
 		}

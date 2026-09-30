@@ -171,6 +171,14 @@ func (gcb *GlobalCircuitBreaker) SetPauseCoordinator(p *OpeningPauseCoordinator)
 	gcb.depsMu.Lock()
 	defer gcb.depsMu.Unlock()
 	gcb.pauser = p
+	if p != nil && p.IsHeldBy(circuitBreakerPauseSource) {
+		gcb.statusMu.Lock()
+		if gcb.status != CircuitBreakerStatusTripped {
+			gcb.status = CircuitBreakerStatusTripped
+			gcb.trippedAt = time.Now()
+		}
+		gcb.statusMu.Unlock()
+	}
 }
 
 func (gcb *GlobalCircuitBreaker) deps() (AlertNotifier, *OpeningPauseCoordinator) {
@@ -433,7 +441,6 @@ func (gcb *GlobalCircuitBreaker) trip(trigger CircuitBreakerTrigger, triggeredBy
 
 	logger.Error("🔴 [全局熔断] 熔断触发! 触发器: %s, 原因: %s, 操作人: %s", trigger, reason, triggeredBy)
 
-	// 记录事件
 	cbEvent := &CircuitBreakerEvent{
 		Timestamp:   now,
 		Status:      CircuitBreakerStatusTripped,
@@ -499,7 +506,9 @@ func (gcb *GlobalCircuitBreaker) pauseAllBots(trigger string) string {
 	reason := "circuit_breaker:" + trigger
 	_, pauser := gcb.deps()
 	if pauser != nil {
-		pauser.Pause(circuitBreakerPauseSource, reason, bots)
+		if err := pauser.Pause(circuitBreakerPauseSource, reason, bots); err != nil {
+			logger.Error("[全局熔断] 暂停已施加，但持久化风险来源失败，需保持人工核查: %v", err)
+		}
 	} else {
 		for _, bot := range bots {
 			pauseBotWithoutAutoResume(bot, reason)
@@ -603,15 +612,18 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 		Reason:      reason,
 	}
 
-	gcb.eventsMu.Lock()
-	gcb.events = append(gcb.events, cbEvent)
-	gcb.eventsMu.Unlock()
-
 	// 恢复所有 Bot
 	bots := gcb.botProvider.GetAllBots()
 	_, pauser := gcb.deps()
 	if pauser != nil {
-		if pauser.Release(circuitBreakerPauseSource, bots) {
+		resumed, releaseErr := pauser.ReleaseChecked(circuitBreakerPauseSource, bots)
+		if releaseErr != nil {
+			gcb.statusMu.Lock()
+			gcb.status = CircuitBreakerStatusTripped
+			gcb.statusMu.Unlock()
+			return fmt.Errorf("durably release global circuit-breaker pause: %w", releaseErr)
+		}
+		if resumed {
 			logger.Info("▶️ [全局熔断] 已恢复 %d 个 Bot", len(bots))
 		}
 	} else {
@@ -620,6 +632,10 @@ func (gcb *GlobalCircuitBreaker) recover(triggeredBy string) error {
 		}
 		logger.Info("▶️ [全局熔断] 已恢复 %d 个 Bot", len(bots))
 	}
+
+	gcb.eventsMu.Lock()
+	gcb.events = append(gcb.events, cbEvent)
+	gcb.eventsMu.Unlock()
 
 	// 发布事件
 	if gcb.eventBus != nil {

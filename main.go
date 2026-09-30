@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime/debug"
 	"sort"
 	"strconv"
@@ -44,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc544"
+var Version = "3.111.0-rc546"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -802,10 +803,11 @@ func main() {
 		os.Exit(0)
 	}
 
-	// 解析調試参數（-debug / --debug）與 --migrate-app-config、--repair-app-config-tables
+	// 解析調試参數與需要顯式執行的數據庫維護命令。
 	debugMode := false
 	migrateAppCfg := false
 	repairAppCfgTables := false
+	migrateOpeningPauseHolders := false
 	filteredArgs := []string{os.Args[0]}
 	for _, arg := range os.Args[1:] {
 		switch arg {
@@ -815,6 +817,8 @@ func main() {
 			migrateAppCfg = true
 		case "--repair-app-config-tables":
 			repairAppCfgTables = true
+		case "--migrate-opening-pause-holders":
+			migrateOpeningPauseHolders = true
 		default:
 			filteredArgs = append(filteredArgs, arg)
 		}
@@ -1049,10 +1053,10 @@ func main() {
 	if cfg.Storage.Path != "" && cfg.Storage.Type != "" {
 		cfg.Storage.Enabled = true
 	}
-	willAutoMigrate := !migrateAppCfg && os.Getenv("QUANTMESH_SKIP_AUTO_MIGRATE") != "1" &&
+	willAutoMigrate := !migrateAppCfg && !migrateOpeningPauseHolders && os.Getenv("QUANTMESH_SKIP_AUTO_MIGRATE") != "1" &&
 		configComplete && configFileExisted
 	// 遷移主配置入庫時必須能打開主庫
-	if migrateAppCfg || willAutoMigrate {
+	if migrateAppCfg || migrateOpeningPauseHolders || willAutoMigrate {
 		cfg.Storage.Enabled = true
 		if cfg.Storage.Type == "" {
 			cfg.Storage.Type = "sqlite"
@@ -1061,6 +1065,33 @@ func main() {
 		if cfg.Storage.Path == "" && storageType != "mysql" && storageType != "postgres" && storageType != "postgresql" {
 			cfg.Storage.Path = "./data/quantmesh.db"
 		}
+	}
+	if migrateOpeningPauseHolders {
+		var pauseStore *storage.SQLStorage
+		var openErr error
+		switch strings.ToLower(strings.TrimSpace(cfg.Storage.Type)) {
+		case "sqlite":
+			if err := os.MkdirAll(filepath.Dir(cfg.Storage.Path), 0755); err != nil {
+				logger.Fatalf("❌ 建立 SQLite 數據目錄失敗: %v", err)
+			}
+			pauseStore, openErr = storage.NewSQLStorage(cfg.Storage.Path)
+		case "mysql":
+			pauseStore, openErr = storage.NewMySQLStorage(storage.ResolveSQLStorageDSN(cfg, "mysql"))
+		default:
+			logger.Fatalf("❌ --migrate-opening-pause-holders 僅支援 SQLite 或 MySQL 主庫")
+		}
+		if openErr != nil {
+			logger.Fatalf("❌ 打開主庫以遷移開倉暫停表失敗: %v", openErr)
+		}
+		if err := pauseStore.MigrateOpeningPauseHolders(ctx); err != nil {
+			_ = pauseStore.Close()
+			logger.Fatalf("❌ 遷移開倉暫停持久化表失敗: %v", err)
+		}
+		if err := pauseStore.Close(); err != nil {
+			logger.Warn("⚠️ 關閉主庫時報錯: %v", err)
+		}
+		logger.Info("✅ 開倉暫停持久化表已遷移；首次升級的歷史狀態安全門閂仍需人工核實")
+		return
 	}
 	storageService, err := storage.NewStorageService(cfg, ctx)
 	if err != nil {
@@ -1099,7 +1130,6 @@ func main() {
 		logger.Info("✅ app_config / bot_configs 文檔表已確保存在（幂等）")
 		os.Exit(0)
 	}
-
 	if migrateAppCfg {
 		if storageService == nil || storageService.GetStorage() == nil {
 			logger.Fatalf("❌ --migrate-app-config 需要可用的主庫存儲（請配置 storage.path 或檢查上述警告）")
@@ -1766,8 +1796,26 @@ func main() {
 	symbolManager.GetBotManager().SetStartConfigValidator(validateBotConfigInLatestSnapshot)
 	web.RegisterBotExtendedProvider(&botExtendedProviderAdapter{manager: symbolManager}) // 註冊擴展的 Bot 提供者
 
-	// 熔斷器與複合風控共用暫停協調器，避免一方恢復時覆蓋另一方的暫停
-	riskPauseCoordinator := risk.NewOpeningPauseCoordinator()
+	// 熔斷器與複合風控共用持久化暫停協調器。無法恢復權威來源時，
+	// 保留不可自動解除的啟動門閂，避免在空白協調器狀態下開倉。
+	var riskPauseCoordinator *risk.OpeningPauseCoordinator
+	var riskPauseStore storage.OpeningPauseStateStore
+	if storageService != nil && storageService.GetStorage() != nil {
+		riskPauseStore, _ = storageService.GetStorage().(storage.OpeningPauseStateStore)
+	}
+	if riskPauseStore != nil {
+		riskPauseCoordinator, err = risk.NewOpeningPauseCoordinatorWithStore(ctx, riskPauseStore)
+		if err != nil {
+			logger.Error("❌ 恢復持久化風控暫停失敗，所有 Bot 將保持開倉封鎖: %v", err)
+		}
+	}
+	if riskPauseCoordinator == nil {
+		riskPauseCoordinator = risk.NewOpeningPauseCoordinator()
+		if err := riskPauseCoordinator.Pause("opening_pause_state_unverified", "風控暫停持久化狀態不可用，需人工核實", nil); err != nil {
+			logger.Fatalf("❌ 無法建立風控暫停失效保護: %v", err)
+		}
+	}
+	symbolManager.GetBotManager().SetOpeningPauseCoordinator(riskPauseCoordinator)
 	web.SetOpeningPauseCoordinator(riskPauseCoordinator)
 
 	// 初始化全局熔斷器

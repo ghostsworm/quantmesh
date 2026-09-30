@@ -22,7 +22,7 @@ func TestStartSymbolRuntimeRejectsInvalidTradingOverrides(t *testing.T) {
 			InventorySkew: &config.InventorySkewConfig{Enabled: true, Strength: 2},
 		},
 	}
-	rt, err := startSymbolRuntime(context.Background(), base, symCfg, nil, nil, nil, nil)
+	rt, err := startSymbolRuntime(context.Background(), base, symCfg, nil, nil, nil, nil, nil)
 	if err == nil || rt != nil {
 		t.Fatalf("expected start failure, got rt=%v err=%v", rt, err)
 	}

@@ -32,6 +32,7 @@ func startFundingCarrySymbolRuntime(
 	storageService *storage.StorageService,
 	distributedLock lock.DistributedLock,
 	onRequestStop func(botID string),
+	startupPauseHolders []storage.OpeningPauseHolder,
 ) (*SymbolRuntime, error) {
 	if strings.ToLower(symCfg.Exchange) != "binance" {
 		return nil, fmt.Errorf("資金費套利當前僅支援 binance，當前: %s", symCfg.Exchange)
@@ -62,6 +63,7 @@ func startFundingCarrySymbolRuntime(
 	localCfg.Trading.MarketType = config.MarketTypeFundingCarry
 	mergeFundingCarryStrategyConfig(&localCfg, symCfg)
 	openingGate := &execution.OpeningGate{}
+	applyStartupOpeningPauseHolders(openingGate, startupPauseHolders)
 	var ownershipStrategy atomic.Pointer[strategy.FundingCarryStrategy]
 	if symCfg.OpenPositionControl.PauseOpening || (symCfg.OpenPositionControl.BotRiskControl != nil && symCfg.OpenPositionControl.BotRiskControl.PauseOpening) {
 		openingGate.Block("manual")

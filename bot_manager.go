@@ -21,6 +21,7 @@ import (
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/risk"
 	"quantmesh/storage"
 )
 
@@ -57,6 +58,8 @@ type BotManager struct {
 	botLifecycleLocks            map[string]*sync.Mutex
 	startConfigValidatorMu       sync.RWMutex
 	startConfigValidator         func(config.BotConfig) error
+	openingPauseCoordinatorMu    sync.RWMutex
+	openingPauseCoordinator      *risk.OpeningPauseCoordinator
 	groupLegAlerted              map[string]bool
 	groupLegTimers               map[string]*time.Timer
 	singleLegGraceSec            int
@@ -112,6 +115,17 @@ func (bm *BotManager) SetStartConfigValidator(validator func(config.BotConfig) e
 	bm.startConfigValidatorMu.Lock()
 	bm.startConfigValidator = validator
 	bm.startConfigValidatorMu.Unlock()
+}
+
+// SetOpeningPauseCoordinator installs restored global risk holds into each
+// runtime before its strategies are allowed to start.
+func (bm *BotManager) SetOpeningPauseCoordinator(coordinator *risk.OpeningPauseCoordinator) {
+	if bm == nil {
+		return
+	}
+	bm.openingPauseCoordinatorMu.Lock()
+	bm.openingPauseCoordinator = coordinator
+	bm.openingPauseCoordinatorMu.Unlock()
 }
 
 func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
@@ -581,7 +595,16 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 	onRequestStop := func(botID string) {
 		_ = bm.StopBotWithReason(botID, "close_condition", "關閉條件觸發")
 	}
-	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop)
+	bm.openingPauseCoordinatorMu.RLock()
+	pauseCoordinator := bm.openingPauseCoordinator
+	bm.openingPauseCoordinatorMu.RUnlock()
+	var startupPauseHolders []storage.OpeningPauseHolder
+	finishPauseAdmission := func() {}
+	if pauseCoordinator != nil {
+		startupPauseHolders, finishPauseAdmission = pauseCoordinator.BeginBotStart()
+	}
+	defer finishPauseAdmission()
+	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop, startupPauseHolders)
 	if err != nil {
 		// 发布启动失败事件
 		bm.eventBus.Publish(&event.Event{
@@ -816,11 +839,12 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 		return
 	}
 	bm.runtimesMu.Lock()
-	defer bm.runtimesMu.Unlock()
 	if bm.groupLegAlerted == nil {
 		bm.groupLegAlerted = make(map[string]bool)
 	}
 	bm.runtimes[br.BotID] = br
+	bm.runtimesMu.Unlock()
+	bm.checkGroupLegConsistencyForBot(br.BotID)
 }
 
 // StopAll stops every Bot and retains any specialized runtime whose stop did
@@ -1497,6 +1521,10 @@ func (br *BotRuntime) pauseOpening(reason string, autoResumeSec int, manual bool
 	}
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpening = true
 	br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = reason
+	br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter = 0
+	if manual && autoResumeSec > 0 {
+		br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter = autoResumeSec
+	}
 	br.configMu.Unlock()
 
 	// C2：br.Config 只是展示用拷贝，SPM 持有自己的配置；必須直接通知 SPM 才能真正停止開倉
@@ -1699,6 +1727,7 @@ func (br *BotRuntime) resumeOpeningLocked(source string) {
 		br.Config.OpenPositionControl.BotRiskControl.PauseOpening = manualPaused
 		if !manualPaused {
 			br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = ""
+			br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter = 0
 		}
 	}
 	br.configMu.Unlock()
