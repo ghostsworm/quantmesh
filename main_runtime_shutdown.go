@@ -202,10 +202,17 @@ func closeProcessRuntimeGroup(ctx context.Context, runtimes []*SymbolRuntime) er
 	if err != nil {
 		return fmt.Errorf("shutdown account open-order preflight: %w", err)
 	}
+	if openOrders == nil {
+		return fmt.Errorf("shutdown account open-order preflight returned nil, not an authoritative empty snapshot")
+	}
 	for _, order := range openOrders {
-		if order == nil || order.Symbol == "" || strings.EqualFold(order.Symbol, symbol) {
-			return fmt.Errorf("shutdown account still has an order not proven terminal after owned cancellation")
+		if order == nil {
+			return fmt.Errorf("shutdown account open-order preflight contains an unverifiable nil order")
 		}
+		if order.Symbol == "" || !strings.EqualFold(order.Symbol, symbol) {
+			return fmt.Errorf("shutdown account open-order preflight returned an out-of-scope order for %q", symbol)
+		}
+		return fmt.Errorf("shutdown account still has an order not proven terminal after owned cancellation")
 	}
 	completed := false
 	for _, rt := range processOwners {

@@ -26,6 +26,19 @@ type shutdownBarrierVenue struct {
 	feeFills    map[int64][]*exchange.OrderFill
 }
 
+type shutdownOpenOrdersOverride struct {
+	*fakeCloseExchange
+	orders    []*exchange.Order
+	resultNil bool
+}
+
+func (v *shutdownOpenOrdersOverride) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
+	if v.resultNil {
+		return nil, nil
+	}
+	return v.orders, nil
+}
+
 func (v *shutdownBarrierVenue) GetOrder(ctx context.Context, symbol string, id int64) (*exchange.Order, error) {
 	if v.beforeQuery != nil {
 		v.beforeQuery()
@@ -172,6 +185,35 @@ func TestSpecialRuntimeCannotUseProcessCloseWithSharedOwnership(t *testing.T) {
 	peer := &SymbolRuntime{Config: config.SymbolConfig{Symbol: "BTCUSDT"}, AccountScope: "account"}
 	if err := closeProcessRuntimeGroup(t.Context(), []*SymbolRuntime{rt, peer}); err == nil {
 		t.Fatal("shared specialized runtime ownership was accepted")
+	}
+}
+
+func TestProcessShutdownRequiresAuthoritativeScopedOpenOrderSnapshot(t *testing.T) {
+	tests := []struct {
+		name      string
+		orders    []*exchange.Order
+		resultNil bool
+	}{
+		{name: "nil snapshot", resultNil: true},
+		{name: "nil order entry", orders: []*exchange.Order{nil}},
+		{name: "missing symbol", orders: []*exchange.Order{{OrderID: 1}}},
+		{name: "out of scope symbol", orders: []*exchange.Order{{OrderID: 1, Symbol: "ETHUSDT"}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			venue := &shutdownOpenOrdersOverride{
+				fakeCloseExchange: newFakeCloseExchange(100, 0),
+				orders:            test.orders,
+				resultNil:         test.resultNil,
+			}
+			runtime := newShutdownRuntime(venue, "bot", "account")
+			if err := closeProcessRuntimeGroup(t.Context(), []*SymbolRuntime{runtime}); err == nil {
+				t.Fatal("incomplete or out-of-scope open-order evidence admitted process shutdown")
+			}
+			if len(venue.placed) != 0 {
+				t.Fatalf("shutdown submitted %d close orders without authoritative open-order evidence", len(venue.placed))
+			}
+		})
 	}
 }
 
