@@ -339,6 +339,24 @@ func TestFundingPerpSpreadLeaseLossLatchesUnknownExposure(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadProcessOwnershipLossBlocksStrategy(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(store)
+	if err := st.MarkOwnershipUnverified(); err != nil {
+		t.Fatalf("MarkOwnershipUnverified() error = %v", err)
+	}
+	if err := st.verifyOwnedExposure(0, 0); err == nil {
+		t.Fatal("strategy accepted exposure actions after process ownership was lost")
+	}
+	if _, err := decodeFundingPerpSpreadRuntimeState(store.version, store.payload, "a", "BTCUSDT", "b", "ETHUSDT"); err == nil {
+		t.Fatal("persisted ownership-loss state was accepted as recoverable without reconciliation")
+	}
+}
+
 type emptyFundingSpreadExchange struct{ exchange.IExchange }
 
 func (emptyFundingSpreadExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {

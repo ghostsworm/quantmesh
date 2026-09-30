@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/execution"
 	"quantmesh/lock"
 )
@@ -118,6 +119,87 @@ func TestRuntimeOwnershipLeaseSerializesSharedPositionScope(t *testing.T) {
 	}
 	if err := second.Release(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFundingPerpSpreadRuntimeOwnsBothLegsUntilRelease(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "binance-account", SecretKey: "binance-secret"},
+		"bybit":   {APIKey: "bybit-account", SecretKey: "bybit-secret"},
+	}}
+	fp := &config.FundingPerpSpreadConfig{
+		LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
+		LegB: config.FundingPerpLeg{Exchange: "bybit", Symbol: "BTCUSDT"},
+	}
+	distributedLock := &runtimeLeaseTestLock{}
+	scopes, err := fundingPerpSpreadRuntimeOwnershipScopes(cfg, fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scopes) != 2 {
+		t.Fatalf("ownership scopes should cover both legs: %+v", scopes)
+	}
+	firstKey, firstErr := scopes[0].Key()
+	secondKey, secondErr := scopes[1].Key()
+	if firstErr != nil || secondErr != nil || firstKey > secondKey {
+		t.Fatalf("ownership scopes should cover both legs in stable order: %+v", scopes)
+	}
+	leases, err := acquireFundingPerpSpreadRuntimeOwnershipLeases(t.Context(), distributedLock, cfg, fp, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range scopes {
+		if _, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil); err == nil {
+			t.Fatalf("a competing runtime acquired spread leg %s/%s while the paired runtime was active", scope.Exchange, scope.Symbol)
+		}
+	}
+	if err := releaseFundingPerpSpreadRuntimeOwnershipLeases(leases); err != nil {
+		t.Fatal(err)
+	}
+	competitor, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock,
+		runtimeOwnershipScope(equityAccountScopeID("binance", cfg.Exchanges["binance"]), "binance", "futures", "BTCUSDT"),
+		time.Second, nil)
+	if err != nil {
+		t.Fatalf("leg ownership remained held after a flat runtime released its leases: %v", err)
+	}
+	if err := competitor.Release(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFundingPerpSpreadRuntimeOwnershipRollsBackPartialAcquisition(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "binance-account", SecretKey: "binance-secret"},
+		"bybit":   {APIKey: "bybit-account", SecretKey: "bybit-secret"},
+	}}
+	fp := &config.FundingPerpSpreadConfig{
+		LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
+		LegB: config.FundingPerpLeg{Exchange: "bybit", Symbol: "BTCUSDT"},
+	}
+	scopes, err := fundingPerpSpreadRuntimeOwnershipScopes(cfg, fp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedKey, err := scopes[1].Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	distributedLock := &runtimeLeaseTestLock{}
+	if _, err := distributedLock.TryLock(t.Context(), "runtime-owner:"+blockedKey, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := acquireFundingPerpSpreadRuntimeOwnershipLeases(t.Context(), distributedLock, cfg, fp, nil); err == nil {
+		t.Fatal("partial ownership acquisition unexpectedly succeeded")
+	}
+	firstKey, err := scopes[0].Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	distributedLock.mu.Lock()
+	firstHeld := distributedLock.held["runtime-owner:"+firstKey]
+	distributedLock.mu.Unlock()
+	if firstHeld {
+		t.Fatal("first-leg lease leaked after second-leg acquisition failed")
 	}
 }
 

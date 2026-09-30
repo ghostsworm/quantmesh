@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -132,6 +134,25 @@ func startFundingPerpSpreadSymbolRuntime(
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
 	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	st.SetCoordinationLock(distributedLock)
+	ownershipLeases, err := acquireFundingPerpSpreadRuntimeOwnershipLeases(ctx, distributedLock, baseCfg, fp, func(leaseErr error) {
+		openingGate.Block("runtime_ownership_unverified")
+		if stateErr := st.MarkOwnershipUnverified(); stateErr != nil {
+			logger.ErrorCtx(ctx, "[%s] 運行所有權丟失後持久化阻斷狀態失敗: %v", botID, stateErr)
+		}
+		logger.ErrorCtx(ctx, "[%s] funding_perp_spread 雙腿運行所有權租約丟失，已阻斷策略動作: %v", botID, leaseErr)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("acquire funding_perp_spread two-leg runtime ownership: %w", err)
+	}
+	ownershipLeasesTransferred := false
+	defer func() {
+		if ownershipLeasesTransferred {
+			return
+		}
+		if releaseErr := releaseFundingPerpSpreadRuntimeOwnershipLeases(ownershipLeases); releaseErr != nil {
+			logger.WarnCtx(ctx, "[%s] 初始化失敗後釋放雙腿運行所有權租約失敗: %v", botID, releaseErr)
+		}
+	}()
 	if storageService == nil || storageService.GetStorage() == nil {
 		return nil, fmt.Errorf("funding_perp_spread requires persistent atomic capital reservation storage")
 	}
@@ -215,6 +236,12 @@ func startFundingPerpSpreadSymbolRuntime(
 	if err := strategyManager.StartAll(); err != nil {
 		return nil, err
 	}
+	if fundingPerpSpreadRuntimeOwnershipLeaseLost(ownershipLeases) {
+		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Second)
+		shutdownErr := st.PrepareShutdown(shutdownCtx)
+		cancelShutdown()
+		return nil, errors.Join(fmt.Errorf("funding_perp_spread runtime ownership was lost during startup"), shutdownErr)
+	}
 
 	accountID := ""
 	if fp != nil {
@@ -248,7 +275,15 @@ func startFundingPerpSpreadSymbolRuntime(
 
 	stopRuntime := func() error {
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
-		if err := strategyManager.StopAllWithError(); err != nil {
+		if fundingPerpSpreadRuntimeOwnershipLeaseLost(ownershipLeases) {
+			openingGate.Block("runtime_ownership_unverified")
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Second)
+			shutdownErr := st.PrepareShutdown(shutdownCtx)
+			cancelShutdown()
+			if shutdownErr != nil {
+				return fmt.Errorf("funding_perp_spread lost runtime ownership and could not quiesce safely: %w", shutdownErr)
+			}
+		} else if err := strategyManager.StopAllWithError(); err != nil {
 			openingGate.Block("strategy_stop_unverified")
 			return fmt.Errorf("funding_perp_spread stop/close is unverified: %w", err)
 		}
@@ -265,6 +300,9 @@ func startFundingPerpSpreadSymbolRuntime(
 		if releaseErr != nil {
 			openingGate.Block("capital_reservation_unverified")
 			return fmt.Errorf("funding_perp_spread verified flat but capital reservation release failed: %w", releaseErr)
+		}
+		if leaseErr := releaseFundingPerpSpreadRuntimeOwnershipLeases(ownershipLeases); leaseErr != nil {
+			logger.WarnCtx(ctx, "[%s] 已核實平倉，但釋放雙腿運行所有權租約失敗（租約將到期）: %v", botID, leaseErr)
 		}
 		openingGate.Unblock("capital_reservation_unverified")
 		openingGate.Unblock("strategy_stop_unverified")
@@ -283,8 +321,72 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 	runtimeOwnsReservation = true
 	priceMonitorTransferred = true
+	ownershipLeasesTransferred = true
 
 	return rt, nil
+}
+
+func fundingPerpSpreadRuntimeOwnershipScopes(cfg *config.Config, fp *config.FundingPerpSpreadConfig) ([]execution.IntentScope, error) {
+	if cfg == nil || fp == nil {
+		return nil, fmt.Errorf("funding_perp_spread ownership requires config and both legs")
+	}
+	byKey := make(map[string]execution.IntentScope, 2)
+	for _, leg := range []config.FundingPerpLeg{fp.LegA, fp.LegB} {
+		exchangeName := strings.TrimSpace(leg.Exchange)
+		exchangeCfg, ok := cfg.Exchanges[exchangeName]
+		if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
+			return nil, fmt.Errorf("runtime ownership account identity unavailable for %s", exchangeName)
+		}
+		scope := runtimeOwnershipScope(equityAccountScopeID(exchangeName, exchangeCfg), exchangeName, "futures", leg.Symbol)
+		key, err := scope.Key()
+		if err != nil {
+			return nil, fmt.Errorf("build %s futures ownership scope: %w", exchangeName, err)
+		}
+		byKey[key] = scope
+	}
+	keys := make([]string, 0, len(byKey))
+	for key := range byKey {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	scopes := make([]execution.IntentScope, 0, len(keys))
+	for _, key := range keys {
+		scopes = append(scopes, byKey[key])
+	}
+	return scopes, nil
+}
+
+func acquireFundingPerpSpreadRuntimeOwnershipLeases(ctx context.Context, distributedLock lock.DistributedLock, cfg *config.Config, fp *config.FundingPerpSpreadConfig, onLost func(error)) ([]*runtimeOwnershipLease, error) {
+	scopes, err := fundingPerpSpreadRuntimeOwnershipScopes(cfg, fp)
+	if err != nil {
+		return nil, err
+	}
+	leases := make([]*runtimeOwnershipLease, 0, len(scopes))
+	for _, scope := range scopes {
+		lease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, scope, runtimeOwnershipLeaseTTL, onLost)
+		if err != nil {
+			return nil, errors.Join(err, releaseFundingPerpSpreadRuntimeOwnershipLeases(leases))
+		}
+		leases = append(leases, lease)
+	}
+	return leases, nil
+}
+
+func releaseFundingPerpSpreadRuntimeOwnershipLeases(leases []*runtimeOwnershipLease) error {
+	var releaseErr error
+	for i := len(leases) - 1; i >= 0; i-- {
+		releaseErr = errors.Join(releaseErr, leases[i].Release())
+	}
+	return releaseErr
+}
+
+func fundingPerpSpreadRuntimeOwnershipLeaseLost(leases []*runtimeOwnershipLease) bool {
+	for _, lease := range leases {
+		if lease.Lost() {
+			return true
+		}
+	}
+	return false
 }
 
 func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSpreadConfig, capital, balanceA, balanceB float64) ([]storage.FundingSpreadCapitalClaim, error) {

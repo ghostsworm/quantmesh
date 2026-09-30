@@ -123,6 +123,18 @@ func (s *FundingPerpSpreadStrategy) SetOpeningGate(gate *execution.OpeningGate) 
 	s.mu.Unlock()
 }
 
+// MarkOwnershipUnverified freezes strategy actions after its process-level
+// position lease is lost. Recovery requires a fresh, explicit reconciliation.
+func (s *FundingPerpSpreadStrategy) MarkOwnershipUnverified() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.exposureUnknown = true
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		return fmt.Errorf("persist funding_perp_spread ownership loss: %w", err)
+	}
+	return nil
+}
+
 func (s *FundingPerpSpreadStrategy) Name() string { return s.name }
 
 func (s *FundingPerpSpreadStrategy) Initialize(*config.Config, position.OrderExecutorInterface, position.IExchange) error {
