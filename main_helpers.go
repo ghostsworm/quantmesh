@@ -337,6 +337,11 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 			fullyPersisted = false
 			continue
 		}
+		if math.IsNaN(inc.Income) || math.IsInf(inc.Income, 0) || strings.TrimSpace(inc.Asset) == "" {
+			logger.Warn("⚠️ 資金費 API 返回無效金額或缺少結算幣種，不能寫入賬本或標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
+			fullyPersisted = false
+			continue
+		}
 		if inc.TradeTime.Before(startTime) || inc.TradeTime.After(endTime) {
 			logger.Warn("⚠️ 資金費 API 返回記錄超出查詢時間窗口，不能標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
 			fullyPersisted = false
