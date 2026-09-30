@@ -19,6 +19,19 @@ type pauseTestExecutor struct {
 	cancelled []int64
 }
 
+type pauseOwnedTestExecutor struct {
+	*pauseTestExecutor
+	called chan struct{}
+}
+
+func (e *pauseOwnedTestExecutor) CancelOwnedOpeningOrders(context.Context) error {
+	select {
+	case e.called <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
 func (e *pauseTestExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
 	return &position.Order{ClientOrderID: req.ClientOrderID}, nil
 }
@@ -140,11 +153,85 @@ func TestRiskPauseCoordinatorCannotBeBypassedByBotAutoResume(t *testing.T) {
 
 	coordinator.Pause("global_circuit_breaker", "circuit_breaker:daily_loss", bots)
 	time.Sleep(1100 * time.Millisecond)
-	if !coordinator.IsHeldBy("global_circuit_breaker") || !gate.HasBlock("manual") {
+	if !coordinator.IsHeldBy("global_circuit_breaker") || !gate.HasBlock("opening_manager") {
 		t.Fatal("configured Bot auto-resume bypassed an active coordinated risk hold")
 	}
-	if !coordinator.Release("global_circuit_breaker", bots) || gate.HasBlock("manual") {
+	if !coordinator.Release("global_circuit_breaker", bots) || gate.HasBlock("opening_manager") {
 		t.Fatal("explicit coordinator release did not release its own hold")
+	}
+}
+
+func TestCoordinatorReleasePreservesExplicitManualPause(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	spm := position.NewSuperPositionManager(cfg, &pauseTestExecutor{}, pauseTestExchange{}, 2, 3)
+	bot := &BotRuntime{BotID: "manual-pause-owner", Inner: &SymbolRuntime{SuperPositionManager: spm}}
+	coordinator := risk.NewOpeningPauseCoordinator()
+	bots := []risk.BotController{bot}
+
+	bot.PauseOpeningManually("operator_pause")
+	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
+	if !coordinator.Release("global_circuit_breaker", bots) {
+		t.Fatal("coordinator did not release its own risk hold")
+	}
+	if !spm.OpeningGate().HasBlock("manual") || spm.OpeningGate().HasBlock("opening_manager") {
+		t.Fatalf("risk release changed wrong pause owner: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("opening_manager"))
+	}
+	if !bot.Config.OpenPositionControl.PauseOpening {
+		t.Fatal("coordinator release cleared persisted/runtime-visible manual pause state")
+	}
+	if err := bot.ResumeOpeningManually(); err != nil {
+		t.Fatalf("explicit manual resume failed: %v", err)
+	}
+	if spm.OpeningGate().Blocked() {
+		t.Fatalf("manual resume left gate blocked: manual=%v risk=%v", spm.OpeningGate().HasBlock("manual"), spm.OpeningGate().HasBlock("opening_manager"))
+	}
+	if bot.Config.OpenPositionControl.PauseOpening {
+		t.Fatal("explicit manual resume left runtime config paused")
+	}
+}
+
+func TestCoordinatorReleasePreservesOpeningControllerLimitPause(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	spm := position.NewSuperPositionManager(cfg, &pauseTestExecutor{}, pauseTestExchange{}, 2, 3)
+	bot := &BotRuntime{BotID: "position-limit-owner", Inner: &SymbolRuntime{SuperPositionManager: spm}}
+	coordinator := risk.NewOpeningPauseCoordinator()
+	bots := []risk.BotController{bot}
+	controllerOwns := func(reason string) bool { return reason == "position_limit" }
+
+	if !spm.PauseOpeningUnlessHeld("position_limit", controllerOwns) {
+		t.Fatal("opening controller could not apply its position-limit gate")
+	}
+	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
+	if !coordinator.Release("global_circuit_breaker", bots) {
+		t.Fatal("coordinator did not release its own risk hold")
+	}
+	if !spm.OpeningGate().HasBlock("opening_controller:position_limit") || !spm.IsOpeningPaused() {
+		t.Fatal("coordinator release cleared the active position-limit gate")
+	}
+	if !spm.ResumeOpeningIfOwned(controllerOwns) || spm.IsOpeningPaused() {
+		t.Fatal("position-limit recovery did not release its own gate")
+	}
+}
+
+func TestManualPauseUsesOwnedCancellationInsteadOfImmediateSweep(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	base := &pauseTestExecutor{}
+	owned := &pauseOwnedTestExecutor{pauseTestExecutor: base, called: make(chan struct{}, 1)}
+	spm := position.NewSuperPositionManager(cfg, owned, pauseTestExchange{}, 2, 3)
+	spm.PauseOpeningManually("operator_pause")
+	if len(base.cancelledIDs()) != 0 {
+		t.Fatal("manual pause performed an immediate unverified slot sweep before draining admitted opens")
+	}
+	select {
+	case <-owned.called:
+	case <-time.After(3 * time.Second):
+		t.Fatal("manual pause did not invoke owned cancellation after its drain delay")
 	}
 }
 
@@ -164,6 +251,32 @@ func TestExplicitPauseAutoResumeUsesRequestedDuration(t *testing.T) {
 	}
 }
 
+func TestTimedManualPauseExpiryPreservesCoordinatedRiskHold(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	bot := &BotRuntime{
+		BotID: "timed-manual-risk-overlap",
+		Inner: &SymbolRuntime{OpeningGate: gate},
+	}
+	coordinator := risk.NewOpeningPauseCoordinator()
+	bots := []risk.BotController{bot}
+
+	bot.PauseOpeningManuallyWithAutoResume("operator_pause", 1)
+	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
+	time.Sleep(1100 * time.Millisecond)
+	if !gate.HasBlock("opening_manager") || gate.HasBlock("manual") {
+		t.Fatalf("manual timer cleared or retained the wrong source: risk=%v manual=%v", gate.HasBlock("opening_manager"), gate.HasBlock("manual"))
+	}
+	if !coordinator.IsHeldBy("global_circuit_breaker") {
+		t.Fatal("manual timer released the coordinated risk source")
+	}
+	if bot.Config.OpenPositionControl.PauseOpening || bot.GetPositionStatus()["paused"] != true {
+		t.Fatal("manual timer must release only its persisted manual state while the risk gate remains active")
+	}
+	if !coordinator.Release("global_circuit_breaker", bots) || gate.Blocked() {
+		t.Fatal("explicit risk-source release did not finally clear its own hold")
+	}
+}
+
 func TestBotRuntimePauseOpeningWithoutSPM(t *testing.T) {
 	br := &BotRuntime{BotID: "bot-no-spm"}
 	br.PauseOpening("manual")
@@ -179,7 +292,7 @@ func TestBotRuntimePauseOpeningWithoutSPM(t *testing.T) {
 func TestBotRuntimePauseOpeningUsesSpecializedRuntimeGate(t *testing.T) {
 	gate := &execution.OpeningGate{}
 	br := &BotRuntime{BotID: "carry", Config: config.BotConfig{ID: "carry"}, Inner: &SymbolRuntime{OpeningGate: gate}}
-	br.PauseOpening("manual")
+	br.PauseOpeningManually("manual")
 	if !gate.HasBlock("manual") {
 		t.Fatal("specialized runtime opening was not blocked")
 	}

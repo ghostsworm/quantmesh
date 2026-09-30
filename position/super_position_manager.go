@@ -410,14 +410,14 @@ type SuperPositionManager struct {
 	lastOptimizationTime atomic.Value // time.Time - 最后訂單簿優化時间
 
 	// 交易存儲（可選，用於保存交易記錄）
-	tradeStorage             TradeStorage
-	gridRuntimeStateMu       sync.RWMutex
-	gridRuntimeStateSaveMu   sync.Mutex
-	gridRuntimeStateStore    GridRuntimeStateStore
-	gridRuntimeStateRestored atomic.Bool
+	tradeStorage                 TradeStorage
+	gridRuntimeStateMu           sync.RWMutex
+	gridRuntimeStateSaveMu       sync.Mutex
+	gridRuntimeStateStore        GridRuntimeStateStore
+	gridRuntimeStateRestored     atomic.Bool
 	gridRuntimeVenueFlatVerified atomic.Bool
-	feeSupplementQueueMu     sync.Mutex
-	pendingFeeSupplements    []pendingFeeSupplement
+	feeSupplementQueueMu         sync.Mutex
+	pendingFeeSupplements        []pendingFeeSupplement
 
 	// 初始化標志
 	isInitialized atomic.Bool
@@ -428,6 +428,7 @@ type SuperPositionManager struct {
 	// 開倉管理：僅暫停開倉（區別於 isPaused 暫停所有交易）
 	isOpeningPaused    atomic.Bool
 	openingPauseReason atomic.Value // string - 暫停原因
+	manualPauseReason  atomic.Value // string - 人工暂停原因
 	// openingPauseMu 串行化暫停狀態的「檢查原因 + 修改」，供按來源的條件暫停/恢復使用
 	openingPauseMu sync.Mutex
 	openingGate    execution.OpeningGate
@@ -524,7 +525,8 @@ func NewSuperPositionManager(cfg *config.Config, executor OrderExecutorInterface
 	spm.lastMarketPrice.Store(0.0)
 	if cfg.Trading.OpenPositionControl.PauseOpening ||
 		(cfg.Trading.OpenPositionControl.BotRiskControl != nil && cfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening) {
-		spm.setOpeningPausedLocked("configured opening pause")
+		spm.openingGate.Block("manual")
+		spm.manualPauseReason.Store("configured opening pause")
 	}
 
 	// 現貨不支援賣開空，BOTH 降級為 LONG
@@ -579,17 +581,57 @@ func (spm *SuperPositionManager) PauseOpening(reason string) {
 	spm.afterOpeningPaused(reason)
 }
 
+// HoldManualOpeningPause adds a separate operator-owned opening gate. Risk
+// coordinator releases only clear opening_manager and cannot override it.
+func (spm *SuperPositionManager) HoldManualOpeningPause() {
+	spm.openingGate.Block("manual")
+	if spm.manualPauseReason.Load() == nil {
+		spm.manualPauseReason.Store("用户明确暂停开仓")
+	}
+}
+
+// PauseOpeningManually creates only the operator-owned block; it never alters
+// the risk coordinator's opening_manager block.
+func (spm *SuperPositionManager) PauseOpeningManually(reason string) {
+	spm.openingGate.Block("manual")
+	spm.manualPauseReason.Store(reason)
+	spm.afterOpeningPausedBy(reason, "manual")
+}
+
+// PauseOpeningForSource adds a named non-manual owner without changing the
+// generic opening-manager state.
+func (spm *SuperPositionManager) PauseOpeningForSource(source, reason string) {
+	if source == "" || source == "manual" || source == "opening_manager" {
+		return
+	}
+	spm.openingGate.Block(source)
+	spm.afterOpeningPausedBy(reason, source)
+}
+
+// ResumeOpeningForSource releases only the named owner's opening gate.
+func (spm *SuperPositionManager) ResumeOpeningForSource(source string) {
+	if source == "" {
+		return
+	}
+	spm.openingGate.Unblock(source)
+	spm.afterOpeningResumed()
+}
+
 // PauseOpeningUnlessHeld 條件暫停開倉：若已被 owned 判定為「非本來源」的原因暫停（如熔斷、複合風控、手動），
 // 則保留原暫停與原因不覆蓋，返回 false。用於定時/週期等低優先級來源，避免把風控暫停改寫成自己的原因後又被自己恢復。
 func (spm *SuperPositionManager) PauseOpeningUnlessHeld(reason string, owned func(reason string) bool) bool {
 	spm.openingPauseMu.Lock()
-	if spm.isOpeningPaused.Load() && !owned(spm.GetOpeningPauseReason()) {
+	currentReason := spm.GetOpeningPauseReason()
+	if spm.IsOpeningPaused() && !owned(currentReason) {
 		spm.openingPauseMu.Unlock()
 		return false
 	}
-	spm.setOpeningPausedLocked(reason)
+	for _, controllerReason := range openingControllerPauseReasons() {
+		spm.openingGate.Unblock(openingControllerGateSource(controllerReason))
+	}
+	spm.openingGate.Block(openingControllerGateSource(reason))
 	spm.openingPauseMu.Unlock()
-	spm.afterOpeningPaused(reason)
+	spm.afterOpeningPausedBy(reason, openingControllerGateSource(reason))
 	return true
 }
 
@@ -597,14 +639,36 @@ func (spm *SuperPositionManager) PauseOpeningUnlessHeld(reason string, owned fun
 // 風控（熔斷器 / 複合風控 / 手動）設置的暫停不會被定時規則等來源解除。
 func (spm *SuperPositionManager) ResumeOpeningIfOwned(owned func(reason string) bool) bool {
 	spm.openingPauseMu.Lock()
-	if !spm.isOpeningPaused.Load() || !owned(spm.GetOpeningPauseReason()) {
+	currentReason := spm.GetOpeningPauseReason()
+	if !spm.IsOpeningPaused() || !owned(currentReason) {
 		spm.openingPauseMu.Unlock()
 		return false
 	}
-	spm.clearOpeningPausedLocked()
+	released := false
+	for _, controllerReason := range openingControllerPauseReasons() {
+		if owned(controllerReason) && spm.openingGate.HasBlock(openingControllerGateSource(controllerReason)) {
+			spm.openingGate.Unblock(openingControllerGateSource(controllerReason))
+			released = true
+		}
+	}
+	if !released && spm.isOpeningPaused.Load() {
+		spm.clearOpeningPausedLocked()
+		released = true
+	}
 	spm.openingPauseMu.Unlock()
+	if !released {
+		return false
+	}
 	spm.afterOpeningResumed()
 	return true
+}
+
+func openingControllerPauseReasons() []string {
+	return []string{openingPauseReasonPositionLimit, openingPauseReasonSchedule, openingPauseReasonPeriodic}
+}
+
+func openingControllerGateSource(reason string) string {
+	return "opening_controller:" + reason
 }
 
 func (spm *SuperPositionManager) setOpeningPausedLocked(reason string) {
@@ -621,9 +685,23 @@ func (spm *SuperPositionManager) clearOpeningPausedLocked() {
 
 // afterOpeningPaused 暫停後的副作用（日誌、事件、撤開倉單），不持 openingPauseMu 執行
 func (spm *SuperPositionManager) afterOpeningPaused(reason string) {
+	spm.afterOpeningPausedBy(reason, "opening_manager")
+}
+
+func (spm *SuperPositionManager) afterOpeningPausedBy(reason, owner string) {
 	logger.Warn("⏸️ [%s] 開倉管理：已暫停開倉，原因: %s", spm.logPrefix(), reason)
 
-	storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, "opening_manager")
+	storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, owner)
+
+	if _, ok := spm.executor.(interface {
+		CancelOwnedOpeningOrders(context.Context) error
+	}); ok {
+		// The owned executor drains previously admitted opens and verifies their
+		// terminal state. An immediate slot-based sweep could race an in-flight
+		// submit and miss the order created after that sweep.
+		go spm.CancelResidualOpeningOrders()
+		return
+	}
 
 	// 撤銷所有開倉委託
 	spm.CancelAllOpenOrders()
@@ -644,7 +722,25 @@ func (spm *SuperPositionManager) afterOpeningResumed() {
 	if spm.IsOpeningPaused() {
 		reason := spm.GetOpeningPauseReason()
 		logger.Warn("[%s] 恢復請求已處理，但獨立風控仍阻止開倉: %s", spm.logPrefix(), reason)
-		storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, "opening_manager")
+		owner := "opening_manager"
+		if spm.openingGate.HasBlock("manual") {
+			owner = "manual"
+		} else {
+			for _, controllerReason := range openingControllerPauseReasons() {
+				if spm.openingGate.HasBlock(openingControllerGateSource(controllerReason)) {
+					owner = openingControllerGateSource(controllerReason)
+					break
+				}
+			}
+			if owner == "opening_manager" && !spm.openingGate.HasBlock(owner) {
+				owner = "other_opening_gate"
+				for _, source := range spm.openingGate.Sources() {
+					owner = source
+					break
+				}
+			}
+		}
+		storage.AppendBotRiskControlEvent(spm.botID, "paused", reason, owner)
 		return
 	}
 	logger.Info("▶️ [%s] 開倉管理：已恢復開倉", spm.logPrefix())
@@ -733,6 +829,12 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 	if v != nil && v.(string) != "" {
 		return v.(string)
 	}
+	if spm.openingGate.HasBlock("manual") {
+		if reason := spm.manualPauseReason.Load(); reason != nil && reason.(string) != "" {
+			return reason.(string)
+		}
+		return "用户明确暂停开仓，等待人工恢复或指定时长到期"
+	}
 	if spm.openingGate.HasBlock("unknown_orders") {
 		return "訂單結果 UNKNOWN，等待成交與持倉核實"
 	}
@@ -762,6 +864,16 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 	}
 	if spm.openingGate.HasBlock(equityDataBlock) {
 		return "帳戶權益、現金流水或高水位持久化尚未核實"
+	}
+	for _, reason := range openingControllerPauseReasons() {
+		if spm.openingGate.HasBlock(openingControllerGateSource(reason)) {
+			return reason
+		}
+	}
+	for _, source := range spm.openingGate.Sources() {
+		if strings.HasPrefix(source, "single_leg_group:") {
+			return "对冲组仍存在未运行腿，等待组状态恢复一致"
+		}
 	}
 	if spm.openingGate.Blocked() {
 		return "其他風控來源仍暫停開倉"

@@ -940,7 +940,19 @@ func (bm *BotManager) checkGroupLegConsistencyForBot(botID string) {
 				})
 			}
 		}
+		if running == total {
+			source := singleLegPauseSource(group.ID)
+			for _, id := range group.BotIDs {
+				if bot, ok := bm.Get(id); ok && bot != nil {
+					bot.ResumeOpeningForSource(source)
+				}
+			}
+		}
 	}
+}
+
+func singleLegPauseSource(groupID string) string {
+	return "single_leg_group:" + groupID
 }
 
 func (bm *BotManager) scheduleSingleLegEnforcementLocked(groupID string) {
@@ -1004,10 +1016,29 @@ func (bm *BotManager) enforceSingleLegPause(groupID string) {
 	bm.cancelSingleLegEnforcementLocked(groupID)
 	bm.runtimesMu.Unlock()
 
+	source := singleLegPauseSource(groupID)
 	for _, id := range runningIDs {
 		if br, ok := bm.Get(id); ok && br != nil {
-			br.PauseOpening("single_leg_running")
+			br.PauseOpeningForSource(source, "single_leg_running")
 		}
+	}
+
+	bm.runtimesMu.RLock()
+	fullyRunning := true
+	for _, id := range targetGroup.BotIDs {
+		if _, ok := bm.runtimes[id]; !ok {
+			fullyRunning = false
+			break
+		}
+	}
+	bm.runtimesMu.RUnlock()
+	if fullyRunning {
+		for _, id := range targetGroup.BotIDs {
+			if br, ok := bm.Get(id); ok && br != nil {
+				br.ResumeOpeningForSource(source)
+			}
+		}
+		return
 	}
 
 	logger.Warn("🛑 [BotGroup:%s] 单腿运行超过 %d 秒，自动暂停开仓。running=%v", groupID, bm.singleLegGraceSec, runningIDs)
@@ -1389,12 +1420,18 @@ func (br *BotRuntime) publishRiskControlsLocked() error {
 
 // PauseOpening 暂停开仓。自动恢复必须由显式限时暂停请求指定，风控调用默认保持暂停。
 func (br *BotRuntime) PauseOpening(reason string) {
-	br.pauseOpening(reason, 0)
+	br.pauseOpening(reason, 0, false)
 }
 
 // PauseOpeningWithoutAutoResume 用于熔断、紧急操作及其他必须由来源显式解除的暂停。
 func (br *BotRuntime) PauseOpeningWithoutAutoResume(reason string) {
-	br.pauseOpening(reason, 0)
+	br.pauseOpening(reason, 0, false)
+}
+
+// PauseOpeningManually records an independent user-owned gate so automated
+// risk-source recovery cannot clear an explicit operator pause.
+func (br *BotRuntime) PauseOpeningManually(reason string) {
+	br.pauseOpening(reason, 0, true)
 }
 
 // PauseOpeningWithAutoResume 仅供用户明确指定时长的限时暂停使用。
@@ -1402,10 +1439,48 @@ func (br *BotRuntime) PauseOpeningWithAutoResume(reason string, seconds int) {
 	if seconds <= 0 || int64(seconds) > (1<<63-1)/int64(time.Second) {
 		seconds = 0
 	}
-	br.pauseOpening(reason, seconds)
+	br.pauseOpening(reason, seconds, true)
 }
 
-func (br *BotRuntime) pauseOpening(reason string, autoResumeSec int) {
+// PauseOpeningManuallyWithAutoResume is the explicit, timed user pause path.
+func (br *BotRuntime) PauseOpeningManuallyWithAutoResume(reason string, seconds int) {
+	if seconds <= 0 || int64(seconds) > (1<<63-1)/int64(time.Second) {
+		seconds = 0
+	}
+	br.pauseOpening(reason, seconds, true)
+}
+
+// PauseOpeningForSource adds a runtime gate owned by a named subsystem.
+func (br *BotRuntime) PauseOpeningForSource(source, reason string) {
+	if source == "" || source == "manual" || source == "opening_manager" {
+		return
+	}
+	if spm := br.superPositionManager(); spm != nil {
+		spm.PauseOpeningForSource(source, reason)
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Block(source)
+		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, source)
+	}
+}
+
+// ResumeOpeningForSource releases only the gate owned by source.
+func (br *BotRuntime) ResumeOpeningForSource(source string) {
+	if source == "" {
+		return
+	}
+	if spm := br.superPositionManager(); spm != nil {
+		spm.ResumeOpeningForSource(source)
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		br.Inner.OpeningGate.Unblock(source)
+		state, reason := "resumed", ""
+		if br.Inner.OpeningGate.Blocked() {
+			state, reason = "paused", "another opening gate remains active"
+		}
+		storage.AppendBotRiskControlEvent(br.BotID, state, reason, source)
+	}
+}
+
+func (br *BotRuntime) pauseOpening(reason string, autoResumeSec int, manual bool) {
 	br.pauseTransitionMu.Lock()
 	defer br.pauseTransitionMu.Unlock()
 	br.autoResumeGeneration++
@@ -1427,9 +1502,17 @@ func (br *BotRuntime) pauseOpening(reason string, autoResumeSec int) {
 	// C2：br.Config 只是展示用拷贝，SPM 持有自己的配置；必須直接通知 SPM 才能真正停止開倉
 	// （SPM.PauseOpening 會撤銷開倉委託並記錄風控事件）。在釋放 configMu 後調用，避免持鎖做網絡請求。
 	if spm := br.superPositionManager(); spm != nil {
-		spm.PauseOpening(reason)
+		if manual {
+			spm.PauseOpeningManually(reason)
+		} else {
+			spm.PauseOpening(reason)
+		}
 	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
-		br.Inner.OpeningGate.Block("manual")
+		if manual {
+			br.Inner.OpeningGate.Block("manual")
+		} else {
+			br.Inner.OpeningGate.Block("opening_manager")
+		}
 		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "runtime_gate")
 	} else {
 		storage.AppendBotRiskControlEvent(br.BotID, "paused", reason, "config")
@@ -1543,9 +1626,28 @@ func (br *BotRuntime) ResumeOpeningManually() error {
 		}
 	}
 	if spm := br.superPositionManager(); spm != nil {
+		if spm.OpeningGate().HasBlock("manual") {
+			if err := spm.ReleaseManualOpeningPause(); err != nil {
+				return err
+			}
+			if spm.IsOpeningPaused() {
+				spm.HoldManualOpeningPause()
+				return fmt.Errorf("opening remains blocked by an independent risk or recovery gate")
+			}
+			br.resumeOpening("manual_gate")
+			return nil
+		}
 		if err := spm.ResumeOpeningManually(); err != nil {
 			return err
 		}
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil && br.Inner.OpeningGate.HasBlock("manual") {
+		br.Inner.OpeningGate.Unblock("manual")
+		if br.Inner.OpeningGate.Blocked() {
+			br.Inner.OpeningGate.Block("manual")
+			return fmt.Errorf("opening remains blocked by an independent risk or recovery gate")
+		}
+		br.resumeOpening("manual_gate")
+		return nil
 	}
 	br.resumeOpening("manual")
 	return nil
@@ -1558,27 +1660,57 @@ func (br *BotRuntime) resumeOpening(source string) {
 }
 
 func (br *BotRuntime) resumeOpeningLocked(source string) {
-	br.configMu.Lock()
-	// 更新 OpenPositionControl 中的 PauseOpening 状态
-	br.Config.OpenPositionControl = config.CloneOpenPositionControl(br.Config.OpenPositionControl)
-	br.Config.OpenPositionControl.PauseOpening = false
+	// Release only the source owned by this resume path, then derive the visible
+	// pause state from the independent gate owners still present.
+	if spm := br.superPositionManager(); spm != nil {
+		if source == "auto_timer" || source == "manual_gate" {
+			if source == "auto_timer" {
+				spm.OpeningGate().Unblock("manual")
+			}
+		} else {
+			spm.ResumeOpening()
+		}
+		if source == "manual" {
+			spm.OpeningGate().Unblock("manual")
+		}
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		if source == "auto_timer" || source == "manual_gate" {
+			if source == "auto_timer" {
+				br.Inner.OpeningGate.Unblock("manual")
+			}
+		} else {
+			br.Inner.OpeningGate.Unblock("opening_manager")
+		}
+		if source == "manual" {
+			br.Inner.OpeningGate.Unblock("manual")
+		}
+	}
 
-	// 同时更新 BotRiskControl 中的状态
+	manualPaused := false
+	if spm := br.superPositionManager(); spm != nil {
+		manualPaused = spm.OpeningGate().HasBlock("manual")
+	} else if br.Inner != nil && br.Inner.OpeningGate != nil {
+		manualPaused = br.Inner.OpeningGate.HasBlock("manual")
+	}
+	br.configMu.Lock()
+	br.Config.OpenPositionControl = config.CloneOpenPositionControl(br.Config.OpenPositionControl)
+	br.Config.OpenPositionControl.PauseOpening = manualPaused
 	if br.Config.OpenPositionControl.BotRiskControl != nil {
-		br.Config.OpenPositionControl.BotRiskControl.PauseOpening = false
-		br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = ""
+		br.Config.OpenPositionControl.BotRiskControl.PauseOpening = manualPaused
+		if !manualPaused {
+			br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason = ""
+		}
 	}
 	br.configMu.Unlock()
-
-	// C2：同步恢復 SPM 的開倉開關（SPM 內部會記錄 resumed 事件）
-	if spm := br.superPositionManager(); spm != nil {
-		spm.ResumeOpening()
+	if br.superPositionManager() != nil && source != "auto_timer" && source != "manual_gate" {
+		// SuperPositionManager emitted the transition for its own opening_manager source.
 		return
 	}
-	if br.Inner != nil && br.Inner.OpeningGate != nil {
-		br.Inner.OpeningGate.Unblock("manual")
+	state, reason := "resumed", ""
+	if br.GetPositionStatus()["paused"] == true {
+		state, reason = "paused", "another opening gate remains active"
 	}
-	storage.AppendBotRiskControlEvent(br.BotID, "resumed", "", source)
+	storage.AppendBotRiskControlEvent(br.BotID, state, reason, source)
 }
 
 // GetPositionStatus 获取仓位状态（包括是否达到限制）
@@ -1786,8 +1918,15 @@ func (br *BotRuntime) autoResumeAfter(seconds int, generation uint64) {
 	br.configMu.RUnlock()
 
 	if stillPaused && autoResumeSec == seconds {
-		logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
 		br.resumeOpeningLocked("auto_timer")
+		br.configMu.RLock()
+		stillPaused = br.Config.OpenPositionControl.PauseOpening
+		br.configMu.RUnlock()
+		if stillPaused {
+			logger.Info("🔔 [%s] 人工暂停时长已到，但其他风险/恢复门闩仍有效，继续保持暂停（原因: %s）", br.BotID, pauseReason)
+		} else {
+			logger.Info("🔔 [%s] 人工暂停时长已到，人工暂停来源已释放（原因: %s）", br.BotID, pauseReason)
+		}
 	} else if stillPaused {
 		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但自动恢复配置已变化，跳过", br.BotID)
 	} else {

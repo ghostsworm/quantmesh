@@ -4,6 +4,7 @@ package execution
 import (
 	"context"
 	"errors"
+	"sort"
 	"sync"
 )
 
@@ -63,6 +64,18 @@ func (g *OpeningGate) HasBlock(source string) bool {
 	defer g.mu.Unlock()
 	_, exists := g.sources[source]
 	return exists
+}
+
+// Sources returns a stable snapshot of the current owners for diagnostics.
+func (g *OpeningGate) Sources() []string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	sources := make([]string, 0, len(g.sources))
+	for source := range g.sources {
+		sources = append(sources, source)
+	}
+	sort.Strings(sources)
+	return sources
 }
 
 // Begin admits one logical opening order, including its existing-ID retries.

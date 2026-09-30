@@ -34,8 +34,11 @@ func TestConfiguredOpeningPauseIsEffectiveBeforeStart(t *testing.T) {
 		t.Fatal("configured pause needs to apply before strategy StartAll")
 	}
 	spm.ResumeOpening()
-	if spm.IsOpeningPaused() {
-		t.Fatal("config snapshot prevented runtime resume")
+	if !spm.OpeningGate().HasBlock("manual") || !spm.IsOpeningPaused() {
+		t.Fatal("risk-source resume cleared a configured manual pause")
+	}
+	if err := spm.ReleaseManualOpeningPause(); err != nil || spm.IsOpeningPaused() {
+		t.Fatalf("explicit manual resume did not clear configured pause: err=%v", err)
 	}
 }
 

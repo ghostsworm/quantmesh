@@ -181,10 +181,12 @@ func TestUpdateBotRiskControlRejectsUnsafeValues(t *testing.T) {
 
 type pauseRequestTestBot struct {
 	BotExtended
-	safePauses     int
-	ordinaryPauses int
-	timedPauses    int
-	riskControl    *config.BotRiskControl
+	safePauses        int
+	ordinaryPauses    int
+	timedPauses       int
+	manualPauses      int
+	timedManualPauses int
+	riskControl       *config.BotRiskControl
 }
 
 func (b *pauseRequestTestBot) GetBotRiskControl() *config.BotRiskControl {
@@ -195,9 +197,11 @@ func (b *pauseRequestTestBot) GetBotRiskControl() *config.BotRiskControl {
 	return &copy
 }
 
-func (b *pauseRequestTestBot) PauseOpeningWithoutAutoResume(string)   { b.safePauses++ }
-func (b *pauseRequestTestBot) PauseOpening(string)                    { b.ordinaryPauses++ }
-func (b *pauseRequestTestBot) PauseOpeningWithAutoResume(string, int) { b.timedPauses++ }
+func (b *pauseRequestTestBot) PauseOpeningWithoutAutoResume(string)           { b.safePauses++ }
+func (b *pauseRequestTestBot) PauseOpening(string)                            { b.ordinaryPauses++ }
+func (b *pauseRequestTestBot) PauseOpeningWithAutoResume(string, int)         { b.timedPauses++ }
+func (b *pauseRequestTestBot) PauseOpeningManually(string)                    { b.manualPauses++ }
+func (b *pauseRequestTestBot) PauseOpeningManuallyWithAutoResume(string, int) { b.timedManualPauses++ }
 func (b *pauseRequestTestBot) SetBotRiskControl(rc *config.BotRiskControl) error {
 	copy := *rc
 	b.riskControl = &copy
@@ -215,12 +219,13 @@ func TestPauseBotOpeningOnlyUsesExplicitNonNegativeAutoResume(t *testing.T) {
 		body            string
 		wantCode        int
 		wantPauses      int
-		wantTimed       int
+		wantManual      int
+		wantTimedManual int
 		wantResumeAfter int
 	}{
-		{name: "no_duration_does_not_inherit_saved_duration", body: `{"reason":"operator pause"}`, wantCode: http.StatusOK, wantPauses: 1, wantResumeAfter: 30},
-		{name: "explicit_duration_enables_timer", body: `{"reason":"short pause","auto_resume_sec":45}`, wantCode: http.StatusOK, wantTimed: 1, wantResumeAfter: 45},
-		{name: "zero_duration_disables_saved_timer", body: `{"reason":"indefinite pause","auto_resume_sec":0}`, wantCode: http.StatusOK, wantPauses: 1, wantResumeAfter: 0},
+		{name: "no_duration_does_not_inherit_saved_duration", body: `{"reason":"operator pause"}`, wantCode: http.StatusOK, wantManual: 1, wantResumeAfter: 30},
+		{name: "explicit_duration_enables_timer", body: `{"reason":"short pause","auto_resume_sec":45}`, wantCode: http.StatusOK, wantTimedManual: 1, wantResumeAfter: 45},
+		{name: "zero_duration_disables_saved_timer", body: `{"reason":"indefinite pause","auto_resume_sec":0}`, wantCode: http.StatusOK, wantManual: 1, wantResumeAfter: 0},
 		{name: "negative_duration_rejected", body: `{"auto_resume_sec":-1}`, wantCode: http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -236,8 +241,8 @@ func TestPauseBotOpeningOnlyUsesExplicitNonNegativeAutoResume(t *testing.T) {
 			if w.Code != tc.wantCode {
 				t.Fatalf("response: %d %s", w.Code, w.Body.String())
 			}
-			if bot.safePauses != tc.wantPauses || bot.ordinaryPauses != 0 || bot.timedPauses != tc.wantTimed {
-				t.Fatalf("pause calls: safe=%d ordinary=%d timed=%d", bot.safePauses, bot.ordinaryPauses, bot.timedPauses)
+			if bot.safePauses != tc.wantPauses || bot.ordinaryPauses != 0 || bot.timedPauses != 0 || bot.manualPauses != tc.wantManual || bot.timedManualPauses != tc.wantTimedManual {
+				t.Fatalf("pause calls: safe=%d ordinary=%d timed=%d manual=%d timed_manual=%d", bot.safePauses, bot.ordinaryPauses, bot.timedPauses, bot.manualPauses, bot.timedManualPauses)
 			}
 			if tc.wantCode == http.StatusOK {
 				paused, rc := persistedBotPause(t, "test")
@@ -269,8 +274,8 @@ func TestPauseBotOpeningPersistenceFailureStaysPausedWithoutTimer(t *testing.T) 
 	c.Params = gin.Params{{Key: "id", Value: "test"}}
 
 	pauseBotOpening(c)
-	if w.Code != http.StatusInternalServerError || bot.safePauses != 1 || bot.timedPauses != 0 {
-		t.Fatalf("persistence failure must keep a non-timed runtime pause: status=%d safe=%d timed=%d body=%s", w.Code, bot.safePauses, bot.timedPauses, w.Body.String())
+	if w.Code != http.StatusInternalServerError || bot.manualPauses != 1 || bot.timedManualPauses != 0 || bot.timedPauses != 0 {
+		t.Fatalf("persistence failure must keep a non-timed manual pause: status=%d manual=%d timed_manual=%d legacy_timed=%d body=%s", w.Code, bot.manualPauses, bot.timedManualPauses, bot.timedPauses, w.Body.String())
 	}
 }
 

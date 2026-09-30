@@ -202,3 +202,19 @@ func (spm *SuperPositionManager) ResumeOpeningManually() error {
 	spm.ResumeOpening()
 	return nil
 }
+
+// ReleaseManualOpeningPause releases only the explicit operator gate. Risk,
+// liquidation, and reconciliation gates remain untouched.
+func (spm *SuperPositionManager) ReleaseManualOpeningPause() error {
+	p := &spm.protective
+	p.mu.Lock()
+	if spm.openingGate.HasBlock(protectiveLiquidationBlock) &&
+		(p.queued.Load() || p.stopped || p.status.State != "completed" || spm.liquidationNeedsReconciliation.Load()) {
+		p.mu.Unlock()
+		return fmt.Errorf("protective liquidation is not verified or lifecycle has stopped")
+	}
+	spm.openingGate.Unblock("manual")
+	spm.manualPauseReason.Store("")
+	p.mu.Unlock()
+	return nil
+}

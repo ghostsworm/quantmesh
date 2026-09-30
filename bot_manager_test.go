@@ -550,8 +550,9 @@ func TestBotManagerAutoPausesSingleLegAfterGrace(t *testing.T) {
 		singleLegGraceSec: 1,
 	}
 
-	fut := &BotRuntime{BotID: "fut-bot2", Config: config.BotConfig{ID: "fut-bot2", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}}
-	spot := &BotRuntime{BotID: "spot-bot2", Config: config.BotConfig{ID: "spot-bot2", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "spot"}}
+	futGate, spotGate := &execution.OpeningGate{}, &execution.OpeningGate{}
+	fut := &BotRuntime{BotID: "fut-bot2", Config: config.BotConfig{ID: "fut-bot2", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures"}, Inner: &SymbolRuntime{OpeningGate: futGate}}
+	spot := &BotRuntime{BotID: "spot-bot2", Config: config.BotConfig{ID: "spot-bot2", Exchange: "binance", Symbol: "ETHUSDT", MarketType: "spot"}, Inner: &SymbolRuntime{OpeningGate: spotGate}}
 	bm.AddRuntime(fut)
 	bm.AddRuntime(spot)
 
@@ -575,11 +576,19 @@ func TestBotManagerAutoPausesSingleLegAfterGrace(t *testing.T) {
 		}
 	}
 
-	fut.configMu.RLock()
-	paused := fut.Config.OpenPositionControl.PauseOpening
-	fut.configMu.RUnlock()
-	if !paused {
-		t.Fatalf("expected running leg to be paused after single-leg grace timeout")
+	source := singleLegPauseSource("g2")
+	if !futGate.HasBlock(source) || fut.GetPositionStatus()["paused"] != true {
+		t.Fatal("expected running leg to retain its group-owned opening hold after grace timeout")
+	}
+	if err := fut.ResumeOpeningManually(); err != nil {
+		t.Fatalf("explicit manual recovery should not fail: %v", err)
+	}
+	if !futGate.HasBlock(source) {
+		t.Fatal("manual resume cleared the hedge-group hold while the other leg remained stopped")
+	}
+	bm.AddRuntime(spot)
+	if futGate.HasBlock(source) || spotGate.HasBlock(source) {
+		t.Fatal("verified restoration of all group legs did not release the group-owned hold")
 	}
 }
 

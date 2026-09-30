@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"strings"
@@ -217,7 +218,7 @@ func pauseOpening(c *gin.Context) {
 		return
 	}
 
-	spm.PauseOpening("manual")
+	spm.PauseOpeningManually("manual")
 	logger.Info("🔄 [開倉管理] 手動暫停開倉 [%s:%s]", exchange, symbol)
 	c.JSON(http.StatusOK, gin.H{"message": "開倉已暫停", "opening_paused": true})
 }
@@ -239,10 +240,15 @@ func resumeOpening(c *gin.Context) {
 	}
 	if specialized {
 		allowed, err := runRecoveryIfRiskUnheld(func() error {
+			gate.Unblock("manual")
+			if gate.Blocked() {
+				gate.Block("manual")
+				return fmt.Errorf("opening remains blocked by an independent risk or recovery gate")
+			}
 			if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+				gate.Block("manual")
 				return err
 			}
-			gate.Unblock("manual")
 			return nil
 		})
 		if err != nil {
@@ -271,14 +277,19 @@ func resumeOpening(c *gin.Context) {
 
 	persistenceFailed := false
 	allowed, err := runRecoveryIfRiskUnheld(func() error {
-		if err := spm.ResumeOpeningManually(); err != nil {
+		if err := spm.ReleaseManualOpeningPause(); err != nil {
 			return err
 		}
+		if spm.IsOpeningPaused() {
+			spm.HoldManualOpeningPause()
+			return fmt.Errorf("opening remains blocked by an independent risk or recovery gate")
+		}
 		if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
-			spm.PauseOpening("manual")
+			spm.PauseOpeningManually("manual")
 			persistenceFailed = true
 			return err
 		}
+		spm.OpeningGate().Unblock("manual")
 		return nil
 	})
 	if errors.Is(err, errOpeningPauseCoordinatorUnavailable) {

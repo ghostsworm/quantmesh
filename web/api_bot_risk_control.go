@@ -54,12 +54,16 @@ type PauseOpeningRequest struct {
 	AutoResumeSec *int   `json:"auto_resume_sec"` // 自动恢复时间（秒），0=不自动恢复
 }
 
-type autoResumeOpeningPauser interface {
-	PauseOpeningWithAutoResume(reason string, seconds int)
-}
-
 type safeOpeningPauser interface {
 	PauseOpeningWithoutAutoResume(reason string)
+}
+
+type manualOpeningPauser interface {
+	PauseOpeningManually(reason string)
+}
+
+type timedManualOpeningPauser interface {
+	PauseOpeningManuallyWithAutoResume(reason string, seconds int)
 }
 
 func validateBotRiskControlRequest(req *BotRiskControlRequest) error {
@@ -463,6 +467,11 @@ func pauseBotOpening(c *gin.Context) {
 	if req.Reason == "" {
 		req.Reason = "manual"
 	}
+	manualPauser, supportsManualPause := bot.(manualOpeningPauser)
+	if !supportsManualPause {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "manual_pause_source_unsupported"})
+		return
+	}
 
 	// 获取当前风控配置
 	riskControl := bot.GetBotRiskControl()
@@ -485,11 +494,7 @@ func pauseBotOpening(c *gin.Context) {
 	riskControl.PauseOpeningReason = req.Reason
 	if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
 		logger.Error("⚠️ [%s] 持久化开仓暂停失败，保持运行时暂停且禁用自动恢复: %v", botID, err)
-		if pauser, ok := bot.(safeOpeningPauser); ok {
-			pauser.PauseOpeningWithoutAutoResume(req.Reason)
-		} else {
-			bot.PauseOpening(req.Reason)
-		}
+		manualPauser.PauseOpeningManually(req.Reason)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":                "paused",
 			"reason":                req.Reason,
@@ -503,11 +508,7 @@ func pauseBotOpening(c *gin.Context) {
 	if err := bot.SetBotRiskControl(riskControl); err != nil {
 		logger.Error("⚠️ [%s] 应用暂停控制配置失败，保持运行时暂停且禁用自动恢复: %v", botID, err)
 		autoResumeError = "auto_resume_configuration_failed"
-		if pauser, ok := bot.(safeOpeningPauser); ok {
-			pauser.PauseOpeningWithoutAutoResume(req.Reason)
-		} else {
-			bot.PauseOpening(req.Reason)
-		}
+		manualPauser.PauseOpeningManually(req.Reason)
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status":                "paused",
 			"reason":                req.Reason,
@@ -522,25 +523,17 @@ func pauseBotOpening(c *gin.Context) {
 		autoResumeSeconds = *req.AutoResumeSec
 	}
 	if autoResumeSeconds > 0 {
-		if pauser, ok := bot.(autoResumeOpeningPauser); ok {
-			pauser.PauseOpeningWithAutoResume(req.Reason, autoResumeSeconds)
+		if pauser, ok := bot.(timedManualOpeningPauser); ok {
+			pauser.PauseOpeningManuallyWithAutoResume(req.Reason, autoResumeSeconds)
 			resumeAt := time.Now().Add(time.Duration(autoResumeSeconds) * time.Second)
 			logger.Info("⏸️ [%s] 暂停开仓（原因: %s），将在 %s 自动恢复", botID, req.Reason, resumeAt.Format("15:04:05"))
 		} else {
 			autoResumeSeconds = 0
 			autoResumeError = "auto_resume_unsupported"
-			if pauser, ok := bot.(safeOpeningPauser); ok {
-				pauser.PauseOpeningWithoutAutoResume(req.Reason)
-			} else {
-				bot.PauseOpening(req.Reason)
-			}
+			manualPauser.PauseOpeningManually(req.Reason)
 		}
 	} else {
-		if pauser, ok := bot.(safeOpeningPauser); ok {
-			pauser.PauseOpeningWithoutAutoResume(req.Reason)
-		} else {
-			bot.PauseOpening(req.Reason)
-		}
+		manualPauser.PauseOpeningManually(req.Reason)
 		logger.Info("⏸️ [%s] 暂停开仓（原因: %s）", botID, req.Reason)
 	}
 
@@ -581,7 +574,9 @@ func resumeBotOpening(c *gin.Context) {
 		status := bot.GetPositionStatus()
 		paused, verified := status["paused"].(bool)
 		if !verified {
-			if pauser, ok := bot.(safeOpeningPauser); ok {
+			if pauser, ok := bot.(manualOpeningPauser); ok {
+				pauser.PauseOpeningManually("恢复状态未核实")
+			} else if pauser, ok := bot.(safeOpeningPauser); ok {
 				pauser.PauseOpeningWithoutAutoResume("恢复状态未核实")
 			} else {
 				bot.PauseOpening("恢复状态未核实")
@@ -601,7 +596,9 @@ func resumeBotOpening(c *gin.Context) {
 		riskControl.PauseOpening = false
 		riskControl.PauseOpeningReason = ""
 		if err := bot.SetBotRiskControl(riskControl); err != nil {
-			if pauser, ok := bot.(safeOpeningPauser); ok {
+			if pauser, ok := bot.(manualOpeningPauser); ok {
+				pauser.PauseOpeningManually("恢复配置未核实")
+			} else if pauser, ok := bot.(safeOpeningPauser); ok {
 				pauser.PauseOpeningWithoutAutoResume("恢复配置未核实")
 			} else {
 				bot.PauseOpening("恢复配置未核实")
@@ -613,7 +610,9 @@ func resumeBotOpening(c *gin.Context) {
 			riskControl.PauseOpening = true
 			riskControl.PauseOpeningReason = "manual"
 			_ = bot.SetBotRiskControl(riskControl)
-			if pauser, ok := bot.(safeOpeningPauser); ok {
+			if pauser, ok := bot.(manualOpeningPauser); ok {
+				pauser.PauseOpeningManually("恢复状态持久化失败")
+			} else if pauser, ok := bot.(safeOpeningPauser); ok {
 				pauser.PauseOpeningWithoutAutoResume("恢复状态持久化失败")
 			} else {
 				bot.PauseOpening("恢复状态持久化失败")
