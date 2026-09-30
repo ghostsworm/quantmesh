@@ -197,6 +197,10 @@ func (w *binanceSpotMarginWrapper) GetPositions(ctx context.Context, symbol stri
 	return positions, nil
 }
 
+func (w *binanceSpotMarginWrapper) VerifySpotMarginAccountFlat(ctx context.Context) error {
+	return w.adapter.VerifySpotMarginAccountFlat(ctx)
+}
+
 func (w *binanceSpotMarginWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return w.adapter.GetBalance(ctx, asset)
 }

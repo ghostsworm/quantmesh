@@ -118,3 +118,128 @@ func TestBinanceSpotMarginAdapterReturnsAuthoritativeEmptyPositionsWhenDebtIsZer
 		t.Fatalf("zero-debt account positions=%+v, want authoritative non-nil empty snapshot", positions)
 	}
 }
+
+func TestBinanceSpotMarginFlatnessVerificationCoversAllDebtsAndOrders(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		account    string
+		isolated   string
+		crossOrder string
+		isoOrder   string
+		crossOCO   string
+		isoOCO     string
+		wantErr    string
+	}{
+		{
+			name:     "flat account",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[{"asset":"BTC","free":"0","borrowed":"0","interest":"0","netAsset":"0"},{"asset":"USDT","free":"10","borrowed":"0","interest":"0","netAsset":"10"}]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+		},
+		{
+			name:     "liability in another asset",
+			account:  `{"totalLiabilityOfBtc":"0.01","userAssets":[{"asset":"BNB","free":"0","borrowed":"0.1","interest":"0.01","netAsset":"-0.11"}]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			wantErr:  "total liability is not zero",
+		},
+		{
+			name:     "asset debt despite zero summary",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[{"asset":"BNB","free":"0","borrowed":"0.1","interest":"0","netAsset":"-0.1"}]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			wantErr:  "debt remains for BNB",
+		},
+		{
+			name:       "cross margin order",
+			account:    `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated:   `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			crossOrder: `[{"symbol":"ETHUSDT","orderId":1,"status":"NEW"}]`,
+			wantErr:    "cross margin account for  has 1 active orders",
+		},
+		{
+			name:     "cross margin OCO list",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			crossOCO: `[{"orderListId":3,"listOrderStatus":"EXECUTING","orders":[]}]`,
+			wantErr:  "cross margin account for  has 1 active OCO lists",
+		},
+		{
+			name:     "isolated margin order",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[{"symbol":"ETHUSDT","baseAsset":{"asset":"ETH","borrowed":"0","interest":"0"},"quoteAsset":{"asset":"USDT","borrowed":"0","interest":"0"}}]}`,
+			isoOrder: `[{"symbol":"ETHUSDT","orderId":2,"status":"NEW"}]`,
+			wantErr:  "isolated margin account for ETHUSDT has 1 active orders",
+		},
+		{
+			name:     "isolated margin OCO list",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[{"symbol":"ETHUSDT","baseAsset":{"asset":"ETH","borrowed":"0","interest":"0"},"quoteAsset":{"asset":"USDT","borrowed":"0","interest":"0"}}]}`,
+			isoOCO:   `[{"orderListId":4,"listOrderStatus":"EXECUTING","orders":[]}]`,
+			wantErr:  "isolated margin account for ETHUSDT has 1 active OCO lists",
+		},
+		{
+			name:     "isolated liability in another symbol",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0.02","assets":[{"symbol":"ETHUSDT","baseAsset":{"asset":"ETH","borrowed":"1","interest":"0.01"},"quoteAsset":{"asset":"USDT","borrowed":"0","interest":"0"}}]}`,
+			wantErr:  "isolated-margin total liability is not zero",
+		},
+		{
+			name:     "missing total liability",
+			account:  `{"userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			wantErr:  "total liability is missing",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.crossOrder == "" {
+				tc.crossOrder = `[]`
+			}
+			if tc.isoOrder == "" {
+				tc.isoOrder = `[]`
+			}
+			if tc.crossOCO == "" {
+				tc.crossOCO = `[]`
+			}
+			if tc.isoOCO == "" {
+				tc.isoOCO = `[]`
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/sapi/v1/margin/account":
+					_, _ = w.Write([]byte(tc.account))
+				case "/sapi/v1/margin/isolated/account":
+					_, _ = w.Write([]byte(tc.isolated))
+				case "/sapi/v1/margin/openOrders":
+					if r.URL.Query().Get("isIsolated") == "TRUE" {
+						if r.URL.Query().Get("symbol") != "ETHUSDT" {
+							t.Errorf("isolated order query symbol=%q, want ETHUSDT", r.URL.Query().Get("symbol"))
+						}
+						_, _ = w.Write([]byte(tc.isoOrder))
+					} else {
+						_, _ = w.Write([]byte(tc.crossOrder))
+					}
+				case "/sapi/v1/margin/openOrderList":
+					if r.Header.Get("X-MBX-APIKEY") != "test-key" || r.URL.Query().Get("signature") == "" {
+						t.Errorf("margin OCO request missing API key header or signature")
+					}
+					if r.URL.Query().Get("isIsolated") == "TRUE" {
+						_, _ = w.Write([]byte(tc.isoOCO))
+					} else {
+						_, _ = w.Write([]byte(tc.crossOCO))
+					}
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client := binancesdk.NewClient("test-key", "test-secret")
+			client.BaseURL = server.URL
+			adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}}
+			err := adapter.VerifySpotMarginAccountFlat(context.Background())
+			if tc.wantErr == "" && err != nil {
+				t.Fatalf("VerifySpotMarginAccountFlat: %v", err)
+			}
+			if tc.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tc.wantErr)) {
+				t.Fatalf("flatness error = %v, want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}

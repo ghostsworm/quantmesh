@@ -1869,16 +1869,21 @@ func startSymbolRuntime(
 					logger.ErrorCtx(ctx, "[%s] 停止链路或运行租约未核实，保留账户钱包资金预留", botID)
 				} else {
 					capitalReleaseCtx, capitalReleaseCancel := context.WithTimeout(shutdownCtx, 20*time.Second)
-						releaseErr := verifyAndReleaseAccountWalletCapitalGuarded(capitalReleaseCtx, rt.capitalReservationStore,
-							rt.capitalReservationBotID, rt.capitalReservationClaims,
-							func(verifyCtx context.Context) error {
-								if strings.EqualFold(rt.AccountMarketType, "spot") {
-									return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
-										return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
-									})
-								}
-								return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
-							}, func() error {
+					releaseErr := verifyAndReleaseAccountWalletCapitalGuarded(capitalReleaseCtx, rt.capitalReservationStore,
+						rt.capitalReservationBotID, rt.capitalReservationClaims,
+						func(verifyCtx context.Context) error {
+							if strings.EqualFold(rt.AccountMarketType, "spot") {
+								return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
+									return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+								})
+							}
+							if strings.EqualFold(rt.AccountMarketType, "spot_margin") {
+								return verifyStandardSpotMarginRuntimeFlat(verifyCtx, rt.Exchange, func() error {
+									return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+								})
+							}
+							return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
+						}, func() error {
 							if ownershipLease.Lost() {
 								return errors.New("runtime ownership lease lost during flatness verification")
 							}

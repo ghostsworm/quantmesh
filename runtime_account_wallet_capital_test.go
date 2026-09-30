@@ -37,6 +37,17 @@ type capitalSpotWithoutTotalInventory struct {
 	orders []*exchange.Order
 }
 
+type capitalSpotMarginVerifier struct {
+	exchange.IExchange
+	err   error
+	calls int
+}
+
+func (v *capitalSpotMarginVerifier) VerifySpotMarginAccountFlat(context.Context) error {
+	v.calls++
+	return v.err
+}
+
 func (capitalSpotWithoutTotalInventory) GetBaseAsset() string { return "BTC" }
 func (f capitalSpotWithoutTotalInventory) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
 	return f.orders, nil
@@ -349,6 +360,29 @@ func TestVerifyStandardSpotRuntimeFlatRequiresOwnedLedgerBalanceAndOrders(t *tes
 	}
 	if err := verifyStandardSpotRuntimeFlat(context.Background(), capitalSpotWithoutTotalInventory{orders: []*exchange.Order{}}, "BTCUSDT", flatInventory); err == nil {
 		t.Fatal("spot exchange without authoritative total inventory was accepted")
+	}
+}
+
+func TestVerifyStandardSpotMarginRuntimeFlatRequiresOwnedStateAndAccountWideProof(t *testing.T) {
+	verifier := &capitalSpotMarginVerifier{}
+	if err := verifyStandardSpotMarginRuntimeFlat(context.Background(), verifier, func() error { return nil }); err != nil {
+		t.Fatalf("verified flat margin account rejected: %v", err)
+	}
+	if verifier.calls != 1 {
+		t.Fatalf("account verifier calls=%d, want 1", verifier.calls)
+	}
+	verifier.err = errors.New("loan interest remains")
+	if err := verifyStandardSpotMarginRuntimeFlat(context.Background(), verifier, func() error { return nil }); err == nil {
+		t.Fatal("account debt was accepted as flat")
+	}
+	if err := verifyStandardSpotMarginRuntimeFlat(context.Background(), verifier, func() error { return errors.New("owned inventory unknown") }); err == nil {
+		t.Fatal("unverified Bot-owned inventory was accepted as flat")
+	}
+	if verifier.calls != 2 {
+		t.Fatalf("account verifier called after owned inventory failure: calls=%d, want 2", verifier.calls)
+	}
+	if err := verifyStandardSpotMarginRuntimeFlat(context.Background(), capitalFlatVerifierExchange{}, func() error { return nil }); err == nil {
+		t.Fatal("exchange without account-wide margin verifier was accepted")
 	}
 }
 

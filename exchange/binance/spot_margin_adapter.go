@@ -2,8 +2,12 @@ package binance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +15,7 @@ import (
 	"quantmesh/logger"
 
 	binancesdk "github.com/adshao/go-binance/v2"
+	binancecommon "github.com/adshao/go-binance/v2/common"
 )
 
 // BinanceSpotMarginAdapter 幣安現貨槓桿適配器（借幣做空）
@@ -188,6 +193,245 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 		MarginType:     "cross",
 		IsolatedMargin: 0,
 	}}, nil
+}
+
+// VerifySpotMarginAccountFlat verifies cross and isolated liabilities and
+// orders, not only the configured symbol. It is used for conservative
+// capital-claim release after the Bot's own state is flat.
+func (b *BinanceSpotMarginAdapter) VerifySpotMarginAccountFlat(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("Binance margin flatness verification requires context")
+	}
+	if err := verifyCrossMarginDebts(ctx, b); err != nil {
+		return err
+	}
+	isolatedSymbols, err := verifyIsolatedMarginDebts(ctx, b)
+	if err != nil {
+		return err
+	}
+	if err := verifyMarginOpenOrders(ctx, b, "cross", false, ""); err != nil {
+		return err
+	}
+	if err := verifyMarginOpenOCOLists(ctx, b, false, ""); err != nil {
+		return err
+	}
+	for _, symbol := range isolatedSymbols {
+		if err := verifyMarginOpenOrders(ctx, b, "isolated", true, symbol); err != nil {
+			return err
+		}
+		if err := verifyMarginOpenOCOLists(ctx, b, true, symbol); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func verifyCrossMarginDebts(ctx context.Context, adapter *BinanceSpotMarginAdapter) error {
+	var account *binancesdk.MarginAccount
+	if err := adapter.withRateLimit(ctx, func() error {
+		var err error
+		account, err = adapter.client.NewGetMarginAccountService().Do(ctx)
+		return err
+	}); err != nil {
+		return fmt.Errorf("read Binance cross-margin account liabilities: %w", err)
+	}
+	if account == nil {
+		return fmt.Errorf("Binance cross-margin account response is nil")
+	}
+	if err := verifyZeroBTCMarginLiability("cross", account.TotalLiabilityOfBTC); err != nil {
+		return err
+	}
+	for _, asset := range account.UserAssets {
+		if strings.TrimSpace(asset.Asset) == "" {
+			return fmt.Errorf("Binance cross-margin account contains an asset with no identifier")
+		}
+		_, borrowed, interest, _, err := parseMarginUserAsset(asset)
+		if err != nil {
+			return fmt.Errorf("verify Binance cross-margin debt for %s: %w", asset.Asset, err)
+		}
+		if borrowed != 0 || interest != 0 {
+			return fmt.Errorf("Binance cross-margin debt remains for %s: principal=%s interest=%s", asset.Asset, asset.Borrowed, asset.Interest)
+		}
+	}
+	return nil
+}
+
+func verifyIsolatedMarginDebts(ctx context.Context, adapter *BinanceSpotMarginAdapter) ([]string, error) {
+	var isolatedAccount *binancesdk.IsolatedMarginAccount
+	if err := adapter.withRateLimit(ctx, func() error {
+		var err error
+		isolatedAccount, err = adapter.client.NewGetIsolatedMarginAccountService().Do(ctx)
+		return err
+	}); err != nil {
+		return nil, fmt.Errorf("read Binance isolated-margin account liabilities: %w", err)
+	}
+	if isolatedAccount == nil || isolatedAccount.Assets == nil {
+		return nil, fmt.Errorf("Binance isolated-margin account response or asset list is nil")
+	}
+	if err := verifyZeroBTCMarginLiability("isolated", isolatedAccount.TotalLiabilityOfBTC); err != nil {
+		return nil, err
+	}
+	isolatedSymbols := make([]string, 0, len(isolatedAccount.Assets))
+	for _, pair := range isolatedAccount.Assets {
+		if err := verifyIsolatedMarginPairDebts(pair); err != nil {
+			return nil, err
+		}
+		isolatedSymbols = append(isolatedSymbols, pair.Symbol)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("Binance isolated-margin liability verification deadline: %w", err)
+	}
+	return isolatedSymbols, nil
+}
+
+func verifyIsolatedMarginPairDebts(pair binancesdk.IsolatedMarginAsset) error {
+	if strings.TrimSpace(pair.Symbol) == "" {
+		return fmt.Errorf("Binance isolated-margin account contains a pair with no symbol")
+	}
+	for _, asset := range []binancesdk.IsolatedUserAsset{pair.BaseAsset, pair.QuoteAsset} {
+		if strings.TrimSpace(asset.Asset) == "" {
+			return fmt.Errorf("Binance isolated-margin pair %s contains an asset with no identifier", pair.Symbol)
+		}
+		borrowed, err := parseMarginDebtAmount("borrowed", asset.Borrowed)
+		if err != nil {
+			return fmt.Errorf("verify Binance isolated-margin debt for %s/%s: %w", pair.Symbol, asset.Asset, err)
+		}
+		interest, err := parseMarginDebtAmount("interest", asset.Interest)
+		if err != nil {
+			return fmt.Errorf("verify Binance isolated-margin debt for %s/%s: %w", pair.Symbol, asset.Asset, err)
+		}
+		if borrowed != 0 || interest != 0 {
+			return fmt.Errorf("Binance isolated-margin debt remains for %s/%s: principal=%s interest=%s", pair.Symbol, asset.Asset, asset.Borrowed, asset.Interest)
+		}
+	}
+	return nil
+}
+
+func verifyZeroBTCMarginLiability(accountType, raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("Binance %s-margin total liability is missing", accountType)
+	}
+	liabilityBTC, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(liabilityBTC) || math.IsInf(liabilityBTC, 0) || liabilityBTC < 0 {
+		return fmt.Errorf("Binance %s-margin total liability %q is invalid", accountType, raw)
+	}
+	if liabilityBTC != 0 {
+		return fmt.Errorf("Binance %s-margin total liability is not zero: %s BTC", accountType, raw)
+	}
+	return nil
+}
+
+func parseMarginDebtAmount(name, raw string) (float64, error) {
+	if strings.TrimSpace(raw) == "" {
+		return 0, fmt.Errorf("%s amount is missing", name)
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if err != nil || math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return 0, fmt.Errorf("%s amount %q is invalid", name, raw)
+	}
+	return value, nil
+}
+
+func verifyMarginOpenOrders(ctx context.Context, adapter *BinanceSpotMarginAdapter, accountType string, isolated bool, symbol string) error {
+	var orders []*binancesdk.Order
+	if err := adapter.withRateLimit(ctx, func() error {
+		var err error
+		service := adapter.client.NewListMarginOpenOrdersService().IsIsolated(isolated)
+		if symbol != "" {
+			service = service.Symbol(symbol)
+		}
+		orders, err = service.Do(ctx)
+		return err
+	}); err != nil {
+		return fmt.Errorf("read Binance %s margin open orders for %s: %w", accountType, symbol, err)
+	}
+	if orders == nil {
+		return fmt.Errorf("Binance %s margin open-order response for %s is nil", accountType, symbol)
+	}
+	if len(orders) != 0 {
+		return fmt.Errorf("Binance %s margin account for %s has %d active orders", accountType, symbol, len(orders))
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("Binance margin open-order verification deadline: %w", err)
+	}
+	return nil
+}
+
+func verifyMarginOpenOCOLists(ctx context.Context, adapter *BinanceSpotMarginAdapter, isolated bool, symbol string) error {
+	lists, err := fetchMarginOpenOCOLists(ctx, adapter, isolated, symbol)
+	if err != nil {
+		return fmt.Errorf("verify Binance %s margin open OCO lists for %s: %w", map[bool]string{false: "cross", true: "isolated"}[isolated], symbol, err)
+	}
+	if len(lists) != 0 {
+		return fmt.Errorf("Binance %s margin account for %s has %d active OCO lists", map[bool]string{false: "cross", true: "isolated"}[isolated], symbol, len(lists))
+	}
+	return nil
+}
+
+func fetchMarginOpenOCOLists(ctx context.Context, adapter *BinanceSpotMarginAdapter, isolated bool, symbol string) ([]*binancesdk.Oco, error) {
+	if isolated && strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("isolated-margin OCO verification requires a symbol")
+	}
+	var lists []*binancesdk.Oco
+	err := adapter.withRateLimit(ctx, func() error {
+		request, err := newSignedMarginOpenOCORequest(ctx, adapter.client, isolated, symbol)
+		if err != nil {
+			return err
+		}
+		response, err := adapter.client.HTTPClient.Do(request)
+		if err != nil {
+			return fmt.Errorf("request Binance margin OCO lists: %w", err)
+		}
+		defer response.Body.Close()
+		payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		if err != nil {
+			return fmt.Errorf("read Binance margin OCO response: %w", err)
+		}
+		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+			return fmt.Errorf("Binance margin OCO request returned HTTP %d", response.StatusCode)
+		}
+		if err := json.Unmarshal(payload, &lists); err != nil {
+			return fmt.Errorf("decode Binance margin OCO response: %w", err)
+		}
+		if lists == nil {
+			return fmt.Errorf("Binance margin OCO response is nil")
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return lists, nil
+}
+
+func newSignedMarginOpenOCORequest(ctx context.Context, client *binancesdk.Client, isolated bool, symbol string) (*http.Request, error) {
+	params := url.Values{}
+	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli()-client.TimeOffset, 10))
+	if isolated {
+		params.Set("isIsolated", "TRUE")
+		params.Set("symbol", symbol)
+	} else {
+		params.Set("isIsolated", "FALSE")
+	}
+	keyType := client.KeyType
+	if keyType == "" {
+		keyType = binancecommon.KeyTypeHmac
+	}
+	sign, err := binancecommon.SignFunc(keyType)
+	if err != nil {
+		return nil, fmt.Errorf("initialize Binance margin OCO request signer: %w", err)
+	}
+	signature, err := sign(client.SecretKey, params.Encode())
+	if err != nil {
+		return nil, fmt.Errorf("sign Binance margin OCO request: %w", err)
+	}
+	requestURL := client.BaseURL + "/sapi/v1/margin/openOrderList?" + params.Encode() + "&signature=" + url.QueryEscape(*signature)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build Binance margin OCO request: %w", err)
+	}
+	request.Header.Set("X-MBX-APIKEY", client.APIKey)
+	return request, nil
 }
 
 func parseMarginUserAsset(asset binancesdk.UserAsset) (free, borrowed, interest, net float64, err error) {

@@ -225,6 +225,23 @@ func verifyStandardSpotRuntimeFlat(ctx context.Context, ex exchange.IExchange, s
 	return nil
 }
 
+func verifyStandardSpotMarginRuntimeFlat(ctx context.Context, ex exchange.IExchange, verifyOwnedInventory func() error) error {
+	if ctx == nil || ex == nil || verifyOwnedInventory == nil {
+		return fmt.Errorf("spot-margin capital release requires context, exchange, and owned-inventory verifier")
+	}
+	if err := verifyOwnedInventory(); err != nil {
+		return fmt.Errorf("spot-margin Bot-owned inventory is not verifiably flat: %w", err)
+	}
+	verifier, ok := ex.(exchange.SpotMarginFlatnessVerifier)
+	if !ok {
+		return fmt.Errorf("spot-margin exchange does not expose authoritative account-wide debt and order verification")
+	}
+	if err := verifier.VerifySpotMarginAccountFlat(ctx); err != nil {
+		return fmt.Errorf("spot-margin account is not verifiably flat: %w", err)
+	}
+	return nil
+}
+
 func verifyStandardSpotBotInventoryFlat(grid *position.SuperPositionManager, strategies *strategy.StrategyManager, symbol string) error {
 	if grid == nil || !grid.GridRuntimeStateIsVerifiedEmpty() {
 		return fmt.Errorf("grid inventory state is missing, unverified, or non-empty")

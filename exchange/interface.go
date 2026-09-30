@@ -171,6 +171,13 @@ type SpotInventoryReader interface {
 	SpotInventoryQty(ctx context.Context) (float64, error)
 }
 
+// SpotMarginFlatnessVerifier reports whether the entire cross-margin account
+// has no outstanding debt and no active margin orders. Implementations must
+// fail closed when the venue cannot provide authoritative account-wide data.
+type SpotMarginFlatnessVerifier interface {
+	VerifySpotMarginAccountFlat(ctx context.Context) error
+}
+
 // OrderHistoryPage is one bounded page of exchange execution history. Cursor is
 // opaque to callers; HasMore must reflect the venue's pagination boundary.
 type OrderHistoryPage struct {
