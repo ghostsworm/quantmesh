@@ -480,6 +480,44 @@ func (c *BybitClient) GetExecutionHistoryPage(ctx context.Context, category, sym
 	return result.List, result.NextPageCursor, nil
 }
 
+type BybitTransactionLog struct {
+	ID              string `json:"id"`
+	Symbol          string `json:"symbol"`
+	Category        string `json:"category"`
+	Currency        string `json:"currency"`
+	TransactionTime string `json:"transactionTime"`
+	Type            string `json:"type"`
+	Funding         string `json:"funding"`
+}
+
+const bybitTransactionLogPageSize = 50
+
+// GetTransactionLogPage retrieves one authenticated page of unified-account transaction history.
+func (c *BybitClient) GetTransactionLogPage(ctx context.Context, category string, startTime, endTime int64, cursor string) ([]BybitTransactionLog, string, error) {
+	if category == "" || startTime <= 0 || endTime < startTime {
+		return nil, "", fmt.Errorf("Bybit transaction-log query requires category and a valid time range")
+	}
+	params := map[string]interface{}{
+		"accountType": "UNIFIED", "category": category, "startTime": startTime,
+		"endTime": endTime, "limit": bybitTransactionLogPageSize,
+	}
+	if cursor != "" {
+		params["cursor"] = cursor
+	}
+	data, err := c.request(ctx, http.MethodGet, "/v5/account/transaction-log", params)
+	if err != nil {
+		return nil, "", err
+	}
+	var result struct {
+		List           []BybitTransactionLog `json:"list"`
+		NextPageCursor string                `json:"nextPageCursor"`
+	}
+	if err := json.Unmarshal(data, &result); err != nil {
+		return nil, "", fmt.Errorf("parse Bybit transaction-log page: %w", err)
+	}
+	return result.List, result.NextPageCursor, nil
+}
+
 // GetOrderFills 查詢訂單成交記錄
 func (c *BybitClient) GetOrderFills(ctx context.Context, category, symbol string, orderId string) ([]BybitExecution, error) {
 	params := map[string]interface{}{

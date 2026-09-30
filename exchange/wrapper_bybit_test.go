@@ -6,6 +6,12 @@ import (
 	"quantmesh/exchange/bybit"
 )
 
+func TestBybitWrapperAdvertisesFundingIncomeHistory(t *testing.T) {
+	if !(&bybitWrapper{}).SupportsFundingIncomeHistory() {
+		t.Fatal("Bybit wrapper must enable authenticated funding-income synchronization")
+	}
+}
+
 func TestBybitOrderFillOnlySetsPnLAssetWhenPnLIsKnown(t *testing.T) {
 	row := &bybit.BybitOrderFill{
 		OrderID: 19, TradeID: "exec-19", Symbol: "BTCUSDT", Side: "Buy",

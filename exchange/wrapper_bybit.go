@@ -346,8 +346,11 @@ func (w *bybitWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 }
 
 func (w *bybitWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }
+
+// SupportsFundingIncomeHistory marks Bybit as a venue with an authenticated funding ledger.
+func (w *bybitWrapper) SupportsFundingIncomeHistory() bool { return true }
 
 // GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
 func (w *bybitWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
