@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc535] - 2026-09-30（未发布）
+
+### Fixed
+- Spot Margin 账户级 claim 核验拒绝缺失/超限 OCO 响应，逐项验证 cross/isolated OCO 签名，并覆盖孤立账户单资产负债证据。
+
 ## [3.111.0-rc534] - 2026-09-30（未发布）
 
 ### Fixed

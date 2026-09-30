@@ -25,6 +25,8 @@ type BinanceSpotMarginAdapter struct {
 	marginClient *MarginClient
 }
 
+const maxBinanceMarginOCOResponseSize = 1 << 20
+
 // NewBinanceSpotMarginAdapter 創建現貨槓桿適配器
 func NewBinanceSpotMarginAdapter(cfg map[string]string, symbol string) (*BinanceSpotMarginAdapter, error) {
 	spot, err := NewBinanceSpotAdapter(cfg, symbol)
@@ -199,8 +201,8 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 // orders, not only the configured symbol. It is used for conservative
 // capital-claim release after the Bot's own state is flat.
 func (b *BinanceSpotMarginAdapter) VerifySpotMarginAccountFlat(ctx context.Context) error {
-	if ctx == nil {
-		return fmt.Errorf("Binance margin flatness verification requires context")
+	if ctx == nil || b == nil || b.BinanceSpotAdapter == nil || b.client == nil {
+		return fmt.Errorf("Binance margin flatness verification requires context and an initialized adapter")
 	}
 	if err := verifyCrossMarginDebts(ctx, b); err != nil {
 		return err
@@ -383,9 +385,12 @@ func fetchMarginOpenOCOLists(ctx context.Context, adapter *BinanceSpotMarginAdap
 			return fmt.Errorf("request Binance margin OCO lists: %w", err)
 		}
 		defer response.Body.Close()
-		payload, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+		payload, err := io.ReadAll(io.LimitReader(response.Body, maxBinanceMarginOCOResponseSize+1))
 		if err != nil {
 			return fmt.Errorf("read Binance margin OCO response: %w", err)
+		}
+		if len(payload) > maxBinanceMarginOCOResponseSize {
+			return fmt.Errorf("Binance margin OCO response exceeds %d bytes", maxBinanceMarginOCOResponseSize)
 		}
 		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 			return fmt.Errorf("Binance margin OCO request returned HTTP %d", response.StatusCode)

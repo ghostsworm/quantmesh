@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	binancesdk "github.com/adshao/go-binance/v2"
+	binancecommon "github.com/adshao/go-binance/v2/common"
 )
 
 func TestSummarizeMarginAccountIncludesInterestAndOnlyConfiguredQuoteAvailability(t *testing.T) {
@@ -182,10 +183,35 @@ func TestBinanceSpotMarginFlatnessVerificationCoversAllDebtsAndOrders(t *testing
 			wantErr:  "isolated-margin total liability is not zero",
 		},
 		{
+			name:     "isolated asset debt despite zero summary",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[{"symbol":"ETHUSDT","baseAsset":{"asset":"ETH","borrowed":"0.1","interest":"0.001"},"quoteAsset":{"asset":"USDT","borrowed":"0","interest":"0"}}]}`,
+			wantErr:  "isolated-margin debt remains for ETHUSDT/ETH",
+		},
+		{
+			name:     "isolated asset list missing",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0"}`,
+			wantErr:  "asset list is nil",
+		},
+		{
 			name:     "missing total liability",
 			account:  `{"userAssets":[]}`,
 			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
 			wantErr:  "total liability is missing",
+		},
+		{
+			name:     "null OCO response",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			crossOCO: `null`,
+			wantErr:  "OCO response is nil",
+		},
+		{
+			name:     "oversized OCO response",
+			account:  `{"totalLiabilityOfBtc":"0","userAssets":[]}`,
+			isolated: `{"totalLiabilityOfBtc":"0","assets":[]}`,
+			wantErr:  "OCO response exceeds",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -217,13 +243,24 @@ func TestBinanceSpotMarginFlatnessVerificationCoversAllDebtsAndOrders(t *testing
 						_, _ = w.Write([]byte(tc.crossOrder))
 					}
 				case "/sapi/v1/margin/openOrderList":
-					if r.Header.Get("X-MBX-APIKEY") != "test-key" || r.URL.Query().Get("signature") == "" {
-						t.Errorf("margin OCO request missing API key header or signature")
+					query := r.URL.Query()
+					signature := query.Get("signature")
+					query.Del("signature")
+					expected, err := binancecommon.Hmac("test-secret", query.Encode())
+					if r.Header.Get("X-MBX-APIKEY") != "test-key" || signature == "" || err != nil || signature != *expected {
+						t.Errorf("margin OCO request has invalid API key header or signature")
 					}
-					if r.URL.Query().Get("isIsolated") == "TRUE" {
+					if query.Get("isIsolated") == "TRUE" && query.Get("symbol") == "" {
+						t.Errorf("isolated OCO query omitted mandatory symbol")
+					}
+					if query.Get("isIsolated") == "TRUE" {
 						_, _ = w.Write([]byte(tc.isoOCO))
 					} else {
-						_, _ = w.Write([]byte(tc.crossOCO))
+						if tc.name == "oversized OCO response" {
+							_, _ = w.Write([]byte("[]" + strings.Repeat(" ", maxBinanceMarginOCOResponseSize)))
+						} else {
+							_, _ = w.Write([]byte(tc.crossOCO))
+						}
 					}
 				default:
 					http.NotFound(w, r)
