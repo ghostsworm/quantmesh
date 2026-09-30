@@ -295,7 +295,7 @@ func (w *bingxWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 }
 
 func (w *bingxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills queries BingX's authenticated paginated fill history.

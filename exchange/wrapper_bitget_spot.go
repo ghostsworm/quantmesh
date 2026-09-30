@@ -286,7 +286,7 @@ func (w *bitgetSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) (
 }
 
 func (w *bitgetSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（現貨 fills）

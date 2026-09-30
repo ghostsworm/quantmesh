@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -13,6 +15,9 @@ import (
 
 // SaveHourlyEquityRecord 保存小時權益記錄
 func (s *SQLStorage) SaveHourlyEquityRecord(record *HourlyEquityRecord) error {
+	if record == nil || record.Timestamp.IsZero() || !finiteEquityValue(record.Equity) || !finiteEquityValue(record.UnrealizedPnL) || !finiteEquityValue(record.TotalPositionValue) || !finiteEquityValue(record.MarketPrice) || (record.SpotPositionQty != nil && !finiteEquityValue(*record.SpotPositionQty)) || (record.AccountEquity != nil && !finiteEquityValue(*record.AccountEquity)) {
+		return fmt.Errorf("hourly equity record requires a timestamp and finite monetary values")
+	}
 	var acct interface{}
 	if record.AccountEquity != nil {
 		acct = *record.AccountEquity
@@ -30,6 +35,9 @@ func (s *SQLStorage) SaveHourlyEquityRecord(record *HourlyEquityRecord) error {
 
 // SaveDailySnapshot 保存每日快照（upsert）
 func (s *SQLStorage) SaveDailySnapshot(snapshot *DailySnapshot) error {
+	if snapshot == nil || snapshot.Date.IsZero() || snapshot.SnapshotTime.IsZero() || !finiteEquityValue(snapshot.UnrealizedPnL) || !finiteEquityValue(snapshot.TotalPositionValue) || !finiteEquityValue(snapshot.IntradayMaxDrawdown) || !finiteEquityValue(snapshot.IntradayMaxDrawdownPct) || !finiteEquityValue(snapshot.IntradayPeakEquity) || !finiteEquityValue(snapshot.ClosingPrice) || (snapshot.SpotPositionQty != nil && !finiteEquityValue(*snapshot.SpotPositionQty)) || (snapshot.AccountEquity != nil && !finiteEquityValue(*snapshot.AccountEquity)) {
+		return fmt.Errorf("daily snapshot requires dates and finite monetary values")
+	}
 	var acct interface{}
 	if snapshot.AccountEquity != nil {
 		acct = *snapshot.AccountEquity
@@ -65,6 +73,10 @@ func (s *SQLStorage) SaveDailySnapshot(snapshot *DailySnapshot) error {
 		return fmt.Errorf("保存 daily_snapshot 失败: %w", err)
 	}
 	return nil
+}
+
+func finiteEquityValue(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 // QueryDailySnapshots 查詢日期範圍內的每日快照
@@ -354,6 +366,9 @@ func (s *SQLStorage) queryHourlyEquityRecords(query string, args ...interface{})
 
 // SaveAccountEquityRecord stores one account-level sample, independent of symbol runtimes.
 func (s *SQLStorage) SaveAccountEquityRecord(record *AccountEquityRecord) error {
+	if record == nil || strings.TrimSpace(record.Exchange) == "" || strings.TrimSpace(record.Account) == "" || record.Timestamp.IsZero() || math.IsNaN(record.AccountEquity) || math.IsInf(record.AccountEquity, 0) {
+		return fmt.Errorf("account equity record requires exchange, account, timestamp, and finite equity")
+	}
 	query := `INSERT INTO account_equity_records (exchange, market_type, account_scope, account, timestamp, account_equity, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(exchange, market_type, account_scope, timestamp) DO UPDATE SET account = excluded.account, account_equity = excluded.account_equity`

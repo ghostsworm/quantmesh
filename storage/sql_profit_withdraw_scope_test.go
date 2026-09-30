@@ -3,6 +3,7 @@ package storage
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +35,44 @@ func TestProfitWithdrawRulesRejectOverlappingEnabledStreams(t *testing.T) {
 	}
 	if len(rules) != 1 || rules[0].ID != "rule-a" {
 		t.Fatalf("rejected replacement must preserve existing rule: %+v", rules)
+	}
+}
+
+func TestProfitWithdrawRulesRejectUnsafeAmountsBeforePersistence(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-invalid-amounts.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	base := &ProfitWithdrawRule{ID: "valid-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	invalid := []*ProfitWithdrawRule{
+		{ID: "ratio-over-one", Enabled: true, WithdrawRatio: 1.01},
+		{ID: "ratio-nan", WithdrawRatio: math.NaN()},
+		{ID: "trigger-infinite", TriggerAmount: math.Inf(1)},
+		{ID: "minimum-negative", MinWithdrawAmount: -1},
+		{ID: "maximum-infinite", MaxWithdrawAmount: floatPointer(math.Inf(1))},
+		{ID: "minimum-over-maximum", MinWithdrawAmount: 5, MaxWithdrawAmount: floatPointer(4)},
+	}
+	for _, candidate := range invalid {
+		candidate.AccountScope, candidate.ExchangeID, candidate.StrategyID = base.AccountScope, base.ExchangeID, base.StrategyID
+		candidate.Enabled, candidate.Frequency, candidate.Destination = true, base.Frequency, base.Destination
+		if candidate.ID != "ratio-over-one" && candidate.ID != "ratio-nan" {
+			candidate.WithdrawRatio = base.WithdrawRatio
+		}
+		if err := st.UpsertProfitWithdrawRule("acct", candidate); err == nil {
+			t.Errorf("unsafe upsert %q was accepted", candidate.ID)
+		}
+		if err := st.ReplaceProfitWithdrawRules("acct", []*ProfitWithdrawRule{candidate}); err == nil {
+			t.Errorf("unsafe replacement %q was accepted", candidate.ID)
+		}
+	}
+	if err := st.UpsertProfitWithdrawRule("acct", base); err != nil {
+		t.Fatalf("valid rule rejected: %v", err)
+	}
+	rules, err := st.ListProfitWithdrawRules("acct")
+	if err != nil || len(rules) != 1 || rules[0].ID != base.ID {
+		t.Fatalf("invalid rules reached persistence: rules=%+v err=%v", rules, err)
 	}
 }
 

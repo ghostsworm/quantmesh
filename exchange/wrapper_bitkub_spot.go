@@ -321,12 +321,12 @@ func (w *bitkubSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) (
 
 // GetIncomeHistory 獲取收入歷史
 func (w *bitkubSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄
 func (w *bitkubSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetSpotPrice 獲取現貨市场價格

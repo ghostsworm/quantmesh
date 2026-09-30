@@ -298,12 +298,12 @@ func (w *bitmexWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 }
 
 func (w *bitmexWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills fails closed until BitMEX execution history is implemented.
 func (w *bitmexWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）

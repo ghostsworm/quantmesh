@@ -332,7 +332,7 @@ func (w *whitebitWrapper) GetFundingInfo(ctx context.Context, symbol string) (*F
 
 // GetIncomeHistory 獲取收入歷史
 func (w *whitebitWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄

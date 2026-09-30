@@ -301,7 +301,7 @@ func (w *binanceSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) 
 }
 
 func (w *binanceSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢 Binance 現貨逐笔成交账本。

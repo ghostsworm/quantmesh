@@ -44,6 +44,28 @@ func validateUniqueEnabledWithdrawStreams(accountID string, rules []*ProfitWithd
 	return nil
 }
 
+func validateProfitWithdrawAmounts(rule *ProfitWithdrawRule) error {
+	if rule == nil {
+		return fmt.Errorf("withdrawal rule is required")
+	}
+	if !finiteNonNegativeAmount(rule.TriggerAmount) || !finiteNonNegativeAmount(rule.WithdrawRatio) || rule.WithdrawRatio > 1 || (rule.Enabled && rule.WithdrawRatio == 0) || !finiteNonNegativeAmount(rule.MinWithdrawAmount) {
+		return fmt.Errorf("withdrawal trigger, ratio, and minimum must be finite non-negative values; ratio must not exceed 1 and enabled rules require a positive ratio")
+	}
+	if rule.MaxWithdrawAmount != nil {
+		if !finiteNonNegativeAmount(*rule.MaxWithdrawAmount) {
+			return fmt.Errorf("maximum withdrawal amount must be finite and non-negative")
+		}
+		if *rule.MaxWithdrawAmount > 0 && rule.MinWithdrawAmount > *rule.MaxWithdrawAmount {
+			return fmt.Errorf("minimum withdrawal amount exceeds the configured maximum")
+		}
+	}
+	return nil
+}
+
+func finiteNonNegativeAmount(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
+}
+
 func lockProfitWithdrawAccount(tx *sql.Tx, dbType, accountID string) error {
 	insert := `INSERT OR IGNORE INTO profit_withdraw_account_locks (account_id) VALUES (?)`
 	lockSuffix := ""
@@ -178,6 +200,13 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 	if err := validateUniqueEnabledWithdrawStreams(accountID, rules); err != nil {
 		return err
 	}
+	for _, rule := range rules {
+		if rule != nil {
+			if err := validateProfitWithdrawAmounts(rule); err != nil {
+				return fmt.Errorf("invalid withdrawal rule %q: %w", rule.ID, err)
+			}
+		}
+	}
 
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -294,6 +323,9 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWithdrawRule) error {
 	if rule == nil {
 		return fmt.Errorf("rule 不能為空")
+	}
+	if err := validateProfitWithdrawAmounts(rule); err != nil {
+		return err
 	}
 	if accountID == "" {
 		accountID = "default"

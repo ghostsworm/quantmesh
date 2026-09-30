@@ -296,7 +296,7 @@ func (w *mexcWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fundi
 }
 
 func (w *mexcWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills queries MEXC's authenticated contract execution ledger.

@@ -301,12 +301,12 @@ func (w *xtcomWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 }
 
 func (w *xtcomWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（暂未實現）
 func (w *xtcomWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetSpotPrice 獲取現貨市场價格（未實現）

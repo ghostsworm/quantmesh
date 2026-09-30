@@ -350,7 +350,7 @@ func (w *okxWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fundin
 }
 
 func (w *okxWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（GET /api/v5/trade/fills，用於補充手續費）

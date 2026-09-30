@@ -125,6 +125,15 @@ func (oe *ExchangeOrderExecutor) ObserveOrder(update *exchange.Order) bool {
 		if !matches {
 			continue
 		}
+		if !validOrderObservationNumbers(update) {
+			intent.unknown = true
+			oe.markExposureUnknownLocked(cid)
+			if err := oe.saveJournalIntentLocked(intent); err != nil {
+				oe.blockJournalFailureLocked()
+				logger.ErrorCtx(oe.logCtx(), "persist malformed order observation block failed: %v", err)
+			}
+			return false
+		}
 		if (intent.order != nil && intent.order.OrderID > 0 && intent.order.OrderID != update.OrderID) ||
 			(update.Side != "" && string(update.Side) != intent.request.Side) {
 			intent.unknown = true

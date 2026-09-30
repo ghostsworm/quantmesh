@@ -200,9 +200,6 @@ func loadObservabilityConfigFromSettings(version string, provider web.SystemSett
 	return cfg
 }
 
-// fundingIncomeHistoryPageSize is Binance's configured income-history page limit.
-const fundingIncomeHistoryPageSize = 1000
-
 type scopedWithdrawExchange struct {
 	exchange.IExchange
 	accountScope string
@@ -322,10 +319,7 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 		return fmt.Errorf("fetch funding history: %w", err)
 	}
 	saved := 0
-	fullyPersisted := len(list) < fundingIncomeHistoryPageSize
-	if !fullyPersisted {
-		logger.Warn("⚠️ 資金費 API 返回已達單頁上限，不能證明歷史完整，保留舊覆蓋水位 exchange=%s symbol=%s count=%d", exchangeName, symbol, len(list))
-	}
+	fullyPersisted := true
 	for _, inc := range list {
 		if inc == nil {
 			logger.Warn("⚠️ 跳過空資金費記錄 exchange=%s symbol=%s", exchangeName, symbol)

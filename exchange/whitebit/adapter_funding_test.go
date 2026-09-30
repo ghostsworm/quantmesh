@@ -25,3 +25,13 @@ func TestParseWhiteBITNextFundingTimestamp(t *testing.T) {
 		}
 	}
 }
+
+func TestWhiteBITIncomeHistoryFailsClosedUntilImplemented(t *testing.T) {
+	payments, err := (&WhiteBITAdapter{}).GetIncomeHistory(nil, "BTC_USDT", "FUNDING_FEE", 1, 2)
+	if err == nil {
+		t.Fatal("GetIncomeHistory() must report unsupported history")
+	}
+	if payments != nil {
+		t.Fatalf("GetIncomeHistory() payments = %v, want nil on unsupported history", payments)
+	}
+}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"math"
 	"testing"
 	"time"
@@ -17,11 +18,71 @@ type fundingIncomeSyncTestExchange struct {
 	requestedFrom int64
 	requestedTo   int64
 	incomes       []*income.Income
+	incomeFactory func(from, to int64) []*income.Income
+	incomeErr     error
 }
 
 func (e *fundingIncomeSyncTestExchange) GetIncomeHistory(_ context.Context, _, _ string, from, to int64) ([]*income.Income, error) {
 	e.requestedFrom, e.requestedTo = from, to
-	return e.incomes, nil
+	if e.incomeFactory != nil {
+		return e.incomeFactory(from, to), nil
+	}
+	return e.incomes, e.incomeErr
+}
+
+func TestFundingIncomeSyncPersistsAllRowsFromPaginatedHistory(t *testing.T) {
+	st, err := storage.NewSQLStorage(t.TempDir() + "/funding-sync.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	const exchangeID, symbol, scope = "binance", "BTCUSDT", "paginated-history-scope"
+	ex := &fundingIncomeSyncTestExchange{incomeFactory: func(from, _ int64) []*income.Income {
+		rows := make([]*income.Income, 1001)
+		for i := range rows {
+			rows[i] = &income.Income{Symbol: symbol, IncomeType: "FUNDING_FEE", Income: -0.01, Asset: "USDT", TransactionID: int64(i + 1), TradeTime: time.UnixMilli(from).UTC()}
+		}
+		return rows
+	}}
+	if err := syncFundingIncomeOnce(context.Background(), st, ex, exchangeID, symbol, "acct", "futures", scope); err != nil {
+		t.Fatal("sync paginated funding history:", err)
+	}
+	payments, err := st.GetFundingPaymentsByAccountScope(scope, exchangeID, time.UnixMilli(ex.requestedFrom).Add(-time.Millisecond), time.UnixMilli(ex.requestedTo).Add(time.Millisecond))
+	if err != nil {
+		t.Fatal("read paginated funding payments:", err)
+	}
+	if len(payments) != 1001 {
+		t.Fatalf("persisted funding rows=%d, want 1001", len(payments))
+	}
+	coveredFrom, coveredThrough, err := st.GetFundingIncomeCoverage(exchangeID, symbol, "futures", scope)
+	if err != nil || coveredFrom.IsZero() || coveredThrough.IsZero() {
+		t.Fatalf("complete paginated history did not advance coverage: (%v, %v), err=%v", coveredFrom, coveredThrough, err)
+	}
+}
+
+func TestFundingIncomeSyncDoesNotAdvanceCoverageWhenHistoryIsUnsupported(t *testing.T) {
+	st, err := storage.NewSQLStorage(t.TempDir() + "/funding-sync.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	priorFrom := time.Now().UTC().Add(-2 * time.Hour).Truncate(time.Millisecond)
+	priorThrough := priorFrom.Add(time.Hour)
+	const exchangeID, symbol, scope = "binance", "BTCUSDT", "unsupported-history-scope"
+	if err := st.MarkFundingIncomeCoverage(exchangeID, symbol, "futures", scope, priorFrom, priorThrough); err != nil {
+		t.Fatal("seed prior funding coverage:", err)
+	}
+	ex := &fundingIncomeSyncTestExchange{incomeErr: exchange.ErrNotImplemented}
+	if err := syncFundingIncomeOnce(context.Background(), st, ex, exchangeID, symbol, "acct", "futures", scope); !errors.Is(err, exchange.ErrNotImplemented) {
+		t.Fatalf("unsupported funding history error = %v, want ErrNotImplemented", err)
+	}
+	gotFrom, gotThrough, err := st.GetFundingIncomeCoverage(exchangeID, symbol, "futures", scope)
+	if err != nil {
+		t.Fatal("read funding coverage:", err)
+	}
+	if !gotFrom.Equal(priorFrom) || !gotThrough.Equal(priorThrough) {
+		t.Fatalf("unsupported history changed coverage to (%v, %v), want (%v, %v)", gotFrom, gotThrough, priorFrom, priorThrough)
+	}
 }
 
 func TestFundingIncomeSyncRejectsNonFiniteAmountAndMissingAsset(t *testing.T) {

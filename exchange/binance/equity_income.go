@@ -22,8 +22,10 @@ type equityIncomeWire struct {
 	Symbol        string `json:"symbol"`
 	Amount        string `json:"income"`
 	Asset         string `json:"asset"`
+	Info          string `json:"info"`
 	Time          int64  `json:"time"`
 	TransactionID int64  `json:"tranId"`
+	TradeID       string `json:"tradeId"`
 }
 
 func incomeEvidence(row *equityIncomeWire) (accounting.Entry, error) {

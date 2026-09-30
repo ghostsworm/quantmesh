@@ -314,7 +314,7 @@ func (w *binanceSpotMarginWrapper) GetFundingInfo(ctx context.Context, symbol st
 }
 
 func (w *binanceSpotMarginWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 func (w *binanceSpotMarginWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {

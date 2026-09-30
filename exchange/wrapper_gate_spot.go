@@ -276,7 +276,7 @@ func (w *gateSpotWrapper) GetFundingInfo(ctx context.Context, symbol string) (*F
 }
 
 func (w *gateSpotWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（/spot/my_trades）

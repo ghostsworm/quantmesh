@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"quantmesh/exchange"
@@ -92,6 +93,42 @@ func TestMapVenueOrderAcceptsCaseVariantMatchingSide(t *testing.T) {
 		&exchange.Order{OrderID: 1, ClientOrderID: "cid", Symbol: "BTCUSDT", Side: exchange.Side("buy"), Status: exchange.OrderStatusNew})
 	if got == nil || got.Side != "BUY" {
 		t.Fatalf("case-insensitive matching venue side was not normalized: %+v", got)
+	}
+}
+
+func TestMalformedVenueOrderNumbersRemainUnknown(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		order *exchange.Order
+	}{
+		{name: "nan executed quantity", order: &exchange.Order{OrderID: 1, Status: exchange.OrderStatusFilled, ExecutedQty: math.NaN()}},
+		{name: "infinite average price", order: &exchange.Order{OrderID: 1, Status: exchange.OrderStatusFilled, AvgPrice: math.Inf(1)}},
+		{name: "negative order quantity", order: &exchange.Order{OrderID: 1, Status: exchange.OrderStatusNew, Quantity: -1}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			oe, _, gate := newOwnedTestExecutor()
+			req := shutdownRequest("malformed-"+test.name, false)
+			if _, err := oe.PlaceOrder(req); err != nil {
+				t.Fatal(err)
+			}
+			observed := *test.order
+			observed.ClientOrderID = req.ClientOrderID
+			observed.Symbol = req.Symbol
+			observed.Side = exchange.Side(req.Side)
+			if oe.ObserveOrder(&observed) {
+				t.Fatal("malformed order observation was accepted")
+			}
+			intent := oe.intents[req.ClientOrderID]
+			if intent == nil || !intent.unknown || !gate.Blocked() {
+				t.Fatalf("malformed observation did not retain uncertainty: intent=%+v blocked=%t", intent, gate.Blocked())
+			}
+			if intent.order != nil && (math.IsNaN(intent.order.ExecutedQty) || math.IsInf(intent.order.AvgPrice, 0)) {
+				t.Fatalf("malformed numeric evidence was persisted: %+v", intent.order)
+			}
+			if got := oe.mapVenueOrder(req, req.Price, &observed); got != nil {
+				t.Fatalf("malformed REST acknowledgement mapped to a known order: %+v", got)
+			}
+		})
 	}
 }
 

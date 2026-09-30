@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1486,38 +1487,70 @@ func (b *BinanceAdapter) GetFundingRate(ctx context.Context, symbol string) (flo
 
 // GetIncomeHistory 獲取收入歷史（資金費用等）
 func (b *BinanceAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	svc := b.client.NewGetIncomeHistoryService()
-	if symbol != "" {
-		svc = svc.Symbol(symbol)
+	if b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || startTime <= 0 || endTime < startTime {
+		return nil, fmt.Errorf("Binance income history requires client, symbol, and a valid time range")
 	}
-	if incomeType != "" {
-		svc = svc.IncomeType(incomeType)
+	start := time.UnixMilli(startTime).UTC()
+	if start.Before(time.Now().UTC().AddDate(0, -3, 0)) {
+		return nil, fmt.Errorf("Binance income history is only reliable within the latest three months")
 	}
-	if startTime > 0 {
-		svc = svc.StartTime(startTime)
-	}
-	if endTime > 0 {
-		svc = svc.EndTime(endTime)
-	}
-	svc = svc.Limit(1000)
-
-	list, err := svc.Do(ctx)
+	serverTime, err := b.equityServerTime(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("獲取收入歷史失败: %w", err)
+		return nil, fmt.Errorf("read Binance server time for income history: %w", err)
 	}
-	if list == nil {
-		return nil, fmt.Errorf("Binance returned a nil income-history response")
-	}
-
-	out := make([]*income.Income, 0, len(list))
-	for _, h := range list {
-		entry, err := normalizeIncomeRecord(h, symbol, incomeType, startTime, endTime)
-		if err != nil {
-			return nil, err
+	localAnchor := time.Now()
+	seen := make(map[string]struct{})
+	result := make([]*income.Income, 0)
+	for page := 1; page <= equityMaxPages; page++ {
+		if page > 1 {
+			timer := time.NewTimer(equityPageInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return nil, ctx.Err()
+			case <-timer.C:
+			}
 		}
-		out = append(out, entry)
+		query := url.Values{
+			"symbol":     {strings.ToUpper(strings.TrimSpace(symbol))},
+			"incomeType": {strings.ToUpper(strings.TrimSpace(incomeType))},
+			"startTime":  {strconv.FormatInt(startTime, 10)},
+			"endTime":    {strconv.FormatInt(endTime, 10)},
+			"page":       {strconv.Itoa(page)},
+			"limit":      {strconv.Itoa(equityIncomePageSize)},
+		}
+		var rows []*equityIncomeWire
+		signedAt := serverTime.Add(time.Since(localAnchor)).UnixMilli()
+		if err := b.equityGET(ctx, "/fapi/v1/income", query, signedAt, &rows); err != nil {
+			return nil, fmt.Errorf("fetch Binance income history page %d: %w", page, err)
+		}
+		if rows == nil || len(rows) > equityIncomePageSize {
+			return nil, fmt.Errorf("Binance returned an invalid income-history page %d", page)
+		}
+		for _, row := range rows {
+			if row == nil {
+				return nil, fmt.Errorf("Binance returned an empty income-history record on page %d", page)
+			}
+			identity := strings.ToUpper(strings.TrimSpace(row.Type)) + ":" + strconv.FormatInt(row.TransactionID, 10)
+			if _, duplicate := seen[identity]; duplicate {
+				return nil, fmt.Errorf("Binance income transaction %s is duplicated across pages", identity)
+			}
+			seen[identity] = struct{}{}
+			wire := &futures.IncomeHistory{
+				Asset: row.Asset, Income: row.Amount, IncomeType: row.Type, Info: row.Info, Symbol: row.Symbol,
+				Time: row.Time, TranID: row.TransactionID, TradeID: row.TradeID,
+			}
+			entry, err := normalizeIncomeRecord(wire, symbol, incomeType, startTime, endTime)
+			if err != nil {
+				return nil, err
+			}
+			result = append(result, entry)
+		}
+		if len(rows) < equityIncomePageSize {
+			return result, nil
+		}
 	}
-	return out, nil
+	return nil, fmt.Errorf("Binance income history exceeded %d pages; coverage is incomplete", equityMaxPages)
 }
 
 func normalizeIncomeRecord(row *futures.IncomeHistory, symbol, incomeType string, startTime, endTime int64) (*income.Income, error) {

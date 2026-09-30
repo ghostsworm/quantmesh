@@ -1,6 +1,7 @@
 package order
 
 import (
+	"math"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ func (oe *ExchangeOrderExecutor) VenueClientOrderID(clientOrderID string) string
 // acknowledgement followed by a FILLED lookup must not invent execution at the
 // originally requested price/quantity (venues can quantize/upsize orders).
 func (oe *ExchangeOrderExecutor) mapVenueOrder(req *OrderRequest, fallbackPrice float64, raw *exchange.Order) *Order {
-	if raw == nil || raw.OrderID <= 0 || (raw.Symbol != "" && raw.Symbol != req.Symbol) ||
+	if raw == nil || !validOrderObservationNumbers(raw) || raw.OrderID <= 0 || (raw.Symbol != "" && raw.Symbol != req.Symbol) ||
 		(raw.Side != "" && !strings.EqualFold(string(raw.Side), req.Side)) {
 		return nil
 	}
@@ -46,4 +47,16 @@ func (oe *ExchangeOrderExecutor) mapVenueOrder(req *OrderRequest, fallbackPrice 
 	return &Order{OrderID: raw.OrderID, ClientOrderID: cid, Symbol: req.Symbol, Side: req.Side,
 		Price: price, Quantity: qty, Status: string(raw.Status), CreatedAt: time.Now(),
 		ExecutedQty: raw.ExecutedQty, AvgPrice: raw.AvgPrice}
+}
+
+func validOrderObservationNumbers(order *exchange.Order) bool {
+	if order == nil {
+		return false
+	}
+	for _, value := range []float64{order.Price, order.Quantity, order.ExecutedQty, order.AvgPrice} {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+			return false
+		}
+	}
+	return true
 }

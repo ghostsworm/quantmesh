@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"math"
 	"path/filepath"
 	"testing"
 	"time"
@@ -149,6 +150,63 @@ func TestAccountEquityRecordsUpsertByAccountScopeAndTimestamp(t *testing.T) {
 	spotRows, err := store.QueryAccountEquityRecordsByScope("binance", "spot", "scope-a", timestamp.Add(-time.Minute), timestamp.Add(time.Minute))
 	if err != nil || len(spotRows) != 1 || spotRows[0].AccountEquity != 250 {
 		t.Fatalf("spot equity sample collided with futures: rows=%+v err=%v", spotRows, err)
+	}
+}
+
+func TestAccountEquityRecordsRejectInvalidSamplesWithoutOverwritingValidData(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "invalid-account-equity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	timestamp := time.Date(2026, 10, 1, 13, 0, 0, 0, time.UTC)
+	valid := &AccountEquityRecord{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Timestamp: timestamp, AccountEquity: 1010}
+	if err := store.SaveAccountEquityRecord(valid); err != nil {
+		t.Fatal(err)
+	}
+	invalidRecords := []*AccountEquityRecord{
+		nil,
+		{MarketType: "futures", AccountScope: "scope-a", Account: "acct", Timestamp: timestamp, AccountEquity: 1},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Timestamp: timestamp, AccountEquity: 1},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", AccountEquity: 1},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Timestamp: timestamp, AccountEquity: math.NaN()},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Timestamp: timestamp, AccountEquity: math.Inf(1)},
+	}
+	for index, invalid := range invalidRecords {
+		if err := store.SaveAccountEquityRecord(invalid); err == nil {
+			t.Fatalf("invalid sample %d was accepted", index)
+		}
+	}
+	rows, err := store.QueryAccountEquityRecordsByScope("binance", "futures", "scope-a", timestamp.Add(-time.Minute), timestamp.Add(time.Minute))
+	if err != nil || len(rows) != 1 || rows[0].AccountEquity != 1010 {
+		t.Fatalf("invalid sample changed valid account equity: rows=%+v err=%v", rows, err)
+	}
+}
+
+func TestPositionEquitySnapshotsRejectNonFiniteValues(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "invalid-position-equity.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ts := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	validHourly := &HourlyEquityRecord{Exchange: "binance", MarketType: "spot", AccountScope: "scope-a", Symbol: "BTCUSDT", Account: "acct", Timestamp: ts}
+	validDaily := &DailySnapshot{Exchange: "binance", MarketType: "spot", AccountScope: "scope-a", Symbol: "BTCUSDT", Account: "acct", Date: ts, SnapshotTime: ts}
+	for _, invalid := range []*HourlyEquityRecord{nil, {Timestamp: ts, Equity: math.NaN()}, {Timestamp: ts, UnrealizedPnL: math.Inf(1)}, {Timestamp: ts, TotalPositionValue: math.Inf(-1)}, {Timestamp: ts, MarketPrice: math.NaN()}, {Timestamp: ts, SpotPositionQty: floatPointer(math.NaN())}, {Timestamp: ts, AccountEquity: floatPointer(math.Inf(1))}} {
+		if err := store.SaveHourlyEquityRecord(invalid); err == nil {
+			t.Errorf("SaveHourlyEquityRecord(%+v) accepted non-finite data", invalid)
+		}
+	}
+	if err := store.SaveHourlyEquityRecord(validHourly); err != nil {
+		t.Fatalf("valid hourly snapshot rejected: %v", err)
+	}
+	for _, invalid := range []*DailySnapshot{nil, {Date: ts, SnapshotTime: ts, UnrealizedPnL: math.NaN()}, {Date: ts, SnapshotTime: ts, TotalPositionValue: math.Inf(1)}, {Date: ts, SnapshotTime: ts, IntradayMaxDrawdown: math.Inf(-1)}, {Date: ts, SnapshotTime: ts, IntradayMaxDrawdownPct: math.NaN()}, {Date: ts, SnapshotTime: ts, IntradayPeakEquity: math.Inf(1)}, {Date: ts, SnapshotTime: ts, ClosingPrice: math.NaN()}, {Date: ts, SnapshotTime: ts, AccountEquity: floatPointer(math.NaN())}, {Date: ts, SnapshotTime: ts, SpotPositionQty: floatPointer(math.Inf(1))}} {
+		if err := store.SaveDailySnapshot(invalid); err == nil {
+			t.Errorf("SaveDailySnapshot(%+v) accepted non-finite data", invalid)
+		}
+	}
+	if err := store.SaveDailySnapshot(validDaily); err != nil {
+		t.Fatalf("valid daily snapshot rejected: %v", err)
 	}
 }
 

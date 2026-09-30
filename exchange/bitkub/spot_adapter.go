@@ -725,7 +725,7 @@ func (b *BitkubSpotAdapter) GetOrderFills(ctx context.Context, symbol string, or
 
 // GetIncomeHistory 獲取收入歷史（現貨沒有）
 func (b *BitkubSpotAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]interface{}, error) {
-	return nil, nil
+	return nil, fmt.Errorf("Bitkub spot income history is not implemented")
 }
 
 // InternalTransfer 交易所內部轉帳（Bitkub現貨不支持）

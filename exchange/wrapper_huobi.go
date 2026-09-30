@@ -329,12 +329,12 @@ func (w *huobiWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 }
 
 func (w *huobiWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（Huobi 暂未實現）
 func (w *huobiWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetSpotPrice 獲取現貨市场價格（公共 merged，失敗時回退 WS 價）

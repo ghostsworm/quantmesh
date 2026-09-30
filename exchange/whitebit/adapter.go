@@ -856,9 +856,7 @@ func (w *WhiteBITAdapter) GetOrderFills(ctx context.Context, symbol string, orde
 
 // GetIncomeHistory 獲取收入歷史（暂未实现）
 func (w *WhiteBITAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]interface{}, error) {
-	// WhiteBIT API支持查询资金费用历史，但需要进一步实现
-	// 可以使用 /api/v4/collateral-account/funding-history 端点
-	return nil, nil
+	return nil, fmt.Errorf("WhiteBIT income history is not implemented")
 }
 
 // GetSpotPrice 獲取現貨市场價格

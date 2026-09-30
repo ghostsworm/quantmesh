@@ -155,8 +155,8 @@ func TestBitkubSpotUnsupportedSpotMethods(t *testing.T) {
 	if _, err := adapter.GetHistoricalKlines(ctx, "BTCUSDT", "1m", 10); err == nil {
 		t.Fatal("expected historical kline unsupported error")
 	}
-	if fills, err := adapter.GetIncomeHistory(ctx, "BTCUSDT", "REALIZED_PNL", 0, 1); err != nil || fills != nil {
-		t.Fatalf("GetIncomeHistory() = %v, %v", fills, err)
+	if fills, err := adapter.GetIncomeHistory(ctx, "BTCUSDT", "REALIZED_PNL", 0, 1); err == nil || fills != nil {
+		t.Fatalf("GetIncomeHistory() = %v, %v; want explicit unsupported error", fills, err)
 	}
 	if _, err := adapter.InternalTransfer(ctx, "spot", "funding", "BTC", 1); err == nil {
 		t.Fatal("expected internal transfer unsupported error")

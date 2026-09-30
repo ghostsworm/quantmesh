@@ -269,12 +269,12 @@ func (w *kucoinWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 }
 
 func (w *kucoinWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // GetOrderFills 查詢訂單成交記錄（暂未實現）
 func (w *kucoinWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	return nil, ErrNotImplemented
 }
 
 // convertKuCoinOrderToExchangeOrder 將 KuCoin 订單轉换為 Exchange 订單
