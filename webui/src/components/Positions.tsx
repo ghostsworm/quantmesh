@@ -40,6 +40,9 @@ const Positions: React.FC = () => {
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const [cancellingAllBuy, setCancellingAllBuy] = useState(false)
   const unavailableValue = summary?.position_data_available === false ? t('positionsPage.dataUnavailable') : null
+  const valueUnavailable = unavailableValue ?? (summary?.position_value_verified === false ? t('positionsPage.valueUnverified') : null)
+  const pnlUnavailable = unavailableValue ?? (summary?.unrealized_pnl_verified === false ? t('positionsPage.pnlUnverified') : null)
+  const costUnavailable = unavailableValue ?? (summary?.cost_basis_verified === false ? t('positionsPage.costBasisUnverified') : null)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -205,7 +208,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.totalValue')}</StatLabel>
-                <StatNumber>{unavailableValue ?? summary.total_value.toFixed(2)}</StatNumber>
+                <StatNumber>{valueUnavailable ?? summary.total_value.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -223,7 +226,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.averagePrice')}</StatLabel>
-                <StatNumber>{unavailableValue ?? summary.average_price.toFixed(2)}</StatNumber>
+                <StatNumber>{costUnavailable ?? summary.average_price.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -232,7 +235,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.currentMarketPrice')}</StatLabel>
-                <StatNumber>{unavailableValue ?? summary.current_price.toFixed(2)}</StatNumber>
+                <StatNumber>{unavailableValue ?? (summary.current_price > 0 ? summary.current_price.toFixed(2) : '—')}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -241,8 +244,8 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.unrealizedPnl')}</StatLabel>
-                <StatNumber color={unavailableValue ? 'gray.500' : summary.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
-                  {unavailableValue ?? `${summary.unrealized_pnl >= 0 ? '+' : ''}${summary.unrealized_pnl.toFixed(2)}`}
+                <StatNumber color={pnlUnavailable ? 'gray.500' : summary.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
+                  {pnlUnavailable ?? `${summary.unrealized_pnl >= 0 ? '+' : ''}${summary.unrealized_pnl.toFixed(2)}`}
                 </StatNumber>
               </Stat>
             </CardBody>
@@ -259,10 +262,10 @@ const Positions: React.FC = () => {
                     </Text>
                   )}
                 </StatLabel>
-                <StatNumber>{unavailableValue ?? (summary.actual_margin || 0).toFixed(2)}</StatNumber>
+                <StatNumber>{valueUnavailable ?? (summary.actual_margin || 0).toFixed(2)}</StatNumber>
                 {summary.leverage && summary.leverage > 1 && (
                   <Text fontSize="xs" color="gray.500" mt={1}>
-                    {t('positionsPage.positionValue')}: {summary.total_value.toFixed(2)}
+                    {t('positionsPage.positionValue')}: {valueUnavailable ?? summary.total_value.toFixed(2)}
                   </Text>
                 )}
               </Stat>
@@ -308,9 +311,9 @@ const Positions: React.FC = () => {
                         </Box>
                       </Td>
                       <Td isNumeric>{pos.quantity.toFixed(4)}</Td>
-                      <Td isNumeric>{pos.value.toFixed(2)}</Td>
-                      <Td isNumeric color={pos.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
-                        {pos.unrealized_pnl >= 0 ? '+' : ''}{pos.unrealized_pnl.toFixed(2)}
+                      <Td isNumeric>{pos.value_verified === false ? t('positionsPage.valueUnverified') : pos.value.toFixed(2)}</Td>
+                      <Td isNumeric color={pos.unrealized_pnl_verified === false ? 'gray.500' : pos.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
+                        {pos.unrealized_pnl_verified === false ? t('positionsPage.pnlUnverified') : `${pos.unrealized_pnl >= 0 ? '+' : ''}${pos.unrealized_pnl.toFixed(2)}`}
                       </Td>
                     </Tr>
                   )

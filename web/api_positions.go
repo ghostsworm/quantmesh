@@ -17,6 +17,7 @@ import (
 // PositionSummary 持倉彙總信息
 type PositionSummary struct {
 	PositionDataAvailable bool           `json:"position_data_available"`
+	PositionValueVerified bool           `json:"position_value_verified"`
 	TotalQuantity         float64        `json:"total_quantity"` // 總持倉數量
 	TotalValue            float64        `json:"total_value"`    // 總持倉價值（當前價格 * 數量）
 	PositionCount         int            `json:"position_count"` // 持倉槽位數
@@ -37,8 +38,9 @@ type PositionSummary struct {
 type PositionInfo struct {
 	Price                 float64 `json:"price"` // 持倉價格
 	EntryPrice            float64 `json:"entry_price"`
-	Quantity              float64 `json:"quantity"`       // 持倉數量
-	Value                 float64 `json:"value"`          // 持倉價值
+	Quantity              float64 `json:"quantity"` // 持倉數量
+	Value                 float64 `json:"value"`    // 持倉價值
+	ValueVerified         bool    `json:"value_verified"`
 	UnrealizedPnL         float64 `json:"unrealized_pnl"` // 未實現盈亏
 	CostBasisVerified     bool    `json:"cost_basis_verified"`
 	EntryFee              float64 `json:"accrued_entry_fee"`
@@ -97,15 +99,25 @@ func positionSlotFinancialsValid(slot SlotInfo) bool {
 	if slot.PositionStatus != "FILLED" {
 		return true
 	}
-	if !isFiniteNumber(slot.PositionQty) || !isFiniteNumber(slot.Price) ||
-		!isFiniteNumber(slot.BuyFee) || slot.BuyFee < 0 {
+	if !isFiniteNumber(slot.PositionQty) || !isFiniteNumber(slot.Price) || !isFiniteNumber(slot.AvgBuyPrice) ||
+		!isFiniteNumber(slot.BuyFee) || slot.PositionQty < 0 || slot.BuyFee < 0 {
 		return false
 	}
-	if slot.PositionQty > 0.000001 && slot.Price > 0.000001 &&
+	if slot.PositionQty > 0 && slot.Price <= 0 {
+		return false
+	}
+	if slot.PositionQty > 0 &&
 		!slot.CostBasisUnverified && (!isFiniteNumber(slot.AvgBuyPrice) || slot.AvgBuyPrice <= 0) {
 		return false
 	}
 	return true
+}
+
+func finitePositionEntryPrice(slot SlotInfo) float64 {
+	if slot.CostBasisUnverified || !isFiniteNumber(slot.AvgBuyPrice) || slot.AvgBuyPrice <= 0 {
+		return 0
+	}
+	return slot.AvgBuyPrice
 }
 
 func normalizeMarketPrice(price float64) float64 {
@@ -117,47 +129,120 @@ func normalizeMarketPrice(price float64) float64 {
 
 type exchangePositionSnapshot struct {
 	Quantity      float64
+	LongQuantity  float64
+	ShortQuantity float64
 	UnrealizedPnL float64
 	MarkPrice     float64
 	EntryPrice    float64
 	Leverage      int
+	Mode          string
 	HasData       bool
 	Verified      bool
 }
 
+const (
+	exchangePositionModeNet   = "NET"
+	exchangePositionModeHedge = "HEDGE"
+)
+
 func summarizeExchangePositions(positions []*exchange.Position) exchangePositionSnapshot {
 	snapshot := exchangePositionSnapshot{Verified: true}
+	entryNotional := 0.0
+	markNotional := 0.0
+	grossQuantity := 0.0
 	for _, position := range positions {
 		if position == nil {
 			snapshot.HasData = true
 			snapshot.Verified = false
 			continue
 		}
+		if !isFiniteNumber(position.Size) || !isFiniteNumber(position.UnrealizedPNL) {
+			snapshot.HasData = true
+			snapshot.Verified = false
+			continue
+		}
 		if position.Size == 0 {
+			if position.UnrealizedPNL != 0 {
+				snapshot.HasData = true
+				snapshot.Verified = false
+			}
 			continue
 		}
 		snapshot.HasData = true
-		if !isFiniteNumber(position.Size) || !isFiniteNumber(position.UnrealizedPNL) ||
-			!isFiniteNumber(position.MarkPrice) || position.MarkPrice <= 0 ||
+		if !isFiniteNumber(position.MarkPrice) || position.MarkPrice <= 0 ||
 			!isFiniteNumber(position.EntryPrice) || position.EntryPrice <= 0 {
 			snapshot.Verified = false
 			continue
 		}
-		quantity := snapshot.Quantity + position.Size
+		mode := exchangePositionModeNet
+		quantity := position.Size
+		switch strings.ToUpper(strings.TrimSpace(position.PositionSide)) {
+		case "", "BOTH", "NET":
+		case "LONG":
+			mode = exchangePositionModeHedge
+			quantity = math.Abs(position.Size)
+		case "SHORT":
+			mode = exchangePositionModeHedge
+			quantity = -math.Abs(position.Size)
+		default:
+			snapshot.Verified = false
+			continue
+		}
+		if snapshot.Mode != "" && snapshot.Mode != mode {
+			snapshot.Verified = false
+			continue
+		}
+		snapshot.Mode = mode
+		absQuantity := math.Abs(quantity)
+		newGrossQuantity := grossQuantity + absQuantity
+		newEntryNotional := entryNotional + absQuantity*position.EntryPrice
+		newMarkNotional := markNotional + absQuantity*position.MarkPrice
+		if !isFiniteNumber(newGrossQuantity) || !isFiniteNumber(newEntryNotional) || !isFiniteNumber(newMarkNotional) {
+			snapshot.Verified = false
+			continue
+		}
+		if mode == exchangePositionModeHedge {
+			if quantity > 0 {
+				snapshot.LongQuantity += quantity
+			} else {
+				snapshot.ShortQuantity += absQuantity
+			}
+		}
+		quantity += snapshot.Quantity
 		pnl := snapshot.UnrealizedPnL + position.UnrealizedPNL
-		if !isFiniteNumber(quantity) || !isFiniteNumber(pnl) {
+		if !isFiniteNumber(quantity) || !isFiniteNumber(pnl) ||
+			!isFiniteNumber(snapshot.LongQuantity) || !isFiniteNumber(snapshot.ShortQuantity) {
 			snapshot.Verified = false
 			continue
 		}
 		snapshot.Quantity = quantity
 		snapshot.UnrealizedPnL = pnl
-		snapshot.MarkPrice = position.MarkPrice
-		snapshot.EntryPrice = position.EntryPrice
+		grossQuantity = newGrossQuantity
+		entryNotional = newEntryNotional
+		markNotional = newMarkNotional
 		if position.Leverage > 0 {
 			snapshot.Leverage = position.Leverage
 		}
 	}
+	if grossQuantity > 0 {
+		snapshot.EntryPrice = entryNotional / grossQuantity
+		snapshot.MarkPrice = markNotional / grossQuantity
+		if !isFiniteNumber(snapshot.EntryPrice) || !isFiniteNumber(snapshot.MarkPrice) {
+			snapshot.Verified = false
+			snapshot.EntryPrice = 0
+			snapshot.MarkPrice = 0
+		}
+	}
 	snapshot.Verified = snapshot.Verified && snapshot.HasData
+	if !snapshot.Verified {
+		snapshot.Quantity = 0
+		snapshot.LongQuantity = 0
+		snapshot.ShortQuantity = 0
+		snapshot.UnrealizedPnL = 0
+		snapshot.MarkPrice = 0
+		snapshot.EntryPrice = 0
+		snapshot.Leverage = 0
+	}
 	return snapshot
 }
 
@@ -175,12 +260,131 @@ func slotUnrealizedPnL(currentPrice, entryPrice, quantity float64, short bool) f
 func unavailablePositionSummary() PositionSummary {
 	return PositionSummary{
 		PositionDataAvailable: false,
+		PositionValueVerified: false,
 		Leverage:              1,
 		Positions:             []PositionInfo{},
 		CostBasisVerified:     false,
 		EntryFeesVerified:     false,
 		UnrealizedPnLVerified: false,
 	}
+}
+
+func unavailablePositionSummaryResponse() gin.H {
+	return gin.H{
+		"position_data_available": false,
+		"position_value_verified": false,
+		"total_quantity":          0, "total_value": 0, "position_count": 0,
+		"average_price": 0, "current_price": 0, "unrealized_pnl": 0,
+		"pnl_percentage": 0, "cost_basis_verified": false,
+		"entry_fees_verified": false, "accrued_entry_fees": 0,
+		"unrealized_pnl_verified": false, "actual_margin": 0, "leverage": 1,
+	}
+}
+
+func finitePositionDifference(left, right float64) (float64, bool) {
+	difference := left - right
+	return difference, isFiniteNumber(difference)
+}
+
+func finitePositionDifferencePercent(left, right, baseline float64) (float64, float64, bool) {
+	difference, ok := finitePositionDifference(left, right)
+	if !ok || !isFiniteNumber(baseline) || baseline <= 0 {
+		return 0, 0, false
+	}
+	percent := (difference / baseline) * 100
+	if !isFiniteNumber(percent) {
+		return 0, 0, false
+	}
+	return difference, percent, true
+}
+
+func positionQuantitiesMatch(left, right float64) bool {
+	if !isFiniteNumber(left) || !isFiniteNumber(right) || left < 0 || right < 0 {
+		return false
+	}
+	difference := math.Abs(left - right)
+	tolerance := math.Max(1e-8, math.Max(left, right)*1e-8)
+	return isFiniteNumber(difference) && difference <= tolerance
+}
+
+func exchangePositionMatchesSlots(snapshot exchangePositionSnapshot, slots []SlotInfo, direction string) bool {
+	if !snapshot.Verified || !snapshot.HasData {
+		return false
+	}
+	localLongQuantity := 0.0
+	localShortQuantity := 0.0
+	for _, slot := range slots {
+		if slot.PositionStatus != "FILLED" || slot.PositionQty <= 0 {
+			continue
+		}
+		switch direction {
+		case "LONG":
+			localLongQuantity += slot.PositionQty
+		case "SHORT":
+			localShortQuantity += slot.PositionQty
+		case "BOTH":
+			switch strings.ToUpper(strings.TrimSpace(slot.PositionLeg)) {
+			case "LONG":
+				localLongQuantity += slot.PositionQty
+			case "SHORT":
+				localShortQuantity += slot.PositionQty
+			default:
+				return false
+			}
+		default:
+			return false
+		}
+		if !isFiniteNumber(localLongQuantity) || !isFiniteNumber(localShortQuantity) {
+			return false
+		}
+	}
+	if localLongQuantity+localShortQuantity <= 0 || !isFiniteNumber(localLongQuantity+localShortQuantity) {
+		return false
+	}
+	switch direction {
+	case "LONG":
+		if snapshot.Mode == exchangePositionModeHedge {
+			return positionQuantitiesMatch(snapshot.LongQuantity, localLongQuantity) && positionQuantitiesMatch(snapshot.ShortQuantity, 0)
+		}
+		return snapshot.Quantity > 0 && positionQuantitiesMatch(snapshot.Quantity, localLongQuantity)
+	case "SHORT":
+		if snapshot.Mode == exchangePositionModeHedge {
+			return positionQuantitiesMatch(snapshot.ShortQuantity, localShortQuantity) && positionQuantitiesMatch(snapshot.LongQuantity, 0)
+		}
+		return snapshot.Quantity < 0 && positionQuantitiesMatch(math.Abs(snapshot.Quantity), localShortQuantity)
+	case "BOTH":
+		return snapshot.Mode == exchangePositionModeHedge &&
+			positionQuantitiesMatch(snapshot.LongQuantity, localLongQuantity) &&
+			positionQuantitiesMatch(snapshot.ShortQuantity, localShortQuantity)
+	default:
+		return false
+	}
+}
+
+func assessPositionMarketPrice(marketPrice, referencePrice float64) (float64, bool) {
+	if !isFiniteNumber(referencePrice) || referencePrice <= 0 {
+		return 0, false
+	}
+	if !isFiniteNumber(marketPrice) || marketPrice <= 0 {
+		return referencePrice, false
+	}
+	ratio := marketPrice / referencePrice
+	if ratio > 50 {
+		adjustedPrice := marketPrice / 100
+		if isFiniteNumber(adjustedPrice) && math.Abs(adjustedPrice-referencePrice)/referencePrice < 0.1 {
+			return adjustedPrice, false
+		}
+	} else if ratio < 0.02 {
+		adjustedPrice := marketPrice * 100
+		if isFiniteNumber(adjustedPrice) && math.Abs(adjustedPrice-referencePrice)/referencePrice < 0.1 {
+			return adjustedPrice, false
+		}
+	}
+	deviation := (marketPrice - referencePrice) / referencePrice
+	if !isFiniteNumber(deviation) || math.Abs(deviation) > 0.5 {
+		return referencePrice, false
+	}
+	return marketPrice, true
 }
 
 // getPositions 獲取持倉列表（從槽位數據筛选）
@@ -214,6 +418,7 @@ func getPositions(c *gin.Context) {
 		logger.Warn("⚠️ [getPositions] [%s:%s] resolvedKey=%s, priceProvider is nil!",
 			exchange, symbol, resolvedKey)
 	}
+	positionValueVerified := currentPrice > 0
 
 	totalQuantity := 0.0
 	totalValue := 0.0
@@ -232,16 +437,13 @@ func getPositions(c *gin.Context) {
 			return
 		}
 		// 🔥 新增價格驗证：确保槽位價格有效（大於0且合理）
-		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-			// 🔥 價格合理性检查：如果當前價格可用，检查槽位價格是否在合理範圍内
-			if currentPrice > 0 {
-				priceRatio := slot.Price / currentPrice
-				// 如果槽位價格是當前價格的100倍以上或0.01倍以下，可能是單位錯误
-				if priceRatio > 100 || priceRatio < 0.01 {
-					logger.Warn("⚠️ [getPositions] [%s:%s] 检测到异常槽位價格: slotPrice=%.2f, currentPrice=%.2f, 比例=%.2f, 數量=%.4f, resolvedKey=%s",
-						exchange, symbol, slot.Price, currentPrice, priceRatio, slot.PositionQty, resolvedKey)
-					// 继续处理，但記錄警告
-				}
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0 && slot.Price > 0 {
+			positionMarketPrice, slotMarketPriceVerified := assessPositionMarketPrice(currentPrice, slot.Price)
+			valueVerified := currentPrice > 0 && slotMarketPriceVerified
+			if !slotMarketPriceVerified {
+				positionValueVerified = false
+				unrealizedPnLVerified = false
+				logger.Warn("[getPositions] 当前价格无法与槽位参考价核验: exchange=%s symbol=%s", exchange, symbol)
 			}
 
 			positionCount++
@@ -262,11 +464,7 @@ func getPositions(c *gin.Context) {
 			}
 
 			// 计算持倉價值（使用當前價格）
-			value := slot.PositionQty * currentPrice
-			if currentPrice == 0 {
-				// 如果當前價格不可用，使用持倉價格
-				value = slot.PositionQty * slot.Price
-			}
+			value := slot.PositionQty * positionMarketPrice
 			totalValue += value
 			if !isFiniteNumber(value) || !isFiniteNumber(totalValue) {
 				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
@@ -279,51 +477,21 @@ func getPositions(c *gin.Context) {
 			if slot.CostBasisUnverified || slot.AvgBuyPrice <= 0 {
 				costBasisVerified = false
 				unrealizedPnLVerified = false
-			} else if currentPrice > 0 && slot.AvgBuyPrice > 0 {
-				// 🔥 新增價格合理性检查：如果當前價格相對於持倉價格偏差過大，可能是價格异常
-				priceDeviation := (currentPrice - slot.Price) / slot.Price
-
-				// 检查是否是單位问题（比如當前價格是持倉價格的100倍或0.01倍）
-				priceRatio := currentPrice / slot.Price
-				adjustedCurrentPrice := currentPrice
-				if priceRatio > 50 {
-					// 當前價格可能是持倉價格的100倍，尝試除以100
-					adjustedPrice := currentPrice / 100
-					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到價格單位问题（當前價格可能是持倉價格的100倍），已自动修正: %.2f -> %.2f",
-							exchange, symbol, currentPrice, adjustedPrice)
-						adjustedCurrentPrice = adjustedPrice
-					}
-				} else if priceRatio < 0.02 {
-					// 當前價格可能是持倉價格的0.01倍，尝試乘以100
-					adjustedPrice := currentPrice * 100
-					if math.Abs(adjustedPrice-slot.Price)/slot.Price < 0.1 {
-						logger.Warn("⚠️ [getPositions] [%s:%s] 检测到價格單位问题（當前價格可能是持倉價格的0.01倍），已自动修正: %.2f -> %.2f",
-							exchange, symbol, currentPrice, adjustedPrice)
-						adjustedCurrentPrice = adjustedPrice
-					}
-				}
-
-				// 重新计算價格偏差
-				priceDeviation = (adjustedCurrentPrice - slot.Price) / slot.Price
-				if priceDeviation > 0.5 || priceDeviation < -0.5 {
-					// 價格偏差仍然過大，使用持倉價格（未實現盈亏為0）
-					logger.Warn("⚠️ [getPositions] [%s:%s] 價格偏差過大，使用持倉價格计算（未實現盈亏設為0）: currentPrice=%.2f, slotPrice=%.2f, 偏差=%.2f%%, resolvedKey=%s",
-						exchange, symbol, adjustedCurrentPrice, slot.Price, priceDeviation*100, resolvedKey)
-					adjustedCurrentPrice = slot.Price
-				}
-
+			} else if currentPrice > 0 && slot.AvgBuyPrice > 0 && slotMarketPriceVerified {
 				var directionVerified bool
-				unrealizedPnL, directionVerified = positionSlotUnrealizedPnL(adjustedCurrentPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
+				unrealizedPnL, directionVerified = positionSlotUnrealizedPnL(positionMarketPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
 				slotPnLVerified = directionVerified
 				unrealizedPnLVerified = unrealizedPnLVerified && directionVerified
+			} else {
+				unrealizedPnLVerified = false
 			}
 
 			positions = append(positions, PositionInfo{
 				Price:                 slot.Price,
-				EntryPrice:            slot.AvgBuyPrice,
+				EntryPrice:            finitePositionEntryPrice(slot),
 				Quantity:              slot.PositionQty,
 				Value:                 value,
+				ValueVerified:         valueVerified,
 				UnrealizedPnL:         unrealizedPnL,
 				CostBasisVerified:     !slot.CostBasisUnverified && slot.AvgBuyPrice > 0,
 				EntryFee:              slot.BuyFee,
@@ -338,6 +506,10 @@ func getPositions(c *gin.Context) {
 	}
 	if !entryFeesVerified {
 		accruedEntryFees = 0
+	}
+	if positionCount == 0 {
+		positionValueVerified = true
+		unrealizedPnLVerified = true
 	}
 
 	// 计算平均持倉價格
@@ -406,6 +578,7 @@ func getPositions(c *gin.Context) {
 
 	summary := PositionSummary{
 		PositionDataAvailable: true,
+		PositionValueVerified: positionValueVerified,
 		TotalQuantity:         totalQuantity,
 		TotalValue:            totalValue,
 		PositionCount:         positionCount,
@@ -454,20 +627,7 @@ func getPositionsSummary(c *gin.Context) {
 	}
 
 	if pmProvider == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"total_quantity":          0,
-			"total_value":             0,
-			"position_count":          0,
-			"average_price":           0,
-			"current_price":           0,
-			"unrealized_pnl":          0,
-			"pnl_percentage":          0,
-			"cost_basis_verified":     true,
-			"entry_fees_verified":     true,
-			"unrealized_pnl_verified": false,
-			"actual_margin":           0,
-			"leverage":                1,
-		})
+		c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 		return
 	}
 
@@ -476,6 +636,7 @@ func getPositionsSummary(c *gin.Context) {
 	if priceProv != nil {
 		wsPrice = normalizeMarketPrice(priceProv.GetLastPrice())
 	}
+	positionValueVerified := wsPrice > 0
 
 	// ========== 槽位计算部分 ==========
 	slotTotalQuantity := 0.0
@@ -492,20 +653,19 @@ func getPositionsSummary(c *gin.Context) {
 	// 筛选有持倉的槽位
 	for _, slot := range slots {
 		if !positionSlotFinancialsValid(slot) {
-			c.JSON(http.StatusOK, gin.H{
-				"total_quantity": 0, "total_value": 0, "position_count": 0,
-				"average_price": 0, "current_price": 0, "unrealized_pnl": 0,
-				"pnl_percentage": 0, "cost_basis_verified": false,
-				"entry_fees_verified": false, "unrealized_pnl_verified": false,
-				"actual_margin": 0, "leverage": 1,
-			})
+			c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 			return
 		}
-		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
+		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0 && slot.Price > 0 {
+			positionMarketPrice, marketPriceVerified := assessPositionMarketPrice(wsPrice, slot.Price)
+			if !marketPriceVerified {
+				positionValueVerified = false
+				unrealizedPnLVerified = false
+			}
 			slotPositionCount++
 			slotTotalQuantity += slot.PositionQty
 			if !isFiniteNumber(slotTotalQuantity) {
-				c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+				c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 				return
 			}
 			if !positionSlotEntryFeeVerified(slot) {
@@ -514,7 +674,7 @@ func getPositionsSummary(c *gin.Context) {
 			} else {
 				accruedEntryFees += slot.BuyFee
 				if !isFiniteNumber(accruedEntryFees) {
-					c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+					c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 					return
 				}
 			}
@@ -524,14 +684,14 @@ func getPositionsSummary(c *gin.Context) {
 			} else {
 				slotTotalCost += slot.AvgBuyPrice * slot.PositionQty
 				if !isFiniteNumber(slotTotalCost) {
-					c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+					c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 					return
 				}
-				if wsPrice > 0 {
-					pnl, directionVerified := positionSlotUnrealizedPnL(wsPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
+				if wsPrice > 0 && marketPriceVerified {
+					pnl, directionVerified := positionSlotUnrealizedPnL(positionMarketPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
 					slotUnrealizedPnL += pnl
 					if !isFiniteNumber(slotUnrealizedPnL) {
-						c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+						c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 						return
 					}
 					unrealizedPnLVerified = unrealizedPnLVerified && directionVerified
@@ -540,19 +700,19 @@ func getPositionsSummary(c *gin.Context) {
 				}
 			}
 
-			if wsPrice > 0 {
-				slotTotalValue += slot.PositionQty * wsPrice
-			} else {
-				slotTotalValue += slot.PositionQty * slot.Price
-			}
+			slotTotalValue += slot.PositionQty * positionMarketPrice
 			if !isFiniteNumber(slotTotalValue) {
-				c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+				c.JSON(http.StatusOK, unavailablePositionSummaryResponse())
 				return
 			}
 		}
 	}
 	if !entryFeesVerified {
 		accruedEntryFees = 0
+	}
+	if slotPositionCount == 0 {
+		positionValueVerified = true
+		unrealizedPnLVerified = true
 	}
 
 	// 槽位平均持倉價格
@@ -576,6 +736,7 @@ func getPositionsSummary(c *gin.Context) {
 	exchangeLeverage := 0
 	hasExchangeData := false
 	exchangeSnapshotVerified := false
+	exchangeSnapshot := exchangePositionSnapshot{}
 
 	if exchProv != nil && symbol != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -584,6 +745,7 @@ func getPositionsSummary(c *gin.Context) {
 
 		if err == nil && len(positions) > 0 {
 			snapshot := summarizeExchangePositions(positions)
+			exchangeSnapshot = snapshot
 			exchangeUnrealizedPnL = snapshot.UnrealizedPnL
 			exchangeMarkPrice = snapshot.MarkPrice
 			exchangeEntryPrice = snapshot.EntryPrice
@@ -601,51 +763,59 @@ func getPositionsSummary(c *gin.Context) {
 	type reasonItem map[string]interface{}
 	var discrepancyReasons []reasonItem
 	pnlDiff := 0.0
+	discrepancyVerified := false
 
 	if hasExchangeData && exchangeSnapshotVerified && slotTotalQuantity > 0 && costBasisVerified && unrealizedPnLVerified {
-		pnlDiff = exchangeUnrealizedPnL - slotUnrealizedPnL
+		discrepancyVerified = true
+		pnlDiff, discrepancyVerified = finitePositionDifference(exchangeUnrealizedPnL, slotUnrealizedPnL)
+		if !discrepancyVerified {
+			pnlDiff = 0
+		}
 
 		// 1. 數量差异分析
-		quantityDiff := exchangePositionSize - slotTotalQuantity
-		if math.Abs(quantityDiff) > 0.000001 {
-			diffPercent := (quantityDiff / slotTotalQuantity) * 100
-			if math.Abs(diffPercent) > 1 {
+		quantityDiff, quantityDiffPercent, quantityDiffValid := finitePositionDifferencePercent(exchangePositionSize, slotTotalQuantity, slotTotalQuantity)
+		if !quantityDiffValid {
+			discrepancyVerified = false
+		} else if math.Abs(quantityDiff) > 0.000001 {
+			if math.Abs(quantityDiffPercent) > 1 {
 				discrepancyReasons = append(discrepancyReasons, reasonItem{
 					"type":     "quantity_diff",
 					"exchange": exchangePositionSize,
 					"slot":     slotTotalQuantity,
 					"diff":     quantityDiff,
-					"diff_pct": diffPercent,
+					"diff_pct": quantityDiffPercent,
 				})
 			}
 		}
 
 		// 2. 入场價格差异分析
-		priceDiff := exchangeEntryPrice - slotAveragePrice
-		if math.Abs(priceDiff) > 0.01 {
-			diffPercent := (priceDiff / slotAveragePrice) * 100
-			if math.Abs(diffPercent) > 0.1 {
+		priceDiff, priceDiffPercent, priceDiffValid := finitePositionDifferencePercent(exchangeEntryPrice, slotAveragePrice, slotAveragePrice)
+		if !priceDiffValid {
+			discrepancyVerified = false
+		} else if math.Abs(priceDiff) > 0.01 {
+			if math.Abs(priceDiffPercent) > 0.1 {
 				discrepancyReasons = append(discrepancyReasons, reasonItem{
 					"type":     "entry_price_diff",
 					"exchange": exchangeEntryPrice,
 					"slot_avg": slotAveragePrice,
 					"diff":     priceDiff,
-					"diff_pct": diffPercent,
+					"diff_pct": priceDiffPercent,
 				})
 			}
 		}
 
 		// 3. 當前價格差异分析（標記價格 vs WebSocket價格）
 		if wsPrice > 0 && exchangeMarkPrice > 0 {
-			markPriceDiff := exchangeMarkPrice - wsPrice
-			if math.Abs(markPriceDiff) > 0.01 {
-				diffPercent := (markPriceDiff / wsPrice) * 100
+			markPriceDiff, markPriceDiffPercent, markPriceDiffValid := finitePositionDifferencePercent(exchangeMarkPrice, wsPrice, wsPrice)
+			if !markPriceDiffValid {
+				discrepancyVerified = false
+			} else if math.Abs(markPriceDiff) > 0.01 {
 				discrepancyReasons = append(discrepancyReasons, reasonItem{
 					"type":       "price_diff",
 					"mark_price": exchangeMarkPrice,
 					"ws_price":   wsPrice,
 					"diff":       markPriceDiff,
-					"diff_pct":   diffPercent,
+					"diff_pct":   markPriceDiffPercent,
 				})
 			}
 		}
@@ -659,14 +829,19 @@ func getPositionsSummary(c *gin.Context) {
 		}
 
 		// 記錄详细日志
-		logger.Info("📊 [getPositionsSummary] 盈亏對比分析:")
-		logger.Info("  交易所: size=%.6f, entryPrice=%.2f, markPrice=%.2f, pnl=%.4f, leverage=%d",
-			exchangePositionSize, exchangeEntryPrice, exchangeMarkPrice, exchangeUnrealizedPnL, exchangeLeverage)
-		logger.Info("  槽位:   size=%.6f, avgPrice=%.2f, wsPrice=%.2f, pnl=%.4f",
-			slotTotalQuantity, slotAveragePrice, wsPrice, slotUnrealizedPnL)
-		logger.Info("  差异:   pnlDiff=%.4f USDT", pnlDiff)
-		for i, r := range discrepancyReasons {
-			logger.Info("  原因[%d]: type=%v", i, r["type"])
+		if discrepancyVerified {
+			logger.Info("📊 [getPositionsSummary] 盈亏對比分析:")
+			logger.Info("  交易所: size=%.6f, entryPrice=%.2f, markPrice=%.2f, pnl=%.4f, leverage=%d",
+				exchangePositionSize, exchangeEntryPrice, exchangeMarkPrice, exchangeUnrealizedPnL, exchangeLeverage)
+			logger.Info("  槽位:   size=%.6f, avgPrice=%.2f, wsPrice=%.2f, pnl=%.4f",
+				slotTotalQuantity, slotAveragePrice, wsPrice, slotUnrealizedPnL)
+			logger.Info("  差异:   pnlDiff=%.4f USDT", pnlDiff)
+			for i, r := range discrepancyReasons {
+				logger.Info("  原因[%d]: type=%v", i, r["type"])
+			}
+		} else {
+			pnlDiff = 0
+			discrepancyReasons = nil
 		}
 	}
 
@@ -674,7 +849,7 @@ func getPositionsSummary(c *gin.Context) {
 	// 优先使用交易所數據（因為这是真實的盈亏）
 	displayUnrealizedPnL := slotUnrealizedPnL
 	displayCurrentPrice := wsPrice
-	exchangePnLVerified := exchangeSnapshotVerified && hasExchangeData && entryFeesVerified && exchangeEntryPrice > 0 && exchangeMarkPrice > 0 && isFiniteNumber(exchangeUnrealizedPnL)
+	exchangePnLVerified := exchangeSnapshotVerified && hasExchangeData && entryFeesVerified && exchangePositionMatchesSlots(exchangeSnapshot, slots, direction) && exchangeEntryPrice > 0 && exchangeMarkPrice > 0 && isFiniteNumber(exchangeUnrealizedPnL)
 	if exchangePnLVerified {
 		displayUnrealizedPnL = exchangeUnrealizedPnL - accruedEntryFees
 		if !isFiniteNumber(displayUnrealizedPnL) {
@@ -715,9 +890,11 @@ func getPositionsSummary(c *gin.Context) {
 	// 構建响应
 	response := gin.H{
 		// 維度標識（按交易所、币种、策略）
-		"exchange": exchange,
-		"symbol":   symbol,
-		"strategy": "grid",
+		"exchange":                exchange,
+		"symbol":                  symbol,
+		"strategy":                "grid",
+		"position_data_available": true,
+		"position_value_verified": positionValueVerified,
 		// 主要显示數據（优先使用交易所數據）
 		"total_quantity":          slotTotalQuantity,
 		"total_value":             slotTotalValue,
@@ -744,6 +921,8 @@ func getPositionsSummary(c *gin.Context) {
 		// 交易所數據
 		"exchange_data": gin.H{
 			"has_data":       hasExchangeData,
+			"data_verified":  exchangeSnapshotVerified,
+			"pnl_applied":    exchangePnLVerified,
 			"quantity":       exchangePositionSize,
 			"entry_price":    exchangeEntryPrice,
 			"mark_price":     exchangeMarkPrice,
@@ -753,6 +932,7 @@ func getPositionsSummary(c *gin.Context) {
 
 		// 差异分析
 		"discrepancy": gin.H{
+			"verified": discrepancyVerified,
 			"pnl_diff": pnlDiff,
 			"reasons":  discrepancyReasons,
 		},
@@ -902,6 +1082,7 @@ func getPositionsSummaryAll(c *gin.Context) {
 		if priceProv != nil {
 			wsPrice = normalizeMarketPrice(priceProv.GetLastPrice())
 		}
+		positionValueVerified := wsPrice > 0
 
 		// 槽位计算
 		slotTotalQuantity := 0.0
@@ -914,35 +1095,75 @@ func getPositionsSummaryAll(c *gin.Context) {
 		unrealizedPnLVerified := wsPrice > 0
 		direction := positionDirection(pmProvider)
 		slotUnrealizedPnL := 0.0
+		invalidPositionData := false
 		for _, slot := range slots {
-			if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
+			if !positionSlotFinancialsValid(slot) {
+				invalidPositionData = true
+				break
+			}
+			if slot.PositionStatus == "FILLED" && slot.PositionQty > 0 && slot.Price > 0 {
+				positionMarketPrice, marketPriceVerified := assessPositionMarketPrice(wsPrice, slot.Price)
+				if !marketPriceVerified {
+					positionValueVerified = false
+					unrealizedPnLVerified = false
+				}
 				slotPositionCount++
 				slotTotalQuantity += slot.PositionQty
+				if !isFiniteNumber(slotTotalQuantity) {
+					invalidPositionData = true
+					break
+				}
 				if !positionSlotEntryFeeVerified(slot) {
 					entryFeesVerified = false
 					unrealizedPnLVerified = false
 				} else {
 					accruedEntryFees += slot.BuyFee
+					if !isFiniteNumber(accruedEntryFees) {
+						invalidPositionData = true
+						break
+					}
 				}
 				if slot.CostBasisUnverified || slot.AvgBuyPrice <= 0 {
 					costBasisVerified = false
 					unrealizedPnLVerified = false
 				} else {
 					slotTotalCost += slot.AvgBuyPrice * slot.PositionQty
-					if wsPrice > 0 {
-						pnl, directionVerified := positionSlotUnrealizedPnL(wsPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
+					if !isFiniteNumber(slotTotalCost) {
+						invalidPositionData = true
+						break
+					}
+					if wsPrice > 0 && marketPriceVerified {
+						pnl, directionVerified := positionSlotUnrealizedPnL(positionMarketPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
 						slotUnrealizedPnL += pnl
+						if !isFiniteNumber(slotUnrealizedPnL) {
+							invalidPositionData = true
+							break
+						}
 						unrealizedPnLVerified = unrealizedPnLVerified && directionVerified
 					} else {
 						unrealizedPnLVerified = false
 					}
 				}
-				if wsPrice > 0 {
-					slotTotalValue += slot.PositionQty * wsPrice
-				} else {
-					slotTotalValue += slot.PositionQty * slot.Price
+				slotTotalValue += slot.PositionQty * positionMarketPrice
+				if !isFiniteNumber(slotTotalValue) {
+					invalidPositionData = true
+					break
 				}
 			}
+		}
+		if invalidPositionData {
+			result = append(result, gin.H{
+				"bot_id":   botIDByKey[makeSymbolKey(strings.ToLower(exchangeName), symbol, marketType)],
+				"exchange": exchangeName, "symbol": symbol, "market_type": marketType,
+				"strategy": strategyByKey[key], "position_data_available": false,
+				"position_value_verified": false,
+				"total_quantity":          0, "total_value": 0, "position_count": 0,
+				"average_price": 0, "current_price": 0, "unrealized_pnl": 0,
+				"cost_basis_verified": false, "entry_fees_verified": false,
+				"accrued_entry_fees": 0, "unrealized_pnl_verified": false,
+				"pnl_percentage": 0, "actual_margin": 0, "leverage": 1,
+			})
+			continue
 		}
 		if !entryFeesVerified {
 			accruedEntryFees = 0
@@ -971,12 +1192,14 @@ func getPositionsSummaryAll(c *gin.Context) {
 		exchangeLeverage := 0
 		hasExchangeData := false
 		exchangeSnapshotVerified := false
+		exchangeSnapshot := exchangePositionSnapshot{}
 		if exchProv != nil && symbol != "" {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			positions, err := exchProv.GetPositions(ctx, symbol)
 			cancel()
 			if err == nil && len(positions) > 0 {
 				snapshot := summarizeExchangePositions(positions)
+				exchangeSnapshot = snapshot
 				exchangeUnrealizedPnL = snapshot.UnrealizedPnL
 				exchangeMarkPrice = snapshot.MarkPrice
 				exchangeEntryPrice = snapshot.EntryPrice
@@ -989,7 +1212,7 @@ func getPositionsSummaryAll(c *gin.Context) {
 
 		displayUnrealizedPnL := slotUnrealizedPnL
 		displayCurrentPrice := wsPrice
-		exchangePnLVerified := exchangeSnapshotVerified && hasExchangeData && entryFeesVerified && exchangeEntryPrice > 0 && exchangeMarkPrice > 0 && isFiniteNumber(exchangeUnrealizedPnL)
+		exchangePnLVerified := exchangeSnapshotVerified && hasExchangeData && entryFeesVerified && exchangePositionMatchesSlots(exchangeSnapshot, slots, direction) && exchangeEntryPrice > 0 && exchangeMarkPrice > 0 && isFiniteNumber(exchangeUnrealizedPnL)
 		if exchangePnLVerified {
 			displayUnrealizedPnL = exchangeUnrealizedPnL - accruedEntryFees
 			if !isFiniteNumber(displayUnrealizedPnL) {
@@ -1014,6 +1237,10 @@ func getPositionsSummaryAll(c *gin.Context) {
 		pnlPercentage := 0.0
 		if costBasisVerified && entryFeesVerified && unrealizedPnLVerified && slotTotalCost > 0 {
 			pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
+			if !isFiniteNumber(pnlPercentage) {
+				pnlPercentage = 0
+				unrealizedPnLVerified = false
+			}
 		}
 
 		strategyName := "grid"
@@ -1031,6 +1258,8 @@ func getPositionsSummaryAll(c *gin.Context) {
 			"symbol":                  symbol,
 			"market_type":             marketType,
 			"strategy":                strategyName,
+			"position_data_available": true,
+			"position_value_verified": positionValueVerified,
 			"total_quantity":          slotTotalQuantity,
 			"total_value":             slotTotalValue,
 			"position_count":          slotPositionCount,
@@ -1046,6 +1275,8 @@ func getPositionsSummaryAll(c *gin.Context) {
 			"leverage":                leverage,
 			"exchange_data": gin.H{
 				"has_data":       hasExchangeData,
+				"data_verified":  exchangeSnapshotVerified,
+				"pnl_applied":    exchangePnLVerified,
 				"quantity":       exchangePositionSize,
 				"entry_price":    exchangeEntryPrice,
 				"mark_price":     exchangeMarkPrice,

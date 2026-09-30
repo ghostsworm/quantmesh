@@ -891,7 +891,12 @@ const GlobalDashboard: React.FC = () => {
                           }}
                         >
                           <Td fontWeight="600">{pos.exchange.toUpperCase()}</Td>
-                          <Td>{pos.symbol}</Td>
+                          <Td>
+                            {pos.symbol}
+                            {pos.position_data_available === false && (
+                              <Text color="orange.500" fontSize="xs">{t('positionsPage.dataUnavailable')}</Text>
+                            )}
+                          </Td>
                           <Td>
                             {marketType ? (
                               <Badge 
@@ -918,11 +923,11 @@ const GlobalDashboard: React.FC = () => {
                               {t('strategyNames.' + pos.strategy, { defaultValue: pos.strategy })}
                             </Badge>
                           </Td>
-                          <Td isNumeric>{pos.total_quantity?.toFixed(4)}</Td>
-                          <Td isNumeric color={(pos.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
-                            {(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}{(pos.unrealized_pnl || 0).toFixed(2)}
+                          <Td isNumeric>{pos.position_data_available === false ? '—' : pos.total_quantity?.toFixed(4)}</Td>
+                          <Td isNumeric color={pos.position_data_available === false || pos.unrealized_pnl_verified === false ? 'gray.500' : (pos.unrealized_pnl || 0) >= 0 ? 'green.500' : 'red.500'} fontWeight="600">
+                            {pos.position_data_available === false ? '—' : pos.unrealized_pnl_verified === false ? t('positionsPage.pnlUnverified') : `${(pos.unrealized_pnl || 0) >= 0 ? '+' : ''}${(pos.unrealized_pnl || 0).toFixed(2)}`}
                           </Td>
-                          <Td isNumeric>${pos.total_value?.toFixed(2)}</Td>
+                          <Td isNumeric>{pos.position_data_available === false ? '—' : pos.position_value_verified === false ? t('positionsPage.valueUnverified') : `$${pos.total_value?.toFixed(2)}`}</Td>
                         </Tr>
                       )
                     })}

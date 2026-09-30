@@ -8,6 +8,43 @@ export interface PositionRowData extends PositionSummaryItem {
   ordersLoaded: boolean
 }
 
+export interface VerifiedPositionTotals {
+  totalPnl: number
+  totalValue: number
+  pnlVerified: boolean
+  valueVerified: boolean
+}
+
+export function summarizeVerifiedPositionRows(rows: PositionSummaryItem[]): VerifiedPositionTotals {
+  let totalPnl = 0
+  let totalValue = 0
+  let pnlVerified = true
+  let valueVerified = true
+
+  for (const row of rows) {
+    if (row.position_data_available === false || row.unrealized_pnl_verified === false || !Number.isFinite(row.unrealized_pnl)) {
+      pnlVerified = false
+    } else if (pnlVerified) {
+      totalPnl += row.unrealized_pnl
+      if (!Number.isFinite(totalPnl)) pnlVerified = false
+    }
+
+    if (row.position_data_available === false || row.position_value_verified === false || !Number.isFinite(row.total_value)) {
+      valueVerified = false
+    } else if (valueVerified) {
+      totalValue += row.total_value
+      if (!Number.isFinite(totalValue)) valueVerified = false
+    }
+  }
+
+  return {
+    totalPnl: pnlVerified ? totalPnl : 0,
+    totalValue: valueVerified ? totalValue : 0,
+    pnlVerified,
+    valueVerified,
+  }
+}
+
 /**
  * 穩定行鍵：後端有時返回大小寫不一致的 exchange/symbol，定時刷新必須用同一規則，
  * 否則展開態與委託緩存會對不上。

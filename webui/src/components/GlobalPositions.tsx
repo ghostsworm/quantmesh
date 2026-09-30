@@ -44,6 +44,7 @@ import {
 import {
   mergePositionRowsForRefresh,
   positionRowKey,
+  summarizeVerifiedPositionRows,
   type PositionRowData,
 } from '../utils/globalPositionsMerge'
 import { useNavigate } from 'react-router-dom'
@@ -242,8 +243,8 @@ const GlobalPositions: React.FC = () => {
   }, [])
 
   // ── 汇总 PnL ──
-  const totalPnl = rows.reduce((s, r) => s + r.unrealized_pnl, 0)
-  const totalValue = rows.reduce((s, r) => s + r.total_value, 0)
+  const positionTotals = summarizeVerifiedPositionRows(rows)
+  const hasUnavailablePosition = rows.some(row => row.position_data_available === false)
 
   if (loading) {
     return (
@@ -281,8 +282,8 @@ const GlobalPositions: React.FC = () => {
             <CardBody py={3}>
               <Stat>
                 <StatLabel fontSize="xs" color="gray.500">{t('globalPositions.unrealizedPnl')}</StatLabel>
-                <StatNumber fontSize="lg" color={pnlColor(totalPnl)}>
-                  {formatPnl(totalPnl)}
+                <StatNumber fontSize="lg" color={positionTotals.pnlVerified ? pnlColor(positionTotals.totalPnl) : 'gray.500'}>
+                  {!positionTotals.pnlVerified ? t(hasUnavailablePosition ? 'positionsPage.dataUnavailable' : 'positionsPage.pnlUnverified') : formatPnl(positionTotals.totalPnl)}
                 </StatNumber>
               </Stat>
             </CardBody>
@@ -291,7 +292,7 @@ const GlobalPositions: React.FC = () => {
             <CardBody py={3}>
               <Stat>
                 <StatLabel fontSize="xs" color="gray.500">{t('globalPositions.value')}</StatLabel>
-                <StatNumber fontSize="lg">{totalValue.toFixed(2)}</StatNumber>
+              <StatNumber fontSize="lg">{!positionTotals.valueVerified ? t(hasUnavailablePosition ? 'positionsPage.dataUnavailable' : 'positionsPage.valueUnverified') : positionTotals.totalValue.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -365,6 +366,18 @@ const GlobalPositions: React.FC = () => {
                       <Td>
                         <HStack spacing={1}>
                           <Text fontSize="sm" fontWeight="600">{row.symbol}</Text>
+                          {row.position_data_available === false && (
+                            <Text color="orange.500" fontSize="xs">{t('positionsPage.dataUnavailable')}</Text>
+                          )}
+                          {row.position_data_available !== false && row.position_value_verified === false && (
+                            <Text color="orange.500" fontSize="xs">{t('positionsPage.valueUnverified')}</Text>
+                          )}
+                          {row.position_data_available !== false && row.unrealized_pnl_verified === false && (
+                            <Text color="orange.500" fontSize="xs">{t('positionsPage.pnlUnverified')}</Text>
+                          )}
+                          {row.position_data_available !== false && row.cost_basis_verified === false && (
+                            <Text color="orange.500" fontSize="xs">{t('positionsPage.costBasisUnverified')}</Text>
+                          )}
                           {row.market_type && (
                             <Badge
                               colorScheme={row.market_type === 'spot' ? 'purple' : 'blue'}
@@ -382,48 +395,48 @@ const GlobalPositions: React.FC = () => {
                       </Td>
 
                       <Td isNumeric>
-                        <Text fontSize="sm">{formatPrice(row.average_price)}</Text>
+                        <Text fontSize="sm">{row.position_data_available === false || row.cost_basis_verified === false ? '—' : formatPrice(row.average_price)}</Text>
                       </Td>
 
                       <Td isNumeric>
-                        <Text fontSize="sm">{formatPrice(row.current_price)}</Text>
+                        <Text fontSize="sm">{row.position_data_available === false || row.position_value_verified === false ? '—' : formatPrice(row.current_price)}</Text>
                       </Td>
 
                       <Td isNumeric>
-                        <Text fontSize="sm">{row.total_quantity.toFixed(4)}</Text>
+                        <Text fontSize="sm">{row.position_data_available === false ? '—' : row.total_quantity.toFixed(4)}</Text>
                       </Td>
 
                       <Td isNumeric>
-                        <Text fontSize="sm">{row.total_value.toFixed(2)}</Text>
+                        <Text fontSize="sm">{row.position_data_available === false || row.position_value_verified === false ? '—' : row.total_value.toFixed(2)}</Text>
                       </Td>
 
                       <Td isNumeric>
                         <Text
                           fontSize="sm"
                           fontWeight="600"
-                          color={pnlColor(row.unrealized_pnl)}
+                          color={row.position_data_available === false || row.unrealized_pnl_verified === false ? 'gray.500' : pnlColor(row.unrealized_pnl)}
                         >
-                          {formatPnl(row.unrealized_pnl)}
+                          {row.position_data_available === false || row.unrealized_pnl_verified === false ? '—' : formatPnl(row.unrealized_pnl)}
                         </Text>
                       </Td>
 
                       <Td isNumeric>
                         <Text
                           fontSize="sm"
-                          color={pnlColor(row.pnl_percentage)}
+                          color={row.position_data_available === false || row.unrealized_pnl_verified === false ? 'gray.500' : pnlColor(row.pnl_percentage)}
                         >
-                          {row.pnl_percentage >= 0 ? '+' : ''}{row.pnl_percentage.toFixed(2)}%
+                          {row.position_data_available === false || row.unrealized_pnl_verified === false ? '—' : `${row.pnl_percentage >= 0 ? '+' : ''}${row.pnl_percentage.toFixed(2)}%`}
                         </Text>
                       </Td>
 
                       <Td isNumeric>
                         <Text fontSize="xs" color="gray.600">
-                          {row.actual_margin > 0 ? row.actual_margin.toFixed(2) : '—'}
+                          {row.position_data_available === false || row.position_value_verified === false ? '—' : row.actual_margin > 0 ? row.actual_margin.toFixed(2) : '—'}
                         </Text>
                       </Td>
 
                       <Td>
-                        {row.leverage && row.leverage > 1 ? (
+                        {row.position_data_available !== false && row.leverage && row.leverage > 1 ? (
                           <Badge colorScheme="orange" borderRadius="full" fontSize="xs">
                             {row.leverage}x
                           </Badge>
@@ -434,6 +447,7 @@ const GlobalPositions: React.FC = () => {
                       <Td>
                         <Button
                           size="xs"
+                          isDisabled={row.position_data_available === false || row.position_value_verified === false}
                           colorScheme={ruleCount > 0 ? 'green' : 'gray'}
                           variant={ruleCount > 0 ? 'solid' : 'outline'}
                           onClick={() => setTpSlTarget(row)}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   mergePositionRowsForRefresh,
   positionRowKey,
+  summarizeVerifiedPositionRows,
   type PositionRowData,
 } from './globalPositionsMerge'
 import type { PendingOrderInfo, PositionSummaryItem } from '../services/api'
@@ -41,6 +42,24 @@ describe('positionRowKey', () => {
     expect(positionRowKey({ exchange: 'binance', symbol: 'btcusdt' })).toBe(
       'binance:btcusdt:futures'
     )
+  })
+})
+
+describe('summarizeVerifiedPositionRows', () => {
+  it('refuses partial totals when any row is unverified', () => {
+    const totals = summarizeVerifiedPositionRows([
+      row('binance', 'BTCUSDT', { total_value: 100, unrealized_pnl: 5 }),
+      row('okx', 'ETHUSDT', { position_data_available: false }),
+    ])
+    expect(totals).toEqual({ totalPnl: 0, totalValue: 0, pnlVerified: false, valueVerified: false })
+  })
+
+  it('fails closed when cross-symbol totals overflow', () => {
+    const totals = summarizeVerifiedPositionRows([
+      row('binance', 'BTCUSDT', { total_value: Number.MAX_VALUE, unrealized_pnl: Number.MAX_VALUE }),
+      row('okx', 'ETHUSDT', { total_value: Number.MAX_VALUE, unrealized_pnl: Number.MAX_VALUE }),
+    ])
+    expect(totals).toEqual({ totalPnl: 0, totalValue: 0, pnlVerified: false, valueVerified: false })
   })
 })
 

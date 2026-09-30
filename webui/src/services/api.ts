@@ -459,19 +459,24 @@ export interface PositionInfo {
   price: number
   quantity: number
   value: number
+  value_verified?: boolean
   unrealized_pnl: number
+  unrealized_pnl_verified?: boolean
 }
 
 // 持倉彙總介面（用於持倉页面）
 export interface PositionSummary {
   position_data_available?: boolean
+  position_value_verified?: boolean
   total_quantity: number
   total_value: number
   position_count: number
   average_price: number
+  cost_basis_verified?: boolean
   current_price: number
   unrealized_pnl: number
   pnl_percentage: number
+  unrealized_pnl_verified?: boolean
   actual_margin: number  // 實際资金占用（實際保证金）
   leverage: number       // 杠杆倍數
   positions: PositionInfo[]
@@ -573,6 +578,8 @@ export async function getExchangePositionsSummary(
 // 按交易所、币种、策略列出的所有持倉彙總
 export interface PositionSummaryItem {
   bot_id?: string
+  position_data_available?: boolean
+  position_value_verified?: boolean
   exchange: string
   symbol: string
   market_type?: string
@@ -586,6 +593,9 @@ export interface PositionSummaryItem {
   pnl_percentage: number
   actual_margin: number
   leverage: number
+  cost_basis_verified?: boolean
+  entry_fees_verified?: boolean
+  unrealized_pnl_verified?: boolean
   exchange_data?: {
     has_data: boolean
     quantity: number
