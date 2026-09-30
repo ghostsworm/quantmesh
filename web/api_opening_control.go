@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"reflect"
 	"strings"
@@ -237,11 +238,25 @@ func resumeOpening(c *gin.Context) {
 		return
 	}
 	if specialized {
-		if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+		allowed, err := runRecoveryIfRiskUnheld(func() error {
+			if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+				return err
+			}
+			gate.Unblock("manual")
+			return nil
+		})
+		if err != nil {
+			if errors.Is(err, errOpeningPauseCoordinatorUnavailable) {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "risk_pause_coordinator_unavailable", "opening_paused": true})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "opening_resume_persist_failed", "opening_paused": true})
 			return
 		}
-		gate.Unblock("manual")
+		if !allowed {
+			c.JSON(http.StatusConflict, gin.H{"error": "risk_pause_active", "opening_paused": true})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "恢復請求已處理", "opening_paused": gate.Blocked()})
 		return
 	}
@@ -254,13 +269,32 @@ func resumeOpening(c *gin.Context) {
 		return
 	}
 
-	if err := spm.ResumeOpeningManually(); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "opening_paused": spm.IsOpeningPaused(), "protective_liquidation": spm.GetProtectiveLiquidationStatus()})
+	persistenceFailed := false
+	allowed, err := runRecoveryIfRiskUnheld(func() error {
+		if err := spm.ResumeOpeningManually(); err != nil {
+			return err
+		}
+		if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
+			spm.PauseOpening("manual")
+			persistenceFailed = true
+			return err
+		}
+		return nil
+	})
+	if errors.Is(err, errOpeningPauseCoordinatorUnavailable) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "risk_pause_coordinator_unavailable", "opening_paused": true})
 		return
 	}
-	if err := persistOpeningPause(strings.TrimSpace(c.Query("bot_id")), exchange, symbol, c.DefaultQuery("market_type", "futures"), false); err != nil {
-		spm.PauseOpening("manual")
+	if !allowed {
+		c.JSON(http.StatusConflict, gin.H{"error": "risk_pause_active", "opening_paused": true})
+		return
+	}
+	if err != nil && persistenceFailed {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "opening_resume_persist_failed", "opening_paused": true})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "opening_paused": spm.IsOpeningPaused(), "protective_liquidation": spm.GetProtectiveLiquidationStatus()})
 		return
 	}
 	logger.Info("🔄 [開倉管理] 手動恢復開倉 [%s:%s]", exchange, symbol)

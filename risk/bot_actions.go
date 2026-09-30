@@ -178,10 +178,11 @@ func closePositionsOnBots(parent context.Context, bots []BotController, method s
 // OpeningPauseCoordinator 多來源暫停開倉協調器。
 // BotController 的暫停只有單一旗標，熔斷器與複合風控各自恢復時會互相覆蓋；
 // 這裡按來源記錄暫停，只有所有自動風控來源都解除後才真正 ResumeOpening。
-// 注意：Web 手動恢復 / 紧急中心仍直接調用 Bot，不經過此協調器。
+// Web 恢復通過 RunIfUnheld 串行化；紧急中心通过同一协调器持有独立来源。
 type OpeningPauseCoordinator struct {
-	mu      sync.Mutex
-	holders map[string]string // source -> reason
+	transitionMu sync.Mutex
+	mu           sync.Mutex
+	holders      map[string]string // source -> reason
 }
 
 type nonAutoResumingBot interface {
@@ -206,6 +207,8 @@ func NewOpeningPauseCoordinator() *OpeningPauseCoordinator {
 
 // Pause 以 source 身份暫停所有 Bot 開倉
 func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotController) {
+	c.transitionMu.Lock()
+	defer c.transitionMu.Unlock()
 	c.mu.Lock()
 	c.holders[source] = reason
 	c.mu.Unlock()
@@ -216,6 +219,8 @@ func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotControl
 
 // Release 解除 source 的暫停；若仍有其他來源持有暫停則不恢復，返回是否真正恢復
 func (c *OpeningPauseCoordinator) Release(source string, bots []BotController) bool {
+	c.transitionMu.Lock()
+	defer c.transitionMu.Unlock()
 	c.mu.Lock()
 	delete(c.holders, source)
 	remaining := make([]string, 0, len(c.holders))
@@ -233,6 +238,24 @@ func (c *OpeningPauseCoordinator) Release(source string, bots []BotController) b
 		bot.ResumeOpening()
 	}
 	return true
+}
+
+// RunIfUnheld atomically checks that no coordinated risk source is holding the
+// global pause and runs an explicit recovery action while new holds are
+// serialized behind it. It returns false without running action when held.
+func (c *OpeningPauseCoordinator) RunIfUnheld(action func() error) (bool, error) {
+	if action == nil {
+		return false, fmt.Errorf("recovery action is required")
+	}
+	c.transitionMu.Lock()
+	defer c.transitionMu.Unlock()
+	c.mu.Lock()
+	if len(c.holders) > 0 {
+		c.mu.Unlock()
+		return false, nil
+	}
+	c.mu.Unlock()
+	return true, action()
 }
 
 // IsHeldBy source 是否持有暫停

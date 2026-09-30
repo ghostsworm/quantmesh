@@ -71,3 +71,28 @@ func TestDisableEmergencyModeDoesNotResumeRiskPausedBots(t *testing.T) {
 		t.Fatalf("disabling emergency mode must not clear another risk source pause; resumeCount=%d", bot.resumeCount)
 	}
 }
+
+func TestEmergencyPauseReleasePreservesOtherRiskHolds(t *testing.T) {
+	bot := &circuitBreakerMockBot{}
+	bots := []BotController{bot}
+	provider := &circuitBreakerMockProvider{bots: bots}
+	coordinator := NewOpeningPauseCoordinator()
+	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
+	emergency := NewEmergencyCenter(nil, nil, provider)
+	emergency.SetPauseCoordinator(coordinator)
+	if _, err := emergency.pauseAllBots(bots); err != nil {
+		t.Fatal(err)
+	}
+	emergency.emergencyMode = true
+
+	if err := emergency.DisableEmergencyMode("operator"); err != nil {
+		t.Fatal(err)
+	}
+	if bot.resumeCount != 0 || !coordinator.IsHeldBy("global_circuit_breaker") || coordinator.IsHeldBy(emergencyCenterPauseSource) {
+		t.Fatalf("emergency release must retain independent risk hold: resumes=%d holders=%v", bot.resumeCount, coordinator.Holders())
+	}
+	coordinator.Release("global_circuit_breaker", bots)
+	if bot.resumeCount != 1 {
+		t.Fatalf("last risk source release should resume once, got %d", bot.resumeCount)
+	}
+}

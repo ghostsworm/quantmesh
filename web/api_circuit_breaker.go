@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 
 	"quantmesh/config"
@@ -12,10 +13,24 @@ import (
 
 // 全局熔断器实例，由 main.go 初始化后设置
 var globalCircuitBreaker *risk.GlobalCircuitBreaker
+var globalOpeningPauseCoordinator *risk.OpeningPauseCoordinator
+var errOpeningPauseCoordinatorUnavailable = errors.New("risk pause coordinator unavailable")
 
 // SetGlobalCircuitBreaker 设置全局熔断器实例
 func SetGlobalCircuitBreaker(gcb *risk.GlobalCircuitBreaker) {
 	globalCircuitBreaker = gcb
+}
+
+// SetOpeningPauseCoordinator shares risk-pause ownership with explicit resume APIs.
+func SetOpeningPauseCoordinator(coordinator *risk.OpeningPauseCoordinator) {
+	globalOpeningPauseCoordinator = coordinator
+}
+
+func runRecoveryIfRiskUnheld(action func() error) (bool, error) {
+	if globalOpeningPauseCoordinator == nil {
+		return false, errOpeningPauseCoordinatorUnavailable
+	}
+	return globalOpeningPauseCoordinator.RunIfUnheld(action)
 }
 
 // GetGlobalCircuitBreakerConfig 获取全局熔断器配置（用于 API 返回）

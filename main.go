@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc541"
+var Version = "3.111.0-rc542"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1768,6 +1768,7 @@ func main() {
 
 	// 熔斷器與複合風控共用暫停協調器，避免一方恢復時覆蓋另一方的暫停
 	riskPauseCoordinator := risk.NewOpeningPauseCoordinator()
+	web.SetOpeningPauseCoordinator(riskPauseCoordinator)
 
 	// 初始化全局熔斷器
 	if cfg.CircuitBreaker.Enabled {
@@ -1794,6 +1795,7 @@ func main() {
 			eventBus,
 			&botManagerProviderAdapter{manager: symbolManager},
 		)
+		emergencyCenter.SetPauseCoordinator(riskPauseCoordinator)
 		web.SetEmergencyCenter(emergencyCenter)
 		logger.Info("✅ 紧急操作中心已初始化並啟用")
 	}

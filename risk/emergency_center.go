@@ -24,6 +24,8 @@ const (
 	EmergencyActionEmergencyMode     EmergencyAction = "emergency_mode"      // 进入紧急模式
 )
 
+const emergencyCenterPauseSource = "emergency_center"
+
 // EmergencyScenario 预定义紧急场景
 type EmergencyScenario struct {
 	Name        string            `json:"name"`
@@ -107,9 +109,15 @@ type EmergencyCenter struct {
 	botProvider     BotProvider
 	scenarios       map[string]*EmergencyScenario
 	operations      []*EmergencyOperation
+	pauser          *OpeningPauseCoordinator
 	operationsMu    sync.RWMutex
 	emergencyMode   bool
 	emergencyModeMu sync.RWMutex
+}
+
+// SetPauseCoordinator connects emergency pauses to shared risk-source ownership.
+func (ec *EmergencyCenter) SetPauseCoordinator(pauser *OpeningPauseCoordinator) {
+	ec.pauser = pauser
 }
 
 // NewEmergencyCenter 创建紧急操作中心
@@ -320,9 +328,14 @@ func (ec *EmergencyCenter) executeAction(ctx context.Context, action EmergencyAc
 // stopAllBots 停止所有Bot
 func (ec *EmergencyCenter) stopAllBots(bots []BotController) (string, error) {
 	successCount := 0
-	for _, bot := range bots {
-		pauseBotWithoutAutoResume(bot, "紧急停止")
-		successCount++
+	if ec.pauser != nil {
+		ec.pauser.Pause(emergencyCenterPauseSource, "紧急停止", bots)
+		successCount = len(bots)
+	} else {
+		for _, bot := range bots {
+			pauseBotWithoutAutoResume(bot, "紧急停止")
+			successCount++
+		}
 	}
 	return fmt.Sprintf("已停止 %d 个Bot", successCount), nil
 }
@@ -340,9 +353,14 @@ func (ec *EmergencyCenter) closeAllPositions(ctx context.Context, bots []BotCont
 // pauseAllBots 暂停所有Bot开仓
 func (ec *EmergencyCenter) pauseAllBots(bots []BotController) (string, error) {
 	successCount := 0
-	for _, bot := range bots {
-		pauseBotWithoutAutoResume(bot, "紧急暂停")
-		successCount++
+	if ec.pauser != nil {
+		ec.pauser.Pause(emergencyCenterPauseSource, "紧急暂停", bots)
+		successCount = len(bots)
+	} else {
+		for _, bot := range bots {
+			pauseBotWithoutAutoResume(bot, "紧急暂停")
+			successCount++
+		}
 	}
 	return fmt.Sprintf("已暂停 %d 个Bot开仓", successCount), nil
 }
@@ -366,15 +384,21 @@ func (ec *EmergencyCenter) enableEmergencyMode() (string, error) {
 // DisableEmergencyMode 禁用紧急模式
 func (ec *EmergencyCenter) DisableEmergencyMode(triggeredBy string) error {
 	ec.emergencyModeMu.Lock()
-	defer ec.emergencyModeMu.Unlock()
-
-	if !ec.emergencyMode {
+	modeEnabled := ec.emergencyMode
+	if !modeEnabled && (ec.pauser == nil || !ec.pauser.IsHeldBy(emergencyCenterPauseSource)) {
+		ec.emergencyModeMu.Unlock()
 		return fmt.Errorf("当前未处于紧急模式")
 	}
-
 	ec.emergencyMode = false
-	logger.Info("✅ [紧急中心] 已退出紧急模式，操作人: %s", triggeredBy)
-
+	ec.emergencyModeMu.Unlock()
+	logger.Info("✅ [紧急中心] 已解除紧急暂停/退出紧急模式，操作人: %s", triggeredBy)
+	if ec.pauser != nil && ec.pauser.IsHeldBy(emergencyCenterPauseSource) {
+		var bots []BotController
+		if ec.botProvider != nil {
+			bots = ec.botProvider.GetAllBots()
+		}
+		ec.pauser.Release(emergencyCenterPauseSource, bots)
+	}
 	return nil
 }
 

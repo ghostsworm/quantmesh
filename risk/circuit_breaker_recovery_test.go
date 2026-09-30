@@ -297,3 +297,44 @@ func TestClosePositionsSerializesAndStopsWithinSharedAccount(t *testing.T) {
 type panicBot struct{ *safeMockBot }
 
 func (panicBot) CloseAllPositions(context.Context, string, int) error { panic("boom") }
+
+func TestPauseCoordinatorSerializesRecoveryAgainstNewRiskHold(t *testing.T) {
+	coordinator := NewOpeningPauseCoordinator()
+	bot := &safeMockBot{}
+	recoveryEntered := make(chan struct{})
+	allowRecovery := make(chan struct{})
+	recoveryDone := make(chan struct{})
+	go func() {
+		defer close(recoveryDone)
+		allowed, err := coordinator.RunIfUnheld(func() error {
+			close(recoveryEntered)
+			<-allowRecovery
+			bot.ResumeOpening()
+			return nil
+		})
+		if err != nil || !allowed {
+			t.Errorf("RunIfUnheld() allowed=%v error=%v", allowed, err)
+		}
+	}()
+	<-recoveryEntered
+
+	pauseStarted := make(chan struct{})
+	pauseDone := make(chan struct{})
+	go func() {
+		close(pauseStarted)
+		coordinator.Pause("global_circuit_breaker", "new risk", []BotController{bot})
+		close(pauseDone)
+	}()
+	<-pauseStarted
+	select {
+	case <-pauseDone:
+		t.Fatal("new risk hold must serialize behind in-flight recovery")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(allowRecovery)
+	<-recoveryDone
+	<-pauseDone
+	if bot.resumes.Load() != 1 || bot.pauses.Load() != 1 || !coordinator.IsHeldBy("global_circuit_breaker") {
+		t.Fatalf("recovery and risk hold order was not preserved: resumes=%d pauses=%d held=%v", bot.resumes.Load(), bot.pauses.Load(), coordinator.IsHeldBy("global_circuit_breaker"))
+	}
+}

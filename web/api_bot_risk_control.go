@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -528,13 +529,24 @@ func resumeBotOpening(c *gin.Context) {
 		return
 	}
 
-	if manual, ok := bot.(interface{ ResumeOpeningManually() error }); ok {
-		if err := manual.ResumeOpeningManually(); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "position_status": bot.GetPositionStatus()})
+	allowed, err := runRecoveryIfRiskUnheld(func() error {
+		if manual, ok := bot.(interface{ ResumeOpeningManually() error }); ok {
+			return manual.ResumeOpeningManually()
+		}
+		bot.ResumeOpening()
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, errOpeningPauseCoordinatorUnavailable) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "risk_pause_coordinator_unavailable", "position_status": bot.GetPositionStatus()})
 			return
 		}
-	} else {
-		bot.ResumeOpening()
+		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "position_status": bot.GetPositionStatus()})
+		return
+	}
+	if !allowed {
+		c.JSON(http.StatusConflict, gin.H{"error": "risk_pause_active", "position_status": bot.GetPositionStatus()})
+		return
 	}
 	positionStatus := bot.GetPositionStatus()
 	status := "resume_requested"
