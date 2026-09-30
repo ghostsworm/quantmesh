@@ -475,11 +475,28 @@ func (s *FundingPerpSpreadStrategy) OnPriceChange(float64) error               {
 func (s *FundingPerpSpreadStrategy) OnOrderUpdate(*position.OrderUpdate) error { return nil }
 func (s *FundingPerpSpreadStrategy) GetPositions() []*Position                 { return nil }
 func (s *FundingPerpSpreadStrategy) GetOrders() []*Order                       { return nil }
-func (s *FundingPerpSpreadStrategy) GetStatistics() *StrategyStatistics        { return &StrategyStatistics{} }
+func (s *FundingPerpSpreadStrategy) GetStatistics() *StrategyStatistics        { return nil }
+
+func fundingSpreadExchangeName(ex exchange.IExchange) string {
+	if ex == nil {
+		return ""
+	}
+	return ex.GetName()
+}
 
 func (s *FundingPerpSpreadStrategy) GetVisualizationData() map[string]interface{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	ownershipVerified := s.ownershipReady && !s.exposureUnknown && !s.intentInFlight
 	return map[string]interface{}{
-		"type": "funding_perp_spread",
+		"type":                 "funding_perp_spread",
+		"ownership_verified":   ownershipVerified,
+		"leg_a_exchange":       fundingSpreadExchangeName(s.legA),
+		"leg_a_symbol":         s.symA,
+		"leg_a_owned_quantity": s.ownedA,
+		"leg_b_exchange":       fundingSpreadExchangeName(s.legB),
+		"leg_b_symbol":         s.symB,
+		"leg_b_owned_quantity": s.ownedB,
 	}
 }
 

@@ -902,3 +902,22 @@ func TestFundingPerpSpreadRuntimeStateMigratesResolvedV1AndRejectsUnknownV1Inten
 		t.Fatal("legacy in-flight intent without a ClientOrderID was accepted")
 	}
 }
+
+func TestFundingPerpSpreadStatusDoesNotReportUnimplementedStatistics(t *testing.T) {
+	strategy := &FundingPerpSpreadStrategy{
+		symA: "BTCUSDT", symB: "ETHUSDT",
+		ownedA: 1.25, ownedB: -1.25,
+		ownershipReady: true,
+	}
+	if stats := strategy.GetStatistics(); stats != nil {
+		t.Fatalf("unimplemented statistics must be omitted, got %+v", stats)
+	}
+	data := strategy.GetVisualizationData()
+	if data["ownership_verified"] != true || data["leg_a_owned_quantity"] != 1.25 || data["leg_b_owned_quantity"] != -1.25 {
+		t.Fatalf("verified two-leg ownership missing from status: %+v", data)
+	}
+	strategy.exposureUnknown = true
+	if verified := strategy.GetVisualizationData()["ownership_verified"]; verified != false {
+		t.Fatalf("unknown exposure was reported as verified: %v", verified)
+	}
+}

@@ -464,6 +464,7 @@ export interface PositionInfo {
 
 // 持倉彙總介面（用於持倉页面）
 export interface PositionSummary {
+  position_data_available?: boolean
   total_quantity: number
   total_value: number
   position_count: number

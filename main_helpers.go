@@ -260,6 +260,15 @@ func fundingIncomeMarketType(marketType string) string {
 	return marketType
 }
 
+func fundingIncomeManagedBySpecialRuntime(marketType string) bool {
+	switch strings.ToLower(strings.TrimSpace(marketType)) {
+	case config.MarketTypeFundingCarry, config.MarketTypeFundingPerpSpread:
+		return true
+	default:
+		return false
+	}
+}
+
 // startFundingIncomeSync 定時從交易所拉取資金費用（FUNDING_FEE）並寫入 funding_payments
 func startFundingIncomeSync(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, symbol, accountID, marketType, accountScope string) {
 	if st == nil || ex == nil {

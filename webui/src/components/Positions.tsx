@@ -39,6 +39,7 @@ const Positions: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const [cancellingAllBuy, setCancellingAllBuy] = useState(false)
+  const unavailableValue = summary?.position_data_available === false ? t('positionsPage.dataUnavailable') : null
 
   useEffect(() => {
     const fetchData = async () => {
@@ -195,7 +196,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.totalQuantity')}</StatLabel>
-                <StatNumber>{summary.total_quantity.toFixed(4)}</StatNumber>
+                <StatNumber>{unavailableValue ?? summary.total_quantity.toFixed(4)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -204,7 +205,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.totalValue')}</StatLabel>
-                <StatNumber>{summary.total_value.toFixed(2)}</StatNumber>
+                <StatNumber>{unavailableValue ?? summary.total_value.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -213,7 +214,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.positionSlots')}</StatLabel>
-                <StatNumber>{summary.position_count}</StatNumber>
+                <StatNumber>{unavailableValue ?? summary.position_count}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -222,7 +223,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.averagePrice')}</StatLabel>
-                <StatNumber>{summary.average_price.toFixed(2)}</StatNumber>
+                <StatNumber>{unavailableValue ?? summary.average_price.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -231,7 +232,7 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.currentMarketPrice')}</StatLabel>
-                <StatNumber>{summary.current_price.toFixed(2)}</StatNumber>
+                <StatNumber>{unavailableValue ?? summary.current_price.toFixed(2)}</StatNumber>
               </Stat>
             </CardBody>
           </Card>
@@ -240,8 +241,8 @@ const Positions: React.FC = () => {
             <CardBody>
               <Stat>
                 <StatLabel>{t('positionsPage.unrealizedPnl')}</StatLabel>
-                <StatNumber color={summary.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
-                  {summary.unrealized_pnl >= 0 ? '+' : ''}{summary.unrealized_pnl.toFixed(2)}
+                <StatNumber color={unavailableValue ? 'gray.500' : summary.unrealized_pnl >= 0 ? 'green.500' : 'red.500'}>
+                  {unavailableValue ?? `${summary.unrealized_pnl >= 0 ? '+' : ''}${summary.unrealized_pnl.toFixed(2)}`}
                 </StatNumber>
               </Stat>
             </CardBody>
@@ -258,7 +259,7 @@ const Positions: React.FC = () => {
                     </Text>
                   )}
                 </StatLabel>
-                <StatNumber>{(summary.actual_margin || 0).toFixed(2)}</StatNumber>
+                <StatNumber>{unavailableValue ?? (summary.actual_margin || 0).toFixed(2)}</StatNumber>
                 {summary.leverage && summary.leverage > 1 && (
                   <Text fontSize="xs" color="gray.500" mt={1}>
                     {t('positionsPage.positionValue')}: {summary.total_value.toFixed(2)}
@@ -320,9 +321,9 @@ const Positions: React.FC = () => {
         </Box>
       )}
 
-      {positions.length === 0 && summary && summary.position_count === 0 && (
+      {positions.length === 0 && summary && (summary.position_data_available === false || summary.position_count === 0) && (
         <Box textAlign="center" py={12}>
-          <Text color="gray.500" fontSize="lg">{t('positionsPage.noPositions')}</Text>
+          <Text color="gray.500" fontSize="lg">{unavailableValue ?? t('positionsPage.noPositions')}</Text>
         </Box>
       )}
     </Box>

@@ -20,7 +20,97 @@ import (
 	"quantmesh/monitor"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	ordersync "quantmesh/sync"
 )
+
+const fundingPerpSpreadOrderSyncInterval = 5 * time.Minute
+
+type fundingPerpSpreadIncomeTarget struct {
+	Exchange     string
+	Symbol       string
+	AccountID    string
+	AccountScope string
+}
+
+type fundingPerpSpreadOrderSyncPlan struct {
+	target fundingPerpSpreadIncomeTarget
+	client exchange.IExchange
+}
+
+type fundingPerpSpreadOrderSyncRunner struct {
+	service *ordersync.OrderSyncService
+	cancel  context.CancelFunc
+}
+
+func fundingPerpSpreadOrderSyncPlans(targets []fundingPerpSpreadIncomeTarget, clients ...exchange.IExchange) ([]fundingPerpSpreadOrderSyncPlan, []string, error) {
+	if len(targets) != len(clients) || len(targets) == 0 {
+		return nil, nil, fmt.Errorf("funding_perp_spread order sync requires one client per leg")
+	}
+	plans := make([]fundingPerpSpreadOrderSyncPlan, 0, len(targets))
+	unsupported := make([]string, 0)
+	for index, client := range clients {
+		target := targets[index]
+		if client == nil || !strings.EqualFold(strings.TrimSpace(client.GetName()), target.Exchange) {
+			return nil, nil, fmt.Errorf("funding_perp_spread order sync client does not match leg %s", target.Exchange)
+		}
+		if _, ok := client.(exchange.OrderHistoryPageSource); !ok {
+			unsupported = append(unsupported, target.Exchange+":"+target.Symbol)
+			continue
+		}
+		if target.AccountID == "" || target.AccountScope == "" || target.Symbol == "" {
+			return nil, nil, fmt.Errorf("funding_perp_spread order sync target is missing account scope or symbol")
+		}
+		plans = append(plans, fundingPerpSpreadOrderSyncPlan{target: target, client: client})
+	}
+	return plans, unsupported, nil
+}
+
+func startFundingPerpSpreadOrderSyncs(ctx context.Context, st storage.Storage, plans []fundingPerpSpreadOrderSyncPlan) []fundingPerpSpreadOrderSyncRunner {
+	runners := make([]fundingPerpSpreadOrderSyncRunner, 0, len(plans))
+	for _, plan := range plans {
+		if st == nil {
+			logger.WarnCtx(ctx, "[%s] order-fill history sync unavailable: storage is not configured", plan.target.Symbol)
+			continue
+		}
+		syncCtx, cancel := context.WithCancel(ctx)
+		service := ordersync.NewOrderSyncService(plan.client, st, plan.target.Symbol, plan.target.AccountID,
+			plan.target.Exchange, fundingPerpSpreadOrderSyncInterval)
+		service.SetTradeScope("futures", plan.target.AccountScope)
+		service.Start(syncCtx)
+		runners = append(runners, fundingPerpSpreadOrderSyncRunner{service: service, cancel: cancel})
+	}
+	return runners
+}
+
+func stopFundingPerpSpreadOrderSyncs(runners []fundingPerpSpreadOrderSyncRunner) {
+	for _, runner := range runners {
+		runner.cancel()
+		runner.service.Stop()
+	}
+}
+
+func fundingPerpSpreadIncomeTargets(cfg *config.Config, fp *config.FundingPerpSpreadConfig) ([]fundingPerpSpreadIncomeTarget, error) {
+	if cfg == nil || fp == nil {
+		return nil, fmt.Errorf("funding_perp_spread income sync requires config and both legs")
+	}
+	targets := make([]fundingPerpSpreadIncomeTarget, 0, 2)
+	for _, leg := range []config.FundingPerpLeg{fp.LegA, fp.LegB} {
+		exchangeName := strings.TrimSpace(leg.Exchange)
+		symbol := strings.TrimSpace(leg.Symbol)
+		exchangeCfg, ok := cfg.Exchanges[exchangeName]
+		if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" || symbol == "" {
+			return nil, fmt.Errorf("funding_perp_spread income sync identity is unavailable for %s:%s", exchangeName, symbol)
+		}
+		accountScope := equityAccountScopeID(exchangeName, exchangeCfg)
+		if strings.TrimSpace(accountScope) == "" {
+			return nil, fmt.Errorf("funding_perp_spread income sync account scope is unavailable for %s:%s", exchangeName, symbol)
+		}
+		targets = append(targets, fundingPerpSpreadIncomeTarget{
+			Exchange: exchangeName, Symbol: symbol, AccountID: accountScope, AccountScope: accountScope,
+		})
+	}
+	return targets, nil
+}
 
 // startFundingPerpSpreadSymbolRuntime 雙永续跨所資金費差專用運行時
 func startFundingPerpSpreadSymbolRuntime(
@@ -38,6 +128,10 @@ func startFundingPerpSpreadSymbolRuntime(
 		return nil, fmt.Errorf("funding_perp_spread 缺少 funding_perp_spread 配置")
 	}
 	if err := config.ValidateFundingPerpSpread(fp); err != nil {
+		return nil, err
+	}
+	incomeTargets, err := fundingPerpSpreadIncomeTargets(baseCfg, fp)
+	if err != nil {
 		return nil, err
 	}
 
@@ -170,6 +264,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		return nil, fmt.Errorf("funding_perp_spread account wallet reservation storage disappeared after claim")
 	}
 	runtimeOwnsReservation := false
+	var orderSyncs []fundingPerpSpreadOrderSyncRunner
 	defer func() {
 		if runtimeOwnsReservation {
 			return
@@ -265,6 +360,8 @@ func startFundingPerpSpreadSymbolRuntime(
 			openingGate.Block("strategy_stop_unverified")
 			return fmt.Errorf("funding_perp_spread stop/close is unverified: %w", err)
 		}
+		stopFundingPerpSpreadOrderSyncs(orderSyncs)
+		orderSyncs = nil
 		if releaseErr := verifyAndReleaseFundingPerpSpreadCapital(context.Background(), reservationStore, botID, claims, st.VerifyFlat, ownershipLeases); releaseErr != nil {
 			openingGate.Block("strategy_stop_unverified")
 			return fmt.Errorf("funding_perp_spread flatness, ownership, or capital reservation release is unverified: %w", releaseErr)
@@ -290,6 +387,29 @@ func startFundingPerpSpreadSymbolRuntime(
 	runtimeOwnsReservation = true
 	priceMonitorTransferred = true
 	ownershipLeasesTransferred = true
+	if st := storageService.GetStorage(); st != nil {
+		plans, unsupported, planErr := fundingPerpSpreadOrderSyncPlans(incomeTargets, legAEx, legBEx)
+		if planErr != nil {
+			logger.ErrorCtx(ctx, "[%s] configure order-fill history sync failed; profit/withdrawal coverage will remain unverified: %v", botID, planErr)
+		} else {
+			for _, target := range unsupported {
+				logger.WarnCtx(ctx, "[%s] %s order-history API is unsupported; profit/withdrawal coverage will remain unverified", botID, target)
+			}
+			orderSyncs = startFundingPerpSpreadOrderSyncs(ctx, st, plans)
+		}
+	} else {
+		logger.WarnCtx(ctx, "[%s] order-fill history sync storage is unavailable; profit/withdrawal coverage will remain unverified", botID)
+	}
+	if storageService != nil {
+		for index, target := range incomeTargets {
+			legExchange := legAEx
+			if index == 1 {
+				legExchange = legBEx
+			}
+			go startFundingIncomeSync(ctx, storageService.GetStorage(), legExchange,
+				target.Exchange, target.Symbol, target.AccountID, config.MarketTypeFundingPerpSpread, target.AccountScope)
+		}
+	}
 
 	return rt, nil
 }

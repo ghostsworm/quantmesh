@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc564 复核发现 `funding_perp_spread` 专用运行时只持有两家交易所仓位/资金预留，没有启动资金费收入历史同步；主进程的兼容同步仅覆盖首个运行时单腿，令第二腿资金费无法完整进入按账户范围统计的净收益/提现核算。现为双腿分别建立不含凭据的不可变账户作用域目标，并在运行时成功启动后各自调用既有带覆盖水位的同步器；主进程首个运行时路径对 `funding_carry` 与 `funding_perp_spread` 跳过重复同步。跨凭据/同凭据目标测试、特殊运行时同步所有权测试、`go vet -p 1 .`、全仓 `go test -p 1 ./... -count=1` 与 `git diff --check` 通过。仍未通过此批补齐逐笔交易盈亏或手续费同步；未连接真实账户、未下单或部署。
 - rc563 核对发现 Poloniex 下单接口使用 `/orders` 且官方参数明确 `accountType=SPOT` 是唯一支持类型；XT.COM 当前 client 使用 `sapi.xt.com` `/v4/order` 与 spot 余额接口，两个 adapter 的 `GetPositions` 均硬编码返回空。现将两家 `GetMarketType` 改为 `spot`，私有交易工厂对 spot/futures 均失败关闭，避免现货订单被标成合约或在缺少现货库存核账时误用；独立公开行情工厂保留。`go test ./exchange ./exchange/poloniex ./exchange/xtcom ./web -count=1`、相关包 `go vet` 与 `git diff --check` 通过；未连接账户或下单。
 - rc562 按 Crypto.com 官方 REST 文档把保护性减仓映射为 `exec_inst: ["REDUCE_ONLY"]`，并接通 `private/get-positions` 签名请求，包装层返回真实有符号净持仓及未实现盈亏；响应兼容官方字符串型数量、请求 ID 和状态码。HTTP mock 覆盖 REDUCE_ONLY 参数及负仓/空仓响应；定向测试、`go vet ./exchange/cryptocom ./exchange`、整仓 `go test -p 1 ./... -count=1` 与 `git diff --check` 均通过。未连接真实账户、未下单或部署。
 - rc561 查到 BTCC 官方 2026-02-13 公告：Futures API 交易服务暂停，恢复时将另行公告；截至本次核查，官方检索仍只发现暂停通知、未找到恢复公告。常规交易工厂现 fail-closed 拒绝 BTCC 所有市场类型的私有交易适配器，BTCC 独立公共 K 线工厂保留只读用途；factory 两种 market type 拒绝测试与 `go vet ./exchange` 通过。未连接账户、未下单或部署。
@@ -2526,3 +2527,16 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 合约规格现解析并保留 `settleCoin`，仅在逐笔 realized PnL 明确存在时将其作为 PnL 资产；结算元数据缺失则不赋值，USDT 提现仍会拒绝这类记录。测试覆盖手续费 BNB、结算币 USDT 以及 open fill 无 PnL 的路径。
 - 新增合约 settlement 元数据、closed fill 与 open fill 对照测试；`go test ./exchange/bybit ./exchange ./storage ./sync ./web -count=1`、对应 `go vet` 与 `git diff --check` 通过。尚未验证真实 Bybit 数据/账户，亦未连接真实账户、下单或部署。R05/R10 及盈利验证仍未闭合。
 - rc483 关闭 Inspector 账户总权益与未实现盈亏的跨账户/跨币误报：账户摘要只对唯一明确账户查询，多个账户时不显示伪总额；逐持仓携带盈亏币种，AI 提示词与报告不再固定标成 USDT 或合并混币值；余额变动告警只比较同一交易所/账户/计价币。另修正账户摘要回调按 exchange + account 精确定位交易所实例。此处尚未提供跨资产折算，因此不代表全账户净值已核实。
+
+## 后续续修：双永续状态与缺失持仓源的未知值表达（3.111.0-rc565，2026-09-30）
+
+- 双永续策略没有可用的通用逐笔统计实现，之前返回空统计结构，详情页因此把成交数、胜率和持仓数渲染成可信零值。现省略未实现统计，并在运行状态中暴露两腿归属数量及 ownership 核验标志；未核验状态不会被标成已核实。
+- 全局持仓 API 在无 PositionManager provider 时仍保留兼容的空响应结构，但显式标记 position data unavailable；持仓页面不再把缺失数据渲染成空仓或零金额。成本基础、入场手续费和未实现盈亏一律标记未核验。增加策略状态及摘要 helper 回归。
+- 后续高风险范围复核：双永续专用运行时的两腿仍直接调用 `IExchange.PlaceOrder`，忽略返回订单对象；该路径没有启动 `StartOrderStream`，也未调用 `PersistOwnedOrderFills`/`SaveOrderFill`。因此逐笔成交、手续费及逐笔已实现盈亏没有进入账户范围订单成交账，不能以 rc564 的资金费历史覆盖推断提现所需现金流完整。应继续接入具备 owner/CID 核验、增量幂等保存、失败门控及停止/重启补偿的双腿成交捕获；在闭合前维持明确未核账状态。
+- 未连接真实账户、未下单或部署；资金费历史同步仍不等于逐笔成交盈亏/手续费账本，也不构成盈利能力验证。
+
+## 后续续修：双永续逐笔历史成交补录（3.111.0-rc566，2026-09-30）
+
+- 双永续专用运行时现对每条腿分别检查历史成交分页能力，并为支持的交易所启动账户作用域化 `OrderSyncService`，按五分钟周期补录历史成交；未支持的腿记录明确缺口，避免把部分覆盖误报为完整。停止时在核验资金释放前先取消同步任务。
+- 此改动是重启/漏单后的历史补录，不等于下单响应或订单流的实时 owner/CID 核验捕获；同步服务失败也尚未接入交易开仓门控。逐笔手续费、已实现盈亏和提现覆盖仍需继续验证，不能据此宣称账本闭环。
+- 未连接真实账户、未下单或部署；未验证任何盈利能力。

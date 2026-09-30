@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/exchange/income"
 	"quantmesh/storage"
@@ -29,6 +30,25 @@ func TestFundingIncomeSyncWindowDoesNotBackfillNewCredentialScope(t *testing.T) 
 	}
 	if !start.Equal(now.Truncate(time.Millisecond)) || !end.Equal(now) || start.Before(now.Add(-time.Millisecond)) {
 		t.Fatalf("new-scope sync window=(%v,%v], must begin at first observation %v", start, end, now.Truncate(time.Millisecond))
+	}
+}
+
+func TestFundingIncomeSpecialRuntimeOwnership(t *testing.T) {
+	tests := []struct {
+		marketType string
+		managed    bool
+	}{
+		{marketType: config.MarketTypeFundingCarry, managed: true},
+		{marketType: config.MarketTypeFundingPerpSpread, managed: true},
+		{marketType: " futures ", managed: false},
+		{marketType: "spot", managed: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.marketType, func(t *testing.T) {
+			if got := fundingIncomeManagedBySpecialRuntime(tt.marketType); got != tt.managed {
+				t.Fatalf("fundingIncomeManagedBySpecialRuntime(%q) = %t, want %t", tt.marketType, got, tt.managed)
+			}
+		})
 	}
 }
 

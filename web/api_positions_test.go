@@ -29,6 +29,19 @@ func TestNormalizeMarketPriceRejectsNonFiniteAndNonPositiveValues(t *testing.T) 
 	}
 }
 
+func TestUnavailablePositionSummaryDoesNotClaimVerifiedFlatAccount(t *testing.T) {
+	got := unavailablePositionSummary()
+	if got.PositionDataAvailable {
+		t.Fatal("missing position provider must report position data unavailable")
+	}
+	if got.CostBasisVerified || got.EntryFeesVerified || got.UnrealizedPnLVerified {
+		t.Fatalf("missing position provider must not imply verified zero exposure: %+v", got)
+	}
+	if got.TotalQuantity != 0 || got.PositionCount != 0 || len(got.Positions) != 0 {
+		t.Fatalf("unavailable summary should preserve an empty response shape: %+v", got)
+	}
+}
+
 func TestSummarizeExchangePositionsFailsClosedOnMalformedExposure(t *testing.T) {
 	valid := func(size, pnl float64) *exchange.Position {
 		return &exchange.Position{Size: size, EntryPrice: 100, MarkPrice: 101, UnrealizedPNL: pnl, Leverage: 5}

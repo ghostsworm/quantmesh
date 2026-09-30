@@ -4412,6 +4412,7 @@
     "title": "Current Positions",
     "positionList": "Position List",
     "noPositions": "No positions",
+    "dataUnavailable": "Position data unavailable; flat status cannot be confirmed",
     "positionPrice": "Position Price",
     "positionQuantity": "Position Quantity",
     "positionValue": "Position Value",

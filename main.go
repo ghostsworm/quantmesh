@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc563"
+var Version = "3.111.0-rc566"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2121,9 +2121,11 @@ func main() {
 			web.RegisterFundingProvider(firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, fundingMonitor)
 			web.SetFundingMonitorProvider(fundingMonitor)
 
-			// 資金費用同步：定時從交易所拉取 FUNDING_FEE 並寫入 funding_payments
-			go startFundingIncomeSync(ctx, storageService.GetStorage(), firstRuntime.Exchange,
-				firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID, firstRuntime.AccountMarketType, firstRuntime.AccountScope)
+			// 特殊資金費策略會在各自運行時按每條腿啟動同步；其餘兼容路徑仍同步首個普通運行時。
+			if !fundingIncomeManagedBySpecialRuntime(firstRuntime.Config.GetMarketType()) {
+				go startFundingIncomeSync(ctx, storageService.GetStorage(), firstRuntime.Exchange,
+					firstRuntime.Config.Exchange, firstRuntime.Config.Symbol, firstRuntime.AccountID, firstRuntime.AccountMarketType, firstRuntime.AccountScope)
+			}
 
 			// 初始化價差監控（支持數據庫配置覆蓋 config.yaml，UI 可動態啟停）
 			logger.Info("🔍 初始化價差監控...")

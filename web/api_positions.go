@@ -16,6 +16,7 @@ import (
 
 // PositionSummary 持倉彙總信息
 type PositionSummary struct {
+	PositionDataAvailable bool           `json:"position_data_available"`
 	TotalQuantity         float64        `json:"total_quantity"` // 總持倉數量
 	TotalValue            float64        `json:"total_value"`    // 總持倉價值（當前價格 * 數量）
 	PositionCount         int            `json:"position_count"` // 持倉槽位數
@@ -156,6 +157,17 @@ func slotUnrealizedPnL(currentPrice, entryPrice, quantity float64, short bool) f
 	return (currentPrice - entryPrice) * quantity
 }
 
+func unavailablePositionSummary() PositionSummary {
+	return PositionSummary{
+		PositionDataAvailable: false,
+		Leverage:              1,
+		Positions:             []PositionInfo{},
+		CostBasisVerified:     false,
+		EntryFeesVerified:     false,
+		UnrealizedPnLVerified: false,
+	}
+}
+
 // getPositions 獲取持倉列表（從槽位數據筛选）
 func getPositions(c *gin.Context) {
 	// 調試：記錄接收到的参數
@@ -170,21 +182,7 @@ func getPositions(c *gin.Context) {
 	if pmProvider == nil {
 		// 與有 provider 時保持同一響應結構，避免前端報 "Invalid response format"
 		c.JSON(http.StatusOK, gin.H{
-			"summary": PositionSummary{
-				TotalQuantity:         0,
-				TotalValue:            0,
-				PositionCount:         0,
-				AveragePrice:          0,
-				CurrentPrice:          0,
-				UnrealizedPnL:         0,
-				PnlPercentage:         0,
-				ActualMargin:          0,
-				Leverage:              1,
-				Positions:             []PositionInfo{},
-				CostBasisVerified:     true,
-				EntryFeesVerified:     true,
-				UnrealizedPnLVerified: false,
-			},
+			"summary": unavailablePositionSummary(),
 		})
 		return
 	}
@@ -355,6 +353,7 @@ func getPositions(c *gin.Context) {
 	}
 
 	summary := PositionSummary{
+		PositionDataAvailable: true,
 		TotalQuantity:         totalQuantity,
 		TotalValue:            totalValue,
 		PositionCount:         positionCount,
