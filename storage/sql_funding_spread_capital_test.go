@@ -2,14 +2,16 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
 
 func fundingSpreadTestClaim(wallet int, amount, available float64) FundingSpreadCapitalClaim {
-	return FundingSpreadCapitalClaim{WalletKey: fmt.Sprintf("%064x", wallet), Amount: amount, Available: available}
+	return FundingSpreadCapitalClaim{WalletKey: fmt.Sprintf("%064x", wallet), ReservationToken: fmt.Sprintf("%064x", wallet+1000), Amount: amount, Available: available}
 }
 
 func TestFundingSpreadCapitalReservationsAreAtomicAcrossWallets(t *testing.T) {
@@ -101,7 +103,7 @@ func TestAccountWalletCapitalReservationIsSharedAcrossStrategies(t *testing.T) {
 	}
 	defer store.Close()
 	ctx := context.Background()
-	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 9), Amount: 65, Available: 100}
+	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 9), ReservationToken: fmt.Sprintf("%064x", 1009), Amount: 65, Available: 100}
 	if err := store.ReserveAccountWalletCapital(ctx, "grid-bot", []AccountWalletCapitalClaim{claim}); err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +125,7 @@ func TestAccountWalletCapitalReservationAuditMapsNewClaimsAndKeepsLegacyVisible(
 	defer store.Close()
 	ctx := context.Background()
 
-	mapped := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 10), Amount: 25, Available: 100,
+	mapped := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 10), ReservationToken: fmt.Sprintf("%064x", 1010), Amount: 25, Available: 100,
 		Exchange: "binance", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
 	if err := store.ReserveAccountWalletCapital(ctx, "bot-mapped", []AccountWalletCapitalClaim{mapped}); err != nil {
 		t.Fatal(err)
@@ -166,6 +168,80 @@ func TestAccountWalletCapitalReservationAuditMapsNewClaimsAndKeepsLegacyVisible(
 	}
 	if len(reservations) != 1 || reservations[0].Mapped {
 		t.Fatalf("release should atomically remove mapped reservation and metadata: %+v", reservations)
+	}
+}
+
+func TestAccountWalletCapitalReleaseCannotDeleteReplacementGeneration(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-generation.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	oldGeneration := fundingSpreadTestClaim(14, 20, 100)
+	newGeneration := oldGeneration
+	newGeneration.ReservationToken = fmt.Sprintf("%064x", 2014)
+	newGeneration.Amount = 30
+	if err := store.ReserveAccountWalletCapital(ctx, "same-bot", []AccountWalletCapitalClaim{oldGeneration}); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateFundingSpreadCapitalTables(store.db); err != nil {
+		t.Fatalf("re-running startup migrations must be idempotent: %v", err)
+	}
+	if err := store.ReserveAccountWalletCapital(ctx, "same-bot", []AccountWalletCapitalClaim{newGeneration}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReleaseAccountWalletCapital(ctx, "same-bot", []AccountWalletCapitalClaim{oldGeneration}); err == nil {
+		t.Fatal("stale runtime generation released its replacement's claim")
+	}
+	rows, err := store.ListAccountWalletCapitalReservations(ctx, "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Amount != newGeneration.Amount {
+		t.Fatalf("replacement claim after stale release attempt = %+v", rows)
+	}
+	if err := store.ReleaseAccountWalletCapital(ctx, "same-bot", []AccountWalletCapitalClaim{newGeneration}); err != nil {
+		t.Fatalf("current runtime could not release its own claim: %v", err)
+	}
+}
+
+func TestFundingSpreadCapitalTokenMigrationPreservesLegacyReservations(t *testing.T) {
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy-capital-reservation.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, version := range []string{"2026093001", "2026093002"} {
+		data, err := fundingSpreadCapitalMigrations.ReadFile("migrations/" + version + "_funding_spread_capital_sqlite.up.sql")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, statement := range strings.Split(string(data), ";") {
+			if statement = strings.TrimSpace(statement); statement != "" {
+				if _, err := db.Exec(statement); err != nil {
+					t.Fatalf("apply legacy migration %s: %v", version, err)
+				}
+			}
+		}
+	}
+	walletKey, botKey := fmt.Sprintf("%064x", 21), fundingSpreadBotKey("legacy-bot")
+	if _, err := db.Exec(`INSERT INTO funding_spread_capital_reservations (wallet_key, bot_key, amount) VALUES (?, ?, ?)`, walletKey, botKey, 42); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateFundingSpreadCapitalTables(db); err != nil {
+		t.Fatalf("upgrade legacy reservation schema: %v", err)
+	}
+	var amount float64
+	var token string
+	if err := db.QueryRow(`SELECT amount, reservation_token FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, walletKey, botKey).Scan(&amount, &token); err != nil {
+		t.Fatal(err)
+	}
+	if amount != 42 || token != "" {
+		t.Fatalf("legacy reservation after generation migration amount=%v token=%q, want preserved amount and empty legacy generation", amount, token)
+	}
+	if err := migrateFundingSpreadCapitalTables(db); err != nil {
+		t.Fatalf("re-running upgraded schema migrations: %v", err)
 	}
 }
 
@@ -227,7 +303,7 @@ func TestAccountWalletCapitalReservationRejectsUnsafeMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 12), Amount: 10, Available: 100,
+	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 12), ReservationToken: fmt.Sprintf("%064x", 1012), Amount: 10, Available: 100,
 		Exchange: "binance\nsecret", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
 	if err := store.ReserveAccountWalletCapital(context.Background(), "bot-invalid", []AccountWalletCapitalClaim{claim}); err == nil {
 		t.Fatal("metadata containing control characters was accepted")

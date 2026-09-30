@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"strings"
@@ -30,7 +32,19 @@ func buildAccountWalletCapitalClaim(cfg *config.Config, exchangeName, market, qu
 	}
 	material := equityAccountScopeID(exchangeName, exchangeCfg) + "|" + market + "|" + quoteAsset
 	walletKey := fmt.Sprintf("%x", sha256.Sum256([]byte(material)))
-	return storage.AccountWalletCapitalClaim{WalletKey: walletKey, Amount: amount, Available: available}, nil
+	token, err := newAccountWalletCapitalReservationToken()
+	if err != nil {
+		return storage.AccountWalletCapitalClaim{}, err
+	}
+	return storage.AccountWalletCapitalClaim{WalletKey: walletKey, ReservationToken: token, Amount: amount, Available: available}, nil
+}
+
+func newAccountWalletCapitalReservationToken() (string, error) {
+	var token [32]byte
+	if _, err := rand.Read(token[:]); err != nil {
+		return "", fmt.Errorf("create account wallet reservation generation token: %w", err)
+	}
+	return hex.EncodeToString(token[:]), nil
 }
 
 func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim) error {
@@ -51,6 +65,15 @@ func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storag
 		}
 		if _, localOnly := distributedLock.(*lock.NopLock); localOnly || distributedLock == nil {
 			return fmt.Errorf("multi-instance account wallet reservations require an enabled distributed lock")
+		}
+	}
+	for index := range claims {
+		if claims[index].ReservationToken == "" {
+			token, err := newAccountWalletCapitalReservationToken()
+			if err != nil {
+				return err
+			}
+			claims[index].ReservationToken = token
 		}
 	}
 	reserveCtx, cancel := context.WithTimeout(ctx, 15*time.Second)

@@ -397,8 +397,12 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 				claim.Symbol += "," + leg.symbol
 			}
 		} else {
+			reservationToken, tokenErr := newAccountWalletCapitalReservationToken()
+			if tokenErr != nil {
+				return nil, tokenErr
+			}
 			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance,
-				Exchange: exchangeName, Market: "futures", QuoteAsset: "USDT", Symbol: leg.symbol}
+				ReservationToken: reservationToken, Exchange: exchangeName, Market: "futures", QuoteAsset: "USDT", Symbol: leg.symbol}
 		}
 		byWallet[walletKey] = claim
 	}

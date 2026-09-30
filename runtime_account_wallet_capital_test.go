@@ -160,6 +160,28 @@ func TestRuntimeAccountWalletCapitalKeepsOpeningBlockedUntilReservationSucceeds(
 	}
 }
 
+func TestAccountWalletCapitalClaimUsesUniqueRuntimeGenerationTokens(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "account-a", SecretKey: "secret-a"},
+	}}
+	first, err := buildAccountWalletCapitalClaim(cfg, "binance", "futures", "USDT", 10, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := buildAccountWalletCapitalClaim(cfg, "binance", "futures", "USDT", 10, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(first.ReservationToken) != 64 || first.ReservationToken == second.ReservationToken {
+		t.Fatalf("runtime generation tokens must be unique opaque SHA-256-sized values")
+	}
+	for _, credential := range []string{"account-a", "secret-a"} {
+		if strings.Contains(first.ReservationToken, credential) {
+			t.Fatalf("reservation generation token leaked credential material")
+		}
+	}
+}
+
 func TestAccountWalletCapitalReleaseRequiresVerifiedFlatness(t *testing.T) {
 	claim := storage.AccountWalletCapitalClaim{WalletKey: strings.Repeat("a", 64), Amount: 10, Available: 100}
 	verifyErr := errors.New("open orders remain")

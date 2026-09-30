@@ -34,7 +34,7 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 	store := &SQLStorage{db: db, dbType: "mysql"}
 	unique := fmt.Sprintf("mysql-capital-%d", time.Now().UTC().UnixNano())
 	walletKey := mysqlCapitalTestWalletKey(unique + "-concurrent")
-	claims := []AccountWalletCapitalClaim{{WalletKey: walletKey, Amount: 60, Available: 100}}
+	claims := []AccountWalletCapitalClaim{{WalletKey: walletKey, ReservationToken: mysqlCapitalTestWalletKey(unique + "-generation"), Amount: 60, Available: 100}}
 	botIDs := []string{unique + "-a", unique + "-b"}
 	t.Cleanup(func() {
 		for _, botID := range botIDs {
@@ -78,19 +78,20 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 	firstWallet := mysqlCapitalTestWalletKey(unique + "-first")
 	secondWallet := mysqlCapitalTestWalletKey(unique + "-second")
 	blockerID, atomicBotID := unique+"-blocker", unique+"-atomic"
-	blockerClaims := []AccountWalletCapitalClaim{{WalletKey: secondWallet, Amount: 60, Available: 100}}
+	blockerClaims := []AccountWalletCapitalClaim{{WalletKey: secondWallet, ReservationToken: mysqlCapitalTestWalletKey(unique + "-blocker-generation"), Amount: 60, Available: 100}}
+	atomicToken := mysqlCapitalTestWalletKey(unique + "-atomic-generation")
 	t.Cleanup(func() {
 		_ = store.ReleaseAccountWalletCapital(context.Background(), blockerID, blockerClaims)
 		_ = store.ReleaseAccountWalletCapital(context.Background(), atomicBotID, []AccountWalletCapitalClaim{
-			{WalletKey: firstWallet}, {WalletKey: secondWallet},
+			{WalletKey: firstWallet, ReservationToken: atomicToken}, {WalletKey: secondWallet, ReservationToken: atomicToken},
 		})
 	})
 	if err := store.ReserveAccountWalletCapital(ctx, blockerID, blockerClaims); err != nil {
 		t.Fatal("reserve blocker wallet capacity:", err)
 	}
 	atomicClaims := []AccountWalletCapitalClaim{
-		{WalletKey: firstWallet, Amount: 70, Available: 100},
-		{WalletKey: secondWallet, Amount: 70, Available: 100},
+		{WalletKey: firstWallet, ReservationToken: atomicToken, Amount: 70, Available: 100},
+		{WalletKey: secondWallet, ReservationToken: atomicToken, Amount: 70, Available: 100},
 	}
 	if err := store.ReserveAccountWalletCapital(ctx, atomicBotID, atomicClaims); err == nil {
 		t.Fatal("overcommitted MySQL two-wallet reservation succeeded")

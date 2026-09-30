@@ -129,7 +129,7 @@ func TestCapitalReservationsAdminCanPageThroughAudit(t *testing.T) {
 	}
 	defer store.Close()
 	for index := 1; index <= storage.AccountWalletCapitalReservationAuditPageSize+1; index++ {
-		claim := storage.AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", index), Amount: 1, Available: 1000,
+		claim := storage.AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", index), ReservationToken: fmt.Sprintf("%064x", index+5000), Amount: 1, Available: 1000,
 			Exchange: "binance", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
 		if err := store.ReserveAccountWalletCapital(t.Context(), fmt.Sprintf("bot-%03d", index), []storage.AccountWalletCapitalClaim{claim}); err != nil {
 			t.Fatal(err)

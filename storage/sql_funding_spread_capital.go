@@ -16,13 +16,16 @@ import (
 // AccountWalletCapitalClaim reserves one Bot's quote-currency budget in one
 // verified wallet. WalletKey and BotID are opaque stable identifiers.
 type AccountWalletCapitalClaim struct {
-	WalletKey  string
-	Amount     float64
-	Available  float64
-	Exchange   string
-	Market     string
-	QuoteAsset string
-	Symbol     string
+	WalletKey string
+	// ReservationToken identifies one runtime generation. A stale runtime can
+	// release only the generation it created, never a replacement claim.
+	ReservationToken string
+	Amount           float64
+	Available        float64
+	Exchange         string
+	Market           string
+	QuoteAsset       string
+	Symbol           string
 }
 
 // AccountWalletCapitalReservation is a read-only, credential-free audit view.
@@ -92,7 +95,16 @@ func migrateFundingSpreadCapitalTablesMySQL(db *sql.DB) error {
 }
 
 func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
-	for _, version := range []string{"2026093001", "2026093002"} {
+	for _, version := range []string{"2026093001", "2026093002", "2026093003"} {
+		if version == "2026093003" {
+			exists, err := fundingSpreadReservationTokenColumnExists(db, dialect)
+			if err != nil {
+				return fmt.Errorf("check account wallet reservation generation column: %w", err)
+			}
+			if exists {
+				continue
+			}
+		}
 		name := "migrations/" + version + "_funding_spread_capital_" + dialect + ".up.sql"
 		data, err := fundingSpreadCapitalMigrations.ReadFile(name)
 		if err != nil {
@@ -109,6 +121,38 @@ func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
 		}
 	}
 	return nil
+}
+
+func fundingSpreadReservationTokenColumnExists(db *sql.DB, dialect string) (bool, error) {
+	switch dialect {
+	case "sqlite":
+		rows, err := db.Query(`PRAGMA table_info(funding_spread_capital_reservations)`)
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var cid, notNull, primaryKey int
+			var name, columnType string
+			var defaultValue sql.NullString
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				return false, err
+			}
+			if name == "reservation_token" {
+				return true, nil
+			}
+		}
+		return false, rows.Err()
+	case "mysql":
+		var column string
+		err := db.QueryRow(`SHOW COLUMNS FROM funding_spread_capital_reservations LIKE 'reservation_token'`).Scan(&column, new(string), new(string), new(string), new(sql.NullString), new(sql.NullString))
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return err == nil, err
+	default:
+		return false, fmt.Errorf("unsupported migration dialect %q", dialect)
+	}
 }
 
 func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error {
@@ -136,8 +180,9 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	}
 
 	type write struct {
-		walletKey string
-		amount    float64
+		walletKey        string
+		reservationToken string
+		amount           float64
 	}
 	writes := make([]write, 0, len(claims))
 	for _, claim := range claims {
@@ -163,17 +208,19 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 				return fmt.Errorf("wallet %s cannot safely reserve %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, claim.Available)
 			}
 		}
-		writes = append(writes, write{walletKey: claim.WalletKey, amount: amount})
+		writes = append(writes, write{walletKey: claim.WalletKey, reservationToken: claim.ReservationToken, amount: amount})
 	}
 
-	query := `INSERT INTO funding_spread_capital_reservations (wallet_key, bot_key, amount, updated_at)
-		VALUES (?, ?, ?, ?) ON CONFLICT(wallet_key, bot_key) DO UPDATE SET amount=excluded.amount, updated_at=excluded.updated_at`
+	query := `INSERT INTO funding_spread_capital_reservations (wallet_key, bot_key, reservation_token, amount, updated_at)
+		VALUES (?, ?, ?, ?, ?) ON CONFLICT(wallet_key, bot_key) DO UPDATE SET
+		reservation_token=excluded.reservation_token, amount=excluded.amount, updated_at=excluded.updated_at`
 	if s.dbType == "mysql" {
-		query = `INSERT INTO funding_spread_capital_reservations (wallet_key, bot_key, amount, updated_at)
-			VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE amount=VALUES(amount), updated_at=VALUES(updated_at)`
+		query = `INSERT INTO funding_spread_capital_reservations (wallet_key, bot_key, reservation_token, amount, updated_at)
+			VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE reservation_token=VALUES(reservation_token),
+			amount=VALUES(amount), updated_at=VALUES(updated_at)`
 	}
 	for _, item := range writes {
-		if _, err := tx.ExecContext(ctx, query, item.walletKey, botKey, item.amount, time.Now().UTC()); err != nil {
+		if _, err := tx.ExecContext(ctx, query, item.walletKey, botKey, item.reservationToken, item.amount, time.Now().UTC()); err != nil {
 			return fmt.Errorf("write account wallet capital reservation: %w", err)
 		}
 	}
@@ -229,7 +276,18 @@ func (s *SQLStorage) ReleaseAccountWalletCapital(ctx context.Context, botID stri
 		}
 	}
 	for _, claim := range claims {
-		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey); err != nil {
+		var currentToken string
+		err := tx.QueryRowContext(ctx, `SELECT reservation_token FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey).Scan(&currentToken)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read account wallet reservation generation before release: %w", err)
+		}
+		if currentToken != claim.ReservationToken {
+			return fmt.Errorf("refuse to release account wallet reservation owned by a newer runtime generation")
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ? AND reservation_token = ?`, claim.WalletKey, botKey, claim.ReservationToken); err != nil {
 			return fmt.Errorf("release account wallet capital reservation: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservation_metadata WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey); err != nil {
@@ -320,6 +378,9 @@ func normalizeFundingSpreadClaims(claims []FundingSpreadCapitalClaim, requireAmo
 	for _, claim := range result {
 		if !isFundingSpreadDigest(claim.WalletKey) {
 			return nil, errors.New("funding spread reservation wallet key must be a SHA-256 hex digest")
+		}
+		if !isFundingSpreadDigest(claim.ReservationToken) {
+			return nil, errors.New("funding spread reservation requires a runtime generation token")
 		}
 		if requireAmounts && (math.IsNaN(claim.Amount) || math.IsInf(claim.Amount, 0) || claim.Amount <= 0 || math.IsNaN(claim.Available) || math.IsInf(claim.Available, 0) || claim.Available <= 0) {
 			return nil, errors.New("funding spread reservation requires positive finite amount and available balance")
