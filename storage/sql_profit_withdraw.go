@@ -539,11 +539,12 @@ func (s *SQLStorage) SaveWithdrawRecord(record *ProfitWithdrawRecord) error {
 
 // SaveWithdrawRecordForClaim atomically fences reservation creation against a
 // stale worker whose durable claim was reclaimed by another executor.
-func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord) error {
+func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, windowStart time.Time, verifiedBudget float64) error {
 	if record == nil || record.ID == "" || record.RuleID == "" || record.ClaimID == "" ||
 		record.AccountID == "" || record.AccountScope == "" || record.ExchangeID == "" ||
 		record.StrategyID == "" || record.Type != "auto" || record.Status != "processing" ||
-		record.Currency != "USDT" || record.Amount <= 0 || math.IsNaN(record.Amount) || math.IsInf(record.Amount, 0) {
+		record.Currency != "USDT" || record.Amount <= 0 || math.IsNaN(record.Amount) || math.IsInf(record.Amount, 0) ||
+		windowStart.IsZero() || verifiedBudget <= 0 || math.IsNaN(verifiedBudget) || math.IsInf(verifiedBudget, 0) || record.Amount > verifiedBudget {
 		return fmt.Errorf("claimed withdrawal reservation requires record, rule, and claim identities")
 	}
 	tx, err := s.db.Begin()
@@ -562,6 +563,16 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord) er
 	}
 	if unresolved != 0 {
 		return fmt.Errorf("another transfer in this account scope is unresolved; reconcile it before withdrawing")
+	}
+	var reserved float64
+	if err := tx.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM profit_withdraw_records
+		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND status NOT IN ('failed', 'cancelled')`,
+		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, windowStart).Scan(&reserved); err != nil {
+		return fmt.Errorf("check automatic withdrawal profit budget: %w", err)
+	}
+	if math.IsNaN(reserved) || math.IsInf(reserved, 0) || reserved+record.Amount > verifiedBudget {
+		return fmt.Errorf("withdrawal accounting changed during validation; refresh profit and retry")
 	}
 	result, err := tx.Exec(`
 		INSERT INTO profit_withdraw_records
@@ -845,8 +856,8 @@ func (s *SQLStorage) SumReservedWithdrawAmountForStream(accountID, accountScope,
 		SELECT COALESCE(SUM(amount), 0)
 		FROM profit_withdraw_records
 		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-		  AND created_at > ? AND status NOT IN ('failed', 'cancelled')`,
-		accountID, accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since).Scan(&total)
+		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND status NOT IN ('failed', 'cancelled')`,
+		accountID, accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since, since).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("sum reserved withdrawal amount for stream: %w", err)
 	}

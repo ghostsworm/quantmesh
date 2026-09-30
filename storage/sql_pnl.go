@@ -351,8 +351,8 @@ func (s *SQLStorage) GetPnLByAccountScopeAndAsset(exchange, accountScope, asset 
 }
 
 // GetRealizedPnLForWithdrawal returns only exactly attributable USDT-margined
-// futures profit for one account and exchange. Legacy rows without an account
-// or market identity are intentionally excluded from money-transfer decisions.
+// futures profit for one account and exchange. Legacy rows without a stable
+// account or market identity block money movement instead of being silently omitted.
 func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope string, startTime, endTime time.Time) (float64, error) {
 	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(accountScope) == "" {
 		return 0, fmt.Errorf("withdrawal PnL requires exact exchange and account scope")
@@ -381,6 +381,19 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if fillCoverage == nil || fillCoverage.CoveredFrom.After(startTime.UTC()) || fillCoverage.CoveredThrough.Before(endTime.UTC()) {
 		return 0, fmt.Errorf("execution history does not fully cover withdrawal interval exchange=%s symbol=%s", exchange, symbol)
 	}
+	var unownedExecutions int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM order_fills
+		WHERE UPPER(TRIM(symbol)) = UPPER(TRIM(?)) AND trade_time > ? AND trade_time <= ?
+		  AND (TRIM(COALESCE(exchange, '')) = '' OR
+		       (LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND
+		        (account_scope IS NULL OR TRIM(account_scope) = '' OR market_type IS NULL OR TRIM(market_type) = '' OR
+		         (account_scope = ? AND LOWER(TRIM(market_type)) NOT IN ('futures', 'spot')))))`,
+		symbol, startTime.UTC(), endTime.UTC(), exchange, accountScope).Scan(&unownedExecutions); err != nil {
+		return 0, fmt.Errorf("verify withdrawal execution ownership exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	if unownedExecutions > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d executions without verified exchange/account/market ownership; refusing transfer", unownedExecutions)
+	}
 	var total float64
 	var unknownPnL, unvaluedPnLAsset, unvaluedFees int
 	if err := s.db.QueryRow(`
@@ -389,7 +402,7 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 		       COALESCE(SUM(CASE WHEN realized_pnl IS NOT NULL AND UPPER(TRIM(COALESCE(realized_pnl_asset, ''))) <> 'USDT' THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN TRIM(COALESCE(commission_asset, '')) = '' OR (COALESCE(commission, 0) <> 0 AND UPPER(TRIM(commission_asset)) <> 'USDT') THEN 1 ELSE 0 END), 0)
 		FROM order_fills
-		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
+		WHERE LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND account_scope = ? AND LOWER(TRIM(market_type)) = 'futures' AND UPPER(TRIM(symbol)) = UPPER(TRIM(?))
 		  AND trade_time > ? AND trade_time <= ?`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&total, &unknownPnL, &unvaluedPnLAsset, &unvaluedFees); err != nil {
 		return 0, fmt.Errorf("query exchange execution PnL exchange=%s account_scope=%s symbol=%s: %w", exchange, accountScope, symbol, err)
 	}
@@ -402,11 +415,24 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if unvaluedFees > 0 {
 		return 0, fmt.Errorf("withdrawal interval includes %d non-USDT or unclassified execution fees; refusing transfer", unvaluedFees)
 	}
+	var unidentifiableFunding int
+	if err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM funding_payments
+		WHERE LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND UPPER(TRIM(symbol)) = UPPER(TRIM(?)) AND UPPER(TRIM(income_type)) = 'FUNDING_FEE'
+		  AND trade_time > ? AND trade_time <= ?
+		  AND (identity_key IS NULL OR TRIM(COALESCE(account_scope, '')) = '' OR TRIM(COALESCE(market_type, '')) = '' OR
+		       (account_scope = ? AND LOWER(TRIM(market_type)) NOT IN ('futures', 'spot')))`,
+		exchange, symbol, startTime.UTC(), endTime.UTC(), accountScope).Scan(&unidentifiableFunding); err != nil {
+		return 0, fmt.Errorf("verify withdrawal funding identity exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	if unidentifiableFunding > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d legacy funding rows without stable account/market identity; refusing transfer", unidentifiableFunding)
+	}
 	fundingRows, err := s.db.Query(`
 		SELECT UPPER(COALESCE(asset, '')), COALESCE(SUM(income), 0)
 		FROM funding_payments
-		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
-		  AND UPPER(income_type) = 'FUNDING_FEE' AND identity_key IS NOT NULL AND trade_time > ? AND trade_time <= ?
+		WHERE LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND account_scope = ? AND LOWER(TRIM(market_type)) = 'futures' AND UPPER(TRIM(symbol)) = UPPER(TRIM(?))
+		  AND UPPER(TRIM(income_type)) = 'FUNDING_FEE' AND identity_key IS NOT NULL AND trade_time > ? AND trade_time <= ?
 		GROUP BY UPPER(COALESCE(asset, ''))
 	`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC())
 	if err != nil {

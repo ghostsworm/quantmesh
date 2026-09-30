@@ -103,9 +103,9 @@ func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
 		AvgPrice: 101, Status: exchange.OrderStatusPartiallyFilled,
 	}, fills: []*exchange.OrderFill{
 		{OrderID: 96, TradeID: "trade-96a", Symbol: "BTCUSDT", Side: exchange.SideBuy,
-			Price: 100, Quantity: 0.25, Commission: 0.00025, CommissionAsset: "BTC", BaseFeeQty: 0.00025},
+			Price: 100, Quantity: 0.25, Commission: 0.00025, CommissionAsset: "BTC", BaseFeeQty: 0.00025, TradeTime: 1_700_000_000_000},
 		{OrderID: 96, TradeID: "trade-96b", Symbol: "BTCUSDT", Side: exchange.SideBuy,
-			Price: 102, Quantity: 0.25, Commission: 0.00026, CommissionAsset: "BTC", BaseFeeQty: 0.00026},
+			Price: 102, Quantity: 0.25, Commission: 0.00026, CommissionAsset: "BTC", BaseFeeQty: 0.00026, TradeTime: 1_700_000_000_001},
 	}}
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		TotalCost: 24.975, TotalQty: 0.24975, AvgEntryPrice: 100,
@@ -345,8 +345,8 @@ func TestDCAStartReplaysOnlyFillDeltaAfterPersistedCursor(t *testing.T) {
 		OrderID: 93, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,
 		AvgPrice: 101, Status: exchange.OrderStatusPartiallyFilled,
 	}, fills: []*exchange.OrderFill{
-		{OrderID: 93, TradeID: "trade-93a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.25, Commission: 0.025, CommissionAsset: "USDT"},
-		{OrderID: 93, TradeID: "trade-93b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 102, Quantity: 0.25, Commission: 0.026, CommissionAsset: "USDT"},
+		{OrderID: 93, TradeID: "trade-93a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.25, Commission: 0.025, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000},
+		{OrderID: 93, TradeID: "trade-93b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 102, Quantity: 0.25, Commission: 0.026, CommissionAsset: "USDT", TradeTime: 1_700_000_000_001},
 	}}
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		TotalCost: 25, TotalQty: 0.25, AvgEntryPrice: 100,
@@ -362,5 +362,28 @@ func TestDCAStartReplaysOnlyFillDeltaAfterPersistedCursor(t *testing.T) {
 	layer := s.layers[0]
 	if layer.Quantity != 0.5 || layer.Cost != 50.5 || math.Abs(layer.OpeningFee-0.051) > 1e-12 || layer.FillProgress.Quantity != 0.5 {
 		t.Fatalf("recovery did not apply only the new fill suffix: %+v", layer)
+	}
+}
+
+func TestDCAStartRejectsUntimedFillWithPersistedCursor(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 109, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,
+		AvgPrice: 101, Status: exchange.OrderStatusPartiallyFilled,
+	}, fills: []*exchange.OrderFill{
+		{OrderID: 109, TradeID: "trade-109a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.25, Commission: 0.025, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000},
+		{OrderID: 109, TradeID: "trade-109b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 102, Quantity: 0.25, Commission: 0.026, CommissionAsset: "USDT"},
+	}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		TotalCost: 25, TotalQty: 0.25, AvgEntryPrice: 100,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.25, Cost: 25, OpeningFee: 0.025, OrderID: 109,
+			Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
+			FillProgress: position.FillProgress{Quantity: 0.25, Notional: 25}}},
+	}
+	s := newPersistedDCAStrategy(t, ex, state)
+	if err := s.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted an untimed fill while reconstructing a persisted fill prefix")
+	}
+	if s.IsRunning() || s.totalQty != 0.25 || s.layers[0].FillProgress.Quantity != 0.25 {
+		t.Fatalf("failed recovery mutated persisted inventory or cursor: running=%v layer=%+v", s.IsRunning(), s.layers[0])
 	}
 }

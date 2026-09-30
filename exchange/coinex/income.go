@@ -37,7 +37,8 @@ func (a *Adapter) GetIncomeHistory(ctx context.Context, symbol, incomeType strin
 		asset := strings.ToUpper(strings.TrimSpace(row.Currency))
 		if positionErr != nil || positionID <= 0 || timeErr != nil || createdAt < startTime || createdAt > endTime ||
 			rateErr != nil || valueErr != nil || !finiteCoinExValue(fundingRate) || !finiteCoinExValue(fundingValue) ||
-			fundingValue < 0 || asset == "" || !strings.EqualFold(row.Market, market) || !strings.EqualFold(row.MarketType, "FUTURES") {
+			fundingValue < 0 || (fundingRate == 0 && fundingValue != 0) || asset == "" ||
+			!strings.EqualFold(row.Market, market) || !strings.EqualFold(row.MarketType, "FUTURES") {
 			return nil, fmt.Errorf("CoinEx funding entry for %s contains invalid identity, range, or financial fields", market)
 		}
 		side := strings.ToLower(strings.TrimSpace(row.Side))

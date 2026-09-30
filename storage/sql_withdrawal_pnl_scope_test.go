@@ -41,7 +41,7 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	}
 	realizedBTC, realizedETH, openFillPnL := 100.0, 50.0, 0.0
 	fills := []OrderFill{
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "BINANCE", MarketType: "FUTURES", AccountScope: "scope-a", Account: "acct", Symbol: "btcusdt", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-open-execution", OrderID: 503, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.5, CommissionAsset: "USDT", RealizedPnL: &openFillPnL, RealizedPnLAsset: "USDT", TradeTime: now},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
 	}
@@ -51,7 +51,7 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 		}
 	}
 	funding := []FundingPayment{
-		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 101, Income: -5, Asset: "USDT", TradeTime: now},
+		{Exchange: "BINANCE", Symbol: "btcusdt", Account: "acct", MarketType: "FUTURES", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 101, Income: -5, Asset: "USDT", TradeTime: now},
 		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-b", IncomeType: "FUNDING_FEE", TransactionID: 102, Income: -500, Asset: "USDT", TradeTime: now},
 		{Exchange: "bybit", Symbol: "BTCUSDT", Account: "acct", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 103, Income: -500, Asset: "USDT", TradeTime: now},
 		{Exchange: "binance", Symbol: "BTCUSDT", Account: "acct", MarketType: "spot", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", TransactionID: 104, Income: -500, Asset: "USDT", TradeTime: now},
@@ -68,7 +68,7 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 		t.Fatal(err)
 	}
 	if math.Abs(got-92.5) > 1e-9 {
-		t.Fatalf("exchange execution PnL with zero-PnL opening execution and scoped funding=%v, want 92.5", got)
+		t.Fatalf("case-normalized execution PnL and scoped funding=%v, want 92.5", got)
 	}
 	ethPnL, err := st.GetRealizedPnLForWithdrawal("binance", "ETHUSDT", "scope-a", start, end)
 	if err != nil {
@@ -138,6 +138,110 @@ func TestGetRealizedPnLForWithdrawalRequiresExecutionCoverage(t *testing.T) {
 	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
 		t.Fatal("missing execution-history coverage must block automatic withdrawal")
 	}
+}
+
+func TestGetRealizedPnLForWithdrawalRejectsUnidentifiedLegacyFunding(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdrawal-unidentified-funding.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Now().UTC()
+	start, end := now.Add(-time.Hour), now
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO funding_payments
+		(exchange, symbol, account, market_type, account_scope, income_type, income, asset, transaction_id, trade_time, identity_key)
+		VALUES ('binance', 'BTCUSDT', 'legacy-account', 'futures', 'scope-a', 'FUNDING_FEE', -75, 'USDT', 77, ?, NULL)`, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+		t.Fatal("withdrawal must reject a legacy negative funding payment with no stable identity")
+	}
+}
+
+func TestGetRealizedPnLForWithdrawalRejectsUnownedLegacyExecution(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdrawal-unowned-fill.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Now().UTC()
+	start, end := now.Add(-time.Hour), now
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO order_fills
+		(exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity,
+		 quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known,
+		 realized_pnl, realized_pnl_asset, trade_time)
+		VALUES ('binance', 'futures', '', 'legacy-account', '', 'BTCUSDT', 'legacy-unowned-fill', 77, 'SELL', 100, 1,
+		 100, 0, 'USDT', 0, 0, 1, -75, 'USDT', ?)`, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+		t.Fatal("withdrawal must reject negative execution PnL without verified account ownership")
+	}
+}
+
+func TestGetRealizedPnLForWithdrawalRejectsUnknownMarketTypeRows(t *testing.T) {
+	t.Run("funding", func(t *testing.T) {
+		st, err := NewSQLStorage(t.TempDir() + "/withdrawal-unknown-funding-market.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = st.Close() })
+		now := time.Now().UTC()
+		start, end := now.Add(-time.Hour), now
+		if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.Exec(`INSERT INTO funding_payments
+			(exchange, symbol, account, market_type, account_scope, income_type, income, asset, transaction_id, trade_time, identity_key)
+			VALUES ('binance', 'BTCUSDT', 'acct', 'perpetual', 'scope-a', 'FUNDING_FEE', -75, 'USDT', 88, ?, 'legacy-market-type-88')`, now.Add(-time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+			t.Fatal("withdrawal must reject funding rows with an unrecognized market type")
+		}
+	})
+
+	t.Run("execution", func(t *testing.T) {
+		st, err := NewSQLStorage(t.TempDir() + "/withdrawal-unknown-execution-market.db")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = st.Close() })
+		now := time.Now().UTC()
+		start, end := now.Add(-time.Hour), now
+		if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.db.Exec(`INSERT INTO order_fills
+			(exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity,
+			 quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known,
+			 realized_pnl, realized_pnl_asset, trade_time)
+			VALUES ('binance', 'perpetual', 'scope-a', 'acct', '', 'BTCUSDT', 'unknown-market-fill', 89, 'SELL', 100, 1,
+			 100, 0, 'USDT', 0, 0, 1, -75, 'USDT', ?)`, now.Add(-time.Minute)); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+			t.Fatal("withdrawal must reject executions with an unrecognized market type")
+		}
+	})
 }
 
 func TestGetRealizedPnLForWithdrawalRejectsNonUSDTTradeFees(t *testing.T) {

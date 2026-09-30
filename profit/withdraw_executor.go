@@ -309,21 +309,28 @@ func (e *WithdrawExecutor) processRule(rule *storage.ProfitWithdrawRule) (retErr
 	if err != nil {
 		return err
 	}
+	if math.IsNaN(profit) || math.IsInf(profit, 0) {
+		return fmt.Errorf("realized profit is not finite; automatic withdrawal is disabled")
+	}
 	if profit <= 0 || profit < rule.TriggerAmount {
 		return nil
+	}
+	verifiedBudget := profit * rule.WithdrawRatio
+	if math.IsNaN(verifiedBudget) || math.IsInf(verifiedBudget, 0) || verifiedBudget <= 0 {
+		return fmt.Errorf("verified withdrawal budget is invalid; automatic withdrawal is disabled")
 	}
 	withdrawn, err := e.withdrawnSince(rule, since)
 	if err != nil {
 		return err
 	}
-	withdrawAmount := profit*rule.WithdrawRatio - withdrawn
+	withdrawAmount := verifiedBudget - withdrawn
 	if rule.MaxWithdrawAmount != nil && *rule.MaxWithdrawAmount > 0 && withdrawAmount > *rule.MaxWithdrawAmount {
 		withdrawAmount = *rule.MaxWithdrawAmount
 	}
 	if withdrawAmount <= 0 || withdrawAmount < rule.MinWithdrawAmount {
 		return nil
 	}
-	return e.executeWithdraw(rule, claimID, withdrawAmount, since, windowEnd)
+	return e.executeWithdraw(rule, claimID, withdrawAmount, since, windowEnd, verifiedBudget)
 }
 
 func legacyWithdrawalCheckpoint(st storage.Storage, accountID, exchangeID string) (time.Time, error) {
@@ -524,7 +531,7 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 }
 
 // executeWithdraw 執行劃轉；windowEnd 為本次利潤統計截止時刻，成功後寫入 LastTriggeredAt 作為下次統計起點
-func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowStart, windowEnd time.Time) error {
+func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowStart, windowEnd time.Time, verifiedBudget float64) error {
 	ex := e.getExchange(rule.ExchangeID)
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)
@@ -549,12 +556,12 @@ func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, cla
 		CreatedAt: windowEnd,
 	}
 	recorder, ok := e.st.(interface {
-		SaveWithdrawRecordForClaim(*storage.ProfitWithdrawRecord) error
+		SaveWithdrawRecordForClaim(*storage.ProfitWithdrawRecord, time.Time, float64) error
 	})
 	if !ok {
 		return fmt.Errorf("storage lacks claim-fenced withdrawal reservation; automatic transfer is disabled")
 	}
-	if err := recorder.SaveWithdrawRecordForClaim(record); err != nil {
+	if err := recorder.SaveWithdrawRecordForClaim(record, windowStart, verifiedBudget); err != nil {
 		return fmt.Errorf("保存記錄失败: %w", err)
 	}
 	if err := ValidateTransferSafety(e.ctx, ex, rule.StrategyID, rule.AccountScope, amount, windowStart, windowEnd); err != nil {

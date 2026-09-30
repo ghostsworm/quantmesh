@@ -84,3 +84,23 @@ func TestGetIncomeHistoryRejectsUnsupportedTypeAndWrongSymbol(t *testing.T) {
 		t.Fatal("mismatched market unexpectedly succeeded")
 	}
 }
+
+func TestGetIncomeHistoryRejectsNonzeroValueWithZeroFundingRate(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": []map[string]any{{
+			"market": "BTCUSDT", "market_type": "FUTURES", "ccy": "USDT", "position_id": 77,
+			"side": "long", "funding_rate": "0", "funding_value": "2.5", "created_at": 1700000001000,
+		}}, "pagination": map[string]bool{"has_next": false}}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	client := NewCoinExClient("api-key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client, market: "BTCUSDT"}
+	if entries, err := adapter.GetIncomeHistory(context.Background(), "BTCUSDT", "FUNDING_FEE", 1700000000000, 1700000100000); err == nil || entries != nil {
+		t.Fatalf("ambiguous zero-rate funding entry accepted: entries=%+v err=%v", entries, err)
+	}
+}

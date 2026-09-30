@@ -108,6 +108,22 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 		t.Fatalf("MySQL manual stream reservation=%v err=%v, want 40", reserved, err)
 	}
 
+	checkpoint := time.Now().UTC().Truncate(time.Millisecond)
+	for _, record := range []*ProfitWithdrawRecord{
+		{ID: accountID + "-same-checkpoint-manual", AccountID: accountID, AccountScope: "mysql-scope", ExchangeID: "binance", StrategyID: "XRPUSDT",
+			Amount: 4, NetAmount: 4, Currency: "USDT", Type: "manual", Status: "completed", Destination: "account", CreatedAt: checkpoint},
+		{ID: accountID + "-same-checkpoint-auto", RuleID: "prior-auto", AccountID: accountID, AccountScope: "mysql-scope", ExchangeID: "binance", StrategyID: "XRPUSDT",
+			Amount: 7, NetAmount: 7, Currency: "USDT", Type: "auto", Status: "completed", Destination: "account", CreatedAt: checkpoint},
+	} {
+		if err := st.SaveWithdrawRecord(record); err != nil {
+			t.Fatalf("save same-checkpoint MySQL withdrawal %s: %v", record.ID, err)
+		}
+	}
+	reserved, err = st.SumReservedWithdrawAmountForStream(accountID, "mysql-scope", "BINANCE", "xrpusdt", checkpoint)
+	if err != nil || reserved != 4 {
+		t.Fatalf("MySQL same-checkpoint manual reservation=%v err=%v, want 4 excluding the prior auto checkpoint", reserved, err)
+	}
+
 	claimAccount := accountID + "-claim-recovery"
 	claimRuleID := claimAccount + "-rule"
 	if err := st.UpsertProfitWithdrawRule(claimAccount, &ProfitWithdrawRule{
@@ -133,12 +149,13 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 		AccountID: claimAccount, AccountScope: "mysql-claim-scope", ClaimID: "mysql-old-claim",
 		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 2, NetAmount: 2, Currency: "USDT",
 		Type: "auto", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
-	if err := st.SaveWithdrawRecordForClaim(record); err == nil {
+	windowStart := record.CreatedAt.Add(-time.Minute)
+	if err := st.SaveWithdrawRecordForClaim(record, windowStart, 10); err == nil {
 		t.Fatal("stale MySQL worker must not create a reservation after claim recovery")
 	}
 	record.ID = claimAccount + "-current-reservation"
 	record.ClaimID = "mysql-current-claim"
-	if err := st.SaveWithdrawRecordForClaim(record); err != nil {
+	if err := st.SaveWithdrawRecordForClaim(record, windowStart, 10); err != nil {
 		t.Fatalf("save current MySQL claim reservation: %v", err)
 	}
 	if err := st.UpdateWithdrawRecordStatus(record.ID, "completed", "mysql-confirmed-transfer", ""); err != nil {

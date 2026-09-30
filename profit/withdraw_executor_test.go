@@ -189,7 +189,8 @@ func (f *fakeWithdrawStorage) SumReservedWithdrawAmountForStream(accountID, acco
 	var total float64
 	for _, r := range f.records {
 		if r != nil && r.AccountID == accountID && r.AccountScope == accountScope && strings.EqualFold(r.ExchangeID, exchange) &&
-			strings.EqualFold(r.StrategyID, symbol) && r.CreatedAt.After(since) && r.Status != "failed" && r.Status != "cancelled" {
+			strings.EqualFold(r.StrategyID, symbol) && (r.CreatedAt.After(since) || (r.CreatedAt.Equal(since) && r.Type == "manual")) &&
+			r.Status != "failed" && r.Status != "cancelled" {
 			total += r.Amount
 		}
 	}
@@ -199,9 +200,13 @@ func (f *fakeWithdrawStorage) SaveWithdrawRecord(r *storage.ProfitWithdrawRecord
 	f.records = append(f.records, r)
 	return nil
 }
-func (f *fakeWithdrawStorage) SaveWithdrawRecordForClaim(r *storage.ProfitWithdrawRecord) error {
+func (f *fakeWithdrawStorage) SaveWithdrawRecordForClaim(r *storage.ProfitWithdrawRecord, windowStart time.Time, verifiedBudget float64) error {
 	if r == nil || r.ClaimID == "" || f.claimID != r.ClaimID {
 		return errors.New("withdrawal claim was lost")
+	}
+	reserved, err := f.SumReservedWithdrawAmountForStream(r.AccountID, r.AccountScope, r.ExchangeID, r.StrategyID, windowStart)
+	if err != nil || reserved+r.Amount > verifiedBudget {
+		return errors.New("withdrawal accounting changed during validation")
 	}
 	f.records = append(f.records, r)
 	return nil

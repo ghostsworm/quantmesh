@@ -65,7 +65,7 @@ func TestWithdrawalReservationsSerializeAcrossSymbolsInOneAccountScope(t *testin
 	auto := &ProfitWithdrawRecord{ID: "auto-eth", RuleID: "eth-rule", AccountID: "acct", AccountScope: "scope-a", ClaimID: "eth-claim",
 		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "auto", Status: "processing",
 		Destination: "account", CreatedAt: time.Now().UTC()}
-	if err := st.SaveWithdrawRecordForClaim(auto); err == nil {
+	if err := st.SaveWithdrawRecordForClaim(auto, since, 50); err == nil {
 		t.Fatal("automatic reservation for another symbol must wait for the unresolved account transfer")
 	}
 	manualOtherSymbol := *manual
@@ -192,6 +192,8 @@ func TestSumReservedWithdrawAmountForStreamIncludesManualAndAutomatic(t *testing
 	for _, record := range []*ProfitWithdrawRecord{
 		{ID: "auto-reserved", RuleID: "rule-a", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 12, Currency: "USDT", Type: "auto", Status: "completed", Destination: "account", CreatedAt: time.Now().UTC()},
 		{ID: "manual-reserved", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 8, Currency: "USDT", Type: "manual", Status: "pending", Destination: "account", CreatedAt: time.Now().UTC()},
+		{ID: "manual-at-checkpoint", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, Currency: "USDT", Type: "manual", Status: "completed", Destination: "account", CreatedAt: since},
+		{ID: "auto-at-checkpoint", RuleID: "rule-a", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 3, Currency: "USDT", Type: "auto", Status: "completed", Destination: "account", CreatedAt: since},
 		{ID: "other-scope", AccountID: "acct", AccountScope: "scope-b", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 200, Currency: "USDT", Type: "manual", Status: "completed", Destination: "account", CreatedAt: time.Now().UTC()},
 	} {
 		if err := st.SaveWithdrawRecord(record); err != nil {
@@ -202,7 +204,7 @@ func TestSumReservedWithdrawAmountForStreamIncludesManualAndAutomatic(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 20 {
-		t.Fatalf("stream reservations=%v, want 20", got)
+	if got != 25 {
+		t.Fatalf("stream reservations=%v, want 25 (including same-checkpoint manual withdrawal, excluding prior auto withdrawal)", got)
 	}
 }

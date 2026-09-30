@@ -279,12 +279,19 @@ func TestAbandonedWithdrawalClaimCanRecoverOnlyBeforeReservation(t *testing.T) {
 	record := &ProfitWithdrawRecord{ID: "stale-reservation", RuleID: rule.ID, AccountID: "acct", AccountScope: "scope-a",
 		ClaimID: "old-claim", ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 1, NetAmount: 1,
 		Currency: "USDT", Type: "auto", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
-	if err := st.SaveWithdrawRecordForClaim(record); err == nil {
+	windowStart := record.CreatedAt.Add(-time.Minute)
+	boundaryManual := &ProfitWithdrawRecord{ID: "same-checkpoint-manual", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 0.5, NetAmount: 0.5, Currency: "USDT",
+		Type: "manual", Status: "completed", CreatedAt: windowStart}
+	if err := st.SaveWithdrawRecord(boundaryManual); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWithdrawRecordForClaim(record, windowStart, 10); err == nil {
 		t.Fatal("stale worker must not create a transfer reservation after its claim is recovered")
 	}
 	record.ID = "current-reservation"
 	record.ClaimID = "new-claim"
-	if err := st.SaveWithdrawRecordForClaim(record); err != nil {
+	if err := st.SaveWithdrawRecordForClaim(record, windowStart, 1.5); err != nil {
 		t.Fatalf("current claim should atomically create its reservation: %v", err)
 	}
 	recovered, err = st.RecoverAbandonedProfitWithdrawRuleClaims(time.Now().Add(time.Hour))
@@ -299,11 +306,19 @@ func TestAbandonedWithdrawalClaimCanRecoverOnlyBeforeReservation(t *testing.T) {
 		t.Fatalf("stale claim with a terminal, confirmed transfer should be released: recovered=%d err=%v", recovered, err)
 	}
 	reserved, err := st.SumReservedWithdrawAmountForStream("acct", "scope-a", "binance", "BTCUSDT", record.CreatedAt.Add(-time.Minute))
-	if err != nil || reserved != record.Amount {
-		t.Fatalf("confirmed transfer must remain reserved after releasing its claim: reserved=%v err=%v", reserved, err)
+	if err != nil || reserved != record.Amount+boundaryManual.Amount {
+		t.Fatalf("confirmed transfer and same-checkpoint manual withdrawal must remain reserved after releasing its claim: reserved=%v err=%v", reserved, err)
 	}
 	if claimed, err := st.ClaimProfitWithdrawRule(rule.ID, "after-completion"); err != nil || !claimed {
 		t.Fatalf("completed transfer claim should be reclaimable: claimed=%v err=%v", claimed, err)
+	}
+	retry := *record
+	retry.ID = "over-budget-reservation"
+	retry.ClaimID = "after-completion"
+	retry.Amount = 0.01
+	retry.NetAmount = retry.Amount
+	if err := st.SaveWithdrawRecordForClaim(&retry, windowStart, 1.5); err == nil {
+		t.Fatal("completed transfer plus a new reservation must not exceed the verified window budget")
 	}
 }
 

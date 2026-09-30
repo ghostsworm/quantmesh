@@ -212,6 +212,9 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 			!finiteNumber(fill.Commission) || !finiteNumber(fill.BaseFeeQty) || fill.BaseFeeQty < 0 || fill.BaseFeeQty > fill.Quantity+entryQtyEpsilon {
 			return 0, 0, 0, fmt.Errorf("order returned invalid fill evidence")
 		}
+		if intent.progress.Quantity > 0 && fill.TradeTime <= 0 {
+			return 0, 0, 0, fmt.Errorf("fill %s has no usable timestamp for persisted-prefix reconciliation", fill.TradeID)
+		}
 		if _, duplicate := seen[fill.TradeID]; duplicate {
 			return 0, 0, 0, fmt.Errorf("order returned duplicate trade ID %q", fill.TradeID)
 		}
