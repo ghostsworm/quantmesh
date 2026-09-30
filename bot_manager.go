@@ -26,11 +26,13 @@ import (
 
 // BotRuntime 代表單個 Bot 的運行時，封裝 SymbolRuntime 實現 Bot 級別的邏輯隔離
 type BotRuntime struct {
-	Config   config.BotConfig
-	BotID    string
-	Inner    *SymbolRuntime
-	EventBus *event.EventBus
-	configMu sync.RWMutex // 保護 Config 的並發訪問
+	Config               config.BotConfig
+	BotID                string
+	Inner                *SymbolRuntime
+	EventBus             *event.EventBus
+	configMu             sync.RWMutex // 保護 Config 的並發訪問
+	pauseTransitionMu    sync.Mutex
+	autoResumeGeneration uint64
 }
 
 const equityDataUnavailableBlock = "equity_data_unverified"
@@ -1243,6 +1245,8 @@ func (br *BotRuntime) GetBotRiskControl() *config.BotRiskControl {
 
 // SetBotRiskControl 设置 Bot 风控配置
 func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) error {
+	br.pauseTransitionMu.Lock()
+	defer br.pauseTransitionMu.Unlock()
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 	if !br.supportsRiskControlUpdates() {
@@ -1256,7 +1260,13 @@ func (br *BotRuntime) SetBotRiskControl(riskControl *config.BotRiskControl) erro
 		copy = *riskControl
 	}
 	br.Config.OpenPositionControl.BotRiskControl = &copy
-	return br.rollbackRiskControlsLocked(previousOpen, previousGrid, br.publishRiskControlsLocked())
+	if err := br.publishRiskControlsLocked(); err != nil {
+		return br.rollbackRiskControlsLocked(previousOpen, previousGrid, err)
+	}
+	if autoResumeSettingsChanged(previousOpen, br.Config.OpenPositionControl) {
+		br.autoResumeGeneration++
+	}
+	return nil
 }
 
 // GetGridRiskControl 獲取網格風控配置
@@ -1284,6 +1294,8 @@ func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 // SetRiskControls atomically applies a combined Bot/grid API patch to the real
 // executor snapshot; readers never observe only half of the request.
 func (br *BotRuntime) SetRiskControls(rc *config.BotRiskControl, grid config.GridRiskControl) error {
+	br.pauseTransitionMu.Lock()
+	defer br.pauseTransitionMu.Unlock()
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 	if !br.supportsRiskControlUpdates() {
@@ -1300,7 +1312,29 @@ func (br *BotRuntime) SetRiskControls(rc *config.BotRiskControl, grid config.Gri
 	}
 	br.Config.OpenPositionControl.BotRiskControl = &copy
 	br.Config.GridRiskControl = grid
-	return br.rollbackRiskControlsLocked(previousOpen, previousGrid, br.publishRiskControlsLocked())
+	if err := br.publishRiskControlsLocked(); err != nil {
+		return br.rollbackRiskControlsLocked(previousOpen, previousGrid, err)
+	}
+	if autoResumeSettingsChanged(previousOpen, br.Config.OpenPositionControl) {
+		br.autoResumeGeneration++
+	}
+	return nil
+}
+
+func autoResumeSettingsChanged(previous, current config.OpenPositionControl) bool {
+	if previous.PauseOpening != current.PauseOpening {
+		return true
+	}
+	previousRisk, currentRisk := previous.BotRiskControl, current.BotRiskControl
+	if previousRisk == nil {
+		previousRisk = &config.BotRiskControl{}
+	}
+	if currentRisk == nil {
+		currentRisk = &config.BotRiskControl{}
+	}
+	return previousRisk.PauseOpening != currentRisk.PauseOpening ||
+		previousRisk.PauseOpeningReason != currentRisk.PauseOpeningReason ||
+		previousRisk.AutoResumeAfter != currentRisk.AutoResumeAfter
 }
 
 func (br *BotRuntime) rollbackRiskControlsLocked(previousOpen config.OpenPositionControl, previousGrid config.GridRiskControl, applyErr error) error {
@@ -1355,6 +1389,10 @@ func (br *BotRuntime) publishRiskControlsLocked() error {
 
 // PauseOpening 暂停开仓
 func (br *BotRuntime) PauseOpening(reason string) {
+	br.pauseTransitionMu.Lock()
+	defer br.pauseTransitionMu.Unlock()
+	br.autoResumeGeneration++
+	generation := br.autoResumeGeneration
 	br.configMu.Lock()
 
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
@@ -1383,7 +1421,7 @@ func (br *BotRuntime) PauseOpening(reason string) {
 
 	// 🔥 如果设置了自动恢复时间，启动自动恢复 goroutine
 	if autoResumeSec > 0 {
-		go br.autoResumeAfter(autoResumeSec)
+		go br.autoResumeAfter(autoResumeSec, generation)
 	}
 }
 
@@ -1498,6 +1536,12 @@ func (br *BotRuntime) ResumeOpeningManually() error {
 }
 
 func (br *BotRuntime) resumeOpening(source string) {
+	br.pauseTransitionMu.Lock()
+	defer br.pauseTransitionMu.Unlock()
+	br.resumeOpeningLocked(source)
+}
+
+func (br *BotRuntime) resumeOpeningLocked(source string) {
 	br.configMu.Lock()
 	// 更新 OpenPositionControl 中的 PauseOpening 状态
 	br.Config.OpenPositionControl = config.CloneOpenPositionControl(br.Config.OpenPositionControl)
@@ -1696,27 +1740,40 @@ func (br *BotRuntime) RiskPnLQuoteAsset() string {
 }
 
 // autoResumeAfter 在指定秒数后自动恢复开仓
-func (br *BotRuntime) autoResumeAfter(seconds int) {
+func (br *BotRuntime) autoResumeAfter(seconds int, generation uint64) {
 	if seconds <= 0 {
 		return
 	}
 
 	logger.Info("⏰ [%s] 自动恢复定时器已启动，将在 %d 秒后恢复开仓", br.BotID, seconds)
 
-	time.Sleep(time.Duration(seconds) * time.Second)
+	timer := time.NewTimer(time.Duration(seconds) * time.Second)
+	defer timer.Stop()
+	<-timer.C
+
+	br.pauseTransitionMu.Lock()
+	defer br.pauseTransitionMu.Unlock()
+	if generation != br.autoResumeGeneration {
+		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但暂停代际已变化，跳过旧恢复请求", br.BotID)
+		return
+	}
 
 	// 检查是否仍处于暂停状态
 	br.configMu.RLock()
 	stillPaused := br.Config.OpenPositionControl.PauseOpening
+	autoResumeSec := 0
 	pauseReason := ""
 	if br.Config.OpenPositionControl.BotRiskControl != nil {
+		autoResumeSec = br.Config.OpenPositionControl.BotRiskControl.AutoResumeAfter
 		pauseReason = br.Config.OpenPositionControl.BotRiskControl.PauseOpeningReason
 	}
 	br.configMu.RUnlock()
 
-	if stillPaused {
+	if stillPaused && autoResumeSec == seconds {
 		logger.Info("🔔 [%s] 自动恢复定时器触发，恢复开仓（暂停原因: %s）", br.BotID, pauseReason)
-		br.resumeOpening("auto_timer")
+		br.resumeOpeningLocked("auto_timer")
+	} else if stillPaused {
+		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但自动恢复配置已变化，跳过", br.BotID)
 	} else {
 		logger.Info("ℹ️ [%s] 自动恢复定时器触发，但开仓已恢复，跳过", br.BotID)
 	}

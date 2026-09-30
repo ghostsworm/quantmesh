@@ -583,6 +583,36 @@ func TestBotManagerAutoPausesSingleLegAfterGrace(t *testing.T) {
 	}
 }
 
+func TestAutoResumeTimerCannotClearNewerPause(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	bot := &BotRuntime{
+		BotID: "pause-generation-bot",
+		Config: config.BotConfig{OpenPositionControl: config.OpenPositionControl{
+			BotRiskControl: &config.BotRiskControl{AutoResumeAfter: 4},
+		}},
+		Inner: &SymbolRuntime{OpeningGate: gate},
+	}
+
+	bot.PauseOpening("first_pause")
+	time.Sleep(900 * time.Millisecond)
+	bot.PauseOpening("newer_manual_pause")
+	time.Sleep(3500 * time.Millisecond)
+
+	bot.configMu.RLock()
+	stillPaused := bot.Config.OpenPositionControl.PauseOpening
+	bot.configMu.RUnlock()
+	if !stillPaused || !gate.HasBlock("manual") {
+		t.Fatal("an older auto-resume timer cleared the newer pause")
+	}
+	time.Sleep(800 * time.Millisecond)
+	bot.configMu.RLock()
+	stillPaused = bot.Config.OpenPositionControl.PauseOpening
+	bot.configMu.RUnlock()
+	if stillPaused || gate.HasBlock("manual") {
+		t.Fatal("the newest auto-resume timer did not resume its own pause")
+	}
+}
+
 // TestBotManagerIsBotEnabledInDB_StorageUnavailable 驗證存儲不可用時：無文件記錄則保守返回禁用
 func TestBotManagerIsBotEnabledInDB_StorageUnavailable(t *testing.T) {
 	bm := &BotManager{storageService: nil}
