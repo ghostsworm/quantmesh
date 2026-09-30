@@ -122,6 +122,63 @@ func TestRuntimeOwnershipLeaseSerializesSharedPositionScope(t *testing.T) {
 	}
 }
 
+func TestRuntimeOwnershipLeaseRetainedUntilStopIsVerified(t *testing.T) {
+	distributedLock := &runtimeLeaseTestLock{}
+	scope := runtimeOwnershipScope("account", "binance", "futures", "BTCUSDT")
+
+	t.Run("stop error retains lease", func(t *testing.T) {
+		lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		released, err := releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease, []error{errors.New("open order unresolved")}, "")
+		if err != nil || released {
+			t.Fatalf("release result = %v, %v; want retained without helper error", released, err)
+		}
+		if _, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil); err == nil {
+			t.Fatal("competing runtime acquired ownership while prior stop was unverified")
+		}
+		if err := lease.Release(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("unverified marker retains lease", func(t *testing.T) {
+		lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		released, err := releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease, nil, "position snapshot unavailable")
+		if err == nil || released {
+			t.Fatalf("release result = %v, %v; want fail-closed retention", released, err)
+		}
+		if _, acquireErr := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil); acquireErr == nil {
+			t.Fatal("competing runtime acquired ownership while reconciliation marker remained")
+		}
+		if err := lease.Release(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("verified stop releases lease", func(t *testing.T) {
+		lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		released, err := releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease, nil, "")
+		if err != nil || !released {
+			t.Fatalf("release result = %v, %v; want released", released, err)
+		}
+		competitor, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
+		if err != nil {
+			t.Fatalf("verified stop kept lease held: %v", err)
+		}
+		if err := competitor.Release(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
 func TestFundingPerpSpreadRuntimeOwnsBothLegsUntilRelease(t *testing.T) {
 	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
 		"binance": {APIKey: "binance-account", SecretKey: "binance-secret"},

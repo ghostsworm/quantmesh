@@ -69,6 +69,19 @@ func (l *runtimeOwnershipLease) Lost() bool {
 	return l == nil || l.lost.Load()
 }
 
+func releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease *runtimeOwnershipLease, stopErrors []error, unverifiedReason string) (bool, error) {
+	if lease == nil {
+		return false, fmt.Errorf("runtime ownership lease is unavailable")
+	}
+	if len(stopErrors) > 0 {
+		return false, nil
+	}
+	if strings.TrimSpace(unverifiedReason) != "" {
+		return false, fmt.Errorf("runtime stop still requires reconciliation: %s", strings.TrimSpace(unverifiedReason))
+	}
+	return true, lease.Release()
+}
+
 func (l *runtimeOwnershipLease) Release() error {
 	if l == nil {
 		return nil

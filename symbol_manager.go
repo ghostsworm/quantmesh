@@ -1824,14 +1824,19 @@ func startSymbolRuntime(
 					stopErrors = append(stopErrors, fmt.Errorf("策略停止未核实: %w", err))
 				}
 			}
-			if releaseErr := ownershipLease.Release(); releaseErr != nil {
-				logger.WarnCtx(ctx, "[%s] 释放 Bot 运行所有权租约失败: %v", botID, releaseErr)
-				stopErrors = append(stopErrors, fmt.Errorf("释放 Bot 运行所有权租约失败: %w", releaseErr))
-			}
 			if len(stopErrors) == 0 {
 				if reason := rt.shutdownCloseUnverifiedReason(); reason != "" {
 					stopErrors = append(stopErrors, fmt.Errorf("停止状态仍需对账: %s", reason))
 				}
+			}
+			released, releaseErr := releaseRuntimeOwnershipLeaseAfterVerifiedStop(ownershipLease, stopErrors, rt.shutdownCloseUnverifiedReason())
+			if releaseErr != nil {
+				logger.WarnCtx(ctx, "[%s] 安全核实停止或释放 Bot 运行所有权租约失败: %v", botID, releaseErr)
+				stopErrors = append(stopErrors, fmt.Errorf("释放 Bot 运行所有权租约前核实失败: %w", releaseErr))
+			} else if !released {
+				logger.ErrorCtx(ctx, "[%s] 停止状态未核实；继续持有运行所有权租约，阻止其他实例接管", botID)
+			} else {
+				logger.InfoCtx(ctx, "[%s] 停止已核实，运行所有权租约已释放", botID)
 			}
 			stopErr = errors.Join(stopErrors...)
 		})
