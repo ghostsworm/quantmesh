@@ -485,6 +485,16 @@ func (bm *BotManager) startBotWithValidation(ctx context.Context, botCfg config.
 		return nil, fmt.Errorf("Bot start requires manager")
 	}
 	botID := config.BotIDOrGenerate(botCfg)
+	// A runtime remains registered while its stop callback drains and verifies
+	// exchange state. Treat a duplicate start during that interval as an
+	// idempotent no-op instead of waiting on the lifecycle lock (which the stop
+	// callback may itself need to let go of external synchronization).
+	bm.runtimesMu.RLock()
+	_, alreadyRunning := bm.runtimes[botID]
+	bm.runtimesMu.RUnlock()
+	if alreadyRunning {
+		return nil, nil
+	}
 	unlockLifecycle := bm.lockBotLifecycle(botID)
 	defer unlockLifecycle()
 	finishTransition, err := bm.runtimeAdmissions.Begin()
