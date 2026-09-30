@@ -10,6 +10,10 @@ import (
 // Patch both risk sections in one durable main snapshot. Never mutate the
 // manager's currently published configuration before persistence succeeds.
 func persistRiskControlBundle(botID string, rc *config.BotRiskControl, grid *config.GridRiskControl) error {
+	return persistRiskControlBundleWithPause(botID, rc, grid, nil, nil)
+}
+
+func persistRiskControlBundleWithPause(botID string, rc *config.BotRiskControl, grid *config.GridRiskControl, paused *bool, reason *string) error {
 	if fileConfigManager == nil {
 		return fmt.Errorf("configuration persistence is unavailable")
 	}
@@ -38,6 +42,15 @@ func persistRiskControlBundle(botID string, rc *config.BotRiskControl, grid *con
 		if rc != nil {
 			copy := *rc
 			next.Bots[i].OpenPositionControl.BotRiskControl = &copy
+		}
+		if paused != nil {
+			next.Bots[i].OpenPositionControl.PauseOpening = *paused
+			if next.Bots[i].OpenPositionControl.BotRiskControl != nil {
+				next.Bots[i].OpenPositionControl.BotRiskControl.PauseOpening = *paused
+				if reason != nil {
+					next.Bots[i].OpenPositionControl.BotRiskControl.PauseOpeningReason = *reason
+				}
+			}
 		}
 		if grid != nil {
 			next.Bots[i].GridRiskControl = *grid

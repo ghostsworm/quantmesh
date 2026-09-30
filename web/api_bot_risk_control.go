@@ -426,7 +426,9 @@ func updateBotRiskControlWhenStopped(c *gin.Context, botID string, req *BotRiskC
 
 // persistBotRiskControlToConfig 將 Bot 風控寫入主配置文件
 func persistBotRiskControlToConfig(botID string, rc config.BotRiskControl) error {
-	return persistRiskControlBundle(botID, &rc, nil)
+	paused := rc.PauseOpening
+	reason := rc.PauseOpeningReason
+	return persistRiskControlBundleWithPause(botID, &rc, nil, &paused, &reason)
 }
 
 func persistGridRiskControlToConfig(botID string, grc config.GridRiskControl) error {
@@ -457,36 +459,67 @@ func pauseBotOpening(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "auto_resume_sec is outside the supported range"})
 		return
 	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	if req.Reason == "" {
+		req.Reason = "manual"
+	}
 
 	// 获取当前风控配置
 	riskControl := bot.GetBotRiskControl()
-	if riskControl != nil {
+	if riskControl == nil {
+		riskControl = &config.BotRiskControl{}
+	} else {
 		copy := *riskControl
 		riskControl = &copy
 	}
 
 	autoResumeSeconds := 0
 	autoResumeError := ""
-	autoResumePersisted := false
-	// 只有本次请求明确指定非零时长，才允许创建自动恢复计时器。
+	autoResumePersisted := req.AutoResumeSec != nil
+	// Only an explicitly supplied duration may start a timer; nil does not
+	// inherit AutoResumeAfter left by an earlier request.
 	if req.AutoResumeSec != nil {
-		if riskControl == nil {
-			riskControl = &config.BotRiskControl{}
-		}
 		riskControl.AutoResumeAfter = *req.AutoResumeSec
-		// 保存风控配置
-		if err := bot.SetBotRiskControl(riskControl); err != nil {
-			logger.Warn("⚠️ [%s] 保存自动恢复时间失败: %v", botID, err)
-			autoResumeError = "auto_resume_configuration_failed"
+	}
+	riskControl.PauseOpening = true
+	riskControl.PauseOpeningReason = req.Reason
+	if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
+		logger.Error("⚠️ [%s] 持久化开仓暂停失败，保持运行时暂停且禁用自动恢复: %v", botID, err)
+		if pauser, ok := bot.(safeOpeningPauser); ok {
+			pauser.PauseOpeningWithoutAutoResume(req.Reason)
 		} else {
-			autoResumeSeconds = *req.AutoResumeSec
-			if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
-				logger.Warn("⚠️ [%s] 保存自动恢复时间到配置失败: %v", botID, err)
-				autoResumeError = "auto_resume_persistence_failed"
-			} else {
-				autoResumePersisted = true
-			}
+			bot.PauseOpening(req.Reason)
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":                "paused",
+			"reason":                req.Reason,
+			"pause_persisted":       false,
+			"auto_resume_at":        0,
+			"auto_resume_persisted": false,
+			"auto_resume_error":     "pause_state_persistence_failed",
+		})
+		return
+	}
+	if err := bot.SetBotRiskControl(riskControl); err != nil {
+		logger.Error("⚠️ [%s] 应用暂停控制配置失败，保持运行时暂停且禁用自动恢复: %v", botID, err)
+		autoResumeError = "auto_resume_configuration_failed"
+		if pauser, ok := bot.(safeOpeningPauser); ok {
+			pauser.PauseOpeningWithoutAutoResume(req.Reason)
+		} else {
+			bot.PauseOpening(req.Reason)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"status":                "paused",
+			"reason":                req.Reason,
+			"pause_persisted":       true,
+			"auto_resume_at":        0,
+			"auto_resume_persisted": autoResumePersisted,
+			"auto_resume_error":     autoResumeError,
+		})
+		return
+	}
+	if req.AutoResumeSec != nil && *req.AutoResumeSec > 0 {
+		autoResumeSeconds = *req.AutoResumeSec
 	}
 	if autoResumeSeconds > 0 {
 		if pauser, ok := bot.(autoResumeOpeningPauser); ok {
@@ -496,7 +529,11 @@ func pauseBotOpening(c *gin.Context) {
 		} else {
 			autoResumeSeconds = 0
 			autoResumeError = "auto_resume_unsupported"
-			bot.PauseOpening(req.Reason)
+			if pauser, ok := bot.(safeOpeningPauser); ok {
+				pauser.PauseOpeningWithoutAutoResume(req.Reason)
+			} else {
+				bot.PauseOpening(req.Reason)
+			}
 		}
 	} else {
 		if pauser, ok := bot.(safeOpeningPauser); ok {
@@ -510,6 +547,7 @@ func pauseBotOpening(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":                "paused",
 		"reason":                req.Reason,
+		"pause_persisted":       true,
 		"auto_resume_at":        autoResumeSeconds,
 		"auto_resume_persisted": autoResumePersisted,
 		"auto_resume_error":     autoResumeError,
@@ -518,6 +556,8 @@ func pauseBotOpening(c *gin.Context) {
 
 // resumeBotOpening 恢复 Bot 开仓
 func resumeBotOpening(c *gin.Context) {
+	riskControlUpdateMu.Lock()
+	defer riskControlUpdateMu.Unlock()
 	if botExtendedProvider == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
@@ -529,13 +569,63 @@ func resumeBotOpening(c *gin.Context) {
 		return
 	}
 
+	persistenceFailed := false
 	allowed, err := runRecoveryIfRiskUnheld(func() error {
 		if manual, ok := bot.(interface{ ResumeOpeningManually() error }); ok {
-			return manual.ResumeOpeningManually()
+			if err := manual.ResumeOpeningManually(); err != nil {
+				return err
+			}
+		} else {
+			bot.ResumeOpening()
 		}
-		bot.ResumeOpening()
+		status := bot.GetPositionStatus()
+		paused, verified := status["paused"].(bool)
+		if !verified {
+			if pauser, ok := bot.(safeOpeningPauser); ok {
+				pauser.PauseOpeningWithoutAutoResume("恢复状态未核实")
+			} else {
+				bot.PauseOpening("恢复状态未核实")
+			}
+			return fmt.Errorf("opening resume state is unavailable")
+		}
+		if paused {
+			return nil
+		}
+		riskControl := bot.GetBotRiskControl()
+		if riskControl == nil {
+			riskControl = &config.BotRiskControl{}
+		} else {
+			copy := *riskControl
+			riskControl = &copy
+		}
+		riskControl.PauseOpening = false
+		riskControl.PauseOpeningReason = ""
+		if err := bot.SetBotRiskControl(riskControl); err != nil {
+			if pauser, ok := bot.(safeOpeningPauser); ok {
+				pauser.PauseOpeningWithoutAutoResume("恢复配置未核实")
+			} else {
+				bot.PauseOpening("恢复配置未核实")
+			}
+			return err
+		}
+		if err := persistBotRiskControlToConfig(botID, *riskControl); err != nil {
+			persistenceFailed = true
+			riskControl.PauseOpening = true
+			riskControl.PauseOpeningReason = "manual"
+			_ = bot.SetBotRiskControl(riskControl)
+			if pauser, ok := bot.(safeOpeningPauser); ok {
+				pauser.PauseOpeningWithoutAutoResume("恢复状态持久化失败")
+			} else {
+				bot.PauseOpening("恢复状态持久化失败")
+			}
+			return err
+		}
 		return nil
 	})
+	if persistenceFailed {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "opening_resume_persist_failed", "position_status": bot.GetPositionStatus()})
+		return
+	}
 	if err != nil {
 		if errors.Is(err, errOpeningPauseCoordinatorUnavailable) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "risk_pause_coordinator_unavailable", "position_status": bot.GetPositionStatus()})

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"quantmesh/config"
 	"quantmesh/risk"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ type protectiveResumeBot struct {
 	paused         bool
 	manualCalls    int
 	automaticCalls int
+	riskControl    *config.BotRiskControl
 }
 
 func (b *protectiveResumeBot) ResumeOpeningManually() error {
@@ -36,30 +38,46 @@ func (b *protectiveResumeBot) GetPositionStatus() map[string]interface{} {
 	return map[string]interface{}{"paused": b.paused}
 }
 
+func (b *protectiveResumeBot) GetBotRiskControl() *config.BotRiskControl {
+	if b.riskControl == nil {
+		return &config.BotRiskControl{}
+	}
+	copy := *b.riskControl
+	return &copy
+}
+
+func (b *protectiveResumeBot) SetBotRiskControl(rc *config.BotRiskControl) error {
+	copy := *rc
+	b.riskControl = &copy
+	return nil
+}
+
 type protectiveResumeProvider struct{ bot BotExtended }
 
 func (p protectiveResumeProvider) GetBot(string) (BotExtended, bool) { return p.bot, true }
 
 func TestProtectiveResumeAPIUsesExplicitManualRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	setupPausePersistenceConfig(t, "test", true)
 	original := botExtendedProvider
 	t.Cleanup(func() { botExtendedProvider = original })
 	previousCoordinator := globalOpeningPauseCoordinator
 	globalOpeningPauseCoordinator = risk.NewOpeningPauseCoordinator()
 	t.Cleanup(func() { globalOpeningPauseCoordinator = previousCoordinator })
 	for _, tc := range []struct {
-		name   string
-		err    error
-		paused bool
-		code   int
-		body   string
+		name               string
+		err                error
+		paused             bool
+		code               int
+		body               string
+		wantPersistedPause bool
 	}{
-		{"unverified", errors.New("protective liquidation not verified"), true, http.StatusConflict, "not verified"},
-		{"independent_hold", nil, true, http.StatusOK, `"status":"paused"`},
-		{"verified", nil, false, http.StatusOK, `"status":"resumed"`},
+		{"unverified", errors.New("protective liquidation not verified"), true, http.StatusConflict, "not verified", true},
+		{"independent_hold", nil, true, http.StatusOK, `"status":"paused"`, true},
+		{"verified", nil, false, http.StatusOK, `"status":"resumed"`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			bot := &protectiveResumeBot{err: tc.err, paused: tc.paused}
+			bot := &protectiveResumeBot{err: tc.err, paused: tc.paused, riskControl: &config.BotRiskControl{PauseOpening: true, PauseOpeningReason: "manual", AutoResumeAfter: 30}}
 			botExtendedProvider = protectiveResumeProvider{bot: bot}
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
@@ -71,6 +89,10 @@ func TestProtectiveResumeAPIUsesExplicitManualRecovery(t *testing.T) {
 			}
 			if bot.manualCalls != 1 || bot.automaticCalls != 0 {
 				t.Fatal("manual endpoint used automatic recovery")
+			}
+			persistedPause, _ := persistedBotPause(t, "test")
+			if persistedPause != tc.wantPersistedPause {
+				t.Fatalf("persisted pause=%v want %v", persistedPause, tc.wantPersistedPause)
 			}
 		})
 	}
