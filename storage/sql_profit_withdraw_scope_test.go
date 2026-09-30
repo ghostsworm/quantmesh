@@ -76,6 +76,52 @@ func TestProfitWithdrawRulesRejectUnsafeAmountsBeforePersistence(t *testing.T) {
 	}
 }
 
+func TestListProfitWithdrawRulesFailsOnMalformedPersistedRow(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-malformed-rule.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	rule := &ProfitWithdrawRule{ID: "broken-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", rule); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE profit_withdraw_rules SET trigger_amount = 'not-a-number' WHERE id = ?`, rule.ID); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.ListProfitWithdrawRules("acct")
+	if err == nil {
+		t.Fatalf("malformed persisted rule was silently accepted: %+v", got)
+	}
+	if got != nil {
+		t.Fatalf("malformed query must not return a partial rule set: %+v", got)
+	}
+}
+
+func TestReplaceProfitWithdrawRulesRejectsNilWithoutDeletingExistingRules(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-nil-replacement-rule.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	existing := &ProfitWithdrawRule{ID: "existing-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "daily", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", existing); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceProfitWithdrawRules("acct", []*ProfitWithdrawRule{nil}); err == nil {
+		t.Fatal("replacement with a nil rule was accepted")
+	}
+	rules, err := st.ListProfitWithdrawRules("acct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].ID != existing.ID {
+		t.Fatalf("rejected replacement must preserve existing rules: %+v", rules)
+	}
+}
+
 func TestConcurrentUpsertCannotCreateOverlappingWithdrawStreams(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-concurrent-rules.db")
 	if err != nil {

@@ -387,3 +387,27 @@ func TestDCAStartRejectsUntimedFillWithPersistedCursor(t *testing.T) {
 		t.Fatalf("failed recovery mutated persisted inventory or cursor: running=%v layer=%+v", s.IsRunning(), s.layers[0])
 	}
 }
+
+func TestDCAStartRejectsCursorSplittingSameTimestampTrades(t *testing.T) {
+	const tradeTime = int64(1_700_000_000_000)
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 110, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,
+		AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled,
+	}, fills: []*exchange.OrderFill{
+		{OrderID: 110, TradeID: "trade-110a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.25, Commission: 0.025, CommissionAsset: "USDT", TradeTime: tradeTime},
+		{OrderID: 110, TradeID: "trade-110b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.25, Commission: 0.025, CommissionAsset: "USDT", TradeTime: tradeTime},
+	}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		TotalCost: 25, TotalQty: 0.25, AvgEntryPrice: 100,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.25, Cost: 25, OpeningFee: 0.025, OrderID: 110,
+			Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
+			FillProgress: position.FillProgress{Quantity: 0.25, Notional: 25}}},
+	}
+	s := newPersistedDCAStrategy(t, ex, state)
+	if err := s.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted a cursor that splits trades sharing one timestamp")
+	}
+	if s.IsRunning() || s.totalQty != 0.25 || s.layers[0].FillProgress.Quantity != 0.25 {
+		t.Fatalf("failed recovery mutated persisted inventory or cursor: running=%v layer=%+v", s.IsRunning(), s.layers[0])
+	}
+}

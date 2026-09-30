@@ -171,7 +171,7 @@ func (s *SQLStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWithdra
 			&updatedAt,
 			&lastTriggered,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("解析自动提取规则 %q 失败: %w", r.ID, err)
 		}
 		r.Enabled = enabledInt != 0
 		if walletAddr.Valid {
@@ -196,6 +196,11 @@ func (s *SQLStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWithdra
 func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error {
 	if accountID == "" {
 		accountID = "default"
+	}
+	for index, rule := range rules {
+		if rule == nil {
+			return fmt.Errorf("withdrawal rule at index %d is required", index)
+		}
 	}
 	if err := validateUniqueEnabledWithdrawStreams(accountID, rules); err != nil {
 		return err

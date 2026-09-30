@@ -28,6 +28,7 @@ export interface ProfitSummary {
 export interface StrategyProfit {
   exchangeId: string
   strategyId: string
+  marketType?: string
   pnlAsset: string
   strategyName: string
   strategyType: string

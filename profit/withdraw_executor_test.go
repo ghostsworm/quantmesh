@@ -47,6 +47,15 @@ func TestWithdrawExecutorShouldExecute(t *testing.T) {
 	}
 }
 
+func TestExecuteWithdrawRejectsMissingExchangeGetter(t *testing.T) {
+	e := NewWithdrawExecutor(context.Background(), nil, nil)
+	now := time.Now()
+	err := e.executeWithdraw(&storage.ProfitWithdrawRule{ID: "rule-a", ExchangeID: "binance"}, "claim-a", 1, now.Add(-time.Minute), now, 1)
+	if err == nil || !strings.Contains(err.Error(), "exchange lookup is unavailable") {
+		t.Fatalf("executeWithdraw error=%v, want missing exchange lookup error", err)
+	}
+}
+
 func TestCurrentPeriodStartAndNextSchedule(t *testing.T) {
 	loc := time.FixedZone("UTC+8", 8*3600)
 	at := func(y int, m time.Month, d, h, min int) time.Time { return time.Date(y, m, d, h, min, 0, 0, loc) }

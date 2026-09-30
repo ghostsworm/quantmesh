@@ -283,7 +283,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
             <VStack align="stretch" spacing={2}>
               {strategyProfits.map((sp, index) => (
                 <HStack
-                  key={`${sp.exchangeId}:${sp.strategyId}:${sp.pnlAsset}`}
+                  key={`${sp.exchangeId}:${sp.marketType ?? 'unknown'}:${sp.strategyId}:${sp.pnlAsset}`}
                   justify="space-between"
                   p={3}
                   bg="gray.50"
@@ -293,7 +293,9 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
                   borderLeftColor={COLORS[index % COLORS.length]}
                 >
                   <VStack align="start" spacing={0}>
-                    <Text fontWeight="medium">{sp.strategyName}</Text>
+                    <Text fontWeight="medium">
+                      {sp.strategyName}{sp.marketType ? ` · ${t(`pnlChart.marketType.${sp.marketType}`, { defaultValue: sp.marketType })}` : ''}
+                    </Text>
                     <Text fontSize="xs" color="gray.500">
                       {sp.tradeCount} {t('profitManagement.trades')} · {((sp.exchangeWinRate || sp.winRate || 0) * 100).toFixed(1)}% {t('profitManagement.winRate')}
                     </Text>

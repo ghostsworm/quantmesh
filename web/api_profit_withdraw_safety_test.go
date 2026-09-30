@@ -45,6 +45,56 @@ func TestManualTransferReceiptRequiresVerifiableID(t *testing.T) {
 	}
 }
 
+func TestProfitReadEndpointsReportUnavailableStorage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalStorage := storageServiceProvider
+	t.Cleanup(func() { SetStorageServiceProvider(originalStorage) })
+
+	providers := []struct {
+		name     string
+		provider StorageServiceProvider
+	}{
+		{name: "provider missing"},
+		{name: "storage missing", provider: &testStorageProvider{st: nil}},
+	}
+	endpoints := []struct {
+		name    string
+		target  string
+		params  gin.Params
+		handler func(*gin.Context)
+	}{
+		{name: "summary", target: "/api/profit/summary", handler: getProfitSummaryHandler},
+		{name: "funding history", target: "/api/profit/funding", handler: getFundingHistoryHandler},
+		{name: "strategy profits", target: "/api/profit/by-strategy", handler: getStrategyProfitsHandler},
+		{name: "strategy detail", target: "/api/profit/by-strategy/BTCUSDT", params: gin.Params{{Key: "id", Value: "BTCUSDT"}}, handler: getStrategyProfitDetailHandler},
+		{name: "withdraw rules", target: "/api/profit/withdraw-rules", handler: getWithdrawRulesHandler},
+		{name: "withdraw history", target: "/api/profit/history", handler: getWithdrawHistoryHandler},
+		{name: "profit trend", target: "/api/profit/trend", handler: getProfitTrendHandler},
+	}
+	for _, endpoint := range endpoints {
+		for _, provider := range providers {
+			t.Run(endpoint.name+"/"+provider.name, func(t *testing.T) {
+				SetStorageServiceProvider(provider.provider)
+				w := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(w)
+				c.Request = httptest.NewRequest(http.MethodGet, endpoint.target, nil)
+				c.Params = endpoint.params
+				endpoint.handler(c)
+				if w.Code != http.StatusServiceUnavailable {
+					t.Fatalf("status=%d, want %d; body=%s", w.Code, http.StatusServiceUnavailable, w.Body.String())
+				}
+				var response map[string]interface{}
+				if err := json.Unmarshal(w.Body.Bytes(), &response); err != nil {
+					t.Fatal(err)
+				}
+				if response["success"] != false {
+					t.Fatalf("unavailable financial data must not report success: %v", response)
+				}
+			})
+		}
+	}
+}
+
 func TestWithdrawProfitLedgerSeparatesCompletedAndReservedAmounts(t *testing.T) {
 	ledger, err := aggregateWithdrawProfitLedger([]*storage.ProfitWithdrawRecord{
 		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 100, Currency: "USDT", Status: "completed"},

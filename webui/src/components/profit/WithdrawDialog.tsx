@@ -62,6 +62,9 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
   } | null>(null)
 
   const selectedStrategy = strategyProfits.find((s) => s.strategyId === strategyId)
+  const withdrawableStrategies = strategyProfits.filter(
+    (strategy) => strategy.marketType?.toLowerCase() === 'futures' && strategy.pnlAsset.toUpperCase() === 'USDT',
+  )
   const maxAmount = strategyId
     ? selectedStrategy?.availableToWithdraw || 0
     : 0
@@ -181,7 +184,7 @@ const WithdrawDialog: React.FC<WithdrawDialogProps> = ({
                 onChange={(e) => setStrategyId(e.target.value)}
                 placeholder={t('profitManagement.allStrategies')}
               >
-                {strategyProfits.map((sp) => (
+                {withdrawableStrategies.map((sp) => (
                   <option key={sp.strategyId} value={sp.strategyId}>
                     {sp.strategyName} ({(sp.availableToWithdraw || 0).toFixed(2)} USDT)
                   </option>

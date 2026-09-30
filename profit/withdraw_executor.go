@@ -532,6 +532,9 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 
 // executeWithdraw 執行劃轉；windowEnd 為本次利潤統計截止時刻，成功後寫入 LastTriggeredAt 作為下次統計起點
 func (e *WithdrawExecutor) executeWithdraw(rule *storage.ProfitWithdrawRule, claimID string, amount float64, windowStart, windowEnd time.Time, verifiedBudget float64) error {
+	if e.getExchange == nil {
+		return fmt.Errorf("exchange lookup is unavailable; automatic withdrawal is disabled")
+	}
 	ex := e.getExchange(rule.ExchangeID)
 	if ex == nil {
 		return fmt.Errorf("未找到交易所: %s", rule.ExchangeID)

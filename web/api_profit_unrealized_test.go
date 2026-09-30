@@ -49,3 +49,19 @@ func TestVerifiedProviderPnLRequiresScopedEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestVerifiedProviderPnLRejectsMixedSymbols(t *testing.T) {
+	provider := &verifiedProfitPosition{pnl: 12.5, verified: true, asset: "USDT"}
+	slots := []SlotInfo{{Exchange: "binance", Symbol: "BTCUSDT"}, {Exchange: "binance", Symbol: "ETHUSDT"}}
+	if got, ok := verifiedProviderPnL(provider, slots, "binance", "USDT", 101); ok || got != 0 {
+		t.Fatalf("mixed-symbol aggregate must remain unverified: %v, %v", got, ok)
+	}
+}
+
+func TestStrategyProfitKeySeparatesMarketTypes(t *testing.T) {
+	spot := strategyProfitKey("Binance", "spot", "BTCUSDT", "USDT")
+	futures := strategyProfitKey("binance", "futures", "btcusdt", "usdt")
+	if spot == futures {
+		t.Fatalf("spot and futures keys collided: %q", spot)
+	}
+}

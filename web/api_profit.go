@@ -45,6 +45,7 @@ type ProfitSummary struct {
 type StrategyProfit struct {
 	ExchangeID               string  `json:"exchangeId"`
 	StrategyID               string  `json:"strategyId"`
+	MarketType               string  `json:"marketType"`
 	PnLAsset                 string  `json:"pnlAsset"`
 	StrategyName             string  `json:"strategyName"`
 	StrategyType             string  `json:"strategyType"`
@@ -75,8 +76,18 @@ func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exc
 	if provider == nil || strings.TrimSpace(asset) == "" || !isFiniteNumber(currentPrice) || currentPrice <= 0 {
 		return 0, false
 	}
+	if len(slots) == 0 {
+		return 0, false
+	}
+	symbol := strings.TrimSpace(slots[0].Symbol)
+	if symbol == "" {
+		return 0, false
+	}
 	for _, slot := range slots {
 		if exchange != "" && !strings.EqualFold(slot.Exchange, exchange) {
+			return 0, false
+		}
+		if !strings.EqualFold(strings.TrimSpace(slot.Symbol), symbol) {
 			return 0, false
 		}
 	}
@@ -94,6 +105,10 @@ func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exc
 		return 0, false
 	}
 	return pnl, true
+}
+
+func strategyProfitKey(exchange, marketType, symbol, asset string) string {
+	return strings.ToLower(strings.TrimSpace(exchange)) + ":" + strings.ToLower(strings.TrimSpace(marketType)) + ":" + strings.ToLower(strings.TrimSpace(symbol)) + ":" + strings.ToLower(strings.TrimSpace(asset))
 }
 
 // ProfitWithdrawRule 提取规则
@@ -228,7 +243,11 @@ func readScopedFundingProfitTotals(reader scopedProfitSummaryReader, scopes []pr
 			if err != nil {
 				return fundingProfitTotals{}, fmt.Errorf("query %s scoped funding total for %s: %w", query.label, scope.exchange, err)
 			}
-			*query.dest += value
+			total, ok := addFiniteProfitValues(*query.dest, value)
+			if !ok {
+				return fundingProfitTotals{}, fmt.Errorf("query %s scoped funding total for %s is not finite", query.label, scope.exchange)
+			}
+			*query.dest = total
 		}
 	}
 	return totals, nil
@@ -241,6 +260,71 @@ type fundingProfitTotals struct {
 	Today float64
 	Week  float64
 	Month float64
+}
+
+func addFiniteProfitValues(values ...float64) (float64, bool) {
+	var total float64
+	for _, value := range values {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, false
+		}
+		total += value
+		if math.IsNaN(total) || math.IsInf(total, 0) {
+			return 0, false
+		}
+	}
+	return total, true
+}
+
+func roundProfitToCents(value float64) (float64, bool) {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0, false
+	}
+	if math.Abs(value) > math.MaxFloat64/100 {
+		return value, true
+	}
+	rounded := math.Round(value*100) / 100
+	return rounded, !math.IsNaN(rounded) && !math.IsInf(rounded, 0)
+}
+
+func mergeProfitStatistics(target, source *storage.Statistics) error {
+	if target == nil || source == nil || target.TotalTrades < 0 || source.TotalTrades < 0 ||
+		source.TotalVolume < 0 || source.WinRate < 0 || source.WinRate > 1 {
+		return errors.New("profit statistics are missing or outside valid ranges")
+	}
+	for _, value := range []float64{target.TotalVolume, target.TotalPnL, target.GrossPnL, target.TotalFee, target.TotalBuyDeviation, target.TotalSellDeviation,
+		source.TotalVolume, source.TotalPnL, source.GrossPnL, source.TotalFee, source.TotalBuyDeviation, source.TotalSellDeviation, source.WinRate} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("profit statistics contain a non-finite value")
+		}
+	}
+	maxInt := int(^uint(0) >> 1)
+	if source.TotalTrades > maxInt-target.TotalTrades {
+		return errors.New("profit trade count overflow")
+	}
+	merged := *target
+	merged.TotalTrades += source.TotalTrades
+	var ok bool
+	if merged.TotalVolume, ok = addFiniteProfitValues(target.TotalVolume, source.TotalVolume); !ok {
+		return errors.New("profit volume overflow")
+	}
+	if merged.TotalPnL, ok = addFiniteProfitValues(target.TotalPnL, source.TotalPnL); !ok {
+		return errors.New("net profit overflow")
+	}
+	if merged.GrossPnL, ok = addFiniteProfitValues(target.GrossPnL, source.GrossPnL); !ok {
+		return errors.New("gross profit overflow")
+	}
+	if merged.TotalFee, ok = addFiniteProfitValues(target.TotalFee, source.TotalFee); !ok {
+		return errors.New("fee total overflow")
+	}
+	if merged.TotalBuyDeviation, ok = addFiniteProfitValues(target.TotalBuyDeviation, source.TotalBuyDeviation); !ok {
+		return errors.New("buy price deviation overflow")
+	}
+	if merged.TotalSellDeviation, ok = addFiniteProfitValues(target.TotalSellDeviation, source.TotalSellDeviation); !ok {
+		return errors.New("sell price deviation overflow")
+	}
+	*target = merged
+	return nil
 }
 
 const withdrawProfitHistoryLimit = 1000
@@ -355,7 +439,11 @@ func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, sym
 	if math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
 		return 0
 	}
-	return math.Round(total*100) / 100
+	rounded, ok := roundProfitToCents(total)
+	if !ok {
+		return 0
+	}
+	return rounded
 }
 
 func readVerifiedWithdrawProfit(st storage.Storage, accountID, exchangeID string, now time.Time) (verifiedWithdrawProfit, error) {
@@ -409,7 +497,11 @@ func readFundingProfitTotals(reader fundingProfitSumReader, account, exchange st
 		if err != nil {
 			return fundingProfitTotals{}, fmt.Errorf("query %s funding total: %w", query.label, err)
 		}
-		*query.dest = value
+		total, ok := addFiniteProfitValues(*query.dest, value)
+		if !ok {
+			return fundingProfitTotals{}, fmt.Errorf("query %s funding total is not finite", query.label)
+		}
+		*query.dest = total
 	}
 	return totals, nil
 }
@@ -420,13 +512,13 @@ func getProfitSummaryHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲服務未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲接口未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -451,13 +543,10 @@ func getProfitSummaryHandler(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要未能通过账户/币种完整性核验: " + queryErr.Error()})
 			return
 		}
-		summaryStats.TotalTrades += part.TotalTrades
-		summaryStats.TotalVolume += part.TotalVolume
-		summaryStats.GrossPnL += part.GrossPnL
-		summaryStats.TotalFee += part.TotalFee
-		summaryStats.TotalPnL += part.TotalPnL
-		summaryStats.TotalBuyDeviation += part.TotalBuyDeviation
-		summaryStats.TotalSellDeviation += part.TotalSellDeviation
+		if err := mergeProfitStatistics(summaryStats, part); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要包含无效或溢出的统计数值: " + err.Error()})
+			return
+		}
 	}
 
 	// 2. 獲取今日/本周/本月盈利（按配置時區）
@@ -481,8 +570,17 @@ func getProfitSummaryHandler(c *gin.Context) {
 			return
 		}
 		for _, stat := range dailyStats {
+			if stat == nil || stat.Date.IsZero() {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日盈利统计包含缺失记录或日期"})
+				return
+			}
 			day := stat.Date.Format("2006-01-02")
-			dailyStatsByDate[day] += stat.TotalPnL
+			total, ok := addFiniteProfitValues(dailyStatsByDate[day], stat.TotalPnL)
+			if !ok {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日盈利统计包含非有限数值或累加溢出"})
+				return
+			}
+			dailyStatsByDate[day] = total
 		}
 	}
 
@@ -492,12 +590,22 @@ func getProfitSummaryHandler(c *gin.Context) {
 
 	todayKey, weekKey := todayStart.Format("2006-01-02"), weekStart.Format("2006-01-02")
 	for day, pnl := range dailyStatsByDate {
-		monthProfit += pnl
+		var ok bool
+		if monthProfit, ok = addFiniteProfitValues(monthProfit, pnl); !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "月度盈利统计累加溢出"})
+			return
+		}
 		if day >= todayKey {
-			todayProfit += pnl
+			if todayProfit, ok = addFiniteProfitValues(todayProfit, pnl); !ok {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "当日盈利统计累加溢出"})
+				return
+			}
 		}
 		if day >= weekKey {
-			weekProfit += pnl
+			if weekProfit, ok = addFiniteProfitValues(weekProfit, pnl); !ok {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "本周盈利统计累加溢出"})
+				return
+			}
 		}
 	}
 
@@ -525,16 +633,20 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return
 	}
 	fundingSum, todayFunding, weekFunding, monthFunding := fundingTotals.Total, fundingTotals.Today, fundingTotals.Week, fundingTotals.Month
-	netWithFunding := summaryStats.TotalPnL + fundingSum
-	todayProfitWithFunding := todayProfit + todayFunding
-	weekProfitWithFunding := weekProfit + weekFunding
-	monthProfitWithFunding := monthProfit + monthFunding
+	netWithFunding, netOK := addFiniteProfitValues(summaryStats.TotalPnL, fundingSum)
+	todayProfitWithFunding, todayOK := addFiniteProfitValues(todayProfit, todayFunding)
+	weekProfitWithFunding, weekOK := addFiniteProfitValues(weekProfit, weekFunding)
+	monthProfitWithFunding, monthOK := addFiniteProfitValues(monthProfit, monthFunding)
 
 	// 🔥 计算价格偏差导致的损失
 	// 买入价格偏差：如果实际买入价格高于委托价格，会导致成本增加（负值表示损失）
 	// 卖出价格偏差：如果实际卖出价格低于委托价格，会导致收益减少（负值表示损失）
 	// 总偏差损失 = 买入偏差（通常为负）+ 卖出偏差（通常为负）
-	priceDeviationLoss := summaryStats.TotalBuyDeviation + summaryStats.TotalSellDeviation
+	priceDeviationLoss, deviationOK := addFiniteProfitValues(summaryStats.TotalBuyDeviation, summaryStats.TotalSellDeviation)
+	if !netOK || !todayOK || !weekOK || !monthOK || !deviationOK {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要最终合并数值无效或溢出"})
+		return
+	}
 
 	// orders.realized_pnl 沒有記錄計價資產，不能與 USDT 損益混合後對外呈現。
 	// exchangeProfit 保留 API 欄位相容性，但在訂單幣種證據補齊前不返回。
@@ -552,24 +664,37 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return
 	}
 
+	roundOK := true
+	roundCents := func(value float64) float64 {
+		rounded, ok := roundProfitToCents(value)
+		if !ok {
+			roundOK = false
+			return 0
+		}
+		return rounded
+	}
 	summary := ProfitSummary{
 		ExchangeID:               exchangeID,
-		TotalProfit:              math.Round(netWithFunding*100) / 100,
-		GrossProfit:              math.Round(summaryStats.GrossPnL*100) / 100,
-		TotalFee:                 math.Round(summaryStats.TotalFee*100) / 100,
-		FundingNet:               math.Round(fundingSum*100) / 100,
-		TodayProfit:              math.Round(todayProfitWithFunding*100) / 100,
-		WeekProfit:               math.Round(weekProfitWithFunding*100) / 100,
-		MonthProfit:              math.Round(monthProfitWithFunding*100) / 100,
-		UnrealizedProfit:         math.Round(unrealizedProfit*100) / 100,
+		TotalProfit:              roundCents(netWithFunding),
+		GrossProfit:              roundCents(summaryStats.GrossPnL),
+		TotalFee:                 roundCents(summaryStats.TotalFee),
+		FundingNet:               roundCents(fundingSum),
+		TodayProfit:              roundCents(todayProfitWithFunding),
+		WeekProfit:               roundCents(weekProfitWithFunding),
+		MonthProfit:              roundCents(monthProfitWithFunding),
+		UnrealizedProfit:         roundCents(unrealizedProfit),
 		UnrealizedProfitVerified: unrealizedProfitVerified,
 		ExchangeProfit:           exchangeProfit,
-		WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		WithdrawnProfit:          roundCents(withdrawnAmounts.withdrawn),
 		AvailableToWithdraw:      sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, ""),
-		PriceDeviationLoss:       math.Round(priceDeviationLoss*100) / 100,
-		BuyPriceDeviation:        math.Round(summaryStats.TotalBuyDeviation*100) / 100,
-		SellPriceDeviation:       math.Round(summaryStats.TotalSellDeviation*100) / 100,
+		PriceDeviationLoss:       roundCents(priceDeviationLoss),
+		BuyPriceDeviation:        roundCents(summaryStats.TotalBuyDeviation),
+		SellPriceDeviation:       roundCents(summaryStats.TotalSellDeviation),
 		LastUpdated:              time.Now().Format(time.RFC3339),
+	}
+	if !roundOK {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要包含无法安全舍入的非有限数值"})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -586,12 +711,12 @@ func getFundingHistoryHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲服務未就绪", "records": []FundingPaymentItem{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": false, "message": "存儲接口未就绪", "records": []FundingPaymentItem{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -657,13 +782,13 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "profits": []StrategyProfit{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "profits": []StrategyProfit{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -718,8 +843,17 @@ func getStrategyProfitsHandler(c *gin.Context) {
 	}
 	todayPnlMap := make(map[string]float64)
 	for _, p := range todayPnlList {
-		key := p.Exchange + ":" + p.Symbol + ":" + p.PnLAsset
-		todayPnlMap[key] = p.TotalPnL
+		if p == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "今日策略盈亏包含缺失记录"})
+			return
+		}
+		key := strategyProfitKey(p.Exchange, p.MarketType, p.Symbol, p.PnLAsset)
+		total, ok := addFiniteProfitValues(todayPnlMap[key], p.TotalPnL)
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "今日策略盈亏聚合溢出或包含非有限数值"})
+			return
+		}
+		todayPnlMap[key] = total
 	}
 
 	// 獲取未實現盈亏
@@ -735,19 +869,33 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		}
 
 		if len(slots) > 0 {
-			key := slots[0].Exchange + ":" + slots[0].Symbol + ":" + profitSummaryAsset
-			unrealizedPnlMap[key], unrealizedPnlVerifiedMap[key] = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, profitSummaryAsset, currentPrice)
+			marketTypes := make(map[string]struct{})
+			for _, pnl := range pnlList {
+				if pnl != nil && strings.EqualFold(pnl.Exchange, slots[0].Exchange) && strings.EqualFold(pnl.Symbol, slots[0].Symbol) && strings.EqualFold(pnl.PnLAsset, profitSummaryAsset) {
+					marketTypes[strings.ToLower(strings.TrimSpace(pnl.MarketType))] = struct{}{}
+				}
+			}
+			if len(marketTypes) == 1 {
+				for marketType := range marketTypes {
+					key := strategyProfitKey(slots[0].Exchange, marketType, slots[0].Symbol, profitSummaryAsset)
+					unrealizedPnlMap[key], unrealizedPnlVerifiedMap[key] = verifiedProviderPnL(pmProvider, slots, slots[0].Exchange, profitSummaryAsset, currentPrice)
+				}
+			}
 		}
 	}
 
 	profits := make([]StrategyProfit, 0)
 	for _, p := range pnlList {
+		if p == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略盈亏包含缺失记录"})
+			return
+		}
 		// 如果指定了交易所且不匹配，跳過
 		if exchangeID != "" && p.Exchange != exchangeID {
 			continue
 		}
 
-		key := p.Exchange + ":" + p.Symbol + ":" + p.PnLAsset
+		key := strategyProfitKey(p.Exchange, p.MarketType, p.Symbol, p.PnLAsset)
 
 		// 暂時將 symbol 作為 strategyId
 		strategyID := strings.ToLower(p.Symbol)
@@ -765,6 +913,7 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		profits = append(profits, StrategyProfit{
 			ExchangeID:               p.Exchange,
 			StrategyID:               p.Symbol, // 使用 Symbol 作為唯一標识
+			MarketType:               p.MarketType,
 			PnLAsset:                 p.PnLAsset,
 			StrategyName:             p.Symbol + " 策略",
 			StrategyType:             "grid",                              // 默认為网格，實際应從配置獲取
@@ -795,13 +944,13 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存儲服務未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "存儲接口未就绪"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -888,6 +1037,7 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 	profit := StrategyProfit{
 		ExchangeID:               summary.Exchange,
 		StrategyID:               strategyID,
+		MarketType:               summary.MarketType,
 		PnLAsset:                 summary.PnLAsset,
 		StrategyName:             strategyID + " 策略",
 		StrategyType:             "grid",
@@ -917,12 +1067,12 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 func getWithdrawRulesHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "rules": []ProfitWithdrawRule{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "rules": []ProfitWithdrawRule{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 
@@ -1421,12 +1571,12 @@ func withdrawProfitHandler(c *gin.Context) {
 func getWithdrawHistoryHandler(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "records": []WithdrawRecord{}, "total": 0})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "提取记录存储不可用"})
 		return
 	}
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "records": []WithdrawRecord{}, "total": 0})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "提取记录存储不可用"})
 		return
 	}
 
@@ -1534,13 +1684,13 @@ func getProfitTrendHandler(c *gin.Context) {
 
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "trend": []ProfitTrendPoint{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲服務未就绪"})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"success": true, "trend": []ProfitTrendPoint{}})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "存儲接口未就绪"})
 		return
 	}
 

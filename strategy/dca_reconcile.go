@@ -205,6 +205,9 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 	})
 	seen := make(map[string]struct{}, len(fills))
 	var quantity, notional, prefixQty, prefixNotional, prefixBaseFee, feeQuote, addedBaseFee float64
+	var sameTimeGroupStart float64
+	var sameTimeGroupTime int64
+	hasSameTimeGroup := false
 	for _, fill := range fills {
 		if fill == nil || strings.TrimSpace(fill.TradeID) == "" || fill.OrderID != 0 && fill.OrderID != order.OrderID ||
 			fill.Symbol != "" && !strings.EqualFold(fill.Symbol, intent.symbol) || fill.Side != "" && fill.Side != intent.side ||
@@ -214,6 +217,19 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 		}
 		if intent.progress.Quantity > 0 && fill.TradeTime <= 0 {
 			return 0, 0, 0, fmt.Errorf("fill %s has no usable timestamp for persisted-prefix reconciliation", fill.TradeID)
+		}
+		if intent.progress.Quantity > 0 {
+			if !hasSameTimeGroup {
+				sameTimeGroupStart = quantity
+				sameTimeGroupTime = fill.TradeTime
+				hasSameTimeGroup = true
+			} else if fill.TradeTime != sameTimeGroupTime {
+				if intent.progress.Quantity > sameTimeGroupStart+entryQtyEpsilon && intent.progress.Quantity < quantity-entryQtyEpsilon {
+					return 0, 0, 0, fmt.Errorf("persisted fill cursor splits trades with identical timestamps")
+				}
+				sameTimeGroupStart = quantity
+				sameTimeGroupTime = fill.TradeTime
+			}
 		}
 		if _, duplicate := seen[fill.TradeID]; duplicate {
 			return 0, 0, 0, fmt.Errorf("order returned duplicate trade ID %q", fill.TradeID)
@@ -249,6 +265,9 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 		}
 		feeQuote += converted
 		addedBaseFee += fill.BaseFeeQty
+	}
+	if hasSameTimeGroup && intent.progress.Quantity > sameTimeGroupStart+entryQtyEpsilon && intent.progress.Quantity < quantity-entryQtyEpsilon {
+		return 0, 0, 0, fmt.Errorf("persisted fill cursor splits trades with identical timestamps")
 	}
 	tolerance := math.Max(entryQtyEpsilon, order.ExecutedQty*1e-8)
 	if math.Abs(quantity-order.ExecutedQty) > tolerance || math.Abs(prefixQty-intent.progress.Quantity) > tolerance ||
