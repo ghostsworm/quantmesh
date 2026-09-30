@@ -184,6 +184,7 @@ func TestEquityIncomeCancellationAndRetention(t *testing.T) {
 func TestEquityAccountEvidenceStableSnapshot(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 	var accounts atomic.Int32
+	var secondAccountStarted atomic.Int64
 	a := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/fapi/v1/time":
@@ -194,6 +195,7 @@ func TestEquityAccountEvidenceStableSnapshot(t *testing.T) {
 		case "/fapi/v2/account":
 			account := equityTestAccount(now)
 			if accounts.Add(1) == 2 {
+				secondAccountStarted.Store(time.Now().UnixNano())
 				account.Margin = "979"
 				account.Unrealized = "-21"
 				account.Assets[0].Margin = "979"
@@ -214,7 +216,10 @@ func TestEquityAccountEvidenceStableSnapshot(t *testing.T) {
 	if accounts.Load() != 2 || snapshot.Equity != 979 || snapshot.Currency != "USDT" || len(snapshot.Entries) != 1 || snapshot.Wallet.Balance != "1000.000000000000000000" {
 		t.Fatalf("unexpected fresh account snapshot: %+v", snapshot)
 	}
-	if !snapshot.Wallet.Through.Equal(now.Add(-time.Millisecond)) || !snapshot.Wallet.From.Equal(now.Add(-equityInitialOverlap)) || snapshot.ObservedAt.Before(before) || snapshot.ObservedAt.After(time.Now()) {
+	secondReadAt := time.Unix(0, secondAccountStarted.Load())
+	if !snapshot.Wallet.Through.Equal(now.Add(-time.Millisecond)) || !snapshot.Wallet.From.Equal(now.Add(-equityInitialOverlap)) ||
+		snapshot.ObservedAt.Before(before) || snapshot.ObservedAt.After(time.Now()) || !snapshot.ObservedAt.After(secondReadAt) ||
+		!snapshot.Wallet.ObservedAt.Equal(snapshot.ObservedAt) {
 		t.Fatal("mixed local/exchange cursors")
 	}
 }

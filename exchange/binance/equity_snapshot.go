@@ -149,11 +149,13 @@ func (b *BinanceAdapter) ReadAccountEvidence(ctx context.Context, since time.Tim
 	if err != nil {
 		return empty, err
 	}
-	observedAt := time.Now().UTC()
 	last, err := b.readEquityAccount(ctx, start.Add(time.Since(localAnchor)))
 	if err != nil {
 		return empty, err
 	}
+	// Equity comes from the second response, so timestamp only after that
+	// response has completed; otherwise freshness metadata can predate its value.
+	observedAt := time.Now().UTC()
 	end, err := b.equityServerTime(ctx)
 	if err != nil {
 		return empty, err
