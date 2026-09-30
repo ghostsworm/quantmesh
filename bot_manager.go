@@ -1487,6 +1487,15 @@ func (br *BotRuntime) PauseOpeningForSource(source, reason string) {
 	}
 }
 
+// HasOpeningPauseSource reports whether this runtime's gate currently holds a
+// named source, allowing shared-state reconciliation to be idempotent.
+func (br *BotRuntime) HasOpeningPauseSource(source string) bool {
+	if spm := br.superPositionManager(); spm != nil {
+		return spm.OpeningGate().HasBlock(source)
+	}
+	return br.Inner != nil && br.Inner.OpeningGate != nil && br.Inner.OpeningGate.HasBlock(source)
+}
+
 // ResumeOpeningForSource releases only the gate owned by source.
 func (br *BotRuntime) ResumeOpeningForSource(source string) {
 	if source == "" {

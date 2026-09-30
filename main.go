@@ -45,7 +45,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc546"
+var Version = "3.111.0-rc547"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -793,6 +793,36 @@ func init() {
 		// 默认設置為 100（標准值）
 		debug.SetGCPercent(100)
 	}
+}
+
+func openingPauseInstanceIdentity(cfg *config.Config, configPath string) string {
+	if configured := strings.TrimSpace(os.Getenv("QUANTMESH_INSTANCE_ID")); configured != "" {
+		return "configured:" + configured
+	}
+	hostname, err := os.Hostname()
+	if err != nil || strings.TrimSpace(hostname) == "" {
+		hostname = "unknown-host"
+	}
+	identityPath := strings.TrimSpace(configPath)
+	if identityPath == "" && cfg != nil {
+		identityPath = strings.TrimSpace(cfg.Storage.Path)
+		if identityPath == "" {
+			identityPath = strings.TrimSpace(cfg.Database.DSN)
+		}
+	}
+	if identityPath == "" {
+		identityPath = "./data/quantmesh.db"
+	}
+	if absolutePath, err := filepath.Abs(identityPath); err == nil {
+		identityPath = absolutePath
+	}
+	storageType := ""
+	storagePath := ""
+	if cfg != nil {
+		storageType = strings.ToLower(strings.TrimSpace(cfg.Storage.Type))
+		storagePath = strings.TrimSpace(cfg.Storage.Path)
+	}
+	return strings.Join([]string{hostname, identityPath, storageType, storagePath}, "\x00")
 }
 
 func main() {
@@ -1804,7 +1834,7 @@ func main() {
 		riskPauseStore, _ = storageService.GetStorage().(storage.OpeningPauseStateStore)
 	}
 	if riskPauseStore != nil {
-		riskPauseCoordinator, err = risk.NewOpeningPauseCoordinatorWithStore(ctx, riskPauseStore)
+		riskPauseCoordinator, err = risk.NewOpeningPauseCoordinatorWithStore(ctx, riskPauseStore, openingPauseInstanceIdentity(cfg, mainYAMLPath))
 		if err != nil {
 			logger.Error("❌ 恢復持久化風控暫停失敗，所有 Bot 將保持開倉封鎖: %v", err)
 		}
@@ -1817,6 +1847,17 @@ func main() {
 	}
 	symbolManager.GetBotManager().SetOpeningPauseCoordinator(riskPauseCoordinator)
 	web.SetOpeningPauseCoordinator(riskPauseCoordinator)
+	if riskPauseStore != nil {
+		botManager := symbolManager.GetBotManager()
+		riskPauseCoordinator.StartPersistentSync(ctx, func() []risk.BotController {
+			runtimes := botManager.List()
+			bots := make([]risk.BotController, 0, len(runtimes))
+			for _, runtime := range runtimes {
+				bots = append(bots, runtime)
+			}
+			return bots
+		})
+	}
 
 	// 初始化全局熔斷器
 	if cfg.CircuitBreaker.Enabled {
