@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"quantmesh/config"
 	"quantmesh/exchange"
 	qmi18n "quantmesh/i18n"
@@ -17,34 +17,34 @@ import (
 
 // BotResponse Bot 列表項
 type BotResponse struct {
-	BotID                  string  `json:"bot_id"`
-	Name                   string  `json:"name"`
-	Exchange               string  `json:"exchange"`
-	Symbol                 string  `json:"symbol"`
-	MarketType             string  `json:"market_type"`
-	Running                bool    `json:"running"`
-	CurrentPrice           float64 `json:"current_price,omitempty"`
-	TotalPnL               float64 `json:"total_pnl,omitempty"`
-	TotalTrades            int     `json:"total_trades,omitempty"`
-	RiskTriggered          bool    `json:"risk_triggered,omitempty"`
+	BotID         string  `json:"bot_id"`
+	Name          string  `json:"name"`
+	Exchange      string  `json:"exchange"`
+	Symbol        string  `json:"symbol"`
+	MarketType    string  `json:"market_type"`
+	Running       bool    `json:"running"`
+	CurrentPrice  float64 `json:"current_price,omitempty"`
+	TotalPnL      float64 `json:"total_pnl,omitempty"`
+	TotalTrades   int     `json:"total_trades,omitempty"`
+	RiskTriggered bool    `json:"risk_triggered,omitempty"`
 	// RiskTriggerMessage K 線風控與深度風控的最近說明（與運行時 lastMsg 一致，多條以分號拼接）
-	RiskTriggerMessage string `json:"risk_trigger_message,omitempty"`
-	Uptime                 int64   `json:"uptime,omitempty"`
-	PriceInterval          float64 `json:"price_interval,omitempty"`           // 價格間隔
-	ProfitSpread           float64 `json:"profit_spread,omitempty"`             // 利潤間距
-	OrderQuantity          float64 `json:"order_quantity,omitempty"`            // 每單金額
-	TotalAllocatedCapital  float64 `json:"total_allocated_capital,omitempty"`    // 總投入資金
-	Strategies             []BotStrategyInfo `json:"strategies,omitempty"`       // 該 Bot 配置的策略列表
-	Leverage               float64 `json:"leverage,omitempty"`                 // 杠杆倍數
-	MaxCapitalRatio        float64 `json:"max_capital_ratio,omitempty"`        // 最大資金占用比例 (0.1-1.0)
-	BuyWindowSize          int     `json:"buy_window_size,omitempty"`          // 買窗大小（用於計算平倉價）
-	CreatedAt              string  `json:"created_at,omitempty"`               // 創建時間 ISO 8601
-	StoppedAt              string  `json:"stopped_at,omitempty"`               // 停止時間 ISO 8601（僅當已停止時有值）
-	HedgeGroupName         string  `json:"hedge_group_name,omitempty"`         // 所屬對沖組名稱，空則非對沖
-	Direction              string  `json:"direction,omitempty"`                // 網格/策略方向：LONG/SHORT/BOTH
-	LastStartError         string  `json:"last_start_error,omitempty"`         // 最近一次異步啟動失敗原因（供前端展示）
-	LastStartErrorAt       string  `json:"last_start_error_at,omitempty"`      // 失敗時間 RFC3339
-	Testnet                bool    `json:"testnet"`                              // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
+	RiskTriggerMessage    string            `json:"risk_trigger_message,omitempty"`
+	Uptime                int64             `json:"uptime,omitempty"`
+	PriceInterval         float64           `json:"price_interval,omitempty"`          // 價格間隔
+	ProfitSpread          float64           `json:"profit_spread,omitempty"`           // 利潤間距
+	OrderQuantity         float64           `json:"order_quantity,omitempty"`          // 每單金額
+	TotalAllocatedCapital float64           `json:"total_allocated_capital,omitempty"` // 總投入資金
+	Strategies            []BotStrategyInfo `json:"strategies,omitempty"`              // 該 Bot 配置的策略列表
+	Leverage              float64           `json:"leverage,omitempty"`                // 杠杆倍數
+	MaxCapitalRatio       float64           `json:"max_capital_ratio,omitempty"`       // 最大資金占用比例 (0.1-1.0)
+	BuyWindowSize         int               `json:"buy_window_size,omitempty"`         // 買窗大小（用於計算平倉價）
+	CreatedAt             string            `json:"created_at,omitempty"`              // 創建時間 ISO 8601
+	StoppedAt             string            `json:"stopped_at,omitempty"`              // 停止時間 ISO 8601（僅當已停止時有值）
+	HedgeGroupName        string            `json:"hedge_group_name,omitempty"`        // 所屬對沖組名稱，空則非對沖
+	Direction             string            `json:"direction,omitempty"`               // 網格/策略方向：LONG/SHORT/BOTH
+	LastStartError        string            `json:"last_start_error,omitempty"`        // 最近一次異步啟動失敗原因（供前端展示）
+	LastStartErrorAt      string            `json:"last_start_error_at,omitempty"`     // 失敗時間 RFC3339
+	Testnet               bool              `json:"testnet"`                           // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）
@@ -66,7 +66,7 @@ type BotManagerProvider interface {
 	GetBot(botID string) (*BotDetailResponse, bool)
 	StartBot(ctx context.Context, botCfg config.BotConfig) error
 	StopBot(botID string) error
-	EnableBot(botID string) error  // 啟用 Bot（從數據庫移除禁用標記）
+	EnableBot(botID string) error // 啟用 Bot（從數據庫移除禁用標記）
 }
 
 // Bot 管理提供者由 main 在啟動時註冊，但 postBotStart 等處會在
@@ -107,32 +107,32 @@ func botManagerProvider() BotManagerProvider {
 
 // CreateBotRequest Bot 創建請求（含策略配置）
 type CreateBotRequest struct {
-	Name                  string                     `json:"name"`
-	Exchange              string                     `json:"exchange"`
-	Symbol                string                     `json:"symbol"`
-	MarketType            string                     `json:"market_type"`
-	Testnet               bool                       `json:"testnet"`
-	Strategies            []config.StrategyInstance   `json:"strategies"`
-	TotalAllocatedCapital float64                    `json:"total_allocated_capital"`
-	PriceInterval         float64                    `json:"price_interval"`
-	ProfitSpread          float64                    `json:"profit_spread"`
-	OrderQuantity         float64                    `json:"order_quantity"`
-	MinOrderValue         float64                    `json:"min_order_value"`
-	BuyWindowSize         int                        `json:"buy_window_size"`
-	SellWindowSize        int                        `json:"sell_window_size"`
-	ReconcileInterval     int                        `json:"reconcile_interval"`
-	OrderCleanupThreshold int                        `json:"order_cleanup_threshold"`
-	CleanupBatchSize      int                        `json:"cleanup_batch_size"`
-	MarginLockDurationSec int                        `json:"margin_lock_duration_seconds"`
-	PositionSafetyCheck   int                        `json:"position_safety_check"`
-	Direction             string                     `json:"direction"`
-	PriceLow              float64                    `json:"price_low"`
-	PriceHigh             float64                    `json:"price_high"`
-	TriggerPrice          float64                    `json:"trigger_price"`
-	GridMode              string                     `json:"grid_mode"`
-	GridShiftEnabled      bool                       `json:"grid_shift_enabled"`
-	GridShiftStep         float64                    `json:"grid_shift_step"`
-	CloseOnStop           bool                       `json:"close_on_stop"`
+	Name                  string                    `json:"name"`
+	Exchange              string                    `json:"exchange"`
+	Symbol                string                    `json:"symbol"`
+	MarketType            string                    `json:"market_type"`
+	Testnet               bool                      `json:"testnet"`
+	Strategies            []config.StrategyInstance `json:"strategies"`
+	TotalAllocatedCapital float64                   `json:"total_allocated_capital"`
+	PriceInterval         float64                   `json:"price_interval"`
+	ProfitSpread          float64                   `json:"profit_spread"`
+	OrderQuantity         float64                   `json:"order_quantity"`
+	MinOrderValue         float64                   `json:"min_order_value"`
+	BuyWindowSize         int                       `json:"buy_window_size"`
+	SellWindowSize        int                       `json:"sell_window_size"`
+	ReconcileInterval     int                       `json:"reconcile_interval"`
+	OrderCleanupThreshold int                       `json:"order_cleanup_threshold"`
+	CleanupBatchSize      int                       `json:"cleanup_batch_size"`
+	MarginLockDurationSec int                       `json:"margin_lock_duration_seconds"`
+	PositionSafetyCheck   int                       `json:"position_safety_check"`
+	Direction             string                    `json:"direction"`
+	PriceLow              float64                   `json:"price_low"`
+	PriceHigh             float64                   `json:"price_high"`
+	TriggerPrice          float64                   `json:"trigger_price"`
+	GridMode              string                    `json:"grid_mode"`
+	GridShiftEnabled      bool                      `json:"grid_shift_enabled"`
+	GridShiftStep         float64                   `json:"grid_shift_step"`
+	CloseOnStop           bool                      `json:"close_on_stop"`
 	// 網格風控配置（創建時填寫，建好後在 Bot 詳情可見）
 	GridRiskControlEnabled          bool    `json:"grid_risk_control_enabled"`
 	GridRiskControlStopLossRatio    float64 `json:"grid_risk_control_stop_loss_ratio"`
@@ -191,7 +191,7 @@ func buildGridRiskControlFromRequest(req CreateBotRequest) config.GridRiskContro
 // buildGridAutoRebuildFromRequest 從創建請求構建 GridAutoRebuildConfig
 func buildGridAutoRebuildFromRequest(req CreateBotRequest) config.GridAutoRebuildConfig {
 	arc := config.GridAutoRebuildConfig{
-		Enabled:             req.AutoRebuildEnabled,
+		Enabled:              req.AutoRebuildEnabled,
 		CheckIntervalMinutes: req.AutoRebuildCheckInterval,
 		PriceDeviationLayers: req.AutoRebuildPriceDeviation,
 		OrderExpireMinutes:   req.AutoRebuildOrderExpire,
@@ -438,7 +438,7 @@ func postBotCreate(c *gin.Context) {
 		TotalAllocatedCapital: req.TotalAllocatedCapital,
 		PriceInterval:         req.PriceInterval,
 		ProfitSpread:          req.ProfitSpread,
-		OrderQuantity:          req.OrderQuantity,
+		OrderQuantity:         req.OrderQuantity,
 		MinOrderValue:         req.MinOrderValue,
 		BuyWindowSize:         req.BuyWindowSize,
 		SellWindowSize:        req.SellWindowSize,
@@ -640,15 +640,20 @@ func deleteBot(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Bot not found"})
 		return
 	}
+	// Stop before persisting removal so a failed safety shutdown cannot leave
+	// an active runtime whose configuration and recovery snapshot were deleted.
+	if provider := botManagerProvider(); provider != nil {
+		if err := provider.StopBot(botID); err != nil {
+			respondError(c, http.StatusInternalServerError, "error.stop_bot_failed", err)
+			return
+		}
+	}
 	cfg.Bots = newBots
 	if err := fileConfigManager.UpdateConfig(cfg); err != nil {
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}
 	removeBotConfigSnapshotBestEffort(botID)
-	if botManagerProvider() != nil {
-		_ = botManagerProvider().StopBot(botID)
-	}
 	logger.Info("✅ [Bot刪除] 已移除 %s", botID)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 }
@@ -711,11 +716,11 @@ func postBotEnable(c *gin.Context) {
 
 // CreateBotGroupRequest Bot 組創建請求（對沖模式）
 type CreateBotGroupRequest struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"` // futures_spot_hedge, long_short_hedge
-	HedgeConfig config.HedgeConfig     `json:"hedge_config"`
-	FuturesBot  CreateBotRequest       `json:"futures_bot"`
-	SpotBot     CreateBotRequest       `json:"spot_bot"`
+	Name        string             `json:"name"`
+	Type        string             `json:"type"` // futures_spot_hedge, long_short_hedge
+	HedgeConfig config.HedgeConfig `json:"hedge_config"`
+	FuturesBot  CreateBotRequest   `json:"futures_bot"`
+	SpotBot     CreateBotRequest   `json:"spot_bot"`
 }
 
 func buildBotGroupConsistency(group config.BotGroup) gin.H {
@@ -1207,13 +1212,13 @@ func deleteBotGroup(c *gin.Context) {
 
 // UpdateBotStrategyRequest 更新 Bot 策略請求
 type UpdateBotStrategyRequest struct {
-	Strategies     []config.StrategyInstance `json:"strategies"`     // 策略列表
-	PriceInterval  *float64                  `json:"price_interval,omitempty"`  // 價格間隔
-	ProfitSpread   *float64                  `json:"profit_spread,omitempty"`   // 利潤間距
-	OrderQuantity  *float64                  `json:"order_quantity,omitempty"`  // 每單金額
-	PriceLow       *float64                  `json:"price_low,omitempty"`        // 網格價格下限
-	PriceHigh      *float64                  `json:"price_high,omitempty"`       // 網格價格上限
-	Direction      *string                   `json:"direction,omitempty"`       // 交易方向：LONG/SHORT/BOTH
+	Strategies    []config.StrategyInstance `json:"strategies"`               // 策略列表
+	PriceInterval *float64                  `json:"price_interval,omitempty"` // 價格間隔
+	ProfitSpread  *float64                  `json:"profit_spread,omitempty"`  // 利潤間距
+	OrderQuantity *float64                  `json:"order_quantity,omitempty"` // 每單金額
+	PriceLow      *float64                  `json:"price_low,omitempty"`      // 網格價格下限
+	PriceHigh     *float64                  `json:"price_high,omitempty"`     // 網格價格上限
+	Direction     *string                   `json:"direction,omitempty"`      // 交易方向：LONG/SHORT/BOTH
 	// 智能掛單配置
 	SmartOrderEnabled           *bool    `json:"smart_order_enabled,omitempty"`
 	SmartOrderMaxOpenOrders     *int     `json:"smart_order_max_open_orders,omitempty"`
@@ -1284,10 +1289,10 @@ func putBotStrategy(c *gin.Context) {
 			// 網格策略 (grid) 可以切換到: grid+trend, trend, momentum
 			// DCA 策略 (dca) 只能在 dca 相關策略內切換
 			gridRelatedStrategies := map[string]bool{
-				"grid":              true,
-				"trend_following":   true,
-				"momentum":          true,
-				"mean_reversion":    true,
+				"grid":            true,
+				"trend_following": true,
+				"momentum":        true,
+				"mean_reversion":  true,
 			}
 			dcaRelatedStrategies := map[string]bool{
 				"dca":        true,

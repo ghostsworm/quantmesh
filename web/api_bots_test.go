@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -37,10 +38,10 @@ func setupTestPrimaryAppConfigStorage(t *testing.T) func() {
 
 func TestFindGroupNameByBotID(t *testing.T) {
 	tests := []struct {
-		name   string
-		cfg    *config.Config
-		botID  string
-		want   string
+		name  string
+		cfg   *config.Config
+		botID string
+		want  string
 	}{
 		{
 			name:  "nil_config",
@@ -111,7 +112,7 @@ func TestGetBotsReturnsBotResponseFields(t *testing.T) {
 				BotID:          "bot-1",
 				Name:           "Test Bot",
 				CreatedAt:      "2026-03-13T10:00:00Z",
-				HedgeGroupName:  "ETH Hedge",
+				HedgeGroupName: "ETH Hedge",
 				Direction:      "LONG",
 			},
 		},
@@ -131,10 +132,10 @@ func TestGetBotsReturnsBotResponseFields(t *testing.T) {
 	}
 	var resp struct {
 		Bots []struct {
-			BotID         string `json:"bot_id"`
-			CreatedAt     string `json:"created_at"`
+			BotID          string `json:"bot_id"`
+			CreatedAt      string `json:"created_at"`
 			HedgeGroupName string `json:"hedge_group_name"`
-			Direction     string `json:"direction"`
+			Direction      string `json:"direction"`
 		} `json:"bots"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -168,9 +169,11 @@ func (m *mockBotManagerForGetBotsTest) GetBot(botID string) (*BotDetailResponse,
 	}
 	return nil, false
 }
-func (m *mockBotManagerForGetBotsTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
-func (m *mockBotManagerForGetBotsTest) StopBot(botID string) error                              { return nil }
-func (m *mockBotManagerForGetBotsTest) EnableBot(botID string) error                           { return nil }
+func (m *mockBotManagerForGetBotsTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForGetBotsTest) StopBot(botID string) error   { return nil }
+func (m *mockBotManagerForGetBotsTest) EnableBot(botID string) error { return nil }
 
 func TestUpdateBotStrategyRequest_StrategyConfigNested(t *testing.T) {
 	body := `{"strategies":[{"type":"trend_following","weight":1,"config":{"fast_period":12,"slow_period":26}}]}`
@@ -221,12 +224,12 @@ func TestBuildGridRiskControlFromRequest(t *testing.T) {
 		{
 			name: "with_risk_control",
 			req: CreateBotRequest{
-				GridRiskControlEnabled:         true,
-				GridRiskControlStopLossRatio:   0.1,
-				GridRiskControlTakeProfitRatio: 0.08,
-				GridRiskControlTrailingRatio:   0.02,
-				GridRiskControlTrendFilter:     true,
-				GridRiskControlMaxGridLayers:   20,
+				GridRiskControlEnabled:          true,
+				GridRiskControlStopLossRatio:    0.1,
+				GridRiskControlTakeProfitRatio:  0.08,
+				GridRiskControlTrailingRatio:    0.02,
+				GridRiskControlTrendFilter:      true,
+				GridRiskControlMaxGridLayers:    20,
 				GridRiskControlMaxOpenOrdersCap: 5,
 			},
 			want: config.GridRiskControl{
@@ -259,15 +262,17 @@ func TestBuildGridRiskControlFromRequest(t *testing.T) {
 // mockBotManagerForStartTest 用於驗證 postBotStart 在啟動前會調用 EnableBot 清除禁用標記
 type mockBotManagerForStartTest struct {
 	enableBotCalled bool
-	mu             sync.Mutex
+	mu              sync.Mutex
 }
 
 func (m *mockBotManagerForStartTest) ListBots() []BotResponse { return nil }
 func (m *mockBotManagerForStartTest) GetBot(botID string) (*BotDetailResponse, bool) {
 	return nil, false // 不在運行，繼續啟動流程
 }
-func (m *mockBotManagerForStartTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
-func (m *mockBotManagerForStartTest) StopBot(botID string) error                              { return nil }
+func (m *mockBotManagerForStartTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForStartTest) StopBot(botID string) error { return nil }
 func (m *mockBotManagerForStartTest) EnableBot(botID string) error {
 	m.mu.Lock()
 	m.enableBotCalled = true
@@ -331,6 +336,7 @@ func TestPostBotStartCallsEnableBotBeforeStart(t *testing.T) {
 
 type mockBotManagerForDeleteGroupTest struct {
 	stopCalls []string
+	stopErr   error
 	mu        sync.Mutex
 }
 
@@ -345,9 +351,52 @@ func (m *mockBotManagerForDeleteGroupTest) StopBot(botID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.stopCalls = append(m.stopCalls, botID)
-	return nil
+	return m.stopErr
 }
 func (m *mockBotManagerForDeleteGroupTest) EnableBot(botID string) error { return nil }
+
+func TestDeleteBotKeepsConfigWhenStopFails(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	t.Cleanup(setupTestPrimaryAppConfigStorage(t))
+
+	cfg := &config.Config{
+		Bots: []config.BotConfig{{ID: "bot-1", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}},
+	}
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: "k", SecretKey: "s"}}
+	fcm := NewFileConfigManager("")
+	if err := fcm.UpdateConfig(cfg); err != nil {
+		t.Fatalf("UpdateConfig: %v", err)
+	}
+	origFCM := fileConfigManager
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(origFCM) })
+	origCM := configManager
+	configManager = &cfgmgr.ConfigManager{}
+	t.Cleanup(func() { configManager = origCM })
+
+	mock := &mockBotManagerForDeleteGroupTest{stopErr: errors.New("position close not verified")}
+	origProvider := botManagerProvider()
+	RegisterBotManagerProvider(mock)
+	t.Cleanup(func() { RegisterBotManagerProvider(origProvider) })
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodDelete, "/api/bots/bot-1", nil)
+	c.Params = gin.Params{{Key: "id", Value: "bot-1"}}
+	deleteBot(c)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d body=%s", w.Code, w.Body.String())
+	}
+	latest, err := GetLatestConfig()
+	if err != nil {
+		t.Fatalf("GetLatestConfig: %v", err)
+	}
+	if len(latest.Bots) != 1 || latest.Bots[0].ID != "bot-1" {
+		t.Fatalf("Bot config must remain recoverable after stop failure, got %+v", latest.Bots)
+	}
+}
 
 type mockBotManagerForGroupConsistencyTest struct {
 	running map[string]bool
@@ -369,7 +418,7 @@ func (m *mockBotManagerForGroupConsistencyTest) GetBot(botID string) (*BotDetail
 func (m *mockBotManagerForGroupConsistencyTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
 	return nil
 }
-func (m *mockBotManagerForGroupConsistencyTest) StopBot(botID string) error { return nil }
+func (m *mockBotManagerForGroupConsistencyTest) StopBot(botID string) error   { return nil }
 func (m *mockBotManagerForGroupConsistencyTest) EnableBot(botID string) error { return nil }
 
 func TestDeleteBotGroupStopsRunningBotsBeforeRemove(t *testing.T) {
@@ -447,9 +496,11 @@ func (m *mockBotManagerForGroupCreateTest) GetBot(botID string) (*BotDetailRespo
 	}
 	return nil, false
 }
-func (m *mockBotManagerForGroupCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
-func (m *mockBotManagerForGroupCreateTest) StopBot(botID string) error                              { return nil }
-func (m *mockBotManagerForGroupCreateTest) EnableBot(botID string) error                              { return nil }
+func (m *mockBotManagerForGroupCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForGroupCreateTest) StopBot(botID string) error   { return nil }
+func (m *mockBotManagerForGroupCreateTest) EnableBot(botID string) error { return nil }
 
 // TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，對沖組創建應成功
 func TestPostBotGroupCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
@@ -586,9 +637,11 @@ func (m *mockBotManagerForCreateTest) GetBot(botID string) (*BotDetailResponse, 
 	}
 	return nil, false
 }
-func (m *mockBotManagerForCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error { return nil }
-func (m *mockBotManagerForCreateTest) StopBot(botID string) error                              { return nil }
-func (m *mockBotManagerForCreateTest) EnableBot(botID string) error                            { return nil }
+func (m *mockBotManagerForCreateTest) StartBot(ctx context.Context, cfg config.BotConfig) error {
+	return nil
+}
+func (m *mockBotManagerForCreateTest) StopBot(botID string) error   { return nil }
+func (m *mockBotManagerForCreateTest) EnableBot(botID string) error { return nil }
 
 // TestPostBotCreateAllowsWhenOnlyStoppedBotExists 驗證：當同交易對僅有已停止的 Bot 時，單 Bot 創建應成功
 func TestPostBotCreateAllowsWhenOnlyStoppedBotExists(t *testing.T) {
