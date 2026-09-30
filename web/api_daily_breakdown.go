@@ -328,6 +328,24 @@ func getDailyPnLBreakdown(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "execution history does not yet cover the complete requested day; no complete daily PnL is available"})
 		return
 	}
+	if marketType == "futures" {
+		fundingCoverageReader, ok := st.(interface {
+			GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
+		})
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "persistent funding-income coverage is unavailable"})
+			return
+		}
+		fundingFrom, fundingThrough, err := fundingCoverageReader.GetFundingIncomeCoverage(exchangeID, symbolID, "futures", accountScope)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify funding-income coverage"})
+			return
+		}
+		if fundingFrom.IsZero() || fundingThrough.IsZero() || fundingFrom.After(dayStartUTC) || fundingThrough.Before(dayEndUTC) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "funding income does not yet cover the complete requested day; no complete daily PnL is available"})
+			return
+		}
+	}
 	summary := DailyPnLBreakdownSummary{}
 	quoteAsset := ""
 	if status != nil {

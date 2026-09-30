@@ -88,6 +88,34 @@ func (dailyBreakdownFailingStorage) GetOrderFillCoverage(exchange, marketType, s
 		CoveredFrom: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC), CoveredThrough: time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)}, nil
 }
 
+func (dailyBreakdownFailingStorage) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
+	return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC), nil
+}
+
+type dailyBreakdownFundingCoverageMissingStorage struct{ dailyBreakdownFailingStorage }
+
+func (dailyBreakdownFundingCoverageMissingStorage) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
+	return time.Time{}, time.Time{}, nil
+}
+
+func TestDailyPnLBreakdownFailsClosedWithoutFullDayFundingCoverage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousProvider, previousStatus := storageServiceProvider, currentStatus
+	storageServiceProvider = dailyBreakdownStorageProvider{store: dailyBreakdownFundingCoverageMissingStorage{
+		dailyBreakdownFailingStorage: dailyBreakdownFailingStorage{failure: "must stop before funding aggregation"},
+	}}
+	currentStatus = &SystemStatus{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", QuoteAsset: "USDT", AccountScope: "scope-a"}
+	t.Cleanup(func() { storageServiceProvider, currentStatus = previousProvider, previousStatus })
+	router := gin.New()
+	router.GET("/api/statistics/daily/breakdown", getDailyPnLBreakdown)
+	request := httptest.NewRequest("GET", "/api/statistics/daily/breakdown?date=2026-09-26&market_type=futures", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("incomplete funding coverage must not be reported as zero funding: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 type dailyBreakdownStorageProvider struct{ store storage.Storage }
 
 func (p dailyBreakdownStorageProvider) GetStorage() storage.Storage { return p.store }
