@@ -367,16 +367,19 @@ func (w *okxWrapper) GetOrderFills(ctx context.Context, symbol string, orderID i
 			return nil, fmt.Errorf("OKX 訂單 %d 成交 %s 轉換失败: %w", orderID, f.TradeID, err)
 		}
 		fills = append(fills, &OrderFill{
-			OrderID:         f.OrderID,
-			TradeID:         f.TradeID,
-			Symbol:          f.Symbol,
-			Side:            Side(side),
-			Price:           f.Price,
-			Quantity:        f.Quantity,
-			Commission:      f.Commission,
-			CommissionAsset: f.CommissionAsset,
-			TradeTime:       f.TradeTime,
-			IsMaker:         f.IsMaker,
+			OrderID:          f.OrderID,
+			TradeID:          f.TradeID,
+			Symbol:           f.Symbol,
+			Side:             Side(side),
+			Price:            f.Price,
+			Quantity:         f.Quantity,
+			Commission:       f.Commission,
+			CommissionAsset:  f.CommissionAsset,
+			TradeTime:        f.TradeTime,
+			RealizedPnL:      f.RealizedPnL,
+			RealizedPnLKnown: f.RealizedPnLKnown,
+			RealizedPnLAsset: f.RealizedPnLAsset,
+			IsMaker:          f.IsMaker,
 		})
 	}
 

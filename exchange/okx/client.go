@@ -24,12 +24,12 @@ const (
 
 // OKXClient OKX REST API 客戶端
 type OKXClient struct {
-	apiKey      string
-	secretKey   string
-	passphrase  string
-	baseURL     string
-	useTestnet  bool // 是否使用模拟盘
-	httpClient  *http.Client
+	apiKey     string
+	secretKey  string
+	passphrase string
+	baseURL    string
+	useTestnet bool // 是否使用模拟盘
+	httpClient *http.Client
 }
 
 // NewOKXClient 創建 OKX 客戶端
@@ -457,10 +457,10 @@ func (c *OKXClient) GetTicker(ctx context.Context, instId string) (*Ticker, erro
 
 // OKXOrderBookResponse OKX 订單簿响应結構
 type OKXOrderBookResponse struct {
-	InstID  string     `json:"instId"`  // 交易對
-	Asks    [][]string `json:"asks"`    // 賣盘 [[價格, 數量, 0, 數量], ...]
-	Bids    [][]string `json:"bids"`    // 買盘 [[價格, 數量, 0, 數量], ...]
-	TS      string     `json:"ts"`       // 時间戳（毫秒）
+	InstID string     `json:"instId"` // 交易對
+	Asks   [][]string `json:"asks"`   // 賣盘 [[價格, 數量, 0, 數量], ...]
+	Bids   [][]string `json:"bids"`   // 買盘 [[價格, 數量, 0, 數量], ...]
+	TS     string     `json:"ts"`     // 時间戳（毫秒）
 }
 
 // GetOrderBook 獲取訂單簿深度
@@ -487,16 +487,17 @@ func (c *OKXClient) GetOrderBook(ctx context.Context, instId string, sz int) (*O
 
 // OKXTradeFill REST /api/v5/trade/fills 單筆成交
 type OKXTradeFill struct {
-	InstId  string `json:"instId"`
-	OrdId   string `json:"ordId"`
-	TradeId string `json:"tradeId"`
-	Side    string `json:"side"`
-	FillSz  string `json:"fillSz"`
-	FillPx  string `json:"fillPx"`
-	Fee     string `json:"fee"`
-	FeeCcy  string `json:"feeCcy"`
+	InstId   string `json:"instId"`
+	OrdId    string `json:"ordId"`
+	TradeId  string `json:"tradeId"`
+	Side     string `json:"side"`
+	FillSz   string `json:"fillSz"`
+	FillPx   string `json:"fillPx"`
+	Fee      string `json:"fee"`
+	FeeCcy   string `json:"feeCcy"`
+	FillPnl  string `json:"fillPnl"`
 	ExecType string `json:"execType"` // T=taker, M=maker
-	Ts      string `json:"ts"`
+	Ts       string `json:"ts"`
 }
 
 // AccountConfig GET /api/v5/account/config 帳戶配置（僅取用到的欄位）

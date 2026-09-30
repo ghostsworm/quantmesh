@@ -843,16 +843,19 @@ func (o *OKXAdapter) normalizeOrderUpdate(update OrderUpdate) (StreamOrderUpdate
 
 // OKXOrderFill 訂單成交明細（本地類型，避免循環匯入；數量已換算為基礎幣）
 type OKXOrderFill struct {
-	OrderID         int64
-	TradeID         string
-	Symbol          string
-	Side            Side
-	Price           float64
-	Quantity        float64
-	Commission      float64 // 正數為支出，負數為返佣
-	CommissionAsset string
-	TradeTime       int64
-	IsMaker         bool
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             Side
+	Price            float64
+	Quantity         float64
+	Commission       float64 // 正數為支出，負數為返佣
+	CommissionAsset  string
+	TradeTime        int64
+	RealizedPnL      float64
+	RealizedPnLKnown bool
+	RealizedPnLAsset string
+	IsMaker          bool
 }
 
 // okxFeeToCommission OKX 手續費符號約定：扣費為負、返佣為正；內部 Commission 以「支出為正」計，故取反
@@ -869,33 +872,43 @@ func (o *OKXAdapter) GetOrderFills(ctx context.Context, symbol string, orderID i
 
 	fills := make([]*OKXOrderFill, 0, len(rows))
 	for _, r := range rows {
+		if r.OrdId != strconv.FormatInt(orderID, 10) || r.TradeId == "" || r.InstId != o.instId {
+			return nil, fmt.Errorf("OKX returned mismatched fill identity for order %d", orderID)
+		}
 		price, err := strconv.ParseFloat(r.FillPx, 64)
-		if err != nil {
-			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillPx 無效 %q: %w", r.TradeId, r.FillPx, err)
+		if err != nil || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillPx 無效 %q", r.TradeId, r.FillPx)
 		}
 		sz, err := strconv.ParseFloat(r.FillSz, 64)
-		if err != nil {
-			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillSz 無效 %q: %w", r.TradeId, r.FillSz, err)
+		if err != nil || math.IsNaN(sz) || math.IsInf(sz, 0) || sz <= 0 {
+			return nil, fmt.Errorf("OKX 成交明細 tradeId=%s fillSz 無效 %q", r.TradeId, r.FillSz)
 		}
-		fee, _ := strconv.ParseFloat(r.Fee, 64)
-		ts, _ := strconv.ParseInt(r.Ts, 10, 64)
-		ordID := orderID
-		if r.OrdId != "" {
-			if v, err := strconv.ParseInt(r.OrdId, 10, 64); err == nil {
-				ordID = v
-			}
+		fee, err := strconv.ParseFloat(r.Fee, 64)
+		if err != nil || math.IsNaN(fee) || math.IsInf(fee, 0) || strings.TrimSpace(r.FeeCcy) == "" {
+			return nil, fmt.Errorf("OKX execution %s has invalid fee evidence", r.TradeId)
+		}
+		pnl, err := strconv.ParseFloat(r.FillPnl, 64)
+		if err != nil || math.IsNaN(pnl) || math.IsInf(pnl, 0) {
+			return nil, fmt.Errorf("OKX execution %s has invalid fillPnl %q", r.TradeId, r.FillPnl)
+		}
+		ts, err := strconv.ParseInt(r.Ts, 10, 64)
+		if err != nil || ts <= 0 {
+			return nil, fmt.Errorf("OKX execution %s has invalid timestamp", r.TradeId)
 		}
 		fills = append(fills, &OKXOrderFill{
-			OrderID:         ordID,
-			TradeID:         r.TradeId,
-			Symbol:          o.symbol,
-			Side:            Side(r.Side),
-			Price:           price,
-			Quantity:        o.contractsToBase(sz),
-			Commission:      okxFeeToCommission(fee),
-			CommissionAsset: r.FeeCcy,
-			TradeTime:       ts,
-			IsMaker:         r.ExecType == okxExecTypeMaker,
+			OrderID:          orderID,
+			TradeID:          r.TradeId,
+			Symbol:           o.symbol,
+			Side:             Side(r.Side),
+			Price:            price,
+			Quantity:         o.contractsToBase(sz),
+			Commission:       okxFeeToCommission(fee),
+			CommissionAsset:  r.FeeCcy,
+			TradeTime:        ts,
+			RealizedPnL:      pnl,
+			RealizedPnLKnown: strings.TrimSpace(o.quoteAsset) != "",
+			RealizedPnLAsset: strings.ToUpper(strings.TrimSpace(o.quoteAsset)),
+			IsMaker:          r.ExecType == okxExecTypeMaker,
 		})
 	}
 	return fills, nil

@@ -121,8 +121,8 @@ func (f *okxFakeServer) handler(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/v5/trade/fills":
 		f.fillsPath = r.URL.RequestURI()
 		_, _ = io.WriteString(w, `{"code":"0","msg":"","data":[
-			{"instId":"ETH-USDT-SWAP","ordId":"123","tradeId":"t1","side":"buy","fillSz":"2","fillPx":"2000.5","fee":"-0.04","feeCcy":"USDT","execType":"T","ts":"1700000000000"},
-			{"instId":"ETH-USDT-SWAP","ordId":"123","tradeId":"t2","side":"buy","fillSz":"1","fillPx":"2000.4","fee":"0.01","feeCcy":"USDT","execType":"M","ts":"1700000000001"}]}`)
+			{"instId":"ETH-USDT-SWAP","ordId":"123","tradeId":"t1","side":"buy","fillSz":"2","fillPx":"2000.5","fee":"-0.04","feeCcy":"USDT","fillPnl":"0","execType":"T","ts":"1700000000000"},
+			{"instId":"ETH-USDT-SWAP","ordId":"123","tradeId":"t2","side":"buy","fillSz":"1","fillPx":"2000.4","fee":"0.01","feeCcy":"USDT","fillPnl":"1.25","execType":"M","ts":"1700000000001"}]}`)
 	default:
 		http.Error(w, "unexpected "+r.URL.Path, http.StatusNotFound)
 	}
@@ -212,6 +212,10 @@ func TestGetOrderFillsParsesFeeAndContracts(t *testing.T) {
 	}
 	if fills[1].Commission != -0.01 || !fills[1].IsMaker {
 		t.Fatalf("返佣應為負手續費: %+v", fills[1])
+	}
+	if !fills[0].RealizedPnLKnown || fills[0].RealizedPnL != 0 || fills[0].RealizedPnLAsset != "USDT" ||
+		!fills[1].RealizedPnLKnown || fills[1].RealizedPnL != 1.25 || fills[1].RealizedPnLAsset != "USDT" {
+		t.Fatalf("逐筆已實現盈虧映射錯誤: %+v %+v", fills[0], fills[1])
 	}
 }
 
