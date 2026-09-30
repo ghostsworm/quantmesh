@@ -32,6 +32,21 @@ type MEXCClient struct {
 	isTestnet  bool
 }
 
+// MEXCDealDetail is one authenticated contract execution returned for an order.
+type MEXCDealDetail struct {
+	ID          json.Number `json:"id"`
+	Symbol      string      `json:"symbol"`
+	Side        int         `json:"side"`
+	Volume      json.Number `json:"vol"`
+	Price       json.Number `json:"price"`
+	Fee         json.Number `json:"fee"`
+	FeeCurrency string      `json:"feeCurrency"`
+	Timestamp   json.Number `json:"timestamp"`
+	Profit      json.Number `json:"profit"`
+	IsTaker     bool        `json:"isTaker"`
+	OrderID     json.Number `json:"orderId"`
+}
+
 // NewMEXCClient 創建 MEXC 客戶端
 func NewMEXCClient(apiKey, secretKey string, isTestnet bool) *MEXCClient {
 	baseURL := MEXCMainnetBaseURL
@@ -262,6 +277,25 @@ func (c *MEXCClient) GetOrderInfo(ctx context.Context, symbol, orderID string) (
 	}
 
 	return &resp.Data, nil
+}
+
+// GetOrderDealDetails reads all authenticated executions belonging to one order.
+func (c *MEXCClient) GetOrderDealDetails(ctx context.Context, orderID string) ([]MEXCDealDetail, error) {
+	if strings.TrimSpace(orderID) == "" {
+		return nil, fmt.Errorf("MEXC order ID is required for deal details")
+	}
+	path := "/api/v1/private/order/deal_details/" + url.PathEscape(orderID)
+	body, err := c.sendRequest(ctx, http.MethodGet, path, url.Values{}, true)
+	if err != nil {
+		return nil, fmt.Errorf("query MEXC deal details for order %s: %w", orderID, err)
+	}
+	var response struct {
+		Data []MEXCDealDetail `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("decode MEXC deal details for order %s: %w", orderID, err)
+	}
+	return response.Data, nil
 }
 
 // GetOpenOrders 獲取活跃订單

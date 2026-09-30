@@ -299,9 +299,22 @@ func (w *mexcWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType s
 	return nil, nil
 }
 
-// GetOrderFills 查詢訂單成交記錄（暂未實現）
+// GetOrderFills queries MEXC's authenticated contract execution ledger.
 func (w *mexcWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
-	return nil, nil
+	rows, err := w.adapter.GetOrderFills(ctx, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]*OrderFill, 0, len(rows))
+	for _, row := range rows {
+		fills = append(fills, &OrderFill{
+			OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(row.Side),
+			Price: row.Price, Quantity: row.Quantity, Commission: row.Commission, CommissionAsset: row.CommissionAsset,
+			TradeTime: row.TradeTime, RealizedPnL: row.RealizedPnL, RealizedPnLKnown: row.RealizedPnLKnown,
+			RealizedPnLAsset: row.RealizedPnLAsset, IsMaker: row.IsMaker,
+		})
+	}
+	return fills, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格（公共 ticker 指數／最新價兜底）

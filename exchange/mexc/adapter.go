@@ -3,6 +3,7 @@ package mexc
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -20,6 +21,22 @@ type Adapter struct {
 	baseAsset        string
 	quoteAsset       string
 	settleAsset      string
+}
+
+type MEXCOrderFill struct {
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             OrderSide
+	Price            float64
+	Quantity         float64
+	Commission       float64
+	CommissionAsset  string
+	TradeTime        int64
+	RealizedPnL      float64
+	RealizedPnLKnown bool
+	RealizedPnLAsset string
+	IsMaker          bool
 }
 
 // NewAdapter 創建 MEXC 适配器
@@ -162,6 +179,57 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, err
 
 	return a.convertOrder(orderInfo), nil
 }
+
+// GetOrderFills reads MEXC's authenticated execution ledger for one order.
+func (a *Adapter) GetOrderFills(ctx context.Context, orderID int64) ([]MEXCOrderFill, error) {
+	if orderID <= 0 {
+		return nil, fmt.Errorf("MEXC order ID must be positive")
+	}
+	rows, err := a.client.GetOrderDealDetails(ctx, strconv.FormatInt(orderID, 10))
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]MEXCOrderFill, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		rowOrderID, err := strconv.ParseInt(row.OrderID.String(), 10, 64)
+		if err != nil || rowOrderID != orderID || row.Symbol != a.symbol || row.ID.String() == "" {
+			return nil, fmt.Errorf("MEXC returned mismatched execution identity for order %d", orderID)
+		}
+		tradeID := row.ID.String()
+		if _, ok := seen[tradeID]; ok {
+			return nil, fmt.Errorf("MEXC returned duplicate execution %s for order %d", tradeID, orderID)
+		}
+		seen[tradeID] = struct{}{}
+		price, priceErr := strconv.ParseFloat(row.Price.String(), 64)
+		volume, volumeErr := strconv.ParseFloat(row.Volume.String(), 64)
+		fee, feeErr := strconv.ParseFloat(row.Fee.String(), 64)
+		profit, profitErr := strconv.ParseFloat(row.Profit.String(), 64)
+		timestamp, timeErr := strconv.ParseInt(row.Timestamp.String(), 10, 64)
+		if priceErr != nil || volumeErr != nil || feeErr != nil || profitErr != nil || timeErr != nil ||
+			!finiteMEXCValue(price) || !finiteMEXCValue(volume) || !finiteMEXCValue(fee) || !finiteMEXCValue(profit) ||
+			price <= 0 || volume <= 0 || timestamp <= 0 || strings.TrimSpace(row.FeeCurrency) == "" {
+			return nil, fmt.Errorf("MEXC execution %s contains invalid financial or timestamp fields", tradeID)
+		}
+		var side OrderSide
+		switch MEXCOrderSide(row.Side) {
+		case MEXCOrderSideOpenLong, MEXCOrderSideCloseShort:
+			side = SideBuy
+		case MEXCOrderSideOpenShort, MEXCOrderSideCloseLong:
+			side = SideSell
+		default:
+			return nil, fmt.Errorf("MEXC execution %s has unsupported side %d", tradeID, row.Side)
+		}
+		fill := MEXCOrderFill{OrderID: orderID, TradeID: tradeID, Symbol: row.Symbol, Side: side, Price: price,
+			Quantity: volume, Commission: fee, CommissionAsset: strings.ToUpper(row.FeeCurrency), TradeTime: timestamp,
+			RealizedPnL: profit, RealizedPnLKnown: strings.TrimSpace(a.settleAsset) != "",
+			RealizedPnLAsset: strings.ToUpper(strings.TrimSpace(a.settleAsset)), IsMaker: !row.IsTaker}
+		fills = append(fills, fill)
+	}
+	return fills, nil
+}
+
+func finiteMEXCValue(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 
 // GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
