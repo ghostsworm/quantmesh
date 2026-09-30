@@ -150,6 +150,9 @@ func configureRuntimeIntentJournal(ctx context.Context, executor *order.Exchange
 	if err != nil {
 		return fmt.Errorf("verify initial open orders: %w", err)
 	}
+	if orders == nil {
+		return fmt.Errorf("verify initial open orders: exchange returned a nil snapshot; order state is unverified")
+	}
 	for _, o := range orders {
 		if o == nil || o.Symbol == "" || strings.EqualFold(o.Symbol, scope.Symbol) {
 			return fmt.Errorf("existing or malformed open orders require reconciliation")

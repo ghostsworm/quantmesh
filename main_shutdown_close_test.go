@@ -99,7 +99,8 @@ func (f *fakeCloseExchange) CancelAllOrders(context.Context, string) error {
 func (f *fakeCloseExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []*exchange.Order
+	// A verified empty snapshot must be distinguishable from missing evidence.
+	out := make([]*exchange.Order, 0, len(f.orders))
 	for _, o := range f.orders {
 		if o.Status == exchange.OrderStatusNew {
 			c := *o

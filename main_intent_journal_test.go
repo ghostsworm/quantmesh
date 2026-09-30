@@ -167,7 +167,7 @@ func TestRuntimeIntentJournalSQLiteRestartDoesNotReopen(t *testing.T) {
 }
 
 func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) {
-	for _, scenario := range []string{"missing_schema", "missing_storage", "legacy", "position", "order", "position_error", "order_error", "flat"} {
+	for _, scenario := range []string{"missing_schema", "missing_storage", "legacy", "position", "order", "position_error", "order_error", "orders_nil", "flat"} {
 		t.Run(scenario, func(t *testing.T) {
 			store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "runtime.db"))
 			if err != nil {
@@ -197,6 +197,8 @@ func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) 
 				venue.positionErr = errors.New("offline")
 			case "order_error":
 				venue.orderErr = errors.New("offline")
+			case "orders_nil":
+				venue.ordersNil = true
 			}
 			executor, gate := newJournalRuntime(venue, scope)
 			err = configureRuntimeIntentJournal(t.Context(), executor, gate, venue, backend, scope)
