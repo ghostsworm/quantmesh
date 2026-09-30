@@ -2,9 +2,67 @@ package storage
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestMySQLOpeningPauseOwnersAreIndependentByInstance(t *testing.T) {
+	dsn := os.Getenv("QUANTMESH_MYSQL_TEST_DSN")
+	if dsn == "" {
+		t.Skip("requires QUANTMESH_MYSQL_TEST_DSN pointing to a disposable MySQL schema")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatal("open isolated MySQL test database:", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := db.PingContext(ctx); err != nil {
+		t.Fatal("connect to isolated MySQL test database:", err)
+	}
+	store := &SQLStorage{db: db, dbType: "mysql"}
+	if err := store.MigrateOpeningPauseHolders(ctx); err != nil {
+		t.Fatal("apply opening pause owner migrations:", err)
+	}
+	unique := fmt.Sprintf("mysql-pause-%d", time.Now().UTC().UnixNano())
+	first := OpeningPauseHolder{OwnerID: unique + "-a", Source: "circuit_breaker", Reason: "owner a"}
+	second := OpeningPauseHolder{OwnerID: unique + "-b", Source: "circuit_breaker", Reason: "owner b"}
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(context.Background(), `DELETE FROM opening_pause_owners WHERE owner_id IN (?, ?)`, first.OwnerID, second.OwnerID)
+	})
+	for _, holder := range []OpeningPauseHolder{first, second} {
+		if err := store.UpsertOpeningPauseHolder(ctx, holder); err != nil {
+			t.Fatal("persist isolated MySQL pause owner:", err)
+		}
+	}
+	if err := store.DeleteOpeningPauseHolder(ctx, first); err != nil {
+		t.Fatal("delete first MySQL pause owner:", err)
+	}
+	got, err := store.LoadOpeningPauseHolders(ctx)
+	if err != nil {
+		t.Fatal("reload MySQL pause owners:", err)
+	}
+	var foundSecond bool
+	for _, holder := range got {
+		if holder.OwnerID == second.OwnerID && holder.Source == second.Source && holder.Reason == second.Reason {
+			foundSecond = true
+		}
+		if holder.OwnerID == first.OwnerID && holder.Source == first.Source {
+			t.Fatal("deleting one MySQL owner removed neither owner")
+		}
+	}
+	if !foundSecond {
+		t.Fatalf("deleting one MySQL owner removed the other: holders=%+v", got)
+	}
+	if err := store.MigrateOpeningPauseHolders(ctx); err != nil {
+		t.Fatal("reapply idempotent opening pause migrations:", err)
+	}
+}
 
 func TestOpeningPauseHoldersPersistUntilExplicitDelete(t *testing.T) {
 	store, err := NewSQLStorage(t.TempDir() + "/opening-pause.db")

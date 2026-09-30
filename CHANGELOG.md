@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc548] - 2026-09-30（未发布）
+
+### Test
+- 新增 opt-in MySQL 风险暂停 owner 迁移幂等与多实例独立释放集成测试；仅在显式配置指向可丢弃 MySQL schema 的 `QUANTMESH_MYSQL_TEST_DSN` 时运行。
+
 ## [3.111.0-rc547] - 2026-09-30（未发布）
 
 ### Fixed
