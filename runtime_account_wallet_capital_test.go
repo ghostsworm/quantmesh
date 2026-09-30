@@ -220,6 +220,38 @@ func TestAccountWalletCapitalReleaseRefusesLeaseLostDuringFlatnessVerification(t
 	}
 }
 
+func TestFundingPerpSpreadCapitalReleaseRetainsClaimWhenOwnershipLeaseIsLost(t *testing.T) {
+	claim := storage.AccountWalletCapitalClaim{WalletKey: strings.Repeat("e", 64), Amount: 10, Available: 100}
+	store := &accountWalletCapitalReleaseSpy{}
+	lease := &runtimeOwnershipLease{}
+	lease.lost.Store(true)
+	err := verifyAndReleaseFundingPerpSpreadCapital(context.Background(), store, "bot-a",
+		[]storage.AccountWalletCapitalClaim{claim}, func(context.Context) error { return nil }, []*runtimeOwnershipLease{lease})
+	if err == nil || !strings.Contains(err.Error(), "ownership lease was lost") {
+		t.Fatalf("release error = %v, want lost ownership to prevent deletion", err)
+	}
+	if store.releases != 0 {
+		t.Fatalf("reservation releases = %d after lost ownership, want 0", store.releases)
+	}
+}
+
+func TestFundingPerpSpreadCapitalReleaseRechecksLeaseAfterFlatnessVerification(t *testing.T) {
+	claim := storage.AccountWalletCapitalClaim{WalletKey: strings.Repeat("f", 64), Amount: 10, Available: 100}
+	store := &accountWalletCapitalReleaseSpy{}
+	lease := &runtimeOwnershipLease{}
+	err := verifyAndReleaseFundingPerpSpreadCapital(context.Background(), store, "bot-a",
+		[]storage.AccountWalletCapitalClaim{claim}, func(context.Context) error {
+			lease.lost.Store(true)
+			return nil
+		}, []*runtimeOwnershipLease{lease})
+	if err == nil || !strings.Contains(err.Error(), "ownership lease was lost") {
+		t.Fatalf("release error = %v, want lease loss during verification to prevent deletion", err)
+	}
+	if store.releases != 0 {
+		t.Fatalf("reservation releases = %d after lease loss during verification, want 0", store.releases)
+	}
+}
+
 func TestVerifyStandardRuntimeFlatRequiresFuturesFlatnessAndNoOpenOrders(t *testing.T) {
 	t.Run("flat futures wallet accepted", func(t *testing.T) {
 		venue := capitalFlatVerifierExchange{positions: []*exchange.Position{}, orders: []*exchange.Order{}}

@@ -172,16 +172,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		if runtimeOwnsReservation {
 			return
 		}
-		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 15*time.Second)
-		verifyErr := st.VerifyFlat(verifyCtx)
-		cancelVerify()
-		if verifyErr != nil {
-			logger.ErrorCtx(ctx, "[%s] 啟動失敗後兩腿/活動委託未核實，保留資金預留: %v", botID, verifyErr)
-			return
-		}
-		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
-		releaseErr := reservationStore.ReleaseAccountWalletCapital(releaseCtx, botID, claims)
-		cancelRelease()
+		releaseErr := verifyAndReleaseFundingPerpSpreadCapital(context.Background(), reservationStore, botID, claims, st.VerifyFlat, ownershipLeases)
 		if releaseErr != nil {
 			logger.ErrorCtx(ctx, "[%s] 啟動失敗後釋放已核實平倉的資金預留失敗: %v", botID, releaseErr)
 		}
@@ -272,19 +263,9 @@ func startFundingPerpSpreadSymbolRuntime(
 			openingGate.Block("strategy_stop_unverified")
 			return fmt.Errorf("funding_perp_spread stop/close is unverified: %w", err)
 		}
-		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 15*time.Second)
-		verifyErr := st.VerifyFlat(verifyCtx)
-		cancelVerify()
-		if verifyErr != nil {
+		if releaseErr := verifyAndReleaseFundingPerpSpreadCapital(context.Background(), reservationStore, botID, claims, st.VerifyFlat, ownershipLeases); releaseErr != nil {
 			openingGate.Block("strategy_stop_unverified")
-			return fmt.Errorf("funding_perp_spread flatness or open orders remain unverified: %w", verifyErr)
-		}
-		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
-		releaseErr := reservationStore.ReleaseAccountWalletCapital(releaseCtx, botID, claims)
-		cancelRelease()
-		if releaseErr != nil {
-			openingGate.Block("capital_reservation_unverified")
-			return fmt.Errorf("funding_perp_spread verified flat but capital reservation release failed: %w", releaseErr)
+			return fmt.Errorf("funding_perp_spread flatness, ownership, or capital reservation release is unverified: %w", releaseErr)
 		}
 		if leaseErr := releaseFundingPerpSpreadRuntimeOwnershipLeases(ownershipLeases); leaseErr != nil {
 			logger.WarnCtx(ctx, "[%s] 已核實平倉，但釋放雙腿運行所有權租約失敗（租約將到期）: %v", botID, leaseErr)
@@ -309,6 +290,15 @@ func startFundingPerpSpreadSymbolRuntime(
 	ownershipLeasesTransferred = true
 
 	return rt, nil
+}
+
+func verifyAndReleaseFundingPerpSpreadCapital(ctx context.Context, store storage.AccountWalletCapitalReservationStore, botID string, claims []storage.AccountWalletCapitalClaim, verifyFlat func(context.Context) error, ownershipLeases []*runtimeOwnershipLease) error {
+	return verifyAndReleaseAccountWalletCapitalGuarded(ctx, store, botID, claims, verifyFlat, func() error {
+		if fundingPerpSpreadRuntimeOwnershipLeaseLost(ownershipLeases) {
+			return fmt.Errorf("funding_perp_spread runtime ownership lease was lost")
+		}
+		return nil
+	})
 }
 
 func fundingPerpSpreadRuntimeOwnershipScopes(cfg *config.Config, fp *config.FundingPerpSpreadConfig) ([]execution.IntentScope, error) {
