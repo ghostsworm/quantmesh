@@ -212,11 +212,10 @@ const StrategyOverview: React.FC = () => {
                 <SimpleGrid columns={2} spacing={3} fontSize="sm">
                   <Box>
                     <Text color="gray.500">{t('strategyOverview.pnl', '累计盈亏')}</Text>
-                    <Text fontWeight="semibold" color={item.strategy.statistics && item.strategy.statistics.totalPnL >= 0 ? 'green.500' : 'red.500'}>
-                      {item.strategy.statistics?.totalPnL != null
+                    <Text fontWeight="semibold" color={item.strategy.statistics?.totalPnLVerified ? (item.strategy.statistics.totalPnL >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                      {item.strategy.statistics?.totalPnLVerified
                         ? `${item.strategy.statistics.totalPnL >= 0 ? '+' : ''}${item.strategy.statistics.totalPnL.toFixed(2)}`
-                        : '-'}{' '}
-                      USDT
+                        : t('dashboard.pnlUnverified')}
                     </Text>
                   </Box>
                   <Box>

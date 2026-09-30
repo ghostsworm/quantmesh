@@ -57,6 +57,33 @@ func getRuntimePnLSummary(reader interface{}, rt *SymbolRuntime, start, end time
 	return scopedReader.GetPnLBySymbolAccountScopeAndAsset(rt.Config.Symbol, rt.AccountScope, rt.Config.Exchange, rt.Config.GetMarketType(), asset, start, end)
 }
 
+func refreshRuntimePnLStatus(status *web.SystemStatus, reader interface{}, rt *SymbolRuntime, start, end time.Time) error {
+	if status == nil {
+		return fmt.Errorf("runtime PnL status is unavailable")
+	}
+	summary, err := getRuntimePnLSummary(reader, rt, start, end)
+	if err != nil {
+		clearRuntimePnLStatus(status)
+		return err
+	}
+	if summary == nil || strings.TrimSpace(summary.PnLAsset) == "" || math.IsNaN(summary.TotalPnL) || math.IsInf(summary.TotalPnL, 0) {
+		clearRuntimePnLStatus(status)
+		return fmt.Errorf("runtime PnL summary lacks a valid amount or asset")
+	}
+	status.TotalPnL = summary.TotalPnL
+	status.TotalTrades = summary.TotalTrades
+	status.TotalPnLAsset = strings.ToUpper(strings.TrimSpace(summary.PnLAsset))
+	status.TotalPnLVerified = true
+	return nil
+}
+
+func clearRuntimePnLStatus(status *web.SystemStatus) {
+	status.TotalPnL = 0
+	status.TotalTrades = 0
+	status.TotalPnLAsset = ""
+	status.TotalPnLVerified = false
+}
+
 // ordersSchemaRepairer 由 *storage.SQLStorage 實現；接口定義在使用方。
 type ordersSchemaRepairer interface {
 	EnsureOrdersSchema() error
@@ -385,7 +412,7 @@ func registerWebSymbolProvidersForRuntime(rt *SymbolRuntime, bc *config.BotConfi
 func runSymbolStatusUpdateLoop(rt *SymbolRuntime, st *web.SystemStatus, started time.Time, storageSvc *storage.StorageService, planMgr *position.PlanManager) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	dbQueryCounter := 0
+	dbQueryCounter := 4
 	for range ticker.C {
 		if !st.Running {
 			return
@@ -398,32 +425,19 @@ func runSymbolStatusUpdateLoop(rt *SymbolRuntime, st *web.SystemStatus, started 
 		}
 		if rt.SuperPositionManager != nil {
 			dbQueryCounter++
-			useEstimation := true
-			if storageSvc != nil && storageSvc.GetStorage() != nil {
-				if dbQueryCounter >= 5 || st.TotalPnL == 0 {
-					dbQueryCounter = 0
-					now := utils.NowUTC()
-					allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-					pnlSummary, err := getRuntimePnLSummary(storageSvc.GetStorage(), rt, allHistoryStart, now)
-					if err == nil {
-						st.TotalPnL = pnlSummary.TotalPnL
-						st.TotalTrades = pnlSummary.TotalTrades
-						useEstimation = false
-					}
+			if dbQueryCounter >= 5 {
+				dbQueryCounter = 0
+				now := utils.NowUTC()
+				allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+				var err error
+				if storageSvc == nil || storageSvc.GetStorage() == nil {
+					clearRuntimePnLStatus(st)
+					err = fmt.Errorf("PnL storage is unavailable")
 				} else {
-					useEstimation = false
+					err = refreshRuntimePnLStatus(st, storageSvc.GetStorage(), rt, allHistoryStart, now)
 				}
-			}
-			if useEstimation {
-				totalBuyQty := rt.SuperPositionManager.GetTotalBuyQty()
-				totalSellQty := rt.SuperPositionManager.GetTotalSellQty()
-				profitSpread := rt.SuperPositionManager.GetProfitSpread()
-				st.TotalPnL = totalSellQty * profitSpread
-				if st.CurrentPrice > 0 {
-					orderQtyInBase := rt.Config.OrderQuantity / st.CurrentPrice
-					if orderQtyInBase > 0 {
-						st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
-					}
+				if err != nil {
+					logger.Warn("[%s:%s] 盈亏状态未核实: %v", rt.Config.Exchange, rt.Config.Symbol, err)
 				}
 			}
 			if planMgr != nil {

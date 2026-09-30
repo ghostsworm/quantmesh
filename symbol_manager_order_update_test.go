@@ -46,7 +46,7 @@ func TestToPositionOrderUpdateBaseFeeQty(t *testing.T) {
 }
 
 func TestToPositionOrderUpdatePreservesCommissionAuthority(t *testing.T) {
-	legacyKnown := toPositionOrderUpdate(okx.StreamOrderUpdate{OrderID: 1, Status: "FILLED", Commission: 0.1, CommissionAsset: "USDT"})
+	legacyUnknown := toPositionOrderUpdate(okx.StreamOrderUpdate{OrderID: 1, Status: "FILLED", Commission: 0.1, CommissionAsset: "USDT"})
 	bybitUnknown := toPositionOrderUpdate(bybit.StreamOrderUpdate{OrderID: 2, Status: "FILLED", CommissionAsset: "USDT", CommissionKnown: false})
 	gateUnknown := toPositionOrderUpdate(gate.SpotStreamOrderUpdate{
 		OrderUpdate:     gate.OrderUpdate{OrderID: 3, Status: "FILLED", CommissionAsset: "USDT"},
@@ -56,8 +56,8 @@ func TestToPositionOrderUpdatePreservesCommissionAuthority(t *testing.T) {
 		OrderUpdate: binance.OrderUpdate{OrderID: 4, Status: "FILLED", Commission: 0.01, CommissionAsset: "USDT", CommissionKnown: true},
 	})
 	bitgetUnknown := toPositionOrderUpdate(bitget.OrderUpdate{OrderID: 5, Status: "FILLED", CommissionAsset: "USDT", CommissionKnown: false})
-	if legacyKnown == nil || !legacyKnown.CommissionKnown {
-		t.Fatalf("legacy fee-bearing stream was not treated as authoritative: %+v", legacyKnown)
+	if legacyUnknown == nil || legacyUnknown.CommissionKnown {
+		t.Fatalf("stream without an explicit fee authority marker must remain unverified: %+v", legacyUnknown)
 	}
 	if bybitUnknown == nil || bybitUnknown.CommissionKnown {
 		t.Fatalf("Bybit's missing per-execution fee was lost: %+v", bybitUnknown)

@@ -166,8 +166,8 @@ func sameFundingPayment(a, b FundingPayment) bool {
 }
 
 // MarkFundingIncomeCoverage records a successfully fetched and fully persisted
-// exchange interval. Each success replaces the latest snapshot; it does not
-// bridge outages or claim coverage older than the returned interval.
+// exchange interval. Overlaps merge; a newer disjoint interval replaces the
+// prior snapshot without bridging an outage; an older completion cannot rewind it.
 func (s *SQLStorage) MarkFundingIncomeCoverage(exchange, symbol, marketType, accountScope string, startTime, endTime time.Time) error {
 	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(symbol) == "" || strings.TrimSpace(marketType) == "" ||
 		strings.TrimSpace(accountScope) == "" || startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
@@ -179,7 +179,12 @@ func (s *SQLStorage) MarkFundingIncomeCoverage(exchange, symbol, marketType, acc
 		_, err := s.db.Exec(`
 			INSERT INTO funding_income_sync_state (scope_key, exchange, symbol, market_type, account_scope, covered_from, covered_through, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE covered_from=VALUES(covered_from), covered_through=VALUES(covered_through), updated_at=VALUES(updated_at)
+			ON DUPLICATE KEY UPDATE
+			covered_from=CASE WHEN VALUES(covered_through) < covered_through THEN covered_from
+				WHEN VALUES(covered_from) <= covered_through THEN LEAST(covered_from, VALUES(covered_from))
+				ELSE VALUES(covered_from) END,
+			updated_at=CASE WHEN VALUES(covered_through) >= covered_through THEN VALUES(updated_at) ELSE updated_at END,
+			covered_through=GREATEST(covered_through, VALUES(covered_through))
 		`, key, exchange, symbol, marketType, accountScope, from, through, time.Now().UTC())
 		if err != nil {
 			return fmt.Errorf("mark funding income coverage exchange=%s symbol=%s: %w", exchange, symbol, err)
@@ -189,7 +194,12 @@ func (s *SQLStorage) MarkFundingIncomeCoverage(exchange, symbol, marketType, acc
 	_, err := s.db.Exec(`
 		INSERT INTO funding_income_sync_state (scope_key, exchange, symbol, market_type, account_scope, covered_from, covered_through, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(scope_key) DO UPDATE SET covered_from=excluded.covered_from, covered_through=excluded.covered_through, updated_at=excluded.updated_at
+		ON CONFLICT(scope_key) DO UPDATE SET
+			covered_from=CASE WHEN excluded.covered_through < covered_through THEN covered_from
+				WHEN excluded.covered_from <= covered_through THEN MIN(covered_from, excluded.covered_from)
+				ELSE excluded.covered_from END,
+			updated_at=CASE WHEN excluded.covered_through >= covered_through THEN excluded.updated_at ELSE updated_at END,
+			covered_through=MAX(covered_through, excluded.covered_through)
 	`, key, exchange, symbol, marketType, accountScope, from, through, time.Now().UTC())
 	if err != nil {
 		return fmt.Errorf("mark funding income coverage exchange=%s symbol=%s: %w", exchange, symbol, err)

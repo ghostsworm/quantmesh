@@ -834,10 +834,11 @@ type StrategyRuntimeStatusResponse struct {
 
 // StrategyStatsResponse 策略統計響應
 type StrategyStatsResponse struct {
-	TotalTrades int     `json:"totalTrades"`
-	WinRate     float64 `json:"winRate"`
-	TotalPnL    float64 `json:"totalPnL"`
-	TotalVolume float64 `json:"totalVolume"`
+	TotalTrades      int     `json:"totalTrades"`
+	WinRate          float64 `json:"winRate"`
+	TotalPnL         float64 `json:"totalPnL"`
+	TotalPnLVerified bool    `json:"totalPnLVerified"`
+	TotalVolume      float64 `json:"totalVolume"`
 }
 
 // StrategyPositionResp 策略持倉響應

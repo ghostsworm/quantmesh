@@ -124,6 +124,8 @@ type DailyOrderFillSummary struct {
 	BuyOrders, SellOrders                int
 	BuyQty, BuyValue, SellQty, SellValue float64
 	RealizedPnL                          float64
+	RealizedPnLByAsset                   map[string]float64
+	RealizedPnLUnknownAssetCount         int
 	FillCount                            int
 	FeesByAsset                          map[string]float64
 	FeeQuoteValueByAsset                 map[string]float64
@@ -155,6 +157,40 @@ func (s *SQLStorage) QueryDailyOrderFillsByScope(account, exchange, marketType, 
 	if err := s.db.QueryRow(query, args...).Scan(&summary.BuyOrders, &summary.SellOrders, &summary.BuyQty, &summary.BuyValue,
 		&summary.SellQty, &summary.SellValue, &summary.RealizedPnL, &summary.FillCount); err != nil {
 		return DailyOrderFillSummary{}, fmt.Errorf("query daily execution aggregate: %w", err)
+	}
+	pnlAssetQuery := `SELECT realized_pnl_asset, SUM(realized_pnl), COUNT(*) FROM order_fills WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND trade_time >= ? AND trade_time < ? AND realized_pnl IS NOT NULL`
+	pnlAssetArgs := []interface{}{exchange, marketType, symbol, accountScope, start, end}
+	if account != "" {
+		pnlAssetQuery += ` AND account = ?`
+		pnlAssetArgs = append(pnlAssetArgs, account)
+	}
+	pnlAssetQuery += ` GROUP BY realized_pnl_asset`
+	pnlAssetRows, err := s.db.Query(pnlAssetQuery, pnlAssetArgs...)
+	if err != nil {
+		return DailyOrderFillSummary{}, fmt.Errorf("query daily realized pnl by asset: %w", err)
+	}
+	summary.RealizedPnLByAsset = make(map[string]float64)
+	for pnlAssetRows.Next() {
+		var asset string
+		var amount float64
+		var count int
+		if err := pnlAssetRows.Scan(&asset, &amount, &count); err != nil {
+			pnlAssetRows.Close()
+			return DailyOrderFillSummary{}, fmt.Errorf("scan daily realized pnl asset: %w", err)
+		}
+		asset = strings.ToUpper(strings.TrimSpace(asset))
+		if asset == "" {
+			summary.RealizedPnLUnknownAssetCount += count
+		} else {
+			summary.RealizedPnLByAsset[asset] += amount
+		}
+	}
+	if err := pnlAssetRows.Err(); err != nil {
+		pnlAssetRows.Close()
+		return DailyOrderFillSummary{}, fmt.Errorf("iterate daily realized pnl assets: %w", err)
+	}
+	if err := pnlAssetRows.Close(); err != nil {
+		return DailyOrderFillSummary{}, fmt.Errorf("close daily realized pnl asset rows: %w", err)
 	}
 	feeQuery := `SELECT commission_asset, SUM(commission), SUM(commission * price), SUM(CASE WHEN commission_quote_known = 1 THEN commission_quote ELSE 0 END), SUM(CASE WHEN commission <> 0 AND commission_quote_known = 0 THEN 1 ELSE 0 END) FROM order_fills WHERE exchange = ? AND market_type = ? AND symbol = ? AND account_scope = ? AND trade_time >= ? AND trade_time < ?`
 	if account != "" {

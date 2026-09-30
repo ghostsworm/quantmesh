@@ -1387,7 +1387,7 @@ func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error 
 	if update == nil || update.OrderID == 0 {
 		return nil
 	}
-	if err := s.resolveUnverifiedSpotCommission(update); err != nil {
+	if err := s.resolveUnverifiedCommission(update); err != nil {
 		return err
 	}
 
@@ -1414,8 +1414,8 @@ func finiteNumber(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // handleLayerOrderUpdate 处理开倉/加倉單回報：按實際成交數量/均價計入持倉；未成交即終止则回滚该层（S3）
 func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *position.OrderUpdate) {
-	if s.supportsSpotBaseFee() && !update.CommissionKnown && update.ExecutedQty > layer.FillProgress.Quantity+entryQtyEpsilon {
-		s.requireDCAOrderReconciliation(update, "DCA spot entry fee evidence is not authoritative")
+	if !update.CommissionKnown && update.ExecutedQty > layer.FillProgress.Quantity+entryQtyEpsilon {
+		s.requireDCAOrderReconciliation(update, "DCA entry fee evidence is not authoritative")
 		return
 	}
 	filled := signalOrderStatusFilled(update.Status)

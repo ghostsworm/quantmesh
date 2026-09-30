@@ -752,3 +752,131 @@ func (s *SQLStorage) QueryDailyPnLByAccountScopeAndAsset(exchange, accountScope,
 	}
 	return result, nil
 }
+
+// QueryDailyStatisticsByDimension returns paired-trade statistics for one exact
+// exchange, market, symbol, immutable credential scope, and PnL denomination.
+func (s *SQLStorage) QueryDailyStatisticsByDimension(exchange, marketType, symbol, accountScope, asset, botID string, startDate, endDate time.Time) ([]*DailyStatisticsWithTradeCount, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	accountScope = strings.TrimSpace(accountScope)
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || marketType == "" || symbol == "" || accountScope == "" || asset == "" || startDate.After(endDate) {
+		return nil, fmt.Errorf("daily statistics require exchange, market, symbol, account scope, asset, and valid dates")
+	}
+	dateExpr := s.dateExprInConfiguredTimezone("created_at")
+	startDay, endDay := startDate.Format("2006-01-02"), endDate.Format("2006-01-02")
+	var unscoped int64
+	unscopedQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE ((LOWER(TRIM(exchange)) = ? AND (account_scope IS NULL OR TRIM(account_scope) = '')) OR TRIM(COALESCE(exchange, '')) = '') AND LOWER(TRIM(COALESCE(market_type, ''))) = ? AND UPPER(TRIM(COALESCE(symbol, ''))) = ? AND %s >= ? AND %s <= ?`, s.tradesTbl(), dateExpr, dateExpr)
+	if err := s.db.QueryRow(unscopedQuery, exchange, marketType, symbol, startDay, endDay).Scan(&unscoped); err != nil {
+		return nil, fmt.Errorf("check unattributed daily trades: %w", err)
+	}
+	if unscoped > 0 {
+		return nil, fmt.Errorf("daily statistics are incomplete: %d trades lack credential scope", unscoped)
+	}
+	where := fmt.Sprintf(`LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(symbol)) = ? AND account_scope = ? AND %s >= ? AND %s <= ?`, dateExpr, dateExpr)
+	baseArgs := []interface{}{exchange, marketType, symbol, accountScope, startDay, endDay}
+	var invalidDenominations int64
+	validationQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s AND (UPPER(TRIM(COALESCE(pnl_asset, ''))) <> ? OR (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> ?))`, s.tradesTbl(), where)
+	validationArgs := append(append([]interface{}{}, baseArgs...), asset, asset)
+	if err := s.db.QueryRow(validationQuery, validationArgs...).Scan(&invalidDenominations); err != nil {
+		return nil, fmt.Errorf("validate daily trade denomination: %w", err)
+	}
+	if invalidDenominations > 0 {
+		return nil, fmt.Errorf("daily statistics include %d trades with missing or incompatible PnL/fee denomination", invalidDenominations)
+	}
+	if botID = strings.TrimSpace(botID); botID != "" {
+		var unattributedBotTrades int64
+		botValidation := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s AND COALESCE(bot_id, '') = ''`, s.tradesTbl(), where)
+		if err := s.db.QueryRow(botValidation, baseArgs...).Scan(&unattributedBotTrades); err != nil {
+			return nil, fmt.Errorf("validate daily bot attribution: %w", err)
+		}
+		if unattributedBotTrades > 0 {
+			return nil, fmt.Errorf("daily bot statistics are incomplete: %d trades have no bot attribution", unattributedBotTrades)
+		}
+	}
+	query := fmt.Sprintf(`SELECT %s, COUNT(*), COALESCE(SUM(quantity), 0), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0), COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0), CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*), SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), COALESCE(SUM(CASE WHEN pnl > 0 THEN quantity ELSE 0 END), 0), COALESCE(SUM(CASE WHEN pnl <= 0 THEN quantity ELSE 0 END), 0) FROM %s WHERE %s AND UPPER(TRIM(COALESCE(pnl_asset, ''))) = ?`, dateExpr, s.tradesTbl(), where)
+	args := append(append([]interface{}{}, baseArgs...), asset)
+	if botID != "" {
+		query += ` AND COALESCE(bot_id, '') = ?`
+		args = append(args, botID)
+	}
+	query += ` GROUP BY ` + dateExpr + ` ORDER BY ` + dateExpr + ` DESC LIMIT 3650`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("query daily statistics by dimension: %w", err)
+	}
+	defer rows.Close()
+	var result []*DailyStatisticsWithTradeCount
+	for rows.Next() {
+		var day string
+		var item DailyStatisticsWithTradeCount
+		if err := rows.Scan(&day, &item.TotalTrades, &item.TotalVolume, &item.GrossPnL, &item.TotalFee, &item.TotalPnL, &item.WinRate, &item.WinningTrades, &item.LosingTrades, &item.VolumeProfit, &item.VolumeStopLoss); err != nil {
+			return nil, fmt.Errorf("scan daily statistics by dimension: %w", err)
+		}
+		item.Date, err = time.Parse("2006-01-02", day)
+		if err != nil {
+			return nil, fmt.Errorf("parse daily statistics date %q: %w", day, err)
+		}
+		result = append(result, &item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate daily statistics by dimension: %w", err)
+	}
+	return result, nil
+}
+
+// GetStatisticsSummaryByDimension returns lifetime paired-trade totals only
+// when ownership and denomination are complete for the requested dimension.
+func (s *SQLStorage) GetStatisticsSummaryByDimension(exchange, marketType, symbol, accountScope, asset, botID string) (*Statistics, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	accountScope = strings.TrimSpace(accountScope)
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	if exchange == "" || marketType == "" || symbol == "" || accountScope == "" || asset == "" {
+		return nil, fmt.Errorf("statistics summary requires exchange, market, symbol, account scope and asset")
+	}
+	dimension := `LOWER(TRIM(exchange)) = ? AND LOWER(TRIM(market_type)) = ? AND UPPER(TRIM(symbol)) = ?`
+	dimensionArgs := []interface{}{exchange, marketType, symbol}
+	var unscoped int64
+	unscopedQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE (((LOWER(TRIM(exchange)) = ?) AND (account_scope IS NULL OR TRIM(account_scope) = '')) OR TRIM(COALESCE(exchange, '')) = '') AND LOWER(TRIM(COALESCE(market_type, ''))) = ? AND UPPER(TRIM(COALESCE(symbol, ''))) = ?`, s.tradesTbl())
+	if err := s.db.QueryRow(unscopedQuery, dimensionArgs...).Scan(&unscoped); err != nil {
+		return nil, fmt.Errorf("check unattributed trades for statistics summary: %w", err)
+	}
+	if unscoped > 0 {
+		return nil, fmt.Errorf("statistics summary is incomplete: %d trades lack credential scope", unscoped)
+	}
+	scoped := dimension + ` AND account_scope = ?`
+	scopedArgs := append(append([]interface{}{}, dimensionArgs...), accountScope)
+	var invalid int64
+	validation := fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s AND (UPPER(TRIM(COALESCE(pnl_asset, ''))) <> ? OR (COALESCE(fee, 0) <> 0 AND UPPER(TRIM(COALESCE(fee_asset, ''))) <> ?))`, s.tradesTbl(), scoped)
+	validationArgs := append(append([]interface{}{}, scopedArgs...), asset, asset)
+	if err := s.db.QueryRow(validation, validationArgs...).Scan(&invalid); err != nil {
+		return nil, fmt.Errorf("validate statistics PnL and fee denomination: %w", err)
+	}
+	if invalid > 0 {
+		return nil, fmt.Errorf("statistics summary has %d trades with missing or incompatible denomination", invalid)
+	}
+	botID = strings.TrimSpace(botID)
+	if botID != "" {
+		var unattributed int64
+		if err := s.db.QueryRow(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s AND COALESCE(bot_id, '') = ''`, s.tradesTbl(), scoped), scopedArgs...).Scan(&unattributed); err != nil {
+			return nil, fmt.Errorf("validate statistics bot attribution: %w", err)
+		}
+		if unattributed > 0 {
+			return nil, fmt.Errorf("statistics summary is incomplete: %d trades have no bot attribution", unattributed)
+		}
+	}
+	query := fmt.Sprintf(`SELECT COUNT(*), COALESCE(SUM(quantity), 0), COALESCE(SUM(pnl), 0), COALESCE(SUM(COALESCE(fee, 0)), 0), COALESCE(SUM(pnl), 0) - COALESCE(SUM(COALESCE(fee, 0)), 0), CASE WHEN COUNT(*) > 0 THEN CAST(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) ELSE 0 END, COALESCE(SUM(COALESCE(buy_price_deviation, 0)), 0), COALESCE(SUM(COALESCE(sell_price_deviation, 0)), 0) FROM %s WHERE %s AND UPPER(TRIM(COALESCE(pnl_asset, ''))) = ?`, s.tradesTbl(), scoped)
+	args := append(append([]interface{}{}, scopedArgs...), asset)
+	if botID != "" {
+		query += ` AND COALESCE(bot_id, '') = ?`
+		args = append(args, botID)
+	}
+	var summary Statistics
+	if err := s.db.QueryRow(query, args...).Scan(&summary.TotalTrades, &summary.TotalVolume, &summary.GrossPnL, &summary.TotalFee, &summary.TotalPnL, &summary.WinRate, &summary.TotalBuyDeviation, &summary.TotalSellDeviation); err != nil {
+		return nil, fmt.Errorf("query statistics summary by dimension: %w", err)
+	}
+	return &summary, nil
+}

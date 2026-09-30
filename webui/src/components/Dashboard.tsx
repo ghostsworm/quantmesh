@@ -42,6 +42,7 @@ import { useSymbol } from '../contexts/SymbolContext'
 import { useBot } from '../contexts/BotContext'
 import { getStatus, startTrading, stopTrading, stopBot, closePositionsV2, getSlots, SlotsResponse, getStrategyAllocation, StrategyAllocationResponse, getPendingOrders, PendingOrdersResponse, getPositionsSummary, getStatistics, releaseStrategyCapital, releaseAllStrategiesCapital, getSymbols, type PositionsSummary } from '../services/api'
 import { getStrategyRuntimeStatus } from '../services/strategy'
+import { getVerifiedPnL } from '../utils/verifiedPnL'
 import StrategyVisualization from './strategy-visualization/StrategyVisualization'
 import type { StrategyRuntimeStatus } from '../services/strategy'
 import { checkSetupStatus } from '../services/setup'
@@ -61,6 +62,8 @@ interface SystemStatus {
   market_type?: string
   current_price: number
   total_pnl: number
+  total_pnl_asset?: string
+  total_pnl_verified?: boolean
   total_trades: number
   risk_triggered: boolean
   uptime: number
@@ -410,7 +413,9 @@ const Dashboard: React.FC = () => {
     ? status.current_price
     : (positionsSummary?.current_price || 0)
 
-  const totalPnL = typeof statistics?.total_pnl === 'number' ? statistics.total_pnl : (status.total_pnl || 0)
+  const verifiedPnL = getVerifiedPnL(status)
+  const totalPnLVerified = verifiedPnL !== null
+  const totalPnL = verifiedPnL?.amount ?? 0
   const exchangePnL = typeof statistics?.exchange_pnl === 'number' ? statistics.exchange_pnl : 0
   // 待實現盈虧：優先從 statistics（後端按持倉+當前價計算），否則從 positionsSummary
   const unrealizedPnL = typeof statistics?.unrealized_pnl === 'number'
@@ -428,7 +433,7 @@ const Dashboard: React.FC = () => {
   const totalAllocated = strategyAllocation?.allocation
     ? Object.values(strategyAllocation.allocation).reduce((sum, cap) => sum + (cap.allocated || 0), 0)
     : 0
-  const roiPct = totalAllocated > 0 && isFinite(totalPnL)
+  const roiPct = totalPnLVerified && totalAllocated > 0 && isFinite(totalPnL)
     ? (totalPnL / totalAllocated) * 100
     : null
 
@@ -599,18 +604,17 @@ const Dashboard: React.FC = () => {
           <GlassCard>
             <Stat>
               <StatLabel fontSize="xs" fontWeight="bold" color="gray.500" mb={2}>{t('dashboard.totalPnL')}</StatLabel>
-              <StatNumber fontSize="3xl" fontWeight="800" color={totalPnL >= 0 ? 'green.500' : 'red.500'}>
-                {totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)}
-                <Text as="span" fontSize="sm" ml={1} color="gray.400">{quoteAsset}</Text>
+              <StatNumber fontSize={totalPnLVerified ? '3xl' : 'xl'} fontWeight="800" color={totalPnLVerified ? (totalPnL >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                {totalPnLVerified
+                  ? <>{totalPnL >= 0 ? '+' : ''}{totalPnL.toFixed(2)}<Text as="span" fontSize="sm" ml={1} color="gray.400">{verifiedPnL.asset}</Text></>
+                  : t('dashboard.pnlUnverified')}
               </StatNumber>
               <StatHelpText>
-                <HStack spacing={1}>
+                {totalPnLVerified && <HStack spacing={1}>
                   <Icon as={totalPnL >= 0 ? TriangleUpIcon : TriangleDownIcon} />
-                  <Text fontWeight="600">
-                    {roiPct !== null ? `${roiPct.toFixed(2)}%` : '—'}
-                  </Text>
+                  <Text fontWeight="600">{roiPct !== null ? `${roiPct.toFixed(2)}%` : '—'}</Text>
                   <Text color="gray.400">{t('dashboard.roi')}</Text>
-                </HStack>
+                </HStack>}
               </StatHelpText>
               <VStack align="stretch" spacing={0.5} mt={2} fontSize="xs">
                 {exchangePnL !== 0 && (

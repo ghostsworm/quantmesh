@@ -160,6 +160,7 @@ func migrateHourlyEquityAndDailySnapshotTables(db *sql.DB) error {
 			timestamp DATETIME NOT NULL,
 			equity REAL NOT NULL,
 			unrealized_pnl REAL NOT NULL,
+			unrealized_pnl_asset TEXT NOT NULL DEFAULT '',
 			total_position_value REAL NOT NULL,
 			market_price REAL NOT NULL DEFAULT 0,
 			spot_position_qty REAL,
@@ -176,6 +177,7 @@ func migrateHourlyEquityAndDailySnapshotTables(db *sql.DB) error {
 			account TEXT NOT NULL,
 			date DATE NOT NULL,
 			unrealized_pnl REAL NOT NULL,
+			unrealized_pnl_asset TEXT NOT NULL DEFAULT '',
 			total_position_value REAL NOT NULL,
 			spot_position_qty REAL,
 			intraday_max_drawdown REAL NOT NULL,
@@ -210,7 +212,7 @@ func migrateHourlyEquityAndDailySnapshotTables(db *sql.DB) error {
 	if err := migrateMarketTypeSnapshotColumnsSQLite(db); err != nil {
 		return err
 	}
-	for _, column := range []struct{ table, name, definition string }{{"hourly_equity_records", "market_price", "market_price REAL NOT NULL DEFAULT 0"}, {"hourly_equity_records", "spot_position_qty", "spot_position_qty REAL"}, {"daily_snapshots", "spot_position_qty", "spot_position_qty REAL"}} {
+	for _, column := range []struct{ table, name, definition string }{{"hourly_equity_records", "market_price", "market_price REAL NOT NULL DEFAULT 0"}, {"hourly_equity_records", "spot_position_qty", "spot_position_qty REAL"}, {"hourly_equity_records", "unrealized_pnl_asset", "unrealized_pnl_asset TEXT NOT NULL DEFAULT ''"}, {"daily_snapshots", "spot_position_qty", "spot_position_qty REAL"}, {"daily_snapshots", "unrealized_pnl_asset", "unrealized_pnl_asset TEXT NOT NULL DEFAULT ''"}} {
 		var count int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('`+column.table+`') WHERE name = ?`, column.name).Scan(&count); err != nil {
 			return fmt.Errorf("check %s.%s migration: %w", column.table, column.name, err)
@@ -270,7 +272,7 @@ func migrateAccountEquityMarketTypeSQLite(db *sql.DB) error {
 // migrateMarketTypeSnapshotColumnsSQLite keeps legacy snapshots explicitly unclassified,
 // while rebuilding the daily key so one account/symbol/date can store each market separately.
 func migrateMarketTypeSnapshotColumnsSQLite(db *sql.DB) error {
-	for _, column := range []string{"market_type", "account_scope"} {
+	for _, column := range []string{"market_type", "account_scope", "unrealized_pnl_asset"} {
 		var exists int
 		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('hourly_equity_records') WHERE name = ?`, column).Scan(&exists); err != nil {
 			return fmt.Errorf("检查 hourly_equity_records.%s 失败: %w", column, err)
@@ -289,6 +291,15 @@ func migrateMarketTypeSnapshotColumnsSQLite(db *sql.DB) error {
 		return fmt.Errorf("检查 daily_snapshots.account_scope 失败: %w", err)
 	}
 	if marketTypeCount > 0 && accountScopeCount > 0 {
+		var assetCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('daily_snapshots') WHERE name = 'unrealized_pnl_asset'`).Scan(&assetCount); err != nil {
+			return fmt.Errorf("检查 daily_snapshots.unrealized_pnl_asset 失败: %w", err)
+		}
+		if assetCount == 0 {
+			if _, err := db.Exec(`ALTER TABLE daily_snapshots ADD COLUMN unrealized_pnl_asset TEXT NOT NULL DEFAULT ''`); err != nil {
+				return fmt.Errorf("添加 daily_snapshots.unrealized_pnl_asset 失败: %w", err)
+			}
+		}
 		return nil
 	}
 	var accountEquityCount int
@@ -314,7 +325,7 @@ func migrateMarketTypeSnapshotColumnsSQLite(db *sql.DB) error {
 	if _, err = tx.Exec(`CREATE TABLE daily_snapshots (
 		id INTEGER PRIMARY KEY AUTOINCREMENT, exchange TEXT NOT NULL, market_type TEXT NOT NULL DEFAULT '', account_scope TEXT NOT NULL DEFAULT '',
 		symbol TEXT NOT NULL, account TEXT NOT NULL, date DATE NOT NULL, unrealized_pnl REAL NOT NULL,
-		total_position_value REAL NOT NULL, intraday_max_drawdown REAL NOT NULL,
+		unrealized_pnl_asset TEXT NOT NULL DEFAULT '', total_position_value REAL NOT NULL, intraday_max_drawdown REAL NOT NULL,
 		intraday_max_drawdown_pct REAL NOT NULL, intraday_peak_equity REAL NOT NULL,
 		closing_price REAL NOT NULL, snapshot_time TIMESTAMP NOT NULL, account_equity REAL, spot_position_qty REAL,
 		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -149,8 +149,10 @@ const StrategyDetail: React.FC = () => {
           <HStack spacing={6} flexWrap="wrap">
             <Box>
               <Text fontSize="xs" color="gray.500">{t('strategyOverview.pnl', '累计盈亏')}</Text>
-              <Text fontWeight="bold" color={strategy.statistics.totalPnL >= 0 ? 'green.500' : 'red.500'}>
-                {strategy.statistics.totalPnL >= 0 ? '+' : ''}{strategy.statistics.totalPnL.toFixed(2)} USDT
+              <Text fontWeight="bold" color={strategy.statistics.totalPnLVerified ? (strategy.statistics.totalPnL >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                {strategy.statistics.totalPnLVerified
+                  ? `${strategy.statistics.totalPnL >= 0 ? '+' : ''}${strategy.statistics.totalPnL.toFixed(2)}`
+                  : t('dashboard.pnlUnverified')}
               </Text>
             </Box>
             <Box>

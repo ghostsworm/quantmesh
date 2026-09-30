@@ -13,6 +13,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/risk"
 	"quantmesh/storage"
+	"quantmesh/web"
 )
 
 func TestProductionCircuitBreakerRequiresCashFlowReconciliation(t *testing.T) {
@@ -83,7 +84,31 @@ func (r *runtimePnLReaderFixture) GetPnLBySymbolAccountScopeAndAsset(_, scope, _
 	r.scopedCalls++
 	r.scope = scope
 	r.asset = asset
-	return &storage.PnLSummary{TotalPnL: 25}, nil
+	return &storage.PnLSummary{TotalPnL: 25, PnLAsset: asset}, nil
+}
+
+func TestRefreshRuntimePnLStatusPublishesOnlyVerifiedLedgerValues(t *testing.T) {
+	runtime := &SymbolRuntime{
+		AccountScope: "credential-scope-digest",
+		Exchange:     &pnlAssetExchange{asset: "USDT"},
+		Config:       config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance", MarketType: "futures"},
+	}
+	reader := &runtimePnLReaderFixture{}
+	status := &web.SystemStatus{TotalPnL: 999, TotalTrades: 88, TotalPnLAsset: "USDT", TotalPnLVerified: true}
+	if err := refreshRuntimePnLStatus(status, reader, runtime, time.Unix(0, 0), time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if status.TotalPnL != 25 || status.TotalTrades != 0 || status.TotalPnLAsset != "USDT" || !status.TotalPnLVerified {
+		t.Fatalf("ledger values were not published with verification metadata: %+v", status)
+	}
+
+	runtime.AccountScope = ""
+	if err := refreshRuntimePnLStatus(status, reader, runtime, time.Unix(0, 0), time.Now()); err == nil {
+		t.Fatal("missing immutable scope must fail")
+	}
+	if status.TotalPnL != 0 || status.TotalTrades != 0 || status.TotalPnLAsset != "" || status.TotalPnLVerified {
+		t.Fatalf("failed ledger refresh must clear the prior verified display: %+v", status)
+	}
 }
 
 func TestRuntimePnLSummaryUsesExactImmutableAccountScope(t *testing.T) {

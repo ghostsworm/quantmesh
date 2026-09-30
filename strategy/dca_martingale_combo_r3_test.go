@@ -109,7 +109,7 @@ func TestDCATailTakeProfitClosesOnlyLastLayer(t *testing.T) {
 		t.Fatal("应进入只平尾层的 closing 状态")
 	}
 
-	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 90.5}); err != nil {
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 90.5, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate() error=%v", err)
 	}
 	if s.isClosing || len(s.layers) != 1 || s.layers[0] != first || s.currentLayer != 1 {
@@ -142,13 +142,13 @@ func TestDCAEntryPendingUntilFilledAndRollbackOnCancel(t *testing.T) {
 	}
 
 	orderID := s.layers[0].OrderID
-	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: orderID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.4, AvgPrice: 99}); err != nil {
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: orderID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.4, AvgPrice: 99, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate(partial) error=%v", err)
 	}
 	if s.layers[0].Status != entryStatusPartiallyFilled || !r3AlmostEqual(s.totalQty, 0.4) || !r3AlmostEqual(s.totalCost, 39.6) {
 		t.Fatalf("部分成交应按实际数量计入: status=%s qty=%.6f cost=%.4f", s.layers[0].Status, s.totalQty, s.totalCost)
 	}
-	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: orderID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 99.5}); err != nil {
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: orderID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 99.5, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate(fill) error=%v", err)
 	}
 	if s.layers[0].Status != entryStatusFilled || !r3AlmostEqual(s.totalQty, 1) || !r3AlmostEqual(s.avgEntryPrice, 99.5) {
@@ -187,7 +187,7 @@ func TestDCACloseOrderRejectedOrExpiredReleasesClosing(t *testing.T) {
 		if err := s.closeAllPositions(90, "止损"); err != nil {
 			t.Fatalf("closeAllPositions() error=%v", err)
 		}
-		if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: status, ExecutedQty: 0.5, AvgPrice: 90}); err != nil {
+		if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: s.closeOrderID, Status: status, ExecutedQty: 0.5, AvgPrice: 90, CommissionKnown: true}); err != nil {
 			t.Fatalf("OnOrderUpdate(%s) error=%v", status, err)
 		}
 		if s.isClosing || s.closeOrderID != 0 {

@@ -296,3 +296,31 @@ func TestFundingIncomeCoverageReplacesSnapshotInsteadOfBridgingOutage(t *testing
 		t.Fatalf("latest interval should be covered: covered=%v err=%v", covered, err)
 	}
 }
+
+func TestFundingIncomeCoverageMergesOverlapsAndRejectsOutOfOrderRegression(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-coverage-order.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	base := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	mark := func(from, through time.Time) {
+		t.Helper()
+		if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", from, through); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mark(base.Add(-2*time.Hour), base)
+	mark(base.Add(-time.Hour), base.Add(time.Hour))
+	mark(base.Add(-3*time.Hour), base.Add(-time.Minute)) // Older request finishes last.
+	gotFrom, gotThrough, err := st.GetFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a")
+	if err != nil || !gotFrom.Equal(base.Add(-2*time.Hour)) || !gotThrough.Equal(base.Add(time.Hour)) {
+		t.Fatalf("coverage should merge overlap but ignore an older completion: interval=(%v,%v), err=%v", gotFrom, gotThrough, err)
+	}
+	// A newer disjoint interval replaces the snapshot instead of bridging the gap.
+	mark(base.Add(3*time.Hour), base.Add(4*time.Hour))
+	gotFrom, gotThrough, err = st.GetFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a")
+	if err != nil || !gotFrom.Equal(base.Add(3*time.Hour)) || !gotThrough.Equal(base.Add(4*time.Hour)) {
+		t.Fatalf("new disjoint interval must replace without bridging: interval=(%v,%v), err=%v", gotFrom, gotThrough, err)
+	}
+}

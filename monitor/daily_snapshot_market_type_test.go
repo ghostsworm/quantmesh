@@ -22,6 +22,10 @@ type inventorySnapshotRuntime struct {
 	qty float64
 }
 
+type assetSnapshotRuntime struct{ marketSnapshotRuntime }
+
+func (assetSnapshotRuntime) PnLAsset() string { return " usdt " }
+
 func (r inventorySnapshotRuntime) SpotInventoryQty(context.Context) (float64, bool) {
 	return r.qty, true
 }
@@ -106,6 +110,24 @@ func TestDailySnapshotRunnerKeepsMarketTypeThroughHourlyAndDailyAggregation(t *t
 	runner.aggregateDaily(ts)
 	if store.queried != "spot" || len(store.daily) != 1 || store.daily[0].MarketType != "spot" {
 		t.Fatalf("daily aggregation crossed market boundary: query=%q snapshots=%+v", store.queried, store.daily)
+	}
+}
+
+func TestDailySnapshotRunnerPersistsOnlyConsistentSnapshotPnLAsset(t *testing.T) {
+	store := &marketSnapshotStorage{}
+	runtime := assetSnapshotRuntime{marketSnapshotRuntime: marketSnapshotRuntime{marketType: "futures"}}
+	runner := &DailySnapshotRunner{storage: store, getRuntimes: func() []RuntimeSnapshotSource { return []RuntimeSnapshotSource{runtime} }}
+	ts := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	runner.recordHourlyForAll(ts)
+	if len(store.hourly) != 1 || store.hourly[0].UnrealizedPnLAsset != "USDT" {
+		t.Fatalf("hourly sample must normalize the explicit PnL denomination: %+v", store.hourly)
+	}
+	runner.aggregateDaily(ts)
+	if len(store.daily) != 1 || store.daily[0].UnrealizedPnLAsset != "USDT" {
+		t.Fatalf("daily aggregate must carry a consistent denomination: %+v", store.daily)
+	}
+	if got := consistentSnapshotPnLAsset([]*storage.HourlyEquityRecord{{UnrealizedPnLAsset: "USDT"}, {UnrealizedPnLAsset: "USDC"}}); got != "" {
+		t.Fatalf("mixed hourly denominations must fail closed, got %q", got)
 	}
 }
 

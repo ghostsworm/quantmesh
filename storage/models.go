@@ -164,6 +164,7 @@ type HourlyEquityRecord struct {
 	Timestamp          time.Time
 	Equity             float64 // 持倉市值（與未實現相關的倉位價值語義，見 monitor）
 	UnrealizedPnL      float64
+	UnrealizedPnLAsset string
 	TotalPositionValue float64
 	MarketPrice        float64
 	SpotPositionQty    *float64
@@ -194,6 +195,7 @@ type DailySnapshot struct {
 	Account                string
 	Date                   time.Time
 	UnrealizedPnL          float64 // 收盤時的未實現盈虧
+	UnrealizedPnLAsset     string
 	TotalPositionValue     float64
 	SpotPositionQty        *float64
 	IntradayMaxDrawdown    float64 // 日內最大回撤金額

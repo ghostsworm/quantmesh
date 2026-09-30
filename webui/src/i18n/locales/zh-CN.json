@@ -900,6 +900,7 @@
     "stopping": "停止中…",
     "startStopTimeout": "请求超时，请稍后重试",
     "totalPnL": "总盈亏",
+    "pnlUnverified": "盈亏未核实",
     "tradingVolume": "总成交量",
     "systemUptime": "运行时长",
     "roi": "收益率",

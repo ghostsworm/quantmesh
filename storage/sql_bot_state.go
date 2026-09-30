@@ -1005,6 +1005,7 @@ CREATE TABLE IF NOT EXISTS hourly_equity_records (
   timestamp DATETIME(3) NOT NULL,
   equity DOUBLE NOT NULL,
   unrealized_pnl DOUBLE NOT NULL,
+  unrealized_pnl_asset VARCHAR(32) NOT NULL DEFAULT '',
   total_position_value DOUBLE NOT NULL,
   market_price DOUBLE NOT NULL DEFAULT 0,
   spot_position_qty DOUBLE,
@@ -1018,6 +1019,9 @@ CREATE TABLE IF NOT EXISTS hourly_equity_records (
 		return err
 	}
 	if err := ensureMySQLColumn(db, "hourly_equity_records", "market_type", `ALTER TABLE hourly_equity_records ADD COLUMN market_type VARCHAR(32) NOT NULL DEFAULT '' AFTER exchange`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "hourly_equity_records", "unrealized_pnl_asset", `ALTER TABLE hourly_equity_records ADD COLUMN unrealized_pnl_asset VARCHAR(32) NOT NULL DEFAULT '' AFTER unrealized_pnl`); err != nil {
 		return err
 	}
 	if err := ensureMySQLColumn(db, "hourly_equity_records", "account_scope", `ALTER TABLE hourly_equity_records ADD COLUMN account_scope VARCHAR(512) NOT NULL DEFAULT '' AFTER market_type`); err != nil {
@@ -1044,6 +1048,7 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
   account VARCHAR(255) NOT NULL,
   date DATE NOT NULL,
   unrealized_pnl DOUBLE NOT NULL,
+  unrealized_pnl_asset VARCHAR(32) NOT NULL DEFAULT '',
   total_position_value DOUBLE NOT NULL,
   intraday_max_drawdown DOUBLE NOT NULL,
   intraday_max_drawdown_pct DOUBLE NOT NULL,
@@ -1068,6 +1073,9 @@ CREATE TABLE IF NOT EXISTS daily_snapshots (
 		return err
 	}
 	if err := ensureMySQLColumn(db, "daily_snapshots", "spot_position_qty", `ALTER TABLE daily_snapshots ADD COLUMN spot_position_qty DOUBLE NULL AFTER account_equity`); err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "daily_snapshots", "unrealized_pnl_asset", `ALTER TABLE daily_snapshots ADD COLUMN unrealized_pnl_asset VARCHAR(32) NOT NULL DEFAULT '' AFTER unrealized_pnl`); err != nil {
 		return err
 	}
 	if _, err := db.Exec(`UPDATE daily_snapshots SET account_scope = CONCAT('legacy:', SHA2(account, 256)) WHERE account_scope = ''`); err != nil {

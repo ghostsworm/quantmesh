@@ -900,6 +900,7 @@
     "stopping": "Stopping…",
     "startStopTimeout": "Request timed out, please try again",
     "totalPnL": "TOTAL P&L",
+    "pnlUnverified": "PnL unverified",
     "tradingVolume": "TRADING VOLUME",
     "systemUptime": "SYSTEM UPTIME",
     "roi": "ROI",

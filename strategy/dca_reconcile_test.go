@@ -172,6 +172,46 @@ func TestDCAOnOrderUpdateVerifiesUnreportedSpotFeeBeforeAccounting(t *testing.T)
 	}
 }
 
+func TestDCAOnOrderUpdateVerifiesUnreportedFuturesFeeBeforeAccounting(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fills: []*exchange.OrderFill{{
+		OrderID: 108, TradeID: "trade-108", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT",
+	}}}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "futures"
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
+	setTestRuntimeStateStore(t, s)
+	s.layers = []*DCALayer{{Index: 0, OrderID: 108, Status: entryStatusPending, RequestedQuantity: 1}}
+	if err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 108, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+		CommissionAsset: "USDT", CommissionKnown: false,
+	}); err != nil {
+		t.Fatalf("OnOrderUpdate() failed to verify futures fee evidence: %v", err)
+	}
+	layer := s.layers[0]
+	if layer.Quantity != 0.5 || layer.Cost != 50 || layer.OpeningFee != 0.05 || layer.FillProgress.Quantity != 0.5 {
+		t.Fatalf("DCA futures accounting did not include verified fees: %+v", layer)
+	}
+}
+
+func TestDCAFuturesDoesNotAccountFillWhenFeeEvidenceIsUnavailable(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fillsErr: errors.New("fills unavailable")}
+	cfg := &config.Config{}
+	cfg.Trading.MarketType = "futures"
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, ex, nil)
+	setTestRuntimeStateStore(t, s)
+	layer := &DCALayer{Index: 0, OrderID: 109, Status: entryStatusPending, RequestedQuantity: 1}
+	s.layers = []*DCALayer{layer}
+	err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 109, Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+		CommissionAsset: "USDT", CommissionKnown: false,
+	})
+	if err == nil || executor.marked != 1 || layer.Quantity != 0 || layer.FillProgress.Quantity != 0 {
+		t.Fatalf("unverified futures fee changed DCA state: err=%v marks=%d layer=%+v", err, executor.marked, layer)
+	}
+}
+
 func TestDCAOnOrderUpdatePreservesStateWhenSpotFeeEvidenceIsUnavailable(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fillsErr: errors.New("fills unavailable")}
 	cfg := &config.Config{}

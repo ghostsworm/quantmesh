@@ -30,7 +30,7 @@ func TestMySQLOrderFillCoverageMigrationAndRoundTrip(t *testing.T) {
 	through := start.Add(12 * time.Hour)
 	pnl := 2.5
 	fill := &OrderFill{Exchange: "binance", MarketType: "spot", AccountScope: scope, Account: "mysql-test", Symbol: "BTCUSDT", TradeID: "fill-1",
-		OrderID: 91, Side: "SELL", Price: 100, Quantity: 0.5, Commission: 0.01, CommissionAsset: "BNB", RealizedPnL: &pnl, TradeTime: start.Add(time.Hour)}
+		OrderID: 91, Side: "SELL", Price: 100, Quantity: 0.5, Commission: 0.01, CommissionAsset: "BNB", RealizedPnL: &pnl, RealizedPnLAsset: "USDT", TradeTime: start.Add(time.Hour)}
 	if err := store.SaveOrderFill(fill); err != nil {
 		t.Fatal("insert MySQL execution fixture:", err)
 	}
@@ -44,7 +44,7 @@ func TestMySQLOrderFillCoverageMigrationAndRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal("aggregate MySQL execution ledger:", err)
 	}
-	if summary.SellOrders != 1 || summary.SellQty != 0.5 || summary.SellValue != 50 || summary.RealizedPnL != pnl || summary.FeesByAsset["BNB"] != 0.01 || summary.HistoricalFeeQuoteValueByAsset["BNB"] != 0.1 || summary.FeeQuoteUnknownCountByAsset["BNB"] != 0 {
+	if summary.SellOrders != 1 || summary.SellQty != 0.5 || summary.SellValue != 50 || summary.RealizedPnL != pnl || summary.RealizedPnLByAsset["USDT"] != pnl || summary.RealizedPnLUnknownAssetCount != 0 || summary.FeesByAsset["BNB"] != 0.01 || summary.HistoricalFeeQuoteValueByAsset["BNB"] != 0.1 || summary.FeeQuoteUnknownCountByAsset["BNB"] != 0 {
 		t.Fatalf("unexpected MySQL execution summary: %+v", summary)
 	}
 	winners, losers, err := store.QueryTopDailyRealizedFills("mysql-test", "binance", "spot", "BTCUSDT", scope, start, through)

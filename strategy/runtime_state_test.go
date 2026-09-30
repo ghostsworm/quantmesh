@@ -104,7 +104,7 @@ func TestDCAOrderFillPersistsAndRestoresFeeBearingInventory(t *testing.T) {
 	first.layers = []*DCALayer{{Index: 0, Quantity: 0.5, RequestedQuantity: 0.5, OrderID: 77, Status: entryStatusPending}}
 	if err := first.OnOrderUpdate(&position.OrderUpdate{
 		OrderID: 77, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
-		Commission: 0.1, CommissionAsset: "USDT",
+		Commission: 0.1, CommissionAsset: "USDT", CommissionKnown: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

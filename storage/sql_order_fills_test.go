@@ -150,7 +150,7 @@ func TestQueryDailyOrderFillsByScopeAggregatesExecutionsAndFeeAssets(t *testing.
 	realized := 4.25
 	fills := []*OrderFill{
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "buy-1", OrderID: 10, Side: "BUY", Price: 100, Quantity: 0.4, QuoteQuantity: 40.00000001, Commission: 0.04, CommissionAsset: "USDT", TradeTime: day.Add(time.Hour)},
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "sell-1", OrderID: 11, Side: "SELL", Price: 110, Quantity: 0.3, Commission: 0.02, CommissionAsset: "usdt", RealizedPnL: &realized, TradeTime: day.Add(2 * time.Hour)},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "sell-1", OrderID: 11, Side: "SELL", Price: 110, Quantity: 0.3, Commission: 0.02, CommissionAsset: "usdt", RealizedPnL: &realized, RealizedPnLAsset: "usdt", TradeTime: day.Add(2 * time.Hour)},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "buy-2", OrderID: 12, Side: "BUY", Price: 99, Quantity: 1, Commission: 0.001, CommissionAsset: "BNB", TradeTime: day.Add(3 * time.Hour)},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-b", Account: "acct", Symbol: "BTCUSDT", TradeID: "other-scope", OrderID: 13, Side: "SELL", Price: 1000, Quantity: 2, Commission: 9, CommissionAsset: "USDT", TradeTime: day.Add(time.Hour)},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "other-account", Symbol: "BTCUSDT", TradeID: "other-account", OrderID: 14, Side: "SELL", Price: 1000, Quantity: 2, Commission: 9, CommissionAsset: "USDT", TradeTime: day.Add(time.Hour)},
@@ -173,11 +173,39 @@ func TestQueryDailyOrderFillsByScopeAggregatesExecutionsAndFeeAssets(t *testing.
 	if got.FeeQuoteValueByAsset["BNB"] != 0.099 {
 		t.Fatalf("execution-price fee valuation should be retained per asset: %+v", got.FeeQuoteValueByAsset)
 	}
+	if got.RealizedPnLByAsset["USDT"] != realized || got.RealizedPnLUnknownAssetCount != 0 {
+		t.Fatalf("realized pnl denomination should remain explicit: %+v", got)
+	}
 	winners, losers, err := st.QueryTopDailyRealizedFills("acct", "binance", "futures", "BTCUSDT", "scope-a", day, day.Add(24*time.Hour))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(winners) != 1 || len(losers) != 0 || winners[0].OrderID != 11 || winners[0].FilledQty != 0.3 || winners[0].Price != 110 || winners[0].RealizedPnL == nil || *winners[0].RealizedPnL != realized {
 		t.Fatalf("realized order ranking must aggregate individual fills: winners=%+v losers=%+v", winners, losers)
+	}
+}
+
+func TestQueryDailyOrderFillsByScopeTracksUnknownRealizedPnLAsset(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/daily-fill-pnl-asset.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	day := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)
+	unknownPnL, knownPnL := 1.25, 2.5
+	for _, fill := range []*OrderFill{
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "unknown-asset", OrderID: 20, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &unknownPnL, TradeTime: day.Add(time.Hour)},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "known-other-asset", OrderID: 21, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &knownPnL, RealizedPnLAsset: "USDC", TradeTime: day.Add(2 * time.Hour)},
+	} {
+		if err := st.SaveOrderFill(fill); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.QueryDailyOrderFillsByScope("acct", "binance", "futures", "BTCUSDT", "scope-a", day, day.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RealizedPnLUnknownAssetCount != 1 || got.RealizedPnLByAsset["USDC"] != knownPnL || got.RealizedPnL != unknownPnL+knownPnL {
+		t.Fatalf("daily realized pnl must retain unknown and mixed denomination evidence: %+v", got)
 	}
 }

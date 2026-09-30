@@ -5,16 +5,21 @@ interface DailyStatistics {
   date: string
   total_trades: number
   total_volume: number
-  total_pnl: number
-  funding_fee?: number // 資金費用（正=收入，負=支出）
+  total_pnl: number | null
+  pnl_verified?: boolean
+  pnl_asset?: string
+  funding_fee?: number | null
+  funding_fee_verified?: boolean
   win_rate: number
   winning_trades?: number
   losing_trades?: number
-  unrealized_pnl?: number  // 當日收盤未實現盈虧
-  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
+  unrealized_pnl?: number | null
+  unrealized_pnl_verified?: boolean
+  book_value_pnl?: number | null
+  book_value_pnl_verified?: boolean
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
-  exchange_pnl?: number // 當日交易所已實現盈虧
+  exchange_pnl?: number | null // 當日交易所已實現盈虧（可能未核實）
 }
 
 interface StatisticsCalendarProps {
@@ -171,13 +176,13 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                   {stats && (
                     <div style={{ flex: 1, fontSize: '11px', lineHeight: '1.4' }}>
                       <div style={{
-                        color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f',
+                        color: stats.pnl_verified && stats.total_pnl != null ? (stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f') : '#8c8c8c',
                         fontWeight: 'bold',
                         marginBottom: '2px'
                       }} title={t('statistics.pnl')}>
-                        {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
+                        {stats.pnl_verified && stats.total_pnl != null ? `${stats.total_pnl >= 0 ? '+' : ''}${stats.total_pnl.toFixed(2)} ${stats.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                       </div>
-                      {stats.exchange_pnl !== undefined && stats.exchange_pnl !== 0 && (
+                      {stats.exchange_pnl != null && stats.exchange_pnl !== 0 && (
                         <div style={{
                           color: stats.exchange_pnl >= 0 ? '#1890ff' : '#ff4d4f',
                           fontSize: '10px',
@@ -186,7 +191,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                           {t('statistics.exchangePnlShort')}: {(stats.exchange_pnl >= 0 ? '+' : '') + stats.exchange_pnl.toFixed(2)}
                         </div>
                       )}
-                      {stats.unrealized_pnl !== undefined && stats.unrealized_pnl !== 0 && (
+                      {stats.unrealized_pnl_verified && stats.unrealized_pnl != null && stats.unrealized_pnl !== 0 && (
                         <div style={{
                           color: stats.unrealized_pnl >= 0 ? '#95de64' : '#ff7875',
                           fontSize: '10px',
@@ -196,7 +201,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                           {t('statistics.unrealizedShort')}: {(stats.unrealized_pnl >= 0 ? '+' : '') + stats.unrealized_pnl.toFixed(2)}
                         </div>
                       )}
-                      {stats.unrealized_pnl !== undefined && Math.abs(stats.unrealized_pnl) > 0.001 && stats.book_value_pnl !== undefined && (
+                      {stats.unrealized_pnl_verified && stats.unrealized_pnl != null && Math.abs(stats.unrealized_pnl) > 0.001 && stats.book_value_pnl_verified && stats.book_value_pnl != null && (
                         <div style={{
                           color: stats.book_value_pnl >= 0 ? '#389e0d' : '#cf1322',
                           fontSize: '10px',
@@ -206,7 +211,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                           {t('statistics.bookValueShort')}: {(stats.book_value_pnl >= 0 ? '+' : '') + stats.book_value_pnl.toFixed(2)}
                         </div>
                       )}
-                      {stats.funding_fee !== undefined && stats.funding_fee !== 0 && (
+                      {stats.funding_fee_verified && stats.funding_fee != null && stats.funding_fee !== 0 && (
                         <div style={{
                           color: stats.funding_fee >= 0 ? '#52c41a' : '#fa8c16',
                           fontSize: '10px',
@@ -243,4 +248,3 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
 }
 
 export default StatisticsCalendar
-

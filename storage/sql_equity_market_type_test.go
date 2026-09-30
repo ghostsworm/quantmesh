@@ -59,23 +59,23 @@ func TestMarketTypeSnapshotMigrationPreservesLegacyAndSeparatesMarkets(t *testin
 	}
 	for _, mt := range []string{"spot", "futures"} {
 		qty := 0.5
-		if err := store.SaveDailySnapshot(&DailySnapshot{Exchange: "binance", MarketType: mt, Symbol: "BTCUSDT", Account: "acct", Date: date, SnapshotTime: date, UnrealizedPnL: 11, TotalPositionValue: 200, ClosingPrice: 60000, SpotPositionQty: &qty}); err != nil {
+		if err := store.SaveDailySnapshot(&DailySnapshot{Exchange: "binance", MarketType: mt, Symbol: "BTCUSDT", Account: "acct", Date: date, SnapshotTime: date, UnrealizedPnL: 11, UnrealizedPnLAsset: "USDT", TotalPositionValue: 200, ClosingPrice: 60000, SpotPositionQty: &qty}); err != nil {
 			t.Fatalf("save %s snapshot: %v", mt, err)
 		}
 	}
 	for _, mt := range []string{"spot", "futures"} {
 		snapshot, err := store.GetDailySnapshotByMarketType("binance", mt, "BTCUSDT", "acct", date)
-		if err != nil || snapshot == nil || snapshot.MarketType != mt || snapshot.UnrealizedPnL != 11 || snapshot.SpotPositionQty == nil || *snapshot.SpotPositionQty != 0.5 || snapshot.ClosingPrice != 60000 {
+		if err != nil || snapshot == nil || snapshot.MarketType != mt || snapshot.UnrealizedPnL != 11 || snapshot.UnrealizedPnLAsset != "USDT" || snapshot.SpotPositionQty == nil || *snapshot.SpotPositionQty != 0.5 || snapshot.ClosingPrice != 60000 {
 			t.Fatalf("market snapshot %s missing or contaminated: snapshot=%+v err=%v", mt, snapshot, err)
 		}
 	}
 
 	qty := 0.5
-	if err := store.SaveHourlyEquityRecord(&HourlyEquityRecord{Exchange: "binance", MarketType: "spot", Symbol: "BTCUSDT", Account: "acct", Timestamp: date, Equity: 50, MarketPrice: 60000, SpotPositionQty: &qty}); err != nil {
+	if err := store.SaveHourlyEquityRecord(&HourlyEquityRecord{Exchange: "binance", MarketType: "spot", Symbol: "BTCUSDT", Account: "acct", Timestamp: date, Equity: 50, UnrealizedPnLAsset: "USDT", MarketPrice: 60000, SpotPositionQty: &qty}); err != nil {
 		t.Fatal(err)
 	}
 	hourly, err := store.QueryHourlyEquityRecordsByMarketType("binance", "spot", "BTCUSDT", "acct", date.Add(-time.Minute), date.Add(time.Minute))
-	if err != nil || len(hourly) != 1 || hourly[0].MarketType != "spot" || hourly[0].MarketPrice != 60000 || hourly[0].SpotPositionQty == nil || *hourly[0].SpotPositionQty != 0.5 {
+	if err != nil || len(hourly) != 1 || hourly[0].MarketType != "spot" || hourly[0].MarketPrice != 60000 || hourly[0].UnrealizedPnLAsset != "USDT" || hourly[0].SpotPositionQty == nil || *hourly[0].SpotPositionQty != 0.5 {
 		t.Fatalf("hourly market snapshot mismatch: rows=%+v err=%v", hourly, err)
 	}
 }

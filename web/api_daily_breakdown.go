@@ -15,31 +15,33 @@ import (
 
 // DailyPnLBreakdownSummary 日盈虧拆解摘要
 type DailyPnLBreakdownSummary struct {
-	TotalBuyOrders      int     `json:"total_buy_orders"`
-	TotalBuyQty         float64 `json:"total_buy_qty"`
-	TotalBuyValue       float64 `json:"total_buy_value"`
-	TotalSellOrders     int     `json:"total_sell_orders"`
-	TotalSellQty        float64 `json:"total_sell_qty"`
-	TotalSellValue      float64 `json:"total_sell_value"`
-	NetCashFlow         float64 `json:"net_cash_flow"`
-	NetQtyChange        float64 `json:"net_qty_change"`
-	StartPositionQty    float64 `json:"start_position_qty"`
-	EndPositionQty      float64 `json:"end_position_qty"`
-	StartPositionValue  float64 `json:"start_position_value"`
-	EndPositionValue    float64 `json:"end_position_value"`
-	PositionValueChange float64 `json:"position_value_change"`
-	NetTradingPnL       float64 `json:"net_trading_pnl"`
-	PnLMethod           string  `json:"pnl_method"`
-	GridProfit          float64 `json:"grid_profit"`
-	GridTrades          int     `json:"grid_trades"`
-	TotalFee            float64 `json:"total_fee"`
-	FundingFee          float64 `json:"funding_fee"`
-	FundingFeeAsset     string  `json:"funding_fee_asset,omitempty"`
-	ExchangePnL         float64 `json:"exchange_pnl"`
-	UnrealizedPnLStart  float64 `json:"unrealized_pnl_start"`
-	UnrealizedPnLEnd    float64 `json:"unrealized_pnl_end"`
-	OpenPrice           float64 `json:"open_price"`
-	ClosePrice          float64 `json:"close_price"`
+	TotalBuyOrders             int      `json:"total_buy_orders"`
+	TotalBuyQty                float64  `json:"total_buy_qty"`
+	TotalBuyValue              float64  `json:"total_buy_value"`
+	TotalSellOrders            int      `json:"total_sell_orders"`
+	TotalSellQty               float64  `json:"total_sell_qty"`
+	TotalSellValue             float64  `json:"total_sell_value"`
+	NetCashFlow                float64  `json:"net_cash_flow"`
+	NetQtyChange               float64  `json:"net_qty_change"`
+	StartPositionQty           float64  `json:"start_position_qty"`
+	EndPositionQty             float64  `json:"end_position_qty"`
+	StartPositionValue         float64  `json:"start_position_value"`
+	EndPositionValue           float64  `json:"end_position_value"`
+	PositionValueChange        float64  `json:"position_value_change"`
+	NetTradingPnL              float64  `json:"net_trading_pnl"`
+	PnLMethod                  string   `json:"pnl_method"`
+	GridProfit                 float64  `json:"grid_profit"`
+	GridTrades                 int      `json:"grid_trades"`
+	TotalFee                   float64  `json:"total_fee"`
+	FundingFee                 float64  `json:"funding_fee"`
+	FundingFeeAsset            string   `json:"funding_fee_asset,omitempty"`
+	ExchangePnL                float64  `json:"exchange_pnl"`
+	UnrealizedPnLStart         *float64 `json:"unrealized_pnl_start"`
+	UnrealizedPnLEnd           *float64 `json:"unrealized_pnl_end"`
+	UnrealizedPnLStartVerified bool     `json:"unrealized_pnl_start_verified"`
+	UnrealizedPnLEndVerified   bool     `json:"unrealized_pnl_end_verified"`
+	OpenPrice                  float64  `json:"open_price"`
+	ClosePrice                 float64  `json:"close_price"`
 }
 
 // DailyPnLBreakdownResponse 日盈虧拆解 API 響應
@@ -111,6 +113,36 @@ func dailyFeeTotalByQuote(fees map[string]float64, quoteAsset string) (float64, 
 	}
 	if math.IsNaN(total) || math.IsInf(total, 0) {
 		return 0, fmt.Errorf("fee total is not finite")
+	}
+	return total, nil
+}
+
+func dailyRealizedPnLByQuote(summary storage.DailyOrderFillSummary, quoteAsset string) (float64, error) {
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, fmt.Errorf("quote asset is required")
+	}
+	if summary.RealizedPnLUnknownAssetCount != 0 {
+		return 0, fmt.Errorf("realized pnl has no denomination for %d fills", summary.RealizedPnLUnknownAssetCount)
+	}
+	var total float64
+	for asset, amount := range summary.RealizedPnLByAsset {
+		if math.IsNaN(amount) || math.IsInf(amount, 0) {
+			return 0, fmt.Errorf("realized pnl amount must be finite")
+		}
+		if !strings.EqualFold(strings.TrimSpace(asset), quoteAsset) {
+			return 0, fmt.Errorf("realized pnl in %s requires historical conversion to %s", asset, quoteAsset)
+		}
+		total += amount
+	}
+	if len(summary.RealizedPnLByAsset) == 0 && summary.RealizedPnL != 0 {
+		return 0, fmt.Errorf("realized pnl aggregate has no denomination evidence")
+	}
+	if math.IsNaN(total) || math.IsInf(total, 0) || math.IsNaN(summary.RealizedPnL) || math.IsInf(summary.RealizedPnL, 0) {
+		return 0, fmt.Errorf("realized pnl total must be finite")
+	}
+	if math.Abs(total-summary.RealizedPnL) > math.Max(1e-10, math.Abs(summary.RealizedPnL)*1e-10) {
+		return 0, fmt.Errorf("realized pnl asset totals do not reconcile to the daily aggregate")
 	}
 	return total, nil
 }
@@ -317,6 +349,11 @@ func getDailyPnLBreakdown(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to aggregate daily execution ledger"})
 		return
 	}
+	verifiedRealizedPnL, err := dailyRealizedPnLByQuote(fillSummary, quoteAsset)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "daily realized PnL denomination cannot be verified for the selected quote asset"})
+		return
+	}
 	baseAsset := ""
 	if status != nil {
 		baseAsset = strings.ToUpper(strings.TrimSpace(status.BaseAsset))
@@ -402,7 +439,7 @@ func getDailyPnLBreakdown(c *gin.Context) {
 	}
 
 	// 5. 交易所已實現盈虧（當日）
-	summary.ExchangePnL = fillSummary.RealizedPnL
+	summary.ExchangePnL = verifiedRealizedPnL
 
 	// 6. 小時權益（當日）並取首條作為 start_position_value
 	var hourlyEquity []HourlyEquityPoint
@@ -472,9 +509,13 @@ func getDailyPnLBreakdown(c *gin.Context) {
 		}
 	}
 	if snap != nil {
-		summary.UnrealizedPnLEnd = snap.UnrealizedPnL
 		summary.ClosePrice = snap.ClosingPrice
 		summary.EndPositionValue = snap.TotalPositionValue
+		if strings.EqualFold(strings.TrimSpace(snap.UnrealizedPnLAsset), quoteAsset) {
+			value := snap.UnrealizedPnL
+			summary.UnrealizedPnLEnd = &value
+			summary.UnrealizedPnLEndVerified = true
+		}
 	}
 	summary.PositionValueChange = summary.EndPositionValue - summary.StartPositionValue
 	// 開盤價：若無單獨存儲則用收盤價（前端可選顯示 N/A）
@@ -511,8 +552,10 @@ func getDailyPnLBreakdown(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load prior daily snapshot"})
 			return
 		}
-		if prevSnap != nil {
-			summary.UnrealizedPnLStart = prevSnap.UnrealizedPnL
+		if prevSnap != nil && strings.EqualFold(strings.TrimSpace(prevSnap.UnrealizedPnLAsset), quoteAsset) {
+			value := prevSnap.UnrealizedPnL
+			summary.UnrealizedPnLStart = &value
+			summary.UnrealizedPnLStartVerified = true
 		}
 		if marketType == "spot" {
 			openingValue, closingValue, snapshotErr := spotDailyPositionValues(dayStartUTC, dayEndUTC, prevSnap, snap)

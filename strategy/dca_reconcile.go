@@ -24,10 +24,10 @@ type dcaOrderIntent struct {
 	close      bool
 }
 
-// resolveUnverifiedSpotCommission replaces spot order-stream fee placeholders
-// with complete per-fill evidence before DCA mutates its inventory or ledger.
-func (s *DCAEnhancedStrategy) resolveUnverifiedSpotCommission(update *position.OrderUpdate) error {
-	if !s.supportsSpotBaseFee() || update.CommissionKnown || !finiteNumber(update.ExecutedQty) || update.ExecutedQty <= 0 {
+// resolveUnverifiedCommission replaces order-stream fee placeholders with
+// complete per-fill evidence before DCA mutates its inventory or ledger.
+func (s *DCAEnhancedStrategy) resolveUnverifiedCommission(update *position.OrderUpdate) error {
+	if update.CommissionKnown || !finiteNumber(update.ExecutedQty) || update.ExecutedQty <= 0 {
 		return nil
 	}
 
@@ -51,8 +51,14 @@ func (s *DCAEnhancedStrategy) resolveUnverifiedSpotCommission(update *position.O
 	if !found || update.ExecutedQty <= intent.progress.Quantity {
 		return nil
 	}
+	// Let the normal intent validator handle malformed/non-valued updates first;
+	// requesting fills for an impossible cumulative execution only masks the real
+	// contradiction and cannot make it safe to account.
+	if !finiteNumber(update.ExecutedQty) || !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 || update.ExecutedQty > intent.quantity+entryQtyEpsilon {
+		return nil
+	}
 	if s.exchange == nil || intent.orderID <= 0 || intent.quantity <= 0 {
-		return fmt.Errorf("DCA cannot verify spot commission without exchange and persisted order intent")
+		return fmt.Errorf("DCA cannot verify commission without exchange and persisted order intent")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), dcaFillEvidenceTimeout)
 	defer cancel()
@@ -61,8 +67,8 @@ func (s *DCAEnhancedStrategy) resolveUnverifiedSpotCommission(update *position.O
 		Status: exchange.OrderStatus(strings.ToUpper(strings.TrimSpace(update.Status)))}
 	feeQuote, baseFeeQty, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)
 	if err != nil {
-		s.requireDCAOrderReconciliation(update, "DCA spot commission evidence is incomplete: "+err.Error())
-		return fmt.Errorf("verify DCA spot order %d fill fees before accounting: %w", update.OrderID, err)
+		s.requireDCAOrderReconciliation(update, "DCA commission evidence is incomplete: "+err.Error())
+		return fmt.Errorf("verify DCA order %d fill fees before accounting: %w", update.OrderID, err)
 	}
 	update.Commission = feeQuote
 	update.CommissionAsset = s.exchange.GetQuoteAsset()

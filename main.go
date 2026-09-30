@@ -44,7 +44,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc488"
+var Version = "3.111.0-rc499"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -361,7 +361,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 		go func(r *SymbolRuntime, st *web.SystemStatus, started time.Time, storage *storage.StorageService) {
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
-			dbQueryCounter := 0
+			dbQueryCounter := 4
 			for {
 				select {
 				case <-a.ctx.Done():
@@ -384,34 +384,19 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 					if r.SuperPositionManager != nil {
 						dbQueryCounter++
 
-						useEstimation := true
-						if storage != nil && storage.GetStorage() != nil {
-							if dbQueryCounter >= 5 || st.TotalPnL == 0 {
-								dbQueryCounter = 0
-								now := utils.NowUTC()
-								allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-								pnlSummary, err := getRuntimePnLSummary(storage.GetStorage(), r, allHistoryStart, now)
-								if err == nil {
-									st.TotalPnL = pnlSummary.TotalPnL
-									st.TotalTrades = pnlSummary.TotalTrades
-									useEstimation = false
-								}
+						if dbQueryCounter >= 5 {
+							dbQueryCounter = 0
+							now := utils.NowUTC()
+							allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+							var err error
+							if storage == nil || storage.GetStorage() == nil {
+								clearRuntimePnLStatus(st)
+								err = fmt.Errorf("PnL storage is unavailable")
 							} else {
-								useEstimation = false
+								err = refreshRuntimePnLStatus(st, storage.GetStorage(), r, allHistoryStart, now)
 							}
-						}
-
-						if useEstimation {
-							totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
-							totalSellQty := r.SuperPositionManager.GetTotalSellQty()
-							profitSpread := r.SuperPositionManager.GetProfitSpread()
-							st.TotalPnL = totalSellQty * profitSpread
-
-							if st.CurrentPrice > 0 {
-								orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
-								if orderQtyInBase > 0 {
-									st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
-								}
+							if err != nil {
+								logger.Warn("[%s:%s] 盈亏状态未核实: %v", r.Config.Exchange, r.Config.Symbol, err)
 							}
 						}
 					}
@@ -596,10 +581,11 @@ func (a *symbolManagerWebAdapter) GetAllStrategyStatus(exchange, symbol string) 
 		// 轉換統計數據
 		if s.Statistics != nil {
 			resp.Statistics = &web.StrategyStatsResponse{
-				TotalTrades: s.Statistics.TotalTrades,
-				WinRate:     s.Statistics.WinRate,
-				TotalPnL:    s.Statistics.TotalPnL,
-				TotalVolume: s.Statistics.TotalVolume,
+				TotalTrades:      s.Statistics.TotalTrades,
+				WinRate:          s.Statistics.WinRate,
+				TotalPnL:         0,
+				TotalPnLVerified: false,
+				TotalVolume:      s.Statistics.TotalVolume,
 			}
 		}
 
@@ -677,10 +663,11 @@ func (a *symbolManagerWebAdapter) GetStrategyStatus(exchange, symbol, strategyNa
 	// 轉換統計數據
 	if s.Statistics != nil {
 		resp.Statistics = &web.StrategyStatsResponse{
-			TotalTrades: s.Statistics.TotalTrades,
-			WinRate:     s.Statistics.WinRate,
-			TotalPnL:    s.Statistics.TotalPnL,
-			TotalVolume: s.Statistics.TotalVolume,
+			TotalTrades:      s.Statistics.TotalTrades,
+			WinRate:          s.Statistics.WinRate,
+			TotalPnL:         0,
+			TotalPnLVerified: false,
+			TotalVolume:      s.Statistics.TotalVolume,
 		}
 	}
 
@@ -746,10 +733,11 @@ func (a *symbolManagerWebAdapter) GetAllStrategyStatusAll() ([]web.SymbolStrateg
 			}
 			if s.Statistics != nil {
 				resp.Statistics = &web.StrategyStatsResponse{
-					TotalTrades: s.Statistics.TotalTrades,
-					WinRate:     s.Statistics.WinRate,
-					TotalPnL:    s.Statistics.TotalPnL,
-					TotalVolume: s.Statistics.TotalVolume,
+					TotalTrades:      s.Statistics.TotalTrades,
+					WinRate:          s.Statistics.WinRate,
+					TotalPnL:         0,
+					TotalPnLVerified: false,
+					TotalVolume:      s.Statistics.TotalVolume,
 				}
 			}
 			if s.Positions != nil {
@@ -1955,7 +1943,7 @@ func main() {
 			go func(r *SymbolRuntime, st *web.SystemStatus, started time.Time) {
 				ticker := time.NewTicker(2 * time.Second)
 				defer ticker.Stop()
-				dbQueryCounter := 0
+				dbQueryCounter := 4
 				for {
 					select {
 					case <-ctx.Done():
@@ -1980,44 +1968,19 @@ func main() {
 							// 增加计數器，每 10 秒（5個周期）從數據库同步一次真實數據
 							dbQueryCounter++
 
-							useEstimation := true
-							if storageService != nil && storageService.GetStorage() != nil {
-								// 每 10 秒更新一次，或者如果當前 PnL 还是 0 则更新
-								if dbQueryCounter >= 5 || st.TotalPnL == 0 {
-									dbQueryCounter = 0
-									// 查詢所有历史累计盈利（而非僅今日）
-									// 使用一個很早的時间作為起始時间，确保查詢所有历史數據
-									now := utils.NowUTC()
-									allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-
-									// 查詢所有历史累计盈亏
-									pnlSummary, err := getRuntimePnLSummary(storageService.GetStorage(), r, allHistoryStart, now)
-									if err == nil {
-										st.TotalPnL = pnlSummary.TotalPnL
-										st.TotalTrades = pnlSummary.TotalTrades
-										useEstimation = false
-									}
+							if dbQueryCounter >= 5 {
+								dbQueryCounter = 0
+								now := utils.NowUTC()
+								allHistoryStart := time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+								var err error
+								if storageService == nil || storageService.GetStorage() == nil {
+									clearRuntimePnLStatus(st)
+									err = fmt.Errorf("PnL storage is unavailable")
 								} else {
-									// 在非更新周期，保持之前的值，不使用估算
-									useEstimation = false
+									err = refreshRuntimePnLStatus(st, storageService.GetStorage(), r, allHistoryStart, now)
 								}
-							}
-
-							// 如果無法從數據库獲取（或未啟用存儲），回退到估算逻辑
-							if useEstimation {
-								totalBuyQty := r.SuperPositionManager.GetTotalBuyQty()
-								totalSellQty := r.SuperPositionManager.GetTotalSellQty()
-								profitSpread := r.SuperPositionManager.GetProfitSpread()
-
-								// 修正盈亏估算：僅作為参考
-								st.TotalPnL = totalSellQty * profitSpread
-
-								// 修正成交次數估算：數量之和 / (單笔數量 * 2)
-								if st.CurrentPrice > 0 {
-									orderQtyInBase := r.Config.OrderQuantity / st.CurrentPrice
-									if orderQtyInBase > 0 {
-										st.TotalTrades = int((totalBuyQty + totalSellQty) / (orderQtyInBase * 2))
-									}
+								if err != nil {
+									logger.Warn("[%s:%s] 盈亏状态未核实: %v", r.Config.Exchange, r.Config.Symbol, err)
 								}
 							}
 

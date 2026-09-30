@@ -63,6 +63,8 @@ type SystemStatus struct {
 	AccountScope          string                               `json:"-"`
 	CurrentPrice          float64                              `json:"current_price"`
 	TotalPnL              float64                              `json:"total_pnl"`
+	TotalPnLAsset         string                               `json:"total_pnl_asset,omitempty"`
+	TotalPnLVerified      bool                                 `json:"total_pnl_verified"`
 	TotalTrades           int                                  `json:"total_trades"`
 	RiskTriggered         bool                                 `json:"risk_triggered"`
 	Uptime                int64                                `json:"uptime"`         // 运行時间（秒）
@@ -871,11 +873,8 @@ func getOrderHistory(c *gin.Context) {
 			resp["pnl"] = nil
 		}
 		// exchange_pnl = 交易所计算的已实现盈亏（基于加权平均成本法）
-		if order.RealizedPnL != nil {
-			resp["exchange_pnl"] = *order.RealizedPnL
-		} else {
-			resp["exchange_pnl"] = nil
-		}
+		resp["exchange_pnl"] = nil
+		resp["exchange_pnl_verified"] = false
 		ordersResponse[i] = resp
 	}
 
@@ -979,19 +978,21 @@ func getStatistics(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"total_trades": 0,
 			"total_volume": 0,
-			"total_pnl":    0,
+			"total_pnl":    nil,
+			"pnl_verified": false,
 			"win_rate":     0,
 		})
 		return
 	}
 
-	storage := storageProv.GetStorage()
-	if storage == nil {
+	store := storageProv.GetStorage()
+	if store == nil {
 		logger.Warn("[统计] storage.GetStorage() 回傳 nil")
 		c.JSON(http.StatusOK, gin.H{
 			"total_trades": 0,
 			"total_volume": 0,
-			"total_pnl":    0,
+			"total_pnl":    nil,
+			"pnl_verified": false,
 			"win_rate":     0,
 		})
 		return
@@ -999,157 +1000,106 @@ func getStatistics(c *gin.Context) {
 
 	logger.Info("[统计] storage 獲取成功，准备查詢數據库")
 
-	// 獲取當前账戶標识
-	accountID := GetCurrentAccountID()
-	logger.Info("[统计] accountID: %s", accountID)
-
 	// 獲取 exchange、symbol、bot_id 参數（如果有）
-	exchange := c.Query("exchange")
-	symbol := c.Query("symbol")
+	status := pickStatus(c)
+	exchange := strings.TrimSpace(c.Query("exchange"))
+	symbol := strings.TrimSpace(c.Query("symbol"))
+	marketType := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
+	if status != nil {
+		if exchange == "" {
+			exchange = status.Exchange
+		}
+		if symbol == "" {
+			symbol = status.Symbol
+		}
+		if marketType == "" {
+			marketType = strings.ToLower(strings.TrimSpace(status.MarketType))
+		}
+	}
 	botID := strings.TrimSpace(c.Query("bot_id"))
-
-	// 從數據库獲取统计彙總
-	var summary interface{}
-	var err error
-	if exchange != "" && symbol != "" {
-		// 指定了交易所和交易對時，查詢該交易對的统计（概覽頁顯示當前交易對的總盈虧）
-		summary, err = storage.GetStatisticsSummaryByExchangeAndSymbol(exchange, symbol, accountID, botID)
-		logger.Info("[统计] 查詢交易所 %s 交易對 %s 的统计，accountID: %s bot_id: %q", exchange, symbol, accountID, botID)
-	} else if exchange != "" {
-		// 只指定了交易所，查詢該交易所的统计
-		summary, err = storage.GetStatisticsSummaryByExchange(exchange, accountID)
-		logger.Info("[统计] 查詢交易所 %s 的统计，accountID: %s", exchange, accountID)
-	} else {
-		// 否则查詢所有交易所的统计
-		summary, err = storage.GetStatisticsSummary(accountID)
-		logger.Info("[统计] 查詢所有交易所的统计，accountID: %s", accountID)
-	}
-
-	if err != nil {
-		logger.Error("[统计] 查詢失败: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// 使用反射獲取字段值（避免類型断言问题）
-	statValue := reflect.ValueOf(summary)
-	if statValue.Kind() != reflect.Ptr || statValue.Elem().Kind() != reflect.Struct {
-		logger.Error("[统计] 统计數據格式錯误")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "统计數據格式錯误"})
-		return
-	}
-
-	elem := statValue.Elem()
-	totalTrades := int(elem.FieldByName("TotalTrades").Int())
-	totalPnL := elem.FieldByName("TotalPnL").Float()
-	totalVolume := elem.FieldByName("TotalVolume").Float()
-	winRate := elem.FieldByName("WinRate").Float()
-	grossPnL := elem.FieldByName("GrossPnL").Float()
-	totalFee := elem.FieldByName("TotalFee").Float()
-	totalBuyDeviation := elem.FieldByName("TotalBuyDeviation").Float()
-	totalSellDeviation := elem.FieldByName("TotalSellDeviation").Float()
-
-	logger.Info("[统计] 查詢結果: TotalTrades=%d, TotalPnL=%.2f, GrossPnL=%.2f, TotalFee=%.2f, TotalVolume=%.2f, BuyDeviation=%.2f, SellDeviation=%.2f", totalTrades, totalPnL, grossPnL, totalFee, totalVolume, totalBuyDeviation, totalSellDeviation)
-
-	// 如果數據库没有數據，尝試從 SuperPositionManager 计算
-	pmProvider := PickPositionProvider(c)
-	if totalTrades == 0 && pmProvider != nil {
-		slots := pmProvider.GetAllSlots()
-		totalBuyQty := 0.0
-		totalSellQty := 0.0
-
-		for _, slot := range slots {
-			if slot.OrderSide == "BUY" && slot.OrderStatus == "FILLED" {
-				totalBuyQty += slot.OrderFilledQty
-			} else if slot.OrderSide == "SELL" && slot.OrderStatus == "FILLED" {
-				totalSellQty += slot.OrderFilledQty
-			}
-		}
-
-		// 估算交易數（買賣配對）
-		estimatedTrades := int((totalBuyQty + totalSellQty) / 2)
-		if estimatedTrades > 0 {
-			totalTrades = estimatedTrades
-			totalVolume = totalBuyQty + totalSellQty
+	pnlAsset := ""
+	if status != nil {
+		pnlAsset = strings.ToUpper(strings.TrimSpace(status.TotalPnLAsset))
+		if pnlAsset == "" {
+			pnlAsset = strings.ToUpper(strings.TrimSpace(status.QuoteAsset))
 		}
 	}
-
-	// 🔥 查詢交易所已實現盈虧（從 orders 表的 realized_pnl 聚合）
-	exchangePnL := 0.0
-	type exchangePnLGetter interface {
-		GetExchangePnLTotal(exchange, symbol, botID string) (float64, error)
-	}
-	if epGetter, ok := storage.(exchangePnLGetter); ok {
-		if ep, err := epGetter.GetExchangePnLTotal(exchange, symbol, botID); err == nil {
-			exchangePnL = ep
-		}
-	}
-
-	// 🔥 待實現盈虧：根據當前持倉和當前價格計算（僅當有持倉且能獲取價格時）
-	unrealizedPnL := 0.0
-	if exchange != "" && symbol != "" {
-		pmProvider := PickPositionProvider(c)
-		priceProv := PickPriceProvider(c)
-		if pmProvider != nil && priceProv != nil {
-			slots := pmProvider.GetAllSlots()
-			wsPrice := priceProv.GetLastPrice()
-			slotTotalQty := 0.0
-			slotTotalCost := 0.0
-			for _, slot := range slots {
-				if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
-					slotTotalQty += slot.PositionQty
-					slotTotalCost += slot.Price * slot.PositionQty
-				}
-			}
-			if wsPrice > 0 && slotTotalQty > 0 && slotTotalCost > 0 {
-				slotAvgPrice := slotTotalCost / slotTotalQty
-				unrealizedPnL = (wsPrice - slotAvgPrice) * slotTotalQty
+	var summary *storage.Statistics
+	pnlVerified := false
+	if status != nil && status.AccountScope != "" && strings.EqualFold(status.Exchange, exchange) && strings.EqualFold(status.Symbol, symbol) && marketType == strings.ToLower(strings.TrimSpace(status.MarketType)) && marketType != "" && pnlAsset != "" {
+		if reader, ok := store.(interface {
+			GetStatisticsSummaryByDimension(exchange, marketType, symbol, accountScope, asset, botID string) (*storage.Statistics, error)
+		}); ok {
+			var queryErr error
+			summary, queryErr = reader.GetStatisticsSummaryByDimension(exchange, marketType, symbol, status.AccountScope, pnlAsset, botID)
+			if queryErr != nil {
+				logger.Warn("[统计] 精确作用域盈亏未核实: %v", queryErr)
+			} else {
+				pnlVerified = true
 			}
 		}
 	}
+	totalTrades, totalVolume, winRate := 0, 0.0, 0.0
+	var totalPnL, grossPnL, totalFee, totalBuyDeviation, totalSellDeviation interface{}
+	if pnlVerified && summary != nil {
+		totalTrades, totalVolume, winRate = summary.TotalTrades, summary.TotalVolume, summary.WinRate
+		totalPnL, grossPnL, totalFee = summary.TotalPnL, summary.GrossPnL, summary.TotalFee
+		totalBuyDeviation, totalSellDeviation = summary.TotalBuyDeviation, summary.TotalSellDeviation
+	}
+	pnlBasis := ""
+	if pnlVerified {
+		pnlBasis = "paired_grid_trades"
+	}
 
-	// 🔥 當日統計數據
+	// Today's grid PnL uses the same exact owner, market, symbol and asset checks.
 	todayTrades := 0
-	todayPnL := 0.0
-	todayExchangePnL := 0.0
-	if exchange != "" && symbol != "" && storage != nil {
-		// 使用反射調用 GetTodayStatisticsByExchangeAndSymbol 方法
-		// 這樣可以避免直接引用 storage.TodayStatistics 類型
-		method := reflect.ValueOf(storage).MethodByName("GetTodayStatisticsByExchangeAndSymbol")
-		if method.IsValid() {
-			results := method.Call([]reflect.Value{
-				reflect.ValueOf(exchange),
-				reflect.ValueOf(symbol),
-				reflect.ValueOf(accountID),
-				reflect.ValueOf(botID),
-			})
-			if len(results) == 2 {
-				if !results[0].IsNil() {
-					todayStats := results[0].Interface()
-					// 通過反射獲取字段值
-					statsValue := reflect.ValueOf(todayStats).Elem()
-					todayTrades = int(statsValue.FieldByName("TotalTrades").Int())
-					todayPnL = statsValue.FieldByName("GridPnL").Float()
-					todayExchangePnL = statsValue.FieldByName("ExchangePnL").Float()
+	var todayPnL interface{}
+	todayPnLVerified := false
+	var todayExchangePnL interface{}
+	todayStart := utils.NowConfiguredTimezone()
+	todayStart = time.Date(todayStart.Year(), todayStart.Month(), todayStart.Day(), 0, 0, 0, 0, todayStart.Location())
+	if status != nil && status.AccountScope != "" && strings.EqualFold(status.Exchange, exchange) && strings.EqualFold(status.Symbol, symbol) && marketType == strings.ToLower(strings.TrimSpace(status.MarketType)) && marketType != "" && pnlAsset != "" {
+		if reader, ok := store.(interface {
+			QueryDailyStatisticsByDimension(exchange, marketType, symbol, accountScope, asset, botID string, startDate, endDate time.Time) ([]*storage.DailyStatisticsWithTradeCount, error)
+		}); ok {
+			todayStats, queryErr := reader.QueryDailyStatisticsByDimension(exchange, marketType, symbol, status.AccountScope, pnlAsset, botID, todayStart, utils.NowConfiguredTimezone())
+			if queryErr == nil {
+				todayPnLVerified = true
+				todayTotal := 0.0
+				for _, stat := range todayStats {
+					if stat != nil {
+						todayTrades += stat.TotalTrades
+						todayTotal += stat.TotalPnL
+					}
 				}
+				todayPnL = todayTotal
+			} else {
+				logger.Warn("[统计] 今日精确作用域盈亏未核实: %v", queryErr)
 			}
 		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"total_trades":         totalTrades,
-		"total_volume":         totalVolume,
-		"total_pnl":            totalPnL,
-		"gross_pnl":            grossPnL,
-		"total_fee":            totalFee,
-		"win_rate":             winRate,
-		"total_buy_deviation":  totalBuyDeviation,  // 🔥 買入價格偏差總和
-		"total_sell_deviation": totalSellDeviation, // 🔥 賣出價格偏差總和
-		"exchange_pnl":         exchangePnL,        // 🔥 交易所已實現盈虧合計
-		"unrealized_pnl":       unrealizedPnL,      // 🔥 待實現盈虧（當前持倉×當前價格）
-		"today_trades":         todayTrades,        // 🔥 當日成交筆數
-		"today_pnl":            todayPnL,           // 🔥 當日網格盈虧
-		"today_exchange_pnl":   todayExchangePnL,   // 🔥 當日交易所盈虧
+		"total_trades":                totalTrades,
+		"total_volume":                totalVolume,
+		"total_pnl":                   totalPnL,
+		"gross_pnl":                   grossPnL,
+		"total_fee":                   totalFee,
+		"win_rate":                    winRate,
+		"total_buy_deviation":         totalBuyDeviation,  // 🔥 買入價格偏差總和
+		"total_sell_deviation":        totalSellDeviation, // 🔥 賣出價格偏差總和
+		"exchange_pnl":                nil,
+		"exchange_pnl_verified":       false,
+		"unrealized_pnl":              nil,
+		"unrealized_pnl_verified":     false,
+		"today_trades":                todayTrades, // 🔥 當日成交筆數
+		"today_pnl":                   todayPnL,    // 🔥 當日網格盈虧
+		"today_pnl_verified":          todayPnLVerified,
+		"today_exchange_pnl":          todayExchangePnL,
+		"today_exchange_pnl_verified": false,
+		"pnl_verified":                pnlVerified,
+		"pnl_asset":                   pnlAsset,
+		"pnl_basis":                   pnlBasis,
 	})
 }
 
@@ -1242,6 +1192,44 @@ func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, marketType,
 
 // getDailyStatistics 獲取每日统计（混合模式：优先使用 statistics 表，缺失的日期從 trades 表补充）
 // GET /api/statistics/daily
+type dailyFundingReader interface {
+	GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
+	GetDailyFundingPaymentsByScope(account, exchange, marketType, symbol, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
+}
+
+func queryVerifiedDailyFunding(reader dailyFundingReader, account, exchange, marketType, symbol, accountScope, quoteAsset string, startDate, endDate, now time.Time, location *time.Location) (map[string]float64, map[string]string) {
+	amounts := make(map[string]float64)
+	assets := make(map[string]string)
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if reader == nil || location == nil || strings.TrimSpace(accountScope) == "" || quoteAsset == "" || !startDate.Before(endDate) {
+		return amounts, assets
+	}
+	coveredFrom, coveredThrough, err := reader.GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope)
+	if err != nil || coveredFrom.IsZero() || coveredThrough.IsZero() {
+		return amounts, assets
+	}
+	startDay := time.Date(startDate.In(location).Year(), startDate.In(location).Month(), startDate.In(location).Day(), 0, 0, 0, 0, location)
+	endLocal := endDate.In(location)
+	endDay := time.Date(endLocal.Year(), endLocal.Month(), endLocal.Day(), 0, 0, 0, 0, location)
+	for day := startDay; !day.After(endDay); day = day.AddDate(0, 0, 1) {
+		dayStartUTC, dayEndUTC := day.UTC(), day.AddDate(0, 0, 1).UTC()
+		if coveredFrom.After(dayStartUTC) || coveredThrough.Before(dayEndUTC) || dayEndUTC.After(now.UTC()) {
+			continue
+		}
+		payments, queryErr := reader.GetDailyFundingPaymentsByScope(account, exchange, marketType, symbol, accountScope, dayStartUTC, dayEndUTC)
+		if queryErr != nil || len(payments) > 1 {
+			continue
+		}
+		amount, exists := payments[quoteAsset]
+		if !exists && len(payments) != 0 {
+			continue
+		}
+		dateKey := day.Format("2006-01-02")
+		amounts[dateKey], assets[dateKey] = amount, quoteAsset
+	}
+	return amounts, assets
+}
+
 func getDailyStatistics(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
@@ -1269,6 +1257,7 @@ func getDailyStatistics(c *gin.Context) {
 	status := pickStatus(c)
 	exchQ := strings.TrimSpace(c.Query("exchange"))
 	symQ := strings.TrimSpace(c.Query("symbol"))
+	marketTypeQ := strings.ToLower(strings.TrimSpace(c.Query("market_type")))
 	exchForTrades := exchQ
 	symForTrades := symQ
 	if status != nil {
@@ -1279,39 +1268,41 @@ func getDailyStatistics(c *gin.Context) {
 			symForTrades = status.Symbol
 		}
 	}
+	selectedScopeMatchesStatus := status != nil && strings.EqualFold(exchForTrades, status.Exchange) && strings.EqualFold(symForTrades, status.Symbol) && status.MarketType != "" && (marketTypeQ == "" || marketTypeQ == strings.ToLower(strings.TrimSpace(status.MarketType)))
 
-	// 1. 先從 statistics 表查詢（按 bot 篩選時不使用全局 statistics 表，避免與單 Bot 混賬）
-	var statsFromTable []*storage.Statistics
-	var err error
-	if botID == "" {
-		statsFromTable, err = st.QueryStatistics(startDate, endDate)
-		if err != nil {
-			logger.Warn("⚠️ statistics 表查詢失败，將降級使用 trades 實時聚合: %v", err)
-			statsFromTable = nil
-		}
-	}
-
-	// 2. 構建日期映射（statistics 表中已有的日期）
+	// Date-only statistics have no exchange/market/credential/asset dimensions.
 	statsMap := make(map[string]*storage.Statistics)
-	for _, stat := range statsFromTable {
-		dateKey := stat.Date.Format("2006-01-02")
-		statsMap[dateKey] = stat
-	}
-
-	// 3. 從 trades 表查詢所有日期（包含缺失的日期和盈利/亏损交易數）
+	// Read paired-trade statistics only through the full immutable accounting scope.
 	tradesStatsMap := make(map[string]*storage.DailyStatisticsWithTradeCount)
-	accountID := GetCurrentAccountID()
-	tradesStats, err2 := st.QueryDailyStatisticsByExchange(exchForTrades, symForTrades, accountID, startDate, endDate, botID)
-	if err2 == nil {
-		for _, tradeStat := range tradesStats {
-			dateKey := tradeStat.Date.Format("2006-01-02")
-			tradesStatsMap[dateKey] = tradeStat
+	dailyTradesVerified := false
+	dailyPnLAsset := ""
+	if status != nil {
+		dailyPnLAsset = strings.ToUpper(strings.TrimSpace(status.TotalPnLAsset))
+		if dailyPnLAsset == "" {
+			dailyPnLAsset = strings.ToUpper(strings.TrimSpace(status.QuoteAsset))
 		}
 	}
+	if selectedScopeMatchesStatus && status.AccountScope != "" && dailyPnLAsset != "" {
+		if reader, ok := st.(interface {
+			QueryDailyStatisticsByDimension(exchange, marketType, symbol, accountScope, asset, botID string, startDate, endDate time.Time) ([]*storage.DailyStatisticsWithTradeCount, error)
+		}); ok {
+			tradesStats, queryErr := reader.QueryDailyStatisticsByDimension(exchForTrades, status.MarketType, symForTrades, status.AccountScope, dailyPnLAsset, botID, startDate, endDate)
+			if queryErr != nil {
+				logger.Warn("[每日统计] 精确维度盈亏未核实: %v", queryErr)
+			} else {
+				dailyTradesVerified = true
+				for _, tradeStat := range tradesStats {
+					dateKey := tradeStat.Date.Format("2006-01-02")
+					tradesStatsMap[dateKey] = tradeStat
+				}
+			}
+		}
+	}
+	accountID := GetCurrentAccountID()
 
 	// 3b. 從每日快照表查詢未實現盈虧與日內最大回撤
 	snapshotMap := make(map[string]*storage.DailySnapshot)
-	if status != nil && status.Exchange != "" && status.Symbol != "" {
+	if selectedScopeMatchesStatus && status.Exchange != "" && status.Symbol != "" {
 		var snapshots []*storage.DailySnapshot
 		var errSnap error
 		if status.AccountScope != "" {
@@ -1337,7 +1328,7 @@ func getDailyStatistics(c *gin.Context) {
 
 	// 3c. 小時權益：按日最后一條 account_equity（日快照未寫入權益時仍可畫淨值曲線）
 	var hourlyAcctByDay map[string]float64
-	if status != nil && status.Exchange != "" && status.Symbol != "" {
+	if selectedScopeMatchesStatus && status.Exchange != "" && status.Symbol != "" {
 		loc := utils.GlobalLocation
 		if loc == nil {
 			loc = time.Local
@@ -1351,7 +1342,7 @@ func getDailyStatistics(c *gin.Context) {
 	// 4. 獲取日K線數據用於计算开盘/收盘價和涨跌幅
 	klineMap := make(map[string]*exchange.Candle)
 	exchProv := pickExchangeProvider(c)
-	if exchProv != nil && status != nil && status.Symbol != "" {
+	if exchProv != nil && selectedScopeMatchesStatus && status.Symbol != "" {
 		ctx := c.Request.Context()
 		// 獲取日K線數據（1d 周期），限制天數+1以确保覆盖範圍
 		candles, err := exchProv.GetHistoricalKlines(ctx, status.Symbol, "1d", days+1)
@@ -1366,36 +1357,22 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
-	// 4b. 獲取每日資金費用（賬戶級 USDT；帶 bot_id 時不展示以免誤導）
+	// 4b. Only publish a symbol's funding fee when the full local day is covered
+	// and every payment is denominated in the selected quote asset.
 	fundingMap := make(map[string]float64)
-	type dailyFundingGetter interface {
-		GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
-	}
-	if botID == "" && status != nil && status.AccountScope != "" && status.Exchange != "" {
-		if stWithFunding, ok := st.(dailyFundingGetter); ok {
-			marketType := strings.ToLower(strings.TrimSpace(status.MarketType))
-			if marketType == config.MarketTypeFundingCarry || marketType == config.MarketTypeFundingPerpSpread {
-				marketType = "futures"
+	fundingAssetMap := make(map[string]string)
+	if selectedScopeMatchesStatus && status.AccountScope != "" && status.MarketType != "" && status.QuoteAsset != "" {
+		if fundingReader, ok := st.(dailyFundingReader); ok {
+			location := utils.GlobalLocation
+			if location == nil {
+				location = time.Local
 			}
-			dailyFunding, err := stWithFunding.GetDailyFundingPaymentsByAccountScopeAndAsset(status.Exchange, marketType, fundingCarryReportingAsset, status.AccountScope, startDate, endDate)
-			if err == nil {
-				fundingMap = dailyFunding
-			}
+			fundingMap, fundingAssetMap = queryVerifiedDailyFunding(fundingReader, accountID, status.Exchange, status.MarketType, status.Symbol, status.AccountScope, status.QuoteAsset, startDate, endDate, time.Now(), location)
 		}
 	}
 
-	// 4c. 獲取每日交易所已實現盈虧（從 orders 表聚合 realized_pnl）
+	// 4c. orders.realized_pnl lacks denomination and account-scope evidence.
 	exchangePnLMap := make(map[string]float64)
-	type dailyExchangePnLGetter interface {
-		GetDailyExchangePnL(exchange, symbol string, startDate, endDate time.Time, botID string) (map[string]float64, error)
-	}
-	if epGetter, ok := st.(dailyExchangePnLGetter); ok {
-		exchangeID := exchForTrades
-		symbolID := symForTrades
-		if dailyEP, err := epGetter.GetDailyExchangePnL(exchangeID, symbolID, startDate, endDate, botID); err == nil {
-			exchangePnLMap = dailyEP
-		}
-	}
 
 	// 5. 合並數據：优先使用 statistics 表的數據，缺失的日期使用 trades 表的數據
 	// 構建最终結果
@@ -1454,6 +1431,9 @@ func getDailyStatistics(c *gin.Context) {
 			item["losing_trades"] = tradeStat.LosingTrades
 			item["volume_profit"] = tradeStat.VolumeProfit
 			item["volume_stop_loss"] = tradeStat.VolumeStopLoss
+			item["pnl_verified"] = true
+			item["pnl_asset"] = dailyPnLAsset
+			item["pnl_basis"] = "paired_grid_trades"
 			dailyPnL = tradeStat.TotalPnL
 		} else {
 			// 無網格 statistics / trades，但仍有資金費、交易所已實現或快照時仍輸出當日（否則前端日曆顯示「無數據」）
@@ -1465,9 +1445,18 @@ func getDailyStatistics(c *gin.Context) {
 			}
 			item["total_trades"] = 0
 			item["total_volume"] = 0
-			item["total_pnl"] = 0
+			item["total_pnl"] = nil
 			item["win_rate"] = 0
-			dailyPnL = 0
+			item["pnl_verified"] = dailyTradesVerified
+			item["pnl_asset"] = dailyPnLAsset
+			if dailyTradesVerified {
+				item["pnl_basis"] = "paired_grid_trades"
+				item["total_pnl"] = 0.0
+				dailyPnL = 0
+			} else {
+				item["gross_pnl"] = nil
+				item["total_fee"] = nil
+			}
 		}
 
 		// 如果 statistics 表的數據存在，但從 trades 表可以獲取盈利/亏损交易數和交易量細分，也添加進去
@@ -1494,14 +1483,24 @@ func getDailyStatistics(c *gin.Context) {
 		}
 
 		// 计算累计盈亏
-		cumulativePnL += dailyPnL
-		cumulativePnLList = append(cumulativePnLList, cumulativePnL)
-		item["cumulative_pnl"] = cumulativePnL
+		if dailyTradesVerified {
+			cumulativePnL += dailyPnL
+			cumulativePnLList = append(cumulativePnLList, cumulativePnL)
+			item["cumulative_pnl"] = cumulativePnL
+		} else {
+			item["cumulative_pnl"] = nil
+		}
 
 		// 合併每日快照：未實現盈虧、日內最大回撤、交易所帳戶權益（真實淨值）
 		if snap, ok := snapshotMap[dateKey]; ok {
-			item["unrealized_pnl"] = snap.UnrealizedPnL
-			item["intraday_max_drawdown"] = snap.IntradayMaxDrawdown
+			if strings.EqualFold(strings.TrimSpace(snap.UnrealizedPnLAsset), strings.TrimSpace(dailyPnLAsset)) {
+				item["unrealized_pnl"] = snap.UnrealizedPnL
+				item["unrealized_pnl_verified"] = true
+			} else {
+				item["unrealized_pnl"] = nil
+				item["unrealized_pnl_verified"] = false
+			}
+			item["intraday_max_drawdown"] = nil
 			item["intraday_max_drawdown_pct"] = snap.IntradayMaxDrawdownPct
 			if snap.AccountEquity != nil {
 				item["account_equity"] = *snap.AccountEquity
@@ -1516,23 +1515,18 @@ func getDailyStatistics(c *gin.Context) {
 		// 合併每日資金費用
 		if funding, ok := fundingMap[dateKey]; ok {
 			item["funding_fee"] = funding
+			item["funding_fee_verified"] = true
+			item["funding_fee_asset"] = fundingAssetMap[dateKey]
 		} else {
-			item["funding_fee"] = 0.0
+			item["funding_fee"] = nil
+			item["funding_fee_verified"] = false
 		}
 
-		// 合併每日交易所已實現盈虧
-		if epnl, ok := exchangePnLMap[dateKey]; ok {
-			item["exchange_pnl"] = epnl
-		} else {
-			item["exchange_pnl"] = 0.0
-		}
+		// Exchange PnL stays absent until its denomination and account scope are proven.
 
 		// 賬面盈虧 = 已平倉盈虧 + 未實現盈虧（真正帳面值）
-		unrealized := 0.0
-		if snap, ok := snapshotMap[dateKey]; ok {
-			unrealized = snap.UnrealizedPnL
-		}
-		item["book_value_pnl"] = dailyPnL + unrealized
+		item["book_value_pnl"] = nil
+		item["book_value_pnl_verified"] = false
 
 		tempResult = append(tempResult, item)
 	}
@@ -1594,9 +1588,17 @@ func getDailyStatistics(c *gin.Context) {
 	}
 
 	resp := gin.H{
-		"statistics":       result,
-		"max_drawdown":     maxDrawdown,
-		"max_drawdown_pct": maxDrawdownPct,
+		"statistics":           result,
+		"max_drawdown":         nil,
+		"max_drawdown_pct":     nil,
+		"pnl_verified":         dailyTradesVerified,
+		"funding_pnl_verified": false,
+	}
+	if dailyTradesVerified {
+		resp["max_drawdown"] = maxDrawdown
+		resp["max_drawdown_pct"] = maxDrawdownPct
+		resp["pnl_asset"] = dailyPnLAsset
+		resp["pnl_basis"] = "paired_grid_trades"
 	}
 	if st := pickStatus(c); st != nil {
 		mt := strings.TrimSpace(st.MarketType)

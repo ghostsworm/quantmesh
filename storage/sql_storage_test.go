@@ -166,6 +166,49 @@ func TestProfitSummaryByAccountScopeIncludesLegacyLabelsAndRejectsInvalidDenomin
 	}
 }
 
+func TestQueryDailyStatisticsByDimensionIsolatesMarketSymbolAssetAndScope(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	day := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	for _, trade := range []Trade{
+		{Account: "old-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "spot", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 2, PnL: 10, Fee: 2, CreatedAt: day},
+		{Account: "new-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 10, PnL: 100, Fee: 1, CreatedAt: day},
+		{Account: "new-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "spot", PnLAsset: "USDC", FeeAsset: "USDC", Symbol: "ETHUSDT", Quantity: 20, PnL: 200, Fee: 2, CreatedAt: day},
+		{Account: "other", AccountScope: "scope-b", Exchange: "binance", MarketType: "spot", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 30, PnL: 300, Fee: 3, CreatedAt: day},
+	} {
+		item := trade
+		if err := st.SaveTrade(&item); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := st.QueryDailyStatisticsByDimension("BINANCE", "spot", "btcusdt", "scope-a", "usdt", "", day.Add(-time.Hour), day.Add(time.Hour))
+	if err != nil || len(got) != 1 || got[0].TotalTrades != 1 || got[0].TotalVolume != 2 || got[0].GrossPnL != 10 || got[0].TotalFee != 2 || got[0].TotalPnL != 8 {
+		t.Fatalf("dimension-filtered daily stats=%+v err=%v", got, err)
+	}
+	lifetime, err := st.GetStatisticsSummaryByDimension("binance", "spot", "BTCUSDT", "scope-a", "USDT", "")
+	if err != nil || lifetime.TotalTrades != 1 || lifetime.TotalPnL != 8 {
+		t.Fatalf("dimension-filtered lifetime stats=%+v err=%v", lifetime, err)
+	}
+	wrongAsset := Trade{Account: "old-label", AccountScope: "scope-a", Exchange: "binance", MarketType: "spot", PnLAsset: "USDC", FeeAsset: "USDC", Symbol: "BTCUSDT", Quantity: 1, PnL: 5, CreatedAt: day}
+	if err := st.SaveTrade(&wrongAsset); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.QueryDailyStatisticsByDimension("binance", "spot", "BTCUSDT", "scope-a", "USDT", "", day.Add(-time.Hour), day.Add(time.Hour)); err == nil {
+		t.Fatal("mixed denomination for requested dimension must fail closed")
+	}
+}
+
+func TestQueryDailyStatisticsByDimensionRejectsUnattributedTrades(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	day := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	legacy := Trade{Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT", Symbol: "BTCUSDT", Quantity: 1, PnL: 2, CreatedAt: day}
+	if err := st.SaveTrade(&legacy); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.QueryDailyStatisticsByDimension("binance", "futures", "BTCUSDT", "scope-a", "USDT", "", day.Add(-time.Hour), day.Add(time.Hour)); err == nil {
+		t.Fatal("unattributed trade in requested dimension must block a complete report")
+	}
+}
+
 func newSQLStorageForTest(t *testing.T) *SQLStorage {
 	t.Helper()
 	st, err := NewSQLStorage(filepath.Join(t.TempDir(), "quantmesh.db"))

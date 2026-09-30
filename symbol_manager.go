@@ -1833,7 +1833,7 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 		}
 		return 0.0
 	}
-	commissionKnown := true // legacy stream types are treated as authoritative unless they explicitly say otherwise.
+	commissionKnown := false // Missing metadata is not proof of a zero commission.
 	if field := v.FieldByName("CommissionKnown"); field.IsValid() && field.Kind() == reflect.Bool {
 		commissionKnown = field.Bool()
 	}

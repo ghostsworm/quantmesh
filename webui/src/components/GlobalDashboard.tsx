@@ -110,6 +110,8 @@ interface SymbolStatus {
   symbol: string
   current_price: number
   total_pnl: number
+  total_pnl_asset?: string
+  total_pnl_verified?: boolean
   total_trades: number
   risk_triggered?: boolean
   opening_paused?: boolean
@@ -228,6 +230,8 @@ const GlobalDashboard: React.FC = () => {
             symbol: st.symbol,
             current_price: st.current_price,
             total_pnl: st.total_pnl,
+            total_pnl_asset: st.total_pnl_asset,
+            total_pnl_verified: st.total_pnl_verified,
             total_trades: st.total_trades,
             risk_triggered: st.risk_triggered,
             opening_paused: st.opening_paused,
@@ -250,6 +254,8 @@ const GlobalDashboard: React.FC = () => {
               symbol: sym.symbol,
               current_price: st.current_price,
               total_pnl: st.total_pnl,
+              total_pnl_asset: st.total_pnl_asset,
+              total_pnl_verified: st.total_pnl_verified,
               risk_triggered: st.risk_triggered,
               total_trades: st.total_trades,
               opening_paused: st.opening_paused,

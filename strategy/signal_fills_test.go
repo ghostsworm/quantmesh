@@ -308,7 +308,7 @@ func TestDCACloseBaseCommissionWithoutInventoryFeeQuantityFailsClosed(t *testing
 	}
 	if err := s.OnOrderUpdate(&position.OrderUpdate{
 		OrderID: s.closeOrderID, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 110,
-		Commission: 0.001, CommissionAsset: "BTC",
+		Commission: 0.001, CommissionAsset: "BTC", CommissionKnown: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestDCACloseLedgerFailureRetainsFillForRetry(t *testing.T) {
 	if err := s.closeAllPositions(110, "test"); err != nil {
 		t.Fatal(err)
 	}
-	update := &position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: "dca-close", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110}
+	update := &position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: "dca-close", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, CommissionKnown: true}
 	if err := s.OnOrderUpdate(update); err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +372,7 @@ func TestDCACloseRecordsOnlyIncrementalExecutionsAndActualFees(t *testing.T) {
 	if !s.isClosing || s.totalQty != 2 || len(recorder.pnls) != 0 {
 		t.Fatal("fill without average price changed close state or PnL")
 	}
-	update := &position.OrderUpdate{OrderID: id, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, Commission: 0.2, CommissionAsset: "USDT"}
+	update := &position.OrderUpdate{OrderID: id, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, Commission: 0.2, CommissionAsset: "USDT", CommissionKnown: true}
 	if err := s.OnOrderUpdate(update); err != nil {
 		t.Fatal(err)
 	}

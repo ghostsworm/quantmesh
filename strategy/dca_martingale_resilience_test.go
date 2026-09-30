@@ -168,7 +168,7 @@ func TestDCACloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	if !strategy.isClosing || len(strategy.layers) == 0 || strategy.totalQty != 1 {
 		t.Fatal("FILLED without executed quantity must retain the close and inventory")
 	}
-	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000}); err != nil {
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate(verified fill) error=%v", err)
 	}
 	if strategy.isClosing || len(strategy.layers) != 0 || strategy.totalQty != 0 || strategy.currentLayer != 0 {

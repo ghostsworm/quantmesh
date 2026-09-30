@@ -11,6 +11,61 @@ import (
 	"quantmesh/storage"
 )
 
+func TestDailyRealizedPnLRequiresSingleVerifiedQuoteAsset(t *testing.T) {
+	cases := []struct {
+		name    string
+		summary storage.DailyOrderFillSummary
+		want    float64
+		wantErr bool
+	}{
+		{name: "same quote asset", summary: storage.DailyOrderFillSummary{RealizedPnL: 3.5, RealizedPnLByAsset: map[string]float64{"usdt": 3.5}}, want: 3.5},
+		{name: "missing asset", summary: storage.DailyOrderFillSummary{RealizedPnL: 3.5}, wantErr: true},
+		{name: "unknown asset count", summary: storage.DailyOrderFillSummary{RealizedPnL: 3.5, RealizedPnLByAsset: map[string]float64{"USDT": 3.5}, RealizedPnLUnknownAssetCount: 1}, wantErr: true},
+		{name: "mixed quote assets", summary: storage.DailyOrderFillSummary{RealizedPnL: 5, RealizedPnLByAsset: map[string]float64{"USDT": 3.5, "USDC": 1.5}}, wantErr: true},
+		{name: "asset aggregate mismatch", summary: storage.DailyOrderFillSummary{RealizedPnL: 5, RealizedPnLByAsset: map[string]float64{"USDT": 4}}, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := dailyRealizedPnLByQuote(tc.summary, "USDT")
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("dailyRealizedPnLByQuote() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if err == nil && got != tc.want {
+				t.Fatalf("dailyRealizedPnLByQuote() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+type dailyBreakdownPnLAssetStorage struct {
+	dailyBreakdownFailingStorage
+	summary storage.DailyOrderFillSummary
+}
+
+func (s dailyBreakdownPnLAssetStorage) QueryDailyOrderFillsByScope(string, string, string, string, string, time.Time, time.Time) (storage.DailyOrderFillSummary, error) {
+	return s.summary, nil
+}
+
+func TestDailyPnLBreakdownRejectsMixedRealizedPnLAssets(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	previousProvider, previousStatus := storageServiceProvider, currentStatus
+	base := dailyBreakdownFailingStorage{failure: "must stop before later queries"}
+	storageServiceProvider = dailyBreakdownStorageProvider{store: dailyBreakdownPnLAssetStorage{
+		dailyBreakdownFailingStorage: base,
+		summary:                      storage.DailyOrderFillSummary{RealizedPnL: 4, RealizedPnLByAsset: map[string]float64{"USDT": 3, "USDC": 1}},
+	}}
+	currentStatus = &SystemStatus{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", QuoteAsset: "USDT", AccountScope: "scope-a"}
+	t.Cleanup(func() { storageServiceProvider, currentStatus = previousProvider, previousStatus })
+	router := gin.New()
+	router.GET("/api/statistics/daily/breakdown", getDailyPnLBreakdown)
+	request := httptest.NewRequest("GET", "/api/statistics/daily/breakdown?date=2026-09-26&market_type=futures", nil)
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("mixed realized pnl assets must not be reported as one currency: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
 type dailyBreakdownFailingStorage struct {
 	storage.Storage
 	failure string

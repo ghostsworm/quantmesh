@@ -28,11 +28,14 @@ import { calendarMonthMatchesDateStr } from '../utils/calendarDateMatch'
 interface StatisticsData {
   total_trades: number
   total_volume: number
-  total_pnl: number // 淨利潤（已扣手續費）
-  gross_pnl?: number // 毛利（未扣手續費）
-  total_fee?: number // 手續費合計
+  total_pnl: number | null
+  pnl_verified?: boolean
+  pnl_asset?: string
+  gross_pnl?: number | null
+  total_fee?: number | null
   win_rate: number
-  exchange_pnl?: number // 交易所已實現盈虧合計
+  exchange_pnl?: number | null
+  exchange_pnl_verified?: boolean
   unrealized_pnl?: number // 待實現盈虧（當前持倉×當前價格）
 }
 
@@ -40,10 +43,13 @@ interface DailyStatistics {
   date: string
   total_trades: number
   total_volume: number
-  total_pnl: number // 當日淨利潤（已扣手續費）
-  gross_pnl?: number // 當日毛利
-  total_fee?: number // 當日手續費
-  funding_fee?: number // 當日資金費用（正=收入，負=支出）
+  total_pnl: number | null
+  pnl_verified?: boolean
+  pnl_asset?: string
+  gross_pnl?: number | null
+  total_fee?: number | null
+  funding_fee?: number | null
+  funding_fee_verified?: boolean
   win_rate: number
   winning_trades?: number
   losing_trades?: number
@@ -53,12 +59,14 @@ interface DailyStatistics {
   close_price?: number     // 當日收盘價
   price_change?: number    // 價格變化（收盘價-开盘價）
   price_change_pct?: number // 價格變化百分比
-  cumulative_pnl?: number  // 累计盈亏
-  unrealized_pnl?: number  // 當日收盤未實現盈虧
-  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
+  cumulative_pnl?: number | null
+  unrealized_pnl?: number | null
+  unrealized_pnl_verified?: boolean
+  book_value_pnl?: number | null
+  book_value_pnl_verified?: boolean
   intraday_max_drawdown?: number
   intraday_max_drawdown_pct?: number
-  exchange_pnl?: number // 當日交易所已實現盈虧
+  exchange_pnl?: number | null
   /** 交易所 API 帳戶權益（USDT） */
   account_equity?: number
 }
@@ -72,7 +80,7 @@ interface PnLBySymbol {
   total_trades: number
   total_volume: number
   win_rate: number
-  unrealized_pnl?: number
+  unrealized_pnl?: number | null
 }
 
 const Statistics: React.FC = () => {
@@ -82,8 +90,9 @@ const Statistics: React.FC = () => {
   const { selectedExchange, selectedSymbol, selectedMarketType } = useSymbol()
   const [stats, setStats] = useState<StatisticsData | null>(null)
   const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
-  const [maxDrawdown, setMaxDrawdown] = useState<number>(0)
-  const [maxDrawdownPct, setMaxDrawdownPct] = useState<number>(0)
+  const [maxDrawdown, setMaxDrawdown] = useState<number | null>(null)
+  const [maxDrawdownPct, setMaxDrawdownPct] = useState<number | null>(null)
+  const [maxDrawdownVerified, setMaxDrawdownVerified] = useState(false)
   const [pnlByTimeRange, setPnlByTimeRange] = useState<PnLBySymbol[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -130,14 +139,16 @@ const Statistics: React.FC = () => {
             statistics: [],
             max_drawdown: 0,
             max_drawdown_pct: 0,
+            pnl_verified: false,
             market_type: undefined,
           })),
         ])
         setStats(statsData)
         setDailyStats(dailyData.statistics || [])
         setDailyMarketType(dailyData.market_type)
-        setMaxDrawdown(dailyData.max_drawdown || 0)
-        setMaxDrawdownPct(dailyData.max_drawdown_pct || 0)
+        setMaxDrawdown(dailyData.max_drawdown ?? null)
+        setMaxDrawdownPct(dailyData.max_drawdown_pct ?? null)
+        setMaxDrawdownVerified(dailyData.pnl_verified === true)
         setError(null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch statistics')
@@ -232,27 +243,27 @@ const Statistics: React.FC = () => {
           </div>
           <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.netPnL')}</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
-              {stats.total_pnl >= 0 ? '+' : ''}{stats.total_pnl.toFixed(2)}
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: stats.pnl_verified && stats.total_pnl != null ? (stats.total_pnl >= 0 ? '#52c41a' : '#ff4d4f') : '#8c8c8c' }}>
+              {stats.pnl_verified && stats.total_pnl != null ? `${stats.total_pnl >= 0 ? '+' : ''}${stats.total_pnl.toFixed(2)} ${stats.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
             </div>
           </div>
-          {(stats.gross_pnl !== undefined || stats.total_fee !== undefined) && (
+          {(typeof stats.gross_pnl === 'number' || typeof stats.total_fee === 'number') && (
             <>
               <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
                 <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.grossPnL')}</div>
                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: (stats.gross_pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                  {(stats.gross_pnl ?? 0) >= 0 ? '+' : ''}{(stats.gross_pnl ?? 0).toFixed(2)}
+                  {typeof stats.gross_pnl === 'number' ? `${stats.gross_pnl >= 0 ? '+' : ''}${stats.gross_pnl.toFixed(2)} ${stats.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                 </div>
               </div>
               <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }}>
                 <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.totalFee')}</div>
                 <div style={{ fontSize: '20px', fontWeight: 'bold', color: '#fa8c16' }}>
-                  -{(stats.total_fee ?? 0).toFixed(2)}
+                  {typeof stats.total_fee === 'number' ? `-${stats.total_fee.toFixed(2)} ${stats.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                 </div>
               </div>
             </>
           )}
-          {stats.exchange_pnl !== undefined && stats.exchange_pnl !== 0 && (
+          {stats.exchange_pnl != null && stats.exchange_pnl !== 0 && (
             <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px' }} title={t('statistics.exchangePnlTooltip')}>
               <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.exchangePnl')}</div>
               <div style={{ fontSize: '20px', fontWeight: 'bold', color: stats.exchange_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
@@ -272,13 +283,13 @@ const Statistics: React.FC = () => {
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.winRate')}</div>
             <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{(stats.win_rate * 100).toFixed(2)}%</div>
           </div>
-          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px', background: maxDrawdownPct > 10 ? '#fff2f0' : '#f6ffed' }}>
+          <div style={{ padding: '16px', border: '1px solid #e8e8e8', borderRadius: '4px', background: maxDrawdownVerified && (maxDrawdownPct ?? 0) > 10 ? '#fff2f0' : '#f6ffed' }}>
             <div style={{ fontSize: '14px', color: '#8c8c8c', marginBottom: '8px' }}>{t('statistics.maxDrawdown')}</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold', color: maxDrawdownPct > 10 ? '#ff4d4f' : '#52c41a' }}>
-              {maxDrawdownPct.toFixed(2)}%
+            <div style={{ fontSize: '24px', fontWeight: 'bold', color: maxDrawdownVerified && (maxDrawdownPct ?? 0) > 10 ? '#ff4d4f' : '#8c8c8c' }}>
+              {maxDrawdownVerified && maxDrawdownPct != null ? `${maxDrawdownPct.toFixed(2)}%` : t('dashboard.pnlUnverified')}
             </div>
             <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
-              -{maxDrawdown.toFixed(2)} USDT
+              {maxDrawdownVerified && maxDrawdown != null ? `-${maxDrawdown.toFixed(2)}` : ''}
             </div>
           </div>
         </div>
@@ -422,36 +433,36 @@ const Statistics: React.FC = () => {
                     <td style={{ padding: '12px', textAlign: 'right', color: '#ff4d4f' }}>
                       {stat.volume_stop_loss !== undefined ? stat.volume_stop_loss.toFixed(4) : '-'}
                     </td>
-                    <td style={{ padding: '12px', textAlign: 'right', color: stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                      {stat.total_pnl >= 0 ? '+' : ''}{stat.total_pnl.toFixed(2)}
+                    <td style={{ padding: '12px', textAlign: 'right', color: stat.pnl_verified && stat.total_pnl != null ? (stat.total_pnl >= 0 ? '#52c41a' : '#ff4d4f') : '#8c8c8c' }}>
+                      {stat.pnl_verified && stat.total_pnl != null ? `${stat.total_pnl >= 0 ? '+' : ''}${stat.total_pnl.toFixed(2)} ${stat.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.exchange_pnl ?? 0) >= 0 ? '#1890ff' : '#ff4d4f', fontSize: '13px' }}>
-                      {stat.exchange_pnl !== undefined && stat.exchange_pnl !== 0
+                      {stat.exchange_pnl != null && stat.exchange_pnl !== 0
                         ? (stat.exchange_pnl >= 0 ? '+' : '') + stat.exchange_pnl.toFixed(2)
                         : '-'}
                     </td>
-                    {(stat.gross_pnl !== undefined || stat.total_fee !== undefined) && (
+                    {(typeof stat.gross_pnl === 'number' || typeof stat.total_fee === 'number') && (
                       <>
                         <td style={{ padding: '12px', textAlign: 'right', color: (stat.gross_pnl ?? 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                          {(stat.gross_pnl ?? 0) >= 0 ? '+' : ''}{(stat.gross_pnl ?? 0).toFixed(2)}
+                          {typeof stat.gross_pnl === 'number' ? `${stat.gross_pnl >= 0 ? '+' : ''}${stat.gross_pnl.toFixed(2)} ${stat.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                         </td>
                         <td style={{ padding: '12px', textAlign: 'right', color: '#fa8c16' }}>
-                          -{(stat.total_fee ?? 0).toFixed(2)}
+                          {typeof stat.total_fee === 'number' ? `-${stat.total_fee.toFixed(2)} ${stat.pnl_asset ?? ''}` : t('dashboard.pnlUnverified')}
                         </td>
                       </>
                     )}
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.funding_fee ?? 0) >= 0 ? '#52c41a' : '#fa8c16' }}>
-                      {stat.funding_fee !== undefined && stat.funding_fee !== 0
+                      {stat.funding_fee_verified && stat.funding_fee != null && stat.funding_fee !== 0
                         ? (stat.funding_fee >= 0 ? '+' : '') + stat.funding_fee.toFixed(2)
                         : '-'}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: (stat.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
-                      {stat.unrealized_pnl !== undefined && stat.unrealized_pnl !== 0
+                      {stat.unrealized_pnl_verified && stat.unrealized_pnl != null && stat.unrealized_pnl !== 0
                         ? (stat.unrealized_pnl >= 0 ? '+' : '') + stat.unrealized_pnl.toFixed(2)
-                        : '-'}
+                        : stat.unrealized_pnl === null ? t('dashboard.pnlUnverified') : '-'}
                     </td>
-                    <td style={{ padding: '12px', textAlign: 'right', color: ((stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '#389e0d' : '#cf1322'), fontWeight: 600 }}>
-                      {(stat.book_value_pnl ?? stat.total_pnl) >= 0 ? '+' : ''}{(stat.book_value_pnl ?? stat.total_pnl).toFixed(2)}
+                    <td style={{ padding: '12px', textAlign: 'right', color: stat.book_value_pnl_verified && stat.book_value_pnl != null ? (stat.book_value_pnl >= 0 ? '#389e0d' : '#cf1322') : '#8c8c8c', fontWeight: 600 }}>
+                      {stat.book_value_pnl_verified && stat.book_value_pnl != null ? `${stat.book_value_pnl >= 0 ? '+' : ''}${stat.book_value_pnl.toFixed(2)}` : t('dashboard.pnlUnverified')}
                     </td>
                     {filteredDailyStats.some((s) => s.account_equity !== undefined && s.account_equity !== null) ? (
                       <td style={{ padding: '12px', textAlign: 'right', fontWeight: 600, color: '#1890ff' }}>
@@ -460,8 +471,8 @@ const Statistics: React.FC = () => {
                           : '—'}
                       </td>
                     ) : null}
-                    <td style={{ padding: '12px', textAlign: 'right', color: (stat.cumulative_pnl || 0) >= 0 ? '#52c41a' : '#ff4d4f' }}>
-                      {(stat.cumulative_pnl || 0) >= 0 ? '+' : ''}{(stat.cumulative_pnl || 0).toFixed(2)}
+                    <td style={{ padding: '12px', textAlign: 'right', color: stat.cumulative_pnl != null ? (stat.cumulative_pnl >= 0 ? '#52c41a' : '#ff4d4f') : '#8c8c8c' }}>
+                      {stat.cumulative_pnl != null ? `${stat.cumulative_pnl >= 0 ? '+' : ''}${stat.cumulative_pnl.toFixed(2)}` : t('dashboard.pnlUnverified')}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{(stat.win_rate * 100).toFixed(2)}%</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#8c8c8c' }}>
@@ -548,7 +559,7 @@ const Statistics: React.FC = () => {
                       {item.total_pnl >= 0 ? '+' : ''}{item.total_pnl.toFixed(2)}
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right', color: (item.unrealized_pnl ?? 0) >= 0 ? '#95de64' : '#ff7875', fontStyle: 'italic' }}>
-                      {item.unrealized_pnl !== undefined && item.unrealized_pnl !== 0
+                      {item.unrealized_pnl != null && item.unrealized_pnl !== 0
                         ? (item.unrealized_pnl >= 0 ? '+' : '') + item.unrealized_pnl.toFixed(2)
                         : '-'}
                     </td>

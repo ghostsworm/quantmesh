@@ -1359,8 +1359,10 @@ const BotDetail: React.FC = () => {
                     <CardBody>
                       <Stat>
                         <StatLabel>{t('botDetail.todayPnlOurs')}</StatLabel>
-                        <StatNumber color={(statistics?.today_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                          {(statistics?.today_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.today_pnl ?? 0).toFixed(2)}
+                        <StatNumber color={statistics?.today_pnl_verified && statistics.today_pnl != null ? (statistics.today_pnl >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                          {statistics?.today_pnl_verified && statistics.today_pnl != null
+                            ? `${statistics.today_pnl >= 0 ? '+' : ''}${statistics.today_pnl.toFixed(2)}`
+                            : t('dashboard.pnlUnverified')}
                         </StatNumber>
                       </Stat>
                     </CardBody>
@@ -1369,8 +1371,10 @@ const BotDetail: React.FC = () => {
                     <CardBody>
                       <Stat>
                         <StatLabel>{t('botDetail.todayPnlExchange')}</StatLabel>
-                        <StatNumber color={(statistics?.today_exchange_pnl ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                          {(statistics?.today_exchange_pnl ?? 0) >= 0 ? '+' : ''}{(statistics?.today_exchange_pnl ?? 0).toFixed(2)}
+                        <StatNumber color={statistics?.today_exchange_pnl_verified ? ((statistics.today_exchange_pnl ?? 0) >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                          {statistics?.today_exchange_pnl_verified && statistics.today_exchange_pnl != null
+                            ? `${statistics.today_exchange_pnl >= 0 ? '+' : ''}${statistics.today_exchange_pnl.toFixed(2)}`
+                            : t('dashboard.pnlUnverified')}
                         </StatNumber>
                       </Stat>
                     </CardBody>
@@ -1494,8 +1498,10 @@ const BotDetail: React.FC = () => {
                                 {o.order_source === 'stop_loss' ? t('orders.sourceStopLoss') : t('orders.sourceTakeProfit')}
                               </Badge>
                             </Td>
-                            <Td color={((o.exchange_pnl ?? o.realized_pnl) ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                              {(o.exchange_pnl ?? o.realized_pnl) != null ? ((o.exchange_pnl ?? o.realized_pnl) >= 0 ? '+' : '') + (o.exchange_pnl ?? o.realized_pnl).toFixed(2) : '-'}
+                            <Td color={o.exchange_pnl_verified && typeof o.exchange_pnl === 'number' ? (o.exchange_pnl >= 0 ? 'green.500' : 'red.500') : 'gray.500'}>
+                              {o.exchange_pnl_verified && typeof o.exchange_pnl === 'number'
+                                ? `${o.exchange_pnl >= 0 ? '+' : ''}${o.exchange_pnl.toFixed(2)}`
+                                : (o.exchange_pnl != null || o.realized_pnl != null) ? t('dashboard.pnlUnverified') : '-'}
                             </Td>
                           </Tr>
                         ))}

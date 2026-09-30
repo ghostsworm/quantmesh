@@ -284,6 +284,7 @@ export interface StrategyRuntimeStatus {
     totalTrades: number
     winRate: number
     totalPnL: number
+    totalPnLVerified?: boolean
     totalVolume: number
   } | null
   positions?: Array<{

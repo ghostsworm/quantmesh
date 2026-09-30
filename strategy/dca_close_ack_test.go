@@ -58,7 +58,7 @@ func TestDCAOverfilledCloseRetainsInventoryAndRequiresReconciliation(t *testing.
 	}
 	orderID := strategy.closeOrderID
 	if err := strategy.OnOrderUpdate(&position.OrderUpdate{
-		OrderID: orderID, Status: "PARTIALLY_FILLED", ExecutedQty: 1.1, AvgPrice: 110, CommissionAsset: "USDT",
+		OrderID: orderID, Status: "PARTIALLY_FILLED", ExecutedQty: 1.1, AvgPrice: 110, CommissionAsset: "USDT", CommissionKnown: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
 			}
 			orderID := strategy.closeOrderID
 			if err := strategy.OnOrderUpdate(&position.OrderUpdate{
-				OrderID: orderID, Status: "FILLED", ExecutedQty: tt.qty, AvgPrice: tt.price, CommissionAsset: "USDT",
+				OrderID: orderID, Status: "FILLED", ExecutedQty: tt.qty, AvgPrice: tt.price, CommissionAsset: "USDT", CommissionKnown: true,
 			}); err != nil {
 				t.Fatal(err)
 			}

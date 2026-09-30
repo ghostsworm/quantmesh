@@ -185,15 +185,15 @@ func getPnLBySymbol(c *gin.Context) {
 
 // PnLBySymbolResponse 按币种對的盈亏數據
 type PnLBySymbolResponse struct {
-	Exchange      string  `json:"exchange"`
-	Symbol        string  `json:"symbol"`
-	MarketType    string  `json:"market_type"`
-	PnLAsset      string  `json:"pnl_asset"`
-	TotalPnL      float64 `json:"total_pnl"`
-	TotalTrades   int     `json:"total_trades"`
-	TotalVolume   float64 `json:"total_volume"`
-	WinRate       float64 `json:"win_rate"`
-	UnrealizedPnL float64 `json:"unrealized_pnl,omitempty"` // 時段內最後一天的收盤未實現盈虧（來自每日快照）
+	Exchange      string   `json:"exchange"`
+	Symbol        string   `json:"symbol"`
+	MarketType    string   `json:"market_type"`
+	PnLAsset      string   `json:"pnl_asset"`
+	TotalPnL      float64  `json:"total_pnl"`
+	TotalTrades   int      `json:"total_trades"`
+	TotalVolume   float64  `json:"total_volume"`
+	WinRate       float64  `json:"win_rate"`
+	UnrealizedPnL *float64 `json:"unrealized_pnl,omitempty"` // 未實現盈虧需快照明確持久化計價資產後才可返回
 }
 
 // getPnLByTimeRange 按時间区间查詢盈亏數據（按币种對分组）
@@ -248,14 +248,12 @@ func getPnLByTimeRange(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法按账户作用域和计价币核验 PnL: " + err.Error()})
 		return
 	}
+	// 轉换為 API 响应格式；快照只有在计价资产与已实现 PnL 相同时才可合并。
 	scopeByExchange := make(map[string]string, len(scopes))
 	for _, scope := range scopes {
-		scopeByExchange[strings.ToLower(scope.exchange)] = scope.scope
+		scopeByExchange[strings.ToLower(strings.TrimSpace(scope.exchange))] = scope.scope
 	}
-
-	// 轉换為 API 响应格式，並按交易市場讀取時段最後一天的每日快照。
 	response := make([]PnLBySymbolResponse, len(results))
-	endDate := time.Date(endTime.Year(), endTime.Month(), endTime.Day(), 0, 0, 0, 0, endTime.Location())
 	for i, r := range results {
 		resp := PnLBySymbolResponse{
 			Exchange:    r.Exchange,
@@ -267,12 +265,23 @@ func getPnLByTimeRange(c *gin.Context) {
 			TotalVolume: r.TotalVolume,
 			WinRate:     r.WinRate,
 		}
-		if scope := scopeByExchange[strings.ToLower(r.Exchange)]; scope != "" {
-			if scopeSnapshots, ok := store.(interface {
-				GetDailySnapshotByScope(exchange, marketType, symbol, accountScope string, date time.Time) (*storage.DailySnapshot, error)
-			}); ok {
-				if snap, snapErr := scopeSnapshots.GetDailySnapshotByScope(r.Exchange, r.MarketType, r.Symbol, scope, endDate); snapErr == nil && snap != nil {
-					resp.UnrealizedPnL = snap.UnrealizedPnL
+		if snapshotStorage, ok := store.(interface {
+			GetDailySnapshotByScope(exchange, marketType, symbol, accountScope string, date time.Time) (*storage.DailySnapshot, error)
+		}); ok {
+			if scope := scopeByExchange[strings.ToLower(strings.TrimSpace(r.Exchange))]; scope != "" {
+				location := utils.GlobalLocation
+				if location == nil {
+					location = time.Local
+				}
+				date := endTime.In(location)
+				snapshot, snapshotErr := snapshotStorage.GetDailySnapshotByScope(r.Exchange, r.MarketType, r.Symbol, scope, date)
+				if snapshotErr != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "读取每日 PnL 快照失败"})
+					return
+				}
+				if snapshot != nil && strings.EqualFold(strings.TrimSpace(snapshot.UnrealizedPnLAsset), strings.TrimSpace(r.PnLAsset)) {
+					value := snapshot.UnrealizedPnL
+					resp.UnrealizedPnL = &value
 				}
 			}
 		}

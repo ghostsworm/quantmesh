@@ -24,6 +24,10 @@ type marketTypeSnapshotSource interface {
 	MarketType() string
 }
 
+type pnlAssetSnapshotSource interface {
+	PnLAsset() string
+}
+
 type accountScopeSnapshotSource interface {
 	AccountScope() string
 }
@@ -154,6 +158,7 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
 		marketType := snapshotMarketType(rt)
 		accountScope := snapshotAccountScope(rt)
+		pnlAsset := snapshotPnLAsset(rt)
 		var spotPositionQty *float64
 		if strings.EqualFold(marketType, "spot") {
 			if sampler, ok := rt.(spotInventorySampler); ok {
@@ -172,6 +177,7 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 			Timestamp:          ts,
 			Equity:             equity,
 			UnrealizedPnL:      unrealized,
+			UnrealizedPnLAsset: pnlAsset,
 			TotalPositionValue: totalVal,
 			MarketPrice:        marketPrice,
 			SpotPositionQty:    spotPositionQty,
@@ -261,6 +267,7 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 
 		// 收盤時刻的未實現盈虧與持倉價值取當日最后一條市場小時記錄。
 		last := records[len(records)-1]
+		pnlAsset := consistentSnapshotPnLAsset(records)
 		snap := &storage.DailySnapshot{
 			Exchange:               exchange,
 			MarketType:             marketType,
@@ -269,6 +276,7 @@ func (r *DailySnapshotRunner) aggregateDaily(date time.Time) {
 			Account:                account,
 			Date:                   startOfDay,
 			UnrealizedPnL:          last.UnrealizedPnL,
+			UnrealizedPnLAsset:     pnlAsset,
 			TotalPositionValue:     last.TotalPositionValue,
 			ClosingPrice:           last.MarketPrice,
 			SpotPositionQty:        last.SpotPositionQty,
@@ -320,6 +328,7 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 	for _, rt := range runtimes {
 		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
 		marketType := snapshotMarketType(rt)
+		pnlAsset := snapshotPnLAsset(rt)
 		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
 		var spotPositionQty *float64
 		if strings.EqualFold(marketType, "spot") {
@@ -337,6 +346,7 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 			Account:                account,
 			Date:                   today,
 			UnrealizedPnL:          unrealized,
+			UnrealizedPnLAsset:     pnlAsset,
 			TotalPositionValue:     totalVal,
 			ClosingPrice:           marketPrice,
 			SpotPositionQty:        spotPositionQty,
@@ -361,6 +371,29 @@ func snapshotMarketType(rt RuntimeSnapshotSource) string {
 		return source.MarketType()
 	}
 	return ""
+}
+
+func snapshotPnLAsset(rt RuntimeSnapshotSource) string {
+	source, ok := rt.(pnlAssetSnapshotSource)
+	if !ok {
+		return ""
+	}
+	return strings.ToUpper(strings.TrimSpace(source.PnLAsset()))
+}
+
+func consistentSnapshotPnLAsset(records []*storage.HourlyEquityRecord) string {
+	asset := ""
+	for _, record := range records {
+		if record == nil {
+			return ""
+		}
+		current := strings.ToUpper(strings.TrimSpace(record.UnrealizedPnLAsset))
+		if current == "" || (asset != "" && current != asset) {
+			return ""
+		}
+		asset = current
+	}
+	return asset
 }
 
 func snapshotAccountScope(rt RuntimeSnapshotSource) string {

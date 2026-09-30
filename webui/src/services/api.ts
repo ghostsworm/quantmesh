@@ -10,6 +10,8 @@ export interface SystemStatus {
   market_type?: string       // 市場類型：spot/futures，用於區分現貨與合約
   current_price: number
   total_pnl: number
+  total_pnl_asset?: string
+  total_pnl_verified?: boolean
   total_trades: number
   risk_triggered: boolean
   uptime: number
@@ -838,9 +840,11 @@ export async function batchCancelOrders(
 export interface StatisticsSummary {
   total_trades: number
   total_volume: number
-  total_pnl: number // 淨利潤（已扣手續費）
-  gross_pnl?: number // 毛利（未扣手續費）
-  total_fee?: number // 手續費合計
+  total_pnl: number | null // 未核实时为 null
+  pnl_verified?: boolean
+  pnl_asset?: string
+  gross_pnl?: number | null // 毛利（未扣手續費）
+  total_fee?: number | null // 手續費合計
   win_rate: number
   average_pnl: number
   max_profit: number
@@ -849,8 +853,12 @@ export interface StatisticsSummary {
   total_sell_deviation?: number // 🔥 賣出價格偏差總和（USDT）
   // 🔥 當日統計
   today_trades?: number // 當日成交筆數
-  today_pnl?: number // 當日網格盈虧
-  today_exchange_pnl?: number // 當日交易所盈虧
+  today_pnl?: number | null // 當日網格盈虧
+  today_pnl_verified?: boolean
+  exchange_pnl?: number | null
+  exchange_pnl_verified?: boolean
+  today_exchange_pnl?: number | null
+  today_exchange_pnl_verified?: boolean
 }
 
 // /statistics 直接返回彙總字段（非 {summary: ...} 包装）
@@ -873,7 +881,9 @@ export interface DailyStatistics {
   date: string
   total_trades: number
   total_volume: number
-  total_pnl: number
+  total_pnl: number | null
+  pnl_verified?: boolean
+  pnl_asset?: string
   win_rate: number
   winning_trades?: number
   losing_trades?: number
@@ -881,19 +891,26 @@ export interface DailyStatistics {
   close_price?: number     // 當日收盘價
   price_change?: number    // 價格變化（收盘價-开盘價）
   price_change_pct?: number // 價格變化百分比
-  cumulative_pnl?: number  // 累计盈亏
-  unrealized_pnl?: number  // 當日收盤未實現盈虧（來自每日快照）
-  book_value_pnl?: number  // 賬面盈虧 = 已平倉 + 未實現
+  cumulative_pnl?: number | null  // 累计盈亏
+  unrealized_pnl?: number | null
+  unrealized_pnl_verified?: boolean
+  book_value_pnl?: number | null
+  book_value_pnl_verified?: boolean
+  funding_fee?: number | null
+  funding_fee_verified?: boolean
   intraday_max_drawdown?: number    // 日內最大回撤金額
   intraday_max_drawdown_pct?: number // 日內最大回撤百分比
+  exchange_pnl?: number | null
   /** 交易所 GetAccount 採樣的帳戶權益（USDT），用於真實淨值曲線 */
   account_equity?: number
 }
 
 export interface DailyStatisticsResponse {
   statistics: DailyStatistics[]
-  max_drawdown?: number     // 最大回撤金額
-  max_drawdown_pct?: number // 最大回撤百分比
+  max_drawdown?: number | null     // 最大回撤金額
+  max_drawdown_pct?: number | null // 最大回撤百分比
+  pnl_verified?: boolean
+  pnl_asset?: string
   /** spot / futures 等，用於統計頁展示市場類型 */
   market_type?: string
 }
@@ -942,8 +959,10 @@ export interface DailyPnLBreakdownSummary {
   total_fee: number
   funding_fee: number
   exchange_pnl: number
-  unrealized_pnl_start: number
-  unrealized_pnl_end: number
+  unrealized_pnl_start: number | null
+  unrealized_pnl_end: number | null
+  unrealized_pnl_start_verified: boolean
+  unrealized_pnl_end_verified: boolean
   open_price: number
   close_price: number
 }
@@ -1048,7 +1067,7 @@ export interface PnLBySymbol {
   total_trades: number
   total_volume: number
   win_rate: number
-  unrealized_pnl?: number // 時段最後一天收盤未實現盈虧（來自每日快照）
+  unrealized_pnl?: number | null // 只有快照计价资产已核实后才提供
 }
 
 export interface PnLBySymbolResponse {
