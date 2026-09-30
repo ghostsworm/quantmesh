@@ -439,6 +439,17 @@ func (s *ComboStrategy) Start(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	if s.requiresRiskOnlyPriceHandling() {
+		for i, strategy := range s.strategies {
+			if _, ok := strategy.(riskOnlyPriceHandler); !ok {
+				name := strategy.Name()
+				if i < len(s.strategyNames) && s.strategyNames[i] != "" {
+					name = s.strategyNames[i]
+				}
+				return fmt.Errorf("combo sub-strategy %s does not support risk-only price handling required by market/risk gates", name)
+			}
+		}
+	}
 	if err := s.restoreRuntimeState(); err != nil {
 		return fmt.Errorf("restore combo runtime state: %w", err)
 	}
@@ -613,29 +624,53 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 	return nil
 }
 
-// runRiskOnly 子策略被門控時只执行止盈止损。
-// 未實現 riskOnlyPriceHandler 的子策略：有持倉就完整轉發價格（保护优先，可能伴随其自身的加倉逻辑），无持倉则跳过。
+// runRiskOnly 子策略被門控時只执行退出/風險邏輯，不允許回退到完整交易路徑。
 func (s *ComboStrategy) runRiskOnly(strategy Strategy, price float64) error {
 	if handler, ok := strategy.(riskOnlyPriceHandler); ok {
 		return handler.OnPriceChangeRiskOnly(price)
 	}
 	if len(strategy.GetPositions()) > 0 {
-		return strategy.OnPriceChange(price)
+		return fmt.Errorf("sub-strategy %s has positions but does not support risk-only price handling; full price dispatch is blocked", strategy.Name())
 	}
 	return nil
+}
+
+func (s *ComboStrategy) requiresRiskOnlyPriceHandling() bool {
+	if s.strategyCfg == nil {
+		return false
+	}
+	if s.strategyCfg.MarketDetection || s.strategyCfg.MaxExposure != 0 || s.strategyCfg.MaxDrawdown != 0 {
+		return true
+	}
+	for _, child := range s.strategyCfg.Strategies {
+		if len(child.PreferredMarket) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // checkComboRiskLimits 组合级敞口与回撤限制：超限時只禁止开新倉，返回 (是否允许开倉, 原因)。
 // MaxExposure：子策略持倉名义价值之和 / TotalCapital；MaxDrawdown：(權益高水位 - 當前權益) / 高水位 (%)，
 // 當前權益 = TotalCapital + 子策略已實現盈亏 + 未實現盈亏。TotalCapital<=0 時两项均不生效。
 func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
-	if s.strategyCfg == nil || s.strategyCfg.TotalCapital <= 0 {
+	if s.strategyCfg == nil {
 		return true, ""
 	}
 	maxExposure := s.strategyCfg.MaxExposure
 	maxDrawdown := s.strategyCfg.MaxDrawdown
-	if maxExposure <= 0 && maxDrawdown <= 0 {
+	if !finiteNumber(maxExposure) || !finiteNumber(maxDrawdown) || maxExposure < 0 || maxDrawdown < 0 || maxDrawdown > comboPercentBase {
+		return false, "组合风险配置无效"
+	}
+	if maxExposure == 0 && maxDrawdown == 0 {
 		return true, ""
+	}
+	capital := s.strategyCfg.TotalCapital
+	if !finiteNumber(capital) || capital <= 0 {
+		return false, "组合风险资本基线无效"
+	}
+	if !finiteNumber(price) || price <= 0 {
+		return false, "组合风险价格证据无效"
 	}
 
 	notional := 0.0
@@ -644,23 +679,41 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 	for _, strategy := range s.strategies {
 		for _, pos := range strategy.GetPositions() {
 			if pos == nil {
-				continue
+				return false, "组合持仓证据包含空项目"
 			}
 			markPrice := pos.CurrentPrice
+			if !finiteNumber(markPrice) || !finiteNumber(pos.Size) || !finiteNumber(pos.PnL) {
+				return false, "组合持仓或未实现盈亏包含非有限数值"
+			}
 			if markPrice <= 0 {
 				markPrice = price
 			}
 			notional += math.Abs(pos.Size) * markPrice
 			unrealized += pos.PnL
+			if !finiteNumber(notional) || !finiteNumber(unrealized) {
+				return false, "组合敞口或未实现盈亏累计溢出"
+			}
 		}
-		if stats := strategy.GetStatistics(); stats != nil {
+		stats := strategy.GetStatistics()
+		if maxDrawdown > 0 && stats == nil {
+			return false, "组合回撤统计证据不可用"
+		}
+		if stats != nil {
+			if !finiteNumber(stats.TotalPnL) {
+				return false, "组合已实现盈亏包含非有限数值"
+			}
 			realized += stats.TotalPnL
+			if !finiteNumber(realized) {
+				return false, "组合已实现盈亏累计溢出"
+			}
 		}
 	}
 
-	capital := s.strategyCfg.TotalCapital
 	if maxExposure > 0 {
 		exposure := notional / capital
+		if !finiteNumber(exposure) {
+			return false, "组合敞口比例无效"
+		}
 		if exposure >= maxExposure {
 			return false, fmt.Sprintf("敞口 %.2f 已达上限 %.2f", exposure, maxExposure)
 		}
@@ -668,6 +721,9 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 
 	if maxDrawdown > 0 {
 		equity := capital + realized + unrealized
+		if !finiteNumber(equity) {
+			return false, "组合权益计算无效"
+		}
 		s.mu.Lock()
 		if equity > s.peakEquity {
 			s.peakEquity = equity
@@ -676,6 +732,9 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 		peak := s.peakEquity
 		dirty := s.runtimeStateDirty
 		s.mu.Unlock()
+		if peak <= 0 || !finiteNumber(peak) {
+			return false, "组合回撤高水位基线无效"
+		}
 		if dirty {
 			if err := s.persistRuntimeState(); err != nil {
 				s.reportRuntimeStateError(err)
@@ -685,6 +744,9 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 		}
 		if peak > 0 {
 			drawdown := (peak - equity) / peak * comboPercentBase
+			if !finiteNumber(drawdown) {
+				return false, "组合回撤计算无效"
+			}
 			if drawdown >= maxDrawdown {
 				return false, fmt.Sprintf("回撤 %.2f%% 已达上限 %.2f%%", drawdown, maxDrawdown)
 			}

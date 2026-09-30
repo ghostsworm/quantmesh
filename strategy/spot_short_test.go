@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/event"
@@ -131,8 +132,8 @@ func TestSpotShortBorrowedStateWriteFailureKeepsPreparedIntentAndBlocksSell(t *t
 
 	restarted := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, &mockMarginExchange{})
 	restarted.SetRuntimeStateStore(store)
-	if err := restarted.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "unresolved borrow intent") {
-		t.Fatalf("restart must block while borrow transfer is unverified, got %v", err)
+	if err := restarted.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "margin exchange cannot query exact client order IDs") {
+		t.Fatalf("restart must block while borrow transfer/order is unverified, got %v", err)
 	}
 }
 
@@ -155,6 +156,19 @@ func (e *failingPriceExchange) GetLatestPrice(ctx context.Context, symbol string
 type failingOrderExecutor struct {
 	signalTestExecutor
 	err error
+}
+
+type spotShortOrderCallbackExecutor struct {
+	signalTestExecutor
+	onPlace func(*position.OrderRequest, *position.Order)
+}
+
+func (e *spotShortOrderCallbackExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
+	order, err := e.signalTestExecutor.PlaceOrder(req)
+	if err == nil && e.onPlace != nil {
+		e.onPlace(req, order)
+	}
+	return order, err
 }
 
 type spotShortPositionExchange struct {
@@ -192,6 +206,60 @@ func TestSpotShortIncreaseShortDoesNotBorrowWithoutPriceEvidence(t *testing.T) {
 	}
 }
 
+func TestSpotShortPersistsBuyIntentBeforeSubmissionAndHandlesFillBeforeAck(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	margin := &mockMarginExchange{}
+	var strategy *SpotShortStrategy
+	executor := &spotShortOrderCallbackExecutor{}
+	executor.onPlace = func(req *position.OrderRequest, order *position.Order) {
+		var state spotShortRuntimeState
+		if err := json.Unmarshal([]byte(store.payload), &state); err != nil {
+			t.Fatalf("decode durable buy intent before submission: %v", err)
+		}
+		if req.ClientOrderID == "" || state.PendingBuy[req.ClientOrderID].Quantity != req.Quantity {
+			t.Fatalf("buy intent was not persisted before exchange submit: req=%+v state=%+v", req, state.PendingBuy)
+		}
+		if err := strategy.OnOrderUpdate(&position.OrderUpdate{
+			OrderID: order.OrderID, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol,
+			Side: "BUY", Status: "FILLED", ExecutedQty: req.Quantity,
+		}); err != nil {
+			t.Fatalf("process fill arriving before submit acknowledgement: %v", err)
+		}
+	}
+	strategy = newSpotShortForTest(executor, &signalTestExchange{}, margin)
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.decreaseShort(context.Background(), 0.25); err != nil {
+		t.Fatalf("decrease short: %v", err)
+	}
+	if len(margin.repaid) != 1 || math.Abs(margin.repaid[0]-0.25) > 1e-12 {
+		t.Fatalf("early fill should repay exactly once: %v", margin.repaid)
+	}
+	var finalState spotShortRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &finalState); err != nil {
+		t.Fatal(err)
+	}
+	if len(finalState.PendingBuy) != 0 || len(finalState.PendingRepay) != 0 {
+		t.Fatalf("terminal early fill should leave no unresolved order marker: buy=%v repay=%v", finalState.PendingBuy, finalState.PendingRepay)
+	}
+}
+
+func TestSpotShortUncertainBuySubmissionRetainsDurableClientOrderIntent(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	errSubmit := errors.New("submission response lost")
+	strategy := newSpotShortForTest(&failingOrderExecutor{err: errSubmit}, &signalTestExchange{}, &mockMarginExchange{})
+	strategy.SetRuntimeStateStore(store)
+	var reported error
+	strategy.SetUnresolvedDebtHandler(func(err error) { reported = err })
+	err := strategy.decreaseShort(context.Background(), 0.25)
+	if !errors.Is(err, errSubmit) || reported == nil {
+		t.Fatalf("ambiguous buy submit must be reported as unresolved: err=%v reported=%v", err, reported)
+	}
+	var state spotShortRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &state) != nil || len(state.PendingBuy) != 1 {
+		t.Fatalf("ambiguous buy submit lost durable client order intent: found=%v state=%+v", store.found, state.PendingBuy)
+	}
+}
+
 func TestSpotShortSellFailureRetainsPersistentBorrowIntent(t *testing.T) {
 	errSell := errors.New("sell rejected")
 	margin := &mockMarginExchange{}
@@ -213,7 +281,7 @@ func TestSpotShortSellFailureRetainsPersistentBorrowIntent(t *testing.T) {
 	}
 	restarted := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, &mockMarginExchange{})
 	restarted.SetRuntimeStateStore(store)
-	if err := restarted.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "unresolved borrow intent") {
+	if err := restarted.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "margin exchange cannot query exact client order IDs") {
 		t.Fatalf("restart must be blocked until borrow/order is reconciled, got %v", err)
 	}
 }
@@ -408,6 +476,19 @@ type spotShortReconcileExchange struct {
 	fillsErr error
 }
 
+type spotShortClientOrderLookupExchange struct {
+	spotShortReconcileExchange
+	clientOrder *exchange.Order
+	clientID    string
+}
+
+func (e *spotShortClientOrderLookupExchange) GetOrderByClientOrderID(_ context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	if symbol != "BTCUSDT" || clientOrderID != e.clientID {
+		return nil, errors.New("unexpected client order lookup scope")
+	}
+	return e.clientOrder, nil
+}
+
 func (e *spotShortReconcileExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
 	return e.order, nil
 }
@@ -469,5 +550,65 @@ func TestSpotShortStartupFailsClosedWithoutCompleteFillEvidence(t *testing.T) {
 	}
 	if len(margin.repaid) != 0 {
 		t.Fatalf("must not repay based on order cumulative quantity without fee evidence: %v", margin.repaid)
+	}
+}
+
+func TestSpotShortStartupReconcilesPersistedBuyIntentByExactClientOrderID(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-cid-reconcile"
+	cfg.Trading.Symbol = "BTCUSDT"
+	clientOrderID := "buy-recovery-cid"
+	order := &exchange.Order{OrderID: 88, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Status: exchange.OrderStatusNew, Quantity: 0.4}
+	state := spotShortRuntimeState{
+		BotID: cfg.Trading.BotID, Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBuy: map[string]spotShortPendingBuy{
+			clientOrderID: {Quantity: 0.4, CreatedAtUnixMilli: time.Now().UnixMilli()},
+		},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue := &spotShortClientOrderLookupExchange{
+		spotShortReconcileExchange: spotShortReconcileExchange{order: order},
+		clientOrder:                order, clientID: clientOrderID,
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	strategy := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, venue, nil, nil)
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.Start(context.Background()); err != nil {
+		t.Fatalf("reconcile exact persisted buy intent: %v", err)
+	}
+	if len(strategy.pendingBuy) != 0 || strategy.pendingRepay[88].OrderQuantity != 0.4 {
+		t.Fatalf("buy intent was not safely rebound to exchange order: pendingBuy=%v pendingRepay=%v", strategy.pendingBuy, strategy.pendingRepay)
+	}
+}
+
+func TestSpotShortStartupRejectsMismatchedClientOrderRecovery(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-cid-mismatch"
+	cfg.Trading.Symbol = "BTCUSDT"
+	clientOrderID := "buy-recovery-cid"
+	state := spotShortRuntimeState{
+		BotID: cfg.Trading.BotID, Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBuy: map[string]spotShortPendingBuy{
+			clientOrderID: {Quantity: 0.4, CreatedAtUnixMilli: time.Now().UnixMilli()},
+		},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue := &spotShortClientOrderLookupExchange{
+		spotShortReconcileExchange: spotShortReconcileExchange{},
+		clientOrder:                &exchange.Order{OrderID: 88, ClientOrderID: clientOrderID, Symbol: "ETHUSDT", Side: exchange.SideBuy, Quantity: 0.4},
+		clientID:                   clientOrderID,
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	strategy := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, venue, nil, nil)
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "identity/quantity mismatch") {
+		t.Fatalf("startup must reject order returned with another symbol: %v", err)
 	}
 }

@@ -92,6 +92,9 @@ func (s *ComboStrategy) restoreRuntimeState() error {
 	if math.IsNaN(state.PeakEquity) || math.IsInf(state.PeakEquity, 0) || state.PeakEquity < 0 {
 		return fmt.Errorf("combo runtime state contains invalid peak equity")
 	}
+	if s.strategyCfg != nil && s.strategyCfg.MaxDrawdown > 0 && state.PeakEquity <= 0 {
+		return fmt.Errorf("combo runtime state is missing a positive drawdown high-water baseline")
+	}
 	s.mu.Lock()
 	s.peakEquity = state.PeakEquity
 	s.runtimeStateDirty = false
@@ -108,7 +111,8 @@ func (s *ComboStrategy) persistRuntimeState() error {
 		return fmt.Errorf("combo runtime state store is unavailable")
 	}
 	botID, symbol := s.runtimeStateIdentity()
-	if botID == "" || symbol == "" || math.IsNaN(peak) || math.IsInf(peak, 0) || peak < 0 {
+	if botID == "" || symbol == "" || math.IsNaN(peak) || math.IsInf(peak, 0) || peak < 0 ||
+		(s.strategyCfg != nil && s.strategyCfg.MaxDrawdown > 0 && peak <= 0) {
 		return fmt.Errorf("combo runtime state identity or peak equity is invalid")
 	}
 	payload, err := json.Marshal(comboRuntimeState{BotID: botID, StrategyName: s.name, Symbol: symbol, PeakEquity: peak})

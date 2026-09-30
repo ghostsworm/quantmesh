@@ -80,7 +80,7 @@ func (b *BinanceSpotMarginAdapter) PlaceOrder(ctx context.Context, req *OrderReq
 	if sym == "" {
 		sym = b.symbol
 	}
-	orderID, err := b.marginClient.PlaceMarginOrder(ctx, sym, string(req.Side), orderType, quantityStr, priceStr, false)
+	orderID, err := b.marginClient.PlaceMarginOrderWithClientOrderID(ctx, sym, string(req.Side), orderType, quantityStr, priceStr, req.ClientOrderID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (b *BinanceSpotMarginAdapter) PlaceOrder(ctx context.Context, req *OrderReq
 	qty, _ := strconv.ParseFloat(quantityStr, 64)
 	return &Order{
 		OrderID:       orderID,
-		ClientOrderID: "",
+		ClientOrderID: req.ClientOrderID,
 		Symbol:        b.symbol,
 		Side:          req.Side,
 		Type:          OrderType(orderType),
@@ -575,6 +575,47 @@ func (b *BinanceSpotMarginAdapter) GetOrder(ctx context.Context, symbol string, 
 		Status:        OrderStatus(o.Status),
 		CreatedAt:     time.UnixMilli(o.Time),
 		UpdateTime:    o.UpdateTime,
+	}, nil
+}
+
+// GetOrderByClientOrderID queries the cross-margin order endpoint, not the
+// embedded spot adapter's order history.
+func (b *BinanceSpotMarginAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	if b == nil || b.marginClient == nil {
+		return nil, fmt.Errorf("Binance spot margin client is unavailable")
+	}
+	sym := symbol
+	if sym == "" {
+		sym = b.symbol
+	}
+	o, err := b.marginClient.GetMarginOrderByClientOrderID(ctx, sym, clientOrderID, false)
+	if err != nil {
+		return nil, err
+	}
+	if o == nil {
+		return nil, nil
+	}
+	price, err := strconv.ParseFloat(o.Price, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse Binance margin order price: %w", err)
+	}
+	qty, err := strconv.ParseFloat(o.OrigQuantity, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse Binance margin order quantity: %w", err)
+	}
+	execQty, err := strconv.ParseFloat(o.ExecutedQuantity, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse Binance margin executed quantity: %w", err)
+	}
+	cumulativeQuote, err := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
+	if err != nil {
+		return nil, fmt.Errorf("parse Binance margin cumulative quote quantity: %w", err)
+	}
+	return &Order{
+		OrderID: o.OrderID, ClientOrderID: o.ClientOrderID, Symbol: o.Symbol,
+		Side: Side(o.Side), Type: OrderType(o.Type), Price: price, Quantity: qty,
+		ExecutedQty: execQty, AvgPrice: cumulativeAveragePrice(cumulativeQuote, execQty),
+		Status: OrderStatus(o.Status), CreatedAt: time.UnixMilli(o.Time), UpdateTime: o.UpdateTime,
 	}, nil
 }
 

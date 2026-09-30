@@ -37,9 +37,10 @@ type SpotShortStrategy struct {
 	ctx                      context.Context
 	cancel                   context.CancelFunc
 	mu                       sync.RWMutex
-	borrowMu                 sync.Mutex
+	tradeMu                  sync.Mutex
 	pendingRepay             map[int64]spotShortPendingRepay
 	pendingBorrow            map[string]spotShortPendingBorrow
+	pendingBuy               map[string]spotShortPendingBuy
 	runtimeStateStore        RuntimeStateStore
 	runtimeStateErrorHandler func(error)
 	unresolvedDebtHandler    func(error)
@@ -86,6 +87,7 @@ func NewSpotShortStrategy(name string, cfg *config.Config, executor position.Ord
 		quoteAsset:    quoteAsset,
 		pendingRepay:  make(map[int64]spotShortPendingRepay),
 		pendingBorrow: make(map[string]spotShortPendingBorrow),
+		pendingBuy:    make(map[string]spotShortPendingBuy),
 		positions:     []*Position{},
 		orders:        []*Order{},
 		stats:         &StrategyStatistics{},
@@ -152,6 +154,29 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 	s.mu.Lock()
 	pending, ok := s.pendingRepay[update.OrderID]
+	if !ok && update.ClientOrderID != "" && update.OrderID > 0 {
+		if intent, found := s.pendingBuy[update.ClientOrderID]; found {
+			if (update.Symbol != "" && update.Symbol != s.symbol) || (update.Side != "" && update.Side != "BUY") ||
+				math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) || update.ExecutedQty < 0 || update.ExecutedQty > intent.Quantity {
+				s.mu.Unlock()
+				return fmt.Errorf("spot short buy update identity/quantity mismatch for client order %s", update.ClientOrderID)
+			}
+			if s.pendingRepay == nil {
+				s.pendingRepay = make(map[int64]spotShortPendingRepay)
+			}
+			previousBuy := intent
+			delete(s.pendingBuy, update.ClientOrderID)
+			s.pendingRepay[update.OrderID] = spotShortPendingRepay{ClientOrderID: update.ClientOrderID, OrderQuantity: intent.Quantity}
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				delete(s.pendingRepay, update.OrderID)
+				s.pendingBuy[update.ClientOrderID] = previousBuy
+				s.mu.Unlock()
+				return err
+			}
+			pending = s.pendingRepay[update.OrderID]
+			ok = true
+		}
+	}
 	if !ok {
 		s.mu.Unlock()
 		return nil
@@ -159,6 +184,11 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if pending.RepayUncertain {
 		s.mu.Unlock()
 		return fmt.Errorf("spot short repayment outcome for order %d requires exchange reconciliation", update.OrderID)
+	}
+	if (update.Symbol != "" && update.Symbol != s.symbol) ||
+		(pending.ClientOrderID != "" && update.ClientOrderID != "" && pending.ClientOrderID != update.ClientOrderID) {
+		s.mu.Unlock()
+		return fmt.Errorf("spot short buy update identity mismatch for order %d", update.OrderID)
 	}
 	if update.ExecutedQty < pending.ExecutedQty || update.ExecutedQty > pending.OrderQuantity || math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) {
 		s.mu.Unlock()
@@ -249,6 +279,9 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 		return err
 	}
 	s.mu.Unlock()
+	if err := s.reconcilePendingBorrowIntents(ctx); err != nil {
+		return err
+	}
 	if err := s.reconcilePendingRepayOrders(ctx); err != nil {
 		return err
 	}
@@ -281,7 +314,54 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 	return nil
 }
 
+func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) error {
+	s.mu.RLock()
+	intents := make(map[string]spotShortPendingBorrow, len(s.pendingBorrow))
+	for cid, intent := range s.pendingBorrow {
+		intents[cid] = intent
+	}
+	s.mu.RUnlock()
+	if len(intents) == 0 {
+		return nil
+	}
+	query, ok := s.ex.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return fmt.Errorf("spot short has %d pending borrow/sell intents, but margin exchange cannot query exact client order IDs", len(intents))
+	}
+	for cid, intent := range intents {
+		order, err := query.GetOrderByClientOrderID(ctx, s.symbol, cid)
+		if err != nil {
+			return fmt.Errorf("query spot short margin sell by client ID %s: %w", cid, err)
+		}
+		if order == nil {
+			return fmt.Errorf("spot short margin sell %s is not yet verifiable; borrowed debt remains unresolved", cid)
+		}
+		tolerance := math.Max(1e-10, intent.Amount*1e-8)
+		if order.OrderID <= 0 || order.ClientOrderID != cid || order.Symbol != s.symbol || order.Side != exchange.SideSell ||
+			!finiteNumber(order.Quantity) || order.Quantity <= 0 || math.Abs(order.Quantity-intent.Amount) > tolerance {
+			return fmt.Errorf("spot short margin sell identity/quantity mismatch for client ID %s", cid)
+		}
+		s.mu.Lock()
+		current, exists := s.pendingBorrow[cid]
+		if !exists || current != intent {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short borrow intent %s changed during reconciliation", cid)
+		}
+		delete(s.pendingBorrow, cid)
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.pendingBorrow[cid] = current
+			s.mu.Unlock()
+			return fmt.Errorf("persist reconciled margin sell %d: %w", order.OrderID, err)
+		}
+		s.mu.Unlock()
+	}
+	return nil
+}
+
 func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) error {
+	if err := s.reconcilePendingBuyIntents(ctx); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	pendingByID := make(map[int64]spotShortPendingRepay, len(s.pendingRepay))
 	for id, pending := range s.pendingRepay {
@@ -303,7 +383,8 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 		if update.OrderID != 0 && update.OrderID != id {
 			return fmt.Errorf("exchange returned order %d while reconciling spot short order %d", update.OrderID, id)
 		}
-		if update.Side != "BUY" || (update.Symbol != "" && update.Symbol != s.symbol) {
+		if update.Side != "BUY" || (update.Symbol != "" && update.Symbol != s.symbol) ||
+			(pending.ClientOrderID != "" && update.ClientOrderID != "" && pending.ClientOrderID != update.ClientOrderID) {
 			return fmt.Errorf("exchange order identity mismatch while reconciling spot short order %d", id)
 		}
 		if update.ExecutedQty < pending.ExecutedQty {
@@ -353,6 +434,48 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 	return nil
 }
 
+func (s *SpotShortStrategy) reconcilePendingBuyIntents(ctx context.Context) error {
+	s.mu.RLock()
+	intents := make(map[string]spotShortPendingBuy, len(s.pendingBuy))
+	for clientOrderID, intent := range s.pendingBuy {
+		intents[clientOrderID] = intent
+	}
+	s.mu.RUnlock()
+	if len(intents) == 0 {
+		return nil
+	}
+	query, ok := s.ex.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return fmt.Errorf("spot short has %d unresolved buy intent(s), but exchange cannot query exact client order ids", len(intents))
+	}
+	for clientOrderID, intent := range intents {
+		order, err := query.GetOrderByClientOrderID(ctx, s.symbol, clientOrderID)
+		if err != nil {
+			return fmt.Errorf("query spot short buy order by client id %s: %w", clientOrderID, err)
+		}
+		if order == nil {
+			return fmt.Errorf("spot short buy order %s is not yet verifiable; refusing startup", clientOrderID)
+		}
+		if order.OrderID <= 0 || order.ClientOrderID != clientOrderID || order.Symbol != s.symbol || order.Side != exchange.SideBuy ||
+			math.IsNaN(order.Quantity) || math.IsInf(order.Quantity, 0) || math.Abs(order.Quantity-intent.Quantity) > math.Max(1e-10, intent.Quantity*1e-8) {
+			return fmt.Errorf("exchange order identity/quantity mismatch while reconciling spot short client order %s", clientOrderID)
+		}
+		s.mu.Lock()
+		if current, found := s.pendingBuy[clientOrderID]; found {
+			delete(s.pendingBuy, clientOrderID)
+			s.pendingRepay[order.OrderID] = spotShortPendingRepay{ClientOrderID: clientOrderID, OrderQuantity: current.Quantity}
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				delete(s.pendingRepay, order.OrderID)
+				s.pendingBuy[clientOrderID] = current
+				s.mu.Unlock()
+				return fmt.Errorf("persist reconciled spot short buy order %d: %w", order.OrderID, err)
+			}
+		}
+		s.mu.Unlock()
+	}
+	return nil
+}
+
 func (s *SpotShortStrategy) Stop() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -397,18 +520,18 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 	if math.Abs(diff) < 0.000001 {
 		return
 	}
+	s.mu.RLock()
+	hasPendingBuy := len(s.pendingRepay) > 0 || len(s.pendingBuy) > 0
+	s.mu.RUnlock()
+	if hasPendingBuy {
+		return
+	}
 
 	if diff > 0 {
 		if err := s.increaseShort(ctx, diff); err != nil {
 			logger.Error("SpotShortStrategy 增加空倉失敗 (target=%.8f current=%.8f): %v", targetShort, currentShort, err)
 		}
 	} else {
-		s.mu.RLock()
-		hasPendingBuy := len(s.pendingRepay) > 0
-		s.mu.RUnlock()
-		if hasPendingBuy {
-			return
-		}
 		if err := s.decreaseShort(ctx, -diff); err != nil {
 			logger.Error("SpotShortStrategy 買回/持久化待還狀態失敗: %v", err)
 		}
@@ -446,13 +569,17 @@ func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) (float6
 }
 
 func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) error {
-	s.borrowMu.Lock()
-	defer s.borrowMu.Unlock()
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
 		return nil
 	}
 	s.mu.RLock()
+	if len(s.pendingBuy) > 0 || len(s.pendingRepay) > 0 {
+		s.mu.RUnlock()
+		return fmt.Errorf("spot short has an unresolved buy/repayment order; refusing another borrow")
+	}
 	var unresolvedClientOrderID string
 	for clientOrderID := range s.pendingBorrow {
 		unresolvedClientOrderID = clientOrderID
@@ -549,6 +676,8 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) e
 }
 
 func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) error {
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
 		return nil
@@ -560,6 +689,23 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) e
 	}
 	// 限價買單略高於市價以提高成交率
 	price = s.roundPrice(price * 1.001)
+	clientOrderID := utils.GenerateOrderID(price, "BUY", s.getPriceDecimals())
+	intent := spotShortPendingBuy{Quantity: amount, CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
+	s.mu.Lock()
+	if len(s.pendingBuy) > 0 || len(s.pendingRepay) > 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("spot short has an unresolved buy/repayment order; refusing another buy")
+	}
+	if s.pendingBuy == nil {
+		s.pendingBuy = make(map[string]spotShortPendingBuy)
+	}
+	s.pendingBuy[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		delete(s.pendingBuy, clientOrderID)
+		s.mu.Unlock()
+		return fmt.Errorf("persist spot short buy intent before submission: %w", err)
+	}
+	s.mu.Unlock()
 	req := &position.OrderRequest{
 		Symbol:        s.symbol,
 		Side:          "BUY",
@@ -567,21 +713,41 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) e
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
+		ClientOrderID: clientOrderID,
+		StrategyName:  s.name,
+		StrategyType:  "spot_short",
 	}
 	ord, err := s.executor.PlaceOrder(req)
 	if err != nil {
-		logger.Error("SpotShortStrategy 買回失敗: %v", err)
-		return err
+		wrapped := fmt.Errorf("spot short buy submission outcome is unresolved (client_order_id=%s): %w", clientOrderID, err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
+	}
+	if ord == nil || ord.OrderID <= 0 || (ord.ClientOrderID != "" && ord.ClientOrderID != clientOrderID) ||
+		(ord.Symbol != "" && ord.Symbol != s.symbol) || (ord.Side != "" && ord.Side != "BUY") ||
+		(ord.Quantity > 0 && math.Abs(ord.Quantity-amount) > math.Max(1e-10, amount*1e-8)) {
+		wrapped := fmt.Errorf("spot short buy acknowledgement is invalid; outcome unresolved (client_order_id=%s)", clientOrderID)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
 	}
 	s.mu.Lock()
 	if s.pendingRepay == nil {
 		s.pendingRepay = make(map[int64]spotShortPendingRepay)
 	}
-	s.pendingRepay[ord.OrderID] = spotShortPendingRepay{OrderQuantity: amount}
-	err = s.persistRuntimeStateLocked()
+	if _, unresolved := s.pendingBuy[clientOrderID]; unresolved {
+		delete(s.pendingBuy, clientOrderID)
+		s.pendingRepay[ord.OrderID] = spotShortPendingRepay{ClientOrderID: clientOrderID, OrderQuantity: amount}
+		err = s.persistRuntimeStateLocked()
+		if err != nil {
+			delete(s.pendingRepay, ord.OrderID)
+			s.pendingBuy[clientOrderID] = intent
+		}
+	}
 	s.mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("persist spot short pending repay for order %d: %w", ord.OrderID, err)
+		wrapped := fmt.Errorf("persist spot short pending repay for order %d: %w", ord.OrderID, err)
+		s.reportUnresolvedDebt(wrapped)
+		return wrapped
 	}
 	logger.Info("📥 SpotShortStrategy: 已下買回單 %.6f %s (order=%d)，成交後還幣", amount, s.baseAsset, ord.OrderID)
 	return nil

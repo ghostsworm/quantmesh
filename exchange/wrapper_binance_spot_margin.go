@@ -124,6 +124,20 @@ func (w *binanceSpotMarginWrapper) GetOrder(ctx context.Context, symbol string, 
 	}, nil
 }
 
+func (w *binanceSpotMarginWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
+	binanceOrder, err := w.adapter.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+	if err != nil || binanceOrder == nil {
+		return nil, err
+	}
+	return &Order{
+		OrderID: binanceOrder.OrderID, ClientOrderID: binanceOrder.ClientOrderID,
+		Symbol: binanceOrder.Symbol, Side: Side(binanceOrder.Side), Type: OrderType(binanceOrder.Type),
+		Price: binanceOrder.Price, Quantity: binanceOrder.Quantity, ExecutedQty: binanceOrder.ExecutedQty,
+		AvgPrice: binanceOrder.AvgPrice, Status: OrderStatus(binanceOrder.Status),
+		CreatedAt: binanceOrder.CreatedAt, UpdateTime: binanceOrder.UpdateTime,
+	}, nil
+}
+
 func (w *binanceSpotMarginWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	binanceOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {

@@ -124,6 +124,12 @@ func (m *MarginClient) GetTradesByOrder(ctx context.Context, symbol string, orde
 
 // PlaceMarginOrder 杠杆账户下单（用于做空：先借后卖 / 买回归还）
 func (m *MarginClient) PlaceMarginOrder(ctx context.Context, symbol, side, orderType, quantity, price string, isIsolated bool) (orderID int64, err error) {
+	return m.PlaceMarginOrderWithClientOrderID(ctx, symbol, side, orderType, quantity, price, "", isIsolated)
+}
+
+// PlaceMarginOrderWithClientOrderID submits a margin order with a caller-owned
+// identifier so uncertain acknowledgements can be reconciled on the margin API.
+func (m *MarginClient) PlaceMarginOrderWithClientOrderID(ctx context.Context, symbol, side, orderType, quantity, price, clientOrderID string, isIsolated bool) (orderID int64, err error) {
 	srv := m.client.NewCreateMarginOrderService().
 		Symbol(symbol).
 		Side(binancesdk.SideType(side)).
@@ -133,11 +139,23 @@ func (m *MarginClient) PlaceMarginOrder(ctx context.Context, symbol, side, order
 	if price != "" && price != "0" {
 		srv = srv.Price(price).TimeInForce(binancesdk.TimeInForceTypeGTC)
 	}
+	if clientOrderID != "" {
+		srv = srv.NewClientOrderID(clientOrderID)
+	}
 	res, err := srv.Do(ctx)
 	if err != nil {
 		return 0, err
 	}
 	return res.OrderID, nil
+}
+
+// GetMarginOrderByClientOrderID queries cross-margin order history by its
+// original client ID; the ordinary spot order endpoint is not equivalent.
+func (m *MarginClient) GetMarginOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string, isIsolated bool) (*binancesdk.Order, error) {
+	if m == nil || m.client == nil || symbol == "" || clientOrderID == "" {
+		return nil, fmt.Errorf("margin client, symbol, and client order ID are required")
+	}
+	return m.client.NewGetMarginOrderService().Symbol(symbol).OrigClientOrderID(clientOrderID).IsIsolated(isIsolated).Do(ctx)
 }
 
 func formatFloat(v float64) string {

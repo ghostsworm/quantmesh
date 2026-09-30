@@ -120,6 +120,7 @@ type MartingaleEntry struct {
 	OpeningFee        float64 // 已折算至计價币的入场手續費
 	FillProgress      position.FillProgress
 	OrderID           int64     // 订單ID
+	ClientOrderID     string    // 提交前持久化的訂單身份
 	Status            string    // pending/filled/closed
 	Timestamp         time.Time // 時间戳
 }
@@ -537,37 +538,80 @@ func (s *MartingaleStrategy) openInitialPosition(price float64) error {
 		Timestamp:         time.Now(),
 	}
 
-	// 下單
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         side,
-		Quantity:     quantity,
-		Price:        price,
-		PostOnly:     true,
-		PositionSide: s.positionSide(),
-	})
+	return s.submitEntryOrder(entry, side)
+}
+
+func (s *MartingaleStrategy) submitEntryOrder(entry *MartingaleEntry, side string) error {
+	entry.ClientOrderID = utils.NewCompactOrderID()
+	s.entries = append(s.entries, entry)
+	previousLevel := s.currentLevel
+	s.currentLevel = entry.Level + 1
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.entries = s.entries[:len(s.entries)-1]
+		s.currentLevel = previousLevel
+		return fmt.Errorf("persist martingale entry intent before submission: %w", err)
+	}
+	request := &position.OrderRequest{
+		Symbol:        s.strategyCfg.Symbol,
+		Side:          side,
+		Quantity:      entry.RequestedQuantity,
+		Price:         entry.Price,
+		PostOnly:      true,
+		PositionSide:  s.positionSide(),
+		ClientOrderID: entry.ClientOrderID,
+		StrategyName:  s.name,
+		StrategyType:  "martingale",
+	}
+	order, err := s.executor.PlaceOrder(request)
 
 	if err != nil {
-		logger.Error("❌ [%s] 初始订單下單失败: %v", s.name, err)
-		return err
+		entry.Status = position.OrderStatusUnknown
+		submissionErr := fmt.Errorf("martingale entry submission outcome is unknown: %w", err)
+		persistErr := s.persistRuntimeStateLocked()
+		s.runtimeStateErr = submissionErr
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{ClientOrderID: entry.ClientOrderID}, submissionErr.Error())
+		if persistErr != nil {
+			s.runtimeStateErr = errors.Join(submissionErr, persistErr)
+			return s.runtimeStateErr
+		}
+		return submissionErr
 	}
 	if order == nil {
-		logger.Debug("🔒 [%s] 初始订單被执行器跳过，等待下一轮", s.name)
+		// A nil result is the executor's explicit pre-submit rejection; remove
+		// the intent only after the rollback snapshot is durable.
+		s.entries = s.entries[:len(s.entries)-1]
+		s.currentLevel = entry.Level
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			entry.Status = position.OrderStatusUnknown
+			s.entries = append(s.entries, entry)
+			s.currentLevel = entry.Level + 1
+			s.runtimeStateErr = fmt.Errorf("persist martingale skipped-order rollback: %w", err)
+			return s.runtimeStateErr
+		}
+		logger.Debug("🔒 [%s] 马丁入场单被执行器拒绝，等待下一轮", s.name)
 		return nil
 	}
-
-	// S3：限價單下單成功≠成交，保持 pending，等成交回報再計入持倉
+	if order.OrderID <= 0 || !finiteNumber(order.Quantity) || order.Quantity <= 0 ||
+		math.Abs(order.Quantity-entry.RequestedQuantity) > math.Max(entryQtyEpsilon, entry.RequestedQuantity*1e-8) ||
+		(order.ClientOrderID != "" && utils.RemoveBrokerPrefix(strings.ToLower(s.exchange.GetName()), order.ClientOrderID) != entry.ClientOrderID) {
+		entry.Status = position.OrderStatusUnknown
+		ackErr := fmt.Errorf("martingale entry acknowledgement conflicts with persisted intent")
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			ackErr = errors.Join(ackErr, err)
+		}
+		s.runtimeStateErr = ackErr
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: entry.ClientOrderID}, ackErr.Error())
+		return ackErr
+	}
+	// ACK does not prove execution; bind the venue ID to the already durable CID.
 	entry.OrderID = order.OrderID
-	s.entries = append(s.entries, entry)
-	s.currentLevel = 1
+	entry.Status = entryStatusPending
 	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale order accepted but runtime state persistence failed")
+		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: entry.ClientOrderID}, "martingale order accepted but runtime state persistence failed")
 		return err
 	}
-
-	logger.Info("📈 [%s:%s] [%s] 初始订單已挂單: 價格=%.2f, 數量=%.6f, 方向=%s",
-		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, side)
-
+	logger.Info("📈 [%s:%s] [%s] 入场委托已挂单: level=%d price=%.8f quantity=%.8f side=%s cid=%s",
+		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, entry.Level, entry.Price, entry.RequestedQuantity, side, entry.ClientOrderID)
 	return nil
 }
 
@@ -641,38 +685,7 @@ func (s *MartingaleStrategy) checkMartingale(price float64) error {
 		Timestamp:         time.Now(),
 	}
 
-	// 下單
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         side,
-		Quantity:     quantity,
-		Price:        price,
-		PostOnly:     true,
-		PositionSide: s.positionSide(),
-	})
-
-	if err != nil {
-		logger.Error("❌ [%s] 马丁加倉 #%d 失败: %v", s.name, s.currentLevel, err)
-		return err
-	}
-	if order == nil {
-		logger.Debug("🔒 [%s] 马丁加倉 #%d 被执行器跳过，等待下一轮", s.name, s.currentLevel)
-		return nil
-	}
-
-	// S3：保持 pending，等成交回報再計入持倉
-	entry.OrderID = order.OrderID
-	s.entries = append(s.entries, entry)
-	s.currentLevel++
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "martingale add order accepted but runtime state persistence failed")
-		return err
-	}
-
-	logger.Info("📉 [%s] 马丁加倉 #%d 已挂單:價格=%.2f, 數量=%.6f, 金額=%.2f, 倍數=%.2f, 平均成本=%.2f",
-		s.name, entry.Level, price, quantity, amount, multiplier, s.avgEntryPrice)
-
-	return nil
+	return s.submitEntryOrder(entry, side)
 }
 
 // checkReverseMartingale 检查反向马丁（盈利時加倉）
@@ -714,37 +727,7 @@ func (s *MartingaleStrategy) checkReverseMartingale(price float64) error {
 		Timestamp:         time.Now(),
 	}
 
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         side,
-		Quantity:     quantity,
-		Price:        price,
-		PostOnly:     true,
-		PositionSide: s.positionSide(),
-	})
-
-	if err != nil {
-		logger.Error("❌ [%s] 反向马丁加倉 #%d 失败: %v", s.name, s.currentLevel, err)
-		return err
-	}
-	if order == nil {
-		logger.Debug("🔒 [%s] 反向马丁加倉 #%d 被执行器跳过，等待下一轮", s.name, s.currentLevel)
-		return nil
-	}
-
-	// S3：保持 pending，等成交回報再計入持倉
-	entry.OrderID = order.OrderID
-	s.entries = append(s.entries, entry)
-	s.currentLevel++
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireMartingaleOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "reverse martingale order accepted but runtime state persistence failed")
-		return err
-	}
-
-	logger.Info("📈 [%s] 反向马丁加倉 #%d 已挂單:價格=%.2f, 數量=%.6f, 金額=%.2f",
-		s.name, entry.Level, price, quantity, amount)
-
-	return nil
+	return s.submitEntryOrder(entry, side)
 }
 
 // getMultiplier 獲取加倉倍數（考虑风險遞减）
@@ -1033,6 +1016,25 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.isClosing = true
 		s.closeOrderID = update.OrderID
 		s.pendingCloseReason = ""
+	}
+	if update.ClientOrderID != "" {
+		incomingCID := utils.RemoveBrokerPrefix(exchangeName, update.ClientOrderID)
+		for _, entry := range s.entries {
+			if entry == nil || entry.ClientOrderID == "" || entry.ClientOrderID != incomingCID {
+				continue
+			}
+			if entry.OrderID != 0 && entry.OrderID != update.OrderID {
+				entry.Status = position.OrderStatusUnknown
+				s.requireMartingaleOrderReconciliation(update, "martingale entry update order ID conflicts with persisted CID")
+				return s.persistRuntimeStateLocked()
+			}
+			entry.OrderID = update.OrderID
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				return fmt.Errorf("persist martingale entry order identity from update: %w", err)
+			}
+			s.handleEntryOrderUpdate(entry, update)
+			return s.persistRuntimeStateLocked()
+		}
 	}
 
 	if s.isClosing && update.OrderID == s.closeOrderID {

@@ -34,7 +34,9 @@ type SpotLongStrategy struct {
 	ctx                      context.Context
 	cancel                   context.CancelFunc
 	mu                       sync.RWMutex
+	tradeMu                  sync.Mutex
 	pendingOrders            map[int64]spotLongPendingOrder
+	pendingIntents           map[string]spotLongPendingIntent
 	runtimeStateStore        RuntimeStateStore
 	runtimeStateErrorHandler func(error)
 
@@ -59,18 +61,19 @@ func NewSpotLongStrategy(name string, cfg *config.Config, executor position.Orde
 		baseAsset = ex.GetBaseAsset()
 	}
 	return &SpotLongStrategy{
-		name:          name,
-		cfg:           cfg,
-		executor:      executor,
-		ex:            ex,
-		groupID:       groupID,
-		symbol:        symbol,
-		baseAsset:     baseAsset,
-		quoteAsset:    quoteAsset,
-		positions:     []*Position{},
-		orders:        []*Order{},
-		stats:         &StrategyStatistics{},
-		pendingOrders: make(map[int64]spotLongPendingOrder),
+		name:           name,
+		cfg:            cfg,
+		executor:       executor,
+		ex:             ex,
+		groupID:        groupID,
+		symbol:         symbol,
+		baseAsset:      baseAsset,
+		quoteAsset:     quoteAsset,
+		positions:      []*Position{},
+		orders:         []*Order{},
+		stats:          &StrategyStatistics{},
+		pendingOrders:  make(map[int64]spotLongPendingOrder),
+		pendingIntents: make(map[string]spotLongPendingIntent),
 	}
 }
 
@@ -110,11 +113,31 @@ func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 	s.mu.Lock()
 	pending, ok := s.pendingOrders[update.OrderID]
+	if !ok && update.ClientOrderID != "" && update.OrderID > 0 {
+		if intent, found := s.pendingIntents[update.ClientOrderID]; found {
+			if (update.Side != "" && update.Side != intent.Side) || (update.Symbol != "" && update.Symbol != s.symbol) ||
+				!finiteNumber(update.ExecutedQty) || update.ExecutedQty < 0 || update.ExecutedQty > intent.Quantity {
+				s.mu.Unlock()
+				return fmt.Errorf("spot long order update identity/quantity mismatch for client order %s", update.ClientOrderID)
+			}
+			delete(s.pendingIntents, update.ClientOrderID)
+			pending = spotLongPendingOrder{ClientOrderID: update.ClientOrderID, Side: intent.Side, Quantity: intent.Quantity}
+			s.pendingOrders[update.OrderID] = pending
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				delete(s.pendingOrders, update.OrderID)
+				s.pendingIntents[update.ClientOrderID] = intent
+				s.mu.Unlock()
+				return err
+			}
+			ok = true
+		}
+	}
 	if !ok {
 		s.mu.Unlock()
 		return nil
 	}
-	if (update.Side != "" && update.Side != pending.Side) || (update.Symbol != "" && update.Symbol != s.symbol) {
+	if (update.Side != "" && update.Side != pending.Side) || (update.Symbol != "" && update.Symbol != s.symbol) ||
+		(pending.ClientOrderID != "" && update.ClientOrderID != "" && pending.ClientOrderID != update.ClientOrderID) {
 		s.mu.Unlock()
 		return fmt.Errorf("spot long order update identity mismatch for order %d", update.OrderID)
 	}
@@ -194,6 +217,9 @@ func (s *SpotLongStrategy) Start(ctx context.Context) error {
 }
 
 func (s *SpotLongStrategy) reconcilePendingOrders(ctx context.Context) error {
+	if err := s.reconcilePendingIntents(ctx); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	ids := make([]int64, 0, len(s.pendingOrders))
 	for id := range s.pendingOrders {
@@ -211,6 +237,12 @@ func (s *SpotLongStrategy) reconcilePendingOrders(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("reconcile spot long order %d: %w", id, err)
 		}
+		s.mu.RLock()
+		pending := s.pendingOrders[id]
+		s.mu.RUnlock()
+		if err := validateSpotLongOrderSnapshot(result, id, pending, s.symbol); err != nil {
+			return fmt.Errorf("reconcile spot long order %d: %w", id, err)
+		}
 		update, err := strategyOrderUpdateFromExchange(result)
 		if err != nil {
 			return fmt.Errorf("reconcile spot long order %d: %w", id, err)
@@ -224,6 +256,75 @@ func (s *SpotLongStrategy) reconcilePendingOrders(ctx context.Context) error {
 		if err := s.OnOrderUpdate(update); err != nil {
 			return fmt.Errorf("apply reconciled spot long order %d: %w", id, err)
 		}
+	}
+	return nil
+}
+
+func validateSpotLongOrderSnapshot(raw interface{}, orderID int64, pending spotLongPendingOrder, symbol string) error {
+	var returnedID int64
+	var clientOrderID, returnedSymbol, side string
+	var quantity float64
+	switch order := raw.(type) {
+	case *exchange.Order:
+		if order == nil {
+			return fmt.Errorf("exchange returned nil order")
+		}
+		returnedID, clientOrderID, returnedSymbol, side, quantity = order.OrderID, order.ClientOrderID, order.Symbol, string(order.Side), order.Quantity
+	case *position.Order:
+		if order == nil {
+			return fmt.Errorf("exchange returned nil order")
+		}
+		returnedID, clientOrderID, returnedSymbol, side, quantity = order.OrderID, order.ClientOrderID, order.Symbol, order.Side, order.Quantity
+	default:
+		return fmt.Errorf("unsupported exchange order response %T", raw)
+	}
+	tolerance := math.Max(1e-10, pending.Quantity*1e-8)
+	if returnedID != orderID || side != pending.Side || (returnedSymbol != "" && returnedSymbol != symbol) ||
+		(pending.ClientOrderID != "" && clientOrderID != pending.ClientOrderID) || !finiteNumber(quantity) || math.Abs(quantity-pending.Quantity) > tolerance {
+		return fmt.Errorf("exchange order identity or quantity does not match persisted spot long order")
+	}
+	return nil
+}
+
+func (s *SpotLongStrategy) reconcilePendingIntents(ctx context.Context) error {
+	s.mu.RLock()
+	intents := make(map[string]spotLongPendingIntent, len(s.pendingIntents))
+	for clientOrderID, intent := range s.pendingIntents {
+		intents[clientOrderID] = intent
+	}
+	s.mu.RUnlock()
+	if len(intents) == 0 {
+		return nil
+	}
+	query, ok := s.ex.(exchange.OrderByClientIDQuerier)
+	if !ok {
+		return fmt.Errorf("spot long has %d unresolved order intent(s), but exchange cannot query exact client order ids", len(intents))
+	}
+	for clientOrderID, intent := range intents {
+		order, err := query.GetOrderByClientOrderID(ctx, s.symbol, clientOrderID)
+		if err != nil {
+			return fmt.Errorf("query spot long order by client id %s: %w", clientOrderID, err)
+		}
+		if order == nil {
+			return fmt.Errorf("spot long order %s is not verifiable; refusing startup", clientOrderID)
+		}
+		tolerance := math.Max(1e-10, intent.Quantity*1e-8)
+		if order.OrderID <= 0 || order.ClientOrderID != clientOrderID || order.Symbol != s.symbol || string(order.Side) != intent.Side ||
+			!finiteNumber(order.Quantity) || math.Abs(order.Quantity-intent.Quantity) > tolerance {
+			return fmt.Errorf("exchange order identity/quantity mismatch while reconciling spot long client order %s", clientOrderID)
+		}
+		s.mu.Lock()
+		if current, found := s.pendingIntents[clientOrderID]; found {
+			delete(s.pendingIntents, clientOrderID)
+			s.pendingOrders[order.OrderID] = spotLongPendingOrder{ClientOrderID: clientOrderID, Side: current.Side, Quantity: current.Quantity}
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				delete(s.pendingOrders, order.OrderID)
+				s.pendingIntents[clientOrderID] = current
+				s.mu.Unlock()
+				return fmt.Errorf("persist reconciled spot long order %d: %w", order.OrderID, err)
+			}
+		}
+		s.mu.Unlock()
 	}
 	return nil
 }
@@ -278,7 +379,7 @@ func (s *SpotLongStrategy) onHedgeSignal(evt *event.Event) {
 	defer cancel()
 
 	s.mu.RLock()
-	hasPendingOrders := len(s.pendingOrders) > 0
+	hasPendingOrders := len(s.pendingOrders) > 0 || len(s.pendingIntents) > 0
 	s.mu.RUnlock()
 	if hasPendingOrders {
 		return
@@ -341,76 +442,87 @@ func (s *SpotLongStrategy) getCurrentLongPosition(ctx context.Context) (float64,
 }
 
 func (s *SpotLongStrategy) increaseLong(ctx context.Context, amount float64) error {
-	amount = s.roundQuantity(amount)
-	if amount <= 0 {
-		return nil
-	}
-	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
-	if err != nil || price <= 0 {
-		logger.Error("SpotLongStrategy 獲取價格失敗: %v", err)
-		return fmt.Errorf("get price for spot long buy %s: %w", s.symbol, err)
-	}
-	price = s.roundPrice(price)
-	req := &position.OrderRequest{
-		Symbol:        s.symbol,
-		Side:          "BUY",
-		Price:         price,
-		Quantity:      amount,
-		PriceDecimals: s.getPriceDecimals(),
-		PostOnly:      true,
-	}
-	ord, err := s.executor.PlaceOrder(req)
-	if err != nil {
-		return fmt.Errorf("place spot long buy %s: %w", s.symbol, err)
-	}
-	if ord == nil || ord.OrderID <= 0 {
-		return fmt.Errorf("spot long buy %s returned invalid order identity", s.symbol)
-	}
-	s.mu.Lock()
-	s.pendingOrders[ord.OrderID] = spotLongPendingOrder{Side: "BUY", Quantity: amount}
-	err = s.persistRuntimeStateLocked()
-	s.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	logger.Info("📥 SpotLongStrategy: 買入 %.6f %s 增加多倉", amount, s.baseAsset)
-	return nil
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+	return s.placeSpotLongOrder(ctx, "BUY", amount)
 }
 
 func (s *SpotLongStrategy) decreaseLong(ctx context.Context, amount float64) error {
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+	return s.placeSpotLongOrder(ctx, "SELL", amount)
+}
+
+func (s *SpotLongStrategy) placeSpotLongOrder(ctx context.Context, side string, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
 		return nil
 	}
+	s.mu.Lock()
+	if len(s.pendingOrders) > 0 || len(s.pendingIntents) > 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("spot long has an unresolved order; refusing another order")
+	}
+	s.mu.Unlock()
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
 		logger.Error("SpotLongStrategy 獲取價格失敗: %v", err)
-		return fmt.Errorf("get price for spot long sell %s: %w", s.symbol, err)
+		return fmt.Errorf("get price for spot long %s %s: %w", side, s.symbol, err)
 	}
-	price = s.roundPrice(price * 0.999)
+	if side == "BUY" {
+		price = s.roundPrice(price)
+	} else {
+		price = s.roundPrice(price * 0.999)
+	}
+	clientOrderID := utils.GenerateOrderID(price, side, s.getPriceDecimals())
+	intent := spotLongPendingIntent{Side: side, Quantity: amount, CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
+	s.mu.Lock()
+	if len(s.pendingOrders) > 0 || len(s.pendingIntents) > 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("spot long has an unresolved order; refusing another order")
+	}
+	s.pendingIntents[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		delete(s.pendingIntents, clientOrderID)
+		s.mu.Unlock()
+		return fmt.Errorf("persist spot long %s intent before submission: %w", side, err)
+	}
+	s.mu.Unlock()
 	req := &position.OrderRequest{
 		Symbol:        s.symbol,
-		Side:          "SELL",
+		Side:          side,
 		Price:         price,
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
+		ClientOrderID: clientOrderID,
+		StrategyName:  s.name,
+		StrategyType:  "spot_long",
 	}
 	ord, err := s.executor.PlaceOrder(req)
 	if err != nil {
-		return fmt.Errorf("place spot long sell %s: %w", s.symbol, err)
+		return fmt.Errorf("place spot long %s %s outcome unresolved (client_order_id=%s): %w", side, s.symbol, clientOrderID, err)
 	}
-	if ord == nil || ord.OrderID <= 0 {
-		return fmt.Errorf("spot long sell %s returned invalid order identity", s.symbol)
+	if ord == nil || ord.OrderID <= 0 || (ord.ClientOrderID != "" && ord.ClientOrderID != clientOrderID) ||
+		(ord.Symbol != "" && ord.Symbol != s.symbol) || (ord.Side != "" && ord.Side != side) ||
+		(ord.Quantity > 0 && math.Abs(ord.Quantity-amount) > math.Max(1e-10, amount*1e-8)) {
+		return fmt.Errorf("spot long %s %s returned invalid order identity; outcome unresolved (client_order_id=%s)", side, s.symbol, clientOrderID)
 	}
 	s.mu.Lock()
-	s.pendingOrders[ord.OrderID] = spotLongPendingOrder{Side: "SELL", Quantity: amount}
-	err = s.persistRuntimeStateLocked()
+	if _, unresolved := s.pendingIntents[clientOrderID]; unresolved {
+		delete(s.pendingIntents, clientOrderID)
+		s.pendingOrders[ord.OrderID] = spotLongPendingOrder{ClientOrderID: clientOrderID, Side: side, Quantity: amount}
+		err = s.persistRuntimeStateLocked()
+		if err != nil {
+			delete(s.pendingOrders, ord.OrderID)
+			s.pendingIntents[clientOrderID] = intent
+		}
+	}
 	s.mu.Unlock()
 	if err != nil {
-		return err
+		return fmt.Errorf("persist spot long order %d intent: %w", ord.OrderID, err)
 	}
-	logger.Info("📤 SpotLongStrategy: 賣出 %.6f %s 減少多倉", amount, s.baseAsset)
+	logger.Info("SpotLongStrategy: %s %.6f %s (order=%d)", side, amount, s.baseAsset, ord.OrderID)
 	return nil
 }
 

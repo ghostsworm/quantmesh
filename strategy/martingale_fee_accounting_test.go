@@ -1,7 +1,9 @@
 package strategy
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"testing"
 
@@ -9,6 +11,106 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/position"
 )
+
+type martingaleIntentCheckingExecutor struct {
+	hedgeOrderExecutor
+	store *memoryRuntimeStateStore
+	err   error
+}
+
+func (e *martingaleIntentCheckingExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
+	if req.ClientOrderID == "" || e.store.payload == "" {
+		return nil, errors.New("entry intent was not durable before submit")
+	}
+	var state martingaleRuntimeState
+	if err := json.Unmarshal([]byte(e.store.payload), &state); err != nil {
+		return nil, err
+	}
+	if len(state.Entries) != 1 || state.Entries[0].ClientOrderID != req.ClientOrderID || state.Entries[0].OrderID != 0 {
+		return nil, errors.New("persisted entry intent does not match submitted CID")
+	}
+	e.orders = append(e.orders, req)
+	if e.err != nil {
+		return nil, e.err
+	}
+	return &position.Order{OrderID: 71, ClientOrderID: req.ClientOrderID, Side: req.Side, Quantity: req.Quantity}, nil
+}
+
+type martingaleCIDLookupExchange struct {
+	*hedgeExchange
+	order *exchange.Order
+}
+
+func (e *martingaleCIDLookupExchange) GetOrderByClientOrderID(_ context.Context, _, cid string) (*exchange.Order, error) {
+	if e.order == nil || e.order.ClientOrderID != cid {
+		return nil, errors.New("order not found")
+	}
+	copyOrder := *e.order
+	return &copyOrder, nil
+}
+
+func TestMartingaleEntryIntentPersistsCIDBeforeSubmit(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	executor := &martingaleIntentCheckingExecutor{store: store}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	s.SetRuntimeStateStore(store)
+	s.direction = "LONG"
+	entry := &MartingaleEntry{Level: 0, Price: 100, RequestedQuantity: 1, Status: entryStatusPending}
+	if err := s.submitEntryOrder(entry, "BUY"); err != nil {
+		t.Fatal(err)
+	}
+	if entry.ClientOrderID == "" || entry.OrderID != 71 || len(executor.orders) != 1 || executor.orders[0].ClientOrderID != entry.ClientOrderID {
+		t.Fatalf("entry intent was not bound to acknowledgement: entry=%+v request=%+v", entry, executor.orders)
+	}
+}
+
+func TestMartingaleAmbiguousEntrySubmissionPersistsUnknownIntent(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	executor := &martingaleIntentCheckingExecutor{store: store, err: errors.New("timeout")}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	s.SetRuntimeStateStore(store)
+	s.direction = "LONG"
+	entry := &MartingaleEntry{Level: 0, Price: 100, RequestedQuantity: 1, Status: entryStatusPending}
+	if err := s.submitEntryOrder(entry, "BUY"); err == nil {
+		t.Fatal("ambiguous submission unexpectedly succeeded")
+	}
+	if len(s.entries) != 1 || entry.Status != position.OrderStatusUnknown || entry.ClientOrderID == "" || entry.OrderID != 0 || s.currentLevel != 1 {
+		t.Fatalf("ambiguous order intent was discarded or treated as rejected: entry=%+v level=%d", entry, s.currentLevel)
+	}
+	var persisted martingaleRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil || len(persisted.Entries) != 1 || persisted.Entries[0].Status != position.OrderStatusUnknown {
+		t.Fatalf("unknown entry was not durably retained: state=%+v err=%v", persisted, err)
+	}
+}
+
+func TestMartingaleRestoresEntryOrderByPersistedCID(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	first := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	first.SetRuntimeStateStore(store)
+	first.direction = "LONG"
+	entry := &MartingaleEntry{Level: 0, Price: 100, RequestedQuantity: 1, Status: entryStatusPending, ClientOrderID: "stable-cid"}
+	first.entries = []*MartingaleEntry{entry}
+	first.currentLevel = 1
+	if err := first.persistRuntimeStateLocked(); err != nil {
+		t.Fatal(err)
+	}
+	venue := &martingaleCIDLookupExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 72, ClientOrderID: "stable-cid", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Quantity: 1, Status: exchange.OrderStatusNew,
+	}}
+	restarted := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, venue, nil)
+	restarted.SetRuntimeStateStore(store)
+	restarted.direction = "LONG"
+	if err := restarted.restoreRuntimeState(); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.reconcilePersistedEntryOrders(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(restarted.entries) != 1 || restarted.entries[0].OrderID != 72 || restarted.entries[0].ClientOrderID != "stable-cid" {
+		t.Fatalf("entry was not rebound to exact venue order: %+v", restarted.entries)
+	}
+}
 
 type martingaleReconciliationExecutor struct {
 	hedgeOrderExecutor

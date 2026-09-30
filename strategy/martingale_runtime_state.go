@@ -113,6 +113,7 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 	var totalQty, totalCost float64
 	seenLevels := make(map[int]struct{}, len(state.Entries))
 	seenActiveOrderIDs := make(map[int64]struct{}, len(state.Entries))
+	seenActiveClientIDs := make(map[string]struct{}, len(state.Entries))
 	for _, entry := range state.Entries {
 		if entry == nil || entry.Level < 0 || entry.Level >= s.strategyCfg.MaxLevels || entry.Quantity < 0 || entry.Cost < 0 || entry.OpeningFee < 0 || entry.RequestedQuantity < 0 || entry.FillProgress.Quantity < 0 || entry.FillProgress.Notional < 0 || !finiteNumber(entry.Price) || !finiteNumber(entry.Quantity) || !finiteNumber(entry.Cost) || !finiteNumber(entry.OpeningFee) || !finiteNumber(entry.RequestedQuantity) || !finiteNumber(entry.FillProgress.Quantity) || !finiteNumber(entry.FillProgress.Notional) || entry.OrderID < 0 {
 			return fmt.Errorf("martingale runtime state contains invalid entry")
@@ -140,6 +141,17 @@ func (s *MartingaleStrategy) restoreRuntimeState() error {
 				return fmt.Errorf("martingale runtime state contains duplicate active entry order IDs")
 			}
 			seenActiveOrderIDs[entry.OrderID] = struct{}{}
+		}
+		if entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled || entry.Status == position.OrderStatusUnknown {
+			if entry.OrderID == 0 && entry.ClientOrderID == "" {
+				return fmt.Errorf("martingale active entry is missing both order ID and client order ID")
+			}
+			if entry.ClientOrderID != "" {
+				if _, exists := seenActiveClientIDs[entry.ClientOrderID]; exists {
+					return fmt.Errorf("martingale runtime state contains duplicate active entry client IDs")
+				}
+				seenActiveClientIDs[entry.ClientOrderID] = struct{}{}
+			}
 		}
 		if martingaleEntryHasAttributedFill(entry) {
 			totalQty += entry.Quantity

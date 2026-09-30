@@ -2,7 +2,9 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,7 @@ type fakeComboSubStrategy struct {
 	eventBus   EventBus
 	stats      *StrategyStatistics
 	positions  []*Position
+	riskPrices []float64
 	orders     []*Order
 	visualData map[string]interface{}
 	startErr   error
@@ -32,6 +35,10 @@ func (f *fakeComboSubStrategy) Initialize(cfg *config.Config, executor position.
 }
 func (f *fakeComboSubStrategy) OnPriceChange(price float64) error {
 	f.prices = append(f.prices, price)
+	return nil
+}
+func (f *fakeComboSubStrategy) OnPriceChangeRiskOnly(price float64) error {
+	f.riskPrices = append(f.riskPrices, price)
 	return nil
 }
 func (f *fakeComboSubStrategy) OnOrderUpdate(update *position.OrderUpdate) error { return nil }
@@ -217,6 +224,91 @@ func TestComboStrategyInitialDrawdownBaselineIsPersistedBeforeOpening(t *testing
 	}
 }
 
+func TestComboRiskLimitsFailClosedOnInvalidEconomicEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		capital float64
+		price   float64
+		pos     *Position
+		stats   *StrategyStatistics
+	}{
+		{name: "invalid capital", capital: math.NaN(), price: 100, stats: &StrategyStatistics{}},
+		{name: "invalid mark price", capital: 100, price: math.NaN(), pos: &Position{Size: 1, PnL: 0}, stats: &StrategyStatistics{}},
+		{name: "invalid size", capital: 100, price: 100, pos: &Position{Size: math.NaN(), CurrentPrice: 100}, stats: &StrategyStatistics{}},
+		{name: "invalid unrealized pnl", capital: 100, price: 100, pos: &Position{Size: 1, CurrentPrice: 100, PnL: math.Inf(1)}, stats: &StrategyStatistics{}},
+		{name: "invalid realized pnl", capital: 100, price: 100, stats: &StrategyStatistics{TotalPnL: math.NaN()}},
+		{name: "notional overflow", capital: 100, price: 100, pos: &Position{Size: math.MaxFloat64, CurrentPrice: 2}, stats: &StrategyStatistics{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			child := &fakeComboSubStrategy{name: "child", stats: tc.stats}
+			if tc.pos != nil {
+				child.positions = []*Position{tc.pos}
+			}
+			combo := &ComboStrategy{strategyCfg: &ComboConfig{TotalCapital: tc.capital, MaxExposure: 0.5, MaxDrawdown: 10}, strategies: []Strategy{child}}
+			allowed, reason := combo.checkComboRiskLimits(tc.price)
+			if allowed || reason == "" {
+				t.Fatalf("invalid risk evidence allowed opening: allowed=%v reason=%q", allowed, reason)
+			}
+		})
+	}
+}
+
+func TestComboDrawdownRejectsMissingPositiveHighWaterBaseline(t *testing.T) {
+	child := &fakeComboSubStrategy{name: "child", stats: &StrategyStatistics{TotalPnL: -200}}
+	combo := &ComboStrategy{
+		strategyCfg: &ComboConfig{TotalCapital: 100, MaxDrawdown: 10},
+		strategies:  []Strategy{child},
+	}
+	if allowed, reason := combo.checkComboRiskLimits(100); allowed || !strings.Contains(reason, "高水位") {
+		t.Fatalf("missing high-water baseline must block drawdown risk evaluation: allowed=%v reason=%q", allowed, reason)
+	}
+}
+
+func TestComboStartupRejectsZeroPersistedDrawdownBaseline(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "bot-a", "BTCUSDT"
+	state, err := json.Marshal(comboRuntimeState{BotID: "bot-a", StrategyName: "combo", Symbol: "BTCUSDT", PeakEquity: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &comboStateCapture{values: map[string]string{"combo": string(state)}}
+	child := &fakeComboSubStrategy{name: "child", stats: &StrategyStatistics{}}
+	combo := &ComboStrategy{name: "combo", cfg: cfg, strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxDrawdown: 10}, strategies: []Strategy{child}}
+	if err := combo.SetRuntimeStateStore(store); err != nil {
+		t.Fatal(err)
+	}
+	if err := combo.Start(t.Context()); err == nil || !strings.Contains(err.Error(), "positive drawdown high-water") {
+		t.Fatalf("startup must reject zero drawdown checkpoint: %v", err)
+	}
+	if child.started {
+		t.Fatal("child strategy started despite corrupt drawdown checkpoint")
+	}
+}
+
+type comboSubStrategyWithoutRiskOnly struct{ Strategy }
+
+func TestComboRiskGatesRejectSubStrategiesWithoutRiskOnlySupport(t *testing.T) {
+	child := &fakeComboSubStrategy{name: "custom", stats: &StrategyStatistics{}, positions: []*Position{{Symbol: "BTCUSDT", Size: 1}}}
+	wrapped := &comboSubStrategyWithoutRiskOnly{Strategy: child}
+	combo := &ComboStrategy{
+		name: "combo", strategyCfg: &ComboConfig{Strategies: []StrategyConfig{{Name: "custom", PreferredMarket: []MarketState{MarketBullish}}}},
+		strategies: []Strategy{wrapped}, strategyNames: []string{"custom"},
+	}
+	if err := combo.Start(t.Context()); err == nil || !strings.Contains(err.Error(), "does not support risk-only") {
+		t.Fatalf("combo should reject a gated child without risk-only mode: %v", err)
+	}
+	if child.started {
+		t.Fatal("unsupported child was started before risk-only capability validation")
+	}
+	if err := combo.runRiskOnly(wrapped, 100); err == nil {
+		t.Fatal("unsupported child with positions should report missing risk-only handling")
+	}
+	if len(child.prices) != 0 {
+		t.Fatal("risk gating must not dispatch the unrestricted price handler")
+	}
+}
+
 func TestParseComboConfigDefaultsAndCustomValues(t *testing.T) {
 	defaultCfg := parseComboConfig(nil)
 	if defaultCfg.Symbol != "BTCUSDT" || len(defaultCfg.Strategies) != 0 {
@@ -322,9 +414,9 @@ func TestComboStrategyMarketStateWeightsAndExecution(t *testing.T) {
 	if err := combo.OnPriceChange(100); err != nil {
 		t.Fatalf("OnPriceChange returned error: %v", err)
 	}
-	// bear 不匹配市况但持有倉位：S4 后仍需收到價格以执行止盈止损
-	if len(first.prices) != 1 || len(second.prices) != 1 {
-		t.Fatalf("unexpected strategy execution: first=%v second=%v", first.prices, second.prices)
+	// bear 不匹配市况但持有仓位：只运行 risk-only 退出检查，不派发完整开仓逻辑。
+	if len(first.prices) != 1 || len(second.prices) != 0 || len(second.riskPrices) != 1 {
+		t.Fatalf("unexpected gated strategy execution: first=%v second=%v riskOnly=%v", first.prices, second.prices, second.riskPrices)
 	}
 
 	combo.detectMarketState()

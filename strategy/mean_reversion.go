@@ -220,9 +220,18 @@ func (mrs *MeanReversionStrategy) calculateBollingerBands() (upper, middle, lowe
 
 // OnPriceChange 價格變化处理
 func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
+	return mrs.onPriceChange(price, true)
+}
+
+// OnPriceChangeRiskOnly updates market/risk state and permits exits without opening positions.
+func (mrs *MeanReversionStrategy) OnPriceChangeRiskOnly(price float64) error {
+	return mrs.onPriceChange(price, false)
+}
+
+func (mrs *MeanReversionStrategy) onPriceChange(price float64, allowOpening bool) error {
 	mrs.mu.Lock()
 	stateErr := mrs.runtimeStateErr
-	shouldEvaluate := mrs.isRunning && !mrs.isPaused && mrs.activeOrder == nil
+	shouldEvaluate := mrs.isRunning && (!mrs.isPaused || !allowOpening) && mrs.activeOrder == nil
 	priceErr := updateSignalPositionMark(mrs.position, price)
 	mrs.mu.Unlock()
 	if priceErr != nil {
@@ -245,7 +254,7 @@ func (mrs *MeanReversionStrategy) OnPriceChange(price float64) error {
 	mrs.mu.Lock()
 	defer mrs.mu.Unlock()
 	// 價格低於下轨：買入信号
-	if price < lower && mrs.position == nil {
+	if allowOpening && price < lower && mrs.position == nil {
 		logger.Info("📊 [%s] 價格低於下轨，買入信号: 價格=%.2f, 下轨=%.2f", mrs.name, price, lower)
 		return mrs.placeSignalOrder(signalActionOpenLong, price)
 	}

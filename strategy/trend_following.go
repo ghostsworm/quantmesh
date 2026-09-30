@@ -249,9 +249,18 @@ func (tfs *TrendFollowingStrategy) detectTrend() Trend {
 
 // OnPriceChange 價格變化处理
 func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
+	return tfs.onPriceChange(price, true)
+}
+
+// OnPriceChangeRiskOnly updates market/risk state and permits exits without opening positions.
+func (tfs *TrendFollowingStrategy) OnPriceChangeRiskOnly(price float64) error {
+	return tfs.onPriceChange(price, false)
+}
+
+func (tfs *TrendFollowingStrategy) onPriceChange(price float64, allowOpening bool) error {
 	tfs.mu.Lock()
 	stateErr := tfs.runtimeStateErr
-	shouldEvaluate := tfs.isRunning && !tfs.isPaused && tfs.activeOrder == nil
+	shouldEvaluate := tfs.isRunning && (!tfs.isPaused || !allowOpening) && tfs.activeOrder == nil
 	priceErr := updateSignalPositionMark(tfs.position, price)
 	tfs.mu.Unlock()
 	if priceErr != nil {
@@ -292,7 +301,7 @@ func (tfs *TrendFollowingStrategy) OnPriceChange(price float64) error {
 
 	// 趋势向上：开多倉或加倉
 	if trend == TrendUp {
-		if tfs.position == nil {
+		if allowOpening && tfs.position == nil {
 			logger.Info("📈 [%s] 上涨趋势，准备自动开多倉", tfs.name)
 			return tfs.placeSignalOrder(signalActionOpenLong, price)
 		}

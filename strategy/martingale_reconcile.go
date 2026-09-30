@@ -244,7 +244,7 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrders(ctx context.Context) 
 		return fmt.Errorf("exchange is unavailable for entry-order reconciliation")
 	}
 	for _, entry := range entries {
-		if entry.OrderID <= 0 || entry.RequestedQuantity <= 0 {
+		if (entry.OrderID <= 0 && entry.ClientOrderID == "") || entry.RequestedQuantity <= 0 {
 			return fmt.Errorf("entry level %d has invalid persisted order identity or requested quantity", entry.Level)
 		}
 		if err := s.reconcilePersistedEntryOrder(ctx, entry); err != nil {
@@ -255,13 +255,60 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrders(ctx context.Context) 
 }
 
 func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, entry MartingaleEntry) error {
-	raw, err := s.exchange.GetOrder(ctx, s.strategyCfg.Symbol, entry.OrderID)
-	if err != nil {
-		return fmt.Errorf("query order: %w", err)
+	var order *exchange.Order
+	if entry.ClientOrderID != "" {
+		var err error
+		order, err = s.lookupEntryOrder(ctx, entry)
+		if err != nil {
+			return fmt.Errorf("query order by persisted client ID: %w", err)
+		}
+	} else {
+		raw, err := s.exchange.GetOrder(ctx, s.strategyCfg.Symbol, entry.OrderID)
+		if err != nil {
+			return fmt.Errorf("query order: %w", err)
+		}
+		var ok bool
+		order, ok = dcaExchangeOrder(raw)
+		if !ok || order == nil {
+			return fmt.Errorf("exchange returned unsupported or missing order evidence (%T)", raw)
+		}
 	}
-	order, ok := dcaExchangeOrder(raw)
-	if !ok || order == nil {
-		return fmt.Errorf("exchange returned unsupported or missing order evidence (%T)", raw)
+	if order == nil {
+		return fmt.Errorf("exchange did not find the persisted order; absence does not prove submission rejection")
+	}
+	if entry.ClientOrderID != "" {
+		returnedCID := utils.RemoveBrokerPrefix(strings.ToLower(s.exchange.GetName()), order.ClientOrderID)
+		if returnedCID != entry.ClientOrderID {
+			return fmt.Errorf("exchange order client ID does not match persisted entry intent")
+		}
+	}
+	if entry.OrderID == 0 {
+		if order.OrderID <= 0 {
+			return fmt.Errorf("client-ID query returned an invalid exchange order ID")
+		}
+		s.mu.Lock()
+		matched := false
+		for _, persisted := range s.entries {
+			if persisted != nil && persisted.ClientOrderID == entry.ClientOrderID {
+				if persisted.OrderID != 0 && persisted.OrderID != order.OrderID {
+					s.mu.Unlock()
+					return fmt.Errorf("persisted entry order ID changed during reconciliation")
+				}
+				persisted.OrderID = order.OrderID
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			s.mu.Unlock()
+			return fmt.Errorf("persisted entry intent changed during reconciliation")
+		}
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("persist reconciled entry order ID: %w", err)
+		}
+		s.mu.Unlock()
+		entry.OrderID = order.OrderID
 	}
 	wantSide := exchange.SideBuy
 	if s.direction == "SHORT" {
@@ -305,6 +352,56 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, e
 		}
 	}
 	return nil
+}
+
+func (s *MartingaleStrategy) lookupEntryOrder(ctx context.Context, entry MartingaleEntry) (*exchange.Order, error) {
+	if entry.OrderID > 0 {
+		raw, err := s.exchange.GetOrder(ctx, s.strategyCfg.Symbol, entry.OrderID)
+		if err == nil {
+			if order, ok := dcaExchangeOrder(raw); ok && order != nil {
+				return order, nil
+			}
+		}
+	}
+	if query, ok := s.exchange.(martingaleCloseOrderByClientID); ok {
+		order, err := query.GetOrderByClientOrderID(ctx, s.strategyCfg.Symbol, entry.ClientOrderID)
+		if err == nil && order != nil {
+			if entry.OrderID > 0 && order.OrderID != entry.OrderID {
+				return nil, fmt.Errorf("client-ID lookup returned a conflicting order ID")
+			}
+			return order, nil
+		}
+	}
+	openOrdersRaw, err := s.exchange.GetOpenOrders(ctx, s.strategyCfg.Symbol)
+	if err != nil {
+		return nil, fmt.Errorf("query open orders: %w", err)
+	}
+	var openOrders []*exchange.Order
+	switch orders := openOrdersRaw.(type) {
+	case []*exchange.Order:
+		openOrders = orders
+	case []exchange.Order:
+		openOrders = make([]*exchange.Order, len(orders))
+		for i := range orders {
+			openOrders[i] = &orders[i]
+		}
+	default:
+		return nil, fmt.Errorf("unsupported open-order response %T", openOrdersRaw)
+	}
+	var matched *exchange.Order
+	for _, candidate := range openOrders {
+		if candidate == nil || utils.RemoveBrokerPrefix(strings.ToLower(s.exchange.GetName()), candidate.ClientOrderID) != entry.ClientOrderID {
+			continue
+		}
+		if matched != nil {
+			return nil, fmt.Errorf("multiple open orders share entry client ID %s", entry.ClientOrderID)
+		}
+		matched = candidate
+	}
+	if matched != nil && entry.OrderID > 0 && matched.OrderID != entry.OrderID {
+		return nil, fmt.Errorf("open-order lookup returned a conflicting order ID")
+	}
+	return matched, nil
 }
 
 func (s *MartingaleStrategy) reconcileEntryFills(ctx context.Context, symbol string, order *exchange.Order, progress position.FillProgress) (float64, float64, error) {
