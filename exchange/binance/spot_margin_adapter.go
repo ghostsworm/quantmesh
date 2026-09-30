@@ -168,7 +168,10 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 		}
 	}
 	if debt <= 0 {
-		return nil, nil
+		// A successful account response with no principal or interest is an
+		// authoritative flat snapshot, not an unavailable snapshot. Runtime
+		// callers deliberately reject nil position slices as unverified.
+		return []*Position{}, nil
 	}
 	price, _ := b.GetLatestPrice(ctx, symbol)
 	if price <= 0 {

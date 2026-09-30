@@ -94,3 +94,27 @@ func TestBinanceSpotMarginAdapterUsesInterestAwareAccountEvidence(t *testing.T) 
 		t.Fatalf("margin short position=%+v, want principal plus interest -1.01", positions)
 	}
 }
+
+func TestBinanceSpotMarginAdapterReturnsAuthoritativeEmptyPositionsWhenDebtIsZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sapi/v1/margin/account" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"totalAssetOfBtc":"0","totalLiabilityOfBtc":"0","totalNetAssetOfBtc":"0","userAssets":[]}`))
+	}))
+	defer server.Close()
+	client := binancesdk.NewClient("test-key", "test-secret")
+	client.BaseURL = server.URL
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{
+		client: client, symbol: "BTCUSDT", baseAsset: "BTC", quoteAsset: "USDT",
+	}}
+
+	positions, err := adapter.GetPositions(context.Background(), "BTCUSDT")
+	if err != nil {
+		t.Fatalf("GetPositions: %v", err)
+	}
+	if positions == nil || len(positions) != 0 {
+		t.Fatalf("zero-debt account positions=%+v, want authoritative non-nil empty snapshot", positions)
+	}
+}
