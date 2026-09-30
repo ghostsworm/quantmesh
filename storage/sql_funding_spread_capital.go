@@ -13,22 +13,37 @@ import (
 	"time"
 )
 
-// FundingSpreadCapitalClaim reserves one Bot's quote-currency budget in one
+// AccountWalletCapitalClaim reserves one Bot's quote-currency budget in one
 // verified wallet. WalletKey and BotID are opaque stable identifiers.
-type FundingSpreadCapitalClaim struct {
+type AccountWalletCapitalClaim struct {
 	WalletKey string
 	Amount    float64
 	Available float64
 }
 
-// FundingSpreadCapitalReservationStore provides atomic multi-wallet claims.
+// FundingSpreadCapitalClaim remains a source-compatible name for older callers.
+type FundingSpreadCapitalClaim = AccountWalletCapitalClaim
+
+// AccountWalletCapitalReservationStore provides atomic multi-wallet claims.
+type AccountWalletCapitalReservationStore interface {
+	ReserveAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
+	ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
+}
+
+// FundingSpreadCapitalReservationStore remains for source compatibility.
 type FundingSpreadCapitalReservationStore interface {
 	ReserveFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error
 	ReleaseFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error
 }
 
-// MultiProcessFundingSpreadCapitalStore identifies backends whose transaction
+// MultiProcessAccountWalletCapitalStore identifies backends whose transaction
 // and row-lock semantics are suitable for separate application processes.
+type MultiProcessAccountWalletCapitalStore interface {
+	AccountWalletCapitalReservationStore
+	SupportsMultiProcessAccountWalletCapital() bool
+}
+
+// MultiProcessFundingSpreadCapitalStore remains for source compatibility.
 type MultiProcessFundingSpreadCapitalStore interface {
 	FundingSpreadCapitalReservationStore
 	SupportsMultiProcessFundingSpreadCapital() bool
@@ -37,8 +52,12 @@ type MultiProcessFundingSpreadCapitalStore interface {
 //go:embed migrations/2026093001_funding_spread_capital_*.sql
 var fundingSpreadCapitalMigrations embed.FS
 
-func (s *SQLStorage) SupportsMultiProcessFundingSpreadCapital() bool {
+func (s *SQLStorage) SupportsMultiProcessAccountWalletCapital() bool {
 	return s != nil && s.dbType == "mysql"
+}
+
+func (s *SQLStorage) SupportsMultiProcessFundingSpreadCapital() bool {
+	return s.SupportsMultiProcessAccountWalletCapital()
 }
 
 func migrateFundingSpreadCapitalTables(db *sql.DB) error {
@@ -67,13 +86,13 @@ func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
 	return nil
 }
 
-func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error {
+func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error {
 	if ctx == nil {
-		return errors.New("funding spread reservation requires context")
+		return errors.New("account wallet reservation requires context")
 	}
 	botKey := fundingSpreadBotKey(botID)
 	if botKey == "" {
-		return errors.New("funding spread reservation requires Bot identity")
+		return errors.New("account wallet reservation requires Bot identity")
 	}
 	claims, err := normalizeFundingSpreadClaims(claims, true)
 	if err != nil {
@@ -81,7 +100,7 @@ func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID stri
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return fmt.Errorf("begin funding spread reservation transaction: %w", err)
+		return fmt.Errorf("begin account wallet reservation transaction: %w", err)
 	}
 	defer tx.Rollback()
 
@@ -99,12 +118,12 @@ func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID stri
 	for _, claim := range claims {
 		var current sql.NullFloat64
 		if err := tx.QueryRowContext(ctx, `SELECT amount FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey).Scan(&current); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("read existing funding spread reservation: %w", err)
+			return fmt.Errorf("read existing account wallet reservation: %w", err)
 		}
 		amount := claim.Amount
 		if current.Valid {
 			if math.IsNaN(current.Float64) || math.IsInf(current.Float64, 0) || current.Float64 <= 0 {
-				return errors.New("existing funding spread reservation is invalid")
+				return errors.New("existing account wallet reservation is invalid")
 			}
 			if current.Float64 > amount {
 				amount = current.Float64
@@ -113,7 +132,7 @@ func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID stri
 		if !current.Valid || amount > current.Float64 {
 			var others float64
 			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key <> ?`, claim.WalletKey, botKey).Scan(&others); err != nil {
-				return fmt.Errorf("sum existing funding spread reservations: %w", err)
+				return fmt.Errorf("sum existing account wallet reservations: %w", err)
 			}
 			if math.IsNaN(others) || math.IsInf(others, 0) || others < 0 || others > math.MaxFloat64-amount || others+amount > claim.Available {
 				return fmt.Errorf("wallet %s cannot safely reserve %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, claim.Available)
@@ -130,22 +149,22 @@ func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID stri
 	}
 	for _, item := range writes {
 		if _, err := tx.ExecContext(ctx, query, item.walletKey, botKey, item.amount, time.Now().UTC()); err != nil {
-			return fmt.Errorf("write funding spread capital reservation: %w", err)
+			return fmt.Errorf("write account wallet capital reservation: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit funding spread capital reservation: %w", err)
+		return fmt.Errorf("commit account wallet capital reservation: %w", err)
 	}
 	return nil
 }
 
-func (s *SQLStorage) ReleaseFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error {
+func (s *SQLStorage) ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error {
 	if ctx == nil {
-		return errors.New("funding spread reservation release requires context")
+		return errors.New("account wallet reservation release requires context")
 	}
 	botKey := fundingSpreadBotKey(botID)
 	if botKey == "" {
-		return errors.New("funding spread reservation release requires Bot identity")
+		return errors.New("account wallet reservation release requires Bot identity")
 	}
 	claims, err := normalizeFundingSpreadClaims(claims, false)
 	if err != nil {
@@ -153,7 +172,7 @@ func (s *SQLStorage) ReleaseFundingSpreadCapital(ctx context.Context, botID stri
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return fmt.Errorf("begin funding spread reservation release: %w", err)
+		return fmt.Errorf("begin account wallet reservation release: %w", err)
 	}
 	defer tx.Rollback()
 	for _, claim := range claims {
@@ -163,13 +182,21 @@ func (s *SQLStorage) ReleaseFundingSpreadCapital(ctx context.Context, botID stri
 	}
 	for _, claim := range claims {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey); err != nil {
-			return fmt.Errorf("release funding spread capital reservation: %w", err)
+			return fmt.Errorf("release account wallet capital reservation: %w", err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit funding spread capital reservation release: %w", err)
+		return fmt.Errorf("commit account wallet capital reservation release: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLStorage) ReserveFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error {
+	return s.ReserveAccountWalletCapital(ctx, botID, claims)
+}
+
+func (s *SQLStorage) ReleaseFundingSpreadCapital(ctx context.Context, botID string, claims []FundingSpreadCapitalClaim) error {
+	return s.ReleaseAccountWalletCapital(ctx, botID, claims)
 }
 
 func lockFundingSpreadWallet(ctx context.Context, tx *sql.Tx, dbType, walletKey string) error {

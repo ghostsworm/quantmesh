@@ -597,6 +597,18 @@ func startSymbolRuntime(
 	if capitalErr == nil {
 		localCfg.Strategies.CapitalAllocation.TotalCapital = botCapitalBudget
 	}
+	if capitalErr == nil {
+		walletExchange := strings.TrimSpace(symCfg.Exchange)
+		if walletExchange == "" {
+			walletExchange = localCfg.App.CurrentExchange
+		}
+		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, walletExchange, ex.GetMarketType(), quoteAsset, botCapitalBudget, availableBalance)
+		if claimErr != nil {
+			capitalErr = claimErr
+		} else if reserveErr := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, []storage.AccountWalletCapitalClaim{claim}); reserveErr != nil {
+			capitalErr = reserveErr
+		}
+	}
 
 	// K 線 regime 檢測器（trading.regime_filter / adaptive_interval / upper_bound_freeze）：
 	// 在啟動任何後台組件前校驗配置，配置非法時直接拒絕啟動

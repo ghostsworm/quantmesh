@@ -93,3 +93,24 @@ func TestFundingSpreadCapitalReservationCannotShrinkUntilReleased(t *testing.T) 
 		t.Fatalf("capacity was not released: %v", err)
 	}
 }
+
+func TestAccountWalletCapitalReservationIsSharedAcrossStrategies(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "shared-wallet-capital.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 9), Amount: 65, Available: 100}
+	if err := store.ReserveAccountWalletCapital(ctx, "grid-bot", []AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	claim.Amount = 40
+	if err := store.ReserveAccountWalletCapital(ctx, "funding-carry-bot", []AccountWalletCapitalClaim{claim}); err == nil {
+		t.Fatal("different strategy bypassed an account wallet reservation")
+	}
+	claim.Amount = 35
+	if err := store.ReserveAccountWalletCapital(ctx, "funding-carry-bot", []AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatalf("account-wide capacity should be shared across strategy types: %v", err)
+	}
+}

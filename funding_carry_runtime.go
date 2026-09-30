@@ -71,7 +71,7 @@ func startFundingCarrySymbolRuntime(
 	if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), futEx.GetBaseAsset(), futEx.GetQuoteAsset()); err != nil {
 		return nil, fmt.Errorf("資金費套利現貨/合約資產不匹配: %w", err)
 	}
-	var futuresAccountCapital, spotAccountCapital float64
+	var futuresAccountCapital, spotAccountCapital, futuresAvailable, spotAvailable float64
 	for _, wallet := range []struct {
 		market string
 		ex     exchange.IExchange
@@ -91,8 +91,10 @@ func startFundingCarrySymbolRuntime(
 		}
 		if wallet.market == "futures" {
 			futuresAccountCapital = allocated
+			futuresAvailable = available
 		} else {
 			spotAccountCapital = allocated
+			spotAvailable = available
 		}
 	}
 
@@ -107,6 +109,7 @@ func startFundingCarrySymbolRuntime(
 	} else {
 		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
 	}
+	var marginAvailable float64
 	if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
 		if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), marginEx.GetBaseAsset(), marginEx.GetQuoteAsset()); err != nil {
 			return nil, fmt.Errorf("資金費套利現貨/槓桿錢包資產不匹配: %w", err)
@@ -124,6 +127,7 @@ func startFundingCarrySymbolRuntime(
 		if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || allocated > available {
 			return nil, fmt.Errorf("同帳戶 spot_margin 配置資金 %.2f USDT 超過或無法核實可用餘額 %.2f USDT", allocated, available)
 		}
+		marginAvailable = available
 	}
 
 	priceMonitor := monitor.NewPriceMonitor(
@@ -206,6 +210,27 @@ func startFundingCarrySymbolRuntime(
 	intentBackend, ok := storageService.GetStorage().(runtimeIntentBackend)
 	if !ok {
 		return nil, fmt.Errorf("funding_carry storage backend does not support durable execution intents")
+	}
+	capitalClaims := make([]storage.AccountWalletCapitalClaim, 0, 3)
+	for _, wallet := range []struct {
+		market    string
+		available float64
+	}{{"futures", futuresAvailable}, {"spot", spotAvailable}} {
+		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, symCfg.Exchange, wallet.market, "USDT", ownLegCapital, wallet.available)
+		if claimErr != nil {
+			return nil, fmt.Errorf("build funding_carry %s capital reservation: %w", wallet.market, claimErr)
+		}
+		capitalClaims = append(capitalClaims, claim)
+	}
+	if marginAvailable > 0 {
+		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, symCfg.Exchange, "spot_margin", "USDT", ownLegCapital, marginAvailable)
+		if claimErr != nil {
+			return nil, fmt.Errorf("build funding_carry spot_margin capital reservation: %w", claimErr)
+		}
+		capitalClaims = append(capitalClaims, claim)
+	}
+	if err := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, capitalClaims); err != nil {
+		return nil, fmt.Errorf("reserve funding_carry account wallet capital: %w", err)
 	}
 	openingGate := &execution.OpeningGate{}
 	if symCfg.OpenPositionControl.PauseOpening || (symCfg.OpenPositionControl.BotRiskControl != nil && symCfg.OpenPositionControl.BotRiskControl.PauseOpening) {

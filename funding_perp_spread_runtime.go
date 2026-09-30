@@ -153,34 +153,19 @@ func startFundingPerpSpreadSymbolRuntime(
 			logger.WarnCtx(ctx, "[%s] 初始化失敗後釋放雙腿運行所有權租約失敗: %v", botID, releaseErr)
 		}
 	}()
-	if storageService == nil || storageService.GetStorage() == nil {
-		return nil, fmt.Errorf("funding_perp_spread requires persistent atomic capital reservation storage")
-	}
-	reservationStore, ok := storageService.GetStorage().(storage.FundingSpreadCapitalReservationStore)
-	if !ok {
-		return nil, fmt.Errorf("funding_perp_spread requires atomic shared capital reservation storage")
-	}
 	if distributedLock == nil {
 		return nil, fmt.Errorf("funding_perp_spread requires its configured leg coordination lock")
-	}
-	if baseCfg.Instance.Total > 1 {
-		sharedStore, sharedOK := reservationStore.(storage.MultiProcessFundingSpreadCapitalStore)
-		if !sharedOK || !sharedStore.SupportsMultiProcessFundingSpreadCapital() {
-			return nil, fmt.Errorf("multi-instance funding_perp_spread requires a shared MySQL reservation database")
-		}
-		if _, localOnly := distributedLock.(*lock.NopLock); localOnly {
-			return nil, fmt.Errorf("multi-instance funding_perp_spread requires an enabled distributed lock")
-		}
 	}
 	claims, err := fundingPerpSpreadCapitalClaims(baseCfg, fp, totalCap, legABalance, legBBalance)
 	if err != nil {
 		return nil, fmt.Errorf("build funding_perp_spread wallet capital claims: %w", err)
 	}
-	reserveCtx, cancelReserve := context.WithTimeout(ctx, 15*time.Second)
-	err = reservationStore.ReserveFundingSpreadCapital(reserveCtx, botID, claims)
-	cancelReserve()
-	if err != nil {
-		return nil, fmt.Errorf("reserve funding_perp_spread wallet capital atomically: %w", err)
+	if err := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, claims); err != nil {
+		return nil, fmt.Errorf("reserve funding_perp_spread wallet capital: %w", err)
+	}
+	reservationStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore)
+	if !ok {
+		return nil, fmt.Errorf("funding_perp_spread account wallet reservation storage disappeared after claim")
 	}
 	runtimeOwnsReservation := false
 	defer func() {
@@ -195,7 +180,7 @@ func startFundingPerpSpreadSymbolRuntime(
 			return
 		}
 		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
-		releaseErr := reservationStore.ReleaseFundingSpreadCapital(releaseCtx, botID, claims)
+		releaseErr := reservationStore.ReleaseAccountWalletCapital(releaseCtx, botID, claims)
 		cancelRelease()
 		if releaseErr != nil {
 			logger.ErrorCtx(ctx, "[%s] 啟動失敗後釋放已核實平倉的資金預留失敗: %v", botID, releaseErr)
@@ -295,7 +280,7 @@ func startFundingPerpSpreadSymbolRuntime(
 			return fmt.Errorf("funding_perp_spread flatness or open orders remain unverified: %w", verifyErr)
 		}
 		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
-		releaseErr := reservationStore.ReleaseFundingSpreadCapital(releaseCtx, botID, claims)
+		releaseErr := reservationStore.ReleaseAccountWalletCapital(releaseCtx, botID, claims)
 		cancelRelease()
 		if releaseErr != nil {
 			openingGate.Block("capital_reservation_unverified")
