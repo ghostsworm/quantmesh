@@ -2013,6 +2013,7 @@
     "unrealizedProfitUnverified": "Cost basis or fee evidence is incomplete",
     "exchangeProfit": "Exchange Profit",
     "availableToWithdraw": "Available to Withdraw",
+    "availableToWithdrawUnverified": "Withdrawal amount is unverified",
     "profitTrend": "Profit Trend",
     "date": "Date",
     "dailyProfit": "Daily Profit",

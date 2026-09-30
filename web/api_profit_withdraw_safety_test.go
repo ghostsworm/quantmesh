@@ -110,31 +110,91 @@ func TestWithdrawProfitLedgerSeparatesCompletedAndReservedAmounts(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream := ledger.amountsFor("Binance", "BTCUSDT")
+	stream, err := ledger.amountsFor("Binance", "BTCUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if stream.withdrawn != 107 || stream.reserved != 90 {
 		t.Fatalf("unexpected BTC withdrawal totals: %+v", stream)
 	}
-	allExchanges := ledger.amountsFor("", "BTCUSDT")
+	allExchanges, err := ledger.amountsFor("", "BTCUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if allExchanges.withdrawn != 157 || allExchanges.reserved != 90 {
 		t.Fatalf("unexpected all-exchange totals: %+v", allExchanges)
 	}
-	usdtAmounts := ledger.amountsForAsset("", "BTCUSDT", "USDT")
+	usdtAmounts, err := ledger.amountsForAsset("", "BTCUSDT", "USDT")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if usdtAmounts.withdrawn != 150 || usdtAmounts.reserved != 90 {
 		t.Fatalf("non-USDT withdrawal leaked into USDT totals: %+v", usdtAmounts)
 	}
 	verified := verifiedWithdrawProfit{
-		newWithdrawProfitStream("binance", "BTCUSDT"): 60,
-		newWithdrawProfitStream("gate", "BTCUSDT"):    50,
-		newWithdrawProfitStream("binance", "ETHUSDT"): 25,
+		newWithdrawProfitStream("binance", "BTCUSDT"): {amount: 60, verified: true},
+		newWithdrawProfitStream("gate", "BTCUSDT"):    {amount: 50, verified: true},
+		newWithdrawProfitStream("binance", "ETHUSDT"): {amount: 25, verified: true},
 	}
-	if got := sumVerifiedWithdrawProfit(verified, "Binance", "BTCUSDT"); got != 60 {
-		t.Fatalf("verified Binance BTC profit=%v, want 60", got)
+	if got, ok, err := sumVerifiedWithdrawProfit(verified, "Binance", "BTCUSDT"); err != nil || !ok || got != 60 {
+		t.Fatalf("verified Binance BTC profit=%v, %v, %v; want 60, true, nil", got, ok, err)
 	}
-	if got := sumVerifiedWithdrawProfit(verified, "", "BTCUSDT"); got != 110 {
-		t.Fatalf("verified all-exchange BTC profit=%v, want 110", got)
+	if got, ok, err := sumVerifiedWithdrawProfit(verified, "", "BTCUSDT"); err != nil || !ok || got != 110 {
+		t.Fatalf("verified all-exchange BTC profit=%v, %v, %v; want 110, true, nil", got, ok, err)
 	}
-	if got := sumVerifiedWithdrawProfit(verifiedWithdrawProfit{newWithdrawProfitStream("binance", "BTCUSDT"): math.Inf(1)}, "", ""); got != 0 {
-		t.Fatalf("non-finite verified amount was returned: %v", got)
+	if _, ok, err := sumVerifiedWithdrawProfit(verifiedWithdrawProfit{newWithdrawProfitStream("binance", "BTCUSDT"): {amount: math.Inf(1), verified: true}}, "", ""); err == nil || ok {
+		t.Fatalf("non-finite verified amount was accepted: verified=%v err=%v", ok, err)
+	}
+	if got, ok, err := sumVerifiedWithdrawProfit(verifiedWithdrawProfit{newWithdrawProfitStream("binance", "BTCUSDT"): {amount: 60}}, "", ""); err != nil || ok || got != 0 {
+		t.Fatalf("unverified amount was represented as available: amount=%v verified=%v err=%v", got, ok, err)
+	}
+}
+
+func TestWithdrawLedgerFilteredAggregationRejectsOverflow(t *testing.T) {
+	ledger, err := aggregateWithdrawProfitLedger([]*storage.ProfitWithdrawRecord{
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "completed"},
+		{ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "completed"},
+		{ExchangeID: "binance", StrategyID: "SOLUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "pending"},
+		{ExchangeID: "binance", StrategyID: "XRPUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "processing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ledger.amountsForAsset("binance", "", "USDT"); err == nil {
+		t.Fatal("overflowing withdrawn totals were accepted")
+	}
+	reservedLedger, err := aggregateWithdrawProfitLedger([]*storage.ProfitWithdrawRecord{
+		{ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "pending"},
+		{ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: math.MaxFloat64, Currency: "USDT", Status: "processing"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reservedLedger.amountsForAsset("binance", "", "USDT"); err == nil {
+		t.Fatal("overflowing reserved totals were accepted")
+	}
+}
+
+func TestClassifyWithdrawProfitMarketFailsClosedForUnknownTypes(t *testing.T) {
+	tests := []struct {
+		marketType string
+		relevant   bool
+		verified   bool
+	}{
+		{marketType: "futures", relevant: true, verified: true},
+		{marketType: " FUTURES ", relevant: true, verified: true},
+		{marketType: "spot", relevant: false, verified: false},
+		{marketType: "unknown", relevant: true, verified: false},
+		{marketType: "", relevant: true, verified: false},
+		{marketType: "options", relevant: true, verified: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.marketType, func(t *testing.T) {
+			relevant, verified := classifyWithdrawProfitMarket(tt.marketType)
+			if relevant != tt.relevant || verified != tt.verified {
+				t.Fatalf("classifyWithdrawProfitMarket(%q) = %v, %v; want %v, %v", tt.marketType, relevant, verified, tt.relevant, tt.verified)
+			}
+		})
 	}
 }
 
@@ -318,6 +378,14 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 99, time.Now().UTC()); err == nil {
 		t.Fatal("manual amount above verified realized net profit must be rejected")
 	}
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{ID: "unknown-old-status", AccountID: "acct", AccountScope: scope,
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual",
+		Status: "exchange_unknown", Destination: "account", CreatedAt: start.Add(-time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC()); err == nil {
+		t.Fatal("unknown non-terminal withdrawal status must block another transfer even when created before the covered window")
+	}
 }
 
 func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *testing.T) {
@@ -359,8 +427,19 @@ func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := available[newWithdrawProfitStream("binance", "BTCUSDT")]; got != 98 {
-		t.Fatalf("verified available profit=%v, want 98 net USDT", got)
+	if got := available[newWithdrawProfitStream("binance", "BTCUSDT")]; !got.verified || got.amount != 98 {
+		t.Fatalf("verified available profit=%+v, want 98 net USDT and verified", got)
+	}
+	if err := st.SaveTrade(&storage.Trade{Account: accountID, AccountScope: scope, Exchange: "binance", MarketType: "unknown", PnLAsset: "USDT", Symbol: "BTCUSDT",
+		Quantity: 1, PnL: 1, CreatedAt: now.Add(-time.Second)}); err != nil {
+		t.Fatal(err)
+	}
+	available, err = readVerifiedWithdrawProfit(st, accountID, "binance", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := available[newWithdrawProfitStream("binance", "BTCUSDT")]; got.verified {
+		t.Fatalf("unknown-market PnL row must invalidate withdrawal verification: %+v", got)
 	}
 
 	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{ID: "unresolved-transfer", AccountID: accountID, AccountScope: scope,
@@ -371,8 +450,8 @@ func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := sumVerifiedWithdrawProfit(available, "binance", "BTCUSDT"); got != 0 {
-		t.Fatalf("unresolved transfer left profit withdrawable: %v", got)
+	if got, ok, err := sumVerifiedWithdrawProfit(available, "binance", "BTCUSDT"); err != nil || ok || got != 0 {
+		t.Fatalf("unresolved transfer left profit availability verified: %v, %v, %v", got, ok, err)
 	}
 }
 

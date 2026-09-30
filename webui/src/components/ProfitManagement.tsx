@@ -410,7 +410,7 @@ const ProfitManagement: React.FC = () => {
               colorScheme="blue"
               leftIcon={<DownloadIcon />}
               onClick={onOpen}
-              isDisabled={!summary || summary.availableToWithdraw <= 0 || activeExchange === 'all'}
+              isDisabled={!summary || summary.availableToWithdrawVerified !== true || summary.availableToWithdraw <= 0 || activeExchange === 'all'}
             >
               {t('profitManagement.withdraw')}
             </Button>
@@ -498,7 +498,9 @@ const ProfitManagement: React.FC = () => {
               <Stat>
                 <StatLabel>{t('profitManagement.availableToWithdraw')}</StatLabel>
                 <StatNumber color="blue.500">{(summary.availableToWithdraw || 0).toFixed(2)}</StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>
+                  {summary.availableToWithdrawVerified === true ? 'USDT' : t('profitManagement.availableToWithdrawUnverified')}
+                </StatHelpText>
               </Stat>
             </Box>
           </SimpleGrid>

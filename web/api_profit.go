@@ -22,46 +22,48 @@ import (
 
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
-	ExchangeID               string   `json:"exchangeId,omitempty"`
-	TotalProfit              float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
-	GrossProfit              float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
-	TotalFee                 float64  `json:"totalFee"`    // 手續費合計
-	FundingNet               float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
-	TodayProfit              float64  `json:"todayProfit"`
-	WeekProfit               float64  `json:"weekProfit"`
-	MonthProfit              float64  `json:"monthProfit"`
-	UnrealizedProfit         float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
-	UnrealizedProfitVerified bool     `json:"unrealizedProfitVerified"`
-	ExchangeProfit           *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
-	WithdrawnProfit          float64  `json:"withdrawnProfit"`
-	AvailableToWithdraw      float64  `json:"availableToWithdraw"`
-	PriceDeviationLoss       float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
-	BuyPriceDeviation        float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
-	SellPriceDeviation       float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
-	LastUpdated              string   `json:"lastUpdated"`
+	ExchangeID                  string   `json:"exchangeId,omitempty"`
+	TotalProfit                 float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
+	GrossProfit                 float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
+	TotalFee                    float64  `json:"totalFee"`    // 手續費合計
+	FundingNet                  float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	TodayProfit                 float64  `json:"todayProfit"`
+	WeekProfit                  float64  `json:"weekProfit"`
+	MonthProfit                 float64  `json:"monthProfit"`
+	UnrealizedProfit            float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
+	UnrealizedProfitVerified    bool     `json:"unrealizedProfitVerified"`
+	ExchangeProfit              *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
+	WithdrawnProfit             float64  `json:"withdrawnProfit"`
+	AvailableToWithdraw         float64  `json:"availableToWithdraw"`
+	AvailableToWithdrawVerified bool     `json:"availableToWithdrawVerified"`
+	PriceDeviationLoss          float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
+	BuyPriceDeviation           float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation          float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
+	LastUpdated                 string   `json:"lastUpdated"`
 }
 
 // StrategyProfit 策略盈利
 type StrategyProfit struct {
-	ExchangeID               string  `json:"exchangeId"`
-	StrategyID               string  `json:"strategyId"`
-	MarketType               string  `json:"marketType"`
-	PnLAsset                 string  `json:"pnlAsset"`
-	StrategyName             string  `json:"strategyName"`
-	StrategyType             string  `json:"strategyType"`
-	TotalProfit              float64 `json:"totalProfit"`         // 网格方式盈亏
-	ExchangeTotalProfit      float64 `json:"exchangeTotalProfit"` // 交易所方式盈亏
-	TodayProfit              float64 `json:"todayProfit"`
-	UnrealizedProfit         float64 `json:"unrealizedProfit"`
-	UnrealizedProfitVerified bool    `json:"unrealizedProfitVerified"`
-	RealizedProfit           float64 `json:"realizedProfit"`
-	WithdrawnProfit          float64 `json:"withdrawnProfit"`
-	AvailableToWithdraw      float64 `json:"availableToWithdraw"`
-	TradeCount               int     `json:"tradeCount"`
-	WinRate                  float64 `json:"winRate"`         // 网格方式胜率
-	ExchangeWinRate          float64 `json:"exchangeWinRate"` // 交易所方式胜率
-	AvgProfitPerTrade        float64 `json:"avgProfitPerTrade"`
-	LastTradeAt              string  `json:"lastTradeAt,omitempty"`
+	ExchangeID                  string  `json:"exchangeId"`
+	StrategyID                  string  `json:"strategyId"`
+	MarketType                  string  `json:"marketType"`
+	PnLAsset                    string  `json:"pnlAsset"`
+	StrategyName                string  `json:"strategyName"`
+	StrategyType                string  `json:"strategyType"`
+	TotalProfit                 float64 `json:"totalProfit"`         // 网格方式盈亏
+	ExchangeTotalProfit         float64 `json:"exchangeTotalProfit"` // 交易所方式盈亏
+	TodayProfit                 float64 `json:"todayProfit"`
+	UnrealizedProfit            float64 `json:"unrealizedProfit"`
+	UnrealizedProfitVerified    bool    `json:"unrealizedProfitVerified"`
+	RealizedProfit              float64 `json:"realizedProfit"`
+	WithdrawnProfit             float64 `json:"withdrawnProfit"`
+	AvailableToWithdraw         float64 `json:"availableToWithdraw"`
+	AvailableToWithdrawVerified bool    `json:"availableToWithdrawVerified"`
+	TradeCount                  int     `json:"tradeCount"`
+	WinRate                     float64 `json:"winRate"`         // 网格方式胜率
+	ExchangeWinRate             float64 `json:"exchangeWinRate"` // 交易所方式胜率
+	AvgProfitPerTrade           float64 `json:"avgProfitPerTrade"`
+	LastTradeAt                 string  `json:"lastTradeAt,omitempty"`
 }
 
 type verifiedUnrealizedPnLProvider interface {
@@ -109,6 +111,21 @@ func verifiedProviderPnL(provider PositionManagerProvider, slots []SlotInfo, exc
 
 func strategyProfitKey(exchange, marketType, symbol, asset string) string {
 	return strings.ToLower(strings.TrimSpace(exchange)) + ":" + strings.ToLower(strings.TrimSpace(marketType)) + ":" + strings.ToLower(strings.TrimSpace(symbol)) + ":" + strings.ToLower(strings.TrimSpace(asset))
+}
+
+func validateStrategyPnLStream(stream *storage.PnLBySymbol) error {
+	if stream == nil || strings.TrimSpace(stream.Exchange) == "" || strings.TrimSpace(stream.MarketType) == "" || strings.TrimSpace(stream.Symbol) == "" || strings.TrimSpace(stream.PnLAsset) == "" {
+		return errors.New("strategy PnL identity is incomplete")
+	}
+	if stream.TotalTrades < 0 || stream.TotalVolume < 0 || stream.WinRate < 0 || stream.WinRate > 1 || stream.ExchangeWinRate < 0 || stream.ExchangeWinRate > 1 {
+		return errors.New("strategy PnL statistics are outside valid ranges")
+	}
+	for _, value := range []float64{stream.TotalPnL, stream.ExchangePnL, stream.TotalVolume, stream.WinRate, stream.ExchangeWinRate} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("strategy PnL contains a non-finite value")
+		}
+	}
+	return nil
 }
 
 // ProfitWithdrawRule 提取规则
@@ -276,6 +293,18 @@ func addFiniteProfitValues(values ...float64) (float64, bool) {
 	return total, true
 }
 
+func addFiniteProfitToMap(totals map[string]float64, key string, value float64) error {
+	if totals == nil {
+		return errors.New("profit totals map is missing")
+	}
+	total, ok := addFiniteProfitValues(totals[key], value)
+	if !ok {
+		return errors.New("profit trend contains a non-finite or overflowing amount")
+	}
+	totals[key] = total
+	return nil
+}
+
 func roundProfitToCents(value float64) (float64, bool) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
@@ -285,6 +314,24 @@ func roundProfitToCents(value float64) (float64, bool) {
 	}
 	rounded := math.Round(value*100) / 100
 	return rounded, !math.IsNaN(rounded) && !math.IsInf(rounded, 0)
+}
+
+func roundStrategyProfitAmounts(profit *StrategyProfit) error {
+	if profit == nil {
+		return errors.New("strategy profit response is missing")
+	}
+	amounts := []*float64{
+		&profit.TotalProfit, &profit.ExchangeTotalProfit, &profit.TodayProfit, &profit.UnrealizedProfit,
+		&profit.RealizedProfit, &profit.WithdrawnProfit, &profit.AvailableToWithdraw, &profit.AvgProfitPerTrade,
+	}
+	for _, amount := range amounts {
+		rounded, ok := roundProfitToCents(*amount)
+		if !ok {
+			return errors.New("strategy profit contains a non-finite amount")
+		}
+		*amount = rounded
+	}
+	return nil
 }
 
 func mergeProfitStatistics(target, source *storage.Statistics) error {
@@ -342,7 +389,23 @@ type withdrawProfitAmounts struct {
 
 type withdrawProfitLedger map[withdrawProfitStream]withdrawProfitAmounts
 
-type verifiedWithdrawProfit map[withdrawProfitStream]float64
+type withdrawProfitAvailability struct {
+	amount   float64
+	verified bool
+}
+
+type verifiedWithdrawProfit map[withdrawProfitStream]withdrawProfitAvailability
+
+func classifyWithdrawProfitMarket(marketType string) (relevant, verified bool) {
+	switch strings.ToLower(strings.TrimSpace(marketType)) {
+	case "spot":
+		return false, false
+	case "futures":
+		return true, true
+	default:
+		return true, false
+	}
+}
 
 func newWithdrawProfitStream(exchangeID, symbol string, assets ...string) withdrawProfitStream {
 	asset := ""
@@ -398,11 +461,11 @@ func aggregateWithdrawProfitLedger(records []*storage.ProfitWithdrawRecord) (wit
 	return ledger, nil
 }
 
-func (ledger withdrawProfitLedger) amountsFor(exchangeID, symbol string) withdrawProfitAmounts {
+func (ledger withdrawProfitLedger) amountsFor(exchangeID, symbol string) (withdrawProfitAmounts, error) {
 	return ledger.amountsForAsset(exchangeID, symbol, "")
 }
 
-func (ledger withdrawProfitLedger) amountsForAsset(exchangeID, symbol, asset string) withdrawProfitAmounts {
+func (ledger withdrawProfitLedger) amountsForAsset(exchangeID, symbol, asset string) (withdrawProfitAmounts, error) {
 	exchangeFilter := strings.ToUpper(strings.TrimSpace(exchangeID))
 	symbolFilter := strings.ToUpper(strings.TrimSpace(symbol))
 	assetFilter := strings.ToUpper(strings.TrimSpace(asset))
@@ -417,16 +480,22 @@ func (ledger withdrawProfitLedger) amountsForAsset(exchangeID, symbol, asset str
 		if assetFilter != "" && key.asset != assetFilter {
 			continue
 		}
-		total.withdrawn += amounts.withdrawn
-		total.reserved += amounts.reserved
+		var ok bool
+		if total.withdrawn, ok = addFiniteProfitValues(total.withdrawn, amounts.withdrawn); !ok {
+			return withdrawProfitAmounts{}, errors.New("withdrawn amount aggregation is non-finite or overflowed")
+		}
+		if total.reserved, ok = addFiniteProfitValues(total.reserved, amounts.reserved); !ok {
+			return withdrawProfitAmounts{}, errors.New("reserved amount aggregation is non-finite or overflowed")
+		}
 	}
-	return total
+	return total, nil
 }
 
-func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, symbol string) float64 {
+func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, symbol string) (float64, bool, error) {
 	exchangeFilter := strings.ToUpper(strings.TrimSpace(exchangeID))
 	symbolFilter := strings.ToUpper(strings.TrimSpace(symbol))
 	var total float64
+	matched := false
 	for key, amount := range available {
 		if exchangeFilter != "" && key.exchange != exchangeFilter {
 			continue
@@ -434,16 +503,23 @@ func sumVerifiedWithdrawProfit(available verifiedWithdrawProfit, exchangeID, sym
 		if symbolFilter != "" && key.symbol != symbolFilter {
 			continue
 		}
-		total += amount
+		matched = true
+		if !amount.verified {
+			return 0, false, nil
+		}
+		var ok bool
+		if total, ok = addFiniteProfitValues(total, amount.amount); !ok {
+			return 0, false, errors.New("verified withdrawal total is non-finite or overflowed")
+		}
 	}
-	if math.IsNaN(total) || math.IsInf(total, 0) || total < 0 {
-		return 0
+	if !matched {
+		return 0, false, nil
 	}
 	rounded, ok := roundProfitToCents(total)
 	if !ok {
-		return 0
+		return 0, false, errors.New("verified withdrawal total cannot be safely rounded")
 	}
-	return rounded
+	return rounded, true, nil
 }
 
 func readVerifiedWithdrawProfit(st storage.Storage, accountID, exchangeID string, now time.Time) (verifiedWithdrawProfit, error) {
@@ -464,16 +540,34 @@ func readVerifiedWithdrawProfit(st storage.Storage, accountID, exchangeID string
 			return nil, fmt.Errorf("read verified USDT PnL streams for %s: %w", scope.exchange, queryErr)
 		}
 		for _, stream := range streams {
-			if stream == nil || !strings.EqualFold(stream.MarketType, "futures") || !strings.EqualFold(stream.PnLAsset, profitSummaryAsset) {
+			if stream == nil {
+				return nil, fmt.Errorf("read verified USDT PnL streams for %s: result contains a missing row", scope.exchange)
+			}
+			if !strings.EqualFold(stream.PnLAsset, profitSummaryAsset) {
+				continue
+			}
+			if strings.TrimSpace(stream.Exchange) == "" || strings.TrimSpace(stream.Symbol) == "" {
+				return nil, fmt.Errorf("read verified USDT PnL streams for %s: result has incomplete exchange/symbol identity", scope.exchange)
+			}
+			relevant, marketVerified := classifyWithdrawProfitMarket(stream.MarketType)
+			if !relevant {
 				continue
 			}
 			key := newWithdrawProfitStream(stream.Exchange, stream.Symbol)
 			if _, exists := available[key]; exists {
+				available[key] = withdrawProfitAvailability{}
+				continue
+			}
+			available[key] = withdrawProfitAvailability{}
+			if !marketVerified {
 				continue
 			}
 			_, _, _, amount, verifyErr := manualWithdrawWindow(st, accountID, scope.scope, stream.Exchange, stream.Symbol, 0, now)
-			if verifyErr == nil && amount > 0 && !math.IsNaN(amount) && !math.IsInf(amount, 0) {
-				available[key] = amount
+			if verifyErr == nil && !math.IsNaN(amount) && !math.IsInf(amount, 0) {
+				if amount < 0 {
+					amount = 0
+				}
+				available[key] = withdrawProfitAvailability{amount: amount, verified: true}
 			}
 		}
 	}
@@ -657,10 +751,19 @@ func getProfitSummaryHandler(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
 		return
 	}
-	withdrawnAmounts := withdrawLedger.amountsForAsset(exchangeID, "", profitSummaryAsset)
+	withdrawnAmounts, err := withdrawLedger.amountsForAsset(exchangeID, "", profitSummaryAsset)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "已提取或待处理金额汇总无效: " + err.Error()})
+		return
+	}
 	verifiedAvailable, err := readVerifiedWithdrawProfit(st, accountID, exchangeID, now)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
+		return
+	}
+	availableToWithdraw, availableToWithdrawVerified, availabilityErr := sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, "")
+	if availabilityErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "可提取金额汇总无效: " + availabilityErr.Error()})
 		return
 	}
 
@@ -674,23 +777,24 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return rounded
 	}
 	summary := ProfitSummary{
-		ExchangeID:               exchangeID,
-		TotalProfit:              roundCents(netWithFunding),
-		GrossProfit:              roundCents(summaryStats.GrossPnL),
-		TotalFee:                 roundCents(summaryStats.TotalFee),
-		FundingNet:               roundCents(fundingSum),
-		TodayProfit:              roundCents(todayProfitWithFunding),
-		WeekProfit:               roundCents(weekProfitWithFunding),
-		MonthProfit:              roundCents(monthProfitWithFunding),
-		UnrealizedProfit:         roundCents(unrealizedProfit),
-		UnrealizedProfitVerified: unrealizedProfitVerified,
-		ExchangeProfit:           exchangeProfit,
-		WithdrawnProfit:          roundCents(withdrawnAmounts.withdrawn),
-		AvailableToWithdraw:      sumVerifiedWithdrawProfit(verifiedAvailable, exchangeID, ""),
-		PriceDeviationLoss:       roundCents(priceDeviationLoss),
-		BuyPriceDeviation:        roundCents(summaryStats.TotalBuyDeviation),
-		SellPriceDeviation:       roundCents(summaryStats.TotalSellDeviation),
-		LastUpdated:              time.Now().Format(time.RFC3339),
+		ExchangeID:                  exchangeID,
+		TotalProfit:                 roundCents(netWithFunding),
+		GrossProfit:                 roundCents(summaryStats.GrossPnL),
+		TotalFee:                    roundCents(summaryStats.TotalFee),
+		FundingNet:                  roundCents(fundingSum),
+		TodayProfit:                 roundCents(todayProfitWithFunding),
+		WeekProfit:                  roundCents(weekProfitWithFunding),
+		MonthProfit:                 roundCents(monthProfitWithFunding),
+		UnrealizedProfit:            roundCents(unrealizedProfit),
+		UnrealizedProfitVerified:    unrealizedProfitVerified,
+		ExchangeProfit:              exchangeProfit,
+		WithdrawnProfit:             roundCents(withdrawnAmounts.withdrawn),
+		AvailableToWithdraw:         availableToWithdraw,
+		AvailableToWithdrawVerified: availableToWithdrawVerified,
+		PriceDeviationLoss:          roundCents(priceDeviationLoss),
+		BuyPriceDeviation:           roundCents(summaryStats.TotalBuyDeviation),
+		SellPriceDeviation:          roundCents(summaryStats.TotalSellDeviation),
+		LastUpdated:                 time.Now().Format(time.RFC3339),
 	}
 	if !roundOK {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要包含无法安全舍入的非有限数值"})
@@ -886,8 +990,8 @@ func getStrategyProfitsHandler(c *gin.Context) {
 
 	profits := make([]StrategyProfit, 0)
 	for _, p := range pnlList {
-		if p == nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略盈亏包含缺失记录"})
+		if err := validateStrategyPnLStream(p); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略盈亏记录无效: " + err.Error()})
 			return
 		}
 		// 如果指定了交易所且不匹配，跳過
@@ -902,34 +1006,47 @@ func getStrategyProfitsHandler(c *gin.Context) {
 		if strings.Contains(strategyID, "usdt") {
 			strategyID = strings.ReplaceAll(strategyID, "usdt", "")
 		}
-		withdrawnAmounts := withdrawLedger.amountsForAsset(p.Exchange, p.Symbol, p.PnLAsset)
+		withdrawnAmounts, amountErr := withdrawLedger.amountsForAsset(p.Exchange, p.Symbol, p.PnLAsset)
+		if amountErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略提取金额汇总无效: " + amountErr.Error()})
+			return
+		}
 		verifiedAmount := 0.0
+		verifiedAmountOK := false
 		if strings.EqualFold(p.MarketType, "futures") {
 			if strings.EqualFold(p.PnLAsset, profitSummaryAsset) {
-				verifiedAmount = verifiedAvailable[newWithdrawProfitStream(p.Exchange, p.Symbol)]
+				availability := verifiedAvailable[newWithdrawProfitStream(p.Exchange, p.Symbol)]
+				verifiedAmount = availability.amount
+				verifiedAmountOK = availability.verified
 			}
 		}
 
-		profits = append(profits, StrategyProfit{
-			ExchangeID:               p.Exchange,
-			StrategyID:               p.Symbol, // 使用 Symbol 作為唯一標识
-			MarketType:               p.MarketType,
-			PnLAsset:                 p.PnLAsset,
-			StrategyName:             p.Symbol + " 策略",
-			StrategyType:             "grid",                              // 默认為网格，實際应從配置獲取
-			TotalProfit:              math.Round(p.TotalPnL*100) / 100,    // 网格方式盈亏
-			ExchangeTotalProfit:      math.Round(p.ExchangePnL*100) / 100, // 交易所方式盈亏
-			TodayProfit:              math.Round(todayPnlMap[key]*100) / 100,
-			UnrealizedProfit:         math.Round(unrealizedPnlMap[key]*100) / 100,
-			UnrealizedProfitVerified: unrealizedPnlVerifiedMap[key],
-			RealizedProfit:           math.Round(p.TotalPnL*100) / 100,
-			WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
-			AvailableToWithdraw:      verifiedAmount,
-			TradeCount:               p.TotalTrades,
-			WinRate:                  math.Round(p.WinRate*100) / 100,         // 网格方式胜率
-			ExchangeWinRate:          math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
-			AvgProfitPerTrade:        0,                                       // 可计算
-		})
+		profit := StrategyProfit{
+			ExchangeID:                  p.Exchange,
+			StrategyID:                  p.Symbol, // 使用 Symbol 作為唯一標识
+			MarketType:                  p.MarketType,
+			PnLAsset:                    p.PnLAsset,
+			StrategyName:                p.Symbol + " 策略",
+			StrategyType:                "grid",        // 默认為网格，實際应從配置獲取
+			TotalProfit:                 p.TotalPnL,    // 网格方式盈亏
+			ExchangeTotalProfit:         p.ExchangePnL, // 交易所方式盈亏
+			TodayProfit:                 todayPnlMap[key],
+			UnrealizedProfit:            unrealizedPnlMap[key],
+			UnrealizedProfitVerified:    unrealizedPnlVerifiedMap[key],
+			RealizedProfit:              p.TotalPnL,
+			WithdrawnProfit:             withdrawnAmounts.withdrawn,
+			AvailableToWithdraw:         verifiedAmount,
+			AvailableToWithdrawVerified: verifiedAmountOK,
+			TradeCount:                  p.TotalTrades,
+			WinRate:                     math.Round(p.WinRate*100) / 100,         // 网格方式胜率
+			ExchangeWinRate:             math.Round(p.ExchangeWinRate*100) / 100, // 交易所方式胜率
+			AvgProfitPerTrade:           0,                                       // 可计算
+		}
+		if err := roundStrategyProfitAmounts(&profit); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略盈利金额无法安全舍入: " + err.Error()})
+			return
+		}
+		profits = append(profits, profit)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1005,6 +1122,12 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "策略盈亏查询结果无效"})
 		return
 	}
+	if len(matches) == 1 {
+		if err := validateStrategyPnLStream(summary); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略详情盈亏记录无效: " + err.Error()})
+			return
+		}
+	}
 	withdrawLedger, err := readWithdrawProfitLedger(st, accountID)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验已提取及待处理金额: " + err.Error()})
@@ -1015,7 +1138,11 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验可提现利润: " + err.Error()})
 		return
 	}
-	withdrawnAmounts := withdrawLedger.amountsForAsset(summary.Exchange, strategyID, summary.PnLAsset)
+	withdrawnAmounts, amountErr := withdrawLedger.amountsForAsset(summary.Exchange, strategyID, summary.PnLAsset)
+	if amountErr != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略提取金额汇总无效: " + amountErr.Error()})
+		return
+	}
 
 	// 獲取未實現盈亏
 	unrealizedPnL := 0.0
@@ -1041,12 +1168,12 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		PnLAsset:                 summary.PnLAsset,
 		StrategyName:             strategyID + " 策略",
 		StrategyType:             "grid",
-		TotalProfit:              math.Round(summary.TotalPnL*100) / 100,
+		TotalProfit:              summary.TotalPnL,
 		TodayProfit:              0, // 需要額外查詢
-		UnrealizedProfit:         math.Round(unrealizedPnL*100) / 100,
+		UnrealizedProfit:         unrealizedPnL,
 		UnrealizedProfitVerified: unrealizedPnLVerified,
-		RealizedProfit:           math.Round(summary.TotalPnL*100) / 100,
-		WithdrawnProfit:          math.Round(withdrawnAmounts.withdrawn*100) / 100,
+		RealizedProfit:           summary.TotalPnL,
+		WithdrawnProfit:          withdrawnAmounts.withdrawn,
 		AvailableToWithdraw:      0,
 		WinRate:                  math.Round(summary.WinRate*100) / 100, // 保持小數形式（0-1），前端會轉换為百分比
 		TradeCount:               summary.TotalTrades,
@@ -1054,7 +1181,15 @@ func getStrategyProfitDetailHandler(c *gin.Context) {
 		LastTradeAt:              now.Format(time.RFC3339),
 	}
 	if strings.EqualFold(summary.PnLAsset, profitSummaryAsset) && strings.EqualFold(summary.MarketType, "futures") {
-		profit.AvailableToWithdraw = sumVerifiedWithdrawProfit(verifiedAvailable, summary.Exchange, strategyID)
+		profit.AvailableToWithdraw, profit.AvailableToWithdrawVerified, err = sumVerifiedWithdrawProfit(verifiedAvailable, summary.Exchange, strategyID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "可提取金额汇总无效: " + err.Error()})
+			return
+		}
+	}
+	if err := roundStrategyProfitAmounts(&profit); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略详情盈利金额无法安全舍入: " + err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1346,11 +1481,15 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 		if record.AccountScope != accountScope || !strings.EqualFold(record.StrategyID, symbol) {
 			continue
 		}
-		if record.Status == "pending" || record.Status == "processing" {
-			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("a prior withdrawal is unresolved; reconcile it before another transfer")
-		}
-		if record.Status == "completed" && (latest == nil || record.CreatedAt.After(latest.CreatedAt)) {
-			latest = record
+		switch strings.ToLower(strings.TrimSpace(record.Status)) {
+		case "completed":
+			if latest == nil || record.CreatedAt.After(latest.CreatedAt) {
+				latest = record
+			}
+		case "failed", "cancelled":
+			continue
+		default:
+			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("a prior withdrawal has an unresolved or unknown status; reconcile it before another transfer")
 		}
 	}
 	if rules, err := st.ListProfitWithdrawRules(accountID); err != nil {
@@ -1378,7 +1517,7 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 	if err != nil {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("verify realized profit: %w", err)
 	}
-	if math.IsNaN(verifiedProfit) || math.IsInf(verifiedProfit, 0) || verifiedProfit <= 0 || amount > verifiedProfit {
+	if math.IsNaN(verifiedProfit) || math.IsInf(verifiedProfit, 0) || amount < 0 || (amount > 0 && (verifiedProfit <= 0 || amount > verifiedProfit)) {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("requested amount exceeds fully covered realized USDT profit")
 	}
 	checkpointID := ""
@@ -1730,8 +1869,15 @@ func getProfitTrendHandler(c *gin.Context) {
 			return
 		}
 		for _, stat := range dailyStats {
+			if stat == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势 PnL 包含空白账本行"})
+				return
+			}
 			key := stat.Date.Format("2006-01-02")
-			dailyStatsByDate[key] += stat.TotalPnL
+			if err := addFiniteProfitToMap(dailyStatsByDate, key, stat.TotalPnL); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+				return
+			}
 		}
 		allStatsBefore, queryErr := dailyReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), startDate.AddDate(0, 0, -1))
 		if queryErr != nil {
@@ -1739,14 +1885,26 @@ func getProfitTrendHandler(c *gin.Context) {
 			return
 		}
 		for _, stat := range allStatsBefore {
+			if stat == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势基线包含空白账本行"})
+				return
+			}
 			key := stat.Date.Format("2006-01-02")
-			allStatsBeforeByDate[key] += stat.TotalPnL
+			if err := addFiniteProfitToMap(allStatsBeforeByDate, key, stat.TotalPnL); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": err.Error()})
+				return
+			}
 		}
 	}
 	// 獲取起始之前的累计盈利作為 base
 	baseProfit := 0.0
 	for _, pnl := range allStatsBeforeByDate {
-		baseProfit += pnl
+		var ok bool
+		baseProfit, ok = addFiniteProfitValues(baseProfit, pnl)
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势基线累计金额溢出"})
+			return
+		}
 	}
 
 	// 將結果按日期填充，缺失的日期补0
@@ -1758,12 +1916,23 @@ func getProfitTrendHandler(c *gin.Context) {
 		date := startDate.AddDate(0, 0, i)
 		dateStr := date.Format("2006-01-02")
 		dailyProfit := trendMap[dateStr]
-		cumProfit += dailyProfit
+		var ok bool
+		cumProfit, ok = addFiniteProfitValues(cumProfit, dailyProfit)
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势累计金额溢出"})
+			return
+		}
+		roundedDailyProfit, dailyOK := roundProfitToCents(dailyProfit)
+		roundedCumProfit, cumulativeOK := roundProfitToCents(cumProfit)
+		if !dailyOK || !cumulativeOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "趋势金额无法安全舍入"})
+			return
+		}
 
 		trend[i] = ProfitTrendPoint{
 			Timestamp: dateStr,
-			Profit:    math.Round(dailyProfit*100) / 100,
-			CumProfit: math.Round(cumProfit*100) / 100,
+			Profit:    roundedDailyProfit,
+			CumProfit: roundedCumProfit,
 		}
 	}
 
@@ -1884,11 +2053,17 @@ func estimateWithdrawFeeHandler(c *gin.Context) {
 	fee := 0.0 // UMFUTURE→SPOT 为内部账户划转，不是链上提现。
 	netAmount := req.Amount
 	estimatedArrival := time.Now().Format(time.RFC3339)
+	roundedFee, feeOK := roundProfitToCents(fee)
+	roundedNetAmount, netOK := roundProfitToCents(netAmount)
+	if !feeOK || !netOK {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "金额无法安全舍入"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success":          true,
-		"fee":              math.Round(fee*100) / 100,
-		"netAmount":        math.Round(netAmount*100) / 100,
+		"fee":              roundedFee,
+		"netAmount":        roundedNetAmount,
 		"estimatedArrival": estimatedArrival,
 	})
 }

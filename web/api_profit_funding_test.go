@@ -78,6 +78,31 @@ func TestAddFiniteProfitValuesRejectsNonFiniteAndOverflow(t *testing.T) {
 	}
 }
 
+func TestAddFiniteProfitToMap(t *testing.T) {
+	totals := map[string]float64{}
+	if err := addFiniteProfitToMap(totals, "2026-10-01", 1.25); err != nil {
+		t.Fatal(err)
+	}
+	if err := addFiniteProfitToMap(totals, "2026-10-01", 2.5); err != nil {
+		t.Fatal(err)
+	}
+	if totals["2026-10-01"] != 3.75 {
+		t.Fatalf("finite daily total=%v, want 3.75", totals["2026-10-01"])
+	}
+	for _, value := range []float64{math.NaN(), math.Inf(1)} {
+		if err := addFiniteProfitToMap(totals, "2026-10-01", value); err == nil {
+			t.Fatalf("non-finite or overflowing value %v was accepted", value)
+		}
+	}
+	extremeTotals := map[string]float64{"2026-10-01": math.MaxFloat64}
+	if err := addFiniteProfitToMap(extremeTotals, "2026-10-01", math.MaxFloat64); err == nil {
+		t.Fatal("overflowing daily total was accepted")
+	}
+	if err := addFiniteProfitToMap(nil, "2026-10-01", 1); err == nil {
+		t.Fatal("missing trend totals map was accepted")
+	}
+}
+
 func TestMergeProfitStatisticsRejectsInvalidOrOverflowWithoutPartialMutation(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -101,5 +126,49 @@ func TestMergeProfitStatisticsRejectsInvalidOrOverflowWithoutPartialMutation(t *
 				t.Fatalf("failed merge partially mutated target: before=%+v after=%+v", before, *target)
 			}
 		})
+	}
+}
+
+func TestValidateStrategyPnLStreamRejectsCorruptFinancialRows(t *testing.T) {
+	base := storage.PnLBySymbol{Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", PnLAsset: "USDT", TotalTrades: 2, TotalVolume: 10, WinRate: .5, ExchangeWinRate: .25}
+	tests := []struct {
+		name   string
+		mutate func(*storage.PnLBySymbol)
+	}{
+		{name: "nil row"},
+		{name: "nan net pnl", mutate: func(row *storage.PnLBySymbol) { row.TotalPnL = math.NaN() }},
+		{name: "infinite volume", mutate: func(row *storage.PnLBySymbol) { row.TotalVolume = math.Inf(1) }},
+		{name: "invalid win rate", mutate: func(row *storage.PnLBySymbol) { row.WinRate = 1.1 }},
+		{name: "negative trades", mutate: func(row *storage.PnLBySymbol) { row.TotalTrades = -1 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var row *storage.PnLBySymbol
+			if tt.mutate != nil {
+				copy := base
+				tt.mutate(&copy)
+				row = &copy
+			}
+			if err := validateStrategyPnLStream(row); err == nil {
+				t.Fatal("corrupt PnL row was accepted")
+			}
+		})
+	}
+	if err := validateStrategyPnLStream(&base); err != nil {
+		t.Fatalf("valid PnL row rejected: %v", err)
+	}
+}
+
+func TestRoundStrategyProfitAmountsAvoidsOverflowAndRejectsNonFiniteValues(t *testing.T) {
+	profit := &StrategyProfit{TotalProfit: math.MaxFloat64, WithdrawnProfit: -math.MaxFloat64}
+	if err := roundStrategyProfitAmounts(profit); err != nil {
+		t.Fatalf("finite extreme strategy amounts must not overflow during cents rounding: %v", err)
+	}
+	if profit.TotalProfit != math.MaxFloat64 || profit.WithdrawnProfit != -math.MaxFloat64 {
+		t.Fatalf("extreme finite values changed unexpectedly: %+v", profit)
+	}
+	profit.ExchangeTotalProfit = math.NaN()
+	if err := roundStrategyProfitAmounts(profit); err == nil {
+		t.Fatal("non-finite strategy amount was accepted")
 	}
 }

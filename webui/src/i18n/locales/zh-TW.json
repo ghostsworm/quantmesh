@@ -1584,6 +1584,7 @@
     "unrealizedProfit": "未實現盈利",
     "exchangeProfit": "交易所盈利",
     "availableToWithdraw": "可提取盈利",
+    "availableToWithdrawUnverified": "可提金額尚未核驗",
     "profitTrend": "盈利趨勢",
     "date": "日期",
     "dailyProfit": "每日盈利",

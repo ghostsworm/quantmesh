@@ -76,6 +76,27 @@ func TestProfitWithdrawRulesRejectUnsafeAmountsBeforePersistence(t *testing.T) {
 	}
 }
 
+func TestProfitWithdrawRulesCannotTakeOverUnknownManualReservation(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdraw-unknown-manual-status.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "unknown-manual", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 10, NetAmount: 10, Currency: "USDT", Type: "manual",
+		Status: "exchange_unknown", Destination: "account", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	rule := &ProfitWithdrawRule{ID: "auto-rule", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}
+	if err := st.UpsertProfitWithdrawRule("acct", rule); err == nil {
+		t.Fatal("unknown manual reservation must block enabling an overlapping automatic rule")
+	}
+	if err := st.ReplaceProfitWithdrawRules("acct", []*ProfitWithdrawRule{rule}); err == nil {
+		t.Fatal("unknown manual reservation must block replacing in an overlapping automatic rule")
+	}
+}
+
 func TestListProfitWithdrawRulesFailsOnMalformedPersistedRow(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-malformed-rule.db")
 	if err != nil {
@@ -410,6 +431,8 @@ func TestSumReservedWithdrawAmountHasNoHistoryPageLimit(t *testing.T) {
 		}
 		if i == 1004 {
 			record.Status = "failed"
+		} else if i == 1003 {
+			record.Status = "exchange_unknown"
 		}
 		if err := st.SaveWithdrawRecord(record); err != nil {
 			t.Fatalf("save reservation %d: %v", i, err)
@@ -491,5 +514,29 @@ func TestResolvePendingWithdrawReleasesOnlyMatchingClaimAndAuditsEvidence(t *tes
 	}
 	if err := st.ResolvePendingWithdrawRecord("acct", "record-resolve", "failed", "ref-2", evidence); err == nil {
 		t.Fatal("a second resolution must not rewrite the audited decision")
+	}
+}
+
+func TestResolveUnknownWithdrawalStatusWithOperatorEvidence(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/resolve-unknown-withdraw-status.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "unknown-record", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 12, NetAmount: 12, Currency: "USDT", Type: "manual",
+		Status: "exchange_unknown", Destination: "account", CreatedAt: time.Now().UTC().Add(-time.Minute)}); err != nil {
+		t.Fatal(err)
+	}
+	evidence := "Reviewed the exact exchange account ledger, asset, amount and time window; no transfer occurred."
+	if err := st.ResolvePendingWithdrawRecord("acct", "unknown-record", "failed", "ledger-reference-unknown", evidence); err != nil {
+		t.Fatal(err)
+	}
+	record, err := st.GetWithdrawRecord("acct", "unknown-record")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "failed" || record.TransferID != "ledger-reference-unknown" || !strings.Contains(record.FailedReason, evidence) {
+		t.Fatalf("operator reconciliation did not durably resolve unknown status: %+v", record)
 	}
 }

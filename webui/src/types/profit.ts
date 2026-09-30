@@ -19,6 +19,7 @@ export interface ProfitSummary {
   exchangeProfit?: number // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）
   withdrawnProfit: number // 已提取盈利
   availableToWithdraw: number // 可提取盈利
+  availableToWithdrawVerified?: boolean
   priceDeviationLoss?: number // 🔥 價格偏差導致的總損失（USDT）
   buyPriceDeviation?: number // 🔥 買入價格偏差總和（USDT）
   sellPriceDeviation?: number // 🔥 賣出價格偏差總和（USDT）
@@ -40,6 +41,7 @@ export interface StrategyProfit {
   realizedProfit: number
   withdrawnProfit: number
   availableToWithdraw: number
+  availableToWithdrawVerified?: boolean
   tradeCount: number
   winRate: number            // 网格方式胜率
   exchangeWinRate: number    // 交易所方式胜率

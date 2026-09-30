@@ -231,7 +231,7 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
 			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-			  AND type = 'manual' AND status IN ('pending', 'processing')`, accountID, rule.AccountScope,
+			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, accountID, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
 		}
@@ -407,7 +407,7 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
 			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-			  AND type = 'manual' AND status IN ('pending', 'processing')`, accountID, rule.AccountScope,
+			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, accountID, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
 		}
@@ -516,7 +516,7 @@ func (s *SQLStorage) RecoverAbandonedProfitWithdrawRuleClaims(staleBefore time.T
 		  AND NOT EXISTS (
 			SELECT 1 FROM profit_withdraw_records r
 			WHERE r.rule_id = profit_withdraw_rules.id AND r.claim_id = profit_withdraw_rules.claim_id
-			  AND r.status NOT IN ('completed', 'failed', 'cancelled')
+			  AND COALESCE(LOWER(TRIM(r.status)), '') NOT IN ('completed', 'failed', 'cancelled')
 		  )`, updatedAt, staleBefore.UTC())
 	if err != nil {
 		return 0, fmt.Errorf("recover abandoned withdrawal rule claims: %w", err)
@@ -562,7 +562,8 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND status IN ('processing', 'pending')`,
+		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ?
+		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
 		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
 	}
@@ -572,7 +573,7 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 	var reserved float64
 	if err := tx.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM profit_withdraw_records
 		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND status NOT IN ('failed', 'cancelled')`,
+		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, windowStart).Scan(&reserved); err != nil {
 		return fmt.Errorf("check automatic withdrawal profit budget: %w", err)
 	}
@@ -624,7 +625,8 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND status IN ('processing', 'pending')`,
+		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ?
+		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
 		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
 	}
@@ -635,7 +637,7 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	if err := tx.QueryRow(`
 		SELECT COUNT(*) FROM profit_withdraw_records
 		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-		  AND created_at >= ? AND id <> ? AND status NOT IN ('failed', 'cancelled')`,
+		  AND created_at >= ? AND id <> ? AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, checkpointID).Scan(&staleCount); err != nil {
 		return fmt.Errorf("check concurrent withdrawal reservation: %w", err)
 	}
@@ -680,7 +682,7 @@ func (s *SQLStorage) GetWithdrawRecord(accountID, recordID string) (*ProfitWithd
 }
 
 // ResolvePendingWithdrawRecord records an operator's ledger-based decision and
-// atomically releases only the claim carried by that pending transfer record.
+// atomically releases the claim carried by an unresolved or unknown-status record.
 func (s *SQLStorage) ResolvePendingWithdrawRecord(accountID, recordID, outcome, reference, evidence string) error {
 	if accountID == "" {
 		accountID = "default"
@@ -698,15 +700,19 @@ func (s *SQLStorage) ResolvePendingWithdrawRecord(accountID, recordID, outcome, 
 	defer func() { _ = tx.Rollback() }()
 	var ruleID, claimID, note string
 	staleProcessingBefore := time.Now().Add(-10 * time.Minute)
-	if err := tx.QueryRow(`SELECT rule_id, claim_id, COALESCE(note, '') FROM profit_withdraw_records WHERE account_id = ? AND id = ? AND (status = 'pending' OR (status = 'processing' AND created_at <= ?))`, accountID, recordID, staleProcessingBefore).Scan(&ruleID, &claimID, &note); err != nil {
-		return fmt.Errorf("仅可核账本账户 pending 或超过十分钟的 processing 提取记录: %w", err)
+	if err := tx.QueryRow(`SELECT rule_id, claim_id, COALESCE(note, '') FROM profit_withdraw_records WHERE account_id = ? AND id = ? AND (
+		COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled', 'pending', 'processing') OR
+		LOWER(TRIM(status)) = 'pending' OR (LOWER(TRIM(status)) = 'processing' AND created_at <= ?))`, accountID, recordID, staleProcessingBefore).Scan(&ruleID, &claimID, &note); err != nil {
+		return fmt.Errorf("only unresolved withdrawal records can be reconciled: %w", err)
 	}
 	resolvedNote := strings.TrimSpace(note + "\n核账结果=" + outcome + "; 流水参考=" + strings.TrimSpace(reference) + "; 核账依据=" + strings.TrimSpace(evidence))
 	failedReason := ""
 	if outcome == "failed" {
 		failedReason = "人工核账确认交易所流水未发生划转：" + strings.TrimSpace(evidence)
 	}
-	result, err := tx.Exec(`UPDATE profit_withdraw_records SET status = ?, transfer_id = ?, failed_reason = ?, note = ?, completed_at = ? WHERE account_id = ? AND id = ? AND (status = 'pending' OR (status = 'processing' AND created_at <= ?))`, outcome, reference, failedReason, resolvedNote, time.Now(), accountID, recordID, staleProcessingBefore)
+	result, err := tx.Exec(`UPDATE profit_withdraw_records SET status = ?, transfer_id = ?, failed_reason = ?, note = ?, completed_at = ? WHERE account_id = ? AND id = ? AND (
+		COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled', 'pending', 'processing') OR
+		LOWER(TRIM(status)) = 'pending' OR (LOWER(TRIM(status)) = 'processing' AND created_at <= ?))`, outcome, reference, failedReason, resolvedNote, time.Now(), accountID, recordID, staleProcessingBefore)
 	if err != nil {
 		return fmt.Errorf("更新提取核账状态失败: %w", err)
 	}
@@ -835,7 +841,7 @@ func (s *SQLStorage) SumReservedWithdrawAmount(accountID, ruleID string, since t
 		SELECT COALESCE(SUM(amount), 0)
 		FROM profit_withdraw_records
 		WHERE account_id = ? AND rule_id = ? AND created_at > ?
-		  AND status NOT IN ('failed', 'cancelled')
+		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')
 	`, accountID, ruleID, since).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("汇总提取预留金额 rule=%s account=%s: %w", ruleID, accountID, err)
@@ -861,7 +867,7 @@ func (s *SQLStorage) SumReservedWithdrawAmountForStream(accountID, accountScope,
 		SELECT COALESCE(SUM(amount), 0)
 		FROM profit_withdraw_records
 		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND status NOT IN ('failed', 'cancelled')`,
+		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		accountID, accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since, since).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("sum reserved withdrawal amount for stream: %w", err)

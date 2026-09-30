@@ -76,6 +76,50 @@ func TestWithdrawalReservationsSerializeAcrossSymbolsInOneAccountScope(t *testin
 	}
 }
 
+func TestManualReservationBlocksUnknownHistoricalStatusInAccountScope(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/unknown-withdraw-status.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "unknown-old-transfer", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 20, NetAmount: 20, Currency: "USDT", Type: "manual",
+		Status: "exchange_unknown", Destination: "account", CreatedAt: time.Now().UTC().Add(-24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	manual := &ProfitWithdrawRecord{ID: "new-transfer", AccountID: "acct", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.ReserveManualWithdrawRecord(manual, time.Now().UTC().Add(-time.Hour), "", 10); err == nil {
+		t.Fatal("unknown non-terminal historical status must lock the account withdrawal scope")
+	}
+}
+
+func TestAutomaticReservationBlocksUnknownHistoricalStatusInAccountScope(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/auto-unknown-withdraw-status.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "unknown-old-transfer", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 20, NetAmount: 20, Currency: "USDT", Type: "manual",
+		Status: "exchange_unknown", Destination: "account", CreatedAt: time.Now().UTC().Add(-24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpsertProfitWithdrawRule("acct", &ProfitWithdrawRule{ID: "auto-rule", AccountScope: "scope-a", ExchangeID: "binance",
+		StrategyID: "ETHUSDT", Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account"}); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, err := st.ClaimProfitWithdrawRule("auto-rule", "claim-auto"); err != nil || !claimed {
+		t.Fatalf("claim=(%v,%v)", claimed, err)
+	}
+	auto := &ProfitWithdrawRecord{ID: "auto-transfer", RuleID: "auto-rule", ClaimID: "claim-auto", AccountID: "acct", AccountScope: "scope-a",
+		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "auto", Status: "processing",
+		Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.SaveWithdrawRecordForClaim(auto, time.Now().UTC().Add(-time.Hour), 10); err == nil {
+		t.Fatal("unknown non-terminal historical status must lock automatic withdrawal reservation")
+	}
+}
+
 func TestUpdateWithdrawRecordStatusOnlyAllowsProcessingTransitions(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdraw-status-transition.db")
 	if err != nil {
