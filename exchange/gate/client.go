@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -103,6 +105,43 @@ func (c *Client) DoRequest(ctx context.Context, method, path, queryString string
 	}
 
 	return respBody, nil
+}
+
+type FuturesAccountBookEntry struct {
+	Time     float64 `json:"time"`
+	Change   string  `json:"change"`
+	Balance  string  `json:"balance"`
+	Type     string  `json:"type"`
+	Text     string  `json:"text"`
+	Contract string  `json:"contract"`
+	TradeID  string  `json:"trade_id"`
+	ID       string  `json:"id"`
+}
+
+const gateFuturesAccountBookPageSize = 100
+
+// GetFuturesAccountBookPage reads one signed page of futures account ledger entries.
+func (c *Client) GetFuturesAccountBookPage(ctx context.Context, settle, contract string, from, to int64, offset int) ([]FuturesAccountBookEntry, error) {
+	if strings.TrimSpace(settle) == "" || strings.TrimSpace(contract) == "" || from <= 0 || to < from || offset < 0 {
+		return nil, fmt.Errorf("Gate futures account-book query requires settle, contract, and a valid range/offset")
+	}
+	path := "/futures/" + strings.ToLower(strings.TrimSpace(settle)) + "/account_book"
+	query := url.Values{}
+	query.Set("contract", contract)
+	query.Set("from", strconv.FormatInt(from, 10))
+	query.Set("to", strconv.FormatInt(to, 10))
+	query.Set("type", "fund")
+	query.Set("limit", strconv.Itoa(gateFuturesAccountBookPageSize))
+	query.Set("offset", strconv.Itoa(offset))
+	body, err := c.DoRequest(ctx, http.MethodGet, path, query.Encode(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("query Gate futures account book: %w", err)
+	}
+	var entries []FuturesAccountBookEntry
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("decode Gate futures account book: %w", err)
+	}
+	return entries, nil
 }
 
 // GetContract 獲取合約信息

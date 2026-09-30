@@ -362,8 +362,11 @@ func (w *gateWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fundi
 }
 
 func (w *gateWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }
+
+// SupportsFundingIncomeHistory marks Gate as supporting its authenticated contract account book.
+func (w *gateWrapper) SupportsFundingIncomeHistory() bool { return true }
 
 // GetOrderFills 查詢訂單成交記錄（Gate.io WebSocket 已提供手續費，此方法可選實現）
 func (w *gateWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
