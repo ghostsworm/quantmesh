@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc530] - 2026-09-30（未发布）
+
+### Test
+- 新增显式 opt-in 的 MySQL 账户钱包预留集成测试，覆盖 InnoDB 并发单赢家与双钱包事务失败回滚；只允许指向一次性隔离 schema 的 `QUANTMESH_MYSQL_TEST_DSN`。
+
 ## [3.111.0-rc529] - 2026-09-30（未发布）
 
 ### Test
