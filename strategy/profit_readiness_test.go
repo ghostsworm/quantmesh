@@ -42,8 +42,8 @@ func TestAuditSignalStrategiesMustRetainPartialFillOnCancel(t *testing.T) {
 	for _, kind := range []string{"trend", "mean_reversion"} {
 		t.Run(kind, func(t *testing.T) {
 			ord := &Order{OrderID: 42, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
-			partial := &position.OrderUpdate{OrderID: 42, Status: "PARTIALLY_FILLED", ExecutedQty: 0.4, AvgPrice: 100}
-			cancelled := &position.OrderUpdate{OrderID: 42, Status: "CANCELED", ExecutedQty: 0.4, AvgPrice: 100}
+			partial := &position.OrderUpdate{OrderID: 42, Status: "PARTIALLY_FILLED", ExecutedQty: 0.4, AvgPrice: 100, CommissionKnown: true}
+			cancelled := &position.OrderUpdate{OrderID: 42, Status: "CANCELED", ExecutedQty: 0.4, AvgPrice: 100, CommissionKnown: true}
 			var holdings []*Position
 			if kind == "trend" {
 				s := NewTrendFollowingStrategy("trend", cfg, &signalTestExecutor{}, &signalTestExchange{}, nil)

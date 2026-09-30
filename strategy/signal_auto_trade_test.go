@@ -105,11 +105,12 @@ func TestMeanReversionAutoTradesOpenAndCloseLong(t *testing.T) {
 	}
 
 	strategy.OnOrderUpdate(&position.OrderUpdate{
-		OrderID:     1,
-		Symbol:      "BTCUSDT",
-		Status:      "FILLED",
-		ExecutedQty: open.Quantity,
-		AvgPrice:    open.Price,
+		OrderID:         1,
+		Symbol:          "BTCUSDT",
+		Status:          "FILLED",
+		ExecutedQty:     open.Quantity,
+		AvgPrice:        open.Price,
+		CommissionKnown: true,
 	})
 	if got := strategy.GetPositions(); len(got) != 1 || got[0].Size <= 0 {
 		t.Fatalf("expected filled position, got %+v", got)

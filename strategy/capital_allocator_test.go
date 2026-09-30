@@ -227,6 +227,55 @@ func TestDynamicAllocatorPreservesWeightsWithoutVerifiedMetrics(t *testing.T) {
 	}
 }
 
+func TestDynamicAllocatorTargetsAndRebalancesWithinBoundsAndUnitSum(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.MinWeight = 0.1
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxChangePerRebalance = 0.05
+	da := NewDynamicAllocator(cfg)
+	da.RegisterStrategy("winner", 0.5)
+	da.RegisterStrategy("loser", 0.5)
+	da.UpdatePerformance("winner", 1000, true)
+	da.UpdatePerformance("loser", -1000, false)
+
+	targets := da.CalculateTargetWeights()
+	if math.Abs(targets["winner"]-0.7) > 1e-9 || math.Abs(targets["loser"]-0.3) > 1e-9 {
+		t.Fatalf("bounded target weights = %#v, want 0.7/0.3", targets)
+	}
+
+	for step := 0; step < 10; step++ {
+		previous := da.GetPerformance("winner").CurrentWeight
+		weights := da.Rebalance(targets)
+		total := weights["winner"] + weights["loser"]
+		if math.Abs(total-1) > 1e-9 {
+			t.Fatalf("step %d weights sum to %v: %#v", step, total, weights)
+		}
+		for name, weight := range weights {
+			if weight < da.minWeight-1e-9 || weight > da.maxWeight+1e-9 {
+				t.Fatalf("step %d weight %s=%v violates bounds: %#v", step, name, weight, weights)
+			}
+		}
+		if math.Abs(weights["winner"]-previous) > da.maxChangePerRebalance+1e-9 {
+			t.Fatalf("step %d exceeded per-rebalance change", step)
+		}
+	}
+}
+
+func TestDynamicAllocatorRetainsWeightsWhenBoundsCannotFitStrategyCount(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.MinWeight = 0.1
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.MaxWeight = 0.7
+	da := NewDynamicAllocator(cfg)
+	da.RegisterStrategy("only", 0.6)
+	da.UpdatePerformance("only", 1000, true)
+
+	if got := da.CalculateTargetWeights(); got["only"] != 0.6 {
+		t.Fatalf("infeasible single-strategy bounds changed weight: %#v", got)
+	}
+	if got := da.Rebalance(map[string]float64{"only": 0.9}); got["only"] != 0.6 {
+		t.Fatalf("infeasible single-strategy rebalance changed weight: %#v", got)
+	}
+}
 func TestDynamicAllocatorRejectsNonFinitePerformanceSamples(t *testing.T) {
 	for _, pnl := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		da := NewDynamicAllocator(&config.Config{})
@@ -248,6 +297,25 @@ func TestDynamicAllocatorRejectsNonFinitePerformanceSamples(t *testing.T) {
 	got := da.GetPerformance("grid")
 	if got == nil || got.TotalTrades != 1 || got.TotalPnL != math.MaxFloat64 {
 		t.Fatalf("overflowing pnl mutated performance: %+v", got)
+	}
+}
+
+func TestDynamicAllocatorRejectsPerformanceSampleAtomicallyOnCounterOverflow(t *testing.T) {
+	da := NewDynamicAllocator(&config.Config{})
+	da.RegisterStrategy("grid", 0.6)
+	perf := da.strategies["grid"]
+	maxInt := int(^uint(0) >> 1)
+	perf.mu.Lock()
+	perf.TotalPnL = 12
+	perf.TotalTrades = maxInt
+	perf.WinningTrades = maxInt
+	perf.WinRate = 1
+	perf.mu.Unlock()
+
+	da.UpdatePerformance("grid", 7, true)
+	got := da.GetPerformance("grid")
+	if got == nil || got.TotalPnL != 12 || got.TotalTrades != maxInt || got.WinningTrades != maxInt || got.WinRate != 1 {
+		t.Fatalf("counter overflow partially applied performance sample: %+v", got)
 	}
 }
 

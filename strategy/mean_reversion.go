@@ -332,6 +332,14 @@ func (mrs *MeanReversionStrategy) OnOrderUpdate(update *position.OrderUpdate) er
 	if update == nil {
 		return nil
 	}
+	mrs.mu.RLock()
+	active := signalOrderSnapshot(mrs.activeOrder)
+	mrs.mu.RUnlock()
+	if err := resolveSignalOrderCommission(mrs.exchange, active, update); err != nil {
+		mrs.mu.Lock()
+		defer mrs.mu.Unlock()
+		return markSignalOrderForReconciliation(&mrs.activeOrder, mrs.executor, update, mrs.persistRuntimeStateLocked, err)
+	}
 	mrs.mu.Lock()
 	defer mrs.mu.Unlock()
 

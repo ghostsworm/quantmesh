@@ -371,6 +371,14 @@ func (tfs *TrendFollowingStrategy) OnOrderUpdate(update *position.OrderUpdate) e
 	if update == nil {
 		return nil
 	}
+	tfs.mu.RLock()
+	active := signalOrderSnapshot(tfs.activeOrder)
+	tfs.mu.RUnlock()
+	if err := resolveSignalOrderCommission(tfs.exchange, active, update); err != nil {
+		tfs.mu.Lock()
+		defer tfs.mu.Unlock()
+		return markSignalOrderForReconciliation(&tfs.activeOrder, tfs.executor, update, tfs.persistRuntimeStateLocked, err)
+	}
 	tfs.mu.Lock()
 	defer tfs.mu.Unlock()
 

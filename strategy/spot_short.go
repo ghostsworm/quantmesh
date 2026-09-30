@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -152,6 +153,27 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if update == nil || update.Side != "BUY" {
 		return nil
 	}
+	if update.OrderID > 0 && finiteNumber(update.ExecutedQty) && update.ExecutedQty > 0 {
+		s.mu.RLock()
+		pending, found := s.pendingRepay[update.OrderID]
+		if !found && update.ClientOrderID != "" {
+			if intent, ok := s.pendingBuy[update.ClientOrderID]; ok {
+				pending = spotShortPendingRepay{ClientOrderID: update.ClientOrderID, OrderQuantity: intent.Quantity}
+				found = true
+			}
+		}
+		s.mu.RUnlock()
+		if found && !pending.RepayUncertain && update.ExecutedQty > pending.ExecutedQty {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			err := s.verifySpotShortFillBaseFee(ctx, update.OrderID, pending, update)
+			cancel()
+			if err != nil {
+				wrapped := fmt.Errorf("verify spot short buy order %d net base receipt before repayment: %w", update.OrderID, err)
+				s.reportUnresolvedDebt(wrapped)
+				return wrapped
+			}
+		}
+	}
 	s.mu.Lock()
 	pending, ok := s.pendingRepay[update.OrderID]
 	if !ok && update.ClientOrderID != "" && update.OrderID > 0 {
@@ -255,6 +277,103 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if repayAmount > 0 {
 		logger.Info("📤 SpotShortStrategy: 買回成交後已還幣 %.6f %s", repayAmount, s.baseAsset)
 	}
+	return nil
+}
+
+// verifySpotShortFillBaseFee reconciles the full cumulative fill history and
+// the already-persisted fee cursor before any newly received base asset is repaid.
+func (s *SpotShortStrategy) verifySpotShortFillBaseFee(ctx context.Context, orderID int64, pending spotShortPendingRepay,
+	update *position.OrderUpdate) error {
+	if s.ex == nil || orderID <= 0 {
+		return fmt.Errorf("exchange or stable order identity is unavailable")
+	}
+	if !finiteNumber(update.ExecutedQty) || update.ExecutedQty <= pending.ExecutedQty ||
+		update.ExecutedQty > pending.OrderQuantity || update.ExecutedQty <= 0 {
+		return fmt.Errorf("cumulative execution is invalid for the persisted buy intent")
+	}
+	if (update.Symbol != "" && update.Symbol != s.symbol) || update.Side != "BUY" ||
+		(pending.ClientOrderID != "" && update.ClientOrderID != "" && pending.ClientOrderID != update.ClientOrderID) {
+		return fmt.Errorf("order identity does not match the persisted buy intent")
+	}
+	raw, err := s.ex.GetOrderFills(ctx, s.symbol, orderID)
+	if err != nil {
+		return fmt.Errorf("query order fills: %w", err)
+	}
+	var fills []*exchange.OrderFill
+	switch rows := raw.(type) {
+	case []*exchange.OrderFill:
+		fills = rows
+	case []exchange.OrderFill:
+		fills = make([]*exchange.OrderFill, len(rows))
+		for i := range rows {
+			fill := rows[i]
+			fills[i] = &fill
+		}
+	default:
+		return fmt.Errorf("exchange returned unsupported fill evidence %T", raw)
+	}
+	if len(fills) == 0 {
+		return fmt.Errorf("exchange returned no fill evidence")
+	}
+	sort.Slice(fills, func(i, j int) bool {
+		if fills[i] == nil {
+			return false
+		}
+		if fills[j] == nil {
+			return true
+		}
+		if fills[i].TradeTime != fills[j].TradeTime {
+			return fills[i].TradeTime < fills[j].TradeTime
+		}
+		return fills[i].TradeID < fills[j].TradeID
+	})
+	seen := make(map[string]struct{}, len(fills))
+	var totalQty, totalBaseFee, totalNotional float64
+	var prefixQty, prefixBaseFee float64
+	for _, fill := range fills {
+		if fill == nil || strings.TrimSpace(fill.TradeID) == "" || fill.OrderID != 0 && fill.OrderID != orderID ||
+			fill.Symbol != "" && !strings.EqualFold(fill.Symbol, s.symbol) || fill.Side != "" && fill.Side != exchange.SideBuy ||
+			!finiteNumber(fill.Price) || fill.Price <= 0 || !finiteNumber(fill.Quantity) || fill.Quantity <= 0 ||
+			!finiteNumber(fill.Commission) || !finiteNumber(fill.BaseFeeQty) || fill.BaseFeeQty < 0 || fill.BaseFeeQty > fill.Quantity {
+			return fmt.Errorf("exchange returned invalid fill evidence")
+		}
+		if _, exists := seen[fill.TradeID]; exists {
+			return fmt.Errorf("exchange returned duplicate trade ID %q", fill.TradeID)
+		}
+		seen[fill.TradeID] = struct{}{}
+		if fill.CommissionQuoteKnown && !finiteNumber(fill.CommissionQuote) ||
+			!fill.CommissionQuoteKnown && fill.Commission == 0 && strings.TrimSpace(fill.CommissionAsset) == "" {
+			return fmt.Errorf("fill %s has no verifiable fee evidence", fill.TradeID)
+		}
+		if strings.EqualFold(fill.CommissionAsset, s.baseAsset) && fill.Commission > 0 && fill.BaseFeeQty == 0 {
+			return fmt.Errorf("fill %s reports a base-asset fee without its base fee quantity", fill.TradeID)
+		}
+		if prefixQty < pending.ExecutedQty-entryQtyEpsilon {
+			if prefixQty+fill.Quantity > pending.ExecutedQty+entryQtyEpsilon {
+				return fmt.Errorf("persisted repayment cursor splits an exchange fill")
+			}
+			prefixQty += fill.Quantity
+			prefixBaseFee += fill.BaseFeeQty
+		} else {
+			totalBaseFee += fill.BaseFeeQty
+		}
+		totalQty += fill.Quantity
+		totalNotional += fill.Price * fill.Quantity
+		if !finiteNumber(totalQty) || !finiteNumber(totalBaseFee) || !finiteNumber(prefixQty) || !finiteNumber(prefixBaseFee) || !finiteNumber(totalNotional) {
+			return fmt.Errorf("exchange fill totals exceed the supported numeric range")
+		}
+	}
+	tolerance := math.Max(1e-10, update.ExecutedQty*1e-8)
+	if math.Abs(totalQty-update.ExecutedQty) > tolerance || math.Abs(prefixQty-pending.ExecutedQty) > tolerance ||
+		math.Abs(prefixBaseFee-pending.BaseFeeQty) > tolerance || !finiteNumber(totalNotional) || !finiteNumber(totalBaseFee) {
+		return fmt.Errorf("fill history does not reconcile with cumulative execution and persisted fee cursor")
+	}
+	averagePrice := totalNotional / totalQty
+	if !finiteNumber(averagePrice) || !finiteNumber(update.AvgPrice) || update.AvgPrice < 0 ||
+		(update.AvgPrice > 0 && math.Abs(averagePrice-update.AvgPrice) > math.Max(1e-8, update.AvgPrice*1e-8)) {
+		return fmt.Errorf("fill notional does not match the order average price")
+	}
+	update.BaseFeeQty = totalBaseFee
 	return nil
 }
 
@@ -450,39 +569,9 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 			return fmt.Errorf("exchange cumulative fill regressed for spot short order %d: %.12g < %.12g", id, update.ExecutedQty, pending.ExecutedQty)
 		}
 		if update.ExecutedQty > pending.ExecutedQty {
-			rawFills, err := s.ex.GetOrderFills(ctx, s.symbol, id)
-			if err != nil {
-				return fmt.Errorf("query spot short order %d fills: %w", id, err)
+			if err := s.verifySpotShortFillBaseFee(ctx, id, pending, update); err != nil {
+				return fmt.Errorf("reconcile spot short order %d fills: %w", id, err)
 			}
-			fills, ok := rawFills.([]*exchange.OrderFill)
-			if !ok || len(fills) == 0 {
-				return fmt.Errorf("spot short order %d has unaccounted fills but exchange returned no supported fill details", id)
-			}
-			totalQty, totalBaseFee := 0.0, 0.0
-			seen := make(map[string]struct{}, len(fills))
-			for _, fill := range fills {
-				if fill == nil || fill.TradeID == "" || fill.OrderID != 0 && fill.OrderID != id || fill.Side != "" && fill.Side != exchange.SideBuy || fill.Symbol != "" && fill.Symbol != s.symbol ||
-					fill.Quantity <= 0 || math.IsNaN(fill.Quantity) || math.IsInf(fill.Quantity, 0) ||
-					fill.BaseFeeQty < 0 || math.IsNaN(fill.BaseFeeQty) || math.IsInf(fill.BaseFeeQty, 0) || fill.BaseFeeQty > fill.Quantity {
-					return fmt.Errorf("spot short order %d returned invalid fill evidence", id)
-				}
-				if strings.EqualFold(fill.CommissionAsset, s.baseAsset) && fill.Commission > 0 && fill.BaseFeeQty == 0 {
-					return fmt.Errorf("spot short order %d fill %s reports base-asset commission without a base fee quantity", id, fill.TradeID)
-				}
-				if fill.TradeID != "" {
-					if _, duplicate := seen[fill.TradeID]; duplicate {
-						return fmt.Errorf("spot short order %d returned duplicate trade id %q", id, fill.TradeID)
-					}
-					seen[fill.TradeID] = struct{}{}
-				}
-				totalQty += fill.Quantity
-				totalBaseFee += fill.BaseFeeQty
-			}
-			tolerance := math.Max(1e-10, update.ExecutedQty*1e-8)
-			if math.Abs(totalQty-update.ExecutedQty) > tolerance || totalBaseFee+tolerance < pending.BaseFeeQty {
-				return fmt.Errorf("spot short order %d fill evidence does not reconcile: fills=%.12g fees=%.12g order_executed=%.12g saved_fees=%.12g", id, totalQty, totalBaseFee, update.ExecutedQty, pending.BaseFeeQty)
-			}
-			update.BaseFeeQty = totalBaseFee - pending.BaseFeeQty
 		}
 		update.OrderID = id
 		update.Symbol = s.symbol

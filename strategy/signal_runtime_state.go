@@ -3,10 +3,12 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -15,6 +17,7 @@ import (
 )
 
 const signalRuntimeStateSchemaVersion = 1
+const signalFillEvidenceTimeout = 15 * time.Second
 
 type signalRuntimeState struct {
 	BotID         string             `json:"bot_id"`
@@ -212,6 +215,7 @@ func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, sym
 			return err
 		}
 		update.Commission, update.CommissionAsset, update.AvgPrice = fee, ex.GetQuoteAsset(), avgPrice
+		update.CommissionKnown = true
 	}
 	if err := apply(update); err != nil {
 		return fmt.Errorf("apply reconciled signal order %d: %w", order.OrderID, err)
@@ -288,6 +292,69 @@ func reconcileSignalFills(ctx context.Context, ex position.IExchange, symbol str
 		return 0, 0, fmt.Errorf("signal order fill notional does not match exchange order")
 	}
 	return addedFee, avg, nil
+}
+
+// resolveSignalOrderCommission replaces an unauthenticated order-stream fee
+// placeholder with complete per-fill evidence before live strategy accounting.
+func resolveSignalOrderCommission(ex position.IExchange, active *Order, update *position.OrderUpdate) error {
+	if update == nil || update.CommissionKnown || active == nil || !signalOrderMatches(active, update) ||
+		!finiteNumber(update.ExecutedQty) || update.ExecutedQty <= active.FillProgress.Quantity+entryQtyEpsilon {
+		return nil
+	}
+	if !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 {
+		return nil // The normal update validator retains malformed price evidence.
+	}
+	orderID := update.OrderID
+	if orderID <= 0 {
+		orderID = active.OrderID
+	}
+	if ex == nil || orderID <= 0 {
+		return fmt.Errorf("signal order %d has no exchange or stable order identity for fee verification", orderID)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), signalFillEvidenceTimeout)
+	defer cancel()
+	order := &exchange.Order{OrderID: orderID, Symbol: active.Symbol, Side: exchange.Side(active.Side),
+		Quantity: active.Quantity, ExecutedQty: update.ExecutedQty, AvgPrice: update.AvgPrice,
+		Status: exchange.OrderStatus(strings.ToUpper(strings.TrimSpace(update.Status)))}
+	fee, averagePrice, err := reconcileSignalFills(ctx, ex, active.Symbol, active, order)
+	if err != nil {
+		return fmt.Errorf("verify signal order %d fill fees before accounting: %w", orderID, err)
+	}
+	update.Commission = fee
+	update.CommissionAsset = ex.GetQuoteAsset()
+	update.AvgPrice = averagePrice
+	update.CommissionKnown = true
+	return nil
+}
+
+func signalOrderSnapshot(order *Order) *Order {
+	if order == nil {
+		return nil
+	}
+	copy := *order
+	return &copy
+}
+
+// markSignalOrderForReconciliation is called with the strategy mutex held.
+func markSignalOrderForReconciliation(active **Order, executor position.OrderExecutorInterface,
+	update *position.OrderUpdate, persist func() error, reason error) error {
+	if active != nil && *active != nil && signalOrderMatches(*active, update) {
+		(*active).Status = position.OrderStatusUnknown
+		trackedUpdate := *update
+		if trackedUpdate.OrderID <= 0 {
+			trackedUpdate.OrderID = (*active).OrderID
+		}
+		if trackedUpdate.ClientOrderID == "" {
+			trackedUpdate.ClientOrderID = (*active).ClientOrderID
+		}
+		retainSignalOrderForReconciliation(*active, executor, &trackedUpdate, reason.Error())
+		if persist != nil {
+			if persistErr := persist(); persistErr != nil {
+				return errors.Join(reason, fmt.Errorf("persist signal reconciliation state: %w", persistErr))
+			}
+		}
+	}
+	return reason
 }
 
 func (tfs *TrendFollowingStrategy) SetRuntimeStateStore(store RuntimeStateStore) {

@@ -1001,12 +1001,15 @@ func (s *MartingaleStrategy) checkTrendFilter() bool {
 
 // OnOrderUpdate 订單更新处理
 func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if update == nil || update.OrderID == 0 {
 		return nil
 	}
+	if err := s.resolveUnverifiedCommission(update); err != nil {
+		s.requireMartingaleOrderReconciliation(update, "martingale fill fee evidence is not authoritative: "+err.Error())
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	exchangeName := ""
 	if s.exchange != nil {
 		exchangeName = strings.ToLower(s.exchange.GetName())
@@ -1068,6 +1071,10 @@ func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 			delta, executionPrice := nextProgress.Advance(update.ExecutedQty, update.AvgPrice, 0)
 			if delta <= 0 || math.Abs(delta-deltaQty) > entryQtyEpsilon {
 				s.requireMartingaleOrderReconciliation(update, "martingale close execution progress is inconsistent")
+				return nil
+			}
+			if !update.CommissionKnown {
+				s.requireMartingaleOrderReconciliation(update, "martingale close fee evidence is not authoritative")
 				return nil
 			}
 			closeFee, feeKnown := commissionInQuote(s.exchange, update.Commission, update.CommissionAsset, executionPrice)
@@ -1176,6 +1183,11 @@ func (s *MartingaleStrategy) handleEntryOrderUpdate(entry *MartingaleEntry, upda
 		}
 		nextProgress := entry.FillProgress
 		delta, price := nextProgress.Advance(qty, update.AvgPrice, 0)
+		if !update.CommissionKnown {
+			entry.Status = position.OrderStatusUnknown
+			s.requireMartingaleOrderReconciliation(update, "martingale entry fee evidence is not authoritative")
+			return
+		}
 		fee, feeKnown := commissionInQuote(s.exchange, update.Commission, update.CommissionAsset, price)
 		if !feeKnown {
 			s.requireMartingaleOrderReconciliation(update, "martingale entry fee cannot be valued in quote asset")

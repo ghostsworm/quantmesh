@@ -225,7 +225,7 @@ func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	if !strategy.isClosing || len(strategy.entries) == 0 || strategy.totalQty != 1 || strategy.stats.TotalTrades != 0 {
 		t.Fatal("FILLED without executed quantity must retain martingale inventory and avoid realized PnL")
 	}
-	partial := &position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.4, AvgPrice: 50500}
+	partial := &position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.4, AvgPrice: 50500, CommissionKnown: true}
 	if err := strategy.OnOrderUpdate(partial); err != nil {
 		t.Fatalf("OnOrderUpdate(partial fill) error=%v", err)
 	}
@@ -235,7 +235,7 @@ func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 	if strategy.totalQty != 0.6 || strategy.stats.TotalPnL != 200 || strategy.stats.TotalTrades != 0 {
 		t.Fatalf("partial or duplicate fill was accounted incorrectly: qty=%v stats=%+v", strategy.totalQty, strategy.stats)
 	}
-	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000}); err != nil {
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: closeID, Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 51000, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate(verified fill) error=%v", err)
 	}
 	if strategy.isClosing || len(strategy.entries) != 0 || strategy.totalQty != 0 || strategy.currentLevel != 0 {

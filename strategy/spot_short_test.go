@@ -210,6 +210,7 @@ func TestSpotShortPersistsBuyIntentBeforeSubmissionAndHandlesFillBeforeAck(t *te
 	store := &memoryRuntimeStateStore{}
 	margin := &mockMarginExchange{}
 	var strategy *SpotShortStrategy
+	venue := &spotShortReconcileExchange{}
 	executor := &spotShortOrderCallbackExecutor{}
 	executor.onPlace = func(req *position.OrderRequest, order *position.Order) {
 		var state spotShortRuntimeState
@@ -219,6 +220,8 @@ func TestSpotShortPersistsBuyIntentBeforeSubmissionAndHandlesFillBeforeAck(t *te
 		if req.ClientOrderID == "" || state.PendingBuy[req.ClientOrderID].Quantity != req.Quantity {
 			t.Fatalf("buy intent was not persisted before exchange submit: req=%+v state=%+v", req, state.PendingBuy)
 		}
+		venue.fills = []*exchange.OrderFill{{OrderID: order.OrderID, TradeID: "early-buy-fill", Symbol: req.Symbol,
+			Side: exchange.SideBuy, Price: req.Price, Quantity: req.Quantity, CommissionQuoteKnown: true}}
 		if err := strategy.OnOrderUpdate(&position.OrderUpdate{
 			OrderID: order.OrderID, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol,
 			Side: "BUY", Status: "FILLED", ExecutedQty: req.Quantity,
@@ -226,7 +229,7 @@ func TestSpotShortPersistsBuyIntentBeforeSubmissionAndHandlesFillBeforeAck(t *te
 			t.Fatalf("process fill arriving before submit acknowledgement: %v", err)
 		}
 	}
-	strategy = newSpotShortForTest(executor, &signalTestExchange{}, margin)
+	strategy = newSpotShortForTest(executor, venue, margin)
 	strategy.SetRuntimeStateStore(store)
 	if err := strategy.decreaseShort(context.Background(), 0.25); err != nil {
 		t.Fatalf("decrease short: %v", err)
@@ -422,7 +425,9 @@ func TestSpotShortIncreaseShortSuccessDoesNotRepay(t *testing.T) {
 func TestSpotShortFilledBuyReturnsRepayFailureAndRetainsPendingDebt(t *testing.T) {
 	repayErr := errors.New("repay endpoint unavailable")
 	margin := &mockMarginExchange{repayErr: repayErr}
-	s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, margin)
+	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{OrderID: 42, TradeID: "buy-42", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Price: 100, Quantity: 0.5, CommissionQuoteKnown: true}}}
+	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	s.pendingRepay[42] = spotShortPendingRepay{OrderQuantity: 0.5}
 
@@ -436,7 +441,9 @@ func TestSpotShortFilledBuyReturnsRepayFailureAndRetainsPendingDebt(t *testing.T
 }
 
 func TestSpotShortFilledBuyWithoutRepayExecutorFailsClosed(t *testing.T) {
-	s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, nil)
+	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{OrderID: 43, TradeID: "buy-43", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Price: 100, Quantity: 0.25, CommissionQuoteKnown: true}}}
+	s := newSpotShortForTest(&signalTestExecutor{}, venue, nil)
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	s.pendingRepay[43] = spotShortPendingRepay{OrderQuantity: 0.25}
 	if s.smEx != nil {
@@ -453,7 +460,9 @@ func TestSpotShortFilledBuyWithoutRepayExecutorFailsClosed(t *testing.T) {
 
 func TestSpotShortPartialFillRepaysOnlyNewFillAndWaitsForTerminalUpdate(t *testing.T) {
 	margin := &mockMarginExchange{}
-	s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, margin)
+	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{OrderID: 51, TradeID: "partial-51", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Price: 100, Quantity: 0.4, CommissionQuoteKnown: true}}}
+	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
 	store := &memoryRuntimeStateStore{}
 	s.SetRuntimeStateStore(store)
 	s.pendingRepay[51] = spotShortPendingRepay{OrderQuantity: 1}
@@ -476,6 +485,54 @@ func TestSpotShortPartialFillRepaysOnlyNewFillAndWaitsForTerminalUpdate(t *testi
 	}
 	if _, ok := s.pendingRepay[51]; ok {
 		t.Fatal("terminal canceled order was not removed after persisting its final fill")
+	}
+}
+
+func TestSpotShortLiveFillRepaysOnlyVerifiedNetBaseAndChecksFeeCursor(t *testing.T) {
+	margin := &mockMarginExchange{}
+	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{
+		OrderID: 71, TradeID: "fill-1", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.4, Commission: 0.01, CommissionAsset: "BTC", BaseFeeQty: 0.01,
+	}}}
+	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
+	store := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(store)
+	s.pendingRepay[71] = spotShortPendingRepay{OrderQuantity: 1}
+
+	first := &position.OrderUpdate{OrderID: 71, Symbol: "BTCUSDT", Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.4, AvgPrice: 100}
+	if err := s.OnOrderUpdate(first); err != nil {
+		t.Fatal(err)
+	}
+	if len(margin.repaid) != 1 || math.Abs(margin.repaid[0]-0.39) > 1e-12 {
+		t.Fatalf("first repayment should use verified net base: %v", margin.repaid)
+	}
+
+	venue.fills = append(venue.fills, &exchange.OrderFill{OrderID: 71, TradeID: "fill-2", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Price: 101, Quantity: 0.3, Commission: 0.015, CommissionAsset: "BTC", BaseFeeQty: 0.015})
+	second := &position.OrderUpdate{OrderID: 71, Symbol: "BTCUSDT", Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.7, AvgPrice: (0.4*100 + 0.3*101) / 0.7}
+	if err := s.OnOrderUpdate(second); err != nil {
+		t.Fatal(err)
+	}
+	if len(margin.repaid) != 2 || math.Abs(margin.repaid[1]-0.285) > 1e-12 ||
+		s.pendingRepay[71].ExecutedQty != 0.7 || math.Abs(s.pendingRepay[71].BaseFeeQty-0.025) > 1e-12 {
+		t.Fatalf("second repayment/cursor failed cumulative fee reconciliation: repaid=%v pending=%+v", margin.repaid, s.pendingRepay[71])
+	}
+}
+
+func TestSpotShortLiveFillWithoutFeeHistoryKeepsDebtAndDoesNotRepay(t *testing.T) {
+	margin := &mockMarginExchange{}
+	venue := &spotShortReconcileExchange{}
+	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.pendingRepay[72] = spotShortPendingRepay{OrderQuantity: 1}
+	var reported error
+	s.SetUnresolvedDebtHandler(func(err error) { reported = err })
+
+	err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: 72, Symbol: "BTCUSDT", Side: "BUY",
+		Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100})
+	if err == nil || reported == nil || len(margin.repaid) != 0 || s.pendingRepay[72].ExecutedQty != 0 {
+		t.Fatalf("missing live fill history must preserve debt without repayment: err=%v reported=%v repaid=%v pending=%+v",
+			err, reported, margin.repaid, s.pendingRepay[72])
 	}
 }
 
@@ -564,7 +621,7 @@ func spotShortRestoreFixture(t *testing.T, venue position.IExchange, margin *moc
 func TestSpotShortStartupReconcilesOrderAndBaseFeeFillsBeforeRepay(t *testing.T) {
 	venue := &spotShortReconcileExchange{
 		order: &exchange.Order{OrderID: 71, Symbol: "BTCUSDT", Side: exchange.SideBuy, Status: exchange.OrderStatusPartiallyFilled, Quantity: 1, ExecutedQty: 0.5},
-		fills: []*exchange.OrderFill{{OrderID: 71, TradeID: "trade-1", Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 0.5, Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001}},
+		fills: []*exchange.OrderFill{{OrderID: 71, TradeID: "trade-1", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5, Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001}},
 	}
 	margin := &mockMarginExchange{}
 	s, _ := spotShortRestoreFixture(t, venue, margin)

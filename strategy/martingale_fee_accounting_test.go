@@ -122,6 +122,21 @@ func (e *martingaleReconciliationExecutor) MarkOrderReconciliationRequired(int64
 	return nil
 }
 
+func TestMartingaleUnverifiedLiveFeeRetainsFillForReconciliation(t *testing.T) {
+	executor := &martingaleReconciliationExecutor{}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, s)
+	s.direction = "LONG"
+	entry := &MartingaleEntry{Level: 1, OrderID: 44, RequestedQuantity: 1, Status: entryStatusPending}
+	s.entries = []*MartingaleEntry{entry}
+	err := s.OnOrderUpdate(&position.OrderUpdate{
+		OrderID: 44, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+	})
+	if err == nil || !executor.marked || entry.Quantity != 0 || entry.FillProgress.Quantity != 0 || s.totalQty != 0 {
+		t.Fatalf("unverified zero-fee placeholder was booked: err=%v marked=%v entry=%+v total=%v", err, executor.marked, entry, s.totalQty)
+	}
+}
+
 func TestMartingaleRealizedPnLIncludesQuoteValuedEntryAndExitFees(t *testing.T) {
 	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)
@@ -130,7 +145,7 @@ func TestMartingaleRealizedPnLIncludesQuoteValuedEntryAndExitFees(t *testing.T) 
 	s.entries = []*MartingaleEntry{entry}
 	s.handleEntryOrderUpdate(entry, &position.OrderUpdate{
 		OrderID: 11, Status: "FILLED", ExecutedQty: 1, AvgPrice: 100,
-		Commission: 0.2, CommissionAsset: "USDT",
+		Commission: 0.2, CommissionAsset: "USDT", CommissionKnown: true,
 	})
 	if entry.OpeningFee != 0.2 || s.totalQty != 1 {
 		t.Fatalf("entry fee/quantity not booked: entry=%+v total=%v", entry, s.totalQty)
@@ -138,7 +153,7 @@ func TestMartingaleRealizedPnLIncludesQuoteValuedEntryAndExitFees(t *testing.T) 
 	s.isClosing, s.closeOrderID = true, 12
 	if err := s.OnOrderUpdate(&position.OrderUpdate{
 		OrderID: 12, Status: "FILLED", ExecutedQty: 1, AvgPrice: 110,
-		Commission: 0.1, CommissionAsset: "USDT",
+		Commission: 0.1, CommissionAsset: "USDT", CommissionKnown: true,
 	}); err != nil {
 		t.Fatal(err)
 	}

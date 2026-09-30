@@ -11,7 +11,7 @@ func commissionInQuote(exchange position.IExchange, commission float64, asset st
 	if commission == 0 {
 		return 0, true
 	}
-	if exchange == nil || math.IsNaN(commission) || math.IsInf(commission, 0) ||
+	if exchange == nil ||
 		fillPrice <= 0 || math.IsNaN(fillPrice) || math.IsInf(fillPrice, 0) {
 		return 0, false
 	}

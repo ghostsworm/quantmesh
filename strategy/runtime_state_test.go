@@ -180,7 +180,7 @@ func TestMartingaleReversePendingOrderDoesNotCountRequestedInventory(t *testing.
 	}
 	martin.handleEntryOrderUpdate(pending, &position.OrderUpdate{
 		OrderID: pending.OrderID, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5,
-		AvgPrice: 110, Commission: 0.05, CommissionAsset: "USDT",
+		AvgPrice: 110, Commission: 0.05, CommissionAsset: "USDT", CommissionKnown: true,
 	})
 	if math.Abs(martin.totalQty-1.5) > 1e-9 || math.Abs(martin.totalCost-155) > 1e-9 {
 		t.Fatalf("inventory counted requested amount instead of fill: qty=%v cost=%v", martin.totalQty, martin.totalCost)

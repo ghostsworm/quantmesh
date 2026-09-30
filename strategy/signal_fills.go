@@ -52,6 +52,10 @@ func applySignalOrderUpdate(active **Order, action *string, holding **Position, 
 		return
 	}
 	if delta > 0 {
+		if !update.CommissionKnown {
+			retainSignalOrderForReconciliation(order, executor, update, "signal order fill fee evidence is not authoritative")
+			return
+		}
 		fee, feeKnown := commissionInQuote(exchange, update.Commission, update.CommissionAsset, price)
 		if !feeKnown {
 			retainSignalOrderForReconciliation(order, executor, update, "signal order fee cannot be valued in quote asset")

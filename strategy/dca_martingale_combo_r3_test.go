@@ -236,7 +236,7 @@ func TestShortMartingaleEntryLifecycle(t *testing.T) {
 		t.Fatalf("OnPriceChange() error=%v", err)
 	}
 	entryID := s.entries[0].OrderID
-	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: entryID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.001, AvgPrice: 50010}); err != nil {
+	if err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: entryID, Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.001, AvgPrice: 50010, CommissionKnown: true}); err != nil {
 		t.Fatalf("OnOrderUpdate(partial) error=%v", err)
 	}
 	if !r3AlmostEqual(s.totalQty, 0.001) || !r3AlmostEqual(s.avgEntryPrice, 50010) {

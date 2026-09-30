@@ -1,12 +1,15 @@
 package strategy
 
 import (
+	"context"
 	"errors"
 	"math"
 	"sync"
 	"testing"
 	"time"
 
+	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/utils"
@@ -19,7 +22,7 @@ func TestSignalFillsCumulativeCloseAndCancel(t *testing.T) {
 	entry := 0.0
 	stats := &StrategyStatistics{}
 	apply := func(id int64, status string, qty, price float64) {
-		applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: id, Status: status, ExecutedQty: qty, AvgPrice: price})
+		applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: id, Status: status, ExecutedQty: qty, AvgPrice: price, CommissionKnown: true})
 	}
 	apply(1, "PARTIALLY_FILLED", 1, 100)
 	apply(1, "PARTIALLY_FILLED", 0.5, 90)
@@ -45,17 +48,17 @@ func TestSignalInvalidTerminalFillRetainsReconciliationState(t *testing.T) {
 	var entry float64
 	stats := &StrategyStatistics{}
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{
-		OrderID: 1, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 100,
+		OrderID: 1, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 100, CommissionKnown: true,
 	})
 	// Two units at cumulative average 40 contradict the previously booked 100.
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{
-		OrderID: 1, Status: "CANCELED", ExecutedQty: 2, AvgPrice: 40,
+		OrderID: 1, Status: "CANCELED", ExecutedQty: 2, AvgPrice: 40, CommissionKnown: true,
 	})
 	if active == nil || active.Status != position.OrderStatusUnknown || action == "" || holding.Size != 1 || entry != 100 {
 		t.Fatalf("invalid terminal erased reconciliation state: active=%+v holding=%+v", active, holding)
 	}
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{
-		OrderID: 1, Status: "CANCELED", ExecutedQty: 2, AvgPrice: 110,
+		OrderID: 1, Status: "CANCELED", ExecutedQty: 2, AvgPrice: 110, CommissionKnown: true,
 	})
 	if active != nil || holding.Size != 2 || entry != 110 {
 		t.Fatalf("corrected cumulative report could not recover: active=%v holding=%+v", active, holding)
@@ -88,7 +91,7 @@ func TestSignalUnderfilledFilledRetainsOrderAndRecoversAfterVerification(t *test
 			executor := &signalReconciliationExecutor{}
 			apply := func(quantity float64) {
 				applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, executor, &position.OrderUpdate{
-					OrderID: 84, Status: "FILLED", ExecutedQty: quantity, AvgPrice: 100,
+					OrderID: 84, Status: "FILLED", ExecutedQty: quantity, AvgPrice: 100, CommissionKnown: true,
 				})
 			}
 
@@ -148,7 +151,7 @@ func TestSignalOverfillsRemainPendingForReconciliation(t *testing.T) {
 			entry := 0.0
 			stats := &StrategyStatistics{}
 			applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{
-				OrderID: tt.order.OrderID, Status: "PARTIALLY_FILLED", ExecutedQty: tt.filled, AvgPrice: 110,
+				OrderID: tt.order.OrderID, Status: "PARTIALLY_FILLED", ExecutedQty: tt.filled, AvgPrice: 110, CommissionKnown: true,
 			})
 			if active == nil || active.Status != position.OrderStatusUnknown || action == "" || stats.TotalVolume != 0 {
 				t.Fatalf("unreconciled overfill was consumed: active=%+v action=%q stats=%+v", active, action, stats)
@@ -168,7 +171,7 @@ func TestSignalStaleTerminalFillRequiresReconciliation(t *testing.T) {
 	stats := &StrategyStatistics{}
 	apply := func(status string, quantity float64) {
 		applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{
-			OrderID: 83, Status: status, ExecutedQty: quantity, AvgPrice: 100,
+			OrderID: 83, Status: status, ExecutedQty: quantity, AvgPrice: 100, CommissionKnown: true,
 		})
 	}
 	apply("PARTIALLY_FILLED", 0.5)
@@ -192,11 +195,11 @@ func TestSignalFillWithoutAveragePriceRetainsOrder(t *testing.T) {
 	var holding *Position
 	var entry float64
 	stats := &StrategyStatistics{}
-	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: 9, Status: "PARTIALLY_FILLED", ExecutedQty: 1, Price: 100})
+	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: 9, Status: "PARTIALLY_FILLED", ExecutedQty: 1, Price: 100, CommissionKnown: true})
 	if active == nil || active.Status != position.OrderStatusUnknown || holding != nil || stats.TotalVolume != 0 {
 		t.Fatalf("missing average fill price was replaced with order price: active=%+v holding=%+v stats=%+v", active, holding, stats)
 	}
-	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: 9, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 101})
+	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, nil, nil, &position.OrderUpdate{OrderID: 9, Status: "PARTIALLY_FILLED", ExecutedQty: 1, AvgPrice: 101, CommissionKnown: true})
 	if active == nil || holding == nil || holding.Size != 1 || entry != 101 {
 		t.Fatalf("corrected fill price did not recover the order: active=%+v holding=%+v entry=%v", active, holding, entry)
 	}
@@ -211,7 +214,7 @@ func TestSignalNetProfitIncludesOpeningFeeAndValuedCloseFee(t *testing.T) {
 	exchange := &hedgeExchange{}
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, exchange, nil, &position.OrderUpdate{
 		OrderID: 30, Status: "FILLED", ExecutedQty: 1, AvgPrice: 100,
-		Commission: 0.2, CommissionAsset: "USDT",
+		Commission: 0.2, CommissionAsset: "USDT", CommissionKnown: true,
 	})
 	if holding == nil || holding.OpeningFee != 0.2 {
 		t.Fatalf("opening fee was not attached to inventory: %+v", holding)
@@ -220,7 +223,7 @@ func TestSignalNetProfitIncludesOpeningFeeAndValuedCloseFee(t *testing.T) {
 	action = signalActionCloseLong
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, exchange, nil, &position.OrderUpdate{
 		OrderID: 31, Status: "FILLED", ExecutedQty: 1, AvgPrice: 110,
-		Commission: 0.1, CommissionAsset: "USDT",
+		Commission: 0.1, CommissionAsset: "USDT", CommissionKnown: true,
 	})
 	if holding != nil || math.Abs(stats.TotalPnL-9.7) > 1e-9 {
 		t.Fatalf("net PnL should be gross 10 less 0.2 entry and 0.1 exit fee: holding=%+v stats=%+v", holding, stats)
@@ -239,6 +242,65 @@ func TestSignalUnknownFeeCurrencyRetainsFillForReconciliation(t *testing.T) {
 	})
 	if active == nil || active.Status != position.OrderStatusUnknown || active.FillProgress.Quantity != 0 || holding != nil {
 		t.Fatalf("unknown fee currency must retain the unbooked fill: active=%+v holding=%+v", active, holding)
+	}
+}
+
+func TestSignalZeroFeePlaceholderDoesNotBookFill(t *testing.T) {
+	active := &Order{OrderID: 33, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
+	action := signalActionOpenLong
+	var holding *Position
+	entry := 0.0
+	stats := &StrategyStatistics{}
+	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, &hedgeExchange{}, nil, &position.OrderUpdate{
+		OrderID: 33, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100,
+	})
+	if active == nil || active.Status != position.OrderStatusUnknown || active.FillProgress.Quantity != 0 || holding != nil || stats.TotalVolume != 0 {
+		t.Fatalf("unauthenticated zero-fee placeholder was booked: active=%+v holding=%+v stats=%+v", active, holding, stats)
+	}
+}
+
+type signalFeeEvidenceExchange struct {
+	signalTestExchange
+	fills []*exchange.OrderFill
+	err   error
+}
+
+func (e *signalFeeEvidenceExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
+	return e.fills, e.err
+}
+
+func TestSignalLiveFillRequiresAndUsesAuthoritativeFillHistory(t *testing.T) {
+	venue := &signalFeeEvidenceExchange{fills: []*exchange.OrderFill{{
+		OrderID: 42, TradeID: "trade-42", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.5, CommissionQuoteKnown: true, CommissionQuote: 0,
+	}}}
+	strategy := NewTrendFollowingStrategy("trend", &config.Config{}, &signalTestExecutor{}, venue, nil)
+	strategy.activeOrder = &Order{OrderID: 42, ClientOrderID: "signal-42", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100, Status: position.OrderStatusUnknown}
+	strategy.pendingAction = signalActionOpenLong
+	update := &position.OrderUpdate{OrderID: 42, ClientOrderID: "signal-42", Symbol: "BTCUSDT", Side: "BUY",
+		Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100}
+	if err := strategy.OnOrderUpdate(update); err != nil {
+		t.Fatalf("authoritative fill history was not applied: %v", err)
+	}
+	if !update.CommissionKnown || update.CommissionAsset != "USDT" || strategy.position == nil ||
+		strategy.position.Size != 0.5 || strategy.activeOrder == nil || strategy.activeOrder.FillProgress.Quantity != 0.5 {
+		t.Fatalf("verified fill was not accounted exactly once: update=%+v position=%+v active=%+v",
+			update, strategy.position, strategy.activeOrder)
+	}
+}
+
+func TestSignalMissingFeeHistoryRetainsAndLocksLiveFill(t *testing.T) {
+	venue := &signalFeeEvidenceExchange{}
+	executor := &signalReconciliationExecutor{}
+	strategy := NewTrendFollowingStrategy("trend", &config.Config{}, executor, venue, nil)
+	strategy.activeOrder = &Order{OrderID: 43, ClientOrderID: "signal-43", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
+	strategy.pendingAction = signalActionOpenLong
+	err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 43, ClientOrderID: "signal-43", Symbol: "BTCUSDT", Side: "BUY",
+		Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 100})
+	if err == nil || executor.calls != 1 || strategy.activeOrder == nil || strategy.activeOrder.Status != position.OrderStatusUnknown ||
+		strategy.activeOrder.FillProgress.Quantity != 0 || strategy.position != nil {
+		t.Fatalf("missing fee evidence did not fail closed: err=%v marked=%v active=%+v position=%+v",
+			err, executor.calls, strategy.activeOrder, strategy.position)
 	}
 }
 

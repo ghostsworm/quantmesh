@@ -450,12 +450,14 @@ func (da *DynamicAllocator) updatePerformance(strategyName string, pnl float64, 
 		logger.Warn("⚠️ [动態分配] 策略 %s 累计盈亏溢出，已忽略本次样本", strategyName)
 		return
 	}
-	perf.TotalPnL = nextPnL
 	maxInt := int(^uint(0) >> 1)
 	if perf.TotalTrades > maxInt-trades || perf.WinningTrades > maxInt-wins || perf.LosingTrades > maxInt-(trades-wins) {
 		logger.Warn("⚠️ [动態分配] 策略 %s 成交统计溢出，已忽略本次样本", strategyName)
 		return
 	}
+	// Commit the sample only after every field has passed validation. A rejected
+	// trade-count increment must not leave its PnL partially applied.
+	perf.TotalPnL = nextPnL
 	perf.TotalTrades += trades
 	perf.WinningTrades += wins
 	perf.LosingTrades += trades - wins
@@ -488,49 +490,76 @@ func (da *DynamicAllocator) CalculateTargetWeights() map[string]float64 {
 		return da.currentWeightsLocked()
 	}
 
-	// 归一化权重
 	totalScore := 0.0
 	for _, score := range scores {
-		if score > 0 {
-			totalScore += score
-		}
+		totalScore += score
 	}
-
-	if totalScore == 0 {
+	if totalScore <= 0 || math.IsNaN(totalScore) || math.IsInf(totalScore, 0) {
 		// 如果所有策略得分都為0，使用當前权重
 		return da.currentWeightsLocked()
 	}
-
-	result := make(map[string]float64)
-	for name, score := range scores {
-		if score > 0 {
-			weight := score / totalScore
-			// 限制在最小和最大权重之间
-			if weight < da.minWeight {
-				weight = da.minWeight
-			}
-			if weight > da.maxWeight {
-				weight = da.maxWeight
-			}
-			result[name] = weight
-		} else {
-			// 得分<=0的策略使用最小权重
-			result[name] = da.minWeight
-		}
+	result, feasible := projectBoundedWeights(scores, da.minWeight, da.maxWeight)
+	if !feasible {
+		logger.Warn("⚠️ [动態分配] 策略数量与权重上下限不相容，保留当前权重")
+		return da.currentWeightsLocked()
 	}
-
-	// 再次归一化（因為可能有最小权重限制）
-	totalWeight := 0.0
-	for _, weight := range result {
-		totalWeight += weight
-	}
-	if totalWeight > 0 {
-		for name := range result {
-			result[name] = result[name] / totalWeight
-		}
-	}
-
 	return result
+}
+
+// projectBoundedWeights projects values onto the unit simplex while preserving
+// the configured per-strategy bounds. It returns false when the bounds cannot
+// sum to one for the current number of strategies.
+func projectBoundedWeights(values map[string]float64, minWeight, maxWeight float64) (map[string]float64, bool) {
+	count := len(values)
+	if count == 0 || !finiteNumber(minWeight) || !finiteNumber(maxWeight) ||
+		minWeight < 0 || maxWeight > 1 || minWeight > maxWeight ||
+		float64(count)*minWeight > 1+1e-12 || float64(count)*maxWeight < 1-1e-12 {
+		return nil, false
+	}
+
+	low, high := math.Inf(1), math.Inf(-1)
+	for _, value := range values {
+		if !finiteNumber(value) {
+			return nil, false
+		}
+		low = math.Min(low, value-maxWeight)
+		high = math.Max(high, value-minWeight)
+	}
+	for range 80 {
+		shift := (low + high) / 2
+		total := 0.0
+		for _, value := range values {
+			total += math.Max(minWeight, math.Min(maxWeight, value-shift))
+		}
+		if total > 1 {
+			low = shift
+		} else {
+			high = shift
+		}
+	}
+
+	result := make(map[string]float64, count)
+	total := 0.0
+	for name, value := range values {
+		weight := math.Max(minWeight, math.Min(maxWeight, value-high))
+		result[name] = weight
+		total += weight
+	}
+	// Correct only floating-point residue, without crossing any configured bound.
+	residue := 1 - total
+	for name, weight := range result {
+		if math.Abs(residue) <= 1e-12 {
+			break
+		}
+		capacity := maxWeight - weight
+		if residue < 0 {
+			capacity = weight - minWeight
+		}
+		adjustment := math.Copysign(math.Min(math.Abs(residue), capacity), residue)
+		result[name] = weight + adjustment
+		residue -= adjustment
+	}
+	return result, math.Abs(residue) <= 1e-9
 }
 
 func (da *DynamicAllocator) currentWeightsLocked() map[string]float64 {
@@ -594,50 +623,53 @@ func (da *DynamicAllocator) Rebalance(targetWeights map[string]float64) map[stri
 	if da.matchesCurrentWeightsLocked(targetWeights) {
 		return da.currentWeightsLocked()
 	}
-
-	adjustedWeights := make(map[string]float64)
-
-	for name, targetWeight := range targetWeights {
-		perf, exists := da.strategies[name]
-		if !exists {
-			continue
+	if len(targetWeights) < len(da.strategies) {
+		return map[string]float64{}
+	}
+	requested, current := make(map[string]float64, len(da.strategies)), make(map[string]float64, len(da.strategies))
+	for name, perf := range da.strategies {
+		target, exists := targetWeights[name]
+		if !exists || !finiteNumber(target) || target < 0 || target > 1 {
+			logger.Warn("⚠️ [动態分配] 策略 %s 目標权重缺失或无效，取消本轮调整", name)
+			return map[string]float64{}
 		}
-		if math.IsNaN(targetWeight) || math.IsInf(targetWeight, 0) || targetWeight < 0 || targetWeight > 1 {
-			logger.Warn("⚠️ [动態分配] 策略 %s 目標权重无效，保留当前值", name)
-			continue
-		}
+		requested[name] = target
+		perf.mu.RLock()
+		current[name] = perf.CurrentWeight
+		perf.mu.RUnlock()
+	}
+	projectedTarget, feasible := projectBoundedWeights(requested, da.minWeight, da.maxWeight)
+	if !feasible {
+		logger.Warn("⚠️ [动態分配] 目標权重不可行，取消本轮调整")
+		return da.currentWeightsLocked()
+	}
+	projectedCurrent, feasible := projectBoundedWeights(current, da.minWeight, da.maxWeight)
+	if !feasible {
+		logger.Warn("⚠️ [动態分配] 当前策略数量与权重上下限不相容，保留当前权重")
+		return da.currentWeightsLocked()
+	}
 
+	maxDiff := 0.0
+	for name, target := range projectedTarget {
+		maxDiff = math.Max(maxDiff, math.Abs(target-projectedCurrent[name]))
+	}
+	progress := 1.0
+	if maxDiff > da.maxChangePerRebalance {
+		progress = da.maxChangePerRebalance / maxDiff
+	}
+	adjustedWeights := make(map[string]float64, len(da.strategies))
+	for name, target := range projectedTarget {
+		perf := da.strategies[name]
+		oldWeight := current[name]
+		newWeight := projectedCurrent[name] + (target-projectedCurrent[name])*progress
 		perf.mu.Lock()
-		currentWeight := perf.CurrentWeight
-		diff := targetWeight - currentWeight
-
-		// 平滑調整：每次調整不超過 maxChangePerRebalance
-		if math.Abs(diff) > da.maxChangePerRebalance {
-			if diff > 0 {
-				currentWeight += da.maxChangePerRebalance
-			} else {
-				currentWeight -= da.maxChangePerRebalance
-			}
-		} else {
-			currentWeight = targetWeight
-		}
-
-		// 确保在合理範圍内
-		if currentWeight < da.minWeight {
-			currentWeight = da.minWeight
-		}
-		if currentWeight > da.maxWeight {
-			currentWeight = da.maxWeight
-		}
-
-		perf.CurrentWeight = currentWeight
-		perf.TargetWeight = targetWeight
-		adjustedWeights[name] = currentWeight
+		perf.CurrentWeight = newWeight
+		perf.TargetWeight = target
 		perf.mu.Unlock()
-
-		if math.Abs(diff) > 0.001 {
+		adjustedWeights[name] = newWeight
+		if math.Abs(newWeight-oldWeight) > 0.001 {
 			logger.Info("📊 [动態分配] 策略 %s: 权重 %.2f%% -> %.2f%% (目標: %.2f%%)",
-				name, perf.CurrentWeight*100, currentWeight*100, targetWeight*100)
+				name, oldWeight*100, newWeight*100, target*100)
 		}
 	}
 

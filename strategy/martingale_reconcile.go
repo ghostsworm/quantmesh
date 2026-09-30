@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/position"
@@ -14,6 +15,80 @@ import (
 
 type martingaleCloseOrderByClientID interface {
 	GetOrderByClientOrderID(context.Context, string, string) (*exchange.Order, error)
+}
+
+func (s *MartingaleStrategy) resolveUnverifiedCommission(update *position.OrderUpdate) error {
+	if update == nil || update.CommissionKnown || !finiteNumber(update.ExecutedQty) || update.ExecutedQty <= 0 {
+		return nil
+	}
+
+	s.mu.RLock()
+	var intent dcaOrderIntent
+	found := false
+	var attributedInventory float64
+	exchangeName := ""
+	if s.exchange != nil {
+		exchangeName = strings.ToLower(s.exchange.GetName())
+	}
+	incomingCID := utils.RemoveBrokerPrefix(exchangeName, update.ClientOrderID)
+	if s.isClosing && (update.OrderID == s.closeOrderID || (s.closeClientOrderID != "" && incomingCID == s.closeClientOrderID)) {
+		side := exchange.SideSell
+		if s.direction == "SHORT" {
+			side = exchange.SideBuy
+		}
+		intent = dcaOrderIntent{orderID: s.closeOrderID, symbol: s.strategyCfg.Symbol, side: side,
+			quantity: s.closeRequestedQty, progress: s.closeProgress, close: true}
+		attributedInventory = s.totalQty
+		found = true
+	} else {
+		for _, entry := range s.entries {
+			if entry == nil || (entry.OrderID != update.OrderID && (entry.ClientOrderID == "" || entry.ClientOrderID != incomingCID)) {
+				continue
+			}
+			side := exchange.SideBuy
+			if s.direction == "SHORT" {
+				side = exchange.SideSell
+			}
+			intent = dcaOrderIntent{orderID: entry.OrderID, symbol: s.strategyCfg.Symbol, side: side,
+				quantity: entry.RequestedQuantity, progress: entry.FillProgress}
+			found = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !found || update.ExecutedQty <= intent.progress.Quantity+entryQtyEpsilon {
+		return nil
+	}
+	if intent.close && update.ExecutedQty-intent.progress.Quantity > attributedInventory+entryQtyEpsilon {
+		return nil // Let the close handler report the inventory contradiction.
+	}
+	if intent.orderID <= 0 {
+		intent.orderID = update.OrderID
+	}
+	if !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 || !finiteNumber(intent.quantity) || intent.quantity <= 0 ||
+		update.ExecutedQty > intent.quantity+entryQtyEpsilon {
+		return nil // Let the strategy's intent validator report malformed execution evidence.
+	}
+	if s.exchange == nil || intent.orderID <= 0 {
+		return fmt.Errorf("martingale order lacks exchange or stable order identity for fee verification")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	order := &exchange.Order{OrderID: intent.orderID, Symbol: intent.symbol, Side: intent.side, Quantity: intent.quantity,
+		ExecutedQty: update.ExecutedQty, AvgPrice: update.AvgPrice, Status: exchange.OrderStatus(strings.ToUpper(strings.TrimSpace(update.Status)))}
+	var fee, averagePrice float64
+	var err error
+	if intent.close {
+		fee, averagePrice, err = s.reconcileCloseFills(ctx, intent.symbol, order, intent.progress)
+	} else {
+		fee, averagePrice, err = s.reconcileEntryFills(ctx, intent.symbol, order, intent.progress)
+	}
+	if err != nil {
+		return fmt.Errorf("verify martingale order %d fill fees before accounting: %w", intent.orderID, err)
+	}
+	update.Commission, update.CommissionAsset, update.AvgPrice = fee, s.exchange.GetQuoteAsset(), averagePrice
+	update.CommissionKnown = true
+	return nil
 }
 
 // reconcileCloseSubmission resolves the durable pre-submit marker before the
@@ -79,6 +154,7 @@ func (s *MartingaleStrategy) reconcileCloseSubmission(ctx context.Context) error
 		update.Commission = fee
 		update.CommissionAsset = s.exchange.GetQuoteAsset()
 		update.AvgPrice = averagePrice
+		update.CommissionKnown = true
 	} else if progress.Quantity > 0 && order.ExecutedQty < progress.Quantity-entryQtyEpsilon {
 		return fmt.Errorf("exchange close execution regressed below persisted progress")
 	} else if order.ExecutedQty < progress.Quantity {
@@ -345,6 +421,7 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, e
 		update.Commission = fee
 		update.CommissionAsset = s.exchange.GetQuoteAsset()
 		update.AvgPrice = averagePrice
+		update.CommissionKnown = true
 	}
 	if status == "NEW" || status == "PARTIALLY_FILLED" || signalOrderStatusTerminal(status) || order.ExecutedQty > entry.FillProgress.Quantity {
 		if err := s.OnOrderUpdate(update); err != nil {

@@ -65,7 +65,7 @@ func TestSignalUnknownRetainsActionAndAcceptsLateBrokerFill(t *testing.T) {
 					t.Fatalf("duplicate uncertain action submitted: %v", err)
 				}
 				cid := utils.AddBrokerPrefix("binance", executor.orders[0].ClientOrderID)
-				update := &position.OrderUpdate{OrderID: 42, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "PARTIALLY_FILLED", ExecutedQty: 0.4, AvgPrice: 110}
+				update := &position.OrderUpdate{OrderID: 42, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "PARTIALLY_FILLED", ExecutedQty: 0.4, AvgPrice: 110, CommissionKnown: true}
 				if err := s.OnOrderUpdate(update); err != nil {
 					t.Fatal(err)
 				}
@@ -130,7 +130,7 @@ func TestSignalStrategyPersistsIntentBeforeSubmitAndFillBeforeRestart(t *testing
 	}
 	if err := trend.OnOrderUpdate(&position.OrderUpdate{
 		OrderID: 1, ClientOrderID: pending.ActiveOrder.ClientOrderID, Symbol: "BTCUSDT", Side: "BUY",
-		Status: "FILLED", ExecutedQty: pending.ActiveOrder.Quantity, AvgPrice: 100, Commission: 0.02, CommissionAsset: "USDT",
+		Status: "FILLED", ExecutedQty: pending.ActiveOrder.Quantity, AvgPrice: 100, Commission: 0.02, CommissionAsset: "USDT", CommissionKnown: true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestSignalSubmissionAccountsTerminalPartialAcknowledgement(t *testing.T) {
 	}
 	applySignalOrderUpdate(&active, &action, &holding, &entry, stats, &hedgeExchange{}, nil, &position.OrderUpdate{
 		OrderID: active.OrderID, ClientOrderID: active.ClientOrderID, Symbol: active.Symbol, Side: active.Side,
-		Status: "CANCELED", ExecutedQty: 0.4, AvgPrice: 105, Commission: 0.01, CommissionAsset: "USDT",
+		Status: "CANCELED", ExecutedQty: 0.4, AvgPrice: 105, Commission: 0.01, CommissionAsset: "USDT", CommissionKnown: true,
 	})
 	if active != nil || holding == nil || holding.Size != 0.4 || entry != 105 || holding.OpeningFee != 0.01 {
 		t.Fatalf("authoritative partial fill not booked: active=%v holding=%+v entry=%v err=%v", active, holding, entry, err)

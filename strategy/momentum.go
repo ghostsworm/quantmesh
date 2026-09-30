@@ -315,6 +315,14 @@ func (ms *MomentumStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if update == nil {
 		return nil
 	}
+	ms.mu.RLock()
+	active := signalOrderSnapshot(ms.activeOrder)
+	ms.mu.RUnlock()
+	if err := resolveSignalOrderCommission(ms.exchange, active, update); err != nil {
+		ms.mu.Lock()
+		defer ms.mu.Unlock()
+		return markSignalOrderForReconciliation(&ms.activeOrder, ms.executor, update, ms.persistRuntimeStateLocked, err)
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 
