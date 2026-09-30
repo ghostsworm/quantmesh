@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"math"
 	"strings"
 	"sync"
 
@@ -532,6 +534,23 @@ func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
 	rec := mse.lookupOrderLocked(update.OrderID, update.ClientOrderID)
 	if rec == nil {
 		mse.mu.Unlock()
+		return
+	}
+	invalidReason := ""
+	if math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) || update.ExecutedQty < 0 {
+		invalidReason = fmt.Sprintf("invalid cumulative executed quantity %v", update.ExecutedQty)
+	} else if rec.quantity > 0 && update.ExecutedQty > rec.quantity+capitalQtyEpsilon {
+		invalidReason = fmt.Sprintf("cumulative executed quantity %v exceeds order quantity %v", update.ExecutedQty, rec.quantity)
+	} else if status == orderStatusFilled && rec.opening && update.ExecutedQty <= 0 {
+		invalidReason = "filled opening order has no executed quantity"
+	}
+	if invalidReason != "" {
+		mse.mu.Unlock()
+		if mse.executor != nil {
+			if err := mse.executor.MarkOrderReconciliationRequired(update.OrderID, update.ClientOrderID, invalidReason); err != nil {
+				log.Printf("[MultiStrategyExecutor] order capital update requires reconciliation: order=%d client_id=%q: %v", update.OrderID, update.ClientOrderID, err)
+			}
+		}
 		return
 	}
 	if update.OrderID > 0 && rec.orderID == 0 {

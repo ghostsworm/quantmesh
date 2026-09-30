@@ -109,6 +109,53 @@ func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
 	}
 }
 
+func TestDCATerminalEntryWithRegressedCumulativeNotionalRequiresReconciliation(t *testing.T) {
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 100}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	layer := &DCALayer{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1, OrderID: 91,
+		Status: entryStatusPending}
+	strategy.layers = []*DCALayer{layer}
+
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 91, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5,
+		AvgPrice: 100, Commission: 0, CommissionAsset: "USDT", CommissionKnown: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 91, Status: "FILLED", ExecutedQty: 1,
+		AvgPrice: 40, Commission: 0, CommissionAsset: "USDT", CommissionKnown: true}); err != nil {
+		t.Fatal(err)
+	}
+	if executor.marked != 1 || layer.Status != entryStatusPartiallyFilled || layer.FillProgress.Quantity != 0.5 || strategy.totalQty != 0.5 {
+		t.Fatalf("regressed cumulative notional must preserve partial inventory and require reconciliation: marks=%d layer=%+v qty=%v",
+			executor.marked, layer, strategy.totalQty)
+	}
+}
+
+func TestDCATerminalCloseWithRegressedCumulativeNotionalRetainsIntent(t *testing.T) {
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+	strategy.SetTradeStorage(&dcaFillRecorder{})
+	if err := strategy.closeAllPositions(110, "take profit"); err != nil {
+		t.Fatal(err)
+	}
+	orderID := strategy.closeOrderID
+	for _, update := range []*position.OrderUpdate{
+		{OrderID: orderID, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, CommissionAsset: "USDT", CommissionKnown: true},
+		{OrderID: orderID, Status: "FILLED", ExecutedQty: 1, AvgPrice: 50, CommissionAsset: "USDT", CommissionKnown: true},
+	} {
+		if err := strategy.OnOrderUpdate(update); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if executor.marked != 1 || !strategy.isClosing || strategy.closeOrderID != orderID || strategy.closeProgress.Quantity != 0.5 || strategy.totalQty != 0.5 {
+		t.Fatalf("regressed cumulative notional must retain close intent and reconciled inventory: marks=%d closing=%v order=%d progress=%+v qty=%v",
+			executor.marked, strategy.isClosing, strategy.closeOrderID, strategy.closeProgress, strategy.totalQty)
+	}
+}
+
 func TestDCACloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
 	executor := &cancelRecordingExecutor{}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)

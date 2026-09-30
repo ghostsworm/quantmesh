@@ -226,3 +226,46 @@ func TestOnOrderUpdateCloseCancelDoesNotRelease(t *testing.T) {
 	mse.OnOrderUpdate(&position.OrderUpdate{OrderID: 2, ClientOrderID: "close-1", Status: "CANCELED"})
 	assertStrategyUsed(t, allocator, 100)
 }
+
+func TestOnOrderUpdateRejectsInvalidCumulativeFill(t *testing.T) {
+	tests := []struct {
+		name string
+		qty  float64
+	}{
+		{name: "nan", qty: math.NaN()},
+		{name: "positive infinity", qty: math.Inf(1)},
+		{name: "negative", qty: -0.1},
+		{name: "exceeds requested", qty: 1.1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			mse, allocator := newCapitalTestExecutor(t, "LONG")
+			trackTestOrder(t, mse, "dca", &position.OrderRequest{Side: "BUY", Quantity: 1, ClientOrderID: "open-invalid"}, 20, 100)
+
+			mse.OnOrderUpdate(&position.OrderUpdate{OrderID: 20, ClientOrderID: "open-invalid", Status: "PARTIALLY_FILLED", ExecutedQty: tc.qty})
+
+			assertStrategyUsed(t, allocator, 100)
+			if got := mse.GetPositionCapital("dca", "LONG"); got != 0 {
+				t.Fatalf("position capital=%v want 0", got)
+			}
+			if mse.GetStrategyByOrderID(20) != "dca" || mse.GetStrategyByClientOrderID("open-invalid") != "dca" {
+				t.Fatal("invalid update must retain order routes for reconciliation")
+			}
+		})
+	}
+}
+
+func TestOnOrderUpdateZeroQuantityFilledKeepsOpeningReservation(t *testing.T) {
+	mse, allocator := newCapitalTestExecutor(t, "LONG")
+	trackTestOrder(t, mse, "dca", &position.OrderRequest{Side: "BUY", Quantity: 1, ClientOrderID: "open-zero"}, 21, 100)
+
+	mse.OnOrderUpdate(&position.OrderUpdate{OrderID: 21, ClientOrderID: "open-zero", Status: "FILLED", ExecutedQty: 0})
+
+	assertStrategyUsed(t, allocator, 100)
+	if got := mse.GetPositionCapital("dca", "LONG"); got != 0 {
+		t.Fatalf("position capital=%v want 0", got)
+	}
+	if mse.GetStrategyByOrderID(21) != "dca" || mse.GetStrategyByClientOrderID("open-zero") != "dca" {
+		t.Fatal("zero-quantity FILLED update must retain order routes for reconciliation")
+	}
+}

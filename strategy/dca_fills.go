@@ -84,6 +84,10 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 		}
 	}
 	quantity, _ := entryFillFromUpdate(update)
+	if quantity > s.closeProgress.Quantity && !dcaCumulativeNotionalAdvances(quantity, update.AvgPrice, s.closeProgress.Notional) {
+		s.requireDCAOrderReconciliation(update, "DCA close cumulative fill notional regressed")
+		return
+	}
 	nextProgress := s.closeProgress
 	delta, price := nextProgress.Advance(quantity, update.AvgPrice, 0)
 	if delta > 0 {
@@ -154,4 +158,13 @@ func (s *DCAEnhancedStrategy) closingInventory() (quantity, cost, openingFee flo
 		openingFee += layer.OpeningFee
 	}
 	return
+}
+
+func dcaCumulativeNotionalAdvances(quantity, averagePrice, previousNotional float64) bool {
+	if !finiteNumber(quantity) || quantity <= 0 || !finiteNumber(averagePrice) || averagePrice <= 0 ||
+		!finiteNumber(previousNotional) || previousNotional < 0 {
+		return false
+	}
+	notional := quantity * averagePrice
+	return finiteNumber(notional) && notional > previousNotional
 }

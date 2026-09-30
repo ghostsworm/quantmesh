@@ -194,6 +194,10 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.mu.Unlock()
 		return fmt.Errorf("invalid cumulative filled quantity %.12g for spot short order %d (previous %.12g, requested %.12g)", update.ExecutedQty, update.OrderID, pending.ExecutedQty, pending.OrderQuantity)
 	}
+	if update.Status == "FILLED" && update.ExecutedQty <= 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("spot short buy order %d reports FILLED without positive cumulative execution", update.OrderID)
+	}
 	delta := update.ExecutedQty - pending.ExecutedQty
 	baseFeeDelta := update.BaseFeeQty
 	if delta == 0 {

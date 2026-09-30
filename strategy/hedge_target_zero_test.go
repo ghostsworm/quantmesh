@@ -103,6 +103,7 @@ func TestFuturesHedgeStrategiesCloseWhenTargetZero(t *testing.T) {
 	shortExec := &hedgeOrderExecutor{}
 	shortEx := &hedgeExchange{positions: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: -2}}, price: 50000}
 	shortStrategy := NewFuturesShortStrategy("futures_short", cfg, shortExec, shortEx, map[string]interface{}{})
+	shortStrategy.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	shortStrategy.onHedgeSignal(&event.Event{Data: map[string]interface{}{
 		"symbol":               "BTCUSDT",
 		"target_futures_short": 0.0,
@@ -117,6 +118,7 @@ func TestFuturesHedgeStrategiesCloseWhenTargetZero(t *testing.T) {
 	longExec := &hedgeOrderExecutor{}
 	longEx := &hedgeExchange{positions: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: 2}}, price: 50000}
 	longStrategy := NewFuturesLongStrategy("futures_long", cfg, longExec, longEx, map[string]interface{}{})
+	longStrategy.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	longStrategy.onHedgeSignal(&event.Event{Data: map[string]interface{}{
 		"symbol":              "BTCUSDT",
 		"target_futures_long": 0.0,

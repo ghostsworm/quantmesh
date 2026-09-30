@@ -113,6 +113,34 @@ func TestSpotLongPendingOrderPersistsAndRestores(t *testing.T) {
 	}
 }
 
+func TestSpotLongFilledWithoutExecutionKeepsDurableOrderBlock(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-long-zero-fill"
+	cfg.Trading.Symbol = "BTCUSDT"
+	store := &memoryRuntimeStateStore{}
+	strategy := NewSpotLongStrategy("spot_long", cfg, nil, &signalTestExchange{}, nil)
+	strategy.SetRuntimeStateStore(store)
+	strategy.mu.Lock()
+	strategy.pendingOrders[107] = spotLongPendingOrder{ClientOrderID: "spot-long-zero-fill-cid", Side: "BUY", Quantity: 0.25}
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatal(err)
+	}
+	strategy.mu.Unlock()
+
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 107, ClientOrderID: "spot-long-zero-fill-cid",
+		Symbol: "BTCUSDT", Side: "BUY", Status: "FILLED", ExecutedQty: 0}); err == nil {
+		t.Fatal("FILLED update without execution must be rejected")
+	}
+	if _, ok := strategy.pendingOrders[107]; !ok || len(strategy.pendingIntents) != 0 {
+		t.Fatalf("invalid terminal update cleared durable order block: orders=%+v intents=%+v", strategy.pendingOrders, strategy.pendingIntents)
+	}
+	var persisted spotLongRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &persisted) != nil || len(persisted.PendingOrders) != 1 {
+		t.Fatalf("invalid terminal update changed persisted order block: found=%v state=%+v", store.found, persisted)
+	}
+}
+
 type spotLongRestoreExchange struct {
 	signalTestExchange
 	order *exchange.Order

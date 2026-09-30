@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/utils"
@@ -30,9 +32,10 @@ type FuturesShortStrategy struct {
 	eventBus        EventBus
 	subscribableBus interface{ Subscribe() <-chan *event.Event }
 
-	ctx    context.Context
-	cancel context.CancelFunc
-	mu     sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.RWMutex
+	orderTracker *futuresHedgeOrderTracker
 
 	positions []*Position
 	orders    []*Order
@@ -55,17 +58,18 @@ func NewFuturesShortStrategy(name string, cfg *config.Config, executor position.
 		baseAsset = ex.GetBaseAsset()
 	}
 	return &FuturesShortStrategy{
-		name:       name,
-		cfg:        cfg,
-		executor:   executor,
-		ex:         ex,
-		groupID:    groupID,
-		symbol:     symbol,
-		baseAsset:  baseAsset,
-		quoteAsset: quoteAsset,
-		positions:  []*Position{},
-		orders:     []*Order{},
-		stats:      &StrategyStatistics{},
+		name:         name,
+		cfg:          cfg,
+		executor:     executor,
+		ex:           ex,
+		groupID:      groupID,
+		symbol:       symbol,
+		baseAsset:    baseAsset,
+		quoteAsset:   quoteAsset,
+		positions:    []*Position{},
+		orders:       []*Order{},
+		stats:        &StrategyStatistics{},
+		orderTracker: newFuturesHedgeOrderTracker(cfg, name, groupID, symbol, futuresHedgeExchangeName(ex)),
 	}
 }
 
@@ -87,7 +91,13 @@ func (s *FuturesShortStrategy) SetEventBus(bus EventBus) {
 
 func (s *FuturesShortStrategy) OnPriceChange(price float64) error { return nil }
 
-func (s *FuturesShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error { return nil }
+func (s *FuturesShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	return s.orderTracker.OnOrderUpdate(update)
+}
+
+func (s *FuturesShortStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
+	s.orderTracker.SetStore(store)
+}
 
 func (s *FuturesShortStrategy) GetPositions() []*Position {
 	s.mu.RLock()
@@ -108,6 +118,9 @@ func (s *FuturesShortStrategy) GetStatistics() *StrategyStatistics {
 }
 
 func (s *FuturesShortStrategy) Start(ctx context.Context) error {
+	if err := s.orderTracker.RestoreAndReconcile(ctx, s.ex); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	if s.subscribableBus == nil {
 		s.mu.Unlock()
@@ -151,6 +164,9 @@ func (s *FuturesShortStrategy) GetVisualizationData() map[string]interface{} {
 }
 
 func (s *FuturesShortStrategy) onHedgeSignal(evt *event.Event) {
+	if evt == nil {
+		return
+	}
 	evtGroupID := getString(evt.Data, "group_id")
 	if evtGroupID != "" && evtGroupID != s.groupID {
 		return
@@ -179,9 +195,13 @@ func (s *FuturesShortStrategy) onHedgeSignal(evt *event.Event) {
 	}
 
 	if diff > 0 {
-		s.increaseShort(ctx, diff)
+		if err := s.increaseShort(ctx, diff); err != nil {
+			logger.Error("FuturesShortStrategy 開空失敗: %v", err)
+		}
 	} else {
-		s.decreaseShort(ctx, -diff)
+		if err := s.decreaseShort(ctx, -diff); err != nil {
+			logger.Error("FuturesShortStrategy 平空失敗: %v", err)
+		}
 	}
 }
 
@@ -215,58 +235,64 @@ func (s *FuturesShortStrategy) getCurrentShortPosition(ctx context.Context) (flo
 	return total, nil
 }
 
-func (s *FuturesShortStrategy) increaseShort(ctx context.Context, amount float64) {
+func (s *FuturesShortStrategy) increaseShort(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
-		logger.Error("FuturesShortStrategy 獲取價格失敗: %v", err)
-		return
+		return fmt.Errorf("get futures short price for %s: price=%g err=%v", s.symbol, price, err)
 	}
 	price = s.roundPrice(price)
-	req := &position.OrderRequest{
-		Symbol:        s.symbol,
-		Side:          "SELL",
-		Price:         price,
-		Quantity:      amount,
-		PriceDecimals: s.getPriceDecimals(),
-		PostOnly:      true,
-		ReduceOnly:    false,
-	}
-	if _, err := s.executor.PlaceOrder(req); err != nil {
-		logger.Error("FuturesShortStrategy 開空失敗: %v", err)
-		return
-	}
-	logger.Info("📤 FuturesShortStrategy: 開空 %.6f %s", amount, s.baseAsset)
+	return s.submitHedgeOrder("SELL", price, amount, false)
 }
 
-func (s *FuturesShortStrategy) decreaseShort(ctx context.Context, amount float64) {
+func (s *FuturesShortStrategy) decreaseShort(ctx context.Context, amount float64) error {
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
-		return
+		return nil
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
-		logger.Error("FuturesShortStrategy 獲取價格失敗: %v", err)
-		return
+		return fmt.Errorf("get futures short price for %s: price=%g err=%v", s.symbol, price, err)
 	}
 	price = s.roundPrice(price * 1.001)
+	return s.submitHedgeOrder("BUY", price, amount, true)
+}
+
+func (s *FuturesShortStrategy) submitHedgeOrder(side string, price, amount float64, reduceOnly bool) error {
+	cid, err := s.orderTracker.Begin(side, amount)
+	if err != nil {
+		return err
+	}
 	req := &position.OrderRequest{
 		Symbol:        s.symbol,
-		Side:          "BUY",
+		Side:          side,
 		Price:         price,
 		Quantity:      amount,
 		PriceDecimals: s.getPriceDecimals(),
 		PostOnly:      true,
-		ReduceOnly:    true,
+		ReduceOnly:    reduceOnly,
+		ClientOrderID: cid,
+		StrategyName:  s.name,
+		StrategyType:  "futures_short",
 	}
-	if _, err := s.executor.PlaceOrder(req); err != nil {
-		logger.Error("FuturesShortStrategy 平空失敗: %v", err)
-		return
+	order, err := s.executor.PlaceOrder(req)
+	if err != nil {
+		if rollbackErr := s.orderTracker.SubmissionFailed(cid, err); rollbackErr != nil {
+			return errors.Join(err, rollbackErr)
+		}
+		return err
 	}
-	logger.Info("📥 FuturesShortStrategy: 平空 %.6f %s", amount, s.baseAsset)
+	if order == nil {
+		return fmt.Errorf("futures short order acknowledgement is missing: %w", execution.ErrOrderUnknown)
+	}
+	if err := s.orderTracker.Bind(cid, order); err != nil {
+		return fmt.Errorf("futures short order acknowledgement requires reconciliation: %w: %v", execution.ErrOrderUnknown, err)
+	}
+	logger.Info("📤 FuturesShortStrategy: %s %.6f %s (cid=%s)", side, amount, s.baseAsset, cid)
+	return nil
 }
 
 // roundQuantity 將數量向下取整到交易所精度。

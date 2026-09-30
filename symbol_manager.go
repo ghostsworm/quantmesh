@@ -1441,6 +1441,7 @@ func startSymbolRuntime(
 					}
 					futuresShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_short")
 					futuresShortStrategy := strategy.NewFuturesShortStrategy("futures_short", &localCfg, futuresShortExecutor, exchangeAdapter, futuresShortCfg)
+					futuresShortStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
 					strategyManager.RegisterStrategy("futures_short", futuresShortStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 合約做空對沖策略已注册 (group=%v)", symCfg.Symbol, futuresShortCfg["group_id"])
 					break
@@ -1457,6 +1458,7 @@ func startSymbolRuntime(
 					}
 					futuresLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_long")
 					futuresLongStrategy := strategy.NewFuturesLongStrategy("futures_long", &localCfg, futuresLongExecutor, exchangeAdapter, futuresLongCfg)
+					futuresLongStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
 					strategyManager.RegisterStrategy("futures_long", futuresLongStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 合約做多對沖策略已注册 (group=%v)", symCfg.Symbol, futuresLongCfg["group_id"])
 					break

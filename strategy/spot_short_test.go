@@ -243,6 +243,35 @@ func TestSpotShortPersistsBuyIntentBeforeSubmissionAndHandlesFillBeforeAck(t *te
 	}
 }
 
+func TestSpotShortFilledWithoutExecutionRetainsRepayIntent(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	margin := &mockMarginExchange{}
+	strategy := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, margin)
+	strategy.SetRuntimeStateStore(store)
+	clientOrderID := "spot-short-zero-fill-cid"
+	strategy.mu.Lock()
+	strategy.pendingBuy[clientOrderID] = spotShortPendingBuy{Quantity: 0.25, CreatedAtUnixMilli: time.Now().UnixMilli()}
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatal(err)
+	}
+	strategy.mu.Unlock()
+
+	if err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 108, ClientOrderID: clientOrderID,
+		Symbol: "BTCUSDT", Side: "BUY", Status: "FILLED", ExecutedQty: 0}); err == nil {
+		t.Fatal("FILLED update without execution must be rejected")
+	}
+	if len(strategy.pendingBuy) != 0 || strategy.pendingRepay[108].ClientOrderID != clientOrderID ||
+		len(margin.repaid) != 0 {
+		t.Fatalf("zero-fill terminal update must retain repayment reconciliation without repaying: buy=%v repay=%v repaid=%v",
+			strategy.pendingBuy, strategy.pendingRepay, margin.repaid)
+	}
+	var persisted spotShortRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &persisted) != nil || persisted.PendingRepay[108].ClientOrderID != clientOrderID {
+		t.Fatalf("zero-fill terminal update lost durable repayment intent: found=%v state=%+v", store.found, persisted)
+	}
+}
+
 func TestSpotShortUncertainBuySubmissionRetainsDurableClientOrderIntent(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
 	errSubmit := errors.New("submission response lost")

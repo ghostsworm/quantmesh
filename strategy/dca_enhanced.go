@@ -1430,6 +1430,10 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 	if qty > layer.FillProgress.Quantity && update.AvgPrice <= 0 {
 		return
 	}
+	if qty > layer.FillProgress.Quantity && !dcaCumulativeNotionalAdvances(qty, update.AvgPrice, layer.FillProgress.Notional) {
+		s.requireDCAOrderReconciliation(update, "DCA entry cumulative fill notional regressed")
+		return
+	}
 	nextProgress := layer.FillProgress
 	delta, incrementalPrice := nextProgress.Advance(qty, update.AvgPrice, 0)
 	if delta > 0 {

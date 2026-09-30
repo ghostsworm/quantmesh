@@ -145,6 +145,10 @@ func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.mu.Unlock()
 		return fmt.Errorf("invalid cumulative fill for spot long order %d: %.12g (previous %.12g, requested %.12g)", update.OrderID, update.ExecutedQty, pending.ExecutedQty, pending.Quantity)
 	}
+	if update.Status == "FILLED" && update.ExecutedQty <= 0 {
+		s.mu.Unlock()
+		return fmt.Errorf("spot long order %d reports FILLED without positive cumulative execution", update.OrderID)
+	}
 	pending.ExecutedQty = update.ExecutedQty
 	if update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "CANCELLED" || update.Status == "EXPIRED" || update.Status == "REJECTED" {
 		delete(s.pendingOrders, update.OrderID)
