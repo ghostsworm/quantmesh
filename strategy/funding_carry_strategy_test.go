@@ -129,6 +129,7 @@ type mockFCExchange struct {
 	latestPrice        float64
 	fundingRate        float64
 	positions          []*exchange.Position
+	openOrders         []*exchange.Order
 	balance            float64
 	baseAsset          string
 	priceDecimals      int
@@ -176,6 +177,9 @@ func (m *mockFCExchange) CancelAllOrders(ctx context.Context, symbol string) err
 func (m *mockFCExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*exchange.Order, error) {
 	if m.returnNilOrders {
 		return nil, nil
+	}
+	if m.openOrders != nil {
+		return m.openOrders, nil
 	}
 	return []*exchange.Order{}, nil
 }
@@ -271,6 +275,57 @@ func (m *mockFCExchange) GetOrder(ctx context.Context, symbol string, orderID in
 		Status:      m.getOrderStatus,
 		ExecutedQty: m.getOrderExecQty,
 	}, nil
+}
+
+func TestFundingCarryVerifyFlatRequiresLiveAndDurableFlatEvidence(t *testing.T) {
+	newFlatStrategy := func(t *testing.T) (*FundingCarryStrategy, *mockFCExchange, *memoryRuntimeStateStore) {
+		t.Helper()
+		spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", balance: 2, quantityDecimals: 8}
+		futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", quantityDecimals: 3}
+		stateStore := &memoryRuntimeStateStore{}
+		strategy := NewFundingCarryStrategy("fc-verify-flat", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
+		strategy.SetRuntimeStateStore(stateStore)
+		strategy.mu.Lock()
+		strategy.strategySpotKnown = true
+		strategy.direction = DirectionNone
+		if err := strategy.persistRuntimeStateLocked(); err != nil {
+			strategy.mu.Unlock()
+			t.Fatal(err)
+		}
+		strategy.mu.Unlock()
+		return strategy, spot, stateStore
+	}
+
+	t.Run("allows unrelated existing spot inventory", func(t *testing.T) {
+		strategy, _, _ := newFlatStrategy(t)
+		if err := strategy.VerifyFlat(context.Background()); err != nil {
+			t.Fatalf("VerifyFlat rejected unrelated pre-existing spot inventory: %v", err)
+		}
+	})
+
+	t.Run("rejects active order", func(t *testing.T) {
+		strategy, spot, _ := newFlatStrategy(t)
+		spot.openOrders = []*exchange.Order{{OrderID: 1, Symbol: "BTCUSDT", Status: exchange.OrderStatusNew}}
+		if err := strategy.VerifyFlat(context.Background()); err == nil {
+			t.Fatal("VerifyFlat accepted an active spot order")
+		}
+	})
+
+	t.Run("rejects residual futures exposure", func(t *testing.T) {
+		strategy, _, _ := newFlatStrategy(t)
+		strategy.fut.(*mockFCExchange).positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.1}}
+		if err := strategy.VerifyFlat(context.Background()); err == nil {
+			t.Fatal("VerifyFlat accepted residual futures exposure")
+		}
+	})
+
+	t.Run("rejects missing durable ownership state", func(t *testing.T) {
+		strategy, _, stateStore := newFlatStrategy(t)
+		stateStore.found = false
+		if err := strategy.VerifyFlat(context.Background()); err == nil {
+			t.Fatal("VerifyFlat accepted missing durable ownership state")
+		}
+	})
 }
 
 func TestOpenHedge_AtomicSuccess(t *testing.T) {

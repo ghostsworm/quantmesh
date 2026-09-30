@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"quantmesh/config"
@@ -232,6 +233,10 @@ func startFundingCarrySymbolRuntime(
 	if err := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, capitalClaims); err != nil {
 		return nil, fmt.Errorf("reserve funding_carry account wallet capital: %w", err)
 	}
+	capitalStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore)
+	if !ok {
+		return nil, fmt.Errorf("funding_carry account wallet reservation storage disappeared after claim")
+	}
 	openingGate := &execution.OpeningGate{}
 	if symCfg.OpenPositionControl.PauseOpening || (symCfg.OpenPositionControl.BotRiskControl != nil && symCfg.OpenPositionControl.BotRiskControl.PauseOpening) {
 		openingGate.Block("manual")
@@ -346,6 +351,7 @@ func startFundingCarrySymbolRuntime(
 		}
 		return fc.StopContext(closeCtx)
 	}
+	rt.VerifyShutdownClose = fc.VerifyFlat
 	rt.CloseForManual = func(closeCtx context.Context, closeCfg config.ClosePositionConfig) (*position.ClosePositionRecord, error) {
 		if openingGate.HasBlock(order.RuntimeShutdownBlock) {
 			return nil, order.ErrRuntimeStopping
@@ -386,28 +392,58 @@ func startFundingCarrySymbolRuntime(
 	}
 	rt.GetOpenControl = fc.OpenPositionControl
 
+	var stopOnce sync.Once
+	var stopMu sync.Mutex
+	var stopErr error
+	stopRuntime := func() error {
+		stopMu.Lock()
+		defer stopMu.Unlock()
+		stopOnce.Do(func() {
+			logger.InfoCtx(ctx, "⏹️ [%s] 停止資金費套利運行時（平倉後將獨立核驗再釋放預留）", symCfg.Symbol)
+			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
+			defer cancelShutdown()
+			sealRuntimeShutdown(rt)
+			var stopErrors []error
+			if err := rt.PrepareShutdown(shutdownCtx, true); err != nil {
+				rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利停止準備未核實: %v", err))
+				stopErrors = append(stopErrors, fmt.Errorf("prepare funding_carry shutdown: %w", err))
+			} else if err := rt.CloseForShutdown(shutdownCtx); err != nil {
+				rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利策略平倉未核實: %v", err))
+				stopErrors = append(stopErrors, fmt.Errorf("close funding_carry strategy-owned exposure: %w", err))
+			}
+			if strategyManager != nil {
+				if err := strategyManager.StopAllWithError(); err != nil {
+					stopErrors = append(stopErrors, fmt.Errorf("stop funding_carry strategy manager: %w", err))
+				}
+			}
+			if priceMonitor != nil {
+				priceMonitor.Stop()
+			}
+			futEx.StopOrderStream()
+			spotEx.StopOrderStream()
+			if marginEx != nil {
+				marginEx.StopOrderStream()
+			}
+			stopErr = errors.Join(stopErrors...)
+		})
+		if stopErr != nil {
+			return stopErr
+		}
+		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelVerify()
+		if err := verifyAndReleaseAccountWalletCapital(verifyCtx, capitalStore, botID, capitalClaims, fc.VerifyFlat); err != nil {
+			rt.markShutdownCloseUnverified(err.Error())
+			if rt.OpeningGate != nil {
+				rt.OpeningGate.Block("capital_reservation_unverified")
+			}
+			return fmt.Errorf("funding_carry capital reservation retained because flatness/release is unverified: %w", err)
+		}
+		return nil
+	}
+	rt.StopWithError = stopRuntime
 	rt.Stop = func() {
-		logger.InfoCtx(ctx, "⏹️ [%s] 停止資金費套利運行時（策略 Stop 會自動嘗試平倉）", symCfg.Symbol)
-		shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
-		sealRuntimeShutdown(rt)
-		if err := rt.PrepareShutdown(shutdownCtx, true); err != nil {
-			rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利停止準備未核實: %v", err))
-			logger.ErrorCtx(ctx, "[%s] 资金费套利停止准备失败，保留敞口待核对: %v", symCfg.Symbol, err)
-		} else if err := rt.CloseForShutdown(shutdownCtx); err != nil {
-			rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利策略平倉未核實: %v", err))
-			logger.ErrorCtx(ctx, "[%s] 资金费套利配对平仓失败，保留敞口待核对: %v", symCfg.Symbol, err)
-		}
-		cancelShutdown()
-		if strategyManager != nil {
-			strategyManager.StopAll()
-		}
-		if priceMonitor != nil {
-			priceMonitor.Stop()
-		}
-		futEx.StopOrderStream()
-		spotEx.StopOrderStream()
-		if marginEx != nil {
-			marginEx.StopOrderStream()
+		if err := stopRuntime(); err != nil {
+			logger.ErrorCtx(ctx, "[%s] 资金费套利停止或资金预留释放未核实，保留预留等待核账: %v", symCfg.Symbol, err)
 		}
 	}
 	runtimeReady = true

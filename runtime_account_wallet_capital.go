@@ -56,3 +56,28 @@ func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storag
 	}
 	return nil
 }
+
+func verifyAndReleaseAccountWalletCapital(ctx context.Context, store storage.AccountWalletCapitalReservationStore, botID string, claims []storage.AccountWalletCapitalClaim, verifyFlat func(context.Context) error) error {
+	if ctx == nil || store == nil || strings.TrimSpace(botID) == "" || len(claims) == 0 || verifyFlat == nil {
+		return fmt.Errorf("verified account wallet capital release requires context, store, Bot identity, claims, and verifier")
+	}
+	verifyCtx, cancelVerify := context.WithTimeout(ctx, 15*time.Second)
+	if err := verifyFlat(verifyCtx); err != nil {
+		cancelVerify()
+		return fmt.Errorf("refuse account wallet capital release without verified flatness: %w", err)
+	}
+	if err := verifyCtx.Err(); err != nil {
+		cancelVerify()
+		return fmt.Errorf("refuse account wallet capital release after verification deadline: %w", err)
+	}
+	cancelVerify()
+	releaseCtx, cancelRelease := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelRelease()
+	if err := releaseCtx.Err(); err != nil {
+		return fmt.Errorf("refuse account wallet capital release after verification: %w", err)
+	}
+	if err := store.ReleaseAccountWalletCapital(releaseCtx, botID, claims); err != nil {
+		return fmt.Errorf("release verified account wallet capital reservation: %w", err)
+	}
+	return nil
+}

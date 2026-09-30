@@ -512,6 +512,68 @@ func (s *FundingCarryStrategy) requireNoOpenOrders(ctx context.Context) error {
 	return nil
 }
 
+// VerifyFlat independently verifies live legs, owned spot inventory, pending
+// orders, and the durable ownership snapshot before the runtime releases capital.
+func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("funding_carry flat verification requires context")
+	}
+	return s.withAccountWalletCoordination(ctx, func(verifyCtx context.Context) error {
+		if err := s.acquireOperation(verifyCtx); err != nil {
+			return fmt.Errorf("wait for funding_carry operation before flat verification: %w", err)
+		}
+		defer s.releaseOperation()
+
+		s.mu.RLock()
+		known, inFlight, unknown := s.strategySpotKnown, s.intentInFlight, s.unownedExposure
+		stateErr, stateStore := s.runtimeStateErr, s.runtimeStateStore
+		s.mu.RUnlock()
+		if !known || inFlight || unknown || stateErr != nil || stateStore == nil {
+			return errors.New("funding_carry ownership state is missing, unresolved, or not durable")
+		}
+		if err := s.syncPositions(verifyCtx); err != nil {
+			return fmt.Errorf("verify funding_carry live position ownership: %w", err)
+		}
+		if err := s.requireNoOpenOrders(verifyCtx); err != nil {
+			return fmt.Errorf("verify funding_carry open orders: %w", err)
+		}
+
+		version, payload, found, err := stateStore.LoadRuntimeState("funding_carry")
+		if err != nil {
+			return fmt.Errorf("reload durable funding_carry ownership state: %w", err)
+		}
+		if !found {
+			return errors.New("durable funding_carry ownership state is missing")
+		}
+		state, err := decodeFundingCarryRuntimeState(version, payload, s.fut.GetName(), s.spot.GetName(), s.symbol)
+		if err != nil {
+			return fmt.Errorf("durable funding_carry ownership state is unresolved: %w", err)
+		}
+		if state.Direction != DirectionNone || state.OwnedSpot > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
+			state.OwnedFutures > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
+			state.MarginDebt > s.roundingTolerance(s.marginQuantityDecimals()) {
+			return errors.New("durable funding_carry state still records strategy-owned exposure")
+		}
+
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil || s.direction != DirectionNone ||
+			s.strategySpotQty > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
+			s.futQty > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
+			s.marginDebt > s.roundingTolerance(s.marginQuantityDecimals()) {
+			return errors.New("in-memory funding_carry ownership state still records unresolved exposure")
+		}
+		return nil
+	})
+}
+
+func (s *FundingCarryStrategy) marginQuantityDecimals() int {
+	if s.marginEx == nil {
+		return s.fut.GetQuantityDecimals()
+	}
+	return s.marginEx.GetQuantityDecimals()
+}
+
 func (s *FundingCarryStrategy) Stop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,20 @@ import (
 	"quantmesh/lock"
 	"quantmesh/storage"
 )
+
+type accountWalletCapitalReleaseSpy struct {
+	releases int
+	err      error
+}
+
+func (*accountWalletCapitalReleaseSpy) ReserveAccountWalletCapital(context.Context, string, []storage.AccountWalletCapitalClaim) error {
+	return nil
+}
+
+func (s *accountWalletCapitalReleaseSpy) ReleaseAccountWalletCapital(context.Context, string, []storage.AccountWalletCapitalClaim) error {
+	s.releases++
+	return s.err
+}
 
 func TestAccountWalletCapitalClaimIsolatesCredentialMarketAndQuoteAsset(t *testing.T) {
 	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
@@ -71,5 +86,29 @@ func TestAccountWalletCapitalRejectsMultiInstanceSQLite(t *testing.T) {
 	}})
 	if err == nil || !strings.Contains(err.Error(), "require shared MySQL storage") {
 		t.Fatalf("multi-instance SQLite reservation error = %v, want shared-MySQL rejection", err)
+	}
+}
+
+func TestAccountWalletCapitalReleaseRequiresVerifiedFlatness(t *testing.T) {
+	claim := storage.AccountWalletCapitalClaim{WalletKey: strings.Repeat("a", 64), Amount: 10, Available: 100}
+	verifyErr := errors.New("open orders remain")
+	store := &accountWalletCapitalReleaseSpy{}
+	err := verifyAndReleaseAccountWalletCapital(context.Background(), store, "bot-a", []storage.AccountWalletCapitalClaim{claim}, func(context.Context) error {
+		return verifyErr
+	})
+	if !errors.Is(err, verifyErr) {
+		t.Fatalf("release error = %v, want verification error", err)
+	}
+	if store.releases != 0 {
+		t.Fatalf("reservation releases = %d after failed verification, want 0", store.releases)
+	}
+
+	if err := verifyAndReleaseAccountWalletCapital(context.Background(), store, "bot-a", []storage.AccountWalletCapitalClaim{claim}, func(context.Context) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("verified release: %v", err)
+	}
+	if store.releases != 1 {
+		t.Fatalf("reservation releases = %d after verified flatness, want 1", store.releases)
 	}
 }
