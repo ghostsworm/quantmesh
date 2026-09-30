@@ -55,37 +55,40 @@ type SymbolRuntime struct {
 	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
 	// OpeningGate covers specialized runtimes that do not use the grid position manager.
-	OpeningGate           *execution.OpeningGate
-	CancelOpeningOrders   func(context.Context) error
-	PrepareShutdown       func(context.Context, bool) error
-	CloseForShutdown      func(context.Context) error
-	VerifyShutdownClose   func(context.Context) error
-	CloseForManual        func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
-	UpdateOpenControl     func(config.OpenPositionControl) error
-	GetOpenControl        func() config.OpenPositionControl
-	StopWithError         func() error
-	OpeningController     *position.OpeningController
-	OrderCleaner          *safety.OrderCleaner
-	Reconciler            *safety.Reconciler
-	TrendDetector         *strategy.TrendDetector
-	DynamicAdjuster       *strategy.DynamicAdjuster
-	StrategyManager       *strategy.StrategyManager
-	ExchangeExecutor      *order.ExchangeOrderExecutor
-	ExecutorAdapter       *exchangeExecutorAdapter
-	ExchangeAdapter       *positionExchangeAdapter
-	EventBus              *event.EventBus
-	StorageService        *storage.StorageService
-	AccountID             string  // 账戶標识
-	AccountScope          string  // immutable non-secret digest of exchange/environment/credential identity
-	AccountMarketType     string  // immutable valuation scope; do not read mutable Config while sampling
-	verifiedCapitalBudget float64 // immutable startup-verified gross notional ceiling for this Bot
-	ClampOpenControl      func(config.OpenPositionControl) (config.OpenPositionControl, error)
-	Stop                  func()
-	shutdownContextMu     sync.RWMutex
-	shutdownContext       context.Context
-	closeManagerMu        sync.Mutex
-	closeManager          *position.ClosePositionManager
-	specialCloseRecords   []*position.ClosePositionRecord
+	OpeningGate              *execution.OpeningGate
+	CancelOpeningOrders      func(context.Context) error
+	PrepareShutdown          func(context.Context, bool) error
+	CloseForShutdown         func(context.Context) error
+	VerifyShutdownClose      func(context.Context) error
+	CloseForManual           func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
+	UpdateOpenControl        func(config.OpenPositionControl) error
+	GetOpenControl           func() config.OpenPositionControl
+	StopWithError            func() error
+	OpeningController        *position.OpeningController
+	OrderCleaner             *safety.OrderCleaner
+	Reconciler               *safety.Reconciler
+	TrendDetector            *strategy.TrendDetector
+	DynamicAdjuster          *strategy.DynamicAdjuster
+	StrategyManager          *strategy.StrategyManager
+	ExchangeExecutor         *order.ExchangeOrderExecutor
+	ExecutorAdapter          *exchangeExecutorAdapter
+	ExchangeAdapter          *positionExchangeAdapter
+	EventBus                 *event.EventBus
+	StorageService           *storage.StorageService
+	AccountID                string  // 账戶標识
+	AccountScope             string  // immutable non-secret digest of exchange/environment/credential identity
+	AccountMarketType        string  // immutable valuation scope; do not read mutable Config while sampling
+	verifiedCapitalBudget    float64 // immutable startup-verified gross notional ceiling for this Bot
+	capitalReservationStore  storage.AccountWalletCapitalReservationStore
+	capitalReservationBotID  string
+	capitalReservationClaims []storage.AccountWalletCapitalClaim
+	ClampOpenControl         func(config.OpenPositionControl) (config.OpenPositionControl, error)
+	Stop                     func()
+	shutdownContextMu        sync.RWMutex
+	shutdownContext          context.Context
+	closeManagerMu           sync.Mutex
+	closeManager             *position.ClosePositionManager
+	specialCloseRecords      []*position.ClosePositionRecord
 
 	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
 	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。
@@ -610,6 +613,10 @@ func startSymbolRuntime(
 		if claimErr != nil {
 			capitalErr = claimErr
 		} else {
+			claim.Exchange = walletExchange
+			claim.Market = ex.GetMarketType()
+			claim.QuoteAsset = quoteAsset
+			claim.Symbol = symCfg.Symbol
 			capitalClaim = claim
 			capitalClaimReady = true
 		}
@@ -831,6 +838,8 @@ func startSymbolRuntime(
 	}
 	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook); err != nil {
 		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
+	} else {
+		superPositionManager.MarkGridRuntimeVenueFlatVerified()
 	}
 	if localCfg.CircuitBreaker.Enabled && localCfg.CircuitBreaker.Triggers.MaxDrawdown.Enabled {
 		superPositionManager.SetEquityRiskPaused(true) // no opening before the first verified equity sample
@@ -1092,14 +1101,25 @@ func startSymbolRuntime(
 		}
 	}()
 
-	if err := superPositionManager.Initialize(currentPrice, currentPriceStr); err != nil {
-		return nil, fmt.Errorf("初始化倉位管理器失败(%s:%s): %w", symCfg.Exchange, symCfg.Symbol, err)
+	initializationErr := superPositionManager.Initialize(currentPrice, currentPriceStr)
+	if initializationErr != nil {
+		logger.ErrorCtx(ctx, "[%s] 网格初始化/首批订单未核实，已封锁新开仓并撤销已登记开仓单；运行时保留供安全停止与对账: %v", botID, initializationErr)
+		superPositionManager.CancelAllOpenOrders()
+		if eventBus != nil {
+			eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+				"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+				"reason": "strategy_startup_unverified", "requires_reconciliation": true,
+			}})
+		}
 	}
 
 	// 🔥 如果啟动時已有持倉（满倉或接近满倉），立即調用 AdjustOrders 初始化賣單
 	// 避免等待價格變化才触发订單調整，确保满倉状態下也能立即开始交易
 	// 純趋势/动量等非網格多策略模式跳过首輪網格挂单，避免误挂
-	if config.ShouldSkipInitialGridAdjustOrders(&localCfg) {
+	if initializationErr != nil {
+		// Initialize may have returned after partial acknowledgements. Keep the
+		// startup gate sealed; the stop path will reconcile live positions/orders.
+	} else if config.ShouldSkipInitialGridAdjustOrders(&localCfg) {
 		logger.InfoCtx(ctx, "⏭️ [%s] 啟动時跳过網格订單初始化（當前為非網格多策略模式）", symCfg.Symbol)
 	} else if err := superPositionManager.AdjustOrders(currentPrice); err != nil {
 		if isOrderSkippedError(err) {
@@ -1304,25 +1324,38 @@ func startSymbolRuntime(
 		if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled {
 			comboExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "combo")
 			comboStrategy := strategy.NewComboStrategy("combo", symCfg.Symbol, &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
+			stateReady := true
 			if storageService != nil {
 				if err := comboStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID}); err != nil {
-					return nil, fmt.Errorf("configure combo runtime state recovery: %w", err)
-				}
-			}
-			comboStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
-				if stateErr != nil {
+					stateReady = false
 					superPositionManager.OpeningGate().Block("combo_runtime_state_unverified")
-					logger.ErrorCtx(ctx, "[%s] Combo 回撤高水位持久化失败，已封锁 Bot 开仓: %v", botID, stateErr)
-					return
+					superPositionManager.CancelAllOpenOrders()
+					logger.ErrorCtx(ctx, "[%s] Combo 运行态恢复失败，已封锁 Bot 开仓并跳过 Combo 策略注册；运行时保留供安全停止与对账: %v", botID, err)
+					if eventBus != nil {
+						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+							"reason": "combo_runtime_state_unverified", "strategy_name": "combo",
+							"requires_reconciliation": true,
+						}})
+					}
 				}
-				superPositionManager.OpeningGate().Unblock("combo_runtime_state_unverified")
-			})
-			fixedPool := 0.0
-			if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
-				fixedPool = pool
 			}
-			strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
-			logger.InfoCtx(ctx, "✅ [%s] 组合策略已注册", symCfg.Symbol)
+			if stateReady {
+				comboStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
+					if stateErr != nil {
+						superPositionManager.OpeningGate().Block("combo_runtime_state_unverified")
+						logger.ErrorCtx(ctx, "[%s] Combo 回撤高水位持久化失败，已封锁 Bot 开仓: %v", botID, stateErr)
+						return
+					}
+					superPositionManager.OpeningGate().Unblock("combo_runtime_state_unverified")
+				})
+				fixedPool := 0.0
+				if pool, ok := comboCfg.Config["capital_pool"].(float64); ok {
+					fixedPool = pool
+				}
+				strategyManager.RegisterStrategy("combo", comboStrategy, comboCfg.Weight, fixedPool)
+				logger.InfoCtx(ctx, "✅ [%s] 组合策略已注册", symCfg.Symbol)
+			}
 		}
 
 		// spot_short：現貨借幣做空策略（僅 spot/spot_margin，對沖組現貨腿，做多網格用）
@@ -1736,6 +1769,13 @@ func startSymbolRuntime(
 		AccountMarketType:     symCfg.GetMarketType(),
 		verifiedCapitalBudget: botCapitalBudget,
 	}
+	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
+		if reservationStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
+			rt.capitalReservationStore = reservationStore
+			rt.capitalReservationBotID = botID
+			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
+		}
+	}
 	ownershipRuntime.Store(rt)
 	if ownershipLease.Lost() {
 		rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
@@ -1822,6 +1862,36 @@ func startSymbolRuntime(
 				if err := strategyManager.StopAllWithError(); err != nil {
 					rt.markShutdownCloseUnverified(err.Error())
 					stopErrors = append(stopErrors, fmt.Errorf("策略停止未核实: %w", err))
+				}
+			}
+			if len(rt.capitalReservationClaims) > 0 {
+				if len(stopErrors) != 0 || ownershipLease.Lost() {
+					logger.ErrorCtx(ctx, "[%s] 停止链路或运行租约未核实，保留账户钱包资金预留", botID)
+				} else {
+					capitalReleaseCtx, capitalReleaseCancel := context.WithTimeout(shutdownCtx, 20*time.Second)
+						releaseErr := verifyAndReleaseAccountWalletCapitalGuarded(capitalReleaseCtx, rt.capitalReservationStore,
+							rt.capitalReservationBotID, rt.capitalReservationClaims,
+							func(verifyCtx context.Context) error {
+								if strings.EqualFold(rt.AccountMarketType, "spot") {
+									return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
+										return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+									})
+								}
+								return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
+							}, func() error {
+							if ownershipLease.Lost() {
+								return errors.New("runtime ownership lease lost during flatness verification")
+							}
+							return nil
+						})
+					capitalReleaseCancel()
+					if releaseErr != nil {
+						rt.markShutdownCloseUnverified(releaseErr.Error())
+						stopErrors = append(stopErrors, fmt.Errorf("普通 Bot 资金预留未能核实释放: %w", releaseErr))
+						logger.ErrorCtx(ctx, "[%s] 资金 claim 保留，仓位/委托平仓证据不足: %v", botID, releaseErr)
+					} else {
+						logger.InfoCtx(ctx, "[%s] 期货仓位与活动委托已核实为空，账户钱包资金 claim 已释放", botID)
+					}
 				}
 			}
 			if len(stopErrors) == 0 {

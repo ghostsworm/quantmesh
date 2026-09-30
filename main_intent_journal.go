@@ -126,15 +126,15 @@ func configureRuntimeIntentJournal(ctx context.Context, executor *order.Exchange
 		return fmt.Errorf("legacy trading history requires migration and reconciliation")
 	}
 	if strings.EqualFold(scope.Market, "spot") {
-		asset := ex.GetBaseAsset()
-		if asset == "" {
-			return fmt.Errorf("spot base asset unavailable")
+		inventoryReader, ok := ex.(exchange.SpotInventoryReader)
+		if !ok {
+			return fmt.Errorf("spot exchange does not expose authoritative total base-asset inventory")
 		}
-		balance, err := ex.GetBalance(ctx, asset)
+		balance, err := inventoryReader.SpotInventoryQty(ctx)
 		if err != nil {
-			return fmt.Errorf("verify initial spot inventory: %w", err)
+			return fmt.Errorf("verify initial total spot inventory: %w", err)
 		}
-		if math.IsNaN(balance) || math.IsInf(balance, 0) || balance != 0 {
+		if math.IsNaN(balance) || math.IsInf(balance, 0) || balance < 0 || balance != 0 {
 			return fmt.Errorf("spot inventory requires owned lot reconciliation")
 		}
 	} else {

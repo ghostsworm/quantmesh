@@ -383,8 +383,9 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 	byWallet := make(map[string]storage.FundingSpreadCapitalClaim, 2)
 	for _, leg := range []struct {
 		exchange string
+		symbol   string
 		balance  float64
-	}{{fp.LegA.Exchange, balanceA}, {fp.LegB.Exchange, balanceB}} {
+	}{{fp.LegA.Exchange, fp.LegA.Symbol, balanceA}, {fp.LegB.Exchange, fp.LegB.Symbol, balanceB}} {
 		exchangeName := strings.TrimSpace(leg.exchange)
 		exchangeCfg, ok := cfg.Exchanges[exchangeName]
 		if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
@@ -402,8 +403,12 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 			if leg.balance < claim.Available {
 				claim.Available = leg.balance
 			}
+			if !strings.Contains(claim.Symbol, leg.symbol) {
+				claim.Symbol += "," + leg.symbol
+			}
 		} else {
-			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance}
+			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance,
+				Exchange: exchangeName, Market: "futures", QuoteAsset: "USDT", Symbol: leg.symbol}
 		}
 		byWallet[walletKey] = claim
 	}

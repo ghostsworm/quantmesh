@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/storage"
 )
 
 type fakeCapitalExchange struct {
@@ -85,6 +87,100 @@ func TestCapitalHandlersReturnNotReadyWithoutDataSource(t *testing.T) {
 				t.Fatalf("expected success=false, got %s", w.Body.String())
 			}
 		})
+	}
+}
+
+func TestCapitalReservationsRequireAdminSession(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name       string
+		role       string
+		localDev   bool
+		wantStatus int
+	}{
+		{name: "missing session", wantStatus: http.StatusForbidden},
+		{name: "regular user", role: "user", wantStatus: http.StatusForbidden},
+		{name: "admin", role: "admin", wantStatus: http.StatusServiceUnavailable},
+		{name: "local development mode", role: "admin", localDev: true, wantStatus: http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/capital/reservations", nil)
+			if tc.role != "" {
+				c.Set("session", &Session{Username: "tester", Role: tc.role})
+			}
+			if tc.localDev {
+				c.Set("local_dev_mode", true)
+			}
+			getCapitalReservationsHandler(c)
+			if w.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d: %s", w.Code, tc.wantStatus, w.Body.String())
+			}
+		})
+	}
+}
+
+func TestCapitalReservationsAdminCanPageThroughAudit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := storage.NewSQLStorage(t.TempDir() + "/capital-reservation-pages.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for index := 1; index <= storage.AccountWalletCapitalReservationAuditPageSize+1; index++ {
+		claim := storage.AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", index), Amount: 1, Available: 1000,
+			Exchange: "binance", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
+		if err := store.ReserveAccountWalletCapital(t.Context(), fmt.Sprintf("bot-%03d", index), []storage.AccountWalletCapitalClaim{claim}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousStorage := storageServiceProvider
+	SetStorageServiceProvider(&testStorageProvider{st: store})
+	t.Cleanup(func() { SetStorageServiceProvider(previousStorage) })
+
+	nextCursor := ""
+	for _, tc := range []struct {
+		cursor   string
+		wantCode int
+		wantMore bool
+		wantRows int
+	}{{wantCode: http.StatusOK, wantMore: true, wantRows: storage.AccountWalletCapitalReservationAuditPageSize},
+		{wantCode: http.StatusOK, wantMore: false, wantRows: 1},
+		{cursor: "invalid", wantCode: http.StatusBadRequest}} {
+		cursor := tc.cursor
+		if cursor == "" && nextCursor != "" {
+			cursor = nextCursor
+		}
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodGet, "/api/capital/reservations?cursor="+cursor, nil)
+		c.Set("session", &Session{Username: "admin", Role: "admin"})
+		getCapitalReservationsHandler(c)
+		if w.Code != tc.wantCode {
+			t.Fatalf("cursor %q status = %d, want %d: %s", cursor, w.Code, tc.wantCode, w.Body.String())
+		}
+		if tc.wantCode != http.StatusOK {
+			continue
+		}
+		var body struct {
+			Reservations []storage.AccountWalletCapitalReservation `json:"reservations"`
+			PageSize     int                                       `json:"page_size"`
+			HasMore      bool                                      `json:"has_more"`
+			NextCursor   string                                    `json:"next_cursor"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body.Reservations) != tc.wantRows || body.HasMore != tc.wantMore || body.PageSize != storage.AccountWalletCapitalReservationAuditPageSize {
+			t.Fatalf("cursor %q response = %+v", cursor, body)
+		}
+		if tc.wantMore {
+			nextCursor = body.NextCursor
+			if nextCursor == "" {
+				t.Fatal("non-final audit page is missing next_cursor")
+			}
+		}
 	}
 }
 

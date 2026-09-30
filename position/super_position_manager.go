@@ -79,8 +79,9 @@ type OrderRequest struct {
 
 // OrderRequest.PositionSide 取值
 const (
-	PositionSideLong  = "LONG"
-	PositionSideShort = "SHORT"
+	PositionSideLong                  = "LONG"
+	PositionSideShort                 = "SHORT"
+	gridInitializationUnverifiedBlock = "grid_initialization_unverified"
 )
 
 // Order 订單信息（避免循環匯入）
@@ -414,6 +415,7 @@ type SuperPositionManager struct {
 	gridRuntimeStateSaveMu   sync.Mutex
 	gridRuntimeStateStore    GridRuntimeStateStore
 	gridRuntimeStateRestored atomic.Bool
+	gridRuntimeVenueFlatVerified atomic.Bool
 	feeSupplementQueueMu     sync.Mutex
 	pendingFeeSupplements    []pendingFeeSupplement
 
@@ -720,6 +722,12 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 	}
 	if spm.openingGate.HasBlock("strategy_startup_unverified") {
 		return "策略启动或状态恢复失败，等待运行态核实"
+	}
+	if spm.openingGate.HasBlock(gridInitializationUnverifiedBlock) {
+		return "网格初始化或首批订单未核实，已封锁开仓并等待对账"
+	}
+	if spm.openingGate.HasBlock("combo_runtime_state_unverified") {
+		return "Combo 运行态恢复未核实，已封锁开仓并等待对账"
 	}
 	v := spm.openingPauseReason.Load()
 	if v != nil && v.(string) != "" {
@@ -1157,6 +1165,7 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	defer spm.mu.Unlock()
 
 	if initialPrice <= 0 {
+		spm.openingGate.Block(gridInitializationUnverifiedBlock)
 		return fmt.Errorf("初始價格無效: %.2f", initialPrice)
 	}
 
@@ -1192,9 +1201,12 @@ func (spm *SuperPositionManager) Initialize(initialPrice float64, initialPriceSt
 	// 5. 為初始槽位下開倉單（LONG=買單，SHORT=賣單）或恢複持倉
 	err := spm.placeInitialOpenOrders()
 	if err == nil {
+		spm.openingGate.Unblock(gridInitializationUnverifiedBlock)
 		// 標記為已初始化
 		spm.isInitialized.Store(true)
 		logger.Info("✅ 初始化完成，网格價格: %s", formatPrice(initialGridPrice, spm.priceDecimals))
+	} else {
+		spm.openingGate.Block(gridInitializationUnverifiedBlock)
 	}
 	return err
 }

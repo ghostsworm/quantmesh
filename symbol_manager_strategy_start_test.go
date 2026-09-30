@@ -65,6 +65,17 @@ func TestSuccessfulStrategyStartupPreservesIndependentOpeningBlocks(t *testing.T
 	}
 }
 
+func TestSuccessfulStrategyStartupDoesNotClearGridInitializationFailure(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	gate.Block("grid_initialization_unverified")
+	if err := startStrategiesWithFailClosedGate(func() error { return nil }, gate); err != nil {
+		t.Fatalf("startup: %v", err)
+	}
+	if !gate.HasBlock("grid_initialization_unverified") {
+		t.Fatal("strategy startup must not clear an unresolved initial-grid-order failure")
+	}
+}
+
 func TestStrategyStartupRequiresGateAndCallback(t *testing.T) {
 	if err := startStrategiesWithFailClosedGate(nil, &execution.OpeningGate{}); err == nil {
 		t.Fatal("nil startup callback must fail")

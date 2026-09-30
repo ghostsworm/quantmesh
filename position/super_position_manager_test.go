@@ -162,6 +162,21 @@ func TestSuperPositionManager_Initialize(t *testing.T) {
 	}
 }
 
+func TestSuperPositionManager_InitializeFailureBlocksOpening(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 3)
+	if err := spm.Initialize(0, "0"); err == nil {
+		t.Fatal("Initialize accepted an invalid starting price")
+	}
+	if !spm.OpeningGate().HasBlock(gridInitializationUnverifiedBlock) {
+		t.Fatal("Initialize failure did not keep opening fail-closed")
+	}
+	if reason := spm.GetOpeningPauseReason(); reason != "网格初始化或首批订单未核实，已封锁开仓并等待对账" {
+		t.Fatalf("pause reason = %q, want explicit grid initialization reconciliation", reason)
+	}
+}
+
 func TestSuperPositionManager_OnOrderUpdate(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"

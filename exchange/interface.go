@@ -164,6 +164,13 @@ type IExchange interface {
 	InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error)
 }
 
+// SpotInventoryReader is implemented only by spot adapters that can return an
+// authoritative total base-asset balance (including locked funds). GetBalance
+// is commonly the free/transferable balance and is not sufficient for flatness.
+type SpotInventoryReader interface {
+	SpotInventoryQty(ctx context.Context) (float64, error)
+}
+
 // OrderHistoryPage is one bounded page of exchange execution history. Cursor is
 // opaque to callers; HasMore must reflect the venue's pagination boundary.
 type OrderHistoryPage struct {

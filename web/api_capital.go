@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"net/http"
@@ -14,6 +16,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/logger"
 	"quantmesh/position"
+	"quantmesh/storage"
 )
 
 // 資金概覽緩存，降低頻繁刷新時的 GetAccount 調用
@@ -46,6 +49,74 @@ type PositionManagerInfo struct {
 }
 
 var capitalDataSource CapitalDataSource
+
+func getCapitalReservationsHandler(c *gin.Context) {
+	sessionValue, ok := c.Get("session")
+	session, isSession := sessionValue.(*Session)
+	if c.GetBool("local_dev_mode") || !ok || !isSession || session.Role != "admin" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	if storageServiceProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capital_reservation_storage_unavailable"})
+		return
+	}
+	store := storageServiceProvider.GetStorage()
+	if store == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "capital_reservation_storage_unavailable"})
+		return
+	}
+	reader, ok := store.(storage.AccountWalletCapitalReservationReader)
+	if !ok {
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "capital_reservation_audit_unsupported"})
+		return
+	}
+	afterWalletKey, afterBotKey, err := decodeCapitalReservationCursor(strings.TrimSpace(c.Query("cursor")))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_cursor"})
+		return
+	}
+	pageSize := storage.AccountWalletCapitalReservationAuditPageSize
+	reservations, err := reader.ListAccountWalletCapitalReservations(c.Request.Context(), afterWalletKey, afterBotKey, pageSize)
+	if err != nil {
+		logger.ErrorCtx(c.Request.Context(), "list account wallet capital reservations: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "capital_reservation_audit_failed"})
+		return
+	}
+	hasMore := len(reservations) > pageSize
+	nextCursor := ""
+	if hasMore {
+		reservations = reservations[:pageSize]
+		last := reservations[len(reservations)-1]
+		nextCursor = encodeCapitalReservationCursor(last.WalletKey, last.BotKey)
+	}
+	c.JSON(http.StatusOK, gin.H{"reservations": reservations, "page_size": pageSize, "has_more": hasMore, "next_cursor": nextCursor})
+}
+
+func encodeCapitalReservationCursor(walletKey, botKey string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(walletKey + ":" + botKey))
+}
+
+func decodeCapitalReservationCursor(value string) (string, string, error) {
+	if value == "" {
+		return "", "", nil
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil || len(decoded) != 129 {
+		return "", "", fmt.Errorf("invalid reservation cursor")
+	}
+	parts := strings.SplitN(string(decoded), ":", 2)
+	if len(parts) != 2 {
+		return "", "", fmt.Errorf("invalid reservation cursor")
+	}
+	for _, part := range parts {
+		digest, err := hex.DecodeString(part)
+		if err != nil || len(digest) != 32 {
+			return "", "", fmt.Errorf("invalid reservation cursor")
+		}
+	}
+	return parts[0], parts[1], nil
+}
 
 // SetCapitalDataSource 設置资金數據源
 func SetCapitalDataSource(ds CapitalDataSource) {

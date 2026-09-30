@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/execution"
 	"quantmesh/lock"
 )
@@ -23,6 +26,68 @@ func runtimeOwnershipScope(account, exchangeName, market, symbol string) executi
 		Symbol:   strings.ToUpper(strings.TrimSpace(symbol)),
 		Bot:      runtimeOwnershipScopeOwner,
 	}
+}
+
+func fundingCarryRuntimeOwnershipScopes(cfg *config.Config, exchangeName, symbol string, includeMargin bool) ([]execution.IntentScope, error) {
+	if cfg == nil || strings.TrimSpace(exchangeName) == "" || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("funding_carry ownership requires config, exchange, and symbol")
+	}
+	exchangeCfg, ok := cfg.Exchanges[exchangeName]
+	if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
+		return nil, fmt.Errorf("funding_carry ownership account identity unavailable for %s", exchangeName)
+	}
+	markets := []string{"futures", "spot"}
+	if includeMargin {
+		markets = append(markets, "spot_margin")
+	}
+	accountScope := equityAccountScopeID(exchangeName, exchangeCfg)
+	scopes := make([]execution.IntentScope, 0, len(markets))
+	for _, market := range markets {
+		scopes = append(scopes, runtimeOwnershipScope(accountScope, exchangeName, market, symbol))
+	}
+	sort.Slice(scopes, func(i, j int) bool {
+		left, _ := scopes[i].Key()
+		right, _ := scopes[j].Key()
+		return left < right
+	})
+	return scopes, nil
+}
+
+func acquireFundingCarryRuntimeOwnershipLeases(ctx context.Context, distributedLock lock.DistributedLock, cfg *config.Config, exchangeName, symbol string, includeMargin bool, onLost func(error)) ([]*runtimeOwnershipLease, error) {
+	scopes, err := fundingCarryRuntimeOwnershipScopes(cfg, exchangeName, symbol, includeMargin)
+	if err != nil {
+		return nil, fmt.Errorf("build funding_carry runtime ownership scopes: %w", err)
+	}
+	leases := make([]*runtimeOwnershipLease, 0, len(scopes))
+	for _, scope := range scopes {
+		lease, acquireErr := acquireRuntimeOwnershipLease(ctx, distributedLock, scope, runtimeOwnershipLeaseTTL, onLost)
+		if acquireErr != nil {
+			var releaseErr error
+			for index := len(leases) - 1; index >= 0; index-- {
+				releaseErr = errors.Join(releaseErr, leases[index].Release())
+			}
+			return nil, errors.Join(fmt.Errorf("acquire funding_carry runtime ownership: %w", acquireErr), releaseErr)
+		}
+		leases = append(leases, lease)
+	}
+	return leases, nil
+}
+
+func releaseFundingCarryRuntimeOwnershipLeases(leases []*runtimeOwnershipLease) error {
+	var releaseErr error
+	for index := len(leases) - 1; index >= 0; index-- {
+		releaseErr = errors.Join(releaseErr, leases[index].Release())
+	}
+	return releaseErr
+}
+
+func fundingCarryRuntimeOwnershipLeaseLost(leases []*runtimeOwnershipLease) bool {
+	for _, lease := range leases {
+		if lease.Lost() {
+			return true
+		}
+	}
+	return false
 }
 
 type runtimeOwnershipLease struct {

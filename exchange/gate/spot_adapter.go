@@ -355,6 +355,22 @@ type gateSpotAccountBalance struct {
 	Locked    string `json:"locked"`
 }
 
+func (g *GateSpotAdapter) SpotInventoryQty(ctx context.Context) (float64, error) {
+	if g == nil || g.client == nil || strings.TrimSpace(g.baseAsset) == "" {
+		return 0, fmt.Errorf("Gate spot inventory requires a configured base asset")
+	}
+	resp, err := g.client.DoRequest(ctx, "GET", "/spot/accounts", "", nil)
+	if err != nil {
+		return 0, fmt.Errorf("query Gate spot inventory: %w", err)
+	}
+	var balances []gateSpotAccountBalance
+	if err := json.Unmarshal(resp, &balances); err != nil {
+		return 0, fmt.Errorf("decode Gate spot inventory: %w", err)
+	}
+	total, _, err := summarizeGateSpotQuoteBalance(balances, g.baseAsset)
+	return total, err
+}
+
 func summarizeGateSpotQuoteBalance(rows []gateSpotAccountBalance, quoteAsset string) (total, available float64, err error) {
 	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
 	if quoteAsset == "" {

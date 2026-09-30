@@ -455,6 +455,18 @@ func summarizeOKXSpotQuoteBalance(balances []Balance, quoteAsset string) (total,
 	return total, available, nil
 }
 
+func (o *OKXSpotAdapter) SpotInventoryQty(ctx context.Context) (float64, error) {
+	if o == nil || o.client == nil || strings.TrimSpace(o.baseAsset) == "" {
+		return 0, fmt.Errorf("OKX spot inventory requires a configured base asset")
+	}
+	balances, err := o.client.GetBalance(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("query OKX spot inventory: %w", err)
+	}
+	total, _, err := summarizeOKXSpotQuoteBalance(balances, o.baseAsset)
+	return total, err
+}
+
 // GetPositions 現貨“持倉”由基础资產餘額構成
 func (o *OKXSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	balances, err := o.client.GetBalance(ctx)

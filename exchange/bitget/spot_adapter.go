@@ -441,6 +441,22 @@ func summarizeBitgetSpotQuoteBalance(balances []bitgetSpotAccountAsset, quoteAss
 	return total, available, nil
 }
 
+func (b *BitgetSpotAdapter) SpotInventoryQty(ctx context.Context) (float64, error) {
+	if b == nil || b.client == nil || strings.TrimSpace(b.baseAsset) == "" {
+		return 0, fmt.Errorf("Bitget spot inventory requires a configured base asset")
+	}
+	resp, err := b.client.DoRequest(ctx, "GET", "/api/v2/spot/account/assets", nil)
+	if err != nil {
+		return 0, fmt.Errorf("query Bitget spot inventory: %w", err)
+	}
+	var balances []bitgetSpotAccountAsset
+	if err := json.Unmarshal(resp.Data, &balances); err != nil {
+		return 0, fmt.Errorf("decode Bitget spot inventory: %w", err)
+	}
+	total, _, err := summarizeBitgetSpotQuoteBalance(balances, b.baseAsset)
+	return total, err
+}
+
 // GetPositions 現貨“持倉”由基础资產餘額構成
 func (b *BitgetSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	resp, err := b.client.DoRequest(ctx, "GET", "/api/v2/spot/account/assets", nil)

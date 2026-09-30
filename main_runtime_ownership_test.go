@@ -122,6 +122,89 @@ func TestRuntimeOwnershipLeaseSerializesSharedPositionScope(t *testing.T) {
 	}
 }
 
+func TestFundingCarryRuntimeOwnershipCoversEveryTradingMarket(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "test-key", SecretKey: "test-secret"},
+	}}
+	withoutMargin, err := fundingCarryRuntimeOwnershipScopes(cfg, "binance", "BTCUSDT", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withoutMargin) != 2 || withoutMargin[0].Market == withoutMargin[1].Market {
+		t.Fatalf("spot/futures ownership scopes = %+v, want two distinct markets", withoutMargin)
+	}
+	withMargin, err := fundingCarryRuntimeOwnershipScopes(cfg, "binance", "BTCUSDT", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withMargin) != 3 {
+		t.Fatalf("reverse carry ownership scopes = %+v, want spot, futures, and spot_margin", withMargin)
+	}
+	for _, scope := range withMargin {
+		if scope.Account != equityAccountScopeID("binance", cfg.Exchanges["binance"]) || scope.Symbol != "BTCUSDT" || scope.Bot != runtimeOwnershipScopeOwner {
+			t.Fatalf("unexpected funding_carry physical-position scope: %+v", scope)
+		}
+	}
+}
+
+func TestFundingCarryRuntimeOwnershipAcquisitionRollsBackPartialLeases(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "test-key", SecretKey: "test-secret"},
+	}}
+	scopes, err := fundingCarryRuntimeOwnershipScopes(cfg, "binance", "BTCUSDT", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	distributedLock := &runtimeLeaseTestLock{}
+	blockedKey, err := scopes[1].Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if acquired, err := distributedLock.TryLock(t.Context(), "runtime-owner:"+blockedKey, time.Second); err != nil || !acquired {
+		t.Fatalf("prepare blocked second scope: acquired=%v err=%v", acquired, err)
+	}
+	if _, err := acquireFundingCarryRuntimeOwnershipLeases(t.Context(), distributedLock, cfg, "binance", "BTCUSDT", false, nil); err == nil {
+		t.Fatal("expected acquisition failure for occupied second scope")
+	}
+	firstKey, _ := scopes[0].Key()
+	if acquired, err := distributedLock.TryLock(t.Context(), "runtime-owner:"+firstKey, time.Second); err != nil || !acquired {
+		t.Fatalf("partial acquisition was not rolled back: acquired=%v err=%v", acquired, err)
+	}
+}
+
+func TestFundingCarryRuntimeOwnershipConflictsWithStandardRuntimePerMarket(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "test-key", SecretKey: "test-secret"},
+	}}
+	distributedLock := &runtimeLeaseTestLock{}
+	carryLeases, err := acquireFundingCarryRuntimeOwnershipLeases(t.Context(), distributedLock,
+		cfg, "binance", "BTCUSDT", true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	carryScopes, err := fundingCarryRuntimeOwnershipScopes(cfg, "binance", "BTCUSDT", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range carryScopes {
+		if _, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil); err == nil {
+			t.Fatalf("standard runtime acquired Funding Carry-owned physical scope: %+v", scope)
+		}
+	}
+	if err := releaseFundingCarryRuntimeOwnershipLeases(carryLeases); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range carryScopes {
+		lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock, scope, time.Second, nil)
+		if err != nil {
+			t.Fatalf("standard runtime could not acquire released Funding Carry scope %+v: %v", scope, err)
+		}
+		if err := lease.Release(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestRuntimeOwnershipLeaseRetainedUntilStopIsVerified(t *testing.T) {
 	distributedLock := &runtimeLeaseTestLock{}
 	scope := runtimeOwnershipScope("account", "binance", "futures", "BTCUSDT")

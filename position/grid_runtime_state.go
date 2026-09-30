@@ -222,7 +222,7 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 // bootstrap path. Any persisted inventory, active order, cost basis, or pending
 // fee work requires full venue reconciliation before trading can resume.
 func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
-	if !spm.gridRuntimeStateRestored.Load() {
+	if !spm.gridRuntimeStateRestored.Load() && !spm.gridRuntimeVenueFlatVerified.Load() {
 		return false
 	}
 	empty := true
@@ -245,6 +245,15 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 		return true
 	})
 	return empty
+}
+
+// MarkGridRuntimeVenueFlatVerified records that the startup path completed its
+// authoritative empty position/order snapshot (and, for spot, its empty base
+// balance check). Callers must not mark a runtime after a partial bootstrap.
+func (spm *SuperPositionManager) MarkGridRuntimeVenueFlatVerified() {
+	if spm != nil {
+		spm.gridRuntimeVenueFlatVerified.Store(true)
+	}
 }
 
 func validateGridRuntimeSnapshot(snapshot gridRuntimeStateSnapshot) error {

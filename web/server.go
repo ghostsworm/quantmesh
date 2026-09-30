@@ -580,6 +580,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 资金管理 API
 			capital := protected.Group("/capital")
 			{
+				capital.GET("/reservations", getCapitalReservationsHandler)
 				capital.GET("/overview", getCapitalOverviewHandler)
 				capital.GET("/usage", getCapitalUsageHandler)
 				capital.GET("/allocation", getCapitalAllocationHandler)

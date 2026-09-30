@@ -489,6 +489,18 @@ func summarizeBybitSpotQuoteBalance(balances []AssetCoinBalance, asset string) (
 	return walletBalance, transferBalance, nil
 }
 
+func (b *BybitSpotAdapter) SpotInventoryQty(ctx context.Context) (float64, error) {
+	if b == nil || b.client == nil || strings.TrimSpace(b.baseAsset) == "" {
+		return 0, fmt.Errorf("Bybit spot inventory requires a configured base asset")
+	}
+	balances, err := b.client.GetAllCoinsBalance(ctx, "SPOT")
+	if err != nil {
+		return 0, fmt.Errorf("query Bybit spot inventory: %w", err)
+	}
+	total, _, err := summarizeBybitSpotQuoteBalance(balances, b.baseAsset)
+	return total, err
+}
+
 // StartOrderStream 現貨訂單流（v5/private，topic order）。
 // order topic 覆蓋全部品類：只轉發 category=spot 且 symbol 為本交易對的推送，並映射為內部常量。
 // 連接層複用合約的 WebSocketManager（認證確認後訂閱、斷線指數退避重連）。

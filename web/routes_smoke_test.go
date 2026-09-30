@@ -275,6 +275,7 @@ func TestProtectedRoutesSmokeEarlyExitPaths(t *testing.T) {
 		{http.MethodGet, "/api/profit/withdraw/w1", ""},
 		{http.MethodPost, "/api/profit/withdraw/w1/reconcile", `{}`},
 		{http.MethodGet, "/api/capital/overview", ""},
+		{http.MethodGet, "/api/capital/reservations", ""},
 		{http.MethodGet, "/api/capital/usage", ""},
 		{http.MethodGet, "/api/capital/allocation", ""},
 		{http.MethodPut, "/api/capital/allocation", `{}`},

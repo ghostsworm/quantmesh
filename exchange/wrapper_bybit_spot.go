@@ -170,6 +170,10 @@ func (w *bybitSpotWrapper) GetBalance(ctx context.Context, asset string) (float6
 	return w.adapter.GetBalance(ctx, asset)
 }
 
+func (w *bybitSpotWrapper) SpotInventoryQty(ctx context.Context) (float64, error) {
+	return w.adapter.SpotInventoryQty(ctx)
+}
+
 func (w *bybitSpotWrapper) StartOrderStream(ctx context.Context, callback func(interface{})) error {
 	return w.adapter.StartOrderStream(ctx, callback)
 }

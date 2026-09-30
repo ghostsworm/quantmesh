@@ -16,9 +16,26 @@ import (
 // AccountWalletCapitalClaim reserves one Bot's quote-currency budget in one
 // verified wallet. WalletKey and BotID are opaque stable identifiers.
 type AccountWalletCapitalClaim struct {
-	WalletKey string
-	Amount    float64
-	Available float64
+	WalletKey  string
+	Amount     float64
+	Available  float64
+	Exchange   string
+	Market     string
+	QuoteAsset string
+	Symbol     string
+}
+
+// AccountWalletCapitalReservation is a read-only, credential-free audit view.
+type AccountWalletCapitalReservation struct {
+	WalletKey  string    `json:"wallet_key"`
+	BotKey     string    `json:"bot_key"`
+	Amount     float64   `json:"amount"`
+	UpdatedAt  time.Time `json:"updated_at"`
+	Exchange   string    `json:"exchange,omitempty"`
+	Market     string    `json:"market,omitempty"`
+	QuoteAsset string    `json:"quote_asset,omitempty"`
+	Symbol     string    `json:"symbol,omitempty"`
+	Mapped     bool      `json:"mapped"`
 }
 
 // FundingSpreadCapitalClaim remains a source-compatible name for older callers.
@@ -29,6 +46,12 @@ type AccountWalletCapitalReservationStore interface {
 	ReserveAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
 	ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
 }
+
+type AccountWalletCapitalReservationReader interface {
+	ListAccountWalletCapitalReservations(ctx context.Context, afterWalletKey, afterBotKey string, limit int) ([]AccountWalletCapitalReservation, error)
+}
+
+const AccountWalletCapitalReservationAuditPageSize = 100
 
 // FundingSpreadCapitalReservationStore remains for source compatibility.
 type FundingSpreadCapitalReservationStore interface {
@@ -49,7 +72,7 @@ type MultiProcessFundingSpreadCapitalStore interface {
 	SupportsMultiProcessFundingSpreadCapital() bool
 }
 
-//go:embed migrations/2026093001_funding_spread_capital_*.sql
+//go:embed migrations/202609300*_funding_spread_capital_*.sql
 var fundingSpreadCapitalMigrations embed.FS
 
 func (s *SQLStorage) SupportsMultiProcessAccountWalletCapital() bool {
@@ -69,18 +92,20 @@ func migrateFundingSpreadCapitalTablesMySQL(db *sql.DB) error {
 }
 
 func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
-	name := "migrations/2026093001_funding_spread_capital_" + dialect + ".up.sql"
-	data, err := fundingSpreadCapitalMigrations.ReadFile(name)
-	if err != nil {
-		return fmt.Errorf("read funding spread capital migration %s: %w", name, err)
-	}
-	for _, statement := range strings.Split(string(data), ";") {
-		statement = strings.TrimSpace(statement)
-		if statement == "" {
-			continue
+	for _, version := range []string{"2026093001", "2026093002"} {
+		name := "migrations/" + version + "_funding_spread_capital_" + dialect + ".up.sql"
+		data, err := fundingSpreadCapitalMigrations.ReadFile(name)
+		if err != nil {
+			return fmt.Errorf("read funding spread capital migration %s: %w", name, err)
 		}
-		if _, err := db.Exec(statement); err != nil {
-			return fmt.Errorf("apply funding spread capital migration %s: %w", name, err)
+		for _, statement := range strings.Split(string(data), ";") {
+			statement = strings.TrimSpace(statement)
+			if statement == "" {
+				continue
+			}
+			if _, err := db.Exec(statement); err != nil {
+				return fmt.Errorf("apply funding spread capital migration %s: %w", name, err)
+			}
 		}
 	}
 	return nil
@@ -152,6 +177,29 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 			return fmt.Errorf("write account wallet capital reservation: %w", err)
 		}
 	}
+	for _, claim := range claims {
+		if claim.Exchange == "" && claim.Market == "" && claim.QuoteAsset == "" && claim.Symbol == "" {
+			continue
+		}
+		if err := validateCapitalReservationMetadata(claim); err != nil {
+			return err
+		}
+		metadataQuery := `INSERT INTO funding_spread_capital_reservation_metadata
+			(wallet_key, bot_key, exchange_name, market_type, quote_asset, symbol, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(wallet_key, bot_key) DO UPDATE SET
+			exchange_name=excluded.exchange_name, market_type=excluded.market_type,
+			quote_asset=excluded.quote_asset, symbol=excluded.symbol, updated_at=excluded.updated_at`
+		if s.dbType == "mysql" {
+			metadataQuery = `INSERT INTO funding_spread_capital_reservation_metadata
+				(wallet_key, bot_key, exchange_name, market_type, quote_asset, symbol, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE
+				exchange_name=VALUES(exchange_name), market_type=VALUES(market_type),
+				quote_asset=VALUES(quote_asset), symbol=VALUES(symbol), updated_at=VALUES(updated_at)`
+		}
+		if _, err := tx.ExecContext(ctx, metadataQuery, claim.WalletKey, botKey, claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol, time.Now().UTC()); err != nil {
+			return fmt.Errorf("write account wallet reservation metadata: %w", err)
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit account wallet capital reservation: %w", err)
 	}
@@ -184,9 +232,56 @@ func (s *SQLStorage) ReleaseAccountWalletCapital(ctx context.Context, botID stri
 		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey); err != nil {
 			return fmt.Errorf("release account wallet capital reservation: %w", err)
 		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM funding_spread_capital_reservation_metadata WHERE wallet_key = ? AND bot_key = ?`, claim.WalletKey, botKey); err != nil {
+			return fmt.Errorf("release account wallet reservation metadata: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit account wallet capital reservation release: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLStorage) ListAccountWalletCapitalReservations(ctx context.Context, afterWalletKey, afterBotKey string, limit int) ([]AccountWalletCapitalReservation, error) {
+	if ctx == nil || limit < 1 || limit > AccountWalletCapitalReservationAuditPageSize ||
+		(afterWalletKey == "") != (afterBotKey == "") ||
+		(afterWalletKey != "" && (!isFundingSpreadDigest(afterWalletKey) || !isFundingSpreadDigest(afterBotKey))) {
+		return nil, errors.New("account wallet reservation listing requires context and a bounded page")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT r.wallet_key, r.bot_key, r.amount, r.updated_at,
+		m.exchange_name, m.market_type, m.quote_asset, m.symbol
+		FROM funding_spread_capital_reservations r
+		LEFT JOIN funding_spread_capital_reservation_metadata m ON m.wallet_key = r.wallet_key AND m.bot_key = r.bot_key
+		WHERE (? = '' OR r.wallet_key > ? OR (r.wallet_key = ? AND r.bot_key > ?))
+		ORDER BY r.wallet_key ASC, r.bot_key ASC LIMIT ?`, afterWalletKey, afterWalletKey, afterWalletKey, afterBotKey, limit+1)
+	if err != nil {
+		return nil, fmt.Errorf("list account wallet capital reservations: %w", err)
+	}
+	defer rows.Close()
+	items := make([]AccountWalletCapitalReservation, 0)
+	for rows.Next() {
+		var item AccountWalletCapitalReservation
+		var exchangeName, market, quote, symbol sql.NullString
+		if err := rows.Scan(&item.WalletKey, &item.BotKey, &item.Amount, &item.UpdatedAt, &exchangeName, &market, &quote, &symbol); err != nil {
+			return nil, fmt.Errorf("scan account wallet capital reservation: %w", err)
+		}
+		item.Exchange, item.Market, item.QuoteAsset, item.Symbol = exchangeName.String, market.String, quote.String, symbol.String
+		item.Mapped = exchangeName.Valid && market.Valid && quote.Valid && symbol.Valid
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate account wallet capital reservations: %w", err)
+	}
+	return items, nil
+}
+
+func validateCapitalReservationMetadata(claim AccountWalletCapitalClaim) error {
+	values := []string{claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol}
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || len(trimmed) > 128 || strings.ContainsAny(trimmed, "\x00\r\n") {
+			return errors.New("account wallet reservation metadata must contain bounded, non-empty identifiers")
+		}
 	}
 	return nil
 }

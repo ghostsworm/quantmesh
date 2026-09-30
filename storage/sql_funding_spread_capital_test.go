@@ -114,3 +114,129 @@ func TestAccountWalletCapitalReservationIsSharedAcrossStrategies(t *testing.T) {
 		t.Fatalf("account-wide capacity should be shared across strategy types: %v", err)
 	}
 }
+
+func TestAccountWalletCapitalReservationAuditMapsNewClaimsAndKeepsLegacyVisible(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-audit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+
+	mapped := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 10), Amount: 25, Available: 100,
+		Exchange: "binance", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-mapped", []AccountWalletCapitalClaim{mapped}); err != nil {
+		t.Fatal(err)
+	}
+	legacy := fundingSpreadTestClaim(11, 15, 100)
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-legacy", []AccountWalletCapitalClaim{legacy}); err != nil {
+		t.Fatal(err)
+	}
+
+	reservations, err := store.ListAccountWalletCapitalReservations(ctx, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reservations) != 2 {
+		t.Fatalf("first audit page plus lookahead count = %d, want 2", len(reservations))
+	}
+	if !reservations[0].Mapped || reservations[0].Exchange != "binance" || reservations[0].Market != "futures" ||
+		reservations[0].QuoteAsset != "USDT" || reservations[0].Symbol != "BTCUSDT" || reservations[0].Amount != 25 {
+		t.Fatalf("mapped reservation = %+v", reservations[0])
+	}
+	if reservations[1].Mapped || reservations[1].Exchange != "" || reservations[1].Amount != 15 {
+		t.Fatalf("legacy reservation should remain visible as unmapped: %+v", reservations[1])
+	}
+	reservations, err = store.ListAccountWalletCapitalReservations(ctx, reservations[0].WalletKey, reservations[0].BotKey, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reservations) != 1 || reservations[0].Mapped {
+		t.Fatalf("second audit page should contain the legacy reservation: %+v", reservations)
+	}
+	if _, err := store.ListAccountWalletCapitalReservations(ctx, reservations[0].WalletKey, reservations[0].BotKey, 1); err != nil {
+		t.Fatalf("empty audit page should be valid: %v", err)
+	}
+	if err := store.ReleaseAccountWalletCapital(ctx, "bot-mapped", []AccountWalletCapitalClaim{mapped}); err != nil {
+		t.Fatal(err)
+	}
+	reservations, err = store.ListAccountWalletCapitalReservations(ctx, "", "", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reservations) != 1 || reservations[0].Mapped {
+		t.Fatalf("release should atomically remove mapped reservation and metadata: %+v", reservations)
+	}
+}
+
+func TestAccountWalletCapitalReservationAuditBoundsPageSize(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-audit-page-bounds.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, tc := range []struct {
+		afterWalletKey string
+		afterBotKey    string
+		limit          int
+	}{{afterWalletKey: "abc", afterBotKey: "", limit: 10}, {afterWalletKey: fmt.Sprintf("%064x", 1), limit: 10}, {limit: 0}, {limit: AccountWalletCapitalReservationAuditPageSize + 1}} {
+		if _, err := store.ListAccountWalletCapitalReservations(context.Background(), tc.afterWalletKey, tc.afterBotKey, tc.limit); err == nil {
+			t.Fatalf("invalid audit page cursor=%q/%q limit=%d was accepted", tc.afterWalletKey, tc.afterBotKey, tc.limit)
+		}
+	}
+}
+
+func TestAccountWalletCapitalReservationAuditCursorSurvivesClaimUpdates(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-audit-cursor-update.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	firstClaim := fundingSpreadTestClaim(1, 10, 100)
+	secondClaim := fundingSpreadTestClaim(2, 10, 100)
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-first", []AccountWalletCapitalClaim{firstClaim}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-second", []AccountWalletCapitalClaim{secondClaim}); err != nil {
+		t.Fatal(err)
+	}
+
+	firstPage, err := store.ListAccountWalletCapitalReservations(ctx, "", "", 1)
+	if err != nil || len(firstPage) != 2 {
+		t.Fatalf("first audit page = %+v, err=%v; want row plus lookahead", firstPage, err)
+	}
+	firstSeen := firstPage[0]
+	firstClaim.Amount = 20
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-first", []AccountWalletCapitalClaim{firstClaim}); err != nil {
+		t.Fatal(err)
+	}
+
+	secondPage, err := store.ListAccountWalletCapitalReservations(ctx, firstSeen.WalletKey, firstSeen.BotKey, 1)
+	if err != nil || len(secondPage) != 1 {
+		t.Fatalf("second audit page after an earlier claim update = %+v, err=%v; want one remaining claim", secondPage, err)
+	}
+	if secondPage[0].WalletKey != secondClaim.WalletKey {
+		t.Fatalf("cursor repeated or skipped a claim after update: first=%+v second=%+v", firstSeen, secondPage[0])
+	}
+}
+
+func TestAccountWalletCapitalReservationRejectsUnsafeMetadata(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "reservation-audit-invalid.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	claim := AccountWalletCapitalClaim{WalletKey: fmt.Sprintf("%064x", 12), Amount: 10, Available: 100,
+		Exchange: "binance\nsecret", Market: "futures", QuoteAsset: "USDT", Symbol: "BTCUSDT"}
+	if err := store.ReserveAccountWalletCapital(context.Background(), "bot-invalid", []AccountWalletCapitalClaim{claim}); err == nil {
+		t.Fatal("metadata containing control characters was accepted")
+	}
+	items, err := store.ListAccountWalletCapitalReservations(context.Background(), "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("invalid metadata transaction left reservation behind: %+v", items)
+	}
+}
