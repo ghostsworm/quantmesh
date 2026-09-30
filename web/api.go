@@ -1034,8 +1034,10 @@ func getStatistics(c *gin.Context) {
 			summary, queryErr = reader.GetStatisticsSummaryByDimension(exchange, marketType, symbol, status.AccountScope, pnlAsset, botID)
 			if queryErr != nil {
 				logger.Warn("[统计] 精确作用域盈亏未核实: %v", queryErr)
-			} else {
+			} else if validateProfitStatisticsSnapshot(summary) == nil {
 				pnlVerified = true
+			} else {
+				logger.Warn("[统计] 精确作用域盈亏包含缺失或无效统计值")
 			}
 		}
 	}
@@ -1064,15 +1066,32 @@ func getStatistics(c *gin.Context) {
 		}); ok {
 			todayStats, queryErr := reader.QueryDailyStatisticsByDimension(exchange, marketType, symbol, status.AccountScope, pnlAsset, botID, todayStart, utils.NowConfiguredTimezone())
 			if queryErr == nil {
-				todayPnLVerified = true
 				todayTotal := 0.0
+				validRows := true
 				for _, stat := range todayStats {
-					if stat != nil {
-						todayTrades += stat.TotalTrades
-						todayTotal += stat.TotalPnL
+					if stat == nil || stat.TotalTrades < 0 {
+						validRows = false
+						break
+					}
+					maxInt := int(^uint(0) >> 1)
+					if stat.TotalTrades > maxInt-todayTrades {
+						validRows = false
+						break
+					}
+					todayTrades += stat.TotalTrades
+					var totalOK bool
+					if todayTotal, totalOK = addFiniteProfitValues(todayTotal, stat.TotalPnL); !totalOK {
+						validRows = false
+						break
 					}
 				}
-				todayPnL = todayTotal
+				if validRows {
+					todayPnLVerified = true
+					todayPnL = todayTotal
+				} else {
+					todayTrades = 0
+					logger.Warn("[统计] 今日精确作用域盈亏包含无效或溢出统计值")
+				}
 			} else {
 				logger.Warn("[统计] 今日精确作用域盈亏未核实: %v", queryErr)
 			}
@@ -1224,10 +1243,28 @@ func queryVerifiedDailyFunding(reader dailyFundingReader, account, exchange, mar
 		if !exists && len(payments) != 0 {
 			continue
 		}
+		if _, finite := addFiniteProfitValues(amount); !finite {
+			continue
+		}
 		dateKey := day.Format("2006-01-02")
 		amounts[dateKey], assets[dateKey] = amount, quoteAsset
 	}
 	return amounts, assets
+}
+
+func validateDailyProfitStatisticsRow(stat *storage.DailyStatisticsWithTradeCount) error {
+	if stat == nil || stat.Date.IsZero() || stat.TotalTrades < 0 || stat.WinningTrades < 0 || stat.LosingTrades < 0 ||
+		stat.WinningTrades > stat.TotalTrades || stat.LosingTrades > stat.TotalTrades-stat.WinningTrades ||
+		stat.TotalVolume < 0 || stat.VolumeProfit < 0 || stat.VolumeStopLoss < 0 || stat.WinRate < 0 || stat.WinRate > 1 {
+		return fmt.Errorf("daily PnL statistics are missing or outside valid ranges")
+	}
+	for _, value := range []float64{stat.TotalVolume, stat.TotalPnL, stat.GrossPnL, stat.TotalFee, stat.WinRate,
+		stat.VolumeProfit, stat.VolumeStopLoss, stat.OpenPrice, stat.ClosePrice, stat.PriceChange, stat.PriceChangePct} {
+		if !isFiniteNumber(value) {
+			return fmt.Errorf("daily PnL statistics contain a non-finite value")
+		}
+	}
+	return nil
 }
 
 func getDailyStatistics(c *gin.Context) {
@@ -1290,10 +1327,24 @@ func getDailyStatistics(c *gin.Context) {
 			if queryErr != nil {
 				logger.Warn("[每日统计] 精确维度盈亏未核实: %v", queryErr)
 			} else {
-				dailyTradesVerified = true
+				validRows := true
 				for _, tradeStat := range tradesStats {
+					if validateDailyProfitStatisticsRow(tradeStat) != nil {
+						validRows = false
+						break
+					}
 					dateKey := tradeStat.Date.Format("2006-01-02")
+					if _, duplicate := tradesStatsMap[dateKey]; duplicate {
+						validRows = false
+						break
+					}
 					tradesStatsMap[dateKey] = tradeStat
+				}
+				if validRows {
+					dailyTradesVerified = true
+				} else {
+					clear(tradesStatsMap)
+					logger.Warn("[每日统计] 精确维度盈亏包含无效或重复行")
 				}
 			}
 		}
@@ -1484,7 +1535,11 @@ func getDailyStatistics(c *gin.Context) {
 
 		// 计算累计盈亏
 		if dailyTradesVerified {
-			cumulativePnL += dailyPnL
+			var cumulativeOK bool
+			if cumulativePnL, cumulativeOK = addFiniteProfitValues(cumulativePnL, dailyPnL); !cumulativeOK {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日 PnL 累计溢出，拒绝返回不完整统计"})
+				return
+			}
 			cumulativePnLList = append(cumulativePnLList, cumulativePnL)
 			item["cumulative_pnl"] = cumulativePnL
 		} else {

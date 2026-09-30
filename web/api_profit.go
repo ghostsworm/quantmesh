@@ -195,6 +195,33 @@ type FundingPaymentItem struct {
 	CreatedAt     string  `json:"createdAt"`
 }
 
+func fundingPaymentItemFromRecord(payment *storage.FundingPayment, expectedScope, expectedExchange string) (FundingPaymentItem, error) {
+	if payment == nil || strings.TrimSpace(expectedScope) == "" || strings.TrimSpace(expectedExchange) == "" {
+		return FundingPaymentItem{}, errors.New("funding payment or expected account scope is missing")
+	}
+	if payment.AccountScope != expectedScope || !strings.EqualFold(strings.TrimSpace(payment.Exchange), strings.TrimSpace(expectedExchange)) {
+		return FundingPaymentItem{}, errors.New("funding payment escaped the requested account or exchange scope")
+	}
+	if strings.TrimSpace(payment.Asset) == "" || math.IsNaN(payment.Income) || math.IsInf(payment.Income, 0) {
+		return FundingPaymentItem{}, errors.New("funding payment identity or amount is invalid")
+	}
+	income, ok := roundProfitToPrecision(payment.Income, 1e8)
+	if !ok {
+		return FundingPaymentItem{}, errors.New("funding payment amount cannot be safely rounded")
+	}
+	return FundingPaymentItem{
+		ID:            payment.ID,
+		Exchange:      payment.Exchange,
+		Symbol:        payment.Symbol,
+		IncomeType:    payment.IncomeType,
+		Income:        income,
+		Asset:         payment.Asset,
+		TransactionID: payment.TransactionID,
+		TradeTime:     payment.TradeTime.Format(time.RFC3339),
+		CreatedAt:     payment.CreatedAt.Format(time.RFC3339),
+	}, nil
+}
+
 type fundingProfitSumReader interface {
 	GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error)
 }
@@ -306,13 +333,20 @@ func addFiniteProfitToMap(totals map[string]float64, key string, value float64) 
 }
 
 func roundProfitToCents(value float64) (float64, bool) {
+	return roundProfitToPrecision(value, 100)
+}
+
+func roundProfitToPrecision(value, precision float64) (float64, bool) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
 	}
-	if math.Abs(value) > math.MaxFloat64/100 {
+	if precision <= 0 || math.IsNaN(precision) || math.IsInf(precision, 0) {
+		return 0, false
+	}
+	if math.Abs(value) > math.MaxFloat64/precision {
 		return value, true
 	}
-	rounded := math.Round(value*100) / 100
+	rounded := math.Round(value*precision) / precision
 	return rounded, !math.IsNaN(rounded) && !math.IsInf(rounded, 0)
 }
 
@@ -371,6 +405,19 @@ func mergeProfitStatistics(target, source *storage.Statistics) error {
 		return errors.New("sell price deviation overflow")
 	}
 	*target = merged
+	return nil
+}
+
+func validateProfitStatisticsSnapshot(summary *storage.Statistics) error {
+	if summary == nil || summary.TotalTrades < 0 || summary.TotalVolume < 0 || summary.WinRate < 0 || summary.WinRate > 1 {
+		return errors.New("profit statistics are missing or outside valid ranges")
+	}
+	for _, value := range []float64{summary.TotalVolume, summary.TotalPnL, summary.GrossPnL, summary.TotalFee,
+		summary.TotalBuyDeviation, summary.TotalSellDeviation, summary.WinRate} {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("profit statistics contain a non-finite value")
+		}
+	}
 	return nil
 }
 
@@ -865,17 +912,12 @@ func getFundingHistoryHandler(c *gin.Context) {
 
 	records := make([]FundingPaymentItem, 0, len(list))
 	for _, p := range list {
-		records = append(records, FundingPaymentItem{
-			ID:            p.ID,
-			Exchange:      p.Exchange,
-			Symbol:        p.Symbol,
-			IncomeType:    p.IncomeType,
-			Income:        math.Round(p.Income*1e8) / 1e8,
-			Asset:         p.Asset,
-			TransactionID: p.TransactionID,
-			TradeTime:     p.TradeTime.Format(time.RFC3339),
-			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
-		})
+		item, itemErr := fundingPaymentItemFromRecord(p, accountScope, fundingExchange)
+		if itemErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "资金费历史账本行核验失败: " + itemErr.Error(), "records": []FundingPaymentItem{}})
+			return
+		}
+		records = append(records, item)
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "records": records})
 }

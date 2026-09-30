@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/position"
 	"quantmesh/storage"
 )
 
@@ -395,6 +396,32 @@ func TestGetCompleteExchangeBalanceRejectsIncompleteAndInvalidSnapshots(t *testi
 				t.Fatalf("failed snapshot exposed partial balance %v", got)
 			}
 		})
+	}
+}
+
+func TestRoundCapitalOverviewAmountsRejectsNonFiniteAndPreservesExtremeFinite(t *testing.T) {
+	overview := &CapitalOverview{
+		TotalBalance: math.MaxFloat64, AllocatedCapital: 1.234, UsedCapital: 2.345,
+		AvailableCapital: 3.456, UnrealizedPnL: -4.567, MarginRatio: 0.5,
+	}
+	if !roundCapitalOverviewAmounts(overview) {
+		t.Fatalf("finite capital overview was rejected: %+v", overview)
+	}
+	if overview.TotalBalance != math.MaxFloat64 || overview.AllocatedCapital != 1.23 || overview.UsedCapital != 2.35 {
+		t.Fatalf("unexpected safe rounded overview: %+v", overview)
+	}
+	bad := &CapitalOverview{TotalBalance: math.NaN()}
+	if roundCapitalOverviewAmounts(bad) {
+		t.Fatal("non-finite capital overview was accepted")
+	}
+}
+
+func TestHasUnattributedCapitalPositionManagers(t *testing.T) {
+	if hasUnattributedCapitalPositionManagers(nil) || hasUnattributedCapitalPositionManagers([]PositionManagerInfo{{}}) {
+		t.Fatal("missing position manager should not create an attribution conflict")
+	}
+	if !hasUnattributedCapitalPositionManagers([]PositionManagerInfo{{Manager: &position.SuperPositionManager{}}}) {
+		t.Fatal("position manager without strategy identity was treated as attributable")
 	}
 }
 

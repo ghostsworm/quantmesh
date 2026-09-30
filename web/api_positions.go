@@ -93,6 +93,21 @@ func positionSlotEntryFeeVerified(slot SlotInfo) bool {
 		!slot.FeeValuationUnknown && slot.PendingFeeSupplements == 0
 }
 
+func positionSlotFinancialsValid(slot SlotInfo) bool {
+	if slot.PositionStatus != "FILLED" {
+		return true
+	}
+	if !isFiniteNumber(slot.PositionQty) || !isFiniteNumber(slot.Price) ||
+		!isFiniteNumber(slot.BuyFee) || slot.BuyFee < 0 {
+		return false
+	}
+	if slot.PositionQty > 0.000001 && slot.Price > 0.000001 &&
+		!slot.CostBasisUnverified && (!isFiniteNumber(slot.AvgBuyPrice) || slot.AvgBuyPrice <= 0) {
+		return false
+	}
+	return true
+}
+
 func normalizeMarketPrice(price float64) float64 {
 	if math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
 		return 0
@@ -211,6 +226,11 @@ func getPositions(c *gin.Context) {
 
 	// 筛选有持倉的槽位
 	for _, slot := range slots {
+		if !positionSlotFinancialsValid(slot) {
+			logger.Warn("[getPositions] 拒绝包含无效财务数据的持仓: exchange=%s symbol=%s", exchange, symbol)
+			c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+			return
+		}
 		// 🔥 新增價格驗证：确保槽位價格有效（大於0且合理）
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
 			// 🔥 價格合理性检查：如果當前價格可用，检查槽位價格是否在合理範圍内
@@ -226,11 +246,19 @@ func getPositions(c *gin.Context) {
 
 			positionCount++
 			totalQuantity += slot.PositionQty
+			if !isFiniteNumber(totalQuantity) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 			if !positionSlotEntryFeeVerified(slot) {
 				entryFeesVerified = false
 				unrealizedPnLVerified = false
 			} else {
 				accruedEntryFees += slot.BuyFee
+				if !isFiniteNumber(accruedEntryFees) {
+					c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+					return
+				}
 			}
 
 			// 计算持倉價值（使用當前價格）
@@ -240,6 +268,10 @@ func getPositions(c *gin.Context) {
 				value = slot.PositionQty * slot.Price
 			}
 			totalValue += value
+			if !isFiniteNumber(value) || !isFiniteNumber(totalValue) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 
 			// 计算未實現盈亏
 			unrealizedPnL := 0.0
@@ -298,6 +330,10 @@ func getPositions(c *gin.Context) {
 				FeeVerified:           positionSlotEntryFeeVerified(slot),
 				UnrealizedPnLVerified: slotPnLVerified,
 			})
+			if !isFiniteNumber(unrealizedPnL) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 		}
 	}
 	if !entryFeesVerified {
@@ -310,6 +346,10 @@ func getPositions(c *gin.Context) {
 		totalCost := 0.0
 		for _, pos := range positions {
 			totalCost += pos.EntryPrice * pos.Quantity
+			if !isFiniteNumber(totalCost) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 		}
 		averagePrice = totalCost / totalQuantity
 	}
@@ -319,6 +359,10 @@ func getPositions(c *gin.Context) {
 	if currentPrice > 0 {
 		for _, pos := range positions {
 			totalUnrealizedPnL += pos.UnrealizedPnL
+			if !isFiniteNumber(totalUnrealizedPnL) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 		}
 	}
 	if !costBasisVerified {
@@ -333,6 +377,10 @@ func getPositions(c *gin.Context) {
 	for _, pos := range positions {
 		if pos.CostBasisVerified {
 			totalCost += pos.EntryPrice * pos.Quantity
+			if !isFiniteNumber(totalCost) {
+				c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+				return
+			}
 		}
 	}
 
@@ -340,6 +388,10 @@ func getPositions(c *gin.Context) {
 	pnlPercentage := 0.0
 	if unrealizedPnLVerified && totalCost > 0 {
 		pnlPercentage = (totalUnrealizedPnL / totalCost) * 100.0
+		if !isFiniteNumber(pnlPercentage) {
+			c.JSON(http.StatusOK, gin.H{"summary": unavailablePositionSummary()})
+			return
+		}
 	}
 
 	// 计算實際资金占用（實際保证金 = 總持倉價值 / 杠杆倍數）
@@ -439,23 +491,49 @@ func getPositionsSummary(c *gin.Context) {
 
 	// 筛选有持倉的槽位
 	for _, slot := range slots {
+		if !positionSlotFinancialsValid(slot) {
+			c.JSON(http.StatusOK, gin.H{
+				"total_quantity": 0, "total_value": 0, "position_count": 0,
+				"average_price": 0, "current_price": 0, "unrealized_pnl": 0,
+				"pnl_percentage": 0, "cost_basis_verified": false,
+				"entry_fees_verified": false, "unrealized_pnl_verified": false,
+				"actual_margin": 0, "leverage": 1,
+			})
+			return
+		}
 		if slot.PositionStatus == "FILLED" && slot.PositionQty > 0.000001 && slot.Price > 0.000001 {
 			slotPositionCount++
 			slotTotalQuantity += slot.PositionQty
+			if !isFiniteNumber(slotTotalQuantity) {
+				c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+				return
+			}
 			if !positionSlotEntryFeeVerified(slot) {
 				entryFeesVerified = false
 				unrealizedPnLVerified = false
 			} else {
 				accruedEntryFees += slot.BuyFee
+				if !isFiniteNumber(accruedEntryFees) {
+					c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+					return
+				}
 			}
 			if slot.CostBasisUnverified || slot.AvgBuyPrice <= 0 {
 				costBasisVerified = false
 				unrealizedPnLVerified = false
 			} else {
 				slotTotalCost += slot.AvgBuyPrice * slot.PositionQty
+				if !isFiniteNumber(slotTotalCost) {
+					c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+					return
+				}
 				if wsPrice > 0 {
 					pnl, directionVerified := positionSlotUnrealizedPnL(wsPrice, slot.AvgBuyPrice, slot.PositionQty, slot, direction)
 					slotUnrealizedPnL += pnl
+					if !isFiniteNumber(slotUnrealizedPnL) {
+						c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+						return
+					}
 					unrealizedPnLVerified = unrealizedPnLVerified && directionVerified
 				} else {
 					unrealizedPnLVerified = false
@@ -466,6 +544,10 @@ func getPositionsSummary(c *gin.Context) {
 				slotTotalValue += slot.PositionQty * wsPrice
 			} else {
 				slotTotalValue += slot.PositionQty * slot.Price
+			}
+			if !isFiniteNumber(slotTotalValue) {
+				c.JSON(http.StatusOK, gin.H{"total_quantity": 0, "total_value": 0, "position_count": 0, "cost_basis_verified": false, "entry_fees_verified": false, "unrealized_pnl_verified": false})
+				return
 			}
 		}
 	}
@@ -610,6 +692,10 @@ func getPositionsSummary(c *gin.Context) {
 	pnlPercentage := 0.0
 	if costBasisVerified && entryFeesVerified && unrealizedPnLVerified && slotTotalCost > 0 {
 		pnlPercentage = (displayUnrealizedPnL / slotTotalCost) * 100.0
+		if !isFiniteNumber(pnlPercentage) {
+			pnlPercentage = 0
+			unrealizedPnLVerified = false
+		}
 	}
 
 	// 计算實際资金占用

@@ -68,6 +68,37 @@ func queryScopedPnLStreams(st storage.Storage, exchangeID, asset string, startTi
 	return all, scopes, nil
 }
 
+func validatePnLDiagnosisTrade(trade *storage.Trade, exchangeID, accountScope, marketType, asset string) (float64, error) {
+	if trade == nil || strings.TrimSpace(trade.Symbol) == "" ||
+		!strings.EqualFold(strings.TrimSpace(trade.Exchange), exchangeID) || trade.AccountScope != accountScope ||
+		!strings.EqualFold(strings.TrimSpace(trade.MarketType), marketType) || !strings.EqualFold(strings.TrimSpace(trade.PnLAsset), asset) {
+		return 0, fmt.Errorf("diagnostic trade identity is missing or outside the requested scope")
+	}
+	if math.IsNaN(trade.PnL) || math.IsInf(trade.PnL, 0) || math.IsNaN(trade.Fee) || math.IsInf(trade.Fee, 0) ||
+		math.IsNaN(trade.Quantity) || math.IsInf(trade.Quantity, 0) || trade.Quantity < 0 ||
+		(trade.Fee != 0 && !strings.EqualFold(strings.TrimSpace(trade.FeeAsset), asset)) {
+		return 0, fmt.Errorf("diagnostic trade contains an invalid amount or fee denomination")
+	}
+	netPnL, ok := addFiniteProfitValues(trade.PnL, -trade.Fee)
+	if !ok {
+		return 0, fmt.Errorf("diagnostic trade net PnL overflowed")
+	}
+	return netPnL, nil
+}
+
+func addPnLDiagnosticFloat(stats map[string]interface{}, key string, value float64) error {
+	current, ok := stats[key].(float64)
+	if !ok {
+		return fmt.Errorf("diagnostic %s accumulator is invalid", key)
+	}
+	total, ok := addFiniteProfitValues(current, value)
+	if !ok {
+		return fmt.Errorf("diagnostic %s accumulator overflowed", key)
+	}
+	stats[key] = total
+	return nil
+}
+
 // getPnLBySymbol 按币种對查詢盈亏數據
 // GET /api/statistics/pnl/symbol
 func getPnLBySymbol(c *gin.Context) {
@@ -382,6 +413,10 @@ func getPnLByExchange(c *gin.Context) {
 	// 按交易所分组（直接使用 exchange 字段）
 	exchangeMap := make(map[string]*ExchangePnLResponse)
 	for _, r := range results {
+		if err := validateStrategyPnLStream(r); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 交易所汇总包含无效流水: " + err.Error()})
+			return
+		}
 		exchange := strings.ToLower(r.Exchange)
 		if exchange == "" {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 记录缺少交易所归属"})
@@ -401,9 +436,20 @@ func getPnLByExchange(c *gin.Context) {
 		}
 
 		exData := exchangeMap[exchange]
-		exData.TotalPnL += r.TotalPnL
-		exData.TotalTrades += r.TotalTrades
-		exData.TotalVolume += r.TotalVolume
+		var aggregateOK bool
+		if exData.TotalPnL, aggregateOK = addFiniteProfitValues(exData.TotalPnL, r.TotalPnL); aggregateOK {
+			exData.TotalVolume, aggregateOK = addFiniteProfitValues(exData.TotalVolume, r.TotalVolume)
+		}
+		maxInt := int(^uint(0) >> 1)
+		if aggregateOK && r.TotalTrades <= maxInt-exData.TotalTrades {
+			exData.TotalTrades += r.TotalTrades
+		} else {
+			aggregateOK = false
+		}
+		if !aggregateOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 交易所汇总溢出"})
+			return
+		}
 
 		// 添加币种信息
 		exData.Symbols = append(exData.Symbols, SymbolPnLInfo{
@@ -634,14 +680,19 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
 		return
 	}
+	if len(trades) >= 100000 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 诊断结果达到完整性校验上限，拒绝返回可能不完整的汇总"})
+		return
+	}
 
 	// 過滤指定交易所的交易
-	var filteredTrades []*storage.Trade
 	totalPnL := 0.0
 	totalTrades := 0
 	totalVolume := 0.0
 	winningTrades := 0
 	losingTrades := 0
+	maxProfit := 0.0
+	maxLoss := 0.0
 
 	// 按币种分组统计
 	symbolStats := make(map[string]map[string]interface{})
@@ -650,15 +701,31 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	dateStats := make(map[string]map[string]interface{})
 
 	for _, trade := range trades {
+		netPnL, validationErr := validatePnLDiagnosisTrade(trade, exchangeID, scopes[0].scope, marketType, asset)
+		if validationErr != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "无法核验诊断流水: " + validationErr.Error()})
+			return
+		}
 		if symbolID != "" && !strings.EqualFold(trade.Symbol, symbolID) {
 			continue
 		}
 
-		filteredTrades = append(filteredTrades, trade)
-		netPnL := trade.PnL - trade.Fee
-		totalPnL += netPnL
+		var aggregateOK bool
+		totalPnL, aggregateOK = addFiniteProfitValues(totalPnL, netPnL)
+		if aggregateOK {
+			totalVolume, aggregateOK = addFiniteProfitValues(totalVolume, trade.Quantity)
+		}
+		if !aggregateOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 诊断汇总溢出"})
+			return
+		}
 		totalTrades++
-		totalVolume += trade.Quantity
+		if netPnL > maxProfit {
+			maxProfit = netPnL
+		}
+		if netPnL < maxLoss {
+			maxLoss = netPnL
+		}
 
 		if netPnL > 0 {
 			winningTrades++
@@ -677,9 +744,15 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 			}
 		}
 		stats := symbolStats[trade.Symbol]
-		stats["total_pnl"] = stats["total_pnl"].(float64) + netPnL
+		if err := addPnLDiagnosticFloat(stats, "total_pnl", netPnL); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
 		stats["total_trades"] = stats["total_trades"].(int) + 1
-		stats["total_volume"] = stats["total_volume"].(float64) + trade.Quantity
+		if err := addPnLDiagnosticFloat(stats, "total_volume", trade.Quantity); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
 		if netPnL > 0 {
 			stats["winning_trades"] = stats["winning_trades"].(int) + 1
 		} else if netPnL < 0 {
@@ -695,7 +768,10 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 			}
 		}
 		dateStat := dateStats[dateStr]
-		dateStat["total_pnl"] = dateStat["total_pnl"].(float64) + netPnL
+		if err := addPnLDiagnosticFloat(dateStat, "total_pnl", netPnL); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": err.Error()})
+			return
+		}
 		dateStat["total_trades"] = dateStat["total_trades"].(int) + 1
 	}
 
@@ -711,27 +787,20 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		winRate = float64(winningTrades) / float64(totalTrades)
 	}
 
-	// 找出最大的單笔盈亏
-	maxProfit := 0.0
-	maxLoss := 0.0
-	for _, trade := range filteredTrades {
-		netPnL := trade.PnL - trade.Fee
-		if netPnL > maxProfit {
-			maxProfit = netPnL
-		}
-		if netPnL < maxLoss {
-			maxLoss = netPnL
-		}
-	}
-
 	// 轉换為列表格式
 	symbolList := make([]map[string]interface{}, 0, len(symbolStats))
 	for symbol, stats := range symbolStats {
+		symbolPnL, pnlOK := roundProfitToCents(stats["total_pnl"].(float64))
+		symbolVolume, volumeOK := roundProfitToCents(stats["total_volume"].(float64))
+		if !pnlOK || !volumeOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 诊断分组金额无法安全舍入"})
+			return
+		}
 		symbolList = append(symbolList, map[string]interface{}{
 			"symbol":         symbol,
-			"total_pnl":      stats["total_pnl"],
+			"total_pnl":      symbolPnL,
 			"total_trades":   stats["total_trades"],
-			"total_volume":   stats["total_volume"],
+			"total_volume":   symbolVolume,
 			"winning_trades": stats["winning_trades"],
 			"losing_trades":  stats["losing_trades"],
 		})
@@ -740,9 +809,14 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 	// 按日期排序
 	dateList := make([]map[string]interface{}, 0, len(dateStats))
 	for date, stats := range dateStats {
+		datePnL, ok := roundProfitToCents(stats["total_pnl"].(float64))
+		if !ok {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 诊断日期金额无法安全舍入"})
+			return
+		}
 		dateList = append(dateList, map[string]interface{}{
 			"date":         date,
-			"total_pnl":    stats["total_pnl"],
+			"total_pnl":    datePnL,
 			"total_trades": stats["total_trades"],
 		})
 	}
@@ -752,7 +826,15 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 
 	// Orders lack denomination and credential-scope evidence, so their realized
 	// PnL must not be presented as a comparable figure.
-	gridPnL := math.Round((totalPnL)*100) / 100
+	gridPnL, gridOK := roundProfitToCents(totalPnL)
+	roundedVolume, volumeOK := roundProfitToCents(totalVolume)
+	roundedAvgPnL, avgOK := roundProfitToCents(avgPnL)
+	roundedMaxProfit, maxProfitOK := roundProfitToCents(maxProfit)
+	roundedMaxLoss, maxLossOK := roundProfitToCents(maxLoss)
+	if !gridOK || !volumeOK || !avgOK || !maxProfitOK || !maxLossOK {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "PnL 诊断金额无法安全舍入"})
+		return
+	}
 	discrepancyExplanation := "交易所订单 realized_pnl 缺少计价币与凭据作用域证据，未与成交账本比较。"
 
 	c.JSON(http.StatusOK, gin.H{
@@ -775,13 +857,13 @@ func getExchangePnLDiagnosis(c *gin.Context) {
 		"summary": gin.H{
 			"total_pnl":      gridPnL,
 			"total_trades":   totalTrades,
-			"total_volume":   math.Round(totalVolume*100) / 100,
+			"total_volume":   roundedVolume,
 			"winning_trades": winningTrades,
 			"losing_trades":  losingTrades,
 			"win_rate":       math.Round(winRate*10000) / 100,
-			"avg_pnl":        math.Round(avgPnL*100) / 100,
-			"max_profit":     math.Round(maxProfit*100) / 100,
-			"max_loss":       math.Round(maxLoss*100) / 100,
+			"avg_pnl":        roundedAvgPnL,
+			"max_profit":     roundedMaxProfit,
+			"max_loss":       roundedMaxLoss,
 		},
 		"by_symbol": symbolList,
 		"by_date":   dateList,

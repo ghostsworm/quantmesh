@@ -42,6 +42,33 @@ func TestUnavailablePositionSummaryDoesNotClaimVerifiedFlatAccount(t *testing.T)
 	}
 }
 
+func TestPositionSlotFinancialsValidRejectsMalformedFilledSlots(t *testing.T) {
+	base := SlotInfo{PositionStatus: "FILLED", PositionQty: 1, Price: 100, AvgBuyPrice: 99, BuyFee: 0.1}
+	tests := []struct {
+		name   string
+		mutate func(*SlotInfo)
+		valid  bool
+	}{
+		{name: "valid", valid: true},
+		{name: "non-finite quantity", mutate: func(slot *SlotInfo) { slot.PositionQty = math.Inf(1) }},
+		{name: "non-finite price", mutate: func(slot *SlotInfo) { slot.Price = math.NaN() }},
+		{name: "negative fee", mutate: func(slot *SlotInfo) { slot.BuyFee = -1 }},
+		{name: "missing verified cost basis", mutate: func(slot *SlotInfo) { slot.AvgBuyPrice = 0 }},
+		{name: "unverified cost basis may be absent", mutate: func(slot *SlotInfo) { slot.AvgBuyPrice = math.NaN(); slot.CostBasisUnverified = true }, valid: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			slot := base
+			if tt.mutate != nil {
+				tt.mutate(&slot)
+			}
+			if got := positionSlotFinancialsValid(slot); got != tt.valid {
+				t.Fatalf("positionSlotFinancialsValid() = %v, want %v", got, tt.valid)
+			}
+		})
+	}
+}
+
 func TestSummarizeExchangePositionsFailsClosedOnMalformedExposure(t *testing.T) {
 	valid := func(size, pnl float64) *exchange.Position {
 		return &exchange.Position{Size: size, EntryPrice: 100, MarkPrice: 101, UnrealizedPNL: pnl, Leverage: 5}

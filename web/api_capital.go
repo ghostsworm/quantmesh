@@ -437,17 +437,46 @@ func getCapitalOverviewHandler(c *gin.Context) {
 			ExchangeID:   name,
 			ExchangeName: name,
 			BalanceAsset: asset,
-			TotalBalance: math.Round(acc.TotalMarginBalance*100) / 100,
-			Available:    math.Round(acc.AvailableBalance*100) / 100,
-			Used:         math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100,
-			PnL:          math.Round((acc.TotalMarginBalance-acc.TotalWalletBalance)*100) / 100,
 			Status:       "online",
 			IsTestnet:    isTestnet,
 		}
+		usedBalance, usedOK := addFiniteProfitValues(acc.TotalMarginBalance, -acc.AvailableBalance)
+		unrealizedPnL, pnlOK := addFiniteProfitValues(acc.TotalMarginBalance, -acc.TotalWalletBalance)
+		var balanceOK, availableOK, usedRoundOK, pnlRoundOK bool
+		if summary.TotalBalance, balanceOK = roundProfitToCents(acc.TotalMarginBalance); balanceOK {
+			summary.Available, availableOK = roundProfitToCents(acc.AvailableBalance)
+		}
+		if usedOK {
+			summary.Used, usedRoundOK = roundProfitToCents(usedBalance)
+		}
+		if pnlOK {
+			summary.PnL, pnlRoundOK = roundProfitToCents(unrealizedPnL)
+		}
+		if !balanceOK || !availableOK || !usedOK || !usedRoundOK || !pnlOK || !pnlRoundOK {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = fmt.Sprintf("%s balance calculation overflowed", name)
+			}
+			summary.Status = "error"
+			summary.BalanceAsset = ""
+			overview.Exchanges = append(overview.Exchanges, summary)
+			continue
+		}
 		overview.Exchanges = append(overview.Exchanges, summary)
-		overview.TotalBalance += acc.TotalMarginBalance
-		overview.AvailableCapital += acc.AvailableBalance
-		overview.UnrealizedPnL += (acc.TotalMarginBalance - acc.TotalWalletBalance)
+		var aggregateOK bool
+		if overview.TotalBalance, aggregateOK = addFiniteProfitValues(overview.TotalBalance, acc.TotalMarginBalance); aggregateOK {
+			overview.AvailableCapital, aggregateOK = addFiniteProfitValues(overview.AvailableCapital, acc.AvailableBalance)
+		}
+		if aggregateOK {
+			overview.UnrealizedPnL, aggregateOK = addFiniteProfitValues(overview.UnrealizedPnL, unrealizedPnL)
+		}
+		if !aggregateOK {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = "aggregate exchange balance overflowed"
+			}
+			continue
+		}
 	}
 	if !overview.ValuationComplete {
 		overview.TotalBalance = 0
@@ -458,8 +487,21 @@ func getCapitalOverviewHandler(c *gin.Context) {
 	// 2. 彙總策略分配數據
 	for _, cfg := range strategyConfigs {
 		if cfg.Enabled {
+			if !finiteCapitalValue(cfg.Weight) || cfg.Weight < 0 {
+				overview.ValuationComplete = false
+				if overview.ValuationError == "" {
+					overview.ValuationError = "strategy allocation weight is invalid"
+				}
+				continue
+			}
 			alloc := overview.TotalBalance * cfg.Weight
-			overview.AllocatedCapital += alloc
+			var ok bool
+			if overview.AllocatedCapital, ok = addFiniteProfitValues(overview.AllocatedCapital, alloc); !ok {
+				overview.ValuationComplete = false
+				if overview.ValuationError == "" {
+					overview.ValuationError = "strategy allocation total overflowed"
+				}
+			}
 		}
 	}
 
@@ -468,19 +510,43 @@ func getCapitalOverviewHandler(c *gin.Context) {
 		if pm.Manager == nil {
 			continue
 		}
-		overview.UsedCapital += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
+		quantity := pm.Manager.GetTotalBuyQty()
+		priceInterval := pm.Manager.GetPriceInterval()
+		if !finiteCapitalValue(quantity) || !finiteCapitalValue(priceInterval) || quantity < 0 || priceInterval < 0 {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = "position capital input is invalid"
+			}
+			continue
+		}
+		positionCapital := quantity * priceInterval
+		var ok bool
+		if overview.UsedCapital, ok = addFiniteProfitValues(overview.UsedCapital, positionCapital); !ok {
+			overview.ValuationComplete = false
+			if overview.ValuationError == "" {
+				overview.ValuationError = "position capital total overflowed"
+			}
+		}
 	}
 
 	if overview.TotalBalance > 0 {
 		overview.MarginRatio = overview.UsedCapital / overview.TotalBalance
 	}
 
-	// 四舍五入
-	overview.TotalBalance = math.Round(overview.TotalBalance*100) / 100
-	overview.AllocatedCapital = math.Round(overview.AllocatedCapital*100) / 100
-	overview.UsedCapital = math.Round(overview.UsedCapital*100) / 100
-	overview.AvailableCapital = math.Round(overview.AvailableCapital*100) / 100
-	overview.UnrealizedPnL = math.Round(overview.UnrealizedPnL*100) / 100
+	if !roundCapitalOverviewAmounts(&overview) {
+		overview.ValuationComplete = false
+		if overview.ValuationError == "" {
+			overview.ValuationError = "capital overview contains a non-finite total"
+		}
+	}
+	if !overview.ValuationComplete {
+		overview.TotalBalance = 0
+		overview.AllocatedCapital = 0
+		overview.UsedCapital = 0
+		overview.AvailableCapital = 0
+		overview.UnrealizedPnL = 0
+		overview.MarginRatio = 0
+	}
 
 	// 更新緩存
 	capitalOverviewCache.mu.Lock()
@@ -496,6 +562,33 @@ func getCapitalOverviewHandler(c *gin.Context) {
 
 func finiteCapitalValue(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func roundCapitalOverviewAmounts(overview *CapitalOverview) bool {
+	if overview == nil {
+		return false
+	}
+	amounts := []*float64{
+		&overview.TotalBalance, &overview.AllocatedCapital, &overview.UsedCapital,
+		&overview.AvailableCapital, &overview.UnrealizedPnL,
+	}
+	for _, amount := range amounts {
+		rounded, ok := roundProfitToCents(*amount)
+		if !ok {
+			return false
+		}
+		*amount = rounded
+	}
+	return finiteCapitalValue(overview.MarginRatio)
+}
+
+func hasUnattributedCapitalPositionManagers(managers []PositionManagerInfo) bool {
+	for _, manager := range managers {
+		if manager.Manager != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // 獲取资金使用视图（主打查看：各交易所、各 Bot 的委托/持仓占用）
@@ -641,17 +734,35 @@ func getCapitalUsageHandler(c *gin.Context) {
 				exDetail.Status = "error"
 				continue
 			}
+			if !finiteCapitalValue(acc.TotalMarginBalance) || !finiteCapitalValue(acc.AvailableBalance) || !finiteCapitalValue(acc.TotalWalletBalance) ||
+				acc.TotalMarginBalance < 0 || acc.AvailableBalance < 0 || acc.TotalWalletBalance < 0 {
+				exDetail.Status = "error"
+				continue
+			}
 			exDetail.Status = "online"
-			exDetail.TotalBalance = math.Round(acc.TotalMarginBalance*100) / 100
-			exDetail.Available = math.Round(acc.AvailableBalance*100) / 100
-			exDetail.Used = math.Round((acc.TotalMarginBalance-acc.AvailableBalance)*100) / 100
-			exDetail.PnL = math.Round((acc.TotalMarginBalance-acc.TotalWalletBalance)*100) / 100
+			var amountsOK bool
+			if exDetail.TotalBalance, amountsOK = roundProfitToCents(acc.TotalMarginBalance); amountsOK {
+				exDetail.Available, amountsOK = roundProfitToCents(acc.AvailableBalance)
+			}
+			usedBalance, usedOK := addFiniteProfitValues(acc.TotalMarginBalance, -acc.AvailableBalance)
+			profitLoss, pnlOK := addFiniteProfitValues(acc.TotalMarginBalance, -acc.TotalWalletBalance)
+			if amountsOK && usedOK {
+				exDetail.Used, amountsOK = roundProfitToCents(usedBalance)
+			}
+			if amountsOK && pnlOK {
+				exDetail.PnL, amountsOK = roundProfitToCents(profitLoss)
+			}
+			if !amountsOK {
+				exDetail.Status = "error"
+				exDetail.TotalBalance, exDetail.Available, exDetail.Used, exDetail.PnL = 0, 0, 0, 0
+				continue
+			}
 		} else {
 			exDetail.Status = "offline"
 		}
 
 		// 填充该交易所下的 Bot 占用
-		var totalOrderVal, totalPosVal float64
+		usageInvalid := false
 		for _, pm := range posManagers {
 			if strings.ToLower(pm.Exchange) != exLower {
 				continue
@@ -659,22 +770,33 @@ func getCapitalUsageHandler(c *gin.Context) {
 			if pm.Manager == nil {
 				continue
 			}
-			orderVal := pm.Manager.GetPendingBuyOrderValueUSDT()
-			posVal := pm.Manager.GetTotalPositionValueUSDT()
-			orderVal = math.Round(orderVal*100) / 100
-			posVal = math.Round(posVal*100) / 100
-			totalOrderVal += orderVal
-			totalPosVal += posVal
+			orderVal, orderOK := roundProfitToCents(pm.Manager.GetPendingBuyOrderValueUSDT())
+			posVal, positionOK := roundProfitToCents(pm.Manager.GetTotalPositionValueUSDT())
+			if !orderOK || !positionOK || orderVal < 0 || posVal < 0 {
+				usageInvalid = true
+				break
+			}
+			totalUsed, usedOK := addFiniteProfitValues(orderVal, posVal)
+			if !usedOK {
+				usageInvalid = true
+				break
+			}
 
 			botID := config.GenerateBotID(pm.Exchange, pm.Symbol, "")
 			orderPct := 0.0
 			positionPct := 0.0
 			totalUsedPct := 0.0
 			if exDetail.TotalBalance > 0 {
-				totalUsed := orderVal + posVal
 				orderPct = (orderVal / exDetail.TotalBalance) * 100
 				positionPct = (posVal / exDetail.TotalBalance) * 100
 				totalUsedPct = (totalUsed / exDetail.TotalBalance) * 100
+			}
+			roundedOrderPct, orderPctOK := roundProfitToPrecision(orderPct, 100)
+			roundedPositionPct, positionPctOK := roundProfitToPrecision(positionPct, 100)
+			roundedTotalUsedPct, totalPctOK := roundProfitToPrecision(totalUsedPct, 100)
+			if !orderPctOK || !positionPctOK || !totalPctOK {
+				usageInvalid = true
+				break
 			}
 
 			exDetail.Bots = append(exDetail.Bots, BotUsageInfo{
@@ -682,11 +804,16 @@ func getCapitalUsageHandler(c *gin.Context) {
 				Symbol:        pm.Symbol,
 				OrderValue:    orderVal,
 				PositionValue: posVal,
-				TotalUsed:     orderVal + posVal,
-				OrderPct:      math.Round(orderPct*100) / 100,
-				PositionPct:   math.Round(positionPct*100) / 100,
-				TotalUsedPct:  math.Round(totalUsedPct*100) / 100,
+				TotalUsed:     totalUsed,
+				OrderPct:      roundedOrderPct,
+				PositionPct:   roundedPositionPct,
+				TotalUsedPct:  roundedTotalUsedPct,
 			})
+		}
+		if usageInvalid {
+			exDetail.Status = "error"
+			exDetail.TotalBalance, exDetail.Available, exDetail.Used, exDetail.PnL = 0, 0, 0, 0
+			exDetail.Bots = []BotUsageInfo{}
 		}
 	}
 
@@ -729,6 +856,10 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	exchanges := capitalDataSource.GetExchanges()
 	strategyConfigs := capitalDataSource.GetStrategyConfigs()
 	posManagers := capitalDataSource.GetPositionManagers()
+	if hasUnattributedCapitalPositionManagers(posManagers) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "倉位管理器缺少策略归属，无法核验策略级资金占用"})
+		return
+	}
 	cfg := capitalDataSource.GetConfig()
 
 	var details []ExchangeCapitalDetail
@@ -868,8 +999,14 @@ func getCapitalAllocationHandler(c *gin.Context) {
 				}
 				totalBalance, availableBalance := 0.0, 0.0
 				if balanceVerified {
-					totalBalance = math.Round(acc.TotalMarginBalance*100) / 100
-					availableBalance = math.Round(acc.AvailableBalance*100) / 100
+					var totalOK, availableOK bool
+					totalBalance, totalOK = roundProfitToCents(acc.TotalMarginBalance)
+					availableBalance, availableOK = roundProfitToCents(acc.AvailableBalance)
+					if !totalOK || !availableOK {
+						balanceVerified = false
+						balanceAsset = "UNVERIFIED"
+						totalBalance, availableBalance = 0, 0
+					}
 				}
 				exDetail = &ExchangeCapitalDetail{
 					ExchangeID:   exNameLower,
@@ -915,7 +1052,15 @@ func getCapitalAllocationHandler(c *gin.Context) {
 			for j := range details[i].Assets {
 				asset := &details[i].Assets[j]
 
-				alloc := asset.TotalBalance * cfg.Weight
+				if !finiteCapitalValue(cfg.Weight) || cfg.Weight < 0 {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略权重配置无效，无法核验资金分配"})
+					return
+				}
+				alloc, allocOK := roundProfitToCents(asset.TotalBalance * cfg.Weight)
+				if !allocOK {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略资金分配溢出"})
+					return
+				}
 
 				// 從配置中读取 maxCapital 和 maxPercentage
 				maxCapital := 0.0
@@ -939,7 +1084,7 @@ func getCapitalAllocationHandler(c *gin.Context) {
 					StrategyType:  strategyID,
 					ExchangeID:    details[i].ExchangeID,
 					Asset:         asset.Asset,
-					Allocated:     math.Round(alloc*100) / 100,
+					Allocated:     alloc,
 					Weight:        cfg.Weight,
 					MaxCapital:    maxCapital,
 					MaxPercentage: maxPercentage,
@@ -971,21 +1116,31 @@ func getCapitalAllocationHandler(c *gin.Context) {
 
 				// 计算實際占用
 				for _, pm := range posManagers {
-					if pm.Exchange == details[i].ExchangeID {
+					if pm.Manager != nil && strings.EqualFold(pm.Exchange, details[i].ExchangeID) {
 						// 这里需要判断該 PM 是否属於該策略
 						// TODO: 完善策略與交易對的关联逻辑
 						strategy.Used += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
 					}
 				}
 
-				strategy.Used = math.Round(strategy.Used*100) / 100
-				strategy.Available = math.Round((strategy.Allocated-strategy.Used)*100) / 100
+				var usedOK, availableOK bool
+				strategy.Used, usedOK = roundProfitToCents(strategy.Used)
+				strategy.Available, availableOK = roundProfitToCents(strategy.Allocated - strategy.Used)
+				if !usedOK || !availableOK {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略已用或可用资金金额溢出"})
+					return
+				}
 				if strategy.Allocated > 0 {
 					strategy.UtilizationRate = strategy.Used / strategy.Allocated
 				}
 
 				asset.Strategies = append(asset.Strategies, strategy)
-				asset.AllocatedToStrategies += strategy.Allocated
+				var allocationOK bool
+				asset.AllocatedToStrategies, allocationOK = addFiniteProfitValues(asset.AllocatedToStrategies, strategy.Allocated)
+				if !allocationOK {
+					c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略分配汇总溢出"})
+					return
+				}
 			}
 		}
 	}
@@ -994,8 +1149,13 @@ func getCapitalAllocationHandler(c *gin.Context) {
 	for i := range details {
 		for j := range details[i].Assets {
 			asset := &details[i].Assets[j]
-			asset.AllocatedToStrategies = math.Round(asset.AllocatedToStrategies*100) / 100
-			asset.Unallocated = math.Round((asset.TotalBalance-asset.AllocatedToStrategies)*100) / 100
+			var allocatedOK, unallocatedOK bool
+			asset.AllocatedToStrategies, allocatedOK = roundProfitToCents(asset.AllocatedToStrategies)
+			asset.Unallocated, unallocatedOK = roundProfitToCents(asset.TotalBalance - asset.AllocatedToStrategies)
+			if !allocatedOK || !unallocatedOK {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "未分配资金金额溢出"})
+				return
+			}
 		}
 	}
 
@@ -1052,6 +1212,10 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 
 	exchanges := capitalDataSource.GetExchanges()
 	posManagers := capitalDataSource.GetPositionManagers()
+	if hasUnattributedCapitalPositionManagers(posManagers) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "倉位管理器缺少策略归属，无法核验策略资金详情"})
+		return
+	}
 
 	var totalAllocated, totalUsed float64
 	totalBalance, balanceErr := getCompleteExchangeBalance(ctx, exchanges)
@@ -1059,11 +1223,33 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法取得完整账户余额快照，策略资金详情不可用"})
 		return
 	}
-	totalAllocated = totalBalance * cfg.Weight
+	if !finiteCapitalValue(cfg.Weight) || cfg.Weight < 0 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略权重无效，无法核验资金详情"})
+		return
+	}
+	var allocatedOK bool
+	totalAllocated, allocatedOK = roundProfitToCents(totalBalance * cfg.Weight)
+	if !allocatedOK {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略分配金额溢出"})
+		return
+	}
 
 	for _, pm := range posManagers {
-		// 简化逻辑：这里应該判断 PM 是否属於該策略
-		totalUsed += pm.Manager.GetTotalBuyQty() * pm.Manager.GetPriceInterval()
+		if pm.Manager == nil {
+			continue
+		}
+		quantity := pm.Manager.GetTotalBuyQty()
+		priceInterval := pm.Manager.GetPriceInterval()
+		if !finiteCapitalValue(quantity) || !finiteCapitalValue(priceInterval) || quantity < 0 || priceInterval < 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略持仓占用输入无效"})
+			return
+		}
+		positionCapital := quantity * priceInterval
+		var usedOK bool
+		if totalUsed, usedOK = addFiniteProfitValues(totalUsed, positionCapital); !usedOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略持仓占用金额溢出"})
+			return
+		}
 	}
 
 	maxCap := 0.0
@@ -1072,21 +1258,37 @@ func getStrategyCapitalDetailHandler(c *gin.Context) {
 	} else if val, ok := cfg.Config["max_capital"].(int); ok {
 		maxCap = float64(val)
 	}
+	if !finiteCapitalValue(maxCap) || maxCap < 0 {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略资金上限配置无效"})
+		return
+	}
+	roundedUsed, usedOK := roundProfitToCents(totalUsed)
+	roundedAvailable, availableOK := roundProfitToCents(totalAllocated - totalUsed)
+	if !usedOK || !availableOK {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略已用或可用资金无法安全舍入"})
+		return
+	}
 
+	utilizationRate := 0.0
+	if totalAllocated > 0 {
+		utilizationRate = totalUsed / totalAllocated
+		if !finiteCapitalValue(utilizationRate) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略资金利用率计算溢出"})
+			return
+		}
+	}
 	capital := StrategyCapitalDetail{
 		StrategyID:   strategyID,
 		StrategyName: getStrategyName(strategyID),
 		StrategyType: strategyID,
-		Allocated:    math.Round(totalAllocated*100) / 100,
-		Used:         math.Round(totalUsed*100) / 100,
-		Available:    math.Round((totalAllocated-totalUsed)*100) / 100,
+		Allocated:    totalAllocated,
+		Used:         roundedUsed,
+		Available:    roundedAvailable,
 		Weight:       cfg.Weight,
 		MaxCapital:   maxCap,
 		Status:       "active",
 	}
-	if totalAllocated > 0 {
-		capital.UtilizationRate = totalUsed / totalAllocated
-	}
+	capital.UtilizationRate = utilizationRate
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1164,7 +1366,11 @@ func rebalanceCapitalHandler(c *gin.Context) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略权重配置无效，已取消再平衡预览"})
 			return
 		}
-		totalWeight += weight
+		var weightOK bool
+		if totalWeight, weightOK = addFiniteProfitValues(totalWeight, weight); !weightOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "策略权重汇总溢出，已取消再平衡预览"})
+			return
+		}
 	}
 
 	for _, id := range enabledStrategies {
@@ -1196,20 +1402,35 @@ func rebalanceCapitalHandler(c *gin.Context) {
 		} else if val, ok := cfg.Config["max_capital"].(int); ok {
 			prevAllocation = float64(val)
 		}
+		if !finiteCapitalValue(prevAllocation) || prevAllocation < 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "当前策略分配配置无效，已取消再平衡预览"})
+			return
+		}
 
-		diff := targetAllocation - prevAllocation
+		if !finiteCapitalValue(targetAllocation) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "目标策略分配金额溢出，已取消再平衡预览"})
+			return
+		}
+		diff, diffOK := addFiniteProfitValues(targetAllocation, -prevAllocation)
+		previousRounded, previousOK := roundProfitToCents(prevAllocation)
+		targetRounded, targetOK := roundProfitToCents(targetAllocation)
+		differenceRounded, differenceOK := roundProfitToCents(diff)
+		if !diffOK || !previousOK || !targetOK || !differenceOK {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "再平衡金额无法安全计算或舍入"})
+			return
+		}
 
 		changes = append(changes, RebalanceChange{
 			StrategyID:         id,
-			PreviousAllocation: math.Round(prevAllocation*100) / 100,
-			NewAllocation:      math.Round(targetAllocation*100) / 100,
-			Difference:         math.Round(diff*100) / 100,
+			PreviousAllocation: previousRounded,
+			NewAllocation:      targetRounded,
+			Difference:         differenceRounded,
 		})
 
 		newAllocations = append(newAllocations, StrategyCapitalDetail{
 			StrategyID:   id,
 			StrategyName: getStrategyName(id),
-			Allocated:    targetAllocation,
+			Allocated:    targetRounded,
 			Status:       "active",
 		})
 	}

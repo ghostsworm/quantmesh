@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -18,6 +19,26 @@ type dailyFundingFixture struct {
 	from, through time.Time
 	coverageErr   error
 	payments      map[string]map[string]float64
+}
+
+func TestValidateDailyProfitStatisticsRowRejectsInvalidRows(t *testing.T) {
+	valid := &storage.DailyStatisticsWithTradeCount{Date: time.Now(), TotalTrades: 2, WinningTrades: 1, LosingTrades: 1,
+		TotalVolume: 3, TotalPnL: 1.5, WinRate: 0.5, VolumeProfit: 2, VolumeStopLoss: 1}
+	if err := validateDailyProfitStatisticsRow(valid); err != nil {
+		t.Fatalf("valid daily statistics rejected: %v", err)
+	}
+	tests := []*storage.DailyStatisticsWithTradeCount{
+		nil,
+		{Date: time.Now(), TotalTrades: 1, WinningTrades: 2},
+		{Date: time.Now(), TotalPnL: math.NaN()},
+		{Date: time.Now(), WinRate: 1.1},
+		{Date: time.Now(), VolumeProfit: math.Inf(1)},
+	}
+	for i, stat := range tests {
+		if err := validateDailyProfitStatisticsRow(stat); err == nil {
+			t.Fatalf("invalid daily statistics row %d accepted", i)
+		}
+	}
 }
 
 func (f dailyFundingFixture) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
@@ -60,6 +81,20 @@ func TestQueryVerifiedDailyFundingRequiresCompleteCoveredDayAndSingleQuoteAsset(
 	failed := dailyFundingFixture{coverageErr: errors.New("db unavailable")}
 	if failedAmounts, _ := queryVerifiedDailyFunding(failed, "acct", "binance", "futures", "BTCUSDT", "scope-a", "USDT", start, end, now, location); len(failedAmounts) != 0 {
 		t.Fatalf("coverage read failure must fail closed: %v", failedAmounts)
+	}
+}
+
+func TestQueryVerifiedDailyFundingRejectsNonFiniteQuoteIncome(t *testing.T) {
+	location := time.FixedZone("UTC+8", 8*60*60)
+	start := time.Date(2026, 9, 28, 0, 0, 0, 0, location)
+	end := start.AddDate(0, 0, 1)
+	reader := dailyFundingFixture{
+		from: start.UTC(), through: end.UTC(),
+		payments: map[string]map[string]float64{"2026-09-28": {"USDT": math.NaN()}},
+	}
+	amounts, assets := queryVerifiedDailyFunding(reader, "acct", "binance", "futures", "BTCUSDT", "scope-a", "USDT", start, end, end.Add(time.Hour), location)
+	if len(amounts) != 0 || len(assets) != 0 {
+		t.Fatalf("non-finite quote funding was treated as verified: amounts=%v assets=%v", amounts, assets)
 	}
 }
 

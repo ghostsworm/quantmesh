@@ -14,6 +14,99 @@ type fundingTotalsStub struct {
 	failCall int
 }
 
+type fundingCarrySumStub struct {
+	total float64
+	err   error
+	calls int
+}
+
+func (s *fundingCarrySumStub) GetFundingPaymentsSumByScope(_, _, _, _, _ string, _, _ time.Time) (float64, error) {
+	s.calls++
+	return s.total, s.err
+}
+
+func TestReadFundingCarrySumFailsClosed(t *testing.T) {
+	now := time.Now().UTC()
+	tests := []struct {
+		name  string
+		total float64
+		err   error
+	}{
+		{name: "non-finite", total: math.NaN()},
+		{name: "query error", total: 10, err: errors.New("database unavailable")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := &fundingCarrySumStub{total: tt.total, err: tt.err}
+			if _, err := readFundingCarrySum(reader, "binance", "BTCUSDT", "scope-a", now.Add(-time.Hour), now); err == nil {
+				t.Fatal("invalid funding income was accepted")
+			}
+			if reader.calls != 1 {
+				t.Fatalf("query calls=%d, want 1", reader.calls)
+			}
+		})
+	}
+	reader := &fundingCarrySumStub{total: -1.25}
+	if got, err := readFundingCarrySum(reader, "binance", "BTCUSDT", "scope-a", now.Add(-time.Hour), now); err != nil || got != -1.25 {
+		t.Fatalf("valid negative funding income=%v err=%v", got, err)
+	}
+	if _, err := readFundingCarrySum(reader, "binance", "BTCUSDT", "", now.Add(-time.Hour), now); err == nil {
+		t.Fatal("empty account scope was accepted")
+	}
+}
+
+func TestMergeFundingCarryDailyTotalsRejectsInvalidRowsAndOverflow(t *testing.T) {
+	tests := []struct {
+		name   string
+		start  map[string]float64
+		source map[string]float64
+	}{
+		{name: "invalid date", source: map[string]float64{"yesterday": 1}},
+		{name: "non-finite amount", source: map[string]float64{"2026-10-01": math.Inf(1)}},
+		{name: "overflow", start: map[string]float64{"2026-10-01": math.MaxFloat64}, source: map[string]float64{"2026-10-01": math.MaxFloat64}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := mergeFundingCarryDailyTotals(tt.start, tt.source); err == nil {
+				t.Fatal("invalid daily funding aggregate was accepted")
+			}
+		})
+	}
+	totals := map[string]float64{}
+	if err := mergeFundingCarryDailyTotals(totals, map[string]float64{"2026-10-01": 1.5}); err != nil || totals["2026-10-01"] != 1.5 {
+		t.Fatalf("valid daily total=%v err=%v", totals, err)
+	}
+}
+
+func TestFundingPaymentItemFromRecordRequiresExactScopeAndFiniteAmount(t *testing.T) {
+	valid := &storage.FundingPayment{
+		Exchange: "Binance", Symbol: "BTCUSDT", AccountScope: "scope-a", Asset: "USDT",
+		Income: 1.123456789, TradeTime: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+	}
+	item, err := fundingPaymentItemFromRecord(valid, "scope-a", "binance")
+	if err != nil || item.Income != 1.12345679 {
+		t.Fatalf("valid scoped funding row=%+v err=%v", item, err)
+	}
+	tests := []struct {
+		name    string
+		payment *storage.FundingPayment
+	}{
+		{name: "nil row"},
+		{name: "wrong scope", payment: &storage.FundingPayment{Exchange: "binance", AccountScope: "scope-b", Asset: "USDT"}},
+		{name: "wrong exchange", payment: &storage.FundingPayment{Exchange: "okx", AccountScope: "scope-a", Asset: "USDT"}},
+		{name: "missing asset", payment: &storage.FundingPayment{Exchange: "binance", AccountScope: "scope-a"}},
+		{name: "nan amount", payment: &storage.FundingPayment{Exchange: "binance", AccountScope: "scope-a", Asset: "USDT", Income: math.NaN()}},
+		{name: "infinite amount", payment: &storage.FundingPayment{Exchange: "binance", AccountScope: "scope-a", Asset: "USDT", Income: math.Inf(1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := fundingPaymentItemFromRecord(tt.payment, "scope-a", "binance"); err == nil {
+				t.Fatal("invalid or out-of-scope funding row was accepted")
+			}
+		})
+	}
+}
+
 func (s *fundingTotalsStub) GetFundingPaymentsSum(_, _ string, _, _ time.Time) (float64, error) {
 	s.calls++
 	if s.calls == s.failCall {
@@ -76,6 +169,15 @@ func TestAddFiniteProfitValuesRejectsNonFiniteAndOverflow(t *testing.T) {
 	if got, ok := roundProfitToCents(math.NaN()); ok || got != 0 {
 		t.Fatalf("rounding NaN must fail closed: %v, %v", got, ok)
 	}
+	if got, ok := roundProfitToPrecision(1.123456789, 1e8); !ok || got != 1.12345679 {
+		t.Fatalf("8-decimal precision rounding = %v, %v; want 1.12345679, true", got, ok)
+	}
+	if got, ok := roundProfitToPrecision(math.MaxFloat64, 1e8); !ok || got != math.MaxFloat64 {
+		t.Fatalf("extreme finite funding amount must not overflow: %v, %v", got, ok)
+	}
+	if _, ok := roundProfitToPrecision(1, 0); ok {
+		t.Fatal("zero precision was accepted")
+	}
 }
 
 func TestAddFiniteProfitToMap(t *testing.T) {
@@ -126,6 +228,25 @@ func TestMergeProfitStatisticsRejectsInvalidOrOverflowWithoutPartialMutation(t *
 				t.Fatalf("failed merge partially mutated target: before=%+v after=%+v", before, *target)
 			}
 		})
+	}
+}
+
+func TestValidateProfitStatisticsSnapshot(t *testing.T) {
+	valid := &storage.Statistics{TotalTrades: 1, TotalVolume: 2, TotalPnL: -1, TotalFee: 0.1, WinRate: 0.5}
+	if err := validateProfitStatisticsSnapshot(valid); err != nil {
+		t.Fatalf("valid summary rejected: %v", err)
+	}
+	invalid := []*storage.Statistics{
+		nil,
+		{TotalTrades: -1},
+		{TotalVolume: math.NaN()},
+		{TotalPnL: math.Inf(1)},
+		{WinRate: 1.1},
+	}
+	for i, summary := range invalid {
+		if err := validateProfitStatisticsSnapshot(summary); err == nil {
+			t.Fatalf("invalid summary %d accepted", i)
+		}
 	}
 }
 

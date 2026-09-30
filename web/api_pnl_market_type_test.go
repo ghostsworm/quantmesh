@@ -2,6 +2,7 @@ package web
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -13,6 +14,41 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
+
+func TestValidatePnLDiagnosisTradeRequiresScopedFiniteSameAssetLedger(t *testing.T) {
+	valid := &storage.Trade{
+		Exchange: "Binance", AccountScope: "scope-a", MarketType: "FUTURES", PnLAsset: "usdt",
+		FeeAsset: "USDT", Symbol: "BTCUSDT", PnL: 5, Fee: 1, Quantity: 2,
+	}
+	if got, err := validatePnLDiagnosisTrade(valid, "binance", "scope-a", "futures", "USDT"); err != nil || got != 4 {
+		t.Fatalf("valid net PnL=%v err=%v, want 4", got, err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*storage.Trade)
+	}{
+		{name: "missing row", mutate: nil},
+		{name: "wrong scope", mutate: func(trade *storage.Trade) { trade.AccountScope = "scope-b" }},
+		{name: "wrong exchange", mutate: func(trade *storage.Trade) { trade.Exchange = "okx" }},
+		{name: "non-finite pnl", mutate: func(trade *storage.Trade) { trade.PnL = math.NaN() }},
+		{name: "fee asset mismatch", mutate: func(trade *storage.Trade) { trade.FeeAsset = "BNB" }},
+		{name: "negative quantity", mutate: func(trade *storage.Trade) { trade.Quantity = -1 }},
+		{name: "net pnl overflow", mutate: func(trade *storage.Trade) { trade.PnL = math.MaxFloat64; trade.Fee = -math.MaxFloat64 }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var trade *storage.Trade
+			if tt.mutate != nil {
+				copy := *valid
+				tt.mutate(&copy)
+				trade = &copy
+			}
+			if _, err := validatePnLDiagnosisTrade(trade, "binance", "scope-a", "futures", "USDT"); err == nil {
+				t.Fatal("invalid diagnostic trade was accepted")
+			}
+		})
+	}
+}
 
 func TestPnLBySymbolRequiresExplicitExchangeAndMarketWhenAmbiguous(t *testing.T) {
 	gin.SetMode(gin.TestMode)
