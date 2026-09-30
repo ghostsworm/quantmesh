@@ -3,6 +3,7 @@ package backtest
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"quantmesh/exchange"
 )
@@ -106,10 +107,10 @@ func TestRiskSimulatorShortDirectionAndTimestampFormat(t *testing.T) {
 		t.Fatalf("Check(short trigger) = %v/%q", skip, reason)
 	}
 
-	if got := formatTimestamp(60_000_000_000); got != "1971-11-26 18:40:00" {
+	if got, want := formatTimestamp(60_000_000_000), time.Unix(60_000_000, 0).Format("2006-01-02 15:04:05"); got != want {
 		t.Fatalf("formatTimestamp(ms) = %q", got)
 	}
-	if got := formatTimestamp(60); got != "1970-01-01 08:01:00" {
+	if got, want := formatTimestamp(60), time.Unix(60, 0).Format("2006-01-02 15:04:05"); got != want {
 		t.Fatalf("formatTimestamp(sec) = %q", got)
 	}
 }

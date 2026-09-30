@@ -51,14 +51,19 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y build-essential libsqlite3-dev
 
-    - name: Run Go tests
-      run: go test ./... -count=1
-
     - name: Verify frontend types, tests, and build
       working-directory: webui
       run: |
         yarn install --immutable
         yarn verify
+
+    - name: Prepare embedded frontend for Go tests
+      run: |
+        mkdir -p web/dist
+        cp -R webui/dist/. web/dist/
+
+    - name: Run Go tests
+      run: go test ./... -count=1
 
   # 僅構建 Linux amd64 Release 資產
   build:
