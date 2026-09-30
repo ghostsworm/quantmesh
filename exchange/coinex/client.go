@@ -206,6 +206,76 @@ func (c *CoinExClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 	return &order, nil
 }
 
+// PlaceFuturesOrderV2 submits a futures order using CoinEx's current V2 endpoint.
+// Reduce-only orders use this route because the legacy V1 API has no equivalent flag.
+func (c *CoinExClient) PlaceFuturesOrderV2(ctx context.Context, req *OrderRequest, reduceOnly bool) (*FuturesOrderV2, error) {
+	payload := struct {
+		Market       string `json:"market"`
+		MarketType   string `json:"market_type"`
+		Side         string `json:"side"`
+		Type         string `json:"type"`
+		Amount       string `json:"amount"`
+		Price        string `json:"price,omitempty"`
+		ClientID     string `json:"client_id,omitempty"`
+		IsReduceOnly bool   `json:"is_reduce_only"`
+	}{
+		Market:       req.Market,
+		MarketType:   "FUTURES",
+		Side:         req.Side,
+		Type:         req.Type,
+		Amount:       fmt.Sprintf("%.8f", req.Amount),
+		ClientID:     req.ClientID,
+		IsReduceOnly: reduceOnly,
+	}
+	if req.Type == "limit" {
+		payload.Price = fmt.Sprintf("%.8f", req.Price)
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal CoinEx V2 order: %w", err)
+	}
+
+	const path = "/v2/futures/order"
+	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+	prepared := http.MethodPost + path + string(body) + timestamp
+	signature := hmac.New(sha256.New, []byte(c.secretKey))
+	_, _ = signature.Write([]byte(prepared))
+	requestSignature := hex.EncodeToString(signature.Sum(nil))
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create CoinEx V2 order request: %w", err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-COINEX-KEY", c.apiKey)
+	request.Header.Set("X-COINEX-SIGN", requestSignature)
+	request.Header.Set("X-COINEX-TIMESTAMP", timestamp)
+	response, err := c.httpClient.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("send CoinEx V2 order request: %w", err)
+	}
+	defer response.Body.Close()
+	responseBody, err := io.ReadAll(response.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read CoinEx V2 order response: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("CoinEx V2 order HTTP %d: %s", response.StatusCode, string(responseBody))
+	}
+	var apiResponse struct {
+		Code    int            `json:"code"`
+		Message string         `json:"message"`
+		Data    FuturesOrderV2 `json:"data"`
+	}
+	if err := json.Unmarshal(responseBody, &apiResponse); err != nil {
+		return nil, fmt.Errorf("unmarshal CoinEx V2 order response: %w", err)
+	}
+	if apiResponse.Code != 0 {
+		return nil, fmt.Errorf("CoinEx V2 API error: code=%d message=%s", apiResponse.Code, apiResponse.Message)
+	}
+	return &apiResponse.Data, nil
+}
+
 // CancelOrder 取消訂單
 func (c *CoinExClient) CancelOrder(ctx context.Context, market string, orderID int64) error {
 	path := "/v1/order/pending"
@@ -420,6 +490,17 @@ type OrderRequest struct {
 	Amount   float64
 	Price    float64
 	ClientID string
+}
+
+type FuturesOrderV2 struct {
+	ID           json.RawMessage `json:"order_id"`
+	Market       string          `json:"market"`
+	Side         string          `json:"side"`
+	Amount       string          `json:"amount"`
+	Price        string          `json:"price"`
+	FilledAmount string          `json:"filled_amount"`
+	ClientID     string          `json:"client_id"`
+	UpdatedAt    int64           `json:"updated_at"`
 }
 
 type Order struct {

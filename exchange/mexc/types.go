@@ -5,9 +5,9 @@ type MEXCOrderSide int
 
 const (
 	MEXCOrderSideOpenLong   MEXCOrderSide = 1 // 开多
-	MEXCOrderSideCloseLong  MEXCOrderSide = 2 // 平多
+	MEXCOrderSideCloseShort MEXCOrderSide = 2 // 平空
 	MEXCOrderSideOpenShort  MEXCOrderSide = 3 // 开空
-	MEXCOrderSideCloseShort MEXCOrderSide = 4 // 平空
+	MEXCOrderSideCloseLong  MEXCOrderSide = 4 // 平多
 )
 
 // MEXCOrderType MEXC 订單類型

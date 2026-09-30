@@ -23,6 +23,9 @@ func (w *ascendexWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *ascendexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := rejectUnsupportedReduceOnly("AscendEX", req); err != nil {
+		return nil, err
+	}
 	var side ascendex.OrderSide
 	if req.Side == SideBuy {
 		side = ascendex.SideBuy

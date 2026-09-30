@@ -26,6 +26,17 @@ func (v *runtimeJournalVenue) EstimateFinalOrderAmount(_ string, price, qty floa
 	return price * qty
 }
 
+type runtimeGridStateMemoryStore struct {
+	version int
+	payload string
+}
+
+func (s *runtimeGridStateMemoryStore) LoadRuntimeState(string) (int, string, bool, error) {
+	return s.version, s.payload, true, nil
+}
+
+func (*runtimeGridStateMemoryStore) SaveRuntimeState(string, int, string) error { return nil }
+
 func runtimeExposureFixture(t *testing.T, venue *runtimeJournalVenue) (*order.ExchangeOrderExecutor, *position.SuperPositionManager, *execution.ExposureBook, *storage.SQLStorage) {
 	t.Helper()
 	executor, gate := newJournalRuntime(venue, runtimeJournalScope())
@@ -46,7 +57,7 @@ func runtimeExposureFixture(t *testing.T, venue *runtimeJournalVenue) (*order.Ex
 	if err := store.MigrateExecutionIntents(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, runtimeJournalScope(), book); err != nil {
+	if err := bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, runtimeJournalScope(), book, spm); err != nil {
 		t.Fatal(err)
 	}
 	return executor, spm, book, store
@@ -223,12 +234,117 @@ func TestRuntimeExposureBootstrapCannotSeedExistingAccount(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := bootstrapRuntimeExposure(t.Context(), restarted, gate, v, store, runtimeJournalScope(), book); err == nil {
+		if err := bootstrapRuntimeExposure(t.Context(), restarted, gate, v, store, runtimeJournalScope(), book, nil); err == nil {
 			t.Fatal("history declared empty")
 		}
 		if s := restarted.ExposureSnapshot(); s.Ready {
 			t.Fatal("old account seeded as flat")
 		}
+	}
+}
+
+func TestRuntimeExposureBootstrapSeedsOnlyExactlyReconciledRestoredFuturesInventory(t *testing.T) {
+	for _, test := range []struct {
+		name              string
+		venueQty          float64
+		wantPosition      float64
+		wantCloseOK       bool
+		persistOwnerOrder bool
+		localOrderStatus  string
+	}{
+		{name: "matching restored owner", venueQty: 0.25, wantPosition: 0.25, wantCloseOK: true, persistOwnerOrder: true, localOrderStatus: "NOT_PLACED"},
+		{name: "venue quantity mismatch", venueQty: 0.3, persistOwnerOrder: true, localOrderStatus: "NOT_PLACED"},
+		{name: "missing durable entry-order evidence", venueQty: 0.25, localOrderStatus: "NOT_PLACED"},
+		{name: "unresolved restored slot order", venueQty: 0.25, persistOwnerOrder: true, localOrderStatus: "UNKNOWN"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			venue := &runtimeJournalVenue{}
+			scope := runtimeJournalScope()
+			scope.Bot = config.GenerateBotID("fake", scope.Symbol, scope.Market)
+			store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "restored-exposure.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			if err := store.MigrateExecutionIntents(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			journalWriter, _ := newJournalRuntime(venue, scope)
+			if err := journalWriter.ConfigureIntentJournal(t.Context(), store, scope); err != nil {
+				t.Fatal(err)
+			}
+			const entryClientOrderID = "restored-entry"
+			entry, err := journalWriter.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 99, Quantity: 0.25, ClientOrderID: entryClientOrderID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			venue.mu.Lock()
+			venue.liveOrders[entry.OrderID].Status = exchange.OrderStatusFilled
+			venue.liveOrders[entry.OrderID].ExecutedQty = 0.25
+			venue.liveOrders[entry.OrderID].AvgPrice = 99
+			venue.mu.Unlock()
+			if !journalWriter.ObserveOrder(&exchange.Order{OrderID: entry.OrderID, ClientOrderID: entryClientOrderID, Symbol: scope.Symbol,
+				Side: exchange.SideBuy, Quantity: 0.25, ExecutedQty: 0.25, AvgPrice: 99, Status: exchange.OrderStatusFilled}) {
+				t.Fatal("entry order fill was not recorded")
+			}
+			if err := journalWriter.SettleIntent(t.Context(), entryClientOrderID); err != nil {
+				t.Fatal(err)
+			}
+			if test.persistOwnerOrder {
+				if err := store.SaveOrder(&storage.Order{OrderID: entry.OrderID, BotID: scope.Bot, Account: scope.Bot, MarketType: scope.Market,
+					AccountScope: scope.Account, ClientOrderID: entryClientOrderID, Symbol: scope.Symbol, Side: "BUY", Exchange: scope.Exchange,
+					Price: 99, Quantity: 0.25, FilledQty: 0.25, Status: "FILLED", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			venue.positions = []*exchange.Position{{Symbol: scope.Symbol, Size: test.venueQty}}
+			executor, gate := newJournalRuntime(venue, scope)
+			book, err := configureRuntimeExposure(executor, func() (float64, time.Time) { return 100, time.Now() })
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg := &config.Config{}
+			cfg.Trading.Symbol, cfg.Trading.MarketType, cfg.Trading.Direction = scope.Symbol, scope.Market, "LONG"
+			cfg.Trading.BotID, cfg.App.CurrentExchange = scope.Bot, scope.Exchange
+			spm := position.NewSuperPositionManager(cfg, &exchangeExecutorAdapter{executor: executor}, &positionExchangeAdapter{exchange: venue}, 2, 4)
+			executor.SetOpeningGate(spm.OpeningGate(), "LONG")
+			gate = spm.OpeningGate()
+			state, err := json.Marshal(map[string]any{
+				"version": 4, "bot_id": scope.Bot, "exchange": scope.Exchange, "market_type": scope.Market,
+				"symbol": scope.Symbol, "direction": "LONG", "anchor_price": 100, "last_market_price": 100,
+				"slots": []map[string]any{{"price": 100, "position_status": "FILLED", "position_qty": 0.25,
+					"slot_status": "FREE", "order_status": test.localOrderStatus, "avg_buy_price": 99,
+					"position_entry_order_id": entry.OrderID, "position_leg": "LONG"}},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			spm.SetGridRuntimeStateStore(&runtimeGridStateMemoryStore{version: 4, payload: string(state)})
+			if restored, err := spm.RestoreGridRuntimeState(); err != nil || !restored {
+				t.Fatalf("restore owner state: restored=%t err=%v", restored, err)
+			}
+			gate.Block("grid_runtime_state_reconciliation")
+			err = bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, scope, book, spm)
+			if !test.wantCloseOK {
+				if err == nil || book.Snapshot(time.Now()).PositionQuantity != 0 {
+					t.Fatalf("mismatched venue state was accepted: err=%v snapshot=%+v", err, book.Snapshot(time.Now()))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if snapshot := book.Snapshot(time.Now()); snapshot.PositionQuantity != test.wantPosition {
+				t.Fatalf("restored exposure was not seeded: %+v", snapshot)
+			}
+			if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 0.01, ClientOrderID: "restore-open"}); !errors.Is(err, execution.ErrOpeningPaused) {
+				t.Fatalf("restored non-empty owner opened before full strategy reconciliation: %v", err)
+			}
+			if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "SELL", Price: 99, Quantity: 0.25,
+				PositionSide: "LONG", ExposureKey: "grid:LONG:100", ReduceOnly: true, ClientOrderID: "verified-close"}); err != nil {
+				t.Fatalf("matched restored owner could not submit a reducing close: %v", err)
+			}
+		})
 	}
 }
 
@@ -270,7 +386,7 @@ func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T)
 			if err := store.MigrateExecutionIntents(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if err := bootstrapRuntimeExposure(t.Context(), executor, gate, v, store, runtimeJournalScope(), book); err == nil {
+			if err := bootstrapRuntimeExposure(t.Context(), executor, gate, v, store, runtimeJournalScope(), book, nil); err == nil {
 				t.Fatal("unverified or non-empty account seeded as flat")
 			}
 			if !gate.HasBlock(runtimeExposureBootstrapBlock) {

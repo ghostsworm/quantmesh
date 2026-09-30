@@ -100,12 +100,22 @@ func (a *Adapter) GetMarketType() string {
 
 // PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOrderID, false)
+}
+
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string, reduceOnly bool) (*OrderLocal, error) {
 	// 轉换订單方向
 	var mexcSide int
 	if side == SideBuy {
 		mexcSide = int(MEXCOrderSideOpenLong)
+		if reduceOnly {
+			mexcSide = int(MEXCOrderSideCloseShort)
+		}
 	} else {
 		mexcSide = int(MEXCOrderSideOpenShort)
+		if reduceOnly {
+			mexcSide = int(MEXCOrderSideCloseLong)
+		}
 	}
 
 	// 構造 MEXC 订單请求
@@ -442,7 +452,7 @@ func (a *Adapter) GetFundingRate(ctx context.Context) (float64, error) {
 // convertOrder 轉换订單
 func (a *Adapter) convertOrder(order *OrderInfo) *OrderLocal {
 	var side OrderSide
-	if order.Side == int(MEXCOrderSideOpenLong) || order.Side == int(MEXCOrderSideCloseLong) {
+	if order.Side == int(MEXCOrderSideOpenLong) || order.Side == int(MEXCOrderSideCloseShort) {
 		side = SideBuy
 	} else {
 		side = SideSell

@@ -192,6 +192,9 @@ func (c *CryptoComClient) CreateOrder(ctx context.Context, req *OrderRequest) (*
 	if req.ClientOID != "" {
 		params["client_oid"] = req.ClientOID
 	}
+	if req.ReduceOnly {
+		params["exec_inst"] = []string{"REDUCE_ONLY"}
+	}
 
 	respBody, err := c.sendRequest(ctx, method, params)
 	if err != nil {
@@ -215,6 +218,34 @@ func (c *CryptoComClient) CreateOrder(ctx context.Context, req *OrderRequest) (*
 
 	logger.Info("Crypto.com order placed: %d", order.OrderID)
 	return &order, nil
+}
+
+// GetPositions returns the authenticated position snapshot for one instrument.
+func (c *CryptoComClient) GetPositions(ctx context.Context, instrumentName string) ([]Position, error) {
+	params := map[string]interface{}{}
+	if instrumentName != "" {
+		params["instrument_name"] = instrumentName
+	}
+	respBody, err := c.sendRequest(ctx, "private/get-positions", params)
+	if err != nil {
+		return nil, err
+	}
+	var apiResp APIResponse
+	if err := json.Unmarshal(respBody, &apiResp); err != nil {
+		return nil, fmt.Errorf("unmarshal positions response: %w", err)
+	}
+	if apiResp.Code != 0 {
+		return nil, fmt.Errorf("API error: code=%d", apiResp.Code)
+	}
+	var result PositionsResult
+	dataBytes, err := json.Marshal(apiResp.Result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal positions result: %w", err)
+	}
+	if err := json.Unmarshal(dataBytes, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal positions data: %w", err)
+	}
+	return result.Data, nil
 }
 
 // CancelOrder 取消訂單
@@ -395,10 +426,30 @@ func (c *CryptoComClient) GetCandlestick(ctx context.Context, instrumentName, ti
 // 數據結構定义
 
 type APIResponse struct {
-	ID     int64       `json:"id"`
-	Method string      `json:"method"`
-	Code   int         `json:"code"`
-	Result interface{} `json:"result"`
+	ID     FlexibleInt64 `json:"id"`
+	Method string        `json:"method"`
+	Code   FlexibleInt64 `json:"code"`
+	Result interface{}   `json:"result"`
+}
+
+// FlexibleInt64 accepts Crypto.com response integers encoded as either JSON numbers or strings.
+type FlexibleInt64 int64
+
+func (value *FlexibleInt64) UnmarshalJSON(data []byte) error {
+	encoded := strings.TrimSpace(string(data))
+	if len(encoded) >= 2 && encoded[0] == '"' && encoded[len(encoded)-1] == '"' {
+		decoded, err := strconv.Unquote(encoded)
+		if err != nil {
+			return err
+		}
+		encoded = decoded
+	}
+	parsed, err := strconv.ParseInt(encoded, 10, 64)
+	if err != nil {
+		return fmt.Errorf("parse integer %q: %w", encoded, err)
+	}
+	*value = FlexibleInt64(parsed)
+	return nil
 }
 
 type Instrument struct {
@@ -422,6 +473,18 @@ type OrderRequest struct {
 	Quantity       float64
 	Price          float64
 	ClientOID      string
+	ReduceOnly     bool
+}
+
+type Position struct {
+	InstrumentName  string  `json:"instrument_name"`
+	Quantity        float64 `json:"quantity,string"`
+	Cost            float64 `json:"cost,string"`
+	OpenPositionPNL float64 `json:"open_position_pnl,string"`
+}
+
+type PositionsResult struct {
+	Data []Position `json:"data"`
 }
 
 type Order struct {

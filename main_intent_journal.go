@@ -105,20 +105,26 @@ func settleVerifiedGridZeroFill(executor *order.ExchangeOrderExecutor, gate *exe
 
 type runtimeIntentBackend interface {
 	execution.IntentJournal
-	HasLegacyExecutionHistory(context.Context, string, string, string) (bool, error)
+	HasLegacyExecutionHistory(context.Context, execution.IntentScope) (bool, error)
+	HasVerifiedExecutionOrderIDs(context.Context, execution.IntentScope, []execution.ExposurePosition) (bool, error)
 }
 
-// Only a verified fresh owner can start without a full economic checkpoint.
-// Existing inventory/orders/history stay blocked for the recovery workflow;
-// neither an empty journal nor a terminal order implies settled strategy state.
+// The ordinary entry point permits only an empty venue account. Grid startup
+// may skip the futures-position emptiness check only when a separate bootstrap
+// reconciles the restored owner inventory exactly before seeding exposure.
+// Neither an empty journal nor a terminal order implies settled strategy state.
 func configureRuntimeIntentJournal(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, ex exchange.IExchange, backend runtimeIntentBackend, scope execution.IntentScope) error {
+	return configureRuntimeIntentJournalWithGridRecovery(ctx, executor, gate, ex, backend, scope, false)
+}
+
+func configureRuntimeIntentJournalWithGridRecovery(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, ex exchange.IExchange, backend runtimeIntentBackend, scope execution.IntentScope, allowRestoredFuturesPosition bool) error {
 	gate.Block(runtimeIntentBootstrapBlock)
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := executor.ConfigureIntentJournal(ctx, backend, scope); err != nil {
 		return err
 	}
-	legacy, err := backend.HasLegacyExecutionHistory(ctx, scope.Bot, scope.Exchange, scope.Symbol)
+	legacy, err := backend.HasLegacyExecutionHistory(ctx, scope)
 	if err != nil {
 		return fmt.Errorf("verify legacy execution history: %w", err)
 	}
@@ -137,7 +143,7 @@ func configureRuntimeIntentJournal(ctx context.Context, executor *order.Exchange
 		if math.IsNaN(balance) || math.IsInf(balance, 0) || balance < 0 || balance != 0 {
 			return fmt.Errorf("spot inventory requires owned lot reconciliation")
 		}
-	} else {
+	} else if !allowRestoredFuturesPosition {
 		positions, err := queryShutdownPositions(ctx, ex, scope.Symbol)
 		if err != nil {
 			return err

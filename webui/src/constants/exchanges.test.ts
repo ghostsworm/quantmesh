@@ -24,6 +24,8 @@ describe('exchanges constants', () => {
   it('SPOT_SUPPORTED_EXCHANGES includes okx', () => {
     expect(SPOT_SUPPORTED_EXCHANGES).toContain('okx')
     expect(SPOT_SUPPORTED_EXCHANGES).toContain('binance')
+    expect(SPOT_SUPPORTED_EXCHANGES).toContain('bitrue')
+    expect(SPOT_SUPPORTED_EXCHANGES).toContain('ascendex')
   })
 
   it('SPOT_SUPPORTED_EXCHANGES is subset of SUPPORTED_EXCHANGES', () => {
@@ -35,5 +37,7 @@ describe('exchanges constants', () => {
   it('SPOT_ONLY_EXCHANGES lists spot-only venues', () => {
     expect(SPOT_ONLY_EXCHANGES).toContain('bitkub')
     expect(SPOT_ONLY_EXCHANGES).toContain('coinsph')
+    expect(SPOT_ONLY_EXCHANGES).toContain('bitrue')
+    expect(SPOT_ONLY_EXCHANGES).toContain('ascendex')
   })
 })

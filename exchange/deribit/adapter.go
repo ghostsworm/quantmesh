@@ -83,6 +83,10 @@ func (a *Adapter) GetMarketType() string {
 
 // PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOrderID, false)
+}
+
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string, reduceOnly bool) (*OrderLocal, error) {
 	// Deribit 使用合約數量（整數）
 	amount := quantity
 
@@ -92,6 +96,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		Type:           "limit",
 		Price:          price,
 		Label:          clientOrderID,
+		ReduceOnly:     reduceOnly,
 	}
 
 	var resp *OrderResponse

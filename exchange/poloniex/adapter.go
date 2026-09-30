@@ -74,9 +74,9 @@ func (a *Adapter) GetName() string {
 	return "Poloniex"
 }
 
-// GetMarketType 獲取市場類型：futures 合約
+// GetMarketType 獲取市場類型：spot 現貨
 func (a *Adapter) GetMarketType() string {
-	return "futures"
+	return "spot"
 }
 
 // PlaceOrder 下單

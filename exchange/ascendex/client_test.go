@@ -30,6 +30,12 @@ func TestNewAscendEXClient(t *testing.T) {
 	}
 }
 
+func TestAdapterMarketTypeIsSpot(t *testing.T) {
+	if got := (&Adapter{}).GetMarketType(); got != "spot" {
+		t.Fatalf("GetMarketType() = %q, want spot", got)
+	}
+}
+
 func TestSignRequest(t *testing.T) {
 	client := NewAscendEXClient("test_key", "test_secret", false)
 

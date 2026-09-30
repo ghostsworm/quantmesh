@@ -24,6 +24,9 @@ func (w *xtcomWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *xtcomWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := rejectUnsupportedReduceOnly("XT.COM", req); err != nil {
+		return nil, err
+	}
 	var side xtcom.OrderSide
 	if req.Side == SideBuy {
 		side = xtcom.SideBuy

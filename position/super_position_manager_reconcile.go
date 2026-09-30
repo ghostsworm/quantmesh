@@ -758,10 +758,11 @@ func (spm *SuperPositionManager) gridExposureInventory() ([]execution.ExposurePo
 			return false
 		}
 		positions = append(positions, execution.ExposurePosition{
-			Key:      gridExposureKey(price, leg),
-			Group:    "grid",
-			Leg:      leg,
-			Quantity: slot.PositionQty,
+			Key:          gridExposureKey(price, leg),
+			Group:        "grid",
+			Leg:          leg,
+			Quantity:     slot.PositionQty,
+			EntryOrderID: slot.PositionEntryOrderID,
 		})
 		return true
 	})
@@ -769,6 +770,52 @@ func (spm *SuperPositionManager) gridExposureInventory() ([]execution.ExposurePo
 		return nil, inventoryErr
 	}
 	return positions, nil
+}
+
+// RestoredGridExposureInventory returns owner lots only when the source is a
+// successfully restored snapshot with no locally unresolved slot/order state.
+// Venue quantities must still be reconciled by the caller before seeding them.
+func (spm *SuperPositionManager) RestoredGridExposureInventory() ([]execution.ExposurePosition, bool, error) {
+	if spm == nil || !spm.gridRuntimeStateRestored.Load() {
+		return nil, false, nil
+	}
+	var inventoryErr error
+	spm.slots.Range(func(key, raw any) bool {
+		price, ok := key.(float64)
+		slot, slotOK := raw.(*InventorySlot)
+		if !ok || !finiteGridValue(price) || price <= 0 || !slotOK || slot == nil {
+			inventoryErr = fmt.Errorf("restored grid snapshot contains invalid slot identity")
+			return false
+		}
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		if !finiteGridValue(slot.PositionQty) || slot.PositionQty < 0 ||
+			(slot.PositionStatus == PositionStatusEmpty && slot.PositionQty != 0) ||
+			(slot.PositionStatus == PositionStatusFilled && slot.PositionQty <= 0) ||
+			(slot.PositionStatus != PositionStatusEmpty && slot.PositionStatus != PositionStatusFilled) {
+			inventoryErr = fmt.Errorf("restored grid slot %.8f has inconsistent inventory state", price)
+			return false
+		}
+		switch slot.OrderStatus {
+		case OrderStatusPlaced, OrderStatusConfirmed, OrderStatusPartiallyFilled, OrderStatusCancelRequested, OrderStatusUnknown:
+			inventoryErr = fmt.Errorf("restored grid slot %.8f has unresolved order state", price)
+			return false
+		}
+		if slot.SlotStatus != SlotStatusFree {
+			inventoryErr = fmt.Errorf("restored grid slot %.8f is reserved or locked", price)
+			return false
+		}
+		if slot.PositionStatus == PositionStatusFilled && (slot.PositionEntryOrderID <= 0 || slot.PositionEntryOrderAmbiguous) {
+			inventoryErr = fmt.Errorf("restored grid slot %.8f lacks an unambiguous owner entry order", price)
+			return false
+		}
+		return true
+	})
+	if inventoryErr != nil {
+		return nil, true, inventoryErr
+	}
+	positions, err := spm.gridExposureInventory()
+	return positions, true, err
 }
 
 func exposureLeg(leg string) bool {

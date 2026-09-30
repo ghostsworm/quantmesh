@@ -76,6 +76,9 @@ func TestNewAdapter(t *testing.T) {
 	if adapter.GetName() != "XT.COM" {
 		t.Errorf("交易所名称錯误: 期望 XT.COM, 得到 %s", adapter.GetName())
 	}
+	if adapter.GetMarketType() != "spot" {
+		t.Fatalf("market type = %q, want spot", adapter.GetMarketType())
+	}
 }
 
 func TestConvertInterval(t *testing.T) {

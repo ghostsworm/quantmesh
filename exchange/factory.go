@@ -33,6 +33,10 @@ import (
 	"quantmesh/utils"
 )
 
+const btccFuturesAPISuspendedError = "BTCC Futures API trading was officially suspended on 2026-02-13; trading integration remains disabled pending verified restoration"
+
+const spotInventoryIntegrationDisabledError = "private trading is disabled: the configured spot API does not yet provide the bot's required spot inventory reconciliation"
+
 // NewExchange 創建交易所實例
 // exchangeName/symbol 允許覆盖配置中的當前交易所和交易對，便於多交易對场景
 // marketType: "spot" 現貨 / "futures" 合約，空時默认為 "futures"
@@ -73,6 +77,12 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 	if marketType == "" {
 		marketType = "futures"
 	}
+	if strings.EqualFold(exchangeName, "btcc") {
+		return nil, fmt.Errorf("%s", btccFuturesAPISuspendedError)
+	}
+	if strings.EqualFold(exchangeName, "poloniex") || strings.EqualFold(exchangeName, "xtcom") {
+		return nil, fmt.Errorf("%s: %s", exchangeName, spotInventoryIntegrationDisabledError)
+	}
 	// 資金費套利 Bot 主連線使用合約適配器
 	if marketType == config.MarketTypeFundingCarry {
 		marketType = "futures"
@@ -82,13 +92,13 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 	}
 	supportedSpotExchanges := map[string]bool{
 		"binance": true, "bitget": true, "gate": true, "okx": true, "bybit": true,
-		"bitkub": true, "coinsph": true,
+		"bitkub": true, "coinsph": true, "bitrue": true, "ascendex": true,
 	}
 	supportedSpotMarginExchanges := map[string]bool{
 		"binance": true, // 現貨槓桿借幣做空
 	}
 	if marketType == "spot" && !supportedSpotExchanges[exchangeName] {
-		return nil, fmt.Errorf("交易所 %s 不支援現貨交易，请使用 market_type: futures 或选擇已支援現貨的交易所（Binance/OKX/Bybit/Bitget/Gate）", exchangeName)
+		return nil, fmt.Errorf("交易所 %s 不支援現貨交易，请使用 market_type: futures 或选擇已支援現貨的交易所", exchangeName)
 	}
 	if marketType == "spot_margin" && !supportedSpotMarginExchanges[exchangeName] {
 		return nil, fmt.Errorf("交易所 %s 不支援現貨槓桿（借幣做空），目前僅 Binance 支援", exchangeName)
@@ -410,8 +420,8 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 		if !exists {
 			return nil, fmt.Errorf("bitrue 配置不存在")
 		}
-		if marketType == "spot" {
-			return nil, fmt.Errorf("Bitrue 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		if marketType != "spot" {
+			return nil, fmt.Errorf("Bitrue adapter currently supports spot only; futures trading is not implemented")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
@@ -464,8 +474,8 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 		if !exists {
 			return nil, fmt.Errorf("ascendex 配置不存在")
 		}
-		if marketType == "spot" {
-			return nil, fmt.Errorf("AscendEX 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
+		if marketType != "spot" {
+			return nil, fmt.Errorf("AscendEX adapter currently supports spot only; futures trading is not implemented")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,
@@ -482,9 +492,6 @@ func newExchangeInternal(cfg *config.Config, exchangeName, symbol, marketType st
 		exchangeCfg, exists := cfg.Exchanges["poloniex"]
 		if !exists {
 			return nil, fmt.Errorf("poloniex 配置不存在")
-		}
-		if marketType == "spot" {
-			return nil, fmt.Errorf("Poloniex 交易所暫時不支援現貨交易，請使用合約模式或選擇其他交易所")
 		}
 		cfgMap := map[string]string{
 			"api_key":    exchangeCfg.APIKey,

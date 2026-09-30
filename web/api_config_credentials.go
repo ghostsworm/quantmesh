@@ -22,7 +22,7 @@ func defaultTestSymbolAndMarket(exchangeName, requestedMarket string) (symbol st
 		market = "futures"
 	}
 	switch exchangeName {
-	case "bitkub", "coinsph":
+	case "bitkub", "coinsph", "bitrue", "ascendex":
 		market = "spot"
 	}
 	switch exchangeName {
@@ -124,13 +124,13 @@ type testExchangeRequest struct {
 }
 
 type testExchangeResponse struct {
-	Success              bool    `json:"success"`
-	Message              string  `json:"message"`
-	Exchange             string  `json:"exchange,omitempty"`
-	MarketType           string  `json:"market_type,omitempty"`
-	TotalWalletBalance   float64 `json:"total_wallet_balance,omitempty"`
-	AvailableBalance     float64 `json:"available_balance,omitempty"`
-	TotalMarginBalance   float64 `json:"total_margin_balance,omitempty"`
+	Success            bool    `json:"success"`
+	Message            string  `json:"message"`
+	Exchange           string  `json:"exchange,omitempty"`
+	MarketType         string  `json:"market_type,omitempty"`
+	TotalWalletBalance float64 `json:"total_wallet_balance,omitempty"`
+	AvailableBalance   float64 `json:"available_balance,omitempty"`
+	TotalMarginBalance float64 `json:"total_margin_balance,omitempty"`
 }
 
 // postConfigTestExchange POST /api/config/test-exchange

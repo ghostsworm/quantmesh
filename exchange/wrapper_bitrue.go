@@ -24,6 +24,9 @@ func (w *bitrueWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *bitrueWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := rejectUnsupportedReduceOnly("Bitrue", req); err != nil {
+		return nil, err
+	}
 	var side bitrue.OrderSide
 	if req.Side == SideBuy {
 		side = bitrue.SideBuy

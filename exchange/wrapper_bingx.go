@@ -31,7 +31,7 @@ func (w *bingxWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Orde
 		side = bingx.SideSell
 	}
 
-	order, err := w.adapter.PlaceOrder(ctx, side, req.Price, req.Quantity, req.ClientOrderID)
+	order, err := w.adapter.PlaceOrderWithOptions(ctx, side, req.Price, req.Quantity, req.ClientOrderID, req.ReduceOnly)
 	if err != nil {
 		return nil, err
 	}

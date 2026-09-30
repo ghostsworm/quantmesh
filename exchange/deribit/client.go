@@ -199,6 +199,9 @@ func (c *DeribitClient) Buy(ctx context.Context, req *OrderRequest) (*OrderRespo
 	if req.Label != "" {
 		params["label"] = req.Label
 	}
+	if req.ReduceOnly {
+		params["reduce_only"] = true
+	}
 
 	result, err := c.sendRequest(ctx, "private/buy", params)
 	if err != nil {
@@ -229,6 +232,9 @@ func (c *DeribitClient) Sell(ctx context.Context, req *OrderRequest) (*OrderResp
 	}
 	if req.Label != "" {
 		params["label"] = req.Label
+	}
+	if req.ReduceOnly {
+		params["reduce_only"] = true
 	}
 
 	result, err := c.sendRequest(ctx, "private/sell", params)
@@ -429,6 +435,7 @@ type OrderRequest struct {
 	Type           string // limit, market
 	Price          float64
 	Label          string
+	ReduceOnly     bool
 }
 
 type OrderResponse struct {

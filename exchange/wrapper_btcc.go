@@ -24,6 +24,9 @@ func (w *btccWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *btccWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := rejectUnsupportedReduceOnly("BTCC", req); err != nil {
+		return nil, err
+	}
 	var side btcc.OrderSide
 	if req.Side == SideBuy {
 		side = btcc.SideBuy

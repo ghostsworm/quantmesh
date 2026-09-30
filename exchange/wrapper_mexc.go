@@ -31,7 +31,7 @@ func (w *mexcWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order
 		side = mexc.SideSell
 	}
 
-	order, err := w.adapter.PlaceOrder(ctx, side, req.Price, req.Quantity, req.ClientOrderID)
+	order, err := w.adapter.PlaceOrderWithOptions(ctx, side, req.Price, req.Quantity, req.ClientOrderID, req.ReduceOnly)
 	if err != nil {
 		return nil, err
 	}

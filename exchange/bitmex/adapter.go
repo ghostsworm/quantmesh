@@ -83,6 +83,10 @@ func (a *Adapter) GetMarketType() string {
 
 // PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOrderID, false)
+}
+
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string, reduceOnly bool) (*OrderLocal, error) {
 	var bitmexSide string
 	if side == SideBuy {
 		bitmexSide = "Buy"
@@ -97,6 +101,9 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		Price:    price,
 		OrdType:  "Limit",
 		ClOrdID:  clientOrderID,
+	}
+	if reduceOnly {
+		req.ExecInst = "ReduceOnly"
 	}
 
 	order, err := a.client.PlaceOrder(ctx, req)

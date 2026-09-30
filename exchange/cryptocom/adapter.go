@@ -75,6 +75,10 @@ func (a *Adapter) GetMarketType() string {
 }
 
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOID, false)
+}
+
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOID string, reduceOnly bool) (*OrderLocal, error) {
 	var ccSide string
 	if side == SideBuy {
 		ccSide = "BUY"
@@ -89,6 +93,7 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		Quantity:       quantity,
 		Price:          price,
 		ClientOID:      clientOID,
+		ReduceOnly:     reduceOnly,
 	}
 
 	order, err := a.client.CreateOrder(ctx, req)
@@ -138,7 +143,22 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 }
 
 func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
-	return []*PositionLocal{}, nil
+	positions, err := a.client.GetPositions(ctx, a.instrumentName)
+	if err != nil {
+		return nil, fmt.Errorf("Crypto.com get positions error: %w", err)
+	}
+	result := make([]*PositionLocal, 0, len(positions))
+	for _, position := range positions {
+		if position.Quantity == 0 {
+			continue
+		}
+		result = append(result, &PositionLocal{
+			Symbol:        position.InstrumentName,
+			Size:          position.Quantity,
+			UnrealizedPNL: position.OpenPositionPNL,
+		})
+	}
+	return result, nil
 }
 
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {

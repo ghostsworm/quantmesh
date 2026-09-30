@@ -79,9 +79,9 @@ func (a *Adapter) GetName() string {
 	return "AscendEX"
 }
 
-// GetMarketType 獲取市場類型：futures 合約
+// GetMarketType reports the spot market implemented by this adapter.
 func (a *Adapter) GetMarketType() string {
-	return "futures"
+	return "spot"
 }
 
 // PlaceOrder 下單

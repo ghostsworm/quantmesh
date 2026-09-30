@@ -36,6 +36,14 @@ func TestDefaultTestSymbolAndMarket(t *testing.T) {
 	if s != "BTC_PHP" || m != "spot" {
 		t.Fatalf("coinsph: got %s %s", s, m)
 	}
+	s, m = defaultTestSymbolAndMarket("bitrue", "futures")
+	if s != "BTCUSDT" || m != "spot" {
+		t.Fatalf("bitrue: got %s %s", s, m)
+	}
+	s, m = defaultTestSymbolAndMarket("ascendex", "")
+	if s != "BTCUSDT" || m != "spot" {
+		t.Fatalf("ascendex: got %s %s", s, m)
+	}
 	s, m = defaultTestSymbolAndMarket("okx", "spot")
 	if s != "BTCUSDT" || m != "spot" {
 		t.Fatalf("okx spot: got %s %s", s, m)

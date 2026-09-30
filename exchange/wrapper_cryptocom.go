@@ -27,7 +27,7 @@ func (w *cryptocomWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*
 		side = cryptocom.SideSell
 	}
 
-	order, err := w.adapter.PlaceOrder(ctx, side, req.Price, req.Quantity, req.ClientOrderID)
+	order, err := w.adapter.PlaceOrderWithOptions(ctx, side, req.Price, req.Quantity, req.ClientOrderID, req.ReduceOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,22 @@ func (w *cryptocomWrapper) GetAccount(ctx context.Context) (*Account, error) {
 }
 
 func (w *cryptocomWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
-	return []*Position{}, nil
+	positions, err := w.adapter.GetPositions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Position, 0, len(positions))
+	for _, position := range positions {
+		result = append(result, &Position{
+			Symbol:        position.Symbol,
+			Size:          position.Size,
+			EntryPrice:    position.EntryPrice,
+			MarkPrice:     position.MarkPrice,
+			UnrealizedPNL: position.UnrealizedPNL,
+			Leverage:      position.Leverage,
+		})
+	}
+	return result, nil
 }
 
 func (w *cryptocomWrapper) GetBalance(ctx context.Context, asset string) (float64, error) {

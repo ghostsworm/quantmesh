@@ -27,6 +27,7 @@ type ExposureLimits struct {
 type ExposurePosition struct {
 	Key, Group, Leg string
 	Quantity        float64
+	EntryOrderID    int64
 }
 
 type ExposureRequest struct {

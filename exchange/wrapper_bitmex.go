@@ -30,7 +30,7 @@ func (w *bitmexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Ord
 		side = bitmex.SideSell
 	}
 
-	order, err := w.adapter.PlaceOrder(ctx, side, req.Price, req.Quantity, req.ClientOrderID)
+	order, err := w.adapter.PlaceOrderWithOptions(ctx, side, req.Price, req.Quantity, req.ClientOrderID, req.ReduceOnly)
 	if err != nil {
 		return nil, err
 	}

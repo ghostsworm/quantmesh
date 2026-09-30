@@ -93,6 +93,10 @@ func (a *Adapter) GetMarketType() string {
 
 // PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOrderID, false)
+}
+
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string, reduceOnly bool) (*OrderLocal, error) {
 	// 轉换订單方向
 	var bingxSide string
 	var positionSide string
@@ -100,9 +104,15 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 	if side == SideBuy {
 		bingxSide = "BUY"
 		positionSide = "LONG"
+		if reduceOnly {
+			positionSide = "SHORT"
+		}
 	} else {
 		bingxSide = "SELL"
 		positionSide = "SHORT"
+		if reduceOnly {
+			positionSide = "LONG"
+		}
 	}
 
 	// 構造 BingX 订單请求

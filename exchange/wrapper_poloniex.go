@@ -23,6 +23,9 @@ func (w *poloniexWrapper) GetMarketType() string {
 
 // PlaceOrder 下單
 func (w *poloniexWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if err := rejectUnsupportedReduceOnly("Poloniex", req); err != nil {
+		return nil, err
+	}
 	var side poloniex.OrderSide
 	if req.Side == SideBuy {
 		side = poloniex.SideBuy

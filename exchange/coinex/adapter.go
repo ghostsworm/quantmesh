@@ -10,6 +10,18 @@ import (
 	"quantmesh/logger"
 )
 
+const coinExFilledAmountEpsilon = 1e-12
+
+func coinExV2OrderStatus(filledAmount, requestedAmount float64) OrderStatus {
+	if filledAmount <= 0 {
+		return OrderStatusNew
+	}
+	if filledAmount+coinExFilledAmountEpsilon >= requestedAmount {
+		return OrderStatusFilled
+	}
+	return OrderStatusPartiallyFilled
+}
+
 // Adapter CoinEx 适配器
 type Adapter struct {
 	client           *CoinExClient
@@ -86,6 +98,11 @@ func (a *Adapter) GetMarketType() string {
 
 // PlaceOrder 下單
 func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string) (*OrderLocal, error) {
+	return a.PlaceOrderWithOptions(ctx, side, price, quantity, clientOrderID, false)
+}
+
+// PlaceOrderWithOptions places orders that require venue-side execution guarantees through CoinEx V2.
+func (a *Adapter) PlaceOrderWithOptions(ctx context.Context, side OrderSide, price, quantity float64, clientOrderID string, reduceOnly bool) (*OrderLocal, error) {
 	var coinexSide string
 	if side == SideBuy {
 		coinexSide = "buy"
@@ -100,6 +117,32 @@ func (a *Adapter) PlaceOrder(ctx context.Context, side OrderSide, price, quantit
 		Amount:   quantity,
 		Price:    price,
 		ClientID: clientOrderID,
+	}
+
+	if reduceOnly {
+		order, err := a.client.PlaceFuturesOrderV2(ctx, req, true)
+		if err != nil {
+			return nil, fmt.Errorf("CoinEx reduce-only place order error: %w", err)
+		}
+		orderID, err := strconv.ParseInt(strings.Trim(string(order.ID), `"`), 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("CoinEx V2 returned invalid order_id %q: %w", order.ID, err)
+		}
+		filledAmount, err := strconv.ParseFloat(order.FilledAmount, 64)
+		if err != nil {
+			return nil, fmt.Errorf("CoinEx V2 returned invalid filled_amount %q: %w", order.FilledAmount, err)
+		}
+		return &OrderLocal{
+			OrderID:       orderID,
+			ClientOrderID: order.ClientID,
+			Symbol:        order.Market,
+			Side:          side,
+			Price:         price,
+			Quantity:      quantity,
+			ExecutedQty:   filledAmount,
+			Status:        coinExV2OrderStatus(filledAmount, quantity),
+			UpdateTime:    order.UpdatedAt,
+		}, nil
 	}
 
 	order, err := a.client.PlaceOrder(ctx, req)

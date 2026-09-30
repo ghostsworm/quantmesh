@@ -1,8 +1,65 @@
 package cryptocom
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestCreateOrderAndGetPositionsUseReduceOnlyAndSignedPositionAPI(t *testing.T) {
+	var sawReduceOnly bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Method string                 `json:"method"`
+			Params map[string]interface{} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch request.Method {
+		case "private/create-order":
+			instructions, ok := request.Params["exec_inst"].([]interface{})
+			if !ok || len(instructions) != 1 || instructions[0] != "REDUCE_ONLY" {
+				t.Errorf("exec_inst = %#v, want [REDUCE_ONLY]", request.Params["exec_inst"])
+			}
+			sawReduceOnly = true
+			_, _ = w.Write([]byte(`{"id":"123","code":"0","result":{"order_id":42,"client_oid":"close"}}`))
+		case "private/get-positions":
+			if request.Params["instrument_name"] != "BTCUSD-PERP" {
+				t.Errorf("instrument_name = %#v", request.Params["instrument_name"])
+			}
+			_, _ = w.Write([]byte(`{"id":"124","code":"0","result":{"data":[{"instrument_name":"BTCUSD-PERP","quantity":"-0.25","cost":"12000","open_position_pnl":"-12.5"},{"instrument_name":"BTCUSD-PERP","quantity":"0","cost":"0","open_position_pnl":"0"}]}}`))
+		default:
+			t.Errorf("unexpected method %q", request.Method)
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	client := NewCryptoComClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	if _, err := client.CreateOrder(context.Background(), &OrderRequest{
+		InstrumentName: "BTCUSD-PERP", Side: "SELL", Type: "LIMIT", Quantity: 0.25, Price: 60000,
+		ClientOID: "close", ReduceOnly: true,
+	}); err != nil {
+		t.Fatalf("CreateOrder: %v", err)
+	}
+	if !sawReduceOnly {
+		t.Fatal("reduce-only instruction was not sent")
+	}
+	positions, err := client.GetPositions(context.Background(), "BTCUSD-PERP")
+	if err != nil {
+		t.Fatalf("GetPositions: %v", err)
+	}
+	if len(positions) != 2 || positions[0].Quantity != -0.25 || positions[0].OpenPositionPNL != -12.5 {
+		t.Fatalf("positions = %#v", positions)
+	}
+}
 
 func TestNewCryptoComClient(t *testing.T) {
 	apiKey := "test_api_key"

@@ -232,6 +232,47 @@ func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) 
 	}
 }
 
+func TestRuntimeIntentJournalRecognizesItsSettledOrderHistory(t *testing.T) {
+	store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "settled-runtime.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.MigrateExecutionIntents(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	scope := runtimeJournalScope()
+	venue := &runtimeJournalVenue{}
+	executor, gate := newJournalRuntime(venue, scope)
+	if err := configureRuntimeIntentJournal(t.Context(), executor, gate, venue, store, scope); err != nil {
+		t.Fatal(err)
+	}
+	const clientOrderID = "settled-zero-fill"
+	placed, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: clientOrderID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := venue.CancelOrder(t.Context(), scope.Symbol, placed.OrderID); err != nil {
+		t.Fatal(err)
+	}
+	if err := executor.SettleZeroFillIntent(t.Context(), clientOrderID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveOrder(&storage.Order{OrderID: placed.OrderID, BotID: scope.Bot, Account: scope.Bot,
+		MarketType: scope.Market, AccountScope: scope.Account, ClientOrderID: clientOrderID, Symbol: scope.Symbol,
+		Side: "BUY", Exchange: scope.Exchange, Quantity: 1, Status: "CANCELED", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted, restartedGate := newJournalRuntime(venue, scope)
+	if err := configureRuntimeIntentJournal(t.Context(), restarted, restartedGate, venue, store, scope); err != nil {
+		t.Fatalf("settled order with durable owner intent blocked restart: %v", err)
+	}
+	if restartedGate.Blocked() {
+		t.Fatal("verified flat owner remained blocked after settled order history")
+	}
+}
+
 func TestRuntimeIntentJournalSpotBootstrapRequiresVerifiedInventoryAndOrders(t *testing.T) {
 	for _, scenario := range []string{"flat", "inventory", "inventory_error", "orders_nil"} {
 		t.Run(scenario, func(t *testing.T) {

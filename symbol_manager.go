@@ -838,7 +838,7 @@ func startSymbolRuntime(
 			logger.ErrorCtx(ctx, "🚨 [%s] 發現 %d 筆尚未核賬的持久化手續費更正，已封鎖新開倉", botID, pendingCorrections)
 		}
 	}
-	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook); err != nil {
+	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager); err != nil {
 		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
 	} else {
 		superPositionManager.MarkGridRuntimeVenueFlatVerified()
