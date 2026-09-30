@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-const fundingPerpSpreadRuntimeStateVersion = 3
+const fundingPerpSpreadRuntimeStateVersion = 6
 
 type fundingPerpSpreadOrderIntent struct {
 	ClientOrderID  string  `json:"client_order_id"`
@@ -18,18 +18,30 @@ type fundingPerpSpreadOrderIntent struct {
 	PositionBefore float64 `json:"position_before"`
 }
 
+type fundingPerpSpreadPendingExecutionState struct {
+	Exchange      string  `json:"exchange"`
+	Symbol        string  `json:"symbol"`
+	ClientOrderID string  `json:"client_order_id"`
+	OrderID       int64   `json:"order_id,omitempty"`
+	Side          string  `json:"side"`
+	Quantity      float64 `json:"quantity"`
+}
+
 type fundingPerpSpreadRuntimeState struct {
-	Strategy        string                        `json:"strategy"`
-	LegAExchange    string                        `json:"leg_a_exchange"`
-	LegASymbol      string                        `json:"leg_a_symbol"`
-	LegBExchange    string                        `json:"leg_b_exchange"`
-	LegBSymbol      string                        `json:"leg_b_symbol"`
-	OwnershipReady  bool                          `json:"ownership_ready"`
-	IntentInFlight  bool                          `json:"intent_in_flight"`
-	PendingOrder    *fundingPerpSpreadOrderIntent `json:"pending_order,omitempty"`
-	ExposureUnknown bool                          `json:"exposure_unknown"`
-	OwnedA          float64                       `json:"owned_a"`
-	OwnedB          float64                       `json:"owned_b"`
+	Strategy                  string                                   `json:"strategy"`
+	LegAExchange              string                                   `json:"leg_a_exchange"`
+	LegASymbol                string                                   `json:"leg_a_symbol"`
+	LegBExchange              string                                   `json:"leg_b_exchange"`
+	LegBSymbol                string                                   `json:"leg_b_symbol"`
+	OwnershipReady            bool                                     `json:"ownership_ready"`
+	IntentInFlight            bool                                     `json:"intent_in_flight"`
+	PendingOrder              *fundingPerpSpreadOrderIntent            `json:"pending_order,omitempty"`
+	ExposureUnknown           bool                                     `json:"exposure_unknown"`
+	ExecutionLedgerUnverified bool                                     `json:"execution_ledger_unverified,omitempty"`
+	EmergencyCloseRequired    bool                                     `json:"emergency_close_required,omitempty"`
+	PendingExecutions         []fundingPerpSpreadPendingExecutionState `json:"pending_executions,omitempty"`
+	OwnedA                    float64                                  `json:"owned_a"`
+	OwnedB                    float64                                  `json:"owned_b"`
 }
 
 func (s *FundingPerpSpreadStrategy) runtimeStateSnapshotLocked() fundingPerpSpreadRuntimeState {
@@ -37,8 +49,10 @@ func (s *FundingPerpSpreadStrategy) runtimeStateSnapshotLocked() fundingPerpSpre
 		Strategy: "funding_perp_spread", LegAExchange: s.legA.GetName(), LegASymbol: s.symA,
 		LegBExchange: s.legB.GetName(), LegBSymbol: s.symB, OwnershipReady: s.ownershipReady,
 		IntentInFlight: s.intentInFlight, PendingOrder: cloneFundingPerpSpreadOrderIntent(s.pendingOrder),
-		ExposureUnknown: s.exposureUnknown,
-		OwnedA:          s.ownedA, OwnedB: s.ownedB,
+		ExposureUnknown: s.exposureUnknown, ExecutionLedgerUnverified: s.executionLedgerUnverified,
+		EmergencyCloseRequired: s.emergencyCloseRequired,
+		PendingExecutions:      cloneFundingPerpSpreadPendingExecutions(s.pendingExecutions),
+		OwnedA:                 s.ownedA, OwnedB: s.ownedB,
 	}
 }
 
@@ -72,7 +86,7 @@ func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchan
 	if version < 3 && state.IntentInFlight {
 		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("legacy funding_perp_spread order intent lacks the durable pre-submit position snapshot required for safe recovery")
 	}
-	if version == 3 {
+	if version >= 3 {
 		if state.IntentInFlight != (state.PendingOrder != nil) {
 			return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending order identity does not match intent state")
 		}
@@ -86,12 +100,30 @@ func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchan
 			}
 		}
 	}
+	for _, pending := range state.PendingExecutions {
+		validLeg := (strings.EqualFold(pending.Exchange, legAExchange) && strings.EqualFold(pending.Symbol, legASymbol)) ||
+			(strings.EqualFold(pending.Exchange, legBExchange) && strings.EqualFold(pending.Symbol, legBSymbol))
+		if !validLeg || strings.TrimSpace(pending.ClientOrderID) == "" || len(pending.ClientOrderID) > 64 || pending.OrderID < 0 ||
+			(pending.Side != "BUY" && pending.Side != "SELL") || math.IsNaN(pending.Quantity) || math.IsInf(pending.Quantity, 0) || pending.Quantity <= 0 {
+			return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending execution identity is invalid")
+		}
+	}
+	if len(state.PendingExecutions) > 0 && !state.ExecutionLedgerUnverified {
+		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending executions require an unverified ledger block")
+	}
 	if !state.OwnershipReady || (state.ExposureUnknown && !state.IntentInFlight) ||
 		math.IsNaN(state.OwnedA) || math.IsInf(state.OwnedA, 0) ||
 		math.IsNaN(state.OwnedB) || math.IsInf(state.OwnedB, 0) {
 		return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread runtime state is unresolved")
 	}
 	return state, nil
+}
+
+func cloneFundingPerpSpreadPendingExecutions(src []fundingPerpSpreadPendingExecutionState) []fundingPerpSpreadPendingExecutionState {
+	if len(src) == 0 {
+		return nil
+	}
+	return append([]fundingPerpSpreadPendingExecutionState(nil), src...)
 }
 
 func cloneFundingPerpSpreadOrderIntent(src *fundingPerpSpreadOrderIntent) *fundingPerpSpreadOrderIntent {

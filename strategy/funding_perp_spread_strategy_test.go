@@ -383,13 +383,52 @@ type fundingSpreadTestExchange struct {
 	residual            float64
 }
 
+type fundingPerpSpreadOpeningExchange struct {
+	exchange.IExchange
+	name     string
+	symbol   string
+	position float64
+	placed   int
+}
+
+func (e *fundingPerpSpreadOpeningExchange) GetName() string          { return e.name }
+func (e *fundingPerpSpreadOpeningExchange) GetQuantityDecimals() int { return 3 }
+func (e *fundingPerpSpreadOpeningExchange) GetPriceDecimals() int    { return 2 }
+func (e *fundingPerpSpreadOpeningExchange) GetLatestPrice(context.Context, string) (float64, error) {
+	return 100, nil
+}
+func (e *fundingPerpSpreadOpeningExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {
+	if e.position == 0 {
+		return []*exchange.Position{}, nil
+	}
+	return []*exchange.Position{{Symbol: e.symbol, Size: e.position}}, nil
+}
+func (e *fundingPerpSpreadOpeningExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
+	return []*exchange.Order{}, nil
+}
+func (e *fundingPerpSpreadOpeningExchange) PlaceOrder(_ context.Context, request *exchange.OrderRequest) (*exchange.Order, error) {
+	e.placed++
+	if request.Side == exchange.SideSell {
+		e.position -= request.Quantity
+	} else {
+		e.position += request.Quantity
+	}
+	return &exchange.Order{OrderID: int64(e.placed), ClientOrderID: request.ClientOrderID, Symbol: request.Symbol,
+		Side: request.Side, Quantity: request.Quantity, ExecutedQty: request.Quantity, Status: exchange.OrderStatusFilled}, nil
+}
+
 type fundingSpreadOrderLookupExchange struct {
 	*fundingSpreadTestExchange
-	order *exchange.Order
+	order         *exchange.Order
+	terminalOrder *exchange.Order
 }
 
 func (e *fundingSpreadOrderLookupExchange) GetOrderByClientOrderID(context.Context, string, string) (*exchange.Order, error) {
 	return e.order, nil
+}
+
+func (e *fundingSpreadOrderLookupExchange) GetOrder(context.Context, string, int64) (*exchange.Order, error) {
+	return e.terminalOrder, nil
 }
 
 func (e *fundingSpreadTestExchange) GetName() string { return e.name }
@@ -444,6 +483,9 @@ func TestFundingPerpSpreadShutdownClosesAndVerifiesBothLegs(t *testing.T) {
 			close(done)
 			st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT",
 				cancel: func() {}, runDone: done, ownershipReady: true, ownedA: -0.01, ownedB: 0.01}
+			st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+				return true, nil
+			})
 			st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 			st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 			err := st.CloseForShutdown(context.Background())
@@ -586,12 +628,38 @@ func TestFundingPerpSpreadOpeningRespectsSharedRuntimeGate(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadOpeningCompletesHedgeBeforeWaitingForExecutionLedger(t *testing.T) {
+	short := &fundingPerpSpreadOpeningExchange{name: "short", symbol: "BTCUSDT"}
+	long := &fundingPerpSpreadOpeningExchange{name: "long", symbol: "BTCUSDT"}
+	st := &FundingPerpSpreadStrategy{
+		cfg: &config.Config{}, symCfg: config.SymbolConfig{TotalAllocatedCapital: 200},
+		legA: short, legB: long, symA: "BTCUSDT", symB: "BTCUSDT", maxBasis: 1,
+		openingGate: &execution.OpeningGate{}, ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		if short.placed != 1 || long.placed != 1 || short.position >= 0 || long.position <= 0 {
+			t.Fatalf("execution ledger ran before hedge completion: placements=(%d,%d), positions=(%v,%v)", short.placed, long.placed, short.position, long.position)
+		}
+		return true, nil
+	})
+	if err := st.openSpreadCoordinated(context.Background(), short, "BTCUSDT", long, "BTCUSDT", 100, 100, 0.001, 0); err != nil {
+		t.Fatalf("openSpreadCoordinated() error = %v", err)
+	}
+	if short.placed != 1 || long.placed != 1 {
+		t.Fatalf("spread legs placed = (%d,%d), want one order on each leg", short.placed, long.placed)
+	}
+}
+
 func TestFundingPerpSpreadCloseRefusesUnownedExposure(t *testing.T) {
 	ex := &fundingSpreadTestExchange{
 		name:      "a",
 		positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 2}},
 	}
 	st := &FundingPerpSpreadStrategy{legA: ex, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT"}
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		return true, nil
+	})
 	if err := st.closeLeg(context.Background(), ex, "BTCUSDT", 1); err == nil {
 		t.Fatal("closeLeg() succeeded when actual exposure did not match strategy ownership")
 	}
@@ -628,6 +696,9 @@ func TestFundingPerpSpreadRestoresPersistedLegOwnership(t *testing.T) {
 	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
 	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}}
 	st := &FundingPerpSpreadStrategy{legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", tickInt: time.Hour, maxBasis: 1}
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		return true, nil
+	})
 	st.SetRuntimeStateStore(store)
 	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
 	if err := st.Start(context.Background()); err != nil {
@@ -715,6 +786,181 @@ func TestFundingPerpSpreadStartRejectsNilOpenOrderSnapshot(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadResolvedLedgerFailureBlocksNewOrdersWithoutLosingPositionOwnership(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	store := &memoryRuntimeStateStore{}
+	st := &FundingPerpSpreadStrategy{openingGate: gate, legA: &fundingSpreadTestExchange{name: "a"},
+		legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT", ownershipReady: true}
+	st.SetRuntimeStateStore(store)
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		return true, errors.New("fill persistence failed")
+	})
+	resolved, err := st.recordOrderExecution(context.Background(), nil, nil, nil)
+	var ledgerErr *fundingPerpSpreadExecutionLedgerError
+	if !resolved || !errors.As(err, &ledgerErr) {
+		t.Fatalf("resolved ledger failure = (%t, %v), want resolved ledger-only error", resolved, err)
+	}
+	if st.exposureUnknown {
+		t.Fatal("known order identity incorrectly erased verified position ownership")
+	}
+	if _, err := gate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
+		t.Fatalf("opening gate error = %v, want permanent ledger block", err)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatalf("decode persisted ledger state: %v", err)
+	}
+	if !persisted.ExecutionLedgerUnverified {
+		t.Fatal("ledger verification failure did not survive in durable runtime state")
+	}
+}
+
+func TestFundingPerpSpreadRestoresLedgerBlockAcrossRestart(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, ExecutionLedgerUnverified: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &execution.OpeningGate{}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, openingGate: gate,
+	}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() rejected recoverable positions with a ledger block: %v", err)
+	}
+	if _, err := gate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
+		t.Fatalf("restored opening gate error = %v, want ledger block", err)
+	}
+	if err := st.Stop(); err != nil {
+		t.Fatalf("Stop() after restored ledger block: %v", err)
+	}
+}
+
+func TestFundingPerpSpreadReconcilesPendingExecutionAndClearsLedgerBlock(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, ExecutionLedgerUnverified: true,
+		PendingExecutions: []fundingPerpSpreadPendingExecutionState{{
+			Exchange: "a", Symbol: "BTCUSDT", ClientOrderID: "pending-cid", OrderID: 91, Side: "BUY", Quantity: 0.01,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &execution.OpeningGate{}
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, openingGate: gate,
+	}
+	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	st.SetExecutionRecorder(func(_ context.Context, client exchange.IExchange, request *exchange.OrderRequest, order *exchange.Order) (bool, error) {
+		if client.GetName() != "a" || request.ClientOrderID != "pending-cid" || order == nil || order.OrderID != 91 {
+			t.Fatalf("unexpected pending execution recovery request: client=%s request=%+v order=%+v", client.GetName(), request, order)
+		}
+		return true, nil
+	})
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed after successful execution recovery: %v", err)
+	}
+	if release, err := gate.Begin(); err != nil {
+		t.Fatalf("opening gate remained blocked after exact pending execution recovery: %v", err)
+	} else {
+		release()
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.ExecutionLedgerUnverified || len(persisted.PendingExecutions) != 0 {
+		t.Fatalf("resolved pending execution was not cleared durably: %+v", persisted)
+	}
+	if err := st.Stop(); err != nil {
+		t.Fatalf("Stop() after recovered ledger: %v", err)
+	}
+}
+
+func TestFundingPerpSpreadRetainsPendingExecutionWhenStartupReconciliationFails(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, ExecutionLedgerUnverified: true,
+		PendingExecutions: []fundingPerpSpreadPendingExecutionState{{
+			Exchange: "a", Symbol: "BTCUSDT", ClientOrderID: "pending-cid", OrderID: 92, Side: "BUY", Quantity: 0.01,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gate := &execution.OpeningGate{}
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, openingGate: gate,
+	}
+	st.SetRuntimeStateStore(store)
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		return true, errors.New("fill range incomplete")
+	})
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() should retain the active runtime with openings blocked: %v", err)
+	}
+	if _, err := gate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
+		t.Fatalf("opening gate error = %v, want retained pending-ledger block", err)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.ExecutionLedgerUnverified || len(persisted.PendingExecutions) != 1 || persisted.PendingExecutions[0].OrderID != 92 {
+		t.Fatalf("failed recovery lost its durable marker: %+v", persisted)
+	}
+	if err := st.Stop(); err != nil {
+		t.Fatalf("Stop() with a retained ledger block: %v", err)
+	}
+}
+
+func TestFundingPerpSpreadUnresolvedOrderBlocksOwnershipAndProgress(t *testing.T) {
+	st := &FundingPerpSpreadStrategy{}
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		return false, errors.New("order identity unavailable")
+	})
+	resolved, err := st.recordOrderExecution(context.Background(), nil, nil, nil)
+	if err == nil || resolved || !st.exposureUnknown {
+		t.Fatalf("unresolved order state = resolved:%t err:%v exposureUnknown:%t", resolved, err, st.exposureUnknown)
+	}
+}
+
+func TestFundingPerpSpreadCloseAttemptsBothLegsWhenResolvedFillPersistenceFails(t *testing.T) {
+	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
+	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.01}}}
+	st := &FundingPerpSpreadStrategy{
+		legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT", ownershipReady: true,
+		ownedA: -0.01, ownedB: 0.01, maxBasis: 1,
+	}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+		if a.placed != 1 || b.placed != 1 || len(a.positions) != 0 || len(b.positions) != 0 {
+			t.Fatalf("fill ledger ran before both risk exits: placements=(%d,%d), positions=(%v,%v)", a.placed, b.placed, a.positions, b.positions)
+		}
+		return true, errors.New("fill persistence failed")
+	})
+	err := st.closeAllCoordinated(context.Background(), "ledger_failure_test")
+	if err == nil || a.placed != 1 || b.placed != 1 {
+		t.Fatalf("close results: err=%v placements=(%d,%d); both risk-reducing closes must be attempted", err, a.placed, b.placed)
+	}
+	if st.ownedA != 0 || st.ownedB != 0 {
+		t.Fatalf("verified closed ownership not cleared: (%v,%v)", st.ownedA, st.ownedB)
+	}
+}
+
 func TestFundingPerpSpreadCloseKeepsIntentUnknownWhenPostCloseOrdersAreNil(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
 	ex := &fundingSpreadTestExchange{
@@ -792,7 +1038,7 @@ func TestFundingPerpSpreadStartRecoversExactZeroFillTerminalOrder(t *testing.T) 
 	}
 }
 
-func TestFundingPerpSpreadStartRejectsFilledPendingOrder(t *testing.T) {
+func TestFundingPerpSpreadStartFlattensRecoveredFilledPendingOrder(t *testing.T) {
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
@@ -802,15 +1048,110 @@ func TestFundingPerpSpreadStartRejectsFilledPendingOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	a := &fundingSpreadOrderLookupExchange{
-		fundingSpreadTestExchange: &fundingSpreadTestExchange{name: "a"},
-		order:                     &exchange.Order{ClientOrderID: "filled-order", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, ExecutedQty: 0.01, Status: exchange.OrderStatusFilled},
+		fundingSpreadTestExchange: &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}},
+		order:                     &exchange.Order{OrderID: 7654, ClientOrderID: "filled-order", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, Status: exchange.OrderStatusNew},
+		terminalOrder:             &exchange.Order{OrderID: 7654, ClientOrderID: "filled-order", Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.01, ExecutedQty: 0.01, Status: exchange.OrderStatusFilled},
 	}
-	st := &FundingPerpSpreadStrategy{legA: a, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT"}
-	st.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true})
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	gate := &execution.OpeningGate{}
+	st := &FundingPerpSpreadStrategy{legA: a, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, openingGate: gate}
+	st.SetRuntimeStateStore(store)
 	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
-	if err := st.Start(context.Background()); err == nil {
-		t.Fatal("Start() released a filled pending order without economic replay")
+	recorded := 0
+	st.SetExecutionRecorder(func(_ context.Context, client exchange.IExchange, request *exchange.OrderRequest, order *exchange.Order) (bool, error) {
+		recorded++
+		if recorded == 1 && (client != a || request.ClientOrderID != "filled-order" || request.Symbol != "BTCUSDT" || request.Side != exchange.SideSell || order.OrderID != 7654 || order.ExecutedQty != 0.01 || order.Status != exchange.OrderStatusFilled) {
+			t.Fatalf("startup recorder received mismatched recovered order: client=%v request=%+v order=%+v", client.GetName(), request, order)
+		}
+		return true, nil
+	})
+	if err := st.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed to flatten the verified interrupted exposure: %v", err)
 	}
+	if recorded != 2 || a.placed != 1 {
+		t.Fatalf("startup recovery should ledger both the recovered fill and reducing close: recorder calls=%d close orders=%d", recorded, a.placed)
+	}
+	if err := st.VerifyFlat(context.Background()); err != nil {
+		t.Fatalf("startup recovery did not leave both legs flat: %v", err)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.EmergencyCloseRequired || persisted.OwnedA != 0 || persisted.OwnedB != 0 || persisted.IntentInFlight {
+		t.Fatalf("successful startup recovery was not durably settled: %+v", persisted)
+	}
+	st.mu.RLock()
+	cancel, done := st.cancel, st.runDone
+	st.mu.RUnlock()
+	cancel()
+	<-done
+	if unblock, err := gate.Begin(); err != nil {
+		t.Fatalf("recovery gate remained blocked after verified flatness: %v", err)
+	} else {
+		unblock()
+	}
+}
+
+func TestFundingPerpSpreadEmergencyCloseRecoveryPersistsAndRetries(t *testing.T) {
+	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
+		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true,
+		EmergencyCloseRequired: true, OwnedA: -0.01,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: fundingPerpSpreadRuntimeStateVersion, payload: string(state), found: true}
+	firstLegA := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}, residual: -0.005}
+	newStrategy := func(legA exchange.IExchange, gate *execution.OpeningGate) *FundingPerpSpreadStrategy {
+		st := &FundingPerpSpreadStrategy{legA: legA, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "ETHUSDT", tickInt: time.Hour, openingGate: gate}
+		st.SetRuntimeStateStore(store)
+		st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+		st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+			return true, nil
+		})
+		return st
+	}
+	firstGate := &execution.OpeningGate{}
+	first := newStrategy(firstLegA, firstGate)
+	if err := first.Start(context.Background()); err == nil {
+		t.Fatal("startup accepted emergency recovery while the reducing order left residual exposure")
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.EmergencyCloseRequired || math.Abs(persisted.OwnedA-(-0.005)) > 1e-12 {
+		t.Fatalf("failed recovery did not persist its remaining owned exposure for retry: %+v", persisted)
+	}
+	if unblock, err := firstGate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
+		if unblock != nil {
+			unblock()
+		}
+		t.Fatalf("failed emergency recovery did not keep opening blocked: %v", err)
+	}
+
+	secondLegA := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.005}}}
+	second := newStrategy(secondLegA, &execution.OpeningGate{})
+	if err := second.Start(context.Background()); err != nil {
+		t.Fatalf("restart did not retry a durably recorded emergency close: %v", err)
+	}
+	if err := second.VerifyFlat(context.Background()); err != nil {
+		t.Fatalf("retried emergency close did not verify flatness: %v", err)
+	}
+	persisted = fundingPerpSpreadRuntimeState{}
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.EmergencyCloseRequired || persisted.OwnedA != 0 || persisted.OwnedB != 0 {
+		t.Fatalf("successful retry did not clear durable recovery state: %+v; payload=%s", persisted, store.payload)
+	}
+	second.mu.RLock()
+	cancel, done := second.cancel, second.runDone
+	second.mu.RUnlock()
+	cancel()
+	<-done
 }
 
 func TestFundingPerpSpreadStartRejectsZeroFillOrderWhenPositionChanged(t *testing.T) {
@@ -863,6 +1204,43 @@ func TestFundingPerpSpreadPersistsOrderIdentityBeforeSubmission(t *testing.T) {
 	}
 	if persisted.IntentInFlight || persisted.PendingOrder != nil {
 		t.Fatalf("settled intent retained pending identity: %+v", persisted)
+	}
+}
+
+func TestFundingPerpSpreadPersistsExecutionIdentityBeforeClearingOrderIntent(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	st := &FundingPerpSpreadStrategy{
+		legA: &fundingSpreadTestExchange{name: "a"}, legB: &fundingSpreadTestExchange{name: "b"},
+		symA: "BTCUSDT", symB: "ETHUSDT", ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(store)
+	request := &exchange.OrderRequest{ClientOrderID: "stable-order-id", Symbol: "ETHUSDT", Side: exchange.SideBuy, Quantity: 0.25}
+	client := st.legB
+	if err := st.beginOrderIntent(fundingPerpSpreadOrderIntent{
+		ClientOrderID: request.ClientOrderID, LegExchange: "b", Symbol: request.Symbol,
+		Side: string(request.Side), Quantity: request.Quantity,
+	}); err != nil {
+		t.Fatalf("beginOrderIntent() error = %v", err)
+	}
+	if err := st.persistPendingExecution(client, request, &exchange.Order{OrderID: 123, ClientOrderID: request.ClientOrderID}); err != nil {
+		t.Fatalf("persistPendingExecution() error = %v", err)
+	}
+	var persisted fundingPerpSpreadRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.IntentInFlight || persisted.PendingOrder == nil || !persisted.ExecutionLedgerUnverified || len(persisted.PendingExecutions) != 1 {
+		t.Fatalf("intent was cleared or execution identity was not durable before settlement: %+v", persisted)
+	}
+	if err := st.finishOrderIntent(); err != nil {
+		t.Fatalf("finishOrderIntent() error = %v", err)
+	}
+	persisted = fundingPerpSpreadRuntimeState{}
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.IntentInFlight || persisted.PendingOrder != nil || !persisted.ExecutionLedgerUnverified || len(persisted.PendingExecutions) != 1 {
+		t.Fatalf("settled intent lost its pending execution marker: %+v", persisted)
 	}
 }
 

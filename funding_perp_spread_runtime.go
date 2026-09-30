@@ -227,6 +227,15 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 	st := strategy.NewFundingPerpSpreadStrategy("funding_perp_spread", &localCfg, symCfg, legAEx, legBEx, fp, stratCfg)
 	st.SetOpeningGate(openingGate)
+	var fillWriter interface {
+		SaveOrderFill(*storage.OrderFill) error
+	}
+	if storageService != nil {
+		fillWriter, _ = storageService.GetStorage().(interface {
+			SaveOrderFill(*storage.OrderFill) error
+		})
+	}
+	st.SetExecutionRecorder(newFundingPerpSpreadExecutionRecorder(fillWriter, botID, incomeTargets))
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
 	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	st.SetCoordinationLock(distributedLock)
