@@ -93,6 +93,32 @@ type failedOrderUpdateStrategy struct {
 
 func (s *failedOrderUpdateStrategy) OnOrderUpdate(*position.OrderUpdate) error { return s.err }
 
+type failedStopStrategy struct {
+	routingTestStrategy
+	err     error
+	stopped atomic.Bool
+}
+
+func (s *failedStopStrategy) Stop() error {
+	s.stopped.Store(true)
+	return s.err
+}
+
+func TestStrategyManagerStopAllWithErrorReportsCloseFailure(t *testing.T) {
+	want := errors.New("spread hedge close is unresolved")
+	sm := NewStrategyManager(&config.Config{}, 1000)
+	strategy := &failedStopStrategy{routingTestStrategy: routingTestStrategy{name: "funding_perp_spread"}, err: want}
+	sm.RegisterStrategy(strategy.Name(), strategy, 1, 0)
+
+	err := sm.StopAllWithError()
+	if !errors.Is(err, want) {
+		t.Fatalf("StopAllWithError() = %v, want wrapped strategy stop failure", err)
+	}
+	if !strategy.stopped.Load() {
+		t.Fatal("StopAllWithError() did not attempt to stop the failing strategy")
+	}
+}
+
 func TestApplyOrderUpdateForStrategyIsSynchronousAndReturnsPersistenceErrors(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Strategies.Configs = map[string]config.StrategyConfig{"trend": {Enabled: true}}

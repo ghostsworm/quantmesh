@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -604,14 +605,24 @@ func (bm *BotManager) StopBotWithReason(botID, updatedBy, reason string) error {
 	}
 	bm.runtimesMu.Unlock()
 
-	unregisterWebSymbolProvidersForRuntime(&br.Config)
-
-	if br.Inner != nil && br.Inner.Stop != nil {
+	if br.Inner != nil && br.Inner.StopWithError != nil {
+		if stopErr := br.Inner.StopWithError(); stopErr != nil {
+			br.Inner.markShutdownCloseUnverified(stopErr.Error())
+			if br.Inner.OpeningGate != nil {
+				br.Inner.OpeningGate.Block("strategy_stop_unverified")
+			}
+			if bm.runtimeAdmissions.Blocked() {
+				bm.shutdownTransitionUnverified.Store(true)
+			}
+			return fmt.Errorf("stop Bot %s safely: %w", botID, stopErr)
+		}
+	} else if br.Inner != nil && br.Inner.Stop != nil {
 		br.Inner.Stop()
 		if bm.runtimeAdmissions.Blocked() && br.Inner.shutdownCloseUnverifiedReason() != "" {
 			bm.shutdownTransitionUnverified.Store(true)
 		}
 	}
+	unregisterWebSymbolProvidersForRuntime(&br.Config)
 	// Keep the owner registered until its stop/close has finished. Otherwise a
 	// concurrent StartBot can claim the same symbol while the old Bot is closing.
 	bm.runtimesMu.Lock()
@@ -697,27 +708,52 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 	bm.runtimes[br.BotID] = br
 }
 
-// StopAll 停止所有 Bot
-func (bm *BotManager) StopAll() {
-	bm.runtimesMu.Lock()
-	runtimes := make([]*BotRuntime, 0, len(bm.runtimes))
-	for _, br := range bm.runtimes {
-		runtimes = append(runtimes, br)
+// StopAll stops every Bot and retains any specialized runtime whose stop did
+// not prove that strategy-owned exposure was safely closed.
+func (bm *BotManager) StopAll() error {
+	finishTransition, err := bm.runtimeAdmissions.Begin()
+	if err != nil {
+		return fmt.Errorf("process shutdown owns Bot stop-all transition: %w", err)
 	}
-	bm.runtimes = make(map[string]*BotRuntime)
-	bm.groupLegAlerted = make(map[string]bool)
-	for _, timer := range bm.groupLegTimers {
-		if timer != nil {
-			timer.Stop()
-		}
-	}
-	bm.groupLegTimers = make(map[string]*time.Timer)
-	bm.runtimesMu.Unlock()
+	defer finishTransition()
+
+	runtimes := bm.List()
+	var stopErrors []error
 	for _, br := range runtimes {
-		if br != nil && br.Inner != nil && br.Inner.Stop != nil {
+		if br == nil {
+			continue
+		}
+		if br.Inner != nil && br.Inner.StopWithError != nil {
+			if err := br.Inner.StopWithError(); err != nil {
+				br.Inner.markShutdownCloseUnverified(err.Error())
+				if br.Inner.OpeningGate != nil {
+					br.Inner.OpeningGate.Block("strategy_stop_unverified")
+				}
+				stopErrors = append(stopErrors, fmt.Errorf("stop Bot %s safely: %w", br.BotID, err))
+				continue
+			}
+		} else if br.Inner != nil && br.Inner.Stop != nil {
 			br.Inner.Stop()
 		}
+		unregisterWebSymbolProvidersForRuntime(&br.Config)
+		bm.runtimesMu.Lock()
+		if bm.runtimes[br.BotID] == br {
+			delete(bm.runtimes, br.BotID)
+		}
+		bm.runtimesMu.Unlock()
 	}
+	if len(stopErrors) == 0 {
+		bm.runtimesMu.Lock()
+		bm.groupLegAlerted = make(map[string]bool)
+		for _, timer := range bm.groupLegTimers {
+			if timer != nil {
+				timer.Stop()
+			}
+		}
+		bm.groupLegTimers = make(map[string]*time.Timer)
+		bm.runtimesMu.Unlock()
+	}
+	return errors.Join(stopErrors...)
 }
 
 func (bm *BotManager) checkGroupLegConsistencyForBot(botID string) {

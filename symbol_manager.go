@@ -63,6 +63,7 @@ type SymbolRuntime struct {
 	CloseForManual        func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
 	UpdateOpenControl     func(config.OpenPositionControl) error
 	GetOpenControl        func() config.OpenPositionControl
+	StopWithError         func() error
 	OpeningController     *position.OpeningController
 	OrderCleaner          *safety.OrderCleaner
 	Reconciler            *safety.Reconciler
@@ -310,8 +311,8 @@ func (sm *SymbolManager) Remove(exchangeName, symbol string, marketType ...strin
 }
 
 // StopAll 停止所有运行時（委託 BotManager）
-func (sm *SymbolManager) StopAll() {
-	sm.botManager.StopAll()
+func (sm *SymbolManager) StopAll() error {
+	return sm.botManager.StopAll()
 }
 
 // UpdateRuntimeTradingParams 更新运行中的交易對的交易参數（热更新，委託 BotManager）

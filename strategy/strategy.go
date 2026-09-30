@@ -232,14 +232,23 @@ func (sm *StrategyManager) StartAll() error {
 
 // StopAll 停止所有策略
 func (sm *StrategyManager) StopAll() {
+	if err := sm.StopAllWithError(); err != nil {
+		logger.Error("❌ 停止策略管理器時仍有策略未核實: %v", err)
+	}
+}
+
+// StopAllWithError stops every strategy and reports all stop/close failures to
+// lifecycle owners that must not mark a runtime stopped while exposure is unresolved.
+func (sm *StrategyManager) StopAllWithError() error {
 	if sm.cancel != nil {
 		sm.cancel()
 	}
 
+	var stopErrors []error
 	sm.mu.RLock()
 	for name, strategy := range sm.strategies {
 		if err := strategy.Stop(); err != nil {
-			logger.Error("❌ 策略 %s 停止失败: %v", name, err)
+			stopErrors = append(stopErrors, fmt.Errorf("stop strategy %s: %w", name, err))
 		}
 	}
 	sm.mu.RUnlock()
@@ -247,6 +256,7 @@ func (sm *StrategyManager) StopAll() {
 	if sm.dynamicAllocator != nil {
 		sm.dynamicAllocator.Stop()
 	}
+	return errors.Join(stopErrors...)
 }
 
 // OnPriceChange 價格變化時通知所有策略

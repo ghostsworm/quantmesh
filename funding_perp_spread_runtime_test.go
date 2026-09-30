@@ -32,6 +32,43 @@ func TestFundingPerpSpreadStateScopeIsolatesCredentialsWithoutLeakingThem(t *tes
 	}
 }
 
+func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "binance-api-key", SecretKey: "binance-secret"},
+		"bybit":   {APIKey: "bybit-api-key", SecretKey: "bybit-secret"},
+	}}
+	fp := &config.FundingPerpSpreadConfig{
+		LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
+		LegB: config.FundingPerpLeg{Exchange: "bybit", Symbol: "BTCUSDT"},
+	}
+	claims, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, 90)
+	if err != nil {
+		t.Fatalf("build cross-wallet claims: %v", err)
+	}
+	if len(claims) != 2 {
+		t.Fatalf("claim count = %d, want 2", len(claims))
+	}
+	for _, claim := range claims {
+		if claim.Amount != 50 || claim.Available != 80 && claim.Available != 90 {
+			t.Fatalf("unexpected leg claim: %+v", claim)
+		}
+		for _, secret := range []string{"binance-api-key", "binance-secret", "bybit-api-key", "bybit-secret"} {
+			if strings.Contains(claim.WalletKey, secret) {
+				t.Fatalf("wallet claim leaked credential %q", secret)
+			}
+		}
+	}
+
+	fp.LegB.Exchange = "binance"
+	combined, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, 70)
+	if err != nil {
+		t.Fatalf("combine same-wallet legs: %v", err)
+	}
+	if len(combined) != 1 || combined[0].Amount != 100 || combined[0].Available != 70 {
+		t.Fatalf("same wallet legs were not combined conservatively: %+v", combined)
+	}
+}
+
 func TestValidateFundingPerpSpreadLegBases(t *testing.T) {
 	tests := []struct {
 		name    string

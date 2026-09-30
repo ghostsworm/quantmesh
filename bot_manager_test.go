@@ -54,6 +54,105 @@ func TestSpecializedRiskDataGateDoesNotClearManualPause(t *testing.T) {
 	}
 }
 
+func TestBotManagerKeepsSpecializedRuntimeWhenSafeStopFails(t *testing.T) {
+	bus := event.NewEventBus(8)
+	gate := &execution.OpeningGate{}
+	stopFailure := errors.New("second leg remains exposed")
+	stopCalls := 0
+	runtime := &BotRuntime{
+		BotID:  "spread-bot",
+		Config: config.BotConfig{ID: "spread-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: config.MarketTypeFundingPerpSpread},
+		Inner: &SymbolRuntime{
+			OpeningGate: gate,
+			StopWithError: func() error {
+				stopCalls++
+				gate.Block("strategy_stop_unverified")
+				return stopFailure
+			},
+		},
+	}
+	bm := &BotManager{runtimes: make(map[string]*BotRuntime), eventBus: bus}
+	bm.AddRuntime(runtime)
+
+	err := bm.StopBot(runtime.BotID)
+	if !errors.Is(err, stopFailure) {
+		t.Fatalf("StopBot error = %v, want wrapped close failure", err)
+	}
+	if got, ok := bm.Get(runtime.BotID); !ok || got != runtime {
+		t.Fatal("runtime was removed after an unverified stop")
+	}
+	if !gate.HasBlock("strategy_stop_unverified") || runtime.Inner.shutdownCloseUnverifiedReason() == "" {
+		t.Fatal("unverified stop did not preserve an opening hold and reconciliation reason")
+	}
+	if stopCalls != 1 {
+		t.Fatalf("safe stop calls = %d, want 1", stopCalls)
+	}
+}
+
+func TestBotManagerRemovesSpecializedRuntimeAfterSafeStopRetry(t *testing.T) {
+	bus := event.NewEventBus(8)
+	gate := &execution.OpeningGate{}
+	stopFailure := errors.New("temporary close failure")
+	stopCalls := 0
+	runtime := &BotRuntime{
+		BotID:  "spread-retry-bot",
+		Config: config.BotConfig{ID: "spread-retry-bot", Exchange: "binance", Symbol: "ETHUSDT", MarketType: config.MarketTypeFundingPerpSpread},
+		Inner: &SymbolRuntime{
+			OpeningGate: gate,
+			StopWithError: func() error {
+				stopCalls++
+				if stopCalls == 1 {
+					gate.Block("strategy_stop_unverified")
+					return stopFailure
+				}
+				gate.Unblock("strategy_stop_unverified")
+				return nil
+			},
+		},
+	}
+	bm := &BotManager{runtimes: make(map[string]*BotRuntime), eventBus: bus}
+	bm.AddRuntime(runtime)
+	if err := bm.StopBot(runtime.BotID); !errors.Is(err, stopFailure) {
+		t.Fatalf("first StopBot error = %v, want close failure", err)
+	}
+	if err := bm.StopBot(runtime.BotID); err != nil {
+		t.Fatalf("retry StopBot: %v", err)
+	}
+	if _, ok := bm.Get(runtime.BotID); ok {
+		t.Fatal("runtime remains registered after safe stop retry succeeded")
+	}
+	if gate.HasBlock("strategy_stop_unverified") || stopCalls != 2 {
+		t.Fatalf("successful retry did not clear only its stop hold: blocked=%v calls=%d", gate.HasBlock("strategy_stop_unverified"), stopCalls)
+	}
+}
+
+func TestBotManagerStopAllRetainsRuntimeWhenSafeStopFails(t *testing.T) {
+	stopFailure := errors.New("spread leg close is unverified")
+	gate := &execution.OpeningGate{}
+	runtime := &BotRuntime{
+		BotID:  "spread-stop-all-bot",
+		Config: config.BotConfig{ID: "spread-stop-all-bot", Exchange: "binance", Symbol: "SOLUSDT", MarketType: config.MarketTypeFundingPerpSpread},
+		Inner: &SymbolRuntime{
+			OpeningGate: gate,
+			StopWithError: func() error {
+				return stopFailure
+			},
+		},
+	}
+	bm := &BotManager{runtimes: make(map[string]*BotRuntime)}
+	bm.AddRuntime(runtime)
+
+	if err := bm.StopAll(); !errors.Is(err, stopFailure) {
+		t.Fatalf("StopAll() error = %v, want wrapped close failure", err)
+	}
+	if got, ok := bm.Get(runtime.BotID); !ok || got != runtime {
+		t.Fatal("StopAll removed runtime with unverified exposure")
+	}
+	if !gate.HasBlock("strategy_stop_unverified") || runtime.Inner.shutdownCloseUnverifiedReason() == "" {
+		t.Fatal("StopAll did not preserve failure hold and reconciliation reason")
+	}
+}
+
 func TestBotManagerResolveLatestStartConfigUsesRefreshedBotSnapshot(t *testing.T) {
 	botID := "bot-start-refresh"
 	stale := config.BotConfig{

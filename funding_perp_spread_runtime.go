@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -70,10 +71,10 @@ func startFundingPerpSpreadSymbolRuntime(
 	if requestedCapital <= 0 {
 		requestedCapital = symCfg.OrderQuantity
 	}
+	var legBBalance float64
 	balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
 	legABalance, balanceErr := legAEx.GetBalance(balanceCtx, spreadCapitalAsset)
 	if balanceErr == nil {
-		var legBBalance float64
 		legBBalance, balanceErr = legBEx.GetBalance(balanceCtx, spreadCapitalAsset)
 		if balanceErr == nil {
 			verifiedCapital, capErr := capTwoLegStrategyCapitalLimit(requestedCapital, legABalance, legBBalance)
@@ -110,32 +111,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		return nil, fmt.Errorf("verify funding_perp_spread USDT balance on both legs: %w", balanceErr)
 	}
 
-	// 價格監控掛在 leg_a（主顯示）
-	priceMonitor := monitor.NewPriceMonitor(
-		legAEx,
-		fp.LegA.Symbol,
-		localCfg.Timing.PriceSendInterval,
-	)
-	if err := priceMonitor.Start(); err != nil {
-		return nil, fmt.Errorf("價格流: %w", err)
-	}
-	pollInterval := time.Duration(localCfg.Timing.PricePollInterval) * time.Millisecond
-	if pollInterval <= 0 {
-		// 零值保护：避免配置未经校验时 time.Sleep(0) 退化为 CPU 空转
-		pollInterval = 500 * time.Millisecond
-	}
-	for i := 0; i < 10; i++ {
-		if priceMonitor.GetLastPrice() > 0 {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-	if priceMonitor.GetLastPrice() <= 0 {
-		return nil, fmt.Errorf("無法獲取初始價格（leg_a）")
-	}
-
 	totalCap := symCfg.TotalAllocatedCapital
-
 	strategyManager := strategy.NewStrategyManager(&localCfg, totalCap)
 	if eventBus != nil {
 		strategyManager.SetEventBus(eventBus)
@@ -156,6 +132,85 @@ func startFundingPerpSpreadSymbolRuntime(
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
 	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	st.SetCoordinationLock(distributedLock)
+	if storageService == nil || storageService.GetStorage() == nil {
+		return nil, fmt.Errorf("funding_perp_spread requires persistent atomic capital reservation storage")
+	}
+	reservationStore, ok := storageService.GetStorage().(storage.FundingSpreadCapitalReservationStore)
+	if !ok {
+		return nil, fmt.Errorf("funding_perp_spread requires atomic shared capital reservation storage")
+	}
+	if distributedLock == nil {
+		return nil, fmt.Errorf("funding_perp_spread requires its configured leg coordination lock")
+	}
+	if baseCfg.Instance.Total > 1 {
+		sharedStore, sharedOK := reservationStore.(storage.MultiProcessFundingSpreadCapitalStore)
+		if !sharedOK || !sharedStore.SupportsMultiProcessFundingSpreadCapital() {
+			return nil, fmt.Errorf("multi-instance funding_perp_spread requires a shared MySQL reservation database")
+		}
+		if _, localOnly := distributedLock.(*lock.NopLock); localOnly {
+			return nil, fmt.Errorf("multi-instance funding_perp_spread requires an enabled distributed lock")
+		}
+	}
+	claims, err := fundingPerpSpreadCapitalClaims(baseCfg, fp, totalCap, legABalance, legBBalance)
+	if err != nil {
+		return nil, fmt.Errorf("build funding_perp_spread wallet capital claims: %w", err)
+	}
+	reserveCtx, cancelReserve := context.WithTimeout(ctx, 15*time.Second)
+	err = reservationStore.ReserveFundingSpreadCapital(reserveCtx, botID, claims)
+	cancelReserve()
+	if err != nil {
+		return nil, fmt.Errorf("reserve funding_perp_spread wallet capital atomically: %w", err)
+	}
+	runtimeOwnsReservation := false
+	defer func() {
+		if runtimeOwnsReservation {
+			return
+		}
+		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 15*time.Second)
+		verifyErr := st.VerifyFlat(verifyCtx)
+		cancelVerify()
+		if verifyErr != nil {
+			logger.ErrorCtx(ctx, "[%s] 啟動失敗後兩腿/活動委託未核實，保留資金預留: %v", botID, verifyErr)
+			return
+		}
+		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
+		releaseErr := reservationStore.ReleaseFundingSpreadCapital(releaseCtx, botID, claims)
+		cancelRelease()
+		if releaseErr != nil {
+			logger.ErrorCtx(ctx, "[%s] 啟動失敗後釋放已核實平倉的資金預留失敗: %v", botID, releaseErr)
+		}
+	}()
+
+	// 價格監控掛在 leg_a（主顯示）
+	priceMonitor := monitor.NewPriceMonitor(
+		legAEx,
+		fp.LegA.Symbol,
+		localCfg.Timing.PriceSendInterval,
+	)
+	if err := priceMonitor.Start(); err != nil {
+		return nil, fmt.Errorf("價格流: %w", err)
+	}
+	priceMonitorTransferred := false
+	defer func() {
+		if !priceMonitorTransferred {
+			priceMonitor.Stop()
+		}
+	}()
+	pollInterval := time.Duration(localCfg.Timing.PricePollInterval) * time.Millisecond
+	if pollInterval <= 0 {
+		// 零值保护：避免配置未经校验时 time.Sleep(0) 退化为 CPU 空转
+		pollInterval = 500 * time.Millisecond
+	}
+	for i := 0; i < 10; i++ {
+		if priceMonitor.GetLastPrice() > 0 {
+			break
+		}
+		time.Sleep(pollInterval)
+	}
+	if priceMonitor.GetLastPrice() <= 0 {
+		return nil, fmt.Errorf("無法獲取初始價格（leg_a）")
+	}
+
 	strategyManager.RegisterStrategy("funding_perp_spread", st, 1.0, 0)
 	if err := strategyManager.StartAll(); err != nil {
 		return nil, err
@@ -191,19 +246,85 @@ func startFundingPerpSpreadSymbolRuntime(
 	rt.CloseForShutdown = st.CloseForShutdown
 	rt.VerifyShutdownClose = st.VerifyFlat
 
-	rt.Stop = func() {
+	stopRuntime := func() error {
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
-		if strategyManager != nil {
-			strategyManager.StopAll()
+		if err := strategyManager.StopAllWithError(); err != nil {
+			openingGate.Block("strategy_stop_unverified")
+			return fmt.Errorf("funding_perp_spread stop/close is unverified: %w", err)
 		}
+		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 15*time.Second)
+		verifyErr := st.VerifyFlat(verifyCtx)
+		cancelVerify()
+		if verifyErr != nil {
+			openingGate.Block("strategy_stop_unverified")
+			return fmt.Errorf("funding_perp_spread flatness or open orders remain unverified: %w", verifyErr)
+		}
+		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), 10*time.Second)
+		releaseErr := reservationStore.ReleaseFundingSpreadCapital(releaseCtx, botID, claims)
+		cancelRelease()
+		if releaseErr != nil {
+			openingGate.Block("capital_reservation_unverified")
+			return fmt.Errorf("funding_perp_spread verified flat but capital reservation release failed: %w", releaseErr)
+		}
+		openingGate.Unblock("capital_reservation_unverified")
+		openingGate.Unblock("strategy_stop_unverified")
 		if priceMonitor != nil {
 			priceMonitor.Stop()
 		}
 		legAEx.StopOrderStream()
 		legBEx.StopOrderStream()
+		return nil
 	}
+	rt.StopWithError = stopRuntime
+	rt.Stop = func() {
+		if err := stopRuntime(); err != nil {
+			logger.ErrorCtx(ctx, "[%s] 停止雙永續資金費運行時失敗，保留運行時供核賬/重試: %v", botID, err)
+		}
+	}
+	runtimeOwnsReservation = true
+	priceMonitorTransferred = true
 
 	return rt, nil
+}
+
+func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSpreadConfig, capital, balanceA, balanceB float64) ([]storage.FundingSpreadCapitalClaim, error) {
+	if cfg == nil || fp == nil || math.IsNaN(capital) || math.IsInf(capital, 0) || capital <= 0 ||
+		math.IsNaN(balanceA) || math.IsInf(balanceA, 0) || balanceA <= 0 || math.IsNaN(balanceB) || math.IsInf(balanceB, 0) || balanceB <= 0 {
+		return nil, fmt.Errorf("verified config, capital, and both positive balances are required")
+	}
+	perLeg := capital / 2
+	byWallet := make(map[string]storage.FundingSpreadCapitalClaim, 2)
+	for _, leg := range []struct {
+		exchange string
+		balance  float64
+	}{{fp.LegA.Exchange, balanceA}, {fp.LegB.Exchange, balanceB}} {
+		exchangeName := strings.TrimSpace(leg.exchange)
+		exchangeCfg, ok := cfg.Exchanges[exchangeName]
+		if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
+			return nil, fmt.Errorf("verified account identity is unavailable for %s", exchangeName)
+		}
+		accountScope := equityAccountScopeID(exchangeName, exchangeCfg)
+		walletMaterial := accountScope + "|futures|USDT"
+		walletKey := fmt.Sprintf("%x", sha256.Sum256([]byte(walletMaterial)))
+		claim, exists := byWallet[walletKey]
+		if exists {
+			if claim.Amount > math.MaxFloat64-perLeg {
+				return nil, fmt.Errorf("combined wallet capital overflows")
+			}
+			claim.Amount += perLeg
+			if leg.balance < claim.Available {
+				claim.Available = leg.balance
+			}
+		} else {
+			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance}
+		}
+		byWallet[walletKey] = claim
+	}
+	claims := make([]storage.FundingSpreadCapitalClaim, 0, len(byWallet))
+	for _, claim := range byWallet {
+		claims = append(claims, claim)
+	}
+	return claims, nil
 }
 
 func validateFundingPerpSpreadLegBases(baseA, baseB string) error {

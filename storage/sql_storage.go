@@ -167,6 +167,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 strategy_runtime_states 表失败: %w", err)
 		}
+		if err := migrateFundingSpreadCapitalTablesMySQL(db); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("迁移 funding spread capital tables 失败: %w", err)
+		}
 		if err := migrateAppConfigDocumentTablesMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 app_config 文檔表失败: %w", err)
