@@ -30,6 +30,18 @@ type runtimeJournalVenue struct {
 	sends        int
 }
 
+type spotRuntimeJournalVenue struct {
+	*runtimeJournalVenue
+	totalInventory float64
+	inventoryErr   error
+}
+
+func (*spotRuntimeJournalVenue) GetMarketType() string { return "spot" }
+func (*spotRuntimeJournalVenue) GetBaseAsset() string  { return "BTC" }
+func (v *spotRuntimeJournalVenue) SpotInventoryQty(context.Context) (float64, error) {
+	return v.totalInventory, v.inventoryErr
+}
+
 func (*runtimeJournalVenue) GetName() string       { return "fake" }
 func (*runtimeJournalVenue) GetMarketType() string { return "futures" }
 func (v *runtimeJournalVenue) GetPositions(context.Context, string) ([]*exchange.Position, error) {
@@ -99,7 +111,7 @@ func runtimeJournalScope() execution.IntentScope {
 	return execution.IntentScope{Account: "account-full-identity", Exchange: "fake", Market: "futures", Symbol: "BTCUSDT", Bot: "a"}
 }
 
-func newJournalRuntime(venue *runtimeJournalVenue, scope execution.IntentScope) (*order.ExchangeOrderExecutor, *execution.OpeningGate) {
+func newJournalRuntime(venue exchange.IExchange, scope execution.IntentScope) (*order.ExchangeOrderExecutor, *execution.OpeningGate) {
 	executor := order.NewExchangeOrderExecutor(venue, scope.Symbol, 0, 0, lock.NewNopLock(), scope.Bot)
 	gate := &execution.OpeningGate{}
 	executor.SetOpeningGate(gate, "LONG")
@@ -211,6 +223,45 @@ func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) 
 			}
 			if venue.sends != 0 {
 				t.Fatal("bootstrap itself submitted an order")
+			}
+		})
+	}
+}
+
+func TestRuntimeIntentJournalSpotBootstrapRequiresVerifiedInventoryAndOrders(t *testing.T) {
+	for _, scenario := range []string{"flat", "inventory", "inventory_error", "orders_nil"} {
+		t.Run(scenario, func(t *testing.T) {
+			store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "spot-runtime.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			if err := store.MigrateExecutionIntents(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+
+			venue := &spotRuntimeJournalVenue{runtimeJournalVenue: &runtimeJournalVenue{}}
+			switch scenario {
+			case "inventory":
+				venue.totalInventory = 0.01
+			case "inventory_error":
+				venue.inventoryErr = errors.New("inventory unavailable")
+			case "orders_nil":
+				venue.ordersNil = true
+			}
+			scope := runtimeJournalScope()
+			scope.Market = "spot"
+			executor, gate := newJournalRuntime(venue, scope)
+			err = configureRuntimeIntentJournal(t.Context(), executor, gate, venue, store, scope)
+			if scenario == "flat" {
+				if err != nil || gate.Blocked() {
+					t.Fatalf("verified empty spot owner blocked: %v", err)
+				}
+			} else if err == nil || !gate.Blocked() {
+				t.Fatalf("unverified spot startup was allowed: %v", err)
+			}
+			if venue.sends != 0 {
+				t.Fatal("spot bootstrap itself submitted an order")
 			}
 		})
 	}

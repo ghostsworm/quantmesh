@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc529 补齐 spot 启动核账的专用回归覆盖：明确空的总基础币库存 + 非 nil 空订单快照才允许通过；非零库存、库存查询失败及 nil 订单快照都保持启动门控。`go test . -count=1`、`go vet .`、定向启动核验测试与 `git diff --check` 通过；尚未连接真实交易所或账户。
 - rc528 审计发现普通 Bot 启动恢复将交易所 `GetOpenOrders` 的 nil 响应当成空列表并可能解除开仓门控；现将 nil 与 API 错误一样视为未知状态并保持门控，新增 `orders_nil` 启动回归。`go test . -count=1`、`go vet .` 与 `git diff --check` 通过；`-race -count=3` 因临时磁盘空间不足，在编译期失败，未获得 race 结果。仍未连接真实交易所或账户。
 - rc527 将普通 spot Bot 停机 claim 释放从一概拒绝推进为严格三重核验：startup exposure/journal 流程成功后记录 venue-flat bootstrap 证据；停止时要求网格持久运行态及全部策略自有库存为空、经 `SpotInventoryReader` 证明（含冻结额）的 base asset 总库存严格为零、交易所 open-order 快照非 nil 且为空；Binance、Gate、OKX、Bybit、Bitget 提供总库存能力，其他 spot 适配器因仅有可用余额或无能力而失败关闭，不以 `GetBalance` 推断总库存。任何不完整/错误/非零都保留 claim。spot_margin 因借币负债仍不允许走该通用路径。根包/策略/存储/Web 与四个现货适配器整包测试通过；另未连接真实交易所或账户。
 - rc526 修复普通 Bot 停机释放 claim 的租约竞态：此前仅在交易所核验开始前检查租约，仓位/活动委托查询期间失锁仍可能继续删 claim；现统一调用 guarded release helper，在核验前后复查租约，期间失锁时 claim 保留。`go test . -run 'TestAccountWalletCapitalRelease' -count=1`、`go test -race . -run 'TestAccountWalletCapitalRelease' -count=3`、`go vet .` 与 `git diff --check` 通过。无交易所侧 fencing token，最后一次守卫到 SQL 删除间的外部操作者/租约竞态仍未消除。
