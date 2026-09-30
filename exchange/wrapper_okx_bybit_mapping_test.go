@@ -20,6 +20,12 @@ func TestBitgetWrapperAccountEvidenceUnavailableWithoutAdapter(t *testing.T) {
 	}
 }
 
+func TestBitgetWrapperAdvertisesFundingIncomeHistory(t *testing.T) {
+	if !(&bitgetWrapper{}).SupportsFundingIncomeHistory() {
+		t.Fatal("Bitget wrapper must enable authenticated funding-income synchronization")
+	}
+}
+
 // TestOKXBybitInternalConstantsMirror okx/bybit 包因循環匯入鏡像了內部常量，這裡保證兩邊一致
 func TestOKXBybitInternalConstantsMirror(t *testing.T) {
 	pairs := []struct{ mirror, canonical string }{

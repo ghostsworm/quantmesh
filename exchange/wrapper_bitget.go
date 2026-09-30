@@ -334,8 +334,11 @@ func (w *bitgetWrapper) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 }
 
 func (w *bitgetWrapper) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {
-	return nil, nil
+	return w.adapter.GetIncomeHistory(ctx, symbol, incomeType, startTime, endTime)
 }
+
+// SupportsFundingIncomeHistory marks Bitget as a venue with an authenticated contract bill ledger.
+func (w *bitgetWrapper) SupportsFundingIncomeHistory() bool { return true }
 
 // GetOrderFills queries Bitget's authenticated contract execution ledger.
 func (w *bitgetWrapper) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {

@@ -39,6 +39,7 @@ type bitgetEquityAccount struct {
 
 type bitgetBill struct {
 	ID           string `json:"billId"`
+	Symbol       string `json:"symbol"`
 	Amount       string `json:"amount"`
 	Fee          string `json:"fee"`
 	FeeByCoupon  string `json:"feeByCoupon"`
