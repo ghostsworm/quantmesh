@@ -19,6 +19,9 @@ func TestOrderFillCoveragePersistsAcrossStorageRestartAndRejectsGaps(t *testing.
 	if err := st.AdvanceOrderFillCoverage("binance", "spot", "BTCUSDT", "scope-a", through.Add(2*time.Second), through.Add(24*time.Hour)); err == nil {
 		t.Fatal("coverage update across an unqueried interval must be rejected")
 	}
+	if err := st.AdvanceOrderFillCoverage("binance", "spot", "BTCUSDT", "scope-a", start.Add(-2*time.Second), start.Add(-time.Second)); err == nil {
+		t.Fatal("older disjoint coverage must not be merged across an unqueried interval")
+	}
 	if err := st.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -843,15 +843,34 @@ func (w *WhiteBITAdapter) GetOrderFills(ctx context.Context, symbol string, orde
 	if orderID <= 0 {
 		return nil, fmt.Errorf("WhiteBIT 查詢成交明细需指定 orderId")
 	}
-	deals, err := w.client.GetOrderDeals(ctx, orderID, 100, 0)
-	if err != nil {
-		return nil, err
+	const pageSize = 100
+	const maxPages = 1000
+	deals := make([]OrderDealRecord, 0, pageSize)
+	seenIDs := make(map[int64]struct{})
+	for page := 0; page < maxPages; page++ {
+		rows, err := w.client.GetOrderDeals(ctx, orderID, pageSize, page*pageSize)
+		if err != nil {
+			return nil, fmt.Errorf("WhiteBIT 查询订单 %d 成交页 %d 失败: %w", orderID, page+1, err)
+		}
+		for _, row := range rows {
+			if row.ID <= 0 || row.DealOrderID != orderID {
+				return nil, fmt.Errorf("WhiteBIT 查询订单 %d 返回身份无效的成交 %d", orderID, row.ID)
+			}
+			if _, exists := seenIDs[row.ID]; exists {
+				return nil, fmt.Errorf("WhiteBIT 查询订单 %d 分页重复成交 %d，无法确认账本完整性", orderID, row.ID)
+			}
+			seenIDs[row.ID] = struct{}{}
+			deals = append(deals, row)
+		}
+		if len(rows) < pageSize {
+			out := make([]interface{}, len(deals))
+			for i := range deals {
+				out[i] = deals[i]
+			}
+			return out, nil
+		}
 	}
-	out := make([]interface{}, len(deals))
-	for i := range deals {
-		out[i] = deals[i]
-	}
-	return out, nil
+	return nil, fmt.Errorf("WhiteBIT 查询订单 %d 成交超过分页安全上限，账本完整性未知", orderID)
 }
 
 // GetIncomeHistory 獲取收入歷史（暂未实现）

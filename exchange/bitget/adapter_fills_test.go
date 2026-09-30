@@ -95,3 +95,47 @@ func TestGetOrderFillsRejectsMixedFeeCurrencies(t *testing.T) {
 		t.Fatalf("mixed fee currencies must be rejected: %v", err)
 	}
 }
+
+func TestBitgetSpotGetOrderFillsPaginatesWithTradeCursor(t *testing.T) {
+	client := NewClient("test-key", "test-secret", "test-passphrase", false)
+	client.baseURL = "https://bitget.test"
+	requests := 0
+	client.httpClient.Transport = bitgetRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		query := req.URL.Query()
+		if req.URL.Path != "/api/v2/spot/trade/fills" || query.Get("symbol") != "BTCUSDT" || query.Get("orderId") != "71" || query.Get("limit") != "100" {
+			return nil, fmt.Errorf("unexpected Bitget spot fill request: %s", req.URL.String())
+		}
+		rows := make([]map[string]any, 0, 100)
+		start, end := 1, 101
+		if requests == 1 {
+			if query.Get("idLessThan") != "" {
+				return nil, fmt.Errorf("first page unexpectedly had a cursor")
+			}
+		} else {
+			if query.Get("idLessThan") != "100" {
+				return nil, fmt.Errorf("second page cursor = %q, want 100", query.Get("idLessThan"))
+			}
+			start, end = 101, 102
+		}
+		for id := start; id < end; id++ {
+			rows = append(rows, map[string]any{
+				"orderId": "71", "tradeId": strconv.Itoa(id), "symbol": "BTCUSDT", "side": "buy",
+				"priceAvg": "100", "size": "0.1", "feeDetail": []map[string]string{{"fee": "0", "feeCoin": "USDT"}}, "cTime": "1790503200000",
+			})
+		}
+		data, err := json.Marshal(map[string]any{"code": "00000", "data": rows, "msg": "success"})
+		if err != nil {
+			return nil, err
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(data))), Request: req, ContentLength: int64(len(data))}, nil
+	})
+	adapter := &BitgetSpotAdapter{client: client, symbol: "BTCUSDT"}
+	fills, err := adapter.GetOrderFills(context.Background(), "BTCUSDT", 71)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(fills) != 101 {
+		t.Fatalf("pagination returned requests=%d fills=%d, want 2 pages and 101 fills", requests, len(fills))
+	}
+}

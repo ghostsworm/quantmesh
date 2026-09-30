@@ -2,7 +2,10 @@ package exchange
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strconv"
+	"strings"
 
 	"quantmesh/exchange/income"
 	"quantmesh/exchange/whitebit"
@@ -345,24 +348,46 @@ func (w *whitebitWrapper) GetOrderFills(ctx context.Context, symbol string, orde
 	for _, x := range raw {
 		d, ok := x.(whitebit.OrderDealRecord)
 		if !ok {
-			continue
+			return nil, fmt.Errorf("WhiteBIT 成交记录类型无效: %T", x)
 		}
-		price, _ := strconv.ParseFloat(d.Price, 64)
-		qty, _ := strconv.ParseFloat(d.Amount, 64)
-		fee, _ := strconv.ParseFloat(d.Fee, 64)
-		out = append(out, &OrderFill{
-			OrderID:         orderID,
-			TradeID:         strconv.FormatInt(d.ID, 10),
-			Symbol:          symbol,
-			Price:           price,
-			Quantity:        qty,
-			Commission:      fee,
-			CommissionAsset: d.FeeAsset,
-			TradeTime:       int64(d.Time * 1000),
-			IsMaker:         d.Role == 1,
-		})
+		fill, err := convertWhiteBITDeal(d, symbol, orderID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, fill)
 	}
 	return out, nil
+}
+
+func convertWhiteBITDeal(d whitebit.OrderDealRecord, symbol string, requestedOrderID int64) (*OrderFill, error) {
+	if d.ID <= 0 || d.DealOrderID != requestedOrderID || requestedOrderID <= 0 || strings.TrimSpace(d.FeeAsset) == "" {
+		return nil, fmt.Errorf("WhiteBIT 成交订单 %d 身份或手续费币种无效", d.ID)
+	}
+	price, err := strconv.ParseFloat(d.Price, 64)
+	if err != nil || !isFinitePositive(price) {
+		return nil, fmt.Errorf("WhiteBIT 成交 %d 价格无效", d.ID)
+	}
+	qty, err := strconv.ParseFloat(d.Amount, 64)
+	if err != nil || !isFinitePositive(qty) {
+		return nil, fmt.Errorf("WhiteBIT 成交 %d 数量无效", d.ID)
+	}
+	fee, err := strconv.ParseFloat(d.Fee, 64)
+	if err != nil || math.IsNaN(fee) || math.IsInf(fee, 0) {
+		return nil, fmt.Errorf("WhiteBIT 成交 %d 手续费无效", d.ID)
+	}
+	if d.Time <= 0 || math.IsNaN(d.Time) || math.IsInf(d.Time, 0) || d.Time > float64(math.MaxInt64)/1000 {
+		return nil, fmt.Errorf("WhiteBIT 成交 %d 时间无效", d.ID)
+	}
+	var side Side
+	switch strings.ToLower(d.Deal) {
+	case "buy":
+		side = SideBuy
+	case "sell":
+		side = SideSell
+	default:
+		return nil, fmt.Errorf("WhiteBIT 成交 %d 方向无效: %q", d.ID, d.Deal)
+	}
+	return &OrderFill{OrderID: requestedOrderID, TradeID: strconv.FormatInt(d.ID, 10), Symbol: symbol, Side: side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: d.FeeAsset, TradeTime: int64(d.Time * 1000), IsMaker: d.Role == 1}, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

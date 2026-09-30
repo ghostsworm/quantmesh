@@ -35,6 +35,7 @@ type bybitSpotFakeServer struct {
 	orderBody map[string]interface{}
 	orders    int
 	fillsURI  string
+	fillsJSON string
 }
 
 func (f *bybitSpotFakeServer) handler(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +50,10 @@ func (f *bybitSpotFakeServer) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"orderId":"42","orderLinkId":"c1"}}`)
 	case "/v5/execution/list":
 		f.fillsURI = r.URL.RequestURI()
+		if f.fillsJSON != "" {
+			_, _ = io.WriteString(w, f.fillsJSON)
+			return
+		}
 		_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"list":[
 			{"orderId":"42","symbol":"BTCUSDT","side":"Buy","execPrice":"60000","execQty":"0.01","execFee":"0.00001","feeCurrency":"BTC","isMaker":true,"execTime":"1700000000000","tradeId":"t1"},
 			{"orderId":"42","symbol":"BTCUSDT","side":"Sell","execPrice":"60010","execQty":"0.01","execFee":"0.6001","feeCurrency":"USDT","isMaker":false,"execTime":"1700000000001","tradeId":"t2"}]}}`)
@@ -186,6 +191,29 @@ func TestBybitSpotGetOrderFillsConvertsFee(t *testing.T) {
 	}
 	if math.Abs(fills[1].Commission-0.6001) > 1e-9 || fills[1].CommissionAsset != "USDT" || fills[1].BaseFeeQty != 0 {
 		t.Fatalf("fill1=%+v", fills[1])
+	}
+}
+
+func TestBybitSpotExecutionRejectsUnverifiedFeeFields(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		feeFields string
+	}{
+		{name: "missing fee currency", feeFields: `"execFee":"0.01"`},
+		{name: "malformed fee amount", feeFields: `"execFee":"invalid","feeCurrency":"USDT"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &bybitSpotFakeServer{fillsJSON: `{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"42","symbol":"BTCUSDT","side":"Buy","execPrice":"60000","execQty":"0.01",` + tc.feeFields + `,"execTime":"1700000000000","tradeId":"bad-fee"}]}}`}
+			srv := httptest.NewServer(http.HandlerFunc(fake.handler))
+			defer srv.Close()
+			b := newTestBybitSpotAdapter(t, srv.URL)
+			if _, _, err := b.GetOrderHistoryPage(context.Background(), "BTCUSDT", 1, 1700000000001, "", 10); err == nil {
+				t.Fatal("history page must reject incomplete fee evidence")
+			}
+			if _, err := b.GetOrderFills(context.Background(), "BTCUSDT", 42); err == nil {
+				t.Fatal("order fill query must reject incomplete fee evidence")
+			}
+		})
 	}
 }
 

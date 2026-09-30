@@ -719,18 +719,34 @@ func (b *BybitSpotAdapter) GetOrderHistoryPage(ctx context.Context, symbol strin
 	}
 	fills := make([]*BybitSpotOrderFill, 0, len(rows))
 	for _, row := range rows {
-		orderID, e1 := strconv.ParseInt(row.OrderId, 10, 64)
-		price, e2 := strconv.ParseFloat(row.ExecPrice, 64)
-		qty, e3 := strconv.ParseFloat(row.ExecQty, 64)
-		fee, e4 := strconv.ParseFloat(row.ExecFee, 64)
-		tradeTime, e5 := strconv.ParseInt(row.ExecTime, 10, 64)
-		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || orderID <= 0 || row.TradeId == "" || row.Symbol != symbol || price <= 0 || qty <= 0 || tradeTime <= 0 {
-			return nil, "", fmt.Errorf("Bybit returned invalid spot execution tradeId=%s", row.TradeId)
+		fill, err := b.parseSpotExecutionFill(row, symbol, 0)
+		if err != nil {
+			return nil, "", err
 		}
-		commission, commissionAsset := b.spotCommissionToQuote(fee, row.FeeCurrency, price)
-		fills = append(fills, &BybitSpotOrderFill{BybitOrderFill: BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: commission, CommissionAsset: commissionAsset, TradeTime: tradeTime, IsMaker: row.IsMaker}, BaseFeeQty: spotBaseFeeQty(fee, row.FeeCurrency, b.baseAsset)})
+		fills = append(fills, fill)
 	}
 	return fills, next, nil
+}
+
+func (b *BybitSpotAdapter) parseSpotExecutionFill(row BybitExecution, expectedSymbol string, expectedOrderID int64) (*BybitSpotOrderFill, error) {
+	orderID, orderErr := strconv.ParseInt(row.OrderId, 10, 64)
+	price, priceErr := strconv.ParseFloat(row.ExecPrice, 64)
+	quantity, quantityErr := strconv.ParseFloat(row.ExecQty, 64)
+	fee, feeErr := strconv.ParseFloat(row.ExecFee, 64)
+	tradeTime, timeErr := strconv.ParseInt(row.ExecTime, 10, 64)
+	_, sideErr := ToInternalSide(Side(row.Side))
+	if orderErr != nil || priceErr != nil || quantityErr != nil || feeErr != nil || timeErr != nil || sideErr != nil ||
+		orderID <= 0 || (expectedOrderID > 0 && orderID != expectedOrderID) || strings.TrimSpace(row.TradeId) == "" ||
+		!strings.EqualFold(strings.TrimSpace(row.Symbol), strings.TrimSpace(expectedSymbol)) ||
+		math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 || math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity <= 0 ||
+		math.IsNaN(fee) || math.IsInf(fee, 0) ||
+		strings.TrimSpace(row.FeeCurrency) == "" || tradeTime <= 0 {
+		return nil, fmt.Errorf("Bybit returned invalid or incomplete spot execution evidence tradeId=%s", row.TradeId)
+	}
+	commission, commissionAsset := b.spotCommissionToQuote(fee, row.FeeCurrency, price)
+	return &BybitSpotOrderFill{BybitOrderFill: BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side,
+		Price: price, Quantity: quantity, Commission: commission, CommissionAsset: commissionAsset, TradeTime: tradeTime, IsMaker: row.IsMaker},
+		BaseFeeQty: spotBaseFeeQty(fee, row.FeeCurrency, b.baseAsset)}, nil
 }
 
 // spotBaseFeeQty 手續費幣種為基礎幣且為支出時返回基礎幣數量，否則為 0
@@ -744,6 +760,9 @@ func spotBaseFeeQty(fee float64, feeCcy, baseAsset string) float64 {
 // GetOrderFills 查詢成交明細（category=spot）。Commission 支出為正、返佣為負（Bybit execFee 原生口徑），已換算為計價幣；
 // 以基礎幣收取的手續費另在 BaseFeeQty 中給出原始數量。
 func (b *BybitSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*BybitSpotOrderFill, error) {
+	if b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || (orderID < 0) || !strings.EqualFold(strings.TrimSpace(symbol), b.symbol) {
+		return nil, fmt.Errorf("Bybit spot execution lookup requires the configured symbol and a non-negative order ID")
+	}
 	oid := ""
 	if orderID != 0 {
 		oid = strconv.FormatInt(orderID, 10)
@@ -754,36 +773,11 @@ func (b *BybitSpotAdapter) GetOrderFills(ctx context.Context, symbol string, ord
 	}
 	fills := make([]*BybitSpotOrderFill, 0, len(executions))
 	for _, exec := range executions {
-		price, err := strconv.ParseFloat(exec.ExecPrice, 64)
+		fill, err := b.parseSpotExecutionFill(exec, symbol, orderID)
 		if err != nil {
-			return nil, fmt.Errorf("Bybit 現貨成交明細 tradeId=%s execPrice 無效 %q: %w", exec.TradeId, exec.ExecPrice, err)
+			return nil, err
 		}
-		qty, err := strconv.ParseFloat(exec.ExecQty, 64)
-		if err != nil {
-			return nil, fmt.Errorf("Bybit 現貨成交明細 tradeId=%s execQty 無效 %q: %w", exec.TradeId, exec.ExecQty, err)
-		}
-		fee, _ := strconv.ParseFloat(exec.ExecFee, 64)
-		tradeTime, _ := strconv.ParseInt(exec.ExecTime, 10, 64)
-		ordID, _ := strconv.ParseInt(exec.OrderId, 10, 64)
-		if ordID == 0 {
-			ordID = orderID
-		}
-		commission, commissionAsset := b.spotCommissionToQuote(fee, exec.FeeCurrency, price)
-		fills = append(fills, &BybitSpotOrderFill{
-			BybitOrderFill: BybitOrderFill{
-				OrderID:         ordID,
-				TradeID:         exec.TradeId,
-				Symbol:          b.symbol,
-				Side:            exec.Side,
-				Price:           price,
-				Quantity:        qty,
-				Commission:      commission,
-				CommissionAsset: commissionAsset,
-				TradeTime:       tradeTime,
-				IsMaker:         exec.IsMaker,
-			},
-			BaseFeeQty: spotBaseFeeQty(fee, exec.FeeCurrency, b.baseAsset),
-		})
+		fills = append(fills, fill)
 	}
 	return fills, nil
 }

@@ -74,8 +74,8 @@ func (s *SQLStorage) AdvanceOrderFillCoverage(exchange, marketType, symbol, acco
 			return fmt.Errorf("order fill scope hash collision")
 		}
 		oldFrom, oldThrough = utils.ToUTC(oldFrom), utils.ToUTC(oldThrough)
-		if from.After(oldThrough) {
-			return fmt.Errorf("refusing to advance order fill coverage across a gap")
+		if from.After(oldThrough) || through.Before(oldFrom) {
+			return fmt.Errorf("refusing to merge order fill coverage across a gap")
 		}
 		if oldFrom.Before(from) {
 			from = oldFrom

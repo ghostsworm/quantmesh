@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -287,29 +289,53 @@ func (w *gateSpotWrapper) GetOrderFills(ctx context.Context, symbol string, orde
 	}
 	out := make([]*OrderFill, 0, len(rows))
 	for _, r := range rows {
-		side := SideBuy
-		if strings.EqualFold(r.Side, "sell") {
-			side = SideSell
+		fill, err := convertGateSpotTrade(r, symbol, orderID)
+		if err != nil {
+			return nil, err
 		}
-		price, _ := strconv.ParseFloat(r.Price, 64)
-		qty, _ := strconv.ParseFloat(r.Amount, 64)
-		fee, _ := strconv.ParseFloat(r.Fee, 64)
-		ts, _ := strconv.ParseInt(r.CreateTime, 10, 64)
-		oid, _ := strconv.ParseInt(r.OrderID, 10, 64)
-		out = append(out, &OrderFill{
-			OrderID:         oid,
-			TradeID:         r.ID,
-			Symbol:          symbol,
-			Side:            side,
-			Price:           price,
-			Quantity:        qty,
-			Commission:      fee,
-			CommissionAsset: r.FeeCurrency,
-			TradeTime:       ts * 1000,
-			IsMaker:         false,
-		})
+		out = append(out, fill)
 	}
 	return out, nil
+}
+
+func convertGateSpotTrade(r gate.GateSpotTrade, symbol string, requestedOrderID int64) (*OrderFill, error) {
+	if r.ID == "" || r.CurrencyPair == "" || r.FeeCurrency == "" {
+		return nil, fmt.Errorf("Gate 現貨成交缺少成交 ID、交易對或手续费币种")
+	}
+	var side Side
+	switch strings.ToLower(r.Side) {
+	case "buy":
+		side = SideBuy
+	case "sell":
+		side = SideSell
+	default:
+		return nil, fmt.Errorf("Gate 現貨成交 %s 方向无效: %q", r.ID, r.Side)
+	}
+	price, err := strconv.ParseFloat(r.Price, 64)
+	if err != nil || !isFinitePositive(price) {
+		return nil, fmt.Errorf("Gate 現貨成交 %s 价格无效", r.ID)
+	}
+	qty, err := strconv.ParseFloat(r.Amount, 64)
+	if err != nil || !isFinitePositive(qty) {
+		return nil, fmt.Errorf("Gate 現貨成交 %s 数量无效", r.ID)
+	}
+	fee, err := strconv.ParseFloat(r.Fee, 64)
+	if err != nil || math.IsNaN(fee) || math.IsInf(fee, 0) {
+		return nil, fmt.Errorf("Gate 現貨成交 %s 手续费无效", r.ID)
+	}
+	ts, err := strconv.ParseInt(r.CreateTime, 10, 64)
+	if err != nil || ts <= 0 || ts > math.MaxInt64/1000 {
+		return nil, fmt.Errorf("Gate 現貨成交 %s 时间无效", r.ID)
+	}
+	oid, err := strconv.ParseInt(r.OrderID, 10, 64)
+	if err != nil || oid <= 0 || (requestedOrderID > 0 && oid != requestedOrderID) {
+		return nil, fmt.Errorf("Gate 現貨成交 %s 订单归属无效", r.ID)
+	}
+	return &OrderFill{OrderID: oid, TradeID: r.ID, Symbol: symbol, Side: side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: r.FeeCurrency, TradeTime: ts * 1000}, nil
+}
+
+func isFinitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func (w *gateSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

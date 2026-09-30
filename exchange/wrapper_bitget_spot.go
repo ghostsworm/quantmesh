@@ -2,6 +2,8 @@ package exchange
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -297,36 +299,63 @@ func (w *bitgetSpotWrapper) GetOrderFills(ctx context.Context, symbol string, or
 	}
 	out := make([]*OrderFill, 0, len(rows))
 	for _, r := range rows {
-		side := SideBuy
-		if strings.EqualFold(r.Side, "sell") {
-			side = SideSell
+		fill, err := convertBitgetSpotFill(r, symbol, orderID)
+		if err != nil {
+			return nil, err
 		}
-		price, _ := strconv.ParseFloat(r.PriceAvg, 64)
-		qty, _ := strconv.ParseFloat(r.Size, 64)
-		ts, _ := strconv.ParseInt(r.CTime, 10, 64)
-		oid, _ := strconv.ParseInt(r.OrderId, 10, 64)
-		comm := 0.0
-		commAsset := "USDT"
-		if len(r.FeeDetail) > 0 {
-			comm, _ = strconv.ParseFloat(r.FeeDetail[0].Fee, 64)
-			if r.FeeDetail[0].FeeCoin != "" {
-				commAsset = r.FeeDetail[0].FeeCoin
-			}
-		}
-		out = append(out, &OrderFill{
-			OrderID:         oid,
-			TradeID:         r.TradeId,
-			Symbol:          r.Symbol,
-			Side:            side,
-			Price:           price,
-			Quantity:        qty,
-			Commission:      comm,
-			CommissionAsset: commAsset,
-			TradeTime:       ts,
-			IsMaker:         false,
-		})
+		out = append(out, fill)
 	}
 	return out, nil
+}
+
+func convertBitgetSpotFill(r bitget.BitgetSpotFill, requestedSymbol string, requestedOrderID int64) (*OrderFill, error) {
+	if r.TradeId == "" || !strings.EqualFold(r.Symbol, requestedSymbol) || len(r.FeeDetail) == 0 {
+		return nil, fmt.Errorf("Bitget 現貨成交缺少成交身份、交易对或手续费明细")
+	}
+	var side Side
+	switch strings.ToLower(r.Side) {
+	case "buy":
+		side = SideBuy
+	case "sell":
+		side = SideSell
+	default:
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 方向无效: %q", r.TradeId, r.Side)
+	}
+	price, err := strconv.ParseFloat(r.PriceAvg, 64)
+	if err != nil || !isFinitePositive(price) {
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 价格无效", r.TradeId)
+	}
+	qty, err := strconv.ParseFloat(r.Size, 64)
+	if err != nil || !isFinitePositive(qty) {
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 数量无效", r.TradeId)
+	}
+	ts, err := strconv.ParseInt(r.CTime, 10, 64)
+	if err != nil || ts <= 0 {
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 时间无效", r.TradeId)
+	}
+	oid, err := strconv.ParseInt(r.OrderId, 10, 64)
+	if err != nil || oid <= 0 || (requestedOrderID > 0 && oid != requestedOrderID) {
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 订单归属无效", r.TradeId)
+	}
+	feeAsset := strings.TrimSpace(r.FeeDetail[0].FeeCoin)
+	if feeAsset == "" {
+		return nil, fmt.Errorf("Bitget 現貨成交 %s 缺少手续费币种", r.TradeId)
+	}
+	fee := 0.0
+	for _, detail := range r.FeeDetail {
+		if !strings.EqualFold(strings.TrimSpace(detail.FeeCoin), feeAsset) {
+			return nil, fmt.Errorf("Bitget 現貨成交 %s 手续费币种不一致", r.TradeId)
+		}
+		amount, parseErr := strconv.ParseFloat(detail.Fee, 64)
+		if parseErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) {
+			return nil, fmt.Errorf("Bitget 現貨成交 %s 手续费无效", r.TradeId)
+		}
+		fee += amount
+		if math.IsNaN(fee) || math.IsInf(fee, 0) {
+			return nil, fmt.Errorf("Bitget 現貨成交 %s 手续费溢出", r.TradeId)
+		}
+	}
+	return &OrderFill{OrderID: oid, TradeID: r.TradeId, Symbol: r.Symbol, Side: side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: feeAsset, TradeTime: ts}, nil
 }
 
 func (w *bitgetSpotWrapper) GetSpotPrice(ctx context.Context, symbol string) (float64, error) {

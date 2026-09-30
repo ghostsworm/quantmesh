@@ -32,6 +32,7 @@ type okxSpotFakeServer struct {
 	orderBody map[string]interface{}
 	orders    int
 	fillsURI  string
+	fillsJSON string
 }
 
 func (f *okxSpotFakeServer) handler(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +47,10 @@ func (f *okxSpotFakeServer) handler(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, `{"code":"0","msg":"","data":[{"ordId":"77","clOrdId":"c1","sCode":"0","sMsg":""}]}`)
 	case r.URL.Path == "/api/v5/trade/fills":
 		f.fillsURI = r.URL.RequestURI()
+		if f.fillsJSON != "" {
+			_, _ = io.WriteString(w, f.fillsJSON)
+			return
+		}
 		_, _ = io.WriteString(w, `{"code":"0","msg":"","data":[
 			{"instId":"BTC-USDT","ordId":"77","tradeId":"t1","side":"buy","fillSz":"0.01","fillPx":"60000","fee":"-0.00001","feeCcy":"BTC","execType":"M","ts":"1700000000000"},
 			{"instId":"BTC-USDT","ordId":"77","tradeId":"t2","side":"sell","fillSz":"0.01","fillPx":"60010","fee":"-0.6001","feeCcy":"USDT","execType":"T","ts":"1700000000001"}]}`)
@@ -253,6 +258,26 @@ func TestOKXSpotGetOrderFillsConvertsFee(t *testing.T) {
 	}
 	if math.Abs(fills[1].Commission-0.6001) > 1e-9 || fills[1].CommissionAsset != "USDT" || fills[1].Side != SideSell || fills[1].BaseFeeQty != 0 {
 		t.Fatalf("fill1=%+v", fills[1])
+	}
+}
+
+func TestOKXSpotExecutionRejectsUnverifiedFeeFields(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		feeFields string
+	}{
+		{name: "missing fee currency", feeFields: `"fee":"-0.01"`},
+		{name: "malformed fee amount", feeFields: `"fee":"invalid","feeCcy":"USDT"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &okxSpotFakeServer{fillsJSON: `{"code":"0","msg":"","data":[{"instId":"BTC-USDT","ordId":"77","tradeId":"bad-fee","side":"buy","fillSz":"0.01","fillPx":"60000",` + tc.feeFields + `,"execType":"M","ts":"1700000000000"}]}`}
+			srv := httptest.NewServer(http.HandlerFunc(fake.handler))
+			defer srv.Close()
+			a := newTestOKXSpotAdapter(t, srv.URL)
+			if _, err := a.GetOrderFills(context.Background(), "BTCUSDT", 77); err == nil {
+				t.Fatal("spot order fills must reject incomplete fee evidence")
+			}
+		})
 	}
 }
 

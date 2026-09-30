@@ -387,7 +387,7 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 		SELECT COALESCE(SUM(realized_pnl), 0) - COALESCE(SUM(commission), 0),
 		       COALESCE(SUM(CASE WHEN realized_pnl IS NULL THEN 1 ELSE 0 END), 0),
 		       COALESCE(SUM(CASE WHEN realized_pnl IS NOT NULL AND UPPER(TRIM(COALESCE(realized_pnl_asset, ''))) <> 'USDT' THEN 1 ELSE 0 END), 0),
-		       COALESCE(SUM(CASE WHEN COALESCE(commission, 0) <> 0 AND UPPER(COALESCE(commission_asset, '')) <> 'USDT' THEN 1 ELSE 0 END), 0)
+		       COALESCE(SUM(CASE WHEN TRIM(COALESCE(commission_asset, '')) = '' OR (COALESCE(commission, 0) <> 0 AND UPPER(TRIM(commission_asset)) <> 'USDT') THEN 1 ELSE 0 END), 0)
 		FROM order_fills
 		WHERE exchange = ? AND account_scope = ? AND market_type = 'futures' AND symbol = ?
 		  AND trade_time > ? AND trade_time <= ?`, exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&total, &unknownPnL, &unvaluedPnLAsset, &unvaluedFees); err != nil {

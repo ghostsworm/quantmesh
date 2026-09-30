@@ -454,6 +454,9 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 	freshProfit := new(big.Rat)
 	seenProfitEntries := make(map[string]struct{})
 	for _, entry := range ledger.Entries {
+		if entry.At.IsZero() {
+			return fmt.Errorf("account income evidence contains an entry without a timestamp; withdrawal is disabled")
+		}
 		if !entry.At.After(windowStart) || entry.At.After(windowEnd) {
 			continue
 		}

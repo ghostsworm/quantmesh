@@ -43,7 +43,7 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	fills := []OrderFill{
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
 		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-open-execution", OrderID: 503, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.5, CommissionAsset: "USDT", RealizedPnL: &openFillPnL, RealizedPnLAsset: "USDT", TradeTime: now},
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
 	}
 	for i := range fills {
 		if err := st.SaveOrderFill(&fills[i]); err != nil {
@@ -165,6 +165,31 @@ func TestGetRealizedPnLForWithdrawalRejectsNonUSDTTradeFees(t *testing.T) {
 	}
 	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
 		t.Fatal("non-USDT execution fee must block automatic withdrawal")
+	}
+}
+
+func TestGetRealizedPnLForWithdrawalRejectsMissingFeeCurrencyEvenWhenFeeIsZero(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdrawal-missing-fee-currency.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	start, end := now.Add(-time.Minute), now.Add(time.Minute)
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+		t.Fatal(err)
+	}
+	realized := 10.0
+	fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "missing-fee-currency", OrderID: 506,
+		Side: "SELL", Price: 100, Quantity: 1, Commission: 0, RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now}
+	if err := st.SaveOrderFill(&fill); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+		t.Fatal("missing fee currency must block withdrawal even when a malformed adapter reports zero commission")
 	}
 }
 

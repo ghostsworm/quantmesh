@@ -231,3 +231,45 @@ func TestWhiteBITAPIEdgeResponses(t *testing.T) {
 		}
 	})
 }
+
+func TestWhiteBITAdapterGetOrderFillsPaginatesToCompleteLedger(t *testing.T) {
+	pageOffsets := make([]int, 0, 2)
+	client, closeServer := newMockWhiteBITClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Offset int `json:"offset"`
+			Limit  int `json:"limit"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		pageOffsets = append(pageOffsets, request.Offset)
+		rows := make([]OrderDealRecord, 0, request.Limit)
+		start := request.Offset + 1
+		end := start + request.Limit
+		if end > 102 {
+			end = 102
+		}
+		for id := start; id < end; id++ {
+			rows = append(rows, OrderDealRecord{ID: int64(id), DealOrderID: 77})
+		}
+		payload, err := json.Marshal(map[string]interface{}{"records": rows})
+		if err != nil {
+			t.Errorf("encode page: %v", err)
+			return
+		}
+		_, _ = w.Write(payload)
+	})
+	defer closeServer()
+	adapter := &WhiteBITAdapter{client: client}
+	fills, err := adapter.GetOrderFills(context.Background(), "BTC_USDT", 77)
+	if err != nil {
+		t.Fatalf("GetOrderFills() error = %v", err)
+	}
+	if len(fills) != 101 {
+		t.Fatalf("GetOrderFills() returned %d records, want 101", len(fills))
+	}
+	if len(pageOffsets) != 2 || pageOffsets[0] != 0 || pageOffsets[1] != 100 {
+		t.Fatalf("requested offsets = %v, want [0 100]", pageOffsets)
+	}
+}

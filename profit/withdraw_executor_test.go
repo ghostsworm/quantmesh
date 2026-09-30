@@ -348,6 +348,10 @@ func TestValidateTransferSafetyCapsAmountAtFreshExchangeLedgerProfit(t *testing.
 			{ID: "pnl-4", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
 			{ID: "fee-4", Kind: "fee", Currency: "USDT", Amount: "1", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
 		}, amount: 5, wantErr: true},
+		{name: "entry without timestamp", entries: []accounting.Entry{
+			{ID: "pnl-5", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "unknown-time-fee", Kind: "fee", Currency: "USDT", Amount: "-9"},
+		}, amount: 5, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

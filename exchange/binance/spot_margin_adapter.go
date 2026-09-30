@@ -671,11 +671,18 @@ func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol str
 		return nil, err
 	}
 	fills := make([]*OrderFill, 0, len(trades))
+	var reconciledQuantity float64
 	for _, trade := range trades {
+		if trade == nil || trade.ID <= 0 || trade.OrderID != orderID || !strings.EqualFold(trade.Symbol, sym) ||
+			trade.Time <= 0 || strings.TrimSpace(trade.CommissionAsset) == "" {
+			return nil, fmt.Errorf("margin order %d returned incomplete trade identity, timestamp, or commission asset", orderID)
+		}
 		price, priceErr := strconv.ParseFloat(trade.Price, 64)
 		qty, qtyErr := strconv.ParseFloat(trade.Quantity, 64)
 		commission, commissionErr := strconv.ParseFloat(trade.Commission, 64)
-		if priceErr != nil || qtyErr != nil || commissionErr != nil || price <= 0 || qty <= 0 || commission < 0 {
+		if priceErr != nil || qtyErr != nil || commissionErr != nil || math.IsNaN(price) || math.IsInf(price, 0) ||
+			math.IsNaN(qty) || math.IsInf(qty, 0) || math.IsNaN(commission) || math.IsInf(commission, 0) ||
+			price <= 0 || qty <= 0 || commission < 0 {
 			return nil, fmt.Errorf("margin order %d trade %d contains invalid price, quantity, or commission", orderID, trade.ID)
 		}
 		commissionAsset := trade.CommissionAsset
@@ -692,6 +699,14 @@ func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol str
 			Side: side, Price: price, Quantity: qty, Commission: commission,
 			CommissionAsset: commissionAsset, TradeTime: trade.Time, IsMaker: trade.IsMaker, BaseFeeQty: baseFeeQty,
 		})
+		reconciledQuantity += qty
+		if math.IsNaN(reconciledQuantity) || math.IsInf(reconciledQuantity, 0) {
+			return nil, fmt.Errorf("margin order %d execution quantity overflowed during reconciliation", orderID)
+		}
+	}
+	quantityTolerance := math.Max(1e-8, math.Abs(order.ExecutedQty)*1e-8)
+	if math.Abs(reconciledQuantity-order.ExecutedQty) > quantityTolerance {
+		return nil, fmt.Errorf("margin order %d execution ledger quantity %.12g does not match order executed quantity %.12g", orderID, reconciledQuantity, order.ExecutedQty)
 	}
 	return fills, nil
 }

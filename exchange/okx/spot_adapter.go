@@ -807,6 +807,9 @@ type OKXSpotOrderFill struct {
 // Commission 為「支出為正、返佣為負」，並已換算為計價幣（規則見 spotCommissionToQuote）。
 // 以基礎幣收取的手續費另在 BaseFeeQty 中給出原始數量（基礎幣單位，>=0）。
 func (o *OKXSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OKXSpotOrderFill, error) {
+	if o == nil || o.client == nil || strings.TrimSpace(symbol) == "" || orderID < 0 || !strings.EqualFold(strings.TrimSpace(symbol), o.symbol) {
+		return nil, fmt.Errorf("OKX spot execution lookup requires the configured symbol and a non-negative order ID")
+	}
 	ord := ""
 	if orderID != 0 {
 		ord = strconv.FormatInt(orderID, 10)
@@ -817,21 +820,31 @@ func (o *OKXSpotAdapter) GetOrderFills(ctx context.Context, symbol string, order
 	}
 	fills := make([]*OKXSpotOrderFill, 0, len(rows))
 	for _, r := range rows {
+		if !strings.EqualFold(strings.TrimSpace(r.InstId), o.instId) || strings.TrimSpace(r.TradeId) == "" || strings.TrimSpace(r.FeeCcy) == "" {
+			return nil, fmt.Errorf("OKX returned incomplete spot execution identity or fee currency tradeId=%s", r.TradeId)
+		}
+		if _, err := ToInternalSide(Side(strings.ToLower(strings.TrimSpace(r.Side)))); err != nil {
+			return nil, fmt.Errorf("OKX spot execution %s has invalid side %q", r.TradeId, r.Side)
+		}
+		ordID, err := strconv.ParseInt(r.OrdId, 10, 64)
+		if err != nil || ordID <= 0 || (orderID > 0 && ordID != orderID) {
+			return nil, fmt.Errorf("OKX spot execution %s has invalid or mismatched order ID %q", r.TradeId, r.OrdId)
+		}
 		price, err := strconv.ParseFloat(r.FillPx, 64)
-		if err != nil {
-			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillPx 無效 %q: %w", r.TradeId, r.FillPx, err)
+		if err != nil || math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 {
+			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillPx 無效 %q", r.TradeId, r.FillPx)
 		}
 		sz, err := strconv.ParseFloat(r.FillSz, 64)
-		if err != nil {
-			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillSz 無效 %q: %w", r.TradeId, r.FillSz, err)
+		if err != nil || math.IsNaN(sz) || math.IsInf(sz, 0) || sz <= 0 {
+			return nil, fmt.Errorf("OKX 現貨成交明細 tradeId=%s fillSz 無效 %q", r.TradeId, r.FillSz)
 		}
-		fee, _ := strconv.ParseFloat(r.Fee, 64)
-		ts, _ := strconv.ParseInt(r.Ts, 10, 64)
-		ordID := orderID
-		if r.OrdId != "" {
-			if v, err := strconv.ParseInt(r.OrdId, 10, 64); err == nil {
-				ordID = v
-			}
+		fee, err := strconv.ParseFloat(r.Fee, 64)
+		if err != nil || math.IsNaN(fee) || math.IsInf(fee, 0) {
+			return nil, fmt.Errorf("OKX spot execution %s has invalid fee %q", r.TradeId, r.Fee)
+		}
+		ts, err := strconv.ParseInt(r.Ts, 10, 64)
+		if err != nil || ts <= 0 {
+			return nil, fmt.Errorf("OKX spot execution %s has invalid timestamp %q", r.TradeId, r.Ts)
 		}
 		rawCommission := okxFeeToCommission(fee)
 		commission, commissionAsset := o.spotCommissionToQuote(rawCommission, r.FeeCcy, price)

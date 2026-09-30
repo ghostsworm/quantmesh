@@ -1052,25 +1052,20 @@ func (b *BybitAdapter) GetOrderHistoryPage(ctx context.Context, symbol string, s
 	}
 	fills := make([]*BybitOrderFill, 0, len(rows))
 	for _, row := range rows {
-		orderID, e1 := strconv.ParseInt(row.OrderId, 10, 64)
-		price, e2 := strconv.ParseFloat(row.ExecPrice, 64)
-		qty, e3 := strconv.ParseFloat(row.ExecQty, 64)
-		fee, e4 := strconv.ParseFloat(row.ExecFee, 64)
-		tradeTime, e5 := strconv.ParseInt(row.ExecTime, 10, 64)
-		if e1 != nil || e2 != nil || e3 != nil || e4 != nil || e5 != nil || orderID <= 0 || row.TradeId == "" || row.Symbol != symbol || price <= 0 || qty <= 0 || tradeTime <= 0 {
-			return nil, "", fmt.Errorf("Bybit returned invalid linear execution tradeId=%s", row.TradeId)
-		}
-		pnl, pnlKnown, pnlAsset, err := bybitExecutionRealizedPnL(row, b.settleAsset)
+		fill, err := parseBybitExecutionFill(row, symbol, 0, b.settleAsset)
 		if err != nil {
-			return nil, "", fmt.Errorf("parse Bybit realized PnL tradeId=%s: %w", row.TradeId, err)
+			return nil, "", err
 		}
-		fills = append(fills, &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price, Quantity: qty, Commission: fee, CommissionAsset: row.FeeCurrency, TradeTime: tradeTime, IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: pnlKnown, RealizedPnLAsset: pnlAsset})
+		fills = append(fills, fill)
 	}
 	return fills, next, nil
 }
 
 // GetOrderFills 查詢訂單成交記錄（用於獲取手續費）
 func (b *BybitAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*BybitOrderFill, error) {
+	if b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || orderID <= 0 {
+		return nil, fmt.Errorf("Bybit execution lookup requires an adapter, symbol, and positive order ID")
+	}
 	executions, err := b.client.GetOrderFills(ctx, "linear", symbol, strconv.FormatInt(orderID, 10))
 	if err != nil {
 		return nil, err
@@ -1078,33 +1073,37 @@ func (b *BybitAdapter) GetOrderFills(ctx context.Context, symbol string, orderID
 
 	fills := make([]*BybitOrderFill, 0, len(executions))
 	for _, exec := range executions {
-		price, _ := strconv.ParseFloat(exec.ExecPrice, 64)
-		qty, _ := strconv.ParseFloat(exec.ExecQty, 64)
-		commission, _ := strconv.ParseFloat(exec.ExecFee, 64)
-		tradeTime, _ := strconv.ParseInt(exec.ExecTime, 10, 64)
-		pnl, pnlKnown, pnlAsset, err := bybitExecutionRealizedPnL(exec, b.settleAsset)
+		fill, err := parseBybitExecutionFill(exec, symbol, orderID, b.settleAsset)
 		if err != nil {
-			return nil, fmt.Errorf("parse Bybit realized PnL tradeId=%s: %w", exec.TradeId, err)
+			return nil, err
 		}
-
-		fills = append(fills, &BybitOrderFill{
-			OrderID:          orderID,
-			TradeID:          exec.TradeId,
-			Symbol:           exec.Symbol,
-			Side:             exec.Side,
-			Price:            price,
-			Quantity:         qty,
-			Commission:       commission,
-			CommissionAsset:  exec.FeeCurrency,
-			TradeTime:        tradeTime,
-			IsMaker:          exec.IsMaker,
-			RealizedPnL:      pnl,
-			RealizedPnLKnown: pnlKnown,
-			RealizedPnLAsset: pnlAsset,
-		})
+		fills = append(fills, fill)
 	}
 
 	return fills, nil
+}
+
+func parseBybitExecutionFill(row BybitExecution, expectedSymbol string, expectedOrderID int64, settlementAsset string) (*BybitOrderFill, error) {
+	orderID, orderErr := strconv.ParseInt(row.OrderId, 10, 64)
+	price, priceErr := strconv.ParseFloat(row.ExecPrice, 64)
+	quantity, quantityErr := strconv.ParseFloat(row.ExecQty, 64)
+	commission, commissionErr := strconv.ParseFloat(row.ExecFee, 64)
+	tradeTime, timeErr := strconv.ParseInt(row.ExecTime, 10, 64)
+	_, sideErr := ToInternalSide(Side(row.Side))
+	if orderErr != nil || priceErr != nil || quantityErr != nil || commissionErr != nil || timeErr != nil || sideErr != nil ||
+		orderID <= 0 || (expectedOrderID > 0 && orderID != expectedOrderID) || strings.TrimSpace(row.TradeId) == "" ||
+		!strings.EqualFold(strings.TrimSpace(row.Symbol), strings.TrimSpace(expectedSymbol)) ||
+		math.IsNaN(price) || math.IsInf(price, 0) || price <= 0 || math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity <= 0 ||
+		math.IsNaN(commission) || math.IsInf(commission, 0) || strings.TrimSpace(row.FeeCurrency) == "" || tradeTime <= 0 {
+		return nil, fmt.Errorf("Bybit returned invalid or incomplete execution evidence tradeId=%s", row.TradeId)
+	}
+	pnl, pnlKnown, pnlAsset, err := bybitExecutionRealizedPnL(row, settlementAsset)
+	if err != nil {
+		return nil, fmt.Errorf("parse Bybit realized PnL tradeId=%s: %w", row.TradeId, err)
+	}
+	return &BybitOrderFill{OrderID: orderID, TradeID: row.TradeId, Symbol: row.Symbol, Side: row.Side, Price: price,
+		Quantity: quantity, Commission: commission, CommissionAsset: strings.TrimSpace(row.FeeCurrency), TradeTime: tradeTime,
+		IsMaker: row.IsMaker, RealizedPnL: pnl, RealizedPnLKnown: pnlKnown, RealizedPnLAsset: pnlAsset}, nil
 }
 
 func bybitExecutionRealizedPnL(row BybitExecution, settlementAsset string) (float64, bool, string, error) {

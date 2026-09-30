@@ -520,30 +520,58 @@ func (c *BybitClient) GetTransactionLogPage(ctx context.Context, category string
 
 // GetOrderFills 查詢訂單成交記錄
 func (c *BybitClient) GetOrderFills(ctx context.Context, category, symbol string, orderId string) ([]BybitExecution, error) {
-	params := map[string]interface{}{
-		"category": category,
+	const pageSize = 100
+	const maxPages = 1000
+	cursor := ""
+	seenCursors := make(map[string]struct{})
+	seenTradeIDs := make(map[string]struct{})
+	executions := make([]BybitExecution, 0, pageSize)
+	for page := 0; page < maxPages; page++ {
+		params := map[string]interface{}{"category": category, "limit": pageSize}
+		if symbol != "" {
+			params["symbol"] = symbol
+		}
+		if orderId != "" {
+			params["orderId"] = orderId
+		}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		data, err := c.request(ctx, "GET", "/v5/execution/list", params)
+		if err != nil {
+			return nil, fmt.Errorf("query Bybit execution page %d: %w", page+1, err)
+		}
+		var result struct {
+			List           []BybitExecution `json:"list"`
+			NextPageCursor string           `json:"nextPageCursor"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			return nil, fmt.Errorf("解析 Bybit 執行記錄页 %d 失败: %w", page+1, err)
+		}
+		for _, execution := range result.List {
+			if execution.TradeId == "" {
+				return nil, fmt.Errorf("Bybit execution page %d contains a row without trade ID", page+1)
+			}
+			if _, duplicate := seenTradeIDs[execution.TradeId]; duplicate {
+				return nil, fmt.Errorf("Bybit execution pagination repeated trade %s; completeness is unknown", execution.TradeId)
+			}
+			seenTradeIDs[execution.TradeId] = struct{}{}
+			executions = append(executions, execution)
+		}
+		nextCursor := strings.TrimSpace(result.NextPageCursor)
+		if nextCursor == "" {
+			return executions, nil
+		}
+		if nextCursor == cursor {
+			return nil, fmt.Errorf("Bybit execution pagination cursor did not advance: %q", nextCursor)
+		}
+		if _, duplicate := seenCursors[nextCursor]; duplicate {
+			return nil, fmt.Errorf("Bybit execution pagination repeated cursor %q", nextCursor)
+		}
+		seenCursors[nextCursor] = struct{}{}
+		cursor = nextCursor
 	}
-	if symbol != "" {
-		params["symbol"] = symbol
-	}
-	if orderId != "" {
-		params["orderId"] = orderId
-	}
-
-	data, err := c.request(ctx, "GET", "/v5/execution/list", params)
-	if err != nil {
-		return nil, err
-	}
-
-	var result struct {
-		List []BybitExecution `json:"list"`
-	}
-
-	if err := json.Unmarshal(data, &result); err != nil {
-		return nil, fmt.Errorf("解析執行記錄失败: %w", err)
-	}
-
-	return result.List, nil
+	return nil, fmt.Errorf("Bybit execution history exceeded %d pages; completeness is unknown", maxPages)
 }
 
 // Kline K線數據

@@ -126,3 +126,37 @@ func TestSpotMarginOrderFillsUseMarginLedgerAndPreserveBaseFee(t *testing.T) {
 		t.Fatalf("margin fill mapping lost order/fee evidence: %+v", fill)
 	}
 }
+
+func TestSpotMarginOrderFillsRejectMissingExecutionEvidence(t *testing.T) {
+	createdAt := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
+	tradeCases := []struct {
+		name string
+		row  string
+	}{
+		{name: "missing fee asset", row: `{"id":9,"symbol":"BTCUSDT","orderId":71,"price":"100","qty":"0.5","quoteQty":"50","commission":"0","commissionAsset":"","time":1790503200000,"isBuyer":true}`},
+		{name: "wrong order", row: `{"id":9,"symbol":"BTCUSDT","orderId":72,"price":"100","qty":"0.5","quoteQty":"50","commission":"0","commissionAsset":"USDT","time":1790503200000,"isBuyer":true}`},
+		{name: "invalid timestamp", row: `{"id":9,"symbol":"BTCUSDT","orderId":71,"price":"100","qty":"0.5","quoteQty":"50","commission":"0","commissionAsset":"USDT","time":0,"isBuyer":true}`},
+	}
+	for _, test := range tradeCases {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/sapi/v1/margin/order":
+					fmt.Fprintf(w, `{"symbol":"BTCUSDT","orderId":71,"price":"100","origQty":"1","executedQty":"0.5","cummulativeQuoteQty":"50","status":"PARTIALLY_FILLED","time":%d,"updateTime":%d,"side":"BUY"}`,
+						createdAt.UnixMilli(), createdAt.Add(time.Minute).UnixMilli())
+				case "/sapi/v1/margin/myTrades":
+					fmt.Fprintf(w, `[%s]`, test.row)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint(server.URL)
+			spot := &BinanceSpotAdapter{client: client, symbol: "BTCUSDT", baseAsset: "BTC", apiKey: "api-key", secretKey: "api-secret"}
+			adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: spot, marginClient: NewMarginClient(client)}
+			if _, err := adapter.GetOrderFills(context.Background(), "BTCUSDT", 71); err == nil {
+				t.Fatal("expected incomplete margin execution evidence to be rejected")
+			}
+		})
+	}
+}

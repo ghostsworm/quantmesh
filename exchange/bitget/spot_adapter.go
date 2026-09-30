@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -732,17 +733,43 @@ type BitgetSpotFill struct {
 
 // GetOrderFills 查詢成交記錄（/api/v2/spot/trade/fills）
 func (b *BitgetSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]BitgetSpotFill, error) {
-	path := fmt.Sprintf("/api/v2/spot/trade/fills?symbol=%s", b.symbol)
+	if b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || orderID < 0 || !strings.EqualFold(strings.TrimSpace(symbol), b.symbol) {
+		return nil, fmt.Errorf("Bitget spot fill lookup requires the configured symbol and a non-negative order ID")
+	}
+	const pageSize = 100
+	const maxPages = 1000
+	path := fmt.Sprintf("/api/v2/spot/trade/fills?symbol=%s&limit=%d", url.QueryEscape(b.symbol), pageSize)
 	if orderID != 0 {
 		path += fmt.Sprintf("&orderId=%d", orderID)
 	}
-	resp, err := b.client.DoRequest(ctx, "GET", path, nil)
-	if err != nil {
-		return nil, err
+	allFills := make([]BitgetSpotFill, 0, pageSize)
+	seenTradeIDs := make(map[string]struct{})
+	for page := 0; page < maxPages; page++ {
+		pagePath := path
+		if len(allFills) > 0 {
+			pagePath += "&idLessThan=" + url.QueryEscape(allFills[len(allFills)-1].TradeId)
+		}
+		resp, err := b.client.DoRequest(ctx, "GET", pagePath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("query Bitget spot fill page %d: %w", page+1, err)
+		}
+		var rows []BitgetSpotFill
+		if err := json.Unmarshal(resp.Data, &rows); err != nil {
+			return nil, fmt.Errorf("解析 Bitget 現貨成交页 %d 失败: %w", page+1, err)
+		}
+		for _, row := range rows {
+			if row.TradeId == "" || (orderID > 0 && row.OrderId != strconv.FormatInt(orderID, 10)) || !strings.EqualFold(row.Symbol, b.symbol) {
+				return nil, fmt.Errorf("Bitget returned a fill with invalid identity for order %d", orderID)
+			}
+			if _, exists := seenTradeIDs[row.TradeId]; exists {
+				return nil, fmt.Errorf("Bitget spot fill pagination repeated trade %s; completeness is unknown", row.TradeId)
+			}
+			seenTradeIDs[row.TradeId] = struct{}{}
+			allFills = append(allFills, row)
+		}
+		if len(rows) < pageSize {
+			return allFills, nil
+		}
 	}
-	var list []BitgetSpotFill
-	if err := json.Unmarshal(resp.Data, &list); err != nil {
-		return nil, fmt.Errorf("解析成交记录失败: %w", err)
-	}
-	return list, nil
+	return nil, fmt.Errorf("Bitget spot order %d exceeded the fill pagination safety limit; completeness is unknown", orderID)
 }

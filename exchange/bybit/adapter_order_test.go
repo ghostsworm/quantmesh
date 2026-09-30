@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,12 @@ func TestBybitExecutionRealizedPnLRequiresDocumentedEvidence(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v5/execution/list" {
 			http.Error(w, "unexpected path", http.StatusNotFound)
+			return
+		}
+		if r.URL.Query().Get("orderId") == "1" {
+			_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"list":[
+				{"orderId":"1","tradeId":"exec-closed","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1","execFee":"0.01","feeCurrency":"BNB","execTime":"1700000000000","closedPnl":"2.5","closedSize":"1"}
+			]}}`)
 			return
 		}
 		_, _ = io.WriteString(w, `{"retCode":0,"retMsg":"OK","result":{"list":[
@@ -53,8 +60,82 @@ func TestBybitExecutionRealizedPnLRequiresDocumentedEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(orderFills) != 4 || !orderFills[1].RealizedPnLKnown || orderFills[1].RealizedPnLAsset != "USDT" || orderFills[0].RealizedPnLKnown {
+	if len(orderFills) != 1 || orderFills[0].TradeID != "exec-closed" || orderFills[0].RealizedPnLKnown || orderFills[0].CommissionAsset != "BNB" {
 		t.Fatalf("owned-order fill capture must preserve explicit zero-PnL evidence: %+v", orderFills)
+	}
+}
+
+func TestBybitExecutionFillRejectsUnverifiedFeeEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		feeFields string
+	}{
+		{name: "missing fee currency", feeFields: `"execFee":"0.01"`},
+		{name: "malformed fee amount", feeFields: `"execFee":"invalid","feeCurrency":"USDT"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/v5/execution/list" {
+					http.Error(w, "unexpected path", http.StatusNotFound)
+					return
+				}
+				body := `{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"1","tradeId":"bad-fee","symbol":"BTCUSDT","side":"Sell","execPrice":"100","execQty":"1",` + tc.feeFields + `,"execTime":"1700000000000","closedPnl":"0","closedSize":"0"}]}}`
+				_, _ = io.WriteString(w, body)
+			}))
+			defer server.Close()
+			b := newTestBybitAdapter(t, server.URL)
+			if _, _, err := b.GetOrderHistoryPage(context.Background(), "BTCUSDT", 1, 1700000000001, "", 10); err == nil {
+				t.Fatal("historical execution page must reject incomplete fee evidence")
+			}
+			if _, err := b.GetOrderFills(context.Background(), "BTCUSDT", 1); err == nil {
+				t.Fatal("owned-order reconciliation must reject incomplete fee evidence")
+			}
+		})
+	}
+}
+
+func TestBybitGetOrderFillsPaginatesExecutionCursor(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/v5/execution/list" || r.URL.Query().Get("limit") != "100" || r.URL.Query().Get("orderId") != "1" {
+			t.Errorf("unexpected execution request: %s", r.URL.String())
+		}
+		start, end := 1, 101
+		cursor := r.URL.Query().Get("cursor")
+		if requests == 1 {
+			if cursor != "" {
+				t.Errorf("first page cursor = %q, want empty", cursor)
+			}
+		} else {
+			if cursor != "page-2" {
+				t.Errorf("second page cursor = %q, want page-2", cursor)
+			}
+			start, end = 101, 102
+		}
+		rows := make([]BybitExecution, 0, end-start)
+		for id := start; id < end; id++ {
+			rows = append(rows, BybitExecution{OrderId: "1", TradeId: strconv.Itoa(id), Symbol: "BTCUSDT", Side: "Buy", ExecPrice: "100", ExecQty: "0.1", ExecFee: "0", FeeCurrency: "USDT", ExecTime: "1700000000000"})
+		}
+		next := ""
+		if requests == 1 {
+			next = "page-2"
+		}
+		payload, err := json.Marshal(map[string]interface{}{"retCode": 0, "retMsg": "OK", "result": map[string]interface{}{"list": rows, "nextPageCursor": next}})
+		if err != nil {
+			t.Errorf("marshal response: %v", err)
+			return
+		}
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	adapter := newTestBybitAdapter(t, server.URL)
+	fills, err := adapter.GetOrderFills(context.Background(), "BTCUSDT", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(fills) != 101 {
+		t.Fatalf("execution pagination returned requests=%d fills=%d, want 2 pages and 101 fills", requests, len(fills))
 	}
 }
 
