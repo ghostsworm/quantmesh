@@ -158,6 +158,21 @@ func (m *MarginClient) GetMarginOrderByClientOrderID(ctx context.Context, symbol
 	return m.client.NewGetMarginOrderService().Symbol(symbol).OrigClientOrderID(clientOrderID).IsIsolated(isIsolated).Do(ctx)
 }
 
+// GetBorrowHistory queries a bounded page of cross-margin BORROW records.
+func (m *MarginClient) GetBorrowHistory(ctx context.Context, asset string, startTime, endTime, page, pageSize int64) (*binancesdk.MarginBorrowRepayResponse, error) {
+	if m == nil || m.client == nil || asset == "" || startTime <= 0 || endTime < startTime || page < 1 || pageSize < 1 || pageSize > 100 {
+		return nil, fmt.Errorf("valid margin borrow history query parameters are required")
+	}
+	return m.client.NewListMarginBorrowRepayService().
+		Asset(asset).
+		StartTime(startTime).
+		EndTime(endTime).
+		Current(page).
+		Size(pageSize).
+		Type(binancesdk.MarginAccountBorrow).
+		Do(ctx)
+}
+
 func formatFloat(v float64) string {
 	if v <= 0 {
 		return "0"

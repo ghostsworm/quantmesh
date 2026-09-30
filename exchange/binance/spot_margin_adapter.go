@@ -25,6 +25,14 @@ type BinanceSpotMarginAdapter struct {
 	marginClient *MarginClient
 }
 
+type MarginBorrowRecord struct {
+	TransferID int64
+	Asset      string
+	Amount     float64
+	Status     string
+	Timestamp  int64
+}
+
 const maxBinanceMarginOCOResponseSize = 1 << 20
 
 // NewBinanceSpotMarginAdapter 創建現貨槓桿適配器
@@ -617,6 +625,28 @@ func (b *BinanceSpotMarginAdapter) GetOrderByClientOrderID(ctx context.Context, 
 		ExecutedQty: execQty, AvgPrice: cumulativeAveragePrice(cumulativeQuote, execQty),
 		Status: OrderStatus(o.Status), CreatedAt: time.UnixMilli(o.Time), UpdateTime: o.UpdateTime,
 	}, nil
+}
+
+func (b *BinanceSpotMarginAdapter) GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error) {
+	if b == nil || b.marginClient == nil {
+		return nil, 0, fmt.Errorf("Binance spot margin client is unavailable")
+	}
+	response, err := b.marginClient.GetBorrowHistory(ctx, asset, startTime, endTime, int64(page), int64(pageSize))
+	if err != nil {
+		return nil, 0, err
+	}
+	if response == nil {
+		return nil, 0, fmt.Errorf("Binance margin borrow history returned an empty response")
+	}
+	records := make([]MarginBorrowRecord, 0, len(response.Rows))
+	for _, row := range response.Rows {
+		amount, parseErr := strconv.ParseFloat(row.Amount, 64)
+		if parseErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+			return nil, 0, fmt.Errorf("Binance margin borrow history contains invalid amount for transaction %d", row.TxID)
+		}
+		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, Status: row.Status, Timestamp: row.Timestamp})
+	}
+	return records, response.Total, nil
 }
 
 // GetOrderFills queries the margin-account trade ledger for a specific order.

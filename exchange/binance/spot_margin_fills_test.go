@@ -62,6 +62,31 @@ func TestSpotMarginOrderClientIDSubmitAndLookupUseMarginAPI(t *testing.T) {
 	}
 }
 
+func TestSpotMarginBorrowHistoryUsesBoundedBorrowQuery(t *testing.T) {
+	const startTime = int64(1790503199000)
+	const endTime = int64(1790503200000)
+	client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint("https://margin.test")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		query := req.URL.Query()
+		if req.Method != http.MethodGet || req.URL.Path != "/sapi/v1/margin/borrow-repay" ||
+			query.Get("type") != "BORROW" || query.Get("asset") != "BTC" ||
+			query.Get("startTime") != fmt.Sprint(startTime) || query.Get("endTime") != fmt.Sprint(endTime) ||
+			query.Get("current") != "1" || query.Get("size") != "100" {
+			return nil, fmt.Errorf("unexpected bounded margin borrow query: %s %s", req.Method, req.URL.String())
+		}
+		body := `{"rows":[{"txId":7001,"asset":"BTC","amount":"0.4","status":"CONFIRMED","timestamp":1790503200000}],"total":1}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+	records, total, err := adapter.GetMarginBorrowHistory(context.Background(), "BTC", startTime, endTime, 1, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(records) != 1 || records[0].TransferID != 7001 || records[0].Asset != "BTC" || records[0].Amount != 0.4 || records[0].Status != "CONFIRMED" {
+		t.Fatalf("unexpected margin borrow history mapping: total=%d records=%+v", total, records)
+	}
+}
+
 func TestSpotMarginOrderFillsUseMarginLedgerAndPreserveBaseFee(t *testing.T) {
 	createdAt := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

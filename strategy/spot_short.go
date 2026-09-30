@@ -329,6 +329,14 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 		return fmt.Errorf("spot short has %d pending borrow/sell intents, but margin exchange cannot query exact client order IDs", len(intents))
 	}
 	for cid, intent := range intents {
+		if intent.Phase == "prepared" {
+			confirmed, err := s.reconcilePendingBorrowTransfer(ctx, cid, intent)
+			if err != nil {
+				return err
+			}
+			intent = confirmed
+			intents[cid] = confirmed
+		}
 		order, err := query.GetOrderByClientOrderID(ctx, s.symbol, cid)
 		if err != nil {
 			return fmt.Errorf("query spot short margin sell by client ID %s: %w", cid, err)
@@ -356,6 +364,53 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 		s.mu.Unlock()
 	}
 	return nil
+}
+
+func (s *SpotShortStrategy) reconcilePendingBorrowTransfer(ctx context.Context, clientOrderID string, intent spotShortPendingBorrow) (spotShortPendingBorrow, error) {
+	history, ok := s.ex.(exchange.MarginBorrowHistoryQuerier)
+	if !ok {
+		return intent, fmt.Errorf("spot short borrow %s is unresolved; exchange cannot query margin borrow history", clientOrderID)
+	}
+	queryStart := intent.CreatedAtUnixMilli
+	queryEnd := time.Now().UTC().UnixMilli()
+	const maxHistoryWindow = 30 * 24 * time.Hour
+	if queryEnd < intent.CreatedAtUnixMilli || time.Duration(queryEnd-intent.CreatedAtUnixMilli)*time.Millisecond > maxHistoryWindow {
+		return intent, fmt.Errorf("spot short borrow %s is outside the exchange's supported recovery history window", clientOrderID)
+	}
+	const pageSize = 100
+	var candidates []exchange.MarginBorrowRecord
+	for page := 1; ; page++ {
+		records, total, err := history.GetMarginBorrowHistory(ctx, s.baseAsset, queryStart, queryEnd, page, pageSize)
+		if err != nil {
+			return intent, fmt.Errorf("query spot short borrow history for %s: %w", clientOrderID, err)
+		}
+		for _, record := range records {
+			if record.Asset == s.baseAsset && record.TransferID > 0 && record.Timestamp >= intent.CreatedAtUnixMilli && record.Timestamp <= queryEnd &&
+				finiteNumber(record.Amount) && math.Abs(record.Amount-intent.Amount) <= math.Max(1e-10, intent.Amount*1e-8) {
+				candidates = append(candidates, record)
+			}
+		}
+		if int64(page*pageSize) >= total || len(records) == 0 {
+			break
+		}
+	}
+	if len(candidates) != 1 || !strings.EqualFold(candidates[0].Status, "CONFIRMED") {
+		return intent, fmt.Errorf("spot short borrow %s has %d matching history records; exact confirmed transfer cannot be proven", clientOrderID, len(candidates))
+	}
+	intent.Phase = "borrowed"
+	intent.BorrowTransferID = candidates[0].TransferID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, exists := s.pendingBorrow[clientOrderID]
+	if !exists || current != (spotShortPendingBorrow{Amount: intent.Amount, Phase: "prepared", CreatedAtUnixMilli: intent.CreatedAtUnixMilli}) {
+		return intent, fmt.Errorf("spot short borrow intent %s changed during transfer reconciliation", clientOrderID)
+	}
+	s.pendingBorrow[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.pendingBorrow[clientOrderID] = current
+		return current, fmt.Errorf("persist recovered borrow transfer %d: %w", intent.BorrowTransferID, err)
+	}
+	return intent, nil
 }
 
 func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) error {

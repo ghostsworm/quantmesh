@@ -480,6 +480,10 @@ type spotShortClientOrderLookupExchange struct {
 	spotShortReconcileExchange
 	clientOrder *exchange.Order
 	clientID    string
+	borrowRows  []exchange.MarginBorrowRecord
+	borrowTotal int64
+	borrowErr   error
+	borrowCalls int
 }
 
 func (e *spotShortClientOrderLookupExchange) GetOrderByClientOrderID(_ context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
@@ -487,6 +491,14 @@ func (e *spotShortClientOrderLookupExchange) GetOrderByClientOrderID(_ context.C
 		return nil, errors.New("unexpected client order lookup scope")
 	}
 	return e.clientOrder, nil
+}
+
+func (e *spotShortClientOrderLookupExchange) GetMarginBorrowHistory(_ context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]exchange.MarginBorrowRecord, int64, error) {
+	e.borrowCalls++
+	if asset != "BTC" || startTime <= 0 || endTime < startTime || page != 1 || pageSize != 100 {
+		return nil, 0, errors.New("unexpected margin borrow history query")
+	}
+	return e.borrowRows, e.borrowTotal, e.borrowErr
 }
 
 func (e *spotShortReconcileExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
@@ -610,5 +622,73 @@ func TestSpotShortStartupRejectsMismatchedClientOrderRecovery(t *testing.T) {
 	strategy.SetRuntimeStateStore(store)
 	if err := strategy.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "identity/quantity mismatch") {
 		t.Fatalf("startup must reject order returned with another symbol: %v", err)
+	}
+}
+
+func TestSpotShortStartupRecoversPreparedBorrowFromUniqueConfirmedHistory(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-borrow-history-reconcile"
+	cfg.Trading.Symbol = "BTCUSDT"
+	clientOrderID := "borrow-history-cid"
+	createdAt := time.Now().UTC().Add(-time.Second).UnixMilli()
+	state := spotShortRuntimeState{
+		BotID: cfg.Trading.BotID, Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBorrow: map[string]spotShortPendingBorrow{
+			clientOrderID: {Amount: 0.4, Phase: "prepared", CreatedAtUnixMilli: createdAt},
+		},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	venue := &spotShortClientOrderLookupExchange{
+		clientOrder: &exchange.Order{OrderID: 91, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.4},
+		clientID:    clientOrderID,
+		borrowRows:  []exchange.MarginBorrowRecord{{TransferID: 7001, Asset: "BTC", Amount: 0.4, Status: "CONFIRMED", Timestamp: createdAt}},
+		borrowTotal: 1,
+	}
+	strategy := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, venue, nil, nil)
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.Start(context.Background()); err != nil {
+		t.Fatalf("recover uniquely confirmed borrow and exact sell: %v", err)
+	}
+	if venue.borrowCalls != 1 || len(strategy.pendingBorrow) != 0 {
+		t.Fatalf("prepared borrow was not reconciled once: calls=%d pending=%v", venue.borrowCalls, strategy.pendingBorrow)
+	}
+}
+
+func TestSpotShortStartupKeepsAmbiguousBorrowHistoryBlocked(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-borrow-history-ambiguous"
+	cfg.Trading.Symbol = "BTCUSDT"
+	clientOrderID := "borrow-history-cid"
+	createdAt := time.Now().UTC().Add(-time.Second).UnixMilli()
+	state := spotShortRuntimeState{
+		BotID: cfg.Trading.BotID, Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBorrow: map[string]spotShortPendingBorrow{
+			clientOrderID: {Amount: 0.4, Phase: "prepared", CreatedAtUnixMilli: createdAt},
+		},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	venue := &spotShortClientOrderLookupExchange{
+		clientID: clientOrderID,
+		borrowRows: []exchange.MarginBorrowRecord{
+			{TransferID: 7001, Asset: "BTC", Amount: 0.4, Status: "CONFIRMED", Timestamp: createdAt},
+			{TransferID: 7002, Asset: "BTC", Amount: 0.4, Status: "CONFIRMED", Timestamp: createdAt + 1},
+		},
+		borrowTotal: 2,
+	}
+	strategy := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, venue, nil, nil)
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.Start(context.Background()); err == nil || !strings.Contains(err.Error(), "2 matching history records") {
+		t.Fatalf("ambiguous borrow history must keep startup blocked: %v (history calls=%d rows=%+v)", err, venue.borrowCalls, venue.borrowRows)
+	}
+	if len(strategy.pendingBorrow) != 1 {
+		t.Fatalf("ambiguous history must preserve the durable borrow intent: %v", strategy.pendingBorrow)
 	}
 }

@@ -204,6 +204,20 @@ type OrderByClientIDQuerier interface {
 	GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error)
 }
 
+// MarginBorrowRecord is a venue-confirmed margin borrow transaction.
+type MarginBorrowRecord struct {
+	TransferID int64
+	Asset      string
+	Amount     float64
+	Status     string
+	Timestamp  int64
+}
+
+// MarginBorrowHistoryQuerier reads a bounded, paginated borrow history window.
+type MarginBorrowHistoryQuerier interface {
+	GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error)
+}
+
 // ISpotMarginExchange 現貨槓桿交易所介面（借幣做空）
 // 僅 Binance Spot Margin 等支援借還的交易所實現
 type ISpotMarginExchange interface {
