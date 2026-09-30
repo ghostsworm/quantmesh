@@ -1,9 +1,6 @@
 package mexc
 
-import (
-	"net/url"
-	"testing"
-)
+import "testing"
 
 func TestNewMEXCClient(t *testing.T) {
 	apiKey := "test_api_key"
@@ -19,26 +16,26 @@ func TestNewMEXCClient(t *testing.T) {
 	if client.secretKey != secretKey {
 		t.Errorf("Secret Key 設置錯误")
 	}
+	if client.baseURL != "https://api.mexc.com" {
+		t.Errorf("MEXC REST base URL = %q, want current official API domain", client.baseURL)
+	}
 }
 
-func TestSignRequest(t *testing.T) {
+func TestSignOpenAPIRequest(t *testing.T) {
 	client := NewMEXCClient("test_key", "test_secret", false)
-
-	params := make(map[string][]string)
-	params["symbol"] = []string{"BTC_USDT"}
-	params["side"] = []string{"BUY"}
-
-	urlValues := url.Values(params)
-	signature := client.signRequest(urlValues)
+	signature := client.signOpenAPIRequest("1700000000000", "page_num=1&symbol=BTC_USDT")
 
 	if signature == "" {
 		t.Fatal("签名不能為空")
 	}
 
 	// 驗证相同输入產生相同签名
-	signature2 := client.signRequest(urlValues)
+	signature2 := client.signOpenAPIRequest("1700000000000", "page_num=1&symbol=BTC_USDT")
 	if signature != signature2 {
 		t.Error("相同输入应該產生相同签名")
+	}
+	if signature == client.signOpenAPIRequest("1700000000001", "page_num=1&symbol=BTC_USDT") {
+		t.Error("request time must be covered by the signature")
 	}
 }
 

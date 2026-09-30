@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +18,7 @@ import (
 )
 
 const (
-	MEXCMainnetBaseURL = "https://contract.mexc.com"         // MEXC 主网
+	MEXCMainnetBaseURL = "https://api.mexc.com"              // MEXC 期货 API 主域名
 	MEXCTestnetBaseURL = "https://contract-testnet.mexc.com" // MEXC 測試網
 )
 
@@ -63,29 +62,10 @@ func NewMEXCClient(apiKey, secretKey string, isTestnet bool) *MEXCClient {
 	}
 }
 
-// signRequest MEXC 签名：HMAC-SHA256
-func (c *MEXCClient) signRequest(params url.Values) string {
-	// 按字母序排序参數
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// 構造签名字符串
-	var signStr strings.Builder
-	for i, k := range keys {
-		if i > 0 {
-			signStr.WriteString("&")
-		}
-		signStr.WriteString(k)
-		signStr.WriteString("=")
-		signStr.WriteString(params.Get(k))
-	}
-
-	// HMAC-SHA256 签名
+// signOpenAPIRequest signs MEXC's current Open-API request target.
+func (c *MEXCClient) signOpenAPIRequest(requestTime, parameterString string) string {
 	h := hmac.New(sha256.New, []byte(c.secretKey))
-	h.Write([]byte(signStr.String()))
+	h.Write([]byte(c.apiKey + requestTime + parameterString))
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -93,16 +73,9 @@ func (c *MEXCClient) signRequest(params url.Values) string {
 func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, params url.Values, needSign bool) ([]byte, error) {
 	reqURL := c.baseURL + path
 
-	if needSign {
-		// 添加時间戳
-		params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
-		// 生成签名
-		signature := c.signRequest(params)
-		params.Set("signature", signature)
-	}
-
 	var req *http.Request
 	var err error
+	var requestBody []byte
 
 	if method == http.MethodGet || method == http.MethodDelete {
 		if len(params) > 0 {
@@ -110,9 +83,24 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 		}
 		req, err = http.NewRequestWithContext(ctx, method, reqURL, nil)
 	} else {
-		req, err = http.NewRequestWithContext(ctx, method, reqURL, strings.NewReader(params.Encode()))
+		if needSign {
+			bodyValues := make(map[string]any, len(params))
+			for key := range params {
+				bodyValues[key] = mexcJSONBodyValue(key, params.Get(key))
+			}
+			requestBody, err = json.Marshal(bodyValues)
+		} else {
+			requestBody = []byte(params.Encode())
+		}
 		if err == nil {
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req, err = http.NewRequestWithContext(ctx, method, reqURL, strings.NewReader(string(requestBody)))
+			if err == nil {
+				if needSign {
+					req.Header.Set("Content-Type", "application/json")
+				} else {
+					req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+				}
+			}
 		}
 	}
 
@@ -120,8 +108,16 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 		return nil, fmt.Errorf("create request error: %w", err)
 	}
 
-	// 設置请求头
-	req.Header.Set("X-MEXC-APIKEY", c.apiKey)
+	if needSign {
+		requestTime := strconv.FormatInt(time.Now().UnixMilli(), 10)
+		parameterString := params.Encode()
+		if method != http.MethodGet && method != http.MethodDelete {
+			parameterString = string(requestBody)
+		}
+		req.Header.Set("ApiKey", c.apiKey)
+		req.Header.Set("Request-Time", requestTime)
+		req.Header.Set("Signature", c.signOpenAPIRequest(requestTime, parameterString))
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -150,6 +146,18 @@ func (c *MEXCClient) sendRequest(ctx context.Context, method, path string, param
 	}
 
 	return respBody, nil
+}
+
+func mexcJSONBodyValue(key, value string) any {
+	switch key {
+	case "price", "vol", "side", "type", "openType", "leverage", "orderId":
+		if json.Valid([]byte(value)) {
+			return json.Number(value)
+		}
+		return value
+	default:
+		return value
+	}
 }
 
 // GetExchangeInfo 獲取交易對信息
@@ -187,7 +195,7 @@ func (c *MEXCClient) GetExchangeInfo(ctx context.Context) (*ExchangeInfo, error)
 
 // PlaceOrder 下單
 func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderResponse, error) {
-	path := "/api/v1/private/order/submit"
+	path := "/api/v1/private/order/create"
 	params := url.Values{}
 	params.Set("symbol", req.Symbol)
 	params.Set("price", fmt.Sprintf("%.8f", req.Price))
@@ -207,9 +215,9 @@ func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderR
 	}
 
 	var resp struct {
-		Code    int    `json:"code"`
-		Data    string `json:"data"` // 订單 ID
-		Success bool   `json:"success"`
+		Code    int             `json:"code"`
+		Data    json.RawMessage `json:"data"`
+		Success bool            `json:"success"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal error: %w", err)
@@ -218,9 +226,16 @@ func (c *MEXCClient) PlaceOrder(ctx context.Context, req *OrderRequest) (*OrderR
 	if !resp.Success {
 		return nil, fmt.Errorf("place order failed")
 	}
-
-	logger.Info("MEXC order placed: %s", resp.Data)
-	return &OrderResponse{OrderID: resp.Data}, nil
+	var result struct {
+		OrderID string `json:"orderId"`
+	}
+	if err := json.Unmarshal(resp.Data, &result); err != nil || strings.TrimSpace(result.OrderID) == "" {
+		if err := json.Unmarshal(resp.Data, &result.OrderID); err != nil || strings.TrimSpace(result.OrderID) == "" {
+			return nil, fmt.Errorf("MEXC place order response is missing orderId")
+		}
+	}
+	logger.Info("MEXC order placed: %s", result.OrderID)
+	return &OrderResponse{OrderID: result.OrderID}, nil
 }
 
 // CancelOrder 取消訂單
@@ -228,7 +243,7 @@ func (c *MEXCClient) CancelOrder(ctx context.Context, symbol, orderID string) er
 	path := "/api/v1/private/order/cancel"
 	params := url.Values{}
 	params.Set("symbol", symbol)
-	params.Set("order_id", orderID)
+	params.Set("orderId", orderID)
 
 	respBody, err := c.sendRequest(ctx, http.MethodPost, path, params, true)
 	if err != nil {

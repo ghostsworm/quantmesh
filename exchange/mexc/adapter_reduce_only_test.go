@@ -2,6 +2,7 @@ package mexc
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,14 +20,19 @@ func TestPlaceOrderWithOptionsUsesMEXCCloseSides(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if err := r.ParseForm(); err != nil {
-					t.Fatalf("parse venue request: %v", err)
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					t.Fatalf("decode venue request: %v", err)
 				}
-				if got := r.Form.Get("side"); got != test.wantSide {
+				wantSide := float64(2)
+				if test.wantSide == "4" {
+					wantSide = 4
+				}
+				if got := body["side"]; got != wantSide {
 					t.Fatalf("venue close side = %q, want %q", got, test.wantSide)
 				}
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"code":0,"success":true,"data":"order-1"}`))
+				_, _ = w.Write([]byte(`{"code":0,"success":true,"data":{"orderId":"order-1","ts":1760000000000}}`))
 			}))
 			defer server.Close()
 

@@ -2,6 +2,7 @@ package mexc
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,40 +21,46 @@ func newMockMEXCClient(t *testing.T, handler http.HandlerFunc) (*MEXCClient, fun
 func TestMEXCClientHTTPMethodsWithMockServer(t *testing.T) {
 	client, closeServer := newMockMEXCClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if r.Header.Get("X-MEXC-APIKEY") != "api-key" {
-			t.Fatalf("api key header missing")
-		}
 		switch r.URL.Path {
 		case "/api/v1/contract/detail":
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"symbol":"BTC_USDT","displayName":"BTC_USDT","baseCoin":"BTC","quoteCoin":"USDT","state":1}]}`))
-		case "/api/v1/private/order/submit":
-			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse submit form: %v", err)
+		case "/api/v1/private/order/create":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode submit body: %v", err)
 			}
-			if r.Form.Get("symbol") != "BTC_USDT" || r.Form.Get("externalOid") != "cid-1" || r.Form.Get("signature") == "" {
-				t.Fatalf("unexpected submit form: %s", r.Form.Encode())
+			if body["symbol"] != "BTC_USDT" || body["externalOid"] != "cid-1" || body["side"] != float64(1) ||
+				body["price"] != float64(65000) || r.Header.Get("Content-Type") != "application/json" {
+				t.Fatalf("unexpected submit body: %#v", body)
 			}
-			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":"order-1"}`))
+			assertMEXCOpenAPIAuth(t, r, `{"externalOid":"cid-1","leverage":5,"openType":2,"price":65000.00000000,"side":1,"symbol":"BTC_USDT","type":1,"vol":2}`)
+			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":{"orderId":"order-1","ts":1760000000000}}`))
 		case "/api/v1/private/order/cancel":
-			if err := r.ParseForm(); err != nil {
-				t.Fatalf("parse cancel form: %v", err)
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatalf("decode cancel body: %v", err)
 			}
-			if r.Form.Get("order_id") != "order-1" || r.Form.Get("signature") == "" {
-				t.Fatalf("unexpected cancel form: %s", r.Form.Encode())
+			if body["orderId"] != "order-1" {
+				t.Fatalf("unexpected cancel body: %#v", body)
 			}
+			assertMEXCOpenAPIAuth(t, r, `{"orderId":"order-1","symbol":"BTC_USDT"}`)
 			_, _ = w.Write([]byte(`{"code":0,"success":true}`))
 		case "/api/v1/private/order/get":
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":{"orderId":"order-1","symbol":"BTC_USDT","price":65000,"vol":2}}`))
 		case "/api/v1/private/order/list/open_orders/BTC_USDT":
-			if r.URL.Query().Get("page_size") != "100" || r.URL.Query().Get("signature") == "" {
+			if r.URL.Query().Get("page_size") != "100" {
 				t.Fatalf("open orders query = %s", r.URL.RawQuery)
 			}
+			assertMEXCOpenAPIAuth(t, r, r.URL.Query().Encode())
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"orderId":"order-2","symbol":"BTC_USDT"}]}`))
 		case "/api/v1/private/account/assets":
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"currency":"BTC","availableBalance":2,"equity":2.5},{"currency":"USDT","availableBalance":100,"equity":120}]}`))
 		case "/api/v1/private/position/open_positions":
 			_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[{"positionId":1,"symbol":"BTC_USDT","holdVol":2,"unrealizedPNL":3}]}`))
 		case "/api/v1/contract/ticker":
+			if r.Header.Get("ApiKey") != "" || r.Header.Get("X-MEXC-APIKEY") != "" {
+				t.Fatal("public ticker request must not send API credentials")
+			}
 			if r.URL.Query().Get("symbol") != "BTC_USDT" {
 				t.Fatalf("ticker query = %s", r.URL.RawQuery)
 			}
@@ -110,6 +117,21 @@ func TestMEXCClientHTTPMethodsWithMockServer(t *testing.T) {
 	klines, err := client.GetKlines(ctx, "BTC_USDT", "Min1", 2)
 	if err != nil || len(klines) != 2 || klines[1].Time != 2000 || klines[1].Close != 12 {
 		t.Fatalf("GetKlines() = %#v, %v", klines, err)
+	}
+}
+
+func assertMEXCOpenAPIAuth(t *testing.T, r *http.Request, parameterString string) {
+	t.Helper()
+	requestTime := r.Header.Get("Request-Time")
+	if r.Header.Get("ApiKey") != "api-key" || requestTime == "" || r.Header.Get("Signature") == "" {
+		t.Fatalf("Open-API auth headers missing: %v", r.Header)
+	}
+	client := NewMEXCClient("api-key", "secret-key", false)
+	if got, want := r.Header.Get("Signature"), client.signOpenAPIRequest(requestTime, parameterString); got != want {
+		t.Fatalf("invalid Open-API signature: got %s want %s", got, want)
+	}
+	if r.URL.Query().Has("timestamp") || r.URL.Query().Has("signature") {
+		t.Fatalf("legacy signature query parameters must not be sent: %s", r.URL.RawQuery)
 	}
 }
 

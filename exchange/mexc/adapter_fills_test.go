@@ -12,8 +12,8 @@ func TestGetOrderFillsMapsAuthenticatedDealLedger(t *testing.T) {
 		if r.URL.Path != "/api/v1/private/order/deal_details/123" || r.Method != http.MethodGet {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.RequestURI())
 		}
-		if r.Header.Get("X-MEXC-APIKEY") != "api-key" || r.URL.Query().Get("signature") == "" || r.URL.Query().Get("timestamp") == "" {
-			t.Fatalf("authenticated request missing signature fields: %s", r.URL.RawQuery)
+		if r.Header.Get("ApiKey") != "api-key" || r.Header.Get("Signature") == "" || r.Header.Get("Request-Time") == "" {
+			t.Fatalf("authenticated request missing Open-API signature headers: %v", r.Header)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"code":0,"success":true,"data":[
