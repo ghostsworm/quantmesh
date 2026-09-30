@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -264,8 +265,18 @@ func (f *fakeTransferExchange) ReadAccountEvidence(_ context.Context, since time
 		return accounting.Snapshot{}, f.ledgerErr
 	}
 	now := time.Now().UTC()
+	entries := append([]accounting.Entry(nil), f.ledgerEntries...)
+	if f.st != nil && f.ledgerEntries == nil {
+		for index, event := range f.st.events {
+			if !event.at.After(since) || event.at.After(now) {
+				continue
+			}
+			entries = append(entries, accounting.Entry{ID: "fake-pnl-" + strconv.Itoa(index), Kind: "realized_pnl", Currency: "USDT",
+				Amount: strconv.FormatFloat(event.pnl, 'f', -1, 64), Symbol: "BTCUSDT", At: event.at})
+		}
+	}
 	return accounting.Snapshot{Currency: "USDT", ObservedAt: now,
-		Wallet: accounting.Wallet{Balance: "1000", From: since, Through: now, ObservedAt: now}, Entries: f.ledgerEntries}, nil
+		Wallet: accounting.Wallet{Balance: "1000", From: since, Through: now, ObservedAt: now}, Entries: entries}, nil
 }
 
 func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
@@ -308,6 +319,47 @@ func TestValidateTransferSafetyRequiresSameSymbolAttribution(t *testing.T) {
 	}
 }
 
+func TestValidateTransferSafetyCapsAmountAtFreshExchangeLedgerProfit(t *testing.T) {
+	now := time.Now().UTC()
+	windowStart, windowEnd := now.Add(-10*time.Minute), now.Add(-time.Minute)
+	tests := []struct {
+		name    string
+		entries []accounting.Entry
+		amount  float64
+		wantErr bool
+	}{
+		{name: "amount within fresh net realized profit", entries: []accounting.Entry{
+			{ID: "pnl-1", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "fee-1", Kind: "fee", Currency: "USDT", Amount: "-2", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
+		}, amount: 8},
+		{name: "late fee makes requested amount exceed fresh profit", entries: []accounting.Entry{
+			{ID: "pnl-2", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "fee-2", Kind: "fee", Currency: "USDT", Amount: "-6", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+		{name: "duplicate transaction identity", entries: []accounting.Entry{
+			{ID: "same", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "same", Kind: "funding", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+		{name: "unvalued commission asset", entries: []accounting.Entry{
+			{ID: "pnl-3", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "fee-3", Kind: "fee", Currency: "BNB", Amount: "-0.01", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+		{name: "positive fee lacks rebate classification", entries: []accounting.Entry{
+			{ID: "pnl-4", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "fee-4", Kind: "fee", Currency: "USDT", Amount: "1", Symbol: "BTCUSDT", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ex := &fakeTransferExchange{accountScope: "scope-a", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 100, MaxWithdrawAmount: 100}, ledgerEntries: tt.entries}
+			err := ValidateTransferSafety(context.Background(), ex, "BTCUSDT", "scope-a", tt.amount, windowStart, windowEnd)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ValidateTransferSafety() error=%v, wantErr=%v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	for _, kind := range []string{"insurance_clear", "unallocated_fee", "interest"} {
@@ -328,6 +380,25 @@ func TestAutomaticWithdrawRejectsUnallocatedAccountExpenses(t *testing.T) {
 				t.Fatalf("unallocated account expense must release its preflight reservation without transferring: amounts=%v records=%+v", ex.amounts, st.records)
 			}
 		})
+	}
+}
+
+func TestAutomaticWithdrawRejectsStoredProfitAboveFreshExchangeLedger(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	st := &fakeWithdrawStorage{rule: &storage.ProfitWithdrawRule{
+		ID: "stale-profit-rule", AccountID: "stale-profit-account", AccountScope: "scope-a", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5, Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour),
+	}, coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+		events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}}}
+	ex := &fakeTransferExchange{st: st, accountScope: "scope-a", account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000},
+		ledgerEntries: []accounting.Entry{{ID: "fresh-pnl", Kind: "realized_pnl", Currency: "USDT", Amount: "20", Symbol: "BTCUSDT", At: base.Add(time.Minute)}}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+	if err := e.processRule(st.rule); err == nil {
+		t.Fatal("stored profit exceeding fresh exchange-ledger profit must not be transferred")
+	}
+	if len(ex.amounts) != 0 || len(st.records) != 1 || st.records[0].Status != "failed" {
+		t.Fatalf("stale stored profit must fail before transfer: amounts=%v records=%+v", ex.amounts, st.records)
 	}
 }
 

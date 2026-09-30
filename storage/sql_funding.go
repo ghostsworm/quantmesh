@@ -162,7 +162,7 @@ func sameFundingPayment(a, b FundingPayment) bool {
 		strings.EqualFold(strings.TrimSpace(a.MarketType), strings.TrimSpace(b.MarketType)) &&
 		a.AccountScope == b.AccountScope && strings.EqualFold(strings.TrimSpace(a.IncomeType), strings.TrimSpace(b.IncomeType)) &&
 		a.TransactionID == b.TransactionID && strings.EqualFold(strings.TrimSpace(a.Asset), strings.TrimSpace(b.Asset)) &&
-		math.Abs(a.Income-b.Income) <= 1e-12 && utils.ToUTC(a.TradeTime).Equal(utils.ToUTC(b.TradeTime))
+		a.Income == b.Income && utils.ToUTC(a.TradeTime).Equal(utils.ToUTC(b.TradeTime))
 }
 
 // MarkFundingIncomeCoverage records a successfully fetched and fully persisted

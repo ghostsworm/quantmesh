@@ -112,8 +112,8 @@ func TestFundingIncomeSyncRejectsNonFiniteAmountAndMissingAsset(t *testing.T) {
 				Symbol: "BTCUSDT", IncomeType: "FUNDING_FEE", Income: tt.amount, Asset: tt.asset,
 				TransactionID: 1, TradeTime: now,
 			}}}
-			if err := syncFundingIncomeOnce(context.Background(), st, ex, "binance", "BTCUSDT", "acct", "futures", "scope-invalid"); err != nil {
-				t.Fatal("syncFundingIncomeOnce:", err)
+			if err := syncFundingIncomeOnce(context.Background(), st, ex, "binance", "BTCUSDT", "acct", "futures", "scope-invalid"); err == nil {
+				t.Fatal("syncFundingIncomeOnce() = nil; want incomplete-history error")
 			}
 			payments, err := st.GetFundingPaymentsByAccountScope("scope-invalid", "binance", now.Add(-time.Minute), now.Add(time.Minute))
 			if err != nil {
@@ -135,7 +135,7 @@ func TestFundingIncomeSyncRejectsNonFiniteAmountAndMissingAsset(t *testing.T) {
 
 func TestFundingIncomeSyncWindowDoesNotBackfillNewCredentialScope(t *testing.T) {
 	now := time.Date(2026, 9, 28, 9, 30, 0, 123456789, time.UTC)
-	start, end, err := fundingIncomeSyncWindow(time.Time{}, now)
+	start, end, err := fundingIncomeSyncWindow(time.Time{}, time.Time{}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,16 +166,18 @@ func TestFundingIncomeSpecialRuntimeOwnership(t *testing.T) {
 func TestFundingIncomeSyncWindowPreservesOrAdvancesExistingCoverage(t *testing.T) {
 	now := time.Date(2026, 9, 28, 9, 30, 0, 123456789, time.UTC)
 	tests := []struct {
-		name        string
-		coveredFrom time.Time
-		wantStart   time.Time
+		name           string
+		coveredFrom    time.Time
+		coveredThrough time.Time
+		wantStart      time.Time
 	}{
-		{name: "preserve current credential history", coveredFrom: now.Add(-10 * 24 * time.Hour), wantStart: now.Add(-10 * 24 * time.Hour)},
-		{name: "advance beyond exchange retention", coveredFrom: now.Add(-45 * 24 * time.Hour), wantStart: now.AddDate(0, 0, -30)},
+		{name: "newer cursor uses bounded overlap", coveredFrom: now.Add(-10 * 24 * time.Hour), coveredThrough: now.Add(-2 * time.Hour), wantStart: now.Add(-26 * time.Hour)},
+		{name: "young scope does not backfill before observation", coveredFrom: now.Add(-12 * time.Hour), coveredThrough: now.Add(-2 * time.Hour), wantStart: now.Add(-12 * time.Hour)},
+		{name: "advance beyond exchange retention", coveredFrom: now.Add(-45 * 24 * time.Hour), coveredThrough: now.Add(-31 * 24 * time.Hour), wantStart: now.AddDate(0, 0, -30)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			start, end, err := fundingIncomeSyncWindow(tt.coveredFrom, now)
+			start, end, err := fundingIncomeSyncWindow(tt.coveredFrom, tt.coveredThrough, now)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -188,11 +190,14 @@ func TestFundingIncomeSyncWindowPreservesOrAdvancesExistingCoverage(t *testing.T
 
 func TestFundingIncomeSyncWindowRejectsFutureCoverage(t *testing.T) {
 	now := time.Date(2026, 9, 28, 9, 30, 0, 0, time.UTC)
-	if _, _, err := fundingIncomeSyncWindow(now.Add(time.Second), now); err == nil {
+	if _, _, err := fundingIncomeSyncWindow(now.Add(-time.Minute), now.Add(time.Second), now); err == nil {
 		t.Fatal("future funding watermark must not authorize a sync window")
 	}
-	if _, _, err := fundingIncomeSyncWindow(time.Time{}, time.Time{}); err == nil {
+	if _, _, err := fundingIncomeSyncWindow(time.Time{}, time.Time{}, time.Time{}); err == nil {
 		t.Fatal("zero sync time must be rejected")
+	}
+	if _, _, err := fundingIncomeSyncWindow(now, time.Time{}, now.Add(time.Minute)); err == nil {
+		t.Fatal("incomplete funding coverage interval must be rejected")
 	}
 }
 

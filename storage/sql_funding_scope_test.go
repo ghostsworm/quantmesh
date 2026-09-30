@@ -158,6 +158,11 @@ func TestSaveFundingPaymentIsIdempotentAndRejectsIdentityConflicts(t *testing.T)
 	if err := st.SaveFundingPayment(&conflict); err == nil {
 		t.Fatal("reused transaction identity with a different amount must fail")
 	}
+	conflict = payment
+	conflict.Income -= 5e-13 // Below the former float tolerance, but still different ledger economics.
+	if err := st.SaveFundingPayment(&conflict); err == nil {
+		t.Fatal("reused transaction identity with a sub-tolerance amount difference must fail")
+	}
 	var count int
 	if err := st.db.QueryRow(`SELECT COUNT(*) FROM funding_payments`).Scan(&count); err != nil {
 		t.Fatal(err)

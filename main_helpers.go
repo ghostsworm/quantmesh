@@ -230,20 +230,36 @@ func (e scopedWithdrawExchange) SupportsFundingIncomeHistory() bool {
 	return ok && supported.SupportsFundingIncomeHistory()
 }
 
-func fundingIncomeSyncWindow(coveredFrom, now time.Time) (time.Time, time.Time, error) {
+const fundingIncomeSyncOverlap = 24 * time.Hour
+
+func fundingIncomeSyncWindow(coveredFrom, coveredThrough, now time.Time) (time.Time, time.Time, error) {
 	if now.IsZero() {
 		return time.Time{}, time.Time{}, fmt.Errorf("funding income sync requires a valid current time")
 	}
 	now = now.UTC()
 	start := now.AddDate(0, 0, -30)
 	if coveredFrom.IsZero() {
+		if !coveredThrough.IsZero() {
+			return time.Time{}, time.Time{}, fmt.Errorf("funding income sync has end coverage without a start")
+		}
 		// A new credential scope must not re-credit profits earned before this
 		// scope was first observed; prior scopes may contain already-withdrawn PnL.
 		start = now.Truncate(time.Millisecond)
-	} else if coveredFrom.After(start) {
-		start = coveredFrom.UTC()
+	} else {
+		if coveredThrough.IsZero() || coveredThrough.Before(coveredFrom) {
+			return time.Time{}, time.Time{}, fmt.Errorf("funding income coverage interval is invalid")
+		}
+		// Re-fetch a bounded overlap for delayed exchange records, rather than
+		// rescanning the entire account-scope history on every six-hour run.
+		incrementalStart := coveredThrough.UTC().Add(-fundingIncomeSyncOverlap)
+		if incrementalStart.After(start) {
+			start = incrementalStart
+		}
+		if coveredFrom.After(start) {
+			start = coveredFrom.UTC()
+		}
 	}
-	if !start.Before(now) {
+	if coveredThrough.After(now) || !start.Before(now) {
 		return time.Time{}, time.Time{}, fmt.Errorf("funding income sync window is empty or starts in the future")
 	}
 	return start, now, nil
@@ -306,11 +322,11 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 	if !ok {
 		return fmt.Errorf("storage lacks funding coverage read capability")
 	}
-	coveredFrom, _, err := coverageReader.GetFundingIncomeCoverage(exchangeName, symbol, fundingMarketType, accountScope)
+	coveredFrom, coveredThrough, err := coverageReader.GetFundingIncomeCoverage(exchangeName, symbol, fundingMarketType, accountScope)
 	if err != nil {
 		return fmt.Errorf("read prior funding coverage: %w", err)
 	}
-	startTime, endTime, err := fundingIncomeSyncWindow(coveredFrom, time.Now())
+	startTime, endTime, err := fundingIncomeSyncWindow(coveredFrom, coveredThrough, time.Now())
 	if err != nil {
 		return err
 	}
@@ -319,25 +335,30 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 		return fmt.Errorf("fetch funding history: %w", err)
 	}
 	saved := 0
+	rejected := 0
 	fullyPersisted := true
 	for _, inc := range list {
 		if inc == nil {
 			logger.Warn("⚠️ 跳過空資金費記錄 exchange=%s symbol=%s", exchangeName, symbol)
+			rejected++
 			fullyPersisted = false
 			continue
 		}
 		if !strings.EqualFold(strings.TrimSpace(inc.Symbol), strings.TrimSpace(symbol)) || !strings.EqualFold(strings.TrimSpace(inc.IncomeType), "FUNDING_FEE") {
 			logger.Warn("⚠️ 資金費 API 返回記錄與查詢範圍不一致，不能標記完整 exchange=%s requested_symbol=%s returned_symbol=%s income_type=%s", exchangeName, symbol, inc.Symbol, inc.IncomeType)
+			rejected++
 			fullyPersisted = false
 			continue
 		}
 		if math.IsNaN(inc.Income) || math.IsInf(inc.Income, 0) || strings.TrimSpace(inc.Asset) == "" {
 			logger.Warn("⚠️ 資金費 API 返回無效金額或缺少結算幣種，不能寫入賬本或標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
+			rejected++
 			fullyPersisted = false
 			continue
 		}
 		if inc.TradeTime.Before(startTime) || inc.TradeTime.After(endTime) {
 			logger.Warn("⚠️ 資金費 API 返回記錄超出查詢時間窗口，不能標記完整 exchange=%s symbol=%s transaction_id=%d", exchangeName, symbol, inc.TransactionID)
+			rejected++
 			fullyPersisted = false
 			continue
 		}
@@ -347,6 +368,7 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 			Asset: inc.Asset, Info: inc.Info, TransactionID: inc.TransactionID, TradeTime: inc.TradeTime,
 		}); err != nil {
 			logger.Warn("⚠️ 保存資金費記錄失敗 exchange=%s symbol=%s transaction_id=%d: %v", exchangeName, symbol, inc.TransactionID, err)
+			rejected++
 			fullyPersisted = false
 			continue
 		}
@@ -356,7 +378,7 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 		logger.Info("💰 資金費用同步: %s %s 核對 %d 筆", exchangeName, symbol, saved)
 	}
 	if !fullyPersisted {
-		return nil
+		return fmt.Errorf("funding history sync incomplete: %d of %d records rejected; coverage watermark unchanged", rejected, len(list))
 	}
 	coverageWriter, ok := st.(interface {
 		MarkFundingIncomeCoverage(string, string, string, string, time.Time, time.Time) error

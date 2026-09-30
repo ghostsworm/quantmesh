@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
+	"strconv"
 	"strings"
 	"time"
 
@@ -449,6 +451,8 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 	if _, err := accounting.CanonicalDecimal(ledger.Wallet.Balance); err != nil {
 		return fmt.Errorf("account income evidence wallet balance is invalid: %w", err)
 	}
+	freshProfit := new(big.Rat)
+	seenProfitEntries := make(map[string]struct{})
 	for _, entry := range ledger.Entries {
 		if !entry.At.After(windowStart) || entry.At.After(windowEnd) {
 			continue
@@ -460,12 +464,41 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 			if strings.TrimSpace(entry.Symbol) == "" || !strings.EqualFold(strings.TrimSpace(entry.Symbol), strings.TrimSpace(symbol)) {
 				return fmt.Errorf("withdrawal interval contains %q not attributable to requested symbol %q; withdrawal is disabled", entry.Kind, symbol)
 			}
+			if !strings.EqualFold(strings.TrimSpace(entry.Currency), "USDT") {
+				return fmt.Errorf("withdrawal interval contains %q without verified USDT denomination; withdrawal is disabled", entry.Kind)
+			}
+			entryID := strings.TrimSpace(entry.ID)
+			if entryID == "" {
+				return fmt.Errorf("withdrawal interval contains %q without a stable ledger identity; withdrawal is disabled", entry.Kind)
+			}
+			if _, duplicate := seenProfitEntries[entryID]; duplicate {
+				return fmt.Errorf("withdrawal interval contains duplicate ledger identity; withdrawal is disabled")
+			}
+			seenProfitEntries[entryID] = struct{}{}
+			amountRat, err := accounting.Decimal(entry.Amount)
+			if err != nil {
+				return fmt.Errorf("withdrawal interval contains %q with an invalid amount: %w", entry.Kind, err)
+			}
+			if entry.Kind == "fee" && amountRat.Sign() > 0 {
+				return fmt.Errorf("withdrawal interval contains a positive fee without verified rebate classification; withdrawal is disabled")
+			}
+			freshProfit.Add(freshProfit, amountRat)
 		case "transfer_in", "transfer_out", "rebate":
 			// Explicitly classified categories; only realized PnL, funding, and fees
 			// for this exact symbol contribute to the strategy-profit calculation.
+			if entry.Kind == "rebate" {
+				amountRat, err := accounting.Decimal(entry.Amount)
+				if err != nil || amountRat.Sign() < 0 {
+					return fmt.Errorf("withdrawal interval contains an invalid or negative rebate; withdrawal is disabled")
+				}
+			}
 		default:
 			return fmt.Errorf("withdrawal interval contains unsupported account cash flow %q; withdrawal is disabled", entry.Kind)
 		}
+	}
+	amountRat, err := accounting.Decimal(strconv.FormatFloat(amount, 'f', -1, 64))
+	if err != nil || freshProfit.Sign() <= 0 || amountRat.Cmp(freshProfit) > 0 {
+		return fmt.Errorf("withdrawal amount exceeds fresh exchange-ledger realized USDT profit; withdrawal is disabled")
 	}
 	freshAccount, ok := ex.(interface {
 		GetAccountFresh(context.Context) (*exchange.Account, error)

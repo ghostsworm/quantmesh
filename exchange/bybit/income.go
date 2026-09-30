@@ -96,7 +96,10 @@ func normalizeBybitFundingEntry(row BybitTransactionLog, symbol string, startTim
 		amountErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || asset == "" {
 		return nil, false, fmt.Errorf("Bybit funding entry for %s contains invalid identity, range, or financial fields", symbol)
 	}
-	identity := strings.Join([]string{row.ID, symbol, row.Category, row.Type, row.TransactionTime, asset, row.Funding}, ":")
+	// The exchange row ID is the stable identity. Financial payload fields must
+	// not participate in the hash: if Bybit corrects an amount/time/currency,
+	// storage must see the same transaction ID and reject conflicting economics.
+	identity := strings.TrimSpace(row.ID)
 	hasher := fnv.New64a()
 	_, _ = hasher.Write([]byte(identity))
 	transactionID := int64(hasher.Sum64() & (^uint64(0) >> 1))

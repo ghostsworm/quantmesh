@@ -103,6 +103,34 @@ func TestGetIncomeHistoryRejectsUnsupportedTypeAndSymbol(t *testing.T) {
 	}
 }
 
+func TestBybitFundingTransactionIdentityDoesNotIncludeMutablePayload(t *testing.T) {
+	first, relevant, err := normalizeBybitFundingEntry(BybitTransactionLog{
+		ID: "stable-row-id", Symbol: "BTCUSDT", Category: "linear", Type: "SETTLEMENT", Funding: "-0.5", Currency: "USDT",
+		TransactionTime: "1790000000000",
+	}, "BTCUSDT", 1_790_000_000_000, 1_790_000_001_000, make(map[int64]struct{}))
+	if err != nil || !relevant {
+		t.Fatalf("normalize first Bybit entry: relevant=%v err=%v", relevant, err)
+	}
+	corrected, relevant, err := normalizeBybitFundingEntry(BybitTransactionLog{
+		ID: "stable-row-id", Symbol: "BTCUSDT", Category: "linear", Type: "SETTLEMENT", Funding: "-0.6", Currency: "USDT",
+		TransactionTime: "1790000000001",
+	}, "BTCUSDT", 1_790_000_000_000, 1_790_000_001_000, make(map[int64]struct{}))
+	if err != nil || !relevant {
+		t.Fatalf("normalize corrected Bybit entry: relevant=%v err=%v", relevant, err)
+	}
+	if corrected.TransactionID != first.TransactionID {
+		t.Fatalf("mutable financial payload changed transaction identity: first=%d corrected=%d", first.TransactionID, corrected.TransactionID)
+	}
+	seen := map[int64]struct{}{first.TransactionID: {}}
+	_, _, err = normalizeBybitFundingEntry(BybitTransactionLog{
+		ID: "stable-row-id", Symbol: "BTCUSDT", Category: "linear", Type: "SETTLEMENT", Funding: "-0.6", Currency: "USDT",
+		TransactionTime: "1790000000001",
+	}, "BTCUSDT", 1_790_000_000_000, 1_790_000_001_000, seen)
+	if err == nil {
+		t.Fatal("corrected duplicate Bybit transaction must be surfaced as an identity conflict")
+	}
+}
+
 func TestBybitTransactionLogPageReturnsCursor(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Query().Get("cursor"); got != "next" {
