@@ -3,6 +3,8 @@ package bingx
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 
 	"quantmesh/logger"
@@ -18,6 +20,21 @@ type Adapter struct {
 	quantityDecimals int
 	baseAsset        string
 	quoteAsset       string
+}
+
+type BingXOrderFill struct {
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             OrderSide
+	Price            float64
+	Quantity         float64
+	Commission       float64
+	CommissionAsset  string
+	TradeTime        int64
+	RealizedPnL      float64
+	RealizedPnLKnown bool
+	RealizedPnLAsset string
 }
 
 // NewAdapter 創建 BingX 适配器
@@ -156,6 +173,49 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, err
 
 	return a.convertOrder(orderInfo), nil
 }
+
+// GetOrderFills returns BingX historical execution rows for one exact order.
+func (a *Adapter) GetOrderFills(ctx context.Context, orderID int64) ([]BingXOrderFill, error) {
+	if a == nil || a.client == nil || orderID <= 0 || strings.TrimSpace(a.symbol) == "" {
+		return nil, fmt.Errorf("BingX fill query requires client, symbol, and positive order ID")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	if currency != "USDT" && currency != "USDC" {
+		return nil, fmt.Errorf("BingX fill query does not support unverified settlement currency %q", currency)
+	}
+	rows, err := a.client.GetOrderFillHistory(ctx, a.symbol, currency, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]BingXOrderFill, 0, len(rows))
+	for _, row := range rows {
+		rowOrderID, orderErr := strconv.ParseInt(row.OrderID.String(), 10, 64)
+		tradeID := row.TradeID.String()
+		if orderErr != nil || rowOrderID != orderID || row.Symbol != a.symbol || tradeID == "" {
+			return nil, fmt.Errorf("BingX returned mismatched execution identity for order %d", orderID)
+		}
+		price, priceErr := strconv.ParseFloat(row.Price, 64)
+		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
+		fee, feeErr := strconv.ParseFloat(row.Fee, 64)
+		pnl, pnlErr := strconv.ParseFloat(row.RealizedPnL, 64)
+		tradeTime, timeErr := strconv.ParseInt(row.TradeTime.String(), 10, 64)
+		if priceErr != nil || quantityErr != nil || feeErr != nil || pnlErr != nil || timeErr != nil ||
+			!finiteBingXValue(price) || !finiteBingXValue(quantity) || !finiteBingXValue(fee) || !finiteBingXValue(pnl) ||
+			price <= 0 || quantity <= 0 || tradeTime <= 0 {
+			return nil, fmt.Errorf("BingX execution %s contains invalid financial or timestamp fields", tradeID)
+		}
+		side := OrderSide(strings.ToUpper(strings.TrimSpace(row.Side)))
+		if side != SideBuy && side != SideSell {
+			return nil, fmt.Errorf("BingX execution %s has unsupported side %q", tradeID, row.Side)
+		}
+		fills = append(fills, BingXOrderFill{OrderID: orderID, TradeID: tradeID, Symbol: convertSymbolFromBingX(row.Symbol),
+			Side: side, Price: price, Quantity: quantity, Commission: -fee, CommissionAsset: currency,
+			TradeTime: tradeTime, RealizedPnL: pnl, RealizedPnLKnown: true, RealizedPnLAsset: currency})
+	}
+	return fills, nil
+}
+
+func finiteBingXValue(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 
 // GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {

@@ -32,6 +32,20 @@ type BingXClient struct {
 	isTestnet  bool
 }
 
+type BingXTradeFill struct {
+	TradeID     json.Number `json:"tradeId"`
+	Symbol      string      `json:"symbol"`
+	OrderID     json.Number `json:"orderId"`
+	Side        string      `json:"side"`
+	Price       string      `json:"price"`
+	Quantity    string      `json:"qty"`
+	RealizedPnL string      `json:"realizedPnl"`
+	Fee         string      `json:"fee"`
+	TradeTime   json.Number `json:"time"`
+}
+
+const bingXFillHistoryPageSize = 1000
+
 // NewBingXClient 創建 BingX 客戶端
 func NewBingXClient(apiKey, secretKey string, isTestnet bool) *BingXClient {
 	baseURL := BingXMainnetBaseURL
@@ -135,6 +149,59 @@ func (c *BingXClient) sendRequest(ctx context.Context, method, path string, para
 	}
 
 	return respBody, nil
+}
+
+// GetOrderFillHistory queries all historical fills for one order using the authenticated paginated endpoint.
+func (c *BingXClient) GetOrderFillHistory(ctx context.Context, symbol, currency string, orderID int64) ([]BingXTradeFill, error) {
+	if strings.TrimSpace(symbol) == "" || strings.TrimSpace(currency) == "" || orderID <= 0 {
+		return nil, fmt.Errorf("BingX fill history requires symbol, settlement currency, and positive order ID")
+	}
+	var fills []BingXTradeFill
+	seenTradeIDs := make(map[string]struct{})
+	lastFillID := "0"
+	for pageIndex := 1; ; pageIndex++ {
+		params := url.Values{}
+		params.Set("symbol", symbol)
+		params.Set("currency", currency)
+		params.Set("orderId", strconv.FormatInt(orderID, 10))
+		params.Set("lastFillId", lastFillID)
+		params.Set("startTs", "0")
+		params.Set("endTs", strconv.FormatInt(time.Now().UnixMilli(), 10))
+		params.Set("pageIndex", strconv.Itoa(pageIndex))
+		params.Set("pageSize", strconv.Itoa(bingXFillHistoryPageSize))
+		body, err := c.sendRequest(ctx, http.MethodGet, "/openApi/swap/v2/trade/fillHistory", params, true)
+		if err != nil {
+			return nil, fmt.Errorf("query BingX fills for order %d page %d: %w", orderID, pageIndex, err)
+		}
+		var response struct {
+			Data struct {
+				Fills []BingXTradeFill `json:"fill_orders"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("decode BingX fills for order %d page %d: %w", orderID, pageIndex, err)
+		}
+		page := response.Data.Fills
+		for _, fill := range page {
+			tradeID := fill.TradeID.String()
+			if tradeID == "" || tradeID == lastFillID {
+				return nil, fmt.Errorf("BingX fill history cursor did not advance for order %d", orderID)
+			}
+			if _, duplicate := seenTradeIDs[tradeID]; duplicate {
+				return nil, fmt.Errorf("BingX returned duplicate trade ID %s for order %d", tradeID, orderID)
+			}
+			seenTradeIDs[tradeID] = struct{}{}
+			fills = append(fills, fill)
+		}
+		if len(page) < bingXFillHistoryPageSize {
+			return fills, nil
+		}
+		nextFillID := page[len(page)-1].TradeID.String()
+		if nextFillID == "" || nextFillID == lastFillID {
+			return nil, fmt.Errorf("BingX fill history cursor did not advance for order %d", orderID)
+		}
+		lastFillID = nextFillID
+	}
 }
 
 // GetExchangeInfo 獲取交易對信息
