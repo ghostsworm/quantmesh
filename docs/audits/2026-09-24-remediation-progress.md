@@ -1,5 +1,6 @@
 # 实盘准备度整改进度
 
+- rc585 补齐 CoinEx futures wrapper 此前 `GetOrderFills => nil,nil`：接通 CoinEx V2 签名 `GET /futures/order-deals`，按 `market_type=FUTURES` + order_id 获取分页流水；依据官方 `pagination.has_next` 继续分页，拒绝空续页、重复成交 ID、跨订单/市场记录、未知方向/role、缺费用币种以及非有限或无效数值；将 API 报告的 fee、fee_ccy 与 realized_pnl 传到通用成交账本，PnL 仅在 adapter 市场结算报价币证据存在时标记已知。mock 核验 v2 HMAC 路径签名、双页完整查询及费用/PnL 映射。未接真实账户、未下单或部署；不代表实盘或盈利验收。
 - rc584 补齐 BingX futures wrapper 此前 `GetOrderFills => nil,nil` 的财务账本缺口：使用 BingX 官方维护 API 参考中的 `GET /openApi/swap/v2/trade/fillHistory`，按订单 ID 与结算币过滤并通过 pageIndex/pageSize/lastFillId 完整翻页；官方字段 fee 为负表示支出，故转换为内部支出正数；校验每笔订单/交易对身份、唯一成交 ID、方向、有限价格/数量/PnL/费用及时间戳，游标重复或不前进失败关闭；USDT/USDC 之外不宣称币种可核实。mock 覆盖签名参数、1000+1 分页、游标及财务字段映射。未接真实账户、未下单或部署；不代表实盘或盈利验收。
 - rc583 补齐 MEXC futures wrapper 此前 `GetOrderFills => nil,nil` 的缺口：按官方 `GET /api/v1/private/order/deal_details/{order_id}` 使用 read 权限签名请求，映射逐笔成交 ID、orderId/symbol、side、volume、price、fee/feeCurrency、profit、timestamp 与 maker/taker；混合字符串/数字 JSON 数值兼容解析，重复 ID、订单/合约身份不匹配、未知方向、无效/非有限数据或缺费用币种时失败关闭；PnL 仅在合约结算币种元数据存在时标为已知。mock 覆盖签名请求、字符串/数字 ID、费用及盈亏映射。未接真实账户、未下单或部署；不代表实盘或盈利验收。
 - rc582 补齐 OKX SWAP 成交 REST 响应中已存在但此前丢弃的官方 `fillPnl`，逐笔携带合约结算币种；校验请求订单 ID、合约 ID、成交 ID、价格/张数、手续费币种与有限数值、时间戳，拒绝字段缺失或无效，不把不明盈亏/手续费伪装成零。mock 覆盖开仓零 PnL、平仓 PnL 与费用返佣。OKX 官方文档说明 `fillPnl` 是逐笔实现盈亏，按结算币种计，开仓返回 0。未接真实账户、未下单或部署；历史查询仍依赖当前使用的近期成交接口窗口，未在本次扩大回补窗口。

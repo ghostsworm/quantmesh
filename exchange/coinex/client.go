@@ -276,6 +276,98 @@ func (c *CoinExClient) PlaceFuturesOrderV2(ctx context.Context, req *OrderReques
 	return &apiResponse.Data, nil
 }
 
+type FuturesOrderDealV2 struct {
+	DealID      json.Number `json:"deal_id"`
+	CreatedAt   json.Number `json:"created_at"`
+	OrderID     json.Number `json:"order_id"`
+	Market      string      `json:"market"`
+	Side        string      `json:"side"`
+	Price       string      `json:"price"`
+	Amount      string      `json:"amount"`
+	Role        string      `json:"role"`
+	Fee         string      `json:"fee"`
+	FeeCurrency string      `json:"fee_ccy"`
+	RealizedPnL string      `json:"realized_pnl"`
+}
+
+const coinExFuturesOrderDealsPageSize = 100
+
+// GetFuturesOrderDealsV2 queries every execution for one CoinEx futures order.
+func (c *CoinExClient) GetFuturesOrderDealsV2(ctx context.Context, market string, orderID int64) ([]FuturesOrderDealV2, error) {
+	if strings.TrimSpace(market) == "" || orderID <= 0 {
+		return nil, fmt.Errorf("CoinEx futures deal query requires market and positive order ID")
+	}
+	const path = "/v2/futures/order-deals"
+	var deals []FuturesOrderDealV2
+	seenDealIDs := make(map[string]struct{})
+	for page := 1; ; page++ {
+		query := url.Values{}
+		query.Set("market", market)
+		query.Set("market_type", "FUTURES")
+		query.Set("order_id", strconv.FormatInt(orderID, 10))
+		query.Set("page", strconv.Itoa(page))
+		query.Set("limit", strconv.Itoa(coinExFuturesOrderDealsPageSize))
+		requestPath := path + "?" + query.Encode()
+		timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
+		prepared := http.MethodGet + requestPath + timestamp
+		signature := hmac.New(sha256.New, []byte(c.secretKey))
+		_, _ = signature.Write([]byte(prepared))
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+requestPath, nil)
+		if err != nil {
+			return nil, fmt.Errorf("create CoinEx order-deals request: %w", err)
+		}
+		request.Header.Set("X-COINEX-KEY", c.apiKey)
+		request.Header.Set("X-COINEX-SIGN", hex.EncodeToString(signature.Sum(nil)))
+		request.Header.Set("X-COINEX-TIMESTAMP", timestamp)
+		response, err := c.httpClient.Do(request)
+		if err != nil {
+			return nil, fmt.Errorf("send CoinEx order-deals request page %d: %w", page, err)
+		}
+		responseBody, readErr := io.ReadAll(response.Body)
+		closeErr := response.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read CoinEx order-deals response: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close CoinEx order-deals response: %w", closeErr)
+		}
+		if response.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("CoinEx order-deals HTTP %d: %s", response.StatusCode, string(responseBody))
+		}
+		var apiResponse struct {
+			Code       int                  `json:"code"`
+			Message    string               `json:"message"`
+			Data       []FuturesOrderDealV2 `json:"data"`
+			Pagination struct {
+				HasNext bool `json:"has_next"`
+			} `json:"pagination"`
+		}
+		if err := json.Unmarshal(responseBody, &apiResponse); err != nil {
+			return nil, fmt.Errorf("decode CoinEx order-deals response: %w", err)
+		}
+		if apiResponse.Code != 0 {
+			return nil, fmt.Errorf("CoinEx order-deals API error: code=%d message=%s", apiResponse.Code, apiResponse.Message)
+		}
+		for _, deal := range apiResponse.Data {
+			dealID := deal.DealID.String()
+			if dealID == "" {
+				return nil, fmt.Errorf("CoinEx returned a deal without deal_id for order %d", orderID)
+			}
+			if _, duplicate := seenDealIDs[dealID]; duplicate {
+				return nil, fmt.Errorf("CoinEx returned duplicate deal_id %s for order %d", dealID, orderID)
+			}
+			seenDealIDs[dealID] = struct{}{}
+			deals = append(deals, deal)
+		}
+		if !apiResponse.Pagination.HasNext {
+			return deals, nil
+		}
+		if len(apiResponse.Data) == 0 {
+			return nil, fmt.Errorf("CoinEx order-deals pagination claims more data with an empty page for order %d", orderID)
+		}
+	}
+}
+
 // CancelOrder 取消訂單
 func (c *CoinExClient) CancelOrder(ctx context.Context, market string, orderID int64) error {
 	path := "/v1/order/pending"

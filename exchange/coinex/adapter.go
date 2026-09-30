@@ -34,6 +34,22 @@ type Adapter struct {
 	quoteAsset       string
 }
 
+type CoinExOrderFill struct {
+	OrderID          int64
+	TradeID          string
+	Symbol           string
+	Side             OrderSide
+	Price            float64
+	Quantity         float64
+	Commission       float64
+	CommissionAsset  string
+	TradeTime        int64
+	RealizedPnL      float64
+	RealizedPnLKnown bool
+	RealizedPnLAsset string
+	IsMaker          bool
+}
+
 // NewAdapter 創建 CoinEx 适配器
 func NewAdapter(config map[string]string, symbol string) (*Adapter, error) {
 	apiKey := config["api_key"]
@@ -167,6 +183,56 @@ func (a *Adapter) GetOrder(ctx context.Context, orderID int64) (*OrderLocal, err
 
 	return a.convertOrder(order), nil
 }
+
+// GetOrderFills reads the authenticated CoinEx futures execution ledger.
+func (a *Adapter) GetOrderFills(ctx context.Context, orderID int64) ([]CoinExOrderFill, error) {
+	if a == nil || a.client == nil || orderID <= 0 || strings.TrimSpace(a.market) == "" {
+		return nil, fmt.Errorf("CoinEx fill query requires client, market, and positive order ID")
+	}
+	rows, err := a.client.GetFuturesOrderDealsV2(ctx, a.market, orderID)
+	if err != nil {
+		return nil, err
+	}
+	fills := make([]CoinExOrderFill, 0, len(rows))
+	for _, row := range rows {
+		rowOrderID, orderErr := strconv.ParseInt(row.OrderID.String(), 10, 64)
+		tradeID := row.DealID.String()
+		if orderErr != nil || rowOrderID != orderID || row.Market != a.market || tradeID == "" {
+			return nil, fmt.Errorf("CoinEx returned mismatched execution identity for order %d", orderID)
+		}
+		price, priceErr := strconv.ParseFloat(row.Price, 64)
+		amount, amountErr := strconv.ParseFloat(row.Amount, 64)
+		fee, feeErr := strconv.ParseFloat(row.Fee, 64)
+		pnl, pnlErr := strconv.ParseFloat(row.RealizedPnL, 64)
+		createdAt, timeErr := strconv.ParseInt(row.CreatedAt.String(), 10, 64)
+		if priceErr != nil || amountErr != nil || feeErr != nil || pnlErr != nil || timeErr != nil ||
+			!finiteCoinExValue(price) || !finiteCoinExValue(amount) || !finiteCoinExValue(fee) || !finiteCoinExValue(pnl) ||
+			price <= 0 || amount <= 0 || createdAt <= 0 || strings.TrimSpace(row.FeeCurrency) == "" {
+			return nil, fmt.Errorf("CoinEx execution %s contains invalid financial or timestamp fields", tradeID)
+		}
+		var side OrderSide
+		switch strings.ToLower(strings.TrimSpace(row.Side)) {
+		case "buy":
+			side = SideBuy
+		case "sell":
+			side = SideSell
+		default:
+			return nil, fmt.Errorf("CoinEx execution %s has unsupported side %q", tradeID, row.Side)
+		}
+		role := strings.ToLower(strings.TrimSpace(row.Role))
+		if role != "maker" && role != "taker" {
+			return nil, fmt.Errorf("CoinEx execution %s has unsupported role %q", tradeID, row.Role)
+		}
+		settlementAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+		fill := CoinExOrderFill{OrderID: orderID, TradeID: tradeID, Symbol: row.Market, Side: side, Price: price,
+			Quantity: amount, Commission: fee, CommissionAsset: strings.ToUpper(row.FeeCurrency), TradeTime: createdAt,
+			RealizedPnL: pnl, RealizedPnLKnown: settlementAsset != "", RealizedPnLAsset: settlementAsset, IsMaker: role == "maker"}
+		fills = append(fills, fill)
+	}
+	return fills, nil
+}
+
+func finiteCoinExValue(value float64) bool { return !math.IsNaN(value) && !math.IsInf(value, 0) }
 
 // GetOpenOrders 獲取活跃订單
 func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
