@@ -510,6 +510,20 @@ func TestFundingCarryReverseOpeningRejectsBorrowRateAboveDailyLimit(t *testing.T
 	}
 }
 
+func TestFundingCarryReverseOpeningChecksEconomicsBeforeFundingTransfer(t *testing.T) {
+	strategy, futures, _ := newFundingCarryBudgetStrategy(true, 0, 0, 500)
+	strategy.symCfg.TotalAllocatedCapital = 500
+	strategy.marginInterestMax = 0.001
+	margin := &fundingCarryMarginBalanceExchange{mockFCExchange: &mockFCExchange{}, balance: 300, hourlyRate: 0.00005}
+	strategy.marginEx = margin
+	if err := strategy.openReverseHedge(context.Background(), 50000, 50000, -0.001); err == nil {
+		t.Fatal("opened reverse carry despite borrow rate exceeding daily limit")
+	}
+	if margin.borrowCalls != 0 || futures.transferCalls != 0 {
+		t.Fatalf("economics rejection occurred after side effects: borrow calls=%d, transfers=%d", margin.borrowCalls, futures.transferCalls)
+	}
+}
+
 func TestFundingCarryReverseNetFundingMustExceedBorrowInterest(t *testing.T) {
 	tests := []struct {
 		name        string

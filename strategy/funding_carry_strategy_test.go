@@ -80,6 +80,16 @@ func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
 	}
 }
 
+func TestNewFundingCarryStrategyRejectsNonFiniteMarginInterestMaximum(t *testing.T) {
+	for _, invalid := range []float64{math.NaN(), math.Inf(1)} {
+		strategy := NewFundingCarryStrategy("fc-interest", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, nil,
+			map[string]interface{}{"margin_interest_max": invalid})
+		if strategy.marginInterestMax != 0.001 {
+			t.Fatalf("accepted non-finite margin_interest_max %v: got %v", invalid, strategy.marginInterestMax)
+		}
+	}
+}
+
 func TestRoundQty(t *testing.T) {
 	s := &FundingCarryStrategy{}
 	tests := []struct {

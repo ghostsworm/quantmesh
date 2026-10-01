@@ -183,7 +183,7 @@ func NewFundingCarryStrategy(
 		if v, ok := stratCfg["reverse_exit_funding_rate"].(float64); ok && v > 0 {
 			reverseExitRate = v
 		}
-		if v, ok := stratCfg["margin_interest_max"].(float64); ok && v > 0 {
+		if v, ok := stratCfg["margin_interest_max"].(float64); ok && finitePositive(v) {
 			marginInterestMax = v
 		}
 		if v, ok := stratCfg["auto_transfer_enabled"].(bool); ok {
@@ -1771,10 +1771,6 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		return err
 	}
 
-	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
-		return fmt.Errorf("ensure futures opening margin: %w", err)
-	}
-
 	base := s.spot.GetBaseAsset()
 	rateProvider, ok := s.marginEx.(exchange.MarginBorrowRateProvider)
 	if !ok {
@@ -1794,6 +1790,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	}
 	if err := validateFundingCarryReverseNetRate(fundingInfo, s.symbol, hourlyRate); err != nil {
 		return fmt.Errorf("validate reverse funding economics: %w", err)
+	}
+	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
+		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
 	borrowQty := legNotional / spotPx
 	borrowQty = s.roundQty(borrowQty, s.spot.GetQuantityDecimals())
