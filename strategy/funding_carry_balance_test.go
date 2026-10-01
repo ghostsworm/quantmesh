@@ -407,6 +407,49 @@ func TestFundingCarrySpotBuyReserveIncludesQuoteFee(t *testing.T) {
 	}
 }
 
+func TestFundingCarrySingleMarketRoundTripBookCost(t *testing.T) {
+	book := &exchange.OrderBook{
+		Symbol: "BTCUSDT",
+		Bids:   []exchange.OrderBookLevel{{Price: 100, Quantity: 1}, {Price: 99, Quantity: 1}},
+		Asks:   []exchange.OrderBookLevel{{Price: 101, Quantity: 1}, {Price: 102, Quantity: 1}},
+	}
+	cost, err := fundingCarrySingleMarketRoundTripBookCost(book, "BTCUSDT", 2)
+	if err != nil {
+		t.Fatalf("estimate order book round-trip cost: %v", err)
+	}
+	if math.Abs(cost-4) > 1e-9 {
+		t.Fatalf("round-trip book cost = %.8f, want 4", cost)
+	}
+}
+
+func TestFundingCarrySingleMarketRoundTripBookCostRejectsUnsafeBook(t *testing.T) {
+	tests := []struct {
+		name string
+		book *exchange.OrderBook
+		qty  float64
+	}{
+		{name: "insufficient depth", book: &exchange.OrderBook{Symbol: "BTCUSDT", Bids: []exchange.OrderBookLevel{{Price: 100, Quantity: 1}}, Asks: []exchange.OrderBookLevel{{Price: 101, Quantity: 1}}}, qty: 2},
+		{name: "crossed book", book: &exchange.OrderBook{Symbol: "BTCUSDT", Bids: []exchange.OrderBookLevel{{Price: 102, Quantity: 2}}, Asks: []exchange.OrderBookLevel{{Price: 101, Quantity: 2}}}, qty: 1},
+		{name: "wrong symbol", book: &exchange.OrderBook{Symbol: "ETHUSDT", Bids: []exchange.OrderBookLevel{{Price: 100, Quantity: 2}}, Asks: []exchange.OrderBookLevel{{Price: 101, Quantity: 2}}}, qty: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := fundingCarrySingleMarketRoundTripBookCost(tt.book, "BTCUSDT", tt.qty); err == nil {
+				t.Fatal("accepted unsafe order book")
+			}
+		})
+	}
+}
+
+func TestFundingCarryExecutionCostRecoveryIncludesBookSpread(t *testing.T) {
+	if err := validateFundingCarryFeeRecovery(0.000015, 0.0002, 30, 0); err != nil {
+		t.Fatalf("fee-only recovery should pass: %v", err)
+	}
+	if err := validateFundingCarryExecutionCostRecovery(0.000015, 0.0002, 30, 0, 100, 100, 0.1); err == nil {
+		t.Fatal("accepted a book-spread cost that pushes recovery beyond the configured horizon")
+	}
+}
+
 func TestFundingCarryHarvestRetainsFullPositionNotional(t *testing.T) {
 	surplus, ok := fundingCarryHarvestableSurplus(1200, 0.02, 50000, 100, 900)
 	if !ok || math.Abs(surplus-150) > 1e-9 {
@@ -521,6 +564,27 @@ func TestFundingCarryReverseOpeningChecksEconomicsBeforeFundingTransfer(t *testi
 	}
 	if margin.borrowCalls != 0 || futures.transferCalls != 0 {
 		t.Fatalf("economics rejection occurred after side effects: borrow calls=%d, transfers=%d", margin.borrowCalls, futures.transferCalls)
+	}
+}
+
+func TestFundingCarryReverseOpeningRejectsShallowBookBeforeBorrowOrTransfer(t *testing.T) {
+	strategy, futures, _ := newFundingCarryBudgetStrategy(true, 0, 0, 500)
+	strategy.symCfg.TotalAllocatedCapital = 500
+	strategy.cfg = &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {FeeRate: 0.0002}}}
+	futures.fundingRate = -0.001
+	margin := &fundingCarryMarginBalanceExchange{mockFCExchange: &mockFCExchange{}, balance: 300, hourlyRate: 0.00001}
+	margin.orderBookOverride = &exchange.OrderBook{
+		Symbol: "BTCUSDT",
+		Bids:   []exchange.OrderBookLevel{{Price: 49999, Quantity: 0.001}},
+		Asks:   []exchange.OrderBookLevel{{Price: 50001, Quantity: 0.001}},
+	}
+	strategy.marginEx = margin
+
+	if err := strategy.openReverseHedge(context.Background(), 50000, 50000, -0.001); err == nil {
+		t.Fatal("opened reverse carry despite insufficient margin-market book depth")
+	}
+	if margin.borrowCalls != 0 || futures.transferCalls != 0 {
+		t.Fatalf("book-depth rejection occurred after side effects: borrow calls=%d, transfers=%d", margin.borrowCalls, futures.transferCalls)
 	}
 }
 

@@ -126,6 +126,7 @@ const (
 	orderCancelVerifyTimeout    = 10 * time.Second
 	maxCarryOpenSlippage        = 0.003
 	defaultCarryFeeRecoveryDays = 30.0
+	fundingCarryOrderBookDepth  = 50
 
 	// closeSpotSellPriceFactor 平倉現貨限價賣單相對最新價的折讓（保證盡快成交）
 	closeSpotSellPriceFactor = 0.99
@@ -1122,18 +1123,100 @@ func fundingCarryConfiguredFeeRate(cfg *config.Config, exchangeName string) (flo
 }
 
 func validateFundingCarryFeeRecovery(fundingRate, feeRate, maxRecoveryDays, hourlyBorrowRate float64) error {
+	return validateFundingCarryExecutionCostRecovery(fundingRate, feeRate, maxRecoveryDays, hourlyBorrowRate, 1, 1, 0)
+}
+
+func validateFundingCarryExecutionCostRecovery(fundingRate, feeRate, maxRecoveryDays, hourlyBorrowRate, spotNotional, futuresNotional, roundTripBookCost float64) error {
 	if math.IsNaN(fundingRate) || math.IsInf(fundingRate, 0) ||
 		math.IsNaN(feeRate) || math.IsInf(feeRate, 0) || feeRate < 0 || feeRate > 1 ||
 		!finitePositive(maxRecoveryDays) || maxRecoveryDays > 365 ||
-		!finiteNonNegative(hourlyBorrowRate) {
+		!finiteNonNegative(hourlyBorrowRate) || !finitePositive(spotNotional) ||
+		!finitePositive(futuresNotional) || !finiteNonNegative(roundTripBookCost) {
 		return fmt.Errorf("invalid funding carry fee recovery inputs")
 	}
 	netRate := math.Abs(fundingRate) - hourlyBorrowRate*8
-	feeRecoveryRate := 4 * feeRate / (3 * maxRecoveryDays)
-	if !finiteNonNegative(feeRecoveryRate) || netRate < feeRecoveryRate {
-		return fmt.Errorf("estimated 8-hour net carry %.8f is below %.8f required to recover round-trip fees within %.2f days", netRate, feeRecoveryRate, maxRecoveryDays)
+	fundingNotional := futuresNotional
+	if !finitePositive(fundingNotional) {
+		return fmt.Errorf("invalid funding notional")
+	}
+	roundTripFees := 2 * feeRate * (spotNotional + futuresNotional)
+	roundTripCostRate := (roundTripFees + roundTripBookCost) / fundingNotional
+	recoveryRate := roundTripCostRate / (3 * maxRecoveryDays)
+	if !finiteNonNegative(recoveryRate) || netRate < recoveryRate {
+		return fmt.Errorf("estimated 8-hour net carry %.8f is below %.8f required to recover estimated round-trip fees and book cost within %.2f days", netRate, recoveryRate, maxRecoveryDays)
 	}
 	return nil
+}
+
+func fundingCarryRoundTripOrderBookCost(ctx context.Context, symbol string, spot, futures exchange.IExchange, spotQty, futuresQty float64) (float64, error) {
+	if ctx == nil || spot == nil || futures == nil || strings.TrimSpace(symbol) == "" || !finitePositive(spotQty) || !finitePositive(futuresQty) {
+		return 0, fmt.Errorf("invalid funding carry order book cost inputs")
+	}
+	spotBook, err := spot.GetOrderBook(ctx, symbol, fundingCarryOrderBookDepth)
+	if err != nil {
+		return 0, fmt.Errorf("read spot order book for round-trip cost: %w", err)
+	}
+	futuresBook, err := futures.GetOrderBook(ctx, symbol, fundingCarryOrderBookDepth)
+	if err != nil {
+		return 0, fmt.Errorf("read futures order book for round-trip cost: %w", err)
+	}
+	spotCost, err := fundingCarrySingleMarketRoundTripBookCost(spotBook, symbol, spotQty)
+	if err != nil {
+		return 0, fmt.Errorf("validate spot round-trip order book: %w", err)
+	}
+	futuresCost, err := fundingCarrySingleMarketRoundTripBookCost(futuresBook, symbol, futuresQty)
+	if err != nil {
+		return 0, fmt.Errorf("validate futures round-trip order book: %w", err)
+	}
+	cost := spotCost + futuresCost
+	if !finiteNonNegative(cost) {
+		return 0, fmt.Errorf("estimated round-trip order book cost is invalid")
+	}
+	return cost, nil
+}
+
+func fundingCarrySingleMarketRoundTripBookCost(book *exchange.OrderBook, symbol string, quantity float64) (float64, error) {
+	if book == nil || !strings.EqualFold(strings.TrimSpace(book.Symbol), strings.TrimSpace(symbol)) ||
+		len(book.Bids) == 0 || len(book.Asks) == 0 || !finitePositive(quantity) {
+		return 0, fmt.Errorf("order book identity, sides, or quantity is invalid")
+	}
+	if !finitePositive(book.Bids[0].Price) || !finitePositive(book.Asks[0].Price) || book.Bids[0].Price >= book.Asks[0].Price {
+		return 0, fmt.Errorf("order book top of book is invalid or crossed")
+	}
+	bidVWAP, err := fundingCarryOrderBookVWAP(book.Bids, quantity, exchange.SideSell)
+	if err != nil {
+		return 0, fmt.Errorf("walk bid side: %w", err)
+	}
+	askVWAP, err := fundingCarryOrderBookVWAP(book.Asks, quantity, exchange.SideBuy)
+	if err != nil {
+		return 0, fmt.Errorf("walk ask side: %w", err)
+	}
+	cost := quantity * (askVWAP - bidVWAP)
+	if !finiteNonNegative(cost) {
+		return 0, fmt.Errorf("round-trip book cost is negative or non-finite")
+	}
+	return cost, nil
+}
+
+func fundingCarryOrderBookVWAP(levels []exchange.OrderBookLevel, quantity float64, side exchange.Side) (float64, error) {
+	remaining := quantity
+	quoteValue := 0.0
+	for index, level := range levels {
+		if !finitePositive(level.Price) || !finitePositive(level.Quantity) {
+			return 0, fmt.Errorf("order book contains invalid level")
+		}
+		if index > 0 && ((side == exchange.SideBuy && level.Price < levels[index-1].Price) ||
+			(side == exchange.SideSell && level.Price > levels[index-1].Price)) {
+			return 0, fmt.Errorf("order book levels are not ordered best to worst")
+		}
+		fillQty := math.Min(remaining, level.Quantity)
+		quoteValue += fillQty * level.Price
+		remaining -= fillQty
+		if remaining <= math.Max(1e-12, quantity*1e-12) {
+			return quoteValue / quantity, nil
+		}
+	}
+	return 0, fmt.Errorf("order book depth cannot fill requested quantity %.8f", quantity)
 }
 
 func finitePositive(value float64) bool {
@@ -1661,6 +1744,19 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	if qty <= 0 {
 		return fmt.Errorf("現貨買入數量精度截斷為 0")
 	}
+	plannedFuturesQty := s.roundQty(qty, s.fut.GetQuantityDecimals())
+	if plannedFuturesQty <= 0 {
+		return fmt.Errorf("合約開倉數量精度截斷為 0")
+	}
+	roundTripBookCost, err := fundingCarryRoundTripOrderBookCost(ctx, s.symbol, s.spot, s.fut, qty, plannedFuturesQty)
+	if err != nil {
+		return err
+	}
+	spotNotional := qty * spotPx
+	futuresNotional := plannedFuturesQty * futPx
+	if err := validateFundingCarryExecutionCostRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, 0, spotNotional, futuresNotional, roundTripBookCost); err != nil {
+		return fmt.Errorf("validate forward funding carry execution-cost recovery: %w", err)
+	}
 	buyPrice := spotPx * 1.005
 	buyPrice = s.roundPrice(buyPrice, s.spot.GetPriceDecimals())
 	spotBuyReserve, err := fundingCarrySpotBuyReserve(qty, buyPrice, feeRate)
@@ -1880,16 +1976,26 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if err != nil {
 		return err
 	}
-	if err := validateFundingCarryFeeRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, hourlyRate); err != nil {
-		return fmt.Errorf("validate reverse funding carry fee recovery: %w", err)
-	}
-	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
-		return fmt.Errorf("ensure futures opening margin: %w", err)
-	}
 	borrowQty := legNotional / spotPx
 	borrowQty = s.roundQty(borrowQty, s.spot.GetQuantityDecimals())
 	if borrowQty <= 0 {
 		return fmt.Errorf("借幣數量太小")
+	}
+	plannedFuturesQty := s.roundQty(borrowQty, s.fut.GetQuantityDecimals())
+	if plannedFuturesQty <= 0 {
+		return fmt.Errorf("合約開倉數量精度截斷為 0")
+	}
+	roundTripBookCost, err := fundingCarryRoundTripOrderBookCost(ctx, s.symbol, s.marginEx, s.fut, borrowQty, plannedFuturesQty)
+	if err != nil {
+		return err
+	}
+	spotNotional := borrowQty * spotPx
+	futuresNotional := plannedFuturesQty * futPx
+	if err := validateFundingCarryExecutionCostRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, hourlyRate, spotNotional, futuresNotional, roundTripBookCost); err != nil {
+		return fmt.Errorf("validate reverse funding carry fee recovery: %w", err)
+	}
+	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
+		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
 	// Step 1: 借幣
 	if err := s.beginRuntimeIntent(); err != nil {

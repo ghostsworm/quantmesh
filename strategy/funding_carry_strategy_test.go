@@ -274,6 +274,9 @@ type mockFCExchange struct {
 	quantityDecimals   int
 	placeOrderErr      error
 	placedOrders       []*exchange.OrderRequest
+	orderBookOverride  *exchange.OrderBook
+	orderBookErr       error
+	transferCalls      int
 	getOrderStatus     exchange.OrderStatus
 	getOrderExecQty    float64
 	repayCalls         int
@@ -334,9 +337,26 @@ func (m *mockFCExchange) GetSpotPrice(ctx context.Context, symbol string) (float
 	return m.latestPrice, nil
 }
 func (m *mockFCExchange) GetOrderBook(ctx context.Context, symbol string, limit int) (*exchange.OrderBook, error) {
-	return nil, nil
+	if m.orderBookErr != nil {
+		return nil, m.orderBookErr
+	}
+	if m.orderBookOverride != nil {
+		return m.orderBookOverride, nil
+	}
+	price := m.latestPrice
+	if !finitePositive(price) {
+		price = 100
+	}
+	return &exchange.OrderBook{
+		Symbol: symbol,
+		Bids:   []exchange.OrderBookLevel{{Price: price * 0.999, Quantity: 1e9}},
+		Asks:   []exchange.OrderBookLevel{{Price: price * 1.001, Quantity: 1e9}},
+	}, nil
 }
 func (m *mockFCExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
+	m.mu.Lock()
+	m.transferCalls++
+	m.mu.Unlock()
 	return "tx-mock", nil
 }
 func (m *mockFCExchange) GetIncomeHistory(ctx context.Context, symbol, incomeType string, startTime, endTime int64) ([]*income.Income, error) {

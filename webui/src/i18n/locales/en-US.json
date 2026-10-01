@@ -235,7 +235,7 @@
     "fundingMinRate": "Min funding rate (enter)",
     "fundingExitRate": "Exit funding rate (close)",
     "fundingFeeRecoveryDays": "Fee recovery limit (days)",
-    "fundingFeeRecoveryDaysHint": "Estimates round-trip fees for both legs from the configured fee rate; projected net funding must recover them within this period. Excludes slippage and rate changes.",
+    "fundingFeeRecoveryDaysHint": "Estimates both-leg round-trip costs from configured fees and current order-book depth; projected net funding must recover them within this period. Books can change; future slippage and rate changes are excluded.",
     "fundingMaxBasis": "Max basis % (spot vs perp)",
     "riskLevel": {
       "low": "Low risk",

@@ -135,3 +135,26 @@ func TestOpenHedgeRejectsMissingFeeRateBeforeOrders(t *testing.T) {
 		t.Fatalf("orders were submitted without a fee rate: spot=%d futures=%d", len(spotEx.placedOrders), len(futEx.placedOrders))
 	}
 }
+
+func TestOpenHedgeRejectsInsufficientBookDepthBeforeTransferOrOrders(t *testing.T) {
+	s, spotEx, futEx := newSpotLegTestStrategy(1000, 0)
+	s.symCfg.Exchange = "binance"
+	s.symCfg.TotalAllocatedCapital = 500
+	s.cfg = &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {FeeRate: 0.0002}}}
+	s.autoTransferEnabled = true
+	spotEx.orderBookOverride = &exchange.OrderBook{
+		Symbol: "BTCUSDT",
+		Bids:   []exchange.OrderBookLevel{{Price: 49999, Quantity: 0.001}},
+		Asks:   []exchange.OrderBookLevel{{Price: 50001, Quantity: 0.001}},
+	}
+
+	if err := s.openHedge(context.Background(), 50050, 50000, 0.001); err == nil {
+		t.Fatal("openHedge accepted an order book too shallow for the planned trade")
+	}
+	if spotEx.transferCalls != 0 {
+		t.Fatalf("transferred funds before validating book depth: %d transfer(s)", spotEx.transferCalls)
+	}
+	if len(spotEx.placedOrders) != 0 || len(futEx.placedOrders) != 0 {
+		t.Fatalf("submitted orders despite insufficient book depth: spot=%d futures=%d", len(spotEx.placedOrders), len(futEx.placedOrders))
+	}
+}
