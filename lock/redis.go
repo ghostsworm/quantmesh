@@ -65,6 +65,9 @@ func (r *RedisLock) deleteToken(key, token string) {
 // otherwise a stale Unlock(key) could read and release a newer token acquired
 // by this same RedisLock instance.
 func (r *RedisLock) tryLockOnce(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		return false, fmt.Errorf("lock ttl must be positive")
+	}
 	r.mu.Lock()
 	if _, held := r.lockKeys[key]; held {
 		r.mu.Unlock()
@@ -165,6 +168,9 @@ func (r *RedisLock) Unlock(ctx context.Context, key string) error {
 
 // Extend 延长鎖的過期時间
 func (r *RedisLock) Extend(ctx context.Context, key string, ttl time.Duration) error {
+	if ttl <= 0 {
+		return fmt.Errorf("lock ttl must be positive")
+	}
 	lockKey := r.prefix + key
 	token, exists := r.getToken(key)
 	if !exists {

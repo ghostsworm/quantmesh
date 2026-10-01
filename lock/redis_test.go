@@ -156,6 +156,49 @@ func TestRedisLockExpiredLeaseCannotBeReacquiredBeforeOldUnlock(t *testing.T) {
 	}
 }
 
+func TestRedisLockRejectsNonPositiveTTL(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name string
+		ttl  time.Duration
+	}{
+		{name: "zero", ttl: 0},
+		{name: "negative", ttl: -time.Second},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fr := newFakeRedis()
+			l := newRedisLock(fr, "p:")
+			if ok, err := l.TryLock(ctx, "k", tt.ttl); err == nil || ok {
+				t.Fatalf("TryLock = %v, %v; want false and error", ok, err)
+			}
+			if err := l.Lock(ctx, "blocking", tt.ttl); err == nil {
+				t.Fatal("Lock accepted a non-positive TTL")
+			}
+			fr.mu.Lock()
+			_, exists := fr.data["p:k"]
+			fr.mu.Unlock()
+			if exists {
+				t.Fatal("invalid TTL created a Redis key")
+			}
+		})
+	}
+
+	fr := newFakeRedis()
+	l := newRedisLock(fr, "p:")
+	if ok, err := l.TryLock(ctx, "held", time.Second); err != nil || !ok {
+		t.Fatalf("TryLock = %v, %v", ok, err)
+	}
+	for _, ttl := range []time.Duration{0, -time.Second} {
+		if err := l.Extend(ctx, "held", ttl); err == nil {
+			t.Fatalf("Extend(%s) accepted non-positive TTL", ttl)
+		}
+	}
+	if got := fr.extendCnt.Load(); got != 0 {
+		t.Fatalf("invalid extensions reached Redis %d times", got)
+	}
+}
+
 func TestStartAutoRenewExtendsUntilStopped(t *testing.T) {
 	fr := newFakeRedis()
 	l := newRedisLock(fr, "p:")
