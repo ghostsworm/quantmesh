@@ -202,6 +202,10 @@ func (bt *Backtester) RunContext(ctx context.Context) (result *BacktestResult, r
 	if bt.position > 0 && len(bt.candles) > 0 {
 		lastCandle := bt.candles[len(bt.candles)-1]
 		bt.executeSell(lastCandle)
+		// The equity point was captured before this candle's strategy action.
+		// Replace the final mark with post-liquidation cash so the forced-close
+		// fee and slippage are reflected in FinalCapital and downstream folds.
+		bt.equity[len(bt.equity)-1].Equity = bt.cash
 		logger.Info("📊 回测結束，强制平倉")
 	}
 

@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -124,6 +125,35 @@ func TestTrendFollowingStrategy(t *testing.T) {
 	}
 	if result.FinalCapital < 0 {
 		t.Error("最终資金不能為负")
+	}
+}
+
+func TestFinalEquityIncludesForcedLiquidationCosts(t *testing.T) {
+	candles := []*exchange.Candle{
+		{Open: 100, High: 100, Low: 100, Close: 100, Timestamp: 1000},
+		{Open: 110, High: 110, Low: 110, Close: 110, Timestamp: 2000},
+	}
+	bt := NewBacktester("BTCUSDT", candles, &sequenceStrategy{actions: []string{"buy", "hold"}}, 1000)
+	bt.SetFees(0.01, 0.01, 0)
+	result, err := bt.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(result.Trades) != 2 || result.Trades[1].Type != "sell" {
+		t.Fatalf("expected forced liquidation sell, trades = %+v", result.Trades)
+	}
+	lastEquity := result.Equity[len(result.Equity)-1].Equity
+	if lastEquity != result.FinalCapital {
+		t.Fatalf("final equity %.8f != final capital %.8f", lastEquity, result.FinalCapital)
+	}
+	buy, sell := result.Trades[0], result.Trades[1]
+	wantFinalCapital := result.InitialCapital - buy.Price*buy.Quantity - buy.Fee + sell.Price*sell.Quantity - sell.Fee
+	if math.Abs(result.FinalCapital-wantFinalCapital) > 1e-9 {
+		t.Fatalf("final capital %.8f != post-liquidation cash %.8f (forced sell fee %.8f)", result.FinalCapital, wantFinalCapital, sell.Fee)
+	}
+	wantReturn := (result.FinalCapital - result.InitialCapital) / result.InitialCapital * 100
+	if result.Metrics.TotalReturn != wantReturn {
+		t.Fatalf("total return %.8f%% != post-liquidation return %.8f%%", result.Metrics.TotalReturn, wantReturn)
 	}
 }
 
