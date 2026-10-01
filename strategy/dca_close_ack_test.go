@@ -252,6 +252,34 @@ func TestDCAUnvaluedOpenFeeDoesNotConsumeFillProgress(t *testing.T) {
 	}
 }
 
+func TestDCARejectsNonFiniteCommissionBeforeAccounting(t *testing.T) {
+	tests := []struct {
+		name       string
+		commission float64
+		asset      string
+		price      float64
+	}{
+		{name: "nan quote fee", commission: math.NaN(), asset: "USDT", price: 100},
+		{name: "infinite quote fee", commission: math.Inf(1), asset: "USDT", price: 100},
+		{name: "base fee conversion overflow", commission: math.MaxFloat64, asset: "BTC", price: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+			layer := &DCALayer{OrderID: 70, Quantity: 1, RequestedQuantity: 1, Status: entryStatusPending}
+			strategy.layers = []*DCALayer{layer}
+			strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
+				OrderID: 70, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: tt.price,
+				Commission: tt.commission, CommissionAsset: tt.asset, CommissionKnown: true,
+			})
+			if executor.marked != 1 || layer.FillProgress.Quantity != 0 || layer.OpeningFee != 0 || strategy.totalQty != 0 {
+				t.Fatalf("non-finite fee mutated accounting: marked=%d layer=%+v total=%v", executor.marked, layer, strategy.totalQty)
+			}
+		})
+	}
+}
+
 func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.MarketType = "spot"

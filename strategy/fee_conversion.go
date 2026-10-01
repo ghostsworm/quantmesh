@@ -8,6 +8,9 @@ import (
 )
 
 func commissionInQuote(exchange position.IExchange, commission float64, asset string, fillPrice float64) (float64, bool) {
+	if math.IsNaN(commission) || math.IsInf(commission, 0) {
+		return 0, false
+	}
 	if commission == 0 {
 		return 0, true
 	}
@@ -25,7 +28,11 @@ func commissionInQuote(exchange position.IExchange, commission float64, asset st
 	}
 	baseAsset := strings.ToUpper(strings.TrimSpace(exchange.GetBaseAsset()))
 	if baseAsset != "" && asset == baseAsset {
-		return commission * fillPrice, true
+		converted := commission * fillPrice
+		if math.IsNaN(converted) || math.IsInf(converted, 0) {
+			return 0, false
+		}
+		return converted, true
 	}
 	return 0, false
 }
