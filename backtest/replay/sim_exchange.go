@@ -516,9 +516,9 @@ func (ex *simExchange) openOrderCount() int {
 
 func (ex *simExchange) GetName() string { return simExchangeName }
 
-// GetPositions 回放從空倉開始；返回 nil 使倉位管理器不做持倉恢復
+// GetPositions 回放從明確的空倉快照開始；nil 代表查詢結果未知，不能用作空倉證據
 func (ex *simExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
-	return nil, nil
+	return []*position.PositionInfo{}, nil
 }
 
 func (ex *simExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
