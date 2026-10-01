@@ -320,14 +320,33 @@ func (s *CryptoPaymentService) completePayment(chargeID string) error {
 
 // failPayment 支付失败
 func (s *CryptoPaymentService) failPayment(chargeID string) error {
-	_, err := s.db.Exec(`
+	if s == nil || s.db == nil || chargeID == "" {
+		return fmt.Errorf("支付服务未配置或 charge_id 无效")
+	}
+	result, err := s.db.Exec(`
 		UPDATE crypto_payments
 		SET status = 'failed', updated_at = $1
-		WHERE charge_id = $2
+		WHERE charge_id = $2 AND status IN ('pending', 'pending_confirmation')
 	`, time.Now(), chargeID)
-
-	logger.Warn("❌ 支付失败: ChargeID=%s", chargeID)
-	return err
+	if err != nil {
+		return fmt.Errorf("更新支付失败状态失败: %w", err)
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("检查支付状态更新结果失败: %w", err)
+	}
+	if updated == 1 {
+		logger.Warn("❌ 支付失败: ChargeID=%s", chargeID)
+		return nil
+	}
+	var status string
+	if err := s.db.QueryRow(`SELECT status FROM crypto_payments WHERE charge_id = $1 LIMIT 1`, chargeID).Scan(&status); err != nil {
+		return fmt.Errorf("查询支付 %s 当前状态失败: %w", chargeID, err)
+	}
+	if status == "completed" || status == "failed" {
+		return nil
+	}
+	return fmt.Errorf("支付 %s 当前状态 %q 不允许标记失败", chargeID, status)
 }
 
 // ConfirmDirectPayment 确认直接支付 (管理员手动确认)

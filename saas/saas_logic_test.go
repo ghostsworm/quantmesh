@@ -181,6 +181,47 @@ func TestSubmitDirectTransactionHashRequiresOwnerAndPendingPayment(t *testing.T)
 	}
 }
 
+func TestFailPaymentDoesNotDowngradeCompletedPayment(t *testing.T) {
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec(`CREATE TABLE crypto_payments (
+		id INTEGER PRIMARY KEY, charge_id TEXT, status TEXT, updated_at DATETIME
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO crypto_payments (id, charge_id, status) VALUES
+		(1, 'completed-charge', 'completed'),
+		(2, 'pending-charge', 'pending'),
+		(3, 'failed-charge', 'failed')`); err != nil {
+		t.Fatal(err)
+	}
+	service := NewCryptoPaymentService(db, "")
+	for _, chargeID := range []string{"completed-charge", "failed-charge"} {
+		if err := service.failPayment(chargeID); err != nil {
+			t.Fatalf("idempotent/stale failure for %s: %v", chargeID, err)
+		}
+	}
+	if err := service.failPayment("pending-charge"); err != nil {
+		t.Fatalf("pending payment failure: %v", err)
+	}
+	if err := service.failPayment("missing-charge"); err == nil {
+		t.Fatal("missing charge was silently accepted")
+	}
+	for chargeID, want := range map[string]string{"completed-charge": "completed", "pending-charge": "failed", "failed-charge": "failed"} {
+		var got string
+		if err := db.QueryRow(`SELECT status FROM crypto_payments WHERE charge_id = ?`, chargeID).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("charge %s status=%s, want %s", chargeID, got, want)
+		}
+	}
+}
+
 func TestAutoScalerScaleDecisions(t *testing.T) {
 	scaler := NewAutoScaler(nil)
 
