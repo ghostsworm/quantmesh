@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/logger"
 	"quantmesh/profit"
 	"quantmesh/storage"
@@ -233,8 +234,9 @@ type fundingProfitSumReader interface {
 }
 
 type profitAccountScope struct {
-	exchange string
-	scope    string
+	exchange                           string
+	scope                              string
+	unsupportedMarginInterestUntracked bool
 }
 
 type scopedProfitSummaryReader interface {
@@ -271,13 +273,36 @@ func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error)
 	for _, exchange := range exchanges {
 		scope := accountIDForExchange(cfg, exchange)
 		if scope != "" {
-			scopes = append(scopes, profitAccountScope{exchange: exchange, scope: scope})
+			scopes = append(scopes, profitAccountScope{exchange: exchange, scope: scope,
+				unsupportedMarginInterestUntracked: !strings.EqualFold(strings.TrimSpace(exchange), "binance") && exchangeUsesSpotMargin(exchange, cfg)})
 		}
 	}
 	if len(scopes) == 0 {
 		return nil, fmt.Errorf("no configured credential scope is available for profit summary")
 	}
 	return scopes, nil
+}
+
+func exchangeUsesSpotMargin(exchange string, cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	exchange = strings.TrimSpace(exchange)
+	for _, bot := range cfg.Bots {
+		if strings.EqualFold(strings.TrimSpace(bot.Exchange), exchange) && bot.GetMarketType() == "spot_margin" {
+			return true
+		}
+	}
+	for _, symbol := range cfg.Trading.Symbols {
+		symbolExchange := strings.TrimSpace(symbol.Exchange)
+		if symbolExchange == "" {
+			symbolExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+		}
+		if strings.EqualFold(symbolExchange, exchange) && symbol.GetMarketType() == "spot_margin" {
+			return true
+		}
+	}
+	return false
 }
 
 func readScopedFundingProfitTotals(reader scopedProfitSummaryReader, scopes []profitAccountScope, lifetimeStart, todayStart, weekStart, monthStart, end time.Time) (fundingProfitTotals, error) {
@@ -326,6 +351,9 @@ func readScopedMarginInterestProfitTotals(reader scopedMarginInterestProfitReade
 	totals := marginInterestProfitTotals{Complete: true}
 	for _, scope := range scopes {
 		if !strings.EqualFold(strings.TrimSpace(scope.exchange), "binance") {
+			if scope.unsupportedMarginInterestUntracked {
+				totals.Complete = false
+			}
 			continue
 		}
 		if reader == nil {

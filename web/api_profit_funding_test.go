@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"quantmesh/config"
 	"quantmesh/storage"
 )
 
@@ -15,6 +16,43 @@ type marginInterestProfitReaderStub struct {
 	cost          float64
 	unvalued      int64
 	calls         int
+}
+
+func TestExchangeUsesSpotMarginAcrossCurrentAndLegacyConfig(t *testing.T) {
+	legacyConfig := &config.Config{}
+	legacyConfig.App.CurrentExchange = "bybit"
+	legacyConfig.Trading.Symbols = []config.SymbolConfig{{MarketType: "spot", UseSpotMargin: true}}
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		exchange string
+		want     bool
+	}{
+		{name: "bot spot margin", cfg: &config.Config{Bots: []config.BotConfig{{Exchange: "okx", MarketType: "spot", UseSpotMargin: true}}}, exchange: "OKX", want: true},
+		{name: "legacy symbol spot margin", cfg: legacyConfig, exchange: "BYBIT", want: true},
+		{name: "plain spot", cfg: &config.Config{Bots: []config.BotConfig{{Exchange: "okx", MarketType: "spot"}}}, exchange: "okx", want: false},
+		{name: "other exchange", cfg: &config.Config{Bots: []config.BotConfig{{Exchange: "okx", MarketType: "spot", UseSpotMargin: true}}}, exchange: "bybit", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := exchangeUsesSpotMargin(tt.exchange, tt.cfg); got != tt.want {
+				t.Fatalf("exchangeUsesSpotMargin()=%v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadScopedMarginInterestProfitTotalsMarksUnsupportedMarginVenueIncomplete(t *testing.T) {
+	end := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	start := end.Add(-24 * time.Hour)
+	totals, err := readScopedMarginInterestProfitTotals(nil, []profitAccountScope{{exchange: "okx", scope: "scope-a", unsupportedMarginInterestUntracked: true}}, start, end)
+	if err != nil || totals.Total != 0 || totals.Complete {
+		t.Fatalf("untracked spot-margin interest must invalidate net-profit completeness: totals=%+v err=%v", totals, err)
+	}
+	plainFutures, err := readScopedMarginInterestProfitTotals(nil, []profitAccountScope{{exchange: "okx", scope: "scope-a"}}, start, end)
+	if err != nil || !plainFutures.Complete {
+		t.Fatalf("unsupported interest coverage must not affect a non-margin venue: totals=%+v err=%v", plainFutures, err)
+	}
 }
 
 func (s *marginInterestProfitReaderStub) GetMarginInterestCoverage(_, _, _ string) (time.Time, time.Time, error) {
