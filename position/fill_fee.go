@@ -184,6 +184,7 @@ type fillFeeSummary struct {
 	commission     float64 // 計價幣口徑手續費合計
 	asset          string
 	valuationKnown bool
+	valid          bool    // 匯總、成交名義金額及基礎幣手續費均在有限有效範圍內
 	baseFeeQty     float64 // 基礎幣扣收的手續費數量合計
 	notional       float64 // Σ price×qty
 	qty            float64 // Σ qty
@@ -199,7 +200,7 @@ func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummar
 		baseAsset = quoteAndBase[1]
 	}
 	quoteAsset, baseAsset = strings.ToUpper(quoteAsset), strings.ToUpper(baseAsset)
-	sum := fillFeeSummary{asset: quoteAsset, valuationKnown: true}
+	sum := fillFeeSummary{asset: quoteAsset, valuationKnown: true, valid: true}
 	// 適配層返回的是具體類型切片（如 []*exchange.OrderFill），不能直接斷言為 []interface{}，用反射展開
 	fills := interfaceSliceOf(fillsRaw)
 	for _, fillRaw := range fills {
@@ -214,9 +215,7 @@ func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummar
 				sum.valuationKnown = false
 			}
 			addFillCommission(&sum, commission, asset, price, quoteAsset, baseAsset, converted, known)
-			if v := mapFloat(fillMap, "BaseFeeQty"); v > 0 {
-				sum.baseFeeQty += v
-			}
+			addFillBaseFee(&sum, mapFloat(fillMap, "BaseFeeQty"), qty)
 		} else {
 			rv := reflect.ValueOf(fillRaw)
 			if rv.Kind() == reflect.Ptr {
@@ -238,13 +237,19 @@ func summarizeFills(fillsRaw interface{}, quoteAndBase ...string) (fillFeeSummar
 				sum.valuationKnown = false
 			}
 			addFillCommission(&sum, commission, asset, price, quoteAsset, baseAsset, converted, convertedKnown)
-			if v := structFloat(rv, "BaseFeeQty"); v > 0 {
-				sum.baseFeeQty += v
-			}
+			addFillBaseFee(&sum, structFloat(rv, "BaseFeeQty"), qty)
 		}
-		if price > 0 && qty > 0 {
-			sum.notional += price * qty
-			sum.qty += qty
+		if math.IsNaN(price) || math.IsInf(price, 0) || math.IsNaN(qty) || math.IsInf(qty, 0) || price < 0 || qty < 0 {
+			sum.valid = false
+		} else if price > 0 && qty > 0 {
+			notional := price * qty
+			nextNotional, nextQty := sum.notional+notional, sum.qty+qty
+			if math.IsNaN(notional) || math.IsInf(notional, 0) || math.IsNaN(nextNotional) || math.IsInf(nextNotional, 0) ||
+				math.IsNaN(nextQty) || math.IsInf(nextQty, 0) {
+				sum.valid = false
+			} else {
+				sum.notional, sum.qty = nextNotional, nextQty
+			}
 		}
 	}
 	return sum, len(fills)
@@ -260,26 +265,41 @@ func addFillCommission(sum *fillFeeSummary, amount float64, asset string, price 
 		sum.asset = asset
 		return
 	}
+	valued := 0.0
 	switch {
 	case convertedKnown && !math.IsNaN(converted) && !math.IsInf(converted, 0):
-		sum.commission += converted
-		sum.asset = quoteAsset
+		valued = converted
 	case asset == quoteAsset:
-		sum.commission += amount
-		sum.asset = quoteAsset
+		valued = amount
 	case asset == baseAsset && baseAsset != "" && price > 0:
-		value := amount * price
-		if math.IsNaN(value) || math.IsInf(value, 0) {
-			sum.valuationKnown = false
-			sum.asset = asset
-		} else {
-			sum.commission += value
-			sum.asset = quoteAsset
-		}
+		valued = amount * price
 	default:
 		sum.valuationKnown = false
 		sum.asset = asset
+		return
 	}
+	nextCommission := sum.commission + valued
+	if math.IsNaN(valued) || math.IsInf(valued, 0) || math.IsNaN(nextCommission) || math.IsInf(nextCommission, 0) {
+		sum.valuationKnown = false
+		sum.asset = asset
+		return
+	}
+	sum.commission = nextCommission
+	sum.asset = quoteAsset
+}
+
+func addFillBaseFee(sum *fillFeeSummary, baseFeeQty, fillQty float64) {
+	if math.IsNaN(baseFeeQty) || math.IsInf(baseFeeQty, 0) || baseFeeQty < 0 ||
+		baseFeeQty > 0 && (fillQty <= 0 || baseFeeQty > fillQty) {
+		sum.valid = false
+		return
+	}
+	nextBaseFeeQty := sum.baseFeeQty + baseFeeQty
+	if math.IsNaN(nextBaseFeeQty) || math.IsInf(nextBaseFeeQty, 0) {
+		sum.valid = false
+		return
+	}
+	sum.baseFeeQty = nextBaseFeeQty
 }
 
 func structFloat(rv reflect.Value, name string) float64 {
@@ -347,6 +367,13 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 		spm.markFeeSupplementUnverified(slot, tag)
 		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", sum.asset))
 		spm.recordFeeCorrection(tag, sum, "成交手续费币种没有可验证的历史计价币换算")
+		return
+	}
+	if !sum.valid {
+		update := OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}
+		spm.markFeeSupplementUnverified(slot, tag)
+		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee or fill economics for order %d is outside finite limits", tag.orderID))
+		spm.recordFeeCorrection(tag, sum, "成交费用或名义金额超出有限账务范围")
 		return
 	}
 	if sum.commission == 0 && sum.baseFeeQty == 0 {

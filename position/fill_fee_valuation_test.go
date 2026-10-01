@@ -45,3 +45,38 @@ func TestGridFeeValuationRejectsUnknownAssetsAndKeepsRebatesSigned(t *testing.T)
 		t.Fatal("third asset without historical evidence must not be treated as quote value")
 	}
 }
+
+func TestSummarizeFillsRejectsOverflowAndInvalidFillEconomics(t *testing.T) {
+	tests := []struct {
+		name  string
+		fills []*fakeFill
+	}{
+		{
+			name: "commission aggregate overflow",
+			fills: []*fakeFill{
+				{Commission: math.MaxFloat64, CommissionAsset: "USDT"},
+				{Commission: math.MaxFloat64, CommissionAsset: "USDT"},
+			},
+		},
+		{
+			name:  "notional multiplication overflow",
+			fills: []*fakeFill{{Price: math.MaxFloat64, Quantity: 2}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sum, _ := summarizeFills(tt.fills, "USDT", "BTC")
+			if sum.valid && sum.valuationKnown {
+				t.Fatalf("invalid fill summary accepted: %+v", sum)
+			}
+		})
+	}
+}
+
+func TestSummarizeFillsRejectsBaseFeeAboveFillQuantity(t *testing.T) {
+	sum, _ := summarizeFills([]*detailedFill{{Price: 1, Quantity: 1, BaseFeeQty: 2}}, "USDT", "BTC")
+	if sum.valid {
+		t.Fatalf("base fee above fill quantity accepted: %+v", sum)
+	}
+}
