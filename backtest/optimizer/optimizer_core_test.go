@@ -82,6 +82,14 @@ func TestOptimizerConfigSpaceAndScoringHelpers(t *testing.T) {
 	if params.FeeRate != 0.0004 || params.SlippageRatio != 0.0003 || params.TotalCapital != 1000 {
 		t.Fatalf("params from space did not apply defaults: %#v", params)
 	}
+	params = ParamsFromSpace(90, 110, 4, 25, 1000, -0.001, -0.002)
+	if params.FeeRate != -0.001 || params.SlippageRatio != -0.002 {
+		t.Fatalf("invalid cost rates were masked by defaults: %#v", params)
+	}
+	fee, slip = DefaultFeeSlippage(OptimConfig{FeeRate: -0.001, SlippageRatio: -0.002})
+	if fee != -0.001 || slip != -0.002 {
+		t.Fatalf("invalid optimizer costs were masked by defaults: fee=%v slippage=%v", fee, slip)
+	}
 
 	score := CalculateScore(backtest.Metrics{AnnualizedReturn: 20, MaxDrawdown: 10, SharpeRatio: math.Inf(1)}, 0.5)
 	if score != 15 {

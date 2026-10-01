@@ -68,10 +68,10 @@ func BacktestRunnerContext(ctx context.Context, symbol string, candles []*exchan
 
 // ParamsFromSpace 從搜索空间生成單组回测参數（用於固定 FeeRate 等）
 func ParamsFromSpace(priceLow, priceHigh float64, gridCount int, orderQty, totalCapital, feeRate, slippage float64) backtest.GridBacktestParams {
-	if feeRate <= 0 {
+	if feeRate == 0 {
 		feeRate = 0.0004
 	}
-	if slippage <= 0 {
+	if slippage == 0 {
 		slippage = 0.0003
 	}
 	return backtest.GridBacktestParams{

@@ -17,11 +17,11 @@ const (
 // DefaultFeeSlippage 返回回測用費率與滑點（與 ParamsFromSpace 默認一致）
 func DefaultFeeSlippage(cfg OptimConfig) (feeRate, slippage float64) {
 	feeRate = cfg.FeeRate
-	if feeRate <= 0 {
+	if feeRate == 0 {
 		feeRate = 0.0004
 	}
 	slippage = cfg.SlippageRatio
-	if slippage <= 0 {
+	if slippage == 0 {
 		slippage = 0.0003
 	}
 	return feeRate, slippage
