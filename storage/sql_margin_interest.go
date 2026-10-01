@@ -357,3 +357,34 @@ func (s *SQLStorage) GetMarginInterestTotalByAccountScope(exchange, accountScope
 	}
 	return total.Float64, nil
 }
+
+// GetMarginInterestValuationTotalsByAccountScope returns only persisted USDT
+// valuations and counts every charge that lacks a verified USDT valuation.
+// The interval must be inside the account's complete exchange-history coverage.
+func (s *SQLStorage) GetMarginInterestValuationTotalsByAccountScope(exchange, accountScope string, startTime, endTime time.Time) (float64, int64, error) {
+	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(accountScope) == "" ||
+		startTime.IsZero() || endTime.IsZero() || !startTime.Before(endTime) {
+		return 0, 0, fmt.Errorf("margin interest valuation sum requires exact account and valid interval")
+	}
+	covered, err := s.HasMarginInterestCoverage(exchange, accountScope, "*", startTime, endTime)
+	if err != nil {
+		return 0, 0, fmt.Errorf("verify margin interest valuation coverage: %w", err)
+	}
+	if !covered {
+		return 0, 0, fmt.Errorf("margin interest history does not fully cover the requested valuation interval")
+	}
+	var total sql.NullFloat64
+	var unvalued int64
+	err = s.db.QueryRow(`SELECT
+		COALESCE(SUM(CASE WHEN valuation_status='VALUED' AND UPPER(TRIM(valuation_asset))='USDT' THEN valuation_amount ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN valuation_status='VALUED' AND UPPER(TRIM(valuation_asset))='USDT' THEN 0 ELSE 1 END), 0)
+		FROM margin_interest_payments WHERE LOWER(TRIM(exchange))=? AND account_scope=? AND accrued_at>=? AND accrued_at<=?`,
+		strings.ToLower(strings.TrimSpace(exchange)), strings.TrimSpace(accountScope), utils.ToUTC(startTime), utils.ToUTC(endTime)).Scan(&total, &unvalued)
+	if err != nil {
+		return 0, 0, fmt.Errorf("sum valued margin interest for account scope: %w", err)
+	}
+	if !total.Valid || !finiteNonNegative(total.Float64) || unvalued < 0 {
+		return 0, 0, fmt.Errorf("margin interest valuation totals are invalid")
+	}
+	return total.Float64, unvalued, nil
+}

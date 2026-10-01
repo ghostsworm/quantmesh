@@ -7,13 +7,19 @@ export type WithdrawType = 'auto' | 'manual'
 
 export interface ProfitSummary {
   exchangeId?: string
-  totalProfit: number // 淨利潤（毛利 - 手續費 + 資金費淨額）
+  totalProfit: number // 已扣除可核验跨仓利息；完整性由 netProfitComplete 标明
+  netProfitComplete?: boolean
   grossProfit?: number // 毛利（價差盈虧，未扣手續費）
   totalFee?: number // 手續費合計
   fundingNet?: number // 資金費淨額（正=淨收入，負=淨支出）
+  marginInterestCost?: number
+  marginInterestCostComplete?: boolean
   todayProfit: number // 今日盈利
+  todayProfitVerified?: boolean
   weekProfit: number // 本周盈利
+  weekProfitVerified?: boolean
   monthProfit: number // 本月盈利
+  monthProfitVerified?: boolean
   unrealizedProfit: number // 未實現盈利（根據當前倉位和價格計算）
   unrealizedProfitVerified?: boolean
   exchangeProfit?: number // 交易所盈利（根據每筆訂單中交易所返回的 RealizedPnL 計算）

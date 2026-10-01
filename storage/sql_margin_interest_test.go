@@ -161,6 +161,42 @@ func TestMarginInterestMigrationAddsValuationColumnsToExistingLedger(t *testing.
 	}
 }
 
+func TestMarginInterestValuationTotalsRespectCoverageAndUnvaluedRows(t *testing.T) {
+	store, err := NewSQLStorage(t.TempDir() + "/margin-interest-valuations.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	from := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	through := from.Add(time.Hour)
+	base := &MarginInterestPayment{
+		Exchange: "binance", AccountScope: "scope-a", Asset: "BNB", RawAsset: "BTC", Principal: 1,
+		Interest: 0.1, Rate: 0.01, InterestType: "PERIODIC", TransactionID: 8501, AccruedAt: from.Add(10 * time.Minute),
+		ValuationAsset: "USDT", ValuationRate: 2, ValuationAmount: 0.2, ValuationStatus: "VALUED",
+		ValuationMinute: from.Add(10*time.Minute).UnixMilli() / int64(time.Minute/time.Millisecond) * int64(time.Minute/time.Millisecond),
+		ValuationSource: "BINANCE_SPOT_1M_CLOSE",
+	}
+	if err := store.SaveMarginInterestPayment(base); err != nil {
+		t.Fatal("save valued margin interest:", err)
+	}
+	unvalued := *base
+	unvalued.TransactionID++
+	unvalued.Interest, unvalued.ValuationAmount, unvalued.ValuationStatus = 0.05, 0, "UNVALUED"
+	if err := store.SaveMarginInterestPayment(&unvalued); err != nil {
+		t.Fatal("save unvalued margin interest:", err)
+	}
+	if _, _, err := store.GetMarginInterestValuationTotalsByAccountScope("binance", "scope-a", from, through); err == nil {
+		t.Fatal("valuation totals must require full exchange-history coverage")
+	}
+	if err := store.MarkMarginInterestCoverage("binance", "scope-a", "*", from, through); err != nil {
+		t.Fatal("mark covered margin-interest window:", err)
+	}
+	cost, unvaluedRows, err := store.GetMarginInterestValuationTotalsByAccountScope("binance", "scope-a", from, through)
+	if err != nil || cost != 0.2 || unvaluedRows != 1 {
+		t.Fatalf("valuation totals cost=%v unvalued=%d err=%v; want 0.2 and 1", cost, unvaluedRows, err)
+	}
+}
+
 func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
 	store, err := NewSQLStorage(t.TempDir() + "/margin-interest-allocations.db")
 	if err != nil {

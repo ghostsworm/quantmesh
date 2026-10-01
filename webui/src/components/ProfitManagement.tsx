@@ -419,16 +419,34 @@ const ProfitManagement: React.FC = () => {
 
         {/* Summary Stats */}
         {summary && (
+          <VStack align="stretch" spacing={4}>
+          {summary.netProfitComplete === false && (
+            <Alert status="warning" borderRadius="md">
+              <AlertIcon />
+              <Text>{t('profitManagement.marginInterestCoverageIncomplete')}</Text>
+            </Alert>
+          )}
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
                 <StatLabel>{t('profitManagement.netProfit')}</StatLabel>
                 <StatNumber color={(summary.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
-                  {(summary.totalProfit || 0) >= 0 ? '+' : ''}{(summary.totalProfit || 0).toFixed(2)}
+                  {summary.netProfitComplete === false
+                    ? t('servicesStatus.unavailable')
+                    : `${(summary.totalProfit || 0) >= 0 ? '+' : ''}${(summary.totalProfit || 0).toFixed(2)}`}
                 </StatNumber>
-                <StatHelpText>USDT</StatHelpText>
+                <StatHelpText>{summary.netProfitComplete === false ? t('profitManagement.marginInterestCostIncomplete') : 'USDT'}</StatHelpText>
               </Stat>
             </Box>
+            {summary.marginInterestCost !== undefined && (
+              <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
+                <Stat>
+                  <StatLabel>{t('profitManagement.marginInterestCost')}</StatLabel>
+                  <StatNumber color="orange.500">-{(summary.marginInterestCost ?? 0).toFixed(2)}</StatNumber>
+                  <StatHelpText>{summary.marginInterestCostComplete === true ? 'USDT' : t('profitManagement.marginInterestCostIncomplete')}</StatHelpText>
+                </Stat>
+              </Box>
+            )}
             {(summary.grossProfit !== undefined || summary.totalFee !== undefined) && (
               <>
                 <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
@@ -464,10 +482,12 @@ const ProfitManagement: React.FC = () => {
               <Stat>
                 <StatLabel>{t('profitManagement.todayProfit')}</StatLabel>
                 <StatNumber color={(summary.todayProfit || 0) >= 0 ? 'green.500' : 'red.500'}>
-                  {(summary.todayProfit || 0) >= 0 ? '+' : ''}{(summary.todayProfit || 0).toFixed(2)}
+                  {summary.todayProfitVerified === false
+                    ? t('servicesStatus.unavailable')
+                    : `${(summary.todayProfit || 0) >= 0 ? '+' : ''}${(summary.todayProfit || 0).toFixed(2)}`}
                 </StatNumber>
                 <StatHelpText>
-                  <StatArrow type={(summary.todayProfit || 0) >= 0 ? 'increase' : 'decrease'} />
+                  {summary.todayProfitVerified !== false && <StatArrow type={(summary.todayProfit || 0) >= 0 ? 'increase' : 'decrease'} />}
                   {t('profitManagement.today')}
                 </StatHelpText>
               </Stat>
@@ -504,6 +524,7 @@ const ProfitManagement: React.FC = () => {
               </Stat>
             </Box>
           </SimpleGrid>
+          </VStack>
         )}
 
         {/* Profit Chart */}

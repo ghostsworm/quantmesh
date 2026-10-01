@@ -23,13 +23,19 @@ import (
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
 	ExchangeID                  string   `json:"exchangeId,omitempty"`
-	TotalProfit                 float64  `json:"totalProfit"` // 淨利潤（毛利 - 手續費 + 資金費淨額）
+	TotalProfit                 float64  `json:"totalProfit"` // 已扣除已估值跨倉利息的累计净利润；完整性见 NetProfitComplete
+	NetProfitComplete           bool     `json:"netProfitComplete"`
 	GrossProfit                 float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
 	TotalFee                    float64  `json:"totalFee"`    // 手續費合計
 	FundingNet                  float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	MarginInterestCost          float64  `json:"marginInterestCost"`
+	MarginInterestCostComplete  bool     `json:"marginInterestCostComplete"`
 	TodayProfit                 float64  `json:"todayProfit"`
+	TodayProfitVerified         bool     `json:"todayProfitVerified"`
 	WeekProfit                  float64  `json:"weekProfit"`
+	WeekProfitVerified          bool     `json:"weekProfitVerified"`
 	MonthProfit                 float64  `json:"monthProfit"`
+	MonthProfitVerified         bool     `json:"monthProfitVerified"`
 	UnrealizedProfit            float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
 	UnrealizedProfitVerified    bool     `json:"unrealizedProfitVerified"`
 	ExchangeProfit              *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
@@ -237,6 +243,11 @@ type scopedProfitSummaryReader interface {
 	GetFundingPaymentsSumByAccountScopeAndAsset(exchange, asset, accountScope string, startTime, endTime time.Time) (float64, error)
 }
 
+type scopedMarginInterestProfitReader interface {
+	GetMarginInterestCoverage(exchange, accountScope, asset string) (time.Time, time.Time, error)
+	GetMarginInterestValuationTotalsByAccountScope(exchange, accountScope string, startTime, endTime time.Time) (float64, int64, error)
+}
+
 func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error) {
 	cfg, err := GetLatestConfig()
 	if err != nil {
@@ -304,6 +315,55 @@ type fundingProfitTotals struct {
 	Today float64
 	Week  float64
 	Month float64
+}
+
+type marginInterestProfitTotals struct {
+	Total    float64
+	Complete bool
+}
+
+func readScopedMarginInterestProfitTotals(reader scopedMarginInterestProfitReader, scopes []profitAccountScope, start, end time.Time) (marginInterestProfitTotals, error) {
+	totals := marginInterestProfitTotals{Complete: true}
+	for _, scope := range scopes {
+		if !strings.EqualFold(strings.TrimSpace(scope.exchange), "binance") {
+			continue
+		}
+		if reader == nil {
+			totals.Complete = false
+			continue
+		}
+		coveredFrom, coveredThrough, err := reader.GetMarginInterestCoverage(scope.exchange, scope.scope, "*")
+		if err != nil {
+			return marginInterestProfitTotals{}, fmt.Errorf("read margin interest coverage for %s: %w", scope.exchange, err)
+		}
+		if coveredFrom.IsZero() || coveredThrough.IsZero() {
+			totals.Complete = false
+			continue
+		}
+		queryFrom, queryThrough := start, end
+		if coveredFrom.After(queryFrom) {
+			queryFrom = coveredFrom
+		}
+		if coveredThrough.Before(queryThrough) {
+			queryThrough = coveredThrough
+		}
+		if !queryFrom.Before(queryThrough) {
+			totals.Complete = false
+			continue
+		}
+		cost, unvalued, err := reader.GetMarginInterestValuationTotalsByAccountScope(scope.exchange, scope.scope, queryFrom, queryThrough)
+		if err != nil {
+			return marginInterestProfitTotals{}, fmt.Errorf("read verified margin interest cost for %s: %w", scope.exchange, err)
+		}
+		var ok bool
+		if totals.Total, ok = addFiniteProfitValues(totals.Total, cost); !ok {
+			return marginInterestProfitTotals{}, fmt.Errorf("margin interest cost is not finite for %s", scope.exchange)
+		}
+		if coveredFrom.After(start) || coveredThrough.Before(end) || unvalued > 0 {
+			totals.Complete = false
+		}
+	}
+	return totals, nil
 }
 
 func addFiniteProfitValues(values ...float64) (float64, bool) {
@@ -774,10 +834,34 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return
 	}
 	fundingSum, todayFunding, weekFunding, monthFunding := fundingTotals.Total, fundingTotals.Today, fundingTotals.Week, fundingTotals.Month
-	netWithFunding, netOK := addFiniteProfitValues(summaryStats.TotalPnL, fundingSum)
-	todayProfitWithFunding, todayOK := addFiniteProfitValues(todayProfit, todayFunding)
-	weekProfitWithFunding, weekOK := addFiniteProfitValues(weekProfit, weekFunding)
-	monthProfitWithFunding, monthOK := addFiniteProfitValues(monthProfit, monthFunding)
+	marginInterestReader, hasMarginInterestReader := st.(scopedMarginInterestProfitReader)
+	if !hasMarginInterestReader {
+		marginInterestReader = nil
+	}
+	marginLifetime, err := readScopedMarginInterestProfitTotals(marginInterestReader, profitScopes, startAll, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验跨仓利息成本: " + err.Error()})
+		return
+	}
+	marginToday, err := readScopedMarginInterestProfitTotals(marginInterestReader, profitScopes, todayStart, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验当日跨仓利息成本: " + err.Error()})
+		return
+	}
+	marginWeek, err := readScopedMarginInterestProfitTotals(marginInterestReader, profitScopes, weekStart, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验本周跨仓利息成本: " + err.Error()})
+		return
+	}
+	marginMonth, err := readScopedMarginInterestProfitTotals(marginInterestReader, profitScopes, monthStart, now)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验本月跨仓利息成本: " + err.Error()})
+		return
+	}
+	netWithFunding, netOK := addFiniteProfitValues(summaryStats.TotalPnL, fundingSum, -marginLifetime.Total)
+	todayProfitWithFunding, todayOK := addFiniteProfitValues(todayProfit, todayFunding, -marginToday.Total)
+	weekProfitWithFunding, weekOK := addFiniteProfitValues(weekProfit, weekFunding, -marginWeek.Total)
+	monthProfitWithFunding, monthOK := addFiniteProfitValues(monthProfit, monthFunding, -marginMonth.Total)
 
 	// 🔥 计算价格偏差导致的损失
 	// 买入价格偏差：如果实际买入价格高于委托价格，会导致成本增加（负值表示损失）
@@ -826,12 +910,18 @@ func getProfitSummaryHandler(c *gin.Context) {
 	summary := ProfitSummary{
 		ExchangeID:                  exchangeID,
 		TotalProfit:                 roundCents(netWithFunding),
+		NetProfitComplete:           marginLifetime.Complete,
 		GrossProfit:                 roundCents(summaryStats.GrossPnL),
 		TotalFee:                    roundCents(summaryStats.TotalFee),
 		FundingNet:                  roundCents(fundingSum),
+		MarginInterestCost:          roundCents(marginLifetime.Total),
+		MarginInterestCostComplete:  marginLifetime.Complete,
 		TodayProfit:                 roundCents(todayProfitWithFunding),
+		TodayProfitVerified:         marginToday.Complete,
 		WeekProfit:                  roundCents(weekProfitWithFunding),
+		WeekProfitVerified:          marginWeek.Complete,
 		MonthProfit:                 roundCents(monthProfitWithFunding),
+		MonthProfitVerified:         marginMonth.Complete,
 		UnrealizedProfit:            roundCents(unrealizedProfit),
 		UnrealizedProfitVerified:    unrealizedProfitVerified,
 		ExchangeProfit:              exchangeProfit,

@@ -10,6 +10,48 @@ import (
 	"quantmesh/storage"
 )
 
+type marginInterestProfitReaderStub struct {
+	from, through time.Time
+	cost          float64
+	unvalued      int64
+	calls         int
+}
+
+func (s *marginInterestProfitReaderStub) GetMarginInterestCoverage(_, _, _ string) (time.Time, time.Time, error) {
+	return s.from, s.through, nil
+}
+
+func (s *marginInterestProfitReaderStub) GetMarginInterestValuationTotalsByAccountScope(_, _ string, _, _ time.Time) (float64, int64, error) {
+	s.calls++
+	return s.cost, s.unvalued, nil
+}
+
+func TestReadScopedMarginInterestProfitTotalsDeductsKnownCostAndFlagsGaps(t *testing.T) {
+	end := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	start := end.Add(-24 * time.Hour)
+	partialReader := &marginInterestProfitReaderStub{from: end.Add(-6 * time.Hour), through: end.Add(-5 * time.Minute), cost: 12.5}
+	partial, err := readScopedMarginInterestProfitTotals(partialReader, []profitAccountScope{
+		{exchange: "binance", scope: "scope-a"}, {exchange: "okx", scope: "scope-b"},
+	}, start, end)
+	if err != nil || partial.Total != 12.5 || partial.Complete || partialReader.calls != 1 {
+		t.Fatalf("partial interest coverage total=%+v calls=%d err=%v", partial, partialReader.calls, err)
+	}
+	completeReader := &marginInterestProfitReaderStub{from: start, through: end, cost: 2.25}
+	complete, err := readScopedMarginInterestProfitTotals(completeReader, []profitAccountScope{{exchange: "binance", scope: "scope-a"}}, start, end)
+	if err != nil || complete.Total != 2.25 || !complete.Complete {
+		t.Fatalf("complete interest coverage total=%+v err=%v", complete, err)
+	}
+	unvaluedReader := &marginInterestProfitReaderStub{from: start, through: end, cost: 1, unvalued: 1}
+	unvalued, err := readScopedMarginInterestProfitTotals(unvaluedReader, []profitAccountScope{{exchange: "binance", scope: "scope-a"}}, start, end)
+	if err != nil || unvalued.Total != 1 || unvalued.Complete {
+		t.Fatalf("unvalued margin charge should mark net profit incomplete: total=%+v err=%v", unvalued, err)
+	}
+	missing, err := readScopedMarginInterestProfitTotals(nil, []profitAccountScope{{exchange: "binance", scope: "scope-a"}}, start, end)
+	if err != nil || missing.Total != 0 || missing.Complete {
+		t.Fatalf("missing interest reader must not assert complete net profit: total=%+v err=%v", missing, err)
+	}
+}
+
 func TestFundingCarryDashboardBotRowsNeverExposeAccountIncomeAsBotIncome(t *testing.T) {
 	encoded, err := json.Marshal(fundingCarryDashboardSymbolInfo{Symbol: "BTCUSDT", BotID: "bot-1", Status: "running", Capital: 250})
 	if err != nil {
