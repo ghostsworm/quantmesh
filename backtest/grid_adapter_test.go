@@ -341,6 +341,25 @@ func TestRunGridBacktestFinalEquityIncludesLastCandleFills(t *testing.T) {
 	}
 }
 
+func TestRunGridBacktestRejectsInvalidCostRates(t *testing.T) {
+	candles := []*exchange.Candle{{Open: 100, High: 100, Low: 100, Close: 100, Timestamp: 1000}}
+	base := GridBacktestParams{PriceLow: 90, PriceHigh: 110, GridCount: 2, OrderQuantity: 1, TotalCapital: 1000}
+	for name, mutate := range map[string]func(*GridBacktestParams){
+		"negative fee":      func(p *GridBacktestParams) { p.FeeRate = -0.001 },
+		"fee above 100%":    func(p *GridBacktestParams) { p.FeeRate = 1.001 },
+		"negative slippage": func(p *GridBacktestParams) { p.SlippageRatio = -0.001 },
+		"slippage at 100%":  func(p *GridBacktestParams) { p.SlippageRatio = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			params := base
+			mutate(&params)
+			if _, err := RunGridBacktest("BTCUSDT", candles, params, 1000, nil); err == nil {
+				t.Fatal("RunGridBacktest() accepted invalid cost rate")
+			}
+		})
+	}
+}
+
 func TestRunGridBacktest_SHORT_FlashPumpRecovery(t *testing.T) {
 	// SHORT 方向的闪崩（暴涨）场景：价格从 60000 暴涨到 61000，然后回落
 	candles := []*exchange.Candle{

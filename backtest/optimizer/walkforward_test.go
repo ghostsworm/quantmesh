@@ -119,6 +119,21 @@ func TestValidateOptimConfigRejectsNonFiniteNumbers(t *testing.T) {
 	}
 }
 
+func TestValidateOptimConfigRejectsInvalidCostRates(t *testing.T) {
+	for name, cfg := range map[string]OptimConfig{
+		"negative fee":      {FeeRate: -0.001},
+		"fee above 100%":    {FeeRate: 1.001},
+		"negative slippage": {SlippageRatio: -0.001},
+		"slippage at 100%":  {SlippageRatio: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := ValidateOptimConfig(cfg); !errors.Is(err, errInvalidOptimizerConfig) {
+				t.Fatalf("ValidateOptimConfig() error = %v, want invalid optimizer config", err)
+			}
+		})
+	}
+}
+
 func TestRunWalkForwardSkipsNonFiniteTrainingScores(t *testing.T) {
 	candles := hourlyCandles(wfTestDays)
 	fake := func(_ string, cs []*exchange.Candle, p backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {

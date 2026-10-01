@@ -101,6 +101,9 @@ func ValidateOptimConfig(cfg OptimConfig) error {
 	if !finiteNumber(cfg.Lambda) || !finiteNumber(cfg.FeeRate) || !finiteNumber(cfg.SlippageRatio) || !finiteNumber(cfg.ValidationRatio) {
 		return errInvalidOptimizerConfig
 	}
+	if cfg.FeeRate < 0 || cfg.FeeRate > 1 || cfg.SlippageRatio < 0 || cfg.SlippageRatio >= 1 {
+		return errInvalidOptimizerConfig
+	}
 	if cfg.ValidationRatio < 0 {
 		return errInvalidValidationRatio
 	}

@@ -89,6 +89,10 @@ func RunGridBacktestContext(ctx context.Context, symbol string, candles []*excha
 	if params.OrderQuantity <= 0 || params.TotalCapital <= 0 {
 		return nil, fmt.Errorf("order_quantity and total_capital must be positive")
 	}
+	if !isFinite(params.FeeRate) || params.FeeRate < 0 || params.FeeRate > 1 ||
+		!isFinite(params.SlippageRatio) || params.SlippageRatio < 0 || params.SlippageRatio >= 1 {
+		return nil, fmt.Errorf("fee_rate must be in [0,1] and slippage_ratio must be in [0,1)")
+	}
 
 	priceLow := params.PriceLow
 	priceHigh := params.PriceHigh
