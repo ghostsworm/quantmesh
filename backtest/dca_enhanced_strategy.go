@@ -20,6 +20,7 @@ type dcaEnhancedBacktestOrder struct {
 	order     TickOrder
 	layer     *dcaEnhancedBacktestLayer
 	closeLast int
+	emitted   bool
 }
 
 // DCAEnhancedBacktestStrategy reproduces the live enhanced DCA layer and exit
@@ -146,6 +147,14 @@ func (s *DCAEnhancedBacktestStrategy) OnKline(kline TickKline, timestamp int64) 
 		kline.High < kline.Open || kline.High < kline.Close || kline.Low > kline.Open || kline.Low > kline.Close {
 		return nil, fmt.Errorf("DCA enhanced backtest received invalid candle at %d", timestamp)
 	}
+	if len(s.prices) > 0 {
+		previousClose := s.prices[len(s.prices)-1]
+		for _, intent := range s.working {
+			if intent.layer == nil && intent.emitted {
+				intent.order.Price = previousClose
+			}
+		}
+	}
 	existingOrderIDs := make([]string, 0, len(s.working))
 	for id := range s.working {
 		existingOrderIDs = append(existingOrderIDs, id)
@@ -160,6 +169,7 @@ func (s *DCAEnhancedBacktestStrategy) OnKline(kline TickKline, timestamp int64) 
 	for _, id := range existingOrderIDs {
 		if intent := s.working[id]; intent != nil {
 			orders = append(orders, intent.order)
+			intent.emitted = true
 		}
 	}
 	return orders, nil
@@ -376,8 +386,8 @@ func (s *DCAEnhancedBacktestStrategy) OnTrade(trade TickTrade) {
 	if intent == nil {
 		return
 	}
-	delete(s.working, trade.OrderID)
 	if intent.layer != nil && trade.Side == "buy" {
+		delete(s.working, trade.OrderID)
 		layer := intent.layer
 		layer.quantity += trade.Size
 		layer.cost += trade.Size * trade.Price
@@ -388,6 +398,11 @@ func (s *DCAEnhancedBacktestStrategy) OnTrade(trade TickTrade) {
 	}
 	if trade.Side != "sell" {
 		return
+	}
+	if trade.Size >= intent.order.Size-1e-10 {
+		delete(s.working, trade.OrderID)
+	} else {
+		intent.order.Size -= trade.Size
 	}
 	if intent.closeLast >= 0 {
 		for i, layer := range s.layers {

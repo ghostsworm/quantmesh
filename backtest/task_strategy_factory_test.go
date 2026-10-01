@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -115,6 +116,12 @@ func TestDCAEnhancedBacktestDefersOrdersAndAppliesTakeProfit(t *testing.T) {
 	orders, err = strategy.OnKline(candle(102, 181_000), 181_000)
 	if err != nil || len(orders) != 1 || orders[0].Side != "sell" || orders[0].Size != 1 {
 		t.Fatalf("expected take-profit close, orders=%v err=%v", orders, err)
+	}
+	strategy.OnTrade(TickTrade{OrderID: orders[0].OrderID, Side: "sell", Price: 102, Size: 0.4})
+	partialFillCandle := TickKline{Timestamp: 241_000, Open: 100, High: 103, Low: 99, Close: 99, Volume: 1000}
+	orders, err = strategy.OnKline(partialFillCandle, 241_000)
+	if err != nil || len(orders) != 1 || orders[0].Side != "sell" || math.Abs(orders[0].Size-0.6) > 1e-9 || orders[0].Price != 102 {
+		t.Fatalf("expected remaining close to be reissued from prior close after partial fill, orders=%v err=%v", orders, err)
 	}
 }
 
