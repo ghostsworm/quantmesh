@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc689] - 2026-10-01（未发布）
+
+### Fixed
+- 串行化 TrendFollowing、Momentum、MeanReversion 的成交证据核验和持仓入账，防止并发订单回报重复累计手续费。
+
 ## [3.111.0-rc688] - 2026-10-01（未发布）
 
 ### Fixed

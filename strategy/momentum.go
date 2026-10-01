@@ -19,8 +19,9 @@ type MomentumStrategy struct {
 	strategyCfg map[string]interface{}
 
 	// 價格历史
-	priceHistory []float64
-	mu           sync.RWMutex
+	priceHistory  []float64
+	orderUpdateMu sync.Mutex
+	mu            sync.RWMutex
 
 	// RSI 相关
 	rsiPeriod         int
@@ -312,6 +313,8 @@ func (ms *MomentumStrategy) placeSignalOrder(action string, price float64) error
 
 // OnOrderUpdate 订單更新处理
 func (ms *MomentumStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	ms.orderUpdateMu.Lock()
+	defer ms.orderUpdateMu.Unlock()
 	if update == nil {
 		return nil
 	}

@@ -19,8 +19,9 @@ type TrendFollowingStrategy struct {
 	strategyCfg map[string]interface{}
 
 	// 價格历史
-	priceHistory []float64
-	mu           sync.RWMutex
+	priceHistory  []float64
+	orderUpdateMu sync.Mutex
+	mu            sync.RWMutex
 
 	// 均線
 	shortMA []float64
@@ -368,6 +369,8 @@ func (tfs *TrendFollowingStrategy) placeSignalOrder(action string, price float64
 
 // OnOrderUpdate 订單更新处理
 func (tfs *TrendFollowingStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	tfs.orderUpdateMu.Lock()
+	defer tfs.orderUpdateMu.Unlock()
 	if update == nil {
 		return nil
 	}

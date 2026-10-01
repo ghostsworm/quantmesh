@@ -41,6 +41,104 @@ func TestSignalFillsCumulativeCloseAndCancel(t *testing.T) {
 	}
 }
 
+func TestSignalStrategiesSerializeFillFeeVerificationAndAccounting(t *testing.T) {
+	tests := []struct {
+		name string
+		new  func(position.IExchange) (func(*position.OrderUpdate) error, func() (*Position, float64, *Order))
+	}{
+		{name: "mean reversion", new: func(ex position.IExchange) (func(*position.OrderUpdate) error, func() (*Position, float64, *Order)) {
+			s := NewMeanReversionStrategy("mean", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			s.activeOrder, s.pendingAction = &Order{OrderID: 122, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1,
+				Status: position.OrderStatusPartiallyFilled}, signalActionOpenLong
+			return s.OnOrderUpdate, func() (*Position, float64, *Order) { return s.position, s.entryPrice, s.activeOrder }
+		}},
+		{name: "momentum", new: func(ex position.IExchange) (func(*position.OrderUpdate) error, func() (*Position, float64, *Order)) {
+			s := NewMomentumStrategy("momentum", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			s.activeOrder, s.pendingAction = &Order{OrderID: 122, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1,
+				Status: position.OrderStatusPartiallyFilled}, signalActionOpenLong
+			return s.OnOrderUpdate, func() (*Position, float64, *Order) { return s.position, s.entryPrice, s.activeOrder }
+		}},
+		{name: "trend following", new: func(ex position.IExchange) (func(*position.OrderUpdate) error, func() (*Position, float64, *Order)) {
+			s := NewTrendFollowingStrategy("trend", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			s.activeOrder, s.pendingAction = &Order{OrderID: 122, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1,
+				Status: position.OrderStatusPartiallyFilled}, signalActionOpenLong
+			return s.OnOrderUpdate, func() (*Position, float64, *Order) { return s.position, s.entryPrice, s.activeOrder }
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			firstFillQuery := make(chan struct{})
+			secondFillQuery := make(chan struct{})
+			releaseFullHistory := make(chan struct{})
+			var queryMu sync.Mutex
+			queryCount := 0
+			ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}
+			ex.fillsFn = func(int64) (interface{}, error) {
+				queryMu.Lock()
+				queryCount++
+				currentQuery := queryCount
+				queryMu.Unlock()
+				if currentQuery == 1 {
+					close(firstFillQuery)
+					<-releaseFullHistory
+					return []*exchange.OrderFill{
+						{OrderID: 122, TradeID: "signal-cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+							Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000},
+						{OrderID: 122, TradeID: "signal-cursor-b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+							Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_001},
+					}, nil
+				}
+				close(secondFillQuery)
+				return []*exchange.OrderFill{{OrderID: 122, TradeID: "signal-cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100,
+					Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000}}, nil
+			}
+			onUpdate, state := tt.new(ex)
+			fullUpdateDone := make(chan error, 1)
+			partialUpdateDone := make(chan error, 1)
+			go func() {
+				fullUpdateDone <- onUpdate(&position.OrderUpdate{OrderID: 122, Symbol: "BTCUSDT", Side: "BUY",
+					Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 100, CommissionKnown: false})
+			}()
+			<-firstFillQuery
+			go func() {
+				partialUpdateDone <- onUpdate(&position.OrderUpdate{OrderID: 122, Symbol: "BTCUSDT", Side: "BUY",
+					Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.5, AvgPrice: 100, CommissionKnown: false})
+			}()
+			partialFinished := false
+			select {
+			case <-secondFillQuery:
+				if err := <-partialUpdateDone; err != nil {
+					t.Fatal(err)
+				}
+				partialFinished = true
+			case <-time.After(250 * time.Millisecond):
+				// A serialized callback waits until the first update advances or closes the order.
+			}
+			close(releaseFullHistory)
+			if err := <-fullUpdateDone; err != nil {
+				t.Fatal(err)
+			}
+			if !partialFinished {
+				select {
+				case err := <-partialUpdateDone:
+					if err != nil {
+						t.Fatal(err)
+					}
+				case <-time.After(time.Second):
+					t.Fatal("concurrent signal strategy update did not complete")
+				}
+			}
+			holding, entryPrice, active := state()
+			if holding == nil || holding.Size != 1 || math.Abs(holding.OpeningFee-0.1) > 1e-12 || entryPrice != 100 || active != nil {
+				t.Fatalf("concurrent signal fill was misaccounted: holding=%+v entry=%v active=%+v", holding, entryPrice, active)
+			}
+		})
+	}
+}
+
 func TestSignalInvalidTerminalFillRetainsReconciliationState(t *testing.T) {
 	active := &Order{OrderID: 1, Symbol: "BTCUSDT", Quantity: 2, Price: 100}
 	action := signalActionOpenLong

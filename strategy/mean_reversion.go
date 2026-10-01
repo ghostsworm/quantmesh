@@ -19,8 +19,9 @@ type MeanReversionStrategy struct {
 	strategyCfg map[string]interface{}
 
 	// 價格历史
-	priceHistory []float64
-	mu           sync.RWMutex
+	priceHistory  []float64
+	orderUpdateMu sync.Mutex
+	mu            sync.RWMutex
 
 	// 参數
 	period             int
@@ -329,6 +330,8 @@ func (mrs *MeanReversionStrategy) placeSignalOrder(action string, price float64)
 
 // OnOrderUpdate 订單更新处理
 func (mrs *MeanReversionStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	mrs.orderUpdateMu.Lock()
+	defer mrs.orderUpdateMu.Unlock()
 	if update == nil {
 		return nil
 	}
