@@ -846,6 +846,14 @@ func (spm *SuperPositionManager) reconciliationPositionTotal() (float64, error) 
 			inventoryErr = fmt.Errorf("槽位 %.8f 的数量无效: %v", price, slot.PositionQty)
 			return false
 		}
+		if slot.PositionStatus == PositionStatusEmpty && slot.PositionQty != 0 {
+			inventoryErr = fmt.Errorf("空仓槽位 %.8f 仍记录持仓数量: %v", price, slot.PositionQty)
+			return false
+		}
+		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty == 0 {
+			inventoryErr = fmt.Errorf("有仓槽位 %.8f 的持仓数量为零", price)
+			return false
+		}
 		if slot.PositionStatus == PositionStatusFilled {
 			total += slot.PositionQty
 			if math.IsNaN(total) || math.IsInf(total, 0) {

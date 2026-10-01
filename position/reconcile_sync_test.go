@@ -238,6 +238,36 @@ func TestForceSyncPositionsRejectsUnresolvedInventoryWithoutMutatingOtherSlots(t
 	}
 }
 
+func TestForceSyncPositionsRejectsStatusQuantityMismatchWithoutMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status string
+		qty    float64
+	}{
+		{name: "empty slot with quantity", status: PositionStatusEmpty, qty: 0.5},
+		{name: "filled slot with zero quantity", status: PositionStatusFilled, qty: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.Symbol = "BTCUSDT"
+			cfg.Trading.Direction = "LONG"
+			cfg.Trading.PriceInterval = 100
+			cfg.Trading.ProfitSpread = 50
+			cfg.Trading.OrderQuantity = 100
+			spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 4)
+			spm.setAnchorPrice(1000)
+			slot := spm.getOrCreateSlot(1000)
+			slot.PositionStatus, slot.PositionQty = tc.status, tc.qty
+			if err := spm.ForceSyncPositions(0); err == nil {
+				t.Fatal("status/quantity mismatch must reject authoritative flat snapshot")
+			}
+			if slot.PositionStatus != tc.status || slot.PositionQty != tc.qty {
+				t.Fatalf("rejected sync mutated inconsistent slot: status=%s qty=%v", slot.PositionStatus, slot.PositionQty)
+			}
+		})
+	}
+}
+
 func TestForceSyncPositionsMarksAdoptedQuantityCostUnverified(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"
