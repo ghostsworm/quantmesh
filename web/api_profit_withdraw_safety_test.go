@@ -378,13 +378,25 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 99, time.Now().UTC()); err == nil {
 		t.Fatal("manual amount above verified realized net profit must be rejected")
 	}
-	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{ID: "unknown-old-status", AccountID: "acct", AccountScope: scope,
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{ID: "unknown-old-status", AccountID: "previous-current-exchange", AccountScope: scope,
 		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual",
 		Status: "exchange_unknown", Destination: "account", CreatedAt: start.Add(-time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC()); err == nil {
 		t.Fatal("unknown non-terminal withdrawal status must block another transfer even when created before the covered window")
+	}
+	if err := st.SaveWithdrawRecord(&storage.ProfitWithdrawRecord{ID: "legacy-unscoped-other-partition", AccountID: "previous-current-exchange",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 3, NetAmount: 3, Currency: "USDT", Type: "manual",
+		Status: "legacy_unknown", Destination: "account", CreatedAt: start.Add(-2 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := st.GetLegacyWithdrawRecordsForExchange("binance", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(legacy) != 1 || legacy[0].ID != "legacy-unscoped-other-partition" {
+		t.Fatalf("cross-partition unscoped legacy withdrawals=%+v", legacy)
 	}
 }
 

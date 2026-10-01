@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,6 +80,36 @@ func lockProfitWithdrawAccount(tx *sql.Tx, dbType, accountID string) error {
 	var lockedID string
 	if err := tx.QueryRow(`SELECT account_id FROM profit_withdraw_account_locks WHERE account_id = ?`+lockSuffix, accountID).Scan(&lockedID); err != nil {
 		return fmt.Errorf("锁定自动提现账户规则失败: %w", err)
+	}
+	return nil
+}
+
+func lockProfitWithdrawScope(tx *sql.Tx, dbType, accountScope string) error {
+	if strings.TrimSpace(accountScope) == "" {
+		return fmt.Errorf("withdrawal account scope is required")
+	}
+	return lockProfitWithdrawAccount(tx, dbType, "scope:"+accountScope)
+}
+
+func lockProfitWithdrawScopes(tx *sql.Tx, dbType string, scopes []string) error {
+	unique := make(map[string]struct{}, len(scopes))
+	ordered := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		scope = strings.TrimSpace(scope)
+		if scope == "" {
+			continue
+		}
+		if _, exists := unique[scope]; exists {
+			continue
+		}
+		unique[scope] = struct{}{}
+		ordered = append(ordered, scope)
+	}
+	sort.Strings(ordered)
+	for _, scope := range ordered {
+		if err := lockProfitWithdrawScope(tx, dbType, scope); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -192,6 +223,44 @@ func (s *SQLStorage) ListProfitWithdrawRules(accountID string) ([]*ProfitWithdra
 	return out, rows.Err()
 }
 
+func (s *SQLStorage) ListProfitWithdrawRulesForAccountScope(accountScope string) ([]*ProfitWithdrawRule, error) {
+	if strings.TrimSpace(accountScope) == "" {
+		return nil, fmt.Errorf("account scope is required")
+	}
+	rows, err := s.db.Query(`SELECT DISTINCT account_id FROM profit_withdraw_rules WHERE account_scope = ?`, accountScope)
+	if err != nil {
+		return nil, fmt.Errorf("list withdrawal rule owners by scope: %w", err)
+	}
+	defer rows.Close()
+	var accountIDs []string
+	for rows.Next() {
+		var accountID string
+		if err := rows.Scan(&accountID); err != nil {
+			return nil, fmt.Errorf("scan withdrawal rule owner: %w", err)
+		}
+		accountIDs = append(accountIDs, accountID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read withdrawal rule owners: %w", err)
+	}
+	var rules []*ProfitWithdrawRule
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("close withdrawal rule owners: %w", err)
+	}
+	for _, accountID := range accountIDs {
+		ownedRules, err := s.ListProfitWithdrawRules(accountID)
+		if err != nil {
+			return nil, err
+		}
+		for _, rule := range ownedRules {
+			if rule != nil && rule.AccountScope == accountScope {
+				rules = append(rules, rule)
+			}
+		}
+	}
+	return rules, nil
+}
+
 // ReplaceProfitWithdrawRules 用一组规则替换指定账戶的全部规则（事務保证原子性）
 func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*ProfitWithdrawRule) error {
 	if accountID == "" {
@@ -223,15 +292,53 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 	if err := lockProfitWithdrawAccount(tx, s.dbType, accountID); err != nil {
 		return err
 	}
+	scopes := make([]string, 0, len(rules))
+	rows, err := tx.Query(`SELECT DISTINCT account_scope FROM profit_withdraw_rules WHERE account_id = ?`, accountID)
+	if err != nil {
+		return fmt.Errorf("read existing withdrawal rule scopes: %w", err)
+	}
+	for rows.Next() {
+		var scope string
+		if err := rows.Scan(&scope); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan existing withdrawal rule scope: %w", err)
+		}
+		scopes = append(scopes, scope)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("read existing withdrawal rule scopes: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close existing withdrawal rule scopes: %w", err)
+	}
+	for _, rule := range rules {
+		if rule != nil {
+			scopes = append(scopes, rule.AccountScope)
+		}
+	}
+	if err := lockProfitWithdrawScopes(tx, s.dbType, scopes); err != nil {
+		return err
+	}
 	for _, rule := range rules {
 		if rule == nil || !rule.Enabled {
 			continue
 		}
+		var otherAccountRuleCount int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_rules
+			WHERE account_id <> ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			  AND enabled = 1`, accountID, rule.AccountScope, strings.ToLower(strings.TrimSpace(rule.ExchangeID)),
+			strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&otherAccountRuleCount); err != nil {
+			return fmt.Errorf("check withdrawal rules in other account partitions: %w", err)
+		}
+		if otherAccountRuleCount != 0 {
+			return fmt.Errorf("同一收益流已有其他账户分区的启用规则，拒绝重复启用")
+		}
 		var manualInFlight int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
-			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, accountID, rule.AccountScope,
+			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
 		}
@@ -373,6 +480,9 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 	if err := lockProfitWithdrawAccount(tx, s.dbType, accountID); err != nil {
 		return err
 	}
+	if err := lockProfitWithdrawScope(tx, s.dbType, rule.AccountScope); err != nil {
+		return err
+	}
 
 	var existingAccount, existingClaim string
 	ownerLock := ""
@@ -395,8 +505,8 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 		var duplicateCount int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_rules
-			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-			  AND enabled = 1 AND id <> ?`, accountID, rule.AccountScope, strings.ToLower(strings.TrimSpace(rule.ExchangeID)),
+			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			  AND enabled = 1 AND id <> ?`, rule.AccountScope, strings.ToLower(strings.TrimSpace(rule.ExchangeID)),
 			strings.ToUpper(strings.TrimSpace(rule.StrategyID)), rule.ID).Scan(&duplicateCount); err != nil {
 			return fmt.Errorf("检查重叠自动提取规则失败: %w", err)
 		}
@@ -406,8 +516,8 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 		var manualInFlight int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
-			WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
-			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, accountID, rule.AccountScope,
+			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
 		}
@@ -442,6 +552,13 @@ func (s *SQLStorage) DeleteProfitWithdrawRule(accountID string, ruleID string) e
 	}
 	defer func() { _ = tx.Rollback() }()
 	if err := lockProfitWithdrawAccount(tx, s.dbType, accountID); err != nil {
+		return err
+	}
+	var accountScope string
+	if err := tx.QueryRow(`SELECT account_scope FROM profit_withdraw_rules WHERE account_id = ? AND id = ?`, accountID, ruleID).Scan(&accountScope); err != nil {
+		return fmt.Errorf("read withdrawal rule scope before delete: %w", err)
+	}
+	if err := lockProfitWithdrawScope(tx, s.dbType, accountScope); err != nil {
 		return err
 	}
 	result, err := tx.Exec(`DELETE FROM profit_withdraw_rules WHERE account_id = ? AND id = ? AND COALESCE(claim_id, '') = ''`, accountID, ruleID)
@@ -557,14 +674,14 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 		return fmt.Errorf("begin claimed withdrawal reservation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := lockProfitWithdrawAccount(tx, s.dbType, record.AccountID); err != nil {
+	if err := lockProfitWithdrawScope(tx, s.dbType, record.AccountScope); err != nil {
 		return err
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ?
 		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
-		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
+		record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
 	}
 	if unresolved != 0 {
@@ -572,9 +689,9 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 	}
 	var reserved float64
 	if err := tx.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
-		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, windowStart).Scan(&reserved); err != nil {
+		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, windowStart).Scan(&reserved); err != nil {
 		return fmt.Errorf("check automatic withdrawal profit budget: %w", err)
 	}
 	if math.IsNaN(reserved) || math.IsInf(reserved, 0) || reserved+record.Amount > verifiedBudget {
@@ -620,14 +737,14 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 		return fmt.Errorf("begin manual withdrawal reservation: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := lockProfitWithdrawAccount(tx, s.dbType, record.AccountID); err != nil {
+	if err := lockProfitWithdrawScope(tx, s.dbType, record.AccountScope); err != nil {
 		return err
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ?
 		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
-		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
+		record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
 	}
 	if unresolved != 0 {
@@ -636,9 +753,9 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	var staleCount int
 	if err := tx.QueryRow(`
 		SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND created_at >= ? AND id <> ? AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
-		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, checkpointID).Scan(&staleCount); err != nil {
+		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, checkpointID).Scan(&staleCount); err != nil {
 		return fmt.Errorf("check concurrent withdrawal reservation: %w", err)
 	}
 	if staleCount != 0 {
@@ -647,9 +764,9 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	var activeRuleCount int
 	if err := tx.QueryRow(`
 		SELECT COUNT(*) FROM profit_withdraw_rules
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (enabled = 1 OR COALESCE(claim_id, '') <> '')`,
-		record.AccountID, record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID)).Scan(&activeRuleCount); err != nil {
+		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID)).Scan(&activeRuleCount); err != nil {
 		return fmt.Errorf("check automatic withdrawal rule before manual transfer: %w", err)
 	}
 	if activeRuleCount != 0 {
@@ -826,6 +943,58 @@ func (s *SQLStorage) GetWithdrawRecords(accountID string, limit int) ([]*ProfitW
 	return out, rows.Err()
 }
 
+func (s *SQLStorage) GetWithdrawRecordsForAccountScope(accountScope string, limit int) ([]*ProfitWithdrawRecord, error) {
+	if strings.TrimSpace(accountScope) == "" {
+		return nil, fmt.Errorf("account scope is required")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`
+		SELECT id, rule_id, account_id, account_scope, claim_id, exchange_id, strategy_id, amount, fee, net_amount, currency, type, status, destination, transfer_id, created_at, completed_at, failed_reason, note
+		FROM profit_withdraw_records WHERE account_scope = ? ORDER BY created_at DESC LIMIT ?`, accountScope, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query withdrawal records by scope: %w", err)
+	}
+	defer rows.Close()
+	var records []*ProfitWithdrawRecord
+	for rows.Next() {
+		record, err := scanProfitWithdrawRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
+func (s *SQLStorage) GetLegacyWithdrawRecordsForExchange(exchange string, limit int) ([]*ProfitWithdrawRecord, error) {
+	if strings.TrimSpace(exchange) == "" {
+		return nil, fmt.Errorf("exchange is required")
+	}
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := s.db.Query(`
+		SELECT id, rule_id, account_id, account_scope, claim_id, exchange_id, strategy_id, amount, fee, net_amount, currency, type, status, destination, transfer_id, created_at, completed_at, failed_reason, note
+		FROM profit_withdraw_records
+		WHERE TRIM(COALESCE(account_scope, '')) = '' AND lower(exchange_id) = lower(?)
+		ORDER BY created_at DESC LIMIT ?`, exchange, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query legacy withdrawal records by exchange: %w", err)
+	}
+	defer rows.Close()
+	var records []*ProfitWithdrawRecord
+	for rows.Next() {
+		record, err := scanProfitWithdrawRecord(rows)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
+}
+
 // SumReservedWithdrawAmount aggregates every non-released transfer reservation
 // for one rule and time window; unlike a paginated history read it cannot omit
 // older pending transfers when the account has many records.
@@ -853,8 +1022,8 @@ func (s *SQLStorage) SumReservedWithdrawAmount(accountID, ruleID string, since t
 }
 
 // SumReservedWithdrawAmountForStream includes both manual and automatic
-// reservations so either withdrawal path accounts for transfers made by the
-// other path over the same exact credential/exchange/symbol stream.
+// reservations across legacy account partitions for one exact credential,
+// exchange, and symbol stream.
 func (s *SQLStorage) SumReservedWithdrawAmountForStream(accountID, accountScope, exchange, symbol string, since time.Time) (float64, error) {
 	if accountID == "" {
 		accountID = "default"
@@ -866,9 +1035,9 @@ func (s *SQLStorage) SumReservedWithdrawAmountForStream(accountID, accountScope,
 	err := s.db.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM profit_withdraw_records
-		WHERE account_id = ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
-		accountID, accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since, since).Scan(&total)
+		accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since, since).Scan(&total)
 	if err != nil {
 		return 0, fmt.Errorf("sum reserved withdrawal amount for stream: %w", err)
 	}

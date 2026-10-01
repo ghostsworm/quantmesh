@@ -94,6 +94,51 @@ func TestManualReservationBlocksUnknownHistoricalStatusInAccountScope(t *testing
 	}
 }
 
+func TestWithdrawalFencesSpanAccountPartitionsForSameCredentialScope(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/cross-account-scope-withdraw.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.UpsertProfitWithdrawRule("old-account", &ProfitWithdrawRule{
+		ID: "old-account-rule", AccountScope: "credential-scope", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	manual := &ProfitWithdrawRecord{ID: "new-account-manual", AccountID: "new-account", AccountScope: "credential-scope",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual",
+		Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.ReserveManualWithdrawRecord(manual, time.Now().UTC().Add(-time.Hour), "", 10); err == nil {
+		t.Fatal("manual reservation in a second account partition must see the enabled scoped rule")
+	}
+	if err := st.UpsertProfitWithdrawRule("new-account", &ProfitWithdrawRule{
+		ID: "new-account-rule", AccountScope: "credential-scope", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+	}); err == nil {
+		t.Fatal("active automatic rules in separate account partitions must share one scoped stream")
+	}
+	if err := st.ReplaceProfitWithdrawRules("new-account", []*ProfitWithdrawRule{{
+		ID: "new-account-replaced-rule", AccountScope: "credential-scope", ExchangeID: "binance", StrategyID: "BTCUSDT",
+		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
+	}}); err == nil {
+		t.Fatal("batch replacement must detect active automatic rules in other account partitions")
+	}
+
+	if err := st.DeleteProfitWithdrawRule("old-account", "old-account-rule"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "old-account-pending", AccountID: "old-account", AccountScope: "credential-scope",
+		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual",
+		Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	manual.ID = "new-account-manual-after-pending"
+	if err := st.ReserveManualWithdrawRecord(manual, time.Now().UTC().Add(-time.Hour), "", 10); err == nil {
+		t.Fatal("unresolved transfer in another account partition must block a new scoped transfer")
+	}
+}
+
 func TestAutomaticReservationBlocksUnknownHistoricalStatusInAccountScope(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/auto-unknown-withdraw-status.db")
 	if err != nil {

@@ -821,6 +821,15 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_rules (
 	if err := ensureMySQLColumn(db, "profit_withdraw_rules", "claim_started_at", `ALTER TABLE profit_withdraw_rules ADD COLUMN claim_started_at TIMESTAMP(3) NULL AFTER claim_id`); err != nil {
 		return err
 	}
+	var scopeStreamIndexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'profit_withdraw_rules' AND index_name = 'idx_profit_withdraw_rules_scope_stream'`).Scan(&scopeStreamIndexCount); err != nil {
+		return err
+	}
+	if scopeStreamIndexCount == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_profit_withdraw_rules_scope_stream ON profit_withdraw_rules(account_scope, exchange_id, strategy_id, enabled)`); err != nil {
+			return err
+		}
+	}
 	logger.Info("✅ MySQL profit_withdraw_rules 表已就緒")
 	return nil
 }
@@ -860,6 +869,15 @@ CREATE TABLE IF NOT EXISTS profit_withdraw_records (
 	}
 	if err := ensureMySQLColumn(db, "profit_withdraw_records", "claim_id", `ALTER TABLE profit_withdraw_records ADD COLUMN claim_id VARCHAR(128) NOT NULL DEFAULT '' AFTER account_scope`); err != nil {
 		return err
+	}
+	var scopeStreamIndexCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = 'profit_withdraw_records' AND index_name = 'idx_withdraw_records_scope_stream_time'`).Scan(&scopeStreamIndexCount); err != nil {
+		return err
+	}
+	if scopeStreamIndexCount == 0 {
+		if _, err := db.Exec(`CREATE INDEX idx_withdraw_records_scope_stream_time ON profit_withdraw_records(account_scope, exchange_id, strategy_id, created_at)`); err != nil {
+			return err
+		}
 	}
 	logger.Info("✅ MySQL profit_withdraw_records 表已就緒")
 	return nil

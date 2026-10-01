@@ -269,6 +269,7 @@ func createTables(db *sql.DB) error {
 	);
 	CREATE INDEX IF NOT EXISTS idx_profit_withdraw_rules_account ON profit_withdraw_rules(account_id);
 	CREATE INDEX IF NOT EXISTS idx_profit_withdraw_rules_account_exchange ON profit_withdraw_rules(account_id, exchange_id);
+	CREATE INDEX IF NOT EXISTS idx_profit_withdraw_rules_scope_stream ON profit_withdraw_rules(account_scope, exchange_id, strategy_id, enabled);
 	CREATE INDEX IF NOT EXISTS idx_profit_withdraw_rules_updated_at ON profit_withdraw_rules(updated_at);
 	CREATE TABLE IF NOT EXISTS profit_withdraw_account_locks (
 		account_id TEXT PRIMARY KEY,
@@ -299,6 +300,7 @@ func createTables(db *sql.DB) error {
 		note TEXT
 	);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_account ON profit_withdraw_records(account_id);
+	CREATE INDEX IF NOT EXISTS idx_withdraw_records_scope_stream_time ON profit_withdraw_records(account_scope, exchange_id, strategy_id, created_at);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_created_at ON profit_withdraw_records(created_at);
 	CREATE INDEX IF NOT EXISTS idx_withdraw_records_rule_id ON profit_withdraw_records(rule_id);`
 

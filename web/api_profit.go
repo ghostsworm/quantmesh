@@ -1467,6 +1467,18 @@ func deleteWithdrawRuleHandler(c *gin.Context) {
 
 // 手动提取
 func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeID, symbol string, amount float64, now time.Time) (time.Time, time.Time, string, float64, error) {
+	scopeRecordReader, hasScopeRecords := st.(interface {
+		GetWithdrawRecordsForAccountScope(accountScope string, limit int) ([]*storage.ProfitWithdrawRecord, error)
+	})
+	legacyRecordReader, hasLegacyRecords := st.(interface {
+		GetLegacyWithdrawRecordsForExchange(exchange string, limit int) ([]*storage.ProfitWithdrawRecord, error)
+	})
+	scopeRuleReader, hasScopeRules := st.(interface {
+		ListProfitWithdrawRulesForAccountScope(accountScope string) ([]*storage.ProfitWithdrawRule, error)
+	})
+	if !hasScopeRecords || !hasLegacyRecords || !hasScopeRules {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("storage lacks account-scope withdrawal history and rule reads")
+	}
 	coverageReader, hasFundingCoverage := st.(interface {
 		GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
 	})
@@ -1501,12 +1513,42 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 	if now.Before(windowEnd) {
 		windowEnd = now
 	}
-	records, err := st.GetWithdrawRecords(accountID, 1000)
+	records, err := scopeRecordReader.GetWithdrawRecordsForAccountScope(accountScope, 1000)
 	if err != nil {
-		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read prior withdrawal records: %w", err)
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read scoped prior withdrawal records: %w", err)
 	}
 	if len(records) >= 1000 {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("withdrawal history reached its verification limit")
+	}
+	legacyRecords, err := st.GetWithdrawRecords(accountID, 1000)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read legacy withdrawal checkpoints: %w", err)
+	}
+	if len(legacyRecords) >= 1000 {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("legacy withdrawal history reached its verification limit")
+	}
+	legacyUnscoped, err := legacyRecordReader.GetLegacyWithdrawRecordsForExchange(exchangeID, 1000)
+	if err != nil {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read unscoped legacy withdrawal records: %w", err)
+	}
+	if len(legacyUnscoped) >= 1000 {
+		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("unscoped legacy withdrawal history reached its verification limit")
+	}
+	seenRecords := make(map[string]struct{}, len(records))
+	for _, record := range records {
+		if record != nil {
+			seenRecords[record.ID] = struct{}{}
+		}
+	}
+	for _, record := range append(legacyRecords, legacyUnscoped...) {
+		if record == nil {
+			continue
+		}
+		if _, exists := seenRecords[record.ID]; exists {
+			continue
+		}
+		seenRecords[record.ID] = struct{}{}
+		records = append(records, record)
 	}
 	legacyCheckpoint, err := profit.LegacyWithdrawalCheckpoint(records, exchangeID)
 	if err != nil {
@@ -1534,7 +1576,7 @@ func manualWithdrawWindow(st storage.Storage, accountID, accountScope, exchangeI
 			return time.Time{}, time.Time{}, "", 0, fmt.Errorf("a prior withdrawal has an unresolved or unknown status; reconcile it before another transfer")
 		}
 	}
-	if rules, err := st.ListProfitWithdrawRules(accountID); err != nil {
+	if rules, err := scopeRuleReader.ListProfitWithdrawRulesForAccountScope(accountScope); err != nil {
 		return time.Time{}, time.Time{}, "", 0, fmt.Errorf("read automatic withdrawal rules: %w", err)
 	} else {
 		for _, rule := range rules {
