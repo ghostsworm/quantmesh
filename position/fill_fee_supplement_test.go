@@ -246,6 +246,41 @@ func TestSupplementCommission_SpotBaseFeeDeductedAndCloseUsesNetQty(t *testing.T
 	}
 }
 
+func TestSupplementCommissionRejectsOverflowIntoAccumulatedBuyFee(t *testing.T) {
+	ex := newGatedFillsExchange(true)
+	ex.setFills(11, &detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: math.MaxFloat64, CommissionAsset: "USDT"})
+	spm := newFillFeeSPM(t, "futures", ex)
+	executor := &tradeLedgerHoldTestExecutor{}
+	spm.executor = executor
+	spm.SetTradeStorage(&auditTradeRecorder{})
+	fillOrder(spm, 11, "BUY", 0.5, 0, 0)
+	select {
+	case <-ex.started:
+	case <-time.After(time.Second):
+		t.Fatal("fee supplement did not start")
+	}
+
+	slot := spm.getOrCreateSlot(fillFeeTestPrice)
+	slot.mu.Lock()
+	slot.BuyFee = math.MaxFloat64
+	slot.mu.Unlock()
+	close(ex.release)
+	waitFor(t, func() bool {
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		return slot.pendingFeeSupplementCount == 0 && slot.feeValuationUnknown
+	})
+	slot.mu.RLock()
+	gotFee := slot.BuyFee
+	slot.mu.RUnlock()
+	if gotFee != math.MaxFloat64 {
+		t.Fatalf("overflowing supplement mutated BuyFee: %v", gotFee)
+	}
+	if !spm.OpeningGate().HasBlock("trade_ledger_unverified") || executor.ledgerCalls == 0 {
+		t.Fatal("overflowing fee supplement did not persist a reconciliation hold")
+	}
+}
+
 func TestFeeSupplementMarkerIsPersistedBeforeRESTLookupStarts(t *testing.T) {
 	ex := newGatedFillsExchange(true)
 	ex.setFills(30, &detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.6, CommissionAsset: "USDT"})

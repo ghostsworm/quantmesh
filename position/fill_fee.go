@@ -395,7 +395,16 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 		spm.recordFeeCorrection(tag, sum, "開倉單補查返回時該持倉週期已結束，買入手續費未計入已保存的交易記錄")
 		return
 	}
-	slot.BuyFee += sum.commission
+	nextBuyFee := slot.BuyFee + sum.commission
+	if math.IsNaN(slot.BuyFee) || math.IsInf(slot.BuyFee, 0) || math.IsNaN(nextBuyFee) || math.IsInf(nextBuyFee, 0) {
+		slot.feeValuationUnknown = true
+		slot.mu.Unlock()
+		update := OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}
+		spm.requireTradeLedgerReconciliation(update, fmt.Errorf("accumulated opening fee for order %d exceeds finite limits", tag.orderID))
+		spm.recordFeeCorrection(tag, sum, "補查手續費加入持倉累計時溢出")
+		return
+	}
+	slot.BuyFee = nextBuyFee
 	if sum.commission != 0 && sum.asset != "" {
 		slot.FeeAsset = sum.asset
 	}
