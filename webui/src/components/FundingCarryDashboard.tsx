@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import {
-  Box, VStack, HStack, Heading, Text, SimpleGrid, Stat, StatLabel, StatNumber,
-  StatHelpText, Table, Thead, Tbody, Tr, Th, Td, Badge, Spinner, Center,
+  Box, VStack, Heading, Text, SimpleGrid, Stat, StatLabel, StatNumber,
+  StatHelpText, Table, Thead, Tbody, Tr, Th, Td, Badge, Spinner, Center, Alert, AlertIcon,
   useColorModeValue, Card, CardBody, CardHeader, Tooltip,
 } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
@@ -58,14 +58,17 @@ const FundingCarryDashboard: React.FC = () => {
     <Box p={6}>
       <VStack spacing={6} align="stretch">
         <Heading size="lg">{t('profitManagement.fundingCarryDashboard', 'Funding Carry Dashboard')}</Heading>
+        <Alert status="warning" borderRadius="md" alignItems="flex-start">
+          <AlertIcon />
+          <Text>{t('profitManagement.fundingCarryIncomeBasisNotice')}</Text>
+        </Alert>
 
         {/* Overview cards */}
-        <SimpleGrid columns={{ base: 2, md: 4, lg: 7 }} spacing={4}>
+        <SimpleGrid columns={{ base: 2, md: 3, lg: 6 }} spacing={4}>
           <StatCard label={t('profitManagement.fundingCarryIncome24h', '24h')} value={overview.total_income_24h} suffix="USDT" bg={statBg} />
           <StatCard label={t('profitManagement.fundingCarryIncome7d', '7d')} value={overview.total_income_7d} suffix="USDT" bg={statBg} />
           <StatCard label={t('profitManagement.fundingCarryIncome30d', '30d')} value={overview.total_income_30d} suffix="USDT" bg={statBg} />
           <StatCard label={t('profitManagement.fundingCarryIncomeAll', 'Total')} value={overview.total_income_all} suffix="USDT" bg={statBg} />
-          <StatCard label={t('profitManagement.fundingCarryAnnualized', 'APY')} value={overview.annualized_yield * 100} suffix="%" bg={statBg} />
           <StatCard label={t('profitManagement.fundingCarryActiveBots', 'Bots')} value={overview.active_bots} bg={statBg} />
           <StatCard label={t('profitManagement.fundingCarryCapitalDeployed', 'Capital')} value={overview.total_capital_deployed} suffix="USDT" bg={statBg} />
         </SimpleGrid>
@@ -86,8 +89,8 @@ const FundingCarryDashboard: React.FC = () => {
                     <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
                     <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
                     <RechartsTooltip />
-                    <Bar yAxisId="left" dataKey="income" fill="#3182CE" name="Daily" />
-                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#38A169" strokeWidth={2} dot={false} name="Cumulative" />
+                    <Bar yAxisId="left" dataKey="income" fill="#3182CE" name={t('profitManagement.fundingCarryDailyIncome')} />
+                    <Line yAxisId="right" type="monotone" dataKey="cumulative" stroke="#38A169" strokeWidth={2} dot={false} name={t('profitManagement.fundingCarryCumulativeIncome')} />
                   </ComposedChart>
                 </ResponsiveContainer>
               ) : (
@@ -118,11 +121,11 @@ const FundingCarryDashboard: React.FC = () => {
                       <Td fontWeight="bold">{sym.symbol}</Td>
                       <Td>
                         <Badge colorScheme={sym.status === 'running' ? 'green' : 'gray'}>
-                          {sym.status}
+                          {t(`botList.${sym.status}`)}
                         </Badge>
                       </Td>
                       <Td isNumeric>
-                        <Tooltip label="USDT">{sym.capital.toFixed(2)}</Tooltip>
+                        <Tooltip label={t('common.currencyUnit')}>{sym.capital.toFixed(2)}</Tooltip>
                       </Td>
                       <Td isNumeric color={sym.income_24h >= 0 ? 'green.500' : 'red.500'}>
                         {sym.income_24h >= 0 ? '+' : ''}{sym.income_24h.toFixed(4)}

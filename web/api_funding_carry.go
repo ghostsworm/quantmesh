@@ -29,6 +29,7 @@ type BatchCreateFundingResponse struct {
 }
 
 const fundingCarryReportingAsset = "USDT"
+const fundingCarryIncomeBasis = "gross_account_scoped_futures_funding"
 
 type fundingCarryScopedReader interface {
 	GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error)
@@ -360,6 +361,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"overview": gin.H{
+			"income_basis":           fundingCarryIncomeBasis,
 			"total_income_24h":       totalIncome24h,
 			"total_income_7d":        totalIncome7d,
 			"total_income_30d":       totalIncome30d,

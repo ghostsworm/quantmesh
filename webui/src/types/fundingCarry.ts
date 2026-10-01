@@ -1,4 +1,5 @@
 export interface FundingCarryOverview {
+  income_basis: 'gross_account_scoped_futures_funding'
   total_income_24h: number
   total_income_7d: number
   total_income_30d: number
