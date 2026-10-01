@@ -38,7 +38,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	slot.OrderStatus, slot.OrderPrice = OrderStatusPartiallyFilled, 102
 	slot.OrderFilledQty, slot.OrderFilledNotional = 0.25, 25.5
 	slot.BuyFee, slot.FeeAsset = 0.03, "USDT"
-	slot.feeClientOID, slot.orderCommission, slot.orderBaseFeeQty = "owned-cid", 0.01, 0.0001
+	slot.feeClientOID, slot.orderCommission, slot.orderBaseFeeQty, slot.orderFeeIncomplete = "owned-cid", 0.01, 0.0001, true
 	slot.feeValuationUnknown, slot.cycleGen = true, 4
 	slot.baseFeeReconciliationRequired = true
 	slot.PositionEntryOrderID, slot.PositionEntryOrderAmbiguous = 7001, false
@@ -68,7 +68,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	}
 	state := got.Slots[0]
 	if state.PositionQty != 1.5 || state.ClientOID != "owned-cid" || state.OrderFilledQty != .25 || state.OrderFilledNotional != 25.5 ||
-		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 ||
+		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 || !state.OrderFeeIncomplete ||
 		!state.FeeValuationUnknown || !state.BaseFeeReconciliationRequired || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
 		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 ||
 		!state.CostBasisUnverified || state.AllocatedMargin != 147.75 || state.PositionEntryOrderID != 7001 || state.PositionEntryOrderUnknown {

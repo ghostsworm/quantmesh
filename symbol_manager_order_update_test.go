@@ -17,19 +17,20 @@ func TestToPositionOrderUpdateBaseFeeQty(t *testing.T) {
 		BaseFeeQty:        0.00001,
 	}
 	binUp := binance.SpotStreamOrderUpdate{
-		OrderUpdate: binance.OrderUpdate{OrderID: 8, ClientOrderID: "c8", Status: "PARTIALLY_FILLED", ExecutedQty: 0.02, Commission: 0.00002, CommissionAsset: "BTC"},
+		OrderUpdate: binance.OrderUpdate{OrderID: 8, ClientOrderID: "c8", Status: "PARTIALLY_FILLED", ExecutedQty: 0.02, Commission: 0.00002, CommissionAsset: "BTC", CommissionIncomplete: true},
 		BaseFeeQty:  0.00002,
 	}
 	tests := []struct {
-		name     string
-		in       interface{}
-		wantID   int64
-		wantExec float64
-		wantComm float64
-		wantBase float64
+		name           string
+		in             interface{}
+		wantID         int64
+		wantExec       float64
+		wantComm       float64
+		wantBase       float64
+		wantIncomplete bool
 	}{
 		{name: "okx spot", in: okxUp, wantID: 7, wantExec: 0.01, wantComm: 0.6, wantBase: 0.00001},
-		{name: "binance spot", in: binUp, wantID: 8, wantExec: 0.02, wantComm: 0.00002, wantBase: 0.00002},
+		{name: "binance spot", in: binUp, wantID: 8, wantExec: 0.02, wantComm: 0.00002, wantBase: 0.00002, wantIncomplete: true},
 		{name: "無 BaseFeeQty 字段", in: okxUp.StreamOrderUpdate, wantID: 7, wantExec: 0.01, wantComm: 0.6, wantBase: 0},
 	}
 	for _, tt := range tests {
@@ -38,7 +39,7 @@ func TestToPositionOrderUpdateBaseFeeQty(t *testing.T) {
 			if got == nil {
 				t.Fatal("nil update")
 			}
-			if got.OrderID != tt.wantID || got.ExecutedQty != tt.wantExec || got.Commission != tt.wantComm || got.BaseFeeQty != tt.wantBase {
+			if got.OrderID != tt.wantID || got.ExecutedQty != tt.wantExec || got.Commission != tt.wantComm || got.BaseFeeQty != tt.wantBase || got.CommissionIncomplete != tt.wantIncomplete {
 				t.Fatalf("got %+v", *got)
 			}
 		})

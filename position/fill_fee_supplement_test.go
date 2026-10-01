@@ -66,6 +66,29 @@ func TestOpeningFeeLookupFailureKeepsPnLUnverifiedAndBlocksOpenings(t *testing.T
 	}
 }
 
+func TestIncompleteCumulativeFeeCoverageRestoresOnlyMissingRESTDelta(t *testing.T) {
+	ex := newGatedFillsExchange(false)
+	ex.setFills(72,
+		&detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.4, CommissionAsset: "USDT"},
+		&detailedFill{Price: fillFeeTestPrice, Quantity: 0.5, Commission: 0.6, CommissionAsset: "USDT"})
+	spm := newFillFeeSPM(t, "futures", ex)
+	cid := openBuy(spm, 72)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 72, ClientOrderID: cid, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "BUY",
+		ExecutedQty: 0.5, AvgPrice: fillFeeTestPrice, Commission: 0.4, CommissionAsset: "USDT"})
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 72, ClientOrderID: cid, Symbol: "ETHUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 1, AvgPrice: fillFeeTestPrice, Commission: 0.6, CommissionAsset: "USDT", CommissionIncomplete: true})
+	waitFor(t, func() bool {
+		slot := spm.getOrCreateSlot(fillFeeTestPrice)
+		slot.mu.RLock()
+		defer slot.mu.RUnlock()
+		return slot.pendingFeeSupplementCount == 0
+	})
+	_, gotFee, _, _ := slotState(spm)
+	if math.Abs(gotFee-1) > fillFeeEps {
+		t.Fatalf("BuyFee=%v, want 1.0 with the already booked 0.4 applied exactly once", gotFee)
+	}
+}
+
 func (g *gatedFillsExchange) setFills(orderID int64, fills ...*detailedFill) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

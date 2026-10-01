@@ -20,21 +20,52 @@ type SpotUserDataWebSocketManager struct {
 	useTestnet bool
 	listenKey  string
 
-	mu        sync.Mutex
-	isRunning bool
-	stopC     chan struct{}
-	stopOnce  sync.Once
-	doneC     chan struct{}
-	onOrder   func(OrderUpdate)
+	mu            sync.Mutex
+	isRunning     bool
+	stopC         chan struct{}
+	stopOnce      sync.Once
+	doneC         chan struct{}
+	onOrder       func(OrderUpdate)
+	fillMu        sync.Mutex
+	filledByOrder map[string]float64
 }
 
 // NewSpotUserDataWebSocketManager 創建現貨訂單流管理器
 func NewSpotUserDataWebSocketManager(client *binancesdk.Client, useTestnet bool) *SpotUserDataWebSocketManager {
 	return &SpotUserDataWebSocketManager{
-		client:     client,
-		useTestnet: useTestnet,
-		stopC:      make(chan struct{}),
+		client:        client,
+		useTestnet:    useTestnet,
+		stopC:         make(chan struct{}),
+		filledByOrder: make(map[string]float64),
 	}
+}
+
+// spotFeeCoversFill reports whether the latest-trade commission covers the
+// entire newly observed cumulative quantity. Binance's n/N fields describe
+// only l/L, while z/Z are cumulative for the order.
+func (w *SpotUserDataWebSocketManager) spotFeeCoversFill(symbol string, orderID int64, cumulativeQty, latestQty float64) bool {
+	if orderID <= 0 || cumulativeQty <= 0 || latestQty <= 0 || math.IsNaN(cumulativeQty) || math.IsInf(cumulativeQty, 0) || math.IsNaN(latestQty) || math.IsInf(latestQty, 0) {
+		return false
+	}
+	key := fmt.Sprintf("%s:%d", symbol, orderID)
+	w.fillMu.Lock()
+	defer w.fillMu.Unlock()
+	previous := w.filledByOrder[key]
+	delta := cumulativeQty - previous
+	tolerance := math.Max(1e-10, math.Abs(cumulativeQty)*1e-9)
+	if cumulativeQty > previous {
+		w.filledByOrder[key] = cumulativeQty
+	}
+	return delta > 0 && math.Abs(delta-latestQty) <= tolerance
+}
+
+func (w *SpotUserDataWebSocketManager) clearSpotOrderFill(symbol string, orderID int64) {
+	if orderID <= 0 {
+		return
+	}
+	w.fillMu.Lock()
+	delete(w.filledByOrder, fmt.Sprintf("%s:%d", symbol, orderID))
+	w.fillMu.Unlock()
 }
 
 func parseSpotCommission(raw, asset string) (float64, bool) {
@@ -117,28 +148,35 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			price, _ := strconv.ParseFloat(o.Price, 64)
 			qty, _ := strconv.ParseFloat(o.Volume, 64)
 			filled, _ := strconv.ParseFloat(o.FilledVolume, 64)
+			latestQty, _ := strconv.ParseFloat(o.LatestVolume, 64)
 			// LatestPrice is Binance's last-fill price (L), not the order's
 			// cumulative average. Use cumulative quote / executed quantity (Z / z).
 			filledQuote, _ := strconv.ParseFloat(o.FilledQuoteVolume, 64)
 			avgPx := cumulativeAveragePrice(filledQuote, filled)
 			comm, commissionKnown := parseSpotCommission(o.FeeCost, o.FeeAsset)
+			commissionIncomplete := o.ExecutionType == "TRADE" && !w.spotFeeCoversFill(o.Symbol, o.Id, filled, latestQty)
+			if commissionIncomplete {
+				commissionKnown = false
+				comm = 0
+			}
 
 			up := OrderUpdate{
-				OrderID:         o.Id,
-				ClientOrderID:   o.ClientOrderId,
-				Symbol:          o.Symbol,
-				Side:            Side(strings.ToUpper(o.Side)),
-				Type:            OrderType(strings.ToUpper(o.Type)),
-				Status:          OrderStatus(o.Status),
-				Price:           price,
-				Quantity:        qty,
-				ExecutedQty:     filled,
-				AvgPrice:        avgPx,
-				UpdateTime:      o.TransactionTime,
-				Commission:      comm,
-				CommissionAsset: o.FeeAsset,
-				CommissionKnown: commissionKnown,
-				RealizedPnL:     0,
+				OrderID:              o.Id,
+				ClientOrderID:        o.ClientOrderId,
+				Symbol:               o.Symbol,
+				Side:                 Side(strings.ToUpper(o.Side)),
+				Type:                 OrderType(strings.ToUpper(o.Type)),
+				Status:               OrderStatus(o.Status),
+				Price:                price,
+				Quantity:             qty,
+				ExecutedQty:          filled,
+				AvgPrice:             avgPx,
+				UpdateTime:           o.TransactionTime,
+				Commission:           comm,
+				CommissionAsset:      o.FeeAsset,
+				CommissionKnown:      commissionKnown,
+				CommissionIncomplete: commissionIncomplete,
+				RealizedPnL:          0,
 			}
 
 			w.mu.Lock()
@@ -146,6 +184,9 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			w.mu.Unlock()
 			if cb != nil {
 				cb(up)
+			}
+			if o.Status == "FILLED" || o.Status == "CANCELED" || o.Status == "REJECTED" || o.Status == "EXPIRED" {
+				w.clearSpotOrderFill(o.Symbol, o.Id)
 			}
 		}
 

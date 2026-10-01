@@ -161,6 +161,33 @@ func TestParseSpotCommissionAuthority(t *testing.T) {
 	}
 }
 
+func TestSpotFeeCoverageRequiresLatestFillToMatchCumulativeDelta(t *testing.T) {
+	w := NewSpotUserDataWebSocketManager(nil, false)
+	tests := []struct {
+		name         string
+		cumulative   float64
+		latest       float64
+		wantCoverage bool
+	}{
+		{name: "first observed fill", cumulative: 0.25, latest: 0.25, wantCoverage: true},
+		{name: "missed fill before reconnect", cumulative: 0.75, latest: 0.25},
+		{name: "next contiguous fill", cumulative: 0.9, latest: 0.15, wantCoverage: true},
+		{name: "duplicate delivery", cumulative: 0.9, latest: 0.15},
+		{name: "stale cumulative event", cumulative: 0.8, latest: 0.1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := w.spotFeeCoversFill("BTCUSDT", 42, tt.cumulative, tt.latest); got != tt.wantCoverage {
+				t.Fatalf("spotFeeCoversFill() = %v, want %v", got, tt.wantCoverage)
+			}
+		})
+	}
+	w.clearSpotOrderFill("BTCUSDT", 42)
+	if !w.spotFeeCoversFill("BTCUSDT", 42, 0.1, 0.1) {
+		t.Fatal("terminal-order cleanup should allow a fresh order cursor")
+	}
+}
+
 const binanceFeeTestEps = 1e-9
 
 func TestBinanceSpotStreamUpdateFeeConversion(t *testing.T) {

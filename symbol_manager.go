@@ -1984,23 +1984,28 @@ func toPositionOrderUpdate(updateInterface interface{}) *position.OrderUpdate {
 	if field := v.FieldByName("CommissionKnown"); field.IsValid() && field.Kind() == reflect.Bool {
 		commissionKnown = field.Bool()
 	}
+	commissionIncomplete := false
+	if field := v.FieldByName("CommissionIncomplete"); field.IsValid() && field.Kind() == reflect.Bool {
+		commissionIncomplete = field.Bool()
+	}
 
 	return &position.OrderUpdate{
-		OrderID:         getInt64Field("OrderID"),
-		ClientOrderID:   getStringField("ClientOrderID"),
-		Symbol:          getStringField("Symbol"),
-		Status:          getStringField("Status"),
-		ExecutedQty:     getFloat64Field("ExecutedQty"),
-		Price:           getFloat64Field("Price"),
-		AvgPrice:        getFloat64Field("AvgPrice"),
-		Side:            getStringField("Side"),
-		Type:            getStringField("Type"),
-		UpdateTime:      getInt64Field("UpdateTime"),
-		Commission:      getFloat64Field("Commission"),
-		CommissionAsset: getStringField("CommissionAsset"),
-		CommissionKnown: commissionKnown,
-		RealizedPnL:     getFloat64Field("RealizedPnL"),
-		BaseFeeQty:      getFloat64Field("BaseFeeQty"),
+		OrderID:              getInt64Field("OrderID"),
+		ClientOrderID:        getStringField("ClientOrderID"),
+		Symbol:               getStringField("Symbol"),
+		Status:               getStringField("Status"),
+		ExecutedQty:          getFloat64Field("ExecutedQty"),
+		Price:                getFloat64Field("Price"),
+		AvgPrice:             getFloat64Field("AvgPrice"),
+		Side:                 getStringField("Side"),
+		Type:                 getStringField("Type"),
+		UpdateTime:           getInt64Field("UpdateTime"),
+		Commission:           getFloat64Field("Commission"),
+		CommissionAsset:      getStringField("CommissionAsset"),
+		CommissionKnown:      commissionKnown,
+		CommissionIncomplete: commissionIncomplete,
+		RealizedPnL:          getFloat64Field("RealizedPnL"),
+		BaseFeeQty:           getFloat64Field("BaseFeeQty"),
 	}
 }
 

@@ -28,16 +28,18 @@ const (
 
 // addOrderCommissionLocked 累計某訂單（按 ClientOrderID）已由推送攜帶的手續費與基礎幣手續費數量；換訂單時重新計數。
 // 調用方需持有 slot.mu。
-func (slot *InventorySlot) addOrderCommissionLocked(clientOID string, commission, baseFeeQty float64) {
+func (slot *InventorySlot) addOrderCommissionLocked(clientOID string, commission, baseFeeQty float64, incomplete bool) {
 	if slot.feeClientOID != clientOID {
 		slot.feeClientOID = clientOID
 		slot.orderCommission = 0
 		slot.orderBaseFeeQty = 0
+		slot.orderFeeIncomplete = false
 	}
 	slot.orderCommission += commission
 	if baseFeeQty > 0 {
 		slot.orderBaseFeeQty += baseFeeQty
 	}
+	slot.orderFeeIncomplete = slot.orderFeeIncomplete || incomplete
 }
 
 // orderFeeState 訂單結束時的手續費推送狀態
@@ -46,19 +48,22 @@ type orderFeeState struct {
 	missing bool
 	// wsBaseFeeQty 推送已攜帶（並已從持倉扣除）的基礎幣手續費數量
 	wsBaseFeeQty float64
+	wsCommission float64
 }
 
 // takeOrderFeeStateLocked 訂單結束時取出其推送手續費狀態並清空累計，保證同一訂單最多觸發一次補查。
 // 調用方需持有 slot.mu。
 func (slot *InventorySlot) takeOrderFeeStateLocked(clientOID string) orderFeeState {
 	matched := slot.feeClientOID == clientOID
-	st := orderFeeState{missing: !matched || slot.orderCommission == 0}
+	st := orderFeeState{missing: !matched || slot.orderCommission == 0 || slot.orderFeeIncomplete}
 	if matched {
 		st.wsBaseFeeQty = slot.orderBaseFeeQty
+		st.wsCommission = slot.orderCommission
 	}
 	slot.feeClientOID = ""
 	slot.orderCommission = 0
 	slot.orderBaseFeeQty = 0
+	slot.orderFeeIncomplete = false
 	return st
 }
 
@@ -126,6 +131,7 @@ type feeSupplementTag struct {
 	openLeg      bool
 	cycleGen     uint64
 	wsBaseFeeQty float64
+	wsCommission float64
 }
 
 type pendingFeeSupplement struct {
@@ -168,6 +174,7 @@ func (spm *SuperPositionManager) startFeeSupplementLocked(slot *InventorySlot, u
 		openLeg:      openLeg,
 		cycleGen:     slot.cycleGen,
 		wsBaseFeeQty: st.wsBaseFeeQty,
+		wsCommission: st.wsCommission,
 	}
 	slot.pendingFeeSupplementCount++
 	spm.feeSupplementQueueMu.Lock()
@@ -376,8 +383,24 @@ func (spm *SuperPositionManager) supplementCommission(ctx context.Context, slot 
 		spm.recordFeeCorrection(tag, sum, "成交费用或名义金额超出有限账务范围")
 		return
 	}
+	baseFeeTolerance := math.Max(1e-12, math.Abs(sum.baseFeeQty)*1e-9)
+	if sum.baseFeeQty+baseFeeTolerance < tag.wsBaseFeeQty {
+		spm.markFeeSupplementUnverified(slot, tag)
+		spm.requireTradeLedgerReconciliation(OrderUpdate{OrderID: tag.orderID, ClientOrderID: tag.clientOID, Symbol: tag.symbol}, fmt.Errorf("REST base-asset fee summary is smaller than already booked WebSocket base fees"))
+		spm.recordFeeCorrection(tag, sum, "REST 基礎幣手續費低於已由推送入賬的金額，無法安全核銷")
+		return
+	}
+	sum.commission -= tag.wsCommission
+	sum.baseFeeQty = math.Max(sum.baseFeeQty-tag.wsBaseFeeQty, 0)
 	if sum.commission == 0 && sum.baseFeeQty == 0 {
 		logger.Debug("🔍 [手續費補充] 訂單 %d 手續費為 0", tag.orderID)
+		if tag.openLeg {
+			slot.mu.Lock()
+			if slot.cycleGen == tag.cycleGen && slot.pendingFeeSupplementCount == 1 {
+				slot.feeValuationUnknown = false
+			}
+			slot.mu.Unlock()
+		}
 		return
 	}
 

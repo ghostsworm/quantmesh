@@ -110,21 +110,22 @@ type Account struct {
 }
 
 type OrderUpdate struct {
-	OrderID         int64
-	ClientOrderID   string
-	Symbol          string
-	Side            Side
-	Type            OrderType
-	Status          OrderStatus
-	Price           float64
-	Quantity        float64
-	ExecutedQty     float64
-	AvgPrice        float64
-	UpdateTime      int64
-	Commission      float64 // 本次成交手續費
-	CommissionAsset string  // 手續費幣種
-	CommissionKnown bool    // 訂單流是否提供有效的本次成交手續費字段
-	RealizedPnL     float64 // 已實現盈虧（交易所計算）
+	OrderID              int64
+	ClientOrderID        string
+	Symbol               string
+	Side                 Side
+	Type                 OrderType
+	Status               OrderStatus
+	Price                float64
+	Quantity             float64
+	ExecutedQty          float64
+	AvgPrice             float64
+	UpdateTime           int64
+	Commission           float64 // 本次成交手續費
+	CommissionAsset      string  // 手續費幣種
+	CommissionKnown      bool    // 訂單流是否提供有效的本次成交手續費字段
+	CommissionIncomplete bool    // 本次手續費字段未覆蓋觀察到的全部新增累計成交量
+	RealizedPnL          float64 // 已實現盈虧（交易所計算）
 }
 
 type OrderUpdateCallback func(update OrderUpdate)

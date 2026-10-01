@@ -304,8 +304,12 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 			openingFill := spm.isOpenLegOrderSide(side, slot)
 			var feeKnown bool
 			fillCommission, feeKnown = spm.commissionInQuote(update, incrementalPrice)
-			if !feeKnown {
+			if update.CommissionIncomplete {
+				fillCommission = 0
 				slot.feeValuationUnknown = true
+				feeKnown = false
+				spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s does not cover the observed cumulative fill delta", update.CommissionAsset))
+			} else if !feeKnown {
 				spm.requireTradeLedgerReconciliation(update, fmt.Errorf("execution fee in %s has no verified quote-asset conversion", update.CommissionAsset))
 			} else if openingFill && fillCommission == 0 && strings.TrimSpace(update.CommissionAsset) == "" {
 				// 零值且未提供費用幣種無法區分真實零費用與缺失回報；終態 REST 補查前不將浮盈視為完整。
@@ -323,7 +327,11 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 					return
 				}
 			}
-			slot.addOrderCommissionLocked(orderClientOID, fillCommission, update.BaseFeeQty)
+			baseFeeQty := update.BaseFeeQty
+			if update.CommissionIncomplete {
+				baseFeeQty = 0
+			}
+			slot.addOrderCommissionLocked(orderClientOID, fillCommission, baseFeeQty, update.CommissionIncomplete)
 		}
 		slot.OrderFilledQty, slot.OrderFilledNotional = progress.Quantity, progress.Notional
 		if terminal || update.Status == "FILLED" {

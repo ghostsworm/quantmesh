@@ -46,7 +46,7 @@ func (spm *SuperPositionManager) PersistGridRuntimeState() error {
 			OrderPrice: slot.OrderPrice, OrderFilledQty: slot.OrderFilledQty, OrderFilledNotional: slot.OrderFilledNotional,
 			OrderCreatedAt: slot.OrderCreatedAt, SlotStatus: slot.SlotStatus, PostOnlyFailCount: slot.PostOnlyFailCount,
 			BuyFee: slot.BuyFee, FeeAsset: slot.FeeAsset, FeeClientOID: slot.feeClientOID,
-			OrderCommission: slot.orderCommission, FeeValuationUnknown: slot.feeValuationUnknown,
+			OrderCommission: slot.orderCommission, OrderFeeIncomplete: slot.orderFeeIncomplete, FeeValuationUnknown: slot.feeValuationUnknown,
 			BaseFeeReconciliationRequired: slot.baseFeeReconciliationRequired,
 			OrderBaseFeeQty:               slot.orderBaseFeeQty, CycleGen: slot.cycleGen,
 			PositionEntryOrderID: slot.PositionEntryOrderID, PositionEntryOrderUnknown: slot.PositionEntryOrderAmbiguous,
@@ -212,7 +212,7 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			OrderPrice: state.OrderPrice, OrderFilledQty: state.OrderFilledQty, OrderFilledNotional: state.OrderFilledNotional,
 			OrderCreatedAt: state.OrderCreatedAt, SlotStatus: state.SlotStatus, PostOnlyFailCount: state.PostOnlyFailCount,
 			BuyFee: state.BuyFee, FeeAsset: state.FeeAsset, feeClientOID: state.FeeClientOID,
-			orderCommission: state.OrderCommission, feeValuationUnknown: state.FeeValuationUnknown,
+			orderCommission: state.OrderCommission, orderFeeIncomplete: state.OrderFeeIncomplete, feeValuationUnknown: state.FeeValuationUnknown,
 			baseFeeReconciliationRequired: state.BaseFeeReconciliationRequired,
 			orderBaseFeeQty:               state.OrderBaseFeeQty, cycleGen: state.CycleGen, feeSupplementUntil: state.FeeSupplementUntil,
 			PositionEntryOrderID: state.PositionEntryOrderID, PositionEntryOrderAmbiguous: state.PositionEntryOrderUnknown,
@@ -251,7 +251,7 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 			slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderFilledQty == 0 && slot.OrderFilledNotional == 0 &&
 			(slot.OrderStatus == OrderStatusNotPlaced || slot.OrderStatus == OrderStatusCanceled) &&
 			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&
-			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.feeValuationUnknown &&
+			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.orderFeeIncomplete && !slot.feeValuationUnknown &&
 			slot.feeSupplementUntil.IsZero() && slot.pendingFeeSupplementCount == 0 &&
 			!slot.baseFeeUnfloored && !slot.baseFeeReconciliationRequired && !slot.CostBasisUnverified && slot.PositionLeg == PositionLegNone
 		slot.mu.RUnlock()

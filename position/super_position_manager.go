@@ -21,20 +21,21 @@ import (
 
 // OrderUpdate 订單更新事件（避免依赖 websocket 包）
 type OrderUpdate struct {
-	OrderID         int64
-	ClientOrderID   string
-	Symbol          string
-	Status          string
-	ExecutedQty     float64
-	Price           float64
-	AvgPrice        float64
-	Side            string
-	Type            string
-	UpdateTime      int64
-	Commission      float64 // 本次成交手續費（僅本筆成交，非累計；現貨適配器已換算為計價幣）
-	CommissionAsset string  // 手續費幣種
-	CommissionKnown bool    // true 表示適配器确认该成交的 Commission 字段权威（含明确零费用）
-	RealizedPnL     float64 // 已實現盈虧（交易所計算）
+	OrderID              int64
+	ClientOrderID        string
+	Symbol               string
+	Status               string
+	ExecutedQty          float64
+	Price                float64
+	AvgPrice             float64
+	Side                 string
+	Type                 string
+	UpdateTime           int64
+	Commission           float64 // 本次成交手續費（僅本筆成交，非累計；現貨適配器已換算為計價幣）
+	CommissionAsset      string  // 手續費幣種
+	CommissionKnown      bool    // true 表示適配器确认该成交的 Commission 字段权威（含明确零费用）
+	CommissionIncomplete bool    // true 表示本次費用未覆蓋所有新增累計成交量，必須補查完整成交明細
+	RealizedPnL          float64 // 已實現盈虧（交易所計算）
 	// BaseFeeQty 本次成交中以「基礎幣」扣收的手續費數量（基礎幣單位，>=0；0 表示未按基礎幣收費或未知）。
 	// 僅現貨有意義：買單實際到帳數量 = 本次成交增量 − BaseFeeQty。
 	// 該費用的計價幣價值仍包含在 Commission 中（用於盈虧），兩者不是重複扣費。
@@ -160,6 +161,7 @@ type InventorySlot struct {
 	// 用於判斷是否需要 REST 補查手續費，避免推送已帶手續費時補查重複累加。
 	feeClientOID        string
 	orderCommission     float64
+	orderFeeIncomplete  bool
 	feeValuationUnknown bool
 	// baseFeeReconciliationRequired latches unsupported spot base-fee evidence for this order.
 	// Later callbacks cannot advance the cursor or release the slot until explicitly reconciled.
@@ -301,6 +303,7 @@ type gridRuntimeSlotSnapshot struct {
 	FeeAsset                      string       `json:"fee_asset"`
 	FeeClientOID                  string       `json:"fee_client_oid"`
 	OrderCommission               float64      `json:"order_commission"`
+	OrderFeeIncomplete            bool         `json:"order_fee_incomplete"`
 	FeeValuationUnknown           bool         `json:"fee_valuation_unknown"`
 	BaseFeeReconciliationRequired bool         `json:"base_fee_reconciliation_required"`
 	OrderBaseFeeQty               float64      `json:"order_base_fee_qty"`
