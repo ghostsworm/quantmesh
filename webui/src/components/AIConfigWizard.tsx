@@ -1231,7 +1231,7 @@ const AIConfigWizard: React.FC<AIConfigWizardProps> = ({
   const getStrategyDisplayName = (type: string): string => {
     const names: Record<string, string> = {
       grid: t('aiConfig.wizard.strategyNames.grid'),
-      dca: t('aiConfig.wizard.strategyNames.dca'),
+      dca: t('strategyNames.dca_enhanced'),
       martingale: t('aiConfig.wizard.strategyNames.martingale'),
       trend: t('aiConfig.wizard.strategyNames.trend'),
       mean_reversion: t('aiConfig.wizard.strategyNames.mean_reversion'),

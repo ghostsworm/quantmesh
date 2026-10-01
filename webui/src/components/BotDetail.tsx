@@ -128,7 +128,7 @@ const getGridRelatedStrategies = (t: any): StrategyOption[] => [
 ]
 
 const getDcaRelatedStrategies = (t: any): StrategyOption[] => [
-  { value: 'dca', label: t('strategyNames.dca', 'DCA定投') },
+  { value: 'dca', label: t('strategyNames.dca_enhanced') },
   { value: 'martingale', label: t('strategyNames.martingale', '马丁格尔') },
 ]
 

@@ -80,6 +80,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
   const borderColor = useColorModeValue('gray.200', 'gray.600')
 
   if (!strategy) return null
+  const translationId = strategy.id === 'dca' ? 'dca_enhanced' : strategy.id
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="4xl" scrollBehavior="inside">
@@ -90,7 +91,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
             <VStack align="start" spacing={1}>
               <HStack>
                 <Text fontSize="xl" fontWeight="bold">
-                  {t(`strategyNames.${strategy.id}`, { defaultValue: strategy.name })}
+                  {t(`strategyNames.${translationId}`, { defaultValue: strategy.name })}
                 </Text>
                 {strategy.isPremium && (
                   <Badge
@@ -148,7 +149,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                       {t('strategyMarket.detail.description')}
                     </Text>
                     <Text color="gray.600" whiteSpace="pre-wrap">
-                      {t(`strategyDescriptions.${strategy.id}`, {
+                      {t(`strategyDescriptions.${translationId}`, {
                         defaultValue: strategy.longDescription || strategy.description,
                       })}
                     </Text>
@@ -173,7 +174,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                           mb={2}
                         >
                           <Icon as={CheckCircleIcon} mr={1} />
-                          {t(`strategyFeatures.${strategy.id}.${index}`, {
+                          {t(`strategyFeatures.${translationId}.${index}`, {
                             defaultValue: feature,
                           })}
                         </Badge>
@@ -221,7 +222,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                       return (
                         <Tr key={paramKey}>
                           <Td fontWeight="medium">
-                            {t(`strategyParams.${strategy.id}.${paramKey}.name`, {
+                            {t(`strategyParams.${translationId}.${paramKey}.name`, {
                               defaultValue: param.name,
                             })}
                           </Td>
@@ -232,7 +233,7 @@ const StrategyDetailModal: React.FC<StrategyDetailModalProps> = ({
                           </Td>
                           <Td>{String(param.defaultValue)}</Td>
                           <Td fontSize="sm" color="gray.600">
-                            {t(`strategyParams.${strategy.id}.${paramKey}.description`, {
+                            {t(`strategyParams.${translationId}.${paramKey}.description`, {
                               defaultValue: param.description,
                             })}
                           </Td>

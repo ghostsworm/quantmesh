@@ -206,19 +206,19 @@ func getStrategiesHandler(c *gin.Context) {
 		},
 		{
 			ID:                 "dca",
-			Name:               "DCA 定投策略",
-			Description:        "定期定額買入策略，分散入场成本，降低投资风險",
+			Name:               "DCA 分层策略",
+			Description:        "使用 ATR 动态间距执行分层订单，并配置止盈/止损；不是定时定额买入。",
 			Type:               "dca",
-			RiskLevel:          "low",
+			RiskLevel:          "medium",
 			IsPremium:          false,
 			IsEnabled:          enabledMap["dca"],
 			IsLicensed:         true,
 			Features:           getStrategyFeatures("dca"),
-			MinCapital:         100,
-			RecommendedCapital: 500,
+			MinCapital:         200,
+			RecommendedCapital: 1000,
 			Version:            "1.0.0",
 			Author:             "QuantMesh",
-			Tags:               []string{"定投", "长期", "低风險"},
+			Tags:               []string{"DCA", "ATR", "分层订单"},
 			RequiredVersion:    "3.0.0",
 			CreatedAt:          "2024-01-15T00:00:00Z",
 			UpdatedAt:          "2024-07-01T00:00:00Z",
@@ -663,7 +663,7 @@ func batchUpdateStrategiesHandler(c *gin.Context) {
 func getStrategyName(id string) string {
 	names := map[string]string{
 		"grid":            "网格交易策略",
-		"dca":             "DCA 定投策略",
+		"dca":             "DCA 分层策略",
 		"dca_enhanced":    "增强型 DCA 策略",
 		"martingale":      "马丁格尔策略",
 		"combo":           "组合策略模塊",
@@ -680,7 +680,7 @@ func getStrategyName(id string) string {
 func getStrategyDescription(id string) string {
 	descs := map[string]string{
 		"grid":            "經典网格交易策略，在價格区间内自动挂單",
-		"dca":             "定期定額買入策略",
+		"dca":             "基于 ATR 动态间距执行分层订单；不是定时定额买入",
 		"dca_enhanced":    "增强型 DCA 策略，支援 ATR 动態间距",
 		"martingale":      "马丁格尔加倉策略",
 		"combo":           "多策略组合管理",
@@ -719,7 +719,7 @@ func isStrategyPremium(id string) bool {
 func getStrategyTags(id string) []string {
 	tags := map[string][]string{
 		"grid":            {"网格", "震荡市", "自动化"},
-		"dca":             {"定投", "长期", "低风險"},
+		"dca":             {"DCA", "ATR", "分层订单"},
 		"dca_enhanced":    {"DCA", "ATR", "多层止盈"},
 		"martingale":      {"马丁格尔", "补倉", "高风險"},
 		"combo":           {"组合", "多策略", "自适应"},
@@ -734,16 +734,14 @@ func getStrategyTags(id string) []string {
 }
 
 func getStrategyFeatures(id string) []string {
+	if id == "dca" {
+		id = "dca_enhanced"
+	}
 	features := map[string][]string{
 		"grid": {
 			"自动挂單買賣",
 			"支援自定义网格數量",
 			"支援动態网格间距",
-		},
-		"dca": {
-			"定時定額買入",
-			"分散入场成本",
-			"自动複投收益",
 		},
 		"dca_enhanced": {
 			"ATR 动態间距調整",
@@ -773,10 +771,6 @@ func getStrategyFeatures(id string) []string {
 
 func getStrategyParameters(id string) []StrategyParameter {
 	params := map[string][]StrategyParameter{
-		"dca": {
-			{Name: "interval", Type: "select", Default: "4h", Description: "定投间隔", Required: true, DisplayOrder: 1},
-			{Name: "amount", Type: "number", Default: 100, Description: "每次投资金額", Required: true, DisplayOrder: 2},
-		},
 		"dca_enhanced": {
 			{Name: "base_order_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "基础订單金額 (USDT)", Required: true, DisplayOrder: 1},
 			{Name: "safety_order_amount", Type: "number", Default: 200.0, Min: 10.0, Description: "安全订單金額 (USDT)", Required: true, DisplayOrder: 2},
@@ -805,6 +799,9 @@ func getStrategyParameters(id string) []StrategyParameter {
 			{Name: "market_detection", Type: "boolean", Default: true, Description: "啟用市况检测", Required: true, DisplayOrder: 2},
 			{Name: "hedge_enabled", Type: "boolean", Default: true, Description: "啟用對冲", Required: true, DisplayOrder: 3},
 		},
+	}
+	if id == "dca" {
+		id = "dca_enhanced"
 	}
 	if p, ok := params[id]; ok {
 		return p

@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"quantmesh/storage"
@@ -134,6 +135,12 @@ func TestStrategyMetadataHelpersCoverKnownAndUnknownStrategies(t *testing.T) {
 	}
 	if params := getStrategyParameters("dca_enhanced"); len(params) != 7 {
 		t.Fatalf("dca enhanced params len=%d", len(params))
+	}
+	if params := getStrategyParameters("dca"); len(params) != 7 || params[0].Name != "base_order_amount" {
+		t.Fatalf("legacy dca params should match enhanced runtime fields: %#v", params)
+	}
+	if getStrategyName("dca") != "DCA 分层策略" || strings.Contains(getStrategyDescription("dca"), "定时定额买入策略") {
+		t.Fatalf("legacy dca metadata still implies scheduled buying: name=%q description=%q", getStrategyName("dca"), getStrategyDescription("dca"))
 	}
 	if params := getStrategyParameters("unknown"); len(params) != 0 {
 		t.Fatalf("unknown params=%#v", params)

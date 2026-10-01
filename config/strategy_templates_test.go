@@ -93,6 +93,9 @@ func TestDCATemplatesMatchEnhancedRuntimeInsteadOfScheduledBuying(t *testing.T) 
 		if regular.StrategyType != "dca_enhanced" {
 			t.Errorf("DCA template %q type = %q, want dca_enhanced", id, regular.StrategyType)
 		}
+		if regular.RiskLevel != "medium" {
+			t.Errorf("DCA template %q risk = %q, want medium", id, regular.RiskLevel)
+		}
 		for _, key := range []string{"base_order_amount", "safety_order_amount", "max_safety_orders"} {
 			if _, ok := regular.Params[key]; !ok {
 				t.Errorf("DCA template %q missing runtime parameter %q", id, key)

@@ -89,7 +89,7 @@ const StrategyStatusCard: React.FC<{ status: StrategyRuntimeStatus }> = ({ statu
   const getStrategyDisplayName = (name: string) => {
     const nameMap: Record<string, string> = {
       grid: t('strategyRuntime.strategyNames.grid'),
-      dca: t('strategyRuntime.strategyNames.dca'),
+      dca: t('strategyNames.dca_enhanced'),
       dca_enhanced: t('strategyRuntime.strategyNames.dca_enhanced'),
       martingale: t('strategyRuntime.strategyNames.martingale'),
       trend: t('strategyRuntime.strategyNames.trend'),

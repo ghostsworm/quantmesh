@@ -88,6 +88,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
   const cardBg = useColorModeValue('white', 'gray.800')
   const borderColor = useColorModeValue('gray.200', 'gray.600')
   const hoverBorderColor = useColorModeValue('blue.300', 'blue.400')
+  const translationId = strategy.id === 'dca' ? 'dca_enhanced' : strategy.id
 
   return (
     <MotionBox
@@ -149,7 +150,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
         <Flex justify="space-between" align="flex-start">
           <VStack align="start" spacing={1}>
             <Text fontSize="lg" fontWeight="bold" color="gray.800">
-              {t('strategyNames.' + strategy.id, { defaultValue: strategy.name })}
+              {t('strategyNames.' + translationId, { defaultValue: strategy.name })}
             </Text>
             <HStack spacing={2}>
               <Badge
@@ -186,7 +187,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
 
         {/* Description */}
         <Text fontSize="sm" color="gray.600" noOfLines={2}>
-          {t(`strategyDescriptions.${strategy.id}`, { defaultValue: strategy.description })}
+          {t(`strategyDescriptions.${translationId}`, { defaultValue: strategy.description })}
         </Text>
 
         {/* Features */}
@@ -200,7 +201,7 @@ const StrategyCard: React.FC<StrategyCardProps> = ({
               borderRadius="full"
               px={2}
             >
-              {t(`strategyFeatures.${strategy.id}.${index}`, { defaultValue: feature })}
+              {t(`strategyFeatures.${translationId}.${index}`, { defaultValue: feature })}
             </Badge>
           ))}
           {strategy.features && strategy.features.length > 3 && (

@@ -434,9 +434,9 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 		},
 		DefaultWeight: 1.0,
 		Symbols:       []string{"BTCUSDT", "ETHUSDT", "PAXGUSDT"},
-		Difficulty:    "beginner",
+		Difficulty:    "intermediate",
 		RiskLevel:     "medium",
-		Tags:          []string{"conservative", "longterm", "passive"},
+		Tags:          []string{"dca", "layered", "risk-managed"},
 		MinCapital:    500,
 	}
 
@@ -630,9 +630,9 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 		},
 		DefaultWeight: 1.0,
 		Symbols:       []string{},
-		Difficulty:    "beginner",
-		RiskLevel:     "low",
-		Tags:          []string{"conservative", "longterm"},
+		Difficulty:    "intermediate",
+		RiskLevel:     "medium",
+		Tags:          []string{"dca", "layered", "risk-managed"},
 		MinCapital:    500,
 	}
 
