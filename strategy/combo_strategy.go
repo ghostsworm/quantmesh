@@ -981,12 +981,14 @@ func (s *ComboStrategy) rebalanceWeights() {
 // OnOrderUpdate 订單更新处理
 func (s *ComboStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	// 傳遞给所有子策略
+	var updateErrors []error
 	for _, strategy := range s.strategies {
 		if err := strategy.OnOrderUpdate(update); err != nil {
 			logger.Warn("⚠️ [%s] 子策略处理订單更新失败: %v", s.name, err)
+			updateErrors = append(updateErrors, fmt.Errorf("combo sub-strategy %s order update: %w", strategy.Name(), err))
 		}
 	}
-	return nil
+	return errors.Join(updateErrors...)
 }
 
 // GetPositions 獲取所有持倉

@@ -15,18 +15,20 @@ import (
 )
 
 type fakeComboSubStrategy struct {
-	name       string
-	prices     []float64
-	started    bool
-	stopped    bool
-	eventBus   EventBus
-	stats      *StrategyStatistics
-	positions  []*Position
-	riskPrices []float64
-	orders     []*Order
-	visualData map[string]interface{}
-	startErr   error
-	stateStore RuntimeStateStore
+	name         string
+	prices       []float64
+	started      bool
+	stopped      bool
+	eventBus     EventBus
+	stats        *StrategyStatistics
+	positions    []*Position
+	riskPrices   []float64
+	orders       []*Order
+	visualData   map[string]interface{}
+	startErr     error
+	orderErr     error
+	orderUpdates int
+	stateStore   RuntimeStateStore
 }
 
 func (f *fakeComboSubStrategy) Name() string { return f.name }
@@ -41,10 +43,13 @@ func (f *fakeComboSubStrategy) OnPriceChangeRiskOnly(price float64) error {
 	f.riskPrices = append(f.riskPrices, price)
 	return nil
 }
-func (f *fakeComboSubStrategy) OnOrderUpdate(update *position.OrderUpdate) error { return nil }
-func (f *fakeComboSubStrategy) GetPositions() []*Position                        { return f.positions }
-func (f *fakeComboSubStrategy) GetOrders() []*Order                              { return f.orders }
-func (f *fakeComboSubStrategy) GetStatistics() *StrategyStatistics               { return f.stats }
+func (f *fakeComboSubStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	f.orderUpdates++
+	return f.orderErr
+}
+func (f *fakeComboSubStrategy) GetPositions() []*Position          { return f.positions }
+func (f *fakeComboSubStrategy) GetOrders() []*Order                { return f.orders }
+func (f *fakeComboSubStrategy) GetStatistics() *StrategyStatistics { return f.stats }
 func (f *fakeComboSubStrategy) Start(ctx context.Context) error {
 	f.started = true
 	return f.startErr
@@ -65,6 +70,21 @@ func TestComboStrategyStartPropagatesSubStrategyRecoveryFailureAndRollsBack(t *t
 	}
 	if combo.IsRunning() {
 		t.Fatal("combo remained running after child recovery failed")
+	}
+}
+
+func TestComboStrategyOnOrderUpdateReturnsChildErrorsAndContinuesDispatch(t *testing.T) {
+	want := errors.New("child accounting requires reconciliation")
+	failing := &fakeComboSubStrategy{name: "failing", orderErr: want}
+	other := &fakeComboSubStrategy{name: "other"}
+	combo := &ComboStrategy{name: "combo", strategies: []Strategy{failing, other}}
+
+	err := combo.OnOrderUpdate(&position.OrderUpdate{OrderID: 88, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5})
+	if !errors.Is(err, want) {
+		t.Fatalf("OnOrderUpdate() error=%v, want child accounting error", err)
+	}
+	if other.orderUpdates != 1 {
+		t.Fatalf("dispatch stopped after child failure; second child received %d updates", other.orderUpdates)
 	}
 }
 func (f *fakeComboSubStrategy) Stop() error {
