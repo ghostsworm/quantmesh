@@ -381,6 +381,19 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if fillCoverage == nil || fillCoverage.CoveredFrom.After(startTime.UTC()) || fillCoverage.CoveredThrough.Before(endTime.UTC()) {
 		return 0, fmt.Errorf("execution history does not fully cover withdrawal interval exchange=%s symbol=%s", exchange, symbol)
 	}
+	var unattributedExecutions, botCount int
+	if err := s.db.QueryRow(`SELECT
+		COALESCE(SUM(CASE WHEN TRIM(COALESCE(bot_id, '')) = '' THEN 1 ELSE 0 END), 0),
+		COUNT(DISTINCT NULLIF(TRIM(bot_id), ''))
+		FROM order_fills
+		WHERE LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND account_scope = ?
+		  AND LOWER(TRIM(market_type)) = 'futures' AND UPPER(TRIM(symbol)) = UPPER(TRIM(?))`,
+		exchange, accountScope, symbol).Scan(&unattributedExecutions, &botCount); err != nil {
+		return 0, fmt.Errorf("verify withdrawal bot attribution exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	if unattributedExecutions > 0 || botCount != 1 {
+		return 0, fmt.Errorf("withdrawal PnL cannot be attributed to one bot: executions_without_bot=%d distinct_bots=%d; refusing transfer", unattributedExecutions, botCount)
+	}
 	var unownedExecutions int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM order_fills
 		WHERE UPPER(TRIM(symbol)) = UPPER(TRIM(?)) AND trade_time > ? AND trade_time <= ?

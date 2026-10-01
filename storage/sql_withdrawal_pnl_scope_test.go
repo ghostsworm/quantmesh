@@ -68,9 +68,9 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	}
 	realizedBTC, realizedETH, openFillPnL := 100.0, 50.0, 0.0
 	fills := []OrderFill{
-		{Exchange: "BINANCE", MarketType: "FUTURES", AccountScope: "scope-a", Account: "acct", Symbol: "btcusdt", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "BTCUSDT", TradeID: "btc-open-execution", OrderID: 503, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.5, CommissionAsset: "USDT", RealizedPnL: &openFillPnL, RealizedPnLAsset: "USDT", TradeTime: now},
-		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "BINANCE", MarketType: "FUTURES", AccountScope: "scope-a", Account: "acct", BotID: "bot-btc", Symbol: "btcusdt", TradeID: "btc-execution", OrderID: 501, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &realizedBTC, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", BotID: "bot-btc", Symbol: "BTCUSDT", TradeID: "btc-open-execution", OrderID: 503, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.5, CommissionAsset: "USDT", RealizedPnL: &openFillPnL, RealizedPnLAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", BotID: "bot-eth", Symbol: "ETHUSDT", TradeID: "eth-execution", OrderID: 502, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realizedETH, RealizedPnLAsset: "USDT", TradeTime: now},
 	}
 	for i := range fills {
 		if err := st.SaveOrderFill(&fills[i]); err != nil {
@@ -112,6 +112,16 @@ func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *tes
 	}
 	if boundaryPnL != 0 {
 		t.Fatalf("PnL at exclusive lower boundary was counted again: %v", boundaryPnL)
+	}
+	otherBot := fills[0]
+	otherBot.BotID = "another-btc-bot"
+	otherBot.TradeID = "btc-execution-other-bot"
+	otherBot.OrderID = 504
+	if err := st.SaveOrderFill(&otherBot); err != nil {
+		t.Fatal("save second bot execution:", err)
+	}
+	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+		t.Fatal("withdrawal calculation accepted funding and executions shared by multiple bots")
 	}
 	if _, err := st.GetRealizedPnLForWithdrawal("", "BTCUSDT", "scope-a", start, end); err == nil {
 		t.Fatal("missing exchange identity must fail closed")
@@ -402,7 +412,7 @@ func TestGetRealizedPnLForWithdrawalBlocksPendingFeeCorrections(t *testing.T) {
 				t.Fatal(err)
 			}
 			realized := 25.0
-			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "covered-execution", OrderID: 601, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now}
+			fill := OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct", BotID: "bot-a", Symbol: "BTCUSDT", TradeID: "covered-execution", OrderID: 601, Side: "SELL", Price: 100, Quantity: 1, CommissionAsset: "USDT", RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now}
 			if err := st.SaveOrderFill(&fill); err != nil {
 				t.Fatal(err)
 			}
