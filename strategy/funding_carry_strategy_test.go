@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"math"
 	"sync"
 	"testing"
@@ -129,8 +130,10 @@ type mockFCExchange struct {
 	latestPrice        float64
 	fundingRate        float64
 	positions          []*exchange.Position
+	positionsErr       error
 	openOrders         []*exchange.Order
 	balance            float64
+	balanceErr         error
 	baseAsset          string
 	priceDecimals      int
 	quantityDecimals   int
@@ -218,6 +221,9 @@ func (m *mockFCExchange) GetFundingRate(ctx context.Context, symbol string) (flo
 	return m.fundingRate, nil
 }
 func (m *mockFCExchange) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
+	if m.positionsErr != nil {
+		return nil, m.positionsErr
+	}
 	if m.returnNilPositions {
 		return nil, nil
 	}
@@ -227,7 +233,7 @@ func (m *mockFCExchange) GetPositions(ctx context.Context, symbol string) ([]*ex
 	return m.positions, nil
 }
 func (m *mockFCExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
-	return m.balance, nil
+	return m.balance, m.balanceErr
 }
 func (m *mockFCExchange) Borrow(context.Context, string, float64) (int64, error) { return 1, nil }
 func (m *mockFCExchange) Repay(context.Context, string, float64) (int64, error) {
@@ -316,6 +322,16 @@ func TestFundingCarryVerifyFlatRequiresLiveAndDurableFlatEvidence(t *testing.T) 
 		strategy.fut.(*mockFCExchange).positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.1}}
 		if err := strategy.VerifyFlat(context.Background()); err == nil {
 			t.Fatal("VerifyFlat accepted residual futures exposure")
+		}
+	})
+
+	t.Run("rejects symbol-less or cross-symbol zero futures rows", func(t *testing.T) {
+		for _, symbol := range []string{"", "ETHUSDT"} {
+			strategy, _, _ := newFlatStrategy(t)
+			strategy.fut.(*mockFCExchange).positions = []*exchange.Position{{Symbol: symbol, Size: 0}}
+			if err := strategy.VerifyFlat(context.Background()); err == nil {
+				t.Fatalf("VerifyFlat accepted zero position row for %q", symbol)
+			}
 		}
 	})
 
@@ -476,6 +492,70 @@ func TestFundingCarryRuntimePositionSyncBlocksOnNilSnapshots(t *testing.T) {
 				t.Fatal("unverified inventory did not latch the unowned-exposure block")
 			}
 		})
+	}
+}
+
+func TestFundingCarryRuntimePositionSyncBlocksOnSpotBalanceFailure(t *testing.T) {
+	futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", positions: []*exchange.Position{}}
+	spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", balanceErr: errors.New("balance API unavailable")}
+	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
+	s.strategySpotKnown = true
+	if err := s.syncPositions(context.Background()); err == nil {
+		t.Fatal("accepted failed spot-balance query as verified inventory")
+	}
+	if !s.unownedExposure {
+		t.Fatal("spot-balance query failure did not latch the unowned-exposure block")
+	}
+}
+
+func TestFundingCarryCloseSnapshotFailuresLatchUnownedExposure(t *testing.T) {
+	tests := []struct {
+		name  string
+		close func(*FundingCarryStrategy) error
+		setup func(*FundingCarryStrategy, *mockFCExchange)
+	}{
+		{
+			name: "forward close positions",
+			setup: func(s *FundingCarryStrategy, _ *mockFCExchange) {
+				s.direction, s.futQty = DirectionForward, 1
+			},
+			close: func(s *FundingCarryStrategy) error { return s.closeAll(context.Background(), "test") },
+		},
+		{
+			name: "reverse close positions",
+			setup: func(s *FundingCarryStrategy, _ *mockFCExchange) {
+				s.direction, s.futQty = DirectionReverse, 1
+			},
+			close: func(s *FundingCarryStrategy) error { return s.closeReverse(context.Background(), "test") },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			futures := &mockFCExchange{name: "binance", marketType: "futures", positionsErr: errors.New("positions unavailable")}
+			spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC"}
+			margin := &mockFCExchange{name: "binance", marketType: "spot_margin"}
+			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+			tc.setup(s, futures)
+			if err := tc.close(s); err == nil {
+				t.Fatal("close accepted failed position snapshot")
+			}
+			if !s.unownedExposure {
+				t.Fatal("failed close snapshot did not latch unowned exposure")
+			}
+		})
+	}
+}
+
+func TestFundingCarrySpotCloseBalanceFailureLatchesUnownedExposure(t *testing.T) {
+	futures := &mockFCExchange{name: "binance", marketType: "futures"}
+	spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", balanceErr: errors.New("balance unavailable")}
+	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
+	s.strategySpotQty = 1
+	if err := s.closeStrategySpot(context.Background()); err == nil {
+		t.Fatal("spot close accepted failed balance snapshot")
+	}
+	if !s.unownedExposure {
+		t.Fatal("failed spot close balance did not latch unowned exposure")
 	}
 }
 

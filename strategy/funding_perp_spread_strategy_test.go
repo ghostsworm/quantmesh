@@ -40,6 +40,15 @@ func TestFundingPerpSpreadOrderQuantityNeverExceedsPerLegNotional(t *testing.T) 
 	}
 }
 
+func TestFundingPerpSpreadNetPositionRejectsUnscopedRows(t *testing.T) {
+	for _, symbol := range []string{"", "ETHUSDT"} {
+		ex := &fundingSpreadTestExchange{name: "test", positions: []*exchange.Position{{Symbol: symbol, Size: 0}}}
+		if _, err := netFutSize(context.Background(), ex, "BTCUSDT"); err == nil {
+			t.Fatalf("net position accepted zero row for symbol %q", symbol)
+		}
+	}
+}
+
 func TestNormalizeFundingRateToEightHours(t *testing.T) {
 	tests := []struct {
 		name    string

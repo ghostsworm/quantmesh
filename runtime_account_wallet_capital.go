@@ -152,7 +152,7 @@ func verifyStandardRuntimeFlat(ctx context.Context, ex exchange.IExchange, marke
 		if current == nil {
 			return fmt.Errorf("live %s position response item %d is nil", symbol, index)
 		}
-		if current.Symbol != "" && !strings.EqualFold(current.Symbol, symbol) {
+		if !strings.EqualFold(strings.TrimSpace(current.Symbol), strings.TrimSpace(symbol)) {
 			return fmt.Errorf("live position response symbol %q does not match %q", current.Symbol, symbol)
 		}
 		if math.IsNaN(current.Size) || math.IsInf(current.Size, 0) || current.Size != 0 {
@@ -173,7 +173,7 @@ func verifyStandardRuntimeFlat(ctx context.Context, ex exchange.IExchange, marke
 		if openOrder == nil {
 			return fmt.Errorf("live %s open order response item %d is nil", symbol, index)
 		}
-		if openOrder.Symbol != "" && !strings.EqualFold(openOrder.Symbol, symbol) {
+		if !strings.EqualFold(strings.TrimSpace(openOrder.Symbol), strings.TrimSpace(symbol)) {
 			return fmt.Errorf("live open order response symbol %q does not match %q", openOrder.Symbol, symbol)
 		}
 		return fmt.Errorf("live %s open order %d remains active", symbol, openOrder.OrderID)

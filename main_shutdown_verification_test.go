@@ -118,6 +118,22 @@ func TestShutdownRejectsInvalidPositionEvidence(t *testing.T) {
 	}
 }
 
+func TestShutdownRejectsPositionSideWithContradictorySignedQuantity(t *testing.T) {
+	for _, position := range []*exchange.Position{
+		{Symbol: "BTCUSDT", Size: -1, PositionSide: "LONG"},
+		{Symbol: "BTCUSDT", Size: 1, PositionSide: "SHORT"},
+		{Symbol: "BTCUSDT", Size: 1, PositionSide: "UNKNOWN"},
+	} {
+		f := &shutdownFaultExchange{fakeCloseExchange: newFakeCloseExchange(100, 1), queryPositions: func(int) ([]*exchange.Position, error) {
+			return []*exchange.Position{position}, nil
+		}}
+		_, err := closeAllPositionsMarketable(context.Background(), f, "BTCUSDT", 100, fastCloseOpts())
+		if err == nil || f.submissions != 0 {
+			t.Fatalf("contradictory position side reached order submission: position=%+v err=%v submissions=%d", position, err, f.submissions)
+		}
+	}
+}
+
 func TestShutdownRetainsGrossLegsAndDust(t *testing.T) {
 	f := &shutdownFaultExchange{fakeCloseExchange: newFakeCloseExchange(100, 1), queryPositions: func(int) ([]*exchange.Position, error) {
 		return []*exchange.Position{{Symbol: "BTCUSDT", Size: 1}, {Symbol: "BTCUSDT", Size: -1}, {Symbol: "BTCUSDT", Size: 1e-14}}, nil

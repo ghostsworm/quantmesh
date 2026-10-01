@@ -300,12 +300,30 @@ func TestVerifyStandardRuntimeFlatRequiresFuturesFlatnessAndNoOpenOrders(t *test
 		}
 	})
 
+	for _, symbol := range []string{"", "ETHUSDT"} {
+		t.Run("unscoped position rejected symbol="+symbol, func(t *testing.T) {
+			venue := capitalFlatVerifierExchange{positions: []*exchange.Position{{Symbol: symbol, Size: 0}}, orders: []*exchange.Order{}}
+			if err := verifyStandardRuntimeFlat(context.Background(), venue, "futures", "BTCUSDT"); err == nil {
+				t.Fatalf("unscoped or mismatched position row %q was accepted", symbol)
+			}
+		})
+	}
+
 	t.Run("open order rejected", func(t *testing.T) {
 		venue := capitalFlatVerifierExchange{positions: []*exchange.Position{}, orders: []*exchange.Order{{OrderID: 123, Symbol: "BTCUSDT", Status: exchange.OrderStatusNew}}}
 		if err := verifyStandardRuntimeFlat(context.Background(), venue, "futures", "BTCUSDT"); err == nil {
 			t.Fatal("active futures order was accepted as flat")
 		}
 	})
+
+	for _, symbol := range []string{"", "ETHUSDT"} {
+		t.Run("unscoped open order rejected symbol="+symbol, func(t *testing.T) {
+			venue := capitalFlatVerifierExchange{positions: []*exchange.Position{}, orders: []*exchange.Order{{OrderID: 123, Symbol: symbol, Status: exchange.OrderStatusCanceled}}}
+			if err := verifyStandardRuntimeFlat(context.Background(), venue, "futures", "BTCUSDT"); err == nil {
+				t.Fatalf("unscoped or mismatched order row %q was accepted", symbol)
+			}
+		})
+	}
 
 	t.Run("spot inventory is never inferred flat", func(t *testing.T) {
 		venue := capitalFlatVerifierExchange{positions: []*exchange.Position{}, orders: []*exchange.Order{}}

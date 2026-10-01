@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"testing"
 
@@ -13,6 +15,7 @@ type fundingCarryBudgetExchange struct {
 	balance        float64
 	balanceErr     error
 	transferAmount float64
+	transferCalls  int
 	transfer       func(amount float64) (string, error)
 }
 
@@ -42,6 +45,7 @@ func (e *fundingCarryBudgetExchange) GetBalance(_ context.Context, asset string)
 }
 
 func (e *fundingCarryBudgetExchange) InternalTransfer(_ context.Context, _, _, asset string, amount float64) (string, error) {
+	e.transferCalls++
 	if asset != "USDT" {
 		return "", nil
 	}
@@ -50,6 +54,30 @@ func (e *fundingCarryBudgetExchange) InternalTransfer(_ context.Context, _, _, a
 		return e.transfer(amount)
 	}
 	return "mock-transfer", nil
+}
+
+func TestFundingCarryAmbiguousAutoTransferIsDurablyLatchedAndNeverRetried(t *testing.T) {
+	strategy, _, spot := newFundingCarryBudgetStrategy(true, 0, 0, 500)
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	spot.transfer = func(float64) (string, error) { return "", errors.New("transfer acknowledgement lost") }
+
+	if err := strategy.ensureFuturesMargin(context.Background(), 200, 0); err == nil {
+		t.Fatal("ambiguous transfer result was accepted")
+	}
+	if !strategy.unownedExposure || !store.found {
+		t.Fatalf("uncertain transfer was not durably blocked: blocked=%v persisted=%v", strategy.unownedExposure, store.found)
+	}
+	var state fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &state); err != nil || !state.ExposureUnknown {
+		t.Fatalf("persisted state does not retain transfer uncertainty: state=%+v err=%v", state, err)
+	}
+	if err := strategy.ensureFuturesMargin(context.Background(), 200, 0); err == nil {
+		t.Fatal("retried transfer while previous transfer outcome is unknown")
+	}
+	if spot.transferCalls != 1 {
+		t.Fatalf("transfer calls = %d, want exactly one", spot.transferCalls)
+	}
 }
 
 func newFundingCarryBudgetStrategy(autoTransfer bool, reserve float64, futuresBalance, spotBalance float64) (*FundingCarryStrategy, *fundingCarryBudgetExchange, *fundingCarryBudgetExchange) {

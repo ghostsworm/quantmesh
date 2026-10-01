@@ -67,6 +67,19 @@ func queryShutdownPositions(ctx context.Context, ex exchange.IExchange, symbol s
 		if math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
 			return nil, fmt.Errorf("shutdown position quantity is not finite")
 		}
+		switch strings.ToUpper(strings.TrimSpace(p.PositionSide)) {
+		case "", "BOTH", "NET":
+		case "LONG":
+			if p.Size < 0 {
+				return nil, fmt.Errorf("shutdown LONG position has negative signed quantity")
+			}
+		case "SHORT":
+			if p.Size > 0 {
+				return nil, fmt.Errorf("shutdown SHORT position has positive signed quantity")
+			}
+		default:
+			return nil, fmt.Errorf("shutdown position side %q is unsupported", p.PositionSide)
+		}
 	}
 	return nonZeroPositions(positions, symbol), nil
 }

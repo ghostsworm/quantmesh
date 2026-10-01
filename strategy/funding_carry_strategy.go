@@ -427,7 +427,7 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 }
 
 func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
-	positions, err := s.fut.GetPositions(ctx, s.symbol)
+	positions, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
 		return fmt.Errorf("read futures positions: %w", err)
 	}
@@ -455,7 +455,7 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 		}
 	}
 	if s.marginEx != nil {
-		marginPositions, err := s.marginEx.GetPositions(ctx, s.symbol)
+		marginPositions, err := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {
 			return fmt.Errorf("read spot-margin positions: %w", err)
 		}
@@ -917,6 +917,15 @@ func estimateNextSettlement(now time.Time) time.Time {
 // ---------------------------------------------------------------------------
 
 func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, requiredUSDT, spotOrderReserveUSDT float64) error {
+	if ctx == nil {
+		return errors.New("funding_carry collateral transfer requires context")
+	}
+	s.mu.RLock()
+	unverified := s.unownedExposure || s.runtimeStateErr != nil
+	s.mu.RUnlock()
+	if unverified {
+		return errors.New("funding_carry wallet or exposure state is unverified; automatic transfer is blocked")
+	}
 	if !finitePositive(requiredUSDT) || !finiteNonNegative(spotOrderReserveUSDT) ||
 		!finiteNonNegative(s.transferReserveSpot) {
 		return fmt.Errorf("invalid funding_carry collateral or spot reserve amount")
@@ -962,21 +971,27 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	}
 	txID, err := s.spot.InternalTransfer(ctx, "SPOT", "UMFUTURE", "USDT", need)
 	if err != nil {
-		return fmt.Errorf("SPOT→UMFUTURE transfer %.2f USDT has uncertain outcome; opening halted: %w", need, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("SPOT→UMFUTURE transfer %.2f USDT has uncertain outcome; retry blocked pending reconciliation: %w", need, err))
 	}
 	futBal, err = s.fut.GetBalance(ctx, "USDT")
 	if err != nil {
-		return fmt.Errorf("transfer %s accepted but futures balance could not be verified: %w", txID, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s accepted but futures balance could not be verified: %w", txID, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but futures balance read outlived its context: %w", txID, err))
 	}
 	if !finiteNonNegative(futBal) || futBal < futuresReserve {
-		return fmt.Errorf("transfer %s completed but futures USDT remains insufficient after preserving other Bot budgets: %.2f < %.2f", txID, futBal, futuresReserve)
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but futures USDT remains insufficient after preserving other Bot budgets: %.2f < %.2f", txID, futBal, futuresReserve))
 	}
 	spotBal, err = s.spot.GetBalance(ctx, "USDT")
 	if err != nil {
-		return fmt.Errorf("transfer %s accepted but remaining spot USDT could not be verified: %w", txID, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s accepted but remaining spot USDT could not be verified: %w", txID, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but spot balance read outlived its context: %w", txID, err))
 	}
 	if !finiteNonNegative(spotBal) || spotBal < spotReserve {
-		return fmt.Errorf("transfer %s completed but spot USDT reserve is insufficient: %.2f < %.2f", txID, spotBal, spotReserve)
+		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but spot USDT reserve is insufficient: %.2f < %.2f", txID, spotBal, spotReserve))
 	}
 	logger.Info("💸 [%s] 自動劃轉 SPOT→UMFUTURE %.2f USDT (txID=%s)", s.symbol, need, txID)
 	s.publishEvent(event.EventTypePositionOpened, map[string]interface{}{
@@ -1108,9 +1123,9 @@ func fundingCarryHarvestableSurplus(futuresBalance, futuresQty, futuresPrice, mi
 func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	// 合約持倉
 	var futShort, futLong float64
-	pos, err := s.fut.GetPositions(ctx, s.symbol)
+	pos, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
-		return fmt.Errorf("fut.GetPositions: %w", err)
+		return s.blockOnUnownedExposure(fmt.Errorf("fut.GetPositions: %w", err))
 	}
 	if pos == nil {
 		return s.blockOnUnownedExposure(errors.New("futures position snapshot is nil, not an authoritative empty snapshot"))
@@ -1130,7 +1145,10 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	base := s.spot.GetBaseAsset()
 	spotBal, err := s.spot.GetBalance(ctx, base)
 	if err != nil {
-		return fmt.Errorf("spot.GetBalance(%s): %w", base, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("spot.GetBalance(%s): %w", base, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("spot balance snapshot for %s completed after its context ended: %w", base, err))
 	}
 	if spotBal < 0 || math.IsNaN(spotBal) || math.IsInf(spotBal, 0) {
 		return s.blockOnUnownedExposure(fmt.Errorf("spot balance is invalid: %.8f", spotBal))
@@ -1139,7 +1157,7 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	// 保證金借幣負債（反向套利用）
 	var debt float64
 	if s.marginEx != nil {
-		marginPos, e := s.marginEx.GetPositions(ctx, s.symbol)
+		marginPos, e := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if e != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("marginEx.GetPositions: %w", e))
 		}
@@ -1821,9 +1839,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 // ---------------------------------------------------------------------------
 
 func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) error {
-	pos, err := s.fut.GetPositions(ctx, s.symbol)
+	pos, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
-		return fmt.Errorf("fut.GetPositions: %w", err)
+		return s.blockOnUnownedExposure(fmt.Errorf("fut.GetPositions before close: %w", err))
 	}
 	var futShort, futLong float64
 	for _, p := range pos {
@@ -1861,7 +1879,7 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) erro
 		if closeErr != nil || order == nil || order.ExecutedQty+tolerance < ownedFut {
 			return s.blockOnUnownedExposure(fmt.Errorf("futures close acknowledgement is incomplete (requested=%.8f, order=%+v, err=%v)", ownedFut, order, closeErr))
 		}
-		remaining, err := s.fut.GetPositions(ctx, s.symbol)
+		remaining, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 		if err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("verify futures close: %w", err))
 		}
@@ -1937,7 +1955,10 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 	base := s.spot.GetBaseAsset()
 	bal, err := s.spot.GetBalance(ctx, base)
 	if err != nil {
-		return fmt.Errorf("spot.GetBalance(%s): %w", base, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("spot.GetBalance(%s) before close: %w", base, err))
+	}
+	if err := ctx.Err(); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("spot balance for %s completed after close context ended: %w", base, err))
 	}
 	tolerance := s.roundingTolerance(s.spot.GetQuantityDecimals())
 	if bal < 0 || math.IsNaN(bal) || math.IsInf(bal, 0) || bal+tolerance < recorded {
@@ -1999,9 +2020,9 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		return s.blockOnUnownedExposure(errors.New("reverse close requested without complete strategy ownership record"))
 	}
 	tolerance := s.roundingTolerance(s.fut.GetQuantityDecimals())
-	positions, err := s.fut.GetPositions(ctx, s.symbol)
+	positions, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
-		return fmt.Errorf("read futures positions before reverse close: %w", err)
+		return s.blockOnUnownedExposure(fmt.Errorf("read futures positions before reverse close: %w", err))
 	}
 	var liveLong, liveShort float64
 	for _, p := range positions {
@@ -2017,7 +2038,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	if liveShort > tolerance || math.Abs(liveLong-ownedFutures) > tolerance {
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse futures position mismatch: live long %.8f, short %.8f, owned %.8f", liveLong, liveShort, ownedFutures))
 	}
-	marginPositions, err := s.marginEx.GetPositions(ctx, s.symbol)
+	marginPositions, err := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("read margin debt before reverse close: %w", err))
 	}
@@ -2052,7 +2073,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err != nil || order == nil || order.ExecutedQty+tolerance < ownedFutures {
 			return s.blockOnUnownedExposure(fmt.Errorf("reverse futures close incomplete: order=%+v err=%v", order, err))
 		}
-		remaining, err := s.fut.GetPositions(ctx, s.symbol)
+		remaining, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 		if err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("verify reverse futures close: %w", err))
 		}
@@ -2093,7 +2114,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if _, err := s.marginEx.Repay(ctx, base, debt); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin debt %.8f %s: %w", debt, base, err))
 		}
-		marginPositions, err = s.marginEx.GetPositions(ctx, s.symbol)
+		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("verify margin repayment: %w", err))
 		}

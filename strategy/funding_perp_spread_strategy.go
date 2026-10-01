@@ -837,7 +837,7 @@ func fundingPerpSpreadCarryDirectionFavorable(posA, posB, rateA, rateB float64) 
 }
 
 func netFutSize(ctx context.Context, ex exchange.IExchange, sym string) (float64, error) {
-	pos, err := ex.GetPositions(ctx, sym)
+	pos, err := readScopedPositionSnapshot(ctx, ex, sym)
 	if err != nil {
 		return 0, err
 	}
