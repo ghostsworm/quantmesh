@@ -270,14 +270,17 @@ func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candle
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			res, runErr := run(symbol, w.Train, p, initialCapital)
+			// Refit on the equity actually available at the start of this fold.
+			// Capital-sensitive sizing and venue minimums make rescaling a run that
+			// started from a different balance mathematically invalid.
+			res, runErr := run(symbol, w.Train, p, capital)
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 			if runErr != nil || res == nil {
 				continue
 			}
-			metrics, metricsErr := metricsFromWalkForwardResult(res, w.Train, initialCapital)
+			metrics, metricsErr := metricsFromWalkForwardResult(res, w.Train, capital)
 			if metricsErr != nil {
 				return nil, fmt.Errorf("walk-forward fold %d train result: %w", w.Index, metricsErr)
 			}
@@ -292,14 +295,14 @@ func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candle
 		if !found {
 			return nil, fmt.Errorf("walk-forward fold %d [%d,%d): all %d candidates failed on train window", w.Index, w.TrainStart, w.TrainEnd, len(candidates))
 		}
-		testRes, runErr := run(symbol, w.Test, fold.BestParams, initialCapital)
+		testRes, runErr := run(symbol, w.Test, fold.BestParams, capital)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		if runErr != nil || testRes == nil {
 			return nil, fmt.Errorf("walk-forward fold %d test [%d,%d): %v", w.Index, w.TestStart, w.TestEnd, runErr)
 		}
-		fold.TestMetrics, err = metricsFromWalkForwardResult(testRes, w.Test, initialCapital)
+		fold.TestMetrics, err = metricsFromWalkForwardResult(testRes, w.Test, capital)
 		if err != nil {
 			return nil, fmt.Errorf("walk-forward fold %d test result: %w", w.Index, err)
 		}
@@ -308,20 +311,16 @@ func runWalkForward(ctx context.Context, run backtestFunc, symbol string, candle
 			return nil, fmt.Errorf("walk-forward fold %d test score is not finite", w.Index)
 		}
 
-		// 複利拼接：本折權益按 capital/initialCapital 縮放
-		scale := capital / initialCapital
+		// Each window is simulated against the real compounded account balance;
+		// preserve its raw equity and fills rather than scaling a different run.
 		for _, pt := range testRes.Equity {
-			out.Equity = append(out.Equity, backtest.EquityPoint{Timestamp: pt.Timestamp, Equity: pt.Equity * scale})
+			out.Equity = append(out.Equity, pt)
 		}
 		for _, tr := range testRes.Trades {
-			stitchedTrades = append(stitchedTrades, backtest.Trade{
-				Timestamp: tr.Timestamp, Type: tr.Type, Price: tr.Price,
-				Quantity: tr.Quantity * scale, Fee: tr.Fee * scale, PnL: tr.PnL * scale,
-				SlippageLoss: tr.SlippageLoss * scale,
-			})
+			stitchedTrades = append(stitchedTrades, tr)
 		}
 		if len(testRes.Equity) > 0 {
-			capital = testRes.Equity[len(testRes.Equity)-1].Equity * scale
+			capital = testRes.Equity[len(testRes.Equity)-1].Equity
 		}
 		if n := len(w.Test); n > 0 {
 			lastPrice = w.Test[n-1].Close

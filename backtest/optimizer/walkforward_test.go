@@ -248,6 +248,46 @@ func TestRunWalkForward_TrainNeverLeaksIntoTestScoring(t *testing.T) {
 	}
 }
 
+func TestRunWalkForwardUsesCompoundedCapitalForEachFoldWithoutRescaling(t *testing.T) {
+	candles := hourlyCandles(wfTestDays)
+	windows, err := BuildWalkForwardWindows(candles, WalkForwardConfig{Enabled: true})
+	if err != nil || len(windows) != 2 {
+		t.Fatalf("build two-fold fixture: windows=%d err=%v", len(windows), err)
+	}
+	trainCapital := make([][]float64, len(windows))
+	testCapital := make([]float64, len(windows))
+	fake := func(_ string, cs []*exchange.Candle, _ backtest.GridBacktestParams, capital float64) (*backtest.BacktestResult, error) {
+		for _, window := range windows {
+			if len(cs) == len(window.Train) && cs[0].Timestamp == window.TrainStart {
+				trainCapital[window.Index] = append(trainCapital[window.Index], capital)
+				return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital+1000)}, nil
+			}
+			if len(cs) == len(window.Test) && cs[0].Timestamp == window.TestStart {
+				testCapital[window.Index] = capital
+				return &backtest.BacktestResult{Equity: equityOver(cs, capital, capital+1000)}, nil
+			}
+		}
+		return nil, errors.New("runner received candles outside walk-forward windows")
+	}
+	result, err := runWalkForward(context.Background(), fake, "BTCUSDT", candles,
+		[]backtest.GridBacktestParams{{GridCount: 1}}, WalkForwardConfig{Enabled: true}, 0.5, wfTestCapital)
+	if err != nil {
+		t.Fatalf("run walk-forward: %v", err)
+	}
+	if testCapital[0] != wfTestCapital || testCapital[1] != wfTestCapital+1000 {
+		t.Fatalf("test fold starting balances=%v, want [%v %v]", testCapital, wfTestCapital, wfTestCapital+1000)
+	}
+	if len(trainCapital[1]) != 1 || trainCapital[1][0] != wfTestCapital+1000 {
+		t.Fatalf("second fold training balance=%v, want compounded %v", trainCapital[1], wfTestCapital+1000)
+	}
+	if got := result.Equity[len(result.Equity)-1].Equity; got != wfTestCapital+2000 {
+		t.Fatalf("stitched ending equity=%v, want sequential fixed gains at actual balances (%v)", got, wfTestCapital+2000)
+	}
+	if math.Abs(result.Metrics.TotalReturn-20) > 1e-9 {
+		t.Fatalf("stitched total return=%v%%, want 20%%", result.Metrics.TotalReturn)
+	}
+}
+
 func TestGridSearch_WalkForwardPathAndSingleSplitStillAvailable(t *testing.T) {
 	candles := hourlyCandles(wfTestDays)
 	space := OptimSearchSpace{
