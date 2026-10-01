@@ -124,7 +124,8 @@ const (
 	orderWaitTimeout            = 30 * time.Second
 	orderPollInterval           = 2 * time.Second
 	orderCancelVerifyTimeout    = 10 * time.Second
-	maxCarryOpenSlippage        = 0.003
+	maxCarryOpenSlippage        = 0.003 // Maximum adverse futures entry-price deviation included in the carry cost gate.
+	maxCarrySpotOpenSlippage    = 0.005 // Maximum adverse spot entry-price deviation included in the carry cost gate.
 	defaultCarryFeeRecoveryDays = 30.0
 	fundingCarryOrderBookDepth  = 50
 
@@ -1219,6 +1220,26 @@ func fundingCarryOrderBookVWAP(levels []exchange.OrderBookLevel, quantity float6
 	return 0, fmt.Errorf("order book depth cannot fill requested quantity %.8f", quantity)
 }
 
+func fundingCarryWorstCaseEntrySlippageCost(quantity, referencePrice, limitPrice float64, side exchange.Side) (float64, error) {
+	if !finitePositive(quantity) || !finitePositive(referencePrice) || !finitePositive(limitPrice) {
+		return 0, fmt.Errorf("invalid funding carry entry slippage inputs")
+	}
+	priceDelta := 0.0
+	switch side {
+	case exchange.SideBuy:
+		priceDelta = math.Max(0, limitPrice-referencePrice)
+	case exchange.SideSell:
+		priceDelta = math.Max(0, referencePrice-limitPrice)
+	default:
+		return 0, fmt.Errorf("unsupported funding carry entry side %q", side)
+	}
+	cost := quantity * priceDelta
+	if !finiteNonNegative(cost) {
+		return 0, fmt.Errorf("funding carry entry slippage cost is invalid")
+	}
+	return cost, nil
+}
+
 func finitePositive(value float64) bool {
 	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
@@ -1748,17 +1769,26 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	if plannedFuturesQty <= 0 {
 		return fmt.Errorf("合約開倉數量精度截斷為 0")
 	}
+	buyPrice := s.roundPrice(spotPx*(1+maxCarrySpotOpenSlippage), s.spot.GetPriceDecimals())
+	futuresSellLimit := s.roundPrice(futPx*(1-maxCarryOpenSlippage), s.fut.GetPriceDecimals())
 	roundTripBookCost, err := fundingCarryRoundTripOrderBookCost(ctx, s.symbol, s.spot, s.fut, qty, plannedFuturesQty)
 	if err != nil {
 		return err
 	}
+	spotEntrySlippage, err := fundingCarryWorstCaseEntrySlippageCost(qty, spotPx, buyPrice, exchange.SideBuy)
+	if err != nil {
+		return err
+	}
+	futuresEntrySlippage, err := fundingCarryWorstCaseEntrySlippageCost(plannedFuturesQty, futPx, futuresSellLimit, exchange.SideSell)
+	if err != nil {
+		return err
+	}
+	roundTripBookCost += spotEntrySlippage + futuresEntrySlippage
 	spotNotional := qty * spotPx
 	futuresNotional := plannedFuturesQty * futPx
 	if err := validateFundingCarryExecutionCostRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, 0, spotNotional, futuresNotional, roundTripBookCost); err != nil {
 		return fmt.Errorf("validate forward funding carry execution-cost recovery: %w", err)
 	}
-	buyPrice := spotPx * 1.005
-	buyPrice = s.roundPrice(buyPrice, s.spot.GetPriceDecimals())
 	spotBuyReserve, err := fundingCarrySpotBuyReserve(qty, buyPrice, feeRate)
 	if err != nil {
 		return err
@@ -1841,7 +1871,7 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 		Type:          exchange.OrderTypeLimit,
 		TimeInForce:   exchange.TimeInForceIOC,
 		Quantity:      futQty,
-		Price:         s.roundPrice(futPx*(1-maxCarryOpenSlippage), s.fut.GetPriceDecimals()),
+		Price:         futuresSellLimit,
 		PriceDecimals: s.fut.GetPriceDecimals(),
 		StrategyType:  "funding_carry",
 	})
@@ -1985,10 +2015,21 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if plannedFuturesQty <= 0 {
 		return fmt.Errorf("合約開倉數量精度截斷為 0")
 	}
+	spotSellLimit := s.roundPrice(spotPx*(1-maxCarrySpotOpenSlippage), s.spot.GetPriceDecimals())
+	futuresBuyLimit := s.roundPrice(futPx*(1+maxCarryOpenSlippage), s.fut.GetPriceDecimals())
 	roundTripBookCost, err := fundingCarryRoundTripOrderBookCost(ctx, s.symbol, s.marginEx, s.fut, borrowQty, plannedFuturesQty)
 	if err != nil {
 		return err
 	}
+	spotEntrySlippage, err := fundingCarryWorstCaseEntrySlippageCost(borrowQty, spotPx, spotSellLimit, exchange.SideSell)
+	if err != nil {
+		return err
+	}
+	futuresEntrySlippage, err := fundingCarryWorstCaseEntrySlippageCost(plannedFuturesQty, futPx, futuresBuyLimit, exchange.SideBuy)
+	if err != nil {
+		return err
+	}
+	roundTripBookCost += spotEntrySlippage + futuresEntrySlippage
 	spotNotional := borrowQty * spotPx
 	futuresNotional := plannedFuturesQty * futPx
 	if err := validateFundingCarryExecutionCostRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, hourlyRate, spotNotional, futuresNotional, roundTripBookCost); err != nil {
@@ -2026,14 +2067,12 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	}
 
 	// Step 2: 保證金帳戶賣出（用 marginEx，它 embed 了 IExchange）
-	sellPrice := spotPx * 0.995
-	sellPrice = s.roundPrice(sellPrice, s.spot.GetPriceDecimals())
 	sellOrder, err := s.placeOrder(ctx, s.marginEx, s.marginExecutor, &exchange.OrderRequest{
 		Symbol:        s.symbol,
 		Side:          exchange.SideSell,
 		Type:          exchange.OrderTypeLimit,
 		Quantity:      borrowQty,
-		Price:         sellPrice,
+		Price:         spotSellLimit,
 		PriceDecimals: s.spot.GetPriceDecimals(),
 		StrategyType:  "funding_carry_reverse",
 	})
@@ -2121,7 +2160,7 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		Type:          exchange.OrderTypeLimit,
 		TimeInForce:   exchange.TimeInForceIOC,
 		Quantity:      futQty,
-		Price:         s.roundPrice(futPx*(1+maxCarryOpenSlippage), s.fut.GetPriceDecimals()),
+		Price:         futuresBuyLimit,
 		PriceDecimals: s.fut.GetPriceDecimals(),
 		StrategyType:  "funding_carry_reverse",
 	})

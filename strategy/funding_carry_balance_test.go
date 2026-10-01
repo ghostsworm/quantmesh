@@ -450,6 +450,33 @@ func TestFundingCarryExecutionCostRecoveryIncludesBookSpread(t *testing.T) {
 	}
 }
 
+func TestFundingCarryWorstCaseEntrySlippageCost(t *testing.T) {
+	tests := []struct {
+		name      string
+		quantity  float64
+		reference float64
+		limit     float64
+		side      exchange.Side
+		want      float64
+	}{
+		{name: "buy cap above reference", quantity: 2, reference: 100, limit: 100.5, side: exchange.SideBuy, want: 1},
+		{name: "sell floor below reference", quantity: 2, reference: 100, limit: 99.7, side: exchange.SideSell, want: 0.6},
+		{name: "buy price improvement", quantity: 2, reference: 100, limit: 99.5, side: exchange.SideBuy, want: 0},
+		{name: "sell price improvement", quantity: 2, reference: 100, limit: 100.5, side: exchange.SideSell, want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fundingCarryWorstCaseEntrySlippageCost(tt.quantity, tt.reference, tt.limit, tt.side)
+			if err != nil {
+				t.Fatalf("estimate worst-case entry slippage: %v", err)
+			}
+			if math.Abs(got-tt.want) > 1e-9 {
+				t.Fatalf("slippage cost = %.8f, want %.8f", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFundingCarryHarvestRetainsFullPositionNotional(t *testing.T) {
 	surplus, ok := fundingCarryHarvestableSurplus(1200, 0.02, 50000, 100, 900)
 	if !ok || math.Abs(surplus-150) > 1e-9 {

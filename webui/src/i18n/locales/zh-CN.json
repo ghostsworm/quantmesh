@@ -235,7 +235,7 @@
     "fundingMinRate": "最低资金费率（开仓）",
     "fundingExitRate": "退出资金费率（平仓）",
     "fundingFeeRecoveryDays": "手续费回收期限（天）",
-    "fundingFeeRecoveryDaysHint": "按配置手续费率及当前两市场盘口深度估算双腿往返成本；预计净资金费须在期限内覆盖。盘口会变化，未计入未来滑点及费率变化。",
+    "fundingFeeRecoveryDaysHint": "按配置手续费率、当前两市场盘口深度及开仓限价允许的最差不利偏移估算双腿成本；预计净资金费须在期限内覆盖。盘口会变化，未来平仓滑点及费率变化无法预估。",
     "fundingMaxBasis": "最大期现基差（%）",
     "riskLevel": {
       "low": "低风险",
