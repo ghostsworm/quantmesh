@@ -209,6 +209,8 @@ type MarginBorrowRecord struct {
 	TransferID int64
 	Asset      string
 	Amount     float64
+	Principal  float64
+	Interest   float64
 	Status     string
 	Timestamp  int64
 }
@@ -216,6 +218,31 @@ type MarginBorrowRecord struct {
 // MarginBorrowHistoryQuerier reads a bounded, paginated borrow history window.
 type MarginBorrowHistoryQuerier interface {
 	GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error)
+}
+
+// MarginTransactionByIDQuerier resolves one acknowledged cross-margin borrow or
+// repayment to the exchange's authoritative amount, status, and timestamp.
+type MarginTransactionByIDQuerier interface {
+	GetMarginTransactionByID(ctx context.Context, asset, transactionType string, transactionID int64) (MarginBorrowRecord, error)
+}
+
+// MarginInterestRecord is an exchange-confirmed interest charge. Cross-margin
+// records intentionally have no symbol attribution.
+type MarginInterestRecord struct {
+	TransactionID  int64
+	AccruedAt      int64
+	Asset          string
+	RawAsset       string
+	Principal      float64
+	Interest       float64
+	Rate           float64
+	Type           string
+	IsolatedSymbol string
+}
+
+// MarginInterestHistoryQuerier reads a bounded, paginated interest-history window.
+type MarginInterestHistoryQuerier interface {
+	GetMarginInterestHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginInterestRecord, int64, error)
 }
 
 // MarginBorrowRateProvider reports the next hourly borrowing rate for an asset.

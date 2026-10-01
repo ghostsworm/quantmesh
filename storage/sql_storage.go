@@ -228,7 +228,7 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 MySQL trade_fee_corrections 表失败: %w", err)
 		}
-		// SQLite createTables / migrate*Table 已建但 MySQL 路徑歷史漏掉的 17 張表，
+		// SQLite createTables / migrate*Table 已建但 MySQL 路徑歷史漏掉的业务表，
 		// 按 SQLite 中出現的順序補齊；觸發任何相關功能（對賬/風控歷史/資金費/AI 提示/基差/
 		// 利潤提取/巡檢/市場解讀/權益快照/回測/參數優化/新聞分析/價格快照/預測校驗）前必須就緒。
 		mysqlExtraMigrations := []struct {
@@ -244,6 +244,7 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			{"profit_withdraw_records", migrateProfitWithdrawRecordsTableMySQL},
 			{"inspection_reports", migrateInspectionReportsTableMySQL},
 			{"funding_payments", migrateFundingPaymentsTableMySQL},
+			{"margin_interest_payments", migrateMarginInterestTablesMySQL},
 			{"market_interpret_tasks", migrateMarketInterpretTasksTableMySQL},
 			{"hourly_equity_records", migrateHourlyEquityRecordsTableMySQL},
 			{"daily_snapshots", migrateDailySnapshotsTableMySQL},

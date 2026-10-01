@@ -219,6 +219,9 @@ func startFundingCarrySymbolRuntime(
 		fc.MarkExecutionUnknown(fmt.Errorf("runtime ownership lease lost during Funding Carry initialization"))
 	}
 	accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
+	if err := fc.SetMarginAccountScope(accountScope); err != nil {
+		return nil, fmt.Errorf("configure funding_carry margin account scope: %w", err)
+	}
 	if err := fc.SetAccountWalletCoordinationLock(distributedLock, "funding_carry_wallet:"+accountScope); err != nil {
 		return nil, fmt.Errorf("configure funding_carry account wallet coordination: %w", err)
 	}
@@ -363,6 +366,10 @@ func startFundingCarrySymbolRuntime(
 	if storageService != nil {
 		go startFundingIncomeSync(ctx, storageService.GetStorage(), futEx,
 			symCfg.Exchange, symCfg.Symbol, accountID, symCfg.GetMarketType(), equityAccountScopeID(symCfg.Exchange, baseCfg.Exchanges[symCfg.Exchange]))
+		if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
+			go startMarginInterestSync(ctx, storageService.GetStorage(), marginEx, symCfg.Exchange,
+				accountID, equityAccountScopeID(symCfg.Exchange, baseCfg.Exchanges[symCfg.Exchange]))
+		}
 	}
 
 	rt := &SymbolRuntime{

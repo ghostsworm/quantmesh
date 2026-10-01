@@ -32,6 +32,7 @@ import (
 )
 
 var observabilityBootstrapped sync.Once
+var marginInterestSyncLocks sync.Map
 
 type runtimePnLReader interface {
 	GetPnLBySymbolAccountScopeAndAsset(symbol, accountScope, exchange, marketType, asset string, startTime, endTime time.Time) (*storage.PnLSummary, error)
@@ -424,6 +425,168 @@ func syncFundingIncomeOnce(ctx context.Context, st storage.Storage, ex exchange.
 		return fmt.Errorf("mark complete funding coverage: %w", err)
 	}
 	return nil
+}
+
+func startMarginInterestSync(ctx context.Context, st storage.Storage, ex exchange.IExchange, exchangeName, accountID, accountScope string) {
+	if st == nil || ex == nil {
+		return
+	}
+	querier, ok := ex.(exchange.MarginInterestHistoryQuerier)
+	if !ok {
+		logger.Warn("⚠️ 交易所未提供可核验的保证金利息历史，账户范围利息覆盖保持未验证 exchange=%s", exchangeName)
+		return
+	}
+	ticker := time.NewTicker(6 * time.Hour)
+	defer ticker.Stop()
+	initialDelay := time.NewTimer(time.Minute)
+	defer initialDelay.Stop()
+	select {
+	case <-ctx.Done():
+		return
+	case <-initialDelay.C:
+	}
+	for {
+		if err := syncMarginInterestOnce(ctx, st, querier, exchangeName, accountID, accountScope, time.Now()); err != nil {
+			logger.Warn("⚠️ 保证金利息历史同步失败 exchange=%s: %v", exchangeName, err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func syncMarginInterestOnce(ctx context.Context, st interface{}, querier exchange.MarginInterestHistoryQuerier, exchangeName, accountID, accountScope string, now time.Time) error {
+	if ctx == nil || st == nil || querier == nil || strings.TrimSpace(exchangeName) == "" || strings.TrimSpace(accountScope) == "" || now.IsZero() {
+		return fmt.Errorf("margin interest sync requires exact account and time context")
+	}
+	lockKey := strings.ToLower(strings.TrimSpace(exchangeName)) + "\x00" + strings.TrimSpace(accountScope)
+	lockValue, _ := marginInterestSyncLocks.LoadOrStore(lockKey, &sync.Mutex{})
+	syncLock := lockValue.(*sync.Mutex)
+	syncLock.Lock()
+	defer syncLock.Unlock()
+	coverageReader, ok := st.(interface {
+		GetMarginInterestCoverage(string, string, string) (time.Time, time.Time, error)
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks margin interest coverage reads")
+	}
+	coverageWriter, ok := st.(interface {
+		SaveMarginInterestPayment(*storage.MarginInterestPayment) error
+		MarkMarginInterestCoverage(string, string, string, time.Time, time.Time) error
+	})
+	if !ok {
+		return fmt.Errorf("storage lacks durable margin interest ledger or coverage writes")
+	}
+	stateLister, hasStateLister := st.(storage.StrategyRuntimeStateLister)
+	allocationWriter, hasAllocationWriter := st.(interface {
+		SaveMarginInterestAllocation(*storage.MarginInterestAllocation) error
+	})
+	var debtStates []*storage.StrategyRuntimeState
+	var err error
+	canAttribute := hasStateLister && hasAllocationWriter
+	if canAttribute {
+		debtStates, err = stateLister.ListStrategyRuntimeStates("funding_carry")
+		if err != nil {
+			logger.Warn("⚠️ 無法載入 Funding Carry Bot 借貸狀態，本次跨倉利息僅保留帳戶級記錄: %v", err)
+			canAttribute = false
+		}
+	}
+	_, coveredThrough, err := coverageReader.GetMarginInterestCoverage(exchangeName, accountScope, "*")
+	if err != nil {
+		return fmt.Errorf("read margin interest coverage: %w", err)
+	}
+	endTime := now.UTC().Add(-5 * time.Minute)
+	startTime := now.UTC().Add(-90 * 24 * time.Hour)
+	if !coveredThrough.IsZero() {
+		overlapStart := coveredThrough.Add(-24 * time.Hour)
+		if overlapStart.After(startTime) {
+			startTime = overlapStart
+		}
+	}
+	if startTime.Before(now.UTC().Add(-90*24*time.Hour)) || !startTime.Before(endTime) {
+		return fmt.Errorf("margin interest history window is outside the exchange's supported 90-day range")
+	}
+	const pageSize, maxPages = 100, 1000
+	seenIDs := make(map[int64]struct{})
+	interestRecords := make([]exchange.MarginInterestRecord, 0)
+	var expectedTotal int64 = -1
+	for page := 1; page <= maxPages; page++ {
+		records, total, fetchErr := querier.GetMarginInterestHistory(ctx, "", startTime.UnixMilli(), endTime.UnixMilli(), page, pageSize)
+		if fetchErr != nil {
+			return fmt.Errorf("fetch margin interest history page %d: %w", page, fetchErr)
+		}
+		if total < 0 || total > int64(pageSize*maxPages) || (expectedTotal >= 0 && total != expectedTotal) {
+			return fmt.Errorf("margin interest history total changed or exceeds verification limit: page=%d total=%d expected=%d", page, total, expectedTotal)
+		}
+		expectedTotal = total
+		if len(records) > pageSize || (len(records) == 0 && int64(len(seenIDs)) < total) {
+			return fmt.Errorf("margin interest history page %d is incomplete: rows=%d total=%d seen=%d", page, len(records), total, len(seenIDs))
+		}
+		for _, record := range records {
+			if record.TransactionID <= 0 || record.AccruedAt < startTime.UnixMilli() || record.AccruedAt > endTime.UnixMilli() ||
+				strings.TrimSpace(record.Asset) == "" || strings.TrimSpace(record.RawAsset) == "" || record.IsolatedSymbol != "" ||
+				!finiteNonNegativeNumber(record.Principal) || !finiteNonNegativeNumber(record.Interest) || !finiteNonNegativeNumber(record.Rate) || strings.TrimSpace(record.Type) == "" {
+				return fmt.Errorf("margin interest history page %d contains an invalid or out-of-scope row", page)
+			}
+			if _, duplicate := seenIDs[record.TransactionID]; duplicate {
+				return fmt.Errorf("margin interest history contains duplicate transaction %d across pages", record.TransactionID)
+			}
+			seenIDs[record.TransactionID] = struct{}{}
+			interestRecords = append(interestRecords, record)
+			if err := coverageWriter.SaveMarginInterestPayment(&storage.MarginInterestPayment{
+				Exchange: exchangeName, Account: accountID, AccountScope: accountScope, Asset: record.Asset, RawAsset: record.RawAsset,
+				Principal: record.Principal, Interest: record.Interest, Rate: record.Rate, InterestType: record.Type,
+				IsolatedSymbol: record.IsolatedSymbol, TransactionID: record.TransactionID, AccruedAt: time.UnixMilli(record.AccruedAt).UTC(),
+			}); err != nil {
+				return fmt.Errorf("persist margin interest transaction %d: %w", record.TransactionID, err)
+			}
+		}
+		if int64(len(seenIDs)) > expectedTotal {
+			return fmt.Errorf("margin interest history returned more rows than its declared total: received=%d total=%d", len(seenIDs), expectedTotal)
+		}
+		if int64(len(seenIDs)) == expectedTotal {
+			break
+		}
+		if page == maxPages {
+			return fmt.Errorf("margin interest history exceeded %d pages; coverage remains unchanged", maxPages)
+		}
+	}
+	if int64(len(seenIDs)) != expectedTotal {
+		return fmt.Errorf("margin interest history is incomplete: received %d of %d rows", len(seenIDs), expectedTotal)
+	}
+	if canAttribute {
+		for _, record := range interestRecords {
+			shares, allocationErr := allocateCrossMarginInterest(debtStates, accountScope, record)
+			if allocationErr != nil {
+				logger.Warn("⚠️ 跨倉利息保持未分配 exchange=%s scope=%s transaction=%d asset=%s raw_asset=%s: %v",
+					exchangeName, accountScope, record.TransactionID, record.Asset, record.RawAsset, allocationErr)
+				continue
+			}
+			for botID, share := range shares {
+				if share.Interest <= 0 {
+					continue
+				}
+				allocation := &storage.MarginInterestAllocation{
+					Exchange: exchangeName, AccountScope: accountScope, TransactionID: record.TransactionID, BotID: botID,
+					Asset: record.Asset, RawAsset: record.RawAsset, BotPrincipal: share.BotPrincipal,
+					AccountPrincipal: record.Principal, Interest: share.Interest, AccruedAt: time.UnixMilli(record.AccruedAt).UTC(),
+				}
+				if err := allocationWriter.SaveMarginInterestAllocation(allocation); err != nil {
+					return fmt.Errorf("persist reconciled margin interest allocation tx=%d bot=%s: %w", record.TransactionID, botID, err)
+				}
+			}
+		}
+	}
+	if err := coverageWriter.MarkMarginInterestCoverage(exchangeName, accountScope, "*", startTime, endTime); err != nil {
+		return fmt.Errorf("mark complete margin interest coverage: %w", err)
+	}
+	return nil
+}
+
+func finiteNonNegativeNumber(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= 0
 }
 
 // registerWebSymbolProvidersForRuntime 在 Bot 啟動成功後掛接 Web /api/status（熱啟動後與 Bot 詳情「运行中」一致）

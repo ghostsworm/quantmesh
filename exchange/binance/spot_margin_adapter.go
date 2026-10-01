@@ -29,8 +29,22 @@ type MarginBorrowRecord struct {
 	TransferID int64
 	Asset      string
 	Amount     float64
+	Principal  float64
+	Interest   float64
 	Status     string
 	Timestamp  int64
+}
+
+type MarginInterestRecord struct {
+	TransactionID  int64
+	AccruedAt      int64
+	Asset          string
+	RawAsset       string
+	Principal      float64
+	Interest       float64
+	Rate           float64
+	Type           string
+	IsolatedSymbol string
 }
 
 const maxBinanceMarginOCOResponseSize = 1 << 20
@@ -649,6 +663,70 @@ func (b *BinanceSpotMarginAdapter) GetMarginBorrowHistory(ctx context.Context, a
 			return nil, 0, fmt.Errorf("Binance margin borrow history contains invalid amount for transaction %d", row.TxID)
 		}
 		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, Status: row.Status, Timestamp: row.Timestamp})
+	}
+	return records, response.Total, nil
+}
+
+func (b *BinanceSpotMarginAdapter) GetMarginTransactionByID(ctx context.Context, asset, transactionType string, transactionID int64) (MarginBorrowRecord, error) {
+	if b == nil || b.marginClient == nil {
+		return MarginBorrowRecord{}, fmt.Errorf("Binance spot margin client is unavailable")
+	}
+	response, err := b.marginClient.GetTransactionByID(ctx, asset, transactionType, transactionID)
+	if err != nil {
+		return MarginBorrowRecord{}, err
+	}
+	if len(response.Rows) != 1 {
+		return MarginBorrowRecord{}, fmt.Errorf("Binance margin transaction %d returned %d rows, expected exactly one", transactionID, len(response.Rows))
+	}
+	row := response.Rows[0]
+	amount, parseErr := strconv.ParseFloat(row.Amount, 64)
+	principal, principalErr := strconv.ParseFloat(row.Principal, 64)
+	interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+	if strings.EqualFold(strings.TrimSpace(transactionType), "BORROW") {
+		principal, interest = amount, 0
+		principalErr, interestErr = nil, nil
+	}
+	if row.TxID != transactionID || !strings.EqualFold(strings.TrimSpace(row.Asset), strings.TrimSpace(asset)) ||
+		!strings.EqualFold(strings.TrimSpace(row.Status), "CONFIRMED") || row.Timestamp <= 0 || row.IsolatedSymbol != "" ||
+		parseErr != nil || principalErr != nil || interestErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 ||
+		math.IsNaN(principal) || math.IsInf(principal, 0) || principal < 0 || math.IsNaN(interest) || math.IsInf(interest, 0) || interest < 0 ||
+		math.Abs(principal+interest-amount) > math.Max(1e-10, amount*1e-8) {
+		return MarginBorrowRecord{}, fmt.Errorf("Binance margin transaction %d is missing exact cross-margin confirmation", transactionID)
+	}
+	return MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, Principal: principal, Interest: interest, Status: row.Status, Timestamp: row.Timestamp}, nil
+}
+
+// GetMarginInterestHistory returns one verified page. Cross-margin rows remain
+// account/asset scoped because Binance does not attribute them to a symbol.
+func (b *BinanceSpotMarginAdapter) GetMarginInterestHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginInterestRecord, int64, error) {
+	if b == nil || b.marginClient == nil {
+		return nil, 0, fmt.Errorf("Binance spot margin client is unavailable")
+	}
+	if startTime <= 0 || endTime < startTime || endTime-startTime > int64((90*24*time.Hour)/time.Millisecond) || page <= 0 || pageSize <= 0 || pageSize > 100 {
+		return nil, 0, fmt.Errorf("Binance margin interest history requires a time range of at most 90 days and page size from 1 to 100")
+	}
+	response, err := b.marginClient.GetInterestHistory(ctx, asset, startTime, endTime, int64(page), int64(pageSize))
+	if err != nil {
+		return nil, 0, err
+	}
+	records := make([]MarginInterestRecord, 0, len(response.Rows))
+	for _, row := range response.Rows {
+		principal, principalErr := strconv.ParseFloat(row.Principal, 64)
+		interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+		rate, rateErr := strconv.ParseFloat(row.InterestRate, 64)
+		if row.TxId <= 0 || row.InterestAccuredTime < startTime || row.InterestAccuredTime > endTime ||
+			strings.TrimSpace(row.Asset) == "" || strings.TrimSpace(row.RawAsset) == "" ||
+			(strings.TrimSpace(asset) != "" && !strings.EqualFold(strings.TrimSpace(row.Asset), strings.TrimSpace(asset))) ||
+			principalErr != nil || interestErr != nil || rateErr != nil ||
+			math.IsNaN(principal) || math.IsInf(principal, 0) || principal < 0 ||
+			math.IsNaN(interest) || math.IsInf(interest, 0) || interest < 0 ||
+			math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || strings.TrimSpace(row.Type) == "" {
+			return nil, 0, fmt.Errorf("Binance margin interest history contains an invalid row for transaction %d", row.TxId)
+		}
+		records = append(records, MarginInterestRecord{
+			TransactionID: row.TxId, AccruedAt: row.InterestAccuredTime, Asset: row.Asset, RawAsset: row.RawAsset,
+			Principal: principal, Interest: interest, Rate: rate, Type: row.Type, IsolatedSymbol: row.IsolatedSymbol,
+		})
 	}
 	return records, response.Total, nil
 }

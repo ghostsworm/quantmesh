@@ -1,34 +1,55 @@
 package strategy
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
+	"time"
+
+	"quantmesh/exchange"
 )
 
 const fundingCarryRuntimeStateVersion = 1
 
 type fundingCarryRuntimeState struct {
-	Strategy        string         `json:"strategy"`
-	FuturesExchange string         `json:"futures_exchange"`
-	SpotExchange    string         `json:"spot_exchange"`
-	Symbol          string         `json:"symbol"`
-	OwnershipReady  bool           `json:"ownership_ready"`
-	IntentInFlight  bool           `json:"intent_in_flight"`
-	ExposureUnknown bool           `json:"exposure_unknown"`
-	Direction       CarryDirection `json:"direction"`
-	OwnedSpot       float64        `json:"owned_spot"`
-	OwnedFutures    float64        `json:"owned_futures"`
-	MarginDebt      float64        `json:"margin_debt"`
+	Strategy               string                        `json:"strategy"`
+	FuturesExchange        string                        `json:"futures_exchange"`
+	SpotExchange           string                        `json:"spot_exchange"`
+	Symbol                 string                        `json:"symbol"`
+	MarginAccountScope     string                        `json:"margin_account_scope,omitempty"`
+	OwnershipReady         bool                          `json:"ownership_ready"`
+	IntentInFlight         bool                          `json:"intent_in_flight"`
+	ExposureUnknown        bool                          `json:"exposure_unknown"`
+	Direction              CarryDirection                `json:"direction"`
+	OwnedSpot              float64                       `json:"owned_spot"`
+	OwnedFutures           float64                       `json:"owned_futures"`
+	MarginDebt             float64                       `json:"margin_debt"`
+	MarginBorrowTransferID int64                         `json:"margin_borrow_transfer_id,omitempty"`
+	MarginBorrowedAt       time.Time                     `json:"margin_borrowed_at,omitempty"`
+	MarginDebtEvents       []fundingCarryMarginDebtEvent `json:"margin_debt_events,omitempty"`
+}
+
+type fundingCarryMarginDebtEvent struct {
+	Action       string    `json:"action"`
+	TransferID   int64     `json:"transfer_id"`
+	Asset        string    `json:"asset"`
+	Amount       float64   `json:"amount"`
+	Principal    float64   `json:"principal,omitempty"`
+	InterestPaid float64   `json:"interest_paid,omitempty"`
+	OccurredAt   time.Time `json:"occurred_at"`
+	AccountScope string    `json:"account_scope,omitempty"`
 }
 
 func (s *FundingCarryStrategy) runtimeStateSnapshotLocked() fundingCarryRuntimeState {
 	return fundingCarryRuntimeState{
 		Strategy: "funding_carry", FuturesExchange: s.fut.GetName(), SpotExchange: s.spot.GetName(),
-		Symbol: s.symbol, OwnershipReady: s.strategySpotKnown, IntentInFlight: s.intentInFlight,
+		Symbol: s.symbol, MarginAccountScope: s.marginAccountScope, OwnershipReady: s.strategySpotKnown, IntentInFlight: s.intentInFlight,
 		ExposureUnknown: s.unownedExposure, Direction: s.direction, OwnedSpot: s.strategySpotQty,
 		OwnedFutures: s.futQty, MarginDebt: s.marginDebt,
+		MarginBorrowTransferID: s.marginBorrowTransferID, MarginBorrowedAt: s.marginBorrowedAt,
+		MarginDebtEvents: append([]fundingCarryMarginDebtEvent(nil), s.marginDebtEvents...),
 	}
 }
 
@@ -44,6 +65,56 @@ func (s *FundingCarryStrategy) persistRuntimeStateLocked() error {
 		return fmt.Errorf("persist funding_carry runtime state: %w", err)
 	}
 	s.runtimeStateErr = nil
+	return nil
+}
+
+func (s *FundingCarryStrategy) confirmMarginDebtTransaction(ctx context.Context, action string, transferID int64, asset string, amount float64) (fundingCarryMarginDebtEvent, error) {
+	if (action != "borrow" && action != "repay") || transferID <= 0 || strings.TrimSpace(asset) == "" || !validRuntimeAmount(amount) || amount <= 0 {
+		return fundingCarryMarginDebtEvent{}, fmt.Errorf("margin debt event acknowledgement is invalid")
+	}
+	querier, ok := s.marginEx.(exchange.MarginTransactionByIDQuerier)
+	if !ok {
+		return fundingCarryMarginDebtEvent{}, fmt.Errorf("exchange cannot verify margin %s transaction %d by ID", action, transferID)
+	}
+	transaction, err := querier.GetMarginTransactionByID(ctx, asset, strings.ToUpper(action), transferID)
+	if err != nil {
+		return fundingCarryMarginDebtEvent{}, fmt.Errorf("query confirmed margin %s transaction %d: %w", action, transferID, err)
+	}
+	tolerance := math.Max(1e-10, amount*1e-8)
+	if transaction.TransferID != transferID || !strings.EqualFold(strings.TrimSpace(transaction.Asset), strings.TrimSpace(asset)) ||
+		!strings.EqualFold(strings.TrimSpace(transaction.Status), "CONFIRMED") || transaction.Timestamp <= 0 ||
+		!validRuntimeAmount(transaction.Amount) || math.Abs(transaction.Amount-amount) > tolerance ||
+		!validRuntimeAmount(transaction.Principal) || !validRuntimeAmount(transaction.Interest) ||
+		math.Abs(transaction.Principal+transaction.Interest-transaction.Amount) > tolerance {
+		return fundingCarryMarginDebtEvent{}, fmt.Errorf("margin %s transaction %d does not match confirmed asset and amount", action, transferID)
+	}
+	principal := transaction.Principal
+	if action == "borrow" {
+		principal = transaction.Amount
+	}
+	s.mu.RLock()
+	accountScope := s.marginAccountScope
+	s.mu.RUnlock()
+	return fundingCarryMarginDebtEvent{
+		Action: action, TransferID: transferID, Asset: asset, Amount: transaction.Amount, Principal: principal, InterestPaid: transaction.Interest,
+		OccurredAt: time.UnixMilli(transaction.Timestamp).UTC(), AccountScope: accountScope,
+	}, nil
+}
+
+func (s *FundingCarryStrategy) recordMarginDebtEvent(ctx context.Context, action string, transferID int64, asset string, amount float64) error {
+	confirmed, err := s.confirmMarginDebtTransaction(ctx, action, transferID, asset, amount)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.marginDebtEvents = append(s.marginDebtEvents, confirmed)
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.marginDebtEvents = s.marginDebtEvents[:len(s.marginDebtEvents)-1]
+		s.runtimeStateErr = err
+		s.unownedExposure = true
+		return fmt.Errorf("persist margin debt event: %w", err)
+	}
 	return nil
 }
 
@@ -66,11 +137,21 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 		return err
 	}
 	s.mu.Lock()
+	if state.MarginAccountScope != "" && s.marginAccountScope != "" && state.MarginAccountScope != s.marginAccountScope {
+		s.mu.Unlock()
+		return fmt.Errorf("funding_carry runtime state margin account scope mismatch")
+	}
+	if state.MarginAccountScope != "" {
+		s.marginAccountScope = state.MarginAccountScope
+	}
 	s.direction = state.Direction
 	s.strategySpotQty = state.OwnedSpot
 	s.spotQty = state.OwnedSpot
 	s.futQty = state.OwnedFutures
 	s.marginDebt = state.MarginDebt
+	s.marginBorrowTransferID = state.MarginBorrowTransferID
+	s.marginBorrowedAt = state.MarginBorrowedAt
+	s.marginDebtEvents = append([]fundingCarryMarginDebtEvent(nil), state.MarginDebtEvents...)
 	s.strategySpotKnown = true
 	s.unownedExposure = false
 	s.intentInFlight = false
@@ -92,11 +173,21 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 	}
 	if !state.OwnershipReady || state.IntentInFlight || state.ExposureUnknown ||
 		state.Direction < DirectionNone || state.Direction > DirectionReverse ||
-		!validRuntimeAmount(state.OwnedSpot) || !validRuntimeAmount(state.OwnedFutures) || !validRuntimeAmount(state.MarginDebt) {
+		!validRuntimeAmount(state.OwnedSpot) || !validRuntimeAmount(state.OwnedFutures) || !validRuntimeAmount(state.MarginDebt) ||
+		state.MarginBorrowTransferID < 0 {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state is unresolved or invalid")
 	}
 	if state.Direction == DirectionNone && (state.OwnedSpot > 0 || state.OwnedFutures > 0 || state.MarginDebt > 0) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry flat state contains owned exposure")
+	}
+	if state.Direction == DirectionNone && (state.MarginBorrowTransferID != 0 || !state.MarginBorrowedAt.IsZero()) {
+		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry flat state contains margin borrow identity")
+	}
+	for _, event := range state.MarginDebtEvents {
+		if (event.Action != "borrow" && event.Action != "repay") || event.TransferID <= 0 || strings.TrimSpace(event.Asset) == "" ||
+			!validRuntimeAmount(event.Amount) || event.Amount <= 0 || event.OccurredAt.IsZero() {
+			return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state contains an invalid margin debt event")
+		}
 	}
 	return state, nil
 }

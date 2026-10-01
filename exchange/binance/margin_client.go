@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 
 	binancesdk "github.com/adshao/go-binance/v2"
 )
@@ -45,6 +46,27 @@ func (m *MarginClient) GetNextHourlyBorrowRate(ctx context.Context, asset string
 		return value, nil
 	}
 	return 0, fmt.Errorf("next hourly margin interest rate missing for %s", asset)
+}
+
+func (m *MarginClient) GetInterestHistory(ctx context.Context, asset string, startTime, endTime, page, pageSize int64) (*binancesdk.MarginInterestHistory, error) {
+	if m == nil || m.client == nil {
+		return nil, fmt.Errorf("margin client is unavailable")
+	}
+	if startTime <= 0 || endTime < startTime || page <= 0 || pageSize <= 0 {
+		return nil, fmt.Errorf("valid time range, page, and page size are required for margin interest history")
+	}
+	service := m.client.NewMarginInterestHistoryService()
+	if strings.TrimSpace(asset) != "" {
+		service = service.Asset(asset)
+	}
+	response, err := service.StartTime(startTime).EndTime(endTime).Current(page).Size(pageSize).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query margin interest history for %s: %w", asset, err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("margin interest history response is empty for %s", asset)
+	}
+	return response, nil
 }
 
 // Borrow 借币
@@ -200,6 +222,29 @@ func (m *MarginClient) GetBorrowHistory(ctx context.Context, asset string, start
 		Size(pageSize).
 		Type(binancesdk.MarginAccountBorrow).
 		Do(ctx)
+}
+
+func (m *MarginClient) GetTransactionByID(ctx context.Context, asset, transactionType string, transactionID int64) (*binancesdk.MarginBorrowRepayResponse, error) {
+	if m == nil || m.client == nil || strings.TrimSpace(asset) == "" || transactionID <= 0 {
+		return nil, fmt.Errorf("margin client, asset, and positive transaction ID are required")
+	}
+	var kind binancesdk.MarginAccountBorrowRepayType
+	switch strings.ToUpper(strings.TrimSpace(transactionType)) {
+	case "BORROW":
+		kind = binancesdk.MarginAccountBorrow
+	case "REPAY":
+		kind = binancesdk.MarginAccountRepay
+	default:
+		return nil, fmt.Errorf("unsupported margin transaction type %q", transactionType)
+	}
+	response, err := m.client.NewListMarginBorrowRepayService().Asset(asset).TxId(transactionID).Size(1).Type(kind).Do(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("query margin %s transaction %d: %w", kind, transactionID, err)
+	}
+	if response == nil {
+		return nil, fmt.Errorf("margin %s transaction %d response is empty", kind, transactionID)
+	}
+	return response, nil
 }
 
 func formatFloat(v float64) string {

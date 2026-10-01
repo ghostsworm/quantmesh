@@ -417,6 +417,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateFundingPaymentsTable(db); err != nil {
 		return fmt.Errorf("迁移 funding_payments 表失败: %w", err)
 	}
+	if err := migrateMarginInterestTables(db); err != nil {
+		return fmt.Errorf("迁移 margin_interest_payments 表失败: %w", err)
+	}
 	if err := migrateProtectedKlineFilesTable(db); err != nil {
 		return fmt.Errorf("迁移 protected_kline_files 表失败: %w", err)
 	}

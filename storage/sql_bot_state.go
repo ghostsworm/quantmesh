@@ -975,6 +975,66 @@ CREATE TABLE IF NOT EXISTS funding_income_sync_state (
 	return nil
 }
 
+func migrateMarginInterestTablesMySQL(db *sql.DB) error {
+	_, err := db.Exec(`
+CREATE TABLE IF NOT EXISTS margin_interest_payments (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  account VARCHAR(255),
+  account_scope VARCHAR(512) NOT NULL,
+  asset VARCHAR(32) NOT NULL,
+  raw_asset VARCHAR(32) NOT NULL DEFAULT '',
+  principal DECIMAL(30,12) NOT NULL,
+  interest DECIMAL(30,12) NOT NULL,
+  interest_rate DECIMAL(30,16) NOT NULL,
+  interest_type VARCHAR(64) NOT NULL,
+  isolated_symbol VARCHAR(64) NOT NULL DEFAULT '',
+  transaction_id BIGINT NOT NULL,
+  accrued_at TIMESTAMP(3) NOT NULL,
+  identity_key CHAR(64) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_margin_interest_identity (identity_key),
+  KEY idx_margin_interest_scope_asset_time (account_scope, exchange, asset, accrued_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	if err != nil {
+		return err
+	}
+	if err := ensureMySQLColumn(db, "margin_interest_payments", "raw_asset", `ALTER TABLE margin_interest_payments ADD COLUMN raw_asset VARCHAR(32) NOT NULL DEFAULT '' AFTER asset`); err != nil {
+		return err
+	}
+	_, err = db.Exec(`
+CREATE TABLE IF NOT EXISTS margin_interest_sync_state (
+  scope_key CHAR(64) NOT NULL PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  account_scope VARCHAR(512) NOT NULL,
+  asset VARCHAR(32) NOT NULL,
+  covered_from TIMESTAMP(3) NOT NULL,
+  covered_through TIMESTAMP(3) NOT NULL,
+  updated_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS margin_interest_allocations (
+  id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  exchange VARCHAR(64) NOT NULL,
+  account_scope VARCHAR(512) NOT NULL,
+  transaction_id BIGINT NOT NULL,
+  bot_id VARCHAR(255) NOT NULL,
+  asset VARCHAR(32) NOT NULL,
+  raw_asset VARCHAR(32) NOT NULL,
+  bot_principal DECIMAL(30,12) NOT NULL,
+  account_principal DECIMAL(30,12) NOT NULL,
+  interest DECIMAL(30,12) NOT NULL,
+  accrued_at TIMESTAMP(3) NOT NULL,
+  identity_key CHAR(64) NOT NULL,
+  created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  UNIQUE KEY uk_margin_interest_allocation_identity (identity_key),
+  KEY idx_margin_interest_allocations_bot_time (account_scope, exchange, bot_id, accrued_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
+	return err
+}
+
 func migrateMarketInterpretTasksTableMySQL(db *sql.DB) error {
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS market_interpret_tasks (

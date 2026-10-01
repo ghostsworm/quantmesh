@@ -90,6 +90,69 @@ func migrateFundingPaymentsTable(db *sql.DB) error {
 	return nil
 }
 
+func migrateMarginInterestTables(db *sql.DB) error {
+	_, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS margin_interest_payments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			exchange TEXT NOT NULL,
+			account TEXT,
+			account_scope TEXT NOT NULL,
+			asset TEXT NOT NULL,
+			raw_asset TEXT NOT NULL DEFAULT '',
+			principal DECIMAL(30,12) NOT NULL,
+			interest DECIMAL(30,12) NOT NULL,
+			interest_rate DECIMAL(30,16) NOT NULL,
+			interest_type TEXT NOT NULL,
+			isolated_symbol TEXT NOT NULL DEFAULT '',
+			transaction_id BIGINT NOT NULL,
+			accrued_at TIMESTAMP NOT NULL,
+			identity_key TEXT NOT NULL UNIQUE,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_margin_interest_scope_asset_time
+			ON margin_interest_payments(account_scope, exchange, asset, accrued_at);
+		CREATE TABLE IF NOT EXISTS margin_interest_sync_state (
+			scope_key TEXT PRIMARY KEY,
+			exchange TEXT NOT NULL,
+			account_scope TEXT NOT NULL,
+			asset TEXT NOT NULL,
+			covered_from TIMESTAMP NOT NULL,
+			covered_through TIMESTAMP NOT NULL,
+			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE TABLE IF NOT EXISTS margin_interest_allocations (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			exchange TEXT NOT NULL,
+			account_scope TEXT NOT NULL,
+			transaction_id BIGINT NOT NULL,
+			bot_id TEXT NOT NULL,
+			asset TEXT NOT NULL,
+			raw_asset TEXT NOT NULL,
+			bot_principal DECIMAL(30,12) NOT NULL,
+			account_principal DECIMAL(30,12) NOT NULL,
+			interest DECIMAL(30,12) NOT NULL,
+			accrued_at TIMESTAMP NOT NULL,
+			identity_key TEXT NOT NULL UNIQUE,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_margin_interest_allocations_bot_time
+			ON margin_interest_allocations(account_scope, exchange, bot_id, accrued_at);
+		`)
+	if err != nil {
+		return err
+	}
+	var columnCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('margin_interest_payments') WHERE name = 'raw_asset'`).Scan(&columnCount); err != nil {
+		return fmt.Errorf("check margin_interest_payments.raw_asset migration: %w", err)
+	}
+	if columnCount == 0 {
+		if _, err := db.Exec(`ALTER TABLE margin_interest_payments ADD COLUMN raw_asset TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("add margin_interest_payments.raw_asset: %w", err)
+		}
+	}
+	return nil
+}
+
 // migrateMarketInterpretTable 遷移市場 AI 解讀任務表
 func migrateMarketInterpretTable(db *sql.DB) error {
 	_, err := db.Exec(`

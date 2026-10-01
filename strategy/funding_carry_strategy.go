@@ -105,10 +105,14 @@ type FundingCarryStrategy struct {
 	operationGate     chan struct{}
 
 	// 持倉狀態（每次 tick 從交易所同步）
-	direction  CarryDirection
-	spotQty    float64 // 正向：策略自身的現貨腿數量（= min(記賬值, 現貨餘額)）; 反向：0
-	futQty     float64 // 正向：合約空頭 size; 反向：合約多頭 size
-	marginDebt float64 // 反向：借幣數量
+	direction              CarryDirection
+	spotQty                float64 // 正向：策略自身的現貨腿數量（= min(記賬值, 現貨餘額)）; 反向：0
+	futQty                 float64 // 正向：合約空頭 size; 反向：合約多頭 size
+	marginDebt             float64 // 反向：借幣數量
+	marginBorrowTransferID int64
+	marginBorrowedAt       time.Time
+	marginDebtEvents       []fundingCarryMarginDebtEvent
+	marginAccountScope     string
 
 	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
 	// 策略目前沒有狀態持久化；重啟後首次同步時保守地以 min(合約空頭, 現貨餘額) 重新推導。
@@ -259,6 +263,20 @@ func (s *FundingCarryStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
 	s.mu.Lock()
 	s.runtimeStateStore = store
 	s.mu.Unlock()
+}
+
+func (s *FundingCarryStrategy) SetMarginAccountScope(accountScope string) error {
+	accountScope = strings.TrimSpace(accountScope)
+	if accountScope == "" {
+		return fmt.Errorf("funding_carry margin account scope is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.started {
+		return fmt.Errorf("cannot change funding_carry margin account scope after start")
+	}
+	s.marginAccountScope = accountScope
+	return nil
 }
 
 // SetAccountCapitalReserves wires the startup-verified cross-Bot wallet budgets.
@@ -2054,7 +2072,7 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		}
 	}()
 
-	_, err = s.marginEx.Borrow(ctx, base, borrowQty)
+	borrowTransferID, err := s.marginEx.Borrow(ctx, base, borrowQty)
 	if err != nil {
 		s.blockOnUnownedExposure(fmt.Errorf("margin borrow result is uncertain: %w", err))
 		s.publishEvent(event.EventTypeOrderFailed, map[string]interface{}{
@@ -2062,9 +2080,16 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		})
 		return fmt.Errorf("借幣 %s: %w", base, err)
 	}
+	borrowEvent, verifyErr := s.confirmMarginDebtTransaction(ctx, "borrow", borrowTransferID, base, borrowQty)
+	if verifyErr != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("verify margin borrow transaction: %w", verifyErr))
+	}
 	s.mu.Lock()
 	s.direction = DirectionReverse
 	s.marginDebt = borrowQty
+	s.marginBorrowTransferID = borrowTransferID
+	s.marginBorrowedAt = borrowEvent.OccurredAt
+	s.marginDebtEvents = append(s.marginDebtEvents, borrowEvent)
 	persistErr := s.persistRuntimeStateLocked()
 	s.mu.Unlock()
 	if persistErr != nil {
@@ -2085,11 +2110,16 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		if errors.Is(err, execution.ErrOrderUnknown) {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin sell submission outcome is unknown; borrowed amount retained: %w", err))
 		}
-		if _, repayErr := s.marginEx.Repay(ctx, base, borrowQty); repayErr != nil {
+		repayTransferID, repayErr := s.marginEx.Repay(ctx, base, borrowQty)
+		if repayErr != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin sell was definitively rejected but borrowed amount could not be returned: %w", repayErr))
+		}
+		if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, borrowQty); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("persist returned margin borrow identity: %w", err))
 		}
 		s.mu.Lock()
 		s.direction, s.marginDebt = DirectionNone, 0
+		s.marginBorrowTransferID, s.marginBorrowedAt = 0, time.Time{}
 		stateErr := s.persistRuntimeStateLocked()
 		s.mu.Unlock()
 		if stateErr != nil {
@@ -2108,11 +2138,16 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 			if err := settleCarryOrder(ctx, s.marginExecutor, sellOrder); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("zero-fill margin order remains unresolved: %w", err))
 			}
-			if _, err := s.marginEx.Repay(ctx, base, borrowQty); err != nil {
+			repayTransferID, err := s.marginEx.Repay(ctx, base, borrowQty)
+			if err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell had no fill; borrowed amount repayment failed: %w", err))
+			}
+			if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, borrowQty); err != nil {
+				return s.blockOnUnownedExposure(fmt.Errorf("persist returned zero-fill margin borrow identity: %w", err))
 			}
 			s.mu.Lock()
 			s.direction, s.marginDebt = DirectionNone, 0
+			s.marginBorrowTransferID, s.marginBorrowedAt = 0, time.Time{}
 			stateErr := s.persistRuntimeStateLocked()
 			s.mu.Unlock()
 			if stateErr != nil {
@@ -2133,8 +2168,12 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if filledQty+s.roundingTolerance(s.spot.GetQuantityDecimals()) < borrowQty {
 		unusedBorrow := s.roundQty(borrowQty-filledQty, s.spot.GetQuantityDecimals())
 		if unusedBorrow > 0 {
-			if _, err := s.marginEx.Repay(ctx, base, unusedBorrow); err != nil {
+			repayTransferID, err := s.marginEx.Repay(ctx, base, unusedBorrow)
+			if err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell partially filled %.8f; return unused borrowed amount %.8f: %w", filledQty, unusedBorrow, err))
+			}
+			if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, unusedBorrow); err != nil {
+				return s.blockOnUnownedExposure(fmt.Errorf("persist unused-borrow repayment identity: %w", err))
 			}
 		}
 		s.mu.Lock()
@@ -2507,8 +2546,12 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err := settleCarryOrder(ctx, s.marginExecutor, buyOrder); err != nil {
 			return fmt.Errorf("persist margin buyback execution: %w", err)
 		}
-		if _, err := s.marginEx.Repay(ctx, base, debtToRepay); err != nil {
+		repayTransferID, err := s.marginEx.Repay(ctx, base, debtToRepay)
+		if err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
+		}
+		if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, debtToRepay); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("persist margin repayment identity: %w", err))
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {
@@ -2522,6 +2565,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	}
 	s.mu.Lock()
 	s.direction, s.futQty, s.marginDebt = DirectionNone, 0, 0
+	s.marginBorrowTransferID, s.marginBorrowedAt = 0, time.Time{}
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.unownedExposure = true
 		s.runtimeStateErr = err

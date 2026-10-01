@@ -14,6 +14,10 @@ type StrategyRuntimeStateStore interface {
 	SetStrategyRuntimeState(state *StrategyRuntimeState) error
 }
 
+type StrategyRuntimeStateLister interface {
+	ListStrategyRuntimeStates(strategyName string) ([]*StrategyRuntimeState, error)
+}
+
 func migrateStrategyRuntimeStateTable(db *sql.DB) error {
 	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS strategy_runtime_states (
 		bot_id TEXT NOT NULL,
@@ -57,6 +61,31 @@ func (s *SQLStorage) GetStrategyRuntimeState(botID, strategyName string) (*Strat
 	}
 	state.UpdatedAt = updatedAt
 	return &state, nil
+}
+
+func (s *SQLStorage) ListStrategyRuntimeStates(strategyName string) ([]*StrategyRuntimeState, error) {
+	strategyName = strings.TrimSpace(strategyName)
+	if strategyName == "" {
+		return nil, fmt.Errorf("strategy_name is required")
+	}
+	rows, err := s.db.Query(`SELECT bot_id, strategy_name, schema_version, payload, updated_at
+		FROM strategy_runtime_states WHERE strategy_name = ? ORDER BY bot_id`, strategyName)
+	if err != nil {
+		return nil, fmt.Errorf("list strategy runtime states %s: %w", strategyName, err)
+	}
+	defer rows.Close()
+	states := make([]*StrategyRuntimeState, 0)
+	for rows.Next() {
+		state := &StrategyRuntimeState{}
+		if err := rows.Scan(&state.BotID, &state.StrategyName, &state.SchemaVersion, &state.Payload, &state.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan strategy runtime state %s: %w", strategyName, err)
+		}
+		states = append(states, state)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate strategy runtime states %s: %w", strategyName, err)
+	}
+	return states, nil
 }
 
 func (s *SQLStorage) SetStrategyRuntimeState(state *StrategyRuntimeState) error {

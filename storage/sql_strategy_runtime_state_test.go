@@ -51,3 +51,33 @@ func TestStrategyRuntimeStateRejectsIncompleteIdentity(t *testing.T) {
 		t.Fatal("expected incomplete bot identity to be rejected")
 	}
 }
+
+func TestListStrategyRuntimeStatesReturnsEveryBotInStableOrder(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "runtime-state-list.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, botID := range []string{"bot-z", "bot-a"} {
+		if err := store.SetStrategyRuntimeState(&StrategyRuntimeState{
+			BotID: botID, StrategyName: "funding_carry", SchemaVersion: 1, Payload: `{"strategy":"funding_carry"}`,
+		}); err != nil {
+			t.Fatal("save runtime state:", err)
+		}
+	}
+	if err := store.SetStrategyRuntimeState(&StrategyRuntimeState{
+		BotID: "bot-other", StrategyName: "spot_short", SchemaVersion: 1, Payload: `{}`,
+	}); err != nil {
+		t.Fatal("save unrelated runtime state:", err)
+	}
+	states, err := store.ListStrategyRuntimeStates("funding_carry")
+	if err != nil {
+		t.Fatal("list runtime states:", err)
+	}
+	if len(states) != 2 || states[0].BotID != "bot-a" || states[1].BotID != "bot-z" {
+		t.Fatalf("unexpected funding_carry states: %+v", states)
+	}
+	if _, err := store.ListStrategyRuntimeStates("  "); err == nil {
+		t.Fatal("empty strategy name should be rejected")
+	}
+}

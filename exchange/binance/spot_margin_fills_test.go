@@ -87,6 +87,71 @@ func TestSpotMarginBorrowHistoryUsesBoundedBorrowQuery(t *testing.T) {
 	}
 }
 
+func TestSpotMarginTransactionByIDUsesExchangeTimestampAndRequiresConfirmedCrossMargin(t *testing.T) {
+	const transactionID int64 = 7002
+	const transactionTime int64 = 1790503200123
+	client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint("https://margin.test")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		query := req.URL.Query()
+		if req.Method != http.MethodGet || req.URL.Path != "/sapi/v1/margin/borrow-repay" || query.Get("type") != "REPAY" ||
+			query.Get("asset") != "BTC" || query.Get("txId") != fmt.Sprint(transactionID) || query.Get("size") != "1" {
+			return nil, fmt.Errorf("unexpected margin tx lookup: %s %s", req.Method, req.URL.String())
+		}
+		body := `{"rows":[{"txId":7002,"asset":"BTC","amount":"0.4005","principal":"0.4","interest":"0.0005","status":"CONFIRMED","timestamp":1790503200123}],"total":1}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+	record, err := adapter.GetMarginTransactionByID(context.Background(), "BTC", "REPAY", transactionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.TransferID != transactionID || record.Asset != "BTC" || record.Amount != 0.4005 || record.Principal != 0.4 || record.Interest != 0.0005 || record.Status != "CONFIRMED" || record.Timestamp != transactionTime {
+		t.Fatalf("unexpected confirmed margin transaction: %+v", record)
+	}
+}
+
+func TestSpotMarginInterestHistoryPreservesCrossMarginAccountScope(t *testing.T) {
+	const startTime = int64(1790503199000)
+	const endTime = int64(1790503200000)
+	client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint("https://margin.test")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		query := req.URL.Query()
+		if req.Method != http.MethodGet || req.URL.Path != "/sapi/v1/margin/interestHistory" ||
+			query.Get("asset") != "" || query.Get("startTime") != fmt.Sprint(startTime) ||
+			query.Get("endTime") != fmt.Sprint(endTime) || query.Get("current") != "2" || query.Get("size") != "50" {
+			return nil, fmt.Errorf("unexpected bounded margin interest query: %s %s", req.Method, req.URL.String())
+		}
+		body := `{"rows":[{"txId":8001,"interestAccuredTime":1790503199500,"asset":"BNB","rawAsset":"BTC","principal":"0.4","interest":"0.0001","interestRate":"0.00025","type":"PERIODIC_CONVERTED"}],"total":51}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+	records, total, err := adapter.GetMarginInterestHistory(context.Background(), "", startTime, endTime, 2, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 51 || len(records) != 1 || records[0].TransactionID != 8001 || records[0].Asset != "BNB" || records[0].RawAsset != "BTC" ||
+		records[0].Principal != 0.4 || records[0].Interest != 0.0001 || records[0].Type != "PERIODIC_CONVERTED" || records[0].IsolatedSymbol != "" {
+		t.Fatalf("unexpected cross-margin interest mapping: total=%d records=%+v", total, records)
+	}
+}
+
+func TestSpotMarginInterestHistoryRejectsRowsOutsideQueryScope(t *testing.T) {
+	for _, body := range []string{
+		`{"rows":[{"txId":8001,"interestAccuredTime":1790503200001,"asset":"BTC","principal":"0.4","interest":"0.0001","interestRate":"0.00025","type":"PERIODIC"}],"total":1}`,
+		`{"rows":[{"txId":8001,"interestAccuredTime":1790503199500,"asset":"ETH","principal":"0.4","interest":"0.0001","interestRate":"0.00025","type":"PERIODIC"}],"total":1}`,
+		`{"rows":[{"txId":8001,"interestAccuredTime":1790503199500,"asset":"BNB","principal":"0.4","interest":"0.0001","interestRate":"0.00025","type":"PERIODIC_CONVERTED"}],"total":1}`,
+	} {
+		client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint("https://margin.test")
+		client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+		})}
+		adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+		if _, _, err := adapter.GetMarginInterestHistory(context.Background(), "BTC", 1790503199000, 1790503200000, 1, 50); err == nil {
+			t.Fatalf("accepted interest row outside requested scope: %s", body)
+		}
+	}
+}
+
 func TestSpotMarginOrderFillsUseMarginLedgerAndPreserveBaseFee(t *testing.T) {
 	createdAt := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

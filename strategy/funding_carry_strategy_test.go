@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -299,6 +300,8 @@ type mockFCExchange struct {
 	getOrderExecQty    float64
 	repayCalls         int
 	repayAmount        float64
+	repayPrincipal     float64
+	borrowAmount       float64
 	clearDebtOnRepay   bool
 	returnNilPositions bool
 	returnNilOrders    bool
@@ -411,7 +414,12 @@ func (m *mockFCExchange) GetPositions(ctx context.Context, symbol string) ([]*ex
 func (m *mockFCExchange) GetBalance(ctx context.Context, asset string) (float64, error) {
 	return m.balance, m.balanceErr
 }
-func (m *mockFCExchange) Borrow(context.Context, string, float64) (int64, error) { return 1, nil }
+func (m *mockFCExchange) Borrow(_ context.Context, _ string, amount float64) (int64, error) {
+	m.mu.Lock()
+	m.borrowAmount = amount
+	m.mu.Unlock()
+	return 1, nil
+}
 func (m *mockFCExchange) Repay(_ context.Context, _ string, amount float64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -421,6 +429,22 @@ func (m *mockFCExchange) Repay(_ context.Context, _ string, amount float64) (int
 		m.positions = []*exchange.Position{}
 	}
 	return int64(m.repayCalls), nil
+}
+func (m *mockFCExchange) GetMarginTransactionByID(_ context.Context, asset, transactionType string, transactionID int64) (exchange.MarginBorrowRecord, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	amount := m.borrowAmount
+	principal := amount
+	interest := 0.0
+	if strings.EqualFold(transactionType, "REPAY") {
+		amount = m.repayAmount
+		principal = amount
+		if m.repayPrincipal > 0 {
+			principal = m.repayPrincipal
+		}
+		interest = amount - principal
+	}
+	return exchange.MarginBorrowRecord{TransferID: transactionID, Asset: asset, Amount: amount, Principal: principal, Interest: interest, Status: "CONFIRMED", Timestamp: time.Now().UnixMilli()}, nil
 }
 func (m *mockFCExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
 	m.mu.Lock()
@@ -925,9 +949,14 @@ func TestCloseReverseRepaysOwnedPrincipalAndAccruedInterest(t *testing.T) {
 		positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4005, MarginBorrowed: 0.4, MarginInterest: 0.0005, MarginDebtKnown: true}},
 		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.401,
 		clearDebtOnRepay: true,
+		repayPrincipal:   0.4,
 	}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, marginEx, nil)
-	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	if err := s.SetMarginAccountScope("scope-a"); err != nil {
+		t.Fatal("set account scope:", err)
+	}
+	store := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(store)
 	s.direction, s.marginDebt = DirectionReverse, 0.4
 
 	if err := s.closeReverse(context.Background(), "test_interest_repayment"); err != nil {
@@ -938,6 +967,17 @@ func TestCloseReverseRepaysOwnedPrincipalAndAccruedInterest(t *testing.T) {
 	}
 	if s.direction != DirectionNone || s.marginDebt != 0 || s.unownedExposure {
 		t.Fatalf("close did not persist verified flat state: direction=%v debt=%.8f blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
+	}
+	var persisted fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatalf("decode persisted funding carry state: %v", err)
+	}
+	if persisted.Direction != DirectionNone || persisted.MarginAccountScope != "scope-a" || len(persisted.MarginDebtEvents) != 1 {
+		t.Fatalf("flat state should retain its confirmed repayment event: %+v", persisted)
+	}
+	event := persisted.MarginDebtEvents[0]
+	if event.Action != "repay" || event.TransferID != 1 || event.Asset != "BTC" || event.AccountScope != "scope-a" || math.Abs(event.Amount-0.4005) > 1e-9 || event.OccurredAt.IsZero() {
+		t.Fatalf("persisted margin repayment event is incomplete: %+v", event)
 	}
 }
 

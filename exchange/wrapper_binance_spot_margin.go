@@ -150,6 +150,30 @@ func (w *binanceSpotMarginWrapper) GetMarginBorrowHistory(ctx context.Context, a
 	return records, total, nil
 }
 
+func (w *binanceSpotMarginWrapper) GetMarginTransactionByID(ctx context.Context, asset, transactionType string, transactionID int64) (MarginBorrowRecord, error) {
+	record, err := w.adapter.GetMarginTransactionByID(ctx, asset, transactionType, transactionID)
+	if err != nil {
+		return MarginBorrowRecord{}, err
+	}
+	return MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount, Principal: record.Principal, Interest: record.Interest, Status: record.Status, Timestamp: record.Timestamp}, nil
+}
+
+func (w *binanceSpotMarginWrapper) GetMarginInterestHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginInterestRecord, int64, error) {
+	binanceRecords, total, err := w.adapter.GetMarginInterestHistory(ctx, asset, startTime, endTime, page, pageSize)
+	if err != nil {
+		return nil, 0, err
+	}
+	records := make([]MarginInterestRecord, len(binanceRecords))
+	for i, record := range binanceRecords {
+		records[i] = MarginInterestRecord{
+			TransactionID: record.TransactionID, AccruedAt: record.AccruedAt, Asset: record.Asset, RawAsset: record.RawAsset,
+			Principal: record.Principal, Interest: record.Interest, Rate: record.Rate,
+			Type: record.Type, IsolatedSymbol: record.IsolatedSymbol,
+		}
+	}
+	return records, total, nil
+}
+
 func (w *binanceSpotMarginWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	binanceOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
 	if err != nil {
