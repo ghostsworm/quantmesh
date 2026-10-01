@@ -66,6 +66,37 @@ func TestGridOrderRejectsOverflowingOpeningFeeBeforeAdvancingFillCursor(t *testi
 	}
 }
 
+func TestGridOrderRejectsInvalidOrUnsupportedBaseFeeBeforeAdvancingFillCursor(t *testing.T) {
+	tests := []struct {
+		name   string
+		market string
+		fee    float64
+	}{
+		{name: "NaN", market: "spot", fee: math.NaN()},
+		{name: "positive infinity", market: "spot", fee: math.Inf(1)},
+		{name: "negative", market: "spot", fee: -0.001},
+		{name: "greater than fill", market: "spot", fee: 0.11},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spm := newFillFeeSPM(t, tc.market, nil)
+			clientOID := openBuy(spm, 92)
+			spm.OnOrderUpdate(OrderUpdate{OrderID: 92, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "BUY",
+				ExecutedQty: 0.1, AvgPrice: 100, Commission: 0.01, CommissionAsset: "USDT", BaseFeeQty: tc.fee})
+
+			slot := spm.getOrCreateSlot(fillFeeTestPrice)
+			slot.mu.RLock()
+			defer slot.mu.RUnlock()
+			if slot.OrderFilledQty != 0 || slot.PositionQty != 0 || slot.BuyFee != 0 {
+				t.Fatalf("invalid base fee advanced/mutated ledger: cursor=%v position=%v fee=%v", slot.OrderFilledQty, slot.PositionQty, slot.BuyFee)
+			}
+			if slot.OrderStatus != OrderStatusUnknown || slot.SlotStatus != SlotStatusLocked || !spm.OpeningGate().HasBlock("unknown_orders") {
+				t.Fatalf("invalid base fee did not enter reconciliation hold: order=%s slot=%s", slot.OrderStatus, slot.SlotStatus)
+			}
+		})
+	}
+}
+
 func TestSummarizeFillsRejectsOverflowAndInvalidFillEconomics(t *testing.T) {
 	tests := []struct {
 		name  string

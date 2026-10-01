@@ -254,6 +254,20 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 			logger.Error("[%s] 訂單 #%d 成交資料無效，保留歸屬並等待對賬", spm.logPrefix(), update.OrderID)
 			return
 		}
+		if deltaQty > 0 && (math.IsNaN(update.BaseFeeQty) || math.IsInf(update.BaseFeeQty, 0) || update.BaseFeeQty < 0 ||
+			(spm.isSpot() && (update.BaseFeeQty > deltaQty ||
+				(update.BaseFeeQty > 0 && (side != "BUY" || !spm.isOpenLegOrderSide(side, slot)))))) {
+			// Base-asset fees change deliverable spot-buy inventory. Spot fees
+			// outside that supported leg cannot be silently omitted from accounting.
+			reason := fmt.Sprintf("invalid or unsupported base-asset fee quantity %.12g for fill delta %.12g (market=%s side=%s)",
+				update.BaseFeeQty, deltaQty, spm.config.Trading.MarketType, side)
+			slot.OrderStatus = OrderStatusUnknown
+			slot.SlotStatus = SlotStatusLocked
+			spm.openingGate.Block("unknown_orders")
+			spm.requireTradeLedgerReconciliation(update, fmt.Errorf("%s", reason))
+			logger.Error("[%s] %s；保留成交游標與庫存並等待核賬", spm.logPrefix(), reason)
+			return
+		}
 		if deltaQty > 0 && !spm.isOpenLegOrderSide(side, slot) &&
 			(!positiveFinite(slot.PositionQty) || deltaQty > slot.PositionQty) {
 			// Never clamp an execution that exceeds this Bot's attributable
