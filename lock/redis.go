@@ -21,11 +21,12 @@ type redisClient interface {
 
 // RedisLock Redis 分布式鎖實現
 type RedisLock struct {
-	client   redisClient
-	prefix   string
-	lockID   string            // 當前實例的唯一標识
-	mu       sync.Mutex        // 保護 lockKeys（多槽位並發下單會同時讀寫）
-	lockKeys map[string]string // 記錄持有的鎖和對应的 token
+	client    redisClient
+	prefix    string
+	lockID    string            // 當前實例的唯一標识
+	mu        sync.Mutex        // 保護 lockKeys（多槽位並發下單會同時讀寫）
+	lockKeys  map[string]string // 記錄持有的鎖和對应的 token
+	acquiring map[string]struct{}
 }
 
 // NewRedisLock 創建 Redis 分布式鎖
@@ -35,17 +36,12 @@ func NewRedisLock(client *redis.Client, prefix string) *RedisLock {
 
 func newRedisLock(client redisClient, prefix string) *RedisLock {
 	return &RedisLock{
-		client:   client,
-		prefix:   prefix,
-		lockID:   generateLockID(),
-		lockKeys: make(map[string]string),
+		client:    client,
+		prefix:    prefix,
+		lockID:    generateLockID(),
+		lockKeys:  make(map[string]string),
+		acquiring: make(map[string]struct{}),
 	}
-}
-
-func (r *RedisLock) setToken(key, token string) {
-	r.mu.Lock()
-	r.lockKeys[key] = token
-	r.mu.Unlock()
 }
 
 func (r *RedisLock) getToken(key string) (string, bool) {
@@ -64,6 +60,37 @@ func (r *RedisLock) deleteToken(key, token string) {
 	r.mu.Unlock()
 }
 
+// tryLockOnce reserves the local key before contacting Redis. A local token
+// remains reserved until Unlock completes, even if its Redis TTL has expired;
+// otherwise a stale Unlock(key) could read and release a newer token acquired
+// by this same RedisLock instance.
+func (r *RedisLock) tryLockOnce(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	r.mu.Lock()
+	if _, held := r.lockKeys[key]; held {
+		r.mu.Unlock()
+		return false, nil
+	}
+	if _, acquiring := r.acquiring[key]; acquiring {
+		r.mu.Unlock()
+		return false, nil
+	}
+	r.acquiring[key] = struct{}{}
+	r.mu.Unlock()
+
+	token := generateToken()
+	ok, err := r.client.SetNX(ctx, r.prefix+key, token, ttl).Result()
+	r.mu.Lock()
+	delete(r.acquiring, key)
+	if err == nil && ok {
+		r.lockKeys[key] = token
+	}
+	r.mu.Unlock()
+	if err != nil {
+		return false, fmt.Errorf("redis setnx failed: %w", err)
+	}
+	return ok, nil
+}
+
 // generateLockID 生成唯一的鎖 ID
 func generateLockID() string {
 	b := make([]byte, 16)
@@ -80,9 +107,6 @@ func generateToken() string {
 
 // Lock 獲取鎖，阻塞直到成功或超時
 func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) error {
-	lockKey := r.prefix + key
-	token := generateToken()
-
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -91,12 +115,11 @@ func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) err
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			ok, err := r.client.SetNX(ctx, lockKey, token, ttl).Result()
+			ok, err := r.tryLockOnce(ctx, key, ttl)
 			if err != nil {
-				return fmt.Errorf("redis setnx failed: %w", err)
+				return err
 			}
 			if ok {
-				r.setToken(key, token)
 				return nil
 			}
 		}
@@ -105,19 +128,7 @@ func (r *RedisLock) Lock(ctx context.Context, key string, ttl time.Duration) err
 
 // TryLock 尝試獲取鎖，立即返回
 func (r *RedisLock) TryLock(ctx context.Context, key string, ttl time.Duration) (bool, error) {
-	lockKey := r.prefix + key
-	token := generateToken()
-
-	ok, err := r.client.SetNX(ctx, lockKey, token, ttl).Result()
-	if err != nil {
-		return false, fmt.Errorf("redis setnx failed: %w", err)
-	}
-
-	if ok {
-		r.setToken(key, token)
-	}
-
-	return ok, nil
+	return r.tryLockOnce(ctx, key, ttl)
 }
 
 // Unlock 释放鎖

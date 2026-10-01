@@ -131,6 +131,31 @@ func TestRedisLockSemantics(t *testing.T) {
 	}
 }
 
+func TestRedisLockExpiredLeaseCannotBeReacquiredBeforeOldUnlock(t *testing.T) {
+	ctx := context.Background()
+	fr := newFakeRedis()
+	l := newRedisLock(fr, "p:")
+
+	if ok, err := l.TryLock(ctx, "k", time.Second); err != nil || !ok {
+		t.Fatalf("initial TryLock = %v, %v", ok, err)
+	}
+
+	// Simulate Redis expiring the lease while its original caller is delayed.
+	fr.mu.Lock()
+	delete(fr.data, "p:k")
+	fr.mu.Unlock()
+	if ok, err := l.TryLock(ctx, "k", time.Second); err != nil || ok {
+		t.Fatalf("same instance reacquired before old Unlock = %v, %v; want false, nil", ok, err)
+	}
+
+	if err := l.Unlock(ctx, "k"); err == nil {
+		t.Fatal("Unlock of expired lease should report that ownership was lost")
+	}
+	if ok, err := l.TryLock(ctx, "k", time.Second); err != nil || !ok {
+		t.Fatalf("TryLock after old lease was cleared = %v, %v; want true, nil", ok, err)
+	}
+}
+
 func TestStartAutoRenewExtendsUntilStopped(t *testing.T) {
 	fr := newFakeRedis()
 	l := newRedisLock(fr, "p:")
