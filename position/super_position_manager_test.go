@@ -221,6 +221,36 @@ func TestGetExistingPositionFailsClosedOnUnknownSnapshot(t *testing.T) {
 	}
 }
 
+func TestInitializeKeepsOpeningBlockedWhenRecoverySnapshotIsUnknown(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.BuyWindowSize = 2
+	cfg.Trading.PriceInterval = 100
+	cfg.Trading.OrderQuantity = 100
+	exchange := &recoverySnapshotExchange{}
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, exchange, 2, 3)
+
+	if err := spm.Initialize(50000, "50000.00"); err == nil {
+		t.Fatal("Initialize accepted an unknown exchange position snapshot")
+	}
+	if !spm.OpeningGate().HasBlock(gridInitializationUnverifiedBlock) {
+		t.Fatal("unknown recovery snapshot did not keep opening blocked")
+	}
+	filledSlots := 0
+	spm.slots.Range(func(_, value interface{}) bool {
+		slot := value.(*InventorySlot)
+		slot.mu.RLock()
+		if slot.PositionStatus == PositionStatusFilled {
+			filledSlots++
+		}
+		slot.mu.RUnlock()
+		return true
+	})
+	if filledSlots != 0 {
+		t.Fatalf("unknown snapshot wrote %d filled recovery slots", filledSlots)
+	}
+}
+
 func TestPositionRecoveryPlanBoundsAndPreservesQuantity(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"
