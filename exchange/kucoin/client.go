@@ -387,6 +387,31 @@ func (c *KuCoinClient) GetFuturesTickerPrice(ctx context.Context, symbol string)
 	return price, nil
 }
 
+func (c *KuCoinClient) GetFuturesTickerFundingInterval(ctx context.Context, symbol string) (time.Duration, error) {
+	path := fmt.Sprintf("/api/v1/ticker?symbol=%s", symbol)
+	respBody, err := c.sendRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return 0, err
+	}
+	var resp struct {
+		Code string `json:"code"`
+		Data struct {
+			CurrentFundingRateGranularity int64 `json:"currentFundingRateGranularity"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return 0, fmt.Errorf("unmarshal ticker funding interval response error: %w", err)
+	}
+	return parseKuCoinFundingGranularity(resp.Data.CurrentFundingRateGranularity)
+}
+
+func parseKuCoinFundingGranularity(granularityMillis int64) (time.Duration, error) {
+	if granularityMillis <= 0 || granularityMillis > int64((24*time.Hour)/time.Millisecond) {
+		return 0, fmt.Errorf("invalid KuCoin funding granularity %d milliseconds", granularityMillis)
+	}
+	return time.Duration(granularityMillis) * time.Millisecond, nil
+}
+
 // GetFuturesOrderBookDepth 公共接口：level2 深度（depth20 或 depth100）
 func (c *KuCoinClient) GetFuturesOrderBookDepth(ctx context.Context, symbol, depthKind string) (bids [][]string, asks [][]string, ts int64, err error) {
 	if depthKind == "" {

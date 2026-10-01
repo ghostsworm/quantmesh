@@ -1,9 +1,10 @@
 # Product Overview
 
-> 最后更新：2026-10-02 | 当前版本：v3.111.0-rc746（实盘准备度整改中，未发布）
+> 最后更新：2026-10-02 | 当前版本：v3.111.0-rc747（实盘准备度整改中，未发布）
 
 ## 项目简介
 
+- `3.111.0-rc747` Bitget、Huobi、OKX、KuCoin FundingInfo 补充真实资金费周期，使 Funding Carry 能按 8 小时基准比较这些场所费率。
 - `3.111.0-rc746` Funding Carry 的 Bybit 费率归一化读取 ticker 提供的实际 funding interval；缺失或异常时拒绝新开仓。
 - `3.111.0-rc745` Funding Carry 正反向开仓阈值统一按真实结算周期归一到 8 小时；结算周期未知或费率信息无效时不新开仓。
 - `3.111.0-rc744` Funding Carry 反向开仓在任何自动保证金划转前完成借币利率与净资金费检查，并拒绝无限/NaN 日利率上限配置。

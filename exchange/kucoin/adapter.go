@@ -411,6 +411,7 @@ func (a *Adapter) GetQuoteAsset() string {
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -462,6 +463,10 @@ func (a *Adapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingIn
 	if err != nil {
 		return nil, err
 	}
+	interval, err := a.client.GetFuturesTickerFundingInterval(ctx, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("kucoin: query current funding interval for %s: %w", contractID, err)
+	}
 	if detail.NextFundingRateDateTime <= 0 {
 		return nil, fmt.Errorf("kucoin: empty nextFundingRateDateTime for %s", contractID)
 	}
@@ -469,6 +474,7 @@ func (a *Adapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingIn
 	return &FundingInfo{
 		Symbol:          unified,
 		Rate:            detail.FundingFeeRate,
+		FundingInterval: interval,
 		NextFundingTime: next,
 		MarkPrice:       detail.MarkPrice,
 		IndexPrice:      detail.IndexPrice,

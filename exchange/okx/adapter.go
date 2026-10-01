@@ -1034,6 +1034,7 @@ func (o *OKXAdapter) GetFundingRate(ctx context.Context, symbol string) (float64
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -1060,6 +1061,10 @@ func (o *OKXAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fundin
 		return nil, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 	rate, _ := strconv.ParseFloat(fr.FundingRate, 64)
+	interval, err := parseOKXFundingInterval(fr.NextTime, fr.NextFundingTime)
+	if err != nil {
+		return nil, err
+	}
 	var next time.Time
 	if fr.NextTime != "" {
 		if ms, err := strconv.ParseInt(fr.NextTime, 10, 64); err == nil && ms > 0 {
@@ -1076,10 +1081,24 @@ func (o *OKXAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fundin
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: interval,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      mark,
 	}, nil
+}
+
+func parseOKXFundingInterval(fundingTime, nextFundingTime string) (time.Duration, error) {
+	currentMillis, currentErr := strconv.ParseInt(strings.TrimSpace(fundingTime), 10, 64)
+	nextMillis, nextErr := strconv.ParseInt(strings.TrimSpace(nextFundingTime), 10, 64)
+	if currentErr != nil || nextErr != nil || currentMillis <= 0 || nextMillis <= currentMillis {
+		return 0, fmt.Errorf("invalid OKX funding time range: current=%q next=%q", fundingTime, nextFundingTime)
+	}
+	intervalMillis := nextMillis - currentMillis
+	if intervalMillis > int64((24*time.Hour)/time.Millisecond) {
+		return 0, fmt.Errorf("unsupported OKX funding interval %d milliseconds", intervalMillis)
+	}
+	return time.Duration(intervalMillis) * time.Millisecond, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

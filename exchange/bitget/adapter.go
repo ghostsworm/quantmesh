@@ -1442,6 +1442,7 @@ func (b *BitgetAdapter) GetFundingRate(ctx context.Context, symbol string) (floa
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -1470,27 +1471,34 @@ func (b *BitgetAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 		return nil, fmt.Errorf("獲取资金费率失败: %w", err)
 	}
 	var raw struct {
-		FundingRate     string `json:"fundingRate"`
-		NextFundingTime string `json:"nextFundingTime"`
-		NextSettleTime  string `json:"nextSettleTime"`
-		FundingTime     string `json:"fundingTime"`
-		MarkPrice       string `json:"markPrice"`
-		IndexPrice      string `json:"indexPrice"`
+		FundingRate         string `json:"fundingRate"`
+		FundingRateInterval string `json:"fundingRateInterval"`
+		NextFundingTime     string `json:"nextFundingTime"`
+		NextSettleTime      string `json:"nextSettleTime"`
+		FundingTime         string `json:"fundingTime"`
+		MarkPrice           string `json:"markPrice"`
+		IndexPrice          string `json:"indexPrice"`
 	}
 	if err := json.Unmarshal(resp.Data, &raw); err != nil || raw.FundingRate == "" {
 		var results []struct {
-			FundingRate     string `json:"fundingRate"`
-			NextFundingTime string `json:"nextFundingTime"`
-			MarkPrice       string `json:"markPrice"`
-			IndexPrice      string `json:"indexPrice"`
+			FundingRate         string `json:"fundingRate"`
+			FundingRateInterval string `json:"fundingRateInterval"`
+			NextFundingTime     string `json:"nextFundingTime"`
+			MarkPrice           string `json:"markPrice"`
+			IndexPrice          string `json:"indexPrice"`
 		}
 		if err2 := json.Unmarshal(resp.Data, &results); err2 != nil || len(results) == 0 {
 			return nil, fmt.Errorf("解析响应失败: %w", err)
 		}
 		raw.FundingRate = results[0].FundingRate
+		raw.FundingRateInterval = results[0].FundingRateInterval
 		raw.NextFundingTime = results[0].NextFundingTime
 		raw.MarkPrice = results[0].MarkPrice
 		raw.IndexPrice = results[0].IndexPrice
+	}
+	interval, err := parseBitgetFundingRateInterval(raw.FundingRateInterval)
+	if err != nil {
+		return nil, err
 	}
 	rate, _ := strconv.ParseFloat(raw.FundingRate, 64)
 	mark, _ := strconv.ParseFloat(raw.MarkPrice, 64)
@@ -1525,10 +1533,19 @@ func (b *BitgetAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fun
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: interval,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      idx,
 	}, nil
+}
+
+func parseBitgetFundingRateInterval(raw string) (time.Duration, error) {
+	hours, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || hours <= 0 || hours > 24 {
+		return 0, fmt.Errorf("invalid Bitget funding rate interval hours %q", raw)
+	}
+	return time.Duration(hours) * time.Hour, nil
 }
 
 // GetSpotPrice 獲取現貨市场價格

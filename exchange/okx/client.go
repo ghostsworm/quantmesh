@@ -402,9 +402,10 @@ func (c *OKXClient) GetKlines(ctx context.Context, instId, bar string, limit int
 
 // FundingRate 资金费率
 type FundingRate struct {
-	InstId      string `json:"instId"`
-	FundingRate string `json:"fundingRate"` // 當前资金费率
-	NextTime    string `json:"fundingTime"` // 下次結算時间
+	InstId          string `json:"instId"`
+	FundingRate     string `json:"fundingRate"` // 當前资金费率
+	NextTime        string `json:"fundingTime"` // 下一次結算時間
+	NextFundingTime string `json:"nextFundingTime"`
 }
 
 // GetFundingRate 獲取资金费率

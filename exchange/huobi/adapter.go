@@ -646,6 +646,7 @@ func (h *HuobiAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -688,6 +689,7 @@ func (h *HuobiAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: 8 * time.Hour,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      mark,
