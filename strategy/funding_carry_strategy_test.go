@@ -15,6 +15,15 @@ import (
 	"quantmesh/execution"
 )
 
+type fundingCarryFundingInfoExchange struct {
+	*mockFCExchange
+	info *exchange.FundingInfo
+}
+
+func (e *fundingCarryFundingInfoExchange) GetFundingInfo(context.Context, string) (*exchange.FundingInfo, error) {
+	return e.info, nil
+}
+
 func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
 	stratCfg := map[string]interface{}{
 		"min_funding_rate":       0.001,
@@ -87,6 +96,48 @@ func TestNewFundingCarryStrategyRejectsNonFiniteMarginInterestMaximum(t *testing
 		if strategy.marginInterestMax != 0.001 {
 			t.Fatalf("accepted non-finite margin_interest_max %v: got %v", invalid, strategy.marginInterestMax)
 		}
+	}
+}
+
+func TestFundingCarryNormalizedOpeningRate(t *testing.T) {
+	tests := []struct {
+		name     string
+		info     *exchange.FundingInfo
+		wantRate float64
+		wantErr  bool
+	}{
+		{name: "hourly rate normalized to eight hours", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0001, FundingInterval: time.Hour}, wantRate: 0.0008},
+		{name: "daily rate normalized to eight hours", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0012, FundingInterval: 24 * time.Hour}, wantRate: 0.0004},
+		{name: "unknown interval rejected", info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.001}, wantErr: true},
+		{name: "symbol mismatch rejected", info: &exchange.FundingInfo{Symbol: "ETHUSDT", Rate: 0.001, FundingInterval: 8 * time.Hour}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := fundingCarryNormalizedOpeningRate(tt.info, "BTCUSDT")
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("fundingCarryNormalizedOpeningRate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if err == nil && math.Abs(got-tt.wantRate) > 1e-12 {
+				t.Fatalf("normalized rate = %.12g, want %.12g", got, tt.wantRate)
+			}
+		})
+	}
+}
+
+func TestFundingCarryTickUsesEightHourRateForOpeningThreshold(t *testing.T) {
+	nextFunding := time.Now().Add(4 * time.Hour)
+	futures := &fundingCarryFundingInfoExchange{
+		mockFCExchange: &mockFCExchange{name: "futures", marketType: "futures", latestPrice: 100, fundingRate: 0.0005, balance: 10000, priceDecimals: 2, quantityDecimals: 4},
+		info:           &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0005, FundingInterval: 24 * time.Hour, NextFundingTime: nextFunding},
+	}
+	spot := &mockFCExchange{name: "spot", marketType: "spot", latestPrice: 100, balance: 10000, baseAsset: "BTC", priceDecimals: 2, quantityDecimals: 4}
+	strategy := NewFundingCarryStrategy("fc-normalized-entry", nil,
+		config.SymbolConfig{Symbol: "BTCUSDT", TotalAllocatedCapital: 500}, futures, spot, nil, nil)
+	if err := strategy.tick(); err != nil {
+		t.Fatalf("tick with below-threshold normalized funding rate: %v", err)
+	}
+	if len(futures.placedOrders) != 0 || len(spot.placedOrders) != 0 {
+		t.Fatalf("raw 24-hour rate triggered open orders despite normalized rate below threshold: futures=%d spot=%d", len(futures.placedOrders), len(spot.placedOrders))
 	}
 }
 

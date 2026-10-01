@@ -822,9 +822,17 @@ func (s *FundingCarryStrategy) tick() error {
 	if s.openingIsBlocked() {
 		return nil
 	}
+	fundingInfo, err := s.fut.GetFundingInfo(ctx, s.symbol)
+	if err != nil {
+		return fmt.Errorf("GetFundingInfo before funding_carry opening: %w", err)
+	}
+	openingRate, err := fundingCarryNormalizedOpeningRate(fundingInfo, s.symbol)
+	if err != nil {
+		return fmt.Errorf("normalize funding_carry opening rate: %w", err)
+	}
 
 	// 評估費率方向
-	if rate >= s.minFundingRate {
+	if openingRate >= s.minFundingRate {
 		futPx, err := s.fut.GetLatestPrice(ctx, s.symbol)
 		if err != nil {
 			return err
@@ -838,10 +846,10 @@ func (s *FundingCarryStrategy) tick() error {
 			logger.Warn("⚠️ [%s] 期現價差 %.4f%% 超過上限 %.4f%%，暫不開倉", s.symbol, basisPct, s.maxBasisPct)
 			return nil
 		}
-		return s.openHedge(ctx, futPx, spotPx, rate)
+		return s.openHedge(ctx, futPx, spotPx, openingRate)
 	}
 
-	if s.reverseEnabled && rate <= -s.reverseMinRate {
+	if s.reverseEnabled && openingRate <= -s.reverseMinRate {
 		futPx, err := s.fut.GetLatestPrice(ctx, s.symbol)
 		if err != nil {
 			return err
@@ -855,10 +863,21 @@ func (s *FundingCarryStrategy) tick() error {
 			logger.Warn("⚠️ [%s] 期現價差 %.4f%% 超上限 %.4f%%，暫不反向開倉", s.symbol, basisPct, s.maxBasisPct)
 			return nil
 		}
-		return s.openReverseHedge(ctx, futPx, spotPx, rate)
+		return s.openReverseHedge(ctx, futPx, spotPx, openingRate)
 	}
 
 	return nil
+}
+
+func fundingCarryNormalizedOpeningRate(info *exchange.FundingInfo, symbol string) (float64, error) {
+	rate, err := normalizeFundingRateToEightHours(info, symbol)
+	if err != nil {
+		return 0, err
+	}
+	if math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return 0, fmt.Errorf("normalized funding rate is non-finite for %s", symbol)
+	}
+	return rate, nil
 }
 
 // ---------------------------------------------------------------------------

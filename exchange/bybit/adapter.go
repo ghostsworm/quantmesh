@@ -977,6 +977,7 @@ func (b *BybitAdapter) GetFundingRate(ctx context.Context, symbol string) (float
 type FundingInfo struct {
 	Symbol          string
 	Rate            float64
+	FundingInterval time.Duration
 	NextFundingTime time.Time
 	MarkPrice       float64
 	IndexPrice      float64
@@ -996,11 +997,23 @@ func bybitEstimateNextFundingUTC8h(now time.Time) time.Time {
 	}
 }
 
+func parseBybitFundingIntervalHours(raw string) (time.Duration, error) {
+	hours, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || hours <= 0 || hours > 24 {
+		return 0, fmt.Errorf("invalid Bybit funding interval hours %q", raw)
+	}
+	return time.Duration(hours) * time.Hour, nil
+}
+
 // GetFundingInfo 從 /v5/market/tickers 獲取資金費與下次結算時間
 func (b *BybitAdapter) GetFundingInfo(ctx context.Context, symbol string) (*FundingInfo, error) {
 	tk, err := b.client.GetFundingTicker(ctx, "linear", symbol)
 	if err != nil {
 		return nil, fmt.Errorf("獲取 funding ticker 失败: %w", err)
+	}
+	interval, err := parseBybitFundingIntervalHours(tk.FundingIntervalHour)
+	if err != nil {
+		return nil, err
 	}
 	rate, _ := strconv.ParseFloat(tk.FundingRate, 64)
 	mark, _ := strconv.ParseFloat(tk.MarkPrice, 64)
@@ -1017,6 +1030,7 @@ func (b *BybitAdapter) GetFundingInfo(ctx context.Context, symbol string) (*Fund
 	return &FundingInfo{
 		Symbol:          symbol,
 		Rate:            rate,
+		FundingInterval: interval,
 		NextFundingTime: next,
 		MarkPrice:       mark,
 		IndexPrice:      idx,

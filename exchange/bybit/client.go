@@ -663,11 +663,12 @@ func (c *BybitClient) GetFundingRate(ctx context.Context, category, symbol strin
 
 // FundingTicker 市場 ticker 中的資金費與結算時間（/v5/market/tickers）
 type FundingTicker struct {
-	Symbol          string `json:"symbol"`
-	FundingRate     string `json:"fundingRate"`
-	NextFundingTime string `json:"nextFundingTime"`
-	MarkPrice       string `json:"markPrice"`
-	IndexPrice      string `json:"indexPrice"`
+	Symbol              string `json:"symbol"`
+	FundingRate         string `json:"fundingRate"`
+	FundingIntervalHour string `json:"fundingIntervalHour"`
+	NextFundingTime     string `json:"nextFundingTime"`
+	MarkPrice           string `json:"markPrice"`
+	IndexPrice          string `json:"indexPrice"`
 }
 
 // GetFundingTicker 從市場 ticker 獲取資金費率、下次結算時間與標記/指數價
