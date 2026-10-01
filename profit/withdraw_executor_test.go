@@ -155,14 +155,28 @@ func (f *fakeWithdrawStorage) GetFundingIncomeCoverage(string, string, string, s
 }
 
 func (f *fakeWithdrawStorage) ListAccountIDsWithProfitRules() ([]string, error) {
-	return []string{f.rule.AccountID}, nil
+	ids := make([]string, 0, len(f.rules)+1)
+	seen := make(map[string]struct{})
+	if f.rules == nil {
+		return []string{f.rule.AccountID}, nil
+	}
+	for _, rule := range f.rules {
+		if rule == nil {
+			continue
+		}
+		if _, ok := seen[rule.AccountID]; ok {
+			continue
+		}
+		seen[rule.AccountID] = struct{}{}
+		ids = append(ids, rule.AccountID)
+	}
+	return ids, nil
 }
 func (f *fakeWithdrawStorage) ListProfitWithdrawRules(accountID string) ([]*storage.ProfitWithdrawRule, error) {
 	if f.rules != nil {
 		out := make([]*storage.ProfitWithdrawRule, 0, len(f.rules))
 		for _, rule := range f.rules {
-			if rule == nil {
-				out = append(out, nil)
+			if rule == nil || rule.AccountID != accountID {
 				continue
 			}
 			cp := *rule
@@ -614,6 +628,32 @@ func TestAutomaticWithdrawFailsClosedForOverlappingEnabledRules(t *testing.T) {
 	e.processRules(frequencyImmediate)
 	if len(ex.amounts) != 0 || len(st.records) != 0 {
 		t.Fatalf("overlapping rules must not transfer the same accounting stream twice: amounts=%v records=%+v", ex.amounts, st.records)
+	}
+}
+
+func TestAutomaticWithdrawFailsClosedForDuplicatesAcrossAccountPartitions(t *testing.T) {
+	base := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	newRule := func(id, accountID string) *storage.ProfitWithdrawRule {
+		return &storage.ProfitWithdrawRule{ID: id, AccountID: accountID, AccountScope: "same-credential-scope", ExchangeID: "binance",
+			StrategyID: "BTCUSDT", Enabled: true, TriggerAmount: 10, WithdrawRatio: 0.5,
+			Frequency: frequencyImmediate, CreatedAt: base.Add(-time.Hour)}
+	}
+	st := &fakeWithdrawStorage{
+		rule: newRule("account-a-rule", "account-a"),
+		rules: []*storage.ProfitWithdrawRule{
+			newRule("account-a-rule", "account-a"),
+			newRule("account-b-rule", "account-b"),
+		},
+		coverageFrom: base.Add(-24 * time.Hour), coverageUntil: base.Add(24 * time.Hour),
+		events: []pnlEvent{{at: base.Add(time.Minute), pnl: 100}},
+	}
+	ex := &fakeTransferExchange{st: st, accountScope: "same-credential-scope",
+		account: &exchange.Account{BalanceAsset: "USDT", AvailableBalance: 1000, MaxWithdrawAmount: 1000}}
+	e := NewWithdrawExecutor(context.Background(), st, func(string) exchange.IExchange { return ex })
+	e.now = func() time.Time { return base.Add(2 * time.Minute) }
+	e.processRules(frequencyImmediate)
+	if len(ex.amounts) != 0 || len(st.records) != 0 {
+		t.Fatalf("duplicate scoped rules across account partitions must both be blocked: amounts=%v records=%+v", ex.amounts, st.records)
 	}
 }
 

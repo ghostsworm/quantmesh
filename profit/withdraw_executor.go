@@ -162,19 +162,29 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 		logger.Warn("⚠️ [利润提取] 獲取帳戶列表失败: %v", err)
 		return
 	}
+	type accountRules struct {
+		accountID string
+		rules     []*storage.ProfitWithdrawRule
+	}
+	allAccountRules := make([]accountRules, 0, len(accountIDs))
+	allRules := make([]*storage.ProfitWithdrawRule, 0)
 	for _, accountID := range accountIDs {
 		rules, err := e.st.ListProfitWithdrawRules(accountID)
 		if err != nil {
 			logger.Warn("⚠️ [利润提取] 獲取规则失败 account=%s: %v", accountID, err)
-			continue
+			return
 		}
-		streamCounts := countEnabledWithdrawStreams(rules, accountID)
-		for _, rule := range rules {
-			if !rule.Enabled || rule.Frequency != frequency {
+		allAccountRules = append(allAccountRules, accountRules{accountID: accountID, rules: rules})
+		allRules = append(allRules, rules...)
+	}
+	streamCounts := countEnabledWithdrawStreams(allRules)
+	for _, account := range allAccountRules {
+		for _, rule := range account.rules {
+			if rule == nil || !rule.Enabled || rule.Frequency != frequency {
 				continue
 			}
-			if streamCounts[withdrawStreamForRule(rule, accountID)] > 1 {
-				logger.Error("❌ [利润提取] 同一账户/交易所/交易对存在多条启用规则，拒绝重复核算和划转 account=%s exchange=%s symbol=%s rule=%s",
+			if streamCounts[withdrawStreamForRule(rule)] > 1 {
+				logger.Error("❌ [利润提取] 同一账户作用域/交易所/交易对存在多条启用规则，拒绝重复核算和划转 account=%s exchange=%s symbol=%s rule=%s",
 					rule.AccountID, rule.ExchangeID, rule.StrategyID, rule.ID)
 				continue
 			}
@@ -193,31 +203,27 @@ func (e *WithdrawExecutor) processRules(frequency string) {
 }
 
 type withdrawStreamKey struct {
-	accountID    string
 	accountScope string
 	exchange     string
 	symbol       string
 }
 
-func withdrawStreamForRule(rule *storage.ProfitWithdrawRule, accountID string) withdrawStreamKey {
+func withdrawStreamForRule(rule *storage.ProfitWithdrawRule) withdrawStreamKey {
 	if rule == nil {
 		return withdrawStreamKey{}
 	}
-	if strings.TrimSpace(rule.AccountID) != "" {
-		accountID = rule.AccountID
-	}
-	return withdrawStreamKey{accountID: strings.TrimSpace(accountID), accountScope: strings.TrimSpace(rule.AccountScope),
+	return withdrawStreamKey{accountScope: strings.TrimSpace(rule.AccountScope),
 		exchange: strings.ToLower(strings.TrimSpace(rule.ExchangeID)), symbol: strings.ToUpper(strings.TrimSpace(rule.StrategyID))}
 }
 
-func countEnabledWithdrawStreams(rules []*storage.ProfitWithdrawRule, accountID string) map[withdrawStreamKey]int {
+func countEnabledWithdrawStreams(rules []*storage.ProfitWithdrawRule) map[withdrawStreamKey]int {
 	counts := make(map[withdrawStreamKey]int)
 	for _, rule := range rules {
 		if rule == nil || !rule.Enabled {
 			continue
 		}
-		key := withdrawStreamForRule(rule, accountID)
-		if key.accountID == "" || key.accountScope == "" || key.exchange == "" || key.symbol == "" {
+		key := withdrawStreamForRule(rule)
+		if key.accountScope == "" || key.exchange == "" || key.symbol == "" {
 			continue
 		}
 		counts[key]++
