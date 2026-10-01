@@ -399,10 +399,51 @@ func (s *DCAEnhancedStrategy) Initialize(cfg *config.Config, executor position.O
 	if s.configErr != nil {
 		return fmt.Errorf("invalid DCA strategy configuration: %w", s.configErr)
 	}
+	if cfg == nil || executor == nil || exchange == nil {
+		return fmt.Errorf("DCA config, order executor, and exchange are required")
+	}
+	if _, err := lookupDCAExchangeFeeRate(cfg, exchange); err != nil {
+		return err
+	}
 	s.cfg = cfg
 	s.executor = executor
 	s.exchange = exchange
 	return nil
+}
+
+func lookupDCAExchangeFeeRate(cfg *config.Config, exchange position.IExchange) (float64, error) {
+	if cfg == nil || exchange == nil {
+		return 0, fmt.Errorf("DCA exchange fee configuration is unavailable")
+	}
+	exchangeName := strings.TrimSpace(exchange.GetName())
+	if exchangeName == "" {
+		return 0, fmt.Errorf("DCA exchange name is unavailable for fee lookup")
+	}
+	feeRate, found := 0.0, false
+	for name, exchangeCfg := range cfg.Exchanges {
+		if !strings.EqualFold(strings.TrimSpace(name), exchangeName) {
+			continue
+		}
+		if found {
+			return 0, fmt.Errorf("DCA exchange fee configuration is ambiguous for %q", exchangeName)
+		}
+		if !finiteNumber(exchangeCfg.FeeRate) || exchangeCfg.FeeRate < 0 || exchangeCfg.FeeRate > 1 {
+			return 0, fmt.Errorf("DCA exchange %q fee rate must be finite and within [0,1]", exchangeName)
+		}
+		feeRate, found = exchangeCfg.FeeRate, true
+	}
+	if !found {
+		return 0, fmt.Errorf("DCA fee rate is not configured for exchange %q", exchangeName)
+	}
+	return feeRate, nil
+}
+
+func (s *DCAEnhancedStrategy) validateRuntimeDependencies() error {
+	if s.cfg == nil || s.executor == nil || s.exchange == nil {
+		return fmt.Errorf("DCA config, order executor, and exchange are required")
+	}
+	_, err := lookupDCAExchangeFeeRate(s.cfg, s.exchange)
+	return err
 }
 
 // SetEventBus 設置事件總線
@@ -678,6 +719,9 @@ func (s *DCAEnhancedStrategy) effectiveBotID() string {
 func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 	if s.configErr != nil {
 		return fmt.Errorf("invalid DCA strategy configuration; refusing to start: %w", s.configErr)
+	}
+	if err := s.validateRuntimeDependencies(); err != nil {
+		return fmt.Errorf("DCA runtime dependency validation failed; refusing to start: %w", err)
 	}
 	if s.runtimeStateStore == nil {
 		return fmt.Errorf("DCA runtime state store is required")
@@ -1280,16 +1324,9 @@ func (s *DCAEnhancedStrategy) estimatedNetPnLPercent(quantity, cost, openingFee,
 		!finiteNumber(openingFee) || openingFee < 0 || !finiteNumber(price) || price <= 0 {
 		return math.Inf(-1)
 	}
-	feeRate := 0.0
-	if s.cfg != nil && s.exchange != nil {
-		for name, exchangeCfg := range s.cfg.Exchanges {
-			if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(s.exchange.GetName())) {
-				if finiteNumber(exchangeCfg.FeeRate) && exchangeCfg.FeeRate >= 0 && exchangeCfg.FeeRate <= 1 {
-					feeRate = exchangeCfg.FeeRate
-				}
-				break
-			}
-		}
+	feeRate, err := lookupDCAExchangeFeeRate(s.cfg, s.exchange)
+	if err != nil {
+		return math.Inf(-1)
 	}
 	closeFeeEstimate := quantity * price * feeRate
 	netPnL := quantity*price - cost - openingFee - closeFeeEstimate

@@ -43,11 +43,14 @@ func (e *dcaRecoveryExchange) GetOrderFills(_ context.Context, _ string, orderID
 }
 
 func newPersistedDCAStrategy(t *testing.T, ex *dcaRecoveryExchange, state dcaRuntimeState) *DCAEnhancedStrategy {
-	return newPersistedDCAStrategyWithConfig(t, ex, state, &config.Config{})
+	return newPersistedDCAStrategyWithConfig(t, ex, state, dcaTestConfig())
 }
 
 func newPersistedDCAStrategyWithConfig(t *testing.T, ex *dcaRecoveryExchange, state dcaRuntimeState, cfg *config.Config) *DCAEnhancedStrategy {
 	t.Helper()
+	if len(cfg.Exchanges) == 0 {
+		cfg.Exchanges = dcaTestConfig().Exchanges
+	}
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
 	state.BotID = s.effectiveBotID()
 	payload, err := json.Marshal(state)
@@ -69,7 +72,7 @@ func TestDCAStartReplaysSpotEntryBaseFeeAsNetInventoryAndQuoteCost(t *testing.T)
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 94, Status: entryStatusPending, RequestedQuantity: 1}},
 	}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
 	if err := s.Start(context.Background()); err != nil {
@@ -100,7 +103,7 @@ func TestDCAStartRejectsBaseFeePrefixMismatch(t *testing.T) {
 			OrderID: 95, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
 			FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}},
 	}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
 	if err := s.Start(context.Background()); err == nil {
@@ -127,7 +130,7 @@ func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
 			EntryBaseFeeQty: 0.00025, OrderID: 96, Status: entryStatusPartiallyFilled, RequestedQuantity: 1,
 			FillProgress: position.FillProgress{Quantity: 0.25, Notional: 25}}},
 	}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
 	if err := s.Start(context.Background()); err != nil {
@@ -153,7 +156,7 @@ func TestDCAStartRejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
 	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
 		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 97, Status: entryStatusPending, RequestedQuantity: 1}},
 	}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
 	if err := s.Start(context.Background()); err == nil {
@@ -169,7 +172,7 @@ func TestDCAOnOrderUpdateVerifiesUnreportedSpotFeeBeforeAccounting(t *testing.T)
 		OrderID: 98, TradeID: "trade-98", Symbol: "BTCUSDT", Side: exchange.SideBuy,
 		Price: 100, Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT",
 	}}}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
 	setTestRuntimeStateStore(t, s)
@@ -212,7 +215,7 @@ func TestDCAConcurrentUnverifiedUpdatesReconcileAgainstLatestFillCursor(t *testi
 		return []*exchange.OrderFill{{OrderID: 120, TradeID: "cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100,
 			Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000}}, nil
 	}
-	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, ex, nil)
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	s.layers = []*DCALayer{{Index: 0, OrderID: 120, Status: entryStatusPartiallyFilled, RequestedQuantity: 1}}
 	fullUpdateDone := make(chan error, 1)
@@ -260,7 +263,7 @@ func TestDCAOnOrderUpdateVerifiesUnreportedFuturesFeeBeforeAccounting(t *testing
 		OrderID: 108, TradeID: "trade-108", Symbol: "BTCUSDT", Side: exchange.SideBuy,
 		Price: 100, Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT",
 	}}}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "futures"
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, ex, nil)
 	setTestRuntimeStateStore(t, s)
@@ -279,7 +282,7 @@ func TestDCAOnOrderUpdateVerifiesUnreportedFuturesFeeBeforeAccounting(t *testing
 
 func TestDCAFuturesDoesNotAccountFillWhenFeeEvidenceIsUnavailable(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fillsErr: errors.New("fills unavailable")}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "futures"
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, ex, nil)
@@ -297,7 +300,7 @@ func TestDCAFuturesDoesNotAccountFillWhenFeeEvidenceIsUnavailable(t *testing.T) 
 
 func TestDCAOnOrderUpdatePreservesStateWhenSpotFeeEvidenceIsUnavailable(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, fillsErr: errors.New("fills unavailable")}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, ex, nil)
@@ -320,7 +323,7 @@ func TestDCAStartRejectsLegacySpotSnapshotWithUnverifiedFeeCursor(t *testing.T) 
 			Status: entryStatusFilled, RequestedQuantity: 1,
 			FillProgress: position.FillProgress{Quantity: 1, Notional: 100}}},
 	}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := newPersistedDCAStrategyWithConfig(t, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, state, cfg)
 	if err := s.Start(context.Background()); err == nil {
@@ -332,7 +335,7 @@ func TestDCAStartRejectsLegacySpotSnapshotWithUnverifiedFeeCursor(t *testing.T) 
 }
 
 func TestDCAUnverifiedZeroFillCancellationDoesNotRequireFeeHistory(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	setTestRuntimeStateStore(t, s)

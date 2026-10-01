@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"quantmesh/config"
 	"quantmesh/position"
 )
 
@@ -28,7 +27,7 @@ func (e *nilOrderExecutor) BatchCancelOrders(orderIDs []int64) error {
 }
 
 func TestDCAEnhancedPauseExpires(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	executor := &hedgeOrderExecutor{}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 50000}, map[string]interface{}{
 		"trend_filter_enabled": false,
@@ -56,7 +55,7 @@ func TestDCAEnhancedPauseExpires(t *testing.T) {
 }
 
 func TestDCAEnhancedManualPauseWithoutDeadlineStaysPaused(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	executor := &hedgeOrderExecutor{}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 50000}, map[string]interface{}{
 		"trend_filter_enabled": false,
@@ -84,7 +83,7 @@ func TestDCAEnhancedManualPauseWithoutDeadlineStaysPaused(t *testing.T) {
 }
 
 func TestDCAAndMartingaleSkipNilOrdersWithoutStateMutation(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	ex := &hedgeExchange{price: 50000}
 
 	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &nilOrderExecutor{}, ex, map[string]interface{}{
@@ -118,7 +117,7 @@ func TestDCAAndMartingaleSkipNilOrdersWithoutStateMutation(t *testing.T) {
 }
 
 func TestDCACloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	executor := &hedgeOrderExecutor{}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 51000}, map[string]interface{}{
 		"trend_filter_enabled": false,
@@ -177,7 +176,7 @@ func TestDCACloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 }
 
 func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	executor := &hedgeOrderExecutor{}
 	strategy := NewMartingaleStrategy("martin", "BTCUSDT", cfg, executor, &hedgeExchange{price: 51000}, map[string]interface{}{
 		"trend_filter": false,
@@ -247,7 +246,7 @@ func TestMartingaleCloseStateClearsOnlyAfterCloseOrderFilled(t *testing.T) {
 }
 
 func TestStopLossCloseOrdersAreNotPostOnly(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 
 	dcaExecutor := &hedgeOrderExecutor{}
 	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, dcaExecutor, &hedgeExchange{price: 49000}, map[string]interface{}{

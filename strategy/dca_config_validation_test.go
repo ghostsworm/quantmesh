@@ -5,7 +5,58 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"quantmesh/config"
 )
+
+func dcaTestConfig() *config.Config {
+	return &config.Config{Exchanges: map[string]config.ExchangeConfig{"mock": {FeeRate: 0}}}
+}
+
+func TestDCAFeeRateLookupFailsClosedForMissingOrInvalidExchangeConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{name: "missing exchange", cfg: &config.Config{}},
+		{name: "invalid fee", cfg: &config.Config{Exchanges: map[string]config.ExchangeConfig{"mock": {FeeRate: math.NaN()}}}},
+		{name: "fee outside range", cfg: &config.Config{Exchanges: map[string]config.ExchangeConfig{"mock": {FeeRate: 1.1}}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", test.cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			if err := strategy.validateRuntimeDependencies(); err == nil {
+				t.Fatal("runtime accepted an unavailable or invalid fee rate")
+			}
+			if pnl := strategy.estimatedNetPnLPercent(1, 100, 0, 110); !math.IsInf(pnl, -1) {
+				t.Fatalf("unknown fee rate produced a usable PnL estimate: %v", pnl)
+			}
+		})
+	}
+}
+
+func TestDCAFeeRateLookupAcceptsExplicitZeroAndCaseInsensitiveExchangeName(t *testing.T) {
+	feeRate, err := lookupDCAExchangeFeeRate(dcaTestConfig(), &hedgeExchange{})
+	if err != nil || feeRate != 0 {
+		t.Fatalf("explicit zero fee rate should be accepted, got rate=%v err=%v", feeRate, err)
+	}
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"MOCK": {FeeRate: 0.002}}}
+	feeRate, err = lookupDCAExchangeFeeRate(cfg, &hedgeExchange{})
+	if err != nil || feeRate != 0.002 {
+		t.Fatalf("case-insensitive exchange key lookup failed: rate=%v err=%v", feeRate, err)
+	}
+}
+
+func TestDCAStartRejectsMissingExchangeFeeConfiguration(t *testing.T) {
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	if err := strategy.Start(context.Background()); err == nil {
+		t.Fatal("Start() accepted a missing exchange fee configuration")
+	}
+	if strategy.IsRunning() {
+		t.Fatal("DCA strategy became active without verified fee configuration")
+	}
+}
 
 func TestNewDCAEnhancedStrategyRejectsUnsafeConfigurationBeforeStart(t *testing.T) {
 	tests := []struct {

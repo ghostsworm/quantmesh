@@ -36,7 +36,7 @@ func newR3DCA(t *testing.T, executor position.OrderExecutorInterface, extra map[
 	for k, v := range extra {
 		params[k] = v
 	}
-	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 100}, params)
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 100}, params)
 	setTestRuntimeStateStore(t, s)
 	if err := s.Start(t.Context()); err != nil {
 		t.Fatalf("Start() error=%v", err)

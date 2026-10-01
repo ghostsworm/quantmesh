@@ -32,7 +32,7 @@ func (e *filledAckExecutor) PlaceOrder(req *position.OrderRequest) (*position.Or
 
 func TestDCAPlacementAckCannotSettleCloseWithoutActualFillAndFee(t *testing.T) {
 	executor := &filledAckExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
 		FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
@@ -52,7 +52,7 @@ func TestDCAPlacementAckCannotSettleCloseWithoutActualFillAndFee(t *testing.T) {
 func TestDCAProfitAndLossTriggersUseFeeAdjustedReturn(t *testing.T) {
 	t.Run("take profit waits until estimated net target", func(t *testing.T) {
 		executor := &hedgeOrderExecutor{}
-		cfg := &config.Config{}
+		cfg := dcaTestConfig()
 		cfg.Exchanges = map[string]config.ExchangeConfig{"mock": {FeeRate: 0.005}}
 		strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 100}, map[string]interface{}{
 			"first_order_take_profit": 0.5, "total_take_profit": 5, "trailing_activation": 5, "stop_loss": 50,
@@ -77,7 +77,7 @@ func TestDCAProfitAndLossTriggersUseFeeAdjustedReturn(t *testing.T) {
 
 	t.Run("stop loss includes already paid opening fee", func(t *testing.T) {
 		executor := &hedgeOrderExecutor{}
-		cfg := &config.Config{}
+		cfg := dcaTestConfig()
 		cfg.Exchanges = map[string]config.ExchangeConfig{"mock": {FeeRate: 0}}
 		strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 100}, map[string]interface{}{
 			"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 10, "stop_loss": 0.1,
@@ -97,7 +97,7 @@ func TestDCAProfitAndLossTriggersUseFeeAdjustedReturn(t *testing.T) {
 
 func TestDCATrailingTakeProfitStatePersistsAndRestores(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
 		"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 0.5,
 		"trailing_take_profit": 1, "stop_loss": 50,
 	})
@@ -116,7 +116,7 @@ func TestDCATrailingTakeProfitStatePersistsAndRestores(t *testing.T) {
 		t.Fatalf("trailing activation and high-water mark were not persisted: %+v", persisted)
 	}
 
-	restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
+	restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
 		"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 0.5,
 		"trailing_take_profit": 1, "stop_loss": 50,
 	})
@@ -132,7 +132,7 @@ func TestDCATrailingTakeProfitStatePersistsAndRestores(t *testing.T) {
 
 func TestDCAOverfilledCloseRetainsInventoryAndRequiresReconciliation(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
 	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
@@ -171,7 +171,7 @@ func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 			setTestRuntimeStateStore(t, strategy)
 			strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
 			strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
@@ -195,7 +195,7 @@ func TestDCAMalformedTerminalCloseFillCannotClearIntent(t *testing.T) {
 
 func TestDCATerminalEntryWithRegressedCumulativeNotionalRequiresReconciliation(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 100}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 100}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	layer := &DCALayer{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1, OrderID: 91,
 		Status: entryStatusPending}
@@ -217,7 +217,7 @@ func TestDCATerminalEntryWithRegressedCumulativeNotionalRequiresReconciliation(t
 
 func TestDCATerminalCloseWithRegressedCumulativeNotionalRetainsIntent(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
 	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
@@ -242,7 +242,7 @@ func TestDCATerminalCloseWithRegressedCumulativeNotionalRetainsIntent(t *testing
 
 func TestDCACloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
 	executor := &cancelRecordingExecutor{}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	filled := &DCALayer{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}
 	pending := &DCALayer{Index: 1, Price: 90, Quantity: 1, Cost: 90, OrderID: 77, Status: entryStatusPartiallyFilled}
@@ -281,7 +281,7 @@ func TestDCACloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
 
 func TestDCATailCloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
 	executor := &cancelRecordingExecutor{}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
 	last := &DCALayer{Index: 2, Price: 100, Quantity: 0.5, Cost: 50, Status: entryStatusFilled}
 	pending := &DCALayer{Index: 3, Price: 90, Quantity: 0.5, Cost: 45, OrderID: 78, Status: entryStatusPending}
@@ -305,7 +305,7 @@ func TestDCATailCloseWaitsForPendingEntryCancellationTerminal(t *testing.T) {
 }
 
 func TestDCACommissionMustBeConvertedToQuoteBeforeAccounting(t *testing.T) {
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	if got, ok := strategy.commissionInQuote(0.25, "USDT", 100); !ok || got != 0.25 {
 		t.Fatalf("quote commission conversion = %v, %v", got, ok)
 	}
@@ -324,7 +324,7 @@ func TestDCACommissionMustBeConvertedToQuoteBeforeAccounting(t *testing.T) {
 }
 
 func TestDCAUnvaluedOpenFeeDoesNotConsumeFillProgress(t *testing.T) {
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	layer := &DCALayer{OrderID: 7, Quantity: 1, Status: entryStatusPending}
 	strategy.layers = []*DCALayer{layer}
 	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
@@ -350,7 +350,7 @@ func TestDCARejectsNonFiniteCommissionBeforeAccounting(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+			strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{}, nil)
 			layer := &DCALayer{OrderID: 70, Quantity: 1, RequestedQuantity: 1, Status: entryStatusPending}
 			strategy.layers = []*DCALayer{layer}
 			strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
@@ -365,7 +365,7 @@ func TestDCARejectsNonFiniteCommissionBeforeAccounting(t *testing.T) {
 }
 
 func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	layer := &DCALayer{Index: 0, OrderID: 96, Status: entryStatusPending, RequestedQuantity: 1}
@@ -382,7 +382,7 @@ func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
 
 func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{}, nil)
 	layer := &DCALayer{Index: 0, OrderID: 97, Status: entryStatusPending, RequestedQuantity: 1}
 	strategy.layers = []*DCALayer{layer}
 	strategy.handleLayerOrderUpdate(layer, &position.OrderUpdate{
@@ -406,7 +406,7 @@ func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
 }
 
 func TestDCARejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.MarketType = "spot"
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{}, nil)

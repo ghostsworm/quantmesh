@@ -129,7 +129,7 @@ func (e *dcaIntentObservingExecutor) PlaceOrder(request *position.OrderRequest) 
 
 func TestDCAOrderFillPersistsAndRestoresFeeBearingInventory(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	first := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	first.SetRuntimeStateStore(store)
 	if err := first.Start(context.Background()); err != nil {
@@ -179,7 +179,7 @@ func TestDCAPendingOrdersPersistRequestedSizeWithoutInventingInventory(t *testin
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			store := &memoryRuntimeStateStore{}
-			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 			s.SetRuntimeStateStore(store)
 			if err := test.place(s); err != nil {
 				t.Fatalf("place pending order: %v", err)
@@ -193,7 +193,7 @@ func TestDCAPendingOrdersPersistRequestedSizeWithoutInventingInventory(t *testin
 				t.Fatalf("pending order view lost requested quantity: %+v", orders)
 			}
 
-			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 			restarted.SetRuntimeStateStore(store)
 			if err := restarted.restoreRuntimeState(); err != nil {
 				t.Fatalf("restore persisted pending order: %v", err)
@@ -242,7 +242,7 @@ func TestDCAEntryAndCloseIntentsAreDurableBeforeExchangeSubmission(t *testing.T)
 		t.Run(test.name, func(t *testing.T) {
 			store := &memoryRuntimeStateStore{}
 			executor := &dcaIntentObservingExecutor{store: store}
-			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{}, nil)
 			s.SetRuntimeStateStore(store)
 			if err := test.place(s); err != nil {
 				t.Fatalf("submit order: %v", err)
@@ -268,7 +268,7 @@ func TestDCARecoversUnknownEntryAndCloseSubmissionByClientOrderID(t *testing.T) 
 			store := &memoryRuntimeStateStore{}
 			executor := &dcaIntentObservingExecutor{store: store, submitErr: errors.New("response lost")}
 			ex := &hedgeExchange{}
-			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, ex, nil)
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, ex, nil)
 			s.SetRuntimeStateStore(store)
 			if !test.open {
 				s.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
@@ -310,7 +310,7 @@ func TestDCARecoversUnknownEntryAndCloseSubmissionByClientOrderID(t *testing.T) 
 				OrderID: 777, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: test.side,
 				Quantity: quantity, Status: exchange.OrderStatusNew,
 			}}
-			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, recoveryExchange, nil)
+			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, recoveryExchange, nil)
 			restarted.SetRuntimeStateStore(store)
 			if err := restarted.Start(context.Background()); err != nil {
 				t.Fatalf("recover unknown submission by client order ID: %v", err)
@@ -330,7 +330,7 @@ func TestDCARecoversUnknownEntryAndCloseSubmissionByClientOrderID(t *testing.T) 
 }
 
 func TestDCARuntimeStateMigrationResetsGrossTrailingPeak(t *testing.T) {
-	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	legacy := dcaRuntimeState{
 		BotID: strategy.effectiveBotID(), StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 0,
 		HighestProfit: 2.5, TakeProfitTriggered: true,
@@ -360,7 +360,7 @@ func TestDCARuntimeStateMigrationResetsGrossTrailingPeak(t *testing.T) {
 
 func TestDCAInvalidPersistedIdentityBlocksStart(t *testing.T) {
 	store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: `{ "bot_id": "wrong" }`, found: true}
-	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	dca.SetRuntimeStateStore(store)
 	if err := dca.Start(context.Background()); err == nil {
 		t.Fatal("expected corrupt/mismatched state to block startup")
@@ -371,7 +371,7 @@ func TestDCAInvalidPersistedIdentityBlocksStart(t *testing.T) {
 }
 
 func TestDCAAndMartingaleRequireDurableRuntimeState(t *testing.T) {
-	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 	if err := dca.Start(context.Background()); err == nil {
 		t.Fatal("DCA started without durable runtime state")
 	}
@@ -709,7 +709,7 @@ func TestMartingaleClosePersistsCIDBeforeSubmitAndBlocksRetriesWhenUnknown(t *te
 }
 
 func TestSpotShortPendingRepaymentRestoresBeforeStart(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.BotID = "bot-spot-short"
 	cfg.Trading.Symbol = "BTCUSDT"
 	store := &memoryRuntimeStateStore{}
@@ -736,7 +736,7 @@ func TestSpotShortPendingRepaymentRestoresBeforeStart(t *testing.T) {
 }
 
 func TestSpotShortRefusesStartWithoutDurableStateStore(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.Symbol = "BTCUSDT"
 	s := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, &signalTestExchange{}, &mockMarginExchange{}, nil)
 	if err := s.Start(context.Background()); err == nil {
@@ -822,7 +822,7 @@ func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
-			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
 			s.SetRuntimeStateStore(store)
 			if err := s.restoreRuntimeState(); err == nil {
 				t.Fatal("expected invalid persisted DCA state to be rejected")
@@ -837,7 +837,7 @@ func TestDCARestoreRejectsInvalidCloseLayerAndProgress(t *testing.T) {
 func TestSignalStrategiesRestoreFeeBearingPositionAndActiveOrder(t *testing.T) {
 	for _, strategyName := range []string{"trend", "mean_reversion", "momentum"} {
 		t.Run(strategyName, func(t *testing.T) {
-			cfg := &config.Config{}
+			cfg := dcaTestConfig()
 			cfg.Trading.BotID = "bot-signal-restore"
 			cfg.Trading.Symbol = "BTCUSDT"
 			ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
@@ -887,7 +887,7 @@ func TestSignalStrategiesRestoreFeeBearingPositionAndActiveOrder(t *testing.T) {
 }
 
 func TestSignalStrategyStartReplaysMissedActiveOrderFillAndFee(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-replay", "BTCUSDT"
 	ex := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
 		OrderID: 84, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.4,
@@ -914,7 +914,7 @@ func TestSignalStrategyStartReplaysMissedActiveOrderFillAndFee(t *testing.T) {
 }
 
 func TestSignalStrategyStartBlocksWhenActiveOrderEvidenceIsMissing(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-missing", "BTCUSDT"
 	state := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", PendingAction: signalActionOpenLong,
 		ActiveOrder: &Order{OrderID: 85, ClientOrderID: "signal-cid-85", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, Status: position.OrderStatusUnknown}}
@@ -933,7 +933,7 @@ func TestSignalStrategyStartBlocksWhenActiveOrderEvidenceIsMissing(t *testing.T)
 }
 
 func TestSignalRuntimeStateRejectsFilledOrderWithoutFeeCursor(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-old-cursor", "BTCUSDT"
 	state := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", PendingAction: signalActionOpenLong,
 		ActiveOrder: &Order{OrderID: 86, ClientOrderID: "signal-cid-86", Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
@@ -949,7 +949,7 @@ func TestSignalRuntimeStateRejectsFilledOrderWithoutFeeCursor(t *testing.T) {
 }
 
 func TestSignalRuntimeStateRejectsActiveOrderIdentityOrActionMismatch(t *testing.T) {
-	cfg := &config.Config{}
+	cfg := dcaTestConfig()
 	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-invalid-active-order", "BTCUSDT"
 	validPosition := &Position{Symbol: "BTCUSDT", Size: 0.5, EntryPrice: 100, CurrentPrice: 100}
 	tests := []struct {
