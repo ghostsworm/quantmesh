@@ -3,11 +3,99 @@ package binance
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"math"
+	"net/http"
+	"strings"
 	"testing"
 
 	binancesdk "github.com/adshao/go-binance/v2"
 )
+
+func TestHistoricalAssetUSDTQuoteUsesExactDirectOrInverseMinute(t *testing.T) {
+	const tradeTime int64 = 1_790_503_199_500
+	const quoteMinute int64 = tradeTime / spotFeeMinuteMillis * spotFeeMinuteMillis
+	for _, test := range []struct {
+		name       string
+		inverse    bool
+		missing    bool
+		wantSymbol string
+		wantRate   float64
+	}{
+		{name: "direct", wantSymbol: "BNBUSDT", wantRate: 600},
+		{name: "inverse", inverse: true, wantSymbol: "USDTBNB", wantRate: 600},
+		{name: "missing direct and inverse markets", missing: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var requested []string
+			client := binancesdk.NewClient("", "").SetApiEndpoint("https://spot.test")
+			client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/api/v3/klines" || req.URL.Query().Get("interval") != "1m" ||
+					req.URL.Query().Get("startTime") != fmt.Sprint(quoteMinute) || req.URL.Query().Get("endTime") != fmt.Sprint(quoteMinute+spotFeeMinuteMillis-1) {
+					return nil, fmt.Errorf("unexpected minute kline request: %s", req.URL.String())
+				}
+				symbol := req.URL.Query().Get("symbol")
+				requested = append(requested, symbol)
+				if test.missing || test.inverse && symbol == "BNBUSDT" {
+					return &http.Response{StatusCode: http.StatusBadRequest, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"code":-1121,"msg":"Invalid symbol."}`)), Request: req}, nil
+				}
+				closePrice := "600"
+				if test.inverse {
+					closePrice = "0.0016666666666667"
+				}
+				body := fmt.Sprintf("[[%d,\"1\",\"1\",\"1\",\"%s\",\"1\",%d,\"1\",1,\"1\",\"1\",\"0\"]]", quoteMinute, closePrice, quoteMinute+spotFeeMinuteMillis-1)
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+			})}
+			adapter := &BinanceSpotAdapter{client: client}
+			got, err := adapter.historicalAssetQuoteRate(context.Background(), "bnb", "usdt", tradeTime)
+			if test.missing {
+				if err == nil || got != 0 || len(requested) != 2 {
+					t.Fatalf("missing minute should remain unvalued: rate=%v err=%v requests=%v", got, err, requested)
+				}
+				return
+			}
+			if err != nil || math.Abs(got-test.wantRate) > 1e-9 || len(requested) != 1+boolInt(test.inverse) ||
+				requested[len(requested)-1] != test.wantSymbol {
+				t.Fatalf("historical rate=%v err=%v requests=%v, want %.9f via %s", got, err, requested, test.wantRate, test.wantSymbol)
+			}
+		})
+	}
+	if rate, err := (&BinanceSpotAdapter{}).historicalAssetQuoteRate(context.Background(), "usdt", "USDT", tradeTime); err != nil || rate != 1 {
+		t.Fatalf("USDT must use identity rate: rate=%v err=%v", rate, err)
+	}
+}
+
+func TestHistoricalAssetQuoteRatesDeduplicatesMinutes(t *testing.T) {
+	const first int64 = 1_790_503_199_500
+	var requests []int64
+	adapter := &BinanceSpotAdapter{}
+	adapter.feeHistoricalRateFetcher = func(_ context.Context, asset, quote string, tradeTime int64) (float64, error) {
+		if asset != "BNB" || quote != "USDT" {
+			t.Fatalf("unexpected batched quote pair %s/%s", asset, quote)
+		}
+		requests = append(requests, tradeTime)
+		return 600, nil
+	}
+	rates, err := adapter.historicalAssetQuoteRates(context.Background(), "bnb", "usdt", []int64{
+		first, first - 1_000, first + 500,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	minute1 := first / spotFeeMinuteMillis * spotFeeMinuteMillis
+	minute2 := minute1 + spotFeeMinuteMillis
+	if len(requests) != 2 || requests[0] != first || requests[1] != first+500 || rates[minute1] != 600 || rates[minute2] != 600 {
+		t.Fatalf("same-minute requests were not deduplicated: requests=%v rates=%v", requests, rates)
+	}
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
 
 func TestSummarizeSpotQuoteBalanceNeverAddsDifferentAssets(t *testing.T) {
 	balances := []binancesdk.Balance{

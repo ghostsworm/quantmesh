@@ -86,7 +86,8 @@ func TestMarginInterestSyncPersistsAllocationOnlyAfterBotDebtMatchesAccountPrinc
 		t.Fatal("save Bot-scoped debt ledger:", err)
 	}
 	querier := &marginInterestSyncTestQuerier{pageFactory: func(int) ([]exchange.MarginInterestRecord, int64) {
-		return []exchange.MarginInterestRecord{{TransactionID: 7702, AccruedAt: accruedAt.UnixMilli(), Asset: "BTC", RawAsset: "BTC", Principal: 0.4, Interest: 0.0001, Rate: 0.00025, Type: "PERIODIC"}}, 1
+		return []exchange.MarginInterestRecord{{TransactionID: 7702, AccruedAt: accruedAt.UnixMilli(), Asset: "BTC", RawAsset: "BTC", Principal: 0.4, Interest: 0.0001, Rate: 0.00025, Type: "PERIODIC",
+			ValuationAsset: "USDT", ValuationRate: 600, ValuationAmount: 0.06, ValuationStatus: "VALUED", ValuationMinute: 1_790_503_140_000, ValuationSource: "BINANCE_SPOT_1M_CLOSE"}}, 1
 	}}
 	if err := syncMarginInterestOnce(context.Background(), st, querier, "binance", "acct", "margin-attribution-scope", now); err != nil {
 		t.Fatal("sync and attribute reconciled interest:", err)
@@ -95,7 +96,9 @@ func TestMarginInterestSyncPersistsAllocationOnlyAfterBotDebtMatchesAccountPrinc
 	if err != nil {
 		t.Fatal("read verified allocation:", err)
 	}
-	if len(allocations) != 1 || allocations[0].BotID != "bot-btc" || allocations[0].BotPrincipal != 0.4 || allocations[0].AccountPrincipal != 0.4 || allocations[0].Interest != 0.0001 {
+	if len(allocations) != 1 || allocations[0].BotID != "bot-btc" || allocations[0].BotPrincipal != 0.4 || allocations[0].AccountPrincipal != 0.4 || allocations[0].Interest != 0.0001 ||
+		allocations[0].ValuationStatus != "VALUED" || allocations[0].ValuationAsset != "USDT" || allocations[0].ValuationRate != 600 || allocations[0].ValuationAmount != 0.06 ||
+		allocations[0].ValuationMinute != 1_790_503_140_000 || allocations[0].ValuationSource != "BINANCE_SPOT_1M_CLOSE" {
 		t.Fatalf("unexpected persisted interest allocation: %+v", allocations)
 	}
 }

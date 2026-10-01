@@ -107,6 +107,12 @@ func migrateMarginInterestTables(db *sql.DB) error {
 			transaction_id BIGINT NOT NULL,
 			accrued_at TIMESTAMP NOT NULL,
 			identity_key TEXT NOT NULL UNIQUE,
+			valuation_asset TEXT NOT NULL DEFAULT '',
+			valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0,
+			valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+			valuation_status TEXT NOT NULL DEFAULT 'UNVALUED',
+			valuation_minute BIGINT NOT NULL DEFAULT 0,
+			valuation_source TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_margin_interest_scope_asset_time
@@ -133,6 +139,12 @@ func migrateMarginInterestTables(db *sql.DB) error {
 			interest DECIMAL(30,12) NOT NULL,
 			accrued_at TIMESTAMP NOT NULL,
 			identity_key TEXT NOT NULL UNIQUE,
+			valuation_asset TEXT NOT NULL DEFAULT '',
+			valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0,
+			valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+			valuation_status TEXT NOT NULL DEFAULT 'UNVALUED',
+			valuation_minute BIGINT NOT NULL DEFAULT 0,
+			valuation_source TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_margin_interest_allocations_bot_time
@@ -148,6 +160,43 @@ func migrateMarginInterestTables(db *sql.DB) error {
 	if columnCount == 0 {
 		if _, err := db.Exec(`ALTER TABLE margin_interest_payments ADD COLUMN raw_asset TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("add margin_interest_payments.raw_asset: %w", err)
+		}
+	}
+	for _, column := range []struct{ name, definition string }{
+		{"valuation_asset", `TEXT NOT NULL DEFAULT ''`},
+		{"valuation_rate", `DECIMAL(30,16) NOT NULL DEFAULT 0`},
+		{"valuation_amount", `DECIMAL(30,12) NOT NULL DEFAULT 0`},
+		{"valuation_status", `TEXT NOT NULL DEFAULT 'UNVALUED'`},
+		{"valuation_minute", `BIGINT NOT NULL DEFAULT 0`},
+		{"valuation_source", `TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureSQLiteColumn(db, "margin_interest_payments", column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	for _, column := range []struct{ name, definition string }{
+		{"valuation_asset", `TEXT NOT NULL DEFAULT ''`},
+		{"valuation_rate", `DECIMAL(30,16) NOT NULL DEFAULT 0`},
+		{"valuation_amount", `DECIMAL(30,12) NOT NULL DEFAULT 0`},
+		{"valuation_status", `TEXT NOT NULL DEFAULT 'UNVALUED'`},
+		{"valuation_minute", `BIGINT NOT NULL DEFAULT 0`},
+		{"valuation_source", `TEXT NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureSQLiteColumn(db, "margin_interest_allocations", column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureSQLiteColumn(db *sql.DB, table, column, definition string) error {
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, table, column).Scan(&count); err != nil {
+		return fmt.Errorf("check %s.%s migration: %w", table, column, err)
+	}
+	if count == 0 {
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition); err != nil {
+			return fmt.Errorf("add %s.%s: %w", table, column, err)
 		}
 	}
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -14,22 +15,99 @@ import (
 const spotFeeMinuteMillis = int64(time.Minute / time.Millisecond)
 
 func (b *BinanceSpotAdapter) historicalFeeAssetQuoteRate(ctx context.Context, asset string, tradeTime int64) (float64, error) {
-	if tradeTime <= 0 {
-		return 0, fmt.Errorf("trade timestamp is missing")
-	}
-	if b.feeHistoricalRateFetcher != nil {
-		return b.feeHistoricalRateFetcher(ctx, asset, b.quoteAsset, tradeTime)
+	return b.historicalAssetQuoteRate(ctx, asset, b.quoteAsset, tradeTime)
+}
+
+func (b *BinanceSpotAdapter) historicalAssetQuoteRate(ctx context.Context, asset, quote string, tradeTime int64) (float64, error) {
+	rates, err := b.historicalAssetQuoteRates(ctx, asset, quote, []int64{tradeTime})
+	if err != nil {
+		return 0, err
 	}
 	minute := tradeTime / spotFeeMinuteMillis * spotFeeMinuteMillis
-	prices, ok := b.fetchSpotFeeMinutePrices(ctx, strings.ToUpper(asset)+strings.ToUpper(b.quoteAsset), []int64{minute})
-	if ok {
-		return prices[minute], nil
+	if rate, exists := rates[minute]; exists {
+		return rate, nil
 	}
-	prices, ok = b.fetchSpotFeeMinutePrices(ctx, strings.ToUpper(b.quoteAsset)+strings.ToUpper(asset), []int64{minute})
-	if ok && isFinitePositive(prices[minute]) {
-		return 1 / prices[minute], nil
+	return 0, fmt.Errorf("historical 1m candle does not cover the requested quote minute")
+}
+
+// historicalAssetQuoteRates fetches each unique UTC minute once and limits each
+// request window to Binance's 1000-candle maximum, even for sparse 90-day pages.
+func (b *BinanceSpotAdapter) historicalAssetQuoteRates(ctx context.Context, asset, quote string, tradeTimes []int64) (map[int64]float64, error) {
+	rates := make(map[int64]float64)
+	if err := ctx.Err(); err != nil {
+		return rates, err
 	}
-	return 0, fmt.Errorf("historical 1m candle does not cover the trade minute")
+	asset, quote = strings.ToUpper(strings.TrimSpace(asset)), strings.ToUpper(strings.TrimSpace(quote))
+	if asset == "" || quote == "" {
+		return nil, fmt.Errorf("historical quote requires an asset and quote currency")
+	}
+	minuteSet := make(map[int64]struct{}, len(tradeTimes))
+	minuteTradeTimes := make(map[int64]int64, len(tradeTimes))
+	for _, tradeTime := range tradeTimes {
+		if tradeTime <= 0 {
+			continue
+		}
+		minute := tradeTime / spotFeeMinuteMillis * spotFeeMinuteMillis
+		minuteSet[minute] = struct{}{}
+		if _, exists := minuteTradeTimes[minute]; !exists {
+			minuteTradeTimes[minute] = tradeTime
+		}
+	}
+	minutes := make([]int64, 0, len(minuteSet))
+	for minute := range minuteSet {
+		minutes = append(minutes, minute)
+	}
+	sort.Slice(minutes, func(i, j int) bool { return minutes[i] < minutes[j] })
+	if asset == quote {
+		for _, minute := range minutes {
+			rates[minute] = 1
+		}
+		return rates, nil
+	}
+	if b.feeHistoricalRateFetcher != nil {
+		for _, minute := range minutes {
+			if err := ctx.Err(); err != nil {
+				return rates, err
+			}
+			rate, err := b.feeHistoricalRateFetcher(ctx, asset, quote, minuteTradeTimes[minute])
+			if err == nil && isFinitePositive(rate) {
+				rates[minute] = rate
+			}
+		}
+		return rates, nil
+	}
+	for offset := 0; offset < len(minutes); {
+		end := offset + 1
+		for end < len(minutes) && minutes[end]-minutes[offset] <= 999*spotFeeMinuteMillis {
+			end++
+		}
+		window := minutes[offset:end]
+		prices, _ := b.fetchSpotFeeMinutePrices(ctx, asset+quote, window)
+		for minute, price := range prices {
+			if isFinitePositive(price) {
+				rates[minute] = price
+			}
+		}
+		missing := make([]int64, 0, len(window)-len(prices))
+		for _, minute := range window {
+			if _, exists := rates[minute]; !exists {
+				missing = append(missing, minute)
+			}
+		}
+		if len(missing) > 0 {
+			inversePrices, _ := b.fetchSpotFeeMinutePrices(ctx, quote+asset, missing)
+			for minute, price := range inversePrices {
+				if isFinitePositive(price) {
+					rates[minute] = 1 / price
+				}
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return rates, err
+		}
+		offset = end
+	}
+	return rates, nil
 }
 
 // convertThirdAssetFeesAtHistoricalMinute values non-base/non-quote spot fees

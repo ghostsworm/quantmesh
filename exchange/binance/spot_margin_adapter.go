@@ -36,15 +36,21 @@ type MarginBorrowRecord struct {
 }
 
 type MarginInterestRecord struct {
-	TransactionID  int64
-	AccruedAt      int64
-	Asset          string
-	RawAsset       string
-	Principal      float64
-	Interest       float64
-	Rate           float64
-	Type           string
-	IsolatedSymbol string
+	TransactionID   int64
+	AccruedAt       int64
+	Asset           string
+	RawAsset        string
+	Principal       float64
+	Interest        float64
+	Rate            float64
+	Type            string
+	IsolatedSymbol  string
+	ValuationAsset  string
+	ValuationRate   float64
+	ValuationAmount float64
+	ValuationStatus string
+	ValuationMinute int64
+	ValuationSource string
 }
 
 const maxBinanceMarginOCOResponseSize = 1 << 20
@@ -607,7 +613,7 @@ func (b *BinanceSpotMarginAdapter) GetOrder(ctx context.Context, symbol string, 
 // GetOrderByClientOrderID queries the cross-margin order endpoint, not the
 // embedded spot adapter's order history.
 func (b *BinanceSpotMarginAdapter) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*Order, error) {
-	if b == nil || b.marginClient == nil {
+	if b == nil || b.marginClient == nil || b.BinanceSpotAdapter == nil {
 		return nil, fmt.Errorf("Binance spot margin client is unavailable")
 	}
 	sym := symbol
@@ -710,6 +716,8 @@ func (b *BinanceSpotMarginAdapter) GetMarginInterestHistory(ctx context.Context,
 		return nil, 0, err
 	}
 	records := make([]MarginInterestRecord, 0, len(response.Rows))
+	valuationRows := make(map[string][]int)
+	valuationTimes := make(map[string][]int64)
 	for _, row := range response.Rows {
 		principal, principalErr := strconv.ParseFloat(row.Principal, 64)
 		interest, interestErr := strconv.ParseFloat(row.Interest, 64)
@@ -723,10 +731,44 @@ func (b *BinanceSpotMarginAdapter) GetMarginInterestHistory(ctx context.Context,
 			math.IsNaN(rate) || math.IsInf(rate, 0) || rate < 0 || strings.TrimSpace(row.Type) == "" {
 			return nil, 0, fmt.Errorf("Binance margin interest history contains an invalid row for transaction %d", row.TxId)
 		}
-		records = append(records, MarginInterestRecord{
+		record := MarginInterestRecord{
 			TransactionID: row.TxId, AccruedAt: row.InterestAccuredTime, Asset: row.Asset, RawAsset: row.RawAsset,
 			Principal: principal, Interest: interest, Rate: rate, Type: row.Type, IsolatedSymbol: row.IsolatedSymbol,
-		})
+			ValuationAsset: "USDT", ValuationStatus: "UNVALUED",
+		}
+		if interest == 0 {
+			record.ValuationStatus = "VALUED"
+			record.ValuationSource = "ZERO_AMOUNT"
+		}
+		record.ValuationMinute = row.InterestAccuredTime / spotFeeMinuteMillis * spotFeeMinuteMillis
+		records = append(records, record)
+		if interest > 0 {
+			assetKey := strings.ToUpper(strings.TrimSpace(row.Asset))
+			valuationRows[assetKey] = append(valuationRows[assetKey], len(records)-1)
+			valuationTimes[assetKey] = append(valuationTimes[assetKey], row.InterestAccuredTime)
+		}
+	}
+	for assetKey, rowIndexes := range valuationRows {
+		rates, quoteErr := b.historicalAssetQuoteRates(ctx, assetKey, "USDT", valuationTimes[assetKey])
+		if ctx.Err() != nil {
+			return nil, 0, ctx.Err()
+		}
+		if quoteErr != nil {
+			continue
+		}
+		for _, index := range rowIndexes {
+			record := &records[index]
+			quoteRate, exists := rates[record.ValuationMinute]
+			if !exists {
+				continue
+			}
+			quoted := record.Interest * quoteRate
+			if math.IsNaN(quoted) || math.IsInf(quoted, 0) || quoted < 0 {
+				continue
+			}
+			record.ValuationRate, record.ValuationAmount = quoteRate, quoted
+			record.ValuationStatus, record.ValuationSource = "VALUED", "BINANCE_SPOT_1M_CLOSE"
+		}
 	}
 	return records, response.Total, nil
 }

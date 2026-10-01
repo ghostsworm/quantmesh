@@ -169,6 +169,8 @@ func (w *binanceSpotMarginWrapper) GetMarginInterestHistory(ctx context.Context,
 			TransactionID: record.TransactionID, AccruedAt: record.AccruedAt, Asset: record.Asset, RawAsset: record.RawAsset,
 			Principal: record.Principal, Interest: record.Interest, Rate: record.Rate,
 			Type: record.Type, IsolatedSymbol: record.IsolatedSymbol,
+			ValuationAsset: record.ValuationAsset, ValuationRate: record.ValuationRate, ValuationAmount: record.ValuationAmount,
+			ValuationStatus: record.ValuationStatus, ValuationMinute: record.ValuationMinute, ValuationSource: record.ValuationSource,
 		}
 	}
 	return records, total, nil

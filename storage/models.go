@@ -358,18 +358,24 @@ type FundingPayment struct {
 // MarginInterestPayment is a confirmed interest charge; cross-margin rows are
 // account/asset scoped and deliberately do not imply symbol or Bot ownership.
 type MarginInterestPayment struct {
-	Exchange       string
-	Account        string
-	AccountScope   string
-	Asset          string
-	RawAsset       string
-	Principal      float64
-	Interest       float64
-	Rate           float64
-	InterestType   string
-	IsolatedSymbol string
-	TransactionID  int64
-	AccruedAt      time.Time
+	Exchange        string
+	Account         string
+	AccountScope    string
+	Asset           string
+	RawAsset        string
+	Principal       float64
+	Interest        float64
+	Rate            float64
+	InterestType    string
+	IsolatedSymbol  string
+	TransactionID   int64
+	AccruedAt       time.Time
+	ValuationAsset  string
+	ValuationRate   float64
+	ValuationAmount float64
+	ValuationStatus string
+	ValuationMinute int64
+	ValuationSource string
 }
 
 // MarginInterestAllocation is a reconciled share of an account-level interest
@@ -385,6 +391,12 @@ type MarginInterestAllocation struct {
 	AccountPrincipal float64
 	Interest         float64
 	AccruedAt        time.Time
+	ValuationAsset   string
+	ValuationRate    float64
+	ValuationAmount  float64
+	ValuationStatus  string
+	ValuationMinute  int64
+	ValuationSource  string
 }
 
 // AIPromptTemplate AI提示词模板模型

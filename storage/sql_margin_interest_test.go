@@ -17,11 +17,23 @@ func TestMarginInterestLedgerIsAccountAndAssetScopedAndIdempotent(t *testing.T) 
 	accruedAt := time.Date(2026, 10, 2, 1, 2, 3, 4000000, time.UTC)
 	payment := &MarginInterestPayment{Exchange: "BINANCE", Account: "acct", AccountScope: "scope-a", Asset: "BNB", RawAsset: "BTC",
 		Principal: 0.4, Interest: 0.0001, Rate: 0.00025, InterestType: "PERIODIC", TransactionID: 8001, AccruedAt: accruedAt}
+	payment.ValuationAsset, payment.ValuationRate, payment.ValuationAmount = "USDT", 600, 0.06
+	payment.ValuationStatus, payment.ValuationMinute, payment.ValuationSource = "VALUED", 1790503140000, "BINANCE_SPOT_1M_CLOSE"
 	if err := store.SaveMarginInterestPayment(payment); err != nil {
 		t.Fatal("save margin interest:", err)
 	}
 	if err := store.SaveMarginInterestPayment(payment); err != nil {
 		t.Fatal("identical replay must be idempotent:", err)
+	}
+	var quoteAsset, quoteStatus, quoteSource string
+	var quoteRate, quoteAmount float64
+	var quoteMinute int64
+	if err := store.db.QueryRow(`SELECT valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source FROM margin_interest_payments WHERE identity_key = ?`,
+		marginInterestIdentity(payment)).Scan(&quoteAsset, &quoteRate, &quoteAmount, &quoteStatus, &quoteMinute, &quoteSource); err != nil {
+		t.Fatal("read persisted valuation provenance:", err)
+	}
+	if quoteAsset != "USDT" || quoteRate != 600 || quoteAmount != 0.06 || quoteStatus != "VALUED" || quoteMinute != 1790503140000 || quoteSource != "BINANCE_SPOT_1M_CLOSE" {
+		t.Fatalf("persisted valuation provenance mismatch: %s %v %v %s %d %s", quoteAsset, quoteRate, quoteAmount, quoteStatus, quoteMinute, quoteSource)
 	}
 	conflict := *payment
 	conflict.Interest += 0.0001
@@ -81,6 +93,72 @@ func TestMarginInterestLedgerIsAccountAndAssetScopedAndIdempotent(t *testing.T) 
 	if err := store.SaveMarginInterestPayment(&tooSmall); err == nil {
 		t.Fatal("positive interest below DECIMAL scale must not be silently stored as zero")
 	}
+	unvalued := *precisionPayment
+	unvalued.TransactionID++
+	unvalued.ValuationStatus, unvalued.ValuationAmount = "UNVALUED", 0
+	if err := store.SaveMarginInterestPayment(&unvalued); err != nil {
+		t.Fatal("missing price must persist explicitly as unvalued:", err)
+	}
+	upgraded := unvalued
+	upgraded.ValuationAsset, upgraded.ValuationRate, upgraded.ValuationAmount = "USDT", 2, 0.0002
+	upgraded.ValuationStatus, upgraded.ValuationMinute, upgraded.ValuationSource = "VALUED", 1790503140000, "BINANCE_SPOT_1M_CLOSE"
+	if err := store.SaveMarginInterestPayment(&upgraded); err != nil {
+		t.Fatal("a later verified historical price must upgrade an unvalued row:", err)
+	}
+	if err := store.db.QueryRow(`SELECT valuation_status, valuation_amount FROM margin_interest_payments WHERE identity_key = ?`,
+		marginInterestIdentity(&upgraded)).Scan(&quoteStatus, &quoteAmount); err != nil {
+		t.Fatal("read upgraded valuation:", err)
+	}
+	if quoteStatus != "VALUED" || quoteAmount != 0.0002 {
+		t.Fatalf("late valuation upgrade was not persisted: %s %v", quoteStatus, quoteAmount)
+	}
+	badUnvalued := unvalued
+	badUnvalued.TransactionID++
+	badUnvalued.ValuationAmount = 0.01
+	if err := store.SaveMarginInterestPayment(&badUnvalued); err == nil {
+		t.Fatal("unvalued interest must not carry a fabricated quote amount")
+	}
+	inconsistentValuation := *payment
+	inconsistentValuation.TransactionID++
+	inconsistentValuation.ValuationAmount += 0.01
+	if err := store.SaveMarginInterestPayment(&inconsistentValuation); err == nil {
+		t.Fatal("valued interest amount must reconcile to the stored amount and historical rate")
+	}
+}
+
+func TestMarginInterestMigrationAddsValuationColumnsToExistingLedger(t *testing.T) {
+	store, err := NewSQLStorage(t.TempDir() + "/margin-interest-legacy.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, table := range []string{"margin_interest_payments", "margin_interest_allocations"} {
+		for _, column := range []string{"valuation_asset", "valuation_rate", "valuation_amount", "valuation_status", "valuation_minute", "valuation_source"} {
+			if _, err := store.db.Exec(`ALTER TABLE ` + table + ` DROP COLUMN ` + column); err != nil {
+				t.Fatalf("prepare legacy schema %s without %s: %v", table, column, err)
+			}
+		}
+	}
+	if err := migrateMarginInterestTables(store.db); err != nil {
+		t.Fatal("upgrade existing margin interest ledger:", err)
+	}
+	var status string
+	if err := store.db.QueryRow(`SELECT valuation_status FROM margin_interest_payments LIMIT 1`).Scan(&status); err != sql.ErrNoRows {
+		t.Fatalf("legacy migration should leave an empty ledger and query no rows, got status=%q err=%v", status, err)
+	}
+	var count int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('margin_interest_payments') WHERE name LIKE 'valuation_%'`).Scan(&count); err != nil {
+		t.Fatal("verify valuation migration columns:", err)
+	}
+	if count != 6 {
+		t.Fatalf("valuation migration added %d columns, want 6", count)
+	}
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('margin_interest_allocations') WHERE name LIKE 'valuation_%'`).Scan(&count); err != nil {
+		t.Fatal("verify allocation valuation migration columns:", err)
+	}
+	if count != 6 {
+		t.Fatalf("allocation valuation migration added %d columns, want 6", count)
+	}
 }
 
 func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
@@ -92,13 +170,21 @@ func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
 	allocation := &MarginInterestAllocation{
 		Exchange: "binance", AccountScope: "scope-a", TransactionID: 8100, BotID: "bot-btc",
 		Asset: "BTC", RawAsset: "BTC", BotPrincipal: 0.4, AccountPrincipal: 1, Interest: 0.00004,
-		AccruedAt: time.Date(2026, 10, 2, 5, 0, 0, 0, time.UTC),
+		AccruedAt:      time.Date(2026, 10, 2, 5, 0, 0, 0, time.UTC),
+		ValuationAsset: "USDT", ValuationRate: 2, ValuationAmount: 0.00008, ValuationStatus: "VALUED",
+		ValuationMinute: 1790503140000, ValuationSource: "BINANCE_SPOT_1M_CLOSE",
 	}
 	if err := store.SaveMarginInterestAllocation(allocation); err != nil {
 		t.Fatal("save verified allocation:", err)
 	}
 	if err := store.SaveMarginInterestAllocation(allocation); err != nil {
 		t.Fatal("identical allocation replay must be idempotent:", err)
+	}
+	valuedReadback, err := store.ListMarginInterestAllocations("binance", "scope-a", allocation.TransactionID)
+	if err != nil || len(valuedReadback) != 1 || valuedReadback[0].ValuationStatus != "VALUED" ||
+		valuedReadback[0].ValuationAsset != "USDT" || valuedReadback[0].ValuationRate != 2 || valuedReadback[0].ValuationAmount != 0.00008 ||
+		valuedReadback[0].ValuationMinute != allocation.ValuationMinute || valuedReadback[0].ValuationSource != allocation.ValuationSource {
+		t.Fatalf("Bot allocation valuation provenance was not persisted: %+v err=%v", valuedReadback, err)
 	}
 	conflict := *allocation
 	conflict.Interest += 0.00001
@@ -109,6 +195,7 @@ func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
 	otherBot.BotID = "bot-eth"
 	otherBot.BotPrincipal = 0.6
 	otherBot.Interest = 0.00006
+	otherBot.ValuationAmount = 0.00012
 	if err := store.SaveMarginInterestAllocation(&otherBot); err != nil {
 		t.Fatal("separate Bot allocation must have an independent identity:", err)
 	}

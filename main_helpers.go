@@ -539,6 +539,8 @@ func syncMarginInterestOnce(ctx context.Context, st interface{}, querier exchang
 				Exchange: exchangeName, Account: accountID, AccountScope: accountScope, Asset: record.Asset, RawAsset: record.RawAsset,
 				Principal: record.Principal, Interest: record.Interest, Rate: record.Rate, InterestType: record.Type,
 				IsolatedSymbol: record.IsolatedSymbol, TransactionID: record.TransactionID, AccruedAt: time.UnixMilli(record.AccruedAt).UTC(),
+				ValuationAsset: record.ValuationAsset, ValuationRate: record.ValuationRate, ValuationAmount: record.ValuationAmount,
+				ValuationStatus: record.ValuationStatus, ValuationMinute: record.ValuationMinute, ValuationSource: record.ValuationSource,
 			}); err != nil {
 				return fmt.Errorf("persist margin interest transaction %d: %w", record.TransactionID, err)
 			}
@@ -572,6 +574,17 @@ func syncMarginInterestOnce(ctx context.Context, st interface{}, querier exchang
 					Exchange: exchangeName, AccountScope: accountScope, TransactionID: record.TransactionID, BotID: botID,
 					Asset: record.Asset, RawAsset: record.RawAsset, BotPrincipal: share.BotPrincipal,
 					AccountPrincipal: record.Principal, Interest: share.Interest, AccruedAt: time.UnixMilli(record.AccruedAt).UTC(),
+				}
+				if strings.EqualFold(strings.TrimSpace(record.ValuationStatus), "VALUED") && record.ValuationRate > 0 {
+					allocationAmount, amountErr := roundMarginInterestStorageAmount(share.Interest * record.ValuationRate)
+					if amountErr == nil && allocationAmount > 0 {
+						allocation.ValuationAsset = record.ValuationAsset
+						allocation.ValuationRate = record.ValuationRate
+						allocation.ValuationAmount = allocationAmount
+						allocation.ValuationStatus = "VALUED"
+						allocation.ValuationMinute = record.ValuationMinute
+						allocation.ValuationSource = record.ValuationSource
+					}
 				}
 				if err := allocationWriter.SaveMarginInterestAllocation(allocation); err != nil {
 					return fmt.Errorf("persist reconciled margin interest allocation tx=%d bot=%s: %w", record.TransactionID, botID, err)

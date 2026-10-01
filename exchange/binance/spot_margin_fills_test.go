@@ -125,6 +125,12 @@ func TestSpotMarginInterestHistoryPreservesCrossMarginAccountScope(t *testing.T)
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
 	})}
 	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+	adapter.feeHistoricalRateFetcher = func(_ context.Context, asset, quote string, tradeTime int64) (float64, error) {
+		if asset != "BNB" || quote != "USDT" || tradeTime != 1790503199500 {
+			t.Fatalf("unexpected historical interest quote request: %s/%s at %d", asset, quote, tradeTime)
+		}
+		return 600, nil
+	}
 	records, total, err := adapter.GetMarginInterestHistory(context.Background(), "", startTime, endTime, 2, 50)
 	if err != nil {
 		t.Fatal(err)
@@ -132,6 +138,11 @@ func TestSpotMarginInterestHistoryPreservesCrossMarginAccountScope(t *testing.T)
 	if total != 51 || len(records) != 1 || records[0].TransactionID != 8001 || records[0].Asset != "BNB" || records[0].RawAsset != "BTC" ||
 		records[0].Principal != 0.4 || records[0].Interest != 0.0001 || records[0].Type != "PERIODIC_CONVERTED" || records[0].IsolatedSymbol != "" {
 		t.Fatalf("unexpected cross-margin interest mapping: total=%d records=%+v", total, records)
+	}
+	if records[0].ValuationStatus != "VALUED" || records[0].ValuationAsset != "USDT" || records[0].ValuationRate != 600 ||
+		records[0].ValuationAmount < 0.06-1e-12 || records[0].ValuationAmount > 0.06+1e-12 ||
+		records[0].ValuationMinute != 1790503140000 || records[0].ValuationSource != "BINANCE_SPOT_1M_CLOSE" {
+		t.Fatalf("unexpected historical interest valuation: %+v", records[0])
 	}
 }
 

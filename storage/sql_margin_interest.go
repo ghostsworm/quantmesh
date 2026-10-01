@@ -29,6 +29,16 @@ func (s *SQLStorage) SaveMarginInterestPayment(payment *MarginInterestPayment) e
 	if normalized.Rate, err = roundMarginInterestDecimal16(normalized.Rate); err != nil {
 		return err
 	}
+	if normalized.ValuationRate, err = roundMarginInterestDecimal16(normalized.ValuationRate); err != nil {
+		return err
+	}
+	if normalized.ValuationAmount, err = roundMarginInterestDecimal12(normalized.ValuationAmount); err != nil {
+		return err
+	}
+	if normalized.ValuationStatus == "" {
+		normalized.ValuationStatus = "UNVALUED"
+	}
+	normalized.ValuationStatus = strings.ToUpper(strings.TrimSpace(normalized.ValuationStatus))
 	if (payment.Principal > 0 && normalized.Principal == 0) || (payment.Interest > 0 && normalized.Interest == 0) || (payment.Rate > 0 && normalized.Rate == 0) {
 		return fmt.Errorf("positive margin interest values fall below database precision")
 	}
@@ -38,30 +48,52 @@ func (s *SQLStorage) SaveMarginInterestPayment(payment *MarginInterestPayment) e
 		payment.AccruedAt.IsZero() || !finiteNonNegative(payment.Principal) || !finiteNonNegative(payment.Interest) || !finiteNonNegative(payment.Rate) {
 		return fmt.Errorf("margin interest payment requires exact account identity and finite non-negative values")
 	}
+	if (payment.ValuationStatus != "VALUED" && payment.ValuationStatus != "UNVALUED") ||
+		!finiteNonNegative(payment.ValuationRate) || !finiteNonNegative(payment.ValuationAmount) ||
+		(payment.ValuationStatus == "VALUED" && (strings.TrimSpace(payment.ValuationAsset) == "" || (payment.Interest > 0 && (payment.ValuationRate <= 0 || payment.ValuationSource == "")))) ||
+		(payment.ValuationStatus == "UNVALUED" && payment.ValuationAmount != 0) {
+		return fmt.Errorf("margin interest valuation must be complete and finite or explicitly unvalued")
+	}
+	if payment.ValuationStatus == "VALUED" && payment.Interest > 0 {
+		expectedAmount, err := roundMarginInterestDecimal12(payment.Interest * payment.ValuationRate)
+		if err != nil || expectedAmount == 0 || normalized.ValuationAmount != expectedAmount {
+			return fmt.Errorf("valued margin interest amount must match its persisted interest and historical rate")
+		}
+	}
 	identity := marginInterestIdentity(payment)
 	args := []interface{}{
 		strings.ToLower(strings.TrimSpace(payment.Exchange)), payment.Account, strings.TrimSpace(payment.AccountScope),
 		strings.ToUpper(strings.TrimSpace(payment.Asset)), strings.ToUpper(strings.TrimSpace(payment.RawAsset)), payment.Principal, payment.Interest, payment.Rate,
 		strings.ToUpper(strings.TrimSpace(payment.InterestType)), strings.ToUpper(strings.TrimSpace(payment.IsolatedSymbol)),
 		payment.TransactionID, utils.ToUTC(payment.AccruedAt), identity,
+		strings.ToUpper(strings.TrimSpace(payment.ValuationAsset)), payment.ValuationRate, payment.ValuationAmount, payment.ValuationStatus, payment.ValuationMinute, strings.TrimSpace(payment.ValuationSource),
 	}
 	query := `INSERT INTO margin_interest_payments
-		(exchange, account, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at, identity_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(identity_key) DO NOTHING`
+		(exchange, account, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at, identity_key, valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(identity_key) DO NOTHING`
 	if s.dbType == "mysql" {
 		query = `INSERT INTO margin_interest_payments
-			(exchange, account, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at, identity_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE identity_key=identity_key`
+			(exchange, account, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at, identity_key, valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE identity_key=identity_key`
 	}
 	_, err = s.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("save margin interest transaction %d: %w", payment.TransactionID, err)
 	}
+	if _, err := s.db.Exec(`UPDATE margin_interest_payments SET valuation_asset=?, valuation_rate=?, valuation_amount=?,
+		valuation_status='VALUED', valuation_minute=?, valuation_source=?
+		WHERE identity_key=? AND valuation_status='UNVALUED' AND ?='VALUED'`,
+		strings.ToUpper(strings.TrimSpace(payment.ValuationAsset)), payment.ValuationRate, payment.ValuationAmount,
+		payment.ValuationMinute, strings.TrimSpace(payment.ValuationSource), identity, payment.ValuationStatus); err != nil {
+		return fmt.Errorf("update margin interest valuation for transaction %d: %w", payment.TransactionID, err)
+	}
 	var existing MarginInterestPayment
-	err = s.db.QueryRow(`SELECT exchange, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at
+	err = s.db.QueryRow(`SELECT exchange, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at,
+		valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source
 		FROM margin_interest_payments WHERE identity_key = ?`, identity).Scan(
 		&existing.Exchange, &existing.AccountScope, &existing.Asset, &existing.RawAsset, &existing.Principal, &existing.Interest,
-		&existing.Rate, &existing.InterestType, &existing.IsolatedSymbol, &existing.TransactionID, &existing.AccruedAt)
+		&existing.Rate, &existing.InterestType, &existing.IsolatedSymbol, &existing.TransactionID, &existing.AccruedAt,
+		&existing.ValuationAsset, &existing.ValuationRate, &existing.ValuationAmount, &existing.ValuationStatus, &existing.ValuationMinute, &existing.ValuationSource)
 	if err != nil {
 		return fmt.Errorf("verify saved margin interest transaction %d: %w", payment.TransactionID, err)
 	}
@@ -86,6 +118,16 @@ func (s *SQLStorage) SaveMarginInterestAllocation(allocation *MarginInterestAllo
 	if normalized.Interest, err = roundMarginInterestDecimal12(normalized.Interest); err != nil {
 		return err
 	}
+	if normalized.ValuationRate, err = roundMarginInterestDecimal16(normalized.ValuationRate); err != nil {
+		return err
+	}
+	if normalized.ValuationAmount, err = roundMarginInterestDecimal12(normalized.ValuationAmount); err != nil {
+		return err
+	}
+	if normalized.ValuationStatus == "" {
+		normalized.ValuationStatus = "UNVALUED"
+	}
+	normalized.ValuationStatus = strings.ToUpper(strings.TrimSpace(normalized.ValuationStatus))
 	if strings.TrimSpace(normalized.Exchange) == "" || strings.TrimSpace(normalized.AccountScope) == "" ||
 		normalized.TransactionID <= 0 || strings.TrimSpace(normalized.BotID) == "" || strings.TrimSpace(normalized.Asset) == "" ||
 		strings.TrimSpace(normalized.RawAsset) == "" || !finiteNonNegative(normalized.BotPrincipal) || normalized.BotPrincipal <= 0 ||
@@ -94,28 +136,51 @@ func (s *SQLStorage) SaveMarginInterestAllocation(allocation *MarginInterestAllo
 		return fmt.Errorf("margin interest allocation requires exact Bot/account identity and positive verified amounts")
 	}
 	allocation = &normalized
+	if (allocation.ValuationStatus != "VALUED" && allocation.ValuationStatus != "UNVALUED") ||
+		!finiteNonNegative(allocation.ValuationRate) || !finiteNonNegative(allocation.ValuationAmount) ||
+		(allocation.ValuationStatus == "VALUED" && (strings.TrimSpace(allocation.ValuationAsset) == "" || allocation.ValuationRate <= 0 || allocation.ValuationMinute <= 0 || allocation.ValuationSource == "")) ||
+		(allocation.ValuationStatus == "UNVALUED" && allocation.ValuationAmount != 0) {
+		return fmt.Errorf("margin interest allocation valuation must be complete and finite or explicitly unvalued")
+	}
+	if allocation.ValuationStatus == "VALUED" {
+		expectedAmount, err := roundMarginInterestDecimal12(allocation.Interest * allocation.ValuationRate)
+		if err != nil || expectedAmount == 0 || math.Abs(normalized.ValuationAmount-expectedAmount) > 1e-12 {
+			return fmt.Errorf("margin interest allocation valuation must reconcile to its interest and historical rate")
+		}
+	}
 	identity := marginInterestAllocationIdentity(allocation)
 	args := []interface{}{
 		strings.ToLower(strings.TrimSpace(allocation.Exchange)), strings.TrimSpace(allocation.AccountScope), allocation.TransactionID,
 		strings.TrimSpace(allocation.BotID), strings.ToUpper(strings.TrimSpace(allocation.Asset)), strings.ToUpper(strings.TrimSpace(allocation.RawAsset)),
 		allocation.BotPrincipal, allocation.AccountPrincipal, allocation.Interest, utils.ToUTC(allocation.AccruedAt), identity,
+		strings.ToUpper(strings.TrimSpace(allocation.ValuationAsset)), allocation.ValuationRate, allocation.ValuationAmount,
+		allocation.ValuationStatus, allocation.ValuationMinute, strings.TrimSpace(allocation.ValuationSource),
 	}
 	query := `INSERT INTO margin_interest_allocations
-		(exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at, identity_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(identity_key) DO NOTHING`
+		(exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at, identity_key, valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(identity_key) DO NOTHING`
 	if s.dbType == "mysql" {
 		query = `INSERT INTO margin_interest_allocations
-			(exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at, identity_key)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE identity_key=identity_key`
+			(exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at, identity_key, valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE identity_key=identity_key`
 	}
 	if _, err := s.db.Exec(query, args...); err != nil {
 		return fmt.Errorf("save margin interest allocation tx=%d bot=%s: %w", allocation.TransactionID, allocation.BotID, err)
 	}
+	if _, err := s.db.Exec(`UPDATE margin_interest_allocations SET valuation_asset=?, valuation_rate=?, valuation_amount=?,
+		valuation_status='VALUED', valuation_minute=?, valuation_source=?
+		WHERE identity_key=? AND valuation_status='UNVALUED' AND ?='VALUED'`,
+		strings.ToUpper(strings.TrimSpace(allocation.ValuationAsset)), allocation.ValuationRate, allocation.ValuationAmount,
+		allocation.ValuationMinute, strings.TrimSpace(allocation.ValuationSource), identity, allocation.ValuationStatus); err != nil {
+		return fmt.Errorf("update margin interest allocation valuation tx=%d bot=%s: %w", allocation.TransactionID, allocation.BotID, err)
+	}
 	var existing MarginInterestAllocation
-	err = s.db.QueryRow(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at
+	err = s.db.QueryRow(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at,
+		valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source
 		FROM margin_interest_allocations WHERE identity_key = ?`, identity).Scan(
 		&existing.Exchange, &existing.AccountScope, &existing.TransactionID, &existing.BotID, &existing.Asset, &existing.RawAsset,
-		&existing.BotPrincipal, &existing.AccountPrincipal, &existing.Interest, &existing.AccruedAt)
+		&existing.BotPrincipal, &existing.AccountPrincipal, &existing.Interest, &existing.AccruedAt,
+		&existing.ValuationAsset, &existing.ValuationRate, &existing.ValuationAmount, &existing.ValuationStatus, &existing.ValuationMinute, &existing.ValuationSource)
 	if err != nil {
 		return fmt.Errorf("verify margin interest allocation tx=%d bot=%s: %w", allocation.TransactionID, allocation.BotID, err)
 	}
@@ -148,7 +213,8 @@ func (s *SQLStorage) ListMarginInterestAllocations(exchange, accountScope string
 	if strings.TrimSpace(exchange) == "" || strings.TrimSpace(accountScope) == "" || transactionID <= 0 {
 		return nil, fmt.Errorf("margin interest allocation lookup requires exact exchange, account scope, and transaction")
 	}
-	rows, err := s.db.Query(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at
+	rows, err := s.db.Query(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at,
+		valuation_asset, valuation_rate, valuation_amount, valuation_status, valuation_minute, valuation_source
 		FROM margin_interest_allocations WHERE LOWER(TRIM(exchange))=? AND account_scope=? AND transaction_id=? ORDER BY bot_id`,
 		strings.ToLower(strings.TrimSpace(exchange)), strings.TrimSpace(accountScope), transactionID)
 	if err != nil {
@@ -159,7 +225,8 @@ func (s *SQLStorage) ListMarginInterestAllocations(exchange, accountScope string
 	for rows.Next() {
 		allocation := &MarginInterestAllocation{}
 		if err := rows.Scan(&allocation.Exchange, &allocation.AccountScope, &allocation.TransactionID, &allocation.BotID, &allocation.Asset,
-			&allocation.RawAsset, &allocation.BotPrincipal, &allocation.AccountPrincipal, &allocation.Interest, &allocation.AccruedAt); err != nil {
+			&allocation.RawAsset, &allocation.BotPrincipal, &allocation.AccountPrincipal, &allocation.Interest, &allocation.AccruedAt,
+			&allocation.ValuationAsset, &allocation.ValuationRate, &allocation.ValuationAmount, &allocation.ValuationStatus, &allocation.ValuationMinute, &allocation.ValuationSource); err != nil {
 			return nil, fmt.Errorf("scan margin interest allocation tx=%d: %w", transactionID, err)
 		}
 		allocations = append(allocations, allocation)

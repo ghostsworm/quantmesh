@@ -992,6 +992,12 @@ CREATE TABLE IF NOT EXISTS margin_interest_payments (
   transaction_id BIGINT NOT NULL,
   accrued_at TIMESTAMP(3) NOT NULL,
   identity_key CHAR(64) NOT NULL,
+  valuation_asset VARCHAR(32) NOT NULL DEFAULT '',
+  valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0,
+  valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  valuation_status VARCHAR(16) NOT NULL DEFAULT 'UNVALUED',
+  valuation_minute BIGINT NOT NULL DEFAULT 0,
+  valuation_source VARCHAR(64) NOT NULL DEFAULT '',
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_margin_interest_identity (identity_key),
   KEY idx_margin_interest_scope_asset_time (account_scope, exchange, asset, accrued_at)
@@ -1001,6 +1007,18 @@ CREATE TABLE IF NOT EXISTS margin_interest_payments (
 	}
 	if err := ensureMySQLColumn(db, "margin_interest_payments", "raw_asset", `ALTER TABLE margin_interest_payments ADD COLUMN raw_asset VARCHAR(32) NOT NULL DEFAULT '' AFTER asset`); err != nil {
 		return err
+	}
+	for _, column := range []struct{ name, statement string }{
+		{"valuation_asset", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_asset VARCHAR(32) NOT NULL DEFAULT ''`},
+		{"valuation_rate", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0`},
+		{"valuation_amount", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0`},
+		{"valuation_status", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_status VARCHAR(16) NOT NULL DEFAULT 'UNVALUED'`},
+		{"valuation_minute", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_minute BIGINT NOT NULL DEFAULT 0`},
+		{"valuation_source", `ALTER TABLE margin_interest_payments ADD COLUMN valuation_source VARCHAR(64) NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureMySQLColumn(db, "margin_interest_payments", column.name, column.statement); err != nil {
+			return err
+		}
 	}
 	_, err = db.Exec(`
 CREATE TABLE IF NOT EXISTS margin_interest_sync_state (
@@ -1028,11 +1046,32 @@ CREATE TABLE IF NOT EXISTS margin_interest_sync_state (
   interest DECIMAL(30,12) NOT NULL,
   accrued_at TIMESTAMP(3) NOT NULL,
   identity_key CHAR(64) NOT NULL,
+  valuation_asset VARCHAR(32) NOT NULL DEFAULT '',
+  valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0,
+  valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0,
+  valuation_status VARCHAR(16) NOT NULL DEFAULT 'UNVALUED',
+  valuation_minute BIGINT NOT NULL DEFAULT 0,
+  valuation_source VARCHAR(64) NOT NULL DEFAULT '',
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_margin_interest_allocation_identity (identity_key),
   KEY idx_margin_interest_allocations_bot_time (account_scope, exchange, bot_id, accrued_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
-	return err
+	if err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, statement string }{
+		{"valuation_asset", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_asset VARCHAR(32) NOT NULL DEFAULT ''`},
+		{"valuation_rate", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_rate DECIMAL(30,16) NOT NULL DEFAULT 0`},
+		{"valuation_amount", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_amount DECIMAL(30,12) NOT NULL DEFAULT 0`},
+		{"valuation_status", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_status VARCHAR(16) NOT NULL DEFAULT 'UNVALUED'`},
+		{"valuation_minute", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_minute BIGINT NOT NULL DEFAULT 0`},
+		{"valuation_source", `ALTER TABLE margin_interest_allocations ADD COLUMN valuation_source VARCHAR(64) NOT NULL DEFAULT ''`},
+	} {
+		if err := ensureMySQLColumn(db, "margin_interest_allocations", column.name, column.statement); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateMarketInterpretTasksTableMySQL(db *sql.DB) error {

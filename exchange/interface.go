@@ -229,15 +229,21 @@ type MarginTransactionByIDQuerier interface {
 // MarginInterestRecord is an exchange-confirmed interest charge. Cross-margin
 // records intentionally have no symbol attribution.
 type MarginInterestRecord struct {
-	TransactionID  int64
-	AccruedAt      int64
-	Asset          string
-	RawAsset       string
-	Principal      float64
-	Interest       float64
-	Rate           float64
-	Type           string
-	IsolatedSymbol string
+	TransactionID   int64
+	AccruedAt       int64
+	Asset           string
+	RawAsset        string
+	Principal       float64
+	Interest        float64
+	Rate            float64
+	Type            string
+	IsolatedSymbol  string
+	ValuationAsset  string
+	ValuationRate   float64
+	ValuationAmount float64
+	ValuationStatus string
+	ValuationMinute int64
+	ValuationSource string
 }
 
 // MarginInterestHistoryQuerier reads a bounded, paginated interest-history window.
