@@ -2061,28 +2061,58 @@ func (spm *SuperPositionManager) GetNetPositionQtyVerified() (float64, bool) {
 // GetPendingBuyOrderValueUSDT 獲取當前掛單買單佔用的資金（USDT），用於資金管理展示
 // 統計所有 OrderSide=BUY 且 OrderStatus 為 Placed/Confirmed/PartiallyFilled 的訂單金額
 func (spm *SuperPositionManager) GetPendingBuyOrderValueUSDT() float64 {
+	value, verified := spm.GetPendingBuyOrderValueUSDTVerified()
+	if !verified {
+		return math.MaxFloat64
+	}
+	return value
+}
+
+func (spm *SuperPositionManager) GetPendingBuyOrderValueUSDTVerified() (float64, bool) {
 	orderQty := spm.config.Trading.OrderQuantity
+	if !finiteGridValue(orderQty) || orderQty < 0 {
+		return 0, false
+	}
 	var total float64
+	verified := true
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.OrderSide == "BUY" && slot.OrderPrice > 0 &&
-			(slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
-				slot.OrderStatus == OrderStatusPartiallyFilled) {
+		pending := slot.OrderStatus == OrderStatusPlaced || slot.OrderStatus == OrderStatusConfirmed ||
+			slot.OrderStatus == OrderStatusPartiallyFilled
+		if slot.OrderSide == "BUY" && pending {
+			if !finiteGridValue(slot.OrderPrice) || slot.OrderPrice <= 0 || !finiteGridValue(slot.OrderFilledQty) || slot.OrderFilledQty < 0 {
+				verified = false
+				slot.mu.RUnlock()
+				return true
+			}
 			orderValue := orderQty
 			if slot.OrderFilledQty > 0 {
 				filledValue := slot.OrderPrice * slot.OrderFilledQty
+				if !finiteGridValue(filledValue) {
+					verified = false
+					slot.mu.RUnlock()
+					return true
+				}
 				orderValue = orderQty - filledValue
 				if orderValue < 0 {
 					orderValue = 0
 				}
 			}
-			total += orderValue
+			nextTotal := total + orderValue
+			if !finiteGridValue(nextTotal) {
+				verified = false
+			} else {
+				total = nextTotal
+			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return total
+	if !verified {
+		return 0, false
+	}
+	return total, true
 }
 
 // GetPriceInterval 獲取價格间隔

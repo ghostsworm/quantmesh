@@ -293,6 +293,9 @@ func TestSuperPositionManagerPnLInventoryAndCleanup(t *testing.T) {
 	if got := spm.GetPendingBuyOrderValueUSDT(); math.Abs(got-(1000-497)) > 1e-9 {
 		t.Fatalf("GetPendingBuyOrderValueUSDT() = %.4f, want 503", got)
 	}
+	if got, ok := spm.GetPendingBuyOrderValueUSDTVerified(); !ok || math.Abs(got-(1000-497)) > 1e-9 {
+		t.Fatalf("verified pending-buy value = %.4f/%v, want 503/true", got, ok)
+	}
 	if got := spm.GetUnrealizedPnL(50100); math.Abs(got-70) > 1e-9 {
 		t.Fatalf("GetUnrealizedPnL() = %.4f, want 70", got)
 	}
@@ -340,6 +343,22 @@ func TestPositionValueAggregationsRejectOverflow(t *testing.T) {
 	}
 	if got := spm.GetTotalPositionValueAtPrice(2); got != math.MaxFloat64 {
 		t.Fatalf("legacy mark-price exposure sentinel = %v, want MaxFloat64", got)
+	}
+}
+
+func TestPendingBuyOrderValueRejectsMalformedOrderInsteadOfOmittingIt(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	slot := spm.getOrCreateSlot(100)
+	slot.mu.Lock()
+	slot.OrderSide = "BUY"
+	slot.OrderStatus = OrderStatusPlaced
+	slot.OrderPrice = math.NaN()
+	slot.mu.Unlock()
+	if value, ok := spm.GetPendingBuyOrderValueUSDTVerified(); ok || value != 0 {
+		t.Fatalf("malformed pending order exposure = %v/%v, want 0/false", value, ok)
+	}
+	if got := spm.GetPendingBuyOrderValueUSDT(); got != math.MaxFloat64 {
+		t.Fatalf("legacy pending-order sentinel = %v, want MaxFloat64", got)
 	}
 }
 
