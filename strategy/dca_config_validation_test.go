@@ -49,3 +49,47 @@ func TestValidateDCAEnhancedConfigAcceptsZeroSafetyLayers(t *testing.T) {
 		t.Fatalf("zero safety layers should allow a base-only DCA config: %v", err)
 	}
 }
+
+func TestValidateDCAEnhancedConfigRejectsOverflowingSafetyOrderProgression(t *testing.T) {
+	cfg := defaultDCAEnhancedConfig()
+	cfg.SafetyOrderAmount = math.MaxFloat64 * 0.75
+	cfg.SafetyOrderScale = 2
+	cfg.MaxSafetyOrders = 2
+	if err := validateDCAEnhancedConfig(cfg); err == nil || !strings.Contains(err.Error(), "progression") {
+		t.Fatalf("expected overflowing safety-order progression to be rejected, got %v", err)
+	}
+}
+
+func TestDCARoundQuantityDownRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name     string
+		quantity float64
+		decimals int
+	}{
+		{name: "nan quantity", quantity: math.NaN(), decimals: 2},
+		{name: "infinite quantity", quantity: math.Inf(1), decimals: 2},
+		{name: "scaled overflow", quantity: math.MaxFloat64, decimals: 1},
+		{name: "negative precision", quantity: 1, decimals: -1},
+		{name: "excessive precision", quantity: 1, decimals: 19},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if quantity, err := dcaRoundQuantityDown(test.quantity, test.decimals); err == nil {
+				t.Fatalf("expected invalid quantity to be rejected, got %v", quantity)
+			}
+		})
+	}
+}
+
+func TestDCAOnPriceRejectsInvalidMarketPricesWithoutMutatingState(t *testing.T) {
+	prices := []float64{math.NaN(), math.Inf(1), math.Inf(-1), 0, -1}
+	for _, price := range prices {
+		strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", nil, nil, nil, nil)
+		if err := strategy.onPrice(price, true); err == nil {
+			t.Fatalf("onPrice(%v) should reject invalid market price", price)
+		}
+		if len(strategy.priceHistory) != 0 || len(strategy.layers) != 0 || strategy.totalQty != 0 {
+			t.Fatalf("onPrice(%v) mutated state: prices=%d layers=%d quantity=%v", price, len(strategy.priceHistory), len(strategy.layers), strategy.totalQty)
+		}
+	}
+}

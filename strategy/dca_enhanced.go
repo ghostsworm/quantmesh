@@ -365,6 +365,12 @@ func validateDCAEnhancedConfig(cfg *DCAEnhancedConfig) error {
 	if cfg.MinPriceStep > cfg.MaxPriceStep {
 		return fmt.Errorf("min_price_step must not exceed max_price_step")
 	}
+	if cfg.MaxSafetyOrders > 0 {
+		largestSafetyOrder := cfg.SafetyOrderAmount * math.Pow(cfg.SafetyOrderScale, float64(cfg.MaxSafetyOrders-1))
+		if !signalFinite(largestSafetyOrder) || largestSafetyOrder <= 0 {
+			return fmt.Errorf("configured safety order progression overflows finite amount")
+		}
+	}
 	if cfg.CascadePauseDuration < 0 || cfg.CascadePauseDuration > 86400 {
 		return fmt.Errorf("cascade_pause_duration must be between 0 and 86400 seconds")
 	}
@@ -654,10 +660,39 @@ func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 }
 
 // roundPrice 根據交易所精度格式化價格
-func (s *DCAEnhancedStrategy) roundPrice(price float64) float64 {
+func (s *DCAEnhancedStrategy) roundPrice(price float64) (float64, error) {
+	if !signalFinite(price) || price <= 0 {
+		return 0, fmt.Errorf("price must be finite and positive")
+	}
 	decimals := s.exchange.GetPriceDecimals()
-	multiplier := math.Pow(10, float64(decimals))
-	return math.Round(price*multiplier) / multiplier
+	if decimals < 0 || decimals > 18 {
+		return 0, fmt.Errorf("exchange price precision %d is outside supported range", decimals)
+	}
+	multiplier := math.Pow10(decimals)
+	rounded := math.Round(price*multiplier) / multiplier
+	if !signalFinite(rounded) || rounded <= 0 {
+		return 0, fmt.Errorf("rounded order price is not finite and positive")
+	}
+	return rounded, nil
+}
+
+func dcaRoundQuantityDown(quantity float64, decimals int) (float64, error) {
+	if !signalFinite(quantity) || quantity < 0 {
+		return 0, fmt.Errorf("order quantity must be finite and non-negative")
+	}
+	if decimals < 0 || decimals > 18 {
+		return 0, fmt.Errorf("exchange quantity precision %d is outside supported range", decimals)
+	}
+	multiplier := math.Pow10(decimals)
+	scaled := quantity * multiplier
+	if !signalFinite(scaled) {
+		return 0, fmt.Errorf("scaled order quantity is not finite")
+	}
+	rounded := math.Floor(scaled) / multiplier
+	if !signalFinite(rounded) || rounded < 0 {
+		return 0, fmt.Errorf("rounded order quantity is invalid")
+	}
+	return rounded, nil
 }
 
 // Stop 停止策略
@@ -693,6 +728,9 @@ func (s *DCAEnhancedStrategy) OnPriceChangeRiskOnly(price float64) error {
 
 // onPrice 價格處理主流程；allowOpening=false 時跳过开倉/加倉
 func (s *DCAEnhancedStrategy) onPrice(price float64, allowOpening bool) error {
+	if !signalFinite(price) || price <= 0 {
+		return fmt.Errorf("DCA market price must be finite and positive")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -852,12 +890,22 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	}
 
 	// 格式化價格
-	orderPrice := s.roundPrice(price)
+	orderPrice, err := s.roundPrice(price)
+	if err != nil {
+		return fmt.Errorf("round DCA base order price: %w", err)
+	}
 	quantity := s.strategyCfg.BaseOrderAmount / orderPrice
 
 	// 🔥 精度处理：根據交易所要求的精度截断數量
 	qDec := s.exchange.GetQuantityDecimals()
-	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+	quantity, err = dcaRoundQuantityDown(quantity, qDec)
+	if err != nil {
+		s.isPaused = true
+		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+			return fmt.Errorf("invalid DCA base order quantity: %v; persist fail-closed pause: %w", err, persistErr)
+		}
+		return fmt.Errorf("invalid DCA base order quantity; strategy paused: %w", err)
+	}
 
 	if quantity <= 0 {
 		minQty := math.Pow10(-qDec)
@@ -944,12 +992,22 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 
 	// 计算安全订單金額（遞增）
 	orderAmount := s.strategyCfg.SafetyOrderAmount * math.Pow(s.strategyCfg.SafetyOrderScale, float64(s.currentLayer-1))
-	orderPrice := s.roundPrice(price)
+	orderPrice, err := s.roundPrice(price)
+	if err != nil {
+		return fmt.Errorf("round DCA safety order price: %w", err)
+	}
 	quantity := orderAmount / orderPrice
 
 	// 🔥 精度处理：根據交易所要求的精度截断數量
 	qDec := s.exchange.GetQuantityDecimals()
-	quantity = math.Floor(quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+	quantity, err = dcaRoundQuantityDown(quantity, qDec)
+	if err != nil {
+		s.isPaused = true
+		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+			return fmt.Errorf("invalid DCA safety order quantity: %v; persist fail-closed pause: %w", err, persistErr)
+		}
+		return fmt.Errorf("invalid DCA safety order quantity; strategy paused: %w", err)
+	}
 
 	if quantity <= 0 {
 		minQty := math.Pow10(-qDec)
@@ -1141,13 +1199,19 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 	// 🔥 精度处理：确保平倉數量符合交易所要求
 	qDec := s.exchange.GetQuantityDecimals()
-	qty := math.Floor(s.totalQty*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+	qty, err := dcaRoundQuantityDown(s.totalQty, qDec)
+	if err != nil {
+		return fmt.Errorf("invalid DCA position quantity for close: %w", err)
+	}
 
 	if qty <= 0 {
 		return nil
 	}
 
-	orderPrice := s.roundPrice(price)
+	orderPrice, err := s.roundPrice(price)
+	if err != nil {
+		return fmt.Errorf("round DCA close order price: %w", err)
+	}
 
 	// 判斷订單來源（止损/止盈）
 	orderSource := "stop_loss"
@@ -1211,11 +1275,17 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 	}
 
 	qDec := s.exchange.GetQuantityDecimals()
-	qty := math.Floor(layer.Quantity*math.Pow(10, float64(qDec))) / math.Pow(10, float64(qDec))
+	qty, err := dcaRoundQuantityDown(layer.Quantity, qDec)
+	if err != nil {
+		return fmt.Errorf("invalid DCA layer quantity for close: %w", err)
+	}
 	if qty <= 0 {
 		return nil
 	}
-	orderPrice := s.roundPrice(price)
+	orderPrice, err := s.roundPrice(price)
+	if err != nil {
+		return fmt.Errorf("round DCA last-layer close price: %w", err)
+	}
 
 	if s.cancelPendingLayers() {
 		logger.Warn("⚠️ [%s] 等待未成交 DCA 開倉單撤單終態，暫不提交尾層平倉單", s.name)
