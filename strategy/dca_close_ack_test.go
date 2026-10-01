@@ -46,6 +46,52 @@ func TestDCAPlacementAckCannotSettleCloseWithoutActualFillAndFee(t *testing.T) {
 	}
 }
 
+func TestDCAProfitAndLossTriggersUseFeeAdjustedReturn(t *testing.T) {
+	t.Run("take profit waits until estimated net target", func(t *testing.T) {
+		executor := &hedgeOrderExecutor{}
+		cfg := &config.Config{}
+		cfg.Exchanges = map[string]config.ExchangeConfig{"mock": {FeeRate: 0.005}}
+		strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 100}, map[string]interface{}{
+			"first_order_take_profit": 0.5, "total_take_profit": 5, "trailing_activation": 5, "stop_loss": 50,
+		})
+		setTestRuntimeStateStore(t, strategy)
+		strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, OpeningFee: 0.2, Status: entryStatusFilled}}
+		strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+
+		if err := strategy.checkTakeProfitStopLoss(101); err != nil {
+			t.Fatalf("checkTakeProfitStopLoss() error = %v", err)
+		}
+		if len(executor.orders) != 0 {
+			t.Fatal("gross-profit threshold must not trigger while estimated net return is below target")
+		}
+		if err := strategy.checkTakeProfitStopLoss(101.21); err != nil {
+			t.Fatalf("checkTakeProfitStopLoss() at net target error = %v", err)
+		}
+		if len(executor.orders) != 1 {
+			t.Fatalf("expected one close after estimated net target, got %d", len(executor.orders))
+		}
+	})
+
+	t.Run("stop loss includes already paid opening fee", func(t *testing.T) {
+		executor := &hedgeOrderExecutor{}
+		cfg := &config.Config{}
+		cfg.Exchanges = map[string]config.ExchangeConfig{"mock": {FeeRate: 0}}
+		strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 100}, map[string]interface{}{
+			"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 10, "stop_loss": 0.1,
+		})
+		setTestRuntimeStateStore(t, strategy)
+		strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, OpeningFee: 0.2, Status: entryStatusFilled}}
+		strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+
+		if err := strategy.checkTakeProfitStopLoss(100); err != nil {
+			t.Fatalf("checkTakeProfitStopLoss() error = %v", err)
+		}
+		if len(executor.orders) != 1 || executor.orders[0].OrderSource != "stop_loss" {
+			t.Fatalf("expected fee-adjusted stop loss order, got %+v", executor.orders)
+		}
+	})
+}
+
 func TestDCAOverfilledCloseRetainsInventoryAndRequiresReconciliation(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)

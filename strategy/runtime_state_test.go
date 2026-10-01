@@ -329,6 +329,35 @@ func TestDCARecoversUnknownEntryAndCloseSubmissionByClientOrderID(t *testing.T) 
 	}
 }
 
+func TestDCARuntimeStateMigrationResetsGrossTrailingPeak(t *testing.T) {
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	legacy := dcaRuntimeState{
+		BotID: strategy.effectiveBotID(), StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 0,
+		HighestProfit: 2.5, TakeProfitTriggered: true,
+		Stats: StrategyStatistics{}, Layers: []*DCALayer{}, CloseLayerIndex: -1,
+	}
+	payload, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: 1, payload: string(payload), found: true}
+	strategy.SetRuntimeStateStore(store)
+	if err := strategy.Start(context.Background()); err != nil {
+		t.Fatalf("Start() migration error = %v", err)
+	}
+	defer strategy.Stop()
+	if store.version != dcaRuntimeStateSchemaVersion {
+		t.Fatalf("runtime state version = %d, want %d", store.version, dcaRuntimeStateSchemaVersion)
+	}
+	var migrated dcaRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &migrated); err != nil {
+		t.Fatal(err)
+	}
+	if migrated.HighestProfit != 0 || migrated.TakeProfitTriggered {
+		t.Fatalf("legacy gross-return trailing state was not reset: peak=%v triggered=%v", migrated.HighestProfit, migrated.TakeProfitTriggered)
+	}
+}
+
 func TestDCAInvalidPersistedIdentityBlocksStart(t *testing.T) {
 	store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: `{ "bot_id": "wrong" }`, found: true}
 	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)

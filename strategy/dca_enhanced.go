@@ -83,7 +83,7 @@ type DCAEnhancedStrategy struct {
 	runtimeStateErr   error
 }
 
-const dcaRuntimeStateSchemaVersion = 1
+const dcaRuntimeStateSchemaVersion = 2
 
 const dcaPendingCancelRetryInterval = 3 * time.Second
 
@@ -486,12 +486,19 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	if !found {
 		return nil
 	}
-	if version != dcaRuntimeStateSchemaVersion {
+	legacyFeeBasis := version == 1
+	if version != dcaRuntimeStateSchemaVersion && !legacyFeeBasis {
 		return fmt.Errorf("unsupported DCA runtime state schema version %d", version)
 	}
 	var state dcaRuntimeState
 	if err := json.Unmarshal([]byte(payload), &state); err != nil {
 		return fmt.Errorf("decode DCA runtime state: %w", err)
+	}
+	if legacyFeeBasis {
+		// Version 1 stored gross-return trailing peaks. Reset them rather than
+		// comparing gross historical peaks with the fee-adjusted return basis.
+		state.HighestProfit = 0
+		state.TakeProfitTriggered = false
 	}
 	for _, layer := range state.Layers {
 		if layer != nil && layer.Status == entryStatusPending && layer.RequestedQuantity == 0 &&
@@ -635,6 +642,11 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 		return fmt.Errorf("DCA close state is missing its order identity")
 	}
 	s.stats = &state.Stats
+	if legacyFeeBasis {
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			return fmt.Errorf("migrate DCA runtime state to fee-adjusted return basis: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -1197,10 +1209,12 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 		return nil
 	}
 
-	// 计算當前盈亏
-	currentValue := s.totalQty * price
-	pnl := currentValue - s.totalCost
-	pnlPercent := pnl / s.totalCost * 100
+	// 用净收益估算触发退出；开仓费采用已核实金额，平仓费采用交易所配置费率估算。
+	openingFee := 0.0
+	for _, layer := range filled {
+		openingFee += layer.OpeningFee
+	}
+	pnlPercent := s.estimatedNetPnLPercent(s.totalQty, s.totalCost, openingFee, price)
 
 	// 更新最高盈利点
 	if pnlPercent > s.highestProfit {
@@ -1216,7 +1230,7 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 	// 2. 尾單止盈检查（S2：只平最后一层，保留其余层继续等待全倉止盈）
 	if len(filled) > 1 {
 		lastLayer := filled[len(filled)-1]
-		lastPnlPercent := (price - lastLayer.Price) / lastLayer.Price * 100
+		lastPnlPercent := s.estimatedNetPnLPercent(lastLayer.Quantity, lastLayer.Cost, lastLayer.OpeningFee, price)
 		if lastPnlPercent >= s.strategyCfg.LastOrderTakeProfit {
 			logger.Info("💰 [%s] 尾單止盈触发: 尾單(层级 %d)盈利=%.2f%%", s.name, lastLayer.Index, lastPnlPercent)
 			return s.closeLastLayer(lastLayer, price)
@@ -1251,6 +1265,30 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 	}
 
 	return nil
+}
+
+func (s *DCAEnhancedStrategy) estimatedNetPnLPercent(quantity, cost, openingFee, price float64) float64 {
+	if !finiteNumber(quantity) || quantity <= 0 || !finiteNumber(cost) || cost <= 0 ||
+		!finiteNumber(openingFee) || openingFee < 0 || !finiteNumber(price) || price <= 0 {
+		return math.Inf(-1)
+	}
+	feeRate := 0.0
+	if s.cfg != nil && s.exchange != nil {
+		for name, exchangeCfg := range s.cfg.Exchanges {
+			if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(s.exchange.GetName())) {
+				if finiteNumber(exchangeCfg.FeeRate) && exchangeCfg.FeeRate >= 0 && exchangeCfg.FeeRate <= 1 {
+					feeRate = exchangeCfg.FeeRate
+				}
+				break
+			}
+		}
+	}
+	closeFeeEstimate := quantity * price * feeRate
+	netPnL := quantity*price - cost - openingFee - closeFeeEstimate
+	if !finiteNumber(netPnL) {
+		return math.Inf(-1)
+	}
+	return netPnL / cost * 100
 }
 
 // closeAllPositions 平倉所有倉位
