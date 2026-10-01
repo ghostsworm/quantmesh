@@ -171,17 +171,18 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 			base = symbol
 		}
 	}
-	var debt float64
+	var borrowed, interest float64
 	for _, ua := range acc.UserAssets {
-		if ua.Asset == base {
-			_, borrowed, interest, _, err := parseMarginUserAsset(ua)
-			if err != nil {
-				return nil, fmt.Errorf("parse Binance margin debt for %s: %w", base, err)
+		if strings.EqualFold(ua.Asset, base) {
+			_, borrowedAmount, interestAmount, _, parseErr := parseMarginUserAsset(ua)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parse Binance margin debt for %s: %w", base, parseErr)
 			}
-			debt = borrowed + interest
+			borrowed, interest = borrowedAmount, interestAmount
 			break
 		}
 	}
+	debt := borrowed + interest
 	if debt <= 0 {
 		// A successful account response with no principal or interest is an
 		// authoritative flat snapshot, not an unavailable snapshot. Runtime
@@ -194,14 +195,17 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 	}
 	// 空倉負債包括本金與已累計利息。
 	return []*Position{{
-		Symbol:         symbol,
-		Size:           -debt,
-		EntryPrice:     price,
-		MarkPrice:      price,
-		UnrealizedPNL:  0,
-		Leverage:       1,
-		MarginType:     "cross",
-		IsolatedMargin: 0,
+		Symbol:          symbol,
+		Size:            -debt,
+		MarginBorrowed:  borrowed,
+		MarginInterest:  interest,
+		MarginDebtKnown: true,
+		EntryPrice:      price,
+		MarkPrice:       price,
+		UnrealizedPNL:   0,
+		Leverage:        1,
+		MarginType:      "cross",
+		IsolatedMargin:  0,
 	}}, nil
 }
 

@@ -77,15 +77,18 @@ type Order struct {
 
 // Position 持倉資訊（通用）
 type Position struct {
-	Symbol         string
-	Size           float64 // 正數表示多倉，负數表示空倉
-	PositionSide   string  // LONG/SHORT 仅在交易所提供逐腿权威快照时填写；BOTH/NET 表示净仓模式
-	EntryPrice     float64
-	MarkPrice      float64
-	UnrealizedPNL  float64
-	Leverage       int
-	MarginType     string
-	IsolatedMargin float64
+	Symbol          string
+	Size            float64 // 正數表示多倉，负數表示空倉
+	MarginBorrowed  float64 // Margin account principal liability, when provided
+	MarginInterest  float64 // Accrued margin interest, when provided
+	MarginDebtKnown bool    // True when borrowed and interest are authoritative
+	PositionSide    string  // LONG/SHORT 仅在交易所提供逐腿权威快照时填写；BOTH/NET 表示净仓模式
+	EntryPrice      float64
+	MarkPrice       float64
+	UnrealizedPNL   float64
+	Leverage        int
+	MarginType      string
+	IsolatedMargin  float64
 }
 
 // Account 帳戶資訊（通用）

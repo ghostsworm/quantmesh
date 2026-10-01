@@ -91,7 +91,8 @@ func TestBinanceSpotMarginAdapterUsesInterestAwareAccountEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetPositions: %v", err)
 	}
-	if len(positions) != 1 || math.Abs(positions[0].Size+1.01) > 1e-12 {
+	if len(positions) != 1 || math.Abs(positions[0].Size+1.01) > 1e-12 ||
+		!positions[0].MarginDebtKnown || positions[0].MarginBorrowed != 1 || positions[0].MarginInterest != 0.01 {
 		t.Fatalf("margin short position=%+v, want principal plus interest -1.01", positions)
 	}
 }

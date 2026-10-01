@@ -298,6 +298,8 @@ type mockFCExchange struct {
 	getOrderStatus     exchange.OrderStatus
 	getOrderExecQty    float64
 	repayCalls         int
+	repayAmount        float64
+	clearDebtOnRepay   bool
 	returnNilPositions bool
 	returnNilOrders    bool
 	mu                 sync.Mutex
@@ -410,10 +412,14 @@ func (m *mockFCExchange) GetBalance(ctx context.Context, asset string) (float64,
 	return m.balance, m.balanceErr
 }
 func (m *mockFCExchange) Borrow(context.Context, string, float64) (int64, error) { return 1, nil }
-func (m *mockFCExchange) Repay(context.Context, string, float64) (int64, error) {
+func (m *mockFCExchange) Repay(_ context.Context, _ string, amount float64) (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.repayCalls++
+	m.repayAmount = amount
+	if m.clearDebtOnRepay {
+		m.positions = []*exchange.Position{}
+	}
 	return int64(m.repayCalls), nil
 }
 func (m *mockFCExchange) PlaceOrder(ctx context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {
@@ -670,6 +676,45 @@ func TestFundingCarryRuntimePositionSyncBlocksOnNilSnapshots(t *testing.T) {
 	}
 }
 
+func TestSyncPositions_ReverseMatchesOwnedPrincipalAndAllowsAccruedInterest(t *testing.T) {
+	futures := &mockFCExchange{
+		quantityDecimals: 3,
+		positions:        []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.4}},
+	}
+	spot := &mockFCExchange{baseAsset: "BTC", quantityDecimals: 3}
+	margin := &mockFCExchange{
+		baseAsset: "BTC", quantityDecimals: 3,
+		positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4005, MarginBorrowed: 0.4, MarginInterest: 0.0005, MarginDebtKnown: true}},
+	}
+	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+	s.direction, s.futQty, s.marginDebt, s.strategySpotKnown = DirectionReverse, 0.4, 0.4, true
+
+	if err := s.syncPositions(context.Background()); err != nil {
+		t.Fatalf("syncPositions rejected owned principal plus accrued interest: %v", err)
+	}
+	if s.unownedExposure {
+		t.Fatal("valid accrued interest latched unowned exposure")
+	}
+}
+
+func TestSyncPositions_ReverseRejectsUnownedMarginPrincipal(t *testing.T) {
+	futures := &mockFCExchange{quantityDecimals: 3, positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.4}}}
+	spot := &mockFCExchange{baseAsset: "BTC", quantityDecimals: 3}
+	margin := &mockFCExchange{
+		baseAsset: "BTC", quantityDecimals: 3,
+		positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4105, MarginBorrowed: 0.41, MarginInterest: 0.0005, MarginDebtKnown: true}},
+	}
+	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
+	s.direction, s.futQty, s.marginDebt, s.strategySpotKnown = DirectionReverse, 0.4, 0.4, true
+
+	if err := s.syncPositions(context.Background()); err == nil {
+		t.Fatal("syncPositions accepted margin principal exceeding Bot-owned borrow")
+	}
+	if !s.unownedExposure {
+		t.Fatal("unowned margin principal did not latch the trading block")
+	}
+}
+
 func TestFundingCarryRuntimePositionSyncBlocksOnSpotBalanceFailure(t *testing.T) {
 	futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", positions: []*exchange.Position{}}
 	spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC", balanceErr: errors.New("balance API unavailable")}
@@ -850,7 +895,7 @@ func TestCloseReverse_DoesNotRepayBeforeDebtBuybackIsComplete(t *testing.T) {
 	futEx := &mockFCExchange{quantityDecimals: 3, priceDecimals: 2}
 	marginEx := &mockFCExchange{
 		baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2,
-		positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4}},
+		positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4005, MarginBorrowed: 0.4, MarginInterest: 0.0005, MarginDebtKnown: true}},
 		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.2,
 	}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, marginEx, nil)
@@ -864,8 +909,35 @@ func TestCloseReverse_DoesNotRepayBeforeDebtBuybackIsComplete(t *testing.T) {
 	if marginEx.repayCalls != 0 {
 		t.Fatalf("repay called %d times before full debt buyback", marginEx.repayCalls)
 	}
+	if len(marginEx.placedOrders) != 1 || marginEx.placedOrders[0].Quantity <= 0.4 {
+		t.Fatalf("buyback did not include accrued interest: orders=%+v", marginEx.placedOrders)
+	}
 	if s.direction != DirectionReverse || s.marginDebt != 0.4 || !s.unownedExposure {
 		t.Fatalf("incomplete reverse close lost ownership record: direction=%v debt=%v blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
+	}
+}
+
+func TestCloseReverseRepaysOwnedPrincipalAndAccruedInterest(t *testing.T) {
+	spotEx := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
+	futEx := &mockFCExchange{quantityDecimals: 3, priceDecimals: 2}
+	marginEx := &mockFCExchange{
+		baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2,
+		positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4005, MarginBorrowed: 0.4, MarginInterest: 0.0005, MarginDebtKnown: true}},
+		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.401,
+		clearDebtOnRepay: true,
+	}
+	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, marginEx, nil)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.direction, s.marginDebt = DirectionReverse, 0.4
+
+	if err := s.closeReverse(context.Background(), "test_interest_repayment"); err != nil {
+		t.Fatalf("closeReverse failed with accrued interest: %v", err)
+	}
+	if marginEx.repayCalls != 1 || math.Abs(marginEx.repayAmount-0.4005) > 1e-9 {
+		t.Fatalf("repay calls=%d amount=%.8f, want one repayment of principal plus interest 0.4005", marginEx.repayCalls, marginEx.repayAmount)
+	}
+	if s.direction != DirectionNone || s.marginDebt != 0 || s.unownedExposure {
+		t.Fatalf("close did not persist verified flat state: direction=%v debt=%.8f blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
 	}
 }
 

@@ -1442,7 +1442,7 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	}
 
 	// 保證金借幣負債（反向套利用）
-	var debt float64
+	var debt, debtInterest float64
 	if s.marginEx != nil {
 		marginPos, e := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if e != nil {
@@ -1456,7 +1456,12 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 				return s.blockOnUnownedExposure(errors.New("spot-margin position snapshot contains invalid data"))
 			}
 			if mp.Size < 0 {
-				debt += math.Abs(mp.Size)
+				if !mp.MarginDebtKnown || !finiteNonNegative(mp.MarginBorrowed) || !finiteNonNegative(mp.MarginInterest) ||
+					math.Abs(math.Abs(mp.Size)-(mp.MarginBorrowed+mp.MarginInterest)) > s.roundingTolerance(s.spot.GetQuantityDecimals()) {
+					return s.blockOnUnownedExposure(errors.New("spot-margin liability lacks a consistent principal/interest breakdown"))
+				}
+				debt += mp.MarginBorrowed
+				debtInterest += mp.MarginInterest
 			}
 		}
 	}
@@ -1486,16 +1491,16 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	}
 	switch dir {
 	case DirectionNone:
-		if futShort > tolerance || futLong > tolerance || debt > tolerance || strategySpot > tolerance {
+		if futShort > tolerance || futLong > tolerance || debt+debtInterest > tolerance || strategySpot > tolerance {
 			return s.blockOnUnownedExposure(errors.New("exchange exposure exists without an active funding_carry position record"))
 		}
 	case DirectionForward:
 		spotTolerance := math.Max(tolerance, s.roundingTolerance(s.spot.GetQuantityDecimals()))
-		if futLong > tolerance || debt > tolerance || math.Abs(futShort-ownedFut) > tolerance || strategySpot > spotBal+spotTolerance || (strategySpot <= tolerance && ownedFut <= tolerance) {
+		if futLong > tolerance || debt+debtInterest > tolerance || math.Abs(futShort-ownedFut) > tolerance || strategySpot > spotBal+spotTolerance || (strategySpot <= tolerance && ownedFut <= tolerance) {
 			return s.blockOnUnownedExposure(errors.New("forward carry exposure does not match strategy-owned futures/spot legs"))
 		}
 	case DirectionReverse:
-		if futShort > tolerance || math.Abs(futLong-ownedFut) > tolerance || math.Abs(debt-ownedDebt) > tolerance || (debt <= tolerance && ownedFut <= tolerance) {
+		if futShort > tolerance || math.Abs(futLong-ownedFut) > tolerance || math.Abs(debt-ownedDebt) > tolerance || (debt+debtInterest <= tolerance && ownedFut <= tolerance) {
 			return s.blockOnUnownedExposure(errors.New("reverse carry exposure does not match strategy-owned futures/margin debt"))
 		}
 	default:
@@ -2424,19 +2429,28 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("read margin debt before reverse close: %w", err))
 	}
-	var liveDebt float64
+	var liveDebt, livePrincipal, liveInterest float64
 	for _, p := range marginPositions {
 		if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
 			return s.blockOnUnownedExposure(errors.New("invalid margin position snapshot before reverse close"))
 		}
 		if p.Size < 0 {
 			liveDebt += math.Abs(p.Size)
+			if !p.MarginDebtKnown || !finiteNonNegative(p.MarginBorrowed) || !finiteNonNegative(p.MarginInterest) {
+				return s.blockOnUnownedExposure(errors.New("reverse margin liability has no authoritative principal/interest breakdown"))
+			}
+			if math.Abs(math.Abs(p.Size)-(p.MarginBorrowed+p.MarginInterest)) > s.roundingTolerance(s.spot.GetQuantityDecimals()) {
+				return s.blockOnUnownedExposure(errors.New("reverse margin liability disagrees with principal/interest breakdown"))
+			}
+			livePrincipal += p.MarginBorrowed
+			liveInterest += p.MarginInterest
 		}
 	}
 	debtTolerance := s.roundingTolerance(s.spot.GetQuantityDecimals())
-	if math.Abs(liveDebt-debt) > debtTolerance {
-		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin debt mismatch: live %.8f, owned %.8f", liveDebt, debt))
+	if math.Abs(livePrincipal-debt) > debtTolerance || math.Abs(liveDebt-(livePrincipal+liveInterest)) > debtTolerance {
+		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin principal mismatch: live principal %.8f, accrued interest %.8f, total %.8f, owned principal %.8f", livePrincipal, liveInterest, liveDebt, debt))
 	}
+	debtToRepay := livePrincipal + liveInterest
 	if err := s.beginRuntimeIntent(); err != nil {
 		return fmt.Errorf("persist reverse close intent: %w", err)
 	}
@@ -2468,9 +2482,9 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			return fmt.Errorf("persist reverse futures close reconciliation: %w", err)
 		}
 	}
-	if debt > debtTolerance {
+	if debtToRepay > debtTolerance {
 		base := s.spot.GetBaseAsset()
-		buyQty := s.roundQty(debt*1.002, s.spot.GetQuantityDecimals())
+		buyQty := s.roundQty(debtToRepay*1.002, s.spot.GetQuantityDecimals())
 		price, err := s.spot.GetLatestPrice(ctx, s.symbol)
 		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 			return fmt.Errorf("get valid price to cover margin debt: price=%.8f err=%v", price, err)
@@ -2493,8 +2507,8 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err := settleCarryOrder(ctx, s.marginExecutor, buyOrder); err != nil {
 			return fmt.Errorf("persist margin buyback execution: %w", err)
 		}
-		if _, err := s.marginEx.Repay(ctx, base, debt); err != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("repay margin debt %.8f %s: %w", debt, base, err))
+		if _, err := s.marginEx.Repay(ctx, base, debtToRepay); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {

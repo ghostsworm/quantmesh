@@ -85,15 +85,18 @@ type Order struct {
 }
 
 type Position struct {
-	Symbol         string
-	Size           float64
-	PositionSide   string
-	EntryPrice     float64
-	MarkPrice      float64
-	UnrealizedPNL  float64
-	Leverage       int
-	MarginType     string
-	IsolatedMargin float64
+	Symbol          string
+	Size            float64
+	MarginBorrowed  float64
+	MarginInterest  float64
+	MarginDebtKnown bool
+	PositionSide    string
+	EntryPrice      float64
+	MarkPrice       float64
+	UnrealizedPNL   float64
+	Leverage        int
+	MarginType      string
+	IsolatedMargin  float64
 }
 
 type Account struct {
