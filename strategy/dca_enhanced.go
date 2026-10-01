@@ -29,6 +29,7 @@ type DCAEnhancedStrategy struct {
 	executor    position.OrderExecutorInterface
 	exchange    position.IExchange
 	strategyCfg *DCAEnhancedConfig
+	configErr   error
 
 	// 價格數據
 	priceHistory  []float64
@@ -177,6 +178,12 @@ func NewDCAEnhancedStrategy(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	dcaCfg := parseDCAConfig(strategyCfg)
+	configErr := validateDCAEnhancedConfig(dcaCfg)
+	if configErr != nil {
+		// Keep construction safe, but Start/Initialize reject this strategy so
+		// malformed trading parameters can never be silently applied.
+		dcaCfg = defaultDCAEnhancedConfig()
+	}
 	if symbol != "" {
 		dcaCfg.Symbol = symbol
 	}
@@ -187,6 +194,7 @@ func NewDCAEnhancedStrategy(
 		executor:     executor,
 		exchange:     exchange,
 		strategyCfg:  dcaCfg,
+		configErr:    configErr,
 		priceHistory: make([]float64, 0, 200),
 		candles:      make([]indicators.Candle, 0, 200),
 		layers:       make([]*DCALayer, 0, dcaCfg.MaxSafetyOrders+1),
@@ -208,32 +216,7 @@ func NewDCAEnhancedStrategy(
 
 // parseDCAConfig 解析 DCA 配置
 func parseDCAConfig(cfg map[string]interface{}) *DCAEnhancedConfig {
-	dcaCfg := &DCAEnhancedConfig{
-		// 默认值
-		Symbol:               "BTCUSDT",
-		BaseOrderAmount:      100,
-		SafetyOrderAmount:    200,
-		MaxSafetyOrders:      50,
-		ATRPeriod:            14,
-		ATRMultiplier:        1.5,
-		MinPriceStep:         1.0,
-		MaxPriceStep:         5.0,
-		SafetyOrderScale:     1.05,
-		SafetyOrderStep:      1.0,
-		FirstOrderTakeProfit: 1.0,
-		LastOrderTakeProfit:  0.5,
-		TotalTakeProfit:      2.0,
-		TrailingTakeProfit:   0.5,
-		TrailingActivation:   1.0,
-		StopLoss:             10.0,
-		TrailingStopLoss:     2.0,
-		CascadeProtection:    true,
-		CascadeDropThreshold: 5.0,
-		CascadePauseDuration: 300,
-		TrendFilterEnabled:   true,
-		TrendMethod:          "ema",
-		TrendPeriod:          20,
-	}
+	dcaCfg := defaultDCAEnhancedConfig()
 
 	if cfg == nil {
 		return dcaCfg
@@ -245,31 +228,41 @@ func parseDCAConfig(cfg map[string]interface{}) *DCAEnhancedConfig {
 			switch val := v.(type) {
 			case float64:
 				return val
+			case float32:
+				return float64(val)
 			case int:
 				return float64(val)
 			case int64:
 				return float64(val)
 			}
+			return math.NaN()
 		}
 		return defaultValue
 	}
 
-	// 辅助函數：安全地從 map 中獲取 int
+	// Invalid integer encodings are converted to -1 and rejected by validation.
 	getInt := func(key string, defaultValue int) int {
 		if v, ok := cfg[key]; ok {
 			switch val := v.(type) {
 			case int:
 				return val
-			case float64:
-				return int(val)
 			case int64:
+				if val < 0 || val > 1000000 {
+					return -1
+				}
+				return int(val)
+			case float64:
+				if !signalFinite(val) || math.Trunc(val) != val || val < 0 || val > 1000000 {
+					return -1
+				}
 				return int(val)
 			}
+			return -1
 		}
 		return defaultValue
 	}
 
-	// 從 map 中读取配置
+	// 從 map 中读取配置。
 	if v, ok := cfg["symbol"].(string); ok {
 		dcaCfg.Symbol = v
 	}
@@ -308,6 +301,76 @@ func parseDCAConfig(cfg map[string]interface{}) *DCAEnhancedConfig {
 	return dcaCfg
 }
 
+func defaultDCAEnhancedConfig() *DCAEnhancedConfig {
+	return &DCAEnhancedConfig{
+		// 默认值
+		Symbol:               "BTCUSDT",
+		BaseOrderAmount:      100,
+		SafetyOrderAmount:    200,
+		MaxSafetyOrders:      50,
+		ATRPeriod:            14,
+		ATRMultiplier:        1.5,
+		MinPriceStep:         1.0,
+		MaxPriceStep:         5.0,
+		SafetyOrderScale:     1.05,
+		SafetyOrderStep:      1.0,
+		FirstOrderTakeProfit: 1.0,
+		LastOrderTakeProfit:  0.5,
+		TotalTakeProfit:      2.0,
+		TrailingTakeProfit:   0.5,
+		TrailingActivation:   1.0,
+		StopLoss:             10.0,
+		TrailingStopLoss:     2.0,
+		CascadeProtection:    true,
+		CascadeDropThreshold: 5.0,
+		CascadePauseDuration: 300,
+		TrendFilterEnabled:   true,
+		TrendMethod:          "ema",
+		TrendPeriod:          20,
+	}
+}
+
+func validateDCAEnhancedConfig(cfg *DCAEnhancedConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("DCA config is nil")
+	}
+	if cfg.MaxSafetyOrders < 0 || cfg.MaxSafetyOrders > 50 {
+		return fmt.Errorf("max_safety_orders must be between 0 and 50")
+	}
+	if cfg.ATRPeriod < 2 || cfg.ATRPeriod > 1000 {
+		return fmt.Errorf("atr_period must be between 2 and 1000")
+	}
+	if cfg.TrendPeriod < 2 || cfg.TrendPeriod > 1000 {
+		return fmt.Errorf("trend_period must be between 2 and 1000")
+	}
+	if !signalFinite(cfg.BaseOrderAmount) || cfg.BaseOrderAmount <= 0 || !signalFinite(cfg.SafetyOrderAmount) || cfg.SafetyOrderAmount <= 0 {
+		return fmt.Errorf("base_order_amount and safety_order_amount must be finite and positive")
+	}
+	for key, value := range map[string]float64{
+		"atr_multiplier": cfg.ATRMultiplier, "min_price_step": cfg.MinPriceStep,
+		"max_price_step": cfg.MaxPriceStep, "safety_order_scale": cfg.SafetyOrderScale,
+		"safety_order_step": cfg.SafetyOrderStep, "first_order_take_profit": cfg.FirstOrderTakeProfit,
+		"last_order_take_profit": cfg.LastOrderTakeProfit, "total_take_profit": cfg.TotalTakeProfit,
+		"trailing_take_profit": cfg.TrailingTakeProfit, "trailing_activation": cfg.TrailingActivation,
+		"stop_loss": cfg.StopLoss, "trailing_stop_loss": cfg.TrailingStopLoss,
+		"cascade_drop_threshold": cfg.CascadeDropThreshold,
+	} {
+		if !signalFinite(value) || value < 0 {
+			return fmt.Errorf("%s must be finite and non-negative", key)
+		}
+	}
+	if cfg.ATRMultiplier == 0 || cfg.MinPriceStep == 0 || cfg.MaxPriceStep == 0 || cfg.SafetyOrderScale == 0 || cfg.SafetyOrderStep == 0 {
+		return fmt.Errorf("ATR multiplier, price steps, and safety order scales must be positive")
+	}
+	if cfg.MinPriceStep > cfg.MaxPriceStep {
+		return fmt.Errorf("min_price_step must not exceed max_price_step")
+	}
+	if cfg.CascadePauseDuration < 0 || cfg.CascadePauseDuration > 86400 {
+		return fmt.Errorf("cascade_pause_duration must be between 0 and 86400 seconds")
+	}
+	return nil
+}
+
 // Name 返回策略名称
 func (s *DCAEnhancedStrategy) Name() string {
 	return s.name
@@ -323,6 +386,9 @@ func (s *DCAEnhancedStrategy) logPrefix() string {
 
 // Initialize 初始化策略
 func (s *DCAEnhancedStrategy) Initialize(cfg *config.Config, executor position.OrderExecutorInterface, exchange position.IExchange) error {
+	if s.configErr != nil {
+		return fmt.Errorf("invalid DCA strategy configuration: %w", s.configErr)
+	}
 	s.cfg = cfg
 	s.executor = executor
 	s.exchange = exchange
@@ -561,6 +627,9 @@ func (s *DCAEnhancedStrategy) effectiveBotID() string {
 
 // Start 啟动策略
 func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
+	if s.configErr != nil {
+		return fmt.Errorf("invalid DCA strategy configuration; refusing to start: %w", s.configErr)
+	}
 	if s.runtimeStateStore == nil {
 		return fmt.Errorf("DCA runtime state store is required")
 	}
