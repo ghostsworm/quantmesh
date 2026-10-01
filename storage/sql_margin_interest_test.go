@@ -56,6 +56,31 @@ func TestMarginInterestLedgerIsAccountAndAssetScopedAndIdempotent(t *testing.T) 
 	if _, err := store.GetMarginInterestTotalByAccountScope("binance", "", "BTC", accruedAt.Add(-time.Minute), accruedAt.Add(time.Minute)); err == nil {
 		t.Fatal("missing account scope must fail closed")
 	}
+	precisionPayment := &MarginInterestPayment{
+		Exchange: "binance", AccountScope: "scope-a", Asset: "BTC", RawAsset: "BTC", Principal: 1.0 / 3,
+		Interest: 0.00010000000049, Rate: 0.00012345678901234567, InterestType: "PERIODIC", TransactionID: 8002,
+		AccruedAt: accruedAt.Add(time.Hour),
+	}
+	if err := store.SaveMarginInterestPayment(precisionPayment); err != nil {
+		t.Fatal("save payment with values beyond MySQL decimal scale:", err)
+	}
+	if err := store.SaveMarginInterestPayment(precisionPayment); err != nil {
+		t.Fatal("idempotently replay normalized payment:", err)
+	}
+	var principal, interest, rate float64
+	if err := store.db.QueryRow(`SELECT principal, interest, interest_rate FROM margin_interest_payments WHERE identity_key = ?`,
+		marginInterestIdentity(precisionPayment)).Scan(&principal, &interest, &rate); err != nil {
+		t.Fatal("read normalized payment values:", err)
+	}
+	if principal != 0.333333333333 || interest != 0.0001 || rate != 0.0001234567890123 {
+		t.Fatalf("normalized payment principal=%0.15f interest=%0.15f rate=%0.18f", principal, interest, rate)
+	}
+	tooSmall := *precisionPayment
+	tooSmall.TransactionID++
+	tooSmall.Interest = 1e-14
+	if err := store.SaveMarginInterestPayment(&tooSmall); err == nil {
+		t.Fatal("positive interest below DECIMAL scale must not be silently stored as zero")
+	}
 }
 
 func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
@@ -87,6 +112,21 @@ func TestMarginInterestAllocationsAreBotScopedAndImmutable(t *testing.T) {
 	if err := store.SaveMarginInterestAllocation(&otherBot); err != nil {
 		t.Fatal("separate Bot allocation must have an independent identity:", err)
 	}
+	precisionAllocation := &MarginInterestAllocation{
+		Exchange: "binance", AccountScope: "scope-a", TransactionID: 8101, BotID: "bot-third",
+		Asset: "BTC", RawAsset: "BTC", BotPrincipal: 1.0 / 3, AccountPrincipal: 1, Interest: 0.0000333333333333,
+		AccruedAt: allocation.AccruedAt,
+	}
+	if err := store.SaveMarginInterestAllocation(precisionAllocation); err != nil {
+		t.Fatal("save repeating-decimal allocation at schema precision:", err)
+	}
+	if err := store.SaveMarginInterestAllocation(precisionAllocation); err != nil {
+		t.Fatal("replay repeating-decimal allocation:", err)
+	}
+	readback, err := store.ListMarginInterestAllocations("binance", "scope-a", precisionAllocation.TransactionID)
+	if err != nil || len(readback) != 1 || readback[0].BotPrincipal != 0.333333333333 || readback[0].Interest != 0.000033333333 {
+		t.Fatalf("normalized allocation readback=%+v err=%v", readback, err)
+	}
 }
 
 func TestMySQLMarginInterestLedgerAndCoverage(t *testing.T) {
@@ -114,6 +154,7 @@ func TestMySQLMarginInterestLedgerAndCoverage(t *testing.T) {
 		Interest: 0.0001, Rate: 0.00025, InterestType: "PERIODIC", TransactionID: time.Now().UnixNano(), AccruedAt: time.Now().UTC().Truncate(time.Millisecond)}
 	t.Cleanup(func() {
 		_, _ = db.Exec(`DELETE FROM margin_interest_payments WHERE account_scope = ?`, unique)
+		_, _ = db.Exec(`DELETE FROM margin_interest_allocations WHERE account_scope = ?`, unique)
 		_, _ = db.Exec(`DELETE FROM margin_interest_sync_state WHERE scope_key = ?`, marginInterestCoverageKey(payment.Exchange, unique, "*"))
 	})
 	if err := store.SaveMarginInterestPayment(payment); err != nil {
@@ -121,6 +162,32 @@ func TestMySQLMarginInterestLedgerAndCoverage(t *testing.T) {
 	}
 	if err := store.SaveMarginInterestPayment(payment); err != nil {
 		t.Fatal("replay MySQL margin interest:", err)
+	}
+	precisionPayment := *payment
+	precisionPayment.TransactionID++
+	precisionPayment.Principal = 1.0 / 3
+	precisionPayment.Interest = 0.00010000000049
+	precisionPayment.Rate = 0.00012345678901234567
+	if err := store.SaveMarginInterestPayment(&precisionPayment); err != nil {
+		t.Fatal("save MySQL payment beyond decimal scale:", err)
+	}
+	if err := store.SaveMarginInterestPayment(&precisionPayment); err != nil {
+		t.Fatal("replay normalized MySQL payment:", err)
+	}
+	allocation := &MarginInterestAllocation{
+		Exchange: "binance", AccountScope: unique, TransactionID: payment.TransactionID, BotID: "mysql-repeating-ratio",
+		Asset: "BTC", RawAsset: "BTC", BotPrincipal: 1.0 / 3, AccountPrincipal: 1, Interest: 0.0000333333333333,
+		AccruedAt: payment.AccruedAt,
+	}
+	if err := store.SaveMarginInterestAllocation(allocation); err != nil {
+		t.Fatal("save MySQL repeating-decimal allocation:", err)
+	}
+	if err := store.SaveMarginInterestAllocation(allocation); err != nil {
+		t.Fatal("idempotently replay MySQL repeating-decimal allocation:", err)
+	}
+	allocations, err := store.ListMarginInterestAllocations("binance", unique, payment.TransactionID)
+	if err != nil || len(allocations) != 1 || allocations[0].BotPrincipal != 0.333333333333 || allocations[0].Interest != 0.000033333333 {
+		t.Fatalf("MySQL normalized allocation=%+v err=%v", allocations, err)
 	}
 	from, through := payment.AccruedAt.Add(-time.Minute), payment.AccruedAt.Add(time.Minute)
 	if err := store.MarkMarginInterestCoverage(payment.Exchange, unique, "*", from, through); err != nil {

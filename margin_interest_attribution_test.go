@@ -112,6 +112,35 @@ func TestAllocateCrossMarginInterestRejectsOnBorrowCharges(t *testing.T) {
 	}
 }
 
+func TestAllocateCrossMarginInterestConservesDatabaseScaleForRepeatingRatios(t *testing.T) {
+	at := time.Date(2026, 10, 2, 3, 0, 0, 0, time.UTC)
+	states := make([]*storage.StrategyRuntimeState, 0, 3)
+	for index, botID := range []string{"bot-a", "bot-b", "bot-c"} {
+		states = append(states, fundingCarryTestDebtState(t, botID, "scope-a", []fundingCarryMarginDebtEventSnapshot{
+			{Action: "borrow", TransferID: int64(11 + index), Asset: "BTC", Amount: 1, Principal: 1, OccurredAt: at, AccountScope: "scope-a"},
+		}))
+	}
+	payment := exchange.MarginInterestRecord{
+		TransactionID: 91, AccruedAt: at.Add(time.Hour).UnixMilli(), Asset: "BTC", RawAsset: "BTC",
+		Principal: 3, Interest: 0.0001, Type: "PERIODIC",
+	}
+	allocations, err := allocateCrossMarginInterest(states, "scope-a", payment)
+	if err != nil {
+		t.Fatal("allocate interest with repeating ratio:", err)
+	}
+	total := 0.0
+	for _, botID := range []string{"bot-a", "bot-b", "bot-c"} {
+		share := allocations[botID]
+		if share.Interest*marginInterestStorageScale != math.Round(share.Interest*marginInterestStorageScale) {
+			t.Errorf("Bot %s share exceeds DECIMAL(30,12) scale: %.16f", botID, share.Interest)
+		}
+		total += share.Interest
+	}
+	if math.Abs(total-payment.Interest) > 1e-15 {
+		t.Fatalf("database-scale allocations sum=%0.16f; exchange charge=%0.16f", total, payment.Interest)
+	}
+}
+
 func fundingCarryTestDebtState(t *testing.T, botID, scope string, events []fundingCarryMarginDebtEventSnapshot) *storage.StrategyRuntimeState {
 	t.Helper()
 	marginDebt := 0.0

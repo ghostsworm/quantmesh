@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -14,7 +15,25 @@ import (
 // SaveMarginInterestPayment stores one exchange-confirmed interest charge
 // idempotently without inventing a symbol or Bot attribution for cross margin.
 func (s *SQLStorage) SaveMarginInterestPayment(payment *MarginInterestPayment) error {
-	if payment == nil || strings.TrimSpace(payment.Exchange) == "" || strings.TrimSpace(payment.AccountScope) == "" ||
+	if payment == nil {
+		return fmt.Errorf("margin interest payment requires exact account identity and finite non-negative values")
+	}
+	normalized := *payment
+	var err error
+	if normalized.Principal, err = roundMarginInterestDecimal12(normalized.Principal); err != nil {
+		return err
+	}
+	if normalized.Interest, err = roundMarginInterestDecimal12(normalized.Interest); err != nil {
+		return err
+	}
+	if normalized.Rate, err = roundMarginInterestDecimal16(normalized.Rate); err != nil {
+		return err
+	}
+	if (payment.Principal > 0 && normalized.Principal == 0) || (payment.Interest > 0 && normalized.Interest == 0) || (payment.Rate > 0 && normalized.Rate == 0) {
+		return fmt.Errorf("positive margin interest values fall below database precision")
+	}
+	payment = &normalized
+	if strings.TrimSpace(payment.Exchange) == "" || strings.TrimSpace(payment.AccountScope) == "" ||
 		strings.TrimSpace(payment.Asset) == "" || strings.TrimSpace(payment.InterestType) == "" || payment.TransactionID <= 0 ||
 		payment.AccruedAt.IsZero() || !finiteNonNegative(payment.Principal) || !finiteNonNegative(payment.Interest) || !finiteNonNegative(payment.Rate) {
 		return fmt.Errorf("margin interest payment requires exact account identity and finite non-negative values")
@@ -34,7 +53,7 @@ func (s *SQLStorage) SaveMarginInterestPayment(payment *MarginInterestPayment) e
 			(exchange, account, account_scope, asset, raw_asset, principal, interest, interest_rate, interest_type, isolated_symbol, transaction_id, accrued_at, identity_key)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE identity_key=identity_key`
 	}
-	_, err := s.db.Exec(query, args...)
+	_, err = s.db.Exec(query, args...)
 	if err != nil {
 		return fmt.Errorf("save margin interest transaction %d: %w", payment.TransactionID, err)
 	}
@@ -53,13 +72,28 @@ func (s *SQLStorage) SaveMarginInterestPayment(payment *MarginInterestPayment) e
 }
 
 func (s *SQLStorage) SaveMarginInterestAllocation(allocation *MarginInterestAllocation) error {
-	if allocation == nil || strings.TrimSpace(allocation.Exchange) == "" || strings.TrimSpace(allocation.AccountScope) == "" ||
-		allocation.TransactionID <= 0 || strings.TrimSpace(allocation.BotID) == "" || strings.TrimSpace(allocation.Asset) == "" ||
-		strings.TrimSpace(allocation.RawAsset) == "" || !finiteNonNegative(allocation.BotPrincipal) || allocation.BotPrincipal <= 0 ||
-		!finiteNonNegative(allocation.AccountPrincipal) || allocation.AccountPrincipal < allocation.BotPrincipal ||
-		!finiteNonNegative(allocation.Interest) || allocation.Interest <= 0 || allocation.AccruedAt.IsZero() {
+	if allocation == nil {
 		return fmt.Errorf("margin interest allocation requires exact Bot/account identity and positive verified amounts")
 	}
+	normalized := *allocation
+	var err error
+	if normalized.BotPrincipal, err = roundMarginInterestDecimal12(normalized.BotPrincipal); err != nil {
+		return err
+	}
+	if normalized.AccountPrincipal, err = roundMarginInterestDecimal12(normalized.AccountPrincipal); err != nil {
+		return err
+	}
+	if normalized.Interest, err = roundMarginInterestDecimal12(normalized.Interest); err != nil {
+		return err
+	}
+	if strings.TrimSpace(normalized.Exchange) == "" || strings.TrimSpace(normalized.AccountScope) == "" ||
+		normalized.TransactionID <= 0 || strings.TrimSpace(normalized.BotID) == "" || strings.TrimSpace(normalized.Asset) == "" ||
+		strings.TrimSpace(normalized.RawAsset) == "" || !finiteNonNegative(normalized.BotPrincipal) || normalized.BotPrincipal <= 0 ||
+		!finiteNonNegative(normalized.AccountPrincipal) || normalized.AccountPrincipal < normalized.BotPrincipal ||
+		!finiteNonNegative(normalized.Interest) || normalized.Interest <= 0 || normalized.AccruedAt.IsZero() {
+		return fmt.Errorf("margin interest allocation requires exact Bot/account identity and positive verified amounts")
+	}
+	allocation = &normalized
 	identity := marginInterestAllocationIdentity(allocation)
 	args := []interface{}{
 		strings.ToLower(strings.TrimSpace(allocation.Exchange)), strings.TrimSpace(allocation.AccountScope), allocation.TransactionID,
@@ -78,7 +112,7 @@ func (s *SQLStorage) SaveMarginInterestAllocation(allocation *MarginInterestAllo
 		return fmt.Errorf("save margin interest allocation tx=%d bot=%s: %w", allocation.TransactionID, allocation.BotID, err)
 	}
 	var existing MarginInterestAllocation
-	err := s.db.QueryRow(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at
+	err = s.db.QueryRow(`SELECT exchange, account_scope, transaction_id, bot_id, asset, raw_asset, bot_principal, account_principal, interest, accrued_at
 		FROM margin_interest_allocations WHERE identity_key = ?`, identity).Scan(
 		&existing.Exchange, &existing.AccountScope, &existing.TransactionID, &existing.BotID, &existing.Asset, &existing.RawAsset,
 		&existing.BotPrincipal, &existing.AccountPrincipal, &existing.Interest, &existing.AccruedAt)
@@ -89,6 +123,25 @@ func (s *SQLStorage) SaveMarginInterestAllocation(allocation *MarginInterestAllo
 		return fmt.Errorf("margin interest allocation tx=%d bot=%s conflicts with its saved identity", allocation.TransactionID, allocation.BotID)
 	}
 	return nil
+}
+
+func roundMarginInterestDecimal12(value float64) (float64, error) {
+	return roundMarginInterestDecimal(value, 1e12)
+}
+
+func roundMarginInterestDecimal16(value float64) (float64, error) {
+	return roundMarginInterestDecimal(value, 1e16)
+}
+
+func roundMarginInterestDecimal(value, scale float64) (float64, error) {
+	if !finiteNonNegative(value) || value > math.MaxFloat64/scale {
+		return 0, fmt.Errorf("margin interest amount is outside supported database decimal precision")
+	}
+	rounded := math.Round(value*scale) / scale
+	if !finiteNonNegative(rounded) {
+		return 0, fmt.Errorf("margin interest allocation rounding produced an invalid amount")
+	}
+	return rounded, nil
 }
 
 func (s *SQLStorage) ListMarginInterestAllocations(exchange, accountScope string, transactionID int64) ([]*MarginInterestAllocation, error) {

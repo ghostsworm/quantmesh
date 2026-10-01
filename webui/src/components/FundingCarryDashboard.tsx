@@ -108,16 +108,16 @@ const FundingCarryDashboard: React.FC = () => {
               <Table size="sm" variant="simple">
                 <Thead>
                   <Tr>
+                    <Th>{t('profitManagement.fundingCarryBotId')}</Th>
                     <Th>{t('common.symbol', 'Symbol')}</Th>
                     <Th>{t('common.status', 'Status')}</Th>
                     <Th isNumeric>{t('common.capital', 'Capital')}</Th>
-                    <Th isNumeric>{t('profitManagement.fundingCarryIncome24h', '24h')}</Th>
-                    <Th isNumeric>{t('profitManagement.fundingCarryIncome7d', '7d')}</Th>
                   </Tr>
                 </Thead>
                 <Tbody>
                   {(symbols || []).map((sym: FundingCarrySymbol) => (
-                    <Tr key={sym.symbol}>
+                    <Tr key={sym.bot_id}>
+                      <Td>{sym.bot_id}</Td>
                       <Td fontWeight="bold">{sym.symbol}</Td>
                       <Td>
                         <Badge colorScheme={sym.status === 'running' ? 'green' : 'gray'}>
@@ -127,16 +127,10 @@ const FundingCarryDashboard: React.FC = () => {
                       <Td isNumeric>
                         <Tooltip label={t('common.currencyUnit')}>{sym.capital.toFixed(2)}</Tooltip>
                       </Td>
-                      <Td isNumeric color={sym.income_24h >= 0 ? 'green.500' : 'red.500'}>
-                        {sym.income_24h >= 0 ? '+' : ''}{sym.income_24h.toFixed(4)}
-                      </Td>
-                      <Td isNumeric color={sym.income_7d >= 0 ? 'green.500' : 'red.500'}>
-                        {sym.income_7d >= 0 ? '+' : ''}{sym.income_7d.toFixed(4)}
-                      </Td>
                     </Tr>
                   ))}
                   {(!symbols || symbols.length === 0) && (
-                    <Tr><Td colSpan={5} textAlign="center" color="gray.400">{t('common.noData', 'No data')}</Td></Tr>
+                    <Tr><Td colSpan={4} textAlign="center" color="gray.400">{t('common.noData', 'No data')}</Td></Tr>
                   )}
                 </Tbody>
               </Table>

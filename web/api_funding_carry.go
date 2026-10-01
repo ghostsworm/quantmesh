@@ -36,6 +36,13 @@ type fundingCarryScopedReader interface {
 	GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
 }
 
+type fundingCarryDashboardSymbolInfo struct {
+	Symbol  string  `json:"symbol"`
+	BotID   string  `json:"bot_id"`
+	Status  string  `json:"status"`
+	Capital float64 `json:"capital"`
+}
+
 func readFundingCarrySum(reader interface {
 	GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error)
 }, exchange, symbol, scope string, start, end time.Time) (float64, error) {
@@ -216,15 +223,7 @@ func getFundingCarryDashboard(c *gin.Context) {
 	var totalCapital float64
 	var sumOK bool
 
-	type symbolInfo struct {
-		Symbol    string  `json:"symbol"`
-		BotID     string  `json:"bot_id"`
-		Status    string  `json:"status"`
-		Capital   float64 `json:"capital"`
-		Income24h float64 `json:"income_24h"`
-		Income7d  float64 `json:"income_7d"`
-	}
-	var symbols []symbolInfo
+	var symbols []fundingCarryDashboardSymbolInfo
 	seenSymbolIncome := make(map[string]struct{})
 
 	for _, bc := range cfg.Bots {
@@ -280,13 +279,11 @@ func getFundingCarryDashboard(c *gin.Context) {
 			}
 		}
 
-		symbols = append(symbols, symbolInfo{
-			Symbol:    bc.Symbol,
-			BotID:     bc.ID,
-			Status:    status,
-			Capital:   bc.TotalAllocatedCapital,
-			Income24h: inc24h,
-			Income7d:  inc7d,
+		symbols = append(symbols, fundingCarryDashboardSymbolInfo{
+			Symbol:  bc.Symbol,
+			BotID:   bc.ID,
+			Status:  status,
+			Capital: bc.TotalAllocatedCapital,
 		})
 	}
 
@@ -480,5 +477,5 @@ func getFundingIncomeHistory(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, gin.H{"records": items, "total": len(items)})
+	c.JSON(http.StatusOK, gin.H{"income_basis": fundingCarryIncomeBasis, "records": items, "total": len(items)})
 }

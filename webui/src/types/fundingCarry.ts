@@ -14,8 +14,6 @@ export interface FundingCarrySymbol {
   bot_id: string
   status: string
   capital: number
-  income_24h: number
-  income_7d: number
 }
 
 export interface FundingCarryDailyIncome {
@@ -37,6 +35,7 @@ export interface FundingIncomeRecord {
 }
 
 export interface FundingIncomeHistoryResponse {
+  income_basis: 'gross_account_scoped_futures_funding'
   records: FundingIncomeRecord[]
   total: number
 }

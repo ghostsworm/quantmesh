@@ -2108,6 +2108,7 @@
     "fundingCarryIncomeAll": "累计收益",
     "fundingCarryAnnualized": "年化收益率",
     "fundingCarryIncomeBasisNotice": "此处仅汇总账户级、按交易对归属的合约资金费毛收入，不等于该策略净利润；未扣除手续费、借币利息、滑点或基差损益，也无法区分同账户的手动交易。",
+    "fundingCarryBotId": "Bot ID",
     "fundingCarryCumulativeIncome": "累计资金费",
     "fundingCarryActiveBots": "活跃机器人",
     "fundingCarryCapitalDeployed": "已部署资金",

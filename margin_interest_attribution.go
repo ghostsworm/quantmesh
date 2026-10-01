@@ -41,6 +41,8 @@ type fundingCarryInterestShare struct {
 	Interest     float64
 }
 
+const marginInterestStorageScale = 1e12
+
 // allocateCrossMarginInterest assigns a fee only when every persisted Funding
 // Carry debt event for the account can reconstruct the exchange-reported debt.
 // Converted and portfolio charges are rejected because their principal units
@@ -119,17 +121,53 @@ func allocateCrossMarginInterest(states []*storage.StrategyRuntimeState, account
 	if totalPrincipal <= 0 || len(botIDs) == 0 {
 		return nil, fmt.Errorf("positive interest has no verified Bot-owned principal")
 	}
+	interestTotal, err := roundMarginInterestStorageAmount(payment.Interest)
+	if err != nil || interestTotal <= 0 {
+		return nil, fmt.Errorf("positive margin interest cannot be represented at database precision")
+	}
+	accountPrincipal, err := roundMarginInterestStorageAmount(payment.Principal)
+	if err != nil || accountPrincipal <= 0 {
+		return nil, fmt.Errorf("account margin principal cannot be represented at database precision")
+	}
 	allocations := make(map[string]fundingCarryInterestShare, len(botIDs))
 	allocated := 0.0
 	for index, botID := range botIDs {
-		share := payment.Interest - allocated
+		share := interestTotal - allocated
 		if index != len(botIDs)-1 {
-			share = payment.Interest * debtsByBot[botID] / totalPrincipal
+			share = interestTotal * debtsByBot[botID] / totalPrincipal
+			share, err = roundMarginInterestStorageAmount(share)
+			if err != nil {
+				return nil, fmt.Errorf("margin interest share for Bot %s cannot be represented at database precision", botID)
+			}
 			allocated += share
 		}
-		allocations[botID] = fundingCarryInterestShare{BotPrincipal: debtsByBot[botID], Interest: share}
+		botPrincipal, roundErr := roundMarginInterestStorageAmount(debtsByBot[botID])
+		if roundErr != nil || botPrincipal <= 0 {
+			return nil, fmt.Errorf("margin principal for Bot %s cannot be represented at database precision", botID)
+		}
+		if index == len(botIDs)-1 {
+			share, err = roundMarginInterestStorageAmount(interestTotal - allocated)
+			if err != nil {
+				return nil, fmt.Errorf("residual margin interest share cannot be represented at database precision")
+			}
+		}
+		if share <= 0 {
+			return nil, fmt.Errorf("margin interest share for Bot %s is below database precision", botID)
+		}
+		allocations[botID] = fundingCarryInterestShare{BotPrincipal: botPrincipal, Interest: share}
 	}
 	return allocations, nil
+}
+
+func roundMarginInterestStorageAmount(value float64) (float64, error) {
+	if !finiteNonNegativeNumber(value) || value > math.MaxFloat64/marginInterestStorageScale {
+		return 0, fmt.Errorf("margin interest value is outside the supported database precision range")
+	}
+	rounded := math.Round(value*marginInterestStorageScale) / marginInterestStorageScale
+	if !finiteNonNegativeNumber(rounded) {
+		return 0, fmt.Errorf("margin interest rounding produced a non-finite value")
+	}
+	return rounded, nil
 }
 
 func fundingCarryDebtAt(events []fundingCarryMarginDebtEventSnapshot, rawAsset, accountScope string, at time.Time) (float64, error) {

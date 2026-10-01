@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"testing"
@@ -8,6 +9,25 @@ import (
 
 	"quantmesh/storage"
 )
+
+func TestFundingCarryDashboardBotRowsNeverExposeAccountIncomeAsBotIncome(t *testing.T) {
+	encoded, err := json.Marshal(fundingCarryDashboardSymbolInfo{Symbol: "BTCUSDT", BotID: "bot-1", Status: "running", Capital: 250})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row map[string]interface{}
+	if err := json.Unmarshal(encoded, &row); err != nil {
+		t.Fatal(err)
+	}
+	if row["bot_id"] != "bot-1" || row["symbol"] != "BTCUSDT" || row["capital"] != float64(250) {
+		t.Fatalf("dashboard bot identity/capital fields are incomplete: %s", encoded)
+	}
+	for _, forbidden := range []string{"income_24h", "income_7d", "net_income", "net_profit"} {
+		if _, exists := row[forbidden]; exists {
+			t.Fatalf("dashboard Bot row must not publish unverified strategy income field %q: %s", forbidden, encoded)
+		}
+	}
+}
 
 type fundingTotalsStub struct {
 	calls    int

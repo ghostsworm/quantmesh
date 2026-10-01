@@ -2108,6 +2108,7 @@
     "fundingCarryIncomeAll": "Total Income",
     "fundingCarryAnnualized": "Annualized Yield",
     "fundingCarryIncomeBasisNotice": "These figures show gross futures funding payments at account and symbol scope, not this strategy's net profit. Fees, borrowing interest, slippage, and basis P&L are excluded; manual activity in the same account and symbol cannot be separated.",
+    "fundingCarryBotId": "Bot ID",
     "fundingCarryCumulativeIncome": "Cumulative Funding",
     "fundingCarryActiveBots": "Active Bots",
     "fundingCarryCapitalDeployed": "Capital Deployed",
