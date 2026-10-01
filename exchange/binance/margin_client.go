@@ -3,6 +3,7 @@ package binance
 import (
 	"context"
 	"fmt"
+	"math"
 	"strconv"
 
 	binancesdk "github.com/adshao/go-binance/v2"
@@ -16,6 +17,34 @@ type MarginClient struct {
 // NewMarginClient 创建 margin 客户端（复用 spot client，调用 sapi margin 接口）
 func NewMarginClient(client *binancesdk.Client) *MarginClient {
 	return &MarginClient{client: client}
+}
+
+// GetNextHourlyBorrowRate returns Binance's next hourly margin borrowing rate.
+func (m *MarginClient) GetNextHourlyBorrowRate(ctx context.Context, asset string, isIsolated bool) (float64, error) {
+	if m == nil || m.client == nil {
+		return 0, fmt.Errorf("margin client is unavailable")
+	}
+	if asset == "" {
+		return 0, fmt.Errorf("asset is required")
+	}
+	rates, err := m.client.NewMarginNextHourlyInterestRateService().Assets(asset).Isolated(isIsolated).Do(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("query next hourly margin interest rate for %s: %w", asset, err)
+	}
+	if rates == nil {
+		return 0, fmt.Errorf("next hourly margin interest rate response is empty for %s", asset)
+	}
+	for _, rate := range *rates {
+		if rate.Asset != asset {
+			continue
+		}
+		value, parseErr := strconv.ParseFloat(rate.NextHourlyInterestRate, 64)
+		if parseErr != nil || value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return 0, fmt.Errorf("invalid next hourly margin interest rate for %s: %q", asset, rate.NextHourlyInterestRate)
+		}
+		return value, nil
+	}
+	return 0, fmt.Errorf("next hourly margin interest rate missing for %s", asset)
 }
 
 // Borrow 借币

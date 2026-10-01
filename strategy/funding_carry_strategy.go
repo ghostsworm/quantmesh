@@ -23,9 +23,10 @@ import (
 type CarryDirection int
 
 const (
-	DirectionNone    CarryDirection = 0
-	DirectionForward CarryDirection = 1 // 現貨多 + 合約空（正費率收錢）
-	DirectionReverse CarryDirection = 2 // 借幣空現貨 + 合約多（負費率收錢）
+	DirectionNone                CarryDirection = 0
+	DirectionForward             CarryDirection = 1 // 現貨多 + 合約空（正費率收錢）
+	DirectionReverse             CarryDirection = 2 // 借幣空現貨 + 合約多（負費率收錢）
+	fundingCarrySafetyBufferUSDT                = 50.0
 )
 
 func (d CarryDirection) String() string {
@@ -920,6 +921,9 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if ctx == nil {
 		return errors.New("funding_carry collateral transfer requires context")
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("funding_carry collateral check canceled before balance reads: %w", err)
+	}
 	s.mu.RLock()
 	unverified := s.unownedExposure || s.runtimeStateErr != nil
 	s.mu.RUnlock()
@@ -930,13 +934,16 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 		!finiteNonNegative(s.transferReserveSpot) {
 		return fmt.Errorf("invalid funding_carry collateral or spot reserve amount")
 	}
-	futBal, err := s.fut.GetBalance(ctx, "USDT")
+	futBal, err := fundingCarryFuturesUSDTBalance(ctx, s.fut)
 	if err != nil {
 		return fmt.Errorf("query futures USDT balance before transfer: %w", err)
 	}
 	spotBal, err := s.spot.GetBalance(ctx, "USDT")
 	if err != nil {
 		return fmt.Errorf("query spot USDT balance before transfer: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("spot USDT balance read outlived its context: %w", err)
 	}
 	if !finiteNonNegative(futBal) || !finiteNonNegative(spotBal) {
 		return fmt.Errorf("invalid futures/spot USDT balance: futures %.12g, spot %.12g", futBal, spotBal)
@@ -969,16 +976,25 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if need > transferable {
 		return fmt.Errorf("insufficient transferable spot USDT after reserving hedge leg: available %.2f, transfer %.2f", transferable, need)
 	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("funding_carry collateral transfer canceled before submission: %w", err)
+	}
+	if err := s.beginRuntimeIntent(); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("persist collateral transfer intent before submission: %w", err))
+	}
+	transferVerified := false
+	defer func() {
+		if err := s.finishRuntimeIntent(transferVerified); err != nil {
+			logger.Error("[%s] persist funding_carry collateral transfer result: %v", s.symbol, err)
+		}
+	}()
 	txID, err := s.spot.InternalTransfer(ctx, "SPOT", "UMFUTURE", "USDT", need)
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("SPOT→UMFUTURE transfer %.2f USDT has uncertain outcome; retry blocked pending reconciliation: %w", need, err))
 	}
-	futBal, err = s.fut.GetBalance(ctx, "USDT")
+	futBal, err = fundingCarryFuturesUSDTBalance(ctx, s.fut)
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s accepted but futures balance could not be verified: %w", txID, err))
-	}
-	if err := ctx.Err(); err != nil {
-		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but futures balance read outlived its context: %w", txID, err))
 	}
 	if !finiteNonNegative(futBal) || futBal < futuresReserve {
 		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but futures USDT remains insufficient after preserving other Bot budgets: %.2f < %.2f", txID, futBal, futuresReserve))
@@ -993,6 +1009,7 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if !finiteNonNegative(spotBal) || spotBal < spotReserve {
 		return s.blockOnUnownedExposure(fmt.Errorf("transfer %s completed but spot USDT reserve is insufficient: %.2f < %.2f", txID, spotBal, spotReserve))
 	}
+	transferVerified = true
 	logger.Info("💸 [%s] 自動劃轉 SPOT→UMFUTURE %.2f USDT (txID=%s)", s.symbol, need, txID)
 	s.publishEvent(event.EventTypePositionOpened, map[string]interface{}{
 		"action":  "auto_transfer_in",
@@ -1001,6 +1018,44 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 		"message": fmt.Sprintf("自動劃轉 %.2f USDT 到合約帳戶", need),
 	})
 	return nil
+}
+
+// fundingCarryFuturesUSDTBalance bypasses exchange balance caches when a fresh
+// account snapshot is available, which is essential immediately after a wallet transfer.
+func fundingCarryFuturesUSDTBalance(ctx context.Context, futures exchange.IExchange) (float64, error) {
+	if ctx == nil || futures == nil {
+		return 0, errors.New("futures balance query requires context and exchange")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if fresh, ok := futures.(interface {
+		GetAccountFresh(context.Context) (*exchange.Account, error)
+	}); ok {
+		account, err := fresh.GetAccountFresh(ctx)
+		if err != nil {
+			return 0, err
+		}
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if account == nil || !strings.EqualFold(strings.TrimSpace(account.BalanceAsset), "USDT") ||
+			!finiteNonNegative(account.AvailableBalance) {
+			return 0, errors.New("fresh futures account did not provide a finite USDT available balance")
+		}
+		return account.AvailableBalance, nil
+	}
+	balance, err := futures.GetBalance(ctx, "USDT")
+	if err != nil {
+		return 0, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if !finiteNonNegative(balance) {
+		return 0, errors.New("futures USDT balance is invalid")
+	}
+	return balance, nil
 }
 
 func finitePositive(value float64) bool {
@@ -1051,8 +1106,17 @@ func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context)
 	if !s.profitHarvestEnabled {
 		return
 	}
-	futBal, err := s.fut.GetBalance(ctx, "USDT")
-	if err != nil || !finiteNonNegative(futBal) {
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	s.mu.RLock()
+	unverified := s.unownedExposure || s.runtimeStateErr != nil
+	s.mu.RUnlock()
+	if unverified {
+		return
+	}
+	futBal, err := fundingCarryFuturesUSDTBalance(ctx, s.fut)
+	if err != nil {
 		return
 	}
 	s.mu.RLock()
@@ -1077,12 +1141,54 @@ func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context)
 	if !ok {
 		return
 	}
+	spotBal, err := s.spot.GetBalance(ctx, "USDT")
+	if err != nil || ctx.Err() != nil || !finiteNonNegative(spotBal) {
+		return
+	}
+	if err := s.beginRuntimeIntent(); err != nil {
+		s.blockOnUnownedExposure(fmt.Errorf("persist profit harvest intent before transfer: %w", err))
+		return
+	}
+	transferVerified := false
+	defer func() {
+		if err := s.finishRuntimeIntent(transferVerified); err != nil {
+			logger.Error("[%s] persist funding_carry profit harvest result: %v", s.symbol, err)
+		}
+	}()
 
 	txID, err := s.fut.InternalTransfer(ctx, "UMFUTURE", "SPOT", "USDT", surplus)
 	if err != nil {
-		logger.Warn("⚠️ [%s] 利潤歸集失敗 %.2f USDT: %v", s.symbol, surplus, err)
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest transfer %.2f USDT has uncertain outcome; retry blocked pending reconciliation: %w", surplus, err))
+		logger.Warn("⚠️ [%s] 利潤歸集結果不確定 %.2f USDT，已鎖定自動交易: %v", s.symbol, surplus, err)
 		return
 	}
+	postFuturesBalance, err := fundingCarryFuturesUSDTBalance(ctx, s.fut)
+	if err != nil {
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest %s accepted but futures balance could not be verified: %w", txID, err))
+		return
+	}
+	postSpotBalance, err := s.spot.GetBalance(ctx, "USDT")
+	if err != nil {
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest %s accepted but spot balance could not be verified: %w", txID, err))
+		return
+	}
+	if err := ctx.Err(); err != nil {
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest %s completed but spot balance read outlived its context: %w", txID, err))
+		return
+	}
+	if !finiteNonNegative(postFuturesBalance) || !finiteNonNegative(postSpotBalance) {
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest %s returned invalid post-transfer balances: futures %.12g, spot %.12g", txID, postFuturesBalance, postSpotBalance))
+		return
+	}
+	minimumProtectedBalance := math.Max(futQ*futuresPrice, futuresCapitalReserve) + fundingCarrySafetyBufferUSDT
+	const transferVerificationTolerance = 0.01
+	if postFuturesBalance+transferVerificationTolerance < minimumProtectedBalance ||
+		postSpotBalance+transferVerificationTolerance < spotBal+surplus {
+		s.blockOnUnownedExposure(fmt.Errorf("profit harvest %s did not reconcile: futures %.8f (minimum %.8f), spot increase %.8f (expected %.8f)",
+			txID, postFuturesBalance, minimumProtectedBalance, postSpotBalance-spotBal, surplus))
+		return
+	}
+	transferVerified = true
 	logger.Info("💰 [%s] 結算後利潤歸集 UMFUTURE→SPOT %.2f USDT (txID=%s)", s.symbol, surplus, txID)
 	s.publishEvent(event.EventTypePositionClosed, map[string]interface{}{
 		"action":  "profit_harvest",
@@ -1093,7 +1199,6 @@ func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context)
 }
 
 func fundingCarryHarvestableSurplus(futuresBalance, futuresQty, futuresPrice, minAmount, accountCapitalReserve float64) (float64, bool) {
-	const safetyBufferUSDT = 50.0
 	if !finiteNonNegative(futuresBalance) || !finiteNonNegative(futuresQty) ||
 		!finiteNonNegative(accountCapitalReserve) || !finitePositive(minAmount) {
 		return 0, false
@@ -1109,7 +1214,7 @@ func fundingCarryHarvestableSurplus(futuresBalance, futuresQty, futuresPrice, mi
 		}
 	}
 	protectedCapital := math.Max(positionNotional, accountCapitalReserve)
-	surplus := futuresBalance - protectedCapital - safetyBufferUSDT
+	surplus := futuresBalance - protectedCapital - fundingCarrySafetyBufferUSDT
 	if !finitePositive(surplus) || surplus < minAmount {
 		return 0, false
 	}
@@ -1653,6 +1758,18 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	}
 
 	base := s.spot.GetBaseAsset()
+	rateProvider, ok := s.marginEx.(exchange.MarginBorrowRateProvider)
+	if !ok {
+		return fmt.Errorf("margin borrow rate provider is unavailable; refusing reverse opening")
+	}
+	hourlyRate, err := rateProvider.GetNextHourlyBorrowRate(ctx, base)
+	if err != nil {
+		return fmt.Errorf("query %s margin borrow rate before reverse opening: %w", base, err)
+	}
+	dailyRateEstimate := hourlyRate * 24
+	if math.IsNaN(dailyRateEstimate) || math.IsInf(dailyRateEstimate, 0) || hourlyRate < 0 || dailyRateEstimate > s.marginInterestMax {
+		return fmt.Errorf("%s estimated daily margin interest %.8f exceeds configured maximum %.8f", base, dailyRateEstimate, s.marginInterestMax)
+	}
 	borrowQty := legNotional / spotPx
 	borrowQty = s.roundQty(borrowQty, s.spot.GetQuantityDecimals())
 	if borrowQty <= 0 {

@@ -218,6 +218,11 @@ type MarginBorrowHistoryQuerier interface {
 	GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error)
 }
 
+// MarginBorrowRateProvider reports the next hourly borrowing rate for an asset.
+type MarginBorrowRateProvider interface {
+	GetNextHourlyBorrowRate(ctx context.Context, asset string) (float64, error)
+}
+
 // ISpotMarginExchange 現貨槓桿交易所介面（借幣做空）
 // 僅 Binance Spot Margin 等支援借還的交易所實現
 type ISpotMarginExchange interface {

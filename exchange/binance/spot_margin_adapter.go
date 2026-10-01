@@ -750,6 +750,11 @@ func (b *BinanceSpotMarginAdapter) Borrow(ctx context.Context, asset string, amo
 	return b.marginClient.Borrow(ctx, asset, amount, false, "")
 }
 
+// GetNextHourlyBorrowRate returns the cross-margin next-hour borrowing rate.
+func (b *BinanceSpotMarginAdapter) GetNextHourlyBorrowRate(ctx context.Context, asset string) (float64, error) {
+	return b.marginClient.GetNextHourlyBorrowRate(ctx, asset, false)
+}
+
 // Repay 還幣
 func (b *BinanceSpotMarginAdapter) Repay(ctx context.Context, asset string, amount float64) (int64, error) {
 	logger.Info("📤 [Binance Spot Margin] 還幣 %s 數量 %.8f", asset, amount)

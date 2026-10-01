@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	binancesdk "github.com/adshao/go-binance/v2"
 	"github.com/adshao/go-binance/v2/futures"
 )
 
@@ -28,6 +29,36 @@ func equityTestAdapter(t *testing.T, handler http.HandlerFunc) *BinanceAdapter {
 	client.BaseURL = server.URL
 	client.HTTPClient = server.Client()
 	return &BinanceAdapter{client: client}
+}
+
+func TestInternalTransferAttemptInvalidatesFuturesBalanceCache(t *testing.T) {
+	tests := []struct {
+		name        string
+		response    *binancesdk.CreateUserUniversalTransferResponse
+		transferErr error
+		wantID      string
+		wantErr     bool
+	}{
+		{name: "successful response", response: &binancesdk.CreateUserUniversalTransferResponse{ID: 42}, wantID: "42"},
+		{name: "ambiguous response error", transferErr: errors.New("response lost"), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := &BinanceAdapter{
+				accountCache:            &Account{AvailableBalance: 100},
+				accountCacheTime:        time.Now(),
+				accountCacheTTL:         time.Minute,
+				accountCacheInvalidated: false,
+			}
+			gotID, err := adapter.completeInternalTransferAttempt(tt.response, tt.transferErr)
+			if (err != nil) != tt.wantErr || gotID != tt.wantID {
+				t.Fatalf("completeInternalTransferAttempt() = %q, %v; want %q, error=%v", gotID, err, tt.wantID, tt.wantErr)
+			}
+			if !adapter.accountCacheInvalidated {
+				t.Fatal("account snapshot stayed cacheable after attempted internal transfer")
+			}
+		})
+	}
 }
 
 func equityTestAccount(at time.Time) equityAccountWire {

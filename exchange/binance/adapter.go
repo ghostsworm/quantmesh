@@ -1848,8 +1848,15 @@ func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAc
 		Asset(asset).
 		Amount(strconv.FormatFloat(amount, 'f', -1, 64)).
 		Do(ctx)
-	if err != nil {
-		return "", fmt.Errorf("內部轉帳失败: %w", err)
+	return b.completeInternalTransferAttempt(res, err)
+}
+
+func (b *BinanceAdapter) completeInternalTransferAttempt(res *binancesdk.CreateUserUniversalTransferResponse, transferErr error) (string, error) {
+	// The transfer may have succeeded even when the response was lost; never let
+	// a pre-transfer account snapshot remain reusable after an attempted transfer.
+	b.invalidateAccountCache()
+	if transferErr != nil {
+		return "", fmt.Errorf("內部轉帳失败: %w", transferErr)
 	}
 	return verifiedUniversalTransferID(res)
 }
