@@ -3194,6 +3194,7 @@
     "grid": "Classic grid trading strategy that automatically places orders within a price range to capture volatility spreads",
     "dca": "Dollar-cost averaging strategy that diversifies entry costs and reduces investment risk",
     "dca_enhanced": "Enhanced DCA with ATR dynamic spacing, triple take-profit, 50-layer position management, cascade protection, and trend filter",
+    "momentum": "Opens and closes positions based on RSI oversold and overbought signals.",
     "martingale": "Loss-doubling add-on strategy with support for long/short Martingale, risk reduction mode, and long-short dual direction",
     "combo": "Multi-strategy portfolio management with dynamic weight adjustment and market-adaptive switching",
     "trend_following": "Technical indicator-based trend following strategy that enters on trend formation and exits on trend reversal",
@@ -3304,6 +3305,12 @@
         "name": "Stop Loss %",
         "description": "Stop-loss trigger ratio (%)"
       }
+    },
+    "momentum": {
+      "rsi_period": { "name": "RSI Period", "description": "RSI indicator lookback period" },
+      "overbought": { "name": "Overbought Threshold", "description": "Close when RSI rises above this value" },
+      "oversold": { "name": "Oversold Threshold", "description": "Open when RSI falls below this value" },
+      "order_amount": { "name": "Order Notional", "description": "Notional amount per signal entry (USDT)" }
     },
     "martingale": {
       "initial_amount": {

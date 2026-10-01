@@ -3031,6 +3031,7 @@
     "grid": "经典网格交易策略，在价格区间内自动挂单，赚取波动差价",
     "dca": "定期定额买入策略，分散入场成本，降低投资风险",
     "dca_enhanced": "基于 ATR 动态间距、三级止盈、50 层仓位管理、瀑布保护和趋势过滤的增强型 DCA",
+    "momentum": "基于 RSI 超买/超卖信号进行开仓和平仓。",
     "martingale": "亏损加倍补仓策略，支持正向/反向马丁、风险削减与多空双向",
     "combo": "多策略组合管理，支持动态权重调整和市场自适应切换",
     "trend_following": "基于技术指标的趋势跟踪策略，在趋势形成时入场，趋势反转时离场",
@@ -3141,6 +3142,12 @@
         "name": "止损比例",
         "description": "止损触发比例 (%)"
       }
+    },
+    "momentum": {
+      "rsi_period": { "name": "RSI 周期", "description": "RSI 指标计算周期" },
+      "overbought": { "name": "超买阈值", "description": "RSI 高于该值时触发平仓" },
+      "oversold": { "name": "超卖阈值", "description": "RSI 低于该值时触发开仓" },
+      "order_amount": { "name": "单笔名义金额", "description": "每次信号开仓的名义金额 (USDT)" }
     },
     "martingale": {
       "initial_amount": {

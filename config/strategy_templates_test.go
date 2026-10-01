@@ -75,7 +75,7 @@ func TestDCATemplatesMatchEnhancedRuntimeInsteadOfScheduledBuying(t *testing.T) 
 	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
 	manager.initBuiltinTemplates()
 
-	for _, id := range []string{"dca_regular_btc", "combo_grid_dca_btc"} {
+	for _, id := range []string{"dca_regular_btc", "dca_regular", "combo_grid_dca_btc"} {
 		template, ok := manager.GetTemplate(id)
 		if !ok {
 			t.Fatalf("template %q is missing", id)
@@ -88,18 +88,51 @@ func TestDCATemplatesMatchEnhancedRuntimeInsteadOfScheduledBuying(t *testing.T) 
 		}
 	}
 
-	regular, _ := manager.GetTemplate("dca_regular_btc")
-	if regular.StrategyType != "dca_enhanced" {
-		t.Fatalf("DCA template type = %q, want dca_enhanced", regular.StrategyType)
-	}
-	for _, key := range []string{"base_order_amount", "safety_order_amount", "max_safety_orders"} {
-		if _, ok := regular.Params[key]; !ok {
-			t.Errorf("DCA template missing runtime parameter %q", key)
+	for _, id := range []string{"dca_regular_btc", "dca_regular"} {
+		regular, _ := manager.GetTemplate(id)
+		if regular.StrategyType != "dca_enhanced" {
+			t.Errorf("DCA template %q type = %q, want dca_enhanced", id, regular.StrategyType)
+		}
+		for _, key := range []string{"base_order_amount", "safety_order_amount", "max_safety_orders"} {
+			if _, ok := regular.Params[key]; !ok {
+				t.Errorf("DCA template %q missing runtime parameter %q", id, key)
+			}
 		}
 	}
 	combo, _ := manager.GetTemplate("combo_grid_dca_btc")
 	strategies, ok := combo.Config["strategies"].([]map[string]interface{})
 	if !ok || len(strategies) != 2 || strategies[1]["type"] != "dca_enhanced" {
 		t.Errorf("combo DCA strategy = %#v, want dca_enhanced", combo.Config["strategies"])
+	}
+}
+
+func TestLegacyMomentumAndMartingaleTemplatesExposeRuntimeParameters(t *testing.T) {
+	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
+	manager.initBuiltinTemplates()
+
+	momentum, ok := manager.GetTemplate("momentum")
+	if !ok || momentum.StrategyType != "momentum" {
+		t.Fatalf("momentum template = %+v, want supported momentum strategy", momentum)
+	}
+	for _, key := range []string{"rsi_period", "overbought", "oversold", "order_amount"} {
+		if _, ok := momentum.Params[key]; !ok {
+			t.Errorf("momentum template missing runtime parameter %q", key)
+		}
+	}
+	if _, exists := momentum.Params["momentum_period"]; exists {
+		t.Error("momentum template still exposes unconsumed momentum_period")
+	}
+
+	martingale, ok := manager.GetTemplate("martingale")
+	if !ok || martingale.StrategyType != "martingale" {
+		t.Fatalf("martingale template = %+v, want supported martingale strategy", martingale)
+	}
+	for _, key := range []string{"initial_amount", "multiplier", "max_levels", "price_step"} {
+		if _, ok := martingale.Params[key]; !ok {
+			t.Errorf("martingale template missing runtime parameter %q", key)
+		}
+	}
+	if _, exists := martingale.Params["base_amount"]; exists {
+		t.Error("martingale template still exposes unconsumed base_amount")
 	}
 }

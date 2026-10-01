@@ -65,12 +65,14 @@ const STRATEGY_TYPES = {
     },
   },
   momentum: {
-    label: '动量策略',
+    label: 'strategyNames.momentum',
     category: 'grid',
-    description: '基于价格动量进行交易',
+    description: 'strategyDescriptions.momentum',
     params: {
-      momentum_period: { label: '动量周期', type: 'number', default: 14 },
-      momentum_threshold: { label: '动量阈值', type: 'number', default: 0.02 },
+      rsi_period: { label: 'strategyParams.momentum.rsi_period.name', type: 'number', default: 14 },
+      overbought: { label: 'strategyParams.momentum.overbought.name', type: 'number', default: 70 },
+      oversold: { label: 'strategyParams.momentum.oversold.name', type: 'number', default: 30 },
+      order_amount: { label: 'strategyParams.momentum.order_amount.name', type: 'number', default: 100 },
     },
   },
   mean_reversion: {
@@ -83,22 +85,28 @@ const STRATEGY_TYPES = {
     },
   },
   dca: {
-    label: '定投策略',
+    label: 'strategyNames.dca_enhanced',
     category: 'dca',
-    description: '定期定额买入',
+    description: 'strategyDescriptions.dca_enhanced',
     params: {
-      dca_amount: { label: '定投金额', type: 'number', default: 100 },
-      dca_interval: { label: '定投间隔(分钟)', type: 'number', default: 60 },
+      base_order_amount: { label: 'strategyParams.dca_enhanced.base_order_amount.name', type: 'number', default: 100 },
+      safety_order_amount: { label: 'strategyParams.dca_enhanced.safety_order_amount.name', type: 'number', default: 200 },
+      max_safety_orders: { label: 'strategyParams.dca_enhanced.max_safety_orders.name', type: 'number', default: 4 },
+      atr_period: { label: 'strategyParams.dca_enhanced.atr_period.name', type: 'number', default: 14 },
+      atr_multiplier: { label: 'strategyParams.dca_enhanced.atr_multiplier.name', type: 'number', default: 1.5 },
+      total_take_profit: { label: 'strategyParams.dca_enhanced.total_take_profit.name', type: 'number', default: 2 },
+      stop_loss: { label: 'strategyParams.dca_enhanced.stop_loss.name', type: 'number', default: 10 },
     },
   },
   martingale: {
-    label: '马丁格尔',
+    label: 'strategyNames.martingale',
     category: 'dca',
     description: '亏损后加倍投入',
     params: {
-      base_amount: { label: '基础金额', type: 'number', default: 50 },
-      multiplier: { label: '倍增系数', type: 'number', default: 2 },
-      max_levels: { label: '最大层数', type: 'number', default: 5 },
+      initial_amount: { label: 'strategyParams.martingale.initial_amount.name', type: 'number', default: 100 },
+      multiplier: { label: 'strategyParams.martingale.multiplier.name', type: 'number', default: 2 },
+      max_levels: { label: 'strategyParams.martingale.max_levels.name', type: 'number', default: 5 },
+      price_step: { label: 'strategyParams.martingale.price_step.name', type: 'number', default: 2 },
     },
   },
 }
@@ -169,7 +177,7 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
       const result = await addBotStrategy(botId, newStrategy)
       toast({
         title: t('bot.strategy_added'),
-        description: t('bot.strategy_added_desc', { type: strategyDef?.label }),
+        description: t('bot.strategy_added_desc', { type: strategyDef ? t(strategyDef.label) : strategyType }),
         status: 'success',
         duration: 3000,
         isClosable: true,
@@ -371,7 +379,7 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                       <Flex justify="space-between" align="center">
                         <HStack spacing={3}>
                           <Badge colorScheme={strategy.enabled ? 'green' : 'gray'}>
-                            {strategyDef?.label || strategy.type}
+                            {strategyDef ? t(strategyDef.label) : strategy.type}
                           </Badge>
                           {strategy.enabled && (
                             <Badge colorScheme="blue">{weightPercent}%</Badge>
@@ -399,7 +407,7 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                       <Collapse in={strategy.enabled}>
                         <VStack spacing={2} align="stretch" pl={4}>
                           <Text fontSize="sm" color="gray.600">
-                            {strategyDef?.description}
+                            {strategyDef ? t(strategyDef.description) : ''}
                           </Text>
 
                           {/* 权重调整 */}
@@ -423,7 +431,7 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                             <SimpleGrid columns={2} spacing={2}>
                               {Object.entries(strategyDef.params).map(([key, param]) => (
                                 <FormControl key={key} size="sm">
-                                  <FormLabel fontSize="xs">{param.label}</FormLabel>
+                                  <FormLabel fontSize="xs">{t(param.label)}</FormLabel>
                                   <DecimalNumberInput
                                     size="sm"
                                     value={(strategy.params?.[key] as number | string) ?? param.default}
@@ -466,7 +474,7 @@ const MultiStrategyConfig: React.FC<MultiStrategyConfigProps> = ({ botId, botRun
                             }}
                           >
                             <VStack align="start" spacing={0}>
-                              <Text fontWeight="bold">{def.label}</Text>
+                              <Text fontWeight="bold">{t(def.label)}</Text>
                               <Text fontSize="xs" color="gray.500">
                                 {def.category}
                               </Text>
