@@ -56,11 +56,12 @@ type FundingCarryStrategy struct {
 	tickInterval    time.Duration
 
 	// 反向套利參數
-	marginEx          exchange.ISpotMarginExchange // nullable
-	reverseEnabled    bool
-	reverseMinRate    float64 // 負費率絕對值觸發閾值（正值，如 0.0004）
-	reverseExitRate   float64 // 負費率退出閾值（正值）
-	marginInterestMax float64 // 日利率上限
+	marginEx           exchange.ISpotMarginExchange // nullable
+	reverseEnabled     bool
+	reverseMinRate     float64 // 負費率絕對值觸發閾值（正值，如 0.0004）
+	reverseExitRate    float64 // 負費率退出閾值（正值）
+	marginInterestMax  float64 // 日利率上限
+	maxFeeRecoveryDays float64 // 往返手續費最長回收天數
 
 	// 結算時間感知
 	nextSettlement   time.Time
@@ -119,11 +120,12 @@ type FundingCarryStrategy struct {
 }
 
 const (
-	maxConsecutiveErrors     = 5
-	orderWaitTimeout         = 30 * time.Second
-	orderPollInterval        = 2 * time.Second
-	orderCancelVerifyTimeout = 10 * time.Second
-	maxCarryOpenSlippage     = 0.003
+	maxConsecutiveErrors        = 5
+	orderWaitTimeout            = 30 * time.Second
+	orderPollInterval           = 2 * time.Second
+	orderCancelVerifyTimeout    = 10 * time.Second
+	maxCarryOpenSlippage        = 0.003
+	defaultCarryFeeRecoveryDays = 30.0
 
 	// closeSpotSellPriceFactor 平倉現貨限價賣單相對最新價的折讓（保證盡快成交）
 	closeSpotSellPriceFactor = 0.99
@@ -152,6 +154,7 @@ func NewFundingCarryStrategy(
 	reverseMinRate := 0.0004
 	reverseExitRate := 0.0002
 	marginInterestMax := 0.001
+	maxFeeRecoveryDays := defaultCarryFeeRecoveryDays
 
 	autoTransfer := false
 	reserveSpot := 50.0
@@ -185,6 +188,9 @@ func NewFundingCarryStrategy(
 		}
 		if v, ok := stratCfg["margin_interest_max"].(float64); ok && finitePositive(v) {
 			marginInterestMax = v
+		}
+		if v, ok := stratCfg["max_fee_recovery_days"].(float64); ok && finitePositive(v) && v <= 365 {
+			maxFeeRecoveryDays = v
 		}
 		if v, ok := stratCfg["auto_transfer_enabled"].(bool); ok {
 			autoTransfer = v
@@ -222,6 +228,7 @@ func NewFundingCarryStrategy(
 		reverseMinRate:       reverseMinRate,
 		reverseExitRate:      reverseExitRate,
 		marginInterestMax:    marginInterestMax,
+		maxFeeRecoveryDays:   maxFeeRecoveryDays,
 		settlementBuffer:     settleBuf,
 		autoTransferEnabled:  autoTransfer,
 		transferReserveSpot:  reserveSpot,
@@ -1095,6 +1102,32 @@ func validateFundingCarryReverseNetRate(info *exchange.FundingInfo, symbol strin
 	return nil
 }
 
+func fundingCarryConfiguredFeeRate(cfg *config.Config, exchangeName string) (float64, error) {
+	if cfg == nil {
+		return 0, fmt.Errorf("exchange fee rate is not configured; refusing funding carry opening")
+	}
+	exchangeCfg, ok := cfg.Exchanges[exchangeName]
+	if !ok || math.IsNaN(exchangeCfg.FeeRate) || math.IsInf(exchangeCfg.FeeRate, 0) || exchangeCfg.FeeRate < 0 || exchangeCfg.FeeRate > 1 {
+		return 0, fmt.Errorf("valid fee_rate is required for exchange %q; refusing funding carry opening", exchangeName)
+	}
+	return exchangeCfg.FeeRate, nil
+}
+
+func validateFundingCarryFeeRecovery(fundingRate, feeRate, maxRecoveryDays, hourlyBorrowRate float64) error {
+	if math.IsNaN(fundingRate) || math.IsInf(fundingRate, 0) ||
+		math.IsNaN(feeRate) || math.IsInf(feeRate, 0) || feeRate < 0 || feeRate > 1 ||
+		!finitePositive(maxRecoveryDays) || maxRecoveryDays > 365 ||
+		!finiteNonNegative(hourlyBorrowRate) {
+		return fmt.Errorf("invalid funding carry fee recovery inputs")
+	}
+	netRate := math.Abs(fundingRate) - hourlyBorrowRate*8
+	feeRecoveryRate := 4 * feeRate / (3 * maxRecoveryDays)
+	if !finiteNonNegative(feeRecoveryRate) || netRate < feeRecoveryRate {
+		return fmt.Errorf("estimated 8-hour net carry %.8f is below %.8f required to recover round-trip fees within %.2f days", netRate, feeRecoveryRate, maxRecoveryDays)
+	}
+	return nil
+}
+
 func finitePositive(value float64) bool {
 	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
@@ -1583,6 +1616,27 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 }
 
 func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) error {
+	if rate < s.minFundingRate {
+		return fmt.Errorf("8-hour funding rate %.8f is below configured opening minimum %.8f", rate, s.minFundingRate)
+	}
+	fundingInfo, err := s.fut.GetFundingInfo(ctx, s.symbol)
+	if err != nil {
+		return fmt.Errorf("refresh funding info before forward opening: %w", err)
+	}
+	currentRate, err := fundingCarryNormalizedOpeningRate(fundingInfo, s.symbol)
+	if err != nil {
+		return fmt.Errorf("normalize refreshed funding rate before forward opening: %w", err)
+	}
+	if currentRate < s.minFundingRate {
+		return fmt.Errorf("refreshed 8-hour funding rate %.8f is below configured opening minimum %.8f", currentRate, s.minFundingRate)
+	}
+	feeRate, err := fundingCarryConfiguredFeeRate(s.cfg, s.symCfg.Exchange)
+	if err != nil {
+		return err
+	}
+	if err := validateFundingCarryFeeRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, 0); err != nil {
+		return fmt.Errorf("validate forward funding carry fee recovery: %w", err)
+	}
 	cap, err := s.capitalWithinOpeningLimits(futPx, spotPx)
 	if err != nil {
 		return err
@@ -1601,12 +1655,6 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	}
 	buyPrice := spotPx * 1.005
 	buyPrice = s.roundPrice(buyPrice, s.spot.GetPriceDecimals())
-	feeRate := 0.0
-	if s.cfg != nil {
-		if exchangeCfg, ok := s.cfg.Exchanges[s.symCfg.Exchange]; ok {
-			feeRate = exchangeCfg.FeeRate
-		}
-	}
 	spotBuyReserve, err := fundingCarrySpotBuyReserve(qty, buyPrice, feeRate)
 	if err != nil {
 		return err
@@ -1773,6 +1821,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if s.marginEx == nil {
 		return fmt.Errorf("反向套利需要保證金帳戶，但 marginEx 為 nil")
 	}
+	if rate > -s.reverseMinRate {
+		return fmt.Errorf("8-hour negative funding rate %.8f is above configured reverse minimum -%.8f", rate, s.reverseMinRate)
+	}
 
 	cap, err := s.capitalWithinOpeningLimits(futPx, spotPx)
 	if err != nil {
@@ -1807,8 +1858,22 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if err != nil {
 		return fmt.Errorf("query funding interval before reverse opening: %w", err)
 	}
+	currentRate, err := fundingCarryNormalizedOpeningRate(fundingInfo, s.symbol)
+	if err != nil {
+		return fmt.Errorf("normalize refreshed funding rate before reverse opening: %w", err)
+	}
+	if currentRate > -s.reverseMinRate {
+		return fmt.Errorf("refreshed 8-hour negative funding rate %.8f is above configured reverse minimum -%.8f", currentRate, s.reverseMinRate)
+	}
 	if err := validateFundingCarryReverseNetRate(fundingInfo, s.symbol, hourlyRate); err != nil {
 		return fmt.Errorf("validate reverse funding economics: %w", err)
+	}
+	feeRate, err := fundingCarryConfiguredFeeRate(s.cfg, s.symCfg.Exchange)
+	if err != nil {
+		return err
+	}
+	if err := validateFundingCarryFeeRecovery(currentRate, feeRate, s.maxFeeRecoveryDays, hourlyRate); err != nil {
+		return fmt.Errorf("validate reverse funding carry fee recovery: %w", err)
 	}
 	if err := s.ensureFuturesMargin(ctx, legNotional, 0); err != nil {
 		return fmt.Errorf("ensure futures opening margin: %w", err)

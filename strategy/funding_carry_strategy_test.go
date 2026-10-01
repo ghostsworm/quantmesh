@@ -35,6 +35,7 @@ func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
 		"auto_transfer_enabled":  true,
 		"profit_harvest_enabled": true,
 		"profit_harvest_min":     10.0,
+		"max_fee_recovery_days":  14.0,
 	}
 	s := NewFundingCarryStrategy("fc-test", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, nil, nil, nil, stratCfg)
 	if s.minFundingRate != 0.001 {
@@ -65,6 +66,9 @@ func TestNewFundingCarryStrategy_ConfigParams(t *testing.T) {
 	if s.profitHarvestMin != 10.0 {
 		t.Errorf("profitHarvestMin = %v, want 10.0", s.profitHarvestMin)
 	}
+	if s.maxFeeRecoveryDays != 14 {
+		t.Errorf("maxFeeRecoveryDays = %v, want 14", s.maxFeeRecoveryDays)
+	}
 }
 
 func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
@@ -78,6 +82,9 @@ func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
 	if s.maxBasisPct != 0.5 {
 		t.Errorf("default maxBasisPct = %v, want 0.5", s.maxBasisPct)
 	}
+	if s.maxFeeRecoveryDays != defaultCarryFeeRecoveryDays {
+		t.Errorf("default maxFeeRecoveryDays = %v, want %v", s.maxFeeRecoveryDays, defaultCarryFeeRecoveryDays)
+	}
 	if s.tickInterval != 45*time.Second {
 		t.Errorf("default tickInterval = %v, want 45s", s.tickInterval)
 	}
@@ -86,6 +93,48 @@ func TestNewFundingCarryStrategy_Defaults(t *testing.T) {
 	}
 	if s.reverseEnabled {
 		t.Error("default reverseEnabled should be false")
+	}
+}
+
+func TestValidateFundingCarryFeeRecovery(t *testing.T) {
+	tests := []struct {
+		name       string
+		funding    float64
+		fee        float64
+		days       float64
+		borrowHour float64
+		wantErr    bool
+	}{
+		{name: "covers fees at horizon", funding: 0.0001, fee: 0.0002, days: 30},
+		{name: "below fee recovery threshold", funding: 0.000005, fee: 0.0002, days: 30, wantErr: true},
+		{name: "reverse borrow cost leaves insufficient carry", funding: -0.0001, fee: 0.0002, days: 30, borrowHour: 0.000012, wantErr: true},
+		{name: "invalid fee rejected", funding: 0.001, fee: math.NaN(), days: 30, wantErr: true},
+		{name: "invalid horizon rejected", funding: 0.001, fee: 0.0002, days: 0, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateFundingCarryFeeRecovery(tt.funding, tt.fee, tt.days, tt.borrowHour)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateFundingCarryFeeRecovery() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFundingCarryConfiguredFeeRateFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cfg  *config.Config
+	}{
+		{name: "missing config"},
+		{name: "missing exchange", cfg: &config.Config{Exchanges: map[string]config.ExchangeConfig{}}},
+		{name: "invalid rate", cfg: &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {FeeRate: math.NaN()}}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := fundingCarryConfiguredFeeRate(tc.cfg, "binance"); err == nil {
+				t.Fatal("expected missing or invalid fee rate to be rejected")
+			}
+		})
 	}
 }
 
@@ -418,8 +467,9 @@ func TestOpenHedge_AtomicSuccess(t *testing.T) {
 		balance: 300, latestPrice: 50050, fundingRate: 0.001, priceDecimals: 2, quantityDecimals: 3,
 	}
 
-	s := NewFundingCarryStrategy("fc", nil,
-		config.SymbolConfig{Symbol: "BTCUSDT", TotalAllocatedCapital: 500},
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {FeeRate: 0.0002}}}
+	s := NewFundingCarryStrategy("fc", cfg,
+		config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance", TotalAllocatedCapital: 500},
 		futEx, spotEx, nil, nil)
 	s.SetEventBus(bus)
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})

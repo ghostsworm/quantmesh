@@ -234,6 +234,7 @@ const BotCreateWizard: React.FC = () => {
           min_funding_rate: 0.0004,
           exit_funding_rate: 0.0002,
           max_basis_pct: 0.5,
+          max_fee_recovery_days: 30,
         },
       }))
     }
@@ -990,6 +991,23 @@ const BotCreateWizard: React.FC = () => {
                     }))
                   }
                 />
+              </FormControl>
+              <FormControl>
+                <FormLabel>{t('botCreate.fundingFeeRecoveryDays')}</FormLabel>
+                <DecimalNumberInput
+                  value={(strategyParams.funding_carry?.max_fee_recovery_days as number) ?? 30}
+                  min={1}
+                  max={365}
+                  step={1}
+                  precision={0}
+                  onChange={(v) =>
+                    setStrategyParams((p) => ({
+                      ...p,
+                      funding_carry: { ...p.funding_carry, max_fee_recovery_days: v ?? 30 },
+                    }))
+                  }
+                />
+                <Text fontSize="xs" color="gray.500" mt={1}>{t('botCreate.fundingFeeRecoveryDaysHint')}</Text>
               </FormControl>
               <FormControl>
                 <FormLabel>{t('botCreate.fundingMaxBasis')}</FormLabel>

@@ -234,6 +234,8 @@
     "fundingAllocatedCapitalHint": "Recommended ≥ 200 USDT so each leg can meet contract minimums.",
     "fundingMinRate": "Min funding rate (enter)",
     "fundingExitRate": "Exit funding rate (close)",
+    "fundingFeeRecoveryDays": "Fee recovery limit (days)",
+    "fundingFeeRecoveryDaysHint": "Estimates round-trip fees for both legs from the configured fee rate; projected net funding must recover them within this period. Excludes slippage and rate changes.",
     "fundingMaxBasis": "Max basis % (spot vs perp)",
     "riskLevel": {
       "low": "Low risk",

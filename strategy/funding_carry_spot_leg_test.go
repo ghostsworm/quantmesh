@@ -14,11 +14,12 @@ func newSpotLegTestStrategy(spotBalance float64, futShort float64) (*FundingCarr
 		priceDecimals: 2, quantityDecimals: 5,
 		getOrderStatus: exchange.OrderStatusFilled,
 	}
-	futEx := &mockFCExchange{priceDecimals: 2, quantityDecimals: 3}
+	futEx := &mockFCExchange{priceDecimals: 2, quantityDecimals: 3, fundingRate: 0.001}
 	if futShort > 0 {
 		futEx.positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -futShort}}
 	}
-	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, nil, nil)
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {FeeRate: 0.0002}}}
+	s := NewFundingCarryStrategy("fc", cfg, config.SymbolConfig{Symbol: "BTCUSDT", Exchange: "binance"}, futEx, spotEx, nil, nil)
 	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 	return s, spotEx, futEx
 }
@@ -120,5 +121,17 @@ func TestOpenHedge_RecordsStrategySpot(t *testing.T) {
 	}
 	if !s.strategySpotKnown || s.strategySpotQty != 0.004 {
 		t.Fatalf("recorded spot=%v known=%v want 0.004", s.strategySpotQty, s.strategySpotKnown)
+	}
+}
+
+func TestOpenHedgeRejectsMissingFeeRateBeforeOrders(t *testing.T) {
+	s, spotEx, futEx := newSpotLegTestStrategy(1000, 0)
+	s.symCfg.TotalAllocatedCapital = 500
+
+	if err := s.openHedge(context.Background(), 50050, 50000, 0.001); err == nil {
+		t.Fatal("openHedge accepted missing configured fee rate")
+	}
+	if len(spotEx.placedOrders) != 0 || len(futEx.placedOrders) != 0 {
+		t.Fatalf("orders were submitted without a fee rate: spot=%d futures=%d", len(spotEx.placedOrders), len(futEx.placedOrders))
 	}
 }
