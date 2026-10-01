@@ -647,55 +647,6 @@ const BotRiskControlPanel: React.FC<BotRiskControlPanelProps> = ({
 
                 <Divider />
                 <Heading size="xs" textTransform="uppercase" color="gray.500">
-                  {t('botRiskControl.stopLossTakeProfit')}
-                </Heading>
-
-                <SimpleGrid columns={{ base: 1, md: 3 }} spacing={4}>
-                  <FormControl>
-                    <FormLabel fontSize="sm">{t('botRiskControl.stopLossRatio')} (%)</FormLabel>
-                    <DecimalNumberInput
-                      value={riskPercentDisplay(riskControl.stop_loss_ratio)}
-                      onChange={(val) => updateConfigField('stop_loss_ratio', typeof val === 'number' ? val / 100 : val)}
-                      min={0}
-                      max={100}
-                      precision={2}
-                      step={0.01}
-                      showStepper
-                    />
-                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.stopLossRatioDesc')}</Text>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel fontSize="sm">{t('botRiskControl.takeProfitRatio')} (%)</FormLabel>
-                    <DecimalNumberInput
-                      value={riskPercentDisplay(riskControl.take_profit_ratio)}
-                      onChange={(val) => updateConfigField('take_profit_ratio', typeof val === 'number' ? val / 100 : val)}
-                      min={0}
-                      max={100}
-                      precision={2}
-                      step={0.01}
-                      showStepper
-                    />
-                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.takeProfitRatioDesc')}</Text>
-                  </FormControl>
-
-                  <FormControl>
-                    <FormLabel fontSize="sm">{t('botRiskControl.trailingStopRatio')} (%)</FormLabel>
-                    <DecimalNumberInput
-                      value={riskPercentDisplay(riskControl.trailing_stop_ratio)}
-                      onChange={(val) => updateConfigField('trailing_stop_ratio', typeof val === 'number' ? val / 100 : val)}
-                      min={0}
-                      max={100}
-                      precision={2}
-                      step={0.01}
-                      showStepper
-                    />
-                    <Text fontSize="xs" color="gray.500">{t('botRiskControl.trailingStopRatioDesc')}</Text>
-                  </FormControl>
-                </SimpleGrid>
-
-                <Divider />
-                <Heading size="xs" textTransform="uppercase" color="gray.500">
                   {t('botRiskControl.gridRiskControl')}
                 </Heading>
                 <Text fontSize="xs" color="gray.500">{t('botRiskControl.gridRiskControlDesc')}</Text>

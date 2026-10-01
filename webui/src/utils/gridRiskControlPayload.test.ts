@@ -98,7 +98,16 @@ describe('explicit risk editor units', () => {
 
   it('does not create zero limits for absent fields and preserves explicit zero', () => {
     expect(JSON.parse(JSON.stringify(normalizeBotRiskControlPayload({ enabled: true })))).toEqual({ enabled: true })
-    expect(normalizeBotRiskControlPayload({ max_position_quantity: '0', stop_loss_ratio: '0' })).toMatchObject({ max_position_quantity: 0, stop_loss_ratio: 0 })
+    const payload = normalizeBotRiskControlPayload({
+      max_position_quantity: '0',
+      stop_loss_ratio: '0',
+      take_profit_ratio: '0.2',
+      trailing_stop_ratio: '0.1',
+    })
+    expect(payload.max_position_quantity).toBe(0)
+    expect(payload).not.toHaveProperty('stop_loss_ratio')
+    expect(payload).not.toHaveProperty('take_profit_ratio')
+    expect(payload).not.toHaveProperty('trailing_stop_ratio')
   })
 
   it.each(['', ' ', '2oops', 'Infinity', '-1', Infinity, NaN])('rejects malformed limits %s', (value) => {
@@ -111,9 +120,11 @@ describe('explicit risk editor units', () => {
     expect(() => normalizeBotRiskControlPayload({ max_open_orders: NaN })).toThrow()
   })
 
-  it('normalizes root and nested drafts without changing their display values', () => {
+  it('omits unsupported root ratios and normalizes active nested grid ratios', () => {
     const draft = { stop_loss_ratio: '0.5', grid_risk_control: { stop_loss_ratio: '0.5', max_grid_layers: '12' } }
-    expect(normalizeBotRiskControlPayload(draft)).toMatchObject({ stop_loss_ratio: 0.005, grid_risk_control: { stop_loss_ratio: 0.005, max_grid_layers: 12 } })
+    const payload = normalizeBotRiskControlPayload(draft)
+    expect(payload).not.toHaveProperty('stop_loss_ratio')
+    expect(payload.grid_risk_control).toMatchObject({ stop_loss_ratio: 0.005, max_grid_layers: 12 })
     expect(draft.grid_risk_control.stop_loss_ratio).toBe('0.5')
   })
 })

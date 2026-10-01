@@ -48,17 +48,25 @@ export function normalizeGridRiskControlPayload(draft: GridRiskControlPayload): 
 }
 
 export function normalizeBotRiskControlPayload(draft: BotRiskControlDraft): BotRiskControl {
+  const {
+    stop_loss_ratio: legacyStopLossRatio,
+    take_profit_ratio: legacyTakeProfitRatio,
+    trailing_stop_ratio: legacyTrailingStopRatio,
+    ...supportedDraft
+  } = draft
+  // Legacy Bot-level ratios have no runtime consumer. Keep stored values for
+  // compatibility, but never submit them as if they enabled protection.
+  void legacyStopLossRatio
+  void legacyTakeProfitRatio
+  void legacyTrailingStopRatio
   return {
-    ...draft,
+    ...supportedDraft,
     max_position_quantity: read(draft, 'max_position_quantity'),
     max_position_qty: read(draft, 'max_position_qty'),
     max_position_value: read(draft, 'max_position_value'),
     max_position_layers: read(draft, 'max_position_layers', false, true),
     max_open_orders: read(draft, 'max_open_orders', false, true),
     open_order_distance: read(draft, 'open_order_distance'),
-    stop_loss_ratio: read(draft, 'stop_loss_ratio', true),
-    take_profit_ratio: read(draft, 'take_profit_ratio', true),
-    trailing_stop_ratio: read(draft, 'trailing_stop_ratio', true),
     auto_resume_after: read(draft, 'auto_resume_after', false, true),
     grid_risk_control: draft.grid_risk_control === undefined ? undefined : normalizeGridRiskControlPayload(draft.grid_risk_control),
   }
