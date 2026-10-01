@@ -31,10 +31,11 @@ type DCAEnhancedStrategy struct {
 	strategyCfg *DCAEnhancedConfig
 
 	// 價格數據
-	priceHistory []float64
-	candles      []indicators.Candle
-	lastPrice    float64
-	mu           sync.RWMutex
+	priceHistory  []float64
+	candles       []indicators.Candle
+	lastPrice     float64
+	orderUpdateMu sync.Mutex // 串行化成交证据读取与游标推进，避免并发回报使用过期前缀
+	mu            sync.RWMutex
 
 	// 倉位管理
 	layers        []*DCALayer // 分层倉位
@@ -1387,6 +1388,8 @@ func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error 
 	if update == nil || update.OrderID == 0 {
 		return nil
 	}
+	s.orderUpdateMu.Lock()
+	defer s.orderUpdateMu.Unlock()
 	if err := s.resolveUnverifiedCommission(update); err != nil {
 		return err
 	}
@@ -1427,6 +1430,9 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 		layer.RequestedQuantity = layer.Quantity
 	}
 	qty, _ := entryFillFromUpdate(update)
+	if layer.Status == entryStatusFilled && !filled && !terminal && qty <= layer.FillProgress.Quantity+entryQtyEpsilon {
+		return // Ignore a stale partial callback after the cumulative order has already completed.
+	}
 	if qty > layer.FillProgress.Quantity && update.AvgPrice <= 0 {
 		return
 	}

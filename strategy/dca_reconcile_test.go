@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sync"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -18,13 +20,17 @@ type dcaRecoveryExchange struct {
 	fills    []*exchange.OrderFill
 	orderErr error
 	fillsErr error
+	fillsFn  func(orderID int64) (interface{}, error)
 }
 
 func (e *dcaRecoveryExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
 	return e.order, e.orderErr
 }
 
-func (e *dcaRecoveryExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
+func (e *dcaRecoveryExchange) GetOrderFills(_ context.Context, _ string, orderID int64) (interface{}, error) {
+	if e.fillsFn != nil {
+		return e.fillsFn(orderID)
+	}
 	return e.fills, e.fillsErr
 }
 
@@ -169,6 +175,75 @@ func TestDCAOnOrderUpdateVerifiesUnreportedSpotFeeBeforeAccounting(t *testing.T)
 	layer := s.layers[0]
 	if layer.Quantity != 0.5 || layer.Cost != 50 || layer.OpeningFee != 0.05 || layer.FillProgress.Quantity != 0.5 {
 		t.Fatalf("DCA did not account using verified fill fees: %+v", layer)
+	}
+}
+
+func TestDCAConcurrentUnverifiedUpdatesReconcileAgainstLatestFillCursor(t *testing.T) {
+	firstFillQuery := make(chan struct{})
+	secondFillQuery := make(chan struct{})
+	releaseFullHistory := make(chan struct{})
+	var queryMu sync.Mutex
+	queryCount := 0
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}
+	ex.fillsFn = func(int64) (interface{}, error) {
+		queryMu.Lock()
+		queryCount++
+		currentQuery := queryCount
+		queryMu.Unlock()
+		if currentQuery == 1 {
+			close(firstFillQuery)
+			<-releaseFullHistory
+			return []*exchange.OrderFill{
+				{OrderID: 120, TradeID: "cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+					Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000},
+				{OrderID: 120, TradeID: "cursor-b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+					Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_001},
+			}, nil
+		}
+		close(secondFillQuery)
+		return []*exchange.OrderFill{{OrderID: 120, TradeID: "cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100,
+			Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000}}, nil
+	}
+	s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.layers = []*DCALayer{{Index: 0, OrderID: 120, Status: entryStatusPartiallyFilled, RequestedQuantity: 1}}
+	fullUpdateDone := make(chan error, 1)
+	partialUpdateDone := make(chan error, 1)
+	go func() {
+		fullUpdateDone <- s.OnOrderUpdate(&position.OrderUpdate{OrderID: 120, Symbol: "BTCUSDT", Side: "BUY",
+			Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 100, CommissionKnown: false})
+	}()
+	<-firstFillQuery // The full-order update has captured the empty persisted cursor before blocking on fills.
+	go func() {
+		partialUpdateDone <- s.OnOrderUpdate(&position.OrderUpdate{OrderID: 120, Symbol: "BTCUSDT", Side: "BUY",
+			Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.5, AvgPrice: 100, CommissionKnown: false})
+	}()
+	partialFinished := false
+	select {
+	case <-secondFillQuery:
+		if err := <-partialUpdateDone; err != nil {
+			t.Fatal(err)
+		}
+		partialFinished = true
+	case <-time.After(250 * time.Millisecond):
+		// A serialized callback waits here until the first order update is applied.
+	}
+	close(releaseFullHistory)
+	if err := <-fullUpdateDone; err != nil {
+		t.Fatal(err)
+	}
+	if !partialFinished {
+		select {
+		case err := <-partialUpdateDone:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent partial update did not complete")
+		}
+	}
+	if got := s.layers[0]; got.FillProgress.Quantity != 1 || got.Quantity != 1 || got.Status != entryStatusFilled || math.Abs(got.OpeningFee-0.1) > 1e-12 {
+		t.Fatalf("concurrent DCA fee cursor was double-counted: %+v", got)
 	}
 }
 
