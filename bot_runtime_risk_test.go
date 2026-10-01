@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"math"
 	"sync"
 	"testing"
 
@@ -34,6 +35,36 @@ func TestBotRuntimeRiskControlOwnsInputsAndPublishes(t *testing.T) {
 	br.PauseOpening("manual")
 	if br.GetBotRiskControl().Enabled {
 		t.Fatal("manual pause enabled independent risk override")
+	}
+}
+
+func TestBotRuntimeRejectsInvalidGridRiskControlsWithoutApplying(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.PriceInterval = 100
+	spm := position.NewSuperPositionManager(cfg, &pauseTestExecutor{}, pauseTestExchange{}, 2, 3)
+	initial := config.GridRiskControl{Enabled: true, StopLossRatio: 0.1}
+	br := &BotRuntime{Config: config.BotConfig{GridRiskControl: initial}, Inner: &SymbolRuntime{SuperPositionManager: spm}}
+	if err := br.SetGridRiskControl(initial); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []config.GridRiskControl{
+		{Enabled: true, StopLossRatio: -0.1},
+		{Enabled: true, StopLossRatio: 1.1},
+		{Enabled: true, TrailingTakeProfitRatio: math.NaN()},
+		{Enabled: true, StopLossBasis: "equitty"},
+	}
+	for _, invalid := range tests {
+		if err := br.SetRiskControls(&config.BotRiskControl{}, invalid); err == nil {
+			t.Fatalf("SetRiskControls accepted invalid grid controls: %+v", invalid)
+		}
+		if err := br.SetGridRiskControl(invalid); err == nil {
+			t.Fatalf("SetGridRiskControl accepted invalid grid controls: %+v", invalid)
+		}
+		if got := br.GetGridRiskControl(); got != initial || spm.GetRiskControls().Grid != initial {
+			t.Fatalf("invalid update changed effective config: bot=%+v spm=%+v", got, spm.GetRiskControls().Grid)
+		}
 	}
 }
 

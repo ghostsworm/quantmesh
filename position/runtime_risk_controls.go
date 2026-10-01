@@ -58,6 +58,11 @@ func validRuntimeLimit(value float64) bool {
 
 func (spm *SuperPositionManager) publishRiskControlsLocked(controls config.RiskControls) {
 	copy := controls.Clone()
+	if err := copy.Grid.Validate("runtime.grid_risk_control"); err != nil {
+		spm.openingGate.Block("invalid_grid_risk_control")
+		return
+	}
+	spm.openingGate.Unblock("invalid_grid_risk_control")
 	if limit := spm.verifiedCapitalLimit; limit > 0 {
 		copy.Open.MaxPositionValue = clampNotionalLimit(copy.Open.MaxPositionValue, limit)
 		if copy.Open.BotRiskControl != nil {

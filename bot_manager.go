@@ -1336,6 +1336,9 @@ func (br *BotRuntime) GetGridRiskControl() config.GridRiskControl {
 
 // SetGridRiskControl 設置網格風控配置（運行時熱更新 + 同步到 SuperPositionManager）
 func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
+	if err := grc.Validate("bot.grid_risk_control"); err != nil {
+		return err
+	}
 	br.configMu.Lock()
 	defer br.configMu.Unlock()
 	if br.Inner != nil && br.Inner.SuperPositionManager == nil {
@@ -1352,6 +1355,9 @@ func (br *BotRuntime) SetGridRiskControl(grc config.GridRiskControl) error {
 // SetRiskControls atomically applies a combined Bot/grid API patch to the real
 // executor snapshot; readers never observe only half of the request.
 func (br *BotRuntime) SetRiskControls(rc *config.BotRiskControl, grid config.GridRiskControl) error {
+	if err := grid.Validate("bot.grid_risk_control"); err != nil {
+		return err
+	}
 	br.pauseTransitionMu.Lock()
 	defer br.pauseTransitionMu.Unlock()
 	br.configMu.Lock()

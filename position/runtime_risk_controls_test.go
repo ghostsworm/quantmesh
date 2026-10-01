@@ -3,6 +3,8 @@ package position
 import (
 	"math"
 	"testing"
+
+	"quantmesh/config"
 )
 
 func TestGetPositionLegQuantitiesPreservesOpposingInventory(t *testing.T) {
@@ -12,6 +14,26 @@ func TestGetPositionLegQuantitiesPreservesOpposingInventory(t *testing.T) {
 	long, short, err := spm.GetPositionLegQuantities()
 	if err != nil || long != 2 || short != 3 {
 		t.Fatalf("gross legs were netted: long=%v short=%v", long, short)
+	}
+}
+
+func TestInvalidGridRiskUpdateRetainsLastGoodSnapshotAndBlocksOpening(t *testing.T) {
+	spm := newDirectionTestSPM(t, "LONG", nil)
+	initial := config.GridRiskControl{Enabled: true, StopLossRatio: 0.1}
+	spm.SetGridRiskControl(initial)
+	spm.SetGridRiskControl(config.GridRiskControl{Enabled: true, StopLossRatio: math.NaN()})
+	if got := spm.GetRiskControls().Grid; got != initial {
+		t.Fatalf("invalid grid controls replaced last good snapshot: got %+v", got)
+	}
+	if !spm.OpeningGate().HasBlock("invalid_grid_risk_control") {
+		t.Fatal("invalid grid controls did not block new exposure")
+	}
+	spm.SetGridRiskControl(config.GridRiskControl{Enabled: true, StopLossRatio: 0.05})
+	if got := spm.GetRiskControls().Grid.StopLossRatio; got != 0.05 {
+		t.Fatalf("valid retry did not apply: stop-loss ratio=%v", got)
+	}
+	if spm.OpeningGate().HasBlock("invalid_grid_risk_control") {
+		t.Fatal("valid retry did not release the owned validation block")
 	}
 }
 
