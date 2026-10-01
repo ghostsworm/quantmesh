@@ -1204,7 +1204,10 @@ func (br *BotRuntime) planClosePosition(ctx context.Context, ratio float64) (*po
 	ex := br.Inner.Exchange
 	symbol := br.Config.Symbol
 
-	botNet := spm.GetNetPositionQty()
+	botNet, netVerified := spm.GetNetPositionQtyVerified()
+	if !netVerified {
+		return nil, fmt.Errorf("local Bot position quantity is not finite or cannot be verified")
+	}
 
 	if config.IsSpotMarketType(br.Config.MarketType) {
 		// 現貨無合約持倉概念，按本地槽位計算

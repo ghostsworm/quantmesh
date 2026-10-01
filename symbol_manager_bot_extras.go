@@ -305,7 +305,13 @@ func closeOnStopActionsForRuntime(symCfg config.SymbolConfig, rt *SymbolRuntime)
 		closePositions: func(ctx context.Context, cfg config.ClosePositionConfig) error {
 			botCfg := config.SymbolConfigToBotConfig(symCfg, false)
 			br := &BotRuntime{Config: botCfg, BotID: config.BotIDOrGenerate(botCfg), Inner: rt}
-			if spm.GetNetPositionQty() == 0 {
+			netQty, netVerified := spm.GetNetPositionQtyVerified()
+			if !netVerified {
+				err := fmt.Errorf("local Bot position quantity is not finite or cannot be verified")
+				rt.markShutdownCloseUnverified(err.Error())
+				return err
+			}
+			if netQty == 0 {
 				logger.InfoCtx(ctx, "ℹ️ [%s] 終止時無持倉，無需平倉", symCfg.Symbol)
 				return nil
 			}

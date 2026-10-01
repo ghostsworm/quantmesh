@@ -2012,21 +2012,50 @@ func (spm *SuperPositionManager) GetTotalPositionValueUSDTVerified() (float64, b
 // GetNetPositionQty 獲取本 Bot 槽位淨持倉數量（多為正、空為負），供平倉按實際持倉計算數量
 // LONG/SHORT 模式按配置方向取符號；BOTH 模式按槽位腿別累加
 func (spm *SuperPositionManager) GetNetPositionQty() float64 {
+	qty, verified := spm.GetNetPositionQtyVerified()
+	if !verified {
+		return math.NaN()
+	}
+	return qty
+}
+
+func (spm *SuperPositionManager) GetNetPositionQtyVerified() (float64, bool) {
 	var net float64
+	verified := true
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			if spm.liquidationIsShortLeg(slot.PositionLeg) {
-				net -= slot.PositionQty
-			} else {
-				net += slot.PositionQty
+		if slot.PositionStatus == PositionStatusFilled {
+			qty := slot.PositionQty
+			if !finiteGridValue(qty) || qty < 0 {
+				verified = false
+			} else if qty > 0 {
+				isShort := spm.liquidationIsShortLeg(slot.PositionLeg)
+				if spm.isBoth() && slot.PositionLeg != PositionLegLong && slot.PositionLeg != PositionLegShort {
+					verified = false
+				} else if !spm.isBoth() && slot.PositionLeg != PositionLegNone &&
+					((spm.isShort() && slot.PositionLeg != PositionLegShort) || (!spm.isShort() && slot.PositionLeg != PositionLegLong)) {
+					verified = false
+				} else {
+					nextNet := net + qty
+					if isShort {
+						nextNet = net - qty
+					}
+					if !finiteGridValue(nextNet) {
+						verified = false
+					} else {
+						net = nextNet
+					}
+				}
 			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return net
+	if !verified {
+		return 0, false
+	}
+	return net, true
 }
 
 // GetPendingBuyOrderValueUSDT 獲取當前掛單買單佔用的資金（USDT），用於資金管理展示

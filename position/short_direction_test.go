@@ -266,6 +266,30 @@ func TestGetNetPositionQty(t *testing.T) {
 	}
 }
 
+func TestGetNetPositionQtyVerifiedRejectsOverflowAndUnknownBothLeg(t *testing.T) {
+	spm := newDirectionTestSPM(t, "LONG", nil)
+	for _, price := range []float64{100, 200} {
+		slot := spm.getOrCreateSlot(price)
+		slot.mu.Lock()
+		slot.PositionStatus = PositionStatusFilled
+		slot.PositionQty = math.MaxFloat64 * 0.75
+		slot.mu.Unlock()
+	}
+	if qty, ok := spm.GetNetPositionQtyVerified(); ok || qty != 0 {
+		t.Fatalf("overflowing net quantity = %v/%v, want 0/false", qty, ok)
+	}
+
+	both := newDirectionTestSPM(t, "BOTH", nil)
+	slot := both.getOrCreateSlot(100)
+	slot.mu.Lock()
+	slot.PositionStatus = PositionStatusFilled
+	slot.PositionQty = 1
+	slot.mu.Unlock()
+	if qty, ok := both.GetNetPositionQtyVerified(); ok || qty != 0 {
+		t.Fatalf("BOTH position without a leg = %v/%v, want 0/false", qty, ok)
+	}
+}
+
 func TestPlanCloseOrder(t *testing.T) {
 	tests := []struct {
 		name        string
