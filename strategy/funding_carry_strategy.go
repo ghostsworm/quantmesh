@@ -2365,7 +2365,7 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 		s.publishEvent(event.EventTypeOrderFailed, map[string]interface{}{
 			"side": "spot_sell", "error": err.Error(), "message": "現貨賣出失敗",
 		})
-		return fmt.Errorf("現貨賣出 qty=%.8f: %w", qty, err)
+		return s.blockOnUnownedExposure(fmt.Errorf("現貨賣出 qty=%.8f may have an unresolved execution: %w", qty, err))
 	}
 
 	filledQty, fillErr := s.waitOrderFill(ctx, s.spot, order.OrderID, orderWaitTimeout)
@@ -2373,18 +2373,22 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 		s.releaseStrategySpot(filledQty)
 	}
 	if fillErr != nil || filledQty+tolerance < qty {
-		if cancelErr := cancelCarryOrder(ctx, s.spot, s.spotExecutor, s.symbol, order.OrderID); cancelErr != nil {
-			logger.Warn("⚠️ [%s] 現貨賣單撤單失敗 orderID=%d: %v", s.symbol, order.OrderID, cancelErr)
-		}
 		if fillErr != nil {
-			return fmt.Errorf("等待現貨賣出成交 orderID=%d: %w", order.OrderID, fillErr)
+			if cancelErr := cancelCarryOrder(ctx, s.spot, s.spotExecutor, s.symbol, order.OrderID); cancelErr != nil {
+				logger.Warn("⚠️ [%s] 現貨賣單撤單失敗 orderID=%d: %v", s.symbol, order.OrderID, cancelErr)
+				return s.blockOnUnownedExposure(fmt.Errorf("spot close order %d may still be live after cancel failed: %w", order.OrderID, cancelErr))
+			}
+			return s.blockOnUnownedExposure(fmt.Errorf("等待現貨賣出成交 orderID=%d: %w", order.OrderID, fillErr))
 		}
 		if settleErr := settleCarryOrder(ctx, s.spotExecutor, order); settleErr != nil {
-			return fmt.Errorf("partial spot close is accounted but execution intent remains unresolved: %w", settleErr)
+			return s.blockOnUnownedExposure(fmt.Errorf("partial spot close is accounted but execution intent remains unresolved: %w", settleErr))
 		}
-		return fmt.Errorf("現貨賣出未完全成交 orderID=%d filled=%.8f requested=%.8f; residual ownership retained", order.OrderID, filledQty, qty)
+		return s.blockOnUnownedExposure(fmt.Errorf("現貨賣出未完全成交 orderID=%d filled=%.8f requested=%.8f; residual ownership retained", order.OrderID, filledQty, qty))
 	}
-	return settleCarryOrder(ctx, s.spotExecutor, order)
+	if err := settleCarryOrder(ctx, s.spotExecutor, order); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("spot close fill is confirmed but execution intent remains unresolved: %w", err))
+	}
+	return nil
 }
 
 func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) error {

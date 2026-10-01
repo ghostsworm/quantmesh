@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"sync"
@@ -18,6 +19,23 @@ import (
 type fundingCarryFundingInfoExchange struct {
 	*mockFCExchange
 	info *exchange.FundingInfo
+}
+
+type fundingCarrySettleErrorExecutor struct {
+	order *exchange.Order
+	err   error
+}
+
+func (e fundingCarrySettleErrorExecutor) PlaceOrderContext(context.Context, *exchange.OrderRequest) (*exchange.Order, error) {
+	return e.order, nil
+}
+
+func (fundingCarrySettleErrorExecutor) CancelOrderContext(context.Context, int64) error {
+	return nil
+}
+
+func (e fundingCarrySettleErrorExecutor) SettleIntent(context.Context, string) error {
+	return e.err
 }
 
 func (e *fundingCarryFundingInfoExchange) GetFundingInfo(context.Context, string) (*exchange.FundingInfo, error) {
@@ -713,6 +731,61 @@ func TestFundingCarrySpotCloseBalanceFailureLatchesUnownedExposure(t *testing.T)
 	}
 	if !s.unownedExposure {
 		t.Fatal("failed spot close balance did not latch unowned exposure")
+	}
+}
+
+func TestFundingCarryStandaloneSpotCloseSettleFailureLatchesUnownedExposure(t *testing.T) {
+	tests := []struct {
+		name      string
+		status    exchange.OrderStatus
+		filled    float64
+		settleErr error
+		wantOwned float64
+	}{
+		{name: "settlement failure after full fill", status: exchange.OrderStatusFilled, filled: 1, settleErr: errors.New("intent store unavailable")},
+		{name: "terminal partial fill retains residual ownership", status: exchange.OrderStatusCanceled, filled: 0.5, wantOwned: 0.5},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			futures := &mockFCExchange{name: "binance", marketType: "futures"}
+			spot := &mockFCExchange{
+				name: "binance", marketType: "spot", baseAsset: "BTC", balance: 1,
+				latestPrice: 100, priceDecimals: 2, quantityDecimals: 4,
+				getOrderStatus: tc.status, getOrderExecQty: tc.filled,
+			}
+			store := &memoryRuntimeStateStore{}
+			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
+			s.SetRuntimeStateStore(store)
+			s.strategySpotKnown, s.strategySpotQty, s.spotQty = true, 1, 1
+			s.direction, s.futQty = DirectionForward, 1
+			s.mu.Lock()
+			err := s.persistRuntimeStateLocked()
+			s.mu.Unlock()
+			if err != nil {
+				t.Fatalf("persist initial runtime state: %v", err)
+			}
+			s.SetOrderExecutors(nil, fundingCarrySettleErrorExecutor{
+				order: &exchange.Order{OrderID: 1, ClientOrderID: "close-client-order", Status: exchange.OrderStatusFilled, Quantity: 1, ExecutedQty: 1},
+				err:   tc.settleErr,
+			}, nil)
+
+			if err := s.closeStrategySpot(context.Background()); err == nil {
+				t.Fatal("standalone spot close accepted unresolved or residual exposure")
+			}
+			if !s.unownedExposure {
+				t.Fatal("unresolved spot close did not latch unowned exposure")
+			}
+			var state fundingCarryRuntimeState
+			if err := json.Unmarshal([]byte(store.payload), &state); err != nil {
+				t.Fatalf("decode persisted runtime state: %v", err)
+			}
+			if !state.ExposureUnknown {
+				t.Fatal("unresolved spot close was not persisted as unknown exposure")
+			}
+			if math.Abs(state.OwnedSpot-tc.wantOwned) > 1e-9 {
+				t.Fatalf("persisted owned spot=%.8f, want %.8f", state.OwnedSpot, tc.wantOwned)
+			}
+		})
 	}
 }
 
