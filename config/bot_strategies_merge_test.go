@@ -24,6 +24,31 @@ func TestApplyBotStrategiesToLocalConfig_PureGridLegacy(t *testing.T) {
 	}
 }
 
+func TestApplyBotStrategiesToLocalConfigRejectsUnsupportedType(t *testing.T) {
+	local := &Config{}
+	symbol := &SymbolConfig{Strategies: []StrategyInstance{{Type: "momentum_grid", Weight: 1}}}
+	if err := ApplyBotStrategiesToLocalConfig(local, symbol); err == nil {
+		t.Fatal("unsupported strategy type must not fall back to the default grid runtime")
+	}
+	if local.Strategies.Enabled || len(local.Strategies.Configs) != 0 {
+		t.Fatalf("failed strategy mapping mutated runtime config: %+v", local.Strategies)
+	}
+}
+
+func TestApplyBotStrategiesToLocalConfigRejectsDuplicateRuntimeType(t *testing.T) {
+	local := &Config{}
+	symbol := &SymbolConfig{Strategies: []StrategyInstance{
+		{Type: "momentum", Weight: 0.5},
+		{Type: "momentum", Weight: 0.5},
+	}}
+	if err := ApplyBotStrategiesToLocalConfig(local, symbol); err == nil {
+		t.Fatal("duplicate strategy mapping must not silently overwrite configuration")
+	}
+	if local.Strategies.Enabled || len(local.Strategies.Configs) != 0 {
+		t.Fatalf("failed strategy mapping mutated runtime config: %+v", local.Strategies)
+	}
+}
+
 func TestApplyBotStrategiesToLocalConfig_TrendFollowingMapsToTrend(t *testing.T) {
 	local := &Config{}
 	sym := &SymbolConfig{
@@ -68,10 +93,10 @@ func TestApplyBotStrategiesToLocalConfig_GridPlusTrend(t *testing.T) {
 				Type:   "grid+trend",
 				Weight: 1,
 				Config: map[string]interface{}{
-					"grid_weight":   float64(2),
-					"trend_weight":  float64(3),
-					"fast_period":   float64(5),
-					"slow_period":   float64(10),
+					"grid_weight":  float64(2),
+					"trend_weight": float64(3),
+					"fast_period":  float64(5),
+					"slow_period":  float64(10),
 				},
 			},
 		},

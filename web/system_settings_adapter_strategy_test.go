@@ -126,8 +126,11 @@ func TestStrategyMetadataHelpersCoverKnownAndUnknownStrategies(t *testing.T) {
 	if got := getStrategyFeatures("custom"); !reflect.DeepEqual(got, []string{"基础功能"}) {
 		t.Fatalf("unknown features=%#v", got)
 	}
-	if params := getStrategyParameters("grid"); len(params) != 4 || !params[0].Required {
+	if params := getStrategyParameters("grid"); len(params) != 0 {
 		t.Fatalf("grid params=%#v", params)
+	}
+	if params := getStrategyParameters("momentum"); len(params) != 4 || params[0].Name != "rsi_period" {
+		t.Fatalf("momentum params=%#v", params)
 	}
 	if params := getStrategyParameters("dca_enhanced"); len(params) != 7 {
 		t.Fatalf("dca enhanced params len=%d", len(params))

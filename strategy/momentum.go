@@ -73,10 +73,11 @@ func NewMomentumStrategy(
 	}
 
 	// 從配置中读取参數
-	if rp, ok := strategyCfg["rsi_period"].(int); ok {
-		ms.rsiPeriod = rp
+	rsiPeriod := signalStrategyFloat(strategyCfg, []string{"rsi_period"}, 14)
+	if rsiPeriod >= 2 && rsiPeriod <= 100 && math.Trunc(rsiPeriod) == rsiPeriod {
+		ms.rsiPeriod = int(rsiPeriod)
 	} else {
-		ms.rsiPeriod = 14 // 預設 14
+		ms.rsiPeriod = 14
 	}
 
 	if ob, ok := strategyCfg["overbought"].(float64); ok {

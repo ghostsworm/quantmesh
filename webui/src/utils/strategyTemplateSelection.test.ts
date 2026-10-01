@@ -20,13 +20,14 @@ describe('resolveStrategyTemplateSelection', () => {
   it('selects an actual single strategy ID and routes its defaults to that strategy', () => {
     const selection = resolveStrategyTemplateSelection(template({
       strategy_type: 'grid',
-      config: { grid_spacing: 500, grid_levels: 10 },
+      config: { grid_spacing: 500, grid_levels: 10, order_quantity: 200 },
       params: { price_interval: { name: 'Price interval', description: '', type: 'number', default: 500, required: true } },
     }))
 
     expect(selection.mode).toBe('single')
     expect(selection.singleStrategyId).toBe('grid')
-    expect(selection.strategyParams.grid).toEqual({ grid_spacing: 500, grid_levels: 10, price_interval: 500 })
+    expect(selection.strategyParams).toEqual({})
+    expect(selection.tradingParameters).toEqual({ price_interval: 500, order_quantity: 200 })
   })
 
   it('routes combo defaults only to their declared strategy', () => {
@@ -35,13 +36,15 @@ describe('resolveStrategyTemplateSelection', () => {
       config: { strategies: [{ type: 'grid', weight: 0.7 }, { type: 'dca', weight: 0.3 }] },
       params: {
         price_interval: { name: 'Grid interval', description: '', strategy_id: 'grid', type: 'number', default: 500, required: true },
+        grid_order_qty: { name: 'Grid amount', description: '', strategy_id: 'grid', type: 'number', default: 200, required: true },
         dca_amount: { name: 'DCA amount', description: '', strategy_id: 'dca', type: 'number', default: 100, required: true },
       },
     }))
 
     expect(selection.mode).toBe('combo')
     expect(selection.strategies).toEqual([{ type: 'grid', weight: 0.7 }, { type: 'dca', weight: 0.3 }])
-    expect(selection.strategyParams).toEqual({ grid: { price_interval: 500 }, dca: { dca_amount: 100 } })
+    expect(selection.strategyParams).toEqual({ dca: { dca_amount: 100 } })
+    expect(selection.tradingParameters).toEqual({ price_interval: 500, order_quantity: 200 })
   })
 
   it('rejects a combo template with required parameters lacking a strategy target', () => {

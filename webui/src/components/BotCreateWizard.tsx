@@ -190,6 +190,9 @@ const BotCreateWizard: React.FC = () => {
         if (cfg.sell_window_size) setForm(f => ({ ...f, sell_window_size: cfg.sell_window_size }))
         if (cfg.direction) setForm(f => ({ ...f, direction: cfg.direction }))
       }
+      if (Object.keys(selection.tradingParameters).length > 0) {
+        setForm(f => ({ ...f, ...selection.tradingParameters }))
+      }
 
       // Apply strategy params from template
       setStrategyParams(selection.strategyParams)

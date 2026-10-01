@@ -2,15 +2,16 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // ApplyBotStrategiesToLocalConfig 將 Bot（SymbolConfig）上的 strategies 列表合并到本交易对运行时的 localCfg.Strategies。
 // 用于实盘 startSymbolRuntime：使 StrategyManager 注册的键（如 trend）与 API 使用的类型名（如 trend_following）一致。
 // 若 strategies 为空，不修改 local.Strategies（沿用全局配置）。
-func ApplyBotStrategiesToLocalConfig(local *Config, symCfg *SymbolConfig) {
+func ApplyBotStrategiesToLocalConfig(local *Config, symCfg *SymbolConfig) error {
 	if local == nil || symCfg == nil || len(symCfg.Strategies) == 0 {
-		return
+		return nil
 	}
 
 	// 单策略且仅为 grid：保持 legacy 行为（仅 SuperPositionManager 网格路径，不启多策略模块）
@@ -24,13 +25,18 @@ func ApplyBotStrategiesToLocalConfig(local *Config, symCfg *SymbolConfig) {
 			if symCfg.TotalAllocatedCapital > 0 {
 				local.Strategies.CapitalAllocation.TotalCapital = symCfg.TotalAllocatedCapital
 			}
-			return
+			return nil
 		}
 	}
 
 	configs := make(map[string]StrategyConfig)
 	for _, si := range symCfg.Strategies {
-		expandStrategyInstances(si, configs)
+		if err := expandStrategyInstances(si, configs); err != nil {
+			return err
+		}
+	}
+	if len(configs) == 0 {
+		return fmt.Errorf("Bot strategies contain no supported runtime strategy")
 	}
 
 	local.Strategies.Enabled = len(configs) > 0
@@ -39,6 +45,7 @@ func ApplyBotStrategiesToLocalConfig(local *Config, symCfg *SymbolConfig) {
 	if symCfg.TotalAllocatedCapital > 0 {
 		local.Strategies.CapitalAllocation.TotalCapital = symCfg.TotalAllocatedCapital
 	}
+	return nil
 }
 
 // ShouldSkipInitialGridAdjustOrders 启动时是否跳过 SuperPositionManager 的首轮 AdjustOrders，
@@ -51,10 +58,10 @@ func ShouldSkipInitialGridAdjustOrders(local *Config) bool {
 	return !ok || !gc.Enabled
 }
 
-func expandStrategyInstances(si StrategyInstance, out map[string]StrategyConfig) {
+func expandStrategyInstances(si StrategyInstance, out map[string]StrategyConfig) error {
 	rawType := strings.TrimSpace(si.Type)
 	if rawType == "" {
-		return
+		return fmt.Errorf("Bot strategy type is empty")
 	}
 
 	switch strings.ToLower(rawType) {
@@ -65,6 +72,12 @@ func expandStrategyInstances(si StrategyInstance, out map[string]StrategyConfig)
 		}
 		cfg := cloneConfigMap(si.Config)
 		gridW, trendW := splitComboWeights(cfg, w)
+		if _, exists := out["grid"]; exists {
+			return fmt.Errorf("Bot strategy %q conflicts with an existing grid strategy", rawType)
+		}
+		if _, exists := out["trend"]; exists {
+			return fmt.Errorf("Bot strategy %q conflicts with an existing trend strategy", rawType)
+		}
 		out["grid"] = StrategyConfig{
 			Enabled: true,
 			Type:    "grid",
@@ -77,10 +90,14 @@ func expandStrategyInstances(si StrategyInstance, out map[string]StrategyConfig)
 			Weight:  trendW,
 			Config:  normalizeTrendFollowingConfig(stripComboWeightKeys(cfg)),
 		}
+		return nil
 	default:
 		key := apiStrategyTypeToRuntimeKey(rawType)
 		if key == "" {
-			return
+			return fmt.Errorf("unsupported Bot strategy type %q", rawType)
+		}
+		if _, exists := out[key]; exists {
+			return fmt.Errorf("Bot strategy type %q maps to duplicate runtime strategy %q", rawType, key)
 		}
 		w := si.Weight
 		if w <= 0 {
@@ -93,6 +110,7 @@ func expandStrategyInstances(si StrategyInstance, out map[string]StrategyConfig)
 			Weight:  w,
 			Config:  cfg,
 		}
+		return nil
 	}
 }
 

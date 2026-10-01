@@ -29,3 +29,77 @@ func TestComboGridTrendTemplateDoesNotAdvertiseUnconfiguredProtection(t *testing
 		t.Fatalf("template composition changed unexpectedly: %#v", strategies)
 	}
 }
+
+func TestBuiltinTemplatesUseSupportedRuntimeStrategyTypes(t *testing.T) {
+	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
+	manager.initBuiltinTemplates()
+	for _, template := range manager.ListTemplates() {
+		if template.StrategyType == "combo" || template.StrategyType == "grid+trend" {
+			continue
+		}
+		if key := apiStrategyTypeToRuntimeKey(template.StrategyType); key == "" {
+			t.Errorf("template %q selects unsupported strategy type %q", template.ID, template.StrategyType)
+		}
+	}
+}
+
+func TestHighRiskTemplatesMatchImplementedStrategies(t *testing.T) {
+	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
+	manager.initBuiltinTemplates()
+
+	martingale, ok := manager.GetTemplate("martingale_grid_btc")
+	if !ok || martingale.StrategyType != "martingale" {
+		t.Fatalf("martingale template type = %+v, want supported martingale strategy", martingale)
+	}
+	for _, key := range []string{"initial_amount", "multiplier", "max_levels", "price_step"} {
+		if _, ok := martingale.Params[key]; !ok {
+			t.Errorf("martingale template missing runtime parameter %q", key)
+		}
+	}
+	if _, exists := martingale.Params["base_amount"]; exists {
+		t.Error("martingale template still exposes unconsumed base_amount parameter")
+	}
+
+	momentum, ok := manager.GetTemplate("momentum_grid_eth")
+	if !ok || momentum.StrategyType != "momentum" {
+		t.Fatalf("momentum template type = %+v, want supported momentum strategy", momentum)
+	}
+	for _, key := range []string{"rsi_period", "overbought", "oversold", "order_amount"} {
+		if _, ok := momentum.Params[key]; !ok {
+			t.Errorf("momentum template missing runtime parameter %q", key)
+		}
+	}
+}
+
+func TestDCATemplatesMatchEnhancedRuntimeInsteadOfScheduledBuying(t *testing.T) {
+	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
+	manager.initBuiltinTemplates()
+
+	for _, id := range []string{"dca_regular_btc", "combo_grid_dca_btc"} {
+		template, ok := manager.GetTemplate(id)
+		if !ok {
+			t.Fatalf("template %q is missing", id)
+		}
+		if !strings.Contains(template.Description, "不是") {
+			t.Errorf("template %q must clarify it is not scheduled buying: %q", id, template.Description)
+		}
+		if _, exists := template.Params["dca_interval"]; exists {
+			t.Errorf("template %q exposes unsupported dca_interval", id)
+		}
+	}
+
+	regular, _ := manager.GetTemplate("dca_regular_btc")
+	if regular.StrategyType != "dca_enhanced" {
+		t.Fatalf("DCA template type = %q, want dca_enhanced", regular.StrategyType)
+	}
+	for _, key := range []string{"base_order_amount", "safety_order_amount", "max_safety_orders"} {
+		if _, ok := regular.Params[key]; !ok {
+			t.Errorf("DCA template missing runtime parameter %q", key)
+		}
+	}
+	combo, _ := manager.GetTemplate("combo_grid_dca_btc")
+	strategies, ok := combo.Config["strategies"].([]map[string]interface{})
+	if !ok || len(strategies) != 2 || strategies[1]["type"] != "dca_enhanced" {
+		t.Errorf("combo DCA strategy = %#v, want dca_enhanced", combo.Config["strategies"])
+	}
+}

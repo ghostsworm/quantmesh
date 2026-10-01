@@ -11,20 +11,20 @@ import (
 
 // StrategyTemplate 策略配置模板
 type StrategyTemplate struct {
-	ID          string                 `yaml:"id" json:"id"`
-	Name        string                 `yaml:"name" json:"name"`
-	Description string                 `yaml:"description" json:"description"`
-	Category    string                 `yaml:"category" json:"category"`     // grid, dca, momentum, etc.
-	StrategyType string                `yaml:"strategy_type" json:"strategy_type"`
-	Config      map[string]interface{} `yaml:"config" json:"config"`
-	Params      map[string]TemplateParam `yaml:"params" json:"params"`
-	DefaultWeight float64              `yaml:"default_weight" json:"default_weight"`
+	ID            string                   `yaml:"id" json:"id"`
+	Name          string                   `yaml:"name" json:"name"`
+	Description   string                   `yaml:"description" json:"description"`
+	Category      string                   `yaml:"category" json:"category"` // grid, dca, momentum, etc.
+	StrategyType  string                   `yaml:"strategy_type" json:"strategy_type"`
+	Config        map[string]interface{}   `yaml:"config" json:"config"`
+	Params        map[string]TemplateParam `yaml:"params" json:"params"`
+	DefaultWeight float64                  `yaml:"default_weight" json:"default_weight"`
 	// 新增字段
-	Symbols     []string               `yaml:"symbols,omitempty" json:"symbols,omitempty"`           // 推荐币种: BTCUSDT, ETHUSDT, etc.
-	Difficulty  string                 `yaml:"difficulty,omitempty" json:"difficulty,omitempty"`     // beginner, intermediate, advanced
-	RiskLevel   string                 `yaml:"risk_level,omitempty" json:"risk_level,omitempty"`    // low, medium, high
-	Tags        []string               `yaml:"tags,omitempty" json:"tags,omitempty"`                // 标签: conservative, aggressive, trending, etc.
-	MinCapital  float64                `yaml:"min_capital,omitempty" json:"min_capital,omitempty"`  // 最低资金要求（U）
+	Symbols    []string `yaml:"symbols,omitempty" json:"symbols,omitempty"`         // 推荐币种: BTCUSDT, ETHUSDT, etc.
+	Difficulty string   `yaml:"difficulty,omitempty" json:"difficulty,omitempty"`   // beginner, intermediate, advanced
+	RiskLevel  string   `yaml:"risk_level,omitempty" json:"risk_level,omitempty"`   // low, medium, high
+	Tags       []string `yaml:"tags,omitempty" json:"tags,omitempty"`               // 标签: conservative, aggressive, trending, etc.
+	MinCapital float64  `yaml:"min_capital,omitempty" json:"min_capital,omitempty"` // 最低资金要求（U）
 }
 
 // TemplateParam 模板参数定义
@@ -32,7 +32,7 @@ type TemplateParam struct {
 	Name        string      `yaml:"name" json:"name"`
 	Description string      `yaml:"description" json:"description"`
 	StrategyID  string      `yaml:"strategy_id,omitempty" json:"strategy_id,omitempty"`
-	Type        string      `yaml:"type" json:"type"`           // number, string, boolean, select
+	Type        string      `yaml:"type" json:"type"` // number, string, boolean, select
 	Default     interface{} `yaml:"default" json:"default"`
 	Min         *float64    `yaml:"min,omitempty" json:"min,omitempty"`
 	Max         *float64    `yaml:"max,omitempty" json:"max,omitempty"`
@@ -73,14 +73,14 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	// ==================== 基础网格策略系列 ====================
 
 	m.templates["grid_basic_btc"] = &StrategyTemplate{
-		ID:          "grid_basic_btc",
-		Name:        "BTC 基础网格",
-		Description: "适合 BTC 的经典网格策略，在价格区间内等距挂单，适合横盘震荡行情",
-		Category:    "grid",
+		ID:           "grid_basic_btc",
+		Name:         "BTC 基础网格",
+		Description:  "适合 BTC 的经典网格策略，在价格区间内等距挂单，适合横盘震荡行情",
+		Category:     "grid",
 		StrategyType: "grid",
 		Config: map[string]interface{}{
 			"grid_spacing": 500.0,
-			"grid_levels": 10,
+			"grid_levels":  10,
 		},
 		Params: map[string]TemplateParam{
 			"price_interval": {
@@ -110,14 +110,14 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["grid_basic_eth"] = &StrategyTemplate{
-		ID:          "grid_basic_eth",
-		Name:        "ETH 基础网格",
-		Description: "适合 ETH 的经典网格策略，ETH 波动相对较小，可以设置更小的网格间距",
-		Category:    "grid",
+		ID:           "grid_basic_eth",
+		Name:         "ETH 基础网格",
+		Description:  "适合 ETH 的经典网格策略，ETH 波动相对较小，可以设置更小的网格间距",
+		Category:     "grid",
 		StrategyType: "grid",
 		Config: map[string]interface{}{
 			"grid_spacing": 20.0,
-			"grid_levels": 15,
+			"grid_levels":  15,
 		},
 		Params: map[string]TemplateParam{
 			"price_interval": {
@@ -147,14 +147,14 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["grid_basic_gold"] = &StrategyTemplate{
-		ID:          "grid_basic_gold",
-		Name:        "黄金网格策略",
-		Description: "适合黄金/稳定币对的基础网格，黄金波动较小，适合保守型投资者",
-		Category:    "grid",
+		ID:           "grid_basic_gold",
+		Name:         "黄金网格策略",
+		Description:  "适合黄金/稳定币对的基础网格，黄金波动较小，适合保守型投资者",
+		Category:     "grid",
 		StrategyType: "grid",
 		Config: map[string]interface{}{
 			"grid_spacing": 2.0,
-			"grid_levels": 8,
+			"grid_levels":  8,
 		},
 		Params: map[string]TemplateParam{
 			"price_interval": {
@@ -186,15 +186,15 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	// ==================== 组合策略系列 ====================
 
 	m.templates["combo_grid_dca_btc"] = &StrategyTemplate{
-		ID:          "combo_grid_dca_btc",
-		Name:        "BTC 网格+定投",
-		Description: "网格策略（70%）+ 定投策略（30%），既能获得震荡收益，又能长期持有",
-		Category:    "combo",
+		ID:           "combo_grid_dca_btc",
+		Name:         "BTC 网格+DCA增强",
+		Description:  "网格策略（70%）+ ATR分层DCA增强策略（30%）；按价格与风险参数执行，不是定时定额定投。",
+		Category:     "combo",
 		StrategyType: "combo",
 		Config: map[string]interface{}{
 			"strategies": []map[string]interface{}{
 				{"type": "grid", "weight": 0.7},
-				{"type": "dca", "weight": 0.3},
+				{"type": "dca_enhanced", "weight": 0.3},
 			},
 		},
 		Params: map[string]TemplateParam{
@@ -216,22 +216,31 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 				Min:         ptrFloat64(50),
 				Required:    true,
 			},
-			"dca_amount": {
-				Name:        "定投金额",
-				Description: "每次定投金额（U）",
-				StrategyID:  "dca",
+			"base_order_amount": {
+				Name:        "DCA基础订单金额",
+				Description: "基础订单名义金额（U）",
+				StrategyID:  "dca_enhanced",
 				Type:        "number",
-				Default:     100.0,
-				Min:         ptrFloat64(20),
+				Default:     50.0,
+				Min:         ptrFloat64(10),
 				Required:    true,
 			},
-			"dca_interval": {
-				Name:        "定投间隔",
-				Description: "定投间隔（分钟）",
-				StrategyID:  "dca",
+			"safety_order_amount": {
+				Name:        "DCA补仓订单金额",
+				Description: "每层补仓订单名义金额（U）",
+				StrategyID:  "dca_enhanced",
 				Type:        "number",
-				Default:     3600.0,
-				Min:         ptrFloat64(60),
+				Default:     100.0,
+				Min:         ptrFloat64(10),
+				Required:    true,
+			},
+			"max_safety_orders": {
+				Name:        "最大补仓层数",
+				Description: "DCA最多执行的补仓层数",
+				StrategyID:  "dca_enhanced",
+				Type:        "number",
+				Default:     4,
+				Min:         ptrFloat64(1),
 				Required:    true,
 			},
 		},
@@ -244,10 +253,10 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["combo_grid_trend_eth"] = &StrategyTemplate{
-		ID:          "combo_grid_trend_eth",
-		Name:        "ETH 网格+趋势组合",
-		Description: "网格策略（80%）与趋势跟踪（20%）组合；本模板不启用止盈或止损，需在 Bot 网格风控设置中单独配置。",
-		Category:    "combo",
+		ID:           "combo_grid_trend_eth",
+		Name:         "ETH 网格+趋势组合",
+		Description:  "网格策略（80%）与趋势跟踪（20%）组合；本模板不启用止盈或止损，需在 Bot 网格风控设置中单独配置。",
+		Category:     "combo",
 		StrategyType: "combo",
 		Config: map[string]interface{}{
 			"strategies": []map[string]interface{}{
@@ -255,7 +264,7 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 				{"type": "trend_following", "weight": 0.2},
 			},
 		},
-		Params:       map[string]TemplateParam{},
+		Params:        map[string]TemplateParam{},
 		DefaultWeight: 1.0,
 		Symbols:       []string{"ETHUSDT"},
 		Difficulty:    "intermediate",
@@ -267,27 +276,20 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	// ==================== 高级策略系列 ====================
 
 	m.templates["martingale_grid_btc"] = &StrategyTemplate{
-		ID:          "martingale_grid_btc",
-		Name:        "BTC 马丁格尔网格",
-		Description: "⚠️ 高风险！每跌一格加倍买入，适合有经验的交易者，需要足够资金支撑",
-		Category:    "grid",
-		StrategyType: "martingale_grid",
+		ID:           "martingale_grid_btc",
+		Name:         "BTC 马丁格尔策略",
+		Description:  "高风险逆势加仓策略；按百分比间距递增加仓，层数与倍数需谨慎设置。",
+		Category:     "grid",
+		StrategyType: "martingale",
 		Config: map[string]interface{}{
-			"base_amount": 100,
-			"multiplier": 1.5,
-			"max_levels": 8,
+			"initial_amount": 100.0,
+			"multiplier":     1.5,
+			"max_levels":     8,
+			"price_step":     2.0,
 		},
 		Params: map[string]TemplateParam{
-			"price_interval": {
-				Name:        "价格间隔",
-				Description: "每档价格差（U）",
-				Type:        "number",
-				Default:     300.0,
-				Min:         ptrFloat64(100),
-				Required:    true,
-			},
-			"base_amount": {
-				Name:        "基础金额",
+			"initial_amount": {
+				Name:        "初始金额",
 				Description: "首笔订单金额（U）",
 				Type:        "number",
 				Default:     100.0,
@@ -312,6 +314,15 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 				Max:         ptrFloat64(15),
 				Required:    true,
 			},
+			"price_step": {
+				Name:        "加仓间距",
+				Description: "相对上次入场价的百分比间距",
+				Type:        "number",
+				Default:     2.0,
+				Min:         ptrFloat64(0.1),
+				Max:         ptrFloat64(50),
+				Required:    true,
+			},
 		},
 		DefaultWeight: 1.0,
 		Symbols:       []string{"BTCUSDT"},
@@ -322,40 +333,51 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["momentum_grid_eth"] = &StrategyTemplate{
-		ID:          "momentum_grid_eth",
-		Name:        "ETH 动量网格",
-		Description: "结合动量指标的网格策略，上涨时减少买入，下跌时增加买入",
-		Category:    "grid",
-		StrategyType: "momentum_grid",
+		ID:           "momentum_grid_eth",
+		Name:         "ETH RSI 动量策略",
+		Description:  "基于 RSI 超卖/超买信号进行开平仓；这是信号策略，不是网格策略。",
+		Category:     "grid",
+		StrategyType: "momentum",
 		Config: map[string]interface{}{
-			"momentum_period": 14,
-			"momentum_threshold": 0.02,
+			"rsi_period":   14,
+			"overbought":   70.0,
+			"oversold":     30.0,
+			"order_amount": 100.0,
 		},
 		Params: map[string]TemplateParam{
-			"price_interval": {
-				Name:        "基础间距",
-				Description: "基础网格间距（U）",
+			"rsi_period": {
+				Name:        "RSI 周期",
+				Description: "计算 RSI 的价格周期数",
 				Type:        "number",
-				Default:     15.0,
-				Min:         ptrFloat64(5),
+				Default:     14,
+				Min:         ptrFloat64(2),
+				Max:         ptrFloat64(100),
 				Required:    true,
 			},
-			"momentum_period": {
-				Name:        "动量周期",
-				Description: "计算动量的K线周期",
+			"overbought": {
+				Name:        "超买阈值",
+				Description: "RSI 高于此值时触发平仓",
 				Type:        "number",
-				Default:     14.0,
-				Min:         ptrFloat64(5),
+				Default:     70.0,
+				Min:         ptrFloat64(50),
+				Max:         ptrFloat64(100),
+				Required:    true,
+			},
+			"oversold": {
+				Name:        "超卖阈值",
+				Description: "RSI 低于此值时触发开仓",
+				Type:        "number",
+				Default:     30.0,
+				Min:         ptrFloat64(0),
 				Max:         ptrFloat64(50),
 				Required:    true,
 			},
-			"momentum_threshold": {
-				Name:        "动量阈值",
-				Description: "动量信号阈值",
+			"order_amount": {
+				Name:        "单笔金额",
+				Description: "每次信号开仓的名义金额（U）",
 				Type:        "number",
-				Default:     0.02,
-				Min:         ptrFloat64(0.005),
-				Max:         ptrFloat64(0.1),
+				Default:     100.0,
+				Min:         ptrFloat64(10),
 				Required:    true,
 			},
 		},
@@ -370,37 +392,50 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	// ==================== 保守型策略系列 ====================
 
 	m.templates["dca_regular_btc"] = &StrategyTemplate{
-		ID:          "dca_regular_btc",
-		Name:        "BTC 定期定投",
-		Description: "🛡️ 最保守策略！定期定额买入，长期持有，适合新手",
-		Category:    "dca",
-		StrategyType: "dca",
+		ID:           "dca_regular_btc",
+		Name:         "BTC DCA增强策略",
+		Description:  "按 ATR 价格层级执行分层订单，并受止盈止损参数约束；不是按时间定期买入。",
+		Category:     "dca",
+		StrategyType: "dca_enhanced",
 		Config: map[string]interface{}{
-			"dca_amount": 100,
-			"dca_interval": 3600, // 每小时
+			"base_order_amount":   50,
+			"safety_order_amount": 100,
+			"max_safety_orders":   4,
+			"atr_period":          14,
+			"atr_multiplier":      1.5,
+			"total_take_profit":   2,
+			"stop_loss":           10,
 		},
 		Params: map[string]TemplateParam{
-			"dca_amount": {
-				Name:        "定投金额",
-				Description: "每次定投金额（U）",
+			"base_order_amount": {
+				Name:        "基础订单金额",
+				Description: "基础订单名义金额（U）",
+				Type:        "number",
+				Default:     50.0,
+				Min:         ptrFloat64(10),
+				Required:    true,
+			},
+			"safety_order_amount": {
+				Name:        "补仓订单金额",
+				Description: "每层补仓订单名义金额（U）",
 				Type:        "number",
 				Default:     100.0,
 				Min:         ptrFloat64(10),
 				Required:    true,
 			},
-			"dca_interval": {
-				Name:        "定投间隔",
-				Description: "定投间隔（分钟）：60=每小时, 3600=每天, 10080=每周",
-				Type:        "select",
-				Default:     3600,
-				Options:     []string{"60", "3600", "10080", "43200"},
+			"max_safety_orders": {
+				Name:        "最大补仓层数",
+				Description: "最多执行的补仓层数",
+				Type:        "number",
+				Default:     4,
+				Min:         ptrFloat64(1),
 				Required:    true,
 			},
 		},
 		DefaultWeight: 1.0,
 		Symbols:       []string{"BTCUSDT", "ETHUSDT", "PAXGUSDT"},
 		Difficulty:    "beginner",
-		RiskLevel:     "low",
+		RiskLevel:     "medium",
 		Tags:          []string{"conservative", "longterm", "passive"},
 		MinCapital:    500,
 	}
@@ -408,14 +443,14 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	// ==================== 原有模板保持兼容 ====================
 
 	m.templates["grid_basic"] = &StrategyTemplate{
-		ID:          "grid_basic",
-		Name:        "通用基础网格",
-		Description: "经典网格策略，在价格区间内等距挂单",
-		Category:    "grid",
+		ID:           "grid_basic",
+		Name:         "通用基础网格",
+		Description:  "经典网格策略，在价格区间内等距挂单",
+		Category:     "grid",
 		StrategyType: "grid",
 		Config: map[string]interface{}{
 			"grid_spacing": 100.0,
-			"grid_levels": 10,
+			"grid_levels":  10,
 		},
 		Params: map[string]TemplateParam{
 			"price_interval": {
@@ -444,13 +479,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["trend_following"] = &StrategyTemplate{
-		ID:          "trend_following",
-		Name:        "趋势跟踪策略",
-		Description: "跟踪市场趋势，动态调整挂单方向",
-		Category:    "grid",
+		ID:           "trend_following",
+		Name:         "趋势跟踪策略",
+		Description:  "跟踪市场趋势，动态调整挂单方向",
+		Category:     "grid",
 		StrategyType: "trend_following",
 		Config: map[string]interface{}{
-			"trend_period": 60,
+			"trend_period":    60,
 			"trend_threshold": 0.5,
 		},
 		Params: map[string]TemplateParam{
@@ -482,13 +517,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["momentum"] = &StrategyTemplate{
-		ID:          "momentum",
-		Name:        "动量策略",
-		Description: "基于价格动量进行交易",
-		Category:    "grid",
+		ID:           "momentum",
+		Name:         "动量策略",
+		Description:  "基于价格动量进行交易",
+		Category:     "grid",
 		StrategyType: "momentum",
 		Config: map[string]interface{}{
-			"momentum_period": 14,
+			"momentum_period":    14,
 			"momentum_threshold": 0.02,
 		},
 		Params: map[string]TemplateParam{
@@ -520,13 +555,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["dca_regular"] = &StrategyTemplate{
-		ID:          "dca_regular",
-		Name:        "定期定投策略",
-		Description: "定期定额买入，适合长期持有",
-		Category:    "dca",
+		ID:           "dca_regular",
+		Name:         "定期定投策略",
+		Description:  "定期定额买入，适合长期持有",
+		Category:     "dca",
 		StrategyType: "dca",
 		Config: map[string]interface{}{
-			"dca_amount": 100,
+			"dca_amount":   100,
 			"dca_interval": 60,
 		},
 		Params: map[string]TemplateParam{
@@ -557,15 +592,15 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["martingale"] = &StrategyTemplate{
-		ID:          "martingale",
-		Name:        "马丁格尔策略",
-		Description: "⚠️ 亏损后加倍投入，风险较高",
-		Category:    "dca",
+		ID:           "martingale",
+		Name:         "马丁格尔策略",
+		Description:  "⚠️ 亏损后加倍投入，风险较高",
+		Category:     "dca",
 		StrategyType: "martingale",
 		Config: map[string]interface{}{
 			"base_amount": 50,
-			"multiplier": 2,
-			"max_levels": 5,
+			"multiplier":  2,
+			"max_levels":  5,
 		},
 		Params: map[string]TemplateParam{
 			"base_amount": {
@@ -604,13 +639,13 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 	}
 
 	m.templates["mean_reversion"] = &StrategyTemplate{
-		ID:          "mean_reversion",
-		Name:        "均值回归策略",
-		Description: "价格偏离均值时进行交易",
-		Category:    "grid",
+		ID:           "mean_reversion",
+		Name:         "均值回归策略",
+		Description:  "价格偏离均值时进行交易",
+		Category:     "grid",
 		StrategyType: "mean_reversion",
 		Config: map[string]interface{}{
-			"mean_period": 20,
+			"mean_period":       20,
 			"std_dev_threshold": 2.0,
 		},
 		Params: map[string]TemplateParam{

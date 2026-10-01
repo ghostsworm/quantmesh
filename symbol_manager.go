@@ -553,7 +553,9 @@ func startSymbolRuntime(
 	}
 
 	// 將 Bot 上的 strategies 合并到本交易对 localCfg，使实盘与 API 策略类型（如 trend_following）一致
-	config.ApplyBotStrategiesToLocalConfig(&localCfg, &symCfg)
+	if err := config.ApplyBotStrategiesToLocalConfig(&localCfg, &symCfg); err != nil {
+		return nil, fmt.Errorf("应用 Bot 策略配置失败: %w", err)
+	}
 	// Bot 級 R5 覆蓋（fee_aware_spread / regime_filter / inventory_skew / funding_rate.pricing_enabled 等），未設置項沿用全局
 	config.ApplyBotTradingOverrides(&localCfg, symCfg.TradingOverrides)
 

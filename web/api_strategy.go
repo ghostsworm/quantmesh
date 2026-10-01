@@ -773,12 +773,6 @@ func getStrategyFeatures(id string) []string {
 
 func getStrategyParameters(id string) []StrategyParameter {
 	params := map[string][]StrategyParameter{
-		"grid": {
-			{Name: "gridCount", Type: "number", Default: 10, Min: 3, Max: 100, Description: "网格數量", Required: true, DisplayOrder: 1},
-			{Name: "upperPrice", Type: "number", Default: 0, Description: "网格上限價格", Required: true, DisplayOrder: 2},
-			{Name: "lowerPrice", Type: "number", Default: 0, Description: "网格下限價格", Required: true, DisplayOrder: 3},
-			{Name: "totalAmount", Type: "number", Default: 1000, Description: "總投资金額", Required: true, DisplayOrder: 4},
-		},
 		"dca": {
 			{Name: "interval", Type: "select", Default: "4h", Description: "定投间隔", Required: true, DisplayOrder: 1},
 			{Name: "amount", Type: "number", Default: 100, Description: "每次投资金額", Required: true, DisplayOrder: 2},
@@ -799,6 +793,12 @@ func getStrategyParameters(id string) []StrategyParameter {
 			{Name: "price_step", Type: "number", Default: 2.0, Min: 0.1, Max: 50.0, Description: "加倉间距 (%)", Required: true, DisplayOrder: 4},
 			{Name: "take_profit", Type: "number", Default: 3.0, Min: 0.1, Description: "止盈比例 (%)", Required: true, DisplayOrder: 5},
 			{Name: "direction", Type: "select", Default: "LONG", Description: "方向 (LONG/SHORT)", Required: true, DisplayOrder: 6},
+		},
+		"momentum": {
+			{Name: "rsi_period", Type: "number", Default: 14, Min: 2, Max: 100, Description: "RSI 计算周期", Required: true, DisplayOrder: 1},
+			{Name: "overbought", Type: "number", Default: 70.0, Min: 50.0, Max: 100.0, Description: "RSI 超买平仓阈值", Required: true, DisplayOrder: 2},
+			{Name: "oversold", Type: "number", Default: 30.0, Min: 0.0, Max: 50.0, Description: "RSI 超卖开仓阈值", Required: true, DisplayOrder: 3},
+			{Name: "order_amount", Type: "number", Default: 100.0, Min: 10.0, Description: "每次信号开仓名义金额", Required: true, DisplayOrder: 4},
 		},
 		"combo": {
 			{Name: "total_capital", Type: "number", Default: 10000.0, Min: 100.0, Description: "總资金 (USDT)", Required: true, DisplayOrder: 1},
