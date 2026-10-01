@@ -32,10 +32,11 @@ type MartingaleStrategy struct {
 	strategyCfg *MartingaleConfig
 
 	// 價格數據
-	priceHistory []float64
-	candles      []indicators.Candle
-	lastPrice    float64
-	mu           sync.RWMutex
+	priceHistory  []float64
+	candles       []indicators.Candle
+	lastPrice     float64
+	orderUpdateMu sync.Mutex // 串行化成交证据读取与游标推进，避免并发回报使用过期前缀
+	mu            sync.RWMutex
 
 	// 倉位管理
 	entries       []*MartingaleEntry // 入场記錄
@@ -1001,6 +1002,8 @@ func (s *MartingaleStrategy) checkTrendFilter() bool {
 
 // OnOrderUpdate 订單更新处理
 func (s *MartingaleStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	s.orderUpdateMu.Lock()
+	defer s.orderUpdateMu.Unlock()
 	if update == nil || update.OrderID == 0 {
 		return nil
 	}
@@ -1174,6 +1177,9 @@ func (s *MartingaleStrategy) handleEntryOrderUpdate(entry *MartingaleEntry, upda
 	}
 	if qty < entry.FillProgress.Quantity || (signalOrderStatusFilled(update.Status) && qty <= 0) {
 		return
+	}
+	if entry.Status == entryStatusFilled && qty <= entry.FillProgress.Quantity && !signalOrderStatusTerminal(update.Status) {
+		return // Ignore a stale partial/new callback after the entry reached a terminal fill.
 	}
 	if qty > entry.FillProgress.Quantity {
 		if !finiteNumber(update.AvgPrice) || update.AvgPrice <= 0 {

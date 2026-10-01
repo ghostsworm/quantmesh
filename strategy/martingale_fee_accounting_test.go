@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"sync"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -159,6 +161,77 @@ func TestMartingaleRealizedPnLIncludesQuoteValuedEntryAndExitFees(t *testing.T) 
 	}
 	if s.stats.TotalPnL != 9.7 || s.totalQty != 0 {
 		t.Fatalf("net PnL should be 10 gross - 0.2 entry fee - 0.1 exit fee: stats=%+v qty=%v", s.stats, s.totalQty)
+	}
+}
+
+func TestMartingaleConcurrentUnverifiedUpdatesReconcileAgainstLatestFillCursor(t *testing.T) {
+	firstFillQuery := make(chan struct{})
+	secondFillQuery := make(chan struct{})
+	releaseFullHistory := make(chan struct{})
+	var queryMu sync.Mutex
+	queryCount := 0
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}
+	ex.fillsFn = func(int64) (interface{}, error) {
+		queryMu.Lock()
+		queryCount++
+		currentQuery := queryCount
+		queryMu.Unlock()
+		if currentQuery == 1 {
+			close(firstFillQuery)
+			<-releaseFullHistory
+			return []*exchange.OrderFill{
+				{OrderID: 121, TradeID: "martingale-cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+					Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000},
+				{OrderID: 121, TradeID: "martingale-cursor-b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5,
+					Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_001},
+			}, nil
+		}
+		close(secondFillQuery)
+		return []*exchange.OrderFill{{OrderID: 121, TradeID: "martingale-cursor-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100,
+			Quantity: 0.5, Commission: 0.05, CommissionAsset: "USDT", TradeTime: 1_700_000_000_000}}, nil
+	}
+	s := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, ex, nil)
+	setTestRuntimeStateStore(t, s)
+	s.direction = "LONG"
+	s.entries = []*MartingaleEntry{{Level: 0, OrderID: 121, Status: entryStatusPartiallyFilled, RequestedQuantity: 1}}
+	fullUpdateDone := make(chan error, 1)
+	partialUpdateDone := make(chan error, 1)
+	go func() {
+		fullUpdateDone <- s.OnOrderUpdate(&position.OrderUpdate{OrderID: 121, Symbol: "BTCUSDT", Side: "BUY",
+			Status: position.OrderStatusFilled, ExecutedQty: 1, AvgPrice: 100, CommissionKnown: false})
+	}()
+	<-firstFillQuery
+	go func() {
+		partialUpdateDone <- s.OnOrderUpdate(&position.OrderUpdate{OrderID: 121, Symbol: "BTCUSDT", Side: "BUY",
+			Status: position.OrderStatusPartiallyFilled, ExecutedQty: 0.5, AvgPrice: 100, CommissionKnown: false})
+	}()
+	partialFinished := false
+	select {
+	case <-secondFillQuery:
+		if err := <-partialUpdateDone; err != nil {
+			t.Fatal(err)
+		}
+		partialFinished = true
+	case <-time.After(250 * time.Millisecond):
+		// A serialized callback waits until the first update advances the fill cursor.
+	}
+	close(releaseFullHistory)
+	if err := <-fullUpdateDone; err != nil {
+		t.Fatal(err)
+	}
+	if !partialFinished {
+		select {
+		case err := <-partialUpdateDone:
+			if err != nil {
+				t.Fatal(err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("concurrent partial update did not complete")
+		}
+	}
+	entry := s.entries[0]
+	if entry.FillProgress.Quantity != 1 || entry.Quantity != 1 || entry.Status != entryStatusFilled || math.Abs(entry.OpeningFee-0.1) > 1e-12 {
+		t.Fatalf("concurrent Martingale fee cursor was double-counted or downgraded: %+v", entry)
 	}
 }
 
