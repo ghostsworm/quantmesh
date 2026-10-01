@@ -108,6 +108,9 @@ func TestGridSpotCloseWithBaseFeeRetainsInventoryForReconciliation(t *testing.T)
 	spm.OnOrderUpdate(OrderUpdate{OrderID: 93, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "NEW", Side: "SELL", Price: 3100})
 	spm.OnOrderUpdate(OrderUpdate{OrderID: 93, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "SELL",
 		ExecutedQty: 0.1, AvgPrice: 3100, Commission: 0.31, CommissionAsset: "USDT", BaseFeeQty: 0.001})
+	// A later terminal update for the same cumulative fill may omit its fee fields.
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 93, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "CANCELED", Side: "SELL",
+		ExecutedQty: 0.1, AvgPrice: 3100, CommissionAsset: "USDT"})
 
 	slot.mu.RLock()
 	defer slot.mu.RUnlock()

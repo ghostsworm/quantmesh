@@ -47,7 +47,8 @@ func (spm *SuperPositionManager) PersistGridRuntimeState() error {
 			OrderCreatedAt: slot.OrderCreatedAt, SlotStatus: slot.SlotStatus, PostOnlyFailCount: slot.PostOnlyFailCount,
 			BuyFee: slot.BuyFee, FeeAsset: slot.FeeAsset, FeeClientOID: slot.feeClientOID,
 			OrderCommission: slot.orderCommission, FeeValuationUnknown: slot.feeValuationUnknown,
-			OrderBaseFeeQty: slot.orderBaseFeeQty, CycleGen: slot.cycleGen,
+			BaseFeeReconciliationRequired: slot.baseFeeReconciliationRequired,
+			OrderBaseFeeQty:               slot.orderBaseFeeQty, CycleGen: slot.cycleGen,
 			PositionEntryOrderID: slot.PositionEntryOrderID, PositionEntryOrderUnknown: slot.PositionEntryOrderAmbiguous,
 			FeeSupplementUntil:        slot.feeSupplementUntil,
 			PendingFeeSupplementCount: slot.pendingFeeSupplementCount,
@@ -111,6 +112,18 @@ func (spm *SuperPositionManager) RestoreGridRuntimeState() (bool, error) {
 			slot := &snapshot.Slots[i]
 			if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
 				slot.PositionEntryOrderUnknown = true
+			}
+		}
+		snapshot.Version = 4
+		schemaVersion = 4
+	}
+	if schemaVersion == 4 && snapshot.Version == 4 {
+		migratedSchema = true
+		for i := range snapshot.Slots {
+			slot := &snapshot.Slots[i]
+			if strings.EqualFold(snapshot.MarketType, "spot") && slot.OrderStatus == OrderStatusUnknown &&
+				(slot.OrderID > 0 || slot.ClientOID != "") {
+				slot.BaseFeeReconciliationRequired = true
 			}
 		}
 		snapshot.Version = gridRuntimeStateSchemaVersion
@@ -200,7 +213,8 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			OrderCreatedAt: state.OrderCreatedAt, SlotStatus: state.SlotStatus, PostOnlyFailCount: state.PostOnlyFailCount,
 			BuyFee: state.BuyFee, FeeAsset: state.FeeAsset, feeClientOID: state.FeeClientOID,
 			orderCommission: state.OrderCommission, feeValuationUnknown: state.FeeValuationUnknown,
-			orderBaseFeeQty: state.OrderBaseFeeQty, cycleGen: state.CycleGen, feeSupplementUntil: state.FeeSupplementUntil,
+			baseFeeReconciliationRequired: state.BaseFeeReconciliationRequired,
+			orderBaseFeeQty:               state.OrderBaseFeeQty, cycleGen: state.CycleGen, feeSupplementUntil: state.FeeSupplementUntil,
 			PositionEntryOrderID: state.PositionEntryOrderID, PositionEntryOrderAmbiguous: state.PositionEntryOrderUnknown,
 			pendingFeeSupplementCount: state.PendingFeeSupplementCount,
 			lastFilledClientOID:       state.LastFilledClientOID, lastTerminalFill: state.LastTerminalFill,
@@ -210,6 +224,9 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 			StrategyName: state.StrategyName, StrategyType: state.StrategyType,
 		}
 		spm.slots.Store(state.Price, slot)
+		if state.BaseFeeReconciliationRequired {
+			spm.openingGate.Block("unknown_orders")
+		}
 	}
 	spm.setAnchorPrice(snapshot.AnchorPrice)
 	spm.lastMarketPrice.Store(snapshot.LastMarket)
@@ -236,7 +253,7 @@ func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
 			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&
 			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.feeValuationUnknown &&
 			slot.feeSupplementUntil.IsZero() && slot.pendingFeeSupplementCount == 0 &&
-			!slot.baseFeeUnfloored && !slot.CostBasisUnverified && slot.PositionLeg == PositionLegNone
+			!slot.baseFeeUnfloored && !slot.baseFeeReconciliationRequired && !slot.CostBasisUnverified && slot.PositionLeg == PositionLegNone
 		slot.mu.RUnlock()
 		if !clear {
 			empty = false

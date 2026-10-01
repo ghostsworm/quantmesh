@@ -40,6 +40,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	slot.BuyFee, slot.FeeAsset = 0.03, "USDT"
 	slot.feeClientOID, slot.orderCommission, slot.orderBaseFeeQty = "owned-cid", 0.01, 0.0001
 	slot.feeValuationUnknown, slot.cycleGen = true, 4
+	slot.baseFeeReconciliationRequired = true
 	slot.PositionEntryOrderID, slot.PositionEntryOrderAmbiguous = 7001, false
 	slot.pendingFeeSupplementCount = 2
 	slot.lastFilledClientOID = "previous-cid"
@@ -68,7 +69,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	state := got.Slots[0]
 	if state.PositionQty != 1.5 || state.ClientOID != "owned-cid" || state.OrderFilledQty != .25 || state.OrderFilledNotional != 25.5 ||
 		state.FeeClientOID != "owned-cid" || state.OrderCommission != .01 || state.OrderBaseFeeQty != .0001 ||
-		!state.FeeValuationUnknown || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
+		!state.FeeValuationUnknown || !state.BaseFeeReconciliationRequired || state.CycleGen != 4 || state.PendingFeeSupplementCount != 2 || state.LastFilledClientOID != "previous-cid" ||
 		state.LastTerminalFill.Quantity != .1 || state.LastTerminalFill.Notional != 9.9 || state.AvgBuyPrice != 98.5 ||
 		!state.CostBasisUnverified || state.AllocatedMargin != 147.75 || state.PositionEntryOrderID != 7001 || state.PositionEntryOrderUnknown {
 		t.Fatalf("snapshot lost grid accounting cursor: %+v", state)
@@ -84,6 +85,9 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	if restored.GridRuntimeStateIsVerifiedEmpty() {
 		t.Fatal("non-empty restored inventory was misclassified as a safe empty bootstrap")
 	}
+	if !restored.OpeningGate().HasBlock("unknown_orders") {
+		t.Fatal("restored base-fee reconciliation latch did not block opening")
+	}
 	restoredSlot, ok := restored.slots.Load(99.0)
 	if !ok {
 		t.Fatal("restored slot not found")
@@ -91,6 +95,7 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	restoredSlot.(*InventorySlot).mu.RLock()
 	defer restoredSlot.(*InventorySlot).mu.RUnlock()
 	if restoredSlot.(*InventorySlot).PositionQty != 1.5 || restoredSlot.(*InventorySlot).feeClientOID != "owned-cid" ||
+		!restoredSlot.(*InventorySlot).baseFeeReconciliationRequired ||
 		restoredSlot.(*InventorySlot).lastTerminalFill.Quantity != .1 || restoredSlot.(*InventorySlot).pendingFeeSupplementCount != 2 ||
 		restoredSlot.(*InventorySlot).PositionEntryOrderID != 7001 || restoredSlot.(*InventorySlot).PositionEntryOrderAmbiguous ||
 		restored.anchorPrice() != 100 {
@@ -172,6 +177,35 @@ func TestRestoreGridRuntimeStateMigratesUnprovenLegacyCostBasis(t *testing.T) {
 	defer slot.mu.RUnlock()
 	if !slot.CostBasisUnverified || !slot.PositionEntryOrderAmbiguous || slot.PositionEntryOrderID != 0 || !spm.OpeningGate().HasBlock("grid_cost_basis_unverified") {
 		t.Fatal("legacy position without terminal fill evidence was trusted")
+	}
+}
+
+func TestRestoreGridRuntimeStateMigratesUnknownSpotSellToFeeReconciliationLatch(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "spot")
+	spm.botID = "bot-v4-spot-unknown"
+	snapshot := gridRuntimeStateSnapshot{
+		Version: 4, BotID: spm.botID, Exchange: "binance", MarketType: "spot", Symbol: "BTCUSDT", Direction: "LONG", AnchorPrice: 100,
+		Slots: []gridRuntimeSlotSnapshot{{Price: 100, PositionStatus: PositionStatusFilled, PositionQty: 0.5,
+			OrderID: 88, ClientOID: "sell-88", OrderSide: "SELL", OrderStatus: OrderStatusUnknown,
+			OrderPrice: 110, SlotStatus: SlotStatusLocked, AvgBuyPrice: 90}},
+	}
+	payload, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &gridRuntimeStateTestStore{version: 4, payload: string(payload), found: true}
+	spm.SetGridRuntimeStateStore(store)
+	if restored, err := spm.RestoreGridRuntimeState(); err != nil || !restored {
+		t.Fatalf("restore v4 spot unknown state: restored=%v err=%v", restored, err)
+	}
+	if store.version != gridRuntimeStateSchemaVersion || !spm.OpeningGate().HasBlock("unknown_orders") {
+		t.Fatalf("v4 migration failed to persist/activate reconciliation latch: version=%d blocks=%v", store.version, spm.OpeningGate().Sources())
+	}
+	slot := spm.getOrCreateSlot(100)
+	slot.mu.RLock()
+	defer slot.mu.RUnlock()
+	if !slot.baseFeeReconciliationRequired {
+		t.Fatal("v4 unknown spot SELL lost conservative fee-reconciliation latch")
 	}
 }
 

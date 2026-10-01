@@ -161,6 +161,9 @@ type InventorySlot struct {
 	feeClientOID        string
 	orderCommission     float64
 	feeValuationUnknown bool
+	// baseFeeReconciliationRequired latches unsupported spot base-fee evidence for this order.
+	// Later callbacks cannot advance the cursor or release the slot until explicitly reconciled.
+	baseFeeReconciliationRequired bool
 	// orderBaseFeeQty 當前訂單推送已攜帶並已從持倉扣除的基礎幣手續費數量（防止 REST 補查重複扣減）
 	orderBaseFeeQty float64
 	// cycleGen 持倉週期代號：槽位持倉清空（平倉完成/強制同步清倉）時遞增。
@@ -264,7 +267,7 @@ type GridRuntimeStateStore interface {
 	SaveRuntimeState(strategyName string, schemaVersion int, payload string) error
 }
 
-const gridRuntimeStateSchemaVersion = 4
+const gridRuntimeStateSchemaVersion = 5
 
 type gridRuntimeStateSnapshot struct {
 	Version      int                       `json:"version"`
@@ -281,39 +284,40 @@ type gridRuntimeStateSnapshot struct {
 }
 
 type gridRuntimeSlotSnapshot struct {
-	Price                     float64      `json:"price"`
-	PositionStatus            string       `json:"position_status"`
-	PositionQty               float64      `json:"position_qty"`
-	OrderID                   int64        `json:"order_id"`
-	ClientOID                 string       `json:"client_oid"`
-	OrderSide                 string       `json:"order_side"`
-	OrderStatus               string       `json:"order_status"`
-	OrderPrice                float64      `json:"order_price"`
-	OrderFilledQty            float64      `json:"order_filled_qty"`
-	OrderFilledNotional       float64      `json:"order_filled_notional"`
-	OrderCreatedAt            time.Time    `json:"order_created_at"`
-	SlotStatus                string       `json:"slot_status"`
-	PostOnlyFailCount         int          `json:"post_only_fail_count"`
-	BuyFee                    float64      `json:"buy_fee"`
-	FeeAsset                  string       `json:"fee_asset"`
-	FeeClientOID              string       `json:"fee_client_oid"`
-	OrderCommission           float64      `json:"order_commission"`
-	FeeValuationUnknown       bool         `json:"fee_valuation_unknown"`
-	OrderBaseFeeQty           float64      `json:"order_base_fee_qty"`
-	CycleGen                  uint64       `json:"cycle_gen"`
-	PositionEntryOrderID      int64        `json:"position_entry_order_id"`
-	PositionEntryOrderUnknown bool         `json:"position_entry_order_unknown"`
-	FeeSupplementUntil        time.Time    `json:"fee_supplement_until"`
-	PendingFeeSupplementCount int          `json:"pending_fee_supplement_count"`
-	LastFilledClientOID       string       `json:"last_filled_client_oid"`
-	LastTerminalFill          FillProgress `json:"last_terminal_fill"`
-	BaseFeeUnfloored          bool         `json:"base_fee_unfloored"`
-	AvgBuyPrice               float64      `json:"avg_buy_price"`
-	CostBasisUnverified       bool         `json:"cost_basis_unverified"`
-	AllocatedMargin           float64      `json:"allocated_margin"`
-	PositionLeg               string       `json:"position_leg"`
-	StrategyName              string       `json:"strategy_name"`
-	StrategyType              string       `json:"strategy_type"`
+	Price                         float64      `json:"price"`
+	PositionStatus                string       `json:"position_status"`
+	PositionQty                   float64      `json:"position_qty"`
+	OrderID                       int64        `json:"order_id"`
+	ClientOID                     string       `json:"client_oid"`
+	OrderSide                     string       `json:"order_side"`
+	OrderStatus                   string       `json:"order_status"`
+	OrderPrice                    float64      `json:"order_price"`
+	OrderFilledQty                float64      `json:"order_filled_qty"`
+	OrderFilledNotional           float64      `json:"order_filled_notional"`
+	OrderCreatedAt                time.Time    `json:"order_created_at"`
+	SlotStatus                    string       `json:"slot_status"`
+	PostOnlyFailCount             int          `json:"post_only_fail_count"`
+	BuyFee                        float64      `json:"buy_fee"`
+	FeeAsset                      string       `json:"fee_asset"`
+	FeeClientOID                  string       `json:"fee_client_oid"`
+	OrderCommission               float64      `json:"order_commission"`
+	FeeValuationUnknown           bool         `json:"fee_valuation_unknown"`
+	BaseFeeReconciliationRequired bool         `json:"base_fee_reconciliation_required"`
+	OrderBaseFeeQty               float64      `json:"order_base_fee_qty"`
+	CycleGen                      uint64       `json:"cycle_gen"`
+	PositionEntryOrderID          int64        `json:"position_entry_order_id"`
+	PositionEntryOrderUnknown     bool         `json:"position_entry_order_unknown"`
+	FeeSupplementUntil            time.Time    `json:"fee_supplement_until"`
+	PendingFeeSupplementCount     int          `json:"pending_fee_supplement_count"`
+	LastFilledClientOID           string       `json:"last_filled_client_oid"`
+	LastTerminalFill              FillProgress `json:"last_terminal_fill"`
+	BaseFeeUnfloored              bool         `json:"base_fee_unfloored"`
+	AvgBuyPrice                   float64      `json:"avg_buy_price"`
+	CostBasisUnverified           bool         `json:"cost_basis_unverified"`
+	AllocatedMargin               float64      `json:"allocated_margin"`
+	PositionLeg                   string       `json:"position_leg"`
+	StrategyName                  string       `json:"strategy_name"`
+	StrategyType                  string       `json:"strategy_type"`
 }
 
 // ReconciliationStorage 對账存儲介面（避免循環匯入）

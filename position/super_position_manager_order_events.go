@@ -198,6 +198,15 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 			price, update.ClientOrderID, update.Status)
 		return
 	}
+	if slot.baseFeeReconciliationRequired {
+		// A later partial/terminal callback may omit per-fill fee details. It
+		// cannot erase earlier evidence that this spot inventory debit was not
+		// representable in the local ledger.
+		slot.OrderStatus = OrderStatusUnknown
+		slot.SlotStatus = SlotStatusLocked
+		spm.openingGate.Block("unknown_orders")
+		return
+	}
 
 	// 更新订單ID (如果是首個推送)
 	if slot.OrderID == 0 {
@@ -263,6 +272,7 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 				update.BaseFeeQty, deltaQty, spm.config.Trading.MarketType, side)
 			slot.OrderStatus = OrderStatusUnknown
 			slot.SlotStatus = SlotStatusLocked
+			slot.baseFeeReconciliationRequired = true
 			spm.openingGate.Block("unknown_orders")
 			spm.requireTradeLedgerReconciliation(update, fmt.Errorf("%s", reason))
 			logger.Error("[%s] %s；保留成交游標與庫存並等待核賬", spm.logPrefix(), reason)
