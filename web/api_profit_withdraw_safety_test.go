@@ -363,7 +363,7 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	pnl := 100.0
-	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, Symbol: "BTCUSDT", TradeID: "manual-profit-fill",
+	fill := storage.OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: scope, BotID: "manual-bot", Symbol: "BTCUSDT", TradeID: "manual-profit-fill",
 		OrderID: 77, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT", RealizedPnL: &pnl, RealizedPnLAsset: "USDT", TradeTime: end.Add(-time.Minute)}
 	if err := st.SaveOrderFill(&fill); err != nil {
 		t.Fatal(err)
@@ -432,7 +432,7 @@ func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *t
 		t.Fatal(err)
 	}
 	realized := 100.0
-	if err := st.SaveOrderFill(&storage.OrderFill{Exchange: "binance", Account: accountID, AccountScope: scope, MarketType: "futures", Symbol: "BTCUSDT",
+	if err := st.SaveOrderFill(&storage.OrderFill{Exchange: "binance", Account: accountID, AccountScope: scope, BotID: "verified-bot", MarketType: "futures", Symbol: "BTCUSDT",
 		TradeID: "verified-available-fill", OrderID: 9, Side: "SELL", Price: 100, Quantity: 1, Commission: 2, CommissionAsset: "USDT",
 		RealizedPnL: &realized, RealizedPnLAsset: "USDT", TradeTime: now.Add(-time.Minute)}); err != nil {
 		t.Fatal(err)
