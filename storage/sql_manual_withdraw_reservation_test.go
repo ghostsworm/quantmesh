@@ -139,6 +139,78 @@ func TestWithdrawalFencesSpanAccountPartitionsForSameCredentialScope(t *testing.
 	}
 }
 
+func TestManualReservationFailsClosedForLegacyUnscopedRows(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/legacy-unscoped-withdraw.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.db.Exec(`INSERT INTO profit_withdraw_rules
+		(id, account_id, account_scope, exchange_id, strategy_id, enabled, trigger_amount, withdraw_ratio, frequency, destination, min_withdraw_amount)
+		VALUES ('legacy-rule', 'old-account', '', 'binance', 'BTCUSDT', 1, 10, 0.5, 'immediate', 'account', 0)`); err != nil {
+		t.Fatal(err)
+	}
+	manual := &ProfitWithdrawRecord{ID: "manual-after-legacy-rule", AccountID: "new-account", AccountScope: "credential-scope",
+		ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual",
+		Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+	if err := st.ReserveManualWithdrawRecord(manual, time.Now().UTC().Add(-time.Hour), "", 10); err == nil {
+		t.Fatal("legacy active rule without account_scope must block a manual transfer")
+	}
+	if _, err := st.db.Exec(`DELETE FROM profit_withdraw_rules WHERE id = 'legacy-rule'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveWithdrawRecord(&ProfitWithdrawRecord{ID: "legacy-unresolved", AccountID: "old-account", ExchangeID: "binance",
+		StrategyID: "ETHUSDT", Amount: 5, NetAmount: 5, Currency: "USDT", Type: "manual", Status: "unknown",
+		Destination: "account", CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	reserved, err := st.SumReservedWithdrawAmountForStream("new-account", "credential-scope", "binance", "ETHUSDT", time.Now().UTC().Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reserved != 5 {
+		t.Fatalf("legacy unscoped withdrawal reservation=%v, want 5", reserved)
+	}
+	manual.ID = "manual-after-legacy-record"
+	if err := st.ReserveManualWithdrawRecord(manual, time.Now().UTC().Add(-time.Hour), "", 10); err == nil {
+		t.Fatal("legacy unresolved record without account_scope must block a transfer on the exchange")
+	}
+}
+
+func TestManualReservationsSerializeAcrossAccountPartitions(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/cross-partition-manual-reserve.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	since := time.Now().UTC().Add(-time.Hour)
+	var succeeded atomic.Int32
+	var wg sync.WaitGroup
+	for _, accountID := range []string{"account-a", "account-b"} {
+		wg.Add(1)
+		go func(accountID string) {
+			defer wg.Done()
+			record := &ProfitWithdrawRecord{ID: "manual-" + accountID, AccountID: accountID, AccountScope: "shared-credential",
+				ExchangeID: "binance", StrategyID: "BTCUSDT", Amount: 40, NetAmount: 40, Currency: "USDT", Type: "manual",
+				Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
+			if err := st.ReserveManualWithdrawRecord(record, since, "", 50); err == nil {
+				succeeded.Add(1)
+			}
+		}(accountID)
+	}
+	wg.Wait()
+	if got := succeeded.Load(); got != 1 {
+		t.Fatalf("successful cross-partition reservations=%d, want exactly one", got)
+	}
+	records, err := st.GetWithdrawRecordsForAccountScope("shared-credential", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("persisted cross-partition reservations=%d, want one", len(records))
+	}
+}
+
 func TestAutomaticReservationBlocksUnknownHistoricalStatusInAccountScope(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/auto-unknown-withdraw-status.db")
 	if err != nil {

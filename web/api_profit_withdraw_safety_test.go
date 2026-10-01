@@ -398,6 +398,9 @@ func TestManualWithdrawWindowUsesVerifiedFillAndFundingCoverage(t *testing.T) {
 	if len(legacy) != 1 || legacy[0].ID != "legacy-unscoped-other-partition" {
 		t.Fatalf("cross-partition unscoped legacy withdrawals=%+v", legacy)
 	}
+	if _, _, _, _, err := manualWithdrawWindow(st, "acct", scope, "binance", "BTCUSDT", 1, time.Now().UTC()); err == nil {
+		t.Fatal("unresolved unscoped withdrawal in another account partition must block manual withdrawal")
+	}
 }
 
 func TestVerifiedWithdrawProfitUsesFillCoverageAndBlocksUnresolvedTransfers(t *testing.T) {

@@ -326,7 +326,8 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 		}
 		var otherAccountRuleCount int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_rules
-			WHERE account_id <> ? AND account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			WHERE account_id <> ? AND (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+			  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 			  AND enabled = 1`, accountID, rule.AccountScope, strings.ToLower(strings.TrimSpace(rule.ExchangeID)),
 			strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&otherAccountRuleCount); err != nil {
 			return fmt.Errorf("check withdrawal rules in other account partitions: %w", err)
@@ -337,7 +338,8 @@ func (s *SQLStorage) ReplaceProfitWithdrawRules(accountID string, rules []*Profi
 		var manualInFlight int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
-			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+			  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
@@ -505,7 +507,8 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 		var duplicateCount int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_rules
-			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+			  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 			  AND enabled = 1 AND id <> ?`, rule.AccountScope, strings.ToLower(strings.TrimSpace(rule.ExchangeID)),
 			strings.ToUpper(strings.TrimSpace(rule.StrategyID)), rule.ID).Scan(&duplicateCount); err != nil {
 			return fmt.Errorf("检查重叠自动提取规则失败: %w", err)
@@ -516,7 +519,8 @@ func (s *SQLStorage) UpsertProfitWithdrawRule(accountID string, rule *ProfitWith
 		var manualInFlight int
 		if err := tx.QueryRow(`
 			SELECT COUNT(*) FROM profit_withdraw_records
-			WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+			WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+			  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 			  AND type = 'manual' AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`, rule.AccountScope,
 			strings.ToLower(strings.TrimSpace(rule.ExchangeID)), strings.ToUpper(strings.TrimSpace(rule.StrategyID))).Scan(&manualInFlight); err != nil {
 			return fmt.Errorf("检查进行中的手动提取失败: %w", err)
@@ -679,7 +683,7 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_scope = ? AND lower(exchange_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '') AND lower(exchange_id) = ?
 		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
 		record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
@@ -689,7 +693,8 @@ func (s *SQLStorage) SaveWithdrawRecordForClaim(record *ProfitWithdrawRecord, wi
 	}
 	var reserved float64
 	if err := tx.QueryRow(`SELECT COALESCE(SUM(amount), 0) FROM profit_withdraw_records
-		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+		  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, windowStart).Scan(&reserved); err != nil {
 		return fmt.Errorf("check automatic withdrawal profit budget: %w", err)
@@ -742,7 +747,7 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	}
 	var unresolved int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_scope = ? AND lower(exchange_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '') AND lower(exchange_id) = ?
 		  AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('completed', 'failed', 'cancelled')`,
 		record.AccountScope, strings.ToLower(record.ExchangeID)).Scan(&unresolved); err != nil {
 		return fmt.Errorf("check account withdrawal reservation: %w", err)
@@ -753,7 +758,8 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	var staleCount int
 	if err := tx.QueryRow(`
 		SELECT COUNT(*) FROM profit_withdraw_records
-		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+		  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND created_at >= ? AND id <> ? AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID), windowStart, checkpointID).Scan(&staleCount); err != nil {
 		return fmt.Errorf("check concurrent withdrawal reservation: %w", err)
@@ -764,7 +770,8 @@ func (s *SQLStorage) ReserveManualWithdrawRecord(record *ProfitWithdrawRecord, w
 	var activeRuleCount int
 	if err := tx.QueryRow(`
 		SELECT COUNT(*) FROM profit_withdraw_rules
-		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+		  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (enabled = 1 OR COALESCE(claim_id, '') <> '')`,
 		record.AccountScope, strings.ToLower(record.ExchangeID), strings.ToUpper(record.StrategyID)).Scan(&activeRuleCount); err != nil {
 		return fmt.Errorf("check automatic withdrawal rule before manual transfer: %w", err)
@@ -1035,7 +1042,8 @@ func (s *SQLStorage) SumReservedWithdrawAmountForStream(accountID, accountScope,
 	err := s.db.QueryRow(`
 		SELECT COALESCE(SUM(amount), 0)
 		FROM profit_withdraw_records
-		WHERE account_scope = ? AND lower(exchange_id) = ? AND upper(strategy_id) = ?
+		WHERE (account_scope = ? OR TRIM(COALESCE(account_scope, '')) = '')
+		  AND lower(exchange_id) = ? AND upper(strategy_id) = ?
 		  AND (created_at > ? OR (created_at = ? AND type = 'manual')) AND COALESCE(LOWER(TRIM(status)), '') NOT IN ('failed', 'cancelled')`,
 		accountScope, strings.ToLower(exchange), strings.ToUpper(symbol), since, since).Scan(&total)
 	if err != nil {
