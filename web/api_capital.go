@@ -771,8 +771,9 @@ func getCapitalUsageHandler(c *gin.Context) {
 				continue
 			}
 			orderVal, orderOK := roundProfitToCents(pm.Manager.GetPendingBuyOrderValueUSDT())
-			posVal, positionOK := roundProfitToCents(pm.Manager.GetTotalPositionValueUSDT())
-			if !orderOK || !positionOK || orderVal < 0 || posVal < 0 {
+			positionValue, valuationVerified := pm.Manager.GetTotalPositionValueUSDTVerified()
+			posVal, positionOK := roundProfitToCents(positionValue)
+			if !orderOK || !valuationVerified || !positionOK || orderVal < 0 || posVal < 0 {
 				usageInvalid = true
 				break
 			}

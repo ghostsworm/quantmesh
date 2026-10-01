@@ -505,8 +505,9 @@ func runSymbolStatusUpdateLoop(rt *SymbolRuntime, st *web.SystemStatus, started 
 				}
 			}
 			if planMgr != nil {
-				currentValue := rt.SuperPositionManager.GetTotalPositionValueUSDT()
-				_ = planMgr.CheckPlanProgress(context.Background(), rt.Config.Exchange, rt.Config.Symbol, currentValue)
+				if currentValue, verified := rt.SuperPositionManager.GetTotalPositionValueUSDTVerified(); verified {
+					_ = planMgr.CheckPlanProgress(context.Background(), rt.Config.Exchange, rt.Config.Symbol, currentValue)
+				}
 			}
 		}
 		st.Uptime = int64(time.Since(started).Seconds())

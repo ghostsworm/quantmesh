@@ -319,6 +319,30 @@ func TestSuperPositionManagerPnLInventoryAndCleanup(t *testing.T) {
 	}
 }
 
+func TestPositionValueAggregationsRejectOverflow(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	for _, price := range []float64{100, 200} {
+		slot := spm.getOrCreateSlot(price)
+		slot.mu.Lock()
+		slot.PositionStatus = PositionStatusFilled
+		slot.PositionQty = math.MaxFloat64 * 0.4
+		slot.AvgBuyPrice = 1
+		slot.mu.Unlock()
+	}
+	if value, ok := spm.GetTotalPositionValueUSDTVerified(); ok || value != 0 {
+		t.Fatalf("overflowing slot-price exposure = %v/%v, want 0/false", value, ok)
+	}
+	if value, ok := spm.GetTotalPositionValueAtPriceVerified(2); ok || value != 0 {
+		t.Fatalf("overflowing mark-price exposure = %v/%v, want 0/false", value, ok)
+	}
+	if got := spm.GetTotalPositionValueUSDT(); got != math.MaxFloat64 {
+		t.Fatalf("legacy slot-price exposure sentinel = %v, want MaxFloat64", got)
+	}
+	if got := spm.GetTotalPositionValueAtPrice(2); got != math.MaxFloat64 {
+		t.Fatalf("legacy mark-price exposure sentinel = %v, want MaxFloat64", got)
+	}
+}
+
 func TestSuperPositionManagerOrderBookOptimizationHelpers(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.Symbol = "BTCUSDT"

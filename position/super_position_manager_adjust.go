@@ -47,8 +47,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		stopLossRatio := spm.gridRiskControl().StopLossRatio
 		if stopLossRatio > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
-			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
+			totalValue, valueVerified := spm.calculateTotalPositionValueVerified(currentPrice)
+			if pnlVerified && valueVerified && totalValue > 0 {
 				// 分母：position=持倉名義價值（預設）；equity=帳戶權益（緩存，後台刷新，不在 tick 中同步請求）
 				denominator, basis := spm.stopLossDenominator(totalValue)
 				pnlRatio := math.NaN()
@@ -86,8 +86,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		trailingRatio := spm.gridRiskControl().TrailingTakeProfitRatio
 		if triggerRatio > 0 && trailingRatio > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
-			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
+			totalValue, valueVerified := spm.calculateTotalPositionValueVerified(currentPrice)
+			if pnlVerified && valueVerified && totalValue > 0 {
 				currentProfitRatio := unrealizedPnL / totalValue
 
 				// 更新最高盈利
@@ -106,7 +106,7 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 						return spm.scheduleProtectiveLiquidation("trailing_take_profit", false)
 					}
 				}
-			} else if totalValue <= 0 {
+			} else if valueVerified && totalValue <= 0 {
 				// 無持倉時重置最高盈利点
 				spm.peakPnL = -math.MaxFloat64
 			}
@@ -120,8 +120,8 @@ func (spm *SuperPositionManager) AdjustOrders(currentPrice float64) error {
 		lossLimit := spm.gridRiskControl().CloseConditionLossLimit
 		if profitTarget > 0 || lossLimit > 0 {
 			unrealizedPnL, pnlVerified := spm.calculateUnrealizedPnLVerified(currentPrice)
-			totalValue := spm.calculateTotalPositionValue(currentPrice)
-			if pnlVerified && finiteGridValue(totalValue) && totalValue > 0 {
+			totalValue, valueVerified := spm.calculateTotalPositionValueVerified(currentPrice)
+			if pnlVerified && valueVerified && totalValue > 0 {
 				pnlRatio := unrealizedPnL / totalValue
 				triggered := false
 				reason := ""

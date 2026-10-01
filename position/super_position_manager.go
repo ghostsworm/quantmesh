@@ -1970,17 +1970,43 @@ func (spm *SuperPositionManager) GetAllocationManager() *AllocationManager {
 
 // GetTotalPositionValueUSDT 獲取當前持倉總價值（USDT），用於倉位计划進度检查
 func (spm *SuperPositionManager) GetTotalPositionValueUSDT() float64 {
+	value, verified := spm.GetTotalPositionValueUSDTVerified()
+	if !verified {
+		return math.MaxFloat64
+	}
+	return value
+}
+
+// GetTotalPositionValueUSDTVerified returns slot-price exposure only when all
+// filled inventory and its aggregate remain finite and non-negative.
+func (spm *SuperPositionManager) GetTotalPositionValueUSDTVerified() (float64, bool) {
 	var total float64
+	verified := true
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 && slot.Price > 0 {
-			total += slot.Price * slot.PositionQty
+		if slot.PositionStatus == PositionStatusFilled {
+			if !finiteGridValue(slot.PositionQty) || slot.PositionQty < 0 {
+				verified = false
+			} else if slot.PositionQty > 0 && (!finiteGridValue(slot.Price) || slot.Price <= 0) {
+				verified = false
+			} else if slot.PositionQty > 0 {
+				value := slot.Price * slot.PositionQty
+				nextTotal := total + value
+				if !finiteGridValue(value) || !finiteGridValue(nextTotal) {
+					verified = false
+				} else {
+					total = nextTotal
+				}
+			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return total
+	if !verified {
+		return 0, false
+	}
+	return total, true
 }
 
 // GetNetPositionQty 獲取本 Bot 槽位淨持倉數量（多為正、空為負），供平倉按實際持倉計算數量
@@ -2267,7 +2293,15 @@ func (spm *SuperPositionManager) GetUnrealizedPnLVerified(currentPrice float64) 
 
 // GetTotalPositionValueAtPrice 獲取在給定價格下的持倉總價值（供快照、API 等使用）
 func (spm *SuperPositionManager) GetTotalPositionValueAtPrice(currentPrice float64) float64 {
-	return spm.calculateTotalPositionValue(currentPrice)
+	value, verified := spm.GetTotalPositionValueAtPriceVerified(currentPrice)
+	if !verified {
+		return math.MaxFloat64
+	}
+	return value
+}
+
+func (spm *SuperPositionManager) GetTotalPositionValueAtPriceVerified(currentPrice float64) (float64, bool) {
+	return spm.calculateTotalPositionValueVerified(currentPrice)
 }
 
 // calculateUnrealizedPnL 计算未實現盈亏
@@ -2353,17 +2387,41 @@ func (spm *SuperPositionManager) calculateUnrealizedPnLVerified(currentPrice flo
 
 // calculateTotalPositionValue 计算當前持倉總價值
 func (spm *SuperPositionManager) calculateTotalPositionValue(currentPrice float64) float64 {
+	value, verified := spm.calculateTotalPositionValueVerified(currentPrice)
+	if !verified {
+		return math.MaxFloat64
+	}
+	return value
+}
+
+func (spm *SuperPositionManager) calculateTotalPositionValueVerified(currentPrice float64) (float64, bool) {
 	totalValue := 0.0
+	verified := finiteGridValue(currentPrice) && currentPrice > 0
 	spm.slots.Range(func(key, value interface{}) bool {
 		slot := value.(*InventorySlot)
 		slot.mu.RLock()
-		if slot.PositionStatus == PositionStatusFilled && slot.PositionQty > 0 {
-			totalValue += currentPrice * slot.PositionQty
+		if slot.PositionStatus == PositionStatusFilled {
+			if !finiteGridValue(slot.PositionQty) || slot.PositionQty < 0 {
+				verified = false
+			} else if slot.PositionQty > 0 && (!finiteGridValue(currentPrice) || currentPrice <= 0) {
+				verified = false
+			} else if slot.PositionQty > 0 {
+				value := currentPrice * slot.PositionQty
+				nextTotal := totalValue + value
+				if !finiteGridValue(value) || !finiteGridValue(nextTotal) {
+					verified = false
+				} else {
+					totalValue = nextTotal
+				}
+			}
 		}
 		slot.mu.RUnlock()
 		return true
 	})
-	return totalValue
+	if !verified {
+		return 0, false
+	}
+	return totalValue, true
 }
 
 // GetLastMarketPrice 獲取最後市場價格（供開倉控制器等使用）

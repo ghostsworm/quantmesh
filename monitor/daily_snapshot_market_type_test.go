@@ -24,6 +24,12 @@ type inventorySnapshotRuntime struct {
 
 type assetSnapshotRuntime struct{ marketSnapshotRuntime }
 
+type unverifiedSnapshotRuntime struct{ marketSnapshotRuntime }
+
+func (unverifiedSnapshotRuntime) CurrentSnapshotVerified() (float64, float64, float64, bool) {
+	return 100, 0, 0, false
+}
+
 func (assetSnapshotRuntime) PnLAsset() string { return " usdt " }
 
 func (r inventorySnapshotRuntime) SpotInventoryQty(context.Context) (float64, bool) {
@@ -128,6 +134,18 @@ func TestDailySnapshotRunnerPersistsOnlyConsistentSnapshotPnLAsset(t *testing.T)
 	}
 	if got := consistentSnapshotPnLAsset([]*storage.HourlyEquityRecord{{UnrealizedPnLAsset: "USDT"}, {UnrealizedPnLAsset: "USDC"}}); got != "" {
 		t.Fatalf("mixed hourly denominations must fail closed, got %q", got)
+	}
+}
+
+func TestDailySnapshotRunnerSkipsUnverifiedRuntimeFinancialSnapshots(t *testing.T) {
+	store := &marketSnapshotStorage{}
+	runtime := unverifiedSnapshotRuntime{marketSnapshotRuntime: marketSnapshotRuntime{marketType: "futures"}}
+	runner := &DailySnapshotRunner{storage: store, getRuntimes: func() []RuntimeSnapshotSource { return []RuntimeSnapshotSource{runtime} }}
+	ts := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	runner.recordHourlyForAll(ts)
+	runner.recordMidnightSnapshot(ts)
+	if len(store.hourly) != 0 || len(store.daily) != 0 {
+		t.Fatalf("unverified finance snapshot persisted: hourly=%+v daily=%+v", store.hourly, store.daily)
 	}
 }
 

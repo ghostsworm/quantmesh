@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc697"
+var Version = "3.111.0-rc698"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2092,8 +2092,9 @@ func main() {
 
 							// 检查倉位计划進度（每個 ticker 周期检查一次）
 							if planManager != nil {
-								currentValue := r.SuperPositionManager.GetTotalPositionValueUSDT()
-								_ = planManager.CheckPlanProgress(context.Background(), r.Config.Exchange, r.Config.Symbol, currentValue)
+								if currentValue, verified := r.SuperPositionManager.GetTotalPositionValueUSDTVerified(); verified {
+									_ = planManager.CheckPlanProgress(context.Background(), r.Config.Exchange, r.Config.Symbol, currentValue)
+								}
 							}
 						}
 

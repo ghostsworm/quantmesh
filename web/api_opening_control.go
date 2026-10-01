@@ -157,14 +157,17 @@ func getOpeningControlStatus(c *gin.Context) {
 	totalValue := 0.0
 	actualMargin := 0.0 // 實際占用資金（保證金）
 	leverage := 1
-	if currentPrice > 0 {
-		totalValue = spm.GetTotalPositionValueAtPrice(currentPrice)
-		leverage = spm.GetLeverage()
-		if leverage <= 0 {
-			leverage = 1
-		}
-		actualMargin = totalValue / float64(leverage)
+	var valuationVerified bool
+	totalValue, valuationVerified = spm.GetTotalPositionValueAtPriceVerified(currentPrice)
+	if !valuationVerified {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "position valuation unavailable"})
+		return
 	}
+	leverage = spm.GetLeverage()
+	if leverage <= 0 {
+		leverage = 1
+	}
+	actualMargin = totalValue / float64(leverage)
 	layers := spm.GetActiveLayers()
 
 	c.JSON(http.StatusOK, gin.H{

@@ -1912,7 +1912,10 @@ func (br *BotRuntime) GetPositionSummary() (float64, float64, error) {
 	unrealizedPnL := spm.GetUnrealizedPnL(currentPrice)
 
 	// 获取总持仓价值
-	totalValue := spm.GetTotalPositionValueUSDT()
+	totalValue, verified := spm.GetTotalPositionValueUSDTVerified()
+	if !verified {
+		return 0, 0, fmt.Errorf("position value is not finite or cannot be verified")
+	}
 
 	return unrealizedPnL, totalValue, nil
 }

@@ -56,8 +56,8 @@ func (spm *SuperPositionManager) refreshGridRiskNotionalGate(currentPrice float6
 		}
 		return
 	}
-	value := spm.calculateTotalPositionValue(currentPrice)
-	if finiteGridValue(value) && value >= 0 {
+	_, valuationVerified := spm.calculateTotalPositionValueVerified(currentPrice)
+	if valuationVerified {
 		if blocked {
 			spm.openingGate.Unblock(gridRiskNotionalBlock)
 			spm.markAdjustDirty()

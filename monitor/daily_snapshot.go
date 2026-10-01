@@ -56,6 +56,10 @@ type RuntimeSnapshotSource interface {
 	CurrentSnapshot() (currentPrice, unrealizedPnL, totalPositionValue float64)
 }
 
+type verifiedRuntimeSnapshotSource interface {
+	CurrentSnapshotVerified() (currentPrice, unrealizedPnL, totalPositionValue float64, verified bool)
+}
+
 // DailySnapshotRunner 每日快照與小時權益記錄任務
 type DailySnapshotRunner struct {
 	storage              storage.Storage
@@ -155,7 +159,11 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 	legacyAccountEquity := make(map[string]float64)
 	accountEquityStore, hasAccountEquityStore := r.storage.(accountEquityRecordWriter)
 	for _, rt := range runtimes {
-		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
+		marketPrice, unrealized, totalVal, verified := currentRuntimeSnapshot(rt)
+		if !verified {
+			logger.Warn("⚠️ 跳过未核验的小时财务快照: %s/%s", rt.Exchange(), rt.Symbol())
+			continue
+		}
 		marketType := snapshotMarketType(rt)
 		accountScope := snapshotAccountScope(rt)
 		pnlAsset := snapshotPnLAsset(rt)
@@ -329,7 +337,11 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 		exchange, symbol, account := rt.Exchange(), rt.Symbol(), rt.Account()
 		marketType := snapshotMarketType(rt)
 		pnlAsset := snapshotPnLAsset(rt)
-		marketPrice, unrealized, totalVal := rt.CurrentSnapshot()
+		marketPrice, unrealized, totalVal, verified := currentRuntimeSnapshot(rt)
+		if !verified {
+			logger.Warn("⚠️ 跳过未核验的日终财务快照: %s/%s", rt.Exchange(), rt.Symbol())
+			continue
+		}
 		var spotPositionQty *float64
 		if strings.EqualFold(marketType, "spot") {
 			if sampler, ok := rt.(spotInventorySampler); ok {
@@ -364,6 +376,17 @@ func (r *DailySnapshotRunner) recordMidnightSnapshot(ts time.Time) {
 			logger.Warn("⚠️ 保存 0 點未實現快照失敗 %s:%s %s: %v", exchange, symbol, today.Format("2006-01-02"), err)
 		}
 	}
+}
+
+func currentRuntimeSnapshot(rt RuntimeSnapshotSource) (price, unrealized, totalValue float64, verified bool) {
+	if source, ok := rt.(verifiedRuntimeSnapshotSource); ok {
+		return source.CurrentSnapshotVerified()
+	}
+	price, unrealized, totalValue = rt.CurrentSnapshot()
+	return price, unrealized, totalValue,
+		!math.IsNaN(price) && !math.IsInf(price, 0) &&
+			!math.IsNaN(unrealized) && !math.IsInf(unrealized, 0) &&
+			!math.IsNaN(totalValue) && !math.IsInf(totalValue, 0)
 }
 
 func snapshotMarketType(rt RuntimeSnapshotSource) string {

@@ -525,13 +525,19 @@ func (a *snapshotRuntimeAdapter) PnLAsset() string {
 	return a.rt.SuperPositionManager.GetPnLAsset()
 }
 func (a *snapshotRuntimeAdapter) CurrentSnapshot() (currentPrice, unrealizedPnL, totalPositionValue float64) {
+	currentPrice, unrealizedPnL, totalPositionValue, _ = a.CurrentSnapshotVerified()
+	return currentPrice, unrealizedPnL, totalPositionValue
+}
+
+func (a *snapshotRuntimeAdapter) CurrentSnapshotVerified() (currentPrice, unrealizedPnL, totalPositionValue float64, verified bool) {
 	if a.rt.PriceMonitor == nil || a.rt.SuperPositionManager == nil {
-		return 0, 0, 0
+		return 0, 0, 0, false
 	}
 	currentPrice = a.rt.PriceMonitor.GetLastPrice()
-	unrealizedPnL = a.rt.SuperPositionManager.GetUnrealizedPnL(currentPrice)
-	totalPositionValue = a.rt.SuperPositionManager.GetTotalPositionValueAtPrice(currentPrice)
-	return currentPrice, unrealizedPnL, totalPositionValue
+	var pnlVerified, valueVerified bool
+	unrealizedPnL, pnlVerified = a.rt.SuperPositionManager.GetUnrealizedPnLVerified(currentPrice)
+	totalPositionValue, valueVerified = a.rt.SuperPositionManager.GetTotalPositionValueAtPriceVerified(currentPrice)
+	return currentPrice, unrealizedPnL, totalPositionValue, pnlVerified && valueVerified
 }
 
 func (a *snapshotRuntimeAdapter) SpotInventoryQty(ctx context.Context) (float64, bool) {
