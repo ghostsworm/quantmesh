@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+func TestGetRealizedPnLForWithdrawalBlocksWhenSpotLegCostsAreOutsideCalculation(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/withdrawal-spot-leg.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	now := time.Now().UTC()
+	start, end := now.Add(-time.Hour), now
+	if err := st.MarkFundingIncomeCoverage("binance", "BTCUSDT", "futures", "scope-a", start, end); err != nil {
+		t.Fatal("mark funding coverage:", err)
+	}
+	if err := st.AdvanceOrderFillCoverage("binance", "futures", "BTCUSDT", "scope-a", start, end); err != nil {
+		t.Fatal("mark futures execution coverage:", err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO order_fills
+		(exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity,
+		 quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known,
+		 realized_pnl, realized_pnl_asset, trade_time)
+		VALUES ('binance', 'spot', 'scope-a', 'acct', 'funding-carry', 'BTCUSDT', 'spot-leg-fill', 55, 'BUY', 100, 1,
+		 100, 0.1, 'USDT', 0.1, 1, 1, NULL, '', ?)`, now.Add(-time.Minute)); err != nil {
+		t.Fatal("insert spot-leg execution:", err)
+	}
+	if _, err := st.GetRealizedPnLForWithdrawal("binance", "BTCUSDT", "scope-a", start, end); err == nil {
+		t.Fatal("withdrawal calculation accepted futures-only PnL while spot-leg costs were present")
+	}
+}
+
 func TestGetRealizedPnLForWithdrawalIsolatesFundingAccountMarketAndSymbol(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/withdrawal-pnl.db")
 	if err != nil {

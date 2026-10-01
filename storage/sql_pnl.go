@@ -394,6 +394,16 @@ func (s *SQLStorage) GetRealizedPnLForWithdrawal(exchange, symbol, accountScope 
 	if unownedExecutions > 0 {
 		return 0, fmt.Errorf("withdrawal interval includes %d executions without verified exchange/account/market ownership; refusing transfer", unownedExecutions)
 	}
+	var spotExecutions int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM order_fills
+		WHERE LOWER(TRIM(exchange)) = LOWER(TRIM(?)) AND account_scope = ? AND LOWER(TRIM(market_type)) = 'spot'
+		  AND UPPER(TRIM(symbol)) = UPPER(TRIM(?)) AND trade_time > ? AND trade_time <= ?`,
+		exchange, accountScope, symbol, startTime.UTC(), endTime.UTC()).Scan(&spotExecutions); err != nil {
+		return 0, fmt.Errorf("verify spot-leg executions for withdrawal exchange=%s symbol=%s: %w", exchange, symbol, err)
+	}
+	if spotExecutions > 0 {
+		return 0, fmt.Errorf("withdrawal interval includes %d spot executions whose realized PnL is not included in the futures-only calculation; refusing transfer", spotExecutions)
+	}
 	var total float64
 	var unknownPnL, unvaluedPnLAsset, unvaluedFees int
 	if err := s.db.QueryRow(`
