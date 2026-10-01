@@ -97,6 +97,28 @@ func TestGridOrderRejectsInvalidOrUnsupportedBaseFeeBeforeAdvancingFillCursor(t 
 	}
 }
 
+func TestGridSpotCloseWithBaseFeeRetainsInventoryForReconciliation(t *testing.T) {
+	spm := newFillFeeSPM(t, "spot", nil)
+	slot := spm.getOrCreateSlot(fillFeeTestPrice)
+	slot.PositionQty = 1
+	slot.PositionStatus = PositionStatusFilled
+	slot.SlotStatus = SlotStatusFree
+	slot.AvgBuyPrice = 100
+	clientOID := spm.generateClientOrderID(fillFeeTestPrice, "SELL", "")
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 93, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "NEW", Side: "SELL", Price: 3100})
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 93, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "SELL",
+		ExecutedQty: 0.1, AvgPrice: 3100, Commission: 0.31, CommissionAsset: "USDT", BaseFeeQty: 0.001})
+
+	slot.mu.RLock()
+	defer slot.mu.RUnlock()
+	if slot.OrderFilledQty != 0 || slot.PositionQty != 1 {
+		t.Fatalf("unsupported base-fee close advanced the ledger: cursor=%v position=%v", slot.OrderFilledQty, slot.PositionQty)
+	}
+	if slot.OrderStatus != OrderStatusUnknown || slot.SlotStatus != SlotStatusLocked || !spm.OpeningGate().HasBlock("unknown_orders") {
+		t.Fatalf("unsupported base-fee close did not retain reconciliation state: order=%s slot=%s", slot.OrderStatus, slot.SlotStatus)
+	}
+}
+
 func TestSummarizeFillsRejectsOverflowAndInvalidFillEconomics(t *testing.T) {
 	tests := []struct {
 		name  string
