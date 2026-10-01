@@ -1,6 +1,8 @@
 package strategy
 
 import (
+	"context"
+	"encoding/json"
 	"math"
 	"testing"
 	"time"
@@ -32,7 +34,8 @@ func TestDCAPlacementAckCannotSettleCloseWithoutActualFillAndFee(t *testing.T) {
 	executor := &filledAckExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{price: 110}, nil)
 	setTestRuntimeStateStore(t, strategy)
-	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
+		FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
 	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
 
 	if err := strategy.closeAllPositions(110, "take profit"); err != nil {
@@ -90,6 +93,41 @@ func TestDCAProfitAndLossTriggersUseFeeAdjustedReturn(t *testing.T) {
 			t.Fatalf("expected fee-adjusted stop loss order, got %+v", executor.orders)
 		}
 	})
+}
+
+func TestDCATrailingTakeProfitStatePersistsAndRestores(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
+		"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 0.5,
+		"trailing_take_profit": 1, "stop_loss": 50,
+	})
+	strategy.SetRuntimeStateStore(store)
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
+		FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
+	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+	if err := strategy.checkTakeProfitStopLoss(101); err != nil {
+		t.Fatalf("checkTakeProfitStopLoss() error = %v", err)
+	}
+	var persisted dcaRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.TakeProfitTriggered || persisted.HighestProfit < 0.99 {
+		t.Fatalf("trailing activation and high-water mark were not persisted: %+v", persisted)
+	}
+
+	restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, map[string]interface{}{
+		"first_order_take_profit": 10, "total_take_profit": 10, "trailing_activation": 0.5,
+		"trailing_take_profit": 1, "stop_loss": 50,
+	})
+	restarted.SetRuntimeStateStore(store)
+	if err := restarted.Start(context.Background()); err != nil {
+		t.Fatalf("Start() restoring trailing state error = %v", err)
+	}
+	defer restarted.Stop()
+	if !restarted.takeProfitTriggered || restarted.highestProfit < 0.99 {
+		t.Fatalf("trailing state lost across restart: active=%v peak=%.4f", restarted.takeProfitTriggered, restarted.highestProfit)
+	}
 }
 
 func TestDCAOverfilledCloseRetainsInventoryAndRequiresReconciliation(t *testing.T) {

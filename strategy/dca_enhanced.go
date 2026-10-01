@@ -1216,9 +1216,11 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 	}
 	pnlPercent := s.estimatedNetPnLPercent(s.totalQty, s.totalCost, openingFee, price)
 
+	trailingStateChanged := false
 	// 更新最高盈利点
 	if pnlPercent > s.highestProfit {
 		s.highestProfit = pnlPercent
+		trailingStateChanged = s.takeProfitTriggered
 	}
 
 	// 1. 首單止盈检查
@@ -1246,7 +1248,13 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 	// 4. 追踪止盈
 	if !s.takeProfitTriggered && pnlPercent >= s.strategyCfg.TrailingActivation {
 		s.takeProfitTriggered = true
+		trailingStateChanged = true
 		logger.Info("🎯 [%s] 追踪止盈激活: 當前盈利=%.2f%%", s.name, pnlPercent)
+	}
+	if trailingStateChanged {
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			return fmt.Errorf("persist DCA trailing take-profit state: %w", err)
+		}
 	}
 
 	if s.takeProfitTriggered {
