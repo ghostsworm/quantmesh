@@ -28,6 +28,8 @@ type fakeComboSubStrategy struct {
 	startErr     error
 	orderErr     error
 	orderUpdates int
+	mutateUpdate bool
+	seenFeeKnown bool
 	stateStore   RuntimeStateStore
 }
 
@@ -45,6 +47,11 @@ func (f *fakeComboSubStrategy) OnPriceChangeRiskOnly(price float64) error {
 }
 func (f *fakeComboSubStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	f.orderUpdates++
+	f.seenFeeKnown = update.CommissionKnown
+	if f.mutateUpdate {
+		update.CommissionKnown = true
+		update.Commission = 42
+	}
 	return f.orderErr
 }
 func (f *fakeComboSubStrategy) GetPositions() []*Position          { return f.positions }
@@ -75,7 +82,7 @@ func TestComboStrategyStartPropagatesSubStrategyRecoveryFailureAndRollsBack(t *t
 
 func TestComboStrategyOnOrderUpdateReturnsChildErrorsAndContinuesDispatch(t *testing.T) {
 	want := errors.New("child accounting requires reconciliation")
-	failing := &fakeComboSubStrategy{name: "failing", orderErr: want}
+	failing := &fakeComboSubStrategy{name: "failing", orderErr: want, mutateUpdate: true}
 	other := &fakeComboSubStrategy{name: "other"}
 	combo := &ComboStrategy{name: "combo", strategies: []Strategy{failing, other}}
 
@@ -85,6 +92,9 @@ func TestComboStrategyOnOrderUpdateReturnsChildErrorsAndContinuesDispatch(t *tes
 	}
 	if other.orderUpdates != 1 {
 		t.Fatalf("dispatch stopped after child failure; second child received %d updates", other.orderUpdates)
+	}
+	if other.seenFeeKnown {
+		t.Fatal("second child observed the first child's mutation of the order update")
 	}
 }
 func (f *fakeComboSubStrategy) Stop() error {

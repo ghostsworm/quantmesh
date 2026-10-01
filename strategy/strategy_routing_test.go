@@ -44,6 +44,24 @@ type failingOrderUpdateStrategy struct {
 	err error
 }
 
+type orderUpdateObservation struct {
+	update          *position.OrderUpdate
+	commissionKnown bool
+	commission      float64
+}
+
+type mutatingOrderUpdateStrategy struct {
+	routingTestStrategy
+	observations chan orderUpdateObservation
+}
+
+func (s *mutatingOrderUpdateStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
+	s.observations <- orderUpdateObservation{update: update, commissionKnown: update.CommissionKnown, commission: update.Commission}
+	update.CommissionKnown = true
+	update.Commission = 99
+	return nil
+}
+
 func (s *failingOrderUpdateStrategy) OnOrderUpdate(*position.OrderUpdate) error { return s.err }
 
 func (s *routingTestStrategy) Name() string { return s.name }
@@ -93,6 +111,60 @@ func TestStrategyManagerOnOrderUpdateForStrategy(t *testing.T) {
 	}
 	if got := martingale.hit.Load(); got != 0 {
 		t.Fatalf("martingale 策略不应收到回调，实际 %d", got)
+	}
+}
+
+func TestStrategyManagerOrderUpdateBroadcastsUseIndependentCopies(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		dispatch func(*StrategyManager, *position.OrderUpdate) error
+	}{
+		{name: "async broadcast", dispatch: func(sm *StrategyManager, update *position.OrderUpdate) error {
+			sm.OnOrderUpdate(update)
+			return nil
+		}},
+		{name: "async routed broadcast", dispatch: func(sm *StrategyManager, update *position.OrderUpdate) error {
+			sm.OnOrderUpdateForStrategy("", update)
+			return nil
+		}},
+		{name: "synchronous broadcast", dispatch: func(sm *StrategyManager, update *position.OrderUpdate) error {
+			return sm.ApplyOrderUpdateForStrategy("", update)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Strategies.Configs = map[string]config.StrategyConfig{"first": {Enabled: true}, "second": {Enabled: true}}
+			sm := NewStrategyManager(cfg, 1000)
+			observations := make(chan orderUpdateObservation, 2)
+			first := &mutatingOrderUpdateStrategy{routingTestStrategy: routingTestStrategy{name: "first"}, observations: observations}
+			second := &mutatingOrderUpdateStrategy{routingTestStrategy: routingTestStrategy{name: "second"}, observations: observations}
+			sm.RegisterStrategy("first", first, 1, 0)
+			sm.RegisterStrategy("second", second, 1, 0)
+			original := &position.OrderUpdate{OrderID: 1004, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5}
+			if err := tt.dispatch(sm, original); err != nil {
+				t.Fatal(err)
+			}
+			var received []orderUpdateObservation
+			for range 2 {
+				select {
+				case observation := <-observations:
+					received = append(received, observation)
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for strategy order update")
+				}
+			}
+			if received[0].update == received[1].update || received[0].update == original || received[1].update == original {
+				t.Fatal("strategies shared a mutable order update pointer")
+			}
+			for _, observation := range received {
+				if observation.commissionKnown || observation.commission != 0 {
+					t.Fatalf("strategy observed another handler's mutation: %+v", observation)
+				}
+			}
+			if original.CommissionKnown || original.Commission != 0 {
+				t.Fatalf("manager broadcast mutated the caller's event: %+v", original)
+			}
+		})
 	}
 }
 

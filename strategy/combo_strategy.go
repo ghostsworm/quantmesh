@@ -983,7 +983,8 @@ func (s *ComboStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	// 傳遞给所有子策略
 	var updateErrors []error
 	for _, strategy := range s.strategies {
-		if err := strategy.OnOrderUpdate(update); err != nil {
+		updateCopy := *update
+		if err := strategy.OnOrderUpdate(&updateCopy); err != nil {
 			logger.Warn("⚠️ [%s] 子策略处理订單更新失败: %v", s.name, err)
 			updateErrors = append(updateErrors, fmt.Errorf("combo sub-strategy %s order update: %w", strategy.Name(), err))
 		}

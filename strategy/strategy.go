@@ -336,13 +336,17 @@ func (sm *StrategyManager) OnPriceChange(price float64) {
 
 // OnOrderUpdate 订單更新時通知所有策略
 func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
+	if update == nil {
+		return
+	}
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 
 	for name, strategy := range sm.strategies {
 		if sm.isStrategyEnabledLocked(name) {
+			updateCopy := *update
 			go func(n string, s Strategy) {
-				if err := s.OnOrderUpdate(update); err != nil {
+				if err := s.OnOrderUpdate(&updateCopy); err != nil {
 					sm.reportOrderUpdateError(n, err)
 					logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 				}
@@ -353,13 +357,17 @@ func (sm *StrategyManager) OnOrderUpdate(update *position.OrderUpdate) {
 
 // OnOrderUpdateForStrategy 精確路由到單一策略，若未命中則回退為廣播
 func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update *position.OrderUpdate) {
+	if update == nil {
+		return
+	}
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
 	if strategyName == "" {
 		for name, strategy := range sm.strategies {
 			if sm.isStrategyEnabledLocked(name) {
+				updateCopy := *update
 				go func(n string, s Strategy) {
-					if err := s.OnOrderUpdate(update); err != nil {
+					if err := s.OnOrderUpdate(&updateCopy); err != nil {
 						sm.reportOrderUpdateError(n, err)
 						logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 					}
@@ -373,8 +381,9 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 		go sm.reportOrderUpdateError(strategyName, fmt.Errorf("owned order routed to unavailable strategy"))
 		return
 	}
+	updateCopy := *update
 	go func(n string, s Strategy) {
-		if err := s.OnOrderUpdate(update); err != nil {
+		if err := s.OnOrderUpdate(&updateCopy); err != nil {
 			sm.reportOrderUpdateError(n, err)
 			logger.Warn("⚠️ 策略 %s 处理订單更新失败: %v", n, err)
 		}
@@ -419,7 +428,8 @@ func (sm *StrategyManager) ApplyOrderUpdateForStrategy(strategyName string, upda
 
 	var updateErrors []error
 	for _, target := range targets {
-		if err := target.impl.OnOrderUpdate(update); err != nil {
+		updateCopy := *update
+		if err := target.impl.OnOrderUpdate(&updateCopy); err != nil {
 			updateErrors = append(updateErrors, fmt.Errorf("strategy %s order update: %w", target.name, err))
 		}
 	}
