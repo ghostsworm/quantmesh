@@ -175,8 +175,8 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 	fileConfigManager.mu.Lock()
 
 	// 确保有最新配置
-	cfg := fileConfigManager.currentConfig
-	if cfg == nil {
+	current := fileConfigManager.currentConfig
+	if current == nil {
 		loaded, err := loadConfigFromPrimaryDB()
 		if err != nil || loaded == nil {
 			fileConfigManager.mu.Unlock()
@@ -185,7 +185,12 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 			}
 			return fmt.Errorf("無法加載配置（內存為空且主庫無快照）")
 		}
-		cfg = loaded
+		current = loaded
+	}
+	cfg, err := cloneConfigSnapshot(current)
+	if err != nil {
+		fileConfigManager.mu.Unlock()
+		return fmt.Errorf("複製交易對配置失敗: %w", err)
 	}
 
 	mt := ""

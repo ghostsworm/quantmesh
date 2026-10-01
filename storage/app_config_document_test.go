@@ -127,6 +127,41 @@ func TestAppConfigDocumentSnapshotsAndBotSync(t *testing.T) {
 	}
 }
 
+func TestSaveAppConfigSnapshotRollsBackWhenBotSnapshotSyncFails(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "app_config_atomic.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	baseline := config.CreateMinimalConfig()
+	baseline.App.CurrentExchange = "baseline"
+	if _, err := SaveAppConfigSnapshot(ctx, store, baseline, "tester", "baseline"); err != nil {
+		t.Fatalf("save baseline config: %v", err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_bot_snapshot BEFORE INSERT ON bot_configs
+		WHEN NEW.bot_id = 'fail-bot' BEGIN SELECT RAISE(ABORT, 'injected bot snapshot failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+
+	updated := config.CreateMinimalConfig()
+	updated.App.CurrentExchange = "updated"
+	updated.Bots = []config.BotConfig{{ID: "fail-bot", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}}
+	if _, err := SaveAppConfigSnapshot(ctx, store, updated, "tester", "atomic-test"); err == nil {
+		t.Fatal("save unexpectedly succeeded when bot snapshot sync failed")
+	}
+
+	doc, err := store.GetAppConfigDocument(ctx)
+	if err != nil || doc == nil || doc.Revision != 1 || !strings.Contains(doc.Content, `"CurrentExchange":"baseline"`) {
+		t.Fatalf("app config changed despite transaction failure: doc=%+v err=%v", doc, err)
+	}
+	botDoc, err := store.GetBotConfigDocument(ctx, "fail-bot")
+	if err != nil || botDoc != nil {
+		t.Fatalf("failed bot snapshot should not be visible: doc=%+v err=%v", botDoc, err)
+	}
+}
+
 type assertStorageErr string
 
 func (e assertStorageErr) Error() string {

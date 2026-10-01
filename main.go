@@ -27,6 +27,7 @@ import (
 	"quantmesh/database"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/exchange/accounting"
 	"quantmesh/i18n"
 	"quantmesh/inspector"
 	"quantmesh/lock"
@@ -45,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc675"
+var Version = "3.111.0-rc678"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1859,6 +1860,7 @@ func main() {
 		})
 	}
 
+	var withdrawalEquityFeeder *risk.MetricsFeeder
 	// 初始化全局熔斷器
 	if cfg.CircuitBreaker.Enabled {
 		logger.Info("🔧 正在初始化全局熔斷器...")
@@ -1871,7 +1873,7 @@ func main() {
 		if notifier != nil {
 			circuitBreaker.SetNotifier(notifier)
 		}
-		startCircuitBreakerFeeder(ctx, circuitBreaker, eventBus, storageService, symbolManager)
+		withdrawalEquityFeeder = startCircuitBreakerFeeder(ctx, circuitBreaker, eventBus, storageService, symbolManager)
 		web.SetGlobalCircuitBreaker(circuitBreaker)
 		logger.Info("✅ 全局熔斷器已初始化並啟用（內部喂數已啟動）")
 	}
@@ -1952,10 +1954,22 @@ func main() {
 
 	// 啟动利润提取執行器（定時檢查規則並執行內部轉账）
 	if storageService != nil && storageService.GetStorage() != nil {
+		if withdrawalEquityFeeder == nil {
+			withdrawalEquityFeeder = risk.NewMetricsFeeder(passiveWithdrawalMetricsSink{}, nil,
+				&runtimeEquitySource{manager: symbolManager}, nil, risk.MetricsFeederOptions{
+					EquityStore: equityStateStore(storageService), RequirePersistence: true, RequireCashFlowReconciliation: true,
+				})
+			if _, err := withdrawalEquityFeeder.Tick(ctx); err != nil {
+				logger.Warn("⚠️ [利润提取] 首次账户权益核验未完成；建立持久核验基线前将拒绝自动/手动划转: %v", err)
+			}
+		}
 		getExchange := func(exchangeID string) exchange.IExchange {
 			for _, rt := range symbolManager.List() {
 				if rt != nil && rt.Exchange != nil && rt.Config.Exchange == exchangeID {
-					return scopedWithdrawExchange{IExchange: rt.Exchange, accountScope: rt.AccountScope}
+					return scopedWithdrawExchange{IExchange: rt.Exchange, accountScope: rt.AccountScope,
+						readVerifiedLedger: func(ctx context.Context, scope string, since time.Time) (accounting.Snapshot, error) {
+							return readVerifiedWithdrawalLedger(ctx, withdrawalEquityFeeder, scope, since)
+						}}
 				}
 			}
 			return nil

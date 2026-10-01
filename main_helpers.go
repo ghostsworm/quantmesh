@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -202,17 +203,50 @@ func loadObservabilityConfigFromSettings(version string, provider web.SystemSett
 
 type scopedWithdrawExchange struct {
 	exchange.IExchange
-	accountScope string
+	accountScope       string
+	readVerifiedLedger func(context.Context, string, time.Time) (accounting.Snapshot, error)
 }
 
 func (e scopedWithdrawExchange) WithdrawalAccountScope() string { return e.accountScope }
 
-func (e scopedWithdrawExchange) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
-	source, ok := e.IExchange.(accounting.Source)
-	if !ok {
-		return accounting.Snapshot{}, fmt.Errorf("exchange does not provide account income evidence")
+func (e scopedWithdrawExchange) ReadVerifiedWithdrawalEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	if e.readVerifiedLedger == nil {
+		return accounting.Snapshot{}, fmt.Errorf("persisted account-ledger reconciliation is unavailable")
 	}
-	return source.ReadAccountEvidence(ctx, since)
+	return e.readVerifiedLedger(ctx, e.accountScope, since)
+}
+
+func readVerifiedWithdrawalLedger(ctx context.Context, feeder *risk.MetricsFeeder, accountScope string, since time.Time) (accounting.Snapshot, error) {
+	if feeder == nil || strings.TrimSpace(accountScope) == "" {
+		return accounting.Snapshot{}, fmt.Errorf("withdrawal ledger verifier is unavailable")
+	}
+	accountID, err := json.Marshal([]string{"futures", accountScope})
+	if err != nil {
+		return accounting.Snapshot{}, err
+	}
+	observation, err := feeder.RefreshWithdrawalEvidence(ctx, string(accountID), since)
+	if err != nil {
+		return accounting.Snapshot{}, err
+	}
+	walletIDBytes, err := json.Marshal([]string{string(accountID), "USDT"})
+	if err != nil {
+		return accounting.Snapshot{}, err
+	}
+	walletID := string(walletIDBytes)
+	wallet, ok := observation.Wallets[walletID]
+	if !ok || wallet.Currency != "USDT" || wallet.ObservedAt.IsZero() {
+		return accounting.Snapshot{}, fmt.Errorf("verified withdrawal checkpoint lacks the target USDT wallet")
+	}
+	entries := make([]accounting.Entry, 0)
+	for _, flow := range observation.Flows {
+		if flow.Account != walletID {
+			continue
+		}
+		entries = append(entries, accounting.Entry{ID: flow.ID, Kind: flow.Kind, Currency: flow.WalletCurrency,
+			Amount: flow.ExactAmount, Symbol: flow.Symbol, At: flow.At})
+	}
+	return accounting.Snapshot{Currency: observation.Currency, Equity: observation.Equity,
+		ObservedAt: wallet.ObservedAt, Wallet: wallet, Entries: entries}, nil
 }
 
 func (e scopedWithdrawExchange) GetAccountFresh(ctx context.Context) (*exchange.Account, error) {
@@ -836,7 +870,7 @@ func circuitBreakerMetricsOptions(gcb *risk.GlobalCircuitBreaker, storageService
 }
 
 // startCircuitBreakerFeeder 啟動熔斷器內部喂數與連線事件訂閱
-func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreaker, eventBus *event.EventBus, storageService *storage.StorageService, symbolManager *SymbolManager) {
+func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreaker, eventBus *event.EventBus, storageService *storage.StorageService, symbolManager *SymbolManager) *risk.MetricsFeeder {
 	var trades risk.TradeHistorySource
 	if storageService != nil && storageService.GetStorage() != nil {
 		trades = &storageTradeHistorySource{storageService: storageService}
@@ -853,6 +887,14 @@ func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreak
 	feeder.Start(ctx)
 	gcb.SubscribeConnectivityEvents(ctx, eventBus)
 	wireBinanceConnectivityEvents(eventBus)
+	return feeder
+}
+
+type passiveWithdrawalMetricsSink struct{}
+
+func (passiveWithdrawalMetricsSink) UpdateMetrics(float64, float64, int) {}
+func (passiveWithdrawalMetricsSink) MetricsResetMarks() risk.MetricsResetMarks {
+	return risk.MetricsResetMarks{}
 }
 
 // wireBinanceConnectivityEvents 把 Binance 合約用戶數據流的斷線/重連/認證失敗轉發到事件總線（熔斷器訂閱）

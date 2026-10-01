@@ -86,7 +86,7 @@ func observeAccountEvidence(ctx context.Context, observation risk.EquityObservat
 				return risk.EquityObservation{}, err
 			}
 			observation.Flows = append(observation.Flows, risk.EquityCashFlow{ID: string(id), Account: walletID, ExactAmount: entry.Amount,
-				WalletCurrency: entry.Currency, ValuationRate: rateText, ValuationSource: entry.ValuationSource, ValuationAt: entry.ValuationAt,
+				WalletCurrency: entry.Currency, Symbol: entry.Symbol, ValuationRate: rateText, ValuationSource: entry.ValuationSource, ValuationAt: entry.ValuationAt,
 				Kind: entry.Kind, Currency: snapshot.Currency, Amount: approx, At: entry.At})
 		}
 	}

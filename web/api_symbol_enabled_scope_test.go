@@ -68,3 +68,32 @@ func TestSetSymbolEnabledNotifiesEquityScopeAfterUnlock(t *testing.T) {
 		t.Fatal("equity scope updater was not called")
 	}
 }
+
+func TestSetSymbolEnabledDoesNotMutateMemoryWhenPersistenceFails(t *testing.T) {
+	restoreStorage := setupTestPrimaryAppConfigStorage(t)
+	t.Cleanup(restoreStorage)
+	previousManager := fileConfigManager
+	t.Cleanup(func() { fileConfigManager = previousManager })
+
+	cfg := config.CreateMinimalConfig()
+	cfg.Trading.Symbols = []config.SymbolConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}}
+	manager := NewFileConfigManager("")
+	if err := manager.SetRuntimeConfig(cfg); err != nil {
+		t.Fatalf("set runtime config: %v", err)
+	}
+	fileConfigManager = manager
+
+	if err := primaryStorageForAppConfig.Close(); err != nil {
+		t.Fatalf("close primary storage to force persistence failure: %v", err)
+	}
+	if err := SetSymbolEnabled("binance", "BTCUSDT", false, "futures"); err == nil {
+		t.Fatal("SetSymbolEnabled succeeded after primary storage was closed")
+	}
+	latest, err := manager.GetConfig()
+	if err != nil {
+		t.Fatalf("get config after failed persistence: %v", err)
+	}
+	if !latest.Trading.Symbols[0].IsEnabled() {
+		t.Fatal("in-memory symbol enablement changed despite failed persistence")
+	}
+}

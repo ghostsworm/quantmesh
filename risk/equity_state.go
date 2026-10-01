@@ -19,6 +19,7 @@ type EquityCashFlow struct {
 	Account         string    `json:"account,omitempty"`
 	ExactAmount     string    `json:"exact_amount,omitempty"`
 	WalletCurrency  string    `json:"wallet_currency,omitempty"`
+	Symbol          string    `json:"symbol,omitempty"`
 	ValuationRate   string    `json:"valuation_rate,omitempty"`
 	ValuationSource string    `json:"valuation_source,omitempty"`
 	ValuationAt     time.Time `json:"valuation_at,omitempty"`

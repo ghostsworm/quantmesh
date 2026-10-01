@@ -396,6 +396,21 @@ func SyncBotConfigSnapshotsFromMainConfig(ctx context.Context, st Storage, cfg *
 	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
 		return err
 	}
+	tx, err := ss.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := syncBotConfigSnapshotsTx(ctx, tx, ss, cfg, operator, source); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func syncBotConfigSnapshotsTx(ctx context.Context, tx *sql.Tx, ss *SQLStorage, cfg *config.Config, operator, source string) error {
+	if cfg == nil || len(cfg.Bots) == 0 {
+		return nil
+	}
 	for i := range cfg.Bots {
 		bc := &cfg.Bots[i]
 		id := strings.TrimSpace(bc.ID)
@@ -404,15 +419,24 @@ func SyncBotConfigSnapshotsFromMainConfig(ctx context.Context, st Storage, cfg *
 		}
 		bf := config.ConvertFromBotConfig(*bc)
 		bf.UpdatedAt = time.Now().Format(time.RFC3339)
-		if doc, err := ss.GetBotConfigDocument(ctx, id); err == nil && doc != nil && strings.TrimSpace(doc.Content) != "" {
+		var previousContent string
+		err := tx.QueryRowContext(ctx, `SELECT content FROM bot_configs WHERE bot_id = ?`, id).Scan(&previousContent)
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("read bot_configs %s before sync: %w", id, err)
+		}
+		if err == nil && strings.TrimSpace(previousContent) != "" {
 			var prev config.BotConfigFile
-			if json.Unmarshal([]byte(doc.Content), &prev) == nil && prev.CreatedAt != "" {
+			if json.Unmarshal([]byte(previousContent), &prev) == nil && prev.CreatedAt != "" {
 				bf.CreatedAt = prev.CreatedAt
 			}
 		} else if bc.CreatedAt != "" {
 			bf.CreatedAt = bc.CreatedAt
 		}
-		if _, err := SaveBotConfigSnapshot(ctx, st, bf, operator, source); err != nil {
+		jsonBytes, err := json.Marshal(bf)
+		if err != nil {
+			return fmt.Errorf("serialize bot config %s: %w", id, err)
+		}
+		if _, err := upsertBotConfigTx(ctx, tx, ss.dbType, id, 1, string(jsonBytes), operator, source); err != nil {
 			return fmt.Errorf("sync bot_configs %s: %w", id, err)
 		}
 	}
@@ -429,11 +453,23 @@ func SaveAppConfigSnapshotWithBotSource(ctx context.Context, st Storage, cfg *co
 	if st == nil || cfg == nil {
 		return 0, fmt.Errorf("SaveAppConfigSnapshot: storage 或配置為空")
 	}
+	ss, ok := st.(*SQLStorage)
+	if !ok || ss == nil {
+		return 0, fmt.Errorf("SaveAppConfigSnapshot: 需要主庫 *SQLStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return 0, err
+	}
 	jsonBytes, err := json.Marshal(cfg)
 	if err != nil {
 		return 0, fmt.Errorf("序列化配置為 JSON: %w", err)
 	}
-	rev, err := SaveAppConfigSnapshotFromJSON(ctx, st, jsonBytes, operator, appSource)
+	tx, err := ss.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	rev, err := upsertAppConfigTx(ctx, tx, ss.dbType, 1, string(jsonBytes), operator, appSource)
 	if err != nil {
 		return 0, err
 	}
@@ -441,8 +477,11 @@ func SaveAppConfigSnapshotWithBotSource(ctx context.Context, st Storage, cfg *co
 	if strings.TrimSpace(botSrc) == "" {
 		botSrc = appSource
 	}
-	if err := SyncBotConfigSnapshotsFromMainConfig(ctx, st, cfg, operator, botSrc); err != nil {
+	if err := syncBotConfigSnapshotsTx(ctx, tx, ss, cfg, operator, botSrc); err != nil {
 		return rev, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
 	}
 	return rev, nil
 }

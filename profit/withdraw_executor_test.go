@@ -274,7 +274,7 @@ func (f *fakeTransferExchange) GetAccountFresh(context.Context) (*exchange.Accou
 	return f.account, f.accountErr
 }
 
-func (f *fakeTransferExchange) ReadAccountEvidence(_ context.Context, since time.Time) (accounting.Snapshot, error) {
+func (f *fakeTransferExchange) ReadVerifiedWithdrawalEvidence(_ context.Context, since time.Time) (accounting.Snapshot, error) {
 	if f.ledgerErr != nil {
 		return accounting.Snapshot{}, f.ledgerErr
 	}
@@ -291,6 +291,13 @@ func (f *fakeTransferExchange) ReadAccountEvidence(_ context.Context, since time
 	}
 	return accounting.Snapshot{Currency: "USDT", ObservedAt: now,
 		Wallet: accounting.Wallet{Balance: "1000", From: since, Through: now, ObservedAt: now}, Entries: entries}, nil
+}
+
+type candidateOnlyTransferExchange struct{ exchange.IExchange }
+
+func (candidateOnlyTransferExchange) WithdrawalAccountScope() string { return "scope-a" }
+func (candidateOnlyTransferExchange) ReadAccountEvidence(context.Context, time.Time) (accounting.Snapshot, error) {
+	return accounting.Snapshot{Currency: "USDT"}, nil
 }
 
 func (f *fakeTransferExchange) InternalTransfer(ctx context.Context, from, to, asset string, amount float64) (string, error) {
@@ -330,6 +337,15 @@ func TestValidateTransferSafetyRequiresSameSymbolAttribution(t *testing.T) {
 				t.Fatalf("ValidateTransferSafety() error=%v, wantOK=%v", err, tt.wantOK)
 			}
 		})
+	}
+}
+
+func TestValidateTransferSafetyRejectsCandidateEvidenceWithoutDurableReconciliation(t *testing.T) {
+	now := time.Now().UTC()
+	err := ValidateTransferSafety(context.Background(), candidateOnlyTransferExchange{}, "BTCUSDT", "scope-a", 1,
+		now.Add(-time.Minute), now)
+	if err == nil || !strings.Contains(err.Error(), "durably reconciled") {
+		t.Fatalf("candidate-only ledger evidence should be rejected: %v", err)
 	}
 }
 

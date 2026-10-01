@@ -381,3 +381,54 @@ func TestRuntimeEquityWalletSQLiteRestartAndMissingLedgerHold(t *testing.T) {
 		t.Fatalf("restart lost account cursor/high water: %+v", sink.snap)
 	}
 }
+
+func TestVerifiedWithdrawalLedgerUsesPersistedWholeAccountReconciliation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "withdrawal-equity.db")
+	db, err := storage.NewSQLStorage(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := db.MigrateRiskCheckpoints(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Add(-time.Second).UTC().Truncate(time.Millisecond)
+	venue := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "100", 100)}
+	runtime := walletRuntimeFixture("scope-a", venue)
+	source := &runtimeWalletTestSource{runtimes: []*SymbolRuntime{runtime}}
+	options := risk.MetricsFeederOptions{Now: func() time.Time { return now },
+		EquityStore: &persistedEquityState{backend: db}, RequirePersistence: true,
+		RequireCashFlowReconciliation: true, MaxEquityAge: 2 * time.Minute}
+	feeder := risk.NewMetricsFeeder(&runtimeWalletTestSink{}, nil, source, nil, options)
+	if _, err := feeder.Tick(t.Context()); err != nil {
+		t.Fatalf("establish persisted withdrawal baseline: %v", err)
+	}
+	baseFrom := venue.snapshot.Wallet.From
+
+	now = now.Add(time.Second)
+	venue.snapshot = runtimeWalletFixture(now, "110", 110)
+	venue.snapshot.Wallet.From = baseFrom
+	venue.snapshot.Entries = []accounting.Entry{{ID: "realized-1", Kind: "realized_pnl", Currency: "USDT", Amount: "10",
+		Symbol: "BTCUSDT", At: now.Add(-2 * time.Millisecond)}}
+	if _, err := readVerifiedWithdrawalLedger(t.Context(), feeder, "scope-a", now.Add(-30*time.Second)); err != nil {
+		t.Fatalf("read reconciled withdrawal ledger: %v", err)
+	}
+	ledger, err := readVerifiedWithdrawalLedger(t.Context(), feeder, "scope-a", now.Add(-30*time.Second))
+	if err != nil {
+		t.Fatalf("read already-reconciled withdrawal ledger: %v", err)
+	}
+	if ledger.Wallet.Balance != "110" || len(ledger.Entries) != 1 || ledger.Entries[0].Symbol != "BTCUSDT" || ledger.Entries[0].Amount != "10" {
+		t.Fatalf("withdrawal ledger did not retain verified symbol-level evidence: %+v", ledger)
+	}
+
+	venue.snapshot.Wallet.Balance = "120"
+	venue.snapshot.Equity = 120
+	venue.snapshot.Entries = nil
+	venue.snapshot.Wallet.Through = now.Add(time.Second).Add(-time.Millisecond)
+	venue.snapshot.Wallet.ObservedAt = now.Add(time.Second)
+	now = now.Add(time.Second)
+	if _, err := readVerifiedWithdrawalLedger(t.Context(), feeder, "scope-a", now.Add(-time.Minute)); err == nil {
+		t.Fatal("withdrawal accepted a wallet delta not reconciled by an exact account-ledger receipt")
+	}
+}

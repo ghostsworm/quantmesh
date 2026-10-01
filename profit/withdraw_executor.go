@@ -440,11 +440,13 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 	if !ok || strings.TrimSpace(scopedExchange.WithdrawalAccountScope()) == "" || scopedExchange.WithdrawalAccountScope() != accountScope {
 		return fmt.Errorf("exchange credential scope does not match the withdrawal accounting scope; withdrawal is disabled")
 	}
-	ledgerSource, ok := ex.(accounting.Source)
+	ledgerSource, ok := ex.(interface {
+		ReadVerifiedWithdrawalEvidence(context.Context, time.Time) (accounting.Snapshot, error)
+	})
 	if !ok {
-		return fmt.Errorf("exchange does not provide complete account income evidence; withdrawal is disabled")
+		return fmt.Errorf("exchange does not provide durably reconciled account income evidence; withdrawal is disabled")
 	}
-	ledger, err := ledgerSource.ReadAccountEvidence(ctx, windowStart)
+	ledger, err := ledgerSource.ReadVerifiedWithdrawalEvidence(ctx, windowStart)
 	if err != nil {
 		return fmt.Errorf("read complete account income evidence before transfer: %w", err)
 	}
