@@ -59,9 +59,20 @@ func RunDCABacktestContext(ctx context.Context, symbol, interval string, candles
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles is empty")
 	}
-	if params.AmountPerTrade <= 0 || params.TotalCapital <= 0 || params.IntervalDays <= 0 ||
-		math.IsNaN(params.SlippageRatio) || math.IsInf(params.SlippageRatio, 0) || params.SlippageRatio < 0 || params.SlippageRatio >= 1 {
+	if !isFinite(params.AmountPerTrade) || params.AmountPerTrade <= 0 ||
+		!isFinite(params.TotalCapital) || params.TotalCapital <= 0 ||
+		!isFinite(initialCapital) || initialCapital <= 0 || params.IntervalDays <= 0 ||
+		!isFinite(params.FeeRate) || params.FeeRate < 0 || params.FeeRate > 1 ||
+		!isFinite(params.SlippageRatio) || params.SlippageRatio < 0 || params.SlippageRatio >= 1 {
 		return nil, fmt.Errorf("invalid DCA params")
+	}
+	for i, candle := range candles {
+		if candle == nil || candle.Timestamp < 0 || !isFinite(candle.Close) || candle.Close <= 0 {
+			return nil, fmt.Errorf("invalid DCA candle at index %d", i)
+		}
+		if i > 0 && candle.Timestamp <= candles[i-1].Timestamp {
+			return nil, fmt.Errorf("DCA candles are not in strictly increasing timestamp order at index %d", i)
+		}
 	}
 
 	cpd := candlesPerDay(interval)

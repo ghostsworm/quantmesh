@@ -60,3 +60,30 @@ func TestBacktestRejectsInvalidSlippageRatio(t *testing.T) {
 		}
 	}
 }
+
+func TestDCABacktestRejectsInvalidFinancialInputsAndCandles(t *testing.T) {
+	validCandles := []*exchange.Candle{{Timestamp: 1_790_000_000_000, Close: 100}}
+	baseParams := DCABacktestParams{IntervalDays: 1, AmountPerTrade: 10, TotalCapital: 100}
+	tests := []struct {
+		name    string
+		params  DCABacktestParams
+		candles []*exchange.Candle
+		capital float64
+	}{
+		{name: "nan fee rate", params: func() DCABacktestParams { p := baseParams; p.FeeRate = math.NaN(); return p }(), candles: validCandles, capital: 100},
+		{name: "infinite fee rate", params: func() DCABacktestParams { p := baseParams; p.FeeRate = math.Inf(1); return p }(), candles: validCandles, capital: 100},
+		{name: "fee rate above one", params: func() DCABacktestParams { p := baseParams; p.FeeRate = 1.01; return p }(), candles: validCandles, capital: 100},
+		{name: "nan amount", params: func() DCABacktestParams { p := baseParams; p.AmountPerTrade = math.NaN(); return p }(), candles: validCandles, capital: 100},
+		{name: "invalid initial capital", params: baseParams, candles: validCandles, capital: math.Inf(1)},
+		{name: "nil candle", params: baseParams, candles: []*exchange.Candle{nil}, capital: 100},
+		{name: "nonpositive close", params: baseParams, candles: []*exchange.Candle{{Timestamp: 1, Close: 0}}, capital: 100},
+		{name: "unordered candles", params: baseParams, candles: []*exchange.Candle{{Timestamp: 2, Close: 100}, {Timestamp: 1, Close: 101}}, capital: 100},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := RunDCABacktest("BTCUSDT", "1d", test.candles, test.params, test.capital); err == nil {
+				t.Fatal("RunDCABacktest() accepted invalid input")
+			}
+		})
+	}
+}
