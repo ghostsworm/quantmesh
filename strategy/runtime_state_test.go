@@ -128,6 +128,69 @@ func TestDCAOrderFillPersistsAndRestoresFeeBearingInventory(t *testing.T) {
 	}
 }
 
+func TestDCAPendingOrdersPersistRequestedSizeWithoutInventingInventory(t *testing.T) {
+	tests := []struct {
+		name  string
+		place func(*DCAEnhancedStrategy) error
+	}{
+		{name: "base order", place: func(s *DCAEnhancedStrategy) error { return s.openBaseOrder(100) }},
+		{name: "safety order", place: func(s *DCAEnhancedStrategy) error {
+			s.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
+				FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
+			s.totalQty, s.totalCost, s.avgEntryPrice = 1, 100, 100
+			s.currentLayer, s.dynamicInterval = 1, 1
+			return s.checkSafetyOrder(98)
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &memoryRuntimeStateStore{}
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			s.SetRuntimeStateStore(store)
+			if err := test.place(s); err != nil {
+				t.Fatalf("place pending order: %v", err)
+			}
+			pending := s.layers[len(s.layers)-1]
+			if pending.Status != entryStatusPending || pending.RequestedQuantity <= 0 || pending.Quantity != 0 || pending.Cost != 0 {
+				t.Fatalf("pending request was mixed into filled inventory: %+v", pending)
+			}
+			orders := s.GetOrders()
+			if len(orders) == 0 || orders[len(orders)-1].Quantity != pending.RequestedQuantity {
+				t.Fatalf("pending order view lost requested quantity: %+v", orders)
+			}
+
+			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+			restarted.SetRuntimeStateStore(store)
+			if err := restarted.restoreRuntimeState(); err != nil {
+				t.Fatalf("restore persisted pending order: %v", err)
+			}
+			if restarted.totalQty != s.totalQty || restarted.totalCost != s.totalCost ||
+				restarted.layers[len(restarted.layers)-1].RequestedQuantity != pending.RequestedQuantity {
+				t.Fatalf("restored pending order/inventory mismatch: %+v", restarted.runtimeStateSnapshotLocked())
+			}
+		})
+	}
+}
+
+func TestDCARestoresLegacyPendingLayerWithoutCountingRequestedInventory(t *testing.T) {
+	state := dcaRuntimeState{
+		StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, OrderID: 77, Status: entryStatusPending}},
+	}
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 77, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, Status: exchange.OrderStatusNew,
+	}}
+	s := newPersistedDCAStrategy(t, ex, state)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("restore and reconcile legacy pending order: %v", err)
+	}
+	defer s.Stop()
+	layer := s.layers[0]
+	if layer.RequestedQuantity != 1 || layer.Quantity != 0 || layer.Cost != 0 || s.totalQty != 0 || s.totalCost != 0 {
+		t.Fatalf("legacy request was not migrated without inventing fills: layer=%+v qty=%v cost=%v", layer, s.totalQty, s.totalCost)
+	}
+}
+
 func TestDCAInvalidPersistedIdentityBlocksStart(t *testing.T) {
 	store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: `{ "bot_id": "wrong" }`, found: true}
 	dca := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)

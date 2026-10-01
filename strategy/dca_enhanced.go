@@ -489,6 +489,17 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	if err := json.Unmarshal([]byte(payload), &state); err != nil {
 		return fmt.Errorf("decode DCA runtime state: %w", err)
 	}
+	for _, layer := range state.Layers {
+		if layer != nil && layer.Status == entryStatusPending && layer.RequestedQuantity == 0 &&
+			layer.Quantity > 0 && layer.FillProgress.Quantity == 0 && layer.FillProgress.Notional == 0 &&
+			layer.OpeningFee == 0 && layer.EntryBaseFeeQty == 0 && layer.FeeVerifiedQty == 0 {
+			// Older snapshots stored a pending order's requested size and planned
+			// cost in inventory fields. Recover the request without attributing fills.
+			layer.RequestedQuantity = layer.Quantity
+			layer.Quantity = 0
+			layer.Cost = 0
+		}
+	}
 	if state.BotID != s.effectiveBotID() || state.StrategyName != s.name || state.Symbol != s.strategyCfg.Symbol {
 		return fmt.Errorf("DCA runtime state identity mismatch")
 	}
@@ -933,11 +944,10 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 	}
 
 	layer := &DCALayer{
-		Index:    0,
-		Price:    orderPrice,
-		Quantity: quantity,
-		Cost:     s.strategyCfg.BaseOrderAmount,
-		Status:   entryStatusPending,
+		Index:             0,
+		Price:             orderPrice,
+		RequestedQuantity: quantity,
+		Status:            entryStatusPending,
 	}
 
 	// 下單
@@ -1036,11 +1046,10 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 	}
 
 	layer := &DCALayer{
-		Index:    s.currentLayer,
-		Price:    orderPrice,
-		Quantity: quantity,
-		Cost:     orderAmount,
-		Status:   entryStatusPending,
+		Index:             s.currentLayer,
+		Price:             orderPrice,
+		RequestedQuantity: quantity,
+		Status:            entryStatusPending,
 	}
 
 	// 下單
@@ -1667,12 +1676,16 @@ func (s *DCAEnhancedStrategy) GetOrders() []*Order {
 
 	orders := make([]*Order, 0, len(s.layers))
 	for _, layer := range s.layers {
+		quantity := layer.RequestedQuantity
+		if quantity < layer.Quantity {
+			quantity = layer.Quantity
+		}
 		orders = append(orders, &Order{
 			OrderID:  layer.OrderID,
 			Symbol:   s.strategyCfg.Symbol,
 			Side:     "BUY",
 			Price:    layer.Price,
-			Quantity: layer.Quantity,
+			Quantity: quantity,
 			Status:   layer.Status,
 		})
 	}
