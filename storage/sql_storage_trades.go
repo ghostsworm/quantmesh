@@ -64,6 +64,9 @@ func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
 	if trade == nil || strings.TrimSpace(trade.ExecutionKey) == "" {
 		return fmt.Errorf("idempotent trade write requires an execution key")
 	}
+	if err := validateTradeEconomics(trade); err != nil {
+		return err
+	}
 	canonical := *trade
 	canonical.ExecutionKey = strings.TrimSpace(canonical.ExecutionKey)
 	canonical.BotID = strings.TrimSpace(canonical.BotID)
@@ -89,6 +92,26 @@ func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
 		}
 		return nil
 	}
+}
+
+func validateTradeEconomics(trade *Trade) error {
+	values := []struct {
+		name  string
+		value float64
+	}{
+		{"buy price", trade.BuyPrice}, {"sell price", trade.SellPrice}, {"quantity", trade.Quantity},
+		{"PnL", trade.PnL}, {"exchange PnL", trade.ExchangePnL}, {"fee", trade.Fee},
+		{"buy price deviation", trade.BuyPriceDeviation}, {"sell price deviation", trade.SellPriceDeviation},
+	}
+	for _, item := range values {
+		if math.IsNaN(item.value) || math.IsInf(item.value, 0) {
+			return fmt.Errorf("idempotent trade write has non-finite %s", item.name)
+		}
+	}
+	if trade.BuyPrice < 0 || trade.SellPrice < 0 || trade.Quantity < 0 {
+		return fmt.Errorf("idempotent trade write has negative price or quantity")
+	}
+	return nil
 }
 
 func sameTradeEconomics(a, b Trade) bool {

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"math"
 	"testing"
 	"time"
 )
@@ -54,5 +55,35 @@ func TestSaveTradeIdempotentDeduplicatesRetriesAndRejectsKeyReuse(t *testing.T) 
 	conflict.PnL = 500
 	if err := st.SaveTradeIdempotent(&conflict); err == nil {
 		t.Fatal("execution key reuse with different PnL must fail")
+	}
+}
+
+func TestSaveTradeIdempotentRejectsNonFiniteEconomics(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	base := &Trade{ExecutionKey: "invalid-economics", BuyPrice: 100, SellPrice: 101, Quantity: 1, PnL: 1, Fee: 0.1}
+	tests := []struct {
+		name   string
+		mutate func(*Trade)
+	}{
+		{"non-finite pnl", func(trade *Trade) { trade.PnL = math.Inf(1) }},
+		{"non-finite fee", func(trade *Trade) { trade.Fee = math.NaN() }},
+		{"overflowed price deviation", func(trade *Trade) { trade.BuyPriceDeviation = math.Inf(-1) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			trade := *base
+			tt.mutate(&trade)
+			if err := st.SaveTradeIdempotent(&trade); err == nil {
+				t.Fatal("non-finite economics accepted")
+			}
+		})
+	}
+}
+
+func TestSaveTradeIdempotentRejectsNegativeQuantity(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	trade := &Trade{ExecutionKey: "negative-quantity", Quantity: -1}
+	if err := st.SaveTradeIdempotent(trade); err == nil {
+		t.Fatal("negative trade quantity accepted")
 	}
 }
