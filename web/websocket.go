@@ -2,7 +2,6 @@ package web
 
 import (
 	"encoding/json"
-	"net/http"
 	"sync"
 	"time"
 
@@ -12,9 +11,7 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 允許所有来源（生產环境应該限制）
-	},
+	CheckOrigin: sameOriginWebSocketRequest,
 }
 
 // WebSocketHub WebSocket 中心

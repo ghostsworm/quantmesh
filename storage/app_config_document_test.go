@@ -162,6 +162,34 @@ func TestSaveAppConfigSnapshotRollsBackWhenBotSnapshotSyncFails(t *testing.T) {
 	}
 }
 
+func TestSaveConfigMigrationSnapshotsRollsBackAsOneTransaction(t *testing.T) {
+	ctx := context.Background()
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "config_migration_atomic.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`CREATE TRIGGER reject_migrated_bot BEFORE INSERT ON bot_configs
+		WHEN NEW.bot_id = 'reject-bot' BEGIN SELECT RAISE(ABORT, 'injected migration failure'); END`); err != nil {
+		t.Fatalf("create failure trigger: %v", err)
+	}
+	bot := &config.BotConfigFile{BotID: "reject-bot", Exchange: "binance", Symbol: "BTCUSDT"}
+	if _, err := SaveConfigMigrationSnapshots(ctx, store, []byte(`{"app":{"name":"imported"}}`), []*config.BotConfigFile{bot}, "test", "migration"); err == nil {
+		t.Fatal("migration unexpectedly succeeded when bot snapshot insert failed")
+	}
+	appDoc, err := store.GetAppConfigDocument(ctx)
+	if err != nil || appDoc != nil {
+		t.Fatalf("app config committed despite bot failure: doc=%+v err=%v", appDoc, err)
+	}
+	botDoc, err := store.GetBotConfigDocument(ctx, "reject-bot")
+	if err != nil || botDoc != nil {
+		t.Fatalf("bot config committed despite migration failure: doc=%+v err=%v", botDoc, err)
+	}
+}
+
 type assertStorageErr string
 
 func (e assertStorageErr) Error() string {

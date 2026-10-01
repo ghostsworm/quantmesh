@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -205,16 +206,38 @@ func NewBotConfigManager(baseDir string) (*BotConfigManager, error) {
 
 // GetBotConfigPath 获取 Bot 配置文件路径
 func (m *BotConfigManager) GetBotConfigPath(botID string) string {
+	if ValidateBotConfigID(botID) != nil {
+		return ""
+	}
 	return filepath.Join(m.botsDir, botID, "config.yaml")
 }
 
 // GetBotDataPath 获取 Bot 数据目录路径
 func (m *BotConfigManager) GetBotDataPath(botID string) string {
+	if botID == "" {
+		return m.botsDir
+	}
+	if ValidateBotConfigID(botID) != nil {
+		return ""
+	}
 	return filepath.Join(m.botsDir, botID)
+}
+
+// ValidateBotConfigID rejects identifiers that could escape the per-Bot
+// directory when used in filesystem paths.
+func ValidateBotConfigID(botID string) error {
+	if botID == "" || botID != strings.TrimSpace(botID) || len(botID) > 128 ||
+		strings.ContainsAny(botID, "/\\\x00") || !filepath.IsLocal(botID) || botID == "." || botID == ".." {
+		return fmt.Errorf("invalid bot_id")
+	}
+	return nil
 }
 
 // LoadBotConfig 加载 Bot 配置文件
 func (m *BotConfigManager) LoadBotConfig(botID string) (*BotConfigFile, error) {
+	if err := ValidateBotConfigID(botID); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -234,6 +257,12 @@ func (m *BotConfigManager) LoadBotConfig(botID string) (*BotConfigFile, error) {
 
 // SaveBotConfig 保存 Bot 配置文件
 func (m *BotConfigManager) SaveBotConfig(config *BotConfigFile) error {
+	if config == nil {
+		return fmt.Errorf("Bot 配置為空")
+	}
+	if err := ValidateBotConfigID(config.BotID); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -332,6 +361,12 @@ func cleanValue(v interface{}) interface{} {
 
 // CreateBotConfig 创建新的 Bot 配置文件
 func (m *BotConfigManager) CreateBotConfig(config *BotConfigFile) error {
+	if config == nil {
+		return fmt.Errorf("Bot 配置為空")
+	}
+	if err := ValidateBotConfigID(config.BotID); err != nil {
+		return err
+	}
 	// 检查是否已存在
 	configPath := m.GetBotConfigPath(config.BotID)
 	if _, err := os.Stat(configPath); err == nil {
@@ -343,6 +378,9 @@ func (m *BotConfigManager) CreateBotConfig(config *BotConfigFile) error {
 
 // DeleteBotConfig 删除 Bot 配置文件
 func (m *BotConfigManager) DeleteBotConfig(botID string) error {
+	if err := ValidateBotConfigID(botID); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -376,6 +414,9 @@ func (m *BotConfigManager) ListBotConfigs() ([]string, error) {
 
 // BotConfigExists 检查 Bot 配置是否存在
 func (m *BotConfigManager) BotConfigExists(botID string) bool {
+	if ValidateBotConfigID(botID) != nil {
+		return false
+	}
 	configPath := m.GetBotConfigPath(botID)
 	_, err := os.Stat(configPath)
 	return err == nil

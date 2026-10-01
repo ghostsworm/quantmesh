@@ -382,6 +382,30 @@ func TestValidateTransferSafetyCapsAmountAtFreshExchangeLedgerProfit(t *testing.
 			{ID: "pnl-5", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
 			{ID: "unknown-time-fee", Kind: "fee", Currency: "USDT", Amount: "-9"},
 		}, amount: 5, wantErr: true},
+		{name: "unreserved outgoing transfer reduces withdrawal budget", entries: []accounting.Entry{
+			{ID: "pnl-transfer-out", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "transfer-out-1", Kind: "transfer_out", Currency: "USDT", Amount: "-3", At: now.Add(-4 * time.Minute)},
+		}, amount: 8, wantErr: true},
+		{name: "withdrawal within profit net of outgoing transfer", entries: []accounting.Entry{
+			{ID: "pnl-transfer-out-allowed", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "transfer-out-allowed", Kind: "transfer_out", Currency: "USDT", Amount: "-3", At: now.Add(-4 * time.Minute)},
+		}, amount: 7},
+		{name: "incoming transfer is not profit", entries: []accounting.Entry{
+			{ID: "pnl-transfer-in", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "transfer-in-1", Kind: "transfer_in", Currency: "USDT", Amount: "100", At: now.Add(-4 * time.Minute)},
+		}, amount: 11, wantErr: true},
+		{name: "outgoing transfer requires a negative amount", entries: []accounting.Entry{
+			{ID: "pnl-transfer-sign", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "transfer-out-positive", Kind: "transfer_out", Currency: "USDT", Amount: "3", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+		{name: "incoming transfer requires USDT denomination", entries: []accounting.Entry{
+			{ID: "pnl-transfer-asset", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{ID: "transfer-in-foreign", Kind: "transfer_in", Currency: "BTC", Amount: "1", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
+		{name: "transfer requires stable identity", entries: []accounting.Entry{
+			{ID: "pnl-transfer-id", Kind: "realized_pnl", Currency: "USDT", Amount: "10", Symbol: "BTCUSDT", At: now.Add(-5 * time.Minute)},
+			{Kind: "transfer_out", Currency: "USDT", Amount: "-1", At: now.Add(-4 * time.Minute)},
+		}, amount: 5, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

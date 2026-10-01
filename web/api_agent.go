@@ -15,9 +15,7 @@ import (
 
 // Agent upgrader for WebSocket connections
 var agentUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // 生产环境需要验证 Origin
-	},
+	CheckOrigin: sameOriginWebSocketRequest,
 }
 
 var (
@@ -28,8 +26,8 @@ var (
 // AgentManager Agent 管理器
 type AgentManager struct {
 	sessions map[string]*agent.QuantMeshAgent
-	mu        sync.RWMutex
-	config    AgentManagerConfig
+	mu       sync.RWMutex
+	config   AgentManagerConfig
 }
 
 // AgentManagerConfig Agent 管理器配置
@@ -62,7 +60,7 @@ func GetAgentManager() *AgentManager {
 func createSession(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -123,7 +121,7 @@ func createSession(c *gin.Context) {
 func sendMessage(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -142,9 +140,9 @@ func sendMessage(c *gin.Context) {
 	}
 
 	var req struct {
-		Content string                 `json:"content" binding:"required"`
-		Stream   bool                   `json:"stream"`
-		Images   []types.ImageData      `json:"images"`
+		Content string            `json:"content" binding:"required"`
+		Stream  bool              `json:"stream"`
+		Images  []types.ImageData `json:"images"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -166,9 +164,9 @@ func sendMessage(c *gin.Context) {
 		// 使用多模态 API（仅 Gemini 支持）
 		llmClient := quantmeshAgent.GetLLMClient()
 		generateReq := types.GenerateRequest{
-			Messages:     []types.LLMMessage{{Role: "user", Content: req.Content}},
-			MaxTokens:    4096,
-			Temperature:  0.7,
+			Messages:    []types.LLMMessage{{Role: "user", Content: req.Content}},
+			MaxTokens:   4096,
+			Temperature: 0.7,
 		}
 
 		llmResp, err := llmClient.GenerateWithImage(c.Request.Context(), req.Content, req.Images, generateReq)
@@ -220,7 +218,7 @@ func sendMessage(c *gin.Context) {
 func listSessions(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -233,9 +231,9 @@ func listSessions(c *gin.Context) {
 	for id, agent := range agentManager.sessions {
 		state := agent.GetState()
 		sessions = append(sessions, gin.H{
-			"id":         id,
-			"created_at": state.CreatedAt,
-			"updated_at": state.UpdatedAt,
+			"id":            id,
+			"created_at":    state.CreatedAt,
+			"updated_at":    state.UpdatedAt,
 			"message_count": len(state.Messages),
 		})
 	}
@@ -250,7 +248,7 @@ func listSessions(c *gin.Context) {
 func getSessionHistory(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -282,7 +280,7 @@ func getSessionHistory(c *gin.Context) {
 func getSessionConfig(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -312,7 +310,7 @@ func getSessionConfig(c *gin.Context) {
 func applyConfig(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -346,7 +344,7 @@ func applyConfig(c *gin.Context) {
 func deleteSession(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -369,7 +367,7 @@ func deleteSession(c *gin.Context) {
 func handleAgentWebSocket(c *gin.Context) {
 	if agentManager == nil {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "AI_AGENT_NOT_CONFIGURED",
+			"error":   "AI_AGENT_NOT_CONFIGURED",
 			"message": "AI 聊天功能未配置。请在配置文件的 web.ai 部分设置 llm_provider 和 llm_api_key",
 		})
 		return
@@ -425,8 +423,8 @@ func handleAgentWebSocket(c *gin.Context) {
 
 			// 发送响应
 			conn.WriteJSON(gin.H{
-				"type":     "response",
-				"message":  response.Message,
+				"type":       "response",
+				"message":    response.Message,
 				"tool_calls": response.ToolCalls,
 			})
 

@@ -91,6 +91,15 @@ func TestConfigMigrationBundleRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecodeMigrationBotConfigsRejectsPathTraversalID(t *testing.T) {
+	bundle := &configMigrationBundle{Database: &configMigrationDatabaseSnapshot{
+		BotConfigs: []configMigrationBotConfigDocument{{BotID: "../outside", Content: []byte(`{"bot_id":"../outside"}`)}},
+	}}
+	if _, err := decodeMigrationBotConfigs(bundle); err == nil {
+		t.Fatal("migration decoder accepted a path-traversal bot_id")
+	}
+}
+
 func newMigrationTestStorage(t *testing.T) (*storage.SQLStorage, *config.Config) {
 	t.Helper()
 	st, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "quantmesh.db"))

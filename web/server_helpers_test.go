@@ -66,6 +66,7 @@ func TestSetupRoutesWithConfigRegistersCoreRoutes(t *testing.T) {
 		{name: "metrics", path: "/metrics", want: http.StatusOK},
 		{name: "pprof", path: "/debug/pprof/", want: http.StatusOK},
 		{name: "missing api", path: "/api/not-found", want: http.StatusNotFound},
+		{name: "websocket requires authentication", path: "/ws", want: http.StatusUnauthorized},
 	}
 
 	for _, tc := range requests {

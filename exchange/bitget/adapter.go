@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"net/url"
 	"strconv"
 	"strings"
@@ -1681,8 +1682,28 @@ func (b *BitgetAdapter) InternalTransfer(ctx context.Context, fromAccount, toAcc
 	if coin == "" {
 		coin = "USDT"
 	}
-	amt := strconv.FormatFloat(amount, 'f', 8, 64)
+	amt, err := formatBitgetTransferAmount(amount)
+	if err != nil {
+		return "", err
+	}
 	return b.client.WalletTransferV2(ctx, fromT, toT, coin, amt)
+}
+
+func formatBitgetTransferAmount(amount float64) (string, error) {
+	if math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
+		return "", fmt.Errorf("Bitget transfer amount must be finite and positive")
+	}
+	decimal, ok := new(big.Rat).SetString(strconv.FormatFloat(amount, 'f', -1, 64))
+	if !ok {
+		return "", fmt.Errorf("Bitget transfer amount is not a valid decimal")
+	}
+	scale := big.NewInt(100_000_000)
+	scaled := new(big.Rat).Mul(decimal, new(big.Rat).SetInt(scale))
+	units := new(big.Int).Quo(scaled.Num(), scaled.Denom())
+	if units.Sign() <= 0 {
+		return "", fmt.Errorf("Bitget transfer amount is below the 8-decimal precision")
+	}
+	return new(big.Rat).SetFrac(units, scale).FloatString(8), nil
 }
 
 func mapBitgetTransferWalletTypes(fromAccount, toAccount, quoteAsset string) (fromType, toType string, err error) {

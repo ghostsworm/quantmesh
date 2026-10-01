@@ -516,6 +516,63 @@ func SaveAppConfigSnapshotFromJSON(ctx context.Context, st Storage, jsonBytes []
 	return rev, nil
 }
 
+// SaveConfigMigrationSnapshots atomically imports the app config and all bot
+// config snapshots. File-based mirrors are intentionally handled by the caller
+// only after this database transaction commits.
+func SaveConfigMigrationSnapshots(ctx context.Context, st Storage, appJSON []byte, botConfigs []*config.BotConfigFile, operator, source string) (revision int, err error) {
+	if st == nil || len(appJSON) == 0 || !json.Valid(appJSON) {
+		return 0, fmt.Errorf("SaveConfigMigrationSnapshots: app config must be valid JSON")
+	}
+	ss, ok := st.(*SQLStorage)
+	if !ok || ss == nil {
+		return 0, fmt.Errorf("SaveConfigMigrationSnapshots: requires primary *SQLStorage")
+	}
+	if err := ss.EnsureAppConfigDocumentTables(); err != nil {
+		return 0, err
+	}
+	serializedBots := make([]struct {
+		id      string
+		content string
+	}, 0, len(botConfigs))
+	seen := make(map[string]struct{}, len(botConfigs))
+	for _, bot := range botConfigs {
+		if bot == nil || config.ValidateBotConfigID(bot.BotID) != nil {
+			return 0, fmt.Errorf("SaveConfigMigrationSnapshots: bot_id is required")
+		}
+		id := bot.BotID
+		if _, exists := seen[id]; exists {
+			return 0, fmt.Errorf("SaveConfigMigrationSnapshots: duplicate bot_id %q", id)
+		}
+		seen[id] = struct{}{}
+		content, err := json.Marshal(bot)
+		if err != nil {
+			return 0, fmt.Errorf("serialize bot config %s: %w", id, err)
+		}
+		serializedBots = append(serializedBots, struct {
+			id      string
+			content string
+		}{id: id, content: string(content)})
+	}
+	tx, err := ss.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	revision, err = upsertAppConfigTx(ctx, tx, ss.dbType, 1, string(appJSON), operator, source)
+	if err != nil {
+		return 0, err
+	}
+	for _, bot := range serializedBots {
+		if _, err := upsertBotConfigTx(ctx, tx, ss.dbType, bot.id, 1, bot.content, operator, source); err != nil {
+			return 0, fmt.Errorf("save migrated bot config %s: %w", bot.id, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return revision, nil
+}
+
 // upsertAppConfigTx 寫入主配置與歷史（同一事務）
 func upsertAppConfigTx(ctx context.Context, tx *sql.Tx, dbType string, schemaVersion int, contentJSON string, operator, source string) (int, error) {
 	hash := sha256Hex(contentJSON)

@@ -184,14 +184,23 @@ func applyConfigMigrationBundle(ctx context.Context, bundle *configMigrationBund
 	if primaryStorageForAppConfig == nil {
 		return nil, fmt.Errorf("主库未初始化，无法导入数据库配置")
 	}
-	appRev, err := storage.SaveAppConfigSnapshotFromJSON(ctx, primaryStorageForAppConfig, appJSON, "web", "config_migration_import")
-	if err != nil {
-		return nil, fmt.Errorf("写入 app_config 失败: %w", err)
-	}
-
-	importedBots, writtenFiles, err := importMigrationBotConfigs(ctx, bundle)
+	botConfigs, err := decodeMigrationBotConfigs(bundle)
 	if err != nil {
 		return nil, err
+	}
+	appRev, err := storage.SaveConfigMigrationSnapshots(ctx, primaryStorageForAppConfig, appJSON, botConfigs, "web", "config_migration_import")
+	if err != nil {
+		return nil, fmt.Errorf("原子写入 app_config 与 bot_configs 失败: %w", err)
+	}
+	writtenFiles := 0
+	for _, bot := range botConfigs {
+		if botConfigManager == nil {
+			continue
+		}
+		if err := botConfigManager.SaveBotConfig(bot); err != nil {
+			return nil, fmt.Errorf("数据库配置已提交，但写入 Bot 文件配置[%s] 失败: %w", bot.BotID, err)
+		}
+		writtenFiles++
 	}
 
 	if err := fileConfigManager.SetRuntimeConfig(cfg); err != nil {
@@ -212,7 +221,7 @@ func applyConfigMigrationBundle(ctx context.Context, bundle *configMigrationBund
 	return &configMigrationImportResult{
 		Message:               "配置迁移导入成功",
 		AppConfigRevision:     appRev,
-		ImportedBotConfigs:    importedBots,
+		ImportedBotConfigs:    len(botConfigs),
 		WrittenBotConfigFiles: writtenFiles,
 		RequiresRestart:       diff.RequiresRestart,
 		HotUpdated:            updatedSymbols,
@@ -252,38 +261,36 @@ func resolveMigrationAppConfig(bundle *configMigrationBundle) ([]byte, *config.C
 	return nil, nil, nil
 }
 
-func importMigrationBotConfigs(ctx context.Context, bundle *configMigrationBundle) (int, int, error) {
+func decodeMigrationBotConfigs(bundle *configMigrationBundle) ([]*config.BotConfigFile, error) {
 	if bundle.Database == nil || len(bundle.Database.BotConfigs) == 0 {
-		return 0, 0, nil
+		return nil, nil
 	}
-	imported := 0
-	writtenFiles := 0
+	configs := make([]*config.BotConfigFile, 0, len(bundle.Database.BotConfigs))
+	seen := make(map[string]struct{}, len(bundle.Database.BotConfigs))
 	for _, doc := range bundle.Database.BotConfigs {
 		if strings.TrimSpace(doc.BotID) == "" || len(doc.Content) == 0 {
-			continue
+			return nil, fmt.Errorf("迁移包包含缺少 bot_id 或 content 的 Bot 配置")
+		}
+		if err := config.ValidateBotConfigID(doc.BotID); err != nil {
+			return nil, fmt.Errorf("迁移包包含非法 bot_id")
 		}
 		var bf config.BotConfigFile
 		if err := json.Unmarshal(doc.Content, &bf); err != nil {
-			return imported, writtenFiles, fmt.Errorf("解析 bot_configs[%s] 失败: %w", doc.BotID, err)
+			return nil, fmt.Errorf("解析 bot_configs[%s] 失败: %w", doc.BotID, err)
 		}
 		if strings.TrimSpace(bf.BotID) == "" {
 			bf.BotID = doc.BotID
 		}
 		if bf.BotID != doc.BotID {
-			return imported, writtenFiles, fmt.Errorf("bot_configs[%s] 内容 bot_id 不一致: %s", doc.BotID, bf.BotID)
+			return nil, fmt.Errorf("bot_configs[%s] 内容 bot_id 不一致: %s", doc.BotID, bf.BotID)
 		}
-		if _, err := storage.SaveBotConfigSnapshot(ctx, primaryStorageForAppConfig, &bf, "web", "config_migration_import"); err != nil {
-			return imported, writtenFiles, fmt.Errorf("写入 bot_configs[%s] 失败: %w", doc.BotID, err)
+		if _, exists := seen[bf.BotID]; exists {
+			return nil, fmt.Errorf("迁移包重复包含 bot_configs[%s]", bf.BotID)
 		}
-		imported++
-		if botConfigManager != nil {
-			if err := botConfigManager.SaveBotConfig(&bf); err != nil {
-				return imported, writtenFiles, fmt.Errorf("写入 Bot 文件配置[%s] 失败: %w", doc.BotID, err)
-			}
-			writtenFiles++
-		}
+		seen[bf.BotID] = struct{}{}
+		configs = append(configs, &bf)
 	}
-	return imported, writtenFiles, nil
+	return configs, nil
 }
 
 func rawJSONFromString(s string) (json.RawMessage, error) {

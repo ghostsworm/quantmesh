@@ -44,6 +44,38 @@ func TestBitgetDoRequestAndWalletTransfer(t *testing.T) {
 	}
 }
 
+func TestBitgetInternalTransferRoundsDownToSupportedPrecision(t *testing.T) {
+	client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode transfer body: %v", err)
+		}
+		if got := body["amount"]; got != "1.00000000" {
+			t.Fatalf("transfer amount rounded up or formatted incorrectly: %q", got)
+		}
+		_, _ = w.Write([]byte(`{"code":"00000","msg":"success","data":{"transferId":"tx-round-down"}}`))
+	})
+	defer closeServer()
+	adapter := &BitgetAdapter{client: client, quoteAsset: "USDT"}
+	if _, err := adapter.InternalTransfer(context.Background(), "UMFUTURE", "SPOT", "USDT", 1.000000009); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFormatBitgetTransferAmountRejectsInvalidOrRoundedToZeroValues(t *testing.T) {
+	for _, amount := range []float64{0, -1, 0.000000009} {
+		if formatted, err := formatBitgetTransferAmount(amount); err == nil {
+			t.Errorf("formatBitgetTransferAmount(%v)=%q, want error", amount, formatted)
+		}
+	}
+	for amount, want := range map[float64]string{1.234567899: "1.23456789", 10: "10.00000000"} {
+		got, err := formatBitgetTransferAmount(amount)
+		if err != nil || got != want {
+			t.Errorf("formatBitgetTransferAmount(%v)=(%q,%v), want %q", amount, got, err, want)
+		}
+	}
+}
+
 func TestBitgetDoRequestEdgeResponses(t *testing.T) {
 	t.Run("api error", func(t *testing.T) {
 		client, closeServer := newMockBitgetClient(t, func(w http.ResponseWriter, r *http.Request) {

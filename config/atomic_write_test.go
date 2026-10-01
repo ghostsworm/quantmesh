@@ -64,3 +64,37 @@ func TestSaveBotConfigWritesAtomicallyWithPrivatePerms(t *testing.T) {
 		t.Fatalf("expected private bot config perms 0600, got %o", got)
 	}
 }
+
+func TestBotConfigManagerRejectsPathTraversalIDs(t *testing.T) {
+	root := t.TempDir()
+	manager, err := NewBotConfigManager(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsideDir := filepath.Join(root, "outside")
+	if err := os.MkdirAll(outsideDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(outsideDir, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, botID := range []string{"../outside", "..\\outside", "/tmp/outside", " binance:BTCUSDT:futures"} {
+		if err := manager.DeleteBotConfig(botID); err == nil {
+			t.Errorf("DeleteBotConfig(%q) unexpectedly accepted unsafe ID", botID)
+		}
+		if err := manager.SaveBotConfig(&BotConfigFile{BotID: botID}); err == nil {
+			t.Errorf("SaveBotConfig(%q) unexpectedly accepted unsafe ID", botID)
+		}
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("outside marker was affected: %v", err)
+	}
+	if manager.GetBotConfigPath("../outside") != "" || manager.GetBotDataPath("../outside") != "" {
+		t.Fatal("path helper returned a path for an unsafe bot ID")
+	}
+	if err := ValidateBotConfigID("xtcom:zero0:spot"); err != nil {
+		t.Fatalf("ordinary ID containing x/0 was rejected: %v", err)
+	}
+}

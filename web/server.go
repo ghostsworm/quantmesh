@@ -710,7 +710,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 	}
 
 	// WebSocket 路由
-	r.GET("/ws", handleWebSocket)
+	r.GET("/ws", authMiddleware(), handleWebSocket)
 
 	// 静態资源文件（CSS、JS、图片等）
 	// 注意：Vite 構建后的资源在 dist/assets 目錄下

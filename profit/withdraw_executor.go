@@ -496,13 +496,38 @@ func ValidateTransferSafety(ctx context.Context, ex exchange.IExchange, symbol, 
 			}
 			freshProfit.Add(freshProfit, amountRat)
 		case "transfer_in", "transfer_out", "rebate":
-			// Explicitly classified categories; only realized PnL, funding, and fees
-			// for this exact symbol contribute to the strategy-profit calculation.
-			if entry.Kind == "rebate" {
-				amountRat, err := accounting.Decimal(entry.Amount)
-				if err != nil || amountRat.Sign() < 0 {
+			if !strings.EqualFold(strings.TrimSpace(entry.Currency), "USDT") {
+				return fmt.Errorf("withdrawal interval contains %q without verified USDT denomination; withdrawal is disabled", entry.Kind)
+			}
+			entryID := strings.TrimSpace(entry.ID)
+			if entryID == "" {
+				return fmt.Errorf("withdrawal interval contains %q without a stable ledger identity; withdrawal is disabled", entry.Kind)
+			}
+			if _, duplicate := seenProfitEntries[entryID]; duplicate {
+				return fmt.Errorf("withdrawal interval contains duplicate ledger identity; withdrawal is disabled")
+			}
+			seenProfitEntries[entryID] = struct{}{}
+			amountRat, err := accounting.Decimal(entry.Amount)
+			if err != nil {
+				return fmt.Errorf("withdrawal interval contains %q with an invalid amount: %w", entry.Kind, err)
+			}
+			switch entry.Kind {
+			case "transfer_in":
+				if amountRat.Sign() < 0 {
+					return fmt.Errorf("withdrawal interval contains a negative incoming transfer; withdrawal is disabled")
+				}
+				// Incoming capital is not realized strategy profit.
+			case "transfer_out":
+				if amountRat.Sign() > 0 {
+					return fmt.Errorf("withdrawal interval contains a positive outgoing transfer; withdrawal is disabled")
+				}
+				// Existing unreserved debits reduce the remaining withdrawal budget.
+				freshProfit.Add(freshProfit, amountRat)
+			case "rebate":
+				if amountRat.Sign() < 0 {
 					return fmt.Errorf("withdrawal interval contains an invalid or negative rebate; withdrawal is disabled")
 				}
+				// Rebates remain excluded unless explicitly attributed to a strategy.
 			}
 		default:
 			return fmt.Errorf("withdrawal interval contains unsupported account cash flow %q; withdrawal is disabled", entry.Kind)
