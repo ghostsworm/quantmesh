@@ -273,11 +273,6 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 			logger.Error("[%s] %s；保留持倉與成交游標並等待核賬", spm.logPrefix(), reason)
 			return
 		}
-		slot.OrderFilledQty, slot.OrderFilledNotional = progress.Quantity, progress.Notional
-		if terminal || update.Status == "FILLED" {
-			slot.lastTerminalFill = progress
-		}
-
 		// 手續費按「每筆成交」累計：交易所在每次 PARTIALLY_FILLED/FILLED 推送中攜帶的是本筆成交的手續費。
 		// 僅在成交數量有正增量時記賬，重複/重放的同一推送（增量為 0）不會重複累加。
 		fillCommission := 0.0
@@ -292,7 +287,23 @@ func (spm *SuperPositionManager) onOrderUpdate(update OrderUpdate) {
 				// 零值且未提供費用幣種無法區分真實零費用與缺失回報；終態 REST 補查前不將浮盈視為完整。
 				slot.feeValuationUnknown = true
 			}
+			if openingFill && feeKnown {
+				nextBuyFee := slot.BuyFee + fillCommission
+				if math.IsNaN(slot.BuyFee) || math.IsInf(slot.BuyFee, 0) || math.IsNaN(nextBuyFee) || math.IsInf(nextBuyFee, 0) {
+					slot.feeValuationUnknown = true
+					slot.OrderStatus = OrderStatusUnknown
+					slot.SlotStatus = SlotStatusLocked
+					spm.openingGate.Block("unknown_orders")
+					spm.requireTradeLedgerReconciliation(update, fmt.Errorf("accumulated opening fee for order %d exceeds finite limits", update.OrderID))
+					logger.Error("[%s] 開倉成交手續費累計溢出，保留成交游標並等待對賬: order=%d", spm.logPrefix(), update.OrderID)
+					return
+				}
+			}
 			slot.addOrderCommissionLocked(orderClientOID, fillCommission, update.BaseFeeQty)
+		}
+		slot.OrderFilledQty, slot.OrderFilledNotional = progress.Quantity, progress.Notional
+		if terminal || update.Status == "FILLED" {
+			slot.lastTerminalFill = progress
 		}
 
 		// 根據方向更新持倉：LONG 時 BUY=開倉(加倉) SELL=平倉(減倉)；SHORT 時 SELL=開倉 BUY=平倉

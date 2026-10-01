@@ -46,6 +46,26 @@ func TestGridFeeValuationRejectsUnknownAssetsAndKeepsRebatesSigned(t *testing.T)
 	}
 }
 
+func TestGridOrderRejectsOverflowingOpeningFeeBeforeAdvancingFillCursor(t *testing.T) {
+	spm := newFillFeeSPM(t, "futures", nil)
+	spm.executor = &tradeLedgerHoldTestExecutor{}
+	clientOID := openBuy(spm, 91)
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 91, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "BUY",
+		ExecutedQty: 0.1, AvgPrice: 100, Commission: math.MaxFloat64, CommissionAsset: "USDT"})
+	spm.OnOrderUpdate(OrderUpdate{OrderID: 91, ClientOrderID: clientOID, Symbol: "ETHUSDT", Status: "PARTIALLY_FILLED", Side: "BUY",
+		ExecutedQty: 0.2, AvgPrice: 100, Commission: math.MaxFloat64, CommissionAsset: "USDT"})
+
+	slot := spm.getOrCreateSlot(fillFeeTestPrice)
+	slot.mu.RLock()
+	defer slot.mu.RUnlock()
+	if slot.OrderFilledQty != 0.1 || slot.PositionQty != 0.1 || slot.BuyFee != math.MaxFloat64 {
+		t.Fatalf("overflowing fill advanced/mutated ledger: cursor=%v position=%v fee=%v", slot.OrderFilledQty, slot.PositionQty, slot.BuyFee)
+	}
+	if slot.OrderStatus != OrderStatusUnknown || slot.SlotStatus != SlotStatusLocked || !spm.OpeningGate().HasBlock("trade_ledger_unverified") {
+		t.Fatalf("overflowing fill did not enter reconciliation hold: order=%s slot=%s", slot.OrderStatus, slot.SlotStatus)
+	}
+}
+
 func TestSummarizeFillsRejectsOverflowAndInvalidFillEconomics(t *testing.T) {
 	tests := []struct {
 		name  string
