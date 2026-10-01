@@ -48,6 +48,7 @@ import StrategyPicker from './bot-create/StrategyPicker'
 import StrategyParamForm from './bot-create/StrategyParamForm'
 import StrategyTemplates from './StrategyTemplates'
 import { getStrategyTemplateById } from '../services/strategy'
+import { resolveStrategyTemplateSelection } from '../utils/strategyTemplateSelection'
 
 function getExchangeConfigRow(
   cfg: Config | null,
@@ -142,23 +143,25 @@ const BotCreateWizard: React.FC = () => {
     try {
       const template = await getStrategyTemplateById(templateId)
       if (!template) return
+      const selection = resolveStrategyTemplateSelection(template)
 
       // Apply template configuration
-      if (template.strategy_type === 'single') {
+      if (selection.mode === 'single' && selection.singleStrategyId) {
         setStrategyType('single')
-        setSelectedSingle(template.strategy_type)
-      } else if (template.strategy_type === 'combo') {
+        setSelectedSingle(selection.singleStrategyId)
+      } else if (selection.mode === 'combo') {
         setStrategyType('combo')
-        // Handle combo template
-        const strategies = template.config?.strategies as Array<{ type: string; weight: number }> || []
-        const ids = strategies.map(s => s.type)
+        const ids = selection.strategies.map(s => s.type)
         const weights: Record<string, number> = {}
-        strategies.forEach(s => {
+        selection.strategies.forEach(s => {
           weights[s.type] = s.weight
         })
         setSelectedCombo(ids)
         setComboWeights(weights)
-      } else if (template.strategy_type === 'hedge' && template.config?.strategies?.length >= 2) {
+      } else if (selection.mode === 'hedge') {
+        if (!Array.isArray(template.config?.strategies) || template.config.strategies.length < 2) {
+          throw new Error('invalid_hedge_template')
+        }
         setStrategyType('hedge')
         const strategies = template.config.strategies as string[]
         setHedgePrimary(strategies[0])
@@ -172,6 +175,9 @@ const BotCreateWizard: React.FC = () => {
         if (strategies[1] === 'spot_long' || strategies[1] === 'futures_long') {
           setForm(f => ({ ...f, direction: 'SHORT' }))
         }
+      } else {
+        setStrategyType('single')
+        setSelectedSingle(template.strategy_type)
       }
 
       // Apply form defaults from template
@@ -186,13 +192,7 @@ const BotCreateWizard: React.FC = () => {
       }
 
       // Apply strategy params from template
-      if (template.params) {
-        const params: Record<string, Record<string, unknown>> = {}
-        for (const [key, param] of Object.entries(template.params)) {
-          params[key] = { [key]: param.default }
-        }
-        setStrategyParams(params)
-      }
+      setStrategyParams(selection.strategyParams)
 
       onTemplateModalClose()
       // Move to step 2 after selecting template

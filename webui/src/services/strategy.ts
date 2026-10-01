@@ -50,6 +50,7 @@ export interface StrategyTemplateFull {
 export interface TemplateParam {
   name: string
   description: string
+  strategy_id?: string
   type: string
   default: any
   min?: number

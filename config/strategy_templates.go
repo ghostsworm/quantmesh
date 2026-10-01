@@ -31,6 +31,7 @@ type StrategyTemplate struct {
 type TemplateParam struct {
 	Name        string      `yaml:"name" json:"name"`
 	Description string      `yaml:"description" json:"description"`
+	StrategyID  string      `yaml:"strategy_id,omitempty" json:"strategy_id,omitempty"`
 	Type        string      `yaml:"type" json:"type"`           // number, string, boolean, select
 	Default     interface{} `yaml:"default" json:"default"`
 	Min         *float64    `yaml:"min,omitempty" json:"min,omitempty"`
@@ -200,6 +201,7 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			"price_interval": {
 				Name:        "网格间距",
 				Description: "网格每档价格差（U）",
+				StrategyID:  "grid",
 				Type:        "number",
 				Default:     500.0,
 				Min:         ptrFloat64(200),
@@ -208,6 +210,7 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			"grid_order_qty": {
 				Name:        "网格单笔金额",
 				Description: "网格每笔订单（U）",
+				StrategyID:  "grid",
 				Type:        "number",
 				Default:     200.0,
 				Min:         ptrFloat64(50),
@@ -216,6 +219,7 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			"dca_amount": {
 				Name:        "定投金额",
 				Description: "每次定投金额（U）",
+				StrategyID:  "dca",
 				Type:        "number",
 				Default:     100.0,
 				Min:         ptrFloat64(20),
@@ -224,6 +228,7 @@ func (m *StrategyTemplateManager) initBuiltinTemplates() {
 			"dca_interval": {
 				Name:        "定投间隔",
 				Description: "定投间隔（分钟）",
+				StrategyID:  "dca",
 				Type:        "number",
 				Default:     3600.0,
 				Min:         ptrFloat64(60),
