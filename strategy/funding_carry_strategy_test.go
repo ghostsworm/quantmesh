@@ -211,6 +211,7 @@ func (m *mockFCExchange) GetFundingInfo(ctx context.Context, symbol string) (*ex
 	return &exchange.FundingInfo{
 		Symbol:          symbol,
 		Rate:            m.fundingRate,
+		FundingInterval: 8 * time.Hour,
 		NextFundingTime: time.Now().Add(4 * time.Hour),
 	}, nil
 }

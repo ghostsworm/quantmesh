@@ -6,6 +6,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -506,6 +507,30 @@ func TestFundingCarryReverseOpeningRejectsBorrowRateAboveDailyLimit(t *testing.T
 	}
 	if margin.rateCalls != 1 || margin.borrowCalls != 0 {
 		t.Fatalf("rate checks=%d, borrow calls=%d; want one check before any borrow", margin.rateCalls, margin.borrowCalls)
+	}
+}
+
+func TestFundingCarryReverseNetFundingMustExceedBorrowInterest(t *testing.T) {
+	tests := []struct {
+		name        string
+		fundingRate float64
+		interval    time.Duration
+		hourlyRate  float64
+		wantErr     bool
+	}{
+		{name: "profitable before trading costs", fundingRate: -0.001, interval: 8 * time.Hour, hourlyRate: 0.00001},
+		{name: "funding below borrow cost", fundingRate: -0.00001, interval: 8 * time.Hour, hourlyRate: 0.00001, wantErr: true},
+		{name: "unknown interval", fundingRate: -0.001, hourlyRate: 0.00001, wantErr: true},
+		{name: "wrong funding direction", fundingRate: 0.001, interval: 8 * time.Hour, hourlyRate: 0.00001, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info := &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: tt.fundingRate, FundingInterval: tt.interval}
+			err := validateFundingCarryReverseNetRate(info, "BTCUSDT", tt.hourlyRate)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validateFundingCarryReverseNetRate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 

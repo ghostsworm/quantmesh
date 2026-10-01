@@ -1058,6 +1058,24 @@ func fundingCarryFuturesUSDTBalance(ctx context.Context, futures exchange.IExcha
 	return balance, nil
 }
 
+func validateFundingCarryReverseNetRate(info *exchange.FundingInfo, symbol string, hourlyBorrowRate float64) error {
+	if math.IsNaN(hourlyBorrowRate) || math.IsInf(hourlyBorrowRate, 0) || hourlyBorrowRate < 0 {
+		return fmt.Errorf("invalid hourly margin borrow rate %.12g", hourlyBorrowRate)
+	}
+	fundingRate, err := normalizeFundingRateToEightHours(info, symbol)
+	if err != nil {
+		return err
+	}
+	borrowCost := hourlyBorrowRate * 8
+	if math.IsNaN(borrowCost) || math.IsInf(borrowCost, 0) {
+		return fmt.Errorf("non-finite 8-hour margin borrow cost")
+	}
+	if fundingRate >= 0 || math.Abs(fundingRate) <= borrowCost {
+		return fmt.Errorf("8-hour negative funding yield %.8f does not exceed estimated borrow interest %.8f", math.Abs(fundingRate), borrowCost)
+	}
+	return nil
+}
+
 func finitePositive(value float64) bool {
 	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
@@ -1769,6 +1787,13 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	dailyRateEstimate := hourlyRate * 24
 	if math.IsNaN(dailyRateEstimate) || math.IsInf(dailyRateEstimate, 0) || hourlyRate < 0 || dailyRateEstimate > s.marginInterestMax {
 		return fmt.Errorf("%s estimated daily margin interest %.8f exceeds configured maximum %.8f", base, dailyRateEstimate, s.marginInterestMax)
+	}
+	fundingInfo, err := s.fut.GetFundingInfo(ctx, s.symbol)
+	if err != nil {
+		return fmt.Errorf("query funding interval before reverse opening: %w", err)
+	}
+	if err := validateFundingCarryReverseNetRate(fundingInfo, s.symbol, hourlyRate); err != nil {
+		return fmt.Errorf("validate reverse funding economics: %w", err)
 	}
 	borrowQty := legNotional / spotPx
 	borrowQty = s.roundQty(borrowQty, s.spot.GetQuantityDecimals())
