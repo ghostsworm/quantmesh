@@ -86,17 +86,8 @@ func NewTrendFollowingStrategy(
 		tfs.method = "ema" // 預設 EMA
 	}
 
-	if sp, ok := strategyCfg["short_period"].(int); ok {
-		tfs.shortPeriod = sp
-	} else {
-		tfs.shortPeriod = 10 // 預設 10
-	}
-
-	if lp, ok := strategyCfg["long_period"].(int); ok {
-		tfs.longPeriod = lp
-	} else {
-		tfs.longPeriod = 30 // 預設 30
-	}
+	tfs.shortPeriod = signalStrategyInt(strategyCfg, "short_period", 10)
+	tfs.longPeriod = signalStrategyInt(strategyCfg, "long_period", 30)
 
 	if sl, ok := strategyCfg["stop_loss"].(float64); ok {
 		tfs.stopLoss = sl

@@ -70,11 +70,7 @@ func NewMeanReversionStrategy(
 	}
 
 	// 從配置中读取参數
-	if p, ok := strategyCfg["period"].(int); ok {
-		mrs.period = p
-	} else {
-		mrs.period = 20 // 預設 20
-	}
+	mrs.period = signalStrategyInt(strategyCfg, "period", 20)
 
 	if sm, ok := strategyCfg["std_multiplier"].(float64); ok {
 		mrs.stdMultiplier = sm

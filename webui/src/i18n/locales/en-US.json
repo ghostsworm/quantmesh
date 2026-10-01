@@ -3195,6 +3195,8 @@
     "dca": "Dollar-cost averaging strategy that diversifies entry costs and reduces investment risk",
     "dca_enhanced": "Enhanced DCA with ATR dynamic spacing, triple take-profit, 50-layer position management, cascade protection, and trend filter",
     "momentum": "Opens and closes positions based on RSI oversold and overbought signals.",
+    "trend_following": "Uses short and long moving-average signals with configured take-profit, stop-loss, and position limits.",
+    "mean_reversion": "Trades when price deviates beyond the standard-deviation threshold and exits as it returns toward the mean.",
     "martingale": "Loss-doubling add-on strategy with support for long/short Martingale, risk reduction mode, and long-short dual direction",
     "combo": "Multi-strategy portfolio management with dynamic weight adjustment and market-adaptive switching",
     "trend_following": "Technical indicator-based trend following strategy that enters on trend formation and exits on trend reversal",
@@ -3310,6 +3312,17 @@
       "rsi_period": { "name": "RSI Period", "description": "RSI indicator lookback period" },
       "overbought": { "name": "Overbought Threshold", "description": "Close when RSI rises above this value" },
       "oversold": { "name": "Oversold Threshold", "description": "Open when RSI falls below this value" },
+      "order_amount": { "name": "Order Notional", "description": "Notional amount per signal entry (USDT)" }
+    },
+    "trend_following": {
+      "short_period": { "name": "Short MA Period", "description": "Short-term trend moving-average period" },
+      "long_period": { "name": "Long MA Period", "description": "Long-term trend moving-average period; greater than the short period" },
+      "order_amount": { "name": "Order Notional", "description": "Notional amount per signal entry (USDT)" }
+    },
+    "mean_reversion": {
+      "period": { "name": "Mean Period", "description": "Moving-average lookback period" },
+      "std_multiplier": { "name": "Standard Deviation Multiplier", "description": "Deviation threshold for entry signals" },
+      "reversion_threshold": { "name": "Reversion Threshold", "description": "Deviation multiplier to trigger exit near the mean" },
       "order_amount": { "name": "Order Notional", "description": "Notional amount per signal entry (USDT)" }
     },
     "martingale": {

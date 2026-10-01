@@ -3032,6 +3032,8 @@
     "dca": "定期定额买入策略，分散入场成本，降低投资风险",
     "dca_enhanced": "基于 ATR 动态间距、三级止盈、50 层仓位管理、瀑布保护和趋势过滤的增强型 DCA",
     "momentum": "基于 RSI 超买/超卖信号进行开仓和平仓。",
+    "trend_following": "使用短长均线趋势信号，并按配置的止盈、止损和仓位上限执行。",
+    "mean_reversion": "价格偏离均值超过标准差阈值时交易，并在回归至均值附近时退出。",
     "martingale": "亏损加倍补仓策略，支持正向/反向马丁、风险削减与多空双向",
     "combo": "多策略组合管理，支持动态权重调整和市场自适应切换",
     "trend_following": "基于技术指标的趋势跟踪策略，在趋势形成时入场，趋势反转时离场",
@@ -3147,6 +3149,17 @@
       "rsi_period": { "name": "RSI 周期", "description": "RSI 指标计算周期" },
       "overbought": { "name": "超买阈值", "description": "RSI 高于该值时触发平仓" },
       "oversold": { "name": "超卖阈值", "description": "RSI 低于该值时触发开仓" },
+      "order_amount": { "name": "单笔名义金额", "description": "每次信号开仓的名义金额 (USDT)" }
+    },
+    "trend_following": {
+      "short_period": { "name": "短期均线周期", "description": "短期趋势均线周期" },
+      "long_period": { "name": "长期均线周期", "description": "长期趋势均线周期，需大于短期周期" },
+      "order_amount": { "name": "单笔名义金额", "description": "每次信号开仓的名义金额 (USDT)" }
+    },
+    "mean_reversion": {
+      "period": { "name": "均值周期", "description": "计算移动平均的周期" },
+      "std_multiplier": { "name": "标准差倍数", "description": "触发偏离交易的标准差倍数" },
+      "reversion_threshold": { "name": "回归触发阈值", "description": "价格回归至均值附近的触发偏差倍数" },
       "order_amount": { "name": "单笔名义金额", "description": "每次信号开仓的名义金额 (USDT)" }
     },
     "martingale": {

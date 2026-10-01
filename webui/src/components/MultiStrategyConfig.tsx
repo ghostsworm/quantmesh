@@ -56,12 +56,13 @@ const STRATEGY_TYPES = {
     },
   },
   trend_following: {
-    label: '趋势跟踪',
+    label: 'strategyNames.trend_following',
     category: 'grid',
-    description: '跟踪市场趋势动态调整',
+    description: 'strategyDescriptions.trend_following',
     params: {
-      trend_period: { label: '趋势周期', type: 'number', default: 60 },
-      trend_threshold: { label: '趋势阈值', type: 'number', default: 0.5 },
+      short_period: { label: 'strategyParams.trend_following.short_period.name', type: 'number', default: 10 },
+      long_period: { label: 'strategyParams.trend_following.long_period.name', type: 'number', default: 30 },
+      order_amount: { label: 'strategyParams.trend_following.order_amount.name', type: 'number', default: 100 },
     },
   },
   momentum: {
@@ -76,12 +77,14 @@ const STRATEGY_TYPES = {
     },
   },
   mean_reversion: {
-    label: '均值回归',
+    label: 'strategyNames.mean_reversion',
     category: 'grid',
-    description: '价格偏离均值时进行交易',
+    description: 'strategyDescriptions.mean_reversion',
     params: {
-      mean_period: { label: '均值周期', type: 'number', default: 20 },
-      std_dev_threshold: { label: '标准差阈值', type: 'number', default: 2 },
+      period: { label: 'strategyParams.mean_reversion.period.name', type: 'number', default: 20 },
+      std_multiplier: { label: 'strategyParams.mean_reversion.std_multiplier.name', type: 'number', default: 2 },
+      reversion_threshold: { label: 'strategyParams.mean_reversion.reversion_threshold.name', type: 'number', default: 0.5 },
+      order_amount: { label: 'strategyParams.mean_reversion.order_amount.name', type: 'number', default: 100 },
     },
   },
   dca: {

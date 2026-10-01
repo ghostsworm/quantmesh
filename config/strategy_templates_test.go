@@ -136,3 +136,32 @@ func TestLegacyMomentumAndMartingaleTemplatesExposeRuntimeParameters(t *testing.
 		t.Error("martingale template still exposes unconsumed base_amount")
 	}
 }
+
+func TestTrendAndMeanReversionTemplatesUseConsumedRuntimeParameters(t *testing.T) {
+	manager := &StrategyTemplateManager{templates: make(map[string]*StrategyTemplate)}
+	manager.initBuiltinTemplates()
+
+	for _, test := range []struct {
+		id    string
+		want  []string
+		stale []string
+	}{
+		{id: "trend_following", want: []string{"short_period", "long_period", "order_amount"}, stale: []string{"trend_period", "trend_threshold"}},
+		{id: "mean_reversion", want: []string{"period", "std_multiplier", "reversion_threshold", "order_amount"}, stale: []string{"mean_period", "std_dev_threshold"}},
+	} {
+		template, ok := manager.GetTemplate(test.id)
+		if !ok {
+			t.Fatalf("template %q is missing", test.id)
+		}
+		for _, key := range test.want {
+			if _, ok := template.Params[key]; !ok {
+				t.Errorf("template %q missing runtime parameter %q", test.id, key)
+			}
+		}
+		for _, key := range test.stale {
+			if _, exists := template.Params[key]; exists {
+				t.Errorf("template %q exposes unconsumed parameter %q", test.id, key)
+			}
+		}
+	}
+}

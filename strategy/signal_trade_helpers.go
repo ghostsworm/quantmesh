@@ -54,6 +54,14 @@ func signalStrategyFloat(cfg map[string]interface{}, keys []string, defaultValue
 	return defaultValue
 }
 
+func signalStrategyInt(cfg map[string]interface{}, key string, defaultValue int) int {
+	value := signalStrategyFloat(cfg, []string{key}, float64(defaultValue))
+	if value < 0 || value > 1000000 || math.Trunc(value) != value {
+		return defaultValue
+	}
+	return int(value)
+}
+
 func signalFinite(value float64) bool {
 	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
