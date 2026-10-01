@@ -173,6 +173,31 @@ func TestFundingCarryNormalizedOpeningRate(t *testing.T) {
 	}
 }
 
+func TestFundingCarryExitThresholdUsesNormalizedRate(t *testing.T) {
+	tests := []struct {
+		name      string
+		direction CarryDirection
+		info      *exchange.FundingInfo
+		wantExit  bool
+	}{
+		{name: "hourly forward rate below eight-hour exit threshold", direction: DirectionForward, info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.00001, FundingInterval: time.Hour}, wantExit: true},
+		{name: "daily forward rate equals exit threshold", direction: DirectionForward, info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: 0.0006, FundingInterval: 24 * time.Hour}},
+		{name: "hourly reverse rate above negative exit threshold", direction: DirectionReverse, info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: -0.00001, FundingInterval: time.Hour}, wantExit: true},
+		{name: "eight-hour reverse rate remains below exit threshold", direction: DirectionReverse, info: &exchange.FundingInfo{Symbol: "BTCUSDT", Rate: -0.0003, FundingInterval: 8 * time.Hour}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rate, err := fundingCarryNormalizedOpeningRate(tt.info, "BTCUSDT")
+			if err != nil {
+				t.Fatalf("normalize funding rate: %v", err)
+			}
+			if got := fundingCarryShouldExit(tt.direction, rate, 0.0002, 0.0002); got != tt.wantExit {
+				t.Fatalf("fundingCarryShouldExit(%s, %.8f) = %v, want %v", tt.direction, rate, got, tt.wantExit)
+			}
+		})
+	}
+}
+
 func TestFundingCarryTickUsesEightHourRateForOpeningThreshold(t *testing.T) {
 	nextFunding := time.Now().Add(4 * time.Hour)
 	futures := &fundingCarryFundingInfoExchange{

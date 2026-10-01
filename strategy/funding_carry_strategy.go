@@ -768,9 +768,13 @@ func (s *FundingCarryStrategy) tick() error {
 		s.harvestProfit(ctx)
 	}
 
-	rate, err := s.fut.GetFundingRate(ctx, s.symbol)
+	fundingInfo, err := s.fut.GetFundingInfo(ctx, s.symbol)
 	if err != nil {
-		return fmt.Errorf("GetFundingRate: %w", err)
+		return fmt.Errorf("GetFundingInfo for funding_carry monitoring: %w", err)
+	}
+	rate, err := fundingCarryNormalizedOpeningRate(fundingInfo, s.symbol)
+	if err != nil {
+		return fmt.Errorf("normalize funding_carry monitoring rate: %w", err)
 	}
 
 	s.mu.RLock()
@@ -810,11 +814,11 @@ func (s *FundingCarryStrategy) tick() error {
 
 	// 持倉中：檢查退出條件
 	if hasPosition {
-		if dir == DirectionForward && rate < s.exitFundingRate {
+		if dir == DirectionForward && fundingCarryShouldExit(dir, rate, s.exitFundingRate, s.reverseExitRate) {
 			logger.Info("📉 [%s] 資金費 %.5f < 退出閾值 %.5f，正向平倉", s.symbol, rate, s.exitFundingRate)
 			return s.closeAllWithAccountWalletCoordination(ctx, "exit_funding_rate")
 		}
-		if dir == DirectionReverse && rate > -s.reverseExitRate {
+		if dir == DirectionReverse && fundingCarryShouldExit(dir, rate, s.exitFundingRate, s.reverseExitRate) {
 			logger.Info("📈 [%s] 資金費 %.5f > 反向退出閾值 -%.5f，反向平倉", s.symbol, rate, s.reverseExitRate)
 			return s.closeReverseWithAccountWalletCoordination(ctx, "exit_reverse_rate")
 		}
@@ -829,14 +833,7 @@ func (s *FundingCarryStrategy) tick() error {
 	if s.openingIsBlocked() {
 		return nil
 	}
-	fundingInfo, err := s.fut.GetFundingInfo(ctx, s.symbol)
-	if err != nil {
-		return fmt.Errorf("GetFundingInfo before funding_carry opening: %w", err)
-	}
-	openingRate, err := fundingCarryNormalizedOpeningRate(fundingInfo, s.symbol)
-	if err != nil {
-		return fmt.Errorf("normalize funding_carry opening rate: %w", err)
-	}
+	openingRate := rate
 
 	// 評估費率方向
 	if openingRate >= s.minFundingRate {
@@ -885,6 +882,17 @@ func fundingCarryNormalizedOpeningRate(info *exchange.FundingInfo, symbol string
 		return 0, fmt.Errorf("normalized funding rate is non-finite for %s", symbol)
 	}
 	return rate, nil
+}
+
+func fundingCarryShouldExit(direction CarryDirection, rate, forwardExitRate, reverseExitRate float64) bool {
+	switch direction {
+	case DirectionForward:
+		return rate < forwardExitRate
+	case DirectionReverse:
+		return rate > -reverseExitRate
+	default:
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------
