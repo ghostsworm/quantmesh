@@ -33,6 +33,12 @@ func (s *SQLStorage) SavePosition(position *Position) error {
 
 // SaveTrade 保存交易
 func (s *SQLStorage) SaveTrade(trade *Trade) error {
+	if trade == nil {
+		return fmt.Errorf("trade write requires a record")
+	}
+	if err := validateTradeEconomics(trade); err != nil {
+		return err
+	}
 	// 轉换為UTC時间存儲
 	createdAt := utils.ToUTC(trade.CreatedAt)
 	// 确保 exchange 不為空，默认為 binance（兼容舊數據）
@@ -63,9 +69,6 @@ func (s *SQLStorage) SaveTrade(trade *Trade) error {
 func (s *SQLStorage) SaveTradeIdempotent(trade *Trade) error {
 	if trade == nil || strings.TrimSpace(trade.ExecutionKey) == "" {
 		return fmt.Errorf("idempotent trade write requires an execution key")
-	}
-	if err := validateTradeEconomics(trade); err != nil {
-		return err
 	}
 	canonical := *trade
 	canonical.ExecutionKey = strings.TrimSpace(canonical.ExecutionKey)
@@ -105,11 +108,11 @@ func validateTradeEconomics(trade *Trade) error {
 	}
 	for _, item := range values {
 		if math.IsNaN(item.value) || math.IsInf(item.value, 0) {
-			return fmt.Errorf("idempotent trade write has non-finite %s", item.name)
+			return fmt.Errorf("trade write has non-finite %s", item.name)
 		}
 	}
 	if trade.BuyPrice < 0 || trade.SellPrice < 0 || trade.Quantity < 0 {
-		return fmt.Errorf("idempotent trade write has negative price or quantity")
+		return fmt.Errorf("trade write has negative price or quantity")
 	}
 	return nil
 }

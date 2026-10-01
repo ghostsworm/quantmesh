@@ -87,3 +87,17 @@ func TestSaveTradeIdempotentRejectsNegativeQuantity(t *testing.T) {
 		t.Fatal("negative trade quantity accepted")
 	}
 }
+
+func TestSaveTradeRejectsInvalidEconomicsAcrossLegacyEntryPoint(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	for _, trade := range []*Trade{
+		{PnL: math.Inf(-1)},
+		{Fee: math.NaN()},
+		{Quantity: -0.1},
+		{SellPrice: -1},
+	} {
+		if err := st.SaveTrade(trade); err == nil {
+			t.Fatalf("legacy trade write accepted invalid economics: %+v", trade)
+		}
+	}
+}
