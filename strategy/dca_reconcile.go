@@ -15,13 +15,14 @@ import (
 const dcaFillEvidenceTimeout = 15 * time.Second
 
 type dcaOrderIntent struct {
-	orderID    int64
-	symbol     string
-	side       exchange.Side
-	quantity   float64
-	progress   position.FillProgress
-	baseFeeQty float64
-	close      bool
+	orderID       int64
+	clientOrderID string
+	symbol        string
+	side          exchange.Side
+	quantity      float64
+	progress      position.FillProgress
+	baseFeeQty    float64
+	close         bool
 }
 
 // resolveUnverifiedCommission replaces order-stream fee placeholders with
@@ -35,21 +36,28 @@ func (s *DCAEnhancedStrategy) resolveUnverifiedCommission(update *position.Order
 	var intent dcaOrderIntent
 	found := false
 	for _, layer := range s.layers {
-		if layer != nil && layer.OrderID == update.OrderID {
-			intent = dcaOrderIntent{orderID: layer.OrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideBuy,
+		clientMatch := layer != nil && layer.ClientOrderID != "" && update.ClientOrderID != "" &&
+			s.normalizeClientOrderID(update.ClientOrderID) == layer.ClientOrderID
+		if layer != nil && (layer.OrderID > 0 && layer.OrderID == update.OrderID || clientMatch) {
+			intent = dcaOrderIntent{orderID: layer.OrderID, clientOrderID: layer.ClientOrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideBuy,
 				quantity: layer.RequestedQuantity, progress: layer.FillProgress, baseFeeQty: layer.EntryBaseFeeQty}
 			found = true
 			break
 		}
 	}
-	if s.isClosing && s.closeOrderID == update.OrderID {
-		intent = dcaOrderIntent{orderID: s.closeOrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideSell,
+	closeClientMatch := s.closeClientOrderID != "" && update.ClientOrderID != "" &&
+		s.normalizeClientOrderID(update.ClientOrderID) == s.closeClientOrderID
+	if s.isClosing && (s.closeOrderID > 0 && s.closeOrderID == update.OrderID || closeClientMatch) {
+		intent = dcaOrderIntent{orderID: s.closeOrderID, clientOrderID: s.closeClientOrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideSell,
 			quantity: s.closeRequestedQty, progress: s.closeProgress, close: true}
 		found = true
 	}
 	s.mu.RUnlock()
 	if !found || update.ExecutedQty <= intent.progress.Quantity {
 		return nil
+	}
+	if intent.orderID <= 0 {
+		intent.orderID = update.OrderID
 	}
 	// Let the normal intent validator handle malformed/non-valued updates first;
 	// requesting fills for an impossible cumulative execution only masks the real
@@ -85,13 +93,13 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrders(ctx context.Context) erro
 	s.mu.RLock()
 	intents := make([]dcaOrderIntent, 0, len(s.layers)+1)
 	for _, layer := range s.layers {
-		if layer != nil && (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled) {
-			intents = append(intents, dcaOrderIntent{orderID: layer.OrderID, symbol: s.strategyCfg.Symbol,
+		if layer != nil && (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled || layer.Status == position.OrderStatusUnknown) {
+			intents = append(intents, dcaOrderIntent{orderID: layer.OrderID, clientOrderID: layer.ClientOrderID, symbol: s.strategyCfg.Symbol,
 				side: exchange.SideBuy, quantity: layer.RequestedQuantity, progress: layer.FillProgress, baseFeeQty: layer.EntryBaseFeeQty})
 		}
 	}
 	if s.isClosing {
-		intents = append(intents, dcaOrderIntent{orderID: s.closeOrderID, symbol: s.strategyCfg.Symbol,
+		intents = append(intents, dcaOrderIntent{orderID: s.closeOrderID, clientOrderID: s.closeClientOrderID, symbol: s.strategyCfg.Symbol,
 			side: exchange.SideSell, quantity: s.closeRequestedQty, progress: s.closeProgress, close: true})
 	}
 	s.mu.RUnlock()
@@ -102,7 +110,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrders(ctx context.Context) erro
 		return fmt.Errorf("DCA exchange is unavailable for persisted order reconciliation")
 	}
 	for _, intent := range intents {
-		if intent.orderID <= 0 || intent.quantity <= 0 {
+		if (intent.orderID <= 0 && intent.clientOrderID == "") || intent.quantity <= 0 {
 			return fmt.Errorf("DCA persisted order has invalid identity or requested quantity")
 		}
 		if err := s.reconcilePersistedOrder(ctx, intent); err != nil {
@@ -113,7 +121,15 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrders(ctx context.Context) erro
 }
 
 func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, intent dcaOrderIntent) error {
-	raw, err := s.exchange.GetOrder(ctx, intent.symbol, intent.orderID)
+	var raw interface{}
+	var err error
+	if intent.orderID > 0 {
+		raw, err = s.exchange.GetOrder(ctx, intent.symbol, intent.orderID)
+	} else if query, ok := s.exchange.(exchange.OrderByClientIDQuerier); ok {
+		raw, err = query.GetOrderByClientOrderID(ctx, intent.symbol, intent.clientOrderID)
+	} else {
+		return fmt.Errorf("exchange does not support recovery by persisted client order ID")
+	}
 	if err != nil {
 		return fmt.Errorf("query order: %w", err)
 	}
@@ -126,7 +142,8 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 		return fmt.Errorf("invalid exchange quantity precision %d", decimals)
 	}
 	tolerance := math.Max(entryQtyEpsilon, math.Pow10(-decimals)*1.01)
-	if order.OrderID != intent.orderID || !strings.EqualFold(order.Symbol, intent.symbol) || order.Side != intent.side ||
+	if order.OrderID <= 0 || intent.orderID > 0 && order.OrderID != intent.orderID || !strings.EqualFold(order.Symbol, intent.symbol) || order.Side != intent.side ||
+		order.ClientOrderID != "" && intent.clientOrderID != "" && s.normalizeClientOrderID(order.ClientOrderID) != intent.clientOrderID ||
 		!finiteNumber(order.Quantity) || order.Quantity <= 0 || math.Abs(order.Quantity-intent.quantity) > tolerance ||
 		!finiteNumber(order.ExecutedQty) || order.ExecutedQty < 0 || order.ExecutedQty > order.Quantity+tolerance ||
 		order.ExecutedQty > intent.quantity+tolerance || order.ExecutedQty+tolerance < intent.progress.Quantity {
@@ -142,7 +159,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 		(status == "FILLED" || status == "FULLY_FILLED") && order.ExecutedQty <= 0 {
 		return fmt.Errorf("order status conflicts with cumulative execution")
 	}
-	update := &position.OrderUpdate{OrderID: order.OrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
+	update := &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: intent.clientOrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
 		ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, CommissionKnown: true}
 	if order.ExecutedQty > intent.progress.Quantity {
 		fee, baseFeeQty, averagePrice, err := s.reconcilePersistedOrderFills(ctx, intent, order)

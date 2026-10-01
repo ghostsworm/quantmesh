@@ -93,6 +93,40 @@ func (m *memoryRuntimeStateStore) SaveRuntimeState(_ string, version int, payloa
 	return nil
 }
 
+type dcaIntentObservingExecutor struct {
+	hedgeOrderExecutor
+	store     *memoryRuntimeStateStore
+	submitErr error
+	observed  bool
+}
+
+func (e *dcaIntentObservingExecutor) PlaceOrder(request *position.OrderRequest) (*position.Order, error) {
+	var state dcaRuntimeState
+	if err := json.Unmarshal([]byte(e.store.payload), &state); err != nil {
+		return nil, err
+	}
+	if request.Side == "BUY" {
+		for _, layer := range state.Layers {
+			if layer.ClientOrderID == request.ClientOrderID && layer.Status == entryStatusPending &&
+				layer.RequestedQuantity == request.Quantity && layer.Quantity == 0 && layer.Cost == 0 {
+				e.observed = true
+			}
+		}
+	} else if request.Side == "SELL" && state.IsClosing && state.CloseClientOrderID == request.ClientOrderID &&
+		state.CloseOrderID == 0 && state.CloseRequestedQty == request.Quantity {
+		e.observed = true
+	}
+	if !e.observed {
+		return nil, errors.New("DCA order intent was not durably recorded before submission")
+	}
+	if e.submitErr != nil {
+		return nil, e.submitErr
+	}
+	e.orders = append(e.orders, request)
+	return &position.Order{OrderID: int64(len(e.orders)), ClientOrderID: request.ClientOrderID,
+		Side: request.Side, Quantity: request.Quantity, Price: request.Price}, nil
+}
+
 func TestDCAOrderFillPersistsAndRestoresFeeBearingInventory(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
 	cfg := &config.Config{}
@@ -188,6 +222,110 @@ func TestDCARestoresLegacyPendingLayerWithoutCountingRequestedInventory(t *testi
 	layer := s.layers[0]
 	if layer.RequestedQuantity != 1 || layer.Quantity != 0 || layer.Cost != 0 || s.totalQty != 0 || s.totalCost != 0 {
 		t.Fatalf("legacy request was not migrated without inventing fills: layer=%+v qty=%v cost=%v", layer, s.totalQty, s.totalCost)
+	}
+}
+
+func TestDCAEntryAndCloseIntentsAreDurableBeforeExchangeSubmission(t *testing.T) {
+	tests := []struct {
+		name  string
+		place func(*DCAEnhancedStrategy) error
+	}{
+		{name: "entry", place: func(s *DCAEnhancedStrategy) error { return s.openBaseOrder(100) }},
+		{name: "close", place: func(s *DCAEnhancedStrategy) error {
+			s.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
+				FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
+			s.totalQty, s.totalCost, s.avgEntryPrice = 1, 100, 100
+			return s.closeAllPositions(110, "take profit")
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &memoryRuntimeStateStore{}
+			executor := &dcaIntentObservingExecutor{store: store}
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, &hedgeExchange{}, nil)
+			s.SetRuntimeStateStore(store)
+			if err := test.place(s); err != nil {
+				t.Fatalf("submit order: %v", err)
+			}
+			if !executor.observed {
+				t.Fatal("executor was called without observing a persisted intent")
+			}
+		})
+	}
+}
+
+func TestDCARecoversUnknownEntryAndCloseSubmissionByClientOrderID(t *testing.T) {
+	tests := []struct {
+		name string
+		open bool
+		side exchange.Side
+	}{
+		{name: "entry", open: true, side: exchange.SideBuy},
+		{name: "close", open: false, side: exchange.SideSell},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &memoryRuntimeStateStore{}
+			executor := &dcaIntentObservingExecutor{store: store, submitErr: errors.New("response lost")}
+			ex := &hedgeExchange{}
+			s := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, executor, ex, nil)
+			s.SetRuntimeStateStore(store)
+			if !test.open {
+				s.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, RequestedQuantity: 1,
+					FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, Status: entryStatusFilled}}
+				s.totalQty, s.totalCost, s.avgEntryPrice = 1, 100, 100
+			}
+			var submitErr error
+			if test.open {
+				submitErr = s.openBaseOrder(100)
+			} else {
+				submitErr = s.closeAllPositions(110, "take profit")
+			}
+			if submitErr == nil || !executor.observed {
+				t.Fatalf("ambiguous placement did not retain a pre-persisted intent: err=%v observed=%v", submitErr, executor.observed)
+			}
+			var state dcaRuntimeState
+			if err := json.Unmarshal([]byte(store.payload), &state); err != nil {
+				t.Fatal(err)
+			}
+			clientOrderID := ""
+			quantity := 0.0
+			if test.open {
+				layer := state.Layers[len(state.Layers)-1]
+				clientOrderID, quantity = layer.ClientOrderID, layer.RequestedQuantity
+				if layer.Status != position.OrderStatusUnknown || layer.OrderID != 0 {
+					t.Fatalf("entry intent did not retain unknown submission state: %+v", layer)
+				}
+			} else {
+				clientOrderID, quantity = state.CloseClientOrderID, state.CloseRequestedQty
+				if !state.IsClosing || state.CloseOrderID != 0 {
+					t.Fatalf("close intent did not retain unknown submission state: %+v", state)
+				}
+			}
+			if clientOrderID == "" || quantity <= 0 {
+				t.Fatalf("persisted intent is missing identity/quantity: %+v", state)
+			}
+
+			recoveryExchange := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, lookupOrder: &exchange.Order{
+				OrderID: 777, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: test.side,
+				Quantity: quantity, Status: exchange.OrderStatusNew,
+			}}
+			restarted := NewDCAEnhancedStrategy("dca", "BTCUSDT", &config.Config{}, &hedgeOrderExecutor{}, recoveryExchange, nil)
+			restarted.SetRuntimeStateStore(store)
+			if err := restarted.Start(context.Background()); err != nil {
+				t.Fatalf("recover unknown submission by client order ID: %v", err)
+			}
+			defer restarted.Stop()
+			if len(recoveryExchange.lookupClientOrderIDs) != 1 || recoveryExchange.lookupClientOrderIDs[0] != clientOrderID {
+				t.Fatalf("recovery queried wrong client identity: %v", recoveryExchange.lookupClientOrderIDs)
+			}
+			if test.open && (restarted.layers[0].OrderID != 777 || restarted.layers[0].Status != entryStatusPending) {
+				t.Fatalf("entry identity was not bound to recovered order: %+v", restarted.layers[0])
+			}
+			if !test.open && (!restarted.isClosing || restarted.closeOrderID != 777 || restarted.closeClientOrderID != clientOrderID) {
+				t.Fatalf("close identity was not bound to recovered order: closing=%v order=%d cid=%s", restarted.isClosing, restarted.closeOrderID, restarted.closeClientOrderID)
+			}
+		})
 	}
 }
 

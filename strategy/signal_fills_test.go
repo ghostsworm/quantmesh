@@ -491,7 +491,7 @@ func TestDCACloseLedgerFailureRetainsFillForRetry(t *testing.T) {
 	if err := s.closeAllPositions(110, "test"); err != nil {
 		t.Fatal(err)
 	}
-	update := &position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: "dca-close", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, CommissionKnown: true}
+	update := &position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: s.closeClientOrderID, Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, CommissionKnown: true}
 	if err := s.OnOrderUpdate(update); err != nil {
 		t.Fatal(err)
 	}

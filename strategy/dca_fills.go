@@ -129,6 +129,7 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 	if signalOrderStatusFilled(update.Status) || signalOrderStatusTerminal(update.Status) {
 		s.isClosing = false
 		s.closeOrderID = 0
+		s.closeClientOrderID = ""
 		s.closeLayer = nil
 		s.closeProgress = position.FillProgress{}
 		s.closeFeeVerifiedQty = 0

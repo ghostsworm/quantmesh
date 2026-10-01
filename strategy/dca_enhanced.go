@@ -15,6 +15,7 @@ import (
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
+	"quantmesh/utils"
 )
 
 // DCAEnhancedStrategy 增强型 DCA (定投) 策略
@@ -63,6 +64,7 @@ type DCAEnhancedStrategy struct {
 	pauseUntil          time.Time
 	isClosing           bool
 	closeOrderID        int64
+	closeClientOrderID  string
 	closeLayer          *DCALayer // 非 nil 表示當前平倉單只平該层（尾單止盈），nil 表示全倉平倉
 	closeProgress       position.FillProgress
 	closeFeeVerifiedQty float64
@@ -101,6 +103,7 @@ type dcaRuntimeState struct {
 	PauseUntil          time.Time             `json:"pause_until"`
 	IsClosing           bool                  `json:"is_closing"`
 	CloseOrderID        int64                 `json:"close_order_id"`
+	CloseClientOrderID  string                `json:"close_client_order_id"`
 	CloseLayerIndex     int                   `json:"close_layer_index"`
 	CloseProgress       position.FillProgress `json:"close_progress"`
 	CloseFeeVerifiedQty float64               `json:"close_fee_verified_qty"`
@@ -156,6 +159,7 @@ type DCALayer struct {
 	Quantity          float64   // 持倉數量
 	Cost              float64   // 成本
 	OrderID           int64     // 订單ID
+	ClientOrderID     string    // 提交前持久化的訂單身份
 	Status            string    // 状態: pending/filled/closed
 	FilledAt          time.Time // 成交時间
 	OpeningFee        float64   // 剩餘持倉應分攤的實際開倉手續費（計價幣）
@@ -434,7 +438,7 @@ func (s *DCAEnhancedStrategy) runtimeStateSnapshotLocked() dcaRuntimeState {
 		CurrentLayer: s.currentLayer, DynamicInterval: s.dynamicInterval,
 		HighestProfit: s.highestProfit, TakeProfitTriggered: s.takeProfitTriggered,
 		IsPaused: s.isPaused, PauseUntil: s.pauseUntil, IsClosing: s.isClosing,
-		CloseOrderID: s.closeOrderID, CloseLayerIndex: -1, CloseProgress: s.closeProgress,
+		CloseOrderID: s.closeOrderID, CloseClientOrderID: s.closeClientOrderID, CloseLayerIndex: -1, CloseProgress: s.closeProgress,
 		CloseFeeVerifiedQty: s.closeFeeVerifiedQty,
 		CloseRequestedQty:   s.closeRequestedQty, CloseLimitPrice: s.closeLimitPrice,
 	}
@@ -518,6 +522,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	closeLayerFound := state.CloseLayerIndex < 0
 	layerIndexes := make(map[int]struct{}, len(state.Layers))
 	activeOrderIDs := make(map[int64]struct{}, len(state.Layers)+1)
+	activeClientOrderIDs := make(map[string]struct{}, len(state.Layers)+1)
 	var closeTargetLayer *DCALayer
 	for _, layer := range state.Layers {
 		if layer == nil || layer.Index < 0 || layer.OrderID < 0 || layer.Quantity < 0 || layer.Cost < 0 || layer.OpeningFee < 0 || layer.EntryBaseFeeQty < 0 || layer.RequestedQuantity < 0 ||
@@ -536,12 +541,12 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 		}
 		layerIndexes[layer.Index] = struct{}{}
 		switch layer.Status {
-		case entryStatusPending:
-			if layer.Quantity != 0 || layer.Cost != 0 || layer.OpeningFee != 0 || layer.FillProgress.Quantity != 0 {
-				return fmt.Errorf("DCA pending layer %d contains attributed fills", layer.Index)
+		case entryStatusPending, position.OrderStatusUnknown:
+			if layer.RequestedQuantity <= 0 || layer.Quantity != 0 || layer.Cost != 0 || layer.OpeningFee != 0 || layer.FillProgress.Quantity != 0 {
+				return fmt.Errorf("DCA unverified layer %d contains attributed fills", layer.Index)
 			}
-			if layer.OrderID <= 0 {
-				return fmt.Errorf("DCA pending layer %d is missing its order identity", layer.Index)
+			if layer.OrderID <= 0 && strings.TrimSpace(layer.ClientOrderID) == "" {
+				return fmt.Errorf("DCA unverified layer %d is missing its order identity", layer.Index)
 			}
 		case entryStatusPartiallyFilled, entryStatusFilled:
 			if layer.Quantity <= 0 || layer.Cost <= 0 || layer.FillProgress.Quantity+entryQtyEpsilon < layer.Quantity {
@@ -553,11 +558,19 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 		default:
 			return fmt.Errorf("DCA runtime state contains unknown layer status %q", layer.Status)
 		}
-		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled {
-			if _, duplicate := activeOrderIDs[layer.OrderID]; duplicate {
-				return fmt.Errorf("DCA runtime state contains duplicate active order ID %d", layer.OrderID)
+		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled || layer.Status == position.OrderStatusUnknown {
+			if layer.OrderID > 0 {
+				if _, duplicate := activeOrderIDs[layer.OrderID]; duplicate {
+					return fmt.Errorf("DCA runtime state contains duplicate active order ID %d", layer.OrderID)
+				}
+				activeOrderIDs[layer.OrderID] = struct{}{}
 			}
-			activeOrderIDs[layer.OrderID] = struct{}{}
+			if layer.ClientOrderID != "" {
+				if _, duplicate := activeClientOrderIDs[layer.ClientOrderID]; duplicate {
+					return fmt.Errorf("DCA runtime state contains duplicate active client order ID")
+				}
+				activeClientOrderIDs[layer.ClientOrderID] = struct{}{}
+			}
 		}
 		if state.CloseLayerIndex == layer.Index {
 			closeLayerFound = true
@@ -579,17 +592,24 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 		return fmt.Errorf("DCA runtime state average entry price does not match inventory cost")
 	}
 	if state.IsClosing {
-		if state.CloseOrderID <= 0 || state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon ||
+		if (state.CloseOrderID <= 0 && strings.TrimSpace(state.CloseClientOrderID) == "") || state.CloseRequestedQty <= 0 || state.CloseProgress.Quantity > state.CloseRequestedQty+entryQtyEpsilon ||
 			state.CloseLayerIndex >= 0 && state.CloseRequestedQty > closeTargetLayer.Quantity+entryQtyEpsilon {
 			return fmt.Errorf("DCA close state contains inconsistent execution progress")
 		}
 		if s.supportsSpotBaseFee() && state.CloseProgress.Quantity > state.CloseFeeVerifiedQty+entryQtyEpsilon {
 			return fmt.Errorf("DCA spot close has fill quantity without verified fee evidence")
 		}
-		if _, duplicate := activeOrderIDs[state.CloseOrderID]; duplicate {
-			return fmt.Errorf("DCA close order ID conflicts with an active entry order")
+		if state.CloseOrderID > 0 {
+			if _, duplicate := activeOrderIDs[state.CloseOrderID]; duplicate {
+				return fmt.Errorf("DCA close order ID conflicts with an active entry order")
+			}
 		}
-	} else if state.CloseOrderID != 0 || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseFeeVerifiedQty != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
+		if state.CloseClientOrderID != "" {
+			if _, duplicate := activeClientOrderIDs[state.CloseClientOrderID]; duplicate {
+				return fmt.Errorf("DCA close client order ID conflicts with an active entry order")
+			}
+		}
+	} else if state.CloseOrderID != 0 || state.CloseClientOrderID != "" || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseFeeVerifiedQty != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
 		return fmt.Errorf("DCA runtime state has close progress without an active close order")
 	}
 	s.mu.Lock()
@@ -599,7 +619,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	s.currentLayer, s.dynamicInterval = state.CurrentLayer, state.DynamicInterval
 	s.highestProfit, s.takeProfitTriggered = state.HighestProfit, state.TakeProfitTriggered
 	s.isPaused, s.pauseUntil, s.isClosing = state.IsPaused, state.PauseUntil, state.IsClosing
-	s.closeOrderID, s.closeProgress = state.CloseOrderID, state.CloseProgress
+	s.closeOrderID, s.closeClientOrderID, s.closeProgress = state.CloseOrderID, state.CloseClientOrderID, state.CloseProgress
 	s.closeFeeVerifiedQty = state.CloseFeeVerifiedQty
 	s.closeRequestedQty, s.closeLimitPrice = state.CloseRequestedQty, state.CloseLimitPrice
 	s.closeLayer = nil
@@ -611,7 +631,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 			}
 		}
 	}
-	if state.IsClosing && state.CloseOrderID <= 0 {
+	if state.IsClosing && state.CloseOrderID <= 0 && state.CloseClientOrderID == "" {
 		return fmt.Errorf("DCA close state is missing its order identity")
 	}
 	s.stats = &state.Stats
@@ -950,38 +970,89 @@ func (s *DCAEnhancedStrategy) openBaseOrder(price float64) error {
 		Status:            entryStatusPending,
 	}
 
-	// 下單
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         "BUY",
-		Quantity:     quantity,
-		Price:        orderPrice,
-		PostOnly:     true,
-		PositionSide: position.PositionSideLong,
-	})
-
-	if err != nil {
-		logger.Error("❌ [%s] 基础订單下單失败: %v", s.logPrefix(), err)
+	previousLayer := s.currentLayer
+	if err := s.submitEntryOrder(layer, previousLayer); err != nil {
+		logger.Error("❌ [%s] 基础订單下單失败或待核账: %v", s.logPrefix(), err)
 		return err
 	}
-	if order == nil {
+	if layer.OrderID == 0 {
 		logger.Debug("🔒 [%s] 基础订單被执行器跳过，等待下一轮", s.logPrefix())
 		return nil
-	}
-
-	// S3：限價單下單成功≠成交，保持 pending，等成交回報再計入持倉
-	layer.OrderID = order.OrderID
-	s.layers = append(s.layers, layer)
-	s.currentLayer = 1
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA order accepted but runtime state persistence failed")
-		return err
 	}
 
 	logger.Info("📈 [%s:%s] [%s] 基础订單已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f",
 		s.exchange.GetName(), s.strategyCfg.Symbol, s.name, price, quantity, s.strategyCfg.BaseOrderAmount)
 
 	return nil
+}
+
+func (s *DCAEnhancedStrategy) submitEntryOrder(layer *DCALayer, previousLayer int) error {
+	layer.ClientOrderID = utils.NewCompactOrderID()
+	s.layers = append(s.layers, layer)
+	s.currentLayer = layer.Index + 1
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.layers = s.layers[:len(s.layers)-1]
+		s.currentLayer = previousLayer
+		return fmt.Errorf("persist DCA entry intent before submission: %w", err)
+	}
+
+	request := &position.OrderRequest{
+		Symbol: s.strategyCfg.Symbol, Side: "BUY", Quantity: layer.RequestedQuantity, Price: layer.Price,
+		PostOnly: true, PositionSide: position.PositionSideLong, ClientOrderID: layer.ClientOrderID,
+		StrategyName: s.name, StrategyType: "dca",
+	}
+	order, err := s.executor.PlaceOrder(request)
+	if err != nil {
+		layer.Status = position.OrderStatusUnknown
+		persistErr := s.persistRuntimeStateLocked()
+		s.runtimeStateErr = fmt.Errorf("DCA entry submission outcome is unknown: %w", err)
+		if persistErr != nil {
+			s.runtimeStateErr = fmt.Errorf("%v; persist unknown DCA entry outcome: %w", s.runtimeStateErr, persistErr)
+		}
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{ClientOrderID: layer.ClientOrderID}, s.runtimeStateErr.Error())
+		return s.runtimeStateErr
+	}
+	if order == nil {
+		s.layers = s.layers[:len(s.layers)-1]
+		s.currentLayer = previousLayer
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.layers = append(s.layers, layer)
+			s.currentLayer = layer.Index + 1
+			return fmt.Errorf("DCA executor skipped order but intent rollback was not durable: %w", err)
+		}
+		return nil
+	}
+	if order.OrderID <= 0 || !finiteNumber(order.Quantity) || order.Quantity <= 0 ||
+		math.Abs(order.Quantity-layer.RequestedQuantity) > math.Max(entryQtyEpsilon, layer.RequestedQuantity*1e-8) ||
+		(order.ClientOrderID != "" && s.normalizeClientOrderID(order.ClientOrderID) != layer.ClientOrderID) {
+		if order.OrderID > 0 {
+			layer.OrderID = order.OrderID
+		}
+		layer.Status = position.OrderStatusUnknown
+		ackErr := fmt.Errorf("DCA entry acknowledgement conflicts with persisted intent")
+		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+			ackErr = fmt.Errorf("%v; persist conflicting DCA acknowledgement: %w", ackErr, persistErr)
+		}
+		s.runtimeStateErr = ackErr
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: layer.OrderID, ClientOrderID: layer.ClientOrderID}, ackErr.Error())
+		return ackErr
+	}
+
+	layer.OrderID = order.OrderID
+	layer.Status = entryStatusPending
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: layer.ClientOrderID}, "DCA order accepted but runtime state persistence failed")
+		return err
+	}
+	return nil
+}
+
+func (s *DCAEnhancedStrategy) normalizeClientOrderID(clientOrderID string) string {
+	exchangeName := ""
+	if s.exchange != nil {
+		exchangeName = strings.ToLower(s.exchange.GetName())
+	}
+	return utils.RemoveBrokerPrefix(exchangeName, clientOrderID)
 }
 
 // checkSafetyOrder 检查是否需要下安全订單
@@ -1052,32 +1123,14 @@ func (s *DCAEnhancedStrategy) checkSafetyOrder(price float64) error {
 		Status:            entryStatusPending,
 	}
 
-	// 下單
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         "BUY",
-		Quantity:     quantity,
-		Price:        orderPrice,
-		PostOnly:     true,
-		PositionSide: position.PositionSideLong,
-	})
-
-	if err != nil {
-		logger.Error("❌ [%s] 安全订單 #%d 下單失败: %v", s.name, s.currentLayer, err)
+	previousLayer := s.currentLayer
+	if err := s.submitEntryOrder(layer, previousLayer); err != nil {
+		logger.Error("❌ [%s] 安全订單 #%d 下單失败或待核账: %v", s.name, layer.Index, err)
 		return err
 	}
-	if order == nil {
-		logger.Debug("🔒 [%s] 安全订單 #%d 被执行器跳过，等待下一轮", s.name, s.currentLayer)
+	if layer.OrderID == 0 {
+		logger.Debug("🔒 [%s] 安全订單 #%d 被执行器跳过，等待下一轮", s.name, layer.Index)
 		return nil
-	}
-
-	// S3：保持 pending，等成交回報再計入持倉
-	layer.OrderID = order.OrderID
-	s.layers = append(s.layers, layer)
-	s.currentLayer++
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA safety order accepted but runtime state persistence failed")
-		return err
 	}
 
 	logger.Info("📉 [%s:%s] [%s] 安全订單 #%d 已挂單: 價格=%.2f, 數量=%.6f, 成本=%.2f, 平均成本=%.2f",
@@ -1130,7 +1183,7 @@ func (s *DCAEnhancedStrategy) filledLayers() []*DCALayer {
 // hasPendingLayer 是否存在未完全成交的开倉單
 func (s *DCAEnhancedStrategy) hasPendingLayer() bool {
 	for _, layer := range s.layers {
-		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled {
+		if layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled || layer.Status == position.OrderStatusUnknown {
 			return true
 		}
 	}
@@ -1202,6 +1255,9 @@ func (s *DCAEnhancedStrategy) checkTakeProfitStopLoss(price float64) error {
 
 // closeAllPositions 平倉所有倉位
 func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) error {
+	if s.isClosing {
+		return nil
+	}
 	if s.totalQty <= 0 {
 		return nil
 	}
@@ -1234,21 +1290,10 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 		return nil
 	}
 
-	// 下賣單
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         "SELL",
-		Quantity:     qty,
-		Price:        orderPrice,
-		ReduceOnly:   true,
-		PositionSide: position.PositionSideLong,
-		PostOnly:     orderSource != "stop_loss",
-		OrderSource:  orderSource,
-	})
-
+	order, err := s.submitCloseOrder(qty, orderPrice, nil, orderSource != "stop_loss", orderSource)
 	if err != nil {
-		logger.Error("❌ [%s] 平倉失败 (%s, 數量=%.6f, 價格=%.2f): %v", s.name, reason, qty, orderPrice, err)
-		return fmt.Errorf("DCA 策略 %s 平倉(%s)下單失败: %w", s.name, reason, err)
+		logger.Error("❌ [%s] 平倉失败或待核账 (%s, 數量=%.6f, 價格=%.2f): %v", s.name, reason, qty, orderPrice, err)
+		return fmt.Errorf("DCA 策略 %s 平倉(%s)下單失败或待核账: %w", s.name, reason, err)
 	}
 	if order == nil {
 		logger.Debug("🔒 [%s] 平倉单被执行器跳过，等待下一轮", s.name)
@@ -1261,16 +1306,6 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 	logger.Info("✅ [%s] 平倉單已下 (%s): 订單ID=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
 		s.name, reason, order.OrderID, s.totalQty, price, pnl)
 
-	s.isClosing = true
-	s.closeOrderID = order.OrderID
-	s.closeLayer = nil
-	s.closeProgress = position.FillProgress{}
-	s.closeFeeVerifiedQty = 0
-	s.closeRequestedQty, s.closeLimitPrice = qty, orderPrice
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA close order accepted but runtime state persistence failed")
-		return err
-	}
 	// A placement acknowledgement has no fee fields and may not carry authoritative
 	// cumulative fills. Wait for the order stream/polling update before accounting.
 
@@ -1279,6 +1314,9 @@ func (s *DCAEnhancedStrategy) closeAllPositions(price float64, reason string) er
 
 // closeLastLayer 尾單止盈：只平最后一层的成交數量（S2）
 func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) error {
+	if s.isClosing {
+		return nil
+	}
 	if layer == nil || layer.Quantity <= 0 {
 		return nil
 	}
@@ -1301,19 +1339,10 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 		return nil
 	}
 
-	order, err := s.executor.PlaceOrder(&position.OrderRequest{
-		Symbol:       s.strategyCfg.Symbol,
-		Side:         "SELL",
-		Quantity:     qty,
-		Price:        orderPrice,
-		ReduceOnly:   true,
-		PositionSide: position.PositionSideLong,
-		PostOnly:     true,
-		OrderSource:  "normal",
-	})
+	order, err := s.submitCloseOrder(qty, orderPrice, layer, true, "normal")
 	if err != nil {
-		logger.Error("❌ [%s] 尾單止盈下單失败 (层级 %d, 數量=%.6f, 價格=%.2f): %v", s.name, layer.Index, qty, orderPrice, err)
-		return fmt.Errorf("DCA 策略 %s 尾單止盈(层级 %d)下單失败: %w", s.name, layer.Index, err)
+		logger.Error("❌ [%s] 尾單止盈下單失败或待核账 (层级 %d, 數量=%.6f, 價格=%.2f): %v", s.name, layer.Index, qty, orderPrice, err)
+		return fmt.Errorf("DCA 策略 %s 尾單止盈(层级 %d)下單失败或待核账: %w", s.name, layer.Index, err)
 	}
 	if order == nil {
 		logger.Debug("🔒 [%s] 尾單止盈單被执行器跳过，等待下一轮", s.name)
@@ -1326,19 +1355,75 @@ func (s *DCAEnhancedStrategy) closeLastLayer(layer *DCALayer, price float64) err
 	logger.Info("✅ [%s] 尾單止盈單已下: 订單ID=%d, 层级=%d, 數量=%.6f, 價格=%.2f, 預估盈亏=%.2f USDT",
 		s.name, order.OrderID, layer.Index, qty, price, pnl)
 
-	s.isClosing = true
-	s.closeOrderID = order.OrderID
-	s.closeLayer = layer
-	s.closeProgress = position.FillProgress{}
-	s.closeFeeVerifiedQty = 0
-	s.closeRequestedQty, s.closeLimitPrice = qty, orderPrice
-	if err := s.persistRuntimeStateLocked(); err != nil {
-		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID}, "DCA layer close accepted but runtime state persistence failed")
-		return err
-	}
 	// A placement acknowledgement has no fee fields and may not carry authoritative
 	// cumulative fills. Wait for the order stream/polling update before accounting.
 	return nil
+}
+
+func (s *DCAEnhancedStrategy) submitCloseOrder(quantity, price float64, layer *DCALayer, postOnly bool, orderSource string) (*position.Order, error) {
+	clientOrderID := utils.NewCompactOrderID()
+	previousClosing, previousOrderID, previousClientOrderID := s.isClosing, s.closeOrderID, s.closeClientOrderID
+	previousLayer, previousProgress := s.closeLayer, s.closeProgress
+	previousFeeQty, previousRequestedQty, previousLimitPrice := s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice
+	s.isClosing = true
+	s.closeOrderID = 0
+	s.closeClientOrderID = clientOrderID
+	s.closeLayer = layer
+	s.closeProgress = position.FillProgress{}
+	s.closeFeeVerifiedQty = 0
+	s.closeRequestedQty, s.closeLimitPrice = quantity, price
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.isClosing, s.closeOrderID, s.closeClientOrderID = previousClosing, previousOrderID, previousClientOrderID
+		s.closeLayer, s.closeProgress = previousLayer, previousProgress
+		s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousRequestedQty, previousLimitPrice
+		return nil, fmt.Errorf("persist DCA close intent before submission: %w", err)
+	}
+
+	order, err := s.executor.PlaceOrder(&position.OrderRequest{
+		Symbol: s.strategyCfg.Symbol, Side: "SELL", Quantity: quantity, Price: price, ReduceOnly: true,
+		PositionSide: position.PositionSideLong, PostOnly: postOnly, OrderSource: orderSource,
+		ClientOrderID: clientOrderID, StrategyName: s.name, StrategyType: "dca",
+	})
+	if err != nil {
+		persistErr := s.persistRuntimeStateLocked()
+		s.runtimeStateErr = fmt.Errorf("DCA close submission outcome is unknown: %w", err)
+		if persistErr != nil {
+			s.runtimeStateErr = fmt.Errorf("%v; persist unknown DCA close outcome: %w", s.runtimeStateErr, persistErr)
+		}
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{ClientOrderID: clientOrderID}, s.runtimeStateErr.Error())
+		return nil, s.runtimeStateErr
+	}
+	if order == nil {
+		s.isClosing, s.closeOrderID, s.closeClientOrderID = previousClosing, previousOrderID, previousClientOrderID
+		s.closeLayer, s.closeProgress = previousLayer, previousProgress
+		s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousRequestedQty, previousLimitPrice
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.isClosing, s.closeOrderID, s.closeClientOrderID = true, 0, clientOrderID
+			s.closeLayer, s.closeRequestedQty, s.closeLimitPrice = layer, quantity, price
+			return nil, fmt.Errorf("DCA executor skipped close but intent rollback was not durable: %w", err)
+		}
+		return nil, nil
+	}
+	if order.OrderID <= 0 || !finiteNumber(order.Quantity) || order.Quantity <= 0 ||
+		math.Abs(order.Quantity-quantity) > math.Max(entryQtyEpsilon, quantity*1e-8) ||
+		(order.ClientOrderID != "" && s.normalizeClientOrderID(order.ClientOrderID) != clientOrderID) {
+		if order.OrderID > 0 {
+			s.closeOrderID = order.OrderID
+		}
+		ackErr := fmt.Errorf("DCA close acknowledgement conflicts with persisted intent")
+		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+			ackErr = fmt.Errorf("%v; persist conflicting DCA close acknowledgement: %w", ackErr, persistErr)
+		}
+		s.runtimeStateErr = ackErr
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: s.closeOrderID, ClientOrderID: clientOrderID}, ackErr.Error())
+		return nil, ackErr
+	}
+	s.closeOrderID = order.OrderID
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.requireDCAOrderReconciliation(&position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: clientOrderID}, "DCA close order accepted but runtime state persistence failed")
+		return nil, err
+	}
+	return order, nil
 }
 
 // cancelPendingLayers 撤销所有未完全成交的开倉單（撤單回報到達後再回滚层状態）
@@ -1348,7 +1433,7 @@ func (s *DCAEnhancedStrategy) cancelPendingLayers() bool {
 	now := time.Now()
 	retryBefore := now.Add(-dcaPendingCancelRetryInterval)
 	for _, layer := range s.layers {
-		if layer == nil || (layer.Status != entryStatusPending && layer.Status != entryStatusPartiallyFilled) {
+		if layer == nil || (layer.Status != entryStatusPending && layer.Status != entryStatusPartiallyFilled && layer.Status != position.OrderStatusUnknown) {
 			continue
 		}
 		pending = true
@@ -1489,6 +1574,7 @@ func (s *DCAEnhancedStrategy) resetPositionState() {
 	s.takeProfitTriggered = false
 	s.isClosing = false
 	s.closeOrderID = 0
+	s.closeClientOrderID = ""
 	s.closeLayer = nil
 	s.closeProgress = position.FillProgress{}
 	s.closeFeeVerifiedQty = 0
@@ -1545,14 +1631,38 @@ func (s *DCAEnhancedStrategy) OnOrderUpdate(update *position.OrderUpdate) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.isClosing && update.OrderID == s.closeOrderID {
+	updateClientOrderID := s.normalizeClientOrderID(update.ClientOrderID)
+	closeIDMatch := s.closeOrderID > 0 && update.OrderID == s.closeOrderID
+	closeClientMatch := s.closeClientOrderID != "" && updateClientOrderID == s.closeClientOrderID
+	if s.isClosing && (closeIDMatch || closeClientMatch) {
+		if s.closeOrderID > 0 && update.OrderID != s.closeOrderID ||
+			update.ClientOrderID != "" && s.closeClientOrderID != "" && updateClientOrderID != s.closeClientOrderID {
+			s.requireDCAOrderReconciliation(update, "DCA close callback identity conflicts with persisted intent")
+			return nil
+		}
+		if s.closeOrderID == 0 {
+			s.closeOrderID = update.OrderID
+		}
 		s.handleCloseOrderUpdate(update)
 		return s.persistRuntimeStateLocked()
 	}
 
 	// 查找對应的层级
 	for _, layer := range s.layers {
-		if layer.OrderID == update.OrderID {
+		idMatch := layer.OrderID > 0 && layer.OrderID == update.OrderID
+		clientIDMatch := layer.ClientOrderID != "" && updateClientOrderID == layer.ClientOrderID
+		if idMatch || clientIDMatch {
+			if layer.OrderID > 0 && update.OrderID != layer.OrderID ||
+				update.ClientOrderID != "" && layer.ClientOrderID != "" && updateClientOrderID != layer.ClientOrderID {
+				s.requireDCAOrderReconciliation(update, "DCA entry callback identity conflicts with persisted intent")
+				return nil
+			}
+			if layer.OrderID == 0 {
+				layer.OrderID = update.OrderID
+				if layer.Status == position.OrderStatusUnknown {
+					layer.Status = entryStatusPending
+				}
+			}
 			s.handleLayerOrderUpdate(layer, update)
 			return s.persistRuntimeStateLocked()
 		}

@@ -16,11 +16,19 @@ import (
 
 type dcaRecoveryExchange struct {
 	*hedgeExchange
-	order    *exchange.Order
-	fills    []*exchange.OrderFill
-	orderErr error
-	fillsErr error
-	fillsFn  func(orderID int64) (interface{}, error)
+	order                *exchange.Order
+	lookupOrder          *exchange.Order
+	lookupErr            error
+	lookupClientOrderIDs []string
+	fills                []*exchange.OrderFill
+	orderErr             error
+	fillsErr             error
+	fillsFn              func(orderID int64) (interface{}, error)
+}
+
+func (e *dcaRecoveryExchange) GetOrderByClientOrderID(_ context.Context, _, clientOrderID string) (*exchange.Order, error) {
+	e.lookupClientOrderIDs = append(e.lookupClientOrderIDs, clientOrderID)
+	return e.lookupOrder, e.lookupErr
 }
 
 func (e *dcaRecoveryExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
