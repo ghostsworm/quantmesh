@@ -558,66 +558,79 @@ func (spm *SuperPositionManager) CancelAllOrders() {
 }
 
 // getExistingPosition 獲取當前持倉數量（容錯处理）
-func (spm *SuperPositionManager) getExistingPosition() float64 {
+func (spm *SuperPositionManager) getExistingPosition() (float64, error) {
 	if config.IsSpotMarketType(spm.config.Trading.MarketType) &&
 		config.NormalizeSpotInventoryPolicy(spm.config.Trading.SpotInventoryPolicy) != config.SpotInventoryPolicyAdoptAll {
 		logger.Debug("🔍 [持倉恢複] 現貨庫存策略為 conservative，跳過從交易所收編基礎幣餘額")
-		return 0
+		return 0, nil
+	}
+	if spm.exchange == nil {
+		return 0, fmt.Errorf("持仓恢复缺少交易所查询器")
 	}
 	ctx := context.Background()
 	positionsInterface, err := spm.exchange.GetPositions(ctx, spm.config.Trading.Symbol)
-	if err != nil || positionsInterface == nil {
-		logger.Debug("🔍 [持倉恢複] 無法獲取持倉信息: %v", err)
-		return 0
+	if err != nil {
+		return 0, fmt.Errorf("查询 %s 持仓失败: %w", spm.config.Trading.Symbol, err)
 	}
+	if positionsInterface == nil {
+		return 0, fmt.Errorf("查询 %s 持仓返回 nil 快照，不能据此认定空仓", spm.config.Trading.Symbol)
+	}
+	positions := interfaceSliceOf(positionsInterface)
+	var matchingSize float64
+	for _, rawPosition := range positions {
+		symbol, size, parseErr := parseRecoveryPosition(rawPosition)
+		if parseErr != nil {
+			return 0, fmt.Errorf("解析 %s 持仓快照失败: %w", spm.config.Trading.Symbol, parseErr)
+		}
+		if !strings.EqualFold(symbol, spm.config.Trading.Symbol) {
+			return 0, fmt.Errorf("持仓快照交易对不匹配: 收到 %q，期望 %q", symbol, spm.config.Trading.Symbol)
+		}
+		if !finiteGridValue(size) {
+			return 0, fmt.Errorf("持仓快照包含非有限数量: %v", size)
+		}
+		if size == 0 {
+			continue
+		}
+		if spm.isBoth() {
+			return 0, fmt.Errorf("双向持仓恢复需要逐腿核验；当前快照只提供带符号数量")
+		}
+		if (spm.isShort() && size > 0) || (!spm.isShort() && size < 0) {
+			return 0, fmt.Errorf("持仓方向与 Bot 配置不匹配: direction=%s quantity=%v", spm.config.Trading.Direction, size)
+		}
+		if spm.isShort() {
+			size = -size
+		}
+		nextSize := matchingSize + size
+		if !finiteGridValue(nextSize) {
+			return 0, fmt.Errorf("匹配持仓汇总溢出")
+		}
+		matchingSize = nextSize
+	}
+	return matchingSize, nil
+}
 
-	// 尝試類型断言 - 假設返回的是包含 Size 字段的結構体切片
-	// 持倉方向：LONG 時取正數，SHORT 時取負數的絕對值（交易所 short 持倉為負）
-	rawSize := 0.0
-	switch positions := positionsInterface.(type) {
-	case []*PositionInfo:
-		for _, pos := range positions {
-			if pos != nil && pos.Symbol == spm.config.Trading.Symbol {
-				rawSize = pos.Size
-				break
-			}
+func parseRecoveryPosition(raw interface{}) (string, float64, error) {
+	switch position := raw.(type) {
+	case *PositionInfo:
+		if position == nil {
+			return "", 0, fmt.Errorf("nil position entry")
 		}
-	case []interface{}:
-		for _, pos := range positions {
-			if posInfo, ok := pos.(*PositionInfo); ok {
-				if posInfo.Symbol == spm.config.Trading.Symbol {
-					rawSize = posInfo.Size
-					break
-				}
-			}
-			if posMap, ok := pos.(map[string]interface{}); ok {
-				if symbol, ok := posMap["Symbol"].(string); ok && symbol == spm.config.Trading.Symbol {
-					if size, ok := posMap["Size"].(float64); ok {
-						rawSize = size
-						break
-					}
-				}
-			}
+		return position.Symbol, position.Size, nil
+	case PositionInfo:
+		return position.Symbol, position.Size, nil
+	case map[string]interface{}:
+		symbol, ok := position["Symbol"].(string)
+		if !ok {
+			return "", 0, fmt.Errorf("position map has no string Symbol")
 		}
+		size, ok := position["Size"].(float64)
+		if !ok {
+			return "", 0, fmt.Errorf("position map has no numeric Size")
+		}
+		return symbol, size, nil
 	default:
-		logger.Debug("🔍 [持倉恢複] 持倉類型: %T，未找到匹配的持倉", positionsInterface)
-		return 0
+		return "", 0, fmt.Errorf("unsupported position entry type %T", raw)
 	}
-
-	// 按方向過濾：LONG 取正數持倉，SHORT 取負數持倉的絕對值
-	if spm.isShort() {
-		if rawSize < 0 {
-			logger.Debug("🔍 [持倉恢複] 找到做空持倉: %.4f", -rawSize)
-			return -rawSize
-		}
-		return 0
-	}
-	if rawSize > 0 {
-		logger.Debug("🔍 [持倉恢複] 找到做多持倉: %.4f", rawSize)
-		return rawSize
-	}
-	logger.Debug("🔍 [持倉恢複] 未找到匹配的持倉")
-	return 0
 }
 
 // ForceSyncPositions 强制同步持倉（當對账发現重大不一致時調用）
@@ -681,7 +694,10 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 		// 1. 若本地超出交易所：修剪多餘的本地槽位，防止平倉委託超出實際持倉
 		// 2. 若本地少於交易所：以交易所為準，補齊本地持倉差額
 		spm.trimExcessPositions(exchangePosition)
-		spm.fillDeficitPositions(exchangePosition)
+		if err := spm.fillDeficitPositions(exchangePosition); err != nil {
+			spm.openingGate.Block("position_recovery_unverified")
+			return fmt.Errorf("无法安全恢复交易所持仓槽位: %w", err)
+		}
 	}
 	localPosition, err := spm.reconciliationPositionTotal()
 	if err != nil {
@@ -694,6 +710,7 @@ func (spm *SuperPositionManager) ForceSyncPositions(exchangePosition float64) er
 		spm.openingGate.Block("exposure_reconciliation_required")
 		return fmt.Errorf("持仓槽位已同步，但额度账本未能同步；保持开仓门控: %w", err)
 	}
+	spm.openingGate.Unblock("position_recovery_unverified")
 	spm.openingGate.Unblock("exposure_reconciliation_required")
 	return nil
 }
@@ -968,7 +985,7 @@ func (spm *SuperPositionManager) trimExcessPositions(exchangePosition float64) {
 
 // fillDeficitPositions 補齊本地持倉差額（當本地持倉 < 交易所持倉時，以交易所為準）
 // 將差額分配到距離當前價格最近的已填充槽位；若無任何槽位則觸發完整持倉恢復
-func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) {
+func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) error {
 	type filledSlot struct {
 		Price    float64
 		Qty      float64
@@ -1000,14 +1017,16 @@ func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) 
 
 	deficit := exchangePosition - localTotal
 	if deficit <= 0.00000001 {
-		return
+		return nil
 	}
 
 	if len(filledSlots) == 0 {
 		// 本地無任何持倉槽位，觸發完整持倉恢復
 		logger.Warn("🚨 [强制同步] 本地持倉為 0，交易所持倉 %.6f，觸發完整持倉恢復", exchangePosition)
-		spm.initializeSellSlotsFromPosition(exchangePosition)
-		return
+		if spm.isShort() {
+			return spm.initializeBuySlotsFromPosition(exchangePosition)
+		}
+		return spm.initializeSellSlotsFromPosition(exchangePosition)
 	}
 
 	// 按距離當前價格升序排序，取最近的槽位補齊差額
@@ -1017,33 +1036,108 @@ func (spm *SuperPositionManager) fillDeficitPositions(exchangePosition float64) 
 
 	deficit = roundPrice(deficit, spm.quantityDecimals)
 	if deficit <= 0 {
-		return
+		return fmt.Errorf("持仓差额低于数量精度，不能安全分配")
 	}
 
 	nearestPrice := filledSlots[0].Price
 	slotRaw, ok := spm.slots.Load(nearestPrice)
 	if !ok {
-		return
+		return fmt.Errorf("持仓差额目标槽位已不存在")
 	}
 	slot := slotRaw.(*InventorySlot)
 	slot.mu.Lock()
 	defer slot.mu.Unlock()
 
 	if slot.PositionStatus != PositionStatusFilled {
-		return
+		return fmt.Errorf("持仓差额目标槽位状态已变化")
 	}
 
-	slot.PositionQty += deficit
+	newQty := slot.PositionQty + deficit
+	if !finiteGridValue(newQty) {
+		return fmt.Errorf("持仓差额导致槽位数量溢出")
+	}
+	slot.PositionQty = newQty
 	slot.AvgBuyPrice = 0
 	slot.CostBasisUnverified = true
 	logger.Info("✅ [强制同步] 以交易所為準補齊持倉：槽位 %s 增加 %.6f，本地持倉 %.6f -> %.6f",
 		formatPrice(slot.Price, spm.priceDecimals), deficit, localTotal, localTotal+deficit)
+	return nil
+}
+
+const maxPositionRecoverySlots = 10000
+
+func (spm *SuperPositionManager) positionRecoveryPlan(totalPosition, startPrice float64) ([]float64, []float64, error) {
+	if !finiteGridValue(totalPosition) || totalPosition <= 0 {
+		return nil, nil, fmt.Errorf("恢复持仓数量必须为有限正数: %v", totalPosition)
+	}
+	anchor := spm.anchorPrice()
+	orderQty := spm.config.Trading.OrderQuantity
+	if !finiteGridValue(anchor) || anchor <= 0 || !finiteGridValue(orderQty) || orderQty <= 0 {
+		return nil, nil, fmt.Errorf("锚点价格和单笔数量必须为有限正数")
+	}
+	theoryPerSlot := roundPrice(orderQty/anchor, spm.quantityDecimals)
+	if !finiteGridValue(theoryPerSlot) || theoryPerSlot <= 0 {
+		return nil, nil, fmt.Errorf("单槽理论数量低于交易所数量精度")
+	}
+	neededFloat := math.Ceil(totalPosition / theoryPerSlot)
+	if !finiteGridValue(neededFloat) || neededFloat < 1 || neededFloat > maxPositionRecoverySlots {
+		return nil, nil, fmt.Errorf("恢复槽位数超出安全范围: %v (上限 %d)", neededFloat, maxPositionRecoverySlots)
+	}
+	prices := spm.calculateSlotPrices(startPrice, int(neededFloat), "up")
+	prices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, prices)
+	if len(prices) != int(neededFloat) {
+		return nil, nil, fmt.Errorf("恢复价格数量不完整: 得到 %d，预期 %d", len(prices), int(neededFloat))
+	}
+	seen := make(map[float64]struct{}, len(prices))
+	theoryQtys := make([]float64, len(prices))
+	totalTheory := 0.0
+	for i, price := range prices {
+		if !finiteGridValue(price) || price <= 0 {
+			return nil, nil, fmt.Errorf("恢复价格无效: %v", price)
+		}
+		if _, exists := seen[price]; exists {
+			return nil, nil, fmt.Errorf("恢复价格重复: %v", price)
+		}
+		seen[price] = struct{}{}
+		qty := roundPrice(orderQty/price, spm.quantityDecimals)
+		if !finiteGridValue(qty) || qty <= 0 {
+			return nil, nil, fmt.Errorf("恢复槽位 %v 的理论数量无效: %v", price, qty)
+		}
+		theoryQtys[i] = qty
+		totalTheory += qty
+		if !finiteGridValue(totalTheory) {
+			return nil, nil, fmt.Errorf("理论持仓数量汇总溢出")
+		}
+	}
+	if totalTheory <= 0 {
+		return nil, nil, fmt.Errorf("理论持仓数量为零")
+	}
+	allocations := make([]float64, len(prices))
+	allocated := 0.0
+	for i, qty := range theoryQtys {
+		allocation := totalPosition - allocated
+		if i != len(theoryQtys)-1 {
+			allocation = roundPrice(qty*(totalPosition/totalTheory), spm.quantityDecimals)
+			if allocation > totalPosition-allocated {
+				allocation = totalPosition - allocated
+			}
+		}
+		if !finiteGridValue(allocation) || allocation <= 0 {
+			return nil, nil, fmt.Errorf("恢复分配数量无效: slot=%d qty=%v", i, allocation)
+		}
+		allocations[i] = allocation
+		allocated += allocation
+	}
+	if math.Abs(allocated-totalPosition) > 0.00000001 {
+		return nil, nil, fmt.Errorf("恢复分配不守恒: allocated=%v total=%v", allocated, totalPosition)
+	}
+	return prices, allocations, nil
 }
 
 // initializeSellSlotsFromPosition 從現有持倉初始化賣單槽位（用於程序重啟后恢複状態）
-func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition float64) {
+func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition float64) error {
 	if totalPosition <= 0 {
-		return
+		return nil
 	}
 
 	// 0. 獲取杠杆倍數（用於计算實際使用的保证金）
@@ -1126,13 +1220,14 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	// 使用锚点價格作為参考價格，使用從交易所獲取的數量精度
 
 	// 每單的理論數量 = 目標金額 / 锚点價格
-	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice()
-	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
-
-	// 2. 计算需要創建的總槽位數
-	totalSlotsNeeded := int(math.Ceil(totalPosition / theoryQtyPerSlot))
-	logger.Info("🔄 [持倉恢複] 總持倉: %.4f，每單理論數量: %.4f，需要創建 %d 個槽位",
-		totalPosition, theoryQtyPerSlot, totalSlotsNeeded)
+	startPrice := spm.anchorPrice() + spm.getEffectiveProfitSpread()
+	sellPrices, allocations, err := spm.positionRecoveryPlan(totalPosition, startPrice)
+	if err != nil {
+		return err
+	}
+	totalSlotsNeeded := len(sellPrices)
+	logger.Info("🔄 [持倉恢複] 總持倉: %.4f，需要創建 %d 個槽位",
+		totalPosition, totalSlotsNeeded)
 
 	// 3. 确定窗口大小（前N個槽位可以立即挂賣單）
 	sellWindowSize := spm.config.Trading.SellWindowSize
@@ -1142,53 +1237,30 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 
 	// 4. 计算賣單槽位價格（從锚点價格 + 利潤間距开始）
 	// 賣單最低價 = 锚点價格 + 利潤間距（避免與買單最高價冲突）
-	sellStartPrice := spm.anchorPrice() + spm.getEffectiveProfitSpread()
-	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
-	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
+	sellStartPrice := startPrice
 
 	logger.Info("🔄 [持倉恢複] 從價格 %s 向上創建 %d 個槽位（前 %d 個將挂賣單）",
 		formatPrice(sellStartPrice, spm.priceDecimals), totalSlotsNeeded, sellWindowSize)
 
-	// 5. 先计算所有槽位的理論數量總和（固定金額模式）
-	var totalTheoryQty float64
-	theoryQtys := make([]float64, len(sellPrices))
-	for i, price := range sellPrices {
-		theoryQty := spm.config.Trading.OrderQuantity / price
-		theoryQty = roundPrice(theoryQty, spm.quantityDecimals)
-		theoryQtys[i] = theoryQty
-		totalTheoryQty += theoryQty
+	// 按比例分配实际持仓，并累加已用资金
+	margins := make([]float64, len(allocations))
+	totalUsedAmount := 0.0
+	for i, qty := range allocations {
+		margin := spm.anchorPrice() * qty / float64(leverage)
+		if !finiteGridValue(margin) || margin <= 0 {
+			return fmt.Errorf("恢复槽位保证金无效: price=%v qty=%v", sellPrices[i], qty)
+		}
+		margins[i] = margin
+		totalUsedAmount += margin
+		if !finiteGridValue(totalUsedAmount) {
+			return fmt.Errorf("恢复持仓保证金汇总溢出")
+		}
 	}
-
-	logger.Debug("🔍 [持倉恢複] 理論總數量: %.4f, 實際持倉: %.4f, 比例: %.4f",
-		totalTheoryQty, totalPosition, totalPosition/totalTheoryQty)
-
-	// 6. 按比例分配實際持倉到各個槽位，並累加已用资金
 	var allocatedQty float64
-	var totalUsedAmount float64 // 累加已用资金
 
 	for i, price := range sellPrices {
 		// 计算這個槽位应該分配的數量
-		var slotQty float64
-		if i == len(sellPrices)-1 {
-			// 最后一個槽位：分配剩餘的所有持倉（避免舍入误差）
-			slotQty = totalPosition - allocatedQty
-		} else {
-			// 按比例分配：實際數量 = 理論數量 × (總持倉 / 理論總數量)
-			slotQty = theoryQtys[i] * (totalPosition / totalTheoryQty)
-			slotQty = roundPrice(slotQty, spm.quantityDecimals)
-
-			// 确保不超過剩餘持倉
-			remaining := totalPosition - allocatedQty
-			if slotQty > remaining {
-				slotQty = remaining
-			}
-		}
-
-		if slotQty <= 0 {
-			logger.Warn("⚠️ [持倉恢複] 槽位 %s 分配數量過小 %.4f，跳過（已分配: %.4f / 總计: %.4f）",
-				formatPrice(price, spm.priceDecimals), slotQty, allocatedQty, totalPosition)
-			continue
-		}
+		slotQty := allocations[i]
 
 		// 7. 創建或更新槽位
 		slot := spm.getOrCreateSlot(price)
@@ -1218,9 +1290,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 		// 锚点價格是市场當前價格，接近實際買入的平均價格
 		// 不能用賣出價格（sellPrice），因為賣出價格是目標價，會高估成本
 		// 對於有杠杆的交易，實際使用的保证金 = 倉位價值 / 杠杆倍數
-		positionValue := spm.anchorPrice() * slotQty      // 倉位價值
-		actualMargin := positionValue / float64(leverage) // 實際使用的保证金
-		totalUsedAmount += actualMargin
+		actualMargin := margins[i]
 		// 記入槽位持倉占用，平倉成交時按比例釋放（D3）
 		slot.mu.Lock()
 		slot.AllocatedMargin = actualMargin
@@ -1235,7 +1305,7 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 				inWindow = " [暂不挂單]"
 			}
 			logger.Info("✅ [持倉恢複] 槽位 %s: 分配持倉 %.4f (理論: %.4f)%s",
-				formatPrice(price, spm.priceDecimals), slotQty, theoryQtys[i], inWindow)
+				formatPrice(price, spm.priceDecimals), slotQty, spm.config.Trading.OrderQuantity/price, inWindow)
 		} else if i == 10 {
 			logger.Info("... （省略中间 %d 個槽位）", len(sellPrices)-20)
 		}
@@ -1257,49 +1327,26 @@ func (spm *SuperPositionManager) initializeSellSlotsFromPosition(totalPosition f
 	logger.Info("💡 [持倉恢複] 前 %d 個槽位的賣單將在價格調整時自动創建", sellWindowSize)
 	logger.Info("💡 [持倉恢複] 其餘 %d 個槽位保持有倉状態，價格接近時自动挂單", totalSlotsNeeded-sellWindowSize)
 	spm.refreshCostBasisOpeningGate()
+	return nil
 }
 
 // initializeBuySlotsFromPosition 從現有做空持倉初始化買單平倉槽位（SHORT 方向專用）
-func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition float64) {
+func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition float64) error {
 	if totalPosition <= 0 {
-		return
+		return nil
 	}
 	// 做空持倉：槽位價格 = 開倉賣價（高於錨點），平倉買價 = 槽位價格 - interval
-	theoryQtyPerSlot := spm.config.Trading.OrderQuantity / spm.anchorPrice()
-	theoryQtyPerSlot = roundPrice(theoryQtyPerSlot, spm.quantityDecimals)
-	totalSlotsNeeded := int(math.Ceil(totalPosition / theoryQtyPerSlot))
 	sellWindowSize := spm.config.Trading.SellWindowSize
 	if sellWindowSize <= 0 {
 		sellWindowSize = spm.config.Trading.BuyWindowSize
 	}
 	sellStartPrice := spm.anchorPrice() + spm.getEffectiveProfitSpread()
-	sellPrices := spm.calculateSlotPrices(sellStartPrice, totalSlotsNeeded, "up")
-	sellPrices = spm.optimizeSlotPricesWithOrderBook(context.Background(), spm.config.Trading.Symbol, sellPrices)
-
-	var totalTheoryQty float64
-	theoryQtys := make([]float64, len(sellPrices))
-	for i, price := range sellPrices {
-		theoryQty := spm.config.Trading.OrderQuantity / price
-		theoryQty = roundPrice(theoryQty, spm.quantityDecimals)
-		theoryQtys[i] = theoryQty
-		totalTheoryQty += theoryQty
+	sellPrices, allocations, err := spm.positionRecoveryPlan(totalPosition, sellStartPrice)
+	if err != nil {
+		return err
 	}
-
-	var allocatedQty float64
 	for i, price := range sellPrices {
-		var slotQty float64
-		if i == len(sellPrices)-1 {
-			slotQty = totalPosition - allocatedQty
-		} else {
-			slotQty = theoryQtys[i] * (totalPosition / totalTheoryQty)
-			slotQty = roundPrice(slotQty, spm.quantityDecimals)
-			if slotQty > totalPosition-allocatedQty {
-				slotQty = totalPosition - allocatedQty
-			}
-		}
-		if slotQty <= 0 {
-			continue
-		}
+		slotQty := allocations[i]
 		slot := spm.getOrCreateSlot(price)
 		slot.mu.Lock()
 		slot.PositionStatus = PositionStatusFilled
@@ -1313,10 +1360,10 @@ func (spm *SuperPositionManager) initializeBuySlotsFromPosition(totalPosition fl
 		slot.OrderFilledQty = 0
 		slot.OrderFilledNotional = 0
 		slot.mu.Unlock()
-		allocatedQty += slotQty
 	}
-	logger.Info("✅ [持倉恢複] 做空持倉恢複完成，總持倉: %.4f，已分配: %.4f", totalPosition, allocatedQty)
+	logger.Info("✅ [持倉恢複] 做空持倉恢復完成，总持仓: %.4f，已分配: %.4f", totalPosition, totalPosition)
 	spm.refreshCostBasisOpeningGate()
+	return nil
 }
 
 // ===== 状態打印功能 =====

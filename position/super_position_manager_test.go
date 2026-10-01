@@ -2,6 +2,7 @@ package position
 
 import (
 	"context"
+	"math"
 	"quantmesh/config"
 	"testing"
 	"time"
@@ -72,7 +73,7 @@ type MockExchange struct{}
 
 func (m *MockExchange) GetName() string { return "mock" }
 func (m *MockExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
-	return nil, nil
+	return []*PositionInfo{}, nil
 }
 func (m *MockExchange) GetOpenOrders(ctx context.Context, symbol string) (interface{}, error) {
 	return nil, nil
@@ -174,6 +175,76 @@ func TestSuperPositionManager_InitializeFailureBlocksOpening(t *testing.T) {
 	}
 	if reason := spm.GetOpeningPauseReason(); reason != "网格初始化或首批订单未核实，已封锁开仓并等待对账" {
 		t.Fatalf("pause reason = %q, want explicit grid initialization reconciliation", reason)
+	}
+}
+
+type recoverySnapshotExchange struct {
+	MockExchange
+	snapshot interface{}
+	err      error
+}
+
+func (e *recoverySnapshotExchange) GetPositions(context.Context, string) (interface{}, error) {
+	return e.snapshot, e.err
+}
+
+func TestGetExistingPositionFailsClosedOnUnknownSnapshot(t *testing.T) {
+	tests := []struct {
+		name      string
+		direction string
+		snapshot  interface{}
+		want      float64
+		wantErr   bool
+	}{
+		{name: "nil is unknown", snapshot: nil, wantErr: true},
+		{name: "explicit empty means flat", snapshot: []*PositionInfo{}, want: 0},
+		{name: "long snapshot", snapshot: []*PositionInfo{{Symbol: "BTCUSDT", Size: 0.25}}, want: 0.25},
+		{name: "short signed quantity", direction: "SHORT", snapshot: []*PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}}, want: 0.25},
+		{name: "wrong direction rejected", snapshot: []*PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}}, wantErr: true},
+		{name: "both leg scope required", direction: "BOTH", snapshot: []*PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}}, wantErr: true},
+		{name: "nonfinite rejected", snapshot: []*PositionInfo{{Symbol: "BTCUSDT", Size: math.NaN()}}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.Symbol = "BTCUSDT"
+			cfg.Trading.Direction = tc.direction
+			spm := NewSuperPositionManager(cfg, &MockExecutor{}, &recoverySnapshotExchange{snapshot: tc.snapshot}, 2, 3)
+			got, err := spm.getExistingPosition()
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("getExistingPosition() error=%v, wantErr=%v", err, tc.wantErr)
+			}
+			if err == nil && got != tc.want {
+				t.Fatalf("getExistingPosition()=%v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPositionRecoveryPlanBoundsAndPreservesQuantity(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.OrderQuantity = 100
+	cfg.Trading.PriceInterval = 100
+	spm := NewSuperPositionManager(cfg, &MockExecutor{}, &MockExchange{}, 2, 3)
+	spm.setAnchorPrice(50000)
+
+	prices, allocations, err := spm.positionRecoveryPlan(0.005, 50100)
+	if err != nil {
+		t.Fatalf("positionRecoveryPlan() error: %v", err)
+	}
+	if len(prices) != len(allocations) || len(prices) == 0 {
+		t.Fatalf("plan lengths prices=%d allocations=%d", len(prices), len(allocations))
+	}
+	total := 0.0
+	for _, qty := range allocations {
+		total += qty
+	}
+	if math.Abs(total-0.005) > 0.00000001 {
+		t.Fatalf("allocated quantity=%v, want 0.005", total)
+	}
+	if _, _, err := spm.positionRecoveryPlan(1e9, 50100); err == nil {
+		t.Fatal("positionRecoveryPlan accepted an unbounded slot count")
 	}
 }
 

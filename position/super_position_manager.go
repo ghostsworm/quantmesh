@@ -1431,14 +1431,21 @@ func (spm *SuperPositionManager) placeInitialOpenOrders() error {
 		logger.Info("✅ [初始化] 已加载网格运行态快照，保留原槽位与持仓成本；待启动核账完成后再调整委托")
 		return nil
 	}
-	existingPosition := spm.getExistingPosition()
+	existingPosition, err := spm.getExistingPosition()
+	if err != nil {
+		return err
+	}
 	if existingPosition > 0 {
 		if spm.isShort() {
 			logger.Info("🔄 [持倉恢複] 检测到現有做空持倉: %.4f，开始初始化買單平倉槽位", existingPosition)
-			spm.initializeBuySlotsFromPosition(existingPosition)
+			if err := spm.initializeBuySlotsFromPosition(existingPosition); err != nil {
+				return fmt.Errorf("恢复做空持仓槽位失败: %w", err)
+			}
 		} else {
 			logger.Info("🔄 [持倉恢複] 检测到現有持倉: %.4f，开始初始化賣單槽位", existingPosition)
-			spm.initializeSellSlotsFromPosition(existingPosition)
+			if err := spm.initializeSellSlotsFromPosition(existingPosition); err != nil {
+				return fmt.Errorf("恢复多头持仓槽位失败: %w", err)
+			}
 		}
 	}
 

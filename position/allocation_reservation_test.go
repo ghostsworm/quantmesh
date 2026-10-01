@@ -29,7 +29,7 @@ func (c *countingExchange) GetAccount(ctx context.Context) (interface{}, error) 
 
 func (c *countingExchange) GetPositions(ctx context.Context, symbol string) (interface{}, error) {
 	c.positionsCalls.Add(1)
-	return nil, nil
+	return []*PositionInfo{}, nil
 }
 
 func newReservationTestSPM(t *testing.T, direction string) (*SuperPositionManager, *countingExchange) {
