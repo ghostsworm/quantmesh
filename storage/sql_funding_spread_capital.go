@@ -204,14 +204,12 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 				amount = current.Float64
 			}
 		}
-		if !current.Valid || amount > current.Float64 {
-			var others float64
-			if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key <> ?`, claim.WalletKey, botKey).Scan(&others); err != nil {
-				return fmt.Errorf("sum existing account wallet reservations: %w", err)
-			}
-			if math.IsNaN(others) || math.IsInf(others, 0) || others < 0 || others > math.MaxFloat64-amount || others+amount > claim.Available {
-				return fmt.Errorf("wallet %s cannot safely reserve %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, claim.Available)
-			}
+		var others float64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key <> ?`, claim.WalletKey, botKey).Scan(&others); err != nil {
+			return fmt.Errorf("sum existing account wallet reservations: %w", err)
+		}
+		if math.IsNaN(others) || math.IsInf(others, 0) || others < 0 || others > math.MaxFloat64-amount || others+amount > claim.Available {
+			return fmt.Errorf("wallet %s cannot safely retain %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, claim.Available)
 		}
 		writes = append(writes, write{walletKey: claim.WalletKey, reservationToken: claim.ReservationToken, amount: amount})
 	}

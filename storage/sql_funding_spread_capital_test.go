@@ -71,7 +71,7 @@ func TestFundingSpreadCapitalReservationsSerializeConcurrentBots(t *testing.T) {
 	}
 }
 
-func TestFundingSpreadCapitalReservationCannotShrinkUntilReleased(t *testing.T) {
+func TestFundingSpreadCapitalReservationRejectsUnsafeRestartAndRetainsClaim(t *testing.T) {
 	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "capital-retained.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -79,19 +79,30 @@ func TestFundingSpreadCapitalReservationCannotShrinkUntilReleased(t *testing.T) 
 	defer store.Close()
 	ctx := context.Background()
 
-	if err := store.ReserveFundingSpreadCapital(ctx, "spread-owner", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 80, 100)}); err != nil {
+	if err := store.ReserveFundingSpreadCapital(ctx, "spread-owner", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 60, 100)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ReserveFundingSpreadCapital(ctx, "spread-owner", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 30, 10)}); err != nil {
-		t.Fatalf("restart must preserve an existing reservation despite a lower free-balance snapshot: %v", err)
+	if err := store.ReserveFundingSpreadCapital(ctx, "spread-other", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 30, 100)}); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.ReserveFundingSpreadCapital(ctx, "spread-other", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 21, 100)}); err == nil {
-		t.Fatal("another Bot was allowed to consume capacity still reserved by the owner")
+	if err := store.ReserveFundingSpreadCapital(ctx, "spread-owner", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 40, 80)}); err == nil {
+		t.Fatal("same-Bot restart bypassed other Bot reservations after available balance fell")
+	}
+	rows, err := store.ListAccountWalletCapitalReservations(ctx, "", "", 10)
+	retained := 0.0
+	for _, row := range rows {
+		retained += row.Amount
+	}
+	if err != nil || len(rows) != 2 || retained != 90 {
+		t.Fatalf("rejected restart must retain all previous reservations: rows=%+v err=%v", rows, err)
+	}
+	if err := store.ReserveFundingSpreadCapital(ctx, "spread-new", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 11, 100)}); err == nil {
+		t.Fatal("another Bot was allowed to consume capacity still reserved by the owners")
 	}
 	if err := store.ReleaseFundingSpreadCapital(ctx, "spread-owner", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 0, 0)}); err != nil {
 		t.Fatalf("release verified flat reservation: %v", err)
 	}
-	if err := store.ReserveFundingSpreadCapital(ctx, "spread-other", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 100, 100)}); err != nil {
+	if err := store.ReserveFundingSpreadCapital(ctx, "spread-new", []FundingSpreadCapitalClaim{fundingSpreadTestClaim(4, 70, 100)}); err != nil {
 		t.Fatalf("capacity was not released: %v", err)
 	}
 }
