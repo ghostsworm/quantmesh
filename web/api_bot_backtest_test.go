@@ -22,7 +22,7 @@ func TestCreateBacktestStrategySupportsTrendFollowing(t *testing.T) {
 		},
 	}
 
-	strategy, err := createBacktestStrategy(botCfg.Strategies[0], botCfg)
+	strategy, err := createBacktestStrategy(botCfg.Strategies[0], botCfg, 0.0004, 0.9999)
 	if err != nil {
 		t.Fatalf("expected trend_following to be supported, got error: %v", err)
 	}

@@ -10,6 +10,8 @@ type StrategyExecutionContext struct {
 	Symbol           string
 	TotalCapital     float64
 	AllocatedCapital float64
+	CommissionRate   float64
+	SellSlippage     float64
 	StrategyID       string
 	StrategyName     string
 	StrategyIndex    int
@@ -265,19 +267,38 @@ func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionCont
 		riskControlEnabled := getBoolParam(strategy.Config, "grid_risk_control_enabled", false)
 		if riskControlEnabled {
 			riskControl := &GridRiskControl{
-				Enabled:                   true,
-				StopLossRatio:             getFloatParam(strategy.Config, "grid_risk_control_stop_loss_ratio", 0.2),
-				TakeProfitTriggerRatio:    getFloatParam(strategy.Config, "grid_risk_control_take_profit_trigger_ratio", 0.08),
-				TrailingTakeProfitRatio:   getFloatParam(strategy.Config, "grid_risk_control_trailing_take_profit_ratio", 0.02),
-				MaxGridLayers:             getIntParam(strategy.Config, "grid_risk_control_max_grid_layers", 0),
-				MaxOpenOrdersAtCap:        getIntParam(strategy.Config, "grid_risk_control_max_open_orders_at_cap", 0),
-				TrendFilterEnabled:        getBoolParam(strategy.Config, "grid_risk_control_trend_filter_enabled", false),
+				Enabled:                 true,
+				StopLossRatio:           getFloatParam(strategy.Config, "grid_risk_control_stop_loss_ratio", 0.2),
+				TakeProfitTriggerRatio:  getFloatParam(strategy.Config, "grid_risk_control_take_profit_trigger_ratio", 0.08),
+				TrailingTakeProfitRatio: getFloatParam(strategy.Config, "grid_risk_control_trailing_take_profit_ratio", 0.02),
+				MaxGridLayers:           getIntParam(strategy.Config, "grid_risk_control_max_grid_layers", 0),
+				MaxOpenOrdersAtCap:      getIntParam(strategy.Config, "grid_risk_control_max_open_orders_at_cap", 0),
+				TrendFilterEnabled:      getBoolParam(strategy.Config, "grid_risk_control_trend_filter_enabled", false),
 			}
 			strategyInstance.SetRiskControl(riskControl)
 		}
 
 		return wrapAuditableStrategy(strategyInstance, ctx), nil
-	case "dca", "dca_enhanced":
+	case "dca_enhanced":
+		params := make(map[string]interface{}, len(strategy.Config)+1)
+		for key, value := range strategy.Config {
+			params[key] = value
+		}
+		// 回测退出阈值必须使用与引擎实际记账一致的手续费率。
+		feeRate := ctx.CommissionRate
+		if feeRate <= 0 {
+			feeRate = 0.0004
+		}
+		params["fee_rate"] = feeRate
+		if ctx.SellSlippage > 0 {
+			params["sell_slippage"] = ctx.SellSlippage
+		}
+		instance, err := NewDCAEnhancedBacktestStrategy(ctx.StrategyName, ctx.Symbol, params, totalCapital)
+		if err != nil {
+			return nil, err
+		}
+		return wrapAuditableStrategy(instance, ctx), nil
+	case "dca":
 		baseOrderAmount := getFloatParam(strategy.Config, "base_order_amount", 30.0)
 		maxOrders := getIntParam(strategy.Config, "max_orders", 10)
 		return wrapAuditableStrategy(NewDCABacktestStrategy(
@@ -351,6 +372,8 @@ func CreateTaskBacktestStrategy(strategy TaskStrategy, ctx StrategyExecutionCont
 				StrategyID:       subStrategy.ID,
 				StrategyName:     subStrategy.Name,
 				StrategyIndex:    ctx.StrategyIndex,
+				CommissionRate:   ctx.CommissionRate,
+				SellSlippage:     ctx.SellSlippage,
 			})
 			if err != nil {
 				return nil, err
@@ -401,15 +424,15 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 	}
 
 	engine := NewMultiStrategyEngine(&EngineConfig{
-		Symbol:           task.Symbol,
-		InitialCapital:   task.TotalCapital,
-		StartDate:        task.StartTime,
-		EndDate:          task.EndTime,
-		MatcherConfig:    DefaultMatcherConfig(),
-		Leverage:         leverage,
-		MaxCapitalRatio:  maxCapitalRatio,
-		CommissionRate:   0.0004, // 0.04% 手续费
-		PositionMode:     positionMode,
+		Symbol:          task.Symbol,
+		InitialCapital:  task.TotalCapital,
+		StartDate:       task.StartTime,
+		EndDate:         task.EndTime,
+		MatcherConfig:   DefaultMatcherConfig(),
+		Leverage:        leverage,
+		MaxCapitalRatio: maxCapitalRatio,
+		CommissionRate:  0.0004, // 0.04% 手续费
+		PositionMode:    positionMode,
 	})
 	engine.Klines = make([]TickKline, 0, len(candles))
 	for _, candle := range candles {
@@ -438,6 +461,8 @@ func RunMultiStrategyTask(task *BacktestTask, candles []*exchange.Candle) (*Mult
 			StrategyID:       strategy.ID,
 			StrategyName:     strategy.Name,
 			StrategyIndex:    i,
+			CommissionRate:   0.0004,
+			SellSlippage:     DefaultMatcherConfig().SellSlippage,
 		})
 		if err != nil {
 			return nil, err

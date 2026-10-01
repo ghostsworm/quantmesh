@@ -52,6 +52,72 @@ func TestCreateTaskBacktestStrategySupportsTrendFollowing(t *testing.T) {
 	}
 }
 
+func TestCreateTaskBacktestStrategySeparatesEnhancedDCAFromLegacyDCA(t *testing.T) {
+	ctx := StrategyExecutionContext{Symbol: "BTCUSDT", TotalCapital: 1000, CommissionRate: 0.001, SellSlippage: 0.999}
+	legacy, err := CreateTaskBacktestStrategy(TaskStrategy{Type: "dca", Weight: 1}, ctx)
+	if err != nil {
+		t.Fatalf("create legacy dca strategy: %v", err)
+	}
+	if legacy.GetType() != "dca" {
+		t.Fatalf("legacy dca type changed: got %q", legacy.GetType())
+	}
+
+	enhanced, err := CreateTaskBacktestStrategy(TaskStrategy{
+		Type: "dca_enhanced", Weight: 1,
+		Config: map[string]interface{}{"base_order_amount": 80, "first_order_take_profit": 1.2},
+	}, ctx)
+	if err != nil {
+		t.Fatalf("create enhanced dca strategy: %v", err)
+	}
+	if enhanced.GetType() != "dca_enhanced" {
+		t.Fatalf("enhanced dca type mismatch: got %q", enhanced.GetType())
+	}
+	if got := enhanced.GetConfig()["fee_rate"].(float64); got != 0.001 {
+		t.Fatalf("strategy fee rate %v does not match engine commission", got)
+	}
+	inner := enhanced.(*AuditableBacktestStrategy).inner.(*DCAEnhancedBacktestStrategy)
+	if inner.BaseOrderAmount != 80 || inner.FirstOrderTakeProfit != 1.2 || inner.SellSlippage != 0.999 {
+		t.Fatalf("enhanced dca config was not preserved: %+v", inner)
+	}
+}
+
+func TestDCAEnhancedBacktestDefersOrdersAndAppliesTakeProfit(t *testing.T) {
+	strategy, err := NewDCAEnhancedBacktestStrategy("dca-test", "BTCUSDT", map[string]interface{}{
+		"trend_filter_enabled": false, "cascade_protection": false,
+		"base_order_amount": 100, "first_order_take_profit": 1,
+		"last_order_take_profit": 0, "total_take_profit": 0,
+		"trailing_activation": 100, "stop_loss": 50,
+		"fee_rate": 0, "sell_slippage": 1,
+	}, 1000)
+	if err != nil {
+		t.Fatalf("create enhanced dca strategy: %v", err)
+	}
+	account := &BacktestAccount{}
+	if err := strategy.OnInit(account, nil); err != nil {
+		t.Fatalf("initialize enhanced dca strategy: %v", err)
+	}
+	candle := func(price float64, timestamp int64) TickKline {
+		return TickKline{Timestamp: timestamp, Open: price, High: price, Low: price, Close: price, Volume: 1000}
+	}
+	orders, err := strategy.OnKline(candle(100, 1_000), 1_000)
+	if err != nil || len(orders) != 0 {
+		t.Fatalf("new signal should not fill on its own candle: orders=%v err=%v", orders, err)
+	}
+	orders, err = strategy.OnKline(candle(100, 61_000), 61_000)
+	if err != nil || len(orders) != 1 || orders[0].Side != "buy" {
+		t.Fatalf("expected deferred base buy, orders=%v err=%v", orders, err)
+	}
+	strategy.OnTrade(TickTrade{OrderID: orders[0].OrderID, Side: "buy", Price: 100, Size: 1})
+	orders, err = strategy.OnKline(candle(102, 121_000), 121_000)
+	if err != nil || len(orders) != 0 {
+		t.Fatalf("take-profit signal should also be deferred, orders=%v err=%v", orders, err)
+	}
+	orders, err = strategy.OnKline(candle(102, 181_000), 181_000)
+	if err != nil || len(orders) != 1 || orders[0].Side != "sell" || orders[0].Size != 1 {
+		t.Fatalf("expected take-profit close, orders=%v err=%v", orders, err)
+	}
+}
+
 func TestRunMultiStrategyTaskReturnsCombinedResult(t *testing.T) {
 	task := &BacktestTask{
 		Mode:         TaskModeBotStrategies,
@@ -123,9 +189,9 @@ func TestRunMultiStrategyTaskDirectionLongOnly(t *testing.T) {
 				Type:   "grid",
 				Weight: 1,
 				Config: map[string]interface{}{
-					"grid_count":    6,
-					"grid_spacing":  0.01,
-					"direction":     "LONG",
+					"grid_count":   6,
+					"grid_spacing": 0.01,
+					"direction":    "LONG",
 				},
 			},
 		},

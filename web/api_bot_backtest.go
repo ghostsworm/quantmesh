@@ -15,39 +15,39 @@ import (
 
 // BotBacktestRequest Bot回测請求
 type BotBacktestRequest struct {
-	BotID       string    `json:"bot_id" binding:"required"`
-	StartDate   time.Time `json:"start_date"`
-	EndDate     time.Time `json:"end_date"`
-	DataDir     string    `json:"data_dir"`
-	Commission  float64   `json:"commission"`
-	Leverage    float64   `json:"leverage"`
+	BotID      string    `json:"bot_id" binding:"required"`
+	StartDate  time.Time `json:"start_date"`
+	EndDate    time.Time `json:"end_date"`
+	DataDir    string    `json:"data_dir"`
+	Commission float64   `json:"commission"`
+	Leverage   float64   `json:"leverage"`
 }
 
 // BotBacktestResponse Bot回测响应
 type BotBacktestResponse struct {
-	TaskID      string                      `json:"task_id"`
-	Status      string                      `json:"status"`
-	Message     string                      `json:"message"`
-	BotConfig   *config.BotConfig           `json:"bot_config,omitempty"`
-	BacktestConfig *backtest.EngineConfig   `json:"backtest_config,omitempty"`
+	TaskID         string                 `json:"task_id"`
+	Status         string                 `json:"status"`
+	Message        string                 `json:"message"`
+	BotConfig      *config.BotConfig      `json:"bot_config,omitempty"`
+	BacktestConfig *backtest.EngineConfig `json:"backtest_config,omitempty"`
 }
 
 // BotBacktestTask Bot回测任務
 type BotBacktestTask struct {
-	TaskID       string                               `json:"task_id"`
-	BotID        string                               `json:"bot_id"`
-	Status       string                               `json:"status"` // pending, running, completed, failed
-	CreatedAt    time.Time                            `json:"created_at"`
-	StartedAt    *time.Time                           `json:"started_at,omitempty"`
-	CompletedAt  *time.Time                           `json:"completed_at,omitempty"`
-	BotConfig    *config.BotConfig                    `json:"bot_config"`
-	Engine       *backtest.MultiStrategyEngine        `json:"-"`
-	Result       *backtest.MultiStrategyResult        `json:"result,omitempty"`
-	Error        string                               `json:"error,omitempty"`
-	Progress     float64                              `json:"progress"`
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	TaskID      string                        `json:"task_id"`
+	BotID       string                        `json:"bot_id"`
+	Status      string                        `json:"status"` // pending, running, completed, failed
+	CreatedAt   time.Time                     `json:"created_at"`
+	StartedAt   *time.Time                    `json:"started_at,omitempty"`
+	CompletedAt *time.Time                    `json:"completed_at,omitempty"`
+	BotConfig   *config.BotConfig             `json:"bot_config"`
+	Engine      *backtest.MultiStrategyEngine `json:"-"`
+	Result      *backtest.MultiStrategyResult `json:"result,omitempty"`
+	Error       string                        `json:"error,omitempty"`
+	Progress    float64                       `json:"progress"`
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 var (
@@ -106,16 +106,16 @@ func postBotBacktestCreate(c *gin.Context) {
 
 	// 創建回测引擎配置
 	engineConfig := &backtest.EngineConfig{
-		Symbol:           botDetail.Config.Symbol,
-		InitialCapital:   botDetail.Config.TotalAllocatedCapital,
-		CommissionRate:   req.Commission,
-		Leverage:         req.Leverage,
-		StartDate:        req.StartDate,
-		EndDate:          req.EndDate,
-		DataDir:          req.DataDir,
-		PositionMode:     botDetail.Config.Direction,
-		EnableFunding:    true,
-		MatcherConfig:    backtest.DefaultMatcherConfig(),
+		Symbol:         botDetail.Config.Symbol,
+		InitialCapital: botDetail.Config.TotalAllocatedCapital,
+		CommissionRate: req.Commission,
+		Leverage:       req.Leverage,
+		StartDate:      req.StartDate,
+		EndDate:        req.EndDate,
+		DataDir:        req.DataDir,
+		PositionMode:   botDetail.Config.Direction,
+		EnableFunding:  true,
+		MatcherConfig:  backtest.DefaultMatcherConfig(),
 	}
 
 	// 創建任務
@@ -140,10 +140,10 @@ func postBotBacktestCreate(c *gin.Context) {
 
 	// 返回响应
 	c.JSON(http.StatusOK, BotBacktestResponse{
-		TaskID:        taskID,
-		Status:        "pending",
-		Message:       "Backtest task created",
-		BotConfig:     botDetail.Config,
+		TaskID:         taskID,
+		Status:         "pending",
+		Message:        "Backtest task created",
+		BotConfig:      botDetail.Config,
 		BacktestConfig: engineConfig,
 	})
 }
@@ -196,7 +196,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 
 	// 創建策略实例
 	for _, strategyCfg := range normalizeBotStrategies(task.BotConfig.Strategies) {
-		strategy, err := createBacktestStrategy(strategyCfg, task.BotConfig)
+		strategy, err := createBacktestStrategy(strategyCfg, task.BotConfig, engineConfig.CommissionRate, engineConfig.MatcherConfig.SellSlippage)
 		if err != nil {
 			task.mu.Lock()
 			task.Status = "failed"
@@ -247,7 +247,7 @@ func executeBotBacktest(task *BotBacktestTask, engineConfig *backtest.EngineConf
 }
 
 // createBacktestStrategy 根据配置創建回测策略
-func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig) (backtest.BacktestStrategy, error) {
+func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.BotConfig, commissionRate, sellSlippage float64) (backtest.BacktestStrategy, error) {
 	return backtest.CreateTaskBacktestStrategy(
 		backtest.TaskStrategy{
 			Type:   strategyCfg.Type,
@@ -255,8 +255,10 @@ func createBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *config.
 			Config: strategyCfg.Config,
 		},
 		backtest.StrategyExecutionContext{
-			Symbol:       botCfg.Symbol,
-			TotalCapital: botCfg.TotalAllocatedCapital,
+			Symbol:         botCfg.Symbol,
+			TotalCapital:   botCfg.TotalAllocatedCapital,
+			CommissionRate: commissionRate,
+			SellSlippage:   sellSlippage,
 		},
 	)
 }
@@ -375,7 +377,7 @@ func createComboBacktestStrategy(strategyCfg config.StrategyInstance, botCfg *co
 			Config: subStrategyInstance,
 		}
 
-		subStrategy, err := createBacktestStrategy(subStrategyCfg, botCfg)
+		subStrategy, err := createBacktestStrategy(subStrategyCfg, botCfg, 0.0004, backtest.DefaultMatcherConfig().SellSlippage)
 		if err != nil {
 			logger.Warn("Failed to create sub-strategy: %v", err)
 			continue
@@ -568,8 +570,8 @@ func getSliceParam(cfg map[string]interface{}, key string) []interface{} {
 
 // BinanceDataDownloadRequest Binance數據下載請求
 type BinanceDataDownloadRequest struct {
-	Symbol   string `json:"symbol" binding:"required"`
-	Interval string `json:"interval"`   // 1m, 5m, 15m, 1h, 4h, 1d
+	Symbol    string `json:"symbol" binding:"required"`
+	Interval  string `json:"interval"`   // 1m, 5m, 15m, 1h, 4h, 1d
 	StartDate string `json:"start_date"` // YYYY-MM or YYYY-MM-DD
 	EndDate   string `json:"end_date"`   // YYYY-MM or YYYY-MM-DD
 	DataDir   string `json:"data_dir"`
@@ -577,16 +579,16 @@ type BinanceDataDownloadRequest struct {
 
 // BinanceDataInfoResponse 數據信息响应
 type BinanceDataInfoResponse struct {
-	Symbol          string    `json:"symbol"`
-	Interval        string    `json:"interval"`
-	KlinesFiles     []string  `json:"klines_files"`
-	FundingFiles    []string  `json:"funding_files"`
-	EarliestKline   int64     `json:"earliest_kline"`
-	LatestKline     int64     `json:"latest_kline"`
-	EarliestFunding int64     `json:"earliest_funding"`
-	LatestFunding   int64     `json:"latest_funding"`
-	KlinesSizeMB    float64   `json:"klines_size_mb"`
-	FundingSizeMB   float64   `json:"funding_size_mb"`
+	Symbol          string   `json:"symbol"`
+	Interval        string   `json:"interval"`
+	KlinesFiles     []string `json:"klines_files"`
+	FundingFiles    []string `json:"funding_files"`
+	EarliestKline   int64    `json:"earliest_kline"`
+	LatestKline     int64    `json:"latest_kline"`
+	EarliestFunding int64    `json:"earliest_funding"`
+	LatestFunding   int64    `json:"latest_funding"`
+	KlinesSizeMB    float64  `json:"klines_size_mb"`
+	FundingSizeMB   float64  `json:"funding_size_mb"`
 }
 
 // postBinanceDataDownload 下載數據
@@ -706,8 +708,8 @@ func getBinanceDataAvailability(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":               true,
-		"klines_available": klinesAvailable,
+		"ok":                true,
+		"klines_available":  klinesAvailable,
 		"funding_available": fundingAvailable,
 	})
 }
@@ -739,8 +741,8 @@ func getBinanceLatestDataTime(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":               true,
-		"klines_latest":    klinesTime.Unix(),
-		"funding_latest":   fundingTime.Unix(),
+		"ok":             true,
+		"klines_latest":  klinesTime.Unix(),
+		"funding_latest": fundingTime.Unix(),
 	})
 }
