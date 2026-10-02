@@ -61,6 +61,48 @@ func newPersistedDCAStrategyWithConfig(t *testing.T, ex *dcaRecoveryExchange, st
 	return s
 }
 
+func TestLoadDCAExposureInventoryRequiresSettledEntryIdentity(t *testing.T) {
+	cfg := dcaTestConfig()
+	seed := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, nil, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, nil)
+	base := seed.runtimeStateSnapshotLocked()
+	base.TotalQty, base.TotalCost, base.AvgEntryPrice, base.CurrentLayer = 0.5, 50, 100, 1
+	base.Layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 0.5, Cost: 50, OrderID: 714,
+		ClientOrderID: "dca-entry-714", Status: entryStatusFilled, RequestedQuantity: 0.5,
+		FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}}
+	storeFor := func(t *testing.T, state dcaRuntimeState) *memoryRuntimeStateStore {
+		t.Helper()
+		payload, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	}
+	t.Run("settled filled layer restores as exact owner lot", func(t *testing.T) {
+		lots, found, err := LoadDCAExposureInventory(storeFor(t, base), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil)
+		if err != nil || !found || len(lots) != 1 || lots[0].Group != "dca" || lots[0].EntryOrderID != 714 ||
+			lots[0].EntryClientOrderID != "dca-entry-714" || lots[0].Quantity != 0.5 {
+			t.Fatalf("DCA inventory=%+v found=%t err=%v", lots, found, err)
+		}
+	})
+	t.Run("filled layer without durable order identity fails closed", func(t *testing.T) {
+		legacy := base
+		legacy.Layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 0.5, Cost: 50, Status: entryStatusFilled,
+			RequestedQuantity: 0.5, FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}}
+		if _, _, err := LoadDCAExposureInventory(storeFor(t, legacy), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil); err == nil {
+			t.Fatal("accepted a DCA layer without its entry order identity")
+		}
+	})
+	t.Run("pending layer requires order reconciliation", func(t *testing.T) {
+		pending := base
+		pending.TotalQty, pending.TotalCost, pending.AvgEntryPrice = 0, 0, 0
+		pending.Layers = []*DCALayer{{Index: 0, Price: 100, OrderID: 715, ClientOrderID: "dca-pending-715",
+			Status: entryStatusPending, RequestedQuantity: 0.5}}
+		if _, _, err := LoadDCAExposureInventory(storeFor(t, pending), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil); err == nil {
+			t.Fatal("accepted a pending DCA layer as restored filled exposure")
+		}
+	})
+}
+
 func TestDCAStartReplaysSpotEntryBaseFeeAsNetInventoryAndQuoteCost(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
 		OrderID: 94, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1,

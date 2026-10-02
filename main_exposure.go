@@ -89,7 +89,7 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 			}
 		}
 		if len(inventory) != 0 {
-			return fmt.Errorf("spot grid inventory cannot be restored from derivative position snapshots")
+			return fmt.Errorf("spot strategy inventory cannot be restored from derivative position snapshots")
 		}
 	} else {
 		direction := ""
@@ -161,7 +161,7 @@ func verifyRestoredFuturesInventory(venue []*exchange.Position, inventory []exec
 	}
 	var ownerLong, ownerShort float64
 	for _, p := range inventory {
-		if p.Group != "grid" && p.Group != "trend" && p.Group != "mean_reversion" && p.Group != "momentum" ||
+		if p.Group != "grid" && p.Group != "trend" && p.Group != "mean_reversion" && p.Group != "momentum" && p.Group != "dca" ||
 			p.Quantity <= 0 || math.IsNaN(p.Quantity) || math.IsInf(p.Quantity, 0) {
 			return fmt.Errorf("restored strategy inventory contains invalid owner quantity or group")
 		}

@@ -11,6 +11,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/event"
+	"quantmesh/execution"
 	"quantmesh/indicators"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -112,6 +113,57 @@ type dcaRuntimeState struct {
 	CloseRequestedQty   float64               `json:"close_requested_qty"`
 	CloseLimitPrice     float64               `json:"close_limit_price"`
 	Stats               StrategyStatistics    `json:"stats"`
+}
+
+// LoadDCAExposureInventory validates persisted DCA state through the same
+// restore validator used by the live strategy, then exports only fully
+// reconciled filled layers. Pending, partially filled, closing, or ambiguous
+// layers require order reconciliation and cannot seed startup exposure.
+func LoadDCAExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
+	if store == nil {
+		return nil, false, fmt.Errorf("DCA runtime state store is required for exposure recovery")
+	}
+	_, _, found, err := store.LoadRuntimeState("dca")
+	if err != nil {
+		return nil, false, fmt.Errorf("load DCA runtime state for exposure recovery: %w", err)
+	}
+	if !found {
+		return nil, false, nil
+	}
+	s := NewDCAEnhancedStrategy("dca", symbol, cfg, nil, ex, strategyConfig)
+	s.SetRuntimeStateStore(store)
+	if err := s.restoreRuntimeState(); err != nil {
+		return nil, false, fmt.Errorf("validate DCA runtime state for exposure recovery: %w", err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.isClosing || s.closeOrderID > 0 || strings.TrimSpace(s.closeClientOrderID) != "" {
+		return nil, false, fmt.Errorf("DCA strategy has unresolved close state during exposure recovery")
+	}
+	var inventory []execution.ExposurePosition
+	for _, layer := range s.layers {
+		if layer == nil {
+			return nil, false, fmt.Errorf("DCA runtime state contains a nil layer during exposure recovery")
+		}
+		switch layer.Status {
+		case entryStatusPending, entryStatusPartiallyFilled, position.OrderStatusUnknown:
+			return nil, false, fmt.Errorf("DCA layer %d has unresolved entry order state during exposure recovery", layer.Index)
+		case entryStatusFilled:
+			if layer.Quantity == 0 {
+				continue
+			}
+			if layer.OrderID <= 0 || strings.TrimSpace(layer.ClientOrderID) == "" {
+				return nil, false, fmt.Errorf("DCA filled layer %d lacks durable entry-order identity", layer.Index)
+			}
+			inventory = append(inventory, execution.ExposurePosition{
+				Key: fmt.Sprintf("dca/%d/%s", layer.Index, layer.ClientOrderID), Group: "dca", Leg: "LONG",
+				Quantity: layer.Quantity, EntryOrderID: layer.OrderID, EntryClientOrderID: layer.ClientOrderID,
+			})
+		default:
+			return nil, false, fmt.Errorf("DCA layer %d has unsupported status %q during exposure recovery", layer.Index, layer.Status)
+		}
+	}
+	return inventory, true, nil
 }
 
 // DCAEnhancedConfig 增强型 DCA 配置

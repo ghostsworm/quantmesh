@@ -875,6 +875,18 @@ func startSymbolRuntime(
 			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
 		}
 	}
+	if dcaCfg, exists := localCfg.Strategies.Configs["dca"]; exists && dcaCfg.Enabled && signalStateLoadErr == nil {
+		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
+		dcaInventory, dcaStateRestored, dcaErr := strategy.LoadDCAExposureInventory(stateStore, &localCfg, exchangeAdapter, symCfg.Symbol, dcaCfg.Config)
+		if dcaErr != nil {
+			signalStateLoadErr = dcaErr
+			logger.ErrorCtx(ctx, "[%s] DCA exposure recovery incomplete; new opening remains blocked: %v", botID, dcaErr)
+			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
+		} else {
+			signalInventory = append(signalInventory, dcaInventory...)
+			signalStateRestored = signalStateRestored || dcaStateRestored
+		}
+	}
 	if signalStateLoadErr == nil {
 		if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager, signalInventory, signalStateRestored); err != nil {
 			logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)

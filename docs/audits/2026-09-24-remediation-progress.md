@@ -2715,3 +2715,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - R09/R12 複核確認 rc819 雖強制持久化 signal runtime state，但其持倉仍未綁定入場成交訂單；啟動 bootstrap 只恢復 grid lot，故三類信號策略的非空期貨倉位無法安全加入共用曝光賬本。
 - Position 現在持久化入場 OrderID/CID；啟動只對已啟用的 Trend、Mean Reversion、Momentum 載入狀態，拒絕無身份持倉或未決委託。SQL 核驗要求 owner scope、策略類型、入場方向、終態已結算成交、CID、交易所訂單 ID/數量及 Bot 訂單列一致；其後將 grid 與 signal lots 合併，要求交易所雙向總倉位精確相符才 seed 共用曝光賬本。舊快照無入場身份時 fail-closed。
 - 新增持倉身份捕獲、合法恢復 lot、舊快照/活動委託拒絕、SQL 策略/CID 綁定與 grid+signal 混合持倉聚合測試；定向測試通過。仍需執行全量 Go 測試與 race/vet；此路徑不代表所有非網格策略、spot/multi-leg 策略、真實交易所重啟或資金帳本已完整恢復，亦未連接真實帳戶、下單、部署或驗收盈利能力。
+
+## 後續續修：DCA 永續逐層持倉納入啟動風險恢復（3.111.0-rc821，2026-10-02）
+
+- R09/R12 延續檢查發現 DCA 雖持久化每層入場 CID、OrderID、成交量及成本，但全局啟動曝光恢復仍只合併 grid 與 signal 層；因此已有 DCA 永續持倉的帳戶會被拒絕恢復，而不能安全載入既有 lot。
+- 新增使用 DCA 正式快照恢復驗證器載入 runtime state，只有狀態為終態填充、數量大於零且具有唯一入場 OrderID/CID 的層可作為獨立 LONG lot；未決/部分成交層、活動平倉或缺少身份皆拒絕。SQL 意圖核驗允許 DCA 並要求 strategy type、CID、精確 owner scope、訂單成交量一致；啟動將其與 grid/signal lot 合併後再核對交易所總倉位。現貨倉位仍不能由衍生品持倉快照證明，故維持阻斷。
+- 新增 DCA 有效 lot、舊層缺少訂單身份、未決層拒絕測試；待執行定向、全倉、race/vet 驗證。仍未覆蓋 Martingale、DCA 現貨、其他策略及真實交易所重啟；未連接真實帳戶、下單、部署或驗收盈利能力。
