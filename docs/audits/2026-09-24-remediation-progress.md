@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc937 R09/R10 Funding Carry 逐笔金额：四个隔离行为回归先复现小额总额翻倍、本金组件翻倍、1e-9相对总额差异及错误借款本金被总额覆写仍确认通过。确认及恢复组件统一采用有限机器精度金额比较，不使用固定绝对/比例容差；借款核验并保留原始本金，零金额不可借容差冒充正额。确认与 record 实际入口拒绝非法证据且不推进 durable；小额组件错误但本金净账已配平的真实 restore 仍拒绝、保留原内存/durable，合法纯利息/零利息/小额/大额及单ULP混合组件、原始借款本金正常保留等两轮race通过，相关策略全套两轮通过。strategy vet、diff 检查、Ruby门禁9项/58断言及前端类型/44文件224测试/Vite/PWA构建通过。十包 /private/tmp/quantmesh-trading-race-rc937-final 为1871 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc937、source_commit=94274ce4、source_dirty=true、无缺包/解析错误，不继承严格MySQL或同提交验收。输入仍为float64，交易所原始定点精度、全账户归属/完整金融核账与接管补偿、真实盈利仍未验收；无生产库/账户/交易或发布操作。
+
 - rc936 R09/R10 Funding Carry 微量本金：三个真实行为回归先复现固定1e-10容差将无先前借款的1e-11还本、1e-11未还借款及0.5借款返还0.49999999999后的余额接受为核清。保留事件本金以 float64 保存的最短十进制表示转为有理数累计，不累积多轮二进制漂移；无先前本金的还本直接拒绝，余额比较仅允许有限机器精度误差，不用固定绝对/比例容差。相关策略全套两轮 race、strategy vet、diff 检查、Ruby门禁9项/58断言及前端类型/44文件224测试/Vite/PWA构建通过；100轮0.1+0.2借款/0.3还款后仍保留1e-11新债务。十包启动后仅扩展正常微量还清与单ULP快照误差正例，连同异常/循环验证额外两轮race通过，无生产源码再改。十包 /private/tmp/quantmesh-trading-race-rc936-final 为1867 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc936、source_commit=1e5832d6、source_dirty=true、无缺包/解析错误，不继承严格MySQL或同提交验收。此项没有恢复输入在float64解析前已丢失的交易所精度，逐笔组件校验、全账户归属、完整接管补偿与真实盈利仍未验收；无生产库/账户/交易或发布操作。
 
 - rc935 前端 JSON /private/tmp/quantmesh-webui-rc935-tests.json 已读回 success=true、44文件/224测试通过、无失败；不使用包含 describe 分组的 numTotalTestSuites 冒充文件数。

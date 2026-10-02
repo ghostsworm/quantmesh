@@ -80,18 +80,15 @@ func (s *FundingCarryStrategy) confirmMarginDebtTransaction(ctx context.Context,
 	if err != nil {
 		return fundingCarryMarginDebtEvent{}, fmt.Errorf("query confirmed margin %s transaction %d: %w", action, transferID, err)
 	}
-	tolerance := math.Max(1e-10, amount*1e-8)
 	if transaction.TransferID != transferID || !strings.EqualFold(strings.TrimSpace(transaction.Asset), strings.TrimSpace(asset)) ||
 		!strings.EqualFold(strings.TrimSpace(transaction.Status), "CONFIRMED") || transaction.Timestamp <= 0 ||
-		!validRuntimeAmount(transaction.Amount) || math.Abs(transaction.Amount-amount) > tolerance ||
+		!fundingCarryFinancialAmountsMatch(transaction.Amount, amount) ||
 		!validRuntimeAmount(transaction.Principal) || !validRuntimeAmount(transaction.Interest) ||
-		math.Abs(transaction.Principal+transaction.Interest-transaction.Amount) > tolerance {
+		!fundingCarryFinancialAmountsMatch(transaction.Principal+transaction.Interest, transaction.Amount) ||
+		(action == "borrow" && !fundingCarryFinancialAmountsMatch(transaction.Principal, transaction.Amount)) {
 		return fundingCarryMarginDebtEvent{}, fmt.Errorf("margin %s transaction %d does not match confirmed asset and amount", action, transferID)
 	}
 	principal := transaction.Principal
-	if action == "borrow" {
-		principal = transaction.Amount
-	}
 	s.mu.RLock()
 	accountScope := s.marginAccountScope
 	s.mu.RUnlock()
