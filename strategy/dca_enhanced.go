@@ -119,18 +119,21 @@ type dcaRuntimeState struct {
 // restore validator used by the live strategy, then exports only fully
 // reconciled filled layers. Pending, partially filled, closing, or ambiguous
 // layers require order reconciliation and cannot seed startup exposure.
-func LoadDCAExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
+func LoadDCAExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, strategyName, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
 	if store == nil {
 		return nil, false, fmt.Errorf("DCA runtime state store is required for exposure recovery")
 	}
-	_, _, found, err := store.LoadRuntimeState("dca")
+	if strings.TrimSpace(strategyName) == "" {
+		return nil, false, fmt.Errorf("DCA strategy name is required for exposure recovery")
+	}
+	_, _, found, err := store.LoadRuntimeState(strategyName)
 	if err != nil {
 		return nil, false, fmt.Errorf("load DCA runtime state for exposure recovery: %w", err)
 	}
 	if !found {
 		return nil, false, nil
 	}
-	s := NewDCAEnhancedStrategy("dca", symbol, cfg, nil, ex, strategyConfig)
+	s := NewDCAEnhancedStrategy(strategyName, symbol, cfg, nil, ex, strategyConfig)
 	s.SetRuntimeStateStore(store)
 	if err := s.restoreRuntimeState(); err != nil {
 		return nil, false, fmt.Errorf("validate DCA runtime state for exposure recovery: %w", err)
@@ -156,8 +159,8 @@ func LoadDCAExposureInventory(store RuntimeStateStore, cfg *config.Config, ex po
 				return nil, false, fmt.Errorf("DCA filled layer %d lacks durable entry-order identity", layer.Index)
 			}
 			inventory = append(inventory, execution.ExposurePosition{
-				Key: fmt.Sprintf("dca/%d/%s", layer.Index, layer.ClientOrderID), Group: "dca", Leg: "LONG",
-				Quantity: layer.Quantity, EntryOrderID: layer.OrderID, EntryClientOrderID: layer.ClientOrderID,
+				Key: fmt.Sprintf("%s/%d/%s", strategyName, layer.Index, layer.ClientOrderID), Group: strategyName, Leg: "LONG",
+				Quantity: layer.Quantity, EntryOrderID: layer.OrderID, EntryClientOrderID: layer.ClientOrderID, EntryStrategyType: "dca",
 			})
 		default:
 			return nil, false, fmt.Errorf("DCA layer %d has unsupported status %q during exposure recovery", layer.Index, layer.Status)

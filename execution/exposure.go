@@ -29,6 +29,7 @@ type ExposurePosition struct {
 	Quantity           float64
 	EntryOrderID       int64
 	EntryClientOrderID string
+	EntryStrategyType  string
 }
 
 type ExposureRequest struct {

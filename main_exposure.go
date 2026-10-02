@@ -161,7 +161,7 @@ func verifyRestoredFuturesInventory(venue []*exchange.Position, inventory []exec
 	}
 	var ownerLong, ownerShort float64
 	for _, p := range inventory {
-		if p.Group != "grid" && p.Group != "trend" && p.Group != "mean_reversion" && p.Group != "momentum" && p.Group != "dca" && p.Group != "martingale" ||
+		if strings.TrimSpace(p.Group) == "" || !restorableStartupStrategyType(startupExposureStrategyType(p)) ||
 			p.Quantity <= 0 || math.IsNaN(p.Quantity) || math.IsInf(p.Quantity, 0) {
 			return fmt.Errorf("restored strategy inventory contains invalid owner quantity or group")
 		}
@@ -184,6 +184,22 @@ func verifyRestoredFuturesInventory(venue []*exchange.Position, inventory []exec
 		return fmt.Errorf("venue gross positions do not exactly reconcile to restored strategy owner inventory")
 	}
 	return nil
+}
+
+func startupExposureStrategyType(p execution.ExposurePosition) string {
+	if strings.TrimSpace(p.EntryStrategyType) != "" {
+		return strings.TrimSpace(p.EntryStrategyType)
+	}
+	return strings.TrimSpace(p.Group)
+}
+
+func restorableStartupStrategyType(strategyType string) bool {
+	switch strategyType {
+	case "grid", "trend", "mean_reversion", "momentum", "dca", "martingale":
+		return true
+	default:
+		return false
+	}
 }
 
 func restoredQuantitiesMatch(venue, owner float64) bool {

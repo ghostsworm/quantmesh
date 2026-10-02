@@ -2727,3 +2727,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - R09/R12 檢查確認 Martingale 已持久化分層的 OrderID/CID、方向與成交成本，但啟動共用曝光恢復尚未匯入這些層；因此帶既有馬丁持倉的 Bot 無法恢復成可核驗風險賬本。
 - 新增使用 Martingale 正式 runtime restore validator 載入持久化狀態，只匯入終態填充且具唯一訂單身份的 LONG/SHORT 層；未知方向、活動入場/平倉及身份不完整均保持開倉封鎖。SQL 意圖驗證允許 Martingale，仍逐筆要求正確策略類型、訂單方向、CID、account scope、market、symbol、Bot 與成交量；所有策略分層合併後核對交易所總倉位。
 - 新增有效方向 lot、舊快照缺身份及待處理層拒絕測試；定向及全量驗證待執行。仍未覆蓋 Combo、Funding 多腿、現貨持倉與跨交易對帳戶級恢復；不代表真實實盤重啟或盈利能力已驗收。
+
+## 後續續修：恢復 DCA Enhanced 與 Combo 子策略持倉（3.111.0-rc823，2026-10-02）
+
+- 複核發現共用恢復驗證把策略 owner 名稱與執行類型混為一談，且啟動只載入標準 DCA/Martingale 與頂層 signal state；因此 DCA Enhanced 的類型標記不一致，Combo namespaced 子策略持倉未匯入共用風險賬本。
+- Exposure lot 現在分別保存 owner group 與執行類型；成交意圖核驗要求兩者各自匹配，並以 owner 名稱核對非 grid 的持久化 StrategyName。啟動恢復新增 DCA Enhanced 與 Combo 子策略載入，子狀態仍經既有策略快照驗證、終態訂單身份核驗及交易所總持倉對賬；未知/不支持類型 fail-closed。
+- 新增 DCA Enhanced 身份和 Combo DCA namespaced 恢復回歸；定向回歸、`go test ./... -count=1 -p 1`、`go vet ./...`、定向 `-race`，以及 `yarn verify`（201 項測試及生產構建）均通過。尚未覆蓋 Combo 全部策略類型、Funding 多腿、現貨持倉、跨交易對帳戶級恢復或真實交易所重啟；未連接真實帳戶、下單、部署或驗收盈利能力。

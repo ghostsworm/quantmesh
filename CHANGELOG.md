@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc823] - 2026-10-02（未發布）
+
+### Fixed
+- 啟動風險恢復區分策略 owner 名稱與執行類型，納入 DCA Enhanced 及 Combo 的 DCA、Martingale、Trend、Mean Reversion 子策略持倉；名稱、類型、持久化成交意圖或訂單身份不匹配時仍阻斷開倉。
+
 ## [3.111.0-rc822] - 2026-10-02（未發布）
 
 ### Fixed

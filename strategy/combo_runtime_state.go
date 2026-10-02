@@ -7,6 +7,10 @@ import (
 	"fmt"
 	"math"
 	"strings"
+
+	"quantmesh/config"
+	"quantmesh/execution"
+	"quantmesh/position"
 )
 
 type comboChildRuntimeStateStore struct {
@@ -44,6 +48,57 @@ func (s comboChildRuntimeStateStore) SaveRuntimeState(strategyName string, versi
 }
 
 const comboRuntimeStateSchemaVersion = 1
+
+// LoadComboExposureInventory walks the same child definitions used by
+// ComboStrategy and loads their namespaced runtime states before startup
+// exposure is seeded.
+func LoadComboExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, comboConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
+	if store == nil {
+		return nil, false, fmt.Errorf("combo child runtime state store is required for exposure recovery")
+	}
+	comboCfg := parseComboConfig(comboConfig)
+	if strings.TrimSpace(comboCfg.Symbol) == "" {
+		comboCfg.Symbol = symbol
+	}
+	seen := make(map[string]struct{}, len(comboCfg.Strategies))
+	var inventory []execution.ExposurePosition
+	stateFound := false
+	for _, child := range comboCfg.Strategies {
+		name, strategyType := strings.TrimSpace(child.Name), strings.ToLower(strings.TrimSpace(child.Type))
+		if name == "" {
+			return nil, false, fmt.Errorf("combo child strategy name is empty during exposure recovery")
+		}
+		if _, duplicate := seen[name]; duplicate {
+			return nil, false, fmt.Errorf("duplicate combo child strategy name %q during exposure recovery", name)
+		}
+		seen[name] = struct{}{}
+		childStore := comboChildRuntimeStateStore{store: store, comboName: "combo", childName: name}
+		parameters := make(map[string]interface{}, len(child.Parameters)+1)
+		for key, value := range child.Parameters {
+			parameters[key] = value
+		}
+		var lots []execution.ExposurePosition
+		var found bool
+		var err error
+		switch strategyType {
+		case "dca":
+			lots, found, err = LoadDCAExposureInventory(childStore, cfg, ex, name, comboCfg.Symbol, parameters)
+		case "martingale":
+			parameters["direction"] = child.Direction
+			lots, found, err = LoadMartingaleExposureInventory(childStore, cfg, ex, name, comboCfg.Symbol, parameters)
+		case "trend", "mean_reversion":
+			lots, found, err = LoadNamedSignalRuntimeExposureInventory(childStore, cfg, ex, comboCfg.Symbol, name, strategyType)
+		default:
+			return nil, false, fmt.Errorf("unsupported combo child strategy type %q for exposure recovery", child.Type)
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf("recover combo child %s: %w", name, err)
+		}
+		inventory = append(inventory, lots...)
+		stateFound = stateFound || found
+	}
+	return inventory, stateFound, nil
+}
 
 type comboRuntimeState struct {
 	BotID        string  `json:"bot_id"`

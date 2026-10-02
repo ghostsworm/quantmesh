@@ -17,18 +17,21 @@ const martingaleRuntimeStateSchemaVersion = 1
 // LoadMartingaleExposureInventory validates persisted state through the live
 // strategy restore validator and exports only settled entries with exact
 // exchange-order identities.
-func LoadMartingaleExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
+func LoadMartingaleExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, strategyName, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
 	if store == nil {
 		return nil, false, fmt.Errorf("martingale runtime state store is required for exposure recovery")
 	}
-	_, _, found, err := store.LoadRuntimeState("martingale")
+	if strings.TrimSpace(strategyName) == "" {
+		return nil, false, fmt.Errorf("martingale strategy name is required for exposure recovery")
+	}
+	_, _, found, err := store.LoadRuntimeState(strategyName)
 	if err != nil {
 		return nil, false, fmt.Errorf("load martingale runtime state for exposure recovery: %w", err)
 	}
 	if !found {
 		return nil, false, nil
 	}
-	s := NewMartingaleStrategy("martingale", symbol, cfg, nil, ex, strategyConfig)
+	s := NewMartingaleStrategy(strategyName, symbol, cfg, nil, ex, strategyConfig)
 	s.SetRuntimeStateStore(store)
 	if err := s.restoreRuntimeState(); err != nil {
 		return nil, false, fmt.Errorf("validate martingale runtime state for exposure recovery: %w", err)
@@ -58,8 +61,8 @@ func LoadMartingaleExposureInventory(store RuntimeStateStore, cfg *config.Config
 				return nil, false, fmt.Errorf("martingale entry %d lacks durable entry-order identity", entry.Level)
 			}
 			inventory = append(inventory, execution.ExposurePosition{
-				Key: fmt.Sprintf("martingale/%d/%s", entry.Level, entry.ClientOrderID), Group: "martingale", Leg: leg,
-				Quantity: entry.Quantity, EntryOrderID: entry.OrderID, EntryClientOrderID: entry.ClientOrderID,
+				Key: fmt.Sprintf("%s/%d/%s", strategyName, entry.Level, entry.ClientOrderID), Group: strategyName, Leg: leg,
+				Quantity: entry.Quantity, EntryOrderID: entry.OrderID, EntryClientOrderID: entry.ClientOrderID, EntryStrategyType: "martingale",
 			})
 		default:
 			return nil, false, fmt.Errorf("martingale entry %d has unsupported status %q during exposure recovery", entry.Level, entry.Status)

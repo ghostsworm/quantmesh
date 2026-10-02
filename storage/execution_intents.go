@@ -156,7 +156,8 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 	}
 	required := make(map[int64]execution.ExposurePosition, len(positions))
 	for _, position := range positions {
-		if !restorableExecutionGroup(position.Group) || position.EntryOrderID <= 0 ||
+		strategyType := restoredExecutionStrategyType(position)
+		if strings.TrimSpace(position.Group) == "" || len(position.Group) > 191 || !restorableExecutionType(strategyType) || position.EntryOrderID <= 0 ||
 			(position.Group != "grid" && strings.TrimSpace(position.EntryClientOrderID) == "") || (position.Leg != "LONG" && position.Leg != "SHORT") ||
 			position.Quantity <= 0 || math.IsNaN(position.Quantity) || math.IsInf(position.Quantity, 0) {
 			return false, nil
@@ -191,6 +192,7 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 					Symbol        string
 					Side          string
 					PositionSide  string
+					StrategyName  string
 					StrategyType  string
 				}
 				Opening bool
@@ -219,7 +221,8 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 			}
 			position, needed := required[evidence.Order.OrderID]
 			if !needed || !evidence.Opening || !exposurePositionEntrySide(position.Leg, evidence.Request.Side) ||
-				!strings.EqualFold(evidence.Request.StrategyType, position.Group) ||
+				!strings.EqualFold(evidence.Request.StrategyType, restoredExecutionStrategyType(position)) ||
+				(position.Group != "grid" && evidence.Request.StrategyName != position.Group) ||
 				(position.EntryClientOrderID != "" && position.EntryClientOrderID != evidence.Request.ClientOrderID) ||
 				!strings.EqualFold(evidence.Order.Side, evidence.Request.Side) ||
 				(evidence.Request.PositionSide != "" && !strings.EqualFold(evidence.Request.PositionSide, position.Leg)) ||
@@ -274,8 +277,15 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 	return len(verified) == len(required), nil
 }
 
-func restorableExecutionGroup(group string) bool {
-	switch group {
+func restoredExecutionStrategyType(position execution.ExposurePosition) string {
+	if strings.TrimSpace(position.EntryStrategyType) != "" {
+		return strings.TrimSpace(position.EntryStrategyType)
+	}
+	return strings.TrimSpace(position.Group)
+}
+
+func restorableExecutionType(strategyType string) bool {
+	switch strategyType {
 	case "grid", "trend", "mean_reversion", "momentum", "dca", "martingale":
 		return true
 	default:

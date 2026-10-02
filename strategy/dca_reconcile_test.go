@@ -78,17 +78,25 @@ func TestLoadDCAExposureInventoryRequiresSettledEntryIdentity(t *testing.T) {
 		return &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
 	}
 	t.Run("settled filled layer restores as exact owner lot", func(t *testing.T) {
-		lots, found, err := LoadDCAExposureInventory(storeFor(t, base), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil)
+		lots, found, err := LoadDCAExposureInventory(storeFor(t, base), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "dca", "BTCUSDT", nil)
 		if err != nil || !found || len(lots) != 1 || lots[0].Group != "dca" || lots[0].EntryOrderID != 714 ||
 			lots[0].EntryClientOrderID != "dca-entry-714" || lots[0].Quantity != 0.5 {
 			t.Fatalf("DCA inventory=%+v found=%t err=%v", lots, found, err)
+		}
+	})
+	t.Run("enhanced DCA retains strategy group separately from execution type", func(t *testing.T) {
+		enhanced := base
+		enhanced.StrategyName = "dca_enhanced"
+		lots, found, err := LoadDCAExposureInventory(storeFor(t, enhanced), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "dca_enhanced", "BTCUSDT", nil)
+		if err != nil || !found || len(lots) != 1 || lots[0].Group != "dca_enhanced" || lots[0].EntryStrategyType != "dca" {
+			t.Fatalf("enhanced DCA owner identity=%+v found=%t err=%v", lots, found, err)
 		}
 	})
 	t.Run("filled layer without durable order identity fails closed", func(t *testing.T) {
 		legacy := base
 		legacy.Layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 0.5, Cost: 50, Status: entryStatusFilled,
 			RequestedQuantity: 0.5, FillProgress: position.FillProgress{Quantity: 0.5, Notional: 50}}}
-		if _, _, err := LoadDCAExposureInventory(storeFor(t, legacy), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil); err == nil {
+		if _, _, err := LoadDCAExposureInventory(storeFor(t, legacy), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "dca", "BTCUSDT", nil); err == nil {
 			t.Fatal("accepted a DCA layer without its entry order identity")
 		}
 	})
@@ -97,7 +105,7 @@ func TestLoadDCAExposureInventoryRequiresSettledEntryIdentity(t *testing.T) {
 		pending.TotalQty, pending.TotalCost, pending.AvgEntryPrice = 0, 0, 0
 		pending.Layers = []*DCALayer{{Index: 0, Price: 100, OrderID: 715, ClientOrderID: "dca-pending-715",
 			Status: entryStatusPending, RequestedQuantity: 0.5}}
-		if _, _, err := LoadDCAExposureInventory(storeFor(t, pending), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "BTCUSDT", nil); err == nil {
+		if _, _, err := LoadDCAExposureInventory(storeFor(t, pending), cfg, &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}}, "dca", "BTCUSDT", nil); err == nil {
 			t.Fatal("accepted a pending DCA layer as restored filled exposure")
 		}
 	})

@@ -40,30 +40,40 @@ func LoadSignalRuntimeExposureInventory(store RuntimeStateStore, cfg *config.Con
 	var inventory []execution.ExposurePosition
 	stateFound := false
 	for _, name := range names {
-		state, found, err := loadSignalRuntimeState(store, cfg, ex, name, symbol)
+		lots, found, err := LoadNamedSignalRuntimeExposureInventory(store, cfg, ex, symbol, name, name)
 		if err != nil {
 			return nil, false, err
 		}
-		if !found {
-			continue
-		}
-		stateFound = true
-		if state.ActiveOrder != nil || state.PendingAction != "" {
-			return nil, false, fmt.Errorf("signal strategy %s has unresolved order state during exposure bootstrap", name)
-		}
-		if state.Position == nil {
-			continue
-		}
-		p := state.Position
-		if p.EntryOrderID <= 0 || strings.TrimSpace(p.EntryClientOrderID) == "" {
-			return nil, false, fmt.Errorf("signal strategy %s inventory lacks durable entry-order identity", name)
-		}
-		inventory = append(inventory, execution.ExposurePosition{
-			Key: "signal/" + name + "/" + p.EntryClientOrderID, Group: name, Leg: "LONG",
-			Quantity: p.Size, EntryOrderID: p.EntryOrderID, EntryClientOrderID: p.EntryClientOrderID,
-		})
+		inventory = append(inventory, lots...)
+		stateFound = stateFound || found
 	}
 	return inventory, stateFound, nil
+}
+
+// LoadNamedSignalRuntimeExposureInventory supports namespaced Combo children,
+// where the persisted strategy name differs from the underlying strategy type.
+func LoadNamedSignalRuntimeExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol, strategyName, strategyType string) ([]execution.ExposurePosition, bool, error) {
+	if strategyType != "trend" && strategyType != "mean_reversion" && strategyType != "momentum" {
+		return nil, false, fmt.Errorf("unsupported signal strategy type %q for exposure recovery", strategyType)
+	}
+	state, found, err := loadSignalRuntimeState(store, cfg, ex, strategyName, symbol)
+	if err != nil || !found {
+		return nil, found, err
+	}
+	if state.ActiveOrder != nil || state.PendingAction != "" {
+		return nil, false, fmt.Errorf("signal strategy %s has unresolved order state during exposure bootstrap", strategyName)
+	}
+	if state.Position == nil {
+		return nil, true, nil
+	}
+	p := state.Position
+	if p.EntryOrderID <= 0 || strings.TrimSpace(p.EntryClientOrderID) == "" {
+		return nil, false, fmt.Errorf("signal strategy %s inventory lacks durable entry-order identity", strategyName)
+	}
+	return []execution.ExposurePosition{{
+		Key: "signal/" + strategyName + "/" + p.EntryClientOrderID, Group: strategyName, Leg: "LONG",
+		Quantity: p.Size, EntryOrderID: p.EntryOrderID, EntryClientOrderID: p.EntryClientOrderID, EntryStrategyType: strategyType,
+	}}, true, nil
 }
 
 func signalStrategyBotID(cfg *config.Config, exchange position.IExchange, symbol string) string {

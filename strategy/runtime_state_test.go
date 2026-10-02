@@ -471,7 +471,7 @@ func TestLoadMartingaleExposureInventoryRequiresSettledEntryIdentity(t *testing.
 		return &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
 	}
 	t.Run("settled entry restores as a directional lot", func(t *testing.T) {
-		lots, found, err := LoadMartingaleExposureInventory(storeFor(t, base), cfg, ex, "BTCUSDT", strategyConfig)
+		lots, found, err := LoadMartingaleExposureInventory(storeFor(t, base), cfg, ex, "martingale", "BTCUSDT", strategyConfig)
 		if err != nil || !found || len(lots) != 1 || lots[0].Group != "martingale" || lots[0].Leg != "LONG" ||
 			lots[0].EntryOrderID != 716 || lots[0].EntryClientOrderID != "martin-entry-716" || lots[0].Quantity != 0.4 {
 			t.Fatalf("martingale inventory=%+v found=%t err=%v", lots, found, err)
@@ -481,7 +481,7 @@ func TestLoadMartingaleExposureInventoryRequiresSettledEntryIdentity(t *testing.
 		legacy := base
 		legacy.Entries = []*MartingaleEntry{{Level: 0, Price: 100, Quantity: 0.4, RequestedQuantity: 0.4, Cost: 40,
 			FillProgress: position.FillProgress{Quantity: 0.4, Notional: 40}, Status: entryStatusFilled}}
-		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, legacy), cfg, ex, "BTCUSDT", strategyConfig); err == nil {
+		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, legacy), cfg, ex, "martingale", "BTCUSDT", strategyConfig); err == nil {
 			t.Fatal("accepted a martingale entry without durable order identity")
 		}
 	})
@@ -490,10 +490,35 @@ func TestLoadMartingaleExposureInventoryRequiresSettledEntryIdentity(t *testing.
 		pending.TotalQty, pending.TotalCost, pending.AvgEntryPrice = 0, 0, 0
 		pending.Entries = []*MartingaleEntry{{Level: 0, Price: 100, RequestedQuantity: 0.4, ClientOrderID: "martin-pending",
 			Status: entryStatusPending}}
-		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, pending), cfg, ex, "BTCUSDT", strategyConfig); err == nil {
+		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, pending), cfg, ex, "martingale", "BTCUSDT", strategyConfig); err == nil {
 			t.Fatal("accepted a pending martingale entry as settled exposure")
 		}
 	})
+}
+
+func TestLoadComboExposureInventoryRestoresNamespacedChildIdentity(t *testing.T) {
+	cfg := dcaTestConfig()
+	ex := &hedgeExchange{}
+	const childName = "combo_dca"
+	seed := NewDCAEnhancedStrategy(childName, "BTCUSDT", cfg, nil, ex, nil)
+	state := seed.runtimeStateSnapshotLocked()
+	state.TotalQty, state.TotalCost, state.AvgEntryPrice, state.CurrentLayer = 0.3, 30, 100, 1
+	state.Layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 0.3, Cost: 30, OrderID: 718,
+		ClientOrderID: "combo-dca-entry", Status: entryStatusFilled, RequestedQuantity: 0.3,
+		FillProgress: position.FillProgress{Quantity: 0.3, Notional: 30}}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	comboConfig := map[string]interface{}{"strategies": []interface{}{
+		map[string]interface{}{"name": childName, "type": "dca", "direction": "LONG", "parameters": map[string]interface{}{}},
+	}}
+	lots, found, err := LoadComboExposureInventory(store, cfg, ex, "BTCUSDT", comboConfig)
+	if err != nil || !found || len(lots) != 1 || lots[0].Group != childName || lots[0].EntryStrategyType != "dca" ||
+		lots[0].EntryOrderID != 718 || lots[0].EntryClientOrderID != "combo-dca-entry" {
+		t.Fatalf("Combo child recovery=%+v found=%t err=%v", lots, found, err)
+	}
 }
 
 func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {

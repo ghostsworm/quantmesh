@@ -38,6 +38,7 @@ func TestVerifiedSignalEntryOrderRequiresExactOwnerStrategyAndCID(t *testing.T) 
 			Symbol        string
 			Side          string
 			PositionSide  string
+			StrategyName  string
 			StrategyType  string
 		}
 		Opening bool
@@ -64,8 +65,9 @@ func TestVerifiedSignalEntryOrderRequiresExactOwnerStrategyAndCID(t *testing.T) 
 		Symbol        string
 		Side          string
 		PositionSide  string
+		StrategyName  string
 		StrategyType  string
-	}{ClientOrderID: cid, Symbol: scope.Symbol, Side: "BUY", PositionSide: "LONG", StrategyType: "trend"}
+	}{ClientOrderID: cid, Symbol: scope.Symbol, Side: "BUY", PositionSide: "LONG", StrategyName: "trend", StrategyType: "trend"}
 	payload, err := json.Marshal(evidence)
 	if err != nil {
 		t.Fatal(err)
@@ -87,6 +89,30 @@ func TestVerifiedSignalEntryOrderRequiresExactOwnerStrategyAndCID(t *testing.T) 
 	position.EntryClientOrderID = "another-strategys-cid"
 	if ok, err := s.HasVerifiedExecutionOrderIDs(ctx, scope, []execution.ExposurePosition{position}); err != nil || ok {
 		t.Fatalf("mismatched signal CID was accepted: ok=%t err=%v", ok, err)
+	}
+	const enhancedCID = "dca-enhanced-entry"
+	evidence.Request.ClientOrderID = enhancedCID
+	evidence.Request.StrategyName = "dca_enhanced"
+	evidence.Request.StrategyType = "dca"
+	evidence.Order.OrderID = 714
+	evidence.Order.ClientOrderID = enhancedCID
+	payload, err = json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveExecutionIntent(ctx, key, enhancedCID, 0, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveOrder(&Order{OrderID: 714, BotID: scope.Bot, Account: scope.Bot, MarketType: scope.Market, AccountScope: scope.Account,
+		ClientOrderID: enhancedCID, Symbol: scope.Symbol, Side: "BUY", Exchange: scope.Exchange, Type: "LIMIT",
+		Price: 100, Quantity: 0.25, FilledQty: 0.25, Status: "FILLED", StrategyName: "dca_enhanced", StrategyType: "dca",
+		CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	enhancedPosition := execution.ExposurePosition{Key: "dca_enhanced/0/" + enhancedCID, Group: "dca_enhanced", Leg: "LONG",
+		Quantity: 0.25, EntryOrderID: 714, EntryClientOrderID: enhancedCID, EntryStrategyType: "dca"}
+	if ok, err := s.HasVerifiedExecutionOrderIDs(ctx, scope, []execution.ExposurePosition{enhancedPosition}); err != nil || !ok {
+		t.Fatalf("DCA strategy alias/type were not verified independently: ok=%t err=%v", ok, err)
 	}
 }
 
