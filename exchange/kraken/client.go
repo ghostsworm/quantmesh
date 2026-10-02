@@ -262,8 +262,8 @@ func (c *KrakenClient) GetOpenOrders(ctx context.Context) ([]OrderInfo, error) {
 	}
 
 	var resp struct {
-		Result     string      `json:"result"`
-		OpenOrders []OrderInfo `json:"openOrders"`
+		Result     string          `json:"result"`
+		OpenOrders json.RawMessage `json:"openOrders"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("unmarshal get open orders response error: %w", err)
@@ -273,7 +273,48 @@ func (c *KrakenClient) GetOpenOrders(ctx context.Context) ([]OrderInfo, error) {
 		return nil, fmt.Errorf("get open orders failed: %s", string(respBody))
 	}
 
-	return resp.OpenOrders, nil
+	if len(resp.OpenOrders) == 0 || string(resp.OpenOrders) == "null" {
+		return nil, fmt.Errorf("get open orders response missing openOrders list")
+	}
+	var rows []struct {
+		OrderID    *string  `json:"order_id"`
+		Symbol     *string  `json:"symbol"`
+		Side       *string  `json:"side"`
+		OrderType  *string  `json:"orderType"`
+		LimitPrice *float64 `json:"limitPrice"`
+		Unfilled   *float64 `json:"unfilledSize"`
+		Filled     *float64 `json:"filledSize"`
+		Received   *string  `json:"receivedTime"`
+		Status     *string  `json:"status"`
+		Updated    *string  `json:"lastUpdateTime"`
+	}
+	if err := json.Unmarshal(resp.OpenOrders, &rows); err != nil {
+		return nil, fmt.Errorf("decode Kraken open orders: %w", err)
+	}
+	orders := make([]OrderInfo, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for i, row := range rows {
+		if row.OrderID == nil || strings.TrimSpace(*row.OrderID) == "" || row.Symbol == nil || strings.TrimSpace(*row.Symbol) == "" || row.Side == nil || row.OrderType == nil || row.LimitPrice == nil || row.Unfilled == nil || row.Filled == nil || row.Received == nil || row.Status == nil || row.Updated == nil {
+			return nil, fmt.Errorf("Kraken open order %d missing required field", i)
+		}
+		if _, exists := seen[*row.OrderID]; exists {
+			return nil, fmt.Errorf("Kraken open orders contain duplicate order id %q", *row.OrderID)
+		}
+		seen[*row.OrderID] = struct{}{}
+		side := strings.ToLower(strings.TrimSpace(*row.Side))
+		if side != "buy" && side != "sell" {
+			return nil, fmt.Errorf("Kraken open order %q has unknown side %q", *row.OrderID, *row.Side)
+		}
+		status := strings.ToLower(strings.TrimSpace(*row.Status))
+		if status != "untouched" && status != "partiallyfilled" && status != "partially_filled" {
+			return nil, fmt.Errorf("Kraken open order %q has unknown status %q", *row.OrderID, *row.Status)
+		}
+		if *row.Unfilled < 0 || *row.Filled < 0 {
+			return nil, fmt.Errorf("Kraken open order %q has invalid size", *row.OrderID)
+		}
+		orders = append(orders, OrderInfo{OrderID: *row.OrderID, Symbol: *row.Symbol, Side: side, OrderType: *row.OrderType, LimitPrice: *row.LimitPrice, Quantity: int(*row.Unfilled + *row.Filled), Filled: int(*row.Filled), Timestamp: *row.Received, LastUpdateTime: *row.Updated})
+	}
+	return orders, nil
 }
 
 // GetAccountInfo 獲取帳戶信息
@@ -324,12 +365,12 @@ func (c *KrakenClient) GetPositionInfo(ctx context.Context) ([]KrakenPositionInf
 
 // PerpetualTicker 永续合約 tickers 項（/derivatives/api/v3/tickers）
 type PerpetualTicker struct {
-	Symbol                  string  `json:"symbol"`
-	Tag                     string  `json:"tag"`
-	FundingRate             float64 `json:"fundingRate"`
-	FundingRatePrediction   float64 `json:"fundingRatePrediction"`
-	MarkPrice               float64 `json:"markPrice"`
-	IndexPrice              float64 `json:"indexPrice"`
+	Symbol                string  `json:"symbol"`
+	Tag                   string  `json:"tag"`
+	FundingRate           float64 `json:"fundingRate"`
+	FundingRatePrediction float64 `json:"fundingRatePrediction"`
+	MarkPrice             float64 `json:"markPrice"`
+	IndexPrice            float64 `json:"indexPrice"`
 }
 
 // GetPerpetualTicker 獲取指定合约的 ticker（含資金費與標記/指數價）
@@ -341,7 +382,7 @@ func (c *KrakenClient) GetPerpetualTicker(ctx context.Context, symbol string) (*
 	}
 
 	var resp struct {
-		Result  string           `json:"result"`
+		Result  string            `json:"result"`
 		Tickers []PerpetualTicker `json:"tickers"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {

@@ -5,12 +5,64 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 // Kraken API secret 在签名時需能 base64 解碼；測試中用固定合法串避免請求階段報錯。
 func testKrakenValidSecret() string {
 	return base64.StdEncoding.EncodeToString([]byte("test-secret-key-bytes!!"))
+}
+
+func TestGetOpenOrdersUsesCompleteFuturesSnapshot(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/derivatives/api/v3/openorders" || r.URL.RawQuery != "" {
+			t.Errorf("request = %s %s, want unsigned-query-free account snapshot path", r.Method, r.URL.String())
+		}
+		if r.Header.Get("APIKey") != "test-key" || r.Header.Get("Nonce") == "" || r.Header.Get("Authent") == "" {
+			t.Errorf("missing Kraken authentication headers")
+		}
+		_, _ = w.Write([]byte(`{"result":"success","openOrders":[{"order_id":"id-1","symbol":"PI_XBTUSD","side":"buy","orderType":"lmt","limitPrice":100,"unfilledSize":3,"receivedTime":"2026-10-02T01:02:03.000Z","status":"untouched","filledSize":2,"reduceOnly":false,"lastUpdateTime":"2026-10-02T01:02:04.000Z"},{"order_id":"id-2","symbol":"PF_ETHUSD","side":"sell","orderType":"stp","limitPrice":0,"unfilledSize":1,"receivedTime":"2026-10-02T01:02:03.000Z","status":"partiallyFilled","filledSize":4,"reduceOnly":true,"lastUpdateTime":"2026-10-02T01:02:04.000Z"}]}`))
+	}))
+	defer server.Close()
+	client := NewKrakenClient("test-key", testKrakenValidSecret())
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+
+	orders, err := client.GetOpenOrders(context.Background())
+	if err != nil {
+		t.Fatalf("GetOpenOrders() error = %v", err)
+	}
+	if len(orders) != 2 || orders[0].Symbol != "PI_XBTUSD" || orders[0].Quantity != 5 || orders[0].Filled != 2 || orders[1].Quantity != 5 || orders[1].Filled != 4 {
+		t.Fatalf("GetOpenOrders() = %#v, want account-wide rows and mapped filled/unfilled sizes", orders)
+	}
+}
+
+func TestGetOpenOrdersRejectsIncompleteSnapshot(t *testing.T) {
+	valid := `{"order_id":"id-1","symbol":"PI_XBTUSD","side":"buy","orderType":"lmt","limitPrice":100,"unfilledSize":3,"receivedTime":"2026-10-02T01:02:03.000Z","status":"untouched","filledSize":0,"reduceOnly":false,"lastUpdateTime":"2026-10-02T01:02:04.000Z"}`
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "missing list", body: `{"result":"success"}`},
+		{name: "null list", body: `{"result":"success","openOrders":null}`},
+		{name: "missing field", body: `{"result":"success","openOrders":[{"order_id":"id-1"}]}`},
+		{name: "duplicate id", body: `{"result":"success","openOrders":[` + valid + `,` + valid + `]}`},
+		{name: "unknown side", body: strings.Replace(valid, `"buy"`, `"hold"`, 1)},
+		{name: "unknown status", body: strings.Replace(valid, `"untouched"`, `"mystery"`, 1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(tt.body)) }))
+			defer server.Close()
+			client := NewKrakenClient("test-key", testKrakenValidSecret())
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			if _, err := client.GetOpenOrders(context.Background()); err == nil {
+				t.Fatal("GetOpenOrders() succeeded on incomplete or untrusted snapshot")
+			}
+		})
+	}
 }
 
 func TestKrakenAdapterAccountPreservesAPICurrency(t *testing.T) {

@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc830] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 Kraken Futures 全合約帳戶掛單快照；按官方 `openorders` 回包字段解析并拒絕不完整/重复/未知状态，避免旧字段映射将委托量误读为零。
+
 ## [3.111.0-rc829] - 2026-10-02（未發布）
 
 ### Fixed

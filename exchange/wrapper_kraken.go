@@ -14,6 +14,8 @@ type krakenWrapper struct {
 	adapter *kraken.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*krakenWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *krakenWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -107,6 +109,18 @@ func (w *krakenWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		return nil, err
 	}
 
+	orders := make([]*Order, 0, len(krakenOrders))
+	for _, krakenOrder := range krakenOrders {
+		orders = append(orders, convertKrakenOrderToExchangeOrder(krakenOrder))
+	}
+	return orders, nil
+}
+
+func (w *krakenWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	krakenOrders, err := w.adapter.GetOpenOrders(ctx, "")
+	if err != nil {
+		return nil, err
+	}
 	orders := make([]*Order, 0, len(krakenOrders))
 	for _, krakenOrder := range krakenOrders {
 		orders = append(orders, convertKrakenOrderToExchangeOrder(krakenOrder))
