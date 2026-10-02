@@ -79,7 +79,10 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 		// 第三段: Low → Close (50%)
 		step3 := ibt.ticksPerBar - step1 - step2
 		for i := 0; i < step3; i++ {
-			ratio := float64(i) / float64(step3)
+			ratio := 1.0
+			if step3 > 1 {
+				ratio = float64(i) / float64(step3-1)
+			}
 			price := candle.Low + (candle.Close-candle.Low)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
@@ -113,7 +116,10 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 		// 第三段: High → Close (50%)
 		step3 := ibt.ticksPerBar - step1 - step2
 		for i := 0; i < step3; i++ {
-			ratio := float64(i) / float64(step3)
+			ratio := 1.0
+			if step3 > 1 {
+				ratio = float64(i) / float64(step3-1)
+			}
 			price := candle.High + (candle.Close-candle.High)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,

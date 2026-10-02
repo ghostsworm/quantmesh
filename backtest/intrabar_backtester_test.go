@@ -39,6 +39,9 @@ func TestIntrabarPriceSimulationPaths(t *testing.T) {
 	if upTicks[0].Price != 100 || upTicks[2].Price != 120 || upTicks[4].Price != 90 {
 		t.Fatalf("up ticks = %+v, want open-high-low progression", upTicks)
 	}
+	if upTicks[len(upTicks)-1].Price != 110 {
+		t.Fatalf("up path terminal tick = %v, want close 110", upTicks[len(upTicks)-1].Price)
+	}
 
 	down := NewIntrabarBacktester("BTCUSDT", nil, strategy, 1000, 8)
 	downTicks := down.SimulateIntrabarPrices(&exchange.Candle{Open: 110, High: 120, Low: 90, Close: 100, Timestamp: 2000})
@@ -47,6 +50,9 @@ func TestIntrabarPriceSimulationPaths(t *testing.T) {
 	}
 	if downTicks[0].Price != 110 || downTicks[2].Price != 90 || downTicks[4].Price != 120 {
 		t.Fatalf("down ticks = %+v, want open-low-high progression", downTicks)
+	}
+	if downTicks[len(downTicks)-1].Price != 100 {
+		t.Fatalf("down path terminal tick = %v, want close 100", downTicks[len(downTicks)-1].Price)
 	}
 }
 
@@ -129,15 +135,15 @@ func TestIntrabarFinalEquityIncludesForcedCloseFee(t *testing.T) {
 		t.Fatalf("last equity %.8f != final capital %.8f", lastEquity, result.FinalCapital)
 	}
 	wantFinal := result.InitialCapital - result.Trades[0].Price*result.Trades[0].Quantity - result.Trades[0].Fee + result.Trades[1].Price*result.Trades[1].Quantity - result.Trades[1].Fee
-	if result.FinalCapital != wantFinal {
+	if math.Abs(result.FinalCapital-wantFinal) > 1e-10 {
 		t.Fatalf("final capital %.8f != cash after forced-close fee %.8f", result.FinalCapital, wantFinal)
 	}
 	wantSlippage := result.Trades[0].SlippageLoss + result.Trades[1].SlippageLoss
-	if math.Abs(result.Trades[0].Price-101) > 1e-12 || math.Abs(result.Trades[1].Price-108.9) > 1e-12 || math.Abs(result.Metrics.TotalSlippageLoss-wantSlippage) > 1e-12 {
-		t.Fatalf("execution costs = buy %.8f/sell %.8f/total slippage %.8f, want 101/108.9/%.8f", result.Trades[0].Price, result.Trades[1].Price, result.Metrics.TotalSlippageLoss, wantSlippage)
+	if math.Abs(result.Trades[0].Price-111.1) > 1e-12 || math.Abs(result.Trades[1].Price-108.9) > 1e-12 || math.Abs(result.Metrics.TotalSlippageLoss-wantSlippage) > 1e-12 {
+		t.Fatalf("execution costs = buy %.8f/sell %.8f/total slippage %.8f, want 111.1/108.9/%.8f", result.Trades[0].Price, result.Trades[1].Price, result.Metrics.TotalSlippageLoss, wantSlippage)
 	}
 	wantReturn := (wantFinal - result.InitialCapital) / result.InitialCapital * 100
-	if result.Metrics.TotalReturn != wantReturn {
+	if math.Abs(result.Metrics.TotalReturn-wantReturn) > 1e-10 {
 		t.Fatalf("total return %.8f != post-close return %.8f", result.Metrics.TotalReturn, wantReturn)
 	}
 }
