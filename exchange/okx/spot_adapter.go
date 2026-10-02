@@ -509,7 +509,7 @@ func (o *OKXSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*Po
 		}
 	}
 	if free <= 0 {
-		return nil, nil
+		return []*Position{}, nil
 	}
 	price, _ := o.GetLatestPrice(ctx, symbol)
 	if price <= 0 {

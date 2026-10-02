@@ -515,7 +515,7 @@ func (b *BinanceSpotAdapter) GetPositions(ctx context.Context, symbol string) ([
 	}
 	size := free + locked
 	if size <= 0 {
-		return nil, nil
+		return []*Position{}, nil
 	}
 	price, _ := b.GetLatestPrice(ctx, symbol)
 	if price <= 0 {

@@ -489,7 +489,7 @@ func (g *GateSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*P
 		}
 	}
 	if size <= 0 {
-		return nil, nil
+		return []*Position{}, nil
 	}
 	price, _ := g.GetLatestPrice(ctx, symbol)
 	if price <= 0 {

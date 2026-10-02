@@ -448,7 +448,7 @@ func (b *BybitSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]*
 		return nil, err
 	}
 	if size <= 0 {
-		return nil, nil
+		return []*Position{}, nil
 	}
 	price, _ := b.GetLatestPrice(ctx, symbol)
 	if price <= 0 {

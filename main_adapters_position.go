@@ -46,9 +46,15 @@ func (a *positionExchangeAdapter) GetPositions(ctx context.Context, symbol strin
 	if err != nil {
 		return nil, err
 	}
+	if positions == nil {
+		return nil, fmt.Errorf("exchange returned an unverified nil position snapshot for %s", symbol)
+	}
 
 	result := make([]*position.PositionInfo, len(positions))
 	for i, pos := range positions {
+		if pos == nil {
+			return nil, fmt.Errorf("exchange returned a nil position entry at index %d for %s", i, symbol)
+		}
 		result[i] = &position.PositionInfo{
 			Symbol: pos.Symbol,
 			Size:   pos.Size,
