@@ -586,8 +586,8 @@ func startSymbolRuntime(
 		balanceErr = fmt.Errorf("exchange quote asset is unavailable")
 	} else {
 		balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
 		availableBalanceObservedAt = time.Now().UTC()
+		availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
 		cancel()
 	}
 	botCapitalBudget, capitalErr := capStrategyCapitalLimit(requestedCapital, availableBalance)

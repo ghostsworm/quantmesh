@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -86,7 +87,9 @@ func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) 
 		LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
 		LegB: config.FundingPerpLeg{Exchange: "bybit", Symbol: "BTCUSDT"},
 	}
-	claims, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, 90)
+	observedAtA := time.Now().UTC().Add(-time.Minute)
+	observedAtB := time.Now().UTC()
+	claims, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 90, observedAtB)
 	if err != nil {
 		t.Fatalf("build cross-wallet claims: %v", err)
 	}
@@ -105,12 +108,15 @@ func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) 
 	}
 
 	fp.LegB.Exchange = "binance"
-	combined, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, 70)
+	combined, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 70, observedAtB)
 	if err != nil {
 		t.Fatalf("combine same-wallet legs: %v", err)
 	}
 	if len(combined) != 1 || combined[0].Amount != 100 || combined[0].Available != 70 {
 		t.Fatalf("same wallet legs were not combined conservatively: %+v", combined)
+	}
+	if !combined[0].ObservedAt.Equal(observedAtB) {
+		t.Fatalf("combined wallet balance timestamp = %v, want timestamp of the lower balance %v", combined[0].ObservedAt, observedAtB)
 	}
 }
 

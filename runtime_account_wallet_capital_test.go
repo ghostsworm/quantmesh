@@ -205,12 +205,13 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 		t.Fatal(err)
 	}
 	available := 80.0
+	requestedAt := time.Now().UTC()
 	readErr := errors.New("balance endpoint unavailable")
-	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(context.Context) (float64, error) {
+	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(context.Context) (accountWalletBalanceObservation, error) {
 		if readErr != nil {
-			return 0, readErr
+			return accountWalletBalanceObservation{}, readErr
 		}
-		return available, nil
+		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt}, nil
 	}}
 	canceled := 0
 	cancelOpenings := func(context.Context) error { canceled++; return nil }
@@ -221,6 +222,7 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 		t.Fatal("balance query failure did not retain only the balance-verification block")
 	}
 	readErr = nil
+	requestedAt = time.Now().UTC()
 	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, cancelOpenings); err == nil {
 		t.Fatal("revalidation accepted aggregate reservations of 90 against available balance 80")
 	}
@@ -230,8 +232,20 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 	if !gate.HasBlock(accountWalletBalanceUnverifiedBlock) || !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
 		t.Fatal("failed revalidation did not keep both wallet safety blocks active")
 	}
+	staleHighReader := accountWalletBalanceReader{walletKey: otherClaim.WalletKey, read: func(context.Context) (accountWalletBalanceObservation, error) {
+		return accountWalletBalanceObservation{Available: 100, RequestedAt: otherClaim.ObservedAt}, nil
+	}}
+	otherGate := &execution.OpeningGate{}
+	otherGate.Block(accountWalletCapitalReservationPendingBlock)
+	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "other-bot",
+		[]storage.AccountWalletCapitalClaim{otherClaim}, []accountWalletBalanceReader{staleHighReader}, otherGate, nil); err == nil {
+		t.Fatal("delayed older high-balance observation bypassed the newer low-balance wallet evidence")
+	}
+	if !otherGate.HasBlock(accountWalletBalanceUnverifiedBlock) {
+		t.Fatal("stale high-balance revalidation did not keep the other Bot blocked")
+	}
 	available = 120
-	claim.ObservedAt = time.Now().UTC()
+	requestedAt = time.Now().UTC()
 	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, cancelOpenings); err != nil {
 		t.Fatalf("revalidation after balance recovery: %v", err)
 	}

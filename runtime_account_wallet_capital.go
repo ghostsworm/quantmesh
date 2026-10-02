@@ -111,7 +111,12 @@ const (
 
 type accountWalletBalanceReader struct {
 	walletKey string
-	read      func(context.Context) (float64, error)
+	read      func(context.Context) (accountWalletBalanceObservation, error)
+}
+
+type accountWalletBalanceObservation struct {
+	Available   float64
+	RequestedAt time.Time
 }
 
 func revalidateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
@@ -159,14 +164,14 @@ func observeRuntimeWalletCapitalClaims(ctx context.Context, claims []storage.Acc
 		if err != nil {
 			return nil, err
 		}
-		refreshed[index].Available = available
-		refreshed[index].ObservedAt = time.Now().UTC()
+		refreshed[index].Available = available.Available
+		refreshed[index].ObservedAt = available.RequestedAt
 	}
 	return refreshed, nil
 }
 
-func accountWalletCapitalReadersByWallet(readers []accountWalletBalanceReader) (map[string]func(context.Context) (float64, error), error) {
-	byWallet := make(map[string]func(context.Context) (float64, error), len(readers))
+func accountWalletCapitalReadersByWallet(readers []accountWalletBalanceReader) (map[string]func(context.Context) (accountWalletBalanceObservation, error), error) {
+	byWallet := make(map[string]func(context.Context) (accountWalletBalanceObservation, error), len(readers))
 	for _, reader := range readers {
 		if reader.walletKey == "" || reader.read == nil {
 			return nil, fmt.Errorf("runtime wallet capital balance reader is incomplete")
@@ -179,17 +184,18 @@ func accountWalletCapitalReadersByWallet(readers []accountWalletBalanceReader) (
 	return byWallet, nil
 }
 
-func readRuntimeWalletBalance(ctx context.Context, walletKey string, read func(context.Context) (float64, error)) (float64, error) {
+func readRuntimeWalletBalance(ctx context.Context, walletKey string, read func(context.Context) (accountWalletBalanceObservation, error)) (accountWalletBalanceObservation, error) {
 	balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	available, err := read(balanceCtx)
+	observation, err := read(balanceCtx)
 	if err != nil {
-		return 0, fmt.Errorf("refresh available balance for wallet %s: %w", walletKey, err)
+		return accountWalletBalanceObservation{}, fmt.Errorf("refresh available balance for wallet %s: %w", walletKey, err)
 	}
-	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 {
-		return 0, fmt.Errorf("refreshed available balance for wallet %s is invalid", walletKey)
+	if math.IsNaN(observation.Available) || math.IsInf(observation.Available, 0) || observation.Available <= 0 ||
+		observation.RequestedAt.IsZero() || observation.RequestedAt.After(time.Now().Add(time.Minute)) {
+		return accountWalletBalanceObservation{}, fmt.Errorf("refreshed available balance evidence for wallet %s is invalid", walletKey)
 	}
-	return available, nil
+	return observation, nil
 }
 
 func startRuntimeAccountWalletCapitalRevalidation(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
@@ -222,11 +228,13 @@ func startRuntimeAccountWalletCapitalRevalidation(ctx context.Context, cfg *conf
 }
 
 func accountWalletBalanceReaderForClaim(claim storage.AccountWalletCapitalClaim, client exchange.IExchange) accountWalletBalanceReader {
-	return accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (float64, error) {
+	return accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (accountWalletBalanceObservation, error) {
 		if client == nil {
-			return 0, fmt.Errorf("exchange client is unavailable")
+			return accountWalletBalanceObservation{}, fmt.Errorf("exchange client is unavailable")
 		}
-		return client.GetBalance(ctx, claim.QuoteAsset)
+		requestedAt := time.Now().UTC()
+		available, err := client.GetBalance(ctx, claim.QuoteAsset)
+		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt}, err
 	}}
 }
 

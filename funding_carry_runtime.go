@@ -112,8 +112,8 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("計算同帳戶 %s 錢包配置資金: %w", wallet.market, err)
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
-		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
 		observedAt := time.Now().UTC()
+		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 %s USDT 可用餘額: %w", wallet.market, balanceErr)
@@ -154,8 +154,8 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("計算同帳戶 spot_margin 錢包配置資金: %w", allocationErr)
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
-		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
 		marginAvailableAt = time.Now().UTC()
+		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 spot_margin USDT 可用餘額: %w", balanceErr)
