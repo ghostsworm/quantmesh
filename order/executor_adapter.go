@@ -122,6 +122,7 @@ type ExchangeOrderExecutor struct {
 	// postOnlyRepriceMaxAttempts PostOnly 被拒後重定價重掛的最大次數（<=0 用預設值）
 	postOnlyRepriceMaxAttempts  atomic.Int32
 	openingGate                 *execution.OpeningGate
+	openingAdmissionGuard       func(context.Context) error
 	positionDirection           string
 	intentMu                    sync.Mutex
 	cancellationMu              sync.Mutex
@@ -308,6 +309,11 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		return nil, err
 	}
 	defer finishSubmission()
+	if oe.isOpeningOrder(req) && oe.openingAdmissionGuard != nil {
+		if err := oe.openingAdmissionGuard(ctx); err != nil {
+			return nil, fmt.Errorf("opening admission guard rejected order: %w", err)
+		}
+	}
 	release, err := oe.admitOrder(req)
 	if err != nil {
 		return nil, err

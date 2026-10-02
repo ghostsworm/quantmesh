@@ -60,6 +60,12 @@ type AccountWalletBalanceObservationIssuer interface {
 	BeginAccountWalletBalanceObservation(ctx context.Context, walletKey string) (int64, error)
 }
 
+// AccountWalletCapitalAdmissionChecker validates fresh shared balance evidence
+// against all Bot reservations immediately before a managed opening order.
+type AccountWalletCapitalAdmissionChecker interface {
+	CheckAccountWalletCapitalAdmission(ctx context.Context, walletKeys []string, maxAge time.Duration) error
+}
+
 type AccountWalletCapitalReservationReader interface {
 	ListAccountWalletCapitalReservations(ctx context.Context, afterWalletKey, afterBotKey string, limit int) ([]AccountWalletCapitalReservation, error)
 }
@@ -330,6 +336,50 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit account wallet capital reservation: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLStorage) CheckAccountWalletCapitalAdmission(ctx context.Context, walletKeys []string, maxAge time.Duration) error {
+	if ctx == nil || len(walletKeys) == 0 || maxAge <= 0 {
+		return errors.New("wallet capital admission requires context, wallets, and positive evidence age")
+	}
+	keys := append([]string(nil), walletKeys...)
+	sort.Strings(keys)
+	for i, key := range keys {
+		if strings.TrimSpace(key) == "" || (i > 0 && key == keys[i-1]) {
+			return errors.New("wallet capital admission contains an empty or duplicate wallet")
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return fmt.Errorf("begin wallet capital admission check: %w", err)
+	}
+	defer tx.Rollback()
+	for _, key := range keys {
+		if err := lockFundingSpreadWallet(ctx, tx, s.dbType, key); err != nil {
+			return err
+		}
+		var available float64
+		var observedAt int64
+		var sequence int64
+		if err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns, latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, key).Scan(&available, &observedAt, &sequence); err != nil {
+			return fmt.Errorf("read authoritative wallet admission evidence: %w", err)
+		}
+		age := time.Since(time.Unix(0, observedAt))
+		if sequence <= 0 || math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || age < -time.Minute || age > maxAge {
+			return fmt.Errorf("wallet %s has missing, invalid, future-dated, or stale balance evidence", key)
+		}
+		var reserved float64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM funding_spread_capital_reservations WHERE wallet_key = ?`, key).Scan(&reserved); err != nil {
+			return fmt.Errorf("sum shared wallet capital reservations: %w", err)
+		}
+		if math.IsNaN(reserved) || math.IsInf(reserved, 0) || reserved < 0 || reserved > available {
+			return fmt.Errorf("wallet %s reservations %.12g exceed verified available balance %.12g", key, reserved, available)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit wallet capital admission check: %w", err)
 	}
 	return nil
 }

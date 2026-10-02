@@ -89,6 +89,39 @@ func TestAccountWalletReservationRejectsDelayedStaleHighBalance(t *testing.T) {
 	}
 }
 
+func TestAccountWalletCapitalAdmissionRejectsStaleAndOvercommittedWallets(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "wallet-admission.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	wallet := fmt.Sprintf("%064x", 880)
+	seq, err := store.BeginAccountWalletBalanceObservation(ctx, wallet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim := AccountWalletCapitalClaim{WalletKey: wallet, ReservationToken: fmt.Sprintf("%064x", 1880), Amount: 70, Available: 100, ObservedAt: time.Now().UTC(), ObservationSequence: seq}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-admission", []AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CheckAccountWalletCapitalAdmission(ctx, []string{wallet}, time.Minute); err != nil {
+		t.Fatalf("fresh solvent wallet rejected: %v", err)
+	}
+	if _, err := store.db.Exec(`UPDATE funding_spread_wallet_observation_sequences SET observed_at_ns = ? WHERE wallet_key = ?`, time.Now().Add(-2*time.Minute).UnixNano(), wallet); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CheckAccountWalletCapitalAdmission(ctx, []string{wallet}, time.Minute); err == nil {
+		t.Fatal("stale wallet evidence admitted an opening")
+	}
+	if _, err := store.db.Exec(`UPDATE funding_spread_wallet_observation_sequences SET observed_at_ns = ?, available = ? WHERE wallet_key = ?`, time.Now().UnixNano(), 60, wallet); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CheckAccountWalletCapitalAdmission(ctx, []string{wallet}, time.Minute); err == nil {
+		t.Fatal("overcommitted wallet admitted an opening")
+	}
+}
+
 func TestFundingSpreadCapitalReservationsAreAtomicAcrossWallets(t *testing.T) {
 	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "capital-reservations.db"))
 	if err != nil {

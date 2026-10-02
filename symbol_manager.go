@@ -1943,6 +1943,15 @@ func startSymbolRuntime(
 			rt.capitalReservationStore = reservationStore
 			rt.capitalReservationBotID = botID
 			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
+			if checker, supported := reservationStore.(storage.AccountWalletCapitalAdmissionChecker); supported {
+				exchangeExecutor.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
+					return checker.CheckAccountWalletCapitalAdmission(guardCtx, []string{capitalClaim.WalletKey}, 2*accountWalletCapitalRefreshInterval)
+				})
+			} else {
+				exchangeExecutor.SetOpeningAdmissionGuard(func(context.Context) error {
+					return fmt.Errorf("persistent storage does not support shared wallet opening admission checks")
+				})
+			}
 			rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
 				distributedLock, botID, rt.capitalReservationClaims,
 				[]accountWalletBalanceReader{accountWalletBalanceReaderForClaim(capitalClaim, ex, storageService)}, superPositionManager.OpeningGate(),

@@ -1,12 +1,19 @@
 package order
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"quantmesh/config"
 	"quantmesh/execution"
 )
+
+// SetOpeningAdmissionGuard installs a fail-closed check evaluated before an
+// opening order acquires its gate lease. Protective closes do not invoke it.
+func (oe *ExchangeOrderExecutor) SetOpeningAdmissionGuard(guard func(context.Context) error) {
+	oe.openingAdmissionGuard = guard
+}
 
 // SetOpeningGate wires the bot's shared gate before any strategy starts.
 // PositionSide on a request takes precedence over the configured grid direction.
