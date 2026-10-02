@@ -4,12 +4,69 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
+	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/position"
 )
 
 const martingaleRuntimeStateSchemaVersion = 1
+
+// LoadMartingaleExposureInventory validates persisted state through the live
+// strategy restore validator and exports only settled entries with exact
+// exchange-order identities.
+func LoadMartingaleExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, strategyConfig map[string]interface{}) ([]execution.ExposurePosition, bool, error) {
+	if store == nil {
+		return nil, false, fmt.Errorf("martingale runtime state store is required for exposure recovery")
+	}
+	_, _, found, err := store.LoadRuntimeState("martingale")
+	if err != nil {
+		return nil, false, fmt.Errorf("load martingale runtime state for exposure recovery: %w", err)
+	}
+	if !found {
+		return nil, false, nil
+	}
+	s := NewMartingaleStrategy("martingale", symbol, cfg, nil, ex, strategyConfig)
+	s.SetRuntimeStateStore(store)
+	if err := s.restoreRuntimeState(); err != nil {
+		return nil, false, fmt.Errorf("validate martingale runtime state for exposure recovery: %w", err)
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.isClosing || s.closeOrderID > 0 || s.closeClientOrderID != "" || s.pendingCloseReason != "" {
+		return nil, false, fmt.Errorf("martingale strategy has unresolved close state during exposure recovery")
+	}
+	leg := strings.ToUpper(strings.TrimSpace(s.direction))
+	if leg != "LONG" && leg != "SHORT" {
+		return nil, false, fmt.Errorf("martingale restored direction %q is not a single verified leg", s.direction)
+	}
+	var inventory []execution.ExposurePosition
+	for _, entry := range s.entries {
+		if entry == nil {
+			return nil, false, fmt.Errorf("martingale runtime state contains a nil entry during exposure recovery")
+		}
+		switch entry.Status {
+		case entryStatusPending, entryStatusPartiallyFilled, position.OrderStatusUnknown:
+			return nil, false, fmt.Errorf("martingale entry %d has unresolved order state during exposure recovery", entry.Level)
+		case entryStatusFilled:
+			if entry.Quantity == 0 {
+				continue
+			}
+			if entry.OrderID <= 0 || strings.TrimSpace(entry.ClientOrderID) == "" {
+				return nil, false, fmt.Errorf("martingale entry %d lacks durable entry-order identity", entry.Level)
+			}
+			inventory = append(inventory, execution.ExposurePosition{
+				Key: fmt.Sprintf("martingale/%d/%s", entry.Level, entry.ClientOrderID), Group: "martingale", Leg: leg,
+				Quantity: entry.Quantity, EntryOrderID: entry.OrderID, EntryClientOrderID: entry.ClientOrderID,
+			})
+		default:
+			return nil, false, fmt.Errorf("martingale entry %d has unsupported status %q during exposure recovery", entry.Level, entry.Status)
+		}
+	}
+	return inventory, true, nil
+}
 
 type martingaleRuntimeState struct {
 	BotID              string                `json:"bot_id"`

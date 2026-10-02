@@ -276,7 +276,7 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 
 func restorableExecutionGroup(group string) bool {
 	switch group {
-	case "grid", "trend", "mean_reversion", "momentum", "dca":
+	case "grid", "trend", "mean_reversion", "momentum", "dca", "martingale":
 		return true
 	default:
 		return false

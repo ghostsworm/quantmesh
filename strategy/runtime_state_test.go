@@ -453,6 +453,49 @@ func TestMartingaleRuntimeStateLoadFailureBlocksStart(t *testing.T) {
 	}
 }
 
+func TestLoadMartingaleExposureInventoryRequiresSettledEntryIdentity(t *testing.T) {
+	cfg := &config.Config{}
+	ex := &hedgeExchange{}
+	strategyConfig := map[string]interface{}{"direction": "LONG"}
+	seed := NewMartingaleStrategy("martingale", "BTCUSDT", cfg, nil, ex, strategyConfig)
+	base := seed.runtimeStateSnapshotLocked()
+	base.TotalQty, base.TotalCost, base.AvgEntryPrice, base.CurrentLevel = 0.4, 40, 100, 1
+	base.Entries = []*MartingaleEntry{{Level: 0, Price: 100, Quantity: 0.4, RequestedQuantity: 0.4, Cost: 40,
+		FillProgress: position.FillProgress{Quantity: 0.4, Notional: 40}, OrderID: 716, ClientOrderID: "martin-entry-716", Status: entryStatusFilled}}
+	storeFor := func(t *testing.T, state martingaleRuntimeState) *memoryRuntimeStateStore {
+		t.Helper()
+		payload, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &memoryRuntimeStateStore{version: martingaleRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	}
+	t.Run("settled entry restores as a directional lot", func(t *testing.T) {
+		lots, found, err := LoadMartingaleExposureInventory(storeFor(t, base), cfg, ex, "BTCUSDT", strategyConfig)
+		if err != nil || !found || len(lots) != 1 || lots[0].Group != "martingale" || lots[0].Leg != "LONG" ||
+			lots[0].EntryOrderID != 716 || lots[0].EntryClientOrderID != "martin-entry-716" || lots[0].Quantity != 0.4 {
+			t.Fatalf("martingale inventory=%+v found=%t err=%v", lots, found, err)
+		}
+	})
+	t.Run("legacy entry without order identity fails closed", func(t *testing.T) {
+		legacy := base
+		legacy.Entries = []*MartingaleEntry{{Level: 0, Price: 100, Quantity: 0.4, RequestedQuantity: 0.4, Cost: 40,
+			FillProgress: position.FillProgress{Quantity: 0.4, Notional: 40}, Status: entryStatusFilled}}
+		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, legacy), cfg, ex, "BTCUSDT", strategyConfig); err == nil {
+			t.Fatal("accepted a martingale entry without durable order identity")
+		}
+	})
+	t.Run("pending entry remains unresolved", func(t *testing.T) {
+		pending := base
+		pending.TotalQty, pending.TotalCost, pending.AvgEntryPrice = 0, 0, 0
+		pending.Entries = []*MartingaleEntry{{Level: 0, Price: 100, RequestedQuantity: 0.4, ClientOrderID: "martin-pending",
+			Status: entryStatusPending}}
+		if _, _, err := LoadMartingaleExposureInventory(storeFor(t, pending), cfg, ex, "BTCUSDT", strategyConfig); err == nil {
+			t.Fatal("accepted a pending martingale entry as settled exposure")
+		}
+	})
+}
+
 func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {
 	state := martingaleRuntimeState{
 		StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",

@@ -887,6 +887,18 @@ func startSymbolRuntime(
 			signalStateRestored = signalStateRestored || dcaStateRestored
 		}
 	}
+	if martingaleCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martingaleCfg.Enabled && signalStateLoadErr == nil {
+		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
+		martingaleInventory, martingaleStateRestored, martingaleErr := strategy.LoadMartingaleExposureInventory(stateStore, &localCfg, exchangeAdapter, symCfg.Symbol, martingaleCfg.Config)
+		if martingaleErr != nil {
+			signalStateLoadErr = martingaleErr
+			logger.ErrorCtx(ctx, "[%s] martingale exposure recovery incomplete; new opening remains blocked: %v", botID, martingaleErr)
+			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
+		} else {
+			signalInventory = append(signalInventory, martingaleInventory...)
+			signalStateRestored = signalStateRestored || martingaleStateRestored
+		}
+	}
 	if signalStateLoadErr == nil {
 		if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager, signalInventory, signalStateRestored); err != nil {
 			logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
