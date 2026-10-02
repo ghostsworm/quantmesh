@@ -34,9 +34,8 @@ func (s *FundingCarryStrategy) verifyMarginNetDebtCover(ctx context.Context, ord
 			return fmt.Errorf("margin debt cover repeats a trade identity")
 		}
 		seen[fill.TradeID] = struct{}{}
-		baseFee := strings.EqualFold(strings.TrimSpace(fill.CommissionAsset), base)
-		if (baseFee && fill.Commission > 0 && fill.BaseFeeQty == 0) || (!baseFee && fill.BaseFeeQty > 0) {
-			return fmt.Errorf("margin debt cover base fee quantity has no matching asset evidence")
+		if err := validateFundingCarryCoverFee(fill, base); err != nil {
+			return err
 		}
 		total.Add(total, fundingCarryDecimalPrincipal(fill.Quantity))
 		fees.Add(fees, fundingCarryDecimalPrincipal(fill.BaseFeeQty))

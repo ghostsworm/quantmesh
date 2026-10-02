@@ -18,7 +18,7 @@ func (e *fundingCarryNetCoverExchange) GetOrderFills(context.Context, string, in
 }
 
 func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
-	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee"} {
+	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee", "underreported_base_fee", "zero_fee_with_base_charge", "invalid_quote_rate", "converted_base_fee"} {
 		t.Run(mode, func(t *testing.T) {
 			spot := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
 			futures := &mockFCExchange{quantityDecimals: 3}
@@ -39,12 +39,22 @@ func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
 				fill.CommissionAsset, fill.BaseFeeQty = "USDT", 0
 			case "zero_fee":
 				fill.Commission, fill.BaseFeeQty = 0, 0
+			case "underreported_base_fee":
+				fill.BaseFeeQty = 0.0001
+			case "zero_fee_with_base_charge":
+				fill.Commission, fill.BaseFeeQty = 0, 0.0001
+			case "invalid_quote_rate":
+				fill.Commission, fill.BaseFeeQty = 20, 0.0004
+				fill.CommissionQuoteKnown, fill.CommissionQuote, fill.CommissionQuoteRate = true, 20, 0
+			case "converted_base_fee":
+				fill.Commission, fill.BaseFeeQty = 20, 0.0004
+				fill.CommissionQuoteKnown, fill.CommissionQuote, fill.CommissionQuoteRate = true, 20, 50000
 			}
 			s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, venue, nil)
 			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 			s.direction, s.marginDebt = DirectionReverse, 0.4
 			err := s.closeReverse(context.Background(), mode)
-			if mode == "base_fee_sufficient" || mode == "quote_fee" || mode == "zero_fee" {
+			if mode == "base_fee_sufficient" || mode == "quote_fee" || mode == "zero_fee" || mode == "converted_base_fee" {
 				if err != nil || venue.repayCalls != 1 || s.marginDebt != 0 || s.direction != DirectionNone || s.unownedExposure {
 					t.Fatalf("verified net cover did not close: %v", err)
 				}
