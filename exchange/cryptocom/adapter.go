@@ -139,6 +139,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 		TotalWalletBalance: account.Balance,
 		TotalMarginBalance: account.Balance,
 		AvailableBalance:   account.Available,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(account.Currency)),
 	}, nil
 }
 

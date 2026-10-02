@@ -61,6 +61,44 @@ func TestCreateOrderAndGetPositionsUseReduceOnlyAndSignedPositionAPI(t *testing.
 	}
 }
 
+func TestGetAccountSummaryReturnsCurrencyAndRejectsEmptyAccounts(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		wantErr  bool
+	}{
+		{name: "currency evidence", response: `{"id":"1","code":"0","result":{"accounts":[{"currency":"btc","balance":"2.5","available":"2"}]}}`},
+		{name: "empty account list", response: `{"id":"1","code":"0","result":{"accounts":[]}}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewCryptoComClient("key", "secret", false)
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			adapter := &Adapter{client: client}
+			account, err := adapter.GetAccount(context.Background())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected empty account list to fail")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetAccountSummary: %v", err)
+			}
+			if account.BalanceAsset != "BTC" {
+				t.Fatalf("BalanceAsset = %q, want BTC", account.BalanceAsset)
+			}
+		})
+	}
+}
+
 func TestNewCryptoComClient(t *testing.T) {
 	apiKey := "test_api_key"
 	secretKey := "test_secret_key"

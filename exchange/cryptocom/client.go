@@ -360,6 +360,9 @@ func (c *CryptoComClient) GetAccountSummary(ctx context.Context) (*AccountSummar
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
 
+	if len(result.Accounts) == 0 {
+		return nil, fmt.Errorf("account summary contains no accounts")
+	}
 	return &result.Accounts[0], nil
 }
 
