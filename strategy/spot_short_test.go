@@ -14,6 +14,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/position"
 )
 
@@ -436,11 +437,38 @@ func TestSpotShortPositionEvidenceFailureNeverBorrowsOrTrades(t *testing.T) {
 			margin := &mockMarginExchange{}
 			executor := &signalTestExecutor{}
 			s := newSpotShortForTest(executor, &spotShortPositionExchange{positions: tc.positions, err: tc.err}, margin)
+			var reported error
+			gate := &execution.OpeningGate{}
+			s.SetUnresolvedDebtHandler(func(err error) {
+				reported = err
+				gate.Block("strategy_accounting_unverified")
+			})
 			s.onHedgeSignal(&event.Event{Data: map[string]interface{}{"symbol": "BTCUSDT", "target_spot_short": 0.5}})
+			if reported == nil {
+				t.Fatal("unverified position must notify the Bot opening risk gate")
+			}
+			if tc.err != nil && !errors.Is(reported, tc.err) {
+				t.Fatalf("position query cause was lost: reported=%v want=%v", reported, tc.err)
+			}
+			if _, err := gate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
+				t.Fatalf("unverified hedge position did not block new admissions: %v", err)
+			}
 			if len(margin.borrowed) != 0 || len(executor.orders) != 0 {
 				t.Fatalf("incomplete position evidence must not trigger borrow/order: borrowed=%v orders=%+v", margin.borrowed, executor.orders)
 			}
 		})
+	}
+}
+
+func TestSpotShortConfirmedFlatPositionDoesNotNotifyRisk(t *testing.T) {
+	margin := &mockMarginExchange{}
+	executor := &signalTestExecutor{}
+	s := newSpotShortForTest(executor, &spotShortPositionExchange{positions: []*position.PositionInfo{}}, margin)
+	var reported error
+	s.SetUnresolvedDebtHandler(func(err error) { reported = err })
+	s.onHedgeSignal(&event.Event{Data: map[string]interface{}{"symbol": "BTCUSDT", "target_spot_short": 0.0}})
+	if reported != nil || len(margin.borrowed) != 0 || len(executor.orders) != 0 {
+		t.Fatalf("confirmed flat position caused a false risk report or trade: reported=%v", reported)
 	}
 }
 

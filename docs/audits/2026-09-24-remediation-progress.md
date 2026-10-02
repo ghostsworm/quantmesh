@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc872 六组故障回归证明 SpotShort 对冲查询持仓失败/无效时只日志并跳过，未触达生产已绑定的 `UnresolvedDebtHandler`，故 Bot 其他策略仍可能在对冲证据缺失时开仓。现传播带 symbol/原始 cause 的错误至既有处理器；核对生产回调阻塞 `strategy_accounting_unverified` 并发布 RiskTriggered（要求对账）。测试补充回调收到错误、原始 cause 可追溯、真实 OpeningGate 拒绝新准入及合法空仓不误告警；策略/Margin 全包、SpotShort 定向 race、根包开仓闸门/适配层/启动/敞口回归、vet 和 diff 检查通过。此处不自动解除共享会计闸门，避免误清其他持久化/负债故障；告警/阻止不等于完成对账恢复或实盘盈利验收。
+
 - rc871 九组 Margin HTTP 故障夹具复现缺失/重复资产及净值与本金/利息矛盾仍被当成空仓或错误持仓的上游缺口。现要求目标资产唯一且净值与零库存负债相符（浮点绝对容差 1e-12、相对容差 1e-8），再按本金加利息计空头，避免微量负债因净值舍入消失；空资产列表仅在资产/负债/净资产汇总均明确为零时有效。依据 [Binance 官方账户字段定义](https://developers.binance.com/en/docs/catalog/core-trading-margin-trading/api/rest-api/account) 建立项目级一致性核验，不推断缺失目标资产等于零。Margin/策略全包、账户证据定向 race、根包适配层/启动/敞口回归、vet 和 diff 检查通过，额外 HTTP 回归确认净值舍入为零仍保留微量本金负债；未连接真实账户，实盘盈利未验收。
 
 - rc870 根包故障回归证明生产 `positionExchangeAdapter` 将交易所 nil 快照转成空数组且遇空指针条目 panic，绕过策略层对未核实持仓的拒绝。现对这两类快照返回错误，保留有效空数组和已确认持仓身份/数量。兼容性检查发现 Binance、Bybit、OKX、Bitget 与 Gate 现货原用 nil 表示查得零持仓，同步改为显式空数组；新增五个本地 HTTP 零持仓夹具及真实适配层边界回归。五个交易所及策略全包、根包适配层/启动/敞口定向 race、根包与五交易所 vet、diff 检查均通过；不代表交易所原始响应的所有数值/完整性边界均已验收，未连接真实账户或证明策略盈利。

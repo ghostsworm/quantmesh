@@ -978,6 +978,7 @@ func (s *SpotShortStrategy) onHedgeSignalWithWalletLock(ctx context.Context, evt
 	currentShort, err := s.getCurrentShortPosition(ctx)
 	if err != nil {
 		logger.Error("SpotShortStrategy 無法核實當前空倉，拒絕執行 hedge signal: %v", err)
+		s.reportUnresolvedDebt(fmt.Errorf("spot short hedge position is unverified for %s: %w", s.symbol, err))
 		return
 	}
 	diff := targetShort - currentShort
