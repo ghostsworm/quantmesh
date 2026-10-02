@@ -784,6 +784,9 @@ func (s *SpotShortStrategy) reconcilePendingBorrowTransfer(ctx context.Context, 
 	if err := s.verifyRecoveryCommitLocked(ctx); err != nil {
 		return current, err
 	}
+	if err := s.verifyBorrowTransferAttributionLocked(clientOrderID, candidates[0]); err != nil {
+		return current, err
+	}
 	s.pendingBorrow[clientOrderID] = intent
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.pendingBorrow[clientOrderID] = current

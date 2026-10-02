@@ -29,13 +29,24 @@ func (e *spotShortRepayAckOwnershipExchange) Repay(ctx context.Context, asset st
 	return id, err
 }
 
+func (e *spotShortRepayAckOwnershipExchange) GetMarginTransactionByID(_ context.Context, asset, kind string, id int64) (exchange.MarginBorrowRecord, error) {
+	for _, record := range e.repayHistory {
+		if record.TransferID == id && record.Asset == asset && kind == "REPAY" {
+			return record, nil // Keep the execution timestamp; querying must not mint a later event.
+		}
+	}
+	return exchange.MarginBorrowRecord{}, nil
+}
+
 func TestSpotShortRepayAcknowledgmentOwnershipLossKeepsRecoveryEvidence(t *testing.T) {
 	gate := &execution.OpeningGate{}
 	margin := &mockMarginExchange{}
 	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{OrderID: 71, TradeID: "fill-71", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5, Commission: 0.001, CommissionAsset: "BTC", BaseFeeQty: 0.001}}}
 	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
 	s.SetOpeningGate(gate)
-	s.smEx = &spotShortRepayAckOwnershipExchange{mockMarginExchange: margin, gate: gate}
+	ack := &spotShortRepayAckOwnershipExchange{mockMarginExchange: margin, gate: gate}
+	s.smEx = ack
+	s.rawEx = ack
 	store := &memoryRuntimeStateStore{}
 	s.SetRuntimeStateStore(store)
 	coordinator := &walletCoordinationTestLock{}
