@@ -909,8 +909,8 @@ export interface DailyStatistics {
   book_value_pnl_verified?: boolean
   funding_fee?: number | null
   funding_fee_verified?: boolean
-  intraday_max_drawdown?: number    // 日內最大回撤金額
-  intraday_max_drawdown_pct?: number // 日內最大回撤百分比
+  intraday_max_drawdown?: number | null    // 未核實的日內回撤不返回
+  intraday_max_drawdown_pct?: number | null // 未核實的日內回撤不返回
   exchange_pnl?: number | null
   /** 交易所 GetAccount 採樣的帳戶權益（USDT），用於真實淨值曲線 */
   account_equity?: number
@@ -920,6 +920,8 @@ export interface DailyStatisticsResponse {
   statistics: DailyStatistics[]
   max_drawdown?: number | null     // 最大回撤金額
   max_drawdown_pct?: number | null // 最大回撤百分比
+  max_drawdown_verified?: boolean
+  max_drawdown_asset?: string
   pnl_verified?: boolean
   pnl_asset?: string
   /** spot / futures 等，用於統計頁展示市場類型 */

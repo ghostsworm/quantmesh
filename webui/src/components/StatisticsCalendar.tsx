@@ -17,8 +17,8 @@ interface DailyStatistics {
   unrealized_pnl_verified?: boolean
   book_value_pnl?: number | null
   book_value_pnl_verified?: boolean
-  intraday_max_drawdown?: number
-  intraday_max_drawdown_pct?: number
+  intraday_max_drawdown?: number | null
+  intraday_max_drawdown_pct?: number | null
   exchange_pnl?: number | null // 當日交易所已實現盈虧（可能未核實）
 }
 
@@ -223,7 +223,7 @@ const StatisticsCalendar: React.FC<StatisticsCalendarProps> = ({ year, month, da
                       <div style={{ color: '#8c8c8c', marginBottom: '2px' }}>
                         {(stats.win_rate * 100).toFixed(1)}%
                       </div>
-                      {stats.intraday_max_drawdown_pct !== undefined && stats.intraday_max_drawdown_pct > 0 && (
+                      {stats.intraday_max_drawdown_pct != null && stats.intraday_max_drawdown_pct > 0 && (
                         <div style={{ color: '#8c8c8c', fontSize: '10px' }}>
                           {t('statistics.drawdown')} -{stats.intraday_max_drawdown_pct.toFixed(1)}%
                         </div>

@@ -41,6 +41,29 @@ func TestValidateDailyProfitStatisticsRowRejectsInvalidRows(t *testing.T) {
 	}
 }
 
+func TestCalculateVerifiedMaxDrawdownUsesObservedAccountEquity(t *testing.T) {
+	rows := []map[string]interface{}{
+		{"account_equity": float64(100)},
+		{"account_equity": float64(120)},
+		{"account_equity": float64(90)},
+	}
+	drawdown, drawdownPct, verified := calculateVerifiedMaxDrawdown(rows)
+	if !verified || drawdown != 30 || drawdownPct != 25 {
+		t.Fatalf("expected verified observed-equity drawdown 30 / 25%%, got %v / %v verified=%v", drawdown, drawdownPct, verified)
+	}
+
+	for _, invalidRows := range [][]map[string]interface{}{
+		{{"cumulative_pnl": float64(-90)}},
+		{{"account_equity": float64(100)}},
+		{{"account_equity": math.NaN()}, {"account_equity": float64(100)}},
+		{{"account_equity": float64(0)}, {"account_equity": float64(-10)}},
+	} {
+		if _, _, verified := calculateVerifiedMaxDrawdown(invalidRows); verified {
+			t.Fatalf("insufficient or invalid equity rows treated as verified: %#v", invalidRows)
+		}
+	}
+}
+
 func (f dailyFundingFixture) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
 	return f.from, f.through, f.coverageErr
 }
@@ -216,14 +239,20 @@ func TestDailyStatisticsUsesExactMarketScopeAndSuppressesUnverifiedSnapshotPnL(t
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		Statistics []map[string]interface{} `json:"statistics"`
-		Verified   bool                     `json:"pnl_verified"`
+		Statistics       []map[string]interface{} `json:"statistics"`
+		Verified         bool                     `json:"pnl_verified"`
+		Drawdown         *float64                 `json:"max_drawdown"`
+		DrawdownPct      *float64                 `json:"max_drawdown_pct"`
+		DrawdownVerified bool                     `json:"max_drawdown_verified"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
 	if !payload.Verified || len(payload.Statistics) != 1 {
 		t.Fatalf("expected one verified scoped daily row: %s", response.Body.String())
+	}
+	if payload.Drawdown != nil || payload.DrawdownPct != nil || payload.DrawdownVerified {
+		t.Fatalf("paired-trade PnL must not substitute for observed-equity drawdown: %s", response.Body.String())
 	}
 	row := payload.Statistics[0]
 	if row["pnl_verified"] != true || row["total_pnl"] != float64(8) || row["pnl_asset"] != "USDT" || row["funding_fee"] != nil || row["unrealized_pnl"] != nil || row["book_value_pnl"] != nil {

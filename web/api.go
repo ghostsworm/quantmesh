@@ -1209,6 +1209,32 @@ func lastAccountEquityPerDayFromHourly(st storage.Storage, exchange, marketType,
 	return out
 }
 
+func calculateVerifiedMaxDrawdown(dailyRows []map[string]interface{}) (float64, float64, bool) {
+	var peak float64
+	var maxDrawdown, maxDrawdownPct float64
+	validSamples := 0
+	for _, row := range dailyRows {
+		equity, ok := row["account_equity"].(float64)
+		if !ok || !isFiniteNumber(equity) || equity <= 0 {
+			continue
+		}
+		validSamples++
+		if equity > peak {
+			peak = equity
+			continue
+		}
+		drawdown := peak - equity
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+		}
+		drawdownPct := drawdown / peak * 100
+		if drawdownPct > maxDrawdownPct {
+			maxDrawdownPct = drawdownPct
+		}
+	}
+	return maxDrawdown, maxDrawdownPct, validSamples >= 2
+}
+
 // getDailyStatistics 獲取每日统计（混合模式：优先使用 statistics 表，缺失的日期從 trades 表补充）
 // GET /api/statistics/daily
 type dailyFundingReader interface {
@@ -1270,13 +1296,13 @@ func validateDailyProfitStatisticsRow(stat *storage.DailyStatisticsWithTradeCoun
 func getDailyStatistics(c *gin.Context) {
 	storageProv := PickStorageProvider(c)
 	if storageProv == nil {
-		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}, "max_drawdown": 0, "max_drawdown_pct": 0})
+		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}, "max_drawdown": nil, "max_drawdown_pct": nil, "max_drawdown_verified": false})
 		return
 	}
 
 	st := storageProv.GetStorage()
 	if st == nil {
-		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}, "max_drawdown": 0, "max_drawdown_pct": 0})
+		c.JSON(http.StatusOK, gin.H{"statistics": []interface{}{}, "max_drawdown": nil, "max_drawdown_pct": nil, "max_drawdown_verified": false})
 		return
 	}
 
@@ -1449,8 +1475,6 @@ func getDailyStatistics(c *gin.Context) {
 		}
 	}
 
-	// 用於计算最大回撤的累计盈亏數據
-	var cumulativePnLList []float64
 	cumulativePnL := 0.0
 
 	// 構建結果（需要按日期正序计算累计盈亏，然后再反轉）
@@ -1540,7 +1564,6 @@ func getDailyStatistics(c *gin.Context) {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日 PnL 累计溢出，拒绝返回不完整统计"})
 				return
 			}
-			cumulativePnLList = append(cumulativePnLList, cumulativePnL)
 			item["cumulative_pnl"] = cumulativePnL
 		} else {
 			item["cumulative_pnl"] = nil
@@ -1556,7 +1579,7 @@ func getDailyStatistics(c *gin.Context) {
 				item["unrealized_pnl_verified"] = false
 			}
 			item["intraday_max_drawdown"] = nil
-			item["intraday_max_drawdown_pct"] = snap.IntradayMaxDrawdownPct
+			item["intraday_max_drawdown_pct"] = nil
 			if snap.AccountEquity != nil {
 				item["account_equity"] = *snap.AccountEquity
 			}
@@ -1591,67 +1614,28 @@ func getDailyStatistics(c *gin.Context) {
 		result = append(result, tempResult[i])
 	}
 
-	// 6. 计算最大回撤
-	// 注意：这里使用净值（equity）= 虚拟初始本金 + 累计盈亏 来计算回撤
-	// 这样可以保证回撤百分比不會超過100%
-	// 我们使用累计盈亏的最小值来估算需要的初始本金
-	maxDrawdown := 0.0
-	maxDrawdownPct := 0.0
-	if len(cumulativePnLList) > 0 {
-		// 找出累计盈亏的最小值，用於确定虚拟初始本金
-		minPnL := cumulativePnLList[0]
-		for _, pnl := range cumulativePnLList {
-			if pnl < minPnL {
-				minPnL = pnl
-			}
-		}
-
-		// 虚拟初始本金：确保净值始终為正
-		// 如果最小累计盈亏是负數，初始本金需要大於其绝對值
-		// 使用 |minPnL| * 2 作為初始本金，确保即使在最低点也有正的净值
-		initialCapital := 1000.0 // 默认初始本金
-		if minPnL < 0 {
-			initialCapital = -minPnL * 2 // 确保最低点時净值仍為正
-			if initialCapital < 1000 {
-				initialCapital = 1000
-			}
-		}
-
-		// 使用净值计算最大回撤
-		peak := initialCapital + cumulativePnLList[0]
-		for _, pnl := range cumulativePnLList {
-			equity := initialCapital + pnl
-			if equity > peak {
-				peak = equity
-			}
-			if peak > 0 {
-				drawdown := peak - equity
-				drawdownPct := (drawdown / peak) * 100
-				if drawdown > maxDrawdown {
-					maxDrawdown = drawdown
-				}
-				if drawdownPct > maxDrawdownPct {
-					maxDrawdownPct = drawdownPct
-				}
-			}
-		}
-
-		// 安全检查：回撤百分比不应超過100%
-		if maxDrawdownPct > 100 {
-			maxDrawdownPct = 100
-		}
+	// 6. 最大回撤只由同一帳戶範圍內的真實權益樣本計算；沒有至少兩個樣本時不發布。
+	maxDrawdown, maxDrawdownPct, maxDrawdownVerified := calculateVerifiedMaxDrawdown(tempResult)
+	drawdownAsset := ""
+	if status != nil {
+		drawdownAsset = strings.ToUpper(strings.TrimSpace(status.QuoteAsset))
 	}
+	maxDrawdownVerified = maxDrawdownVerified && drawdownAsset != ""
 
 	resp := gin.H{
-		"statistics":           result,
-		"max_drawdown":         nil,
-		"max_drawdown_pct":     nil,
-		"pnl_verified":         dailyTradesVerified,
-		"funding_pnl_verified": false,
+		"statistics":            result,
+		"max_drawdown":          nil,
+		"max_drawdown_pct":      nil,
+		"max_drawdown_verified": maxDrawdownVerified,
+		"pnl_verified":          dailyTradesVerified,
+		"funding_pnl_verified":  false,
 	}
-	if dailyTradesVerified {
+	if maxDrawdownVerified {
 		resp["max_drawdown"] = maxDrawdown
 		resp["max_drawdown_pct"] = maxDrawdownPct
+		resp["max_drawdown_asset"] = drawdownAsset
+	}
+	if dailyTradesVerified {
 		resp["pnl_asset"] = dailyPnLAsset
 		resp["pnl_basis"] = "paired_grid_trades"
 	}

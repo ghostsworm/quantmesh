@@ -64,8 +64,8 @@ interface DailyStatistics {
   unrealized_pnl_verified?: boolean
   book_value_pnl?: number | null
   book_value_pnl_verified?: boolean
-  intraday_max_drawdown?: number
-  intraday_max_drawdown_pct?: number
+  intraday_max_drawdown?: number | null
+  intraday_max_drawdown_pct?: number | null
   exchange_pnl?: number | null
   /** 交易所 API 帳戶權益（USDT） */
   account_equity?: number
@@ -139,6 +139,7 @@ const Statistics: React.FC = () => {
             statistics: [],
             max_drawdown: 0,
             max_drawdown_pct: 0,
+            max_drawdown_verified: false,
             pnl_verified: false,
             market_type: undefined,
           })),
@@ -148,7 +149,7 @@ const Statistics: React.FC = () => {
         setDailyMarketType(dailyData.market_type)
         setMaxDrawdown(dailyData.max_drawdown ?? null)
         setMaxDrawdownPct(dailyData.max_drawdown_pct ?? null)
-        setMaxDrawdownVerified(dailyData.pnl_verified === true)
+        setMaxDrawdownVerified(dailyData.max_drawdown_verified === true)
         setError(null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to fetch statistics')
@@ -476,7 +477,7 @@ const Statistics: React.FC = () => {
                     </td>
                     <td style={{ padding: '12px', textAlign: 'right' }}>{(stat.win_rate * 100).toFixed(2)}%</td>
                     <td style={{ padding: '12px', textAlign: 'right', fontSize: '12px', color: '#8c8c8c' }}>
-                      {stat.intraday_max_drawdown_pct !== undefined && stat.intraday_max_drawdown_pct > 0
+                      {stat.intraday_max_drawdown_pct != null && stat.intraday_max_drawdown_pct > 0
                         ? `-${stat.intraday_max_drawdown_pct.toFixed(1)}%`
                         : '-'}
                     </td>
