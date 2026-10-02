@@ -92,6 +92,7 @@ const Statistics: React.FC = () => {
   const [dailyStats, setDailyStats] = useState<DailyStatistics[]>([])
   const [maxDrawdown, setMaxDrawdown] = useState<number | null>(null)
   const [maxDrawdownPct, setMaxDrawdownPct] = useState<number | null>(null)
+  const [maxDrawdownAsset, setMaxDrawdownAsset] = useState<string | null>(null)
   const [maxDrawdownVerified, setMaxDrawdownVerified] = useState(false)
   const [pnlByTimeRange, setPnlByTimeRange] = useState<PnLBySymbol[]>([])
   const [loading, setLoading] = useState(true)
@@ -140,6 +141,7 @@ const Statistics: React.FC = () => {
             max_drawdown: 0,
             max_drawdown_pct: 0,
             max_drawdown_verified: false,
+            max_drawdown_asset: undefined,
             pnl_verified: false,
             market_type: undefined,
           })),
@@ -149,6 +151,7 @@ const Statistics: React.FC = () => {
         setDailyMarketType(dailyData.market_type)
         setMaxDrawdown(dailyData.max_drawdown ?? null)
         setMaxDrawdownPct(dailyData.max_drawdown_pct ?? null)
+        setMaxDrawdownAsset(dailyData.max_drawdown_asset ?? null)
         setMaxDrawdownVerified(dailyData.max_drawdown_verified === true)
         setError(null)
       } catch (err) {
@@ -290,7 +293,7 @@ const Statistics: React.FC = () => {
               {maxDrawdownVerified && maxDrawdownPct != null ? `${maxDrawdownPct.toFixed(2)}%` : t('dashboard.pnlUnverified')}
             </div>
             <div style={{ fontSize: '12px', color: '#8c8c8c', marginTop: '4px' }}>
-              {maxDrawdownVerified && maxDrawdown != null ? `-${maxDrawdown.toFixed(2)}` : ''}
+              {maxDrawdownVerified && maxDrawdown != null && maxDrawdownAsset ? `-${maxDrawdown.toFixed(2)} ${maxDrawdownAsset}` : ''}
             </div>
           </div>
         </div>
