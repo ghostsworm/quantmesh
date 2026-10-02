@@ -200,7 +200,9 @@ func (b *BitgetAdapter) readEquityBills(ctx context.Context, from, through time.
 		for pageNumber := 0; pageNumber < bitgetBillMaxPages; pageNumber++ {
 			query := url.Values{
 				"productType": {"USDT-FUTURES"},
-				"onlyFunding": {"yes"},
+				// The accounting classifier requires trade and transfer bills too.
+				// Bitget's onlyFunding=yes filters those non-funding records out.
+				"onlyFunding": {"no"},
 				"startTime":   {strconv.FormatInt(start.UnixMilli(), 10)},
 				"endTime":     {strconv.FormatInt(end.UnixMilli(), 10)},
 				"limit":       {strconv.Itoa(bitgetBillPageSize)},

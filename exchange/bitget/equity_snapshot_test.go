@@ -138,14 +138,14 @@ func TestBitgetReadAccountEvidenceCapturesUSDTBills(t *testing.T) {
 			_, _ = w.Write([]byte(`{"code":"00000","data":[{"marginCoin":"USDT","accountEquity":"999","unrealizedPL":"-1","coupon":"0","grant":"0","assetMode":"single"}],"requestTime":` + strconv.FormatInt(serverTime.UnixMilli(), 10) + `}`))
 		case "/api/v2/mix/account/bill":
 			q := r.URL.Query()
-			if q.Get("productType") != "USDT-FUTURES" || q.Get("onlyFunding") != "yes" || q.Get("limit") != "100" {
+			if q.Get("productType") != "USDT-FUTURES" || q.Get("onlyFunding") != "no" || q.Get("limit") != "100" {
 				t.Fatalf("bill query=%v", q)
 			}
 			if _, err := url.ParseQuery(q.Encode()); err != nil {
 				t.Fatal(err)
 			}
 			billTime := serverTime.Add(-time.Second).UnixMilli()
-			_, _ = w.Write([]byte(`{"code":"00000","data":{"bills":[{"billId":"77","amount":"-0.25","fee":"-0.01","feeByCoupon":"0","businessType":"contract_settle_fee","coin":"USDT","cTime":"` + strconv.FormatInt(billTime, 10) + `"}],"endId":"77"},"requestTime":` + strconv.FormatInt(serverTime.UnixMilli(), 10) + `}`))
+			_, _ = w.Write([]byte(`{"code":"00000","data":{"bills":[{"billId":"77","amount":"-0.25","fee":"-0.01","feeByCoupon":"0","businessType":"close_long","coin":"USDT","cTime":"` + strconv.FormatInt(billTime, 10) + `"}],"endId":"77"},"requestTime":` + strconv.FormatInt(serverTime.UnixMilli(), 10) + `}`))
 		default:
 			t.Errorf("unexpected evidence endpoint %s", r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -161,7 +161,7 @@ func TestBitgetReadAccountEvidenceCapturesUSDTBills(t *testing.T) {
 		t.Fatalf("unexpected account evidence: %+v", snapshot)
 	}
 	entry := snapshot.Entries[0]
-	if entry.ID != "contract_settle_fee:77" || entry.Kind != "funding" || entry.Amount != "-0.260000000000000000" || !strings.EqualFold(entry.Currency, "USDT") {
+	if entry.ID != "close_long:77" || entry.Kind != "realized_pnl" || entry.Amount != "-0.260000000000000000" || !strings.EqualFold(entry.Currency, "USDT") {
 		t.Fatalf("unexpected bill evidence: %+v", entry)
 	}
 }
