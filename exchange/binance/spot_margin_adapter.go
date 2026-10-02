@@ -191,25 +191,11 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 			base = symbol
 		}
 	}
-	var free, locked, borrowed, interest, netAsset float64
-	for _, ua := range acc.UserAssets {
-		if strings.EqualFold(ua.Asset, base) {
-			freeAmount, borrowedAmount, interestAmount, netAssetAmount, parseErr := parseMarginUserAsset(ua)
-			if parseErr != nil {
-				return nil, fmt.Errorf("parse Binance margin debt for %s: %w", base, parseErr)
-			}
-			lockedAmount, lockedErr := strconv.ParseFloat(ua.Locked, 64)
-			if lockedErr != nil || math.IsNaN(lockedAmount) || math.IsInf(lockedAmount, 0) || lockedAmount < 0 {
-				return nil, fmt.Errorf("parse Binance margin locked balance for %s: invalid amount %q", base, ua.Locked)
-			}
-			free, locked, borrowed, interest, netAsset = freeAmount, lockedAmount, borrowedAmount, interestAmount, netAssetAmount
-			break
-		}
+	borrowed, interest, err := verifiedMarginShortDebt(acc, base)
+	if err != nil {
+		return nil, err
 	}
-	if free > 0 || locked > 0 {
-		return nil, fmt.Errorf("Binance margin account has unowned %s inventory (free=%.12g locked=%.12g); SpotShort requires a zero base-asset balance to attribute borrowed exposure safely", base, free, locked)
-	}
-	shortSize := math.Max(0, -netAsset)
+	shortSize := borrowed + interest
 	if shortSize <= 0 {
 		// A successful account response with no principal or interest is an
 		// authoritative flat snapshot, not an unavailable snapshot. Runtime
@@ -220,8 +206,8 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 	if price <= 0 {
 		price = 0
 	}
-	// Net asset exposure, rather than gross liability, is the short position:
-	// borrowed funds that remain free/locked have not yet been sold.
+	// With verified zero inventory, principal plus interest equals the net
+	// short exposure. Borrowed assets still free/locked are rejected above.
 	return []*Position{{
 		Symbol:          symbol,
 		Size:            -shortSize,
