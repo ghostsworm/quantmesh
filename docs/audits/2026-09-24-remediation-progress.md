@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc834 为 Bitfinex 接入特殊套利账户级掛單快照：官方 `POST /v2/auth/r/orders` 省略 ID 即返回当前用户所有 active orders。wrapper 暴露跨 symbol 结果，校验正整数订单 ID、symbol、有限且非零剩余数量、原始数量及唯一 ID。HTTP transport fixture 验证请求不带 symbol、跨品种读取和异常行/重复 ID 拒绝。真实 API 权限及线上行为尚未验收，R12 未关闭。
+
 - rc833 为 MEXC Futures 接入账户级挂单空值核验：官方 `POST /api/v1/private/order/open_order_total_count` 返回总数及 limit/stop/plan/trailing 分类计数，无需 symbol。新增独立 verifier 而非伪装完整订单快照；仅所有计数齐全、非负且分类和等于总数、总数为零时放行。httptest 覆盖签名、空 JSON 请求、空账户、非空及异常计数。真实 API 权限和线上回包尚未验收，R12 未关闭。
 
 - rc832 为 BitMEX 接入特殊套利账户级挂单核验：官方 `GET /api/v1/order` 以 `filter={"open":true}` 过滤开放订单，可省略 symbol；遵守官方 count 最大 500，按 start offset 逐页读取直至不足页。每页校验必需字段、方向/开放状态、数量一致性，并拒绝重复 orderID 和非数组回包。文档：[BitMEX Get Orders](https://docs.bitmex.com/api-explorer/get-order) 与 [API Explorer](https://www.bitmex.com/api/explorer/)。本地 httptest 验证 501 条跨品种双页读取、签名头和异常快照拒绝；offset 分页不具原子快照语义，真实 API key、并发账户变更和线上行为未验收，R12 未关闭。

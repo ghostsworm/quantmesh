@@ -210,6 +210,40 @@ func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, e
 	return result, nil
 }
 
+// GetAccountOpenOrders returns Bitfinex's active orders across all symbols.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := a.client.GetActiveOrders(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("get account-wide open orders: %w", err)
+	}
+	result := make([]*Order, 0, len(orders))
+	seen := make(map[string]struct{}, len(orders))
+	for _, order := range orders {
+		id := strings.TrimSpace(order.ID)
+		symbol := strings.TrimSpace(order.Symbol)
+		if id == "" || symbol == "" || !isPositiveIntegerString(id) ||
+			!isFinite(order.Amount) || !isFinite(order.AmountOrig) || order.Amount == 0 ||
+			order.AmountOrig <= 0 || math.Abs(order.Amount) > order.AmountOrig {
+			return nil, fmt.Errorf("account-wide Bitfinex open-order snapshot contains an invalid order")
+		}
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("account-wide Bitfinex open-order snapshot contains duplicate order ID %s", id)
+		}
+		seen[id] = struct{}{}
+		result = append(result, a.convertToOrder(&order))
+	}
+	return result, nil
+}
+
+func isPositiveIntegerString(value string) bool {
+	id, err := strconv.ParseInt(value, 10, 64)
+	return err == nil && id > 0
+}
+
+func isFinite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 	quoteAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))

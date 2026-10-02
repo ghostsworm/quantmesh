@@ -3,6 +3,7 @@ package bitfinex
 import (
 	"context"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"testing"
@@ -91,6 +92,8 @@ func TestBitfinexAuthMethodsWithMockTransport(t *testing.T) {
 			return http.StatusOK, `[1,"oc-req",null,null,[],null,"SUCCESS","Order canceled"]`
 		case "/v2/auth/r/orders/tBTCUSD":
 			return http.StatusOK, `[[1,2,3,"tBTCUSD",4,5,"0.1","0.2","LIMIT","LIMIT"]]`
+		case "/v2/auth/r/orders":
+			return http.StatusOK, `[[101,null,12,"tETHUSD",1700000000000,1700000001000,"-0.4","0.5","LIMIT","LIMIT"]]`
 		case "/v2/auth/r/wallets":
 			return http.StatusOK, `[["exchange","USD","100.5","0","99.5"]]`
 		case "/v2/auth/r/positions":
@@ -115,6 +118,10 @@ func TestBitfinexAuthMethodsWithMockTransport(t *testing.T) {
 	if err != nil || len(orders) != 1 || orders[0].Symbol != "BTCUSD" || orders[0].Amount != 0.1 {
 		t.Fatalf("GetActiveOrders() = %#v, %v", orders, err)
 	}
+	accountOrders, err := (&Adapter{client: client}).GetAccountOpenOrders(ctx)
+	if err != nil || len(accountOrders) != 1 || accountOrders[0].Symbol != "ETHUSD" || math.Abs(accountOrders[0].Quantity-0.4) > 1e-9 || math.Abs(accountOrders[0].ExecutedQty-0.1) > 1e-9 {
+		t.Fatalf("GetAccountOpenOrders() = %#v, %v", accountOrders, err)
+	}
 	wallets, err := client.GetWallets(ctx)
 	if err != nil || len(wallets) != 1 || wallets[0].BalanceAvailable != 99.5 {
 		t.Fatalf("GetWallets() = %#v, %v", wallets, err)
@@ -122,6 +129,32 @@ func TestBitfinexAuthMethodsWithMockTransport(t *testing.T) {
 	positions, err := client.GetPositions(ctx)
 	if err != nil || len(positions) != 1 || positions[0].PL != 12.5 {
 		t.Fatalf("GetPositions() = %#v, %v", positions, err)
+	}
+}
+
+func TestBitfinexAccountOpenOrdersRejectsInvalidSnapshots(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "short row", body: `[[101,2,3,"tETHUSD"]]`},
+		{name: "invalid order identity", body: `[[0,null,12,"tETHUSD",1700000000000,1700000001000,"-0.4","0.5","LIMIT","LIMIT"]]`},
+		{name: "invalid symbol", body: `[[101,null,12,"",1700000000000,1700000001000,"-0.4","0.5","LIMIT","LIMIT"]]`},
+		{name: "zero remaining amount", body: `[[101,null,12,"tETHUSD",1700000000000,1700000001000,"0","0.5","LIMIT","LIMIT"]]`},
+		{name: "duplicate identity", body: `[[101,null,12,"tETHUSD",1700000000000,1700000001000,"-0.4","0.5","LIMIT","LIMIT"],[101,null,13,"tBTCUSD",1700000000000,1700000001000,"0.2","0.2","LIMIT","LIMIT"]]`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := newMockBitfinexClient(func(req *http.Request) (int, string) {
+				if req.URL.Path != "/v2/auth/r/orders" {
+					t.Fatalf("path = %s", req.URL.Path)
+				}
+				return http.StatusOK, tt.body
+			})
+			if _, err := (&Adapter{client: client}).GetAccountOpenOrders(context.Background()); err == nil {
+				t.Fatal("GetAccountOpenOrders() accepted invalid snapshot")
+			}
+		})
 	}
 }
 

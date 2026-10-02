@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc834] - 2026-10-02（未發布）
+
+### Fixed
+- Bitfinex 活動訂單查詢新增無 symbol 的帳戶級快照；校驗訂單 ID、symbol、剩餘/原始數量及重複 ID，異常回包 fail-closed。
+
 ## [3.111.0-rc833] - 2026-10-02（未發布）
 
 ### Fixed

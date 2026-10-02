@@ -14,6 +14,8 @@ type bitfinexWrapper struct {
 	adapter *bitfinex.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*bitfinexWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *bitfinexWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -110,6 +112,18 @@ func (w *bitfinexWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*
 		orders = append(orders, convertBitfinexOrderToExchangeOrder(bitfinexOrder))
 	}
 	return orders, nil
+}
+
+func (w *bitfinexWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		result = append(result, convertBitfinexOrderToExchangeOrder(order))
+	}
+	return result, nil
 }
 
 // GetAccount 獲取帳戶信息
