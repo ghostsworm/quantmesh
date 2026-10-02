@@ -2115,17 +2115,24 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		})
 		return fmt.Errorf("借幣 %s: %w", base, err)
 	}
+	if err := s.recordMarginBorrowAcknowledgement(ctx, borrowTransferID); err != nil {
+		return s.blockOnUnownedExposure(err)
+	}
 	borrowEvent, verifyErr := s.confirmMarginDebtTransaction(ctx, "borrow", borrowTransferID, base, borrowQty)
 	if verifyErr != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("verify margin borrow transaction: %w", verifyErr))
 	}
 	s.mu.Lock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(err)
+	}
 	if replay, identityErr := s.debtEventReplayLocked(borrowEvent); replay || identityErr != nil {
 		s.mu.Unlock()
 		return s.blockOnUnownedExposure(fmt.Errorf("new margin borrow returned a reused or conflicting transaction identity %d", borrowTransferID))
 	}
 	s.direction = DirectionReverse
-	s.marginDebt = borrowQty
+	s.marginDebt = borrowEvent.Principal
 	s.marginBorrowTransferID = borrowTransferID
 	s.marginBorrowedAt = borrowEvent.OccurredAt
 	s.marginDebtEvents = append(s.marginDebtEvents, borrowEvent)
