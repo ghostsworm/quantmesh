@@ -527,26 +527,31 @@ func (s *FundingCarryStrategy) requireNoOpenOrders(ctx context.Context) error {
 }
 
 func requireAccountHasNoOpenOrders(ctx context.Context, ex exchange.IExchange, market string) error {
-	reader, ok := ex.(exchange.AccountOpenOrdersReader)
-	if !ok {
-		return fmt.Errorf("%s exchange does not expose an authoritative account-wide open-order snapshot", market)
-	}
-	orders, err := reader.GetAccountOpenOrders(ctx)
-	if err != nil {
-		return fmt.Errorf("read account-wide %s open orders: %w", market, err)
-	}
-	if orders == nil {
-		return fmt.Errorf("account-wide %s open-order snapshot is nil, not an authoritative empty snapshot", market)
-	}
-	for _, order := range orders {
-		if order == nil || strings.TrimSpace(order.Symbol) == "" {
-			return fmt.Errorf("account-wide %s open-order snapshot contains an invalid row", market)
+	if reader, ok := ex.(exchange.AccountOpenOrdersReader); ok {
+		orders, err := reader.GetAccountOpenOrders(ctx)
+		if err != nil {
+			return fmt.Errorf("read account-wide %s open orders: %w", market, err)
 		}
+		if orders == nil {
+			return fmt.Errorf("account-wide %s open-order snapshot is nil, not an authoritative empty snapshot", market)
+		}
+		for _, order := range orders {
+			if order == nil || strings.TrimSpace(order.Symbol) == "" {
+				return fmt.Errorf("account-wide %s open-order snapshot contains an invalid row", market)
+			}
+		}
+		if len(orders) != 0 {
+			return fmt.Errorf("account-wide %s snapshot has %d open orders", market, len(orders))
+		}
+		return nil
 	}
-	if len(orders) != 0 {
-		return fmt.Errorf("account-wide %s snapshot has %d open orders", market, len(orders))
+	if verifier, ok := ex.(exchange.AccountOpenOrdersVerifier); ok {
+		if err := verifier.VerifyAccountHasNoOpenOrders(ctx); err != nil {
+			return fmt.Errorf("verify account-wide %s open orders are empty: %w", market, err)
+		}
+		return nil
 	}
-	return nil
+	return fmt.Errorf("%s exchange does not expose authoritative account-wide open-order evidence", market)
 }
 
 // VerifyFlat independently verifies live legs, owned spot inventory, pending

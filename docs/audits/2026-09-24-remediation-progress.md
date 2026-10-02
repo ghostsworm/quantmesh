@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc833 为 MEXC Futures 接入账户级挂单空值核验：官方 `POST /api/v1/private/order/open_order_total_count` 返回总数及 limit/stop/plan/trailing 分类计数，无需 symbol。新增独立 verifier 而非伪装完整订单快照；仅所有计数齐全、非负且分类和等于总数、总数为零时放行。httptest 覆盖签名、空 JSON 请求、空账户、非空及异常计数。真实 API 权限和线上回包尚未验收，R12 未关闭。
+
 - rc832 为 BitMEX 接入特殊套利账户级挂单核验：官方 `GET /api/v1/order` 以 `filter={"open":true}` 过滤开放订单，可省略 symbol；遵守官方 count 最大 500，按 start offset 逐页读取直至不足页。每页校验必需字段、方向/开放状态、数量一致性，并拒绝重复 orderID 和非数组回包。文档：[BitMEX Get Orders](https://docs.bitmex.com/api-explorer/get-order) 与 [API Explorer](https://www.bitmex.com/api/explorer/)。本地 httptest 验证 501 条跨品种双页读取、签名头和异常快照拒绝；offset 分页不具原子快照语义，真实 API key、并发账户变更和线上行为未验收，R12 未关闭。
 
 - rc831 为 Deribit 接入特殊套利账户级挂单核验：官方 `private/get_open_orders` 空参数覆盖认证账户跨币种全部挂单，默认 kind/type 覆盖各类合约/期权/现货及订单类型；适配器不再把单一 perpetual instrument 当账户快照。私有请求前确保读 token 已获取；缺失结果/字段、重复订单 ID、未知方向/状态或无效数量时 fail-closed。文档：[Deribit private/get_open_orders](https://docs.deribit.com/api-reference/trading/private-get_open_orders)。本地 httptest 验证 JSON-RPC、认证流程、空过滤参数和拒绝条件；真实 API key scope、账户行为及组合/子账户边界未验收，R12 未关闭。

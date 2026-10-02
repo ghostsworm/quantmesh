@@ -155,6 +155,10 @@ func (w *mexcWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Orde
 	return result, nil
 }
 
+func (w *mexcWrapper) VerifyAccountHasNoOpenOrders(ctx context.Context) error {
+	return w.adapter.VerifyAccountHasNoOpenOrders(ctx)
+}
+
 // GetAccount 獲取帳戶信息
 func (w *mexcWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	account, err := w.adapter.GetAccount(ctx)

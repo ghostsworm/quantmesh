@@ -374,6 +374,26 @@ func TestFundingPerpSpreadAccountOrderCheckRejectsOtherSymbol(t *testing.T) {
 	}
 }
 
+type fundingSpreadOrderCountVerifier struct {
+	exchange.IExchange
+	err error
+}
+
+func (v fundingSpreadOrderCountVerifier) VerifyAccountHasNoOpenOrders(context.Context) error {
+	return v.err
+}
+
+func TestFundingPerpSpreadAccountOrderCheckUsesCountVerifier(t *testing.T) {
+	ex := fundingSpreadOrderCountVerifier{IExchange: &fundingSpreadTestExchange{name: "mexc"}}
+	if err := requireAccountHasNoOpenOrders(t.Context(), ex, "funding_perp_spread futures"); err != nil {
+		t.Fatalf("empty account verifier rejected account: %v", err)
+	}
+	ex.err = errors.New("MEXC account has 2 open orders")
+	if err := requireAccountHasNoOpenOrders(t.Context(), ex, "funding_perp_spread futures"); err == nil || !strings.Contains(err.Error(), "2 open orders") {
+		t.Fatalf("open account orders were not rejected: %v", err)
+	}
+}
+
 type fundingSpreadOtherSymbolOrderExchange struct{ *fundingSpreadTestExchange }
 
 func (e fundingSpreadOtherSymbolOrderExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*exchange.Order, error) {

@@ -178,6 +178,13 @@ type AccountOpenOrdersReader interface {
 	GetAccountOpenOrders(ctx context.Context) ([]*Order, error)
 }
 
+// AccountOpenOrdersVerifier can authoritatively confirm that an exchange
+// account has no open orders when the venue cannot enumerate them account-wide.
+// It must fail closed on incomplete or inconsistent venue responses.
+type AccountOpenOrdersVerifier interface {
+	VerifyAccountHasNoOpenOrders(ctx context.Context) error
+}
+
 // SpotMarginFlatnessVerifier reports whether the entire cross-margin account
 // has no outstanding debt and no active margin orders. Implementations must
 // fail closed when the venue cannot provide authoritative account-wide data.

@@ -342,6 +342,48 @@ func (c *MEXCClient) GetOpenOrders(ctx context.Context, symbol string) ([]OrderI
 	return resp.Data, nil
 }
 
+// VerifyAccountHasNoOpenOrders uses MEXC's account-wide in-flight order count.
+// The endpoint includes limit, TP/SL, plan, and trailing orders but does not
+// return order details, so it is suitable only for an empty-account check.
+func (c *MEXCClient) VerifyAccountHasNoOpenOrders(ctx context.Context) error {
+	const path = "/api/v1/private/order/open_order_total_count"
+	body, err := c.sendRequest(ctx, http.MethodPost, path, url.Values{}, true)
+	if err != nil {
+		return fmt.Errorf("query MEXC account-wide open-order counts: %w", err)
+	}
+	var response struct {
+		Code    *int  `json:"code"`
+		Success *bool `json:"success"`
+		Data    *struct {
+			SumCount        *int64 `json:"sumCount"`
+			LimitOrderCount *int64 `json:"limitOrderCount"`
+			StopOrderCount  *int64 `json:"stopOrderCount"`
+			PlanOrderCount  *int64 `json:"planOrderCount"`
+			TrackOrderCount *int64 `json:"trackOrderCount"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return fmt.Errorf("decode MEXC account-wide open-order counts: %w", err)
+	}
+	if response.Code == nil || *response.Code != 0 || response.Success == nil || !*response.Success || response.Data == nil {
+		return fmt.Errorf("MEXC account-wide open-order count response is incomplete or unsuccessful")
+	}
+	counts := []*int64{response.Data.SumCount, response.Data.LimitOrderCount, response.Data.StopOrderCount, response.Data.PlanOrderCount, response.Data.TrackOrderCount}
+	for _, count := range counts {
+		if count == nil || *count < 0 {
+			return fmt.Errorf("MEXC account-wide open-order count response has a missing or invalid count")
+		}
+	}
+	categoryTotal := *response.Data.LimitOrderCount + *response.Data.StopOrderCount + *response.Data.PlanOrderCount + *response.Data.TrackOrderCount
+	if categoryTotal != *response.Data.SumCount {
+		return fmt.Errorf("MEXC account-wide open-order counts are inconsistent: sum=%d categories=%d", *response.Data.SumCount, categoryTotal)
+	}
+	if *response.Data.SumCount != 0 {
+		return fmt.Errorf("MEXC account has %d open orders (limit=%d stop=%d plan=%d trailing=%d)", *response.Data.SumCount, *response.Data.LimitOrderCount, *response.Data.StopOrderCount, *response.Data.PlanOrderCount, *response.Data.TrackOrderCount)
+	}
+	return nil
+}
+
 // GetAccount 獲取帳戶信息
 func (c *MEXCClient) GetAccount(ctx context.Context) ([]AccountInfo, error) {
 	path := "/api/v1/private/account/assets"

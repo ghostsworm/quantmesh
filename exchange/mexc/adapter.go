@@ -246,6 +246,11 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
+// VerifyAccountHasNoOpenOrders confirms account-wide Futures order flatness.
+func (a *Adapter) VerifyAccountHasNoOpenOrders(ctx context.Context) error {
+	return a.client.VerifyAccountHasNoOpenOrders(ctx)
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	accountInfo, err := a.getSettlementAccount(ctx)

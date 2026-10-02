@@ -3,6 +3,7 @@ package mexc
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -117,6 +118,44 @@ func TestMEXCClientHTTPMethodsWithMockServer(t *testing.T) {
 	klines, err := client.GetKlines(ctx, "BTC_USDT", "Min1", 2)
 	if err != nil || len(klines) != 2 || klines[1].Time != 2000 || klines[1].Close != 12 {
 		t.Fatalf("GetKlines() = %#v, %v", klines, err)
+	}
+}
+
+func TestMEXCAccountOpenOrderCountVerifier(t *testing.T) {
+	tests := []struct {
+		name       string
+		response   string
+		wantErr    bool
+		wantReason string
+	}{
+		{name: "empty account", response: `{"code":0,"success":true,"data":{"sumCount":0,"limitOrderCount":0,"stopOrderCount":0,"planOrderCount":0,"trackOrderCount":0}}`},
+		{name: "open trailing order", response: `{"code":0,"success":true,"data":{"sumCount":1,"limitOrderCount":0,"stopOrderCount":0,"planOrderCount":0,"trackOrderCount":1}}`, wantErr: true, wantReason: "trailing=1"},
+		{name: "missing category", response: `{"code":0,"success":true,"data":{"sumCount":0,"limitOrderCount":0,"stopOrderCount":0,"planOrderCount":0}}`, wantErr: true, wantReason: "missing or invalid"},
+		{name: "inconsistent counts", response: `{"code":0,"success":true,"data":{"sumCount":0,"limitOrderCount":1,"stopOrderCount":0,"planOrderCount":0,"trackOrderCount":0}}`, wantErr: true, wantReason: "inconsistent"},
+		{name: "unsuccessful response", response: `{"code":0,"success":false,"data":{"sumCount":0,"limitOrderCount":0,"stopOrderCount":0,"planOrderCount":0,"trackOrderCount":0}}`, wantErr: true, wantReason: "incomplete or unsuccessful"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, closeServer := newMockMEXCClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodPost || r.URL.Path != "/api/v1/private/order/open_order_total_count" {
+					t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+				}
+				body, err := io.ReadAll(r.Body)
+				if err != nil || string(body) != "{}" {
+					t.Fatalf("request body = %q, err=%v; want empty JSON object", body, err)
+				}
+				assertMEXCOpenAPIAuth(t, r, "{}")
+				_, _ = w.Write([]byte(tt.response))
+			})
+			defer closeServer()
+			err := client.VerifyAccountHasNoOpenOrders(context.Background())
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("VerifyAccountHasNoOpenOrders() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantReason != "" && !strings.Contains(err.Error(), tt.wantReason) {
+				t.Fatalf("error = %v, want %q", err, tt.wantReason)
+			}
+		})
 	}
 }
 
