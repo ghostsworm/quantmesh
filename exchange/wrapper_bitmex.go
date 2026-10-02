@@ -12,6 +12,8 @@ type bitmexWrapper struct {
 	adapter *bitmex.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*bitmexWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *bitmexWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -152,6 +154,24 @@ func (w *bitmexWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		})
 	}
 
+	return result, nil
+}
+
+func (w *bitmexWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		var side Side
+		if order.Side == bitmex.SideBuy {
+			side = SideBuy
+		} else {
+			side = SideSell
+		}
+		result = append(result, &Order{OrderID: 0, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: side, Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime})
+	}
 	return result, nil
 }
 

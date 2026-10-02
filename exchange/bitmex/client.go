@@ -12,14 +12,16 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
 )
 
 const (
-	BitMEXMainnetBaseURL = "https://www.bitmex.com"     // BitMEX 主网
-	BitMEXTestnetBaseURL = "https://testnet.bitmex.com" // BitMEX 測試網
+	BitMEXMainnetBaseURL    = "https://www.bitmex.com"     // BitMEX 主网
+	BitMEXTestnetBaseURL    = "https://testnet.bitmex.com" // BitMEX 測試網
+	bitmexOrderQtyTolerance = 1e-9
 )
 
 // BitMEXClient BitMEX 客戶端
@@ -211,6 +213,90 @@ func (c *BitMEXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	}
 
 	return orders, nil
+}
+
+// GetAccountOpenOrders returns all open orders without restricting the symbol.
+func (c *BitMEXClient) GetAccountOpenOrders(ctx context.Context) ([]Order, error) {
+	const pageSize = 500
+	path := "/api/v1/order"
+	orders := make([]Order, 0)
+	seen := make(map[string]struct{})
+	for start := 0; ; {
+		params := url.Values{}
+		params.Set("filter", `{"open":true}`)
+		params.Set("count", strconv.Itoa(pageSize))
+		params.Set("start", strconv.Itoa(start))
+		respBody, err := c.sendRequest(ctx, http.MethodGet, path, params, nil, true)
+		if err != nil {
+			return nil, fmt.Errorf("get BitMEX account open orders page at %d: %w", start, err)
+		}
+		trimmed := bytes.TrimSpace(respBody)
+		if len(trimmed) == 0 || trimmed[0] != '[' {
+			return nil, fmt.Errorf("BitMEX account open orders page at %d is not an array", start)
+		}
+		var page []struct {
+			OrderID      *string    `json:"orderID"`
+			Symbol       *string    `json:"symbol"`
+			Side         *string    `json:"side"`
+			OrdQty       *float64   `json:"orderQty"`
+			CumQty       *float64   `json:"cumQty"`
+			LeavesQty    *float64   `json:"leavesQty"`
+			Price        *float64   `json:"price"`
+			OrdType      *string    `json:"ordType"`
+			OrdStatus    *string    `json:"ordStatus"`
+			ClOrdID      string     `json:"clOrdID"`
+			Timestamp    *time.Time `json:"timestamp"`
+			TransactTime *time.Time `json:"transactTime"`
+		}
+		if err := json.Unmarshal(trimmed, &page); err != nil {
+			return nil, fmt.Errorf("decode BitMEX account open orders page at %d: %w", start, err)
+		}
+		if len(page) > pageSize {
+			return nil, fmt.Errorf("BitMEX account open orders page at %d exceeds requested limit", start)
+		}
+		for i, row := range page {
+			if row.OrderID == nil || strings.TrimSpace(*row.OrderID) == "" || row.Symbol == nil || strings.TrimSpace(*row.Symbol) == "" || row.Side == nil || row.OrdQty == nil || row.CumQty == nil || row.LeavesQty == nil || row.Price == nil || row.OrdType == nil || row.OrdStatus == nil {
+				return nil, fmt.Errorf("BitMEX account open order at offset %d missing required field", start+i)
+			}
+			if _, exists := seen[*row.OrderID]; exists {
+				return nil, fmt.Errorf("BitMEX account open orders contain duplicate order id %q", *row.OrderID)
+			}
+			seen[*row.OrderID] = struct{}{}
+			side := strings.ToLower(strings.TrimSpace(*row.Side))
+			if side != "buy" && side != "sell" {
+				return nil, fmt.Errorf("BitMEX open order %q has unknown side %q", *row.OrderID, *row.Side)
+			}
+			sideName := "Buy"
+			if side == "sell" {
+				sideName = "Sell"
+			}
+			status := strings.ToLower(strings.TrimSpace(*row.OrdStatus))
+			switch status {
+			case "new", "partiallyfilled", "pendingnew", "pendingcancel", "untriggered", "triggered", "suspended":
+			default:
+				return nil, fmt.Errorf("BitMEX open order %q has unknown status %q", *row.OrderID, *row.OrdStatus)
+			}
+			tolerance := *row.OrdQty * bitmexOrderQtyTolerance
+			if *row.OrdQty <= 0 || *row.CumQty < 0 || *row.LeavesQty < 0 || *row.CumQty > *row.OrdQty+tolerance || *row.LeavesQty > *row.OrdQty+tolerance || *row.CumQty+*row.LeavesQty > *row.OrdQty+tolerance {
+				return nil, fmt.Errorf("BitMEX open order %q has invalid quantities", *row.OrderID)
+			}
+			order := Order{OrderID: *row.OrderID, Symbol: *row.Symbol, Side: sideName, OrderQty: *row.OrdQty, CumQty: *row.CumQty, LeavesQty: *row.LeavesQty, Price: *row.Price, OrdType: *row.OrdType, OrdStatus: *row.OrdStatus, ClOrdID: row.ClOrdID}
+			if row.Timestamp != nil {
+				order.Timestamp = *row.Timestamp
+			}
+			if row.TransactTime != nil {
+				order.TransactTime = *row.TransactTime
+			}
+			orders = append(orders, order)
+		}
+		if len(page) < pageSize {
+			return orders, nil
+		}
+		if start > int(^uint(0)>>1)-pageSize {
+			return nil, fmt.Errorf("BitMEX account open orders pagination offset overflow")
+		}
+		start += len(page)
+	}
 }
 
 // GetPosition 獲取持倉

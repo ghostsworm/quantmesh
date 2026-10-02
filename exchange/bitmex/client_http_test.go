@@ -3,8 +3,10 @@ package bitmex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -125,6 +127,94 @@ func TestBitMEXClientHTTPMethodsWithMockServer(t *testing.T) {
 	buckets, err := client.GetTradeBucketed(ctx, "XBTUSD", "1m", 2)
 	if err != nil || len(buckets) != 1 || buckets[0].Close != 1.5 {
 		t.Fatalf("GetTradeBucketed() = %#v, %v", buckets, err)
+	}
+}
+
+func TestGetAccountOpenOrdersReturnsAllSymbolsAcrossPages(t *testing.T) {
+	var starts []string
+	client, closeServer := newMockBitMEXClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/v1/order" {
+			t.Errorf("request = %s %s", r.Method, r.URL.String())
+		}
+		if r.URL.Query().Has("symbol") {
+			t.Errorf("account snapshot must not restrict symbol: %s", r.URL.RawQuery)
+		}
+		if r.URL.Query().Get("filter") != `{"open":true}` || r.URL.Query().Get("count") != "500" {
+			t.Errorf("unexpected account query: %s", r.URL.RawQuery)
+		}
+		if r.Header.Get("api-key") != "api-key" || r.Header.Get("api-expires") == "" || r.Header.Get("api-signature") == "" {
+			t.Errorf("signed headers missing")
+		}
+		start := r.URL.Query().Get("start")
+		starts = append(starts, start)
+		startOffset, err := strconv.Atoi(start)
+		if err != nil {
+			t.Fatalf("invalid start offset %q", start)
+		}
+		count := 500
+		if startOffset == 500 {
+			count = 1
+		} else if startOffset != 0 {
+			t.Fatalf("unexpected pagination offset %d", startOffset)
+		}
+		page := make([]Order, count)
+		for i := range page {
+			id := startOffset + i
+			symbol := "XBTUSD"
+			if id%2 == 1 {
+				symbol = "ETHUSD"
+			}
+			page[i] = Order{OrderID: fmt.Sprintf("order-%d", id), Symbol: symbol, Side: "Buy", OrderQty: 10, CumQty: 2, LeavesQty: 8, Price: 100, OrdType: "Limit", OrdStatus: "PartiallyFilled"}
+		}
+		if err := json.NewEncoder(w).Encode(page); err != nil {
+			t.Errorf("encode page: %v", err)
+		}
+	})
+	defer closeServer()
+
+	orders, err := client.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccountOpenOrders(): %v", err)
+	}
+	if len(orders) != 501 || orders[0].Symbol != "XBTUSD" || orders[1].Symbol != "ETHUSD" || orders[500].OrderID != "order-500" {
+		t.Fatalf("account open orders length/rows unexpected: len=%d first=%+v last=%+v", len(orders), orders[0], orders[len(orders)-1])
+	}
+	if len(starts) != 2 || starts[0] != "0" || starts[1] != "500" {
+		t.Fatalf("page starts = %v, want [0 500]", starts)
+	}
+}
+
+func TestGetAccountOpenOrdersFailsClosedOnInvalidRows(t *testing.T) {
+	valid := Order{OrderID: "order-1", Symbol: "XBTUSD", Side: "Buy", OrderQty: 10, CumQty: 2, LeavesQty: 8, Price: 100, OrdType: "Limit", OrdStatus: "PartiallyFilled"}
+	tests := []struct {
+		name string
+		rows []Order
+		body string
+	}{
+		{name: "null response", body: `null`},
+		{name: "missing ID", rows: []Order{{Symbol: "XBTUSD", Side: "Buy", OrderQty: 1, LeavesQty: 1, OrdType: "Limit", OrdStatus: "New"}}},
+		{name: "missing symbol", rows: []Order{{OrderID: "order-1", Side: "Buy", OrderQty: 1, LeavesQty: 1, OrdType: "Limit", OrdStatus: "New"}}},
+		{name: "unknown side", rows: []Order{{OrderID: "order-1", Symbol: "XBTUSD", Side: "Hold", OrderQty: 1, LeavesQty: 1, OrdType: "Limit", OrdStatus: "New"}}},
+		{name: "unknown status", rows: []Order{{OrderID: "order-1", Symbol: "XBTUSD", Side: "Buy", OrderQty: 1, LeavesQty: 1, OrdType: "Limit", OrdStatus: "SomethingNew"}}},
+		{name: "inconsistent quantities", rows: []Order{{OrderID: "order-1", Symbol: "XBTUSD", Side: "Buy", OrderQty: 1, CumQty: 1, LeavesQty: 1, OrdType: "Limit", OrdStatus: "New"}}},
+		{name: "duplicate ID", rows: []Order{valid, valid}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, closeServer := newMockBitMEXClient(t, func(w http.ResponseWriter, r *http.Request) {
+				if tt.body != "" {
+					_, _ = w.Write([]byte(tt.body))
+					return
+				}
+				if err := json.NewEncoder(w).Encode(tt.rows); err != nil {
+					t.Errorf("encode rows: %v", err)
+				}
+			})
+			defer closeServer()
+			if _, err := client.GetAccountOpenOrders(context.Background()); err == nil {
+				t.Fatal("GetAccountOpenOrders() accepted an invalid snapshot")
+			}
+		})
 	}
 }
 

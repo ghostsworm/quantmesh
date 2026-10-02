@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc832] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 BitMEX 全品種账户级掛單快照；按 500 条上限完整分页，分页/身份/订单字段异常时拒绝放行。
+
 ## [3.111.0-rc831] - 2026-10-02（未發布）
 
 ### Fixed
