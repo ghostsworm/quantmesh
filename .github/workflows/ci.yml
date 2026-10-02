@@ -63,6 +63,12 @@ jobs:
     - name: Run Go tests
       run: go test ./... -coverprofile=/tmp/quantmesh-go-cover.out
 
+    - name: Run Go static analysis
+      run: go vet ./...
+
+    - name: Race-test trading risk core
+      run: go test -race ./execution ./order ./position ./risk ./storage -count=1 -timeout=180s
+
     - name: Report Go coverage
       run: go tool cover -func=/tmp/quantmesh-go-cover.out | tail -n 1
 

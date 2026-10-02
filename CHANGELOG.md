@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc778] - 2026-10-02（未發布）
+
+### Changed
+- CI 與獨立發版驗證新增 `go vet ./...` 及 execution/order/position/risk/storage 核心包 race 測試；發版構建必須等待同一 SHA 的靜態分析、競態與既有測試全部通過。
+
 ## [3.111.0-rc777] - 2026-10-02（未發布）
 
 ### Fixed

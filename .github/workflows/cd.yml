@@ -65,6 +65,12 @@ jobs:
     - name: Run Go tests
       run: go test ./... -count=1
 
+    - name: Run Go static analysis
+      run: go vet ./...
+
+    - name: Race-test trading risk core
+      run: go test -race ./execution ./order ./position ./risk ./storage -count=1 -timeout=180s
+
   # 僅構建 Linux amd64 Release 資產
   build:
     name: Build (linux-amd64)
