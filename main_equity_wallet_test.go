@@ -140,6 +140,30 @@ func TestRuntimeEquityRequiresAllEnabledConfiguredAccounts(t *testing.T) {
 	}
 }
 
+func TestRuntimeEquityRejectsConfiguredDisabledAccountWithoutRuntime(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	activeConfig := config.ExchangeConfig{APIKey: "active-account-key", Testnet: true}
+	disabledConfig := config.ExchangeConfig{APIKey: "disabled-account-key", Testnet: true}
+	disabled := false
+	cfg := &config.Config{
+		Exchanges: map[string]config.ExchangeConfig{"binance": activeConfig, "bitget": disabledConfig},
+		Bots: []config.BotConfig{
+			{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+			{Exchange: "bitget", Symbol: "ETHUSDT", MarketType: "futures", Enabled: &disabled},
+		},
+	}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", activeConfig), &equityLedgerExchange{
+		snapshot: runtimeWalletFixture(now, "1000", 1000),
+	})
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "active-bot", Inner: runtime})
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
+		t.Fatalf("disabled configured account was omitted from the required equity scope: observation=%+v err=%v", observation, err)
+	}
+}
+
 func TestRuntimeEquityConfiguredScopeDeduplicatesBotsOnSameAccount(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	exchangeConfig := config.ExchangeConfig{APIKey: "shared-account-key", Testnet: true}

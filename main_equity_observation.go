@@ -28,10 +28,7 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 	}
 	accounts := make(map[string]struct{})
 	marketTypes := make(map[string]struct{})
-	add := func(exchangeName, marketType string, enabled bool) error {
-		if !enabled {
-			return nil
-		}
+	add := func(exchangeName, marketType string) error {
 		exchangeName = strings.TrimSpace(exchangeName)
 		if exchangeName == "" {
 			exchangeName = strings.TrimSpace(cfg.App.CurrentExchange)
@@ -57,13 +54,13 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 	}
 	if len(cfg.Bots) > 0 {
 		for _, bot := range cfg.Bots {
-			if err := add(bot.Exchange, bot.GetMarketType(), bot.IsEnabled()); err != nil {
+			if err := add(bot.Exchange, bot.GetMarketType()); err != nil {
 				return equityScopeSnapshot{configured: true, err: err.Error()}
 			}
 		}
 	} else {
 		for _, symbol := range cfg.Trading.Symbols {
-			if err := add(symbol.Exchange, symbol.GetMarketType(), symbol.IsEnabled()); err != nil {
+			if err := add(symbol.Exchange, symbol.GetMarketType()); err != nil {
 				return equityScopeSnapshot{configured: true, err: err.Error()}
 			}
 		}
