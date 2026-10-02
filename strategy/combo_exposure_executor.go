@@ -218,6 +218,14 @@ func (e *comboExposureAdmissionExecutor) BatchPlaceOrdersWithDetailsContext(ctx 
 			for key, reason := range submitted.AdmissionErrors {
 				result.AdmissionErrors[key] = reason
 			}
+		} else {
+			// A missing response does not prove that the venue rejected the batch.
+			// Preserve only the requests actually sent, using original batch keys.
+			for i, req := range orders {
+				if included[i] {
+					result.UnknownOrders[comboBatchOrderKey(req, i)] = true
+				}
+			}
 		}
 	}
 	result.HasAdmissionError = len(result.AdmissionErrors) > 0
