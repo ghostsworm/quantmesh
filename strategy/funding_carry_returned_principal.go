@@ -14,6 +14,9 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		return err
+	}
 	tolerance := math.Max(1e-10, s.marginDebt*1e-8)
 	if !validRuntimeAmount(s.marginDebt) || !validRuntimeAmount(expectedRemaining) {
 		return fmt.Errorf("margin principal state is invalid")

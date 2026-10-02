@@ -112,6 +112,9 @@ func (s *FundingCarryStrategy) recordMarginDebtEvent(ctx context.Context, action
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		return err
+	}
 	if replay, err := s.debtEventReplayLocked(confirmed); replay || err != nil {
 		return err
 	}
