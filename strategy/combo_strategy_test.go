@@ -80,6 +80,21 @@ func TestComboStrategyStartPropagatesSubStrategyRecoveryFailureAndRollsBack(t *t
 	}
 }
 
+func TestComboStrategyRejectsUnsupportedChildInsteadOfStartingPartially(t *testing.T) {
+	combo := NewComboStrategy("combo", "BTCUSDT", &config.Config{}, nil, nil, map[string]interface{}{
+		"strategies": []interface{}{
+			map[string]interface{}{"name": "known", "type": "dca", "weight": 0.5},
+			map[string]interface{}{"name": "unsupported", "type": "momentum", "weight": 0.5},
+		},
+	})
+	if err := combo.Start(context.Background()); err == nil || !strings.Contains(err.Error(), `unsupported type "momentum"`) {
+		t.Fatalf("unsupported child did not fail startup explicitly: %v", err)
+	}
+	if combo.IsRunning() {
+		t.Fatal("combo started with only a subset of its configured child strategies")
+	}
+}
+
 func TestComboStrategyOnOrderUpdateReturnsChildErrorsAndContinuesDispatch(t *testing.T) {
 	want := errors.New("child accounting requires reconciliation")
 	failing := &fakeComboSubStrategy{name: "failing", orderErr: want, mutateUpdate: true}

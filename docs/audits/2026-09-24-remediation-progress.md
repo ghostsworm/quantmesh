@@ -2805,3 +2805,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 
 - rc828 後 BingX 永續適配器仍僅依配置 symbol 查詢掛單，其他交易對的手動單無法參與 Funding Carry / Funding Perp Spread 空倉准入核驗。依 [BingX 官方 API reference](https://github.com/BingX-API/api-ai-skills/blob/main/skills/swap-trade/api-reference.md) 的 Query All Current Open Orders 端點，省略 symbol 讀取當前全交易對掛單；文件未描述該端點的 cursor/limit 分頁參數。
 - 新增 wrapper 的 `AccountOpenOrdersReader` 能力及 HTTP fixture，驗證簽名請求不帶 symbol、不同交易對合併、空數組有效，以及缺失/null data、無效身份、重複 ID、未知狀態失敗關閉。完整全倉測試待執行；未核實實際 API 最大返回量/帳戶權限，不代表真實帳戶、外部時序、下單、部署或盈利能力已驗收。
+
+## 後續續修：Combo 不支援子策略類型時拒絕部分啟動（3.111.0-rc851，2026-10-02）
+
+- R09/R12 複核發現 Combo 初始化遇到未知子策略類型僅記錄 warning 並跳過，組合仍可能以剩餘子策略啟動，導致實際風險配置與用戶配置不一致；例如已存在的 Momentum 實作目前尚未接入 Combo。
+- Combo 現在保存初始化錯誤並於 `Start` 前拒絕啟動；空參數 map 會先初始化，避免配置省略 parameters 時觸發 nil map panic。新增未知子策略拒絕部分啟動回歸。
+- 此修復不代表 Combo 所有策略類型已支援，也不代表真實交易所重啟、帳戶級限額或盈利能力已驗收。

@@ -27,6 +27,7 @@ type ComboStrategy struct {
 	executor    position.OrderExecutorInterface
 	exchange    position.IExchange
 	strategyCfg *ComboConfig
+	initErr     error
 
 	// 子策略
 	strategies    []Strategy
@@ -156,7 +157,7 @@ func NewComboStrategy(
 	}
 
 	// 創建子策略
-	combo.initializeStrategies()
+	combo.initErr = combo.initializeStrategies()
 
 	return combo
 }
@@ -313,11 +314,14 @@ func getFloatParamCombo(m map[string]interface{}, key string, defaultVal float64
 }
 
 // initializeStrategies 初始化子策略
-func (s *ComboStrategy) initializeStrategies() {
+func (s *ComboStrategy) initializeStrategies() error {
 	for _, stratCfg := range s.strategyCfg.Strategies {
 		var strategy Strategy
 
 		// 添加符号到参數
+		if stratCfg.Parameters == nil {
+			stratCfg.Parameters = make(map[string]interface{})
+		}
 		stratCfg.Parameters["symbol"] = s.strategyCfg.Symbol
 
 		switch stratCfg.Type {
@@ -360,8 +364,7 @@ func (s *ComboStrategy) initializeStrategies() {
 				stratCfg.Parameters,
 			)
 		default:
-			logger.Warn("⚠️ [%s] 未知策略類型: %s", s.name, stratCfg.Type)
-			continue
+			return fmt.Errorf("combo sub-strategy %q has unsupported type %q; refusing partial strategy startup", stratCfg.Name, stratCfg.Type)
 		}
 
 		if strategy != nil {
@@ -370,6 +373,10 @@ func (s *ComboStrategy) initializeStrategies() {
 			s.weights = append(s.weights, stratCfg.Weight)
 		}
 	}
+	if len(s.strategies) == 0 {
+		return errors.New("combo requires at least one supported sub-strategy")
+	}
+	return nil
 }
 
 // Name 回傳策略名稱
@@ -436,6 +443,9 @@ func (s *ComboStrategy) SetEventBus(bus EventBus) {
 
 // Start 啟动策略
 func (s *ComboStrategy) Start(ctx context.Context) error {
+	if s.initErr != nil {
+		return fmt.Errorf("initialize combo sub-strategies: %w", s.initErr)
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
