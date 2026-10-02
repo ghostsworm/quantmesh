@@ -92,6 +92,7 @@ type Account struct {
 	AvailableBalance float64
 	UnrealizedPnL    float64
 	MarginBalance    float64
+	BalanceAsset     string
 	Positions        []*Position
 	AccountLeverage  int // 账戶级别的杠杆倍數（部分交易所支援）
 }

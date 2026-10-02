@@ -1,13 +1,39 @@
 package kraken
 
 import (
+	"context"
 	"encoding/base64"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
 // Kraken API secret 在签名時需能 base64 解碼；測試中用固定合法串避免請求階段報錯。
 func testKrakenValidSecret() string {
 	return base64.StdEncoding.EncodeToString([]byte("test-secret-key-bytes!!"))
+}
+
+func TestKrakenAdapterAccountPreservesAPICurrency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/derivatives/api/v3/accounts" {
+			t.Errorf("path = %q, want account endpoint", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"result":"success","accounts":[{"currency":"usd","balanceValue":1500.5,"availableMargin":900,"marginEquity":1200}]}`))
+	}))
+	defer server.Close()
+
+	client := NewKrakenClient("key", testKrakenValidSecret())
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USD" || account.TotalBalance != 1500.5 || account.MarginBalance != 1200 {
+		t.Fatalf("account = %+v, want API-reported USD currency", account)
+	}
 }
 
 func TestNewKrakenClient(t *testing.T) {

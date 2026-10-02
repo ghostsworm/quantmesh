@@ -125,6 +125,7 @@ func (w *krakenWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: krakenAccount.TotalBalance,
 		TotalMarginBalance: krakenAccount.MarginBalance,
 		AvailableBalance:   krakenAccount.AvailableBalance,
+		BalanceAsset:       krakenAccount.BalanceAsset,
 	}, nil
 }
 

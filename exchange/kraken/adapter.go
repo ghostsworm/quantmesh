@@ -243,6 +243,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 		AvailableBalance: accountInfo.AvailableMargin,
 		UnrealizedPnL:    accountInfo.UnrealisedFunding,
 		MarginBalance:    accountInfo.MarginEquity,
+		BalanceAsset:     strings.ToUpper(strings.TrimSpace(accountInfo.Currency)),
 	}
 
 	return account, nil

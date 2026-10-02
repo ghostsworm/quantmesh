@@ -1,8 +1,48 @@
 package poloniex
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestPoloniexAccountPreservesSelectedUSDTAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/accounts/balances" {
+			t.Errorf("path = %q, want /accounts/balances", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"currency":"USDT","available":"900","hold":"350.5"},{"currency":"BTC","available":"0.1","hold":"0"}]`))
+	}))
+	defer server.Close()
+
+	client := NewPoloniexClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want selected USDT sub-balance", account)
+	}
+}
+
+func TestPoloniexAccountRejectsMissingUSDTBalance(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"currency":"BTC","available":"0.1","hold":"0"}]`))
+	}))
+	defer server.Close()
+
+	client := NewPoloniexClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	if _, err := (&Adapter{client: client}).GetAccount(context.Background()); err == nil {
+		t.Fatal("expected missing USDT balance to fail closed")
+	}
+}
 
 func TestNewPoloniexClient(t *testing.T) {
 	apiKey := "test_api_key"

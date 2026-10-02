@@ -26,6 +26,7 @@ const (
 type KrakenClient struct {
 	apiKey     string
 	secretKey  string
+	baseURL    string
 	httpClient *http.Client
 }
 
@@ -34,6 +35,7 @@ func NewKrakenClient(apiKey, secretKey string) *KrakenClient {
 	return &KrakenClient{
 		apiKey:    apiKey,
 		secretKey: secretKey,
+		baseURL:   KrakenBaseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -70,7 +72,7 @@ func (c *KrakenClient) signRequest(path, nonce, postData string) string {
 
 // sendRequest 发送 HTTP 请求
 func (c *KrakenClient) sendRequest(ctx context.Context, method, path string, params map[string]interface{}) ([]byte, error) {
-	reqURL := fmt.Sprintf("%s%s", KrakenBaseURL, path)
+	reqURL := fmt.Sprintf("%s%s", c.baseURL, path)
 
 	var bodyStr string
 	if params != nil && len(params) > 0 {

@@ -143,23 +143,16 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 		return nil, err
 	}
 
-	// 计算總餘額（USDT）
-	totalBalance := 0.0
-	availableBalance := 0.0
-
+	// 仅選取 API 明確標記的 USDT 子餘額。
 	for _, balance := range balances {
 		if balance.Currency == "USDT" {
-			availableBalance = balance.Available
-			totalBalance = balance.Available + balance.Hold
-			break
+			totalBalance := balance.Available + balance.Hold
+			return &AccountLocal{TotalWalletBalance: totalBalance, TotalMarginBalance: totalBalance,
+				AvailableBalance: balance.Available, BalanceAsset: strings.ToUpper(strings.TrimSpace(balance.Currency))}, nil
 		}
 	}
 
-	return &AccountLocal{
-		TotalWalletBalance: totalBalance,
-		TotalMarginBalance: totalBalance,
-		AvailableBalance:   availableBalance,
-	}, nil
+	return nil, fmt.Errorf("Poloniex account response has no USDT balance")
 }
 
 // GetPositions 獲取持倉（Poloniex 現貨交易所，返回空）
