@@ -647,6 +647,21 @@ func (o *OKXAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order
 	return result, nil
 }
 
+// GetAccountOpenOrders returns active SWAP orders across all instruments.
+func (o *OKXAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := o.client.GetAllOpenOrdersByInstType(ctx, "SWAP")
+	if err != nil {
+		return nil, fmt.Errorf("query OKX account-wide SWAP orders: %w", err)
+	}
+	result := make([]*Order, 0, len(orders))
+	for i := range orders {
+		order := o.convertOrder(&orders[i])
+		order.Symbol = orders[i].InstId
+		result = append(result, order)
+	}
+	return result, nil
+}
+
 // convertOrder 轉换订單格式
 func (o *OKXAdapter) convertOrder(order *OKXOrder) *Order {
 	orderID, _ := strconv.ParseInt(order.OrdId, 10, 64)

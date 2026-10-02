@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc826] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 的帳戶級掛單快照新增 OKX SWAP、SPOT 與 MARGIN 市場全品種查詢；依訂單 ID 完整翻頁，null/missing data 或分頁不前進時拒絕開倉。
+
 ## [3.111.0-rc825] - 2026-10-02（未發布）
 
 ### Fixed

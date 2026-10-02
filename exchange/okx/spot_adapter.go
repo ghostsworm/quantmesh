@@ -408,6 +408,24 @@ func (o *OKXSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 	return result, nil
 }
 
+// GetAccountOpenOrders includes both spot and margin orders because either
+// can reserve assets in the shared OKX trading account.
+func (o *OKXSpotAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	var result []*Order
+	for _, instType := range []string{okxInstTypeSpot, "MARGIN"} {
+		orders, err := o.client.GetAllOpenOrdersByInstType(ctx, instType)
+		if err != nil {
+			return nil, fmt.Errorf("query OKX account-wide %s orders: %w", instType, err)
+		}
+		for i := range orders {
+			order := o.convertOrder(&orders[i])
+			order.Symbol = orders[i].InstId
+			result = append(result, order)
+		}
+	}
+	return result, nil
+}
+
 // GetAccount 現貨账戶餘額
 func (o *OKXSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	balances, err := o.client.GetBalance(ctx)

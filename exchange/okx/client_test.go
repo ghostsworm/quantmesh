@@ -1,10 +1,80 @@
 package okx
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"strconv"
 	"testing"
 )
+
+func TestGetAllOpenOrdersByInstTypePaginatesAcrossSymbols(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.URL.Path != "/api/v5/trade/orders-pending" || r.URL.Query().Get("instType") != "SWAP" || r.URL.Query().Has("instId") {
+			t.Errorf("unexpected account-wide OKX request: %s", r.URL.RequestURI())
+		}
+		if r.URL.Query().Get("limit") != "100" {
+			t.Errorf("limit=%q, want 100", r.URL.Query().Get("limit"))
+		}
+		rows := make([]OKXOrder, 0)
+		if r.URL.Query().Get("after") == "" {
+			for i := 1; i <= 100; i++ {
+				rows = append(rows, OKXOrder{OrdId: strconv.Itoa(i), InstId: "ETH-USDT-SWAP", State: "live"})
+			}
+		} else if r.URL.Query().Get("after") != "100" {
+			t.Errorf("after=%q, want 100", r.URL.Query().Get("after"))
+		}
+		payload, err := json.Marshal(map[string]interface{}{"code": "0", "data": rows})
+		if err != nil {
+			t.Errorf("marshal response: %v", err)
+			return
+		}
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	client := NewOKXClient("k", "s", "p", false)
+	client.baseURL = server.URL
+	orders, err := client.GetAllOpenOrdersByInstType(context.Background(), " swap ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(orders) != 100 || orders[0].OrdId != "1" || orders[99].OrdId != "100" {
+		t.Fatalf("requests=%d orders=%d, want two pages and 100 orders", requests, len(orders))
+	}
+}
+
+func TestGetAllOpenOrdersByInstTypeRejectsNullData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"code":"0","data":null}`))
+	}))
+	defer server.Close()
+	client := NewOKXClient("k", "s", "p", false)
+	client.baseURL = server.URL
+	if orders, err := client.GetAllOpenOrdersByInstType(context.Background(), "SPOT"); err == nil || orders != nil {
+		t.Fatalf("null data returned orders=%v err=%v, want fail-closed error", orders, err)
+	}
+}
+
+func TestGetAllOpenOrdersByInstTypeRejectsRepeatedOrderID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rows := make([]OKXOrder, 100)
+		for i := range rows {
+			rows[i] = OKXOrder{OrdId: strconv.Itoa(i + 1)}
+		}
+		payload, _ := json.Marshal(map[string]interface{}{"code": "0", "data": rows})
+		_, _ = w.Write(payload)
+	}))
+	defer server.Close()
+	client := NewOKXClient("k", "s", "p", false)
+	client.baseURL = server.URL
+	if orders, err := client.GetAllOpenOrdersByInstType(context.Background(), "SWAP"); err == nil || orders != nil {
+		t.Fatalf("repeated order ID returned orders=%v err=%v, want fail-closed error", orders, err)
+	}
+}
 
 // networkTestsEnv 設為 1 時才運行會訪問真實交易所的測試，保證 go test ./... 默認不觸網
 const networkTestsEnv = "QUANTMESH_NETWORK_TESTS"

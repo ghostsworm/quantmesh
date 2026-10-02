@@ -27,6 +27,30 @@ func newTestOKXSpotAdapter(t *testing.T, baseURL string) *OKXSpotAdapter {
 	return a
 }
 
+func TestOKXSpotAccountOpenOrdersIncludesSpotAndMargin(t *testing.T) {
+	queried := map[string]bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		instType := r.URL.Query().Get("instType")
+		if r.URL.Path != "/api/v5/trade/orders-pending" || r.URL.Query().Has("instId") {
+			t.Errorf("unexpected account-wide query: %s", r.URL.RequestURI())
+		}
+		queried[instType] = true
+		if instType != "SPOT" && instType != "MARGIN" {
+			t.Errorf("unexpected instrument type %q", instType)
+		}
+		_, _ = io.WriteString(w, `{"code":"0","data":[{"ordId":"124","instId":"ETH-USDT","side":"sell","ordType":"limit","px":"10","sz":"1","accFillSz":"0","state":"live"}]}`)
+	}))
+	defer server.Close()
+	adapter := newTestOKXSpotAdapter(t, server.URL)
+	orders, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !queried["SPOT"] || !queried["MARGIN"] || len(orders) != 2 || orders[0].Symbol != "ETH-USDT" || orders[1].Symbol != "ETH-USDT" {
+		t.Fatalf("queried=%v orders=%+v", queried, orders)
+	}
+}
+
 type okxSpotFakeServer struct {
 	mu        sync.Mutex
 	orderBody map[string]interface{}

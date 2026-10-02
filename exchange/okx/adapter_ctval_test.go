@@ -57,6 +57,24 @@ func TestApplyInstrumentCtVal(t *testing.T) {
 	}
 }
 
+func TestOKXAccountOpenOrdersPreservesOtherInstrument(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("instType") != "SWAP" || r.URL.Query().Has("instId") {
+			t.Errorf("unexpected account-wide SWAP query: %s", r.URL.RequestURI())
+		}
+		_, _ = io.WriteString(w, `{"code":"0","data":[{"ordId":"123","instId":"BTC-USDT-SWAP","side":"buy","ordType":"limit","px":"10","sz":"1","accFillSz":"0","state":"live"}]}`)
+	}))
+	defer server.Close()
+	adapter := newTestOKXAdapter(t, server.URL, ethSwap)
+	orders, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 1 || orders[0].Symbol != "BTC-USDT-SWAP" {
+		t.Fatalf("account-wide SWAP orders=%+v", orders)
+	}
+}
+
 func TestApplyInstrumentRejectsInvalidCtVal(t *testing.T) {
 	a := &OKXAdapter{instId: "X"}
 	bad := ethSwap

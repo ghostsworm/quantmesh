@@ -176,6 +176,22 @@ func (w *okxWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order
 	return result, nil
 }
 
+func (w *okxWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		converted, err := fromOKXOrder(order)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
+	}
+	return result, nil
+}
+
 var _ OrderByClientIDQuerier = (*okxWrapper)(nil)
 
 // GetAccount 獲取帳戶信息

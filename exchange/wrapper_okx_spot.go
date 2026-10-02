@@ -113,6 +113,22 @@ func (w *okxSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 	return result, nil
 }
 
+func (w *okxSpotWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		converted, err := fromOKXOrder(order)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
+	}
+	return result, nil
+}
+
 func (w *okxSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	account, err := w.adapter.GetAccount(ctx)
 	if err != nil {

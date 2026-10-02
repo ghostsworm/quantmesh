@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"quantmesh/logger"
@@ -287,6 +289,53 @@ func (c *OKXClient) GetOpenOrdersByInstType(ctx context.Context, instType, instI
 		return nil, fmt.Errorf("解析订單列表失败: %w", err)
 	}
 	return orders, nil
+}
+
+// GetAllOpenOrdersByInstType follows OKX order-ID pagination until the full
+// instrument-type snapshot has been read. The instId filter is deliberately
+// omitted; callers must provide an explicit supported instType.
+func (c *OKXClient) GetAllOpenOrdersByInstType(ctx context.Context, instType string) ([]OKXOrder, error) {
+	const pageLimit = 100
+	instType = strings.ToUpper(strings.TrimSpace(instType))
+	if instType == "" {
+		return nil, fmt.Errorf("OKX account-wide open-order query requires instType")
+	}
+
+	var all []OKXOrder
+	seenAfter := make(map[string]struct{})
+	after := ""
+	for {
+		query := url.Values{}
+		query.Set("instType", instType)
+		query.Set("limit", fmt.Sprint(pageLimit))
+		if after != "" {
+			query.Set("after", after)
+		}
+		path := "/api/v5/trade/orders-pending?" + query.Encode()
+		data, err := c.request(ctx, "GET", path, nil, c.useTestnet)
+		if err != nil {
+			return nil, err
+		}
+		var orders []OKXOrder
+		if err := json.Unmarshal(data, &orders); err != nil {
+			return nil, fmt.Errorf("parse OKX account-wide pending orders: %w", err)
+		}
+		if orders == nil {
+			return nil, fmt.Errorf("OKX account-wide pending-order page returned a missing or null data list")
+		}
+		all = append(all, orders...)
+		if len(orders) < pageLimit {
+			return all, nil
+		}
+		after = strings.TrimSpace(orders[len(orders)-1].OrdId)
+		if after == "" {
+			return nil, fmt.Errorf("OKX pending-order page cannot continue because its last order has no ID")
+		}
+		if _, exists := seenAfter[after]; exists {
+			return nil, fmt.Errorf("OKX pending-order pagination repeated order ID %s", after)
+		}
+		seenAfter[after] = struct{}{}
+	}
 }
 
 // BalanceDetail 餘額详情

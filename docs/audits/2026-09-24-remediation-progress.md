@@ -2745,3 +2745,8 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc824 只在 Binance 支援特殊套利帳戶級活動委託快照，其他交易所會安全拒絕空倉准入/新開倉，覆蓋不足。Bybit V5 線性合約要求按 `settleCoin` 篩選，並以 `nextPageCursor` 分頁；簡單省略 symbol 並不能得到完整合約結果。
 - 新增 Bybit 線性合約 USDT/USDC 結算及現貨帳戶級讀取；每頁明確要求 active orders 並遍歷 cursor，缺失/null 訂單列表或重複 cursor 均回報錯誤，不回報不完整快照。Bybit 官方 API 文件說明線性合約需提供 symbol/baseCoin/settleCoin 之一及 cursor 分頁：[Get Open & Closed Orders](https://bybit-exchange.github.io/docs/v5/order/open-order)。
 - HTTP fixture 驗證無 symbol 範圍、兩種結算幣、跨頁合併及缺失列表拒絕；專屬 adapter/strategy tests 與 `go vet` 通過。尚未覆蓋其他交易所、Bybit 真實帳戶/端點行為、外部交易時序或多實例；未下單、部署或驗收盈利能力。
+
+## 後續續修：OKX 特殊套利帳戶級掛單快照（3.111.0-rc826，2026-10-02）
+
+- rc825 後仍有 OKX 帳戶無法使用特殊套利的帳戶級掛單准入核驗。依 [OKX 官方 V5 `/trade/orders-pending` 契約](https://www.okx.com/docs-v5/en/)，新增 SWAP 全品種與 SPOT/MARGIN 全品種查詢；以最多 100 筆為頁，按最後訂單 ID 的 `after` 游標讀完，不帶 `instId`。
+- null/missing data、滿頁卻缺少末筆訂單 ID或重複頁游標均返回錯誤，避免把部分結果當成空帳戶。HTTP fixture 覆蓋全品種請求、100 筆分頁、跨 symbol 返回、SPOT+MARGIN 覆蓋與錯誤結果拒絕；完整全倉測試及其餘驗證待執行。未連接真實帳戶、未下單/部署或驗收盈利能力。
