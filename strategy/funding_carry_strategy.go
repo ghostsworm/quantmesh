@@ -2567,9 +2567,12 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			return s.blockOnUnownedExposure(fmt.Errorf("verify reverse futures close: %w", err))
 		}
 		for _, p := range remaining {
-			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || math.Abs(p.Size) > tolerance {
+			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || p.Size != 0 {
 				return s.blockOnUnownedExposure(fmt.Errorf("reverse futures close left position: %+v", p))
 			}
+		}
+		if err := s.checkpointReverseFuturesClosed(ctx, ownedFutures); err != nil {
+			return s.blockOnUnownedExposure(err)
 		}
 		if err := settleCarryOrder(ctx, s.futuresExecutor, order); err != nil {
 			return fmt.Errorf("persist reverse futures close reconciliation: %w", err)
