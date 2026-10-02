@@ -81,7 +81,7 @@ func TestRuntimeStrategyCapitalReleaseRejectsInvisibleBorrowIntent(t *testing.T)
 	cfg := &config.Config{}
 	cfg.Trading.BotID, cfg.Trading.Symbol = rt.capitalReleaseScope.Bot, rt.capitalReleaseScope.Symbol
 	short := strategy.NewSpotShortStrategy("spot_short", cfg, nil, nil, nil, nil)
-	stateStore := &capitalReleaseDebtStateStore{version: 8, found: true, payload: `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"pending_borrow":{"pending":{"amount":1,"phase":"prepared","created_at_unix_milli":1}},"pending_buy":{}}`}
+	stateStore := &capitalReleaseDebtStateStore{version: 9, found: true, payload: `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"consumed_repay_transfers":{},"pending_borrow":{"pending":{"amount":1,"phase":"prepared","created_at_unix_milli":1}},"pending_buy":{}}`}
 	short.SetRuntimeStateStore(stateStore)
 	rt.StrategyManager.RegisterStrategy("spot_short", short, 1, 0)
 	if len(short.GetPositions()) != 0 || len(short.GetOrders()) != 0 {
@@ -93,7 +93,7 @@ func TestRuntimeStrategyCapitalReleaseRejectsInvisibleBorrowIntent(t *testing.T)
 	}
 	// Fixture represents completed debt reconciliation, not an implementation of
 	// recovery. Once durable evidence is clean, release must be usable again.
-	stateStore.payload = `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"pending_borrow":{},"pending_buy":{}}`
+	stateStore.payload = `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"consumed_repay_transfers":{},"pending_borrow":{},"pending_buy":{}}`
 	amounts, err = releaseRuntimeStrategyCapital(t.Context(), []*SymbolRuntime{rt}, "")
 	if err != nil || amounts["dca"] != 200 || rt.StrategyManager.GetCapitalAllocator().GetUsed("dca") != 0 {
 		t.Fatalf("clean reconciled debt state did not permit recovery: released=%v err=%v", amounts, err)

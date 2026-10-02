@@ -42,6 +42,7 @@ type SpotShortStrategy struct {
 	mu                                   sync.RWMutex
 	tradeMu                              sync.Mutex
 	pendingRepay                         map[int64]spotShortPendingRepay
+	consumedRepayTransfers               map[int64]int64
 	pendingBorrow                        map[string]spotShortPendingBorrow
 	pendingBuy                           map[string]spotShortPendingBuy
 	runtimeStateStore                    RuntimeStateStore
@@ -425,6 +426,13 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 		s.mu.Unlock()
 		return err // Retain any acknowledged transfer ID and unresolved intent.
 	}
+	consumedID := pending.RepayTransferID
+	if repayAmount > 0 {
+		if err := s.consumeRepaymentTransferLocked(consumedID, update.OrderID); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	previous := pending
 	pending.ExecutedQty = update.ExecutedQty
 	pending.BaseFeeQty += baseFeeDelta
@@ -437,6 +445,9 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 	err := s.persistRuntimeStateLocked()
 	if err != nil {
 		s.pendingRepay[update.OrderID] = previous
+		if repayAmount > 0 {
+			delete(s.consumedRepayTransfers, consumedID)
+		}
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -914,6 +925,10 @@ func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, ord
 		s.mu.Unlock()
 		return err
 	}
+	if err := s.consumeRepaymentTransferLocked(confirmed.TransferID, orderID); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	previous := current
 	current.ExecutedQty = current.RepayExpectedExecutedQty
 	current.BaseFeeQty = current.RepayExpectedBaseFeeQty
@@ -925,6 +940,7 @@ func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, ord
 	}
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.pendingRepay[orderID] = previous
+		delete(s.consumedRepayTransfers, confirmed.TransferID)
 		s.mu.Unlock()
 		return fmt.Errorf("persist confirmed repayment transaction %d: %w", confirmed.TransferID, err)
 	}

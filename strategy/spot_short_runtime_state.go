@@ -8,7 +8,7 @@ import (
 	"quantmesh/config"
 )
 
-const spotShortRuntimeStateSchemaVersion = 8
+const spotShortRuntimeStateSchemaVersion = 9
 
 type spotShortPendingRepay struct {
 	ClientOrderID            string  `json:"client_order_id,omitempty"`
@@ -37,14 +37,15 @@ type spotShortPendingBuy struct {
 }
 
 type spotShortRuntimeState struct {
-	BotID         string                            `json:"bot_id"`
-	Strategy      string                            `json:"strategy"`
-	GroupID       string                            `json:"group_id"`
-	Symbol        string                            `json:"symbol"`
-	BaseAsset     string                            `json:"base_asset"`
-	PendingRepay  map[int64]spotShortPendingRepay   `json:"pending_repay"`
-	PendingBorrow map[string]spotShortPendingBorrow `json:"pending_borrow,omitempty"`
-	PendingBuy    map[string]spotShortPendingBuy    `json:"pending_buy,omitempty"`
+	BotID                  string                            `json:"bot_id"`
+	Strategy               string                            `json:"strategy"`
+	GroupID                string                            `json:"group_id"`
+	Symbol                 string                            `json:"symbol"`
+	BaseAsset              string                            `json:"base_asset"`
+	PendingRepay           map[int64]spotShortPendingRepay   `json:"pending_repay"`
+	ConsumedRepayTransfers map[int64]int64                   `json:"consumed_repay_transfers"`
+	PendingBorrow          map[string]spotShortPendingBorrow `json:"pending_borrow,omitempty"`
+	PendingBuy             map[string]spotShortPendingBuy    `json:"pending_buy,omitempty"`
 }
 
 func (s *SpotShortStrategy) persistRuntimeStateLocked() error {
@@ -54,11 +55,15 @@ func (s *SpotShortStrategy) persistRuntimeStateLocked() error {
 	state := spotShortRuntimeState{
 		BotID: spotShortBotID(s.cfg), Strategy: s.name, GroupID: s.groupID,
 		Symbol: s.symbol, BaseAsset: s.baseAsset, PendingRepay: make(map[int64]spotShortPendingRepay, len(s.pendingRepay)),
-		PendingBorrow: make(map[string]spotShortPendingBorrow, len(s.pendingBorrow)),
-		PendingBuy:    make(map[string]spotShortPendingBuy, len(s.pendingBuy)),
+		PendingBorrow:          make(map[string]spotShortPendingBorrow, len(s.pendingBorrow)),
+		PendingBuy:             make(map[string]spotShortPendingBuy, len(s.pendingBuy)),
+		ConsumedRepayTransfers: make(map[int64]int64, len(s.consumedRepayTransfers)),
 	}
 	for id, pending := range s.pendingRepay {
 		state.PendingRepay[id] = pending
+	}
+	for transferID, orderID := range s.consumedRepayTransfers {
+		state.ConsumedRepayTransfers[transferID] = orderID
 	}
 	for clientOrderID, pending := range s.pendingBorrow {
 		state.PendingBorrow[clientOrderID] = pending
@@ -91,7 +96,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	if !found {
 		return nil
 	}
-	if version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != spotShortRuntimeStateSchemaVersion {
+	if version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != spotShortRuntimeStateSchemaVersion {
 		return fmt.Errorf("unsupported spot short runtime state schema version %d", version)
 	}
 	var state spotShortRuntimeState
@@ -110,6 +115,14 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	}
 	if state.PendingBuy == nil {
 		state.PendingBuy = make(map[string]spotShortPendingBuy)
+	}
+	if state.ConsumedRepayTransfers == nil {
+		state.ConsumedRepayTransfers = make(map[int64]int64)
+	}
+	for transferID, orderID := range state.ConsumedRepayTransfers {
+		if version < 9 || transferID <= 0 || orderID <= 0 {
+			return fmt.Errorf("spot short runtime state contains invalid consumed repayment evidence")
+		}
 	}
 	for id, amount := range state.PendingRepay {
 		if amount.RepayPrepared && (version < 7 || !amount.RepayUncertain || amount.RepayTransferID != 0) {
@@ -136,7 +149,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 		if clientOrderID == "" || math.IsNaN(pending.Amount) || math.IsInf(pending.Amount, 0) || pending.Amount <= 0 || pending.CreatedAtUnixMilli <= 0 ||
 			(pending.Phase != "prepared" && pending.Phase != "borrowed" && pending.Phase != "unsubmitted") || pending.BorrowTransferID < 0 ||
 			(pending.Phase != "borrowed" && pending.BorrowTransferID != 0) || (pending.Phase == "borrowed" && pending.BorrowTransferID <= 0) ||
-			(pending.Phase == "unsubmitted" && version != spotShortRuntimeStateSchemaVersion) {
+			(pending.Phase == "unsubmitted" && version < 8) {
 			return fmt.Errorf("spot short runtime state contains invalid pending borrow intent")
 		}
 	}
@@ -146,6 +159,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 		}
 	}
 	s.pendingRepay = state.PendingRepay
+	s.consumedRepayTransfers = state.ConsumedRepayTransfers
 	s.pendingBorrow = state.PendingBorrow
 	s.pendingBuy = state.PendingBuy
 	if version != spotShortRuntimeStateSchemaVersion {

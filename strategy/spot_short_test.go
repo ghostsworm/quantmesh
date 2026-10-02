@@ -171,7 +171,7 @@ func (m *mockMarginExchange) Repay(ctx context.Context, asset string, amount flo
 	m.marginMu.Lock()
 	defer m.marginMu.Unlock()
 	m.repaid = append(m.repaid, amount)
-	return 1, m.repayErr
+	return int64(len(m.repaid)), m.repayErr
 }
 
 func (m *mockMarginExchange) GetMarginTransactionHistory(_ context.Context, asset, transactionType string, startTime, endTime int64, page, pageSize int) ([]exchange.MarginBorrowRecord, int64, error) {
