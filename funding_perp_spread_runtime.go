@@ -185,14 +185,14 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 	legABalanceObservedAt := time.Now().UTC()
 	balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
-	legABalance, balanceErr := readAccountWalletCapitalValue(balanceCtx, legAEx, spreadCapitalAsset)
+	legABalance, balanceErr := readAccountWalletCapitalValue(balanceCtx, legAEx, spreadCapitalAsset, fp.LegA.Symbol)
 	legBObservationSequence, sequenceErr := beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKeyB)
 	if sequenceErr != nil {
 		balanceErr = sequenceErr
 	}
 	legBBalanceObservedAt := time.Now().UTC()
 	if balanceErr == nil {
-		legBBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, legBEx, spreadCapitalAsset)
+		legBBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, legBEx, spreadCapitalAsset, fp.LegB.Symbol)
 		if balanceErr == nil {
 			verifiedCapital, capErr := capTwoLegStrategyCapitalLimit(requestedCapital, legABalance, legBBalance)
 			if capErr != nil {

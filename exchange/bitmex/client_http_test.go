@@ -128,6 +128,15 @@ func TestBitMEXClientHTTPMethodsWithMockServer(t *testing.T) {
 	}
 }
 
+func TestNormalizeMarginCurrency(t *testing.T) {
+	if got := normalizeMarginCurrency("XBt"); got != "BTC" {
+		t.Fatalf("normalize XBt currency = %q, want BTC", got)
+	}
+	if got := normalizeMarginCurrency("USD"); got != "USD" {
+		t.Fatalf("normalize USD currency = %q, want USD", got)
+	}
+}
+
 func TestBitMEXClientErrorBranches(t *testing.T) {
 	t.Run("api error json", func(t *testing.T) {
 		client, closeServer := newMockBitMEXClient(t, func(w http.ResponseWriter, r *http.Request) {

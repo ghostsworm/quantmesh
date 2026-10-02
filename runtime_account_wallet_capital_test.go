@@ -49,12 +49,20 @@ type walletCapitalEquityExchange struct {
 	market  string
 	account *exchange.Account
 	err     error
+	base    string
+	quote   string
+	price   float64
 }
 
 func (e walletCapitalEquityExchange) GetMarketType() string { return e.market }
 func (e walletCapitalEquityExchange) GetName() string       { return "test-exchange" }
 func (e walletCapitalEquityExchange) GetAccount(context.Context) (*exchange.Account, error) {
 	return e.account, e.err
+}
+func (e walletCapitalEquityExchange) GetBaseAsset() string  { return e.base }
+func (e walletCapitalEquityExchange) GetQuoteAsset() string { return e.quote }
+func (e walletCapitalEquityExchange) GetLatestPrice(context.Context, string) (float64, error) {
+	return e.price, e.err
 }
 
 func TestReadAccountWalletCapitalValueUsesEquityNotFreeCollateral(t *testing.T) {
@@ -70,7 +78,7 @@ func TestReadAccountWalletCapitalValueUsesEquityNotFreeCollateral(t *testing.T) 
 			client := walletCapitalEquityExchange{market: tc.market, account: &exchange.Account{
 				BalanceAsset: "USDT", AvailableBalance: 12, TotalWalletBalance: 90, TotalMarginBalance: 100,
 			}}
-			got, err := readAccountWalletCapitalValue(context.Background(), client, "usdt")
+			got, err := readAccountWalletCapitalValue(context.Background(), client, "usdt", "BTCUSDT")
 			if err != nil || got != tc.want {
 				t.Fatalf("account wallet capital value = %v, %v; want %v", got, err, tc.want)
 			}
@@ -85,9 +93,25 @@ func TestReadAccountWalletCapitalValueRejectsUnverifiedEquity(t *testing.T) {
 		{BalanceAsset: "USDT", TotalMarginBalance: 0},
 	} {
 		client := walletCapitalEquityExchange{market: "futures", account: account}
-		if _, err := readAccountWalletCapitalValue(context.Background(), client, "USDT"); err == nil {
+		if _, err := readAccountWalletCapitalValue(context.Background(), client, "USDT", "BTCUSDT"); err == nil {
 			t.Fatalf("accepted invalid account equity evidence: %+v", account)
 		}
+	}
+}
+
+func TestReadAccountWalletCapitalValueConvertsVerifiedBaseAssetEquity(t *testing.T) {
+	client := walletCapitalEquityExchange{
+		market: "futures", base: "BTC", quote: "USD", price: 50_000,
+		account: &exchange.Account{BalanceAsset: "XBT", TotalMarginBalance: 2},
+	}
+	// XBT is not silently aliased to BTC; only an adapter-normalized exact asset may convert.
+	if _, err := readAccountWalletCapitalValue(context.Background(), client, "USD", "BTCUSD"); err == nil {
+		t.Fatal("accepted an unnormalized XBT equity denomination")
+	}
+	client.account.BalanceAsset = "BTC"
+	got, err := readAccountWalletCapitalValue(context.Background(), client, "USD", "BTCUSD")
+	if err != nil || got != 100_000 {
+		t.Fatalf("converted equity = %v, %v; want 100000 USD", got, err)
 	}
 }
 
@@ -126,7 +150,7 @@ func TestRuntimeWalletRevalidationUsesMarginEquityWhenFreeCollateralFalls(t *tes
 		if err != nil {
 			return accountWalletBalanceObservation{}, err
 		}
-		value, err := readAccountWalletCapitalValue(ctx, client, claim.QuoteAsset)
+		value, err := readAccountWalletCapitalValue(ctx, client, claim.QuoteAsset, claim.Symbol)
 		return accountWalletBalanceObservation{Available: value, RequestedAt: time.Now().UTC(), ObservationSequence: sequence}, err
 	}}
 	gate := &execution.OpeningGate{}

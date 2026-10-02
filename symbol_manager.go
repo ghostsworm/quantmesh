@@ -599,7 +599,7 @@ func startSymbolRuntime(
 		}
 		availableBalanceObservedAt = time.Now().UTC()
 		if balanceErr == nil {
-			availableBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, ex, quoteAsset)
+			availableBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, ex, quoteAsset, symCfg.Symbol)
 		}
 		cancel()
 	}

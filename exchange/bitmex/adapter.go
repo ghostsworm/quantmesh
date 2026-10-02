@@ -156,7 +156,16 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 		TotalWalletBalance: float64(margin.WalletBalance) / 100000000,
 		TotalMarginBalance: float64(margin.MarginBalance) / 100000000,
 		AvailableBalance:   float64(margin.AvailableMargin) / 100000000,
+		BalanceAsset:       normalizeMarginCurrency(margin.Currency),
 	}, nil
+}
+
+func normalizeMarginCurrency(currency string) string {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "XBT" {
+		return "BTC"
+	}
+	return currency
 }
 
 // GetPositions 獲取持倉

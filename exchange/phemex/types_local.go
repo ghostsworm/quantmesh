@@ -42,6 +42,7 @@ type AccountLocal struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 }
 
 // PositionLocal 持倉資訊

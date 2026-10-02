@@ -166,6 +166,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 		TotalWalletBalance: UnscaleValue(account.AccountBalanceEv),
 		TotalMarginBalance: UnscaleValue(account.AccountBalanceEv),
 		AvailableBalance:   UnscaleValue(account.AccountBalanceEv - account.TotalUsedBalanceEv),
+		BalanceAsset:       "BTC",
 	}, nil
 }
 

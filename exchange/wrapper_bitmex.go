@@ -166,6 +166,7 @@ func (w *bitmexWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: account.TotalWalletBalance,
 		TotalMarginBalance: account.TotalMarginBalance,
 		AvailableBalance:   account.AvailableBalance,
+		BalanceAsset:       account.BalanceAsset,
 	}, nil
 }
 

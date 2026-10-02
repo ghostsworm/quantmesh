@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc788 扩展经过显式单位验证的衍生品权益换算：只接受 `account.BalanceAsset == market base asset` 且目标钱包币种等于该市场 quote asset 的路径，再以该配置合约的最新价格换算；拒绝 stablecoin 跨币种猜测、错配标的和非有限/非正价格。补充 BitMEX API `XBt`（余额已按 1e8 换成 BTC）规范化、Deribit 查询参数所指定结算币、Phemex 明确以 BTC 请求的账户权益币种，并在通用 Account/Wrapper 中透传。测试覆盖基币余额的价格换算和 BitMEX 单位规范化。未验证全部交易所适配器，未连接真实交易所；现货组合库存估值与 MySQL 多实例仍未闭环。
+
 - rc787 修正衍生品钱包资金核验的余额语义：之前 `GetBalance` 多数返回可用保证金，而 claim 是完整 Bot 配置预算；仓位/挂单占用保证金后，周期复核与逐笔开仓会把可用值下降误判为所有权预算超额。现标准 Bot、Funding Carry、FundingPerpSpread 的启动取样和运行时复核统一读取 `GetAccount` 的 `TotalMarginBalance`，并要求 `BalanceAsset` 与 claim 计价币一致；无效或无法标价时保持失败关闭。定向测试覆盖 futures/spot_margin/spot 的字段选择、币种错配和无效权益；本次尚未连接 MySQL 实库或交易所。现货 `TotalWalletBalance` 仍仅是报价币余额，已买入基币的组合价值没有进入钱包权益，spot inventory 与跨 Bot account-equity 仍是未闭合风险。
 
 - rc784 移除钱包余额“最新”判断对各应用节点本地时钟的依赖：每次普通 Bot、Funding Carry、FundingPerpSpread 启动读取及运行期复核，在调用交易所 API 前先经共享 SQL 钱包锁原子签发递增请求代次。余额返回后仅当代次仍为最新才可保存；Reserve 事务再次核对代次，若期间有新请求启动，旧结果不能打开准入/完成资金预留。代次表同时保存权威可用余额，预留核准不再读取仅供旧版本兼容的余额表，防止旧代码写入旧高快照污染新代码证据。迁移新增独立序列表，不改写现有余额和预留；SQLite 回归用“新低余额墙钟时间早于旧高余额”复现偏钟，并模拟旧进程改写兼容表，确认权威值仍为低余额且过时代次被拒。MySQL 多实例运行与迁移尚未连接实库验证；滚动升级期间必须停止旧版交易进程，外部人工/其他程序账户变化仍不受本地门控约束，R12 账户级敞口及盈利验证未闭环。

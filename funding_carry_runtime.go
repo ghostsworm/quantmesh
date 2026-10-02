@@ -124,7 +124,7 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("begin %s USDT balance observation: %w", wallet.market, sequenceErr)
 		}
 		observedAt := time.Now().UTC()
-		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, wallet.ex, "USDT")
+		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, wallet.ex, "USDT", symCfg.Symbol)
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 %s USDT 帳戶權益: %w", wallet.market, balanceErr)
@@ -179,7 +179,7 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("begin spot_margin USDT balance observation: %w", err)
 		}
 		marginAvailableAt = time.Now().UTC()
-		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, marginEx, "USDT")
+		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, marginEx, "USDT", symCfg.Symbol)
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 spot_margin USDT 帳戶權益: %w", balanceErr)
