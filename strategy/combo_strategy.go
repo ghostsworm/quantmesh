@@ -41,11 +41,12 @@ type ComboStrategy struct {
 	lastPrice    float64
 
 	// 状態
-	mu        sync.RWMutex
-	ctx       context.Context
-	cancel    context.CancelFunc
-	isRunning bool
-	isPaused  bool // 暂停標志
+	mu         sync.RWMutex
+	dispatchMu sync.Mutex // serialize price callbacks across combo children
+	ctx        context.Context
+	cancel     context.CancelFunc
+	isRunning  bool
+	isPaused   bool // 暂停標志
 
 	// 组合风控：持久化的权益高水位及其恢复状态
 	peakEquity               float64
@@ -598,6 +599,9 @@ func (s *ComboStrategy) IsRunning() bool {
 
 // OnPriceChange 價格變化处理
 func (s *ComboStrategy) OnPriceChange(price float64) error {
+	s.dispatchMu.Lock()
+	defer s.dispatchMu.Unlock()
+
 	s.mu.Lock()
 
 	if s.isPaused {
@@ -620,11 +624,10 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 
 	s.mu.Unlock()
 
-	// 组合级风控（敞口 / 回撤）只限制开新倉
-	riskAllowOpen, riskReason := s.checkComboRiskLimits(price)
-
-	// 傳遞给所有子策略
+	// Re-evaluate before each child: earlier children may add active orders
+	// that consume the remaining combo exposure allowance in this same tick.
 	for i, strategy := range s.strategies {
+		riskAllowOpen, riskReason := s.checkComboRiskLimits(price)
 		// 市况門控與组合风控只决定能否开新倉；不能开倉時仍要跑已有持倉的止盈止损（S4）
 		if riskAllowOpen && s.shouldExecuteStrategy(i) {
 			if err := strategy.OnPriceChange(price); err != nil {

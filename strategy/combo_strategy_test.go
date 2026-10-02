@@ -31,6 +31,7 @@ type fakeComboSubStrategy struct {
 	mutateUpdate bool
 	seenFeeKnown bool
 	stateStore   RuntimeStateStore
+	onPrice      func(float64)
 }
 
 func (f *fakeComboSubStrategy) Name() string { return f.name }
@@ -39,6 +40,9 @@ func (f *fakeComboSubStrategy) Initialize(cfg *config.Config, executor position.
 }
 func (f *fakeComboSubStrategy) OnPriceChange(price float64) error {
 	f.prices = append(f.prices, price)
+	if f.onPrice != nil {
+		f.onPrice(price)
+	}
 	return nil
 }
 func (f *fakeComboSubStrategy) OnPriceChangeRiskOnly(price float64) error {
@@ -60,6 +64,31 @@ func (f *fakeComboSubStrategy) GetStatistics() *StrategyStatistics { return f.st
 func (f *fakeComboSubStrategy) Start(ctx context.Context) error {
 	f.started = true
 	return f.startErr
+}
+
+func TestComboRechecksExposureBetweenChildrenWithinSamePriceCallback(t *testing.T) {
+	first := &fakeComboSubStrategy{name: "first", stats: &StrategyStatistics{}}
+	second := &fakeComboSubStrategy{name: "second", stats: &StrategyStatistics{}}
+	first.onPrice = func(price float64) {
+		first.orders = append(first.orders, &Order{Symbol: "BTCUSDT", Side: "BUY", Price: price, Quantity: 0.5, Status: "NEW"})
+	}
+	combo := &ComboStrategy{
+		name:          "combo",
+		strategyCfg:   &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxExposure: 0.5},
+		strategies:    []Strategy{first, second},
+		strategyNames: []string{"first", "second"},
+		weights:       []float64{0.5, 0.5},
+	}
+
+	if err := combo.OnPriceChange(100); err != nil {
+		t.Fatal(err)
+	}
+	if len(first.prices) != 1 || len(second.prices) != 0 {
+		t.Fatalf("same-tick exposure admission failed: first full callbacks=%d, second=%d", len(first.prices), len(second.prices))
+	}
+	if len(second.riskPrices) != 1 {
+		t.Fatalf("exposure-blocked child did not retain risk-only processing: calls=%d", len(second.riskPrices))
+	}
 }
 
 func TestComboStrategyStartPropagatesSubStrategyRecoveryFailureAndRollsBack(t *testing.T) {
