@@ -872,6 +872,16 @@ func TestFundingCarryRecoveredStateRejectsNilOpenOrderSnapshots(t *testing.T) {
 	}
 }
 
+func TestFundingCarryTickBlocksOnForeignOrderBeforePositionSync(t *testing.T) {
+	futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC",
+		openOrders: []*exchange.Order{{OrderID: 92, Symbol: "BTCUSDT"}}}
+	spot := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC"}
+	strategy := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
+	if err := strategy.tick(); err == nil {
+		t.Fatal("tick continued when a foreign active order existed despite zero position")
+	}
+}
+
 func TestCloseAll_PublishesEvent(t *testing.T) {
 	bus := &mockEventBus{}
 	spotEx := &mockFCExchange{

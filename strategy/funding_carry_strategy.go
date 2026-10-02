@@ -772,6 +772,9 @@ func (s *FundingCarryStrategy) tick() error {
 	}
 	defer s.releaseOperation()
 
+	if err := s.requireNoOpenOrders(ctx); err != nil {
+		return s.blockOnUnownedExposure(fmt.Errorf("active orders prevent funding_carry reconciliation: %w", err))
+	}
 	if err := s.syncPositions(ctx); err != nil {
 		return fmt.Errorf("syncPositions: %w", err)
 	}

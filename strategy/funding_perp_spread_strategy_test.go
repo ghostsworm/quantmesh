@@ -830,6 +830,15 @@ func TestFundingPerpSpreadStartRejectsNilOpenOrderSnapshot(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadTickSnapshotRejectsForeignOrderWithFlatPosition(t *testing.T) {
+	ex := &fundingSpreadTestExchange{name: "a", orders: []*exchange.Order{{OrderID: 91, Symbol: "BTCUSDT"}}}
+	strategy := &FundingPerpSpreadStrategy{legA: ex, symA: "BTCUSDT"}
+	position, err := strategy.readLegSnapshot(context.Background(), ex, "BTCUSDT")
+	if err == nil {
+		t.Fatalf("flat position %.8f with an unrelated active order was accepted", position)
+	}
+}
+
 func TestFundingPerpSpreadResolvedLedgerFailureBlocksNewOrdersWithoutLosingPositionOwnership(t *testing.T) {
 	gate := &execution.OpeningGate{}
 	store := &memoryRuntimeStateStore{}

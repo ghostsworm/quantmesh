@@ -2699,3 +2699,8 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc795 將 WhiteBIT 抵押帳戶餘額 map 明確選取的 USDT 幣種透傳至通用帳戶；私有 API fixture 同時包含 USDT 和 BTC，並覆蓋帳戶持倉查詢，確認權益數值來自 USDT collateral。這仍是 USDT 子餘額而非全資產淨值；R10 未關閉。
 - rc796 將 Kraken Futures `accounts[].currency` 及 Poloniex 僅選中之 USDT balance currency 傳遞至通用帳戶，新增兩個 HTTP fixture 驗證 adapter 輸出單位和對應餘額；Kraken 測試 client 支援注入 endpoint。未覆蓋完整現貨資產、跨資產折算或現金流調整，R10 仍未完成。
 - rc797 根據 Huobi 官方 USDT 合約 API 的 `swap_account_info` 回應欄位新增 `margin_asset` 解析，並由 adapter/Wrapper 傳遞實際結算資產；空帳戶或缺幣種證據改為錯誤，不再回傳未標單位的權益。新增 HTTP fixture 覆蓋小寫 `usdt` 正規化及缺欄失敗。其他交易所、現貨多資產與現金流核算仍未完成。
+## 後續續修：特殊套利策略週期核驗活動委託（3.111.0-rc818，2026-10-02）
+
+- R12/R04 複核發現 FundingPerpSpread 啟動及關鍵平倉路徑雖拒絕活動委託，但週期 tick 僅讀倉位；Funding Carry 啟動會拒絕活動委託，但週期 tick 僅同步持倉。人工/其他 Bot 在運行期間掛單而尚未成交時，零倉位快照仍可能令策略繼續交易。
+- FundingPerpSpread tick 改為使用同時核對倉位及活動委託的既有快照；Funding Carry 每個 tick 在同步持倉前要求期貨、現貨及可選保證金腿均返回權威空活動委託快照，非空、nil 或查詢錯誤時失敗關閉。
+- 定向回歸覆蓋零持倉但存在外部活動委託。未連接真實帳戶、未下單或部署；跨交易對全帳戶活動委託/硬額度、特殊策略完整經濟恢復與盈利能力仍未驗收。

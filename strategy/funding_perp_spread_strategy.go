@@ -729,11 +729,11 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 	}
 	basisPct := math.Abs(pxA-pxB) / math.Max(1e-12, (pxA+pxB)/2) * 100
 
-	posA, err := netFutSize(ctx, s.legA, s.symA)
+	posA, err := s.readLegSnapshot(ctx, s.legA, s.symA)
 	if err != nil {
 		return err
 	}
-	posB, err := netFutSize(ctx, s.legB, s.symB)
+	posB, err := s.readLegSnapshot(ctx, s.legB, s.symB)
 	if err != nil {
 		return err
 	}
