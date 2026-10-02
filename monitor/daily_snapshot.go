@@ -159,37 +159,8 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 	legacyAccountEquity := make(map[string]float64)
 	accountEquityStore, hasAccountEquityStore := r.storage.(accountEquityRecordWriter)
 	for _, rt := range runtimes {
-		marketPrice, unrealized, totalVal, verified := currentRuntimeSnapshot(rt)
-		if !verified {
-			logger.Warn("⚠️ 跳过未核验的小时财务快照: %s/%s", rt.Exchange(), rt.Symbol())
-			continue
-		}
 		marketType := snapshotMarketType(rt)
 		accountScope := snapshotAccountScope(rt)
-		pnlAsset := snapshotPnLAsset(rt)
-		var spotPositionQty *float64
-		if strings.EqualFold(marketType, "spot") {
-			if sampler, ok := rt.(spotInventorySampler); ok {
-				if qty, available := sampler.SpotInventoryQty(ctx); available && !math.IsNaN(qty) && !math.IsInf(qty, 0) && qty >= 0 {
-					spotPositionQty = &qty
-				}
-			}
-		}
-		equity := totalVal // 持倉市值（與日內回撤計算一致）
-		rec := &storage.HourlyEquityRecord{
-			Exchange:           rt.Exchange(),
-			MarketType:         marketType,
-			AccountScope:       accountScope,
-			Symbol:             rt.Symbol(),
-			Account:            rt.Account(),
-			Timestamp:          ts,
-			Equity:             equity,
-			UnrealizedPnL:      unrealized,
-			UnrealizedPnLAsset: pnlAsset,
-			TotalPositionValue: totalVal,
-			MarketPrice:        marketPrice,
-			SpotPositionQty:    spotPositionQty,
-		}
 		accountIdentity := accountScope
 		if accountIdentity == "" {
 			accountIdentity = "legacy:" + rt.Account()
@@ -207,6 +178,37 @@ func (r *DailySnapshotRunner) recordHourlyForAll(ts time.Time) {
 					legacyAccountEquity[accountKey] = value
 				}
 			}
+		}
+
+		// Account equity is account-scoped evidence and does not depend on whether
+		// this particular symbol's position snapshot can be verified.
+		marketPrice, unrealized, totalVal, verified := currentRuntimeSnapshot(rt)
+		if !verified {
+			logger.Warn("⚠️ 跳过未核验的小时财务快照: %s/%s", rt.Exchange(), rt.Symbol())
+			continue
+		}
+		pnlAsset := snapshotPnLAsset(rt)
+		var spotPositionQty *float64
+		if strings.EqualFold(marketType, "spot") {
+			if sampler, ok := rt.(spotInventorySampler); ok {
+				if qty, available := sampler.SpotInventoryQty(ctx); available && !math.IsNaN(qty) && !math.IsInf(qty, 0) && qty >= 0 {
+					spotPositionQty = &qty
+				}
+			}
+		}
+		rec := &storage.HourlyEquityRecord{
+			Exchange:           rt.Exchange(),
+			MarketType:         marketType,
+			AccountScope:       accountScope,
+			Symbol:             rt.Symbol(),
+			Account:            rt.Account(),
+			Timestamp:          ts,
+			Equity:             totalVal, // 持倉市值（與日內回撤計算一致）
+			UnrealizedPnL:      unrealized,
+			UnrealizedPnLAsset: pnlAsset,
+			TotalPositionValue: totalVal,
+			MarketPrice:        marketPrice,
+			SpotPositionQty:    spotPositionQty,
 		}
 		if value, ok := legacyAccountEquity[accountKey]; ok {
 			rec.AccountEquity = &value

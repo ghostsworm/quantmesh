@@ -51,12 +51,20 @@ func TestCalculateVerifiedMaxDrawdownUsesObservedAccountEquity(t *testing.T) {
 	if !verified || drawdown != 30 || drawdownPct != 25 {
 		t.Fatalf("expected verified observed-equity drawdown 30 / 25%%, got %v / %v verified=%v", drawdown, drawdownPct, verified)
 	}
+	zeroEquityDrawdown, zeroEquityDrawdownPct, zeroEquityVerified := calculateVerifiedMaxDrawdown([]map[string]interface{}{
+		{"account_equity": float64(100)},
+		{"account_equity": float64(0)},
+	})
+	if !zeroEquityVerified || zeroEquityDrawdown != 100 || zeroEquityDrawdownPct != 100 {
+		t.Fatalf("zero account equity must preserve a full observed drawdown, got %v / %v verified=%v", zeroEquityDrawdown, zeroEquityDrawdownPct, zeroEquityVerified)
+	}
 
 	for _, invalidRows := range [][]map[string]interface{}{
 		{{"cumulative_pnl": float64(-90)}},
 		{{"account_equity": float64(100)}},
 		{{"account_equity": math.NaN()}, {"account_equity": float64(100)}},
-		{{"account_equity": float64(0)}, {"account_equity": float64(-10)}},
+		{{"account_equity": float64(-10)}, {"account_equity": float64(-20)}},
+		{{"account_equity": float64(0)}, {"account_equity": float64(0)}},
 	} {
 		if _, _, verified := calculateVerifiedMaxDrawdown(invalidRows); verified {
 			t.Fatalf("insufficient or invalid equity rows treated as verified: %#v", invalidRows)

@@ -1215,12 +1215,15 @@ func calculateVerifiedMaxDrawdown(dailyRows []map[string]interface{}) (float64, 
 	validSamples := 0
 	for _, row := range dailyRows {
 		equity, ok := row["account_equity"].(float64)
-		if !ok || !isFiniteNumber(equity) || equity <= 0 {
+		if !ok || !isFiniteNumber(equity) || equity < 0 {
 			continue
 		}
 		validSamples++
 		if equity > peak {
 			peak = equity
+			continue
+		}
+		if peak <= 0 {
 			continue
 		}
 		drawdown := peak - equity
@@ -1232,7 +1235,7 @@ func calculateVerifiedMaxDrawdown(dailyRows []map[string]interface{}) (float64, 
 			maxDrawdownPct = drawdownPct
 		}
 	}
-	return maxDrawdown, maxDrawdownPct, validSamples >= 2
+	return maxDrawdown, maxDrawdownPct, validSamples >= 2 && peak > 0
 }
 
 // getDailyStatistics 獲取每日统计（混合模式：优先使用 statistics 表，缺失的日期從 trades 表补充）

@@ -26,7 +26,13 @@ type assetSnapshotRuntime struct{ marketSnapshotRuntime }
 
 type unverifiedSnapshotRuntime struct{ marketSnapshotRuntime }
 
+type unverifiedAccountSnapshotRuntime struct{ accountMarketSnapshotRuntime }
+
 func (unverifiedSnapshotRuntime) CurrentSnapshotVerified() (float64, float64, float64, bool) {
+	return 100, 0, 0, false
+}
+
+func (unverifiedAccountSnapshotRuntime) CurrentSnapshotVerified() (float64, float64, float64, bool) {
 	return 100, 0, 0, false
 }
 
@@ -146,6 +152,26 @@ func TestDailySnapshotRunnerSkipsUnverifiedRuntimeFinancialSnapshots(t *testing.
 	runner.recordMidnightSnapshot(ts)
 	if len(store.hourly) != 0 || len(store.daily) != 0 {
 		t.Fatalf("unverified finance snapshot persisted: hourly=%+v daily=%+v", store.hourly, store.daily)
+	}
+}
+
+func TestDailySnapshotRunnerStillSamplesAccountEquityWhenSymbolSnapshotIsUnverified(t *testing.T) {
+	calls := 0
+	store := &marketSnapshotStorage{}
+	runtime := unverifiedAccountSnapshotRuntime{accountMarketSnapshotRuntime{
+		marketSnapshotRuntime: marketSnapshotRuntime{marketType: "futures"},
+		calls:                 &calls,
+		scope:                 "scope-a",
+	}}
+	runner := &DailySnapshotRunner{storage: store, getRuntimes: func() []RuntimeSnapshotSource {
+		return []RuntimeSnapshotSource{runtime}
+	}}
+	runner.recordHourlyForAll(time.Date(2026, 9, 27, 15, 0, 0, 0, time.UTC))
+	if calls != 1 || len(store.account) != 1 {
+		t.Fatalf("account equity must be sampled independently of symbol snapshot verification: calls=%d records=%+v", calls, store.account)
+	}
+	if len(store.hourly) != 0 {
+		t.Fatalf("unverified symbol market snapshot must still be suppressed: %+v", store.hourly)
 	}
 }
 
