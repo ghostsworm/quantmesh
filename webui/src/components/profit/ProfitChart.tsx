@@ -237,7 +237,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
         {/* Stats */}
         <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
           <Stat>
-            <StatLabel>{t('profitManagement.totalProfit')}</StatLabel>
+            <StatLabel>{t('profitManagement.realizedTradingPnl')}</StatLabel>
             <StatNumber
               fontSize="lg"
               color={(chartStats.totalProfit || 0) >= 0 ? 'green.500' : 'red.500'}
@@ -245,7 +245,7 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
               {(chartStats.totalProfit || 0) >= 0 ? '+' : ''}
               {(chartStats.totalProfit || 0).toFixed(2)}
             </StatNumber>
-            <StatHelpText>USDT</StatHelpText>
+            <StatHelpText>{t('profitManagement.realizedTradingPnlBasis')}</StatHelpText>
           </Stat>
           <Stat>
             <StatLabel>{t('profitManagement.avgDaily')}</StatLabel>

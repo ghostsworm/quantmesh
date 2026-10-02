@@ -172,4 +172,5 @@ export interface PriceChangeItem {
 export interface ProfitTrendResponse {
   trend: ProfitTrendItem[]
   period: string
+  income_basis: string
 }

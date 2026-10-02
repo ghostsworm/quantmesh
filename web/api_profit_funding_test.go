@@ -4,11 +4,15 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/storage"
+
+	"github.com/gin-gonic/gin"
 )
 
 type marginInterestProfitReaderStub struct {
@@ -87,6 +91,46 @@ func TestReadScopedMarginInterestProfitTotalsDeductsKnownCostAndFlagsGaps(t *tes
 	missing, err := readScopedMarginInterestProfitTotals(nil, []profitAccountScope{{exchange: "binance", scope: "scope-a"}}, start, end)
 	if err != nil || missing.Total != 0 || missing.Complete {
 		t.Fatalf("missing interest reader must not assert complete net profit: total=%+v err=%v", missing, err)
+	}
+}
+
+func TestProfitTrendDeclaresItsIncompleteIncomeBasis(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := storage.NewSQLStorage(t.TempDir() + "/profit-trend-basis.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	previousStorage, previousConfigManager := storageServiceProvider, fileConfigManager
+	SetStorageServiceProvider(&testStorageProvider{st: store})
+	fcm := NewFileConfigManager("")
+	cfg := config.CreateMinimalConfig()
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: "profit-trend-basis-test", SecretKey: "profit-trend-basis-secret"}}
+	if err := fcm.SetRuntimeConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() {
+		SetStorageServiceProvider(previousStorage)
+		SetFileConfigManager(previousConfigManager)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/profit/trend?period=7d&exchange_id=binance", nil)
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = request
+	getProfitTrendHandler(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		IncomeBasis string `json:"income_basis"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	const expectedBasis = "account_scoped_paired_trade_pnl_net_of_recorded_fees_excludes_funding_and_margin_interest"
+	if payload.IncomeBasis != expectedBasis {
+		t.Fatalf("profit trend income basis=%q, want %q", payload.IncomeBasis, expectedBasis)
 	}
 }
 

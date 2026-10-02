@@ -2009,6 +2009,8 @@
     "title": "盈利管理",
     "subtitle": "查看盈利统计和管理提取",
     "totalProfit": "累计盈利",
+    "realizedTradingPnl": "累计已实现交易盈亏",
+    "realizedTradingPnlBasis": "USDT；未计入资金费收入和跨仓利息成本。",
     "netProfit": "净盈利",
     "marginInterestCost": "跨仓利息成本",
     "marginInterestCoverageIncomplete": "净利润尚未通过完整跨仓利息账本核验；仅扣除了覆盖区间内已估值的费用。",

@@ -2139,9 +2139,10 @@ func getProfitTrendHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"trend":   trend,
-		"period":  period,
+		"success":      true,
+		"trend":        trend,
+		"period":       period,
+		"income_basis": "account_scoped_paired_trade_pnl_net_of_recorded_fees_excludes_funding_and_margin_interest",
 	})
 }
 

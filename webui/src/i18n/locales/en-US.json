@@ -2009,6 +2009,8 @@
     "title": "Profit Management",
     "subtitle": "View profit statistics and manage withdrawals",
     "totalProfit": "Total Profit",
+    "realizedTradingPnl": "Cumulative Realized Trading P&L",
+    "realizedTradingPnlBasis": "USDT; excludes funding income and cross-margin interest costs.",
     "netProfit": "Net Profit",
     "marginInterestCost": "Cross-Margin Interest Cost",
     "marginInterestCoverageIncomplete": "Net profit is not verified against complete cross-margin interest history; only valued costs within the covered interval are deducted.",
