@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"math/big"
-	"net/url"
 	"strconv"
 	"strings"
 )
@@ -26,20 +25,35 @@ func (b *BitgetSpotAdapter) AccountEquityUSDT(ctx context.Context) (float64, boo
 	if err := json.Unmarshal(resp.Data, &balances); err != nil || balances == nil {
 		return 0, false
 	}
+	var tickersBySymbol map[string][]string
+	tickerLoadAttempted := false
 	value, err := valueBitgetSpotBalancesUSDT(ctx, balances, func(ctx context.Context, symbol string) (float64, error) {
-		path := "/api/v2/spot/market/tickers?symbol=" + url.QueryEscape(symbol)
-		response, requestErr := b.client.DoRequest(ctx, "GET", path, nil)
-		if requestErr != nil {
-			return 0, requestErr
+		if !tickerLoadAttempted {
+			tickerLoadAttempted = true
+			response, requestErr := b.client.DoRequest(ctx, "GET", "/api/v2/spot/market/tickers", nil)
+			if requestErr != nil {
+				return 0, requestErr
+			}
+			var tickers []struct {
+				Symbol string `json:"symbol"`
+				LastPr string `json:"lastPr"`
+			}
+			if decodeErr := json.Unmarshal(response.Data, &tickers); decodeErr != nil || tickers == nil {
+				return 0, fmt.Errorf("decode Bitget Spot ticker snapshot")
+			}
+			tickersBySymbol = make(map[string][]string, len(tickers))
+			for _, ticker := range tickers {
+				key := strings.ToUpper(strings.TrimSpace(ticker.Symbol))
+				if key != "" {
+					tickersBySymbol[key] = append(tickersBySymbol[key], ticker.LastPr)
+				}
+			}
 		}
-		var tickers []struct {
-			Symbol string `json:"symbol"`
-			LastPr string `json:"lastPr"`
+		prices := tickersBySymbol[strings.ToUpper(strings.TrimSpace(symbol))]
+		if len(prices) != 1 {
+			return 0, fmt.Errorf("missing or duplicate ticker for %s", symbol)
 		}
-		if decodeErr := json.Unmarshal(response.Data, &tickers); decodeErr != nil || len(tickers) != 1 || !strings.EqualFold(tickers[0].Symbol, symbol) {
-			return 0, fmt.Errorf("missing or mismatched ticker for %s", symbol)
-		}
-		price, parseErr := strconv.ParseFloat(tickers[0].LastPr, 64)
+		price, parseErr := strconv.ParseFloat(prices[0], 64)
 		if parseErr != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 			return 0, fmt.Errorf("invalid ticker price for %s", symbol)
 		}

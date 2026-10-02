@@ -9,16 +9,17 @@ import (
 )
 
 func TestBitgetSpotAccountEquityUSDTValuesEveryAssetWithDirectMarket(t *testing.T) {
+	var tickerRequests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/spot/account/assets":
 			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"USDT","available":"10","locked":"2"},{"coin":"BTC","available":"0.5","locked":"0.1"},{"coin":"ETH","available":"0","locked":"0"}]}`))
 		case "/api/v2/spot/market/tickers":
-			symbol := r.URL.Query().Get("symbol")
-			if symbol != "BTCUSDT" {
-				t.Errorf("unexpected market ticker symbol %q", symbol)
+			tickerRequests++
+			if r.URL.Query().Has("symbol") {
+				t.Errorf("expected one all-symbol ticker snapshot, got query %q", r.URL.RawQuery)
 			}
-			_, _ = fmt.Fprintf(w, `{"code":"00000","data":[{"symbol":"BTCUSDT","lastPr":"100"}]}`)
+			_, _ = fmt.Fprintf(w, `{"code":"00000","data":[{"symbol":"BTCUSDT","lastPr":"100"},{"symbol":"ETHUSDT","lastPr":"200"},{"symbol":"UNRELATED","lastPr":"bad"}]}`)
 		default:
 			t.Errorf("unexpected endpoint %s", r.URL.Path)
 		}
@@ -32,6 +33,27 @@ func TestBitgetSpotAccountEquityUSDTValuesEveryAssetWithDirectMarket(t *testing.
 	value, available := adapter.AccountEquityUSDT(context.Background())
 	if !available || value != 72 {
 		t.Fatalf("equity=%v available=%v, want 72 true", value, available)
+	}
+	if tickerRequests != 1 {
+		t.Fatalf("ticker requests=%d, want a single market snapshot", tickerRequests)
+	}
+}
+
+func TestBitgetSpotAccountEquityUSDTRejectsMissingRequiredMarket(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/spot/account/assets" {
+			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"XYZ","available":"1","locked":"0"}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"code":"00000","data":[{"symbol":"BTCUSDT","lastPr":"100"}]}`))
+	}))
+	defer server.Close()
+	client := NewClient("key", "secret", "pass", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &BitgetSpotAdapter{client: client}
+	if value, available := adapter.AccountEquityUSDT(context.Background()); available || value != 0 {
+		t.Fatalf("missing XYZUSDT market returned equity=%v available=%v", value, available)
 	}
 }
 
