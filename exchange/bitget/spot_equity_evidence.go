@@ -213,7 +213,16 @@ func (b *BitgetSpotAdapter) readSpotBills(ctx context.Context, from, through tim
 				return nil, fmt.Errorf("invalid Bitget Spot bill page")
 			}
 			newRows := 0
+			var previousPageID *big.Int
 			for _, row := range rows {
+				if row == nil {
+					return nil, fmt.Errorf("Bitget Spot bill page contains a missing row")
+				}
+				pageID, validID := new(big.Int).SetString(strings.TrimSpace(row.ID), 10)
+				if !validID || pageID.Sign() <= 0 || (previousPageID != nil && pageID.Cmp(previousPageID) >= 0) {
+					return nil, fmt.Errorf("Bitget Spot bill IDs are not strictly descending within the page")
+				}
+				previousPageID = pageID
 				entry, err := bitgetSpotBillEvidence(row, valuationCurrency, fetchRate, ctx)
 				if err != nil {
 					return nil, err

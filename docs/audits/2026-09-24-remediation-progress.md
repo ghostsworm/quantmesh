@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc845 修复 Bitget Spot 账单页内游标完整性检查：对每条记录验证数字 billId 严格递减，乱序/重复/无效 ID 整页拒绝，防止仅依据页尾 ID 推进 `idLessThan` 时静默漏账。新增 500 行乱序 fixture 回归。完整业务类型和真实账户仍待核验，R10 未关闭。
+
 - rc844 新增 Bitget Classic Spot `GET /api/v2/spot/account/bills` 只读证据读取：校验 billId/数值游标、时间范围、分页前进、币种、金额字段与业务类型；`BalanceAfter` 作逐笔原币差额依据，不推测 `size` 正负。充值/提现/划转按每事件币种估值，并只采用事件时刻前已完成的上一分钟 `ASSETUSDT` K 线收盘价（最大不足一分钟陈旧）；捆绑非零手續費的資本流、无历史 K 线、未分类业务类型或任一响应异常均拒绝整次样本。钱包快照复读比对并纳入 available+frozen+locked，全市场 ticker 单次估值；Spot runtime 仅允许 Bitget，并要求聚合范围所有账户都有账本 Source，阻断混合范围 raw fallback。fixture 覆盖 Spot 账单、K 线、钱包/估值及运行时范围。依据 [Bitget Spot Bills](https://www.bitget.com/zh-CN/api-doc/classic/spot/account/Get-Account-Bills) 与 [Spot Candles](https://www.bitget.com/zh-CN/docs/catalog/classic-spot-market/classic-spot-market) 字段实现。当前尚未用真实 Bitget 账户/线上回包验收；convert、loan、financial、C2C、on-chain、strategy、fiat 等账单组仍故意不支持并会 fail-closed，行情与账户读取也非交易所原子快照；R10 仍未完全关闭。
 
 - rc843 將通用檢查點擴展為可在獨立金額缺失時，從持久化逐筆前值與交易所回報的 `BalanceAfter` 推導精確原幣差額；若同時提供精確金額，仍逐筆交叉核對，且主程式只允許 `BalanceAfter` 作缺額證據。回歸覆蓋此分支及既有序號/餘額鏈。這只是 Bitget Spot 賬單適配前的帳本能力準備；Spot 歷史賬單來源、FX 估值和 runtime scope 均尚未接入，R10 仍未關閉。

@@ -131,6 +131,29 @@ func TestBitgetSpotBillsFollowNumericIDLessThanCursor(t *testing.T) {
 	}
 }
 
+func TestBitgetSpotBillsRejectNonDescendingIDsWithinPage(t *testing.T) {
+	at := time.Now().UTC().Add(-time.Minute).Truncate(time.Millisecond)
+	timeText := strconv.FormatInt(at.UnixMilli(), 10)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		rows := make([]bitgetSpotBill, 0, bitgetSpotBillsPageSize)
+		for id := bitgetSpotBillsPageSize; id >= 1; id-- {
+			rows = append(rows, bitgetSpotBill{ID: strconv.Itoa(id), Coin: "USDT", GroupType: "transaction", BusinessType: "BUY", Size: "1", Balance: "1", Fees: "0", Time: timeText})
+		}
+		rows[0], rows[1] = rows[1], rows[0]
+		_ = json.NewEncoder(w).Encode(struct {
+			Code string           `json:"code"`
+			Data []bitgetSpotBill `json:"data"`
+		}{Code: "00000", Data: rows})
+	}))
+	defer server.Close()
+	client := NewClient("key", "secret", "pass", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	if _, err := (&BitgetSpotAdapter{client: client}).readSpotBills(context.Background(), at.Add(-time.Second), at, "USDT"); err == nil {
+		t.Fatal("out-of-order bill IDs were accepted")
+	}
+}
+
 func TestBitgetSpotHistoricalRateUsesOnlyTheImmediatelyCompletedCandle(t *testing.T) {
 	at := time.Date(2026, 10, 2, 12, 34, 45, 0, time.UTC)
 	open := at.Truncate(time.Minute).Add(-time.Minute)
