@@ -868,6 +868,43 @@ func (b *BinanceSpotMarginAdapter) GetOpenOrders(ctx context.Context, symbol str
 	return orders, nil
 }
 
+// GetAccountOpenOrders returns current cross-margin orders across all symbols.
+func (b *BinanceSpotMarginAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	var list []*binancesdk.Order
+	err := b.withRateLimit(ctx, func() error {
+		var requestErr error
+		list, requestErr = b.client.NewListMarginOpenOrdersService().IsIsolated(false).Do(ctx)
+		return requestErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*Order, 0, len(list))
+	for _, order := range list {
+		price, err := strconv.ParseFloat(order.Price, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account margin order %d price: %w", order.OrderID, err)
+		}
+		quantity, err := strconv.ParseFloat(order.OrigQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account margin order %d quantity: %w", order.OrderID, err)
+		}
+		executedQty, err := strconv.ParseFloat(order.ExecutedQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account margin order %d executed quantity: %w", order.OrderID, err)
+		}
+		cumulativeQuote, err := strconv.ParseFloat(order.CummulativeQuoteQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account margin order %d cumulative quote: %w", order.OrderID, err)
+		}
+		orders = append(orders, &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Side: Side(order.Side), Type: OrderType(order.Type), Price: price, Quantity: quantity,
+			ExecutedQty: executedQty, AvgPrice: cumulativeAveragePrice(cumulativeQuote, executedQty),
+			Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime})
+	}
+	return orders, nil
+}
+
 // Borrow 借幣
 func (b *BinanceSpotMarginAdapter) Borrow(ctx context.Context, asset string, amount float64) (int64, error) {
 	logger.Info("📥 [Binance Spot Margin] 借幣 %s 數量 %.8f", asset, amount)

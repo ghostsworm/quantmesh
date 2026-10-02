@@ -367,6 +367,32 @@ func TestFundingPerpSpreadProcessOwnershipLossBlocksStrategy(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadAccountOrderCheckRejectsOtherSymbol(t *testing.T) {
+	ex := &fundingSpreadTestExchange{name: "binance", orders: []*exchange.Order{{OrderID: 99, Symbol: "ETHUSDT"}}}
+	if err := requireAccountHasNoOpenOrders(t.Context(), ex, "funding_perp_spread futures"); err == nil {
+		t.Fatal("accepted an account-wide open order on an unrelated symbol")
+	}
+}
+
+type fundingSpreadOtherSymbolOrderExchange struct{ *fundingSpreadTestExchange }
+
+func (e fundingSpreadOtherSymbolOrderExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*exchange.Order, error) {
+	if symbol == "BTCUSDT" {
+		return []*exchange.Order{}, nil
+	}
+	return e.fundingSpreadTestExchange.GetOpenOrders(ctx, symbol)
+}
+
+func TestFundingPerpSpreadCurrentLegSnapshotRemainsUsableWithForeignSymbolOrder(t *testing.T) {
+	ex := fundingSpreadOtherSymbolOrderExchange{&fundingSpreadTestExchange{
+		name: "binance", orders: []*exchange.Order{{OrderID: 100, Symbol: "ETHUSDT"}},
+	}}
+	strategy := &FundingPerpSpreadStrategy{symA: "BTCUSDT", symB: "SOLUSDT"}
+	if _, err := strategy.readLegSnapshot(t.Context(), ex, "BTCUSDT"); err != nil {
+		t.Fatalf("foreign ETHUSDT order prevented a BTCUSDT leg snapshot needed for exposure management: %v", err)
+	}
+}
+
 type emptyFundingSpreadExchange struct{ exchange.IExchange }
 
 func (emptyFundingSpreadExchange) GetPositions(context.Context, string) ([]*exchange.Position, error) {
@@ -378,6 +404,10 @@ func (emptyFundingSpreadExchange) GetName() string { return "test" }
 func (emptyFundingSpreadExchange) GetQuantityDecimals() int { return 3 }
 
 func (emptyFundingSpreadExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
+	return []*exchange.Order{}, nil
+}
+
+func (emptyFundingSpreadExchange) GetAccountOpenOrders(context.Context) ([]*exchange.Order, error) {
 	return []*exchange.Order{}, nil
 }
 
@@ -414,6 +444,9 @@ func (e *fundingPerpSpreadOpeningExchange) GetPositions(context.Context, string)
 	return []*exchange.Position{{Symbol: e.symbol, Size: e.position}}, nil
 }
 func (e *fundingPerpSpreadOpeningExchange) GetOpenOrders(context.Context, string) ([]*exchange.Order, error) {
+	return []*exchange.Order{}, nil
+}
+func (e *fundingPerpSpreadOpeningExchange) GetAccountOpenOrders(context.Context) ([]*exchange.Order, error) {
 	return []*exchange.Order{}, nil
 }
 func (e *fundingPerpSpreadOpeningExchange) PlaceOrder(_ context.Context, request *exchange.OrderRequest) (*exchange.Order, error) {
@@ -466,6 +499,10 @@ func (e *fundingSpreadTestExchange) GetOpenOrders(context.Context, string) ([]*e
 		return []*exchange.Order{}, nil
 	}
 	return e.orders, nil
+}
+
+func (e *fundingSpreadTestExchange) GetAccountOpenOrders(ctx context.Context) ([]*exchange.Order, error) {
+	return e.GetOpenOrders(ctx, "")
 }
 
 func (e *fundingSpreadTestExchange) PlaceOrder(_ context.Context, req *exchange.OrderRequest) (*exchange.Order, error) {

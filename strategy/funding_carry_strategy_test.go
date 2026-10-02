@@ -347,6 +347,26 @@ func (m *mockFCExchange) GetOpenOrders(ctx context.Context, symbol string) ([]*e
 	}
 	return []*exchange.Order{}, nil
 }
+func (m *mockFCExchange) GetAccountOpenOrders(ctx context.Context) ([]*exchange.Order, error) {
+	return m.GetOpenOrders(ctx, "")
+}
+
+type symbolScopedOpenOrdersExchange struct{ exchange.IExchange }
+
+func TestRequireAccountHasNoOpenOrdersRejectsUnverifiedScope(t *testing.T) {
+	base := &mockFCExchange{}
+	wrapped := symbolScopedOpenOrdersExchange{IExchange: base}
+	if err := requireAccountHasNoOpenOrders(t.Context(), wrapped, "futures"); err == nil {
+		t.Fatal("accepted a symbol-only open-order reader as account-wide evidence")
+	}
+}
+
+func TestRequireAccountHasNoOpenOrdersRejectsForeignSymbolOrder(t *testing.T) {
+	ex := &mockFCExchange{openOrders: []*exchange.Order{{OrderID: 94, Symbol: "ETHUSDT"}}}
+	if err := requireAccountHasNoOpenOrders(t.Context(), ex, "futures"); err == nil {
+		t.Fatal("accepted an open order from another symbol in the same account")
+	}
+}
 func (m *mockFCExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*exchange.OrderFill, error) {
 	return nil, nil
 }

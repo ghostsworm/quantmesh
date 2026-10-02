@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc824] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 的空倉准入及新開倉檢查改用帳戶級活動委託快照；Binance futures、spot、cross-margin 已接入全交易對查詢。持倉中的減倉仍保留本策略交易對核驗；未提供帳戶級快照能力的交易所拒絕啟動空倉策略或新開倉。
+
 ## [3.111.0-rc823] - 2026-10-02（未發布）
 
 ### Fixed

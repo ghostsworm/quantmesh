@@ -471,15 +471,8 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 		}
 	}
 	for name, ex := range map[string]exchange.IExchange{"futures": s.fut, "spot": s.spot} {
-		orders, err := ex.GetOpenOrders(ctx, s.symbol)
-		if err != nil {
-			return fmt.Errorf("read %s open orders: %w", name, err)
-		}
-		if orders == nil {
-			return fmt.Errorf("read %s open orders: nil response is not an authoritative empty snapshot", name)
-		}
-		if len(orders) != 0 {
-			return fmt.Errorf("%s has %d open orders", name, len(orders))
+		if err := requireAccountHasNoOpenOrders(ctx, ex, name); err != nil {
+			return err
 		}
 	}
 	if s.marginEx != nil {
@@ -498,15 +491,8 @@ func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
 				return fmt.Errorf("spot-margin position/debt exists (size=%.8f)", p.Size)
 			}
 		}
-		orders, err := s.marginEx.GetOpenOrders(ctx, s.symbol)
-		if err != nil {
-			return fmt.Errorf("read spot-margin open orders: %w", err)
-		}
-		if orders == nil {
-			return errors.New("read spot-margin open orders: nil response is not an authoritative empty snapshot")
-		}
-		if len(orders) != 0 {
-			return fmt.Errorf("spot-margin has %d open orders", len(orders))
+		if err := requireAccountHasNoOpenOrders(ctx, s.marginEx, "spot-margin"); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -516,26 +502,49 @@ func (s *FundingCarryStrategy) requireNoOpenOrders(ctx context.Context) error {
 	for name, ex := range map[string]exchange.IExchange{"futures": s.fut, "spot": s.spot} {
 		orders, err := ex.GetOpenOrders(ctx, s.symbol)
 		if err != nil {
-			return fmt.Errorf("read %s open orders: %w", name, err)
+			return fmt.Errorf("read %s open orders for %s: %w", name, s.symbol, err)
 		}
 		if orders == nil {
-			return fmt.Errorf("read %s open orders: nil response is not an authoritative empty snapshot", name)
+			return fmt.Errorf("read %s open orders for %s: nil response is not an authoritative empty snapshot", name, s.symbol)
 		}
 		if len(orders) != 0 {
-			return fmt.Errorf("%s has %d open orders", name, len(orders))
+			return fmt.Errorf("%s has %d open orders for %s", name, len(orders), s.symbol)
 		}
 	}
 	if s.marginEx != nil {
 		orders, err := s.marginEx.GetOpenOrders(ctx, s.symbol)
 		if err != nil {
-			return fmt.Errorf("read spot-margin open orders: %w", err)
+			return fmt.Errorf("read spot-margin open orders for %s: %w", s.symbol, err)
 		}
 		if orders == nil {
 			return errors.New("read spot-margin open orders: nil response is not an authoritative empty snapshot")
 		}
 		if len(orders) != 0 {
-			return fmt.Errorf("spot-margin has %d open orders", len(orders))
+			return fmt.Errorf("spot-margin has %d open orders for %s", len(orders), s.symbol)
 		}
+	}
+	return nil
+}
+
+func requireAccountHasNoOpenOrders(ctx context.Context, ex exchange.IExchange, market string) error {
+	reader, ok := ex.(exchange.AccountOpenOrdersReader)
+	if !ok {
+		return fmt.Errorf("%s exchange does not expose an authoritative account-wide open-order snapshot", market)
+	}
+	orders, err := reader.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return fmt.Errorf("read account-wide %s open orders: %w", market, err)
+	}
+	if orders == nil {
+		return fmt.Errorf("account-wide %s open-order snapshot is nil, not an authoritative empty snapshot", market)
+	}
+	for _, order := range orders {
+		if order == nil || strings.TrimSpace(order.Symbol) == "" {
+			return fmt.Errorf("account-wide %s open-order snapshot contains an invalid row", market)
+		}
+	}
+	if len(orders) != 0 {
+		return fmt.Errorf("account-wide %s snapshot has %d open orders", market, len(orders))
 	}
 	return nil
 }
@@ -846,6 +855,16 @@ func (s *FundingCarryStrategy) tick() error {
 			return s.closeReverseWithAccountWalletCoordination(ctx, "exit_reverse_rate")
 		}
 		return nil
+	}
+	for market, ex := range map[string]exchange.IExchange{"futures": s.fut, "spot": s.spot} {
+		if err := requireAccountHasNoOpenOrders(ctx, ex, market); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("account-wide open orders prevent funding_carry entry: %w", err))
+		}
+	}
+	if s.marginEx != nil {
+		if err := requireAccountHasNoOpenOrders(ctx, s.marginEx, "spot-margin"); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("account-wide open orders prevent funding_carry entry: %w", err))
+		}
 	}
 
 	// 無倉位：結算臨近時不開新倉

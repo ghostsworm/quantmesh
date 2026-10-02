@@ -2733,3 +2733,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 複核發現共用恢復驗證把策略 owner 名稱與執行類型混為一談，且啟動只載入標準 DCA/Martingale 與頂層 signal state；因此 DCA Enhanced 的類型標記不一致，Combo namespaced 子策略持倉未匯入共用風險賬本。
 - Exposure lot 現在分別保存 owner group 與執行類型；成交意圖核驗要求兩者各自匹配，並以 owner 名稱核對非 grid 的持久化 StrategyName。啟動恢復新增 DCA Enhanced 與 Combo 子策略載入，子狀態仍經既有策略快照驗證、終態訂單身份核驗及交易所總持倉對賬；未知/不支持類型 fail-closed。
 - 新增 DCA Enhanced 身份和 Combo DCA namespaced 恢復回歸；定向回歸、`go test ./... -count=1 -p 1`、`go vet ./...`、定向 `-race`，以及 `yarn verify`（201 項測試及生產構建）均通過。尚未覆蓋 Combo 全部策略類型、Funding 多腿、現貨持倉、跨交易對帳戶級恢復或真實交易所重啟；未連接真實帳戶、下單、部署或驗收盈利能力。
+
+## 後續續修：特殊套利空倉准入核驗帳戶級活動委託（3.111.0-rc824，2026-10-02）
+
+- R12 複核確認 Funding Carry 與 Funding Perp Spread 的委託檢查只查目前交易對；同帳戶其他交易對的外部掛單會鎖定資金且未進入策略核驗。
+- 新增明確的 `AccountOpenOrdersReader` 能力。Binance USDⓈ-M futures、spot、cross-margin 使用不帶 symbol 的當前活動委託端點；Funding Carry 空倉啟動/新開倉及 Funding Perp Spread 空倉准入/新開倉要求每個相關賬戶市場都提供完整空快照。其他交易所未實現該能力時 fail-closed。已有持倉的檢查仍保持本策略交易對範圍，避免異幣對委託阻止受管退出。
+- 新增三種 Binance 市場 HTTP fixture，斷言請求不含 symbol 且可返回其他交易對訂單；策略測試覆蓋外部異幣對掛單拒絕、缺少帳戶級能力拒絕，以及外部異幣對掛單不阻斷已有持倉腿管理。最終差異後 `go test ./... -count=1 -p 1`、`go vet ./...`、定向 `-race`、`yarn verify`（201 項測試及生產構建）與 `git diff --check` 通過。未驗證其他交易所全帳戶端點、多實例/外部交易時序或真實帳戶；未下單、部署或驗收盈利能力。

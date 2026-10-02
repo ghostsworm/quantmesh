@@ -281,6 +281,14 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 		} else if posA != 0 || posB != 0 {
 			return fmt.Errorf("unowned positions exist without a runtime state (A %.8f, B %.8f)", posA, posB)
 		}
+		if math.Abs(posA) <= s.legTolerance(s.legA) && math.Abs(posB) <= s.legTolerance(s.legB) && !restored.EmergencyCloseRequired {
+			if err := requireAccountHasNoOpenOrders(coordCtx, s.legA, "funding_perp_spread legA futures"); err != nil {
+				return err
+			}
+			if err := requireAccountHasNoOpenOrders(coordCtx, s.legB, "funding_perp_spread legB futures"); err != nil {
+				return err
+			}
+		}
 		s.mu.Lock()
 		s.ctx, s.cancel = context.WithCancel(ctx)
 		s.runDone = make(chan struct{})
@@ -766,6 +774,12 @@ func (s *FundingPerpSpreadStrategy) tick() error {
 
 	if hasPos {
 		return nil
+	}
+	if err := requireAccountHasNoOpenOrders(ctx, s.legA, "funding_perp_spread legA futures"); err != nil {
+		return err
+	}
+	if err := requireAccountHasNoOpenOrders(ctx, s.legB, "funding_perp_spread legB futures"); err != nil {
+		return err
 	}
 
 	if spread < s.minSpread {

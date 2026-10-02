@@ -369,6 +369,43 @@ func (b *BinanceSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) (
 	return result, nil
 }
 
+// GetAccountOpenOrders returns current spot orders across all symbols.
+func (b *BinanceSpotAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	var list []*binancesdk.Order
+	err := b.withRateLimit(ctx, func() error {
+		var requestErr error
+		list, requestErr = b.client.NewListOpenOrdersService().Do(ctx)
+		return requestErr
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(list))
+	for _, order := range list {
+		price, err := strconv.ParseFloat(order.Price, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account spot order %d price: %w", order.OrderID, err)
+		}
+		quantity, err := strconv.ParseFloat(order.OrigQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account spot order %d quantity: %w", order.OrderID, err)
+		}
+		executedQty, err := strconv.ParseFloat(order.ExecutedQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account spot order %d executed quantity: %w", order.OrderID, err)
+		}
+		cumulativeQuote, err := strconv.ParseFloat(order.CummulativeQuoteQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account spot order %d cumulative quote: %w", order.OrderID, err)
+		}
+		result = append(result, &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Side: Side(order.Side), Type: OrderType(order.Type), Price: price, Quantity: quantity,
+			ExecutedQty: executedQty, AvgPrice: cumulativeAveragePrice(cumulativeQuote, executedQty),
+			Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime})
+	}
+	return result, nil
+}
+
 // withRateLimit 確保 API 調用間隔，避免觸發幣安限流
 func (b *BinanceSpotAdapter) withRateLimit(ctx context.Context, fn func() error) error {
 	b.apiCallMu.Lock()

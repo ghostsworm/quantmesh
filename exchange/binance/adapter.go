@@ -763,6 +763,48 @@ func (b *BinanceAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 	return nil, fmt.Errorf("查詢挂單失败（重試%d次）: %w", maxRetries, lastErr)
 }
 
+// GetAccountOpenOrders returns current open futures orders across all symbols.
+func (b *BinanceAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	b.apiCallMu.Lock()
+	elapsed := time.Since(b.lastAPICallTime)
+	if elapsed < b.minAPIInterval {
+		waitTime := b.minAPIInterval - elapsed
+		b.apiCallMu.Unlock()
+		time.Sleep(waitTime)
+		b.apiCallMu.Lock()
+	}
+	b.lastAPICallTime = time.Now()
+	b.apiCallMu.Unlock()
+
+	orders, err := b.client.NewListOpenOrdersService().Do(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		price, err := strconv.ParseFloat(order.Price, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account open order %d price: %w", order.OrderID, err)
+		}
+		quantity, err := strconv.ParseFloat(order.OrigQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account open order %d quantity: %w", order.OrderID, err)
+		}
+		executedQty, err := strconv.ParseFloat(order.ExecutedQuantity, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account open order %d executed quantity: %w", order.OrderID, err)
+		}
+		avgPrice, err := strconv.ParseFloat(order.AvgPrice, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse account open order %d average price: %w", order.OrderID, err)
+		}
+		result = append(result, &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Side: Side(order.Side), Type: OrderType(order.Type), Price: price, Quantity: quantity,
+			ExecutedQty: executedQty, AvgPrice: avgPrice, Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime})
+	}
+	return result, nil
+}
+
 // GetAccount 獲取帳戶信息（合約账戶）
 // 含限流、短期緩存、ACCOUNT_UPDATE 時失效，降低 REST 調用頻率
 func (b *BinanceAdapter) GetAccount(ctx context.Context) (*Account, error) {

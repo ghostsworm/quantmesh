@@ -201,6 +201,23 @@ func (w *binanceSpotMarginWrapper) GetOpenOrders(ctx context.Context, symbol str
 	return orders, nil
 }
 
+func (w *binanceSpotMarginWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, item := range orders {
+		if item == nil {
+			return nil, fmt.Errorf("Binance cross-margin account open-order snapshot contains nil row")
+		}
+		result = append(result, &Order{OrderID: item.OrderID, ClientOrderID: item.ClientOrderID, Symbol: item.Symbol,
+			Side: Side(item.Side), Type: OrderType(item.Type), Price: item.Price, Quantity: item.Quantity,
+			ExecutedQty: item.ExecutedQty, AvgPrice: item.AvgPrice, Status: OrderStatus(item.Status), UpdateTime: item.UpdateTime})
+	}
+	return result, nil
+}
+
 func (w *binanceSpotMarginWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	binanceAccount, err := w.adapter.GetAccount(ctx)
 	if err != nil {

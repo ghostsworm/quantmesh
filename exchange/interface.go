@@ -171,6 +171,13 @@ type SpotInventoryReader interface {
 	SpotInventoryQty(ctx context.Context) (float64, error)
 }
 
+// AccountOpenOrdersReader returns a complete, authoritative snapshot of open
+// orders for every symbol in this exchange account and market. Implementations
+// must not silently fall back to the adapter's configured symbol.
+type AccountOpenOrdersReader interface {
+	GetAccountOpenOrders(ctx context.Context) ([]*Order, error)
+}
+
 // SpotMarginFlatnessVerifier reports whether the entire cross-margin account
 // has no outstanding debt and no active margin orders. Implementations must
 // fail closed when the venue cannot provide authoritative account-wide data.
