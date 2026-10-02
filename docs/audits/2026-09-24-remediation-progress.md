@@ -2688,3 +2688,4 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc794 將 KuCoin Futures `account-overview` 明確返回的 `currency` 單位傳遞經 adapter/Wrapper 至共用帳戶；新增可注入測試 API endpoint 的 client 設定及完整 HTTP 回歸，覆蓋 `currency=usdt` 與權益/保證金欄位。其餘交易所、現貨多資產估值與現金流核算仍未完成。
 - rc795 將 WhiteBIT 抵押帳戶餘額 map 明確選取的 USDT 幣種透傳至通用帳戶；私有 API fixture 同時包含 USDT 和 BTC，並覆蓋帳戶持倉查詢，確認權益數值來自 USDT collateral。這仍是 USDT 子餘額而非全資產淨值；R10 未關閉。
 - rc796 將 Kraken Futures `accounts[].currency` 及 Poloniex 僅選中之 USDT balance currency 傳遞至通用帳戶，新增兩個 HTTP fixture 驗證 adapter 輸出單位和對應餘額；Kraken 測試 client 支援注入 endpoint。未覆蓋完整現貨資產、跨資產折算或現金流調整，R10 仍未完成。
+- rc797 根據 Huobi 官方 USDT 合約 API 的 `swap_account_info` 回應欄位新增 `margin_asset` 解析，並由 adapter/Wrapper 傳遞實際結算資產；空帳戶或缺幣種證據改為錯誤，不再回傳未標單位的權益。新增 HTTP fixture 覆蓋小寫 `usdt` 正規化及缺欄失敗。其他交易所、現貨多資產與現金流核算仍未完成。

@@ -85,6 +85,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 }
 
@@ -405,15 +406,14 @@ func (h *HuobiAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	}
 
 	if len(accounts) == 0 {
-		return &Account{
-			TotalWalletBalance: 0,
-			TotalMarginBalance: 0,
-			AvailableBalance:   0,
-			Positions:          []*Position{},
-		}, nil
+		return nil, fmt.Errorf("Huobi account response contains no margin account")
 	}
 
 	account := accounts[0]
+	marginAsset := strings.ToUpper(strings.TrimSpace(account.MarginAsset))
+	if marginAsset == "" {
+		return nil, fmt.Errorf("Huobi account response does not identify its margin asset")
+	}
 
 	positions, err := h.GetPositions(ctx, h.symbol)
 	if err != nil {
@@ -425,6 +425,7 @@ func (h *HuobiAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: account.MarginBalance,
 		TotalMarginBalance: account.MarginBalance,
 		AvailableBalance:   account.MarginAvailable,
+		BalanceAsset:       marginAsset,
 		Positions:          positions,
 	}, nil
 }

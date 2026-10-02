@@ -56,7 +56,7 @@ func TestHuobiClientHTTPMethodsWithMockTransport(t *testing.T) {
 			return http.StatusOK, `{"status":"ok","data":{"orders":[{"order_id":12,"contract_code":"BTC-USDT","status":3}]}}`
 		case "/linear-swap-api/v1/swap_account_info":
 			requireHuobiSignedQuery(t, req)
-			return http.StatusOK, `{"status":"ok","data":[{"symbol":"BTC","margin_balance":100,"margin_available":80}]}`
+			return http.StatusOK, `{"status":"ok","data":[{"symbol":"BTC","margin_balance":100,"margin_available":80,"margin_asset":"USDT"}]}`
 		case "/linear-swap-api/v1/swap_position_info":
 			requireHuobiSignedQuery(t, req)
 			return http.StatusOK, `{"status":"ok","data":[{"symbol":"BTC","contract_code":"BTC-USDT","volume":2,"direction":"buy"}]}`
@@ -111,7 +111,7 @@ func TestHuobiClientHTTPMethodsWithMockTransport(t *testing.T) {
 		t.Fatalf("GetOpenOrders() = %#v, %v", openOrders, err)
 	}
 	accounts, err := client.GetAccountInfo(ctx, "BTC-USDT")
-	if err != nil || len(accounts) != 1 || accounts[0].MarginAvailable != 80 {
+	if err != nil || len(accounts) != 1 || accounts[0].MarginAvailable != 80 || accounts[0].MarginAsset != "USDT" {
 		t.Fatalf("GetAccountInfo() = %#v, %v", accounts, err)
 	}
 	positions, err := client.GetPositionInfo(ctx, "BTC-USDT")
@@ -200,4 +200,38 @@ func TestHuobiClientErrorAndParserBranches(t *testing.T) {
 			t.Fatalf("expected close parse error, got %v", err)
 		}
 	})
+}
+
+func TestHuobiAdapterAccountUsesAPIReportedMarginAsset(t *testing.T) {
+	client := newMockHuobiClient(func(req *http.Request) (int, string) {
+		switch req.URL.Path {
+		case "/linear-swap-api/v1/swap_account_info":
+			return http.StatusOK, `{"status":"ok","data":[{"symbol":"BTC","margin_balance":100,"margin_available":80,"margin_asset":"usdt"}]}`
+		case "/linear-swap-api/v1/swap_position_info":
+			return http.StatusOK, `{"status":"ok","data":[]}`
+		default:
+			return http.StatusNotFound, `missing`
+		}
+	})
+	adapter := &HuobiAdapter{client: client, contractCode: "BTC-USDT", symbol: "BTCUSDT"}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalWalletBalance != 100 || account.AvailableBalance != 80 {
+		t.Fatalf("account = %+v, want API-reported USDT margin asset", account)
+	}
+}
+
+func TestHuobiAdapterAccountRejectsMissingMarginAsset(t *testing.T) {
+	client := newMockHuobiClient(func(req *http.Request) (int, string) {
+		if req.URL.Path != "/linear-swap-api/v1/swap_account_info" {
+			return http.StatusNotFound, `missing`
+		}
+		return http.StatusOK, `{"status":"ok","data":[{"symbol":"BTC","margin_balance":100,"margin_available":80}]}`
+	})
+	adapter := &HuobiAdapter{client: client, contractCode: "BTC-USDT", symbol: "BTCUSDT"}
+	if _, err := adapter.GetAccount(context.Background()); err == nil {
+		t.Fatal("expected missing margin asset to fail closed")
+	}
 }

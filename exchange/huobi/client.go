@@ -418,6 +418,7 @@ type AccountInfo struct {
 	MarginAvailable   float64 `json:"margin_available"`
 	WithdrawAvailable float64 `json:"withdraw_available"`
 	RiskRate          float64 `json:"risk_rate"`
+	MarginAsset       string  `json:"margin_asset"`
 }
 
 // GetAccountInfo 獲取帳戶信息
