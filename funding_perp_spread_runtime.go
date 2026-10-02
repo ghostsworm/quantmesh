@@ -295,6 +295,19 @@ func startFundingPerpSpreadSymbolRuntime(
 	if !ok {
 		return nil, fmt.Errorf("funding_perp_spread account wallet reservation storage disappeared after claim")
 	}
+	if checker, supported := reservationStore.(storage.AccountWalletCapitalAdmissionChecker); supported {
+		walletKeys := make([]string, 0, len(claims))
+		for _, claim := range claims {
+			walletKeys = append(walletKeys, claim.WalletKey)
+		}
+		st.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
+			return checker.CheckAccountWalletCapitalAdmission(guardCtx, walletKeys, 2*accountWalletCapitalRefreshInterval)
+		})
+	} else {
+		st.SetOpeningAdmissionGuard(func(context.Context) error {
+			return fmt.Errorf("persistent storage does not support shared wallet opening admission checks")
+		})
+	}
 	runtimeOwnsReservation := false
 	var orderSyncs []fundingPerpSpreadOrderSyncRunner
 	defer func() {

@@ -358,6 +358,31 @@ func startFundingCarrySymbolRuntime(
 	if marginEx != nil {
 		marginOrderExecutor = newFundingCarryOrderExecutor(marginEx, symCfg.Symbol, botID, localCfg, distributedLock, openingGate, "SHORT")
 	}
+	installWalletAdmissionGuard := func(target *fundingCarryOrderExecutor, market string) {
+		if target == nil {
+			return
+		}
+		var walletKey string
+		for _, claim := range capitalClaims {
+			if strings.EqualFold(claim.Market, market) {
+				walletKey = claim.WalletKey
+				break
+			}
+		}
+		checker, supported := capitalStore.(storage.AccountWalletCapitalAdmissionChecker)
+		if !supported || walletKey == "" {
+			target.executor.SetOpeningAdmissionGuard(func(context.Context) error {
+				return fmt.Errorf("Funding Carry wallet opening evidence is unavailable")
+			})
+			return
+		}
+		target.executor.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
+			return checker.CheckAccountWalletCapitalAdmission(guardCtx, []string{walletKey}, 2*accountWalletCapitalRefreshInterval)
+		})
+	}
+	installWalletAdmissionGuard(futuresOrderExecutor, "futures")
+	installWalletAdmissionGuard(spotOrderExecutor, "spot")
+	installWalletAdmissionGuard(marginOrderExecutor, "spot_margin")
 	for _, leg := range []struct {
 		exchange exchange.IExchange
 		executor *fundingCarryOrderExecutor

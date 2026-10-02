@@ -638,6 +638,23 @@ func TestFundingPerpSpreadOpeningRespectsSharedRuntimeGate(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadOpeningFailsClosedOnWalletAdmissionError(t *testing.T) {
+	a := &fundingSpreadTestExchange{name: "a"}
+	b := &fundingSpreadTestExchange{name: "b"}
+	st := &FundingPerpSpreadStrategy{
+		openingGate: &execution.OpeningGate{}, legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT",
+		ownershipReady: true, symCfg: config.SymbolConfig{TotalAllocatedCapital: 400},
+	}
+	st.SetOpeningAdmissionGuard(func(context.Context) error { return errors.New("stale wallet balance") })
+	err := st.openSpreadCoordinated(context.Background(), a, "BTCUSDT", b, "BTCUSDT", 100, 100, 0.001, 0)
+	if err == nil || !strings.Contains(err.Error(), "stale wallet balance") {
+		t.Fatalf("wallet admission error = %v, want fail-closed stale evidence error", err)
+	}
+	if a.placed != 0 || b.placed != 0 {
+		t.Fatalf("wallet admission failure reached venues: legA=%d legB=%d", a.placed, b.placed)
+	}
+}
+
 func TestFundingPerpSpreadOpeningRejectsExistingOwnedAllocation(t *testing.T) {
 	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -1}}}
 	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 1}}}

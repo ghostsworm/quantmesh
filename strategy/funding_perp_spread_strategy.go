@@ -57,6 +57,7 @@ type FundingPerpSpreadStrategy struct {
 	coordinationTTL           time.Duration
 	eventBus                  EventBus
 	openingGate               *execution.OpeningGate
+	openingAdmissionGuard     func(context.Context) error
 	executionRecorder         FundingPerpSpreadExecutionRecorder
 
 	consecutiveErrors int
@@ -169,6 +170,12 @@ func (s *FundingPerpSpreadStrategy) SetOpeningGate(gate *execution.OpeningGate) 
 	}
 	s.mu.Lock()
 	s.openingGate = gate
+	s.mu.Unlock()
+}
+
+func (s *FundingPerpSpreadStrategy) SetOpeningAdmissionGuard(guard func(context.Context) error) {
+	s.mu.Lock()
+	s.openingAdmissionGuard = guard
 	s.mu.Unlock()
 }
 
@@ -1237,9 +1244,15 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	}
 	s.mu.RLock()
 	gate := s.openingGate
+	admissionGuard := s.openingAdmissionGuard
 	s.mu.RUnlock()
 	if gate == nil {
 		return fmt.Errorf("funding_perp_spread opening gate is unavailable: %w", execution.ErrExposureUnverified)
+	}
+	if admissionGuard != nil {
+		if err := admissionGuard(ctx); err != nil {
+			return fmt.Errorf("funding_perp_spread wallet capital admission rejected opening: %w", err)
+		}
 	}
 	releaseOpening, err := gate.Begin()
 	if err != nil {
