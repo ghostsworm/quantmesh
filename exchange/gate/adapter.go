@@ -591,6 +591,38 @@ func (g *GateAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Orde
 	return orders, nil
 }
 
+// GetAccountOpenOrders returns open futures orders for every contract in this
+// adapter's settlement account.
+func (g *GateAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	futuresOrders, err := g.client.GetAllFuturesOpenOrders(ctx, g.settle)
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*Order, 0, len(futuresOrders))
+	for _, futureOrder := range futuresOrders {
+		order := &Order{
+			OrderID:       futureOrder.ID,
+			ClientOrderID: futureOrder.Text,
+			Symbol:        futureOrder.Contract,
+			Side:          convertSide(float64(futureOrder.Size)),
+			Type:          OrderTypeLimit,
+			Quantity:      abs(float64(futureOrder.Size)),
+			ExecutedQty:   abs(float64(futureOrder.FillSize)),
+			Status:        convertStatus(futureOrder.Status),
+			CreatedAt:     time.Unix(int64(futureOrder.CreateTime), 0),
+			UpdateTime:    int64(futureOrder.FinishTime * 1000),
+		}
+		if futureOrder.Price != "" {
+			order.Price, _ = strconv.ParseFloat(futureOrder.Price, 64)
+		}
+		if futureOrder.FillPrice != "" {
+			order.AvgPrice, _ = strconv.ParseFloat(futureOrder.FillPrice, 64)
+		}
+		orders = append(orders, order)
+	}
+	return orders, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (g *GateAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	futuresAcc, err := g.client.GetAccount(ctx, g.settle)

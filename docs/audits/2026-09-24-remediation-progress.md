@@ -2750,3 +2750,8 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 
 - rc825 後仍有 OKX 帳戶無法使用特殊套利的帳戶級掛單准入核驗。依 [OKX 官方 V5 `/trade/orders-pending` 契約](https://www.okx.com/docs-v5/en/)，新增 SWAP 全品種與 SPOT/MARGIN 全品種查詢；以最多 100 筆為頁，按最後訂單 ID 的 `after` 游標讀完，不帶 `instId`。
 - null/missing data、滿頁卻缺少末筆訂單 ID或重複頁游標均返回錯誤，避免把部分結果當成空帳戶。HTTP fixture 覆蓋全品種請求、100 筆分頁、跨 symbol 返回、SPOT+MARGIN 覆蓋與錯誤結果拒絕；完整全倉測試及其餘驗證待執行。未連接真實帳戶、未下單/部署或驗收盈利能力。
+
+## 後續續修：Gate 特殊套利帳戶級掛單快照（3.111.0-rc827，2026-10-02）
+
+- rc826 後 Gate 帳戶仍會因缺少帳戶級掛單介面而 fail-closed。依 [Gate Futures API](https://www.gate.com/docs/developers/apiv4/en/futures/) 新增指定結算錢包的全合約 `status=open` 查詢及 `last_id` 分頁；依 [Gate Spot API](https://www.gate.com/docs/developers/apiv4/en/spot/) 查詢 spot、margin、cross_margin、unified 四種帳戶的所有交易對及頁碼結果。
+- 對 null/missing 列表、無效訂單身份、重複訂單/游標及未完成翻頁返回錯誤，不把不完整快照解讀為空帳戶。HTTP fixture 覆蓋合約/現貨全範圍、現貨頁碼、帳戶類型及故障拒絕；定向測試與 vet 通過，完整驗證待執行。尚未連接真實 Gate 賬戶驗證 API 權限/回應與帳戶類型差異；未下單、部署或驗收盈利能力。

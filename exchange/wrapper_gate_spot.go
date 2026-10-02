@@ -9,12 +9,15 @@ import (
 
 	"quantmesh/exchange/gate"
 	"quantmesh/exchange/income"
+	"quantmesh/utils"
 )
 
 // gateSpotWrapper 包装 Gate 現貨适配器以實現 IExchange 接口
 type gateSpotWrapper struct {
 	adapter *gate.GateSpotAdapter
 }
+
+var _ AccountOpenOrdersReader = (*gateSpotWrapper)(nil)
 
 func (w *gateSpotWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -148,6 +151,23 @@ func (w *gateSpotWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*
 		}
 	}
 	return result, nil
+}
+
+func (w *gateSpotWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	gateOrders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*Order, 0, len(gateOrders))
+	for _, order := range gateOrders {
+		orders = append(orders, &Order{
+			OrderID: order.OrderID, ClientOrderID: utils.RemoveBrokerPrefix("gate", order.ClientOrderID),
+			Symbol: order.Symbol, Side: Side(order.Side), Type: OrderType(order.Type), Price: order.Price,
+			Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice,
+			Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime,
+		})
+	}
+	return orders, nil
 }
 
 func (w *gateSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {

@@ -326,6 +326,63 @@ func (g *GateSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*
 	return orders, nil
 }
 
+// GetAccountOpenOrders checks every Gate spot-family account and all currency
+// pairs, including every page within each pair.
+func (g *GateSpotAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	var orders []*Order
+	for _, account := range []string{"spot", "margin", "cross_margin", "unified"} {
+		accountOrders, err := g.client.GetAllSpotOpenOrders(ctx, account)
+		if err != nil {
+			return nil, fmt.Errorf("query Gate account-wide spot-family %s open orders: %w", account, err)
+		}
+		for _, accountOrder := range accountOrders {
+			orderID, idErr := strconv.ParseInt(accountOrder.ID, 10, 64)
+			quantity, quantityErr := strconv.ParseFloat(accountOrder.Amount, 64)
+			executed, executedErr := parseGateOptionalOrderNumber(accountOrder.FilledAmount)
+			price, priceErr := parseGateOptionalOrderNumber(accountOrder.Price)
+			avgPrice, avgPriceErr := parseGateOptionalOrderNumber(accountOrder.AvgDealPrice)
+			if idErr != nil || orderID <= 0 || quantityErr != nil || !finiteGateNumber(quantity) || quantity <= 0 ||
+				executedErr != nil || !finiteGateNumber(executed) || executed < 0 ||
+				priceErr != nil || !finiteGateNumber(price) || price < 0 ||
+				avgPriceErr != nil || !finiteGateNumber(avgPrice) || avgPrice < 0 ||
+				!strings.EqualFold(accountOrder.Status, "open") {
+				return nil, fmt.Errorf("Gate %s spot-family snapshot contains invalid open order %q", account, accountOrder.ID)
+			}
+			var side Side
+			switch strings.ToLower(strings.TrimSpace(accountOrder.Side)) {
+			case "buy":
+				side = SideBuy
+			case "sell":
+				side = SideSell
+			default:
+				return nil, fmt.Errorf("Gate %s spot-family order %s has unknown side %q", account, accountOrder.ID, accountOrder.Side)
+			}
+			orders = append(orders, &Order{
+				OrderID: orderID, ClientOrderID: accountOrder.Text,
+				Symbol: accountOrder.CurrencyPair, Side: side, Type: OrderType(accountOrder.Type),
+				Price: price, Quantity: quantity, ExecutedQty: executed,
+				AvgPrice: avgPrice, Status: OrderStatus(accountOrder.Status), UpdateTime: accountOrder.UpdateTimeMs,
+			})
+		}
+	}
+	return orders, nil
+}
+
+func finiteGateNumber(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func parseGateOptionalOrderNumber(value string) (float64, error) {
+	if strings.TrimSpace(value) == "" {
+		return 0, nil
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || !finiteGateNumber(parsed) {
+		return 0, fmt.Errorf("invalid Gate open-order numeric field %q", value)
+	}
+	return parsed, nil
+}
+
 // GetAccount 現貨账戶餘額
 func (g *GateSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	resp, err := g.client.DoRequest(ctx, "GET", "/spot/accounts", "", nil)

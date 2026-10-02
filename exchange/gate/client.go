@@ -421,6 +421,117 @@ func (c *Client) GetOpenOrders(ctx context.Context, settle, contract string) ([]
 	return orders, nil
 }
 
+// GetAllFuturesOpenOrders reads every open contract order for one settlement
+// account using Gate's last_id pagination. An omitted contract is required for
+// an all-contracts snapshot.
+func (c *Client) GetAllFuturesOpenOrders(ctx context.Context, settle string) ([]*FuturesOrder, error) {
+	const pageLimit = 100
+	settle = strings.ToLower(strings.TrimSpace(settle))
+	if settle == "" {
+		return nil, fmt.Errorf("Gate account-wide futures orders require settlement currency")
+	}
+	var all []*FuturesOrder
+	seenLastIDs := make(map[string]struct{})
+	seenOrderIDs := make(map[int64]struct{})
+	lastID := ""
+	for {
+		query := url.Values{}
+		query.Set("status", "open")
+		query.Set("limit", strconv.Itoa(pageLimit))
+		if lastID != "" {
+			query.Set("last_id", lastID)
+		}
+		resp, err := c.DoRequest(ctx, http.MethodGet, fmt.Sprintf("/futures/%s/orders", settle), query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		var page []*FuturesOrder
+		if err := json.Unmarshal(resp, &page); err != nil {
+			return nil, fmt.Errorf("decode Gate account-wide futures open orders: %w", err)
+		}
+		if page == nil {
+			return nil, fmt.Errorf("Gate futures open-order page returned missing or null list")
+		}
+		for _, order := range page {
+			if order == nil || order.ID <= 0 || strings.TrimSpace(order.Contract) == "" {
+				return nil, fmt.Errorf("Gate futures open-order page contains invalid order identity")
+			}
+			if _, exists := seenOrderIDs[order.ID]; exists {
+				return nil, fmt.Errorf("Gate futures open-order pagination repeated order ID %d", order.ID)
+			}
+			seenOrderIDs[order.ID] = struct{}{}
+		}
+		all = append(all, page...)
+		if len(page) < pageLimit {
+			return all, nil
+		}
+		lastID = strconv.FormatInt(page[len(page)-1].ID, 10)
+		if _, exists := seenLastIDs[lastID]; exists {
+			return nil, fmt.Errorf("Gate futures open-order pagination repeated last_id %s", lastID)
+		}
+		seenLastIDs[lastID] = struct{}{}
+	}
+}
+
+// GetAllSpotOpenOrders reads all trading pairs and pages of one Gate spot
+// account type. Gate's page number applies independently to each pair.
+func (c *Client) GetAllSpotOpenOrders(ctx context.Context, account string) ([]SpotOpenOrder, error) {
+	const pageLimit = 100
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return nil, fmt.Errorf("Gate account-wide spot orders require account type")
+	}
+	const maxPages = 1000
+	var all []SpotOpenOrder
+	seenIDs := make(map[string]struct{})
+	for pageNumber := 1; pageNumber <= maxPages; pageNumber++ {
+		query := url.Values{}
+		query.Set("account", account)
+		query.Set("page", strconv.Itoa(pageNumber))
+		query.Set("limit", strconv.Itoa(pageLimit))
+		resp, err := c.DoRequest(ctx, http.MethodGet, "/spot/open_orders", query.Encode(), nil)
+		if err != nil {
+			return nil, err
+		}
+		var groups []SpotOpenOrderGroup
+		if err := json.Unmarshal(resp, &groups); err != nil {
+			return nil, fmt.Errorf("decode Gate %s account-wide spot open orders: %w", account, err)
+		}
+		if groups == nil {
+			return nil, fmt.Errorf("Gate %s spot open-order page returned missing or null list", account)
+		}
+		var pageOrders []SpotOpenOrder
+		for _, group := range groups {
+			if group.Orders == nil {
+				return nil, fmt.Errorf("Gate %s spot open-order group returned missing or null orders", account)
+			}
+			if len(group.Orders) == 0 {
+				continue
+			}
+			if strings.TrimSpace(group.CurrencyPair) == "" {
+				return nil, fmt.Errorf("Gate %s spot open-order group has no currency pair", account)
+			}
+			for _, order := range group.Orders {
+				if strings.TrimSpace(order.ID) == "" || strings.TrimSpace(order.CurrencyPair) == "" ||
+					!strings.EqualFold(order.CurrencyPair, group.CurrencyPair) {
+					return nil, fmt.Errorf("Gate %s spot open-order page contains invalid order identity", account)
+				}
+				key := account + ":" + order.CurrencyPair + ":" + order.ID
+				if _, exists := seenIDs[key]; exists {
+					return nil, fmt.Errorf("Gate %s spot open-order pagination repeated order %s", account, key)
+				}
+				seenIDs[key] = struct{}{}
+				pageOrders = append(pageOrders, order)
+			}
+		}
+		if len(pageOrders) == 0 {
+			return all, nil
+		}
+		all = append(all, pageOrders...)
+	}
+	return nil, fmt.Errorf("Gate %s spot open-order pagination exceeded %d pages", account, maxPages)
+}
+
 // SetLeverage 設置全倉杠杆倍數
 // PUT /futures/{settle}/positions/{contract}/leverage
 func (c *Client) SetLeverage(ctx context.Context, settle, contract string, leverage int) error {

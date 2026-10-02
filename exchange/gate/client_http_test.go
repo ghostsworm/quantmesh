@@ -3,11 +3,109 @@ package gate
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestGetAllFuturesOpenOrdersUsesContractWideLastIDPagination(t *testing.T) {
+	requests := 0
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		query := r.URL.Query()
+		if r.URL.Path != "/futures/usdt/orders" || query.Get("status") != "open" || query.Has("contract") || query.Get("limit") != "100" {
+			t.Errorf("unexpected all-contracts futures query: %s", r.URL.RequestURI())
+		}
+		var payload []byte
+		if query.Get("last_id") == "" {
+			rows := make([]FuturesOrder, 100)
+			for i := range rows {
+				rows[i] = FuturesOrder{ID: int64(i + 1), Contract: "ETH_USDT", Status: "open", Size: 1, Left: 1, LeftKnown: true}
+			}
+			payload, _ = json.Marshal(rows)
+		} else if query.Get("last_id") != "100" {
+			t.Errorf("last_id=%q, want 100", query.Get("last_id"))
+			payload = []byte("[]")
+		} else {
+			payload = []byte("[]")
+		}
+		_, _ = w.Write(payload)
+	})
+	defer closeServer()
+	adapter := &GateAdapter{client: client, settle: "usdt", symbol: "BTCUSDT"}
+	orders, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(orders) != 100 || orders[99].OrderID != 100 || orders[0].Symbol != "ETH_USDT" {
+		t.Fatalf("requests=%d order_count=%d", requests, len(orders))
+	}
+}
+
+func TestGetAllSpotOpenOrdersQueriesEveryAccountAndPairPage(t *testing.T) {
+	accounts := map[string]bool{}
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		account, page := query.Get("account"), query.Get("page")
+		accounts[account] = true
+		if r.URL.Path != "/spot/open_orders" || query.Has("currency_pair") || query.Get("limit") != "100" {
+			t.Errorf("unexpected all-pairs spot query: %s", r.URL.RequestURI())
+		}
+		var payload []byte
+		if page == "1" {
+			payload = []byte(fmt.Sprintf(`[{"currency_pair":"ETH_USDT","orders":[{"id":"100","currency_pair":"ETH_USDT","side":"buy","type":"limit","amount":"1","filled_amount":"0","price":"10","status":"open","text":%q}]}]`, account))
+		} else if page == "2" {
+			payload = []byte(fmt.Sprintf(`[{"currency_pair":"BTC_USDT","orders":[{"id":"200","currency_pair":"BTC_USDT","side":"sell","type":"limit","amount":"1","filled_amount":"0","price":"20","status":"open","text":%q}]}]`, account))
+		} else if page == "3" {
+			payload = []byte("[]")
+		} else {
+			t.Errorf("unexpected page=%q", page)
+			payload = []byte("[]")
+		}
+		_, _ = w.Write(payload)
+	})
+	defer closeServer()
+	adapter := &GateSpotAdapter{client: client}
+	all, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) != 4 || len(all) != 8 {
+		t.Fatalf("accounts=%v order_count=%d", accounts, len(all))
+	}
+	for _, account := range []string{"spot", "margin", "cross_margin", "unified"} {
+		if !accounts[account] {
+			t.Errorf("account %q was not queried", account)
+		}
+	}
+}
+
+func TestGetAllFuturesOpenOrdersRejectsRepeatedLastID(t *testing.T) {
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		rows := make([]FuturesOrder, 100)
+		for i := range rows {
+			rows[i] = FuturesOrder{ID: int64(i + 1), Contract: "ETH_USDT", Status: "open", Size: 1, Left: 1, LeftKnown: true}
+		}
+		payload, _ := json.Marshal(rows)
+		_, _ = w.Write(payload)
+	})
+	defer closeServer()
+	if orders, err := client.GetAllFuturesOpenOrders(context.Background(), "usdt"); err == nil || orders != nil {
+		t.Fatalf("repeated last_id returned orders=%v err=%v", orders, err)
+	}
+}
+
+func TestGetAllSpotOpenOrdersRejectsNullPage(t *testing.T) {
+	client, closeServer := newMockGateClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("null"))
+	})
+	defer closeServer()
+	if orders, err := client.GetAllSpotOpenOrders(context.Background(), "spot"); err == nil || orders != nil {
+		t.Fatalf("null page returned orders=%v err=%v", orders, err)
+	}
+}
 
 func newMockGateClient(t *testing.T, handler http.HandlerFunc) (*Client, func()) {
 	t.Helper()

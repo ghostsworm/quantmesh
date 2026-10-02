@@ -229,6 +229,25 @@ type FuturesOrder struct {
 	RealisedPoint string  `json:"realised_point"` // 已實現点卡收益
 }
 
+type SpotOpenOrderGroup struct {
+	CurrencyPair string          `json:"currency_pair"`
+	Orders       []SpotOpenOrder `json:"orders"`
+}
+
+type SpotOpenOrder struct {
+	ID           string `json:"id"`
+	Text         string `json:"text"`
+	CurrencyPair string `json:"currency_pair"`
+	Side         string `json:"side"`
+	Type         string `json:"type"`
+	Amount       string `json:"amount"`
+	FilledAmount string `json:"filled_amount"`
+	Price        string `json:"price"`
+	AvgDealPrice string `json:"avg_deal_price"`
+	Status       string `json:"status"`
+	UpdateTimeMs int64  `json:"update_time_ms"`
+}
+
 func (o *FuturesOrder) UnmarshalJSON(data []byte) error {
 	type futuresOrderAlias FuturesOrder
 	var wire struct {

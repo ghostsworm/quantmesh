@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc827] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 Gate 合約及現貨帳戶級活動委託快照；合約遍歷指定結算錢包全部合約，現貨遍歷 spot/margin/cross_margin/unified 全交易對分頁，快照不完整或無效時拒絕開倉。
+
 ## [3.111.0-rc826] - 2026-10-02（未發布）
 
 ### Fixed
