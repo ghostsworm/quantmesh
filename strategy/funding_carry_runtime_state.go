@@ -146,6 +146,9 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 	if err != nil {
 		return err
 	}
+	if err := validateFundingCarryDebtAsset(state, s.spot.GetBaseAsset()); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	hasMarginEvidence := len(state.MarginDebtEvents) > 0 || state.MarginDebt > 0 || state.MarginBorrowTransferID > 0 || !state.MarginBorrowedAt.IsZero()
 	if s.marginAccountScope != "" && state.MarginAccountScope != s.marginAccountScope && (state.MarginAccountScope != "" || hasMarginEvidence) {
@@ -208,6 +211,9 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 			return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state repeats a margin debt transaction identity")
 		}
 		seenDebtEvents[identity] = struct{}{}
+	}
+	if err := validateFundingCarryDebtPrincipalBalance(state); err != nil {
+		return fundingCarryRuntimeState{}, err
 	}
 	return state, nil
 }

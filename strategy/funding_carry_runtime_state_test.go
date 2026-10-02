@@ -12,9 +12,9 @@ import (
 func TestDecodeFundingCarryRuntimeStateRequiresExactResolvedOwnership(t *testing.T) {
 	base := fundingCarryRuntimeState{
 		Strategy: "funding_carry", FuturesExchange: "binance", SpotExchange: "binance",
-		Symbol: "BTCUSDT", OwnershipReady: true, Direction: DirectionForward,
+		Symbol: "BTCUSDT", OwnershipReady: true, Direction: DirectionReverse,
 		OwnedSpot: 0.25, OwnedFutures: 0.25,
-		MarginDebt: 0.25, MarginBorrowTransferID: 12345, MarginBorrowedAt: time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC),
+		MarginDebt: 0.15, MarginBorrowTransferID: 12345, MarginBorrowedAt: time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC),
 		MarginDebtEvents: []fundingCarryMarginDebtEvent{
 			{Action: "borrow", TransferID: 12345, Asset: "BTC", Amount: 0.25, Principal: 0.25, OccurredAt: time.Date(2026, 10, 2, 3, 4, 5, 0, time.UTC)},
 			{Action: "repay", TransferID: 12346, Asset: "BTC", Amount: 0.1, Principal: 0.1, OccurredAt: time.Date(2026, 10, 2, 4, 4, 5, 0, time.UTC)},

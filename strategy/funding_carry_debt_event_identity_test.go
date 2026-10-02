@@ -58,6 +58,8 @@ func TestFundingCarryDebtEventReplayIsIdempotentAcrossRestart(t *testing.T) {
 	store := &memoryRuntimeStateStore{}
 	s.SetRuntimeStateStore(store)
 	s.strategySpotKnown = true
+	venue.mockFCExchange.baseAsset = "BTC"
+	s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 80, Asset: "BTC", Amount: 0.49, Principal: 0.49, OccurredAt: time.UnixMilli(venue.row.Timestamp).Add(-time.Second)}}
 	if err := s.recordMarginDebtEvent(context.Background(), "repay", 81, "BTC", 0.5); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,7 @@ func TestFundingCarryDebtEventReplayIsIdempotentAcrossRestart(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if len(s.marginDebtEvents) != 1 || store.payload != original {
+	if len(s.marginDebtEvents) != 2 || store.payload != original {
 		t.Fatal("confirmed repayment was recorded twice")
 	}
 	restored := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, &venue.mockFCExchange, &venue.mockFCExchange, venue, nil)
@@ -82,14 +84,14 @@ func TestFundingCarryDebtEventReplayIsIdempotentAcrossRestart(t *testing.T) {
 	if err := restored.recordMarginDebtEvent(context.Background(), "repay", 81, "BTC", 0.5); err != nil {
 		t.Fatal(err)
 	}
-	if len(restored.marginDebtEvents) != 1 || store.payload != original {
+	if len(restored.marginDebtEvents) != 2 || store.payload != original {
 		t.Fatal("restart lost debt event identity")
 	}
 	venue.row.Principal, venue.row.Interest = 0.48, 0.02
 	if err := restored.recordMarginDebtEvent(context.Background(), "repay", 81, "BTC", 0.5); err == nil {
 		t.Fatal("same transfer with conflicting principal/interest was accepted")
 	}
-	if len(restored.marginDebtEvents) != 1 || store.payload != original {
+	if len(restored.marginDebtEvents) != 2 || store.payload != original {
 		t.Fatal("conflicting evidence rewrote ledger")
 	}
 }

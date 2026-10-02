@@ -591,6 +591,9 @@ func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("durable funding_carry ownership state is unresolved: %w", err)
 		}
+		if err := validateFundingCarryDebtAsset(state, s.spot.GetBaseAsset()); err != nil {
+			return err
+		}
 		if state.Direction != DirectionNone || state.OwnedSpot > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
 			state.OwnedFutures > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
 			state.MarginDebt > s.roundingTolerance(s.marginQuantityDecimals()) {

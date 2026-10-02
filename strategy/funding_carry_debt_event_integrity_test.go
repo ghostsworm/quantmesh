@@ -69,12 +69,21 @@ func TestFundingCarryRestorePreservesValidScopedDebtEvents(t *testing.T) {
 			if name == "legacy_flat_without_debt" {
 				state.MarginAccountScope, state.MarginDebtEvents = "", nil
 			}
+			if name == "borrow" {
+				state.Direction, state.MarginDebt = DirectionReverse, e.Principal
+				state.MarginBorrowTransferID, state.MarginBorrowedAt = e.TransferID, e.OccurredAt
+			} else if e.Principal > 0 && name != "legacy_flat_without_debt" {
+				borrow := e
+				borrow.Action, borrow.TransferID, borrow.Amount, borrow.InterestPaid = "borrow", 80, e.Principal, 0
+				borrow.OccurredAt = e.OccurredAt.Add(-time.Second)
+				state.MarginDebtEvents = []fundingCarryMarginDebtEvent{borrow, e}
+			}
 			payload, err := json.Marshal(state)
 			if err != nil {
 				t.Fatal(err)
 			}
 			store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}
-			venue := &mockFCExchange{}
+			venue := &mockFCExchange{baseAsset: "BTC"}
 			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
 			s.SetRuntimeStateStore(store)
 			if err := s.SetMarginAccountScope("scope-a"); err != nil {
@@ -88,7 +97,7 @@ func TestFundingCarryRestorePreservesValidScopedDebtEvents(t *testing.T) {
 				t.Fatal("valid evidence was blocked, changed or rewritten")
 			}
 			if len(state.MarginDebtEvents) != 0 {
-				got := s.marginDebtEvents[0]
+				got := s.marginDebtEvents[len(s.marginDebtEvents)-1]
 				// JSON drops monotonic clock metadata, not the event instant.
 				instant := got.OccurredAt
 				got.OccurredAt = e.OccurredAt
