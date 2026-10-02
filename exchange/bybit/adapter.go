@@ -567,6 +567,26 @@ func (b *BybitAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 	return result, nil
 }
 
+// GetAccountOpenOrders returns all active linear orders for both settlement
+// assets supported by the account API. Bybit requires settleCoin for an
+// unscoped linear query, and each query is fully paginated by the client.
+func (b *BybitAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	var result []*Order
+	for _, settleCoin := range []string{"USDT", "USDC"} {
+		orders, err := b.client.GetAllOpenOrdersByParams(ctx, map[string]interface{}{
+			"category":   "linear",
+			"settleCoin": settleCoin,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("query Bybit account-wide linear open orders settled in %s: %w", settleCoin, err)
+		}
+		for i := range orders {
+			result = append(result, b.convertOrder(&orders[i]))
+		}
+	}
+	return result, nil
+}
+
 // convertOrder 轉换订單格式
 func (b *BybitAdapter) convertOrder(order *BybitOrder) *Order {
 	orderID, _ := strconv.ParseInt(order.OrderId, 10, 64)

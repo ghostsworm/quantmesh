@@ -335,6 +335,51 @@ func (c *BybitClient) GetOpenOrders(ctx context.Context, category, symbol string
 	return result.List, nil
 }
 
+// GetAllOpenOrdersByParams fetches every page for a supported realtime-order
+// query. Callers must supply the category and any filters required by Bybit;
+// the returned slice is complete only when pagination terminates normally.
+func (c *BybitClient) GetAllOpenOrdersByParams(ctx context.Context, params map[string]interface{}) ([]BybitOrder, error) {
+	const pageLimit = 50
+	query := make(map[string]interface{}, len(params)+2)
+	for key, value := range params {
+		query[key] = value
+	}
+	if strings.TrimSpace(fmt.Sprint(query["category"])) == "" || query["category"] == nil {
+		return nil, fmt.Errorf("Bybit open-order query requires category")
+	}
+	query["openOnly"] = 0
+	query["limit"] = pageLimit
+
+	var all []BybitOrder
+	seenCursors := make(map[string]struct{})
+	for {
+		data, err := c.request(ctx, "GET", "/v5/order/realtime", query)
+		if err != nil {
+			return nil, err
+		}
+		var result struct {
+			List           []BybitOrder `json:"list"`
+			NextPageCursor string       `json:"nextPageCursor"`
+		}
+		if err := json.Unmarshal(data, &result); err != nil {
+			return nil, fmt.Errorf("解析 Bybit 全部活動委託頁面失敗: %w", err)
+		}
+		if result.List == nil {
+			return nil, fmt.Errorf("Bybit open-order page returned a missing or null order list")
+		}
+		all = append(all, result.List...)
+		cursor := strings.TrimSpace(result.NextPageCursor)
+		if cursor == "" {
+			return all, nil
+		}
+		if _, exists := seenCursors[cursor]; exists {
+			return nil, fmt.Errorf("Bybit open-order pagination returned a repeated cursor")
+		}
+		seenCursors[cursor] = struct{}{}
+		query["cursor"] = cursor
+	}
+}
+
 // Balance 账戶餘額
 type Balance struct {
 	TotalEquity           string        `json:"totalEquity"`

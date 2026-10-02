@@ -371,6 +371,22 @@ func (b *BybitSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]
 	return result, nil
 }
 
+// GetAccountOpenOrders returns all active spot orders across symbols. Spot
+// permits an unfiltered category query, and the client follows every page.
+func (b *BybitSpotAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := b.client.GetAllOpenOrdersByParams(ctx, map[string]interface{}{"category": bybitCategorySpot})
+	if err != nil {
+		return nil, fmt.Errorf("Bybit 現貨查詢帳戶級活動委託失敗: %w", err)
+	}
+	result := make([]*Order, 0, len(orders))
+	for i := range orders {
+		order := b.convertOrder(&orders[i])
+		order.Symbol = orders[i].Symbol
+		result = append(result, order)
+	}
+	return result, nil
+}
+
 // convertOrder REST 訂單 → 本地訂單（Side/Type/Status 保留 Bybit 原生值，由 wrapper 映射，未知值報錯而非透傳）
 func (b *BybitSpotAdapter) convertOrder(order *BybitOrder) *Order {
 	orderID, _ := strconv.ParseInt(order.OrderId, 10, 64)

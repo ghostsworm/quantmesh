@@ -150,6 +150,31 @@ func newTestBybitAdapter(t *testing.T, baseURL string) *BybitAdapter {
 	return b
 }
 
+func TestBybitAccountOpenOrdersQueriesEachLinearSettlementCoin(t *testing.T) {
+	queried := map[string]bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if r.URL.Path != "/v5/order/realtime" || query.Get("category") != "linear" || query.Has("symbol") {
+			t.Errorf("unexpected unscoped linear open-order query: %s", r.URL.RequestURI())
+		}
+		settleCoin := query.Get("settleCoin")
+		queried[settleCoin] = true
+		if settleCoin != "USDT" && settleCoin != "USDC" {
+			t.Errorf("unexpected settleCoin=%q", settleCoin)
+		}
+		_, _ = w.Write([]byte(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"101","orderLinkId":"external","symbol":"ETH` + settleCoin + `","side":"Buy","orderType":"Limit","price":"10","qty":"1","cumExecQty":"0","orderStatus":"New"}],"nextPageCursor":""}}`))
+	}))
+	defer server.Close()
+	adapter := newTestBybitAdapter(t, server.URL)
+	orders, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !queried["USDT"] || !queried["USDC"] || len(orders) != 2 {
+		t.Fatalf("queried=%v orders=%+v", queried, orders)
+	}
+}
+
 type bybitFakeServer struct {
 	mu          sync.Mutex
 	positionIdx string

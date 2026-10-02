@@ -30,6 +30,25 @@ func newTestBybitSpotAdapter(t *testing.T, baseURL string) *BybitSpotAdapter {
 	return b
 }
 
+func TestBybitSpotAccountOpenOrdersQueriesAllSymbols(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if r.URL.Path != "/v5/order/realtime" || query.Get("category") != "spot" || query.Has("symbol") {
+			t.Errorf("unexpected account-wide spot order query: %s", r.URL.RequestURI())
+		}
+		_, _ = w.Write([]byte(`{"retCode":0,"retMsg":"OK","result":{"list":[{"orderId":"102","orderLinkId":"external-spot","symbol":"ETHUSDT","side":"Sell","orderType":"Limit","price":"10","qty":"1","cumExecQty":"0","orderStatus":"New"}],"nextPageCursor":""}}`))
+	}))
+	defer server.Close()
+	adapter := newTestBybitSpotAdapter(t, server.URL)
+	orders, err := adapter.GetAccountOpenOrders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(orders) != 1 || orders[0].Symbol != "ETHUSDT" || orders[0].OrderID != 102 {
+		t.Fatalf("account-wide spot orders=%+v", orders)
+	}
+}
+
 type bybitSpotFakeServer struct {
 	mu        sync.Mutex
 	orderBody map[string]interface{}

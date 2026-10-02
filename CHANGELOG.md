@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc825] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 的帳戶級掛單快照新增 Bybit 線性合約（USDT/USDC 結算）與現貨支援，並完整讀取 cursor 分頁；缺失或 null 訂單列表視為未知狀態並拒絕開倉。
+
 ## [3.111.0-rc824] - 2026-10-02（未發布）
 
 ### Fixed

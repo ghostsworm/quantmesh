@@ -173,6 +173,22 @@ func (w *bybitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 	return result, nil
 }
 
+func (w *bybitWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		converted, err := fromBybitOrder(order)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, converted)
+	}
+	return result, nil
+}
+
 var _ OrderByClientIDQuerier = (*bybitWrapper)(nil)
 
 // GetAccount 獲取帳戶信息

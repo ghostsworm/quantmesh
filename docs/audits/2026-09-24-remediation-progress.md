@@ -2739,3 +2739,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - R12 複核確認 Funding Carry 與 Funding Perp Spread 的委託檢查只查目前交易對；同帳戶其他交易對的外部掛單會鎖定資金且未進入策略核驗。
 - 新增明確的 `AccountOpenOrdersReader` 能力。Binance USDⓈ-M futures、spot、cross-margin 使用不帶 symbol 的當前活動委託端點；Funding Carry 空倉啟動/新開倉及 Funding Perp Spread 空倉准入/新開倉要求每個相關賬戶市場都提供完整空快照。其他交易所未實現該能力時 fail-closed。已有持倉的檢查仍保持本策略交易對範圍，避免異幣對委託阻止受管退出。
 - 新增三種 Binance 市場 HTTP fixture，斷言請求不含 symbol 且可返回其他交易對訂單；策略測試覆蓋外部異幣對掛單拒絕、缺少帳戶級能力拒絕，以及外部異幣對掛單不阻斷已有持倉腿管理。最終差異後 `go test ./... -count=1 -p 1`、`go vet ./...`、定向 `-race`、`yarn verify`（201 項測試及生產構建）與 `git diff --check` 通過。未驗證其他交易所全帳戶端點、多實例/外部交易時序或真實帳戶；未下單、部署或驗收盈利能力。
+
+## 後續續修：Bybit 特殊套利帳戶級掛單快照（3.111.0-rc825，2026-10-02）
+
+- rc824 只在 Binance 支援特殊套利帳戶級活動委託快照，其他交易所會安全拒絕空倉准入/新開倉，覆蓋不足。Bybit V5 線性合約要求按 `settleCoin` 篩選，並以 `nextPageCursor` 分頁；簡單省略 symbol 並不能得到完整合約結果。
+- 新增 Bybit 線性合約 USDT/USDC 結算及現貨帳戶級讀取；每頁明確要求 active orders 並遍歷 cursor，缺失/null 訂單列表或重複 cursor 均回報錯誤，不回報不完整快照。Bybit 官方 API 文件說明線性合約需提供 symbol/baseCoin/settleCoin 之一及 cursor 分頁：[Get Open & Closed Orders](https://bybit-exchange.github.io/docs/v5/order/open-order)。
+- HTTP fixture 驗證無 symbol 範圍、兩種結算幣、跨頁合併及缺失列表拒絕；專屬 adapter/strategy tests 與 `go vet` 通過。尚未覆蓋其他交易所、Bybit 真實帳戶/端點行為、外部交易時序或多實例；未下單、部署或驗收盈利能力。
