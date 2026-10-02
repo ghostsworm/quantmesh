@@ -89,6 +89,10 @@ func newAccountWalletCapitalReservationToken() (string, error) {
 }
 
 func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim) error {
+	return updateAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, claims, false)
+}
+
+func updateAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim, refresh bool) error {
 	if ctx == nil || cfg == nil || strings.TrimSpace(botID) == "" || len(claims) == 0 {
 		return fmt.Errorf("account wallet reservation requires context, config, Bot identity, and claims")
 	}
@@ -119,17 +123,29 @@ func reserveAccountWalletCapital(ctx context.Context, cfg *config.Config, storag
 	}
 	reserveCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	if err := store.ReserveAccountWalletCapital(reserveCtx, botID, claims); err != nil {
+	update := store.ReserveAccountWalletCapital
+	if refresh {
+		refresher, supported := store.(storage.AccountWalletCapitalReservationRefresher)
+		if !supported {
+			return fmt.Errorf("persistent storage does not support generation-verified wallet refresh")
+		}
+		update = refresher.RefreshAccountWalletCapital
+	}
+	if err := update(reserveCtx, botID, claims); err != nil {
 		return fmt.Errorf("atomically reserve Bot %s account wallet capital: %w", botID, err)
 	}
 	return nil
 }
 
 func reserveRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim, gate *execution.OpeningGate) error {
+	return updateRuntimeAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, claims, gate, false)
+}
+
+func updateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService, distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim, gate *execution.OpeningGate, refresh bool) error {
 	if gate == nil || !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
 		return fmt.Errorf("Bot opening gate must remain blocked until its wallet capital reservation commits")
 	}
-	if err := reserveAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, claims); err != nil {
+	if err := updateAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, claims, refresh); err != nil {
 		return err
 	}
 	gate.Unblock(accountWalletCapitalReservationPendingBlock)
@@ -158,9 +174,13 @@ func revalidateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Conf
 	if ctx == nil || gate == nil || len(claims) == 0 || len(readers) != len(claims) {
 		return fmt.Errorf("runtime wallet capital revalidation requires complete claims, readers, and opening gate")
 	}
+	if err := verifyRuntimeWalletOwnership(gate); err != nil {
+		return err
+	}
 	gate.Block(accountWalletBalanceUnverifiedBlock)
+	recoveryCancellationAttempted := false
 	defer func() {
-		if resultErr == nil || cancelOpenings == nil {
+		if resultErr == nil || cancelOpenings == nil || recoveryCancellationAttempted || gate.HasBlock(runtimeWalletOwnershipUnverifiedBlock) {
 			return
 		}
 		cancelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -169,32 +189,53 @@ func revalidateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Conf
 			resultErr = errors.Join(resultErr, fmt.Errorf("cancel Bot-owned opening orders after wallet revalidation failure: %w", cancelErr))
 		}
 	}()
-	refreshed, err := observeRuntimeWalletCapitalClaims(ctx, claims, readers)
+	refreshed, err := observeRuntimeWalletCapitalClaims(ctx, claims, readers, gate)
 	if err != nil {
 		return err
 	}
+	if err := verifyRuntimeWalletOwnership(gate); err != nil {
+		return err
+	}
 	gate.Block(accountWalletCapitalReservationPendingBlock)
-	if err := reserveRuntimeAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, refreshed, gate); err != nil {
+	if err := updateRuntimeAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, refreshed, gate, true); err != nil {
 		return fmt.Errorf("revalidate aggregate account wallet reservations: %w", err)
+	}
+	if err := verifyRuntimeWalletOwnership(gate); err != nil {
+		return err
+	}
+	if gate.HasBlock(execution.UnverifiedCancellationBlock) {
+		recoveryCancellationAttempted = true
+		if err := verifyRecoveredWalletOpeningCancellation(ctx, gate, cancelOpenings); err != nil {
+			return err
+		}
+	}
+	if err := verifyRuntimeWalletOwnership(gate); err != nil {
+		return err
 	}
 	gate.Unblock(accountWalletBalanceUnverifiedBlock)
 	return nil
 }
 
 func observeRuntimeWalletCapitalClaims(ctx context.Context, claims []storage.AccountWalletCapitalClaim,
-	readers []accountWalletBalanceReader) ([]storage.AccountWalletCapitalClaim, error) {
+	readers []accountWalletBalanceReader, gate *execution.OpeningGate) ([]storage.AccountWalletCapitalClaim, error) {
 	refreshed := append([]storage.AccountWalletCapitalClaim(nil), claims...)
 	readerByWallet, err := accountWalletCapitalReadersByWallet(readers)
 	if err != nil {
 		return nil, err
 	}
 	for index := range refreshed {
+		if err := verifyRuntimeWalletOwnership(gate); err != nil {
+			return nil, err
+		}
 		readBalance := readerByWallet[refreshed[index].WalletKey]
 		if readBalance == nil {
 			return nil, fmt.Errorf("runtime wallet capital balance reader is missing for a reserved wallet")
 		}
 		available, err := readRuntimeWalletBalance(ctx, refreshed[index].WalletKey, readBalance)
 		if err != nil {
+			return nil, err
+		}
+		if err := verifyRuntimeWalletOwnership(gate); err != nil {
 			return nil, err
 		}
 		refreshed[index].Available = available.Available
@@ -475,27 +516,64 @@ func verifyStandardSpotMarginRuntimeFlat(ctx context.Context, ex exchange.IExcha
 }
 
 func verifyStandardSpotBotInventoryFlat(grid *position.SuperPositionManager, strategies *strategy.StrategyManager, symbol string) error {
-	if grid == nil || !grid.GridRuntimeStateIsVerifiedEmpty() {
+	return verifyStandardSpotBotInventoryFlatContext(context.Background(), grid, strategies, symbol)
+}
+
+func verifyStandardSpotBotInventoryFlatContext(ctx context.Context, grid *position.SuperPositionManager, strategies *strategy.StrategyManager, symbol string) error {
+	if ctx == nil {
+		return fmt.Errorf("inventory verification requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if grid == nil {
+		return fmt.Errorf("grid inventory manager is unavailable")
+	}
+	gridEmpty, err := grid.GridRuntimeStateIsVerifiedEmptyContext(ctx)
+	if err != nil {
+		return err
+	}
+	if !gridEmpty {
 		return fmt.Errorf("grid inventory state is missing, unverified, or non-empty")
 	}
 	if strategies == nil {
 		return fmt.Errorf("spot strategy inventory manager is unavailable")
 	}
-	for name, currentStrategy := range strategies.GetAllStrategies() {
-		if currentStrategy == nil {
+	registered, err := strategies.GetAllStrategiesContext(ctx)
+	if err != nil {
+		return err
+	}
+	for name, currentStrategy := range registered {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if capitalReleaseStrategyMissing(currentStrategy) {
 			return fmt.Errorf("spot strategy %s is nil", name)
 		}
-		for index, current := range currentStrategy.GetPositions() {
+		if currentGrid, ok := currentStrategy.(*strategy.GridStrategy); ok {
+			if err := currentGrid.VerifyCapitalReleaseManagerBinding(grid); err != nil {
+				return err
+			}
+		}
+		reader, ok := currentStrategy.(strategy.CapitalReleaseInventoryReader)
+		if !ok {
+			return fmt.Errorf("spot strategy %s lacks cancellable inventory proof", name)
+		}
+		positions, orders, err := reader.CapitalReleaseInventorySnapshot(ctx)
+		if err != nil {
+			return err
+		}
+		for index, current := range positions {
 			if current == nil || (current.Symbol != "" && !strings.EqualFold(current.Symbol, symbol)) ||
 				math.IsNaN(current.Size) || math.IsInf(current.Size, 0) || current.Size != 0 {
 				return fmt.Errorf("spot strategy %s position %d is not verifiably flat for %s", name, index, symbol)
 			}
 		}
-		for index, current := range currentStrategy.GetOrders() {
+		for index, current := range orders {
 			if current == nil || (current.Symbol != "" && !strings.EqualFold(current.Symbol, symbol)) || !terminalOrderUpdate(current.Status) {
 				return fmt.Errorf("spot strategy %s order %d is not in a verified terminal state", name, index)
 			}
 		}
 	}
-	return nil
+	return ctx.Err()
 }

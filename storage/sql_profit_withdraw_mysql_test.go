@@ -24,6 +24,26 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 		t.Fatalf("initialize MySQL storage and migrations: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
+	correction := &TradeFeeCorrection{
+		CorrectionID: fmt.Sprintf("mysql-fee-correction-%d", time.Now().UnixNano()), BotID: "mysql-fee-bot",
+		Exchange: "binance", MarketType: "futures", Symbol: "BTCUSDT", AccountScope: "mysql-fee-scope",
+		OrderID: 912, ClientOrderID: "mysql-fee-client", Leg: "open", Side: "BUY",
+		Fee: 0.25, FeeAsset: "USDT", ExecutedQty: 0.5, Reason: "isolated late fee evidence",
+	}
+	t.Cleanup(func() {
+		_, _ = st.db.Exec(`DELETE FROM trade_fee_corrections WHERE correction_id = ?`, correction.CorrectionID)
+	})
+	if err := st.SaveTradeFeeCorrection(correction); err != nil {
+		t.Fatal("save explicit empty MySQL evidence note:", err)
+	}
+	saved, err := st.getTradeFeeCorrection(correction.CorrectionID)
+	if err != nil || saved.ExecutedQty != correction.ExecutedQty || saved.Status != "pending" {
+		t.Fatalf("MySQL fee hold evidence round trip failed: %+v %v", saved, err)
+	}
+	var evidenceNote string
+	if err := st.db.QueryRow(`SELECT evidence_note FROM trade_fee_corrections WHERE correction_id = ?`, correction.CorrectionID).Scan(&evidenceNote); err != nil || evidenceNote != "" {
+		t.Fatalf("MySQL explicit empty evidence note was not persisted: %v", err)
+	}
 	if _, err := st.db.Exec(`ALTER TABLE profit_withdraw_rules DROP COLUMN claim_started_at`); err != nil {
 		t.Fatalf("prepare legacy MySQL withdrawal rules schema: %v", err)
 	}
@@ -32,6 +52,7 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 	}
 
 	accountID := fmt.Sprintf("codex-profit-readiness-%d", time.Now().UnixNano())
+	accountScope := accountID + "-scope"
 	start := make(chan struct{})
 	results := make(chan error, 2)
 	ids := []string{accountID + "-a", accountID + "-b"}
@@ -42,7 +63,7 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 			defer workers.Done()
 			<-start
 			results <- st.UpsertProfitWithdrawRule(accountID, &ProfitWithdrawRule{
-				ID: id, AccountScope: "mysql-scope", ExchangeID: "Binance", StrategyID: "btcusdt",
+				ID: id, AccountScope: accountScope, ExchangeID: "Binance", StrategyID: "btcusdt",
 				Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
 			})
 		}(id)
@@ -92,7 +113,7 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 			defer manualWorkers.Done()
 			<-startManual
 			manualResults <- st.ReserveManualWithdrawRecord(&ProfitWithdrawRecord{
-				ID: id, AccountID: accountID, AccountScope: "mysql-scope", ExchangeID: "binance", StrategyID: "BTCUSDT",
+				ID: id, AccountID: accountID, AccountScope: accountScope, ExchangeID: "binance", StrategyID: "BTCUSDT",
 				Amount: 40, NetAmount: 40, Currency: "USDT", Type: "manual", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC(),
 			}, since, "", 50)
 		}(id)
@@ -103,31 +124,36 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 	if (manualA == nil) == (manualB == nil) {
 		t.Fatalf("concurrent MySQL manual reservations must have exactly one winner: first=%v second=%v", manualA, manualB)
 	}
-	reserved, err := st.SumReservedWithdrawAmountForStream(accountID, "mysql-scope", "BINANCE", "btcusdt", since)
+	reserved, err := st.SumReservedWithdrawAmountForStream(accountID, accountScope, "BINANCE", "btcusdt", since)
 	if err != nil || reserved != 40 {
 		t.Fatalf("MySQL manual stream reservation=%v err=%v, want 40", reserved, err)
 	}
 
 	checkpoint := time.Now().UTC().Truncate(time.Millisecond)
 	for _, record := range []*ProfitWithdrawRecord{
-		{ID: accountID + "-same-checkpoint-manual", AccountID: accountID, AccountScope: "mysql-scope", ExchangeID: "binance", StrategyID: "XRPUSDT",
+		{ID: accountID + "-same-checkpoint-manual", AccountID: accountID, AccountScope: accountScope, ExchangeID: "binance", StrategyID: "XRPUSDT",
 			Amount: 4, NetAmount: 4, Currency: "USDT", Type: "manual", Status: "completed", Destination: "account", CreatedAt: checkpoint},
-		{ID: accountID + "-same-checkpoint-auto", RuleID: "prior-auto", AccountID: accountID, AccountScope: "mysql-scope", ExchangeID: "binance", StrategyID: "XRPUSDT",
+		{ID: accountID + "-same-checkpoint-auto", RuleID: "prior-auto", AccountID: accountID, AccountScope: accountScope, ExchangeID: "binance", StrategyID: "XRPUSDT",
 			Amount: 7, NetAmount: 7, Currency: "USDT", Type: "auto", Status: "completed", Destination: "account", CreatedAt: checkpoint},
 	} {
 		if err := st.SaveWithdrawRecord(record); err != nil {
 			t.Fatalf("save same-checkpoint MySQL withdrawal %s: %v", record.ID, err)
 		}
 	}
-	reserved, err = st.SumReservedWithdrawAmountForStream(accountID, "mysql-scope", "BINANCE", "xrpusdt", checkpoint)
+	reserved, err = st.SumReservedWithdrawAmountForStream(accountID, accountScope, "BINANCE", "xrpusdt", checkpoint)
 	if err != nil || reserved != 4 {
 		t.Fatalf("MySQL same-checkpoint manual reservation=%v err=%v, want 4 excluding the prior auto checkpoint", reserved, err)
 	}
 
 	claimAccount := accountID + "-claim-recovery"
+	claimScope := claimAccount + "-scope"
+	t.Cleanup(func() {
+		_, _ = st.db.Exec(`DELETE FROM profit_withdraw_records WHERE account_id IN (?, ?)`, accountID, claimAccount)
+		_, _ = st.db.Exec(`DELETE FROM profit_withdraw_rules WHERE account_scope IN (?, ?)`, accountScope, claimScope)
+	})
 	claimRuleID := claimAccount + "-rule"
 	if err := st.UpsertProfitWithdrawRule(claimAccount, &ProfitWithdrawRule{
-		ID: claimRuleID, AccountScope: "mysql-claim-scope", ExchangeID: "binance", StrategyID: "ETHUSDT",
+		ID: claimRuleID, AccountScope: claimScope, ExchangeID: "binance", StrategyID: "ETHUSDT",
 		Enabled: true, WithdrawRatio: 0.5, Frequency: "immediate", Destination: "account",
 	}); err != nil {
 		t.Fatal(err)
@@ -146,7 +172,7 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 		t.Fatalf("reclaim MySQL rule: claimed=%v err=%v", claimed, err)
 	}
 	record := &ProfitWithdrawRecord{ID: claimAccount + "-stale-reservation", RuleID: claimRuleID,
-		AccountID: claimAccount, AccountScope: "mysql-claim-scope", ClaimID: "mysql-old-claim",
+		AccountID: claimAccount, AccountScope: claimScope, ClaimID: "mysql-old-claim",
 		ExchangeID: "binance", StrategyID: "ETHUSDT", Amount: 2, NetAmount: 2, Currency: "USDT",
 		Type: "auto", Status: "processing", Destination: "account", CreatedAt: time.Now().UTC()}
 	windowStart := record.CreatedAt.Add(-time.Minute)
@@ -165,7 +191,7 @@ func TestMySQLProfitWithdrawRules(t *testing.T) {
 	if err != nil || recovered != 1 {
 		t.Fatalf("release MySQL claim with completed transfer: count=%d err=%v", recovered, err)
 	}
-	reserved, err = st.SumReservedWithdrawAmountForStream(claimAccount, "mysql-claim-scope", "BINANCE", "ethusdt", time.Now().Add(-time.Hour))
+	reserved, err = st.SumReservedWithdrawAmountForStream(claimAccount, claimScope, "BINANCE", "ethusdt", time.Now().Add(-time.Hour))
 	if err != nil || reserved != 2 {
 		t.Fatalf("completed MySQL transfer must remain reserved: amount=%v err=%v", reserved, err)
 	}

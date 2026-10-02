@@ -1,11 +1,16 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 )
+
+type StrategyRuntimeStateContextReader interface {
+	GetStrategyRuntimeStateContext(context.Context, string, string) (*StrategyRuntimeState, error)
+}
 
 // StrategyRuntimeStateStore is intentionally separate from Storage so optional
 // state persistence does not break external Storage implementations.
@@ -43,6 +48,16 @@ func migrateStrategyRuntimeStateTableMySQL(db *sql.DB) error {
 }
 
 func (s *SQLStorage) GetStrategyRuntimeState(botID, strategyName string) (*StrategyRuntimeState, error) {
+	return s.GetStrategyRuntimeStateContext(context.Background(), botID, strategyName)
+}
+
+func (s *SQLStorage) GetStrategyRuntimeStateContext(ctx context.Context, botID, strategyName string) (*StrategyRuntimeState, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("strategy runtime state read requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	botID = strings.TrimSpace(botID)
 	strategyName = strings.TrimSpace(strategyName)
 	if botID == "" || strategyName == "" {
@@ -50,7 +65,7 @@ func (s *SQLStorage) GetStrategyRuntimeState(botID, strategyName string) (*Strat
 	}
 	var state StrategyRuntimeState
 	var updatedAt time.Time
-	err := s.db.QueryRow(`SELECT bot_id, strategy_name, schema_version, payload, updated_at
+	err := s.db.QueryRowContext(ctx, `SELECT bot_id, strategy_name, schema_version, payload, updated_at
 		FROM strategy_runtime_states WHERE bot_id = ? AND strategy_name = ?`, botID, strategyName).
 		Scan(&state.BotID, &state.StrategyName, &state.SchemaVersion, &state.Payload, &updatedAt)
 	if err == sql.ErrNoRows {

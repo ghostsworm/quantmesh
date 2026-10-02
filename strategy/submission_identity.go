@@ -22,13 +22,21 @@ func (mse *MultiStrategyExecutor) beginSubmission(req *position.OrderRequest) (f
 	if _, loaded := mse.submissions.LoadOrStore(key, struct{}{}); loaded {
 		return nil, fmt.Errorf("clientOrderID %s: %w", key, execution.ErrIntentPending)
 	}
-	release := func() { mse.submissions.Delete(key) }
+	releaseIdentity := func() { mse.submissions.Delete(key) }
 	mse.mu.RLock()
 	_, tracked := mse.ordersByClient[key]
 	mse.mu.RUnlock()
 	if tracked {
-		release()
+		releaseIdentity()
 		return nil, fmt.Errorf("clientOrderID %s already tracked: %w", key, execution.ErrIntentPending)
 	}
-	return release, nil
+	finishAdmission, err := mse.capitalSubmissionGate.Begin()
+	if err != nil {
+		releaseIdentity()
+		return nil, fmt.Errorf("capital reconciliation prevents strategy submission: %w", err)
+	}
+	return func() {
+		releaseIdentity()
+		finishAdmission()
+	}, nil
 }

@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -312,13 +313,35 @@ func TestMySQLMarginInterestLedgerAndCoverage(t *testing.T) {
 	if err != nil || len(allocations) != 1 || allocations[0].BotPrincipal != 0.333333333333 || allocations[0].Interest != 0.000033333333 {
 		t.Fatalf("MySQL normalized allocation=%+v err=%v", allocations, err)
 	}
+	// The non-unique index prefix must never truncate identity or mix scopes
+	// sharing its first 384 characters, including multibyte UTF-8 characters.
+	common := strings.Repeat("账", 384)
+	scopes := []string{common + strings.Repeat("x", 127) + "a", common + strings.Repeat("x", 127) + "b"}
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM margin_interest_allocations WHERE account_scope IN (?, ?)`, scopes[0], scopes[1])
+	})
+	for _, scope := range scopes {
+		long := *allocation
+		long.AccountScope = scope
+		if err := store.SaveMarginInterestAllocation(&long); err != nil {
+			t.Fatal("save complete long MySQL account scope:", err)
+		}
+	}
+	for _, scope := range scopes {
+		rows, err := store.ListMarginInterestAllocations("binance", scope, payment.TransactionID)
+		if err != nil || len(rows) != 1 || rows[0].AccountScope != scope {
+			t.Fatalf("prefix collision mixed complete account identities: count=%d err=%v", len(rows), err)
+		}
+	}
 	from, through := payment.AccruedAt.Add(-time.Minute), payment.AccruedAt.Add(time.Minute)
 	if err := store.MarkMarginInterestCoverage(payment.Exchange, unique, "*", from, through); err != nil {
 		t.Fatal("write MySQL margin interest coverage:", err)
 	}
 	total, err := store.GetMarginInterestTotalByAccountScope(payment.Exchange, unique, payment.Asset, from, through)
-	if err != nil || total != payment.Interest {
-		t.Fatalf("MySQL scoped interest=%v err=%v, want %v", total, err, payment.Interest)
+	// The second precision fixture is a distinct transaction, not a replay.
+	wantTotal := 0.0002
+	if err != nil || total != wantTotal {
+		t.Fatalf("MySQL scoped interest=%v err=%v, want both normalized transactions %v", total, err, wantTotal)
 	}
 }
 

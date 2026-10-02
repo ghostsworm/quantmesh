@@ -120,27 +120,28 @@ type ExchangeOrderExecutor struct {
 	orderRetryDelay     time.Duration
 
 	// postOnlyRepriceMaxAttempts PostOnly 被拒後重定價重掛的最大次數（<=0 用預設值）
-	postOnlyRepriceMaxAttempts  atomic.Int32
-	openingGate                 *execution.OpeningGate
-	openingAdmissionGuard       func(context.Context) error
-	positionDirection           string
-	intentMu                    sync.Mutex
-	cancellationMu              sync.Mutex
-	exposureLimitMu             sync.Mutex
-	exposureCancellationPending bool
-	intents                     map[string]*ownedIntent
-	unknownOrderHandler         func(OrderRequest)
-	tradeLedgerRecoveryHandler  func(context.Context, execution.IntentScope, int64, float64, []byte) error
-	exposureBook                *execution.ExposureBook
-	exposureRequired            bool
-	exposureMarkProvider        func() (float64, time.Time) // immutable after startup
-	intentJournal               execution.IntentJournal
-	intentScope                 execution.IntentScope
-	intentScopeKey              string
-	journalRequired             bool
-	journalLoaded               bool
-	submissionGate              execution.OpeningGate // all ordinary submissions, including closes
-	reconciliationSequence      atomic.Uint64
+	postOnlyRepriceMaxAttempts   atomic.Int32
+	openingGate                  *execution.OpeningGate
+	openingAdmissionGuard        func(context.Context) error
+	positionDirection            string
+	intentMu                     sync.Mutex
+	cancellationMu               sync.Mutex
+	exposureLimitMu              sync.Mutex
+	exposureCancellationPending  bool
+	intents                      map[string]*ownedIntent
+	unknownOrderHandler          func(OrderRequest)
+	tradeLedgerRecoveryHandler   func(context.Context, execution.IntentScope, int64, float64, []byte) error
+	exposureBook                 *execution.ExposureBook
+	exposureRequired             bool
+	exposureMarkProvider         func() (float64, time.Time)                       // immutable after startup
+	capitalExposureQuoteProvider func(context.Context) (float64, time.Time, error) // immutable after startup
+	intentJournal                execution.IntentJournal
+	intentScope                  execution.IntentScope
+	intentScopeKey               string
+	journalRequired              bool
+	journalLoaded                bool
+	submissionGate               execution.OpeningGate // all ordinary submissions, including closes
+	reconciliationSequence       atomic.Uint64
 }
 
 // SetPostOnlyRepriceMaxAttempts 設置 PostOnly 被拒後重定價的最大次數（<=0 使用預設值，並發安全）
@@ -505,6 +506,18 @@ func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLock(ctx context.Conte
 }
 
 func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLockWithTTL(ctx context.Context, exchangeName, symbol string, ttl time.Duration) (context.Context, func(), error) {
+	positionCtx, release, err := oe.acquirePositionSubmissionLease(ctx, exchangeName, symbol, ttl)
+	if err != nil {
+		return nil, nil, err
+	}
+	return positionCtx, func() {
+		if releaseErr := release(); releaseErr != nil {
+			logger.ErrorCtx(oe.logCtx(), "[%s] 释放持倉/下單協調鎖失败: %v", exchangeName, releaseErr)
+		}
+	}, nil
+}
+
+func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLease(ctx context.Context, exchangeName, symbol string, ttl time.Duration) (context.Context, func() error, error) {
 	key := execution.PositionReconciliationLockKey(exchangeName, symbol)
 	lockCtx, cancel := context.WithTimeout(ctx, orderLockAcquireTimeout)
 	unlockLocal, err := execution.AcquireLocalPositionCoordination(lockCtx, key)
@@ -519,20 +532,30 @@ func (oe *ExchangeOrderExecutor) acquirePositionSubmissionLockWithTTL(ctx contex
 		return nil, nil, fmt.Errorf("等待持倉對账屏障失败: %w", err)
 	}
 	positionCtx, cancelPosition := context.WithCancel(ctx)
+	var leaseErr error
 	stopRenew := lock.StartAutoRenew(oe.lock, key, ttl, func(renewErr error) {
+		leaseErr = fmt.Errorf("position coordination lease was lost: %w", renewErr)
 		oe.submissionGate.Block(execution.PositionCoordinationLockLostBlock)
 		cancelPosition()
 		logger.ErrorCtx(oe.logCtx(), "[%s] 持倉/下單協調鎖續期失败: %v", exchangeName, renewErr)
 	})
-	return positionCtx, func() {
-		stopRenew()
-		cancelPosition()
-		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
-		defer unlockCancel()
-		if unlockErr := oe.lock.Unlock(unlockCtx, key); unlockErr != nil {
-			logger.ErrorCtx(oe.logCtx(), "[%s] 释放持倉/下單協調鎖失败: %v", exchangeName, unlockErr)
-		}
-		unlockLocal()
+	var once sync.Once
+	var releaseErr error
+	return positionCtx, func() error {
+		once.Do(func() {
+			// stopRenew joins its worker before leaseErr is read.
+			stopRenew()
+			cancelPosition()
+			unlockCtx, unlockCancel := context.WithTimeout(context.Background(), orderLockAcquireTimeout)
+			unlockErr := oe.lock.Unlock(unlockCtx, key)
+			unlockCancel()
+			unlockLocal()
+			if unlockErr != nil {
+				unlockErr = fmt.Errorf("release position coordination lease: %w", unlockErr)
+			}
+			releaseErr = errors.Join(leaseErr, unlockErr)
+		})
+		return releaseErr
 	}, nil
 }
 

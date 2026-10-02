@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc875"
+var Version = "3.111.0-rc926"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2326,44 +2326,7 @@ func main() {
 			return result
 		}
 
-		// 释放单个策略锁定资金
-		releaseCapitalFunc := func(strategyName string) float64 {
-			totalReleased := 0.0
-			runtimes := symbolManager.List()
-			for _, rt := range runtimes {
-				if rt.StrategyManager == nil {
-					continue
-				}
-				allocator := rt.StrategyManager.GetCapitalAllocator()
-				if allocator == nil {
-					continue
-				}
-				totalReleased += allocator.ReleaseAll(strategyName)
-			}
-			return totalReleased
-		}
-
-		// 释放所有策略锁定资金
-		releaseAllCapitalFunc := func() map[string]float64 {
-			result := make(map[string]float64)
-			runtimes := symbolManager.List()
-			for _, rt := range runtimes {
-				if rt.StrategyManager == nil {
-					continue
-				}
-				allocator := rt.StrategyManager.GetCapitalAllocator()
-				if allocator == nil {
-					continue
-				}
-				released := allocator.ReleaseAllStrategies()
-				for name, amount := range released {
-					result[name] += amount
-				}
-			}
-			return result
-		}
-
-		strategyProvider := web.NewStrategyProviderAdapter(getAllocationFunc, releaseCapitalFunc, releaseAllCapitalFunc)
+		strategyProvider := newRuntimeStrategyCapitalProvider(getAllocationFunc, symbolManager.List)
 		web.SetStrategyProvider(strategyProvider)
 		logger.Info("✅ 策略资金分配提供者已設置")
 

@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,6 +46,24 @@ func (s comboChildRuntimeStateStore) SaveRuntimeState(strategyName string, versi
 		return err
 	}
 	return s.store.SaveRuntimeState(key, version, payload)
+}
+
+func (s comboChildRuntimeStateStore) LoadRuntimeStateContext(ctx context.Context, strategyName string) (int, string, bool, error) {
+	if ctx == nil {
+		return 0, "", false, fmt.Errorf("combo child read requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, "", false, err
+	}
+	key, err := s.key(strategyName)
+	if err != nil {
+		return 0, "", false, err
+	}
+	reader, ok := s.store.(RuntimeStateContextReader)
+	if !ok {
+		return 0, "", false, fmt.Errorf("combo child storage does not support cancellable reads")
+	}
+	return reader.LoadRuntimeStateContext(ctx, key)
 }
 
 const comboRuntimeStateSchemaVersion = 1

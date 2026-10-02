@@ -1436,31 +1436,8 @@ export async function getStrategyAllocation(): Promise<StrategyAllocationRespons
 }
 
 // Release Locked Capital
-export interface ReleaseCapitalResponse {
-  success: boolean
-  message: string
-  released: number
-  strategy?: string
-}
-
-export interface ReleaseAllCapitalResponse {
-  success: boolean
-  message: string
-  released: Record<string, number>
-  total_released: number
-}
-
-export async function releaseStrategyCapital(strategyName: string): Promise<ReleaseCapitalResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/strategies/${encodeURIComponent(strategyName)}/release-capital`, {
-    method: 'POST',
-  })
-}
-
-export async function releaseAllStrategiesCapital(): Promise<ReleaseAllCapitalResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/strategies/release-all-capital`, {
-    method: 'POST',
-  })
-}
+export { releaseStrategyCapital, releaseAllStrategiesCapital } from './strategyCapitalApi'
+export type { ReleaseCapitalResponse, ReleaseAllCapitalResponse } from './strategyCapitalApi'
 
 // Reconciliation
 export interface ReconciliationStatus {

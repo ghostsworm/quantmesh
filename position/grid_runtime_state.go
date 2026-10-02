@@ -1,6 +1,7 @@
 package position
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -239,29 +240,8 @@ func (spm *SuperPositionManager) applyGridRuntimeSnapshot(snapshot gridRuntimeSt
 // bootstrap path. Any persisted inventory, active order, cost basis, or pending
 // fee work requires full venue reconciliation before trading can resume.
 func (spm *SuperPositionManager) GridRuntimeStateIsVerifiedEmpty() bool {
-	if !spm.gridRuntimeStateRestored.Load() && !spm.gridRuntimeVenueFlatVerified.Load() {
-		return false
-	}
-	empty := true
-	spm.slots.Range(func(_, value any) bool {
-		slot := value.(*InventorySlot)
-		slot.mu.RLock()
-		clear := slot.PositionStatus == PositionStatusEmpty && slot.PositionQty == 0 &&
-			slot.SlotStatus == SlotStatusFree &&
-			slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderFilledQty == 0 && slot.OrderFilledNotional == 0 &&
-			(slot.OrderStatus == OrderStatusNotPlaced || slot.OrderStatus == OrderStatusCanceled) &&
-			slot.BuyFee == 0 && slot.AllocatedMargin == 0 && slot.AvgBuyPrice == 0 &&
-			slot.orderCommission == 0 && slot.orderBaseFeeQty == 0 && !slot.orderFeeIncomplete && !slot.feeValuationUnknown &&
-			slot.feeSupplementUntil.IsZero() && slot.pendingFeeSupplementCount == 0 &&
-			!slot.baseFeeUnfloored && !slot.baseFeeReconciliationRequired && !slot.CostBasisUnverified && slot.PositionLeg == PositionLegNone
-		slot.mu.RUnlock()
-		if !clear {
-			empty = false
-			return false
-		}
-		return true
-	})
-	return empty
+	empty, err := spm.GridRuntimeStateIsVerifiedEmptyContext(context.Background())
+	return err == nil && empty
 }
 
 // MarkGridRuntimeVenueFlatVerified records that the startup path completed its

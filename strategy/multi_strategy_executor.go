@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"quantmesh/config"
 	"quantmesh/execution"
@@ -52,16 +53,18 @@ type legUsage struct {
 // 資金生命週期（D5）：開倉單下單時 Reserve → 成交後轉為「持倉占用」（仍計入 used）
 // → 平倉單成交時按比例 Release；開倉單撤單/拒單/過期時 Release 未成交部分。
 type MultiStrategyExecutor struct {
-	executor             *order.ExchangeOrderExecutor
-	allocator            *CapitalAllocator
-	strategies           map[string]string        // orderID -> strategyName
-	clientStrategies     map[string]string        // clientOrderID -> strategyName
-	ordersByClient       map[string]*orderCapital // clientOrderID -> 資金記賬
-	ordersByID           map[int64]*orderCapital  // orderID -> 資金記賬
-	positionUsage        map[string]*legUsage     // strategy|leg -> 持倉占用
-	strategyPositionSide map[string]string        // strategyName -> 固定持倉腿（如 spot_short=SHORT）
-	mu                   sync.RWMutex
-	submissions          sync.Map // CID -> placement currently registering/submitting
+	executor                      *order.ExchangeOrderExecutor
+	allocator                     *CapitalAllocator
+	strategies                    map[string]string        // orderID -> strategyName
+	clientStrategies              map[string]string        // clientOrderID -> strategyName
+	ordersByClient                map[string]*orderCapital // clientOrderID -> 資金記賬
+	ordersByID                    map[int64]*orderCapital  // orderID -> 資金記賬
+	positionUsage                 map[string]*legUsage     // strategy|leg -> 持倉占用
+	strategyPositionSide          map[string]string        // strategyName -> 固定持倉腿（如 spot_short=SHORT）
+	mu                            sync.RWMutex
+	submissions                   sync.Map              // CID -> placement currently registering/submitting
+	capitalSubmissionGate         execution.OpeningGate // covers reservation before physical admission
+	capitalReconciliationSequence atomic.Uint64
 }
 
 // NewMultiStrategyExecutor 創建多策略订單執行器

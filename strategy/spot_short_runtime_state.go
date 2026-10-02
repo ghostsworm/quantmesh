@@ -8,7 +8,7 @@ import (
 	"quantmesh/config"
 )
 
-const spotShortRuntimeStateSchemaVersion = 6
+const spotShortRuntimeStateSchemaVersion = 8
 
 type spotShortPendingRepay struct {
 	ClientOrderID            string  `json:"client_order_id,omitempty"`
@@ -16,6 +16,7 @@ type spotShortPendingRepay struct {
 	ExecutedQty              float64 `json:"executed_qty"`
 	BaseFeeQty               float64 `json:"base_fee_qty"`
 	RepayUncertain           bool    `json:"repay_uncertain"`
+	RepayPrepared            bool    `json:"repay_prepared,omitempty"`
 	RepayTransferID          int64   `json:"repay_transfer_id,omitempty"`
 	RepayAmount              float64 `json:"repay_amount,omitempty"`
 	RepayStartedAtUnixMilli  int64   `json:"repay_started_at_unix_milli,omitempty"`
@@ -90,7 +91,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	if !found {
 		return nil
 	}
-	if version != 3 && version != 4 && version != 5 && version != spotShortRuntimeStateSchemaVersion {
+	if version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != spotShortRuntimeStateSchemaVersion {
 		return fmt.Errorf("unsupported spot short runtime state schema version %d", version)
 	}
 	var state spotShortRuntimeState
@@ -111,6 +112,9 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 		state.PendingBuy = make(map[string]spotShortPendingBuy)
 	}
 	for id, amount := range state.PendingRepay {
+		if amount.RepayPrepared && (version < 7 || !amount.RepayUncertain || amount.RepayTransferID != 0) {
+			return fmt.Errorf("spot short order %d has invalid prepared repayment evidence", id)
+		}
 		if id <= 0 || math.IsNaN(amount.OrderQuantity) || math.IsInf(amount.OrderQuantity, 0) || amount.OrderQuantity <= 0 ||
 			math.IsNaN(amount.ExecutedQty) || math.IsInf(amount.ExecutedQty, 0) || amount.ExecutedQty < 0 || amount.ExecutedQty > amount.OrderQuantity ||
 			math.IsNaN(amount.BaseFeeQty) || math.IsInf(amount.BaseFeeQty, 0) || amount.BaseFeeQty < 0 || amount.BaseFeeQty > amount.ExecutedQty {
@@ -130,8 +134,9 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	}
 	for clientOrderID, pending := range state.PendingBorrow {
 		if clientOrderID == "" || math.IsNaN(pending.Amount) || math.IsInf(pending.Amount, 0) || pending.Amount <= 0 || pending.CreatedAtUnixMilli <= 0 ||
-			(pending.Phase != "prepared" && pending.Phase != "borrowed") || pending.BorrowTransferID < 0 ||
-			(pending.Phase == "prepared" && pending.BorrowTransferID != 0) || (pending.Phase == "borrowed" && pending.BorrowTransferID <= 0) {
+			(pending.Phase != "prepared" && pending.Phase != "borrowed" && pending.Phase != "unsubmitted") || pending.BorrowTransferID < 0 ||
+			(pending.Phase != "borrowed" && pending.BorrowTransferID != 0) || (pending.Phase == "borrowed" && pending.BorrowTransferID <= 0) ||
+			(pending.Phase == "unsubmitted" && version != spotShortRuntimeStateSchemaVersion) {
 			return fmt.Errorf("spot short runtime state contains invalid pending borrow intent")
 		}
 	}

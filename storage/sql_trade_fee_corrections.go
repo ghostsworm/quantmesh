@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS trade_fee_corrections (
   base_fee_qty DOUBLE NOT NULL DEFAULT 0,
   executed_qty DOUBLE NOT NULL DEFAULT 0,
   reason TEXT NOT NULL,
-  evidence_note TEXT NOT NULL DEFAULT '',
+  evidence_note TEXT NOT NULL,
   status VARCHAR(16) NOT NULL DEFAULT 'pending',
   created_at DATETIME(3) NOT NULL,
   resolved_at DATETIME(3) NULL,

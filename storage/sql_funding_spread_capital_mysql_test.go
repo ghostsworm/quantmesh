@@ -34,6 +34,8 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 	store := &SQLStorage{db: db, dbType: "mysql"}
 	issuer := store
 	unique := fmt.Sprintf("mysql-capital-%d", time.Now().UTC().UnixNano())
+	verifyWalletObservationAdmission(t, ctx, store, unique+"-observation-admission")
+	verifyWalletGenerationRefresh(t, ctx, store, unique+"-generation-refresh")
 	walletKey := mysqlCapitalTestWalletKey(unique + "-concurrent")
 	observationSequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, walletKey)
 	if err != nil {

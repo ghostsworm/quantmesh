@@ -663,16 +663,21 @@ func (b *BinanceSpotMarginAdapter) GetMarginTransactionHistory(ctx context.Conte
 	records := make([]MarginBorrowRecord, 0, len(response.Rows))
 	for _, row := range response.Rows {
 		amount, parseErr := strconv.ParseFloat(row.Amount, 64)
-		if row.TxID <= 0 || strings.TrimSpace(row.Asset) == "" || row.Timestamp < startTime || row.Timestamp > endTime ||
+		if row.TxID <= 0 || !strings.EqualFold(strings.TrimSpace(row.Asset), strings.TrimSpace(asset)) || row.IsolatedSymbol != "" || row.Timestamp < startTime || row.Timestamp > endTime ||
 			parseErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 ||
 			(!strings.EqualFold(row.Status, "PENDING") && !strings.EqualFold(row.Status, "CONFIRMED") && !strings.EqualFold(row.Status, "FAILED")) {
 			return nil, 0, fmt.Errorf("Binance margin %s history contains an invalid transaction %d", transactionType, row.TxID)
 		}
 		principal, principalErr := strconv.ParseFloat(row.Principal, 64)
 		interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+		if strings.EqualFold(strings.TrimSpace(transactionType), "BORROW") {
+			// Match the exact-ID BORROW contract: the borrowed amount is principal.
+			principal, interest = amount, 0
+			principalErr, interestErr = nil, nil
+		}
 		if principalErr != nil || interestErr != nil || math.IsNaN(principal) || math.IsInf(principal, 0) || principal < 0 ||
 			math.IsNaN(interest) || math.IsInf(interest, 0) || interest < 0 || math.Abs(principal+interest-amount) > math.Max(1e-10, amount*1e-8) {
-			principal, interest = amount, 0
+			return nil, 0, fmt.Errorf("Binance margin %s history transaction %d lacks verified principal and interest", transactionType, row.TxID)
 		}
 		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount,
 			Principal: principal, Interest: interest, Status: row.Status, Timestamp: row.Timestamp})

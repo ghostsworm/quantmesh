@@ -106,7 +106,7 @@ func TestSpotShortDoesNotBorrowWhenIntentPersistenceFails(t *testing.T) {
 }
 
 func TestSpotShortBorrowedStateWriteFailureKeepsPreparedIntentAndBlocksSell(t *testing.T) {
-	store := &failNthRuntimeStateSave{failAt: 2}
+	store := &failNthRuntimeStateSave{failAt: 3}
 	margin := &mockMarginExchange{}
 	executor := &signalTestExecutor{}
 	s := newSpotShortForTest(executor, &signalTestExchange{}, margin)

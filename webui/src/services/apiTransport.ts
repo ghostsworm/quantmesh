@@ -39,8 +39,10 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}) {
       code?: string
       groupName?: string
       botId?: string
+      responseBody?: unknown
     }
     err.status = response.status
+    err.responseBody = parsed
     if (parsed?.error_key) err.errorKey = parsed.error_key
     if (parsed?.code) err.code = parsed.code
     if (parsed?.group_name) err.groupName = parsed.group_name

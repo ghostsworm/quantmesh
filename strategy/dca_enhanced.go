@@ -1913,7 +1913,10 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 func (s *DCAEnhancedStrategy) GetPositions() []*Position {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inventoryPositionsLocked()
+}
 
+func (s *DCAEnhancedStrategy) inventoryPositionsLocked() []*Position {
 	if s.totalQty <= 0 {
 		return []*Position{}
 	}
@@ -1943,7 +1946,10 @@ func (s *DCAEnhancedStrategy) GetPositions() []*Position {
 func (s *DCAEnhancedStrategy) GetOrders() []*Order {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inventoryOrdersLocked()
+}
 
+func (s *DCAEnhancedStrategy) inventoryOrdersLocked() []*Order {
 	orders := make([]*Order, 0, len(s.layers))
 	for _, layer := range s.layers {
 		quantity := layer.RequestedQuantity

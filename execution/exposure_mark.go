@@ -10,6 +10,10 @@ import (
 func (b *ExposureBook) ObserveMark(price float64, at, now time.Time) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	return b.observeMarkLocked(price, at, now)
+}
+
+func (b *ExposureBook) observeMarkLocked(price float64, at, now time.Time) error {
 	if !at.IsZero() && at.Before(b.markEvidenceAt) {
 		return fmt.Errorf("exposure quote superseded by newer evidence")
 	}

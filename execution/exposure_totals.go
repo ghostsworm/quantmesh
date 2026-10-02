@@ -1,6 +1,7 @@
 package execution
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/big"
@@ -13,9 +14,17 @@ type exposureTotals struct {
 }
 
 func (b *ExposureBook) totalsLocked(extra *ExposureRequest) exposureTotals {
+	t, _ := b.totalsLockedContext(context.Background(), extra)
+	return t
+}
+
+func (b *ExposureBook) totalsLockedContext(ctx context.Context, extra *ExposureRequest) (exposureTotals, error) {
 	t := exposureTotals{positions: new(big.Rat), pending: new(big.Rat), notional: new(big.Rat), layers: make(map[string]bool)}
 	mark, _ := exposureNumber(b.mark)
 	for key, lot := range b.lots {
+		if err := ctx.Err(); err != nil {
+			return exposureTotals{}, err
+		}
 		if lot.quantity.Sign() > 0 {
 			t.positions.Add(t.positions, lot.quantity)
 			t.notional.Add(t.notional, new(big.Rat).Mul(lot.quantity, mark))
@@ -37,12 +46,15 @@ func (b *ExposureBook) totalsLocked(extra *ExposureRequest) exposureTotals {
 		t.layers[req.Lot] = true
 	}
 	for _, intent := range b.intents {
+		if err := ctx.Err(); err != nil {
+			return exposureTotals{}, err
+		}
 		addPending(intent.request, intent.filled, intent.terminal && !intent.unknown)
 	}
 	if extra != nil {
 		addPending(*extra, new(big.Rat), false)
 	}
-	return t
+	return t, ctx.Err()
 }
 
 func (b *ExposureBook) checkLimitsLocked(extra *ExposureRequest) error {
@@ -69,6 +81,10 @@ func (b *ExposureBook) Snapshot(now time.Time) ExposureSnapshot {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	t := b.totalsLocked(nil)
+	return b.snapshotFromTotalsLocked(now, t)
+}
+
+func (b *ExposureBook) snapshotFromTotalsLocked(now time.Time, t exposureTotals) ExposureSnapshot {
 	s := ExposureSnapshot{Ready: b.ready, Reason: b.reason, Layers: len(t.layers), Limits: b.limits, Mark: b.mark, MarkAt: b.markAt}
 	s.PositionQuantity, _ = t.positions.Float64()
 	s.PendingQuantity, _ = t.pending.Float64()

@@ -336,6 +336,30 @@ func (a *strategyRuntimeStateAdapter) SaveRuntimeState(strategyName string, sche
 	})
 }
 
+func (a *strategyRuntimeStateAdapter) LoadRuntimeStateContext(ctx context.Context, strategyName string) (int, string, bool, error) {
+	if ctx == nil {
+		return 0, "", false, fmt.Errorf("strategy runtime state read requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, "", false, err
+	}
+	if a == nil || a.storageService == nil || a.storageService.GetStorage() == nil {
+		return 0, "", false, fmt.Errorf("strategy runtime state storage is unavailable")
+	}
+	reader, ok := a.storageService.GetStorage().(storage.StrategyRuntimeStateContextReader)
+	if !ok {
+		return 0, "", false, fmt.Errorf("storage backend does not support cancellable strategy state reads")
+	}
+	state, err := reader.GetStrategyRuntimeStateContext(ctx, a.botID, strategyName)
+	if err != nil || state == nil {
+		return 0, "", false, err
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, "", false, err
+	}
+	return state.SchemaVersion, state.Payload, true, nil
+}
+
 func (a *tradeStorageAdapter) SaveTradeIdempotent(trade *storage.Trade) error {
 	if trade == nil || strings.TrimSpace(trade.ExecutionKey) == "" {
 		return fmt.Errorf("保存幂等成交失败: 成交记录或执行键为空")

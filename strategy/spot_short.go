@@ -13,6 +13,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
@@ -49,6 +50,7 @@ type SpotShortStrategy struct {
 	runtimeReconciliationFailureReported bool
 	accountWalletLock                    lock.DistributedLock
 	accountWalletLockKey                 string
+	openingGate                          *execution.OpeningGate
 
 	positions []*Position
 	orders    []*Order
@@ -70,9 +72,17 @@ func (s *SpotShortStrategy) SetAccountWalletCoordinationLock(coordinator lock.Di
 
 func (s *SpotShortStrategy) withAccountWalletCoordination(ctx context.Context, operation func(context.Context) error) error {
 	s.mu.RLock()
-	coordinator, key := s.accountWalletLock, s.accountWalletLockKey
+	coordinator, key, gate := s.accountWalletLock, s.accountWalletLockKey, s.openingGate
 	s.mu.RUnlock()
-	return withAccountWalletCoordination(ctx, coordinator, key, operation)
+	if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+		return err
+	}
+	return withAccountWalletCoordination(ctx, coordinator, key, func(operationCtx context.Context) error {
+		if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+			return err
+		}
+		return operation(operationCtx)
+	})
 }
 
 type spotShortContextOrderExecutor interface {
@@ -91,6 +101,9 @@ func (s *SpotShortStrategy) validateOrderContextSupport() error {
 
 func (s *SpotShortStrategy) placeOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.verifyRuntimeWalletOwner(); err != nil {
 		return nil, err
 	}
 	if err := s.validateOrderContextSupport(); err != nil {
@@ -282,6 +295,23 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 		s.mu.Unlock()
 		return fmt.Errorf("spot short buy order %d reports FILLED without positive cumulative execution", update.OrderID)
 	}
+	if pending.RepayPrepared {
+		if err := verifyStrategyWalletRuntimeOwner(s.openingGate); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		previous := pending
+		clearSpotShortRepayIntent(&pending)
+		s.pendingRepay[update.OrderID] = pending
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.pendingRepay[update.OrderID] = previous
+			s.mu.Unlock()
+			return err
+		}
+		s.mu.Unlock()
+		// Re-query fills; never reuse an unsubmitted intent as executed evidence.
+		return s.onOrderUpdateWithWalletLock(ctx, update)
+	}
 	if pending.RepayUncertain {
 		if update.ExecutedQty+1e-10 < pending.RepayExpectedExecutedQty {
 			s.mu.Unlock()
@@ -307,6 +337,10 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 		return fmt.Errorf("invalid base-asset fee %.12g for spot short order %d fill delta %.12g", baseFeeDelta, update.OrderID, delta)
 	}
 	if repayAmount > 0 {
+		if err := verifyStrategyWalletRuntimeOwner(s.openingGate); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 		if err := ctx.Err(); err != nil {
 			s.mu.Unlock()
 			return err
@@ -316,6 +350,7 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 			return fmt.Errorf("spot short repay executor unavailable for filled buy order %d", update.OrderID)
 		}
 		pending.RepayUncertain = true
+		pending.RepayPrepared = true
 		pending.RepayAmount = repayAmount
 		pending.RepayStartedAtUnixMilli = time.Now().UTC().UnixMilli()
 		pending.RepayExpectedExecutedQty = update.ExecutedQty
@@ -328,6 +363,34 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 	}
 	s.mu.Unlock()
 	if repayAmount > 0 {
+		s.mu.RLock()
+		gate := s.openingGate
+		s.mu.RUnlock()
+		if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+			return err // Keep the persisted intent for authoritative reconciliation.
+		}
+		// Durable write-ahead transition: after this save, a crash or any
+		// ambiguous failure must reconcile history rather than repeat Repay.
+		s.mu.Lock()
+		current, found := s.pendingRepay[update.OrderID]
+		if !found || current != pending {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short repayment intent changed before submission")
+		}
+		current.RepayPrepared = false
+		s.pendingRepay[update.OrderID] = current
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+		gate = s.openingGate
+		s.mu.Unlock()
+		if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		repayID, err := s.smEx.Repay(ctx, s.baseAsset, repayAmount)
 		if err != nil {
 			logger.Error("SpotShortStrategy 還幣失敗 (order=%d): %v", update.OrderID, err)
@@ -357,6 +420,10 @@ func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, upd
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("spot short order %d disappeared during repayment", update.OrderID)
+	}
+	if err := s.verifyRecoveryCommitLocked(ctx); err != nil {
+		s.mu.Unlock()
+		return err // Retain any acknowledged transfer ID and unresolved intent.
 	}
 	previous := pending
 	pending.ExecutedQty = update.ExecutedQty
@@ -618,11 +685,17 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 	if len(intents) == 0 {
 		return nil
 	}
-	query, ok := s.ex.(exchange.OrderByClientIDQuerier)
-	if !ok {
-		return fmt.Errorf("spot short has %d pending borrow/sell intents, but margin exchange cannot query exact client order IDs", len(intents))
-	}
 	for cid, intent := range intents {
+		if intent.Phase == "unsubmitted" {
+			if err := s.clearUnsubmittedBorrow(ctx, cid, intent); err != nil {
+				return err
+			}
+			continue
+		}
+		query, ok := s.ex.(exchange.OrderByClientIDQuerier)
+		if !ok {
+			return fmt.Errorf("spot short has %d pending borrow/sell intents, but margin exchange cannot query exact client order IDs", len(intents))
+		}
 		if intent.Phase == "prepared" {
 			confirmed, err := s.reconcilePendingBorrowTransfer(ctx, cid, intent)
 			if err != nil {
@@ -649,6 +722,10 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 		if !exists || current != intent {
 			s.mu.Unlock()
 			return fmt.Errorf("spot short borrow intent %s changed during reconciliation", cid)
+		}
+		if err := s.verifyRecoveryCommitLocked(ctx); err != nil {
+			s.mu.Unlock()
+			return err
 		}
 		if !isSpotShortTerminalOrderStatus(string(order.Status)) {
 			s.mu.Unlock()
@@ -680,21 +757,17 @@ func (s *SpotShortStrategy) reconcilePendingBorrowTransfer(ctx context.Context, 
 	if queryEnd < intent.CreatedAtUnixMilli || time.Duration(queryEnd-intent.CreatedAtUnixMilli)*time.Millisecond > maxHistoryWindow {
 		return intent, fmt.Errorf("spot short borrow %s is outside the exchange's supported recovery history window", clientOrderID)
 	}
-	const pageSize = 100
+	records, err := readCompleteSpotShortHistory(ctx, func(queryCtx context.Context, page, size int) ([]exchange.MarginBorrowRecord, int64, error) {
+		return history.GetMarginBorrowHistory(queryCtx, s.baseAsset, queryStart, queryEnd, page, size)
+	})
+	if err != nil {
+		return intent, fmt.Errorf("verify complete borrow history for %s: %w", clientOrderID, err)
+	}
 	var candidates []exchange.MarginBorrowRecord
-	for page := 1; ; page++ {
-		records, total, err := history.GetMarginBorrowHistory(ctx, s.baseAsset, queryStart, queryEnd, page, pageSize)
-		if err != nil {
-			return intent, fmt.Errorf("query spot short borrow history for %s: %w", clientOrderID, err)
-		}
-		for _, record := range records {
-			if record.Asset == s.baseAsset && record.TransferID > 0 && record.Timestamp >= intent.CreatedAtUnixMilli && record.Timestamp <= queryEnd &&
-				finiteNumber(record.Amount) && math.Abs(record.Amount-intent.Amount) <= math.Max(1e-10, intent.Amount*1e-8) {
-				candidates = append(candidates, record)
-			}
-		}
-		if int64(page*pageSize) >= total || len(records) == 0 {
-			break
+	for _, record := range records {
+		if record.Asset == s.baseAsset && record.TransferID > 0 && record.Timestamp >= intent.CreatedAtUnixMilli && record.Timestamp <= queryEnd &&
+			finiteNumber(record.Amount) && math.Abs(record.Amount-intent.Amount) <= math.Max(1e-10, intent.Amount*1e-8) {
+			candidates = append(candidates, record)
 		}
 	}
 	if len(candidates) != 1 || !strings.EqualFold(candidates[0].Status, "CONFIRMED") {
@@ -707,6 +780,9 @@ func (s *SpotShortStrategy) reconcilePendingBorrowTransfer(ctx context.Context, 
 	current, exists := s.pendingBorrow[clientOrderID]
 	if !exists || current != (spotShortPendingBorrow{Amount: intent.Amount, Phase: "prepared", CreatedAtUnixMilli: intent.CreatedAtUnixMilli}) {
 		return intent, fmt.Errorf("spot short borrow intent %s changed during transfer reconciliation", clientOrderID)
+	}
+	if err := s.verifyRecoveryCommitLocked(ctx); err != nil {
+		return current, err
 	}
 	s.pendingBorrow[clientOrderID] = intent
 	if err := s.persistRuntimeStateLocked(); err != nil {
@@ -798,29 +874,18 @@ func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, ord
 		if !ok {
 			return fmt.Errorf("margin exchange cannot query authoritative repayment history")
 		}
-		const pageSize = 100
-		const maxRecords = 10000
+		records, err := readCompleteSpotShortHistory(ctx, func(queryCtx context.Context, page, size int) ([]exchange.MarginBorrowRecord, int64, error) {
+			return history.GetMarginTransactionHistory(queryCtx, s.baseAsset, "REPAY", pending.RepayStartedAtUnixMilli, endTime, page, size)
+		})
+		if err != nil {
+			return fmt.Errorf("verify complete repayment history: %w", err)
+		}
 		var candidates []exchange.MarginBorrowRecord
-		for page := 1; ; page++ {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			records, total, err := history.GetMarginTransactionHistory(ctx, s.baseAsset, "REPAY", pending.RepayStartedAtUnixMilli, endTime, page, pageSize)
-			if err != nil {
-				return fmt.Errorf("query margin repayment history page %d: %w", page, err)
-			}
-			if total < 0 || total > maxRecords {
-				return fmt.Errorf("repayment history result count %d exceeds safe reconciliation bound %d", total, maxRecords)
-			}
-			for _, record := range records {
-				if record.TransferID > 0 && strings.EqualFold(record.Asset, s.baseAsset) &&
-					record.Timestamp >= pending.RepayStartedAtUnixMilli && record.Timestamp <= endTime &&
-					math.Abs(record.Amount-pending.RepayAmount) <= tolerance {
-					candidates = append(candidates, record)
-				}
-			}
-			if len(records) == 0 || int64(page*pageSize) >= total {
-				break
+		for _, record := range records {
+			if record.TransferID > 0 && strings.EqualFold(record.Asset, s.baseAsset) &&
+				record.Timestamp >= pending.RepayStartedAtUnixMilli && record.Timestamp <= endTime &&
+				math.Abs(record.Amount-pending.RepayAmount) <= tolerance {
+				candidates = append(candidates, record)
 			}
 		}
 		if len(candidates) != 1 {
@@ -837,6 +902,10 @@ func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, ord
 	if !ok || current != pending {
 		s.mu.Unlock()
 		return fmt.Errorf("persisted repayment intent changed during exchange reconciliation")
+	}
+	if err := s.verifyRecoveryCommitLocked(ctx); err != nil {
+		s.mu.Unlock()
+		return err
 	}
 	previous := current
 	current.ExecutedQty = current.RepayExpectedExecutedQty
@@ -864,6 +933,7 @@ func validSpotShortRepayRecord(record exchange.MarginBorrowRecord, asset string,
 
 func clearSpotShortRepayIntent(pending *spotShortPendingRepay) {
 	pending.RepayUncertain = false
+	pending.RepayPrepared = false
 	pending.RepayTransferID = 0
 	pending.RepayAmount = 0
 	pending.RepayStartedAtUnixMilli = 0
@@ -1083,8 +1153,12 @@ func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amo
 		return fmt.Errorf("fetch %s price before borrowing: %w", s.symbol, err)
 	}
 	clientOrderID := utils.GenerateOrderID(price, "SELL", s.getPriceDecimals())
-	intent := spotShortPendingBorrow{Amount: amount, Phase: "prepared", CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
+	intent := spotShortPendingBorrow{Amount: amount, Phase: "unsubmitted", CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
 	s.mu.Lock()
+	if err := verifyStrategyWalletRuntimeOwner(s.openingGate); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	if s.pendingBorrow == nil {
 		s.pendingBorrow = make(map[string]spotShortPendingBorrow)
 	}
@@ -1095,6 +1169,27 @@ func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amo
 		return fmt.Errorf("persist borrow intent before borrowing: %w", err)
 	}
 	s.mu.Unlock()
+	if err := s.verifyRuntimeWalletOwner(); err != nil {
+		return err // Keep the persisted intent; no debt outcome is invented.
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// Once this transition is durable, a restart must reconcile Borrow history.
+	s.mu.Lock()
+	intent.Phase = "prepared"
+	s.pendingBorrow[clientOrderID] = intent
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.mu.Unlock()
+		return fmt.Errorf("persist borrow submission stage: %w", err)
+	}
+	s.mu.Unlock()
+	if err := s.verifyRuntimeWalletOwner(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	transferID, err := s.smEx.Borrow(ctx, s.baseAsset, amount)
 	if err != nil {
 		wrapped := fmt.Errorf("借幣 %.8f %s 結果未核實: %w", amount, s.baseAsset, err)

@@ -70,6 +70,9 @@ type SymbolRuntime struct {
 	TrendDetector            *strategy.TrendDetector
 	DynamicAdjuster          *strategy.DynamicAdjuster
 	StrategyManager          *strategy.StrategyManager
+	CapitalExecutor          *strategy.MultiStrategyExecutor // immutable reservation-stage barrier and owner ledger
+	capitalReleaseScope      execution.IntentScope           // immutable startup owner; never inferred from mutable Config
+	capitalReleaseWalletLock lock.DistributedLock
 	ExchangeExecutor         *order.ExchangeOrderExecutor
 	ExecutorAdapter          *exchangeExecutorAdapter
 	ExchangeAdapter          *positionExchangeAdapter
@@ -765,6 +768,11 @@ func startSymbolRuntime(
 		distributedLock,
 		botID,
 	)
+	var walletAdmissionChecker storage.AccountWalletCapitalAdmissionChecker
+	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
+		walletAdmissionChecker, _ = storageService.GetStorage().(storage.AccountWalletCapitalAdmissionChecker)
+	}
+	installRuntimeWalletOpeningAdmission(exchangeExecutor, walletAdmissionChecker, capitalClaim.WalletKey)
 	executorAdapter := &exchangeExecutorAdapter{
 		executor:  exchangeExecutor,
 		eventBus:  eventBus,
@@ -817,6 +825,7 @@ func startSymbolRuntime(
 	if err != nil {
 		return nil, fmt.Errorf("configure runtime exposure: %w", err)
 	}
+	exchangeExecutor.SetCapitalExposureQuoteProvider(priceMonitor.GetQuoteEvidenceContext)
 	superPositionManager.SetRiskControls(config.RiskControls{Open: localCfg.Trading.OpenPositionControl, Grid: localCfg.Trading.GridRiskControl})
 	var intentBackend runtimeIntentBackend
 	if storageService != nil {
@@ -1458,6 +1467,7 @@ func startSymbolRuntime(
 					}
 					spotShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_short")
 					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
+					spotShortStrategy.SetOpeningGate(superPositionManager.OpeningGate())
 					accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
 					if err := spotShortStrategy.SetAccountWalletCoordinationLock(distributedLock, "funding_carry_wallet:"+accountScope); err != nil {
 						return nil, fmt.Errorf("configure SpotShort account wallet coordination: %w", err)
@@ -1842,28 +1852,31 @@ func startSymbolRuntime(
 	}()
 
 	rt := &SymbolRuntime{
-		Config:                symCfg,
-		Exchange:              ex,
-		PriceMonitor:          priceMonitor,
-		RiskMonitor:           riskMonitor,
-		DepthMonitor:          depthMonitor,
-		FundingMonitor:        fundingMonitor,
-		ArbitrageManager:      arbitrageManager,
-		SuperPositionManager:  superPositionManager,
-		OrderCleaner:          orderCleaner,
-		Reconciler:            reconciler,
-		TrendDetector:         trendDetector,
-		DynamicAdjuster:       dynamicAdjuster,
-		StrategyManager:       strategyManager,
-		ExchangeExecutor:      exchangeExecutor,
-		ExecutorAdapter:       executorAdapter,
-		ExchangeAdapter:       exchangeAdapter,
-		EventBus:              eventBus,
-		StorageService:        storageService,
-		AccountID:             accountID,
-		AccountScope:          equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
-		AccountMarketType:     symCfg.GetMarketType(),
-		verifiedCapitalBudget: botCapitalBudget,
+		Config:                   symCfg,
+		Exchange:                 ex,
+		PriceMonitor:             priceMonitor,
+		RiskMonitor:              riskMonitor,
+		DepthMonitor:             depthMonitor,
+		FundingMonitor:           fundingMonitor,
+		ArbitrageManager:         arbitrageManager,
+		SuperPositionManager:     superPositionManager,
+		OrderCleaner:             orderCleaner,
+		Reconciler:               reconciler,
+		TrendDetector:            trendDetector,
+		DynamicAdjuster:          dynamicAdjuster,
+		StrategyManager:          strategyManager,
+		CapitalExecutor:          multiExecutor,
+		capitalReleaseScope:      intentScope,
+		capitalReleaseWalletLock: distributedLock,
+		ExchangeExecutor:         exchangeExecutor,
+		ExecutorAdapter:          executorAdapter,
+		ExchangeAdapter:          exchangeAdapter,
+		EventBus:                 eventBus,
+		StorageService:           storageService,
+		AccountID:                accountID,
+		AccountScope:             equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
+		AccountMarketType:        symCfg.GetMarketType(),
+		verifiedCapitalBudget:    botCapitalBudget,
 	}
 	ownershipRuntime.Store(rt)
 	if ownershipLease.Lost() {
@@ -1969,12 +1982,12 @@ func startSymbolRuntime(
 						func(verifyCtx context.Context) error {
 							if strings.EqualFold(rt.AccountMarketType, "spot") {
 								return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
-									return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+									return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
 								})
 							}
 							if strings.EqualFold(rt.AccountMarketType, "spot_margin") {
 								return verifyStandardSpotMarginRuntimeFlat(verifyCtx, rt.Exchange, func() error {
-									return verifyStandardSpotBotInventoryFlat(rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+									return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
 								})
 							}
 							return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
@@ -2025,15 +2038,6 @@ func startSymbolRuntime(
 			rt.capitalReservationStore = reservationStore
 			rt.capitalReservationBotID = botID
 			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
-			if checker, supported := reservationStore.(storage.AccountWalletCapitalAdmissionChecker); supported {
-				exchangeExecutor.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
-					return checker.CheckAccountWalletCapitalAdmission(guardCtx, []string{capitalClaim.WalletKey}, 2*accountWalletCapitalRefreshInterval)
-				})
-			} else {
-				exchangeExecutor.SetOpeningAdmissionGuard(func(context.Context) error {
-					return fmt.Errorf("persistent storage does not support shared wallet opening admission checks")
-				})
-			}
 			rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
 				distributedLock, botID, rt.capitalReservationClaims,
 				[]accountWalletBalanceReader{accountWalletBalanceReaderForClaim(capitalClaim, ex, storageService)}, superPositionManager.OpeningGate(),

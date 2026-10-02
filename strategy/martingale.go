@@ -1255,7 +1255,10 @@ func (s *MartingaleStrategy) reduceAllEntries(qty float64) {
 func (s *MartingaleStrategy) GetPositions() []*Position {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inventoryPositionsLocked()
+}
 
+func (s *MartingaleStrategy) inventoryPositionsLocked() []*Position {
 	if s.totalQty <= 0 {
 		return []*Position{}
 	}
@@ -1283,7 +1286,10 @@ func (s *MartingaleStrategy) GetPositions() []*Position {
 func (s *MartingaleStrategy) GetOrders() []*Order {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.inventoryOrdersLocked()
+}
 
+func (s *MartingaleStrategy) inventoryOrdersLocked() []*Order {
 	orders := make([]*Order, 0, len(s.entries))
 	for _, entry := range s.entries {
 		side := "BUY"

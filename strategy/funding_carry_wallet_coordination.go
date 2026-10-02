@@ -7,15 +7,30 @@ import (
 	"sync"
 	"time"
 
+	"quantmesh/execution"
 	"quantmesh/lock"
 )
 
 const (
-	fundingCarryWalletLockTTL      = 60 * time.Second
-	fundingCarryWalletUnlockBudget = 5 * time.Second
+	fundingCarryWalletLockTTL           = 60 * time.Second
+	fundingCarryWalletUnlockBudget      = 5 * time.Second
+	strategyWalletRuntimeOwnershipBlock = "runtime_ownership_unverified"
 )
 
 var fundingCarryWalletGates sync.Map // map[account scope]chan struct{}
+
+// WithAccountWalletCoordination shares the exact lease used by borrowing,
+// repayment and Funding Carry wallet mutations. Runtime verification must hold
+// it before draining strategy dispatches and acquiring physical snapshot locks.
+func WithAccountWalletCoordination(ctx context.Context, coordinator lock.DistributedLock, key string, operation func(context.Context) error) error {
+	if ctx == nil || coordinator == nil || key == "" || operation == nil {
+		return fmt.Errorf("wallet verification requires context, coordinator, owner key and operation")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return withAccountWalletCoordination(ctx, coordinator, key, operation)
+}
 
 func localFundingCarryWalletGate(key string) chan struct{} {
 	gate, _ := fundingCarryWalletGates.LoadOrStore(key, func() chan struct{} {
@@ -31,9 +46,24 @@ func localFundingCarryWalletGate(key string) chan struct{} {
 // Losing the lease cancels every exchange call using the operation context.
 func (s *FundingCarryStrategy) withAccountWalletCoordination(ctx context.Context, operation func(context.Context) error) error {
 	s.mu.RLock()
-	coordinator, key := s.accountWalletLock, s.accountWalletLockKey
+	coordinator, key, gate := s.accountWalletLock, s.accountWalletLockKey, s.openingGate
 	s.mu.RUnlock()
-	return withAccountWalletCoordination(ctx, coordinator, key, operation)
+	if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+		return err
+	}
+	return withAccountWalletCoordination(ctx, coordinator, key, func(operationCtx context.Context) error {
+		if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+			return err
+		}
+		return operation(operationCtx)
+	})
+}
+
+func verifyStrategyWalletRuntimeOwner(gate *execution.OpeningGate) error {
+	if gate != nil && gate.HasBlock(strategyWalletRuntimeOwnershipBlock) {
+		return fmt.Errorf("strategy wallet operation refused because runtime ownership is unverified")
+	}
+	return nil
 }
 
 // withAccountWalletCoordination serializes every strategy that mutates the

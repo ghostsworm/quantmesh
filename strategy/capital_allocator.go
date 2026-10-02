@@ -26,6 +26,7 @@ type CapitalAllocator struct {
 	strategies   map[string]*StrategyCapital
 	cfg          *config.Config
 	mu           sync.RWMutex
+	revision     uint64 // guarded by mu; invalidates capital-release proof after any mutation
 }
 
 // NewCapitalAllocator 創建资金分配器
@@ -50,6 +51,7 @@ func (ca *CapitalAllocator) GetConfig() *config.Config {
 func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedPool float64) {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	if math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
 		logger.Warn("⚠️ [资金分配] 策略 %s 权重无效 %.4f，已归零", name, weight)
@@ -73,6 +75,7 @@ func (ca *CapitalAllocator) RegisterStrategy(name string, weight float64, fixedP
 func (ca *CapitalAllocator) Allocate() {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	// 计算固定资金池總額
 	fixedPoolTotal := 0.0
@@ -165,6 +168,7 @@ func (ca *CapitalAllocator) Reserve(strategyName string, amount float64) bool {
 
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	capital, exists := ca.strategies[strategyName]
 	if !exists {
@@ -194,6 +198,7 @@ func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
 
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	capital, exists := ca.strategies[strategyName]
 	if !exists {
@@ -215,6 +220,7 @@ func (ca *CapitalAllocator) Release(strategyName string, amount float64) {
 func (ca *CapitalAllocator) ReleaseAll(strategyName string) float64 {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	capital, exists := ca.strategies[strategyName]
 	if !exists {
@@ -234,6 +240,7 @@ func (ca *CapitalAllocator) ReleaseAll(strategyName string) float64 {
 func (ca *CapitalAllocator) ReleaseAllStrategies() map[string]float64 {
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
+	ca.revision++
 
 	released := make(map[string]float64)
 	for name, capital := range ca.strategies {
@@ -730,6 +737,7 @@ func (da *DynamicAllocator) StartWithPerformanceProvider(allocator *CapitalAlloc
 
 				// 更新资金分配器
 				allocator.mu.Lock()
+				allocator.revision++
 				for name, weight := range adjustedWeights {
 					if capital, exists := allocator.strategies[name]; exists {
 						capital.Weight = weight

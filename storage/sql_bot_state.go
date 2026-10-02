@@ -1054,7 +1054,7 @@ CREATE TABLE IF NOT EXISTS margin_interest_sync_state (
   valuation_source VARCHAR(64) NOT NULL DEFAULT '',
   created_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   UNIQUE KEY uk_margin_interest_allocation_identity (identity_key),
-  KEY idx_margin_interest_allocations_bot_time (account_scope, exchange, bot_id, accrued_at)
+  KEY idx_margin_interest_allocations_bot_time (account_scope(384), exchange, bot_id, accrued_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`)
 	if err != nil {
 		return err

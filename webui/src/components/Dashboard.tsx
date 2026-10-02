@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import {
   Box,
@@ -25,6 +25,8 @@ import {
 } from '@chakra-ui/react'
 import { useConfig } from '../contexts/ConfigContext'
 import { formatTime } from '../utils/dateFormat'
+import { runCapitalRelease } from '../utils/capitalReleaseFlow'
+import type { CapitalReleaseSummary } from '../services/strategyCapitalApi'
 import { 
   TriangleUpIcon, 
   TriangleDownIcon, 
@@ -130,6 +132,7 @@ const Dashboard: React.FC = () => {
   const [togglePending, setTogglePending] = useState(false) // 启动/停止请求进行中，防重复点击
   const [needsSetup, setNeedsSetup] = useState<boolean | null>(null)
   const [releasingCapital, setReleasingCapital] = useState<string | null>(null)
+  const capitalReleasePending = useRef(false)
   const [symbolDirection, setSymbolDirection] = useState<'LONG' | 'SHORT' | null>(null)
   const { isOpen: isNewbieCheckOpen, onOpen: onNewbieCheckOpen, onClose: onNewbieCheckClose } = useDisclosure()
   const { isOpen: isStopDialogOpen, onOpen: onStopDialogOpen, onClose: onStopDialogClose } = useDisclosure()
@@ -217,79 +220,32 @@ const Dashboard: React.FC = () => {
 
   // 刷新策略资金分配
   const refreshStrategyAllocation = async () => {
-    try {
-      const data = await getStrategyAllocation()
-      setStrategyAllocation(data)
-    } catch (error) {
-      console.error('刷新策略资金分配失败:', error)
-    }
+    const data = await getStrategyAllocation()
+    setStrategyAllocation(data)
   }
 
-  // 释放单个策略的锁定资金
-  const handleReleaseCapital = async (strategyName: string) => {
-    setReleasingCapital(strategyName)
+  const handleCapitalRelease = async (key: string, request: () => Promise<CapitalReleaseSummary>) => {
+    if (capitalReleasePending.current) return
+    capitalReleasePending.current = true
+    setReleasingCapital(key)
     try {
-      const result = await releaseStrategyCapital(strategyName)
-      if (result.success) {
+      await runCapitalRelease(request, refreshStrategyAllocation, (notice) => {
         toast({
-          title: t('dashboard.releaseCapitalSuccess'),
-          description: t('dashboard.releasedAmount', { amount: result.released.toFixed(2) }),
-          status: 'success',
-          duration: 3000,
+          title: t(notice.titleKey),
+          description: t(notice.descriptionKey, { amount: notice.amount }),
+          status: notice.status,
+          duration: notice.status === 'success' ? 3000 : 8000,
         })
-        await refreshStrategyAllocation()
-      } else {
-        toast({
-          title: t('dashboard.releaseCapitalFailed'),
-          description: result.message,
-          status: 'error',
-          duration: 5000,
-        })
-      }
-    } catch (err) {
-      toast({
-        title: t('dashboard.releaseCapitalFailed'),
-        description: err instanceof Error ? err.message : String(err),
-        status: 'error',
-        duration: 5000,
       })
     } finally {
+      capitalReleasePending.current = false
       setReleasingCapital(null)
     }
   }
 
-  // 释放所有策略的锁定资金
-  const handleReleaseAllCapital = async () => {
-    setReleasingCapital('all')
-    try {
-      const result = await releaseAllStrategiesCapital()
-      if (result.success) {
-        toast({
-          title: t('dashboard.releaseAllCapitalSuccess'),
-          description: t('dashboard.releasedTotalAmount', { amount: result.total_released.toFixed(2) }),
-          status: 'success',
-          duration: 3000,
-        })
-        await refreshStrategyAllocation()
-      } else {
-        toast({
-          title: t('dashboard.releaseCapitalFailed'),
-          description: result.message,
-          status: 'error',
-          duration: 5000,
-        })
-      }
-    } catch (err) {
-      toast({
-        title: t('dashboard.releaseCapitalFailed'),
-        description: err instanceof Error ? err.message : String(err),
-        status: 'error',
-        duration: 5000,
-      })
-    } finally {
-      setReleasingCapital(null)
-    }
-  }
+  const handleReleaseCapital = (strategyName: string) =>
+    handleCapitalRelease(strategyName, () => releaseStrategyCapital(strategyName))
+  const handleReleaseAllCapital = () => handleCapitalRelease('all', releaseAllStrategiesCapital)
 
   const handleToggleTrading = async () => {
     if (togglePending) return
@@ -859,6 +815,7 @@ const Dashboard: React.FC = () => {
                                 colorScheme="orange"
                                 variant="ghost"
                                 isLoading={releasingCapital === name}
+                                isDisabled={releasingCapital !== null}
                                 onClick={() => handleReleaseCapital(name)}
                               >
                                 {t('dashboard.releaseCapital')}
@@ -895,6 +852,7 @@ const Dashboard: React.FC = () => {
                       colorScheme="orange"
                       variant="outline"
                       isLoading={releasingCapital === 'all'}
+                      isDisabled={releasingCapital !== null}
                       onClick={handleReleaseAllCapital}
                     >
                       {t('dashboard.releaseAllCapital')}

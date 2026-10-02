@@ -1,9 +1,34 @@
 package monitor
 
 import (
+	"context"
+	"errors"
 	"math"
 	"testing"
+	"time"
 )
+
+func TestQuoteEvidenceContextUsesSameAtomicReceivedQuote(t *testing.T) {
+	pm := &PriceMonitor{}
+	at := time.Now().Add(-time.Second)
+	pm.lastQuote.Store(&PriceChange{NewPrice: 100, Timestamp: at})
+	price, received, err := pm.GetQuoteEvidenceContext(t.Context())
+	if err != nil || price != 100 || received != at {
+		t.Fatalf("context quote refreshed evidence timestamp: %v %v %v", price, received, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, _, err := pm.GetQuoteEvidenceContext(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled quote accepted: %v", err)
+	}
+	if _, _, err := pm.GetQuoteEvidenceContext(nil); err == nil {
+		t.Fatal("nil context accepted")
+	}
+	var missing *PriceMonitor
+	if _, _, err := missing.GetQuoteEvidenceContext(t.Context()); err == nil {
+		t.Fatal("nil monitor accepted")
+	}
+}
 
 func TestQuoteEvidenceIncludesInitialUnchangedAndInvalidPrices(t *testing.T) {
 	pm := NewPriceMonitor(&fakePriceExchange{}, "BTCUSDT", 100)
