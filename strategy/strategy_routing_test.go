@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -199,6 +200,29 @@ func TestStrategyManagerFeedsOnlyRealizedPerformanceDeltasToDynamicAllocator(t *
 	dcaStats = sm.dynamicAllocator.GetPerformance("dca")
 	if dcaStats.TotalTrades != 3 || dcaStats.WinningTrades != 2 || dcaStats.TotalPnL != 145 {
 		t.Fatalf("incremental cumulative sample was not applied exactly once: %+v", dcaStats)
+	}
+}
+
+func TestStrategyManagerSetsDynamicPnLCapitalBaselinesFromInitialAllocation(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.Enabled = true
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{
+		"small": {Enabled: true},
+		"large": {Enabled: true},
+	}
+	sm := NewStrategyManager(cfg, 1000)
+	sm.RegisterStrategy("small", &routingTestStrategy{name: "small"}, 1, 0)
+	sm.RegisterStrategy("large", &routingTestStrategy{name: "large"}, 3, 0)
+	defer sm.StopAllWithError()
+
+	if err := sm.StartAll(); err != nil {
+		t.Fatalf("StartAll: %v", err)
+	}
+	if got := sm.dynamicAllocator.GetPerformance("small").CapitalBaseline; math.Abs(got-250) > 1e-9 {
+		t.Fatalf("small capital baseline = %v, want initial allocation 250", got)
+	}
+	if got := sm.dynamicAllocator.GetPerformance("large").CapitalBaseline; math.Abs(got-750) > 1e-9 {
+		t.Fatalf("large capital baseline = %v, want initial allocation 750", got)
 	}
 }
 

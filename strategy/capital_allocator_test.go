@@ -235,6 +235,8 @@ func TestDynamicAllocatorTargetsAndRebalancesWithinBoundsAndUnitSum(t *testing.T
 	da := NewDynamicAllocator(cfg)
 	da.RegisterStrategy("winner", 0.5)
 	da.RegisterStrategy("loser", 0.5)
+	da.setCapitalBaseline("winner", 1000)
+	da.setCapitalBaseline("loser", 1000)
 	da.UpdatePerformance("winner", 1000, true)
 	da.UpdatePerformance("loser", -1000, false)
 
@@ -258,6 +260,30 @@ func TestDynamicAllocatorTargetsAndRebalancesWithinBoundsAndUnitSum(t *testing.T
 		if math.Abs(weights["winner"]-previous) > da.maxChangePerRebalance+1e-9 {
 			t.Fatalf("step %d exceeded per-rebalance change", step)
 		}
+	}
+}
+
+func TestDynamicAllocatorNormalizesPnLByFixedCapitalBaseline(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.CapitalAllocation.DynamicAllocation.PerformanceWeights = map[string]float64{"total_pnl": 1}
+	da := NewDynamicAllocator(cfg)
+	da.RegisterStrategy("small", 0.5)
+	da.RegisterStrategy("large", 0.5)
+	da.setCapitalBaseline("small", 1000)
+	da.setCapitalBaseline("large", 10000)
+	da.UpdatePerformance("small", 100, true)
+	da.UpdatePerformance("large", 1000, true)
+
+	got := da.CalculateTargetWeights()
+	if math.Abs(got["small"]-0.5) > 1e-9 || math.Abs(got["large"]-0.5) > 1e-9 {
+		t.Fatalf("equal 10%% returns with different capital sizes should score equally, got %#v", got)
+	}
+
+	missingBaseline := NewDynamicAllocator(cfg)
+	missingBaseline.RegisterStrategy("no-baseline", 1)
+	missingBaseline.UpdatePerformance("no-baseline", 10000, true)
+	if score := missingBaseline.calculateScore(missingBaseline.strategies["no-baseline"]); score != 0 {
+		t.Fatalf("absolute PnL without a capital baseline produced score %v", score)
 	}
 }
 

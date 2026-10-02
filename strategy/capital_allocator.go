@@ -316,16 +316,17 @@ func (ca *CapitalAllocator) GetAllStrategiesCapital() map[string]*StrategyCapita
 
 // StrategyPerformance 策略表現
 type StrategyPerformance struct {
-	TotalPnL      float64
-	WinRate       float64
-	SharpeRatio   float64
-	MaxDrawdown   float64
-	CurrentWeight float64
-	TargetWeight  float64
-	TotalTrades   int
-	WinningTrades int
-	LosingTrades  int
-	mu            sync.RWMutex
+	TotalPnL        float64
+	CapitalBaseline float64
+	WinRate         float64
+	SharpeRatio     float64
+	MaxDrawdown     float64
+	CurrentWeight   float64
+	TargetWeight    float64
+	TotalTrades     int
+	WinningTrades   int
+	LosingTrades    int
+	mu              sync.RWMutex
 }
 
 // DynamicAllocator 动態分配器
@@ -413,6 +414,23 @@ func (da *DynamicAllocator) RegisterStrategy(name string, initialWeight float64)
 		TotalTrades:   0,
 		WinningTrades: 0,
 		LosingTrades:  0,
+	}
+}
+
+func (da *DynamicAllocator) setCapitalBaseline(name string, capital float64) {
+	if !finiteNumber(capital) || capital <= 0 {
+		return
+	}
+	da.mu.RLock()
+	perf, exists := da.strategies[name]
+	da.mu.RUnlock()
+	if !exists {
+		return
+	}
+	perf.mu.Lock()
+	defer perf.mu.Unlock()
+	if perf.CapitalBaseline == 0 {
+		perf.CapitalBaseline = capital
 	}
 }
 
@@ -597,9 +615,15 @@ func (da *DynamicAllocator) calculateScore(perf *StrategyPerformance) float64 {
 
 	// 總盈亏得分（越高越好）
 	if pnlWeight, ok := da.performanceWeights["total_pnl"]; ok && pnlWeight > 0 {
-		// 归一化到0-1範圍（假設最大盈亏為總资金的10%）
-		pnlScore := math.Max(0, math.Min(1, perf.TotalPnL/1000))
-		score += pnlScore * pnlWeight
+		// Compare percentage returns against the fixed startup allocation. A
+		// missing baseline is not evidence for ranking by absolute currency PnL.
+		if perf.CapitalBaseline > 0 {
+			pnlReturn := perf.TotalPnL / perf.CapitalBaseline
+			if finiteNumber(pnlReturn) {
+				pnlScore := math.Max(0, math.Min(1, pnlReturn/0.1))
+				score += pnlScore * pnlWeight
+			}
+		}
 	}
 
 	// 胜率得分（越高越好）
@@ -741,14 +765,15 @@ func (da *DynamicAllocator) GetPerformance(strategyName string) *StrategyPerform
 	defer perf.mu.RUnlock()
 
 	return &StrategyPerformance{
-		TotalPnL:      perf.TotalPnL,
-		WinRate:       perf.WinRate,
-		SharpeRatio:   perf.SharpeRatio,
-		MaxDrawdown:   perf.MaxDrawdown,
-		CurrentWeight: perf.CurrentWeight,
-		TargetWeight:  perf.TargetWeight,
-		TotalTrades:   perf.TotalTrades,
-		WinningTrades: perf.WinningTrades,
-		LosingTrades:  perf.LosingTrades,
+		TotalPnL:        perf.TotalPnL,
+		CapitalBaseline: perf.CapitalBaseline,
+		WinRate:         perf.WinRate,
+		SharpeRatio:     perf.SharpeRatio,
+		MaxDrawdown:     perf.MaxDrawdown,
+		CurrentWeight:   perf.CurrentWeight,
+		TargetWeight:    perf.TargetWeight,
+		TotalTrades:     perf.TotalTrades,
+		WinningTrades:   perf.WinningTrades,
+		LosingTrades:    perf.LosingTrades,
 	}
 }

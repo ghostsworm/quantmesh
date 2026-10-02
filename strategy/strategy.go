@@ -199,6 +199,11 @@ func (sm *StrategyManager) isStrategyEnabledLocked(name string) bool {
 func (sm *StrategyManager) StartAll() error {
 	// 1. 分配资金
 	sm.allocator.Allocate()
+	if sm.dynamicAllocator != nil {
+		for name, capital := range sm.allocator.GetAllStrategiesCapital() {
+			sm.dynamicAllocator.setCapitalBaseline(name, capital.Allocated)
+		}
+	}
 
 	// 2. Start synchronously so startup/recovery failures reach the Bot runtime.
 	type namedStrategy struct {
