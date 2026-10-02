@@ -85,6 +85,7 @@ type SymbolRuntime struct {
 	capitalReservationStop   func()
 	ClampOpenControl         func(config.OpenPositionControl) (config.OpenPositionControl, error)
 	Stop                     func()
+	fundingIncomeCancel      context.CancelFunc
 	shutdownContextMu        sync.RWMutex
 	shutdownContext          context.Context
 	closeManagerMu           sync.Mutex
@@ -1828,6 +1829,9 @@ func startSymbolRuntime(
 			}
 			stopFeeRefresh()
 			stopAutoRebuild()
+			if rt.fundingIncomeCancel != nil {
+				rt.fundingIncomeCancel()
+			}
 			if rt.capitalReservationStop != nil {
 				rt.capitalReservationStop()
 			}
@@ -1938,6 +1942,12 @@ func startSymbolRuntime(
 	}
 	rt.StopWithError = stopFn
 	rt.Stop = func() { _ = stopFn() }
+	if symCfg.GetMarketType() == "futures" && storageService != nil && storageService.GetStorage() != nil {
+		fundingSyncCtx, cancelFundingSync := context.WithCancel(ctx)
+		rt.fundingIncomeCancel = cancelFundingSync
+		go startFundingIncomeSync(fundingSyncCtx, storageService.GetStorage(), ex,
+			symCfg.Exchange, symCfg.Symbol, accountID, symCfg.GetMarketType(), rt.AccountScope)
+	}
 	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
 		if reservationStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
 			rt.capitalReservationStore = reservationStore
