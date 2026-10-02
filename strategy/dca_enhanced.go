@@ -776,6 +776,9 @@ func (s *DCAEnhancedStrategy) effectiveBotID() string {
 
 // Start 啟动策略
 func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.configErr != nil {
 		return fmt.Errorf("invalid DCA strategy configuration; refusing to start: %w", s.configErr)
 	}
@@ -791,10 +794,17 @@ func (s *DCAEnhancedStrategy) Start(ctx context.Context) error {
 	if err := s.reconcilePersistedOrders(ctx); err != nil {
 		return fmt.Errorf("DCA persisted order recovery failed; strategy remains stopped: %w", err)
 	}
+	runCtx, cancel := context.WithCancel(ctx)
 	s.mu.Lock()
-	s.ctx = ctx
+	oldCancel := s.cancel
+	s.ctx = runCtx
+	s.cancel = cancel
 	s.isRunning = true
 	s.mu.Unlock()
+	if oldCancel != nil {
+		oldCancel()
+	}
+	go s.runOrderReconciliation(runCtx)
 
 	logger.Info("✅ [%s] 增强型 DCA 策略已啟动", s.name)
 	logger.Info("📊 配置: 最大层數=%d, 基础订單=%.2f, ATR周期=%d",
@@ -844,11 +854,13 @@ func dcaRoundQuantityDown(quantity float64, decimals int) (float64, error) {
 // Stop 停止策略
 func (s *DCAEnhancedStrategy) Stop() error {
 	s.mu.Lock()
+	cancel := s.cancel
+	s.cancel = nil
 	s.isRunning = false
 	s.mu.Unlock()
 
-	if s.cancel != nil {
-		s.cancel()
+	if cancel != nil {
+		cancel()
 	}
 
 	logger.Info("⏹️ [%s] 增强型 DCA 策略已停止", s.name)

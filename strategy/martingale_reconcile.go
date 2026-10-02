@@ -9,12 +9,47 @@ import (
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/utils"
 )
 
 type martingaleCloseOrderByClientID interface {
 	GetOrderByClientOrderID(context.Context, string, string) (*exchange.Order, error)
+}
+
+const martingaleRuntimeReconcileInterval = 3 * time.Second
+
+func (s *MartingaleStrategy) runEntryOrderReconciliation(ctx context.Context) {
+	ticker := time.NewTicker(martingaleRuntimeReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !s.hasPendingMartingaleEntryReconciliation() {
+				continue
+			}
+			reconcileCtx, cancel := context.WithTimeout(ctx, dcaFillEvidenceTimeout)
+			err := s.reconcilePersistedEntryOrders(reconcileCtx)
+			cancel()
+			if err != nil && ctx.Err() == nil {
+				logger.Warn("⚠️ [%s] 马丁格尔运行时订单对账仍未完成，将重试: %v", s.name, err)
+			}
+		}
+	}
+}
+
+func (s *MartingaleStrategy) hasPendingMartingaleEntryReconciliation() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, entry := range s.entries {
+		if entry != nil && (entry.Status == entryStatusPending || entry.Status == entryStatusPartiallyFilled || entry.Status == position.OrderStatusUnknown) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *MartingaleStrategy) resolveUnverifiedCommission(update *position.OrderUpdate) error {

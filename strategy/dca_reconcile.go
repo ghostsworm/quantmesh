@@ -9,10 +9,44 @@ import (
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/logger"
 	"quantmesh/position"
 )
 
 const dcaFillEvidenceTimeout = 15 * time.Second
+const dcaRuntimeReconcileInterval = 3 * time.Second
+
+func (s *DCAEnhancedStrategy) runOrderReconciliation(ctx context.Context) {
+	ticker := time.NewTicker(dcaRuntimeReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !s.hasPendingDCAOrderReconciliation() {
+				continue
+			}
+			reconcileCtx, cancel := context.WithTimeout(ctx, dcaFillEvidenceTimeout)
+			err := s.reconcilePersistedOrders(reconcileCtx)
+			cancel()
+			if err != nil && ctx.Err() == nil {
+				logger.Warn("⚠️ [%s] DCA 运行时订单对账仍未完成，将重试: %v", s.name, err)
+			}
+		}
+	}
+}
+
+func (s *DCAEnhancedStrategy) hasPendingDCAOrderReconciliation() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, layer := range s.layers {
+		if layer != nil && (layer.Status == entryStatusPending || layer.Status == entryStatusPartiallyFilled || layer.Status == position.OrderStatusUnknown) {
+			return true
+		}
+	}
+	return s.isClosing
+}
 
 type dcaOrderIntent struct {
 	orderID       int64

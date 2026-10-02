@@ -347,6 +347,7 @@ func (s *MartingaleStrategy) Start(ctx context.Context) error {
 	if oldCancel != nil {
 		oldCancel()
 	}
+	go s.runEntryOrderReconciliation(runCtx)
 
 	logger.Info("✅ [%s] 马丁格尔策略已啟动", s.name)
 	logger.Info("📊 配置: 方向=%s, 初始金額=%.2f, 倍數=%.1f, 最大层數=%d",
