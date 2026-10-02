@@ -31,7 +31,7 @@ func configureRuntimeExposure(executor *order.ExchangeOrderExecutor, quote func(
 	return book, nil
 }
 
-func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, ex exchange.IExchange, backend runtimeIntentBackend, scope execution.IntentScope, book *execution.ExposureBook, spm *position.SuperPositionManager) error {
+func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, ex exchange.IExchange, backend runtimeIntentBackend, scope execution.IntentScope, book *execution.ExposureBook, spm *position.SuperPositionManager, signalInventory []execution.ExposurePosition, signalStateRestored bool) error {
 	gate.Block(runtimeExposureBootstrapBlock)
 	snapshotCtx, releaseSnapshot, err := executor.BeginPositionSnapshot(ctx)
 	if err != nil {
@@ -69,6 +69,17 @@ func bootstrapRuntimeExposure(ctx context.Context, executor *order.ExchangeOrder
 		}
 		if !verified {
 			return fmt.Errorf("restored grid inventory entry orders lack exact owner intent and order-ledger evidence")
+		}
+	}
+	inventory = append(inventory, signalInventory...)
+	restored = restored || signalStateRestored
+	if len(signalInventory) != 0 {
+		verified, err := backend.HasVerifiedExecutionOrderIDs(snapshotCtx, scope, signalInventory)
+		if err != nil {
+			return fmt.Errorf("verify restored signal strategy entry-order ownership: %w", err)
+		}
+		if !verified {
+			return fmt.Errorf("restored signal strategy inventory lacks exact owner intent and order-ledger evidence")
 		}
 	}
 	if strings.EqualFold(scope.Market, "spot") {
@@ -150,8 +161,9 @@ func verifyRestoredFuturesInventory(venue []*exchange.Position, inventory []exec
 	}
 	var ownerLong, ownerShort float64
 	for _, p := range inventory {
-		if p.Group != "grid" || p.Quantity <= 0 || math.IsNaN(p.Quantity) || math.IsInf(p.Quantity, 0) {
-			return fmt.Errorf("restored grid inventory contains invalid owner quantity")
+		if p.Group != "grid" && p.Group != "trend" && p.Group != "mean_reversion" && p.Group != "momentum" ||
+			p.Quantity <= 0 || math.IsNaN(p.Quantity) || math.IsInf(p.Quantity, 0) {
+			return fmt.Errorf("restored strategy inventory contains invalid owner quantity or group")
 		}
 		switch p.Leg {
 		case "LONG":
@@ -169,7 +181,7 @@ func verifyRestoredFuturesInventory(venue []*exchange.Position, inventory []exec
 		return fmt.Errorf("non-empty derivatives position has no restored owner ledger")
 	}
 	if !restoredQuantitiesMatch(venueLong, ownerLong) || !restoredQuantitiesMatch(venueShort, ownerShort) {
-		return fmt.Errorf("venue gross positions do not exactly reconcile to restored grid owner inventory")
+		return fmt.Errorf("venue gross positions do not exactly reconcile to restored strategy owner inventory")
 	}
 	return nil
 }

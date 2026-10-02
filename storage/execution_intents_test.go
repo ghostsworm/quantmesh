@@ -1,15 +1,94 @@
 package storage
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"quantmesh/execution"
 )
+
+func TestVerifiedSignalEntryOrderRequiresExactOwnerStrategyAndCID(t *testing.T) {
+	s, err := NewSQLStorage(filepath.Join(t.TempDir(), "signal-entry.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	scope := execution.IntentScope{Account: "account-signal", Exchange: "fake", Market: "futures", Symbol: "BTCUSDT", Bot: "signal-bot"}
+	if err := s.MigrateExecutionIntents(ctx); err != nil {
+		t.Fatal(err)
+	}
+	key, err := scope.Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const cid = "trend-entry-cid"
+	evidence := struct {
+		Version int
+		Scope   execution.IntentScope
+		Request struct {
+			ClientOrderID string
+			Symbol        string
+			Side          string
+			PositionSide  string
+			StrategyType  string
+		}
+		Opening bool
+		Order   *struct {
+			OrderID       int64
+			ClientOrderID string
+			Symbol        string
+			Side          string
+			ExecutedQty   float64
+			Status        string
+		}
+		Settled bool
+	}{Version: 1, Scope: scope, Opening: true, Settled: true,
+		Order: &struct {
+			OrderID       int64
+			ClientOrderID string
+			Symbol        string
+			Side          string
+			ExecutedQty   float64
+			Status        string
+		}{OrderID: 713, ClientOrderID: cid, Symbol: scope.Symbol, Side: "BUY", ExecutedQty: 0.25, Status: "FILLED"}}
+	evidence.Request = struct {
+		ClientOrderID string
+		Symbol        string
+		Side          string
+		PositionSide  string
+		StrategyType  string
+	}{ClientOrderID: cid, Symbol: scope.Symbol, Side: "BUY", PositionSide: "LONG", StrategyType: "trend"}
+	payload, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveExecutionIntent(ctx, key, cid, 0, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveOrder(&Order{OrderID: 713, BotID: scope.Bot, Account: scope.Bot, MarketType: scope.Market, AccountScope: scope.Account,
+		ClientOrderID: cid, Symbol: scope.Symbol, Side: "BUY", Exchange: scope.Exchange, Type: "LIMIT",
+		Price: 100, Quantity: 0.25, FilledQty: 0.25, Status: "FILLED", StrategyName: "trend", StrategyType: "trend",
+		CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	position := execution.ExposurePosition{Key: "signal/trend/" + cid, Group: "trend", Leg: "LONG", Quantity: 0.25,
+		EntryOrderID: 713, EntryClientOrderID: cid}
+	if ok, err := s.HasVerifiedExecutionOrderIDs(ctx, scope, []execution.ExposurePosition{position}); err != nil || !ok {
+		t.Fatalf("exact signal execution was not verified: ok=%t err=%v", ok, err)
+	}
+	position.EntryClientOrderID = "another-strategys-cid"
+	if ok, err := s.HasVerifiedExecutionOrderIDs(ctx, scope, []execution.ExposurePosition{position}); err != nil || ok {
+		t.Fatalf("mismatched signal CID was accepted: ok=%t err=%v", ok, err)
+	}
+}
 
 func TestExecutionIntentJournalDurableCASAndMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "intents.db")

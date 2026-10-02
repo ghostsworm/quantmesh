@@ -16,7 +16,7 @@ import (
 )
 
 func TestSignalFillsCumulativeCloseAndCancel(t *testing.T) {
-	active := &Order{OrderID: 1, Symbol: "BTCUSDT", Quantity: 2, Price: 100}
+	active := &Order{OrderID: 1, ClientOrderID: "signal-entry-1", Symbol: "BTCUSDT", Quantity: 2, Price: 100}
 	action := signalActionOpenLong
 	var holding *Position
 	entry := 0.0
@@ -27,7 +27,7 @@ func TestSignalFillsCumulativeCloseAndCancel(t *testing.T) {
 	apply(1, "PARTIALLY_FILLED", 1, 100)
 	apply(1, "PARTIALLY_FILLED", 0.5, 90)
 	apply(1, "FILLED", 2, 110)
-	if holding.Size != 2 || entry != 110 || active != nil {
+	if holding.Size != 2 || entry != 110 || active != nil || holding.EntryOrderID != 1 || holding.EntryClientOrderID != "signal-entry-1" {
 		t.Fatalf("holding=%+v entry=%v active=%v", holding, entry, active)
 	}
 	active = &Order{OrderID: 2, Symbol: "BTCUSDT", Quantity: 2, Price: 120}

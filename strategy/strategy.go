@@ -36,12 +36,14 @@ type EventBus interface {
 
 // Position 持倉資訊
 type Position struct {
-	Symbol       string
-	Size         float64
-	EntryPrice   float64
-	OpeningFee   float64
-	CurrentPrice float64
-	PnL          float64
+	Symbol             string
+	Size               float64
+	EntryPrice         float64
+	OpeningFee         float64
+	CurrentPrice       float64
+	PnL                float64
+	EntryOrderID       int64
+	EntryClientOrderID string
 }
 
 // Order 订單信息

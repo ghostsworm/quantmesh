@@ -156,7 +156,8 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 	}
 	required := make(map[int64]execution.ExposurePosition, len(positions))
 	for _, position := range positions {
-		if position.Group != "grid" || position.EntryOrderID <= 0 || (position.Leg != "LONG" && position.Leg != "SHORT") ||
+		if !restorableExecutionGroup(position.Group) || position.EntryOrderID <= 0 ||
+			(position.Group != "grid" && strings.TrimSpace(position.EntryClientOrderID) == "") || (position.Leg != "LONG" && position.Leg != "SHORT") ||
 			position.Quantity <= 0 || math.IsNaN(position.Quantity) || math.IsInf(position.Quantity, 0) {
 			return false, nil
 		}
@@ -190,6 +191,7 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 					Symbol        string
 					Side          string
 					PositionSide  string
+					StrategyType  string
 				}
 				Opening bool
 				Order   *struct {
@@ -217,6 +219,8 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 			}
 			position, needed := required[evidence.Order.OrderID]
 			if !needed || !evidence.Opening || !exposurePositionEntrySide(position.Leg, evidence.Request.Side) ||
+				!strings.EqualFold(evidence.Request.StrategyType, position.Group) ||
+				(position.EntryClientOrderID != "" && position.EntryClientOrderID != evidence.Request.ClientOrderID) ||
 				!strings.EqualFold(evidence.Order.Side, evidence.Request.Side) ||
 				(evidence.Request.PositionSide != "" && !strings.EqualFold(evidence.Request.PositionSide, position.Leg)) ||
 				position.Quantity > evidence.Order.ExecutedQty+restoredOrderQuantityTolerance(position.Quantity, evidence.Order.ExecutedQty) {
@@ -233,7 +237,7 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 		}
 	}
 
-	rows, err := s.db.QueryContext(ctx, `SELECT order_id, client_order_id, side, filled_qty FROM orders WHERE exchange = ? AND symbol = ? AND bot_id = ?`, scope.Exchange, scope.Symbol, scope.Bot)
+	rows, err := s.db.QueryContext(ctx, `SELECT order_id, client_order_id, side, filled_qty FROM orders WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND bot_id = ?`, scope.Exchange, scope.Market, scope.Account, scope.Symbol, scope.Bot)
 	if err != nil {
 		return false, err
 	}
@@ -268,6 +272,15 @@ func (s *SQLStorage) HasVerifiedExecutionOrderIDs(ctx context.Context, scope exe
 		return false, err
 	}
 	return len(verified) == len(required), nil
+}
+
+func restorableExecutionGroup(group string) bool {
+	switch group {
+	case "grid", "trend", "mean_reversion", "momentum":
+		return true
+	default:
+		return false
+	}
 }
 
 func restoredOrderQuantityTolerance(a, b float64) float64 {

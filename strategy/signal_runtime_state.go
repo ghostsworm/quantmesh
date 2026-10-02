@@ -12,6 +12,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/position"
 	"quantmesh/utils"
 )
@@ -30,6 +31,39 @@ type signalRuntimeState struct {
 	PendingAction string             `json:"pending_action,omitempty"`
 	Statistics    StrategyStatistics `json:"statistics"`
 	IsPaused      bool               `json:"is_paused"`
+}
+
+// LoadSignalRuntimeExposureInventory returns only persisted long lots with a
+// durable entry-order identity. Startup must separately verify these IDs
+// against the owner-scoped intent journal and order ledger before seeding risk.
+func LoadSignalRuntimeExposureInventory(store RuntimeStateStore, cfg *config.Config, ex position.IExchange, symbol string, names ...string) ([]execution.ExposurePosition, bool, error) {
+	var inventory []execution.ExposurePosition
+	stateFound := false
+	for _, name := range names {
+		state, found, err := loadSignalRuntimeState(store, cfg, ex, name, symbol)
+		if err != nil {
+			return nil, false, err
+		}
+		if !found {
+			continue
+		}
+		stateFound = true
+		if state.ActiveOrder != nil || state.PendingAction != "" {
+			return nil, false, fmt.Errorf("signal strategy %s has unresolved order state during exposure bootstrap", name)
+		}
+		if state.Position == nil {
+			continue
+		}
+		p := state.Position
+		if p.EntryOrderID <= 0 || strings.TrimSpace(p.EntryClientOrderID) == "" {
+			return nil, false, fmt.Errorf("signal strategy %s inventory lacks durable entry-order identity", name)
+		}
+		inventory = append(inventory, execution.ExposurePosition{
+			Key: "signal/" + name + "/" + p.EntryClientOrderID, Group: name, Leg: "LONG",
+			Quantity: p.Size, EntryOrderID: p.EntryOrderID, EntryClientOrderID: p.EntryClientOrderID,
+		})
+	}
+	return inventory, stateFound, nil
 }
 
 func signalStrategyBotID(cfg *config.Config, exchange position.IExchange, symbol string) string {

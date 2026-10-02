@@ -1018,3 +1018,40 @@ func TestSignalRuntimeStateRejectsActiveOrderIdentityOrActionMismatch(t *testing
 		})
 	}
 }
+
+func TestLoadSignalRuntimeExposureInventoryRequiresVerifiedEntryIdentity(t *testing.T) {
+	cfg := dcaTestConfig()
+	cfg.Trading.BotID, cfg.Trading.Symbol = "signal-exposure-owner", "BTCUSDT"
+	base := signalRuntimeState{BotID: cfg.Trading.BotID, StrategyName: "trend", Symbol: "BTCUSDT", EntryPrice: 100,
+		Position: &Position{Symbol: "BTCUSDT", Size: 0.25, EntryPrice: 100, CurrentPrice: 100, EntryOrderID: 712, EntryClientOrderID: "trend-entry-712"}}
+	marshalStore := func(t *testing.T, state signalRuntimeState) *memoryRuntimeStateStore {
+		t.Helper()
+		payload, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	}
+	t.Run("identified holding restores exact owner lot", func(t *testing.T) {
+		lots, found, err := LoadSignalRuntimeExposureInventory(marshalStore(t, base), cfg, &hedgeExchange{}, "BTCUSDT", "trend")
+		if err != nil || !found || len(lots) != 1 || lots[0].Group != "trend" || lots[0].EntryOrderID != 712 ||
+			lots[0].EntryClientOrderID != "trend-entry-712" || lots[0].Quantity != 0.25 {
+			t.Fatalf("restored inventory=%+v found=%t err=%v", lots, found, err)
+		}
+	})
+	t.Run("legacy holding without order identity fails closed", func(t *testing.T) {
+		legacy := base
+		legacy.Position = &Position{Symbol: "BTCUSDT", Size: 0.25, EntryPrice: 100, CurrentPrice: 100}
+		if _, _, err := LoadSignalRuntimeExposureInventory(marshalStore(t, legacy), cfg, &hedgeExchange{}, "BTCUSDT", "trend"); err == nil {
+			t.Fatal("accepted a legacy position that cannot be tied to an entry execution")
+		}
+	})
+	t.Run("active order remains unresolved", func(t *testing.T) {
+		pending := base
+		pending.PendingAction = signalActionCloseLong
+		pending.ActiveOrder = &Order{OrderID: 713, ClientOrderID: "trend-close-713", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.25, Price: 101}
+		if _, _, err := LoadSignalRuntimeExposureInventory(marshalStore(t, pending), cfg, &hedgeExchange{}, "BTCUSDT", "trend"); err == nil {
+			t.Fatal("accepted a state with an active close intent")
+		}
+	})
+}

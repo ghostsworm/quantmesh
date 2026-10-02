@@ -858,10 +858,29 @@ func startSymbolRuntime(
 			logger.ErrorCtx(ctx, "🚨 [%s] 發現 %d 筆尚未核賬的持久化手續費更正，已封鎖新開倉", botID, pendingCorrections)
 		}
 	}
-	if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager); err != nil {
-		logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
-	} else {
-		superPositionManager.MarkGridRuntimeVenueFlatVerified()
+	var signalInventory []execution.ExposurePosition
+	var signalStateRestored bool
+	var signalStateLoadErr error
+	var signalStrategyNames []string
+	for _, name := range []string{"trend", "mean_reversion", "momentum"} {
+		if strategyCfg, exists := localCfg.Strategies.Configs[name]; exists && strategyCfg.Enabled {
+			signalStrategyNames = append(signalStrategyNames, name)
+		}
+	}
+	if len(signalStrategyNames) > 0 {
+		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
+		signalInventory, signalStateRestored, signalStateLoadErr = strategy.LoadSignalRuntimeExposureInventory(stateStore, &localCfg, exchangeAdapter, symCfg.Symbol, signalStrategyNames...)
+		if signalStateLoadErr != nil {
+			logger.ErrorCtx(ctx, "[%s] signal strategy exposure recovery incomplete; new opening remains blocked: %v", botID, signalStateLoadErr)
+			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
+		}
+	}
+	if signalStateLoadErr == nil {
+		if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager, signalInventory, signalStateRestored); err != nil {
+			logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
+		} else {
+			superPositionManager.MarkGridRuntimeVenueFlatVerified()
+		}
 	}
 	if localCfg.CircuitBreaker.Enabled && localCfg.CircuitBreaker.Triggers.MaxDrawdown.Enabled {
 		superPositionManager.SetEquityRiskPaused(true) // no opening before the first verified equity sample

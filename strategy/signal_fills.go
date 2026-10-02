@@ -64,7 +64,7 @@ func applySignalOrderUpdate(active **Order, action *string, holding **Position, 
 		order.FillProgress = nextProgress
 		order.FeeVerifiedQty += delta
 		order.FeeProgress += fee
-		applySignalFill(order.Symbol, *action, holding, entry, stats, delta, price, fee)
+		applySignalFill(order, *action, holding, entry, stats, delta, price, fee)
 	}
 	if signalOrderStatusFilled(update.Status) && quantity < order.Quantity-entryQtyEpsilon {
 		// Account the verified cumulative fill above, but do not let an
@@ -96,11 +96,11 @@ func retainSignalOrderForReconciliation(order *Order, executor position.OrderExe
 	}
 }
 
-func applySignalFill(symbol, action string, holding **Position, entry *float64, stats *StrategyStatistics, quantity, price, fee float64) {
+func applySignalFill(order *Order, action string, holding **Position, entry *float64, stats *StrategyStatistics, quantity, price, fee float64) {
 	switch action {
 	case signalActionOpenLong:
 		if *holding == nil {
-			*holding = &Position{Symbol: symbol}
+			*holding = &Position{Symbol: order.Symbol, EntryOrderID: order.OrderID, EntryClientOrderID: order.ClientOrderID}
 		}
 		p := *holding
 		cost := p.Size*p.EntryPrice + quantity*price

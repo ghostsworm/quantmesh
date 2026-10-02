@@ -57,7 +57,7 @@ func runtimeExposureFixture(t *testing.T, venue *runtimeJournalVenue) (*order.Ex
 	if err := store.MigrateExecutionIntents(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	if err := bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, runtimeJournalScope(), book, spm); err != nil {
+	if err := bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, runtimeJournalScope(), book, spm, nil, false); err != nil {
 		t.Fatal(err)
 	}
 	return executor, spm, book, store
@@ -114,6 +114,21 @@ func TestRuntimeExposureSharedGridStrategyAndHotLimits(t *testing.T) {
 	}
 	if br.GetPositionStatus()["should_stop_opening"] != false {
 		t.Fatal("verified under-limit exposure was reported as blocked")
+	}
+}
+
+func TestRestoredFuturesInventoryReconcilesGridAndSignalStrategyLots(t *testing.T) {
+	venue := []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.75, PositionSide: "LONG"}}
+	inventory := []execution.ExposurePosition{
+		{Key: "grid:long:100", Group: "grid", Leg: "LONG", Quantity: 0.5, EntryOrderID: 1},
+		{Key: "signal/trend/trend-entry", Group: "trend", Leg: "LONG", Quantity: 0.25, EntryOrderID: 2, EntryClientOrderID: "trend-entry"},
+	}
+	if err := verifyRestoredFuturesInventory(venue, inventory, true, "LONG"); err != nil {
+		t.Fatalf("mixed strategy inventory did not reconcile: %v", err)
+	}
+	inventory[1].Group = "unrecognized"
+	if err := verifyRestoredFuturesInventory(venue, inventory, true, "LONG"); err == nil {
+		t.Fatal("accepted inventory from a strategy without a verified restore path")
 	}
 }
 
@@ -234,7 +249,7 @@ func TestRuntimeExposureBootstrapCannotSeedExistingAccount(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := bootstrapRuntimeExposure(t.Context(), restarted, gate, v, store, runtimeJournalScope(), book, nil); err == nil {
+		if err := bootstrapRuntimeExposure(t.Context(), restarted, gate, v, store, runtimeJournalScope(), book, nil, nil, false); err == nil {
 			t.Fatal("history declared empty")
 		}
 		if s := restarted.ExposureSnapshot(); s.Ready {
@@ -274,7 +289,7 @@ func TestRuntimeExposureBootstrapSeedsOnlyExactlyReconciledRestoredFuturesInvent
 				t.Fatal(err)
 			}
 			const entryClientOrderID = "restored-entry"
-			entry, err := journalWriter.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 99, Quantity: 0.25, ClientOrderID: entryClientOrderID})
+			entry, err := journalWriter.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 99, Quantity: 0.25, ClientOrderID: entryClientOrderID, StrategyType: "grid"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -324,7 +339,7 @@ func TestRuntimeExposureBootstrapSeedsOnlyExactlyReconciledRestoredFuturesInvent
 				t.Fatalf("restore owner state: restored=%t err=%v", restored, err)
 			}
 			gate.Block("grid_runtime_state_reconciliation")
-			err = bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, scope, book, spm)
+			err = bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, scope, book, spm, nil, false)
 			if !test.wantCloseOK {
 				if err == nil || book.Snapshot(time.Now()).PositionQuantity != 0 {
 					t.Fatalf("mismatched venue state was accepted: err=%v snapshot=%+v", err, book.Snapshot(time.Now()))
@@ -386,7 +401,7 @@ func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T)
 			if err := store.MigrateExecutionIntents(t.Context()); err != nil {
 				t.Fatal(err)
 			}
-			if err := bootstrapRuntimeExposure(t.Context(), executor, gate, v, store, runtimeJournalScope(), book, nil); err == nil {
+			if err := bootstrapRuntimeExposure(t.Context(), executor, gate, v, store, runtimeJournalScope(), book, nil, nil, false); err == nil {
 				t.Fatal("unverified or non-empty account seeded as flat")
 			}
 			if !gate.HasBlock(runtimeExposureBootstrapBlock) {
