@@ -82,6 +82,35 @@ func newOwnedTestExecutor() (*ExchangeOrderExecutor, *ownedTestVenue, *execution
 	return oe, v, gate
 }
 
+func TestOwnsOpenOrderRequiresExactRuntimeIntentIdentity(t *testing.T) {
+	oe, _, _ := newOwnedTestExecutor()
+	req := OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100, ClientOrderID: "runtime-order"}
+	if err := oe.beginIntent(&req); err != nil {
+		t.Fatal(err)
+	}
+	if err := oe.finishIntent(&req, &Order{OrderID: 17, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Status: "NEW"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name  string
+		order *exchange.Order
+		owned bool
+	}{
+		{name: "exact client order ID", order: &exchange.Order{OrderID: 17, ClientOrderID: "runtime-order", Symbol: "BTCUSDT"}, owned: true},
+		{name: "exact venue ID when CID omitted", order: &exchange.Order{OrderID: 17, Symbol: "BTCUSDT"}, owned: true},
+		{name: "foreign client order ID", order: &exchange.Order{OrderID: 17, ClientOrderID: "manual-order", Symbol: "BTCUSDT"}},
+		{name: "wrong symbol", order: &exchange.Order{OrderID: 17, ClientOrderID: "runtime-order", Symbol: "ETHUSDT"}},
+		{name: "unobserved numeric ID", order: &exchange.Order{OrderID: 18, Symbol: "BTCUSDT"}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := oe.OwnsOpenOrder(test.order); got != test.owned {
+				t.Fatalf("OwnsOpenOrder(%+v) = %v, want %v", test.order, got, test.owned)
+			}
+		})
+	}
+}
+
 func TestOwnedCancellationPreservesProtectiveAndForeignOrders(t *testing.T) {
 	oe, v, gate := newOwnedTestExecutor()
 	for _, req := range []*OrderRequest{

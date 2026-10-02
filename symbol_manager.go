@@ -937,6 +937,7 @@ func startSymbolRuntime(
 	}
 
 	reconciler := safety.NewReconciler(&localCfg, exchangeAdapter, superPositionManager, distributedLock)
+	reconciler.SetOpenOrderOwnershipVerifier(exchangeExecutor.OwnsOpenOrder)
 	reconciler.SetPauseChecker(func() bool {
 		// 检查市场异动风控或深度风控是否触发
 		return riskMonitor.IsTriggered() || depthMonitor.IsTriggered()

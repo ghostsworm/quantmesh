@@ -644,6 +644,44 @@ func TestReconcilerFailsClosedWhenPositionDiffHasOpenOrders(t *testing.T) {
 	}
 }
 
+func TestReconcilerChecksOpenOrderOwnershipEvenWhenPositionsMatch(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		verifier func(*exchange.Order) bool
+		wantErr  bool
+	}{
+		{name: "unowned external opening order blocks", verifier: func(*exchange.Order) bool { return false }, wantErr: true},
+		{name: "verified runtime order remains reserved", verifier: func(*exchange.Order) bool { return true }},
+		{name: "missing ownership verifier fails closed", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Trading.ReconcileInterval = 30
+			cfg.Trading.MarketType = "futures"
+			cfg.Trading.Direction = "LONG"
+			gate := &execution.OpeningGate{}
+			pm := &MockPositionManager{Symbol: "BTCUSDT", OpeningGate: gate, Slots: map[float64]interface{}{}}
+			ex := &MockReconcileExchange{Positions: []mockExchangePositionRow{}, OpenOrders: []*exchange.Order{{
+				OrderID: 42, ClientOrderID: "external-or-owned", Symbol: "BTCUSDT", Status: exchange.OrderStatusNew,
+			}}}
+			r := NewReconciler(cfg, ex, pm, lock.NewNopLock())
+			r.minReconcileInterval = 0
+			r.SetOpenOrderOwnershipVerifier(test.verifier)
+			err := r.Reconcile()
+			if (err != nil) != test.wantErr {
+				t.Fatalf("Reconcile() error = %v, wantErr=%v", err, test.wantErr)
+			}
+			if test.wantErr {
+				if !gate.HasBlock(execution.PositionReconciliationUnverifiedBlock) || pm.CompletedReconciliationCount != 0 {
+					t.Fatal("unowned venue order did not hold reconciliation gate closed")
+				}
+			} else if gate.HasBlock(execution.PositionReconciliationUnverifiedBlock) || pm.CompletedReconciliationCount != 1 {
+				t.Fatal("verified runtime order was not reconciled with its exposure reservation")
+			}
+		})
+	}
+}
+
 func TestReconcilerDoesNotSyncWhileLocalOrderIsUnknown(t *testing.T) {
 	tests := []struct {
 		name         string

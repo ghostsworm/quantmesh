@@ -81,15 +81,16 @@ type exchangePositionSnapshot struct {
 
 // Reconciler 持倉對账器
 type Reconciler struct {
-	cfg                  *config.Config
-	exchange             IExchange
-	pm                   IPositionManager
-	pauseChecker         func() bool
-	storage              ReconciliationStorage // 可選的存儲服務
-	lock                 lock.DistributedLock  // 分布式鎖
-	lastReconcileTime    time.Time             // 上次對账時间
-	reconcileMu          sync.Mutex            // 對账互斥鎖
-	minReconcileInterval time.Duration         // 最小對账间隔（防止频繁調用）
+	cfg                        *config.Config
+	exchange                   IExchange
+	pm                         IPositionManager
+	pauseChecker               func() bool
+	storage                    ReconciliationStorage // 可選的存儲服務
+	lock                       lock.DistributedLock  // 分布式鎖
+	lastReconcileTime          time.Time             // 上次對账時间
+	reconcileMu                sync.Mutex            // 對账互斥鎖
+	minReconcileInterval       time.Duration         // 最小對账间隔（防止频繁調用）
+	openOrderOwnershipVerifier func(*exchange.Order) bool
 }
 
 // NewReconciler 創建對账器
@@ -118,6 +119,12 @@ func (r *Reconciler) SetStorage(storage ReconciliationStorage) {
 // SetPauseChecker 設置暂停检查函數（用於风控暂停）
 func (r *Reconciler) SetPauseChecker(checker func() bool) {
 	r.pauseChecker = checker
+}
+
+// SetOpenOrderOwnershipVerifier installs exact runtime-intent ownership
+// verification for every active venue order found during reconciliation.
+func (r *Reconciler) SetOpenOrderOwnershipVerifier(verifier func(*exchange.Order) bool) {
+	r.openOrderOwnershipVerifier = verifier
 }
 
 // Start 啟动對账协程
@@ -263,6 +270,11 @@ func (r *Reconciler) ReconcileContext(parent context.Context) error {
 	exchangeOpenOrders, err := parseExchangeOpenOrders(openOrdersRaw)
 	if err != nil {
 		return failUnverified(fmt.Errorf("核實交易所挂單响应失败: %w", err))
+	}
+	for _, venueOrder := range exchangeOpenOrders {
+		if r.openOrderOwnershipVerifier == nil || !r.openOrderOwnershipVerifier(venueOrder) {
+			return failUnverified(fmt.Errorf("交易所活动委托 %d 无法核实属于当前运行时；拒绝继续开仓", venueOrder.OrderID))
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return failUnverified(fmt.Errorf("持倉對账协调锁已失效或操作已取消: %w", err))

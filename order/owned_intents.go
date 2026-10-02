@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/exchange"
 	"quantmesh/execution"
 	"quantmesh/utils"
 )
@@ -51,6 +52,35 @@ func (oe *ExchangeOrderExecutor) intentAcceptanceObserved(cid string) bool {
 	defer oe.intentMu.Unlock()
 	i := oe.intents[cid]
 	return i != nil && i.order != nil
+}
+
+// OwnsOpenOrder proves that a venue open order belongs to a retained runtime
+// intent. Matching by side, symbol, or price is deliberately insufficient.
+func (oe *ExchangeOrderExecutor) OwnsOpenOrder(venueOrder *exchange.Order) bool {
+	if venueOrder == nil || (venueOrder.OrderID <= 0 && venueOrder.ClientOrderID == "") || strings.TrimSpace(venueOrder.Symbol) == "" ||
+		!strings.EqualFold(strings.TrimSpace(venueOrder.Symbol), strings.TrimSpace(oe.symbol)) {
+		return false
+	}
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	for clientOrderID, intent := range oe.intents {
+		if intent == nil || intent.settled || intent.rejected || !strings.EqualFold(strings.TrimSpace(intent.request.Symbol), strings.TrimSpace(venueOrder.Symbol)) {
+			continue
+		}
+		if intent.order != nil && terminalOrderStatus(intent.order.Status) {
+			continue
+		}
+		if venueOrder.ClientOrderID != "" {
+			if oe.matchesOwnedClientOrderID(clientOrderID, venueOrder.ClientOrderID) {
+				return true
+			}
+			continue
+		}
+		if intent.order != nil && intent.order.OrderID == venueOrder.OrderID {
+			return true
+		}
+	}
+	return false
 }
 
 func (oe *ExchangeOrderExecutor) matchesOwnedClientOrderID(clientOrderID, candidate string) bool {
