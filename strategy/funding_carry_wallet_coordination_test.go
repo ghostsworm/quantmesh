@@ -103,6 +103,55 @@ func TestFundingCarryWalletCoordinationSerializesSameAccountInProcess(t *testing
 	}
 }
 
+func TestSpotShortAndFundingCarryShareAccountWalletCoordination(t *testing.T) {
+	coordinator := &walletCoordinationTestLock{}
+	const key = "funding_carry_wallet:account-shared"
+	fundingCarry := &FundingCarryStrategy{}
+	spotShort := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, &mockMarginExchange{})
+	if err := fundingCarry.SetAccountWalletCoordinationLock(coordinator, key); err != nil {
+		t.Fatal(err)
+	}
+	if err := spotShort.SetAccountWalletCoordinationLock(coordinator, key); err != nil {
+		t.Fatal(err)
+	}
+
+	firstEntered := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstDone := make(chan error, 1)
+	go func() {
+		firstDone <- fundingCarry.withAccountWalletCoordination(context.Background(), func(context.Context) error {
+			close(firstEntered)
+			<-releaseFirst
+			return nil
+		})
+	}()
+	<-firstEntered
+	secondEntered := make(chan struct{})
+	secondDone := make(chan error, 1)
+	go func() {
+		secondDone <- spotShort.withAccountWalletCoordination(context.Background(), func(context.Context) error {
+			close(secondEntered)
+			return nil
+		})
+	}()
+	select {
+	case <-secondEntered:
+		t.Fatal("SpotShort entered while Funding Carry held the same account wallet gate")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(releaseFirst)
+	for _, done := range []<-chan error{firstDone, secondDone} {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("account wallet operation failed: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("account wallet operation did not finish")
+		}
+	}
+}
+
 func TestFundingCarryClosePathsFailClosedWhenWalletCoordinationIsUnavailable(t *testing.T) {
 	coordinator := &walletCoordinationTestLock{lockErr: context.DeadlineExceeded}
 	strategy := &FundingCarryStrategy{}

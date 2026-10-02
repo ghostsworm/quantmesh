@@ -1,5 +1,9 @@
 # 实盘准备度整改进度
 
+- rc867 更正六小时回查已复现的 rc866 开发态回归：运行态恢复先取得账户钱包锁，调用成交回调又取同锁，15 秒后超时并持久化未执行的未知还款；启动恢复却未取得外层账户锁。现公共回调取得租约后才应用成交与保存还款意图，已持锁的恢复调用内部应用函数并传递操作上下文，启动统一进入受锁保护的恢复入口。rc866 下列验证仅覆盖原有单元测试和共用 gate，未覆盖生产锁接线后的恢复路径，因此不能作为这条恢复路径正确性的证明。新增启动/运行态净额还款、重复恢复幂等、启动锁失败拒绝和回调锁失败不改变还款状态的正式回归；策略/Binance 全包、SpotShort 定向 race、vet、根包启动/敞口回归及原隔离失败复现均通过，原复现约 0.6 秒完成。本版本仍未连接真实账户或验收实盘盈利。
+
+- rc866 修复 SpotShort 与 Funding Carry 共用同一账户钱包时没有共享互斥的问题：将两者统一到 `funding_carry_wallet:<accountScope>` 分布式租约和进程内 gate；SpotShort 在锁内完成敞口读取、对冲决策、借币/卖单、买回下单、还币与运行态对账。新增跨策略共享锁回归；`go test ./strategy ./exchange/binance`、SpotShort/Funding Carry 定向 race test、`go vet ./strategy ./exchange/binance` 和 `git diff --check` 通过。只协调使用相同锁服务的本应用实例，不阻止人工/外部系统并发改账户；未连接真实账户，不构成实盘或盈利验收。
+
 - rc849 修复真实 GitHub Actions 发布故障：rc847/rc848 的 CI 和 Linux 构建通过，但 `softprops/action-gh-release` 先发布再上传时被不可变 Release 策略拒绝资产，故这两个 Release 创建失败。现改为草稿创建、校验 `quantmesh-<version>-linux-amd64.tar.gz` 已附加后才通过 GitHub API 发布。rc849 的同 SHA Go 测试、vet、风险核心 race、Linux amd64 构建及 Release 全部通过；GitHub 状态为已发布预发布，归档可下载，SHA-256 与 Release API digest 一致，归档内二进制版本匹配。旧失败/不可变 Release 保留，不回写或删除；此结果仅验证发布流水线，不代表产品实盘或盈利验收。
 
 - rc848 增加凭证/端点轮换的权益样本竞态校验：此前配置修订只比较账户范围摘要，API Secret 或 Passphrase 变化不会改变账户 scope，可能让切换期间读取的旧凭证样本按新配置发布。现比较完整 evidence source 配置并提升 revision；用同一 APIKey 下 Secret 轮换的中途回调验证拒绝混合样本。凭证保留仅用于进程内构造只读源、不输出日志；真实轮换/并发配置源仍未实测，R10 未关闭。

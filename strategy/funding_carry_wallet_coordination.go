@@ -33,6 +33,12 @@ func (s *FundingCarryStrategy) withAccountWalletCoordination(ctx context.Context
 	s.mu.RLock()
 	coordinator, key := s.accountWalletLock, s.accountWalletLockKey
 	s.mu.RUnlock()
+	return withAccountWalletCoordination(ctx, coordinator, key, operation)
+}
+
+// withAccountWalletCoordination serializes every strategy that mutates the
+// same exchange account wallet using one shared in-process gate and lease.
+func withAccountWalletCoordination(ctx context.Context, coordinator lock.DistributedLock, key string, operation func(context.Context) error) error {
 	if key == "" {
 		return operation(ctx) // unit/legacy constructors without runtime wiring
 	}

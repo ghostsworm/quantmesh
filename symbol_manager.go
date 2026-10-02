@@ -1458,6 +1458,10 @@ func startSymbolRuntime(
 					}
 					spotShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_short")
 					spotShortStrategy := strategy.NewSpotShortStrategy("spot_short", &localCfg, spotShortExecutor, exchangeAdapter, ex, spotShortCfg)
+					accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
+					if err := spotShortStrategy.SetAccountWalletCoordinationLock(distributedLock, "funding_carry_wallet:"+accountScope); err != nil {
+						return nil, fmt.Errorf("configure SpotShort account wallet coordination: %w", err)
+					}
 					if storageService != nil {
 						spotShortStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
 					}

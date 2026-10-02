@@ -13,6 +13,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
+	"quantmesh/lock"
 	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/utils"
@@ -46,10 +47,32 @@ type SpotShortStrategy struct {
 	runtimeStateErrorHandler             func(error)
 	unresolvedDebtHandler                func(error)
 	runtimeReconciliationFailureReported bool
+	accountWalletLock                    lock.DistributedLock
+	accountWalletLockKey                 string
 
 	positions []*Position
 	orders    []*Order
 	stats     *StrategyStatistics
+}
+
+// SetAccountWalletCoordinationLock shares the account lease used by other
+// wallet-mutating strategies (notably Funding Carry).
+func (s *SpotShortStrategy) SetAccountWalletCoordinationLock(coordinator lock.DistributedLock, key string) error {
+	if coordinator == nil || strings.TrimSpace(key) == "" {
+		return fmt.Errorf("account wallet coordinator and key are required")
+	}
+	s.mu.Lock()
+	s.accountWalletLock = coordinator
+	s.accountWalletLockKey = strings.TrimSpace(key)
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *SpotShortStrategy) withAccountWalletCoordination(ctx context.Context, operation func(context.Context) error) error {
+	s.mu.RLock()
+	coordinator, key := s.accountWalletLock, s.accountWalletLockKey
+	s.mu.RUnlock()
+	return withAccountWalletCoordination(ctx, coordinator, key, operation)
 }
 
 // NewSpotShortStrategy 創建現貨做空策略
@@ -154,6 +177,22 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if update == nil || update.Side != "BUY" {
 		return nil
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.onOrderUpdateWithWalletLock(operationCtx, update)
+	})
+}
+
+// Call only while holding the account wallet lease. Recovery already owns
+// that lease and must not re-enter the public callback's acquisition path.
+func (s *SpotShortStrategy) onOrderUpdateWithWalletLock(ctx context.Context, update *position.OrderUpdate) error {
+	if update == nil || update.Side != "BUY" {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if update.OrderID > 0 && finiteNumber(update.ExecutedQty) && update.ExecutedQty > 0 {
 		s.mu.RLock()
 		pending, found := s.pendingRepay[update.OrderID]
@@ -165,9 +204,7 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		}
 		s.mu.RUnlock()
 		if found && !pending.RepayUncertain && update.ExecutedQty > pending.ExecutedQty {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			err := s.verifySpotShortFillBaseFee(ctx, update.OrderID, pending, update)
-			cancel()
 			if err != nil {
 				wrapped := fmt.Errorf("verify spot short buy order %d net base receipt before repayment: %w", update.OrderID, err)
 				s.reportUnresolvedDebt(wrapped)
@@ -223,9 +260,7 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 			return fmt.Errorf("spot short order %d cumulative fill is below the persisted repayment intent", update.OrderID)
 		}
 		s.mu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), spotShortRuntimeReconcileTimeout)
 		err := s.reconcileUncertainRepayment(ctx, update.OrderID, pending, update.Status)
-		cancel()
 		if err != nil {
 			wrapped := fmt.Errorf("spot short repayment outcome for order %d remains unresolved: %w", update.OrderID, err)
 			s.reportUnresolvedDebt(wrapped)
@@ -244,6 +279,10 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		return fmt.Errorf("invalid base-asset fee %.12g for spot short order %d fill delta %.12g", baseFeeDelta, update.OrderID, delta)
 	}
 	if repayAmount > 0 {
+		if err := ctx.Err(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
 		if s.smEx == nil {
 			s.mu.Unlock()
 			return fmt.Errorf("spot short repay executor unavailable for filled buy order %d", update.OrderID)
@@ -261,9 +300,7 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 	s.mu.Unlock()
 	if repayAmount > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		repayID, err := s.smEx.Repay(ctx, s.baseAsset, repayAmount)
-		cancel()
 		if err != nil {
 			logger.Error("SpotShortStrategy 還幣失敗 (order=%d): %v", update.OrderID, err)
 			return fmt.Errorf("repay borrowed %s after filled buy order %d; outcome requires reconciliation: %w", s.baseAsset, update.OrderID, err)
@@ -441,10 +478,7 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 		return err
 	}
 	s.mu.Unlock()
-	if err := s.reconcilePendingBorrowIntents(ctx); err != nil {
-		return err
-	}
-	if err := s.reconcilePendingRepayOrders(ctx); err != nil {
+	if err := s.reconcileRuntimeState(ctx); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -534,6 +568,10 @@ func (s *SpotShortStrategy) hasPendingRuntimeReconciliation() bool {
 }
 
 func (s *SpotShortStrategy) reconcileRuntimeState(ctx context.Context) error {
+	return s.withAccountWalletCoordination(ctx, s.reconcileRuntimeStateWithWalletLock)
+}
+
+func (s *SpotShortStrategy) reconcileRuntimeStateWithWalletLock(ctx context.Context) error {
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
 	if err := s.reconcilePendingBorrowIntents(ctx); err != nil {
@@ -695,7 +733,7 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 		}
 		update.OrderID = id
 		update.Symbol = s.symbol
-		if err := s.OnOrderUpdate(update); err != nil {
+		if err := s.onOrderUpdateWithWalletLock(ctx, update); err != nil {
 			return fmt.Errorf("apply reconciled spot short order %d: %w", id, err)
 		}
 	}
@@ -870,6 +908,22 @@ func (s *SpotShortStrategy) GetVisualizationData() map[string]interface{} {
 }
 
 func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
+	if evt == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		s.onHedgeSignalWithWalletLock(operationCtx, evt)
+		return nil
+	}); err != nil {
+		wrapped := fmt.Errorf("SpotShort hedge signal could not acquire account wallet coordination: %w", err)
+		logger.Error("%v", wrapped)
+		s.reportUnresolvedDebt(wrapped)
+	}
+}
+
+func (s *SpotShortStrategy) onHedgeSignalWithWalletLock(ctx context.Context, evt *event.Event) {
 	evtGroupID := getString(evt.Data, "group_id")
 	if evtGroupID != "" && evtGroupID != s.groupID {
 		return
@@ -886,9 +940,6 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 		logger.Warn("SpotShortStrategy: 交易所不支援借幣做空，跳過")
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 
 	currentShort, err := s.getCurrentShortPosition(ctx)
 	if err != nil {
@@ -908,11 +959,11 @@ func (s *SpotShortStrategy) onHedgeSignal(evt *event.Event) {
 	}
 
 	if diff > 0 {
-		if err := s.increaseShort(ctx, diff); err != nil {
+		if err := s.increaseShortWithWalletLock(ctx, diff); err != nil {
 			logger.Error("SpotShortStrategy 增加空倉失敗 (target=%.8f current=%.8f): %v", targetShort, currentShort, err)
 		}
 	} else {
-		if err := s.decreaseShort(ctx, -diff); err != nil {
+		if err := s.decreaseShortWithWalletLock(ctx, -diff); err != nil {
 			logger.Error("SpotShortStrategy 買回/持久化待還狀態失敗: %v", err)
 		}
 	}
@@ -949,6 +1000,12 @@ func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) (float6
 }
 
 func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.increaseShortWithWalletLock(operationCtx, amount)
+	})
+}
+
+func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amount float64) error {
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
 	amount = s.roundQuantity(amount)
@@ -1044,6 +1101,12 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) e
 }
 
 func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) error {
+	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		return s.decreaseShortWithWalletLock(operationCtx, amount)
+	})
+}
+
+func (s *SpotShortStrategy) decreaseShortWithWalletLock(ctx context.Context, amount float64) error {
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
 	amount = s.roundQuantity(amount)
