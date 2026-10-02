@@ -427,6 +427,10 @@ func TestSpotShortPositionEvidenceFailureNeverBorrowsOrTrades(t *testing.T) {
 	}{
 		{name: "query error", positions: []*position.PositionInfo{}, err: queryErr},
 		{name: "nil response", positions: nil},
+		{name: "typed nil position slice", positions: []*position.PositionInfo(nil)},
+		{name: "only another symbol", positions: []*position.PositionInfo{{Symbol: "ETHUSDT", Size: -1}}},
+		{name: "missing symbol identity", positions: []*position.PositionInfo{{Symbol: "", Size: -1}}},
+		{name: "duplicate target positions", positions: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}, {Symbol: "BTCUSDT", Size: -0.25}}},
 		{name: "unsupported response", positions: map[string]float64{"BTCUSDT": 0}},
 		{name: "nil entry", positions: []*position.PositionInfo{nil}},
 		{name: "non finite size", positions: []*position.PositionInfo{{Symbol: "BTCUSDT", Size: math.NaN()}}},
@@ -444,6 +448,9 @@ func TestSpotShortPositionEvidenceFailureNeverBorrowsOrTrades(t *testing.T) {
 				gate.Block("strategy_accounting_unverified")
 			})
 			s.onHedgeSignal(&event.Event{Data: map[string]interface{}{"symbol": "BTCUSDT", "target_spot_short": 0.5}})
+			if len(margin.borrowed) != 0 || len(executor.orders) != 0 {
+				t.Fatalf("incomplete position evidence must not trigger borrow/order: borrowed=%v orders=%+v", margin.borrowed, executor.orders)
+			}
 			if reported == nil {
 				t.Fatal("unverified position must notify the Bot opening risk gate")
 			}
@@ -453,8 +460,27 @@ func TestSpotShortPositionEvidenceFailureNeverBorrowsOrTrades(t *testing.T) {
 			if _, err := gate.Begin(); !errors.Is(err, execution.ErrOpeningPaused) {
 				t.Fatalf("unverified hedge position did not block new admissions: %v", err)
 			}
-			if len(margin.borrowed) != 0 || len(executor.orders) != 0 {
-				t.Fatalf("incomplete position evidence must not trigger borrow/order: borrowed=%v orders=%+v", margin.borrowed, executor.orders)
+		})
+	}
+}
+
+func TestSpotShortVerifiedPositionIdentity(t *testing.T) {
+	cases := []struct {
+		name      string
+		positions []*position.PositionInfo
+		want      float64
+	}{
+		{"explicit empty", []*position.PositionInfo{}, 0},
+		{"explicit target flat", []*position.PositionInfo{{Symbol: "BTCUSDT", Size: 0}}, 0},
+		{"target short", []*position.PositionInfo{{Symbol: "BTCUSDT", Size: -0.25}}, 0.25},
+		{"account snapshot with target", []*position.PositionInfo{{Symbol: "ETHUSDT", Size: -1}, {Symbol: "BTCUSDT", Size: -0.25}}, 0.25},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSpotShortForTest(&signalTestExecutor{}, &spotShortPositionExchange{positions: tc.positions}, &mockMarginExchange{})
+			current, err := s.getCurrentShortPosition(context.Background())
+			if err != nil || current != tc.want {
+				t.Fatalf("valid target position rejected or changed: current=%v want=%v err=%v", current, tc.want, err)
 			}
 		})
 	}

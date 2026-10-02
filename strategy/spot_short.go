@@ -1014,6 +1014,9 @@ func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) (float6
 	}
 	// positionExchangeAdapter 返回 []*position.PositionInfo
 	if infos, ok := raw.([]*position.PositionInfo); ok {
+		if infos == nil {
+			return 0, fmt.Errorf("exchange returned a nil position slice for %s", s.symbol)
+		}
 		current := 0.0
 		found := false
 		for _, p := range infos {
@@ -1028,6 +1031,9 @@ func (s *SpotShortStrategy) getCurrentShortPosition(ctx context.Context) (float6
 			}
 			found = true
 			current = -p.Size
+		}
+		if len(infos) > 0 && !found {
+			return 0, fmt.Errorf("exchange position snapshot has no matching identity for %s", s.symbol)
 		}
 		return current, nil
 	}
