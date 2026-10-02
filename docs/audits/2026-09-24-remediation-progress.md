@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc936 R09/R10 Funding Carry 微量本金：三个真实行为回归先复现固定1e-10容差将无先前借款的1e-11还本、1e-11未还借款及0.5借款返还0.49999999999后的余额接受为核清。保留事件本金以 float64 保存的最短十进制表示转为有理数累计，不累积多轮二进制漂移；无先前本金的还本直接拒绝，余额比较仅允许有限机器精度误差，不用固定绝对/比例容差。相关策略全套两轮 race、strategy vet、diff 检查、Ruby门禁9项/58断言及前端类型/44文件224测试/Vite/PWA构建通过；100轮0.1+0.2借款/0.3还款后仍保留1e-11新债务。十包启动后仅扩展正常微量还清与单ULP快照误差正例，连同异常/循环验证额外两轮race通过，无生产源码再改。十包 /private/tmp/quantmesh-trading-race-rc936-final 为1867 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc936、source_commit=1e5832d6、source_dirty=true、无缺包/解析错误，不继承严格MySQL或同提交验收。此项没有恢复输入在float64解析前已丢失的交易所精度，逐笔组件校验、全账户归属、完整接管补偿与真实盈利仍未验收；无生产库/账户/交易或发布操作。
+
 - rc935 前端 JSON /private/tmp/quantmesh-webui-rc935-tests.json 已读回 success=true、44文件/224测试通过、无失败；不使用包含 describe 分组的 numTotalTestSuites 冒充文件数。
 
 - rc935 R09/R10 Funding Carry 本金核账：七种隔离行为先复现逐笔合法但累计本金与债务不一致、先还后借/跨币抵消及活动借款身份/时间错误仍当作核清。恢复解码按保留事件计算本金净额、拒绝负余额/溢出及不匹配债务，未偿本金核对最新借款身份/时间；真实恢复与资金释放证明另绑定交易所基础币种，缺失历史不得从余额补造。新增九种异常真实 restore 拒绝且内存/durable 不变（包括单一外币账与累计溢出），相关策略全套两轮 race、strategy vet、diff 检查及 Ruby 门禁9项/58断言通过。原有三组正例夹具缺借款历史或未扣已还本金，按完整证据修正而非放宽门禁。十包 /private/tmp/quantmesh-trading-race-rc935-final 为1866 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc935、source_commit=938ad6f4、source_dirty=true、无缺包/解析错误，不继承严格 MySQL 或同提交验收。十包启动后仅补充正例测试：部分还本、历史完成循环后新借款、全额还清的真实恢复及旧身份不能认领新债务，额外两轮 race 通过，生产源码未再改。前端类型与Vite/PWA构建通过，测试JSON结果另核对。此项仅核对保留策略账本，旧历史修复、跨Bot/全账户完整归属、实盘接管补偿与真实盈利仍未验收；无生产库/账户/交易或发布操作。

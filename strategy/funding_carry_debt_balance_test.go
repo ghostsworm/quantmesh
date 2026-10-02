@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -19,10 +20,22 @@ func fundingCarryBalancedDebtFixture() fundingCarryRuntimeState {
 }
 
 func TestFundingCarryRestoreRejectsUnbalancedPrincipal(t *testing.T) {
-	for _, name := range []string{"understated", "overstated", "missing_history", "repay_before_borrow", "cross_asset", "foreign_asset", "missing_active_identity", "wrong_active_time", "overflow"} {
+	for _, name := range []string{"understated", "overstated", "missing_history", "repay_before_borrow", "cross_asset", "foreign_asset", "missing_active_identity", "wrong_active_time", "overflow", "tiny_unbacked_repayment", "tiny_unpaid_borrow", "tiny_remaining_principal"} {
 		t.Run(name, func(t *testing.T) {
 			state := fundingCarryBalancedDebtFixture()
 			switch name {
+			case "tiny_unbacked_repayment", "tiny_unpaid_borrow", "tiny_remaining_principal":
+				state.Direction, state.MarginDebt, state.MarginBorrowTransferID, state.MarginBorrowedAt = DirectionNone, 0, 0, time.Time{}
+				e := state.MarginDebtEvents[0]
+				e.Amount, e.Principal = 1e-11, 1e-11
+				state.MarginDebtEvents = []fundingCarryMarginDebtEvent{e}
+				if name == "tiny_unbacked_repayment" {
+					state.MarginDebtEvents[0].Action = "repay"
+				}
+				if name == "tiny_remaining_principal" {
+					state.MarginDebtEvents = fundingCarryBalancedDebtFixture().MarginDebtEvents
+					state.MarginDebtEvents[1].Amount, state.MarginDebtEvents[1].Principal, state.MarginDebtEvents[1].InterestPaid = 0.49999999999, 0.49999999999, 0
+				}
 			case "understated":
 				state.MarginDebt = 0.1
 			case "overstated":
@@ -72,9 +85,18 @@ func TestFundingCarryRestoreRejectsUnbalancedPrincipal(t *testing.T) {
 }
 
 func TestFundingCarryRestoreAcceptsBalancedPrincipal(t *testing.T) {
-	for _, name := range []string{"partial_repayment", "completed_previous_cycle", "fully_repaid"} {
+	for _, name := range []string{"partial_repayment", "completed_previous_cycle", "fully_repaid", "rounded_snapshot", "tiny_fully_repaid"} {
 		t.Run(name, func(t *testing.T) {
 			state := fundingCarryBalancedDebtFixture()
+			if name == "rounded_snapshot" {
+				state.MarginDebt = math.Nextafter(state.MarginDebt, math.Inf(1))
+			}
+			if name == "tiny_fully_repaid" {
+				state.Direction, state.MarginDebt, state.MarginBorrowTransferID, state.MarginBorrowedAt = DirectionNone, 0, 0, time.Time{}
+				for i := range state.MarginDebtEvents {
+					state.MarginDebtEvents[i].Amount, state.MarginDebtEvents[i].Principal, state.MarginDebtEvents[i].InterestPaid = 1e-11, 1e-11, 0
+				}
+			}
 			if name == "completed_previous_cycle" {
 				previous := state.MarginDebtEvents[0]
 				previous.TransferID, previous.Amount, previous.Principal = 90, 0.7, 0.7
@@ -112,5 +134,36 @@ func TestFundingCarryRestoreAcceptsBalancedPrincipal(t *testing.T) {
 				t.Fatal("valid restore changed financial evidence")
 			}
 		})
+	}
+}
+
+func TestFundingCarryDecimalCyclesPreserveTinyOutstandingPrincipal(t *testing.T) {
+	state := fundingCarryBalancedDebtFixture()
+	state.MarginDebtEvents = nil
+	when := state.MarginBorrowedAt
+	const completedCycles = 100
+	for i := 0; i < completedCycles; i++ {
+		for j, amount := range []float64{0.1, 0.2, 0.3} {
+			id := int64(i*3 + j + 1)
+			action := "borrow"
+			if j == 2 {
+				action = "repay"
+			}
+			state.MarginDebtEvents = append(state.MarginDebtEvents, fundingCarryMarginDebtEvent{Action: action, TransferID: id, Asset: "BTC", Amount: amount, Principal: amount, OccurredAt: when.Add(time.Duration(id) * time.Second)})
+		}
+	}
+	state.MarginDebt, state.MarginBorrowTransferID = 1e-11, completedCycles*3+1
+	state.MarginBorrowedAt = when.Add(time.Duration(state.MarginBorrowTransferID) * time.Second)
+	state.MarginDebtEvents = append(state.MarginDebtEvents, fundingCarryMarginDebtEvent{Action: "borrow", TransferID: state.MarginBorrowTransferID, Asset: "BTC", Amount: state.MarginDebt, Principal: state.MarginDebt, OccurredAt: state.MarginBorrowedAt})
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeFundingCarryRuntimeState(fundingCarryRuntimeStateVersion, string(payload), "", "", "BTCUSDT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.MarginDebt != 1e-11 || len(got.MarginDebtEvents) != completedCycles*3+1 {
+		t.Fatal("cycles erased tiny outstanding principal")
 	}
 }
