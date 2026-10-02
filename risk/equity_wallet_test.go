@@ -316,6 +316,40 @@ func TestEquityWalletReconcilesForeignCurrencyAndValuesExternalFlow(t *testing.T
 	}
 }
 
+func TestEquityWalletAllowsUnvaluedNonCapitalLedgerEntries(t *testing.T) {
+	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
+	through := base.Add(-time.Millisecond)
+	from := through.Add(-realizedCursorOverlap)
+	wallet := func(balance string, observed time.Time) accounting.Wallet {
+		return accounting.Wallet{Currency: "BTC", Balance: balance, From: from, Through: observed.Add(-time.Millisecond), ObservedAt: observed}
+	}
+	previousObservation := EquityObservation{Scope: "multi-wallet", Currency: "USDT", Equity: 60000, ObservedAt: base, CashFlowComplete: true,
+		Wallets: map[string]accounting.Wallet{"acct:BTC": wallet("1", base)}}
+	previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := EquityObservation{Scope: "multi-wallet", Currency: "USDT", Equity: 59999, ObservedAt: now, CashFlowComplete: true,
+		Wallets: map[string]accounting.Wallet{"acct:BTC": wallet("0.999", now)},
+		Flows: []EquityCashFlow{{ID: "trade-fee", Account: "acct:BTC", Kind: "fee", Currency: "USDT", WalletCurrency: "BTC",
+			ExactAmount: "-0.001", Amount: 0, At: now.Add(-time.Second)}}}
+	next, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatalf("native-currency fee should reconcile without a fabricated FX rate: %v", err)
+	}
+	if next.ExternalFlows != 0 || next.AdjustedEquity != 59999 || next.DrawdownPct <= 0 {
+		t.Fatalf("unexpected checkpoint after native-currency fee: %+v", next)
+	}
+
+	deposit := observation
+	deposit.Flows = []EquityCashFlow{{ID: "unvalued-deposit", Account: "acct:BTC", Kind: "deposit", Currency: "USDT", WalletCurrency: "BTC",
+		ExactAmount: "0", Amount: 0, At: now.Add(-time.Second)}}
+	if _, err := nextEquityCheckpoint(&previous, deposit, now, time.Time{}, time.Minute, true); err == nil {
+		t.Fatal("zero-valued foreign-currency capital flow without conversion evidence was accepted")
+	}
+}
+
 func TestEquityWalletRejectsNonUnitRateForValuationCurrency(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})

@@ -71,16 +71,26 @@ func observeAccountEvidence(ctx context.Context, observation risk.EquityObservat
 			rateText := entry.ValuationRate
 			if rateText == "" {
 				if entry.Currency != snapshot.Currency {
-					return risk.EquityObservation{}, fmt.Errorf("non-valuation account entry lacks conversion evidence")
+					switch entry.Kind {
+					case "deposit", "withdrawal", "transfer_in", "transfer_out":
+						return risk.EquityObservation{}, fmt.Errorf("external account entry lacks conversion evidence")
+					default:
+						// Wallet reconciliation uses the exact native-currency amount;
+						// only capital flows need valuation in the observation currency.
+					}
+				} else {
+					rateText = "1"
 				}
-				rateText = "1"
 			}
-			rate, err := accounting.Decimal(rateText)
-			if err != nil || rate.Sign() <= 0 {
-				return risk.EquityObservation{}, fmt.Errorf("invalid account entry valuation rate")
+			var approx float64
+			if rateText != "" {
+				rate, err := accounting.Decimal(rateText)
+				if err != nil || rate.Sign() <= 0 {
+					return risk.EquityObservation{}, fmt.Errorf("invalid account entry valuation rate")
+				}
+				valued := new(big.Rat).Mul(amount, rate)
+				approx, _ = valued.Float64()
 			}
-			valued := new(big.Rat).Mul(amount, rate)
-			approx, _ := valued.Float64()
 			id, err := json.Marshal([]string{key, entry.ID})
 			if err != nil {
 				return risk.EquityObservation{}, err

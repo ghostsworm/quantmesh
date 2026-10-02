@@ -72,6 +72,25 @@ func TestRuntimeEquityWalletAggregatesAccountsAndPreservesCursors(t *testing.T) 
 	}
 }
 
+func TestObserveAccountEvidenceKeepsNonCapitalForeignCurrencyUnvalued(t *testing.T) {
+	now := time.Now().UTC().Add(-time.Second)
+	source := &equityLedgerExchange{snapshot: accounting.Snapshot{Currency: "USDT", Equity: 60000, ObservedAt: now,
+		Wallets: map[string]accounting.Wallet{"BTC": {Currency: "BTC", Balance: "0.999", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now}},
+		Entries: []accounting.Entry{{ID: "fee", Kind: "fee", Currency: "BTC", Amount: "-0.001", At: now.Add(-time.Second)}}}}
+	observation, err := observeAccountEvidence(t.Context(), risk.EquityObservation{Currency: "USDT"}, []string{"account"}, map[string]accounting.Source{"account": source}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(observation.Flows) != 1 || observation.Flows[0].Amount != 0 || observation.Flows[0].ValuationRate != "" || observation.Flows[0].ExactAmount != "-0.001" {
+		t.Fatalf("non-capital wallet entry was not preserved as native-currency evidence: %+v", observation.Flows)
+	}
+
+	source.snapshot.Entries[0].Kind = "deposit"
+	if _, err := observeAccountEvidence(t.Context(), risk.EquityObservation{Currency: "USDT"}, []string{"account"}, map[string]accounting.Source{"account": source}, nil); err == nil {
+		t.Fatal("unvalued foreign-currency capital flow was accepted")
+	}
+}
+
 func TestRuntimeEquityRejectsMembershipChangeDuringAccountRead(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	first := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}

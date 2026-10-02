@@ -11,6 +11,15 @@ import (
 
 const maxRetainedEquityReceipts = 10000
 
+func isExternalCapitalFlow(kind string) bool {
+	switch kind {
+	case "deposit", "withdrawal", "transfer_in", "transfer_out":
+		return true
+	default:
+		return false
+	}
+}
+
 func walletCurrency(w accounting.Wallet, fallback string) string {
 	if w.Currency != "" {
 		return w.Currency
@@ -50,6 +59,12 @@ func exactFlow(f EquityCashFlow, currency, expectedWalletCurrency string) (*big.
 		return nil, err
 	}
 	rateText := f.ValuationRate
+	if expectedWalletCurrency != currency && !isExternalCapitalFlow(f.Kind) && rateText == "" {
+		if f.Amount != 0 || f.ValuationSource != "" || !f.ValuationAt.IsZero() {
+			return nil, fmt.Errorf("unvalued non-capital ledger entry has valuation data")
+		}
+		return exact, nil
+	}
 	if rateText == "" {
 		if expectedWalletCurrency != currency {
 			return nil, fmt.Errorf("non-valuation wallet currency lacks a verified conversion rate")

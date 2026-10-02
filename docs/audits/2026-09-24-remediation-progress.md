@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc841 放寬多幣種錢包帳本中非資本流水的匯率要求：交易/手續費等非注資流水若無估值證據，僅以精確原幣金額核對相應錢包餘額，USDT 估值金額固定為零；外部注資/提現仍要求有效匯率及來源/時間，零金額外部資本流水也不能繞過。新增 risk checkpoint 與 `observeAccountEvidence` 回歸測試。這消除了非資本事件對歷史 FX 的錯誤依賴，但 Bitget Spot 尚無完整、可核對的多幣種賬單來源；R10 未關閉，不代表現貨現金流調整、實盤或盈利驗收完成。
+
 - rc840 將 Bitget Spot 多資產估值的每幣一個 REST 請求收斂成單次不帶 `symbol` 的全市場 ticker 快照，並只要求持有非零資產的直接 USDT 市場有唯一有效價格；避免行情請求逐個串行造成額外時間偏差/部分快照。fixture 證明配置 ETHUSDT 的 adapter 仍正確取 BTCUSDT，且所需市場缺失時不產生權益。依 [Bitget Classic Spot ticker 文件](https://www.bitget.com/zh-CN/docs/catalog/classic-spot-market/classic-spot-market)，省略 `symbol` 返回全部現貨交易對，回包以 `symbol`/`lastPr` 識別。餘額請求與行情快照仍是兩個非原子請求、使用最新成交價不等於可清算價；R10 仍未關閉。
 
 - rc839 为 Bitget Spot 实作并透過 wrapper 暴露全帳戶 USDT 權益：讀取現貨資產列表，納入 available + locked；USDT 按 1:1，其餘非零資產逐一查詢精確匹配的 `ASSETUSDT` spot ticker。重複/空資產、無效餘額、缺失/錯配/無效行情或任一估值失敗均不產出部分淨值。HTTP fixture 確認即使 adapter 配置 ETHUSDT，BTC 餘額仍單獨查 BTCUSDT，不會錯用該交易對 WebSocket 價格。Bitget v2 Classic Spot API 文件確認資產端點與 ticker `symbol`/`lastPr` 欄位：[資產接口索引](https://www.bitget.com/docs/classic/uta-api-upgrade-guide)、[現貨 ticker API](https://www.bitget.com/zh-CN/docs/catalog/classic-spot-market/classic-spot-market)。多次請求不是原子快照、最新成交價不等於可成交清算價；真實帳戶/線上權限、現金流調整、Spot Margin 及其它交易所未驗收，R10 未關閉。
