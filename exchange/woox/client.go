@@ -442,12 +442,13 @@ type Position struct {
 }
 
 type Account struct {
-	ApplicationID     string  `json:"application_id"`
+	ApplicationID     string  `json:"applicationId"`
 	Account           string  `json:"account"`
-	TotalCollateral   float64 `json:"total_collateral"`
-	TotalAccountValue float64 `json:"total_account_value"`
-	TotalVaultValue   float64 `json:"total_vault_value"`
-	TotalStakingValue float64 `json:"total_staking_value"`
+	TotalCollateral   float64 `json:"totalCollateral"`
+	FreeCollateral    float64 `json:"freeCollateral"`
+	TotalAccountValue float64 `json:"totalAccountValue"`
+	TotalVaultValue   float64 `json:"totalVaultValue"`
+	TotalStakingValue float64 `json:"totalStakingValue"`
 }
 
 type Trade struct {

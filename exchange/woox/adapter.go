@@ -155,7 +155,7 @@ func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	return &AccountLocal{
 		TotalWalletBalance: account.TotalAccountValue,
 		TotalMarginBalance: account.TotalCollateral,
-		AvailableBalance:   account.TotalAccountValue - account.TotalCollateral,
+		AvailableBalance:   account.FreeCollateral,
 	}, nil
 }
 
@@ -189,7 +189,7 @@ func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
 		return 0, err
 	}
 
-	return account.TotalAccountValue - account.TotalCollateral, nil
+	return account.FreeCollateral, nil
 }
 
 // StartOrderStream 啟動訂單流
