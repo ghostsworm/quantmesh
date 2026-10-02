@@ -2531,7 +2531,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			if !p.MarginDebtKnown || !finiteNonNegative(p.MarginBorrowed) || !finiteNonNegative(p.MarginInterest) {
 				return s.blockOnUnownedExposure(errors.New("reverse margin liability has no authoritative principal/interest breakdown"))
 			}
-			if math.Abs(math.Abs(p.Size)-(p.MarginBorrowed+p.MarginInterest)) > s.roundingTolerance(s.spot.GetQuantityDecimals()) {
+			if !fundingCarryFinancialAmountsMatch(math.Abs(p.Size), p.MarginBorrowed+p.MarginInterest) {
 				return s.blockOnUnownedExposure(errors.New("reverse margin liability disagrees with principal/interest breakdown"))
 			}
 			livePrincipal += p.MarginBorrowed
@@ -2539,7 +2539,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		}
 	}
 	debtTolerance := s.roundingTolerance(s.spot.GetQuantityDecimals())
-	if math.Abs(livePrincipal-debt) > debtTolerance || math.Abs(liveDebt-(livePrincipal+liveInterest)) > debtTolerance {
+	if !fundingCarryFinancialAmountsMatch(livePrincipal, debt) || !fundingCarryFinancialAmountsMatch(liveDebt, livePrincipal+liveInterest) {
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin principal mismatch: live principal %.8f, accrued interest %.8f, total %.8f, owned principal %.8f", livePrincipal, liveInterest, liveDebt, debt))
 	}
 	debtToRepay := livePrincipal + liveInterest
@@ -2575,9 +2575,12 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			return fmt.Errorf("persist reverse futures close reconciliation: %w", err)
 		}
 	}
-	if debtToRepay > debtTolerance {
+	if debtToRepay > 0 {
 		base := s.spot.GetBaseAsset()
 		buyQty := s.roundQty(debtToRepay*1.002, s.spot.GetQuantityDecimals())
+		if !validRuntimeAmount(buyQty) || buyQty <= 0 {
+			return s.blockOnUnownedExposure(fmt.Errorf("margin debt %.12g cannot be covered at exchange quantity precision", debtToRepay))
+		}
 		price, err := s.spot.GetLatestPrice(ctx, s.symbol)
 		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 			return fmt.Errorf("get valid price to cover margin debt: price=%.8f err=%v", price, err)
@@ -2604,7 +2607,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
 		}
-		if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, debtToRepay); err != nil {
+		if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, debtToRepay, 0); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("persist margin repayment identity: %w", err))
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
@@ -2612,12 +2615,16 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			return s.blockOnUnownedExposure(fmt.Errorf("verify margin repayment: %w", err))
 		}
 		for _, p := range marginPositions {
-			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || p.Size < -debtTolerance {
+			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || p.Size < 0 || !p.MarginDebtKnown || !validRuntimeAmount(p.MarginBorrowed) || !validRuntimeAmount(p.MarginInterest) || p.MarginBorrowed > 0 || p.MarginInterest > 0 {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin repayment left unverified debt: %+v", p))
 			}
 		}
 	}
 	s.mu.Lock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(err)
+	}
 	s.direction, s.futQty, s.marginDebt = DirectionNone, 0, 0
 	s.marginBorrowTransferID, s.marginBorrowedAt = 0, time.Time{}
 	if err := s.persistRuntimeStateLocked(); err != nil {
