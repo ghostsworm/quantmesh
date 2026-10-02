@@ -139,13 +139,18 @@ func (w *binanceSpotMarginWrapper) GetOrderByClientOrderID(ctx context.Context, 
 }
 
 func (w *binanceSpotMarginWrapper) GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error) {
-	binanceRecords, total, err := w.adapter.GetMarginBorrowHistory(ctx, asset, startTime, endTime, page, pageSize)
+	return w.GetMarginTransactionHistory(ctx, asset, "BORROW", startTime, endTime, page, pageSize)
+}
+
+func (w *binanceSpotMarginWrapper) GetMarginTransactionHistory(ctx context.Context, asset, transactionType string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error) {
+	binanceRecords, total, err := w.adapter.GetMarginTransactionHistory(ctx, asset, transactionType, startTime, endTime, page, pageSize)
 	if err != nil {
 		return nil, 0, err
 	}
 	records := make([]MarginBorrowRecord, len(binanceRecords))
 	for i, record := range binanceRecords {
-		records[i] = MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount, Status: record.Status, Timestamp: record.Timestamp}
+		records[i] = MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount,
+			Principal: record.Principal, Interest: record.Interest, Status: record.Status, Timestamp: record.Timestamp}
 	}
 	return records, total, nil
 }

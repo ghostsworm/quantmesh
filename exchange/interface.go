@@ -234,6 +234,11 @@ type MarginBorrowHistoryQuerier interface {
 	GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error)
 }
 
+// MarginTransactionHistoryQuerier reads bounded, paginated cross-margin BORROW or REPAY history.
+type MarginTransactionHistoryQuerier interface {
+	GetMarginTransactionHistory(ctx context.Context, asset, transactionType string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error)
+}
+
 // MarginTransactionByIDQuerier resolves one acknowledged cross-margin borrow or
 // repayment to the exchange's authoritative amount, status, and timestamp.
 type MarginTransactionByIDQuerier interface {

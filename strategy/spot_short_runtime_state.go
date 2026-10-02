@@ -8,14 +8,19 @@ import (
 	"quantmesh/config"
 )
 
-const spotShortRuntimeStateSchemaVersion = 5
+const spotShortRuntimeStateSchemaVersion = 6
 
 type spotShortPendingRepay struct {
-	ClientOrderID  string  `json:"client_order_id,omitempty"`
-	OrderQuantity  float64 `json:"order_quantity"`
-	ExecutedQty    float64 `json:"executed_qty"`
-	BaseFeeQty     float64 `json:"base_fee_qty"`
-	RepayUncertain bool    `json:"repay_uncertain"`
+	ClientOrderID            string  `json:"client_order_id,omitempty"`
+	OrderQuantity            float64 `json:"order_quantity"`
+	ExecutedQty              float64 `json:"executed_qty"`
+	BaseFeeQty               float64 `json:"base_fee_qty"`
+	RepayUncertain           bool    `json:"repay_uncertain"`
+	RepayTransferID          int64   `json:"repay_transfer_id,omitempty"`
+	RepayAmount              float64 `json:"repay_amount,omitempty"`
+	RepayStartedAtUnixMilli  int64   `json:"repay_started_at_unix_milli,omitempty"`
+	RepayExpectedExecutedQty float64 `json:"repay_expected_executed_qty,omitempty"`
+	RepayExpectedBaseFeeQty  float64 `json:"repay_expected_base_fee_qty,omitempty"`
 }
 
 type spotShortPendingBorrow struct {
@@ -85,7 +90,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	if !found {
 		return nil
 	}
-	if version != 3 && version != 4 && version != spotShortRuntimeStateSchemaVersion {
+	if version != 3 && version != 4 && version != 5 && version != spotShortRuntimeStateSchemaVersion {
 		return fmt.Errorf("unsupported spot short runtime state schema version %d", version)
 	}
 	var state spotShortRuntimeState
@@ -111,8 +116,16 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 			math.IsNaN(amount.BaseFeeQty) || math.IsInf(amount.BaseFeeQty, 0) || amount.BaseFeeQty < 0 || amount.BaseFeeQty > amount.ExecutedQty {
 			return fmt.Errorf("spot short runtime state contains invalid pending repayment")
 		}
-		if amount.RepayUncertain {
-			return fmt.Errorf("spot short order %d repayment outcome is uncertain; exchange reconciliation is required before restart", id)
+		if amount.RepayTransferID < 0 || math.IsNaN(amount.RepayAmount) || math.IsInf(amount.RepayAmount, 0) || amount.RepayAmount < 0 ||
+			amount.RepayStartedAtUnixMilli < 0 || math.IsNaN(amount.RepayExpectedExecutedQty) || math.IsInf(amount.RepayExpectedExecutedQty, 0) || amount.RepayExpectedExecutedQty < 0 ||
+			math.IsNaN(amount.RepayExpectedBaseFeeQty) || math.IsInf(amount.RepayExpectedBaseFeeQty, 0) || amount.RepayExpectedBaseFeeQty < 0 {
+			return fmt.Errorf("spot short runtime state contains invalid repayment reconciliation intent")
+		}
+		if amount.RepayUncertain && (amount.RepayStartedAtUnixMilli <= 0 || amount.RepayAmount <= 0 ||
+			amount.RepayExpectedExecutedQty <= amount.ExecutedQty || amount.RepayExpectedExecutedQty > amount.OrderQuantity ||
+			amount.RepayExpectedBaseFeeQty < amount.BaseFeeQty || amount.RepayExpectedBaseFeeQty > amount.RepayExpectedExecutedQty ||
+			math.Abs((amount.RepayExpectedExecutedQty-amount.ExecutedQty)-(amount.RepayExpectedBaseFeeQty-amount.BaseFeeQty)-amount.RepayAmount) > math.Max(1e-10, amount.RepayAmount*1e-8)) {
+			return fmt.Errorf("spot short order %d has an uncertain repayment without sufficient persisted transaction evidence", id)
 		}
 	}
 	for clientOrderID, pending := range state.PendingBorrow {

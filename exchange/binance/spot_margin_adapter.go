@@ -652,23 +652,36 @@ func (b *BinanceSpotMarginAdapter) GetOrderByClientOrderID(ctx context.Context, 
 }
 
 func (b *BinanceSpotMarginAdapter) GetMarginBorrowHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error) {
+	return b.GetMarginTransactionHistory(ctx, asset, "BORROW", startTime, endTime, page, pageSize)
+}
+
+func (b *BinanceSpotMarginAdapter) GetMarginTransactionHistory(ctx context.Context, asset, transactionType string, startTime, endTime int64, page, pageSize int) ([]MarginBorrowRecord, int64, error) {
 	if b == nil || b.marginClient == nil {
 		return nil, 0, fmt.Errorf("Binance spot margin client is unavailable")
 	}
-	response, err := b.marginClient.GetBorrowHistory(ctx, asset, startTime, endTime, int64(page), int64(pageSize))
+	response, err := b.marginClient.GetTransactionHistory(ctx, asset, transactionType, startTime, endTime, int64(page), int64(pageSize))
 	if err != nil {
 		return nil, 0, err
 	}
 	if response == nil {
-		return nil, 0, fmt.Errorf("Binance margin borrow history returned an empty response")
+		return nil, 0, fmt.Errorf("Binance margin %s history returned an empty response", transactionType)
 	}
 	records := make([]MarginBorrowRecord, 0, len(response.Rows))
 	for _, row := range response.Rows {
 		amount, parseErr := strconv.ParseFloat(row.Amount, 64)
-		if parseErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 {
-			return nil, 0, fmt.Errorf("Binance margin borrow history contains invalid amount for transaction %d", row.TxID)
+		if row.TxID <= 0 || strings.TrimSpace(row.Asset) == "" || row.Timestamp < startTime || row.Timestamp > endTime ||
+			parseErr != nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 ||
+			(!strings.EqualFold(row.Status, "PENDING") && !strings.EqualFold(row.Status, "CONFIRMED") && !strings.EqualFold(row.Status, "FAILED")) {
+			return nil, 0, fmt.Errorf("Binance margin %s history contains an invalid transaction %d", transactionType, row.TxID)
 		}
-		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, Status: row.Status, Timestamp: row.Timestamp})
+		principal, principalErr := strconv.ParseFloat(row.Principal, 64)
+		interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+		if principalErr != nil || interestErr != nil || math.IsNaN(principal) || math.IsInf(principal, 0) || principal < 0 ||
+			math.IsNaN(interest) || math.IsInf(interest, 0) || interest < 0 || math.Abs(principal+interest-amount) > math.Max(1e-10, amount*1e-8) {
+			principal, interest = amount, 0
+		}
+		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount,
+			Principal: principal, Interest: interest, Status: row.Status, Timestamp: row.Timestamp})
 	}
 	return records, response.Total, nil
 }

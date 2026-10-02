@@ -25,6 +25,8 @@ type mockMarginExchange struct {
 	repaid       []float64
 	borrowErr    error
 	repayErr     error
+	repayHistory []exchange.MarginBorrowRecord
+	historyErr   error
 	beforeBorrow func()
 }
 
@@ -143,6 +145,15 @@ func (m *mockMarginExchange) Repay(ctx context.Context, asset string, amount flo
 	defer m.marginMu.Unlock()
 	m.repaid = append(m.repaid, amount)
 	return 1, m.repayErr
+}
+
+func (m *mockMarginExchange) GetMarginTransactionHistory(_ context.Context, asset, transactionType string, startTime, endTime int64, page, pageSize int) ([]exchange.MarginBorrowRecord, int64, error) {
+	m.marginMu.Lock()
+	defer m.marginMu.Unlock()
+	if !strings.EqualFold(transactionType, "REPAY") || asset != "BTC" || page != 1 || pageSize != 100 || startTime <= 0 || endTime < startTime {
+		return nil, 0, errors.New("unexpected margin transaction history query")
+	}
+	return append([]exchange.MarginBorrowRecord(nil), m.repayHistory...), int64(len(m.repayHistory)), m.historyErr
 }
 
 type failingPriceExchange struct {
@@ -429,15 +440,73 @@ func TestSpotShortFilledBuyReturnsRepayFailureAndRetainsPendingDebt(t *testing.T
 	venue := &spotShortReconcileExchange{fills: []*exchange.OrderFill{{OrderID: 42, TradeID: "buy-42", Symbol: "BTCUSDT",
 		Side: exchange.SideBuy, Price: 100, Quantity: 0.5, CommissionQuoteKnown: true}}}
 	s := newSpotShortForTest(&signalTestExecutor{}, venue, margin)
-	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	store := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(store)
 	s.pendingRepay[42] = spotShortPendingRepay{OrderQuantity: 0.5}
 
 	err := s.OnOrderUpdate(&position.OrderUpdate{OrderID: 42, Symbol: "BTCUSDT", Side: "BUY", Status: "FILLED", ExecutedQty: 0.5})
 	if !errors.Is(err, repayErr) {
 		t.Fatalf("expected repay failure to propagate to Bot risk gate, got %v", err)
 	}
-	if got := s.pendingRepay[42]; !got.RepayUncertain || got.ExecutedQty != 0 {
+	if got := s.pendingRepay[42]; !got.RepayUncertain || got.ExecutedQty != 0 || got.RepayAmount != 0.5 ||
+		got.RepayStartedAtUnixMilli <= 0 || got.RepayExpectedExecutedQty != 0.5 {
 		t.Fatalf("pending repay amount=%v, want debt retained for reconciliation", got)
+	}
+	var persisted spotShortRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &persisted) != nil || !persisted.PendingRepay[42].RepayUncertain ||
+		persisted.PendingRepay[42].RepayAmount != 0.5 || persisted.PendingRepay[42].RepayExpectedExecutedQty != 0.5 {
+		t.Fatalf("uncertain repayment evidence was not durable: found=%v state=%+v", store.found, persisted.PendingRepay[42])
+	}
+}
+
+func TestSpotShortRecoversUncertainRepaymentFromUniqueConfirmedHistory(t *testing.T) {
+	startedAt := time.Now().UTC().Add(-time.Second).UnixMilli()
+	margin := &mockMarginExchange{repayHistory: []exchange.MarginBorrowRecord{{TransferID: 812, Asset: "BTC", Amount: 0.499,
+		Status: "CONFIRMED", Timestamp: startedAt + 1}}}
+	s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, margin)
+	s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	s.pendingRepay[44] = spotShortPendingRepay{OrderQuantity: 0.5, RepayUncertain: true, RepayAmount: 0.499,
+		RepayStartedAtUnixMilli: startedAt, RepayExpectedExecutedQty: 0.5, RepayExpectedBaseFeeQty: 0.001}
+	update := &position.OrderUpdate{OrderID: 44, Symbol: "BTCUSDT", Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5,
+		CommissionKnown: true, CommissionAsset: "BTC", BaseFeeQty: 0.001}
+	if err := s.OnOrderUpdate(update); err != nil {
+		t.Fatalf("reconcile confirmed repayment: %v", err)
+	}
+	got := s.pendingRepay[44]
+	if got.RepayUncertain || got.ExecutedQty != 0.5 || got.BaseFeeQty != 0.001 || got.RepayTransferID != 0 || len(margin.repaid) != 0 {
+		t.Fatalf("unexpected recovered repayment state or duplicate repay: pending=%+v repaid=%v", got, margin.repaid)
+	}
+}
+
+func TestSpotShortKeepsUncertainRepaymentWhenHistoryIsAmbiguousOrFailed(t *testing.T) {
+	startedAt := time.Now().UTC().Add(-time.Second).UnixMilli()
+	confirmed := exchange.MarginBorrowRecord{TransferID: 813, Asset: "BTC", Amount: 0.499, Status: "CONFIRMED", Timestamp: startedAt + 1}
+	tests := []struct {
+		name    string
+		records []exchange.MarginBorrowRecord
+	}{
+		{name: "duplicate candidates", records: []exchange.MarginBorrowRecord{confirmed,
+			{TransferID: 814, Asset: "BTC", Amount: 0.499, Status: "CONFIRMED", Timestamp: startedAt + 2}}},
+		{name: "failed transaction", records: []exchange.MarginBorrowRecord{{TransferID: 815, Asset: "BTC", Amount: 0.499,
+			Status: "FAILED", Timestamp: startedAt + 1}}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			margin := &mockMarginExchange{repayHistory: test.records}
+			s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, margin)
+			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			pending := spotShortPendingRepay{OrderQuantity: 0.5, RepayUncertain: true, RepayAmount: 0.499,
+				RepayStartedAtUnixMilli: startedAt, RepayExpectedExecutedQty: 0.5, RepayExpectedBaseFeeQty: 0.001}
+			s.pendingRepay[44] = pending
+			update := &position.OrderUpdate{OrderID: 44, Symbol: "BTCUSDT", Side: "BUY", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5,
+				CommissionKnown: true, CommissionAsset: "BTC", BaseFeeQty: 0.001}
+			if err := s.OnOrderUpdate(update); err == nil {
+				t.Fatal("ambiguous or failed repayment evidence must remain unresolved")
+			}
+			if got := s.pendingRepay[44]; got != pending || len(margin.repaid) != 0 {
+				t.Fatalf("uncertain repayment intent changed or was repeated: pending=%+v repaid=%v", got, margin.repaid)
+			}
+		})
 	}
 }
 

@@ -87,6 +87,33 @@ func TestSpotMarginBorrowHistoryUsesBoundedBorrowQuery(t *testing.T) {
 	}
 }
 
+func TestSpotMarginRepayHistoryUsesExactAssetAndTimeWindow(t *testing.T) {
+	const startTime = int64(1790503199000)
+	const endTime = int64(1790503200000)
+	client := sdk.NewClient("api-key", "api-secret").SetApiEndpoint("https://margin.test")
+	client.HTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		query := req.URL.Query()
+		if req.Method != http.MethodGet || req.URL.Path != "/sapi/v1/margin/borrow-repay" ||
+			query.Get("type") != "REPAY" || query.Get("asset") != "BTC" ||
+			query.Get("startTime") != fmt.Sprint(startTime) || query.Get("endTime") != fmt.Sprint(endTime) ||
+			query.Get("current") != "1" || query.Get("size") != "100" {
+			return nil, fmt.Errorf("unexpected bounded margin repay query: %s %s", req.Method, req.URL.String())
+		}
+		body := `{"rows":[{"txId":7003,"asset":"BTC","amount":"0.399","principal":"0.398","interest":"0.001","status":"CONFIRMED","timestamp":1790503199500}],"total":1}`
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+	})}
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}, marginClient: NewMarginClient(client)}
+	records, total, err := adapter.GetMarginTransactionHistory(context.Background(), "BTC", "REPAY", startTime, endTime, 1, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(records) != 1 || records[0].TransferID != 7003 || records[0].Asset != "BTC" ||
+		records[0].Amount != 0.399 || records[0].Principal != 0.398 || records[0].Interest != 0.001 ||
+		records[0].Status != "CONFIRMED" || records[0].Timestamp != 1790503199500 {
+		t.Fatalf("unexpected margin repay history mapping: total=%d records=%+v", total, records)
+	}
+}
+
 func TestSpotMarginTransactionByIDUsesExchangeTimestampAndRequiresConfirmedCrossMargin(t *testing.T) {
 	const transactionID int64 = 7002
 	const transactionTime int64 = 1790503200123

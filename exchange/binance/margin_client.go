@@ -211,8 +211,22 @@ func (m *MarginClient) GetMarginOrderByClientOrderID(ctx context.Context, symbol
 
 // GetBorrowHistory queries a bounded page of cross-margin BORROW records.
 func (m *MarginClient) GetBorrowHistory(ctx context.Context, asset string, startTime, endTime, page, pageSize int64) (*binancesdk.MarginBorrowRepayResponse, error) {
+	return m.GetTransactionHistory(ctx, asset, "BORROW", startTime, endTime, page, pageSize)
+}
+
+// GetTransactionHistory queries a bounded cross-margin BORROW or REPAY history page.
+func (m *MarginClient) GetTransactionHistory(ctx context.Context, asset, transactionType string, startTime, endTime, page, pageSize int64) (*binancesdk.MarginBorrowRepayResponse, error) {
 	if m == nil || m.client == nil || asset == "" || startTime <= 0 || endTime < startTime || page < 1 || pageSize < 1 || pageSize > 100 {
-		return nil, fmt.Errorf("valid margin borrow history query parameters are required")
+		return nil, fmt.Errorf("valid margin transaction history query parameters are required")
+	}
+	var kind binancesdk.MarginAccountBorrowRepayType
+	switch strings.ToUpper(strings.TrimSpace(transactionType)) {
+	case "BORROW":
+		kind = binancesdk.MarginAccountBorrow
+	case "REPAY":
+		kind = binancesdk.MarginAccountRepay
+	default:
+		return nil, fmt.Errorf("unsupported margin transaction history type %q", transactionType)
 	}
 	return m.client.NewListMarginBorrowRepayService().
 		Asset(asset).
@@ -220,7 +234,7 @@ func (m *MarginClient) GetBorrowHistory(ctx context.Context, asset string, start
 		EndTime(endTime).
 		Current(page).
 		Size(pageSize).
-		Type(binancesdk.MarginAccountBorrow).
+		Type(kind).
 		Do(ctx)
 }
 

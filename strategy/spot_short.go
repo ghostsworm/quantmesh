@@ -203,10 +203,6 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.mu.Unlock()
 		return nil
 	}
-	if pending.RepayUncertain {
-		s.mu.Unlock()
-		return fmt.Errorf("spot short repayment outcome for order %d requires exchange reconciliation", update.OrderID)
-	}
 	if (update.Symbol != "" && update.Symbol != s.symbol) ||
 		(pending.ClientOrderID != "" && update.ClientOrderID != "" && pending.ClientOrderID != update.ClientOrderID) {
 		s.mu.Unlock()
@@ -219,6 +215,22 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	if update.Status == "FILLED" && update.ExecutedQty <= 0 {
 		s.mu.Unlock()
 		return fmt.Errorf("spot short buy order %d reports FILLED without positive cumulative execution", update.OrderID)
+	}
+	if pending.RepayUncertain {
+		if update.ExecutedQty+1e-10 < pending.RepayExpectedExecutedQty {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short order %d cumulative fill is below the persisted repayment intent", update.OrderID)
+		}
+		s.mu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), spotShortRuntimeReconcileTimeout)
+		err := s.reconcileUncertainRepayment(ctx, update.OrderID, pending, update.Status)
+		cancel()
+		if err != nil {
+			wrapped := fmt.Errorf("spot short repayment outcome for order %d remains unresolved: %w", update.OrderID, err)
+			s.reportUnresolvedDebt(wrapped)
+			return wrapped
+		}
+		return nil
 	}
 	delta := update.ExecutedQty - pending.ExecutedQty
 	baseFeeDelta := update.BaseFeeQty
@@ -236,6 +248,10 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 			return fmt.Errorf("spot short repay executor unavailable for filled buy order %d", update.OrderID)
 		}
 		pending.RepayUncertain = true
+		pending.RepayAmount = repayAmount
+		pending.RepayStartedAtUnixMilli = time.Now().UTC().UnixMilli()
+		pending.RepayExpectedExecutedQty = update.ExecutedQty
+		pending.RepayExpectedBaseFeeQty = pending.BaseFeeQty + baseFeeDelta
 		s.pendingRepay[update.OrderID] = pending
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.mu.Unlock()
@@ -245,12 +261,30 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	s.mu.Unlock()
 	if repayAmount > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		_, err := s.smEx.Repay(ctx, s.baseAsset, repayAmount)
+		repayID, err := s.smEx.Repay(ctx, s.baseAsset, repayAmount)
 		cancel()
 		if err != nil {
 			logger.Error("SpotShortStrategy 還幣失敗 (order=%d): %v", update.OrderID, err)
 			return fmt.Errorf("repay borrowed %s after filled buy order %d; outcome requires reconciliation: %w", s.baseAsset, update.OrderID, err)
 		}
+		if repayID <= 0 {
+			return fmt.Errorf("repay borrowed %s after filled buy order %d returned invalid transaction ID %d; outcome requires reconciliation", s.baseAsset, update.OrderID, repayID)
+		}
+		s.mu.Lock()
+		current, ok := s.pendingRepay[update.OrderID]
+		if !ok || !current.RepayUncertain || current.RepayStartedAtUnixMilli != pending.RepayStartedAtUnixMilli {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short repayment intent changed before transaction ID persistence for order %d", update.OrderID)
+		}
+		previous := current
+		current.RepayTransferID = repayID
+		s.pendingRepay[update.OrderID] = current
+		if err := s.persistRuntimeStateLocked(); err != nil {
+			s.pendingRepay[update.OrderID] = previous
+			s.mu.Unlock()
+			return fmt.Errorf("persist margin repayment transaction %d: %w", repayID, err)
+		}
+		s.mu.Unlock()
 	}
 	s.mu.Lock()
 	pending, ok = s.pendingRepay[update.OrderID]
@@ -258,9 +292,10 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.mu.Unlock()
 		return fmt.Errorf("spot short order %d disappeared during repayment", update.OrderID)
 	}
+	previous := pending
 	pending.ExecutedQty = update.ExecutedQty
 	pending.BaseFeeQty += baseFeeDelta
-	pending.RepayUncertain = false
+	clearSpotShortRepayIntent(&pending)
 	if update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "CANCELLED" || update.Status == "EXPIRED" || update.Status == "REJECTED" {
 		delete(s.pendingRepay, update.OrderID)
 	} else {
@@ -268,7 +303,7 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 	err := s.persistRuntimeStateLocked()
 	if err != nil {
-		s.pendingRepay[update.OrderID] = pending
+		s.pendingRepay[update.OrderID] = previous
 	}
 	s.mu.Unlock()
 	if err != nil {
@@ -612,7 +647,10 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 		if update.ExecutedQty < pending.ExecutedQty {
 			return fmt.Errorf("exchange cumulative fill regressed for spot short order %d: %.12g < %.12g", id, update.ExecutedQty, pending.ExecutedQty)
 		}
-		if update.ExecutedQty > pending.ExecutedQty {
+		if pending.RepayUncertain && update.ExecutedQty+1e-10 < pending.RepayExpectedExecutedQty {
+			return fmt.Errorf("exchange cumulative fill regressed below uncertain repayment cursor for spot short order %d", id)
+		}
+		if update.ExecutedQty > pending.ExecutedQty && !pending.RepayUncertain {
 			if err := s.verifySpotShortFillBaseFee(ctx, id, pending, update); err != nil {
 				return fmt.Errorf("reconcile spot short order %d fills: %w", id, err)
 			}
@@ -627,6 +665,118 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 		}
 	}
 	return nil
+}
+
+func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, orderID int64, pending spotShortPendingRepay, orderStatus string) error {
+	if !pending.RepayUncertain || pending.RepayAmount <= 0 || pending.RepayStartedAtUnixMilli <= 0 ||
+		pending.RepayExpectedExecutedQty <= pending.ExecutedQty || pending.RepayExpectedExecutedQty > pending.OrderQuantity ||
+		pending.RepayExpectedBaseFeeQty < pending.BaseFeeQty ||
+		math.Abs((pending.RepayExpectedExecutedQty-pending.ExecutedQty)-(pending.RepayExpectedBaseFeeQty-pending.BaseFeeQty)-pending.RepayAmount) > math.Max(1e-10, pending.RepayAmount*1e-8) {
+		return fmt.Errorf("persisted repayment intent lacks sufficient amount, timestamp, or fill-cursor evidence")
+	}
+	endTime := time.Now().UTC().UnixMilli()
+	if endTime < pending.RepayStartedAtUnixMilli || endTime-pending.RepayStartedAtUnixMilli > int64((30*24*time.Hour)/time.Millisecond) {
+		return fmt.Errorf("repayment intent is outside the exchange's supported 30-day history window")
+	}
+	tolerance := math.Max(1e-10, pending.RepayAmount*1e-8)
+	var confirmed exchange.MarginBorrowRecord
+	if pending.RepayTransferID > 0 {
+		if query, ok := s.rawEx.(exchange.MarginTransactionByIDQuerier); ok {
+			record, err := query.GetMarginTransactionByID(ctx, s.baseAsset, "REPAY", pending.RepayTransferID)
+			if err != nil {
+				return fmt.Errorf("query repayment transaction %d: %w", pending.RepayTransferID, err)
+			}
+			if !validSpotShortRepayRecord(record, s.baseAsset, pending, endTime, tolerance) || record.TransferID != pending.RepayTransferID {
+				return fmt.Errorf("repayment transaction %d does not match persisted intent", pending.RepayTransferID)
+			}
+			confirmed = record
+		}
+	}
+	if confirmed.TransferID == 0 {
+		history, ok := s.rawEx.(exchange.MarginTransactionHistoryQuerier)
+		if !ok {
+			return fmt.Errorf("margin exchange cannot query authoritative repayment history")
+		}
+		const pageSize = 100
+		const maxRecords = 10000
+		var candidates []exchange.MarginBorrowRecord
+		for page := 1; ; page++ {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			records, total, err := history.GetMarginTransactionHistory(ctx, s.baseAsset, "REPAY", pending.RepayStartedAtUnixMilli, endTime, page, pageSize)
+			if err != nil {
+				return fmt.Errorf("query margin repayment history page %d: %w", page, err)
+			}
+			if total < 0 || total > maxRecords {
+				return fmt.Errorf("repayment history result count %d exceeds safe reconciliation bound %d", total, maxRecords)
+			}
+			for _, record := range records {
+				if record.TransferID > 0 && strings.EqualFold(record.Asset, s.baseAsset) &&
+					record.Timestamp >= pending.RepayStartedAtUnixMilli && record.Timestamp <= endTime &&
+					math.Abs(record.Amount-pending.RepayAmount) <= tolerance {
+					candidates = append(candidates, record)
+				}
+			}
+			if len(records) == 0 || int64(page*pageSize) >= total {
+				break
+			}
+		}
+		if len(candidates) != 1 {
+			return fmt.Errorf("repayment history has %d exact amount candidates; unique execution cannot be proven", len(candidates))
+		}
+		confirmed = candidates[0]
+		if !strings.EqualFold(confirmed.Status, "CONFIRMED") {
+			return fmt.Errorf("matching repayment transaction %d is not confirmed (%s)", confirmed.TransferID, confirmed.Status)
+		}
+	}
+
+	s.mu.Lock()
+	current, ok := s.pendingRepay[orderID]
+	if !ok || current != pending {
+		s.mu.Unlock()
+		return fmt.Errorf("persisted repayment intent changed during exchange reconciliation")
+	}
+	previous := current
+	current.ExecutedQty = current.RepayExpectedExecutedQty
+	current.BaseFeeQty = current.RepayExpectedBaseFeeQty
+	clearSpotShortRepayIntent(&current)
+	if isSpotShortTerminalOrderStatus(orderStatus) {
+		delete(s.pendingRepay, orderID)
+	} else {
+		s.pendingRepay[orderID] = current
+	}
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.pendingRepay[orderID] = previous
+		s.mu.Unlock()
+		return fmt.Errorf("persist confirmed repayment transaction %d: %w", confirmed.TransferID, err)
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func validSpotShortRepayRecord(record exchange.MarginBorrowRecord, asset string, pending spotShortPendingRepay, endTime int64, tolerance float64) bool {
+	return record.TransferID > 0 && strings.EqualFold(record.Asset, asset) && strings.EqualFold(record.Status, "CONFIRMED") &&
+		record.Timestamp >= pending.RepayStartedAtUnixMilli && record.Timestamp <= endTime &&
+		finiteNumber(record.Amount) && math.Abs(record.Amount-pending.RepayAmount) <= tolerance
+}
+
+func clearSpotShortRepayIntent(pending *spotShortPendingRepay) {
+	pending.RepayUncertain = false
+	pending.RepayTransferID = 0
+	pending.RepayAmount = 0
+	pending.RepayStartedAtUnixMilli = 0
+	pending.RepayExpectedExecutedQty = 0
+	pending.RepayExpectedBaseFeeQty = 0
+}
+
+func isSpotShortTerminalOrderStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FILLED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *SpotShortStrategy) reconcilePendingBuyIntents(ctx context.Context) error {
