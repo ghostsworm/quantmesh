@@ -24,6 +24,13 @@ func TestRuntimeReconciliationChecksPendingOrdersOnly(t *testing.T) {
 	if martingale.hasPendingMartingaleEntryReconciliation() {
 		t.Fatal("terminal martingale entry should not be reconciled")
 	}
+	if martingale.hasPendingMartingaleCloseReconciliation() {
+		t.Fatal("martingale without a close intent should not reconcile a close")
+	}
+	martingale.closeClientOrderID = "close-1"
+	if !martingale.hasPendingMartingaleCloseReconciliation() {
+		t.Fatal("persisted martingale close intent should be reconciled")
+	}
 }
 
 func TestRuntimeOrderReconciliationStopsWithContext(t *testing.T) {

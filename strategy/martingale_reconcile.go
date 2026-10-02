@@ -28,11 +28,17 @@ func (s *MartingaleStrategy) runEntryOrderReconciliation(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !s.hasPendingMartingaleEntryReconciliation() {
+			if !s.hasPendingMartingaleEntryReconciliation() && !s.hasPendingMartingaleCloseReconciliation() {
 				continue
 			}
 			reconcileCtx, cancel := context.WithTimeout(ctx, dcaFillEvidenceTimeout)
-			err := s.reconcilePersistedEntryOrders(reconcileCtx)
+			var err error
+			if s.hasPendingMartingaleEntryReconciliation() {
+				err = s.reconcilePersistedEntryOrders(reconcileCtx)
+			}
+			if err == nil && s.hasPendingMartingaleCloseReconciliation() {
+				err = s.reconcileCloseSubmission(reconcileCtx)
+			}
 			cancel()
 			if err != nil && ctx.Err() == nil {
 				logger.Warn("⚠️ [%s] 马丁格尔运行时订单对账仍未完成，将重试: %v", s.name, err)
@@ -50,6 +56,12 @@ func (s *MartingaleStrategy) hasPendingMartingaleEntryReconciliation() bool {
 		}
 	}
 	return false
+}
+
+func (s *MartingaleStrategy) hasPendingMartingaleCloseReconciliation() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.closeClientOrderID != ""
 }
 
 func (s *MartingaleStrategy) resolveUnverifiedCommission(update *position.OrderUpdate) error {
