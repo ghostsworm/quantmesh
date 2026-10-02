@@ -64,9 +64,16 @@ func observeAccountEvidence(ctx context.Context, observation risk.EquityObservat
 			if !ok {
 				return risk.EquityObservation{}, fmt.Errorf("account ledger entry currency has no observed wallet")
 			}
-			amount, err := accounting.Decimal(entry.Amount)
-			if err != nil {
-				return risk.EquityObservation{}, err
+			var amount *big.Rat
+			if entry.Amount == "" {
+				if entry.BalanceAfter == "" {
+					return risk.EquityObservation{}, fmt.Errorf("account ledger entry lacks exact amount and post-event balance")
+				}
+			} else {
+				amount, err = accounting.Decimal(entry.Amount)
+				if err != nil {
+					return risk.EquityObservation{}, err
+				}
 			}
 			rateText := entry.ValuationRate
 			if rateText == "" {
@@ -83,7 +90,7 @@ func observeAccountEvidence(ctx context.Context, observation risk.EquityObservat
 				}
 			}
 			var approx float64
-			if rateText != "" {
+			if rateText != "" && amount != nil {
 				rate, err := accounting.Decimal(rateText)
 				if err != nil || rate.Sign() <= 0 {
 					return risk.EquityObservation{}, fmt.Errorf("invalid account entry valuation rate")

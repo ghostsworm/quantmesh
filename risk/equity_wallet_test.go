@@ -393,6 +393,21 @@ func TestEquityWalletCrossChecksSequentialPostTransactionBalances(t *testing.T) 
 	}
 }
 
+func TestEquityWalletDerivesMissingExactAmountFromPostBalance(t *testing.T) {
+	base := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	previous, err := nextEquityCheckpoint(nil, testWalletObservation(base, 0, "100", 100, time.Time{}), base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := testWalletObservation(now, 0, "97.5", 97.5, previous.BaseWallets["a"].From)
+	flow := EquityCashFlow{ID: "fee-with-post-balance", Account: "a", Kind: "fee", Currency: "USDT", At: now.Add(-time.Second), BalanceAfter: "97.5"}
+	observation.Flows = []EquityCashFlow{flow}
+	if _, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true); err != nil {
+		t.Fatalf("post-balance evidence should supply an exact native-currency delta: %v", err)
+	}
+}
+
 func TestEquityWalletRejectsNonUnitRateForValuationCurrency(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
