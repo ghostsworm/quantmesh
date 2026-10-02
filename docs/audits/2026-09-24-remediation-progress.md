@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc779 修复钱包余额快照与预留事务之间的并发乱序：余额观测时间随 claim 传入，在同一已序列化的钱包事务中持久化最新 available；较早读取但后提交的高余额只能使用已保存的新观测值校验，不得覆盖。新增迁移保存每个钱包最新余额观测，SQLite 回归复现新低样本先提交、旧高样本后提交时拒绝超额 reservation。需继续验证多节点系统时钟偏差与 MySQL 实库锁/迁移；未连接真实账户、未下单或部署，R12 跨交易对动态额度及盈利验证仍未闭环。
+
 - rc778 将 `go vet ./...` 与 `go test -race ./execution ./order ./position ./risk ./storage` 同时加入 PR/push CI 及独立 CD 同 SHA 发布验证；任何一个门失败都会阻止对应构建/发布。该门禁尚需由 GitHub Actions 实际运行确认，不代表已验证目标 Linux 发布产物。R12 账户级跨交易对敞口、R07/R09 完整经济恢复、R10 完整账户流水范围与 R15 样本外/真实执行校准仍开放；未连接真实账户、未下单、未部署或宣称盈利验收。
 
 - rc585 补齐 CoinEx futures wrapper 此前 `GetOrderFills => nil,nil`：接通 CoinEx V2 签名 `GET /futures/order-deals`，按 `market_type=FUTURES` + order_id 获取分页流水；依据官方 `pagination.has_next` 继续分页，拒绝空续页、重复成交 ID、跨订单/市场记录、未知方向/role、缺费用币种以及非有限或无效数值；将 API 报告的 fee、fee_ccy 与 realized_pnl 传到通用成交账本，PnL 仅在 adapter 市场结算报价币证据存在时标记已知。mock 核验 v2 HMAC 路径签名、双页完整查询及费用/PnL 映射。未接真实账户、未下单或部署；不代表实盘或盈利验收。

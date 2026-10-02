@@ -102,6 +102,7 @@ func startFundingCarrySymbolRuntime(
 		return nil, fmt.Errorf("資金費套利現貨/合約資產不匹配: %w", err)
 	}
 	var futuresAccountCapital, spotAccountCapital, futuresAvailable, spotAvailable float64
+	var futuresAvailableAt, spotAvailableAt time.Time
 	for _, wallet := range []struct {
 		market string
 		ex     exchange.IExchange
@@ -112,6 +113,7 @@ func startFundingCarrySymbolRuntime(
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
 		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
+		observedAt := time.Now().UTC()
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 %s USDT 可用餘額: %w", wallet.market, balanceErr)
@@ -122,9 +124,11 @@ func startFundingCarrySymbolRuntime(
 		if wallet.market == "futures" {
 			futuresAccountCapital = allocated
 			futuresAvailable = available
+			futuresAvailableAt = observedAt
 		} else {
 			spotAccountCapital = allocated
 			spotAvailable = available
+			spotAvailableAt = observedAt
 		}
 	}
 
@@ -140,6 +144,7 @@ func startFundingCarrySymbolRuntime(
 		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
 	}
 	var marginAvailable float64
+	var marginAvailableAt time.Time
 	if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
 		if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), marginEx.GetBaseAsset(), marginEx.GetQuoteAsset()); err != nil {
 			return nil, fmt.Errorf("資金費套利現貨/槓桿錢包資產不匹配: %w", err)
@@ -150,6 +155,7 @@ func startFundingCarrySymbolRuntime(
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
 		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
+		marginAvailableAt = time.Now().UTC()
 		cancelBalance()
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 spot_margin USDT 可用餘額: %w", balanceErr)
@@ -253,7 +259,11 @@ func startFundingCarrySymbolRuntime(
 		market    string
 		available float64
 	}{{"futures", futuresAvailable}, {"spot", spotAvailable}} {
-		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, symCfg.Exchange, wallet.market, "USDT", ownLegCapital, wallet.available)
+		observedAt := futuresAvailableAt
+		if wallet.market == "spot" {
+			observedAt = spotAvailableAt
+		}
+		claim, claimErr := buildAccountWalletCapitalClaimFromObservation(baseCfg, symCfg.Exchange, wallet.market, "USDT", ownLegCapital, wallet.available, observedAt)
 		if claimErr != nil {
 			return nil, fmt.Errorf("build funding_carry %s capital reservation: %w", wallet.market, claimErr)
 		}
@@ -261,7 +271,7 @@ func startFundingCarrySymbolRuntime(
 		capitalClaims = append(capitalClaims, claim)
 	}
 	if marginAvailable > 0 {
-		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, symCfg.Exchange, "spot_margin", "USDT", ownLegCapital, marginAvailable)
+		claim, claimErr := buildAccountWalletCapitalClaimFromObservation(baseCfg, symCfg.Exchange, "spot_margin", "USDT", ownLegCapital, marginAvailable, marginAvailableAt)
 		if claimErr != nil {
 			return nil, fmt.Errorf("build funding_carry spot_margin capital reservation: %w", claimErr)
 		}

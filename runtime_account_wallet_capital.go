@@ -20,8 +20,15 @@ import (
 )
 
 func buildAccountWalletCapitalClaim(cfg *config.Config, exchangeName, market, quoteAsset string, amount, available float64) (storage.AccountWalletCapitalClaim, error) {
+	return buildAccountWalletCapitalClaimFromObservation(cfg, exchangeName, market, quoteAsset, amount, available, time.Now().UTC())
+}
+
+func buildAccountWalletCapitalClaimFromObservation(cfg *config.Config, exchangeName, market, quoteAsset string, amount, available float64, observedAt time.Time) (storage.AccountWalletCapitalClaim, error) {
 	if cfg == nil || math.IsNaN(amount) || math.IsInf(amount, 0) || amount <= 0 || math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 {
 		return storage.AccountWalletCapitalClaim{}, fmt.Errorf("wallet capital claim requires finite positive amount and verified balance")
+	}
+	if observedAt.IsZero() || observedAt.After(time.Now().Add(time.Minute)) {
+		return storage.AccountWalletCapitalClaim{}, fmt.Errorf("wallet capital claim requires a valid balance observation time")
 	}
 	exchangeName = strings.TrimSpace(exchangeName)
 	market = strings.ToLower(strings.TrimSpace(market))
@@ -36,7 +43,7 @@ func buildAccountWalletCapitalClaim(cfg *config.Config, exchangeName, market, qu
 	if err != nil {
 		return storage.AccountWalletCapitalClaim{}, err
 	}
-	return storage.AccountWalletCapitalClaim{WalletKey: walletKey, ReservationToken: token, Amount: amount, Available: available}, nil
+	return storage.AccountWalletCapitalClaim{WalletKey: walletKey, ReservationToken: token, Amount: amount, Available: available, ObservedAt: observedAt.UTC()}, nil
 }
 
 func newAccountWalletCapitalReservationToken() (string, error) {

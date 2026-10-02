@@ -579,12 +579,14 @@ func startSymbolRuntime(
 	}
 	quoteAsset := strings.TrimSpace(ex.GetQuoteAsset())
 	availableBalance := 0.0
+	availableBalanceObservedAt := time.Time{}
 	var balanceErr error
 	if quoteAsset == "" {
 		balanceErr = fmt.Errorf("exchange quote asset is unavailable")
 	} else {
 		balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
+		availableBalanceObservedAt = time.Now().UTC()
 		cancel()
 	}
 	botCapitalBudget, capitalErr := capStrategyCapitalLimit(requestedCapital, availableBalance)
@@ -612,7 +614,7 @@ func startSymbolRuntime(
 		if walletExchange == "" {
 			walletExchange = localCfg.App.CurrentExchange
 		}
-		claim, claimErr := buildAccountWalletCapitalClaim(baseCfg, walletExchange, ex.GetMarketType(), quoteAsset, botCapitalBudget, availableBalance)
+		claim, claimErr := buildAccountWalletCapitalClaimFromObservation(baseCfg, walletExchange, ex.GetMarketType(), quoteAsset, botCapitalBudget, availableBalance, availableBalanceObservedAt)
 		if claimErr != nil {
 			capitalErr = claimErr
 		} else {

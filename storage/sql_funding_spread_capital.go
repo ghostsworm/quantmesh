@@ -22,10 +22,13 @@ type AccountWalletCapitalClaim struct {
 	ReservationToken string
 	Amount           float64
 	Available        float64
-	Exchange         string
-	Market           string
-	QuoteAsset       string
-	Symbol           string
+	// ObservedAt orders concurrent balance reads so a delayed older snapshot
+	// cannot replace a newer, lower available-balance observation.
+	ObservedAt time.Time
+	Exchange   string
+	Market     string
+	QuoteAsset string
+	Symbol     string
 }
 
 // AccountWalletCapitalReservation is a read-only, credential-free audit view.
@@ -100,7 +103,7 @@ func migrateFundingSpreadCapitalTablesMySQL(db *sql.DB) error {
 }
 
 func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
-	for _, version := range []string{"2026093001", "2026093002", "2026093003"} {
+	for _, version := range []string{"2026093001", "2026093002", "2026093003", "2026093004"} {
 		if version == "2026093003" {
 			exists, err := fundingSpreadReservationTokenColumnExists(db, dialect)
 			if err != nil {
@@ -183,6 +186,14 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 			return err
 		}
 	}
+	availableByWallet := make(map[string]float64, len(claims))
+	for _, claim := range claims {
+		available, err := recordNewestWalletBalance(ctx, tx, claim)
+		if err != nil {
+			return err
+		}
+		availableByWallet[claim.WalletKey] = available
+	}
 
 	type write struct {
 		walletKey        string
@@ -208,8 +219,9 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount), 0) FROM funding_spread_capital_reservations WHERE wallet_key = ? AND bot_key <> ?`, claim.WalletKey, botKey).Scan(&others); err != nil {
 			return fmt.Errorf("sum existing account wallet reservations: %w", err)
 		}
-		if math.IsNaN(others) || math.IsInf(others, 0) || others < 0 || others > math.MaxFloat64-amount || others+amount > claim.Available {
-			return fmt.Errorf("wallet %s cannot safely retain %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, claim.Available)
+		available := availableByWallet[claim.WalletKey]
+		if math.IsNaN(others) || math.IsInf(others, 0) || others < 0 || others > math.MaxFloat64-amount || others+amount > available {
+			return fmt.Errorf("wallet %s cannot safely retain %.12g quote units; other reservations %.12g, verified available %.12g", claim.WalletKey, amount, others, available)
 		}
 		writes = append(writes, write{walletKey: claim.WalletKey, reservationToken: claim.ReservationToken, amount: amount})
 	}
@@ -254,6 +266,40 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 		return fmt.Errorf("commit account wallet capital reservation: %w", err)
 	}
 	return nil
+}
+
+func recordNewestWalletBalance(ctx context.Context, tx *sql.Tx, claim AccountWalletCapitalClaim) (float64, error) {
+	observedAt := claim.ObservedAt.UTC().UnixNano()
+	var available float64
+	var storedAt int64
+	err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, claim.WalletKey).Scan(&available, &storedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		query := `INSERT INTO funding_spread_wallet_balances (wallet_key, available, observed_at_ns) VALUES (?, ?, ?)`
+		if _, err := tx.ExecContext(ctx, query, claim.WalletKey, claim.Available, observedAt); err != nil {
+			return 0, fmt.Errorf("record initial verified wallet balance: %w", err)
+		}
+		return claim.Available, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read latest verified wallet balance: %w", err)
+	}
+	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || storedAt <= 0 {
+		return 0, errors.New("stored verified wallet balance is invalid")
+	}
+	if observedAt > storedAt {
+		query := `UPDATE funding_spread_wallet_balances SET available = ?, observed_at_ns = ? WHERE wallet_key = ?`
+		if _, err := tx.ExecContext(ctx, query, claim.Available, observedAt, claim.WalletKey); err != nil {
+			return 0, fmt.Errorf("advance verified wallet balance observation: %w", err)
+		}
+		return claim.Available, nil
+	}
+	if observedAt == storedAt && claim.Available < available {
+		if _, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_balances SET available = ? WHERE wallet_key = ?`, claim.Available, claim.WalletKey); err != nil {
+			return 0, fmt.Errorf("retain conservative wallet balance observation: %w", err)
+		}
+		return claim.Available, nil
+	}
+	return available, nil
 }
 
 func (s *SQLStorage) ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error {
@@ -390,7 +436,8 @@ func normalizeFundingSpreadClaims(claims []FundingSpreadCapitalClaim, requireAmo
 		return nil, errors.New("funding spread reservation requires wallet claims")
 	}
 	result := append([]FundingSpreadCapitalClaim(nil), claims...)
-	for _, claim := range result {
+	for index := range result {
+		claim := &result[index]
 		if !isFundingSpreadDigest(claim.WalletKey) {
 			return nil, errors.New("funding spread reservation wallet key must be a SHA-256 hex digest")
 		}
@@ -399,6 +446,12 @@ func normalizeFundingSpreadClaims(claims []FundingSpreadCapitalClaim, requireAmo
 		}
 		if requireAmounts && (math.IsNaN(claim.Amount) || math.IsInf(claim.Amount, 0) || claim.Amount <= 0 || math.IsNaN(claim.Available) || math.IsInf(claim.Available, 0) || claim.Available <= 0) {
 			return nil, errors.New("funding spread reservation requires positive finite amount and available balance")
+		}
+		if claim.ObservedAt.IsZero() {
+			claim.ObservedAt = time.Now().UTC()
+		}
+		if claim.ObservedAt.After(time.Now().Add(time.Minute)) {
+			return nil, errors.New("wallet balance observation time is unreasonably far in the future")
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].WalletKey < result[j].WalletKey })

@@ -8,10 +8,42 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func fundingSpreadTestClaim(wallet int, amount, available float64) FundingSpreadCapitalClaim {
 	return FundingSpreadCapitalClaim{WalletKey: fmt.Sprintf("%064x", wallet), ReservationToken: fmt.Sprintf("%064x", wallet+1000), Amount: amount, Available: available}
+}
+
+func TestAccountWalletReservationRejectsDelayedStaleHighBalance(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "stale-wallet-balance.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	walletKey := fmt.Sprintf("%064x", 77)
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	newer := AccountWalletCapitalClaim{
+		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 1077), Amount: 40, Available: 50, ObservedAt: base.Add(time.Second),
+	}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-newer", []AccountWalletCapitalClaim{newer}); err != nil {
+		t.Fatalf("store newer low balance claim: %v", err)
+	}
+	stale := AccountWalletCapitalClaim{
+		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 2077), Amount: 20, Available: 100, ObservedAt: base,
+	}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-stale", []AccountWalletCapitalClaim{stale}); err == nil {
+		t.Fatal("delayed stale high balance observation allowed aggregate reservations above the newer available balance")
+	}
+	var available float64
+	var observedAt int64
+	if err := store.db.QueryRow(`SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt); err != nil {
+		t.Fatal(err)
+	}
+	if available != 50 || observedAt != base.Add(time.Second).UnixNano() {
+		t.Fatalf("stale observation replaced latest balance: available=%v observedAt=%d", available, observedAt)
+	}
 }
 
 func TestFundingSpreadCapitalReservationsAreAtomicAcrossWallets(t *testing.T) {
