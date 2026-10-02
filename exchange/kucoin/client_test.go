@@ -1,8 +1,34 @@
 package kucoin
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestAdapterAccountPreservesAPISettlementCurrency(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/account-overview" {
+			t.Errorf("path = %q, want /api/v1/account-overview", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":"200000","data":{"accountEquity":1500.5,"availableBalance":900,"marginBalance":1200,"unrealisedPNL":300.5,"currency":"usdt"}}`))
+	}))
+	defer server.Close()
+
+	client := NewKuCoinClient("key", "secret", "passphrase")
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalBalance != 1500.5 || account.MarginBalance != 1200 {
+		t.Fatalf("account = %+v, want API-reported USDT settlement currency", account)
+	}
+}
 
 func TestNewKuCoinClient(t *testing.T) {
 	apiKey := "test_api_key"

@@ -26,6 +26,7 @@ type KuCoinClient struct {
 	apiKey     string
 	secretKey  string
 	passphrase string
+	baseURL    string
 	httpClient *http.Client
 }
 
@@ -35,6 +36,7 @@ func NewKuCoinClient(apiKey, secretKey, passphrase string) *KuCoinClient {
 		apiKey:     apiKey,
 		secretKey:  secretKey,
 		passphrase: passphrase,
+		baseURL:    KuCoinBaseURL,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -61,7 +63,7 @@ func (c *KuCoinClient) signRequest(timestamp, method, path, body string) (string
 
 // sendRequest 发送 HTTP 请求
 func (c *KuCoinClient) sendRequest(ctx context.Context, method, path string, body interface{}) ([]byte, error) {
-	reqURL := fmt.Sprintf("%s%s", KuCoinBaseURL, path)
+	reqURL := fmt.Sprintf("%s%s", c.baseURL, path)
 
 	var bodyBytes []byte
 	var err error

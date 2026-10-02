@@ -124,6 +124,7 @@ func (w *kucoinWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: kucoinAccount.TotalBalance,
 		TotalMarginBalance: kucoinAccount.MarginBalance,
 		AvailableBalance:   kucoinAccount.AvailableBalance,
+		BalanceAsset:       kucoinAccount.BalanceAsset,
 	}, nil
 }
 
