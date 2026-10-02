@@ -1,6 +1,7 @@
 package strategy
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -90,12 +91,137 @@ func (e *comboExposureAdmissionExecutor) PlaceOrder(req *position.OrderRequest) 
 	return e.next.PlaceOrder(req)
 }
 
+// BatchPlaceOrders signals either a margin error or a local Combo admission rejection.
 func (e *comboExposureAdmissionExecutor) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
-	return e.next.BatchPlaceOrders(orders)
+	result := e.BatchPlaceOrdersWithDetails(orders)
+	return result.PlacedOrders, result.HasMarginError || result.HasAdmissionError
 }
 
 func (e *comboExposureAdmissionExecutor) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
-	return e.next.BatchPlaceOrdersWithDetails(orders)
+	return e.BatchPlaceOrdersWithDetailsContext(context.Background(), orders)
+}
+
+func (e *comboExposureAdmissionExecutor) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result := &position.BatchPlaceOrdersResult{
+		PlacedOrders:     make([]*position.Order, 0),
+		AdmissionErrors:  make(map[string]string),
+		ReduceOnlyErrors: make(map[string]bool),
+		UnknownOrders:    make(map[string]bool),
+	}
+	classifier, classifierAvailable := e.next.(comboOrderRiskAdapter)
+	clientIDCounts := make(map[string]int, len(orders))
+	for _, req := range orders {
+		if req != nil && req.ClientOrderID != "" {
+			clientIDCounts[req.ClientOrderID]++
+		}
+	}
+	included := make([]bool, len(orders))
+	openingIndices := make([]int, 0, len(orders))
+	openingNotional := 0.0
+	for i, req := range orders {
+		if req == nil {
+			continue
+		}
+		included[i] = true
+		key := comboBatchOrderKey(req, i)
+		if req.ClientOrderID != "" && clientIDCounts[req.ClientOrderID] > 1 {
+			included[i] = false
+			result.AdmissionErrors[key] = "combo batch contains duplicate client order IDs"
+			continue
+		}
+		if !classifierAvailable {
+			if req.ReduceOnly {
+				continue
+			}
+			included[i] = false
+			result.AdmissionErrors[key] = "combo order risk classifier unavailable"
+			continue
+		}
+		opening, err := classifier.classifyComboOrder(req)
+		if err != nil {
+			included[i] = false
+			result.AdmissionErrors[key] = "combo order admission: " + err.Error()
+			continue
+		}
+		if !opening {
+			continue
+		}
+		if req.ClientOrderID == "" {
+			included[i] = false
+			result.AdmissionErrors[key] = "combo opening order admission requires a client order ID"
+			continue
+		}
+		notional, err := classifier.estimateComboOrderNotional(req)
+		if err != nil || !finiteNumber(notional) || notional <= 0 {
+			included[i] = false
+			if err != nil {
+				result.AdmissionErrors[key] = "combo opening order notional estimate: " + err.Error()
+			} else {
+				result.AdmissionErrors[key] = "combo opening order notional estimate is invalid"
+			}
+			continue
+		}
+		openingIndices = append(openingIndices, i)
+		openingNotional += notional
+	}
+
+	if len(openingIndices) > 0 {
+		e.mu.Lock()
+		ready := e.active && e.combo != nil && e.combo.strategyCfg != nil
+		capital, maxExposure := 0.0, 0.0
+		if ready {
+			capital, maxExposure = e.combo.strategyCfg.TotalCapital, e.combo.strategyCfg.MaxExposure
+		}
+		limit := capital * maxExposure
+		projected := e.baseNotional + e.reserved + openingNotional
+		reason := ""
+		if !ready {
+			reason = "combo opening order admission snapshot unavailable"
+		} else if !finiteNumber(capital) || capital <= 0 || !finiteNumber(maxExposure) || maxExposure <= 0 ||
+			!finiteNumber(limit) || !finiteNumber(projected) || projected >= limit {
+			reason = fmt.Sprintf("combo max exposure admission rejected: projected notional %.8g reaches limit %.8g", projected, limit)
+		} else {
+			e.reserved += openingNotional
+		}
+		if reason != "" {
+			for _, i := range openingIndices {
+				included[i] = false
+				result.AdmissionErrors[comboBatchOrderKey(orders[i], i)] = reason
+			}
+		}
+		e.mu.Unlock()
+	}
+
+	toSubmit := make([]*position.OrderRequest, 0, len(orders))
+	for i, req := range orders {
+		if included[i] {
+			toSubmit = append(toSubmit, req)
+		}
+	}
+	if len(toSubmit) > 0 {
+		var submitted *position.BatchPlaceOrdersResult
+		if contextual, ok := e.next.(interface {
+			BatchPlaceOrdersWithDetailsContext(context.Context, []*position.OrderRequest) *position.BatchPlaceOrdersResult
+		}); ok {
+			submitted = contextual.BatchPlaceOrdersWithDetailsContext(ctx, toSubmit)
+		} else {
+			submitted = e.next.BatchPlaceOrdersWithDetails(toSubmit)
+		}
+		if submitted != nil {
+			result.PlacedOrders = submitted.PlacedOrders
+			result.HasMarginError = submitted.HasMarginError
+			result.ReduceOnlyErrors = submitted.ReduceOnlyErrors
+			result.UnknownOrders = submitted.UnknownOrders
+			for key, reason := range submitted.AdmissionErrors {
+				result.AdmissionErrors[key] = reason
+			}
+		}
+	}
+	result.HasAdmissionError = len(result.AdmissionErrors) > 0
+	return result
 }
 
 func (e *comboExposureAdmissionExecutor) BatchCancelOrders(orderIDs []int64) error {
@@ -120,3 +246,10 @@ func (e *comboExposureAdmissionExecutor) MarkOrderReconciliationRequired(orderID
 }
 
 var _ position.OrderExecutorInterface = (*comboExposureAdmissionExecutor)(nil)
+
+func comboBatchOrderKey(req *position.OrderRequest, index int) string {
+	if req != nil && req.ClientOrderID != "" {
+		return req.ClientOrderID
+	}
+	return fmt.Sprintf("batch-index:%d", index)
+}

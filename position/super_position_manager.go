@@ -44,10 +44,12 @@ type OrderUpdate struct {
 
 // BatchPlaceOrdersResult 批量下單結果
 type BatchPlaceOrdersResult struct {
-	PlacedOrders     []*Order        // 成功下單的订單列表
-	HasMarginError   bool            // 是否出現保证金不足錯误
-	ReduceOnlyErrors map[string]bool // ReduceOnly錯误的订單（key為ClientOrderID）
-	UnknownOrders    map[string]bool // 結果不確定，必須保留槽位與資金
+	PlacedOrders      []*Order          // 成功下單的订單列表
+	HasMarginError    bool              // 是否出現保证金不足錯误
+	HasAdmissionError bool              // 是否有訂單被本地风险准入拒绝（未提交交易所）
+	AdmissionErrors   map[string]string // 准入拒绝原因，key 为 ClientOrderID；缺失时使用 batch index
+	ReduceOnlyErrors  map[string]bool   // ReduceOnly錯误的订單（key為ClientOrderID）
+	UnknownOrders     map[string]bool   // 結果不確定，必須保留槽位與資金
 }
 
 // OrderExecutorInterface 订單執行器介面（避免循環匯入）

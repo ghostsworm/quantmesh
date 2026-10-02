@@ -67,8 +67,9 @@ func (f *fakeComboSubStrategy) Start(ctx context.Context) error {
 }
 
 type comboAdmissionTestExecutor struct {
-	places int
-	err    error
+	places  int
+	err     error
+	batches [][]string
 }
 
 func (e *comboAdmissionTestExecutor) classifyComboOrder(req *position.OrderRequest) (bool, error) {
@@ -82,10 +83,18 @@ func (e *comboAdmissionTestExecutor) PlaceOrder(req *position.OrderRequest) (*po
 	return &position.Order{ClientOrderID: req.ClientOrderID, Quantity: req.Quantity}, e.err
 }
 func (e *comboAdmissionTestExecutor) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
-	return nil, false
+	result := e.BatchPlaceOrdersWithDetails(orders)
+	return result.PlacedOrders, result.HasMarginError
 }
 func (e *comboAdmissionTestExecutor) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
-	return &position.BatchPlaceOrdersResult{}
+	batch := make([]string, 0, len(orders))
+	placed := make([]*position.Order, 0, len(orders))
+	for _, req := range orders {
+		batch = append(batch, req.ClientOrderID)
+		placed = append(placed, &position.Order{ClientOrderID: req.ClientOrderID, Quantity: req.Quantity})
+	}
+	e.batches = append(e.batches, batch)
+	return &position.BatchPlaceOrdersResult{PlacedOrders: placed}
 }
 func (e *comboAdmissionTestExecutor) BatchCancelOrders([]int64) error { return nil }
 
@@ -112,6 +121,54 @@ func TestComboExposureAdmissionReservesAcrossOrdersWithinChildCallback(t *testin
 	}
 	if next.places != 2 {
 		t.Fatalf("downstream submissions = %d, want one opening plus one reducing order", next.places)
+	}
+}
+
+func TestComboBatchAdmissionRejectsOpenAndStillSubmitsClose(t *testing.T) {
+	combo := &ComboStrategy{strategyCfg: &ComboConfig{TotalCapital: 100, MaxExposure: 0.8}, riskExposureReady: true}
+	next := &comboAdmissionTestExecutor{}
+	gate := &comboExposureAdmissionExecutor{combo: combo, next: next}
+	gate.beginChildAdmission()
+	defer gate.endChildAdmission()
+	orders := []*position.OrderRequest{
+		{Side: "BUY", Price: 90, Quantity: 1, ClientOrderID: "open-too-large"},
+		{Side: "SELL", Price: 100, Quantity: 1, ReduceOnly: true, ClientOrderID: "close"},
+	}
+	result := gate.BatchPlaceOrdersWithDetails(orders)
+	if !result.HasAdmissionError || result.HasMarginError || len(result.UnknownOrders) != 0 {
+		t.Fatalf("risk rejection was misreported as margin/unknown: %+v", result)
+	}
+	if result.AdmissionErrors["open-too-large"] == "" {
+		t.Fatalf("opening order lacks an explicit admission rejection: %+v", result.AdmissionErrors)
+	}
+	if len(result.PlacedOrders) != 1 || result.PlacedOrders[0].ClientOrderID != "close" {
+		t.Fatalf("reducing order was not submitted independently: %+v", result.PlacedOrders)
+	}
+	if len(next.batches) != 1 || len(next.batches[0]) != 1 || next.batches[0][0] != "close" {
+		t.Fatalf("executor received rejected opening order: %#v", next.batches)
+	}
+	placed, hasError := gate.BatchPlaceOrders([]*position.OrderRequest{
+		{Side: "BUY", Price: 90, Quantity: 1, ClientOrderID: "open-legacy"},
+	})
+	if !hasError || len(placed) != 0 || len(next.batches) != 1 {
+		t.Fatalf("legacy batch API did not signal a local risk rejection: placed=%v error=%v batches=%#v", placed, hasError, next.batches)
+	}
+}
+
+func TestComboAdmittedBatchReservesOpeningNotionalForLaterOrders(t *testing.T) {
+	combo := &ComboStrategy{strategyCfg: &ComboConfig{TotalCapital: 100, MaxExposure: 0.8}, riskExposureReady: true}
+	next := &comboAdmissionTestExecutor{}
+	gate := &comboExposureAdmissionExecutor{combo: combo, next: next}
+	gate.beginChildAdmission()
+	defer gate.endChildAdmission()
+	result := gate.BatchPlaceOrdersWithDetails([]*position.OrderRequest{
+		{Side: "BUY", Price: 30, Quantity: 1, ClientOrderID: "open-batch"},
+	})
+	if result.HasAdmissionError || len(result.PlacedOrders) != 1 {
+		t.Fatalf("under-limit batch was not admitted: %+v", result)
+	}
+	if _, err := gate.PlaceOrder(&position.OrderRequest{Side: "BUY", Price: 50, Quantity: 1, ClientOrderID: "open-after-batch"}); err == nil {
+		t.Fatal("single order ignored notional reserved by admitted batch")
 	}
 }
 
