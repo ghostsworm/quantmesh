@@ -350,6 +350,49 @@ func TestEquityWalletAllowsUnvaluedNonCapitalLedgerEntries(t *testing.T) {
 	}
 }
 
+func TestEquityWalletCrossChecksSequentialPostTransactionBalances(t *testing.T) {
+	base := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})
+	previous, err := nextEquityCheckpoint(nil, previousObservation, base, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := base.Add(time.Minute)
+	observation := testWalletObservation(now, 0, "96.5", 96.5, previous.BaseWallets["a"].From)
+	first := testWalletFlow("bill-2", "fee", "-2", now.Add(-2*time.Second))
+	first.Sequence = "2"
+	first.BalanceAfter = "98"
+	second := testWalletFlow("bill-10", "realized_pnl", "-1.5", now.Add(-2*time.Second))
+	second.Sequence = "10"
+	second.BalanceAfter = "96.5"
+	observation.Flows = []EquityCashFlow{second, first}
+	if _, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true); err != nil {
+		t.Fatalf("consistent post-transaction balances rejected: %v", err)
+	}
+
+	observation.Flows[1].BalanceAfter = "98.5"
+	if _, err := nextEquityCheckpoint(&previous, observation, now, time.Time{}, time.Minute, true); err == nil {
+		t.Fatal("post-transaction balance inconsistent with exact ledger delta was accepted")
+	}
+
+	archiveObservation := testWalletObservation(base.Add(10*time.Minute), 0, "100.5", 100.5, previous.BaseWallets["a"].From)
+	cutoff := archiveObservation.Wallets["a"].Through.Add(-realizedCursorOverlap)
+	older := testWalletFlow("bill-older", "realized_pnl", "2", cutoff.Add(-2*time.Second))
+	older.BalanceAfter = "102"
+	olderFee := testWalletFlow("bill-older-fee", "fee", "-1", cutoff.Add(-time.Second))
+	olderFee.BalanceAfter = "101"
+	recent := testWalletFlow("bill-recent", "fee", "-0.5", cutoff.Add(time.Second))
+	recent.BalanceAfter = "100.5"
+	archiveObservation.Flows = []EquityCashFlow{recent, olderFee, older}
+	archived, err := nextEquityCheckpoint(&previous, archiveObservation, archiveObservation.ObservedAt, time.Time{}, time.Minute, true)
+	if err != nil {
+		t.Fatalf("post-balance receipts should remain verifiable after compaction: %v", err)
+	}
+	if len(archived.Receipts) != 1 || archived.ArchivedReceipts["a"].BalanceDelta != "1.000000000000000000" {
+		t.Fatalf("post-balance receipts compacted incorrectly: %+v", archived)
+	}
+}
+
 func TestEquityWalletRejectsNonUnitRateForValuationCurrency(t *testing.T) {
 	base := time.Date(2026, 9, 24, 0, 0, 0, 0, time.UTC)
 	previousObservation := testWalletObservation(base, 0, "100", 100, time.Time{})

@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc842 擴充通用權益流水證據欄位，允許帳單附帶交易所事件序號及逐筆「變動後餘額」。持久檢查點依事件時間/數字序號排序，以不可變基線/已歸檔差額作前值，要求每筆 `ExactAmount` 精確等於當筆後餘額減前值；同時比較此前後仍由完整流水累加得出的期末餘額。流水壓縮測試覆蓋歸檔前後的 balance-after 鏈，同時測試同毫秒序號 `2`/`10` 排序及差額不符拒絕。這消除了 Spot 接入時對 `size` 符號的單獨信任，但 Bitget Spot 適配器尚未輸出此字段或接入 runtime，R10 仍未關閉。
+
 - rc841 放寬多幣種錢包帳本中非資本流水的匯率要求：交易/手續費等非注資流水若無估值證據，僅以精確原幣金額核對相應錢包餘額，USDT 估值金額固定為零；外部注資/提現仍要求有效匯率及來源/時間，零金額外部資本流水也不能繞過。新增 risk checkpoint 與 `observeAccountEvidence` 回歸測試。這消除了非資本事件對歷史 FX 的錯誤依賴，但 Bitget Spot 尚無完整、可核對的多幣種賬單來源；R10 未關閉，不代表現貨現金流調整、實盤或盈利驗收完成。
 
 - rc840 將 Bitget Spot 多資產估值的每幣一個 REST 請求收斂成單次不帶 `symbol` 的全市場 ticker 快照，並只要求持有非零資產的直接 USDT 市場有唯一有效價格；避免行情請求逐個串行造成額外時間偏差/部分快照。fixture 證明配置 ETHUSDT 的 adapter 仍正確取 BTCUSDT，且所需市場缺失時不產生權益。依 [Bitget Classic Spot ticker 文件](https://www.bitget.com/zh-CN/docs/catalog/classic-spot-market/classic-spot-market)，省略 `symbol` 返回全部現貨交易對，回包以 `symbol`/`lastPr` 識別。餘額請求與行情快照仍是兩個非原子請求、使用最新成交價不等於可清算價；R10 仍未關閉。

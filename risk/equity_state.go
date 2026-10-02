@@ -15,9 +15,13 @@ const equityStateVersion = 1
 // IDs must be unique across every account in the observation scope.
 // Amount is signed in the observation's valuation currency. Only external
 // capital flows are neutralized; fees/funding/interest remain in performance.
+// BalanceAfter, when present, is the exchange-reported wallet balance after
+// this event and is checked against the exact sequential ledger delta.
 type EquityCashFlow struct {
 	Account         string    `json:"account,omitempty"`
 	ExactAmount     string    `json:"exact_amount,omitempty"`
+	Sequence        string    `json:"sequence,omitempty"`
+	BalanceAfter    string    `json:"balance_after,omitempty"`
 	WalletCurrency  string    `json:"wallet_currency,omitempty"`
 	Symbol          string    `json:"symbol,omitempty"`
 	ValuationRate   string    `json:"valuation_rate,omitempty"`

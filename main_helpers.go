@@ -244,7 +244,7 @@ func readVerifiedWithdrawalLedger(ctx context.Context, feeder *risk.MetricsFeede
 			continue
 		}
 		entries = append(entries, accounting.Entry{ID: flow.ID, Kind: flow.Kind, Currency: flow.WalletCurrency,
-			Amount: flow.ExactAmount, Symbol: flow.Symbol, At: flow.At})
+			Amount: flow.ExactAmount, Sequence: flow.Sequence, BalanceAfter: flow.BalanceAfter, Symbol: flow.Symbol, At: flow.At})
 	}
 	return accounting.Snapshot{Currency: observation.Currency, Equity: observation.Equity,
 		ObservedAt: wallet.ObservedAt, Wallet: wallet, Entries: entries}, nil

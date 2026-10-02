@@ -76,12 +76,12 @@ func TestObserveAccountEvidenceKeepsNonCapitalForeignCurrencyUnvalued(t *testing
 	now := time.Now().UTC().Add(-time.Second)
 	source := &equityLedgerExchange{snapshot: accounting.Snapshot{Currency: "USDT", Equity: 60000, ObservedAt: now,
 		Wallets: map[string]accounting.Wallet{"BTC": {Currency: "BTC", Balance: "0.999", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now}},
-		Entries: []accounting.Entry{{ID: "fee", Kind: "fee", Currency: "BTC", Amount: "-0.001", At: now.Add(-time.Second)}}}}
+		Entries: []accounting.Entry{{ID: "fee", Kind: "fee", Currency: "BTC", Amount: "-0.001", Sequence: "12", BalanceAfter: "0.999", At: now.Add(-time.Second)}}}}
 	observation, err := observeAccountEvidence(t.Context(), risk.EquityObservation{Currency: "USDT"}, []string{"account"}, map[string]accounting.Source{"account": source}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(observation.Flows) != 1 || observation.Flows[0].Amount != 0 || observation.Flows[0].ValuationRate != "" || observation.Flows[0].ExactAmount != "-0.001" {
+	if len(observation.Flows) != 1 || observation.Flows[0].Amount != 0 || observation.Flows[0].ValuationRate != "" || observation.Flows[0].ExactAmount != "-0.001" || observation.Flows[0].Sequence != "12" || observation.Flows[0].BalanceAfter != "0.999" {
 		t.Fatalf("non-capital wallet entry was not preserved as native-currency evidence: %+v", observation.Flows)
 	}
 

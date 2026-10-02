@@ -13,6 +13,7 @@ import (
 
 type Entry struct {
 	ID, Kind, Currency, Amount, Symbol string
+	Sequence, BalanceAfter             string
 	ValuationRate, ValuationSource     string
 	ValuationAt                        time.Time
 	At                                 time.Time

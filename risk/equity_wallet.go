@@ -3,6 +3,7 @@ package risk
 import (
 	"fmt"
 	"math/big"
+	"sort"
 	"strings"
 	"time"
 
@@ -116,6 +117,7 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		return 0, fmt.Errorf("invalid wallet checkpoint scope")
 	}
 	sums := make(map[string]*big.Rat, len(s.Wallets))
+	balances := make(map[string]*big.Rat, len(s.Wallets))
 	var baseObserved, lastObserved time.Time
 	for account, wallet := range s.Wallets {
 		base, ok := s.BaseWallets[account]
@@ -142,6 +144,7 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 			lastObserved = wallet.ObservedAt
 		}
 		sums[account] = new(big.Rat)
+		balances[account], _ = accounting.Decimal(base.Balance)
 	}
 	if !baseObserved.Equal(s.BaseAt) || !lastObserved.Equal(s.LastAt) {
 		return 0, fmt.Errorf("wallet checkpoint observation identity changed")
@@ -162,9 +165,29 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 			return 0, fmt.Errorf("invalid archived external capital")
 		}
 		sums[account].Add(sums[account], balanceDelta)
+		balances[account].Add(balances[account], balanceDelta)
 		external.Add(external, archivedExternal)
 	}
-	for id, flow := range s.Receipts {
+	flows := make([]EquityCashFlow, 0, len(s.Receipts))
+	for _, flow := range s.Receipts {
+		flows = append(flows, flow)
+	}
+	sort.Slice(flows, func(i, j int) bool {
+		if flows[i].At.Equal(flows[j].At) {
+			if flows[i].Account == flows[j].Account {
+				if left, ok := new(big.Int).SetString(flows[i].Sequence, 10); ok {
+					if right, ok := new(big.Int).SetString(flows[j].Sequence, 10); ok && left.Cmp(right) != 0 {
+						return left.Cmp(right) < 0
+					}
+				}
+				return flows[i].ID < flows[j].ID
+			}
+			return flows[i].Account < flows[j].Account
+		}
+		return flows[i].At.Before(flows[j].At)
+	})
+	for _, flow := range flows {
+		id := flow.ID
 		wallet, ok := s.Wallets[flow.Account]
 		base := s.BaseWallets[flow.Account]
 		if !ok || id != flow.ID || flow.At.Before(base.From) || flow.At.After(wallet.Through) {
@@ -178,8 +201,24 @@ func (s EquityCheckpoint) walletLedgerTotal() (float64, error) {
 		if err != nil {
 			return 0, err
 		}
+		var postBalance *big.Rat
+		if flow.BalanceAfter != "" {
+			postBalance, err = accounting.Decimal(flow.BalanceAfter)
+			if err != nil {
+				return 0, fmt.Errorf("invalid ledger post-transaction wallet balance")
+			}
+		}
 		if !flow.At.After(base.Through) {
 			continue
+		}
+		if postBalance != nil {
+			derivedDelta := new(big.Rat).Sub(postBalance, balances[flow.Account])
+			if derivedDelta.Cmp(amount) != 0 {
+				return 0, fmt.Errorf("ledger amount differs from sequential post-transaction wallet balances")
+			}
+			balances[flow.Account].Set(postBalance)
+		} else {
+			balances[flow.Account].Add(balances[flow.Account], amount)
 		}
 		sums[flow.Account].Add(sums[flow.Account], amount)
 		switch flow.Kind {
@@ -253,7 +292,7 @@ func walletObservation(o EquityObservation, now time.Time, maxAge time.Duration)
 }
 
 func sameWalletReceipt(a, b EquityCashFlow) bool {
-	return a.ID == b.ID && a.Account == b.Account && a.Kind == b.Kind && a.Currency == b.Currency && a.WalletCurrency == b.WalletCurrency && a.ValuationRate == b.ValuationRate && a.ValuationSource == b.ValuationSource && a.ValuationAt.Equal(b.ValuationAt) && a.Amount == b.Amount && a.ExactAmount == b.ExactAmount && a.At.Equal(b.At)
+	return a.ID == b.ID && a.Account == b.Account && a.Kind == b.Kind && a.Currency == b.Currency && a.WalletCurrency == b.WalletCurrency && a.ValuationRate == b.ValuationRate && a.ValuationSource == b.ValuationSource && a.ValuationAt.Equal(b.ValuationAt) && a.Amount == b.Amount && a.ExactAmount == b.ExactAmount && a.Sequence == b.Sequence && a.BalanceAfter == b.BalanceAfter && a.At.Equal(b.At)
 }
 
 func nextWalletEquityCheckpoint(previous *EquityCheckpoint, o EquityObservation, now, reset time.Time, maxAge time.Duration) (EquityCheckpoint, error) {
