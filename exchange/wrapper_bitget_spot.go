@@ -190,6 +190,13 @@ func (w *bitgetSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 	}, nil
 }
 
+func (w *bitgetSpotWrapper) AccountEquityUSDT(ctx context.Context) (float64, bool) {
+	if w == nil || w.adapter == nil {
+		return 0, false
+	}
+	return w.adapter.AccountEquityUSDT(ctx)
+}
+
 func (w *bitgetSpotWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := w.adapter.GetPositions(ctx, symbol)
 	if err != nil {
