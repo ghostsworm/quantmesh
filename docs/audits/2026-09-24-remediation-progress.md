@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc835 为 KuCoin Futures 接入账户级挂单快照：官方 `/api/v1/orders` 的 `status=active` 与 `/api/v1/stopOrders` 分别覆盖活动订单和未触发 stop 单，均省略 symbol 并按 `currentPage/pageSize` 分页。读取所有页，验证 `totalNum/totalPage/pageSize/currentPage` 一致及项目总数一致；ID、symbol、方向、状态、数量缺失/无效或跨端点重复时 fail-closed。httptest 覆盖跨 symbol 两页普通订单、stop 订单、签名头、分页计数变化、null 列表、重复 ID 和无效方向。真实 API key 权限、线上回包和并发账户变更未验收，R12 未关闭。
+
 - rc834 为 Bitfinex 接入特殊套利账户级掛單快照：官方 `POST /v2/auth/r/orders` 省略 ID 即返回当前用户所有 active orders。wrapper 暴露跨 symbol 结果，校验正整数订单 ID、symbol、有限且非零剩余数量、原始数量及唯一 ID。HTTP transport fixture 验证请求不带 symbol、跨品种读取和异常行/重复 ID 拒绝。真实 API 权限及线上行为尚未验收，R12 未关闭。
 
 - rc833 为 MEXC Futures 接入账户级挂单空值核验：官方 `POST /api/v1/private/order/open_order_total_count` 返回总数及 limit/stop/plan/trailing 分类计数，无需 symbol。新增独立 verifier 而非伪装完整订单快照；仅所有计数齐全、非负且分类和等于总数、总数为零时放行。httptest 覆盖签名、空 JSON 请求、空账户、非空及异常计数。真实 API 权限和线上回包尚未验收，R12 未关闭。

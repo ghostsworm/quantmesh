@@ -13,6 +13,8 @@ type kucoinWrapper struct {
 	adapter *kucoin.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*kucoinWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *kucoinWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -111,6 +113,18 @@ func (w *kucoinWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		orders = append(orders, convertKuCoinOrderToExchangeOrder(kucoinOrder))
 	}
 	return orders, nil
+}
+
+func (w *kucoinWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		result = append(result, convertKuCoinOrderToExchangeOrder(order))
+	}
+	return result, nil
 }
 
 // GetAccount 獲取帳戶信息

@@ -18,7 +18,9 @@ import (
 )
 
 const (
-	KuCoinBaseURL = "https://api-futures.kucoin.com" // KuCoin 期货 API
+	KuCoinBaseURL            = "https://api-futures.kucoin.com" // KuCoin 期货 API
+	kuCoinOpenOrdersPageSize = 50
+	kuCoinOpenOrdersMaxPages = 1000
 )
 
 // KuCoinClient 結構体
@@ -246,6 +248,81 @@ func (c *KuCoinClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	}
 
 	return resp.Data.Items, nil
+}
+
+// GetAccountOpenOrders returns all active futures orders and untriggered stop
+// orders across symbols. KuCoin exposes these as separate paginated endpoints.
+func (c *KuCoinClient) GetAccountOpenOrders(ctx context.Context) ([]OrderInfo, error) {
+	orders, err := c.getAllActiveOrderPages(ctx, "/api/v1/orders")
+	if err != nil {
+		return nil, fmt.Errorf("get account-wide active futures orders: %w", err)
+	}
+	stopOrders, err := c.getAllActiveOrderPages(ctx, "/api/v1/stopOrders")
+	if err != nil {
+		return nil, fmt.Errorf("get account-wide untriggered futures stop orders: %w", err)
+	}
+	return append(orders, stopOrders...), nil
+}
+
+func (c *KuCoinClient) getAllActiveOrderPages(ctx context.Context, endpoint string) ([]OrderInfo, error) {
+	const maxAllowedPages = kuCoinOpenOrdersMaxPages
+	var allOrders []OrderInfo
+	var expectedTotal, expectedPages int
+	for page := 1; ; page++ {
+		if page > maxAllowedPages {
+			return nil, fmt.Errorf("%s exceeded maximum account-order pages (%d)", endpoint, maxAllowedPages)
+		}
+		query := url.Values{}
+		query.Set("status", "active")
+		query.Set("currentPage", strconv.Itoa(page))
+		query.Set("pageSize", strconv.Itoa(kuCoinOpenOrdersPageSize))
+		path := endpoint + "?" + query.Encode()
+		body, err := c.sendRequest(ctx, http.MethodGet, path, nil)
+		if err != nil {
+			return nil, err
+		}
+		var response struct {
+			Code string `json:"code"`
+			Data *struct {
+				CurrentPage int         `json:"currentPage"`
+				PageSize    int         `json:"pageSize"`
+				TotalNum    int         `json:"totalNum"`
+				TotalPage   int         `json:"totalPage"`
+				Items       []OrderInfo `json:"items"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &response); err != nil {
+			return nil, fmt.Errorf("decode %s page %d: %w", endpoint, page, err)
+		}
+		if response.Code != "200000" || response.Data == nil || response.Data.Items == nil {
+			return nil, fmt.Errorf("%s page %d returned incomplete order data", endpoint, page)
+		}
+		data := response.Data
+		if data.CurrentPage != page || data.PageSize <= 0 || data.PageSize > kuCoinOpenOrdersPageSize ||
+			data.TotalNum < 0 || data.TotalPage < 0 || len(data.Items) > data.PageSize {
+			return nil, fmt.Errorf("%s page %d has invalid pagination metadata", endpoint, page)
+		}
+		if page == 1 {
+			expectedTotal, expectedPages = data.TotalNum, data.TotalPage
+			calculatedPages := 0
+			if expectedTotal > 0 {
+				calculatedPages = (expectedTotal + data.PageSize - 1) / data.PageSize
+			}
+			if expectedPages != calculatedPages || expectedPages > maxAllowedPages {
+				return nil, fmt.Errorf("%s reports inconsistent total pages: total=%d pages=%d page_size=%d", endpoint, expectedTotal, expectedPages, data.PageSize)
+			}
+		} else if data.TotalNum != expectedTotal || data.TotalPage != expectedPages {
+			return nil, fmt.Errorf("%s pagination totals changed during account snapshot", endpoint)
+		}
+		allOrders = append(allOrders, data.Items...)
+		if page == expectedPages || expectedPages == 0 {
+			break
+		}
+	}
+	if len(allOrders) != expectedTotal {
+		return nil, fmt.Errorf("%s returned %d orders but reported %d", endpoint, len(allOrders), expectedTotal)
+	}
+	return allOrders, nil
 }
 
 // GetAccountInfo 獲取帳戶信息

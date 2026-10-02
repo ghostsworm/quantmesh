@@ -222,6 +222,34 @@ func (a *Adapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, e
 	return result, nil
 }
 
+// GetAccountOpenOrders returns validated active and untriggered stop orders
+// for every futures symbol in the account.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := a.client.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	seen := make(map[string]struct{}, len(orders))
+	for _, order := range orders {
+		id := strings.TrimSpace(order.ID)
+		symbol := strings.TrimSpace(order.Symbol)
+		parsedID, idErr := strconv.ParseUint(id, 10, 64)
+		if idErr != nil || parsedID == 0 || symbol == "" ||
+			(order.Side != "buy" && order.Side != "sell") ||
+			(order.Status != "open" && order.Status != "active") || !order.IsActive ||
+			order.Size <= 0 || order.FilledSize < 0 || order.FilledSize > order.Size {
+			return nil, fmt.Errorf("account-wide KuCoin open-order snapshot contains an invalid order")
+		}
+		if _, exists := seen[id]; exists {
+			return nil, fmt.Errorf("account-wide KuCoin open-order snapshot contains duplicate order ID %s", id)
+		}
+		seen[id] = struct{}{}
+		result = append(result, a.convertToOrder(&order))
+	}
+	return result, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*Account, error) {
 	accountInfo, err := a.client.GetAccountInfo(ctx)
