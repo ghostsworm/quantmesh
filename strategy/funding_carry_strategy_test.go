@@ -305,6 +305,7 @@ type mockFCExchange struct {
 	clearDebtOnRepay   bool
 	returnNilPositions bool
 	returnNilOrders    bool
+	fillEvidence       bool
 	mu                 sync.Mutex
 }
 
@@ -368,6 +369,9 @@ func TestRequireAccountHasNoOpenOrdersRejectsForeignSymbolOrder(t *testing.T) {
 	}
 }
 func (m *mockFCExchange) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*exchange.OrderFill, error) {
+	if m.fillEvidence {
+		return []*exchange.OrderFill{{OrderID: orderID, TradeID: "verified-fixture-fill", Symbol: symbol, Side: exchange.SideBuy, Price: 50000, Quantity: m.getOrderExecQty, CommissionAsset: "USDT", TradeTime: 1}}, nil
+	}
 	return nil, nil
 }
 func (m *mockFCExchange) GetAccount(ctx context.Context) (*exchange.Account, error) {
@@ -980,6 +984,7 @@ func TestCloseReverseRepaysOwnedPrincipalAndAccruedInterest(t *testing.T) {
 		getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.401,
 		clearDebtOnRepay: true,
 		repayPrincipal:   0.4,
+		fillEvidence:     true,
 	}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futEx, spotEx, marginEx, nil)
 	if err := s.SetMarginAccountScope("scope-a"); err != nil {

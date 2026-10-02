@@ -2603,6 +2603,9 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			}
 			return s.blockOnUnownedExposure(fmt.Errorf("margin debt buyback incomplete: %w", errors.Join(fillErr, coverErr)))
 		}
+		if err := s.verifyMarginNetDebtCover(ctx, buyOrder.OrderID, filled, buyQty, debtToRepay); err != nil {
+			return s.blockOnUnownedExposure(err)
+		}
 		if err := settleCarryOrder(ctx, s.marginExecutor, buyOrder); err != nil {
 			return fmt.Errorf("persist margin buyback execution: %w", err)
 		}

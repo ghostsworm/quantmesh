@@ -25,6 +25,7 @@ func TestFundingCarryReverseCloseCannotDiscardPrincipal(t *testing.T) {
 				positions:      []*exchange.Position{{Symbol: "BTCUSDT", Size: -(debt + interest), MarginBorrowed: debt, MarginInterest: interest, MarginDebtKnown: true}},
 				getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.401,
 				clearDebtOnRepay: true, repayPrincipal: debt,
+				fillEvidence: true,
 			}
 			if mode == "partial_principal" {
 				margin.repayPrincipal = debt - 1e-11
@@ -88,6 +89,7 @@ func TestFundingCarryReverseCloseFinalCommitChecksOwner(t *testing.T) {
 		s.marginAccountScope, s.marginBorrowedAt = "scope-a", time.Now().UTC()
 		s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 42, Asset: "BTC", Amount: 0.4, Principal: 0.4, OccurredAt: s.marginBorrowedAt, AccountScope: "scope-a"}}
 		parent.placeOrderErr = nil
+		parent.fillEvidence = true
 		parent.positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4, MarginBorrowed: 0.4, MarginDebtKnown: true}}
 		parent.getOrderStatus, parent.getOrderExecQty, parent.clearDebtOnRepay = exchange.OrderStatusFilled, 0.4008, true
 		gate := &execution.OpeningGate{}

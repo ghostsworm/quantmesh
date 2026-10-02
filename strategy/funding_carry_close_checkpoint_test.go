@@ -81,7 +81,7 @@ func TestFundingCarryReverseCloseCheckpointsFuturesBeforeDebtCover(t *testing.T)
 func TestFundingCarryReverseCloseCheckpointNormalHedgeStillCloses(t *testing.T) {
 	spot := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
 	futures := &mockFCExchange{quantityDecimals: 3, positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 0.4}}}
-	margin := &mockFCExchange{quantityDecimals: 3, positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4, MarginBorrowed: 0.4, MarginDebtKnown: true}}, clearDebtOnRepay: true, getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.4}
+	margin := &mockFCExchange{quantityDecimals: 3, positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4, MarginBorrowed: 0.4, MarginDebtKnown: true}}, clearDebtOnRepay: true, getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.4, fillEvidence: true}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
 	store := &memoryRuntimeStateStore{}
 	s.SetRuntimeStateStore(store)
