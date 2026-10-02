@@ -191,6 +191,11 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 		t.Fatal(err)
 	}
 	otherClaim.Exchange, otherClaim.Market, otherClaim.QuoteAsset, otherClaim.Symbol = "binance", "futures", "USDT", "BTCUSDT"
+	issuer := storageService.GetStorage().(storage.AccountWalletBalanceObservationIssuer)
+	otherClaim.ObservationSequence, err = issuer.BeginAccountWalletBalanceObservation(context.Background(), otherClaim.WalletKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := reserveAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "other-bot", []storage.AccountWalletCapitalClaim{otherClaim}); err != nil {
 		t.Fatal(err)
 	}
@@ -199,6 +204,10 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 		t.Fatal(err)
 	}
 	claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol = "binance", "futures", "USDT", "ETHUSDT"
+	claim.ObservationSequence, err = issuer.BeginAccountWalletBalanceObservation(context.Background(), claim.WalletKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	gate := &execution.OpeningGate{}
 	gate.Block(accountWalletCapitalReservationPendingBlock)
 	if err := reserveRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, gate); err != nil {
@@ -207,11 +216,16 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 	available := 80.0
 	requestedAt := time.Now().UTC()
 	readErr := errors.New("balance endpoint unavailable")
-	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(context.Context) (accountWalletBalanceObservation, error) {
-		if readErr != nil {
-			return accountWalletBalanceObservation{}, readErr
+	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (accountWalletBalanceObservation, error) {
+		issuer := storageService.GetStorage().(storage.AccountWalletBalanceObservationIssuer)
+		sequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, claim.WalletKey)
+		if err != nil {
+			return accountWalletBalanceObservation{}, err
 		}
-		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt}, nil
+		if readErr != nil {
+			return accountWalletBalanceObservation{ObservationSequence: sequence}, readErr
+		}
+		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt, ObservationSequence: sequence}, nil
 	}}
 	canceled := 0
 	cancelOpenings := func(context.Context) error { canceled++; return nil }
@@ -232,8 +246,27 @@ func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *t
 	if !gate.HasBlock(accountWalletBalanceUnverifiedBlock) || !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
 		t.Fatal("failed revalidation did not keep both wallet safety blocks active")
 	}
+	staleSequence, err := issuer.BeginAccountWalletBalanceObservation(context.Background(), otherClaim.WalletKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestSequence, err := issuer.BeginAccountWalletBalanceObservation(context.Background(), otherClaim.WalletKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newerLow := otherClaim
+	newerLow.ReservationToken, err = newAccountWalletCapitalReservationToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	newerLow.Available = 80
+	newerLow.ObservedAt = time.Now().Add(-time.Hour)
+	newerLow.ObservationSequence = latestSequence
+	if err := reserveAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "balance-probe", []storage.AccountWalletCapitalClaim{newerLow}); err == nil {
+		t.Fatal("newer low balance unexpectedly fit aggregate wallet reservations")
+	}
 	staleHighReader := accountWalletBalanceReader{walletKey: otherClaim.WalletKey, read: func(context.Context) (accountWalletBalanceObservation, error) {
-		return accountWalletBalanceObservation{Available: 100, RequestedAt: otherClaim.ObservedAt}, nil
+		return accountWalletBalanceObservation{Available: 100, RequestedAt: time.Now().Add(-time.Hour), ObservationSequence: staleSequence}, nil
 	}}
 	otherGate := &execution.OpeningGate{}
 	otherGate.Block(accountWalletCapitalReservationPendingBlock)

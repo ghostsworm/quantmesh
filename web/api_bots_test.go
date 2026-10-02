@@ -440,6 +440,11 @@ func TestDeleteBotKeepsConfigWhileCapitalReservationExists(t *testing.T) {
 		QuoteAsset:       "USDT",
 		Symbol:           "BTCUSDT",
 	}
+	observationSequence, err := store.BeginAccountWalletBalanceObservation(context.Background(), claim.WalletKey)
+	if err != nil {
+		t.Fatalf("BeginAccountWalletBalanceObservation: %v", err)
+	}
+	claim.ObservationSequence = observationSequence
 	if err := store.ReserveAccountWalletCapital(context.Background(), "bot-1", []storage.AccountWalletCapitalClaim{claim}); err != nil {
 		t.Fatalf("ReserveAccountWalletCapital: %v", err)
 	}

@@ -39,13 +39,45 @@ func buildAccountWalletCapitalClaimFromObservation(cfg *config.Config, exchangeN
 	if exchangeName == "" || market == "" || quoteAsset == "" || !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
 		return storage.AccountWalletCapitalClaim{}, fmt.Errorf("wallet capital claim requires verified exchange, market, quote asset, and credential scope")
 	}
-	material := equityAccountScopeID(exchangeName, exchangeCfg) + "|" + market + "|" + quoteAsset
-	walletKey := fmt.Sprintf("%x", sha256.Sum256([]byte(material)))
+	walletKey, err := accountWalletCapitalKey(cfg, exchangeName, market, quoteAsset)
+	if err != nil {
+		return storage.AccountWalletCapitalClaim{}, err
+	}
 	token, err := newAccountWalletCapitalReservationToken()
 	if err != nil {
 		return storage.AccountWalletCapitalClaim{}, err
 	}
 	return storage.AccountWalletCapitalClaim{WalletKey: walletKey, ReservationToken: token, Amount: amount, Available: available, ObservedAt: observedAt.UTC()}, nil
+}
+
+func accountWalletCapitalKey(cfg *config.Config, exchangeName, market, quoteAsset string) (string, error) {
+	if cfg == nil {
+		return "", fmt.Errorf("wallet identity requires verified configuration")
+	}
+	exchangeName = strings.TrimSpace(exchangeName)
+	market = strings.ToLower(strings.TrimSpace(market))
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	exchangeCfg, ok := cfg.Exchanges[exchangeName]
+	if exchangeName == "" || market == "" || quoteAsset == "" || !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
+		return "", fmt.Errorf("wallet identity requires verified exchange, market, quote asset, and credential scope")
+	}
+	material := equityAccountScopeID(exchangeName, exchangeCfg) + "|" + market + "|" + quoteAsset
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(material))), nil
+}
+
+func beginAccountWalletBalanceObservation(ctx context.Context, storageService *storage.StorageService, walletKey string) (int64, error) {
+	if ctx == nil || storageService == nil || storageService.GetStorage() == nil {
+		return 0, fmt.Errorf("wallet balance observation requires persistent storage")
+	}
+	issuer, ok := storageService.GetStorage().(storage.AccountWalletBalanceObservationIssuer)
+	if !ok {
+		return 0, fmt.Errorf("storage does not support shared wallet observation sequencing")
+	}
+	sequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, walletKey)
+	if err != nil {
+		return 0, fmt.Errorf("issue shared wallet balance observation sequence: %w", err)
+	}
+	return sequence, nil
 }
 
 func newAccountWalletCapitalReservationToken() (string, error) {
@@ -115,8 +147,9 @@ type accountWalletBalanceReader struct {
 }
 
 type accountWalletBalanceObservation struct {
-	Available   float64
-	RequestedAt time.Time
+	Available           float64
+	RequestedAt         time.Time
+	ObservationSequence int64
 }
 
 func revalidateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
@@ -166,6 +199,7 @@ func observeRuntimeWalletCapitalClaims(ctx context.Context, claims []storage.Acc
 		}
 		refreshed[index].Available = available.Available
 		refreshed[index].ObservedAt = available.RequestedAt
+		refreshed[index].ObservationSequence = available.ObservationSequence
 	}
 	return refreshed, nil
 }
@@ -192,7 +226,7 @@ func readRuntimeWalletBalance(ctx context.Context, walletKey string, read func(c
 		return accountWalletBalanceObservation{}, fmt.Errorf("refresh available balance for wallet %s: %w", walletKey, err)
 	}
 	if math.IsNaN(observation.Available) || math.IsInf(observation.Available, 0) || observation.Available <= 0 ||
-		observation.RequestedAt.IsZero() || observation.RequestedAt.After(time.Now().Add(time.Minute)) {
+		observation.RequestedAt.IsZero() || observation.RequestedAt.After(time.Now().Add(time.Minute)) || observation.ObservationSequence <= 0 {
 		return accountWalletBalanceObservation{}, fmt.Errorf("refreshed available balance evidence for wallet %s is invalid", walletKey)
 	}
 	return observation, nil
@@ -227,14 +261,18 @@ func startRuntimeAccountWalletCapitalRevalidation(ctx context.Context, cfg *conf
 	}
 }
 
-func accountWalletBalanceReaderForClaim(claim storage.AccountWalletCapitalClaim, client exchange.IExchange) accountWalletBalanceReader {
+func accountWalletBalanceReaderForClaim(claim storage.AccountWalletCapitalClaim, client exchange.IExchange, storageService *storage.StorageService) accountWalletBalanceReader {
 	return accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (accountWalletBalanceObservation, error) {
 		if client == nil {
 			return accountWalletBalanceObservation{}, fmt.Errorf("exchange client is unavailable")
 		}
+		sequence, err := beginAccountWalletBalanceObservation(ctx, storageService, claim.WalletKey)
+		if err != nil {
+			return accountWalletBalanceObservation{}, err
+		}
 		requestedAt := time.Now().UTC()
 		available, err := client.GetBalance(ctx, claim.QuoteAsset)
-		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt}, err
+		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt, ObservationSequence: sequence}, err
 	}}
 }
 

@@ -169,9 +169,27 @@ func startFundingPerpSpreadSymbolRuntime(
 		requestedCapital = symCfg.OrderQuantity
 	}
 	var legBBalance float64
+	walletKeyA, walletErr := accountWalletCapitalKey(baseCfg, fp.LegA.Exchange, "futures", spreadCapitalAsset)
+	if walletErr != nil {
+		return nil, fmt.Errorf("resolve leg_a futures wallet: %w", walletErr)
+	}
+	walletKeyB, walletErr := accountWalletCapitalKey(baseCfg, fp.LegB.Exchange, "futures", spreadCapitalAsset)
+	if walletErr != nil {
+		return nil, fmt.Errorf("resolve leg_b futures wallet: %w", walletErr)
+	}
+	observationCtx, cancelObservation := context.WithTimeout(ctx, 20*time.Second)
+	legAObservationSequence, err := beginAccountWalletBalanceObservation(observationCtx, storageService, walletKeyA)
+	if err != nil {
+		cancelObservation()
+		return nil, fmt.Errorf("begin leg_a wallet balance observation: %w", err)
+	}
 	legABalanceObservedAt := time.Now().UTC()
 	balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
 	legABalance, balanceErr := legAEx.GetBalance(balanceCtx, spreadCapitalAsset)
+	legBObservationSequence, sequenceErr := beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKeyB)
+	if sequenceErr != nil {
+		balanceErr = sequenceErr
+	}
 	legBBalanceObservedAt := time.Now().UTC()
 	if balanceErr == nil {
 		legBBalance, balanceErr = legBEx.GetBalance(balanceCtx, spreadCapitalAsset)
@@ -206,6 +224,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		}
 	}
 	cancelBalance()
+	cancelObservation()
 	if balanceErr != nil {
 		return nil, fmt.Errorf("verify funding_perp_spread USDT balance on both legs: %w", balanceErr)
 	}
@@ -263,7 +282,9 @@ func startFundingPerpSpreadSymbolRuntime(
 	if distributedLock == nil {
 		return nil, fmt.Errorf("funding_perp_spread requires its configured leg coordination lock")
 	}
-	claims, err := fundingPerpSpreadCapitalClaims(baseCfg, fp, totalCap, legABalance, legABalanceObservedAt, legBBalance, legBBalanceObservedAt)
+	claims, err := fundingPerpSpreadCapitalClaims(baseCfg, fp, totalCap,
+		legABalance, legABalanceObservedAt, legAObservationSequence,
+		legBBalance, legBBalanceObservedAt, legBObservationSequence)
 	if err != nil {
 		return nil, fmt.Errorf("build funding_perp_spread wallet capital claims: %w", err)
 	}
@@ -407,7 +428,7 @@ func startFundingPerpSpreadSymbolRuntime(
 			} else if strings.EqualFold(claim.Exchange, fp.LegB.Exchange) {
 				client = legBEx
 			}
-			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client))
+			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client, storageService))
 		}
 		rt.capitalReservationStore = capitalStore
 		rt.capitalReservationBotID = botID
@@ -518,10 +539,11 @@ func fundingPerpSpreadRuntimeOwnershipLeaseLost(leases []*runtimeOwnershipLease)
 }
 
 func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSpreadConfig, capital float64,
-	balanceA float64, observedAtA time.Time, balanceB float64, observedAtB time.Time) ([]storage.FundingSpreadCapitalClaim, error) {
+	balanceA float64, observedAtA time.Time, sequenceA int64,
+	balanceB float64, observedAtB time.Time, sequenceB int64) ([]storage.FundingSpreadCapitalClaim, error) {
 	if cfg == nil || fp == nil || math.IsNaN(capital) || math.IsInf(capital, 0) || capital <= 0 ||
-		math.IsNaN(balanceA) || math.IsInf(balanceA, 0) || balanceA <= 0 || observedAtA.IsZero() ||
-		math.IsNaN(balanceB) || math.IsInf(balanceB, 0) || balanceB <= 0 || observedAtB.IsZero() {
+		math.IsNaN(balanceA) || math.IsInf(balanceA, 0) || balanceA <= 0 || observedAtA.IsZero() || sequenceA <= 0 ||
+		math.IsNaN(balanceB) || math.IsInf(balanceB, 0) || balanceB <= 0 || observedAtB.IsZero() || sequenceB <= 0 {
 		return nil, fmt.Errorf("verified config, capital, and both positive balances are required")
 	}
 	perLeg := capital / 2
@@ -531,7 +553,8 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 		symbol     string
 		balance    float64
 		observedAt time.Time
-	}{{fp.LegA.Exchange, fp.LegA.Symbol, balanceA, observedAtA}, {fp.LegB.Exchange, fp.LegB.Symbol, balanceB, observedAtB}} {
+		sequence   int64
+	}{{fp.LegA.Exchange, fp.LegA.Symbol, balanceA, observedAtA, sequenceA}, {fp.LegB.Exchange, fp.LegB.Symbol, balanceB, observedAtB, sequenceB}} {
 		exchangeName := strings.TrimSpace(leg.exchange)
 		exchangeCfg, ok := cfg.Exchanges[exchangeName]
 		if !ok || strings.TrimSpace(exchangeCfg.APIKey) == "" {
@@ -550,6 +573,9 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 				claim.Available = leg.balance
 				claim.ObservedAt = leg.observedAt.UTC()
 			}
+			if leg.sequence > claim.ObservationSequence {
+				claim.ObservationSequence = leg.sequence
+			}
 			if !strings.Contains(claim.Symbol, leg.symbol) {
 				claim.Symbol += "," + leg.symbol
 			}
@@ -558,7 +584,7 @@ func fundingPerpSpreadCapitalClaims(cfg *config.Config, fp *config.FundingPerpSp
 			if tokenErr != nil {
 				return nil, tokenErr
 			}
-			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance, ObservedAt: leg.observedAt.UTC(),
+			claim = storage.FundingSpreadCapitalClaim{WalletKey: walletKey, Amount: perLeg, Available: leg.balance, ObservedAt: leg.observedAt.UTC(), ObservationSequence: leg.sequence,
 				ReservationToken: reservationToken, Exchange: exchangeName, Market: "futures", QuoteAsset: "USDT", Symbol: leg.symbol}
 		}
 		byWallet[walletKey] = claim

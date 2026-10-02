@@ -103,6 +103,7 @@ func startFundingCarrySymbolRuntime(
 	}
 	var futuresAccountCapital, spotAccountCapital, futuresAvailable, spotAvailable float64
 	var futuresAvailableAt, spotAvailableAt time.Time
+	var futuresObservationSequence, spotObservationSequence int64
 	for _, wallet := range []struct {
 		market string
 		ex     exchange.IExchange
@@ -112,6 +113,16 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("計算同帳戶 %s 錢包配置資金: %w", wallet.market, err)
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
+		walletKey, walletErr := accountWalletCapitalKey(baseCfg, symCfg.Exchange, wallet.market, "USDT")
+		if walletErr != nil {
+			cancelBalance()
+			return nil, fmt.Errorf("resolve %s USDT wallet identity: %w", wallet.market, walletErr)
+		}
+		observationSequence, sequenceErr := beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKey)
+		if sequenceErr != nil {
+			cancelBalance()
+			return nil, fmt.Errorf("begin %s USDT balance observation: %w", wallet.market, sequenceErr)
+		}
 		observedAt := time.Now().UTC()
 		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
 		cancelBalance()
@@ -125,10 +136,12 @@ func startFundingCarrySymbolRuntime(
 			futuresAccountCapital = allocated
 			futuresAvailable = available
 			futuresAvailableAt = observedAt
+			futuresObservationSequence = observationSequence
 		} else {
 			spotAccountCapital = allocated
 			spotAvailable = available
 			spotAvailableAt = observedAt
+			spotObservationSequence = observationSequence
 		}
 	}
 
@@ -145,6 +158,7 @@ func startFundingCarrySymbolRuntime(
 	}
 	var marginAvailable float64
 	var marginAvailableAt time.Time
+	var marginObservationSequence int64
 	if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
 		if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), marginEx.GetBaseAsset(), marginEx.GetQuoteAsset()); err != nil {
 			return nil, fmt.Errorf("資金費套利現貨/槓桿錢包資產不匹配: %w", err)
@@ -154,6 +168,16 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("計算同帳戶 spot_margin 錢包配置資金: %w", allocationErr)
 		}
 		balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
+		walletKey, walletErr := accountWalletCapitalKey(baseCfg, symCfg.Exchange, "spot_margin", "USDT")
+		if walletErr != nil {
+			cancelBalance()
+			return nil, fmt.Errorf("resolve spot_margin USDT wallet identity: %w", walletErr)
+		}
+		marginObservationSequence, err = beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKey)
+		if err != nil {
+			cancelBalance()
+			return nil, fmt.Errorf("begin spot_margin USDT balance observation: %w", err)
+		}
 		marginAvailableAt = time.Now().UTC()
 		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
 		cancelBalance()
@@ -268,6 +292,11 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("build funding_carry %s capital reservation: %w", wallet.market, claimErr)
 		}
 		claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol = symCfg.Exchange, wallet.market, "USDT", symCfg.Symbol
+		if wallet.market == "futures" {
+			claim.ObservationSequence = futuresObservationSequence
+		} else {
+			claim.ObservationSequence = spotObservationSequence
+		}
 		capitalClaims = append(capitalClaims, claim)
 	}
 	if marginAvailable > 0 {
@@ -276,6 +305,7 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("build funding_carry spot_margin capital reservation: %w", claimErr)
 		}
 		claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol = symCfg.Exchange, "spot_margin", "USDT", symCfg.Symbol
+		claim.ObservationSequence = marginObservationSequence
 		capitalClaims = append(capitalClaims, claim)
 	}
 	if err := reserveAccountWalletCapital(ctx, baseCfg, storageService, distributedLock, botID, capitalClaims); err != nil {
@@ -585,7 +615,7 @@ func startFundingCarrySymbolRuntime(
 			case "spot_margin":
 				client = marginEx
 			}
-			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client))
+			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client, storageService))
 		}
 		rt.capitalReservationStore = capitalStore
 		rt.capitalReservationBotID = botID

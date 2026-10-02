@@ -22,8 +22,9 @@ type AccountWalletCapitalClaim struct {
 	ReservationToken string
 	Amount           float64
 	Available        float64
-	// ObservedAt orders concurrent balance reads so a delayed older snapshot
-	// cannot replace a newer, lower available-balance observation.
+	// ObservationSequence is issued by shared storage before a balance query.
+	ObservationSequence int64
+	// ObservedAt is diagnostic metadata only; ordering uses ObservationSequence.
 	ObservedAt time.Time
 	Exchange   string
 	Market     string
@@ -51,6 +52,12 @@ type FundingSpreadCapitalClaim = AccountWalletCapitalClaim
 type AccountWalletCapitalReservationStore interface {
 	ReserveAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
 	ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error
+}
+
+// AccountWalletBalanceObservationIssuer serializes balance query starts across
+// application instances without relying on their wall clocks.
+type AccountWalletBalanceObservationIssuer interface {
+	BeginAccountWalletBalanceObservation(ctx context.Context, walletKey string) (int64, error)
 }
 
 type AccountWalletCapitalReservationReader interface {
@@ -83,7 +90,7 @@ type MultiProcessFundingSpreadCapitalStore interface {
 	SupportsMultiProcessFundingSpreadCapital() bool
 }
 
-//go:embed migrations/202609300*_funding_spread_capital_*.sql
+//go:embed migrations/*_funding_spread_capital_*.sql
 var fundingSpreadCapitalMigrations embed.FS
 
 func (s *SQLStorage) SupportsMultiProcessAccountWalletCapital() bool {
@@ -103,7 +110,7 @@ func migrateFundingSpreadCapitalTablesMySQL(db *sql.DB) error {
 }
 
 func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
-	for _, version := range []string{"2026093001", "2026093002", "2026093003", "2026093004"} {
+	for _, version := range []string{"2026093001", "2026093002", "2026093003", "2026093004", "2026100201"} {
 		if version == "2026093003" {
 			exists, err := fundingSpreadReservationTokenColumnExists(db, dialect)
 			if err != nil {
@@ -129,6 +136,41 @@ func applyFundingSpreadCapitalMigration(db *sql.DB, dialect string) error {
 		}
 	}
 	return nil
+}
+
+func (s *SQLStorage) BeginAccountWalletBalanceObservation(ctx context.Context, walletKey string) (int64, error) {
+	if s == nil || s.db == nil || ctx == nil || !isFundingSpreadDigest(walletKey) {
+		return 0, errors.New("wallet balance observation requires context and wallet digest")
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return 0, fmt.Errorf("begin wallet balance observation generation: %w", err)
+	}
+	defer tx.Rollback()
+	if err := lockFundingSpreadWallet(ctx, tx, s.dbType, walletKey); err != nil {
+		return 0, err
+	}
+	if s.dbType == "mysql" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO funding_spread_wallet_observation_sequences (wallet_key, latest_sequence) VALUES (?, 0) ON DUPLICATE KEY UPDATE wallet_key=VALUES(wallet_key)`, walletKey); err != nil {
+			return 0, fmt.Errorf("initialize wallet observation sequence: %w", err)
+		}
+	} else if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO funding_spread_wallet_observation_sequences (wallet_key, latest_sequence) VALUES (?, 0)`, walletKey); err != nil {
+		return 0, fmt.Errorf("initialize wallet observation sequence: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_observation_sequences SET latest_sequence = latest_sequence + 1 WHERE wallet_key = ?`, walletKey); err != nil {
+		return 0, fmt.Errorf("advance wallet observation sequence: %w", err)
+	}
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, walletKey).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("read wallet observation sequence: %w", err)
+	}
+	if sequence <= 0 {
+		return 0, errors.New("wallet observation sequence is invalid")
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit wallet observation sequence: %w", err)
+	}
+	return sequence, nil
 }
 
 func fundingSpreadReservationTokenColumnExists(db *sql.DB, dialect string) (bool, error) {
@@ -180,12 +222,16 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 			if err := validateCapitalReservationMetadata(claim); err != nil {
 				return err
 			}
+			if claim.ObservationSequence <= 0 {
+				return errors.New("account wallet reservation requires a shared observation sequence for identified wallets")
+			}
 		}
 	}
 	// Balance evidence must survive a rejected reservation. Otherwise a low
 	// observation that proves existing claims exceed current funds would roll
 	// back with the failed claim, letting a delayed stale high sample win later.
-	if err := s.persistWalletBalanceObservations(ctx, claims); err != nil {
+	claims, err = s.persistWalletBalanceObservations(ctx, claims)
+	if err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -201,6 +247,13 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	}
 	availableByWallet := make(map[string]float64, len(claims))
 	for _, claim := range claims {
+		var latestSequence int64
+		if err := tx.QueryRowContext(ctx, `SELECT latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, claim.WalletKey).Scan(&latestSequence); err != nil {
+			return fmt.Errorf("read latest wallet observation generation: %w", err)
+		}
+		if claim.ObservationSequence != latestSequence {
+			return fmt.Errorf("wallet %s balance observation was superseded before reservation", claim.WalletKey)
+		}
 		available, err := readLatestWalletBalance(ctx, tx, claim.WalletKey)
 		if err != nil {
 			return err
@@ -281,73 +334,96 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	return nil
 }
 
-func (s *SQLStorage) persistWalletBalanceObservations(ctx context.Context, claims []AccountWalletCapitalClaim) error {
+func (s *SQLStorage) persistWalletBalanceObservations(ctx context.Context, claims []AccountWalletCapitalClaim) ([]AccountWalletCapitalClaim, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
-		return fmt.Errorf("begin wallet balance observation transaction: %w", err)
+		return nil, fmt.Errorf("begin wallet balance observation transaction: %w", err)
 	}
 	defer tx.Rollback()
 	for _, claim := range claims {
 		if err := lockFundingSpreadWallet(ctx, tx, s.dbType, claim.WalletKey); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	for _, claim := range claims {
-		if _, err := recordNewestWalletBalance(ctx, tx, claim); err != nil {
-			return err
+	for index := range claims {
+		if claims[index].ObservationSequence == 0 {
+			sequence, err := advanceWalletObservationSequence(ctx, tx, s.dbType, claims[index].WalletKey)
+			if err != nil {
+				return nil, err
+			}
+			claims[index].ObservationSequence = sequence
+		}
+		var latestSequence int64
+		if err := tx.QueryRowContext(ctx, `SELECT latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, claims[index].WalletKey).Scan(&latestSequence); err != nil {
+			return nil, fmt.Errorf("read latest wallet observation generation: %w", err)
+		}
+		if claims[index].ObservationSequence > latestSequence {
+			return nil, fmt.Errorf("wallet %s balance observation generation was not issued", claims[index].WalletKey)
+		}
+		if claims[index].ObservationSequence == latestSequence {
+			if _, err := recordWalletBalanceObservation(ctx, tx, claims[index]); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit wallet balance observations: %w", err)
+		return nil, fmt.Errorf("commit wallet balance observations: %w", err)
 	}
-	return nil
+	return claims, nil
 }
 
 func readLatestWalletBalance(ctx context.Context, tx *sql.Tx, walletKey string) (float64, error) {
-	var available float64
-	var observedAt int64
-	err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt)
+	var available sql.NullFloat64
+	var observedAt sql.NullInt64
+	var sequence int64
+	err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns, latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt, &sequence)
 	if err != nil {
 		return 0, fmt.Errorf("read latest verified wallet balance: %w", err)
 	}
-	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || observedAt <= 0 {
+	if !available.Valid || !observedAt.Valid || sequence <= 0 || math.IsNaN(available.Float64) || math.IsInf(available.Float64, 0) || available.Float64 <= 0 || observedAt.Int64 <= 0 {
 		return 0, errors.New("stored verified wallet balance is invalid")
 	}
-	return available, nil
+	return available.Float64, nil
 }
 
-func recordNewestWalletBalance(ctx context.Context, tx *sql.Tx, claim AccountWalletCapitalClaim) (float64, error) {
+func recordWalletBalanceObservation(ctx context.Context, tx *sql.Tx, claim AccountWalletCapitalClaim) (float64, error) {
 	observedAt := claim.ObservedAt.UTC().UnixNano()
-	var available float64
-	var storedAt int64
-	err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, claim.WalletKey).Scan(&available, &storedAt)
+	_, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_observation_sequences
+		SET available = ?, observed_at_ns = ? WHERE wallet_key = ? AND latest_sequence = ?`,
+		claim.Available, observedAt, claim.WalletKey, claim.ObservationSequence)
+	if err != nil {
+		return 0, fmt.Errorf("persist authoritative wallet balance observation: %w", err)
+	}
+	var existing sql.NullFloat64
+	err = tx.QueryRowContext(ctx, `SELECT available FROM funding_spread_wallet_balances WHERE wallet_key = ?`, claim.WalletKey).Scan(&existing)
 	if errors.Is(err, sql.ErrNoRows) {
-		query := `INSERT INTO funding_spread_wallet_balances (wallet_key, available, observed_at_ns) VALUES (?, ?, ?)`
-		if _, err := tx.ExecContext(ctx, query, claim.WalletKey, claim.Available, observedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO funding_spread_wallet_balances (wallet_key, available, observed_at_ns) VALUES (?, ?, ?)`, claim.WalletKey, claim.Available, observedAt); err != nil {
 			return 0, fmt.Errorf("record initial verified wallet balance: %w", err)
 		}
-		return claim.Available, nil
+	} else if err != nil {
+		return 0, fmt.Errorf("read compatibility wallet balance: %w", err)
+	} else if _, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_balances SET available = ?, observed_at_ns = ? WHERE wallet_key = ?`, claim.Available, observedAt, claim.WalletKey); err != nil {
+		return 0, fmt.Errorf("update compatibility wallet balance: %w", err)
 	}
-	if err != nil {
-		return 0, fmt.Errorf("read latest verified wallet balance: %w", err)
-	}
-	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || storedAt <= 0 {
-		return 0, errors.New("stored verified wallet balance is invalid")
-	}
-	if observedAt > storedAt {
-		query := `UPDATE funding_spread_wallet_balances SET available = ?, observed_at_ns = ? WHERE wallet_key = ?`
-		if _, err := tx.ExecContext(ctx, query, claim.Available, observedAt, claim.WalletKey); err != nil {
-			return 0, fmt.Errorf("advance verified wallet balance observation: %w", err)
+	return claim.Available, nil
+}
+
+func advanceWalletObservationSequence(ctx context.Context, tx *sql.Tx, dialect, walletKey string) (int64, error) {
+	if dialect == "mysql" {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO funding_spread_wallet_observation_sequences (wallet_key, latest_sequence) VALUES (?, 0) ON DUPLICATE KEY UPDATE wallet_key=VALUES(wallet_key)`, walletKey); err != nil {
+			return 0, fmt.Errorf("initialize wallet observation sequence: %w", err)
 		}
-		return claim.Available, nil
+	} else if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO funding_spread_wallet_observation_sequences (wallet_key, latest_sequence) VALUES (?, 0)`, walletKey); err != nil {
+		return 0, fmt.Errorf("initialize wallet observation sequence: %w", err)
 	}
-	if observedAt == storedAt && claim.Available < available {
-		if _, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_balances SET available = ? WHERE wallet_key = ?`, claim.Available, claim.WalletKey); err != nil {
-			return 0, fmt.Errorf("retain conservative wallet balance observation: %w", err)
-		}
-		return claim.Available, nil
+	if _, err := tx.ExecContext(ctx, `UPDATE funding_spread_wallet_observation_sequences SET latest_sequence = latest_sequence + 1 WHERE wallet_key = ?`, walletKey); err != nil {
+		return 0, fmt.Errorf("advance wallet observation sequence: %w", err)
 	}
-	return available, nil
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `SELECT latest_sequence FROM funding_spread_wallet_observation_sequences WHERE wallet_key = ?`, walletKey).Scan(&sequence); err != nil {
+		return 0, fmt.Errorf("read wallet observation sequence: %w", err)
+	}
+	return sequence, nil
 }
 
 func (s *SQLStorage) ReleaseAccountWalletCapital(ctx context.Context, botID string, claims []AccountWalletCapitalClaim) error {
@@ -491,6 +567,9 @@ func normalizeFundingSpreadClaims(claims []FundingSpreadCapitalClaim, requireAmo
 		}
 		if !isFundingSpreadDigest(claim.ReservationToken) {
 			return nil, errors.New("funding spread reservation requires a runtime generation token")
+		}
+		if claim.ObservationSequence < 0 {
+			return nil, errors.New("wallet balance observation sequence must not be negative")
 		}
 		if requireAmounts && (math.IsNaN(claim.Amount) || math.IsInf(claim.Amount, 0) || claim.Amount <= 0 || math.IsNaN(claim.Available) || math.IsInf(claim.Available, 0) || claim.Available <= 0) {
 			return nil, errors.New("funding spread reservation requires positive finite amount and available balance")

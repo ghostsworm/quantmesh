@@ -32,9 +32,14 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 		t.Fatal("apply account wallet capital migrations:", err)
 	}
 	store := &SQLStorage{db: db, dbType: "mysql"}
+	issuer := store
 	unique := fmt.Sprintf("mysql-capital-%d", time.Now().UTC().UnixNano())
 	walletKey := mysqlCapitalTestWalletKey(unique + "-concurrent")
-	claims := []AccountWalletCapitalClaim{{WalletKey: walletKey, ReservationToken: mysqlCapitalTestWalletKey(unique + "-generation"), Amount: 60, Available: 100}}
+	observationSequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, walletKey)
+	if err != nil {
+		t.Fatal("issue MySQL wallet observation sequence:", err)
+	}
+	claims := []AccountWalletCapitalClaim{{WalletKey: walletKey, ReservationToken: mysqlCapitalTestWalletKey(unique + "-generation"), Amount: 60, Available: 100, ObservationSequence: observationSequence}}
 	botIDs := []string{unique + "-a", unique + "-b"}
 	t.Cleanup(func() {
 		for _, botID := range botIDs {
@@ -75,10 +80,50 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 		t.Fatalf("concurrent MySQL reservations rows=%d amount=%v, want 1 row/60", rows, reserved)
 	}
 
+	sequenceWallet := mysqlCapitalTestWalletKey(unique + "-sequences")
+	const issuerCount = 8
+	sequenceStart := make(chan struct{})
+	sequences := make(chan int64, issuerCount)
+	sequenceErrors := make(chan error, issuerCount)
+	for range issuerCount {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-sequenceStart
+			sequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, sequenceWallet)
+			if err != nil {
+				sequenceErrors <- err
+				return
+			}
+			sequences <- sequence
+		}()
+	}
+	close(sequenceStart)
+	workers.Wait()
+	close(sequences)
+	close(sequenceErrors)
+	for err := range sequenceErrors {
+		t.Fatalf("issue concurrent MySQL wallet observation sequence: %v", err)
+	}
+	seenSequences := make(map[int64]bool, issuerCount)
+	for sequence := range sequences {
+		if sequence < 1 || sequence > issuerCount || seenSequences[sequence] {
+			t.Fatalf("concurrent MySQL observation sequence %d is duplicate or out of range", sequence)
+		}
+		seenSequences[sequence] = true
+	}
+	if len(seenSequences) != issuerCount {
+		t.Fatalf("concurrent MySQL observation sequence count=%d, want %d", len(seenSequences), issuerCount)
+	}
+
 	firstWallet := mysqlCapitalTestWalletKey(unique + "-first")
 	secondWallet := mysqlCapitalTestWalletKey(unique + "-second")
+	blockerSequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, secondWallet)
+	if err != nil {
+		t.Fatal("issue blocker wallet observation sequence:", err)
+	}
 	blockerID, atomicBotID := unique+"-blocker", unique+"-atomic"
-	blockerClaims := []AccountWalletCapitalClaim{{WalletKey: secondWallet, ReservationToken: mysqlCapitalTestWalletKey(unique + "-blocker-generation"), Amount: 60, Available: 100}}
+	blockerClaims := []AccountWalletCapitalClaim{{WalletKey: secondWallet, ReservationToken: mysqlCapitalTestWalletKey(unique + "-blocker-generation"), Amount: 60, Available: 100, ObservationSequence: blockerSequence}}
 	atomicToken := mysqlCapitalTestWalletKey(unique + "-atomic-generation")
 	t.Cleanup(func() {
 		_ = store.ReleaseAccountWalletCapital(context.Background(), blockerID, blockerClaims)
@@ -89,9 +134,17 @@ func TestMySQLAccountWalletCapitalReservations(t *testing.T) {
 	if err := store.ReserveAccountWalletCapital(ctx, blockerID, blockerClaims); err != nil {
 		t.Fatal("reserve blocker wallet capacity:", err)
 	}
+	firstWalletSequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, firstWallet)
+	if err != nil {
+		t.Fatal("issue first atomic wallet observation sequence:", err)
+	}
+	secondWalletSequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, secondWallet)
+	if err != nil {
+		t.Fatal("issue second atomic wallet observation sequence:", err)
+	}
 	atomicClaims := []AccountWalletCapitalClaim{
-		{WalletKey: firstWallet, ReservationToken: atomicToken, Amount: 70, Available: 100},
-		{WalletKey: secondWallet, ReservationToken: atomicToken, Amount: 70, Available: 100},
+		{WalletKey: firstWallet, ReservationToken: atomicToken, Amount: 70, Available: 100, ObservationSequence: firstWalletSequence},
+		{WalletKey: secondWallet, ReservationToken: atomicToken, Amount: 70, Available: 100, ObservationSequence: secondWalletSequence},
 	}
 	if err := store.ReserveAccountWalletCapital(ctx, atomicBotID, atomicClaims); err == nil {
 		t.Fatal("overcommitted MySQL two-wallet reservation succeeded")

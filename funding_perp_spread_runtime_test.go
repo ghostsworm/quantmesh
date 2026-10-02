@@ -89,7 +89,7 @@ func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) 
 	}
 	observedAtA := time.Now().UTC().Add(-time.Minute)
 	observedAtB := time.Now().UTC()
-	claims, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 90, observedAtB)
+	claims, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 1, 90, observedAtB, 2)
 	if err != nil {
 		t.Fatalf("build cross-wallet claims: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) 
 	}
 
 	fp.LegB.Exchange = "binance"
-	combined, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 70, observedAtB)
+	combined, err := fundingPerpSpreadCapitalClaims(cfg, fp, 100, 80, observedAtA, 1, 70, observedAtB, 2)
 	if err != nil {
 		t.Fatalf("combine same-wallet legs: %v", err)
 	}
@@ -117,6 +117,9 @@ func TestFundingPerpSpreadCapitalClaimsUseCredentialScopedWallets(t *testing.T) 
 	}
 	if !combined[0].ObservedAt.Equal(observedAtB) {
 		t.Fatalf("combined wallet balance timestamp = %v, want timestamp of the lower balance %v", combined[0].ObservedAt, observedAtB)
+	}
+	if combined[0].ObservationSequence != 2 {
+		t.Fatalf("combined wallet observation sequence = %d, want latest sequence 2", combined[0].ObservationSequence)
 	}
 }
 

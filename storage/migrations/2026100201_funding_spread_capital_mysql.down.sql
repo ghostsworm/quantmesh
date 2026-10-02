@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS funding_spread_wallet_observation_sequences;

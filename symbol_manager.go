@@ -581,13 +581,26 @@ func startSymbolRuntime(
 	quoteAsset := strings.TrimSpace(ex.GetQuoteAsset())
 	availableBalance := 0.0
 	availableBalanceObservedAt := time.Time{}
+	availableBalanceObservationSequence := int64(0)
 	var balanceErr error
 	if quoteAsset == "" {
 		balanceErr = fmt.Errorf("exchange quote asset is unavailable")
 	} else {
 		balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		walletExchange := strings.TrimSpace(symCfg.Exchange)
+		if walletExchange == "" {
+			walletExchange = localCfg.App.CurrentExchange
+		}
+		walletKey, walletErr := accountWalletCapitalKey(baseCfg, walletExchange, ex.GetMarketType(), quoteAsset)
+		if walletErr != nil {
+			balanceErr = walletErr
+		} else {
+			availableBalanceObservationSequence, balanceErr = beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKey)
+		}
 		availableBalanceObservedAt = time.Now().UTC()
-		availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
+		if balanceErr == nil {
+			availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
+		}
 		cancel()
 	}
 	botCapitalBudget, capitalErr := capStrategyCapitalLimit(requestedCapital, availableBalance)
@@ -619,6 +632,7 @@ func startSymbolRuntime(
 		if claimErr != nil {
 			capitalErr = claimErr
 		} else {
+			claim.ObservationSequence = availableBalanceObservationSequence
 			claim.Exchange = walletExchange
 			claim.Market = ex.GetMarketType()
 			claim.QuoteAsset = quoteAsset
@@ -1931,7 +1945,7 @@ func startSymbolRuntime(
 			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
 			rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
 				distributedLock, botID, rt.capitalReservationClaims,
-				[]accountWalletBalanceReader{accountWalletBalanceReaderForClaim(capitalClaim, ex)}, superPositionManager.OpeningGate(),
+				[]accountWalletBalanceReader{accountWalletBalanceReaderForClaim(capitalClaim, ex, storageService)}, superPositionManager.OpeningGate(),
 				func(cancelCtx context.Context) error { return exchangeExecutor.CancelOwnedOpeningOrders(cancelCtx) })
 		}
 	}
