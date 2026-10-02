@@ -1,6 +1,9 @@
 package ascendex
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -33,6 +36,30 @@ func TestNewAscendEXClient(t *testing.T) {
 func TestAdapterMarketTypeIsSpot(t *testing.T) {
 	if got := (&Adapter{}).GetMarketType(); got != "spot" {
 		t.Fatalf("GetMarketType() = %q, want spot", got)
+	}
+}
+
+func TestAdapterAccountPreservesSelectedBalanceAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/pro/v1/0/balance" {
+			t.Errorf("path = %q, want account-group balance endpoint", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"data":[{"asset":"USDT","totalBalance":"1250.5","availableBalance":"900"},{"asset":"BTC","totalBalance":"0.1","availableBalance":"0.1"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewAscendEXClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.accountGroup = "0"
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want USDT-denominated selected quote balance", account)
 	}
 }
 
