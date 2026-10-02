@@ -66,6 +66,55 @@ func (f *fakeComboSubStrategy) Start(ctx context.Context) error {
 	return f.startErr
 }
 
+type comboAdmissionTestExecutor struct {
+	places int
+	err    error
+}
+
+func (e *comboAdmissionTestExecutor) classifyComboOrder(req *position.OrderRequest) (bool, error) {
+	return !req.ReduceOnly, nil
+}
+func (e *comboAdmissionTestExecutor) estimateComboOrderNotional(req *position.OrderRequest) (float64, error) {
+	return req.Price * req.Quantity, nil
+}
+func (e *comboAdmissionTestExecutor) PlaceOrder(req *position.OrderRequest) (*position.Order, error) {
+	e.places++
+	return &position.Order{ClientOrderID: req.ClientOrderID, Quantity: req.Quantity}, e.err
+}
+func (e *comboAdmissionTestExecutor) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
+	return nil, false
+}
+func (e *comboAdmissionTestExecutor) BatchPlaceOrdersWithDetails(orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
+	return &position.BatchPlaceOrdersResult{}
+}
+func (e *comboAdmissionTestExecutor) BatchCancelOrders([]int64) error { return nil }
+
+func TestComboExposureAdmissionReservesAcrossOrdersWithinChildCallback(t *testing.T) {
+	combo := &ComboStrategy{strategyCfg: &ComboConfig{TotalCapital: 100, MaxExposure: 0.8}}
+	combo.riskExposureReady = true
+	next := &comboAdmissionTestExecutor{}
+	gate := &comboExposureAdmissionExecutor{combo: combo, next: next}
+	gate.beginChildAdmission()
+	defer gate.endChildAdmission()
+	next.err = errors.New("exchange outcome unknown")
+	first := &position.OrderRequest{Side: "BUY", Price: 45, Quantity: 1, ClientOrderID: "open-1"}
+	if _, err := gate.PlaceOrder(first); !errors.Is(err, next.err) {
+		t.Fatalf("expected unknown first submission result, got %v", err)
+	}
+	second := &position.OrderRequest{Side: "BUY", Price: 45, Quantity: 1, ClientOrderID: "open-2"}
+	if _, err := gate.PlaceOrder(second); err == nil || !strings.Contains(err.Error(), "max exposure") {
+		t.Fatalf("second opening order did not reserve against first: %v", err)
+	}
+	next.err = nil
+	closeOrder := &position.OrderRequest{Side: "SELL", Price: 90, Quantity: 1, ReduceOnly: true, ClientOrderID: "close-1"}
+	if _, err := gate.PlaceOrder(closeOrder); err != nil {
+		t.Fatalf("risk gate blocked a reducing order: %v", err)
+	}
+	if next.places != 2 {
+		t.Fatalf("downstream submissions = %d, want one opening plus one reducing order", next.places)
+	}
+}
+
 func TestComboRechecksExposureBetweenChildrenWithinSamePriceCallback(t *testing.T) {
 	first := &fakeComboSubStrategy{name: "first", stats: &StrategyStatistics{}}
 	second := &fakeComboSubStrategy{name: "second", stats: &StrategyStatistics{}}

@@ -50,6 +50,8 @@ type ComboStrategy struct {
 
 	// 组合风控：持久化的权益高水位及其恢复状态
 	peakEquity               float64
+	riskExposureNotional     float64
+	riskExposureReady        bool
 	runtimeStateStore        RuntimeStateStore
 	runtimeStateErrorHandler func(error)
 	runtimeStateDirty        bool
@@ -155,6 +157,9 @@ func NewComboStrategy(
 			TotalPnL:    0,
 			TotalVolume: 0,
 		},
+	}
+	if comboCfg != nil && comboCfg.MaxExposure != 0 && executor != nil {
+		combo.executor = &comboExposureAdmissionExecutor{combo: combo, next: executor}
 	}
 
 	// 創建子策略
@@ -630,7 +635,17 @@ func (s *ComboStrategy) OnPriceChange(price float64) error {
 		riskAllowOpen, riskReason := s.checkComboRiskLimits(price)
 		// 市况門控與组合风控只决定能否开新倉；不能开倉時仍要跑已有持倉的止盈止损（S4）
 		if riskAllowOpen && s.shouldExecuteStrategy(i) {
-			if err := strategy.OnPriceChange(price); err != nil {
+			var err error
+			if gate, ok := s.executor.(*comboExposureAdmissionExecutor); ok {
+				gate.beginChildAdmission()
+				err = func() error {
+					defer gate.endChildAdmission()
+					return strategy.OnPriceChange(price)
+				}()
+			} else {
+				err = strategy.OnPriceChange(price)
+			}
+			if err != nil {
 				logger.Warn("⚠️ [%s] 子策略 %s 处理價格變化失败: %v",
 					s.name, s.strategyNames[i], err)
 			}
@@ -765,6 +780,10 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 			}
 		}
 	}
+	s.mu.Lock()
+	s.riskExposureNotional = notional
+	s.riskExposureReady = true
+	s.mu.Unlock()
 
 	if maxExposure > 0 {
 		exposure := notional / capital

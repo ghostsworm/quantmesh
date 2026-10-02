@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"context"
+	"fmt"
 	"quantmesh/position"
 )
 
@@ -13,6 +14,10 @@ type MultiStrategyExecutorAdapter struct {
 
 func (a *MultiStrategyExecutorAdapter) IsOpeningPaused() bool {
 	return a.executor.executor.IsOpeningPaused()
+}
+
+func (a *MultiStrategyExecutorAdapter) MarkOrderReconciliationRequired(orderID int64, clientOrderID, reason string) error {
+	return a.executor.executor.MarkOrderReconciliationRequired(orderID, clientOrderID, reason)
 }
 
 // NewMultiStrategyExecutorAdapter 創建适配器
@@ -30,6 +35,24 @@ func (a *MultiStrategyExecutorAdapter) PlaceOrder(req *position.OrderRequest) (*
 
 func (a *MultiStrategyExecutorAdapter) PlaceOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
 	return a.executor.PlaceOrderContext(ctx, a.strategyName, req)
+}
+
+func (a *MultiStrategyExecutorAdapter) classifyComboOrder(req *position.OrderRequest) (bool, error) {
+	if a == nil || a.executor == nil || req == nil {
+		return false, fmt.Errorf("combo order classification evidence unavailable")
+	}
+	leg, opening := a.executor.classifyOrder(a.strategyName, req)
+	if leg == "" {
+		return false, fmt.Errorf("combo order side or position leg is invalid")
+	}
+	return opening, nil
+}
+
+func (a *MultiStrategyExecutorAdapter) estimateComboOrderNotional(req *position.OrderRequest) (float64, error) {
+	if a == nil || a.executor == nil || a.executor.executor == nil || req == nil {
+		return 0, fmt.Errorf("combo order notional estimator unavailable")
+	}
+	return a.executor.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly), nil
 }
 
 func (a *MultiStrategyExecutorAdapter) BatchPlaceOrdersWithDetailsContext(ctx context.Context, orders []*position.OrderRequest) *position.BatchPlaceOrdersResult {
