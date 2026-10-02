@@ -7,6 +7,7 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -566,6 +567,7 @@ type spotShortClientOrderLookupExchange struct {
 	spotShortReconcileExchange
 	clientOrder *exchange.Order
 	clientID    string
+	lookupCalls atomic.Int32
 	borrowRows  []exchange.MarginBorrowRecord
 	borrowTotal int64
 	borrowErr   error
@@ -573,10 +575,60 @@ type spotShortClientOrderLookupExchange struct {
 }
 
 func (e *spotShortClientOrderLookupExchange) GetOrderByClientOrderID(_ context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	e.lookupCalls.Add(1)
 	if symbol != "BTCUSDT" || clientOrderID != e.clientID {
 		return nil, errors.New("unexpected client order lookup scope")
 	}
 	return e.clientOrder, nil
+}
+
+func TestSpotShortRuntimeReconciliationRetriesPendingBorrowOrder(t *testing.T) {
+	const clientOrderID = "runtime-margin-sell-cid"
+	venue := &spotShortClientOrderLookupExchange{
+		clientID: clientOrderID,
+		clientOrder: &exchange.Order{OrderID: 92, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 0.25, Status: exchange.OrderStatusNew},
+	}
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-runtime-reconcile"
+	cfg.Trading.Symbol = "BTCUSDT"
+	state := spotShortRuntimeState{BotID: spotShortBotID(cfg), Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBorrow: map[string]spotShortPendingBorrow{}, PendingBuy: map[string]spotShortPendingBuy{}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	strategy := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, venue, nil, nil)
+	strategy.SetRuntimeStateStore(store)
+	strategy.SetEventBus(event.NewEventBus(10))
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := strategy.Start(ctx); err != nil {
+		t.Fatalf("start SpotShort strategy: %v", err)
+	}
+	t.Cleanup(func() { _ = strategy.Stop() })
+
+	strategy.mu.Lock()
+	strategy.pendingBorrow[clientOrderID] = spotShortPendingBorrow{Amount: 0.25, Phase: "borrowed", BorrowTransferID: 91,
+		CreatedAtUnixMilli: time.Now().Add(-time.Minute).UnixMilli()}
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatalf("persist runtime test intent: %v", err)
+	}
+	strategy.mu.Unlock()
+
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		strategy.mu.RLock()
+		_, pending := strategy.pendingBorrow[clientOrderID]
+		strategy.mu.RUnlock()
+		if !pending && venue.lookupCalls.Load() > 0 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("runtime reconciler did not verify and clear pending margin sell intent; lookups=%d", venue.lookupCalls.Load())
 }
 
 func (e *spotShortClientOrderLookupExchange) GetMarginBorrowHistory(_ context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]exchange.MarginBorrowRecord, int64, error) {

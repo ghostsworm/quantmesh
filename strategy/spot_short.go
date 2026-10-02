@@ -396,6 +396,9 @@ func (s *SpotShortStrategy) GetStatistics() *StrategyStatistics {
 }
 
 func (s *SpotShortStrategy) Start(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	s.mu.Lock()
 	if err := s.restoreRuntimeStateLocked(); err != nil {
 		s.mu.Unlock()
@@ -414,14 +417,16 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 		logger.Warn("SpotShortStrategy: 無可訂閱的 EventBus，跳過啟動")
 		return nil
 	}
-	s.ctx, s.cancel = context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(ctx)
+	s.ctx, s.cancel = runCtx, cancel
 	subCh := s.subscribableBus.Subscribe()
 	s.mu.Unlock()
 
+	go s.runRuntimeReconciliation(runCtx)
 	go func() {
 		for {
 			select {
-			case <-s.ctx.Done():
+			case <-runCtx.Done():
 				return
 			case evt, ok := <-subCh:
 				if !ok {
@@ -435,6 +440,45 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 	}()
 	logger.Info("✅ SpotShortStrategy 已啟動 (group=%s)", s.groupID)
 	return nil
+}
+
+const spotShortRuntimeReconcileInterval = 3 * time.Second
+const spotShortRuntimeReconcileTimeout = 30 * time.Second
+
+func (s *SpotShortStrategy) runRuntimeReconciliation(ctx context.Context) {
+	ticker := time.NewTicker(spotShortRuntimeReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if !s.hasPendingRuntimeReconciliation() {
+				continue
+			}
+			reconcileCtx, cancel := context.WithTimeout(ctx, spotShortRuntimeReconcileTimeout)
+			err := s.reconcileRuntimeState(reconcileCtx)
+			cancel()
+			if err != nil && ctx.Err() == nil {
+				logger.Warn("⚠️ SpotShortStrategy 运行时负债/订单对账仍未完成，将重试: %v", err)
+			}
+		}
+	}
+}
+
+func (s *SpotShortStrategy) hasPendingRuntimeReconciliation() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.pendingBorrow) > 0 || len(s.pendingBuy) > 0 || len(s.pendingRepay) > 0
+}
+
+func (s *SpotShortStrategy) reconcileRuntimeState(ctx context.Context) error {
+	s.tradeMu.Lock()
+	defer s.tradeMu.Unlock()
+	if err := s.reconcilePendingBorrowIntents(ctx); err != nil {
+		return err
+	}
+	return s.reconcilePendingRepayOrders(ctx)
 }
 
 func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) error {
@@ -572,6 +616,9 @@ func (s *SpotShortStrategy) reconcilePendingRepayOrders(ctx context.Context) err
 			if err := s.verifySpotShortFillBaseFee(ctx, id, pending, update); err != nil {
 				return fmt.Errorf("reconcile spot short order %d fills: %w", id, err)
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("stop spot short reconciliation before applying order %d: %w", id, err)
 		}
 		update.OrderID = id
 		update.Symbol = s.symbol

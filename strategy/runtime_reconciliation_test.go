@@ -31,6 +31,21 @@ func TestRuntimeReconciliationChecksPendingOrdersOnly(t *testing.T) {
 	if !martingale.hasPendingMartingaleCloseReconciliation() {
 		t.Fatal("persisted martingale close intent should be reconciled")
 	}
+	spotShort := &SpotShortStrategy{pendingBorrow: map[string]spotShortPendingBorrow{"borrow": {Amount: 1}},
+		pendingRepay: map[int64]spotShortPendingRepay{}, pendingBuy: map[string]spotShortPendingBuy{}}
+	if !spotShort.hasPendingRuntimeReconciliation() {
+		t.Fatal("spot short borrow intent should be reconciled")
+	}
+	spotShort.pendingBorrow = nil
+	spotShort.pendingBuy = map[string]spotShortPendingBuy{"buy": {Quantity: 1}}
+	if !spotShort.hasPendingRuntimeReconciliation() {
+		t.Fatal("spot short buy intent should be reconciled")
+	}
+	spotShort.pendingBuy = nil
+	spotShort.pendingRepay = map[int64]spotShortPendingRepay{1: {OrderQuantity: 1}}
+	if !spotShort.hasPendingRuntimeReconciliation() {
+		t.Fatal("spot short repayment intent should be reconciled")
+	}
 }
 
 func TestRuntimeOrderReconciliationStopsWithContext(t *testing.T) {
@@ -58,5 +73,17 @@ func TestRuntimeOrderReconciliationStopsWithContext(t *testing.T) {
 	case <-finished:
 	case <-time.After(time.Second):
 		t.Fatal("martingale reconciliation loop did not stop after context cancellation")
+	}
+
+	finished = make(chan struct{})
+	spotShort := &SpotShortStrategy{}
+	go func() {
+		spotShort.runRuntimeReconciliation(ctx)
+		close(finished)
+	}()
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("spot short reconciliation loop did not stop after context cancellation")
 	}
 }
