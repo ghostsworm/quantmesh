@@ -117,7 +117,7 @@ func TestRuntimeEquityRejectsMembershipChangeDuringAccountRead(t *testing.T) {
 	}
 }
 
-func TestRuntimeEquityRequiresAllEnabledConfiguredAccounts(t *testing.T) {
+func TestRuntimeEquityReadsAllEnabledConfiguredAccountsIncludingMissingRuntime(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	firstConfig := config.ExchangeConfig{APIKey: "account-a-key", Testnet: true}
 	secondConfig := config.ExchangeConfig{APIKey: "account-b-key", Testnet: true}
@@ -133,10 +133,16 @@ func TestRuntimeEquityRequiresAllEnabledConfiguredAccounts(t *testing.T) {
 		snapshot: runtimeWalletFixture(now, "1000", 1000),
 	})
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
-
-	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
-	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
-		t.Fatalf("missing configured account was silently omitted: observation=%+v err=%v", observation, err)
+	idle := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "200", 200)}
+	source := &runtimeEquitySource{manager: manager, accountEvidenceSourceFactory: func(_ context.Context, account equityAccountEvidenceConfig) (accounting.Source, error) {
+		if account.Exchange != "bitget" || account.MarketType != "futures" {
+			t.Fatal("unexpected idle account identity")
+		}
+		return idle, nil
+	}}
+	observation, err := source.ObserveAccountEquity(t.Context(), nil)
+	if err != nil || observation.Equity != 1200 || !observation.CashFlowComplete || len(observation.Wallets) != 2 || idle.evidenceCalls != 1 {
+		t.Fatalf("configured idle account was not reconciled through read-only evidence: observation=%+v err=%v", observation, err)
 	}
 }
 
@@ -158,9 +164,36 @@ func TestRuntimeEquityRejectsConfiguredDisabledAccountWithoutRuntime(t *testing.
 	})
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "active-bot", Inner: runtime})
 
-	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	idle := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "200", 200)}
+	source := &runtimeEquitySource{manager: manager, accountEvidenceSourceFactory: func(_ context.Context, account equityAccountEvidenceConfig) (accounting.Source, error) {
+		if account.Exchange != "bitget" || account.MarketType != "futures" {
+			t.Fatal("unexpected idle account identity")
+		}
+		return idle, nil
+	}}
+	observation, err := source.ObserveAccountEquity(t.Context(), nil)
+	if err != nil || observation.Equity != 1200 || !observation.CashFlowComplete || len(observation.Wallets) != 2 || idle.evidenceCalls != 1 {
+		t.Fatalf("disabled configured account was not read from its account evidence source: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityRejectsConfiguredIdleAccountWithoutEvidenceSupport(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	activeConfig := config.ExchangeConfig{APIKey: "active-account-key", Testnet: true}
+	unsupportedConfig := config.ExchangeConfig{APIKey: "unsupported-account-key", Testnet: true}
+	disabled := false
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": activeConfig, "kraken": unsupportedConfig}, Bots: []config.BotConfig{
+		{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"},
+		{Exchange: "kraken", Symbol: "ETHUSDT", MarketType: "futures", Enabled: &disabled},
+	}}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "active", Inner: walletRuntimeFixture(equityAccountScopeID("binance", activeConfig), &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)})})
+	source := &runtimeEquitySource{manager: manager, accountEvidenceSourceFactory: func(context.Context, equityAccountEvidenceConfig) (accounting.Source, error) {
+		return nil, errors.New("unsupported test provider")
+	}}
+	observation, err := source.ObserveAccountEquity(t.Context(), nil)
 	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
-		t.Fatalf("disabled configured account was omitted from the required equity scope: observation=%+v err=%v", observation, err)
+		t.Fatalf("unsupported configured idle account did not fail closed: observation=%+v err=%v", observation, err)
 	}
 }
 

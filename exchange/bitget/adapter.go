@@ -274,6 +274,16 @@ func NewBitgetAdapter(cfg map[string]string, symbol string) (*BitgetAdapter, err
 	return adapter, nil
 }
 
+// NewBitgetAccountEvidenceAdapter creates a REST-only futures account source;
+// unlike NewBitgetAdapter it does not query trading metadata or initialize
+// account trading mode.
+func NewBitgetAccountEvidenceAdapter(apiKey, secretKey, passphrase string, testnet bool) (*BitgetAdapter, error) {
+	if apiKey == "" || secretKey == "" || passphrase == "" {
+		return nil, fmt.Errorf("Bitget account evidence credentials are incomplete")
+	}
+	return &BitgetAdapter{client: NewClient(apiKey, secretKey, passphrase, testnet), testnet: testnet}, nil
+}
+
 // GetName 獲取交易所名称
 func (b *BitgetAdapter) GetName() string {
 	return "Bitget"

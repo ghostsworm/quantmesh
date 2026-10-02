@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc847] - 2026-10-02（未發布）
+
+### Fixed
+- 停用或尚未啟動的 Binance Futures、Bitget Futures/Spot 帳戶改由專用唯讀 REST 證據源納入權益及現金流核對；不初始化交易、WebSocket、遙測或交易所 metadata。未支援來源、憑證不完整或流水證據不足時仍拒絕整體樣本。
+
 ## [3.111.0-rc846] - 2026-10-02（未發布）
 
 ### Fixed

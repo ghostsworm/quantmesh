@@ -136,7 +136,7 @@ func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
 	bm.equityScopeMu.Lock()
 	previous := bm.equityScope
 	snapshot.revision = previous.revision
-	if snapshot.configured != previous.configured || snapshot.scope != previous.scope || snapshot.err != previous.err {
+	if snapshot.configured != previous.configured || snapshot.scope != previous.scope || snapshot.err != previous.err || !sameEquityAccountEvidenceConfigs(snapshot.accounts, previous.accounts) {
 		snapshot.revision++
 	}
 	bm.equityScope = snapshot

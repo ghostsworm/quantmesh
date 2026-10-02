@@ -1028,7 +1028,8 @@ func (s *storageTradeHistorySource) ScanTradesBetween(ctx context.Context, start
 
 // runtimeEquitySource 匯總所有合約運行時所屬賬戶的保證金餘額（含未實現盈虧），按交易所+賬戶去重
 type runtimeEquitySource struct {
-	manager *SymbolManager
+	manager                      *SymbolManager
+	accountEvidenceSourceFactory func(context.Context, equityAccountEvidenceConfig) (accounting.Source, error)
 }
 
 func (s *runtimeEquitySource) TotalEquity(ctx context.Context) (float64, error) {

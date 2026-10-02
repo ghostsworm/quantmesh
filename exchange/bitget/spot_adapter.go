@@ -65,6 +65,21 @@ func NewBitgetSpotAdapter(cfg map[string]string, symbol string) (*BitgetSpotAdap
 	return adapter, nil
 }
 
+// NewBitgetSpotAccountEvidenceAdapter creates a REST-only Spot account source
+// without fetching symbol metadata or initializing any trading WebSocket.
+func NewBitgetSpotAccountEvidenceAdapter(apiKey, secretKey, passphrase string, testnet bool) (*BitgetSpotAdapter, error) {
+	if apiKey == "" || secretKey == "" || passphrase == "" {
+		return nil, fmt.Errorf("Bitget Spot account evidence credentials are incomplete")
+	}
+	return &BitgetSpotAdapter{
+		client:     NewClient(apiKey, secretKey, passphrase, testnet),
+		apiKey:     apiKey,
+		secretKey:  secretKey,
+		passphrase: passphrase,
+		testnet:    testnet,
+	}, nil
+}
+
 func (b *BitgetSpotAdapter) fetchSpotSymbol(ctx context.Context) error {
 	bitgetSymbol := convertToBitgetSymbol(b.symbol)
 	path := fmt.Sprintf("/api/v2/spot/public/symbols?symbol=%s", bitgetSymbol)

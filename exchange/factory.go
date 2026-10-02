@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"quantmesh/config"
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/ascendex"
 	"quantmesh/exchange/binance"
 	"quantmesh/exchange/bingx"
@@ -36,6 +37,27 @@ import (
 const btccFuturesAPISuspendedError = "BTCC Futures API trading was officially suspended on 2026-02-13; trading integration remains disabled pending verified restoration"
 
 const spotInventoryIntegrationDisabledError = "private trading is disabled: the configured spot API does not yet provide the bot's required spot inventory reconciliation"
+
+// NewAccountEvidenceSource creates only supported REST account-evidence
+// adapters. It deliberately bypasses NewExchange to avoid telemetry, dry-run
+// wrappers, metadata initialization, and trading/WebSocket capabilities.
+func NewAccountEvidenceSource(exchangeName, marketType string, cfg config.ExchangeConfig) (accounting.Source, error) {
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
+	market := strings.ToLower(strings.TrimSpace(marketType))
+	if strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.SecretKey) == "" || (name == "bitget" && strings.TrimSpace(cfg.Passphrase) == "") {
+		return nil, fmt.Errorf("account evidence credentials are incomplete for %s/%s", name, market)
+	}
+	switch {
+	case name == "binance" && market == "futures":
+		return binance.NewBinanceAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Testnet)
+	case name == "bitget" && market == "futures":
+		return bitget.NewBitgetAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Passphrase, cfg.Testnet)
+	case name == "bitget" && market == "spot":
+		return bitget.NewBitgetSpotAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Passphrase, cfg.Testnet)
+	default:
+		return nil, fmt.Errorf("complete account evidence is unsupported for %s/%s", name, market)
+	}
+}
 
 // NewExchange 創建交易所實例
 // exchangeName/symbol 允許覆盖配置中的當前交易所和交易對，便於多交易對场景

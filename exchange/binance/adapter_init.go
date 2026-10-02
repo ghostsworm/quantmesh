@@ -33,6 +33,22 @@ func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, e
 	return newBinanceAdapterWithKeys(apiKey, secretKey, symbol, useTestnet)
 }
 
+// NewBinanceAccountEvidenceAdapter creates a REST-only adapter for read-only
+// account/ledger reconciliation. It does not claim the process-global futures
+// WebSocket network or initialize trading metadata.
+func NewBinanceAccountEvidenceAdapter(apiKey, secretKey string, useTestnet bool) (*BinanceAdapter, error) {
+	if apiKey == "" || secretKey == "" {
+		return nil, fmt.Errorf("Binance account evidence credentials are incomplete")
+	}
+	return &BinanceAdapter{
+		client:         newFuturesClient(apiKey, secretKey, useTestnet),
+		apiKey:         apiKey,
+		secretKey:      secretKey,
+		useTestnet:     useTestnet,
+		minAPIInterval: 200 * time.Millisecond,
+	}, nil
+}
+
 // NewBinanceAdapterForPublicData 創建僅用於獲取公開數據（K 線、交易所信息）的適配器。
 // 當 apiKey/secretKey 為空時使用占位符，適用於回測等無需交易權限的場景。Binance K 線為公開 API，無需認證。
 func NewBinanceAdapterForPublicData(cfg map[string]string, symbol string) (*BinanceAdapter, error) {

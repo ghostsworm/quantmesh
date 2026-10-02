@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/exchange/accounting"
 	"quantmesh/risk"
 )
@@ -20,13 +21,41 @@ type equityScopeSnapshot struct {
 	revision   uint64
 	configured bool
 	err        string
+	accounts   []equityAccountEvidenceConfig
+}
+
+type equityAccountEvidenceConfig struct {
+	Exchange   string
+	MarketType string
+	Scope      string
+	APIKey     string
+	SecretKey  string
+	Passphrase string
+	Testnet    bool
+}
+
+func (a equityAccountEvidenceConfig) identity() string {
+	identity, _ := json.Marshal([]string{a.MarketType, a.Scope})
+	return string(identity)
+}
+
+func sameEquityAccountEvidenceConfigs(a, b []equityAccountEvidenceConfig) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 	if cfg == nil {
 		return equityScopeSnapshot{}
 	}
-	accounts := make(map[string]struct{})
+	accounts := make(map[string]equityAccountEvidenceConfig)
 	marketTypes := make(map[string]struct{})
 	add := func(exchangeName, marketType string) error {
 		exchangeName = strings.TrimSpace(exchangeName)
@@ -44,11 +73,14 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 		if !ok || strings.TrimSpace(exchangeConfig.APIKey) == "" {
 			return fmt.Errorf("enabled equity Bot %s has no configured account credentials", exchangeName)
 		}
-		identity, err := json.Marshal([]string{marketType, equityAccountScopeID(exchangeName, exchangeConfig)})
+		accountScope := equityAccountScopeID(exchangeName, exchangeConfig)
+		identity, err := json.Marshal([]string{marketType, accountScope})
 		if err != nil {
 			return err
 		}
-		accounts[string(identity)] = struct{}{}
+		accounts[string(identity)] = equityAccountEvidenceConfig{Exchange: strings.ToLower(exchangeName), MarketType: marketType,
+			Scope: accountScope, APIKey: exchangeConfig.APIKey, SecretKey: exchangeConfig.SecretKey,
+			Passphrase: exchangeConfig.Passphrase, Testnet: exchangeConfig.Testnet}
 		marketTypes[marketType] = struct{}{}
 		return nil
 	}
@@ -70,11 +102,15 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	accountConfigs := make([]equityAccountEvidenceConfig, 0, len(keys))
+	for _, key := range keys {
+		accountConfigs = append(accountConfigs, accounts[key])
+	}
 	identity, err := json.Marshal(keys)
 	if err != nil {
 		return equityScopeSnapshot{configured: true, err: err.Error()}
 	}
-	return equityScopeSnapshot{configured: true, scope: equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity))}
+	return equityScopeSnapshot{configured: true, scope: equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity)), accounts: accountConfigs}
 }
 
 func equityScopePrefix(marketTypes map[string]struct{}) string {
@@ -91,9 +127,23 @@ type spotEquityReconciliationSupport interface {
 	SupportsSpotEquityReconciliation() bool
 }
 
+type configuredEquityEvidenceSourceResult struct {
+	source     accounting.Source
+	marketType string
+}
+
 func equityAccountScopeID(name string, cfg config.ExchangeConfig) string {
 	identity, _ := json.Marshal([]interface{}{name, cfg.Testnet, cfg.APIKey})
 	return fmt.Sprintf("%x", sha256.Sum256(identity))
+}
+
+func configuredEquityEvidenceSource(ctx context.Context, account equityAccountEvidenceConfig) (accounting.Source, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return exchange.NewAccountEvidenceSource(account.Exchange, account.MarketType, config.ExchangeConfig{
+		APIKey: account.APIKey, SecretKey: account.SecretKey, Passphrase: account.Passphrase, Testnet: account.Testnet,
+	})
 }
 
 func (s *runtimeEquitySource) ObserveEquity(ctx context.Context, since time.Time) (risk.EquityObservation, error) {
@@ -112,15 +162,44 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 		return risk.EquityObservation{}, fmt.Errorf("configured equity account scope is unsupported: %s", configuredScope.err)
 	}
 	runtimes := s.manager.List()
-	observation, err := observeRuntimeEquityCursors(ctx, runtimes, cursors)
+	activeAccounts := make(map[string]struct{})
+	if len(runtimes) > 0 {
+		active, _, _, err := runtimeEquityAccounts(runtimes)
+		if err != nil {
+			return risk.EquityObservation{}, err
+		}
+		for identity := range active {
+			activeAccounts[identity] = struct{}{}
+		}
+	}
+	factory := s.accountEvidenceSourceFactory
+	if factory == nil {
+		factory = configuredEquityEvidenceSource
+	}
+	idleSources := make(map[string]configuredEquityEvidenceSourceResult)
+	for _, account := range configuredScope.accounts {
+		identity := account.identity()
+		if _, active := activeAccounts[identity]; active {
+			continue
+		}
+		source, err := factory(ctx, account)
+		if err != nil {
+			return risk.EquityObservation{}, fmt.Errorf("create read-only account evidence source for %s/%s: %w", account.Exchange, account.MarketType, err)
+		}
+		if source == nil {
+			return risk.EquityObservation{}, fmt.Errorf("read-only account evidence source for %s/%s is unavailable", account.Exchange, account.MarketType)
+		}
+		idleSources[identity] = configuredEquityEvidenceSourceResult{source: source, marketType: account.MarketType}
+	}
+	observation, err := observeRuntimeEquityCursorsWithIdleSources(ctx, runtimes, cursors, idleSources)
 	if err != nil {
 		return risk.EquityObservation{}, err
 	}
-	_, _, currentScope, err := runtimeEquityAccounts(s.manager.List())
+	currentActive, err := runtimeEquityAccountKeys(s.manager.List())
 	if err != nil {
 		return risk.EquityObservation{}, err
 	}
-	if currentScope != observation.Scope {
+	if !sameStringSet(activeAccounts, currentActive) {
 		return risk.EquityObservation{}, fmt.Errorf("equity account membership changed during observation; retry required")
 	}
 	latestConfiguredScope := s.manager.botManager.equityScopeSnapshot()
@@ -136,6 +215,29 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 	return observation, nil
 }
 
+func runtimeEquityAccountKeys(runtimes []*SymbolRuntime) (map[string]struct{}, error) {
+	keys := make(map[string]struct{})
+	for _, rt := range runtimes {
+		if rt == nil || rt.Exchange == nil || strings.TrimSpace(rt.AccountScope) == "" {
+			return nil, fmt.Errorf("equity runtime is incomplete")
+		}
+		keys[equityRuntimeAccountKey(strings.ToLower(strings.TrimSpace(rt.AccountMarketType)), rt.AccountScope)] = struct{}{}
+	}
+	return keys, nil
+}
+
+func sameStringSet(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for value := range a {
+		if _, ok := b[value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func observeRuntimeEquity(ctx context.Context, runtimes []*SymbolRuntime) (risk.EquityObservation, error) {
 	return observeRuntimeEquityCursors(ctx, runtimes, nil)
 }
@@ -144,23 +246,66 @@ func observeRuntimeEquity(ctx context.Context, runtimes []*SymbolRuntime) (risk.
 // equity. The feeder must reconcile wallet deltas and persist before publishing.
 // Unsupported providers remain explicitly raw; nil income APIs are not proof.
 func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime, cursors map[string]time.Time) (risk.EquityObservation, error) {
+	return observeRuntimeEquityCursorsWithIdleSources(ctx, runtimes, cursors, nil)
+}
+
+func observeRuntimeEquityCursorsWithIdleSources(ctx context.Context, runtimes []*SymbolRuntime, cursors map[string]time.Time, idleSources map[string]configuredEquityEvidenceSourceResult) (risk.EquityObservation, error) {
 	observation := risk.EquityObservation{Currency: "USDT", ObservedAt: time.Now()}
-	accounts, keys, scope, err := runtimeEquityAccounts(runtimes)
+	accounts := make(map[string]*SymbolRuntime)
+	marketTypes := make(map[string]struct{})
+	for _, rt := range runtimes {
+		if rt == nil || rt.Exchange == nil {
+			return observation, fmt.Errorf("equity runtime is incomplete")
+		}
+		market := strings.ToLower(strings.TrimSpace(rt.AccountMarketType))
+		spotSupport, spotOK := rt.Exchange.(spotEquityReconciliationSupport)
+		if (market != "futures" && (market != "spot" || !spotOK || !spotSupport.SupportsSpotEquityReconciliation())) || rt.AccountScope == "" {
+			return observation, fmt.Errorf("spot account valuation is not reconciled: %w", risk.ErrEquityUnavailable)
+		}
+		key := equityRuntimeAccountKey(market, rt.AccountScope)
+		accounts[key] = rt
+		marketTypes[market] = struct{}{}
+	}
+	for key, source := range idleSources {
+		if source.source == nil {
+			return observation, risk.ErrEquityUnavailable
+		}
+		if _, exists := accounts[key]; exists {
+			return observation, fmt.Errorf("duplicate active and configured equity account")
+		}
+		accounts[key] = nil
+		marketTypes[strings.ToLower(strings.TrimSpace(source.marketType))] = struct{}{}
+	}
+	if len(accounts) == 0 {
+		return observation, risk.ErrEquityUnavailable
+	}
+	keys := make([]string, 0, len(accounts))
+	accountKeys := make(map[string]struct{}, len(accounts))
+	for key := range accounts {
+		keys = append(keys, key)
+		accountKeys[key] = struct{}{}
+	}
+	sort.Strings(keys)
+	identity, err := json.Marshal(keys)
 	if err != nil {
 		return observation, err
 	}
-	observation.Scope = scope
-	accountCursors, err := cursorsByAccount(cursors, accounts)
+	observation.Scope = equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity))
+	accountCursors, err := cursorsByAccountKeys(cursors, accountKeys)
 	if err != nil {
 		return observation, err
 	}
 	providers := make(map[string]accounting.Source, len(accounts))
 	containsSpot := false
 	for _, key := range keys {
-		if strings.EqualFold(accounts[key].AccountMarketType, "spot") {
+		if strings.EqualFold(marketTypesForAccount(key, accounts, idleSources), "spot") {
 			containsSpot = true
 		}
-		if provider, ok := accounts[key].Exchange.(accounting.Source); ok {
+		if rt := accounts[key]; rt != nil {
+			if provider, ok := rt.Exchange.(accounting.Source); ok {
+				providers[key] = provider
+			}
+		} else if provider := idleSources[key].source; provider != nil {
 			providers[key] = provider
 		}
 	}
@@ -169,6 +314,9 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 	}
 	if len(providers) == len(accounts) {
 		return observeAccountEvidence(ctx, observation, keys, providers, accountCursors)
+	}
+	if len(idleSources) > 0 {
+		return observation, fmt.Errorf("configured idle account lacks complete cash-flow evidence: %w", risk.ErrEquityUnavailable)
 	}
 	for _, key := range keys {
 		rt := accounts[key]
@@ -186,6 +334,13 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 	return observation, nil
 }
 
+func marketTypesForAccount(key string, accounts map[string]*SymbolRuntime, idleSources map[string]configuredEquityEvidenceSourceResult) string {
+	if rt := accounts[key]; rt != nil {
+		return rt.AccountMarketType
+	}
+	return idleSources[key].marketType
+}
+
 func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime, []string, string, error) {
 	accounts := make(map[string]*SymbolRuntime)
 	for _, rt := range runtimes {
@@ -197,11 +352,7 @@ func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime
 		if (marketType != "futures" && (marketType != "spot" || !spotOK || !spotSupport.SupportsSpotEquityReconciliation())) || rt.AccountScope == "" {
 			return nil, nil, "", fmt.Errorf("spot account valuation is not reconciled: %w", risk.ErrEquityUnavailable)
 		}
-		identity, err := json.Marshal([]string{marketType, rt.AccountScope})
-		if err != nil {
-			return nil, nil, "", err
-		}
-		accounts[string(identity)] = rt
+		accounts[equityRuntimeAccountKey(marketType, rt.AccountScope)] = rt
 	}
 	if len(accounts) == 0 {
 		return nil, nil, "", risk.ErrEquityUnavailable
@@ -222,10 +373,23 @@ func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime
 	return accounts, keys, equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity)), nil
 }
 
+func equityRuntimeAccountKey(marketType, accountScope string) string {
+	identity, _ := json.Marshal([]string{marketType, accountScope})
+	return string(identity)
+}
+
 // Wallet checkpoints may contain one cursor per currency. Current exchange
 // sources accept one lower-bound cursor per account, so use the oldest durable
 // cursor while retaining each wallet's own overlap validation downstream.
 func cursorsByAccount(cursors map[string]time.Time, accounts map[string]*SymbolRuntime) (map[string]time.Time, error) {
+	accountKeys := make(map[string]struct{}, len(accounts))
+	for account := range accounts {
+		accountKeys[account] = struct{}{}
+	}
+	return cursorsByAccountKeys(cursors, accountKeys)
+}
+
+func cursorsByAccountKeys(cursors map[string]time.Time, accounts map[string]struct{}) (map[string]time.Time, error) {
 	result := make(map[string]time.Time, len(accounts))
 	for identity, cursor := range cursors {
 		account := identity
