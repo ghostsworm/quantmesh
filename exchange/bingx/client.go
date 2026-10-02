@@ -356,8 +356,8 @@ func (c *BingXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order
 }
 
 // GetAccount 獲取帳戶信息
-func (c *BingXClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
-	path := "/openApi/swap/v2/user/balance"
+func (c *BingXClient) GetAccount(ctx context.Context) ([]AccountInfo, error) {
+	path := "/openApi/swap/v3/user/balance"
 	params := url.Values{}
 
 	respBody, err := c.sendRequest(ctx, http.MethodGet, path, params, true)
@@ -366,18 +366,18 @@ func (c *BingXClient) GetAccount(ctx context.Context) (*AccountInfo, error) {
 	}
 
 	var resp struct {
-		Code int         `json:"code"`
-		Data AccountInfo `json:"data"`
+		Code int           `json:"code"`
+		Data []AccountInfo `json:"data"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal error: %w", err)
+		return nil, fmt.Errorf("unmarshal BingX account balances: %w", err)
 	}
 
 	if resp.Code != 0 {
-		return nil, fmt.Errorf("get account info failed")
+		return nil, fmt.Errorf("get BingX account balances failed with code %d", resp.Code)
 	}
 
-	return &resp.Data, nil
+	return resp.Data, nil
 }
 
 // GetPositions 獲取持倉
@@ -513,14 +513,9 @@ type OrderInfo struct {
 }
 
 type AccountInfo struct {
-	Balance          BalanceInfo `json:"balance"`
-	AvailableMargin  float64     `json:"availableMargin,string"`
-	UsedMargin       float64     `json:"usedMargin,string"`
-	UnrealizedProfit float64     `json:"unrealizedProfit,string"`
-}
-
-type BalanceInfo struct {
+	Asset            string  `json:"asset"`
 	Balance          float64 `json:"balance,string"`
+	Equity           float64 `json:"equity,string"`
 	AvailableMargin  float64 `json:"availableMargin,string"`
 	UsedMargin       float64 `json:"usedMargin,string"`
 	UnrealizedProfit float64 `json:"unrealizedProfit,string"`

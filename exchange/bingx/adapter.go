@@ -234,16 +234,31 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
-	accountInfo, err := a.client.GetAccount(ctx)
+	accountInfo, err := a.getSettlementAccount(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	return &AccountLocal{
-		TotalWalletBalance: accountInfo.Balance.Balance,
-		TotalMarginBalance: accountInfo.Balance.Balance - accountInfo.Balance.UnrealizedProfit,
-		AvailableBalance:   accountInfo.Balance.AvailableMargin,
+		TotalWalletBalance: accountInfo.Balance,
+		TotalMarginBalance: accountInfo.Equity,
+		AvailableBalance:   accountInfo.AvailableMargin,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(accountInfo.Asset)),
 	}, nil
+}
+
+func (a *Adapter) getSettlementAccount(ctx context.Context) (*AccountInfo, error) {
+	accounts, err := a.client.GetAccount(ctx)
+	if err != nil {
+		return nil, err
+	}
+	settlementAsset := strings.ToUpper(strings.TrimSpace(a.quoteAsset))
+	for i := range accounts {
+		if strings.EqualFold(strings.TrimSpace(accounts[i].Asset), settlementAsset) {
+			return &accounts[i], nil
+		}
+	}
+	return nil, fmt.Errorf("BingX account balance for settlement asset %s is unavailable", settlementAsset)
 }
 
 // GetPositions 獲取持倉
@@ -279,12 +294,12 @@ func (a *Adapter) GetPositions(ctx context.Context) ([]*PositionLocal, error) {
 
 // GetBalance 獲取餘額
 func (a *Adapter) GetBalance(ctx context.Context) (float64, error) {
-	accountInfo, err := a.client.GetAccount(ctx)
+	accountInfo, err := a.getSettlementAccount(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	return accountInfo.Balance.AvailableMargin, nil
+	return accountInfo.AvailableMargin, nil
 }
 
 // StartOrderStream 啟動訂單流
