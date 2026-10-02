@@ -25,6 +25,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const accountEquityCurrency = "USDT"
+
 // respondError 返回翻譯后的錯误响应
 func respondError(c *gin.Context, status int, messageKey string, args ...interface{}) {
 	lang := GetLanguage(c)
@@ -1727,10 +1729,7 @@ func getDailyStatistics(c *gin.Context) {
 	if accountEquityHistorySupported && len(accountEquityPoints) > 0 {
 		drawdownSampling = "hourly_account_equity"
 	}
-	drawdownAsset := ""
-	if status != nil {
-		drawdownAsset = strings.ToUpper(strings.TrimSpace(status.QuoteAsset))
-	}
+	drawdownAsset := accountEquityCurrency
 	maxDrawdownVerified = maxDrawdownVerified && drawdownAsset != ""
 
 	resp := gin.H{

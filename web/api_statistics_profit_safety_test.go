@@ -11,6 +11,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/storage"
+	"quantmesh/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -107,6 +108,51 @@ func TestAccountEquityMaxDrawdownUsesIntradaySamplesAndScopedDailyFallback(t *te
 	drawdown, drawdownPct, verified := calculateMaxDrawdownFromEquityPoints(points)
 	if !verified || drawdown != 40 || math.Abs(drawdownPct-100.0/3.0) > 1e-9 {
 		t.Fatalf("expected hourly peak-to-trough drawdown 40 / 33.333%%, got %v / %v verified=%v", drawdown, drawdownPct, verified)
+	}
+}
+
+func TestDailyStatisticsLabelsAccountEquityDrawdownInUSDT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := storage.NewSQLStorage(t.TempDir() + "/account-equity-drawdown-currency.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	now := utils.NowConfiguredTimezone()
+	for i, equity := range []float64{120, 100} {
+		if err := store.SaveAccountEquityRecord(&storage.AccountEquityRecord{
+			Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Account: "acct",
+			Timestamp: now.Add(time.Duration(i-2) * time.Minute), AccountEquity: equity,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	previousStatus, previousStorage := currentStatus, storageServiceProvider
+	currentStatus = &SystemStatus{Exchange: "binance", Symbol: "BTCUSDC", MarketType: "futures", QuoteAsset: "USDC", TotalPnLAsset: "USDT", AccountScope: "scope-a"}
+	SetStorageServiceProvider(&testStorageProvider{st: store})
+	t.Cleanup(func() {
+		currentStatus = previousStatus
+		SetStorageServiceProvider(previousStorage)
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/statistics/daily?exchange=binance&symbol=BTCUSDC&market_type=futures&days=1", nil)
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = request
+	getDailyStatistics(ctx)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		MaxDrawdown *float64 `json:"max_drawdown"`
+		Asset       string   `json:"max_drawdown_asset"`
+		Sampling    string   `json:"max_drawdown_sampling"`
+		Verified    bool     `json:"max_drawdown_verified"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Verified || payload.MaxDrawdown == nil || *payload.MaxDrawdown != 20 || payload.Asset != accountEquityCurrency || payload.Sampling != "hourly_account_equity" {
+		t.Fatalf("account equity drawdown must preserve its source currency and sampling method: %+v body=%s", payload, response.Body.String())
 	}
 }
 
