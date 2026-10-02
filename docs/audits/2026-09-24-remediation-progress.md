@@ -2684,3 +2684,4 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc790 將 AscendEX 私有餘額 API 篩選出的 `Balance.Asset`（USDT）經 adapter 與 Wrapper 傳遞至通用帳戶，避免共享錢包權益核驗因丟失幣種證據而拒絕；新增 HTTP fixture 回歸覆蓋選中 USDT 而非同響應 BTC 的行為。未擴大為全帳戶多資產估值，R10 及實盤/盈利驗收仍未完成。
 - rc791 將 XT.COM 私有餘額 API 篩選出的 `Balance.Currency`（USDT）經 adapter 與 Wrapper 傳遞至通用帳戶，讓共享錢包資金核驗可以驗證單位；HTTP fixture 同時提供 USDT 和 BTC，確認取樣和總額只來自 USDT 項目。未擴大為全帳戶多資產估值，R10 及實盤/盈利驗收仍未完成。
 - rc792 將 Coins.ph 私有帳戶 API 的 `token` 幣種證據從所選餘額傳遞至通用帳戶；新增 API fixture 同時帶 PHP 與 BTC，驗證回傳淨值只計 `token` 所指定資產並保留其幣種。完整現貨多資產估值仍未實現，R10 與實盤/盈利驗收仍未完成。
+- rc793 將 Bitkub 私有餘額 map 中明確選取的 THB 資產單位透傳至通用帳戶；新增 HTTP fixture 同時包含 THB 與 BTC，驗證權益只聚合 THB 可用與凍結餘額。該適配器仍只提供 THB 子餘額，不代表全帳戶多資產估值；R10 與實盤/盈利驗收仍未完成。

@@ -2,9 +2,39 @@ package bitkub
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestBitkubSpotAccountPreservesSelectedTHBAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v3/servertime":
+			_, _ = w.Write([]byte("1727856000000"))
+		case "/api/v3/market/balances":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"error":0,"result":{"THB":{"available":900,"reserved":350.5},"BTC":{"available":0.1,"reserved":0}}}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	client := NewBitkubClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &BitkubSpotAdapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "THB" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want THB-denominated selected quote balance", account)
+	}
+}
 
 func TestNewBitkubSpotAdapterRequiresCredentials(t *testing.T) {
 	if _, err := NewBitkubSpotAdapter(map[string]string{}, "BTCUSDT"); err == nil {

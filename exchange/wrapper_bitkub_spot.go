@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"quantmesh/exchange/income"
 	"quantmesh/exchange/bitkub"
+	"quantmesh/exchange/income"
 )
 
 // bitkubSpotWrapper Bitkub Spot 包装器
@@ -188,6 +188,7 @@ func (w *bitkubSpotWrapper) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: account.TotalWalletBalance,
 		TotalMarginBalance: account.TotalMarginBalance,
 		AvailableBalance:   account.AvailableBalance,
+		BalanceAsset:       account.BalanceAsset,
 		Positions:          positions,
 	}, nil
 }

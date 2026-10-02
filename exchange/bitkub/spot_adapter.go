@@ -82,6 +82,7 @@ type Account struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 }
 
@@ -596,6 +597,7 @@ func (b *BitkubSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availableBalance,
+		BalanceAsset:       "THB",
 		Positions:          []*Position{}, // 現貨沒有持倉
 	}, nil
 }
