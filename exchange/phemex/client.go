@@ -149,6 +149,20 @@ func (c *PhemexClient) sendRequest(ctx context.Context, method, path string, par
 
 // GetProduct 獲取交易對信息
 func (c *PhemexClient) GetProduct(ctx context.Context, symbol string) (*Product, error) {
+	products, err := c.GetPerpetualProducts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, product := range products {
+		if product.Symbol == symbol {
+			return &product, nil
+		}
+	}
+	return nil, fmt.Errorf("product not found: %s", symbol)
+}
+
+// GetPerpetualProducts returns the exchange's complete public perpetual product catalog.
+func (c *PhemexClient) GetPerpetualProducts(ctx context.Context) ([]Product, error) {
 	path := "/public/products"
 	params := url.Values{}
 
@@ -167,19 +181,17 @@ func (c *PhemexClient) GetProduct(ctx context.Context, symbol string) (*Product,
 	}
 
 	var productsResp ProductsResponse
-	dataBytes, _ := json.Marshal(apiResp.Data)
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal perpetual products result: %w", err)
+	}
 	if err := json.Unmarshal(dataBytes, &productsResp); err != nil {
-		return nil, fmt.Errorf("unmarshal data error: %w", err)
+		return nil, fmt.Errorf("unmarshal perpetual products data: %w", err)
 	}
-
-	// 查找指定交易對
-	for _, product := range productsResp.Perpetual {
-		if product.Symbol == symbol {
-			return &product, nil
-		}
+	if productsResp.Perpetual == nil {
+		return nil, fmt.Errorf("Phemex perpetual products response is missing perpProductsV2")
 	}
-
-	return nil, fmt.Errorf("product not found: %s", symbol)
+	return productsResp.Perpetual, nil
 }
 
 // PlaceOrder 下單
@@ -290,12 +302,17 @@ func (c *PhemexClient) GetOpenOrders(ctx context.Context, symbol string) ([]Orde
 	}
 
 	var ordersResp OrdersResponse
-	dataBytes, _ := json.Marshal(apiResp.Data)
+	dataBytes, err := json.Marshal(apiResp.Data)
+	if err != nil {
+		return nil, fmt.Errorf("marshal open orders result: %w", err)
+	}
 	if err := json.Unmarshal(dataBytes, &ordersResp); err != nil {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
-
-	return ordersResp.Rows, nil
+	if ordersResp.Rows == nil {
+		return nil, fmt.Errorf("Phemex open orders response is missing rows for %s", symbol)
+	}
+	return *ordersResp.Rows, nil
 }
 
 // GetPosition 獲取持倉
@@ -489,7 +506,7 @@ type Order struct {
 }
 
 type OrdersResponse struct {
-	Rows []Order `json:"rows"`
+	Rows *[]Order `json:"rows"`
 }
 
 type Position struct {

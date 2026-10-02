@@ -12,6 +12,8 @@ type phemexWrapper struct {
 	adapter *phemex.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*phemexWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *phemexWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -151,6 +153,33 @@ func (w *phemexWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 		})
 	}
 
+	return result, nil
+}
+
+func (w *phemexWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		var side Side
+		if order.Side == phemex.SideBuy {
+			side = SideBuy
+		} else {
+			side = SideSell
+		}
+		result = append(result, &Order{
+			ClientOrderID: order.ClientOrderID,
+			Symbol:        order.Symbol,
+			Side:          side,
+			Price:         order.Price,
+			Quantity:      order.Quantity,
+			ExecutedQty:   order.ExecutedQty,
+			Status:        OrderStatus(order.Status),
+			UpdateTime:    order.UpdateTime,
+		})
+	}
 	return result, nil
 }
 

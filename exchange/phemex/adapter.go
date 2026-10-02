@@ -154,6 +154,63 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
+// GetAccountOpenOrders checks every perpetual product because Phemex's active-list API requires a symbol.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
+	products, err := a.client.GetPerpetualProducts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("Phemex get perpetual product catalog: %w", err)
+	}
+	if len(products) == 0 {
+		return nil, fmt.Errorf("Phemex perpetual product catalog is empty")
+	}
+
+	priceScales := make(map[string]int, len(products))
+	for _, product := range products {
+		symbol := strings.TrimSpace(product.Symbol)
+		priceScale := int(product.PriceScale)
+		if symbol == "" || priceScale <= 0 {
+			return nil, fmt.Errorf("Phemex perpetual product catalog contains an invalid product")
+		}
+		if _, exists := priceScales[symbol]; exists {
+			return nil, fmt.Errorf("Phemex perpetual product catalog contains duplicate symbol %s", symbol)
+		}
+		priceScales[symbol] = priceScale
+	}
+
+	result := make([]*OrderLocal, 0)
+	seenIDs := make(map[string]struct{})
+	for symbol, priceScale := range priceScales {
+		orders, err := a.client.GetOpenOrders(ctx, symbol)
+		if err != nil {
+			return nil, fmt.Errorf("Phemex get open orders for %s: %w", symbol, err)
+		}
+		for _, order := range orders {
+			if strings.TrimSpace(order.OrderID) == "" || order.Symbol != symbol {
+				return nil, fmt.Errorf("Phemex open orders for %s contain an invalid order identity", symbol)
+			}
+			if _, exists := seenIDs[order.OrderID]; exists {
+				return nil, fmt.Errorf("Phemex account open orders contain duplicate order ID %s", order.OrderID)
+			}
+			seenIDs[order.OrderID] = struct{}{}
+			if order.Side != "Buy" && order.Side != "Sell" {
+				return nil, fmt.Errorf("Phemex open order %s has invalid side %q", order.OrderID, order.Side)
+			}
+			switch order.OrdStatus {
+			case "New", "PartiallyFilled", "Untriggered":
+			default:
+				return nil, fmt.Errorf("Phemex open order %s has unexpected status %q", order.OrderID, order.OrdStatus)
+			}
+			if order.OrderQty <= 0 || order.CumQty < 0 || order.CumQty > order.OrderQty {
+				return nil, fmt.Errorf("Phemex open order %s has invalid quantities", order.OrderID)
+			}
+			converted := a.convertOrder(&order)
+			converted.Price = UnscalePrice(order.PriceEp, priceScale)
+			result = append(result, converted)
+		}
+	}
+	return result, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	account, err := a.client.GetAccount(ctx, "BTC")

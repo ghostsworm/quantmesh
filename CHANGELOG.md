@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc837] - 2026-10-02（未發布）
+
+### Fixed
+- Phemex 新增遍歷 perpetual 產品目錄的帳戶級活動訂單快照，涵蓋 New、PartiallyFilled、Untriggered；產品目錄或任一 symbol 訂單回包不完整時 fail-closed。
+
 ## [3.111.0-rc836] - 2026-10-02（未發布）
 
 ### Fixed
