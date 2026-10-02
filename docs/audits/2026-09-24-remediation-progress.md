@@ -2817,3 +2817,16 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 延續 R09/R12 核驗，Momentum 雖已具備獨立的持久化 signal state 與啟動倉位身份恢復能力，卻未接入 Combo 初始化/子狀態 loader，且缺少 risk-only 價格路徑；因此 rc851 fail-closed 雖防止靜默漏策略，仍不能安全運行已配置的 Momentum 子策略。
 - Combo 現在建構 Momentum child、透過 namespaced store 注入耐久狀態，啟動時依 momentum 類型載入並匯入經訂單身份核驗的持倉；Combo gate 阻止新開倉時，Momentum 仍更新持倉標記並允許既有多倉退出。
 - 新增 Momentum child 構造/持久化注入、Combo namespaced 持倉恢復及 risk-only 禁止開倉/允許退出測試。尚未以真實交易所驗證重啟、訂單/成交時序、完整組合经济账、跨交易對账户级限额或盈利能力；未連接真實帳戶或下單。
+
+## 後續續修：Combo 接通內建 DCA Enhanced 模板類型（3.111.0-rc853，2026-10-02）
+
+- 發現內建 `combo_grid_dca_btc` 模板使用 `dca_enhanced`，但 Combo 啟動與 namespaced 持倉恢復只識別 `dca`；該模板會被錯誤判為不支援，或無法恢復其持倉風險身份。
+- 初始化及恢復 loader 現均將 `dca_enhanced` 路由至既有 DCA Enhanced 實作，增加模板類型啟動與帶 OrderID/CID 的恢復回歸。
+- 此項不代表 Combo 全部策略類型、真實交易所重啟、跨交易對帳戶級限額或盈利能力已驗收；未連接真實帳戶或下單。
+
+## 後續續修：Combo 敞口核验纳入子策略未成交委托（3.111.0-rc854，2026-10-02）
+
+- Combo `MaxExposure` 原先只累加已成交持倉；子策略已有未成交开仓单时仍可能继续放行，低估待成交名义敞口。
+- 风险检查现对活动委托按 `Quantity - FillProgress.Quantity` 计未成交名义价值，使用不低于当前标记价的委托价；空委托、非法数量/成交游标/价格及累加溢出均 fail-closed。DCA 与 Martingale 订单快照补充成交游标，使部分成交不会重复计入已成交部分。
+- 由于共用策略订单模型尚无可核实的 `ReduceOnly` 字段，所有活动委托餘量均保守视为增加敞口；减倉委託可能造成額外限制，但不會被錯誤地從風險計算中扣除。
+- 此检查降低后续行情回调中的低估风险，但不是同一回调内逐单原子额度预留，也不撤销/核实已存在的超限委托；R12 硬额度仍开放。未连接真实账户、未下单或验收盈利能力。

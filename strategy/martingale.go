@@ -1290,12 +1290,13 @@ func (s *MartingaleStrategy) GetOrders() []*Order {
 			side = "SELL"
 		}
 		orders = append(orders, &Order{
-			OrderID:  entry.OrderID,
-			Symbol:   s.strategyCfg.Symbol,
-			Side:     side,
-			Price:    entry.Price,
-			Quantity: max(entry.Quantity, entry.RequestedQuantity),
-			Status:   entry.Status,
+			OrderID:      entry.OrderID,
+			Symbol:       s.strategyCfg.Symbol,
+			Side:         side,
+			Price:        entry.Price,
+			Quantity:     max(entry.Quantity, entry.RequestedQuantity),
+			Status:       entry.Status,
+			FillProgress: entry.FillProgress,
 		})
 	}
 

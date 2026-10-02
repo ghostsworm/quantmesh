@@ -1939,12 +1939,13 @@ func (s *DCAEnhancedStrategy) GetOrders() []*Order {
 			quantity = layer.Quantity
 		}
 		orders = append(orders, &Order{
-			OrderID:  layer.OrderID,
-			Symbol:   s.strategyCfg.Symbol,
-			Side:     "BUY",
-			Price:    layer.Price,
-			Quantity: quantity,
-			Status:   layer.Status,
+			OrderID:      layer.OrderID,
+			Symbol:       s.strategyCfg.Symbol,
+			Side:         "BUY",
+			Price:        layer.Price,
+			Quantity:     quantity,
+			Status:       layer.Status,
+			FillProgress: layer.FillProgress,
 		})
 	}
 

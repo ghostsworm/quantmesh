@@ -115,6 +115,20 @@ func TestComboStrategyInitializesMomentumChildWithDurableState(t *testing.T) {
 	}
 }
 
+func TestComboStrategyInitializesDCAEnhancedTemplateChild(t *testing.T) {
+	combo := NewComboStrategy("combo", "BTCUSDT", &config.Config{}, nil, nil, map[string]interface{}{
+		"strategies": []interface{}{
+			map[string]interface{}{"name": "enhanced-dca", "type": "dca_enhanced", "weight": 1.0},
+		},
+	})
+	if combo.initErr != nil || len(combo.strategies) != 1 {
+		t.Fatalf("DCA Enhanced child initialization failed: strategies=%d err=%v", len(combo.strategies), combo.initErr)
+	}
+	if _, ok := combo.strategies[0].(*DCAEnhancedStrategy); !ok {
+		t.Fatalf("Combo child type = %T, want *DCAEnhancedStrategy", combo.strategies[0])
+	}
+}
+
 func TestComboStrategyOnOrderUpdateReturnsChildErrorsAndContinuesDispatch(t *testing.T) {
 	want := errors.New("child accounting requires reconciliation")
 	failing := &fakeComboSubStrategy{name: "failing", orderErr: want, mutateUpdate: true}
@@ -316,6 +330,59 @@ func TestComboRiskLimitsFailClosedOnInvalidEconomicEvidence(t *testing.T) {
 				t.Fatalf("invalid risk evidence allowed opening: allowed=%v reason=%q", allowed, reason)
 			}
 		})
+	}
+}
+
+func TestComboRiskLimitsIncludeOnlyUnfilledOrderExposure(t *testing.T) {
+	tests := []struct {
+		name     string
+		filled   float64
+		wantOpen bool
+	}{
+		{name: "pending order reaches cap", filled: 0, wantOpen: false},
+		{name: "subtract verified partial fill", filled: 0.2, wantOpen: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			child := &fakeComboSubStrategy{
+				name: "child", stats: &StrategyStatistics{},
+				positions: []*Position{{Symbol: "BTCUSDT", Size: 0.2, CurrentPrice: 100}},
+				orders: []*Order{{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 0.4,
+					FillProgress: position.FillProgress{Quantity: tc.filled}, Status: "PARTIALLY_FILLED"}},
+			}
+			combo := &ComboStrategy{strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxExposure: 0.5}, strategies: []Strategy{child}}
+			allowed, reason := combo.checkComboRiskLimits(100)
+			if allowed != tc.wantOpen {
+				t.Fatalf("allowOpen=%v, want %v (reason=%q)", allowed, tc.wantOpen, reason)
+			}
+		})
+	}
+}
+
+func TestComboRiskLimitsRejectMalformedActiveOrderEvidence(t *testing.T) {
+	child := &fakeComboSubStrategy{name: "child", stats: &StrategyStatistics{}, orders: []*Order{{
+		Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, FillProgress: position.FillProgress{Quantity: 2}, Status: "NEW",
+	}}}
+	combo := &ComboStrategy{strategyCfg: &ComboConfig{Symbol: "BTCUSDT", TotalCapital: 100, MaxExposure: 0.5}, strategies: []Strategy{child}}
+	if allowed, reason := combo.checkComboRiskLimits(100); allowed || reason == "" {
+		t.Fatalf("malformed pending order evidence must block openings: allowed=%v reason=%q", allowed, reason)
+	}
+}
+
+func TestStrategyOrderSnapshotsPreservePartialFillCursor(t *testing.T) {
+	progress := position.FillProgress{Quantity: 0.4, Notional: 40}
+	dca := &DCAEnhancedStrategy{
+		strategyCfg: &DCAEnhancedConfig{Symbol: "BTCUSDT"},
+		layers:      []*DCALayer{{RequestedQuantity: 1, Quantity: 0.4, FillProgress: progress, Status: entryStatusPartiallyFilled}},
+	}
+	martingale := &MartingaleStrategy{
+		strategyCfg: &MartingaleConfig{Symbol: "BTCUSDT"}, direction: "LONG",
+		entries: []*MartingaleEntry{{RequestedQuantity: 1, Quantity: 0.4, FillProgress: progress, Status: entryStatusPartiallyFilled}},
+	}
+	for name, orders := range map[string][]*Order{"dca": dca.GetOrders(), "martingale": martingale.GetOrders()} {
+		if len(orders) != 1 || orders[0].FillProgress != progress {
+			t.Errorf("%s order fill cursor = %+v, want %+v", name, orders, progress)
+		}
 	}
 }
 

@@ -81,7 +81,7 @@ func LoadComboExposureInventory(store RuntimeStateStore, cfg *config.Config, ex 
 		var found bool
 		var err error
 		switch strategyType {
-		case "dca":
+		case "dca", "dca_enhanced":
 			lots, found, err = LoadDCAExposureInventory(childStore, cfg, ex, name, comboCfg.Symbol, parameters)
 		case "martingale":
 			parameters["direction"] = child.Direction

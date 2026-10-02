@@ -521,6 +521,31 @@ func TestLoadComboExposureInventoryRestoresNamespacedChildIdentity(t *testing.T)
 	}
 }
 
+func TestLoadComboExposureInventoryRestoresDCAEnhancedTemplateChild(t *testing.T) {
+	cfg := dcaTestConfig()
+	ex := &hedgeExchange{}
+	const childName = "combo_enhanced_dca"
+	seed := NewDCAEnhancedStrategy(childName, "BTCUSDT", cfg, nil, ex, nil)
+	state := seed.runtimeStateSnapshotLocked()
+	state.TotalQty, state.TotalCost, state.AvgEntryPrice, state.CurrentLayer = 0.2, 20, 100, 1
+	state.Layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 0.2, Cost: 20, OrderID: 719,
+		ClientOrderID: "combo-enhanced-dca-entry", Status: entryStatusFilled, RequestedQuantity: 0.2,
+		FillProgress: position.FillProgress{Quantity: 0.2, Notional: 20}}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: dcaRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	comboConfig := map[string]interface{}{"strategies": []interface{}{
+		map[string]interface{}{"name": childName, "type": "dca_enhanced", "direction": "LONG", "parameters": map[string]interface{}{}},
+	}}
+	lots, found, err := LoadComboExposureInventory(store, cfg, ex, "BTCUSDT", comboConfig)
+	if err != nil || !found || len(lots) != 1 || lots[0].Group != childName || lots[0].EntryStrategyType != "dca" ||
+		lots[0].EntryOrderID != 719 || lots[0].EntryClientOrderID != "combo-enhanced-dca-entry" {
+		t.Fatalf("DCA Enhanced Combo child recovery=%+v found=%t err=%v", lots, found, err)
+	}
+}
+
 func TestLoadComboExposureInventoryRestoresNamespacedMomentumPosition(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Trading.BotID, cfg.Trading.Symbol = "combo-momentum-bot", "BTCUSDT"

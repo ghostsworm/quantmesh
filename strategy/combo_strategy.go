@@ -325,7 +325,7 @@ func (s *ComboStrategy) initializeStrategies() error {
 		stratCfg.Parameters["symbol"] = s.strategyCfg.Symbol
 
 		switch stratCfg.Type {
-		case "dca":
+		case "dca", "dca_enhanced":
 			if strings.EqualFold(strings.TrimSpace(stratCfg.Direction), position.PositionSideShort) {
 				logger.Warn("⚠️ [%s] 子策略 %s 為 DCA，只支持做多，配置的 SHORT 方向將被忽略", s.name, stratCfg.Name)
 			}
@@ -669,7 +669,7 @@ func (s *ComboStrategy) requiresRiskOnlyPriceHandling() bool {
 }
 
 // checkComboRiskLimits 组合级敞口与回撤限制：超限時只禁止开新倉，返回 (是否允许开倉, 原因)。
-// MaxExposure：子策略持倉名义价值之和 / TotalCapital；MaxDrawdown：(權益高水位 - 當前權益) / 高水位 (%)，
+// MaxExposure：(子策略持倉及活动委托敞口) / TotalCapital；MaxDrawdown：(權益高水位 - 當前權益) / 高水位 (%)，
 // 當前權益 = TotalCapital + 子策略已實現盈亏 + 未實現盈亏。TotalCapital<=0 時两项均不生效。
 func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 	if s.strategyCfg == nil {
@@ -710,6 +710,42 @@ func (s *ComboStrategy) checkComboRiskLimits(price float64) (bool, string) {
 			unrealized += pos.PnL
 			if !finiteNumber(notional) || !finiteNumber(unrealized) {
 				return false, "组合敞口或未实现盈亏累计溢出"
+			}
+		}
+		for _, order := range strategy.GetOrders() {
+			if order == nil {
+				return false, "组合活动委托证据包含空项目"
+			}
+			if symbol := strings.TrimSpace(s.strategyCfg.Symbol); symbol != "" &&
+				!strings.EqualFold(strings.TrimSpace(order.Symbol), symbol) {
+				return false, "组合活动委托交易对与组合配置不一致或缺失"
+			}
+			status := strings.ToUpper(strings.TrimSpace(order.Status))
+			switch status {
+			case "FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED", "NOT_PLACED":
+				continue
+			}
+			if !finiteNumber(order.Quantity) || order.Quantity <= 0 || !finiteNumber(order.FillProgress.Quantity) ||
+				order.FillProgress.Quantity < 0 || order.FillProgress.Quantity > order.Quantity || !finiteNumber(order.Price) || order.Price < 0 {
+				return false, "组合活动委托数量、成交游标或价格证据无效"
+			}
+			remaining := order.Quantity - order.FillProgress.Quantity
+			if remaining <= 0 {
+				continue
+			}
+			// Order lacks a shared ReduceOnly contract; count every active remainder
+			// as exposure so closes may conservatively overstate, never understate, risk.
+			markPrice := order.Price
+			if markPrice <= 0 {
+				markPrice = price
+			}
+			if markPrice < price {
+				markPrice = price
+			}
+			orderNotional := remaining * markPrice
+			notional += orderNotional
+			if !finiteNumber(orderNotional) || !finiteNumber(notional) {
+				return false, "组合持仓与活动委托敞口累计溢出"
 			}
 		}
 		stats := strategy.GetStatistics()
