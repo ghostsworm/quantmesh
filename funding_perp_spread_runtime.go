@@ -357,6 +357,9 @@ func startFundingPerpSpreadSymbolRuntime(
 
 	stopRuntime := func() error {
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
+		if rt.capitalReservationStop != nil {
+			rt.capitalReservationStop()
+		}
 		if fundingPerpSpreadRuntimeOwnershipLeaseLost(ownershipLeases) {
 			openingGate.Block("runtime_ownership_unverified")
 			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 20*time.Second)
@@ -392,6 +395,23 @@ func startFundingPerpSpreadSymbolRuntime(
 		if err := stopRuntime(); err != nil {
 			logger.ErrorCtx(ctx, "[%s] 停止雙永續資金費運行時失敗，保留運行時供核賬/重試: %v", botID, err)
 		}
+	}
+	if capitalStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
+		readers := make([]accountWalletBalanceReader, 0, len(claims))
+		for _, claim := range claims {
+			var client exchange.IExchange
+			if strings.EqualFold(claim.Exchange, fp.LegA.Exchange) {
+				client = legAEx
+			} else if strings.EqualFold(claim.Exchange, fp.LegB.Exchange) {
+				client = legBEx
+			}
+			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client))
+		}
+		rt.capitalReservationStore = capitalStore
+		rt.capitalReservationBotID = botID
+		rt.capitalReservationClaims = append([]storage.AccountWalletCapitalClaim(nil), claims...)
+		rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
+			distributedLock, botID, claims, readers, openingGate, nil)
 	}
 	runtimeOwnsReservation = true
 	priceMonitorTransferred = true

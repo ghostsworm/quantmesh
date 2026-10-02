@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -168,6 +169,77 @@ func TestRuntimeAccountWalletCapitalKeepsOpeningBlockedUntilReservationSucceeds(
 	}
 	if gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
 		t.Fatal("successful reservation retained the pending gate")
+	}
+}
+
+func TestRuntimeWalletRevalidationBlocksWhenAggregateClaimsExceedNewBalance(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"binance": {APIKey: "account-a", SecretKey: "secret-a"},
+	}}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "runtime-wallet-revalidation.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storageService.Stop()
+	otherClaim, err := buildAccountWalletCapitalClaim(cfg, "binance", "futures", "USDT", 70, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherClaim.Exchange, otherClaim.Market, otherClaim.QuoteAsset, otherClaim.Symbol = "binance", "futures", "USDT", "BTCUSDT"
+	if err := reserveAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "other-bot", []storage.AccountWalletCapitalClaim{otherClaim}); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := buildAccountWalletCapitalClaim(cfg, "binance", "futures", "USDT", 20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol = "binance", "futures", "USDT", "ETHUSDT"
+	gate := &execution.OpeningGate{}
+	gate.Block(accountWalletCapitalReservationPendingBlock)
+	if err := reserveRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, gate); err != nil {
+		t.Fatal(err)
+	}
+	available := 80.0
+	readErr := errors.New("balance endpoint unavailable")
+	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(context.Context) (float64, error) {
+		if readErr != nil {
+			return 0, readErr
+		}
+		return available, nil
+	}}
+	canceled := 0
+	cancelOpenings := func(context.Context) error { canceled++; return nil }
+	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, cancelOpenings); err == nil {
+		t.Fatal("revalidation accepted an unavailable wallet balance")
+	}
+	if !gate.HasBlock(accountWalletBalanceUnverifiedBlock) || gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		t.Fatal("balance query failure did not retain only the balance-verification block")
+	}
+	readErr = nil
+	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, cancelOpenings); err == nil {
+		t.Fatal("revalidation accepted aggregate reservations of 90 against available balance 80")
+	}
+	if canceled != 2 {
+		t.Fatalf("opening-order cancellation calls = %d, want once per failed revalidation", canceled)
+	}
+	if !gate.HasBlock(accountWalletBalanceUnverifiedBlock) || !gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		t.Fatal("failed revalidation did not keep both wallet safety blocks active")
+	}
+	available = 120
+	claim.ObservedAt = time.Now().UTC()
+	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, cancelOpenings); err != nil {
+		t.Fatalf("revalidation after balance recovery: %v", err)
+	}
+	if gate.HasBlock(accountWalletBalanceUnverifiedBlock) || gate.HasBlock(accountWalletCapitalReservationPendingBlock) {
+		t.Fatal("successful revalidation did not clear its owned safety blocks")
+	}
+	if canceled != 2 {
+		t.Fatalf("opening-order cancellations = %d after recovery, want 2", canceled)
 	}
 }
 

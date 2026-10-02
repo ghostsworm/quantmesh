@@ -82,6 +82,7 @@ type SymbolRuntime struct {
 	capitalReservationStore  storage.AccountWalletCapitalReservationStore
 	capitalReservationBotID  string
 	capitalReservationClaims []storage.AccountWalletCapitalClaim
+	capitalReservationStop   func()
 	ClampOpenControl         func(config.OpenPositionControl) (config.OpenPositionControl, error)
 	Stop                     func()
 	shutdownContextMu        sync.RWMutex
@@ -1777,13 +1778,6 @@ func startSymbolRuntime(
 		AccountMarketType:     symCfg.GetMarketType(),
 		verifiedCapitalBudget: botCapitalBudget,
 	}
-	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
-		if reservationStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
-			rt.capitalReservationStore = reservationStore
-			rt.capitalReservationBotID = botID
-			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
-		}
-	}
 	ownershipRuntime.Store(rt)
 	if ownershipLease.Lost() {
 		rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
@@ -1820,6 +1814,9 @@ func startSymbolRuntime(
 			}
 			stopFeeRefresh()
 			stopAutoRebuild()
+			if rt.capitalReservationStop != nil {
+				rt.capitalReservationStop()
+			}
 			protectiveSettled := true
 			shutdownCtx := rt.stopContext(ctx)
 			liquidationStopCtx, liquidationStopCancel := context.WithTimeout(shutdownCtx, runtimeShutdownPrepareTimeout)
@@ -1927,6 +1924,17 @@ func startSymbolRuntime(
 	}
 	rt.StopWithError = stopFn
 	rt.Stop = func() { _ = stopFn() }
+	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
+		if reservationStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
+			rt.capitalReservationStore = reservationStore
+			rt.capitalReservationBotID = botID
+			rt.capitalReservationClaims = []storage.AccountWalletCapitalClaim{capitalClaim}
+			rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
+				distributedLock, botID, rt.capitalReservationClaims,
+				[]accountWalletBalanceReader{accountWalletBalanceReaderForClaim(capitalClaim, ex)}, superPositionManager.OpeningGate(),
+				func(cancelCtx context.Context) error { return exchangeExecutor.CancelOwnedOpeningOrders(cancelCtx) })
+		}
+	}
 	ownershipLeaseTransferred = true
 	dynamicOwnedByRuntime = true
 

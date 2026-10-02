@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"quantmesh/exchange"
 	"quantmesh/execution"
 	"quantmesh/lock"
+	"quantmesh/logger"
 	"quantmesh/position"
 	"quantmesh/storage"
 	"quantmesh/strategy"
@@ -100,6 +102,132 @@ func reserveRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config,
 	}
 	gate.Unblock(accountWalletCapitalReservationPendingBlock)
 	return nil
+}
+
+const (
+	accountWalletBalanceUnverifiedBlock = "account_wallet_balance_unverified"
+	accountWalletCapitalRefreshInterval = time.Minute
+)
+
+type accountWalletBalanceReader struct {
+	walletKey string
+	read      func(context.Context) (float64, error)
+}
+
+func revalidateRuntimeAccountWalletCapital(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
+	distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim,
+	readers []accountWalletBalanceReader, gate *execution.OpeningGate, cancelOpenings func(context.Context) error) (resultErr error) {
+	if ctx == nil || gate == nil || len(claims) == 0 || len(readers) != len(claims) {
+		return fmt.Errorf("runtime wallet capital revalidation requires complete claims, readers, and opening gate")
+	}
+	gate.Block(accountWalletBalanceUnverifiedBlock)
+	defer func() {
+		if resultErr == nil || cancelOpenings == nil {
+			return
+		}
+		cancelCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if cancelErr := cancelOpenings(cancelCtx); cancelErr != nil {
+			resultErr = errors.Join(resultErr, fmt.Errorf("cancel Bot-owned opening orders after wallet revalidation failure: %w", cancelErr))
+		}
+	}()
+	refreshed, err := observeRuntimeWalletCapitalClaims(ctx, claims, readers)
+	if err != nil {
+		return err
+	}
+	gate.Block(accountWalletCapitalReservationPendingBlock)
+	if err := reserveRuntimeAccountWalletCapital(ctx, cfg, storageService, distributedLock, botID, refreshed, gate); err != nil {
+		return fmt.Errorf("revalidate aggregate account wallet reservations: %w", err)
+	}
+	gate.Unblock(accountWalletBalanceUnverifiedBlock)
+	return nil
+}
+
+func observeRuntimeWalletCapitalClaims(ctx context.Context, claims []storage.AccountWalletCapitalClaim,
+	readers []accountWalletBalanceReader) ([]storage.AccountWalletCapitalClaim, error) {
+	refreshed := append([]storage.AccountWalletCapitalClaim(nil), claims...)
+	readerByWallet, err := accountWalletCapitalReadersByWallet(readers)
+	if err != nil {
+		return nil, err
+	}
+	for index := range refreshed {
+		readBalance := readerByWallet[refreshed[index].WalletKey]
+		if readBalance == nil {
+			return nil, fmt.Errorf("runtime wallet capital balance reader is missing for a reserved wallet")
+		}
+		available, err := readRuntimeWalletBalance(ctx, refreshed[index].WalletKey, readBalance)
+		if err != nil {
+			return nil, err
+		}
+		refreshed[index].Available = available
+		refreshed[index].ObservedAt = time.Now().UTC()
+	}
+	return refreshed, nil
+}
+
+func accountWalletCapitalReadersByWallet(readers []accountWalletBalanceReader) (map[string]func(context.Context) (float64, error), error) {
+	byWallet := make(map[string]func(context.Context) (float64, error), len(readers))
+	for _, reader := range readers {
+		if reader.walletKey == "" || reader.read == nil {
+			return nil, fmt.Errorf("runtime wallet capital balance reader is incomplete")
+		}
+		if _, exists := byWallet[reader.walletKey]; exists {
+			return nil, fmt.Errorf("duplicate runtime wallet capital balance reader")
+		}
+		byWallet[reader.walletKey] = reader.read
+	}
+	return byWallet, nil
+}
+
+func readRuntimeWalletBalance(ctx context.Context, walletKey string, read func(context.Context) (float64, error)) (float64, error) {
+	balanceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	available, err := read(balanceCtx)
+	if err != nil {
+		return 0, fmt.Errorf("refresh available balance for wallet %s: %w", walletKey, err)
+	}
+	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 {
+		return 0, fmt.Errorf("refreshed available balance for wallet %s is invalid", walletKey)
+	}
+	return available, nil
+}
+
+func startRuntimeAccountWalletCapitalRevalidation(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
+	distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim,
+	readers []accountWalletBalanceReader, gate *execution.OpeningGate, cancelOpenings func(context.Context) error) func() {
+	if ctx == nil || gate == nil || len(claims) == 0 {
+		return func() {}
+	}
+	workerCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(accountWalletCapitalRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-workerCtx.Done():
+				return
+			case <-ticker.C:
+				if err := revalidateRuntimeAccountWalletCapital(workerCtx, cfg, storageService, distributedLock, botID, claims, readers, gate, cancelOpenings); err != nil {
+					logger.ErrorCtx(workerCtx, "[%s] account wallet balance revalidation failed; opening remains blocked: %v", botID, err)
+				}
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func accountWalletBalanceReaderForClaim(claim storage.AccountWalletCapitalClaim, client exchange.IExchange) accountWalletBalanceReader {
+	return accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (float64, error) {
+		if client == nil {
+			return 0, fmt.Errorf("exchange client is unavailable")
+		}
+		return client.GetBalance(ctx, claim.QuoteAsset)
+	}}
 }
 
 func verifyAndReleaseAccountWalletCapital(ctx context.Context, store storage.AccountWalletCapitalReservationStore, botID string, claims []storage.AccountWalletCapitalClaim, verifyFlat func(context.Context) error) error {

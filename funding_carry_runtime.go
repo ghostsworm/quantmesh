@@ -487,6 +487,9 @@ func startFundingCarrySymbolRuntime(
 	var stopMu sync.Mutex
 	var stopErr error
 	stopRuntime := func() error {
+		if rt.capitalReservationStop != nil {
+			rt.capitalReservationStop()
+		}
 		if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
 			if rt.OpeningGate != nil {
 				rt.OpeningGate.Block("runtime_ownership_unverified")
@@ -570,6 +573,26 @@ func startFundingCarrySymbolRuntime(
 		}
 	}
 	runtimeReady = true
+	if capitalStore, ok := storageService.GetStorage().(storage.AccountWalletCapitalReservationStore); ok {
+		readers := make([]accountWalletBalanceReader, 0, len(capitalClaims))
+		for _, claim := range capitalClaims {
+			var client exchange.IExchange
+			switch strings.ToLower(strings.TrimSpace(claim.Market)) {
+			case "futures":
+				client = futEx
+			case "spot":
+				client = spotEx
+			case "spot_margin":
+				client = marginEx
+			}
+			readers = append(readers, accountWalletBalanceReaderForClaim(claim, client))
+		}
+		rt.capitalReservationStore = capitalStore
+		rt.capitalReservationBotID = botID
+		rt.capitalReservationClaims = append([]storage.AccountWalletCapitalClaim(nil), capitalClaims...)
+		rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
+			distributedLock, botID, capitalClaims, readers, openingGate, rt.CancelOpeningOrders)
+	}
 	reservationTransferred = true
 	ownershipTransferred = true
 
