@@ -393,6 +393,9 @@ func startFundingPerpSpreadSymbolRuntime(
 
 	stopRuntime := func() error {
 		logger.InfoCtx(ctx, "⏹️ [%s] 停止雙永续跨所資金費運行時", botID)
+		if rt.fundingIncomeCancel != nil {
+			rt.fundingIncomeCancel()
+		}
 		if rt.capitalReservationStop != nil {
 			rt.capitalReservationStop()
 		}
@@ -465,13 +468,15 @@ func startFundingPerpSpreadSymbolRuntime(
 	} else {
 		logger.WarnCtx(ctx, "[%s] order-fill history sync storage is unavailable; profit/withdrawal coverage will remain unverified", botID)
 	}
-	if storageService != nil {
+	if storageService != nil && storageService.GetStorage() != nil {
+		fundingSyncCtx, cancelFundingSync := context.WithCancel(ctx)
+		rt.fundingIncomeCancel = cancelFundingSync
 		for index, target := range incomeTargets {
 			legExchange := legAEx
 			if index == 1 {
 				legExchange = legBEx
 			}
-			go startFundingIncomeSync(ctx, storageService.GetStorage(), legExchange,
+			go startFundingIncomeSync(fundingSyncCtx, storageService.GetStorage(), legExchange,
 				target.Exchange, target.Symbol, target.AccountID, config.MarketTypeFundingPerpSpread, target.AccountScope)
 		}
 	}

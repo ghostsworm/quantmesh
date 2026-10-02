@@ -427,16 +427,6 @@ func startFundingCarrySymbolRuntime(
 		accountID = equityAccountScopeID(symCfg.Exchange, exCfg)
 	}
 
-	// 每個 funding_carry bot 獨立同步資金費收入
-	if storageService != nil {
-		go startFundingIncomeSync(ctx, storageService.GetStorage(), futEx,
-			symCfg.Exchange, symCfg.Symbol, accountID, symCfg.GetMarketType(), equityAccountScopeID(symCfg.Exchange, baseCfg.Exchanges[symCfg.Exchange]))
-		if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
-			go startMarginInterestSync(ctx, storageService.GetStorage(), marginEx, symCfg.Exchange,
-				accountID, equityAccountScopeID(symCfg.Exchange, baseCfg.Exchanges[symCfg.Exchange]))
-		}
-	}
-
 	rt := &SymbolRuntime{
 		Config:                symCfg,
 		Exchange:              futEx,
@@ -542,6 +532,9 @@ func startFundingCarrySymbolRuntime(
 	var stopMu sync.Mutex
 	var stopErr error
 	stopRuntime := func() error {
+		if rt.fundingIncomeCancel != nil {
+			rt.fundingIncomeCancel()
+		}
 		if rt.capitalReservationStop != nil {
 			rt.capitalReservationStop()
 		}
@@ -647,6 +640,16 @@ func startFundingCarrySymbolRuntime(
 		rt.capitalReservationClaims = append([]storage.AccountWalletCapitalClaim(nil), capitalClaims...)
 		rt.capitalReservationStop = startRuntimeAccountWalletCapitalRevalidation(ctx, baseCfg, storageService,
 			distributedLock, botID, capitalClaims, readers, openingGate, rt.CancelOpeningOrders)
+	}
+	if storageService != nil && storageService.GetStorage() != nil {
+		fundingSyncCtx, cancelFundingSync := context.WithCancel(ctx)
+		rt.fundingIncomeCancel = cancelFundingSync
+		go startFundingIncomeSync(fundingSyncCtx, storageService.GetStorage(), futEx,
+			symCfg.Exchange, symCfg.Symbol, accountID, symCfg.GetMarketType(), accountScope)
+		if fundingCarryReverseEnabled(symCfg) && marginEx != nil {
+			go startMarginInterestSync(fundingSyncCtx, storageService.GetStorage(), marginEx, symCfg.Exchange,
+				accountID, accountScope)
+		}
 	}
 	reservationTransferred = true
 	ownershipTransferred = true
