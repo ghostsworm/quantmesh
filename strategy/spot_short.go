@@ -961,6 +961,12 @@ func (s *SpotShortStrategy) onHedgeSignalWithWalletLock(ctx context.Context, evt
 		return
 	}
 	targetShort := getFloat64(evt.Data, "target_spot_short")
+	if !finiteNumber(targetShort) {
+		err := fmt.Errorf("spot short hedge target must be finite")
+		logger.Error("SpotShortStrategy: %v", err)
+		s.reportUnresolvedDebt(err)
+		return
+	}
 	if targetShort < 0 {
 		targetShort = 0
 	}
@@ -1036,7 +1042,13 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) e
 func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amount float64) error {
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
-	amount = s.roundQuantity(amount)
+	if s.smEx == nil || s.ex == nil || s.executor == nil {
+		return fmt.Errorf("spot short borrow dependencies are unavailable")
+	}
+	amount, err := s.validatedOrderQuantity(amount)
+	if err != nil {
+		return err
+	}
 	if amount <= 0 {
 		return nil
 	}
@@ -1056,20 +1068,13 @@ func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amo
 		s.reportUnresolvedDebt(err)
 		return err
 	}
-	if s.smEx == nil || s.ex == nil || s.executor == nil {
-		return fmt.Errorf("spot short borrow dependencies are unavailable")
-	}
 	if err := s.validateOrderContextSupport(); err != nil {
 		return err
 	}
-	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
-	if err == nil && price <= 0 {
-		err = fmt.Errorf("invalid price %.8f", price)
-	}
+	price, err := s.validatedOrderPrice(ctx, false)
 	if err != nil {
 		return fmt.Errorf("fetch %s price before borrowing: %w", s.symbol, err)
 	}
-	price = s.roundPrice(price)
 	clientOrderID := utils.GenerateOrderID(price, "SELL", s.getPriceDecimals())
 	intent := spotShortPendingBorrow{Amount: amount, Phase: "prepared", CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
 	s.mu.Lock()
@@ -1140,20 +1145,23 @@ func (s *SpotShortStrategy) decreaseShort(ctx context.Context, amount float64) e
 func (s *SpotShortStrategy) decreaseShortWithWalletLock(ctx context.Context, amount float64) error {
 	s.tradeMu.Lock()
 	defer s.tradeMu.Unlock()
-	amount = s.roundQuantity(amount)
+	if s.ex == nil || s.executor == nil {
+		return fmt.Errorf("spot short buyback dependencies are unavailable")
+	}
+	amount, err := s.validatedOrderQuantity(amount)
+	if err != nil {
+		return err
+	}
 	if amount <= 0 {
 		return nil
 	}
 	if err := s.validateOrderContextSupport(); err != nil {
 		return err
 	}
-	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
-	if err != nil || price <= 0 {
-		logger.Error("SpotShortStrategy 獲取價格失敗: %v", err)
-		return err
+	price, err := s.validatedOrderPrice(ctx, true)
+	if err != nil {
+		return fmt.Errorf("fetch %s price before buying back: %w", s.symbol, err)
 	}
-	// 限價買單略高於市價以提高成交率
-	price = s.roundPrice(price * 1.001)
 	clientOrderID := utils.GenerateOrderID(price, "BUY", s.getPriceDecimals())
 	intent := spotShortPendingBuy{Quantity: amount, CreatedAtUnixMilli: time.Now().UTC().UnixMilli()}
 	s.mu.Lock()
@@ -1216,6 +1224,36 @@ func (s *SpotShortStrategy) decreaseShortWithWalletLock(ctx context.Context, amo
 	}
 	logger.Info("📥 SpotShortStrategy: 已下買回單 %.6f %s (order=%d)，成交後還幣", amount, s.baseAsset, ord.OrderID)
 	return nil
+}
+
+func (s *SpotShortStrategy) validatedOrderQuantity(amount float64) (float64, error) {
+	if !finiteNumber(amount) || amount < 0 {
+		return 0, fmt.Errorf("spot short order quantity must be finite and non-negative")
+	}
+	amount = s.roundQuantity(amount)
+	if !finiteNumber(amount) || amount < 0 {
+		return 0, fmt.Errorf("spot short rounded order quantity is invalid")
+	}
+	return amount, nil
+}
+
+func (s *SpotShortStrategy) validatedOrderPrice(ctx context.Context, buyBack bool) (float64, error) {
+	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
+	if err != nil {
+		return 0, err
+	}
+	if !finiteNumber(price) || price <= 0 {
+		return 0, fmt.Errorf("spot short price must be finite and positive")
+	}
+	if buyBack {
+		// 限價買單略高於市價以提高成交率。
+		price *= 1.001
+	}
+	price = s.roundPrice(price)
+	if !finiteNumber(price) || price <= 0 {
+		return 0, fmt.Errorf("spot short rounded order price is invalid")
+	}
+	return price, nil
 }
 
 // roundQuantity 將數量向下取整到交易所精度。
