@@ -24,20 +24,32 @@ func TestAccountWalletReservationRejectsDelayedStaleHighBalance(t *testing.T) {
 	ctx := context.Background()
 	walletKey := fmt.Sprintf("%064x", 77)
 	base := time.Now().UTC().Truncate(time.Millisecond)
-	newer := AccountWalletCapitalClaim{
-		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 1077), Amount: 40, Available: 50, ObservedAt: base.Add(time.Second),
+	initial := AccountWalletCapitalClaim{
+		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 1077), Amount: 40, Available: 100, ObservedAt: base,
 	}
-	if err := store.ReserveAccountWalletCapital(ctx, "bot-newer", []AccountWalletCapitalClaim{newer}); err != nil {
-		t.Fatalf("store newer low balance claim: %v", err)
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-initial", []AccountWalletCapitalClaim{initial}); err != nil {
+		t.Fatalf("store initial wallet claim: %v", err)
 	}
-	stale := AccountWalletCapitalClaim{
-		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 2077), Amount: 20, Available: 100, ObservedAt: base,
+	newerLow := AccountWalletCapitalClaim{
+		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 2077), Amount: 20, Available: 50, ObservedAt: base.Add(time.Second),
 	}
-	if err := store.ReserveAccountWalletCapital(ctx, "bot-stale", []AccountWalletCapitalClaim{stale}); err == nil {
-		t.Fatal("delayed stale high balance observation allowed aggregate reservations above the newer available balance")
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-new-low", []AccountWalletCapitalClaim{newerLow}); err == nil {
+		t.Fatal("overcommitted reservation unexpectedly succeeded after the wallet balance fell")
 	}
 	var available float64
 	var observedAt int64
+	if err := store.db.QueryRow(`SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt); err != nil {
+		t.Fatal(err)
+	}
+	if available != 50 || observedAt != base.Add(time.Second).UnixNano() {
+		t.Fatalf("rejected claim rolled back latest balance observation: available=%v observedAt=%d", available, observedAt)
+	}
+	staleHigh := AccountWalletCapitalClaim{
+		WalletKey: walletKey, ReservationToken: fmt.Sprintf("%064x", 3077), Amount: 20, Available: 100, ObservedAt: base.Add(500 * time.Millisecond),
+	}
+	if err := store.ReserveAccountWalletCapital(ctx, "bot-stale-high", []AccountWalletCapitalClaim{staleHigh}); err == nil {
+		t.Fatal("delayed stale high balance observation allowed aggregate reservations above the persisted newer low balance")
+	}
 	if err := store.db.QueryRow(`SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt); err != nil {
 		t.Fatal(err)
 	}

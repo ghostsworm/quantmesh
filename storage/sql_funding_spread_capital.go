@@ -175,6 +175,19 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	if err != nil {
 		return err
 	}
+	for _, claim := range claims {
+		if claim.Exchange != "" || claim.Market != "" || claim.QuoteAsset != "" || claim.Symbol != "" {
+			if err := validateCapitalReservationMetadata(claim); err != nil {
+				return err
+			}
+		}
+	}
+	// Balance evidence must survive a rejected reservation. Otherwise a low
+	// observation that proves existing claims exceed current funds would roll
+	// back with the failed claim, letting a delayed stale high sample win later.
+	if err := s.persistWalletBalanceObservations(ctx, claims); err != nil {
+		return err
+	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 	if err != nil {
 		return fmt.Errorf("begin account wallet reservation transaction: %w", err)
@@ -188,7 +201,7 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 	}
 	availableByWallet := make(map[string]float64, len(claims))
 	for _, claim := range claims {
-		available, err := recordNewestWalletBalance(ctx, tx, claim)
+		available, err := readLatestWalletBalance(ctx, tx, claim.WalletKey)
 		if err != nil {
 			return err
 		}
@@ -266,6 +279,41 @@ func (s *SQLStorage) ReserveAccountWalletCapital(ctx context.Context, botID stri
 		return fmt.Errorf("commit account wallet capital reservation: %w", err)
 	}
 	return nil
+}
+
+func (s *SQLStorage) persistWalletBalanceObservations(ctx context.Context, claims []AccountWalletCapitalClaim) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return fmt.Errorf("begin wallet balance observation transaction: %w", err)
+	}
+	defer tx.Rollback()
+	for _, claim := range claims {
+		if err := lockFundingSpreadWallet(ctx, tx, s.dbType, claim.WalletKey); err != nil {
+			return err
+		}
+	}
+	for _, claim := range claims {
+		if _, err := recordNewestWalletBalance(ctx, tx, claim); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit wallet balance observations: %w", err)
+	}
+	return nil
+}
+
+func readLatestWalletBalance(ctx context.Context, tx *sql.Tx, walletKey string) (float64, error) {
+	var available float64
+	var observedAt int64
+	err := tx.QueryRowContext(ctx, `SELECT available, observed_at_ns FROM funding_spread_wallet_balances WHERE wallet_key = ?`, walletKey).Scan(&available, &observedAt)
+	if err != nil {
+		return 0, fmt.Errorf("read latest verified wallet balance: %w", err)
+	}
+	if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || observedAt <= 0 {
+		return 0, errors.New("stored verified wallet balance is invalid")
+	}
+	return available, nil
 }
 
 func recordNewestWalletBalance(ctx context.Context, tx *sql.Tx, claim AccountWalletCapitalClaim) (float64, error) {
