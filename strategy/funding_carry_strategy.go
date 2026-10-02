@@ -2145,7 +2145,7 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		if repayErr != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin sell was definitively rejected but borrowed amount could not be returned: %w", repayErr))
 		}
-		if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, borrowQty); err != nil {
+		if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, borrowQty, 0); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("persist returned margin borrow identity: %w", err))
 		}
 		s.mu.Lock()
@@ -2173,7 +2173,7 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 			if err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell had no fill; borrowed amount repayment failed: %w", err))
 			}
-			if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, borrowQty); err != nil {
+			if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, borrowQty, 0); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("persist returned zero-fill margin borrow identity: %w", err))
 			}
 			s.mu.Lock()
@@ -2203,16 +2203,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 			if err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell partially filled %.8f; return unused borrowed amount %.8f: %w", filledQty, unusedBorrow, err))
 			}
-			if err := s.recordMarginDebtEvent(ctx, "repay", repayTransferID, base, unusedBorrow); err != nil {
+			if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, unusedBorrow, filledQty); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("persist unused-borrow repayment identity: %w", err))
 			}
-		}
-		s.mu.Lock()
-		s.marginDebt = filledQty
-		stateErr := s.persistRuntimeStateLocked()
-		s.mu.Unlock()
-		if stateErr != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("persist partial margin debt after repayment: %w", stateErr))
 		}
 	}
 	if err := settleCarryOrder(ctx, s.marginExecutor, sellOrder); err != nil {
