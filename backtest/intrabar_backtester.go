@@ -7,6 +7,8 @@ import (
 	"quantmesh/logger"
 )
 
+const intrabarQuantityRoundingReserve = 1e-12
+
 // IntrabarBacktester K線内模拟回测器
 type IntrabarBacktester struct {
 	*Backtester
@@ -159,13 +161,6 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 				IsClosed:  false,
 			}
 
-			// 更新權益
-			currentEquity := ibt.cash + ibt.position*tick.Price
-			ibt.equity = append(ibt.equity, EquityPoint{
-				Timestamp: tick.Timestamp,
-				Equity:    currentEquity,
-			})
-
 			// 調用策略
 			signal := ibt.strategy.OnCandle(simulatedCandle)
 
@@ -175,6 +170,13 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 			} else if signal.Action == "sell" && ibt.position > 0 {
 				ibt.executeSellAtPrice(tick.Price, tick.Timestamp)
 			}
+
+			// Sample the account after this tick's decision and execution so a
+			// final-tick close is reflected in equity and downstream risk metrics.
+			ibt.equity = append(ibt.equity, EquityPoint{
+				Timestamp: tick.Timestamp,
+				Equity:    ibt.cash + ibt.position*tick.Price,
+			})
 		}
 
 		// 進度显示
@@ -222,16 +224,17 @@ func (ibt *IntrabarBacktester) executeBuyAtPrice(price float64, timestamp int64)
 	if ibt.cash <= 0 {
 		return
 	}
+	executionPrice := price * (1 + ibt.slippage)
 
 	// 計算可買數量（扣除手续费）
-	quantity := ibt.cash / (price * (1 + ibt.takerFee))
+	quantity := ibt.cash / (executionPrice * (1 + ibt.takerFee)) * (1 - intrabarQuantityRoundingReserve)
 
 	if quantity <= 0 {
 		return
 	}
 
 	// 計算成本
-	cost := quantity * price
+	cost := quantity * executionPrice
 	fee := cost * ibt.takerFee
 	totalCost := cost + fee
 
@@ -242,16 +245,19 @@ func (ibt *IntrabarBacktester) executeBuyAtPrice(price float64, timestamp int64)
 	// 更新状態
 	ibt.cash -= totalCost
 	ibt.position = quantity
-	ibt.entryPrice = price
+	ibt.entryPrice = executionPrice
+	slippageLoss := (executionPrice - price) * quantity
+	ibt.totalSlippageLoss += slippageLoss
 
 	// 記錄交易
 	ibt.trades = append(ibt.trades, Trade{
-		Timestamp: timestamp,
-		Type:      "buy",
-		Price:     price,
-		Quantity:  quantity,
-		Fee:       fee,
-		PnL:       0,
+		Timestamp:    timestamp,
+		Type:         "buy",
+		Price:        executionPrice,
+		Quantity:     quantity,
+		Fee:          fee,
+		PnL:          0,
+		SlippageLoss: slippageLoss,
 	})
 
 	if len(ibt.trades) <= 10 || len(ibt.trades)%1000 == 0 {
@@ -266,26 +272,30 @@ func (ibt *IntrabarBacktester) executeSellAtPrice(price float64, timestamp int64
 	}
 
 	quantity := ibt.position
+	executionPrice := price * (1 - ibt.slippage)
 
 	// 計算收益
-	revenue := quantity * price
+	revenue := quantity * executionPrice
 	fee := revenue * ibt.takerFee
 	cost := quantity * ibt.entryPrice
 	pnl := revenue - fee - cost
+	slippageLoss := (price - executionPrice) * quantity
 
 	// 更新状態
 	ibt.cash += (revenue - fee)
+	ibt.totalSlippageLoss += slippageLoss
 	ibt.position = 0
 	ibt.entryPrice = 0
 
 	// 記錄交易
 	ibt.trades = append(ibt.trades, Trade{
-		Timestamp: timestamp,
-		Type:      "sell",
-		Price:     price,
-		Quantity:  quantity,
-		Fee:       fee,
-		PnL:       pnl,
+		Timestamp:    timestamp,
+		Type:         "sell",
+		Price:        executionPrice,
+		Quantity:     quantity,
+		Fee:          fee,
+		PnL:          pnl,
+		SlippageLoss: slippageLoss,
 	})
 
 	if len(ibt.trades) <= 10 || len(ibt.trades)%1000 == 0 {

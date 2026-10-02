@@ -1,6 +1,7 @@
 package backtest
 
 import (
+	"math"
 	"testing"
 
 	"quantmesh/exchange"
@@ -61,7 +62,7 @@ func TestIntrabarExecuteBuySellAndFees(t *testing.T) {
 	if ibt.position <= 0 || ibt.cash < 0 || ibt.cash >= 2 || len(ibt.trades) != 1 {
 		t.Fatalf("after buy cash=%v position=%v trades=%d", ibt.cash, ibt.position, len(ibt.trades))
 	}
-	if ibt.trades[0].Type != "buy" || ibt.entryPrice != 100 {
+	if ibt.trades[0].Type != "buy" || ibt.entryPrice != 100*(1+ibt.slippage) {
 		t.Fatalf("buy trade = %+v entry=%v", ibt.trades[0], ibt.entryPrice)
 	}
 
@@ -115,7 +116,7 @@ func TestIntrabarFinalEquityIncludesForcedCloseFee(t *testing.T) {
 	candles := []*exchange.Candle{{Symbol: "BTCUSDT", Open: 100, High: 120, Low: 90, Close: 110, Volume: 80, Timestamp: 60_000}}
 	strategy := &sequenceStrategy{name: "forced-close", actions: []string{"hold", "hold", "hold", "buy"}}
 	ibt := NewIntrabarBacktester("BTCUSDT", candles, strategy, 1000, 4)
-	ibt.SetFees(0.01, 0.01, 0)
+	ibt.SetFees(0.01, 0.01, 0.01)
 	result, err := ibt.Run()
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
@@ -131,8 +132,32 @@ func TestIntrabarFinalEquityIncludesForcedCloseFee(t *testing.T) {
 	if result.FinalCapital != wantFinal {
 		t.Fatalf("final capital %.8f != cash after forced-close fee %.8f", result.FinalCapital, wantFinal)
 	}
+	wantSlippage := result.Trades[0].SlippageLoss + result.Trades[1].SlippageLoss
+	if math.Abs(result.Trades[0].Price-101) > 1e-12 || math.Abs(result.Trades[1].Price-108.9) > 1e-12 || math.Abs(result.Metrics.TotalSlippageLoss-wantSlippage) > 1e-12 {
+		t.Fatalf("execution costs = buy %.8f/sell %.8f/total slippage %.8f, want 101/108.9/%.8f", result.Trades[0].Price, result.Trades[1].Price, result.Metrics.TotalSlippageLoss, wantSlippage)
+	}
 	wantReturn := (wantFinal - result.InitialCapital) / result.InitialCapital * 100
 	if result.Metrics.TotalReturn != wantReturn {
 		t.Fatalf("total return %.8f != post-close return %.8f", result.Metrics.TotalReturn, wantReturn)
+	}
+}
+
+func TestIntrabarFinalTickSellIsReflectedInEquity(t *testing.T) {
+	candles := []*exchange.Candle{{Symbol: "BTCUSDT", Open: 100, High: 120, Low: 90, Close: 110, Volume: 80, Timestamp: 60_000}}
+	strategy := &sequenceStrategy{actions: []string{"hold", "buy", "hold", "hold", "hold", "hold", "hold", "sell"}}
+	ibt := NewIntrabarBacktester("BTCUSDT", candles, strategy, 1000, 8)
+	ibt.SetFees(0.01, 0.01, 0.005)
+	result, err := ibt.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(result.Trades) != 2 || result.Trades[1].Type != "sell" {
+		t.Fatalf("trades = %+v, want terminal strategy sell", result.Trades)
+	}
+	if got := result.Equity[len(result.Equity)-1].Equity; got != result.FinalCapital {
+		t.Fatalf("last equity %.8f != final capital %.8f after final-tick sell", got, result.FinalCapital)
+	}
+	if result.Trades[0].SlippageLoss <= 0 || result.Trades[1].SlippageLoss <= 0 || result.Metrics.TotalSlippageLoss <= 0 {
+		t.Fatalf("slippage was not charged on both sides: trades=%+v total=%v", result.Trades, result.Metrics.TotalSlippageLoss)
 	}
 }
