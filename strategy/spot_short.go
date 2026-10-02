@@ -910,6 +910,10 @@ func (s *SpotShortStrategy) reconcileUncertainRepayment(ctx context.Context, ord
 		s.mu.Unlock()
 		return err
 	}
+	if err := s.verifyRepayTransferAttributionLocked(orderID, pending, confirmed); err != nil {
+		s.mu.Unlock()
+		return err
+	}
 	previous := current
 	current.ExecutedQty = current.RepayExpectedExecutedQty
 	current.BaseFeeQty = current.RepayExpectedBaseFeeQty
