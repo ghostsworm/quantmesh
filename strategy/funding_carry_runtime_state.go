@@ -108,6 +108,9 @@ func (s *FundingCarryStrategy) recordMarginDebtEvent(ctx context.Context, action
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if replay, err := s.debtEventReplayLocked(confirmed); replay || err != nil {
+		return err
+	}
 	s.marginDebtEvents = append(s.marginDebtEvents, confirmed)
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.marginDebtEvents = s.marginDebtEvents[:len(s.marginDebtEvents)-1]
@@ -183,11 +186,17 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 	if state.Direction == DirectionNone && (state.MarginBorrowTransferID != 0 || !state.MarginBorrowedAt.IsZero()) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry flat state contains margin borrow identity")
 	}
+	seenDebtEvents := make(map[fundingCarryDebtEventIdentity]struct{}, len(state.MarginDebtEvents))
 	for _, event := range state.MarginDebtEvents {
 		if (event.Action != "borrow" && event.Action != "repay") || event.TransferID <= 0 || strings.TrimSpace(event.Asset) == "" ||
 			!validRuntimeAmount(event.Amount) || event.Amount <= 0 || event.OccurredAt.IsZero() {
 			return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state contains an invalid margin debt event")
 		}
+		identity := fundingCarryDebtEventKey(event)
+		if _, exists := seenDebtEvents[identity]; exists {
+			return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state repeats a margin debt transaction identity")
+		}
+		seenDebtEvents[identity] = struct{}{}
 	}
 	return state, nil
 }

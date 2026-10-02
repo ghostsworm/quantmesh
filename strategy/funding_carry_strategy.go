@@ -2112,6 +2112,10 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		return s.blockOnUnownedExposure(fmt.Errorf("verify margin borrow transaction: %w", verifyErr))
 	}
 	s.mu.Lock()
+	if replay, identityErr := s.debtEventReplayLocked(borrowEvent); replay || identityErr != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(fmt.Errorf("new margin borrow returned a reused or conflicting transaction identity %d", borrowTransferID))
+	}
 	s.direction = DirectionReverse
 	s.marginDebt = borrowQty
 	s.marginBorrowTransferID = borrowTransferID
