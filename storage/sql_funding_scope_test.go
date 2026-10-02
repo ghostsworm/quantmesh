@@ -97,6 +97,33 @@ func TestFundingPaymentAggregatesRequireExactAccountScope(t *testing.T) {
 	}
 }
 
+func TestFundingPaymentSymbolsByAccountScopeMatchesProfitDenomination(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/funding-symbol-index.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	for _, payment := range []FundingPayment{
+		{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", Asset: "USDT", TransactionID: 1, TradeTime: now},
+		{Exchange: "BINANCE", Symbol: "btcusdt", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", Asset: "USDT", TransactionID: 2, TradeTime: now},
+		{Exchange: "binance", Symbol: "ETHUSDT", MarketType: "futures", AccountScope: "scope-b", IncomeType: "FUNDING_FEE", Asset: "USDT", TransactionID: 3, TradeTime: now},
+		{Exchange: "binance", Symbol: "SOLUSDT", MarketType: "futures", AccountScope: "scope-a", IncomeType: "FUNDING_FEE", Asset: "BTC", TransactionID: 4, TradeTime: now},
+	} {
+		p := payment
+		if err := st.SaveFundingPayment(&p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	symbols, err := st.GetFundingPaymentSymbolsByAccountScope("BINANCE", "usdt", "scope-a", now.Add(-time.Minute), now.Add(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(symbols) != 1 || symbols[0] != "BTCUSDT" {
+		t.Fatalf("account-scoped USDT funding symbols=%v, want [BTCUSDT]", symbols)
+	}
+}
+
 func TestProfitFundingSumRejectsUnknownAssetAndSumsVerifiedUSDT(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/funding-profit-scope.db")
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const maxScopedPnLStreams = 1000
+
 var ErrPnLScopeRequired = errors.New("PnL exchange and market_type are required when a symbol has trades in multiple scopes")
 
 type PnLMarketScope struct {
@@ -327,7 +329,7 @@ func (s *SQLStorage) GetPnLByAccountScopeAndAsset(exchange, accountScope, asset 
 		CAST(SUM(CASE WHEN exchange_pnl > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*),
 		COALESCE(SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END), 0), COALESCE(SUM(CASE WHEN pnl < 0 THEN 1 ELSE 0 END), 0)
 		FROM %s WHERE LOWER(TRIM(exchange)) = ? AND account_scope = ? AND UPPER(TRIM(pnl_asset)) = ? AND created_at >= ? AND created_at <= ?
-		GROUP BY LOWER(TRIM(exchange)), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown'), symbol, UPPER(TRIM(pnl_asset)) ORDER BY symbol, market_type LIMIT 1000`, s.tradesTbl())
+		GROUP BY LOWER(TRIM(exchange)), COALESCE(NULLIF(LOWER(TRIM(market_type)), ''), 'unknown'), symbol, UPPER(TRIM(pnl_asset)) ORDER BY symbol, market_type LIMIT %d`, s.tradesTbl(), maxScopedPnLStreams+1)
 	rows, err := s.db.Query(query, exchange, accountScope, asset, startTime, endTime)
 	if err != nil {
 		return nil, fmt.Errorf("query scoped PnL by asset: %w", err)
@@ -343,6 +345,9 @@ func (s *SQLStorage) GetPnLByAccountScopeAndAsset(exchange, accountScope, asset 
 			return nil, fmt.Errorf("scoped PnL contains non-finite values for %s %s %s", item.Exchange, item.MarketType, item.Symbol)
 		}
 		results = append(results, item)
+		if len(results) > maxScopedPnLStreams {
+			return nil, fmt.Errorf("scoped PnL stream count exceeds verification limit %d", maxScopedPnLStreams)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate scoped PnL by asset: %w", err)

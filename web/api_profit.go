@@ -24,11 +24,15 @@ import (
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
 	ExchangeID                  string   `json:"exchangeId,omitempty"`
-	TotalProfit                 float64  `json:"totalProfit"` // 已扣除已估值跨倉利息的累计净利润；完整性见 NetProfitComplete
+	TotalProfit                 float64  `json:"totalProfit"` // 已合并交易盈亏、资金费及已估值跨倉利息；完整性见 NetProfitComplete
 	NetProfitComplete           bool     `json:"netProfitComplete"`
 	GrossProfit                 float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
 	TotalFee                    float64  `json:"totalFee"`    // 手續費合計
 	FundingNet                  float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	FundingIncomeComplete       bool     `json:"fundingIncomeComplete"`
+	TodayFundingIncomeComplete  bool     `json:"todayFundingIncomeComplete"`
+	WeekFundingIncomeComplete   bool     `json:"weekFundingIncomeComplete"`
+	MonthFundingIncomeComplete  bool     `json:"monthFundingIncomeComplete"`
 	MarginInterestCost          float64  `json:"marginInterestCost"`
 	MarginInterestCostComplete  bool     `json:"marginInterestCostComplete"`
 	TodayProfit                 float64  `json:"todayProfit"`
@@ -236,6 +240,7 @@ type fundingProfitSumReader interface {
 type profitAccountScope struct {
 	exchange                           string
 	scope                              string
+	futuresSymbols                     []string
 	unsupportedMarginInterestUntracked bool
 }
 
@@ -248,6 +253,12 @@ type scopedProfitSummaryReader interface {
 type scopedMarginInterestProfitReader interface {
 	GetMarginInterestCoverage(exchange, accountScope, asset string) (time.Time, time.Time, error)
 	GetMarginInterestValuationTotalsByAccountScope(exchange, accountScope string, startTime, endTime time.Time) (float64, int64, error)
+}
+
+type scopedFundingIncomeCoverageReader interface {
+	GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
+	GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+	GetFundingPaymentSymbolsByAccountScope(exchange, asset, accountScope string, startTime, endTime time.Time) ([]string, error)
 }
 
 func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error) {
@@ -273,14 +284,155 @@ func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error)
 	for _, exchange := range exchanges {
 		scope := accountIDForExchange(cfg, exchange)
 		if scope != "" {
-			scopes = append(scopes, profitAccountScope{exchange: exchange, scope: scope,
-				unsupportedMarginInterestUntracked: !strings.EqualFold(strings.TrimSpace(exchange), "binance") && exchangeUsesSpotMargin(exchange, cfg)})
+			profitScope := profitAccountScope{exchange: exchange, scope: scope,
+				unsupportedMarginInterestUntracked: !strings.EqualFold(strings.TrimSpace(exchange), "binance") && exchangeUsesSpotMargin(exchange, cfg)}
+			profitScope.futuresSymbols = configuredFundingSymbolsForExchange(exchange, cfg)
+			scopes = append(scopes, profitScope)
 		}
 	}
 	if len(scopes) == 0 {
 		return nil, fmt.Errorf("no configured credential scope is available for profit summary")
 	}
 	return scopes, nil
+}
+
+func configuredFundingSymbolsForExchange(exchange string, cfg *config.Config) []string {
+	if cfg == nil {
+		return nil
+	}
+	var symbols []string
+	addLeg := func(leg config.FundingPerpLeg) {
+		if strings.EqualFold(strings.TrimSpace(leg.Exchange), exchange) {
+			symbols = appendUniqueProfitSymbol(symbols, leg.Symbol)
+		}
+	}
+	for _, bot := range cfg.Bots {
+		if bot.GetMarketType() == config.MarketTypeFundingPerpSpread && bot.FundingPerpSpread != nil {
+			addLeg(bot.FundingPerpSpread.LegA)
+			addLeg(bot.FundingPerpSpread.LegB)
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(bot.Exchange), exchange) && isFundingIncomeMarket(bot.GetMarketType()) {
+			symbols = appendUniqueProfitSymbol(symbols, bot.Symbol)
+		}
+	}
+	for _, symbol := range cfg.Trading.Symbols {
+		if symbol.GetMarketType() == config.MarketTypeFundingPerpSpread && symbol.FundingPerpSpread != nil {
+			addLeg(symbol.FundingPerpSpread.LegA)
+			addLeg(symbol.FundingPerpSpread.LegB)
+			continue
+		}
+		symbolExchange := strings.TrimSpace(symbol.Exchange)
+		if symbolExchange == "" {
+			symbolExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+		}
+		if strings.EqualFold(symbolExchange, exchange) && isFundingIncomeMarket(symbol.GetMarketType()) {
+			symbols = appendUniqueProfitSymbol(symbols, symbol.Symbol)
+		}
+	}
+	return symbols
+}
+
+func isFundingIncomeMarket(marketType string) bool {
+	switch strings.ToLower(strings.TrimSpace(marketType)) {
+	case "futures", config.MarketTypeFundingCarry, config.MarketTypeFundingPerpSpread:
+		return true
+	default:
+		return false
+	}
+}
+
+func appendUniqueProfitSymbol(symbols []string, symbol string) []string {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	if symbol == "" {
+		return symbols
+	}
+	for _, existing := range symbols {
+		if strings.EqualFold(existing, symbol) {
+			return symbols
+		}
+	}
+	return append(symbols, symbol)
+}
+
+func readScopedFundingIncomeCoverage(reader interface{}, scopes []profitAccountScope, start, end time.Time) (bool, error) {
+	results, err := readScopedFundingIncomeCoverageWindows(reader, scopes, []profitCoverageWindow{{start: start, end: end}})
+	if err != nil {
+		return false, err
+	}
+	return results[0], nil
+}
+
+type profitCoverageWindow struct {
+	start time.Time
+	end   time.Time
+}
+
+func readScopedFundingIncomeCoverageWindows(reader interface{}, scopes []profitAccountScope, windows []profitCoverageWindow) ([]bool, error) {
+	coverageReader, hasCoverage := reader.(scopedFundingIncomeCoverageReader)
+	if !hasCoverage {
+		return make([]bool, len(windows)), nil
+	}
+	complete := make([]bool, len(windows))
+	for i := range complete {
+		complete[i] = true
+	}
+	maxEnd := time.Time{}
+	for _, window := range windows {
+		if window.start.IsZero() || window.end.IsZero() || window.end.Before(window.start) {
+			return nil, fmt.Errorf("funding coverage window is invalid")
+		}
+		if window.end.After(maxEnd) {
+			maxEnd = window.end
+		}
+	}
+	for _, scope := range scopes {
+		symbols := append([]string(nil), scope.futuresSymbols...)
+		fundingSymbols, err := coverageReader.GetFundingPaymentSymbolsByAccountScope(scope.exchange, profitSummaryAsset, scope.scope, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), maxEnd)
+		if err != nil {
+			return nil, fmt.Errorf("read account-scoped funding symbols for %s: %w", scope.exchange, err)
+		}
+		for _, symbol := range fundingSymbols {
+			symbols = appendUniqueProfitSymbol(symbols, symbol)
+		}
+		streams, err := coverageReader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), maxEnd)
+		if err != nil {
+			return nil, fmt.Errorf("read scoped PnL symbols for funding coverage %s: %w", scope.exchange, err)
+		}
+		for _, stream := range streams {
+			if stream == nil {
+				return nil, fmt.Errorf("read scoped PnL symbols for funding coverage %s: result contains a missing row", scope.exchange)
+			}
+			marketType := strings.ToLower(strings.TrimSpace(stream.MarketType))
+			if marketType == "" || marketType == "unknown" {
+				for i := range complete {
+					complete[i] = false
+				}
+				continue
+			}
+			if isFundingIncomeMarket(marketType) {
+				if strings.TrimSpace(stream.Symbol) == "" {
+					for i := range complete {
+						complete[i] = false
+					}
+					continue
+				}
+				symbols = appendUniqueProfitSymbol(symbols, stream.Symbol)
+			}
+		}
+		for _, symbol := range symbols {
+			coveredFrom, coveredThrough, coverageErr := coverageReader.GetFundingIncomeCoverage(scope.exchange, symbol, "futures", scope.scope)
+			if coverageErr != nil {
+				return nil, fmt.Errorf("read funding income coverage for %s %s: %w", scope.exchange, symbol, coverageErr)
+			}
+			for i, window := range windows {
+				if coveredFrom.IsZero() || coveredThrough.IsZero() || coveredFrom.After(window.start) || coveredThrough.Before(window.end) {
+					complete[i] = false
+				}
+			}
+		}
+	}
+	return complete, nil
 }
 
 func exchangeUsesSpotMargin(exchange string, cfg *config.Config) bool {
@@ -862,6 +1014,18 @@ func getProfitSummaryHandler(c *gin.Context) {
 		return
 	}
 	fundingSum, todayFunding, weekFunding, monthFunding := fundingTotals.Total, fundingTotals.Today, fundingTotals.Week, fundingTotals.Month
+	fundingCoverage, err := readScopedFundingIncomeCoverageWindows(st, profitScopes, []profitCoverageWindow{
+		{start: startAll, end: now},
+		{start: todayStart, end: now},
+		{start: weekStart, end: now},
+		{start: monthStart, end: now},
+	})
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验资金费收入覆盖: " + err.Error()})
+		return
+	}
+	fundingLifetimeComplete, fundingTodayComplete := fundingCoverage[0], fundingCoverage[1]
+	fundingWeekComplete, fundingMonthComplete := fundingCoverage[2], fundingCoverage[3]
 	marginInterestReader, hasMarginInterestReader := st.(scopedMarginInterestProfitReader)
 	if !hasMarginInterestReader {
 		marginInterestReader = nil
@@ -938,18 +1102,22 @@ func getProfitSummaryHandler(c *gin.Context) {
 	summary := ProfitSummary{
 		ExchangeID:                  exchangeID,
 		TotalProfit:                 roundCents(netWithFunding),
-		NetProfitComplete:           marginLifetime.Complete,
+		NetProfitComplete:           marginLifetime.Complete && fundingLifetimeComplete,
 		GrossProfit:                 roundCents(summaryStats.GrossPnL),
 		TotalFee:                    roundCents(summaryStats.TotalFee),
 		FundingNet:                  roundCents(fundingSum),
+		FundingIncomeComplete:       fundingLifetimeComplete,
+		TodayFundingIncomeComplete:  fundingTodayComplete,
+		WeekFundingIncomeComplete:   fundingWeekComplete,
+		MonthFundingIncomeComplete:  fundingMonthComplete,
 		MarginInterestCost:          roundCents(marginLifetime.Total),
 		MarginInterestCostComplete:  marginLifetime.Complete,
 		TodayProfit:                 roundCents(todayProfitWithFunding),
-		TodayProfitVerified:         marginToday.Complete,
+		TodayProfitVerified:         marginToday.Complete && fundingTodayComplete,
 		WeekProfit:                  roundCents(weekProfitWithFunding),
-		WeekProfitVerified:          marginWeek.Complete,
+		WeekProfitVerified:          marginWeek.Complete && fundingWeekComplete,
 		MonthProfit:                 roundCents(monthProfitWithFunding),
-		MonthProfitVerified:         marginMonth.Complete,
+		MonthProfitVerified:         marginMonth.Complete && fundingMonthComplete,
 		UnrealizedProfit:            roundCents(unrealizedProfit),
 		UnrealizedProfitVerified:    unrealizedProfitVerified,
 		ExchangeProfit:              exchangeProfit,

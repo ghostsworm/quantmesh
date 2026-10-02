@@ -423,7 +423,7 @@ const ProfitManagement: React.FC = () => {
           {summary.netProfitComplete === false && (
             <Alert status="warning" borderRadius="md">
               <AlertIcon />
-              <Text>{t('profitManagement.marginInterestCoverageIncomplete')}</Text>
+              <Text>{t('profitManagement.netProfitCoverageIncomplete')}</Text>
             </Alert>
           )}
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
@@ -435,7 +435,7 @@ const ProfitManagement: React.FC = () => {
                     ? t('servicesStatus.unavailable')
                     : `${(summary.totalProfit || 0) >= 0 ? '+' : ''}${(summary.totalProfit || 0).toFixed(2)}`}
                 </StatNumber>
-                <StatHelpText>{summary.netProfitComplete === false ? t('profitManagement.marginInterestCostIncomplete') : 'USDT'}</StatHelpText>
+                <StatHelpText>{summary.netProfitComplete === false ? t('profitManagement.netProfitCoverageIncomplete') : 'USDT'}</StatHelpText>
               </Stat>
             </Box>
             {summary.marginInterestCost !== undefined && (
@@ -472,9 +472,11 @@ const ProfitManagement: React.FC = () => {
                 <Stat>
                   <StatLabel>{t('profitManagement.fundingNet')}</StatLabel>
                   <StatNumber color={(summary.fundingNet ?? 0) >= 0 ? 'green.500' : 'red.500'}>
-                    {(summary.fundingNet ?? 0) >= 0 ? '+' : ''}{(summary.fundingNet ?? 0).toFixed(2)}
+                    {summary.fundingIncomeComplete === false
+                      ? t('servicesStatus.unavailable')
+                      : `${(summary.fundingNet ?? 0) >= 0 ? '+' : ''}${(summary.fundingNet ?? 0).toFixed(2)}`}
                   </StatNumber>
-                  <StatHelpText>USDT</StatHelpText>
+                  <StatHelpText>{summary.fundingIncomeComplete === false ? t('profitManagement.netProfitCoverageIncomplete') : 'USDT'}</StatHelpText>
                 </Stat>
               </Box>
             )}

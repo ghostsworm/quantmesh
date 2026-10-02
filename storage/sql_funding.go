@@ -457,6 +457,48 @@ func (s *SQLStorage) GetFundingPaymentsByAccountScope(accountScope, exchange str
 	return payments, nil
 }
 
+// GetFundingPaymentSymbolsByAccountScope returns the distinct symbols that
+// contributed to an account-scoped denomination total without loading every
+// funding ledger row into application memory.
+func (s *SQLStorage) GetFundingPaymentSymbolsByAccountScope(exchange, asset, accountScope string, startTime, endTime time.Time) ([]string, error) {
+	exchange = strings.ToLower(strings.TrimSpace(exchange))
+	asset = strings.ToUpper(strings.TrimSpace(asset))
+	accountScope = strings.TrimSpace(accountScope)
+	if exchange == "" || asset == "" || accountScope == "" || startTime.IsZero() || endTime.IsZero() || endTime.Before(startTime) {
+		return nil, fmt.Errorf("funding symbol query requires exchange, asset, account_scope and a valid time range")
+	}
+	rows, err := s.db.Query(`SELECT DISTINCT UPPER(TRIM(symbol)) FROM funding_payments
+		WHERE LOWER(TRIM(exchange)) = ? AND UPPER(TRIM(asset)) = ? AND account_scope = ?
+		  AND UPPER(TRIM(income_type)) = 'FUNDING_FEE' AND trade_time >= ? AND trade_time <= ?
+		  AND TRIM(COALESCE(symbol, '')) <> ''`, exchange, asset, accountScope, utils.ToUTC(startTime), utils.ToUTC(endTime))
+	if err != nil {
+		return nil, fmt.Errorf("query account-scoped funding symbols for %s: %w", exchange, err)
+	}
+	defer rows.Close()
+	var symbols []string
+	for rows.Next() {
+		var symbol string
+		if err := rows.Scan(&symbol); err != nil {
+			return nil, fmt.Errorf("scan account-scoped funding symbol for %s: %w", exchange, err)
+		}
+		symbols = appendUniqueFundingSymbol(symbols, symbol)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate account-scoped funding symbols for %s: %w", exchange, err)
+	}
+	return symbols, nil
+}
+
+func appendUniqueFundingSymbol(symbols []string, symbol string) []string {
+	symbol = strings.ToUpper(strings.TrimSpace(symbol))
+	for _, existing := range symbols {
+		if existing == symbol {
+			return symbols
+		}
+	}
+	return append(symbols, symbol)
+}
+
 // GetFundingPaymentsSum 獲取資金費用淨額（收入 - 支出，正數表示淨收入）
 func (s *SQLStorage) GetFundingPaymentsSum(account, exchange string, startTime, endTime time.Time) (float64, error) {
 	startUTC := utils.ToUTC(startTime)

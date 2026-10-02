@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +21,101 @@ type marginInterestProfitReaderStub struct {
 	cost          float64
 	unvalued      int64
 	calls         int
+}
+
+type fundingIncomeCoverageFixture struct {
+	streams        []*storage.PnLBySymbol
+	fundingSymbols []string
+	coverage       map[string][2]time.Time
+}
+
+func (f fundingIncomeCoverageFixture) GetFundingIncomeCoverage(exchange, symbol, marketType, scope string) (time.Time, time.Time, error) {
+	coverage := f.coverage[strings.ToLower(exchange)+"/"+strings.ToUpper(symbol)+"/"+strings.ToLower(marketType)+"/"+scope]
+	return coverage[0], coverage[1], nil
+}
+
+func (f fundingIncomeCoverageFixture) GetPnLByAccountScopeAndAsset(_, _, _ string, _, _ time.Time) ([]*storage.PnLBySymbol, error) {
+	return f.streams, nil
+}
+
+func (f fundingIncomeCoverageFixture) GetFundingPaymentSymbolsByAccountScope(_, _, _ string, _, _ time.Time) ([]string, error) {
+	return f.fundingSymbols, nil
+}
+
+func TestReadScopedFundingIncomeCoverageRequiresEveryConfiguredAndHistoricalFuturesSymbol(t *testing.T) {
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+	covered := [2]time.Time{start.Add(-time.Hour), end.Add(time.Hour)}
+	full := fundingIncomeCoverageFixture{
+		streams: []*storage.PnLBySymbol{
+			{Exchange: "binance", MarketType: "futures", Symbol: "ETHUSDT", PnLAsset: "USDT"},
+			{Exchange: "binance", MarketType: "spot", Symbol: "BNBUSDT", PnLAsset: "USDT"},
+		},
+		fundingSymbols: []string{"DOGEUSDT"},
+		coverage: map[string][2]time.Time{
+			"binance/BTCUSDT/futures/scope-a":  covered,
+			"binance/ETHUSDT/futures/scope-a":  covered,
+			"binance/DOGEUSDT/futures/scope-a": covered,
+		},
+	}
+	scopes := []profitAccountScope{{exchange: "binance", scope: "scope-a", futuresSymbols: []string{"BTCUSDT"}}}
+	complete, err := readScopedFundingIncomeCoverage(full, scopes, start, end)
+	if err != nil || !complete {
+		t.Fatalf("complete configured and historical streams must be verified: complete=%v err=%v", complete, err)
+	}
+	delete(full.coverage, "binance/ETHUSDT/futures/scope-a")
+	complete, err = readScopedFundingIncomeCoverage(full, scopes, start, end)
+	if err != nil || complete {
+		t.Fatalf("missing historical-symbol coverage must be incomplete: complete=%v err=%v", complete, err)
+	}
+	delete(full.coverage, "binance/DOGEUSDT/futures/scope-a")
+	complete, err = readScopedFundingIncomeCoverage(full, scopes, start, end)
+	if err != nil || complete {
+		t.Fatalf("funding-ledger symbols without PnL must still require coverage: complete=%v err=%v", complete, err)
+	}
+	full.coverage["binance/ETHUSDT/futures/scope-a"] = covered
+	full.coverage["binance/DOGEUSDT/futures/scope-a"] = covered
+	full.streams = append(full.streams, &storage.PnLBySymbol{Exchange: "binance", MarketType: "unknown", Symbol: "XRPUSDT", PnLAsset: "USDT"})
+	complete, err = readScopedFundingIncomeCoverage(full, scopes, start, end)
+	if err != nil || complete {
+		t.Fatalf("unknown market classification must fail closed: complete=%v err=%v", complete, err)
+	}
+}
+
+func TestConfiguredFundingSymbolsForExchangeIncludesBothPerpSpreadLegs(t *testing.T) {
+	cfg := &config.Config{Bots: []config.BotConfig{{
+		MarketType: config.MarketTypeFundingPerpSpread,
+		FundingPerpSpread: &config.FundingPerpSpreadConfig{
+			LegA: config.FundingPerpLeg{Exchange: "BINANCE", Symbol: "BTCUSDT"},
+			LegB: config.FundingPerpLeg{Exchange: "okx", Symbol: "BTC-USDT-SWAP"},
+		},
+	}}}
+	got := configuredFundingSymbolsForExchange("okx", cfg)
+	if len(got) != 1 || got[0] != "BTC-USDT-SWAP" {
+		t.Fatalf("configuredFundingSymbolsForExchange()=%v, want second perp leg", got)
+	}
+}
+
+func TestReadScopedFundingIncomeCoverageWindowsVerifiesPeriodsIndependently(t *testing.T) {
+	today := time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)
+	now := today.Add(12 * time.Hour)
+	fixture := fundingIncomeCoverageFixture{
+		coverage: map[string][2]time.Time{
+			"binance/BTCUSDT/futures/scope-a": {today, now},
+		},
+	}
+	results, err := readScopedFundingIncomeCoverageWindows(fixture, []profitAccountScope{
+		{exchange: "binance", scope: "scope-a", futuresSymbols: []string{"BTCUSDT"}},
+	}, []profitCoverageWindow{
+		{start: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), end: now},
+		{start: today, end: now},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 2 || results[0] || !results[1] {
+		t.Fatalf("coverage completeness by period=%v, want [false true]", results)
+	}
 }
 
 func TestExchangeUsesSpotMarginAcrossCurrentAndLegacyConfig(t *testing.T) {

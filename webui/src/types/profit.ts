@@ -7,11 +7,15 @@ export type WithdrawType = 'auto' | 'manual'
 
 export interface ProfitSummary {
   exchangeId?: string
-  totalProfit: number // 已扣除可核验跨仓利息；完整性由 netProfitComplete 标明
+  totalProfit: number // 已合并交易盈亏、资金费及已估值跨仓利息；完整性由 netProfitComplete 标明
   netProfitComplete?: boolean
   grossProfit?: number // 毛利（價差盈虧，未扣手續費）
   totalFee?: number // 手續費合計
   fundingNet?: number // 資金費淨額（正=淨收入，負=淨支出）
+  fundingIncomeComplete?: boolean
+  todayFundingIncomeComplete?: boolean
+  weekFundingIncomeComplete?: boolean
+  monthFundingIncomeComplete?: boolean
   marginInterestCost?: number
   marginInterestCostComplete?: boolean
   todayProfit: number // 今日盈利

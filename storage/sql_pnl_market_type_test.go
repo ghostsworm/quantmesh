@@ -3,6 +3,7 @@ package storage
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -140,6 +141,24 @@ func TestGetPnLByAccountScopeAndAssetSeparatesAssetsAndCredentialScopes(t *testi
 	}
 	if _, err := st.GetPnLByAccountScopeAndAsset("binance", "scope-a", "BTC", now.Add(-time.Minute), now.Add(time.Minute)); err != nil {
 		t.Fatalf("known non-requested asset rows should be safely excluded: %v", err)
+	}
+}
+
+func TestGetPnLByAccountScopeAndAssetRejectsTruncatedStreamResults(t *testing.T) {
+	st := newSQLStorageForTest(t)
+	now := time.Now().UTC()
+	for i := 0; i <= maxScopedPnLStreams; i++ {
+		trade := Trade{
+			BuyOrderID: int64(i + 1), SellOrderID: int64(i + 10001), AccountScope: "scope-a",
+			Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", FeeAsset: "USDT",
+			Symbol: fmt.Sprintf("TEST%dUSDT", i), PnL: 1, CreatedAt: now,
+		}
+		if err := st.SaveTrade(&trade); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.GetPnLByAccountScopeAndAsset("binance", "scope-a", "USDT", now.Add(-time.Minute), now.Add(time.Minute)); err == nil {
+		t.Fatal("scoped PnL query silently accepted truncated results")
 	}
 }
 
