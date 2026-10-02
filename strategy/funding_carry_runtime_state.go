@@ -95,10 +95,14 @@ func (s *FundingCarryStrategy) confirmMarginDebtTransaction(ctx context.Context,
 	s.mu.RLock()
 	accountScope := s.marginAccountScope
 	s.mu.RUnlock()
-	return fundingCarryMarginDebtEvent{
+	confirmed := fundingCarryMarginDebtEvent{
 		Action: action, TransferID: transferID, Asset: asset, Amount: transaction.Amount, Principal: principal, InterestPaid: transaction.Interest,
 		OccurredAt: time.UnixMilli(transaction.Timestamp).UTC(), AccountScope: accountScope,
-	}, nil
+	}
+	if err := validateFundingCarryDebtEventIntegrity(confirmed, accountScope); err != nil {
+		return fundingCarryMarginDebtEvent{}, err
+	}
+	return confirmed, nil
 }
 
 func (s *FundingCarryStrategy) recordMarginDebtEvent(ctx context.Context, action string, transferID int64, asset string, amount float64) error {
@@ -140,7 +144,8 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 		return err
 	}
 	s.mu.Lock()
-	if state.MarginAccountScope != "" && s.marginAccountScope != "" && state.MarginAccountScope != s.marginAccountScope {
+	hasMarginEvidence := len(state.MarginDebtEvents) > 0 || state.MarginDebt > 0 || state.MarginBorrowTransferID > 0 || !state.MarginBorrowedAt.IsZero()
+	if s.marginAccountScope != "" && state.MarginAccountScope != s.marginAccountScope && (state.MarginAccountScope != "" || hasMarginEvidence) {
 		s.mu.Unlock()
 		return fmt.Errorf("funding_carry runtime state margin account scope mismatch")
 	}
@@ -191,6 +196,9 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 		if (event.Action != "borrow" && event.Action != "repay") || event.TransferID <= 0 || strings.TrimSpace(event.Asset) == "" ||
 			!validRuntimeAmount(event.Amount) || event.Amount <= 0 || event.OccurredAt.IsZero() {
 			return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state contains an invalid margin debt event")
+		}
+		if err := validateFundingCarryDebtEventIntegrity(event, state.MarginAccountScope); err != nil {
+			return fundingCarryRuntimeState{}, err
 		}
 		identity := fundingCarryDebtEventKey(event)
 		if _, exists := seenDebtEvents[identity]; exists {
