@@ -322,6 +322,27 @@ func TestRuntimeEquityRejectsConfiguredScopeChangeDuringSampling(t *testing.T) {
 	}
 }
 
+func TestRuntimeEquityRejectsCredentialRotationDuringSampling(t *testing.T) {
+	now := time.Now().Add(-time.Second)
+	originalConfig := config.ExchangeConfig{APIKey: "stable-account-key", SecretKey: "original-secret", Testnet: true}
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": originalConfig},
+		Bots: []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}}}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
+	runtime := walletRuntimeFixture(equityAccountScopeID("binance", originalConfig), provider)
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
+	rotatedConfig := originalConfig
+	rotatedConfig.SecretKey = "rotated-secret"
+	updatedConfig := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": rotatedConfig},
+		Bots: []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}}}
+	provider.onEvidence = func() { manager.botManager.UpdateRuntimeTradingParams(updatedConfig) }
+
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
+		t.Fatalf("credential rotation during sampling published stale-credential evidence: observation=%+v err=%v", observation, err)
+	}
+}
+
 func TestRuntimeEquityAllowsNonScopeConfigChangeDuringSampling(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	exchangeConfig := config.ExchangeConfig{APIKey: "stable-account-key", Testnet: true}
