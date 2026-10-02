@@ -11,6 +11,8 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"quantmesh/logger"
@@ -30,6 +32,7 @@ type DeribitClient struct {
 	isTestnet    bool
 	accessToken  string
 	refreshToken string
+	authMu       sync.Mutex
 }
 
 // NewDeribitClient 創建 Deribit 客戶端
@@ -96,8 +99,16 @@ func (c *DeribitClient) sendRequest(ctx context.Context, method string, params m
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	if c.accessToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.accessToken)
+	var accessToken string
+	if method == "public/auth" {
+		accessToken = c.accessToken
+	} else {
+		c.authMu.Lock()
+		accessToken = c.accessToken
+		c.authMu.Unlock()
+	}
+	if accessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+accessToken)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -125,6 +136,21 @@ func (c *DeribitClient) sendRequest(ctx context.Context, method string, params m
 
 // Authenticate 认证
 func (c *DeribitClient) Authenticate(ctx context.Context) error {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	return c.authenticate(ctx)
+}
+
+func (c *DeribitClient) ensureAuthenticated(ctx context.Context) error {
+	c.authMu.Lock()
+	defer c.authMu.Unlock()
+	if strings.TrimSpace(c.accessToken) != "" {
+		return nil
+	}
+	return c.authenticate(ctx)
+}
+
+func (c *DeribitClient) authenticate(ctx context.Context) error {
 	timestamp := strconv.FormatInt(time.Now().UnixMilli(), 10)
 	nonce := timestamp
 	data := ""
@@ -156,6 +182,9 @@ func (c *DeribitClient) Authenticate(ctx context.Context) error {
 	}
 	if err := json.Unmarshal(result, &authResp); err != nil {
 		return fmt.Errorf("unmarshal auth response error: %w", err)
+	}
+	if strings.TrimSpace(authResp.AccessToken) == "" {
+		return fmt.Errorf("Deribit authentication response missing access token")
 	}
 
 	c.accessToken = authResp.AccessToken
@@ -289,6 +318,9 @@ func (c *DeribitClient) GetOrderState(ctx context.Context, orderID string) (*Ord
 
 // GetOpenOrders 獲取活跃订單
 func (c *DeribitClient) GetOpenOrders(ctx context.Context, instrumentName string) ([]OrderInfo, error) {
+	if err := c.ensureAuthenticated(ctx); err != nil {
+		return nil, fmt.Errorf("authenticate before reading Deribit open orders: %w", err)
+	}
 	params := map[string]interface{}{}
 
 	if instrumentName != "" {
@@ -300,11 +332,64 @@ func (c *DeribitClient) GetOpenOrders(ctx context.Context, instrumentName string
 		return nil, err
 	}
 
-	var orders []OrderInfo
-	if err := json.Unmarshal(result, &orders); err != nil {
+	if len(result) == 0 || string(result) == "null" {
+		return nil, fmt.Errorf("Deribit open orders response missing result list")
+	}
+	var rows []struct {
+		OrderID             *string         `json:"order_id"`
+		InstrumentName      *string         `json:"instrument_name"`
+		Direction           *string         `json:"direction"`
+		Price               json.RawMessage `json:"price"`
+		Amount              *float64        `json:"amount"`
+		FilledAmount        *float64        `json:"filled_amount"`
+		OrderState          *string         `json:"order_state"`
+		OrderType           *string         `json:"order_type"`
+		CreationTimestamp   *int64          `json:"creation_timestamp"`
+		LastUpdateTimestamp *int64          `json:"last_update_timestamp"`
+		Label               string          `json:"label"`
+	}
+	if err := json.Unmarshal(result, &rows); err != nil {
 		return nil, fmt.Errorf("unmarshal orders error: %w", err)
 	}
-
+	orders := make([]OrderInfo, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for i, row := range rows {
+		if row.OrderID == nil || strings.TrimSpace(*row.OrderID) == "" || row.InstrumentName == nil || strings.TrimSpace(*row.InstrumentName) == "" || row.Direction == nil || len(row.Price) == 0 || row.Amount == nil || row.FilledAmount == nil || row.OrderState == nil || row.OrderType == nil || row.CreationTimestamp == nil || row.LastUpdateTimestamp == nil {
+			return nil, fmt.Errorf("Deribit open order %d missing required field", i)
+		}
+		if _, exists := seen[*row.OrderID]; exists {
+			return nil, fmt.Errorf("Deribit open orders contain duplicate order id %q", *row.OrderID)
+		}
+		seen[*row.OrderID] = struct{}{}
+		direction := strings.ToLower(strings.TrimSpace(*row.Direction))
+		if direction != "buy" && direction != "sell" {
+			return nil, fmt.Errorf("Deribit open order %q has unknown direction %q", *row.OrderID, *row.Direction)
+		}
+		orderType := strings.ToLower(strings.TrimSpace(*row.OrderType))
+		switch orderType {
+		case "market", "limit", "stop_limit", "stop_market", "take_limit", "take_market", "trailing_stop":
+		default:
+			return nil, fmt.Errorf("Deribit open order %q has unknown type %q", *row.OrderID, *row.OrderType)
+		}
+		state := strings.ToLower(strings.TrimSpace(*row.OrderState))
+		if state != "open" && state != "untriggered" && state != "triggered" {
+			return nil, fmt.Errorf("Deribit open order %q has unknown state %q", *row.OrderID, *row.OrderState)
+		}
+		if *row.Amount <= 0 || *row.FilledAmount < 0 || *row.FilledAmount > *row.Amount {
+			return nil, fmt.Errorf("Deribit open order %q has invalid amount", *row.OrderID)
+		}
+		price := 0.0
+		if string(row.Price) == "null" {
+			return nil, fmt.Errorf("Deribit open order %q has null price", *row.OrderID)
+		}
+		if err := json.Unmarshal(row.Price, &price); err != nil {
+			var priceKind string
+			if stringErr := json.Unmarshal(row.Price, &priceKind); stringErr != nil || priceKind != "market_price" {
+				return nil, fmt.Errorf("Deribit open order %q has invalid price", *row.OrderID)
+			}
+		}
+		orders = append(orders, OrderInfo{OrderID: *row.OrderID, InstrumentName: *row.InstrumentName, Direction: direction, Price: price, Amount: *row.Amount, FilledAmount: *row.FilledAmount, OrderState: state, OrderType: orderType, Label: row.Label, CreationTimestamp: *row.CreationTimestamp, LastUpdateTimestamp: *row.LastUpdateTimestamp})
+	}
 	return orders, nil
 }
 

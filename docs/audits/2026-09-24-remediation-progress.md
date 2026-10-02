@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc831 为 Deribit 接入特殊套利账户级挂单核验：官方 `private/get_open_orders` 空参数覆盖认证账户跨币种全部挂单，默认 kind/type 覆盖各类合约/期权/现货及订单类型；适配器不再把单一 perpetual instrument 当账户快照。私有请求前确保读 token 已获取；缺失结果/字段、重复订单 ID、未知方向/状态或无效数量时 fail-closed。文档：[Deribit private/get_open_orders](https://docs.deribit.com/api-reference/trading/private-get_open_orders)。本地 httptest 验证 JSON-RPC、认证流程、空过滤参数和拒绝条件；真实 API key scope、账户行为及组合/子账户边界未验收，R12 未关闭。
+
 - rc830 為 Kraken Futures 接入特殊套利账户级掛單核验：官方 `GET /derivatives/api/v3/openorders` 明确覆盖全部 Futures 合约且无需 symbol 参数；解析专用字段 `unfilledSize/filledSize/receivedTime/lastUpdateTime`，并对缺字段、重复订单 ID、未知 side/status fail-closed。文档：[Kraken Get open orders](https://docs.kraken.com/api-reference/order-management/get-open-orders)。本地 httptest 仅核验路径、请求头、解析及拒绝条件；真实 API key 权限/账户回包和线上订单上限未验收，R12 未关闭。
 
 - rc817 修复标准 Bot 运行期核账遗漏“持仓数相等但交易所存在外部未成交开仓单”：核账现在逐笔用精确 ClientOrderID/已确认交易所订单 ID 对应本运行时保留意图，外部单或缺 ownership verifier 即失败关闭；不擅自撤销外部委托。测试覆盖零持仓差异时 foreign/unverifiable 单阻断、已证明受管意图保留准入。当前只接入标准 Bot Reconciler；Funding Carry、FundingPerpSpread 等特殊运行时的全账户活动单/跨交易对核账及真实多进程验证仍未完成，R12 未关闭。

@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc831] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 Deribit 跨幣種、跨品種账户级掛單快照；读取前确保认证 token 就绪，并拒绝缺失结果、重复订单身份和未知状态。
+
 ## [3.111.0-rc830] - 2026-10-02（未發布）
 
 ### Fixed

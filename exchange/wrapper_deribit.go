@@ -12,6 +12,8 @@ type deribitWrapper struct {
 	adapter *deribit.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*deribitWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *deribitWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -154,6 +156,24 @@ func (w *deribitWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*O
 		})
 	}
 
+	return result, nil
+}
+
+func (w *deribitWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		var side Side
+		if order.Side == deribit.SideBuy {
+			side = SideBuy
+		} else {
+			side = SideSell
+		}
+		result = append(result, &Order{OrderID: 0, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: side, Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty, Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime})
+	}
 	return result, nil
 }
 

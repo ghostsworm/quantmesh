@@ -155,6 +155,19 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
+// GetAccountOpenOrders returns open orders across all currencies and instruments.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
+	orders, err := a.client.GetOpenOrders(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("get account-wide open orders: %w", err)
+	}
+	result := make([]*OrderLocal, 0, len(orders))
+	for i := range orders {
+		result = append(result, a.convertOrder(&orders[i]))
+	}
+	return result, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	account, err := a.client.GetAccountSummary(ctx, a.currency)
