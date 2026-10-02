@@ -89,7 +89,7 @@ func TestFundingCarryReverseCloseFinalCommitChecksOwner(t *testing.T) {
 		s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 42, Asset: "BTC", Amount: 0.4, Principal: 0.4, OccurredAt: s.marginBorrowedAt, AccountScope: "scope-a"}}
 		parent.placeOrderErr = nil
 		parent.positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4, MarginBorrowed: 0.4, MarginDebtKnown: true}}
-		parent.getOrderStatus, parent.getOrderExecQty, parent.clearDebtOnRepay = exchange.OrderStatusFilled, 0.401, true
+		parent.getOrderStatus, parent.getOrderExecQty, parent.clearDebtOnRepay = exchange.OrderStatusFilled, 0.4008, true
 		gate := &execution.OpeningGate{}
 		s.SetOpeningGate(gate)
 		venue := &fundingCarryResidualCloseExchange{mockFCExchange: parent.mockFCExchange}

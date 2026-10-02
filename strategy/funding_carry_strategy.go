@@ -2538,7 +2538,6 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			liveInterest += p.MarginInterest
 		}
 	}
-	debtTolerance := s.roundingTolerance(s.spot.GetQuantityDecimals())
 	if !fundingCarryFinancialAmountsMatch(livePrincipal, debt) || !fundingCarryFinancialAmountsMatch(liveDebt, livePrincipal+liveInterest) {
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin principal mismatch: live principal %.8f, accrued interest %.8f, total %.8f, owned principal %.8f", livePrincipal, liveInterest, liveDebt, debt))
 	}
@@ -2581,7 +2580,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	if debtToRepay > 0 {
 		base := s.spot.GetBaseAsset()
 		buyQty := s.roundQty(debtToRepay*1.002, s.spot.GetQuantityDecimals())
-		if !validRuntimeAmount(buyQty) || buyQty <= 0 {
+		if !validRuntimeAmount(buyQty) || buyQty <= 0 || (buyQty < debtToRepay && !fundingCarryFinancialAmountsMatch(buyQty, debtToRepay)) {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin debt %.12g cannot be covered at exchange quantity precision", debtToRepay))
 		}
 		price, err := s.spot.GetLatestPrice(ctx, s.symbol)
@@ -2597,14 +2596,21 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			return s.blockOnUnownedExposure(fmt.Errorf("submit margin debt cover: order=%+v err=%v", buyOrder, err))
 		}
 		filled, fillErr := s.waitOrderFill(ctx, s.marginEx, buyOrder.OrderID, orderWaitTimeout)
-		if fillErr != nil || filled+debtTolerance < debt {
+		coverErr := validateFundingCarryDebtCover(filled, buyQty, debtToRepay)
+		if fillErr != nil || coverErr != nil {
 			if cancelErr := cancelCarryOrder(ctx, s.marginEx, s.marginExecutor, s.symbol, buyOrder.OrderID); cancelErr != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin debt buyback incomplete (filled %.8f of %.8f); cancel failed: %w", filled, debt, cancelErr))
 			}
-			return s.blockOnUnownedExposure(fmt.Errorf("margin debt buyback incomplete: filled %.8f of %.8f: %v", filled, debt, fillErr))
+			return s.blockOnUnownedExposure(fmt.Errorf("margin debt buyback incomplete: %w", errors.Join(fillErr, coverErr)))
 		}
 		if err := settleCarryOrder(ctx, s.marginExecutor, buyOrder); err != nil {
 			return fmt.Errorf("persist margin buyback execution: %w", err)
+		}
+		s.mu.Lock()
+		operationErr := s.verifyDebtCommitLocked(ctx)
+		s.mu.Unlock()
+		if operationErr != nil {
+			return s.blockOnUnownedExposure(operationErr)
 		}
 		repayTransferID, err := s.marginEx.Repay(ctx, base, debtToRepay)
 		if err != nil {
