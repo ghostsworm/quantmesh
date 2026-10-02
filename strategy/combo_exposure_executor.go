@@ -213,6 +213,7 @@ func (e *comboExposureAdmissionExecutor) BatchPlaceOrdersWithDetailsContext(ctx 
 		if submitted != nil {
 			result.PlacedOrders = submitted.PlacedOrders
 			result.HasMarginError = submitted.HasMarginError
+			result.HasAdmissionError = submitted.HasAdmissionError
 			result.ReduceOnlyErrors = submitted.ReduceOnlyErrors
 			result.UnknownOrders = submitted.UnknownOrders
 			for key, reason := range submitted.AdmissionErrors {
@@ -228,7 +229,7 @@ func (e *comboExposureAdmissionExecutor) BatchPlaceOrdersWithDetailsContext(ctx 
 			}
 		}
 	}
-	result.HasAdmissionError = len(result.AdmissionErrors) > 0
+	result.HasAdmissionError = result.HasAdmissionError || len(result.AdmissionErrors) > 0
 	return result
 }
 

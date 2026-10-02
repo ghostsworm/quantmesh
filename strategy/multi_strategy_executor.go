@@ -372,7 +372,7 @@ func (mse *MultiStrategyExecutor) PlaceOrderContext(ctx context.Context, strateg
 // BatchPlaceOrders 批量下單
 func (mse *MultiStrategyExecutor) BatchPlaceOrders(strategyName string, orders []*position.OrderRequest) ([]*position.Order, bool) {
 	result := mse.BatchPlaceOrdersWithDetails(strategyName, orders)
-	return result.PlacedOrders, result.HasMarginError
+	return result.PlacedOrders, result.HasMarginError || result.HasAdmissionError
 }
 
 // BatchPlaceOrdersWithDetails 批量下單（回傳詳細結果）
@@ -389,6 +389,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context
 		HasMarginError:   false,
 		ReduceOnlyErrors: make(map[string]bool),
 		UnknownOrders:    make(map[string]bool),
+		AdmissionErrors:  make(map[string]string),
 	}
 
 	// 轉换為 order.OrderRequest
@@ -396,17 +397,36 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context
 	records := make(map[string]*orderCapital) // ClientOrderID -> 資金記賬
 	recordAliases := make(map[string]*orderCapital)
 
-	for _, req := range orders {
-		if ctx.Err() != nil {
-			break
-		}
+	for index, req := range orders {
 		if req == nil {
+			continue
+		}
+		key := req.ClientOrderID
+		if key == "" {
+			key = fmt.Sprintf("batch-index:%d", index)
+		}
+		if err := ctx.Err(); err != nil {
+			mse.mu.RLock()
+			_, tracked := mse.ordersByClient[key]
+			mse.mu.RUnlock()
+			_, submitting := mse.submissions.Load(key)
+			if tracked || submitting {
+				result.UnknownOrders[key] = true
+			} else {
+				result.AdmissionErrors[key] = "batch submission cancelled before dispatch: " + err.Error()
+			}
 			continue
 		}
 		releaseSubmission, err := mse.beginSubmission(req)
 		if err != nil {
+			if errors.Is(err, execution.ErrIntentPending) {
+				result.UnknownOrders[key] = true
+			} else {
+				result.AdmissionErrors[key] = err.Error()
+			}
 			continue
 		}
+		key = req.ClientOrderID
 		defer releaseSubmission()
 		leg, opening := mse.classifyOrder(strategyName, req)
 
@@ -415,18 +435,21 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context
 		if opening {
 			// 🔥 使用交易所的 EstimateFinalOrderAmount 預估最终下單金額
 			estimatedAmount = mse.executor.EstimateFinalOrderAmount(req.Symbol, req.Price, req.Quantity, req.ReduceOnly)
-			if estimatedAmount <= 0 {
-				// 金額為 0，跳過此订單
+			if !finiteNumber(estimatedAmount) || estimatedAmount <= 0 {
+				// 無效名義金額在資金預留前拒絕。
+				result.AdmissionErrors[key] = "opening order notional estimate is invalid"
 				continue
 			}
 
 			// 检查资金
 			if !mse.allocator.CheckAvailable(strategyName, estimatedAmount) {
+				result.AdmissionErrors[key] = "strategy capital is insufficient for opening order"
 				continue
 			}
 
 			// 預留资金（使用預估的最终金額）
 			if !mse.allocator.Reserve(strategyName, estimatedAmount) {
+				result.AdmissionErrors[key] = "strategy capital reservation was rejected"
 				continue
 			}
 		}
@@ -465,7 +488,11 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context
 	batchResult := mse.executor.BatchPlaceOrdersWithDetailsContext(ctx, orderReqs)
 	result.HasMarginError = batchResult.HasMarginError
 	result.ReduceOnlyErrors = batchResult.ReduceOnlyErrors
-	result.UnknownOrders = batchResult.UnknownOrders
+	for key, unknown := range batchResult.UnknownOrders {
+		if unknown {
+			result.UnknownOrders[key] = true
+		}
+	}
 
 	// 处理成功的订單
 	placedRecords := make(map[*orderCapital]bool)
@@ -504,6 +531,7 @@ func (mse *MultiStrategyExecutor) BatchPlaceOrdersWithDetailsContext(ctx context
 		}
 	}
 
+	result.HasAdmissionError = len(result.AdmissionErrors) > 0
 	return result
 }
 
