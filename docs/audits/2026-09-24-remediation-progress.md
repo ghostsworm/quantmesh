@@ -2755,3 +2755,8 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 
 - rc826 後 Gate 帳戶仍會因缺少帳戶級掛單介面而 fail-closed。依 [Gate Futures API](https://www.gate.com/docs/developers/apiv4/en/futures/) 新增指定結算錢包的全合約 `status=open` 查詢及 `last_id` 分頁；依 [Gate Spot API](https://www.gate.com/docs/developers/apiv4/en/spot/) 查詢 spot、margin、cross_margin、unified 四種帳戶的所有交易對及頁碼結果。
 - 對 null/missing 列表、無效訂單身份、重複訂單/游標及未完成翻頁返回錯誤，不把不完整快照解讀為空帳戶。HTTP fixture 覆蓋合約/現貨全範圍、現貨頁碼、帳戶類型及故障拒絕；定向測試與 vet 通過，完整驗證待執行。尚未連接真實 Gate 賬戶驗證 API 權限/回應與帳戶類型差異；未下單、部署或驗收盈利能力。
+
+## 後續續修：Bitget 特殊套利帳戶級掛單快照（3.111.0-rc828，2026-10-02）
+
+- rc827 後 Bitget 仍缺少帳戶級掛單能力。依 [Bitget 官方合約掛單文件](https://www.bitget.com/docs/catalog/classic-contract-trade/classic-contract-trade)，逐一查詢 USDT/USDC/Coin Futures 的 `live` 與 `partially_filled` 訂單，依 `endId`/`idLessThan` 完整翻頁；依 [Bitget 官方現貨未完成訂單文件](https://www.bitget.com/docs/catalog/classic-spot-trade/classic-spot-trade)，省略 symbol 查全交易對，分別查詢 normal 與 TPSL 並按 `orderId` 翻頁。
+- 拒絕缺失/null 訂單列表、無效訂單身份、重複身份及滿頁缺少下一頁游標。HTTP fixture 覆蓋全部 productType/status、normal/TPSL、異交易對、翻頁與游標錯誤；完整測試與實盤接口權限/回應驗收待執行。未連接真實帳戶、未下單/部署或驗收盈利能力。

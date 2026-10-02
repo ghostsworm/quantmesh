@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc828] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 Bitget 合約三種 productType 的全品種活動委託查詢，以及現貨 normal/TPSL 全交易對查詢；完整遍歷分頁，身份或游標證據不完整時拒絕開倉。
+
 ## [3.111.0-rc827] - 2026-10-02（未發布）
 
 ### Fixed

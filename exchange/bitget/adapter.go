@@ -969,6 +969,34 @@ func (b *BitgetAdapter) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	return orders, nil
 }
 
+// GetAccountOpenOrders returns open orders across every Bitget futures product type.
+func (b *BitgetAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	rows, err := b.client.GetAccountFuturesOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*Order, 0, len(rows))
+	for _, row := range rows {
+		orderID, idErr := strconv.ParseInt(row.OrderID, 10, 64)
+		quantity, quantityErr := parseBitgetOrderNumber("futures size", row.Size, false)
+		filled, filledErr := parseBitgetOrderNumber("futures filled base volume", row.BaseVolume, true)
+		price, priceErr := parseBitgetOrderNumber("futures price", row.Price, true)
+		avgPrice, avgPriceErr := parseBitgetOrderNumber("futures average price", row.PriceAvg, true)
+		updatedAt, timeErr := strconv.ParseInt(row.UTime, 10, 64)
+		side, sideErr := bitgetOpenOrderSide(row.Side)
+		status, statusErr := bitgetOpenOrderStatus(row.Status)
+		if idErr != nil || orderID <= 0 || quantityErr != nil || quantity < 0 || filledErr != nil || filled < 0 ||
+			priceErr != nil || price < 0 || avgPriceErr != nil || avgPrice < 0 || timeErr != nil ||
+			sideErr != nil || statusErr != nil || strings.TrimSpace(row.Symbol) == "" {
+			return nil, fmt.Errorf("Bitget futures account snapshot contains invalid order %q", row.OrderID)
+		}
+		orders = append(orders, &Order{OrderID: orderID, ClientOrderID: row.ClientOID, Symbol: row.Symbol,
+			Side: side, Type: OrderType(row.OrderType), Price: price, Quantity: quantity, ExecutedQty: filled,
+			AvgPrice: avgPrice, Status: status, UpdateTime: updatedAt})
+	}
+	return orders, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (b *BitgetAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	path := fmt.Sprintf("/api/v2/mix/account/account?symbol=%s&productType=%s&marginCoin=%s", b.symbol, b.productType, b.marginCoin)

@@ -383,6 +383,34 @@ func (b *BitgetSpotAdapter) GetOpenOrders(ctx context.Context, symbol string) ([
 	return orders, nil
 }
 
+// GetAccountOpenOrders returns all open spot orders, including TPSL orders.
+func (b *BitgetSpotAdapter) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	rows, err := b.client.GetAccountSpotOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	orders := make([]*Order, 0, len(rows))
+	for _, row := range rows {
+		orderID, idErr := strconv.ParseInt(row.OrderID, 10, 64)
+		quantity, quantityErr := parseBitgetOrderNumber("spot size", row.Size, false)
+		filled, filledErr := parseBitgetOrderNumber("spot filled base volume", row.FilledSize, true)
+		price, priceErr := parseBitgetOrderNumber("spot price", row.Price, true)
+		avgPrice, avgPriceErr := parseBitgetOrderNumber("spot average price", row.AvgPrice, true)
+		updatedAt, timeErr := strconv.ParseInt(row.UpdateTime, 10, 64)
+		side, sideErr := bitgetOpenOrderSide(row.Side)
+		status, statusErr := bitgetOpenOrderStatus(row.Status)
+		if idErr != nil || orderID <= 0 || quantityErr != nil || quantity < 0 || filledErr != nil || filled < 0 ||
+			priceErr != nil || price < 0 || avgPriceErr != nil || avgPrice < 0 || timeErr != nil ||
+			sideErr != nil || statusErr != nil || strings.TrimSpace(row.Symbol) == "" {
+			return nil, fmt.Errorf("Bitget spot account snapshot contains invalid order %q", row.OrderID)
+		}
+		orders = append(orders, &Order{OrderID: orderID, ClientOrderID: row.ClientOID, Symbol: row.Symbol,
+			Side: side, Type: OrderType(row.OrderType), Price: price, Quantity: quantity, ExecutedQty: filled,
+			AvgPrice: avgPrice, Status: status, UpdateTime: updatedAt})
+	}
+	return orders, nil
+}
+
 // GetAccount 現貨账戶餘額
 func (b *BitgetSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 	resp, err := b.client.DoRequest(ctx, "GET", "/api/v2/spot/account/assets", nil)

@@ -155,6 +155,7 @@ func (w *bitgetWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, cli
 }
 
 var _ OrderByClientIDQuerier = (*bitgetWrapper)(nil)
+var _ AccountOpenOrdersReader = (*bitgetWrapper)(nil)
 
 func (w *bitgetWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Order, error) {
 	bitgetOrders, err := w.adapter.GetOpenOrders(ctx, symbol)
@@ -181,6 +182,21 @@ func (w *bitgetWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Or
 	}
 
 	return orders, nil
+}
+
+func (w *bitgetWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, len(orders))
+	for i, order := range orders {
+		result[i] = &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Side: Side(order.Side), Type: OrderType(order.Type), Price: order.Price, Quantity: order.Quantity,
+			ExecutedQty: order.ExecutedQty, AvgPrice: order.AvgPrice, Status: OrderStatus(order.Status),
+			CreatedAt: order.CreatedAt, UpdateTime: order.UpdateTime}
+	}
+	return result, nil
 }
 
 func (w *bitgetWrapper) GetAccount(ctx context.Context) (*Account, error) {
