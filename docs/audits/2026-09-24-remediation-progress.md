@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc849 修复真实 GitHub Actions 发布故障：rc847 的 CI、Go tests/vet/race 与 Linux 构建均通过，但 `softprops/action-gh-release` 先发布再上传时被不可变 Release 策略拒绝资产，故发布失败。现改为草稿创建、校验 `quantmesh-<version>-linux-amd64.tar.gz` 已附加后才通过 GitHub API 发布。rc847 旧发布失败状态保留；需 rc849 工作流实际完成后再确认公开下载资产，不回写/删除既有不可变 Release。
+
 - rc848 增加凭证/端点轮换的权益样本竞态校验：此前配置修订只比较账户范围摘要，API Secret 或 Passphrase 变化不会改变账户 scope，可能让切换期间读取的旧凭证样本按新配置发布。现比较完整 evidence source 配置并提升 revision；用同一 APIKey 下 Secret 轮换的中途回调验证拒绝混合样本。凭证保留仅用于进程内构造只读源、不输出日志；真实轮换/并发配置源仍未实测，R10 未关闭。
 
 - rc847 為仍保留在配置中的閒置/停用账户新增专用 REST 只读证据源，并将其纳入同一次账户账本样本；目前覆盖 Binance Futures、Bitget Futures、Bitget Spot。采样不经交易工厂，避免遥测、DryRun 包装、metadata 初始化及 WebSocket 连接。新增活跃+闲置账户聚合、停用账户覆盖和不支持账户 fail-closed 测试。真实账户/线上回包、配置密钥有效性及全部支持交易所覆盖仍未验收；其他交易所停用账户仍会阻断权益样本，R10 未关闭。

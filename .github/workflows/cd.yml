@@ -350,6 +350,7 @@ jobs:
         echo "EOF" >> $GITHUB_OUTPUT
         
     - name: Create Release
+      id: create_release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.release_tag.outputs.tag }}
@@ -404,10 +405,33 @@ jobs:
                 - ./config.yaml:/app/config.yaml:ro
                 - ./data:/app/data
           ```
-        draft: false
+        # Immutable-release repositories only accept assets while the release
+        # is still a draft. Publish only after the expected artifact is present.
+        draft: true
         prerelease: ${{ steps.check_tag.outputs.is_prerelease }}
         generate_release_notes: false
         files: release-files/*
+
+    - name: Verify release assets and publish
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        RELEASE_ID: ${{ steps.create_release.outputs.id }}
+        RELEASE_VERSION: ${{ steps.get_version.outputs.version }}
+        RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+      run: |
+        set -euo pipefail
+        expected_asset="quantmesh-${RELEASE_VERSION}-linux-amd64.tar.gz"
+        assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+        if ! grep -Fxq "$expected_asset" <<<"$assets"; then
+          echo "Expected release asset is missing: $expected_asset" >&2
+          exit 1
+        fi
+        if [[ -z "$RELEASE_ID" ]]; then
+          echo "Create Release did not return a release ID" >&2
+          exit 1
+        fi
+        gh api --method PATCH "repos/${GH_REPO}/releases/${RELEASE_ID}" -F draft=false
 
   # 构建并推送 Docker 镜像到 GitHub Container Registry
   # 只有纯数字版本标签（如 3.12）才触发
