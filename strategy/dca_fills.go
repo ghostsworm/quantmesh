@@ -20,11 +20,22 @@ func (s *DCAEnhancedStrategy) supportsSpotBaseFee() bool {
 }
 
 func (s *DCAEnhancedStrategy) hasUnmappedBaseFee(commission float64, asset string, baseFeeQty float64) bool {
-	if s.exchange == nil || commission <= 0 || baseFeeQty > 0 {
+	if s.exchange == nil || commission == 0 || baseFeeQty > 0 {
 		return false
 	}
 	baseAsset := strings.TrimSpace(s.exchange.GetBaseAsset())
 	return baseAsset != "" && strings.EqualFold(strings.TrimSpace(asset), baseAsset)
+}
+
+func (s *DCAEnhancedStrategy) hasMismatchedBaseFeeAsset(asset string, baseFeeQty float64) bool {
+	if baseFeeQty <= 0 {
+		return false
+	}
+	if s.exchange == nil {
+		return true
+	}
+	baseAsset := strings.TrimSpace(s.exchange.GetBaseAsset())
+	return baseAsset == "" || !strings.EqualFold(strings.TrimSpace(asset), baseAsset)
 }
 
 func (s *DCAEnhancedStrategy) requireDCAOrderReconciliation(update *position.OrderUpdate, reason string) {
@@ -50,11 +61,12 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee is invalid")
 		return
 	}
-	if update.BaseFeeQty > 0 {
-		// A base-denominated sell fee consumes extra inventory. The current DCA
-		// trade ledger has no fee-lot split for that extra quantity, so do not
-		// advance the close cursor or report a settled trade.
-		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee requires inventory-cost reconciliation")
+	if update.BaseFeeQty > 0 && (!s.supportsSpotBaseFee() || !strings.EqualFold(strings.TrimSpace(update.Side), "SELL")) {
+		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee is invalid for this market or execution")
+		return
+	}
+	if update.BaseFeeQty > 0 && (!finiteNumber(update.Commission) || update.Commission <= 0) {
+		s.requireDCAOrderReconciliation(update, "DCA close base-asset fee has no positive commission evidence")
 		return
 	}
 	if s.hasUnmappedBaseFee(update.Commission, update.CommissionAsset, update.BaseFeeQty) {
@@ -91,9 +103,14 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 	nextProgress := s.closeProgress
 	delta, price := nextProgress.Advance(quantity, update.AvgPrice, 0)
 	if delta > 0 {
+		if update.BaseFeeQty > delta+entryQtyEpsilon {
+			s.requireDCAOrderReconciliation(update, "DCA close base-asset fee exceeds the newly executed quantity")
+			return
+		}
 		available, cost, openingFee := s.closingInventory()
+		consumedQty := delta + update.BaseFeeQty
 		if !finiteNumber(available) || available <= 0 || !finiteNumber(cost) || cost <= 0 ||
-			!finiteNumber(openingFee) || delta > available+entryQtyEpsilon {
+			!finiteNumber(openingFee) || consumedQty > available+entryQtyEpsilon {
 			s.requireDCAOrderReconciliation(update, "DCA close execution exceeds strategy-attributed inventory")
 			return
 		}
@@ -105,22 +122,26 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 				return
 			}
 			entryPrice := cost / available
-			fee := openingFee*closed/available + closeFee
-			pnl := closed * (price - entryPrice)
+			fee := openingFee*consumedQty/available + closeFee
+			// Base-asset commission consumes inventory in addition to the gross
+			// sold quantity. Include its removed inventory mark in PnL so subtracting
+			// the quote-valued commission yields the correct net account result.
+			pnl := consumedQty * (price - entryPrice)
 			executionKey := dcaFillExecutionKey(s, update.OrderID, nextProgress.Quantity)
 			if !s.saveCloseTrade(executionKey, update.OrderID, entryPrice, price, closed, pnl, fee, update.RealizedPnL) {
 				s.requireDCAOrderReconciliation(update, "DCA trade ledger persistence failed")
 				return
 			}
 			s.closeProgress = nextProgress
+			s.closeBaseFeeQty += update.BaseFeeQty
 			if s.supportsSpotBaseFee() {
 				s.closeFeeVerifiedQty += delta
 			}
 			s.recordCloseStats(pnl-fee, closed*price)
 			if s.closeLayer != nil {
-				s.reduceLayer(s.closeLayer, closed)
+				s.reduceLayer(s.closeLayer, consumedQty)
 			} else {
-				s.reduceAllLayers(closed)
+				s.reduceAllLayers(consumedQty)
 			}
 		}
 	} else {
@@ -133,6 +154,7 @@ func (s *DCAEnhancedStrategy) handleCloseOrderUpdate(update *position.OrderUpdat
 		s.closeLayer = nil
 		s.closeProgress = position.FillProgress{}
 		s.closeFeeVerifiedQty = 0
+		s.closeBaseFeeQty = 0
 		s.closeRequestedQty, s.closeLimitPrice = 0, 0
 		s.highestProfit = 0
 		s.takeProfitTriggered = false

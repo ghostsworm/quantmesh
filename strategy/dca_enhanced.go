@@ -68,6 +68,7 @@ type DCAEnhancedStrategy struct {
 	closeLayer          *DCALayer // 非 nil 表示當前平倉單只平該层（尾單止盈），nil 表示全倉平倉
 	closeProgress       position.FillProgress
 	closeFeeVerifiedQty float64
+	closeBaseFeeQty     float64
 	closeRequestedQty   float64
 	closeLimitPrice     float64
 
@@ -107,6 +108,7 @@ type dcaRuntimeState struct {
 	CloseLayerIndex     int                   `json:"close_layer_index"`
 	CloseProgress       position.FillProgress `json:"close_progress"`
 	CloseFeeVerifiedQty float64               `json:"close_fee_verified_qty"`
+	CloseBaseFeeQty     float64               `json:"close_base_fee_qty"`
 	CloseRequestedQty   float64               `json:"close_requested_qty"`
 	CloseLimitPrice     float64               `json:"close_limit_price"`
 	Stats               StrategyStatistics    `json:"stats"`
@@ -480,8 +482,8 @@ func (s *DCAEnhancedStrategy) runtimeStateSnapshotLocked() dcaRuntimeState {
 		HighestProfit: s.highestProfit, TakeProfitTriggered: s.takeProfitTriggered,
 		IsPaused: s.isPaused, PauseUntil: s.pauseUntil, IsClosing: s.isClosing,
 		CloseOrderID: s.closeOrderID, CloseClientOrderID: s.closeClientOrderID, CloseLayerIndex: -1, CloseProgress: s.closeProgress,
-		CloseFeeVerifiedQty: s.closeFeeVerifiedQty,
-		CloseRequestedQty:   s.closeRequestedQty, CloseLimitPrice: s.closeLimitPrice,
+		CloseFeeVerifiedQty: s.closeFeeVerifiedQty, CloseBaseFeeQty: s.closeBaseFeeQty,
+		CloseRequestedQty: s.closeRequestedQty, CloseLimitPrice: s.closeLimitPrice,
 	}
 	if s.stats != nil {
 		state.Stats = *s.stats
@@ -563,6 +565,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 		!finiteNumber(state.CloseRequestedQty) || !finiteNumber(state.CloseLimitPrice) ||
 		!finiteNumber(state.CloseProgress.Quantity) || !finiteNumber(state.CloseProgress.Notional) ||
 		!finiteNumber(state.CloseFeeVerifiedQty) || state.CloseFeeVerifiedQty < 0 || state.CloseFeeVerifiedQty > state.CloseProgress.Quantity+entryQtyEpsilon ||
+		!finiteNumber(state.CloseBaseFeeQty) || state.CloseBaseFeeQty < 0 || state.CloseBaseFeeQty > state.CloseProgress.Quantity+entryQtyEpsilon ||
 		!finiteNumber(state.Stats.TotalPnL) || !finiteNumber(state.Stats.TotalVolume) || !finiteNumber(state.Stats.WinRate) || len(state.Layers) > s.maxLayers {
 		return fmt.Errorf("DCA runtime state contains invalid inventory")
 	}
@@ -657,7 +660,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 				return fmt.Errorf("DCA close client order ID conflicts with an active entry order")
 			}
 		}
-	} else if state.CloseOrderID != 0 || state.CloseClientOrderID != "" || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseFeeVerifiedQty != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
+	} else if state.CloseOrderID != 0 || state.CloseClientOrderID != "" || state.CloseProgress.Quantity != 0 || state.CloseProgress.Notional != 0 || state.CloseFeeVerifiedQty != 0 || state.CloseBaseFeeQty != 0 || state.CloseRequestedQty != 0 || state.CloseLimitPrice != 0 || state.CloseLayerIndex >= 0 {
 		return fmt.Errorf("DCA runtime state has close progress without an active close order")
 	}
 	s.mu.Lock()
@@ -669,6 +672,7 @@ func (s *DCAEnhancedStrategy) restoreRuntimeState() error {
 	s.isPaused, s.pauseUntil, s.isClosing = state.IsPaused, state.PauseUntil, state.IsClosing
 	s.closeOrderID, s.closeClientOrderID, s.closeProgress = state.CloseOrderID, state.CloseClientOrderID, state.CloseProgress
 	s.closeFeeVerifiedQty = state.CloseFeeVerifiedQty
+	s.closeBaseFeeQty = state.CloseBaseFeeQty
 	s.closeRequestedQty, s.closeLimitPrice = state.CloseRequestedQty, state.CloseLimitPrice
 	s.closeLayer = nil
 	if state.IsClosing && state.CloseLayerIndex >= 0 {
@@ -1447,18 +1451,19 @@ func (s *DCAEnhancedStrategy) submitCloseOrder(quantity, price float64, layer *D
 	clientOrderID := utils.NewCompactOrderID()
 	previousClosing, previousOrderID, previousClientOrderID := s.isClosing, s.closeOrderID, s.closeClientOrderID
 	previousLayer, previousProgress := s.closeLayer, s.closeProgress
-	previousFeeQty, previousRequestedQty, previousLimitPrice := s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice
+	previousFeeQty, previousBaseFeeQty, previousRequestedQty, previousLimitPrice := s.closeFeeVerifiedQty, s.closeBaseFeeQty, s.closeRequestedQty, s.closeLimitPrice
 	s.isClosing = true
 	s.closeOrderID = 0
 	s.closeClientOrderID = clientOrderID
 	s.closeLayer = layer
 	s.closeProgress = position.FillProgress{}
 	s.closeFeeVerifiedQty = 0
+	s.closeBaseFeeQty = 0
 	s.closeRequestedQty, s.closeLimitPrice = quantity, price
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.isClosing, s.closeOrderID, s.closeClientOrderID = previousClosing, previousOrderID, previousClientOrderID
 		s.closeLayer, s.closeProgress = previousLayer, previousProgress
-		s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousRequestedQty, previousLimitPrice
+		s.closeFeeVerifiedQty, s.closeBaseFeeQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousBaseFeeQty, previousRequestedQty, previousLimitPrice
 		return nil, fmt.Errorf("persist DCA close intent before submission: %w", err)
 	}
 
@@ -1479,7 +1484,7 @@ func (s *DCAEnhancedStrategy) submitCloseOrder(quantity, price float64, layer *D
 	if order == nil {
 		s.isClosing, s.closeOrderID, s.closeClientOrderID = previousClosing, previousOrderID, previousClientOrderID
 		s.closeLayer, s.closeProgress = previousLayer, previousProgress
-		s.closeFeeVerifiedQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousRequestedQty, previousLimitPrice
+		s.closeFeeVerifiedQty, s.closeBaseFeeQty, s.closeRequestedQty, s.closeLimitPrice = previousFeeQty, previousBaseFeeQty, previousRequestedQty, previousLimitPrice
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.isClosing, s.closeOrderID, s.closeClientOrderID = true, 0, clientOrderID
 			s.closeLayer, s.closeRequestedQty, s.closeLimitPrice = layer, quantity, price
@@ -1661,6 +1666,7 @@ func (s *DCAEnhancedStrategy) resetPositionState() {
 	s.closeLayer = nil
 	s.closeProgress = position.FillProgress{}
 	s.closeFeeVerifiedQty = 0
+	s.closeBaseFeeQty = 0
 	s.closeRequestedQty, s.closeLimitPrice = 0, 0
 }
 
@@ -1788,6 +1794,10 @@ func (s *DCAEnhancedStrategy) handleLayerOrderUpdate(layer *DCALayer, update *po
 		if !finiteNumber(baseFeeQty) || baseFeeQty < 0 || baseFeeQty > delta+entryQtyEpsilon ||
 			baseFeeQty > 0 && (!s.supportsSpotBaseFee() || !strings.EqualFold(strings.TrimSpace(update.Side), "BUY")) {
 			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee is invalid for this market or execution")
+			return
+		}
+		if baseFeeQty > 0 && (!finiteNumber(update.Commission) || update.Commission <= 0) {
+			s.requireDCAOrderReconciliation(update, "DCA entry base-asset fee has no positive commission evidence")
 			return
 		}
 		if s.hasUnmappedBaseFee(update.Commission, update.CommissionAsset, baseFeeQty) {

@@ -145,6 +145,39 @@ func TestDCAStartReplaysOnlySpotBaseFeeSuffixAfterMatchingPrefix(t *testing.T) {
 	}
 }
 
+func TestDCAStartReplaysSpotCloseBaseFeeSuffix(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 120, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 1, ExecutedQty: 0.98,
+		AvgPrice: 110, Status: exchange.OrderStatusCanceled,
+	}, fills: []*exchange.OrderFill{
+		{OrderID: 120, TradeID: "trade-120a", Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Price: 110, Quantity: 0.49, Commission: 0.005, CommissionAsset: "BTC", BaseFeeQty: 0.005, TradeTime: 1_700_000_000_000},
+		{OrderID: 120, TradeID: "trade-120b", Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Price: 110, Quantity: 0.49, Commission: 0.005, CommissionAsset: "BTC", BaseFeeQty: 0.005, TradeTime: 1_700_000_000_001},
+	}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, TotalCost: 50.5, TotalQty: 0.505,
+		AvgEntryPrice: 100, IsClosing: true, CloseOrderID: 120, CloseLayerIndex: -1, CloseRequestedQty: 1,
+		CloseProgress: position.FillProgress{Quantity: 0.49, Notional: 53.9}, CloseFeeVerifiedQty: 0.49, CloseBaseFeeQty: 0.005,
+		Stats: StrategyStatistics{TotalTrades: 1, TotalPnL: 4.4, TotalVolume: 53.9, WinRate: 1},
+		Layers: []*DCALayer{{Index: 0, Price: 100, Quantity: 0.505, Cost: 50.5, Status: entryStatusFilled,
+			RequestedQuantity: 1, FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, FeeVerifiedQty: 1}},
+	}
+	cfg := dcaTestConfig()
+	cfg.Trading.MarketType = "spot"
+	s := newPersistedDCAStrategyWithConfig(t, ex, state, cfg)
+	ledger := &dcaFillRecorder{}
+	s.SetTradeStorage(ledger)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start() failed to replay spot close base-fee suffix: %v", err)
+	}
+	defer s.Stop()
+	if s.isClosing || s.closeBaseFeeQty != 0 || math.Abs(s.totalQty-0.01) > 1e-12 ||
+		math.Abs(s.totalCost-1) > 1e-10 || math.Abs(s.stats.TotalPnL-8.8) > 1e-10 || len(ledger.pnls) != 1 {
+		t.Fatalf("spot close suffix did not recover once with net inventory/cost: closing=%v qty=%v cost=%v closeFee=%v stats=%+v ledger=%+v",
+			s.isClosing, s.totalQty, s.totalCost, s.closeBaseFeeQty, s.stats, ledger)
+	}
+}
+
 func TestDCAStartRejectsBaseCommissionWithoutBaseFeeQuantity(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
 		OrderID: 97, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,

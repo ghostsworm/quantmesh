@@ -380,7 +380,7 @@ func TestDCASpotEntryBaseFeeUsesNetInventoryAndQuoteFee(t *testing.T) {
 	}
 }
 
-func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
+func TestDCARejectsUnsupportedEntryBaseFee(t *testing.T) {
 	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
 	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), executor, &hedgeExchange{}, nil)
 	layer := &DCALayer{Index: 0, OrderID: 97, Status: entryStatusPending, RequestedQuantity: 1}
@@ -393,15 +393,57 @@ func TestDCARejectsUnsupportedEntryAndCloseBaseFees(t *testing.T) {
 		t.Fatalf("unsupported entry base fee was not held for reconciliation: marks=%d layer=%+v qty=%v", executor.marked, layer, strategy.totalQty)
 	}
 
-	strategy.isClosing, strategy.closeOrderID, strategy.closeRequestedQty = true, 98, 1
-	strategy.closeProgress = position.FillProgress{}
-	strategy.totalQty, strategy.totalCost = 1, 100
-	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, Status: entryStatusFilled}}
-	strategy.handleCloseOrderUpdate(&position.OrderUpdate{
-		OrderID: 98, Side: "SELL", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5, AvgPrice: 110, BaseFeeQty: 0.001,
-	})
-	if executor.marked != 2 || strategy.closeProgress.Quantity != 0 || strategy.totalQty != 1 {
-		t.Fatalf("close base fee mutated inventory before reconciliation: marks=%d progress=%+v qty=%v", executor.marked, strategy.closeProgress, strategy.totalQty)
+}
+
+func TestDCARejectsBaseAssetRebateWithoutInventoryQuantity(t *testing.T) {
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", dcaTestConfig(), &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	if !strategy.hasUnmappedBaseFee(-0.001, "BTC", 0) {
+		t.Fatal("base-asset rebate without an inventory quantity must not be treated as a quote-valued fee only")
+	}
+}
+
+func TestDCASpotCloseBaseFeeConsumesInventoryAndPersistsAccounting(t *testing.T) {
+	cfg := dcaTestConfig()
+	cfg.Trading.MarketType = "spot"
+	executor := &dcaReconciliationExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, executor, &hedgeExchange{price: 110}, nil)
+	setTestRuntimeStateStore(t, strategy)
+	strategy.layers = []*DCALayer{{Index: 0, Price: 100, Quantity: 1, Cost: 100, OpeningFee: 0.2,
+		RequestedQuantity: 1, FillProgress: position.FillProgress{Quantity: 1, Notional: 100}, FeeVerifiedQty: 1, Status: entryStatusFilled}}
+	strategy.totalQty, strategy.totalCost, strategy.avgEntryPrice = 1, 100, 100
+	ledger := &dcaFillRecorder{}
+	strategy.SetTradeStorage(ledger)
+	if err := strategy.closeAllPositions(110, "take profit"); err != nil {
+		t.Fatal(err)
+	}
+	orderID := strategy.closeOrderID
+	update := &position.OrderUpdate{OrderID: orderID, Side: "SELL", Status: "PARTIALLY_FILLED", ExecutedQty: 0.5,
+		AvgPrice: 110, Commission: 0.005, CommissionAsset: "BTC", BaseFeeQty: 0.005, CommissionKnown: true}
+	if err := strategy.OnOrderUpdate(update); err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(strategy.totalQty-0.495) > 1e-12 || math.Abs(strategy.totalCost-49.5) > 1e-10 ||
+		math.Abs(strategy.closeProgress.Quantity-0.5) > 1e-12 || math.Abs(strategy.closeBaseFeeQty-0.005) > 1e-12 {
+		t.Fatalf("gross sold quantity and base-fee inventory consumption diverged: qty=%v cost=%v progress=%+v baseFee=%v",
+			strategy.totalQty, strategy.totalCost, strategy.closeProgress, strategy.closeBaseFeeQty)
+	}
+	if len(ledger.pnls) != 1 || math.Abs(ledger.pnls[0]-5.05) > 1e-10 || math.Abs(ledger.fees[0]-0.651) > 1e-10 ||
+		math.Abs(strategy.GetStatistics().TotalPnL-4.399) > 1e-10 {
+		t.Fatalf("base-fee close accounting mismatch: ledger=%+v stats=%+v", ledger, strategy.GetStatistics())
+	}
+	if err := strategy.OnOrderUpdate(update); err != nil {
+		t.Fatal(err)
+	}
+	if strategy.totalQty != 0.495 || strategy.closeBaseFeeQty != 0.005 || len(ledger.pnls) != 1 {
+		t.Fatalf("duplicate cumulative close update was not idempotent: qty=%v baseFee=%v ledger=%+v", strategy.totalQty, strategy.closeBaseFeeQty, ledger)
+	}
+	restored := NewDCAEnhancedStrategy("dca", "BTCUSDT", cfg, &hedgeOrderExecutor{}, &hedgeExchange{}, nil)
+	restored.SetRuntimeStateStore(strategy.runtimeStateStore)
+	if err := restored.restoreRuntimeState(); err != nil {
+		t.Fatalf("restore base-fee close cursor: %v", err)
+	}
+	if restored.closeBaseFeeQty != 0.005 || restored.closeProgress.Quantity != 0.5 || math.Abs(restored.totalQty-0.495) > 1e-12 {
+		t.Fatalf("base-fee close cursor lost on restart: qty=%v progress=%+v baseFee=%v", restored.totalQty, restored.closeProgress, restored.closeBaseFeeQty)
 	}
 }
 

@@ -49,7 +49,7 @@ func (s *DCAEnhancedStrategy) resolveUnverifiedCommission(update *position.Order
 		s.normalizeClientOrderID(update.ClientOrderID) == s.closeClientOrderID
 	if s.isClosing && (s.closeOrderID > 0 && s.closeOrderID == update.OrderID || closeClientMatch) {
 		intent = dcaOrderIntent{orderID: s.closeOrderID, clientOrderID: s.closeClientOrderID, symbol: s.strategyCfg.Symbol, side: exchange.SideSell,
-			quantity: s.closeRequestedQty, progress: s.closeProgress, close: true}
+			quantity: s.closeRequestedQty, progress: s.closeProgress, baseFeeQty: s.closeBaseFeeQty, close: true}
 		found = true
 	}
 	s.mu.RUnlock()
@@ -100,7 +100,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrders(ctx context.Context) erro
 	}
 	if s.isClosing {
 		intents = append(intents, dcaOrderIntent{orderID: s.closeOrderID, clientOrderID: s.closeClientOrderID, symbol: s.strategyCfg.Symbol,
-			side: exchange.SideSell, quantity: s.closeRequestedQty, progress: s.closeProgress, close: true})
+			side: exchange.SideSell, quantity: s.closeRequestedQty, progress: s.closeProgress, baseFeeQty: s.closeBaseFeeQty, close: true})
 	}
 	s.mu.RUnlock()
 	if len(intents) == 0 {
@@ -251,11 +251,17 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrderFills(ctx context.Context, 
 		if _, duplicate := seen[fill.TradeID]; duplicate {
 			return 0, 0, 0, fmt.Errorf("order returned duplicate trade ID %q", fill.TradeID)
 		}
-		if fill.BaseFeeQty > 0 && (intent.close || !s.supportsSpotBaseFee() || intent.side != exchange.SideBuy) {
+		if fill.BaseFeeQty > 0 && (!s.supportsSpotBaseFee() || intent.close && intent.side != exchange.SideSell || !intent.close && intent.side != exchange.SideBuy) {
 			return 0, 0, 0, fmt.Errorf("base-asset fee is unsupported for this DCA order recovery")
 		}
 		if s.hasUnmappedBaseFee(fill.Commission, fill.CommissionAsset, fill.BaseFeeQty) {
 			return 0, 0, 0, fmt.Errorf("fill %s reports a base-asset commission without its inventory fee quantity", fill.TradeID)
+		}
+		if fill.BaseFeeQty > 0 && fill.Commission <= 0 {
+			return 0, 0, 0, fmt.Errorf("fill %s reports base-fee inventory without positive commission evidence", fill.TradeID)
+		}
+		if s.hasMismatchedBaseFeeAsset(fill.CommissionAsset, fill.BaseFeeQty) {
+			return 0, 0, 0, fmt.Errorf("fill %s base-asset commission denomination conflicts with its inventory fee quantity", fill.TradeID)
 		}
 		seen[fill.TradeID] = struct{}{}
 		quantity += fill.Quantity
