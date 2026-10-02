@@ -656,7 +656,7 @@ func TestSpotShortRuntimeReconciliationRetriesPendingBorrowOrder(t *testing.T) {
 	venue := &spotShortClientOrderLookupExchange{
 		clientID: clientOrderID,
 		clientOrder: &exchange.Order{OrderID: 92, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell,
-			Quantity: 0.25, Status: exchange.OrderStatusFilled},
+			Quantity: 0.25, ExecutedQty: 0.25, Status: exchange.OrderStatusFilled},
 	}
 	cfg := &config.Config{}
 	cfg.Trading.BotID = "spot-short-runtime-reconcile"
@@ -698,6 +698,26 @@ func TestSpotShortRuntimeReconciliationRetriesPendingBorrowOrder(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("runtime reconciler did not verify and clear pending margin sell intent; lookups=%d", venue.lookupCalls.Load())
+}
+
+func TestSpotShortReconciliationRetainsBorrowIntentAfterPartialTerminalSell(t *testing.T) {
+	const clientOrderID = "partial-terminal-margin-sell-cid"
+	venue := &spotShortClientOrderLookupExchange{
+		clientID: clientOrderID,
+		clientOrder: &exchange.Order{OrderID: 93, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 0.5, ExecutedQty: 0.2, Status: exchange.OrderStatusCanceled},
+	}
+	strategy := newSpotShortForTest(&signalTestExecutor{}, venue, &mockMarginExchange{})
+	intent := spotShortPendingBorrow{Amount: 0.5, Phase: "borrowed", BorrowTransferID: 94, CreatedAtUnixMilli: time.Now().UnixMilli()}
+	strategy.pendingBorrow[clientOrderID] = intent
+
+	err := strategy.reconcilePendingBorrowIntents(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "unexecuted borrowed asset remains unresolved") {
+		t.Fatalf("partial terminal sell must remain unresolved, got %v", err)
+	}
+	if strategy.pendingBorrow[clientOrderID] != intent {
+		t.Fatalf("partial terminal sell must preserve borrow intent: %+v", strategy.pendingBorrow)
+	}
 }
 
 func (e *spotShortClientOrderLookupExchange) GetMarginBorrowHistory(_ context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]exchange.MarginBorrowRecord, int64, error) {
@@ -850,7 +870,7 @@ func TestSpotShortStartupRecoversPreparedBorrowFromUniqueConfirmedHistory(t *tes
 	}
 	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
 	venue := &spotShortClientOrderLookupExchange{
-		clientOrder: &exchange.Order{OrderID: 91, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.4, Status: exchange.OrderStatusFilled},
+		clientOrder: &exchange.Order{OrderID: 91, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.4, ExecutedQty: 0.4, Status: exchange.OrderStatusFilled},
 		clientID:    clientOrderID,
 		borrowRows:  []exchange.MarginBorrowRecord{{TransferID: 7001, Asset: "BTC", Amount: 0.4, Status: "CONFIRMED", Timestamp: createdAt}},
 		borrowTotal: 1,

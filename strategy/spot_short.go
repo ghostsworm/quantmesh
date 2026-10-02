@@ -548,7 +548,8 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 		}
 		tolerance := math.Max(1e-10, intent.Amount*1e-8)
 		if order.OrderID <= 0 || order.ClientOrderID != cid || order.Symbol != s.symbol || order.Side != exchange.SideSell ||
-			!finiteNumber(order.Quantity) || order.Quantity <= 0 || math.Abs(order.Quantity-intent.Amount) > tolerance {
+			!finiteNumber(order.Quantity) || order.Quantity <= 0 || math.Abs(order.Quantity-intent.Amount) > tolerance ||
+			!finiteNumber(order.ExecutedQty) || order.ExecutedQty < 0 || order.ExecutedQty > order.Quantity+tolerance {
 			return fmt.Errorf("spot short margin sell identity/quantity mismatch for client ID %s", cid)
 		}
 		s.mu.Lock()
@@ -560,6 +561,10 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 		if !isSpotShortTerminalOrderStatus(string(order.Status)) {
 			s.mu.Unlock()
 			return fmt.Errorf("spot short margin sell %d remains %s; borrowed asset exposure is not terminal", order.OrderID, order.Status)
+		}
+		if order.ExecutedQty+tolerance < intent.Amount {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short margin sell %d ended %s after %.12g of %.12g; unexecuted borrowed asset remains unresolved", order.OrderID, order.Status, order.ExecutedQty, intent.Amount)
 		}
 		delete(s.pendingBorrow, cid)
 		if err := s.persistRuntimeStateLocked(); err != nil {
