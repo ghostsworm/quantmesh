@@ -292,7 +292,13 @@ func TestUnavailableExposureMarkCancelsOwnedOpeningsAndKeepsGateClosed(t *testin
 				venue.mu.Lock()
 				cancelled := len(venue.cancelled)
 				venue.mu.Unlock()
-				if cancelled == 1 {
+				oe.exposureLimitMu.Lock()
+				pending := oe.exposureCancellationPending
+				oe.exposureLimitMu.Unlock()
+				// A cancel RPC acknowledgement precedes terminal verification and
+				// worker completion. Only the verified branch must finish the job;
+				// an ACK-only cancellation deliberately retains its pending latch.
+				if cancelled == 1 && (ackOnly || !pending) {
 					break
 				}
 				time.Sleep(10 * time.Millisecond)
@@ -302,6 +308,12 @@ func TestUnavailableExposureMarkCancelsOwnedOpeningsAndKeepsGateClosed(t *testin
 			venue.mu.Unlock()
 			if cancelled != 1 {
 				t.Fatalf("unavailable quote did not cancel owned opening: %d", cancelled)
+			}
+			oe.exposureLimitMu.Lock()
+			pending := oe.exposureCancellationPending
+			oe.exposureLimitMu.Unlock()
+			if !ackOnly && pending {
+				t.Fatal("verified cancellation worker did not complete before timeout")
 			}
 			if !gate.HasBlock(ExposureLimitBlock) || !gate.Blocked() {
 				t.Fatal("opening gate released without a usable exposure quote")

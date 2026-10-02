@@ -216,9 +216,15 @@ func validRuntimeAmount(value float64) bool {
 	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
-func (s *FundingCarryStrategy) beginRuntimeIntent() error {
+func (s *FundingCarryStrategy) beginRuntimeIntent(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		return err
+	}
+	if s.intentInFlight {
+		return fmt.Errorf("previous funding_carry intent still requires reconciliation")
+	}
 	if s.runtimeStateErr != nil {
 		s.unownedExposure = true
 		return fmt.Errorf("previous runtime state persistence failed: %w", s.runtimeStateErr)
@@ -231,14 +237,20 @@ func (s *FundingCarryStrategy) beginRuntimeIntent() error {
 	return nil
 }
 
-func (s *FundingCarryStrategy) finishRuntimeIntent(success bool) error {
+func (s *FundingCarryStrategy) finishRuntimeIntent(ctx context.Context, success bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.verifyDebtCommitLocked(ctx); err != nil {
+		s.unownedExposure = true // local latch only; the stale worker must not write durable state
+		return err
+	}
+	previousIntent := s.intentInFlight
 	s.intentInFlight = false
 	if !success {
 		s.unownedExposure = true
 	}
 	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.intentInFlight = previousIntent
 		s.unownedExposure = true
 		s.runtimeStateErr = err
 		return err

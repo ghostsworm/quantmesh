@@ -998,7 +998,7 @@ func estimateNextSettlement(now time.Time) time.Time {
 // Auto transfer
 // ---------------------------------------------------------------------------
 
-func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, requiredUSDT, spotOrderReserveUSDT float64) error {
+func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, requiredUSDT, spotOrderReserveUSDT float64) (resultErr error) {
 	if ctx == nil {
 		return errors.New("funding_carry collateral transfer requires context")
 	}
@@ -1060,13 +1060,14 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("funding_carry collateral transfer canceled before submission: %w", err)
 	}
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("persist collateral transfer intent before submission: %w", err))
 	}
 	transferVerified := false
 	defer func() {
-		if err := s.finishRuntimeIntent(transferVerified); err != nil {
+		if err := s.finishRuntimeIntent(ctx, transferVerified); err != nil {
 			logger.Error("[%s] persist funding_carry collateral transfer result: %v", s.symbol, err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	txID, err := s.spot.InternalTransfer(ctx, "SPOT", "UMFUTURE", "USDT", need)
@@ -1372,13 +1373,13 @@ func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context)
 	if err != nil || ctx.Err() != nil || !finiteNonNegative(spotBal) {
 		return
 	}
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		s.blockOnUnownedExposure(fmt.Errorf("persist profit harvest intent before transfer: %w", err))
 		return
 	}
 	transferVerified := false
 	defer func() {
-		if err := s.finishRuntimeIntent(transferVerified); err != nil {
+		if err := s.finishRuntimeIntent(ctx, transferVerified); err != nil {
 			logger.Error("[%s] persist funding_carry profit harvest result: %v", s.symbol, err)
 		}
 	}()
@@ -1568,8 +1569,10 @@ func (s *FundingCarryStrategy) blockOnUnownedExposure(reason error) error {
 	s.mu.Lock()
 	s.unownedExposure = true
 	blocker := s.openingBlocker
-	if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
-		s.runtimeStateErr = persistErr
+	if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr == nil {
+		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+			s.runtimeStateErr = persistErr
+		}
 	}
 	s.mu.Unlock()
 	if blocker != nil {
@@ -1777,7 +1780,7 @@ func (s *FundingCarryStrategy) openHedge(ctx context.Context, futPx, spotPx, rat
 	})
 }
 
-func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) error {
+func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) (resultErr error) {
 	if rate < s.minFundingRate {
 		return fmt.Errorf("8-hour funding rate %.8f is below configured opening minimum %.8f", rate, s.minFundingRate)
 	}
@@ -1846,13 +1849,14 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	if err := s.ensureFuturesMargin(ctx, legNotional, spotBuyReserve); err != nil {
 		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist spot/futures opening intent: %w", err)
 	}
 	opened := false
 	defer func() {
-		if err := s.finishRuntimeIntent(opened); err != nil {
+		if err := s.finishRuntimeIntent(ctx, opened); err != nil {
 			logger.Error("[%s] persist funding_carry opening result: %v", s.symbol, err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 
@@ -2001,7 +2005,7 @@ func (s *FundingCarryStrategy) closeStrategySpotWithAccountWalletCoordination(ct
 	})
 }
 
-func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) error {
+func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Context, futPx, spotPx, rate float64) (resultErr error) {
 	if s.marginEx == nil {
 		return fmt.Errorf("反向套利需要保證金帳戶，但 marginEx 為 nil")
 	}
@@ -2089,13 +2093,14 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		return fmt.Errorf("ensure futures opening margin: %w", err)
 	}
 	// Step 1: 借幣
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist margin/futures opening intent: %w", err)
 	}
 	opened := false
 	defer func() {
-		if err := s.finishRuntimeIntent(opened); err != nil {
+		if err := s.finishRuntimeIntent(ctx, opened); err != nil {
 			logger.Error("[%s] persist funding_carry reverse opening result: %v", s.symbol, err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 
@@ -2284,7 +2289,7 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 // Close positions
 // ---------------------------------------------------------------------------
 
-func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) error {
+func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) (resultErr error) {
 	pos, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("fut.GetPositions before close: %w", err))
@@ -2307,13 +2312,14 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) erro
 	if futLong > tolerance || math.Abs(futShort-ownedFut) > tolerance || (ownedFut > tolerance && dir != DirectionForward) {
 		return s.blockOnUnownedExposure(fmt.Errorf("refusing futures close: exchange short=%.8f long=%.8f, strategy owns %.8f (%s)", futShort, futLong, ownedFut, dir))
 	}
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist funding_carry close intent: %w", err)
 	}
 	closed := false
 	defer func() {
-		if err := s.finishRuntimeIntent(closed); err != nil {
+		if err := s.finishRuntimeIntent(ctx, closed); err != nil {
 			logger.Error("[%s] persist funding_carry close result: %v", s.symbol, err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	if ownedFut > tolerance {
@@ -2459,7 +2465,7 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 	return nil
 }
 
-func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) error {
+func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) (resultErr error) {
 	if s.marginEx == nil {
 		return fmt.Errorf("marginEx is nil, cannot close reverse")
 	}
@@ -2514,13 +2520,14 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin principal mismatch: live principal %.8f, accrued interest %.8f, total %.8f, owned principal %.8f", livePrincipal, liveInterest, liveDebt, debt))
 	}
 	debtToRepay := livePrincipal + liveInterest
-	if err := s.beginRuntimeIntent(); err != nil {
+	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist reverse close intent: %w", err)
 	}
 	closed := false
 	defer func() {
-		if err := s.finishRuntimeIntent(closed); err != nil {
+		if err := s.finishRuntimeIntent(ctx, closed); err != nil {
 			logger.Error("[%s] persist reverse close result: %v", s.symbol, err)
+			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	if ownedFutures > tolerance {
