@@ -1,13 +1,17 @@
 package backtest
 
 import (
+	"fmt"
 	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/logger"
 )
 
-const intrabarQuantityRoundingReserve = 1e-12
+const (
+	intrabarQuantityRoundingReserve = 1e-12
+	defaultIntrabarDurationMs       = int64(180_000)
+)
 
 // IntrabarBacktester K線内模拟回测器
 type IntrabarBacktester struct {
@@ -37,10 +41,22 @@ func (ibt *IntrabarBacktester) SetFees(takerFee, makerFee, slippage float64) {
 // SimulateIntrabarPrices 模拟K線内部的價格路径
 // 使用更真實的價格路径：Open → High → Low → Close
 func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) []IntrabarTick {
-	ticks := make([]IntrabarTick, 0, ibt.ticksPerBar)
+	return ibt.simulateIntrabarPrices(candle, defaultIntrabarDurationMs)
+}
 
-	// 計算時间间隔
-	timeStep := int64(180000 / ibt.ticksPerBar) // 3分钟 = 180000毫秒
+func (ibt *IntrabarBacktester) simulateIntrabarPrices(candle *exchange.Candle, durationMs int64) []IntrabarTick {
+	if candle == nil || ibt.ticksPerBar < 4 || durationMs <= 0 {
+		return nil
+	}
+	ticks := make([]IntrabarTick, 0, ibt.ticksPerBar)
+	steps := int64(ibt.ticksPerBar)
+	durationPerStep := durationMs / steps
+	remainderPerStep := durationMs % steps
+	timestampAt := func(index int) int64 {
+		step := int64(index)
+		offset := durationPerStep*step + remainderPerStep*step/steps
+		return candle.Timestamp + offset
+	}
 
 	// 根據 OHLC 关系确定價格路径
 	// 情况1: Open < Close (上涨K線)
@@ -61,7 +77,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.Open + (candle.High-candle.Open)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(i)*timeStep,
+				Timestamp: timestampAt(i),
 			})
 		}
 
@@ -72,7 +88,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.High + (candle.Low-candle.High)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(step1+i)*timeStep,
+				Timestamp: timestampAt(step1 + i),
 			})
 		}
 
@@ -86,7 +102,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.Low + (candle.Close-candle.Low)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(step1+step2+i)*timeStep,
+				Timestamp: timestampAt(step1 + step2 + i),
 			})
 		}
 	} else {
@@ -98,7 +114,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.Open + (candle.Low-candle.Open)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(i)*timeStep,
+				Timestamp: timestampAt(i),
 			})
 		}
 
@@ -109,7 +125,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.Low + (candle.High-candle.Low)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(step1+i)*timeStep,
+				Timestamp: timestampAt(step1 + i),
 			})
 		}
 
@@ -123,7 +139,7 @@ func (ibt *IntrabarBacktester) SimulateIntrabarPrices(candle *exchange.Candle) [
 			price := candle.High + (candle.Close-candle.High)*ratio
 			ticks = append(ticks, IntrabarTick{
 				Price:     price,
-				Timestamp: candle.Timestamp + int64(step1+step2+i)*timeStep,
+				Timestamp: timestampAt(step1 + step2 + i),
 			})
 		}
 	}
@@ -139,6 +155,12 @@ type IntrabarTick struct {
 
 // Run 運行K線内模拟回测
 func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
+	if len(ibt.candles) == 0 {
+		return nil, fmt.Errorf("candles data is empty")
+	}
+	if ibt.ticksPerBar < 4 {
+		return nil, fmt.Errorf("intrabar simulation requires at least four ticks per bar")
+	}
 	ibt.cash = ibt.initialCapital
 	ibt.position = 0
 
@@ -149,8 +171,11 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 	totalTicks := 0
 
 	for i, candle := range ibt.candles {
+		if candle == nil {
+			return nil, fmt.Errorf("candle %d is nil", i)
+		}
 		// 模拟K線内部的價格变动
-		intrabarTicks := ibt.SimulateIntrabarPrices(candle)
+		intrabarTicks := ibt.simulateIntrabarPrices(candle, ibt.candleDurationMs(i))
 
 		for _, tick := range intrabarTicks {
 			totalTicks++
@@ -223,6 +248,22 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 		RiskMetrics:    riskMetrics,
 		PriceCurve:     ComputePriceCurveSummary(ibt.candles),
 	}, nil
+}
+
+func (ibt *IntrabarBacktester) candleDurationMs(index int) int64 {
+	if index >= 0 && index+1 < len(ibt.candles) {
+		current, next := ibt.candles[index], ibt.candles[index+1]
+		if current != nil && next != nil && next.Timestamp > current.Timestamp {
+			return next.Timestamp - current.Timestamp
+		}
+	}
+	if index > 0 && index < len(ibt.candles) {
+		previous, current := ibt.candles[index-1], ibt.candles[index]
+		if previous != nil && current != nil && current.Timestamp > previous.Timestamp {
+			return current.Timestamp - previous.Timestamp
+		}
+	}
+	return defaultIntrabarDurationMs
 }
 
 // executeBuyAtPrice 在指定價格買入

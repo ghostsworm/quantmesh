@@ -56,6 +56,54 @@ func TestIntrabarPriceSimulationPaths(t *testing.T) {
 	}
 }
 
+func TestIntrabarRunUsesObservedCandleDurationForTickTimestamps(t *testing.T) {
+	candles := []*exchange.Candle{
+		{Symbol: "BTCUSDT", Open: 100, High: 101, Low: 99, Close: 100, Timestamp: 60_000},
+		{Symbol: "BTCUSDT", Open: 100, High: 102, Low: 98, Close: 101, Timestamp: 120_000},
+		{Symbol: "BTCUSDT", Open: 101, High: 103, Low: 99, Close: 102, Timestamp: 180_000},
+	}
+	ibt := NewIntrabarBacktester("BTCUSDT", candles, &sequenceStrategy{}, 1000, 60)
+	result, err := ibt.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(result.Equity) != len(candles)*ibt.ticksPerBar {
+		t.Fatalf("equity samples = %d, want %d", len(result.Equity), len(candles)*ibt.ticksPerBar)
+	}
+	for index := 1; index < len(result.Equity); index++ {
+		previous := result.Equity[index-1].Timestamp
+		current := result.Equity[index].Timestamp
+		if current <= previous {
+			t.Fatalf("tick timestamps are not strictly increasing at %d: %d then %d", index, previous, current)
+		}
+	}
+	for candleIndex := range candles {
+		lastTick := result.Equity[(candleIndex+1)*ibt.ticksPerBar-1].Timestamp
+		intervalEnd := candles[candleIndex].Timestamp + 60_000
+		if lastTick >= intervalEnd {
+			t.Fatalf("candle %d tick escaped its 1m interval: last=%d end=%d", candleIndex, lastTick, intervalEnd)
+		}
+	}
+}
+
+func TestIntrabarRunRejectsInvalidSimulationInputs(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		candles []*exchange.Candle
+		steps   int
+	}{
+		{name: "empty candles", steps: 4},
+		{name: "too few ticks", candles: []*exchange.Candle{{Timestamp: 1}}, steps: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ibt := NewIntrabarBacktester("BTCUSDT", test.candles, &sequenceStrategy{}, 1000, test.steps)
+			if _, err := ibt.Run(); err == nil {
+				t.Fatal("Run() accepted invalid intrabar simulation input")
+			}
+		})
+	}
+}
+
 func TestIntrabarExecuteBuySellAndFees(t *testing.T) {
 	ibt := NewIntrabarBacktester("BTCUSDT", nil, &sequenceStrategy{}, 1000, 8)
 	ibt.SetFees(0.001, 0.0005, 0.0002)
