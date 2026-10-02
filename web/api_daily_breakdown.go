@@ -33,6 +33,7 @@ type DailyPnLBreakdownSummary struct {
 	GridProfit                 float64  `json:"grid_profit"`
 	GridTrades                 int      `json:"grid_trades"`
 	TotalFee                   float64  `json:"total_fee"`
+	PnLFeeDeduction            float64  `json:"pnl_fee_deduction"`
 	FundingFee                 float64  `json:"funding_fee"`
 	FundingFeeAsset            string   `json:"funding_fee_asset,omitempty"`
 	ExchangePnL                float64  `json:"exchange_pnl"`
@@ -189,6 +190,34 @@ func dailyFeeTotalByQuoteAndBase(fees, quoteValues, historicalValues map[string]
 		return 0, fmt.Errorf("fee total is not finite")
 	}
 	return total, nil
+}
+
+// dailyPnLFeeDeduction excludes spot base-asset fees already reflected in the
+// observed inventory delta. Other fees remain explicit PnL deductions.
+func dailyPnLFeeDeduction(totalFees float64, fees, quoteValues map[string]float64, quoteAsset, baseAsset, marketType string) (float64, error) {
+	if math.IsNaN(totalFees) || math.IsInf(totalFees, 0) {
+		return 0, fmt.Errorf("total fees must be finite")
+	}
+	if marketType != "spot" || strings.EqualFold(strings.TrimSpace(quoteAsset), strings.TrimSpace(baseAsset)) {
+		return totalFees, nil
+	}
+	baseAsset = strings.ToUpper(strings.TrimSpace(baseAsset))
+	if baseAsset == "" {
+		return totalFees, nil
+	}
+	baseFee := fees[baseAsset]
+	if baseFee == 0 {
+		return totalFees, nil
+	}
+	baseFeeValue, ok := quoteValues[baseAsset]
+	if !ok || math.IsNaN(baseFeeValue) || math.IsInf(baseFeeValue, 0) {
+		return 0, fmt.Errorf("base-asset fee has no finite execution-price conversion")
+	}
+	deduction := totalFees - baseFeeValue
+	if math.IsNaN(deduction) || math.IsInf(deduction, 0) {
+		return 0, fmt.Errorf("PnL fee deduction is not finite")
+	}
+	return deduction, nil
 }
 
 func spotDailyPositionValues(dayStart, dayEnd time.Time, previous, current *storage.DailySnapshot) (float64, float64, error) {
@@ -382,6 +411,11 @@ func getDailyPnLBreakdown(c *gin.Context) {
 		return
 	}
 	summary.TotalFee = feeTotal
+	summary.PnLFeeDeduction, err = dailyPnLFeeDeduction(feeTotal, fillSummary.FeesByAsset, fillSummary.FeeQuoteValueByAsset, quoteAsset, baseAsset, marketType)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "daily fee treatment cannot be reconciled with the selected market accounting"})
+		return
+	}
 
 	// 1. One strict scope drives the paired-trade aggregate and both top lists.
 	tradeReader, ok := st.(interface {

@@ -3921,6 +3921,8 @@
     "fundingColumn": "资金费用",
     "fundingColumnNote": "下方表格中「资金费用」为日级汇总，无法按单笔归属，详见上方最终等式。",
     "fundingSignNote": "资金费用：正数表示交易所付给用户，负数表示用户付给交易所。",
+    "feeDeduction": "計入淨盈虧的手續費",
+    "spotBaseFeeNote": "現貨基幣手續費已反映在實際持倉變化中，不會在淨盈虧中重複扣除。",
     "gridCalc": "网格计算",
     "intradayEquityCurve": "日内权益曲线",
     "lossTop": "亏损 Top",

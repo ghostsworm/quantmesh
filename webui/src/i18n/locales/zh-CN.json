@@ -2724,6 +2724,8 @@
     "positionChange": "持仓变化",
     "noData": "暂无该日拆解数据",
     "fundingSignNote": "资金费用：正数表示交易所付给用户，负数表示用户付给交易所。",
+    "feeDeduction": "计入净盈亏的手续费",
+    "spotBaseFeeNote": "现货基币手续费已反映在实际持仓变化中，不会在净盈亏中重复扣除。",
     "fundingColumnNote": "下方表格中「资金费用」为日级汇总，无法按单笔归属，详见上方最终等式。",
     "profitTop": "盈利 Top",
     "lossTop": "亏损 Top",

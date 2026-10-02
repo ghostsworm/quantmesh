@@ -971,6 +971,7 @@ export interface DailyPnLBreakdownSummary {
   grid_profit: number
   grid_trades: number
   total_fee: number
+  pnl_fee_deduction: number
   funding_fee: number
   exchange_pnl: number
   unrealized_pnl_start: number | null

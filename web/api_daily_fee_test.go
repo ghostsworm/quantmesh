@@ -67,6 +67,22 @@ func TestDailyFeeTotalRequiresVerifiedThirdAssetConversion(t *testing.T) {
 	}
 }
 
+func TestDailyPnLFeeDeductionDoesNotDoubleCountSpotBaseFees(t *testing.T) {
+	fees := map[string]float64{"USDT": 0.5, "BTC": 0.001, "BNB": 0.001}
+	quoteValues := map[string]float64{"BTC": 0.6, "BNB": 0.62}
+	got, err := dailyPnLFeeDeduction(1.72, fees, quoteValues, "USDT", "BTC", "spot")
+	if err != nil || math.Abs(got-1.12) > 1e-9 {
+		t.Fatalf("spot PnL fee deduction = %v, %v; want quote and third-asset fees only", got, err)
+	}
+	futures, err := dailyPnLFeeDeduction(1.72, fees, quoteValues, "USDT", "BTC", "futures")
+	if err != nil || futures != 1.72 {
+		t.Fatalf("futures PnL fee deduction = %v, %v; want all fees", futures, err)
+	}
+	if got, err := dailyPnLFeeDeduction(0.5, map[string]float64{"BTC": -0.01}, map[string]float64{"BTC": -6}, "USDT", "BTC", "spot"); err != nil || got != 6.5 {
+		t.Fatalf("spot base-asset rebate deduction = %v, %v", got, err)
+	}
+}
+
 func TestDailyNetTradingPnLUsesMarketSpecificAccounting(t *testing.T) {
 	spot, spotMethod, err := dailyNetTradingPnL("spot", -25, 30, 999)
 	if err != nil || spot != 5 || spotMethod != "cashflow_position_change" {

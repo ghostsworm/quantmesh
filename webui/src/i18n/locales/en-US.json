@@ -2888,6 +2888,8 @@
     "positionChange": "Position Change",
     "noData": "No breakdown data for this day",
     "fundingSignNote": "Funding: positive = exchange pays you; negative = you pay the exchange.",
+    "feeDeduction": "Fees deducted from net PnL",
+    "spotBaseFeeNote": "Spot base-asset fees are already reflected in actual inventory changes and are not deducted twice.",
     "fundingColumnNote": "Funding in the tables below is daily-level only; see Final Equation above.",
     "profitTop": "Profit Top",
     "lossTop": "Loss Top",

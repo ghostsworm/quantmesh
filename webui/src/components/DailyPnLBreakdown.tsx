@@ -246,16 +246,21 @@ const DailyPnLBreakdown: React.FC = () => {
             fontSize: '15px',
           }}
         >
-          {t('dailyBreakdown.netTradingPnL')} + {t('dailyBreakdown.fees')} + {t('dailyBreakdown.funding')} ={' '}
-          <span style={{ fontWeight: 'bold', color: colorOf(s.net_trading_pnl - s.total_fee + s.funding_fee) }}>
-            {formatNum(s.net_trading_pnl - s.total_fee + s.funding_fee)}
+          {t('dailyBreakdown.netTradingPnL')} + {t('dailyBreakdown.feeDeduction')} + {t('dailyBreakdown.funding')} ={' '}
+          <span style={{ fontWeight: 'bold', color: colorOf(s.net_trading_pnl - s.pnl_fee_deduction + s.funding_fee) }}>
+            {formatNum(s.net_trading_pnl - s.pnl_fee_deduction + s.funding_fee)}
           </span>
           <div style={{ marginTop: '12px', fontSize: '13px', color: '#262626' }}>
-            {t('dailyBreakdown.netTradingPnL')}: {formatNum(s.net_trading_pnl)} · {t('dailyBreakdown.fees')}: −{s.total_fee.toFixed(2)} · {t('dailyBreakdown.funding')}: {formatNum(s.funding_fee)}
+            {t('dailyBreakdown.netTradingPnL')}: {formatNum(s.net_trading_pnl)} · {t('dailyBreakdown.feeDeduction')}: −{s.pnl_fee_deduction.toFixed(2)} · {t('dailyBreakdown.funding')}: {formatNum(s.funding_fee)}
           </div>
           <div style={{ marginTop: '8px', fontSize: '12px', color: '#8c8c8c' }}>
             {t('dailyBreakdown.fundingSignNote')}
           </div>
+          {s.pnl_method === 'cashflow_position_change' && (
+            <div style={{ marginTop: '8px', fontSize: '12px', color: '#8c8c8c' }}>
+              {t('dailyBreakdown.spotBaseFeeNote')}
+            </div>
+          )}
         </div>
       </section>
 
