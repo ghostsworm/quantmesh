@@ -232,6 +232,19 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 	return result, nil
 }
 
+// GetAccountOpenOrders returns open perpetual orders across all symbols.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
+	orders, err := a.client.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*OrderLocal, 0, len(orders))
+	for _, order := range orders {
+		result = append(result, a.convertOrder(&order))
+	}
+	return result, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
 	accountInfo, err := a.getSettlementAccount(ctx)

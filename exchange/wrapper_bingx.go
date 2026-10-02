@@ -12,6 +12,8 @@ type bingxWrapper struct {
 	adapter *bingx.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*bingxWrapper)(nil)
+
 // GetName 獲取交易所名称
 func (w *bingxWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -152,6 +154,20 @@ func (w *bingxWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]*Ord
 		})
 	}
 
+	return result, nil
+}
+
+func (w *bingxWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, len(orders))
+	for i, order := range orders {
+		result[i] = &Order{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol,
+			Side: Side(order.Side), Price: order.Price, Quantity: order.Quantity, ExecutedQty: order.ExecutedQty,
+			Status: OrderStatus(order.Status), UpdateTime: order.UpdateTime}
+	}
 	return result, nil
 }
 

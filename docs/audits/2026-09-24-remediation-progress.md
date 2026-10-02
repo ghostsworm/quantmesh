@@ -2760,3 +2760,8 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 
 - rc827 後 Bitget 仍缺少帳戶級掛單能力。依 [Bitget 官方合約掛單文件](https://www.bitget.com/docs/catalog/classic-contract-trade/classic-contract-trade)，逐一查詢 USDT/USDC/Coin Futures 的 `live` 與 `partially_filled` 訂單，依 `endId`/`idLessThan` 完整翻頁；依 [Bitget 官方現貨未完成訂單文件](https://www.bitget.com/docs/catalog/classic-spot-trade/classic-spot-trade)，省略 symbol 查全交易對，分別查詢 normal 與 TPSL 並按 `orderId` 翻頁。
 - 拒絕缺失/null 訂單列表、無效訂單身份、重複身份及滿頁缺少下一頁游標。HTTP fixture 覆蓋全部 productType/status、normal/TPSL、異交易對、翻頁與游標錯誤；完整測試與實盤接口權限/回應驗收待執行。未連接真實帳戶、未下單/部署或驗收盈利能力。
+
+## 後續續修：BingX 永續特殊套利帳戶級掛單快照（3.111.0-rc829，2026-10-02）
+
+- rc828 後 BingX 永續適配器仍僅依配置 symbol 查詢掛單，其他交易對的手動單無法參與 Funding Carry / Funding Perp Spread 空倉准入核驗。依 [BingX 官方 API reference](https://github.com/BingX-API/api-ai-skills/blob/main/skills/swap-trade/api-reference.md) 的 Query All Current Open Orders 端點，省略 symbol 讀取當前全交易對掛單；文件未描述該端點的 cursor/limit 分頁參數。
+- 新增 wrapper 的 `AccountOpenOrdersReader` 能力及 HTTP fixture，驗證簽名請求不帶 symbol、不同交易對合併、空數組有效，以及缺失/null data、無效身份、重複 ID、未知狀態失敗關閉。完整全倉測試待執行；未核實實際 API 最大返回量/帳戶權限，不代表真實帳戶、外部時序、下單、部署或盈利能力已驗收。

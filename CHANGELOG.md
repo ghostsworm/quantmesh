@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc829] - 2026-10-02（未發布）
+
+### Fixed
+- Funding Carry 與 Funding Perp Spread 新增 BingX 永續全交易對活動委託快照；不帶 symbol 查詢當前掛單，缺失/null 列表、重複訂單身份或未知方向/狀態時拒絕開倉。
+
 ## [3.111.0-rc828] - 2026-10-02（未發布）
 
 ### Fixed

@@ -355,6 +355,50 @@ func (c *BingXClient) GetOpenOrders(ctx context.Context, symbol string) ([]Order
 	return resp.Data, nil
 }
 
+// GetAccountOpenOrders returns all current perpetual open orders without a symbol filter.
+func (c *BingXClient) GetAccountOpenOrders(ctx context.Context) ([]OrderInfo, error) {
+	const path = "/openApi/swap/v2/trade/openOrders"
+	body, err := c.sendRequest(ctx, http.MethodGet, path, url.Values{}, true)
+	if err != nil {
+		return nil, fmt.Errorf("query BingX account-wide perpetual open orders: %w", err)
+	}
+	var response struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil, fmt.Errorf("decode BingX account-wide perpetual open orders: %w", err)
+	}
+	if len(response.Data) == 0 || string(response.Data) == "null" {
+		return nil, fmt.Errorf("BingX account-wide perpetual open orders returned missing or null data")
+	}
+	var orders []OrderInfo
+	if err := json.Unmarshal(response.Data, &orders); err != nil {
+		return nil, fmt.Errorf("decode BingX account-wide perpetual open-order list: %w", err)
+	}
+	if orders == nil {
+		return nil, fmt.Errorf("BingX account-wide perpetual open-order list is null")
+	}
+	seenIDs := make(map[int64]struct{}, len(orders))
+	for _, order := range orders {
+		if order.OrderID <= 0 || strings.TrimSpace(order.Symbol) == "" {
+			return nil, fmt.Errorf("BingX account-wide perpetual snapshot contains order without identity")
+		}
+		if _, exists := seenIDs[order.OrderID]; exists {
+			return nil, fmt.Errorf("BingX account-wide perpetual snapshot repeated order ID %d", order.OrderID)
+		}
+		seenIDs[order.OrderID] = struct{}{}
+		if order.Side != "BUY" && order.Side != "SELL" {
+			return nil, fmt.Errorf("BingX order %d has unknown side %q", order.OrderID, order.Side)
+		}
+		switch order.Status {
+		case "NEW", "PARTIALLY_FILLED":
+		default:
+			return nil, fmt.Errorf("BingX order %d has unknown open status %q", order.OrderID, order.Status)
+		}
+	}
+	return orders, nil
+}
+
 // GetAccount 獲取帳戶信息
 func (c *BingXClient) GetAccount(ctx context.Context) ([]AccountInfo, error) {
 	path := "/openApi/swap/v3/user/balance"
