@@ -140,6 +140,32 @@ func TestSpotShortBorrowedStateWriteFailureKeepsPreparedIntentAndBlocksSell(t *t
 	}
 }
 
+func TestSpotShortRuntimeReconciliationFailureNotifiesRiskGateOnceUntilRecovery(t *testing.T) {
+	s := newSpotShortForTest(&signalTestExecutor{}, &signalTestExchange{}, &mockMarginExchange{})
+	failure := errors.New("partial terminal sell left borrowed asset unresolved")
+	var reports int
+	s.SetUnresolvedDebtHandler(func(err error) {
+		if !errors.Is(err, failure) {
+			t.Errorf("reported error=%v, want %v", err, failure)
+		}
+		reports++
+	})
+
+	s.reportRuntimeReconciliationFailure(failure)
+	s.reportRuntimeReconciliationFailure(failure)
+	if reports != 1 {
+		t.Fatalf("same unresolved reconciliation should notify once, got %d reports", reports)
+	}
+
+	s.mu.Lock()
+	s.runtimeReconciliationFailureReported = false
+	s.mu.Unlock()
+	s.reportRuntimeReconciliationFailure(failure)
+	if reports != 2 {
+		t.Fatalf("recovered reconciliation should permit a new risk notification, got %d reports", reports)
+	}
+}
+
 func (m *mockMarginExchange) Repay(ctx context.Context, asset string, amount float64) (int64, error) {
 	m.marginMu.Lock()
 	defer m.marginMu.Unlock()

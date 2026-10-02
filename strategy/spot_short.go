@@ -35,16 +35,17 @@ type SpotShortStrategy struct {
 	eventBus        EventBus
 	subscribableBus interface{ Subscribe() <-chan *event.Event }
 
-	ctx                      context.Context
-	cancel                   context.CancelFunc
-	mu                       sync.RWMutex
-	tradeMu                  sync.Mutex
-	pendingRepay             map[int64]spotShortPendingRepay
-	pendingBorrow            map[string]spotShortPendingBorrow
-	pendingBuy               map[string]spotShortPendingBuy
-	runtimeStateStore        RuntimeStateStore
-	runtimeStateErrorHandler func(error)
-	unresolvedDebtHandler    func(error)
+	ctx                                  context.Context
+	cancel                               context.CancelFunc
+	mu                                   sync.RWMutex
+	tradeMu                              sync.Mutex
+	pendingRepay                         map[int64]spotShortPendingRepay
+	pendingBorrow                        map[string]spotShortPendingBorrow
+	pendingBuy                           map[string]spotShortPendingBuy
+	runtimeStateStore                    RuntimeStateStore
+	runtimeStateErrorHandler             func(error)
+	unresolvedDebtHandler                func(error)
+	runtimeReconciliationFailureReported bool
 
 	positions []*Position
 	orders    []*Order
@@ -489,6 +490,9 @@ func (s *SpotShortStrategy) runRuntimeReconciliation(ctx context.Context) {
 			return
 		case <-ticker.C:
 			if !s.hasPendingRuntimeReconciliation() {
+				s.mu.Lock()
+				s.runtimeReconciliationFailureReported = false
+				s.mu.Unlock()
 				continue
 			}
 			reconcileCtx, cancel := context.WithTimeout(ctx, spotShortRuntimeReconcileTimeout)
@@ -496,8 +500,30 @@ func (s *SpotShortStrategy) runRuntimeReconciliation(ctx context.Context) {
 			cancel()
 			if err != nil && ctx.Err() == nil {
 				logger.Warn("⚠️ SpotShortStrategy 运行时负债/订单对账仍未完成，将重试: %v", err)
+				s.reportRuntimeReconciliationFailure(err)
+			} else if err == nil {
+				s.mu.Lock()
+				s.runtimeReconciliationFailureReported = false
+				s.mu.Unlock()
 			}
 		}
+	}
+}
+
+func (s *SpotShortStrategy) reportRuntimeReconciliationFailure(err error) {
+	if err == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.runtimeReconciliationFailureReported {
+		s.mu.Unlock()
+		return
+	}
+	s.runtimeReconciliationFailureReported = true
+	handler := s.unresolvedDebtHandler
+	s.mu.Unlock()
+	if handler != nil {
+		handler(err)
 	}
 }
 
