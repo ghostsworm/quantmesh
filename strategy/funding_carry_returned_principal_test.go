@@ -54,6 +54,60 @@ func TestFundingCarryRejectedSellCannotClearPrincipalUsingRepaymentTotal(t *test
 	}
 }
 
+func TestFundingCarryRejectedSellRetainsTinyUnpaidPrincipal(t *testing.T) {
+	s, margin, store := newFundingCarryReturnedPrincipalFixture(1e-11)
+	if err := s.openReverseHedge(context.Background(), 50000, 50000, -0.01); err == nil {
+		t.Fatal("sell rejection ignored")
+	}
+	var saved fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &saved); err != nil {
+		t.Fatal(err)
+	}
+	if s.marginDebt <= 0 || !s.unownedExposure || s.marginBorrowTransferID == 0 || saved.MarginDebt <= 0 || !saved.ExposureUnknown || saved.MarginBorrowTransferID == 0 {
+		t.Fatal("tiny unpaid principal was cleared or marked verified")
+	}
+	if margin.repayCalls != 1 {
+		t.Fatal("unexpected extra repayment")
+	}
+}
+
+func TestFundingCarryUnfilledReturnRetainsTinyUnpaidPrincipal(t *testing.T) {
+	for _, filled := range []float64{0, 0.003} {
+		s, margin, store := newFundingCarryReturnedPrincipalFixture(1e-11)
+		margin.placeOrderErr = nil
+		margin.getOrderStatus, margin.getOrderExecQty = exchange.OrderStatusFilled, filled
+		if err := s.openReverseHedge(context.Background(), 50000, 50000, -0.01); err == nil {
+			t.Fatal("tiny unpaid principal accepted as reconciled")
+		}
+		var saved fundingCarryRuntimeState
+		if err := json.Unmarshal([]byte(store.payload), &saved); err != nil {
+			t.Fatal(err)
+		}
+		if s.marginDebt <= filled || saved.MarginDebt <= filled || !s.unownedExposure || !saved.ExposureUnknown || s.marginBorrowTransferID == 0 || margin.repayCalls != 1 || len(s.fut.(*fundingCarryBudgetExchange).placedOrders) != 0 {
+			t.Fatal("tiny return mismatch advanced hedge or cleared debt")
+		}
+	}
+}
+
+func TestFundingCarryTinyReturnReplayCannotClaimReconciliation(t *testing.T) {
+	venue := &fundingCarryStableDebtExchange{row: exchange.MarginBorrowRecord{TransferID: 81, Asset: "BTC", Amount: 0.005, Principal: 0.00499999999, Interest: 1e-11, Status: "CONFIRMED", Timestamp: time.Now().UnixMilli()}}
+	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, &venue.mockFCExchange, &venue.mockFCExchange, venue, nil)
+	store := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(store)
+	s.marginDebt, s.direction, s.strategySpotKnown = 0.005, DirectionReverse, true
+	if err := s.returnBorrowedPrincipal(context.Background(), 81, "BTC", 0.005, 0); err == nil {
+		t.Fatal("tiny unpaid principal accepted")
+	}
+	original := store.payload
+	debt := s.marginDebt
+	if err := s.returnBorrowedPrincipal(context.Background(), 81, "BTC", 0.005, 0); err == nil {
+		t.Fatal("ledger replay claimed reconciled debt")
+	}
+	if s.marginDebt != debt || len(s.marginDebtEvents) != 1 || store.payload != original || !s.unownedExposure {
+		t.Fatal("failed replay changed financial evidence")
+	}
+}
+
 func TestFundingCarryUnfilledBorrowReturnUsesConfirmedPrincipal(t *testing.T) {
 	for _, filled := range []float64{0, 0.003} {
 		s, margin, store := newFundingCarryReturnedPrincipalFixture(0.0001)

@@ -3,7 +3,7 @@ package strategy
 import (
 	"context"
 	"fmt"
-	"math"
+	"math/big"
 )
 
 // Commit returned principal and its evidence together, never using total repayment.
@@ -17,7 +17,6 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
 		return err
 	}
-	tolerance := math.Max(1e-10, s.marginDebt*1e-8)
 	if !validRuntimeAmount(s.marginDebt) || !validRuntimeAmount(expectedRemaining) {
 		return fmt.Errorf("margin principal state is invalid")
 	}
@@ -25,20 +24,23 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 		if err != nil {
 			return err
 		}
-		if math.Abs(s.marginDebt-expectedRemaining) <= tolerance {
+		if fundingCarryFinancialAmountsMatch(s.marginDebt, expectedRemaining) {
 			return nil
 		}
 		return fmt.Errorf("replayed margin repayment requires principal state reconciliation")
 	}
-	remaining := s.marginDebt - confirmed.Principal
-	if !validRuntimeAmount(remaining) && remaining < -tolerance {
-		return fmt.Errorf("returned margin principal exceeds owned debt")
+	returned := new(big.Rat).Sub(fundingCarryDecimalPrincipal(s.marginDebt), fundingCarryDecimalPrincipal(confirmed.Principal))
+	if returned.Sign() < 0 {
+		if !fundingCarryFinancialAmountsMatch(s.marginDebt, confirmed.Principal) {
+			return fmt.Errorf("returned margin principal exceeds owned debt")
+		}
+		returned.SetInt64(0)
 	}
-	remaining = math.Max(0, remaining)
+	remaining, _ := returned.Float64()
 	previousDebt := s.marginDebt
 	s.marginDebtEvents = append(s.marginDebtEvents, confirmed)
 	s.marginDebt = remaining
-	mismatch := math.Abs(remaining-expectedRemaining) > tolerance
+	mismatch := !fundingCarryFinancialAmountsMatch(remaining, expectedRemaining)
 	if mismatch {
 		s.unownedExposure = true
 	}
