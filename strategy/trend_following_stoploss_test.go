@@ -23,6 +23,7 @@ func TestTrendFollowingStopLossRunsInSidewaysTrend(t *testing.T) {
 			cfg.Trading.MarketType = "futures"
 			executor := &signalTestExecutor{}
 			s := NewTrendFollowingStrategy("trend", cfg, executor, &signalTestExchange{}, map[string]interface{}{"order_amount": 100.0})
+			setTestRuntimeStateStore(t, s)
 			if err := s.Start(context.Background()); err != nil {
 				t.Fatalf("start: %v", err)
 			}

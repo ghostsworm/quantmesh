@@ -22,6 +22,7 @@ func TestAuditNonGridStrategyMustHonorOpeningPause(t *testing.T) {
 	cfg.Trading.OpenPositionControl.PauseOpening = true
 	exec := &signalTestExecutor{}
 	s := NewMeanReversionStrategy("mean_reversion", cfg, exec, &signalTestExchange{}, map[string]interface{}{"period": 2, "std_multiplier": 0.5, "order_amount": 100.0, "slippage": 0.001})
+	setTestRuntimeStateStore(t, s)
 	if err := s.Start(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -47,6 +48,7 @@ func TestAuditSignalStrategiesMustRetainPartialFillOnCancel(t *testing.T) {
 			var holdings []*Position
 			if kind == "trend" {
 				s := NewTrendFollowingStrategy("trend", cfg, &signalTestExecutor{}, &signalTestExchange{}, nil)
+				setTestRuntimeStateStore(t, s)
 				s.activeOrder = ord
 				s.pendingAction = signalActionOpenLong
 				if err := s.OnOrderUpdate(partial); err != nil {
@@ -58,6 +60,7 @@ func TestAuditSignalStrategiesMustRetainPartialFillOnCancel(t *testing.T) {
 				holdings = s.GetPositions()
 			} else {
 				s := NewMeanReversionStrategy("mean", cfg, &signalTestExecutor{}, &signalTestExchange{}, nil)
+				setTestRuntimeStateStore(t, s)
 				s.activeOrder = ord
 				s.pendingAction = signalActionOpenLong
 				if err := s.OnOrderUpdate(partial); err != nil {

@@ -81,6 +81,30 @@ func setTestRuntimeStateStore(t *testing.T, strategy interface{ SetRuntimeStateS
 	strategy.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 }
 
+func TestSignalStrategiesRefuseToStartWithoutRuntimeStateStore(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	cfg.Trading.MarketType = "futures"
+	ex := &hedgeExchange{}
+	cases := []struct {
+		name  string
+		start func() error
+	}{
+		{name: "trend", start: func() error { return NewTrendFollowingStrategy("trend", cfg, nil, ex, nil).Start(context.Background()) }},
+		{name: "mean_reversion", start: func() error {
+			return NewMeanReversionStrategy("mean_reversion", cfg, nil, ex, nil).Start(context.Background())
+		}},
+		{name: "momentum", start: func() error { return NewMomentumStrategy("momentum", cfg, nil, ex, nil).Start(context.Background()) }},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.start(); err == nil {
+				t.Fatal("strategy started without durable inventory/order state")
+			}
+		})
+	}
+}
+
 func (m *memoryRuntimeStateStore) LoadRuntimeState(string) (int, string, bool, error) {
 	return m.version, m.payload, m.found, m.err
 }

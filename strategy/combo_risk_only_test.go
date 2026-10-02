@@ -13,6 +13,7 @@ func TestTrendFollowingRiskOnlyBlocksOpeningAndKeepsStopLossExit(t *testing.T) {
 	trend := NewTrendFollowingStrategy("trend", cfg, executor, &signalTestExchange{}, map[string]interface{}{
 		"method": "ma", "short_period": 2, "long_period": 3, "stop_loss": 0.02, "take_profit": 0.5,
 	})
+	setTestRuntimeStateStore(t, trend)
 	trend.isRunning = true
 	trend.priceHistory = []float64{90, 95, 100, 105}
 	if err := trend.OnPriceChangeRiskOnly(110); err != nil {
@@ -39,6 +40,7 @@ func TestMeanReversionRiskOnlyBlocksOpeningAndKeepsExitSignal(t *testing.T) {
 	mean := NewMeanReversionStrategy("mean", cfg, executor, &signalTestExchange{}, map[string]interface{}{
 		"period": 2, "std_multiplier": 0.5, "reversion_threshold": 0.5,
 	})
+	setTestRuntimeStateStore(t, mean)
 	mean.isRunning = true
 	mean.priceHistory = []float64{100, 100}
 	if err := mean.OnPriceChangeRiskOnly(90); err != nil {

@@ -38,18 +38,21 @@ func TestSignalUnknownRetainsActionAndAcceptsLateBrokerFill(t *testing.T) {
 				var submit func(string, float64) error
 				if kind == "trend" {
 					v := NewTrendFollowingStrategy(kind, cfg, executor, &brokerSignalExchange{}, nil)
+					setTestRuntimeStateStore(t, v)
 					if action == signalActionCloseLong {
 						v.position = &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100}
 					}
 					s, submit = v, v.placeSignalOrder
 				} else if kind == "mean_reversion" {
 					v := NewMeanReversionStrategy(kind, cfg, executor, &brokerSignalExchange{}, nil)
+					setTestRuntimeStateStore(t, v)
 					if action == signalActionCloseLong {
 						v.position = &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100}
 					}
 					s, submit = v, v.placeSignalOrder
 				} else {
 					v := NewMomentumStrategy(kind, cfg, executor, &brokerSignalExchange{}, nil)
+					setTestRuntimeStateStore(t, v)
 					if action == signalActionCloseLong {
 						v.position = &Position{Symbol: "BTCUSDT", Size: 1, EntryPrice: 100}
 					}

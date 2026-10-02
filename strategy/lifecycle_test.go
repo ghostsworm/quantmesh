@@ -33,6 +33,7 @@ func TestTrendFollowingStrategyStartStopRefreshesContext(t *testing.T) {
 	defer parentCancel()
 
 	s := NewTrendFollowingStrategy("trend", nil, nil, nil, nil)
+	setTestRuntimeStateStore(t, s)
 	oldCtx := s.ctx
 	if err := s.Start(parent); err != nil {
 		t.Fatalf("Start failed: %v", err)

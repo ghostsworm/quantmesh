@@ -373,6 +373,7 @@ func TestSignalLiveFillRequiresAndUsesAuthoritativeFillHistory(t *testing.T) {
 		Price: 100, Quantity: 0.5, CommissionQuoteKnown: true, CommissionQuote: 0,
 	}}}
 	strategy := NewTrendFollowingStrategy("trend", &config.Config{}, &signalTestExecutor{}, venue, nil)
+	setTestRuntimeStateStore(t, strategy)
 	strategy.activeOrder = &Order{OrderID: 42, ClientOrderID: "signal-42", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100, Status: position.OrderStatusUnknown}
 	strategy.pendingAction = signalActionOpenLong
 	update := &position.OrderUpdate{OrderID: 42, ClientOrderID: "signal-42", Symbol: "BTCUSDT", Side: "BUY",
@@ -391,6 +392,7 @@ func TestSignalMissingFeeHistoryRetainsAndLocksLiveFill(t *testing.T) {
 	venue := &signalFeeEvidenceExchange{}
 	executor := &signalReconciliationExecutor{}
 	strategy := NewTrendFollowingStrategy("trend", &config.Config{}, executor, venue, nil)
+	setTestRuntimeStateStore(t, strategy)
 	strategy.activeOrder = &Order{OrderID: 43, ClientOrderID: "signal-43", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
 	strategy.pendingAction = signalActionOpenLong
 	err := strategy.OnOrderUpdate(&position.OrderUpdate{OrderID: 43, ClientOrderID: "signal-43", Symbol: "BTCUSDT", Side: "BUY",

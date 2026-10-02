@@ -50,7 +50,7 @@ func signalStrategyBotID(cfg *config.Config, exchange position.IExchange, symbol
 func saveSignalRuntimeState(store RuntimeStateStore, cfg *config.Config, exchange position.IExchange, strategyName, symbol string,
 	holding *Position, entryPrice float64, active *Order, action string, stats *StrategyStatistics, paused bool) error {
 	if store == nil {
-		return nil
+		return fmt.Errorf("signal strategy runtime state store is required")
 	}
 	state := signalRuntimeState{
 		BotID: signalStrategyBotID(cfg, exchange, symbol), StrategyName: strategyName, Symbol: symbol,
@@ -80,7 +80,7 @@ func saveSignalRuntimeState(store RuntimeStateStore, cfg *config.Config, exchang
 
 func loadSignalRuntimeState(store RuntimeStateStore, cfg *config.Config, exchange position.IExchange, strategyName, symbol string) (*signalRuntimeState, bool, error) {
 	if store == nil {
-		return nil, false, nil
+		return nil, false, fmt.Errorf("signal strategy runtime state store is required")
 	}
 	version, payload, found, err := store.LoadRuntimeState(strategyName)
 	if err != nil {

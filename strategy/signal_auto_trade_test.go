@@ -87,6 +87,7 @@ func TestMeanReversionAutoTradesOpenAndCloseLong(t *testing.T) {
 		"order_amount":   100.0,
 		"slippage":       0.001,
 	})
+	setTestRuntimeStateStore(t, strategy)
 	if err := strategy.Start(context.Background()); err != nil {
 		t.Fatalf("start strategy: %v", err)
 	}
@@ -137,6 +138,7 @@ func TestMomentumAndTrendVisualizationReportAutoTrading(t *testing.T) {
 	exchange := &signalTestExchange{}
 
 	momentum := NewMomentumStrategy("momentum", cfg, executor, exchange, map[string]interface{}{"order_amount": 100.0})
+	setTestRuntimeStateStore(t, momentum)
 	if err := momentum.Start(context.Background()); err != nil {
 		t.Fatalf("start momentum: %v", err)
 	}
@@ -145,6 +147,7 @@ func TestMomentumAndTrendVisualizationReportAutoTrading(t *testing.T) {
 	}
 
 	trend := NewTrendFollowingStrategy("trend", cfg, executor, exchange, map[string]interface{}{"order_amount": 100.0})
+	setTestRuntimeStateStore(t, trend)
 	if err := trend.Start(context.Background()); err != nil {
 		t.Fatalf("start trend: %v", err)
 	}
