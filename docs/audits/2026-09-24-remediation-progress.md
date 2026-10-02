@@ -2811,3 +2811,9 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - R09/R12 複核發現 Combo 初始化遇到未知子策略類型僅記錄 warning 並跳過，組合仍可能以剩餘子策略啟動，導致實際風險配置與用戶配置不一致；例如已存在的 Momentum 實作目前尚未接入 Combo。
 - Combo 現在保存初始化錯誤並於 `Start` 前拒絕啟動；空參數 map 會先初始化，避免配置省略 parameters 時觸發 nil map panic。新增未知子策略拒絕部分啟動回歸。
 - 此修復不代表 Combo 所有策略類型已支援，也不代表真實交易所重啟、帳戶級限額或盈利能力已驗收。
+
+## 後續續修：Combo Momentum 子策略接入執行與恢復鏈（3.111.0-rc852，2026-10-02）
+
+- 延續 R09/R12 核驗，Momentum 雖已具備獨立的持久化 signal state 與啟動倉位身份恢復能力，卻未接入 Combo 初始化/子狀態 loader，且缺少 risk-only 價格路徑；因此 rc851 fail-closed 雖防止靜默漏策略，仍不能安全運行已配置的 Momentum 子策略。
+- Combo 現在建構 Momentum child、透過 namespaced store 注入耐久狀態，啟動時依 momentum 類型載入並匯入經訂單身份核驗的持倉；Combo gate 阻止新開倉時，Momentum 仍更新持倉標記並允許既有多倉退出。
+- 新增 Momentum child 構造/持久化注入、Combo namespaced 持倉恢復及 risk-only 禁止開倉/允許退出測試。尚未以真實交易所驗證重啟、訂單/成交時序、完整組合经济账、跨交易對账户级限额或盈利能力；未連接真實帳戶或下單。

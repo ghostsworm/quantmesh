@@ -521,6 +521,33 @@ func TestLoadComboExposureInventoryRestoresNamespacedChildIdentity(t *testing.T)
 	}
 }
 
+func TestLoadComboExposureInventoryRestoresNamespacedMomentumPosition(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "combo-momentum-bot", "BTCUSDT"
+	state := signalRuntimeState{
+		BotID: cfg.Trading.BotID, StrategyName: "momentum-fast", Symbol: "BTCUSDT", EntryPrice: 99,
+		Position: &Position{Symbol: "BTCUSDT", Size: 0.2, EntryPrice: 99, CurrentPrice: 101,
+			EntryOrderID: 731, EntryClientOrderID: "momentum-entry"},
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: signalRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	comboConfig := map[string]interface{}{"strategies": []interface{}{
+		map[string]interface{}{"name": "momentum-fast", "type": "momentum", "parameters": map[string]interface{}{}},
+	}}
+	lots, found, err := LoadComboExposureInventory(store, cfg, &hedgeExchange{}, "BTCUSDT", comboConfig)
+	if err != nil || !found || len(lots) != 1 {
+		t.Fatalf("Momentum Combo recovery=%+v found=%t err=%v", lots, found, err)
+	}
+	lot := lots[0]
+	if lot.Group != "momentum-fast" || lot.EntryStrategyType != "momentum" || lot.EntryOrderID != 731 ||
+		lot.EntryClientOrderID != "momentum-entry" || lot.Quantity != 0.2 {
+		t.Fatalf("recovered Momentum exposure identity = %+v", lot)
+	}
+}
+
 func TestMartingaleRuntimeStateRejectsAveragePriceMismatch(t *testing.T) {
 	state := martingaleRuntimeState{
 		StrategyName: "martingale", Symbol: "BTCUSDT", Direction: "LONG",

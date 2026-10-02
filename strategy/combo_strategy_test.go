@@ -84,14 +84,34 @@ func TestComboStrategyRejectsUnsupportedChildInsteadOfStartingPartially(t *testi
 	combo := NewComboStrategy("combo", "BTCUSDT", &config.Config{}, nil, nil, map[string]interface{}{
 		"strategies": []interface{}{
 			map[string]interface{}{"name": "known", "type": "dca", "weight": 0.5},
-			map[string]interface{}{"name": "unsupported", "type": "momentum", "weight": 0.5},
+			map[string]interface{}{"name": "unsupported", "type": "not_implemented", "weight": 0.5},
 		},
 	})
-	if err := combo.Start(context.Background()); err == nil || !strings.Contains(err.Error(), `unsupported type "momentum"`) {
+	if err := combo.Start(context.Background()); err == nil || !strings.Contains(err.Error(), `unsupported type "not_implemented"`) {
 		t.Fatalf("unsupported child did not fail startup explicitly: %v", err)
 	}
 	if combo.IsRunning() {
 		t.Fatal("combo started with only a subset of its configured child strategies")
+	}
+}
+
+func TestComboStrategyInitializesMomentumChildWithDurableState(t *testing.T) {
+	combo := NewComboStrategy("combo", "BTCUSDT", &config.Config{}, nil, nil, map[string]interface{}{
+		"strategies": []interface{}{
+			map[string]interface{}{"name": "momentum-fast", "type": "momentum", "weight": 1.0},
+		},
+	})
+	if combo.initErr != nil || len(combo.strategies) != 1 {
+		t.Fatalf("Momentum child initialization failed: strategies=%d err=%v", len(combo.strategies), combo.initErr)
+	}
+	if _, ok := combo.strategies[0].(*MomentumStrategy); !ok {
+		t.Fatalf("Combo child type = %T, want *MomentumStrategy", combo.strategies[0])
+	}
+	if _, ok := combo.strategies[0].(riskOnlyPriceHandler); !ok {
+		t.Fatal("Momentum child must retain existing-position exits under Combo risk gates")
+	}
+	if err := combo.SetRuntimeStateStore(&comboStateCapture{}); err != nil {
+		t.Fatalf("inject durable runtime state into Momentum child: %v", err)
 	}
 }
 

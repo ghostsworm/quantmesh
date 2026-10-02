@@ -363,6 +363,14 @@ func (s *ComboStrategy) initializeStrategies() error {
 				s.exchange,
 				stratCfg.Parameters,
 			)
+		case "momentum":
+			strategy = NewMomentumStrategy(
+				stratCfg.Name,
+				s.cfg,
+				s.executor,
+				s.exchange,
+				stratCfg.Parameters,
+			)
 		default:
 			return fmt.Errorf("combo sub-strategy %q has unsupported type %q; refusing partial strategy startup", stratCfg.Name, stratCfg.Type)
 		}

@@ -86,7 +86,7 @@ func LoadComboExposureInventory(store RuntimeStateStore, cfg *config.Config, ex 
 		case "martingale":
 			parameters["direction"] = child.Direction
 			lots, found, err = LoadMartingaleExposureInventory(childStore, cfg, ex, name, comboCfg.Symbol, parameters)
-		case "trend", "mean_reversion":
+		case "trend", "mean_reversion", "momentum":
 			lots, found, err = LoadNamedSignalRuntimeExposureInventory(childStore, cfg, ex, comboCfg.Symbol, name, strategyType)
 		default:
 			return nil, false, fmt.Errorf("unsupported combo child strategy type %q for exposure recovery", child.Type)

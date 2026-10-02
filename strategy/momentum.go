@@ -224,9 +224,18 @@ func (ms *MomentumStrategy) calculateRSI() float64 {
 
 // OnPriceChange 價格變化处理
 func (ms *MomentumStrategy) OnPriceChange(price float64) error {
+	return ms.onPriceChange(price, true)
+}
+
+// OnPriceChangeRiskOnly keeps mark updates and long exits active while Combo risk gates block new exposure.
+func (ms *MomentumStrategy) OnPriceChangeRiskOnly(price float64) error {
+	return ms.onPriceChange(price, false)
+}
+
+func (ms *MomentumStrategy) onPriceChange(price float64, allowOpening bool) error {
 	ms.mu.Lock()
 	stateErr := ms.runtimeStateErr
-	shouldEvaluate := ms.isRunning && !ms.isPaused && ms.activeOrder == nil
+	shouldEvaluate := ms.isRunning && (!ms.isPaused || !allowOpening) && ms.activeOrder == nil
 	priceErr := updateSignalPositionMark(ms.position, price)
 	ms.mu.Unlock()
 	if priceErr != nil {
@@ -248,7 +257,7 @@ func (ms *MomentumStrategy) OnPriceChange(price float64) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	// RSI < 30：超賣，買入信号
-	if rsi < ms.oversold && ms.position == nil {
+	if allowOpening && rsi < ms.oversold && ms.position == nil {
 		logger.Info("📊 [%s] RSI超賣，買入信号: RSI=%.2f, 價格=%.2f", ms.name, rsi, price)
 		return ms.placeSignalOrder(signalActionOpenLong, price)
 	}

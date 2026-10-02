@@ -60,3 +60,31 @@ func TestMeanReversionRiskOnlyBlocksOpeningAndKeepsExitSignal(t *testing.T) {
 		t.Fatalf("risk-only mode failed to submit existing-position exit: %+v", executor.orders)
 	}
 }
+
+func TestMomentumRiskOnlyBlocksOpeningAndKeepsExitSignal(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	executor := &signalTestExecutor{}
+	momentum := NewMomentumStrategy("momentum", cfg, executor, &signalTestExchange{}, map[string]interface{}{
+		"rsi_period": 2, "oversold": 30.0, "overbought": 70.0,
+	})
+	setTestRuntimeStateStore(t, momentum)
+	momentum.isRunning = true
+	momentum.priceHistory = []float64{100, 99}
+	if err := momentum.OnPriceChangeRiskOnly(98); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.orders) != 0 {
+		t.Fatalf("oversold signal opened a position in risk-only mode: %+v", executor.orders)
+	}
+
+	momentum.position = &Position{Symbol: "BTCUSDT", Size: 0.1, EntryPrice: 99}
+	momentum.entryPrice = 99
+	momentum.priceHistory = []float64{98, 99}
+	if err := momentum.OnPriceChangeRiskOnly(100); err != nil {
+		t.Fatal(err)
+	}
+	if len(executor.orders) != 1 || executor.orders[0].Side != "SELL" {
+		t.Fatalf("risk-only mode failed to submit overbought exit: %+v", executor.orders)
+	}
+}
