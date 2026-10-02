@@ -110,3 +110,29 @@ func TestIntrabarRunSmallBacktest(t *testing.T) {
 		t.Fatalf("result final capital/price curve = %.2f/%+v", result.FinalCapital, result.PriceCurve)
 	}
 }
+
+func TestIntrabarFinalEquityIncludesForcedCloseFee(t *testing.T) {
+	candles := []*exchange.Candle{{Symbol: "BTCUSDT", Open: 100, High: 120, Low: 90, Close: 110, Volume: 80, Timestamp: 60_000}}
+	strategy := &sequenceStrategy{name: "forced-close", actions: []string{"hold", "hold", "hold", "buy"}}
+	ibt := NewIntrabarBacktester("BTCUSDT", candles, strategy, 1000, 4)
+	ibt.SetFees(0.01, 0.01, 0)
+	result, err := ibt.Run()
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(result.Trades) != 2 || result.Trades[1].Type != "sell" {
+		t.Fatalf("trades = %+v, want buy and terminal forced sell", result.Trades)
+	}
+	lastEquity := result.Equity[len(result.Equity)-1].Equity
+	if lastEquity != result.FinalCapital {
+		t.Fatalf("last equity %.8f != final capital %.8f", lastEquity, result.FinalCapital)
+	}
+	wantFinal := result.InitialCapital - result.Trades[0].Price*result.Trades[0].Quantity - result.Trades[0].Fee + result.Trades[1].Price*result.Trades[1].Quantity - result.Trades[1].Fee
+	if result.FinalCapital != wantFinal {
+		t.Fatalf("final capital %.8f != cash after forced-close fee %.8f", result.FinalCapital, wantFinal)
+	}
+	wantReturn := (wantFinal - result.InitialCapital) / result.InitialCapital * 100
+	if result.Metrics.TotalReturn != wantReturn {
+		t.Fatalf("total return %.8f != post-close return %.8f", result.Metrics.TotalReturn, wantReturn)
+	}
+}

@@ -188,6 +188,11 @@ func (ibt *IntrabarBacktester) Run() (*BacktestResult, error) {
 	if ibt.position > 0 {
 		lastCandle := ibt.candles[len(ibt.candles)-1]
 		ibt.executeSellAtPrice(lastCandle.Close, lastCandle.Timestamp)
+		// The final simulated tick was marked before this forced close. Replace
+		// that mark with post-close cash so final metrics include the closing fee.
+		if len(ibt.equity) > 0 {
+			ibt.equity[len(ibt.equity)-1].Equity = ibt.cash
+		}
 		logger.Info("📊 回测結束，强制平倉")
 	}
 
