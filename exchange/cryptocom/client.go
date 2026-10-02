@@ -327,12 +327,17 @@ func (c *CryptoComClient) GetOpenOrders(ctx context.Context, instrumentName stri
 	}
 
 	var result OpenOrdersResult
-	dataBytes, _ := json.Marshal(apiResp.Result)
+	dataBytes, err := json.Marshal(apiResp.Result)
+	if err != nil {
+		return nil, fmt.Errorf("marshal open orders result: %w", err)
+	}
 	if err := json.Unmarshal(dataBytes, &result); err != nil {
 		return nil, fmt.Errorf("unmarshal data error: %w", err)
 	}
-
-	return result.OrderList, nil
+	if result.OrderList == nil {
+		return nil, fmt.Errorf("Crypto.com open orders response missing order_list")
+	}
+	return *result.OrderList, nil
 }
 
 // GetAccountSummary 獲取帳戶信息
@@ -509,7 +514,7 @@ type OrderDetailResult struct {
 }
 
 type OpenOrdersResult struct {
-	OrderList []Order `json:"order_list"`
+	OrderList *[]Order `json:"order_list"`
 }
 
 type AccountSummary struct {

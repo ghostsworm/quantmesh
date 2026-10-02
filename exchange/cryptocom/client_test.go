@@ -99,6 +99,69 @@ func TestGetAccountSummaryReturnsCurrencyAndRejectsEmptyAccounts(t *testing.T) {
 	}
 }
 
+func TestAccountOpenOrdersReadsAllInstrumentsAndValidatesSnapshot(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+		wantErr  bool
+		wantLen  int
+	}{
+		{
+			name:     "all instruments including pending order",
+			response: `{"id":"1","code":"0","result":{"order_list":[{"order_id":42,"instrument_name":"BTCUSD-PERP","side":"BUY","status":"ACTIVE","quantity":"2","cumulative_quantity":"0"},{"order_id":43,"instrument_name":"ETHUSD-PERP","side":"SELL","status":"PENDING","quantity":"1","cumulative_quantity":"0.25"}]}}`,
+			wantLen:  2,
+		},
+		{name: "empty complete snapshot", response: `{"id":"1","code":"0","result":{"order_list":[]}}`},
+		{name: "missing order list", response: `{"id":"1","code":"0","result":{}}`, wantErr: true},
+		{name: "null order list", response: `{"id":"1","code":"0","result":{"order_list":null}}`, wantErr: true},
+		{name: "unknown status", response: `{"id":"1","code":"0","result":{"order_list":[{"order_id":42,"instrument_name":"BTCUSD-PERP","side":"BUY","status":"MYSTERY","quantity":"1","cumulative_quantity":"0"}]}}`, wantErr: true},
+		{name: "duplicate order ID", response: `{"id":"1","code":"0","result":{"order_list":[{"order_id":42,"instrument_name":"BTCUSD-PERP","side":"BUY","status":"ACTIVE","quantity":"1","cumulative_quantity":"0"},{"order_id":42,"instrument_name":"ETHUSD-PERP","side":"SELL","status":"ACTIVE","quantity":"1","cumulative_quantity":"0"}]}}`, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var request struct {
+					Method string                 `json:"method"`
+					Params map[string]interface{} `json:"params"`
+				}
+				if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+					t.Errorf("decode request: %v", err)
+					return
+				}
+				if request.Method != "private/get-open-orders" {
+					t.Errorf("method = %q", request.Method)
+				}
+				if _, filtered := request.Params["instrument_name"]; filtered {
+					t.Errorf("account snapshot was instrument-filtered: %#v", request.Params)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tt.response))
+			}))
+			defer server.Close()
+
+			client := NewCryptoComClient("key", "secret", false)
+			client.baseURL = server.URL
+			client.httpClient = server.Client()
+			orders, err := (&Adapter{client: client}).GetAccountOpenOrders(context.Background())
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("GetAccountOpenOrders() accepted invalid snapshot")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetAccountOpenOrders(): %v", err)
+			}
+			if len(orders) != tt.wantLen {
+				t.Fatalf("len(orders) = %d, want %d", len(orders), tt.wantLen)
+			}
+			if tt.wantLen == 2 && (orders[0].InstrumentName != "BTCUSD-PERP" || orders[1].InstrumentName != "ETHUSD-PERP" || orders[1].ExecutedQty != 0.25) {
+				t.Fatalf("orders = %#v", orders)
+			}
+		})
+	}
+}
+
 func TestNewCryptoComClient(t *testing.T) {
 	apiKey := "test_api_key"
 	secretKey := "test_secret_key"

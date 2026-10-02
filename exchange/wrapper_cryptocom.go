@@ -11,6 +11,8 @@ type cryptocomWrapper struct {
 	adapter *cryptocom.Adapter
 }
 
+var _ AccountOpenOrdersReader = (*cryptocomWrapper)(nil)
+
 func (w *cryptocomWrapper) GetName() string {
 	return w.adapter.GetName()
 }
@@ -129,6 +131,28 @@ func (w *cryptocomWrapper) GetOpenOrders(ctx context.Context, symbol string) ([]
 			ClientOrderID: order.ClientOID,
 			Symbol:        order.InstrumentName,
 			Side:          side,
+			Price:         order.Price,
+			Quantity:      order.Quantity,
+			ExecutedQty:   order.ExecutedQty,
+			Status:        OrderStatus(order.Status),
+			UpdateTime:    order.UpdateTime,
+		})
+	}
+	return result, nil
+}
+
+func (w *cryptocomWrapper) GetAccountOpenOrders(ctx context.Context) ([]*Order, error) {
+	orders, err := w.adapter.GetAccountOpenOrders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Order, 0, len(orders))
+	for _, order := range orders {
+		result = append(result, &Order{
+			OrderID:       order.OrderID,
+			ClientOrderID: order.ClientOID,
+			Symbol:        order.InstrumentName,
+			Side:          Side(order.Side),
 			Price:         order.Price,
 			Quantity:      order.Quantity,
 			ExecutedQty:   order.ExecutedQty,

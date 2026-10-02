@@ -3,6 +3,7 @@ package cryptocom
 import (
 	"context"
 	"fmt"
+	"math"
 	"quantmesh/logger"
 	"strings"
 )
@@ -127,6 +128,51 @@ func (a *Adapter) GetOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
 		result = append(result, a.convertOrder(&order))
 	}
 	return result, nil
+}
+
+// GetAccountOpenOrders returns the complete active-order snapshot without an instrument filter.
+func (a *Adapter) GetAccountOpenOrders(ctx context.Context) ([]*OrderLocal, error) {
+	orders, err := a.client.GetOpenOrders(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("Crypto.com get account open orders: %w", err)
+	}
+	if orders == nil {
+		return nil, fmt.Errorf("Crypto.com account open orders returned a nil snapshot")
+	}
+
+	result := make([]*OrderLocal, 0, len(orders))
+	seenIDs := make(map[int64]struct{}, len(orders))
+	for i := range orders {
+		order := &orders[i]
+		if order.OrderID <= 0 || strings.TrimSpace(order.InstrumentName) == "" {
+			return nil, fmt.Errorf("Crypto.com account open orders row %d has invalid identity", i)
+		}
+		if _, exists := seenIDs[order.OrderID]; exists {
+			return nil, fmt.Errorf("Crypto.com account open orders contains duplicate order ID %d", order.OrderID)
+		}
+		seenIDs[order.OrderID] = struct{}{}
+		if order.Side != string(SideBuy) && order.Side != string(SideSell) {
+			return nil, fmt.Errorf("Crypto.com account open order %d has invalid side %q", order.OrderID, order.Side)
+		}
+		switch order.Status {
+		case "ACTIVE", "PENDING", "NEW":
+		default:
+			return nil, fmt.Errorf("Crypto.com account open order %d has unexpected status %q", order.OrderID, order.Status)
+		}
+		if !isFinitePositive(order.Quantity) || !isFiniteNonNegative(order.CumQuantity) || order.CumQuantity > order.Quantity {
+			return nil, fmt.Errorf("Crypto.com account open order %d has invalid quantities", order.OrderID)
+		}
+		result = append(result, a.convertOrder(order))
+	}
+	return result, nil
+}
+
+func isFinitePositive(value float64) bool {
+	return value > 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
+}
+
+func isFiniteNonNegative(value float64) bool {
+	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func (a *Adapter) GetAccount(ctx context.Context) (*AccountLocal, error) {
