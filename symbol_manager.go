@@ -599,7 +599,7 @@ func startSymbolRuntime(
 		}
 		availableBalanceObservedAt = time.Now().UTC()
 		if balanceErr == nil {
-			availableBalance, balanceErr = ex.GetBalance(balanceCtx, quoteAsset)
+			availableBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, ex, quoteAsset)
 		}
 		cancel()
 	}
@@ -607,14 +607,14 @@ func startSymbolRuntime(
 	var capitalClaim storage.AccountWalletCapitalClaim
 	capitalClaimReady := false
 	if balanceErr != nil {
-		capitalErr = fmt.Errorf("read %s available balance: %w", quoteAsset, balanceErr)
+		capitalErr = fmt.Errorf("read verified %s account equity: %w", quoteAsset, balanceErr)
 	}
 	accountCapitalTotal, accountCapitalErr := configuredAccountCapitalTotalForQuote(baseCfg, symCfg, quoteAsset)
 	if capitalErr == nil && accountCapitalErr != nil {
 		capitalErr = accountCapitalErr
 	}
 	if capitalErr == nil && accountCapitalTotal > availableBalance {
-		capitalErr = fmt.Errorf("configured Bot allocations %.2f %s exceed current available balance %.2f %s",
+		capitalErr = fmt.Errorf("configured Bot allocations %.2f %s exceed verified account equity %.2f %s",
 			accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
 	}
 	if capitalErr == nil {
@@ -805,10 +805,10 @@ func startSymbolRuntime(
 		// strand a reservation for a Bot that never reached trading admission.
 		superPositionManager.OpeningGate().Block(accountWalletCapitalReservationPendingBlock)
 		if requestedCapital > botCapitalBudget {
-			logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過交易所可用余额 %.2f %s，Bot 总名义敞口已下調至可用余额",
+			logger.WarnCtx(ctx, "⚠️ [%s] 配置資金上限 %.2f %s 超過已核實帳戶權益 %.2f %s，Bot 总名义敞口已下調至該權益",
 				botID, requestedCapital, quoteAsset, botCapitalBudget, quoteAsset)
 		} else {
-			logger.InfoCtx(ctx, "💰 [%s] 同账户已配置 Bot 资金预算合计 %.2f %s，当前可用余额 %.2f %s",
+			logger.InfoCtx(ctx, "💰 [%s] 同账户已配置 Bot 资金预算合计 %.2f %s，已核實帳戶權益 %.2f %s",
 				botID, accountCapitalTotal, quoteAsset, availableBalance, quoteAsset)
 		}
 	}

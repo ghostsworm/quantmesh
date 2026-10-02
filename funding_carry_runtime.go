@@ -124,13 +124,13 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("begin %s USDT balance observation: %w", wallet.market, sequenceErr)
 		}
 		observedAt := time.Now().UTC()
-		available, balanceErr := wallet.ex.GetBalance(balanceCtx, "USDT")
+		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, wallet.ex, "USDT")
 		cancelBalance()
 		if balanceErr != nil {
-			return nil, fmt.Errorf("讀取 %s USDT 可用餘額: %w", wallet.market, balanceErr)
+			return nil, fmt.Errorf("讀取 %s USDT 帳戶權益: %w", wallet.market, balanceErr)
 		}
 		if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || allocated > available {
-			return nil, fmt.Errorf("同帳戶 %s 配置資金 %.2f USDT 超過或無法核實可用餘額 %.2f USDT", wallet.market, allocated, available)
+			return nil, fmt.Errorf("同帳戶 %s 配置資金 %.2f USDT 超過或無法核實帳戶權益 %.2f USDT", wallet.market, allocated, available)
 		}
 		if wallet.market == "futures" {
 			futuresAccountCapital = allocated
@@ -179,13 +179,13 @@ func startFundingCarrySymbolRuntime(
 			return nil, fmt.Errorf("begin spot_margin USDT balance observation: %w", err)
 		}
 		marginAvailableAt = time.Now().UTC()
-		available, balanceErr := marginEx.GetBalance(balanceCtx, "USDT")
+		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, marginEx, "USDT")
 		cancelBalance()
 		if balanceErr != nil {
-			return nil, fmt.Errorf("讀取 spot_margin USDT 可用餘額: %w", balanceErr)
+			return nil, fmt.Errorf("讀取 spot_margin USDT 帳戶權益: %w", balanceErr)
 		}
 		if math.IsNaN(available) || math.IsInf(available, 0) || available <= 0 || allocated > available {
-			return nil, fmt.Errorf("同帳戶 spot_margin 配置資金 %.2f USDT 超過或無法核實可用餘額 %.2f USDT", allocated, available)
+			return nil, fmt.Errorf("同帳戶 spot_margin 配置資金 %.2f USDT 超過或無法核實帳戶權益 %.2f USDT", allocated, available)
 		}
 		marginAvailable = available
 	}

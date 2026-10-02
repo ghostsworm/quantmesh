@@ -185,14 +185,14 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 	legABalanceObservedAt := time.Now().UTC()
 	balanceCtx, cancelBalance := context.WithTimeout(ctx, 10*time.Second)
-	legABalance, balanceErr := legAEx.GetBalance(balanceCtx, spreadCapitalAsset)
+	legABalance, balanceErr := readAccountWalletCapitalValue(balanceCtx, legAEx, spreadCapitalAsset)
 	legBObservationSequence, sequenceErr := beginAccountWalletBalanceObservation(balanceCtx, storageService, walletKeyB)
 	if sequenceErr != nil {
 		balanceErr = sequenceErr
 	}
 	legBBalanceObservedAt := time.Now().UTC()
 	if balanceErr == nil {
-		legBBalance, balanceErr = legBEx.GetBalance(balanceCtx, spreadCapitalAsset)
+		legBBalance, balanceErr = readAccountWalletCapitalValue(balanceCtx, legBEx, spreadCapitalAsset)
 		if balanceErr == nil {
 			verifiedCapital, capErr := capTwoLegStrategyCapitalLimit(requestedCapital, legABalance, legBBalance)
 			if capErr != nil {
@@ -210,7 +210,7 @@ func startFundingPerpSpreadSymbolRuntime(
 						break
 					}
 					if allocated > wallet.balance {
-						balanceErr = fmt.Errorf("configured futures-wallet capital %.2f USDT exceeds available balance %.2f USDT on %s", allocated, wallet.balance, wallet.exchange)
+						balanceErr = fmt.Errorf("configured futures-wallet capital %.2f USDT exceeds verified account equity %.2f USDT on %s", allocated, wallet.balance, wallet.exchange)
 						break
 					}
 				}

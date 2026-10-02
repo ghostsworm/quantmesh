@@ -44,6 +44,100 @@ type capitalSpotMarginVerifier struct {
 	calls int
 }
 
+type walletCapitalEquityExchange struct {
+	exchange.IExchange
+	market  string
+	account *exchange.Account
+	err     error
+}
+
+func (e walletCapitalEquityExchange) GetMarketType() string { return e.market }
+func (e walletCapitalEquityExchange) GetName() string       { return "test-exchange" }
+func (e walletCapitalEquityExchange) GetAccount(context.Context) (*exchange.Account, error) {
+	return e.account, e.err
+}
+
+func TestReadAccountWalletCapitalValueUsesEquityNotFreeCollateral(t *testing.T) {
+	for _, tc := range []struct {
+		market string
+		want   float64
+	}{
+		{market: "futures", want: 100},
+		{market: "spot_margin", want: 100},
+		{market: "spot", want: 90},
+	} {
+		t.Run(tc.market, func(t *testing.T) {
+			client := walletCapitalEquityExchange{market: tc.market, account: &exchange.Account{
+				BalanceAsset: "USDT", AvailableBalance: 12, TotalWalletBalance: 90, TotalMarginBalance: 100,
+			}}
+			got, err := readAccountWalletCapitalValue(context.Background(), client, "usdt")
+			if err != nil || got != tc.want {
+				t.Fatalf("account wallet capital value = %v, %v; want %v", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadAccountWalletCapitalValueRejectsUnverifiedEquity(t *testing.T) {
+	for _, account := range []*exchange.Account{
+		nil,
+		{BalanceAsset: "BTC", TotalMarginBalance: 100},
+		{BalanceAsset: "USDT", TotalMarginBalance: 0},
+	} {
+		client := walletCapitalEquityExchange{market: "futures", account: account}
+		if _, err := readAccountWalletCapitalValue(context.Background(), client, "USDT"); err == nil {
+			t.Fatalf("accepted invalid account equity evidence: %+v", account)
+		}
+	}
+}
+
+func TestRuntimeWalletRevalidationUsesMarginEquityWhenFreeCollateralFalls(t *testing.T) {
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{
+		"test-exchange": {APIKey: "account-a", SecretKey: "secret-a"},
+	}}
+	cfg.Storage.Enabled = true
+	cfg.Storage.Type = "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "wallet-margin-equity.db")
+	cfg.Storage.BufferSize = 1
+	cfg.Storage.BatchSize = 1
+	storageService, err := storage.NewStorageService(cfg, context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer storageService.Stop()
+	claim, err := buildAccountWalletCapitalClaim(cfg, "test-exchange", "futures", "USDT", 70, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim.Exchange, claim.Market, claim.QuoteAsset, claim.Symbol = "test-exchange", "futures", "USDT", "BTCUSDT"
+	issuer := storageService.GetStorage().(storage.AccountWalletBalanceObservationIssuer)
+	claim.ObservationSequence, err = issuer.BeginAccountWalletBalanceObservation(context.Background(), claim.WalletKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := reserveAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	client := walletCapitalEquityExchange{market: "futures", account: &exchange.Account{
+		BalanceAsset: "USDT", TotalWalletBalance: 100, TotalMarginBalance: 100, AvailableBalance: 12,
+	}}
+	reader := accountWalletBalanceReader{walletKey: claim.WalletKey, read: func(ctx context.Context) (accountWalletBalanceObservation, error) {
+		sequence, err := issuer.BeginAccountWalletBalanceObservation(ctx, claim.WalletKey)
+		if err != nil {
+			return accountWalletBalanceObservation{}, err
+		}
+		value, err := readAccountWalletCapitalValue(ctx, client, claim.QuoteAsset)
+		return accountWalletBalanceObservation{Available: value, RequestedAt: time.Now().UTC(), ObservationSequence: sequence}, err
+	}}
+	gate := &execution.OpeningGate{}
+	if err := revalidateRuntimeAccountWalletCapital(context.Background(), cfg, storageService, lock.NewNopLock(), "bot-a", []storage.AccountWalletCapitalClaim{claim}, []accountWalletBalanceReader{reader}, gate, nil); err != nil {
+		t.Fatalf("normal occupied margin was misclassified using free collateral: %v", err)
+	}
+	if gate.Blocked() {
+		t.Fatalf("successful equity-based revalidation left gate blocked: %v", gate.Sources())
+	}
+}
+
 func (v *capitalSpotMarginVerifier) VerifySpotMarginAccountFlat(context.Context) error {
 	v.calls++
 	return v.err

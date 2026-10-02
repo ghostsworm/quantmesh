@@ -232,6 +232,48 @@ func readRuntimeWalletBalance(ctx context.Context, walletKey string, read func(c
 	return observation, nil
 }
 
+// readAccountWalletCapitalValue reads the quote-denominated account equity
+// used by wallet-budget validation. Derivatives must use margin equity rather
+// than free collateral, which naturally falls when positions/orders are active.
+// Spot currently uses quote-asset wallet value; base-asset inventory valuation
+// remains an explicit limitation and must not be inferred from free quote.
+func readAccountWalletCapitalValue(ctx context.Context, client exchange.IExchange, quoteAsset string) (float64, error) {
+	if ctx == nil || client == nil {
+		return 0, fmt.Errorf("wallet capital equity requires context and exchange client")
+	}
+	quoteAsset = strings.ToUpper(strings.TrimSpace(quoteAsset))
+	if quoteAsset == "" {
+		return 0, fmt.Errorf("wallet capital equity requires a quote asset")
+	}
+	account, err := client.GetAccount(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("read %s %s account equity: %w", client.GetName(), client.GetMarketType(), err)
+	}
+	if account == nil || !strings.EqualFold(strings.TrimSpace(account.BalanceAsset), quoteAsset) {
+		return 0, fmt.Errorf("%s %s account equity currency %q does not verify %s", client.GetName(), client.GetMarketType(), accountBalanceAsset(account), quoteAsset)
+	}
+	var equity float64
+	switch strings.ToLower(strings.TrimSpace(client.GetMarketType())) {
+	case "futures", "spot_margin":
+		equity = account.TotalMarginBalance
+	case "spot":
+		equity = account.TotalWalletBalance
+	default:
+		return 0, fmt.Errorf("unsupported market type %q for wallet capital equity", client.GetMarketType())
+	}
+	if math.IsNaN(equity) || math.IsInf(equity, 0) || equity <= 0 {
+		return 0, fmt.Errorf("%s %s %s account equity is invalid", client.GetName(), client.GetMarketType(), quoteAsset)
+	}
+	return equity, nil
+}
+
+func accountBalanceAsset(account *exchange.Account) string {
+	if account == nil {
+		return "<missing>"
+	}
+	return strings.TrimSpace(account.BalanceAsset)
+}
+
 func startRuntimeAccountWalletCapitalRevalidation(ctx context.Context, cfg *config.Config, storageService *storage.StorageService,
 	distributedLock lock.DistributedLock, botID string, claims []storage.AccountWalletCapitalClaim,
 	readers []accountWalletBalanceReader, gate *execution.OpeningGate, cancelOpenings func(context.Context) error) func() {
@@ -271,7 +313,7 @@ func accountWalletBalanceReaderForClaim(claim storage.AccountWalletCapitalClaim,
 			return accountWalletBalanceObservation{}, err
 		}
 		requestedAt := time.Now().UTC()
-		available, err := client.GetBalance(ctx, claim.QuoteAsset)
+		available, err := readAccountWalletCapitalValue(ctx, client, claim.QuoteAsset)
 		return accountWalletBalanceObservation{Available: available, RequestedAt: requestedAt, ObservationSequence: sequence}, err
 	}}
 }
