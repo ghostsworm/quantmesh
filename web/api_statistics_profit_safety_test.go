@@ -72,6 +72,44 @@ func TestCalculateVerifiedMaxDrawdownUsesObservedAccountEquity(t *testing.T) {
 	}
 }
 
+func TestAccountEquityMaxDrawdownUsesIntradaySamplesAndScopedDailyFallback(t *testing.T) {
+	store, err := storage.NewSQLStorage(t.TempDir() + "/account-equity-drawdown.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	start := time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC)
+	for _, sample := range []struct {
+		hour  int
+		scope string
+		value float64
+	}{
+		{9, "scope-a", 100},
+		{10, "scope-a", 120},
+		{11, "scope-a", 80},
+		{12, "scope-b", 1},
+	} {
+		if err := store.SaveAccountEquityRecord(&storage.AccountEquityRecord{
+			Exchange: "binance", MarketType: "futures", AccountScope: sample.scope, Account: sample.scope,
+			Timestamp: start.Add(time.Duration(sample.hour) * time.Hour), AccountEquity: sample.value,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	points, supported, err := queryAccountEquityPoints(store, "binance", "futures", "scope-a", "scope-a", start, start.Add(24*time.Hour-time.Nanosecond))
+	if err != nil || !supported || len(points) != 3 {
+		t.Fatalf("scoped hourly equity query failed: supported=%v points=%+v err=%v", supported, points, err)
+	}
+	points = mergeDailyEquityFallback(points, []map[string]interface{}{
+		{"date": "2026-09-27", "account_equity": float64(90)}, // Superseded by intraday hourly series.
+		{"date": "2026-09-28", "account_equity": float64(110)},
+	}, time.UTC)
+	drawdown, drawdownPct, verified := calculateMaxDrawdownFromEquityPoints(points)
+	if !verified || drawdown != 40 || math.Abs(drawdownPct-100.0/3.0) > 1e-9 {
+		t.Fatalf("expected hourly peak-to-trough drawdown 40 / 33.333%%, got %v / %v verified=%v", drawdown, drawdownPct, verified)
+	}
+}
+
 func (f dailyFundingFixture) GetFundingIncomeCoverage(string, string, string, string) (time.Time, time.Time, error) {
 	return f.from, f.through, f.coverageErr
 }

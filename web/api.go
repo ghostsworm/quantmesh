@@ -6,6 +6,7 @@ import (
 	"math"
 	"net/http"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1238,6 +1239,86 @@ func calculateVerifiedMaxDrawdown(dailyRows []map[string]interface{}) (float64, 
 	return maxDrawdown, maxDrawdownPct, validSamples >= 2 && peak > 0
 }
 
+type accountEquityPoint struct {
+	at     time.Time
+	equity float64
+}
+
+func queryAccountEquityPoints(st storage.Storage, exchange, marketType, account, accountScope string, start, end time.Time) ([]accountEquityPoint, bool, error) {
+	if st == nil || exchange == "" {
+		return nil, false, nil
+	}
+	var records []*storage.AccountEquityRecord
+	var err error
+	if accountScope != "" {
+		reader, ok := st.(interface {
+			QueryAccountEquityRecordsByScope(exchange, marketType, accountScope string, startTime, endTime time.Time) ([]*storage.AccountEquityRecord, error)
+		})
+		if !ok {
+			return nil, false, nil
+		}
+		records, err = reader.QueryAccountEquityRecordsByScope(exchange, marketType, accountScope, start, end)
+	} else {
+		reader, ok := st.(interface {
+			QueryAccountEquityRecordsByMarketType(exchange, marketType, account string, startTime, endTime time.Time) ([]*storage.AccountEquityRecord, error)
+		})
+		if !ok {
+			return nil, false, nil
+		}
+		records, err = reader.QueryAccountEquityRecordsByMarketType(exchange, marketType, account, start, end)
+	}
+	if err != nil {
+		return nil, true, err
+	}
+	points := make([]accountEquityPoint, 0, len(records))
+	for _, record := range records {
+		if record == nil || record.Timestamp.IsZero() || record.Timestamp.Before(start) || record.Timestamp.After(end) || !isFiniteNumber(record.AccountEquity) || record.AccountEquity < 0 {
+			return nil, true, fmt.Errorf("account equity history contains an invalid sample")
+		}
+		points = append(points, accountEquityPoint{at: record.Timestamp, equity: record.AccountEquity})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].at.Before(points[j].at) })
+	return points, true, nil
+}
+
+func mergeDailyEquityFallback(points []accountEquityPoint, dailyRows []map[string]interface{}, location *time.Location) []accountEquityPoint {
+	if location == nil {
+		location = time.Local
+	}
+	hourlyDays := make(map[string]struct{}, len(points))
+	for _, point := range points {
+		hourlyDays[point.at.In(location).Format("2006-01-02")] = struct{}{}
+	}
+	for _, row := range dailyRows {
+		equity, ok := row["account_equity"].(float64)
+		if !ok || !isFiniteNumber(equity) || equity < 0 {
+			continue
+		}
+		date, ok := row["date"].(string)
+		if !ok {
+			continue
+		}
+		if _, exists := hourlyDays[date]; exists {
+			continue
+		}
+		at, err := time.ParseInLocation("2006-01-02", date, location)
+		if err != nil {
+			continue
+		}
+		points = append(points, accountEquityPoint{at: at, equity: equity})
+	}
+	sort.Slice(points, func(i, j int) bool { return points[i].at.Before(points[j].at) })
+	return points
+}
+
+func calculateMaxDrawdownFromEquityPoints(points []accountEquityPoint) (float64, float64, bool) {
+	rows := make([]map[string]interface{}, len(points))
+	for i, point := range points {
+		rows[i] = map[string]interface{}{"account_equity": point.equity}
+	}
+	return calculateVerifiedMaxDrawdown(rows)
+}
+
 // getDailyStatistics 獲取每日统计（混合模式：优先使用 statistics 表，缺失的日期從 trades 表补充）
 // GET /api/statistics/daily
 type dailyFundingReader interface {
@@ -1617,8 +1698,35 @@ func getDailyStatistics(c *gin.Context) {
 		result = append(result, tempResult[i])
 	}
 
-	// 6. 最大回撤只由同一帳戶範圍內的真實權益樣本計算；沒有至少兩個樣本時不發布。
-	maxDrawdown, maxDrawdownPct, maxDrawdownVerified := calculateVerifiedMaxDrawdown(tempResult)
+	// 6. Prefer every account-level hourly observation. Fill only days without
+	// hourly observations from daily snapshots, avoiding symbol-local equity.
+	equityLocation := utils.GlobalLocation
+	if equityLocation == nil {
+		equityLocation = time.Local
+	}
+	equityRangeStart, _ := time.ParseInLocation("2006-01-02", startDate.Format("2006-01-02"), equityLocation)
+	equityRangeEndDay, _ := time.ParseInLocation("2006-01-02", endDate.Format("2006-01-02"), equityLocation)
+	equityRangeEnd := equityRangeEndDay.Add(24*time.Hour - time.Nanosecond)
+	var accountEquityPoints []accountEquityPoint
+	accountEquityHistorySupported := false
+	var accountEquityHistoryErr error
+	if selectedScopeMatchesStatus {
+		accountEquityPoints, accountEquityHistorySupported, accountEquityHistoryErr = queryAccountEquityPoints(
+			st, status.Exchange, status.MarketType, accountID, status.AccountScope, equityRangeStart, equityRangeEnd,
+		)
+	}
+	if accountEquityHistoryErr == nil {
+		accountEquityPoints = mergeDailyEquityFallback(accountEquityPoints, tempResult, equityLocation)
+	}
+	maxDrawdown, maxDrawdownPct, maxDrawdownVerified := calculateMaxDrawdownFromEquityPoints(accountEquityPoints)
+	if !accountEquityHistorySupported {
+		maxDrawdown, maxDrawdownPct, maxDrawdownVerified = calculateVerifiedMaxDrawdown(tempResult)
+	}
+	maxDrawdownVerified = maxDrawdownVerified && accountEquityHistoryErr == nil
+	drawdownSampling := "daily_account_equity"
+	if accountEquityHistorySupported && len(accountEquityPoints) > 0 {
+		drawdownSampling = "hourly_account_equity"
+	}
 	drawdownAsset := ""
 	if status != nil {
 		drawdownAsset = strings.ToUpper(strings.TrimSpace(status.QuoteAsset))
@@ -1630,6 +1738,7 @@ func getDailyStatistics(c *gin.Context) {
 		"max_drawdown":          nil,
 		"max_drawdown_pct":      nil,
 		"max_drawdown_verified": maxDrawdownVerified,
+		"max_drawdown_sampling": drawdownSampling,
 		"pnl_verified":          dailyTradesVerified,
 		"funding_pnl_verified":  false,
 	}

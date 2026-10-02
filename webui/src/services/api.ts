@@ -922,6 +922,7 @@ export interface DailyStatisticsResponse {
   max_drawdown_pct?: number | null // 最大回撤百分比
   max_drawdown_verified?: boolean
   max_drawdown_asset?: string
+  max_drawdown_sampling?: string
   pnl_verified?: boolean
   pnl_asset?: string
   /** spot / futures 等，用於統計頁展示市場類型 */
