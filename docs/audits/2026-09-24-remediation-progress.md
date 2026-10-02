@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc838 修復提現歷史 UI 固定追加 `USDT` 的財務單位錯誤：金額、手續費、淨額按 API 每筆記錄的 `currency` 展示；缺失/非法幣種標為未知，NaN/Inf 金額不渲染為數字。新增 formatter 回歸覆蓋 BTC/USD、缺幣種/非法幣種和非有限金額。僅糾正展示，不證明歷史記錄幣種來源正確或提現可用餘額/盈利完整，R10/R12 及實盤驗證繼續開放。
+
 - rc837 為 Phemex 接入 `AccountOpenOrdersReader`：官方 `GET /public/products` 返回 perpetual 產品目錄，`GET /g-orders/activeList?symbol=...` 必須按 symbol 查詢，但返回 open status 包含 `New`、`PartiallyFilled`、`Untriggered`。新增全目錄校驗及逐 symbol 聚合；空/缺失產品目錄、重複/無效產品、缺失/null rows、身份錯配、未知狀態、重複訂單 ID 或數量不一致均 fail-closed。httptest 覆蓋跨 symbol 和 Untriggered 訂單、產品目錄/訂單行異常。多次 REST 請求不是交易所原子快照，目錄可能不含已退市品種；真實 API 權限、線上回包及同時變更未驗收，R12 未關閉。官方文檔：[Phemex API Reference](https://phemex-docs.github.io/)。
 
 - rc836 為 Crypto.com 接入帳戶級活動訂單快照：官方 `private/get-open-orders` 省略 `instrument_name` 時讀取全部合約；要求 `order_list` 明確存在（空陣列才代表空快照），並驗證正 ID、symbol、BUY/SELL、ACTIVE/PENDING/NEW 狀態、數量及唯一 ID。HTTP fixture 覆蓋無 symbol 請求、跨合約普通/待處理訂單、空快照、缺失/null 列表、未知狀態和重複 ID。真實 API 權限、線上回包及同時變更行為尚未驗收，R12 未關閉。

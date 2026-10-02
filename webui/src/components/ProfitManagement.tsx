@@ -63,6 +63,7 @@ import {
   reconcileWithdrawRecord,
 } from '../services/profit'
 import { getExchanges, getSymbols } from '../services/api'
+import { formatWithdrawAmount } from '../utils/withdrawalDisplay'
 import type {
   ProfitSummary,
   StrategyProfit,
@@ -616,13 +617,13 @@ const ProfitManagement: React.FC = () => {
                           </Td>
                           <Td>{record.strategyName}</Td>
                           <Td isNumeric fontWeight="medium">
-                            {(record.amount || 0).toFixed(2)} USDT
+                            {formatWithdrawAmount(record.amount, record.currency)}
                           </Td>
                           <Td isNumeric color="orange.500">
-                            -{(record.fee || 0).toFixed(2)}
+                            {formatWithdrawAmount(-Math.abs(record.fee), record.currency)}
                           </Td>
                           <Td isNumeric fontWeight="bold" color="green.500">
-                            {(record.netAmount || 0).toFixed(2)} USDT
+                            {formatWithdrawAmount(record.netAmount, record.currency)}
                           </Td>
                           <Td>
                             <Badge
