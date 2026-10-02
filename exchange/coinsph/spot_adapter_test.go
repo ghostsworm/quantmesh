@@ -2,9 +2,34 @@ package coinsph
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+func TestCoinsphSpotAccountPreservesTokenAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/openapi/v1/account" {
+			t.Errorf("path = %q, want /openapi/v1/account", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"token":"php","balances":[{"asset":"php","free":"900","locked":"350.5"},{"asset":"BTC","free":"0.1","locked":"0"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewCoinsphClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &CoinsphSpotAdapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "PHP" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want PHP-denominated token balance", account)
+	}
+}
 
 func TestNewCoinsphSpotAdapterRequiresCredentials(t *testing.T) {
 	if _, err := NewCoinsphSpotAdapter(map[string]string{}, "BTCPHP"); err == nil {

@@ -84,6 +84,7 @@ type AdapterAccount struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*Position
 }
 
@@ -502,7 +503,7 @@ func (c *CoinsphSpotAdapter) GetAccount(ctx context.Context) (*AdapterAccount, e
 	for _, balance := range account.Balances {
 		free, _ := strconv.ParseFloat(balance.Free, 64)
 		locked, _ := strconv.ParseFloat(balance.Locked, 64)
-		if balance.Asset == account.Token {
+		if strings.EqualFold(strings.TrimSpace(balance.Asset), strings.TrimSpace(account.Token)) {
 			totalBalance = free + locked
 			availableBalance = free
 			break
@@ -513,6 +514,7 @@ func (c *CoinsphSpotAdapter) GetAccount(ctx context.Context) (*AdapterAccount, e
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availableBalance,
+		BalanceAsset:       strings.ToUpper(strings.TrimSpace(account.Token)),
 		Positions:          []*Position{}, // 現貨沒有持倉
 	}, nil
 }
