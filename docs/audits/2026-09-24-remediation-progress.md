@@ -1,6 +1,6 @@
 # 实盘准备度整改进度
 
-- rc849 修复真实 GitHub Actions 发布故障：rc847 的 CI、Go tests/vet/race 与 Linux 构建均通过，但 `softprops/action-gh-release` 先发布再上传时被不可变 Release 策略拒绝资产，故发布失败。现改为草稿创建、校验 `quantmesh-<version>-linux-amd64.tar.gz` 已附加后才通过 GitHub API 发布。rc847 旧发布失败状态保留；需 rc849 工作流实际完成后再确认公开下载资产，不回写/删除既有不可变 Release。
+- rc849 修复真实 GitHub Actions 发布故障：rc847/rc848 的 CI 和 Linux 构建通过，但 `softprops/action-gh-release` 先发布再上传时被不可变 Release 策略拒绝资产，故这两个 Release 创建失败。现改为草稿创建、校验 `quantmesh-<version>-linux-amd64.tar.gz` 已附加后才通过 GitHub API 发布。rc849 的同 SHA Go 测试、vet、风险核心 race、Linux amd64 构建及 Release 全部通过；GitHub 状态为已发布预发布，归档可下载，SHA-256 与 Release API digest 一致，归档内二进制版本匹配。旧失败/不可变 Release 保留，不回写或删除；此结果仅验证发布流水线，不代表产品实盘或盈利验收。
 
 - rc848 增加凭证/端点轮换的权益样本竞态校验：此前配置修订只比较账户范围摘要，API Secret 或 Passphrase 变化不会改变账户 scope，可能让切换期间读取的旧凭证样本按新配置发布。现比较完整 evidence source 配置并提升 revision；用同一 APIKey 下 Secret 轮换的中途回调验证拒绝混合样本。凭证保留仅用于进程内构造只读源、不输出日志；真实轮换/并发配置源仍未实测，R10 未关闭。
 
