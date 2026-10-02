@@ -14,9 +14,9 @@ import (
 
 func TestSummarizeMarginAccountIncludesInterestAndOnlyConfiguredQuoteAvailability(t *testing.T) {
 	account := &binancesdk.MarginAccount{TotalAssetOfBTC: "2", TotalNetAssetOfBTC: "1.5", UserAssets: []binancesdk.UserAsset{
-		{Asset: "BTC", Free: "0.2", Borrowed: "1", Interest: "0.01", NetAsset: "-0.81"},
-		{Asset: "USDT", Free: "50", Borrowed: "0", Interest: "0", NetAsset: "50"},
-		{Asset: "USDC", Free: "700", Borrowed: "0", Interest: "0", NetAsset: "700"},
+		{Asset: "BTC", Free: "0.2", Locked: "0", Borrowed: "1", Interest: "0.01", NetAsset: "-0.81"},
+		{Asset: "USDT", Free: "50", Locked: "0", Borrowed: "0", Interest: "0", NetAsset: "50"},
+		{Asset: "USDC", Free: "700", Locked: "0", Borrowed: "0", Interest: "0", NetAsset: "700"},
 	}}
 	wallet, margin, available, err := summarizeMarginAccount(account, "USDT", 100)
 	if err != nil {
@@ -35,9 +35,9 @@ func TestParseMarginUserAssetRejectsInvalidDebtAndInterest(t *testing.T) {
 		name  string
 		asset binancesdk.UserAsset
 	}{
-		{name: "malformed borrowed", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Borrowed: "bad", Interest: "0", NetAsset: "0"}},
-		{name: "negative interest", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Borrowed: "0", Interest: "-0.1", NetAsset: "0"}},
-		{name: "non-finite debt", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Borrowed: "NaN", Interest: "0", NetAsset: "0"}},
+		{name: "malformed borrowed", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Locked: "0", Borrowed: "bad", Interest: "0", NetAsset: "0"}},
+		{name: "negative interest", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Locked: "0", Borrowed: "0", Interest: "-0.1", NetAsset: "0"}},
+		{name: "non-finite debt", asset: binancesdk.UserAsset{Asset: "BTC", Free: "0", Locked: "0", Borrowed: "NaN", Interest: "0", NetAsset: "0"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -53,7 +53,7 @@ func TestSummarizeMarginAccountRejectsMalformedResponse(t *testing.T) {
 	if _, _, _, err := summarizeMarginAccount(nil, "USDT", 100); err == nil {
 		t.Fatal("nil margin account response must fail closed")
 	}
-	badQuote := &binancesdk.MarginAccount{TotalAssetOfBTC: "1", TotalNetAssetOfBTC: "1", UserAssets: []binancesdk.UserAsset{{Asset: "USDT", Free: "bad", Borrowed: "0", Interest: "0", NetAsset: "0"}}}
+	badQuote := &binancesdk.MarginAccount{TotalAssetOfBTC: "1", TotalNetAssetOfBTC: "1", UserAssets: []binancesdk.UserAsset{{Asset: "USDT", Free: "bad", Locked: "0", Borrowed: "0", Interest: "0", NetAsset: "0"}}}
 	if _, _, _, err := summarizeMarginAccount(badQuote, "USDT", 100); err == nil {
 		t.Fatal("malformed interest must fail closed")
 	}
@@ -66,7 +66,7 @@ func TestBinanceSpotMarginAdapterUsesInterestAwareAccountEvidence(t *testing.T) 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/sapi/v1/margin/account":
-			_, _ = w.Write([]byte(`{"totalAssetOfBtc":"2","totalNetAssetOfBtc":"1.5","userAssets":[{"asset":"BTC","free":"0.2","borrowed":"1","interest":"0.01","netAsset":"-0.81"},{"asset":"USDT","free":"50","borrowed":"0","interest":"0","netAsset":"50"},{"asset":"USDC","free":"700","borrowed":"0","interest":"0","netAsset":"700"}]}`))
+			_, _ = w.Write([]byte(`{"totalAssetOfBtc":"2","totalNetAssetOfBtc":"1.5","userAssets":[{"asset":"BTC","free":"0","locked":"0","borrowed":"1","interest":"0.01","netAsset":"-1.01"},{"asset":"USDT","free":"50","locked":"0","borrowed":"0","interest":"0","netAsset":"50"},{"asset":"USDC","free":"700","locked":"0","borrowed":"0","interest":"0","netAsset":"700"}]}`))
 		case "/api/v3/ticker/price":
 			_, _ = w.Write([]byte(`{"symbol":"BTCUSDT","price":"100"}`))
 		default:
@@ -91,26 +91,37 @@ func TestBinanceSpotMarginAdapterUsesInterestAwareAccountEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetPositions: %v", err)
 	}
-	if len(positions) != 1 || math.Abs(positions[0].Size+0.81) > 1e-12 ||
+	if len(positions) != 1 || math.Abs(positions[0].Size+1.01) > 1e-12 ||
 		!positions[0].MarginDebtKnown || positions[0].MarginBorrowed != 1 || positions[0].MarginInterest != 0.01 {
-		t.Fatalf("margin short position=%+v, want net short exposure -0.81 after free base offsets debt", positions)
+		t.Fatalf("margin short position=%+v, want net short exposure -1.01 with a clean base balance", positions)
 	}
 }
 
 func TestBinanceSpotMarginAdapterRejectsDebtOffsetByUnattributedAssets(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/sapi/v1/margin/account" {
-			http.NotFound(w, r)
-			return
-		}
-		_, _ = w.Write([]byte(`{"totalAssetOfBtc":"1","totalLiabilityOfBtc":"1","userAssets":[{"asset":"BTC","free":"1","borrowed":"1","interest":"0","netAsset":"0"}]}`))
-	}))
-	defer server.Close()
-	client := binancesdk.NewClient("test-key", "test-secret")
-	client.BaseURL = server.URL
-	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client, symbol: "BTCUSDT", baseAsset: "BTC"}}
-	if _, err := adapter.GetPositions(context.Background(), "BTCUSDT"); err == nil || !strings.Contains(err.Error(), "cannot be attributed safely") {
-		t.Fatalf("unattributed debt must fail closed, got %v", err)
+	for _, tc := range []struct {
+		name  string
+		asset string
+	}{
+		{name: "free inventory without debt", asset: `{"asset":"BTC","free":"0.1","locked":"0","borrowed":"0","interest":"0","netAsset":"0.1"}`},
+		{name: "free inventory offsets debt", asset: `{"asset":"BTC","free":"0.2","locked":"0","borrowed":"1","interest":"0","netAsset":"-0.8"}`},
+		{name: "locked inventory", asset: `{"asset":"BTC","free":"0","locked":"0.01","borrowed":"0","interest":"0","netAsset":"0.01"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/sapi/v1/margin/account" {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = w.Write([]byte(`{"totalAssetOfBtc":"1","totalLiabilityOfBtc":"1","userAssets":[` + tc.asset + `]}`))
+			}))
+			defer server.Close()
+			client := binancesdk.NewClient("test-key", "test-secret")
+			client.BaseURL = server.URL
+			adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client, symbol: "BTCUSDT", baseAsset: "BTC"}}
+			if _, err := adapter.GetPositions(context.Background(), "BTCUSDT"); err == nil || !strings.Contains(err.Error(), "requires a zero base-asset balance") {
+				t.Fatalf("unattributed base inventory must fail closed, got %v", err)
+			}
+		})
 	}
 }
 
