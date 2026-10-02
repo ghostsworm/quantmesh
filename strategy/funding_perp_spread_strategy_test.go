@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -634,6 +635,23 @@ func TestFundingPerpSpreadOpeningRespectsSharedRuntimeGate(t *testing.T) {
 	}
 	if a.placed != 0 || b.placed != 0 {
 		t.Fatalf("blocked paired opening reached the venues: legA=%d legB=%d", a.placed, b.placed)
+	}
+}
+
+func TestFundingPerpSpreadOpeningRejectsExistingOwnedAllocation(t *testing.T) {
+	a := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -1}}}
+	b := &fundingSpreadTestExchange{name: "b", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: 1}}}
+	st := &FundingPerpSpreadStrategy{
+		openingGate: &execution.OpeningGate{}, legA: a, legB: b, symA: "BTCUSDT", symB: "BTCUSDT",
+		ownershipReady: true, ownedA: -1, ownedB: 1,
+		symCfg: config.SymbolConfig{TotalAllocatedCapital: 400},
+	}
+	err := st.openSpreadCoordinated(context.Background(), a, "BTCUSDT", b, "BTCUSDT", 100, 100, 0.001, 0)
+	if err == nil || !strings.Contains(err.Error(), "must be flat") {
+		t.Fatalf("openSpreadCoordinated() error = %v, want existing-allocation rejection", err)
+	}
+	if a.placed != 0 || b.placed != 0 {
+		t.Fatalf("existing allocation was increased: legA=%d legB=%d", a.placed, b.placed)
 	}
 }
 

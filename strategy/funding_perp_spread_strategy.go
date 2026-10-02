@@ -1232,6 +1232,9 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	if err := s.verifyOwnedExposure(currentA, currentB); err != nil {
 		return fmt.Errorf("refuse new spread: %w", err)
 	}
+	if math.Abs(currentA) > s.legTolerance(s.legA) || math.Abs(currentB) > s.legTolerance(s.legB) {
+		return errors.New("refuse new spread: an existing owned leg must be flat before opening another allocation")
+	}
 	s.mu.RLock()
 	gate := s.openingGate
 	s.mu.RUnlock()
