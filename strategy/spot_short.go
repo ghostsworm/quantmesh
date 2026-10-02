@@ -75,6 +75,34 @@ func (s *SpotShortStrategy) withAccountWalletCoordination(ctx context.Context, o
 	return withAccountWalletCoordination(ctx, coordinator, key, operation)
 }
 
+type spotShortContextOrderExecutor interface {
+	PlaceOrderContext(context.Context, *position.OrderRequest) (*position.Order, error)
+}
+
+func (s *SpotShortStrategy) validateOrderContextSupport() error {
+	s.mu.RLock()
+	coordinated := s.accountWalletLockKey != ""
+	s.mu.RUnlock()
+	if _, ok := s.executor.(spotShortContextOrderExecutor); coordinated && !ok {
+		return fmt.Errorf("SpotShort account-coordinated orders require a context-aware executor")
+	}
+	return nil
+}
+
+func (s *SpotShortStrategy) placeOrderContext(ctx context.Context, req *position.OrderRequest) (*position.Order, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.validateOrderContextSupport(); err != nil {
+		return nil, err
+	}
+	if contextual, ok := s.executor.(spotShortContextOrderExecutor); ok {
+		return contextual.PlaceOrderContext(ctx, req)
+	}
+	// Isolated legacy constructors have no account lease to lose.
+	return s.executor.PlaceOrder(req)
+}
+
 // NewSpotShortStrategy 創建現貨做空策略
 // ex 為 position.IExchange（適配器），rawEx 為原始 exchange.IExchange（用於 Borrow/Repay，可為 nil）
 func NewSpotShortStrategy(name string, cfg *config.Config, executor position.OrderExecutorInterface, ex position.IExchange, rawEx exchange.IExchange, strategyCfg map[string]interface{}) *SpotShortStrategy {
@@ -1031,6 +1059,9 @@ func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amo
 	if s.smEx == nil || s.ex == nil || s.executor == nil {
 		return fmt.Errorf("spot short borrow dependencies are unavailable")
 	}
+	if err := s.validateOrderContextSupport(); err != nil {
+		return err
+	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err == nil && price <= 0 {
 		err = fmt.Errorf("invalid price %.8f", price)
@@ -1085,7 +1116,7 @@ func (s *SpotShortStrategy) increaseShortWithWalletLock(ctx context.Context, amo
 		StrategyName:  s.name,
 		StrategyType:  "spot_short",
 	}
-	order, err := s.executor.PlaceOrder(req)
+	order, err := s.placeOrderContext(ctx, req)
 	if err != nil {
 		wrapped := fmt.Errorf("借币成功但卖出订单结果未核实 (client_order_id=%s): %w", clientOrderID, err)
 		s.reportUnresolvedDebt(wrapped)
@@ -1112,6 +1143,9 @@ func (s *SpotShortStrategy) decreaseShortWithWalletLock(ctx context.Context, amo
 	amount = s.roundQuantity(amount)
 	if amount <= 0 {
 		return nil
+	}
+	if err := s.validateOrderContextSupport(); err != nil {
+		return err
 	}
 	price, err := s.ex.GetLatestPrice(ctx, s.symbol)
 	if err != nil || price <= 0 {
@@ -1148,7 +1182,7 @@ func (s *SpotShortStrategy) decreaseShortWithWalletLock(ctx context.Context, amo
 		StrategyName:  s.name,
 		StrategyType:  "spot_short",
 	}
-	ord, err := s.executor.PlaceOrder(req)
+	ord, err := s.placeOrderContext(ctx, req)
 	if err != nil {
 		wrapped := fmt.Errorf("spot short buy submission outcome is unresolved (client_order_id=%s): %w", clientOrderID, err)
 		s.reportUnresolvedDebt(wrapped)

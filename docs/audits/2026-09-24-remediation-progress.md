@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc868 继续追踪账户租约取消到实际下单的生产链，发现 SpotShort 仍使用 `PlaceOrder`，在 MultiStrategyExecutor 内重置为 Background，租约失效不能取消该下单操作。现使用已有 `PlaceOrderContext` 接线，账户锁启用时先检查执行器能力再借币；操作取消后保留已确认借款和未决买回意图。新增买/卖提交中取消、借款完成后取消不发卖单、执行器无 context 时借款前拒绝的回归；策略/Binance 全包、SpotShort 定向 race、根包启动/敞口回归、vet 与 diff 检查均通过。生产成交回调实际由 StrategyManager goroutine 分发，当前未将同步单元夹具直接调用回调的行为误报为生产重入。尚未连接真实账户或验证真实交易所受理与租约失效的竞态，实盘盈利未验收。
+
 - rc867 更正六小时回查已复现的 rc866 开发态回归：运行态恢复先取得账户钱包锁，调用成交回调又取同锁，15 秒后超时并持久化未执行的未知还款；启动恢复却未取得外层账户锁。现公共回调取得租约后才应用成交与保存还款意图，已持锁的恢复调用内部应用函数并传递操作上下文，启动统一进入受锁保护的恢复入口。rc866 下列验证仅覆盖原有单元测试和共用 gate，未覆盖生产锁接线后的恢复路径，因此不能作为这条恢复路径正确性的证明。新增启动/运行态净额还款、重复恢复幂等、启动锁失败拒绝和回调锁失败不改变还款状态的正式回归；策略/Binance 全包、SpotShort 定向 race、vet、根包启动/敞口回归及原隔离失败复现均通过，原复现约 0.6 秒完成。本版本仍未连接真实账户或验收实盘盈利。
 
 - rc866 修复 SpotShort 与 Funding Carry 共用同一账户钱包时没有共享互斥的问题：将两者统一到 `funding_carry_wallet:<accountScope>` 分布式租约和进程内 gate；SpotShort 在锁内完成敞口读取、对冲决策、借币/卖单、买回下单、还币与运行态对账。新增跨策略共享锁回归；`go test ./strategy ./exchange/binance`、SpotShort/Funding Carry 定向 race test、`go vet ./strategy ./exchange/binance` 和 `git diff --check` 通过。只协调使用相同锁服务的本应用实例，不阻止人工/外部系统并发改账户；未连接真实账户，不构成实盘或盈利验收。
