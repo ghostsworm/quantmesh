@@ -15,6 +15,7 @@ type fundingCarryInterruptedBorrowExchange struct {
 	afterBorrowQuery func()
 	afterBorrow      func()
 	queryErr         error
+	borrowErr        error
 	borrowQueries    int
 }
 
@@ -22,6 +23,9 @@ func (e *fundingCarryInterruptedBorrowExchange) Borrow(ctx context.Context, asse
 	id, err := e.fundingCarryReturnedPrincipalExchange.Borrow(ctx, asset, amount)
 	if e.afterBorrow != nil {
 		e.afterBorrow()
+	}
+	if e.borrowErr != nil {
+		return id, e.borrowErr
 	}
 	return id, err
 }
@@ -60,7 +64,7 @@ func TestFundingCarryBorrowAcknowledgementPrecedesQueryFailure(t *testing.T) {
 	if err := json.Unmarshal([]byte(store.payload), &saved); err != nil {
 		t.Fatal(err)
 	}
-	if saved.MarginBorrowTransferID != 1 || !saved.ExposureUnknown || venue.borrowCalls != 1 || venue.repayCalls != 0 || s.marginDebt != 0 || len(s.marginDebtEvents) != 0 {
+	if saved.MarginBorrowTransferID != 1 || !saved.ExposureUnknown || !saved.IntentInFlight || venue.borrowCalls != 1 || venue.repayCalls != 0 || s.marginDebt != 0 || len(s.marginDebtEvents) != 0 {
 		t.Fatal("unverified borrow identity lost or wallet mutated")
 	}
 }

@@ -2100,7 +2100,13 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		return fmt.Errorf("persist margin/futures opening intent: %w", err)
 	}
 	opened := false
+	borrowUnresolved := true
 	defer func() {
+		if borrowUnresolved {
+			// An accepted or uncertain borrow is still a recovery operation.
+			// Its intent must not be cleared by an ordinary error return.
+			return
+		}
 		if err := s.finishRuntimeIntent(ctx, opened); err != nil {
 			logger.Error("[%s] persist funding_carry reverse opening result: %v", s.symbol, err)
 			resultErr = errors.Join(resultErr, err)
@@ -2108,6 +2114,12 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	}()
 
 	borrowTransferID, err := s.marginEx.Borrow(ctx, base, borrowQty)
+	if borrowTransferID > 0 {
+		ackErr := s.recordMarginBorrowAcknowledgement(ctx, borrowTransferID)
+		if ackErr != nil {
+			return s.blockOnUnownedExposure(errors.Join(err, ackErr))
+		}
+	}
 	if err != nil {
 		s.blockOnUnownedExposure(fmt.Errorf("margin borrow result is uncertain: %w", err))
 		s.publishEvent(event.EventTypeOrderFailed, map[string]interface{}{
@@ -2115,8 +2127,8 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		})
 		return fmt.Errorf("借幣 %s: %w", base, err)
 	}
-	if err := s.recordMarginBorrowAcknowledgement(ctx, borrowTransferID); err != nil {
-		return s.blockOnUnownedExposure(err)
+	if borrowTransferID <= 0 {
+		return s.blockOnUnownedExposure(fmt.Errorf("margin borrow acknowledgement has no positive identity"))
 	}
 	borrowEvent, verifyErr := s.confirmMarginDebtTransaction(ctx, "borrow", borrowTransferID, base, borrowQty)
 	if verifyErr != nil {
@@ -2139,8 +2151,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	persistErr := s.persistRuntimeStateLocked()
 	s.mu.Unlock()
 	if persistErr != nil {
-		return fmt.Errorf("persist borrowed margin exposure: %w", persistErr)
+		return s.blockOnUnownedExposure(fmt.Errorf("persist borrowed margin exposure: %w", persistErr))
 	}
+	borrowUnresolved = false
 
 	// Step 2: 保證金帳戶賣出（用 marginEx，它 embed 了 IExchange）
 	sellOrder, err := s.placeOrder(ctx, s.marginEx, s.marginExecutor, &exchange.OrderRequest{

@@ -1,5 +1,7 @@
 # 实盘准备度整改进度
 
+- rc940 R09/R10 借款调用中断整改与验证记录见 [续篇](2026-10-03-remediation-progress.md)，避免本文件超过 3000 行；历史证据保留，不继承旧版验收。
+
 - rc939 R09/R10 Funding Carry 借款提交：真实反向开仓取消/所有权丢失两个查询回归先复现失效后仍写入已核实债务或改变钱包。借款 ACK 在确认查询前以原有 in-flight 状态保存，身份只是恢复线索、不冒充本金事件；查询后持策略锁核验当前 context/owner，再提交确认本金与事件，失效不卖出/还款。查询失败仍保留ACK，ACK保存失败保留内存身份且不调用后续查询/交易RPC，耐久intent不被抹除；正常ACK检查点后仍完成已核实的部分返还及对冲。四组真实路径及相关策略全套两轮race、strategy vet、diff 检查、Ruby门禁9项/58断言及前端类型/44文件224测试/Vite/PWA构建通过。十包 /private/tmp/quantmesh-trading-race-rc939-final 为1878 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc939、source_commit=4eeb368a、source_dirty=true、无缺包/解析错误，不继承严格MySQL或同提交验收。借款调用本身期间失效、ACK耐久写入失败后的完整接管/恢复、原子世代fencing及自动补偿仍未闭合；无生产库/账户/交易或发布操作，不代表真实金融核账或盈利验收。
 
 - rc938 R09/R10 Funding Carry 实际返还：真实反向开仓隔离回归先复现卖出失败、返还含1e-11已付利息时仍清零未还本金/借款身份并当作核清；恢复侧收紧并不能防止此运行时错误。返还本金用保存数值的十进制差额扣减，残余与重试比较采用严格金额一致性，去除固定绝对/比例容差，残余不能当作零余额。卖出拒绝、零成交、部分成交三种真实路径保留欠款/借款身份/UNKNOWN且不继续开仓，已确认还款重试不重复扣减或伪报核清；相关全套两轮race含正常足额返还/对冲及保存失败回滚重试通过。strategy vet、diff 检查、Ruby门禁9项/58断言及前端类型/44文件224测试/Vite/PWA构建通过。十包 /private/tmp/quantmesh-trading-race-rc938-final 为1874 pass、无失败、8 MySQL skip，JSON/Markdown核对 source_version=3.111.0-rc938、source_commit=05ed65d5、source_dirty=true、无缺包/解析错误，不继承严格MySQL或同提交验收。部分卖出已成交时停止继续开仓不等于已完成对冲/补偿；剩余本金与已成交资产的自动处置、全账户核账和真实盈利仍未验收，无生产库/账户/交易或发布操作。
