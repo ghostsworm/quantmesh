@@ -88,7 +88,11 @@ func valueBitgetSpotBalancesUSDT(ctx context.Context, balances []bitgetSpotAccou
 		if !ok || locked.Sign() < 0 {
 			return 0, fmt.Errorf("invalid Bitget Spot locked balance for %s", asset)
 		}
-		quantity := new(big.Rat).Add(available, locked)
+		frozen, ok := new(big.Rat).SetString(strings.TrimSpace(balance.Frozen))
+		if !ok || frozen.Sign() < 0 {
+			return 0, fmt.Errorf("invalid Bitget Spot frozen balance for %s", asset)
+		}
+		quantity := new(big.Rat).Add(new(big.Rat).Add(available, locked), frozen)
 		if quantity.Sign() == 0 {
 			continue
 		}

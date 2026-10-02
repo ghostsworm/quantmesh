@@ -5,6 +5,7 @@ import (
 	"errors"
 	"math"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -22,6 +23,10 @@ type equityLedgerExchange struct {
 	since         time.Time
 	onEvidence    func()
 }
+
+type spotEquityLedgerExchange struct{ *equityLedgerExchange }
+
+func (*spotEquityLedgerExchange) SupportsSpotEquityReconciliation() bool { return true }
 
 func (e *equityLedgerExchange) ReadAccountEvidence(_ context.Context, since time.Time) (accounting.Snapshot, error) {
 	e.evidenceCalls++
@@ -166,6 +171,54 @@ func TestRuntimeEquityRejectsEnabledSpotScopeUntilValuationIsSupported(t *testin
 	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
 	if err == nil || observation.Equity != 0 || observation.CashFlowComplete {
 		t.Fatalf("enabled Spot account scope was silently treated as Futures-only: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityAcceptsBitgetSpotOnlyWithCompleteAccountEvidence(t *testing.T) {
+	now := time.Now().UTC().Add(-time.Second)
+	exchangeConfig := config.ExchangeConfig{APIKey: "bitget-spot-key", Testnet: true}
+	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"bitget": exchangeConfig},
+		Bots: []config.BotConfig{{Exchange: "bitget", Symbol: "BTCUSDT", MarketType: "spot"}}}
+	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
+	provider := &spotEquityLedgerExchange{equityLedgerExchange: &equityLedgerExchange{snapshot: accounting.Snapshot{
+		Currency: "USDT", Equity: 250, ObservedAt: now,
+		Wallets: map[string]accounting.Wallet{"USDT": {Currency: "USDT", Balance: "250", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now}},
+	}}}
+	runtime := walletRuntimeFixture(equityAccountScopeID("bitget", exchangeConfig), provider.equityLedgerExchange)
+	runtime.Exchange = provider
+	runtime.AccountMarketType = "spot"
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "bitget-spot", Inner: runtime})
+	observation, err := (&runtimeEquitySource{manager: manager}).ObserveAccountEquity(t.Context(), nil)
+	if err != nil || observation.Equity != 250 || !observation.CashFlowComplete || !strings.HasPrefix(observation.Scope, "spot:") {
+		t.Fatalf("Bitget Spot evidence was not sampled with its own scope: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquitySpotScopeRejectsRawFallbackInMixedAccounts(t *testing.T) {
+	now := time.Now().UTC().Add(-time.Second)
+	spot := &spotEquityLedgerExchange{equityLedgerExchange: &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "100", 100)}}
+	spotRuntime := walletRuntimeFixture("spot-account", spot.equityLedgerExchange)
+	spotRuntime.Exchange = spot
+	spotRuntime.AccountMarketType = "spot"
+	futures := &equityAccountExchange{}
+	futuresRuntime := walletRuntimeFixture("futures-account", nil)
+	futuresRuntime.Exchange = futures
+	if observation, err := observeRuntimeEquity(t.Context(), []*SymbolRuntime{spotRuntime, futuresRuntime}); err == nil || observation.Equity != 0 {
+		t.Fatalf("mixed scope silently used raw fallback without ledger proof: observation=%+v err=%v", observation, err)
+	}
+}
+
+func TestRuntimeEquityAllowsMixedScopeWhenEveryAccountHasLedgerEvidence(t *testing.T) {
+	now := time.Now().UTC().Add(-time.Second)
+	spotProvider := &spotEquityLedgerExchange{equityLedgerExchange: &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "100", 100)}}
+	spot := walletRuntimeFixture("spot-account", spotProvider.equityLedgerExchange)
+	spot.Exchange = spotProvider
+	spot.AccountMarketType = "spot"
+	futuresProvider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "200", 200)}
+	futures := walletRuntimeFixture("futures-account", futuresProvider)
+	observation, err := observeRuntimeEquity(t.Context(), []*SymbolRuntime{spot, futures})
+	if err != nil || observation.Equity != 300 || !observation.CashFlowComplete || !strings.HasPrefix(observation.Scope, "mixed:") {
+		t.Fatalf("complete mixed ledger scope rejected: observation=%+v err=%v", observation, err)
 	}
 }
 

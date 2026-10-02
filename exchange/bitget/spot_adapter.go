@@ -437,6 +437,7 @@ func (b *BitgetSpotAdapter) GetAccount(ctx context.Context) (*Account, error) {
 type bitgetSpotAccountAsset struct {
 	Coin      string `json:"coin"`
 	Available string `json:"available"`
+	Frozen    string `json:"frozen"`
 	Locked    string `json:"locked"`
 }
 
@@ -462,7 +463,11 @@ func summarizeBitgetSpotQuoteBalance(balances []bitgetSpotAccountAsset, quoteAss
 		if parseErr != nil || math.IsNaN(locked) || math.IsInf(locked, 0) || locked < 0 {
 			return 0, 0, fmt.Errorf("invalid Bitget %s locked balance %q", quoteAsset, balance.Locked)
 		}
-		total, available = free+locked, free
+		frozen, parseErr := strconv.ParseFloat(balance.Frozen, 64)
+		if parseErr != nil || math.IsNaN(frozen) || math.IsInf(frozen, 0) || frozen < 0 {
+			return 0, 0, fmt.Errorf("invalid Bitget %s frozen balance %q", quoteAsset, balance.Frozen)
+		}
+		total, available = free+locked+frozen, free
 		if math.IsInf(total, 0) {
 			return 0, 0, fmt.Errorf("Bitget %s balance overflow", quoteAsset)
 		}
@@ -492,11 +497,7 @@ func (b *BitgetSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]
 	if err != nil {
 		return nil, err
 	}
-	var list []struct {
-		Coin      string `json:"coin"`
-		Available string `json:"available"`
-		Locked    string `json:"locked"`
-	}
+	var list []bitgetSpotAccountAsset
 	if err := json.Unmarshal(resp.Data, &list); err != nil {
 		return nil, err
 	}
@@ -504,14 +505,9 @@ func (b *BitgetSpotAdapter) GetPositions(ctx context.Context, symbol string) ([]
 	if base == "" {
 		base = strings.TrimSuffix(symbol, "USDT")
 	}
-	var size float64
-	for _, c := range list {
-		if c.Coin == base {
-			avail, _ := strconv.ParseFloat(c.Available, 64)
-			locked, _ := strconv.ParseFloat(c.Locked, 64)
-			size = avail + locked
-			break
-		}
+	size, _, err := summarizeBitgetSpotQuoteBalance(list, base)
+	if err != nil {
+		return nil, err
 	}
 	if size <= 0 {
 		return nil, nil

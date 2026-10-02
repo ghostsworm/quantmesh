@@ -13,7 +13,7 @@ func TestBitgetSpotAccountEquityUSDTValuesEveryAssetWithDirectMarket(t *testing.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/spot/account/assets":
-			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"USDT","available":"10","locked":"2"},{"coin":"BTC","available":"0.5","locked":"0.1"},{"coin":"ETH","available":"0","locked":"0"}]}`))
+			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"USDT","available":"10","frozen":"1","locked":"2"},{"coin":"BTC","available":"0.5","frozen":"0.1","locked":"0.1"},{"coin":"ETH","available":"0","frozen":"0","locked":"0"}]}`))
 		case "/api/v2/spot/market/tickers":
 			tickerRequests++
 			if r.URL.Query().Has("symbol") {
@@ -31,8 +31,8 @@ func TestBitgetSpotAccountEquityUSDTValuesEveryAssetWithDirectMarket(t *testing.
 	adapter := &BitgetSpotAdapter{client: client, symbol: "ETHUSDT"}
 
 	value, available := adapter.AccountEquityUSDT(context.Background())
-	if !available || value != 72 {
-		t.Fatalf("equity=%v available=%v, want 72 true", value, available)
+	if !available || value != 83 {
+		t.Fatalf("equity=%v available=%v, want 83 true", value, available)
 	}
 	if tickerRequests != 1 {
 		t.Fatalf("ticker requests=%d, want a single market snapshot", tickerRequests)
@@ -42,7 +42,7 @@ func TestBitgetSpotAccountEquityUSDTValuesEveryAssetWithDirectMarket(t *testing.
 func TestBitgetSpotAccountEquityUSDTRejectsMissingRequiredMarket(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/spot/account/assets" {
-			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"XYZ","available":"1","locked":"0"}]}`))
+			_, _ = w.Write([]byte(`{"code":"00000","data":[{"coin":"XYZ","available":"1","frozen":"0","locked":"0"}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"code":"00000","data":[{"symbol":"BTCUSDT","lastPr":"100"}]}`))
@@ -60,9 +60,11 @@ func TestBitgetSpotAccountEquityUSDTRejectsMissingRequiredMarket(t *testing.T) {
 func TestValueBitgetSpotBalancesUSDTRejectsIncompleteOrInvalidAssets(t *testing.T) {
 	price := func(context.Context, string) (float64, error) { return 10, nil }
 	for name, balances := range map[string][]bitgetSpotAccountAsset{
-		"duplicate asset":  {{Coin: "BTC", Available: "1", Locked: "0"}, {Coin: "btc", Available: "2", Locked: "0"}},
-		"missing currency": {{Coin: "", Available: "1", Locked: "0"}},
-		"invalid amount":   {{Coin: "BTC", Available: "NaN", Locked: "0"}},
+		"duplicate asset":  {{Coin: "BTC", Available: "1", Frozen: "0", Locked: "0"}, {Coin: "btc", Available: "2", Frozen: "0", Locked: "0"}},
+		"missing currency": {{Coin: "", Available: "1", Frozen: "0", Locked: "0"}},
+		"invalid amount":   {{Coin: "BTC", Available: "NaN", Frozen: "0", Locked: "0"}},
+		"missing frozen":   {{Coin: "BTC", Available: "1", Locked: "0"}},
+		"invalid frozen":   {{Coin: "BTC", Available: "1", Frozen: "NaN", Locked: "0"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := valueBitgetSpotBalancesUSDT(context.Background(), balances, price); err == nil {
@@ -70,7 +72,7 @@ func TestValueBitgetSpotBalancesUSDTRejectsIncompleteOrInvalidAssets(t *testing.
 			}
 		})
 	}
-	if _, err := valueBitgetSpotBalancesUSDT(context.Background(), []bitgetSpotAccountAsset{{Coin: "XYZ", Available: "1", Locked: "0"}}, func(context.Context, string) (float64, error) {
+	if _, err := valueBitgetSpotBalancesUSDT(context.Background(), []bitgetSpotAccountAsset{{Coin: "XYZ", Available: "1", Frozen: "0", Locked: "0"}}, func(context.Context, string) (float64, error) {
 		return 0, fmt.Errorf("ticker missing")
 	}); err == nil {
 		t.Fatal("an asset without a direct USDT market must not yield a partial equity")

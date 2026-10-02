@@ -6,7 +6,9 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"time"
 
+	"quantmesh/exchange/accounting"
 	"quantmesh/exchange/bitget"
 	"quantmesh/exchange/income"
 )
@@ -196,6 +198,15 @@ func (w *bitgetSpotWrapper) AccountEquityUSDT(ctx context.Context) (float64, boo
 	}
 	return w.adapter.AccountEquityUSDT(ctx)
 }
+
+func (w *bitgetSpotWrapper) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
+	if w == nil || w.adapter == nil {
+		return accounting.Snapshot{}, fmt.Errorf("Bitget Spot account evidence source unavailable")
+	}
+	return w.adapter.ReadAccountEvidence(ctx, since)
+}
+
+func (*bitgetSpotWrapper) SupportsSpotEquityReconciliation() bool { return true }
 
 func (w *bitgetSpotWrapper) GetPositions(ctx context.Context, symbol string) ([]*Position, error) {
 	positions, err := w.adapter.GetPositions(ctx, symbol)

@@ -27,6 +27,7 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 		return equityScopeSnapshot{}
 	}
 	accounts := make(map[string]struct{})
+	marketTypes := make(map[string]struct{})
 	add := func(exchangeName, marketType string, enabled bool) error {
 		if !enabled {
 			return nil
@@ -38,7 +39,8 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 		if exchangeName == "" {
 			return fmt.Errorf("enabled equity Bot has no exchange identity")
 		}
-		if marketType != "futures" {
+		marketType = strings.ToLower(strings.TrimSpace(marketType))
+		if marketType != "futures" && (marketType != "spot" || !strings.EqualFold(exchangeName, "bitget")) {
 			return fmt.Errorf("enabled Bot market %q is not supported by equity reconciliation", marketType)
 		}
 		exchangeConfig, ok := cfg.Exchanges[exchangeName]
@@ -50,6 +52,7 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 			return err
 		}
 		accounts[string(identity)] = struct{}{}
+		marketTypes[marketType] = struct{}{}
 		return nil
 	}
 	if len(cfg.Bots) > 0 {
@@ -74,7 +77,21 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 	if err != nil {
 		return equityScopeSnapshot{configured: true, err: err.Error()}
 	}
-	return equityScopeSnapshot{configured: true, scope: fmt.Sprintf("futures:%x", sha256.Sum256(identity))}
+	return equityScopeSnapshot{configured: true, scope: equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity))}
+}
+
+func equityScopePrefix(marketTypes map[string]struct{}) string {
+	if len(marketTypes) > 1 {
+		return "mixed:"
+	}
+	if _, ok := marketTypes["spot"]; ok {
+		return "spot:"
+	}
+	return "futures:"
+}
+
+type spotEquityReconciliationSupport interface {
+	SupportsSpotEquityReconciliation() bool
 }
 
 func equityAccountScopeID(name string, cfg config.ExchangeConfig) string {
@@ -141,10 +158,17 @@ func observeRuntimeEquityCursors(ctx context.Context, runtimes []*SymbolRuntime,
 		return observation, err
 	}
 	providers := make(map[string]accounting.Source, len(accounts))
+	containsSpot := false
 	for _, key := range keys {
+		if strings.EqualFold(accounts[key].AccountMarketType, "spot") {
+			containsSpot = true
+		}
 		if provider, ok := accounts[key].Exchange.(accounting.Source); ok {
 			providers[key] = provider
 		}
+	}
+	if containsSpot && len(providers) != len(accounts) {
+		return observation, fmt.Errorf("Spot equity scope requires complete account evidence from every configured account: %w", risk.ErrEquityUnavailable)
 	}
 	if len(providers) == len(accounts) {
 		return observeAccountEvidence(ctx, observation, keys, providers, accountCursors)
@@ -171,10 +195,12 @@ func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime
 		if rt == nil || rt.Exchange == nil {
 			return nil, nil, "", fmt.Errorf("equity runtime is incomplete")
 		}
-		if rt.AccountMarketType != "futures" || rt.AccountScope == "" {
+		marketType := strings.ToLower(strings.TrimSpace(rt.AccountMarketType))
+		spotSupport, spotOK := rt.Exchange.(spotEquityReconciliationSupport)
+		if (marketType != "futures" && (marketType != "spot" || !spotOK || !spotSupport.SupportsSpotEquityReconciliation())) || rt.AccountScope == "" {
 			return nil, nil, "", fmt.Errorf("spot account valuation is not reconciled: %w", risk.ErrEquityUnavailable)
 		}
-		identity, err := json.Marshal([]string{rt.AccountMarketType, rt.AccountScope})
+		identity, err := json.Marshal([]string{marketType, rt.AccountScope})
 		if err != nil {
 			return nil, nil, "", err
 		}
@@ -192,7 +218,11 @@ func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime
 	if err != nil {
 		return nil, nil, "", err
 	}
-	return accounts, keys, fmt.Sprintf("futures:%x", sha256.Sum256(identity)), nil
+	marketTypes := make(map[string]struct{})
+	for _, account := range accounts {
+		marketTypes[strings.ToLower(strings.TrimSpace(account.AccountMarketType))] = struct{}{}
+	}
+	return accounts, keys, equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity)), nil
 }
 
 // Wallet checkpoints may contain one cursor per currency. Current exchange
