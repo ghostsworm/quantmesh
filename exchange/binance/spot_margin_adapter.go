@@ -191,19 +191,23 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 			base = symbol
 		}
 	}
-	var borrowed, interest float64
+	var free, borrowed, interest, netAsset float64
 	for _, ua := range acc.UserAssets {
 		if strings.EqualFold(ua.Asset, base) {
-			_, borrowedAmount, interestAmount, _, parseErr := parseMarginUserAsset(ua)
+			freeAmount, borrowedAmount, interestAmount, netAssetAmount, parseErr := parseMarginUserAsset(ua)
 			if parseErr != nil {
 				return nil, fmt.Errorf("parse Binance margin debt for %s: %w", base, parseErr)
 			}
-			borrowed, interest = borrowedAmount, interestAmount
+			free, borrowed, interest, netAsset = freeAmount, borrowedAmount, interestAmount, netAssetAmount
 			break
 		}
 	}
 	debt := borrowed + interest
-	if debt <= 0 {
+	shortSize := math.Max(0, -netAsset)
+	if debt > 0 && shortSize == 0 {
+		return nil, fmt.Errorf("Binance margin account has %s liability %.12g offset by available assets %.12g; SpotShort exposure cannot be attributed safely", base, debt, free)
+	}
+	if shortSize <= 0 {
 		// A successful account response with no principal or interest is an
 		// authoritative flat snapshot, not an unavailable snapshot. Runtime
 		// callers deliberately reject nil position slices as unverified.
@@ -213,10 +217,11 @@ func (b *BinanceSpotMarginAdapter) GetPositions(ctx context.Context, symbol stri
 	if price <= 0 {
 		price = 0
 	}
-	// 空倉負債包括本金與已累計利息。
+	// Net asset exposure, rather than gross liability, is the short position:
+	// borrowed funds that remain free/locked have not yet been sold.
 	return []*Position{{
 		Symbol:          symbol,
-		Size:            -debt,
+		Size:            -shortSize,
 		MarginBorrowed:  borrowed,
 		MarginInterest:  interest,
 		MarginDebtKnown: true,

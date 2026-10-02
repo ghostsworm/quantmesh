@@ -91,9 +91,26 @@ func TestBinanceSpotMarginAdapterUsesInterestAwareAccountEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("GetPositions: %v", err)
 	}
-	if len(positions) != 1 || math.Abs(positions[0].Size+1.01) > 1e-12 ||
+	if len(positions) != 1 || math.Abs(positions[0].Size+0.81) > 1e-12 ||
 		!positions[0].MarginDebtKnown || positions[0].MarginBorrowed != 1 || positions[0].MarginInterest != 0.01 {
-		t.Fatalf("margin short position=%+v, want principal plus interest -1.01", positions)
+		t.Fatalf("margin short position=%+v, want net short exposure -0.81 after free base offsets debt", positions)
+	}
+}
+
+func TestBinanceSpotMarginAdapterRejectsDebtOffsetByUnattributedAssets(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/sapi/v1/margin/account" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"totalAssetOfBtc":"1","totalLiabilityOfBtc":"1","userAssets":[{"asset":"BTC","free":"1","borrowed":"1","interest":"0","netAsset":"0"}]}`))
+	}))
+	defer server.Close()
+	client := binancesdk.NewClient("test-key", "test-secret")
+	client.BaseURL = server.URL
+	adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client, symbol: "BTCUSDT", baseAsset: "BTC"}}
+	if _, err := adapter.GetPositions(context.Background(), "BTCUSDT"); err == nil || !strings.Contains(err.Error(), "cannot be attributed safely") {
+		t.Fatalf("unattributed debt must fail closed, got %v", err)
 	}
 }
 

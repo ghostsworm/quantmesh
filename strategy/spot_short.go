@@ -557,6 +557,10 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 			s.mu.Unlock()
 			return fmt.Errorf("spot short borrow intent %s changed during reconciliation", cid)
 		}
+		if !isSpotShortTerminalOrderStatus(string(order.Status)) {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short margin sell %d remains %s; borrowed asset exposure is not terminal", order.OrderID, order.Status)
+		}
 		delete(s.pendingBorrow, cid)
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.pendingBorrow[cid] = current
@@ -1004,19 +1008,7 @@ func (s *SpotShortStrategy) increaseShort(ctx context.Context, amount float64) e
 		s.reportUnresolvedDebt(wrapped)
 		return wrapped
 	}
-	s.mu.Lock()
-	delete(s.pendingBorrow, clientOrderID)
-	err = s.persistRuntimeStateLocked()
-	if err != nil {
-		s.pendingBorrow[clientOrderID] = intent
-	}
-	s.mu.Unlock()
-	if err != nil {
-		wrapped := fmt.Errorf("卖出订单已受理但借币意图清理未持久化，结果未核实 (client_order_id=%s): %w", clientOrderID, err)
-		s.reportUnresolvedDebt(wrapped)
-		return wrapped
-	}
-	logger.Info("📤 SpotShortStrategy: 借幣 %.6f %s 並賣出", amount, s.baseAsset)
+	logger.Info("📤 SpotShortStrategy: 借幣 %.6f %s 並提交賣出；待訂單終態後完成對賬", amount, s.baseAsset)
 	return nil
 }
 

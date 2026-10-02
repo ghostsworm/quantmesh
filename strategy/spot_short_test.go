@@ -429,8 +429,8 @@ func TestSpotShortIncreaseShortSuccessDoesNotRepay(t *testing.T) {
 	if len(margin.repaid) != 0 || len(executor.orders) != 1 || executor.orders[0].Side != "SELL" {
 		t.Fatalf("repaid=%v orders=%d", margin.repaid, len(executor.orders))
 	}
-	if len(s.pendingBorrow) != 0 {
-		t.Fatalf("verified accepted sell should clear the borrow intent after executor durability: %+v", s.pendingBorrow)
+	if len(s.pendingBorrow) != 1 {
+		t.Fatalf("accepted sell must retain borrow intent until the exchange confirms a terminal order: %+v", s.pendingBorrow)
 	}
 }
 
@@ -656,7 +656,7 @@ func TestSpotShortRuntimeReconciliationRetriesPendingBorrowOrder(t *testing.T) {
 	venue := &spotShortClientOrderLookupExchange{
 		clientID: clientOrderID,
 		clientOrder: &exchange.Order{OrderID: 92, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell,
-			Quantity: 0.25, Status: exchange.OrderStatusNew},
+			Quantity: 0.25, Status: exchange.OrderStatusFilled},
 	}
 	cfg := &config.Config{}
 	cfg.Trading.BotID = "spot-short-runtime-reconcile"
@@ -850,7 +850,7 @@ func TestSpotShortStartupRecoversPreparedBorrowFromUniqueConfirmedHistory(t *tes
 	}
 	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
 	venue := &spotShortClientOrderLookupExchange{
-		clientOrder: &exchange.Order{OrderID: 91, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.4},
+		clientOrder: &exchange.Order{OrderID: 91, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideSell, Quantity: 0.4, Status: exchange.OrderStatusFilled},
 		clientID:    clientOrderID,
 		borrowRows:  []exchange.MarginBorrowRecord{{TransferID: 7001, Asset: "BTC", Amount: 0.4, Status: "CONFIRMED", Timestamp: createdAt}},
 		borrowTotal: 1,
