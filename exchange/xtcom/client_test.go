@@ -1,9 +1,35 @@
 package xtcom
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
+
+func TestAdapterAccountPreservesSelectedBalanceAsset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v4/balances" {
+			t.Errorf("path = %q, want /v4/balances", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"rc":0,"result":[{"currency":"usdt","available":"900","frozen":"350.5"},{"currency":"btc","available":"0.1","frozen":"0"}]}`))
+	}))
+	defer server.Close()
+
+	client := NewXTClient("key", "secret", false)
+	client.baseURL = server.URL
+	client.httpClient = server.Client()
+	adapter := &Adapter{client: client}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want USDT-denominated selected quote balance", account)
+	}
+}
 
 func TestNewXTClient(t *testing.T) {
 	apiKey := "test_api_key"

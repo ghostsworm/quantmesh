@@ -2682,3 +2682,4 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - 仅补齐输入路径一致性，仍不代表成本参数已按真实账户等级、流动性与撮合校准；R15 继续未关闭。
 - rc789 补齊 Crypto.com 帳戶摘要明確返回的 `currency` 權益單位證據，經適配器及通用 Wrapper 傳遞至錢包資金核驗；空 `accounts` 列表由索引 panic 改為可診斷錯誤。新增帳戶摘要幣種及空列表回歸測試。未連接真實交易所；現貨組合庫存估值及其他適配器的幣種證據仍待補齊。
 - rc790 將 AscendEX 私有餘額 API 篩選出的 `Balance.Asset`（USDT）經 adapter 與 Wrapper 傳遞至通用帳戶，避免共享錢包權益核驗因丟失幣種證據而拒絕；新增 HTTP fixture 回歸覆蓋選中 USDT 而非同響應 BTC 的行為。未擴大為全帳戶多資產估值，R10 及實盤/盈利驗收仍未完成。
+- rc791 將 XT.COM 私有餘額 API 篩選出的 `Balance.Currency`（USDT）經 adapter 與 Wrapper 傳遞至通用帳戶，讓共享錢包資金核驗可以驗證單位；HTTP fixture 同時提供 USDT 和 BTC，確認取樣和總額只來自 USDT 項目。未擴大為全帳戶多資產估值，R10 及實盤/盈利驗收仍未完成。
