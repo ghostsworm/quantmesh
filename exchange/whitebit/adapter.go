@@ -84,6 +84,7 @@ type AdapterAccount struct {
 	TotalWalletBalance float64
 	TotalMarginBalance float64
 	AvailableBalance   float64
+	BalanceAsset       string
 	Positions          []*AdapterPosition
 }
 
@@ -625,6 +626,7 @@ func (w *WhiteBITAdapter) GetAccount(ctx context.Context) (*AdapterAccount, erro
 		TotalWalletBalance: totalBalance,
 		TotalMarginBalance: totalBalance,
 		AvailableBalance:   availableBalance,
+		BalanceAsset:       "USDT",
 		Positions:          adapterPositions,
 	}, nil
 }

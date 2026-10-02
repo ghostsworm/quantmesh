@@ -42,6 +42,31 @@ func TestWhiteBITClientBasicsAndRequestErrors(t *testing.T) {
 	}
 }
 
+func TestWhiteBITAdapterAccountPreservesSelectedUSDTAsset(t *testing.T) {
+	client, closeServer := newMockWhiteBITClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v4/collateral-account/balance":
+			_, _ = w.Write([]byte(`{"USDT":{"balance":"1250.5","available_with_borrow":"900"},"BTC":{"balance":"0.1","available_with_borrow":"0.1"}}`))
+		case "/api/v4/collateral-account/positions":
+			_, _ = w.Write([]byte(`{"total":0,"records":[]}`))
+		default:
+			t.Errorf("unexpected path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+	defer closeServer()
+
+	adapter := &WhiteBITAdapter{client: client, symbol: "BTCUSDT", market: "BTC_PERP"}
+	account, err := adapter.GetAccount(context.Background())
+	if err != nil {
+		t.Fatalf("GetAccount: %v", err)
+	}
+	if account.BalanceAsset != "USDT" || account.TotalWalletBalance != 1250.5 || account.AvailableBalance != 900 {
+		t.Fatalf("account = %+v, want selected USDT collateral balance", account)
+	}
+}
+
 func TestWhiteBITPublicMethodsWithMockServer(t *testing.T) {
 	client, closeServer := newMockWhiteBITClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

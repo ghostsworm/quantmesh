@@ -2686,3 +2686,4 @@ F05/A02 补充：rc9 接通当前 Bot 波动率快照、行情准入、独立暂
 - rc792 將 Coins.ph 私有帳戶 API 的 `token` 幣種證據從所選餘額傳遞至通用帳戶；新增 API fixture 同時帶 PHP 與 BTC，驗證回傳淨值只計 `token` 所指定資產並保留其幣種。完整現貨多資產估值仍未實現，R10 與實盤/盈利驗收仍未完成。
 - rc793 將 Bitkub 私有餘額 map 中明確選取的 THB 資產單位透傳至通用帳戶；新增 HTTP fixture 同時包含 THB 與 BTC，驗證權益只聚合 THB 可用與凍結餘額。該適配器仍只提供 THB 子餘額，不代表全帳戶多資產估值；R10 與實盤/盈利驗收仍未完成。
 - rc794 將 KuCoin Futures `account-overview` 明確返回的 `currency` 單位傳遞經 adapter/Wrapper 至共用帳戶；新增可注入測試 API endpoint 的 client 設定及完整 HTTP 回歸，覆蓋 `currency=usdt` 與權益/保證金欄位。其餘交易所、現貨多資產估值與現金流核算仍未完成。
+- rc795 將 WhiteBIT 抵押帳戶餘額 map 明確選取的 USDT 幣種透傳至通用帳戶；私有 API fixture 同時包含 USDT 和 BTC，並覆蓋帳戶持倉查詢，確認權益數值來自 USDT collateral。這仍是 USDT 子餘額而非全資產淨值；R10 未關閉。
