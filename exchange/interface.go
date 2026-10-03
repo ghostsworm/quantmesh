@@ -275,6 +275,13 @@ type MarginBorrowRateProvider interface {
 	GetNextHourlyBorrowRate(ctx context.Context, asset string) (float64, error)
 }
 
+// MarginLiabilityReader reads authoritative principal and accrued interest for
+// the exact requested asset, independently of free/locked inventory. It does
+// not establish inventory ownership or spendable funds.
+type MarginLiabilityReader interface {
+	GetMarginLiability(ctx context.Context, asset string) (principal, interest float64, err error)
+}
+
 // ISpotMarginExchange 現貨槓桿交易所介面（借幣做空）
 // 僅 Binance Spot Margin 等支援借還的交易所實現
 type ISpotMarginExchange interface {

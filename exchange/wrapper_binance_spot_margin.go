@@ -433,6 +433,10 @@ func (w *binanceSpotMarginWrapper) GetNextHourlyBorrowRate(ctx context.Context, 
 	return w.adapter.GetNextHourlyBorrowRate(ctx, asset)
 }
 
+func (w *binanceSpotMarginWrapper) GetMarginLiability(ctx context.Context, asset string) (float64, float64, error) {
+	return w.adapter.GetMarginLiability(ctx, asset)
+}
+
 // Repay 還幣（ISpotMarginExchange）
 func (w *binanceSpotMarginWrapper) Repay(ctx context.Context, asset string, amount float64) (int64, error) {
 	return w.adapter.Repay(ctx, asset, amount)

@@ -2622,6 +2622,10 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err := settleCarryOrder(ctx, s.marginExecutor, buyOrder); err != nil {
 			return fmt.Errorf("persist margin buyback execution: %w", err)
 		}
+		debtToRepay, err = s.currentMarginRepaymentAmount(ctx, base, buyOrder.OrderID)
+		if err != nil {
+			return s.blockOnUnownedExposure(err)
+		}
 		s.mu.Lock()
 		operationErr := s.verifyDebtCommitLocked(ctx)
 		s.mu.Unlock()
