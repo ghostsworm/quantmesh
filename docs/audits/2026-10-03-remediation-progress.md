@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc957：同提交严格 MySQL 验证检查点
+
+- 测试代码提交：`e6d1260f0b92d42b12a1eb15ea9c158c62b542ce`，版本 `3.111.0-rc957`。测试前后 HEAD 完全相同，tracked diff 与 index diff 均为空；报告 source_dirty=true 仅因既有无关 `?? --help/`，未读取、改动或纳入提交。
+- 命令：`ruby scripts/verify_trading_race.rb /private/tmp/quantmesh-trading-race-rc957-same-commit-mysql --require-mysql`。测试 DSN 和 destructive-schema 许可仅指向本轮新建的 `quantmesh_readiness_rc957`，开始前确认业务表数为0，未读取生产配置。
+- 环境：MySQL `8.0.36`，镜像 `sha256:a532724022429812ec797c285c1b540a644c15e248579c6bfdf12a8fbaab4964`；容器 `quantmesh-readiness-mysql-rc957`，精确ID `6716596b4145477d6eb92ab753a491527af03558cfa599b27f874be0d4aa0a5f`，标签 isolated-readiness-test。无宿主机数据卷，512MiB tmpfs、1GiB内存/2CPU，仅监听 `127.0.0.1:32779`；清理前再次核对身份及挂载。
+- JSON 与 Markdown 已读回1925 pass、0 skip、0 fail，无缺包/解析错误，mysql_required=true、missing_verified_mysql_cases为空；8项强制用例逐一pass：独立暂停所有者、资金费身份/覆盖、账户钱包预留、借贷利息账本、成交覆盖迁移、现货库存快照、歧义Bot归属回填拒绝、利润提取规则。strategy140.776s。
+- 容器和tmpfs库已精确删除，并读回无残留；测试数据不可恢复，报告 `/private/tmp/quantmesh-trading-race-rc957-same-commit-mysql/results.json`、`results.md` 和镜像保留。本检查点只更新3份文档，不修改代码或提升版本。
+- 本次补齐rc957的本地同提交数据库证据，不替代目标平台交付、生产迁移、真实账户资产覆盖或盈利证明。当前实际Start会保留耐久余量证据并拒绝启动，但没有完整重启接管/处置；全账户库存归属、部分成交恢复、原子世代fencing及R01–R15其余要求仍待闭合。未改main、打发布标签、部署或实盘操作。
+
 ## rc957：还款后剩余买回资产独立核账
 
 - 实际 `closeReverse` 回归先复现旧行为：净买回0.4008、确认还款0.4之后返回成功并宣告平仓，遗漏0.0008；不是只从提交标题推断风险。
