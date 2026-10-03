@@ -1,6 +1,8 @@
 # Product Overview
 
-> 最后更新：2026-10-03 | 当前版本：v3.111.0-rc963（开发中；资金释放前后端已接线，未发布或实盘验收）
+> 最后更新：2026-10-03 | 当前版本：v3.111.0-rc964（开发中；资金释放前后端已接线，未发布或实盘验收）
+
+- `3.111.0-rc964` 修复专用 Funding Carry 构造器取消接线：取消后不继续后续连接/余额初始化，初始价格等待立即响应取消，拒绝非有限报价；初始化失败提前清理已创建流并保留清理错误。交易所无 context 的工厂调用本身尚不能中途取消，前置失败完整受管接管、当前库存与资产处置仍待闭合；不代表全构造器成功或实盘盈利验收。
 
 - `3.111.0-rc963` 修复 R14 前端嵌入交付门禁：使用 `make build` 或 `./scripts/build.sh`，先由 Yarn 构建前端，再核验版本、来源摘要和产物 SHA256，同步到 `web/dist` 后才编译 Go；支持 `make build OUTPUT=/绝对路径/quantmesh`。需安装 Ruby（标准库即可构建，门禁测试另需 minitest）。旧嵌入产物保存在构建日志指出的临时备份目录，不自动删除。可用 `ruby scripts/frontend_embed.rb verify` 与 `go test -tags embedded_frontend ./web -run '^TestEmbeddedFrontendProvenance$' -count=1` 核验磁盘及编译内嵌字节；摘要不是依赖安装/外部环境可重现证明，历史跨平台脚本、目标平台发布和实盘盈利仍待验证。
 

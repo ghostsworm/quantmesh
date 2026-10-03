@@ -34,13 +34,39 @@ func startFundingCarrySymbolRuntime(
 	onRequestStop func(botID string),
 	startupPauseHolders []storage.OpeningPauseHolder,
 ) (*SymbolRuntime, error) {
+	return startFundingCarrySymbolRuntimeWithDependencies(ctx, baseCfg, symCfg, eventBus, storageService, distributedLock, onRequestStop, startupPauseHolders,
+		fundingCarryStartupDependencies{checkSetup: exchange.CheckFundingCarrySetup, newExchange: exchange.NewExchange})
+}
+
+type fundingCarryStartupDependencies struct {
+	checkSetup  func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error)
+	newExchange func(*config.Config, string, string, string) (exchange.IExchange, error)
+}
+
+// Explicit dependencies allow the production constructor to be exercised without
+// real accounts or mutable package-global factory replacements.
+func startFundingCarrySymbolRuntimeWithDependencies(
+	ctx context.Context, baseCfg *config.Config, symCfg config.SymbolConfig,
+	eventBus *event.EventBus, storageService *storage.StorageService,
+	distributedLock lock.DistributedLock, onRequestStop func(string),
+	startupPauseHolders []storage.OpeningPauseHolder, deps fundingCarryStartupDependencies,
+) (result *SymbolRuntime, startupErr error) {
+	if ctx == nil || baseCfg == nil || deps.checkSetup == nil || deps.newExchange == nil {
+		return nil, fmt.Errorf("funding_carry startup requires context, config and dependencies")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if strings.ToLower(symCfg.Exchange) != "binance" {
 		return nil, fmt.Errorf("資金費套利當前僅支援 binance，當前: %s", symCfg.Exchange)
 	}
 
 	permCtx, cancelPerm := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelPerm()
-	perm, err := exchange.CheckFundingCarrySetup(permCtx, baseCfg, symCfg.Exchange, symCfg.Symbol)
+	perm, err := deps.checkSetup(permCtx, baseCfg, symCfg.Exchange, symCfg.Symbol)
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return nil, errors.Join(cancelErr, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("資金費套利預檢失敗: %w", err)
 	}
@@ -87,16 +113,53 @@ func startFundingCarrySymbolRuntime(
 		}
 		if releaseErr := releaseFundingCarryRuntimeOwnershipLeases(ownershipLeases); releaseErr != nil {
 			logger.ErrorCtx(ctx, "[%s] funding_carry 初始化失败后释放运行所有权租约失败: %v", botID, releaseErr)
+			startupErr = errors.Join(startupErr, fmt.Errorf("cleanup funding_carry startup ownership leases: %w", releaseErr))
 		}
 	}()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
-	futEx, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "futures")
+	runtimeReady := false
+	var spotEx exchange.IExchange
+	var marginEx exchange.ISpotMarginExchange
+	var marginRaw exchange.IExchange
+	var priceMonitor *monitor.PriceMonitor
+	futEx, err := deps.newExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "futures")
+	defer func() {
+		if runtimeReady {
+			return
+		}
+		if priceMonitor != nil {
+			priceMonitor.Stop()
+		}
+		for _, connection := range []exchange.IExchange{futEx, spotEx, marginRaw} {
+			if connection == nil {
+				continue
+			}
+			if err := connection.StopOrderStream(); err != nil {
+				startupErr = errors.Join(startupErr, fmt.Errorf("cleanup funding_carry startup order stream: %w", err))
+			}
+		}
+	}()
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return nil, errors.Join(cancelErr, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("創建合約連線失敗: %w", err)
 	}
-	spotEx, err := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot")
+	if futEx == nil {
+		return nil, fmt.Errorf("funding_carry futures connection absent")
+	}
+	spotEx, err = deps.newExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot")
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return nil, errors.Join(cancelErr, err)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("創建現貨連線失敗: %w", err)
+	}
+	if spotEx == nil {
+		return nil, fmt.Errorf("funding_carry spot connection absent")
 	}
 	if err := validateFundingCarryPairAssets(spotEx.GetBaseAsset(), spotEx.GetQuoteAsset(), futEx.GetBaseAsset(), futEx.GetQuoteAsset()); err != nil {
 		return nil, fmt.Errorf("資金費套利現貨/合約資產不匹配: %w", err)
@@ -126,6 +189,9 @@ func startFundingCarrySymbolRuntime(
 		observedAt := time.Now().UTC()
 		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, wallet.ex, "USDT", symCfg.Symbol)
 		cancelBalance()
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return nil, errors.Join(cancelErr, balanceErr)
+		}
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 %s USDT 帳戶權益: %w", wallet.market, balanceErr)
 		}
@@ -146,8 +212,10 @@ func startFundingCarrySymbolRuntime(
 	}
 
 	// 嘗試建立保證金帳戶連線（反向套利用，失敗不阻塞啟動）
-	var marginEx exchange.ISpotMarginExchange
-	marginRaw, marginErr := exchange.NewExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot_margin")
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	marginRaw, marginErr := deps.newExchange(&localCfg, symCfg.Exchange, symCfg.Symbol, "spot_margin")
 	if marginErr == nil {
 		if me, ok := marginRaw.(exchange.ISpotMarginExchange); ok {
 			marginEx = me
@@ -155,6 +223,9 @@ func startFundingCarrySymbolRuntime(
 		}
 	} else {
 		logger.InfoCtx(ctx, "ℹ️ [%s] 保證金帳戶不可用（%v），反向套利已禁用", symCfg.Symbol, marginErr)
+	}
+	if cancelErr := ctx.Err(); cancelErr != nil {
+		return nil, errors.Join(cancelErr, marginErr)
 	}
 	var marginAvailable float64
 	var marginAvailableAt time.Time
@@ -181,6 +252,9 @@ func startFundingCarrySymbolRuntime(
 		marginAvailableAt = time.Now().UTC()
 		available, balanceErr := readAccountWalletCapitalValue(balanceCtx, marginEx, "USDT", symCfg.Symbol)
 		cancelBalance()
+		if cancelErr := ctx.Err(); cancelErr != nil {
+			return nil, errors.Join(cancelErr, balanceErr)
+		}
 		if balanceErr != nil {
 			return nil, fmt.Errorf("讀取 spot_margin USDT 帳戶權益: %w", balanceErr)
 		}
@@ -190,7 +264,10 @@ func startFundingCarrySymbolRuntime(
 		marginAvailable = available
 	}
 
-	priceMonitor := monitor.NewPriceMonitor(
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	priceMonitor = monitor.NewPriceMonitor(
 		futEx,
 		symCfg.Symbol,
 		localCfg.Timing.PriceSendInterval,
@@ -198,30 +275,13 @@ func startFundingCarrySymbolRuntime(
 	if err := priceMonitor.Start(); err != nil {
 		return nil, fmt.Errorf("價格流: %w", err)
 	}
-	runtimeReady := false
-	defer func() {
-		if !runtimeReady {
-			priceMonitor.Stop()
-			futEx.StopOrderStream()
-			spotEx.StopOrderStream()
-			if marginEx != nil {
-				marginEx.StopOrderStream()
-			}
-		}
-	}()
 	pollInterval := time.Duration(localCfg.Timing.PricePollInterval) * time.Millisecond
 	if pollInterval <= 0 {
 		// 零值保护：避免配置未经校验时 time.Sleep(0) 退化为 CPU 空转
-		pollInterval = 500 * time.Millisecond
+		pollInterval = fundingCarryInitialPriceInterval
 	}
-	for i := 0; i < 10; i++ {
-		if priceMonitor.GetLastPrice() > 0 {
-			break
-		}
-		time.Sleep(pollInterval)
-	}
-	if priceMonitor.GetLastPrice() <= 0 {
-		return nil, fmt.Errorf("無法獲取初始價格")
+	if err := waitFundingCarryInitialPrice(ctx, priceMonitor, pollInterval); err != nil {
+		return nil, err
 	}
 
 	totalCap := symCfg.TotalAllocatedCapital
