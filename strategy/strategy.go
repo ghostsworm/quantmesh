@@ -199,6 +199,33 @@ func (sm *StrategyManager) isStrategyEnabledLocked(name string) bool {
 
 // StartAll 啟动所有策略
 func (sm *StrategyManager) StartAll() error {
+	return sm.StartAllContext(sm.ctx)
+}
+
+// StartAllContext binds recovery and strategy loops to both lifecycle owners.
+// StartAll remains compatible for callers owned only by the manager.
+func (sm *StrategyManager) StartAllContext(parent context.Context) error {
+	if parent == nil {
+		return fmt.Errorf("strategy startup requires a context")
+	}
+	if err := parent.Err(); err != nil {
+		return err
+	}
+	if err := sm.ctx.Err(); err != nil {
+		return err
+	}
+	ctx, cancel := context.WithCancel(parent)
+	stopManagerCancellation := context.AfterFunc(sm.ctx, cancel)
+	context.AfterFunc(ctx, func() { stopManagerCancellation() })
+	if err := sm.startAllContext(ctx); err != nil {
+		cancel()
+		stopManagerCancellation()
+		return err
+	}
+	return nil
+}
+
+func (sm *StrategyManager) startAllContext(ctx context.Context) error {
 	// 1. 分配资金
 	sm.allocator.Allocate()
 	if sm.dynamicAllocator != nil {
@@ -223,16 +250,26 @@ func (sm *StrategyManager) StartAll() error {
 	sort.Slice(enabled, func(i, j int) bool { return enabled[i].name < enabled[j].name })
 	started := make([]namedStrategy, 0, len(enabled))
 	for _, item := range enabled {
-		if err := item.strategy.Start(sm.ctx); err != nil {
-			if stopErr := item.strategy.Stop(); stopErr != nil {
-				logger.Error("❌ 回滚启动失败的策略 %s 时停止失败: %v", item.name, stopErr)
+		startErr := ctx.Err()
+		attempted := startErr == nil
+		if attempted {
+			startErr = item.strategy.Start(ctx)
+		}
+		if startErr == nil {
+			startErr = ctx.Err()
+		}
+		if startErr != nil {
+			if attempted {
+				if stopErr := item.strategy.Stop(); stopErr != nil {
+					logger.Error("❌ 回滚启动失败的策略 %s 时停止失败: %v", item.name, stopErr)
+				}
 			}
 			for i := len(started) - 1; i >= 0; i-- {
 				if stopErr := started[i].strategy.Stop(); stopErr != nil {
 					logger.Error("❌ 启动回滚时停止策略 %s 失败: %v", started[i].name, stopErr)
 				}
 			}
-			return fmt.Errorf("start strategy %s: %w", item.name, err)
+			return fmt.Errorf("start strategy %s: %w", item.name, startErr)
 		}
 		started = append(started, item)
 		logger.Info("✅ 策略 %s 已启动", item.name)

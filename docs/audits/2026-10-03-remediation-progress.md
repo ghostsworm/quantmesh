@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc961：受管启动不能脱离调用方生命周期
+
+- 实际构造器调用专用受管启动，但旧管理器 StartAll 使用创建管理器时的 background context。先以真实 Funding Carry 耐久读取回调取消调用方，复现旧路径仍导入历史余量，定向用例明确失败；这不是仅靠静态推测或新接口自测。
+- 新 StartAllContext 把策略恢复与循环绑定调用方和管理器两个 context，启动前/每项调用前/每项返回后检查取消；未调用的策略不触发 Stop，已调用项和先前成功项走原回滚。旧 StartAll 仍绑定管理器生命周期，专用 Funding Carry 生产调用显式传入所属 runtime context。策略枚举失败保留原错误链，不以泛化错误丢掉取消原因。
+- 最新三轮 race（根包4.667s/strategy3.413s）验证 nil/已取消/管理器停止/第一或第二项启动期间取消、先前已启动项全部回滚而尚未启动项不调用、调用方或管理器取消均通知循环、旧接口兼容，以及真实 Funding Carry 循环退出；真实余量恢复用例证明取消后不导入，完整耐久内容保持不变、无金融 RPC 或启动循环。实际Web异步入口使用background context，不把HTTP请求结束视为Bot生命周期结束。
+- 此处仅闭合 R09 的调用生命周期缺口，不自动释放claim、不解除交易门禁，也不把退出循环当作平仓证据。构造器前置失败的受管接管、当前库存/资产处置、部分成交补偿、全账户归属、原子fencing、其他专用运行时调用方context绑定及R01–R15其余验收仍待完成。
+- 十包race报告 `/private/tmp/quantmesh-trading-race-rc961-final/results.json` 和 `results.md` 已读取终态：1929 pass、8 MySQL skip、零失败，无缺包/解析错误，strategy145.031s、Web159.997s；source_commit=4051fe78、source_version=3.111.0-rc961、source_dirty=true，是提交前工作树证据，不是同提交严格数据库验收。随后补强第二项取消夹具的最新三轮结果如上，生产实现未再变化。
+- 根包/strategy vet、diff检查、Ruby9runs/58assertions及Yarn类型检查、45文件/225项测试、Vite/PWA构建均已通过。不继承旧版严格MySQL结果；未改main、打tag、发布、部署或访问真实账户，不宣称完整恢复或盈利已验收。
+
 ## rc960：受管核账实例不能冒充正在交易
 
 - 实际追踪发现 Bot List/GetBot 适配器的 running 表示注册表中有受管实例，而 Funding Carry 仪表盘直接把该值显示为运行；active_bots 还无条件累计配置数。新增 funding_carry_runtime 单独报告真实循环及待核账状态，不改变原受管停止/资本claim生命周期，列表和详情生产适配器都接入该读取。

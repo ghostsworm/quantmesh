@@ -19,10 +19,13 @@ func startFundingCarryManagedStrategy(ctx context.Context, manager *strategy.Str
 		return false, err
 	}
 	registered, err := manager.GetAllStrategiesContext(ctx)
-	if err != nil || len(registered) != 1 || registered["funding_carry"] != fc {
+	if err != nil {
+		return false, fmt.Errorf("read funding_carry managed strategies: %w", err)
+	}
+	if len(registered) != 1 || registered["funding_carry"] != fc {
 		return false, fmt.Errorf("funding_carry managed startup requires its exclusive strategy manager")
 	}
-	err = manager.StartAll()
+	err = manager.StartAllContext(ctx)
 	if err == nil {
 		return false, nil
 	}

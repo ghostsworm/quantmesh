@@ -27,9 +27,13 @@ func (*reconciliationRuntimeVenue) GetPriceDecimals() int    { return 2 }
 type reconciliationRuntimeStore struct {
 	payload string
 	writes  int
+	onLoad  func()
 }
 
 func (s *reconciliationRuntimeStore) LoadRuntimeState(string) (int, string, bool, error) {
+	if s.onLoad != nil {
+		s.onLoad()
+	}
 	return 6, s.payload, true, nil
 }
 func (s *reconciliationRuntimeStore) SaveRuntimeState(_ string, _ int, payload string) error {
@@ -44,7 +48,7 @@ func (reconciliationUnlockFailure) Unlock(context.Context, string) error {
 }
 
 func TestFundingCarryManagedStartupRetainsOnlyVerifiedReconciliation(t *testing.T) {
-	for _, mode := range []string{"remaining", "invalid_ledger", "wrong_scope", "owner_lost", "cancelled", "unlock_failure", "gate_mismatch"} {
+	for _, mode := range []string{"remaining", "invalid_ledger", "wrong_scope", "owner_lost", "cancelled", "cancelled_during_load", "unlock_failure", "gate_mismatch"} {
 		t.Run(mode, func(t *testing.T) {
 			cfg := &config.Config{}
 			cfg.Strategies.Configs = map[string]config.StrategyConfig{"funding_carry": {Enabled: true, Type: "funding_carry", Weight: 1}}
@@ -99,7 +103,13 @@ func TestFundingCarryManagedStartupRetainsOnlyVerifiedReconciliation(t *testing.
 			if mode == "cancelled" {
 				cancel()
 			}
+			if mode == "cancelled_during_load" {
+				store.onLoad = cancel
+			}
 			pending, err := startFundingCarryManagedStrategy(ctx, manager, fc, gate)
+			if mode == "cancelled_during_load" && fc.GetVisualizationData()["margin_cover_remaining_qty"] != nil {
+				t.Fatal("cancelled startup continued importing accounting under a detached manager context")
+			}
 			if mode == "remaining" {
 				if err != nil || !pending || !gate.HasBlock(fundingCarryReconciliationBlock) || !gate.HasBlock("manual_pause") {
 					t.Fatalf("verified accounting not retained under independent block: %v", err)
