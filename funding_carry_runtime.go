@@ -383,19 +383,23 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			return
 		}
 		if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
-			fc.MarkExecutionUnknown(fmt.Errorf("runtime ownership lease lost during Funding Carry initialization"))
+			cleanupErr := fmt.Errorf("runtime ownership lease lost during Funding Carry initialization")
+			fc.MarkExecutionUnknown(cleanupErr)
 			if strategyStartAttempted {
 				if stopErr := strategyManager.StopAllWithError(); stopErr != nil {
 					logger.WarnCtx(ctx, "[%s] Funding Carry lease-loss startup freeze retained unresolved strategy state: %v", botID, stopErr)
+					cleanupErr = errors.Join(cleanupErr, stopErr)
 				}
 			}
 			retainOwnershipOnFailure = true
+			startupErr = errors.Join(startupErr, &fundingCarryStartupRetentionError{Cause: cleanupErr})
 			logger.ErrorCtx(ctx, "[%s] funding_carry 初始化失敗時運行租約已丟失，保留資金 claim 等待對帳", botID)
 			return
 		}
 		if strategyStartAttempted {
 			if stopErr := strategyManager.StopAllWithError(); stopErr != nil {
 				retainOwnershipOnFailure = true
+				startupErr = errors.Join(startupErr, &fundingCarryStartupRetentionError{Cause: stopErr})
 				logger.ErrorCtx(ctx, "[%s] funding_carry 初始化失敗後策略停止未核實，保留資金 claim 與運行租約: %v", botID, stopErr)
 				return
 			}
@@ -410,6 +414,7 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		})
 		if releaseErr != nil {
 			retainOwnershipOnFailure = true
+			startupErr = errors.Join(startupErr, &fundingCarryStartupRetentionError{Cause: releaseErr})
 			logger.ErrorCtx(ctx, "[%s] funding_carry 初始化失敗後无法核实并释放 claim，保留资金预留与运行租约: %v", botID, releaseErr)
 		}
 	}()

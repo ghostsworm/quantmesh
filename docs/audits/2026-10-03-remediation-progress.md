@@ -2,6 +2,17 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc966：完整构造器的剩余资产接管与清理保留诊断（本地验证完成）
+
+- 不再只测试准入辅助函数：实际生产构造器委托实现接入隔离预检/交易所和t.TempDir SQLite，真实配置、钱包观测序号、三钱包预留、执行意图后端、策略耐久适配器及PriceMonitor均运行。成功的历史剩余资产路径可返回SymbolRuntime并导入0.0008 BTC历史量；不启交易循环，StopWithError拒绝平仓/资金释放，三钱包各50USDT及schema6原始金融payload均保持。
+- 将实际构造结果加入真实BotManager的AddRuntime注册表并读出Bot状态映射，确认“受管但不交易且待核账”；这是注册接线，不冒充默认StartBot自动构造入口或浏览器验收。夹具明确拒绝并计数Place/Cancel/Borrow/Repay/Transfer，核验零金融RPC及价格/订单流清理。
+- 错账户完整构造器红测读回：三项预留和原始金融payload确实被保留、没有金融变更，但返回错误仅含原启动原因，清理拒绝释放仅在日志。新增fundingCarryStartupRetentionError并与原错误Join，覆盖资金核清失败、策略停止失败及所有权丢失/冻结失败；不准入为正常核账实例，不自动释放资金或接管错账户。
+- 诊断措辞为“预留释放未核实”，不把存储提交报错当作已读回预留必然存在；错账户/停止失败夹具另以数据库实际读回证明三项预留仍在。单原因包装的保留诊断同样拒绝准入，不仅依赖外层Join。其他所有权丢失/策略停止失败分支接入同类型返回，但尚缺逐分支完整构造器故障注入证明。
+- 最终定向三轮race根包4.031s、根包完整race29.528s终态通过，根包vet、diff检查通过；包含实际临时SQLite构造器与原取消/所有权/受管准入回归。错误账户的原启动原因及结构化释放未核实原因均返回，原payload不变，三个钱包预留真实读回均为50USDT；单原因诊断包装也不能恢复准入。没有以日志代替数据库读回。
+- Yarn verify整条链条成功，类型检查/测试/Vite PWA构建通过；独立dot报告读回45文件/225项测试全部通过。Ruby嵌入门禁14runs/27assertions、原交易门禁9runs/58assertions均零失败/错误/跳过。完整Make构建成功；最终诊断措辞校准后，在前端清单不变且核验通过的条件下重新go build最终源码，--version返回3.111.0-rc966，编译内嵌字节测试2.297s通过。
+- 最终二进制 `/private/tmp/quantmesh-constructor-recovery-rc966.gOnIBM/quantmesh` SHA256 `3cd3f899add06887a3414d0eaa8ef98dcbd5767c6b2e94608e55743bb1c6d9a9`；两份前端清单均为 `6f17c818a8116777602c84971e67f5b6089e241770485eb81178c9175a64ebf3`（214资产），来源摘要 `3c41d8444198b1c13fc30e22563a4b8a1a8e691d7846c8d1c1be9acdbe7c282f`。构建于HEAD45856458的dirty源码，非发布提交构建。JSON/Markdown在上述专用目录；上一轮嵌入目录保留于 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-85253-3gmc6a/dist`，无现有运行程序覆盖。
+- 完整前置失败管理接管、当前库存/资产处置、UNKNOWN/部分成交补偿、原子fencing和R01–R15其余要求仍未完成；本轮SQLite不冒充严格MySQL/跨进程行锁证明，不继承旧数据库/远端CI或盈利证据，不改main/tag/发布/部署，推送仍待目的地确认。
+
 ## rc965：套利运行时不能写入其他 Bot 的策略 map（本地验证完成）
 
 - 继续核对 R09 生产初始化/恢复前提时发现两个专用构造器均浅拷贝 baseCfg，再直接写共享 Strategies.Configs。串行红测确认 Funding Carry/Perp Spread 都改变基础配置；Funding Carry 真实构造器入口在注入工厂失败后，仍覆写共享策略权重/启用/参数。未用标题或race未复现臆测问题。

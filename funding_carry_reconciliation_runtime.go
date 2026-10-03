@@ -43,6 +43,9 @@ func startFundingCarryManagedStrategy(ctx context.Context, manager *strategy.Str
 // Permit only the precise recovery result under ordinary single-cause wrapping.
 func fundingCarryReconciliationOnlyError(err error) bool {
 	for err != nil {
+		if _, retained := err.(*fundingCarryStartupRetentionError); retained {
+			return false
+		}
 		if _, ok := err.(*strategy.FundingCarryReconciliationRequiredError); ok {
 			return true
 		}
