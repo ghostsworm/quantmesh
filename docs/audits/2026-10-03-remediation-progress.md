@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc956：空仓核验与恢复统一锁顺序
+
+- 真实 VerifyFlat 隔离回归观察到它在等待已被持有的策略操作门时先获取钱包租约，导致操作持有者无法取得钱包（探测请求超时）；启动恢复、tick 与手动关闭则为操作门后钱包锁，形成反向锁序。
+- VerifyFlat 先取得可取消操作门，再进入既有钱包协调租约；不修改全账户资本核验外层钱包租约协议、不放宽空仓/持久化/UNKNOWN门禁。回归核验等待操作期间钱包可由当前操作持有者取得，取消后操作门和钱包仍可正常重试。
+- 补充回归复现仅调整锁序后，已失去所有权的调用仍会排队至超时；保留取操作门前的所有权快速拒绝，钱包协调内部仍二次核验。前轮最终测试启动于该补充修正前，不作为当前源码的最终证据。
+- 全账户库存归属、剩余资产、完整恢复、严格数据库/发布证据及原子世代 fencing 仍未闭合；此批只消除该实际锁序冲突，不宣称所有并发路径已验收。
+- 验证：锁序/取消后重试、同钱包串行化及所有权快速拒绝五轮 race 通过（2.978s）；最终关联策略/解码/关闭路径两轮 race 通过（251.878s）。strategy vet、diff 检查和 Ruby 门禁9项/58断言通过；前端 yarn verify 类型检查、44文件224测试及 Vite/PWA 构建通过。此前3.141s定向及250.750s关联结果不包含所有权补充修正，不替代最终验证。
+- 最终十包 `/private/tmp/quantmesh-trading-race-rc956-final2/results.json` 与 `results.md` 已读回1913 pass、8 MySQL skip、0失败、无缺包/解析错误，source_version=3.111.0-rc956、source_commit=5739e73a、source_dirty=true；前轮 final 的1912项为补充修正前证据，非最终结果。这是提交前源码回归，不是本版同提交严格 MySQL 验证。未访问真实账户/生产库、未下单或发布。
+
 ## rc955：margin 可用余额与还款金额同响应核对
 
 - HTTP 回归先复现 margin GetBalance 因继承 spot 方法访问 /api/v3/account：margin free0.25 BTC、locked0.2 BTC时误返回 spot free999 BTC。覆盖 margin 方法，改从 /sapi/v1/margin/account 精确匹配唯一资产、解析有限非负 free；资产缺失/重复不冒充零余额，locked 不加到 free。

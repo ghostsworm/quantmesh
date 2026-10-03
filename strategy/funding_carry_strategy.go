@@ -575,12 +575,19 @@ func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("funding_carry flat verification requires context")
 	}
+	s.mu.RLock()
+	gate := s.openingGate
+	s.mu.RUnlock()
+	if err := verifyStrategyWalletRuntimeOwner(gate); err != nil {
+		return err
+	}
+	// Recovery, tick and manual close already hold the operation token before
+	// requesting the wallet lease. Flat verification must use that same order.
+	if err := s.acquireOperation(ctx); err != nil {
+		return fmt.Errorf("wait for funding_carry operation before flat verification: %w", err)
+	}
+	defer s.releaseOperation()
 	return s.withAccountWalletCoordination(ctx, func(verifyCtx context.Context) error {
-		if err := s.acquireOperation(verifyCtx); err != nil {
-			return fmt.Errorf("wait for funding_carry operation before flat verification: %w", err)
-		}
-		defer s.releaseOperation()
-
 		s.mu.RLock()
 		known, inFlight, unknown := s.strategySpotKnown, s.intentInFlight, s.unownedExposure
 		stateErr, stateStore := s.runtimeStateErr, s.runtimeStateStore
