@@ -2,6 +2,17 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc971：DCA/马丁格尔/信号耐久平账的配置保留判断（尚未接入四入口）
+
+- 新增三类只读纯函数，要求独立Bot/策略名/symbol（马丁格尔另要求LONG/SHORT），使用真实私有schema及既有资本释放空仓判断检查条目、平仓意图、成交/费用游标和精确非零数量；不能用空仓标志或策略仍在配置中作证。允许自定义/Combo底层子名称，但记录键与Combo命名空间、类型映射的集合核验尚未实现。
+- 实际DCA/马丁格尔serializer将空层/条目保存为null，不再用通用null禁止规则误判合法平账；只在对应root集合允许，嵌套null条目、进度/统计null均拒绝。统计与close_progress要求真实Go序列化的完整字段（Quantity/Notional、TotalTrades/WinRate/TotalPnL/TotalVolume）；缺失、重复键/大小写覆盖、尾随或未知数据不能被零值补成平账。此前套利null拒绝规则保持。
+- 该核验证明耐久经济游标没有未处理内容，不证明当前账户库存或资本释放；非空条目/持仓/订单等直接保留配置，不靠这一步完成其有效性核账或下单恢复。无效/不足证据与需保留恢复配置以既有sentinel区分。正常暂停、历史亏损/利润、合法空集合不永久阻止平账；旧schema不能冒充当前证据，后续仍须明确兼容核账能力。
+- 定向全部RecoveryConfig测试三轮race1.629s通过：真实三个持久化producer保存并读回合法平账，包含暂停、历史亏损及自定义子名；UNKNOWN条目、未完成订单/平仓/费用游标、负平仓损益、最小正数保持拒绝；错Bot/策略/symbol、未知schema、嵌套缺字段/null、nil条目、重复统计键等不足证据拒绝。纯函数仅收字符串和绑定，不接真实交易、存储写入或金融RPC，原payload不变。
+- 最终源码策略完整race139.604s完成通过；前端verify与独立dot读回均45文件225项通过。不将运行中测试算作终态，不继承旧版本通过记录。
+- 前端Yarn verify完成、Vite/PWA构建通过；Go+React嵌入技能用于先前端后临时二进制，Make和compiled embed1.130s通过，API原版本header接线保持，前后端rc971一致。vet/diff通过，Ruby嵌入14runs27assertions/交易9runs58assertions通过。临时产物与JSON/Markdown报告目录 `/private/tmp/quantmesh-single-leg-proof-rc971.Nt5BBJ/`，二进制SHA256 `8bee3b898211c0a9492acc1b18d2f6336a08aa1c5c3c29bdefbd30397a842f81`，两清单SHA256 `b84b0c710ad197c05db946a968284f4b5170e584fff473cd807b4e234a9e14db`，214资产；旧嵌入可恢复备份 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-92932-kmtypw/dist` 保留，不覆盖运行程序。
+- 原临时SQLite套利overlay兼容race1.771s通过；四入口八项安全断言仍失败（Web3.449s、退出1），金融payload不变但配置依然可被改掉。现货/期货对冲、Combo父子记录映射、所有Bot记录的独立绑定、旧schema核账与四入口统一接线、其他写路径、正常核清放行、默认adapter/E2E与跨进程fencing均未闭合，不宣称本轮修复开放入口缺陷。
+- 不继承旧严格MySQL/远端CI/目标发布证据；本地构建为c8d5d166上的dirty源码，非最终发布提交。R01–R15完整目标保持活跃，未改main/tag、推送、部署或访问生产库/真实账户；推送目的地人工批准仍未收到。
+
 ## rc970：套利耐久状态的只读配置保留核验（尚未接入入口）
 
 - 新增 Funding Carry / Funding Perp Spread 纯函数，调用既有实际恢复解码器及借贷、成交费用/确认消耗校验；要求独立非空身份绑定，Carry 明确账户 scope 和基础币。已核清耐久记录返回 nil，需要核账与无效证据通过不同 sentinel 错误及 errors.Is 区分，不输出完整金融 payload。

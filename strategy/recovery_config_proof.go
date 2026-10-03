@@ -83,11 +83,15 @@ func recoveryBindingComplete(values ...string) bool {
 	return true
 }
 
-// Canonical state serialization never emits null. Reject duplicate keys at
-// every depth: encoding/json otherwise silently accepts the final occurrence.
+// The arbitrage serializers never emit null. Other serializers may explicitly
+// declare a nullable top-level empty collection; null entries remain invalid.
 func verifyRecoveryJSON(payload string, target interface{}, required ...string) error {
+	return verifyRecoveryJSONWithCollections(payload, target, nil, required...)
+}
+
+func verifyRecoveryJSONWithCollections(payload string, target interface{}, nullableCollections map[string]bool, required ...string) error {
 	decoder := json.NewDecoder(strings.NewReader(payload))
-	if err := verifyRecoveryJSONValue(decoder, 0); err != nil {
+	if err := verifyRecoveryJSONValue(decoder, 0, "", nullableCollections); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); err != io.EOF {
@@ -107,7 +111,7 @@ func verifyRecoveryJSON(payload string, target interface{}, required ...string) 
 	return decoder.Decode(target)
 }
 
-func verifyRecoveryJSONValue(decoder *json.Decoder, depth int) error {
+func verifyRecoveryJSONValue(decoder *json.Decoder, depth int, field string, nullableCollections map[string]bool) error {
 	if depth > 128 {
 		return fmt.Errorf("recovery state nesting exceeds limit")
 	}
@@ -116,6 +120,9 @@ func verifyRecoveryJSONValue(decoder *json.Decoder, depth int) error {
 		return err
 	}
 	if token == nil {
+		if depth == 1 && nullableCollections[field] {
+			return nil
+		}
 		return fmt.Errorf("recovery state contains null evidence")
 	}
 	delimiter, container := token.(json.Delim)
@@ -124,6 +131,7 @@ func verifyRecoveryJSONValue(decoder *json.Decoder, depth int) error {
 	}
 	seen := make(map[string]bool)
 	for decoder.More() {
+		childField := ""
 		if delimiter == '{' {
 			key, err := decoder.Token()
 			if err != nil {
@@ -135,8 +143,9 @@ func verifyRecoveryJSONValue(decoder *json.Decoder, depth int) error {
 				return fmt.Errorf("recovery state contains duplicate or invalid key")
 			}
 			seen[name] = true
+			childField = name
 		}
-		if err := verifyRecoveryJSONValue(decoder, depth+1); err != nil {
+		if err := verifyRecoveryJSONValue(decoder, depth+1, childField, nullableCollections); err != nil {
 			return err
 		}
 	}
