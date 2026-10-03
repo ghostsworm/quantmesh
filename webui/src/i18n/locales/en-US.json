@@ -2117,6 +2117,7 @@
     "fundingCarryBotId": "Bot ID",
     "fundingCarryCumulativeIncome": "Cumulative Funding",
     "fundingCarryActiveBots": "Active Bots",
+    "fundingCarryStatus": { "reconciliation_required": "Reconciliation required (trading and capital release blocked)", "unknown": "Trading status unverified" },
     "fundingCarryCapitalDeployed": "Capital Deployed",
     "fundingCarrySymbolTable": "Symbol Status",
     "fundingCarryDailyIncome": "Daily Income Trend",

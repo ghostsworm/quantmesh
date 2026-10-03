@@ -2117,6 +2117,7 @@
     "fundingCarryBotId": "Bot ID",
     "fundingCarryCumulativeIncome": "累计资金费",
     "fundingCarryActiveBots": "活跃机器人",
+    "fundingCarryStatus": { "reconciliation_required": "待核账（不可恢复交易或释放资金）", "unknown": "交易状态未核实" },
     "fundingCarryCapitalDeployed": "已部署资金",
     "fundingCarrySymbolTable": "各币种状态",
     "fundingCarryDailyIncome": "每日收益趋势",

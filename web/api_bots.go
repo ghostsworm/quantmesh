@@ -30,23 +30,24 @@ type BotResponse struct {
 	TotalTrades   int     `json:"total_trades,omitempty"`
 	RiskTriggered bool    `json:"risk_triggered,omitempty"`
 	// RiskTriggerMessage K 線風控與深度風控的最近說明（與運行時 lastMsg 一致，多條以分號拼接）
-	RiskTriggerMessage    string            `json:"risk_trigger_message,omitempty"`
-	Uptime                int64             `json:"uptime,omitempty"`
-	PriceInterval         float64           `json:"price_interval,omitempty"`          // 價格間隔
-	ProfitSpread          float64           `json:"profit_spread,omitempty"`           // 利潤間距
-	OrderQuantity         float64           `json:"order_quantity,omitempty"`          // 每單金額
-	TotalAllocatedCapital float64           `json:"total_allocated_capital,omitempty"` // 總投入資金
-	Strategies            []BotStrategyInfo `json:"strategies,omitempty"`              // 該 Bot 配置的策略列表
-	Leverage              float64           `json:"leverage,omitempty"`                // 杠杆倍數
-	MaxCapitalRatio       float64           `json:"max_capital_ratio,omitempty"`       // 最大資金占用比例 (0.1-1.0)
-	BuyWindowSize         int               `json:"buy_window_size,omitempty"`         // 買窗大小（用於計算平倉價）
-	CreatedAt             string            `json:"created_at,omitempty"`              // 創建時間 ISO 8601
-	StoppedAt             string            `json:"stopped_at,omitempty"`              // 停止時間 ISO 8601（僅當已停止時有值）
-	HedgeGroupName        string            `json:"hedge_group_name,omitempty"`        // 所屬對沖組名稱，空則非對沖
-	Direction             string            `json:"direction,omitempty"`               // 網格/策略方向：LONG/SHORT/BOTH
-	LastStartError        string            `json:"last_start_error,omitempty"`        // 最近一次異步啟動失敗原因（供前端展示）
-	LastStartErrorAt      string            `json:"last_start_error_at,omitempty"`     // 失敗時間 RFC3339
-	Testnet               bool              `json:"testnet"`                           // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
+	RiskTriggerMessage    string                     `json:"risk_trigger_message,omitempty"`
+	Uptime                int64                      `json:"uptime,omitempty"`
+	PriceInterval         float64                    `json:"price_interval,omitempty"`          // 價格間隔
+	ProfitSpread          float64                    `json:"profit_spread,omitempty"`           // 利潤間距
+	OrderQuantity         float64                    `json:"order_quantity,omitempty"`          // 每單金額
+	TotalAllocatedCapital float64                    `json:"total_allocated_capital,omitempty"` // 總投入資金
+	Strategies            []BotStrategyInfo          `json:"strategies,omitempty"`              // 該 Bot 配置的策略列表
+	Leverage              float64                    `json:"leverage,omitempty"`                // 杠杆倍數
+	MaxCapitalRatio       float64                    `json:"max_capital_ratio,omitempty"`       // 最大資金占用比例 (0.1-1.0)
+	BuyWindowSize         int                        `json:"buy_window_size,omitempty"`         // 買窗大小（用於計算平倉價）
+	CreatedAt             string                     `json:"created_at,omitempty"`              // 創建時間 ISO 8601
+	StoppedAt             string                     `json:"stopped_at,omitempty"`              // 停止時間 ISO 8601（僅當已停止時有值）
+	HedgeGroupName        string                     `json:"hedge_group_name,omitempty"`        // 所屬對沖組名稱，空則非對沖
+	Direction             string                     `json:"direction,omitempty"`               // 網格/策略方向：LONG/SHORT/BOTH
+	LastStartError        string                     `json:"last_start_error,omitempty"`        // 最近一次異步啟動失敗原因（供前端展示）
+	LastStartErrorAt      string                     `json:"last_start_error_at,omitempty"`     // 失敗時間 RFC3339
+	Testnet               bool                       `json:"testnet"`                           // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
+	FundingCarryRuntime   *FundingCarryRuntimeStatus `json:"funding_carry_runtime,omitempty"`
 }
 
 // BotStrategyInfo Bot 策略信息（用于列表显示）

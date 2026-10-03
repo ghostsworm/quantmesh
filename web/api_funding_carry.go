@@ -231,7 +231,6 @@ func getFundingCarryDashboard(c *gin.Context) {
 			continue
 		}
 
-		activeBots++
 		if bc.TotalAllocatedCapital < 0 {
 			respondError(c, http.StatusServiceUnavailable, "error.storage_unavailable")
 			return
@@ -245,11 +244,14 @@ func getFundingCarryDashboard(c *gin.Context) {
 		status := "stopped"
 		if botManagerProvider() != nil {
 			for _, br := range botManagerProvider().ListBots() {
-				if br.BotID == bc.ID && br.Running {
-					status = "running"
+				if br.BotID == bc.ID {
+					status = fundingCarryDashboardStatus(br)
 					break
 				}
 			}
+		}
+		if status == "running" {
+			activeBots++
 		}
 
 		var inc24h, inc7d float64
@@ -391,11 +393,15 @@ func getFundingCarryStatus(c *gin.Context) {
 		return
 	}
 
+	status := fundingCarryDashboardStatus(detail.BotResponse)
 	c.JSON(http.StatusOK, gin.H{
-		"bot_id":   botID,
-		"symbol":   detail.Symbol,
-		"exchange": detail.Exchange,
-		"running":  detail.Running,
+		"bot_id":                botID,
+		"symbol":                detail.Symbol,
+		"exchange":              detail.Exchange,
+		"managed":               detail.Running,
+		"running":               status == "running",
+		"status":                status,
+		"funding_carry_runtime": detail.FundingCarryRuntime,
 	})
 }
 

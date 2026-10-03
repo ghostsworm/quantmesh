@@ -140,6 +140,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 		}
 		if br, ok := runningMap[botID]; ok && br.Inner != nil {
 			resp.Running = true
+			attachFundingCarryRuntimeStatus(br.Inner, &resp)
 			if br.Inner.PriceMonitor != nil {
 				resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
 			}
@@ -250,6 +251,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 			resp.TotalPnL = br.Inner.SuperPositionManager.GetUnrealizedPnL(resp.CurrentPrice)
 		}
 		attachBotRiskFields(br.Inner, &resp.BotResponse)
+		attachFundingCarryRuntimeStatus(br.Inner, &resp.BotResponse)
 		attachBotLastStartFailure(botMgr, &resp.BotResponse)
 		return resp, true
 	}

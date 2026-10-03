@@ -12,7 +12,7 @@ export interface FundingCarryOverview {
 export interface FundingCarrySymbol {
   symbol: string
   bot_id: string
-  status: string
+  status: 'running' | 'stopped' | 'unknown' | 'reconciliation_required'
   capital: number
 }
 

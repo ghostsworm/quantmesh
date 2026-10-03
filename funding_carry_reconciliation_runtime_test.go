@@ -13,6 +13,7 @@ import (
 	"quantmesh/lock"
 	"quantmesh/storage"
 	"quantmesh/strategy"
+	"quantmesh/web"
 )
 
 type reconciliationRuntimeVenue struct{ exchange.ISpotMarginExchange }
@@ -104,6 +105,17 @@ func TestFundingCarryManagedStartupRetainsOnlyVerifiedReconciliation(t *testing.
 					t.Fatalf("verified accounting not retained under independent block: %v", err)
 				}
 				status := manager.GetStrategyStatus("funding_carry")
+				registry := NewBotManager(cfg, nil, nil, nil, "")
+				registry.AddRuntime(&BotRuntime{BotID: "bot-a", Inner: &SymbolRuntime{StrategyManager: manager}})
+				registered, found := registry.Get("bot-a")
+				if !found || registered == nil {
+					t.Fatal("managed runtime missing from registry")
+				}
+				response := web.BotResponse{Running: true}
+				attachFundingCarryRuntimeStatus(registered.Inner, &response)
+				if !response.Running || response.FundingCarryRuntime == nil || response.FundingCarryRuntime.TradingRunning || !response.FundingCarryRuntime.ReconciliationRequired {
+					t.Fatal("bot status confused registered accounting with trading or lost managed state")
+				}
 				if !status.IsEnabled || status.IsRunning || status.VisualizationData["margin_cover_remaining_qty"] != "0.0008" || status.VisualizationData["reconciliation_required"] != true {
 					t.Fatal("managed strategy status hid accounting or falsely reported trading")
 				}

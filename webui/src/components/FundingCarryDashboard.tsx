@@ -12,6 +12,15 @@ import {
 import { getFundingCarryDashboard } from '../services/fundingCarry'
 import type { FundingCarryDashboardResponse, FundingCarryDailyIncome, FundingCarrySymbol } from '../types/fundingCarry'
 
+export function FundingCarryStatusBadge({ status }: { status: FundingCarrySymbol['status'] }) {
+  const { t } = useTranslation()
+  return <Badge colorScheme={status === 'running' ? 'green' : 'gray'}>
+    {status === 'reconciliation_required' || status === 'unknown'
+      ? t(`profitManagement.fundingCarryStatus.${status}`)
+      : t(`botList.${status}`)}
+  </Badge>
+}
+
 const FundingCarryDashboard: React.FC = () => {
   const { t } = useTranslation()
   const [data, setData] = useState<FundingCarryDashboardResponse | null>(null)
@@ -120,9 +129,7 @@ const FundingCarryDashboard: React.FC = () => {
                       <Td>{sym.bot_id}</Td>
                       <Td fontWeight="bold">{sym.symbol}</Td>
                       <Td>
-                        <Badge colorScheme={sym.status === 'running' ? 'green' : 'gray'}>
-                          {t(`botList.${sym.status}`)}
-                        </Badge>
+                        <FundingCarryStatusBadge status={sym.status} />
                       </Td>
                       <Td isNumeric>
                         <Tooltip label={t('common.currencyUnit')}>{sym.capital.toFixed(2)}</Tooltip>
