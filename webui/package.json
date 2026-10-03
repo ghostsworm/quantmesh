@@ -1,11 +1,12 @@
 {
   "name": "quantmesh-webui",
-  "version": "3.111.0-rc962",
+  "version": "3.111.0-rc963",
   "type": "module",
   "packageManager": "yarn@4.12.0",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "ruby ../scripts/frontend_embed.rb build",
+    "build:assets": "vite build",
     "test": "vitest run",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "verify": "yarn typecheck && yarn test && yarn build",

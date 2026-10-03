@@ -2,6 +2,17 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc963：前端嵌入交付来源与失败门禁（本地验证完成）
+
+- 对应 R14：标准 Makefile、scripts/build.sh 与 CI/CD 使用 Yarn 前端构建及 Ruby 门禁，删除构建中的忽略复制失败、缺前端跳过和占位回退；Make 依赖保证并行构建仍先前端后 Go，不从历史 git tag 覆盖源码版本。
+- build-meta.json 绑定前后端版本、前端 src/public/配置及门禁脚本摘要、完整产物 SHA256；失败构建先撤销旧标记，源码在构建过程中改变不得发新标记。同步先核验临时副本，保留旧嵌入目录；复制或交换失败保留/恢复原目录，拒绝产物符号链接和越界引用。来源目录仅允许指向同目录内普通文件的链接，并同时核验链接身份与目标内容，兼容仓库已有 PWA 图标链接；越界/目录链接不接受。
+- 新增 opt-in embedded_frontend Go 测试，直接读取编译进测试程序的 go:embed 元数据及全部资产字节，与当前核验前端清单比对；CI/CD 标准测试明确执行，不仅检查磁盘复制。
+- 最终门禁14 runs/27 assertions，原交易门禁9 runs/58 assertions，均零失败/错误/跳过；覆盖 `make -j4` 前端失败不得进入 Go、内部来源链接及目标变更、越界链接、失败交换恢复。首次构建因现有8个PWA图标链接被过度拒绝而失败，补红测并修正上述来源边界后才接受结果。前端类型检查及225测试通过，后续独立构建和完整 Make 构建通过；没有将最初失败的 yarn verify 整体链条写成成功。
+- `make build OUTPUT=/private/tmp/quantmesh-embed-rc963-build.FWYjEh/quantmesh` 成功，`--version` 返回3.111.0-rc963。产物SHA256 `a911e9a0e097484f3ed5048d353fe4b41aa22b2d9bc35a857a30f2341bf94c00`；webui/dist与web/dist清单均为 `a33853ef7675468634187e3b5c3156c6fa5c3ff953d00893e97e67dfd8a07cc8`，包含214个资产，来源摘要 `ece7e39ed9126ce9a31a6ad99fa8ed5ae944ea6d547dbde2cf5d56db88533253`。本地dirty源码构建，Vite内Git短号仍指向构建时父提交，不冒充最终发布提交构建。
+- 编译内嵌测试在最终产物稳定后成功（web1.940s），根包/Web全包race终态成功（38.505s/82.696s），根包/Web vet、YAML解析、bash语法及diff检查通过。初次Go检查受缓存权限阻断；获准重跑时与前端重构建重叠导致标记缺失，该失败不作为验收，待构建完成后重新执行成功。此处无严格MySQL fixture/零跳过数据库证明，不继承rc962报告。JSON及Markdown本地记录位于上述专用临时目录。
+- 首次同步将原旧嵌入产物保留于 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-81753-pbboil/dist`；Make再次同步保留上轮产物于 `quantmesh-embedded-backup-20261003-81911-9moh1k/dist`（同临时根目录）。未删除旧产物或覆盖现有运行程序。
+- 不把来源摘要当作外部环境/依赖安装可重现证明；历史 scripts/build-release.sh、远端CI/实际目标平台发行构建、真实账户资产处置、完整恢复、原子 fencing 和净盈利仍未验收。R01–R15范围保持，未改 main、打 tag、发布、部署或连接真实账户。
+
 ## rc962：同提交严格数据库验证与嵌入前端证据边界
 
 - 被测代码提交精确为 `186818f634fe9486b927c04a58f0499db5898045`，版本 `3.111.0-rc962`。测试前后HEAD相同，tracked diff和index diff均为空；报告source_dirty=true仅因用户无关的`?? --help/`，该目录未打开/修改/暂存。后续本次提交仅补文档，不冒充文档子提交另跑过全部测试。

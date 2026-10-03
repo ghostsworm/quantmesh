@@ -70,18 +70,21 @@ jobs:
         yarn verify
 
     - name: Prepare embedded frontend for Go tests
-      run: |
-        mkdir -p web/dist
-        cp -R webui/dist/. web/dist/
+      run: ruby scripts/frontend_embed.rb sync
 
     - name: Run Go tests
-      run: go test ./... -coverprofile=/tmp/quantmesh-go-cover.out
+      run: |
+        ruby scripts/frontend_embed.rb verify
+        go test -tags embedded_frontend ./web -run '^TestEmbeddedFrontendProvenance$' -count=1
+        go test ./... -coverprofile=/tmp/quantmesh-go-cover.out
 
     - name: Run Go static analysis
       run: go vet ./...
 
     - name: Verify trading race gate contract
-      run: ruby scripts/tests/trading_race_gate_test.rb
+      run: |
+        ruby scripts/tests/trading_race_gate_test.rb
+        ruby scripts/tests/frontend_embed_test.rb
 
     - name: Race-test trading risk core
       run: ruby scripts/verify_trading_race.rb /tmp/quantmesh-trading-race --require-mysql
@@ -140,26 +143,15 @@ jobs:
           sleep 5
         done
 
+    - name: Install Ruby frontend gate
+      run: sudo apt-get update && sudo apt-get install -y ruby
+
     - name: Build frontend (for go:embed)
       run: |
-        mkdir -p web/dist
-        if [ -d "webui" ]; then
-          cd webui
-          if [ -f "package.json" ]; then
-            yarn install --immutable
-            yarn build
-            cd ..
-            if [ -d "webui/dist" ] && [ "$(ls -A webui/dist 2>/dev/null)" ]; then
-              cp -r webui/dist/* web/dist/ || true
-            fi
-          else
-            cd ..
-          fi
-        fi
-        # 确保 dist 目录至少有一个文件，避免 go:embed 报错
-        if [ ! "$(ls -A web/dist 2>/dev/null)" ]; then
-          echo "# Placeholder" > web/dist/.gitkeep
-        fi
+        yarn --cwd webui install --immutable
+        yarn --cwd webui build
+        ruby scripts/frontend_embed.rb sync
+        ruby scripts/frontend_embed.rb verify
         
     - name: Install C compiler and SQLite dependencies
       run: |
@@ -181,6 +173,7 @@ jobs:
         done
         
         # 构建
+        ruby scripts/frontend_embed.rb verify
         VERSION=$(node -p "require('./webui/package.json').version")
         BACKEND_VERSION=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go)
         test -n "$VERSION" && test "$VERSION" = "$BACKEND_VERSION"

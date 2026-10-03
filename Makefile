@@ -1,33 +1,24 @@
 .PHONY: build-frontend build-backend build all clean dev dev-stop
+OUTPUT ?= quantmesh
 
-# 构建前端（优先使用 pnpm）
+# 前端失败或嵌入产物未核验时，不得继续后端构建
 build-frontend:
-	@echo "Building frontend..."
-	@if [ -d "webui" ]; then \
-		cd webui && \
-		if command -v pnpm >/dev/null 2>&1; then \
-			pnpm install && pnpm run build; \
-		else \
-			npm install && npm run build; \
-		fi; \
-		if [ -d "dist" ]; then \
-			rm -rf ../web/dist && mkdir -p ../web/dist && cp -r dist/* ../web/dist/; \
-		fi \
-	else \
-		echo "Frontend directory not found, skipping..."; \
-	fi
+	@test -d webui/node_modules || yarn --cwd webui install --immutable
+	@yarn --cwd webui build
+	@ruby scripts/frontend_embed.rb sync
 
 # 构建后端（仅主程序，不编译 tools/ 与 plugin/examples）
 # 若需编译全模块检查：go build ./...（会跳过带 //go:build tools 的包）
 # 单独编译某工具：go build -tags tools -o set_password ./tools/set_password.go
-build-backend:
+build-backend: build-frontend
 	@echo "Building backend..."
-	@VERSION=$$(git describe --tags --always --dirty 2>/dev/null | sed 's/^v//' || echo "3.4.4"); \
-	echo "Version: $$VERSION"; \
-	go build -ldflags="-s -w -X main.Version=$$VERSION" -o quantmesh .
+	@ruby scripts/frontend_embed.rb verify
+	@VERSION=$$(ruby scripts/frontend_embed.rb version) && \
+	echo "Version: $$VERSION" && \
+	go build -ldflags="-s -w -X main.Version=$$VERSION" -o "$(OUTPUT)" .
 
 # 完整构建（前端 + 后端）
-build: build-frontend build-backend
+build: build-backend
 
 all: build
 
@@ -50,4 +41,3 @@ restart:
 # 重启（开发模式）
 restart-dev:
 	@./scripts/local/restart.sh --dev
-

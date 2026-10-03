@@ -1,6 +1,8 @@
 # Product Overview
 
-> 最后更新：2026-10-03 | 当前版本：v3.111.0-rc962（开发中；资金释放前后端已接线，未发布或实盘验收）
+> 最后更新：2026-10-03 | 当前版本：v3.111.0-rc963（开发中；资金释放前后端已接线，未发布或实盘验收）
+
+- `3.111.0-rc963` 修复 R14 前端嵌入交付门禁：使用 `make build` 或 `./scripts/build.sh`，先由 Yarn 构建前端，再核验版本、来源摘要和产物 SHA256，同步到 `web/dist` 后才编译 Go；支持 `make build OUTPUT=/绝对路径/quantmesh`。需安装 Ruby（标准库即可构建，门禁测试另需 minitest）。旧嵌入产物保存在构建日志指出的临时备份目录，不自动删除。可用 `ruby scripts/frontend_embed.rb verify` 与 `go test -tags embedded_frontend ./web -run '^TestEmbeddedFrontendProvenance$' -count=1` 核验磁盘及编译内嵌字节；摘要不是依赖安装/外部环境可重现证明，历史跨平台脚本、目标平台发布和实盘盈利仍待验证。
 
 - `3.111.0-rc962` 代码提交 `186818f6` 已完成同提交严格 MySQL 十包 race（1941 pass、零跳过/失败，全部8项强制数据库用例通过），测试期间源码未变，一次性库已清理。Go 实际嵌入的本地 `web/dist` 与最新 `webui/dist` 内容不一致；数据库回归不证明最新前端已打入单文件，也不代表可发布。资产恢复、交付同步/失败门禁及实盘盈利仍未验收。
 
