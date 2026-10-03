@@ -30,7 +30,8 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRemaining(ctx context.Context
 		return err
 	}
 	defer s.releaseOperation()
-	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+	var pending *FundingCarryReconciliationRequiredError
+	coordinationErr := s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
 		version, payload, found, err := store.LoadRuntimeState("funding_carry")
 		if err != nil {
 			return err
@@ -57,8 +58,16 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRemaining(ctx context.Context
 		if err := s.restoreRemainingMarginAccountingLocked(operationCtx, state); err != nil {
 			return err
 		}
-		return fmt.Errorf("remaining margin assets restored for reconciliation: %s %s; current inventory and disposal remain unverified", fundingCarryCoverRemainingString(remaining), s.spot.GetBaseAsset())
+		pending = &FundingCarryReconciliationRequiredError{message: fmt.Sprintf("remaining margin assets restored for reconciliation: %s %s; current inventory and disposal remain unverified", fundingCarryCoverRemainingString(remaining), s.spot.GetBaseAsset())}
+		return nil
 	})
+	if coordinationErr != nil {
+		return coordinationErr
+	}
+	if pending != nil {
+		return pending
+	}
+	return nil
 }
 
 func (s *FundingCarryStrategy) restoreRemainingMarginAccountingLocked(ctx context.Context, state fundingCarryRuntimeState) error {

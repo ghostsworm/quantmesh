@@ -414,7 +414,8 @@ func startFundingCarrySymbolRuntime(
 	}
 	strategyManager.RegisterStrategy("funding_carry", fc, 1.0, 0)
 	strategyStartAttempted = true
-	if err := strategyManager.StartAll(); err != nil {
+	reconciliationOnly, err := startFundingCarryManagedStrategy(ctx, strategyManager, fc, openingGate)
+	if err != nil {
 		return nil, err
 	}
 	if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
@@ -443,6 +444,10 @@ func startFundingCarrySymbolRuntime(
 		ExchangeExecutor:      nil,
 		ExecutorAdapter:       nil,
 		ExchangeAdapter:       nil,
+	}
+	if reconciliationOnly {
+		rt.markShutdownCloseUnverified("funding_carry remaining margin inventory and disposal require reconciliation")
+		logger.WarnCtx(ctx, "[%s] funding_carry 保留受管核賬運行時：交易循環未啟動，資產和資金預留不得當作已核清", botID)
 	}
 	executors := []*order.ExchangeOrderExecutor{futuresOrderExecutor.executor, spotOrderExecutor.executor}
 	if marginOrderExecutor != nil {

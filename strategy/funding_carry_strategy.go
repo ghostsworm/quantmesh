@@ -730,6 +730,7 @@ func (s *FundingCarryStrategy) GetVisualizationData() map[string]interface{} {
 	defer s.mu.RUnlock()
 	remaining, remainingKnown := s.coverRemainingStatusLocked()
 	return map[string]interface{}{
+		"reconciliation_required":      s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil,
 		"margin_cover_remaining_qty":   remaining,
 		"margin_cover_remaining_known": remainingKnown,
 		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",
@@ -757,6 +758,7 @@ func (s *FundingCarryStrategy) GetFundingStatus() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
+		"reconciliation_required":      s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil,
 		"margin_cover_remaining_qty":   remaining,
 		"margin_cover_remaining_known": remainingKnown,
 		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",

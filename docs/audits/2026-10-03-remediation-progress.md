@@ -2,6 +2,16 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc959：已核清历史余量的受管核账启动分支
+
+- 生产专用构造器调用受管启动准入：仅完整账本已导入、UNKNOWN/in-flight、未开始交易循环、无未保存金融意图/错误且账户/本金/成交证据再核验通过的结构化剩余资产恢复状态可继续构造SymbolRuntime。要求唯一Funding Carry策略及同一OpeningGate绑定，独立funding_carry_reconciliation_required封锁保留其他暂停，并标记平仓未核清；后续资本claim/租约移交走原受管生命周期。
+- 结构化错误在钱包协调及释放成功后才返回，钱包释放失败不能因含恢复信息而被errors.As误认成准入；其他初始化/账本/归属错误仍返回失败。受管接管不表示当前余额可用、不重发下单或还款，不解除UNKNOWN，不把资金claim当作可释放。
+- 管理器原enabled-only回退可将未启动Funding Carry显示为running；首个夹具因未配置Enabled而没复现此问题，已修正为显式启用并用真实旧接口回退路径对照。新增IsRunning按实际started/context报告未启动/正常循环/停止，不用配置开关冒充成功。
+- 根包使用真实FundingCarry策略、管理器、完整schema6金融/成交快照和钱包锁隔离夹具验证生产准入函数；无真实交易所连接。全构造器前置权限/余额检查、注册表保留及Web实际渲染尚未端到端验收，预检失败/其他恢复类型的受管接管也不在本次通过范围；当前库存与剩余资产最终处置仍未闭合。
+- 最终受管准入/真实运行报告/新旧恢复/原资金释放用例连续3轮race通过（根包3.511s、strategy3.328s），覆盖普通本金账本错误、错账户、取消、所有权丢失、钱包unlock失败及gate错绑定；根包夹具最初缺margin Borrow接口导致编译失败，改为完整margin接口后才接受业务验证。已确认状态数据含历史余量、reconciliation_required=true且IsRunning=false，原钱包释放真实调用fc.VerifyFlat并拒绝删除claim，未读实盘或发金融RPC。
+- 十包 `/private/tmp/quantmesh-trading-race-rc959-final/results.json` 与 `results.md` 已读回1923 pass、8 MySQL skip、0失败、无缺包/解析错误，strategy140.102s；source_commit=778fbd32、source_version=3.111.0-rc959、source_dirty=true，是本版提交前源码回归，非同提交严格数据库验收。根包/strategy vet、diff检查、Ruby9runs/58assertions、Yarn类型检查/测试/Vite PWA构建通过。
+- 不继承rc957数据库证据。R01–R15其余要求、全账户归属、当前库存/资产处置、部分成交/完整恢复、原子世代fencing及真实盈利证明仍待闭合，未改main、发布、部署或访问真实账户。
+
 ## rc958：重启接管剩余资产的完整历史账本
 
 - 新增实际Start回归先复现rc957：耐久净量0.4008、确认消耗0.4，但普通恢复拒绝后内存没有账本，状态API返回qty=null/known=false，而非已核清的历史差额0.0008。
