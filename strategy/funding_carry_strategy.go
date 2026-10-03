@@ -112,6 +112,7 @@ type FundingCarryStrategy struct {
 	marginBorrowTransferID int64
 	marginBorrowedAt       time.Time
 	marginDebtEvents       []fundingCarryMarginDebtEvent
+	marginRepayIntent      *fundingCarryRepayIntent
 	marginAccountScope     string
 
 	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
@@ -2169,12 +2170,9 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 		if errors.Is(err, execution.ErrOrderUnknown) {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin sell submission outcome is unknown; borrowed amount retained: %w", err))
 		}
-		repayTransferID, repayErr := s.marginEx.Repay(ctx, base, borrowQty)
+		repayErr := s.repayMarginPrincipal(ctx, base, borrowQty, 0)
 		if repayErr != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("margin sell was definitively rejected but borrowed amount could not be returned: %w", repayErr))
-		}
-		if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, borrowQty, 0); err != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("persist returned margin borrow identity: %w", err))
 		}
 		s.mu.Lock()
 		s.direction, s.marginDebt = DirectionNone, 0
@@ -2197,12 +2195,8 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 			if err := settleCarryOrder(ctx, s.marginExecutor, sellOrder); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("zero-fill margin order remains unresolved: %w", err))
 			}
-			repayTransferID, err := s.marginEx.Repay(ctx, base, borrowQty)
-			if err != nil {
+			if err := s.repayMarginPrincipal(ctx, base, borrowQty, 0); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell had no fill; borrowed amount repayment failed: %w", err))
-			}
-			if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, borrowQty, 0); err != nil {
-				return s.blockOnUnownedExposure(fmt.Errorf("persist returned zero-fill margin borrow identity: %w", err))
 			}
 			s.mu.Lock()
 			s.direction, s.marginDebt = DirectionNone, 0
@@ -2227,12 +2221,8 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	if filledQty+s.roundingTolerance(s.spot.GetQuantityDecimals()) < borrowQty {
 		unusedBorrow := s.roundQty(borrowQty-filledQty, s.spot.GetQuantityDecimals())
 		if unusedBorrow > 0 {
-			repayTransferID, err := s.marginEx.Repay(ctx, base, unusedBorrow)
-			if err != nil {
+			if err := s.repayMarginPrincipal(ctx, base, unusedBorrow, filledQty); err != nil {
 				return s.blockOnUnownedExposure(fmt.Errorf("margin sell partially filled %.8f; return unused borrowed amount %.8f: %w", filledQty, unusedBorrow, err))
-			}
-			if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, unusedBorrow, filledQty); err != nil {
-				return s.blockOnUnownedExposure(fmt.Errorf("persist unused-borrow repayment identity: %w", err))
 			}
 		}
 	}
@@ -2615,12 +2605,8 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if operationErr != nil {
 			return s.blockOnUnownedExposure(operationErr)
 		}
-		repayTransferID, err := s.marginEx.Repay(ctx, base, debtToRepay)
-		if err != nil {
+		if err := s.repayMarginPrincipal(ctx, base, debtToRepay, 0); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
-		}
-		if err := s.returnBorrowedPrincipal(ctx, repayTransferID, base, debtToRepay, 0); err != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("persist margin repayment identity: %w", err))
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {
