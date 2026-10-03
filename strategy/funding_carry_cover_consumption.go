@@ -6,11 +6,16 @@ import (
 )
 
 func validateFundingCarryCoverSource(orders []fundingCarryCoverOrder, pending *fundingCarryRepayIntent) error {
+	if pending == nil || pending.CoverOrderID <= 0 || !validRuntimeAmount(pending.Amount) || pending.Amount <= 0 {
+		return fmt.Errorf("repayment cover source requires a positive amount and identity")
+	}
 	for _, record := range orders {
 		if record.OrderID != pending.CoverOrderID {
 			continue
 		}
-		if !record.Verified || !validRuntimeAmount(record.Net) || !validRuntimeAmount(record.Consumed) || (record.RepayTransferID == 0 && record.Consumed != 0) || record.AccountScope != pending.AccountScope || !strings.EqualFold(record.Asset, pending.Asset) || !fundingCarryFinancialAmountsMatch(record.DebtToCover, pending.Amount) || record.Net < pending.Amount && !fundingCarryFinancialAmountsMatch(record.Net, pending.Amount) {
+		// DebtToCover is the historical buy target, not later accrued interest.
+		// The exact repayment ACK binds actual consumption.
+		if !record.Verified || !validRuntimeAmount(record.Net) || !validRuntimeAmount(record.Consumed) || (record.RepayTransferID == 0 && record.Consumed != 0) || record.AccountScope != pending.AccountScope || !strings.EqualFold(record.Asset, pending.Asset) || record.Net < pending.Amount && !fundingCarryFinancialAmountsMatch(record.Net, pending.Amount) {
 			return fmt.Errorf("repayment does not match verified cover source")
 		}
 		if record.RepayTransferID != 0 && (record.RepayTransferID != pending.TransferID || !fundingCarryFinancialAmountsMatch(record.Consumed, pending.Amount)) {

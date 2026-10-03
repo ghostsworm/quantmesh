@@ -133,7 +133,7 @@ func validateFundingCarryCoverOrders(state fundingCarryRuntimeState, allowPendin
 			usedRepayments[record.RepayTransferID] = true
 			matched := false
 			for _, event := range state.MarginDebtEvents {
-				if event.Action == "repay" && event.TransferID == record.RepayTransferID && event.AccountScope == record.AccountScope && strings.EqualFold(event.Asset, record.Asset) && fundingCarryFinancialAmountsMatch(event.Amount, record.Consumed) && fundingCarryFinancialAmountsMatch(event.Amount, record.DebtToCover) {
+				if event.Action == "repay" && event.TransferID == record.RepayTransferID && event.AccountScope == record.AccountScope && strings.EqualFold(event.Asset, record.Asset) && fundingCarryFinancialAmountsMatch(event.Amount, record.Consumed) {
 					matched = true
 				}
 			}
