@@ -24,8 +24,15 @@ func (s comboChildRuntimeStateStore) key(strategyName string) (string, error) {
 	if s.store == nil || strings.TrimSpace(s.comboName) == "" || strings.TrimSpace(s.childName) == "" || strategyName != s.childName {
 		return "", fmt.Errorf("invalid combo child runtime state identity")
 	}
-	digest := sha256.Sum256([]byte(s.comboName))
-	key := "combo:" + hex.EncodeToString(digest[:16]) + ":" + s.childName
+	return comboChildRuntimeStateKey(s.comboName, s.childName)
+}
+
+func comboChildRuntimeStateKey(comboName, childName string) (string, error) {
+	if strings.TrimSpace(comboName) == "" || strings.TrimSpace(childName) == "" {
+		return "", fmt.Errorf("invalid combo child runtime state identity")
+	}
+	digest := sha256.Sum256([]byte(comboName))
+	key := "combo:" + hex.EncodeToString(digest[:16]) + ":" + childName
 	if len(key) > 128 {
 		return "", fmt.Errorf("combo child runtime state key exceeds storage limit")
 	}
