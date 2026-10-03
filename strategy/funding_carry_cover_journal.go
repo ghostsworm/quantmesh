@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/utils"
@@ -15,6 +16,8 @@ import (
 type fundingCarryCoverOrder struct {
 	OrderID         int64                 `json:"order_id"`
 	ClientOrderID   string                `json:"client_order_id,omitempty"`
+	RequestPrice    float64               `json:"request_price,omitempty"`
+	PreparedAt      time.Time             `json:"prepared_at,omitempty"`
 	Asset           string                `json:"asset"`
 	AccountScope    string                `json:"account_scope"`
 	Requested       float64               `json:"requested"`
@@ -61,6 +64,10 @@ func (s *FundingCarryStrategy) checkpointMarginCoverOrder(ctx context.Context, o
 		cid = pending.ClientOrderID
 	}
 	s.marginCoverOrders = append(s.marginCoverOrders, fundingCarryCoverOrder{OrderID: order.OrderID, ClientOrderID: cid, Asset: s.spot.GetBaseAsset(), AccountScope: s.marginAccountScope, Requested: requested, DebtToCover: debt})
+	if pending != nil {
+		last := len(s.marginCoverOrders) - 1
+		s.marginCoverOrders[last].RequestPrice, s.marginCoverOrders[last].PreparedAt = pending.Price, pending.PreparedAt
+	}
 	operationErr := s.verifyDebtCommitLocked(ctx)
 	if operationErr != nil {
 		s.unownedExposure = true
@@ -113,6 +120,9 @@ func validateFundingCarryCoverOrders(state fundingCarryRuntimeState, allowPendin
 			return fmt.Errorf("margin cover journal identity is invalid")
 		}
 		seen[record.OrderID] = true
+		if !validRuntimeAmount(record.RequestPrice) || (record.RequestPrice == 0) != record.PreparedAt.IsZero() {
+			return fmt.Errorf("margin cover original request metadata is invalid")
+		}
 		if record.RepayTransferID < 0 || !validRuntimeAmount(record.Consumed) || (record.RepayTransferID == 0 && record.Consumed != 0) {
 			return fmt.Errorf("margin cover consumption identity is invalid")
 		}

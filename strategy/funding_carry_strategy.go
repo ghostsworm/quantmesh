@@ -419,14 +419,17 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 		return errors.New("funding_carry strategy already started")
 	}
 	s.mu.Unlock()
-	if err := s.reconcileSavedMarginRepayment(ctx); err != nil {
+	checkCtx, checkCancel := context.WithTimeout(ctx, 15*time.Second)
+	defer checkCancel()
+	if err := s.reconcileSavedMarginCover(checkCtx); err != nil {
+		return fmt.Errorf("funding_carry pending cover recovery: %w", err)
+	}
+	if err := s.reconcileSavedMarginRepayment(checkCtx); err != nil {
 		return fmt.Errorf("funding_carry pending repayment recovery: %w", err)
 	}
 	if err := s.restoreRuntimeState(); err != nil {
 		return fmt.Errorf("funding_carry runtime state recovery failed: %w", err)
 	}
-	checkCtx, checkCancel := context.WithTimeout(ctx, 15*time.Second)
-	defer checkCancel()
 	s.mu.RLock()
 	stateKnown := s.strategySpotKnown
 	s.mu.RUnlock()
