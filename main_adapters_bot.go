@@ -348,6 +348,10 @@ func (a *botManagerProviderAdapter) WithBotConfigurationLock(botID string, persi
 	return a.manager.GetBotManager().WithBotConfigurationLock(botID, persist)
 }
 
+func (a *botManagerProviderAdapter) WithBotStrategyConfigurationLock(botID string, persist func(bool) error) error {
+	return a.manager.GetBotManager().WithBotStrategyConfigurationLock(botID, persist)
+}
+
 func (a *botManagerProviderAdapter) EnableBot(botID string) error {
 	return a.manager.GetBotManager().EnableBot(botID)
 }

@@ -95,3 +95,19 @@ func TestBotConfigMutationRefusesProcessShutdown(t *testing.T) {
 		t.Fatal("shutdown admitted recovery configuration mutation")
 	}
 }
+
+func TestBotStrategyConfigurationLockReportsManagedWithoutStopping(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
+	stops := 0
+	bm.AddRuntime(&BotRuntime{BotID: "managed", Inner: &SymbolRuntime{StopWithError: func() error { stops++; return nil }}})
+	called := false
+	if err := bm.WithBotStrategyConfigurationLock("managed", func(managed bool) error {
+		called = true
+		if !managed {
+			t.Fatal("registered nontrading runtime treated as stopped")
+		}
+		return nil
+	}); err != nil || !called || stops != 0 {
+		t.Fatalf("managed coordination failed: %v", err)
+	}
+}

@@ -369,6 +369,10 @@ func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config
 
 // UpdateConfigUsing mutates the latest in-memory snapshot and persists it while holding the config lock.
 func (fcm *FileConfigManager) UpdateConfigUsing(mutator func(*config.Config) error) error {
+	return fcm.UpdateConfigUsingWithBotHistorySource(mutator, "")
+}
+
+func (fcm *FileConfigManager) UpdateConfigUsingWithBotHistorySource(mutator func(*config.Config) error, botHistorySource string) error {
 	if fcm == nil || mutator == nil {
 		return fmt.Errorf("configuration manager and mutation are required")
 	}
@@ -390,7 +394,7 @@ func (fcm *FileConfigManager) UpdateConfigUsing(mutator func(*config.Config) err
 		fcm.mu.Unlock()
 		return err
 	}
-	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", ""); err != nil {
+	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", botHistorySource); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}

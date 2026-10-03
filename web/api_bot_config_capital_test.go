@@ -32,6 +32,10 @@ func (p *configMutationTestProvider) WithBotConfigurationLock(_ string, persist 
 	return persist()
 }
 
+func (p *configMutationTestProvider) WithBotStrategyConfigurationLock(botID string, persist func(bool) error) error {
+	return p.WithBotConfigurationLock(botID, func() error { return persist(p.running) })
+}
+
 func TestBotConfigFileCannotDiscardRecoveryWithCapitalClaim(t *testing.T) {
 	for _, method := range []string{http.MethodPut, http.MethodDelete} {
 		t.Run(method, func(t *testing.T) {

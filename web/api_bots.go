@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -1420,11 +1421,57 @@ func putBotStrategy(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_request", err)
 		return
 	}
+	coordinator, ok := botManagerProvider().(BotStrategyConfigurationCoordinator)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_config_lifecycle_coordination_unavailable"})
+		return
+	}
+	if err := coordinator.WithBotStrategyConfigurationLock(botID, func(managed bool) error {
+		putBotStrategyLocked(c, botID, req, managed)
+		return nil
+	}); err != nil && !c.Writer.Written() {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_config_lifecycle_coordination_unavailable"})
+	}
+}
+
+func putBotStrategyLocked(c *gin.Context, botID string, req UpdateBotStrategyRequest, managed bool) {
 
 	cfg, err := GetLatestConfig()
 	if err != nil || cfg == nil {
 		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
 		return
+	}
+	baseline, err := cloneConfigSnapshot(cfg)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "error.config_load_failed")
+		return
+	}
+	owner := botCfgByID(cfg, botID)
+	if owner == nil {
+		respondError(c, http.StatusNotFound, "error.bot_not_found")
+		return
+	}
+	contractChanged := (len(req.Strategies) > 0 && !reflect.DeepEqual(req.Strategies, owner.Strategies)) ||
+		(req.Direction != nil && *req.Direction != owner.Direction) ||
+		(req.SpotInventoryPolicy != nil && config.NormalizeSpotInventoryPolicy(*req.SpotInventoryPolicy) != owner.SpotInventoryPolicy)
+	if contractChanged {
+		if managed {
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_running", "error_key": "error.bot_running_cannot_modify"})
+			return
+		}
+		reserved, err := botHasAccountWalletCapitalReservation(c.Request.Context(), botID)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_capital_reservation_verification_unavailable"})
+			return
+		}
+		if reserved {
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_capital_reservation_not_released"})
+			return
+		}
+		if err := verifyBotRecoveryConfiguration(c.Request.Context(), botID); err != nil {
+			respondRecoveryConfigurationError(c, err)
+			return
+		}
 	}
 	if err := config.ValidateBotTradingOverrides(cfg, req.TradingOverrides); err != nil {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_config", err)
@@ -1564,7 +1611,22 @@ func putBotStrategy(c *gin.Context) {
 		return
 	}
 
-	if err := fileConfigManager.UpdateConfigWithBotHistorySource(cfg, "put_bot_strategy"); err != nil {
+	changed := false
+	if err := fileConfigManager.UpdateConfigUsingWithBotHistorySource(func(current *config.Config) error {
+		if !reflect.DeepEqual(current, baseline) {
+			changed = true
+			return fmt.Errorf("configuration changed during strategy mutation")
+		}
+		if err := c.Request.Context().Err(); err != nil {
+			return err
+		}
+		*current = *cfg
+		return nil
+	}, "put_bot_strategy"); err != nil {
+		if changed {
+			c.JSON(http.StatusConflict, gin.H{"error": "bot_configuration_changed"})
+			return
+		}
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
 	}

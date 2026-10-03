@@ -13,6 +13,10 @@ type BotConfigurationCoordinator interface {
 	WithBotConfigurationLock(botID string, persist func() error) error
 }
 
+type BotStrategyConfigurationCoordinator interface {
+	WithBotStrategyConfigurationLock(botID string, persist func(managed bool) error) error
+}
+
 var ErrBotConfigRuntimeManaged = errors.New("Bot recovery configuration belongs to a managed runtime")
 
 func protectBotConfigMutation(c *gin.Context, botID, runningErrorKey string, persist func()) {
