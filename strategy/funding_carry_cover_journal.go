@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"quantmesh/exchange"
+	"quantmesh/utils"
 )
 
 // Historical evidence, not a spendable inventory balance. Repayment consumption
@@ -51,7 +52,15 @@ func (s *FundingCarryStrategy) checkpointMarginCoverOrder(ctx context.Context, o
 			return fmt.Errorf("margin cover order identity already recorded")
 		}
 	}
-	s.marginCoverOrders = append(s.marginCoverOrders, fundingCarryCoverOrder{OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Asset: s.spot.GetBaseAsset(), AccountScope: s.marginAccountScope, Requested: requested, DebtToCover: debt})
+	pending := s.marginCoverIntent
+	cid := order.ClientOrderID
+	if pending != nil {
+		if !fundingCarryFinancialAmountsMatch(pending.Quantity, requested) || !fundingCarryFinancialAmountsMatch(pending.DebtToCover, debt) || pending.AccountScope != s.marginAccountScope || (cid != "" && cid != pending.ClientOrderID && cid != utils.AddBrokerPrefix(strings.ToLower(s.marginEx.GetName()), pending.ClientOrderID)) {
+			return fmt.Errorf("margin cover ACK does not match saved request")
+		}
+		cid = pending.ClientOrderID
+	}
+	s.marginCoverOrders = append(s.marginCoverOrders, fundingCarryCoverOrder{OrderID: order.OrderID, ClientOrderID: cid, Asset: s.spot.GetBaseAsset(), AccountScope: s.marginAccountScope, Requested: requested, DebtToCover: debt})
 	operationErr := s.verifyDebtCommitLocked(ctx)
 	if operationErr != nil {
 		s.unownedExposure = true
@@ -59,7 +68,9 @@ func (s *FundingCarryStrategy) checkpointMarginCoverOrder(ctx context.Context, o
 			return operationErr
 		}
 	}
+	s.marginCoverIntent = nil
 	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.marginCoverIntent = pending
 		s.unownedExposure, s.runtimeStateErr = true, err
 		return errors.Join(operationErr, err) // retain local ACK if storage failed
 	}

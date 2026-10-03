@@ -11,7 +11,7 @@ import (
 	"quantmesh/exchange"
 )
 
-const fundingCarryRuntimeStateVersion = 4
+const fundingCarryRuntimeStateVersion = 5
 
 type fundingCarryRuntimeState struct {
 	Strategy               string                        `json:"strategy"`
@@ -31,6 +31,7 @@ type fundingCarryRuntimeState struct {
 	MarginDebtEvents       []fundingCarryMarginDebtEvent `json:"margin_debt_events,omitempty"`
 	MarginRepayIntent      *fundingCarryRepayIntent      `json:"margin_repay_intent,omitempty"`
 	MarginCoverOrders      []fundingCarryCoverOrder      `json:"margin_cover_orders,omitempty"`
+	MarginCoverIntent      *fundingCarryCoverIntent      `json:"margin_cover_intent,omitempty"`
 }
 
 type fundingCarryMarginDebtEvent struct {
@@ -54,6 +55,7 @@ func (s *FundingCarryStrategy) runtimeStateSnapshotLocked() fundingCarryRuntimeS
 		MarginDebtEvents:  append([]fundingCarryMarginDebtEvent(nil), s.marginDebtEvents...),
 		MarginRepayIntent: cloneFundingCarryRepayIntent(s.marginRepayIntent),
 		MarginCoverOrders: cloneFundingCarryCoverOrders(s.marginCoverOrders),
+		MarginCoverIntent: cloneFundingCarryCoverIntent(s.marginCoverIntent),
 	}
 }
 
@@ -168,6 +170,7 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 	s.marginBorrowedAt = state.MarginBorrowedAt
 	s.marginDebtEvents = append([]fundingCarryMarginDebtEvent(nil), state.MarginDebtEvents...)
 	s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
+	s.marginCoverIntent = cloneFundingCarryCoverIntent(state.MarginCoverIntent)
 	s.strategySpotKnown = true
 	s.unownedExposure = false
 	s.intentInFlight = false
@@ -180,7 +183,7 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 }
 
 func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExchange, spotExchange, symbol string, allowPending bool) (fundingCarryRuntimeState, error) {
-	if version != 1 && version != 2 && version != 3 && version != fundingCarryRuntimeStateVersion {
+	if version != 1 && version != 2 && version != 3 && version != 4 && version != fundingCarryRuntimeStateVersion {
 		return fundingCarryRuntimeState{}, fmt.Errorf("unsupported funding_carry runtime state schema %d", version)
 	}
 	var state fundingCarryRuntimeState
@@ -191,7 +194,7 @@ func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExch
 		!strings.EqualFold(state.SpotExchange, spotExchange) || !strings.EqualFold(state.Symbol, symbol) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state identity mismatch")
 	}
-	if !state.OwnershipReady || (!allowPending && (state.IntentInFlight || state.ExposureUnknown || state.MarginRepayIntent != nil)) ||
+	if !state.OwnershipReady || (!allowPending && (state.IntentInFlight || state.ExposureUnknown || state.MarginRepayIntent != nil || state.MarginCoverIntent != nil)) ||
 		state.Direction < DirectionNone || state.Direction > DirectionReverse ||
 		!validRuntimeAmount(state.OwnedSpot) || !validRuntimeAmount(state.OwnedFutures) || !validRuntimeAmount(state.MarginDebt) ||
 		state.MarginBorrowTransferID < 0 {
@@ -224,6 +227,9 @@ func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExch
 	if err := validateFundingCarryCoverOrders(state, allowPending); err != nil {
 		return fundingCarryRuntimeState{}, err
 	}
+	if err := validateFundingCarryCoverIntent(state); err != nil {
+		return fundingCarryRuntimeState{}, err
+	}
 	return state, nil
 }
 
@@ -237,7 +243,7 @@ func (s *FundingCarryStrategy) beginRuntimeIntent(ctx context.Context) error {
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
 		return err
 	}
-	if s.intentInFlight || s.marginRepayIntent != nil {
+	if s.intentInFlight || s.marginRepayIntent != nil || s.marginCoverIntent != nil {
 		return fmt.Errorf("previous funding_carry intent still requires reconciliation")
 	}
 	if s.runtimeStateErr != nil {
@@ -259,13 +265,13 @@ func (s *FundingCarryStrategy) finishRuntimeIntent(ctx context.Context, success 
 		s.unownedExposure = true // local latch only; the stale worker must not write durable state
 		return err
 	}
-	if s.marginRepayIntent != nil {
+	if s.marginRepayIntent != nil || s.marginCoverIntent != nil {
 		s.unownedExposure = true
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.runtimeStateErr = err
 			return err
 		}
-		return fmt.Errorf("margin repayment still requires reconciliation")
+		return fmt.Errorf("margin repayment or cover submission still requires reconciliation")
 	}
 	previousIntent := s.intentInFlight
 	s.intentInFlight = false

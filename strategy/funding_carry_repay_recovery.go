@@ -64,6 +64,7 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRepayment(ctx context.Context
 		s.marginDebt, s.marginBorrowTransferID, s.marginBorrowedAt = state.MarginDebt, state.MarginBorrowTransferID, state.MarginBorrowedAt
 		s.marginDebtEvents = append([]fundingCarryMarginDebtEvent(nil), state.MarginDebtEvents...)
 		s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
+		s.marginCoverIntent = cloneFundingCarryCoverIntent(state.MarginCoverIntent)
 		s.marginRepayIntent = cloneFundingCarryRepayIntent(pending)
 		s.strategySpotKnown, s.unownedExposure, s.intentInFlight = true, true, true
 		s.mu.Unlock()

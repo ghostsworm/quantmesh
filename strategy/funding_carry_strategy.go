@@ -115,6 +115,7 @@ type FundingCarryStrategy struct {
 	marginDebtEvents       []fundingCarryMarginDebtEvent
 	marginRepayIntent      *fundingCarryRepayIntent
 	marginCoverOrders      []fundingCarryCoverOrder
+	marginCoverIntent      *fundingCarryCoverIntent
 	marginAccountScope     string
 
 	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
@@ -2584,11 +2585,15 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if err != nil || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
 			return fmt.Errorf("get valid price to cover margin debt: price=%.8f err=%v", price, err)
 		}
-		buyOrder, err := s.placeOrder(ctx, s.marginEx, s.marginExecutor, &exchange.OrderRequest{
+		buyRequest := &exchange.OrderRequest{
 			Symbol: s.symbol, Side: exchange.SideBuy, Type: exchange.OrderTypeLimit,
 			Quantity: buyQty, Price: s.roundPrice(price*1.005, s.spot.GetPriceDecimals()),
 			PriceDecimals: s.spot.GetPriceDecimals(), StrategyType: "funding_carry_reverse",
-		})
+		}
+		if err := s.prepareMarginCoverIntent(ctx, buyRequest, debtToRepay); err != nil {
+			return s.blockOnUnownedExposure(err)
+		}
+		buyOrder, err := s.placeOrder(ctx, s.marginEx, s.marginExecutor, buyRequest)
 		if buyOrder != nil && buyOrder.OrderID > 0 {
 			if saveErr := s.checkpointMarginCoverOrder(ctx, buyOrder, buyQty, debtToRepay); saveErr != nil {
 				return s.blockOnUnownedExposure(errors.Join(err, saveErr))

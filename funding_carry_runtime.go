@@ -710,7 +710,8 @@ func (a *fundingCarryOrderExecutor) PlaceOrderContext(ctx context.Context, reque
 	placed, err := a.executor.PlaceOrderContext(ctx, &order.OrderRequest{
 		Symbol: request.Symbol, Side: string(request.Side), Type: string(request.Type), TimeInForce: string(request.TimeInForce),
 		Price: request.Price, Quantity: request.Quantity, PriceDecimals: request.PriceDecimals, ReduceOnly: request.ReduceOnly,
-		PositionSide: positionSide, StrategyName: "funding_carry", StrategyType: request.StrategyType,
+		ClientOrderID: request.ClientOrderID,
+		PositionSide:  positionSide, StrategyName: "funding_carry", StrategyType: request.StrategyType,
 	})
 	if err != nil || placed == nil {
 		if err != nil {

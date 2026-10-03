@@ -68,6 +68,9 @@ func fundingCarryPrincipalRoundoff(value float64) float64 {
 }
 
 func validateFundingCarryDebtAsset(state fundingCarryRuntimeState, baseAsset string) error {
+	if state.MarginCoverIntent != nil && !strings.EqualFold(state.MarginCoverIntent.Asset, strings.TrimSpace(baseAsset)) {
+		return fmt.Errorf("margin cover intent asset does not match exchange base asset")
+	}
 	for _, record := range state.MarginCoverOrders {
 		if strings.TrimSpace(baseAsset) == "" || !strings.EqualFold(record.Asset, strings.TrimSpace(baseAsset)) {
 			return fmt.Errorf("margin cover journal asset does not match exchange base asset")

@@ -2,6 +2,14 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc950：买回提交前精确 CID 意图与生产透传
+
+- 生产适配器回归先复现传入 CID 被替换：fundingCarryOrderExecutor 未透传字段，已补齐；初始隔离夹具缺锁引发的 panic 属于测试夹具问题，不计为产品缺陷，补齐依赖后实际 CID 断言仍失败，修复后两轮 race 通过。
+- 买回先保存 CID、币对/资产/账户、数量、价格、目标负债和准备时间，再进入实际 RPC；ACK 与原请求数量/账户/CID（允许交易所既定 broker 前缀）匹配后，原子转换为历史订单记录。无 ACK 或错 CID 保留 in-flight/UNKNOWN，新操作不能覆盖；保存失败不提交。
+- schema5 接受历史1–4格式，不补造旧请求；普通恢复拒绝待提交意图，启动本金核账保留此字段而不丢弃它。当前只提供精确恢复入口，按 CID 查询的自动接管、部分成交证据/补偿、完整资产处置及原子世代 fencing 仍未闭合。
+- 验证：实际生产适配器 CID 回归两轮 race 通过（2.517s）；提交前请求/ACK/无 ACK/错 CID及保存失败两轮 race 通过（6.204s）；关联策略/解码/关闭路径两轮 race 通过（187.323s）。根包与 strategy vet、diff 检查和 Ruby 门禁9项/58断言通过；前端 yarn verify 类型检查、44文件224测试及 Vite/PWA 构建通过。
+- 十包 `/private/tmp/quantmesh-trading-race-rc950-final/results.json` 与 `results.md` 已读回1903 pass、8 MySQL skip、0失败、无缺包/解析错误，source_version=3.111.0-rc950、source_commit=48ef9ec3、source_dirty=true；这是提交前源码回归，不是本版同提交严格 MySQL 验证。未访问真实账户/生产库、未下单或发布，不继承旧版严格验收。
+
 ## rc949：确认还款与买回消耗绑定
 
 - 实际关闭链将买回订单身份写入还款意图；原有卖出拒绝/零成交/部分成交返还路径不猜测历史买回来源。提交还款前校验同账户/币种、净数量和目标偿债金额，拒绝被其他还款消耗的来源。
