@@ -6,7 +6,7 @@
 
 - 新增结构化report接口并贯通实际BotManager→SymbolManager→Web adapter：applied/failed/not_running逐Bot区分；注册但未初始化不能当作未运行，nil配置不能当已核实。失败只发布固定risk_apply_failed/runtime_uninitialized码，不向API传原始provider错误。旧成功ID接口继续兼容；Web对旧更新器仅调用一次且标未核实，不将其IDs当无失败证明。Verified是本次本地管理器应用结果，不证明实时资产、持续运行或跨实例一致性。
 - 策略JSON接口及全局JSON配置接口应用失败409、ok=false、config_saved=true，保留部分成功IDs和失败Bot映射，不假称已回滚保存配置。JSON热重载失败同样反馈409；YAML不扩大原应用行为，热重载失败409，保存正常时明确运行态未核实。仅保存或旧/缺失provider返回200兼容，但ok=false/report.verified=false，不称完成应用。全局配置实际写入门禁仍未补齐。
-- 永久回归覆盖实际Web adapter混合成功/失败/未运行及原始错误不进入序列化结果；SQLite真实策略处理器保存后部分失败、正常旧dispatch/缺provider未核实；JSON配置逐Bot失败与数据库配置读回；真实HotReloader回调故障下JSON/YAML保存事实和固定错误码。没有浏览器或真实金融RPC，不把fixture report当默认HTTP到实际交易实例E2E。
+- 永久回归覆盖实际Web adapter混合成功/失败/未运行及原始错误不进入序列化结果；SQLite真实策略处理器保存后部分失败、正常旧dispatch/缺provider未核实；JSON配置逐Bot失败与管理器配置读回（本轮未另从数据库直读）；真实HotReloader回调故障下JSON/YAML持久化调用返回成功后的内存配置读回和固定错误码。没有浏览器或真实金融RPC，不把fixture report当默认HTTP到实际交易实例E2E。
 - 初次同名代码块补丁定位错，将局部变量放到其他函数，编译失败后修正；新增配置测试未先创建Bot而数组越界，改成明确Bot ID夹具后复验。记录失败，不用后续vet退出0掩盖先前失败测试。
 - 最终生产源码完整race根包22.558s、Web46.859s、配置1.700s终态通过，vet/diff通过；实际adapter/策略/三个反馈入口定向三轮根包2.073s、Web16.929s；之后补充全局JSON逐Bot失败测试及反馈回归三轮Web6.514s通过。Yarn verify整链26.21s、45文件225项；Ruby嵌入14runs27assertions/交易9runs58assertions零失败/错误/跳过。未继承旧策略全包或严格MySQL/远端CI验收。
 - Go+React嵌入技能用于本地Make与compiled embed1.138s通过，版本rc976、API版本接线保持；两清单SHA256 `7057a662b7c71f3e81d877d30502758c698c799fcbf57c4a0ddc617abf5c192b`。隔离产物/JSON/Markdown报告 `/private/tmp/quantmesh-runtime-report-rc976.4d16z1/`，提交后重建的实际VCS revision/modified与产物摘要以报告读回为准，不冒充干净发布产物。旧嵌入备份 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-4252-lwtnb5/dist` 保留，不覆盖运行程序。
