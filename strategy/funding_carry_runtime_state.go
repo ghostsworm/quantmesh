@@ -11,7 +11,7 @@ import (
 	"quantmesh/exchange"
 )
 
-const fundingCarryRuntimeStateVersion = 2
+const fundingCarryRuntimeStateVersion = 3
 
 type fundingCarryRuntimeState struct {
 	Strategy               string                        `json:"strategy"`
@@ -30,6 +30,7 @@ type fundingCarryRuntimeState struct {
 	MarginBorrowedAt       time.Time                     `json:"margin_borrowed_at,omitempty"`
 	MarginDebtEvents       []fundingCarryMarginDebtEvent `json:"margin_debt_events,omitempty"`
 	MarginRepayIntent      *fundingCarryRepayIntent      `json:"margin_repay_intent,omitempty"`
+	MarginCoverOrders      []fundingCarryCoverOrder      `json:"margin_cover_orders,omitempty"`
 }
 
 type fundingCarryMarginDebtEvent struct {
@@ -52,6 +53,7 @@ func (s *FundingCarryStrategy) runtimeStateSnapshotLocked() fundingCarryRuntimeS
 		MarginBorrowTransferID: s.marginBorrowTransferID, MarginBorrowedAt: s.marginBorrowedAt,
 		MarginDebtEvents:  append([]fundingCarryMarginDebtEvent(nil), s.marginDebtEvents...),
 		MarginRepayIntent: cloneFundingCarryRepayIntent(s.marginRepayIntent),
+		MarginCoverOrders: cloneFundingCarryCoverOrders(s.marginCoverOrders),
 	}
 }
 
@@ -149,7 +151,7 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 		return err
 	}
 	s.mu.Lock()
-	hasMarginEvidence := len(state.MarginDebtEvents) > 0 || state.MarginDebt > 0 || state.MarginBorrowTransferID > 0 || !state.MarginBorrowedAt.IsZero()
+	hasMarginEvidence := len(state.MarginDebtEvents) > 0 || len(state.MarginCoverOrders) > 0 || state.MarginDebt > 0 || state.MarginBorrowTransferID > 0 || !state.MarginBorrowedAt.IsZero()
 	if s.marginAccountScope != "" && state.MarginAccountScope != s.marginAccountScope && (state.MarginAccountScope != "" || hasMarginEvidence) {
 		s.mu.Unlock()
 		return fmt.Errorf("funding_carry runtime state margin account scope mismatch")
@@ -165,6 +167,7 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 	s.marginBorrowTransferID = state.MarginBorrowTransferID
 	s.marginBorrowedAt = state.MarginBorrowedAt
 	s.marginDebtEvents = append([]fundingCarryMarginDebtEvent(nil), state.MarginDebtEvents...)
+	s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
 	s.strategySpotKnown = true
 	s.unownedExposure = false
 	s.intentInFlight = false
@@ -177,7 +180,7 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 }
 
 func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExchange, spotExchange, symbol string, allowPending bool) (fundingCarryRuntimeState, error) {
-	if version != 1 && version != fundingCarryRuntimeStateVersion {
+	if version != 1 && version != 2 && version != fundingCarryRuntimeStateVersion {
 		return fundingCarryRuntimeState{}, fmt.Errorf("unsupported funding_carry runtime state schema %d", version)
 	}
 	var state fundingCarryRuntimeState
@@ -216,6 +219,9 @@ func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExch
 		seenDebtEvents[identity] = struct{}{}
 	}
 	if err := validateFundingCarryDebtPrincipalBalance(state); err != nil {
+		return fundingCarryRuntimeState{}, err
+	}
+	if err := validateFundingCarryCoverOrders(state, allowPending); err != nil {
 		return fundingCarryRuntimeState{}, err
 	}
 	return state, nil

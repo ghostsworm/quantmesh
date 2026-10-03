@@ -114,6 +114,7 @@ type FundingCarryStrategy struct {
 	marginBorrowedAt       time.Time
 	marginDebtEvents       []fundingCarryMarginDebtEvent
 	marginRepayIntent      *fundingCarryRepayIntent
+	marginCoverOrders      []fundingCarryCoverOrder
 	marginAccountScope     string
 
 	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
@@ -2588,6 +2589,11 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 			Quantity: buyQty, Price: s.roundPrice(price*1.005, s.spot.GetPriceDecimals()),
 			PriceDecimals: s.spot.GetPriceDecimals(), StrategyType: "funding_carry_reverse",
 		})
+		if buyOrder != nil && buyOrder.OrderID > 0 {
+			if saveErr := s.checkpointMarginCoverOrder(ctx, buyOrder, buyQty, debtToRepay); saveErr != nil {
+				return s.blockOnUnownedExposure(errors.Join(err, saveErr))
+			}
+		}
 		if err != nil || buyOrder == nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("submit margin debt cover: order=%+v err=%v", buyOrder, err))
 		}
