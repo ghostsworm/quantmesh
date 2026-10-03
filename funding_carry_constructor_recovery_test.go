@@ -196,6 +196,40 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 	}
 	assertConstructorRecoveryEvidence(t, service, botID, payload)
 	assertConstructorRecoveryStopped(t, venues)
+	for _, canceled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("failed_retry_canceled_%v", canceled), func(t *testing.T) {
+			retryCtx, cancelRetry := context.WithCancel(context.Background())
+			defer cancelRetry()
+			cause := errors.New("fixture preflight unavailable")
+			if canceled {
+				cancelRetry()
+				cause = context.Canceled
+			}
+			factoryCalls := 0
+			retryDeps := fundingCarryStartupDependencies{
+				checkSetup: func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error) {
+					return nil, cause
+				},
+				newExchange: func(*config.Config, string, string, string) (exchange.IExchange, error) {
+					factoryCalls++
+					return nil, errors.New("unexpected connection")
+				},
+			}
+			retry, retryErr := startFundingCarrySymbolRuntimeWithDependencies(retryCtx, cfg, sym, nil, service, lock.NewNopLock(), nil, nil, retryDeps)
+			var retention *fundingCarryStartupRetentionError
+			if retry != nil || !errors.Is(retryErr, cause) || factoryCalls != 0 {
+				t.Fatalf("failed retry lost original cause or created resources: %v", retryErr)
+			}
+			if !errors.As(retryErr, &retention) {
+				t.Fatalf("pre-existing SQL claims invisible after early failure: %v", retryErr)
+			}
+			if fundingCarryReconciliationOnlyError(retryErr) {
+				t.Fatal("failed preflight admitted as reconciliation runtime")
+			}
+			assertConstructorRecoveryEvidence(t, service, botID, payload)
+			assertConstructorRecoveryStopped(t, venues)
+		})
+	}
 }
 
 func assertConstructorRecoveryEvidence(t *testing.T, service *storage.StorageService, botID, payload string) {

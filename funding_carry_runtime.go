@@ -55,6 +55,16 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	if ctx == nil || baseCfg == nil || deps.checkSetup == nil || deps.newExchange == nil {
 		return nil, fmt.Errorf("funding_carry startup requires context, config and dependencies")
 	}
+	botID := symCfg.ID
+	if botID == "" {
+		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
+	}
+	defer func() {
+		if startupErr != nil && storageService != nil {
+			checker, _ := storageService.GetStorage().(storage.AccountWalletCapitalReservationBotChecker)
+			startupErr = auditFundingCarryFailedStartup(startupErr, botID, checker)
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -80,10 +90,6 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	}
 
 	localCfg := *baseCfg
-	botID := symCfg.ID
-	if botID == "" {
-		botID = config.GenerateBotID(symCfg.Exchange, symCfg.Symbol, symCfg.GetMarketType())
-	}
 	localCfg.Trading.BotID = botID
 	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol

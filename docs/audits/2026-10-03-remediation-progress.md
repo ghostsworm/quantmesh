@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc967：前置失败不能隐藏历史钱包预留（本地验证完成）
+
+- 真实临时SQLite完整构造器先建立受管核账实例，再停止并读回三钱包各50USDT和原schema6金融payload；重试预检失败/已取消两个红测均复现只有普通原错误，历史预留未出现在返回诊断。
+- 有持久化服务且有效构造器输入时，在全部失败清理完成后只读核查同一Bot历史预留。取消路径使用独立五秒context；持有预留、读取失败或接口缺失加入结构化未核实诊断，原失败/读取原因仍可errors.Is追溯。确认无预留原样返回，已有保留诊断不重复查询；成功路径不查询。nil存储及无效构造参数不承诺历史存储核验。
+- 不建额外交易连接、不释放/改写预留或金融payload，不将前置失败准入为受管核账运行时；该查询是当时数据库快照，不证明资产已平仓或跨实例原子fencing。完整失败实例管理接管仍未完成。
+- 定向三轮race3.416s、根包完整race25.424s、根包vet/diff检查终态通过，覆盖真实构造器重试、取消独立读取、读失败/接口缺失及准入拒绝。Yarn verify整条链及独立dot报告45文件225项通过；Ruby嵌入门禁14runs/27assertions、交易门禁9runs/58assertions全部通过。按Go+React嵌入流程完成Make构建、磁盘清单验证及编译内嵌字节测试1.710s，临时二进制版本3.111.0-rc967。
+- JSON/Markdown报告位于 `/private/tmp/quantmesh-startup-audit-rc967.zt24tZ/results.{json,md}`；二进制SHA256 `f3c21b6738cacf33765630bb8eed0dafb1c9e389745f39cd152aa44c8c89189c`，两份前端清单SHA256 `a6d55009abe665417e118f88e4ea051bd51e59ca21ecc2c1fe8b81c5502a1295`、214资产。验证时HEAD4721d247且源码dirty，非最终提交/发布构建；旧嵌入备份 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-86270-rce16e/dist` 保留。元数据读回脚本首次用错键失败，改用实际files字段后读回/verify完成，不掩盖失败。
+- 未运行本版严格MySQL、远端CI或浏览器E2E，不继承rc966/旧严格证据；R01–R15范围保持，不改main/tag/部署/真实账户，推送目的地确认仍未收到。
+
 ## rc966：完整构造器的剩余资产接管与清理保留诊断（本地验证完成）
 
 - 不再只测试准入辅助函数：实际生产构造器委托实现接入隔离预检/交易所和t.TempDir SQLite，真实配置、钱包观测序号、三钱包预留、执行意图后端、策略耐久适配器及PriceMonitor均运行。成功的历史剩余资产路径可返回SymbolRuntime并导入0.0008 BTC历史量；不启交易循环，StopWithError拒绝平仓/资金释放，三钱包各50USDT及schema6原始金融payload均保持。
