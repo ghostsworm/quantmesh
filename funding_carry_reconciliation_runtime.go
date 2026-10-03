@@ -29,8 +29,7 @@ func startFundingCarryManagedStrategy(ctx context.Context, manager *strategy.Str
 	if err == nil {
 		return false, nil
 	}
-	var pending *strategy.FundingCarryReconciliationRequiredError
-	if !errors.As(err, &pending) {
+	if !fundingCarryReconciliationOnlyError(err) {
 		return false, err
 	}
 	if verifyErr := fc.VerifyRemainingReconciliation(ctx, gate); verifyErr != nil {
@@ -38,4 +37,20 @@ func startFundingCarryManagedStrategy(ctx context.Context, manager *strategy.Str
 	}
 	gate.Block(fundingCarryReconciliationBlock)
 	return true, nil
+}
+
+// A diagnostic joined with another failure is not managed-recovery admission.
+// Permit only the precise recovery result under ordinary single-cause wrapping.
+func fundingCarryReconciliationOnlyError(err error) bool {
+	for err != nil {
+		if _, ok := err.(*strategy.FundingCarryReconciliationRequiredError); ok {
+			return true
+		}
+		wrapped, ok := err.(interface{ Unwrap() error })
+		if !ok {
+			return false
+		}
+		err = wrapped.Unwrap()
+	}
+	return false
 }

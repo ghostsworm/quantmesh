@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -28,6 +29,30 @@ type reconciliationRuntimeStore struct {
 	payload string
 	writes  int
 	onLoad  func()
+}
+
+func TestFundingCarryReconciliationAdmissionRejectsMultipleFailureCauses(t *testing.T) {
+	pending := &strategy.FundingCarryReconciliationRequiredError{}
+	stopErr := errors.New("rollback close unverified")
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"exact", pending, true},
+		{"wrapped", fmt.Errorf("start: %w", pending), true},
+		{"nil", nil, false},
+		{"ordinary", stopErr, false},
+		{"joined", errors.Join(pending, stopErr), false},
+		{"wrapped_join", fmt.Errorf("start: %w", errors.Join(pending, stopErr)), false},
+		{"rollback", &strategy.StrategyStartupRollbackError{Startup: fmt.Errorf("start: %w", pending), Rollback: stopErr}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := fundingCarryReconciliationOnlyError(tc.err); got != tc.want {
+				t.Fatalf("admission=%v want %v", got, tc.want)
+			}
+		})
+	}
 }
 
 func (s *reconciliationRuntimeStore) LoadRuntimeState(string) (int, string, bool, error) {

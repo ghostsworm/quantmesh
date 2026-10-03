@@ -2,6 +2,16 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc962：启动回滚冻结顺序与多重失败不能丢失
+
+- 两个定向红测分别复现：StartAll只返回原启动错误、丢失失败项及先前项的停止失败；回滚开始时先前成功项的循环context仍活跃，可能在其他清理阻塞期间继续决策。不是把日志中的失败当作代码已返回的证据。
+- 启动失败先取消共享子context，再调用失败项和先前成功项Stop；仅发送取消，不能冒充全部在途RPC已终止或资产已平仓。管理器收集所有清理错误，StrategyStartupRollbackError通过多原因Unwrap保留启动、取消与各停止/平仓原因；全部清理仍会尝试，未启动项不被停止。
+- 专用Funding Carry受管恢复准入只接受单一结构化剩余资产恢复结果及普通单原因包装；joined/multi-cause错误即使包含恢复诊断也不准入。原核账内容、独立封锁和资金claim证明要求保持不变，不新增自动平仓/处置或释放。
+- 最新连续3轮race（根包3.787s/strategy2.803s）覆盖全部错误可追溯、先取消context再进入Stop、取消及旧回滚兼容、正常受管恢复与多原因拒绝。实际Funding Carry策略成功启动后注入UNKNOWN并取消，真实Stop返回自动平仓拒绝，管理器同时保留取消与该拒绝；无新下单/还款、未报告平仓完成。该夹具不等于完整构造器或真实账户验收。
+- 根包/strategy最新vet、diff检查、Ruby9runs/58assertions、Yarn类型检查/45文件225项测试/Vite PWA构建均完成通过。初轮十包报告包含冻结步骤前的源码，仅作阶段记录，不将该结果继承为最终源码通过。
+- 冻结后最终十包报告 `/private/tmp/quantmesh-trading-race-rc962-frozen-final/results.json` 与 `results.md` 已读取：1933 pass、8 MySQL skip、零失败，无缺包/解析错误，strategy143.336s；全部新增回滚/冻结/真实UNKNOWN关闭拒绝/多原因准入用例通过。source_commit=04ce8896、source_version=3.111.0-rc962、source_dirty=true，是本版提交前源码证据，不是同提交严格MySQL验收；测试期间最终生产实现未再变化。
+- R09/R07的失败可观测性和取消顺序有所推进，但失败实例完整接管、资产处置、现时全账户库存归属、原子fencing及R01–R15其余验收仍未闭合。本版没有同提交严格MySQL验收，未合main、打tag、发布、部署或连接真实账户，不宣称实盘/盈利已验收。
+
 ## rc961：受管启动不能脱离调用方生命周期
 
 - 实际构造器调用专用受管启动，但旧管理器 StartAll 使用创建管理器时的 background context。先以真实 Funding Carry 耐久读取回调取消调用方，复现旧路径仍导入历史余量，定向用例明确失败；这不是仅靠静态推测或新接口自测。

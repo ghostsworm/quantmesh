@@ -217,7 +217,7 @@ func (sm *StrategyManager) StartAllContext(parent context.Context) error {
 	ctx, cancel := context.WithCancel(parent)
 	stopManagerCancellation := context.AfterFunc(sm.ctx, cancel)
 	context.AfterFunc(ctx, func() { stopManagerCancellation() })
-	if err := sm.startAllContext(ctx); err != nil {
+	if err := sm.startAllContext(ctx, cancel); err != nil {
 		cancel()
 		stopManagerCancellation()
 		return err
@@ -225,7 +225,7 @@ func (sm *StrategyManager) StartAllContext(parent context.Context) error {
 	return nil
 }
 
-func (sm *StrategyManager) startAllContext(ctx context.Context) error {
+func (sm *StrategyManager) startAllContext(ctx context.Context, freeze context.CancelFunc) error {
 	// 1. 分配资金
 	sm.allocator.Allocate()
 	if sm.dynamicAllocator != nil {
@@ -259,17 +259,27 @@ func (sm *StrategyManager) startAllContext(ctx context.Context) error {
 			startErr = ctx.Err()
 		}
 		if startErr != nil {
+			// Stop all decision loops before any potentially blocking cleanup.
+			// Each Stop still determines whether owned assets can be closed.
+			freeze()
+			var rollbackErrors []error
 			if attempted {
 				if stopErr := item.strategy.Stop(); stopErr != nil {
 					logger.Error("❌ 回滚启动失败的策略 %s 时停止失败: %v", item.name, stopErr)
+					rollbackErrors = append(rollbackErrors, fmt.Errorf("stop failed strategy %s: %w", item.name, stopErr))
 				}
 			}
 			for i := len(started) - 1; i >= 0; i-- {
 				if stopErr := started[i].strategy.Stop(); stopErr != nil {
 					logger.Error("❌ 启动回滚时停止策略 %s 失败: %v", started[i].name, stopErr)
+					rollbackErrors = append(rollbackErrors, fmt.Errorf("rollback strategy %s: %w", started[i].name, stopErr))
 				}
 			}
-			return fmt.Errorf("start strategy %s: %w", item.name, startErr)
+			startupErr := fmt.Errorf("start strategy %s: %w", item.name, startErr)
+			if len(rollbackErrors) > 0 {
+				return &StrategyStartupRollbackError{Startup: startupErr, Rollback: errors.Join(rollbackErrors...)}
+			}
+			return startupErr
 		}
 		started = append(started, item)
 		logger.Info("✅ 策略 %s 已启动", item.name)
