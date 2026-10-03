@@ -430,6 +430,9 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 	if err := s.reconcileSavedMarginRepayment(checkCtx); err != nil {
 		return fmt.Errorf("funding_carry pending repayment recovery: %w", err)
 	}
+	if err := s.reconcileSavedMarginRemaining(checkCtx); err != nil {
+		return fmt.Errorf("funding_carry remaining margin asset recovery: %w", err)
+	}
 	if err := s.restoreRuntimeState(); err != nil {
 		return fmt.Errorf("funding_carry runtime state recovery failed: %w", err)
 	}

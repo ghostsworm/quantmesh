@@ -84,8 +84,8 @@ func TestFundingCarryRemainingAssetsCannotPassFlatOrRestart(t *testing.T) {
 					if err := restarted.Start(context.Background()); err == nil || margin.repayCalls != 0 || store.payload != before {
 						t.Fatal("restart ignored remaining assets, spent funds or rewrote evidence")
 					}
-					if restarted.GetFundingStatus()["margin_cover_remaining_known"] != false {
-						t.Fatal("failed restore invented zero remaining balance")
+					if restarted.GetFundingStatus()["margin_cover_remaining_known"] != true || !restarted.intentInFlight || !restarted.unownedExposure {
+						t.Fatal("remaining asset accounting not retained after guarded recovery")
 					}
 				}
 			})

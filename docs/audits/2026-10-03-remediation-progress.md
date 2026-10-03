@@ -2,6 +2,17 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc958：重启接管剩余资产的完整历史账本
+
+- 新增实际Start回归先复现rc957：耐久净量0.4008、确认消耗0.4，但普通恢复拒绝后内存没有账本，状态API返回qty=null/known=false，而非已核清的历史差额0.0008。
+- 启动在已保存买回/成交/还款恢复之后，使用与其他路径一致的操作门→钱包锁，锁内重新读取完整schema/本金账本/成交费用/确认消耗，核验实际基础币及当前账户；context/运行所有权在内存接管前再次检查。本地未保存的还款ACK/买回CID或保存失败不被较旧耐久记录覆盖。
+- 只接管已验证历史账本，深拷贝逐笔成交，保留其他腿、借款身份和金融事件，标记UNKNOWN/in-flight后返回仍需现时库存与处置核验的错误；重复Start可读回同样差额，不改耐久记录、不调用下单/还款、不宣告运行成功。零余量仍交给原普通恢复核验。
+- 生产边界：funding_carry_runtime.go 在strategyManager.StartAll失败后直接返回nil，早于SymbolRuntime构造；本版真实启动错误可明确报告余量，策略对象状态读取已接管账本，但不宣称失败实例已挂入Web或可进行受管处置。失败后保留/重新挂入只允许核账的受管运行时仍需实现并验证，不能把内部可见性冒充完整恢复闭环。
+- 资金释放接线只读复核：specialized Funding Carry 启动失败清理与停止释放都调用fc.VerifyFlat；不存在已举证的绕过该余量门禁路径。标准MSE资金释放要求私有账本核验和可取消库存能力，缺能力并不把GetPositions=nil当作空仓。此处不替代完整运行时资金释放演练或原子fencing验收。
+- 十包 `/private/tmp/quantmesh-trading-race-rc958-final/results.json` 与 `results.md` 已读回1920 pass、8 MySQL skip、0失败，无缺包/解析错误，strategy140.086s，source_commit=53ef37fe、source_version=3.111.0-rc958、source_dirty=true；这是本版提交前生产源码回归，不是同提交严格MySQL验收。
+- 随后仅补强测试夹具的UNKNOWN/in-flight、借款身份及启动诊断金额/现时库存边界断言，生产实现未变；最新新旧恢复、余量、启动还款和钱包锁序用例连续3轮 race 通过（3.068s），覆盖锁内快照更新/丢失/错误、错账户/资产/本金账本、取消/所有权丢失、本地未保存ACK/CID/保存失败拒绝覆盖、其他腿保留及真实输入深拷贝。strategy vet 初次缓存权限失败后原样允许环境重跑通过；diff检查、Ruby9runs/58assertions、Yarn类型检查/测试/Vite PWA构建通过。
+- rc957同提交严格MySQL证据不继承为本版结果。当前失败实例的受管Web接管、实物库存覆盖、全账户其他所有者归属、剩余资产处置、部分成交/完整恢复、原子世代fencing及R01–R15其余要求仍待闭合；未访问生产库/账户、发布、部署或验收盈利。
+
 ## rc957：同提交严格 MySQL 验证检查点
 
 - 测试代码提交：`e6d1260f0b92d42b12a1eb15ea9c158c62b542ce`，版本 `3.111.0-rc957`。测试前后 HEAD 完全相同，tracked diff 与 index diff 均为空；报告 source_dirty=true 仅因既有无关 `?? --help/`，未读取、改动或纳入提交。
