@@ -2,6 +2,16 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc962：同提交严格数据库验证与嵌入前端证据边界
+
+- 被测代码提交精确为 `186818f634fe9486b927c04a58f0499db5898045`，版本 `3.111.0-rc962`。测试前后HEAD相同，tracked diff和index diff均为空；报告source_dirty=true仅因用户无关的`?? --help/`，该目录未打开/修改/暂存。后续本次提交仅补文档，不冒充文档子提交另跑过全部测试。
+- 新建MySQL8.0.36一次性fixture，镜像`sha256:a532724022429812ec797c285c1b540a644c15e248579c6bfdf12a8fbaab4964`，schema `quantmesh_readiness_rc962` 初始表数0。仅绑定127.0.0.1:32780，无宿主目录挂载，512MiB tmpfs、1GiB内存/2CPU；临时破坏性迁移开关仅指向该空库，不读取生产配置/账户/凭据。
+- 执行`ruby scripts/verify_trading_race.rb /private/tmp/quantmesh-trading-race-rc962-same-commit-mysql --require-mysql`，临时DSN仅指向上述fixture。`results.json`及`results.md`均读回1941 pass、零skip/失败，mysql_required=true、无缺包/缺数据库证据/解析错误；strategy141.145s、storage18.723s、Web57.700s。
+- 8项强制数据库用例均为pass：独立暂停owner、资金费身份/覆盖、共享钱包资金预留、借币利息账本/覆盖、逐笔成交覆盖迁移、现货快照迁移、模糊Bot归属回填拒绝、收益提现规则。额外nilDB配置测试不用于冒充这8项证据。
+- 结束后再次核验容器身份/专用标签/无宿主挂载，只删除精确容器`3e8fd7ed71b3f05c823dd35439b48d320cf731e96dfd35a56e936e5ed2d2f5e5`；按ID和名称查询均无残留。tmpfs测试数据已丢弃，报告与缓存镜像保留，未删除其他容器、仓库文件或生产数据。
+- 按Go+React嵌入流程另查R14交付边界：`web/static.go`嵌入`web/dist/*`，本地该目录与最新`webui/dist`不是同一目录；index SHA256分别为`887c3d0eb5c31690504bbff8c36103245955963f092d8c5500fc1f692a5d242d`和`2bea7973b5062c41adb2fa8f3710f7cd3712e7fd58e7d70f1d9bc15e8ab35f15`，当前rc962版本字符串仅在最新webui产物找到。CI标准测试步骤明确复制新产物，但CI/CD其他构建分支存在`cp ... || true`及占位回退，尚需统一失败门禁及同步证明；不将本地差异直接宣称线上已部署旧前端。
+- 此严格报告补齐当前提交的数据库回归，不证明最新前端嵌入产物、目标平台发行构建、当前真实资产归属/处置、完整故障恢复、原子fencing或净盈利。未同步/改写嵌入产物以干扰本轮相同输入，未改main、打tag、发布、部署或连接真实账户；R01–R15未完成事项继续保留。
+
 ## rc962：启动回滚冻结顺序与多重失败不能丢失
 
 - 两个定向红测分别复现：StartAll只返回原启动错误、丢失失败项及先前项的停止失败；回滚开始时先前成功项的循环context仍活跃，可能在其他清理阻塞期间继续决策。不是把日志中的失败当作代码已返回的证据。
