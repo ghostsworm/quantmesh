@@ -37,6 +37,10 @@ func protectBotConfigMutation(c *gin.Context, botID, runningErrorKey string, per
 			failureKind = "reservation_retained"
 			return errors.New("Bot recovery configuration still has wallet capital reservations")
 		}
+		if err := verifyBotRecoveryConfiguration(c.Request.Context(), botID); err != nil {
+			failureKind = "recovery_configuration"
+			return err
+		}
 		if err := c.Request.Context().Err(); err != nil {
 			return err
 		}
@@ -51,6 +55,8 @@ func protectBotConfigMutation(c *gin.Context, botID, runningErrorKey string, per
 		return
 	}
 	switch failureKind {
+	case "recovery_configuration":
+		respondRecoveryConfigurationError(c, err)
 	case "reservation_retained":
 		c.JSON(http.StatusConflict, gin.H{"error": "bot_capital_reservation_not_released"})
 	case "reservation_verification":

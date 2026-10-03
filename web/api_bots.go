@@ -712,6 +712,10 @@ func deleteBot(c *gin.Context) {
 			failureKind = "reservation_retained"
 			return fmt.Errorf("Bot %s still owns an account wallet capital reservation", botID)
 		}
+		if err := verifyBotRecoveryConfiguration(c.Request.Context(), botID); err != nil {
+			failureKind = "recovery_configuration"
+			return err
+		}
 		if err := fileConfigManager.UpdateConfigUsing(func(current *config.Config) error {
 			if groupName := FindGroupNameByBotID(current, botID); groupName != "" {
 				failureKind = "group_changed"
@@ -747,6 +751,8 @@ func deleteBot(c *gin.Context) {
 	}
 	if err := runCoordinatedBotRemoval(provider, []string{botID}, persistRemoval); err != nil {
 		switch failureKind {
+		case "recovery_configuration":
+			respondRecoveryConfigurationError(c, err)
 		case "reservation_verification":
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_capital_reservation_verification_unavailable"})
 		case "reservation_retained":
@@ -1298,6 +1304,10 @@ func deleteBotGroup(c *gin.Context) {
 				failureKind = "reservation_retained"
 				return fmt.Errorf("Bot %s still owns an account wallet capital reservation", botID)
 			}
+			if err := verifyBotRecoveryConfiguration(c.Request.Context(), botID); err != nil {
+				failureKind = "recovery_configuration"
+				return err
+			}
 		}
 		if err := fileConfigManager.UpdateConfigUsing(func(current *config.Config) error {
 			var currentGroup *config.BotGroup
@@ -1348,6 +1358,8 @@ func deleteBotGroup(c *gin.Context) {
 	}
 	if err := runCoordinatedBotRemoval(provider, botIDsToRemove, persistRemoval); err != nil {
 		switch failureKind {
+		case "recovery_configuration":
+			respondRecoveryConfigurationError(c, err)
 		case "reservation_verification":
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_capital_reservation_verification_unavailable"})
 		case "reservation_retained":

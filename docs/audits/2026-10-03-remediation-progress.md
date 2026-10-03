@@ -2,6 +2,16 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc973：四入口生命周期内金融日志门禁（本地验证完成）
+
+- 配置文件PUT/DELETE、Bot DELETE、组DELETE在既有生命周期锁/有序停止协调回调内，从同一主存储完整读取全部Bot策略记录，以独立配置身份核验每条。有效未完成经济游标409；读取失败/取消、nil、未知策略/schema、缺历史定义、错账户及重复Bot身份503。合法平账与确认无记录正常放行。组内所有成员先核验，再开始配置删除；不释放钱包预留或改写金融payload。
+- 普通策略复用生产归一化与重复检查；对冲按实际直接读取Bot实例路径绑定group/symbol，基础币仍依据适配器所用Bot符号。Combo显式Bot symbol覆盖raw参数；自定义旧子定义缺失保持未核实，不从金融payload猜测。账户摘要共享原运行时协议。离线基础币仅支持明确Binance稳定币符号契约，不是实时交易所元数据/库存证明。
+- 隔离SQLite永久回归使用真实HTTP处理器和生命周期fixture provider，匹配账户身份的pending/历史剩余资产先单独证明ErrRecoveryConfigRequired，四入口409并读回原主配置、文档及payload；错误/旧证据503，合法平账/无记录200。覆盖组第二成员待核账不能先删第一成员、锁内晚到记录、取消/读失败及重复Bot身份。不冒充默认BotManager全流程或浏览器E2E。
+- 首轮失败是通用测试夹具附带非马丁格尔无关Direction，以及legacy环境Bot下标/总数假设；修正为契约和明确ID、前后读回后通过。新增对冲测试首次误用不存在snapshot方法编译失败，改用真实持久化序列化后复验；未隐藏失败。
+- 最终策略完整race139.869s、Web完整race40.906s、最终生产源码根包22.532s/配置1.849s通过；绑定/四入口三轮race策略2.149s、Web28.695s通过，随后新增重复身份夹具包含在最终Web完整结果。vet/diff通过；Yarn verify整链通过，独立dot读回45文件225项；Ruby嵌入14runs27assertions/交易9runs58assertions均无失败、错误、跳过。原八项overlay策略1.882s/Web4.389s通过，但其拒绝来自scope不匹配503，不代替匹配身份409证明。
+- Go+React嵌入技能用于本地构建：Make通过后在稳定清单上重建最终后端，compiled embed1.105s通过，临时二进制--version为3.111.0-rc973，API版本接线保持。报告 `/private/tmp/quantmesh-config-gate-rc973.Jj4sc0/results.{json,md}`；二进制SHA256 `3e33d5ff6689bd535b5a6c35c2d811186fa78268a66a7bdf03d86bd3b53e5a88`，两前端清单SHA256 `cf048a788232575413d07f517af2ec9ea51f839a0ba18970f58153c157fb65ed`，214资产。构建基于b6dff013的dirty源码，非最终提交发布构建。旧嵌入备份 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-98245-kj2ere/dist` 保留，无运行程序覆盖。
+- 尚缺其他配置/策略参数写入及热更新门禁、非Binance独立资产元数据、移除自定义定义的恢复能力、双文档原子持久化及跨进程fencing。下一步沿实际写入链复现绕过并补恢复能力，不能以长期封锁代替闭环；R01–R15目标保持。未运行本版严格MySQL/远端CI/浏览器E2E，不继承旧证据；不改main/tag、推送、部署、真实账户或生产数据，目的地批准仍未收到，不宣称实盘或盈利验收。
+
 ## rc972：对冲日志与完整Bot记录集合核验（生产入口尚未接线）
 
 - 补齐SpotLong、SpotShort、FuturesLong/Short和Combo父记录只读核验。现货待办订单/借款/买回/还款、期货预提交订单不能被日志缺失之外的零值掩盖；已确认正ID的消费还款历史允许保留，不以有历史记录永久阻止正常平账。未知schema、缺字段/null、错group/资产/身份、非法消费还款ID不返回已核清；非空待办只要求保留配置，不依赖此处把其恢复证据验成可交易。

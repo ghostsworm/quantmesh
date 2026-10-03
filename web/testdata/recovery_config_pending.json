@@ -1,0 +1,1 @@
+{"strategy":"funding_carry","futures_exchange":"binance","spot_exchange":"binance","symbol":"BTCUSDT","margin_account_scope":"FIXTURE_SCOPE","ownership_ready":true,"intent_in_flight":true,"exposure_unknown":true,"direction":1,"owned_spot":0.4,"owned_futures":0.4,"margin_debt":0}

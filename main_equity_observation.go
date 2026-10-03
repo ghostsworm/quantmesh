@@ -133,8 +133,7 @@ type configuredEquityEvidenceSourceResult struct {
 }
 
 func equityAccountScopeID(name string, cfg config.ExchangeConfig) string {
-	identity, _ := json.Marshal([]interface{}{name, cfg.Testnet, cfg.APIKey})
-	return fmt.Sprintf("%x", sha256.Sum256(identity))
+	return config.AccountScopeID(name, cfg)
 }
 
 func configuredEquityEvidenceSource(ctx context.Context, account equityAccountEvidenceConfig) (accounting.Source, error) {
