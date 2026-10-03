@@ -9,11 +9,11 @@ import (
 
 // Called under the operation and account wallet coordination, after cover fills.
 func (s *FundingCarryStrategy) currentMarginRepaymentAmount(ctx context.Context, asset string, coverID int64) (float64, error) {
-	reader, ok := s.marginEx.(exchange.MarginLiabilityReader)
+	reader, ok := s.marginEx.(exchange.MarginRepaymentFundsReader)
 	if !ok {
-		return 0, fmt.Errorf("margin venue cannot read liabilities independently of inventory")
+		return 0, fmt.Errorf("margin venue cannot read debt and free balance together")
 	}
-	principal, interest, err := reader.GetMarginLiability(ctx, asset)
+	principal, interest, available, err := reader.GetMarginRepaymentFunds(ctx, asset)
 	if err != nil {
 		return 0, fmt.Errorf("refresh margin principal and interest: %w", err)
 	}
@@ -25,6 +25,9 @@ func (s *FundingCarryStrategy) currentMarginRepaymentAmount(ctx context.Context,
 	}
 	if !validRuntimeAmount(principal) || !validRuntimeAmount(interest) || !validRuntimeAmount(amount) || amount <= 0 || !fundingCarryFinancialAmountsMatch(principal, s.marginDebt) {
 		return 0, fmt.Errorf("refreshed margin debt does not match owned principal")
+	}
+	if !validRuntimeAmount(available) || available < amount {
+		return 0, fmt.Errorf("margin free balance cannot cover confirmed repayment source")
 	}
 	if err := validateFundingCarryCoverSource(s.marginCoverOrders, &fundingCarryRepayIntent{Asset: asset, AccountScope: s.marginAccountScope, Amount: amount, CoverOrderID: coverID}); err != nil {
 		return 0, err

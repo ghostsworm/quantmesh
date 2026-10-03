@@ -2,6 +2,14 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc955：margin 可用余额与还款金额同响应核对
+
+- HTTP 回归先复现 margin GetBalance 因继承 spot 方法访问 /api/v3/account：margin free0.25 BTC、locked0.2 BTC时误返回 spot free999 BTC。覆盖 margin 方法，改从 /sapi/v1/margin/account 精确匹配唯一资产、解析有限非负 free；资产缺失/重复不冒充零余额，locked 不加到 free。
+- 新单响应本金/利息/free能力接入真实 closeReverse：买回核账后同时验证当前本金与策略账本、含息金额不超历史净量且 free 足额，再保存精确还款请求。已花费、冻结不足额、非法读数、查询失败、取消/所有权丢失或意图保存失败不还款，历史成交仍保留。
+- 可用余额不是策略资产归属：仍缺全账户其他所有者库存/支用约束、剩余资产处置、完整重启/部分成交恢复和原子世代 fencing；账户响应到 RPC 间外部资金变化不宣称原子排除。未访问真实账户/生产库、未下单或发布，不继承旧版严格验收。
+- 验证：当前可用资金九种真实 closeReverse 场景与原债务刷新七种场景两轮 race 通过（66.254s），覆盖足额正例、已花费/冻结、NaN/负额、查询失败、取消/所有权及意图保存失败；最终 Binance 余额/债务 HTTP 回归两轮 race 通过（1.754s），确认正确账户、不含 locked、同响应本金/利息/free、资产缺失/重复及非法余额拒绝、明确零余额保留。最终关联策略/解码/关闭路径两轮 race 通过（250.727s）；strategy/exchange/Binance vet、diff 检查和 Ruby 门禁9项/58断言通过；前端 yarn verify 类型检查、44文件224测试及 Vite/PWA 构建通过。
+- 十包 `/private/tmp/quantmesh-trading-race-rc955-final/results.json` 与 `results.md` 已读回1911 pass、8 MySQL skip、0失败、无缺包/解析错误，source_version=3.111.0-rc955、source_commit=b0029a8d、source_dirty=true；这是提交前源码回归，不是本版同提交严格 MySQL 验证。未访问真实账户/生产库、未下单或发布，不继承旧版严格验收。
+
 ## rc954：买回完成后刷新现时本金和利息
 
 - 首轮回归夹具数量精度不匹配，先被既有超请求成交门禁拒绝，不计为债务时间差缺陷；修正到实际四位取整后，复现含息金额变化仍按旧0.4 BTC还款，以及超额利息/本金变化/查询失败或缺失组件仍进入 RPC。

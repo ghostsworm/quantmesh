@@ -14,6 +14,12 @@ type fundingCarryDebtRefreshVenue struct {
 	afterFills func()
 }
 
+func (m *mockFCExchange) GetMarginRepaymentFunds(ctx context.Context, asset string) (float64, float64, float64, error) {
+	principal, interest, err := m.GetMarginLiability(ctx, asset)
+	// This fixture models a completed buy crediting free base assets.
+	return principal, interest, m.getOrderExecQty, err
+}
+
 func (m *mockFCExchange) GetMarginLiability(ctx context.Context, asset string) (float64, float64, error) {
 	positions, err := m.GetPositions(ctx, "BTCUSDT")
 	if err != nil {
