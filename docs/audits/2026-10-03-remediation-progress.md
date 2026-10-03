@@ -2,6 +2,16 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc976：逐Bot应用报告与配置已保存/运行态失败回执（后端本地验证完成）
+
+- 新增结构化report接口并贯通实际BotManager→SymbolManager→Web adapter：applied/failed/not_running逐Bot区分；注册但未初始化不能当作未运行，nil配置不能当已核实。失败只发布固定risk_apply_failed/runtime_uninitialized码，不向API传原始provider错误。旧成功ID接口继续兼容；Web对旧更新器仅调用一次且标未核实，不将其IDs当无失败证明。Verified是本次本地管理器应用结果，不证明实时资产、持续运行或跨实例一致性。
+- 策略JSON接口及全局JSON配置接口应用失败409、ok=false、config_saved=true，保留部分成功IDs和失败Bot映射，不假称已回滚保存配置。JSON热重载失败同样反馈409；YAML不扩大原应用行为，热重载失败409，保存正常时明确运行态未核实。仅保存或旧/缺失provider返回200兼容，但ok=false/report.verified=false，不称完成应用。全局配置实际写入门禁仍未补齐。
+- 永久回归覆盖实际Web adapter混合成功/失败/未运行及原始错误不进入序列化结果；SQLite真实策略处理器保存后部分失败、正常旧dispatch/缺provider未核实；JSON配置逐Bot失败与数据库配置读回；真实HotReloader回调故障下JSON/YAML保存事实和固定错误码。没有浏览器或真实金融RPC，不把fixture report当默认HTTP到实际交易实例E2E。
+- 初次同名代码块补丁定位错，将局部变量放到其他函数，编译失败后修正；新增配置测试未先创建Bot而数组越界，改成明确Bot ID夹具后复验。记录失败，不用后续vet退出0掩盖先前失败测试。
+- 最终生产源码完整race根包22.558s、Web46.859s、配置1.700s终态通过，vet/diff通过；实际adapter/策略/三个反馈入口定向三轮根包2.073s、Web16.929s；之后补充全局JSON逐Bot失败测试及反馈回归三轮Web6.514s通过。Yarn verify整链26.21s、45文件225项；Ruby嵌入14runs27assertions/交易9runs58assertions零失败/错误/跳过。未继承旧策略全包或严格MySQL/远端CI验收。
+- Go+React嵌入技能用于本地Make与compiled embed1.138s通过，版本rc976、API版本接线保持；两清单SHA256 `7057a662b7c71f3e81d877d30502758c698c799fcbf57c4a0ddc617abf5c192b`。隔离产物/JSON/Markdown报告 `/private/tmp/quantmesh-runtime-report-rc976.4d16z1/`，提交后重建的实际VCS revision/modified与产物摘要以报告读回为准，不冒充干净发布产物。旧嵌入备份 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-4252-lwtnb5/dist` 保留，不覆盖运行程序。
+- 未改前端状态消费：现有页面可能仍按HTTP200或通用409显示反馈，需补i18n的已保存/部分应用/未核实展示及防误重试并做浏览器验证。保存/应用共同事务、专用回调部分应用补偿、全局写入生命周期/恢复门禁、旧身份迁移和跨进程fencing仍开放。R01–R15范围保持；未改main/tag、推送、部署、真实账户或生产数据，推送目的地批准仍未收到，不宣称实盘/盈利验收。
+
 ## rc975：实际运行时热更新不跳过专用回调、不在风控失败前发布参数（本地验证完成）
 
 - 在75532c41基线实际BotManager/SPM隔离overlay复现两红测：无SPM专用实例的UpdateOpenControl调用数0、未触发失败封锁；注入无限verifiedCapitalBudget使网格风控拒绝时，管理器旧interval100仍在，但SPM/内层已变200、order_quantity250且返回已更新ID。该预算是故障注入，不宣称线上实际预算无限；其invalid-budget gate已封锁，不据此声称真实违规订单发生。正常网格控制通过。原根包红测退出1、1.178s。

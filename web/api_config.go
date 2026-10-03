@@ -610,27 +610,29 @@ func updateConfigHandler(c *gin.Context) {
 	}
 
 	// 尝試热更新
+	hotReloadFailed := false
 	if configHotReloader != nil {
 		_, err := configHotReloader.UpdateConfig(newConfig)
 		if err != nil {
-			// 热更新失败不影响配置保存，只記錄警告
-			// 注意：这里可能需要通過日志記錄
+			hotReloadFailed = true
 		}
 	}
 
 	// 🔥 推送交易参數变更到运行中的 SymbolRuntime（解决内存中参數不同步的问题）
-	var updatedSymbols []string
-	if symbolManagerProvider != nil {
-		if updater, ok := symbolManagerProvider.(TradingParamsUpdater); ok {
-			updatedSymbols = updater.UpdateTradingParams(newConfig)
-		}
+	report := applyTradingParamsWithReport(newConfig)
+	if hotReloadFailed || len(report.Failed) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "runtime_update": report, "hot_reload_failed": hotReloadFailed, "diff": diff})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"message":          "配置更新成功",
 		"diff":             diff,
 		"requires_restart": diff.RequiresRestart,
-		"hot_updated":      updatedSymbols,
+		"hot_updated":      report.Applied,
+		"ok":               report.Verified,
+		"config_saved":     true,
+		"runtime_update":   report,
 	})
 }
 
@@ -714,13 +716,19 @@ func updateConfigYAMLHandler(c *gin.Context) {
 
 	// 尝試热更新
 	if configHotReloader != nil {
-		_, _ = configHotReloader.UpdateConfig(newConfig)
+		if _, err := configHotReloader.UpdateConfig(newConfig); err != nil {
+			c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "hot_reload_failed": true})
+			return
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"message":          "配置更新成功",
-		"changes_count":    len(diff.Changes),
-		"requires_restart": diff.RequiresRestart,
+		"ok":                      false,
+		"config_saved":            true,
+		"runtime_update_verified": false,
+		"message":                 "配置更新成功",
+		"changes_count":           len(diff.Changes),
+		"requires_restart":        diff.RequiresRestart,
 	})
 }
 

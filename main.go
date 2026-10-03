@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc975"
+var Version = "3.111.0-rc976"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -511,6 +511,10 @@ func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) str
 // 将最新配置推送到所有运行中的 SymbolRuntime，解决配置修改后内存不同步问题
 func (a *symbolManagerWebAdapter) UpdateTradingParams(latestConfig *config.Config) []string {
 	return a.manager.UpdateRuntimeTradingParams(latestConfig)
+}
+
+func (a *symbolManagerWebAdapter) UpdateTradingParamsWithReport(latestConfig *config.Config) web.TradingParamsUpdateReport {
+	return a.manager.UpdateRuntimeTradingParamsWithReport(latestConfig)
 }
 
 // UpdateEquityScopeConfig synchronizes configured account coverage without reconfiguring live strategies.

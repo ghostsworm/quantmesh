@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"math"
 	"quantmesh/config"
 	"quantmesh/execution"
 	"quantmesh/position"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +39,34 @@ func TestRuntimeSpecializedHotRiskFailureMustBeObservable(t *testing.T) {
 	updated = bm.UpdateRuntimeTradingParams(latest)
 	if calls != 2 || len(updated) != 1 || br.GetBotRiskControl().MaxPositionValue != 400 || gate.HasBlock("risk_control_update_unverified") {
 		t.Fatal("verified specialized retry did not publish and clear its own block")
+	}
+}
+
+func TestRuntimeApplyReportThroughActualWebAdapter(t *testing.T) {
+	cfg := &config.Config{}
+	bm := NewBotManager(cfg, nil, nil, nil, "")
+	for _, id := range []string{"accepted", "rejected"} {
+		old := config.BotConfig{ID: id, Exchange: "binance", Symbol: "BTCUSDT"}
+		bm.AddRuntime(&BotRuntime{BotID: id, Config: old, Inner: &SymbolRuntime{Config: config.BotConfigToSymbolConfig(old), verifiedCapitalBudget: 500, UpdateOpenControl: func(config.OpenPositionControl) error {
+			if id == "rejected" {
+				return errors.New("private-fixture-error")
+			}
+			return nil
+		}}})
+		cfg.Bots = append(cfg.Bots, old)
+	}
+	cfg.Bots = append(cfg.Bots, config.BotConfig{ID: "not-running", Exchange: "binance", Symbol: "BTCUSDT"})
+	adapter := &symbolManagerWebAdapter{manager: &SymbolManager{botManager: bm}}
+	report := adapter.UpdateTradingParamsWithReport(cfg)
+	if !report.Verified || len(report.Applied) != 1 || report.Applied[0] != "accepted" || report.Failed["rejected"] != "risk_apply_failed" || len(report.NotRunning) != 1 {
+		t.Fatalf("invalid per-Bot report: %+v", report)
+	}
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private-fixture-error") {
+		t.Fatal("raw provider error crossed API boundary")
 	}
 }
 

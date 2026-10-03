@@ -330,6 +330,10 @@ func (sm *SymbolManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (u
 	return sm.botManager.UpdateRuntimeTradingParams(latestCfg)
 }
 
+func (sm *SymbolManager) UpdateRuntimeTradingParamsWithReport(latestCfg *config.Config) web.TradingParamsUpdateReport {
+	return sm.botManager.UpdateRuntimeTradingParamsWithReport(latestCfg)
+}
+
 // StartBot 啟動指定 Bot（委託 BotManager）
 func (sm *SymbolManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
 	return sm.botManager.StartBot(ctx, botCfg)

@@ -3,30 +3,43 @@ package main
 import (
 	"quantmesh/config"
 	"quantmesh/logger"
+	"quantmesh/web"
 )
 
 // The legacy result contains only runtimes whose application succeeded, not
 // every saved configuration. Per-Bot error propagation to HTTP remains separate.
 func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedBotIDs []string) {
+	return bm.UpdateRuntimeTradingParamsWithReport(latestCfg).Applied
+}
+
+func (bm *BotManager) UpdateRuntimeTradingParamsWithReport(latestCfg *config.Config) web.TradingParamsUpdateReport {
+	report := web.TradingParamsUpdateReport{Applied: []string{}, Failed: map[string]string{}, NotRunning: []string{}}
 	if latestCfg == nil {
-		return nil
+		return report
 	}
+	report.Verified = true
 	bm.registerEquityScopeConfig(latestCfg)
 	for _, botCfg := range latestCfg.Bots {
 		botID := config.BotIDOrGenerate(botCfg)
 		bm.runtimesMu.RLock()
 		br := bm.runtimes[botID]
 		bm.runtimesMu.RUnlock()
-		if br == nil || br.Inner == nil {
+		if br == nil {
+			report.NotRunning = append(report.NotRunning, botID)
+			continue
+		}
+		if br.Inner == nil {
+			report.Failed[botID] = "runtime_uninitialized"
 			continue
 		}
 		if err := br.applyRuntimeTradingParams(botCfg); err != nil {
+			report.Failed[botID] = "risk_apply_failed"
 			logger.Error("[%s] 运行时热参数应用失败，未发布交易参数", botID)
 			continue
 		}
-		updatedBotIDs = append(updatedBotIDs, botID)
+		report.Applied = append(report.Applied, botID)
 	}
-	return
+	return report
 }
 
 // Validate and apply risk before publishing dependent trading parameters.

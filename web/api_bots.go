@@ -1632,16 +1632,18 @@ func putBotStrategyLocked(c *gin.Context, botID string, req UpdateBotStrategyReq
 	}
 
 	// 推送配置到運行中的 Bot，確保 smart_order 等變更在刷新頁面時正確顯示
-	if symbolManagerProvider != nil {
-		if updater, ok := symbolManagerProvider.(TradingParamsUpdater); ok {
-			_ = updater.UpdateTradingParams(cfg)
-		}
+	report := applyTradingParamsWithReport(cfg)
+	if len(report.Failed) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "bot_id": botID, "runtime_update": report})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"ok":      true,
-		"bot_id":  botID,
-		"message": "Strategy updated successfully",
+		"ok":             report.Verified,
+		"config_saved":   true,
+		"runtime_update": report,
+		"bot_id":         botID,
+		"message":        "Configuration saved",
 	})
 }
 
