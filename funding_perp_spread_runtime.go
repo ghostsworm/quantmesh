@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"sort"
 	"strings"
@@ -650,6 +651,7 @@ func fundingPerpSpreadStateScope(botID string, cfg *config.Config, fp *config.Fu
 
 func mergeFundingPerpSpreadStrategyConfig(localCfg *config.Config, symCfg config.SymbolConfig) {
 	localCfg.Strategies.Enabled = true
+	localCfg.Strategies.Configs = maps.Clone(localCfg.Strategies.Configs)
 	if localCfg.Strategies.Configs == nil {
 		localCfg.Strategies.Configs = make(map[string]config.StrategyConfig)
 	}

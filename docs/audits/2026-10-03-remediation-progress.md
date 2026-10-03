@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc965：套利运行时不能写入其他 Bot 的策略 map（本地验证完成）
+
+- 继续核对 R09 生产初始化/恢复前提时发现两个专用构造器均浅拷贝 baseCfg，再直接写共享 Strategies.Configs。串行红测确认 Funding Carry/Perp Spread 都改变基础配置；Funding Carry 真实构造器入口在注入工厂失败后，仍覆写共享策略权重/启用/参数。未用标题或race未复现臆测问题。
+- 两处合并先 maps.Clone 外层 map，再写当前 Bot 的专用条目，保留无关策略及原 Bot 参数选择/默认权重。该路径仅读取条目内Config，没有宣称所有嵌套值深拷贝或同时修改基础配置的热更新已安全；全构造器成功路径、Perp Spread全入口及失败实例接管仍待验证。
+- 双入口合并、失败Funding Carry构造器、24个并发本地合并及原取消/受管准入回归连续三轮race终态通过（根包2.349s）；根包完整race23.962s、根包vet和diff检查通过。并发夹具仅并发合并不可变基础配置，不用于证明热更新同时写入基础map的安全性；Perp Spread只覆盖同生产合并函数，不冒充其全构造器成功/恢复。
+- Yarn verify整条命令成功，类型检查、前端测试及Vite/PWA构建通过；另以dot报告读回45文件/225项测试全部通过。嵌入门禁14runs/27assertions及原交易门禁9runs/58assertions均零失败/错误/跳过。
+- `make build OUTPUT=/private/tmp/quantmesh-funding-config-rc965.6l3uOd/quantmesh` 终态成功，--version返回3.111.0-rc965；最终稳定后编译内嵌字节测试1.551s通过，未与前端重构建重叠。产物SHA256 `fc6d0094e58d6bf778df479ea5eae69ca4c1788c102962ccc4d46ae2f96527c9`，两份前端清单均为 `e1c9125308b9aa8e6b47679cea835aead29a2eb6295e068c47fc52374b2132b1`（214资产），来源摘要 `cffa8b9121f63f5deb3c32ea98f673910aae93fc403f443ebe80204b2cfbb30b`。构建时HEAD45328980且源码dirty，非发布提交构建；JSON/Markdown结果在上述目录。
+- 上轮嵌入保留于 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-83938-tqepb0/dist`，不覆盖现有运行程序。未继承旧严格MySQL或远端CI结果。不解除资金预留或交易封锁；R01–R15范围保持，完整资产恢复/处置、目标平台交付与净盈利仍未验收。推送目的地仍待确认，不重试被拒绝操作，不改main/tag/发布/部署或连接真实账户。
+
 ## rc964：专用构造器取消边界（本地验证完成）
 
 - 原生产构造器预检返回后未检查调用方取消，实际前置/预检中取消均继续进入所有权初始化；初始价格使用不可取消的Sleep，已取消但有缓存报价时仍返回成功。先保持原语义并注入显式预检/工厂依赖复现四项失败；不替换全局变量、不访问真实交易所。

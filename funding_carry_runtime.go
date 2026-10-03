@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 	"sync"
@@ -808,6 +809,9 @@ func (a *fundingCarryOrderExecutor) CancelOrderContext(ctx context.Context, orde
 
 func mergeFundingCarryStrategyConfig(localCfg *config.Config, symCfg config.SymbolConfig) {
 	localCfg.Strategies.Enabled = true
+	// The local Config is a shallow struct copy; isolate map writes from all
+	// other Bots even if this constructor subsequently fails.
+	localCfg.Strategies.Configs = maps.Clone(localCfg.Strategies.Configs)
 	if localCfg.Strategies.Configs == nil {
 		localCfg.Strategies.Configs = make(map[string]config.StrategyConfig)
 	}
