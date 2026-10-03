@@ -2,6 +2,13 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc947：启动接入已受理还款的本金核账
+
+- Start 原本直接拒绝待还款快照，现在在普通恢复前识别精确 ACK，持操作锁/钱包协调锁重新加载并校验 schema、账户、原借款、币种和完整本金账本，仅查询同一还款交易并保存确认本金；无 ACK 或无效归属不查询、不还款。
+- 保存前复核 context/owner；历史已确认还款幂等重放。成功只清理已核清还款意图，保留 UNKNOWN/in-flight，不启动交易，不补造买回资产或订单证据。该项是本金核账的实际启动接线，不是完整自动接管，订单/资产恢复、无 ACK 归属与原子世代 fencing 仍待闭合。
+- 验证：实际 Start 十种场景（正常确认、已记账重放、查询失败、错误账户、无效账本、无 ACK、错误币种、所有权丢失、取消及保存失败）两轮 race 通过；最终关联策略/解码/关闭路径两轮 race 通过（150.370s）。strategy vet、diff 检查及 Ruby 门禁9项/58断言通过；前端 yarn verify 类型检查、44文件224测试及 Vite/PWA 构建通过，并补取紧凑测试汇总。
+- 十包 `/private/tmp/quantmesh-trading-race-rc947-final/results.json` 与 `results.md` 已读回1892 pass、8 MySQL skip、0失败、无缺包/解析错误，source_version=3.111.0-rc947、source_commit=58a61e8e、source_dirty=true，为提交前源码回归，不是本版同提交严格 MySQL 验证；未连接生产库/真实账户、未下单或发布，不继承旧版本严格验收。
+
 ## rc946：精确还款意图与 ACK 核账重试
 
 - 真实关闭回归先复现还款已受理但确认查询失败时丢失精确身份并清除 in-flight 标记。

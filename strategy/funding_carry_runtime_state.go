@@ -173,6 +173,10 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 }
 
 func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotExchange, symbol string) (fundingCarryRuntimeState, error) {
+	return decodeFundingCarryRuntimeStateForRecovery(version, payload, futuresExchange, spotExchange, symbol, false)
+}
+
+func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExchange, spotExchange, symbol string, allowPending bool) (fundingCarryRuntimeState, error) {
 	if version != 1 && version != fundingCarryRuntimeStateVersion {
 		return fundingCarryRuntimeState{}, fmt.Errorf("unsupported funding_carry runtime state schema %d", version)
 	}
@@ -184,7 +188,7 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 		!strings.EqualFold(state.SpotExchange, spotExchange) || !strings.EqualFold(state.Symbol, symbol) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry runtime state identity mismatch")
 	}
-	if !state.OwnershipReady || state.IntentInFlight || state.ExposureUnknown || state.MarginRepayIntent != nil ||
+	if !state.OwnershipReady || (!allowPending && (state.IntentInFlight || state.ExposureUnknown || state.MarginRepayIntent != nil)) ||
 		state.Direction < DirectionNone || state.Direction > DirectionReverse ||
 		!validRuntimeAmount(state.OwnedSpot) || !validRuntimeAmount(state.OwnedFutures) || !validRuntimeAmount(state.MarginDebt) ||
 		state.MarginBorrowTransferID < 0 {

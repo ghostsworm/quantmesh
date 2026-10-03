@@ -85,6 +85,7 @@ type FundingCarryStrategy struct {
 	cancel            context.CancelFunc
 	runDone           chan struct{}
 	started           bool
+	startupMu         sync.Mutex
 	stopMu            sync.Mutex
 	stopAttempted     bool
 	stopCompleted     bool
@@ -408,12 +409,17 @@ func settleCarryOrder(ctx context.Context, executor FundingCarryExecutor, order 
 }
 
 func (s *FundingCarryStrategy) Start(ctx context.Context) error {
+	s.startupMu.Lock()
+	defer s.startupMu.Unlock()
 	s.mu.Lock()
 	if s.started {
 		s.mu.Unlock()
 		return errors.New("funding_carry strategy already started")
 	}
 	s.mu.Unlock()
+	if err := s.reconcileSavedMarginRepayment(ctx); err != nil {
+		return fmt.Errorf("funding_carry pending repayment recovery: %w", err)
+	}
 	if err := s.restoreRuntimeState(); err != nil {
 		return fmt.Errorf("funding_carry runtime state recovery failed: %w", err)
 	}
