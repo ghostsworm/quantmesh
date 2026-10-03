@@ -2,6 +2,17 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc970：套利耐久状态的只读配置保留核验（尚未接入入口）
+
+- 新增 Funding Carry / Funding Perp Spread 纯函数，调用既有实际恢复解码器及借贷、成交费用/确认消耗校验；要求独立非空身份绑定，Carry 明确账户 scope 和基础币。已核清耐久记录返回 nil，需要核账与无效证据通过不同 sentinel 错误及 errors.Is 区分，不输出完整金融 payload。
+- Carry 在正常本金/仓位清零后仍精确核算历史余量；0.0008 及 nextafter 微量正余量不得消失。双永续额外核查 execution ledger、emergency close、pending order/executions 和两腿有符号数量，不能仅靠零仓位证明核清。只是耐久账本判断，不证明实时资产、可支用余额、账户所有权或释放资金安全。
+- 对当前 schema6 的完整序列化字段核验：缺失基础字段、null、任何层级重复键（含大小写覆盖）、未知字段、尾随数据拒绝；采用深度上限。旧schema、未知schema及缺少独立绑定不返回已核清。旧schema后续须明确兼容核账路径，不能让拒绝永久替代恢复能力；当前函数未投入生产配置准入，不引入旧Bot永久禁止修改的入口行为。
+- 最终定向三轮 race 1.812s 通过，包含合法零差额、两类余量、待办标志、错账户/资产、旧schema、缺字段/null/重复键、未知字段，双永续未核实账本、紧急平仓、合法 pending order/execution、负仓位和最小正数。首轮旧夹具交易所名为空导致拒绝，补齐夹具名称后重跑，不放宽生产校验。输入为字符串和绑定，不接交易所、存储写入或金融RPC。
+- 策略包完整race139.884s完成通过，使用最终生产实现；全量运行期间仅追加测试覆盖，新增断言已由随后定向三轮验证，不将运行中测试算通过。JSON/Markdown报告在 `/private/tmp/quantmesh-recovery-proof-rc970.yGiuH0/results.{json,md}`。
+- Yarn verify 45文件225项及Vite/PWA完成；Go+React嵌入技能用于前端先构建、清单sync/verify及临时二进制构建，编译内嵌测试1.082s通过。首次Go缓存权限阻止构建/vet，原命令允许环境重跑通过；Ruby嵌入14runs/27assertions与交易9runs/58assertions通过，最终vet/diff检查通过。二进制SHA256 `414b91d7677d27e4abdc0827ab445f314677e402e6f43319ce84e65a689febd3`，两清单SHA256 `a5106bf0f1cfe2e9a8c1a700b58fa09c427ab2ef8569de2b44503aff66f75034`，214资产；旧嵌入保留于 `/var/folders/np/rjc0y5w52x324x21pv6g33440000gp/T/quantmesh-embedded-backup-20261003-90994-1npws/dist`。
+- 真实SQLite原overlay兼容性1.750s通过，四入口两种状态仍8项安全断言失败（Web3.068s，退出1），金融payload保持但配置依然可变。此轮不得称四入口缺陷已修复；尚须所有策略schema及旧记录身份核验、读取接口/管理器/四入口统一接线、正常核清放行、默认适配器及浏览器E2E、跨进程fencing。R01–R15完整范围保持。
+- 没有本版严格MySQL、远端CI、同提交发布或实盘盈利证据；构建验证基于dd9cbc5b上的dirty源码，非发布提交。未改main/tag、推送、部署、真实账户或生产数据；推送目的地批准仍未收到。
+
 ## rc969：统一金融状态保护前的完整Bot记录读取（存储步骤本地验证完成）
 
 - 新增可选BotStrategyRuntimeStateContextLister及SQL实现：按参数化Bot身份读取全部策略记录，不依赖现配置策略名，不跨Bot，不设静默分页截断；保留strategy/schema/payload/updated_at并按strategy稳定排序。已知无记录返回非nil空slice；取消、连接等待、查询/扫描/迭代/关闭失败返回错误和nil，不能拿先前部分记录证明全部核清。使用既有表/主键，不新增DDL或改旧读取接口。
