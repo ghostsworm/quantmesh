@@ -624,6 +624,9 @@ func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
 
 		s.mu.RLock()
 		defer s.mu.RUnlock()
+		if err := requireNoFundingCarryCoverRemaining(s.coverRemainingStateLocked(), s.spot.GetBaseAsset()); err != nil {
+			return err
+		}
 		if s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil || s.direction != DirectionNone ||
 			s.strategySpotQty > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
 			s.futQty > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
@@ -722,15 +725,19 @@ func (s *FundingCarryStrategy) GetStatistics() *StrategyStatistics        { retu
 func (s *FundingCarryStrategy) GetVisualizationData() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	remaining, remainingKnown := s.coverRemainingStatusLocked()
 	return map[string]interface{}{
-		"type":            "funding_carry",
-		"direction":       s.direction.String(),
-		"position_open":   s.direction != DirectionNone,
-		"spot_qty":        s.spotQty,
-		"futures_qty":     s.futQty,
-		"margin_debt":     s.marginDebt,
-		"next_settlement": s.nextSettlement.Format(time.RFC3339),
-		"reverse_enabled": s.reverseEnabled,
+		"margin_cover_remaining_qty":   remaining,
+		"margin_cover_remaining_known": remainingKnown,
+		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",
+		"type":                         "funding_carry",
+		"direction":                    s.direction.String(),
+		"position_open":                s.direction != DirectionNone,
+		"spot_qty":                     s.spotQty,
+		"futures_qty":                  s.futQty,
+		"margin_debt":                  s.marginDebt,
+		"next_settlement":              s.nextSettlement.Format(time.RFC3339),
+		"reverse_enabled":              s.reverseEnabled,
 	}
 }
 
@@ -738,6 +745,7 @@ func (s *FundingCarryStrategy) GetVisualizationData() map[string]interface{} {
 func (s *FundingCarryStrategy) GetFundingStatus() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	remaining, remainingKnown := s.coverRemainingStatusLocked()
 	secsUntil := 0.0
 	if !s.nextSettlement.IsZero() {
 		secsUntil = time.Until(s.nextSettlement).Seconds()
@@ -746,14 +754,17 @@ func (s *FundingCarryStrategy) GetFundingStatus() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"symbol":                   s.symbol,
-		"direction":                s.direction.String(),
-		"spot_qty":                 s.spotQty,
-		"fut_qty":                  s.futQty,
-		"margin_debt":              s.marginDebt,
-		"next_settlement":          s.nextSettlement.Format(time.RFC3339),
-		"seconds_until_settlement": int(secsUntil),
-		"reverse_enabled":          s.reverseEnabled,
+		"margin_cover_remaining_qty":   remaining,
+		"margin_cover_remaining_known": remainingKnown,
+		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",
+		"symbol":                       s.symbol,
+		"direction":                    s.direction.String(),
+		"spot_qty":                     s.spotQty,
+		"fut_qty":                      s.futQty,
+		"margin_debt":                  s.marginDebt,
+		"next_settlement":              s.nextSettlement.Format(time.RFC3339),
+		"seconds_until_settlement":     int(secsUntil),
+		"reverse_enabled":              s.reverseEnabled,
 	}
 }
 
@@ -2641,6 +2652,12 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		}
 		if err := s.repayMarginPrincipalWithCover(ctx, base, debtToRepay, 0, buyOrder.OrderID); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
+		}
+		s.mu.RLock()
+		remainingErr := requireNoFundingCarryCoverRemaining(s.coverRemainingStateLocked(), base)
+		s.mu.RUnlock()
+		if remainingErr != nil {
+			return s.blockOnUnownedExposure(remainingErr)
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if err != nil {

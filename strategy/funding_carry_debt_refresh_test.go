@@ -79,7 +79,7 @@ func TestFundingCarryCloseRefreshesDebtAfterBuyback(t *testing.T) {
 			}
 			err := s.closeReverse(ctx, "debt_changed_during_cover")
 			if mode == "interest_growth" {
-				if err != nil || margin.repayCalls != 1 || margin.repayAmount != 0.4002 || s.marginCoverOrders[0].Consumed != 0.4002 || s.marginCoverOrders[0].DebtToCover != 0.4 {
+				if err == nil || !s.intentInFlight || !s.unownedExposure || margin.repayCalls != 1 || margin.repayAmount != 0.4002 || s.marginCoverOrders[0].Consumed != 0.4002 || s.marginCoverOrders[0].DebtToCover != 0.4 {
 					t.Fatalf("stale debt amount used after cover: amount=%v error=%v", margin.repayAmount, err)
 				}
 			} else if err == nil || margin.repayCalls != 0 || s.marginDebt != 0.4 || !s.unownedExposure {

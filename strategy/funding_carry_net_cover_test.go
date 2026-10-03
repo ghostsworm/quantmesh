@@ -2,7 +2,9 @@ package strategy
 
 import (
 	"context"
+	"strings"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -18,7 +20,7 @@ func (e *fundingCarryNetCoverExchange) GetOrderFills(context.Context, string, in
 }
 
 func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
-	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee", "underreported_base_fee", "zero_fee_with_base_charge", "invalid_quote_rate", "converted_base_fee"} {
+	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee", "underreported_base_fee", "zero_fee_with_base_charge", "invalid_quote_rate", "converted_base_fee", "exact_net_cover"} {
 		t.Run(mode, func(t *testing.T) {
 			spot := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
 			futures := &mockFCExchange{quantityDecimals: 3}
@@ -35,6 +37,8 @@ func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
 				fill.Quantity = 0.2
 			case "base_fee_sufficient":
 				fill.Commission, fill.BaseFeeQty = 0.0004, 0.0004
+			case "exact_net_cover":
+				fill.Commission, fill.BaseFeeQty = 0.0005, 0.0005
 			case "quote_fee":
 				fill.CommissionAsset, fill.BaseFeeQty = "USDT", 0
 			case "zero_fee":
@@ -53,10 +57,19 @@ func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
 			s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, venue, nil)
 			s.SetRuntimeStateStore(&memoryRuntimeStateStore{})
 			s.direction, s.marginDebt = DirectionReverse, 0.4
+			s.strategySpotKnown, s.marginAccountScope, s.marginBorrowTransferID = true, "scope-a", 42
+			s.marginBorrowedAt = time.UnixMilli(1000).UTC()
+			s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 42, Asset: "BTC", Amount: 0.4, Principal: 0.4, AccountScope: "scope-a", OccurredAt: s.marginBorrowedAt}}
 			err := s.closeReverse(context.Background(), mode)
+			if mode == "exact_net_cover" {
+				if err != nil || venue.repayCalls != 1 || s.marginDebt != 0 || s.direction != DirectionNone || s.unownedExposure || s.intentInFlight {
+					t.Fatalf("exact net repayment failed to close: %v", err)
+				}
+				return
+			}
 			if mode == "base_fee_sufficient" || mode == "quote_fee" || mode == "zero_fee" || mode == "converted_base_fee" {
-				if err != nil || venue.repayCalls != 1 || s.marginDebt != 0 || s.direction != DirectionNone || s.unownedExposure {
-					t.Fatalf("verified net cover did not close: %v", err)
+				if err == nil || !strings.Contains(err.Error(), "remaining") || venue.repayCalls != 1 || s.marginDebt != 0 || s.direction != DirectionReverse || !s.unownedExposure || !s.intentInFlight {
+					t.Fatalf("verified net cover lost remaining assets: %v", err)
 				}
 				return
 			}

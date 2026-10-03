@@ -994,21 +994,21 @@ func TestCloseReverseRepaysOwnedPrincipalAndAccruedInterest(t *testing.T) {
 	s.SetRuntimeStateStore(store)
 	s.direction, s.marginDebt = DirectionReverse, 0.4
 
-	if err := s.closeReverse(context.Background(), "test_interest_repayment"); err != nil {
-		t.Fatalf("closeReverse failed with accrued interest: %v", err)
+	if err := s.closeReverse(context.Background(), "test_interest_repayment"); err == nil {
+		t.Fatal("interest repayment silently discarded remaining buyback assets")
 	}
 	if marginEx.repayCalls != 1 || math.Abs(marginEx.repayAmount-0.4005) > 1e-9 {
 		t.Fatalf("repay calls=%d amount=%.8f, want one repayment of principal plus interest 0.4005", marginEx.repayCalls, marginEx.repayAmount)
 	}
-	if s.direction != DirectionNone || s.marginDebt != 0 || s.unownedExposure {
-		t.Fatalf("close did not persist verified flat state: direction=%v debt=%.8f blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
+	if s.direction != DirectionReverse || s.marginDebt != 0 || !s.unownedExposure || !s.intentInFlight {
+		t.Fatalf("remaining assets falsely declared flat: direction=%v debt=%.8f blocked=%v", s.direction, s.marginDebt, s.unownedExposure)
 	}
 	var persisted fundingCarryRuntimeState
 	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
 		t.Fatalf("decode persisted funding carry state: %v", err)
 	}
-	if persisted.Direction != DirectionNone || persisted.MarginAccountScope != "scope-a" || len(persisted.MarginDebtEvents) != 1 {
-		t.Fatalf("flat state should retain its confirmed repayment event: %+v", persisted)
+	if persisted.Direction != DirectionReverse || !persisted.IntentInFlight || !persisted.ExposureUnknown || persisted.MarginAccountScope != "scope-a" || len(persisted.MarginDebtEvents) != 1 || persisted.MarginCoverOrders[0].Net != 0.401 || persisted.MarginCoverOrders[0].Consumed != 0.4005 {
+		t.Fatalf("remaining assets should retain their confirmed repayment event: %+v", persisted)
 	}
 	event := persisted.MarginDebtEvents[0]
 	if event.Action != "repay" || event.TransferID != 1 || event.Asset != "BTC" || event.AccountScope != "scope-a" || math.Abs(event.Amount-0.4005) > 1e-9 || event.OccurredAt.IsZero() {

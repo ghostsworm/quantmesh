@@ -38,6 +38,9 @@ func TestFundingCarryReverseCloseCannotDiscardPrincipal(t *testing.T) {
 				margin.positions[0].Size -= 1e-11
 			}
 			venue := &fundingCarryResidualCloseExchange{mockFCExchange: margin, tinyResidual: mode == "tiny_residual", residualComponent: mode == "residual_component"}
+			if mode == "tiny_residual" || mode == "residual_component" {
+				venue.coverBaseFee = 0.0005 // reach the live debt gate with no asset surplus
+			}
 			s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, venue, nil)
 			store := &memoryRuntimeStateStore{}
 			s.SetRuntimeStateStore(store)
@@ -67,6 +70,16 @@ type fundingCarryResidualCloseExchange struct {
 	tinyResidual       bool
 	residualComponent  bool
 	afterRepaySnapshot func()
+	coverBaseFee       float64
+}
+
+func (e *fundingCarryResidualCloseExchange) GetOrderFills(ctx context.Context, symbol string, id int64) ([]*exchange.OrderFill, error) {
+	fills, err := e.mockFCExchange.GetOrderFills(ctx, symbol, id)
+	if e.coverBaseFee > 0 && len(fills) == 1 {
+		fills[0].CommissionAsset = "BTC"
+		fills[0].Commission, fills[0].BaseFeeQty = e.coverBaseFee, e.coverBaseFee
+	}
+	return fills, err
 }
 
 func (e *fundingCarryResidualCloseExchange) GetPositions(ctx context.Context, symbol string) ([]*exchange.Position, error) {
@@ -94,7 +107,7 @@ func TestFundingCarryReverseCloseFinalCommitChecksOwner(t *testing.T) {
 		parent.getOrderStatus, parent.getOrderExecQty, parent.clearDebtOnRepay = exchange.OrderStatusFilled, 0.4008, true
 		gate := &execution.OpeningGate{}
 		s.SetOpeningGate(gate)
-		venue := &fundingCarryResidualCloseExchange{mockFCExchange: parent.mockFCExchange}
+		venue := &fundingCarryResidualCloseExchange{mockFCExchange: parent.mockFCExchange, coverBaseFee: 0.0008}
 		var beforeLoss string
 		if lostOwner {
 			venue.afterRepaySnapshot = func() { beforeLoss = store.payload; gate.Block(strategyWalletRuntimeOwnershipBlock) }

@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -230,6 +231,11 @@ func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExch
 	if err := validateFundingCarryCoverIntent(state); err != nil {
 		return fundingCarryRuntimeState{}, err
 	}
+	if !allowPending && len(state.MarginCoverOrders) > 0 {
+		if err := requireNoFundingCarryCoverRemaining(state, state.MarginCoverOrders[0].Asset); err != nil {
+			return fundingCarryRuntimeState{}, err
+		}
+	}
 	return state, nil
 }
 
@@ -245,6 +251,9 @@ func (s *FundingCarryStrategy) beginRuntimeIntent(ctx context.Context) error {
 	}
 	if s.intentInFlight || s.marginRepayIntent != nil || s.marginCoverIntent != nil || hasUnverifiedFundingCarryCover(s.marginCoverOrders) {
 		return fmt.Errorf("previous funding_carry intent still requires reconciliation")
+	}
+	if err := requireNoFundingCarryCoverRemaining(s.coverRemainingStateLocked(), s.spot.GetBaseAsset()); err != nil {
+		return err
 	}
 	if s.runtimeStateErr != nil {
 		s.unownedExposure = true
@@ -265,13 +274,14 @@ func (s *FundingCarryStrategy) finishRuntimeIntent(ctx context.Context, success 
 		s.unownedExposure = true // local latch only; the stale worker must not write durable state
 		return err
 	}
-	if s.marginRepayIntent != nil || s.marginCoverIntent != nil || hasUnverifiedFundingCarryCover(s.marginCoverOrders) {
+	remainingErr := requireNoFundingCarryCoverRemaining(s.coverRemainingStateLocked(), s.spot.GetBaseAsset())
+	if s.marginRepayIntent != nil || s.marginCoverIntent != nil || remainingErr != nil {
 		s.unownedExposure = true
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.runtimeStateErr = err
 			return err
 		}
-		return fmt.Errorf("margin repayment or cover submission still requires reconciliation")
+		return errors.Join(fmt.Errorf("margin repayment or cover submission still requires reconciliation"), remainingErr)
 	}
 	previousIntent := s.intentInFlight
 	s.intentInFlight = false
