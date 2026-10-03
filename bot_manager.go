@@ -1103,49 +1103,6 @@ func (bm *BotManager) ListSymbolRuntimes() []*SymbolRuntime {
 
 // UpdateRuntimeTradingParams 更新運行中的 Bot 交易參數（熱更新）
 // 始終同步 Config 到運行時，確保 smart_order 等非交易參數變更也能反映到 GetBot 返回的詳情中
-func (bm *BotManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (updatedBotIDs []string) {
-	bm.registerEquityScopeConfig(latestCfg)
-	for _, botCfg := range latestCfg.Bots {
-		botID := botCfg.ID
-		if botID == "" {
-			botID = config.GenerateBotID(botCfg.Exchange, botCfg.Symbol, botCfg.GetMarketType())
-		}
-		bm.runtimesMu.RLock()
-		br, ok := bm.runtimes[botID]
-		bm.runtimesMu.RUnlock()
-		if !ok || br.Inner == nil || br.Inner.SuperPositionManager == nil {
-			continue
-		}
-		symCfg := config.BotConfigToSymbolConfig(botCfg)
-		changed := br.Inner.SuperPositionManager.UpdateTradingParams(
-			symCfg.PriceInterval,
-			symCfg.ProfitSpread,
-			symCfg.OrderQuantity,
-			symCfg.BuyWindowSize,
-			symCfg.SellWindowSize,
-		)
-		br.Inner.SuperPositionManager.SetSpotInventoryPolicy(symCfg.SpotInventoryPolicy)
-		// 始終同步 Config，確保 smart_order、風控等配置變更在刷新頁面時正確顯示
-		br.configMu.Lock()
-		previousOpen := config.CloneOpenPositionControl(br.Config.OpenPositionControl)
-		previousGrid := br.Config.GridRiskControl
-		previousBotConfig := br.Config
-		br.Config = botCfg
-		br.Config.OpenPositionControl = config.CloneOpenPositionControl(botCfg.OpenPositionControl)
-		if err := br.publishRiskControlsLocked(); err != nil {
-			br.Config = previousBotConfig
-			br.Config.OpenPositionControl = previousOpen
-			br.Config.GridRiskControl = previousGrid
-			logger.Error("[%s] 拒绝应用超过已核实预算的运行时风控: %v", botID, err)
-		}
-		br.configMu.Unlock()
-		br.Inner.Config = symCfg
-		if changed {
-			updatedBotIDs = append(updatedBotIDs, botID)
-		}
-	}
-	return
-}
 
 // ClosePositions 平倉（支持市價/限價）
 func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositionConfig) (*position.ClosePositionRecord, error) {
