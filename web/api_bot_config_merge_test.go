@@ -68,6 +68,9 @@ func assertMergedBot(t *testing.T, b config.BotConfig, wantName string, wantInte
 
 func TestPutBotConfigFilePreservesEnabledAndCreatedAt(t *testing.T) {
 	setupBotCreateTestEnv(t)
+	previous := botManagerProvider()
+	RegisterBotManagerProvider(&configMutationTestProvider{})
+	t.Cleanup(func() { RegisterBotManagerProvider(previous) })
 	const botID = "merge-b1"
 	seedBotForMergeTest(t, botID)
 

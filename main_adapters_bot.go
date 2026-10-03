@@ -344,6 +344,10 @@ func (a *botManagerProviderAdapter) StopBotsAndPersistRemoval(botIDs []string, p
 	return a.manager.GetBotManager().StopBotsAndPersistRemoval(botIDs, persistRemoval)
 }
 
+func (a *botManagerProviderAdapter) WithBotConfigurationLock(botID string, persist func() error) error {
+	return a.manager.GetBotManager().WithBotConfigurationLock(botID, persist)
+}
+
 func (a *botManagerProviderAdapter) EnableBot(botID string) error {
 	return a.manager.GetBotManager().EnableBot(botID)
 }

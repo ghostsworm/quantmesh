@@ -284,16 +284,12 @@ func putBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider() != nil {
-		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
-			c.JSON(http.StatusConflict, gin.H{
-				"error":     "bot_running",
-				"error_key": "error.bot_running_cannot_update_full_config",
-				"message":   "Cannot update full config while bot is running. Use /api/bots/:id/strategy for strategy updates.",
-			})
-			return
-		}
-	}
+	protectBotConfigMutation(c, botID, "error.bot_running_cannot_update_full_config", func() {
+		persistStoppedBotConfigFile(c, botID, &req)
+	})
+}
+
+func persistStoppedBotConfigFile(c *gin.Context, botID string, req *config.BotConfigFile) {
 
 	existed, err := botConfigSnapshotExists(botID)
 	if err != nil {
@@ -302,7 +298,7 @@ func putBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if err := saveBotConfigUnified(&req, "web", "put_bot_config"); err != nil {
+	if err := saveBotConfigUnified(req, "web", "put_bot_config"); err != nil {
 		logger.Error("保存 Bot 配置失败: %v", err)
 		respondError(c, http.StatusInternalServerError, "error.config_save_failed", err)
 		return
@@ -319,14 +315,14 @@ func putBotConfigFile(c *gin.Context) {
 				}
 				if id == botID {
 					// 合併而非整條覆蓋：保留 BotConfigFile 不承載的 Enabled 等字段
-					cfg.Bots[i] = config.MergeBotConfigFileInto(cfg.Bots[i], &req)
+					cfg.Bots[i] = config.MergeBotConfigFileInto(cfg.Bots[i], req)
 					found = true
 					break
 				}
 			}
 
 			if !found && !existed {
-				newBot := config.ConvertToBotConfig(&req)
+				newBot := config.ConvertToBotConfig(req)
 				cfg.Bots = append(cfg.Bots, newBot)
 			}
 
@@ -362,16 +358,12 @@ func deleteBotConfigFile(c *gin.Context) {
 		return
 	}
 
-	if botManagerProvider() != nil {
-		if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
-			c.JSON(http.StatusConflict, gin.H{
-				"error":     "bot_running",
-				"error_key": "error.bot_running_cannot_delete_config",
-				"message":   "Cannot delete config while bot is running. Stop the bot first.",
-			})
-			return
-		}
-	}
+	protectBotConfigMutation(c, botID, "error.bot_running_cannot_delete_config", func() {
+		deleteStoppedBotConfigFile(c, botID)
+	})
+}
+
+func deleteStoppedBotConfigFile(c *gin.Context, botID string) {
 
 	if configManager != nil {
 		cfg, err := GetLatestConfig()
@@ -412,7 +404,7 @@ func deleteBotConfigFile(c *gin.Context) {
 
 // StrategyConfigUpdateRequest 策略配置更新请求
 type StrategyConfigUpdateRequest struct {
-	StrategyIndex int                    `json:"strategy_index"` // 策略索引（多策略时）
+	StrategyIndex int                      `json:"strategy_index"` // 策略索引（多策略时）
 	Strategy      config.BotStrategyConfig `json:"strategy"`       // 策略配置
 }
 
