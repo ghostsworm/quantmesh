@@ -2,6 +2,15 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc956：同提交严格 MySQL 验证检查点
+
+- 测试代码提交：`e0e2f2f0cb337796d0dfd14165d3fff260df52fe`，版本 `3.111.0-rc956`；测试前后 HEAD 完全相同，tracked diff 与 index diff 均为空。报告 source_dirty=true 仅因原有无关 `?? --help/`，未读取或改动该目录，不把它纳入提交。
+- 命令：`ruby scripts/verify_trading_race.rb /private/tmp/quantmesh-trading-race-rc956-same-commit-mysql --require-mysql`。只对本次新建且初始业务表数为0的一次性 schema `quantmesh_readiness_rc956` 设置测试 DSN 和 destructive-schema 显式许可，没有读取生产配置。
+- 环境：MySQL `8.0.36`，镜像 `sha256:a532724022429812ec797c285c1b540a644c15e248579c6bfdf12a8fbaab4964`；容器 `quantmesh-readiness-mysql-rc956`，ID `14a01ace1b2d445a2ea20a7b7f0dd398e969aaad02bfefb076760dc44990441b`。启动/清理前核对 `isolated-readiness-test` 标签和精确身份，无宿主机数据卷，`/var/lib/mysql` 为512MiB tmpfs，内存1GiB/CPU2，仅监听 `127.0.0.1:32778`。
+- JSON 与 Markdown 已读回1921 pass、0 skip、0 fail、无缺包/解析错误，mysql_required=true、missing_verified_mysql_cases为空；全部8项强制MySQL用例各自为pass，覆盖暂停所有者、资金费身份/覆盖、账户预留、借贷利息账本、成交覆盖迁移、现货库存快照、歧义Bot归属回填拒绝和提取规则。
+- 临时容器和tmpfs库已删除，并读回精确ID无残留；保留镜像及 `/private/tmp/quantmesh-trading-race-rc956-same-commit-mysql/results.json`、`results.md`。本检查点仅更新文档，不修改代码或提升版本。
+- 此项补齐当前代码的本地同提交数据库回归，不代表生产迁移、目标平台交付、真实账户归属/恢复或净盈利验收。R01–R15范围不缩减；全账户库存、剩余资产、部分成交/完整恢复、原子世代fencing及真实盈利证据仍待闭合，未合入main、未打发布标签、未部署或实盘操作。
+
 ## rc956：空仓核验与恢复统一锁顺序
 
 - 真实 VerifyFlat 隔离回归观察到它在等待已被持有的策略操作门时先获取钱包租约，导致操作持有者无法取得钱包（探测请求超时）；启动恢复、tick 与手动关闭则为操作门后钱包锁，形成反向锁序。
