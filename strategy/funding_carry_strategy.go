@@ -2617,7 +2617,7 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if operationErr != nil {
 			return s.blockOnUnownedExposure(operationErr)
 		}
-		if err := s.repayMarginPrincipal(ctx, base, debtToRepay, 0); err != nil {
+		if err := s.repayMarginPrincipalWithCover(ctx, base, debtToRepay, 0, buyOrder.OrderID); err != nil {
 			return s.blockOnUnownedExposure(fmt.Errorf("repay margin principal and interest %.8f %s: %w", debtToRepay, base, err))
 		}
 		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)

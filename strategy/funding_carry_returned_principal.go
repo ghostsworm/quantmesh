@@ -20,11 +20,24 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	if !validRuntimeAmount(s.marginDebt) || !validRuntimeAmount(expectedRemaining) {
 		return fmt.Errorf("margin principal state is invalid")
 	}
+	coverOrders, err := s.coverOrdersAfterRepaymentLocked(confirmed)
+	if err != nil {
+		return err
+	}
 	if replay, err := s.debtEventReplayLocked(confirmed); replay || err != nil {
 		if err != nil {
 			return err
 		}
 		if fundingCarryFinancialAmountsMatch(s.marginDebt, expectedRemaining) {
+			if s.marginRepayIntent != nil && s.marginRepayIntent.CoverOrderID > 0 {
+				previous := s.marginCoverOrders
+				s.marginCoverOrders = coverOrders
+				if err := s.persistRuntimeStateLocked(); err != nil {
+					s.marginCoverOrders = previous
+					s.unownedExposure, s.runtimeStateErr = true, err
+					return err
+				}
+			}
 			return nil
 		}
 		return fmt.Errorf("replayed margin repayment requires principal state reconciliation")
@@ -38,6 +51,8 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	}
 	remaining, _ := returned.Float64()
 	previousDebt := s.marginDebt
+	previousCoverOrders := s.marginCoverOrders
+	s.marginCoverOrders = coverOrders
 	s.marginDebtEvents = append(s.marginDebtEvents, confirmed)
 	s.marginDebt = remaining
 	mismatch := !fundingCarryFinancialAmountsMatch(remaining, expectedRemaining)
@@ -47,6 +62,7 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.marginDebtEvents = s.marginDebtEvents[:len(s.marginDebtEvents)-1]
 		s.marginDebt = previousDebt
+		s.marginCoverOrders = previousCoverOrders
 		s.unownedExposure, s.runtimeStateErr = true, err
 		return fmt.Errorf("persist returned margin principal: %w", err)
 	}

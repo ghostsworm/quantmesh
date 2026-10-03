@@ -12,16 +12,18 @@ import (
 // Historical evidence, not a spendable inventory balance. Repayment consumption
 // and leftover-asset attribution must still be reconciled separately.
 type fundingCarryCoverOrder struct {
-	OrderID       int64                 `json:"order_id"`
-	ClientOrderID string                `json:"client_order_id,omitempty"`
-	Asset         string                `json:"asset"`
-	AccountScope  string                `json:"account_scope"`
-	Requested     float64               `json:"requested"`
-	DebtToCover   float64               `json:"debt_to_cover"`
-	Gross         float64               `json:"gross"`
-	Net           float64               `json:"net"`
-	Verified      bool                  `json:"verified"`
-	Fills         []*exchange.OrderFill `json:"fills,omitempty"`
+	OrderID         int64                 `json:"order_id"`
+	ClientOrderID   string                `json:"client_order_id,omitempty"`
+	Asset           string                `json:"asset"`
+	AccountScope    string                `json:"account_scope"`
+	Requested       float64               `json:"requested"`
+	DebtToCover     float64               `json:"debt_to_cover"`
+	Gross           float64               `json:"gross"`
+	Net             float64               `json:"net"`
+	Verified        bool                  `json:"verified"`
+	RepayTransferID int64                 `json:"repay_transfer_id,omitempty"`
+	Consumed        float64               `json:"consumed,omitempty"`
+	Fills           []*exchange.OrderFill `json:"fills,omitempty"`
 }
 
 func cloneFundingCarryCoverOrders(orders []fundingCarryCoverOrder) []fundingCarryCoverOrder {
@@ -94,11 +96,30 @@ func (s *FundingCarryStrategy) checkpointMarginCoverFills(ctx context.Context, i
 
 func validateFundingCarryCoverOrders(state fundingCarryRuntimeState, allowPending bool) error {
 	seen := make(map[int64]bool)
+	usedRepayments := make(map[int64]bool)
 	for _, record := range state.MarginCoverOrders {
 		if record.OrderID <= 0 || seen[record.OrderID] || record.AccountScope != state.MarginAccountScope || strings.TrimSpace(record.Asset) == "" || !validRuntimeAmount(record.Requested) || record.Requested <= 0 || !validRuntimeAmount(record.DebtToCover) || record.DebtToCover <= 0 {
 			return fmt.Errorf("margin cover journal identity is invalid")
 		}
 		seen[record.OrderID] = true
+		if record.RepayTransferID < 0 || !validRuntimeAmount(record.Consumed) || (record.RepayTransferID == 0 && record.Consumed != 0) {
+			return fmt.Errorf("margin cover consumption identity is invalid")
+		}
+		if record.RepayTransferID > 0 {
+			if usedRepayments[record.RepayTransferID] || !record.Verified || record.Consumed <= 0 || record.Consumed > record.Net && !fundingCarryFinancialAmountsMatch(record.Consumed, record.Net) {
+				return fmt.Errorf("margin cover consumption exceeds evidence or repeats repayment")
+			}
+			usedRepayments[record.RepayTransferID] = true
+			matched := false
+			for _, event := range state.MarginDebtEvents {
+				if event.Action == "repay" && event.TransferID == record.RepayTransferID && event.AccountScope == record.AccountScope && strings.EqualFold(event.Asset, record.Asset) && fundingCarryFinancialAmountsMatch(event.Amount, record.Consumed) && fundingCarryFinancialAmountsMatch(event.Amount, record.DebtToCover) {
+					matched = true
+				}
+			}
+			if !matched {
+				return fmt.Errorf("margin cover consumption has no matching repayment evidence")
+			}
+		}
 		if !record.Verified {
 			if !allowPending || !state.IntentInFlight || record.Gross != 0 || record.Net != 0 || len(record.Fills) != 0 {
 				return fmt.Errorf("margin cover journal remains unresolved")
@@ -109,6 +130,9 @@ func validateFundingCarryCoverOrders(state fundingCarryRuntimeState, allowPendin
 		if err != nil || !fundingCarryFinancialAmountsMatch(net, record.Net) {
 			return fmt.Errorf("margin cover journal fill evidence is invalid")
 		}
+	}
+	if state.MarginRepayIntent != nil && state.MarginRepayIntent.CoverOrderID != 0 {
+		return validateFundingCarryCoverSource(state.MarginCoverOrders, state.MarginRepayIntent)
 	}
 	return nil
 }

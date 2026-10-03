@@ -11,7 +11,7 @@ import (
 	"quantmesh/exchange"
 )
 
-const fundingCarryRuntimeStateVersion = 3
+const fundingCarryRuntimeStateVersion = 4
 
 type fundingCarryRuntimeState struct {
 	Strategy               string                        `json:"strategy"`
@@ -180,7 +180,7 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 }
 
 func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExchange, spotExchange, symbol string, allowPending bool) (fundingCarryRuntimeState, error) {
-	if version != 1 && version != 2 && version != fundingCarryRuntimeStateVersion {
+	if version != 1 && version != 2 && version != 3 && version != fundingCarryRuntimeStateVersion {
 		return fundingCarryRuntimeState{}, fmt.Errorf("unsupported funding_carry runtime state schema %d", version)
 	}
 	var state fundingCarryRuntimeState

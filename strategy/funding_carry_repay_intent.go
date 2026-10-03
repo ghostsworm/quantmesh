@@ -14,6 +14,7 @@ type fundingCarryRepayIntent struct {
 	ExpectedRemaining float64 `json:"expected_remaining"`
 	BorrowTransferID  int64   `json:"borrow_transfer_id"`
 	TransferID        int64   `json:"transfer_id"`
+	CoverOrderID      int64   `json:"cover_order_id,omitempty"`
 }
 
 func cloneFundingCarryRepayIntent(intent *fundingCarryRepayIntent) *fundingCarryRepayIntent {
@@ -27,6 +28,16 @@ func cloneFundingCarryRepayIntent(intent *fundingCarryRepayIntent) *fundingCarry
 // Called while the strategy operation and account wallet coordination are held.
 // A saved ACK may be queried again, but an uncertain ID-less RPC is never repeated.
 func (s *FundingCarryStrategy) repayMarginPrincipal(ctx context.Context, asset string, amount, expectedRemaining float64) error {
+	s.mu.RLock()
+	coverID := int64(0)
+	if s.marginRepayIntent != nil {
+		coverID = s.marginRepayIntent.CoverOrderID
+	}
+	s.mu.RUnlock()
+	return s.repayMarginPrincipalWithCover(ctx, asset, amount, expectedRemaining, coverID)
+}
+
+func (s *FundingCarryStrategy) repayMarginPrincipalWithCover(ctx context.Context, asset string, amount, expectedRemaining float64, coverID int64) error {
 	s.mu.Lock()
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
 		s.mu.Unlock()
@@ -39,14 +50,20 @@ func (s *FundingCarryStrategy) repayMarginPrincipal(ctx context.Context, asset s
 	pending := cloneFundingCarryRepayIntent(s.marginRepayIntent)
 	created := pending == nil
 	if created {
-		pending = &fundingCarryRepayIntent{Asset: asset, AccountScope: s.marginAccountScope, Amount: amount, ExpectedRemaining: expectedRemaining, BorrowTransferID: s.marginBorrowTransferID}
+		pending = &fundingCarryRepayIntent{Asset: asset, AccountScope: s.marginAccountScope, Amount: amount, ExpectedRemaining: expectedRemaining, BorrowTransferID: s.marginBorrowTransferID, CoverOrderID: coverID}
+		if coverID != 0 {
+			if err := validateFundingCarryCoverSource(s.marginCoverOrders, pending); err != nil {
+				s.mu.Unlock()
+				return err
+			}
+		}
 		s.marginRepayIntent = cloneFundingCarryRepayIntent(pending)
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.unownedExposure, s.runtimeStateErr = true, err
 			s.mu.Unlock()
 			return err
 		}
-	} else if !strings.EqualFold(pending.Asset, asset) || pending.AccountScope != s.marginAccountScope || pending.BorrowTransferID != s.marginBorrowTransferID || !fundingCarryFinancialAmountsMatch(pending.Amount, amount) || !fundingCarryFinancialAmountsMatch(pending.ExpectedRemaining, expectedRemaining) {
+	} else if pending.CoverOrderID != coverID || !strings.EqualFold(pending.Asset, asset) || pending.AccountScope != s.marginAccountScope || pending.BorrowTransferID != s.marginBorrowTransferID || !fundingCarryFinancialAmountsMatch(pending.Amount, amount) || !fundingCarryFinancialAmountsMatch(pending.ExpectedRemaining, expectedRemaining) {
 		s.mu.Unlock()
 		return fmt.Errorf("pending margin repayment does not match requested operation")
 	}
