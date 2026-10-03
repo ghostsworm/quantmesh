@@ -2,6 +2,12 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc968后续审查：无预留但有金融状态时仍可丢失恢复配置（已复现，未修复）
+
+- 基线精确为7218cb432a03fd6dd85e80327a6ba6cdea0a88eb，无业务源码改动。独立overlay和临时SQLite确认两类有效schema6金融状态：未完成操作与标志已清零但历史剩余0.0008BTC；真实恢复解码器接受恢复模式，严格模式均拒绝，夹具兼容race1.764s通过。初轮成交字段用错JSON格式导致无效，校准后重跑全部证据，未忽略该失败。
+- 八项API红测真实读回：确认无预留的两类状态均可通过PUT config-file、DELETE config-file、DELETE Bot、DELETE group返回200，金融payload不变但配置文档变化；PUT/Bot删除/组删除同时改变或移除主身份，配置文档删除单项仍有主配置fallback。八项安全断言失败是开放缺陷而非回归通过，也不是线上已经丢失数据的证明。
+- 详细范围、下一步schema核验/全Bot耐久记录读取/四入口一致保护/正常核清放行要求见[专项复查](2026-10-03-orphan-runtime-state-config-review.md)，JSON/Markdown与可重跑overlay在 `/private/tmp/quantmesh-orphan-state-audit.SuqaY2/`。生命周期提供者为隔离夹具，不冒充默认适配器HTTP/浏览器E2E。仅追加审查文档，不递增业务版本；R01–R15目标保持，不标完成/阻塞，未改main/tag/推送/生产账户。
+
 ## rc968：配置文件入口不得抹掉持有预留的失败实例恢复配置（本地验证完成）
 
 - 真实临时SQLite红测确认：停止/未受管实例有50USDT钱包预留，PUT整份配置和DELETE配置文档仍200；旧代码明确进入覆盖BTCUSDT为ETHUSDT/删除分支。红测在状态断言处失败，不把成功日志冒充红测数据库变化读回。现有Bot删除保护并未覆盖这两个配置文件入口，不以“启动失败”推定无资产。
