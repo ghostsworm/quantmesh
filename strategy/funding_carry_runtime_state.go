@@ -243,7 +243,7 @@ func (s *FundingCarryStrategy) beginRuntimeIntent(ctx context.Context) error {
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
 		return err
 	}
-	if s.intentInFlight || s.marginRepayIntent != nil || s.marginCoverIntent != nil {
+	if s.intentInFlight || s.marginRepayIntent != nil || s.marginCoverIntent != nil || hasUnverifiedFundingCarryCover(s.marginCoverOrders) {
 		return fmt.Errorf("previous funding_carry intent still requires reconciliation")
 	}
 	if s.runtimeStateErr != nil {
@@ -265,7 +265,7 @@ func (s *FundingCarryStrategy) finishRuntimeIntent(ctx context.Context, success 
 		s.unownedExposure = true // local latch only; the stale worker must not write durable state
 		return err
 	}
-	if s.marginRepayIntent != nil || s.marginCoverIntent != nil {
+	if s.marginRepayIntent != nil || s.marginCoverIntent != nil || hasUnverifiedFundingCarryCover(s.marginCoverOrders) {
 		s.unownedExposure = true
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.runtimeStateErr = err

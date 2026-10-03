@@ -424,6 +424,9 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 	if err := s.reconcileSavedMarginCover(checkCtx); err != nil {
 		return fmt.Errorf("funding_carry pending cover recovery: %w", err)
 	}
+	if err := s.reconcileSavedMarginCoverFills(checkCtx); err != nil {
+		return fmt.Errorf("funding_carry pending cover fills recovery: %w", err)
+	}
 	if err := s.reconcileSavedMarginRepayment(checkCtx); err != nil {
 		return fmt.Errorf("funding_carry pending repayment recovery: %w", err)
 	}

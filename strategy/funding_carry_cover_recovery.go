@@ -85,7 +85,7 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCover(ctx context.Context) er
 		if err := s.checkpointMarginCoverOrder(operationCtx, order, pending.Quantity, pending.DebtToCover); err != nil {
 			return err
 		}
-		return fmt.Errorf("cover CID acknowledgement recovered; fills and assets still require reconciliation")
+		return nil // Start continues into exact-order fill reconciliation
 	})
 }
 
