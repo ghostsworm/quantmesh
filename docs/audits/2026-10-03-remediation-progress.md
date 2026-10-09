@@ -9,6 +9,11 @@
 - 实际恢复方法 race 用例覆盖 DCA/信号/马丁格尔正例与 underfilled-FILLED 负例；`go test ./strategy -count=1 -timeout=360s`、根包 `TestRuntimeExposureBootstrapRetriesAfterStrategyRecoverySettlesIntent` race、`go vet ./...` 均通过。最终工作树 `go test ./... -count=1 -timeout=600s` 通过（无 MySQL DSN）；`yarn --cwd webui verify` 的 TypeScript、53 个测试文件/311 项测试及生产构建通过，`ruby scripts/frontend_embed.rb sync/verify` 通过，嵌入版本 `3.111.0-rc1145`。未执行全仓 race / 强制 MySQL 门禁，也未验证交易所线上权限、生产部署或盈利。
 - 尚未接入/验证 SpotLong、Combo 子策略、Futures hedge 与网格恢复器的受限 settlement；任何活动挂单仍会令启动 exposure bootstrap fail-closed，且终态到达后的运行时自动重试 bootstrap 尚未证明。因此 R12/R09 整体仍未闭合，本次不得作为全面恢复验收。
 
+## 2026-10-09 R12：保留 Combo 子策略恢复结算能力（rc1146）
+
+- 实际接线：`ComboStrategy` 将同一个 `comboExposureAdmissionExecutor` 传给 DCA、信号与马丁格尔子策略；该 wrapper 之前没有实现 `SettleRecoveredIntent`，使 rc1145 的子策略恢复结算接口在 Combo 路径被隐藏。现在仅将 client order ID 和 context 透传到底层 owner-scoped adapter；底层不支持时返回错误，防止恢复器误认为已结算。
+- 针对性测试覆盖 context/client ID 原样透传、底层错误传播及不支持时 fail-closed。其余 R12 缺口（SpotLong、Futures hedge、网格恢复、活动挂单/终态后的运行时重试）仍未闭合；此改动不扩大交易或开仓权限，也不构成实盘或盈利验收。
+
 ## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
 
 - 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。
