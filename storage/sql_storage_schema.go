@@ -435,6 +435,9 @@ func createTables(db *sql.DB) error {
 	if err := migrateStrategyRuntimeStateTable(db); err != nil {
 		return fmt.Errorf("迁移 strategy_runtime_states 表失败: %w", err)
 	}
+	if err := migrateFundingCarryRuntimeGeneration(db, "sqlite"); err != nil {
+		return err
+	}
 	if err := migrateFundingSpreadCapitalTables(db); err != nil {
 		return fmt.Errorf("迁移 funding spread capital tables 失败: %w", err)
 	}

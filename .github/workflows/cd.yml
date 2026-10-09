@@ -87,6 +87,7 @@ jobs:
       run: |
         ruby scripts/tests/trading_race_gate_test.rb
         ruby scripts/tests/frontend_embed_test.rb
+        ruby scripts/tests/profit_readiness_timeout_test.rb
 
     - name: Race-test trading risk core
       run: ruby scripts/verify_trading_race.rb /tmp/quantmesh-trading-race --require-mysql

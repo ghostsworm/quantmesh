@@ -1,6 +1,12 @@
 package risk
 
-import "time"
+import (
+	"time"
+
+	"quantmesh/logger"
+)
+
+const metricsUnavailablePauseSource = "risk_metrics_unavailable"
 
 // MetricsHealth keeps data availability separate from a numerical zero loss.
 type MetricsHealth struct {
@@ -35,6 +41,31 @@ func (f *MetricsFeeder) reportHealth(snap MetricsSnapshot, err error) {
 	}
 }
 
+// InvalidateEquityScope serializes a scope change with Tick. The previous
+// observation is invalidated before publish runs, and no in-flight old-scope
+// observation can overwrite that invalidation afterward.
+func (f *MetricsFeeder) InvalidateEquityScope(publish func()) {
+	if f == nil {
+		if publish != nil {
+			publish()
+		}
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	// Force the next tick to reload the durable checkpoint. Keep the cached
+	// state itself so an absent checkpoint cannot be mistaken for first startup;
+	// a later explicit CAS baseline reset will then be observed without allowing
+	// this scope change to silently initialize a new baseline.
+	f.equityLoaded = false
+	if sink, ok := f.sink.(interface{ UpdateMetricsHealth(MetricsHealth) }); ok {
+		sink.UpdateMetricsHealth(MetricsHealth{Error: "equity account scope changed; awaiting fresh evidence"})
+	}
+	if publish != nil {
+		publish()
+	}
+}
+
 // Publish values and their provenance atomically, so a background check cannot
 // combine a new unadjusted drawdown with the previous sample's healthy status.
 func (gcb *GlobalCircuitBreaker) UpdateMetricsObservation(snap MetricsSnapshot, health MetricsHealth) {
@@ -62,19 +93,50 @@ func (h MetricsHealth) verifiedDrawdown() bool {
 	return h.Available && h.DrawdownAvailable && h.CashFlowAdjusted && h.Persisted
 }
 
+// Admission checks the current observation's expiry, not a cached pause flag.
+// This method intentionally has no coordinator, Bot, SQL or exchange calls.
+func (gcb *GlobalCircuitBreaker) metricsOpeningAdmissionAllowed() bool {
+	if !gcb.config.Enabled {
+		return true
+	}
+	health := gcb.GetMetricsHealth()
+	tradeMetrics := gcb.config.Triggers.TotalDailyLoss.Enabled || gcb.config.Triggers.ConsecutiveLosses.Enabled
+	if (tradeMetrics || gcb.config.Triggers.MaxDrawdown.Enabled) && (health.CheckedAt.IsZero() || health.ValidUntil.IsZero()) {
+		return false
+	}
+	return (!tradeMetrics || health.Available) &&
+		(!gcb.config.Triggers.MaxDrawdown.Enabled || health.verifiedDrawdown())
+}
+
 // Data uncertainty owns an independent opening hold. Never call ResumeOpening
 // on recovery: that could remove a user's pause or another risk owner's hold.
 func (gcb *GlobalCircuitBreaker) applyMetricsHealthGate() {
 	gcb.metricsHealthApplyMu.Lock()
 	defer gcb.metricsHealthApplyMu.Unlock()
-	if gcb.botProvider == nil {
-		return
-	}
 	health := gcb.GetMetricsHealth()
 	tradeMetricsEnabled := gcb.config.Triggers.TotalDailyLoss.Enabled || gcb.config.Triggers.ConsecutiveLosses.Enabled
 	paused := gcb.config.Enabled && ((tradeMetricsEnabled && !health.Available) ||
 		(gcb.config.Triggers.MaxDrawdown.Enabled && !health.verifiedDrawdown()))
-	for _, bot := range gcb.botProvider.GetAllBots() {
+	var bots []BotController
+	if gcb.botProvider != nil {
+		bots = gcb.botProvider.GetAllBots()
+	}
+	// A per-runtime gate alone misses bots constructed after this observation.
+	// Publish the independent source through the existing durable startup
+	// admission path, including when there are no current runtimes.
+	_, coordinator := gcb.deps()
+	if coordinator != nil {
+		if paused {
+			if err := coordinator.Pause(metricsUnavailablePauseSource, "账户权益或现金流水尚未核实", bots); err != nil {
+				logger.Error("权益风控启动暂停持久化未核实: %v", err)
+			}
+		} else if coordinator.IsHeldBy(metricsUnavailablePauseSource) {
+			if _, err := coordinator.ReleaseChecked(metricsUnavailablePauseSource, bots); err != nil {
+				logger.Error("权益风控启动暂停解除未核实，保留封锁: %v", err)
+			}
+		}
+	}
+	for _, bot := range bots {
 		if owned, ok := bot.(interface{ SetRiskDataUnavailable(bool) }); ok {
 			owned.SetRiskDataUnavailable(paused)
 		} else if paused {

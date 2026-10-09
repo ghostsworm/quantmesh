@@ -25,7 +25,7 @@ func (tc *ThresholdChecker) CheckFixedThreshold(metrics *SystemMetrics) bool {
 	}
 
 	// 检查CPU阈值
-	if metrics.CPUPercent >= tc.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent {
+	if metrics.cpuThresholdPercent() >= tc.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent {
 		return true
 	}
 
@@ -55,23 +55,14 @@ func (tc *ThresholdChecker) CheckRateThreshold(
 	}
 
 	// 找到時间窗口内的最舊數據点
-	windowStart := current.Timestamp.Add(-time.Duration(windowMinutes) * time.Minute)
-	var oldest *SystemMetrics
-
-	for _, m := range history {
-		if m.Timestamp.After(windowStart) && m.Timestamp.Before(current.Timestamp) {
-			if oldest == nil || m.Timestamp.Before(oldest.Timestamp) {
-				oldest = m
-			}
-		}
-	}
+	oldest := findOldestCPUInWindow(history, current, windowMinutes)
 
 	if oldest == nil {
 		return false
 	}
 
 	// 计算变化率
-	change := current.CPUPercent - oldest.CPUPercent
+	change := current.cpuThresholdPercent() - oldest.cpuThresholdPercent()
 	return change >= thresholdPercent
 }
 

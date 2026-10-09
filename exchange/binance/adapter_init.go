@@ -2,10 +2,16 @@ package binance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"quantmesh/logger"
+	"strings"
 	"time"
+
+	sdk "github.com/adshao/go-binance/v2"
 )
+
+var errStopEvidenceReadOnly = errors.New("Binance stop-evidence adapter is read-only")
 
 // NewBinanceAdapter 創建币安适配器
 func NewBinanceAdapter(cfg map[string]string, symbol string) (*BinanceAdapter, error) {
@@ -47,6 +53,75 @@ func NewBinanceAccountEvidenceAdapter(apiKey, secretKey string, useTestnet bool)
 		useTestnet:     useTestnet,
 		minAPIInterval: 200 * time.Millisecond,
 	}, nil
+}
+
+// NewBinanceFuturesStopEvidenceAdapter creates a REST-only futures adapter for
+// stopped-runtime reconciliation. It loads exact symbol precision without
+// claiming the process-global WebSocket network or creating stream managers.
+func NewBinanceFuturesStopEvidenceAdapter(ctx context.Context, apiKey, secretKey string, useTestnet bool, symbol string) (*BinanceAdapter, error) {
+	if ctx == nil || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance futures stop evidence requires context and symbol")
+	}
+	adapter, err := NewBinanceAccountEvidenceAdapter(apiKey, secretKey, useTestnet)
+	if err != nil {
+		return nil, err
+	}
+	adapter.symbol = normalizeBinanceSymbolTypo(symbol)
+	adapter.stopEvidenceOnly = true
+	if err := adapter.fetchExchangeInfo(ctx); err != nil {
+		return nil, fmt.Errorf("load futures stop-evidence symbol metadata: %w", err)
+	}
+	return adapter, nil
+}
+
+// NewBinanceSpotStopEvidenceAdapter creates a REST-only spot adapter for
+// stopped-runtime reconciliation. It initializes only public symbol metadata;
+// user-data, price, and kline stream managers remain absent.
+func NewBinanceSpotStopEvidenceAdapter(ctx context.Context, apiKey, secretKey string, useTestnet bool, symbol string) (*BinanceSpotAdapter, error) {
+	if ctx == nil || strings.TrimSpace(apiKey) == "" || strings.TrimSpace(secretKey) == "" || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance spot stop evidence requires context, credentials, and symbol")
+	}
+	client := sdk.NewClient(apiKey, secretKey)
+	if useTestnet {
+		client.SetApiEndpoint("https://testnet.binance.vision")
+	}
+	return newBinanceSpotStopEvidenceAdapter(ctx, client, symbol, apiKey, secretKey, useTestnet)
+}
+
+func newBinanceSpotStopEvidenceAdapter(ctx context.Context, client *sdk.Client, symbol, apiKey, secretKey string, useTestnet bool) (*BinanceSpotAdapter, error) {
+	if ctx == nil || client == nil || strings.TrimSpace(symbol) == "" {
+		return nil, fmt.Errorf("Binance spot stop evidence requires context, client, and symbol")
+	}
+	adapter := &BinanceSpotAdapter{
+		client: client, symbol: normalizeBinanceSymbolTypo(symbol), apiKey: apiKey,
+		secretKey: secretKey, useTestnet: useTestnet, minAPIInterval: 200 * time.Millisecond, stopEvidenceOnly: true,
+	}
+	if err := adapter.fetchSpotExchangeInfo(ctx); err != nil {
+		return nil, fmt.Errorf("load spot stop-evidence symbol metadata: %w", err)
+	}
+	return adapter, nil
+}
+
+// NewBinanceSpotMarginStopEvidenceAdapter creates a REST-only cross-margin
+// adapter for stopped-runtime reconciliation. Its embedded spot adapter has
+// no WebSocket managers; callers must expose it only to read-only verifiers.
+func NewBinanceSpotMarginStopEvidenceAdapter(ctx context.Context, apiKey, secretKey string, useTestnet bool, symbol string) (*BinanceSpotMarginAdapter, error) {
+	if ctx == nil || strings.TrimSpace(apiKey) == "" || strings.TrimSpace(secretKey) == "" {
+		return nil, fmt.Errorf("Binance margin stop evidence requires context and credentials")
+	}
+	client := sdk.NewClient(apiKey, secretKey)
+	if useTestnet {
+		client.SetApiEndpoint("https://testnet.binance.vision")
+	}
+	return newBinanceSpotMarginStopEvidenceAdapter(ctx, client, apiKey, secretKey, useTestnet, symbol)
+}
+
+func newBinanceSpotMarginStopEvidenceAdapter(ctx context.Context, client *sdk.Client, apiKey, secretKey string, useTestnet bool, symbol string) (*BinanceSpotMarginAdapter, error) {
+	spot, err := newBinanceSpotStopEvidenceAdapter(ctx, client, symbol, apiKey, secretKey, useTestnet)
+	if err != nil {
+		return nil, err
+	}
+	return &BinanceSpotMarginAdapter{BinanceSpotAdapter: spot, marginClient: NewMarginClient(spot.client)}, nil
 }
 
 // NewBinanceAdapterForPublicData 創建僅用於獲取公開數據（K 線、交易所信息）的適配器。

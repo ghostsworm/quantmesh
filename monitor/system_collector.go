@@ -2,11 +2,11 @@ package monitor
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/shirou/gopsutil/v3/process"
 )
@@ -14,10 +14,13 @@ import (
 // SystemMetrics 系统監控指標
 type SystemMetrics struct {
 	Timestamp     time.Time `json:"timestamp"`
-	CPUPercent    float64   `json:"cpu_percent"`
+	CPUPercent    float64   `json:"cpu_percent"` // process lifetime-average share of system logical CPU capacity, 0–100
 	MemoryMB      float64   `json:"memory_mb"`
 	MemoryPercent float64   `json:"memory_percent"` // 系统記憶體占用百分比
 	ProcessID     int       `json:"process_id"`
+	// Same-read process CPU units used by existing watchdog thresholds. Never
+	// infer this value from historical mixed-source percentages.
+	processCPUPercent *float64
 }
 
 // CollectSystemMetrics 采集系统资源指標
@@ -28,20 +31,12 @@ func CollectSystemMetrics() (*SystemMetrics, error) {
 		return nil, fmt.Errorf("獲取進程失败: %w", err)
 	}
 
-	// 采集CPU占用率
-	// 注意：CPUPercent() 第一次調用可能返回0，因為它需要時间间隔来计算
-	// 如果返回0或錯误，使用系统CPU使用率作為备用
-	cpuPercent, err := p.CPUPercent()
-	if err != nil || cpuPercent == 0 {
-		// 如果獲取失败或返回0，尝試使用系统CPU使用率
-		systemCPU, err2 := getSystemCPUPercent()
-		if err2 == nil && systemCPU > 0 {
-			cpuPercent = systemCPU
-		} else if err != nil {
-			// 如果進程CPU獲取失败，且系统CPU也失败，返回錯误
-			return nil, fmt.Errorf("獲取CPU占用率失败: %w", err)
-		}
-		// 如果進程CPU返回0但系统CPU也失败，继续使用0（可能是進程刚啟动）
+	// gopsutil CPUPercent is lifetime-average process CPU time / wall time:
+	// multiple logical CPUs can each contribute 100%. Normalize to capacity,
+	// keep genuine zero, and never substitute a different (host) source.
+	cpuSample, err := readProcessCPUSample(p.CPUPercent, runtime.NumCPU())
+	if err != nil {
+		return nil, err
 	}
 
 	// 采集記憶體占用（RSS - Resident Set Size，實際物理記憶體）
@@ -65,26 +60,31 @@ func CollectSystemMetrics() (*SystemMetrics, error) {
 	}
 
 	return &SystemMetrics{
-		Timestamp:     time.Now(),
-		CPUPercent:    cpuPercent,
-		MemoryMB:      memoryMB,
-		MemoryPercent: memoryPercent,
-		ProcessID:     pid,
+		Timestamp:         time.Now(),
+		CPUPercent:        cpuSample.CPUPercent,
+		MemoryMB:          memoryMB,
+		MemoryPercent:     memoryPercent,
+		ProcessID:         pid,
+		processCPUPercent: cpuSample.processCPUPercent,
 	}, nil
 }
 
-// getSystemCPUPercent 獲取系统CPU使用率（备用方法）
-func getSystemCPUPercent() (float64, error) {
-	percentages, err := cpu.Percent(time.Second, false)
+func readProcessCPUCapacityPercent(read func() (float64, error), logicalCPUs int) (float64, error) {
+	if read == nil || logicalCPUs < 1 {
+		return 0, fmt.Errorf("process CPU capacity requires a reader and positive logical CPU count")
+	}
+	percent, err := read()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read process lifetime-average CPU usage: %w", err)
 	}
-
-	if len(percentages) == 0 {
-		return 0, fmt.Errorf("無法獲取CPU使用率")
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
+		return 0, fmt.Errorf("process CPU usage is not a finite nonnegative percentage")
 	}
-
-	return percentages[0], nil
+	capacityPercent := percent / float64(logicalCPUs)
+	if capacityPercent > 100 {
+		return 0, fmt.Errorf("process CPU usage exceeds logical CPU capacity: %.6f%% across %d CPUs", percent, logicalCPUs)
+	}
+	return capacityPercent, nil
 }
 
 // GetGoRuntimeStats 獲取Go运行時统计信息（用於調試）

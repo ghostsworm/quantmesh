@@ -40,8 +40,9 @@ func startFundingCarrySymbolRuntime(
 }
 
 type fundingCarryStartupDependencies struct {
-	checkSetup  func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error)
-	newExchange func(*config.Config, string, string, string) (exchange.IExchange, error)
+	checkSetup     func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error)
+	newExchange    func(*config.Config, string, string, string) (exchange.IExchange, error)
+	releaseCapital func(context.Context, storage.AccountWalletCapitalReservationStore, string, []storage.AccountWalletCapitalClaim) error
 }
 
 // Explicit dependencies allow the production constructor to be exercised without
@@ -96,6 +97,7 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	localCfg.Trading.MarketType = config.MarketTypeFundingCarry
 	mergeFundingCarryStrategyConfig(&localCfg, symCfg)
 	openingGate := &execution.OpeningGate{}
+	openingGate.ApplyAdmissionContext(ctx)
 	applyStartupOpeningPauseHolders(openingGate, startupPauseHolders)
 	var ownershipStrategy atomic.Pointer[strategy.FundingCarryStrategy]
 	if symCfg.OpenPositionControl.PauseOpening || (symCfg.OpenPositionControl.BotRiskControl != nil && symCfg.OpenPositionControl.BotRiskControl.PauseOpening) {
@@ -123,6 +125,29 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			startupErr = errors.Join(startupErr, fmt.Errorf("cleanup funding_carry startup ownership leases: %w", releaseErr))
 		}
 	}()
+	if storageService == nil || storageService.GetStorage() == nil {
+		return nil, fmt.Errorf("funding_carry requires durable runtime and execution-intent storage")
+	}
+	generationStore, ok := storageService.GetStorage().(storage.FundingCarryRuntimeGenerationStore)
+	if !ok {
+		return nil, fmt.Errorf("funding_carry storage backend does not support runtime owner generations")
+	}
+	ownershipScopes, err := fundingCarryRuntimeOwnershipScopes(baseCfg, symCfg.Exchange, symCfg.Symbol, fundingCarryReverseEnabled(symCfg))
+	if err != nil {
+		return nil, fmt.Errorf("build funding_carry runtime generation scopes: %w", err)
+	}
+	ownerScopeKeys := make([]string, 0, len(ownershipScopes))
+	for _, scope := range ownershipScopes {
+		key, keyErr := scope.Key()
+		if keyErr != nil {
+			return nil, fmt.Errorf("derive funding_carry runtime generation scope: %w", keyErr)
+		}
+		ownerScopeKeys = append(ownerScopeKeys, key)
+	}
+	runtimeGeneration, err := generationStore.ClaimFundingCarryRuntimeGeneration(ctx, ownerScopeKeys)
+	if err != nil {
+		return nil, fmt.Errorf("claim funding_carry runtime owner generation: %w", err)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -336,10 +361,10 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		return nil, fmt.Errorf("configure account-level funding_carry capital reserves: %w", err)
 	}
 	if storageService != nil {
-		fc.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
-	}
-	if storageService == nil || storageService.GetStorage() == nil {
-		return nil, fmt.Errorf("funding_carry requires durable runtime and execution-intent storage")
+		fc.SetRuntimeStateStore(&fundingCarryRuntimeStateAdapter{
+			strategyRuntimeStateAdapter: &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
+			generation:                  runtimeGeneration,
+		})
 	}
 	intentBackend, ok := storageService.GetStorage().(runtimeIntentBackend)
 	if !ok {
@@ -449,6 +474,9 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			return
 		}
 		target.executor.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
+			if err := validateRuntimeOwnershipLeases(guardCtx, ownershipLeases); err != nil {
+				return fmt.Errorf("Funding Carry runtime ownership admission rejected opening: %w", err)
+			}
 			return checker.CheckAccountWalletCapitalAdmission(guardCtx, []string{walletKey}, 2*accountWalletCapitalRefreshInterval)
 		})
 	}
@@ -461,13 +489,19 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	}{{futEx, futuresOrderExecutor}, {spotEx, spotOrderExecutor}} {
 		scope := execution.IntentScope{Account: accountScope, Exchange: leg.exchange.GetName(), Market: leg.exchange.GetMarketType(), Symbol: symCfg.Symbol, Bot: botID}
 		if err := leg.executor.executor.ConfigureIntentJournal(ctx, intentBackend, scope); err != nil {
-			return nil, fmt.Errorf("configure funding_carry %s execution journal: %w", leg.exchange.GetMarketType(), err)
+			if !leg.executor.executor.LoadedIntentRecoveryRequired(err) {
+				return nil, fmt.Errorf("configure funding_carry %s execution journal: %w", leg.exchange.GetMarketType(), err)
+			}
+			fc.RequireExecutionRecovery()
 		}
 	}
 	if marginOrderExecutor != nil {
 		scope := execution.IntentScope{Account: accountScope, Exchange: marginEx.GetName(), Market: marginEx.GetMarketType(), Symbol: symCfg.Symbol, Bot: botID}
 		if err := marginOrderExecutor.executor.ConfigureIntentJournal(ctx, intentBackend, scope); err != nil {
-			return nil, fmt.Errorf("configure funding_carry margin execution journal: %w", err)
+			if !marginOrderExecutor.executor.LoadedIntentRecoveryRequired(err) {
+				return nil, fmt.Errorf("configure funding_carry margin execution journal: %w", err)
+			}
+			fc.RequireExecutionRecovery()
 		}
 	}
 	fc.SetOrderExecutors(futuresOrderExecutor, spotOrderExecutor, marginOrderExecutor)
@@ -501,21 +535,21 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	}
 
 	rt := &SymbolRuntime{
-		Config:                symCfg,
-		Exchange:              futEx,
-		PriceMonitor:          priceMonitor,
-		StrategyManager:       strategyManager,
-		EventBus:              eventBus,
-		StorageService:        storageService,
-		AccountID:             accountID,
-		AccountScope:          accountScope,
-		AccountMarketType:     config.MarketTypeFundingCarry,
-		SuperPositionManager:  nil,
-		verifiedCapitalBudget: ownCapital,
-		OpeningGate:           openingGate,
-		ExchangeExecutor:      nil,
-		ExecutorAdapter:       nil,
-		ExchangeAdapter:       nil,
+		Config:                   symCfg,
+		Exchange:                 futEx,
+		PriceMonitor:             priceMonitor,
+		StrategyManager:          strategyManager,
+		EventBus:                 eventBus,
+		StorageService:           storageService,
+		AccountID:                accountID,
+		AccountScope:             accountScope,
+		AccountMarketType:        config.MarketTypeFundingCarry,
+		SuperPositionManager:     nil,
+		verifiedCapitalBudget:    ownCapital,
+		OpeningGate:              openingGate,
+		ExchangeExecutor:         nil,
+		ExecutorAdapter:          nil,
+		ExchangeAdapter:          nil,
 	}
 	if reconciliationOnly {
 		rt.markShutdownCloseUnverified("funding_carry remaining margin inventory and disposal require reconciliation")
@@ -608,14 +642,38 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	var ownershipLossStopOnce sync.Once
 	var stopMu sync.Mutex
 	var stopErr error
+	finalVerification := &fundingCarryFinalStopVerification{rt: rt, verify: fc.ReconcileStoppedMarginClose,
+		ownershipGuard: func() error { return fundingCarryStopDrainOwnershipGuard(ownershipLeases) }}
+	streamCleanup := &fundingCarryStreamCleanup{rt: rt, ownershipGuard: finalVerification.ownershipGuard,
+		streams: []fundingCarryStreamStop{{name: "futures", stop: futEx.StopOrderStream}, {name: "spot", stop: spotEx.StopOrderStream}}}
+	if marginEx != nil {
+		streamCleanup.streams = append(streamCleanup.streams, fundingCarryStreamStop{name: "margin", stop: marginEx.StopOrderStream})
+	}
+	releaseVerified := newFundingCarryVerifiedRelease(rt, ownershipLeases, func() error {
+		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelVerify()
+		releaseStore := capitalStore
+		if deps.releaseCapital != nil {
+			releaseStore = &fundingCarryCapitalReleaseStore{AccountWalletCapitalReservationStore: capitalStore, release: deps.releaseCapital}
+		}
+		if err := verifyAndReleaseAccountWalletCapitalGuarded(verifyCtx, releaseStore, botID, capitalClaims, fc.VerifyStoppedFlat, func() error {
+			return validateRuntimeOwnershipLeases(verifyCtx, ownershipLeases)
+		}); err != nil {
+			if rt.OpeningGate != nil {
+				rt.OpeningGate.Block("capital_reservation_unverified")
+			}
+			return fmt.Errorf("funding_carry capital release is unverified; runtime ownership release withheld: %w", err)
+		}
+		return nil
+	})
 	stopRuntime := func() error {
-		if rt.fundingIncomeCancel != nil {
-			rt.fundingIncomeCancel()
-		}
-		if rt.capitalReservationStop != nil {
-			rt.capitalReservationStop()
-		}
 		if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
+			if rt.fundingIncomeCancel != nil {
+				rt.fundingIncomeCancel()
+			}
+			if rt.capitalReservationStop != nil {
+				rt.capitalReservationStop()
+			}
 			if rt.OpeningGate != nil {
 				rt.OpeningGate.Block("runtime_ownership_unverified")
 			}
@@ -635,7 +693,26 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		}
 		stopMu.Lock()
 		defer stopMu.Unlock()
+		// Seal and drain before entering the cached financial phase. Keep
+		// capital renewal and observation workers alive on a drain timeout.
+		sealRuntimeShutdown(rt)
+		drainCtx, cancelDrain := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
+		drainErr := drainFundingCarryStop(drainCtx, fc, executors, func() error {
+			return fundingCarryStopDrainOwnershipGuard(ownershipLeases)
+		})
+		cancelDrain()
+		if drainErr != nil {
+			return drainErr
+		}
+		firstAttempt := false
 		stopOnce.Do(func() {
+			firstAttempt = true
+			if rt.fundingIncomeCancel != nil {
+				rt.fundingIncomeCancel()
+			}
+			if rt.capitalReservationStop != nil {
+				rt.capitalReservationStop()
+			}
 			logger.InfoCtx(ctx, "⏹️ [%s] 停止資金費套利運行時（平倉後將獨立核驗再釋放預留）", symCfg.Symbol)
 			shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
 			defer cancelShutdown()
@@ -648,7 +725,11 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 				rt.markShutdownCloseUnverified("資金費套利運行所有權租約丟失，禁止獨立平倉")
 				stopErrors = append(stopErrors, fmt.Errorf("funding_carry runtime ownership lease was lost before close"))
 			} else if err := rt.CloseForShutdown(shutdownCtx); err != nil {
-				rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利策略平倉未核實: %v", err))
+				if strategy.IsFundingCarryFinalVerificationPending(err) {
+					finalVerification.record(err) // Existing unrelated poison is never replaced.
+				} else {
+					rt.markShutdownCloseUnverified(fmt.Sprintf("資金費套利策略平倉未核實: %v", err))
+				}
 				stopErrors = append(stopErrors, fmt.Errorf("close funding_carry strategy-owned exposure: %w", err))
 			}
 			if strategyManager != nil {
@@ -659,15 +740,31 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			if priceMonitor != nil {
 				priceMonitor.Stop()
 			}
-			futEx.StopOrderStream()
-			spotEx.StopOrderStream()
-			if marginEx != nil {
-				marginEx.StopOrderStream()
-			}
 			stopErr = errors.Join(stopErrors...)
 		})
+		if cleanupErr := streamCleanup.run(firstAttempt, stopErr, finalVerification.reason); cleanupErr != nil {
+			if stopErr != nil && !strategy.IsFundingCarryFinalVerificationPending(stopErr) {
+				if firstAttempt {
+					stopErr = errors.Join(stopErr, cleanupErr)
+				}
+				return stopErr
+			}
+			return cleanupErr
+		}
 		if stopErr != nil {
-			return stopErr
+			if !strategy.IsFundingCarryFinalVerificationPending(stopErr) {
+				return stopErr
+			}
+			if firstAttempt {
+				return finalVerification.pending(stopErr)
+			}
+			verifyCtx, cancelVerify := context.WithTimeout(context.Background(), processShutdownTotalTimeout)
+			verifyErr := finalVerification.reconcile(verifyCtx)
+			cancelVerify()
+			if verifyErr != nil {
+				return verifyErr
+			}
+			stopErr = nil
 		}
 		if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
 			if rt.OpeningGate != nil {
@@ -675,21 +772,7 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			}
 			return fmt.Errorf("funding_carry runtime ownership lease was lost; retain capital reservation for reconciliation")
 		}
-		verifyCtx, cancelVerify := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancelVerify()
-		if err := verifyAndReleaseAccountWalletCapitalGuarded(verifyCtx, capitalStore, botID, capitalClaims, fc.VerifyFlat, func() error {
-			if fundingCarryRuntimeOwnershipLeaseLost(ownershipLeases) {
-				return fmt.Errorf("funding_carry runtime ownership lease was lost")
-			}
-			return nil
-		}); err != nil {
-			rt.markShutdownCloseUnverified(err.Error())
-			if rt.OpeningGate != nil {
-				rt.OpeningGate.Block("capital_reservation_unverified")
-			}
-			return fmt.Errorf("funding_carry capital reservation retained because flatness/release is unverified: %w", err)
-		}
-		return releaseFundingCarryRuntimeOwnershipLeases(ownershipLeases)
+		return releaseVerified()
 	}
 	rt.StopWithError = stopRuntime
 	rt.Stop = func() {

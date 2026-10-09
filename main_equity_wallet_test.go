@@ -46,6 +46,13 @@ func walletRuntimeFixture(account string, ex *equityLedgerExchange) *SymbolRunti
 	return &SymbolRuntime{Exchange: ex, AccountScope: account, AccountMarketType: "futures"}
 }
 
+func configuredWalletRuntimeFixture(exchangeName, marketType string, credentials config.ExchangeConfig, ex *equityLedgerExchange) *SymbolRuntime {
+	runtime := walletRuntimeFixture(equityAccountScopeID(exchangeName, credentials), ex)
+	runtime.AccountMarketType = marketType
+	runtime.accountCredentialVersion = equityAccountCredentialVersion(exchangeName, marketType, credentials)
+	return runtime
+}
+
 func TestRuntimeEquityWalletAggregatesAccountsAndPreservesCursors(t *testing.T) {
 	now := time.Now().Add(-time.Second)
 	first := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
@@ -129,7 +136,7 @@ func TestRuntimeEquityReadsAllEnabledConfiguredAccountsIncludingMissingRuntime(t
 		},
 	}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", firstConfig), &equityLedgerExchange{
+	runtime := configuredWalletRuntimeFixture("binance", "futures", firstConfig, &equityLedgerExchange{
 		snapshot: runtimeWalletFixture(now, "1000", 1000),
 	})
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
@@ -159,7 +166,7 @@ func TestRuntimeEquityRejectsConfiguredDisabledAccountWithoutRuntime(t *testing.
 		},
 	}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", activeConfig), &equityLedgerExchange{
+	runtime := configuredWalletRuntimeFixture("binance", "futures", activeConfig, &equityLedgerExchange{
 		snapshot: runtimeWalletFixture(now, "1000", 1000),
 	})
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "active-bot", Inner: runtime})
@@ -187,7 +194,7 @@ func TestRuntimeEquityRejectsConfiguredIdleAccountWithoutEvidenceSupport(t *test
 		{Exchange: "kraken", Symbol: "ETHUSDT", MarketType: "futures", Enabled: &disabled},
 	}}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
-	manager.botManager.AddRuntime(&BotRuntime{BotID: "active", Inner: walletRuntimeFixture(equityAccountScopeID("binance", activeConfig), &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)})})
+	manager.botManager.AddRuntime(&BotRuntime{BotID: "active", Inner: configuredWalletRuntimeFixture("binance", "futures", activeConfig, &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)})})
 	source := &runtimeEquitySource{manager: manager, accountEvidenceSourceFactory: func(context.Context, equityAccountEvidenceConfig) (accounting.Source, error) {
 		return nil, errors.New("unsupported test provider")
 	}}
@@ -208,7 +215,7 @@ func TestRuntimeEquityConfiguredScopeDeduplicatesBotsOnSameAccount(t *testing.T)
 		},
 	}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), &equityLedgerExchange{
+	runtime := configuredWalletRuntimeFixture("binance", "futures", exchangeConfig, &equityLedgerExchange{
 		snapshot: runtimeWalletFixture(now, "1000", 1000),
 	})
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
@@ -241,7 +248,7 @@ func TestRuntimeEquityAcceptsBitgetSpotOnlyWithCompleteAccountEvidence(t *testin
 		Currency: "USDT", Equity: 250, ObservedAt: now,
 		Wallets: map[string]accounting.Wallet{"USDT": {Currency: "USDT", Balance: "250", From: now.Add(-5 * time.Minute), Through: now.Add(-time.Millisecond), ObservedAt: now}},
 	}}}
-	runtime := walletRuntimeFixture(equityAccountScopeID("bitget", exchangeConfig), provider.equityLedgerExchange)
+	runtime := configuredWalletRuntimeFixture("bitget", "spot", exchangeConfig, provider.equityLedgerExchange)
 	runtime.Exchange = provider
 	runtime.AccountMarketType = "spot"
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "bitget-spot", Inner: runtime})
@@ -305,7 +312,7 @@ func TestRuntimeEquityRejectsConfiguredScopeChangeDuringSampling(t *testing.T) {
 	}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
 	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), provider)
+	runtime := configuredWalletRuntimeFixture("binance", "futures", exchangeConfig, provider)
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
 	updatedConfig := &config.Config{
 		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig, "bitget": {APIKey: "account-b-key", Testnet: true}},
@@ -329,7 +336,7 @@ func TestRuntimeEquityRejectsCredentialRotationDuringSampling(t *testing.T) {
 		Bots: []config.BotConfig{{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}}}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
 	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", originalConfig), provider)
+	runtime := configuredWalletRuntimeFixture("binance", "futures", originalConfig, provider)
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "binance-btc", Inner: runtime})
 	rotatedConfig := originalConfig
 	rotatedConfig.SecretKey = "rotated-secret"
@@ -352,7 +359,7 @@ func TestRuntimeEquityAllowsNonScopeConfigChangeDuringSampling(t *testing.T) {
 	}
 	manager := &SymbolManager{botManager: NewBotManager(cfg, nil, nil, nil, "")}
 	provider := &equityLedgerExchange{snapshot: runtimeWalletFixture(now, "1000", 1000)}
-	runtime := walletRuntimeFixture(equityAccountScopeID("binance", exchangeConfig), provider)
+	runtime := configuredWalletRuntimeFixture("binance", "futures", exchangeConfig, provider)
 	manager.botManager.AddRuntime(&BotRuntime{BotID: "bot-a", Inner: runtime})
 	updatedConfig := &config.Config{
 		Exchanges: map[string]config.ExchangeConfig{"binance": exchangeConfig},

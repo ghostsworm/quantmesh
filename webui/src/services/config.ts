@@ -1,4 +1,5 @@
 import { fetchWithAuth } from './api'
+import { saveConfigWithReceipt, type ConfigSaveReceipt } from './configSaveReceipt'
 
 /** 與後端 `config.DefaultPositionSafetyCheck` 一致（持倉安全檢查預設倉數） */
 export const DEFAULT_POSITION_SAFETY_CHECK = 5
@@ -568,12 +569,8 @@ export async function previewConfig(config: Config): Promise<ConfigDiff> {
 }
 
 // 更新配置
-export async function updateConfig(config: Config): Promise<{
-  message: string
-  diff?: ConfigDiff
-  requires_restart: boolean
-}> {
-  return fetchWithAuth(`${window.location.origin}/api/config/update`, {
+export async function updateConfig(config: Config): Promise<ConfigSaveReceipt> {
+  return saveConfigWithReceipt(`${window.location.origin}/api/config/update`, {
     method: 'POST',
     body: JSON.stringify(config),
   })
@@ -682,12 +679,8 @@ export async function testExchangeCredentials(payload: {
 }
 
 // 更新配置（YAML 格式）
-export async function updateConfigYAML(yamlContent: string): Promise<{
-  message: string
-  changes_count: number
-  requires_restart: boolean
-}> {
-  const response = await fetch(`${window.location.origin}/api/config/update-yaml`, {
+export async function updateConfigYAML(yamlContent: string): Promise<ConfigSaveReceipt> {
+  return saveConfigWithReceipt(`${window.location.origin}/api/config/update-yaml`, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -695,9 +688,4 @@ export async function updateConfigYAML(yamlContent: string): Promise<{
     },
     body: yamlContent,
   })
-  if (!response.ok) {
-    const data = await response.json()
-    throw new Error(data.error || '更新失败')
-  }
-  return await response.json()
 }

@@ -31,6 +31,14 @@ func (rt *SymbolRuntime) markShutdownCloseUnverified(reason string) {
 	}
 }
 
+// A controller error must not overwrite an independently recorded failure.
+func (rt *SymbolRuntime) retainShutdownCloseFailure(reason string) {
+	rt.shutdownCloseUnverified.CompareAndSwap(nil, &reason)
+	if rt.SuperPositionManager != nil {
+		rt.SuperPositionManager.OpeningGate().Block("shutdown_close_unverified")
+	}
+}
+
 func (rt *SymbolRuntime) shutdownCloseUnverifiedReason() string {
 	if rt == nil {
 		return ""

@@ -9,13 +9,23 @@ import (
 // Restore historical remaining-asset accounting only. No venue balance is
 // adopted, no financial RPC is made, and this cannot resume trading.
 func (s *FundingCarryStrategy) reconcileSavedMarginRemaining(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("remaining margin recovery requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	store, gate := s.runtimeStateStore, s.openingGate
 	s.mu.RUnlock()
 	if store == nil {
 		return nil
 	}
-	_, payload, found, err := store.LoadRuntimeState("funding_carry")
+	reader, hasContextReader := store.(RuntimeStateContextReader)
+	if !hasContextReader {
+		return fmt.Errorf("remaining margin recovery requires cancellable checkpoint reads")
+	}
+	_, payload, found, err := reader.LoadRuntimeStateContext(ctx, "funding_carry")
 	if err != nil || !found {
 		return err
 	}
@@ -32,7 +42,7 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRemaining(ctx context.Context
 	defer s.releaseOperation()
 	var pending *FundingCarryReconciliationRequiredError
 	coordinationErr := s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
-		version, payload, found, err := store.LoadRuntimeState("funding_carry")
+		version, payload, found, err := reader.LoadRuntimeStateContext(operationCtx, "funding_carry")
 		if err != nil {
 			return err
 		}
@@ -50,7 +60,11 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRemaining(ctx context.Context
 		if err != nil {
 			return err
 		}
-		if remaining.Sign() == 0 {
+		if state.MarginCloseVerificationPending && remaining.Sign() == 0 {
+			return s.reconcileMarginCloseVerification(operationCtx, store, version, payload, state)
+		}
+		partialPending := (state.IntentInFlight || state.ExposureUnknown || state.MarginDebt > 0) && hasTerminalPartialFundingCarryCover(state.MarginCoverOrders)
+		if remaining.Sign() == 0 && !partialPending {
 			return nil // ordinary restore must still validate the complete state
 		}
 		s.mu.Lock()

@@ -72,7 +72,7 @@ func TestFundingCarryRestoreRejectsUnbalancedPrincipal(t *testing.T) {
 			venue := &mockFCExchange{baseAsset: "BTC"}
 			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
 			store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}
-			s.SetRuntimeStateStore(store)
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			s.marginDebt, s.unownedExposure, s.intentInFlight = 0.9, true, true
 			if err := s.restoreRuntimeState(); err == nil {
 				t.Fatal("restore accepted inconsistent ledger")
@@ -125,7 +125,7 @@ func TestFundingCarryRestoreAcceptsBalancedPrincipal(t *testing.T) {
 			venue := &mockFCExchange{baseAsset: "BTC"}
 			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
 			store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}
-			s.SetRuntimeStateStore(store)
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			s.unownedExposure, s.intentInFlight = true, true
 			if err := s.restoreRuntimeState(); err != nil {
 				t.Fatal(err)

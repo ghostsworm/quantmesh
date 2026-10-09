@@ -58,6 +58,7 @@ type FundingPerpSpreadStrategy struct {
 	eventBus                  EventBus
 	openingGate               *execution.OpeningGate
 	openingAdmissionGuard     func(context.Context) error
+	openPositionControl       config.OpenPositionControl
 	executionRecorder         FundingPerpSpreadExecutionRecorder
 
 	consecutiveErrors int
@@ -146,22 +147,41 @@ func NewFundingPerpSpreadStrategy(
 			intervalSec = int(v)
 		}
 	}
+	var openControl config.OpenPositionControl
+	if cfg != nil {
+		openControl = config.CloneOpenPositionControl(cfg.Trading.OpenPositionControl)
+	}
 
 	return &FundingPerpSpreadStrategy{
-		name:        name,
-		cfg:         cfg,
-		symCfg:      symCfg,
-		fp:          fp,
-		legA:        legA,
-		legB:        legB,
-		symA:        fp.LegA.Symbol,
-		symB:        fp.LegB.Symbol,
-		minSpread:   minS,
-		exitSpread:  exitS,
-		maxBasis:    maxB,
-		openingGate: &execution.OpeningGate{},
-		tickInt:     time.Duration(intervalSec) * time.Second,
+		name:                name,
+		cfg:                 cfg,
+		symCfg:              symCfg,
+		fp:                  fp,
+		legA:                legA,
+		legB:                legB,
+		symA:                fp.LegA.Symbol,
+		symB:                fp.LegB.Symbol,
+		minSpread:           minS,
+		exitSpread:          exitS,
+		maxBasis:            maxB,
+		openingGate:         &execution.OpeningGate{},
+		openPositionControl: openControl,
+		tickInt:             time.Duration(intervalSec) * time.Second,
 	}
+}
+
+// UpdateOpenPositionControl applies the current Bot/global limits to this
+// specialized runtime, which does not use SuperPositionManager.
+func (s *FundingPerpSpreadStrategy) UpdateOpenPositionControl(control config.OpenPositionControl) {
+	s.mu.Lock()
+	s.openPositionControl = config.CloneOpenPositionControl(control)
+	s.mu.Unlock()
+}
+
+func (s *FundingPerpSpreadStrategy) OpenPositionControl() config.OpenPositionControl {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return config.CloneOpenPositionControl(s.openPositionControl)
 }
 
 func (s *FundingPerpSpreadStrategy) SetOpeningGate(gate *execution.OpeningGate) {
@@ -392,6 +412,24 @@ func (s *FundingPerpSpreadStrategy) reconcileUnfilledOrderIntent(ctx context.Con
 	ex, ok := s.exchangeForPendingOrder(intent)
 	if !ok {
 		return errors.New("pending order exchange is outside the configured legs")
+	}
+	if intent.Phase == fundingPerpSpreadIntentPrepared {
+		if state.ExposureUnknown {
+			return errors.New("prepared order intent cannot clear an independently unresolved exposure")
+		}
+		actual, err := s.readLegSnapshot(ctx, ex, intent.Symbol)
+		if err != nil {
+			return fmt.Errorf("verify unchanged position for undispatched order %s: %w", intent.ClientOrderID, err)
+		}
+		if math.Abs(actual-intent.PositionBefore) > s.legTolerance(ex) {
+			return fmt.Errorf("position changed before order %s dispatch (before %.8f, now %.8f)", intent.ClientOrderID, intent.PositionBefore, actual)
+		}
+		state.IntentInFlight = false
+		state.PendingOrder = nil
+		if math.Abs(state.OwnedA) > s.legTolerance(s.legA) || math.Abs(state.OwnedB) > s.legTolerance(s.legB) {
+			state.EmergencyCloseRequired = true
+		}
+		return nil
 	}
 	query, ok := ex.(exchange.OrderByClientIDQuerier)
 	if !ok {
@@ -703,6 +741,12 @@ func (s *FundingPerpSpreadStrategy) runLoop() {
 }
 
 func (s *FundingPerpSpreadStrategy) tick() error {
+	s.mu.RLock()
+	emergencyCloseRequired := s.emergencyCloseRequired
+	s.mu.RUnlock()
+	if emergencyCloseRequired {
+		return errors.New("funding_perp_spread emergency close recovery is required; normal strategy actions are withheld")
+	}
 	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
 	defer cancel()
 
@@ -973,6 +1017,7 @@ func (s *FundingPerpSpreadStrategy) beginOrderIntent(intent fundingPerpSpreadOrd
 		math.IsNaN(intent.PositionBefore) || math.IsInf(intent.PositionBefore, 0) {
 		return errors.New("funding_perp_spread order intent identity is invalid")
 	}
+	intent.Phase = fundingPerpSpreadIntentPrepared
 	s.intentInFlight = true
 	s.pendingOrder = cloneFundingPerpSpreadOrderIntent(&intent)
 	if err := s.persistRuntimeStateLocked(); err != nil {
@@ -980,6 +1025,89 @@ func (s *FundingPerpSpreadStrategy) beginOrderIntent(intent fundingPerpSpreadOrd
 		return fmt.Errorf("persist order intent before exchange submission: %w", err)
 	}
 	return nil
+}
+
+func (s *FundingPerpSpreadStrategy) markOrderIntentDispatching(clientOrderID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.intentInFlight || s.pendingOrder == nil || s.pendingOrder.ClientOrderID != clientOrderID ||
+		s.pendingOrder.Phase != fundingPerpSpreadIntentPrepared {
+		return errors.New("funding_perp_spread prepared order intent changed before dispatch")
+	}
+	s.pendingOrder.Phase = fundingPerpSpreadIntentDispatching
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.pendingOrder.Phase = fundingPerpSpreadIntentPrepared
+		s.exposureUnknown = true
+		return fmt.Errorf("persist dispatching order intent: %w", err)
+	}
+	return nil
+}
+
+func (s *FundingPerpSpreadStrategy) restorePreparedOrderIntent(clientOrderID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.intentInFlight || s.pendingOrder == nil || s.pendingOrder.ClientOrderID != clientOrderID {
+		return errors.New("funding_perp_spread order intent changed while restoring pre-submit state")
+	}
+	previous := s.pendingOrder.Phase
+	s.pendingOrder.Phase = fundingPerpSpreadIntentPrepared
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.pendingOrder.Phase = previous
+		s.exposureUnknown = true
+		return fmt.Errorf("persist undispatched order intent: %w", err)
+	}
+	return nil
+}
+
+func (s *FundingPerpSpreadStrategy) resolvePreparedAdmissionRejection(clientOrderID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.intentInFlight || s.pendingOrder == nil || s.pendingOrder.ClientOrderID != clientOrderID ||
+		s.pendingOrder.Phase != fundingPerpSpreadIntentPrepared {
+		return errors.New("funding_perp_spread rejected order is not a proven-undispatched intent")
+	}
+	if s.exposureUnknown {
+		return errors.New("funding_perp_spread undispatched intent cannot clear an independently unresolved state")
+	}
+	pending := cloneFundingPerpSpreadOrderIntent(s.pendingOrder)
+	previousEmergency := s.emergencyCloseRequired
+	s.intentInFlight = false
+	s.pendingOrder = nil
+	if math.Abs(s.ownedA) > s.legTolerance(s.legA) || math.Abs(s.ownedB) > s.legTolerance(s.legB) {
+		s.emergencyCloseRequired = true
+	}
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.intentInFlight = true
+		s.pendingOrder = pending
+		s.emergencyCloseRequired = previousEmergency
+		s.exposureUnknown = true
+		return fmt.Errorf("persist rejected undispatched order intent: %w", err)
+	}
+	return nil
+}
+
+func (s *FundingPerpSpreadStrategy) submitOpeningOrder(ctx context.Context, admissionGuard func(context.Context) error, ex exchange.IExchange, request *exchange.OrderRequest) (*exchange.Order, bool, error) {
+	// The enclosing pair already owns a logical opening admission. Do not
+	// reacquire the gate here: recording the first leg deliberately blocks new
+	// openings while this admitted pair finishes its hedge.
+	if admissionGuard != nil {
+		if err := admissionGuard(ctx); err != nil {
+			return nil, false, err
+		}
+	}
+	if err := s.markOrderIntentDispatching(request.ClientOrderID); err != nil {
+		return nil, false, err
+	}
+	// Persistence can outlive the ownership/capital observation. If the
+	// second check fails, downgrade to a proven-undispatched intent before
+	// returning; a failed downgrade remains conservatively unresolved.
+	if admissionGuard != nil {
+		if err := admissionGuard(ctx); err != nil {
+			return nil, false, errors.Join(err, s.restorePreparedOrderIntent(request.ClientOrderID))
+		}
+	}
+	order, err := ex.PlaceOrder(ctx, request)
+	return order, true, err
 }
 
 func (s *FundingPerpSpreadStrategy) finishOrderIntent() error {
@@ -1224,9 +1352,22 @@ func (s *FundingPerpSpreadStrategy) openSpread(ctx context.Context, shortEx exch
 
 func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, shortEx exchange.IExchange, shortSym string, longEx exchange.IExchange, longSym string, pxA, pxB, rA, rB float64) error {
 	cap := s.capitalUSDT()
+	s.mu.RLock()
+	openControl := config.CloneOpenPositionControl(s.openPositionControl)
+	s.mu.RUnlock()
+	maxQty, maxValue, maxLayers := openControl.PositionLimits()
+	if math.IsNaN(maxQty) || math.IsInf(maxQty, 0) || maxQty < 0 ||
+		math.IsNaN(maxValue) || math.IsInf(maxValue, 0) || maxValue < 0 || maxLayers < 0 {
+		return errors.New("funding_perp_spread position limits are invalid")
+	}
+	if maxValue > 0 && cap > maxValue {
+		cap = maxValue
+	}
 	if cap < 200 {
 		return fmt.Errorf("分配資金 %.2f USDT 過小，建議 ≥200", cap)
 	}
+	// This strategy admits only one active paired allocation and requires both
+	// legs to be flat before reopening, so that paired allocation is one layer.
 	legNotional := cap / 2
 	if legNotional < 50 {
 		return fmt.Errorf("單腿名義 %.2f USDT 過小", legNotional)
@@ -1241,6 +1382,18 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 	}
 	if qtyShort <= 0 || qtyLong <= 0 {
 		return fmt.Errorf("數量精度截斷為 0")
+	}
+	if maxQty > 0 {
+		perLegLimit := maxQty / 2
+		if qtyShort > perLegLimit {
+			qtyShort = floorPerpQty(perLegLimit, shortEx.GetQuantityDecimals())
+		}
+		if qtyLong > perLegLimit {
+			qtyLong = floorPerpQty(perLegLimit, longEx.GetQuantityDecimals())
+		}
+		if qtyShort <= 0 || qtyLong <= 0 || qtyShort+qtyLong > maxQty {
+			return fmt.Errorf("funding_perp_spread quantity limits cannot safely size both legs (limit %.8f)", maxQty)
+		}
 	}
 	currentA, err := s.readLegSnapshot(ctx, s.legA, s.symA)
 	if err != nil {
@@ -1289,7 +1442,10 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		Quantity: qtyShort, Price: 0, PriceDecimals: shortEx.GetPriceDecimals(),
 		StrategyType: "funding_perp_spread", ClientOrderID: shortClientOrderID,
 	}
-	shortOrder, err := shortEx.PlaceOrder(ctx, shortRequest)
+	shortOrder, shortDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, shortEx, shortRequest)
+	if !shortDispatched {
+		return errors.Join(fmt.Errorf("short opening was not submitted: %w", err), s.resolvePreparedAdmissionRejection(shortClientOrderID))
+	}
 	shortActual, readErr := s.readLegSnapshot(ctx, shortEx, shortSym)
 	if readErr != nil {
 		s.markExposureUnknown()
@@ -1331,7 +1487,10 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		Quantity: qtyLong, Price: 0, PriceDecimals: longEx.GetPriceDecimals(),
 		StrategyType: "funding_perp_spread", ClientOrderID: longClientOrderID,
 	}
-	longOrder, err := longEx.PlaceOrder(ctx, longRequest)
+	longOrder, longDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, longEx, longRequest)
+	if !longDispatched {
+		return errors.Join(fmt.Errorf("short leg is open but long opening was not submitted: %w", err), s.resolvePreparedAdmissionRejection(longClientOrderID))
+	}
 	longActual, readErr := s.readLegSnapshot(ctx, longEx, longSym)
 	if readErr != nil {
 		s.markExposureUnknown()
@@ -1443,6 +1602,9 @@ func (s *FundingPerpSpreadStrategy) closeLegWithoutExecutionCapture(ctx context.
 		Quantity: math.Abs(owned), ReduceOnly: true, PriceDecimals: ex.GetPriceDecimals(),
 		StrategyType: "funding_perp_spread", ClientOrderID: clientOrderID,
 	}
+	if err := s.markOrderIntentDispatching(clientOrderID); err != nil {
+		return nil, err
+	}
 	order, orderErr := ex.PlaceOrder(ctx, request)
 	capture := &fundingPerpSpreadPendingExecution{client: ex, request: request, order: order}
 	after, readErr := netFutSize(ctx, ex, sym)
@@ -1528,6 +1690,14 @@ func roundPerpQty(q float64, decimals int) float64 {
 	}
 	p := math.Pow10(decimals)
 	return math.Round(q*p) / p
+}
+
+func floorPerpQty(q float64, decimals int) float64 {
+	if decimals <= 0 {
+		return math.Floor(q)
+	}
+	p := math.Pow10(decimals)
+	return math.Floor(q*p) / p
 }
 
 func fundingPerpSpreadOrderQuantity(legNotional, priceA, priceB float64, decimals int) (float64, error) {

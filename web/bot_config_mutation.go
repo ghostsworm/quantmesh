@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -15,6 +16,28 @@ type BotConfigurationCoordinator interface {
 
 type BotStrategyConfigurationCoordinator interface {
 	WithBotStrategyConfigurationLock(botID string, persist func(managed bool) error) error
+}
+
+type BotStrategyConfigurationContextCoordinator interface {
+	WithBotStrategyConfigurationContext(context.Context, string, func(managed bool) error) error
+}
+
+func withBotStrategyPersistenceContext(ctx context.Context, coordinator BotStrategyConfigurationCoordinator, botID string, persist func(bool) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	checked := func(managed bool) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return persist(managed)
+	}
+	if contextual, ok := coordinator.(BotStrategyConfigurationContextCoordinator); ok {
+		return contextual.WithBotStrategyConfigurationContext(ctx, botID, checked)
+	}
+	// Compatibility coordinators cannot cancel their lock wait, but must not
+	// invoke persistence after a cancelled request eventually acquires that lock.
+	return coordinator.WithBotStrategyConfigurationLock(botID, checked)
 }
 
 var ErrBotConfigRuntimeManaged = errors.New("Bot recovery configuration belongs to a managed runtime")

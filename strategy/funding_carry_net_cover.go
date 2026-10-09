@@ -28,6 +28,19 @@ func (s *FundingCarryStrategy) verifyMarginNetDebtCover(ctx context.Context, ord
 }
 
 func fundingCarryNetCoverFromFills(symbol, baseAsset string, orderID int64, gross, requested, debt float64, fills []*exchange.OrderFill) (float64, error) {
+	net, err := fundingCarryNetCoverFillEvidence(symbol, baseAsset, orderID, gross, requested, fills)
+	if err != nil {
+		return 0, err
+	}
+	return net, validateFundingCarryDebtCover(net, requested, debt)
+}
+
+// Fill conservation is independent of whether the original debt target was
+// covered. Terminal partial executions must not disappear from the ledger.
+func fundingCarryNetCoverFillEvidence(symbol, baseAsset string, orderID int64, gross, requested float64, fills []*exchange.OrderFill) (float64, error) {
+	if orderID <= 0 || !finitePositive(gross) || !finitePositive(requested) || gross > requested && !fundingCarryFinancialAmountsMatch(gross, requested) {
+		return 0, fmt.Errorf("margin cover execution exceeds original request or is invalid")
+	}
 	base := strings.TrimSpace(baseAsset)
 	if base == "" || len(fills) == 0 {
 		return 0, fmt.Errorf("margin debt cover has no complete fill evidence")
@@ -53,5 +66,5 @@ func fundingCarryNetCoverFromFills(symbol, baseAsset string, orderID int64, gros
 		return 0, fmt.Errorf("margin debt cover fills do not cover cumulative execution")
 	}
 	net, _ := new(big.Rat).Sub(total, fees).Float64()
-	return net, validateFundingCarryDebtCover(net, requested, debt)
+	return net, nil
 }

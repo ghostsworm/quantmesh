@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,9 +18,10 @@ const pairedTradesTableMySQL = "qm_paired_trades"
 
 // SQLStorage 基於 database/sql 的存儲實現（SQLite 與 MySQL 共用本類型）。
 type SQLStorage struct {
-	db     *sql.DB
-	dbType string // sqlite, mysql, postgres
-	closed bool
+	db          *sql.DB
+	commitProbe *sql.DB // Separate pool: ambiguous-commit readback must not reuse the writer session.
+	dbType      string  // sqlite, mysql, postgres
+	closed      bool
 	// tradesTable 網格配對成交表名：SQLite 為 trades；MySQL 為 qm_paired_trades（避免與 GORM trades 同庫衝突）
 	tradesTable string
 }
@@ -167,6 +169,10 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 			db.Close()
 			return nil, fmt.Errorf("迁移 strategy_runtime_states 表失败: %w", err)
 		}
+		if err := migrateFundingCarryRuntimeGeneration(db, "mysql"); err != nil {
+			db.Close()
+			return nil, err
+		}
 		if err := migrateFundingSpreadCapitalTablesMySQL(db); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("迁移 funding spread capital tables 失败: %w", err)
@@ -269,7 +275,14 @@ func NewStorage(dbType, dsn string) (*SQLStorage, error) {
 	if dbType == "mysql" {
 		tradesTbl = pairedTradesTableMySQL
 	}
-	return &SQLStorage{db: db, dbType: dbType, tradesTable: tradesTbl}, nil
+	commitProbe, err := sql.Open(driverName, dsn)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("打开提交结果独立核验连接池失败: %w", err)
+	}
+	commitProbe.SetMaxOpenConns(1)
+	commitProbe.SetMaxIdleConns(1)
+	return &SQLStorage{db: db, commitProbe: commitProbe, dbType: dbType, tradesTable: tradesTbl}, nil
 }
 
 // Close 关闭數據库连接
@@ -278,5 +291,16 @@ func (s *SQLStorage) Close() error {
 		return nil
 	}
 	s.closed = true
-	return s.db.Close()
+	var closeErrs []error
+	if s.commitProbe != nil {
+		if err := s.commitProbe.Close(); err != nil {
+			closeErrs = append(closeErrs, fmt.Errorf("close commit confirmation pool: %w", err))
+		}
+	}
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			closeErrs = append(closeErrs, fmt.Errorf("close storage pool: %w", err))
+		}
+	}
+	return errors.Join(closeErrs...)
 }

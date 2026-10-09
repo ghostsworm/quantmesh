@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { strategyReceiptFeedback } from '../services/strategySaveReceipt'
 import {
   Box,
   Button,
@@ -62,6 +63,7 @@ const PauseIcon = (props: React.ComponentProps<typeof Icon>) => (
 )
 import { useTranslation } from 'react-i18next'
 import { Link, useParams, useNavigate } from 'react-router-dom'
+import { botLifecycleState } from '../services/botLifecycle'
 import {
   ExternalLinkIcon,
   ViewIcon,
@@ -309,7 +311,7 @@ const BotDetail: React.FC = () => {
 
   // 已停止的 Bot：仍拉取該交易對的交易所持倉（可能非本 Bot 開倉）
   useEffect(() => {
-    if (bot?.running || !bot?.exchange || !bot?.symbol) {
+    if (bot?.running || bot?.stop_pending || !bot?.exchange || !bot?.symbol) {
       setExchangePositionsSummary(null)
       return
     }
@@ -328,7 +330,7 @@ const BotDetail: React.FC = () => {
     fetchExchangePositions()
     const interval = setInterval(fetchExchangePositions, 10000)
     return () => clearInterval(interval)
-  }, [bot?.running, bot?.exchange, bot?.symbol, bot?.market_type])
+  }, [bot?.running, bot?.stop_pending, bot?.exchange, bot?.symbol, bot?.market_type])
 
   const fetchLogs = useCallback(async (silent = false) => {
     if (!botId) return
@@ -486,7 +488,7 @@ const BotDetail: React.FC = () => {
         } else if (outcome.lastStartError) {
           toast({
             title: t('botList.startFailed'),
-            description: outcome.lastStartError,
+            description: t('botList.startFailedSafeDescription'),
             status: 'error',
             duration: 12000,
             isClosable: true,
@@ -584,8 +586,8 @@ const BotDetail: React.FC = () => {
           <Flex justify="space-between" align="flex-start" flexWrap="wrap" gap={4}>
             <Box>
               <HStack spacing={2} mb={2}>
-                <Badge colorScheme={bot.running ? 'green' : 'gray'} fontSize="10px">
-                  {bot.running ? t('botList.running') : t('botList.stopped')}
+                <Badge colorScheme={bot.stop_pending ? 'orange' : bot.running ? 'green' : 'gray'} fontSize="10px">
+                  {bot.stop_pending ? t('stopPending.status') : bot.running ? t('botList.running') : t('botList.stopped')}
                 </Badge>
                 {bot.risk_triggered && (
                   <Badge colorScheme="red" fontSize="10px">{t('botList.riskTriggered')}</Badge>
@@ -699,7 +701,11 @@ const BotDetail: React.FC = () => {
               )}
             </Box>
             <HStack>
-              {bot.running ? (
+              {botLifecycleState(bot) === 'stop_pending' ? (
+                <Button size="sm" colorScheme="orange" isLoading={actioning} onClick={handleStopOnly}>
+                  {t('stopPending.retry')}
+                </Button>
+              ) : bot.running ? (
                 <>
                   <Button size="sm" colorScheme="blue" onClick={handleOpenWorkspace}>
                     {t('botDetail.openWorkspace')}
@@ -724,13 +730,19 @@ const BotDetail: React.FC = () => {
         </CardBody>
       </Card>
 
-      {!bot.running && bot.last_start_error && (
+      {bot.stop_pending && (
+        <Alert status="warning" borderRadius="md" mb={4}>
+          <AlertIcon />
+          <AlertDescription>{t('stopPending.description')}</AlertDescription>
+        </Alert>
+      )}
+      {!bot.running && !bot.stop_pending && bot.last_start_error && (
         <Alert status="error" borderRadius="md" mb={4}>
           <AlertIcon />
           <Box flex="1">
             <AlertTitle fontSize="sm">{t('botDetail.lastStartErrorTitle')}</AlertTitle>
             <AlertDescription fontSize="sm" mt={1}>
-              {bot.last_start_error}
+              {t('botDetail.lastStartErrorSafeDescription')}
               {bot.last_start_error_at ? (
                 <Text mt={2} fontSize="xs" color="gray.600">
                   {t('botDetail.lastStartErrorAt', {
@@ -2112,17 +2124,26 @@ const BotStrategyConfigPanel: React.FC<BotStrategyConfigPanelProps> = ({ botId, 
         updateData.spot_inventory_policy = spotInventoryPolicy
       }
 
-      await updateBotStrategy(botId, updateData)
+      const receipt = await updateBotStrategy(botId, updateData)
+      const feedback = strategyReceiptFeedback(receipt)
       toast({
-        title: t('botDetail.strategy.saveSuccess'),
-        status: 'success',
-        duration: 2000,
+        title: t(feedback.title),
+        status: feedback.status,
+        duration: feedback.status === 'success' ? 2000 : 6000,
       })
-      setHasChanges(false)
-      setOriginalStrategyType(strategyType) // 更新原始策略类型
-      await onSaved?.() // 刷新 Bot 詳情，確保 smart_order 等配置與後端一致
-    } catch (err: any) {
-      const errorMsg = err.errorKey ? t(err.errorKey) : t('botDetail.strategy.saveFailed')
+      if (receipt.saved) {
+        setHasChanges(false)
+        setOriginalStrategyType(strategyType)
+        try {
+          await onSaved?.()
+        } catch {
+          toast({ title: t('strategySave.refreshFailed'), status: 'warning', duration: 6000 })
+        }
+      }
+    } catch (err: unknown) {
+      const errorKey = err instanceof Error && 'errorKey' in err && typeof err.errorKey === 'string' ? err.errorKey : undefined
+      const hasStatus = err instanceof Error && 'status' in err && typeof err.status === 'number'
+      const errorMsg = errorKey ? t(errorKey) : t(hasStatus ? 'botDetail.strategy.saveFailed' : 'strategySave.unknownSave')
       toast({
         title: errorMsg,
         status: 'error',

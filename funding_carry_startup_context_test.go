@@ -102,6 +102,7 @@ func TestFundingCarryConstructorCleansConnectionCreatedDuringCancellation(t *tes
 				venue.stopErr = cleanupErr
 			}
 			cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "fixture-account-identity"}}}
+			storageService, _ := newFundingCarryGenerationTestStorage(t)
 			creates := 0
 			deps := fundingCarryStartupDependencies{
 				checkSetup: func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error) {
@@ -113,7 +114,7 @@ func TestFundingCarryConstructorCleansConnectionCreatedDuringCancellation(t *tes
 					return venue, nil
 				},
 			}
-			rt, err := startFundingCarrySymbolRuntimeWithDependencies(ctx, cfg, config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}, nil, nil, lock.NewNopLock(), nil, nil, deps)
+			rt, err := startFundingCarrySymbolRuntimeWithDependencies(ctx, cfg, config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}, nil, storageService, lock.NewNopLock(), nil, nil, deps)
 			if rt != nil || !errors.Is(err, context.Canceled) || creates != 1 || venue.stops != 1 {
 				t.Fatalf("cancel/cleanup lost: %v creates=%d stops=%d", err, creates, venue.stops)
 			}
@@ -153,6 +154,7 @@ func TestFundingCarryConstructorPreservesLeaseCleanupFailure(t *testing.T) {
 	coordinator := &startupLeaseCleanupFailure{DistributedLock: lock.NewNopLock(), failure: cleanupErr}
 	venue := &cancelledStartupVenue{}
 	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "fixture-account-identity"}}}
+	storageService, _ := newFundingCarryGenerationTestStorage(t)
 	deps := fundingCarryStartupDependencies{
 		checkSetup: func(context.Context, *config.Config, string, string) (*exchange.FundingCarryPermissionResult, error) {
 			return &exchange.FundingCarryPermissionResult{OK: true}, nil
@@ -162,7 +164,7 @@ func TestFundingCarryConstructorPreservesLeaseCleanupFailure(t *testing.T) {
 			return venue, nil
 		},
 	}
-	rt, err := startFundingCarrySymbolRuntimeWithDependencies(ctx, cfg, config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}, nil, nil, coordinator, nil, nil, deps)
+	rt, err := startFundingCarrySymbolRuntimeWithDependencies(ctx, cfg, config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}, nil, storageService, coordinator, nil, nil, deps)
 	if rt != nil || !errors.Is(err, context.Canceled) || !errors.Is(err, cleanupErr) || coordinator.unlocks != 2 || venue.stops != 1 {
 		t.Fatalf("constructor lost cancellation/cleanup evidence: %v unlocks=%d stops=%d", err, coordinator.unlocks, venue.stops)
 	}

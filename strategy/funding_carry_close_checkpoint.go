@@ -2,7 +2,10 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"quantmesh/storage"
 )
 
 // An authoritative flat snapshot is required before calling this checkpoint.
@@ -19,6 +22,12 @@ func (s *FundingCarryStrategy) checkpointReverseFuturesClosed(ctx context.Contex
 	previous := s.futQty
 	s.futQty = 0
 	if err := s.persistRuntimeStateLocked(); err != nil {
+		if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+			// The exact flat-futures quantity is durable; keep memory aligned
+			// while returning cancellation so the caller cannot continue closing.
+			s.runtimeStateErr = nil
+			return fmt.Errorf("persist reverse futures close checkpoint after caller cancellation: %w", err)
+		}
 		s.futQty = previous
 		s.unownedExposure, s.runtimeStateErr = true, err
 		return fmt.Errorf("persist reverse futures close checkpoint: %w", err)

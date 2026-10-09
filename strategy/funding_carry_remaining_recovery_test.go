@@ -18,7 +18,7 @@ func TestFundingCarryStartupRetainsRemainingAssetAccounting(t *testing.T) {
 	s, margin, _ := newFundingCarryRepayIntentFixture()
 	s.direction, s.marginDebt, s.marginBorrowTransferID = DirectionNone, 0, 0
 	margin.positionsErr = errors.New("live inventory deliberately unavailable")
-	s.SetRuntimeStateStore(store)
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	before := store.payload
 	for attempt := 0; attempt < 2; attempt++ {
 		err := s.Start(context.Background())
@@ -55,6 +55,17 @@ func (r *remainingRecoveryStore) LoadRuntimeState(kind string) (int, string, boo
 		r.underLease()
 	}
 	return r.memoryRuntimeStateStore.LoadRuntimeState(kind)
+}
+
+func (r *remainingRecoveryStore) LoadRuntimeStateContext(ctx context.Context, kind string) (int, string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, "", false, err
+	}
+	version, payload, found, err := r.LoadRuntimeState(kind)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return 0, "", false, contextErr
+	}
+	return version, payload, found, err
 }
 
 func TestFundingCarryRemainingRecoveryRechecksSnapshotAndOwner(t *testing.T) {
@@ -152,7 +163,7 @@ func TestFundingCarryRemainingRecoveryPreservesOtherLegAccounting(t *testing.T) 
 		t.Fatal(err)
 	}
 	s, _, _ := newFundingCarryRepayIntentFixture()
-	s.SetRuntimeStateStore(store)
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	if err := s.Start(context.Background()); err == nil || s.futQty != 0.2 || s.direction != DirectionReverse {
 		t.Fatal("remaining recovery discarded other leg exposure")
 	}

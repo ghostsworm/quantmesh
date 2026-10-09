@@ -94,7 +94,7 @@ func TestFundingCarryAmbiguousAutoTransferIsDurablyLatchedAndNeverRetried(t *tes
 	interruptedTransferWouldFailClosedOnRestart := false
 	spot.transfer = func(float64) (string, error) {
 		var state fundingCarryRuntimeState
-		if json.Unmarshal([]byte(store.payload), &state) == nil && state.IntentInFlight {
+		if json.Unmarshal([]byte(store.payload), &state) == nil && state.IntentInFlight && state.IntentPhase == fundingCarryIntentPhaseDispatching {
 			intentPersistedBeforeTransfer = true
 			_, restoreErr := decodeFundingCarryRuntimeState(store.version, store.payload,
 				strategy.fut.GetName(), strategy.spot.GetName(), strategy.symbol)

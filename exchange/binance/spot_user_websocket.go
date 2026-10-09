@@ -20,24 +20,44 @@ type SpotUserDataWebSocketManager struct {
 	useTestnet bool
 	listenKey  string
 
-	mu            sync.Mutex
-	isRunning     bool
-	stopC         chan struct{}
-	stopOnce      sync.Once
-	doneC         chan struct{}
-	onOrder       func(OrderUpdate)
-	fillMu        sync.Mutex
-	filledByOrder map[string]float64
+	mu                sync.Mutex
+	isRunning         bool
+	stopC             chan struct{}
+	doneC             chan struct{}
+	cancelWorkers     context.CancelFunc
+	closeTimeout      time.Duration
+	keepAliveInterval time.Duration
+	reconnectDelay    time.Duration
+	startUserStream   func(context.Context) (string, error)
+	keepAliveStream   func(context.Context, string) error
+	serveUserData     func(string, binancesdk.WsUserDataHandler, binancesdk.ErrHandler) (chan struct{}, chan struct{}, error)
+	onOrder           func(OrderUpdate)
+	fillMu            sync.Mutex
+	filledByOrder     map[string]float64
 }
 
 // NewSpotUserDataWebSocketManager 創建現貨訂單流管理器
 func NewSpotUserDataWebSocketManager(client *binancesdk.Client, useTestnet bool) *SpotUserDataWebSocketManager {
-	return &SpotUserDataWebSocketManager{
-		client:        client,
-		useTestnet:    useTestnet,
-		stopC:         make(chan struct{}),
-		filledByOrder: make(map[string]float64),
+	w := &SpotUserDataWebSocketManager{
+		client:            client,
+		useTestnet:        useTestnet,
+		stopC:             make(chan struct{}),
+		filledByOrder:     make(map[string]float64),
+		closeTimeout:      15 * time.Second,
+		keepAliveInterval: 30 * time.Minute,
+		reconnectDelay:    5 * time.Second,
 	}
+	w.startUserStream = func(ctx context.Context) (string, error) { return w.client.NewStartUserStreamService().Do(ctx) }
+	w.keepAliveStream = func(ctx context.Context, key string) error {
+		return w.client.NewKeepaliveUserStreamService().ListenKey(key).Do(ctx)
+	}
+	w.serveUserData = func(key string, handler binancesdk.WsUserDataHandler, errors binancesdk.ErrHandler) (chan struct{}, chan struct{}, error) {
+		prev := binancesdk.UseTestnet
+		binancesdk.UseTestnet = w.useTestnet
+		defer func() { binancesdk.UseTestnet = prev }()
+		return binancesdk.WsUserDataServe(key, handler, errors)
+	}
+	return w
 }
 
 // spotFeeCoversFill reports whether the latest-trade commission covers the
@@ -83,40 +103,43 @@ func (w *SpotUserDataWebSocketManager) Start(ctx context.Context, callback func(
 	}
 	w.onOrder = callback
 	w.isRunning = true
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	w.cancelWorkers = cancelWorkers
+	w.stopC, w.doneC = make(chan struct{}), make(chan struct{})
+	stop, done := w.stopC, w.doneC
 	w.mu.Unlock()
 
-	listenKey, err := w.client.NewStartUserStreamService().Do(ctx)
+	listenKey, err := w.startUserStream(workerCtx)
+	if err == nil {
+		err = workerCtx.Err()
+	}
 	if err != nil {
-		w.mu.Lock()
-		w.isRunning = false
-		w.onOrder = nil
-		w.mu.Unlock()
+		cancelWorkers()
+		w.finishOrderStream(stop, done)
 		return fmt.Errorf("獲取 listenKey 失敗: %w", err)
 	}
 	w.listenKey = listenKey
-	logger.Debug("✅ [Binance Spot] listenKey: %s", listenKey)
-
-	w.mu.Lock()
-	w.doneC = make(chan struct{})
-	w.mu.Unlock()
-
-	go w.keepAliveListenKey(ctx)
-	go w.listenLoop(ctx)
+	logger.Debug("✅ [Binance Spot] 已獲取訂單流listenKey")
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() { defer workers.Done(); w.keepAliveListenKey(workerCtx, stop, listenKey) }()
+	go func() { defer workers.Done(); defer cancelWorkers(); w.listenLoop(workerCtx, stop, listenKey) }()
+	go func() { workers.Wait(); cancelWorkers(); w.finishOrderStream(stop, done) }()
 
 	return nil
 }
 
-func (w *SpotUserDataWebSocketManager) keepAliveListenKey(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Minute)
+func (w *SpotUserDataWebSocketManager) keepAliveListenKey(ctx context.Context, stop <-chan struct{}, key string) {
+	ticker := time.NewTicker(w.keepAliveInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.stopC:
+		case <-stop:
 			return
 		case <-ticker.C:
-			if err := w.client.NewKeepaliveUserStreamService().ListenKey(w.listenKey).Do(ctx); err != nil {
+			if err := w.keepAliveStream(ctx, key); err != nil {
 				logger.Error("❌ [Binance Spot] listenKey 保活失敗: %v", err)
 			} else {
 				logger.Debug("✅ [Binance Spot] listenKey 保活成功")
@@ -125,20 +148,15 @@ func (w *SpotUserDataWebSocketManager) keepAliveListenKey(ctx context.Context) {
 	}
 }
 
-func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
-	defer close(w.doneC)
-
+func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context, stop <-chan struct{}, key string) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-w.stopC:
+		case <-stop:
 			return
 		default:
 		}
-
-		prev := binancesdk.UseTestnet
-		binancesdk.UseTestnet = w.useTestnet
 
 		handler := func(ev *binancesdk.WsUserDataEvent) {
 			if ev.Event != binancesdk.UserDataEventTypeExecutionReport {
@@ -194,17 +212,16 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 			logger.Error("❌ [Binance Spot] User Data WebSocket 錯誤: %v", err)
 		}
 
-		doneC, stopC, err := binancesdk.WsUserDataServe(w.listenKey, handler, errHandler)
-		binancesdk.UseTestnet = prev
+		doneC, stopC, err := w.serveUserData(key, handler, errHandler)
 
 		if err != nil {
 			logger.Error("❌ [Binance Spot] WebSocket 啟動失敗: %v", err)
 			select {
 			case <-ctx.Done():
 				return
-			case <-w.stopC:
+			case <-stop:
 				return
-			case <-time.After(5 * time.Second):
+			case <-time.After(w.reconnectDelay):
 			}
 			continue
 		}
@@ -213,14 +230,22 @@ func (w *SpotUserDataWebSocketManager) listenLoop(ctx context.Context) {
 
 		select {
 		case <-ctx.Done():
-			stopC <- struct{}{}
+			close(stopC)
+			<-doneC
 			return
-		case <-w.stopC:
-			stopC <- struct{}{}
+		case <-stop:
+			close(stopC)
+			<-doneC
 			return
 		case <-doneC:
 			logger.Warn("⚠️ [Binance Spot] 訂單流斷開，5s 後重連")
-			time.Sleep(5 * time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			case <-time.After(w.reconnectDelay):
+			}
 		}
 	}
 }
@@ -234,23 +259,18 @@ func cumulativeAveragePrice(cumulativeQuote, executedQty float64) float64 {
 
 // Stop 停止訂單流
 func (w *SpotUserDataWebSocketManager) Stop() {
+	if err := w.StopWithError(); err != nil {
+		logger.Warn("[Binance Spot] 訂單流停止未核實: %v", err)
+	}
+}
+
+func (w *SpotUserDataWebSocketManager) finishOrderStream(stop, done chan struct{}) {
 	w.mu.Lock()
-	if !w.isRunning {
-		w.mu.Unlock()
-		return
+	defer w.mu.Unlock()
+	if w.stopC == stop {
+		w.isRunning = false
+		w.onOrder = nil
+		w.cancelWorkers = nil
 	}
-	w.isRunning = false
-	w.onOrder = nil
-	doneWait := w.doneC
-	w.mu.Unlock()
-
-	w.stopOnce.Do(func() { close(w.stopC) })
-
-	if doneWait != nil {
-		select {
-		case <-doneWait:
-		case <-time.After(15 * time.Second):
-			logger.Warn("⚠️ [Binance Spot] 訂單流停止超時")
-		}
-	}
+	close(done)
 }

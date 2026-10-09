@@ -173,7 +173,15 @@ func (f *MetricsFeeder) tickAndLog(ctx context.Context) {
 func (f *MetricsFeeder) Tick(ctx context.Context) (snap MetricsSnapshot, resultErr error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	defer func() { f.reportHealth(snap, resultErr) }()
+	defer func() {
+		if resultErr != nil && f.opts.EquityStore != nil {
+			// An external reset may have advanced the durable state while this
+			// tick was failing. Reload on the next tick instead of pinning a stale
+			// in-memory checkpoint indefinitely.
+			f.equityLoaded = false
+		}
+		f.reportHealth(snap, resultErr)
+	}()
 
 	now := f.opts.Now()
 	marks := f.sink.MetricsResetMarks()

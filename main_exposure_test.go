@@ -98,7 +98,9 @@ func TestRuntimeExposureSharedGridStrategyAndHotLimits(t *testing.T) {
 	}
 	spm.SetOpenPositionControl(config.OpenPositionControl{MaxPositionQuantity: .5})
 	deadline := time.Now().Add(3 * time.Second)
-	for executor.ExposureSnapshot().PendingQuantity != 0 && time.Now().Before(deadline) {
+	// Terminal observations release pending exposure before the cancellation
+	// worker removes its opening hold. Await both required final conditions.
+	for (executor.ExposureSnapshot().PendingQuantity != 0 || spm.IsOpeningPaused()) && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	if snapshot := executor.ExposureSnapshot(); snapshot.PendingQuantity != 0 || spm.IsOpeningPaused() {

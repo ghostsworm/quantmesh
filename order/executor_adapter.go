@@ -380,6 +380,20 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		if orderLockLost.Load() {
 			return nil, ErrOrderLockLost
 		}
+		// The owner lease and wallet evidence may change during retries or while
+		// the durable intent is being written. Revalidate before every physical
+		// opening RPC; this cannot revoke an RPC already sent to the venue.
+		if oe.isOpeningOrder(req) && oe.openingAdmissionGuard != nil {
+			if err := oe.openingAdmissionGuard(ctx); err != nil {
+				return nil, fmt.Errorf("opening admission guard rejected physical submission: %w", err)
+			}
+		}
+		// Journal persistence can outlive the observation used for admission.
+		// Recheck after that wait, before each physical opening submission. This
+		// does not revoke a call already sent or replace venue-side fencing.
+		if oe.isOpeningOrder(req) && oe.IsOpeningPaused() {
+			return nil, execution.ErrOpeningPaused
+		}
 		callCtx, callCancel := context.WithTimeout(ctx, orderLookupTimeout)
 		exchangeOrder, err := oe.exchange.PlaceOrder(callCtx, exchangeReq)
 		callCancel()

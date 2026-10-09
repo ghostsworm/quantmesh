@@ -7,10 +7,16 @@ import (
 	"strings"
 )
 
-const fundingPerpSpreadRuntimeStateVersion = 6
+const fundingPerpSpreadRuntimeStateVersion = 7
+
+const (
+	fundingPerpSpreadIntentPrepared    = "prepared"
+	fundingPerpSpreadIntentDispatching = "dispatching"
+)
 
 type fundingPerpSpreadOrderIntent struct {
 	ClientOrderID  string  `json:"client_order_id"`
+	Phase          string  `json:"phase"`
 	LegExchange    string  `json:"leg_exchange"`
 	Symbol         string  `json:"symbol"`
 	Side           string  `json:"side"`
@@ -91,9 +97,14 @@ func decodeFundingPerpSpreadRuntimeState(version int, payload string, legAExchan
 			return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending order identity does not match intent state")
 		}
 		if intent := state.PendingOrder; intent != nil {
+			if version < 7 {
+				// Older snapshots cannot prove whether the exchange call began.
+				intent.Phase = fundingPerpSpreadIntentDispatching
+			}
 			validLeg := (strings.EqualFold(intent.LegExchange, legAExchange) && strings.EqualFold(intent.Symbol, legASymbol)) ||
 				(strings.EqualFold(intent.LegExchange, legBExchange) && strings.EqualFold(intent.Symbol, legBSymbol))
 			if strings.TrimSpace(intent.ClientOrderID) == "" || len(intent.ClientOrderID) > 64 || !validLeg ||
+				(intent.Phase != fundingPerpSpreadIntentPrepared && intent.Phase != fundingPerpSpreadIntentDispatching) ||
 				(intent.Side != "BUY" && intent.Side != "SELL") || math.IsNaN(intent.Quantity) || math.IsInf(intent.Quantity, 0) || intent.Quantity <= 0 ||
 				math.IsNaN(intent.PositionBefore) || math.IsInf(intent.PositionBefore, 0) {
 				return fundingPerpSpreadRuntimeState{}, fmt.Errorf("funding_perp_spread pending order identity is invalid")

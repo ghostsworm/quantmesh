@@ -365,3 +365,59 @@ func TestRuntimeOwnershipLeaseRenewFailureSignalsLoss(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRuntimeOwnershipLeaseValidateDetectsExpiredLeaseSynchronously(t *testing.T) {
+	lockErr := errors.New("redis lease token no longer owns key")
+	distributedLock := &runtimeLeaseTestLock{}
+	lost := make(chan error, 1)
+	lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock,
+		execution.IntentScope{Account: "account", Exchange: "binance", Market: "futures", Symbol: "BTCUSDT", Bot: "bot-a"},
+		time.Hour, func(err error) { lost <- err })
+	if err != nil {
+		t.Fatal(err)
+	}
+	distributedLock.mu.Lock()
+	distributedLock.extendErr = lockErr
+	distributedLock.mu.Unlock()
+	if err := lease.Validate(t.Context()); !errors.Is(err, lockErr) {
+		t.Fatalf("synchronous lease validation error = %v, want %v", err, lockErr)
+	}
+	if !lease.Lost() {
+		t.Fatal("lease validation failure did not irreversibly mark ownership lost")
+	}
+	select {
+	case got := <-lost:
+		if !errors.Is(got, lockErr) {
+			t.Fatalf("synchronous ownership loss notification = %v, want %v", got, lockErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("synchronous validation failure did not notify the runtime loss handler")
+	}
+	if err := lease.Validate(t.Context()); err == nil {
+		t.Fatal("lost lease passed a later synchronous validation")
+	}
+	select {
+	case duplicate := <-lost:
+		t.Fatalf("ownership loss handler ran more than once: %v", duplicate)
+	default:
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatalf("release expired test lease: %v", err)
+	}
+}
+
+func TestRuntimeOwnershipLeaseValidateRequiresLiveContext(t *testing.T) {
+	distributedLock := &runtimeLeaseTestLock{}
+	lease, err := acquireRuntimeOwnershipLease(t.Context(), distributedLock,
+		execution.IntentScope{Account: "account", Exchange: "binance", Market: "futures", Symbol: "BTCUSDT", Bot: "bot-a"},
+		time.Hour, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := lease.Validate(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("validation with canceled context = %v, want context.Canceled", err)
+	}
+}

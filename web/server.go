@@ -427,7 +427,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 
 			protected.POST("/trading/start", startTrading)
 			protected.POST("/trading/stop", stopTrading)
-			protected.POST("/trading/close-positions", closeAllPositions)
+			protected.POST("/trading/close-positions", closeAllPositionsScoped)
 
 			// 系统監控API
 			protected.GET("/system/metrics", getSystemMetrics)
@@ -580,6 +580,9 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 资金管理 API
 			capital := protected.Group("/capital")
 			{
+				capital.GET("/retired-equity-accounts", getRetiredEquityAccountStatusesHandler)
+				capital.GET("/retired-equity-accounts/reset-history", getRetiredEquityAccountResetHistoryHandler)
+				capital.POST("/retired-equity-accounts/reset", resetRetiredEquityAccountsHandler)
 				capital.GET("/reservations", getCapitalReservationsHandler)
 				capital.GET("/overview", getCapitalOverviewHandler)
 				capital.GET("/usage", getCapitalUsageHandler)

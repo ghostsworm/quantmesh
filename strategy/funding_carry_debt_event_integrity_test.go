@@ -38,7 +38,7 @@ func TestFundingCarryRestoreRejectsInvalidDebtEventEconomicsAndScope(t *testing.
 			store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}
 			venue := &mockFCExchange{}
 			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
-			s.SetRuntimeStateStore(store)
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			if err := s.SetMarginAccountScope("scope-a"); err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestFundingCarryRestorePreservesValidScopedDebtEvents(t *testing.T) {
 			store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}
 			venue := &mockFCExchange{baseAsset: "BTC"}
 			s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
-			s.SetRuntimeStateStore(store)
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			if err := s.SetMarginAccountScope("scope-a"); err != nil {
 				t.Fatal(err)
 			}
@@ -130,7 +130,7 @@ func TestFundingCarryRestoreCannotAssignScopeToUnscopedDebtHistory(t *testing.T)
 	}
 	venue := &mockFCExchange{}
 	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
-	s.SetRuntimeStateStore(&memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true})
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{&memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, payload: string(payload), found: true}})
 	if err := s.SetMarginAccountScope("scope-configured"); err != nil {
 		t.Fatal(err)
 	}

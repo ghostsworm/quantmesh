@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,29 @@ type fundingCarryRecoveryExchange struct {
 	afterQuery func()
 }
 
+type repaymentRecoveryConflictStore struct {
+	*memoryRuntimeStateStore
+	writes, conflictAt int
+	onConflict         func(string)
+}
+
+func (s *repaymentRecoveryConflictStore) LoadRuntimeStateContext(ctx context.Context, name string) (int, string, bool, error) {
+	return (&borrowReceiptContextStore{s.memoryRuntimeStateStore}).LoadRuntimeStateContext(ctx, name)
+}
+
+func (s *repaymentRecoveryConflictStore) CompareAndSwapRuntimeState(ctx context.Context, name string, version int, payload string, nextVersion int, nextPayload string) (bool, error) {
+	s.writes++
+	if s.writes == s.conflictAt {
+		changed := strings.Replace(s.payload, `"transfer_id":7`, `"transfer_id":8`, 1)
+		if changed == s.payload {
+			return false, errors.New("fixture repayment identity unchanged")
+		}
+		s.payload = changed
+		s.onConflict(changed)
+	}
+	return s.memoryRuntimeStateStore.CompareAndSwapRuntimeState(ctx, name, version, payload, nextVersion, nextPayload)
+}
+
 func (e *fundingCarryRecoveryExchange) GetMarginTransactionByID(ctx context.Context, asset, kind string, id int64) (exchange.MarginBorrowRecord, error) {
 	e.queries++
 	e.queriedID = id
@@ -30,9 +54,10 @@ func (e *fundingCarryRecoveryExchange) GetMarginTransactionByID(ctx context.Cont
 }
 
 func TestFundingCarryStartupReconcilesSavedRepaymentWithoutRPC(t *testing.T) {
-	for _, mode := range []string{"confirmed", "already_recorded", "query_failure", "wrong_scope", "invalid_ledger", "no_ack", "wrong_asset", "owner_lost", "cancelled", "save_failure"} {
+	for _, mode := range []string{"confirmed", "already_recorded", "query_failure", "wrong_scope", "invalid_ledger", "no_ack", "wrong_asset", "owner_lost", "cancelled", "save_failure", "changed_checkpoint", "principal_write_conflict", "intent_cleanup_conflict"} {
 		t.Run(mode, func(t *testing.T) {
 			s, margin, store := newFundingCarryRepayIntentFixture()
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			venue := &fundingCarryRecoveryExchange{fundingCarryRepayIntentExchange: margin}
 			s.marginEx = venue
 			s.strategySpotKnown, s.intentInFlight, s.unownedExposure = true, true, true
@@ -61,6 +86,15 @@ func TestFundingCarryStartupReconcilesSavedRepaymentWithoutRPC(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := store.payload
+			var conflicting *repaymentRecoveryConflictStore
+			if mode == "principal_write_conflict" || mode == "intent_cleanup_conflict" {
+				conflictAt := 1
+				if mode == "intent_cleanup_conflict" {
+					conflictAt = 2
+				}
+				conflicting = &repaymentRecoveryConflictStore{memoryRuntimeStateStore: store, conflictAt: conflictAt, onConflict: func(payload string) { before = payload }}
+				s.SetRuntimeStateStore(conflicting)
+			}
 			// Simulate a fresh process: import must come from durable state.
 			s.marginDebt, s.marginBorrowTransferID = 0, 0
 			s.marginDebtEvents, s.marginRepayIntent = nil, nil
@@ -81,6 +115,15 @@ func TestFundingCarryStartupReconcilesSavedRepaymentWithoutRPC(t *testing.T) {
 			if mode == "save_failure" {
 				venue.afterQuery = func() { store.err = errors.New("injected recovery save failure") }
 			}
+			if mode == "changed_checkpoint" {
+				venue.afterQuery = func() {
+					before = strings.Replace(store.payload, `"transfer_id":7`, `"transfer_id":8`, 1)
+					if before == store.payload {
+						t.Fatal("fixture did not change repayment identity")
+					}
+					store.payload = before
+				}
+			}
 			if err := s.Start(ctx); err == nil {
 				t.Fatal("interrupted operation falsely started")
 			}
@@ -100,6 +143,9 @@ func TestFundingCarryStartupReconcilesSavedRepaymentWithoutRPC(t *testing.T) {
 				}
 			} else if store.payload != before {
 				t.Fatal("failed recovery changed durable state")
+			}
+			if conflicting != nil && conflicting.writes != conflicting.conflictAt {
+				t.Fatal("recovery did not stop at conditional write conflict")
 			}
 			if (mode == "wrong_scope" || mode == "invalid_ledger" || mode == "no_ack" || mode == "wrong_asset") && venue.queries != 0 {
 				t.Fatal("invalid attribution queried venue")

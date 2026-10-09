@@ -17,6 +17,9 @@ import (
 
 func setupTestRouter(t *testing.T) *gin.Engine {
 	t.Helper()
+	previousBotProvider := botManagerProvider()
+	RegisterBotManagerProvider(&configMutationTestProvider{})
+	t.Cleanup(func() { RegisterBotManagerProvider(previousBotProvider) })
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 
@@ -363,7 +366,7 @@ func TestUpdateConfigWithStringNumbers(t *testing.T) {
 		"trading": map[string]interface{}{
 			"symbol":           "BTCUSDT",
 			"price_interval":   "70.000000",
-			"order_quantity":    "700",
+			"order_quantity":   "700",
 			"buy_window_size":  10,
 			"sell_window_size": 10,
 		},

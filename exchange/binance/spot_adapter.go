@@ -29,6 +29,7 @@ type BinanceSpotAdapter struct {
 	baseAsset        string
 	quoteAsset       string
 	useTestnet       bool
+	stopEvidenceOnly bool // stop recovery adapter: reject every operation that can mutate account state
 
 	lastAPICallTime time.Time
 	apiCallMu       sync.Mutex
@@ -97,6 +98,12 @@ func NewBinanceSpotAdapter(cfg map[string]string, symbol string) (*BinanceSpotAd
 // GetName 獲取交易所名称
 func (b *BinanceSpotAdapter) GetName() string {
 	return "Binance Spot"
+}
+
+// IsStopEvidenceOnly reports that this adapter rejects account mutations and
+// stream startup; it must be used only by stopped-runtime verifiers.
+func (b *BinanceSpotAdapter) IsStopEvidenceOnly() bool {
+	return b != nil && b.stopEvidenceOnly
 }
 
 // GetMarketType 獲取市場類型：spot 現貨
@@ -181,6 +188,9 @@ func (b *BinanceSpotAdapter) roundToStepSize(quantity float64) float64 {
 
 // PlaceOrder 下單（現貨不支援 ReduceOnly，忽略該参數）
 func (b *BinanceSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if b.stopEvidenceOnly {
+		return nil, errStopEvidenceReadOnly
+	}
 	if req.Price <= 0 {
 		return nil, fmt.Errorf("無效的下單價格: %.8f", req.Price)
 	}
@@ -250,6 +260,9 @@ func (b *BinanceSpotAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) 
 
 // BatchPlaceOrders 批量下單
 func (b *BinanceSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
+	if b.stopEvidenceOnly {
+		return nil, false
+	}
 	placed := make([]*Order, 0, len(orders))
 	hasBalanceError := false
 	for _, req := range orders {
@@ -268,6 +281,9 @@ func (b *BinanceSpotAdapter) BatchPlaceOrders(ctx context.Context, orders []*Ord
 
 // CancelOrder 取消訂單
 func (b *BinanceSpotAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	_, err := b.client.NewCancelOrderService().Symbol(symbol).OrderID(orderID).Do(ctx)
 	if err != nil {
 		if isBinanceUnknownOrderError(err) {
@@ -281,6 +297,9 @@ func (b *BinanceSpotAdapter) CancelOrder(ctx context.Context, symbol string, ord
 
 // BatchCancelOrders 批量撤單（逐個撤銷，匯總失敗；訂單不存在視為成功）
 func (b *BinanceSpotAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	return cancelOrdersSequentially(ctx, "binance spot", symbol, orderIDs, b.CancelOrder)
 }
 
@@ -306,6 +325,9 @@ func cancelOrdersSequentially(ctx context.Context, market, symbol string, orderI
 
 // CancelAllOrders 取消該交易對下所有订單（無挂單時交易所返回 -2011，視為成功）
 func (b *BinanceSpotAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	_, err := b.client.NewCancelOpenOrdersService().Symbol(symbol).Do(ctx)
 	if err != nil && !isBinanceUnknownOrderError(err) {
 		return fmt.Errorf("cancel all spot orders on %s: %w", symbol, err)
@@ -588,6 +610,9 @@ func (b *BinanceSpotAdapter) GetSpotInventoryQty(ctx context.Context) (float64, 
 
 // StartOrderStream 現貨 User Data Stream（executionReport）
 func (b *BinanceSpotAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	if b.orderWS == nil {
 		b.orderWS = NewSpotUserDataWebSocketManager(b.client, b.useTestnet)
 	}
@@ -729,8 +754,7 @@ func (b *BinanceSpotAdapter) warnFeeConversionOnce(asset, reason string) {
 // StopOrderStream 停止訂單流
 func (b *BinanceSpotAdapter) StopOrderStream() error {
 	if b.orderWS != nil {
-		b.orderWS.Stop()
-		b.orderWS = nil
+		return b.orderWS.StopWithError()
 	}
 	return nil
 }
@@ -754,11 +778,17 @@ func (b *BinanceSpotAdapter) GetLatestPrice(ctx context.Context, symbol string) 
 
 // StartPriceStream 啟動價格流（現貨 miniTicker WebSocket）
 func (b *BinanceSpotAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
 // StartKlineStream 啟動現貨 K 線流（combined stream）
 func (b *BinanceSpotAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(interface{})) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	if b.klineWS == nil {
 		b.klineWS = NewSpotKlineWebSocketManager(b.useTestnet)
 	}
@@ -1013,6 +1043,9 @@ func (b *BinanceSpotAdapter) GetOrderBook(ctx context.Context, symbol string, li
 
 // InternalTransfer 現貨內部轉帳（同 binance adapter 逻辑）
 func (b *BinanceSpotAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
+	if b.stopEvidenceOnly {
+		return "", errStopEvidenceReadOnly
+	}
 	var transferType binancesdk.UserUniversalTransferType
 	switch {
 	case strings.EqualFold(fromAccount, "UMFUTURE") && (strings.EqualFold(toAccount, "SPOT") || strings.EqualFold(toAccount, "MAIN")):

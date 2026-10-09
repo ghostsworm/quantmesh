@@ -1,4 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { configReceiptFeedback, startAfterVerifiedConfigSave } from '../services/configSaveReceipt'
+import { pendingOrderIDsForMutation, requireCancelCompletion, requireCloseCompletion } from '../utils/configMutationPreflight'
+import { ConfigCard, WindowSizeSlider, PolymarketConfigSection, MacroEventConfigSection } from './configuration/ConfigurationSections'
+import { AIConfigurationTab } from './configuration/AIConfigurationTab'
+import { NotificationConfigurationTab } from './configuration/NotificationConfigurationTab'
+import { StorageConfigurationTab } from './configuration/StorageConfigurationTab'
+import { SecurityConfigurationTab } from './configuration/SecurityConfigurationTab'
+import { RiskConfigurationTab } from './configuration/RiskConfigurationTab'
 import {
   Box,
   Container,
@@ -142,176 +150,6 @@ const GLOBAL_CONFIG_TAB_ICONS = [
   EditIcon,
 ] as const
 const SYMBOL_CONFIG_TAB_ICONS = [RepeatIcon, WarningIcon, StarIcon] as const
-
-const WINDOW_SIZE_PRESETS = [10, 20, 30, 50, 100] as const
-
-const WindowSizeSlider: React.FC<{
-  value: number
-  onChange: (v: number) => void
-  size?: 'sm' | 'md'
-}> = ({ value, onChange, size = 'md' }) => {
-  const displayValue = Math.max(1, Math.min(100, value || 10))
-  const handleChange = (v: number) => onChange(Math.max(1, Math.min(100, v)))
-  return (
-    <VStack align="stretch" spacing={2}>
-      <HStack spacing={3} align="center">
-        <Slider
-          flex={1}
-          value={displayValue}
-          min={1}
-          max={100}
-          step={1}
-          onChange={handleChange}
-        >
-          <SliderTrack bg="gray.200">
-            <SliderFilledTrack bg="blue.500" />
-          </SliderTrack>
-          <SliderThumb boxSize={size === 'sm' ? 3 : 4} />
-        </Slider>
-        <Text fontWeight="bold" minW={8} textAlign="right" fontSize={size === 'sm' ? 'sm' : 'md'}>
-          {displayValue}
-        </Text>
-      </HStack>
-      <HStack flexWrap="wrap" gap={1}>
-        {WINDOW_SIZE_PRESETS.map((preset) => (
-          <Button
-            key={preset}
-            size="xs"
-            variant={displayValue === preset ? 'solid' : 'outline'}
-            colorScheme="blue"
-            onClick={() => handleChange(preset)}
-          >
-            {preset}
-          </Button>
-        ))}
-      </HStack>
-    </VStack>
-  )
-}
-
-const PolymarketConfigSection: React.FC<{
-  config: Config
-  setConfig: React.Dispatch<React.SetStateAction<Config | null>>
-}> = ({ config, setConfig }) => {
-  const { t } = useTranslation()
-  const ps = config.ai?.modules?.polymarket_signal
-  const enabled = ps?.enabled ?? false
-  const gammaUrl = config.macro_event?.gamma_api_url || ps?.api_url || ''
-
-  return (
-    <ConfigCard title={t('configuration.polymarketSectionTitle')} icon={<StarIcon />}>
-      <Flex justify="space-between" align="center" mb={4}>
-        <Box>
-          <Text fontWeight="600">{t('configuration.polymarketEnable')}</Text>
-          <Text fontSize="xs" color="gray.500">
-            {t('configuration.polymarketEnableDesc')}
-          </Text>
-        </Box>
-        <Switch
-          colorScheme="purple"
-          isChecked={enabled}
-          onChange={(e) => {
-            const checked = e.target.checked
-            setConfig((prev) => (prev ? applyPolymarketEnabledToConfig(prev, checked) : null))
-          }}
-        />
-      </Flex>
-      {enabled && (
-        <Text fontSize="xs" color="gray.600" whiteSpace="pre-line">
-          {t('configuration.polymarketFilledHint', {
-            url: gammaUrl || '—',
-            interval: ps?.analysis_interval ?? 300,
-          })}
-        </Text>
-      )}
-    </ConfigCard>
-  )
-}
-
-const MacroEventConfigSection: React.FC<{
-  config: Config
-  updateConfigField: (path: string, value: unknown) => void
-}> = ({ config, updateConfigField }) => {
-  const { t } = useTranslation()
-  const me = config.macro_event
-  const enabled = me?.enabled ?? false
-  const interval = me?.fetch_interval ?? 300
-  const gammaUrl = me?.gamma_api_url ?? ''
-
-  return (
-    <ConfigCard title={t('configuration.macroEventSectionTitle')} icon={<StarIcon />}>
-      <Text fontSize="xs" color="gray.500" mb={4}>{t('configuration.macroEventSectionDesc')}</Text>
-      <Flex justify="space-between" align="center" mb={4}>
-        <Box>
-          <Text fontWeight="600">{t('configuration.macroEventEnable')}</Text>
-          <Text fontSize="xs" color="gray.500">{t('configuration.macroEventEnableDesc')}</Text>
-        </Box>
-        <Switch
-          colorScheme="purple"
-          isChecked={enabled}
-          onChange={(e) => updateConfigField('macro_event.enabled', e.target.checked)}
-        />
-      </Flex>
-      <FormControl mb={4}>
-        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.macroEventFetchInterval')}</FormLabel>
-        <NumberInput
-          value={interval}
-          min={60}
-          max={86400}
-          step={60}
-          onChange={(_, v) => updateConfigField('macro_event.fetch_interval', v ?? 300)}
-        >
-          <NumberInputField borderRadius="xl" />
-          <NumberInputStepper>
-            <NumberIncrementStepper />
-            <NumberDecrementStepper />
-          </NumberInputStepper>
-        </NumberInput>
-        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.macroEventFetchIntervalDesc')}</Text>
-      </FormControl>
-      {gammaUrl ? (
-        <Text fontSize="xs" color="gray.600" mb={2}>{t('configuration.macroEventGammaUrl')}: {gammaUrl}</Text>
-      ) : null}
-      <Alert status="info" borderRadius="lg">
-        <AlertIcon />
-        <Text fontSize="xs">{t('configuration.macroEventRestartHint')}</Text>
-      </Alert>
-    </ConfigCard>
-  )
-}
-
-const ConfigCard: React.FC<{ title: string; children: React.ReactNode; icon?: any; headerRight?: React.ReactNode }> = ({
-  title,
-  children,
-  icon,
-  headerRight,
-}) => {
-  const bg = 'white'
-  const borderColor = 'gray.100'
-  
-  return (
-    <Box
-      bg={bg}
-      p={6}
-      borderRadius="2xl"
-      border="1px"
-      borderColor={borderColor}
-      boxShadow="sm"
-      mb={6}
-    >
-      <HStack mb={5} spacing={3} justify="space-between" align="center">
-        <HStack spacing={3} minW={0}>
-          {icon && <Box color="blue.500" flexShrink={0}>{icon}</Box>}
-          <Heading size="sm" fontWeight="600" noOfLines={1}>{title}</Heading>
-        </HStack>
-        {headerRight}
-      </HStack>
-      <VStack spacing={5} align="stretch">
-        {children}
-      </VStack>
-    </Box>
-  )
-}
 
 const Configuration: React.FC = () => {
   const { t } = useTranslation()
@@ -688,28 +526,27 @@ const Configuration: React.FC = () => {
       setYamlSaving(true)
       const result = await updateConfigYAML(yamlContent)
       
-      // 追踪配置保存事件
-      trackConfigSaved('yaml')
-      
+      const feedback = configReceiptFeedback(result)
       toast({
-        title: t('configuration.saveSuccess'),
-        description: result.requires_restart ? t('configuration.requiresRestart') : t('configuration.configUpdated'),
-        status: 'success',
-        duration: 3000,
+        title: t(feedback.title),
+        status: feedback.status,
+        duration: 6000,
         isClosable: true,
         position: 'top-right',
       })
       
-      onDiffClose()
-      setOriginalYamlContent(yamlContent)
-      
-      // 刷新 JSON 配置
-      await loadConfig()
+      if (result.saved) {
+        trackConfigSaved('yaml')
+        onDiffClose()
+        setOriginalYamlContent(yamlContent)
+        await loadConfig()
+      }
     } catch (err) {
+      const rejected = err instanceof Error && 'status' in err && typeof err.status === 'number'
       toast({
-        title: t('configuration.saveFailed'),
-        description: err instanceof Error ? err.message : t('configuration.saveConfigFailed'),
-        status: 'error',
+        title: t(rejected ? 'configuration.saveFailed' : 'configSave.unknownSave'),
+        description: t(rejected ? 'configSave.rejected' : 'configSave.unknownSave'),
+        status: rejected ? 'error' : 'warning',
         duration: 5000,
         isClosable: true,
         position: 'top-right',
@@ -810,30 +647,32 @@ const Configuration: React.FC = () => {
     for (const { exchange, symbol, market_type } of targets) {
       if (options.cancelOrders) {
         try {
-          const pend = await getPendingOrders(exchange, symbol, market_type ?? 'futures').catch(() => ({ orders: [] }))
-          const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
+          const pend = await getPendingOrders(exchange, symbol, market_type ?? 'futures')
+          const orderIds = pendingOrderIDsForMutation(pend)
           if (orderIds.length > 0) {
-            await batchCancelOrders(orderIds, exchange, symbol, market_type ?? 'futures')
+            const result = await batchCancelOrders(orderIds, exchange, symbol, market_type ?? 'futures')
+            requireCancelCompletion(result, orderIds.length)
             toast({ title: t('configuration.saveOptionsCancelSuccess', { count: orderIds.length }), status: 'success', duration: 2000 })
           }
         } catch (e) {
-          toast({ title: t('configuration.saveOptionsCancelFailed'), description: e instanceof Error ? e.message : String(e), status: 'error' })
+          toast({ title: t('configuration.saveOptionsCancelFailed'), description: t('configSave.preflightUnverified'), status: 'error' })
           throw e
         }
       }
       if (options.closePositions) {
         try {
-          const res = await closeAllPositions(exchange, symbol)
+          const res = await closeAllPositions(exchange, symbol, market_type ?? 'futures')
+          requireCloseCompletion(res)
           if (res.success_count > 0 || res.fail_count > 0) {
             toast({ title: t('configuration.saveOptionsCloseSuccess', { success: res.success_count, fail: res.fail_count }), status: res.fail_count > 0 ? 'warning' : 'success', duration: 2000 })
           }
         } catch (e) {
-          toast({ title: t('configuration.saveOptionsCloseFailed'), description: e instanceof Error ? e.message : String(e), status: 'error' })
+          toast({ title: t('configuration.saveOptionsCloseFailed'), description: t('configSave.preflightUnverified'), status: 'error' })
           throw e
         }
       }
     }
-    await doSaveConfig()
+    return await doSaveConfig()
   }
 
   const mergedFormFingerprint = useMemo(() => {
@@ -868,28 +707,28 @@ const Configuration: React.FC = () => {
   }, [hasUnsavedChanges])
 
   const doSaveConfig = async () => {
-    if (!config) return
+    if (!config) return false
     setSaving(true)
     setError(null)
     try {
       const toSend = normalizeConfigForSave(config)
       const result = await updateConfig(toSend)
-      trackConfigSaved(isGlobalView ? 'global' : 'symbol')
-      onPreviewClose()
-      const hotUpdated = (result as any).hot_updated as string[] | undefined
-      if (hotUpdated && hotUpdated.length > 0) {
-        setHotUpdatedSymbols(hotUpdated)
-        toast({ title: t('configuration.saveSuccess'), description: t('configuration.priceRangeHotUpdateSuccess'), status: 'success', duration: 5000, isClosable: true, position: 'top-right' })
-      } else {
-        toast({ title: t('configuration.saveSuccess'), status: 'success', duration: 3000, isClosable: true, position: 'top-right' })
+      const feedback = configReceiptFeedback(result)
+      toast({ title: t(feedback.title), status: feedback.status, duration: 6000, isClosable: true, position: 'top-right' })
+      if (result.saved) {
+        trackConfigSaved(isGlobalView ? 'global' : 'symbol')
+        onPreviewClose()
+        setHotUpdatedSymbols(result.applied)
+        await loadConfig()
+        if (selectedExchange && selectedSymbol) setTimeout(fetchPriceRange, 500)
       }
-      await loadConfig()
-      if (selectedExchange && selectedSymbol) setTimeout(fetchPriceRange, 500)
+      return result.saved
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : t('configuration.saveFailed')
+      const rejected = err instanceof Error && 'status' in err && typeof err.status === 'number'
+      const errorMessage = t(rejected ? 'configSave.rejected' : 'configSave.unknownSave')
       setError(errorMessage)
-      toast({ title: t('configuration.saveFailed'), description: errorMessage, status: 'error', duration: 5000, isClosable: true, position: 'top-right' })
-      console.error('保存配置失败:', err)
+      toast({ title: t(rejected ? 'configuration.saveFailed' : 'configSave.unknownSave'), description: errorMessage, status: rejected ? 'error' : 'warning', duration: 5000, isClosable: true, position: 'top-right' })
+      return false
     } finally {
       setSaving(false)
     }
@@ -923,8 +762,8 @@ const Configuration: React.FC = () => {
     setSaving(true)
     setError(null)
     try {
-      await performSaveWithOptions(options)
-      setSaveOptionsOpen(false)
+      const saved = await performSaveWithOptions(options)
+      if (saved) setSaveOptionsOpen(false)
     } catch (err) {
       setSaving(false)
     }
@@ -1483,130 +1322,7 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 2 && (
-                  <VStack spacing={6} align="stretch">
-                    <Alert status="info" borderRadius="lg" variant="subtle">
-                      <AlertIcon />
-                      <AlertDescription fontSize="sm">{t('configuration.aiAssistantTabIntro')}</AlertDescription>
-                    </Alert>
-                    <ConfigCard title={t('configuration.aiConfigAssistant')} icon={<StarIcon />}>
-                      <VStack spacing={4} align="stretch">
-                        <Text fontSize="xs" color="gray.500">{t('configuration.globalAIProviderDesc')}</Text>
-                        <SimpleGrid columns={2} spacing={4}>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.protocolFamily')}</FormLabel>
-                            <Select
-                              value={config.ai?.provider || 'gemini'}
-                              onChange={(e) => {
-                                updateConfigField('ai.provider', e.target.value)
-                                // 切换协议族时清空 model，让用户重新选择/留空走默认
-                                updateConfigField('ai.model', '')
-                              }}
-                              borderRadius="xl"
-                              size="sm"
-                            >
-                              <option value="gemini">{t('aiConfig.wizard.providers.gemini')}</option>
-                              <option value="openai">{t('aiConfig.wizard.providers.openai')}</option>
-                              <option value="dashscope">{t('aiConfig.wizard.providers.dashscopeCn')}</option>
-                              <option value="dashscope_sg">{t('aiConfig.wizard.providers.dashscopeSg')}</option>
-                              <option value="kimi">{t('aiConfig.wizard.providers.kimiCn')}</option>
-                              <option value="kimi_intl">{t('aiConfig.wizard.providers.kimiIntl')}</option>
-                              <option value="deepseek">{t('aiConfig.wizard.providers.deepseek')}</option>
-                              <option value="claude">{t('configuration.protocolClaude')}</option>
-                              <option value="custom">{t('aiConfig.wizard.providers.custom')}</option>
-                            </Select>
-                          </FormControl>
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.model')}</FormLabel>
-                            <Input
-                              value={config.ai?.model || ''}
-                              onChange={(e) => updateConfigField('ai.model', e.target.value)}
-                              placeholder={t('configuration.useDefaultModel')}
-                              borderRadius="xl"
-                              size="sm"
-                            />
-                          </FormControl>
-                        </SimpleGrid>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.apiKey')}</FormLabel>
-                          {renderPasswordInput('ai.api_key', t('configuration.enterApiKeyPlaceholder'))}
-                          <Text fontSize="xs" color="gray.500" mt={1}>
-                            {(config.ai?.provider || 'gemini') === 'gemini' && t('configuration.geminiApiKeyDesc')}
-                            {['openai', 'dashscope', 'dashscope_sg', 'kimi', 'kimi_intl', 'deepseek', 'custom'].includes(config.ai?.provider || '') && t('configuration.apiKeyFromOpenAI')}
-                            {config.ai?.provider === 'claude' && t('configuration.apiKeyFromAnthropic')}
-                          </Text>
-                        </FormControl>
-                        {(['openai', 'dashscope', 'dashscope_sg', 'kimi', 'kimi_intl', 'deepseek', 'custom', 'claude'].includes(config.ai?.provider || '')) && (
-                          <FormControl>
-                            <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.baseUrlOptional')}</FormLabel>
-                            <Input
-                              value={config.ai?.base_url || ''}
-                              onChange={(e) => updateConfigField('ai.base_url', e.target.value)}
-                              placeholder={t('configuration.baseUrlPlaceholder')}
-                              borderRadius="xl"
-                              size="sm"
-                            />
-                          </FormControl>
-                        )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          alignSelf="flex-start"
-                          isLoading={testingGemini}
-                          loadingText={t('configuration.testingCredentials')}
-                          onClick={handleTestGemini}
-                          isDisabled={
-                            !String(getNestedValue(config, 'ai.api_key') || '').trim() &&
-                            !String(getNestedValue(config, 'ai.gemini_api_key') || '').trim()
-                          }
-                        >
-                          {t('configuration.testAIConnection')}
-                        </Button>
-                        <Button
-                          leftIcon={<StarIcon />}
-                          colorScheme="purple"
-                          variant="outline"
-                          onClick={onAIWizardOpen}
-                          isDisabled={
-                            !getNestedValue(config, 'ai.gemini_api_key') &&
-                            !getNestedValue(config, 'ai.api_key') &&
-                            !(config.ai?.default_upstream && config.ai?.upstreams?.[config.ai.default_upstream]?.api_key) &&
-                            !Object.values(config.ai?.upstreams || {}).some((p) => p?.api_key)
-                          }
-                        >
-                          {t('configuration.openAIAssistant')}
-                        </Button>
-                        {!getNestedValue(config, 'ai.gemini_api_key') && !getNestedValue(config, 'ai.api_key') &&
-                          !(config.ai?.default_upstream && config.ai?.upstreams?.[config.ai.default_upstream]?.api_key) &&
-                          !Object.values(config.ai?.upstreams || {}).some((p) => p?.api_key) && (
-                          <Alert status="info" size="sm" borderRadius="md">
-                            <AlertIcon />
-                            <AlertDescription fontSize="xs">
-                              {t('configuration.configureGeminiFirst')}
-                            </AlertDescription>
-                          </Alert>
-                        )}
-                      </VStack>
-                    </ConfigCard>
-
-                    <ConfigCard title={t('configuration.aiUpstreamProfilesTitle')} icon={<InfoIcon />}>
-                      <VStack spacing={3} align="stretch">
-                        <Text fontSize="xs" color="gray.500">{t('configuration.aiUpstreamProfilesDesc')}</Text>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">{t('configuration.aiDefaultUpstream')}</FormLabel>
-                          <Input
-                            borderRadius="xl"
-                            value={config.ai?.default_upstream || ''}
-                            placeholder={t('configuration.aiDefaultUpstreamPlaceholder')}
-                            onChange={(e) => updateConfigField('ai.default_upstream', e.target.value)}
-                          />
-                        </FormControl>
-                        <Text fontSize="xs" color="gray.600">{t('configuration.aiUpstreamsYamlHint')}</Text>
-                      </VStack>
-                    </ConfigCard>
-                  </VStack>
-                )}
+                {tabIndex === 2 && <AIConfigurationTab config={config} updateConfigField={updateConfigField} renderPasswordInput={renderPasswordInput} testingGemini={testingGemini} handleTestGemini={handleTestGemini} onAIWizardOpen={onAIWizardOpen} getNestedValue={getNestedValue} />}
 
                 {tabIndex === 3 && (
                   <VStack spacing={6} align="stretch">
@@ -1859,701 +1575,13 @@ const Configuration: React.FC = () => {
                   </VStack>
                 )}
 
-                {tabIndex === 4 && (
-                  <VStack spacing={6} align="stretch">
-                    <ConfigCard title={t('configuration.globalNotificationSwitch')} icon={<BellIcon />}>
-                      <Flex justify="space-between" align="center">
-                        <Text fontWeight="600">{t('configuration.enableNotifications')}</Text>
-                        <Switch
-                          isChecked={config.notifications?.enabled || false}
-                          onChange={(e) => updateConfigField('notifications.enabled', e.target.checked)}
-                        />
-                      </Flex>
-                    </ConfigCard>
-                    <SimpleGrid columns={2} spacing={6}>
-                      <ConfigCard title={t('configuration.telegramBot')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableTelegram')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.telegram?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.telegram.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.token')}</FormLabel>
-                          {renderPasswordInput('notifications.telegram.bot_token')}
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.chatId')}</FormLabel>
-                          <Input
-                            value={config.notifications?.telegram?.chat_id || ''}
-                            onChange={(e) => updateConfigField('notifications.telegram.chat_id', e.target.value)}
-                            borderRadius="xl"
-                          />
-                          <FormHelperText fontSize="xs" color="gray.600" whiteSpace="pre-line" mt={2}>
-                            {t('configuration.telegramChatIdHelp')}
-                          </FormHelperText>
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'telegram'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('telegram')}
-                          isDisabled={!config.notifications?.telegram?.bot_token || !config.notifications?.telegram?.chat_id}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.webhook')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableWebhook')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.webhook?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.webhook.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">URL</FormLabel>
-                          <Input
-                            value={config.notifications?.webhook?.url || ''}
-                            onChange={(e) => updateConfigField('notifications.webhook.url', e.target.value)}
-                            placeholder="https://..."
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'webhook'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('webhook')}
-                          isDisabled={!config.notifications?.webhook?.url}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.email')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableEmail')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.email?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.email.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailProvider')}</FormLabel>
-                          <Select
-                            value={config.notifications?.email?.provider || 'smtp'}
-                            onChange={(e) => updateConfigField('notifications.email.provider', e.target.value)}
-                            borderRadius="xl"
-                          >
-                            <option value="smtp">SMTP</option>
-                            <option value="resend">Resend</option>
-                            <option value="mailgun">Mailgun</option>
-                          </Select>
-                        </FormControl>
-                        {config.notifications?.email?.provider === 'smtp' && (
-                          <>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpHost')}</FormLabel>
-                              <Input
-                                value={config.notifications?.email?.smtp?.host || ''}
-                                onChange={(e) => updateConfigField('notifications.email.smtp.host', e.target.value)}
-                                borderRadius="xl"
-                              />
-                            </FormControl>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpPort')}</FormLabel>
-                              <NumberInput value={config.notifications?.email?.smtp?.port || 587} onChange={(_, v) => updateConfigField('notifications.email.smtp.port', v)}>
-                                <NumberInputField borderRadius="xl" />
-                              </NumberInput>
-                            </FormControl>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpUsername')}</FormLabel>
-                              <Input
-                                value={config.notifications?.email?.smtp?.username || ''}
-                                onChange={(e) => updateConfigField('notifications.email.smtp.username', e.target.value)}
-                                borderRadius="xl"
-                              />
-                            </FormControl>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.smtpPassword')}</FormLabel>
-                              {renderPasswordInput('notifications.email.smtp.password')}
-                            </FormControl>
-                          </>
-                        )}
-                        {config.notifications?.email?.provider === 'resend' && (
-                          <FormControl mb={4}>
-                            <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.resendApiKey')}</FormLabel>
-                            {renderPasswordInput('notifications.email.resend.api_key')}
-                          </FormControl>
-                        )}
-                        {config.notifications?.email?.provider === 'mailgun' && (
-                          <>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mailgunApiKey')}</FormLabel>
-                              {renderPasswordInput('notifications.email.mailgun.api_key')}
-                            </FormControl>
-                            <FormControl mb={4}>
-                              <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mailgunDomain')}</FormLabel>
-                              <Input
-                                value={config.notifications?.email?.mailgun?.domain || ''}
-                                onChange={(e) => updateConfigField('notifications.email.mailgun.domain', e.target.value)}
-                                borderRadius="xl"
-                              />
-                            </FormControl>
-                          </>
-                        )}
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailFrom')}</FormLabel>
-                          <Input
-                            value={config.notifications?.email?.from || ''}
-                            onChange={(e) => updateConfigField('notifications.email.from', e.target.value)}
-                            placeholder="alerts@yourdomain.com"
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.emailTo')}</FormLabel>
-                          <Input
-                            value={config.notifications?.email?.to || ''}
-                            onChange={(e) => updateConfigField('notifications.email.to', e.target.value)}
-                            placeholder="admin@yourdomain.com"
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'email'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('email')}
-                          isDisabled={!config.notifications?.email?.from || !config.notifications?.email?.to}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.feishu')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableFeishu')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.feishu?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.feishu.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
-                          <Input
-                            value={config.notifications?.feishu?.webhook || ''}
-                            onChange={(e) => updateConfigField('notifications.feishu.webhook', e.target.value)}
-                            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'feishu'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('feishu')}
-                          isDisabled={!config.notifications?.feishu?.webhook}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.dingtalk')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableDingtalk')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.dingtalk?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.dingtalk.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
-                          <Input
-                            value={config.notifications?.dingtalk?.webhook || ''}
-                            onChange={(e) => updateConfigField('notifications.dingtalk.webhook', e.target.value)}
-                            placeholder="https://oapi.dingtalk.com/robot/send?access_token=..."
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.dingtalkSecret')}</FormLabel>
-                          {renderPasswordInput('notifications.dingtalk.secret')}
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'dingtalk'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('dingtalk')}
-                          isDisabled={!config.notifications?.dingtalk?.webhook}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.wechatWork')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableWechatWork')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.wechat_work?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.wechat_work.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
-                          <Input
-                            value={config.notifications?.wechat_work?.webhook || ''}
-                            onChange={(e) => updateConfigField('notifications.wechat_work.webhook', e.target.value)}
-                            placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'wechat_work'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('wechat_work')}
-                          isDisabled={!config.notifications?.wechat_work?.webhook}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                      <ConfigCard title={t('configuration.slack')}>
-                        <FormControl mb={4} display="flex" alignItems="center" justifyContent="space-between">
-                          <FormLabel fontSize="sm" mb={0}>{t('configuration.enableSlack')}</FormLabel>
-                          <Switch
-                            isChecked={config.notifications?.slack?.enabled || false}
-                            onChange={(e) => updateConfigField('notifications.slack.enabled', e.target.checked)}
-                          />
-                        </FormControl>
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.webhookUrl')}</FormLabel>
-                          <Input
-                            value={config.notifications?.slack?.webhook || ''}
-                            onChange={(e) => updateConfigField('notifications.slack.webhook', e.target.value)}
-                            placeholder="https://hooks.slack.com/services/..."
-                            borderRadius="xl"
-                          />
-                        </FormControl>
-                        <Divider />
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          colorScheme="blue"
-                          isLoading={testingChannel === 'slack'}
-                          loadingText={t('configuration.testConnectionSending')}
-                          onClick={() => handleTestNotification('slack')}
-                          isDisabled={!config.notifications?.slack?.webhook}
-                        >
-                          {t('configuration.testConnection')}
-                        </Button>
-                      </ConfigCard>
-                    </SimpleGrid>
-                  </VStack>
-                )}
+                {tabIndex === 4 && <NotificationConfigurationTab config={config} updateConfigField={updateConfigField} renderPasswordInput={renderPasswordInput} testingChannel={testingChannel} handleTestNotification={handleTestNotification} />}
 
-                {tabIndex === 5 && (
-                  <SimpleGrid columns={2} spacing={6}>
-                    <ConfigCard title={t('configuration.dataStorage')} icon={<SettingsIcon />}>
-                      <FormControl mb={4} display="flex" alignItems="center">
-                        <FormLabel fontSize="xs" fontWeight="bold" mb={0} flex="1">
-                          {t('configuration.storageEnabled')}
-                        </FormLabel>
-                        <Switch
-                          isChecked={config.storage?.enabled !== false}
-                          onChange={(e) => updateConfigField('storage.enabled', e.target.checked)}
-                          colorScheme="blue"
-                        />
-                      </FormControl>
-                      <Text fontSize="xs" color="gray.500" mb={3}>
-                        {t('configuration.storageEnabledHint')}
-                      </Text>
-                      <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.storageType')}</FormLabel>
-                        <Select
-                          value={config.storage?.type || 'sqlite'}
-                          onChange={(e) => updateConfigField('storage.type', e.target.value)}
-                          borderRadius="xl"
-                        >
-                          <option value="sqlite">{t('configuration.storageTypeSqlite')}</option>
-                          <option value="mysql">{t('configuration.storageTypeMysql')}</option>
-                          <option value="postgres">{t('configuration.storageTypePostgres')}</option>
-                        </Select>
-                      </FormControl>
-                      {(config.storage?.type || 'sqlite') === 'sqlite' && (
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.databasePath')}</FormLabel>
-                          <Input
-                            value={config.storage?.path || ''}
-                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
-                            borderRadius="xl"
-                            placeholder="./data/quantmesh.db"
-                          />
-                        </FormControl>
-                      )}
-                      {(config.storage?.type || 'sqlite') === 'mysql' && (
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.mysqlDsn')}</FormLabel>
-                          <Input
-                            value={config.storage?.path || ''}
-                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
-                            borderRadius="xl"
-                            placeholder="user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local"
-                          />
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.mysqlDsnHint')}</Text>
-                        </FormControl>
-                      )}
-                      {(config.storage?.type || 'sqlite') === 'postgres' && (
-                        <FormControl mb={4}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.postgresDsn')}</FormLabel>
-                          <Input
-                            value={config.storage?.path || ''}
-                            onChange={(e) => updateConfigField('storage.path', e.target.value)}
-                            borderRadius="xl"
-                            placeholder="postgresql://user:pass@host:5432/dbname?sslmode=require"
-                          />
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.postgresDsnHint')}</Text>
-                        </FormControl>
-                      )}
-                      <HStack spacing={4}>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.buffer')}</FormLabel>
-                          <NumberInput value={config.storage?.buffer_size || 1000} onChange={(_, v) => updateConfigField('storage.buffer_size', v)}>
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.flushInterval')}</FormLabel>
-                          <NumberInput value={config.storage?.flush_interval || 5} onChange={(_, v) => updateConfigField('storage.flush_interval', v)}>
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                        </FormControl>
-                      </HStack>
-                    </ConfigCard>
-                    <ConfigCard title={t('configuration.webService')} icon={<SettingsIcon />}>
-                      <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.listenPort')}</FormLabel>
-                        <NumberInput value={config.web?.port || 28888} onChange={(_, v) => updateConfigField('web.port', v)}>
-                          <NumberInputField borderRadius="xl" />
-                        </NumberInput>
-                      </FormControl>
-                      <FormControl>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.apiKeyOptional')}</FormLabel>
-                        {renderPasswordInput('web.api_key')}
-                      </FormControl>
-                    </ConfigCard>
-                  </SimpleGrid>
-                )}
+                {tabIndex === 5 && <StorageConfigurationTab config={config} updateConfigField={updateConfigField} renderPasswordInput={renderPasswordInput} />}
 
-                {tabIndex === 6 && (
-                  <VStack spacing={6} align="stretch">
-                    <ConfigCard title={t('configuration.securitySettings')} icon={<LockIcon />}>
-                      <VStack spacing={6} align="stretch">
-                        <Alert status="info" borderRadius="lg">
-                          <AlertIcon />
-                          <AlertDescription fontSize="sm">
-                            {t('configuration.securitySettingsDesc')}
-                          </AlertDescription>
-                        </Alert>
+                {tabIndex === 6 && <SecurityConfigurationTab config={config} updateConfigField={updateConfigField} securityStatus={securityStatus} generatingKey={generatingKey} handleGenerateMasterKey={handleGenerateMasterKey} />}
 
-                        <FormControl display="flex" alignItems="center">
-                          <FormLabel fontSize="sm" fontWeight="bold" mb={0} flex="1">
-                            {t('configuration.enableEncryption')}
-                          </FormLabel>
-                          <Switch
-                            colorScheme="blue"
-                            isChecked={config.security?.encryption_enabled || false}
-                            onChange={(e) => updateConfigField('security.encryption_enabled', e.target.checked)}
-                          />
-                        </FormControl>
-
-                        {config.security?.encryption_enabled && (
-                          <>
-                            <FormControl>
-                              <FormLabel fontSize="xs" fontWeight="bold" color="gray.500">
-                                {t('configuration.masterKeyPath')}
-                              </FormLabel>
-                              <Input
-                                value={securityStatus?.master_key_path || config.security?.master_key_path || './data/master.key'}
-                                isReadOnly
-                                borderRadius="xl"
-                                bg="gray.50"
-                              />
-                              <Text fontSize="xs" color="gray.500" mt={1}>
-                                {t('configuration.masterKeyPathDesc')}
-                              </Text>
-                            </FormControl>
-
-                            <Divider />
-
-                            <VStack spacing={4} align="stretch">
-                              <Text fontSize="sm" fontWeight="600">
-                                {t('configuration.masterKeyManagement')}
-                              </Text>
-                              
-                              {securityStatus?.master_key_exists ? (
-                                <Alert status="success" borderRadius="md">
-                                  <AlertIcon />
-                                  <AlertDescription fontSize="xs">
-                                    {t('configuration.masterKeyExists')}
-                                  </AlertDescription>
-                                </Alert>
-                              ) : (
-                                <Alert status="warning" borderRadius="md">
-                                  <AlertIcon />
-                                  <AlertDescription fontSize="xs">
-                                    {t('configuration.masterKeyNotExists')}
-                                  </AlertDescription>
-                                </Alert>
-                              )}
-
-                              <Button
-                                size="sm"
-                                colorScheme="blue"
-                                variant="outline"
-                                onClick={handleGenerateMasterKey}
-                                isLoading={generatingKey}
-                                isDisabled={securityStatus?.master_key_exists || false}
-                                leftIcon={<LockIcon />}
-                              >
-                                {t('configuration.generateMasterKey')}
-                              </Button>
-                            </VStack>
-
-                            <Alert status="warning" borderRadius="md" mt={4}>
-                              <AlertIcon />
-                              <AlertDescription fontSize="xs">
-                                {t('configuration.encryptionWarning')}
-                              </AlertDescription>
-                            </Alert>
-                          </>
-                        )}
-                      </VStack>
-                    </ConfigCard>
-                  </VStack>
-                )}
-
-                {tabIndex === 7 && (
-                  <VStack spacing={6} align="stretch">
-                    <Alert status="info" borderRadius="lg">
-                      <AlertIcon />
-                      <Box>
-                        <AlertTitle fontSize="sm">{t('configuration.globalMarketRiskIntro')}</AlertTitle>
-                        <AlertDescription fontSize="xs" mt={2}>
-                          {t('configuration.globalMarketRiskVsBot')}
-                        </AlertDescription>
-                      </Box>
-                    </Alert>
-
-                    <PolymarketConfigSection config={config} setConfig={setConfig} />
-                    <MacroEventConfigSection config={config} updateConfigField={updateConfigField} />
-
-                    <ConfigCard title={t('configuration.riskControlSettings')} icon={<LockIcon />}>
-                      <Flex justify="space-between" align="center" mb={6}>
-                        <Box>
-                          <Text fontWeight="600">{t('configuration.enableRiskEngine')}</Text>
-                          <Text fontSize="xs" color="gray.500">{t('configuration.enableRiskEngineDesc')}</Text>
-                        </Box>
-                        <Switch
-                          colorScheme="orange"
-                          isChecked={config.risk_control?.enabled || false}
-                          onChange={(e) => updateConfigField('risk_control.enabled', e.target.checked)}
-                        />
-                      </Flex>
-                      <FormControl mb={4}>
-                        <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.monitorSymbols')}</FormLabel>
-                        <Textarea
-                          rows={3}
-                          value={(config.risk_control?.monitor_symbols || []).join(', ')}
-                          onChange={(e) => {
-                            updateConfigField('risk_control.monitor_symbols', parseMonitorSymbolsInput(e.target.value))
-                          }}
-                          borderRadius="xl"
-                          placeholder="BTCUSDT, ETHUSDT"
-                        />
-                        <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.monitorSymbolsDesc')}</Text>
-                      </FormControl>
-                      <SimpleGrid columns={2} spacing={6}>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.riskKlineInterval')}</FormLabel>
-                          <Select
-                            value={config.risk_control?.interval || '1m'}
-                            onChange={(e) => updateConfigField('risk_control.interval', e.target.value)}
-                            borderRadius="xl"
-                          >
-                            <option value="1m">1m</option>
-                            <option value="3m">3m</option>
-                            <option value="5m">5m</option>
-                            <option value="15m">15m</option>
-                            <option value="30m">30m</option>
-                            <option value="1h">1h</option>
-                          </Select>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.volumeMultiplier')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.volume_multiplier || 0}
-                            onChange={(_, v) => updateConfigField('risk_control.volume_multiplier', v)}
-                            precision={2}
-                            step={0.1}
-                            min={0}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.averageWindow')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.average_window ?? 20}
-                            onChange={(_, v) => updateConfigField('risk_control.average_window', v ?? 20)}
-                            min={1}
-                            max={500}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.averageWindowDesc')}</Text>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.recoveryThresholdKline')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.recovery_threshold ?? 3}
-                            onChange={(_, v) => updateConfigField('risk_control.recovery_threshold', v ?? 3)}
-                            min={1}
-                            max={50}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.recoveryThresholdKlineDesc')}</Text>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.maxLeverage')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.max_leverage || 0}
-                            onChange={(_, v) => updateConfigField('risk_control.max_leverage', v)}
-                            min={0}
-                            max={125}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.maxLeverageZeroHint')}</Text>
-                        </FormControl>
-                      </SimpleGrid>
-                    </ConfigCard>
-
-                    <ConfigCard title={t('configuration.depthMonitorCard')} icon={<LockIcon />}>
-                      <Flex justify="space-between" align="center" mb={6}>
-                        <Box>
-                          <Text fontWeight="600">{t('configuration.depthMonitorEnabled')}</Text>
-                          <Text fontSize="xs" color="gray.500">{t('configuration.depthMonitorEnabledDesc')}</Text>
-                        </Box>
-                        <Switch
-                          colorScheme="orange"
-                          isChecked={config.risk_control?.depth_monitor?.enabled || false}
-                          onChange={(e) => {
-                            const dm = config.risk_control?.depth_monitor || {}
-                            updateConfigField('risk_control.depth_monitor', { ...dm, enabled: e.target.checked })
-                          }}
-                        />
-                      </Flex>
-                      <SimpleGrid columns={2} spacing={6}>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthCheckIntervalSec')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.depth_monitor?.check_interval ?? 5}
-                            onChange={(_, v) => {
-                              const dm = config.risk_control?.depth_monitor || {}
-                              updateConfigField('risk_control.depth_monitor', { ...dm, check_interval: v ?? 5 })
-                            }}
-                            min={1}
-                            max={3600}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthLevels')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.depth_monitor?.depth_levels ?? 10}
-                            onChange={(_, v) => {
-                              const dm = config.risk_control?.depth_monitor || {}
-                              updateConfigField('risk_control.depth_monitor', { ...dm, depth_levels: v ?? 10 })
-                            }}
-                            min={1}
-                            max={100}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthDropThreshold')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.depth_monitor?.drop_threshold ?? 0.5}
-                            onChange={(_, v) => {
-                              const dm = config.risk_control?.depth_monitor || {}
-                              updateConfigField('risk_control.depth_monitor', { ...dm, drop_threshold: v ?? 0.5 })
-                            }}
-                            precision={2}
-                            step={0.05}
-                            min={0}
-                            max={1}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.depthDropThresholdDesc')}</Text>
-                        </FormControl>
-                        <FormControl>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.depthRecoveryThreshold')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.depth_monitor?.recovery_threshold ?? 0.7}
-                            onChange={(_, v) => {
-                              const dm = config.risk_control?.depth_monitor || {}
-                              updateConfigField('risk_control.depth_monitor', { ...dm, recovery_threshold: v ?? 0.7 })
-                            }}
-                            precision={2}
-                            step={0.05}
-                            min={0}
-                            max={1}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.depthRecoveryThresholdDesc')}</Text>
-                        </FormControl>
-                        <FormControl gridColumn={{ base: '1', md: '1 / -1' }}>
-                          <FormLabel fontSize="xs" fontWeight="bold">{t('configuration.minDepthUsdt')}</FormLabel>
-                          <NumberInput
-                            value={config.risk_control?.depth_monitor?.min_depth_usdt ?? 10000}
-                            onChange={(_, v) => {
-                              const dm = config.risk_control?.depth_monitor || {}
-                              updateConfigField('risk_control.depth_monitor', { ...dm, min_depth_usdt: v ?? 10000 })
-                            }}
-                            min={0}
-                            precision={0}
-                            step={100}
-                          >
-                            <NumberInputField borderRadius="xl" />
-                          </NumberInput>
-                          <Text fontSize="xs" color="gray.500" mt={1}>{t('configuration.minDepthUsdtDesc')}</Text>
-                        </FormControl>
-                      </SimpleGrid>
-                    </ConfigCard>
-                  </VStack>
-                )}
+                {tabIndex === 7 && <RiskConfigurationTab config={config} updateConfigField={updateConfigField} setConfig={setConfig} />}
 
                 {tabIndex === 8 && (
                   <VStack spacing={6} align="stretch">
@@ -3745,13 +2773,15 @@ const Configuration: React.FC = () => {
             const exchange = selectedExchange
             const symbol = selectedSymbol
             try {
-          const pend = await getPendingOrders(exchange, symbol, selectedMarketType || 'futures').catch(() => ({ orders: [] }))
-          const orderIds = (pend.orders || []).map((o: any) => o.order_id).filter(Boolean)
+          const pend = await getPendingOrders(exchange, symbol, selectedMarketType || 'futures')
+          const orderIds = pendingOrderIDsForMutation(pend)
           if (orderIds.length > 0) {
-            await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')
+            const result = await batchCancelOrders(orderIds, exchange, symbol, selectedMarketType || 'futures')
+            requireCancelCompletion(result, orderIds.length)
           }
-              await closeAllPositions(exchange, symbol)
-              await stopTrading(exchange, symbol)
+              const closeResult = await closeAllPositions(exchange, symbol, selectedMarketType || 'futures')
+              requireCloseCompletion(closeResult)
+              await stopTrading(exchange, symbol, selectedMarketType || 'futures')
               const newConfig: Config = JSON.parse(JSON.stringify(config))
               const syms = newConfig.trading?.symbols || []
               const idx = syms.findIndex(
@@ -3764,14 +2794,24 @@ const Configuration: React.FC = () => {
               } else if (newConfig.trading) {
                 newConfig.trading.direction = newDir
               }
-              await updateConfig(newConfig)
-              setConfig(newConfig)
-              await startTrading(exchange, symbol)
+              const receipt = await updateConfig(newConfig)
+              if (receipt.saved) {
+                setConfig(newConfig)
+                await loadConfig()
+              }
+              const selected = getSelectedSymbolConfig()
+              const targetBotId = typeof selected?.bot_id === 'string' ? selected.bot_id : undefined
+              const started = await startAfterVerifiedConfigSave(receipt, targetBotId, () => startTrading(exchange, symbol, selectedMarketType || 'futures'))
               setDirectionConfirm((p) => ({ ...p, isOpen: false, loading: false }))
-              toast({ title: t('configuration.directionSwitchSuccess'), status: 'success', duration: 3000 })
+              const feedback = configReceiptFeedback(receipt)
+              toast({
+                title: started ? t('configuration.directionSwitchSuccess') : t(feedback.title),
+                description: started ? undefined : t('configSave.manualStartRequired'),
+                status: started ? 'success' : 'warning', duration: 6000,
+              })
             } catch (err) {
               setDirectionConfirm((p) => ({ ...p, loading: false }))
-              toast({ title: t('configuration.directionSwitchFailed'), description: err instanceof Error ? err.message : String(err), status: 'error', duration: 5000 })
+              toast({ title: t('configuration.directionSwitchFailed'), description: t('configSave.unknownSave'), status: 'error', duration: 5000 })
               throw err
             }
           }}

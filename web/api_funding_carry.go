@@ -31,6 +31,10 @@ type BatchCreateFundingResponse struct {
 const fundingCarryReportingAsset = "USDT"
 const fundingCarryIncomeBasis = "gross_account_scoped_futures_funding"
 
+func logFundingCarryBotStartFailure(botID string, _ error) {
+	logger.Warn("⚠️ 批量啟動 Bot %s 失敗；底層診斷未輸出至通用日誌", botID)
+}
+
 type fundingCarryScopedReader interface {
 	GetFundingPaymentsSumByScope(exchange, marketType, symbol, asset, accountScope string, startTime, endTime time.Time) (float64, error)
 	GetDailyFundingPaymentsByAccountScopeAndAsset(exchange, marketType, asset, accountScope string, startTime, endTime time.Time) (map[string]float64, error)
@@ -178,7 +182,7 @@ func postBatchCreateFunding(c *gin.Context) {
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 					defer cancel()
 					if err := botManagerProvider().StartBot(ctx, b); err != nil {
-						logger.Warn("⚠️ 批量啟動 Bot %s 失敗: %v", b.ID, err)
+						logFundingCarryBotStartFailure(b.ID, err)
 					}
 				}(bc)
 			}

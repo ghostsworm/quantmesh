@@ -1,4 +1,6 @@
 import { API_BASE_URL, fetchWithAuth } from './apiTransport'
+import { saveStrategyWithReceipt, type StrategySaveReceipt } from './strategySaveReceipt'
+import { saveConfigWithReceipt, type ConfigSaveReceipt } from './configSaveReceipt'
 export { fetchWithAuth } from './apiTransport'
 export * from './botApi'
 
@@ -55,6 +57,44 @@ export async function getServicesStatus(): Promise<ServicesStatusResponse> {
   return fetchWithAuth(`${API_BASE_URL}/services/status`)
 }
 
+export interface RetiredEquityAccount {
+  id: string
+  exchange: string
+  market_type: string
+  account_scope: string
+  status: 'pending_verification' | 'ready_for_explicit_reset'
+  retired_at: string
+  last_observed_at?: string
+  last_flat_at?: string
+  flat_evidence_count: number
+  last_evidence_result?: 'flat' | 'incomplete' | 'open_exposure'
+}
+
+export interface RetiredEquityResetOperation {
+  id: string
+  actor: string
+  target_scope: string
+  started_at: string
+  completed_at?: string
+  baseline_revision?: number
+  retired_account_ids: string[]
+}
+
+export async function getRetiredEquityAccounts(signal?: AbortSignal): Promise<{ accounts: RetiredEquityAccount[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/capital/retired-equity-accounts`, { signal })
+}
+
+export async function getRetiredEquityResetHistory(signal?: AbortSignal): Promise<{ history: RetiredEquityResetOperation[] }> {
+  return fetchWithAuth(`${API_BASE_URL}/capital/retired-equity-accounts/reset-history`, { signal })
+}
+
+export async function resetRetiredEquityAccounts(): Promise<{ operation: RetiredEquityResetOperation; status: 'completed' }> {
+  return fetchWithAuth(`${API_BASE_URL}/capital/retired-equity-accounts/reset`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  })
+}
+
 // Alias for backward compatibility
 export const getStatus = getSystemStatus
 
@@ -92,6 +132,7 @@ export interface BotInfo {
   symbol: string
   market_type: string
   running: boolean
+  stop_pending?: boolean
   current_price?: number
   total_pnl?: number
   total_trades?: number
@@ -427,17 +468,13 @@ export interface UpdateBotStrategyRequest {
   spot_inventory_policy?: 'conservative' | 'adopt_all'
 }
 
-export interface UpdateBotStrategyResponse {
-  ok: boolean
-  bot_id: string
-  message: string
-}
+export type UpdateBotStrategyResponse = StrategySaveReceipt
 
 export async function updateBotStrategy(
   botId: string,
   config: UpdateBotStrategyRequest
 ): Promise<UpdateBotStrategyResponse> {
-  return fetchWithAuth(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategy`, {
+  return saveStrategyWithReceipt(`${API_BASE_URL}/bots/${encodeURIComponent(botId)}/strategy`, botId, {
     method: 'PUT',
     body: JSON.stringify(config),
   })
@@ -1778,8 +1815,8 @@ export async function getConfig(): Promise<ConfigResponse> {
   return fetchWithAuth(`${API_BASE_URL}/config`)
 }
 
-export async function updateConfig(config: Partial<Config>): Promise<{ message: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/config/update`, {
+export async function updateConfig(config: Partial<Config>): Promise<ConfigSaveReceipt> {
+  return saveConfigWithReceipt(`${API_BASE_URL}/config/update`, {
     method: 'POST',
     body: JSON.stringify(config),
   })
@@ -2034,10 +2071,12 @@ export interface ClosePositionsResponse {
   message: string
 }
 
-export async function closeAllPositions(exchange?: string, symbol?: string): Promise<ClosePositionsResponse> {
+export async function closeAllPositions(exchange?: string, symbol?: string, marketType?: string, botId?: string): Promise<ClosePositionsResponse> {
   const queryParams = new URLSearchParams()
   if (exchange) queryParams.append('exchange', exchange)
   if (symbol) queryParams.append('symbol', symbol)
+  if (marketType) queryParams.append('market_type', marketType)
+  if (botId) queryParams.append('bot_id', botId)
   const url = `${API_BASE_URL}/trading/close-positions${queryParams.toString() ? '?' + queryParams.toString() : ''}`
   return fetchWithAuth(url, {
     method: 'POST',

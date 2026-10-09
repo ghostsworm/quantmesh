@@ -299,12 +299,89 @@ func TestSystemMetricsHandlers(t *testing.T) {
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics/current", nil))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"process_id":0`) {
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"error":"system_metrics_unavailable"`) {
 		t.Fatalf("current error fallback status=%d body=%s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/metrics/daily", nil))
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("daily provider error status = %d", w.Code)
+	}
+}
+
+type marketTypeStopProbe struct {
+	SymbolManagerProvider
+	requestedMarketType string
+	resolvedMarketType  string
+	stopErr             error
+}
+
+type startFailureSymbolProbe struct {
+	SymbolManagerProvider
+	err error
+}
+
+func (p startFailureSymbolProbe) StartSymbol(string, string, string) error { return p.err }
+
+func (p *marketTypeStopProbe) StopSymbol(string, string) error {
+	return errors.New("legacy unscoped stop path must not be used")
+}
+
+func (p *marketTypeStopProbe) StopSymbolForMarket(_, _, marketType string) (string, error) {
+	p.requestedMarketType = marketType
+	return p.resolvedMarketType, p.stopErr
+}
+
+func TestStopTradingRoutesAndUpdatesExactMarketType(t *testing.T) {
+	resetProviderInfraGlobals(t)
+	previous := symbolManagerProvider
+	probe := &marketTypeStopProbe{resolvedMarketType: "spot"}
+	symbolManagerProvider = probe
+	t.Cleanup(func() { symbolManagerProvider = previous })
+
+	spotStatus := &SystemStatus{Running: true, Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot"}
+	futuresStatus := &SystemStatus{Running: true, Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}
+	statusMu.Lock()
+	statusBySymbol = map[string]*SystemStatus{
+		makeSymbolKey("binance", "BTCUSDT", "spot"):    spotStatus,
+		makeSymbolKey("binance", "BTCUSDT", "futures"): futuresStatus,
+	}
+	statusMu.Unlock()
+
+	c, response := newProviderInfraContext("/api/trading/stop?exchange=binance&symbol=BTCUSDT&market_type=spot")
+	stopTrading(c)
+	if response.Code != http.StatusOK {
+		t.Fatalf("stop response status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if probe.requestedMarketType != "spot" {
+		t.Fatalf("stop routed market_type = %q, want spot", probe.requestedMarketType)
+	}
+	if spotStatus.Running || !futuresStatus.Running {
+		t.Fatalf("stop updated wrong market status: spot=%v futures=%v", spotStatus.Running, futuresStatus.Running)
+	}
+	probe.stopErr = ErrStopMarketTypeRequired
+	c, response = newProviderInfraContext("/api/trading/stop?exchange=binance&symbol=BTCUSDT")
+	stopTrading(c)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("ambiguous stop response status = %d, want bad request; body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestStartTradingDoesNotReturnUnderlyingDiagnostic(t *testing.T) {
+	resetProviderInfraGlobals(t)
+	previous := symbolManagerProvider
+	symbolManagerProvider = startFailureSymbolProbe{err: errors.New("signed request failed: signature=private-token")}
+	t.Cleanup(func() { symbolManagerProvider = previous })
+
+	c, response := newProviderInfraContext("/api/trading/start?exchange=binance&symbol=BTCUSDT")
+	startTrading(c)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("start response status = %d, want internal error; body=%s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), "private-token") || strings.Contains(response.Body.String(), "signature=") {
+		t.Fatalf("start response leaked underlying exchange diagnostic: %s", response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `"error_key":"error.bot_start_failed_diagnostic_withheld"`) {
+		t.Fatalf("start response lacks safe localized error key: %s", response.Body.String())
 	}
 }

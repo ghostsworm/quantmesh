@@ -94,9 +94,11 @@ type runtimeOwnershipLease struct {
 	distributedLock lock.DistributedLock
 	key             string
 	stopRenew       func()
+	onLost          func(error)
+	lossReported    sync.Once
 	lost            atomic.Bool
-	releaseOnce     sync.Once
-	releaseErr      error
+	releaseMu       sync.Mutex
+	released        atomic.Bool
 }
 
 func acquireRuntimeOwnershipLease(ctx context.Context, distributedLock lock.DistributedLock, scope execution.IntentScope, ttl time.Duration, onLost func(error)) (*runtimeOwnershipLease, error) {
@@ -106,7 +108,7 @@ func acquireRuntimeOwnershipLease(ctx context.Context, distributedLock lock.Dist
 	// NopLock explicitly means distributed coordination is disabled. Do not
 	// pretend its always-successful TryLock provides cross-process ownership.
 	if _, disabled := distributedLock.(*lock.NopLock); disabled {
-		return &runtimeOwnershipLease{}, nil
+		return &runtimeOwnershipLease{distributedLock: distributedLock}, nil
 	}
 	scopeKey, err := scope.Key()
 	if err != nil {
@@ -120,18 +122,86 @@ func acquireRuntimeOwnershipLease(ctx context.Context, distributedLock lock.Dist
 	if !acquired {
 		return nil, fmt.Errorf("another process already owns this Bot runtime")
 	}
-	lease := &runtimeOwnershipLease{distributedLock: distributedLock, key: key}
-	lease.stopRenew = lock.StartAutoRenew(distributedLock, key, ttl, func(renewErr error) {
-		lease.lost.Store(true)
-		if onLost != nil {
-			onLost(renewErr)
+	lease := &runtimeOwnershipLease{distributedLock: distributedLock, key: key, onLost: onLost}
+	lease.stopRenew = lock.StartAutoRenew(&runtimeOwnershipRenewLock{DistributedLock: distributedLock, lease: lease}, key, ttl, func(renewErr error) {
+		lease.releaseMu.Lock()
+		if lease.released.Load() {
+			lease.releaseMu.Unlock()
+			return
 		}
+		lease.lost.Store(true)
+		lease.releaseMu.Unlock()
+		lease.reportLost(renewErr)
 	})
 	return lease, nil
 }
 
 func (l *runtimeOwnershipLease) Lost() bool {
 	return l == nil || l.lost.Load()
+}
+
+// Validate synchronously renews a distributed lease at a sensitive boundary.
+// The background renewal worker bounds ordinary detection latency, but cannot
+// be the sole admission check immediately before a new financial request.
+func (l *runtimeOwnershipLease) Validate(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("runtime ownership validation requires context")
+	}
+	if l == nil || l.Lost() {
+		return fmt.Errorf("runtime ownership lease is unavailable or lost")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if l.distributedLock == nil {
+		return fmt.Errorf("runtime ownership lock is unavailable")
+	}
+	if _, disabled := l.distributedLock.(*lock.NopLock); disabled {
+		return nil
+	}
+	l.releaseMu.Lock()
+	if l.released.Load() || l.Lost() {
+		l.releaseMu.Unlock()
+		return fmt.Errorf("runtime ownership lease is unavailable or lost")
+	}
+	if err := ctx.Err(); err != nil {
+		l.releaseMu.Unlock()
+		return err
+	}
+	if err := l.distributedLock.Extend(ctx, l.key, runtimeOwnershipLeaseTTL); err != nil {
+		l.lost.Store(true)
+		l.releaseMu.Unlock()
+		l.reportLost(err)
+		return fmt.Errorf("validate runtime ownership lease: %w", err)
+	}
+	l.releaseMu.Unlock()
+	if l.Lost() {
+		return fmt.Errorf("runtime ownership lease was lost during validation")
+	}
+	return nil
+}
+
+func (l *runtimeOwnershipLease) reportLost(err error) {
+	if l == nil || err == nil {
+		return
+	}
+	l.lossReported.Do(func() {
+		if l.onLost != nil {
+			l.onLost(err)
+		}
+	})
+}
+
+func validateRuntimeOwnershipLeases(ctx context.Context, leases []*runtimeOwnershipLease) error {
+	if len(leases) == 0 {
+		return fmt.Errorf("runtime ownership leases are unavailable")
+	}
+	for index, lease := range leases {
+		if err := lease.Validate(ctx); err != nil {
+			return fmt.Errorf("validate runtime ownership lease %d: %w", index+1, err)
+		}
+	}
+	return nil
 }
 
 func releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease *runtimeOwnershipLease, stopErrors []error, unverifiedReason string) (bool, error) {
@@ -144,23 +214,63 @@ func releaseRuntimeOwnershipLeaseAfterVerifiedStop(lease *runtimeOwnershipLease,
 	if strings.TrimSpace(unverifiedReason) != "" {
 		return false, fmt.Errorf("runtime stop still requires reconciliation: %s", strings.TrimSpace(unverifiedReason))
 	}
-	return true, lease.Release()
+	if lease.Lost() {
+		return false, fmt.Errorf("runtime ownership was lost; stop requires reconciliation")
+	}
+	err := lease.release(true)
+	if err == nil && lease.Lost() {
+		return false, fmt.Errorf("runtime ownership was lost during release; stop requires reconciliation")
+	}
+	return err == nil, err
 }
 
 func (l *runtimeOwnershipLease) Release() error {
+	// Startup rollback has no managed controller to retry indefinitely. Keep
+	// its prior bounded cleanup semantics instead of orphaning a renewer.
+	return l.release(false)
+}
+
+func (l *runtimeOwnershipLease) release(retainOnFailure bool) error {
 	if l == nil {
 		return nil
 	}
-	l.releaseOnce.Do(func() {
-		if l.distributedLock == nil {
-			return
-		}
-		if l.stopRenew != nil {
-			l.stopRenew()
-		}
+	l.releaseMu.Lock()
+	if l.released.Load() {
+		l.releaseMu.Unlock()
+		return nil
+	}
+	var err error
+	if l.distributedLock != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		l.releaseErr = l.distributedLock.Unlock(ctx, l.key)
-	})
-	return l.releaseErr
+		err = l.distributedLock.Unlock(ctx, l.key)
+		cancel()
+	}
+	if err == nil {
+		l.released.Store(true)
+	}
+	l.releaseMu.Unlock()
+	// Do not wait for the renewal worker while holding the mutex it uses.
+	// An uncertain unlock keeps renewal alive and permits an ownership-checked
+	// retry; no new token is acquired and no peer-owned lease may be deleted.
+	if (err == nil || !retainOnFailure) && l.stopRenew != nil {
+		l.stopRenew()
+	}
+	return err
+}
+
+type runtimeOwnershipRenewLock struct {
+	lock.DistributedLock
+	lease *runtimeOwnershipLease
+}
+
+func (l *runtimeOwnershipRenewLock) Extend(ctx context.Context, key string, ttl time.Duration) error {
+	l.lease.releaseMu.Lock()
+	defer l.lease.releaseMu.Unlock()
+	if l.lease.released.Load() {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return l.DistributedLock.Extend(ctx, key, ttl)
 }

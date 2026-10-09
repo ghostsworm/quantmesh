@@ -327,7 +327,7 @@ func dispatchErrorHook(level LogLevel, message string) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf("[WARN] errorHook panic: %v", r)
+				log.Printf("[WARN] errorHook panic: %s", redactSensitiveText(fmt.Sprint(r)))
 			}
 		}()
 		hook(level.String(), message)
@@ -344,7 +344,7 @@ func InitWebLogger() error {
 	locationMu.RUnlock()
 
 	today := time.Now().In(loc).Format("2006-01-02")
-	
+
 	// 如果已經初始化且日期相同，不需要重新初始化
 	if webFileLogger != nil && webCurrentDate == today {
 		return nil
@@ -434,7 +434,7 @@ func WriteWebLog(message string) {
 		locationMu.RLock()
 		loc := globalLocation
 		locationMu.RUnlock()
-		
+
 		// 写入文件（包含時间戳）
 		webFileLogger.Printf("%s %s", time.Now().In(loc).Format("2006/01/02 15:04:05"), message)
 	}
@@ -490,7 +490,7 @@ func logfWithContext(ctx context.Context, level LogLevel, format string, args ..
 	builder.WriteString("] ")
 
 	// 格式化消息
-	formatted := fmt.Sprintf(format, args...)
+	formatted := redactSensitiveText(fmt.Sprintf(format, args...))
 	builder.WriteString(formatted)
 	message := builder.String()
 
@@ -503,7 +503,7 @@ func logfWithContext(ctx context.Context, level LogLevel, format string, args ..
 	prefix := fmt.Sprintf("[%s] ", level.String())
 
 	// 输出到控制台（標准输出）
-	log.Printf(prefix+format, args...)
+	log.Print(prefix + formatted)
 
 	// 如果日志级别為DEBUG，同時写入文件
 	if globalLevel == DEBUG {
@@ -532,7 +532,7 @@ func logfWithContext(ctx context.Context, level LogLevel, format string, args ..
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
 					// 输出到標准錯误便於調試
-					log.Printf("[ERROR] 日志写入 panic: %v", r)
+					log.Printf("[ERROR] 日志写入 panic: %s", redactSensitiveText(fmt.Sprint(r)))
 				}
 			}()
 			writer(level.String(), message, bid)
@@ -576,7 +576,7 @@ func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) 
 		}
 		builder.WriteString(fmt.Sprint(arg))
 	}
-	message := builder.String()
+	message := redactSensitiveText(builder.String())
 
 	// 限制消息长度，防止异常情况下的記憶體问题
 	if len(message) > maxLogMessageLength {
@@ -587,7 +587,7 @@ func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) 
 	prefix := fmt.Sprintf("[%s] ", level.String())
 
 	// 输出到控制台（標准输出）
-	log.Println(append([]interface{}{prefix}, args...)...)
+	log.Print(prefix + strings.TrimPrefix(message, "["+level.String()+"] "))
 
 	// 如果日志级别為DEBUG，同時写入文件
 	if globalLevel == DEBUG {
@@ -616,7 +616,7 @@ func loglnWithContext(ctx context.Context, level LogLevel, args ...interface{}) 
 				// 恢複 panic，确保不影响主程序
 				if r := recover(); r != nil {
 					// 输出到標准錯误便於調試
-					log.Printf("[ERROR] 日志写入 panic: %v", r)
+					log.Printf("[ERROR] 日志写入 panic: %s", redactSensitiveText(fmt.Sprint(r)))
 				}
 			}()
 			writer(level.String(), strings.TrimSuffix(message, "\n"), bid)

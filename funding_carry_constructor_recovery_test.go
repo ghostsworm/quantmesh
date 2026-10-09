@@ -9,10 +9,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/execution"
 	"quantmesh/lock"
+	"quantmesh/order"
 	"quantmesh/storage"
 	"quantmesh/strategy"
 	"quantmesh/web"
@@ -20,10 +23,11 @@ import (
 
 type constructorRecoveryVenue struct {
 	exchange.ISpotMarginExchange
-	market    string
-	mutations atomic.Int32
-	streamCtx context.Context
-	stops     atomic.Int32
+	market      string
+	mutations   atomic.Int32
+	streamCtx   context.Context
+	stops       atomic.Int32
+	fillQueries atomic.Int32
 }
 
 func TestFundingCarryRetentionCannotAdmitReconciliation(t *testing.T) {
@@ -48,6 +52,7 @@ func (*constructorRecoveryVenue) GetPriceDecimals() int    { return 2 }
 func (*constructorRecoveryVenue) GetAccount(context.Context) (*exchange.Account, error) {
 	return &exchange.Account{BalanceAsset: "USDT", TotalWalletBalance: 1000, TotalMarginBalance: 1000, AvailableBalance: 1000}, nil
 }
+func (*constructorRecoveryVenue) GetBalance(context.Context, string) (float64, error) { return 0, nil }
 func (v *constructorRecoveryVenue) StartPriceStream(ctx context.Context, _ string, callback func(float64)) error {
 	v.streamCtx = ctx
 	callback(50000)
@@ -61,9 +66,24 @@ func (*constructorRecoveryVenue) GetOpenOrders(context.Context, string) ([]*exch
 func (*constructorRecoveryVenue) GetPositions(context.Context, string) ([]*exchange.Position, error) {
 	return []*exchange.Position{}, nil
 }
+
+func (*constructorRecoveryVenue) GetOrder(_ context.Context, symbol string, id int64) (*exchange.Order, error) {
+	if id != 7 || symbol != "BTCUSDT" {
+		return nil, errors.New("fixture has no matching order")
+	}
+	return &exchange.Order{OrderID: 7, ClientOrderID: "partial-7", Symbol: symbol, Side: exchange.SideBuy, Type: exchange.OrderTypeLimit, Price: 50000, Quantity: 0.401, ExecutedQty: 0.2, AvgPrice: 50000, Status: exchange.OrderStatusCanceled, CreatedAt: time.UnixMilli(1000)}, nil
+}
 func (v *constructorRecoveryVenue) PlaceOrder(context.Context, *exchange.OrderRequest) (*exchange.Order, error) {
 	v.mutations.Add(1)
 	return nil, errors.New("fixture rejects financial RPC")
+}
+
+func (v *constructorRecoveryVenue) GetOrderFills(_ context.Context, symbol string, id int64) ([]*exchange.OrderFill, error) {
+	v.fillQueries.Add(1)
+	if v.market != "spot_margin" || symbol != "BTCUSDT" || id != 7 {
+		return nil, errors.New("fixture fill query has wrong attribution")
+	}
+	return []*exchange.OrderFill{{OrderID: 7, TradeID: "partial-7", Symbol: symbol, Side: exchange.SideBuy, Price: 50000, Quantity: 0.2, CommissionAsset: "BTC", Commission: 0.0005, BaseFeeQty: 0.0005, TradeTime: 1500}}, nil
 }
 func (v *constructorRecoveryVenue) CancelOrder(context.Context, string, int64) error {
 	v.mutations.Add(1)
@@ -102,14 +122,24 @@ func constructorRecoveryPayload(t *testing.T, scope string) string {
 }
 
 func TestFundingCarryFullConstructorRetainsRemainingAssetRecovery(t *testing.T) {
-	testFundingCarryFullConstructorRecovery(t, false)
+	testFundingCarryFullConstructorRecovery(t, false, "")
 }
 
 func TestFundingCarryFullConstructorReportsRetainedClaimsOnWrongScope(t *testing.T) {
-	testFundingCarryFullConstructorRecovery(t, true)
+	testFundingCarryFullConstructorRecovery(t, true, "")
 }
 
-func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
+func TestFundingCarryFullConstructorRetainsTerminalPartialRecovery(t *testing.T) {
+	for _, mode := range []string{"partial", "zero_net", "pending_intent", "query_pending_intent"} {
+		t.Run(mode, func(t *testing.T) { testFundingCarryFullConstructorRecovery(t, false, mode) })
+	}
+}
+
+func TestFundingCarryFullConstructorClearsPreparedIntentThroughFencedAdapter(t *testing.T) {
+	testFundingCarryFullConstructorRecovery(t, false, "prepared")
+}
+
+func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool, partialMode string) {
 	t.Helper()
 	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{"binance": {APIKey: "fixture-account-identity"}}}
 	cfg.Storage.Enabled, cfg.Storage.Type, cfg.Storage.Path = true, "sqlite", filepath.Join(t.TempDir(), "constructor.db")
@@ -126,9 +156,66 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 		scope = "unrelated-fixture-account"
 	}
 	payload := constructorRecoveryPayload(t, scope)
+	schema, expectedRemaining := 6, "0.0008"
+	if partialMode == "prepared" {
+		state := map[string]interface{}{
+			"strategy": "funding_carry", "futures_exchange": "binance", "spot_exchange": "binance", "symbol": "BTCUSDT",
+			"margin_account_scope": scope, "ownership_ready": true, "intent_in_flight": true,
+			"intent_phase": "prepared", "exposure_unknown": false, "direction": 0,
+			"owned_spot": 0, "owned_futures": 0, "margin_debt": 0,
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal("encode prepared intent:", err)
+		}
+		payload, schema, expectedRemaining = string(encoded), 8, ""
+	} else if partialMode != "" {
+		var state map[string]interface{}
+		if err := json.Unmarshal([]byte(payload), &state); err != nil {
+			t.Fatal(err)
+		}
+		fee, net := 0.0005, 0.1995
+		expectedRemaining = "0.1995"
+		if partialMode == "zero_net" {
+			fee, net, expectedRemaining = 0.2, 0, "0"
+		}
+		state["direction"], state["margin_debt"] = 2, 0.4
+		state["margin_borrow_transfer_id"], state["margin_borrowed_at"] = 42, "1970-01-01T00:00:01Z"
+		state["margin_debt_events"] = []map[string]interface{}{{"action": "borrow", "transfer_id": 42, "asset": "BTC", "amount": 0.4, "principal": 0.4, "account_scope": scope, "occurred_at": "1970-01-01T00:00:01Z"}}
+		state["margin_cover_orders"] = []map[string]interface{}{{"order_id": 7, "client_order_id": "partial-7", "request_price": 50000, "prepared_at": "1970-01-01T00:00:01Z", "asset": "BTC", "account_scope": scope, "requested": 0.401, "debt_to_cover": 0.4, "gross": 0.2, "net": net, "verified": true, "terminal_status": "CANCELED",
+			"fills": []*exchange.OrderFill{{OrderID: 7, TradeID: "partial-7", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 50000, Quantity: 0.2, CommissionAsset: "BTC", Commission: fee, BaseFeeQty: fee, TradeTime: 1500}}}}
+		if partialMode == "query_pending_intent" {
+			record := state["margin_cover_orders"].([]map[string]interface{})[0]
+			record["gross"], record["net"], record["verified"] = 0, 0, false
+			delete(record, "terminal_status")
+			delete(record, "fills")
+		}
+		encoded, err := json.Marshal(state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload, schema = string(encoded), 7
+	}
 	stateStore := service.GetStorage().(storage.StrategyRuntimeStateStore)
-	if err := stateStore.SetStrategyRuntimeState(&storage.StrategyRuntimeState{BotID: botID, StrategyName: "funding_carry", SchemaVersion: 6, Payload: payload}); err != nil {
+	if err := stateStore.SetStrategyRuntimeState(&storage.StrategyRuntimeState{BotID: botID, StrategyName: "funding_carry", SchemaVersion: schema, Payload: payload}); err != nil {
 		t.Fatal(err)
+	}
+	sharedPending := partialMode == "pending_intent" || partialMode == "query_pending_intent"
+	if sharedPending {
+		intentScope := execution.IntentScope{Account: scope, Exchange: "binance", Market: "spot_margin", Symbol: "BTCUSDT", Bot: botID}
+		key, err := intentScope.Key()
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := order.OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Type: "LIMIT", Price: 50000, Quantity: 0.401, ClientOrderID: "partial-7", PositionSide: "SHORT", StrategyName: "funding_carry"}
+		observed := &order.Order{OrderID: 7, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Side: req.Side, Price: req.Price, Quantity: req.Quantity, ExecutedQty: 0.2, AvgPrice: 50000, Status: "CANCELED", CreatedAt: time.UnixMilli(1000)}
+		encoded, err := json.Marshal(map[string]interface{}{"Version": 1, "Scope": intentScope, "Request": req, "Opening": false, "Order": observed, "Unknown": true, "Settled": false, "Attempts": 1, "AttemptPrice": 50000})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.GetStorage().(execution.IntentJournal).SaveExecutionIntent(t.Context(), key, req.ClientOrderID, 0, encoded); err != nil {
+			t.Fatal(err)
+		}
 	}
 	venues := map[string]*constructorRecoveryVenue{}
 	deps := fundingCarryStartupDependencies{
@@ -145,6 +232,11 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 	t.Cleanup(cancel)
 	sym := config.SymbolConfig{ID: botID, Exchange: "binance", Symbol: "BTCUSDT", MarketType: config.MarketTypeFundingCarry, TotalAllocatedCapital: 100,
 		Strategies: []config.StrategyInstance{{Type: "funding_carry", Weight: 1, Config: map[string]interface{}{"reverse_enabled": true}}}}
+	if partialMode == "prepared" {
+		// Keep the constructor's real strategy loop from admitting a new order;
+		// this case proves only prepared-intent recovery through production wiring.
+		sym.OpenPositionControl.PauseOpening = true
+	}
 	rt, err := startFundingCarrySymbolRuntimeWithDependencies(ctx, cfg, sym, nil, service, lock.NewNopLock(), nil, nil, deps)
 	if wrongScope {
 		if rt != nil || err == nil || !strings.Contains(err.Error(), "account scope") {
@@ -167,16 +259,46 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 	if err != nil || rt == nil {
 		t.Fatalf("complete constructor lost recovery: %v", err)
 	}
+	if partialMode == "query_pending_intent" {
+		payload = assertConstructorQueriedCoverEvidence(t, stateStore, botID, scope)
+		if venues["spot_margin"].fillQueries.Load() != 1 {
+			t.Fatal("constructor did not query exactly one attributed fill set")
+		}
+	}
+	if sharedPending && !rt.OpeningGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatal("managed recovery cleared shared execution UNKNOWN gate")
+	}
+	if sharedPending {
+		assertConstructorIntentStillUnknown(t, service, botID, scope)
+	}
 	t.Cleanup(func() {
 		if err := rt.StopWithError(); err != nil {
 			t.Logf("fixture retained expected unresolved state: %v", err)
 		}
 	})
+	if partialMode == "prepared" {
+		saved, err := stateStore.GetStrategyRuntimeState(botID, "funding_carry")
+		if err != nil || saved == nil || saved.SchemaVersion != 8 {
+			t.Fatalf("prepared runtime snapshot was not conditionally recovered: state=%+v err=%v", saved, err)
+		}
+		var flags struct {
+			IntentInFlight  bool   `json:"intent_in_flight"`
+			IntentPhase     string `json:"intent_phase"`
+			ExposureUnknown bool   `json:"exposure_unknown"`
+		}
+		if err := json.Unmarshal([]byte(saved.Payload), &flags); err != nil {
+			t.Fatal("decode recovered prepared flags:", err)
+		}
+		if flags.IntentInFlight || flags.IntentPhase != "" || flags.ExposureUnknown || venues["spot"].mutations.Load() != 0 || venues["futures"].mutations.Load() != 0 {
+			t.Fatalf("constructor failed to clear only the proven-undispatched intent: flags=%+v spotWrites=%d futuresWrites=%d", flags, venues["spot"].mutations.Load(), venues["futures"].mutations.Load())
+		}
+		return
+	}
 	if !rt.OpeningGate.HasBlock(fundingCarryReconciliationBlock) || rt.shutdownCloseUnverifiedReason() == "" {
 		t.Fatal("constructor did not preserve independent recovery/close blocks")
 	}
 	status := rt.StrategyManager.GetStrategyStatus("funding_carry")
-	if status.IsRunning || status.VisualizationData["margin_cover_remaining_qty"] != "0.0008" {
+	if status.IsRunning || status.VisualizationData["margin_cover_remaining_qty"] != expectedRemaining {
 		t.Fatal("constructor lost historical accounting or started trading")
 	}
 	registry := NewBotManager(cfg, nil, service, lock.NewNopLock(), "")
@@ -196,6 +318,9 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 	}
 	assertConstructorRecoveryEvidence(t, service, botID, payload)
 	assertConstructorRecoveryStopped(t, venues)
+	if sharedPending {
+		assertConstructorIntentStillUnknown(t, service, botID, scope)
+	}
 	for _, canceled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("failed_retry_canceled_%v", canceled), func(t *testing.T) {
 			retryCtx, cancelRetry := context.WithCancel(context.Background())
@@ -229,6 +354,26 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool) {
 			assertConstructorRecoveryEvidence(t, service, botID, payload)
 			assertConstructorRecoveryStopped(t, venues)
 		})
+	}
+}
+
+func assertConstructorIntentStillUnknown(t *testing.T, service *storage.StorageService, botID, account string) {
+	t.Helper()
+	scope := execution.IntentScope{Account: account, Exchange: "binance", Market: "spot_margin", Symbol: "BTCUSDT", Bot: botID}
+	key, err := scope.Key()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := service.GetStorage().(execution.IntentJournal).LoadExecutionIntents(t.Context(), key, 0, 10)
+	if err != nil || len(rows) != 1 || rows[0].ClientOrderID != "partial-7" {
+		t.Fatalf("shared intent disappeared or changed identity: %v", err)
+	}
+	var saved map[string]interface{}
+	if err := json.Unmarshal(rows[0].Payload, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved["Unknown"] != true || saved["Settled"] != false {
+		t.Fatal("read-only recovery or unverified stop settled shared intent")
 	}
 }
 

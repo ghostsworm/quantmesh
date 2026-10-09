@@ -124,6 +124,24 @@ func startFundingPerpSpreadSymbolRuntime(
 	onRequestStop func(botID string),
 	startupPauseHolders []storage.OpeningPauseHolder,
 ) (*SymbolRuntime, error) {
+	return startFundingPerpSpreadSymbolRuntimeWithExchangeFactory(ctx, baseCfg, symCfg, eventBus, storageService,
+		distributedLock, onRequestStop, startupPauseHolders, exchange.NewExchange)
+}
+
+func startFundingPerpSpreadSymbolRuntimeWithExchangeFactory(
+	ctx context.Context,
+	baseCfg *config.Config,
+	symCfg config.SymbolConfig,
+	eventBus *event.EventBus,
+	storageService *storage.StorageService,
+	distributedLock lock.DistributedLock,
+	onRequestStop func(botID string),
+	startupPauseHolders []storage.OpeningPauseHolder,
+	newExchange func(*config.Config, string, string, string) (exchange.IExchange, error),
+) (*SymbolRuntime, error) {
+	if newExchange == nil {
+		return nil, fmt.Errorf("funding_perp_spread exchange factory is unavailable")
+	}
 	fp := symCfg.FundingPerpSpread
 	if fp == nil {
 		return nil, fmt.Errorf("funding_perp_spread 缺少 funding_perp_spread 配置")
@@ -147,11 +165,11 @@ func startFundingPerpSpreadSymbolRuntime(
 	localCfg.Trading.MarketType = config.MarketTypeFundingPerpSpread
 	mergeFundingPerpSpreadStrategyConfig(&localCfg, symCfg)
 
-	legAEx, err := exchange.NewExchange(&localCfg, strings.TrimSpace(fp.LegA.Exchange), strings.TrimSpace(fp.LegA.Symbol), "futures")
+	legAEx, err := newExchange(&localCfg, strings.TrimSpace(fp.LegA.Exchange), strings.TrimSpace(fp.LegA.Symbol), "futures")
 	if err != nil {
 		return nil, fmt.Errorf("創建 leg_a 合約連線失敗: %w", err)
 	}
-	legBEx, err := exchange.NewExchange(&localCfg, strings.TrimSpace(fp.LegB.Exchange), strings.TrimSpace(fp.LegB.Symbol), "futures")
+	legBEx, err := newExchange(&localCfg, strings.TrimSpace(fp.LegB.Exchange), strings.TrimSpace(fp.LegB.Symbol), "futures")
 	if err != nil {
 		return nil, fmt.Errorf("創建 leg_b 合約連線失敗: %w", err)
 	}
@@ -231,6 +249,10 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	totalCap := symCfg.TotalAllocatedCapital
+	if err := applyFundingPerpSpreadRiskControls(&localCfg, symCfg, totalCap); err != nil {
+		return nil, fmt.Errorf("funding_perp_spread position limits exceed verified capital policy: %w", err)
+	}
+	symCfg.OpenPositionControl = config.CloneOpenPositionControl(localCfg.Trading.OpenPositionControl)
 	strategyManager := strategy.NewStrategyManager(&localCfg, totalCap)
 	if eventBus != nil {
 		strategyManager.SetEventBus(eventBus)
@@ -243,6 +265,7 @@ func startFundingPerpSpreadSymbolRuntime(
 		}
 	}
 	openingGate := &execution.OpeningGate{}
+	openingGate.ApplyAdmissionContext(ctx)
 	applyStartupOpeningPauseHolders(openingGate, startupPauseHolders)
 	if localCfg.Trading.OpenPositionControl.PauseOpening || (localCfg.Trading.OpenPositionControl.BotRiskControl != nil && localCfg.Trading.OpenPositionControl.BotRiskControl.PauseOpening) {
 		openingGate.Block("manual")
@@ -259,7 +282,6 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 	st.SetExecutionRecorder(newFundingPerpSpreadExecutionRecorder(fillWriter, botID, incomeTargets))
 	stateBotID := fundingPerpSpreadStateScope(botID, baseCfg, fp)
-	st.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: stateBotID})
 	st.SetCoordinationLock(distributedLock)
 	ownershipLeases, err := acquireFundingPerpSpreadRuntimeOwnershipLeases(ctx, distributedLock, baseCfg, fp, func(leaseErr error) {
 		openingGate.Block("runtime_ownership_unverified")
@@ -283,6 +305,14 @@ func startFundingPerpSpreadSymbolRuntime(
 	if distributedLock == nil {
 		return nil, fmt.Errorf("funding_perp_spread requires its configured leg coordination lock")
 	}
+	stateAdapter, err := buildFundingPerpSpreadRuntimeStateAdapter(ctx, storageService, stateBotID, baseCfg, fp, ownershipLeases)
+	if err != nil {
+		return nil, fmt.Errorf("bind funding_perp_spread durable runtime state ownership: %w", err)
+	}
+	st.SetRuntimeStateStore(stateAdapter)
+	if err := validateRuntimeOwnershipLeases(ctx, ownershipLeases); err != nil {
+		return nil, fmt.Errorf("funding_perp_spread ownership lease changed during durable generation claim: %w", err)
+	}
 	claims, err := fundingPerpSpreadCapitalClaims(baseCfg, fp, totalCap,
 		legABalance, legABalanceObservedAt, legAObservationSequence,
 		legBBalance, legBBalanceObservedAt, legBObservationSequence)
@@ -302,6 +332,9 @@ func startFundingPerpSpreadSymbolRuntime(
 			walletKeys = append(walletKeys, claim.WalletKey)
 		}
 		st.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
+			if err := validateRuntimeOwnershipLeases(guardCtx, ownershipLeases); err != nil {
+				return fmt.Errorf("funding_perp_spread runtime ownership admission rejected opening: %w", err)
+			}
 			return checker.CheckAccountWalletCapitalAdmission(guardCtx, walletKeys, 2*accountWalletCapitalRefreshInterval)
 		})
 	} else {
@@ -371,21 +404,22 @@ func startFundingPerpSpreadSymbolRuntime(
 	}
 
 	rt := &SymbolRuntime{
-		Config:               symCfg,
-		Exchange:             legAEx,
-		PriceMonitor:         priceMonitor,
-		StrategyManager:      strategyManager,
-		EventBus:             eventBus,
-		StorageService:       storageService,
-		AccountID:            accountID,
-		AccountScope:         stateBotID,
-		AccountMarketType:    "futures",
-		OpeningGate:          openingGate,
-		SuperPositionManager: nil,
-		ExchangeExecutor:     nil,
-		ExecutorAdapter:      nil,
-		ExchangeAdapter:      nil,
+		Config:                   symCfg,
+		Exchange:                 legAEx,
+		PriceMonitor:             priceMonitor,
+		StrategyManager:          strategyManager,
+		EventBus:                 eventBus,
+		StorageService:           storageService,
+		AccountID:                accountID,
+		AccountScope:             stateBotID,
+		AccountMarketType:        "futures",
+		OpeningGate:              openingGate,
+		SuperPositionManager:     nil,
+		ExchangeExecutor:         nil,
+		ExecutorAdapter:          nil,
+		ExchangeAdapter:          nil,
 	}
+	configureFundingPerpSpreadRiskCallbacks(rt, st, totalCap)
 	rt.PrepareShutdown = func(shutdownCtx context.Context, _ bool) error {
 		return st.PrepareShutdown(shutdownCtx)
 	}
@@ -485,6 +519,53 @@ func startFundingPerpSpreadSymbolRuntime(
 	return rt, nil
 }
 
+func applyFundingPerpSpreadRiskControls(localCfg *config.Config, symCfg config.SymbolConfig, verifiedCapital float64) error {
+	if localCfg == nil {
+		return fmt.Errorf("funding_perp_spread risk configuration is unavailable")
+	}
+	config.ApplyBotRiskControls(localCfg, symCfg)
+	if err := applyBotCapitalLimit(&localCfg.Trading.OpenPositionControl, verifiedCapital); err != nil {
+		return err
+	}
+	return validateFundingPerpSpreadOpenControl(localCfg.Trading.OpenPositionControl)
+}
+
+func validateFundingPerpSpreadOpenControl(control config.OpenPositionControl) error {
+	quantity, notional, layers := control.PositionLimits()
+	if math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity < 0 ||
+		math.IsNaN(notional) || math.IsInf(notional, 0) || notional < 0 || layers < 0 {
+		return fmt.Errorf("funding_perp_spread position limits must be finite and non-negative")
+	}
+	return nil
+}
+
+func configureFundingPerpSpreadRiskCallbacks(rt *SymbolRuntime, st *strategy.FundingPerpSpreadStrategy, verifiedCapital float64) {
+	rt.UpdateOpenControl = func(control config.OpenPositionControl) error {
+		control = config.CloneOpenPositionControl(control)
+		if err := applyBotCapitalLimit(&control, verifiedCapital); err != nil {
+			return err
+		}
+		if err := validateFundingPerpSpreadOpenControl(control); err != nil {
+			return err
+		}
+		st.UpdateOpenPositionControl(control)
+		return nil
+	}
+	rt.ClampOpenControl = func(control config.OpenPositionControl) (config.OpenPositionControl, error) {
+		control = config.CloneOpenPositionControl(control)
+		if err := applyBotCapitalLimit(&control, verifiedCapital); err != nil {
+			return config.OpenPositionControl{}, err
+		}
+		if err := validateFundingPerpSpreadOpenControl(control); err != nil {
+			return config.OpenPositionControl{}, err
+		}
+		return control, nil
+	}
+	rt.GetOpenControl = func() config.OpenPositionControl {
+		return config.CloneOpenPositionControl(st.OpenPositionControl())
+	}
+}
+
 func verifyAndReleaseFundingPerpSpreadCapital(ctx context.Context, store storage.AccountWalletCapitalReservationStore, botID string, claims []storage.AccountWalletCapitalClaim, verifyFlat func(context.Context) error, ownershipLeases []*runtimeOwnershipLease) error {
 	return verifyAndReleaseAccountWalletCapitalGuarded(ctx, store, botID, claims, verifyFlat, func() error {
 		if fundingPerpSpreadRuntimeOwnershipLeaseLost(ownershipLeases) {
@@ -522,6 +603,51 @@ func fundingPerpSpreadRuntimeOwnershipScopes(cfg *config.Config, fp *config.Fund
 		scopes = append(scopes, byKey[key])
 	}
 	return scopes, nil
+}
+
+func claimFundingPerpSpreadRuntimeGeneration(ctx context.Context, storageService *storage.StorageService, cfg *config.Config, fp *config.FundingPerpSpreadConfig) (storage.FundingCarryRuntimeGeneration, error) {
+	if ctx == nil || storageService == nil || storageService.GetStorage() == nil {
+		return storage.FundingCarryRuntimeGeneration{}, fmt.Errorf("durable storage and context are required")
+	}
+	store, ok := storageService.GetStorage().(storage.FundingCarryRuntimeGenerationStore)
+	if !ok {
+		return storage.FundingCarryRuntimeGeneration{}, fmt.Errorf("storage backend does not support owner-generation fencing")
+	}
+	scopes, err := fundingPerpSpreadRuntimeOwnershipScopes(cfg, fp)
+	if err != nil {
+		return storage.FundingCarryRuntimeGeneration{}, err
+	}
+	keys := make([]string, 0, len(scopes))
+	for _, scope := range scopes {
+		key, err := scope.Key()
+		if err != nil {
+			return storage.FundingCarryRuntimeGeneration{}, fmt.Errorf("derive futures runtime ownership scope: %w", err)
+		}
+		keys = append(keys, key)
+	}
+	generation, err := store.ClaimFundingCarryRuntimeGeneration(ctx, keys)
+	if err != nil {
+		return storage.FundingCarryRuntimeGeneration{}, fmt.Errorf("claim SQL owner generation: %w", err)
+	}
+	return generation, nil
+}
+
+func buildFundingPerpSpreadRuntimeStateAdapter(ctx context.Context, storageService *storage.StorageService, botID string, cfg *config.Config, fp *config.FundingPerpSpreadConfig, leases []*runtimeOwnershipLease) (*fundingPerpSpreadRuntimeStateAdapter, error) {
+	if strings.TrimSpace(botID) == "" {
+		return nil, fmt.Errorf("runtime state bot identity is required")
+	}
+	generation, err := claimFundingPerpSpreadRuntimeGeneration(ctx, storageService, cfg, fp)
+	if err != nil {
+		return nil, err
+	}
+	adapter := &fundingPerpSpreadRuntimeStateAdapter{
+		strategyRuntimeStateAdapter: &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
+		generation:                  generation,
+	}
+	if err := validateRuntimeOwnershipLeases(ctx, leases); err != nil {
+		return nil, fmt.Errorf("ownership lease changed during durable generation claim: %w", err)
+	}
+	return adapter, nil
 }
 
 func acquireFundingPerpSpreadRuntimeOwnershipLeases(ctx context.Context, distributedLock lock.DistributedLock, cfg *config.Config, fp *config.FundingPerpSpreadConfig, onLost func(error)) ([]*runtimeOwnershipLease, error) {

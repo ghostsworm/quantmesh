@@ -8,6 +8,80 @@ import (
 	"time"
 )
 
+// ResetEquityBaseline explicitly replaces a previously persisted account-scope
+// baseline. The caller must keep its independent opening hold until its own
+// audit/archive transition is durably complete. operationID makes a retry
+// after an uncertain storage acknowledgement idempotent.
+func (f *MetricsFeeder) ResetEquityBaseline(ctx context.Context, operationID, expectedScope string) (EquityCheckpoint, error) {
+	if f == nil || ctx == nil || strings.TrimSpace(operationID) == "" || strings.TrimSpace(expectedScope) == "" {
+		return EquityCheckpoint{}, fmt.Errorf("equity baseline reset requires a feeder, operation identity, and target scope")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.opts.EquityStore == nil || !f.opts.RequirePersistence || !f.opts.RequireCashFlowReconciliation {
+		return EquityCheckpoint{}, fmt.Errorf("equity baseline reset requires durable cash-flow-reconciled storage")
+	}
+	source, ok := f.equity.(AccountEquitySource)
+	if !ok {
+		return EquityCheckpoint{}, fmt.Errorf("equity baseline reset requires per-account exchange-clock evidence")
+	}
+	if err := ctx.Err(); err != nil {
+		return EquityCheckpoint{}, err
+	}
+	previous, err := f.opts.EquityStore.LoadEquityState(ctx)
+	if err != nil {
+		return EquityCheckpoint{}, fmt.Errorf("load prior equity checkpoint for explicit reset: %w", err)
+	}
+	if previous == nil {
+		return EquityCheckpoint{}, fmt.Errorf("explicit equity reset requires a previously established checkpoint")
+	}
+	if err := previous.validate(); err != nil {
+		return EquityCheckpoint{}, fmt.Errorf("validate prior equity checkpoint for explicit reset: %w", err)
+	}
+	sameAccountScope := previous.Scope == expectedScope
+	if sameAccountScope && previous.ResetOperationID == operationID {
+		f.equityState, f.equityLoaded = previous, true
+		return *previous, nil
+	}
+	resetAt := f.opts.Now()
+	observation, err := source.ObserveAccountEquity(ctx, map[string]time.Time{})
+	if err != nil {
+		return EquityCheckpoint{}, fmt.Errorf("observe target account scope for explicit equity reset: %w", err)
+	}
+	if observation.Scope != expectedScope {
+		return EquityCheckpoint{}, fmt.Errorf("observed equity scope does not match the requested reset target")
+	}
+	if !observation.CashFlowComplete || len(observation.Wallets) == 0 {
+		return EquityCheckpoint{}, fmt.Errorf("explicit equity reset requires complete per-wallet ledger evidence")
+	}
+	var next EquityCheckpoint
+	if sameAccountScope {
+		// Credential rotation can retire the previous key version without
+		// changing account ownership. Reconcile fresh evidence but preserve the
+		// existing high-water baseline instead of resetting account performance.
+		next, err = nextEquityCheckpoint(previous, observation, f.opts.Now(), time.Time{}, f.opts.MaxEquityAge, true)
+	} else {
+		next, err = nextEquityCheckpoint(nil, observation, f.opts.Now(), resetAt, f.opts.MaxEquityAge, true)
+	}
+	if err != nil {
+		return EquityCheckpoint{}, fmt.Errorf("validate fresh target-scope equity baseline: %w", err)
+	}
+	if !sameAccountScope {
+		next.Revision = previous.Revision + 1
+	}
+	next.ResetOperationID = operationID
+	next.ResetOperationRevision = next.Revision
+	if err := next.validate(); err != nil {
+		return EquityCheckpoint{}, fmt.Errorf("validate explicit equity reset checkpoint: %w", err)
+	}
+	if err := f.opts.EquityStore.SaveEquityState(ctx, previous.Revision, next); err != nil {
+		f.equityLoaded = false
+		return EquityCheckpoint{}, fmt.Errorf("persist explicit equity baseline reset: %w", err)
+	}
+	f.equityState, f.equityLoaded = &next, true
+	return next, nil
+}
+
 // RefreshWithdrawalEvidence performs a fresh, durable, whole-account ledger
 // reconciliation before a transfer. accountIdentity is the serialized
 // [marketType, accountScope] identity used by runtimeEquitySource.

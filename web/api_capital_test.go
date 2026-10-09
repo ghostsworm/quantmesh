@@ -473,3 +473,49 @@ func TestCapitalUsageIncludesOnlineOfflineAndErrorExchanges(t *testing.T) {
 		t.Fatalf("unexpected statuses: %#v", statuses)
 	}
 }
+
+func TestCapitalUsagePreservesRuntimeBotIdentity(t *testing.T) {
+	old := capitalDataSource
+	t.Cleanup(func() { capitalDataSource = old })
+	account := &exchange.Account{TotalMarginBalance: 1000, TotalWalletBalance: 1000, AvailableBalance: 800}
+	makeManager := func(marketType, botID string) *position.SuperPositionManager {
+		cfg := &config.Config{}
+		cfg.App.CurrentExchange = "binance"
+		cfg.Trading.Symbol = "BTCUSDT"
+		cfg.Trading.MarketType = marketType
+		cfg.Trading.BotID = botID
+		return position.NewSuperPositionManager(cfg, nil, nil, 2, 3)
+	}
+	capitalDataSource = fakeCapitalDataSource{
+		exchanges: []exchange.IExchange{fakeCapitalExchange{name: "binance", account: account}},
+		positions: []PositionManagerInfo{
+			{BotID: "custom-futures-owner", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures", Manager: makeManager("futures", "custom-futures-owner")},
+			{BotID: "custom-spot-owner", Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot", Manager: makeManager("spot", "custom-spot-owner")},
+		},
+	}
+
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/capital/usage", nil)
+	getCapitalUsageHandler(c)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", w.Code, w.Body.String())
+	}
+	var body struct {
+		Success   bool                  `json:"success"`
+		Exchanges []ExchangeUsageDetail `json:"exchanges"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode usage: %v", err)
+	}
+	if !body.Success || len(body.Exchanges) != 1 || len(body.Exchanges[0].Bots) != 2 {
+		t.Fatalf("unexpected usage result: %+v", body)
+	}
+	got := map[string]string{}
+	for _, bot := range body.Exchanges[0].Bots {
+		got[bot.BotID] = bot.Symbol
+	}
+	if got["custom-futures-owner"] != "BTCUSDT" || got["custom-spot-owner"] != "BTCUSDT" {
+		t.Fatalf("capital usage lost runtime Bot identity: %#v", got)
+	}
+}

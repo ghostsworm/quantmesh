@@ -11,11 +11,40 @@ type reportUpdateProbe struct {
 	SymbolManagerProvider
 	report                   TradingParamsUpdateReport
 	reportCalls, legacyCalls int
+	beforeReport             func()
 }
 
 func (p *reportUpdateProbe) UpdateTradingParamsWithReport(*config.Config) TradingParamsUpdateReport {
+	if p.beforeReport != nil {
+		p.beforeReport()
+	}
 	p.reportCalls++
 	return p.report
+}
+
+func TestStrategyHotApplicationRunsOutsidePersistenceLifecycle(t *testing.T) {
+	_, id, _ := seedFinancialRecoveryFixture(t, "PUT_config", "absent")
+	coordinator := &configMutationTestProvider{}
+	previousManager := botManagerProvider()
+	RegisterBotManagerProvider(coordinator)
+	t.Cleanup(func() { RegisterBotManagerProvider(previousManager) })
+	previous := symbolManagerProvider
+	probe := &reportUpdateProbe{report: TradingParamsUpdateReport{Verified: true, Applied: []string{id}, Failed: map[string]string{}, NotRunning: []string{}}}
+	probe.beforeReport = func() {
+		if coordinator.inside {
+			t.Error("runtime application re-enters the lifecycle lock still held by persistence")
+		}
+		cfg, err := GetLatestConfig()
+		if err != nil || botCfgByID(cfg, id).SmartOrder.MaxOpenOrders != 2 {
+			t.Fatal("runtime application preceded persisted configuration")
+		}
+	}
+	symbolManagerProvider = probe
+	t.Cleanup(func() { symbolManagerProvider = previous })
+	w := callStrategyMutation(id, `{"smart_order_max_open_orders":2}`)
+	if w.Code != http.StatusOK || probe.reportCalls != 1 {
+		t.Fatalf("saved hot update not applied once: status=%d calls=%d", w.Code, probe.reportCalls)
+	}
 }
 func (p *reportUpdateProbe) UpdateTradingParams(*config.Config) []string {
 	p.legacyCalls++

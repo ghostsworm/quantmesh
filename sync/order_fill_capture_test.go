@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/position"
@@ -24,6 +25,59 @@ type captureFillWriter struct{ fills []*storage.OrderFill }
 func (w *captureFillWriter) SaveOrderFill(fill *storage.OrderFill) error {
 	w.fills = append(w.fills, fill)
 	return nil
+}
+
+type captureAtomicFillWriter struct {
+	batches [][]*storage.OrderFill
+}
+
+func (*captureAtomicFillWriter) SaveOrderFill(*storage.OrderFill) error {
+	return errors.New("individual writes bypassed atomic writer")
+}
+
+func (w *captureAtomicFillWriter) SaveOrderFillsAtomic(fills []*storage.OrderFill) error {
+	w.batches = append(w.batches, append([]*storage.OrderFill(nil), fills...))
+	return nil
+}
+
+func TestPersistOwnedOrderFillsUsesAtomicBatchWriter(t *testing.T) {
+	provider := captureFillProvider{fills: []*exchange.OrderFill{
+		{OrderID: 42, TradeID: "a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.4, TradeTime: 1_790_000_000_000},
+		{OrderID: 42, TradeID: "b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 101, Quantity: 0.6, TradeTime: 1_790_000_000_001},
+	}}
+	writer := &captureAtomicFillWriter{}
+	update := position.OrderUpdate{OrderID: 42, Symbol: "BTCUSDT", Side: "BUY", ExecutedQty: 1}
+	if err := PersistOwnedOrderFills(context.Background(), provider, writer, update, "binance", "futures", "scope", "acct", "bot"); err != nil {
+		t.Fatal(err)
+	}
+	if len(writer.batches) != 1 || len(writer.batches[0]) != 2 {
+		t.Fatalf("expected one atomic batch of two fills, got %+v", writer.batches)
+	}
+}
+
+func TestPersistOwnedOrderFillsUsesSQLStorageAtomicBatch(t *testing.T) {
+	store, err := storage.NewSQLStorage(t.TempDir() + "/owned-order-fills.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	tradeTime := int64(1_790_000_000_000)
+	provider := captureFillProvider{fills: []*exchange.OrderFill{
+		{OrderID: 77, TradeID: "atomic-a", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.4, TradeTime: tradeTime},
+		{OrderID: 77, TradeID: "atomic-b", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 101, Quantity: 0.6, TradeTime: tradeTime + 1},
+	}}
+	update := position.OrderUpdate{OrderID: 77, Symbol: "BTCUSDT", Side: "BUY", ExecutedQty: 1}
+	if err := PersistOwnedOrderFills(context.Background(), provider, store, update, "binance", "futures", "scope", "acct", "bot"); err != nil {
+		t.Fatal(err)
+	}
+	start := time.UnixMilli(tradeTime - 1).UTC()
+	summary, err := store.QueryDailyOrderFillsByScope("acct", "binance", "futures", "BTCUSDT", "scope", start, start.Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.FillCount != 2 || summary.BuyQty != 1 {
+		t.Fatalf("production SQL writer did not persist complete order batch: %+v", summary)
+	}
 }
 
 func TestPersistOwnedOrderFillsChecksScopeAndCumulativeQuantity(t *testing.T) {
@@ -79,7 +133,7 @@ func TestPersistOwnedOrderFillsFailsClosed(t *testing.T) {
 	}{
 		{name: "unsupported", provider: captureFillProvider{}},
 		{name: "query error", provider: captureFillProvider{err: errors.New("offline")}},
-		{name: "quantity mismatch", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}},
+		{name: "quantity mismatch", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}, noWrite: true},
 		{name: "duplicate ID", provider: captureFillProvider{fills: []*exchange.OrderFill{valid, valid}}},
 		{name: "invalid execution side", provider: captureFillProvider{fills: []*exchange.OrderFill{{OrderID: 7, TradeID: "bad-side", Symbol: "ETHUSDT", Side: "BID", Price: 10, Quantity: 2, TradeTime: 1_790_000_000_000}}}, noWrite: true},
 		{name: "mismatched execution side", provider: captureFillProvider{fills: []*exchange.OrderFill{valid}}, side: "BUY", noWrite: true},

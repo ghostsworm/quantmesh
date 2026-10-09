@@ -61,6 +61,17 @@ func (s *reconciliationRuntimeStore) LoadRuntimeState(string) (int, string, bool
 	}
 	return 6, s.payload, true, nil
 }
+
+func (s *reconciliationRuntimeStore) LoadRuntimeStateContext(ctx context.Context, name string) (int, string, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, "", false, err
+	}
+	version, payload, found, err := s.LoadRuntimeState(name)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return 0, "", false, contextErr
+	}
+	return version, payload, found, err
+}
 func (s *reconciliationRuntimeStore) SaveRuntimeState(_ string, _ int, payload string) error {
 	s.payload, s.writes = payload, s.writes+1
 	return nil

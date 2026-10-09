@@ -91,7 +91,8 @@
     "funding_carry_single_strategy": "资金费套利 Bot 只能配置单策略 funding_carry。",
     "funding_perp_spread_single_strategy": "双永续跨所资金费差 Bot 只能配置单策略 funding_perp_spread，且须填写两腿交易所与合约。",
     "funding_carry_insufficient_capital": "总资金不足，每币种至少需要 200 USDT",
-    "bot_symbol_market_conflict": "与已有 Bot（{{botId}}）冲突：资金费套利与同交易对其它类型 Bot 互斥。"
+    "bot_symbol_market_conflict": "与已有 Bot（{{botId}}）冲突：资金费套利与同交易对其它类型 Bot 互斥。",
+    "bot_start_failed_diagnostic_withheld": "启动 Bot 失败；为保护敏感信息，详细诊断不会通过此接口返回。"
   },
   "botList": {
     "title": "Bot 列表",
@@ -106,6 +107,7 @@
     "stop": "停止",
     "startSuccess": "Bot 已启动",
     "startFailed": "启动 Bot 失败",
+    "startFailedSafeDescription": "启动未完成。出于安全考虑，底层交易所诊断不会通过 Bot 状态接口显示。",
     "starting": "Bot 正在启动…",
     "startPending": "启动可能需要较长时间，请刷新列表查看",
     "stopSuccess": "Bot 已停止",
@@ -289,6 +291,7 @@
     "tabBacktest": "回测",
     "tabLogs": "实时日志",
     "lastStartErrorTitle": "最近启动失败",
+    "lastStartErrorSafeDescription": "启动未完成；请先核对配置、交易所连接及未结状态，再决定是否重试。",
     "lastStartErrorAt": "时间：{{time}}",
     "noTpSlOrders": "暂无止损或止盈订单",
     "exchangeOpenOrders": "交易所当前委托",
@@ -1419,6 +1422,38 @@
     "pairConfigAutoSaved": "交易对配置已自动保存",
     "securitySettings": "安全设置",
     "securitySettingsDesc": "配置数据加密和主密钥管理，保护敏感配置信息",
+    "retiredEquity": {
+      "title": "退役账户与权益基线",
+      "warning": "旧账户凭据仅用于只读核验。只有每个旧账户均通过重新核验，且新账户完整权益账本可用时，才可显式重置；任何不完整或不支持的市场都会继续封锁开仓。",
+      "adminRequired": "此面板仅供管理员使用。账户详情和重置历史由服务端管理员权限保护。",
+      "unavailable": "无法读取退役账户状态或重置审计。请保留开仓暂停并检查服务端状态。",
+      "loading": "正在读取核验状态与审计历史…",
+      "noAccounts": "当前没有待核验的退役账户。",
+      "exchange": "交易所",
+      "market": "市场",
+      "status": "核验状态",
+      "evidence": "清零证据",
+      "evidenceCount": "{{count}} / {{required}} 次",
+      "lastObserved": "最近观测",
+      "notAvailable": "暂无",
+      "unknownStatus": "未知状态",
+      "statuses": {
+        "pending_verification": "待核验 / 不完整",
+        "ready_for_explicit_reset": "满足显式重置门槛"
+      },
+      "reset": "显式重置旧账户与基线",
+      "resetFailedTitle": "重置未完成，封锁仍保留",
+      "resetFailed": "服务端未完成所有账户的重新只读核验、目标权益核账或持久审计。可修复原因后由同一管理员重试；不要手动移除开仓暂停。",
+      "pendingOperation": "待完成操作 {{id}}（发起人：{{actor}}）已保留；同一管理员可重试。",
+      "historyTitle": "已完成重置审计（最近 10 条）",
+      "noHistory": "暂无已完成的重置记录。",
+      "baselineRevision": "基线修订 {{revision}}",
+      "confirmTitle": "确认显式重置",
+      "confirmDescription": "操作将清除已核实的旧账户密文并建立/确认当前账户权益基线；服务端仍会重新查询每个旧账户并验证完整新账户账本。重置不代表盈利或实盘验收。",
+      "confirmAcknowledgement": "我已检查账户状态，并确认请求执行显式重置；若证据不足，系统必须继续封锁。",
+      "cancel": "取消",
+      "confirmReset": "确认重置"
+    },
     "enableEncryption": "启用加密",
     "masterKeyPath": "主密钥路径",
     "masterKeyPathDesc": "主密钥文件存储路径，请妥善保管",
@@ -4310,6 +4345,25 @@
     "confirmApply": "确认应用"
   },
   "strategyViz": {
+    "fundingCarry": {
+      "reconciliationRequired": "核账未完成，交易与资金释放保持封锁",
+      "recordedDebt": "策略账本记录的借款本金",
+      "recordedSpotQuantity": "策略账本记录的现货数量",
+      "recordedFuturesQuantity": "策略账本记录的合约数量",
+      "borrowTransfer": "借款流水 ID / 时间",
+      "ledgerWarning": "以下为持久化策略账本证据，不代表交易所当前负债、余额、仓位或可支用资产；不会据此自动平仓或还款。",
+      "reasons": {
+        "execution_reconciliation_required": "共享执行器仍有未完成的订单经济核账。",
+        "startup_recovery_failed": "启动恢复未能证明运行状态与交易所状态一致。",
+        "runtime_state_write_failed": "策略状态持久化失败或结果未能确认。",
+        "final_close_verification_pending": "平仓后的最终账户核验仍未完成。",
+        "repayment_confirmation_pending": "还款结果仍待确认。",
+        "cover_order_reconciliation_pending": "买回订单或其成交仍待核实。",
+        "exposure_unknown": "策略资产或仓位归属尚未核实。",
+        "financial_intent_in_flight": "存在已发起但尚未完成核账的金融操作。",
+        "unknown": "存在未分类的核账阻塞原因，请查阅服务端审计记录。"
+      }
+    },
     "grid": {
       "totalSlots": "总槽位数",
       "filled": "已填充",

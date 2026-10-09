@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react'
+import { botLifecycleState } from '../services/botLifecycle'
 import {
   Box,
   Button,
@@ -36,7 +37,7 @@ import BotBacktestDialog from './BotBacktestDialog'
 import StopWithCloseConfirmDialog from './StopWithCloseConfirmDialog'
 import { computeLiquidationPrice } from './ParamAdvisor'
 
-type FilterStatus = 'all' | 'running' | 'stopped'
+type FilterStatus = 'all' | 'running' | 'stopped' | 'pending'
 
 const formatDateTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
@@ -88,8 +89,9 @@ const BotList: React.FC = () => {
   )
 
   const statusFiltered = bots.filter((b) => {
-    if (filterStatus === 'running') return b.running
-    if (filterStatus === 'stopped') return !b.running
+    if (filterStatus === 'running') return b.running && !b.stop_pending
+    if (filterStatus === 'stopped') return !b.running && !b.stop_pending
+    if (filterStatus === 'pending') return b.stop_pending
     return true
   })
   const filteredBots = filterBotsByExchangeAndSymbol(
@@ -136,7 +138,7 @@ const BotList: React.FC = () => {
         } else if (outcome.lastStartError) {
           toast({
             title: t('botList.startFailed'),
-            description: outcome.lastStartError,
+            description: t('botList.startFailedSafeDescription'),
             status: 'error',
             duration: 12000,
             isClosable: true,
@@ -160,6 +162,19 @@ const BotList: React.FC = () => {
   const handleStopClick = (bot: BotInfo) => {
     setStopTarget(bot)
     onStopDialogOpen()
+  }
+
+  const handleRetryStop = async (botId: string) => {
+    setActionBotId(botId)
+    try {
+      await stopBot(botId)
+      toast({ title: t('botList.stopSuccess'), status: 'success', duration: 2000 })
+    } catch {
+      toast({ title: t('botList.stopFailed'), status: 'error', duration: 3000 })
+    } finally {
+      await fetchBots()
+      setActionBotId(null)
+    }
   }
 
   const handleStopDialogClose = () => {
@@ -293,6 +308,9 @@ const BotList: React.FC = () => {
             >
               {t('botList.stopped')}
             </Button>
+            <Button colorScheme={filterStatus === 'pending' ? 'orange' : 'gray'} variant={filterStatus === 'pending' ? 'solid' : 'outline'} onClick={() => setFilterStatus('pending')} borderRadius="lg">
+              {t('stopPending.status')}
+            </Button>
           </ButtonGroup>
           {(uniqueExchanges.length > 0 || uniqueSymbols.length > 0) && (
             <HStack spacing={2}>
@@ -390,7 +408,7 @@ const BotList: React.FC = () => {
                     <VStack align="stretch" spacing={3} flex={1} minW={0}>
                       <HStack spacing={2} flexWrap="wrap">
                         <Badge
-                          colorScheme={bot.running ? 'green' : 'gray'}
+                          colorScheme={bot.stop_pending ? 'orange' : bot.running ? 'green' : 'gray'}
                           fontSize="11px"
                           fontWeight="500"
                           px={2}
@@ -398,7 +416,7 @@ const BotList: React.FC = () => {
                           borderRadius="full"
                           variant={bot.running ? 'solid' : 'subtle'}
                         >
-                          {bot.running ? t('botList.running') : t('botList.stopped')}
+                          {bot.stop_pending ? t('stopPending.status') : bot.running ? t('botList.running') : t('botList.stopped')}
                         </Badge>
                         {bot.risk_triggered && (
                           <Badge colorScheme="red" fontSize="11px" px={2} py={0.5} borderRadius="full">
@@ -516,7 +534,11 @@ const BotList: React.FC = () => {
 
                   <Flex mt={4} gap={2} onClick={(e) => e.stopPropagation()} align="center" justify="space-between" flexWrap="wrap">
                     <HStack spacing={2}>
-                      {bot.running ? (
+                      {botLifecycleState(bot) === 'stop_pending' ? (
+                        <Button size="sm" colorScheme="orange" isLoading={actionBotId === bot.bot_id} onClick={() => handleRetryStop(bot.bot_id)}>
+                          {t('stopPending.retry')}
+                        </Button>
+                      ) : bot.running ? (
                         <Button
                           size="sm"
                           colorScheme="red"

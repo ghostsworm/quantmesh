@@ -194,8 +194,9 @@ func TestExchangeProviderAndCapitalAdapters(t *testing.T) {
 	ex1 := &adapterFakeExchange{name: "ex1", klines: []*exchange.Candle{{Close: 100}}, funding: 0.001}
 	ex2 := &adapterFakeExchange{name: "ex1"}
 	manager := NewSymbolManager(cfg, event.NewEventBus(1), nil, nil, "")
-	manager.Add(&SymbolRuntime{Exchange: ex1, Config: config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT"}})
+	manager.Add(&SymbolRuntime{Exchange: ex1, Config: config.SymbolConfig{ID: "custom-futures-owner", Exchange: "binance", Symbol: "BTCUSDT"}})
 	manager.Add(&SymbolRuntime{Exchange: ex2, Config: config.SymbolConfig{Exchange: "binance", Symbol: "ETHUSDT"}})
+	manager.Add(&SymbolRuntime{Exchange: ex2, Config: config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "spot"}})
 
 	capital := &capitalDataSourceAdapter{manager: manager, cfg: cfg}
 	if got := capital.GetExchanges(); len(got) != 1 {
@@ -204,8 +205,16 @@ func TestExchangeProviderAndCapitalAdapters(t *testing.T) {
 	if !capital.GetStrategyConfigs()["grid"].Enabled || capital.GetConfig() != cfg {
 		t.Fatalf("strategy config/config accessors mismatch")
 	}
-	if got := capital.GetPositionManagers(); len(got) != 2 {
-		t.Fatalf("GetPositionManagers() length = %d, want 2", len(got))
+	positionManagers := capital.GetPositionManagers()
+	if len(positionManagers) != 3 {
+		t.Fatalf("GetPositionManagers() length = %d, want 3", len(positionManagers))
+	}
+	botIDs := make(map[string]bool, len(positionManagers))
+	for _, info := range positionManagers {
+		botIDs[info.BotID] = true
+	}
+	if !botIDs["custom-futures-owner"] || !botIDs["binance:btcusdt:spot"] {
+		t.Fatalf("capital adapter did not preserve market-scoped Bot IDs: %#v", botIDs)
 	}
 
 	provider := &exchangeProviderAdapter{exchange: ex1}

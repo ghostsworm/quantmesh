@@ -10,13 +10,23 @@ import (
 // Startup reconciles only an already accepted repayment. It cannot declare the
 // whole interrupted operation complete without its order and asset evidence.
 func (s *FundingCarryStrategy) reconcileSavedMarginRepayment(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("pending repayment recovery requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	store := s.runtimeStateStore
 	s.mu.RUnlock()
 	if store == nil {
 		return nil // normal restore reports the missing store
 	}
-	_, payload, found, err := store.LoadRuntimeState("funding_carry")
+	reader, hasContextReader := store.(RuntimeStateContextReader)
+	if !hasContextReader {
+		return fmt.Errorf("pending repayment recovery requires cancellable checkpoint reads")
+	}
+	_, payload, found, err := reader.LoadRuntimeStateContext(ctx, "funding_carry")
 	if err != nil || !found {
 		return err
 	}
@@ -29,7 +39,7 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRepayment(ctx context.Context
 	}
 	defer s.releaseOperation()
 	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
-		version, payload, found, err := store.LoadRuntimeState("funding_carry")
+		version, payload, found, err := reader.LoadRuntimeStateContext(operationCtx, "funding_carry")
 		if err != nil {
 			return fmt.Errorf("reload pending repayment snapshot: %w", err)
 		}
@@ -51,6 +61,10 @@ func (s *FundingCarryStrategy) reconcileSavedMarginRepayment(ctx context.Context
 		if err := validateFundingCarryDebtAsset(state, s.spot.GetBaseAsset()); err != nil {
 			return err
 		}
+		if _, ok := store.(RuntimeStateConditionalWriter); !ok {
+			return fmt.Errorf("pending repayment recovery requires atomic conditional checkpoint writes")
+		}
+		operationCtx = context.WithValue(operationCtx, fundingCarryRecoveryCheckpointKey{}, &fundingCarryRecoveryCheckpoint{store: store, version: version, payload: payload})
 		s.mu.Lock()
 		if err := s.verifyDebtCommitLocked(operationCtx); err != nil {
 			s.mu.Unlock()

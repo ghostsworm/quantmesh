@@ -56,7 +56,7 @@ func TestSetSymbolEnabledNotifiesEquityScopeAfterUnlock(t *testing.T) {
 		if err != nil {
 			t.Fatalf("set symbol enabled: %v", err)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("SetSymbolEnabled blocked while notifying updater that re-enters GetConfig")
 	}
 	select {

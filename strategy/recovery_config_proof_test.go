@@ -26,6 +26,10 @@ func TestFundingCarryRecoveryConfigProof(t *testing.T) {
 		binding := FundingCarryRecoveryBinding{state.FuturesExchange, state.SpotExchange, state.Symbol, "BTC", state.MarginAccountScope}
 		payload := recoveryProofPayload(t, state)
 		err := VerifyFundingCarryRecoveryConfigState(6, payload, binding)
+		currentErr := VerifyFundingCarryRecoveryConfigState(fundingCarryRuntimeStateVersion, payload, binding)
+		if (net == 0.4 && currentErr != nil) || (net > 0.4 && !errors.Is(currentErr, ErrRecoveryConfigRequired)) {
+			t.Fatalf("current schema flatness proof diverged: %v", currentErr)
+		}
 		if net == 0.4 && err != nil {
 			t.Fatalf("flat journal rejected: %v", err)
 		}
@@ -68,7 +72,7 @@ func TestFundingCarryRecoveryConfigProof(t *testing.T) {
 func TestFundingPerpSpreadRecoveryConfigProof(t *testing.T) {
 	flat := fundingPerpSpreadRuntimeState{Strategy: "funding_perp_spread", LegAExchange: "venue-a", LegASymbol: "BTCUSDT", LegBExchange: "venue-b", LegBSymbol: "BTCUSDT", OwnershipReady: true}
 	binding := FundingPerpSpreadRecoveryBinding{flat.LegAExchange, flat.LegASymbol, flat.LegBExchange, flat.LegBSymbol}
-	if err := VerifyFundingPerpSpreadRecoveryConfigState(6, recoveryProofPayload(t, flat), binding); err != nil {
+	if err := VerifyFundingPerpSpreadRecoveryConfigState(fundingPerpSpreadRuntimeStateVersion, recoveryProofPayload(t, flat), binding); err != nil {
 		t.Fatal(err)
 	}
 	for _, kind := range []string{"position", "tiny_position", "ledger", "emergency", "pending", "execution"} {
@@ -85,7 +89,7 @@ func TestFundingPerpSpreadRecoveryConfigProof(t *testing.T) {
 				state.EmergencyCloseRequired = true
 			case "pending":
 				state.IntentInFlight, state.ExposureUnknown = true, true
-				state.PendingOrder = &fundingPerpSpreadOrderIntent{ClientOrderID: "pending-1", LegExchange: flat.LegAExchange, Symbol: flat.LegASymbol, Side: "BUY", Quantity: 0.4}
+				state.PendingOrder = &fundingPerpSpreadOrderIntent{ClientOrderID: "pending-1", Phase: fundingPerpSpreadIntentDispatching, LegExchange: flat.LegAExchange, Symbol: flat.LegASymbol, Side: "BUY", Quantity: 0.4}
 			case "execution":
 				state.ExecutionLedgerUnverified = true
 				state.PendingExecutions = []fundingPerpSpreadPendingExecutionState{{Exchange: flat.LegAExchange, Symbol: flat.LegASymbol, ClientOrderID: "pending-1", Side: "BUY", Quantity: 0.4}}
@@ -113,7 +117,7 @@ func TestRecoveryConfigProofRejectsAmbiguousEvidence(t *testing.T) {
 			t.Fatalf("ambiguous evidence accepted: %s: %v", payload, err)
 		}
 	}
-	for _, version := range []int{0, 1, 5, 7} {
+	for _, version := range []int{0, 1, 5, fundingPerpSpreadRuntimeStateVersion + 1} {
 		if err := VerifyFundingPerpSpreadRecoveryConfigState(version, valid, binding); !errors.Is(err, ErrRecoveryConfigUnverified) {
 			t.Fatalf("schema %d accepted", version)
 		}

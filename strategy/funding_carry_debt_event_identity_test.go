@@ -3,13 +3,26 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/storage"
 )
+
+type fundingCarryConfirmedCanceledDebtStore struct {
+	*memoryRuntimeStateStore
+}
+
+func (s *fundingCarryConfirmedCanceledDebtStore) SaveRuntimeState(name string, version int, payload string) error {
+	if err := s.memoryRuntimeStateStore.SaveRuntimeState(name, version, payload); err != nil {
+		return err
+	}
+	return errors.Join(storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled, context.Canceled)
+}
 
 type fundingCarryStableDebtExchange struct {
 	mockFCExchange
@@ -77,7 +90,7 @@ func TestFundingCarryDebtEventReplayIsIdempotentAcrossRestart(t *testing.T) {
 		t.Fatal("confirmed repayment was recorded twice")
 	}
 	restored := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, &venue.mockFCExchange, &venue.mockFCExchange, venue, nil)
-	restored.SetRuntimeStateStore(store)
+	restored.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	if err := restored.restoreRuntimeState(); err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +106,40 @@ func TestFundingCarryDebtEventReplayIsIdempotentAcrossRestart(t *testing.T) {
 	}
 	if len(restored.marginDebtEvents) != 2 || store.payload != original {
 		t.Fatal("conflicting evidence rewrote ledger")
+	}
+}
+
+func TestFundingCarryConfirmedDebtEventCommitCancellationKeepsCommittedMemory(t *testing.T) {
+	venue := &fundingCarryStableDebtExchange{row: exchange.MarginBorrowRecord{
+		TransferID: 81, Asset: "BTC", Amount: 0.5, Principal: 0.49, Interest: 0.01,
+		Status: "CONFIRMED", Timestamp: time.Now().Add(-time.Second).UnixMilli(),
+	}}
+	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, &venue.mockFCExchange, &venue.mockFCExchange, venue, nil)
+	base := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(base)
+	s.strategySpotKnown, s.direction, s.marginDebt = true, DirectionReverse, 0.49
+	s.marginDebtEvents = []fundingCarryMarginDebtEvent{{
+		Action: "borrow", TransferID: 80, Asset: "BTC", Amount: 0.49, Principal: 0.49,
+		OccurredAt: time.UnixMilli(venue.row.Timestamp).Add(-time.Second),
+	}}
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		t.Fatal("persist initial borrowed state:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+
+	err := s.recordMarginDebtEvent(context.Background(), "repay", 81, "BTC", 0.5)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("record confirmed repayment error = %v, want confirmed-commit cancellation", err)
+	}
+	if len(s.marginDebtEvents) != 2 || s.runtimeStateErr != nil || s.unownedExposure {
+		t.Fatalf("memory diverged from confirmed durable debt event: events=%d state_err=%v unknown=%v", len(s.marginDebtEvents), s.runtimeStateErr, s.unownedExposure)
+	}
+	var saved fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &saved); err != nil {
+		t.Fatal("decode committed debt-event checkpoint:", err)
+	}
+	if len(saved.MarginDebtEvents) != 2 || saved.MarginDebtEvents[1].TransferID != 81 || saved.MarginDebtEvents[1].Action != "repay" {
+		t.Fatalf("durable debt-event checkpoint = %+v, want confirmed repayment exactly once", saved.MarginDebtEvents)
 	}
 }
 

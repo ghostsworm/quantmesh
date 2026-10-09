@@ -2,8 +2,11 @@ package strategy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
+
+	"quantmesh/storage"
 )
 
 // Commit returned principal and its evidence together, never using total repayment.
@@ -32,7 +35,11 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 			if s.marginRepayIntent != nil && s.marginRepayIntent.CoverOrderID > 0 {
 				previous := s.marginCoverOrders
 				s.marginCoverOrders = coverOrders
-				if err := s.persistRuntimeStateLocked(); err != nil {
+				if err := s.persistRecoveryCheckpointLocked(ctx); err != nil {
+					if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+						s.runtimeStateErr = nil
+						return fmt.Errorf("persist replayed margin repayment cover state after caller cancellation: %w", err)
+					}
 					s.marginCoverOrders = previous
 					s.unownedExposure, s.runtimeStateErr = true, err
 					return err
@@ -59,7 +66,13 @@ func (s *FundingCarryStrategy) returnBorrowedPrincipal(ctx context.Context, tran
 	if mismatch {
 		s.unownedExposure = true
 	}
-	if err := s.persistRuntimeStateLocked(); err != nil {
+	if err := s.persistRecoveryCheckpointLocked(ctx); err != nil {
+		if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+			// The fenced store confirms this exact checkpoint. Preserve matching
+			// in-memory principal and event state, but propagate cancellation so
+			// the caller cannot continue the current financial operation.
+			return fmt.Errorf("persist returned margin principal after caller cancellation: %w", err)
+		}
 		s.marginDebtEvents = s.marginDebtEvents[:len(s.marginDebtEvents)-1]
 		s.marginDebt = previousDebt
 		s.marginCoverOrders = previousCoverOrders

@@ -245,7 +245,7 @@ func TestExplicitPauseAutoResumeUsesRequestedDuration(t *testing.T) {
 		Inner: &SymbolRuntime{OpeningGate: gate},
 	}
 	bot.PauseOpeningWithAutoResume("user_requested_timed_pause", 1)
-	time.Sleep(1100 * time.Millisecond)
+	awaitManualPauseExpiry(t, bot, gate)
 	if gate.HasBlock("manual") {
 		t.Fatal("explicitly requested automatic resume did not release the pause")
 	}
@@ -262,18 +262,43 @@ func TestTimedManualPauseExpiryPreservesCoordinatedRiskHold(t *testing.T) {
 
 	bot.PauseOpeningManuallyWithAutoResume("operator_pause", 1)
 	coordinator.Pause("global_circuit_breaker", "daily_loss", bots)
-	time.Sleep(1100 * time.Millisecond)
+	awaitManualPauseExpiry(t, bot, gate)
 	if !gate.HasBlock("global_circuit_breaker") || gate.HasBlock("manual") {
 		t.Fatalf("manual timer cleared or retained the wrong source: risk=%v manual=%v", gate.HasBlock("global_circuit_breaker"), gate.HasBlock("manual"))
 	}
 	if !coordinator.IsHeldBy("global_circuit_breaker") {
 		t.Fatal("manual timer released the coordinated risk source")
 	}
-	if bot.Config.OpenPositionControl.PauseOpening || bot.GetPositionStatus()["paused"] != true {
+	bot.configMu.RLock()
+	manualConfigured := bot.Config.OpenPositionControl.PauseOpening
+	bot.configMu.RUnlock()
+	if manualConfigured || bot.GetPositionStatus()["paused"] != true {
 		t.Fatal("manual timer must release only its persisted manual state while the risk gate remains active")
 	}
 	if !coordinator.Release("global_circuit_breaker", bots) || gate.Blocked() {
 		t.Fatal("explicit risk-source release did not finally clear its own hold")
+	}
+}
+
+const manualPauseExpiryTestTimeout = 3 * time.Second
+const manualPauseExpiryTestPoll = 10 * time.Millisecond
+
+// Timer scheduling and publication are asynchronous. Await both required
+// states, not an assumed goroutine scheduling latency after a fixed sleep.
+func awaitManualPauseExpiry(t *testing.T, bot *BotRuntime, gate *execution.OpeningGate) {
+	t.Helper()
+	deadline := time.Now().Add(manualPauseExpiryTestTimeout)
+	for {
+		bot.configMu.RLock()
+		manualConfigured := bot.Config.OpenPositionControl.PauseOpening
+		bot.configMu.RUnlock()
+		if !gate.HasBlock("manual") && !manualConfigured {
+			return
+		}
+		if !time.Now().Before(deadline) {
+			t.Fatal("manual pause expiry did not release both gate and configured manual state")
+		}
+		time.Sleep(manualPauseExpiryTestPoll)
 	}
 }
 

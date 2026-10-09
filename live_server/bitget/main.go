@@ -318,6 +318,7 @@ func fetchOpenOrders(config *Config, symbol string) (*BitgetOpenOrdersResponse, 
 }
 
 func main() {
+	installStandardLogRedaction()
 	// Load Config
 	configFile := flag.String("config", "config.yaml", "path to config file")
 	flag.Parse()

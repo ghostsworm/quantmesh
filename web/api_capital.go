@@ -43,9 +43,11 @@ type CapitalDataSource interface {
 
 // PositionManagerInfo 倉位管理器信息
 type PositionManagerInfo struct {
-	Exchange string
-	Symbol   string
-	Manager  *position.SuperPositionManager
+	BotID      string
+	Exchange   string
+	Symbol     string
+	MarketType string
+	Manager    *position.SuperPositionManager
 }
 
 var capitalDataSource CapitalDataSource
@@ -784,7 +786,10 @@ func getCapitalUsageHandler(c *gin.Context) {
 				break
 			}
 
-			botID := config.GenerateBotID(pm.Exchange, pm.Symbol, "")
+			botID := strings.TrimSpace(pm.BotID)
+			if botID == "" {
+				botID = config.GenerateBotID(pm.Exchange, pm.Symbol, pm.MarketType)
+			}
 			orderPct := 0.0
 			positionPct := 0.0
 			totalUsedPct := 0.0

@@ -25,8 +25,13 @@ func TestReadScopedPositionSnapshotRejectsEndedContext(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		ex := &cancelAfterPositionRead{cancel: cancel}
-		if _, err := readScopedPositionSnapshot(ctx, ex, "BTCUSDT"); !errors.Is(err, context.Canceled) {
+		_, err := readScopedPositionSnapshot(ctx, ex, "BTCUSDT")
+		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("error = %v, want context canceled", err)
+		}
+		var unavailable *positionSnapshotQueryError
+		if !errors.As(err, &unavailable) {
+			t.Error("canceled-before-read lacks unavailable evidence classification")
 		}
 		if ex.calls != 0 {
 			t.Fatalf("exchange queried %d times after cancellation", ex.calls)
@@ -39,6 +44,10 @@ func TestReadScopedPositionSnapshotRejectsEndedContext(t *testing.T) {
 		positions, err := readScopedPositionSnapshot(ctx, ex, "BTCUSDT")
 		if !errors.Is(err, context.Canceled) || positions != nil {
 			t.Fatalf("positions=%v error=%v, want canceled context and no evidence", positions, err)
+		}
+		var unavailable *positionSnapshotQueryError
+		if !errors.As(err, &unavailable) {
+			t.Error("canceled-after-read lacks unavailable evidence classification")
 		}
 	})
 }

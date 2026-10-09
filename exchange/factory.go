@@ -1,8 +1,10 @@
 package exchange
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"quantmesh/config"
 	"quantmesh/exchange/accounting"
@@ -57,6 +59,108 @@ func NewAccountEvidenceSource(exchangeName, marketType string, cfg config.Exchan
 	default:
 		return nil, fmt.Errorf("complete account evidence is unsupported for %s/%s", name, market)
 	}
+}
+
+// NewAccountFuturesFlatnessVerifier creates only a REST-only Futures verifier
+// for supported exchanges. The returned capability can query positions/orders
+// but cannot place or cancel orders.
+func NewAccountFuturesFlatnessVerifier(exchangeName string, cfg config.ExchangeConfig) (AccountFuturesFlatnessVerifier, error) {
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
+	if strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.SecretKey) == "" ||
+		(name == "bitget" && strings.TrimSpace(cfg.Passphrase) == "") {
+		return nil, fmt.Errorf("futures flatness verifier credentials are incomplete for %s", name)
+	}
+	switch name {
+	case "binance":
+		adapter, err := binance.NewBinanceAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Testnet)
+		if err != nil {
+			return nil, fmt.Errorf("create Binance REST-only Futures verifier: %w", err)
+		}
+		return adapter, nil
+	case "bitget":
+		adapter, err := bitget.NewBitgetAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Passphrase, cfg.Testnet)
+		if err != nil {
+			return nil, fmt.Errorf("create Bitget REST-only Futures verifier: %w", err)
+		}
+		return adapter, nil
+	default:
+		return nil, fmt.Errorf("account-wide Futures flatness evidence is unsupported for %s", name)
+	}
+}
+
+type accountFuturesFlatnessObserver struct {
+	observe func(context.Context) (bool, bool, time.Time, error)
+}
+
+func (o accountFuturesFlatnessObserver) ObserveAccountFuturesFlatness(ctx context.Context) (bool, bool, time.Time, error) {
+	if o.observe == nil {
+		return false, false, time.Time{}, fmt.Errorf("account Futures flatness observer is unavailable")
+	}
+	return o.observe(ctx)
+}
+
+// NewAccountFuturesFlatnessObserver creates a REST-only observer that exposes
+// complete non-flat readings separately from transport/schema failures.
+func NewAccountFuturesFlatnessObserver(exchangeName string, cfg config.ExchangeConfig) (AccountFuturesFlatnessObserver, error) {
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
+	if strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.SecretKey) == "" ||
+		(name == "bitget" && strings.TrimSpace(cfg.Passphrase) == "") {
+		return nil, fmt.Errorf("futures flatness observer credentials are incomplete for %s", name)
+	}
+	switch name {
+	case "binance":
+		adapter, err := binance.NewBinanceAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Testnet)
+		if err != nil {
+			return nil, fmt.Errorf("create Binance REST-only Futures observer: %w", err)
+		}
+		return accountFuturesFlatnessObserver{observe: func(ctx context.Context) (bool, bool, time.Time, error) {
+			evidence, err := adapter.ReadAccountFuturesFlatnessEvidence(ctx)
+			if err != nil {
+				return false, false, time.Now().UTC(), err
+			}
+			flat, err := evidence.IsFlat()
+			if err != nil {
+				return false, false, evidence.ObservedAt, err
+			}
+			return evidence.Complete, flat, evidence.ObservedAt, nil
+		}}, nil
+	case "bitget":
+		adapter, err := bitget.NewBitgetAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Passphrase, cfg.Testnet)
+		if err != nil {
+			return nil, fmt.Errorf("create Bitget REST-only Futures observer: %w", err)
+		}
+		return accountFuturesFlatnessObserver{observe: func(ctx context.Context) (bool, bool, time.Time, error) {
+			evidence, err := adapter.ReadAccountFuturesFlatnessEvidence(ctx)
+			if err != nil {
+				return false, false, time.Now().UTC(), err
+			}
+			flat, err := evidence.IsFlat()
+			if err != nil {
+				return false, false, evidence.ObservedAt, err
+			}
+			return evidence.Complete, flat, evidence.ObservedAt, nil
+		}}, nil
+	default:
+		return nil, fmt.Errorf("account-wide Futures flatness observer is unsupported for %s", name)
+	}
+}
+
+// NewAccountSpotMarginFlatnessVerifier creates only a REST-only Binance
+// verifier for cross/isolated margin liabilities and active margin orders.
+// It does not verify Futures/Spot positions or total account flatness.
+func NewAccountSpotMarginFlatnessVerifier(exchangeName string, cfg config.ExchangeConfig) (SpotMarginFlatnessVerifier, error) {
+	name := strings.ToLower(strings.TrimSpace(exchangeName))
+	if name != "binance" {
+		return nil, fmt.Errorf("account-wide Spot Margin flatness evidence is unsupported for %s", name)
+	}
+	if strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.SecretKey) == "" {
+		return nil, fmt.Errorf("Spot Margin flatness verifier credentials are incomplete for %s", name)
+	}
+	adapter, err := binance.NewBinanceSpotMarginAccountEvidenceAdapter(cfg.APIKey, cfg.SecretKey, cfg.Testnet)
+	if err != nil {
+		return nil, fmt.Errorf("create Binance REST-only Spot Margin verifier: %w", err)
+	}
+	return adapter, nil
 }
 
 // NewExchange 創建交易所實例

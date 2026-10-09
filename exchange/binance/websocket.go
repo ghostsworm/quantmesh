@@ -29,6 +29,7 @@ type WebSocketManager struct {
 	mu               sync.RWMutex
 	callbacks        []OrderUpdateCallback
 	isRunning        bool
+	cancelWorkers    context.CancelFunc
 	useTestnet       bool   // 是否使用測試網
 	symbol           string // 所屬適配器交易對（僅用於連線事件標註）
 
@@ -119,22 +120,8 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 		w.mu.Unlock()
 		return fmt.Errorf("訂單流已在运行")
 	}
-	w.mu.Unlock()
-
-	// 獲取listenKey
-	listenKey, err := w.startUserStream(ctx)
-	if err != nil {
-		w.reportIfAuthError(err)
-		return fmt.Errorf("獲取listenKey失败: %w", err)
-	}
-	w.setListenKey(listenKey)
-	logger.Debug("✅ [Binance] 已獲取訂單流listenKey")
-
-	w.mu.Lock()
-	if w.isRunning {
-		w.mu.Unlock()
-		return fmt.Errorf("訂單流已在运行")
-	}
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	w.cancelWorkers = cancelWorkers
 	// 每次啟動重建 stop/done 通道，避免 Stop 後再 Start 重複 close 已關閉通道
 	w.isRunning = true
 	// 替換而非追加：Stop 後再 Start 不得重複註冊回調（否則每條訂單更新被處理多次）
@@ -148,11 +135,25 @@ func (w *WebSocketManager) Start(ctx context.Context, callback OrderUpdateCallba
 	}
 	w.mu.Unlock()
 
-	// 啟动listenKey保活协程
-	go w.keepAliveListenKey(ctx, stopC)
-
-	// 啟动WebSocket監听
-	go w.listenUserDataStream(ctx, stopC, doneC)
+	// Reserve this generation before the REST call so concurrent Stop can
+	// cancel and await startup rather than acknowledge a not-yet-running stream.
+	listenKey, err := w.startUserStream(workerCtx)
+	if err == nil {
+		err = workerCtx.Err()
+	}
+	if err != nil {
+		cancelWorkers()
+		w.finishOrderStream(stopC, doneC)
+		w.reportIfAuthError(err)
+		return fmt.Errorf("獲取listenKey失败: %w", err)
+	}
+	w.setListenKey(listenKey)
+	logger.Debug("✅ [Binance] 已獲取訂單流listenKey")
+	var workers sync.WaitGroup
+	workers.Add(2)
+	go func() { defer workers.Done(); w.keepAliveListenKey(workerCtx, stopC) }()
+	go func() { defer workers.Done(); defer cancelWorkers(); w.listenUserDataStream(workerCtx, stopC) }()
+	go func() { workers.Wait(); cancelWorkers(); w.finishOrderStream(stopC, doneC) }()
 
 	return nil
 }
@@ -258,24 +259,9 @@ func (w *WebSocketManager) StartPriceStream(ctx context.Context, symbol string, 
 	}
 } // Stop 停止WebSocket
 func (w *WebSocketManager) Stop() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if !w.isRunning {
-		return
+	if err := w.StopWithError(); err != nil {
+		logger.Warn("[Binance] 訂單流停止未核實: %v", err)
 	}
-
-	close(w.stopC)
-
-	// 等待关闭完成或超時
-	select {
-	case <-w.doneC:
-		logger.Info("✅ [Binance] 訂單流已停止")
-	case <-time.After(w.closeTimeout):
-		logger.Warn("⚠️ [Binance] 訂單流停止超時")
-	}
-
-	w.isRunning = false
 }
 
 // keepAliveListenKey 保持listenKey有效；保活失敗時通知監聽協程重建 listenKey 並重連
@@ -343,16 +329,13 @@ func (w *WebSocketManager) nextDelay(d time.Duration) time.Duration {
 
 // listenUserDataStream 監听用戶數據流
 // 斷線或保活失敗後先重建 listenKey 再重連（舊 key 可能已過期，用它重連只會反覆失敗）
-func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC chan struct{}, doneC chan struct{}) {
+func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC chan struct{}) {
 	// down: 當前是否處於已上報的斷線狀態（一次斷線只上報一次 Disconnected）
 	down := false
 	defer func() {
 		if down {
 			w.emitConnectivity(ConnectivityStopped, "order stream stopped while disconnected")
 		}
-		close(doneC)
-		// 外部 ctx 取消導致退出時 Stop 未被調用，需復位運行狀態，否則之後無法再次 Start
-		w.markStoppedIfCurrent(stopC)
 	}()
 	markDown := func(reason string) {
 		if !down {
@@ -404,9 +387,11 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC chan 
 		select {
 		case <-ctx.Done():
 			close(connStopC)
+			<-connDoneC // Includes any in-flight SDK handler/callback.
 			return
 		case <-stopC:
 			close(connStopC)
+			<-connDoneC
 			return
 		case <-w.renewC:
 			logger.Warn("⚠️ [Binance] listenKey 已失效，斷開並重建後重連")
@@ -425,14 +410,16 @@ func (w *WebSocketManager) listenUserDataStream(ctx context.Context, stopC chan 
 	}
 }
 
-// markStoppedIfCurrent 監聽協程退出時復位運行狀態（僅當仍是本輪啟動且未被 Stop 處理）
-func (w *WebSocketManager) markStoppedIfCurrent(stopC chan struct{}) {
+// finishOrderStream runs exactly once, after startup failure or all workers exit.
+func (w *WebSocketManager) finishOrderStream(stopC, doneC chan struct{}) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.isRunning && w.stopC == stopC {
 		w.isRunning = false
 		w.callbacks = nil
+		w.cancelWorkers = nil
 	}
+	close(doneC)
 }
 
 // emitConnectivity 發布用戶數據流連線事件

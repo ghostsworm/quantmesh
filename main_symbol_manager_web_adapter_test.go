@@ -68,11 +68,13 @@ func TestSymbolManagerWebAdapterAmbiguousAndErrorPaths(t *testing.T) {
 	manager := NewSymbolManager(cfg, event.NewEventBus(4), nil, nil, "")
 	manager.Add(&SymbolRuntime{Config: cfg.Trading.Symbols[0], Exchange: &adapterFakeExchange{name: "spot-ex"}})
 	manager.Add(&SymbolRuntime{Config: cfg.Trading.Symbols[1], Exchange: &adapterFakeExchange{name: "futures-ex"}})
+	startFailureEvents := event.NewEventBus(4)
+	startFailureNotifications := startFailureEvents.Subscribe()
 	adapter := &symbolManagerWebAdapter{
 		manager:  manager,
 		ctx:      context.Background(),
 		cfg:      cfg,
-		eventBus: event.NewEventBus(4),
+		eventBus: startFailureEvents,
 	}
 
 	if got, ok := adapter.Get("binance", "BTCUSDT"); ok || got != nil {
@@ -80,6 +82,14 @@ func TestSymbolManagerWebAdapterAmbiguousAndErrorPaths(t *testing.T) {
 	}
 	if err := adapter.StartSymbol("binance", "MISSING", ""); err == nil {
 		t.Fatal("StartSymbol should reject missing symbol config")
+	}
+	select {
+	case notification := <-startFailureNotifications:
+		if notification == nil || notification.Data["error"] != botStartFailureCode || notification.Data["message"] != botStartFailureCode {
+			t.Fatalf("start failure event exposed raw diagnostic: %+v", notification)
+		}
+	default:
+		t.Fatal("missing start failure event")
 	}
 	if err := adapter.StartSymbol("binance", "BTCUSDT", "margin"); err == nil {
 		t.Fatal("StartSymbol should reject when all candidates are already running")
@@ -100,6 +110,26 @@ func TestSymbolManagerWebAdapterAmbiguousAndErrorPaths(t *testing.T) {
 	emptyAdapter := &symbolManagerWebAdapter{manager: emptyManager, ctx: context.Background(), cfg: emptyCfg}
 	if mt := emptyAdapter.resolveMarketType("binance", "BTCUSDT"); mt != "futures" {
 		t.Fatalf("empty resolveMarketType = %q", mt)
+	}
+}
+
+func TestSymbolManagerWebAdapterStopMarketTypeResolution(t *testing.T) {
+	manager, cfg := newWebAdapterTestManager()
+	adapter := &symbolManagerWebAdapter{manager: manager, ctx: context.Background(), cfg: cfg}
+
+	if got, err := adapter.resolveStopMarketType("binance", "BTCUSDT", "SPOT"); err != nil || got != "spot" {
+		t.Fatalf("explicit stop market = %q, err=%v", got, err)
+	}
+	if _, err := adapter.resolveStopMarketType("binance", "BTCUSDT", "unknown"); err == nil {
+		t.Fatal("unsupported explicit stop market was accepted")
+	}
+	if got, err := adapter.resolveStopMarketType("binance", "BTCUSDT", ""); err != nil || got != "spot" {
+		t.Fatalf("unique runtime stop market = %q, err=%v", got, err)
+	}
+
+	manager.Add(&SymbolRuntime{Config: config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT", MarketType: "futures"}, Exchange: &adapterFakeExchange{name: "futures-btc"}})
+	if _, err := adapter.resolveStopMarketType("binance", "BTCUSDT", ""); err == nil {
+		t.Fatal("ambiguous running markets were resolved without an explicit market_type")
 	}
 }
 

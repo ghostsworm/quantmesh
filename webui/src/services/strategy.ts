@@ -261,12 +261,29 @@ export interface GridVisualizationData {
   priceInterval?: number
 }
 
+export interface FundingCarryVisualizationData {
+  type: 'funding_carry'
+  reconciliation_required: boolean
+  reconciliation_reasons: string[]
+  direction: string
+  spot_qty: number
+  futures_qty: number
+  margin_debt: number
+  margin_debt_basis: 'durable_strategy_ledger_not_live_exchange_liability'
+  margin_borrow_transfer_id: number
+  margin_borrowed_at: string
+  margin_cover_remaining_qty: string | null
+  margin_cover_remaining_known: boolean
+  margin_cover_remaining_basis: string
+}
+
 // 策略可视化数据联合类型
 export type StrategyVisualizationData = 
   | DCAVisualizationData 
   | TrendFollowingVisualizationData 
   | MeanReversionVisualizationData 
   | GridVisualizationData
+  | FundingCarryVisualizationData
   | Record<string, any>
 
 // 策略運行狀態類型

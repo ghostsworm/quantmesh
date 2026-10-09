@@ -195,6 +195,38 @@ type OpeningPauseCoordinator struct {
 	syncHoldApplied     bool
 	syncFailureReported bool
 	botProvider         func() []BotController
+	admissionMu         sync.RWMutex
+	admissionChecks     map[string]func() bool
+}
+
+// SetOpeningAdmissionCheck registers a pure local predicate, independent of
+// transitionMu: constructors hold that mutex while their producers start.
+func (c *OpeningPauseCoordinator) SetOpeningAdmissionCheck(source string, check func() bool) {
+	c.admissionMu.Lock()
+	defer c.admissionMu.Unlock()
+	if c.admissionChecks == nil {
+		c.admissionChecks = make(map[string]func() bool)
+	}
+	if check == nil {
+		delete(c.admissionChecks, source)
+	} else {
+		c.admissionChecks[source] = check
+	}
+}
+
+func (c *OpeningPauseCoordinator) OpeningAdmissionAllowed() bool {
+	c.admissionMu.RLock()
+	checks := make([]func() bool, 0, len(c.admissionChecks))
+	for _, check := range c.admissionChecks {
+		checks = append(checks, check)
+	}
+	c.admissionMu.RUnlock()
+	for _, check := range checks {
+		if !check() {
+			return false
+		}
+	}
+	return true
 }
 
 const defaultOpeningPauseSyncInterval = time.Second
@@ -304,15 +336,12 @@ func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotControl
 		bots = c.botProvider()
 	}
 	gateSource := openingPauseGateSource(c.ownerID, source)
-	var persistErr error
-	if c.stateStore != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		persistErr = c.stateStore.UpsertOpeningPauseHolder(ctx, storage.OpeningPauseHolder{OwnerID: c.ownerID, Source: source, Reason: reason})
-		cancel()
-	}
+	// Local risk admission must not wait for a slow/uncertain database ACK.
+	// Retain a pending owner before writing so failed persistence cannot erase
+	// the hold during a later shared-state refresh.
 	c.mu.Lock()
 	c.holders[gateSource] = reason
-	if persistErr != nil {
+	if c.stateStore != nil {
 		c.pending[gateSource] = reason
 	} else {
 		delete(c.pending, gateSource)
@@ -323,6 +352,17 @@ func (c *OpeningPauseCoordinator) Pause(source, reason string, bots []BotControl
 			sourceOwned.PauseOpeningForSource(gateSource, reason)
 		} else {
 			pauseBotWithoutAutoResume(bot, reason)
+		}
+	}
+	var persistErr error
+	if c.stateStore != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		persistErr = c.stateStore.UpsertOpeningPauseHolder(ctx, storage.OpeningPauseHolder{OwnerID: c.ownerID, Source: source, Reason: reason})
+		cancel()
+		if persistErr == nil {
+			c.mu.Lock()
+			delete(c.pending, gateSource)
+			c.mu.Unlock()
 		}
 	}
 	if persistErr != nil {

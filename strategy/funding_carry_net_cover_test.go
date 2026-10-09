@@ -20,7 +20,7 @@ func (e *fundingCarryNetCoverExchange) GetOrderFills(context.Context, string, in
 }
 
 func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
-	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee", "underreported_base_fee", "zero_fee_with_base_charge", "invalid_quote_rate", "converted_base_fee", "exact_net_cover"} {
+	for _, mode := range []string{"base_fee_shortfall", "missing_fills", "wrong_order", "duplicate_trade", "incomplete_quantity", "base_fee_sufficient", "quote_fee", "zero_fee", "underreported_base_fee", "zero_fee_with_base_charge", "invalid_quote_rate", "converted_base_fee", "inconsistent_converted_fee", "exact_net_cover"} {
 		t.Run(mode, func(t *testing.T) {
 			spot := &mockFCExchange{baseAsset: "BTC", latestPrice: 50000, quantityDecimals: 3, priceDecimals: 2}
 			futures := &mockFCExchange{quantityDecimals: 3}
@@ -51,7 +51,10 @@ func TestFundingCarryNetDebtCoverCannotUseGrossFill(t *testing.T) {
 				fill.Commission, fill.BaseFeeQty = 20, 0.0004
 				fill.CommissionQuoteKnown, fill.CommissionQuote, fill.CommissionQuoteRate = true, 20, 0
 			case "converted_base_fee":
-				fill.Commission, fill.BaseFeeQty = 20, 0.0004
+				fill.Commission, fill.BaseFeeQty = 0.0004, 0.0004
+				fill.CommissionQuoteKnown, fill.CommissionQuote, fill.CommissionQuoteRate = true, 20, 50000
+			case "inconsistent_converted_fee":
+				fill.Commission, fill.BaseFeeQty = 0.002, 0.0004
 				fill.CommissionQuoteKnown, fill.CommissionQuote, fill.CommissionQuoteRate = true, 20, 50000
 			}
 			s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, venue, nil)

@@ -36,7 +36,7 @@ func (s *FundingCarryStrategy) VerifyRemainingReconciliation(ctx context.Context
 	if err != nil {
 		return err
 	}
-	if remaining.Sign() <= 0 {
+	if remaining.Sign() <= 0 && !(s.marginDebt > 0 && hasTerminalPartialFundingCarryCover(s.marginCoverOrders)) {
 		return fmt.Errorf("funding_carry has no verified remaining-asset reconciliation")
 	}
 	return nil

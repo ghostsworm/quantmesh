@@ -49,6 +49,36 @@ func TestSaveOrderFillIsIdempotentAndRejectsConflictingReplay(t *testing.T) {
 	}
 }
 
+func TestSaveOrderFillsAtomicRollsBackEarlierRowsOnConflict(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/atomic-fills.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	tradeTime := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	existing := &OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "atomic-scope", Symbol: "BTCUSDT", TradeID: "existing", OrderID: 42, Side: "BUY", Price: 100, Quantity: 1, TradeTime: tradeTime}
+	if err := st.SaveOrderFill(existing); err != nil {
+		t.Fatal(err)
+	}
+	first := *existing
+	first.TradeID, first.OrderID = "new-first", 43
+	conflict := *existing
+	conflict.Quantity = 2
+	if err := st.SaveOrderFillsAtomic([]*OrderFill{&first, &conflict}); err == nil {
+		t.Fatal("atomic batch accepted a conflicting existing execution")
+	}
+	var firstCount, totalCount int
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM order_fills WHERE account_scope = ? AND trade_id = ?`, "atomic-scope", first.TradeID).Scan(&firstCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.db.QueryRow(`SELECT COUNT(*) FROM order_fills WHERE account_scope = ?`, "atomic-scope").Scan(&totalCount); err != nil {
+		t.Fatal(err)
+	}
+	if firstCount != 0 || totalCount != 1 {
+		t.Fatalf("partial batch escaped rollback: first=%d total=%d", firstCount, totalCount)
+	}
+}
+
 func TestMigrateOrderFillsAddsPnLAssetWithoutGuessingLegacyRows(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/legacy-pnl-asset.db")
 	if err != nil {

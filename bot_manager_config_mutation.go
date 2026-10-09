@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"quantmesh/web"
 )
@@ -24,11 +26,41 @@ func (bm *BotManager) WithBotConfigurationLock(botID string, persist func() erro
 // reject recovery-contract changes for managed runtimes; this method only
 // supplies lifecycle serialization and the authoritative registration state.
 func (bm *BotManager) WithBotStrategyConfigurationLock(botID string, persist func(bool) error) error {
-	if bm == nil || botID == "" || persist == nil {
+	return bm.WithBotStrategyConfigurationContext(context.Background(), botID, persist)
+}
+
+const botLifecycleLockRetryInterval = 10 * time.Millisecond
+
+// Context-aware callers wait on the same lifecycle mutex without spawning a
+// waiter goroutine that could outlive cancellation and retain a future lock.
+func (bm *BotManager) WithBotStrategyConfigurationContext(ctx context.Context, botID string, persist func(bool) error) error {
+	if bm == nil || ctx == nil || botID == "" || persist == nil {
 		return fmt.Errorf("Bot configuration mutation requires manager, identity and persistence callback")
 	}
-	unlock := bm.lockBotLifecycle(botID)
-	defer unlock()
+	mu := bm.botLifecycleMutex(botID)
+	if ctx.Done() == nil {
+		mu.Lock()
+	} else {
+		for {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if mu.TryLock() {
+				break
+			}
+			timer := time.NewTimer(botLifecycleLockRetryInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+	}
+	defer mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	finish, err := bm.runtimeAdmissions.Begin()
 	if err != nil {
 		return fmt.Errorf("process shutdown rejects Bot configuration mutation: %w", err)

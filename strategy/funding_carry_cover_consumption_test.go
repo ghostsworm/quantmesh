@@ -96,7 +96,7 @@ func TestFundingCarryStartupConsumesBoundCoverAcknowledgement(t *testing.T) {
 	restarted, _, _ := newFundingCarryRepayIntentFixture()
 	restarted.marginDebt, restarted.marginBorrowTransferID = 0, 0
 	restarted.marginEx = &fundingCarryRecoveryExchange{fundingCarryRepayIntentExchange: margin}
-	restarted.SetRuntimeStateStore(store)
+	restarted.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	if err := restarted.Start(context.Background()); err == nil {
 		t.Fatal("whole operation falsely resumed")
 	}

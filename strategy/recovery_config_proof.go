@@ -26,7 +26,7 @@ type FundingPerpSpreadRecoveryBinding struct {
 // VerifyFundingCarryRecoveryConfigState proves only the saved journal is flat,
 // not live inventory, spendability, account ownership or atomic admission.
 func VerifyFundingCarryRecoveryConfigState(version int, payload string, binding FundingCarryRecoveryBinding) error {
-	if version != fundingCarryRuntimeStateVersion || !recoveryBindingComplete(binding.FuturesExchange, binding.SpotExchange, binding.Symbol, binding.BaseAsset, binding.MarginAccountScope) {
+	if (version < 6 || version > fundingCarryRuntimeStateVersion) || !recoveryBindingComplete(binding.FuturesExchange, binding.SpotExchange, binding.Symbol, binding.BaseAsset, binding.MarginAccountScope) {
 		return fmt.Errorf("%w: funding_carry schema or independent binding unavailable", ErrRecoveryConfigUnverified)
 	}
 	var raw fundingCarryRuntimeState
@@ -57,7 +57,7 @@ func VerifyFundingCarryRecoveryConfigState(version int, payload string, binding 
 }
 
 func VerifyFundingPerpSpreadRecoveryConfigState(version int, payload string, binding FundingPerpSpreadRecoveryBinding) error {
-	if version != fundingPerpSpreadRuntimeStateVersion || !recoveryBindingComplete(binding.LegAExchange, binding.LegASymbol, binding.LegBExchange, binding.LegBSymbol) {
+	if version < 6 || version > fundingPerpSpreadRuntimeStateVersion || !recoveryBindingComplete(binding.LegAExchange, binding.LegASymbol, binding.LegBExchange, binding.LegBSymbol) {
 		return fmt.Errorf("%w: funding_perp_spread schema or independent binding unavailable", ErrRecoveryConfigUnverified)
 	}
 	var raw fundingPerpSpreadRuntimeState

@@ -13,6 +13,17 @@ type binanceSpotWrapper struct {
 	adapter *binance.BinanceSpotAdapter
 }
 
+// NewBinanceSpotEvidenceExchange adapts a REST-only Binance spot evidence
+// adapter to IExchange while preserving the adapter's mutation guards.
+func NewBinanceSpotEvidenceExchange(adapter *binance.BinanceSpotAdapter) IExchange {
+	if adapter == nil || !adapter.IsStopEvidenceOnly() {
+		return nil
+	}
+	return &binanceSpotWrapper{adapter: adapter}
+}
+
+var _ IExchange = (*binanceSpotWrapper)(nil)
+
 func (w *binanceSpotWrapper) GetName() string {
 	return w.adapter.GetName()
 }

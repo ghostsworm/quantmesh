@@ -91,7 +91,8 @@
     "funding_carry_single_strategy": "Funding carry bots must use a single strategy: funding_carry.",
     "funding_perp_spread_single_strategy": "Funding perp spread bots must use a single strategy: funding_perp_spread, with both legs (exchange + symbol) set.",
     "funding_carry_insufficient_capital": "Insufficient capital, min 200 USDT per symbol",
-    "bot_symbol_market_conflict": "Conflicts with existing bot {{botId}}: funding carry is mutually exclusive with other bot types on the same symbol."
+    "bot_symbol_market_conflict": "Conflicts with existing bot {{botId}}: funding carry is mutually exclusive with other bot types on the same symbol.",
+    "bot_start_failed_diagnostic_withheld": "Bot startup failed. Detailed diagnostics are withheld from this API to protect sensitive information."
   },
   "botList": {
     "title": "Bot List",
@@ -106,6 +107,7 @@
     "stop": "Stop",
     "startSuccess": "Bot started",
     "startFailed": "Failed to start bot",
+    "startFailedSafeDescription": "Startup did not complete. Underlying exchange diagnostics are withheld from the Bot status API for safety.",
     "starting": "Bot is starting…",
     "startPending": "Start may take a while, please refresh to check",
     "stopSuccess": "Bot stopped",
@@ -289,6 +291,7 @@
     "tabBacktest": "Backtest",
     "tabLogs": "Logs",
     "lastStartErrorTitle": "Last start failed",
+    "lastStartErrorSafeDescription": "Startup did not complete. Check configuration, exchange connectivity, and outstanding state before deciding whether to retry.",
     "lastStartErrorAt": "Time: {{time}}",
     "noTpSlOrders": "No stop-loss or take-profit orders",
     "exchangeOpenOrders": "Exchange Open Orders",
@@ -1419,6 +1422,38 @@
     "pairConfigAutoSaved": "Trading pair config auto-saved",
     "securitySettings": "Security Settings",
     "securitySettingsDesc": "Configure data encryption and master key management to protect sensitive configuration",
+    "retiredEquity": {
+      "title": "Retired Accounts & Equity Baseline",
+      "warning": "Archived credentials are used only for read-only verification. Reset is allowed only after every retired account passes fresh verification and the new account has a complete equity ledger. Unsupported or incomplete markets keep opening blocked.",
+      "adminRequired": "This panel is for administrators only. Account details and reset history are protected by server-side admin authorization.",
+      "unavailable": "Retired account status or reset audit could not be loaded. Keep the opening hold in place and check server health.",
+      "loading": "Loading verification status and audit history…",
+      "noAccounts": "There are no retired accounts awaiting verification.",
+      "exchange": "Exchange",
+      "market": "Market",
+      "status": "Verification",
+      "evidence": "Flat evidence",
+      "evidenceCount": "{{count}} / {{required}} observations",
+      "lastObserved": "Last observed",
+      "notAvailable": "Not available",
+      "unknownStatus": "Unknown status",
+      "statuses": {
+        "pending_verification": "Pending / incomplete",
+        "ready_for_explicit_reset": "Eligible for explicit reset"
+      },
+      "reset": "Explicitly reset retired accounts and baseline",
+      "resetFailedTitle": "Reset incomplete; opening hold remains",
+      "resetFailed": "The server did not complete fresh read-only verification, target equity reconciliation, or durable audit. The same administrator may retry after resolving the cause; do not remove the opening hold manually.",
+      "pendingOperation": "Pending operation {{id}} (started by {{actor}}) was retained; the same administrator can retry.",
+      "historyTitle": "Completed reset audit (latest 10)",
+      "noHistory": "No completed reset operations.",
+      "baselineRevision": "Baseline revision {{revision}}",
+      "confirmTitle": "Confirm explicit reset",
+      "confirmDescription": "This clears encrypted credentials for verified retired accounts and establishes/confirms the current account equity baseline. The server will re-query each old account and verify the complete new-account ledger. Reset is not proof of profit or live-trading acceptance.",
+      "confirmAcknowledgement": "I reviewed the account status and request this explicit reset; the system must remain blocked if evidence is insufficient.",
+      "cancel": "Cancel",
+      "confirmReset": "Confirm reset"
+    },
     "enableEncryption": "Enable Encryption",
     "masterKeyPath": "Master Key Path",
     "masterKeyPathDesc": "Storage path for master key file. Please keep it safe.",
@@ -4308,6 +4343,25 @@
     "confirmApply": "Confirm Apply"
   },
   "strategyViz": {
+    "fundingCarry": {
+      "reconciliationRequired": "Reconciliation incomplete; trading and capital release remain blocked",
+      "recordedDebt": "Borrow principal recorded in strategy ledger",
+      "recordedSpotQuantity": "Spot quantity recorded in strategy ledger",
+      "recordedFuturesQuantity": "Futures quantity recorded in strategy ledger",
+      "borrowTransfer": "Borrow transfer ID / time",
+      "ledgerWarning": "These are durable strategy-ledger records, not current exchange liabilities, balances, positions, or spendable assets. They never trigger an automatic close or repayment.",
+      "reasons": {
+        "execution_reconciliation_required": "Shared execution still has an unresolved order-economic reconciliation.",
+        "startup_recovery_failed": "Startup recovery could not prove runtime state matches exchange state.",
+        "runtime_state_write_failed": "A strategy-state write failed or its result could not be confirmed.",
+        "final_close_verification_pending": "Final account verification after closing is still pending.",
+        "repayment_confirmation_pending": "The repayment outcome is still unconfirmed.",
+        "cover_order_reconciliation_pending": "A cover order or its fills are still unverified.",
+        "exposure_unknown": "Strategy asset or position ownership has not been verified.",
+        "financial_intent_in_flight": "A financial operation was dispatched but is not reconciled yet.",
+        "unknown": "An unclassified reconciliation blocker exists; consult the server audit record."
+      }
+    },
     "grid": {
       "totalSlots": "Total Slots",
       "filled": "Filled",

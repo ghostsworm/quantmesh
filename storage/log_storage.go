@@ -220,6 +220,7 @@ func (ls *LogStorage) WriteLog(level, message string, botID ...string) {
 	if ls.closed {
 		return
 	}
+	message = logger.SanitizeSensitiveText(message)
 
 	bid := ""
 	if len(botID) > 0 {
@@ -264,7 +265,7 @@ func (ls *LogStorage) processLogs() {
 
 		if err != nil {
 			// 写入失败，输出到標准錯误便於調試
-			log.Printf("[ERROR] 批量写入日志失败: %v", err)
+			log.Printf("[ERROR] 批量写入日志失败: %s", logger.SanitizeSensitiveText(err.Error()))
 		}
 
 		// 清空缓冲区
@@ -377,7 +378,7 @@ func (ls *LogStorage) Subscribe() chan *LogRecord {
 
 	ch := make(chan *LogRecord, 100) // 缓冲区100条
 	ls.subscribers = append(ls.subscribers, ch)
-	
+
 	// 限制订阅者數量，防止記憶體泄漏
 	maxSubscribers := 100
 	if len(ls.subscribers) > maxSubscribers {
@@ -387,7 +388,7 @@ func (ls *LogStorage) Subscribe() chan *LogRecord {
 		ls.subscribers = ls.subscribers[1:]
 		logger.Warn("⚠️ 日志订阅者數量超過限制 (%d)，已移除最舊的订阅者", maxSubscribers)
 	}
-	
+
 	return ch
 }
 
@@ -546,7 +547,7 @@ func (ls *LogStorage) CleanOldLogsByLevel(days int, levels []string) (int64, err
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -days)
-	
+
 	// 構建 IN 子句
 	placeholders := make([]string, len(levels))
 	args := make([]interface{}, len(levels)+1)

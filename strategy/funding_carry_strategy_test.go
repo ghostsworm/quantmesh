@@ -518,7 +518,7 @@ func TestFundingCarryVerifyFlatRequiresLiveAndDurableFlatEvidence(t *testing.T) 
 		futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC", quantityDecimals: 3}
 		stateStore := &memoryRuntimeStateStore{}
 		strategy := NewFundingCarryStrategy("fc-verify-flat", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, nil, nil)
-		strategy.SetRuntimeStateStore(stateStore)
+		strategy.SetRuntimeStateStore(&borrowReceiptContextStore{stateStore})
 		strategy.mu.Lock()
 		strategy.strategySpotKnown = true
 		strategy.direction = DirectionNone
@@ -550,6 +550,28 @@ func TestFundingCarryVerifyFlatRequiresLiveAndDurableFlatEvidence(t *testing.T) 
 		strategy.fut.(*mockFCExchange).positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.1}}
 		if err := strategy.VerifyFlat(context.Background()); err == nil {
 			t.Fatal("VerifyFlat accepted residual futures exposure")
+		}
+	})
+
+	t.Run("rejects subprecision residual futures exposure", func(t *testing.T) {
+		strategy, _, _ := newFlatStrategy(t)
+		strategy.fut.(*mockFCExchange).positions = []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.0001}}
+		if err := strategy.VerifyFlat(context.Background()); err == nil {
+			t.Fatal("VerifyFlat accepted nonzero futures exposure below quantity tolerance")
+		}
+	})
+
+	t.Run("rejects subprecision strategy-owned spot inventory", func(t *testing.T) {
+		strategy, _, _ := newFlatStrategy(t)
+		strategy.mu.Lock()
+		strategy.strategySpotQty = 0.000000001
+		if err := strategy.persistRuntimeStateLocked(); err != nil {
+			strategy.mu.Unlock()
+			t.Fatal(err)
+		}
+		strategy.mu.Unlock()
+		if err := strategy.VerifyFlat(context.Background()); err == nil {
+			t.Fatal("VerifyFlat accepted nonzero owned spot inventory below quantity tolerance")
 		}
 	})
 

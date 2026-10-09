@@ -1062,10 +1062,18 @@ func startCircuitBreakerFeeder(ctx context.Context, gcb *risk.GlobalCircuitBreak
 		&botManagerProviderAdapter{manager: symbolManager},
 		circuitBreakerMetricsOptions(gcb, storageService),
 	)
+	wireEquityScopeChangeInvalidation(symbolManager, feeder)
 	feeder.Start(ctx)
 	gcb.SubscribeConnectivityEvents(ctx, eventBus)
 	wireBinanceConnectivityEvents(eventBus)
 	return feeder
+}
+
+func wireEquityScopeChangeInvalidation(symbolManager *SymbolManager, feeder *risk.MetricsFeeder) {
+	if symbolManager == nil || symbolManager.GetBotManager() == nil || feeder == nil {
+		return
+	}
+	symbolManager.GetBotManager().SetEquityScopeChangeHandler(feeder.InvalidateEquityScope)
 }
 
 type passiveWithdrawalMetricsSink struct{}

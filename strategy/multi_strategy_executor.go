@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/execution"
+	"quantmesh/logger"
 	"quantmesh/order"
 	"quantmesh/position"
 )
@@ -581,7 +581,7 @@ func (mse *MultiStrategyExecutor) OnOrderUpdate(update *position.OrderUpdate) {
 		mse.mu.Unlock()
 		if mse.executor != nil {
 			if err := mse.executor.MarkOrderReconciliationRequired(update.OrderID, update.ClientOrderID, invalidReason); err != nil {
-				log.Printf("[MultiStrategyExecutor] order capital update requires reconciliation: order=%d client_id=%q: %v", update.OrderID, update.ClientOrderID, err)
+				logger.Error("[MultiStrategyExecutor] order capital update requires reconciliation: order=%d client_id=%q: %v", update.OrderID, update.ClientOrderID, err)
 			}
 		}
 		return

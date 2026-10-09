@@ -87,7 +87,7 @@ func TestFundingCarryRestoreRejectsTinyComponentMismatch(t *testing.T) {
 	venue := &mockFCExchange{baseAsset: "BTC"}
 	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, venue, nil)
 	store := &memoryRuntimeStateStore{version: fundingCarryRuntimeStateVersion, found: true, payload: string(payload)}
-	s.SetRuntimeStateStore(store)
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	s.unownedExposure, s.intentInFlight = true, true
 	if err := s.restoreRuntimeState(); err == nil {
 		t.Fatal("invalid components became verified")

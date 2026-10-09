@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +36,7 @@ func (v *fundingCarryCoverQueryVenue) GetOrderByClientOrderID(ctx context.Contex
 }
 
 func TestFundingCarryStartupResolvesCoverCIDWithoutResubmission(t *testing.T) {
-	for _, mode := range []string{"filled", "new", "partial", "canceled", "broker_prefix", "absent", "query_error", "wrong_cid", "wrong_symbol", "wrong_side", "wrong_price", "wrong_quantity", "invalid_execution", "missing_time", "epoch_time", "unknown_status", "owner_lost", "cancelled", "save_failure", "wrong_scope", "invalid_ledger"} {
+	for _, mode := range []string{"filled", "new", "partial", "canceled", "broker_prefix", "absent", "query_error", "wrong_cid", "wrong_symbol", "wrong_side", "wrong_price", "wrong_quantity", "invalid_execution", "missing_time", "epoch_time", "unknown_status", "owner_lost", "cancelled", "save_failure", "wrong_scope", "invalid_ledger", "changed_checkpoint"} {
 		t.Run(mode, func(t *testing.T) {
 			s, margin, store := newFundingCarryRepayIntentFixture()
 			s.strategySpotKnown, s.intentInFlight, s.unownedExposure = true, true, true
@@ -87,7 +88,7 @@ func TestFundingCarryStartupResolvesCoverCIDWithoutResubmission(t *testing.T) {
 			restarted, _, _ := newFundingCarryRepayIntentFixture()
 			restarted.marginDebt, restarted.marginBorrowTransferID = 0, 0
 			restarted.marginEx = venue
-			restarted.SetRuntimeStateStore(store)
+			restarted.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			gate := &execution.OpeningGate{}
 			restarted.SetOpeningGate(gate)
 			ctx, cancel := context.WithCancel(context.Background())
@@ -100,6 +101,15 @@ func TestFundingCarryStartupResolvesCoverCIDWithoutResubmission(t *testing.T) {
 			}
 			if mode == "save_failure" {
 				venue.afterQuery = func() { store.err = errors.New("injected ACK save failure") }
+			}
+			if mode == "changed_checkpoint" {
+				venue.afterQuery = func() {
+					before = strings.Replace(store.payload, req.ClientOrderID, req.ClientOrderID+"-new", 1)
+					if before == store.payload {
+						t.Fatal("fixture did not change pending CID")
+					}
+					store.payload = before
+				}
 			}
 			if mode == "wrong_scope" {
 				restarted.marginAccountScope = "scope-b"

@@ -193,6 +193,72 @@ func TestLoweringExposureLimitCancelsOwnedOpeningsAndKeepsGateOnUncertainty(t *t
 	}
 }
 
+func TestVerifiedExposureCancellationRetryClearsPendingLatch(t *testing.T) {
+	oe, venue, gate := newOwnedTestExecutor()
+	venue.ackOnly = true
+	book, err := execution.NewExposureBook(execution.ExposureLimits{Quantity: 2}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := book.Seed(nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := book.SetMark(100, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	oe.SetExposureBook(book)
+	for _, id := range []string{"retry-open-a", "retry-open-b"} {
+		if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+			PositionSide: "LONG", ClientOrderID: id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := oe.SetExposureLimits(execution.ExposureLimits{Quantity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		oe.exposureLimitMu.Lock()
+		pending := oe.exposureCancellationPending
+		oe.exposureLimitMu.Unlock()
+		venue.mu.Lock()
+		cancelled := len(venue.cancelled)
+		venue.mu.Unlock()
+		if pending && cancelled == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	oe.exposureLimitMu.Lock()
+	pending := oe.exposureCancellationPending
+	oe.exposureLimitMu.Unlock()
+	if !pending {
+		t.Fatal("unverified initial cancellation did not retain its retry latch")
+	}
+	if !gate.HasBlock(ExposureLimitBlock) || !gate.HasBlock(execution.UnverifiedCancellationBlock) {
+		t.Fatal("unverified initial cancellation released an opening block")
+	}
+
+	venue.mu.Lock()
+	venue.ackOnly = false
+	venue.mu.Unlock()
+	if err := oe.CancelOwnedOpeningOrders(t.Context()); err != nil {
+		t.Fatalf("verified cancellation retry: %v", err)
+	}
+	oe.exposureLimitMu.Lock()
+	pending = oe.exposureCancellationPending
+	oe.exposureLimitMu.Unlock()
+	if pending {
+		t.Fatal("verified cancellation retry left the exposure cancellation latch set")
+	}
+	if gate.Blocked() {
+		t.Fatal("verified cancellation retry left the opening gate blocked")
+	}
+	if snapshot := book.Snapshot(time.Now()); snapshot.PendingQuantity != 0 {
+		t.Fatalf("verified cancellation retry retained pending quota: %+v", snapshot)
+	}
+}
+
 func TestRisingMarkConcurrentUpdatesScheduleOneFailClosedCancellation(t *testing.T) {
 	oe, venue, gate := newOwnedTestExecutor()
 	venue.ackOnly = true

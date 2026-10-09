@@ -10,6 +10,7 @@ import (
 
 	"quantmesh/config"
 	"quantmesh/exchange"
+	"quantmesh/storage"
 )
 
 type fundingCarryReturnedPrincipalExchange struct {
@@ -188,5 +189,38 @@ func TestFundingCarryReturnedPrincipalSaveFailureRollsBackAndRetries(t *testing.
 	}
 	if math.Abs(s.marginDebt-0.003) > 1e-12 || len(s.marginDebtEvents) != 1 {
 		t.Fatal("retry double-debited confirmed principal")
+	}
+}
+
+func TestFundingCarryReturnedPrincipalConfirmedCommitCancellationKeepsCommittedLedger(t *testing.T) {
+	venue := &fundingCarryStableDebtExchange{row: exchange.MarginBorrowRecord{
+		TransferID: 81, Asset: "BTC", Amount: 0.002, Principal: 0.002,
+		Status: "CONFIRMED", Timestamp: time.Now().Add(-time.Second).UnixMilli(),
+	}}
+	s := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, &venue.mockFCExchange, &venue.mockFCExchange, venue, nil)
+	base := &memoryRuntimeStateStore{}
+	s.SetRuntimeStateStore(base)
+	s.marginDebt, s.direction, s.strategySpotKnown = 0.005, DirectionReverse, true
+	s.mu.Lock()
+	err := s.persistRuntimeStateLocked()
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal("persist initial principal state:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+
+	err = s.returnBorrowedPrincipal(context.Background(), 81, "BTC", 0.002, 0.003)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("returnBorrowedPrincipal() error = %v, want confirmed-commit cancellation", err)
+	}
+	if s.marginDebt != 0.003 || len(s.marginDebtEvents) != 1 || s.runtimeStateErr != nil || s.unownedExposure {
+		t.Fatalf("memory diverged from confirmed repayment: debt=%g events=%d state_err=%v unknown=%v", s.marginDebt, len(s.marginDebtEvents), s.runtimeStateErr, s.unownedExposure)
+	}
+	var saved fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &saved); err != nil {
+		t.Fatal("decode committed repayment checkpoint:", err)
+	}
+	if saved.MarginDebt != 0.003 || len(saved.MarginDebtEvents) != 1 || saved.MarginDebtEvents[0].TransferID != 81 {
+		t.Fatalf("durable repayment checkpoint = %+v, want the exact committed principal return", saved)
 	}
 }

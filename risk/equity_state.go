@@ -75,26 +75,29 @@ type ReconciledEquitySource interface {
 }
 
 // EquityCheckpoint is saved atomically BEFORE publishing a new risk metric.
-// A reset is explicit (MetricsResetMarks.All), never inferred from restart,
-// account membership change, corrupt data, or a failed database read.
+// A reset is explicit, never inferred from restart, account membership change,
+// corrupt data, or a failed database read. Operator reset operations retain
+// their identity here so an uncertain persistence acknowledgement is retryable.
 type EquityCheckpoint struct {
-	Version          int                               `json:"version"`
-	Revision         int64                             `json:"revision"`
-	Scope            string                            `json:"scope"`
-	Currency         string                            `json:"currency"`
-	CashFlowAdjusted bool                              `json:"cash_flow_adjusted"`
-	BaseAt           time.Time                         `json:"base_at"`
-	ResetAt          time.Time                         `json:"reset_at"`
-	LastAt           time.Time                         `json:"last_at"`
-	LastEquity       float64                           `json:"last_equity"`
-	ExternalFlows    float64                           `json:"external_flows"`
-	AdjustedEquity   float64                           `json:"adjusted_equity"`
-	HighWater        float64                           `json:"high_water"`
-	DrawdownPct      float64                           `json:"drawdown_pct"`
-	Receipts         map[string]EquityCashFlow         `json:"receipts"`
-	ArchivedReceipts map[string]ArchivedEquityReceipts `json:"archived_receipts,omitempty"`
-	BaseWallets      map[string]accounting.Wallet      `json:"base_wallets,omitempty"`
-	Wallets          map[string]accounting.Wallet      `json:"wallets,omitempty"`
+	Version                int                               `json:"version"`
+	Revision               int64                             `json:"revision"`
+	ResetOperationID       string                            `json:"reset_operation_id,omitempty"`
+	ResetOperationRevision int64                             `json:"reset_operation_revision,omitempty"`
+	Scope                  string                            `json:"scope"`
+	Currency               string                            `json:"currency"`
+	CashFlowAdjusted       bool                              `json:"cash_flow_adjusted"`
+	BaseAt                 time.Time                         `json:"base_at"`
+	ResetAt                time.Time                         `json:"reset_at"`
+	LastAt                 time.Time                         `json:"last_at"`
+	LastEquity             float64                           `json:"last_equity"`
+	ExternalFlows          float64                           `json:"external_flows"`
+	AdjustedEquity         float64                           `json:"adjusted_equity"`
+	HighWater              float64                           `json:"high_water"`
+	DrawdownPct            float64                           `json:"drawdown_pct"`
+	Receipts               map[string]EquityCashFlow         `json:"receipts"`
+	ArchivedReceipts       map[string]ArchivedEquityReceipts `json:"archived_receipts,omitempty"`
+	BaseWallets            map[string]accounting.Wallet      `json:"base_wallets,omitempty"`
+	Wallets                map[string]accounting.Wallet      `json:"wallets,omitempty"`
 }
 
 // EquityStateStore returns nil only for a confirmed absent record. Save must
@@ -109,6 +112,13 @@ func finiteEquity(n float64) bool { return !math.IsNaN(n) && !math.IsInf(n, 0) }
 func (s EquityCheckpoint) validate() error {
 	if s.Version != equityStateVersion || s.Revision < 1 || s.Scope == "" || s.Currency == "" || s.BaseAt.IsZero() || s.LastAt.Before(s.BaseAt) {
 		return fmt.Errorf("invalid equity checkpoint identity/version/time")
+	}
+	if len(s.ResetOperationID) > 128 {
+		return fmt.Errorf("equity checkpoint reset operation identity is invalid")
+	}
+	if (s.ResetOperationID == "" && s.ResetOperationRevision != 0) ||
+		(s.ResetOperationID != "" && (s.ResetOperationRevision < 1 || s.ResetOperationRevision > s.Revision)) {
+		return fmt.Errorf("equity checkpoint reset operation revision is invalid")
 	}
 	for _, n := range []float64{s.LastEquity, s.ExternalFlows, s.AdjustedEquity, s.HighWater, s.DrawdownPct} {
 		if !finiteEquity(n) {

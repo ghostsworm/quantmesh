@@ -9,20 +9,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
-	// EncryptionPrefixes 加密字符串前缀标识（伪装成真实密钥格式，以便GitHub Secret Scanning检测）
-	// 使用常见的云服务商密钥格式前缀，这样即使泄露也能被GitHub检测到
-	EncryptionPrefixAWS   = "AKIA" // AWS Access Key 格式
-	EncryptionPrefixAliyun = "LTAI" // Aliyun Access Key 格式
-	EncryptionPrefixTencent = "AKID" // Tencent Cloud Access Key 格式
-	EncryptionPrefixGoogle = "GOOG"  // Google Cloud 格式
-	// 默认使用 AWS 格式（最常见，检测最可靠）
+	// Legacy provider-shaped prefixes identify ciphertext emitted by the prior format.
+	// New ciphertext always uses VersionedEncryptionPrefix.
+	EncryptionPrefixAWS       = "AKIA" // AWS Access Key 格式
+	EncryptionPrefixAliyun    = "LTAI" // Aliyun Access Key 格式
+	EncryptionPrefixTencent   = "AKID" // Tencent Cloud Access Key 格式
+	EncryptionPrefixGoogle    = "GOOG" // Google Cloud 格式
+	VersionedEncryptionPrefix = "QME1:"
+	// EncryptionPrefix is retained for reading legacy ciphertext only.
 	EncryptionPrefix = EncryptionPrefixAWS
-	
+
 	// MasterKeyEnvVar 主密钥环境变量名
 	MasterKeyEnvVar = "QUANTMESH_MASTER_KEY"
 	// DefaultMasterKeyPath 默认主密钥文件路径
@@ -39,7 +41,7 @@ const (
 	// AWS Access Key 格式：AKIA + 16个字符 = 20个字符
 	// 我们使用 AKIA + base64编码的加密数据（约44-48个字符），总长度约48-52字符
 	// 这看起来像是一个有效的AWS密钥格式
-	
+
 	// ConfigHMACKeyEnvVar 配置文件HMAC密钥环境变量名
 	ConfigHMACKeyEnvVar = "QUANTMESH_CONFIG_HMAC_KEY"
 	// DefaultConfigHMACKeyPath 默认配置文件HMAC密钥文件路径
@@ -47,11 +49,13 @@ const (
 )
 
 // EncryptAPIKey 加密API密钥
-// 使用AES-256-GCM加密算法，加密后的字符串使用base64编码
-// 使用类似AWS Access Key的格式（AKIA开头），这样GitHub Secret Scanning可以检测到泄露
+// 使用AES-256-GCM及无损 Base64URL 编码，输出带版本标记的密文。
 func EncryptAPIKey(key string, masterKey []byte) (string, error) {
 	if len(key) == 0 {
 		return "", nil
+	}
+	if len(masterKey) < 32 {
+		return "", fmt.Errorf("master key must contain at least 32 bytes")
 	}
 
 	// 生成随机盐值
@@ -88,66 +92,30 @@ func EncryptAPIKey(key string, masterKey []byte) (string, error) {
 	// 组合：salt + nonce + ciphertext
 	combined := append(salt, append(nonce, ciphertext...)...)
 
-	// 使用base64 URL编码（不使用+和/，而是-和_），这样更容易转换为AWS格式
-	// 然后转换为大写字母和数字，使其看起来像AWS Access Key
-	encoded := base64.URLEncoding.WithPadding(base64.NoPadding).EncodeToString(combined)
-	
-	// 转换为类似AWS密钥的格式（只包含大写字母和数字）
-	// Base64 URL字符集: A-Z, a-z, 0-9, -, _ (64个字符)
-	// AWS格式: A-Z, 0-9 (36个字符)
-	// 使用可逆映射：将-和_映射到特定字符，然后转换为大写
-	keyPart := convertToAWSFormat(encoded)
-	
-	return EncryptionPrefix + keyPart, nil
-}
-
-// convertToAWSFormat 将base64 URL字符串转换为类似AWS密钥的格式（可逆转换）
-// Base64 URL: A-Z, a-z, 0-9, -, _
-// AWS格式: A-Z, 0-9
-// 映射规则（完全可逆）：
-// A-Z -> A-Z (保持不变)
-// a-z -> 转大写
-// 0-9 -> 0-9 (保持不变)
-// - -> 0 (特殊标记，通过位置区分)
-// _ -> 1 (特殊标记，通过位置区分)
-func convertToAWSFormat(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch {
-		case c >= 'A' && c <= 'Z':
-			result[i] = c // A-Z保持不变
-		case c >= 'a' && c <= 'z':
-			result[i] = c - 32 // 转大写
-		case c >= '0' && c <= '9':
-			result[i] = c // 0-9保持不变
-		case c == '-':
-			result[i] = '0' // -映射到0（但我们需要区分原始0和-）
-			// 为了可逆，我们在前面添加一个标记字符
-			// 但这样会增加长度，所以我们使用一个更聪明的方法：
-			// 如果遇到-，我们将其映射为一个特殊字符，比如使用数字2-9中的一个
-			// 但这样仍然无法完全区分
-			// 实际上，由于base64 URL编码的特性，-和_相对较少见
-			// 我们可以使用一个查找表，但需要存储额外信息
-			// 简化方案：假设-映射到'X'（大写X在base64中较少见）
-			result[i] = 'X'
-		case c == '_':
-			result[i] = 'Y' // _映射到Y（大写Y在base64中较少见）
-		default:
-			result[i] = 'A' // 默认
-		}
-	}
-	return string(result)
+	encoded := base64.RawURLEncoding.EncodeToString(combined)
+	return VersionedEncryptionPrefix + encoded, nil
 }
 
 // DecryptAPIKey 解密API密钥
-// 检测加密前缀（AKIA/LTAI/AKID/GOOG），如果有则解密，否则返回原字符串
+// 新密文使用 QME1 标记；旧的 provider-shaped 格式仅为兼容读取。
 func DecryptAPIKey(encrypted string, masterKey []byte) (string, error) {
 	if len(encrypted) == 0 {
 		return "", nil
 	}
 
-	// 检查是否有加密前缀（支持多种格式）
+	if strings.HasPrefix(encrypted, VersionedEncryptionPrefix) {
+		combined, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(encrypted, VersionedEncryptionPrefix))
+		if err != nil {
+			return "", fmt.Errorf("decode versioned encrypted credential: %w", err)
+		}
+		return decryptCredentialPayload(combined, masterKey)
+	}
+	if !IsEncrypted(encrypted) {
+		return encrypted, nil
+	}
+
+	// Legacy ciphertext used a lossy provider-shaped alphabet. Keep reading
+	// those values for compatibility, but all new ciphertext uses QME1.
 	var encoded string
 	if len(encrypted) >= len(EncryptionPrefixAWS) && encrypted[:len(EncryptionPrefixAWS)] == EncryptionPrefixAWS {
 		encoded = encrypted[len(EncryptionPrefixAWS):]
@@ -164,7 +132,7 @@ func DecryptAPIKey(encrypted string, masterKey []byte) (string, error) {
 
 	// 将AWS格式转换回base64 URL格式（反转convertToAWSFormat）
 	normalized := convertFromAWSFormat(encoded)
-	
+
 	// Base64 URL解码（无填充）
 	combined, err := base64.URLEncoding.WithPadding(base64.NoPadding).DecodeString(normalized)
 	if err != nil {
@@ -179,6 +147,13 @@ func DecryptAPIKey(encrypted string, masterKey []byte) (string, error) {
 		}
 	}
 
+	return decryptCredentialPayload(combined, masterKey)
+}
+
+func decryptCredentialPayload(combined, masterKey []byte) (string, error) {
+	if len(masterKey) < 32 {
+		return "", fmt.Errorf("master key must contain at least 32 bytes")
+	}
 	// 检查长度
 	if len(combined) < SaltSize+NonceSize {
 		return "", fmt.Errorf("加密数据长度不足")
@@ -355,7 +330,13 @@ func convertFromAWSFormat(s string) string {
 // IsEncrypted 检查字符串是否已加密
 // 检查是否以已知的加密前缀开头
 func IsEncrypted(s string) bool {
-	if len(s) < 4 {
+	if strings.HasPrefix(s, VersionedEncryptionPrefix) {
+		return true
+	}
+	// Real provider API key IDs often use these prefixes. The legacy encrypted
+	// format is substantially longer than those IDs, so avoid classifying a
+	// normal short key as ciphertext.
+	if len(s) < 40 {
 		return false
 	}
 	prefix := s[:4]

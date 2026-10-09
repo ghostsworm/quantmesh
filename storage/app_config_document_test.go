@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -124,6 +125,159 @@ func TestAppConfigDocumentSnapshotsAndBotSync(t *testing.T) {
 	}
 	if err := DeleteBotConfigSnapshot(ctx, store, ""); err == nil {
 		t.Fatalf("empty bot delete should fail")
+	}
+}
+
+func TestAppConfigSnapshotsEncryptSecretsAndMigrateHistory(t *testing.T) {
+	t.Setenv(config.MasterKeyEnvVar, "01234567890123456789012345678901")
+	ctx := context.Background()
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "app_config_secrets.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	legacy := `{"exchanges":{"legacy":{"api_key":"legacy-plaintext-key","secret_key":"legacy-plaintext-secret"}},"unknown":{"keep":true}}`
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO app_config_history (revision, content, content_hash, operator, source) VALUES (?, ?, ?, ?, ?)`, 0, legacy, sha256Hex(legacy), "legacy", "fixture"); err != nil {
+		t.Fatalf("insert legacy history fixture: %v", err)
+	}
+
+	cfg := config.CreateMinimalConfig()
+	cfg.App.CurrentExchange = "binance"
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {
+		APIKey: "exchange-api-key", SecretKey: "exchange-secret", Passphrase: "exchange-passphrase",
+	}}
+	cfg.AI.APIKey = "global-ai-key"
+	cfg.AI.GeminiAPIKey = "gemini-ai-key"
+	cfg.AI.Upstreams = map[string]config.AIUpstreamProfile{"primary": {APIKey: "profile-ai-key"}}
+	if _, err := SaveAppConfigSnapshot(ctx, store, cfg, "tester", "secret-test"); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+	doc, err := store.GetAppConfigDocument(ctx)
+	if err != nil || doc == nil {
+		t.Fatalf("load persisted config: doc=%+v err=%v", doc, err)
+	}
+	for _, secret := range []string{"exchange-api-key", "exchange-secret", "exchange-passphrase", "global-ai-key", "gemini-ai-key", "profile-ai-key"} {
+		if strings.Contains(doc.Content, secret) {
+			t.Fatalf("persisted app_config leaked plaintext credential %q", secret)
+		}
+	}
+	var loaded config.Config
+	if err := json.Unmarshal([]byte(doc.Content), &loaded); err != nil {
+		t.Fatalf("decode persisted config: %v", err)
+	}
+	if err := config.DecryptSensitiveFields(&loaded); err != nil {
+		t.Fatalf("decrypt persisted config: %v", err)
+	}
+	if loaded.Exchanges["binance"].APIKey != "exchange-api-key" || loaded.Exchanges["binance"].SecretKey != "exchange-secret" ||
+		loaded.Exchanges["binance"].Passphrase != "exchange-passphrase" || loaded.AI.APIKey != "global-ai-key" ||
+		loaded.AI.GeminiAPIKey != "gemini-ai-key" || loaded.AI.Upstreams["primary"].APIKey != "profile-ai-key" {
+		t.Fatalf("persisted credentials did not round trip through encryption")
+	}
+
+	if _, err := SaveAppConfigSnapshot(ctx, store, config.CreateMinimalConfig(), "tester", "migrate-legacy-history"); err != nil {
+		t.Fatalf("save config while migrating legacy history: %v", err)
+	}
+	var migrated string
+	var migratedHash string
+	if err := store.db.QueryRowContext(ctx, `SELECT content, content_hash FROM app_config_history WHERE revision = 0`).Scan(&migrated, &migratedHash); err != nil {
+		t.Fatalf("read migrated legacy history: %v", err)
+	}
+	if strings.Contains(migrated, "legacy-plaintext-key") || strings.Contains(migrated, "legacy-plaintext-secret") {
+		t.Fatal("legacy app_config_history still contains plaintext credentials")
+	}
+	if migratedHash != sha256Hex(migrated) {
+		t.Fatal("legacy app_config_history hash was not updated with protected content")
+	}
+	var preserved map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(migrated), &preserved); err != nil || len(preserved["unknown"]) == 0 {
+		t.Fatalf("legacy migration lost unknown config fields: %s err=%v", migrated, err)
+	}
+}
+
+func TestProtectAppConfigCredentialsMigratesExistingRowsAtomically(t *testing.T) {
+	t.Setenv(config.MasterKeyEnvVar, "01234567890123456789012345678901")
+	ctx := context.Background()
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "app_config_legacy.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatalf("ensure app config tables: %v", err)
+	}
+	legacy := `{"Exchanges":{"binance":{"api_key":"legacy-current-key","secret_key":"legacy-current-secret"}},"AI":{"APIKey":"legacy-ai-key"},"custom":{"kept":true}}`
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO app_config (id, schema_version, content, revision, content_hash) VALUES (?, ?, ?, ?, ?)`,
+		appConfigSingletonID, 1, legacy, 7, sha256Hex(legacy)); err != nil {
+		t.Fatalf("insert legacy current config: %v", err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO app_config_history (revision, content, content_hash, operator, source) VALUES (?, ?, ?, ?, ?)`,
+		7, legacy, sha256Hex(legacy), "legacy", "fixture"); err != nil {
+		t.Fatalf("insert legacy history: %v", err)
+	}
+	if err := ProtectAppConfigCredentials(ctx, store); err != nil {
+		t.Fatalf("protect legacy config: %v", err)
+	}
+	doc, err := store.GetAppConfigDocument(ctx)
+	if err != nil || doc == nil || doc.Revision != 7 || doc.ContentHash != sha256Hex(doc.Content) {
+		t.Fatalf("migrated current config metadata: doc=%+v err=%v", doc, err)
+	}
+	for _, secret := range []string{"legacy-current-key", "legacy-current-secret", "legacy-ai-key"} {
+		if strings.Contains(doc.Content, secret) {
+			t.Fatalf("current config still contains plaintext credential %q", secret)
+		}
+	}
+	var loaded config.Config
+	if err := json.Unmarshal([]byte(doc.Content), &loaded); err != nil {
+		t.Fatalf("decode migrated current config: %v", err)
+	}
+	if err := config.DecryptSensitiveFields(&loaded); err != nil {
+		t.Fatalf("decrypt migrated current config: %v", err)
+	}
+	if loaded.Exchanges["binance"].APIKey != "legacy-current-key" || loaded.Exchanges["binance"].SecretKey != "legacy-current-secret" || loaded.AI.APIKey != "legacy-ai-key" {
+		t.Fatal("current credentials did not survive in-place encryption migration")
+	}
+	var history string
+	if err := store.db.QueryRowContext(ctx, `SELECT content FROM app_config_history WHERE revision = 7`).Scan(&history); err != nil {
+		t.Fatalf("read migrated history: %v", err)
+	}
+	if strings.Contains(history, "legacy-current-key") || !strings.Contains(history, "custom") {
+		t.Fatalf("legacy history secret migration or unknown-field preservation failed: %s", history)
+	}
+}
+
+func TestProtectAppConfigCredentialsFailsClosedWithInvalidMasterKey(t *testing.T) {
+	t.Setenv(config.MasterKeyEnvVar, "short-invalid-key")
+	ctx := context.Background()
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "app_config_bad_key.db"))
+	if err != nil {
+		t.Fatalf("new sql storage: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.EnsureAppConfigDocumentTables(); err != nil {
+		t.Fatalf("ensure app config tables: %v", err)
+	}
+	legacy := `{"Exchanges":{"binance":{"api_key":"plaintext-must-not-be-written"}}}`
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO app_config (id, schema_version, content, revision, content_hash) VALUES (?, ?, ?, ?, ?)`,
+		appConfigSingletonID, 1, legacy, 3, sha256Hex(legacy)); err != nil {
+		t.Fatalf("insert legacy config: %v", err)
+	}
+	if err := ProtectAppConfigCredentials(ctx, store); err == nil {
+		t.Fatal("credential migration succeeded with an invalid master key")
+	}
+	var content string
+	var revision int
+	if err := store.db.QueryRowContext(ctx, `SELECT content, revision FROM app_config WHERE id = ?`, appConfigSingletonID).Scan(&content, &revision); err != nil {
+		t.Fatalf("read config after rejected migration: %v", err)
+	}
+	if content != legacy || revision != 3 {
+		t.Fatalf("failed migration partially changed config: revision=%d content=%s", revision, content)
+	}
+	var markerCount int
+	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM app_config_security_migrations WHERE id = 1`).Scan(&markerCount); err != nil {
+		t.Fatalf("read migration marker after rollback: %v", err)
+	}
+	if markerCount != 0 {
+		t.Fatal("failed migration left its completion marker committed")
 	}
 }
 

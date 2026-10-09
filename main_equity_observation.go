@@ -39,6 +39,22 @@ func (a equityAccountEvidenceConfig) identity() string {
 	return string(identity)
 }
 
+func (a equityAccountEvidenceConfig) credentialVersion() string {
+	encoded, _ := json.Marshal(a)
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:])
+}
+
+func equityAccountCredentialVersion(exchangeName, marketType string, cfg config.ExchangeConfig) string {
+	exchangeName = strings.TrimSpace(exchangeName)
+	marketType = strings.ToLower(strings.TrimSpace(marketType))
+	account := equityAccountEvidenceConfig{
+		Exchange: strings.ToLower(exchangeName), MarketType: marketType, Scope: equityAccountScopeID(exchangeName, cfg),
+		APIKey: cfg.APIKey, SecretKey: cfg.SecretKey, Passphrase: cfg.Passphrase, Testnet: cfg.Testnet,
+	}
+	return account.credentialVersion()
+}
+
 func sameEquityAccountEvidenceConfigs(a, b []equityAccountEvidenceConfig) bool {
 	if len(a) != len(b) {
 		return false
@@ -70,6 +86,14 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 			return fmt.Errorf("enabled Bot market %q is not supported by equity reconciliation", marketType)
 		}
 		exchangeConfig, ok := cfg.Exchanges[exchangeName]
+		if !ok {
+			for configuredExchange, candidate := range cfg.Exchanges {
+				if strings.EqualFold(configuredExchange, exchangeName) {
+					exchangeConfig, ok = candidate, true
+					break
+				}
+			}
+		}
 		if !ok || strings.TrimSpace(exchangeConfig.APIKey) == "" {
 			return fmt.Errorf("enabled equity Bot %s has no configured account credentials", exchangeName)
 		}
@@ -86,13 +110,51 @@ func buildEquityScopeSnapshot(cfg *config.Config) equityScopeSnapshot {
 	}
 	if len(cfg.Bots) > 0 {
 		for _, bot := range cfg.Bots {
-			if err := add(bot.Exchange, bot.GetMarketType()); err != nil {
+			var err error
+			switch bot.GetMarketType() {
+			case config.MarketTypeFundingCarry:
+				err = add(bot.Exchange, "futures")
+				if err == nil {
+					err = add(bot.Exchange, "spot")
+				}
+			case config.MarketTypeFundingPerpSpread:
+				if bot.FundingPerpSpread == nil {
+					err = fmt.Errorf("funding_perp_spread account legs are missing")
+				} else {
+					err = add(bot.FundingPerpSpread.LegA.Exchange, "futures")
+					if err == nil {
+						err = add(bot.FundingPerpSpread.LegB.Exchange, "futures")
+					}
+				}
+			default:
+				err = add(bot.Exchange, bot.GetMarketType())
+			}
+			if err != nil {
 				return equityScopeSnapshot{configured: true, err: err.Error()}
 			}
 		}
 	} else {
 		for _, symbol := range cfg.Trading.Symbols {
-			if err := add(symbol.Exchange, symbol.GetMarketType()); err != nil {
+			var err error
+			switch symbol.GetMarketType() {
+			case config.MarketTypeFundingCarry:
+				err = add(symbol.Exchange, "futures")
+				if err == nil {
+					err = add(symbol.Exchange, "spot")
+				}
+			case config.MarketTypeFundingPerpSpread:
+				if symbol.FundingPerpSpread == nil {
+					err = fmt.Errorf("funding_perp_spread account legs are missing")
+				} else {
+					err = add(symbol.FundingPerpSpread.LegA.Exchange, "futures")
+					if err == nil {
+						err = add(symbol.FundingPerpSpread.LegB.Exchange, "futures")
+					}
+				}
+			default:
+				err = add(symbol.Exchange, symbol.GetMarketType())
+			}
+			if err != nil {
 				return equityScopeSnapshot{configured: true, err: err.Error()}
 			}
 		}
@@ -161,7 +223,9 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 		return risk.EquityObservation{}, fmt.Errorf("configured equity account scope is unsupported: %s", configuredScope.err)
 	}
 	runtimes := s.manager.List()
+	runtimes = equityEvidenceRuntimes(runtimes)
 	activeAccounts := make(map[string]struct{})
+	staleRuntimeAccounts := make(map[string]struct{})
 	if len(runtimes) > 0 {
 		active, _, _, err := runtimeEquityAccounts(runtimes)
 		if err != nil {
@@ -169,6 +233,24 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 		}
 		for identity := range active {
 			activeAccounts[identity] = struct{}{}
+		}
+		configuredByIdentity := make(map[string]equityAccountEvidenceConfig, len(configuredScope.accounts))
+		for _, account := range configuredScope.accounts {
+			configuredByIdentity[account.identity()] = account
+		}
+		for _, runtime := range runtimes {
+			identity := equityRuntimeAccountKey(strings.ToLower(strings.TrimSpace(runtime.AccountMarketType)), runtime.AccountScope)
+			account, configured := configuredByIdentity[identity]
+			if configured && runtime.accountCredentialVersion != account.credentialVersion() {
+				staleRuntimeAccounts[identity] = struct{}{}
+			}
+		}
+	}
+	equityRuntimes := make([]*SymbolRuntime, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		identity := equityRuntimeAccountKey(strings.ToLower(strings.TrimSpace(runtime.AccountMarketType)), runtime.AccountScope)
+		if _, stale := staleRuntimeAccounts[identity]; !stale {
+			equityRuntimes = append(equityRuntimes, runtime)
 		}
 	}
 	factory := s.accountEvidenceSourceFactory
@@ -178,7 +260,9 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 	idleSources := make(map[string]configuredEquityEvidenceSourceResult)
 	for _, account := range configuredScope.accounts {
 		identity := account.identity()
-		if _, active := activeAccounts[identity]; active {
+		_, active := activeAccounts[identity]
+		_, stale := staleRuntimeAccounts[identity]
+		if active && !stale {
 			continue
 		}
 		source, err := factory(ctx, account)
@@ -190,7 +274,7 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 		}
 		idleSources[identity] = configuredEquityEvidenceSourceResult{source: source, marketType: account.MarketType}
 	}
-	observation, err := observeRuntimeEquityCursorsWithIdleSources(ctx, runtimes, cursors, idleSources)
+	observation, err := observeRuntimeEquityCursorsWithIdleSources(ctx, equityRuntimes, cursors, idleSources)
 	if err != nil {
 		return risk.EquityObservation{}, err
 	}
@@ -217,6 +301,9 @@ func (s *runtimeEquitySource) ObserveAccountEquity(ctx context.Context, cursors 
 func runtimeEquityAccountKeys(runtimes []*SymbolRuntime) (map[string]struct{}, error) {
 	keys := make(map[string]struct{})
 	for _, rt := range runtimes {
+		if isCompositeEquityRuntime(rt) {
+			continue
+		}
 		if rt == nil || rt.Exchange == nil || strings.TrimSpace(rt.AccountScope) == "" {
 			return nil, fmt.Errorf("equity runtime is incomplete")
 		}
@@ -253,6 +340,9 @@ func observeRuntimeEquityCursorsWithIdleSources(ctx context.Context, runtimes []
 	accounts := make(map[string]*SymbolRuntime)
 	marketTypes := make(map[string]struct{})
 	for _, rt := range runtimes {
+		if isCompositeEquityRuntime(rt) {
+			continue
+		}
 		if rt == nil || rt.Exchange == nil {
 			return observation, fmt.Errorf("equity runtime is incomplete")
 		}
@@ -343,6 +433,9 @@ func marketTypesForAccount(key string, accounts map[string]*SymbolRuntime, idleS
 func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime, []string, string, error) {
 	accounts := make(map[string]*SymbolRuntime)
 	for _, rt := range runtimes {
+		if isCompositeEquityRuntime(rt) {
+			continue
+		}
 		if rt == nil || rt.Exchange == nil {
 			return nil, nil, "", fmt.Errorf("equity runtime is incomplete")
 		}
@@ -370,6 +463,28 @@ func runtimeEquityAccounts(runtimes []*SymbolRuntime) (map[string]*SymbolRuntime
 		marketTypes[strings.ToLower(strings.TrimSpace(account.AccountMarketType))] = struct{}{}
 	}
 	return accounts, keys, equityScopePrefix(marketTypes) + fmt.Sprintf("%x", sha256.Sum256(identity)), nil
+}
+
+func isCompositeEquityRuntime(rt *SymbolRuntime) bool {
+	if rt == nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(rt.AccountMarketType)) {
+	case config.MarketTypeFundingCarry, config.MarketTypeFundingPerpSpread:
+		return true
+	default:
+		return false
+	}
+}
+
+func equityEvidenceRuntimes(runtimes []*SymbolRuntime) []*SymbolRuntime {
+	filtered := make([]*SymbolRuntime, 0, len(runtimes))
+	for _, rt := range runtimes {
+		if !isCompositeEquityRuntime(rt) {
+			filtered = append(filtered, rt)
+		}
+	}
+	return filtered
 }
 
 func equityRuntimeAccountKey(marketType, accountScope string) string {

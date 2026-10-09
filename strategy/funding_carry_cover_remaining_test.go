@@ -75,12 +75,13 @@ func TestFundingCarryRemainingAssetsCannotPassFlatOrRestart(t *testing.T) {
 					s.marginCoverOrders = nil
 				}
 				before := store.payload
+				s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 				if err := s.VerifyFlat(context.Background()); err == nil || !strings.Contains(err.Error(), "remaining") {
 					t.Fatalf("remaining assets accepted as flat: %v", err)
 				}
 				if mode != "memory" {
 					restarted, margin, _ := newFundingCarryRepayIntentFixture()
-					restarted.SetRuntimeStateStore(store)
+					restarted.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 					if err := restarted.Start(context.Background()); err == nil || margin.repayCalls != 0 || store.payload != before {
 						t.Fatal("restart ignored remaining assets, spent funds or rewrote evidence")
 					}
@@ -133,11 +134,12 @@ func TestFundingCarryRemainingAssetsExactZeroAndInvalidEvidence(t *testing.T) {
 			if err := s.persistRuntimeStateLocked(); err != nil {
 				t.Fatal(err)
 			}
+			s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			if err := s.VerifyFlat(context.Background()); err != nil {
 				t.Fatal("fully consumed journal blocked flat:", err)
 			}
 			restarted, _, _ := newFundingCarryRepayIntentFixture()
-			restarted.SetRuntimeStateStore(store)
+			restarted.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			if err := restarted.restoreRuntimeState(); err != nil {
 				t.Fatal("fully consumed journal blocked restore:", err)
 			}

@@ -159,6 +159,7 @@ type BinanceAdapter struct {
 	baseAsset        string  // 基础资產（交易币种），如 BTC
 	quoteAsset       string  // 计價资產（結算币种），如 USDT、USD
 	useTestnet       bool    // 是否使用測試網
+	stopEvidenceOnly bool    // stop recovery adapter: reject every operation that can mutate account state
 
 	// minNotionals 各交易對 MIN_NOTIONAL 過濾器下限（exchangeInfo 拉取時緩存，X3）
 	minNotionals   map[string]float64
@@ -207,6 +208,12 @@ func (b *BinanceAdapter) invalidateAccountCache() {
 // GetName 獲取交易所名称
 func (b *BinanceAdapter) GetName() string {
 	return "Binance"
+}
+
+// IsStopEvidenceOnly reports that this adapter rejects account mutations and
+// stream startup; it must be used only by stopped-runtime verifiers.
+func (b *BinanceAdapter) IsStopEvidenceOnly() bool {
+	return b != nil && b.stopEvidenceOnly
 }
 
 // GetMarketType 獲取市場類型：futures 合約
@@ -323,6 +330,9 @@ func (b *BinanceAdapter) roundToStepSize(quantity float64) float64 {
 
 // PlaceOrder 下單
 func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if b.stopEvidenceOnly {
+		return nil, errStopEvidenceReadOnly
+	}
 	// 對沖（雙向）持倉模式下本適配器的訂單必被拒，先自檢（X5）
 	if err := b.ensureOneWayPositionMode(ctx); err != nil {
 		return nil, err
@@ -503,6 +513,9 @@ func (b *BinanceAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 
 // BatchPlaceOrders 批量下單
 func (b *BinanceAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
+	if b.stopEvidenceOnly {
+		return nil, false
+	}
 	placedOrders := make([]*Order, 0, len(orders))
 	hasMarginError := false
 
@@ -525,6 +538,9 @@ func (b *BinanceAdapter) BatchPlaceOrders(ctx context.Context, orders []*OrderRe
 
 // CancelOrder 取消訂單
 func (b *BinanceAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	_, err := b.client.NewCancelOrderService().
 		Symbol(symbol).
 		OrderID(orderID).
@@ -567,6 +583,9 @@ func isBinanceUnknownOrderError(err error) bool {
 // BatchCancelOrders 批量撤單。
 // 所有未能確認撤銷的訂單錯誤會被匯總返回；訂單不存在（-2011）視為成功。
 func (b *BinanceAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	if len(orderIDs) == 0 {
 		return nil
 	}
@@ -1198,6 +1217,9 @@ func (b *BinanceAdapter) GetBalance(ctx context.Context, asset string) (float64,
 
 // StartOrderStream 啟動訂單流（WebSocket）
 func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(interface{})) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	// 對沖持倉模式下拒絕啟動訂單流（Bot 啟動入口），避免帶著必被拒的下單邏輯運行（X5）
 	if err := b.ensureOneWayPositionMode(ctx); err != nil {
 		return err
@@ -1244,8 +1266,10 @@ func (b *BinanceAdapter) StartOrderStream(ctx context.Context, callback func(int
 
 // StopOrderStream 停止訂單流
 func (b *BinanceAdapter) StopOrderStream() error {
-	b.wsManager.Stop()
-	return nil
+	if b.wsManager == nil {
+		return nil
+	}
+	return b.wsManager.StopWithError()
 }
 
 // GetLatestPrice 獲取最新價格（合約）
@@ -1278,12 +1302,18 @@ func (b *BinanceAdapter) GetLatestPrice(ctx context.Context, symbol string) (flo
 
 // StartPriceStream 啟動價格流（WebSocket）
 func (b *BinanceAdapter) StartPriceStream(ctx context.Context, symbol string, callback func(price float64)) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	// 啟動價格流
 	return b.wsManager.StartPriceStream(ctx, symbol, callback)
 }
 
 // StartKlineStream 啟動K線流（WebSocket）
 func (b *BinanceAdapter) StartKlineStream(ctx context.Context, symbols []string, interval string, callback func(candle interface{})) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	if b.klineWSManager == nil {
 		b.klineWSManager = NewKlineWebSocketManager(b.useTestnet)
 	}
@@ -1872,6 +1902,9 @@ func (b *BinanceAdapter) GetOrderBook(ctx context.Context, symbol string, limit 
 
 // InternalTransfer 交易所內部轉帳（期货帳戶轉現貨等，調用 SAPI）
 func (b *BinanceAdapter) InternalTransfer(ctx context.Context, fromAccount, toAccount, asset string, amount float64) (string, error) {
+	if b.stopEvidenceOnly {
+		return "", errStopEvidenceReadOnly
+	}
 	if b.apiKey == "" || b.secretKey == "" {
 		return "", fmt.Errorf("API 密钥未配置，無法執行內部轉账")
 	}

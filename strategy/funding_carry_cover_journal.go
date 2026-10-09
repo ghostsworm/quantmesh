@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/storage"
 	"quantmesh/utils"
 )
 
@@ -25,6 +26,7 @@ type fundingCarryCoverOrder struct {
 	Gross           float64               `json:"gross"`
 	Net             float64               `json:"net"`
 	Verified        bool                  `json:"verified"`
+	TerminalStatus  exchange.OrderStatus  `json:"terminal_status,omitempty"` // schema7: verified fill evidence, not full debt coverage
 	RepayTransferID int64                 `json:"repay_transfer_id,omitempty"`
 	Consumed        float64               `json:"consumed,omitempty"`
 	Fills           []*exchange.OrderFill `json:"fills,omitempty"`
@@ -76,7 +78,11 @@ func (s *FundingCarryStrategy) checkpointMarginCoverOrder(ctx context.Context, o
 		}
 	}
 	s.marginCoverIntent = nil
-	if err := s.persistRuntimeStateLocked(); err != nil {
+	if err := s.persistRecoveryCheckpointLocked(ctx); err != nil {
+		if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+			s.runtimeStateErr = nil
+			return errors.Join(operationErr, fmt.Errorf("persist margin cover acknowledgement after caller cancellation: %w", err))
+		}
 		s.marginCoverIntent = pending
 		s.unownedExposure, s.runtimeStateErr = true, err
 		return errors.Join(operationErr, err) // retain local ACK if storage failed
@@ -84,7 +90,7 @@ func (s *FundingCarryStrategy) checkpointMarginCoverOrder(ctx context.Context, o
 	return operationErr
 }
 
-func (s *FundingCarryStrategy) checkpointMarginCoverFills(ctx context.Context, id int64, gross, net float64, fills []*exchange.OrderFill) error {
+func (s *FundingCarryStrategy) checkpointMarginCoverFills(ctx context.Context, id int64, gross, net float64, fills []*exchange.OrderFill, terminalStatus ...exchange.OrderStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
@@ -100,9 +106,16 @@ func (s *FundingCarryStrategy) checkpointMarginCoverFills(ctx context.Context, i
 		}
 		record := previous
 		record.Gross, record.Net, record.Verified = gross, net, true
+		if len(terminalStatus) > 0 {
+			record.TerminalStatus = terminalStatus[0]
+		}
 		record.Fills = cloneFundingCarryCoverOrders([]fundingCarryCoverOrder{{Fills: fills}})[0].Fills
 		s.marginCoverOrders[i] = record
-		if err := s.persistRuntimeStateLocked(); err != nil {
+		if err := s.persistRecoveryCheckpointLocked(ctx); err != nil {
+			if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+				s.runtimeStateErr = nil
+				return fmt.Errorf("persist margin cover fills after caller cancellation: %w", err)
+			}
 			s.marginCoverOrders[i] = previous
 			s.unownedExposure, s.runtimeStateErr = true, err
 			return err
@@ -142,12 +155,27 @@ func validateFundingCarryCoverOrders(state fundingCarryRuntimeState, allowPendin
 			}
 		}
 		if !record.Verified {
+			if record.TerminalStatus != "" {
+				return fmt.Errorf("unverified cover claims terminal fill evidence")
+			}
 			if !allowPending || !state.IntentInFlight || record.Gross != 0 || record.Net != 0 || len(record.Fills) != 0 {
 				return fmt.Errorf("margin cover journal remains unresolved")
 			}
 			continue
 		}
-		net, err := fundingCarryNetCoverFromFills(state.Symbol, record.Asset, record.OrderID, record.Gross, record.Requested, record.DebtToCover, record.Fills)
+		var net float64
+		var err error
+		switch record.TerminalStatus {
+		case "": // legacy full debt cover semantics remain unchanged
+			net, err = fundingCarryNetCoverFromFills(state.Symbol, record.Asset, record.OrderID, record.Gross, record.Requested, record.DebtToCover, record.Fills)
+		case exchange.OrderStatusCanceled, exchange.OrderStatusExpired:
+			if record.ClientOrderID == "" || record.RequestPrice <= 0 || record.PreparedAt.IsZero() {
+				return fmt.Errorf("terminal partial cover lacks original request evidence")
+			}
+			net, err = fundingCarryNetCoverFillEvidence(state.Symbol, record.Asset, record.OrderID, record.Gross, record.Requested, record.Fills)
+		default:
+			return fmt.Errorf("cover fill journal has unsupported terminal status")
+		}
 		if err != nil || !fundingCarryFinancialAmountsMatch(net, record.Net) {
 			return fmt.Errorf("margin cover journal fill evidence is invalid")
 		}

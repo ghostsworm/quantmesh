@@ -17,15 +17,34 @@ func hasUnverifiedFundingCarryCover(orders []fundingCarryCoverOrder) bool {
 	return false
 }
 
+func hasTerminalPartialFundingCarryCover(orders []fundingCarryCoverOrder) bool {
+	for _, record := range orders {
+		if record.Verified && (record.TerminalStatus == exchange.OrderStatusCanceled || record.TerminalStatus == exchange.OrderStatusExpired) {
+			return true
+		}
+	}
+	return false
+}
+
 // Confirm an already submitted order, never re-buy or spend shared balances.
 func (s *FundingCarryStrategy) reconcileSavedMarginCoverFills(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("cover fill recovery requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	store := s.runtimeStateStore
 	s.mu.RUnlock()
 	if store == nil {
 		return nil
 	}
-	_, payload, found, err := store.LoadRuntimeState("funding_carry")
+	reader, ok := store.(RuntimeStateContextReader)
+	if !ok {
+		return fmt.Errorf("cover fill recovery requires cancellable checkpoint reads")
+	}
+	_, payload, found, err := reader.LoadRuntimeStateContext(ctx, "funding_carry")
 	if err != nil || !found {
 		return err
 	}
@@ -37,8 +56,9 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCoverFills(ctx context.Contex
 		return err
 	}
 	defer s.releaseOperation()
-	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
-		version, payload, found, err := store.LoadRuntimeState("funding_carry")
+	var pending *FundingCarryReconciliationRequiredError
+	coordinationErr := s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
+		version, payload, found, err := reader.LoadRuntimeStateContext(operationCtx, "funding_carry")
 		if err != nil {
 			return err
 		}
@@ -74,6 +94,10 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCoverFills(ctx context.Contex
 		if scope == "" || scope != record.AccountScope {
 			return fmt.Errorf("cover fills account scope mismatch")
 		}
+		if _, ok := store.(RuntimeStateConditionalWriter); !ok {
+			return fmt.Errorf("cover fill recovery requires atomic conditional checkpoint writes")
+		}
+		operationCtx = context.WithValue(operationCtx, fundingCarryRecoveryCheckpointKey{}, &fundingCarryRecoveryCheckpoint{store: store, version: version, payload: payload})
 		order, err := s.marginEx.GetOrder(operationCtx, state.Symbol, record.OrderID)
 		if err != nil {
 			return err
@@ -82,7 +106,8 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCoverFills(ctx context.Contex
 		if err := validateFundingCarryRecoveredCover(original, order, s.marginEx.GetName()); err != nil {
 			return err
 		}
-		if order.OrderID != record.OrderID || order.Status != exchange.OrderStatusFilled {
+		terminalPartial := order.Status == exchange.OrderStatusCanceled || order.Status == exchange.OrderStatusExpired
+		if order.OrderID != record.OrderID || (order.Status != exchange.OrderStatusFilled && !terminalPartial) || order.ExecutedQty <= 0 {
 			return fmt.Errorf("cover order remains open, partial or otherwise unresolved")
 		}
 		s.mu.Lock()
@@ -100,9 +125,33 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCoverFills(ctx context.Contex
 		s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
 		s.strategySpotKnown, s.intentInFlight, s.unownedExposure = true, true, true
 		s.mu.Unlock()
+		if terminalPartial {
+			fills, err := s.marginEx.GetOrderFills(operationCtx, state.Symbol, record.OrderID)
+			if err != nil {
+				return err
+			}
+			net, err := fundingCarryNetCoverFillEvidence(state.Symbol, record.Asset, record.OrderID, order.ExecutedQty, record.Requested, fills)
+			if err != nil {
+				return err
+			}
+			if err := s.checkpointMarginCoverFills(operationCtx, record.OrderID, order.ExecutedQty, net, fills, order.Status); err != nil {
+				return err
+			}
+			pending = &FundingCarryReconciliationRequiredError{message: "terminal partial margin cover recovered; debt, physical assets and repayment remain unresolved"}
+			return nil
+		}
 		if err := s.verifyMarginNetDebtCover(operationCtx, record.OrderID, order.ExecutedQty, record.Requested, record.DebtToCover); err != nil {
 			return err
 		}
 		return fmt.Errorf("cover net fills recovered; physical assets and repayment still require reconciliation")
 	})
+	// Only advertise managed recovery after wallet cleanup succeeded. A joined
+	// cleanup/ownership failure must never become reconciliation admission.
+	if coordinationErr != nil {
+		return coordinationErr
+	}
+	if pending != nil {
+		return pending
+	}
+	return nil
 }

@@ -13,6 +13,7 @@ import (
 type SystemMetricsProviderImpl struct {
 	storageService *storage.StorageService
 	watchdog       *monitor.Watchdog
+	collectMetrics func() (*monitor.SystemMetrics, error)
 }
 
 // NewSystemMetricsProvider 創建系统監控數據提供者
@@ -20,6 +21,7 @@ func NewSystemMetricsProvider(storageService *storage.StorageService, watchdog *
 	return &SystemMetricsProviderImpl{
 		storageService: storageService,
 		watchdog:       watchdog,
+		collectMetrics: monitor.CollectSystemMetrics,
 	}
 }
 
@@ -40,7 +42,11 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 	}
 
 	// 如果watchdog没有數據，實時采集一次
-	metrics, err := monitor.CollectSystemMetrics()
+	collect := p.collectMetrics
+	if collect == nil {
+		collect = monitor.CollectSystemMetrics
+	}
+	metrics, err := collect()
 	if err == nil && metrics != nil {
 		return &SystemMetricsResponse{
 			Timestamp:     utils.ToUTC8(metrics.Timestamp),
@@ -68,14 +74,10 @@ func (p *SystemMetricsProviderImpl) GetCurrentMetrics() (*SystemMetricsResponse,
 		}
 	}
 
-	// 所有方法都失败，返回默认值（但这种情况应該很少发生）
-	return &SystemMetricsResponse{
-		Timestamp:     utils.ToUTC8(time.Now()),
-		CPUPercent:    0,
-		MemoryMB:      0,
-		MemoryPercent: 0,
-		ProcessID:     0,
-	}, nil
+	if err == nil {
+		err = fmt.Errorf("collector returned no metrics")
+	}
+	return nil, fmt.Errorf("current system metrics unavailable: %w", err)
 }
 
 // GetMetrics 獲取系统監控數據
@@ -124,7 +126,7 @@ func (p *SystemMetricsProviderImpl) GetMetrics(startTime, endTime time.Time, gra
 		if err == nil && current != nil {
 			return []*SystemMetricsResponse{current}, nil
 		}
-		return []*SystemMetricsResponse{}, nil
+		return nil, err
 	}
 
 	metrics := make([]*SystemMetricsResponse, len(storageMetrics))

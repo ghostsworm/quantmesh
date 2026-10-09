@@ -49,7 +49,7 @@ func TestFundingCarryCoverConsumptionTracksConfirmedInterestNotOldTarget(t *test
 			restarted, _, _ := newFundingCarryRepayIntentFixture()
 			venue := &fundingCarryRecoveryExchange{fundingCarryRepayIntentExchange: margin}
 			restarted.marginEx = venue
-			restarted.SetRuntimeStateStore(store)
+			restarted.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 			before := store.payload
 			if tc.saveFailure {
 				venue.afterQuery = func() { store.err = errors.New("injected interest consumption save failure") }
@@ -76,7 +76,7 @@ func TestFundingCarryCoverConsumptionTracksConfirmedInterestNotOldTarget(t *test
 			if _, err := decodeFundingCarryRuntimeStateForRecovery(store.version, store.payload, s.fut.GetName(), s.spot.GetName(), s.symbol, true); err != nil {
 				t.Fatal(err)
 			}
-			if store.version != 6 {
+			if store.version != fundingCarryRuntimeStateVersion {
 				t.Fatal("new consumption semantics did not bump schema")
 			}
 			state.MarginCoverOrders[0].Consumed = 0.4001

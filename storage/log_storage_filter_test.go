@@ -1,11 +1,38 @@
 package storage
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestLogStorageSanitizesMessagesBeforePersistence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sanitized.db")
+	ls, err := NewLogStorage(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ls.WriteLog("ERROR", "{\"apiSecret\":\"database-secret\"}")
+	if err := ls.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var message string
+	if err := db.QueryRow("SELECT message FROM logs LIMIT 1").Scan(&message); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(message, "database-secret") || !strings.Contains(message, "[REDACTED]") {
+		t.Fatalf("log database contains unsanitized message: %q", message)
+	}
+}
 
 func TestLogStorage_GetLogs_BotIDColumn(t *testing.T) {
 	dir := t.TempDir()

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"quantmesh/storage"
 )
 
 type fundingCarryRepayIntent struct {
@@ -104,8 +106,19 @@ func (s *FundingCarryStrategy) repayMarginPrincipalWithCover(ctx context.Context
 	if err := s.verifyDebtCommitLocked(ctx); err != nil {
 		return err
 	}
+	return s.clearMarginRepayIntentLocked(ctx, pending)
+}
+
+// Caller holds s.mu and has verified the operation owner. A confirmed
+// commit/cancellation keeps the cleared intent in memory to match durable
+// state, while cancellation still stops the current financial flow.
+func (s *FundingCarryStrategy) clearMarginRepayIntentLocked(ctx context.Context, pending *fundingCarryRepayIntent) error {
 	s.marginRepayIntent = nil
-	if err := s.persistRuntimeStateLocked(); err != nil {
+	if err := s.persistRecoveryCheckpointLocked(ctx); err != nil {
+		if errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+			s.runtimeStateErr = nil
+			return err
+		}
 		s.marginRepayIntent = pending
 		s.unownedExposure, s.runtimeStateErr = true, err
 		return err

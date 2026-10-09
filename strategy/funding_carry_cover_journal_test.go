@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"quantmesh/exchange"
 	"quantmesh/execution"
+	"quantmesh/storage"
 )
 
 type fundingCarryCoverJournalExchange struct {
@@ -94,6 +96,62 @@ func TestFundingCarryCoverJournalFaultsDoNotRepay(t *testing.T) {
 	}
 }
 
+func TestFundingCarryCoverAcknowledgementConfirmedCanceledKeepsCommittedMemory(t *testing.T) {
+	s, _, base := newFundingCarryRepayIntentFixture()
+	s.strategySpotKnown, s.intentInFlight = true, true
+	s.marginBorrowedAt = time.UnixMilli(1000).UTC()
+	s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 42, Asset: "BTC", Amount: 0.4, Principal: 0.4, AccountScope: "scope-a", OccurredAt: s.marginBorrowedAt}}
+	req := &exchange.OrderRequest{Symbol: "BTCUSDT", Side: exchange.SideBuy, Type: exchange.OrderTypeLimit, Quantity: 0.401, Price: 50000}
+	if err := s.prepareMarginCoverIntent(context.Background(), req, 0.4); err != nil {
+		t.Fatal("persist prepared cover intent:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+	order := &exchange.Order{OrderID: 7, ClientOrderID: req.ClientOrderID, Symbol: req.Symbol, Side: req.Side, Type: req.Type, Price: req.Price, Quantity: req.Quantity}
+
+	err := s.checkpointMarginCoverOrder(context.Background(), order, req.Quantity, 0.4)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("cover ACK error = %v, want confirmed canceled commit", err)
+	}
+	if len(s.marginCoverOrders) != 1 || s.marginCoverOrders[0].OrderID != 7 || s.marginCoverIntent != nil || s.runtimeStateErr != nil {
+		t.Fatalf("memory did not preserve durable ACK: orders=%+v intent=%+v state_err=%v", s.marginCoverOrders, s.marginCoverIntent, s.runtimeStateErr)
+	}
+	var committed fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &committed); err != nil {
+		t.Fatal("decode durable cover ACK:", err)
+	}
+	if len(committed.MarginCoverOrders) != 1 || committed.MarginCoverIntent != nil {
+		t.Fatalf("durable cover ACK = %+v", committed)
+	}
+}
+
+func TestFundingCarryCoverFillConfirmedCanceledKeepsCommittedMemory(t *testing.T) {
+	s, _, base := newFundingCarryRepayIntentFixture()
+	s.strategySpotKnown, s.intentInFlight = true, true
+	s.marginBorrowedAt = time.UnixMilli(1000).UTC()
+	s.marginDebtEvents = []fundingCarryMarginDebtEvent{{Action: "borrow", TransferID: 42, Asset: "BTC", Amount: 0.4, Principal: 0.4, AccountScope: "scope-a", OccurredAt: s.marginBorrowedAt}}
+	s.marginCoverOrders = []fundingCarryCoverOrder{{OrderID: 7, Asset: "BTC", AccountScope: "scope-a", Requested: 0.401, DebtToCover: 0.4}}
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		t.Fatal("persist cover ACK fixture:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+	fills := []*exchange.OrderFill{{OrderID: 7, TradeID: "trade-7", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 50000, Quantity: 0.4}}
+
+	err := s.checkpointMarginCoverFills(context.Background(), 7, 0.4, 0.4, fills, exchange.OrderStatusFilled)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("cover fill error = %v, want confirmed canceled commit", err)
+	}
+	if len(s.marginCoverOrders) != 1 || !s.marginCoverOrders[0].Verified || len(s.marginCoverOrders[0].Fills) != 1 || s.runtimeStateErr != nil {
+		t.Fatalf("memory did not preserve durable fills: orders=%+v state_err=%v", s.marginCoverOrders, s.runtimeStateErr)
+	}
+	var committed fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &committed); err != nil {
+		t.Fatal("decode durable cover fills:", err)
+	}
+	if len(committed.MarginCoverOrders) != 1 || !committed.MarginCoverOrders[0].Verified || committed.MarginCoverOrders[0].TerminalStatus != exchange.OrderStatusFilled {
+		t.Fatalf("durable cover fills = %+v", committed.MarginCoverOrders)
+	}
+}
+
 func TestFundingCarryCoverJournalDecoderRejectsTampering(t *testing.T) {
 	s, _, store := newFundingCarryRepayIntentFixture()
 	_ = s.closeReverse(context.Background(), "journal")
@@ -131,6 +189,7 @@ func TestFundingCarryCoverJournalCannotAdoptLegacyUnscopedEvidence(t *testing.T)
 		t.Fatal(err)
 	}
 	store.payload = string(payload)
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	if err := s.restoreRuntimeState(); err == nil {
 		t.Fatal("unscoped historical cover adopted by current account")
 	}

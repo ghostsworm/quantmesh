@@ -2,6 +2,7 @@ package storage
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -274,6 +275,43 @@ func (s *SQLStorage) QueryTopDailyRealizedFills(account, exchange, marketType, s
 
 // SaveOrderFill 插入逐笔成交；重复身份只有在经济字段一致时视为安全重放。
 func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("order fill storage is unavailable")
+	}
+	return saveOrderFill(s.db, fill)
+}
+
+// SaveOrderFillsAtomic commits one validated order's fills as a single ledger
+// unit so failed persistence cannot expose a partial order to daily aggregates.
+func (s *SQLStorage) SaveOrderFillsAtomic(fills []*OrderFill) error {
+	if s == nil || s.db == nil || len(fills) == 0 {
+		return fmt.Errorf("atomic order fill persistence requires storage and at least one fill")
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin atomic order fill persistence: %w", err)
+	}
+	for i, fill := range fills {
+		if err := saveOrderFill(tx, fill); err != nil {
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil {
+				err = errors.Join(err, fmt.Errorf("rollback atomic order fill persistence: %w", rollbackErr))
+			}
+			return fmt.Errorf("persist order fill batch item %d: %w", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit atomic order fill persistence: %w", err)
+	}
+	return nil
+}
+
+type orderFillExecutor interface {
+	Exec(string, ...any) (sql.Result, error)
+	QueryRow(string, ...any) *sql.Row
+}
+
+func saveOrderFill(db orderFillExecutor, fill *OrderFill) error {
 	if fill == nil || fill.Exchange == "" || fill.MarketType == "" || fill.AccountScope == "" || fill.Symbol == "" || fill.TradeID == "" || fill.OrderID == 0 || (fill.Side != "BUY" && fill.Side != "SELL") || fill.TradeTime.IsZero() || !finitePositive(fill.Price) || !finitePositive(fill.Quantity) || math.IsNaN(fill.Commission) || math.IsInf(fill.Commission, 0) {
 		return fmt.Errorf("order fill requires valid scoped identity, time, price, quantity, and commission")
 	}
@@ -295,7 +333,7 @@ func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
 		return fmt.Errorf("order fill cannot claim a realized PnL asset without realized PnL")
 	}
 	args := []interface{}{fill.Exchange, fill.MarketType, fill.AccountScope, fill.Account, fill.BotID, fill.Symbol, fill.TradeID, fill.OrderID, fill.Side, fill.Price, fill.Quantity, fill.QuoteQuantity, fill.Commission, fill.CommissionAsset, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, realized, fill.RealizedPnLAsset, tradeTime}
-	_, err := s.db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args...)
+	_, err := db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args...)
 	if err == nil {
 		return nil
 	}
@@ -304,7 +342,7 @@ func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
 	var oldQuoteQuantity float64
 	var oldPnL sql.NullFloat64
 	var oldTime time.Time
-	readErr := s.db.QueryRow(`SELECT exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time FROM order_fills WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID).Scan(&old.Exchange, &old.MarketType, &old.AccountScope, &old.Account, &old.BotID, &old.Symbol, &old.TradeID, &old.OrderID, &old.Side, &old.Price, &old.Quantity, &oldQuoteQuantity, &old.Commission, &old.CommissionAsset, &old.CommissionQuote, &old.CommissionQuoteRate, &oldCommissionQuoteKnown, &oldPnL, &old.RealizedPnLAsset, &oldTime)
+	readErr := db.QueryRow(`SELECT exchange, market_type, account_scope, account, bot_id, symbol, trade_id, order_id, side, price, quantity, quote_quantity, commission, commission_asset, commission_quote, commission_quote_rate, commission_quote_known, realized_pnl, realized_pnl_asset, trade_time FROM order_fills WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID).Scan(&old.Exchange, &old.MarketType, &old.AccountScope, &old.Account, &old.BotID, &old.Symbol, &old.TradeID, &old.OrderID, &old.Side, &old.Price, &old.Quantity, &oldQuoteQuantity, &old.Commission, &old.CommissionAsset, &old.CommissionQuote, &old.CommissionQuoteRate, &oldCommissionQuoteKnown, &oldPnL, &old.RealizedPnLAsset, &oldTime)
 	old.CommissionQuoteKnown = oldCommissionQuoteKnown
 	if readErr != nil {
 		return fmt.Errorf("insert order fill: %w (identity lookup: %v)", err, readErr)
@@ -319,7 +357,7 @@ func (s *SQLStorage) SaveOrderFill(fill *OrderFill) error {
 		return fmt.Errorf("order fill identity collision has conflicting economic fields: %s/%s", fill.Exchange, fill.TradeID)
 	}
 	if (!oldPnL.Valid && fill.RealizedPnL != nil) || (old.RealizedPnLAsset == "" && fill.RealizedPnLAsset != "") || (old.Account == "" && fill.Account != "") || (old.BotID == "" && fill.BotID != "") || (oldQuoteQuantity == 0 && fill.QuoteQuantity > 0) || (!old.CommissionQuoteKnown && fill.CommissionQuoteKnown) {
-		_, err := s.db.Exec(`UPDATE order_fills SET account = CASE WHEN account = '' THEN ? ELSE account END, bot_id = CASE WHEN bot_id = '' THEN ? ELSE bot_id END, realized_pnl = COALESCE(realized_pnl, ?), realized_pnl_asset = CASE WHEN realized_pnl_asset = '' THEN ? ELSE realized_pnl_asset END, quote_quantity = CASE WHEN quote_quantity = 0 THEN ? ELSE quote_quantity END, commission_quote = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote END, commission_quote_rate = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_rate END, commission_quote_known = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_known END WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Account, fill.BotID, realized, fill.RealizedPnLAsset, fill.QuoteQuantity, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID)
+		_, err := db.Exec(`UPDATE order_fills SET account = CASE WHEN account = '' THEN ? ELSE account END, bot_id = CASE WHEN bot_id = '' THEN ? ELSE bot_id END, realized_pnl = COALESCE(realized_pnl, ?), realized_pnl_asset = CASE WHEN realized_pnl_asset = '' THEN ? ELSE realized_pnl_asset END, quote_quantity = CASE WHEN quote_quantity = 0 THEN ? ELSE quote_quantity END, commission_quote = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote END, commission_quote_rate = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_rate END, commission_quote_known = CASE WHEN commission_quote_known = 0 THEN ? ELSE commission_quote_known END WHERE exchange = ? AND market_type = ? AND account_scope = ? AND symbol = ? AND trade_id = ?`, fill.Account, fill.BotID, realized, fill.RealizedPnLAsset, fill.QuoteQuantity, fill.CommissionQuote, fill.CommissionQuoteRate, fill.CommissionQuoteKnown, fill.Exchange, fill.MarketType, fill.AccountScope, fill.Symbol, fill.TradeID)
 		if err != nil {
 			return fmt.Errorf("enrich existing execution attribution: %w", err)
 		}

@@ -73,6 +73,7 @@ import ConfirmDialog from './ConfirmDialog'
 import { mapCapitalHistoryToEquityCurve } from '../utils/capitalHistory'
 import { getPnLExchangeDefaultRangeISO } from '../constants/pnl'
 import { findBotIdForSymbol } from '../utils/botLookup'
+import { botsForTradingScope } from '../services/botLifecycle'
 
 // 超时包装函数，防止API调用卡住
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, defaultValue: T): Promise<T> {
@@ -108,6 +109,7 @@ interface SymbolStatus {
   running: boolean
   exchange: string
   symbol: string
+  market_type?: string
   current_price: number
   total_pnl: number
   total_pnl_asset?: string
@@ -135,6 +137,7 @@ const GlobalDashboard: React.FC = () => {
     isOpen: boolean
     exchange: string
     symbol: string
+    marketType: string
   } | null>(null)
   const [expandedIndices, setExpandedIndices] = useState<number[]>([])
   const hasInitialExpandedRef = useRef(false)
@@ -226,6 +229,7 @@ const GlobalDashboard: React.FC = () => {
           const key = `${normalizedExchange}:${st.symbol}:${st.market_type || 'futures'}`
           statusMap.set(key, {
             running: st.running,
+            market_type: st.market_type || 'futures',
             exchange: normalizedExchange,
             symbol: st.symbol,
             current_price: st.current_price,
@@ -250,6 +254,7 @@ const GlobalDashboard: React.FC = () => {
             const normalizedExchange = normalizeExchangeName(sym.exchange)
             statusMap.set(`${normalizedExchange}:${sym.symbol}:${sym.market_type || 'futures'}`, {
               running: st.running,
+              market_type: sym.market_type || 'futures',
               exchange: normalizedExchange,
               symbol: sym.symbol,
               current_price: st.current_price,
@@ -267,6 +272,10 @@ const GlobalDashboard: React.FC = () => {
         })
       }
 
+      for (const status of statusMap.values()) {
+        const scopedBots = botsForTradingScope(botsData?.bots ?? [], normalizeExchangeName, status.exchange, status.symbol, status.market_type || 'futures')
+        if (scopedBots.length) status.running = scopedBots.some(bot => bot.running && !bot.stop_pending)
+      }
       setSymbolStatuses(statusMap)
     } catch (error) {
       console.error('Failed to fetch global data', error)
@@ -425,7 +434,8 @@ const GlobalDashboard: React.FC = () => {
           duration: 5000,
         })
       } else {
-        const errorMessage = error instanceof Error ? error.message : t('globalDashboard.unknownError')
+        const failure = error as Error & { errorKey?: string }
+        const errorMessage = failure.errorKey ? t(failure.errorKey) : error instanceof Error ? error.message : t('globalDashboard.unknownError')
         const lowerErrorMessage = errorMessage.toLowerCase()
         if (lowerErrorMessage.includes('未运行') || lowerErrorMessage.includes('not running') || lowerErrorMessage.includes('is not running')) {
           if (oldStatus) {
@@ -461,14 +471,14 @@ const GlobalDashboard: React.FC = () => {
     }
   }
 
-  const handleClosePositions = async (exchange: string, symbol: string) => {
-    const key = `${exchange}:${symbol}`
+  const handleClosePositions = async (exchange: string, symbol: string, marketType: string) => {
+    const key = `${exchange}:${symbol}:${marketType}`
     setClosingPositions(prev => new Set(prev).add(key))
     try {
-      const result = await closeAllPositions(exchange, symbol)
+      const result = await closeAllPositions(exchange, symbol, marketType)
       toast({
         title: t('globalDashboard.closePositionsComplete'),
-        description: result.message,
+        description: t('globalDashboard.closePositionsComplete'),
         status: result.success_count > 0 ? 'success' : 'warning',
         duration: 5000,
       })
@@ -488,8 +498,8 @@ const GlobalDashboard: React.FC = () => {
     }
   }
 
-  const openClosePositionsDialog = (exchange: string, symbol: string) => {
-    setConfirmDialog({ isOpen: true, exchange, symbol })
+  const openClosePositionsDialog = (exchange: string, symbol: string, marketType: string) => {
+    setConfirmDialog({ isOpen: true, exchange, symbol, marketType })
   }
 
   const closeConfirmDialog = () => {
@@ -498,7 +508,7 @@ const GlobalDashboard: React.FC = () => {
 
   const confirmClosePositions = async () => {
     if (confirmDialog) {
-      await handleClosePositions(confirmDialog.exchange, confirmDialog.symbol)
+      await handleClosePositions(confirmDialog.exchange, confirmDialog.symbol, confirmDialog.marketType)
       setConfirmDialog(null)
     }
   }
@@ -987,13 +997,14 @@ const GlobalDashboard: React.FC = () => {
                         const normalizedExchange = normalizeExchangeName(sym.exchange)
                         const key = `${normalizedExchange}:${sym.symbol}:${sym.market_type || 'futures'}`
                         const status = symbolStatuses.get(key)
-                        const isRunning = status?.running || false
                         const sameSymbolMarkets = exchange.symbolList.filter(item => item.symbol === sym.symbol)
                         // The PnL endpoint aggregates by symbol only; do not duplicate an ambiguous total across spot and futures cards.
                         const pnlInfo = sameSymbolMarkets.length === 1
                           ? exchange.symbols.find(item => item.symbol === sym.symbol && item.pnl_asset === exchange.pnl_asset)
                           : undefined
                         const botId = findBotIdForSymbol(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type)
+                        const stopPending = botsForTradingScope(bots, normalizeExchange, normalizedExchange, sym.symbol, sym.market_type || 'futures').some(bot => bot.stop_pending)
+                        const isRunning = !stopPending && (status?.running || false)
                         
                         return (
                           <MotionBox
@@ -1038,6 +1049,7 @@ const GlobalDashboard: React.FC = () => {
                                       bg={isRunning ? 'green.500' : 'gray.300'}
                                       boxShadow={isRunning ? '0 0 8px rgba(72, 187, 120, 0.6)' : 'none'}
                                     />
+                                    {stopPending && <Badge colorScheme="orange">{t('stopPending.status')}</Badge>}
                                     {isRunning && status?.risk_triggered && (
                                       <Badge colorScheme="red" variant="solid" fontSize="10px">
                                         {t('globalDashboard.riskControlPaused')}
@@ -1101,10 +1113,14 @@ const GlobalDashboard: React.FC = () => {
                               {/* 主操作按钮：啟动/停止交易 */}
                               <Button
                                 size="sm"
-                                colorScheme={isRunning ? 'red' : 'green'}
+                                colorScheme={stopPending ? 'orange' : isRunning ? 'red' : 'green'}
                                 width="full"
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  if (stopPending) {
+                                    navigate(botId ? `/bots/${botId}` : '/bots')
+                                    return
+                                  }
                                   handleToggleTrading(normalizedExchange, sym.symbol, isRunning, sym.market_type)
                                 }}
                                 isDisabled={togglePendingKeys.has(key)}
@@ -1113,11 +1129,11 @@ const GlobalDashboard: React.FC = () => {
                                 borderRadius="lg"
                                 mb={2}
                               >
-                                {isRunning ? t('globalDashboard.stopTrading') : t('globalDashboard.startTrading')}
+                                {stopPending ? t('stopPending.review') : isRunning ? t('globalDashboard.stopTrading') : t('globalDashboard.startTrading')}
                               </Button>
 
                               {/* 副操作：一键平倉（僅在交易停止時显示） */}
-                              {!isRunning && (
+                              {!isRunning && !stopPending && (
                                 <Button
                                   size="sm"
                                   colorScheme="red"
@@ -1125,7 +1141,7 @@ const GlobalDashboard: React.FC = () => {
                                   width="full"
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    openClosePositionsDialog(normalizedExchange, sym.symbol)
+                                    openClosePositionsDialog(normalizedExchange, sym.symbol, sym.market_type || 'futures')
                                   }}
                                   isLoading={closingPositions.has(key)}
                                   borderRadius="lg"
@@ -1157,7 +1173,7 @@ const GlobalDashboard: React.FC = () => {
           confirmText={t('globalDashboard.confirmClosePositions')}
           cancelText={t('common.cancel')}
           confirmColorScheme="red"
-          isLoading={closingPositions.has(`${confirmDialog.exchange}:${confirmDialog.symbol}`)}
+          isLoading={closingPositions.has(`${confirmDialog.exchange}:${confirmDialog.symbol}:${confirmDialog.marketType}`)}
         />
       )}
     </Box>

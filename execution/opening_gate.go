@@ -20,10 +20,33 @@ const UnverifiedCancellationBlock = "unverified_opening_cancellation"
 // Each source can only remove its own block; closing orders never need a lease.
 // The zero value is ready for use.
 type OpeningGate struct {
-	mu      sync.Mutex
-	sources map[string]struct{}
-	active  int
-	idle    chan struct{}
+	mu             sync.Mutex
+	sources        map[string]struct{}
+	active         int
+	idle           chan struct{}
+	admissionCheck func() bool
+}
+
+// SetAdmissionCheck installs a read-only, nonblocking risk predicate. It must
+// never call back into this gate or perform persistence/network operations.
+func (g *OpeningGate) SetAdmissionCheck(check func() bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.admissionCheck = check
+}
+
+type openingAdmissionContextKey struct{}
+
+// WithOpeningAdmissionCheck carries the shared live predicate into runtime
+// constructors before any strategy producer starts.
+func WithOpeningAdmissionCheck(ctx context.Context, check func() bool) context.Context {
+	return context.WithValue(ctx, openingAdmissionContextKey{}, check)
+}
+
+func (g *OpeningGate) ApplyAdmissionContext(ctx context.Context) {
+	if check, ok := ctx.Value(openingAdmissionContextKey{}).(func() bool); ok {
+		g.SetAdmissionCheck(check)
+	}
 }
 
 func (g *OpeningGate) Block(source string) {
@@ -46,8 +69,11 @@ func (g *OpeningGate) Unblock(source string) {
 func (g *OpeningGate) HoldIfBlocked(source string) bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.sources) == 0 {
+	if len(g.sources) == 0 && (g.admissionCheck == nil || g.admissionCheck()) {
 		return false
+	}
+	if g.sources == nil {
+		g.sources = make(map[string]struct{})
 	}
 	g.sources[source] = struct{}{}
 	return true
@@ -56,7 +82,7 @@ func (g *OpeningGate) HoldIfBlocked(source string) bool {
 func (g *OpeningGate) Blocked() bool {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	return len(g.sources) != 0
+	return len(g.sources) != 0 || (g.admissionCheck != nil && !g.admissionCheck())
 }
 
 func (g *OpeningGate) HasBlock(source string) bool {
@@ -83,7 +109,7 @@ func (g *OpeningGate) Sources() []string {
 func (g *OpeningGate) Begin() (release func(), err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	if len(g.sources) != 0 {
+	if len(g.sources) != 0 || (g.admissionCheck != nil && !g.admissionCheck()) {
 		return nil, ErrOpeningPaused
 	}
 	if g.active == 0 {

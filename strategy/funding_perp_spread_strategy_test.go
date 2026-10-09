@@ -449,6 +449,7 @@ type fundingPerpSpreadOpeningExchange struct {
 	symbol   string
 	position float64
 	placed   int
+	requests []*exchange.OrderRequest
 }
 
 func (e *fundingPerpSpreadOpeningExchange) GetName() string          { return e.name }
@@ -471,6 +472,8 @@ func (e *fundingPerpSpreadOpeningExchange) GetAccountOpenOrders(context.Context)
 }
 func (e *fundingPerpSpreadOpeningExchange) PlaceOrder(_ context.Context, request *exchange.OrderRequest) (*exchange.Order, error) {
 	e.placed++
+	copy := *request
+	e.requests = append(e.requests, &copy)
 	if request.Side == exchange.SideSell {
 		e.position -= request.Quantity
 	} else {
@@ -478,6 +481,54 @@ func (e *fundingPerpSpreadOpeningExchange) PlaceOrder(_ context.Context, request
 	}
 	return &exchange.Order{OrderID: int64(e.placed), ClientOrderID: request.ClientOrderID, Symbol: request.Symbol,
 		Side: request.Side, Quantity: request.Quantity, ExecutedQty: request.Quantity, Status: exchange.OrderStatusFilled}, nil
+}
+
+func TestFundingPerpSpreadOpeningEnforcesPositionLimitsOnBothLegs(t *testing.T) {
+	tests := []struct {
+		name       string
+		control    config.OpenPositionControl
+		hotUpdate  bool
+		wantQtySum float64
+		wantValue  float64
+	}{
+		{name: "notional limit", control: config.OpenPositionControl{MaxPositionValue: 300}, wantQtySum: 3, wantValue: 300},
+		{name: "aggregate quantity limit", control: config.OpenPositionControl{MaxPositionQuantity: 1.5}, wantQtySum: 1.5, wantValue: 150},
+		{name: "hot-updated notional limit", hotUpdate: true, wantQtySum: 3, wantValue: 300},
+		{name: "one layer permits one paired spread", control: config.OpenPositionControl{MaxPositionLayers: 1}, wantQtySum: 10, wantValue: 1000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			short := &fundingPerpSpreadOpeningExchange{name: "short", symbol: "BTCUSDT"}
+			long := &fundingPerpSpreadOpeningExchange{name: "long", symbol: "BTCUSDT"}
+			cfg := &config.Config{}
+			cfg.Trading.OpenPositionControl = tc.control
+			st := NewFundingPerpSpreadStrategy("funding_perp_spread", cfg,
+				config.SymbolConfig{TotalAllocatedCapital: 1000}, short, long,
+				&config.FundingPerpSpreadConfig{LegA: config.FundingPerpLeg{Symbol: "BTCUSDT"}, LegB: config.FundingPerpLeg{Symbol: "BTCUSDT"}}, nil)
+			st.mu.Lock()
+			st.ownershipReady = true
+			st.mu.Unlock()
+			if tc.hotUpdate {
+				st.UpdateOpenPositionControl(config.OpenPositionControl{MaxPositionValue: 300})
+			}
+			st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+			st.SetExecutionRecorder(func(context.Context, exchange.IExchange, *exchange.OrderRequest, *exchange.Order) (bool, error) {
+				return true, nil
+			})
+			err := st.openSpreadCoordinated(context.Background(), short, "BTCUSDT", long, "BTCUSDT", 100, 100, 0.001, 0)
+			if err != nil {
+				t.Fatalf("openSpreadCoordinated() error = %v", err)
+			}
+			if len(short.requests) != 1 || len(long.requests) != 1 {
+				t.Fatalf("paired venue requests = (%d,%d), want one per leg", len(short.requests), len(long.requests))
+			}
+			qtySum := short.requests[0].Quantity + long.requests[0].Quantity
+			grossValue := qtySum * 100
+			if math.Abs(qtySum-tc.wantQtySum) > 1e-9 || math.Abs(grossValue-tc.wantValue) > 1e-9 {
+				t.Fatalf("paired gross exposure qty=%v value=%v, want qty=%v value=%v", qtySum, grossValue, tc.wantQtySum, tc.wantValue)
+			}
+		})
+	}
 }
 
 type fundingSpreadOrderLookupExchange struct {
@@ -709,6 +760,77 @@ func TestFundingPerpSpreadOpeningFailsClosedOnWalletAdmissionError(t *testing.T)
 	}
 	if a.placed != 0 || b.placed != 0 {
 		t.Fatalf("wallet admission failure reached venues: legA=%d legB=%d", a.placed, b.placed)
+	}
+}
+
+func TestFundingPerpSpreadRevalidatesAdmissionBeforeEachOpeningRPC(t *testing.T) {
+	short := &fundingPerpSpreadOpeningExchange{name: "short", symbol: "BTCUSDT"}
+	long := &fundingPerpSpreadOpeningExchange{name: "long", symbol: "BTCUSDT"}
+	store := &memoryRuntimeStateStore{}
+	gate := &execution.OpeningGate{}
+	st := &FundingPerpSpreadStrategy{
+		cfg: &config.Config{}, symCfg: config.SymbolConfig{TotalAllocatedCapital: 200},
+		legA: short, legB: long, symA: "BTCUSDT", symB: "BTCUSDT", maxBasis: 1,
+		openingGate: gate, ownershipReady: true,
+	}
+	st.SetRuntimeStateStore(store)
+	guardCalls := 0
+	st.SetOpeningAdmissionGuard(func(context.Context) error {
+		guardCalls++
+		if guardCalls == 5 {
+			gate.Block("runtime_ownership_unverified")
+			return errors.New("runtime ownership lease lost")
+		}
+		return nil
+	})
+
+	err := st.openSpreadCoordinated(context.Background(), short, "BTCUSDT", long, "BTCUSDT", 100, 100, 0.001, 0)
+	if err == nil || !strings.Contains(err.Error(), "long opening was not submitted") {
+		t.Fatalf("openSpreadCoordinated() error = %v, want second-leg admission rejection", err)
+	}
+	if guardCalls != 5 || short.placed != 1 || long.placed != 0 {
+		t.Fatalf("admission calls/placements = %d/(%d,%d), want five checks and only the first leg", guardCalls, short.placed, long.placed)
+	}
+	state, err := decodeFundingPerpSpreadRuntimeState(store.version, store.payload, "short", "BTCUSDT", "long", "BTCUSDT")
+	if err != nil {
+		t.Fatalf("decode safely retained partial-pair state: %v", err)
+	}
+	if state.IntentInFlight || state.PendingOrder != nil || !state.EmergencyCloseRequired || state.OwnedA >= 0 || len(state.PendingExecutions) != 1 {
+		t.Fatalf("second-leg rejection did not retain a recoverable first-leg state: %+v", state)
+	}
+}
+
+func TestFundingPerpSpreadPreparedSecondLegRecoverySchedulesOwnedLegClose(t *testing.T) {
+	short := &fundingPerpSpreadOpeningExchange{name: "short", symbol: "BTCUSDT", position: -1}
+	long := &fundingPerpSpreadOpeningExchange{name: "long", symbol: "BTCUSDT"}
+	state := fundingPerpSpreadRuntimeState{
+		Strategy: "funding_perp_spread", LegAExchange: "short", LegASymbol: "BTCUSDT",
+		LegBExchange: "long", LegBSymbol: "BTCUSDT", OwnershipReady: true,
+		IntentInFlight: true, PendingOrder: &fundingPerpSpreadOrderIntent{
+			ClientOrderID: "prepared-long", Phase: fundingPerpSpreadIntentPrepared,
+			LegExchange: "long", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1,
+		},
+		OwnedA: -1,
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeFundingPerpSpreadRuntimeState(fundingPerpSpreadRuntimeStateVersion, string(payload), "short", "BTCUSDT", "long", "BTCUSDT"); err != nil {
+		t.Fatalf("decode prepared state: %v", err)
+	}
+	st := &FundingPerpSpreadStrategy{
+		legA: short, legB: long, symA: "BTCUSDT", symB: "BTCUSDT",
+		ownershipReady: true,
+	}
+	if err := st.reconcileUnfilledOrderIntent(context.Background(), &state); err != nil {
+		t.Fatalf("reconcile proven-undispatched second leg: %v", err)
+	}
+	if state.IntentInFlight || state.PendingOrder != nil || !state.EmergencyCloseRequired || state.OwnedA != -1 {
+		t.Fatalf("prepared recovery did not preserve and schedule the known first leg: %+v", state)
+	}
+	if short.placed != 0 || long.placed != 0 {
+		t.Fatalf("read-only prepared recovery submitted orders: (%d,%d)", short.placed, long.placed)
 	}
 }
 
@@ -1098,7 +1220,7 @@ func TestFundingPerpSpreadStartRejectsUnresolvedPersistedIntent(t *testing.T) {
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "BTCUSDT", OwnershipReady: true, IntentInFlight: true,
-		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "spread-order-1", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "spread-order-1", Phase: fundingPerpSpreadIntentDispatching, LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1118,7 +1240,7 @@ func TestFundingPerpSpreadStartRecoversExactZeroFillTerminalOrder(t *testing.T) 
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true, ExposureUnknown: true,
-		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "recover-me", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "recover-me", Phase: fundingPerpSpreadIntentDispatching, LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1152,7 +1274,7 @@ func TestFundingPerpSpreadStartFlattensRecoveredFilledPendingOrder(t *testing.T)
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
-		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "filled-order", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "filled-order", Phase: fundingPerpSpreadIntentDispatching, LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1268,7 +1390,7 @@ func TestFundingPerpSpreadStartRejectsZeroFillOrderWhenPositionChanged(t *testin
 	state, err := json.Marshal(fundingPerpSpreadRuntimeState{
 		Strategy: "funding_perp_spread", LegAExchange: "a", LegASymbol: "BTCUSDT",
 		LegBExchange: "b", LegBSymbol: "ETHUSDT", OwnershipReady: true, IntentInFlight: true,
-		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "zero-fill-position-changed", LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
+		PendingOrder: &fundingPerpSpreadOrderIntent{ClientOrderID: "zero-fill-position-changed", Phase: fundingPerpSpreadIntentDispatching, LegExchange: "a", Symbol: "BTCUSDT", Side: "SELL", Quantity: 0.01},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1293,7 +1415,7 @@ func TestFundingPerpSpreadPersistsOrderIdentityBeforeSubmission(t *testing.T) {
 	}
 	st.SetRuntimeStateStore(store)
 	intent := fundingPerpSpreadOrderIntent{
-		ClientOrderID: "stable-order-id", LegExchange: "b", Symbol: "ETHUSDT", Side: "BUY", Quantity: 0.25,
+		ClientOrderID: "stable-order-id", Phase: fundingPerpSpreadIntentPrepared, LegExchange: "b", Symbol: "ETHUSDT", Side: "BUY", Quantity: 0.25,
 	}
 	if err := st.beginOrderIntent(intent); err != nil {
 		t.Fatalf("beginOrderIntent() error = %v", err)

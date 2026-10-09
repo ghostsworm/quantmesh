@@ -12,13 +12,23 @@ import (
 
 // Resolve only the original CID. Absence is not permission to submit again.
 func (s *FundingCarryStrategy) reconcileSavedMarginCover(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("pending cover recovery requires context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	store := s.runtimeStateStore
 	s.mu.RUnlock()
 	if store == nil {
 		return nil
 	}
-	_, payload, found, err := store.LoadRuntimeState("funding_carry")
+	reader, hasContextReader := store.(RuntimeStateContextReader)
+	if !hasContextReader {
+		return fmt.Errorf("pending cover recovery requires cancellable checkpoint reads")
+	}
+	_, payload, found, err := reader.LoadRuntimeStateContext(ctx, "funding_carry")
 	if err != nil || !found {
 		return err
 	}
@@ -31,7 +41,7 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCover(ctx context.Context) er
 	}
 	defer s.releaseOperation()
 	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
-		version, payload, found, err := store.LoadRuntimeState("funding_carry")
+		version, payload, found, err := reader.LoadRuntimeStateContext(operationCtx, "funding_carry")
 		if err != nil {
 			return err
 		}
@@ -55,6 +65,10 @@ func (s *FundingCarryStrategy) reconcileSavedMarginCover(ctx context.Context) er
 		if scope == "" || scope != pending.AccountScope {
 			return fmt.Errorf("pending cover account scope does not match current runtime")
 		}
+		if _, ok := store.(RuntimeStateConditionalWriter); !ok {
+			return fmt.Errorf("cover acknowledgement recovery requires atomic conditional checkpoint writes")
+		}
+		operationCtx = context.WithValue(operationCtx, fundingCarryRecoveryCheckpointKey{}, &fundingCarryRecoveryCheckpoint{store: store, version: version, payload: payload})
 		querier, ok := s.marginEx.(exchange.OrderByClientIDQuerier)
 		if !ok {
 			return fmt.Errorf("margin venue cannot query exact cover CID")

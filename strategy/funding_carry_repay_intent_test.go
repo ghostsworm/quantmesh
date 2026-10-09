@@ -9,6 +9,7 @@ import (
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/execution"
+	"quantmesh/storage"
 )
 
 type fundingCarryRepayIntentExchange struct {
@@ -107,7 +108,7 @@ func newFundingCarryRepayIntentFixture() (*FundingCarryStrategy, *fundingCarryRe
 	margin := &fundingCarryRepayIntentExchange{mockFCExchange: &mockFCExchange{quantityDecimals: 3, positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.4, MarginBorrowed: 0.4, MarginDebtKnown: true}}, getOrderStatus: exchange.OrderStatusFilled, getOrderExecQty: 0.4, fillEvidence: true, clearDebtOnRepay: true, repayPrincipal: 0.4}, queryErr: errors.New("injected repayment lookup failure")}
 	s := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, margin, nil)
 	store := &memoryRuntimeStateStore{}
-	s.SetRuntimeStateStore(store)
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	s.direction, s.marginDebt, s.marginBorrowTransferID = DirectionReverse, 0.4, 42
 	s.marginAccountScope = "scope-a"
 	return s, margin, store
@@ -145,5 +146,33 @@ func TestFundingCarryRepaySchemaKeepsResolvedLegacyButRejectsPending(t *testing.
 	}
 	if _, err := decodeFundingCarryRuntimeState(fundingCarryRuntimeStateVersion, string(payload), s.fut.GetName(), s.spot.GetName(), s.symbol); err == nil {
 		t.Fatal("pending repayment treated as resolved")
+	}
+}
+
+func TestFundingCarryClearedRepayIntentConfirmedCanceledKeepsCommittedMemory(t *testing.T) {
+	s, _, base := newFundingCarryReturnedPrincipalFixture(0)
+	pending := &fundingCarryRepayIntent{Asset: "BTC", AccountScope: "scope-a", Amount: 0.4, ExpectedRemaining: 0, BorrowTransferID: 42, TransferID: 7}
+	s.intentInFlight = true
+	s.marginRepayIntent = cloneFundingCarryRepayIntent(pending)
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		t.Fatal("persist pending repayment fixture:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+
+	s.mu.Lock()
+	err := s.clearMarginRepayIntentLocked(context.Background(), pending)
+	s.mu.Unlock()
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("clear repayment error = %v, want confirmed canceled commit", err)
+	}
+	if s.marginRepayIntent != nil || !s.intentInFlight || s.unownedExposure || s.runtimeStateErr != nil {
+		t.Fatalf("memory did not preserve durable cleared intent: repay=%+v intent=%v unknown=%v state_err=%v", s.marginRepayIntent, s.intentInFlight, s.unownedExposure, s.runtimeStateErr)
+	}
+	var committed fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &committed); err != nil {
+		t.Fatal("decode durable repayment checkpoint:", err)
+	}
+	if committed.MarginRepayIntent != nil || !committed.IntentInFlight {
+		t.Fatalf("durable repayment checkpoint = %+v", committed)
 	}
 }

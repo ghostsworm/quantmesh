@@ -26,6 +26,7 @@ type BotResponse struct {
 	Symbol        string  `json:"symbol"`
 	MarketType    string  `json:"market_type"`
 	Running       bool    `json:"running"`
+	StopPending   bool    `json:"stop_pending,omitempty"`
 	CurrentPrice  float64 `json:"current_price,omitempty"`
 	TotalPnL      float64 `json:"total_pnl,omitempty"`
 	TotalTrades   int     `json:"total_trades,omitempty"`
@@ -45,7 +46,7 @@ type BotResponse struct {
 	StoppedAt             string                     `json:"stopped_at,omitempty"`              // 停止時間 ISO 8601（僅當已停止時有值）
 	HedgeGroupName        string                     `json:"hedge_group_name,omitempty"`        // 所屬對沖組名稱，空則非對沖
 	Direction             string                     `json:"direction,omitempty"`               // 網格/策略方向：LONG/SHORT/BOTH
-	LastStartError        string                     `json:"last_start_error,omitempty"`        // 最近一次異步啟動失敗原因（供前端展示）
+	LastStartError        string                     `json:"last_start_error,omitempty"`        // 安全錯誤碼；不得包含底層交易所錯誤文本
 	LastStartErrorAt      string                     `json:"last_start_error_at,omitempty"`     // 失敗時間 RFC3339
 	Testnet               bool                       `json:"testnet"`                           // 是否測試網（與當前 exchanges[exchange].testnet 一致，無交易所條目時回退 Bot 記錄）
 	FundingCarryRuntime   *FundingCarryRuntimeStatus `json:"funding_carry_runtime,omitempty"`
@@ -602,7 +603,14 @@ func postBotStart(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "error.invalid_bot_id")
 		return
 	}
-	if botManagerProvider() == nil {
+	if c.Request.Context().Err() != nil {
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "bot_start_cancelled", "start_accepted": false})
+		return
+	}
+	// Pin the provider for the entire accepted job; a later registration must
+	// not redirect this request to a different manager after enable succeeds.
+	provider := botManagerProvider()
+	if provider == nil {
 		respondError(c, http.StatusServiceUnavailable, "error.bot_manager_unavailable")
 		return
 	}
@@ -627,26 +635,38 @@ func postBotStart(c *gin.Context) {
 		return
 	}
 	// 已在運行則直接返回成功
-	if bot, ok := botManagerProvider().GetBot(botID); ok && bot.Running {
+	if bot, ok := provider.GetBot(botID); ok && bot.Running {
 		c.JSON(http.StatusOK, gin.H{"ok": true, "bot_id": botID})
 		return
 	}
 	// 用戶點擊啟動時，先清除數據庫中的禁用標記（若之前通過 Web UI 停止過）
 	// 否則 StartBot 會因 bot_disabled_in_database 失敗，而 API 已返回 202，前端輪詢 60s 無果
-	if err := botManagerProvider().EnableBot(botID); err != nil {
-		logger.Warn("⚠️ [%s] 清除禁用標記失敗（不影響啟動）: %v", botID, err)
+	if c.Request.Context().Err() != nil {
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "bot_start_cancelled", "start_accepted": false})
+		return
+	}
+	if err := provider.EnableBot(botID); err != nil {
+		logger.Warn("⚠️ [%s] 無法確認啟用狀態，拒絕派發啟動", botID)
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_start_enable_failed", "start_accepted": false})
+		return
+	}
+	if c.Request.Context().Err() != nil {
+		// Enable may already have persisted. Reject dispatch without asserting
+		// that the enabled flag was rolled back or disabling the Bot implicitly.
+		c.JSON(http.StatusRequestTimeout, gin.H{"error": "bot_start_cancelled", "start_accepted": false})
+		return
 	}
 	// 異步啟動，避免 WebSocket 連接、價格獲取等耗時操作阻塞請求導致超時
 	bc := *botCfg
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("❌ [%s] Bot 啟動時發生 panic: %v", botID, r)
+				logger.Error("❌ [%s] Bot 啟動時發生 panic；底層診斷未輸出至通用日誌", botID)
 			}
 		}()
 		ctx := context.Background()
-		if err := botManagerProvider().StartBot(ctx, bc); err != nil {
-			logger.Error("❌ [%s] [%s] Bot 異步啟動失敗: %v", botID, bc.Symbol, err)
+		if err := provider.StartBot(ctx, bc); err != nil {
+			logger.Error("❌ [%s] [%s] Bot 異步啟動失敗；底層診斷未輸出至通用日誌", botID, bc.Symbol)
 		}
 	}()
 	c.JSON(http.StatusAccepted, gin.H{
@@ -1426,15 +1446,26 @@ func putBotStrategy(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_config_lifecycle_coordination_unavailable"})
 		return
 	}
-	if err := coordinator.WithBotStrategyConfigurationLock(botID, func(managed bool) error {
-		putBotStrategyLocked(c, botID, req, managed)
+	var savedConfig *config.Config
+	if err := withBotStrategyPersistenceContext(c.Request.Context(), coordinator, botID, func(managed bool) error {
+		putBotStrategyLocked(c, botID, req, managed, &savedConfig)
 		return nil
-	}); err != nil && !c.Writer.Written() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_config_lifecycle_coordination_unavailable"})
+	}); err != nil && savedConfig == nil {
+		if !c.Writer.Written() {
+			if c.Request.Context().Err() != nil {
+				c.JSON(http.StatusRequestTimeout, gin.H{"error": "bot_configuration_cancelled", "config_saved": false})
+			} else {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "bot_config_lifecycle_coordination_unavailable"})
+			}
+		}
+		return
+	}
+	if savedConfig != nil && !c.Writer.Written() {
+		respondBotStrategyApplication(c, botID, savedConfig)
 	}
 }
 
-func putBotStrategyLocked(c *gin.Context, botID string, req UpdateBotStrategyRequest, managed bool) {
+func putBotStrategyLocked(c *gin.Context, botID string, req UpdateBotStrategyRequest, managed bool, savedConfig **config.Config) {
 
 	cfg, err := GetLatestConfig()
 	if err != nil || cfg == nil {
@@ -1631,8 +1662,14 @@ func putBotStrategyLocked(c *gin.Context, botID string, req UpdateBotStrategyReq
 		return
 	}
 
-	// 推送配置到運行中的 Bot，確保 smart_order 等變更在刷新頁面時正確顯示
-	report := applyTradingParamsWithReport(cfg)
+	*savedConfig = cfg
+}
+
+// Persistence releases its lifecycle lock before application acquires individual
+// Bot locks. Holding the saved Bot lock here would self-deadlock and could create
+// an ABBA cycle when a report applies other Bots in the same configuration.
+func respondBotStrategyApplication(c *gin.Context, botID string, cfg *config.Config) {
+	report := applyTradingParamsWithContext(c.Request.Context(), cfg)
 	if len(report.Failed) > 0 {
 		c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "bot_id": botID, "runtime_update": report})
 		return

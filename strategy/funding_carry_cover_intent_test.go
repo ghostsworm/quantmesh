@@ -23,8 +23,9 @@ func (v *fundingCarryCoverIntentVenue) PlaceOrder(ctx context.Context, req *exch
 		v.t.Fatal(err)
 	}
 	i := state.MarginCoverIntent
-	if i == nil || req.ClientOrderID == "" || i.ClientOrderID != req.ClientOrderID || i.Quantity != req.Quantity || i.Price != req.Price || i.Symbol != req.Symbol || i.AccountScope != "scope-a" || !state.IntentInFlight {
-		v.t.Fatal("RPC entered without matching durable CID request")
+	if i == nil || req.ClientOrderID == "" || i.ClientOrderID != req.ClientOrderID || i.Quantity != req.Quantity || i.Price != req.Price || i.Symbol != req.Symbol || i.AccountScope != "scope-a" ||
+		!state.IntentInFlight || state.IntentPhase != fundingCarryIntentPhaseDispatching {
+		v.t.Fatal("RPC entered without matching durable CID request and dispatch phase")
 	}
 	if v.noACK {
 		return nil, errors.New("injected accepted request without ACK")

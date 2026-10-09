@@ -1,10 +1,121 @@
 package logger
 
 import (
+	"bytes"
 	"context"
+	"log"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestRedactSensitiveTextMasksCommonCredentialForms(t *testing.T) {
+	message := `request https://api.example.test/order?symbol=BTCUSDT&signature=signed-value&timestamp=1234 X-MBX-APIKEY: header-key Authorization: Bearer bearer-token Authorization: Basic basic-token {"apiKey":"json-key","password":"json-password"} https://user:pass@example.test/path`
+	got := redactSensitiveText(message)
+	for _, secret := range []string{"signed-value", "header-key", "bearer-token", "basic-token", "json-key", "json-password", "user:pass"} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redaction retained %q in %q", secret, got)
+		}
+	}
+	for _, safeContext := range []string{"BTCUSDT", "timestamp=1234", "[REDACTED]"} {
+		if !strings.Contains(got, safeContext) {
+			t.Fatalf("redaction removed safe context %q from %q", safeContext, got)
+		}
+	}
+}
+
+func TestRedactSensitiveTextMasksCompleteCookieHeadersAndProxyAuthorization(t *testing.T) {
+	tests := []struct {
+		name    string
+		message string
+		secrets []string
+	}{
+		{name: "cookie header", message: "request Cookie: session=cookie-session; csrf=cookie-csrf", secrets: []string{"cookie-session", "cookie-csrf"}},
+		{name: "set-cookie header", message: "response Set-Cookie: refresh=cookie-refresh; HttpOnly; SameSite=Strict", secrets: []string{"cookie-refresh"}},
+		{name: "structured cookie field", message: "{\"cookie\":\"session=cookie-json-session;csrf=cookie-json-csrf\",\"trace\":\"safe-context\"}", secrets: []string{"cookie-json-session", "cookie-json-csrf"}},
+		{name: "proxy authorization", message: "Proxy-Authorization: Basic proxy-credential", secrets: []string{"proxy-credential"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := redactSensitiveText(test.message)
+			for _, secret := range test.secrets {
+				if strings.Contains(got, secret) {
+					t.Fatalf("redaction retained %q in %q", secret, got)
+				}
+			}
+		})
+	}
+}
+
+func TestInstallStandardLogRedactionSanitizesStandardLogger(t *testing.T) {
+	var output bytes.Buffer
+	originalWriter := log.Writer()
+	originalFlags := log.Flags()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(originalWriter)
+		log.SetFlags(originalFlags)
+	})
+
+	InstallStandardLogRedaction()
+	log.Printf("raw account response: %s", `{"apiSecret":"standard-log-secret","symbol":"BTCUSDT"}`)
+
+	message := output.String()
+	if strings.Contains(message, "standard-log-secret") || !strings.Contains(message, "[REDACTED]") {
+		t.Fatalf("standard logger output was not sanitized: %q", message)
+	}
+	if !strings.Contains(message, "BTCUSDT") {
+		t.Fatalf("standard logger redaction removed safe diagnostic context: %q", message)
+	}
+}
+
+func TestLogRedactsBeforeConsoleStorageAndErrorHook(t *testing.T) {
+	var output bytes.Buffer
+	originalWriter := log.Writer()
+	originalFlags := log.Flags()
+	log.SetOutput(&output)
+	log.SetFlags(0)
+	t.Cleanup(func() {
+		log.SetOutput(originalWriter)
+		log.SetFlags(originalFlags)
+		InitLogStorage(nil)
+		SetErrorHook(nil)
+	})
+
+	stored := make(chan string, 1)
+	hooked := make(chan string, 1)
+	InitLogStorage(func(_, message, _ string) { stored <- message })
+	SetErrorHook(func(_, message string) { hooked <- message })
+	Error("exchange response: %s", `{"apiSecret":"storage-secret"}`)
+
+	for name, channel := range map[string]<-chan string{"storage": stored, "error hook": hooked} {
+		select {
+		case message := <-channel:
+			if strings.Contains(message, "storage-secret") || !strings.Contains(message, "[REDACTED]") {
+				t.Fatalf("%s received unsanitized message: %q", name, message)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s did not receive log message", name)
+		}
+	}
+	if strings.Contains(output.String(), "storage-secret") || !strings.Contains(output.String(), "[REDACTED]") {
+		t.Fatalf("console received unsanitized message: %q", output.String())
+	}
+
+	Warnln("signed query", "?signature=println-secret")
+	select {
+	case message := <-stored:
+		if strings.Contains(message, "println-secret") || !strings.Contains(message, "[REDACTED]") {
+			t.Fatalf("storage received unsanitized Println message: %q", message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("storage did not receive Println message")
+	}
+	if strings.Contains(output.String(), "println-secret") {
+		t.Fatalf("console received unsanitized Println message: %q", output.String())
+	}
+}
 
 func TestLogLevelParsingAndString(t *testing.T) {
 	tests := []struct {

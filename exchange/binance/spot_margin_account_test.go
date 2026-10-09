@@ -298,7 +298,7 @@ func TestBinanceSpotMarginFlatnessVerificationCoversAllDebtsAndOrders(t *testing
 			defer server.Close()
 			client := binancesdk.NewClient("test-key", "test-secret")
 			client.BaseURL = server.URL
-			adapter := &BinanceSpotMarginAdapter{BinanceSpotAdapter: &BinanceSpotAdapter{client: client}}
+			adapter := newBinanceSpotMarginAccountEvidenceAdapter(client, "test-key", "test-secret", false)
 			err := adapter.VerifySpotMarginAccountFlat(context.Background())
 			if tc.wantErr == "" && err != nil {
 				t.Fatalf("VerifySpotMarginAccountFlat: %v", err)
@@ -307,5 +307,32 @@ func TestBinanceSpotMarginFlatnessVerificationCoversAllDebtsAndOrders(t *testing
 				t.Fatalf("flatness error = %v, want substring %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestBinanceSpotMarginAccountEvidenceAdapterRejectsMutatingOperations(t *testing.T) {
+	client := binancesdk.NewClient("test-key", "test-secret")
+	adapter := newBinanceSpotMarginAccountEvidenceAdapter(client, "test-key", "test-secret", false)
+	if !adapter.IsStopEvidenceOnly() || adapter.GetMarginClient() != nil {
+		t.Fatal("account evidence adapter must advertise read-only mode and hide the margin client")
+	}
+	ctx := context.Background()
+	if _, err := adapter.PlaceOrder(ctx, &OrderRequest{Symbol: "BTCUSDT", Quantity: 1, Price: 1}); err != errStopEvidenceReadOnly {
+		t.Errorf("PlaceOrder error=%v, want read-only rejection", err)
+	}
+	if err := adapter.CancelOrder(ctx, "BTCUSDT", 1); err != errStopEvidenceReadOnly {
+		t.Errorf("CancelOrder error=%v, want read-only rejection", err)
+	}
+	if err := adapter.BatchCancelOrders(ctx, "BTCUSDT", []int64{1}); err != errStopEvidenceReadOnly {
+		t.Errorf("BatchCancelOrders error=%v, want read-only rejection", err)
+	}
+	if err := adapter.CancelAllOrders(ctx, "BTCUSDT"); err != errStopEvidenceReadOnly {
+		t.Errorf("CancelAllOrders error=%v, want read-only rejection", err)
+	}
+	if _, err := adapter.Borrow(ctx, "BTC", 1); err != errStopEvidenceReadOnly {
+		t.Errorf("Borrow error=%v, want read-only rejection", err)
+	}
+	if _, err := adapter.Repay(ctx, "BTC", 1); err != errStopEvidenceReadOnly {
+		t.Errorf("Repay error=%v, want read-only rejection", err)
 	}
 }

@@ -58,6 +58,80 @@ func TestMetricsHealthUnverifiedEquityPausesWithoutLiquidating(t *testing.T) {
 	}
 }
 
+func TestEquityScopeInvalidationReloadsCheckpointWithoutDroppingPriorState(t *testing.T) {
+	previous := &EquityCheckpoint{Scope: "old-scope"}
+	feeder := &MetricsFeeder{equityLoaded: true, equityState: previous}
+	published := false
+	feeder.InvalidateEquityScope(func() { published = true })
+	if feeder.equityLoaded {
+		t.Fatal("scope invalidation kept the old in-memory checkpoint marked current")
+	}
+	if feeder.equityState != previous {
+		t.Fatal("scope invalidation discarded prior state needed to fail closed if durable state is absent")
+	}
+	if !published {
+		t.Fatal("scope invalidation did not publish the new configured scope")
+	}
+}
+
+func TestFailedMetricsTickInvalidatesDurableEquityCache(t *testing.T) {
+	previous := &EquityCheckpoint{Scope: "old-scope"}
+	feeder := NewMetricsFeeder(&fakeSink{}, nil, nil, nil, MetricsFeederOptions{
+		EquityStore: &memoryEquityStore{}, RequirePersistence: true, RequireTradeHistory: true,
+	})
+	feeder.equityLoaded = true
+	feeder.equityState = previous
+	if _, err := feeder.Tick(t.Context()); err == nil {
+		t.Fatal("missing required trade history unexpectedly passed")
+	}
+	if feeder.equityLoaded {
+		t.Fatal("failed tick kept a stale durable equity checkpoint marked loaded")
+	}
+	if feeder.equityState != previous {
+		t.Fatal("failed tick discarded the prior checkpoint safety evidence")
+	}
+}
+
+func TestMetricsFeederLoadsExplicitlyResetScopeAfterOldScopeFailure(t *testing.T) {
+	now := time.Date(2026, 10, 9, 12, 0, 0, 0, time.UTC)
+	oldObservation := testEquityObservation(now.Add(-2*time.Minute), 1000)
+	oldObservation.Scope = "old-scope"
+	oldState, err := nextEquityCheckpoint(nil, oldObservation, now, time.Time{}, time.Hour, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldState.Revision = 1
+	store := &memoryEquityStore{}
+	if err := store.SaveEquityState(t.Context(), 0, oldState); err != nil {
+		t.Fatal(err)
+	}
+
+	newObservation := testEquityObservation(now, 1200)
+	newObservation.Scope = "new-scope"
+	newState, err := nextEquityCheckpoint(nil, newObservation, now, now, time.Hour, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newState.Revision = 2
+	if err := store.SaveEquityState(t.Context(), 1, newState); err != nil {
+		t.Fatal(err)
+	}
+
+	source := &fakeLedgerSource{observation: newObservation}
+	feeder := NewMetricsFeeder(&fakeSink{}, nil, source, nil, MetricsFeederOptions{
+		Now: func() time.Time { return now }, EquityStore: store, RequirePersistence: true, RequireCashFlowReconciliation: true,
+	})
+	feeder.equityLoaded = true
+	feeder.equityState = &oldState
+	feeder.InvalidateEquityScope(func() {})
+	if _, err := feeder.Tick(t.Context()); err != nil {
+		t.Fatalf("feeder did not reload durable explicit-reset scope: %v", err)
+	}
+	if feeder.equityState == nil || feeder.equityState.Scope != "new-scope" || source.calls != 1 {
+		t.Fatalf("feeder retained prior scope after durable reset: state=%+v sourceCalls=%d", feeder.equityState, source.calls)
+	}
+}
+
 func TestMetricsHealthAndValuesPublishAtomically(t *testing.T) {
 	cfg := newCircuitBreakerTestConfig()
 	cfg.Triggers.MaxDrawdown.Enabled, cfg.Triggers.MaxDrawdown.Threshold = true, 10

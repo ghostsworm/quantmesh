@@ -77,8 +77,14 @@ func (p fundingStatusProvider) GetBot(string) (*BotDetailResponse, bool) { retur
 func TestFundingCarryStatusHTTPDoesNotReportManagedReconciliationAsRunning(t *testing.T) {
 	previous := botManagerProvider()
 	t.Cleanup(func() { RegisterBotManagerProvider(previous) })
+	runtime := &FundingCarryRuntimeStatus{
+		ReconciliationRequired: true,
+		ReconciliationReasons:  []string{"startup_recovery_failed"},
+		MarginDebt:             0.26,
+		MarginDebtBasis:        "durable_strategy_ledger_not_live_exchange_liability",
+	}
 	RegisterBotManagerProvider(fundingStatusProvider{detail: &BotDetailResponse{BotResponse: BotResponse{
-		BotID: "bot-a", Running: true, FundingCarryRuntime: &FundingCarryRuntimeStatus{ReconciliationRequired: true},
+		BotID: "bot-a", Running: true, FundingCarryRuntime: runtime,
 	}}})
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -88,8 +94,16 @@ func TestFundingCarryStatusHTTPDoesNotReportManagedReconciliationAsRunning(t *te
 		Managed bool
 		Running bool
 		Status  string
+		Runtime struct {
+			ReconciliationCode []string `json:"reconciliation_reasons"`
+			MarginDebt         float64  `json:"margin_debt"`
+			MarginDebtBasis    string   `json:"margin_debt_basis"`
+		} `json:"funding_carry_runtime"`
 	}
-	if recorder.Code != 200 || json.Unmarshal(recorder.Body.Bytes(), &body) != nil || !body.Managed || body.Running || body.Status != "reconciliation_required" {
+	if recorder.Code != 200 || json.Unmarshal(recorder.Body.Bytes(), &body) != nil || !body.Managed || body.Running ||
+		body.Status != "reconciliation_required" || len(body.Runtime.ReconciliationCode) != 1 ||
+		body.Runtime.ReconciliationCode[0] != "startup_recovery_failed" || body.Runtime.MarginDebt != 0.26 ||
+		body.Runtime.MarginDebtBasis != "durable_strategy_ledger_not_live_exchange_liability" {
 		t.Fatalf("incorrect HTTP state: %s", recorder.Body.String())
 	}
 }

@@ -33,6 +33,12 @@ func (bm *BotManager) sealProcessRuntimes(ctx context.Context) ([]*SymbolRuntime
 	if bm.shutdownTransitionUnverified.Load() {
 		err = errors.Join(err, fmt.Errorf("overlapping Bot transition requires reconciliation"))
 	}
+	for _, br := range bm.List() {
+		journal, journalErr := bm.readStopJournal(br.BotID)
+		if journalErr != nil || journal != nil || br.stopTransitionPending() {
+			err = errors.Join(err, fmt.Errorf("Bot stop intent requires durable reconciliation"))
+		}
+	}
 	runtimes := bm.ListSymbolRuntimes()
 	for _, rt := range runtimes {
 		sealRuntimeShutdown(rt)

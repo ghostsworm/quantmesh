@@ -169,7 +169,6 @@ func (gcb *GlobalCircuitBreaker) SetNotifier(n AlertNotifier) {
 // SetPauseCoordinator 设置暂停开仓协调器（与复合风控共用，避免互相覆盖恢复）
 func (gcb *GlobalCircuitBreaker) SetPauseCoordinator(p *OpeningPauseCoordinator) {
 	gcb.depsMu.Lock()
-	defer gcb.depsMu.Unlock()
 	gcb.pauser = p
 	if p != nil && p.IsHeldBy(circuitBreakerPauseSource) {
 		gcb.statusMu.Lock()
@@ -179,6 +178,14 @@ func (gcb *GlobalCircuitBreaker) SetPauseCoordinator(p *OpeningPauseCoordinator)
 		}
 		gcb.statusMu.Unlock()
 	}
+	gcb.depsMu.Unlock()
+	if p != nil {
+		p.SetOpeningAdmissionCheck(metricsUnavailablePauseSource, gcb.metricsOpeningAdmissionAllowed)
+	}
+	// Binding precedes automatic Bot startup. Establish the data-health hold
+	// synchronously, before the feeder's first (possibly slow) observation.
+	// Release depsMu before applying: applyMetricsHealthGate reads deps itself.
+	gcb.applyMetricsHealthGate()
 }
 
 func (gcb *GlobalCircuitBreaker) deps() (AlertNotifier, *OpeningPauseCoordinator) {

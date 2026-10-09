@@ -80,43 +80,48 @@ type FundingCarryStrategy struct {
 	accountWalletLock             lock.DistributedLock
 	accountWalletLockKey          string
 
-	mu                sync.RWMutex
-	ctx               context.Context
-	cancel            context.CancelFunc
-	runDone           chan struct{}
-	started           bool
-	startupMu         sync.Mutex
-	stopMu            sync.Mutex
-	stopAttempted     bool
-	stopCompleted     bool
-	stopErr           error
-	eventBus          EventBus
-	runtimeStateStore RuntimeStateStore
-	runtimeStateErr   error
-	intentInFlight    bool
-	futuresExecutor   FundingCarryExecutor
-	spotExecutor      FundingCarryExecutor
-	marginExecutor    FundingCarryExecutor
-	openingBlocker    func(string)
-	openingGate       *execution.OpeningGate
-	openControl       config.OpenPositionControl
-	periodicOpen      bool
-	periodicSwitch    time.Time
-	lastScheduleRun   map[string]string
-	operationGate     chan struct{}
+	mu                        sync.RWMutex
+	ctx                       context.Context
+	cancel                    context.CancelFunc
+	runDone                   chan struct{}
+	started                   bool
+	startupMu                 sync.Mutex
+	stopMu                    sync.Mutex
+	stopAttempted             bool
+	stopCompleted             bool
+	stopErr                   error
+	eventBus                  EventBus
+	runtimeStateStore         RuntimeStateStore
+	runtimeStateErr           error
+	startupRecoveryErr        error
+	intentInFlight            bool
+	intentPhase               string
+	intentSourcePayload       string
+	executionRecoveryRequired bool // irreversible startup hold; loaded shared intents are not economically settled
+	futuresExecutor           FundingCarryExecutor
+	spotExecutor              FundingCarryExecutor
+	marginExecutor            FundingCarryExecutor
+	openingBlocker            func(string)
+	openingGate               *execution.OpeningGate
+	openControl               config.OpenPositionControl
+	periodicOpen              bool
+	periodicSwitch            time.Time
+	lastScheduleRun           map[string]string
+	operationGate             chan struct{}
 
 	// 持倉狀態（每次 tick 從交易所同步）
-	direction              CarryDirection
-	spotQty                float64 // 正向：策略自身的現貨腿數量（= min(記賬值, 現貨餘額)）; 反向：0
-	futQty                 float64 // 正向：合約空頭 size; 反向：合約多頭 size
-	marginDebt             float64 // 反向：借幣數量
-	marginBorrowTransferID int64
-	marginBorrowedAt       time.Time
-	marginDebtEvents       []fundingCarryMarginDebtEvent
-	marginRepayIntent      *fundingCarryRepayIntent
-	marginCoverOrders      []fundingCarryCoverOrder
-	marginCoverIntent      *fundingCarryCoverIntent
-	marginAccountScope     string
+	direction                      CarryDirection
+	spotQty                        float64 // 正向：策略自身的現貨腿數量（= min(記賬值, 現貨餘額)）; 反向：0
+	futQty                         float64 // 正向：合約空頭 size; 反向：合約多頭 size
+	marginDebt                     float64 // 反向：借幣數量
+	marginBorrowTransferID         int64
+	marginBorrowedAt               time.Time
+	marginDebtEvents               []fundingCarryMarginDebtEvent
+	marginRepayIntent              *fundingCarryRepayIntent
+	marginCoverOrders              []fundingCarryCoverOrder
+	marginCoverIntent              *fundingCarryCoverIntent
+	marginAccountScope             string
+	marginCloseVerificationPending bool
 
 	// 策略自身買入的現貨數量（僅內存記賬，不含用戶原有持幣）。
 	// 策略目前沒有狀態持久化；重啟後首次同步時保守地以 min(合約空頭, 現貨餘額) 重新推導。
@@ -375,6 +380,13 @@ func (s *FundingCarryStrategy) MarkExecutionUnknown(reason error) {
 	s.blockOnUnownedExposure(fmt.Errorf("shared order executor reported an unresolved execution: %w", reason))
 }
 
+// Called before startup; this hold never rewrites the saved economic state.
+func (s *FundingCarryStrategy) RequireExecutionRecovery() {
+	s.mu.Lock()
+	s.executionRecoveryRequired = true
+	s.mu.Unlock()
+}
+
 func (s *FundingCarryStrategy) placeOrder(ctx context.Context, ex exchange.IExchange, executor FundingCarryExecutor, request *exchange.OrderRequest) (*exchange.Order, error) {
 	if executor == nil {
 		return ex.PlaceOrder(ctx, request)
@@ -421,27 +433,39 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 	s.mu.Unlock()
 	checkCtx, checkCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer checkCancel()
+	if err := s.recoverPreparedRuntimeIntentContext(checkCtx); err != nil {
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry prepared intent recovery: %w", err))
+	}
+	if err := s.reconcileSavedMarginBorrowReceipt(checkCtx); err != nil {
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry pending borrow receipt recovery: %w", err))
+	}
 	if err := s.reconcileSavedMarginCover(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry pending cover recovery: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry pending cover recovery: %w", err))
 	}
 	if err := s.reconcileSavedMarginCoverFills(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry pending cover fills recovery: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry pending cover fills recovery: %w", err))
 	}
 	if err := s.reconcileSavedMarginRepayment(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry pending repayment recovery: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry pending repayment recovery: %w", err))
 	}
 	if err := s.reconcileSavedMarginRemaining(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry remaining margin asset recovery: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry remaining margin asset recovery: %w", err))
 	}
-	if err := s.restoreRuntimeState(); err != nil {
-		return fmt.Errorf("funding_carry runtime state recovery failed: %w", err)
+	s.mu.RLock()
+	executionPending := s.executionRecoveryRequired
+	s.mu.RUnlock()
+	if executionPending {
+		return s.latchStartupRecoveryFailure(errors.New("funding_carry shared execution intents require durable economic reconciliation; trading startup withheld"))
+	}
+	if err := s.restoreRuntimeStateContext(checkCtx); err != nil {
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry runtime state recovery failed: %w", err))
 	}
 	s.mu.RLock()
 	stateKnown := s.strategySpotKnown
 	s.mu.RUnlock()
 	if !stateKnown {
 		if err := s.requireCleanStart(checkCtx); err != nil {
-			return fmt.Errorf("funding_carry refuses startup until existing futures/margin exposure is reconciled: %w", err)
+			return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry refuses startup until existing futures/margin exposure is reconciled: %w", err))
 		}
 		s.mu.Lock()
 		s.strategySpotKnown = true
@@ -451,25 +475,38 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 		s.marginDebt = 0
 		if err := s.persistRuntimeStateLocked(); err != nil {
 			s.mu.Unlock()
-			return fmt.Errorf("persist initial funding_carry ownership state: %w", err)
+			return s.latchStartupRecoveryFailure(fmt.Errorf("persist initial funding_carry ownership state: %w", err))
 		}
 		s.mu.Unlock()
 	} else if err := s.syncPositions(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry restored state does not match exchange: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry restored state does not match exchange: %w", err))
 	} else if err := s.requireNoOpenOrders(checkCtx); err != nil {
-		return fmt.Errorf("funding_carry restored state has unresolved orders: %w", err)
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry restored state has unresolved orders: %w", err))
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.started {
 		return errors.New("funding_carry strategy already started")
 	}
+	s.startupRecoveryErr = nil
 	s.started = true
 	s.ctx, s.cancel = context.WithCancel(ctx)
 	s.runDone = make(chan struct{})
 	go s.runLoop()
 	logger.Info("✅ [%s] 資金費套利策略已啟動 (min=%.5f exit=%.5f reverse=%v)", s.symbol, s.minFundingRate, s.exitFundingRate, s.reverseEnabled)
 	return nil
+}
+
+// latchStartupRecoveryFailure prevents an unstarted instance from reporting a
+// successful stop after startup could not prove durable and exchange state.
+func (s *FundingCarryStrategy) latchStartupRecoveryFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	s.mu.Lock()
+	s.startupRecoveryErr = err
+	s.mu.Unlock()
+	return err
 }
 
 func (s *FundingCarryStrategy) requireCleanStart(ctx context.Context) error {
@@ -575,8 +612,92 @@ func requireAccountHasNoOpenOrders(ctx context.Context, ex exchange.IExchange, m
 // VerifyFlat independently verifies live legs, owned spot inventory, pending
 // orders, and the durable ownership snapshot before the runtime releases capital.
 func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
+	return s.verifyFlat(ctx, false, nil)
+}
+
+// VerifyStoppedFlat retries read-only flatness proofs without rewriting an
+// otherwise clean ledger. A failed proof keeps capital reserved; a later proof
+// may retry only after re-reading all evidence. It never clears UNKNOWN or
+// validates a running Bot.
+func (s *FundingCarryStrategy) VerifyStoppedFlat(ctx context.Context) error {
+	return s.verifyFlat(ctx, true, nil)
+}
+
+// VerifyPersistedStoppedFlat imports only a fully resolved durable checkpoint
+// into a fresh, unstarted verifier and independently rechecks live flatness.
+// The required guard must represent current Bot/runtime ownership; this method
+// never releases capital, ownership leases, or the durable stop journal.
+func (s *FundingCarryStrategy) VerifyPersistedStoppedFlat(ctx context.Context, ownershipGuard func() error) error {
+	if s == nil || ctx == nil || ownershipGuard == nil {
+		return errors.New("persisted stopped flat verification requires strategy, context, and ownership guard")
+	}
+	if err := ownershipGuard(); err != nil {
+		return err
+	}
+	s.startupMu.Lock()
+	defer s.startupMu.Unlock()
+	s.mu.RLock()
+	store, scope, started := s.runtimeStateStore, s.marginAccountScope, s.started
+	s.mu.RUnlock()
+	if started || scope == "" || s.fut == nil || s.spot == nil || s.marginEx == nil {
+		return errors.New("persisted stopped flat verifier requires an unstarted, fully scoped FundingCarry strategy")
+	}
+	reader, ok := store.(RuntimeStateContextReader)
+	if !ok {
+		return errors.New("persisted stopped flat verification requires cancellable state reads")
+	}
+	version, payload, found, err := reader.LoadRuntimeStateContext(ctx, "funding_carry")
+	if err != nil {
+		return err
+	}
+	if err := ownershipGuard(); err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("persisted FundingCarry flat state is missing")
+	}
+	state, err := decodeFundingCarryRuntimeState(version, payload, s.fut.GetName(), s.spot.GetName(), s.symbol)
+	if err != nil {
+		return fmt.Errorf("persisted FundingCarry state is not fully resolved: %w", err)
+	}
+	if state.MarginAccountScope != scope {
+		return errors.New("persisted FundingCarry flat state belongs to another margin account")
+	}
+	if err := validateFundingCarryDebtAsset(state, s.spot.GetBaseAsset()); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := ownershipGuard(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.started || s.marginAccountScope != scope || s.executionRecoveryRequired {
+		s.mu.Unlock()
+		return errors.New("FundingCarry verifier state changed during reconstruction")
+	}
+	s.direction, s.strategySpotQty, s.spotQty = state.Direction, state.OwnedSpot, state.OwnedSpot
+	s.futQty, s.marginDebt = state.OwnedFutures, state.MarginDebt
+	s.marginBorrowTransferID, s.marginBorrowedAt = state.MarginBorrowTransferID, state.MarginBorrowedAt
+	s.marginDebtEvents = append([]fundingCarryMarginDebtEvent(nil), state.MarginDebtEvents...)
+	s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
+	s.marginRepayIntent = cloneFundingCarryRepayIntent(state.MarginRepayIntent)
+	s.marginCoverIntent = cloneFundingCarryCoverIntent(state.MarginCoverIntent)
+	s.marginCloseVerificationPending = false
+	s.strategySpotKnown, s.intentInFlight, s.unownedExposure = state.OwnershipReady, false, false
+	s.mu.Unlock()
+	return s.verifyFlat(ctx, true, ownershipGuard)
+}
+
+func (s *FundingCarryStrategy) verifyFlat(ctx context.Context, retryReadErrors bool, ownershipGuard func() error) error {
 	if ctx == nil {
 		return errors.New("funding_carry flat verification requires context")
+	}
+	if ownershipGuard != nil {
+		if err := ownershipGuard(); err != nil {
+			return err
+		}
 	}
 	s.mu.RLock()
 	gate := s.openingGate
@@ -591,23 +712,59 @@ func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
 	}
 	defer s.releaseOperation()
 	return s.withAccountWalletCoordination(ctx, func(verifyCtx context.Context) error {
+		if ownershipGuard != nil {
+			if err := ownershipGuard(); err != nil {
+				return err
+			}
+		}
 		s.mu.RLock()
-		known, inFlight, unknown := s.strategySpotKnown, s.intentInFlight, s.unownedExposure
-		stateErr, stateStore := s.runtimeStateErr, s.runtimeStateStore
+		known, inFlight, unknown := s.strategySpotKnown, s.intentInFlight || s.marginCloseVerificationPending, s.unownedExposure
+		stateErr, stateStore, startupErr := s.runtimeStateErr, s.runtimeStateStore, s.startupRecoveryErr
+		started := s.started
 		s.mu.RUnlock()
-		if !known || inFlight || unknown || stateErr != nil || stateStore == nil {
+		if retryReadErrors && started {
+			s.stopMu.Lock()
+			stopped := s.stopCompleted && s.stopErr == nil
+			s.stopMu.Unlock()
+			if !stopped {
+				return errors.New("stopped flat verification requires a completed financial stop")
+			}
+		}
+		if !known || inFlight || unknown || stateErr != nil || startupErr != nil || stateStore == nil {
 			return errors.New("funding_carry ownership state is missing, unresolved, or not durable")
 		}
-		if err := s.syncPositions(verifyCtx); err != nil {
+		reader, ok := stateStore.(RuntimeStateContextReader)
+		if !ok {
+			return errors.New("funding_carry flat proof requires cancellable durable reads")
+		}
+		if err := s.syncPositionsWithReadPolicy(verifyCtx, retryReadErrors); err != nil {
 			return fmt.Errorf("verify funding_carry live position ownership: %w", err)
+		}
+		if ownershipGuard != nil {
+			if err := ownershipGuard(); err != nil {
+				return err
+			}
 		}
 		if err := s.requireNoOpenOrders(verifyCtx); err != nil {
 			return fmt.Errorf("verify funding_carry open orders: %w", err)
 		}
+		if ownershipGuard != nil {
+			if err := ownershipGuard(); err != nil {
+				return err
+			}
+		}
 
-		version, payload, found, err := stateStore.LoadRuntimeState("funding_carry")
+		version, payload, found, err := reader.LoadRuntimeStateContext(verifyCtx, "funding_carry")
 		if err != nil {
 			return fmt.Errorf("reload durable funding_carry ownership state: %w", err)
+		}
+		if err := verifyCtx.Err(); err != nil {
+			return fmt.Errorf("durable funding_carry flat proof canceled: %w", err)
+		}
+		if ownershipGuard != nil {
+			if err := ownershipGuard(); err != nil {
+				return err
+			}
 		}
 		if !found {
 			return errors.New("durable funding_carry ownership state is missing")
@@ -619,22 +776,29 @@ func (s *FundingCarryStrategy) VerifyFlat(ctx context.Context) error {
 		if err := validateFundingCarryDebtAsset(state, s.spot.GetBaseAsset()); err != nil {
 			return err
 		}
-		if state.Direction != DirectionNone || state.OwnedSpot > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
-			state.OwnedFutures > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
-			state.MarginDebt > s.roundingTolerance(s.marginQuantityDecimals()) {
+		if state.Direction != DirectionNone || state.OwnedSpot > 0 || state.OwnedFutures > 0 || state.MarginDebt > 0 {
 			return errors.New("durable funding_carry state still records strategy-owned exposure")
 		}
 
 		s.mu.RLock()
-		defer s.mu.RUnlock()
+		if err := s.verifyDebtCommitLocked(verifyCtx); err != nil {
+			s.mu.RUnlock()
+			return fmt.Errorf("funding_carry flat proof ownership: %w", err)
+		}
 		if err := requireNoFundingCarryCoverRemaining(s.coverRemainingStateLocked(), s.spot.GetBaseAsset()); err != nil {
+			s.mu.RUnlock()
 			return err
 		}
 		if s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil || s.direction != DirectionNone ||
-			s.strategySpotQty > s.roundingTolerance(s.spot.GetQuantityDecimals()) ||
-			s.futQty > s.roundingTolerance(s.fut.GetQuantityDecimals()) ||
-			s.marginDebt > s.roundingTolerance(s.marginQuantityDecimals()) {
+			s.strategySpotQty > 0 || s.futQty > 0 || s.marginDebt > 0 {
+			s.mu.RUnlock()
 			return errors.New("in-memory funding_carry ownership state still records unresolved exposure")
+		}
+		s.mu.RUnlock()
+		if ownershipGuard != nil {
+			if err := ownershipGuard(); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -655,14 +819,49 @@ func (s *FundingCarryStrategy) Stop() error {
 
 // StopContext halts the rebalance loop and closes only strategy-owned legs.
 // It is used by the runtime shutdown coordinator so the close obeys its deadline.
+// QuiesceContext stops the producer and waits for admitted strategy operations.
+// It never closes exposure, cancels orders, repays debt or changes ownership.
+func (s *FundingCarryStrategy) QuiesceContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.mu.RLock()
+	cancel, done := s.cancel, s.runDone
+	s.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return fmt.Errorf("wait for funding_carry producer: %w", ctx.Err())
+		}
+	}
+	if err := s.acquireOperation(ctx); err != nil {
+		return fmt.Errorf("drain funding_carry operations: %w", err)
+	}
+	s.releaseOperation()
+	return ctx.Err()
+}
+
 func (s *FundingCarryStrategy) StopContext(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	s.mu.RLock()
 	cancel, runDone := s.cancel, s.runDone
+	startupErr := s.startupRecoveryErr
+	unstartedFinancialState := s.unownedExposure || s.intentInFlight || s.marginCloseVerificationPending || s.runtimeStateErr != nil || s.direction != DirectionNone ||
+		s.marginDebt > 0 || s.strategySpotQty > 0 || s.futQty > 0 || s.marginRepayIntent != nil || s.marginCoverIntent != nil
 	s.mu.RUnlock()
 	if cancel == nil {
+		if startupErr != nil {
+			return fmt.Errorf("funding_carry startup recovery is unresolved; stop cannot be reported complete: %w", startupErr)
+		}
+		if unstartedFinancialState {
+			return errors.New("funding_carry unstarted runtime retains financial state requiring reconciliation; automatic close is withheld")
+		}
 		return nil
 	}
 	cancel()
@@ -682,18 +881,20 @@ func (s *FundingCarryStrategy) StopContext(ctx context.Context) error {
 	if s.stopCompleted || s.stopAttempted {
 		return s.stopErr
 	}
-	s.stopAttempted = true
 	s.mu.RLock()
 	dir, ownSpot, unknown := s.direction, s.strategySpotQty, s.unownedExposure
 	s.mu.RUnlock()
 	if unknown {
+		s.stopAttempted = true
 		s.stopErr = errors.New("funding_carry exposure is unverified; automatic close is withheld to avoid changing unowned positions")
 		return s.stopErr
 	}
 	if err := ctx.Err(); err != nil {
-		s.stopErr = fmt.Errorf("funding_carry stop deadline expired before close: %w", err)
-		return s.stopErr
+		// No close/repay has begun. A fresh stop context may retry this phase;
+		// errors after the financial boundary remain latched below.
+		return fmt.Errorf("funding_carry stop deadline expired before close: %w", err)
 	}
+	s.stopAttempted = true
 	if dir == DirectionNone {
 		if ownSpot > 0 {
 			s.stopErr = s.closeStrategySpotWithAccountWalletCoordination(ctx)
@@ -707,6 +908,7 @@ func (s *FundingCarryStrategy) StopContext(ctx context.Context) error {
 		}
 	}
 	if s.stopErr != nil {
+		s.stopErr = s.classifyStoppedMarginCloseError(s.stopErr)
 		logger.Warn("⚠️ [%s] 停止時平倉失敗: %v", s.symbol, s.stopErr)
 		s.publishEvent(event.EventTypeRiskTriggered, map[string]interface{}{
 			"action": "stop_close_failed", "error": s.stopErr.Error(),
@@ -729,17 +931,26 @@ func (s *FundingCarryStrategy) GetVisualizationData() map[string]interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	remaining, remainingKnown := s.coverRemainingStatusLocked()
+	reasons := s.reconciliationReasonsLocked()
+	borrowedAt := ""
+	if !s.marginBorrowedAt.IsZero() {
+		borrowedAt = s.marginBorrowedAt.UTC().Format(time.RFC3339Nano)
+	}
 	return map[string]interface{}{
-		"reconciliation_required":      s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil,
+		"reconciliation_required":      len(reasons) > 0,
+		"reconciliation_reasons":       reasons,
 		"margin_cover_remaining_qty":   remaining,
 		"margin_cover_remaining_known": remainingKnown,
 		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",
+		"margin_debt_basis":            "durable_strategy_ledger_not_live_exchange_liability",
 		"type":                         "funding_carry",
 		"direction":                    s.direction.String(),
 		"position_open":                s.direction != DirectionNone,
 		"spot_qty":                     s.spotQty,
 		"futures_qty":                  s.futQty,
 		"margin_debt":                  s.marginDebt,
+		"margin_borrow_transfer_id":    s.marginBorrowTransferID,
+		"margin_borrowed_at":           borrowedAt,
 		"next_settlement":              s.nextSettlement.Format(time.RFC3339),
 		"reverse_enabled":              s.reverseEnabled,
 	}
@@ -758,7 +969,7 @@ func (s *FundingCarryStrategy) GetFundingStatus() map[string]interface{} {
 		}
 	}
 	return map[string]interface{}{
-		"reconciliation_required":      s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil,
+		"reconciliation_required":      s.unownedExposure || s.intentInFlight || s.runtimeStateErr != nil || s.startupRecoveryErr != nil,
 		"margin_cover_remaining_qty":   remaining,
 		"margin_cover_remaining_known": remainingKnown,
 		"margin_cover_remaining_basis": "historical_net_less_confirmed_repayment",
@@ -1102,7 +1313,19 @@ func (s *FundingCarryStrategy) ensureFuturesMargin(ctx context.Context, required
 		return fmt.Errorf("funding_carry collateral transfer canceled before submission: %w", err)
 	}
 	if err := s.beginRuntimeIntent(ctx); err != nil {
+		if errors.Is(err, errFundingCarryPreSubmitIntentCanceled) {
+			return err
+		}
+		if errors.Is(err, errFundingCarryPreSubmitRecoveryUnresolved) {
+			return s.holdUnownedExposureWithoutPersist(fmt.Errorf("pre-submit collateral transfer intent could not be safely rolled back: %w", err))
+		}
 		return s.blockOnUnownedExposure(fmt.Errorf("persist collateral transfer intent before submission: %w", err))
+	}
+	if err := s.verifyUnsubmittedWalletOpening(ctx); err != nil {
+		return err
+	}
+	if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+		return err
 	}
 	transferVerified := false
 	defer func() {
@@ -1415,7 +1638,17 @@ func (s *FundingCarryStrategy) harvestProfitUnderWalletLock(ctx context.Context)
 		return
 	}
 	if err := s.beginRuntimeIntent(ctx); err != nil {
+		if errors.Is(err, errFundingCarryPreSubmitIntentCanceled) {
+			return
+		}
+		if errors.Is(err, errFundingCarryPreSubmitRecoveryUnresolved) {
+			s.holdUnownedExposureWithoutPersist(fmt.Errorf("pre-submit profit harvest intent could not be safely rolled back: %w", err))
+			return
+		}
 		s.blockOnUnownedExposure(fmt.Errorf("persist profit harvest intent before transfer: %w", err))
+		return
+	}
+	if err := s.markRuntimeIntentDispatching(ctx); err != nil {
 		return
 	}
 	transferVerified := false
@@ -1495,18 +1728,35 @@ func fundingCarryHarvestableSurplus(futuresBalance, futuresQty, futuresPrice, mi
 // ---------------------------------------------------------------------------
 
 func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
+	return s.syncPositionsWithReadPolicy(ctx, false)
+}
+
+func (s *FundingCarryStrategy) syncPositionsWithReadPolicy(ctx context.Context, readOnlyProof bool) error {
+	proofFailure := func(err error) error {
+		if readOnlyProof {
+			return err
+		}
+		return s.blockOnUnownedExposure(err)
+	}
+	snapshotFailure := func(err error) error {
+		var query *positionSnapshotQueryError
+		if errors.As(err, &query) {
+			return proofFailure(err)
+		}
+		return proofFailure(err)
+	}
 	// 合約持倉
 	var futShort, futLong float64
 	pos, err := readScopedPositionSnapshot(ctx, s.fut, s.symbol)
 	if err != nil {
-		return s.blockOnUnownedExposure(fmt.Errorf("fut.GetPositions: %w", err))
+		return snapshotFailure(fmt.Errorf("fut.GetPositions: %w", err))
 	}
 	if pos == nil {
-		return s.blockOnUnownedExposure(errors.New("futures position snapshot is nil, not an authoritative empty snapshot"))
+		return proofFailure(errors.New("futures position snapshot is nil, not an authoritative empty snapshot"))
 	}
 	for _, p := range pos {
 		if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
-			return s.blockOnUnownedExposure(errors.New("futures position snapshot contains invalid data"))
+			return proofFailure(errors.New("futures position snapshot contains invalid data"))
 		}
 		if p.Size < 0 {
 			futShort += math.Abs(p.Size)
@@ -1519,33 +1769,43 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	base := s.spot.GetBaseAsset()
 	spotBal, err := s.spot.GetBalance(ctx, base)
 	if err != nil {
-		return s.blockOnUnownedExposure(fmt.Errorf("spot.GetBalance(%s): %w", base, err))
+		return proofFailure(fmt.Errorf("spot.GetBalance(%s): %w", base, err))
 	}
 	if err := ctx.Err(); err != nil {
-		return s.blockOnUnownedExposure(fmt.Errorf("spot balance snapshot for %s completed after its context ended: %w", base, err))
+		return proofFailure(fmt.Errorf("spot balance snapshot for %s completed after its context ended: %w", base, err))
 	}
 	if spotBal < 0 || math.IsNaN(spotBal) || math.IsInf(spotBal, 0) {
-		return s.blockOnUnownedExposure(fmt.Errorf("spot balance is invalid: %.8f", spotBal))
+		return proofFailure(fmt.Errorf("spot balance is invalid: %.8f", spotBal))
 	}
 
 	// 保證金借幣負債（反向套利用）
 	var debt, debtInterest float64
-	if s.marginEx != nil {
+	if reader, ok := s.marginEx.(exchange.MarginLiabilityReader); ok {
+		// Debt is independent of bought-back inventory. A short-position view
+		// may reject that inventory and must not substitute for liability data.
+		debt, debtInterest, err = reader.GetMarginLiability(ctx, base)
+		if err != nil {
+			return proofFailure(fmt.Errorf("margin liability(%s): %w", base, err))
+		}
+		if !finiteNonNegative(debt) || !finiteNonNegative(debtInterest) || !finiteNonNegative(debt+debtInterest) {
+			return proofFailure(errors.New("margin liability principal/interest is invalid"))
+		}
+	} else if s.marginEx != nil {
 		marginPos, e := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
 		if e != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("marginEx.GetPositions: %w", e))
+			return snapshotFailure(fmt.Errorf("marginEx.GetPositions: %w", e))
 		}
 		if marginPos == nil {
-			return s.blockOnUnownedExposure(errors.New("spot-margin position snapshot is nil, not an authoritative empty snapshot"))
+			return proofFailure(errors.New("spot-margin position snapshot is nil, not an authoritative empty snapshot"))
 		}
 		for _, mp := range marginPos {
 			if mp == nil || math.IsNaN(mp.Size) || math.IsInf(mp.Size, 0) {
-				return s.blockOnUnownedExposure(errors.New("spot-margin position snapshot contains invalid data"))
+				return proofFailure(errors.New("spot-margin position snapshot contains invalid data"))
 			}
 			if mp.Size < 0 {
 				if !mp.MarginDebtKnown || !finiteNonNegative(mp.MarginBorrowed) || !finiteNonNegative(mp.MarginInterest) ||
-					math.Abs(math.Abs(mp.Size)-(mp.MarginBorrowed+mp.MarginInterest)) > s.roundingTolerance(s.spot.GetQuantityDecimals()) {
-					return s.blockOnUnownedExposure(errors.New("spot-margin liability lacks a consistent principal/interest breakdown"))
+					!fundingCarryFinancialAmountsMatch(math.Abs(mp.Size), mp.MarginBorrowed+mp.MarginInterest) {
+					return proofFailure(errors.New("spot-margin liability lacks a consistent principal/interest breakdown"))
 				}
 				debt += mp.MarginBorrowed
 				debtInterest += mp.MarginInterest
@@ -1553,11 +1813,14 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 		}
 	}
 
+	if err := ctx.Err(); err != nil {
+		return proofFailure(fmt.Errorf("position/debt snapshots completed after context ended: %w", err))
+	}
 	s.mu.Lock()
 	if !s.strategySpotKnown {
 		s.mu.Unlock()
-		if futShort > 0 || futLong > 0 || debt > 0 {
-			return s.blockOnUnownedExposure(errors.New("futures/margin exposure exists without strategy-owned inventory state"))
+		if futShort > 0 || futLong > 0 || debt > 0 || debtInterest > 0 {
+			return proofFailure(errors.New("futures/margin exposure exists without strategy-owned inventory state"))
 		}
 		s.mu.Lock()
 		s.strategySpotKnown = true
@@ -1571,27 +1834,27 @@ func (s *FundingCarryStrategy) syncPositions(ctx context.Context) error {
 	}
 	tolerance := s.roundingTolerance(s.fut.GetQuantityDecimals())
 	if strategySpot > spotBal+tolerance {
-		return s.blockOnUnownedExposure(fmt.Errorf("strategy-owned spot inventory %.8f exceeds exchange balance %.8f", strategySpot, spotBal))
+		return proofFailure(fmt.Errorf("strategy-owned spot inventory %.8f exceeds exchange balance %.8f", strategySpot, spotBal))
 	}
 	if futShort > 0 && futLong > 0 {
-		return s.blockOnUnownedExposure(errors.New("both long and short futures positions exist; ownership is ambiguous"))
+		return proofFailure(errors.New("both long and short futures positions exist; ownership is ambiguous"))
 	}
 	switch dir {
 	case DirectionNone:
-		if futShort > tolerance || futLong > tolerance || debt+debtInterest > tolerance || strategySpot > tolerance {
-			return s.blockOnUnownedExposure(errors.New("exchange exposure exists without an active funding_carry position record"))
+		if futShort > 0 || futLong > 0 || debt > 0 || debtInterest > 0 || strategySpot > 0 {
+			return proofFailure(errors.New("exchange exposure exists without an active funding_carry position record"))
 		}
 	case DirectionForward:
 		spotTolerance := math.Max(tolerance, s.roundingTolerance(s.spot.GetQuantityDecimals()))
-		if futLong > tolerance || debt+debtInterest > tolerance || math.Abs(futShort-ownedFut) > tolerance || strategySpot > spotBal+spotTolerance || (strategySpot <= tolerance && ownedFut <= tolerance) {
-			return s.blockOnUnownedExposure(errors.New("forward carry exposure does not match strategy-owned futures/spot legs"))
+		if futLong > tolerance || debt > 0 || debtInterest > 0 || math.Abs(futShort-ownedFut) > tolerance || strategySpot > spotBal+spotTolerance || (strategySpot <= tolerance && ownedFut <= tolerance) {
+			return proofFailure(errors.New("forward carry exposure does not match strategy-owned futures/spot legs"))
 		}
 	case DirectionReverse:
-		if futShort > tolerance || math.Abs(futLong-ownedFut) > tolerance || math.Abs(debt-ownedDebt) > tolerance || (debt+debtInterest <= tolerance && ownedFut <= tolerance) {
-			return s.blockOnUnownedExposure(errors.New("reverse carry exposure does not match strategy-owned futures/margin debt"))
+		if futShort > tolerance || math.Abs(futLong-ownedFut) > tolerance || !fundingCarryFinancialAmountsMatch(debt, ownedDebt) || (debt == 0 && debtInterest == 0 && ownedFut <= tolerance) {
+			return proofFailure(errors.New("reverse carry exposure does not match strategy-owned futures/margin debt"))
 		}
 	default:
-		return s.blockOnUnownedExposure(fmt.Errorf("invalid strategy direction %d", dir))
+		return proofFailure(fmt.Errorf("invalid strategy direction %d", dir))
 	}
 	s.mu.Lock()
 	s.spotQty = strategySpot
@@ -1607,12 +1870,22 @@ func (s *FundingCarryStrategy) roundingTolerance(decimals int) float64 {
 }
 
 func (s *FundingCarryStrategy) blockOnUnownedExposure(reason error) error {
+	return s.setUnownedExposureHold(reason, true)
+}
+
+func (s *FundingCarryStrategy) holdUnownedExposureWithoutPersist(reason error) error {
+	return s.setUnownedExposureHold(reason, false)
+}
+
+func (s *FundingCarryStrategy) setUnownedExposureHold(reason error, persist bool) error {
 	s.mu.Lock()
 	s.unownedExposure = true
 	blocker := s.openingBlocker
-	if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr == nil {
-		if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
-			s.runtimeStateErr = persistErr
+	if persist {
+		if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr == nil {
+			if persistErr := s.persistRuntimeStateLocked(); persistErr != nil {
+				s.runtimeStateErr = persistErr
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -1632,6 +1905,10 @@ func (s *FundingCarryStrategy) recordFuturesOpening(order *exchange.Order, side 
 		return s.blockOnUnownedExposure(fmt.Errorf("futures opening acknowledgement is not reconcilable (requested=%.8f)", requested))
 	}
 	s.mu.Lock()
+	if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(ownerErr)
+	}
 	if side == exchange.SideSell {
 		s.direction = DirectionForward
 	} else {
@@ -1893,6 +2170,9 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist spot/futures opening intent: %w", err)
 	}
+	if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+		return fmt.Errorf("persist spot order dispatch phase: %w", err)
+	}
 	opened := false
 	defer func() {
 		if err := s.finishRuntimeIntent(ctx, opened); err != nil {
@@ -1933,12 +2213,8 @@ func (s *FundingCarryStrategy) openHedgeUnderWalletLock(ctx context.Context, fut
 	}
 
 	// 現貨已成交即記入策略自身持倉（即使後續合約腿失敗，這部分幣也屬於策略，平倉時需賣出）
-	s.recordStrategySpot(filledQty)
-	s.mu.RLock()
-	stateErr := s.runtimeStateErr
-	s.mu.RUnlock()
-	if stateErr != nil {
-		return fmt.Errorf("spot filled but strategy-owned inventory could not be persisted: %w", stateErr)
+	if err := s.recordStrategySpot(filledQty); err != nil {
+		return fmt.Errorf("spot filled but strategy-owned inventory could not be committed: %w", err)
 	}
 	if err := settleCarryOrder(ctx, s.spotExecutor, spotOrder); err != nil {
 		return fmt.Errorf("persist spot fill ownership before futures leg: %w", err)
@@ -2042,7 +2318,22 @@ func (s *FundingCarryStrategy) closeReverseWithAccountWalletCoordination(ctx con
 
 func (s *FundingCarryStrategy) closeStrategySpotWithAccountWalletCoordination(ctx context.Context) error {
 	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
-		return s.closeStrategySpot(operationCtx)
+		s.mu.RLock()
+		intentInFlight := s.intentInFlight
+		s.mu.RUnlock()
+		if intentInFlight {
+			return fmt.Errorf("standalone spot close refused while another funding_carry intent requires reconciliation")
+		}
+		if err := s.beginRuntimeIntent(operationCtx); err != nil {
+			return fmt.Errorf("persist standalone spot-close intent: %w", err)
+		}
+		if err := s.closeStrategySpot(operationCtx); err != nil {
+			// Keep the prepared/dispatching checkpoint on every failed path. A
+			// fresh process may clear only a proven pre-dispatch snapshot; after
+			// dispatch, reconciliation must establish the exchange outcome.
+			return err
+		}
+		return s.finishRuntimeIntent(operationCtx, true)
 	})
 }
 
@@ -2136,6 +2427,12 @@ func (s *FundingCarryStrategy) openReverseHedgeUnderWalletLock(ctx context.Conte
 	// Step 1: 借幣
 	if err := s.beginRuntimeIntent(ctx); err != nil {
 		return fmt.Errorf("persist margin/futures opening intent: %w", err)
+	}
+	if err := s.verifyUnsubmittedWalletOpening(ctx); err != nil {
+		return err
+	}
+	if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+		return fmt.Errorf("persist margin borrow dispatch phase: %w", err)
 	}
 	opened := false
 	borrowUnresolved := true
@@ -2367,12 +2664,18 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) (res
 	}
 	closed := false
 	defer func() {
+		if errors.Is(resultErr, errFundingCarryPreSubmitIntentCanceled) || errors.Is(resultErr, errFundingCarryPreSubmitRecoveryUnresolved) {
+			return
+		}
 		if err := s.finishRuntimeIntent(ctx, closed); err != nil {
 			logger.Error("[%s] persist funding_carry close result: %v", s.symbol, err)
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	if ownedFut > tolerance {
+		if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+			return fmt.Errorf("persist futures close dispatch phase: %w", err)
+		}
 		order, closeErr := s.placeOrder(ctx, s.fut, s.futuresExecutor, &exchange.OrderRequest{
 			Symbol: s.symbol, Side: exchange.SideBuy, Type: exchange.OrderTypeMarket,
 			Quantity: ownedFut, ReduceOnly: true, PriceDecimals: s.fut.GetPriceDecimals(),
@@ -2415,34 +2718,48 @@ func (s *FundingCarryStrategy) closeAll(ctx context.Context, reason string) (res
 }
 
 // recordStrategySpot 記錄策略自身買入的現貨數量
-func (s *FundingCarryStrategy) recordStrategySpot(qty float64) {
+func (s *FundingCarryStrategy) recordStrategySpot(qty float64) error {
 	if qty <= 0 {
-		return
+		return nil
 	}
 	s.mu.Lock()
+	if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(ownerErr)
+	}
 	s.strategySpotQty += qty
 	s.strategySpotKnown = true
 	s.spotQty = s.strategySpotQty
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.runtimeStateErr = err
 		s.unownedExposure = true
+		s.mu.Unlock()
+		return err
 	}
 	s.mu.Unlock()
+	return nil
 }
 
 // releaseStrategySpot 賣出成交後扣減策略自身現貨記賬
-func (s *FundingCarryStrategy) releaseStrategySpot(qty float64) {
+func (s *FundingCarryStrategy) releaseStrategySpot(qty float64) error {
 	if qty <= 0 {
-		return
+		return nil
 	}
 	s.mu.Lock()
+	if ownerErr := verifyStrategyWalletRuntimeOwner(s.openingGate); ownerErr != nil {
+		s.mu.Unlock()
+		return s.blockOnUnownedExposure(ownerErr)
+	}
 	s.strategySpotQty = math.Max(0, s.strategySpotQty-qty)
 	s.spotQty = s.strategySpotQty
 	if err := s.persistRuntimeStateLocked(); err != nil {
 		s.runtimeStateErr = err
 		s.unownedExposure = true
+		s.mu.Unlock()
+		return err
 	}
 	s.mu.Unlock()
+	return nil
 }
 
 // closeStrategySpot 只賣出策略自身記賬的現貨數量（不超過當前餘額），不動用戶原有持幣
@@ -2479,6 +2796,9 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 	if sellPrice <= 0 {
 		return fmt.Errorf("現貨賣出價格無效 %s: price=%.8f", s.symbol, sellPrice)
 	}
+	if err := s.markRuntimeIntentDispatchingIfActive(ctx); err != nil {
+		return fmt.Errorf("persist spot close dispatch phase: %w", err)
+	}
 
 	order, err := s.placeOrder(ctx, s.spot, s.spotExecutor, &exchange.OrderRequest{
 		Symbol: s.symbol, Side: exchange.SideSell, Type: exchange.OrderTypeLimit,
@@ -2494,7 +2814,9 @@ func (s *FundingCarryStrategy) closeStrategySpot(ctx context.Context) error {
 
 	filledQty, fillErr := s.waitOrderFill(ctx, s.spot, order.OrderID, orderWaitTimeout)
 	if filledQty > 0 {
-		s.releaseStrategySpot(filledQty)
+		if err := s.releaseStrategySpot(filledQty); err != nil {
+			return fmt.Errorf("spot close fill could not be committed under runtime ownership: %w", err)
+		}
 	}
 	if fillErr != nil || filledQty+tolerance < qty {
 		if fillErr != nil {
@@ -2544,28 +2866,12 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	if liveShort > tolerance || math.Abs(liveLong-ownedFutures) > tolerance {
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse futures position mismatch: live long %.8f, short %.8f, owned %.8f", liveLong, liveShort, ownedFutures))
 	}
-	marginPositions, err := readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
+	livePrincipal, liveInterest, err := s.readMarginLiabilityForClose(ctx, false)
 	if err != nil {
 		return s.blockOnUnownedExposure(fmt.Errorf("read margin debt before reverse close: %w", err))
 	}
-	var liveDebt, livePrincipal, liveInterest float64
-	for _, p := range marginPositions {
-		if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) {
-			return s.blockOnUnownedExposure(errors.New("invalid margin position snapshot before reverse close"))
-		}
-		if p.Size < 0 {
-			liveDebt += math.Abs(p.Size)
-			if !p.MarginDebtKnown || !finiteNonNegative(p.MarginBorrowed) || !finiteNonNegative(p.MarginInterest) {
-				return s.blockOnUnownedExposure(errors.New("reverse margin liability has no authoritative principal/interest breakdown"))
-			}
-			if !fundingCarryFinancialAmountsMatch(math.Abs(p.Size), p.MarginBorrowed+p.MarginInterest) {
-				return s.blockOnUnownedExposure(errors.New("reverse margin liability disagrees with principal/interest breakdown"))
-			}
-			livePrincipal += p.MarginBorrowed
-			liveInterest += p.MarginInterest
-		}
-	}
-	if !fundingCarryFinancialAmountsMatch(livePrincipal, debt) || !fundingCarryFinancialAmountsMatch(liveDebt, livePrincipal+liveInterest) {
+	liveDebt := livePrincipal + liveInterest
+	if !fundingCarryFinancialAmountsMatch(livePrincipal, debt) {
 		return s.blockOnUnownedExposure(fmt.Errorf("reverse margin principal mismatch: live principal %.8f, accrued interest %.8f, total %.8f, owned principal %.8f", livePrincipal, liveInterest, liveDebt, debt))
 	}
 	debtToRepay := livePrincipal + liveInterest
@@ -2574,12 +2880,18 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 	}
 	closed := false
 	defer func() {
+		if errors.Is(resultErr, errFundingCarryPreSubmitIntentCanceled) || errors.Is(resultErr, errFundingCarryPreSubmitRecoveryUnresolved) {
+			return
+		}
 		if err := s.finishRuntimeIntent(ctx, closed); err != nil {
 			logger.Error("[%s] persist reverse close result: %v", s.symbol, err)
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
 	if ownedFutures > tolerance {
+		if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+			return fmt.Errorf("persist reverse futures-close dispatch phase: %w", err)
+		}
 		order, err := s.placeOrder(ctx, s.fut, s.futuresExecutor, &exchange.OrderRequest{
 			Symbol: s.symbol, Side: exchange.SideSell, Type: exchange.OrderTypeMarket,
 			Quantity: ownedFutures, ReduceOnly: true, PriceDecimals: s.fut.GetPriceDecimals(),
@@ -2621,6 +2933,9 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		}
 		if err := s.prepareMarginCoverIntent(ctx, buyRequest, debtToRepay); err != nil {
 			return s.blockOnUnownedExposure(err)
+		}
+		if err := s.markRuntimeIntentDispatching(ctx); err != nil {
+			return fmt.Errorf("persist margin-cover dispatch phase: %w", err)
 		}
 		buyOrder, err := s.placeOrder(ctx, s.marginEx, s.marginExecutor, buyRequest)
 		if buyOrder != nil && buyOrder.OrderID > 0 {
@@ -2664,14 +2979,11 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		if remainingErr != nil {
 			return s.blockOnUnownedExposure(remainingErr)
 		}
-		marginPositions, err = readScopedPositionSnapshot(ctx, s.marginEx, s.symbol)
-		if err != nil {
-			return s.blockOnUnownedExposure(fmt.Errorf("verify margin repayment: %w", err))
+		if err := s.checkpointMarginCloseVerification(ctx); err != nil {
+			return s.blockOnUnownedExposure(err)
 		}
-		for _, p := range marginPositions {
-			if p == nil || math.IsNaN(p.Size) || math.IsInf(p.Size, 0) || p.Size < 0 || !p.MarginDebtKnown || !validRuntimeAmount(p.MarginBorrowed) || !validRuntimeAmount(p.MarginInterest) || p.MarginBorrowed > 0 || p.MarginInterest > 0 {
-				return s.blockOnUnownedExposure(fmt.Errorf("margin repayment left unverified debt: %+v", p))
-			}
+		if _, _, err := s.readMarginLiabilityForClose(ctx, true); err != nil {
+			return s.blockOnUnownedExposure(fmt.Errorf("verify margin repayment: %w", err))
 		}
 	}
 	s.mu.Lock()
@@ -2679,9 +2991,17 @@ func (s *FundingCarryStrategy) closeReverse(ctx context.Context, reason string) 
 		s.mu.Unlock()
 		return s.blockOnUnownedExposure(err)
 	}
+	previousDirection, previousBorrowID, previousBorrowedAt, previousPhase := s.direction, s.marginBorrowTransferID, s.marginBorrowedAt, s.intentPhase
+	previousVerification, previousIntent := s.marginCloseVerificationPending, s.intentInFlight
 	s.direction, s.futQty, s.marginDebt = DirectionNone, 0, 0
+	s.marginCloseVerificationPending = false
+	s.intentInFlight = false // Commit clean flags together with the final flat proof.
+	s.intentPhase = ""
 	s.marginBorrowTransferID, s.marginBorrowedAt = 0, time.Time{}
 	if err := s.persistRuntimeStateLocked(); err != nil {
+		s.direction, s.marginBorrowTransferID, s.marginBorrowedAt = previousDirection, previousBorrowID, previousBorrowedAt
+		s.marginCloseVerificationPending, s.intentInFlight = previousVerification, previousIntent
+		s.intentPhase = previousPhase
 		s.unownedExposure = true
 		s.runtimeStateErr = err
 		s.mu.Unlock()

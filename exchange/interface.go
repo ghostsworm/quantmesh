@@ -178,6 +178,20 @@ type AccountOpenOrdersReader interface {
 	GetAccountOpenOrders(ctx context.Context) ([]*Order, error)
 }
 
+// AccountFuturesFlatnessVerifier performs a read-only, account-wide Futures
+// snapshot of positions and open orders. It does not prove margin-loan
+// liabilities are zero or that separate endpoint reads are atomic.
+type AccountFuturesFlatnessVerifier interface {
+	VerifyAccountFuturesPositionsAndOrdersFlat(context.Context) error
+}
+
+// AccountFuturesFlatnessObserver returns completeness separately from the flat
+// result so unavailable evidence cannot be confused with confirmed exposure or
+// a confirmed zero snapshot.
+type AccountFuturesFlatnessObserver interface {
+	ObserveAccountFuturesFlatness(context.Context) (complete, flat bool, observedAt time.Time, err error)
+}
+
 // AccountOpenOrdersVerifier can authoritatively confirm that an exchange
 // account has no open orders when the venue cannot enumerate them account-wide.
 // It must fail closed on incomplete or inconsistent venue responses.

@@ -3,6 +3,7 @@ package order
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -19,6 +20,25 @@ const (
 	intentJournalTimeout      = 5 * time.Second
 	maxTradeLedgerReplayBytes = 64 * 1024
 )
+
+type loadedIntentRecoveryRequiredError struct{}
+
+func (*loadedIntentRecoveryRequiredError) Error() string {
+	return "persisted intents require economic reconciliation: " + execution.ErrOrderUnknown.Error()
+}
+func (*loadedIntentRecoveryRequiredError) Unwrap() error { return execution.ErrOrderUnknown }
+
+// Read-only recovery admission requires a completely loaded, owner-validated
+// journal. Neither an arbitrary UNKNOWN error nor a partial load qualifies.
+func (oe *ExchangeOrderExecutor) LoadedIntentRecoveryRequired(err error) bool {
+	var pending *loadedIntentRecoveryRequiredError
+	if !errors.As(err, &pending) {
+		return false
+	}
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	return oe.journalRequired && oe.journalLoaded && oe.intentJournal != nil && oe.intentScopeKey != "" && len(oe.intents) > 0 && oe.openingGate.HasBlock(IntentRecoveryBlock)
+}
 
 type persistedIntent struct {
 	Version       int
@@ -161,7 +181,7 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 	oe.intentMu.Lock()
 	locked = true
 	if len(oe.intents) > 0 {
-		return fmt.Errorf("persisted intents require economic reconciliation: %w", execution.ErrOrderUnknown)
+		return &loadedIntentRecoveryRequiredError{}
 	}
 	oe.openingGate.Unblock(IntentRecoveryBlock)
 	return nil

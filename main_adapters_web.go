@@ -80,14 +80,23 @@ func (a *capitalDataSourceAdapter) GetStrategyConfigs() map[string]config.Strate
 }
 
 func (a *capitalDataSourceAdapter) GetPositionManagers() []web.PositionManagerInfo {
-	runtimes := a.manager.List()
-	infos := make([]web.PositionManagerInfo, len(runtimes))
-	for i, rt := range runtimes {
-		infos[i] = web.PositionManagerInfo{
-			Exchange: rt.Config.Exchange,
-			Symbol:   rt.Config.Symbol,
-			Manager:  rt.SuperPositionManager,
+	runtimes := a.manager.botManager.List()
+	infos := make([]web.PositionManagerInfo, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		if runtime == nil || runtime.Inner == nil {
+			continue
 		}
+		runtime.configMu.RLock()
+		botConfig := runtime.Config
+		botID := runtime.BotID
+		runtime.configMu.RUnlock()
+		infos = append(infos, web.PositionManagerInfo{
+			BotID:      botID,
+			Exchange:   botConfig.Exchange,
+			Symbol:     botConfig.Symbol,
+			MarketType: botConfig.GetMarketType(),
+			Manager:    runtime.Inner.SuperPositionManager,
+		})
 	}
 	return infos
 }

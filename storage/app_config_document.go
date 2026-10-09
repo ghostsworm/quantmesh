@@ -51,6 +51,11 @@ CREATE TABLE IF NOT EXISTS app_config_history (
 	created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_app_config_history_created ON app_config_history(created_at);
+CREATE TABLE IF NOT EXISTS app_config_security_migrations (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	credential_encryption_version INTEGER NOT NULL DEFAULT 0,
+	updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS bot_configs (
 	bot_id TEXT PRIMARY KEY,
 	schema_version INTEGER NOT NULL DEFAULT 1,
@@ -97,6 +102,11 @@ func migrateAppConfigDocumentTablesMySQL(db *sql.DB) error {
 			source VARCHAR(64) NULL,
 			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 			KEY idx_app_config_history_created (created_at)
+		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+		`CREATE TABLE IF NOT EXISTS app_config_security_migrations (
+			id TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+			credential_encryption_version INT NOT NULL DEFAULT 0,
+			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
 		`CREATE TABLE IF NOT EXISTS bot_configs (
 			bot_id VARCHAR(128) NOT NULL PRIMARY KEY,
@@ -575,9 +585,26 @@ func SaveConfigMigrationSnapshots(ctx context.Context, st Storage, appJSON []byt
 
 // upsertAppConfigTx 寫入主配置與歷史（同一事務）
 func upsertAppConfigTx(ctx context.Context, tx *sql.Tx, dbType string, schemaVersion int, contentJSON string, operator, source string) (int, error) {
+	protectedContent, err := protectAppConfigSecrets(contentJSON, dbType != "mysql")
+	if err != nil {
+		return 0, err
+	}
+	contentJSON = protectedContent
+	version, err := ensureAppConfigEncryptionMigrationRow(ctx, tx, dbType)
+	if err != nil {
+		return 0, err
+	}
+	if version < appConfigCredentialEncryptionVersion {
+		if err := protectAppConfigHistory(ctx, tx, dbType); err != nil {
+			return 0, err
+		}
+		if err := markAppConfigEncryptionMigrationComplete(ctx, tx); err != nil {
+			return 0, err
+		}
+	}
 	hash := sha256Hex(contentJSON)
 	var curRev sql.NullInt64
-	err := tx.QueryRowContext(ctx, `SELECT revision FROM app_config WHERE id = ?`, appConfigSingletonID).Scan(&curRev)
+	err = tx.QueryRowContext(ctx, `SELECT revision FROM app_config WHERE id = ?`, appConfigSingletonID).Scan(&curRev)
 	nextRev := 1
 	if err == nil && curRev.Valid {
 		nextRev = int(curRev.Int64) + 1
@@ -773,6 +800,9 @@ func MigrateYAMLToAppConfigDB(ctx context.Context, st Storage, mainConfigPath, b
 func loadConfigFromAppConfigDocument(st *SQLStorage) (*config.Config, error) {
 	if st == nil {
 		return nil, nil
+	}
+	if err := ProtectAppConfigCredentials(context.Background(), st); err != nil {
+		return nil, fmt.Errorf("protect persisted app config credentials: %w", err)
 	}
 	doc, err := st.GetAppConfigDocument(context.Background())
 	if err != nil {

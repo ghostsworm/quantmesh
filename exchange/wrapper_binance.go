@@ -16,6 +16,18 @@ type binanceWrapper struct {
 	adapter *binance.BinanceAdapter
 }
 
+// NewBinanceFuturesEvidenceExchange adapts a Binance REST evidence adapter to
+// IExchange without widening its capabilities; mutation methods remain guarded
+// by the underlying stop-evidence adapter.
+func NewBinanceFuturesEvidenceExchange(adapter *binance.BinanceAdapter) IExchange {
+	if adapter == nil || !adapter.IsStopEvidenceOnly() {
+		return nil
+	}
+	return &binanceWrapper{adapter: adapter}
+}
+
+var _ IExchange = (*binanceWrapper)(nil)
+
 func (w *binanceWrapper) ReadAccountEvidence(ctx context.Context, since time.Time) (accounting.Snapshot, error) {
 	if w == nil || w.adapter == nil {
 		return accounting.Snapshot{}, fmt.Errorf("Binance account evidence unavailable")

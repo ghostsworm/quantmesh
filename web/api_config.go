@@ -53,6 +53,19 @@ func notifyEquityScopeConfigSync(cfg *config.Config) {
 	}
 }
 
+func prepareEquityScopeConfigSync(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("equity account-scope configuration is required")
+	}
+	preparer, ok := symbolManagerProvider.(EquityScopeConfigPreparer)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return preparer.PrepareEquityScopeConfig(ctx, cfg)
+}
+
 // SetPrimaryStorageForAppConfig 設置主庫存儲（啟動時注入），用於寫入 app_config。
 func SetPrimaryStorageForAppConfig(st storage.Storage) {
 	primaryStorageForAppConfig = st
@@ -87,6 +100,9 @@ func loadConfigFromPrimaryDB() (*config.Config, error) {
 	ss, ok := primaryStorageForAppConfig.(*storage.SQLStorage)
 	if !ok || ss == nil {
 		return nil, fmt.Errorf("主庫類型異常")
+	}
+	if err := storage.ProtectAppConfigCredentials(context.Background(), ss); err != nil {
+		return nil, fmt.Errorf("保護主配置憑據: %w", err)
 	}
 	doc, err := ss.GetAppConfigDocument(context.Background())
 	if err != nil {
@@ -165,21 +181,22 @@ func GetLatestConfig() (*config.Config, error) {
 // - StopTrading 時写回 enabled=false，确保重啟后不會自动再啟动
 // - StartTrading 時写回 enabled=true，确保重啟后保持啟动
 func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...string) error {
-	if fileConfigManager == nil {
+	manager := fileConfigManager
+	if manager == nil {
 		return fmt.Errorf("配置管理器未初始化")
 	}
 	if exchange == "" || symbol == "" {
 		return fmt.Errorf("exchange 和 symbol 不能為空")
 	}
 
-	fileConfigManager.mu.Lock()
+	manager.mu.Lock()
 
 	// 确保有最新配置
-	current := fileConfigManager.currentConfig
+	current := manager.currentConfig
 	if current == nil {
 		loaded, err := loadConfigFromPrimaryDB()
 		if err != nil || loaded == nil {
-			fileConfigManager.mu.Unlock()
+			manager.mu.Unlock()
 			if err != nil {
 				return err
 			}
@@ -189,7 +206,7 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 	}
 	cfg, err := cloneConfigSnapshot(current)
 	if err != nil {
-		fileConfigManager.mu.Unlock()
+		manager.mu.Unlock()
 		return fmt.Errorf("複製交易對配置失敗: %w", err)
 	}
 
@@ -212,18 +229,22 @@ func SetSymbolEnabled(exchange, symbol string, enabled bool, marketType ...strin
 		}
 	}
 	if !found {
-		fileConfigManager.mu.Unlock()
+		manager.mu.Unlock()
 		return fmt.Errorf("未找到交易對配置: %s:%s (market_type=%s)", exchange, symbol, mt)
+	}
+	if err := prepareEquityScopeConfigSync(cfg); err != nil {
+		manager.mu.Unlock()
+		return err
 	}
 
 	if err := persistAppConfigToDB(cfg, "system", "symbol_enabled", ""); err != nil {
-		fileConfigManager.mu.Unlock()
+		manager.mu.Unlock()
 		return err
 	}
 
 	// 更新記憶體中的配置
-	fileConfigManager.currentConfig = cfg
-	fileConfigManager.mu.Unlock()
+	manager.currentConfig = cfg
+	manager.mu.Unlock()
 	notifyEquityScopeConfigSync(cfg)
 
 	// 尝試热更新（失败不影响持久化）
@@ -354,6 +375,10 @@ func (fcm *FileConfigManager) UpdateConfigWithBotHistorySource(newConfig *config
 		fcm.mu.Unlock()
 		return err
 	}
+	if err := prepareEquityScopeConfigSync(snapshot); err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
 	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", botHistorySource); err != nil {
 		fcm.mu.Unlock()
 		return err
@@ -373,6 +398,12 @@ func (fcm *FileConfigManager) UpdateConfigUsing(mutator func(*config.Config) err
 }
 
 func (fcm *FileConfigManager) UpdateConfigUsingWithBotHistorySource(mutator func(*config.Config) error, botHistorySource string) error {
+	return fcm.updateConfigUsingWithBotHistorySource(mutator, botHistorySource, true)
+}
+
+// Global recovery admission holds lifecycle locks during persistence. Its
+// notifications must run after releasing those locks, not inside this method.
+func (fcm *FileConfigManager) updateConfigUsingWithBotHistorySource(mutator func(*config.Config) error, botHistorySource string, notify bool) error {
 	if fcm == nil || mutator == nil {
 		return fmt.Errorf("configuration manager and mutation are required")
 	}
@@ -394,14 +425,20 @@ func (fcm *FileConfigManager) UpdateConfigUsingWithBotHistorySource(mutator func
 		fcm.mu.Unlock()
 		return err
 	}
+	if err := prepareEquityScopeConfigSync(snapshot); err != nil {
+		fcm.mu.Unlock()
+		return err
+	}
 	if err := persistAppConfigToDB(snapshot, "web", "file_config_update", botHistorySource); err != nil {
 		fcm.mu.Unlock()
 		return err
 	}
 	fcm.currentConfig = snapshot
 	fcm.mu.Unlock()
-	notifyEquityScopeConfigSync(snapshot)
-	notifyNewsMonitorRuntimeSync(snapshot)
+	if notify {
+		notifyEquityScopeConfigSync(snapshot)
+		notifyNewsMonitorRuntimeSync(snapshot)
+	}
 	return nil
 }
 
@@ -604,8 +641,8 @@ func updateConfigHandler(c *gin.Context) {
 	diff := config.DiffConfig(oldConfig, newConfig)
 
 	// 保存配置（含 bot_configs 同步，source=post_config_update）
-	if err := fileConfigManager.UpdateConfigWithBotHistorySource(newConfig, "post_config_update"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
+	if err := fileConfigManager.updateConfigFromSnapshot(c.Request.Context(), oldConfig, newConfig, "post_config_update"); err != nil {
+		respondConfigSnapshotSaveError(c, err)
 		return
 	}
 
@@ -619,7 +656,7 @@ func updateConfigHandler(c *gin.Context) {
 	}
 
 	// 🔥 推送交易参數变更到运行中的 SymbolRuntime（解决内存中参數不同步的问题）
-	report := applyTradingParamsWithReport(newConfig)
+	report := applyTradingParamsWithContext(c.Request.Context(), newConfig)
 	if hotReloadFailed || len(report.Failed) > 0 {
 		c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "runtime_update": report, "hot_reload_failed": hotReloadFailed, "diff": diff})
 		return
@@ -709,23 +746,30 @@ func updateConfigYAMLHandler(c *gin.Context) {
 	// 生成差异
 	diff := config.DiffConfig(oldConfig, newConfig)
 
-	if err := fileConfigManager.UpdateConfigWithBotHistorySource(newConfig, "post_config_update_yaml"); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "保存配置失败: " + err.Error()})
+	if err := fileConfigManager.updateConfigFromSnapshot(c.Request.Context(), oldConfig, newConfig, "post_config_update_yaml"); err != nil {
+		respondConfigSnapshotSaveError(c, err)
 		return
 	}
 
-	// 尝試热更新
+	// A HotReloader snapshot is not evidence that a Bot executor applied risk or
+	// trading parameters. YAML uses the same lifecycle/freshness report as JSON.
+	hotReloadFailed := false
 	if configHotReloader != nil {
 		if _, err := configHotReloader.UpdateConfig(newConfig); err != nil {
-			c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "hot_reload_failed": true})
-			return
+			hotReloadFailed = true
 		}
 	}
-
+	report := applyTradingParamsWithContext(c.Request.Context(), newConfig)
+	if hotReloadFailed || len(report.Failed) > 0 {
+		c.JSON(http.StatusConflict, gin.H{"ok": false, "config_saved": true, "error": "runtime_configuration_apply_failed", "runtime_update": report, "hot_reload_failed": hotReloadFailed, "diff": diff, "requires_restart": diff.RequiresRestart})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"ok":                      false,
+		"ok":                      report.Verified,
 		"config_saved":            true,
-		"runtime_update_verified": false,
+		"runtime_update_verified": report.Verified,
+		"runtime_update":          report,
+		"hot_updated":             report.Applied,
 		"message":                 "配置更新成功",
 		"changes_count":           len(diff.Changes),
 		"requires_restart":        diff.RequiresRestart,

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -26,6 +27,11 @@ import (
 )
 
 const accountEquityCurrency = "USDT"
+
+var (
+	ErrInvalidStopMarketType  = errors.New("invalid stop market_type")
+	ErrStopMarketTypeRequired = errors.New("stop market_type is ambiguous and must be specified")
+)
 
 // respondError 返回翻譯后的錯误响应
 func respondError(c *gin.Context, status int, messageKey string, args ...interface{}) {
@@ -1865,8 +1871,11 @@ func startTrading(c *gin.Context) {
 
 	err := symbolManagerProvider.StartSymbol(exchange, symbol, marketType)
 	if err != nil {
-		logger.Error("❌ [%s:%s:%s] 啟动交易失败: %v", exchange, symbol, marketType, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		logger.Error("❌ [%s:%s:%s] 啟动交易失败；底层診斷未輸出至通用日誌", exchange, symbol, marketType)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":     "bot_start_failed_diagnostic_withheld",
+			"error_key": "error.bot_start_failed_diagnostic_withheld",
+		})
 		return
 	}
 
@@ -1904,15 +1913,28 @@ func stopTrading(c *gin.Context) {
 		return
 	}
 
-	err := symbolManagerProvider.StopSymbol(exchange, symbol)
+	resolvedMarketType := strings.ToLower(strings.TrimSpace(marketType))
+	var err error
+	if stopper, ok := symbolManagerProvider.(SymbolMarketTypeStopper); ok {
+		resolvedMarketType, err = stopper.StopSymbolForMarket(exchange, symbol, marketType)
+	} else {
+		err = symbolManagerProvider.StopSymbol(exchange, symbol)
+		if resolvedMarketType == "" {
+			resolvedMarketType = "futures"
+		}
+	}
 	if err != nil {
+		if errors.Is(err, ErrInvalidStopMarketType) || errors.Is(err, ErrStopMarketTypeRequired) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 		logger.Error("❌ [%s:%s:%s] 停止交易失败: %v", exchange, symbol, marketType, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	// 更新状態
-	key := makeSymbolKey(exchange, symbol, marketType)
+	key := makeSymbolKey(exchange, symbol, resolvedMarketType)
 	statusMu.Lock()
 	if status, ok := statusBySymbol[key]; ok {
 		status.Running = false
@@ -1981,6 +2003,12 @@ type SymbolManagerProvider interface {
 	StopSymbol(exchange, symbol string) error                      // 停止指定交易所/币种的交易
 }
 
+// SymbolMarketTypeStopper is the optional exact-market stop path used by
+// providers that can resolve legacy requests without a market_type safely.
+type SymbolMarketTypeStopper interface {
+	StopSymbolForMarket(exchange, symbol, marketType string) (string, error)
+}
+
 // TradingParamsUpdater 交易参數热更新接口（可选接口，用於配置变更時推送到运行時）
 type TradingParamsUpdater interface {
 	UpdateTradingParams(latestConfig *config.Config) []string
@@ -1989,6 +2017,12 @@ type TradingParamsUpdater interface {
 // EquityScopeConfigUpdater synchronizes the configured portfolio scope independently from live trading parameters.
 type EquityScopeConfigUpdater interface {
 	UpdateEquityScopeConfig(latestConfig *config.Config)
+}
+
+// EquityScopeConfigPreparer durably archives retiring accounts before a
+// configuration mutation is persisted.
+type EquityScopeConfigPreparer interface {
+	PrepareEquityScopeConfig(context.Context, *config.Config) error
 }
 
 // RegisterSymbolManager 注册 SymbolManager
@@ -2106,46 +2140,6 @@ func getSystemMetrics(c *gin.Context) {
 
 // getCurrentSystemMetrics 獲取當前系统状態
 // GET /api/system/metrics/current
-func getCurrentSystemMetrics(c *gin.Context) {
-	if systemMetricsProvider == nil {
-		// 返回完整的對象結構，避免前端访问 undefined 字段
-		c.JSON(http.StatusOK, &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		})
-		return
-	}
-
-	metrics, err := systemMetricsProvider.GetCurrentMetrics()
-	if err != nil {
-		// 即使出錯也返回完整的對象結構
-		c.JSON(http.StatusOK, &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		})
-		return
-	}
-
-	// 确保所有字段都有默认值
-	if metrics == nil {
-		metrics = &SystemMetricsResponse{
-			Timestamp:     utils.ToUTC8(time.Now()),
-			CPUPercent:    0,
-			MemoryMB:      0,
-			MemoryPercent: 0,
-			ProcessID:     0,
-		}
-	}
-
-	c.JSON(http.StatusOK, metrics)
-}
-
 // getDailySystemMetrics 獲取每日彙總數據
 // GET /api/system/metrics/daily
 // 参數：

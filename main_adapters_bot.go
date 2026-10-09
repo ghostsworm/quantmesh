@@ -6,11 +6,13 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/logger"
 	"quantmesh/risk"
 	"quantmesh/web"
 )
@@ -55,9 +57,17 @@ type botManagerProviderAdapter struct {
 	manager *SymbolManager
 }
 
-func attachBotLastStartFailure(botMgr *BotManager, resp *web.BotResponse) {
+func attachBotControllerStatus(botMgr *BotManager, resp *web.BotResponse) {
 	if botMgr == nil || resp == nil {
 		return
+	}
+	// A reconstructed manager may have no in-memory runtime. Durable stop
+	// evidence still seals admission until reconciliation and journal retirement.
+	// Read errors are not proof of an ordinary stopped Bot; do not expose paths
+	// or raw diagnostics through the response, or mutate the journal here.
+	if journal, err := botMgr.readStopJournal(resp.BotID); err != nil || journal != nil {
+		resp.StopPending = true
+		resp.Running = false
 	}
 	if msg, at, ok := botMgr.GetLastStartFailure(resp.BotID); ok {
 		resp.LastStartError = msg
@@ -85,6 +95,24 @@ func attachBotRiskFields(inner *SymbolRuntime, resp *web.BotResponse) {
 		}
 	}
 	resp.RiskTriggerMessage = strings.Join(parts, "; ")
+}
+
+func snapshotBotRuntimeConfig(runtime *BotRuntime) (config.BotConfig, string, error) {
+	if runtime == nil {
+		return config.BotConfig{}, "", fmt.Errorf("Bot runtime is unavailable")
+	}
+	runtime.configMu.RLock()
+	defer runtime.configMu.RUnlock()
+
+	encoded, err := json.Marshal(runtime.Config)
+	if err != nil {
+		return config.BotConfig{}, "", fmt.Errorf("encode Bot runtime configuration snapshot: %w", err)
+	}
+	var snapshot config.BotConfig
+	if err := json.Unmarshal(encoded, &snapshot); err != nil {
+		return config.BotConfig{}, "", fmt.Errorf("decode Bot runtime configuration snapshot: %w", err)
+	}
+	return snapshot, runtime.BotID, nil
 }
 
 func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
@@ -139,7 +167,9 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			}
 		}
 		if br, ok := runningMap[botID]; ok && br.Inner != nil {
-			resp.Running = true
+			pending := br.stopTransitionPending()
+			resp.Running = !pending
+			resp.StopPending = pending
 			attachFundingCarryRuntimeStatus(br.Inner, &resp)
 			if br.Inner.PriceMonitor != nil {
 				resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
@@ -151,7 +181,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 		} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 			resp.StoppedAt = stoppedAt
 		}
-		attachBotLastStartFailure(botMgr, &resp)
+		attachBotControllerStatus(botMgr, &resp)
 		result = append(result, resp)
 	}
 	// 兼容：若 Bots 為空但 Symbols 有數據，從 Symbols 轉換
@@ -185,7 +215,9 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 				Testnet:               testnet,
 			}
 			if br, ok := runningMap[botID]; ok && br.Inner != nil {
-				resp.Running = true
+				pending := br.stopTransitionPending()
+				resp.Running = !pending
+				resp.StopPending = pending
 				if br.Inner.PriceMonitor != nil {
 					resp.CurrentPrice = br.Inner.PriceMonitor.GetLastPrice()
 				}
@@ -196,7 +228,7 @@ func (a *botManagerProviderAdapter) ListBots() []web.BotResponse {
 			} else if stoppedAt, ok := botMgr.GetStoppedAt(botID); ok {
 				resp.StoppedAt = stoppedAt
 			}
-			attachBotLastStartFailure(botMgr, &resp)
+			attachBotControllerStatus(botMgr, &resp)
 			result = append(result, resp)
 		}
 	}
@@ -208,32 +240,46 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 	br, ok := botMgr.Get(botID)
 	cfg, _ := web.GetLatestConfig()
 	if ok && br != nil && br.Inner != nil {
-		name := br.Config.Name
+		botConfig, runtimeBotID, err := snapshotBotRuntimeConfig(br)
+		if err != nil {
+			logger.Error("Bot %s runtime configuration snapshot failed: %v", botID, err)
+			return nil, false
+		}
+		if runtimeBotID == "" {
+			runtimeBotID = botID
+		}
+		pending := br.stopTransitionPending()
+		name := botConfig.Name
 		if name == "" {
-			name = br.Config.Symbol + " (" + br.Config.GetMarketType() + ")"
+			name = botConfig.Symbol + " (" + botConfig.GetMarketType() + ")"
+		}
+		testnet := botConfig.Testnet
+		if cfg != nil {
+			testnet = cfg.EffectiveTestnetForExchange(botConfig.Exchange, botConfig.Testnet)
 		}
 		resp := &web.BotDetailResponse{
 			BotResponse: web.BotResponse{
-				BotID:                 br.BotID,
+				BotID:                 runtimeBotID,
 				Name:                  name,
-				Exchange:              br.Config.Exchange,
-				Symbol:                br.Config.Symbol,
-				MarketType:            br.Config.GetMarketType(),
-				Running:               true,
-				PriceInterval:         br.Config.PriceInterval,
-				ProfitSpread:          br.Config.ProfitSpread,
-				OrderQuantity:         br.Config.OrderQuantity,
-				TotalAllocatedCapital: br.Config.TotalAllocatedCapital,
-				Strategies:            convertStrategies(br.Config.Strategies),
-				BuyWindowSize:         br.Config.BuyWindowSize,
-				CreatedAt:             br.Config.CreatedAt,
-				HedgeGroupName:        web.FindGroupNameByBotID(cfg, br.BotID),
-				Direction:             br.Config.GetDirection(),
-				Testnet:               cfg.EffectiveTestnetForExchange(br.Config.Exchange, br.Config.Testnet),
+				Exchange:              botConfig.Exchange,
+				Symbol:                botConfig.Symbol,
+				MarketType:            botConfig.GetMarketType(),
+				Running:               !pending,
+				StopPending:           pending,
+				PriceInterval:         botConfig.PriceInterval,
+				ProfitSpread:          botConfig.ProfitSpread,
+				OrderQuantity:         botConfig.OrderQuantity,
+				TotalAllocatedCapital: botConfig.TotalAllocatedCapital,
+				Strategies:            convertStrategies(botConfig.Strategies),
+				BuyWindowSize:         botConfig.BuyWindowSize,
+				CreatedAt:             botConfig.CreatedAt,
+				HedgeGroupName:        web.FindGroupNameByBotID(cfg, runtimeBotID),
+				Direction:             botConfig.GetDirection(),
+				Testnet:               testnet,
 			},
-			Config: &br.Config,
+			Config: &botConfig,
 		}
-		for _, strategy := range br.Config.Strategies {
+		for _, strategy := range botConfig.Strategies {
 			if strategy.Type == "grid" {
 				if leverage, ok := strategy.Config["leverage"].(float64); ok {
 					resp.Leverage = leverage
@@ -252,7 +298,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 		}
 		attachBotRiskFields(br.Inner, &resp.BotResponse)
 		attachFundingCarryRuntimeStatus(br.Inner, &resp.BotResponse)
-		attachBotLastStartFailure(botMgr, &resp.BotResponse)
+		attachBotControllerStatus(botMgr, &resp.BotResponse)
 		return resp, true
 	}
 	if cfg == nil {
@@ -301,7 +347,7 @@ func (a *botManagerProviderAdapter) GetBot(botID string) (*web.BotDetailResponse
 					break
 				}
 			}
-			attachBotLastStartFailure(botMgr, &resp.BotResponse)
+			attachBotControllerStatus(botMgr, &resp.BotResponse)
 			return resp, true
 		}
 	}
@@ -350,6 +396,10 @@ func (a *botManagerProviderAdapter) WithBotConfigurationLock(botID string, persi
 
 func (a *botManagerProviderAdapter) WithBotStrategyConfigurationLock(botID string, persist func(bool) error) error {
 	return a.manager.GetBotManager().WithBotStrategyConfigurationLock(botID, persist)
+}
+
+func (a *botManagerProviderAdapter) WithBotStrategyConfigurationContext(ctx context.Context, botID string, persist func(bool) error) error {
+	return a.manager.GetBotManager().WithBotStrategyConfigurationContext(ctx, botID, persist)
 }
 
 func (a *botManagerProviderAdapter) EnableBot(botID string) error {

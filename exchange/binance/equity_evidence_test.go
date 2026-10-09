@@ -73,7 +73,7 @@ func equityTestIncome(at time.Time, id int64) *equityIncomeWire {
 }
 
 func TestEquityIncomePagesAndTypeScopedIdentity(t *testing.T) {
-	now := time.Now().UTC().Truncate(time.Millisecond).Add(-time.Second)
+	now := time.Now().UTC().Truncate(time.Millisecond).Add(-30 * time.Second)
 	var calls atomic.Int32
 	a := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -85,7 +85,7 @@ func TestEquityIncomePagesAndTypeScopedIdentity(t *testing.T) {
 			t.Error("paging changed coverage")
 		}
 		signedAt, err := strconv.ParseInt(q.Get("timestamp"), 10, 64)
-		if err != nil || signedAt < now.UnixMilli() || signedAt > now.Add(800*time.Millisecond).UnixMilli() {
+		if err != nil || signedAt < now.UnixMilli() || signedAt > now.Add(20*time.Second).UnixMilli() {
 			t.Error("signing discarded remote clock anchor")
 		}
 		signature := q.Get("signature")

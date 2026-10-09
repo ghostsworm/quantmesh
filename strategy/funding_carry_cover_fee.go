@@ -24,12 +24,13 @@ func validateFundingCarryCoverFee(fill *exchange.OrderFill, base string) error {
 			if fill.Commission != 0 {
 				return fmt.Errorf("margin cover positive fee has zero quote value")
 			}
-			expected = 0
 		} else {
 			if fill.CommissionQuoteRate <= 0 {
 				return fmt.Errorf("margin cover base fee conversion has no positive rate")
 			}
-			expected = fill.CommissionQuote / fill.CommissionQuoteRate
+			if !fundingCarryFinancialAmountsMatch(fill.CommissionQuote/fill.CommissionQuoteRate, expected) {
+				return fmt.Errorf("margin cover quote fee disagrees with raw base commission")
+			}
 		}
 	}
 	if !fundingCarryFinancialAmountsMatch(fill.BaseFeeQty, expected) {

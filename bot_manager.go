@@ -27,21 +27,40 @@ import (
 
 // BotRuntime 代表單個 Bot 的運行時，封裝 SymbolRuntime 實現 Bot 級別的邏輯隔離
 type BotRuntime struct {
-	Config               config.BotConfig
-	BotID                string
-	Inner                *SymbolRuntime
-	EventBus             *event.EventBus
-	configMu             sync.RWMutex // 保護 Config 的並發訪問
-	pauseTransitionMu    sync.Mutex
-	autoResumeGeneration uint64
+	Config                    config.BotConfig
+	BotID                     string
+	Inner                     *SymbolRuntime
+	EventBus                  *event.EventBus
+	configMu                  sync.RWMutex      // 保護 Config 的並發訪問
+	conflictScope             *config.BotConfig // immutable after registration; guarded by manager runtimesMu
+	strategySnapshotReady     bool              // protected by configMu; do not rewrite published strategy references on repeated registration
+	pauseTransitionMu         sync.Mutex
+	autoResumeGeneration      uint64
+	stopTransitionInProgress  atomic.Bool // lifecycle callback is active; distinct from durable-write failure
+	stopPersistencePending    atomic.Bool
+	stopOwnershipPending      atomic.Bool       // financial stop completed; ownership release still unverified
+	stopDrainPending          atomic.Bool       // producers/submissions not yet drained; financial outcomes not certified
+	stopVerificationPending   atomic.Bool       // stopped financial phase requires read-only final verification
+	stopCleanupPending        atomic.Bool       // stopped runtime still owns unconfirmed stream cleanup
+	stopReconciliationPending atomic.Bool       // generic stop failure requires reconciliation, not financial replay
+	stopIntent                *storage.BotState // guarded by the owning Bot lifecycle mutex
+	stopJournalOperation      string            // guarded by the owning Bot lifecycle mutex
+	stopJournalMode           string            // guarded by the owning Bot lifecycle mutex
+	stopJournalFile           string            // stable for the admitted stop operation
+	shutdownCallbackCompleted atomic.Bool       // set after StopAll's financial shutdown verifies
 }
 
 const equityDataUnavailableBlock = "equity_data_unverified"
 
-// botStartFailure 記錄異步啟動失敗原因（供 Web API 與前端輪詢展示）
+func (br *BotRuntime) stopTransitionPending() bool {
+	return br.stopTransitionInProgress.Load() || br.stopPersistencePending.Load() || br.stopOwnershipPending.Load() || br.stopDrainPending.Load() || br.stopVerificationPending.Load() || br.stopCleanupPending.Load() || br.stopReconciliationPending.Load()
+}
+
+const botStartFailureCode = "bot_start_failed_diagnostic_withheld"
+
+// botStartFailure 只保留可安全提供給 Web API 的錯誤碼，不保存底層錯誤文本。
 type botStartFailure struct {
-	Message string
-	At      time.Time
+	At time.Time
 }
 
 // BotManager 管理多個 BotRuntime，按 BotID 進行生命週期管理
@@ -51,8 +70,13 @@ type BotManager struct {
 	equityConfigRefreshMu        sync.Mutex
 	equityScopeMu                sync.RWMutex
 	equityScope                  equityScopeSnapshot
+	equityScopeChangeHandler     func(func())
+	retiredEquityAccounts        *retiredEquityAccountsStore
+	equityResetterMu             sync.RWMutex
+	equityBaselineResetter       equityBaselineResetter
 	cfg                          *config.Config
 	runtimes                     map[string]*BotRuntime
+	pendingStarts                map[string]config.BotConfig // protected by runtimesMu; admitted initialization scopes
 	runtimesMu                   sync.RWMutex
 	botLifecycleLocksMu          sync.Mutex
 	botLifecycleLocks            map[string]*sync.Mutex
@@ -67,10 +91,24 @@ type BotManager struct {
 	storageService               *storage.StorageService
 	distributedLock              lock.DistributedLock
 	feeRateFetcher               func(*config.Config, string, string) (float64, float64, error)
-	botStatesFileOverride        string // 測試用，空時用默認 ./data/bot_states.json
+	botStatesFileOverride        string             // 測試用，空時用默認 ./data/bot_states.json
+	stopJournalDirectorySync     func(string) error // optional filesystem fault injection for journal durability tests
+	stopRecovery                 func(context.Context, *botStopJournal) error
+	stopRecoveryMu               sync.Mutex
+	stopRecoveryLeases           map[string][]*runtimeOwnershipLease
 	startFailMu                  sync.RWMutex
 	startFail                    map[string]botStartFailure
 	primaryYAMLPath              string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
+}
+
+// SetDurableStopRecovery installs the explicit stopped-runtime reconciliation
+// path. It is invoked only for an incomplete durable stop journal after the
+// Bot runtime is absent; the default remains fail-closed.
+func (bm *BotManager) SetDurableStopRecovery(recover func(context.Context, *botStopJournal) error) {
+	if bm == nil {
+		return
+	}
+	bm.stopRecovery = recover
 }
 
 // NewBotManager 創建 Bot 管理器。primaryYAMLPath 為啟動時傳入的主 YAML 路徑（無則傳空），用於與 app_config 一致的刷新順序。
@@ -88,11 +126,16 @@ func NewBotManager(cfg *config.Config, eventBus *event.EventBus, storageService 
 		startFail:         make(map[string]botStartFailure),
 		primaryYAMLPath:   strings.TrimSpace(primaryYAMLPath),
 	}
+	if storageService != nil {
+		if backend, ok := storageService.GetStorage().(riskCheckpointBackend); ok {
+			bm.retiredEquityAccounts = newRetiredEquityAccountsStore(backend)
+		}
+	}
 	bm.updateEquityScopeConfig(cfg)
 	return bm
 }
 
-func (bm *BotManager) lockBotLifecycle(botID string) func() {
+func (bm *BotManager) botLifecycleMutex(botID string) *sync.Mutex {
 	bm.botLifecycleLocksMu.Lock()
 	if bm.botLifecycleLocks == nil {
 		bm.botLifecycleLocks = make(map[string]*sync.Mutex)
@@ -103,6 +146,11 @@ func (bm *BotManager) lockBotLifecycle(botID string) func() {
 		bm.botLifecycleLocks[botID] = mu
 	}
 	bm.botLifecycleLocksMu.Unlock()
+	return mu
+}
+
+func (bm *BotManager) lockBotLifecycle(botID string) func() {
+	mu := bm.botLifecycleMutex(botID)
 	mu.Lock()
 	return mu.Unlock
 }
@@ -128,19 +176,52 @@ func (bm *BotManager) SetOpeningPauseCoordinator(coordinator *risk.OpeningPauseC
 	bm.openingPauseCoordinatorMu.Unlock()
 }
 
+// SetEquityScopeChangeHandler invalidates equity-derived risk evidence before
+// a changed account scope becomes visible to readers. It must not perform
+// exchange or storage I/O; callers install it during startup.
+func (bm *BotManager) SetEquityScopeChangeHandler(handler func(func())) {
+	if bm == nil {
+		return
+	}
+	bm.equityConfigRefreshMu.Lock()
+	bm.equityScopeChangeHandler = handler
+	bm.equityConfigRefreshMu.Unlock()
+}
+
+func (bm *BotManager) SetEquityBaselineResetter(resetter equityBaselineResetter) {
+	if bm == nil {
+		return
+	}
+	bm.equityResetterMu.Lock()
+	bm.equityBaselineResetter = resetter
+	bm.equityResetterMu.Unlock()
+}
+
 func (bm *BotManager) updateEquityScopeConfig(cfg *config.Config) {
 	if bm == nil {
 		return
 	}
 	snapshot := buildEquityScopeSnapshot(cfg)
-	bm.equityScopeMu.Lock()
+	bm.equityScopeMu.RLock()
 	previous := bm.equityScope
+	bm.equityScopeMu.RUnlock()
 	snapshot.revision = previous.revision
-	if snapshot.configured != previous.configured || snapshot.scope != previous.scope || snapshot.err != previous.err || !sameEquityAccountEvidenceConfigs(snapshot.accounts, previous.accounts) {
+	changed := snapshot.configured != previous.configured || snapshot.scope != previous.scope || snapshot.err != previous.err || !sameEquityAccountEvidenceConfigs(snapshot.accounts, previous.accounts)
+	if changed {
 		snapshot.revision++
 	}
-	bm.equityScope = snapshot
-	bm.equityScopeMu.Unlock()
+	publish := func() {
+		bm.equityScopeMu.Lock()
+		bm.equityScope = snapshot
+		bm.equityScopeMu.Unlock()
+	}
+	if changed && bm.equityScopeChangeHandler != nil {
+		// Serialize invalidation and publication with feeder sampling so an old
+		// sample cannot be published as healthy after this scope is changed.
+		bm.equityScopeChangeHandler(publish)
+		return
+	}
+	publish()
 }
 
 func (bm *BotManager) equityScopeSnapshot() equityScopeSnapshot {
@@ -159,6 +240,68 @@ func (bm *BotManager) registerEquityScopeConfig(cfg *config.Config) {
 	bm.equityConfigRefreshMu.Lock()
 	bm.updateEquityScopeConfig(cfg)
 	bm.equityConfigRefreshMu.Unlock()
+}
+
+// PrepareEquityScopeConfig durably archives any account credentials that the
+// next configuration would retire before the caller persists that change.
+func (bm *BotManager) PrepareEquityScopeConfig(ctx context.Context, cfg *config.Config) error {
+	if bm == nil || cfg == nil {
+		return nil
+	}
+	if ctx == nil {
+		return fmt.Errorf("equity account-scope preparation requires context")
+	}
+	next := buildEquityScopeSnapshot(cfg)
+	bm.equityConfigRefreshMu.Lock()
+	defer bm.equityConfigRefreshMu.Unlock()
+	previous := bm.equityScopeSnapshot()
+	if next.err != "" && (previous.scope != next.scope || !sameEquityAccountEvidenceConfigs(previous.accounts, next.accounts)) {
+		return fmt.Errorf("cannot change equity account scope to an unsupported configuration")
+	}
+	if len(removedEquityAccounts(previous, next)) == 0 {
+		return nil
+	}
+	if bm.retiredEquityAccounts == nil {
+		return fmt.Errorf("retired account archive storage is unavailable; account-scope change rejected")
+	}
+	bm.openingPauseCoordinatorMu.RLock()
+	pauseCoordinator := bm.openingPauseCoordinator
+	bm.openingPauseCoordinatorMu.RUnlock()
+	if pauseCoordinator == nil {
+		return fmt.Errorf("opening pause coordinator is unavailable; account-scope change rejected")
+	}
+	if err := bm.retiredEquityAccounts.archiveRemoved(ctx, previous, next, time.Now()); err != nil {
+		return fmt.Errorf("account-scope change rejected because the old account could not be archived: %w", err)
+	}
+	if err := pauseCoordinator.Pause(retiredEquityAccountPauseSource, "舊帳戶須持續唯讀核驗至可明確重置", nil); err != nil {
+		return fmt.Errorf("account-scope change rejected because retired-account opening pause could not be verified: %w", err)
+	}
+	return nil
+}
+
+// RestoreRetiredEquityAccountHold re-establishes a durable opening hold before
+// any runtime starts whenever old account credentials remain under review.
+func (bm *BotManager) RestoreRetiredEquityAccountHold(ctx context.Context) error {
+	if bm == nil || ctx == nil {
+		return fmt.Errorf("retired-account startup verification requires manager and context")
+	}
+	bm.openingPauseCoordinatorMu.RLock()
+	pauseCoordinator := bm.openingPauseCoordinator
+	bm.openingPauseCoordinatorMu.RUnlock()
+	if pauseCoordinator == nil {
+		return fmt.Errorf("opening pause coordinator is unavailable")
+	}
+	if bm.retiredEquityAccounts == nil {
+		return fmt.Errorf("retired account archive storage is unavailable")
+	}
+	accounts, _, err := bm.retiredEquityAccounts.load(ctx)
+	if err != nil {
+		return err
+	}
+	if len(accounts) == 0 {
+		return nil
+	}
+	return pauseCoordinator.Pause(retiredEquityAccountPauseSource, "舊帳戶尚未完成核驗與明確重置", nil)
 }
 
 func (bm *BotManager) refreshConfigBeforeBotStart() error {
@@ -444,7 +587,8 @@ func (bm *BotManager) findConflictingRuntimeUnlocked(newBot *config.BotConfig) *
 		if br == nil {
 			continue
 		}
-		if config.BotsConflict(&br.Config, newBot) {
+		// Missing scope is not evidence that a financial runtime is unrelated.
+		if br.conflictScope == nil || config.BotsConflict(br.conflictScope, newBot) {
 			return br
 		}
 	}
@@ -460,7 +604,7 @@ func (bm *BotManager) recordStartFailure(botID string, err error) {
 	if bm.startFail == nil {
 		bm.startFail = make(map[string]botStartFailure)
 	}
-	bm.startFail[botID] = botStartFailure{Message: err.Error(), At: time.Now()}
+	bm.startFail[botID] = botStartFailure{At: time.Now()}
 }
 
 func (bm *BotManager) clearStartFailure(botID string) {
@@ -488,7 +632,7 @@ func (bm *BotManager) GetLastStartFailure(botID string) (message string, failedA
 	if !ok {
 		return "", time.Time{}, false
 	}
-	return rec.Message, rec.At, true
+	return botStartFailureCode, rec.At, true
 }
 
 // StartBot 啟動指定 Bot
@@ -497,8 +641,8 @@ func (bm *BotManager) StartBot(ctx context.Context, botCfg config.BotConfig) (*B
 }
 
 func (bm *BotManager) startBotWithValidation(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
-	if bm == nil {
-		return nil, fmt.Errorf("Bot start requires manager")
+	if bm == nil || ctx == nil {
+		return nil, fmt.Errorf("Bot start requires manager and context")
 	}
 	botID := config.BotIDOrGenerate(botCfg)
 	// A runtime remains registered while its stop callback drains and verifies
@@ -506,29 +650,58 @@ func (bm *BotManager) startBotWithValidation(ctx context.Context, botCfg config.
 	// idempotent no-op instead of waiting on the lifecycle lock (which the stop
 	// callback may itself need to let go of external synchronization).
 	bm.runtimesMu.RLock()
-	_, alreadyRunning := bm.runtimes[botID]
+	existing := bm.runtimes[botID]
 	bm.runtimesMu.RUnlock()
-	if alreadyRunning {
+	if existing != nil && existing.stopTransitionPending() {
+		if existing.stopTransitionInProgress.Load() {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("Bot stop persistence is pending")
+	}
+	if existing != nil {
 		return nil, nil
 	}
-	unlockLifecycle := bm.lockBotLifecycle(botID)
-	defer unlockLifecycle()
-	finishTransition, err := bm.runtimeAdmissions.Begin()
-	if err != nil {
-		return nil, fmt.Errorf("process shutdown rejects Bot start: %w", err)
-	}
-	defer finishTransition()
-	bm.startConfigValidatorMu.RLock()
-	configuredValidator := bm.startConfigValidator
-	bm.startConfigValidatorMu.RUnlock()
-	if configuredValidator != nil {
-		if err := configuredValidator(botCfg); err != nil {
-			startErr := fmt.Errorf("validate Bot configuration before start: %w", err)
-			bm.recordStartFailure(botID, startErr)
-			return nil, startErr
+	var runtime *BotRuntime
+	err := bm.WithBotStrategyConfigurationContext(ctx, botID, func(managed bool) error {
+		if managed {
+			br, _ := bm.Get(botID)
+			if br != nil && br.stopTransitionPending() {
+				if br.stopTransitionInProgress.Load() {
+					return nil
+				}
+				return fmt.Errorf("Bot stop persistence is pending")
+			}
+			return nil
 		}
-	}
-	return bm.startBotUnderTransition(ctx, botCfg)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		unlockJournal, err := bm.lockStopJournal(ctx, botID)
+		if err != nil {
+			return err
+		}
+		defer unlockJournal()
+		if err := bm.retireCompletedShutdownIntent(botID); err != nil {
+			return err
+		}
+		bm.startConfigValidatorMu.RLock()
+		configuredValidator := bm.startConfigValidator
+		bm.startConfigValidatorMu.RUnlock()
+		if configuredValidator != nil {
+			if err := configuredValidator(botCfg); err != nil {
+				startErr := fmt.Errorf("validate Bot configuration before start: %w", err)
+				bm.recordStartFailure(botID, startErr)
+				return startErr
+			}
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var startErr error
+		runtime, startErr = bm.startBotUnderTransition(ctx, botCfg)
+		return startErr
+	})
+	return runtime, err
 }
 
 func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config.BotConfig) (*BotRuntime, error) {
@@ -567,7 +740,7 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 				"bot_id":   botID,
 				"exchange": botCfg.Exchange,
 				"symbol":   botCfg.Symbol,
-				"error":    fmt.Sprintf("Bot 在數據庫中被禁用: %s", reason),
+				"error":    botStartFailureCode,
 			},
 		})
 		err := fmt.Errorf("bot_disabled_in_database: %s", reason)
@@ -584,12 +757,25 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 				"bot_id":   botID,
 				"exchange": botCfg.Exchange,
 				"symbol":   botCfg.Symbol,
-				"error":    err.Error(),
+				"error":    botStartFailureCode,
 			},
 		})
 		return nil, err
 	}
+	finishStartup, err := bm.reserveBotStartup(botCfg)
+	if err != nil {
+		bm.recordStartFailure(botID, err)
+		return nil, err
+	}
+	defer finishStartup()
+	botCfg.Strategies = config.CloneStrategyInstances(botCfg.Strategies)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	bm.applyExchangeFeeFromAPIForBot(botCfg)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 
 	symCfg := config.BotConfigToSymbolConfig(botCfg)
 	onRequestStop := func(botID string) {
@@ -602,6 +788,7 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 	finishPauseAdmission := func() {}
 	if pauseCoordinator != nil {
 		startupPauseHolders, finishPauseAdmission = pauseCoordinator.BeginBotStart()
+		ctx = execution.WithOpeningAdmissionCheck(ctx, pauseCoordinator.OpeningAdmissionAllowed)
 	}
 	defer finishPauseAdmission()
 	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop, startupPauseHolders)
@@ -613,7 +800,7 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 				"bot_id":   botID,
 				"exchange": botCfg.Exchange,
 				"symbol":   botCfg.Symbol,
-				"error":    err.Error(),
+				"error":    botStartFailureCode,
 			},
 		})
 		bm.recordStartFailure(botID, err)
@@ -629,11 +816,14 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 		return nil, fmt.Errorf("process shutdown interrupted Bot start")
 	}
 	br := &BotRuntime{
-		Config:   botCfg,
-		BotID:    botID,
-		Inner:    rt,
-		EventBus: bm.eventBus,
+		Config:                botCfg,
+		strategySnapshotReady: true,
+		BotID:                 botID,
+		Inner:                 rt,
+		EventBus:              bm.eventBus,
 	}
+	scope := botConflictScopeSnapshot(botCfg)
+	br.conflictScope = &scope
 	bm.runtimesMu.Lock()
 	if _, ok := bm.runtimes[botID]; ok {
 		bm.runtimesMu.Unlock()
@@ -735,30 +925,71 @@ func (bm *BotManager) StopBotsAndPersistRemoval(botIDs []string, persistRemoval 
 }
 
 func (bm *BotManager) stopBotWithReason(botID, updatedBy, reason string) error {
+	unlockJournal, err := bm.lockStopJournal(context.Background(), botID)
+	if err != nil {
+		return err
+	}
+	defer unlockJournal()
 	bm.runtimesMu.Lock()
 	br, ok := bm.runtimes[botID]
 	if !ok {
 		bm.runtimesMu.Unlock()
-		return nil
+		return bm.recoverDurableStop(botID, updatedBy, reason)
 	}
 	bm.runtimesMu.Unlock()
+	br.stopTransitionInProgress.Store(true)
+	defer br.stopTransitionInProgress.Store(false)
 
-	if br.Inner != nil && br.Inner.StopWithError != nil {
+	state := br.stopIntent
+	if state == nil {
+		state = &storage.BotState{BotID: botID, Enabled: false, UpdatedAt: time.Now(), UpdatedBy: updatedBy, Reason: reason}
+	}
+	if err := bm.beginDurableStop(br, state); err != nil {
+		blockRuntimeOpeningForUnverifiedStop(br)
+		return fmt.Errorf("persist Bot stop intent before shutdown: %w", err)
+	}
+	if br.stopIntent == nil && br.Inner != nil && br.Inner.StopWithError != nil && !br.shutdownCallbackCompleted.Load() {
 		if stopErr := br.Inner.StopWithError(); stopErr != nil {
-			br.Inner.markShutdownCloseUnverified(stopErr.Error())
-			if br.Inner.OpeningGate != nil {
-				br.Inner.OpeningGate.Block("strategy_stop_unverified")
-			}
+			classifyRuntimeStopFailure(br, stopErr)
 			if bm.runtimeAdmissions.Blocked() {
 				bm.shutdownTransitionUnverified.Store(true)
 			}
 			return fmt.Errorf("stop Bot %s safely: %w", botID, stopErr)
 		}
-	} else if br.Inner != nil && br.Inner.Stop != nil {
+	} else if br.stopIntent == nil && br.Inner != nil && br.Inner.Stop != nil && !br.shutdownCallbackCompleted.Load() {
 		br.Inner.Stop()
-		if bm.runtimeAdmissions.Blocked() && br.Inner.shutdownCloseUnverifiedReason() != "" {
-			bm.shutdownTransitionUnverified.Store(true)
+		if br.Inner.shutdownCloseUnverifiedReason() != "" {
+			if bm.runtimeAdmissions.Blocked() {
+				bm.shutdownTransitionUnverified.Store(true)
+			}
+			return fmt.Errorf("legacy Bot stop remains unverified")
 		}
+	}
+	if br.stopIntent == nil {
+		br.stopIntent = state
+		br.stopPersistencePending.Store(true)
+		if br.Inner != nil {
+			br.Inner.controllerStopCompleted.Store(true)
+		}
+	}
+	var stopClaims []storage.AccountWalletCapitalClaim
+	if br.Inner != nil {
+		stopClaims = br.Inner.capitalReservationClaims
+	}
+	journal := &botStopJournal{
+		State: br.stopIntent, Operation: br.stopJournalOperation, Mode: botStopJournalModeDisable, Complete: true,
+		CapitalClaims: durableStopClaims(stopClaims), Path: br.stopJournalFile,
+	}
+	if err := bm.writeStopJournal(journal, false); err != nil {
+		return fmt.Errorf("persist verified Bot stop intent: %w", err)
+	}
+	// Keep registration while durable intent is unconfirmed. Retrying this
+	// transition must never repeat the completed financial shutdown callback.
+	if err := bm.saveBotStateToDB(botID, false, br.stopIntent.UpdatedBy, br.stopIntent.Reason); err != nil {
+		return fmt.Errorf("persist Bot stop state: %w", err)
+	}
+	if err := bm.retireStopJournal(journal); err != nil {
+		return fmt.Errorf("retire durable Bot stop intent: %w", err)
 	}
 	unregisterWebSymbolProvidersForRuntime(&br.Config)
 	// Keep the owner registered until its stop/close has finished. Otherwise a
@@ -768,9 +999,6 @@ func (bm *BotManager) stopBotWithReason(botID, updatedBy, reason string) error {
 		delete(bm.runtimes, botID)
 	}
 	bm.runtimesMu.Unlock()
-
-	// 🔥 保存停止狀態到數據庫（持久化，重啟後仍然有效）
-	bm.saveBotStateToDB(botID, false, updatedBy, reason)
 
 	// 发布停止事件
 	bm.eventBus.Publish(&event.Event{
@@ -792,10 +1020,42 @@ func (bm *BotManager) stopBotWithReason(botID, updatedBy, reason string) error {
 // 注意：這只是從數據庫移除禁用標記，不會立即啟動 Bot
 // Bot 需要通過 StartBot 方法或在配置文件中 enabled=true 才會啟動
 func (bm *BotManager) EnableBot(botID string) error {
-	// 🔥 從數據庫中刪除禁用記錄（或設置為 enabled=true）
-	bm.saveBotStateToDB(botID, true, "web_ui", "用戶通過 Web UI 啟用")
-
-	logger.Info("✅ [%s] Bot 已在數據庫中標記為啟用，可以通過 StartBot 方法啟動", botID)
+	if bm == nil || botID == "" {
+		return fmt.Errorf("Bot enable requires manager and identity")
+	}
+	unlock := bm.lockBotLifecycle(botID)
+	defer unlock()
+	unlockJournal, err := bm.lockStopJournal(context.Background(), botID)
+	if err != nil {
+		return err
+	}
+	defer unlockJournal()
+	if journal, err := bm.readStopJournal(botID); err != nil {
+		return fmt.Errorf("durable Bot stop intent requires reconciliation before enable: %w", err)
+	} else if journal != nil {
+		if err := bm.retireCompletedShutdownIntent(botID); err != nil {
+			return fmt.Errorf("durable Bot stop intent requires reconciliation before enable: %w", err)
+		}
+	}
+	if br, ok := bm.Get(botID); ok && br.stopTransitionPending() {
+		return fmt.Errorf("Bot stop persistence is pending")
+	}
+	state := &storage.BotState{BotID: botID, Enabled: true, UpdatedAt: time.Now(), UpdatedBy: "web_ui", Reason: "用戶通過 Web UI 啟用"}
+	if bm.storageService != nil {
+		if store := bm.storageService.GetStorage(); store != nil {
+			// Start reads the primary store when available. A file fallback cannot
+			// establish enablement if the authoritative database write failed.
+			if err := store.SetBotState(state); err != nil {
+				return fmt.Errorf("persist Bot enable state: %w", err)
+			}
+			logger.Info("✅ [%s] Bot 已在數據庫中標記為啟用", botID)
+			return nil
+		}
+	}
+	if err := bm.saveBotStateToFile(state); err != nil {
+		return fmt.Errorf("persist fallback Bot enable state: %w", err)
+	}
+	logger.Info("✅ [%s] Bot 已在回退文件中標記為啟用", botID)
 	return nil
 }
 
@@ -838,7 +1098,19 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 	if br == nil || br.BotID == "" {
 		return
 	}
+	// Snapshot before taking the manager lock; hot callbacks can inspect the
+	// manager while holding configMu, so never nest configMu below runtimesMu.
+	br.configMu.Lock()
+	if !br.strategySnapshotReady {
+		br.Config.Strategies = config.CloneStrategyInstances(br.Config.Strategies)
+		br.strategySnapshotReady = true
+	}
+	scope := botConflictScopeSnapshot(br.Config)
+	br.configMu.Unlock()
 	bm.runtimesMu.Lock()
+	if existing := bm.runtimes[br.BotID]; existing != br || br.conflictScope == nil {
+		br.conflictScope = &scope
+	}
 	if bm.groupLegAlerted == nil {
 		bm.groupLegAlerted = make(map[string]bool)
 	}
@@ -847,8 +1119,8 @@ func (bm *BotManager) AddRuntime(br *BotRuntime) {
 	bm.checkGroupLegConsistencyForBot(br.BotID)
 }
 
-// StopAll stops every Bot and retains any specialized runtime whose stop did
-// not prove that strategy-owned exposure was safely closed.
+// StopAll journals each runtime shutdown before financial callbacks. A clean
+// shutdown preserves the Bot's enabled state; interrupted stops block restart.
 func (bm *BotManager) StopAll() error {
 	finishTransition, err := bm.runtimeAdmissions.Begin()
 	if err != nil {
@@ -862,24 +1134,9 @@ func (bm *BotManager) StopAll() error {
 		if br == nil {
 			continue
 		}
-		if br.Inner != nil && br.Inner.StopWithError != nil {
-			if err := br.Inner.StopWithError(); err != nil {
-				br.Inner.markShutdownCloseUnverified(err.Error())
-				if br.Inner.OpeningGate != nil {
-					br.Inner.OpeningGate.Block("strategy_stop_unverified")
-				}
-				stopErrors = append(stopErrors, fmt.Errorf("stop Bot %s safely: %w", br.BotID, err))
-				continue
-			}
-		} else if br.Inner != nil && br.Inner.Stop != nil {
-			br.Inner.Stop()
+		if err := bm.stopAllRuntimeWithLifecycle(br); err != nil {
+			stopErrors = append(stopErrors, err)
 		}
-		unregisterWebSymbolProvidersForRuntime(&br.Config)
-		bm.runtimesMu.Lock()
-		if bm.runtimes[br.BotID] == br {
-			delete(bm.runtimes, br.BotID)
-		}
-		bm.runtimesMu.Unlock()
 	}
 	if len(stopErrors) == 0 {
 		bm.runtimesMu.Lock()
@@ -1159,14 +1416,14 @@ func (br *BotRuntime) ClosePositions(ctx context.Context, cfg config.ClosePositi
 func (br *BotRuntime) planClosePosition(ctx context.Context, ratio float64) (*position.ClosePlan, error) {
 	spm := br.Inner.SuperPositionManager
 	ex := br.Inner.Exchange
-	symbol := br.Config.Symbol
+	symbol, marketType := br.closePositionScopeSnapshot()
 
 	botNet, netVerified := spm.GetNetPositionQtyVerified()
 	if !netVerified {
 		return nil, fmt.Errorf("local Bot position quantity is not finite or cannot be verified")
 	}
 
-	if config.IsSpotMarketType(br.Config.MarketType) {
+	if config.IsSpotMarketType(marketType) {
 		// 現貨無合約持倉概念，按本地槽位計算
 		return position.PlanCloseOrder(botNet, 0, false, ratio, ex.GetQuantityDecimals())
 	}
@@ -1192,6 +1449,12 @@ func (br *BotRuntime) planClosePosition(ctx context.Context, ratio float64) (*po
 	}
 
 	return position.PlanCloseOrder(botNet, exchangeNet, hasExchange, ratio, ex.GetQuantityDecimals())
+}
+
+func (br *BotRuntime) closePositionScopeSnapshot() (string, string) {
+	br.configMu.RLock()
+	defer br.configMu.RUnlock()
+	return br.Config.Symbol, br.Config.GetMarketType()
 }
 
 // GetCloseRecords 獲取平倉記錄
@@ -1954,6 +2217,13 @@ func (bm *BotManager) IsBotEnabledInDB(botID string) (bool, string) {
 // 若存儲不可用或查詢失敗，嘗試從文件 fallback 讀取（與 saveBotStateToDB 的寫入邏輯對應）
 // 若文件也無記錄，保守返回 (false, reason)，避免已停止的 Bot 重啟後自動運行
 func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
+	journal, journalErr := bm.readStopJournal(botID)
+	if journalErr != nil {
+		return false, "durable_stop_intent_unresolved"
+	}
+	if journal != nil && (journal.Mode != botStopJournalModeShutdown || !journal.Complete) {
+		return false, "durable_stop_intent_unresolved"
+	}
 	if bm.storageService == nil {
 		// 存儲未初始化時，與 store==nil 一樣嘗試文件 fallback
 		// 否則 EnableBot 寫入文件後，StartBot 仍會因不讀文件而拒絕啟動
@@ -1989,7 +2259,7 @@ func (bm *BotManager) isBotEnabledInDB(botID string) (bool, string) {
 }
 
 // saveBotStateToDB 保存 Bot 啟停狀態到數據庫（存儲不可用時 fallback 到文件）
-func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, reason string) {
+func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, reason string) error {
 	state := &storage.BotState{
 		BotID:     botID,
 		Enabled:   enabled,
@@ -2002,20 +2272,23 @@ func (bm *BotManager) saveBotStateToDB(botID string, enabled bool, updatedBy, re
 		store := bm.storageService.GetStorage()
 		if store != nil {
 			if err := store.SetBotState(state); err != nil {
-				logger.Error("保存 Bot 狀態失敗: %v", err)
+				// Startup reads the primary when available. A fallback cannot
+				// prove that its enabled flag has been durably disabled there.
+				return fmt.Errorf("persist primary Bot state: %w", err)
 			} else {
 				logger.Info("✅ [%s] Bot 狀態已保存到數據庫: enabled=%v, reason=%s", botID, enabled, reason)
-				return
+				return nil
 			}
 		}
 	}
 
 	// 存儲不可用時 fallback 到文件，確保停止狀態能持久化
 	if err := bm.saveBotStateToFile(state); err != nil {
-		logger.Error("保存 Bot 狀態到文件失敗: %v", err)
+		return fmt.Errorf("persist fallback Bot state: %w", err)
 	} else {
 		logger.Info("✅ [%s] Bot 狀態已保存到文件: enabled=%v, reason=%s", botID, enabled, reason)
 	}
+	return nil
 }
 
 // botStatesFilePath 返回 bot_states 文件路徑
@@ -2091,33 +2364,4 @@ func (bm *BotManager) getStoppedAtFromFile(botID string) (string, bool) {
 		return "", false
 	}
 	return s.UpdatedAt, true
-}
-
-// saveBotStateToFile 保存 Bot 狀態到文件（存儲不可用時的 fallback）
-func (bm *BotManager) saveBotStateToFile(state *storage.BotState) error {
-	path := bm.botStatesFilePath()
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	m := make(map[string]struct {
-		Enabled   bool   `json:"enabled"`
-		UpdatedAt string `json:"updated_at"`
-		UpdatedBy string `json:"updated_by"`
-		Reason    string `json:"reason"`
-	})
-	if data, err := os.ReadFile(path); err == nil {
-		_ = json.Unmarshal(data, &m)
-	}
-	m[state.BotID] = struct {
-		Enabled   bool   `json:"enabled"`
-		UpdatedAt string `json:"updated_at"`
-		UpdatedBy string `json:"updated_by"`
-		Reason    string `json:"reason"`
-	}{state.Enabled, state.UpdatedAt.Format(time.RFC3339), state.UpdatedBy, state.Reason}
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0644)
 }

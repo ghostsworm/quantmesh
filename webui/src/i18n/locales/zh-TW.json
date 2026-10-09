@@ -146,6 +146,7 @@
     "stop": "停止",
     "startSuccess": "Bot 已啟動",
     "startFailed": "啟動 Bot 失敗",
+    "startFailedSafeDescription": "啟動未完成。基於安全考量，底層交易所診斷不會透過 Bot 狀態介面顯示。",
     "starting": "Bot 正在啟動…",
     "startPending": "啟動可能需要較長時間，請刷新列表查看",
     "stopSuccess": "Bot 已停止",
@@ -182,7 +183,8 @@
     "bot_symbol_conflict": "該交易對已存在 Bot，同一交易對不能運行多個 Bot。",
     "bot_symbol_used_by_hedge_group": "該交易對已被對沖組「{{groupName}}」佔用，請先刪除對沖組再創建獨立 Bot。",
     "bot_in_hedge_group_cannot_delete": "該 Bot 屬於對沖組「{{groupName}}」，請先刪除對沖組。",
-    "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。"
+    "bot_symbol_running": "该交易对已有 Bot（{{botId}}）在运行，请先停止或删除后再创建新 Bot。同一交易对同一时刻只能有一个 Bot 运行。",
+    "bot_start_failed_diagnostic_withheld": "Bot 啟動失敗；為保護敏感資訊，詳細診斷不會透過此介面返回。"
   },
   "botCreate": {
     "title": "創建 Bot",
@@ -273,6 +275,7 @@
     "tabBacktest": "回測",
     "tabLogs": "實時日誌",
     "lastStartErrorTitle": "最近啟動失敗",
+    "lastStartErrorSafeDescription": "啟動未完成；請先核對設定、交易所連線及未結狀態，再決定是否重試。",
     "lastStartErrorAt": "時間：{{time}}",
     "currentPrice": "當前價格",
     "unrealizedPnl": "未實現盈虧",
@@ -1091,6 +1094,38 @@
     "saveConfigFailed": "Failed to save configuration",
     "securitySettings": "Security Settings",
     "securitySettingsDesc": "Configure data encryption and master key management to protect sensitive configuration",
+    "retiredEquity": {
+      "title": "退役帳戶與權益基線",
+      "warning": "舊帳戶憑據僅用於唯讀核驗。只有每個舊帳戶均通過重新核驗，且新帳戶完整權益帳本可用時，才可明確重置；任何不完整或不支援的市場都會繼續封鎖開倉。",
+      "adminRequired": "此面板僅供管理員使用。帳戶詳情與重置歷史由伺服器端管理員權限保護。",
+      "unavailable": "無法讀取退役帳戶狀態或重置稽核。請保留開倉暫停並檢查伺服器狀態。",
+      "loading": "正在讀取核驗狀態與稽核歷史…",
+      "noAccounts": "目前沒有待核驗的退役帳戶。",
+      "exchange": "交易所",
+      "market": "市場",
+      "status": "核驗狀態",
+      "evidence": "清零證據",
+      "evidenceCount": "{{count}} / {{required}} 次",
+      "lastObserved": "最近觀測",
+      "notAvailable": "暫無",
+      "unknownStatus": "未知狀態",
+      "statuses": {
+        "pending_verification": "待核驗 / 不完整",
+        "ready_for_explicit_reset": "符合明確重置門檻"
+      },
+      "reset": "明確重置舊帳戶與基線",
+      "resetFailedTitle": "重置未完成，封鎖仍保留",
+      "resetFailed": "伺服器未完成所有帳戶的重新唯讀核驗、目標權益核帳或持久稽核。可修復原因後由同一管理員重試；請勿手動移除開倉暫停。",
+      "pendingOperation": "待完成操作 {{id}}（發起人：{{actor}}）已保留；同一管理員可重試。",
+      "historyTitle": "已完成重置稽核（最近 10 筆）",
+      "noHistory": "目前沒有已完成的重置記錄。",
+      "baselineRevision": "基線修訂 {{revision}}",
+      "confirmTitle": "確認明確重置",
+      "confirmDescription": "此操作會清除已核實舊帳戶的加密憑據，並建立／確認目前帳戶權益基線；伺服器仍會重新查詢每個舊帳戶並驗證新帳戶完整帳本。重置不代表獲利或實盤驗收。",
+      "confirmAcknowledgement": "我已檢查帳戶狀態並確認請求明確重置；若證據不足，系統必須繼續封鎖。",
+      "cancel": "取消",
+      "confirmReset": "確認重置"
+    },
     "storageEnabled": "Enable data storage",
     "storageEnabledHint": "When off, backtest and event history will not be persisted; leaving this off can make backtest unavailable.",
     "tradingPairManagement": "Trading Pair Management",
@@ -3514,6 +3549,25 @@
     "useDefaultExchange": "Use default exchange ({{exchange}})"
   },
   "strategyViz": {
+    "fundingCarry": {
+      "reconciliationRequired": "核帳尚未完成，交易與資金釋放維持封鎖",
+      "recordedDebt": "策略帳本記錄的借款本金",
+      "recordedSpotQuantity": "策略帳本記錄的現貨數量",
+      "recordedFuturesQuantity": "策略帳本記錄的合約數量",
+      "borrowTransfer": "借款流水 ID / 時間",
+      "ledgerWarning": "以下是持久化策略帳本證據，不代表交易所目前負債、餘額、倉位或可用資產；不會據此自動平倉或還款。",
+      "reasons": {
+        "execution_reconciliation_required": "共享執行器仍有未完成的訂單經濟核帳。",
+        "startup_recovery_failed": "啟動恢復未能證明運行狀態與交易所狀態一致。",
+        "runtime_state_write_failed": "策略狀態持久化失敗或結果未能確認。",
+        "final_close_verification_pending": "平倉後的最終帳戶核驗尚未完成。",
+        "repayment_confirmation_pending": "還款結果仍待確認。",
+        "cover_order_reconciliation_pending": "買回訂單或其成交仍待核實。",
+        "exposure_unknown": "策略資產或倉位歸屬尚未核實。",
+        "financial_intent_in_flight": "存在已發起但尚未完成核帳的金融操作。",
+        "unknown": "存在未分類的核帳阻塞原因，請查閱伺服器審計記錄。"
+      }
+    },
     "grid": {
       "totalSlots": "總槽位數",
       "filled": "已填充",

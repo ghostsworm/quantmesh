@@ -10,7 +10,8 @@ import (
 )
 
 func TestFundingCarryFlatVerificationDoesNotHoldWalletWhileWaitingForOperation(t *testing.T) {
-	s, margin, _ := newFundingCarryRepayIntentFixture()
+	s, margin, store := newFundingCarryRepayIntentFixture()
+	s.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	margin.positions = nil // fixture's authoritative empty margin snapshot
 	s.direction, s.marginDebt, s.marginBorrowTransferID, s.strategySpotKnown = DirectionNone, 0, 0, true
 	if err := s.persistRuntimeStateLocked(); err != nil {

@@ -264,7 +264,7 @@ func (sm *StrategyManager) startAllContext(ctx context.Context, freeze context.C
 			freeze()
 			var rollbackErrors []error
 			if attempted {
-				if stopErr := item.strategy.Stop(); stopErr != nil {
+				if stopErr := stopFailedStrategyStartup(item.strategy, startErr); stopErr != nil {
 					logger.Error("❌ 回滚启动失败的策略 %s 时停止失败: %v", item.name, stopErr)
 					rollbackErrors = append(rollbackErrors, fmt.Errorf("stop failed strategy %s: %w", item.name, stopErr))
 				}

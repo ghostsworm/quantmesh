@@ -39,8 +39,30 @@ type SymbolManager struct {
 
 // NewSymbolManager 創建管理器（內部創建 BotManager，需傳入完整依賴）。primaryYAMLPath 為主配置 YAML 路徑（無則空），用於啟動 Bot 前與主庫同步刷新費率等。
 func NewSymbolManager(cfg *config.Config, eventBus *event.EventBus, storageService *storage.StorageService, distributedLock lock.DistributedLock, primaryYAMLPath string) *SymbolManager {
+	botManager := NewBotManager(cfg, eventBus, storageService, distributedLock, primaryYAMLPath)
+	botManager.SetDurableStopRecovery(func(ctx context.Context, journal *botStopJournal) error {
+		if journal == nil || journal.State == nil {
+			return fmt.Errorf("durable stop recovery journal is missing")
+		}
+		if err := botManager.refreshConfigBeforeBotStart(); err != nil {
+			return fmt.Errorf("refresh authoritative config before stopped Bot recovery: %w", err)
+		}
+		botManager.equityConfigRefreshMu.Lock()
+		if botManager.cfg == nil {
+			botManager.equityConfigRefreshMu.Unlock()
+			return fmt.Errorf("authoritative Bot recovery configuration is unavailable")
+		}
+		botCfg, err := botManager.resolveLatestStartConfig(config.BotConfig{ID: journal.State.BotID})
+		if err != nil {
+			botManager.equityConfigRefreshMu.Unlock()
+			return fmt.Errorf("resolve authoritative stopped Bot configuration: %w", err)
+		}
+		recoveryCfg := *botManager.cfg
+		botManager.equityConfigRefreshMu.Unlock()
+		return botManager.recoverFundingCarryStop(ctx, &recoveryCfg, botCfg, journal)
+	})
 	return &SymbolManager{
-		botManager: NewBotManager(cfg, eventBus, storageService, distributedLock, primaryYAMLPath),
+		botManager: botManager,
 	}
 }
 
@@ -81,6 +103,7 @@ type SymbolRuntime struct {
 	AccountID                string  // 账戶標识
 	AccountScope             string  // immutable non-secret digest of exchange/environment/credential identity
 	AccountMarketType        string  // immutable valuation scope; do not read mutable Config while sampling
+	accountCredentialVersion string  // single-account runtime token; never log or persist credential material
 	verifiedCapitalBudget    float64 // immutable startup-verified gross notional ceiling for this Bot
 	capitalReservationStore  storage.AccountWalletCapitalReservationStore
 	capitalReservationBotID  string
@@ -97,7 +120,8 @@ type SymbolRuntime struct {
 
 	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
 	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。
-	shutdownCloseHandled atomic.Pointer[string]
+	shutdownCloseHandled    atomic.Pointer[string]
+	controllerStopCompleted atomic.Bool // verified manager callback already drained this runtime
 	// Separate from success: an uncertain process close prevents independent
 	// close_on_stop retries even if a later position snapshot happens to be flat.
 	shutdownCloseUnverified atomic.Pointer[string]
@@ -332,6 +356,14 @@ func (sm *SymbolManager) UpdateRuntimeTradingParams(latestCfg *config.Config) (u
 
 func (sm *SymbolManager) UpdateRuntimeTradingParamsWithReport(latestCfg *config.Config) web.TradingParamsUpdateReport {
 	return sm.botManager.UpdateRuntimeTradingParamsWithReport(latestCfg)
+}
+
+func (sm *SymbolManager) UpdateRuntimeTradingParamsWithGuardedReport(latestCfg *config.Config, current func() bool) web.TradingParamsUpdateReport {
+	return sm.botManager.UpdateRuntimeTradingParamsWithGuardedReport(latestCfg, current)
+}
+
+func (sm *SymbolManager) UpdateRuntimeTradingParamsWithContext(ctx context.Context, latestCfg *config.Config, current func() bool) web.TradingParamsUpdateReport {
+	return sm.botManager.UpdateRuntimeTradingParamsWithContext(ctx, latestCfg, current)
 }
 
 // StartBot 啟動指定 Bot（委託 BotManager）
@@ -791,6 +823,7 @@ func startSymbolRuntime(
 
 	superPositionManager := position.NewSuperPositionManager(&localCfg, executorAdapter, exchangeAdapter, priceDecimals, quantityDecimals)
 	applyStartupOpeningPauseHolders(superPositionManager.OpeningGate(), startupPauseHolders)
+	superPositionManager.OpeningGate().ApplyAdmissionContext(ctx)
 	if capitalErr == nil {
 		if err := superPositionManager.SetVerifiedCapitalLimit(botCapitalBudget); err != nil {
 			return nil, fmt.Errorf("install verified Bot capital ceiling: %w", err)
@@ -1880,6 +1913,7 @@ func startSymbolRuntime(
 		AccountID:                accountID,
 		AccountScope:             equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]),
 		AccountMarketType:        symCfg.GetMarketType(),
+		accountCredentialVersion: equityAccountCredentialVersion(symCfg.Exchange, symCfg.GetMarketType(), localCfg.Exchanges[symCfg.Exchange]),
 		verifiedCapitalBudget:    botCapitalBudget,
 	}
 	ownershipRuntime.Store(rt)
@@ -1907,128 +1941,114 @@ func startSymbolRuntime(
 	// 網格自動重建同樣放在所有提前返回之後；停止時先停它，避免平倉過程中重新錨定網格
 	stopAutoRebuild := startConfiguredAutoRebuild(ctx, symCfg, superPositionManager, !config.ShouldSkipInitialGridAdjustOrders(&localCfg))
 
-	var stopOnce sync.Once
-	var stopErr error
-	stopFn := func() error {
-		stopOnce.Do(func() {
-			var stopErrors []error
-			sealRuntimeShutdown(rt)
-			if ownershipLease.Lost() {
-				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
+	stopFn := newStandardRuntimeStop(rt, ownershipLease, func() error {
+		var stopErrors []error
+		sealRuntimeShutdown(rt)
+		if ownershipLease.Lost() {
+			rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，禁止独立追加平仓")
+		}
+		stopFeeRefresh()
+		stopAutoRebuild()
+		if rt.fundingIncomeCancel != nil {
+			rt.fundingIncomeCancel()
+		}
+		if rt.capitalReservationStop != nil {
+			rt.capitalReservationStop()
+		}
+		protectiveSettled := true
+		shutdownCtx := rt.stopContext(ctx)
+		liquidationStopCtx, liquidationStopCancel := context.WithTimeout(shutdownCtx, runtimeShutdownPrepareTimeout)
+		if err := prepareRuntimeShutdown(liquidationStopCtx, rt, symCfg.CloseOnStop); err != nil {
+			protectiveSettled = false
+			rt.markShutdownCloseUnverified(err.Error())
+			stopErrors = append(stopErrors, fmt.Errorf("停止前订单/保护性平仓准备未核实: %w", err))
+			logger.ErrorCtx(ctx, "[%s] 停止時保護性平倉未核實，保留待對賬阻斷: %v", symCfg.Symbol, err)
+		}
+		liquidationStopCancel()
+		// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
+		if protectiveSettled && !ownershipLease.Lost() {
+			if err := closeOnStopForRuntime(shutdownCtx, symCfg, rt); err != nil {
+				stopErrors = append(stopErrors, err)
 			}
-			stopFeeRefresh()
-			stopAutoRebuild()
-			if rt.fundingIncomeCancel != nil {
-				rt.fundingIncomeCancel()
-			}
-			if rt.capitalReservationStop != nil {
-				rt.capitalReservationStop()
-			}
-			protectiveSettled := true
-			shutdownCtx := rt.stopContext(ctx)
-			liquidationStopCtx, liquidationStopCancel := context.WithTimeout(shutdownCtx, runtimeShutdownPrepareTimeout)
-			if err := prepareRuntimeShutdown(liquidationStopCtx, rt, symCfg.CloseOnStop); err != nil {
-				protectiveSettled = false
+		} else if ownershipLease.Lost() {
+			rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，停止时不执行独立平仓")
+			stopErrors = append(stopErrors, fmt.Errorf("Bot 运行所有权租约已丢失，停止平仓无法安全执行"))
+		}
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
+		if rt.OpeningController != nil {
+			rt.OpeningController.Stop()
+		}
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止價格監控...", symCfg.Symbol)
+		if priceMonitor != nil {
+			priceMonitor.Stop()
+		}
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止訂單流...", symCfg.Symbol)
+		ex.StopOrderStream()
+		logger.InfoCtx(ctx, "⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
+		if riskMonitor != nil {
+			riskMonitor.Stop()
+		}
+		if fundingMonitor != nil {
+			fundingMonitor.Stop()
+		}
+		if arbitrageManager != nil {
+			arbitrageManager.Stop()
+		}
+		if dynamicAdjuster != nil {
+			dynamicAdjuster.Stop()
+		}
+		if trendDetector != nil {
+			trendDetector.Stop()
+		}
+		gridRegime.stop()
+		if strategyManager != nil {
+			if err := strategyManager.StopAllWithError(); err != nil {
 				rt.markShutdownCloseUnverified(err.Error())
-				stopErrors = append(stopErrors, fmt.Errorf("停止前订单/保护性平仓准备未核实: %w", err))
-				logger.ErrorCtx(ctx, "[%s] 停止時保護性平倉未核實，保留待對賬阻斷: %v", symCfg.Symbol, err)
+				stopErrors = append(stopErrors, fmt.Errorf("策略停止未核实: %w", err))
 			}
-			liquidationStopCancel()
-			// 終止時平倉：close_on_stop=true 時按 close_on_stop_config 平倉，未配置則全平（見 runCloseOnStop）
-			if protectiveSettled && !ownershipLease.Lost() {
-				if err := closeOnStopForRuntime(shutdownCtx, symCfg, rt); err != nil {
-					stopErrors = append(stopErrors, err)
-				}
-			} else if ownershipLease.Lost() {
-				rt.markShutdownCloseUnverified("Bot 运行所有权租约丢失，停止时不执行独立平仓")
-				stopErrors = append(stopErrors, fmt.Errorf("Bot 运行所有权租约已丢失，停止平仓无法安全执行"))
-			}
-			logger.InfoCtx(ctx, "⏹️ [%s] 停止開倉控制器...", symCfg.Symbol)
-			if rt.OpeningController != nil {
-				rt.OpeningController.Stop()
-			}
-			logger.InfoCtx(ctx, "⏹️ [%s] 停止價格監控...", symCfg.Symbol)
-			if priceMonitor != nil {
-				priceMonitor.Stop()
-			}
-			logger.InfoCtx(ctx, "⏹️ [%s] 停止訂單流...", symCfg.Symbol)
-			ex.StopOrderStream()
-			logger.InfoCtx(ctx, "⏹️ [%s] 停止风控監視器...", symCfg.Symbol)
-			if riskMonitor != nil {
-				riskMonitor.Stop()
-			}
-			if fundingMonitor != nil {
-				fundingMonitor.Stop()
-			}
-			if arbitrageManager != nil {
-				arbitrageManager.Stop()
-			}
-			if dynamicAdjuster != nil {
-				dynamicAdjuster.Stop()
-			}
-			if trendDetector != nil {
-				trendDetector.Stop()
-			}
-			gridRegime.stop()
-			if strategyManager != nil {
-				if err := strategyManager.StopAllWithError(); err != nil {
-					rt.markShutdownCloseUnverified(err.Error())
-					stopErrors = append(stopErrors, fmt.Errorf("策略停止未核实: %w", err))
-				}
-			}
-			if len(rt.capitalReservationClaims) > 0 {
-				if len(stopErrors) != 0 || ownershipLease.Lost() {
-					logger.ErrorCtx(ctx, "[%s] 停止链路或运行租约未核实，保留账户钱包资金预留", botID)
-				} else {
-					capitalReleaseCtx, capitalReleaseCancel := context.WithTimeout(shutdownCtx, 20*time.Second)
-					releaseErr := verifyAndReleaseAccountWalletCapitalGuarded(capitalReleaseCtx, rt.capitalReservationStore,
-						rt.capitalReservationBotID, rt.capitalReservationClaims,
-						func(verifyCtx context.Context) error {
-							if strings.EqualFold(rt.AccountMarketType, "spot") {
-								return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
-									return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
-								})
-							}
-							if strings.EqualFold(rt.AccountMarketType, "spot_margin") {
-								return verifyStandardSpotMarginRuntimeFlat(verifyCtx, rt.Exchange, func() error {
-									return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
-								})
-							}
-							return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
-						}, func() error {
-							if ownershipLease.Lost() {
-								return errors.New("runtime ownership lease lost during flatness verification")
-							}
-							return nil
-						})
-					capitalReleaseCancel()
-					if releaseErr != nil {
-						rt.markShutdownCloseUnverified(releaseErr.Error())
-						stopErrors = append(stopErrors, fmt.Errorf("普通 Bot 资金预留未能核实释放: %w", releaseErr))
-						logger.ErrorCtx(ctx, "[%s] 资金 claim 保留，仓位/委托平仓证据不足: %v", botID, releaseErr)
-					} else {
-						logger.InfoCtx(ctx, "[%s] 期货仓位与活动委托已核实为空，账户钱包资金 claim 已释放", botID)
-					}
-				}
-			}
-			if len(stopErrors) == 0 {
-				if reason := rt.shutdownCloseUnverifiedReason(); reason != "" {
-					stopErrors = append(stopErrors, fmt.Errorf("停止状态仍需对账: %s", reason))
-				}
-			}
-			released, releaseErr := releaseRuntimeOwnershipLeaseAfterVerifiedStop(ownershipLease, stopErrors, rt.shutdownCloseUnverifiedReason())
-			if releaseErr != nil {
-				logger.WarnCtx(ctx, "[%s] 安全核实停止或释放 Bot 运行所有权租约失败: %v", botID, releaseErr)
-				stopErrors = append(stopErrors, fmt.Errorf("释放 Bot 运行所有权租约前核实失败: %w", releaseErr))
-			} else if !released {
-				logger.ErrorCtx(ctx, "[%s] 停止状态未核实；继续持有运行所有权租约，阻止其他实例接管", botID)
+		}
+		if len(rt.capitalReservationClaims) > 0 {
+			if len(stopErrors) != 0 || ownershipLease.Lost() {
+				logger.ErrorCtx(ctx, "[%s] 停止链路或运行租约未核实，保留账户钱包资金预留", botID)
 			} else {
-				logger.InfoCtx(ctx, "[%s] 停止已核实，运行所有权租约已释放", botID)
+				capitalReleaseCtx, capitalReleaseCancel := context.WithTimeout(shutdownCtx, 20*time.Second)
+				releaseErr := verifyAndReleaseAccountWalletCapitalGuarded(capitalReleaseCtx, rt.capitalReservationStore,
+					rt.capitalReservationBotID, rt.capitalReservationClaims,
+					func(verifyCtx context.Context) error {
+						if strings.EqualFold(rt.AccountMarketType, "spot") {
+							return verifyStandardSpotRuntimeFlat(verifyCtx, rt.Exchange, symCfg.Symbol, func() error {
+								return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+							})
+						}
+						if strings.EqualFold(rt.AccountMarketType, "spot_margin") {
+							return verifyStandardSpotMarginRuntimeFlat(verifyCtx, rt.Exchange, func() error {
+								return verifyStandardSpotBotInventoryFlatContext(verifyCtx, rt.SuperPositionManager, rt.StrategyManager, symCfg.Symbol)
+							})
+						}
+						return verifyStandardRuntimeFlat(verifyCtx, rt.Exchange, rt.AccountMarketType, symCfg.Symbol)
+					}, func() error {
+						if ownershipLease.Lost() {
+							return errors.New("runtime ownership lease lost during flatness verification")
+						}
+						return nil
+					})
+				capitalReleaseCancel()
+				if releaseErr != nil {
+					rt.markShutdownCloseUnverified(releaseErr.Error())
+					stopErrors = append(stopErrors, fmt.Errorf("普通 Bot 资金预留未能核实释放: %w", releaseErr))
+					logger.ErrorCtx(ctx, "[%s] 资金 claim 保留，仓位/委托平仓证据不足: %v", botID, releaseErr)
+				} else {
+					logger.InfoCtx(ctx, "[%s] 期货仓位与活动委托已核实为空，账户钱包资金 claim 已释放", botID)
+				}
 			}
-			stopErr = errors.Join(stopErrors...)
-		})
-		return stopErr
-	}
+		}
+		if len(stopErrors) == 0 {
+			if reason := rt.shutdownCloseUnverifiedReason(); reason != "" {
+				stopErrors = append(stopErrors, fmt.Errorf("停止状态仍需对账: %s", reason))
+			}
+		}
+		return errors.Join(stopErrors...)
+	})
 	rt.StopWithError = stopFn
 	rt.Stop = func() { _ = stopFn() }
 	if symCfg.GetMarketType() == "futures" && storageService != nil && storageService.GetStorage() != nil {

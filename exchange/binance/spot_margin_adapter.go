@@ -67,6 +67,28 @@ func NewBinanceSpotMarginAdapter(cfg map[string]string, symbol string) (*Binance
 	}, nil
 }
 
+// NewBinanceSpotMarginAccountEvidenceAdapter creates a REST-only adapter for
+// account-wide margin liability/order verification. It does not initialize
+// symbol metadata or user-data streams, and every mutating method is disabled.
+func NewBinanceSpotMarginAccountEvidenceAdapter(apiKey, secretKey string, useTestnet bool) (*BinanceSpotMarginAdapter, error) {
+	if strings.TrimSpace(apiKey) == "" || strings.TrimSpace(secretKey) == "" {
+		return nil, fmt.Errorf("Binance Spot Margin account evidence credentials are incomplete")
+	}
+	client := binancesdk.NewClient(apiKey, secretKey)
+	if useTestnet {
+		client.SetApiEndpoint("https://testnet.binance.vision")
+	}
+	return newBinanceSpotMarginAccountEvidenceAdapter(client, apiKey, secretKey, useTestnet), nil
+}
+
+func newBinanceSpotMarginAccountEvidenceAdapter(client *binancesdk.Client, apiKey, secretKey string, useTestnet bool) *BinanceSpotMarginAdapter {
+	spot := &BinanceSpotAdapter{
+		client: client, apiKey: apiKey, secretKey: secretKey, useTestnet: useTestnet,
+		stopEvidenceOnly: true, minAPIInterval: 200 * time.Millisecond,
+	}
+	return &BinanceSpotMarginAdapter{BinanceSpotAdapter: spot, marginClient: NewMarginClient(client)}
+}
+
 // GetName 獲取交易所名稱
 func (b *BinanceSpotMarginAdapter) GetName() string {
 	return "Binance Spot Margin"
@@ -79,6 +101,9 @@ func (b *BinanceSpotMarginAdapter) GetMarketType() string {
 
 // PlaceOrder 下單（使用 margin API）
 func (b *BinanceSpotMarginAdapter) PlaceOrder(ctx context.Context, req *OrderRequest) (*Order, error) {
+	if b.stopEvidenceOnly {
+		return nil, errStopEvidenceReadOnly
+	}
 	if req.Price <= 0 {
 		return nil, fmt.Errorf("無效的下單價格: %.8f", req.Price)
 	}
@@ -534,11 +559,17 @@ func summarizeMarginAccount(account *binancesdk.MarginAccount, quoteAsset string
 
 // GetMarginClient 獲取 margin 客戶端（借還、查最大可借）
 func (b *BinanceSpotMarginAdapter) GetMarginClient() *MarginClient {
+	if b.stopEvidenceOnly {
+		return nil
+	}
 	return b.marginClient
 }
 
 // CancelOrder 取消訂單（使用 margin API）
 func (b *BinanceSpotMarginAdapter) CancelOrder(ctx context.Context, symbol string, orderID int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	sym := symbol
 	if sym == "" {
 		sym = b.symbol
@@ -557,11 +588,17 @@ func (b *BinanceSpotMarginAdapter) CancelOrder(ctx context.Context, symbol strin
 // BatchCancelOrders 批量撤單（使用 margin API）。
 // 必須覆蓋內嵌現貨適配器的實現：那條路徑走現貨撤單接口，對槓桿訂單返回「訂單不存在」並被當作成功，訂單實際未撤。
 func (b *BinanceSpotMarginAdapter) BatchCancelOrders(ctx context.Context, symbol string, orderIDs []int64) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	return cancelOrdersSequentially(ctx, "binance spot margin", symbol, orderIDs, b.CancelOrder)
 }
 
 // CancelAllOrders 取消所有訂單（使用 margin API；無挂單時 -2011 視為成功）
 func (b *BinanceSpotMarginAdapter) CancelAllOrders(ctx context.Context, symbol string) error {
+	if b.stopEvidenceOnly {
+		return errStopEvidenceReadOnly
+	}
 	sym := symbol
 	if sym == "" {
 		sym = b.symbol
@@ -919,6 +956,9 @@ func (b *BinanceSpotMarginAdapter) GetAccountOpenOrders(ctx context.Context) ([]
 
 // Borrow 借幣
 func (b *BinanceSpotMarginAdapter) Borrow(ctx context.Context, asset string, amount float64) (int64, error) {
+	if b.stopEvidenceOnly {
+		return 0, errStopEvidenceReadOnly
+	}
 	logger.Info("📥 [Binance Spot Margin] 借幣 %s 數量 %.8f", asset, amount)
 	return b.marginClient.Borrow(ctx, asset, amount, false, "")
 }
@@ -930,6 +970,9 @@ func (b *BinanceSpotMarginAdapter) GetNextHourlyBorrowRate(ctx context.Context, 
 
 // Repay 還幣
 func (b *BinanceSpotMarginAdapter) Repay(ctx context.Context, asset string, amount float64) (int64, error) {
+	if b.stopEvidenceOnly {
+		return 0, errStopEvidenceReadOnly
+	}
 	logger.Info("📤 [Binance Spot Margin] 還幣 %s 數量 %.8f", asset, amount)
 	return b.marginClient.Repay(ctx, asset, amount, false, "")
 }

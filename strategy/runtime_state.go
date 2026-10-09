@@ -2,6 +2,11 @@ package strategy
 
 import "context"
 
+// RuntimeStateConditionalWriter updates only the exact source snapshot.
+type RuntimeStateConditionalWriter interface {
+	CompareAndSwapRuntimeState(context.Context, string, int, string, int, string) (bool, error)
+}
+
 // RuntimeStateContextReader bounds safety-critical proof reads by the caller's
 // lease/request context, without changing legacy recovery store contracts.
 type RuntimeStateContextReader interface {

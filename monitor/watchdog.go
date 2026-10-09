@@ -210,11 +210,11 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 
 	// 检查固定阈值
 	if w.cfg.Watchdog.Notifications.FixedThreshold.Enabled {
-		if checker.CheckFixedThreshold(current) {
+		if current.cpuThresholdPercent() >= w.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent {
 			if w.shouldNotify("fixed_cpu") {
 				w.sendNotification("fixed_threshold", watchdogMetricCPU, current, fmt.Sprintf(
 					"CPU占用超過阈值: %.2f%% (阈值: %.2f%%)",
-					current.CPUPercent, w.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent,
+					current.cpuThresholdPercent(), w.cfg.Watchdog.Notifications.FixedThreshold.CPUPercent,
 				))
 				w.updateNotificationTime("fixed_cpu")
 			}
@@ -248,17 +248,17 @@ func (w *Watchdog) checkThresholds(current *SystemMetrics) error {
 			w.cfg.Watchdog.Notifications.RateThreshold.CPUIncrease,
 		) {
 			if w.shouldNotify("rate_cpu") {
-				oldest := findOldestInWindow(history, current.Timestamp, w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes)
-				change := current.CPUPercent
+				oldest := findOldestCPUInWindow(history, current, w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes)
+				change := current.cpuThresholdPercent()
 				oldestCPU := 0.0
 				if oldest != nil {
-					oldestCPU = oldest.CPUPercent
-					change = current.CPUPercent - oldestCPU
+					oldestCPU = oldest.cpuThresholdPercent()
+					change = current.cpuThresholdPercent() - oldestCPU
 				}
 				w.sendNotification("rate_threshold", watchdogMetricCPU, current, fmt.Sprintf(
 					"CPU占用在%d分钟内上涨%.2f%% (從%.2f%%到%.2f%%)",
 					w.cfg.Watchdog.Notifications.RateThreshold.WindowMinutes,
-					change, oldestCPU, current.CPUPercent,
+					change, oldestCPU, current.cpuThresholdPercent(),
 				))
 				w.updateNotificationTime("rate_cpu")
 			}
@@ -329,7 +329,7 @@ const (
 func (w *Watchdog) sendNotification(alertType, metricKind string, metrics *SystemMetrics, message string) {
 	logger.Warn("🚨 [系统監控告警] %s: %s", alertType, message)
 	if metrics != nil {
-		logger.Info("📊 當前系统状態: CPU=%.2f%%, 記憶體=%.2f MB", metrics.CPUPercent, metrics.MemoryMB)
+		logger.Info("📊 當前系统状態: CPU告警口徑=%.2f%%, CPU容量占比=%.2f%%, 記憶體=%.2f MB", metrics.cpuThresholdPercent(), metrics.CPUPercent, metrics.MemoryMB)
 	}
 
 	if w.notifier == nil {
@@ -346,7 +346,11 @@ func (w *Watchdog) sendNotification(alertType, metricKind string, metrics *Syste
 		"message":    message,
 	}
 	if metrics != nil {
-		data["cpu_percent"] = fmt.Sprintf("%.2f", metrics.CPUPercent)
+		data["cpu_percent"] = fmt.Sprintf("%.2f", metrics.cpuThresholdPercent())
+		if metrics.processCPUPercent != nil {
+			data["cpu_percent_basis"] = "process_single_core_percent"
+			data["cpu_capacity_percent"] = fmt.Sprintf("%.2f", metrics.CPUPercent)
+		}
 		data["memory_mb"] = fmt.Sprintf("%.2f", metrics.MemoryMB)
 	}
 	w.notifier.Send(&event.Event{

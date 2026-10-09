@@ -11,6 +11,53 @@ import (
 	"quantmesh/web"
 )
 
+func TestBotConfigurationContextCanceledWaiterDoesNotRetainLock(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
+	unlock := bm.lockBotLifecycle("target")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	called := false
+	err := bm.WithBotStrategyConfigurationContext(ctx, "target", func(bool) error {
+		called = true
+		return nil
+	})
+	unlock()
+	if !errors.Is(err, context.Canceled) || called {
+		t.Fatalf("canceled callback ran: %v", err)
+	}
+	ctx, cancel = context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	if err := bm.WithBotStrategyConfigurationContext(ctx, "target", func(bool) error {
+		called = true
+		return nil
+	}); err != nil || !called {
+		t.Fatalf("canceled waiter retained lock: %v", err)
+	}
+}
+
+func TestBotConfigurationContextAcquiresReleasedLifecycleLock(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
+	bm.AddRuntime(&BotRuntime{BotID: "target"})
+	unlock := bm.lockBotLifecycle("target")
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		unlock()
+		close(released)
+	}()
+	called := false
+	err := bm.WithBotStrategyConfigurationContext(ctx, "target", func(managed bool) error {
+		called = managed
+		return nil
+	})
+	<-released
+	if err != nil || !called {
+		t.Fatalf("released lock did not admit managed callback: %v", err)
+	}
+}
+
 func TestBotConfigMutationSerializesAgainstStartValidation(t *testing.T) {
 	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
 	entered, allowPersist := make(chan struct{}), make(chan struct{})

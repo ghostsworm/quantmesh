@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -71,6 +72,28 @@ type fundingCarryResidualCloseExchange struct {
 	residualComponent  bool
 	afterRepaySnapshot func()
 	coverBaseFee       float64
+}
+
+// Keep the residual-debt and lease-loss injection on the authoritative path,
+// rather than inheriting mockFCExchange's independent reader which would skip
+// this fixture's overridden GetPositions and silently omit the fault.
+func (e *fundingCarryResidualCloseExchange) GetMarginLiability(ctx context.Context, asset string) (float64, float64, error) {
+	if asset != "BTC" {
+		return 0, 0, fmt.Errorf("wrong residual liability asset")
+	}
+	positions, err := e.GetPositions(ctx, "BTCUSDT")
+	if err != nil {
+		return 0, 0, err
+	}
+	var principal, interest float64
+	for _, p := range positions {
+		if p == nil || !p.MarginDebtKnown {
+			return 0, 0, fmt.Errorf("missing residual principal/interest")
+		}
+		principal += p.MarginBorrowed
+		interest += p.MarginInterest
+	}
+	return principal, interest, nil
 }
 
 func (e *fundingCarryResidualCloseExchange) GetOrderFills(ctx context.Context, symbol string, id int64) ([]*exchange.OrderFill, error) {

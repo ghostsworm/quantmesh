@@ -279,9 +279,10 @@ const Dashboard: React.FC = () => {
           duration: 5000,
         })
       } else {
+        const failure = err as Error & { errorKey?: string }
         toast({
           title: t('dashboard.operationFailed'),
-          description: err instanceof Error ? err.message : t('dashboard.unknownError'),
+          description: failure.errorKey ? t(failure.errorKey) : err instanceof Error ? err.message : t('dashboard.unknownError'),
           status: 'error',
         })
       }

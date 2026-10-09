@@ -103,6 +103,13 @@ func (oe *ExchangeOrderExecutor) CancelOwnedOpeningOrders(ctx context.Context) e
 		return errors.Join(problems...)
 	}
 	oe.openingGate.Unblock(execution.UnverifiedCancellationBlock)
+	// An earlier risk-triggered cancellation may have kept its scheduling
+	// latch after an ACK-only/UNKNOWN result. A successful managed retry proves
+	// every owned opening is terminal; clear that stale latch before rechecking
+	// the current limit so admission can recover when the risk is actually gone.
+	oe.exposureLimitMu.Lock()
+	oe.exposureCancellationPending = false
+	oe.exposureLimitMu.Unlock()
 	oe.reconcileExposureLimitBlock()
 	return nil
 }

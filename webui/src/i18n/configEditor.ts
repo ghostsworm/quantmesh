@@ -1,0 +1,23 @@
+export const configEditorResources = {
+  "sqlitePath": "./data/quantmesh.db",
+  "mysqlDsn": "user:pass@tcp(host:3306)/dbname?charset=utf8mb4&parseTime=True&loc=Local",
+  "postgresDsn": "postgresql://user:pass@host:5432/dbname?sslmode=require",
+  "symbols": "BTCUSDT, ETHUSDT",
+  "url": "URL",
+  "webhook": "https://...",
+  "smtp": "SMTP",
+  "resend": "Resend",
+  "mailgun": "Mailgun",
+  "sender": "alerts@yourdomain.com",
+  "recipient": "admin@yourdomain.com",
+  "feishu": "https://open.feishu.cn/open-apis/bot/v2/hook/...",
+  "dingtalk": "https://oapi.dingtalk.com/robot/send?access_token=...",
+  "wechat": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...",
+  "slack": "https://hooks.slack.com/services/...",
+  "1m": "1m",
+  "3m": "3m",
+  "5m": "5m",
+  "15m": "15m",
+  "30m": "30m",
+  "1h": "1h"
+}

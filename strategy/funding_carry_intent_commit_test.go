@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"quantmesh/execution"
+	"quantmesh/storage"
 )
 
 func TestFundingCarryIntentFinishRejectsLostOwner(t *testing.T) {
@@ -104,5 +105,52 @@ func TestFundingCarryIntentCancellationAndSaveFailurePreserveRecovery(t *testing
 	}
 	if s.intentInFlight || !s.unownedExposure {
 		t.Fatal("retry cleared unknown exposure or retained completed intent")
+	}
+}
+
+func TestFundingCarryFinishConfirmedCanceledCommitKeepsCommittedIntentState(t *testing.T) {
+	s, _, base := newFundingCarryReturnedPrincipalFixture(0)
+	if err := s.beginRuntimeIntent(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+
+	err := s.finishRuntimeIntent(context.Background(), true)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("finish error = %v, want confirmed canceled commit", err)
+	}
+	if s.intentInFlight || s.unownedExposure || s.runtimeStateErr != nil {
+		t.Fatalf("memory did not preserve committed finish state: intent=%v unknown=%v state_err=%v", s.intentInFlight, s.unownedExposure, s.runtimeStateErr)
+	}
+	var committed fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &committed); err != nil {
+		t.Fatal("decode durable finish checkpoint:", err)
+	}
+	if committed.IntentInFlight || committed.ExposureUnknown {
+		t.Fatalf("durable finish state remains unresolved: %+v", committed)
+	}
+}
+
+func TestFundingCarryReverseCloseCheckpointConfirmedCanceledKeepsCommittedQuantity(t *testing.T) {
+	s, _, base := newFundingCarryReturnedPrincipalFixture(0)
+	s.direction, s.intentInFlight, s.futQty = DirectionReverse, true, 0.4
+	if err := s.persistRuntimeStateLocked(); err != nil {
+		t.Fatal("persist initial reverse position:", err)
+	}
+	s.SetRuntimeStateStore(&fundingCarryConfirmedCanceledDebtStore{memoryRuntimeStateStore: base})
+
+	err := s.checkpointReverseFuturesClosed(context.Background(), 0.4)
+	if !errors.Is(err, storage.ErrFundingCarryRuntimeStateCommitConfirmedCanceled) {
+		t.Fatalf("close checkpoint error = %v, want confirmed canceled commit", err)
+	}
+	if s.futQty != 0 || s.unownedExposure || s.runtimeStateErr != nil {
+		t.Fatalf("memory did not preserve committed flat-futures checkpoint: qty=%v unknown=%v state_err=%v", s.futQty, s.unownedExposure, s.runtimeStateErr)
+	}
+	var committed fundingCarryRuntimeState
+	if err := json.Unmarshal([]byte(base.payload), &committed); err != nil {
+		t.Fatal("decode durable futures-close checkpoint:", err)
+	}
+	if committed.OwnedFutures != 0 || !committed.IntentInFlight {
+		t.Fatalf("durable futures-close checkpoint = %+v", committed)
 	}
 }

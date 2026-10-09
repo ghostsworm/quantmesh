@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc976"
+var Version = "3.111.0-rc1142"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -148,8 +148,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 				Data: map[string]interface{}{
 					"exchange": exchange,
 					"symbol":   symbol,
-					"error":    err.Error(),
-					"message":  err.Error(),
+					"error":    botStartFailureCode,
+					"message":  botStartFailureCode,
 				},
 			})
 		}
@@ -178,7 +178,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 						Type: event.EventTypeTradingStartFailed,
 						Data: map[string]interface{}{
 							"exchange": exchange, "symbol": symbol,
-							"error": err.Error(), "message": err.Error(),
+							"error": botStartFailureCode, "message": botStartFailureCode,
 						},
 					})
 				}
@@ -191,7 +191,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 						Type: event.EventTypeTradingStartFailed,
 						Data: map[string]interface{}{
 							"exchange": exchange, "symbol": symbol,
-							"error": err.Error(), "message": err.Error(),
+							"error": botStartFailureCode, "message": botStartFailureCode,
 						},
 					})
 				}
@@ -219,8 +219,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 				Data: map[string]interface{}{
 					"exchange": exchange,
 					"symbol":   symbol,
-					"error":    err.Error(),
-					"message":  err.Error(),
+					"error":    botStartFailureCode,
+					"message":  botStartFailureCode,
 				},
 			})
 		}
@@ -239,8 +239,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 					"exchange":    exchange,
 					"symbol":      symbol,
 					"market_type": marketType,
-					"error":       err.Error(),
-					"message":     err.Error(),
+					"error":       botStartFailureCode,
+					"message":     botStartFailureCode,
 				},
 			})
 		}
@@ -256,8 +256,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 				Data: map[string]interface{}{
 					"exchange": exchange,
 					"symbol":   symbol,
-					"error":    wrapped.Error(),
-					"message":  wrapped.Error(),
+					"error":    botStartFailureCode,
+					"message":  botStartFailureCode,
 				},
 			})
 		}
@@ -287,8 +287,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 				Data: map[string]interface{}{
 					"exchange": exchange,
 					"symbol":   symbol,
-					"error":    err.Error(),
-					"message":  err.Error(),
+					"error":    botStartFailureCode,
+					"message":  botStartFailureCode,
 				},
 			})
 		}
@@ -315,8 +315,8 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 			data := map[string]interface{}{
 				"exchange": exchange,
 				"symbol":   symbol,
-				"error":    wrapped.Error(),
-				"message":  wrapped.Error(),
+				"error":    botStartFailureCode,
+				"message":  botStartFailureCode,
 			}
 			if hint != "" {
 				data["hint"] = hint
@@ -356,7 +356,7 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 			Position: web.NewPositionManagerAdapter(rt.SuperPositionManager),
 			Risk:     rt.RiskMonitor,
 			Storage:  web.NewStorageServiceAdapter(a.storageService),
-		})
+		}, rt.Config.GetMarketType())
 
 		// 啟动后台 goroutine 来更新状態（Uptime、CurrentPrice 等）
 		startTime := time.Now()
@@ -424,10 +424,17 @@ func (a *symbolManagerWebAdapter) StartSymbol(exchange, symbol, requestedMarketT
 }
 
 func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
-	// 嘗試從配置中獲取 market_type，再用精確 key 查找
-	mt := a.resolveMarketType(exchange, symbol)
-	rt, ok := a.manager.Get(exchange, symbol, mt)
-	if !ok {
+	_, err := a.StopSymbolForMarket(exchange, symbol, "")
+	return err
+}
+
+func (a *symbolManagerWebAdapter) StopSymbolForMarket(exchange, symbol, requestedMarketType string) (string, error) {
+	mt, err := a.resolveStopMarketType(exchange, symbol, requestedMarketType)
+	if err != nil {
+		return "", err
+	}
+	br, ok := a.manager.GetBotManager().GetByExchangeSymbol(exchange, symbol, mt)
+	if !ok || br.Inner == nil {
 		err := fmt.Errorf("交易對 %s:%s (%s) 未运行", exchange, symbol, mt)
 		if a.eventBus != nil {
 			a.eventBus.Publish(&event.Event{
@@ -440,7 +447,7 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 				},
 			})
 		}
-		return err
+		return mt, err
 	}
 
 	// 持久化停用状態：确保重啟后不會自动再啟动（帶 market_type 精確匹配）
@@ -457,16 +464,18 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 				},
 			})
 		}
-		return wrapped
+		return mt, wrapped
 	}
 
-	// 停止运行時
-	if rt.Stop != nil {
-		rt.Stop()
+	// The manager owns verified shutdown, durable stop intent and retry. Calling
+	// rt.Stop first duplicates financial shutdown and void Remove hides failure.
+	if err := a.manager.GetBotManager().StopBot(br.BotID); err != nil {
+		if a.eventBus != nil {
+			a.eventBus.Publish(&event.Event{Type: event.EventTypeTradingStopFailed,
+				Data: map[string]interface{}{"exchange": exchange, "symbol": symbol, "message": "交易停止尚未核實"}})
+		}
+		return mt, fmt.Errorf("停止交易失败: %w", err)
 	}
-
-	// 從管理器中移除，这样下次 StartSymbol 才不會误判為"已运行"
-	a.manager.Remove(exchange, symbol, mt)
 
 	logger.Info("⏹️ [%s:%s:%s] 交易已停止", exchange, symbol, mt)
 	if a.eventBus != nil {
@@ -479,13 +488,64 @@ func (a *symbolManagerWebAdapter) StopSymbol(exchange, symbol string) error {
 			},
 		})
 	}
-	return nil
+	return mt, nil
+}
+
+func (a *symbolManagerWebAdapter) resolveStopMarketType(exchange, symbol, requested string) (string, error) {
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested != "" {
+		if !config.ValidMarketType(requested) {
+			return "", fmt.Errorf("%w: %q", web.ErrInvalidStopMarketType, requested)
+		}
+		return requested, nil
+	}
+	if a != nil && a.manager != nil {
+		runtimes := make(map[string]struct{})
+		for _, rt := range a.manager.List() {
+			if rt != nil && strings.EqualFold(rt.Config.Exchange, exchange) && strings.EqualFold(rt.Config.Symbol, symbol) {
+				runtimes[strings.ToLower(strings.TrimSpace(rt.Config.GetMarketType()))] = struct{}{}
+			}
+		}
+		if len(runtimes) == 1 {
+			for marketType := range runtimes {
+				return marketType, nil
+			}
+		}
+		if len(runtimes) > 1 {
+			return "", fmt.Errorf("%w: runtime %s:%s", web.ErrStopMarketTypeRequired, exchange, symbol)
+		}
+	}
+	configs := make([]*config.Config, 0, 2)
+	latest, latestErr := web.GetLatestConfig()
+	if latestErr == nil && latest != nil {
+		configs = append(configs, latest)
+	}
+	if a != nil && a.cfg != nil && a.cfg != latest {
+		configs = append(configs, a.cfg)
+	}
+	configured := make(map[string]struct{})
+	for _, cfg := range configs {
+		for _, candidate := range cfg.Trading.Symbols {
+			if strings.EqualFold(candidate.Exchange, exchange) && strings.EqualFold(candidate.Symbol, symbol) {
+				configured[strings.ToLower(strings.TrimSpace(candidate.GetMarketType()))] = struct{}{}
+			}
+		}
+	}
+	if len(configured) == 1 {
+		for marketType := range configured {
+			return marketType, nil
+		}
+	}
+	if len(configured) > 1 {
+		return "", fmt.Errorf("%w: configured symbol %s:%s", web.ErrStopMarketTypeRequired, exchange, symbol)
+	}
+	return "futures", nil
 }
 
 // 以下類型/函數已抽取到 main_adapters_bot.go：
 //   convertStrategies, getStrategyDisplayName,
 //   botManagerProviderAdapter, botExtendedProviderAdapter,
-//   attachBotLastStartFailure, attachBotRiskFields。
+//   attachBotControllerStatus, attachBotRiskFields。
 
 // resolveMarketType 從配置或运行時中推導 market_type
 func (a *symbolManagerWebAdapter) resolveMarketType(exchange, symbol string) string {
@@ -517,6 +577,14 @@ func (a *symbolManagerWebAdapter) UpdateTradingParamsWithReport(latestConfig *co
 	return a.manager.UpdateRuntimeTradingParamsWithReport(latestConfig)
 }
 
+func (a *symbolManagerWebAdapter) UpdateTradingParamsWithGuardedReport(latestConfig *config.Config, current func() bool) web.TradingParamsUpdateReport {
+	return a.manager.UpdateRuntimeTradingParamsWithGuardedReport(latestConfig, current)
+}
+
+func (a *symbolManagerWebAdapter) UpdateTradingParamsWithContext(ctx context.Context, latestConfig *config.Config, current func() bool) web.TradingParamsUpdateReport {
+	return a.manager.UpdateRuntimeTradingParamsWithContext(ctx, latestConfig, current)
+}
+
 // UpdateEquityScopeConfig synchronizes configured account coverage without reconfiguring live strategies.
 func (a *symbolManagerWebAdapter) UpdateEquityScopeConfig(latestConfig *config.Config) {
 	if a == nil || a.manager == nil || a.manager.botManager == nil {
@@ -525,33 +593,11 @@ func (a *symbolManagerWebAdapter) UpdateEquityScopeConfig(latestConfig *config.C
 	a.manager.botManager.registerEquityScopeConfig(latestConfig)
 }
 
-func (a *symbolManagerWebAdapter) ClosePositions(exchange, symbol string) (*web.ClosePositionsResponse, error) {
-	mt := a.resolveMarketType(exchange, symbol)
-	rt, ok := a.manager.Get(exchange, symbol, mt)
-	if !ok {
-		return nil, fmt.Errorf("交易對 %s:%s (%s) 未找到", exchange, symbol, mt)
+func (a *symbolManagerWebAdapter) PrepareEquityScopeConfig(ctx context.Context, latestConfig *config.Config) error {
+	if a == nil || a.manager == nil || a.manager.botManager == nil {
+		return fmt.Errorf("equity account-scope manager is unavailable")
 	}
-
-	// 創建上下文（带超時）
-	ctx, cancel := context.WithTimeout(a.ctx, 30*time.Second)
-	defer cancel()
-
-	// 調用平倉函數並獲取結果
-	successCount, failCount, err := a.manager.closeLegacyPositions(ctx, rt)
-	if err != nil {
-		return nil, err
-	}
-
-	message := fmt.Sprintf("平倉完成: 成功 %d, 失败 %d", successCount, failCount)
-	if successCount == 0 && failCount == 0 {
-		message = "當前没有持倉需要平倉"
-	}
-
-	return &web.ClosePositionsResponse{
-		SuccessCount: successCount,
-		FailCount:    failCount,
-		Message:      message,
-	}, nil
+	return a.manager.botManager.PrepareEquityScopeConfig(ctx, latestConfig)
 }
 
 // GetAllStrategyStatus 獲取所有策略的運行狀態
@@ -787,6 +833,7 @@ func (a *symbolManagerWebAdapter) GetAllStrategyStatusAll() ([]web.SymbolStrateg
 }
 
 func init() {
+	logger.InstallStandardLogRedaction()
 	// 配置 GC 参數
 	// 從环境变量读取 GOGC，如果没有则使用默认值 100
 	if goGC := os.Getenv("GOGC"); goGC != "" {
@@ -878,7 +925,7 @@ func main() {
 
 	logStorage, err := storage.NewLogStorage(logStoragePath)
 	if err != nil {
-		log.Printf("[WARN] 初始化日志存儲失败: %v，將继续运行但不保存日志到數據库", err)
+		log.Printf("[WARN] 初始化日志存儲失败: %s，將继续运行但不保存日志到數據库", logger.SanitizeSensitiveText(err.Error()))
 		logStorage = nil
 	} else {
 		globalLogStorage = logStorage
@@ -1147,6 +1194,9 @@ func main() {
 			if ss, ok := st.(*storage.SQLStorage); ok {
 				if err := ss.EnsureAppConfigDocumentTables(); err != nil {
 					logger.Warn("⚠️ 確保 app_config 文檔表失敗: %v", err)
+				}
+				if err := storage.ProtectAppConfigCredentials(ctx, ss); err != nil {
+					logger.Fatalf("❌ 加密主庫配置憑據失敗，拒絕以未保護的配置狀態啟動: %v", err)
 				}
 			}
 		}
@@ -1826,6 +1876,45 @@ func main() {
 		distributedLock: distributedLock,
 	}
 	web.RegisterSymbolManager(symbolManagerAdapter)
+	web.SetRetiredEquityAccountStatusReader(func(ctx context.Context) ([]web.RetiredEquityAccountStatus, error) {
+		statuses, err := symbolManager.GetBotManager().RetiredEquityAccountStatuses(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]web.RetiredEquityAccountStatus, 0, len(statuses))
+		for _, status := range statuses {
+			item := web.RetiredEquityAccountStatus{ID: status.ID, Exchange: status.Exchange, MarketType: status.MarketType,
+				AccountScope: status.AccountScope, Status: status.Status, RetiredAt: status.RetiredAt.UTC().Format(time.RFC3339Nano),
+				FlatEvidenceCount: status.FlatEvidenceCount, LastEvidenceResult: status.LastEvidenceResult}
+			if !status.LastObservedAt.IsZero() {
+				item.LastObservedAt = status.LastObservedAt.UTC().Format(time.RFC3339Nano)
+			}
+			if !status.LastFlatAt.IsZero() {
+				item.LastFlatAt = status.LastFlatAt.UTC().Format(time.RFC3339Nano)
+			}
+			out = append(out, item)
+		}
+		return out, nil
+	})
+	web.SetRetiredEquityAccountResetHistoryReader(func(ctx context.Context) ([]web.RetiredEquityAccountResetOperation, error) {
+		history, err := symbolManager.GetBotManager().RetiredEquityAccountResetHistory(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]web.RetiredEquityAccountResetOperation, 0, len(history))
+		for _, operation := range history {
+			out = append(out, web.RetiredEquityAccountResetOperation{ID: operation.ID, Actor: operation.Actor,
+				TargetScope: operation.TargetScope, StartedAt: operation.StartedAt, CompletedAt: operation.CompletedAt,
+				BaselineRevision: operation.BaselineRevision, RetiredAccountIDs: append([]string(nil), operation.RetiredAccountIDs...)})
+		}
+		return out, nil
+	})
+	web.SetRetiredEquityAccountResetter(func(ctx context.Context, actor string) (web.RetiredEquityAccountResetOperation, error) {
+		operation, err := symbolManager.GetBotManager().ResetRetiredEquityAccounts(ctx, actor, exchange.NewAccountFuturesFlatnessObserver)
+		return web.RetiredEquityAccountResetOperation{ID: operation.ID, Actor: operation.Actor, TargetScope: operation.TargetScope,
+			StartedAt: operation.StartedAt, CompletedAt: operation.CompletedAt, BaselineRevision: operation.BaselineRevision,
+			RetiredAccountIDs: append([]string(nil), operation.RetiredAccountIDs...)}, err
+	})
 	web.RegisterStrategyRuntimeProvider(symbolManagerAdapter) // 注册策略運行時提供者
 	web.RegisterBotManagerProvider(&botManagerProviderAdapter{manager: symbolManager})
 	symbolManager.GetBotManager().SetStartConfigValidator(validateBotConfigInLatestSnapshot)
@@ -1852,6 +1941,13 @@ func main() {
 	}
 	symbolManager.GetBotManager().SetOpeningPauseCoordinator(riskPauseCoordinator)
 	web.SetOpeningPauseCoordinator(riskPauseCoordinator)
+	if err := symbolManager.GetBotManager().RestoreRetiredEquityAccountHold(ctx); err != nil {
+		logger.Error("❌ 恢復舊帳戶核驗暫停失敗，所有 Bot 將保持開倉封鎖: %v", err)
+		if pauseErr := riskPauseCoordinator.Pause(retiredEquityAccountPauseSource, "舊帳戶核驗狀態無法確認，需人工核實", nil); pauseErr != nil {
+			logger.Error("❌ 持久化舊帳戶核驗暫停失敗，保留本地開倉封鎖: %v", pauseErr)
+		}
+	}
+	symbolManager.GetBotManager().StartRetiredEquityAccountVerificationLoop(ctx, exchange.NewAccountFuturesFlatnessObserver)
 	if riskPauseStore != nil {
 		botManager := symbolManager.GetBotManager()
 		riskPauseCoordinator.StartPersistentSync(ctx, func() []risk.BotController {
@@ -1929,7 +2025,7 @@ func main() {
 			}
 			br, err := symbolManager.StartBot(ctx, botCfg)
 			if err != nil {
-				logger.Error("❌ [%s] 啟动失败: %v", botID, err)
+				logStartupBotFailure(botID, err)
 				continue
 			}
 			if br != nil && br.Inner != nil && firstRuntime == nil {
@@ -1967,6 +2063,7 @@ func main() {
 				logger.Warn("⚠️ [利润提取] 首次账户权益核验未完成；建立持久核验基线前将拒绝自动/手动划转: %v", err)
 			}
 		}
+		symbolManager.GetBotManager().SetEquityBaselineResetter(withdrawalEquityFeeder)
 		getExchange := func(exchangeID string) exchange.IExchange {
 			for _, rt := range symbolManager.List() {
 				if rt != nil && rt.Exchange != nil && rt.Config.Exchange == exchangeID {
@@ -2767,7 +2864,7 @@ func main() {
 		// 🔥 停止所有交易對组件
 		for _, rt := range runtimes {
 			rt.setShutdownContext(processShutdownCtx)
-			if rt.Stop != nil {
+			if rt.Stop != nil && !rt.controllerStopCompleted.Load() {
 				rt.Stop()
 			}
 		}
@@ -2851,7 +2948,7 @@ func main() {
 	// 关闭日志存儲：等待後台協程把隊列剩餘日誌刷盤後再關閉數據庫
 	if globalLogStorage != nil {
 		if err := closeLogStorageWithTimeout(globalLogStorage.Close, logStorageCloseTimeout); err != nil {
-			log.Printf("[WARN] 关闭日志存儲失败: %v", err)
+			log.Printf("[WARN] 关闭日志存儲失败: %s", logger.SanitizeSensitiveText(err.Error()))
 		}
 	}
 

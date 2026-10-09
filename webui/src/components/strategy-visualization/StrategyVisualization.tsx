@@ -5,7 +5,9 @@ import DCAVisualization from './DCAVisualization'
 import TrendFollowingVisualization from './TrendFollowingVisualization'
 import MeanReversionVisualization from './MeanReversionVisualization'
 import GridVisualization from './GridVisualization'
+import FundingCarryVisualization from './FundingCarryVisualization'
 import type {
+  FundingCarryVisualizationData,
   DCAVisualizationData,
   GridVisualizationData,
   MeanReversionVisualizationData,
@@ -37,6 +39,12 @@ function isGridData(data: unknown): data is GridVisualizationData {
   return (isRecord(data) && Array.isArray(data.slots)) || hasNumericField(data, ['slotCount', 'filledCount', 'emptyCount'])
 }
 
+function isFundingCarryData(data: unknown): data is FundingCarryVisualizationData {
+  return isRecord(data) && data.type === 'funding_carry' &&
+    typeof data.reconciliation_required === 'boolean' &&
+    Array.isArray(data.reconciliation_reasons)
+}
+
 interface StrategyVisualizationProps {
   strategy: StrategyRuntimeStatus
   exchange?: string
@@ -59,6 +67,10 @@ const StrategyVisualization: React.FC<StrategyVisualizationProps> = ({
 
   // 根据策略类型路由到对应的可视化组件
   const strategyType = strategy.type.toLowerCase()
+
+  if (strategyType === 'funding_carry' && isFundingCarryData(strategy.visualizationData)) {
+    return <FundingCarryVisualization data={strategy.visualizationData} />
+  }
   
   if ((strategyType.includes('dca') || strategyType.includes('定投')) && isDcaData(strategy.visualizationData)) {
     return (

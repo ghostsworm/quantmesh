@@ -55,7 +55,8 @@ func TestFundingCarryFailedConstructorDoesNotMutateBaseConfiguration(t *testing.
 		newExchange: func(*config.Config, string, string, string) (exchange.IExchange, error) { return nil, failure },
 	}
 	sym := config.SymbolConfig{Exchange: "binance", Symbol: "BTCUSDT", Strategies: []config.StrategyInstance{{Type: "funding_carry", Weight: 1}}}
-	rt, err := startFundingCarrySymbolRuntimeWithDependencies(context.Background(), cfg, sym, nil, nil, lock.NewNopLock(), nil, nil, deps)
+	storageService, _ := newFundingCarryGenerationTestStorage(t)
+	rt, err := startFundingCarrySymbolRuntimeWithDependencies(context.Background(), cfg, sym, nil, storageService, lock.NewNopLock(), nil, nil, deps)
 	if rt != nil || !errors.Is(err, failure) {
 		t.Fatalf("unexpected constructor result: %v", err)
 	}

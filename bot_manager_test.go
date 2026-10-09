@@ -118,6 +118,7 @@ func TestBotManagerKeepsSpecializedRuntimeWhenSafeStopFails(t *testing.T) {
 		},
 	}
 	bm := &BotManager{runtimes: make(map[string]*BotRuntime), eventBus: bus}
+	bm.botStatesFileOverride = filepath.Join(t.TempDir(), "states.json")
 	bm.AddRuntime(runtime)
 
 	err := bm.StopBot(runtime.BotID)
@@ -157,6 +158,7 @@ func TestBotManagerRemovesSpecializedRuntimeAfterSafeStopRetry(t *testing.T) {
 		},
 	}
 	bm := &BotManager{runtimes: make(map[string]*BotRuntime), eventBus: bus}
+	bm.botStatesFileOverride = filepath.Join(t.TempDir(), "states.json")
 	bm.AddRuntime(runtime)
 	if err := bm.StopBot(runtime.BotID); !errors.Is(err, stopFailure) {
 		t.Fatalf("first StopBot error = %v, want close failure", err)
@@ -186,6 +188,7 @@ func TestBotManagerStopAllRetainsRuntimeWhenSafeStopFails(t *testing.T) {
 		},
 	}
 	bm := &BotManager{runtimes: make(map[string]*BotRuntime)}
+	bm.botStatesFileOverride = filepath.Join(t.TempDir(), "states.json")
 	bm.AddRuntime(runtime)
 
 	if err := bm.StopAll(); !errors.Is(err, stopFailure) {
@@ -212,6 +215,7 @@ func TestBotRemovalDoesNotPersistWhenSafeStopFails(t *testing.T) {
 		Inner: &SymbolRuntime{StopWithError: func() error { return stopFailure }},
 	}
 	bm := &BotManager{runtimes: make(map[string]*BotRuntime)}
+	bm.botStatesFileOverride = filepath.Join(t.TempDir(), "states.json")
 	bm.AddRuntime(runtime)
 	persisted := false
 	err := bm.StopBotsAndPersistRemoval([]string{runtime.BotID}, func() error {
@@ -720,9 +724,9 @@ func TestBotManager_LastStartFailureRoundTrip(t *testing.T) {
 	bm := NewBotManager(&config.Config{}, eb, nil, nil, "")
 	bid := "test-bot-fail"
 
-	bm.recordStartFailure(bid, errors.New("账戶餘額不足"))
+	bm.recordStartFailure(bid, errors.New("signed request failed: signature=private-token"))
 	msg, _, ok := bm.GetLastStartFailure(bid)
-	if !ok || msg != "账戶餘額不足" {
+	if !ok || msg != botStartFailureCode || strings.Contains(msg, "private-token") {
 		t.Fatalf("GetLastStartFailure: ok=%v msg=%q", ok, msg)
 	}
 

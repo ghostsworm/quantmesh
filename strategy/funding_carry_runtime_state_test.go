@@ -30,8 +30,18 @@ func TestDecodeFundingCarryRuntimeStateRequiresExactResolvedOwnership(t *testing
 		{name: "unsupported schema", version: 99, state: base, wantErr: "unsupported"},
 		{name: "wrong symbol", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState { v := base; v.Symbol = "ETHUSDT"; return v }(), wantErr: "identity"},
 		{name: "in flight intent", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState { v := base; v.IntentInFlight = true; return v }(), wantErr: "unresolved"},
+		{name: "phase without in flight intent", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState { v := base; v.IntentPhase = fundingCarryIntentPhasePrepared; return v }(), wantErr: "invalid intent phase"},
+		{name: "legacy schema cannot claim new phase", version: fundingCarryRuntimeStateVersion - 1, state: func() fundingCarryRuntimeState { v := base; v.IntentPhase = fundingCarryIntentPhasePrepared; return v }(), wantErr: "invalid intent phase"},
 		{name: "unknown exposure", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState { v := base; v.ExposureUnknown = true; return v }(), wantErr: "unresolved"},
 		{name: "flat state with residual inventory", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState { v := base; v.Direction = DirectionNone; return v }(), wantErr: "flat state"},
+		{name: "explicit standalone spot ownership", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState {
+			return fundingCarryRuntimeState{Strategy: "funding_carry", FuturesExchange: "binance", SpotExchange: "binance", Symbol: "BTCUSDT",
+				OwnershipReady: true, Direction: DirectionNone, OwnedSpot: 0.01, StandaloneSpotOwned: true}
+		}()},
+		{name: "legacy schema cannot claim standalone spot ownership", version: fundingCarryRuntimeStateVersion - 1, state: func() fundingCarryRuntimeState {
+			return fundingCarryRuntimeState{Strategy: "funding_carry", FuturesExchange: "binance", SpotExchange: "binance", Symbol: "BTCUSDT",
+				OwnershipReady: true, Direction: DirectionNone, OwnedSpot: 0.01, StandaloneSpotOwned: true}
+		}(), wantErr: "standalone spot ownership"},
 		{name: "flat state with borrow identity", version: fundingCarryRuntimeStateVersion, state: func() fundingCarryRuntimeState {
 			v := base
 			v.Direction = DirectionNone
@@ -89,7 +99,7 @@ func TestRestoreFundingCarryRuntimeStateRejectsChangedMarginAccountScope(t *test
 	spot := &mockFCExchange{}
 	futures := &mockFCExchange{}
 	strategy := NewFundingCarryStrategy("fc", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, futures, spot, &mockFCExchange{}, nil)
-	strategy.SetRuntimeStateStore(store)
+	strategy.SetRuntimeStateStore(&borrowReceiptContextStore{store})
 	if err := strategy.SetMarginAccountScope("scope-new"); err != nil {
 		t.Fatal("set configured account scope:", err)
 	}
