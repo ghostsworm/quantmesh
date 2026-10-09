@@ -365,6 +365,104 @@ func TestRuntimeExposureBootstrapSeedsOnlyExactlyReconciledRestoredFuturesInvent
 	}
 }
 
+func TestRuntimeExposureBootstrapRetriesAfterStrategyRecoverySettlesIntent(t *testing.T) {
+	venue := &runtimeJournalVenue{}
+	scope := runtimeJournalScope()
+	store, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "recovered-intent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.MigrateExecutionIntents(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+
+	writer, _ := newJournalRuntime(venue, scope)
+	if err := writer.ConfigureIntentJournal(t.Context(), store, scope); err != nil {
+		t.Fatal(err)
+	}
+	const clientOrderID = "recovered-grid-fill"
+	placed, err := writer.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 99, Quantity: 0.25,
+		ClientOrderID: clientOrderID, StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	venue.mu.Lock()
+	venue.liveOrders[placed.OrderID].Status = exchange.OrderStatusFilled
+	venue.liveOrders[placed.OrderID].ExecutedQty = 0.25
+	venue.liveOrders[placed.OrderID].AvgPrice = 99
+	venue.positions = []*exchange.Position{{Symbol: scope.Symbol, Size: 0.25, PositionSide: "LONG"}}
+	venue.mu.Unlock()
+
+	executor, gate := newJournalRuntime(venue, scope)
+	book, err := configureRuntimeExposure(executor, func() (float64, time.Time) { return 100, time.Now() })
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Trading.Symbol, cfg.Trading.MarketType, cfg.Trading.Direction, cfg.Trading.BotID = scope.Symbol, scope.Market, "LONG", scope.Bot
+	cfg.App.CurrentExchange = scope.Exchange
+	spm := position.NewSuperPositionManager(cfg, &exchangeExecutorAdapter{executor: executor}, &positionExchangeAdapter{exchange: venue}, 2, 4)
+	executor.SetOpeningGate(spm.OpeningGate(), "LONG")
+	gate = spm.OpeningGate()
+	state, err := json.Marshal(map[string]any{
+		"version": 4, "bot_id": scope.Bot, "exchange": scope.Exchange, "market_type": scope.Market,
+		"symbol": scope.Symbol, "direction": "LONG", "anchor_price": 100, "last_market_price": 100,
+		"slots": []map[string]any{{"price": 100, "position_status": "FILLED", "position_qty": 0.25,
+			"slot_status": "FREE", "order_status": "NOT_PLACED", "avg_buy_price": 99,
+			"position_entry_order_id": placed.OrderID, "position_leg": "LONG"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spm.SetGridRuntimeStateStore(&runtimeGridStateMemoryStore{version: 4, payload: string(state)})
+	if restored, err := spm.RestoreGridRuntimeState(); err != nil || !restored {
+		t.Fatalf("restore grid owner state: restored=%v err=%v", restored, err)
+	}
+	gate.Block("grid_runtime_state_reconciliation")
+
+	if err := bootstrapRuntimeExposure(t.Context(), executor, gate, venue, store, scope, book, spm, nil, false); !errors.Is(err, execution.ErrOrderUnknown) {
+		t.Fatalf("initial bootstrap error = %v, want unresolved-intent hold", err)
+	}
+	if book.Snapshot(time.Now()).Ready || !gate.HasBlock(runtimeExposureBootstrapBlock) {
+		t.Fatal("unresolved intent was admitted before strategy recovery")
+	}
+
+	if err := store.SaveOrder(&storage.Order{OrderID: placed.OrderID, BotID: scope.Bot, Account: scope.Bot, AccountScope: scope.Account,
+		MarketType: scope.Market, ClientOrderID: clientOrderID, Symbol: scope.Symbol, Side: "BUY", Exchange: scope.Exchange,
+		Price: 99, Quantity: 0.25, FilledQty: 0.25, Status: "FILLED", CreatedAt: time.Now(), UpdatedAt: time.Now()}); err != nil {
+		t.Fatal("persist recovered execution row:", err)
+	}
+	allocator := strategy.NewCapitalAllocator(cfg, 1000)
+	allocator.RegisterStrategy("grid", 1, 0)
+	allocator.Allocate()
+	multiExecutor := strategy.NewMultiStrategyExecutor(executor, allocator)
+	wrongOwner := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca")
+	if err := wrongOwner.SettleRecoveredIntent(t.Context(), clientOrderID); err == nil {
+		t.Fatal("strategy adapter settled an intent owned by another strategy")
+	}
+	gridOwner := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "grid")
+	if err := gridOwner.SettleRecoveredIntent(t.Context(), clientOrderID); err != nil {
+		t.Fatal("settle strategy-accounted recovered intent:", err)
+	}
+
+	if err := retryRuntimeExposureBootstrapAfterStrategyRecovery(t.Context(), *cfg, venue, &positionExchangeAdapter{exchange: venue}, nil,
+		scope.Bot, executor, gate, store, scope, book, spm); err != nil {
+		t.Fatalf("post-strategy recovery bootstrap: %v", err)
+	}
+	markAt := time.Now()
+	if err := book.ObserveMark(100, markAt, markAt); err != nil {
+		t.Fatalf("record fresh exposure mark: %v", err)
+	}
+	if snapshot := book.Snapshot(time.Now()); !snapshot.Ready || snapshot.PositionQuantity != 0.25 {
+		t.Fatalf("recovered physical exposure was not seeded: %+v", snapshot)
+	}
+	if gate.HasBlock(runtimeExposureBootstrapBlock) || gate.HasBlock("grid_runtime_state_reconciliation") {
+		t.Fatalf("fully verified recovery retained its owned startup holds: %v", gate.Sources())
+	}
+}
+
 func TestRuntimeExposureBootstrapRequiresAuthoritativeEmptyAccount(t *testing.T) {
 	tests := []struct {
 		name         string

@@ -904,75 +904,17 @@ func startSymbolRuntime(
 			logger.ErrorCtx(ctx, "🚨 [%s] 發現 %d 筆尚未核賬的持久化手續費更正，已封鎖新開倉", botID, pendingCorrections)
 		}
 	}
-	var signalInventory []execution.ExposurePosition
-	var signalStateRestored bool
-	var signalStateLoadErr error
-	var signalStrategyNames []string
-	for _, name := range []string{"trend", "mean_reversion", "momentum"} {
-		if strategyCfg, exists := localCfg.Strategies.Configs[name]; exists && strategyCfg.Enabled {
-			signalStrategyNames = append(signalStrategyNames, name)
-		}
-	}
-	if len(signalStrategyNames) > 0 {
-		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
-		signalInventory, signalStateRestored, signalStateLoadErr = strategy.LoadSignalRuntimeExposureInventory(stateStore, &localCfg, exchangeAdapter, symCfg.Symbol, signalStrategyNames...)
-		if signalStateLoadErr != nil {
-			logger.ErrorCtx(ctx, "[%s] signal strategy exposure recovery incomplete; new opening remains blocked: %v", botID, signalStateLoadErr)
-			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
-		}
-	}
-	if dcaCfg, exists := localCfg.Strategies.Configs["dca"]; exists && dcaCfg.Enabled && signalStateLoadErr == nil {
-		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
-		dcaInventory, dcaStateRestored, dcaErr := strategy.LoadDCAExposureInventory(stateStore, &localCfg, exchangeAdapter, "dca", symCfg.Symbol, dcaCfg.Config)
-		if dcaErr != nil {
-			signalStateLoadErr = dcaErr
-			logger.ErrorCtx(ctx, "[%s] DCA exposure recovery incomplete; new opening remains blocked: %v", botID, dcaErr)
-			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
-		} else {
-			signalInventory = append(signalInventory, dcaInventory...)
-			signalStateRestored = signalStateRestored || dcaStateRestored
-		}
-	}
-	if dcaEnhancedCfg, exists := localCfg.Strategies.Configs["dca_enhanced"]; exists && dcaEnhancedCfg.Enabled && signalStateLoadErr == nil {
-		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
-		dcaInventory, dcaStateRestored, dcaErr := strategy.LoadDCAExposureInventory(stateStore, &localCfg, exchangeAdapter, "dca_enhanced", symCfg.Symbol, dcaEnhancedCfg.Config)
-		if dcaErr != nil {
-			signalStateLoadErr = dcaErr
-			logger.ErrorCtx(ctx, "[%s] enhanced DCA exposure recovery incomplete; new opening remains blocked: %v", botID, dcaErr)
-			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
-		} else {
-			signalInventory = append(signalInventory, dcaInventory...)
-			signalStateRestored = signalStateRestored || dcaStateRestored
-		}
-	}
-	if martingaleCfg, exists := localCfg.Strategies.Configs["martingale"]; exists && martingaleCfg.Enabled && signalStateLoadErr == nil {
-		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
-		martingaleInventory, martingaleStateRestored, martingaleErr := strategy.LoadMartingaleExposureInventory(stateStore, &localCfg, exchangeAdapter, "martingale", symCfg.Symbol, martingaleCfg.Config)
-		if martingaleErr != nil {
-			signalStateLoadErr = martingaleErr
-			logger.ErrorCtx(ctx, "[%s] martingale exposure recovery incomplete; new opening remains blocked: %v", botID, martingaleErr)
-			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
-		} else {
-			signalInventory = append(signalInventory, martingaleInventory...)
-			signalStateRestored = signalStateRestored || martingaleStateRestored
-		}
-	}
-	if comboCfg, exists := localCfg.Strategies.Configs["combo"]; exists && comboCfg.Enabled && signalStateLoadErr == nil {
-		stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
-		comboInventory, comboStateRestored, comboErr := strategy.LoadComboExposureInventory(stateStore, &localCfg, exchangeAdapter, symCfg.Symbol, comboCfg.Config)
-		if comboErr != nil {
-			signalStateLoadErr = comboErr
-			logger.ErrorCtx(ctx, "[%s] Combo child exposure recovery incomplete; new opening remains blocked: %v", botID, comboErr)
-			superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
-		} else {
-			signalInventory = append(signalInventory, comboInventory...)
-			signalStateRestored = signalStateRestored || comboStateRestored
-		}
+	signalInventory, signalStateRestored, signalStateLoadErr := loadRuntimeStrategyExposureInventory(localCfg, exchangeAdapter, storageService, botID, symCfg.Symbol)
+	exposureBootstrapComplete := false
+	if signalStateLoadErr != nil {
+		logger.ErrorCtx(ctx, "[%s] strategy exposure recovery incomplete; new opening remains blocked: %v", botID, signalStateLoadErr)
+		superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
 	}
 	if signalStateLoadErr == nil {
 		if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager, signalInventory, signalStateRestored); err != nil {
 			logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
 		} else {
+			exposureBootstrapComplete = true
 			superPositionManager.MarkGridRuntimeVenueFlatVerified()
 		}
 	}
@@ -1615,6 +1557,15 @@ func startSymbolRuntime(
 			logger.ErrorCtx(ctx, "❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
 		} else {
 			logger.InfoCtx(ctx, "✅ [%s] 多策略系统已啟动", symCfg.Symbol)
+			if !exposureBootstrapComplete {
+				if err := retryRuntimeExposureBootstrapAfterStrategyRecovery(ctx, localCfg, ex, exchangeAdapter,
+					storageService, botID, exchangeExecutor, superPositionManager.OpeningGate(), intentBackend, intentScope, exposureBook, superPositionManager); err != nil {
+					logger.ErrorCtx(ctx, "[%s] strategy recovery completed but owner-scoped exposure bootstrap remains unverified; new opening stays blocked: %v", botID, err)
+				} else {
+					exposureBootstrapComplete = true
+					logger.InfoCtx(ctx, "[%s] strategy recovery and owner-scoped exposure bootstrap were reverified", botID)
+				}
+			}
 		}
 	}
 

@@ -210,6 +210,15 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 			return fmt.Errorf("apply recovered order state: %w", err)
 		}
 	}
+	if isDCAOrderTerminal(status) {
+		if settler, ok := s.executor.(interface {
+			SettleRecoveredIntent(context.Context, string) error
+		}); ok {
+			if err := settler.SettleRecoveredIntent(ctx, intent.clientOrderID); err != nil {
+				return fmt.Errorf("settle economically reconciled DCA order %s: %w", intent.clientOrderID, err)
+			}
+		}
+	}
 	return nil
 }
 
