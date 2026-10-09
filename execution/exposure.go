@@ -199,6 +199,16 @@ func (b *ExposureBook) Seed(positions []ExposurePosition) error {
 	return nil
 }
 
+// Initialized reports whether the one-time owner inventory seed has completed.
+// Recovered execution intents may only be settled before that seed; the later
+// startup bootstrap must rebuild physical exposure from reconciled strategy
+// inventory rather than replaying fills into an empty book.
+func (b *ExposureBook) Initialized() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.initialized
+}
+
 func exposureLeg(leg string) bool { return leg == "LONG" || leg == "SHORT" }
 
 func (b *ExposureBook) failLocked(reason string) error {

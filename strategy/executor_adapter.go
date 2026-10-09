@@ -37,6 +37,20 @@ func (a *MultiStrategyExecutorAdapter) PlaceOrderContext(ctx context.Context, re
 	return a.executor.PlaceOrderContext(ctx, a.strategyName, req)
 }
 
+// SettleRecoveredIntent is called only after this strategy durably reconciles
+// its own recovered order. The physical executor revalidates the order and
+// keeps the Bot recovery gate closed until owner-wide exposure bootstrap.
+func (a *MultiStrategyExecutorAdapter) SettleRecoveredIntent(ctx context.Context, clientOrderID string) error {
+	if a == nil || a.executor == nil || a.executor.executor == nil || a.strategyName == "" {
+		return fmt.Errorf("recovered intent settlement adapter is unavailable")
+	}
+	owner, _, found := a.executor.executor.IntentStrategyType(clientOrderID)
+	if !found || owner != a.strategyName {
+		return fmt.Errorf("recovered intent strategy does not match adapter owner")
+	}
+	return a.executor.executor.SettleRecoveredIntent(ctx, clientOrderID, a.strategyName)
+}
+
 func (a *MultiStrategyExecutorAdapter) classifyComboOrder(req *position.OrderRequest) (bool, error) {
 	if a == nil || a.executor == nil || req == nil {
 		return false, fmt.Errorf("combo order classification evidence unavailable")
