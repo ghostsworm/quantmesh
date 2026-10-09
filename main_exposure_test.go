@@ -6,6 +6,8 @@ import (
 	"errors"
 	"math"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -17,6 +19,45 @@ import (
 	"quantmesh/storage"
 	"quantmesh/strategy"
 )
+
+func TestRuntimeExposureBootstrapCoordinatorRetriesAndSerializes(t *testing.T) {
+	coordinator := &runtimeExposureBootstrapCoordinator{}
+	var attempts atomic.Int32
+	attempt := func() error {
+		attempts.Add(1)
+		return nil
+	}
+	if completed, err := coordinator.Retry(attempt); err != nil || completed || attempts.Load() != 0 {
+		t.Fatalf("bootstrap ran before strategy recovery readiness: completed=%v err=%v attempts=%d", completed, err, attempts.Load())
+	}
+	coordinator.MarkReady()
+	failure := errors.New("open order is still active")
+	if completed, err := coordinator.Retry(func() error {
+		attempts.Add(1)
+		return failure
+	}); !errors.Is(err, failure) || completed {
+		t.Fatalf("failed bootstrap result = completed %v, err %v", completed, err)
+	}
+
+	const callers = 16
+	var wg sync.WaitGroup
+	for i := 0; i < callers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := coordinator.Retry(attempt); err != nil {
+				t.Errorf("retry bootstrap: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := attempts.Load(); got != 2 {
+		t.Fatalf("bootstrap attempts = %d, want failed attempt plus exactly one successful attempt", got)
+	}
+	if completed, err := coordinator.Retry(attempt); err != nil || completed || attempts.Load() != 2 {
+		t.Fatalf("completed bootstrap ran again: completed=%v err=%v attempts=%d", completed, err, attempts.Load())
+	}
+}
 
 func (v *runtimeJournalVenue) GetAccount(context.Context) (*exchange.Account, error) {
 	return &exchange.Account{}, nil

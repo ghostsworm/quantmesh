@@ -905,7 +905,7 @@ func startSymbolRuntime(
 		}
 	}
 	signalInventory, signalStateRestored, signalStateLoadErr := loadRuntimeStrategyExposureInventory(localCfg, exchangeAdapter, storageService, botID, symCfg.Symbol)
-	exposureBootstrapComplete := false
+	exposureBootstrap := &runtimeExposureBootstrapCoordinator{}
 	if signalStateLoadErr != nil {
 		logger.ErrorCtx(ctx, "[%s] strategy exposure recovery incomplete; new opening remains blocked: %v", botID, signalStateLoadErr)
 		superPositionManager.OpeningGate().Block(runtimeExposureBootstrapBlock)
@@ -914,7 +914,7 @@ func startSymbolRuntime(
 		if err := bootstrapRuntimeExposure(ctx, exchangeExecutor, superPositionManager.OpeningGate(), ex, intentBackend, intentScope, exposureBook, superPositionManager, signalInventory, signalStateRestored); err != nil {
 			logger.ErrorCtx(ctx, "[%s] execution recovery incomplete; new opening remains blocked: %v", botID, err)
 		} else {
-			exposureBootstrapComplete = true
+			exposureBootstrap.MarkComplete()
 			superPositionManager.MarkGridRuntimeVenueFlatVerified()
 		}
 	}
@@ -1016,6 +1016,13 @@ func startSymbolRuntime(
 		SaveOrderFill(*storage.OrderFill) error
 	}
 	accountScope := equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange])
+	retryExposureBootstrap := func() (bool, error) {
+		return exposureBootstrap.Retry(func() error {
+			return retryRuntimeExposureBootstrapAfterStrategyRecovery(ctx, localCfg, ex, exchangeAdapter,
+				storageService, botID, exchangeExecutor, superPositionManager.OpeningGate(), intentBackend,
+				intentScope, exposureBook, superPositionManager)
+		})
+	}
 	if storageService != nil {
 		fillWriter, _ = storageService.GetStorage().(interface {
 			SaveOrderFill(*storage.OrderFill) error
@@ -1137,6 +1144,10 @@ func startSymbolRuntime(
 						"reason": strategyIntentSettlementBlock, "requires_reconciliation": true,
 					}})
 				}
+			} else if bootstrapped, err := retryExposureBootstrap(); err != nil {
+				logger.ErrorCtx(ctx, "[%s] strategy terminal order settled but owner-scoped exposure bootstrap remains unverified; new opening stays blocked: %v", botID, err)
+			} else if bootstrapped {
+				logger.InfoCtx(ctx, "[%s] terminal strategy recovery completed owner-scoped exposure bootstrap", botID)
 			}
 		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
@@ -1557,14 +1568,11 @@ func startSymbolRuntime(
 			logger.ErrorCtx(ctx, "❌ [%s] 啟动策略管理器失败: %v", symCfg.Symbol, err)
 		} else {
 			logger.InfoCtx(ctx, "✅ [%s] 多策略系统已啟动", symCfg.Symbol)
-			if !exposureBootstrapComplete {
-				if err := retryRuntimeExposureBootstrapAfterStrategyRecovery(ctx, localCfg, ex, exchangeAdapter,
-					storageService, botID, exchangeExecutor, superPositionManager.OpeningGate(), intentBackend, intentScope, exposureBook, superPositionManager); err != nil {
-					logger.ErrorCtx(ctx, "[%s] strategy recovery completed but owner-scoped exposure bootstrap remains unverified; new opening stays blocked: %v", botID, err)
-				} else {
-					exposureBootstrapComplete = true
-					logger.InfoCtx(ctx, "[%s] strategy recovery and owner-scoped exposure bootstrap were reverified", botID)
-				}
+			exposureBootstrap.MarkReady()
+			if bootstrapped, err := retryExposureBootstrap(); err != nil {
+				logger.ErrorCtx(ctx, "[%s] strategy recovery completed but owner-scoped exposure bootstrap remains unverified; new opening stays blocked: %v", botID, err)
+			} else if bootstrapped {
+				logger.InfoCtx(ctx, "[%s] strategy recovery and owner-scoped exposure bootstrap were reverified", botID)
 			}
 		}
 	}
