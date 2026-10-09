@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -145,12 +146,17 @@ func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 		s.mu.Unlock()
 		return fmt.Errorf("invalid cumulative fill for spot long order %d: %.12g (previous %.12g, requested %.12g)", update.OrderID, update.ExecutedQty, pending.ExecutedQty, pending.Quantity)
 	}
-	if update.Status == "FILLED" && update.ExecutedQty <= 0 {
+	if strings.EqualFold(update.Status, "FILLED") && update.ExecutedQty <= 0 {
 		s.mu.Unlock()
 		return fmt.Errorf("spot long order %d reports FILLED without positive cumulative execution", update.OrderID)
 	}
+	if strings.EqualFold(update.Status, "FILLED") && !spotLongFillMatchesRequested(update.ExecutedQty, pending.Quantity) {
+		s.mu.Unlock()
+		return fmt.Errorf("spot long order %d reports FILLED below its requested quantity", update.OrderID)
+	}
 	pending.ExecutedQty = update.ExecutedQty
-	if update.Status == "FILLED" || update.Status == "CANCELED" || update.Status == "CANCELLED" || update.Status == "EXPIRED" || update.Status == "REJECTED" {
+	if strings.EqualFold(update.Status, "FILLED") || strings.EqualFold(update.Status, "CANCELED") ||
+		strings.EqualFold(update.Status, "CANCELLED") || strings.EqualFold(update.Status, "EXPIRED") || strings.EqualFold(update.Status, "REJECTED") {
 		delete(s.pendingOrders, update.OrderID)
 	} else {
 		s.pendingOrders[update.OrderID] = pending
@@ -161,6 +167,13 @@ func (s *SpotLongStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	}
 	s.mu.Unlock()
 	return err
+}
+
+func spotLongFillMatchesRequested(executedQty, requestedQty float64) bool {
+	if !finiteNumber(executedQty) || !finiteNumber(requestedQty) || executedQty < 0 || requestedQty <= 0 {
+		return false
+	}
+	return executedQty+math.Max(1e-10, math.Abs(requestedQty)*1e-8) >= requestedQty
 }
 
 func (s *SpotLongStrategy) GetPositions() []*Position {

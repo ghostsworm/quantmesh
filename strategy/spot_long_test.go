@@ -141,6 +141,61 @@ func TestSpotLongFilledWithoutExecutionKeepsDurableOrderBlock(t *testing.T) {
 	}
 }
 
+func TestSpotLongUnderfilledFilledOrderRetainsDurableBlock(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "spot-long-underfilled", "BTCUSDT"
+	store := &memoryRuntimeStateStore{}
+	strategy := NewSpotLongStrategy("spot_long", cfg, nil, &signalTestExchange{}, nil)
+	strategy.SetRuntimeStateStore(store)
+	strategy.mu.Lock()
+	strategy.pendingOrders[108] = spotLongPendingOrder{ClientOrderID: "spot-long-underfilled-cid", Side: "BUY", Quantity: 0.25}
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatal(err)
+	}
+	strategy.mu.Unlock()
+
+	update := &position.OrderUpdate{OrderID: 108, ClientOrderID: "spot-long-underfilled-cid", Symbol: "BTCUSDT",
+		Side: "BUY", Status: "FILLED", ExecutedQty: 0.2}
+	if err := strategy.OnOrderUpdate(update); err == nil {
+		t.Fatal("underfilled FILLED update must be rejected")
+	}
+	if got, ok := strategy.pendingOrders[108]; !ok || got.ExecutedQty != 0 {
+		t.Fatalf("underfilled terminal update changed in-memory pending order: %+v found=%v", got, ok)
+	}
+	var persisted spotLongRuntimeState
+	if !store.found || json.Unmarshal([]byte(store.payload), &persisted) != nil || len(persisted.PendingOrders) != 1 {
+		t.Fatalf("underfilled terminal update changed durable pending order: found=%v state=%+v", store.found, persisted)
+	}
+}
+
+func TestSpotLongRestoreRetainsUnderfilledFilledOrder(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Trading.BotID, cfg.Trading.Symbol = "spot-long-restart-underfilled", "BTCUSDT"
+	store := &memoryRuntimeStateStore{}
+	first := NewSpotLongStrategy("spot_long", cfg, nil, &signalTestExchange{}, nil)
+	first.SetRuntimeStateStore(store)
+	first.mu.Lock()
+	first.pendingOrders[109] = spotLongPendingOrder{ClientOrderID: "spot-long-restart-underfilled-cid", Side: "BUY", Quantity: 0.25}
+	if err := first.persistRuntimeStateLocked(); err != nil {
+		first.mu.Unlock()
+		t.Fatal(err)
+	}
+	first.mu.Unlock()
+
+	restarted := NewSpotLongStrategy("spot_long", cfg, nil, &spotLongRestoreExchange{order: &exchange.Order{
+		OrderID: 109, ClientOrderID: "spot-long-restart-underfilled-cid", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Status: exchange.OrderStatusFilled, Quantity: 0.25, ExecutedQty: 0.2,
+	}}, nil)
+	restarted.SetRuntimeStateStore(store)
+	if err := restarted.Start(context.Background()); err == nil {
+		t.Fatal("startup accepted underfilled FILLED venue evidence")
+	}
+	if got, ok := restarted.pendingOrders[109]; !ok || got.ExecutedQty != 0 {
+		t.Fatalf("startup recovery cleared inconsistent pending order: %+v found=%v", got, ok)
+	}
+}
+
 type spotLongRestoreExchange struct {
 	signalTestExchange
 	order *exchange.Order
