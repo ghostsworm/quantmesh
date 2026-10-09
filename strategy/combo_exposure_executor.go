@@ -244,6 +244,17 @@ func (e *comboExposureAdmissionExecutor) IsOpeningPaused() bool {
 	return false
 }
 
+func (e *comboExposureAdmissionExecutor) SettleRecoveredIntent(ctx context.Context, clientOrderID string) error {
+	if e == nil || e.next == nil {
+		return fmt.Errorf("combo recovered intent settlement executor is unavailable")
+	}
+	settler, ok := e.next.(recoveredIntentSettler)
+	if !ok {
+		return fmt.Errorf("combo recovered intent settlement is unsupported by the underlying executor")
+	}
+	return settler.SettleRecoveredIntent(ctx, clientOrderID)
+}
+
 func (e *comboExposureAdmissionExecutor) MarkOrderReconciliationRequired(orderID int64, clientOrderID, reason string) error {
 	tracker, ok := e.next.(interface {
 		MarkOrderReconciliationRequired(int64, string, string) error
