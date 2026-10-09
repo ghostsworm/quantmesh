@@ -2,6 +2,12 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12：网格终态成交耐久结算（rc1152）
+
+- 复核发现生产回调仅在策略管理器确认的子策略成交后调用 `SettleIntent`；网格虽然已在 `OnOrderUpdate` 持久化槽位库存、并由 `runtimeFillCapture` 持久化完整成交明细，却没有结算 grid owner 的执行 intent。该记录在重启加载时会按未结算意图转为 UNKNOWN，令 `ConfigureIntentJournal` 返回恢复未完成并阻断 bootstrap。
+- 网格回调现在将“终态网格槽位账本已成功耐久保存”与“完整 venue 成交明细已耐久保存”作为结算前置条件；只按 journal 记录内的 grid owner 调用 `SettleReconciledIntent`，精确重查终态后写入 settled。成交明细核对和 intent 结算期间保留对应开仓 gate；结算后才重试全账户暴露核账。网格会计快照写入失败、费用/账本锁、身份不符或交易所复核失败均不能走成功路径。
+- 新回归验证：网格正成交仅在 durable accounting 确认后结算，MySQL/SQLite intent journal 重启读取不再将已结算网格订单恢复为 UNKNOWN；position 测试验证运行态快照持久化失败不会报告 accounting verified。尚需完整验证生产事件流和 race；本修复不闭合活动挂单恢复、SpotLong/Futures hedge 完整手续费/经济账、跨进程 fencing 等 R12/R09 缺口，不代表真实交易或盈利验收。
+
 ## 2026-10-09 R12：SpotShort 启动对账故障可自动重试（rc1151）
 
 - `SpotShortStrategy.Start` 在运行态可正常解码、但首次借款历史/订单终态/成交费用/还款核对失败时，原本直接返回错误；`StrategyManager.StartAll` 因此不会保留该策略的重试 worker。即使外部依赖随后恢复，也需重启 Bot 才重试。

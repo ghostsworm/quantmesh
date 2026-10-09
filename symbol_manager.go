@@ -1053,20 +1053,6 @@ func startSymbolRuntime(
 			// Capture is asynchronous. Close the admission window before starting
 			// it; only a complete, durably persisted fill history may reopen it.
 			superPositionManager.OpeningGate().Block(blockReason)
-			fillCapture.Observe(ctx, ex, fillWriter, *posUpdate, ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID,
-				func(err error) {
-					superPositionManager.OpeningGate().Block(blockReason)
-					logger.ErrorCtx(ctx, "[%s] 成交执行账本无法核实，已阻止新开仓: %v", botID, err)
-					if eventBus != nil {
-						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
-							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
-							"reason": "execution_ledger_unverified", "order_id": posUpdate.OrderID,
-							"requires_reconciliation": true,
-						}})
-					}
-				}, func() {
-					superPositionManager.OpeningGate().Unblock(blockReason)
-				})
 		}
 
 		// 发布订單事件
@@ -1107,7 +1093,7 @@ func startSymbolRuntime(
 			}
 		}
 
-		gridZeroFillAccounted := superPositionManager.OnOrderUpdate(*posUpdate)
+		gridAccountingVerified, gridZeroFillAccounted := superPositionManager.OnOrderUpdateWithAccounting(*posUpdate)
 		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
 		routedStrategy := ""
 		strategyAccountingVerified := false
@@ -1152,6 +1138,30 @@ func startSymbolRuntime(
 			}
 		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
+		if terminalOrderUpdate(posUpdate.Status) && posUpdate.ExecutedQty > 0 {
+			captureTerminalOrderAndSettleGrid(ctx, fillCapture, ex, fillWriter, *posUpdate,
+				ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID,
+				exchangeExecutor, superPositionManager.OpeningGate(), gridAccountingVerified,
+				func(err error) {
+					logger.ErrorCtx(ctx, "[%s] 成交执行账本无法核实，已阻止新开仓: %v", botID, err)
+					if eventBus != nil {
+						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+							"reason": "execution_ledger_unverified", "order_id": posUpdate.OrderID,
+							"requires_reconciliation": true,
+						}})
+					}
+				},
+				func(err error) {
+					logger.ErrorCtx(ctx, "[%s] 网格终态执行意图尚未安全结算，已暂停新开仓: order_id=%d error=%v", botID, posUpdate.OrderID, err)
+				}, func() {
+					if bootstrapped, err := retryExposureBootstrap(); err != nil {
+						logger.ErrorCtx(ctx, "[%s] 网格成交已核账但 owner-scoped exposure bootstrap 仍未核实: %v", botID, err)
+					} else if bootstrapped {
+						logger.InfoCtx(ctx, "[%s] 网格终态恢复完成 owner-scoped exposure bootstrap", botID)
+					}
+				})
+		}
 	}); err != nil {
 		priceMonitor.Stop()
 		return nil, orderStreamStartupError(symCfg.Exchange, symCfg.Symbol, err)

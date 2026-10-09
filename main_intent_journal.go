@@ -72,6 +72,31 @@ func settleVerifiedStrategyIntent(ctx context.Context, executor *order.ExchangeO
 	return settleErr
 }
 
+// settleVerifiedGridIntent is called only after the grid slot snapshot and
+// complete venue fill history have both been durably recorded.
+func settleVerifiedGridIntent(ctx context.Context, executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, update *position.OrderUpdate, accounted bool) error {
+	if !accounted || update == nil || !terminalOrderUpdate(update.Status) || update.ExecutedQty <= 0 {
+		return fmt.Errorf("grid intent settlement requires durable terminal grid accounting")
+	}
+	if executor == nil || gate == nil || update.OrderID <= 0 || strings.TrimSpace(update.ClientOrderID) == "" {
+		return fmt.Errorf("grid intent settlement is missing its executor, gate, or exact order identity")
+	}
+	clientOrderID, owned := executor.OwnedIntentClientOrderID(update.ClientOrderID)
+	if !owned {
+		return fmt.Errorf("terminal grid update has no matching durable execution intent")
+	}
+	owner, strategyType, found := executor.IntentStrategyType(clientOrderID)
+	if !found || owner == "" || strategyType != "grid" {
+		return fmt.Errorf("terminal grid update does not match a durable grid intent owner")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	queryCtx, cancel := context.WithTimeout(ctx, intentSettlementTimeout)
+	defer cancel()
+	return executor.SettleReconciledIntent(queryCtx, clientOrderID, owner)
+}
+
 const intentSettlementTimeout = 10 * time.Second
 
 // settleVerifiedGridZeroFill asynchronously settles only a grid intent whose

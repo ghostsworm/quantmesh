@@ -178,6 +178,51 @@ func TestRuntimeIntentJournalSQLiteRestartDoesNotReopen(t *testing.T) {
 	}
 }
 
+func TestVerifiedGridFillSettlesDurableIntentAndSurvivesRestart(t *testing.T) {
+	venue := &runtimeJournalVenue{}
+	journal, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "grid-intent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	if err := journal.MigrateExecutionIntents(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	scope := runtimeJournalScope()
+	executor, gate := newJournalRuntime(venue, scope)
+	if err := executor.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	const clientOrderID = "grid-fill-recovery"
+	if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: clientOrderID, StrategyName: "Grid-BTCUSDT", StrategyType: "grid"}); err != nil {
+		t.Fatal(err)
+	}
+	venue.mu.Lock()
+	venue.liveOrders[1].Status = exchange.OrderStatusFilled
+	venue.liveOrders[1].ExecutedQty = 1
+	venue.liveOrders[1].AvgPrice = 100
+	venue.mu.Unlock()
+	update := &position.OrderUpdate{OrderID: 1, ClientOrderID: clientOrderID, Symbol: scope.Symbol, Side: "BUY", Status: "FILLED", ExecutedQty: 1}
+	if !observeOwnedRuntimeOrder(executor, update) {
+		t.Fatal("terminal venue fill was not accepted for the owned grid intent")
+	}
+	if err := settleVerifiedGridIntent(t.Context(), executor, gate, update, false); err == nil {
+		t.Fatal("grid intent settled before its durable grid accounting cursor was confirmed")
+	}
+	if err := settleVerifiedGridIntent(t.Context(), executor, gate, update, true); err != nil {
+		t.Fatalf("settle accounted grid fill: %v", err)
+	}
+
+	restarted, restartedGate := newJournalRuntime(venue, scope)
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatalf("settled grid fill blocked journal recovery after restart: %v", err)
+	}
+	if restartedGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatal("settled grid fill left the execution recovery gate blocked")
+	}
+}
+
 func TestRuntimeIntentJournalFreshOwnerRequiresVerifiedEmptyState(t *testing.T) {
 	for _, scenario := range []string{"missing_schema", "missing_storage", "legacy", "position", "order", "out_of_scope_order", "malformed_order", "position_error", "order_error", "orders_nil", "flat"} {
 		t.Run(scenario, func(t *testing.T) {

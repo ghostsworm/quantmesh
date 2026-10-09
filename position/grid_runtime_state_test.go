@@ -109,6 +109,40 @@ func TestPersistGridRuntimeStateCapturesCompleteSlotAccountingCursor(t *testing.
 	}
 }
 
+func TestOnOrderUpdateWithAccountingRequiresDurableTerminalGridCursor(t *testing.T) {
+	spm, _ := newStateTestSPM("LONG", "futures")
+	spm.botID = "bot-grid"
+	spm.setAnchorPrice(100)
+	store := &gridRuntimeStateTestStore{}
+	spm.SetGridRuntimeStateStore(store)
+	cid := spm.generateClientOrderID(100, "BUY", "")
+	slot := spm.getOrCreateSlot(100)
+	slot.mu.Lock()
+	slot.OrderID, slot.ClientOID, slot.OrderSide = 17, cid, "BUY"
+	slot.OrderStatus, slot.OrderPrice = OrderStatusPlaced, 100
+	slot.mu.Unlock()
+
+	accounted, zeroFillAccounted := spm.OnOrderUpdateWithAccounting(OrderUpdate{
+		OrderID: 17, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 1, AvgPrice: 100, CommissionKnown: true, CommissionAsset: "USDT",
+	})
+	if !accounted || zeroFillAccounted {
+		t.Fatalf("positive terminal grid accounting = %v/%v, want durable/non-zero-fill", accounted, zeroFillAccounted)
+	}
+	if !store.found || !strings.Contains(store.payload, cid) || !strings.Contains(store.payload, "last_terminal_fill") {
+		t.Fatal("terminal grid cursor was not durably persisted before reporting it accounted")
+	}
+
+	store.err = errors.New("snapshot write failed")
+	accounted, _ = spm.OnOrderUpdateWithAccounting(OrderUpdate{
+		OrderID: 17, ClientOrderID: cid, Symbol: "BTCUSDT", Status: "FILLED", Side: "BUY",
+		ExecutedQty: 1, AvgPrice: 100, CommissionKnown: true, CommissionAsset: "USDT",
+	})
+	if accounted || !spm.OpeningGate().HasBlock("grid_runtime_state_unverified") {
+		t.Fatal("failed durable snapshot was reported as accounted or did not retain the opening hold")
+	}
+}
+
 func TestCompleteReconciliationClearsOnlyVerifiedRuntimeRestoreHold(t *testing.T) {
 	spm, _ := newStateTestSPM("LONG", "futures")
 	spm.OpeningGate().Block("grid_runtime_state_reconciliation")

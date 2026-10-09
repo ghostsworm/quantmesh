@@ -83,6 +83,13 @@ func (spm *SuperPositionManager) requireTradeLedgerReconciliation(update OrderUp
 
 // OnOrderUpdate 订單更新回呼（异步订單同步流）
 func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
+	_, zeroFillAccounted := spm.OnOrderUpdateWithAccounting(update)
+	return zeroFillAccounted
+}
+
+// OnOrderUpdateWithAccounting reports whether the terminal grid accounting
+// cursor was durably saved, separately from the legacy zero-fill result.
+func (spm *SuperPositionManager) OnOrderUpdateWithAccounting(update OrderUpdate) (bool, bool) {
 	update.Status = normalizeOrderStatus(update.Status)
 	spm.onOrderUpdate(update)
 	spm.refreshCostBasisOpeningGate()
@@ -96,10 +103,37 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
 			// blocked by its required exposure journal when storage is absent.
 			spm.startPendingFeeSupplements()
 		}
-		return false
+		return false, false
 	}
 	spm.startPendingFeeSupplements()
+	accounted := spm.gridTerminalOrderAccountingMatches(update)
 	if update.ExecutedQty != 0 || (update.Status != "CANCELED" && update.Status != "EXPIRED" && update.Status != "REJECTED") {
+		return accounted, false
+	}
+	price, _, valid := spm.parseClientOrderID(update.ClientOrderID)
+	if !valid {
+		return accounted, false
+	}
+	raw, exists := spm.slots.Load(price)
+	if !exists {
+		return accounted, false
+	}
+	slot := raw.(*InventorySlot)
+	slot.mu.RLock()
+	zeroFillAccounted := slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderStatus == OrderStatusCanceled &&
+		spm.sameClientOrderID(slot.lastFilledClientOID, update.ClientOrderID)
+	slot.mu.RUnlock()
+	return spm.gridTerminalOrderAccountingMatches(update), zeroFillAccounted
+}
+
+func (spm *SuperPositionManager) gridTerminalOrderAccountingMatches(update OrderUpdate) bool {
+	status := normalizeOrderStatus(update.Status)
+	switch status {
+	case "FILLED", "CANCELED", "EXPIRED", "REJECTED":
+	default:
+		return false
+	}
+	if update.OrderID <= 0 || update.ExecutedQty <= 0 || math.IsNaN(update.ExecutedQty) || math.IsInf(update.ExecutedQty, 0) {
 		return false
 	}
 	price, _, valid := spm.parseClientOrderID(update.ClientOrderID)
@@ -112,10 +146,9 @@ func (spm *SuperPositionManager) OnOrderUpdate(update OrderUpdate) bool {
 	}
 	slot := raw.(*InventorySlot)
 	slot.mu.RLock()
-	accounted := slot.OrderID == 0 && slot.ClientOID == "" && slot.OrderStatus == OrderStatusCanceled &&
-		spm.sameClientOrderID(slot.lastFilledClientOID, update.ClientOrderID)
-	slot.mu.RUnlock()
-	return accounted
+	defer slot.mu.RUnlock()
+	return slot.OrderID == 0 && slot.ClientOID == "" && spm.sameClientOrderID(slot.lastFilledClientOID, update.ClientOrderID) &&
+		math.Abs(slot.lastTerminalFill.Quantity-update.ExecutedQty) <= math.Max(1e-8, math.Abs(update.ExecutedQty)*1e-8)
 }
 
 func (spm *SuperPositionManager) persistGridRuntimeStateOrHold(update OrderUpdate) bool {

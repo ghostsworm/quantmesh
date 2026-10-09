@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"quantmesh/exchange"
+	"quantmesh/execution"
+	"quantmesh/order"
 	"quantmesh/position"
 	"quantmesh/storage"
 )
@@ -27,6 +31,33 @@ func (e *runtimeFillExchange) GetOrderFills(context.Context, string, int64) ([]*
 type runtimeFillWriter struct {
 	mu    sync.Mutex
 	fills []*storage.OrderFill
+}
+
+type runtimeGridFillVenue struct {
+	*runtimeJournalVenue
+	fillCalls atomic.Int32
+}
+
+func (e *runtimeGridFillVenue) GetOrderFills(context.Context, string, int64) ([]*exchange.OrderFill, error) {
+	e.fillCalls.Add(1)
+	return []*exchange.OrderFill{{OrderID: 1, TradeID: "grid-fill-1", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 1, TradeTime: 1_790_000_000_000}}, nil
+}
+
+type blockingRuntimeFillWriter struct {
+	entered chan struct{}
+	release chan struct{}
+	mu      sync.Mutex
+	fills   []*storage.OrderFill
+}
+
+func (w *blockingRuntimeFillWriter) SaveOrderFill(fill *storage.OrderFill) error {
+	w.entered <- struct{}{}
+	<-w.release
+	w.mu.Lock()
+	w.fills = append(w.fills, fill)
+	w.mu.Unlock()
+	return nil
 }
 
 func (w *runtimeFillWriter) SaveOrderFill(fill *storage.OrderFill) error {
@@ -94,5 +125,78 @@ func TestRuntimeFillCaptureConfirmsAlreadyDurableTarget(t *testing.T) {
 	}
 	if provider.calls.Load() != 0 {
 		t.Fatalf("already durable target should not be fetched again: calls=%d", provider.calls.Load())
+	}
+}
+
+func TestCapturedGridFillSettlesOnlyAfterFillHistoryIsDurable(t *testing.T) {
+	baseVenue := &runtimeJournalVenue{}
+	venue := &runtimeGridFillVenue{runtimeJournalVenue: baseVenue}
+	journal, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "grid-fill-settlement.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	if err := journal.MigrateExecutionIntents(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	scope := runtimeJournalScope()
+	executor, gate := newJournalRuntime(venue, scope)
+	if err := executor.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	const clientOrderID = "grid-fill-capture"
+	if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: clientOrderID, StrategyName: "Grid-BTCUSDT", StrategyType: "grid"}); err != nil {
+		t.Fatal(err)
+	}
+	baseVenue.mu.Lock()
+	baseVenue.liveOrders[1].Status = exchange.OrderStatusFilled
+	baseVenue.liveOrders[1].ExecutedQty = 1
+	baseVenue.liveOrders[1].AvgPrice = 100
+	baseVenue.mu.Unlock()
+	update := position.OrderUpdate{OrderID: 1, ClientOrderID: clientOrderID, Symbol: scope.Symbol,
+		Side: "BUY", Status: "FILLED", ExecutedQty: 1}
+	if !observeOwnedRuntimeOrder(executor, &update) {
+		t.Fatal("terminal grid fill was not observed")
+	}
+	writer := &blockingRuntimeFillWriter{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	settled := make(chan struct{}, 1)
+	captureTerminalOrderAndSettleGrid(context.Background(), newRuntimeFillCapture(), venue, writer, update,
+		"fake", "futures", "account-scope", "account", scope.Bot, executor, gate, true,
+		func(err error) { t.Errorf("capture failed: %v", err) }, func(err error) { t.Errorf("grid settlement failed: %v", err) },
+		func() { settled <- struct{}{} })
+	select {
+	case <-writer.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("complete venue fill capture did not start")
+	}
+	if !gate.Blocked() {
+		t.Fatal("opening gate was released before the execution fill ledger became durable")
+	}
+	restarted, restartedGate := newJournalRuntime(venue, scope)
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, scope); !errors.Is(err, execution.ErrOrderUnknown) || !restartedGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatalf("in-flight grid intent was not retained as unresolved: err=%v blocks=%v", err, restartedGate.Sources())
+	}
+	close(writer.release)
+	select {
+	case <-settled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("durable fill capture did not settle the grid intent")
+	}
+	writer.mu.Lock()
+	fillCount := len(writer.fills)
+	writer.mu.Unlock()
+	if fillCount != 1 || venue.fillCalls.Load() != 1 {
+		t.Fatalf("fill history capture = %d rows / %d venue calls, want one each", fillCount, venue.fillCalls.Load())
+	}
+	if gate.Blocked() {
+		t.Fatalf("grid settlement left opening gate blocked: %v", gate.Sources())
+	}
+	recovered, recoveredGate := newJournalRuntime(venue, scope)
+	if err := recovered.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatalf("settled grid intent still blocks restart recovery: %v", err)
+	}
+	if recoveredGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatal("successful restart recovery kept the execution journal blocked")
 	}
 }
