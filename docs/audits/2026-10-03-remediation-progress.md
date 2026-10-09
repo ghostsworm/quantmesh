@@ -27,6 +27,13 @@
 - 范围限制：不会自行撤单或恢复活动订单；只在某个策略订单账本和 intent 结算成功后尝试全局核账。未覆盖没有 `strategyAccountingVerified` 的网格正成交、SpotLong、Futures hedge 完整手续费/库存接线；若没有后续成功结算事件仍可能长期 fail-closed，不能视为 R12/R09 全闭环。
 - 验证：定向 `go test . -run '^(TestRuntimeExposureBootstrapCoordinatorRetriesAndSerializes|TestRuntimeExposureBootstrapRetriesAfterStrategyRecoverySettlesIntent)$' -count=1` 与同范围 `-race` 通过；全 `go test ./... -count=1 -timeout=600s` 通过（策略包 184.679s）；`go vet ./...`、`yarn verify`（53 文件/311 项测试及生产构建）、`ruby scripts/frontend_embed.rb sync/verify/version` 均通过，嵌入版本为 `3.111.0-rc1148`。`git diff --check` 通过。未运行全仓 race / MySQL 强制门禁；未连接真实账户、下单、部署或验收盈利。
 
+## 2026-10-09 R12：SpotLong 拒绝不足额 FILLED（rc1149）
+
+- SpotLong 的运行态 `OnOrderUpdate` 原先仅拒绝零成交 FILLED；不足额的正成交 FILLED 会进入终态分支、清除耐久 pending，重启 REST 快照也会进入同一个更新方法。由于主订单回调可能继而尝试结算该 owner intent，这是不一致成交数量越过恢复保护的风险。
+- 现在 FILLED 累计量必须覆盖耐久请求数量（数值精度容差内）；不足时在修改/持久化 pending 前报错，保留已有累计成交证据与开仓保护。实时和 Start→REST reconcile 两条路径均有回归测试。
+- 边界：没有接入 SpotLong 的成交费用/资产归属耐久经济账；此补丁只阻止矛盾的 FILLED 状态清空 pending，不允许据此认定完整 SpotLong 恢复或盈利核算闭环。
+- 验证：`go test ./strategy -run '^TestSpotLong(UnderfilledFilledOrderRetainsDurableBlock|RestoreRetainsUnderfilledFilledOrder)$' -count=1` 及同范围 `-race` 通过；完整 `go test ./strategy -count=1 -timeout=360s` 和全仓 `go test ./... -count=1 -timeout=600s` 通过（全仓策略包 185.011s）；`go vet ./...`、`yarn verify`（53 文件/311 项测试及生产构建）、`ruby scripts/frontend_embed.rb sync/verify/version` 均通过，嵌入版本 `3.111.0-rc1149`；`git diff --check` 通过。未运行全仓 race / MySQL 强制门禁；未连接真实账户、下单、部署或验收盈利。
+
 ## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
 
 - 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。
