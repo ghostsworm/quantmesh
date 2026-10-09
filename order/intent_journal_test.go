@@ -325,6 +325,38 @@ func TestSettledIntentAllowsVerifiedRestart(t *testing.T) {
 	}
 }
 
+func TestSettleReconciledIntentIsIdempotentAfterRestart(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	journal := &memoryIntentJournal{}
+	const cid = "spot-short-settled-cid"
+	first := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := first.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := first.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "SELL", Price: 100, Quantity: 0.25, ClientOrderID: cid, StrategyName: "spot_short"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue.mu.Lock()
+	venue.orders[placed.OrderID].ExecutedQty = 0.25
+	venue.orders[placed.OrderID].AvgPrice = 100
+	venue.orders[placed.OrderID].Status = exchange.OrderStatusFilled
+	venue.mu.Unlock()
+	if err := first.SettleIntent(t.Context(), cid); err != nil {
+		t.Fatalf("initial settlement: %v", err)
+	}
+	restarted := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatal(err)
+	}
+	if err := restarted.SettleReconciledIntent(t.Context(), cid, "spot_short"); err != nil {
+		t.Fatalf("idempotent settlement acknowledgement after restart: %v", err)
+	}
+	if err := restarted.SettleReconciledIntent(t.Context(), cid, "another-strategy"); err == nil {
+		t.Fatal("settled intent was accepted for the wrong strategy owner")
+	}
+}
+
 func TestIntentJournalRestartReleasesOnlyVerifiedZeroFillTerminalOrders(t *testing.T) {
 	tests := []struct {
 		name        string

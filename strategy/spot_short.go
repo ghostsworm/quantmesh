@@ -48,6 +48,7 @@ type SpotShortStrategy struct {
 	runtimeStateStore                    RuntimeStateStore
 	runtimeStateErrorHandler             func(error)
 	unresolvedDebtHandler                func(error)
+	reconciliationSuccessHandler         func()
 	runtimeReconciliationFailureReported bool
 	accountWalletLock                    lock.DistributedLock
 	accountWalletLockKey                 string
@@ -204,6 +205,12 @@ func (s *SpotShortStrategy) SetUnresolvedDebtHandler(handler func(error)) {
 	s.unresolvedDebtHandler = handler
 }
 
+func (s *SpotShortStrategy) SetReconciliationSuccessHandler(handler func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reconciliationSuccessHandler = handler
+}
+
 func (s *SpotShortStrategy) reportUnresolvedDebt(err error) {
 	s.mu.RLock()
 	handler := s.unresolvedDebtHandler
@@ -224,6 +231,20 @@ func (s *SpotShortStrategy) OnOrderUpdate(update *position.OrderUpdate) error {
 	return s.withAccountWalletCoordination(ctx, func(operationCtx context.Context) error {
 		return s.onOrderUpdateWithWalletLock(operationCtx, update)
 	})
+}
+
+func (s *SpotShortStrategy) OnOrderUpdateWithAccounting(update *position.OrderUpdate) (bool, error) {
+	if update == nil {
+		return true, nil
+	}
+	if strings.EqualFold(strings.TrimSpace(update.Side), "SELL") {
+		return false, nil // Borrow/sell orders are accounted by the durable borrow reconciler.
+	}
+	if !strings.EqualFold(strings.TrimSpace(update.Side), "BUY") {
+		return false, nil
+	}
+	err := s.OnOrderUpdate(update)
+	return err == nil, err
 }
 
 // Call only while holding the account wallet lease. Recovery already owns
@@ -674,7 +695,16 @@ func (s *SpotShortStrategy) hasPendingRuntimeReconciliation() bool {
 }
 
 func (s *SpotShortStrategy) reconcileRuntimeState(ctx context.Context) error {
-	return s.withAccountWalletCoordination(ctx, s.reconcileRuntimeStateWithWalletLock)
+	err := s.withAccountWalletCoordination(ctx, s.reconcileRuntimeStateWithWalletLock)
+	if err == nil && !s.hasPendingRuntimeReconciliation() {
+		s.mu.RLock()
+		handler := s.reconciliationSuccessHandler
+		s.mu.RUnlock()
+		if handler != nil {
+			handler()
+		}
+	}
+	return err
 }
 
 func (s *SpotShortStrategy) reconcileRuntimeStateWithWalletLock(ctx context.Context) error {
@@ -746,11 +776,44 @@ func (s *SpotShortStrategy) reconcilePendingBorrowIntents(ctx context.Context) e
 			s.mu.Unlock()
 			return fmt.Errorf("spot short margin sell %d ended %s after %.12g of %.12g; unexecuted borrowed asset remains unresolved", order.OrderID, order.Status, order.ExecutedQty, intent.Amount)
 		}
+		if current.Phase == "settlement_pending" {
+			if current.TerminalOrderID != order.OrderID || !strings.EqualFold(current.TerminalStatus, string(order.Status)) || math.Abs(current.TerminalExecutedQty-order.ExecutedQty) > tolerance {
+				s.mu.Unlock()
+				return fmt.Errorf("spot short terminal sell evidence changed for client ID %s", cid)
+			}
+		} else {
+			current.Phase = "settlement_pending"
+			current.TerminalOrderID = order.OrderID
+			current.TerminalStatus = string(order.Status)
+			current.TerminalExecutedQty = order.ExecutedQty
+			s.pendingBorrow[cid] = current
+			if err := s.persistRuntimeStateLocked(); err != nil {
+				s.pendingBorrow[cid] = intent
+				s.mu.Unlock()
+				return fmt.Errorf("persist terminal margin sell %d before intent settlement: %w", order.OrderID, err)
+			}
+		}
+		s.mu.Unlock()
+		settler, ok := s.executor.(interface {
+			SettleReconciledIntent(context.Context, string) error
+		})
+		if !ok {
+			return fmt.Errorf("spot short executor cannot durably settle reconciled intent %s", cid)
+		}
+		if err := settler.SettleReconciledIntent(ctx, cid); err != nil {
+			return fmt.Errorf("settle reconciled spot short intent %s: %w", cid, err)
+		}
+		s.mu.Lock()
+		latest, exists := s.pendingBorrow[cid]
+		if !exists || latest.Phase != "settlement_pending" || latest.TerminalOrderID != order.OrderID {
+			s.mu.Unlock()
+			return fmt.Errorf("spot short settlement outbox %s changed before acknowledgement", cid)
+		}
 		delete(s.pendingBorrow, cid)
 		if err := s.persistRuntimeStateLocked(); err != nil {
-			s.pendingBorrow[cid] = current
+			s.pendingBorrow[cid] = latest
 			s.mu.Unlock()
-			return fmt.Errorf("persist reconciled margin sell %d: %w", order.OrderID, err)
+			return fmt.Errorf("persist settled margin sell %d acknowledgement: %w", order.OrderID, err)
 		}
 		s.mu.Unlock()
 	}

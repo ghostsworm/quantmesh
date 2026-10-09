@@ -2,6 +2,12 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12：SpotShort 借贷卖单终态结算 outbox（rc1150）
+
+- SpotShort SELL 回报由同步策略回调明确标记为 deferred，避免通用终态路径在借贷账尚未核实前结算共享执行意图。耐久恢复器在验证借款归属、client order ID、交易对、方向、请求数量、终态及足额成交后，先保存包含终态订单证据的 `settlement_pending` outbox，再向 owner-scoped executor 结算；仅在 journal 成功后确认删除 outbox。结算失败或进程在两步间重启时保留待办并可重试；已结算 journal 记录支持精确所有者范围内幂等确认。
+- 运行时全部 SpotShort 借贷/买回/还款待办清空后，只释放 SpotShort 专属对账 gate 并触发串行账户暴露核账重试；运行态持久化失败使用的通用策略账本 gate 不被此回调清理。未核实的部分成交、剩余借贷、身份不符及 journal 错误仍 fail-closed。
+- 验证：`go test ./strategy ./order ./position . -run 'TestSpotShort|TestSettleIntent|TestRecoveredIntent|TestApplyOrderUpdateForStrategy' -count=1` 与 deferred accounting/outbox/journal 重启的定向 `go test -race` 通过；最终 `go test ./... -count=1 -timeout=600s` 全包通过，`go vet ./...` 通过；`yarn verify` 通过（53 个测试文件、311 项测试及生产构建），`ruby scripts/frontend_embed.rb sync/verify/version` 通过并核实嵌入版本 `3.111.0-rc1150`，`git diff --check` 通过。未运行全仓 race 或强制 MySQL 门禁；完整成交费用与借贷账本、线上账户权限、部署和可审计盈利证据仍未验收。
+
 ## 2026-10-09 R12：策略恢复后的 UNKNOWN intent 受限结算（rc1145）
 
 - 生产恢复调用链在 DCA、趋势/均值回归/动量信号及马丁格尔策略中，现仅于精确 venue 订单核对完成、策略 `OnOrderUpdate` 成功持久化经济状态后，才按 client order ID 通知对应策略 adapter 结算 UNKNOWN intent。物理 executor 再次核对 journal owner、终态订单身份/数量并持久化 settled 状态；`IntentRecoveryBlock` 保留到随后全 Bot 策略库存、venue 持仓和挂单 bootstrap 成功。

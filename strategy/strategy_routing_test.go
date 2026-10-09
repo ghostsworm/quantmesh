@@ -233,6 +233,27 @@ type failedOrderUpdateStrategy struct {
 
 func (s *failedOrderUpdateStrategy) OnOrderUpdate(*position.OrderUpdate) error { return s.err }
 
+type deferredOrderUpdateStrategy struct{ routingTestStrategy }
+
+func (*deferredOrderUpdateStrategy) OnOrderUpdateWithAccounting(*position.OrderUpdate) (bool, error) {
+	return false, nil
+}
+
+func TestApplyOrderUpdateForStrategyReportsDeferredAccounting(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Strategies.Configs = map[string]config.StrategyConfig{"spot_short": {Enabled: true}}
+	sm := NewStrategyManager(cfg, 1000)
+	deferred := &deferredOrderUpdateStrategy{routingTestStrategy: routingTestStrategy{name: "spot_short"}}
+	sm.RegisterStrategy("spot_short", deferred, 1, 0)
+	accounted, err := sm.ApplyOrderUpdateForStrategyWithAccounting("spot_short", &position.OrderUpdate{OrderID: 1004, Side: "SELL", Status: "FILLED"})
+	if err != nil || accounted {
+		t.Fatalf("deferred strategy update must not be treated as accounted: accounted=%v err=%v", accounted, err)
+	}
+	if deferred.hit.Load() != 0 {
+		t.Fatal("deferred update unexpectedly invoked ordinary callback")
+	}
+}
+
 type failedStopStrategy struct {
 	routingTestStrategy
 	err     error

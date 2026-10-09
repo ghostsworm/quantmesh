@@ -825,6 +825,9 @@ func (spm *SuperPositionManager) GetOpeningPauseReason() string {
 	if spm.openingGate.HasBlock("strategy_accounting_unverified") {
 		return "策略成交账未核实，等待策略持仓与交易所成交对账"
 	}
+	if spm.openingGate.HasBlock("spot_short_reconciliation_unverified") {
+		return "SpotShort 借贷或终态订单尚未完成持久化对账"
+	}
 	if spm.openingGate.HasBlock("strategy_startup_unverified") {
 		return "策略启动或状态恢复失败，等待运行态核实"
 	}

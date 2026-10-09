@@ -51,6 +51,17 @@ func (a *MultiStrategyExecutorAdapter) SettleRecoveredIntent(ctx context.Context
 	return a.executor.executor.SettleRecoveredIntent(ctx, clientOrderID, a.strategyName)
 }
 
+func (a *MultiStrategyExecutorAdapter) SettleReconciledIntent(ctx context.Context, clientOrderID string) error {
+	if a == nil || a.executor == nil || a.executor.executor == nil || a.strategyName == "" {
+		return fmt.Errorf("reconciled intent settlement adapter is unavailable")
+	}
+	owner, _, found := a.executor.executor.IntentStrategyType(clientOrderID)
+	if found && owner != a.strategyName {
+		return fmt.Errorf("reconciled intent strategy does not match adapter owner")
+	}
+	return a.executor.executor.SettleReconciledIntent(ctx, clientOrderID, a.strategyName)
+}
+
 type recoveredIntentSettler interface {
 	SettleRecoveredIntent(context.Context, string) error
 }

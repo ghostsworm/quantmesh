@@ -118,6 +118,29 @@ func (oe *ExchangeOrderExecutor) SettleIntent(ctx context.Context, clientOrderID
 	return oe.settleIntent(ctx, clientOrderID, false)
 }
 
+// SettleReconciledIntent settles an intent only for its persisted strategy owner.
+// It also makes retries idempotent when settlement succeeded but the strategy's
+// durable outbox acknowledgement did not survive a crash.
+func (oe *ExchangeOrderExecutor) SettleReconciledIntent(ctx context.Context, clientOrderID, strategyName string) error {
+	if ctx == nil || strings.TrimSpace(clientOrderID) == "" || strings.TrimSpace(strategyName) == "" {
+		return fmt.Errorf("reconciled intent settlement requires context, client order ID, and strategy owner")
+	}
+	owner, _, found := oe.IntentStrategyType(clientOrderID)
+	if found {
+		if owner != strategyName {
+			return fmt.Errorf("reconciled intent owner mismatch")
+		}
+		if err := oe.SettleIntent(ctx, clientOrderID); err == nil {
+			return nil
+		} else if recoveryErr := oe.SettleRecoveredIntent(ctx, clientOrderID, strategyName); recoveryErr == nil {
+			return nil
+		} else {
+			return errors.Join(err, recoveryErr)
+		}
+	}
+	return oe.verifyPersistedSettledIntent(ctx, clientOrderID, strategyName)
+}
+
 // SettleZeroFillIntent is stricter than ordinary strategy settlement: it is
 // reserved for an accounted zero-fill callback and requires the venue's
 // authoritative terminal query and merged journal cursor to remain zero-fill.

@@ -41,7 +41,7 @@ func recoveryDispatchFixture(t *testing.T, kind string) (*storage.StrategyRuntim
 		version = 2
 		evidence = spotLongRuntimeState{BotID: "owner", Strategy: kind, Symbol: "BTCUSDT", BaseAsset: "BTC", PendingOrders: map[int64]spotLongPendingOrder{}}
 	case "spot_short":
-		version = 9
+		version = spotShortRuntimeStateSchemaVersion
 		evidence = spotShortRuntimeState{BotID: "owner", Strategy: kind, Symbol: "BTCUSDT", BaseAsset: "BTC", PendingRepay: map[int64]spotShortPendingRepay{}, ConsumedRepayTransfers: map[int64]int64{}}
 	case "futures_long", "futures_short":
 		evidence = futuresHedgeRuntimeState{BotID: "owner", Strategy: kind, Symbol: "BTCUSDT"}

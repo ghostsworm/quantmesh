@@ -723,6 +723,52 @@ type spotShortClientOrderLookupExchange struct {
 	borrowCalls int
 }
 
+type spotShortSettlementTestExecutor struct {
+	signalTestExecutor
+	settleErr   error
+	settleCalls int
+}
+
+func (e *spotShortSettlementTestExecutor) SettleReconciledIntent(context.Context, string) error {
+	e.settleCalls++
+	return e.settleErr
+}
+
+func TestSpotShortTerminalBorrowSettlementOutboxRetries(t *testing.T) {
+	const cid = "settlement-outbox-cid"
+	venue := &spotShortClientOrderLookupExchange{
+		clientID: cid,
+		clientOrder: &exchange.Order{OrderID: 405, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 0.25, ExecutedQty: 0.25, Status: exchange.OrderStatusFilled},
+	}
+	executor := &spotShortSettlementTestExecutor{settleErr: errors.New("journal write unavailable")}
+	strategy := newSpotShortForTest(executor, venue, &mockMarginExchange{})
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	intent := spotShortPendingBorrow{Amount: 0.25, Phase: "borrowed", BorrowTransferID: 406, CreatedAtUnixMilli: time.Now().UnixMilli()}
+	strategy.pendingBorrow[cid] = intent
+	if err := strategy.reconcilePendingBorrowIntents(context.Background()); err == nil {
+		t.Fatal("settlement journal failure must keep reconciliation unresolved")
+	}
+	if got := strategy.pendingBorrow[cid]; got.Phase != "settlement_pending" || got.TerminalOrderID != 405 || got.TerminalExecutedQty != 0.25 {
+		t.Fatalf("terminal settlement outbox was not retained: %+v", got)
+	}
+	var persisted spotShortRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.PendingBorrow[cid].Phase != "settlement_pending" {
+		t.Fatal("settlement outbox was not durable")
+	}
+	executor.settleErr = nil
+	if err := strategy.reconcilePendingBorrowIntents(context.Background()); err != nil {
+		t.Fatalf("retry terminal settlement: %v", err)
+	}
+	if len(strategy.pendingBorrow) != 0 || executor.settleCalls != 2 {
+		t.Fatalf("successful retry did not acknowledge the outbox: pending=%v settle_calls=%d", strategy.pendingBorrow, executor.settleCalls)
+	}
+}
+
 func (e *spotShortClientOrderLookupExchange) GetOrderByClientOrderID(_ context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
 	e.lookupCalls.Add(1)
 	if symbol != "BTCUSDT" || clientOrderID != e.clientID {

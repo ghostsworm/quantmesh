@@ -28,6 +28,8 @@ func (e *signalTestExecutor) PlaceOrder(req *position.OrderRequest) (*position.O
 	}, nil
 }
 
+func (e *signalTestExecutor) SettleReconciledIntent(context.Context, string) error { return nil }
+
 func (e *signalTestExecutor) BatchPlaceOrders(orders []*position.OrderRequest) ([]*position.Order, bool) {
 	return nil, false
 }

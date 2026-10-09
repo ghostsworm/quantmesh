@@ -40,6 +40,47 @@ func (oe *ExchangeOrderExecutor) LoadedIntentRecoveryRequired(err error) bool {
 	return oe.journalRequired && oe.journalLoaded && oe.intentJournal != nil && oe.intentScopeKey != "" && len(oe.intents) > 0 && oe.openingGate.HasBlock(IntentRecoveryBlock)
 }
 
+func (oe *ExchangeOrderExecutor) verifyPersistedSettledIntent(ctx context.Context, clientOrderID, strategyName string) error {
+	oe.intentMu.Lock()
+	if !oe.journalRequired || !oe.journalLoaded || oe.intentJournal == nil || oe.intentScopeKey == "" ||
+		oe.intentScope.Bot != oe.botID || oe.intentScope.Symbol != oe.symbol {
+		oe.intentMu.Unlock()
+		return fmt.Errorf("settled intent journal is unavailable or has a mismatched owner scope")
+	}
+	journal, scopeKey := oe.intentJournal, oe.intentScopeKey
+	oe.intentMu.Unlock()
+	var after int64
+	for {
+		page, err := journal.LoadExecutionIntents(ctx, scopeKey, after, intentJournalPageSize)
+		if err != nil {
+			return fmt.Errorf("verify persisted settlement for %s: %w", clientOrderID, err)
+		}
+		if len(page) > intentJournalPageSize {
+			return fmt.Errorf("execution intent journal returned an oversized page")
+		}
+		for _, record := range page {
+			if record.ID <= after || record.Revision <= 0 {
+				return fmt.Errorf("execution intent journal returned an invalid cursor")
+			}
+			after = record.ID
+			if !oe.matchesOwnedClientOrderID(record.ClientOrderID, clientOrderID) {
+				continue
+			}
+			intent, decodeErr := oe.decodeJournalIntent(record)
+			if decodeErr != nil {
+				return decodeErr
+			}
+			if intent.request.StrategyName != strategyName || !intent.settled || intent.unknown || intent.ledgerPending || intent.order == nil || !terminalOrderStatus(intent.order.Status) {
+				return fmt.Errorf("persisted intent %s is not settled for strategy %s", clientOrderID, strategyName)
+			}
+			return nil
+		}
+		if len(page) < intentJournalPageSize {
+			return fmt.Errorf("no persisted settled intent found for %s", clientOrderID)
+		}
+	}
+}
+
 type persistedIntent struct {
 	Version       int
 	Scope         execution.IntentScope
