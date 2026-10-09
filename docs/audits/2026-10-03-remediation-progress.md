@@ -2,6 +2,14 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
+
+- 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。
+- R13 的开发免登入只对直连回环请求有效，服务启动时拒绝 public bind；首次设置在认证管理器缺失、数据库查询失败、已安装但数据库失败或远端匿名请求时均拒绝变更。`go test -race ./web -run '^(TestDirectLoopbackRejectsProxiesAndSpoofedHeaders|TestInstalledSetupRequiresSessionEvenOnLoopback|TestLocalDevServerRejectsPublicBind|TestSetupMutationAuthenticationFailsClosed)$' -count=1` 通过。仍未做生产反向代理/实际部署配置验证。
+- R12 尚未闭合为可恢复流程：`configureRuntimeIntentJournalWithGridRecovery` 对加载后仍未核账的自有意图返回 `ErrOrderUnknown`；`bootstrapRuntimeExposure` 对任何非空启动挂单快照拒绝播种；`symbol_manager.go` 只记录 recovery incomplete 并保留开仓 gate。这能避免未核清时继续加仓，但目前没有把这些自有订单重新接入耐久 exposure reservation 并完成策略经济核账后的恢复闭环。不得清除标记或手动解除 gate 冒充修复。`go test -race ./execution ./order -run 'Exposure|OpeningGate' -count=1` 仅验证现有预留/封锁语义，不证明重启恢复。
+- 下一步实现目标应是 R12/R09 的受控 owner-scoped 恢复：精确绑定持久意图、venue 订单/成交、策略仓位与资本占用；只有读取完整、身份一致、成交账本耐久且所有剩余委托状态已核实，才可让新风险重新进入准入。无法完成经济归属时必须维持保护性退出能力及封锁，并提供可操作的核对状态；不把长期封锁写成风险已解决。
+- 本次只新增审查记录，没有修改交易实现、版本、标签或 main；没有连接交易所、下单、部署或验收盈利。
+
 ## rc1143：退役账户封锁原因可观测性
 
 - 生产周期核验原先把 unsupported 市场、观测器工厂失败、REST 查询失败及显式不完整响应统一持久化成 `incomplete`；管理员 UI 虽返回 `last_evidence_result`，但页面没有展示。Bitget Spot 等受支持范围外账户因此可能长期保持 fail-closed，却不给操作者可区分的修复方向。
