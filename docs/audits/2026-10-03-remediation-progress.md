@@ -20,6 +20,13 @@
 - 两条生产接线现在要求累计成交量在数值容差内覆盖请求量，否则返回错误且不清理 tracker pending。定向测试验证实时更新和重启 REST 快照均保留 pending；仍未把 Futures hedge 的完整成交费用/策略库存恢复接入 R12，也未关闭活动订单导致的启动封锁或运行时自动 exposure bootstrap 缺口。
 - 验证：`go test ./strategy -run '^TestFuturesHedge(Tracker|Restore)' -count=1`、同范围 `go test -race`、`go test ./strategy -count=1 -timeout=360s`（183.717s）、`go vet ./strategy` 通过；前端嵌入 `build/sync/verify` 通过，版本为 `3.111.0-rc1147`。未运行全仓 Go/race/MySQL 门禁，也未连接真实账户、部署或验收盈利。
 
+## 2026-10-09 R12：策略终态后的运行时暴露核账重试（rc1148）
+
+- 生产链路此前在策略 `StartAll` 后只重试一次 bootstrap；若当时 venue 仍有活动挂单，启动封锁保持有效，但挂单后来进入策略已核账的终态且 intent 耐久结算成功后，不会再触发整体持仓/库存核账。
+- 新增串行协调器：策略恢复就绪后才允许 retry；启动后的失败可由后续成功执行 `settleVerifiedStrategyIntent` 的策略终态回调再次触发。任一尝试失败不标记完成，保留 `runtimeExposureBootstrapBlock`；成功时仍须重新加载所有策略库存、核对持仓/挂单、播种共享 exposure 并由原有 bootstrap 流程释放其专属核账阻断。测试覆盖 ready 前不执行、失败后可重试、并发回调仅一次成功播种尝试及成功后幂等不重跑。
+- 范围限制：不会自行撤单或恢复活动订单；只在某个策略订单账本和 intent 结算成功后尝试全局核账。未覆盖没有 `strategyAccountingVerified` 的网格正成交、SpotLong、Futures hedge 完整手续费/库存接线；若没有后续成功结算事件仍可能长期 fail-closed，不能视为 R12/R09 全闭环。
+- 验证：定向 `go test . -run '^(TestRuntimeExposureBootstrapCoordinatorRetriesAndSerializes|TestRuntimeExposureBootstrapRetriesAfterStrategyRecoverySettlesIntent)$' -count=1` 与同范围 `-race` 通过；全 `go test ./... -count=1 -timeout=600s` 通过（策略包 184.679s）；`go vet ./...`、`yarn verify`（53 文件/311 项测试及生产构建）、`ruby scripts/frontend_embed.rb sync/verify/version` 均通过，嵌入版本为 `3.111.0-rc1148`。`git diff --check` 通过。未运行全仓 race / MySQL 强制门禁；未连接真实账户、下单、部署或验收盈利。
+
 ## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
 
 - 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。

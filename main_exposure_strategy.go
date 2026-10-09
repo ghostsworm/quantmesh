@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"quantmesh/config"
 	"quantmesh/exchange"
@@ -12,6 +13,37 @@ import (
 	"quantmesh/storage"
 	"quantmesh/strategy"
 )
+
+type runtimeExposureBootstrapCoordinator struct {
+	mu       sync.Mutex
+	ready    bool
+	complete bool
+}
+
+func (c *runtimeExposureBootstrapCoordinator) MarkReady() {
+	c.mu.Lock()
+	c.ready = true
+	c.mu.Unlock()
+}
+
+func (c *runtimeExposureBootstrapCoordinator) MarkComplete() {
+	c.mu.Lock()
+	c.complete = true
+	c.mu.Unlock()
+}
+
+func (c *runtimeExposureBootstrapCoordinator) Retry(attempt func() error) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.ready || c.complete {
+		return false, nil
+	}
+	if err := attempt(); err != nil {
+		return false, err
+	}
+	c.complete = true
+	return true, nil
+}
 
 func loadRuntimeStrategyExposureInventory(cfg config.Config, ex position.IExchange, storageService *storage.StorageService, botID, symbol string) ([]execution.ExposurePosition, bool, error) {
 	stateStore := &strategyRuntimeStateAdapter{storageService: storageService, botID: botID}
