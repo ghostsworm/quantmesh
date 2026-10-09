@@ -723,6 +723,18 @@ type spotShortClientOrderLookupExchange struct {
 	borrowCalls int
 }
 
+type spotShortFailFirstOrderLookup struct {
+	*spotShortClientOrderLookupExchange
+	calls atomic.Int32
+}
+
+func (e *spotShortFailFirstOrderLookup) GetOrderByClientOrderID(ctx context.Context, symbol, clientOrderID string) (*exchange.Order, error) {
+	if e.calls.Add(1) == 1 {
+		return nil, errors.New("temporary order lookup failure")
+	}
+	return e.spotShortClientOrderLookupExchange.GetOrderByClientOrderID(ctx, symbol, clientOrderID)
+}
+
 type spotShortSettlementTestExecutor struct {
 	signalTestExecutor
 	settleErr   error
@@ -732,6 +744,57 @@ type spotShortSettlementTestExecutor struct {
 func (e *spotShortSettlementTestExecutor) SettleReconciledIntent(context.Context, string) error {
 	e.settleCalls++
 	return e.settleErr
+}
+
+func TestSpotShortStartupReconciliationFailureRetriesWithoutRestart(t *testing.T) {
+	const cid = "startup-retry-borrow-cid"
+	cfg := &config.Config{}
+	cfg.Trading.BotID = "spot-short-startup-retry"
+	cfg.Trading.Symbol = "BTCUSDT"
+	state := spotShortRuntimeState{BotID: cfg.Trading.BotID, Strategy: "spot_short", Symbol: "BTCUSDT", BaseAsset: "BTC",
+		PendingRepay: map[int64]spotShortPendingRepay{}, PendingBorrow: map[string]spotShortPendingBorrow{
+			cid: {Amount: 0.2, Phase: "borrowed", BorrowTransferID: 904, CreatedAtUnixMilli: time.Now().Add(-time.Minute).UnixMilli()},
+		}, PendingBuy: map[string]spotShortPendingBuy{}}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &memoryRuntimeStateStore{version: spotShortRuntimeStateSchemaVersion, payload: string(payload), found: true}
+	lookup := &spotShortFailFirstOrderLookup{spotShortClientOrderLookupExchange: &spotShortClientOrderLookupExchange{
+		clientID: cid, clientOrder: &exchange.Order{OrderID: 904, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideSell,
+			Quantity: 0.2, ExecutedQty: 0.2, Status: exchange.OrderStatusFilled},
+	}}
+	gate := &execution.OpeningGate{}
+	gate.Block("strategy_accounting_unverified")
+	s := NewSpotShortStrategy("spot_short", cfg, &signalTestExecutor{}, lookup, &mockMarginExchange{}, nil)
+	s.SetRuntimeStateStore(store)
+	s.SetOpeningGate(gate)
+	s.SetEventBus(event.NewEventBus(10))
+	s.SetUnresolvedDebtHandler(func(error) { gate.Block("spot_short_reconciliation_unverified") })
+	s.SetReconciliationSuccessHandler(func() {})
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if err := s.Start(ctx); err != nil {
+		t.Fatalf("transient reconciliation failure should start fail-closed retry service: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Stop() })
+	if !gate.HasBlock("spot_short_reconciliation_unverified") {
+		t.Fatal("startup reconciliation failure did not hold the dedicated opening block")
+	}
+	deadline := time.Now().Add(6 * time.Second)
+	for time.Now().Before(deadline) {
+		s.mu.RLock()
+		_, pending := s.pendingBorrow[cid]
+		s.mu.RUnlock()
+		if !pending && !gate.HasBlock("spot_short_reconciliation_unverified") && gate.HasBlock("strategy_accounting_unverified") && lookup.calls.Load() >= 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	s.mu.RLock()
+	pendingBorrow := len(s.pendingBorrow)
+	s.mu.RUnlock()
+	t.Fatalf("startup reconciliation did not recover without restart: calls=%d pending=%d gate=%v", lookup.calls.Load(), pendingBorrow, gate.Sources())
 }
 
 func TestSpotShortTerminalBorrowSettlementOutboxRetries(t *testing.T) {
