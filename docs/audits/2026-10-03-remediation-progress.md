@@ -14,6 +14,12 @@
 - 实际接线：`ComboStrategy` 将同一个 `comboExposureAdmissionExecutor` 传给 DCA、信号与马丁格尔子策略；该 wrapper 之前没有实现 `SettleRecoveredIntent`，使 rc1145 的子策略恢复结算接口在 Combo 路径被隐藏。现在仅将 client order ID 和 context 透传到底层 owner-scoped adapter；底层不支持时返回错误，防止恢复器误认为已结算。
 - 针对性测试覆盖 context/client ID 原样透传、底层错误传播及不支持时 fail-closed。其余 R12 缺口（SpotLong、Futures hedge、网格恢复、活动挂单/终态后的运行时重试）仍未闭合；此改动不扩大交易或开仓权限，也不构成实盘或盈利验收。
 
+## 2026-10-09 R12：Futures hedge 不完整 FILLED 保护（rc1147）
+
+- `futuresHedgeOrderTracker.OnOrderUpdate` 与启动 `RestoreAndReconcile` 原先只要求 `FILLED.ExecutedQty > 0`，没有与耐久请求数量比较；underfilled-FILLED 可以清除本地 pending，之后通用终态回调可能进一步结算共享 intent。
+- 两条生产接线现在要求累计成交量在数值容差内覆盖请求量，否则返回错误且不清理 tracker pending。定向测试验证实时更新和重启 REST 快照均保留 pending；仍未把 Futures hedge 的完整成交费用/策略库存恢复接入 R12，也未关闭活动订单导致的启动封锁或运行时自动 exposure bootstrap 缺口。
+- 验证：`go test ./strategy -run '^TestFuturesHedge(Tracker|Restore)' -count=1`、同范围 `go test -race`、`go test ./strategy -count=1 -timeout=360s`（183.717s）、`go vet ./strategy` 通过；前端嵌入 `build/sync/verify` 通过，版本为 `3.111.0-rc1147`。未运行全仓 Go/race/MySQL 门禁，也未连接真实账户、部署或验收盈利。
+
 ## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
 
 - 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。

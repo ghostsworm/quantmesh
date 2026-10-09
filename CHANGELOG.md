@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc1147] - 2026-10-09（开发中，未发布）
+
+### Fixed
+- FuturesLong/FuturesShort 恢复跟踪器拒绝成交量不足的 FILLED 回报或 REST 快照，并保留耐久 pending 保护。
+
 ## [3.111.0-rc1146] - 2026-10-09（开发中，未发布）
 
 ### Fixed
