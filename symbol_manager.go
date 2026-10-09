@@ -530,9 +530,10 @@ func startSymbolRuntime(
 	var ownershipGate atomic.Pointer[execution.OpeningGate]
 	var ownershipExecutor atomic.Pointer[order.ExchangeOrderExecutor]
 	var ownershipRuntime atomic.Pointer[SymbolRuntime]
-	ownershipLease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, runtimeOwnershipScope(
+	ownerScope := runtimeOwnershipScope(
 		equityAccountScopeID(symCfg.Exchange, localCfg.Exchanges[symCfg.Exchange]), symCfg.Exchange, symCfg.GetMarketType(), symCfg.Symbol,
-	), runtimeOwnershipLeaseTTL, func(renewErr error) {
+	)
+	ownershipLease, err := acquireRuntimeOwnershipLease(ctx, distributedLock, ownerScope, runtimeOwnershipLeaseTTL, func(renewErr error) {
 		logger.ErrorCtx(ctx, "[%s] Bot 运行所有权租约续期失败，停止后续提交并封锁开仓: %v", botID, renewErr)
 		if gate := ownershipGate.Load(); gate != nil {
 			gate.Block("runtime_ownership_unverified")
@@ -555,6 +556,10 @@ func startSymbolRuntime(
 			}
 		}
 	}()
+	runtimeStateAdapter, err := newOwnerFencedStrategyRuntimeStateAdapter(ctx, storageService, botID, ownerScope)
+	if err != nil {
+		return nil, fmt.Errorf("Bot %s 无法取得策略运行态持久化所有权: %w", botID, err)
+	}
 	localCfg.Trading.BotID = botID
 	ctx = logger.WithBotID(ctx, botID)
 	localCfg.Trading.Symbol = symCfg.Symbol
@@ -876,7 +881,7 @@ func startSymbolRuntime(
 			return nil, fmt.Errorf("grid runtime state owner scope: %w", scopeErr)
 		}
 		superPositionManager.SetGridRuntimeStateStore(&scopedGridRuntimeStateAdapter{
-			base:        &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
+			base:        runtimeStateAdapter,
 			strategyKey: "grid-" + runtimeStateKey,
 		})
 		if restored, restoreErr := superPositionManager.RestoreGridRuntimeState(); restoreErr != nil {
@@ -1308,7 +1313,7 @@ func startSymbolRuntime(
 			trendExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "trend")
 			trendStrategy := strategy.NewTrendFollowingStrategy("trend", &localCfg, trendExecutor, exchangeAdapter, trendCfg.Config)
 			if storageService != nil {
-				trendStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				trendStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			fixedPool := 0.0
 			if pool, ok := trendCfg.Config["capital_pool"].(float64); ok {
@@ -1322,7 +1327,7 @@ func startSymbolRuntime(
 			meanExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "mean_reversion")
 			meanStrategy := strategy.NewMeanReversionStrategy("mean_reversion", &localCfg, meanExecutor, exchangeAdapter, meanCfg.Config)
 			if storageService != nil {
-				meanStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				meanStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			fixedPool := 0.0
 			if pool, ok := meanCfg.Config["capital_pool"].(float64); ok {
@@ -1336,7 +1341,7 @@ func startSymbolRuntime(
 			momentumExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "momentum")
 			momentumStrategy := strategy.NewMomentumStrategy("momentum", &localCfg, momentumExecutor, exchangeAdapter, momentumCfg.Config)
 			if storageService != nil {
-				momentumStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				momentumStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			fixedPool := 0.0
 			if pool, ok := momentumCfg.Config["capital_pool"].(float64); ok {
@@ -1350,7 +1355,7 @@ func startSymbolRuntime(
 			martinExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "martingale")
 			martinStrategy := strategy.NewMartingaleStrategy("martingale", symCfg.Symbol, &localCfg, martinExecutor, exchangeAdapter, martinCfg.Config)
 			if storageService != nil {
-				martinStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				martinStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			fixedPool := 0.0
 			if pool, ok := martinCfg.Config["capital_pool"].(float64); ok {
@@ -1365,7 +1370,7 @@ func startSymbolRuntime(
 			dcaExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca")
 			dcaStrategy := strategy.NewDCAEnhancedStrategy("dca", symCfg.Symbol, &localCfg, dcaExecutor, exchangeAdapter, dcaCfg.Config)
 			if storageService != nil {
-				dcaStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				dcaStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			// 🔥 設置交易存儲，用於保存止损单的交易記錄
 			if storageService != nil {
@@ -1392,7 +1397,7 @@ func startSymbolRuntime(
 			dcaEnhancedExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "dca_enhanced")
 			dcaEnhancedStrategy := strategy.NewDCAEnhancedStrategy("dca_enhanced", symCfg.Symbol, &localCfg, dcaEnhancedExecutor, exchangeAdapter, dcaEnhancedCfg.Config)
 			if storageService != nil {
-				dcaEnhancedStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+				dcaEnhancedStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 			}
 			// 🔥 設置交易存儲，用於保存止损单的交易記錄
 			if storageService != nil {
@@ -1419,7 +1424,7 @@ func startSymbolRuntime(
 			comboStrategy := strategy.NewComboStrategy("combo", symCfg.Symbol, &localCfg, comboExecutor, exchangeAdapter, comboCfg.Config)
 			stateReady := true
 			if storageService != nil {
-				if err := comboStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID}); err != nil {
+				if err := comboStrategy.SetRuntimeStateStore(runtimeStateAdapter); err != nil {
 					stateReady = false
 					superPositionManager.OpeningGate().Block("combo_runtime_state_unverified")
 					superPositionManager.CancelAllOpenOrders()
@@ -1467,7 +1472,7 @@ func startSymbolRuntime(
 						return nil, fmt.Errorf("configure SpotShort account wallet coordination: %w", err)
 					}
 					if storageService != nil {
-						spotShortStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+						spotShortStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 					}
 					spotShortStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
 						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
@@ -1515,7 +1520,7 @@ func startSymbolRuntime(
 					spotLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "spot_long")
 					spotLongStrategy := strategy.NewSpotLongStrategy("spot_long", &localCfg, spotLongExecutor, exchangeAdapter, spotLongCfg)
 					if storageService != nil {
-						spotLongStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+						spotLongStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 					}
 					spotLongStrategy.SetRuntimeStateErrorHandler(func(stateErr error) {
 						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
@@ -1544,7 +1549,7 @@ func startSymbolRuntime(
 					}
 					futuresShortExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_short")
 					futuresShortStrategy := strategy.NewFuturesShortStrategy("futures_short", &localCfg, futuresShortExecutor, exchangeAdapter, futuresShortCfg)
-					futuresShortStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+					futuresShortStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 					strategyManager.RegisterStrategy("futures_short", futuresShortStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 合約做空對沖策略已注册 (group=%v)", symCfg.Symbol, futuresShortCfg["group_id"])
 					break
@@ -1561,7 +1566,7 @@ func startSymbolRuntime(
 					}
 					futuresLongExecutor := strategy.NewMultiStrategyExecutorAdapter(multiExecutor, "futures_long")
 					futuresLongStrategy := strategy.NewFuturesLongStrategy("futures_long", &localCfg, futuresLongExecutor, exchangeAdapter, futuresLongCfg)
-					futuresLongStrategy.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: storageService, botID: botID})
+					futuresLongStrategy.SetRuntimeStateStore(runtimeStateAdapter)
 					strategyManager.RegisterStrategy("futures_long", futuresLongStrategy, si.Weight, 0)
 					logger.InfoCtx(ctx, "✅ [%s] 合約做多對沖策略已注册 (group=%v)", symCfg.Symbol, futuresLongCfg["group_id"])
 					break

@@ -300,8 +300,9 @@ func (a *tradeStorageAdapter) CountPendingTradeFeeCorrections(exchange, symbol s
 }
 
 type strategyRuntimeStateAdapter struct {
-	storageService *storage.StorageService
-	botID          string
+	storageService  *storage.StorageService
+	botID           string
+	ownerGeneration *storage.FundingCarryRuntimeGeneration
 }
 
 type scopedGridRuntimeStateAdapter struct {
@@ -340,9 +341,19 @@ func (a *strategyRuntimeStateAdapter) SaveRuntimeState(strategyName string, sche
 	if !ok {
 		return fmt.Errorf("storage backend does not support strategy runtime state")
 	}
-	return writer.SetStrategyRuntimeState(&storage.StrategyRuntimeState{
+	state := &storage.StrategyRuntimeState{
 		BotID: a.botID, StrategyName: strategyName, SchemaVersion: schemaVersion, Payload: payload,
-	})
+	}
+	if a.ownerGeneration != nil {
+		fencedWriter, ok := a.storageService.GetStorage().(storage.FundingCarryRuntimeGenerationStore)
+		if !ok {
+			return fmt.Errorf("storage backend does not support owner-fenced strategy runtime state")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), strategyRuntimeStateWriteTimeout)
+		defer cancel()
+		return fencedWriter.SetFundingCarryRuntimeState(ctx, *a.ownerGeneration, state)
+	}
+	return writer.SetStrategyRuntimeState(state)
 }
 
 func (a *strategyRuntimeStateAdapter) LoadRuntimeStateContext(ctx context.Context, strategyName string) (int, string, bool, error) {

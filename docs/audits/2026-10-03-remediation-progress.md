@@ -2,6 +2,13 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12：普通 Bot 策略运行态快照 owner-generation fencing（rc1154）
+
+- 源码调用链确认：普通 `startSymbolRuntime` 已取得按账户/交易所/市场/交易对维度的运行 lease，但策略/网格/对冲状态统一通过 `strategyRuntimeStateAdapter` 对 `strategy_runtime_states` 做无条件 upsert；lease 续租丢失后，仍在途的旧回调可在新 owner 写入之后覆盖运行态快照，破坏重启恢复中的订单/库存证据。
+- 启动现为同一 owner scope 领取 SQL 持久化 generation，普通策略、网格与 SpotLong/SpotShort/FuturesLong/FuturesShort 共用此 adapter；普通 Save 与 CAS 写入使用 generation-fenced 事务。generation 缺失或不支持时，有持久化的普通 Bot 拒绝启动；owner token 代际已变化时，旧 Save/CAS 返回 `ErrFundingCarryRuntimeGenerationLost`，不会改写快照。写入上下文限时 15 秒。
+- 定向回归构造两个先后接管的 adapter，验证旧 owner 的 Save 与 CAS 均被拒、当前 owner 可保存，最终 SQL 快照仍由新 owner 持有；同一测试经 `go test -race` 通过。全仓 `go test ./... -count=1 -timeout=600s` 通过（根包 113.363s、strategy 包 188.315s、web 包 55.818s）；最终源码 `go vet ./...` 退出码 0。前端 `yarn verify` 退出码 0（53 个测试文件/311 项测试、生产构建），`ruby scripts/frontend_embed.rb sync/verify/version` 成功并核实版本 `3.111.0-rc1154`；`git diff --check` 通过。
+- 此 fencing 仅保护运行态 SQL 写入，不使 Redis lease 与 SQL claim 成为原子事务，也不能撤销已发出的交易所 RPC；应与交易请求边界的 lease 验证和 UNKNOWN 恢复并行看待。DSN 门控 MySQL 全仓用例不在此次验证范围；尚未证明所有策略经济库存/费用均完整，也不代表真实交易、部署或盈利验收。
+
 ## 2026-10-09 R12/R09：成交逐笔账耐久后才结算策略 intent（rc1153）
 
 - 复核实际 `symbol_manager.go` 订单流发现：正成交策略在 `ApplyOrderUpdateForStrategyWithAccounting` 返回成功后立即 `SettleIntent`，而 `runtimeFillCapture` 的逐笔成交/手续费采集是后启动的异步任务。若交易所成交查询或存储写入失败，`execution_ledger_unverified:<order>` 只存在内存；intent 已被耐久标为 settled，重启无法再从 UNKNOWN journal 恢复该未核账成交。

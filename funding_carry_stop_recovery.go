@@ -60,6 +60,17 @@ func (bm *BotManager) recoverFundingCarryStop(ctx context.Context, cfg *config.C
 	if err := guard(); err != nil {
 		return err
 	}
+	stateOwnerScopes, err := fundingCarryRuntimeOwnershipScopes(cfg, symCfg.Exchange, symCfg.Symbol, true)
+	if err != nil {
+		return fmt.Errorf("build FundingCarry recovery state owner scopes: %w", err)
+	}
+	stateAdapter, err := newOwnerFencedStrategyRuntimeStateAdapterForScopes(ctx, bm.storageService, journal.State.BotID, stateOwnerScopes)
+	if err != nil {
+		return fmt.Errorf("claim FundingCarry recovery state owner generation: %w", err)
+	}
+	if err := guard(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(cfg.Exchanges[symCfg.Exchange].APIKey) == "" || strings.TrimSpace(cfg.Exchanges[symCfg.Exchange].SecretKey) == "" {
 		return errors.New("FundingCarry recovery account credentials are incomplete")
 	}
@@ -104,7 +115,7 @@ func (bm *BotManager) recoverFundingCarryStop(ctx context.Context, cfg *config.C
 	if err := carry.SetAccountWalletCoordinationLock(bm.distributedLock, "funding_carry_wallet:"+accountScope); err != nil {
 		return err
 	}
-	carry.SetRuntimeStateStore(&strategyRuntimeStateAdapter{storageService: bm.storageService, botID: journal.State.BotID})
+	carry.SetRuntimeStateStore(stateAdapter)
 	carry.SetOpeningGate(&execution.OpeningGate{})
 
 	if err := carry.ReconcilePersistedStoppedFlat(ctx, guard); err != nil {

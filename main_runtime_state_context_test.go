@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"quantmesh/config"
+	"quantmesh/execution"
 	"quantmesh/storage"
 )
 
@@ -43,5 +44,41 @@ func TestStrategyRuntimeStateAdapterContextAndOwnerIsolation(t *testing.T) {
 	var missing *strategyRuntimeStateAdapter
 	if _, _, _, err := missing.LoadRuntimeStateContext(t.Context(), "spot_short"); err == nil {
 		t.Fatal("missing storage accepted")
+	}
+}
+
+func TestGenericStrategyRuntimeStateAdapterFencesStaleOwnerWrites(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Storage.Enabled, cfg.Storage.Type = true, "sqlite"
+	cfg.Storage.Path = filepath.Join(t.TempDir(), "state-owner-generation.db")
+	service, err := storage.NewStorageService(cfg, t.Context())
+	if err != nil {
+		t.Fatal("open owner-generation storage:", err)
+	}
+	t.Cleanup(func() { _ = service.GetStorage().Close() })
+	scope := execution.IntentScope{Account: "account-scope", Exchange: "binance", Market: "spot", Symbol: "BTCUSDT", Bot: runtimeOwnershipScopeOwner}
+	oldOwner, err := newOwnerFencedStrategyRuntimeStateAdapter(t.Context(), service, "bot-a", scope)
+	if err != nil {
+		t.Fatal("claim initial state owner:", err)
+	}
+	if err := oldOwner.SaveRuntimeState("spot_long", 2, `{"owner":"old"}`); err != nil {
+		t.Fatal("initial durable state save:", err)
+	}
+	currentOwner, err := newOwnerFencedStrategyRuntimeStateAdapter(t.Context(), service, "bot-a", scope)
+	if err != nil {
+		t.Fatal("claim replacement state owner:", err)
+	}
+	if err := oldOwner.SaveRuntimeState("spot_long", 2, `{"owner":"stale"}`); !errors.Is(err, storage.ErrFundingCarryRuntimeGenerationLost) {
+		t.Fatalf("stale owner save error = %v, want generation-lost", err)
+	}
+	if saved, err := oldOwner.CompareAndSwapRuntimeState(t.Context(), "spot_long", 2, `{"owner":"old"}`, 2, `{"owner":"stale-cas"}`); saved || !errors.Is(err, storage.ErrFundingCarryRuntimeGenerationLost) {
+		t.Fatalf("stale owner CAS = saved %v, err %v", saved, err)
+	}
+	if err := currentOwner.SaveRuntimeState("spot_long", 2, `{"owner":"current"}`); err != nil {
+		t.Fatal("current owner save:", err)
+	}
+	state, err := service.GetStorage().(storage.StrategyRuntimeStateStore).GetStrategyRuntimeState("bot-a", "spot_long")
+	if err != nil || state == nil || state.Payload != `{"owner":"current"}` {
+		t.Fatalf("canonical runtime state = %+v, err = %v", state, err)
 	}
 }

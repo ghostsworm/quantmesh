@@ -15,5 +15,13 @@ func (a *strategyRuntimeStateAdapter) CompareAndSwapRuntimeState(ctx context.Con
 	if !ok {
 		return false, fmt.Errorf("storage does not support atomic conditional runtime state writes")
 	}
-	return writer.CompareAndSwapStrategyRuntimeState(ctx, &storage.StrategyRuntimeState{BotID: a.botID, StrategyName: name, SchemaVersion: nextVersion, Payload: nextPayload}, expectedVersion, expectedPayload)
+	next := &storage.StrategyRuntimeState{BotID: a.botID, StrategyName: name, SchemaVersion: nextVersion, Payload: nextPayload}
+	if a.ownerGeneration != nil {
+		fencedWriter, ok := a.storageService.GetStorage().(storage.FundingCarryRuntimeGenerationStore)
+		if !ok {
+			return false, fmt.Errorf("storage backend does not support owner-fenced strategy runtime state")
+		}
+		return fencedWriter.CompareAndSwapFundingCarryRuntimeState(ctx, *a.ownerGeneration, next, expectedVersion, expectedPayload)
+	}
+	return writer.CompareAndSwapStrategyRuntimeState(ctx, next, expectedVersion, expectedPayload)
 }
