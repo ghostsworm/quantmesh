@@ -509,6 +509,61 @@ func TestDCAStartReplaysVerifiedEntryFillMissedWhileOffline(t *testing.T) {
 	}
 }
 
+type dcaRecoveredIntentExecutor struct {
+	*hedgeOrderExecutor
+	settledCIDs []string
+}
+
+func (e *dcaRecoveredIntentExecutor) SettleRecoveredIntent(_ context.Context, clientOrderID string) error {
+	e.settledCIDs = append(e.settledCIDs, clientOrderID)
+	return nil
+}
+
+func TestDCAStartupRecoverySettlesTerminalIntentAfterDurableAccounting(t *testing.T) {
+	const clientOrderID = "dca-entry-recovered-95"
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 95, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Quantity: 1, ExecutedQty: 1, AvgPrice: 100, Status: exchange.OrderStatusFilled,
+	}, fills: []*exchange.OrderFill{{
+		OrderID: 95, TradeID: "trade-95", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 1, Commission: 0.1, CommissionAsset: "USDT",
+	}}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 95, ClientOrderID: clientOrderID, Status: entryStatusPending, RequestedQuantity: 1}}}
+	strategy := newPersistedDCAStrategy(t, ex, state)
+	executor := &dcaRecoveredIntentExecutor{hedgeOrderExecutor: &hedgeOrderExecutor{}}
+	strategy.executor = executor
+	if err := strategy.Start(t.Context()); err != nil {
+		t.Fatalf("recover terminal DCA entry: %v", err)
+	}
+	defer strategy.Stop()
+	if len(executor.settledCIDs) != 1 || executor.settledCIDs[0] != clientOrderID {
+		t.Fatalf("durably reconciled DCA intent was not settled: %v", executor.settledCIDs)
+	}
+	if !strategy.runtimeStateStore.(*memoryRuntimeStateStore).found || strategy.totalQty != 1 || strategy.layers[0].OpeningFee != 0.1 {
+		t.Fatalf("DCA economic state was not durably reconciled before settlement: qty=%v layer=%+v", strategy.totalQty, strategy.layers[0])
+	}
+}
+
+func TestDCAStartupRecoveryRejectsUnderfilledFilledOrder(t *testing.T) {
+	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 96, ClientOrderID: "dca-entry-96", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Quantity: 1, ExecutedQty: 0.4, AvgPrice: 100, Status: exchange.OrderStatusFilled,
+	}, fills: []*exchange.OrderFill{{
+		OrderID: 96, TradeID: "trade-96", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Price: 100, Quantity: 0.4, Commission: 0.04, CommissionAsset: "USDT",
+	}}}
+	state := dcaRuntimeState{StrategyName: "dca", Symbol: "BTCUSDT", CurrentLayer: 1, CloseLayerIndex: -1,
+		Layers: []*DCALayer{{Index: 0, Price: 100, OrderID: 96, ClientOrderID: "dca-entry-96", Status: entryStatusPending, RequestedQuantity: 1}}}
+	strategy := newPersistedDCAStrategy(t, ex, state)
+	if err := strategy.Start(t.Context()); err == nil {
+		t.Fatal("accepted terminal FILLED status with less than the requested quantity")
+	}
+	if strategy.IsRunning() || strategy.totalQty != 0 || strategy.layers[0].Status != entryStatusPending {
+		t.Fatalf("contradictory fill evidence mutated or started DCA state: running=%t qty=%v layer=%+v", strategy.IsRunning(), strategy.totalQty, strategy.layers[0])
+	}
+}
+
 func TestDCAStartReplaysOnlyFillDeltaAfterPersistedCursor(t *testing.T) {
 	ex := &dcaRecoveryExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
 		OrderID: 93, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5,

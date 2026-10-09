@@ -116,12 +116,76 @@ func TestMartingaleRestoresEntryOrderByPersistedCID(t *testing.T) {
 
 type martingaleReconciliationExecutor struct {
 	hedgeOrderExecutor
-	marked bool
+	marked      bool
+	settledCIDs []string
 }
 
 func (e *martingaleReconciliationExecutor) MarkOrderReconciliationRequired(int64, string, string) error {
 	e.marked = true
 	return nil
+}
+
+func (e *martingaleReconciliationExecutor) SettleRecoveredIntent(_ context.Context, clientOrderID string) error {
+	e.settledCIDs = append(e.settledCIDs, clientOrderID)
+	return nil
+}
+
+func TestMartingaleStartupRecoverySettlesTerminalIntentAfterDurableAccounting(t *testing.T) {
+	const clientOrderID = "martingale-entry-64"
+	executor := &martingaleReconciliationExecutor{}
+	venue := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 64, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1,
+		Status: exchange.OrderStatusCanceled,
+	}}
+	strategy := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, venue, nil)
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	strategy.direction = "LONG"
+	strategy.entries = []*MartingaleEntry{{Level: 1, OrderID: 64, ClientOrderID: clientOrderID, RequestedQuantity: 1, Status: entryStatusPending}}
+	strategy.mu.Lock()
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatal("persist initial martingale state:", err)
+	}
+	strategy.mu.Unlock()
+
+	if err := strategy.reconcilePersistedEntryOrders(t.Context()); err != nil {
+		t.Fatalf("reconcile terminal martingale entry: %v", err)
+	}
+	if len(executor.settledCIDs) != 1 || executor.settledCIDs[0] != clientOrderID {
+		t.Fatalf("durably reconciled terminal martingale intent was not settled: %v", executor.settledCIDs)
+	}
+	if !store.found || len(strategy.entries) != 0 || strategy.totalQty != 0 {
+		t.Fatalf("martingale economic state was not durably finalized: stored=%t entries=%+v total=%v", store.found, strategy.entries, strategy.totalQty)
+	}
+}
+
+func TestMartingaleStartupRecoveryRejectsUnderfilledFilledOrder(t *testing.T) {
+	const clientOrderID = "martingale-entry-65"
+	executor := &martingaleReconciliationExecutor{}
+	venue := &martingaleEntryReconcileExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 65, ClientOrderID: clientOrderID, Symbol: "BTCUSDT", Side: exchange.SideBuy,
+		Quantity: 1, ExecutedQty: 0.4, Status: exchange.OrderStatusFilled,
+	}}
+	strategy := NewMartingaleStrategy("martingale", "BTCUSDT", &config.Config{}, executor, venue, nil)
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	strategy.direction = "LONG"
+	strategy.entries = []*MartingaleEntry{{Level: 1, OrderID: 65, ClientOrderID: clientOrderID, RequestedQuantity: 1, Status: entryStatusPending}}
+	strategy.mu.Lock()
+	if err := strategy.persistRuntimeStateLocked(); err != nil {
+		strategy.mu.Unlock()
+		t.Fatal("persist initial martingale state:", err)
+	}
+	before := store.payload
+	strategy.mu.Unlock()
+
+	if err := strategy.reconcilePersistedEntryOrders(t.Context()); err == nil {
+		t.Fatal("accepted terminal FILLED status with less than the requested quantity")
+	}
+	if len(executor.settledCIDs) != 0 || store.payload != before || len(strategy.entries) != 1 {
+		t.Fatalf("contradictory fill evidence was settled or overwritten: settled=%v payload_changed=%t entries=%+v", executor.settledCIDs, store.payload != before, strategy.entries)
+	}
 }
 
 func TestMartingaleUnverifiedLiveFeeRetainsFillForReconciliation(t *testing.T) {

@@ -455,7 +455,7 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, e
 		return fmt.Errorf("unrecognized exchange order status %q", order.Status)
 	}
 	if status == "NEW" && order.ExecutedQty > tolerance || status == "PARTIALLY_FILLED" && order.ExecutedQty <= 0 ||
-		(status == "FILLED" || status == "FULLY_FILLED" || status == "CLOSED") && order.ExecutedQty <= 0 {
+		(signalOrderStatusFilled(status) && (order.ExecutedQty <= 0 || math.Abs(order.ExecutedQty-entry.RequestedQuantity) > tolerance)) {
 		return fmt.Errorf("order status conflicts with cumulative execution")
 	}
 	update := &position.OrderUpdate{OrderID: order.OrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
@@ -473,6 +473,11 @@ func (s *MartingaleStrategy) reconcilePersistedEntryOrder(ctx context.Context, e
 	if status == "NEW" || status == "PARTIALLY_FILLED" || signalOrderStatusTerminal(status) || order.ExecutedQty > entry.FillProgress.Quantity {
 		if err := s.OnOrderUpdate(update); err != nil {
 			return fmt.Errorf("apply recovered order state: %w", err)
+		}
+	}
+	if signalOrderStatusFilled(status) || signalOrderStatusTerminal(status) {
+		if err := settleRecoveredIntentAfterAccounting(ctx, s.executor, entry.ClientOrderID, status); err != nil {
+			return fmt.Errorf("settle economically reconciled martingale entry %s: %w", entry.ClientOrderID, err)
 		}
 	}
 	return nil

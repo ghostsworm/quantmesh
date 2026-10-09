@@ -211,7 +211,7 @@ func updateSignalPositionMark(holding *Position, price float64) error {
 	return nil
 }
 
-func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, symbol string, active *Order,
+func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, executor position.OrderExecutorInterface, symbol string, active *Order,
 	apply func(*position.OrderUpdate) error) error {
 	if active == nil {
 		return nil
@@ -248,7 +248,7 @@ func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, sym
 		return fmt.Errorf("exchange signal order has unrecognized status %q", order.Status)
 	}
 	if status == "NEW" && order.ExecutedQty > entryQtyEpsilon || status == "PARTIALLY_FILLED" && order.ExecutedQty <= 0 ||
-		(signalOrderStatusFilled(status) && order.ExecutedQty <= 0) {
+		(signalOrderStatusFilled(status) && (order.ExecutedQty <= 0 || math.Abs(order.ExecutedQty-active.Quantity) > math.Max(entryQtyEpsilon, active.Quantity*1e-8))) {
 		return fmt.Errorf("exchange signal order status conflicts with cumulative execution")
 	}
 	update := &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: active.ClientOrderID,
@@ -263,6 +263,9 @@ func reconcileSignalRuntimeOrder(ctx context.Context, ex position.IExchange, sym
 	}
 	if err := apply(update); err != nil {
 		return fmt.Errorf("apply reconciled signal order %d: %w", order.OrderID, err)
+	}
+	if err := settleRecoveredIntentAfterAccounting(ctx, executor, active.ClientOrderID, status); err != nil {
+		return fmt.Errorf("settle economically reconciled signal order %s: %w", active.ClientOrderID, err)
 	}
 	return nil
 }
@@ -436,7 +439,7 @@ func (tfs *TrendFollowingStrategy) reconcileRuntimeOrder(ctx context.Context) er
 		active = &copied
 	}
 	tfs.mu.RUnlock()
-	return reconcileSignalRuntimeOrder(ctx, tfs.exchange, signalStrategySymbol(tfs.cfg, tfs.strategyCfg), active, tfs.OnOrderUpdate)
+	return reconcileSignalRuntimeOrder(ctx, tfs.exchange, tfs.executor, signalStrategySymbol(tfs.cfg, tfs.strategyCfg), active, tfs.OnOrderUpdate)
 }
 
 func (mrs *MeanReversionStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
@@ -474,7 +477,7 @@ func (mrs *MeanReversionStrategy) reconcileRuntimeOrder(ctx context.Context) err
 		active = &copied
 	}
 	mrs.mu.RUnlock()
-	return reconcileSignalRuntimeOrder(ctx, mrs.exchange, signalStrategySymbol(mrs.cfg, mrs.strategyCfg), active, mrs.OnOrderUpdate)
+	return reconcileSignalRuntimeOrder(ctx, mrs.exchange, mrs.executor, signalStrategySymbol(mrs.cfg, mrs.strategyCfg), active, mrs.OnOrderUpdate)
 }
 
 func (ms *MomentumStrategy) SetRuntimeStateStore(store RuntimeStateStore) {
@@ -512,7 +515,7 @@ func (ms *MomentumStrategy) reconcileRuntimeOrder(ctx context.Context) error {
 		active = &copied
 	}
 	ms.mu.RUnlock()
-	return reconcileSignalRuntimeOrder(ctx, ms.exchange, signalStrategySymbol(ms.cfg, ms.strategyCfg), active, ms.OnOrderUpdate)
+	return reconcileSignalRuntimeOrder(ctx, ms.exchange, ms.executor, signalStrategySymbol(ms.cfg, ms.strategyCfg), active, ms.OnOrderUpdate)
 }
 
 func signalRuntimeStateDecisionError(strategyName string, err error) error {

@@ -2,6 +2,13 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12：策略恢复后的 UNKNOWN intent 受限结算（rc1145）
+
+- 生产恢复调用链在 DCA、趋势/均值回归/动量信号及马丁格尔策略中，现仅于精确 venue 订单核对完成、策略 `OnOrderUpdate` 成功持久化经济状态后，才按 client order ID 通知对应策略 adapter 结算 UNKNOWN intent。物理 executor 再次核对 journal owner、终态订单身份/数量并持久化 settled 状态；`IntentRecoveryBlock` 保留到随后全 Bot 策略库存、venue 持仓和挂单 bootstrap 成功。
+- 终态标签与成交数量矛盾时不能结算：FILLED/FULLY_FILLED/CLOSED 必须与请求数量在交易所精度容差内一致；UNKNOWN、部分成交、开放订单、查询/成交费用/账本持久化错误继续阻止启动恢复。
+- 实际恢复方法 race 用例覆盖 DCA/信号/马丁格尔正例与 underfilled-FILLED 负例；`go test ./strategy -count=1 -timeout=360s`、根包 `TestRuntimeExposureBootstrapRetriesAfterStrategyRecoverySettlesIntent` race、`go vet ./...` 均通过。最终工作树 `go test ./... -count=1 -timeout=600s` 通过（无 MySQL DSN）；`yarn --cwd webui verify` 的 TypeScript、53 个测试文件/311 项测试及生产构建通过，`ruby scripts/frontend_embed.rb sync/verify` 通过，嵌入版本 `3.111.0-rc1145`。未执行全仓 race / 强制 MySQL 门禁，也未验证交易所线上权限、生产部署或盈利。
+- 尚未接入/验证 SpotLong、Combo 子策略、Futures hedge 与网格恢复器的受限 settlement；任何活动挂单仍会令启动 exposure bootstrap fail-closed，且终态到达后的运行时自动重试 bootstrap 尚未证明。因此 R12/R09 整体仍未闭合，本次不得作为全面恢复验收。
+
 ## 2026-10-09 主线风险顺序复核（rc1143 后；仅核对当前程序与定向测试）
 
 - 按原建议顺序复核 R01–R04、R12、R13。R01 的资金费/趋势联动不再清除硬开仓限制；R02 的同一 `OpeningGate` 已接到网格及策略实体执行器；R03 触发价只阻止新增风险，既有持仓保护另有路径；R04 有核实型平仓状态机。定向 race 验证：`go test -race . -run '^TestBotOpeningGateReachesGridAndAllStrategyAdapters$' -count=1`、`go test -race ./position -run '^(TestFundingTrendPreservesEveryHardOpeningConstraint|TestLiquidateAllVerified_UnfilledLimitCancelledThenMarketResidual|TestLiquidateAllVerified_PartialFill|TestManualPauseKeepsProtectivePositionManagementActive)$' -count=1` 均通过。测试支持所列入口/场景，不代表所有策略、交易所或故障时序都已覆盖。
