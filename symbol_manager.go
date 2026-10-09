@@ -1122,26 +1122,12 @@ func startSymbolRuntime(
 			// D5：開倉成交轉為持倉占用、平倉成交按比例釋放、撤單/拒單/過期釋放未成交預留
 			multiExecutor.OnOrderUpdate(posUpdate)
 		}
-		if strategyAccountingVerified {
-			if err := settleVerifiedStrategyIntent(ctx, exchangeExecutor, superPositionManager.OpeningGate(), routedStrategy, posUpdate); err != nil {
-				logger.ErrorCtx(ctx, "[%s] 策略终态订单的执行意图尚未核实结算，已暂停新开仓并保留恢复阻断状态: order_id=%d error=%v", botID, posUpdate.OrderID, err)
-				if eventBus != nil {
-					eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
-						"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
-						"reason": strategyIntentSettlementBlock, "requires_reconciliation": true,
-					}})
-				}
-			} else if bootstrapped, err := retryExposureBootstrap(); err != nil {
-				logger.ErrorCtx(ctx, "[%s] strategy terminal order settled but owner-scoped exposure bootstrap remains unverified; new opening stays blocked: %v", botID, err)
-			} else if bootstrapped {
-				logger.InfoCtx(ctx, "[%s] terminal strategy recovery completed owner-scoped exposure bootstrap", botID)
-			}
-		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
 		if terminalOrderUpdate(posUpdate.Status) && posUpdate.ExecutedQty > 0 {
-			captureTerminalOrderAndSettleGrid(ctx, fillCapture, ex, fillWriter, *posUpdate,
+			captureTerminalOrderAndSettleOwnedIntent(ctx, fillCapture, ex, fillWriter, *posUpdate,
 				ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID,
-				exchangeExecutor, superPositionManager.OpeningGate(), gridAccountingVerified,
+				exchangeExecutor, superPositionManager.OpeningGate(), routedStrategy,
+				strategyAccountingVerified, gridAccountingVerified,
 				func(err error) {
 					logger.ErrorCtx(ctx, "[%s] 成交执行账本无法核实，已阻止新开仓: %v", botID, err)
 					if eventBus != nil {
@@ -1153,12 +1139,19 @@ func startSymbolRuntime(
 					}
 				},
 				func(err error) {
-					logger.ErrorCtx(ctx, "[%s] 网格终态执行意图尚未安全结算，已暂停新开仓: order_id=%d error=%v", botID, posUpdate.OrderID, err)
+					logger.ErrorCtx(ctx, "[%s] 终态执行意图尚未安全结算，已暂停新开仓: order_id=%d error=%v", botID, posUpdate.OrderID, err)
+					if eventBus != nil {
+						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+							"reason": strategyIntentSettlementBlock, "order_id": posUpdate.OrderID,
+							"requires_reconciliation": true,
+						}})
+					}
 				}, func() {
 					if bootstrapped, err := retryExposureBootstrap(); err != nil {
-						logger.ErrorCtx(ctx, "[%s] 网格成交已核账但 owner-scoped exposure bootstrap 仍未核实: %v", botID, err)
+						logger.ErrorCtx(ctx, "[%s] 成交意图已核账但 owner-scoped exposure bootstrap 仍未核实: %v", botID, err)
 					} else if bootstrapped {
-						logger.InfoCtx(ctx, "[%s] 网格终态恢复完成 owner-scoped exposure bootstrap", botID)
+						logger.InfoCtx(ctx, "[%s] 终态订单恢复完成 owner-scoped exposure bootstrap", botID)
 					}
 				})
 		}

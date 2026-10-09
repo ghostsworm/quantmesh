@@ -44,6 +44,23 @@ func (e *runtimeGridFillVenue) GetOrderFills(context.Context, string, int64) ([]
 		Price: 100, Quantity: 1, TradeTime: 1_790_000_000_000}}, nil
 }
 
+type sequencedRuntimeFillVenue struct {
+	*runtimeJournalVenue
+	calls atomic.Int32
+}
+
+func (e *sequencedRuntimeFillVenue) GetOrderFills(context.Context, string, int64) ([]*exchange.OrderFill, error) {
+	call := e.calls.Add(1)
+	if call == 1 {
+		return []*exchange.OrderFill{{OrderID: 12, TradeID: "fill-half", Symbol: "BTCUSDT", Side: exchange.SideBuy,
+			Price: 100, Quantity: 0.5, TradeTime: 1_790_000_000_000}}, nil
+	}
+	return []*exchange.OrderFill{
+		{OrderID: 12, TradeID: "fill-half", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 100, Quantity: 0.5, TradeTime: 1_790_000_000_000},
+		{OrderID: 12, TradeID: "fill-second-half", Symbol: "BTCUSDT", Side: exchange.SideBuy, Price: 101, Quantity: 0.5, TradeTime: 1_790_000_000_001},
+	}, nil
+}
+
 type blockingRuntimeFillWriter struct {
 	entered chan struct{}
 	release chan struct{}
@@ -161,8 +178,8 @@ func TestCapturedGridFillSettlesOnlyAfterFillHistoryIsDurable(t *testing.T) {
 	}
 	writer := &blockingRuntimeFillWriter{entered: make(chan struct{}, 1), release: make(chan struct{})}
 	settled := make(chan struct{}, 1)
-	captureTerminalOrderAndSettleGrid(context.Background(), newRuntimeFillCapture(), venue, writer, update,
-		"fake", "futures", "account-scope", "account", scope.Bot, executor, gate, true,
+	captureTerminalOrderAndSettleOwnedIntent(context.Background(), newRuntimeFillCapture(), venue, writer, update,
+		"fake", "futures", "account-scope", "account", scope.Bot, executor, gate, "grid", false, true,
 		func(err error) { t.Errorf("capture failed: %v", err) }, func(err error) { t.Errorf("grid settlement failed: %v", err) },
 		func() { settled <- struct{}{} })
 	select {
@@ -198,5 +215,109 @@ func TestCapturedGridFillSettlesOnlyAfterFillHistoryIsDurable(t *testing.T) {
 	}
 	if recoveredGate.HasBlock(order.IntentRecoveryBlock) {
 		t.Fatal("successful restart recovery kept the execution journal blocked")
+	}
+}
+
+func TestCapturedStrategyFillSettlesOnlyAfterFillHistoryIsDurable(t *testing.T) {
+	baseVenue := &runtimeJournalVenue{}
+	venue := &runtimeGridFillVenue{runtimeJournalVenue: baseVenue}
+	journal, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "strategy-fill-settlement.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = journal.Close() })
+	if err := journal.MigrateExecutionIntents(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	scope := runtimeJournalScope()
+	executor, gate := newJournalRuntime(venue, scope)
+	if err := executor.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	const clientOrderID = "spot-long-fill-capture"
+	if _, err := executor.PlaceOrder(&order.OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: clientOrderID, StrategyName: "spot_long", StrategyType: "spot_long"}); err != nil {
+		t.Fatal(err)
+	}
+	baseVenue.mu.Lock()
+	baseVenue.liveOrders[1].Status = exchange.OrderStatusFilled
+	baseVenue.liveOrders[1].ExecutedQty = 1
+	baseVenue.liveOrders[1].AvgPrice = 100
+	baseVenue.mu.Unlock()
+	update := position.OrderUpdate{OrderID: 1, ClientOrderID: clientOrderID, Symbol: scope.Symbol,
+		Side: "BUY", Status: "FILLED", ExecutedQty: 1}
+	if !observeOwnedRuntimeOrder(executor, &update) {
+		t.Fatal("terminal strategy fill was not observed")
+	}
+	writer := &blockingRuntimeFillWriter{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	settled := make(chan struct{}, 1)
+	captureTerminalOrderAndSettleOwnedIntent(context.Background(), newRuntimeFillCapture(), venue, writer, update,
+		"fake", "spot", "account-scope", "account", scope.Bot, executor, gate, "spot_long", true, false,
+		func(err error) { t.Errorf("capture failed: %v", err) }, func(err error) { t.Errorf("strategy settlement failed: %v", err) },
+		func() { settled <- struct{}{} })
+	select {
+	case <-writer.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("complete venue fill capture did not start")
+	}
+	if !gate.Blocked() {
+		t.Fatal("opening gate was released before the execution fill ledger became durable")
+	}
+	restarted, restartedGate := newJournalRuntime(venue, scope)
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, scope); !errors.Is(err, execution.ErrOrderUnknown) || !restartedGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatalf("strategy intent was settled before durable fill history: err=%v blocks=%v", err, restartedGate.Sources())
+	}
+	close(writer.release)
+	select {
+	case <-settled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("durable strategy fill capture did not settle the intent")
+	}
+	if gate.Blocked() {
+		t.Fatalf("strategy settlement left opening gate blocked: %v", gate.Sources())
+	}
+	recovered, recoveredGate := newJournalRuntime(venue, scope)
+	if err := recovered.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatalf("durably captured strategy fill still blocks restart: %v", err)
+	}
+	if recoveredGate.HasBlock(order.IntentRecoveryBlock) {
+		t.Fatal("successful restart recovery kept the execution journal blocked")
+	}
+}
+
+func TestRuntimeFillCaptureDoesNotSettleBeforeLatestCumulativeTarget(t *testing.T) {
+	venue := &sequencedRuntimeFillVenue{runtimeJournalVenue: &runtimeJournalVenue{}}
+	capture := newRuntimeFillCapture()
+	writer := &blockingRuntimeFillWriter{entered: make(chan struct{}, 3), release: make(chan struct{})}
+	success := make(chan int, 2)
+	update := position.OrderUpdate{OrderID: 12, Symbol: "BTCUSDT", Side: "BUY", Status: "CANCELED", ExecutedQty: 0.5}
+	capture.Observe(context.Background(), venue, writer, update, "fake", "futures", "scope", "acct", "bot",
+		func(err error) { t.Errorf("first cumulative fill capture failed: %v", err) }, func() {
+			writer.mu.Lock()
+			count := len(writer.fills)
+			writer.mu.Unlock()
+			success <- count
+		})
+	select {
+	case <-writer.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first cumulative fill capture did not start")
+	}
+	update.ExecutedQty = 1
+	capture.Observe(context.Background(), venue, writer, update, "fake", "futures", "scope", "acct", "bot",
+		func(err error) { t.Errorf("latest cumulative fill capture failed: %v", err) }, func() {
+			writer.mu.Lock()
+			count := len(writer.fills)
+			writer.mu.Unlock()
+			success <- count
+		})
+	close(writer.release)
+	select {
+	case count := <-success:
+		if count != 3 || venue.calls.Load() != 2 {
+			t.Fatalf("capture success preceded latest cumulative target: rows=%d venue_calls=%d", count, venue.calls.Load())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("latest cumulative fill target was not captured")
 	}
 }

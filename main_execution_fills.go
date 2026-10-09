@@ -129,24 +129,26 @@ func (c *runtimeFillCapture) Observe(ctx context.Context, provider exchange.IExc
 			if target > c.captured[update.OrderID] {
 				c.captured[update.OrderID] = target
 			}
-			more := c.target[update.OrderID] > c.captured[update.OrderID]
+			if c.target[update.OrderID] > c.captured[update.OrderID] {
+				c.mu.Unlock()
+				continue
+			}
+			delete(c.running, update.OrderID)
 			c.mu.Unlock()
 			if onSuccess != nil {
 				onSuccess()
 			}
-			if !more {
-				c.finish(update.OrderID)
-				return
-			}
+			return
 		}
 	}()
 }
 
-func captureTerminalOrderAndSettleGrid(ctx context.Context, capture *runtimeFillCapture, provider exchange.IExchange, writer interface {
+func captureTerminalOrderAndSettleOwnedIntent(ctx context.Context, capture *runtimeFillCapture, provider exchange.IExchange, writer interface {
 	SaveOrderFill(*storage.OrderFill) error
 }, update position.OrderUpdate, exchangeName, marketType, accountScope, account, botID string,
-	executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, gridAccountingVerified bool,
-	onCaptureFailure func(error), onSettlementFailure func(error), onGridSettled func()) {
+	executor *order.ExchangeOrderExecutor, gate *execution.OpeningGate, strategyName string,
+	strategyAccountingVerified, gridAccountingVerified bool,
+	onCaptureFailure func(error), onSettlementFailure func(error), onIntentSettled func()) {
 	if capture == nil || gate == nil || executor == nil {
 		if onCaptureFailure != nil {
 			onCaptureFailure(fmt.Errorf("terminal fill reconciliation dependencies are unavailable"))
@@ -163,19 +165,25 @@ func captureTerminalOrderAndSettleGrid(ctx context.Context, capture *runtimeFill
 			}
 		}, func() {
 			_, strategyType, owned := executor.IntentStrategyType(update.ClientOrderID)
-			if owned && strategyType == "grid" {
-				if err := settleVerifiedGridIntent(ctx, executor, gate, &update, gridAccountingVerified); err != nil {
-					gate.Block(strategyIntentSettlementBlock)
-					gate.Unblock(blockReason)
-					if onSettlementFailure != nil {
-						onSettlementFailure(err)
-					}
-					return
+			var settlementErr error
+			if strategyType == "grid" || strategyName == "grid" {
+				settlementErr = settleVerifiedGridIntent(ctx, executor, gate, &update, gridAccountingVerified)
+			} else if strategyName != "" && strategyAccountingVerified {
+				settlementErr = settleVerifiedStrategyIntent(ctx, executor, gate, strategyName, &update)
+			} else if owned && strategyType != "" && strategyAccountingVerified {
+				settlementErr = fmt.Errorf("terminal execution intent has no matching routed strategy")
+			}
+			if settlementErr != nil {
+				gate.Block(strategyIntentSettlementBlock)
+				gate.Unblock(blockReason)
+				if onSettlementFailure != nil {
+					onSettlementFailure(settlementErr)
 				}
+				return
 			}
 			gate.Unblock(blockReason)
-			if owned && strategyType == "grid" && onGridSettled != nil {
-				onGridSettled()
+			if onIntentSettled != nil && (strategyType == "grid" || (strategyName != "" && strategyAccountingVerified)) {
+				onIntentSettled()
 			}
 		})
 }

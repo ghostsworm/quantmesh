@@ -2,6 +2,14 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12/R09：成交逐笔账耐久后才结算策略 intent（rc1153）
+
+- 复核实际 `symbol_manager.go` 订单流发现：正成交策略在 `ApplyOrderUpdateForStrategyWithAccounting` 返回成功后立即 `SettleIntent`，而 `runtimeFillCapture` 的逐笔成交/手续费采集是后启动的异步任务。若交易所成交查询或存储写入失败，`execution_ledger_unverified:<order>` 只存在内存；intent 已被耐久标为 settled，重启无法再从 UNKNOWN journal 恢复该未核账成交。
+- 现移除该提前结算；所有已路由且报告 accounting verified 的策略 intent 与 grid intent，均在完整 venue fills 数量核对、费用字段检查及成交明细耐久写入后，才按精确所有者重新查询终态并结算。采集失败保持 intent 未结算；策略结算失败保持 `strategy_execution_intent_unverified`。策略专属 deferred accounting 仍由各自恢复/outbox 路径负责，未将其当作普通策略提前结算。
+- 同时修复 `runtimeFillCapture` 的累计数量并发竞态：每轮持久化后在同一把锁下比较当前 target/captured，尚有新增目标则继续，不提前调用成功回调；完成时原子清理 running 标记，避免观察者提高累计量后被旧 worker 漏掉。新增测试验证网格与 SpotLong 路由策略在成交写入阻塞时仍可从 durable journal 恢复为 UNKNOWN，写入完成后才结算；累计量从 0.5 增至 1.0 时须保存两轮完整成交才通知成功。
+- 定向验证：`go test . -run 'Test(CapturedGridFillSettlesOnlyAfterFillHistoryIsDurable|CapturedStrategyFillSettlesOnlyAfterFillHistoryIsDurable|RuntimeFillCaptureDoesNotSettleBeforeLatestCumulativeTarget)$' -count=1 -timeout=120s` 通过（1.752s）；同范围 `go test -race` 通过（2.861s）。本机权限下 `go test ./... -count=1 -timeout=600s` 全仓通过（策略包185.087s）；默认沙箱运行同命令时，多个既有 `httptest` 因IPv6 loopback `operation not permitted` panic，获准环境原命令复跑成功。其后仅额外加入 settlement 失败时的风险事件通知，最终源码下定向根包三项测试（1.677s）及 `go vet ./...` 通过。`yarn verify`（53文件/311测试及生产构建）、`ruby scripts/frontend_embed.rb sync/verify` 均通过，Go/前端/embed 版本一致为 `3.111.0-rc1153`。embed 后无并发任务时完整 `go test -parallel=1 ./web -count=1` 通过（56.515s）；未限并行度单包复跑两次分别在180s与240s超时，疑似包内并行/共享夹具竞争，涉及配置加密/SQLite测试，原因尚未确认；其中堆栈里的 `TestBotStrategyContractChangesUseRecoveryGate` 单独全场景通过（2.970s）。DSN 门控 MySQL 用例未设置 DSN，不在此次验证范围；当前仅工作树证据，尚未提交、发布或部署。
+- 不声称该路径涵盖所有延迟/重排的交易所终态回报、SpotShort 专用 outbox 内部结算或全部经济库存账。R12/R09 的活动挂单接管、完整 SpotLong/Futures hedge 库存与费用账、跨进程 fencing、MySQL 强制门禁、同提交发布及盈利证据仍未闭合；未访问真实账户、下单、部署或验收盈利。
+
 ## 2026-10-09 R12：网格终态成交耐久结算（rc1152）
 
 - 复核发现生产回调仅在策略管理器确认的子策略成交后调用 `SettleIntent`；网格虽然已在 `OnOrderUpdate` 持久化槽位库存、并由 `runtimeFillCapture` 持久化完整成交明细，却没有结算 grid owner 的执行 intent。该记录在重启加载时会按未结算意图转为 UNKNOWN，令 `ConfigureIntentJournal` 返回恢复未完成并阻断 bootstrap。
