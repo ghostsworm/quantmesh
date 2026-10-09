@@ -123,6 +123,7 @@ type ExchangeOrderExecutor struct {
 	postOnlyRepriceMaxAttempts   atomic.Int32
 	openingGate                  *execution.OpeningGate
 	openingAdmissionGuard        func(context.Context) error
+	physicalSubmissionGuard      func(context.Context) error
 	positionDirection            string
 	intentMu                     sync.Mutex
 	cancellationMu               sync.Mutex
@@ -320,6 +321,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		return nil, err
 	}
 	defer release()
+	if err := oe.verifyPhysicalSubmission(ctx); err != nil {
+		return nil, err
+	}
 	if err := oe.beginIntent(req); err != nil {
 		return nil, err
 	}
@@ -380,9 +384,11 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		if orderLockLost.Load() {
 			return nil, ErrOrderLockLost
 		}
-		// The owner lease and wallet evidence may change during retries or while
-		// the durable intent is being written. Revalidate before every physical
-		// opening RPC; this cannot revoke an RPC already sent to the venue.
+		if err := oe.verifyPhysicalSubmission(ctx); err != nil {
+			return nil, err
+		}
+		// Wallet admission may change while the durable intent is being written.
+		// Revalidate it immediately before each physical opening RPC.
 		if oe.isOpeningOrder(req) && oe.openingAdmissionGuard != nil {
 			if err := oe.openingAdmissionGuard(ctx); err != nil {
 				return nil, fmt.Errorf("opening admission guard rejected physical submission: %w", err)

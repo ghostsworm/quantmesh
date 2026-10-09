@@ -126,3 +126,44 @@ func TestOpeningAdmissionGuardRechecksBeforeEveryPhysicalRetry(t *testing.T) {
 		t.Fatalf("ownership admission was not rechecked before each physical RPC: guard=%d submissions=%d", guardCalls, len(ex.placed))
 	}
 }
+
+func TestPhysicalSubmissionGuardBlocksStaleOwnerOpensAndCloses(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		side      string
+		reduce    bool
+		loseAt    int
+		wantCalls int
+	}{
+		{name: "opening loses ownership before first RPC", side: "BUY", loseAt: 2},
+		{name: "protective close loses ownership before first RPC", side: "SELL", reduce: true, loseAt: 2},
+		{name: "opening loses ownership between retries", side: "BUY", loseAt: 3, wantCalls: 1},
+		{name: "protective close loses ownership between retries", side: "SELL", reduce: true, loseAt: 3, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ex := &leaseRetryOrderExchange{}
+			oe := NewExchangeOrderExecutor(ex, "BTCUSDT", 0, 0, lock.NewNopLock(), "")
+			var gate execution.OpeningGate
+			oe.SetOpeningGate(&gate, "LONG")
+			guardCalls := 0
+			leaseLost := errors.New("runtime owner lease lost")
+			oe.SetPhysicalSubmissionGuard(func(context.Context) error {
+				guardCalls++
+				if guardCalls == tc.loseAt {
+					return leaseLost
+				}
+				return nil
+			})
+			_, err := oe.PlaceOrder(&OrderRequest{
+				Symbol: "BTCUSDT", Side: tc.side, Price: 100, Quantity: 1,
+				ReduceOnly: tc.reduce, ClientOrderID: "owner-guard-" + tc.name,
+			})
+			if !errors.Is(err, leaseLost) {
+				t.Fatalf("submission error = %v, want owner lease loss", err)
+			}
+			if len(ex.placed) != tc.wantCalls {
+				t.Fatalf("venue submissions = %d, want %d", len(ex.placed), tc.wantCalls)
+			}
+		})
+	}
+}

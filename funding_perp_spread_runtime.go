@@ -310,6 +310,9 @@ func startFundingPerpSpreadSymbolRuntimeWithExchangeFactory(
 		return nil, fmt.Errorf("bind funding_perp_spread durable runtime state ownership: %w", err)
 	}
 	st.SetRuntimeStateStore(stateAdapter)
+	st.SetPhysicalSubmissionGuard(func(guardCtx context.Context) error {
+		return validateRuntimeOwnershipLeases(guardCtx, ownershipLeases)
+	})
 	if err := validateRuntimeOwnershipLeases(ctx, ownershipLeases); err != nil {
 		return nil, fmt.Errorf("funding_perp_spread ownership lease changed during durable generation claim: %w", err)
 	}
@@ -404,20 +407,20 @@ func startFundingPerpSpreadSymbolRuntimeWithExchangeFactory(
 	}
 
 	rt := &SymbolRuntime{
-		Config:                   symCfg,
-		Exchange:                 legAEx,
-		PriceMonitor:             priceMonitor,
-		StrategyManager:          strategyManager,
-		EventBus:                 eventBus,
-		StorageService:           storageService,
-		AccountID:                accountID,
-		AccountScope:             stateBotID,
-		AccountMarketType:        "futures",
-		OpeningGate:              openingGate,
-		SuperPositionManager:     nil,
-		ExchangeExecutor:         nil,
-		ExecutorAdapter:          nil,
-		ExchangeAdapter:          nil,
+		Config:               symCfg,
+		Exchange:             legAEx,
+		PriceMonitor:         priceMonitor,
+		StrategyManager:      strategyManager,
+		EventBus:             eventBus,
+		StorageService:       storageService,
+		AccountID:            accountID,
+		AccountScope:         stateBotID,
+		AccountMarketType:    "futures",
+		OpeningGate:          openingGate,
+		SuperPositionManager: nil,
+		ExchangeExecutor:     nil,
+		ExecutorAdapter:      nil,
+		ExchangeAdapter:      nil,
 	}
 	configureFundingPerpSpreadRiskCallbacks(rt, st, totalCap)
 	rt.PrepareShutdown = func(shutdownCtx context.Context, _ bool) error {

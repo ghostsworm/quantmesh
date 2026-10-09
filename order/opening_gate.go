@@ -15,6 +15,26 @@ func (oe *ExchangeOrderExecutor) SetOpeningAdmissionGuard(guard func(context.Con
 	oe.openingAdmissionGuard = guard
 }
 
+// SetPhysicalSubmissionGuard installs an owner check before any physical
+// venue RPC, including protective closes and every retry. It cannot revoke an
+// RPC that was already sent.
+func (oe *ExchangeOrderExecutor) SetPhysicalSubmissionGuard(guard func(context.Context) error) {
+	oe.physicalSubmissionGuard = guard
+}
+
+func (oe *ExchangeOrderExecutor) verifyPhysicalSubmission(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if oe.physicalSubmissionGuard == nil {
+		return nil
+	}
+	if err := oe.physicalSubmissionGuard(ctx); err != nil {
+		return fmt.Errorf("physical submission ownership check failed: %w", err)
+	}
+	return nil
+}
+
 // SetOpeningGate wires the bot's shared gate before any strategy starts.
 // PositionSide on a request takes precedence over the configured grid direction.
 func (oe *ExchangeOrderExecutor) SetOpeningGate(gate *execution.OpeningGate, direction string) {

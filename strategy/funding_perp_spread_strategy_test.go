@@ -629,6 +629,31 @@ func TestFundingPerpSpreadShutdownClosesAndVerifiesBothLegs(t *testing.T) {
 	}
 }
 
+func TestFundingPerpSpreadShutdownDoesNotSubmitAfterOwnershipLoss(t *testing.T) {
+	venue := &fundingSpreadTestExchange{name: "a", positions: []*exchange.Position{{Symbol: "BTCUSDT", Size: -0.01}}}
+	done := make(chan struct{})
+	close(done)
+	st := &FundingPerpSpreadStrategy{
+		legA: venue, legB: &fundingSpreadTestExchange{name: "b"}, symA: "BTCUSDT", symB: "BTCUSDT",
+		cancel: func() {}, runDone: done, ownershipReady: true, ownedA: -0.01,
+	}
+	st.SetRuntimeStateStore(&memoryRuntimeStateStore{})
+	st.SetCoordinationLock(&fundingSpreadCoordinationLock{})
+	st.SetPhysicalSubmissionGuard(func(context.Context) error { return errors.New("runtime ownership lease lost") })
+
+	if err := st.CloseForShutdown(context.Background()); err == nil {
+		t.Fatal("shutdown close unexpectedly passed after runtime ownership loss")
+	}
+	if venue.placed != 0 {
+		t.Fatalf("ownership loss still reached venue: placements=%d", venue.placed)
+	}
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	if st.pendingOrder == nil || st.pendingOrder.Phase != fundingPerpSpreadIntentPrepared || st.exposureUnknown {
+		t.Fatalf("pre-submit rejection was not preserved as prepared/known: pending=%+v unknown=%t", st.pendingOrder, st.exposureUnknown)
+	}
+}
+
 func TestFundingPerpSpreadPrepareShutdownHonorsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

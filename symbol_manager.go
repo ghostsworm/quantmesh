@@ -809,6 +809,9 @@ func startSymbolRuntime(
 		distributedLock,
 		botID,
 	)
+	exchangeExecutor.SetPhysicalSubmissionGuard(func(guardCtx context.Context) error {
+		return ownershipLease.Validate(guardCtx)
+	})
 	var walletAdmissionChecker storage.AccountWalletCapitalAdmissionChecker
 	if capitalClaimReady && storageService != nil && storageService.GetStorage() != nil {
 		walletAdmissionChecker, _ = storageService.GetStorage().(storage.AccountWalletCapitalAdmissionChecker)

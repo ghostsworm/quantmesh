@@ -1,5 +1,10 @@
 # Changelog
 
+## [3.111.0-rc1155] - 2026-10-09（开发中，未发布）
+
+### Fixed
+- 普通 Bot、Funding Carry 与 Funding Perp Spread 在每次实际交易所下单（含保护性平仓和确定性拒绝后的重试）前同步校验运行租约；租约失效时阻止后续 RPC，Funding Perp Spread 将可证明未发送的平仓 intent 恢复为 prepared，已发出或结果未知的请求仍走核账。
+
 ## [3.111.0-rc1154] - 2026-10-09（开发中，未发布）
 
 ### Fixed

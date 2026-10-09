@@ -459,6 +459,9 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		if target == nil {
 			return
 		}
+		target.executor.SetPhysicalSubmissionGuard(func(guardCtx context.Context) error {
+			return validateRuntimeOwnershipLeases(guardCtx, ownershipLeases)
+		})
 		var walletKey string
 		for _, claim := range capitalClaims {
 			if strings.EqualFold(claim.Market, market) {
@@ -474,9 +477,6 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 			return
 		}
 		target.executor.SetOpeningAdmissionGuard(func(guardCtx context.Context) error {
-			if err := validateRuntimeOwnershipLeases(guardCtx, ownershipLeases); err != nil {
-				return fmt.Errorf("Funding Carry runtime ownership admission rejected opening: %w", err)
-			}
 			return checker.CheckAccountWalletCapitalAdmission(guardCtx, []string{walletKey}, 2*accountWalletCapitalRefreshInterval)
 		})
 	}
@@ -535,21 +535,21 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	}
 
 	rt := &SymbolRuntime{
-		Config:                   symCfg,
-		Exchange:                 futEx,
-		PriceMonitor:             priceMonitor,
-		StrategyManager:          strategyManager,
-		EventBus:                 eventBus,
-		StorageService:           storageService,
-		AccountID:                accountID,
-		AccountScope:             accountScope,
-		AccountMarketType:        config.MarketTypeFundingCarry,
-		SuperPositionManager:     nil,
-		verifiedCapitalBudget:    ownCapital,
-		OpeningGate:              openingGate,
-		ExchangeExecutor:         nil,
-		ExecutorAdapter:          nil,
-		ExchangeAdapter:          nil,
+		Config:                symCfg,
+		Exchange:              futEx,
+		PriceMonitor:          priceMonitor,
+		StrategyManager:       strategyManager,
+		EventBus:              eventBus,
+		StorageService:        storageService,
+		AccountID:             accountID,
+		AccountScope:          accountScope,
+		AccountMarketType:     config.MarketTypeFundingCarry,
+		SuperPositionManager:  nil,
+		verifiedCapitalBudget: ownCapital,
+		OpeningGate:           openingGate,
+		ExchangeExecutor:      nil,
+		ExecutorAdapter:       nil,
+		ExchangeAdapter:       nil,
 	}
 	if reconciliationOnly {
 		rt.markShutdownCloseUnverified("funding_carry remaining margin inventory and disposal require reconciliation")

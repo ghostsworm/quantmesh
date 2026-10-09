@@ -2,6 +2,12 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R13：每次物理下单前校验运行租约（rc1155）
+
+- 调用链复核发现，运行时已取得 per-market ownership lease，但此前普通 Bot 的 `ExchangeOrderExecutor` 未将 `Validate` 接到每次实际 venue RPC；Funding Carry 仅在开仓 admission 校验，Funding Perp Spread 的 shutdown/manual close 路径也未同步校验。异步 lease-loss 回调可能晚于保护性平仓的确定性拒绝重试，出现旧 owner 继续发起后续 RPC 的窗口。
+- 普通 Bot 与 Funding Carry 的通用 executor 现于开始 intent 前、每次实际 RPC 前校验运行租约，覆盖开仓、平仓和每次确定性拒绝后的重试；Funding Carry 的钱包额度证据仍独立由 opening admission 校验。Funding Perp Spread 直接调用交易所 API，现于平仓 intent 持久化为 dispatching 后、RPC 前校验 lease；失败仅在确认 RPC 尚未调用时恢复为 prepared，保留仓位归属，不标记 UNKNOWN。已进入 venue RPC 的调用不可撤回，之后结果仍按原 UNKNOWN/对账规则处理。
+- 定向测试验证普通 executor 开仓/保护性平仓在首次 RPC 前及首次拒绝后的重试前均因 lease loss 被阻止，并验证 Funding Perp Spread shutdown close 在 lease 失效后无 venue 调用且 intent 保持 prepared。完整 `go test ./... -count=1 -timeout=600s` 全部通过（strategy 191.273s、web 63.639s）；相关 `go test -race ./order ./strategy -run '^(TestPhysicalSubmissionGuardBlocksStaleOwnerOpensAndCloses|TestOpeningAdmissionGuardRechecksBeforeEveryPhysicalRetry|TestFundingPerpSpreadShutdownDoesNotSubmitAfterOwnershipLoss|TestFundingPerpSpreadShutdownClosesAndVerifiesBothLegs)$' -count=1` 与根包 `TestWalletAdmissionIsInstalledBeforeOrderCapableStartup` 通过；`go vet ./...`、`yarn verify`（53 个测试文件/311 项测试及生产构建）、embed sync/verify/version 和 `git diff --check` 通过。MySQL 专用 DSN 未配置，未运行该门禁。本变更不访问真实账户、不下单，也不构成真实交易、发布或盈利验收。
+
 ## 2026-10-09 R12：普通 Bot 策略运行态快照 owner-generation fencing（rc1154）
 
 - 源码调用链确认：普通 `startSymbolRuntime` 已取得按账户/交易所/市场/交易对维度的运行 lease，但策略/网格/对冲状态统一通过 `strategyRuntimeStateAdapter` 对 `strategy_runtime_states` 做无条件 upsert；lease 续租丢失后，仍在途的旧回调可在新 owner 写入之后覆盖运行态快照，破坏重启恢复中的订单/库存证据。

@@ -58,6 +58,7 @@ type FundingPerpSpreadStrategy struct {
 	eventBus                  EventBus
 	openingGate               *execution.OpeningGate
 	openingAdmissionGuard     func(context.Context) error
+	physicalSubmissionGuard   func(context.Context) error
 	openPositionControl       config.OpenPositionControl
 	executionRecorder         FundingPerpSpreadExecutionRecorder
 
@@ -196,6 +197,12 @@ func (s *FundingPerpSpreadStrategy) SetOpeningGate(gate *execution.OpeningGate) 
 func (s *FundingPerpSpreadStrategy) SetOpeningAdmissionGuard(guard func(context.Context) error) {
 	s.mu.Lock()
 	s.openingAdmissionGuard = guard
+	s.mu.Unlock()
+}
+
+func (s *FundingPerpSpreadStrategy) SetPhysicalSubmissionGuard(guard func(context.Context) error) {
+	s.mu.Lock()
+	s.physicalSubmissionGuard = guard
 	s.mu.Unlock()
 }
 
@@ -1604,6 +1611,14 @@ func (s *FundingPerpSpreadStrategy) closeLegWithoutExecutionCapture(ctx context.
 	}
 	if err := s.markOrderIntentDispatching(clientOrderID); err != nil {
 		return nil, err
+	}
+	s.mu.RLock()
+	physicalSubmissionGuard := s.physicalSubmissionGuard
+	s.mu.RUnlock()
+	if physicalSubmissionGuard != nil {
+		if err := physicalSubmissionGuard(ctx); err != nil {
+			return nil, errors.Join(fmt.Errorf("funding_perp_spread close ownership check failed: %w", err), s.restorePreparedOrderIntent(clientOrderID))
+		}
 	}
 	order, orderErr := ex.PlaceOrder(ctx, request)
 	capture := &fundingPerpSpreadPendingExecution{client: ex, request: request, order: order}
