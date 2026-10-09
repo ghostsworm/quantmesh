@@ -1489,7 +1489,6 @@ func startSymbolRuntime(
 						}
 					})
 					spotShortStrategy.SetReconciliationSuccessHandler(func() {
-						superPositionManager.OpeningGate().Unblock("spot_short_reconciliation_unverified")
 						if bootstrapped, bootstrapErr := retryExposureBootstrap(); bootstrapErr != nil {
 							logger.ErrorCtx(ctx, "[%s] SpotShort 对账已完成但暴露核账仍未完成，继续封锁新开仓: %v", botID, bootstrapErr)
 						} else if bootstrapped {

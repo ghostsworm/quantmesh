@@ -605,36 +605,47 @@ func (s *SpotShortStrategy) Start(ctx context.Context) error {
 		return err
 	}
 	s.mu.Unlock()
-	if err := s.reconcileRuntimeState(ctx); err != nil {
-		return err
+	reconcileErr := s.reconcileRuntimeState(ctx)
+	if reconcileErr != nil {
+		s.mu.RLock()
+		gate := s.openingGate
+		s.mu.RUnlock()
+		if gate == nil {
+			return reconcileErr
+		}
+		gate.Block("spot_short_reconciliation_unverified")
+		s.reportRuntimeReconciliationFailure(reconcileErr)
+		logger.Warn("⚠️ SpotShortStrategy 初始借贷/订单对账未完成，保留专属开仓封锁并启动后台重试: %v", reconcileErr)
 	}
 	s.mu.Lock()
-	if s.subscribableBus == nil {
-		s.mu.Unlock()
-		logger.Warn("SpotShortStrategy: 無可訂閱的 EventBus，跳過啟動")
-		return nil
-	}
 	runCtx, cancel := context.WithCancel(ctx)
 	s.ctx, s.cancel = runCtx, cancel
-	subCh := s.subscribableBus.Subscribe()
+	var subCh <-chan *event.Event
+	if s.subscribableBus != nil {
+		subCh = s.subscribableBus.Subscribe()
+	}
 	s.mu.Unlock()
 
 	go s.runRuntimeReconciliation(runCtx)
-	go func() {
-		for {
-			select {
-			case <-runCtx.Done():
-				return
-			case evt, ok := <-subCh:
-				if !ok {
+	if subCh != nil {
+		go func() {
+			for {
+				select {
+				case <-runCtx.Done():
 					return
-				}
-				if evt.Type == event.EventTypeHedgeSignal {
-					s.onHedgeSignal(evt)
+				case evt, ok := <-subCh:
+					if !ok {
+						return
+					}
+					if evt.Type == event.EventTypeHedgeSignal {
+						s.onHedgeSignal(evt)
+					}
 				}
 			}
-		}
-	}()
+		}()
+	} else {
+		logger.Warn("SpotShortStrategy: 無可訂閱的 EventBus，跳過信號處理")
+	}
 	logger.Info("✅ SpotShortStrategy 已啟動 (group=%s)", s.groupID)
 	return nil
 }
@@ -650,10 +661,10 @@ func (s *SpotShortStrategy) runRuntimeReconciliation(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if !s.hasPendingRuntimeReconciliation() {
-				s.mu.Lock()
-				s.runtimeReconciliationFailureReported = false
-				s.mu.Unlock()
+			s.mu.RLock()
+			retryFailedStartup := s.runtimeReconciliationFailureReported
+			s.mu.RUnlock()
+			if !s.hasPendingRuntimeReconciliation() && !retryFailedStartup {
 				continue
 			}
 			reconcileCtx, cancel := context.WithTimeout(ctx, spotShortRuntimeReconcileTimeout)
@@ -698,8 +709,12 @@ func (s *SpotShortStrategy) reconcileRuntimeState(ctx context.Context) error {
 	err := s.withAccountWalletCoordination(ctx, s.reconcileRuntimeStateWithWalletLock)
 	if err == nil && !s.hasPendingRuntimeReconciliation() {
 		s.mu.RLock()
+		gate := s.openingGate
 		handler := s.reconciliationSuccessHandler
 		s.mu.RUnlock()
+		if gate != nil {
+			gate.Unblock("spot_short_reconciliation_unverified")
+		}
 		if handler != nil {
 			handler()
 		}

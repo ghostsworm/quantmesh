@@ -2,6 +2,13 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## 2026-10-09 R12：SpotShort 启动对账故障可自动重试（rc1151）
+
+- `SpotShortStrategy.Start` 在运行态可正常解码、但首次借款历史/订单终态/成交费用/还款核对失败时，原本直接返回错误；`StrategyManager.StartAll` 因此不会保留该策略的重试 worker。即使外部依赖随后恢复，也需重启 Bot 才重试。
+- 现仅当生产注入了共享 `OpeningGate` 时，SpotShort 才允许带着 `spot_short_reconciliation_unverified` 专属封锁启动，并启动后台重试；成功核完全部待办后只解除该专属来源，再请求全账户暴露核账。无 gate 的构造方式仍拒绝继续，运行态解码/版本/身份错误仍拒绝启动；通用账本持久化、runtime ownership 与其他风控封锁不会被清理。
+- 新增生产策略启动路径回归：首次精确订单查询注入暂时失败，验证 Start 不要求 Bot 重启、gate 持续封锁、worker 后续精确恢复并结算后才解除专属封锁。更广泛 R12/R09（SpotLong 与 Futures hedge 经济账、共享 exposure 成本/费用、活动委托恢复、跨进程 fencing）仍未闭合；完整费用、借贷账本和盈利证据未验收。
+- 验证：`go test ./strategy -run '^TestSpotShort(StartupReconciliationFailureRetriesWithoutRestart|StartupRecoversPreparedBorrowFromUniqueConfirmedHistory|TerminalBorrowSettlementOutboxRetries|RuntimeReconciliationRetriesPendingBorrowOrder|StartupKeepsAmbiguousBorrowHistoryBlocked)$' -count=1`、新启动重试用例的 `go test -race`、全仓 `go test ./... -count=1 -timeout=600s` 与 `go vet ./...` 均通过；`yarn verify` 通过（53 个测试文件/311 项测试及生产构建），`ruby scripts/frontend_embed.rb sync/verify/version` 通过并核实 `3.111.0-rc1151`，`git diff --check` 通过。未执行全仓 race 或强制 MySQL 门禁；未访问真实账户、下单或部署。
+
 ## 2026-10-09 R12：SpotShort 借贷卖单终态结算 outbox（rc1150）
 
 - SpotShort SELL 回报由同步策略回调明确标记为 deferred，避免通用终态路径在借贷账尚未核实前结算共享执行意图。耐久恢复器在验证借款归属、client order ID、交易对、方向、请求数量、终态及足额成交后，先保存包含终态订单证据的 `settlement_pending` outbox，再向 owner-scoped executor 结算；仅在 journal 成功后确认删除 outbox。结算失败或进程在两步间重启时保留待办并可重试；已结算 journal 记录支持精确所有者范围内幂等确认。
