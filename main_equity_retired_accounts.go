@@ -27,6 +27,15 @@ const retiredEquityAccountPauseSource = "retired_equity_account_unverified"
 const retiredEquityVerificationInterval = time.Minute
 const retiredEquityVerificationTimeout = 30 * time.Second
 
+const (
+	retiredEquityEvidenceFlat                = "flat"
+	retiredEquityEvidenceOpenExposure        = "open_exposure"
+	retiredEquityEvidenceIncomplete          = "incomplete"
+	retiredEquityEvidenceUnsupportedMarket   = "unsupported_market"
+	retiredEquityEvidenceObserverUnavailable = "observer_unavailable"
+	retiredEquityEvidenceQueryFailed         = "query_failed"
+)
+
 type retiredEquityAccountsState struct {
 	Version      int                          `json:"version"`
 	Revision     int64                        `json:"revision"`
@@ -338,9 +347,29 @@ func (bm *BotManager) ResetRetiredEquityAccounts(ctx context.Context, actor stri
 	return completedOperation, nil
 }
 
-func (s *retiredEquityAccountsStore) recordEvidence(ctx context.Context, id string, complete, flat bool, observedAt time.Time) error {
+func (s *retiredEquityAccountsStore) recordEvidence(ctx context.Context, id string, complete, flat bool, observedAt time.Time, resultCode ...string) error {
 	if s == nil || s.backend == nil || strings.TrimSpace(id) == "" || observedAt.IsZero() || observedAt.After(time.Now().Add(5*time.Second)) {
 		return fmt.Errorf("retired account evidence identity or timestamp is invalid")
+	}
+	result := retiredEquityEvidenceIncomplete
+	if complete && flat {
+		result = retiredEquityEvidenceFlat
+	} else if complete {
+		result = retiredEquityEvidenceOpenExposure
+	}
+	if len(resultCode) > 1 {
+		return fmt.Errorf("retired account evidence result code is ambiguous")
+	}
+	if len(resultCode) == 1 {
+		result = resultCode[0]
+		if !validRetiredEquityEvidenceResult(result) ||
+			(result == retiredEquityEvidenceFlat && (!complete || !flat)) ||
+			(result == retiredEquityEvidenceOpenExposure && (!complete || flat)) ||
+			(result != retiredEquityEvidenceFlat && result != retiredEquityEvidenceOpenExposure && (complete || flat)) {
+			return fmt.Errorf("retired account evidence result code conflicts with observation")
+		}
+	} else if !validRetiredEquityEvidenceResult(result) {
+		return fmt.Errorf("retired account evidence result is invalid")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -379,19 +408,20 @@ func (s *retiredEquityAccountsStore) recordEvidence(ctx context.Context, id stri
 		return fmt.Errorf("retired account evidence timestamp regressed")
 	}
 	record.LastObservedAt = observedAt
-	switch {
-	case !complete:
-		record.LastEvidenceResult = "incomplete"
+	switch result {
+	case retiredEquityEvidenceIncomplete, retiredEquityEvidenceUnsupportedMarket,
+		retiredEquityEvidenceObserverUnavailable, retiredEquityEvidenceQueryFailed:
+		record.LastEvidenceResult = result
 		record.FlatEvidenceCount = 0
 		record.LastFlatAt = time.Time{}
 		record.Status = retiredEquityAccountPendingVerification
-	case !flat:
-		record.LastEvidenceResult = "open_exposure"
+	case retiredEquityEvidenceOpenExposure:
+		record.LastEvidenceResult = result
 		record.FlatEvidenceCount = 0
 		record.LastFlatAt = time.Time{}
 		record.Status = retiredEquityAccountPendingVerification
-	default:
-		record.LastEvidenceResult = "flat"
+	case retiredEquityEvidenceFlat:
+		record.LastEvidenceResult = result
 		if record.FlatEvidenceCount == 0 {
 			record.FlatEvidenceCount = 1
 			record.LastFlatAt = observedAt
@@ -620,8 +650,7 @@ func validateRetiredEquityAccount(record retiredEquityAccountRecord) error {
 	if record.FlatEvidenceCount > 0 && (record.LastEvidenceResult != "flat" || record.LastObservedAt.IsZero()) {
 		return fmt.Errorf("retired account flat evidence is inconsistent")
 	}
-	if record.LastEvidenceResult != "" && record.LastEvidenceResult != "flat" &&
-		record.LastEvidenceResult != "incomplete" && record.LastEvidenceResult != "open_exposure" {
+	if record.LastEvidenceResult != "" && !validRetiredEquityEvidenceResult(record.LastEvidenceResult) {
 		return fmt.Errorf("retired account evidence result is invalid")
 	}
 	if record.Status == retiredEquityAccountReadyForReset && record.FlatEvidenceCount != retiredEquityFlatEvidenceRequired {
@@ -675,6 +704,7 @@ func (bm *BotManager) verifyRetiredEquityAccountsOnce(ctx context.Context, newOb
 		}
 		observedAt := time.Now().UTC()
 		complete, flat := false, false
+		result := retiredEquityEvidenceUnsupportedMarket
 		if strings.EqualFold(account.MarketType, "futures") && newObserver != nil {
 			credentials := config.ExchangeConfig{APIKey: account.credentials.APIKey, SecretKey: account.credentials.SecretKey,
 				Passphrase: account.credentials.Passphrase, Testnet: account.credentials.Testnet}
@@ -683,22 +713,40 @@ func (bm *BotManager) verifyRetiredEquityAccountsOnce(ctx context.Context, newOb
 				queryCtx, cancel := context.WithTimeout(ctx, retiredEquityVerificationTimeout)
 				complete, flat, observedAt, err = observer.ObserveAccountFuturesFlatness(queryCtx)
 				cancel()
+				if err != nil {
+					result = retiredEquityEvidenceQueryFailed
+				} else if complete && flat {
+					result = retiredEquityEvidenceFlat
+				} else if complete {
+					result = retiredEquityEvidenceOpenExposure
+				} else {
+					result = retiredEquityEvidenceIncomplete
+				}
 			} else if createErr != nil {
 				err = createErr
+				result = retiredEquityEvidenceObserverUnavailable
 			} else {
 				err = fmt.Errorf("Futures observer factory returned nil")
+				result = retiredEquityEvidenceObserverUnavailable
 			}
+		} else if strings.EqualFold(account.MarketType, "futures") {
+			err = fmt.Errorf("Futures observer factory is unavailable")
+			result = retiredEquityEvidenceObserverUnavailable
 		} else {
 			err = fmt.Errorf("read-only zero-exposure verifier is unsupported for %s/%s", account.Exchange, account.MarketType)
+			result = retiredEquityEvidenceUnsupportedMarket
 		}
 		if err != nil {
 			complete, flat = false, false
 			failedScopes = append(failedScopes, account.Exchange+"/"+account.MarketType)
 		}
+		if result != retiredEquityEvidenceFlat && result != retiredEquityEvidenceOpenExposure {
+			complete, flat = false, false
+		}
 		if observedAt.IsZero() {
 			observedAt = time.Now().UTC()
 		}
-		if persistErr := bm.retiredEquityAccounts.recordEvidence(ctx, account.ID, complete, flat, observedAt); persistErr != nil {
+		if persistErr := bm.retiredEquityAccounts.recordEvidence(ctx, account.ID, complete, flat, observedAt, result); persistErr != nil {
 			return fmt.Errorf("persist retired-account verification evidence: %w", persistErr)
 		}
 	}
@@ -706,6 +754,16 @@ func (bm *BotManager) verifyRetiredEquityAccountsOnce(ctx context.Context, newOb
 		return fmt.Errorf("retired-account read-only verification incomplete for %s", strings.Join(failedScopes, ","))
 	}
 	return nil
+}
+
+func validRetiredEquityEvidenceResult(result string) bool {
+	switch result {
+	case retiredEquityEvidenceFlat, retiredEquityEvidenceOpenExposure, retiredEquityEvidenceIncomplete,
+		retiredEquityEvidenceUnsupportedMarket, retiredEquityEvidenceObserverUnavailable, retiredEquityEvidenceQueryFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 func (bm *BotManager) StartRetiredEquityAccountVerificationLoop(ctx context.Context, newObserver retiredEquityFuturesObserverFactory) {

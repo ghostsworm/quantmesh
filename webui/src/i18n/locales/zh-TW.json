@@ -1106,6 +1106,15 @@
       "status": "核驗狀態",
       "evidence": "清零證據",
       "evidenceCount": "{{count}} / {{required}} 次",
+      "lastResult": "最近結果",
+      "evidenceResults": {
+        "flat": "未發現持倉或未結訂單",
+        "open_exposure": "仍有持倉或未結訂單",
+        "incomplete": "核驗資料不完整",
+        "unsupported_market": "此市場尚無受支援的唯讀核驗器",
+        "observer_unavailable": "唯讀核驗器無法初始化",
+        "query_failed": "唯讀帳戶查詢失敗"
+      },
       "lastObserved": "最近觀測",
       "notAvailable": "暫無",
       "unknownStatus": "未知狀態",

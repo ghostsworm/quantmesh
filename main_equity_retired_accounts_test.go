@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -327,32 +328,58 @@ func TestRetiredEquityVerifierLoopRecordsOnlyCompleteFlatEvidence(t *testing.T) 
 	}
 }
 
-func TestRetiredEquityVerifierLeavesUnsupportedMarketIncomplete(t *testing.T) {
-	db, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "retired-equity-unsupported.db"))
-	if err != nil {
-		t.Fatal(err)
+func TestRetiredEquityVerifierPersistsActionableSafeResultCodes(t *testing.T) {
+	sensitiveDetail := "private-exchange-response-must-not-be-stored"
+	cases := []struct {
+		name       string
+		exchange   string
+		market     string
+		factoryErr error
+		observer   exchange.AccountFuturesFlatnessObserver
+		wantResult string
+		wantErr    bool
+	}{
+		{name: "unsupported market", exchange: "bitget", market: "spot", wantResult: retiredEquityEvidenceUnsupportedMarket, wantErr: true},
+		{name: "factory unavailable", exchange: "binance", market: "futures", factoryErr: errors.New(sensitiveDetail), wantResult: retiredEquityEvidenceObserverUnavailable, wantErr: true},
+		{name: "read-only query failed", exchange: "binance", market: "futures", observer: retiredAccountObserverFixture{observeErr: errors.New(sensitiveDetail)}, wantResult: retiredEquityEvidenceQueryFailed, wantErr: true},
+		{name: "evidence incomplete", exchange: "binance", market: "futures", observer: retiredAccountObserverFixture{complete: false}, wantResult: retiredEquityEvidenceIncomplete},
 	}
-	defer func() { _ = db.Close() }()
-	if err := db.MigrateRiskCheckpoints(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	credentials := config.ExchangeConfig{APIKey: "account-key", SecretKey: "account-secret", Passphrase: "passphrase"}
-	previous := buildEquityScopeSnapshot(&config.Config{Exchanges: map[string]config.ExchangeConfig{"bitget": credentials},
-		Bots: []config.BotConfig{{Exchange: "bitget", Symbol: "BTCUSDT", MarketType: "spot"}}})
-	next := buildEquityScopeSnapshot(&config.Config{Exchanges: map[string]config.ExchangeConfig{}, Bots: []config.BotConfig{}})
-	store := &retiredEquityAccountsStore{backend: db, key: []byte("0123456789abcdef0123456789abcdef")}
-	if err := store.archiveRemoved(t.Context(), previous, next, time.Now().Add(-time.Minute)); err != nil {
-		t.Fatal(err)
-	}
-	manager := NewBotManager(&config.Config{}, nil, nil, nil, "")
-	manager.retiredEquityAccounts = store
-	if err := manager.verifyRetiredEquityAccountsOnce(t.Context(), nil); err == nil {
-		t.Fatal("unsupported Spot evidence unexpectedly verified")
-	}
-	accounts, _, err := store.load(t.Context())
-	if err != nil || len(accounts) != 1 || accounts[0].Status != retiredEquityAccountPendingVerification ||
-		accounts[0].FlatEvidenceCount != 0 || accounts[0].LastEvidenceResult != "incomplete" {
-		t.Fatalf("unsupported market advanced reset readiness: records=%+v err=%v", accounts, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "retired-equity-result.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = db.Close() }()
+			if err := db.MigrateRiskCheckpoints(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			credentials := config.ExchangeConfig{APIKey: "account-key", SecretKey: "account-secret", Passphrase: "passphrase"}
+			previous := buildEquityScopeSnapshot(&config.Config{Exchanges: map[string]config.ExchangeConfig{tc.exchange: credentials},
+				Bots: []config.BotConfig{{Exchange: tc.exchange, Symbol: "BTCUSDT", MarketType: tc.market}}})
+			next := buildEquityScopeSnapshot(&config.Config{Exchanges: map[string]config.ExchangeConfig{}, Bots: []config.BotConfig{}})
+			store := &retiredEquityAccountsStore{backend: db, key: []byte("0123456789abcdef0123456789abcdef")}
+			if err := store.archiveRemoved(t.Context(), previous, next, time.Now().Add(-time.Minute)); err != nil {
+				t.Fatal(err)
+			}
+			manager := NewBotManager(&config.Config{}, nil, nil, nil, "")
+			manager.retiredEquityAccounts = store
+			factory := func(string, config.ExchangeConfig) (exchange.AccountFuturesFlatnessObserver, error) {
+				return tc.observer, tc.factoryErr
+			}
+			if err := manager.verifyRetiredEquityAccountsOnce(t.Context(), factory); (err != nil) != tc.wantErr {
+				t.Fatalf("verification error=%v, wantErr=%v", err, tc.wantErr)
+			}
+			accounts, _, err := store.load(t.Context())
+			if err != nil || len(accounts) != 1 || accounts[0].Status != retiredEquityAccountPendingVerification ||
+				accounts[0].FlatEvidenceCount != 0 || accounts[0].LastEvidenceResult != tc.wantResult {
+				t.Fatalf("unexpected persisted verification state: records=%+v err=%v", accounts, err)
+			}
+			payload, _, err := db.LoadRiskCheckpoint(t.Context(), retiredEquityAccountsCheckpointKey)
+			if err != nil || strings.Contains(string(payload), sensitiveDetail) {
+				t.Fatalf("raw exchange failure detail must not be persisted: err=%v", err)
+			}
+		})
 	}
 }
 

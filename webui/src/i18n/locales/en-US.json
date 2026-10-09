@@ -1434,6 +1434,15 @@
       "status": "Verification",
       "evidence": "Flat evidence",
       "evidenceCount": "{{count}} / {{required}} observations",
+      "lastResult": "Latest result",
+      "evidenceResults": {
+        "flat": "No positions or open orders detected",
+        "open_exposure": "Positions or open orders remain",
+        "incomplete": "Evidence was incomplete",
+        "unsupported_market": "Market has no supported read-only verifier",
+        "observer_unavailable": "Read-only verifier could not be initialized",
+        "query_failed": "Read-only account query failed"
+      },
       "lastObserved": "Last observed",
       "notAvailable": "Not available",
       "unknownStatus": "Unknown status",

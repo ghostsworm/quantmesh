@@ -37,6 +37,22 @@ type RequestError = Error & { status?: number; responseBody?: unknown }
 
 export const RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED = 2
 
+const retiredEquityEvidenceResultKeys = {
+  flat: 'configuration.retiredEquity.evidenceResults.flat',
+  open_exposure: 'configuration.retiredEquity.evidenceResults.open_exposure',
+  incomplete: 'configuration.retiredEquity.evidenceResults.incomplete',
+  unsupported_market: 'configuration.retiredEquity.evidenceResults.unsupported_market',
+  observer_unavailable: 'configuration.retiredEquity.evidenceResults.observer_unavailable',
+  query_failed: 'configuration.retiredEquity.evidenceResults.query_failed',
+} as const
+
+export function retiredEquityEvidenceResultTranslationKey(result: string | undefined): string {
+  if (!result || !Object.prototype.hasOwnProperty.call(retiredEquityEvidenceResultKeys, result)) {
+    return 'configuration.retiredEquity.notAvailable'
+  }
+  return retiredEquityEvidenceResultKeys[result as keyof typeof retiredEquityEvidenceResultKeys]
+}
+
 export function canResetRetiredEquityAccounts(accounts: RetiredEquityAccount[]): boolean {
   return accounts.length > 0 && accounts.every((account) => account.status === 'ready_for_explicit_reset' && account.flat_evidence_count >= RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED)
 }
@@ -168,6 +184,7 @@ export function RetiredEquityAccountsPanel() {
                     <Th>{t('configuration.retiredEquity.market')}</Th>
                     <Th>{t('configuration.retiredEquity.status')}</Th>
                     <Th isNumeric>{t('configuration.retiredEquity.evidence')}</Th>
+                    <Th>{t('configuration.retiredEquity.lastResult')}</Th>
                     <Th>{t('configuration.retiredEquity.lastObserved')}</Th>
                   </Tr></Thead>
                   <Tbody>
@@ -181,6 +198,7 @@ export function RetiredEquityAccountsPanel() {
                           </Badge>
                         </Td>
                         <Td isNumeric>{t('configuration.retiredEquity.evidenceCount', { count: account.flat_evidence_count, required: RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED })}</Td>
+                        <Td>{t(retiredEquityEvidenceResultTranslationKey(account.last_evidence_result))}</Td>
                         <Td>{formatTimestamp(account.last_observed_at, t('configuration.retiredEquity.notAvailable'))}</Td>
                       </Tr>
                     ))}

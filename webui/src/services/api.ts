@@ -67,7 +67,7 @@ export interface RetiredEquityAccount {
   last_observed_at?: string
   last_flat_at?: string
   flat_evidence_count: number
-  last_evidence_result?: 'flat' | 'incomplete' | 'open_exposure'
+  last_evidence_result?: 'flat' | 'incomplete' | 'open_exposure' | 'unsupported_market' | 'observer_unavailable' | 'query_failed'
 }
 
 export interface RetiredEquityResetOperation {

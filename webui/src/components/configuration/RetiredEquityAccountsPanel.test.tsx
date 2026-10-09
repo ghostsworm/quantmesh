@@ -6,7 +6,7 @@ import { createInstance } from 'i18next'
 import { I18nextProvider } from 'react-i18next'
 import type { RetiredEquityAccount } from '../../services/api'
 import en from '../../i18n/locales/en-US.json'
-import { canResetRetiredEquityAccounts, RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED, RetiredEquityAccountsPanel } from './RetiredEquityAccountsPanel'
+import { canResetRetiredEquityAccounts, RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED, retiredEquityEvidenceResultTranslationKey, RetiredEquityAccountsPanel } from './RetiredEquityAccountsPanel'
 
 const readyAccount: RetiredEquityAccount = {
   id: 'account-hash',
@@ -31,6 +31,12 @@ describe('retired equity account reset readiness', () => {
       { ...readyAccount, id: 'unsupported-spot', market_type: 'spot', status: 'pending_verification' },
     ])).toBe(false)
     expect(canResetRetiredEquityAccounts([{ ...readyAccount, flat_evidence_count: RETIRED_EQUITY_FLAT_EVIDENCE_REQUIRED - 1 }])).toBe(false)
+  })
+
+  it('maps safe verifier outcome codes to explicit localized evidence labels', () => {
+    expect(retiredEquityEvidenceResultTranslationKey('unsupported_market')).toBe('configuration.retiredEquity.evidenceResults.unsupported_market')
+    expect(retiredEquityEvidenceResultTranslationKey('query_failed')).toBe('configuration.retiredEquity.evidenceResults.query_failed')
+    expect(retiredEquityEvidenceResultTranslationKey(undefined)).toBe('configuration.retiredEquity.notAvailable')
   })
 
   it('does not present empty reset history before the admin read has completed', async () => {

@@ -1434,6 +1434,15 @@
       "status": "核验状态",
       "evidence": "清零证据",
       "evidenceCount": "{{count}} / {{required}} 次",
+      "lastResult": "最近结果",
+      "evidenceResults": {
+        "flat": "未发现持仓或未结订单",
+        "open_exposure": "仍有持仓或未结订单",
+        "incomplete": "核验数据不完整",
+        "unsupported_market": "该市场暂无受支持的只读核验器",
+        "observer_unavailable": "只读核验器未能初始化",
+        "query_failed": "只读账户查询失败"
+      },
       "lastObserved": "最近观测",
       "notAvailable": "暂无",
       "unknownStatus": "未知状态",

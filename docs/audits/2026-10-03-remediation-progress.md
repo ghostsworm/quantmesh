@@ -2,6 +2,14 @@
 
 历史记录见 [原整改进度](2026-09-24-remediation-progress.md)。此处继续原 R01–R15 范围，不代表范围缩减或真实盈利验收。
 
+## rc1143：退役账户封锁原因可观测性
+
+- 生产周期核验原先把 unsupported 市场、观测器工厂失败、REST 查询失败及显式不完整响应统一持久化成 `incomplete`；管理员 UI 虽返回 `last_evidence_result`，但页面没有展示。Bitget Spot 等受支持范围外账户因此可能长期保持 fail-closed，却不给操作者可区分的修复方向。
+- 现在仅保存有限原因码：`unsupported_market`、`observer_unavailable`、`query_failed`、`incomplete`、`open_exposure`、`flat`；不保存交易所原始错误正文/凭据。管理面板新增最近核验结果的三语展示。所有失败/不完整/非零状态继续清空连续 flat 计数，只有完整的 flat 结果可累计；UI 显示不改变服务端 reset 门槛。
+- 定向根包回归覆盖四类结果与“错误详情不入库”；旧 flat/非 flat 结果仍可解码。前端回归覆盖原因码到 i18n key 的安全映射。该修复改善故障定位，不自动修复不支持的 Bitget Spot verifier，也不解除其封锁。
+- 最终源码验证：3 个退役账户定向 race 用例通过；根包完整 `go test . -count=1` 通过；`go vet .`、`git diff --check`、embed sync/verify 均通过。前端 `yarn verify` 的 TypeScript、53 个测试文件/311 项测试与生产构建通过，前后端/嵌入版本一致为 `3.111.0-rc1143`。未运行全仓 `--require-mysql`，未连接真实交易所。
+- 尚缺：前端真实管理员浏览器 E2E、交易所只读权限/端点线上覆盖、Bitget Spot 债务与持仓完整证据、完整发布验证及部署后复核；不连接真实账户、不下单，也不宣称实盘或盈利验收。
+
 ## rc1142：退役账户重置 MySQL 基线后审计失败恢复验证
 
 - 新增 `TestMySQLRetiredResetRecoversAfterBaselineBeforeAuditAcrossRestart`，在独立 checkpoint namespace 下跑实际 BotManager/resetter/SQLStorage/PauseCoordinator 接线；注入一次审计 checkpoint 写入失败，覆盖基线 CAS 已耐久、账户归档仍待处理的故障窗口。断言失败时 reset intent/旧账户归档/开仓 hold 均保留，随后关闭并重建 storage/coordinator，确认 hold 从 MySQL 恢复；同一管理员与目标 scope 重试复用 operation ID、幂等读取已经提交的新权益 baseline，完成 audit、清理旧密文并只在完成后移除持久 hold。
