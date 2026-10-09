@@ -1118,16 +1118,17 @@ func startSymbolRuntime(
 					routedStrategy = multiExecutor.GetStrategyByClientOrderID(posUpdate.ClientOrderID)
 				}
 			}
-			if err := strategyManager.ApplyOrderUpdateForStrategy(routedStrategy, posUpdate); err != nil {
+			accounted, accountingErr := strategyManager.ApplyOrderUpdateForStrategyWithAccounting(routedStrategy, posUpdate)
+			if accountingErr != nil {
 				superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
-				logger.ErrorCtx(ctx, "[%s] 策略成交账未能确认，已封锁 Bot 新开仓: %v", botID, err)
+				logger.ErrorCtx(ctx, "[%s] 策略成交账未能确认，已封锁 Bot 新开仓: %v", botID, accountingErr)
 				if eventBus != nil {
 					eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
 						"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
 						"reason": "strategy_accounting_unverified", "requires_reconciliation": true,
 					}})
 				}
-			} else if routedStrategy != "" {
+			} else if routedStrategy != "" && accounted {
 				strategyAccountingVerified = true
 			}
 		}
@@ -1477,14 +1478,22 @@ func startSymbolRuntime(
 						}
 					})
 					spotShortStrategy.SetUnresolvedDebtHandler(func(debtErr error) {
-						superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
+						superPositionManager.OpeningGate().Block("spot_short_reconciliation_unverified")
 						logger.ErrorCtx(ctx, "[%s] SpotShort 借贷结果/补偿还款未核实，已封锁 Bot 新开仓: %v", botID, debtErr)
 						if eventBus != nil {
 							eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
 								"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
-								"reason": "strategy_accounting_unverified", "strategy_name": "spot_short",
+								"reason": "spot_short_reconciliation_unverified", "strategy_name": "spot_short",
 								"requires_reconciliation": true,
 							}})
+						}
+					})
+					spotShortStrategy.SetReconciliationSuccessHandler(func() {
+						superPositionManager.OpeningGate().Unblock("spot_short_reconciliation_unverified")
+						if bootstrapped, bootstrapErr := retryExposureBootstrap(); bootstrapErr != nil {
+							logger.ErrorCtx(ctx, "[%s] SpotShort 对账已完成但暴露核账仍未完成，继续封锁新开仓: %v", botID, bootstrapErr)
+						} else if bootstrapped {
+							logger.InfoCtx(ctx, "[%s] SpotShort 对账后已完成账户范围暴露核账", botID)
 						}
 					})
 					strategyManager.RegisterStrategy("spot_short", spotShortStrategy, si.Weight, 0)

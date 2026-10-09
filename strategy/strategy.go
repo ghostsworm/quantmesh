@@ -29,6 +29,12 @@ type Strategy interface {
 	GetVisualizationData() map[string]interface{} // 新增：獲取策略可视化數據
 }
 
+// OrderUpdateAccountingReporter distinguishes a successfully processed update
+// from one intentionally deferred to a separate durable reconciliation path.
+type OrderUpdateAccountingReporter interface {
+	OnOrderUpdateWithAccounting(*position.OrderUpdate) (accounted bool, err error)
+}
+
 // EventBus 事件總線接口
 type EventBus interface {
 	Publish(evt *event.Event)
@@ -447,8 +453,16 @@ func (sm *StrategyManager) OnOrderUpdateForStrategy(strategyName string, update 
 // ApplyOrderUpdateForStrategy applies one exchange event synchronously so the
 // caller can hold the shared opening gate on any accounting/persistence error.
 func (sm *StrategyManager) ApplyOrderUpdateForStrategy(strategyName string, update *position.OrderUpdate) error {
+	_, err := sm.ApplyOrderUpdateForStrategyWithAccounting(strategyName, update)
+	return err
+}
+
+// ApplyOrderUpdateForStrategyWithAccounting returns accounted=false when at
+// least one target intentionally deferred the update. A nil error alone is not
+// evidence that every routed strategy durably applied its order accounting.
+func (sm *StrategyManager) ApplyOrderUpdateForStrategyWithAccounting(strategyName string, update *position.OrderUpdate) (bool, error) {
 	if update == nil {
-		return nil
+		return false, nil
 	}
 	sm.orderUpdateMu.Lock()
 	defer sm.orderUpdateMu.Unlock()
@@ -462,7 +476,7 @@ func (sm *StrategyManager) ApplyOrderUpdateForStrategy(strategyName string, upda
 		impl, ok := sm.strategies[strategyName]
 		if !ok || !sm.isStrategyEnabledLocked(strategyName) {
 			sm.mu.RUnlock()
-			return fmt.Errorf("owned order routed to unavailable strategy %q", strategyName)
+			return false, fmt.Errorf("owned order routed to unavailable strategy %q", strategyName)
 		}
 		targets = append(targets, struct {
 			name string
@@ -481,13 +495,25 @@ func (sm *StrategyManager) ApplyOrderUpdateForStrategy(strategyName string, upda
 	sm.mu.RUnlock()
 
 	var updateErrors []error
+	accounted := true
 	for _, target := range targets {
 		updateCopy := *update
-		if err := target.impl.OnOrderUpdate(&updateCopy); err != nil {
+		var updateAccounted bool
+		var err error
+		if reporter, ok := target.impl.(OrderUpdateAccountingReporter); ok {
+			updateAccounted, err = reporter.OnOrderUpdateWithAccounting(&updateCopy)
+		} else {
+			updateAccounted = true
+			err = target.impl.OnOrderUpdate(&updateCopy)
+		}
+		if err != nil {
+			accounted = false
 			updateErrors = append(updateErrors, fmt.Errorf("strategy %s order update: %w", target.name, err))
+		} else if !updateAccounted {
+			accounted = false
 		}
 	}
-	return errors.Join(updateErrors...)
+	return accounted, errors.Join(updateErrors...)
 }
 
 // GetCapitalAllocator 獲取资金分配器

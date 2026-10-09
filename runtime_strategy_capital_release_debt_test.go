@@ -81,7 +81,7 @@ func TestRuntimeStrategyCapitalReleaseRejectsInvisibleBorrowIntent(t *testing.T)
 	cfg := &config.Config{}
 	cfg.Trading.BotID, cfg.Trading.Symbol = rt.capitalReleaseScope.Bot, rt.capitalReleaseScope.Symbol
 	short := strategy.NewSpotShortStrategy("spot_short", cfg, nil, nil, nil, nil)
-	stateStore := &capitalReleaseDebtStateStore{version: 9, found: true, payload: `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"consumed_repay_transfers":{},"pending_borrow":{"pending":{"amount":1,"phase":"prepared","created_at_unix_milli":1}},"pending_buy":{}}`}
+	stateStore := &capitalReleaseDebtStateStore{version: 10, found: true, payload: `{"bot_id":"a","strategy":"spot_short","group_id":"","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"consumed_repay_transfers":{},"pending_borrow":{"pending":{"amount":1,"phase":"prepared","created_at_unix_milli":1}},"pending_buy":{}}`}
 	short.SetRuntimeStateStore(stateStore)
 	rt.StrategyManager.RegisterStrategy("spot_short", short, 1, 0)
 	if len(short.GetPositions()) != 0 || len(short.GetOrders()) != 0 {

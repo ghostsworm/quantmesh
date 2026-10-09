@@ -80,7 +80,7 @@ func TestHedgeRecoveryConfigInvalidEvidence(t *testing.T) {
 		verify  func(int, string, HedgeRecoveryBinding) error
 	}{
 		{2, recoveryProofPayload(t, spotLongRuntimeState{BotID: binding.BotID, Strategy: binding.StrategyName, GroupID: binding.GroupID, Symbol: binding.Symbol, BaseAsset: binding.BaseAsset, PendingOrders: map[int64]spotLongPendingOrder{}}), VerifySpotLongRecoveryConfigState},
-		{9, recoveryProofPayload(t, spotShortRuntimeState{BotID: binding.BotID, Strategy: binding.StrategyName, GroupID: binding.GroupID, Symbol: binding.Symbol, BaseAsset: binding.BaseAsset, PendingRepay: map[int64]spotShortPendingRepay{}, ConsumedRepayTransfers: map[int64]int64{42: 17}}), VerifySpotShortRecoveryConfigState},
+		{10, recoveryProofPayload(t, spotShortRuntimeState{BotID: binding.BotID, Strategy: binding.StrategyName, GroupID: binding.GroupID, Symbol: binding.Symbol, BaseAsset: binding.BaseAsset, PendingRepay: map[int64]spotShortPendingRepay{}, ConsumedRepayTransfers: map[int64]int64{42: 17}}), VerifySpotShortRecoveryConfigState},
 		{1, recoveryProofPayload(t, futuresHedgeRuntimeState{BotID: binding.BotID, Strategy: binding.StrategyName, GroupID: binding.GroupID, Symbol: binding.Symbol}), VerifyFuturesHedgeRecoveryConfigState},
 	}
 	for _, fixture := range fixtures {
@@ -99,7 +99,7 @@ func TestHedgeRecoveryConfigInvalidEvidence(t *testing.T) {
 		}
 	}
 	state := spotShortRuntimeState{BotID: binding.BotID, Strategy: binding.StrategyName, GroupID: binding.GroupID, Symbol: binding.Symbol, BaseAsset: binding.BaseAsset, PendingRepay: map[int64]spotShortPendingRepay{}, ConsumedRepayTransfers: map[int64]int64{0: 17}}
-	if err := VerifySpotShortRecoveryConfigState(9, recoveryProofPayload(t, state), binding); !errors.Is(err, ErrRecoveryConfigUnverified) {
+	if err := VerifySpotShortRecoveryConfigState(10, recoveryProofPayload(t, state), binding); !errors.Is(err, ErrRecoveryConfigUnverified) {
 		t.Fatal("invalid repayment identity accepted")
 	}
 }

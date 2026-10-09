@@ -33,11 +33,11 @@ func TestBotStrategyPendingBorrowIdentity(t *testing.T) {
 			}
 			const payload = `{"bot_id":"audit-pending-borrow","strategy":"spot_short","group_id":"old-group","symbol":"BTCUSDT","base_asset":"BTC","pending_repay":{},"consumed_repay_transfers":{},"pending_borrow":{"borrow-a":{"amount":0.4,"phase":"borrowed","borrow_transfer_id":42,"created_at_unix_milli":1}}}`
 			oldBinding := strategy.HedgeRecoveryBinding{BotID: id, StrategyName: "spot_short", GroupID: "old-group", Symbol: "BTCUSDT", BaseAsset: "BTC"}
-			if err := strategy.VerifySpotShortRecoveryConfigState(9, payload, oldBinding); !errors.Is(err, strategy.ErrRecoveryConfigRequired) {
+			if err := strategy.VerifySpotShortRecoveryConfigState(10, payload, oldBinding); !errors.Is(err, strategy.ErrRecoveryConfigRequired) {
 				t.Fatalf("not valid unresolved journal: %v", err)
 			}
 			store := primaryStorageForAppConfig.(*storage.SQLStorage)
-			if err := store.SetStrategyRuntimeState(&storage.StrategyRuntimeState{BotID: id, StrategyName: "spot_short", SchemaVersion: 9, Payload: payload}); err != nil {
+			if err := store.SetStrategyRuntimeState(&storage.StrategyRuntimeState{BotID: id, StrategyName: "spot_short", SchemaVersion: 10, Payload: payload}); err != nil {
 				t.Fatal(err)
 			}
 			if held, err := store.HasAccountWalletCapitalReservation(t.Context(), id); err != nil || held {

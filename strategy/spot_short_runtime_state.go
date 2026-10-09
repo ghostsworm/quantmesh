@@ -8,7 +8,7 @@ import (
 	"quantmesh/config"
 )
 
-const spotShortRuntimeStateSchemaVersion = 9
+const spotShortRuntimeStateSchemaVersion = 10
 
 type spotShortPendingRepay struct {
 	ClientOrderID            string  `json:"client_order_id,omitempty"`
@@ -25,10 +25,13 @@ type spotShortPendingRepay struct {
 }
 
 type spotShortPendingBorrow struct {
-	Amount             float64 `json:"amount"`
-	Phase              string  `json:"phase"`
-	BorrowTransferID   int64   `json:"borrow_transfer_id,omitempty"`
-	CreatedAtUnixMilli int64   `json:"created_at_unix_milli"`
+	Amount              float64 `json:"amount"`
+	Phase               string  `json:"phase"`
+	BorrowTransferID    int64   `json:"borrow_transfer_id,omitempty"`
+	CreatedAtUnixMilli  int64   `json:"created_at_unix_milli"`
+	TerminalOrderID     int64   `json:"terminal_order_id,omitempty"`
+	TerminalStatus      string  `json:"terminal_status,omitempty"`
+	TerminalExecutedQty float64 `json:"terminal_executed_qty,omitempty"`
 }
 
 type spotShortPendingBuy struct {
@@ -96,7 +99,7 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	if !found {
 		return nil
 	}
-	if version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != spotShortRuntimeStateSchemaVersion {
+	if version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9 && version != spotShortRuntimeStateSchemaVersion {
 		return fmt.Errorf("unsupported spot short runtime state schema version %d", version)
 	}
 	var state spotShortRuntimeState
@@ -147,9 +150,10 @@ func (s *SpotShortStrategy) restoreRuntimeStateLocked() error {
 	}
 	for clientOrderID, pending := range state.PendingBorrow {
 		if clientOrderID == "" || math.IsNaN(pending.Amount) || math.IsInf(pending.Amount, 0) || pending.Amount <= 0 || pending.CreatedAtUnixMilli <= 0 ||
-			(pending.Phase != "prepared" && pending.Phase != "borrowed" && pending.Phase != "unsubmitted") || pending.BorrowTransferID < 0 ||
-			(pending.Phase != "borrowed" && pending.BorrowTransferID != 0) || (pending.Phase == "borrowed" && pending.BorrowTransferID <= 0) ||
-			(pending.Phase == "unsubmitted" && version < 8) {
+			(pending.Phase != "prepared" && pending.Phase != "borrowed" && pending.Phase != "unsubmitted" && pending.Phase != "settlement_pending") || pending.BorrowTransferID < 0 ||
+			((pending.Phase != "borrowed" && pending.Phase != "settlement_pending") && pending.BorrowTransferID != 0) || ((pending.Phase == "borrowed" || pending.Phase == "settlement_pending") && pending.BorrowTransferID <= 0) ||
+			(pending.Phase == "unsubmitted" && version < 8) ||
+			(pending.Phase == "settlement_pending" && (version < 10 || pending.TerminalOrderID <= 0 || !isSpotShortTerminalOrderStatus(pending.TerminalStatus) || math.IsNaN(pending.TerminalExecutedQty) || math.IsInf(pending.TerminalExecutedQty, 0) || pending.TerminalExecutedQty <= 0 || pending.TerminalExecutedQty > pending.Amount+math.Max(1e-10, pending.Amount*1e-8))) {
 			return fmt.Errorf("spot short runtime state contains invalid pending borrow intent")
 		}
 	}
