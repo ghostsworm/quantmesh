@@ -190,7 +190,7 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 		return fmt.Errorf("unrecognized exchange order status %q", order.Status)
 	}
 	if status == "NEW" && order.ExecutedQty > tolerance || status == "PARTIALLY_FILLED" && order.ExecutedQty <= 0 ||
-		(status == "FILLED" || status == "FULLY_FILLED") && order.ExecutedQty <= 0 {
+		(status == "FILLED" || status == "FULLY_FILLED") && (order.ExecutedQty <= 0 || math.Abs(order.ExecutedQty-intent.quantity) > tolerance) {
 		return fmt.Errorf("order status conflicts with cumulative execution")
 	}
 	update := &position.OrderUpdate{OrderID: order.OrderID, ClientOrderID: intent.clientOrderID, Symbol: order.Symbol, Side: string(order.Side), Status: status,
@@ -211,12 +211,8 @@ func (s *DCAEnhancedStrategy) reconcilePersistedOrder(ctx context.Context, inten
 		}
 	}
 	if isDCAOrderTerminal(status) {
-		if settler, ok := s.executor.(interface {
-			SettleRecoveredIntent(context.Context, string) error
-		}); ok {
-			if err := settler.SettleRecoveredIntent(ctx, intent.clientOrderID); err != nil {
-				return fmt.Errorf("settle economically reconciled DCA order %s: %w", intent.clientOrderID, err)
-			}
+		if err := settleRecoveredIntentAfterAccounting(ctx, s.executor, intent.clientOrderID, status); err != nil {
+			return fmt.Errorf("settle economically reconciled DCA order %s: %w", intent.clientOrderID, err)
 		}
 	}
 	return nil

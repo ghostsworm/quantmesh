@@ -51,6 +51,25 @@ func (a *MultiStrategyExecutorAdapter) SettleRecoveredIntent(ctx context.Context
 	return a.executor.executor.SettleRecoveredIntent(ctx, clientOrderID, a.strategyName)
 }
 
+type recoveredIntentSettler interface {
+	SettleRecoveredIntent(context.Context, string) error
+}
+
+// settleRecoveredIntentAfterAccounting releases only a terminal order whose
+// owning strategy has already durably applied its exact venue fill evidence.
+// The physical executor keeps the owner-wide recovery gate closed until the
+// subsequent exposure bootstrap succeeds.
+func settleRecoveredIntentAfterAccounting(ctx context.Context, executor position.OrderExecutorInterface, clientOrderID, status string) error {
+	if !signalOrderStatusFilled(status) && !signalOrderStatusTerminal(status) || clientOrderID == "" {
+		return nil
+	}
+	settler, ok := executor.(recoveredIntentSettler)
+	if !ok {
+		return nil
+	}
+	return settler.SettleRecoveredIntent(ctx, clientOrderID)
+}
+
 func (a *MultiStrategyExecutorAdapter) classifyComboOrder(req *position.OrderRequest) (bool, error) {
 	if a == nil || a.executor == nil || req == nil {
 		return false, fmt.Errorf("combo order classification evidence unavailable")

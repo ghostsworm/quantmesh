@@ -220,12 +220,61 @@ func TestSignalUnderfilledFilledRetainsOrderAndRecoversAfterVerification(t *test
 
 type signalReconciliationExecutor struct {
 	position.OrderExecutorInterface
-	calls int
+	calls       int
+	settledCIDs []string
 }
 
 func (e *signalReconciliationExecutor) MarkOrderReconciliationRequired(int64, string, string) error {
 	e.calls++
 	return nil
+}
+
+func (e *signalReconciliationExecutor) SettleRecoveredIntent(_ context.Context, clientOrderID string) error {
+	e.settledCIDs = append(e.settledCIDs, clientOrderID)
+	return nil
+}
+
+func TestSignalStartupRecoverySettlesTerminalIntentAfterDurableAccounting(t *testing.T) {
+	venue := &signalFeeEvidenceExchange{order: &exchange.Order{OrderID: 88, ClientOrderID: "signal-88", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Quantity: 1, Status: exchange.OrderStatusCanceled}}
+	executor := &signalReconciliationExecutor{}
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	strategy := NewTrendFollowingStrategy("trend", cfg, executor, venue, nil)
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	strategy.activeOrder = &Order{OrderID: 88, ClientOrderID: "signal-88", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
+	strategy.pendingAction = signalActionOpenLong
+
+	if err := strategy.reconcileRuntimeOrder(t.Context()); err != nil {
+		t.Fatalf("reconcile terminal signal order: %v", err)
+	}
+	if len(executor.settledCIDs) != 1 || executor.settledCIDs[0] != "signal-88" {
+		t.Fatalf("durably reconciled terminal signal intent was not settled: %v", executor.settledCIDs)
+	}
+	if !store.found || strategy.activeOrder != nil || strategy.pendingAction != "" {
+		t.Fatalf("strategy accounting was not durably finalized before settlement: stored=%t active=%+v action=%q", store.found, strategy.activeOrder, strategy.pendingAction)
+	}
+}
+
+func TestSignalStartupRecoveryRejectsUnderfilledFilledOrder(t *testing.T) {
+	venue := &signalFeeEvidenceExchange{order: &exchange.Order{OrderID: 89, ClientOrderID: "signal-89", Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.4, Status: exchange.OrderStatusFilled}}
+	executor := &signalReconciliationExecutor{}
+	cfg := &config.Config{}
+	cfg.Trading.Symbol = "BTCUSDT"
+	strategy := NewTrendFollowingStrategy("trend", cfg, executor, venue, nil)
+	store := &memoryRuntimeStateStore{}
+	strategy.SetRuntimeStateStore(store)
+	strategy.activeOrder = &Order{OrderID: 89, ClientOrderID: "signal-89", Symbol: "BTCUSDT", Side: "BUY", Quantity: 1, Price: 100}
+	strategy.pendingAction = signalActionOpenLong
+
+	if err := strategy.reconcileRuntimeOrder(t.Context()); err == nil {
+		t.Fatal("accepted terminal FILLED status with less than the requested quantity")
+	}
+	if len(executor.settledCIDs) != 0 || store.found || strategy.activeOrder == nil {
+		t.Fatalf("contradictory fill evidence was settled or overwritten: settled=%v stored=%t active=%+v", executor.settledCIDs, store.found, strategy.activeOrder)
+	}
 }
 
 func TestSignalOverfillsRemainPendingForReconciliation(t *testing.T) {
@@ -360,7 +409,12 @@ func TestSignalZeroFeePlaceholderDoesNotBookFill(t *testing.T) {
 type signalFeeEvidenceExchange struct {
 	signalTestExchange
 	fills []*exchange.OrderFill
+	order *exchange.Order
 	err   error
+}
+
+func (e *signalFeeEvidenceExchange) GetOrder(context.Context, string, int64) (interface{}, error) {
+	return e.order, e.err
 }
 
 func (e *signalFeeEvidenceExchange) GetOrderFills(context.Context, string, int64) (interface{}, error) {
