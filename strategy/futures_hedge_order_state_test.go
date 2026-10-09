@@ -150,6 +150,55 @@ func TestFuturesHedgeTrackerRejectsFilledWithoutExecution(t *testing.T) {
 	}
 }
 
+func TestFuturesHedgeTrackerRetainsUnderfilledFilledOrder(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	tracker := newFuturesHedgeOrderTracker(&config.Config{}, "futures_long", "group-a", "BTCUSDT", "mock")
+	tracker.SetStore(store)
+	cid, err := tracker.Begin("BUY", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.Bind(cid, &position.Order{OrderID: 83, ClientOrderID: cid, Symbol: "BTCUSDT", Side: "BUY", Quantity: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.OnOrderUpdate(&position.OrderUpdate{OrderID: 83, ClientOrderID: cid, Symbol: "BTCUSDT",
+		Side: "BUY", Status: "FILLED", ExecutedQty: 0.75}); err == nil {
+		t.Fatal("underfilled FILLED update should be rejected")
+	}
+	if tracker.pending == nil || tracker.pending.ClientOrderID != cid {
+		t.Fatal("underfilled FILLED update cleared the durable hedge-order guard")
+	}
+	var persisted futuresHedgeRuntimeState
+	if err := json.Unmarshal([]byte(store.payload), &persisted); err != nil || persisted.Pending == nil || persisted.Pending.ClientOrderID != cid {
+		t.Fatalf("underfilled FILLED update was not retained in runtime state: state=%+v err=%v", persisted, err)
+	}
+}
+
+func TestFuturesHedgeRestoreRetainsUnderfilledFilledOrder(t *testing.T) {
+	store := &memoryRuntimeStateStore{}
+	tracker := newFuturesHedgeOrderTracker(&config.Config{}, "futures_short", "group-a", "BTCUSDT", "mock")
+	tracker.SetStore(store)
+	cid, err := tracker.Begin("SELL", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := tracker.SubmissionFailed(cid, execution.ErrOrderUnknown); err != nil {
+		t.Fatal(err)
+	}
+	restarted := newFuturesHedgeOrderTracker(&config.Config{}, "futures_short", "group-a", "BTCUSDT", "mock")
+	restarted.SetStore(store)
+	venue := &futuresHedgeLookupExchange{hedgeExchange: &hedgeExchange{}, order: &exchange.Order{
+		OrderID: 84, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideSell,
+		Quantity: 1, ExecutedQty: 0.5, Status: exchange.OrderStatusFilled,
+	}}
+	if err := restarted.RestoreAndReconcile(context.Background(), venue); err == nil {
+		t.Fatal("underfilled FILLED REST snapshot should fail startup reconciliation")
+	}
+	if restarted.pending == nil || restarted.pending.ClientOrderID != cid {
+		t.Fatal("underfilled FILLED REST snapshot cleared the durable hedge-order guard")
+	}
+}
+
 type futuresHedgeLookupExchange struct {
 	*hedgeExchange
 	order *exchange.Order

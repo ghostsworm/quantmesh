@@ -149,6 +149,9 @@ func (t *futuresHedgeOrderTracker) OnOrderUpdate(update *position.OrderUpdate) e
 	if status == "FILLED" && update.ExecutedQty <= 0 {
 		return fmt.Errorf("%s hedge order %d reports FILLED without positive execution", t.strategy, update.OrderID)
 	}
+	if status == "FILLED" && !hedgeFillMatchesRequested(update.ExecutedQty, pending.Quantity) {
+		return fmt.Errorf("%s hedge order %d reports FILLED below its requested quantity", t.strategy, update.OrderID)
+	}
 	previous := *pending
 	pending.OrderID = update.OrderID
 	pending.ExecutedQty = update.ExecutedQty
@@ -225,6 +228,9 @@ func (t *futuresHedgeOrderTracker) RestoreAndReconcile(ctx context.Context, venu
 	if status == "FILLED" && order.ExecutedQty <= 0 {
 		return fmt.Errorf("exchange hedge order reports FILLED without positive execution")
 	}
+	if status == "FILLED" && !hedgeFillMatchesRequested(order.ExecutedQty, pending.Quantity) {
+		return fmt.Errorf("exchange hedge order reports FILLED below its requested quantity")
+	}
 	if status != "NEW" && status != "PARTIALLY_FILLED" && !isTerminalHedgeOrderStatus(status) {
 		return fmt.Errorf("exchange returned unrecognized %s hedge order status %q", t.strategy, order.Status)
 	}
@@ -248,6 +254,14 @@ func (t *futuresHedgeOrderTracker) RestoreAndReconcile(ctx context.Context, venu
 		return fmt.Errorf("persist reconciled %s hedge order: %w", t.strategy, err)
 	}
 	return nil
+}
+
+func hedgeFillMatchesRequested(executedQty, requestedQty float64) bool {
+	if !finiteNumber(executedQty) || !finiteNumber(requestedQty) || executedQty < 0 || requestedQty <= 0 {
+		return false
+	}
+	tolerance := math.Max(1e-10, math.Abs(requestedQty)*1e-8)
+	return executedQty+tolerance >= requestedQty
 }
 
 func (t *futuresHedgeOrderTracker) validPending(pending *futuresHedgePendingOrder) bool {
