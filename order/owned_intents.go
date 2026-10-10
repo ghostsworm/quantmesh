@@ -16,24 +16,107 @@ import (
 // ownedIntent records economic intent before the physical call. Never infer
 // ownership from BUY/SELL: another bot or a protective close can have that side.
 type ownedIntent struct {
-	request       OrderRequest
-	opening       bool
-	order         *Order
-	unknown       bool
-	ledgerPending bool
-	ledgerReason  string
-	ledgerPayload []byte
-	revision      int64
-	attempts      int
-	attemptPrice  float64
-	rejected      bool
-	settled       bool
+	request           OrderRequest
+	opening           bool
+	order             *Order
+	unknown           bool
+	ledgerPending     bool
+	ledgerReason      string
+	ledgerPayload     []byte
+	revision          int64
+	durablePayload    []byte
+	uncertainPayload  []byte
+	uncertainRevision int64
+	attempts          int
+	attemptPrice      float64
+	rejected          bool
+	settled           bool
 }
 
 type retryableZeroFillSettlementError struct{ cause error }
 
 func (e retryableZeroFillSettlementError) Error() string { return e.cause.Error() }
 func (e retryableZeroFillSettlementError) Unwrap() error { return e.cause }
+
+// OwnedIntentSnapshot is a read-only projection of one journal-loaded intent.
+// It deliberately excludes account credentials and opaque account tokens.
+type OwnedIntentSnapshot struct {
+	BotID             string
+	Symbol            string
+	StrategyName      string
+	StrategyType      string
+	Side              string
+	PositionSide      string
+	OrderSource       string
+	ExposureKey       string
+	ReduceOnly        bool
+	Opening           bool
+	RequestedQuantity float64
+	VenueOrderID      int64
+	ClientOrderID     string
+	VenueStatus       string
+	Terminal          bool
+	ExecutedQuantity  float64
+	Revision          int64
+	Unknown           bool
+	LedgerPending     bool
+	Settled           bool
+	Rejected          bool
+}
+
+// ReadOwnedIntentSnapshot resolves exactly one already-loaded intent by both
+// venue order ID and canonical client order ID. VenueStatus is the latest
+// journal-loaded venue observation, not a fresh exchange query. It never reads
+// from or writes to the journal, and never changes intent or gate state.
+func (oe *ExchangeOrderExecutor) ReadOwnedIntentSnapshot(venueOrderID int64, canonicalClientOrderID string) (OwnedIntentSnapshot, error) {
+	if venueOrderID <= 0 || canonicalClientOrderID == "" || strings.TrimSpace(canonicalClientOrderID) != canonicalClientOrderID {
+		return OwnedIntentSnapshot{}, fmt.Errorf("venue order ID and canonical client order ID are required")
+	}
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	if !oe.journalRequired || !oe.journalLoaded || oe.intentJournal == nil || oe.intentScopeKey == "" {
+		return OwnedIntentSnapshot{}, fmt.Errorf("owned intent journal is not loaded")
+	}
+
+	var matched *ownedIntent
+	for key, intent := range oe.intents {
+		if intent == nil {
+			continue
+		}
+		cidMatch := key == canonicalClientOrderID || intent.request.ClientOrderID == canonicalClientOrderID
+		orderMatch := intent.order != nil && intent.order.OrderID == venueOrderID
+		if cidMatch || orderMatch {
+			if !cidMatch || !orderMatch || matched != nil {
+				return OwnedIntentSnapshot{}, fmt.Errorf("owned intent identity is mismatched or ambiguous")
+			}
+			matched = intent
+		}
+	}
+	if matched == nil {
+		return OwnedIntentSnapshot{}, fmt.Errorf("no exact owned intent match")
+	}
+	request, venueOrder := matched.request, matched.order
+	if request.ClientOrderID != canonicalClientOrderID || request.Symbol == "" || request.Symbol != oe.symbol ||
+		request.StrategyName == "" || request.StrategyType == "" || (request.Side != "BUY" && request.Side != "SELL") ||
+		request.Quantity <= 0 || math.IsNaN(request.Quantity) || math.IsInf(request.Quantity, 0) ||
+		matched.opening != oe.isOpeningOrder(&request) || matched.revision <= 0 || venueOrder == nil ||
+		venueOrder.OrderID != venueOrderID || venueOrder.Symbol != request.Symbol || venueOrder.Side != request.Side ||
+		venueOrder.Quantity != request.Quantity || venueOrder.ClientOrderID != "" && !oe.matchesOwnedClientOrderID(canonicalClientOrderID, venueOrder.ClientOrderID) ||
+		venueOrder.ExecutedQty < 0 || math.IsNaN(venueOrder.ExecutedQty) || math.IsInf(venueOrder.ExecutedQty, 0) ||
+		venueOrder.ExecutedQty > request.Quantity || strings.TrimSpace(venueOrder.Status) == "" {
+		return OwnedIntentSnapshot{}, fmt.Errorf("owned intent fields conflict or are incomplete")
+	}
+	return OwnedIntentSnapshot{
+		BotID: oe.botID, Symbol: request.Symbol, StrategyName: request.StrategyName, StrategyType: request.StrategyType,
+		Side: request.Side, PositionSide: request.PositionSide, OrderSource: request.OrderSource,
+		ExposureKey: request.ExposureKey, ReduceOnly: request.ReduceOnly,
+		Opening: matched.opening, RequestedQuantity: request.Quantity,
+		VenueOrderID: venueOrder.OrderID, ClientOrderID: canonicalClientOrderID, VenueStatus: venueOrder.Status,
+		Terminal: terminalOrderStatus(venueOrder.Status), ExecutedQuantity: venueOrder.ExecutedQty,
+		Revision: matched.revision, Unknown: matched.unknown, LedgerPending: matched.ledgerPending,
+		Settled: matched.settled, Rejected: matched.rejected,
+	}, nil
+}
 
 // SetUnknownOrderHandler is configured before the runtime starts. The callback
 // runs without intentMu and must not try to synchronously drain this same call.
@@ -97,6 +180,21 @@ func (oe *ExchangeOrderExecutor) IntentStrategyType(clientOrderID string) (strin
 		}
 	}
 	return "", "", false
+}
+
+// SettledIntentExecutedQty returns the durable cumulative quantity for a
+// settled owner intent. It lets runtime callbacks suppress duplicate terminal
+// accounting while still detecting any venue quantity that exceeds settlement.
+func (oe *ExchangeOrderExecutor) SettledIntentExecutedQty(clientOrderID string) (float64, bool) {
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	for cid, intent := range oe.intents {
+		if intent == nil || !intent.settled || intent.order == nil || !oe.matchesOwnedClientOrderID(cid, clientOrderID) {
+			continue
+		}
+		return intent.order.ExecutedQty, true
+	}
+	return 0, false
 }
 
 // OwnedIntentClientOrderID resolves exchange-prefixed callback IDs to the
@@ -191,6 +289,10 @@ func (oe *ExchangeOrderExecutor) settleIntent(ctx context.Context, clientOrderID
 	if intent == nil || intent.order == nil || intent.unknown || intent.ledgerPending || intent.rejected {
 		oe.intentMu.Unlock()
 		return fmt.Errorf("execution intent %s is not eligible for settlement", clientOrderID)
+	}
+	if intent.settled {
+		oe.intentMu.Unlock()
+		return nil
 	}
 	if zeroFillOnly && intent.order.ExecutedQty != 0 {
 		oe.intentMu.Unlock()

@@ -7,6 +7,7 @@ import { applyPolymarketEnabledToConfig } from '../../utils/polymarketConfigDefa
 import { parseMonitorSymbolsInput } from '../../utils/riskControlUi'
 import { ConfigCard, PolymarketConfigSection, MacroEventConfigSection } from './ConfigurationSections'
 import { RetiredEquityAccountsPanel } from './RetiredEquityAccountsPanel'
+import { OrderReconciliationPanel } from './OrderReconciliationPanel'
 type Props = {
   config: Config
   updateConfigField: (path: string, value: unknown) => void
@@ -102,6 +103,7 @@ export function SecurityConfigurationTab({ config, updateConfigField, securitySt
       </VStack>
     </ConfigCard>
     <RetiredEquityAccountsPanel />
+    <OrderReconciliationPanel />
   </VStack>
   )
 }

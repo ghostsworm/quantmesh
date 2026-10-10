@@ -12,9 +12,15 @@ import { withStrategySave } from './strategySave'
 import { withConfigSave } from './configSave'
 import { configEditorResources } from './configEditor'
 import { withStopPending } from './stopPending'
+import { withOrderReconciliation } from './orderReconciliation'
 
 function withRuntimeResources(language: string, bundle: Record<string, unknown>) {
-  return { ...withStopPending(language, withConfigSave(language, withStrategySave(language, withCapitalRelease(language, withExecutionExposure(language, bundle))))), configEditor: configEditorResources }
+  const withExistingResources = withExecutionExposure(language, bundle)
+  const withCapitalResources = withCapitalRelease(language, withExistingResources)
+  const withStrategyResources = withStrategySave(language, withCapitalResources)
+  const withConfigResources = withConfigSave(language, withStrategyResources)
+  const withPendingResources = withStopPending(language, withConfigResources)
+  return { ...withOrderReconciliation(language, withPendingResources), configEditor: configEditorResources }
 }
 
 // 排除已静态打包的語言，避免與上方重複打入 lazy chunk（見 Vite glob 說明）

@@ -1,6 +1,6 @@
 # Product Overview
 
-本轮变更：3.111.0-rc1155 普通 Bot、Funding Carry 与 Funding Perp Spread 的每次实际下单（含保护性平仓及重试）前同步核验运行租约，租约失效时阻止后续 RPC；不撤回已发出请求，结果未知仍须核账。承接 rc1154 持久化 owner generation fencing 与 rc1153 成交明细耐久后才结算 intent 的修复。不代表所有策略经济账、真实交易或盈利验收完成。
+本轮变更：3.111.0-rc1157 启动策略账务错误后的人工核账/显式解锁切片，已新增人工核账界面、SQLite/MySQL 核账案与审计存储、双阶段管理员 API，以及只读 runtime 订单/成交证据适配器；intent journal revision 与 strategy accounting revision 分开核验，完整成交历史先校验已处理游标前缀，再只提交缺失后缀；若经济结果已耐久一致，只记只读核验收据、不重复记账。生产策略账 CAS/幂等适配器与 owner-scoped durable gate bridge 尚未接通，当前不具备生产解锁能力。3.111.0-rc1156 串行化 owner-scoped 成交处理，要求成交明细与费用先耐久、再执行策略经济账、最后结算 intent；零成交终态须精确复查交易所订单后才能记账与结算。同绑定 journal 重入及不确定 CAS 结果读回恢复也纳入本轮。当前变更仍未发布，不代表真实实盘或盈利已验收。
 
 本轮变更：3.111.0-rc1152 修复网格终态成交 intent 未耐久结算导致重启后持续 UNKNOWN 封锁的问题；须先保存网格槽位状态及完整成交明细，再持久结算并重试账户暴露核账。另包含 rc1151 的 SpotShort 启动对账自动重试，不代表财务账或盈利验收完成。
 

@@ -296,6 +296,15 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 			return nil, fmt.Errorf("初始化執行意圖日誌失敗: %w", err)
 		}
 	}
+	if reconciliationStore, ok := ss.storage.(interface {
+		MigrateOrderReconciliations(context.Context) error
+	}); ok {
+		if err := reconciliationStore.MigrateOrderReconciliations(ctx); err != nil {
+			ss.storage.Close()
+			cancel()
+			return nil, fmt.Errorf("初始化人工核账审计存储失败: %w", err)
+		}
+	}
 	return ss, nil
 }
 

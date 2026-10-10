@@ -1019,7 +1019,7 @@ func startSymbolRuntime(
 	// 提前宣告，供訂單流回調在成交/取消時通知策略並釋放預留資金（閉包可引用）
 	var strategyManager *strategy.StrategyManager
 	var multiExecutor *strategy.MultiStrategyExecutor
-	fillCapture := newRuntimeFillCapture()
+	orderUpdates := newRuntimeOrderUpdateCoordinator()
 	var fillWriter interface {
 		SaveOrderFill(*storage.OrderFill) error
 	}
@@ -1056,13 +1056,66 @@ func startSymbolRuntime(
 			logger.DebugCtx(ctx, "[%s] ignore order update without verified Bot intent ownership", botID)
 			return
 		}
-		if terminalOrderUpdate(posUpdate.Status) && posUpdate.ExecutedQty > 0 {
-			blockReason := fmt.Sprintf("execution_ledger_unverified:%d", posUpdate.OrderID)
-			// Capture is asynchronous. Close the admission window before starting
-			// it; only a complete, durably persisted fill history may reopen it.
-			superPositionManager.OpeningGate().Block(blockReason)
+		if posUpdate.ExecutedQty > 0 || (posUpdate.ExecutedQty == 0 && zeroFillTerminalRuntimeStatus(posUpdate.Status)) {
+			gate := superPositionManager.OpeningGate()
+			update := *posUpdate
+			// Keep one admission-gate key per venue order so a later successful
+			// cumulative update can release an earlier failed/overflowing update.
+			gateReason := fmt.Sprintf("owned_order_update_unverified:%d", update.OrderID)
+			stages := ownedPositiveOrderStages(ex, fillWriter,
+				ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID, symCfg.Symbol,
+				exchangeExecutor, gate, strategyManager, multiExecutor, superPositionManager, eventBus, retryExposureBootstrap)
+			if update.ExecutedQty == 0 {
+				stages = zeroFillOrderStages(ex, exchangeExecutor, strategyManager, multiExecutor,
+					superPositionManager, retryExposureBootstrap)
+			}
+			failure := func(err error) {
+				gate.Block(gateReason)
+				logger.ErrorCtx(ctx, "[%s] owner-scoped order accounting remains blocked: order_id=%d error=%v", botID, update.OrderID, err)
+				if eventBus != nil {
+					eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
+						"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
+						"reason": gateReason, "order_id": update.OrderID, "requires_reconciliation": true,
+					}})
+				}
+			}
+			complete := func() {
+				gate.Unblock(gateReason)
+				if eventBus == nil || update.Symbol == "" {
+					return
+				}
+				var eventType event.EventType
+				switch update.Status {
+				case "FILLED":
+					eventType = event.EventTypeOrderFilled
+				case "CANCELED", "CANCELLED":
+					eventType = event.EventTypeOrderCanceled
+				}
+				if eventType == "" {
+					return
+				}
+				data := map[string]interface{}{
+					"order_id": update.OrderID, "client_order_id": update.ClientOrderID,
+					"symbol": update.Symbol, "side": update.Side, "price": update.Price,
+					"quantity": update.ExecutedQty, "executed_qty": update.ExecutedQty,
+					"status": update.Status, "type": update.Type, "realized_pnl": update.RealizedPnL,
+					"exchange": symCfg.Exchange, "account": accountID, "bot_id": botID,
+					"market_type":  localCfg.Trading.MarketType,
+					"order_source": utils.ParseOrderSource(update.ClientOrderID),
+				}
+				if eventType == event.EventTypeOrderFilled {
+					data["position"] = superPositionManager.GetTotalBuyQty() - superPositionManager.GetTotalSellQty()
+					data["filled_layers"] = superPositionManager.GetActiveLayers()
+				}
+				eventBus.Publish(&event.Event{Type: eventType, Data: data})
+			}
+			if err := orderUpdates.Submit(ctx, update, stages,
+				func() { gate.Block(gateReason) }, complete, failure,
+				func() { gate.Unblock(gateReason) }); err != nil {
+				logger.WarnCtx(ctx, "[%s] order update was not queued: order_id=%d error=%v", botID, update.OrderID, err)
+			}
+			return
 		}
-
 		// 发布订單事件
 		if eventBus != nil && posUpdate.Symbol != "" {
 			var eventType event.EventType
@@ -1101,10 +1154,9 @@ func startSymbolRuntime(
 			}
 		}
 
-		gridAccountingVerified, gridZeroFillAccounted := superPositionManager.OnOrderUpdateWithAccounting(*posUpdate)
+		_, gridZeroFillAccounted := superPositionManager.OnOrderUpdateWithAccounting(*posUpdate)
 		// 通知策略層訂單更新（DCA/馬丁等），並在成交或取消時釋放當時預留的資金，避免「可用」只減不增
 		routedStrategy := ""
-		strategyAccountingVerified := false
 		if strategyManager != nil {
 			if multiExecutor != nil {
 				routedStrategy = multiExecutor.GetStrategyByOrderID(posUpdate.OrderID)
@@ -1112,7 +1164,7 @@ func startSymbolRuntime(
 					routedStrategy = multiExecutor.GetStrategyByClientOrderID(posUpdate.ClientOrderID)
 				}
 			}
-			accounted, accountingErr := strategyManager.ApplyOrderUpdateForStrategyWithAccounting(routedStrategy, posUpdate)
+			_, accountingErr := strategyManager.ApplyOrderUpdateForStrategyWithAccounting(routedStrategy, posUpdate)
 			if accountingErr != nil {
 				superPositionManager.OpeningGate().Block("strategy_accounting_unverified")
 				logger.ErrorCtx(ctx, "[%s] 策略成交账未能确认，已封锁 Bot 新开仓: %v", botID, accountingErr)
@@ -1122,8 +1174,6 @@ func startSymbolRuntime(
 						"reason": "strategy_accounting_unverified", "requires_reconciliation": true,
 					}})
 				}
-			} else if routedStrategy != "" && accounted {
-				strategyAccountingVerified = true
 			}
 		}
 		if multiExecutor != nil {
@@ -1131,38 +1181,6 @@ func startSymbolRuntime(
 			multiExecutor.OnOrderUpdate(posUpdate)
 		}
 		settleVerifiedGridZeroFill(exchangeExecutor, superPositionManager.OpeningGate(), posUpdate, gridZeroFillAccounted)
-		if terminalOrderUpdate(posUpdate.Status) && posUpdate.ExecutedQty > 0 {
-			captureTerminalOrderAndSettleOwnedIntent(ctx, fillCapture, ex, fillWriter, *posUpdate,
-				ex.GetName(), ex.GetMarketType(), accountScope, accountID, botID,
-				exchangeExecutor, superPositionManager.OpeningGate(), routedStrategy,
-				strategyAccountingVerified, gridAccountingVerified,
-				func(err error) {
-					logger.ErrorCtx(ctx, "[%s] 成交执行账本无法核实，已阻止新开仓: %v", botID, err)
-					if eventBus != nil {
-						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
-							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
-							"reason": "execution_ledger_unverified", "order_id": posUpdate.OrderID,
-							"requires_reconciliation": true,
-						}})
-					}
-				},
-				func(err error) {
-					logger.ErrorCtx(ctx, "[%s] 终态执行意图尚未安全结算，已暂停新开仓: order_id=%d error=%v", botID, posUpdate.OrderID, err)
-					if eventBus != nil {
-						eventBus.Publish(&event.Event{Type: event.EventTypeRiskTriggered, Data: map[string]interface{}{
-							"bot_id": botID, "symbol": symCfg.Symbol, "exchange": symCfg.Exchange,
-							"reason": strategyIntentSettlementBlock, "order_id": posUpdate.OrderID,
-							"requires_reconciliation": true,
-						}})
-					}
-				}, func() {
-					if bootstrapped, err := retryExposureBootstrap(); err != nil {
-						logger.ErrorCtx(ctx, "[%s] 成交意图已核账但 owner-scoped exposure bootstrap 仍未核实: %v", botID, err)
-					} else if bootstrapped {
-						logger.InfoCtx(ctx, "[%s] 终态订单恢复完成 owner-scoped exposure bootstrap", botID)
-					}
-				})
-		}
 	}); err != nil {
 		priceMonitor.Stop()
 		return nil, orderStreamStartupError(symCfg.Exchange, symCfg.Symbol, err)

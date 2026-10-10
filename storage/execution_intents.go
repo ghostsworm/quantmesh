@@ -37,6 +37,37 @@ func validIntentScopeKey(key string) bool {
 	return err == nil && len(decoded) == 32
 }
 
+// IntentJournalIdentity identifies this live SQL pool without exposing its
+// DSN. Recreated pools intentionally have a different identity and cannot be
+// rebound into an already-running executor.
+func (s *SQLStorage) IntentJournalIdentity() (string, error) {
+	if s == nil || s.db == nil || (s.dbType != "sqlite" && s.dbType != "mysql") {
+		return "", fmt.Errorf("SQL intent journal backend is unavailable")
+	}
+	return fmt.Sprintf("sql:%s:%p", s.dbType, s.db), nil
+}
+
+// LoadExecutionIntent reads one owner-scoped journal row through the
+// independent probe pool so callers can reconcile an ambiguous CAS result.
+func (s *SQLStorage) LoadExecutionIntent(ctx context.Context, key, cid string) (execution.IntentJournalRecord, bool, error) {
+	if s == nil || s.commitProbe == nil || !validIntentScopeKey(key) || cid == "" || len(cid) > 191 {
+		return execution.IntentJournalRecord{}, false, fmt.Errorf("invalid execution intent readback")
+	}
+	var record execution.IntentJournalRecord
+	var payload string
+	err := s.commitProbe.QueryRowContext(ctx,
+		`SELECT id, client_order_id, revision, state_json FROM execution_intents WHERE scope_key = ? AND client_order_id = ?`, key, cid,
+	).Scan(&record.ID, &record.ClientOrderID, &record.Revision, &payload)
+	if errors.Is(err, sql.ErrNoRows) {
+		return execution.IntentJournalRecord{}, false, nil
+	}
+	if err != nil {
+		return execution.IntentJournalRecord{}, false, err
+	}
+	record.Payload = []byte(payload)
+	return record, true, nil
+}
+
 func (s *SQLStorage) SaveExecutionIntent(ctx context.Context, key, cid string, expected int64, payload []byte) error {
 	if !validIntentScopeKey(key) || cid == "" || len(cid) > 191 || expected < 0 || expected == math.MaxInt64 || !json.Valid(payload) {
 		return fmt.Errorf("invalid execution intent write")

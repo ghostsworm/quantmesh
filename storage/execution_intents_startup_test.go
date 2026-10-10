@@ -33,4 +33,13 @@ func TestStorageServiceMigratesExecutionIntentJournalAtStartup(t *testing.T) {
 	if _, err := backend.LoadExecutionIntents(context.Background(), strings.Repeat("a", 64), 0, 10); err != nil {
 		t.Fatalf("execution intent journal was not migrated at startup: %v", err)
 	}
+	reconciliationStore, ok := service.GetStorage().(interface {
+		ListOrderReconciliations(context.Context, int) ([]OrderReconciliationCase, error)
+	})
+	if !ok {
+		t.Fatal("storage does not expose durable order reconciliation cases")
+	}
+	if cases, err := reconciliationStore.ListOrderReconciliations(context.Background(), 10); err != nil || len(cases) != 0 {
+		t.Fatalf("order reconciliation schema was not migrated at startup: cases=%v err=%v", cases, err)
+	}
 }

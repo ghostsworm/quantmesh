@@ -21,10 +21,13 @@ type memoryIntentJournal struct {
 		scope  string
 		record execution.IntentJournalRecord
 	}
-	writes        int
-	failWrite     int
-	failRead      bool
-	commitErrorAt int
+	writes                int
+	reads                 int
+	failWrite             int
+	conflictWrite         int
+	failRead              bool
+	commitErrorAt         int
+	failReadOnCommitError bool
 }
 
 func (m *memoryIntentJournal) SaveExecutionIntent(_ context.Context, scope, cid string, expected int64, payload []byte) (resultErr error) {
@@ -33,11 +36,17 @@ func (m *memoryIntentJournal) SaveExecutionIntent(_ context.Context, scope, cid 
 	m.writes++
 	defer func() {
 		if resultErr == nil && m.writes == m.commitErrorAt {
+			if m.failReadOnCommitError {
+				m.failRead = true
+			}
 			resultErr = errors.New("commit succeeded but acknowledgement lost")
 		}
 	}()
 	if m.writes == m.failWrite {
 		return errors.New("injected journal write failure")
+	}
+	if m.writes == m.conflictWrite {
+		return execution.ErrIntentJournalConflict
 	}
 	for i := range m.records {
 		r := &m.records[i]
@@ -64,6 +73,7 @@ func (m *memoryIntentJournal) SaveExecutionIntent(_ context.Context, scope, cid 
 func (m *memoryIntentJournal) LoadExecutionIntents(_ context.Context, scope string, after int64, limit int) ([]execution.IntentJournalRecord, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.reads++
 	if m.failRead {
 		return nil, errors.New("injected journal read failure")
 	}
@@ -239,7 +249,7 @@ func (v *journalCheckedVenue) PlaceOrder(ctx context.Context, req *exchange.Orde
 	return v.ownedTestVenue.PlaceOrder(ctx, req)
 }
 
-func TestIntentJournalPrecedesSubmissionAndFailsClosed(t *testing.T) {
+func TestIntentJournalPrecedesSubmissionAndReconcilesOnlyProvenUncommittedWrites(t *testing.T) {
 	for _, fail := range []int{0, 1, 2, 3} {
 		t.Run(fmt.Sprintf("write-%d", fail), func(t *testing.T) {
 			journal := &memoryIntentJournal{failWrite: fail}
@@ -252,18 +262,12 @@ func TestIntentJournalPrecedesSubmissionAndFailsClosed(t *testing.T) {
 			if fail == 0 && err != nil {
 				t.Fatal(err)
 			}
-			if fail > 0 && (err == nil || !oe.IsOpeningPaused()) {
-				t.Fatal("journal failure did not stop execution")
+			if fail > 0 && (err != nil || oe.IsOpeningPaused()) {
+				t.Fatalf("readback-confirmed uncommitted journal write should recover before execution: err=%v paused=%v", err, oe.IsOpeningPaused())
 			}
 			want := int64(1)
-			if fail == 1 || fail == 2 {
-				want = 0
-			}
 			if venue.nextID != want {
 				t.Fatalf("physical submissions=%d want=%d", venue.nextID, want)
-			}
-			if fail == 3 && !errors.Is(err, execution.ErrOrderUnknown) {
-				t.Fatalf("accepted order misreported as rejected: %v", err)
 			}
 		})
 	}
@@ -322,6 +326,363 @@ func TestSettledIntentAllowsVerifiedRestart(t *testing.T) {
 	}
 	if restarted.IsOpeningPaused() {
 		t.Fatal("settled intent incorrectly held restart gate")
+	}
+	settled := restarted.snapshotOwnedIntents()
+	if len(settled) != 1 || !settled[0].settled || settled[0].request.ClientOrderID != placed.ClientOrderID {
+		t.Fatalf("verified settled owner must remain in memory for idempotent settlement: %+v", settled)
+	}
+}
+
+func TestConfigureIntentJournalSameBindingSettledReentry(t *testing.T) {
+	for _, zeroFill := range []bool{false, true} {
+		name := "positive terminal"
+		if zeroFill {
+			name = "verified zero fill"
+		}
+		t.Run(name, func(t *testing.T) {
+			venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+			journal := &memoryIntentJournal{}
+			oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+			if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+				t.Fatal(err)
+			}
+			cid := "same-binding-settled-reentry"
+			placed, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+				ClientOrderID: cid, StrategyName: "grid", StrategyType: "grid"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			venue.mu.Lock()
+			if zeroFill {
+				venue.orders[placed.OrderID].Status = exchange.OrderStatusCanceled
+			} else {
+				venue.orders[placed.OrderID].ExecutedQty = 1
+				venue.orders[placed.OrderID].AvgPrice = 100
+				venue.orders[placed.OrderID].Status = exchange.OrderStatusFilled
+			}
+			venue.mu.Unlock()
+			if zeroFill {
+				err = oe.SettleZeroFillIntent(t.Context(), cid)
+			} else {
+				err = oe.SettleIntent(t.Context(), cid)
+			}
+			if err != nil {
+				t.Fatalf("durable settlement: %v", err)
+			}
+			if !oe.journalLoaded || oe.intentJournal != journal || len(oe.intents) != 1 || !oe.intents[cid].settled {
+				t.Fatal("settlement did not retain the loaded binding and settled owner record")
+			}
+			settledIntent := oe.intents[cid]
+			settledRevision := settledIntent.revision
+			journal.mu.Lock()
+			writesBeforeDuplicateSettle := journal.writes
+			journal.mu.Unlock()
+			if zeroFill {
+				err = oe.SettleZeroFillIntent(t.Context(), cid)
+			} else {
+				err = oe.SettleIntent(t.Context(), cid)
+			}
+			if err != nil {
+				t.Fatalf("duplicate settlement must be idempotent: %v", err)
+			}
+			journal.mu.Lock()
+			writesAfterDuplicateSettle := journal.writes
+			journal.mu.Unlock()
+			if settledIntent.revision != settledRevision || writesAfterDuplicateSettle != writesBeforeDuplicateSettle {
+				t.Fatal("duplicate settlement rewrote the already durable intent")
+			}
+			journal.mu.Lock()
+			readsBeforeReentry := journal.reads
+			journal.mu.Unlock()
+
+			if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+				t.Fatalf("same-binding reentry after settlement must permit full bootstrap retry: %v", err)
+			}
+			journal.mu.Lock()
+			readsAfterReentry := journal.reads
+			journal.mu.Unlock()
+			if !oe.journalLoaded || oe.intentJournal != journal || len(oe.intents) != 1 || oe.intents[cid] != settledIntent || !oe.intents[cid].settled {
+				t.Fatal("same-binding reentry changed the in-memory settled owner record")
+			}
+			if readsAfterReentry != readsBeforeReentry {
+				t.Fatalf("same-binding no-op unexpectedly reloaded the journal: reads %d -> %d", readsBeforeReentry, readsAfterReentry)
+			}
+		})
+	}
+}
+
+func TestIntentJournalHigherCumulativeDuplicateAndOutOfOrderUpdates(t *testing.T) {
+	oe, _, _ := newOwnedTestExecutor()
+	journal := &memoryIntentJournal{}
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatal(err)
+	}
+	const cid = "higher-cumulative-order"
+	if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: cid}); err != nil {
+		t.Fatal(err)
+	}
+	updates := []struct {
+		order *exchange.Order
+		qty   float64
+		avg   float64
+	}{
+		{order: &exchange.Order{OrderID: 1, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.4, AvgPrice: 99, Status: exchange.OrderStatusPartiallyFilled}, qty: 0.4, avg: 99},
+		{order: &exchange.Order{OrderID: 1, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.75, AvgPrice: 99.5, Status: exchange.OrderStatusPartiallyFilled}, qty: 0.75, avg: 99.5},
+		{order: &exchange.Order{OrderID: 1, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.75, AvgPrice: 99.5, Status: exchange.OrderStatusPartiallyFilled}, qty: 0.75, avg: 99.5},
+		{order: &exchange.Order{OrderID: 1, ClientOrderID: cid, Symbol: "BTCUSDT", Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.4, AvgPrice: 99, Status: exchange.OrderStatusPartiallyFilled}, qty: 0.75, avg: 99.5},
+	}
+	for index, update := range updates {
+		if !oe.ObserveOrder(update.order) {
+			t.Fatalf("update %d was not safely recognized", index)
+		}
+		intent := oe.snapshotOwnedIntents()[0]
+		if intent.order.ExecutedQty != update.qty || intent.order.AvgPrice != update.avg || intent.unknown {
+			t.Fatalf("update %d regressed or fenced the higher cumulative cursor: %+v", index, intent)
+		}
+	}
+	key, _ := journalScope().Key()
+	page, err := journal.LoadExecutionIntents(t.Context(), key, 0, 10)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("durable owner records = %d, err=%v", len(page), err)
+	}
+	var persisted persistedIntent
+	if err := json.Unmarshal(page[0].Payload, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Order.ExecutedQty != 0.75 || persisted.Order.AvgPrice != 99.5 || persisted.Unknown {
+		t.Fatalf("durable cumulative cursor regressed or became unknown: %+v", persisted)
+	}
+}
+
+func TestConfigureIntentJournalPendingReentryPreservesLoadedBinding(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	journal := &memoryIntentJournal{}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: "pending-reentry", StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, _ := journalScope().Key()
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err == nil {
+		t.Fatal("same-binding reentry with an unresolved intent must reject bootstrap")
+	}
+	if !oe.journalLoaded || oe.intentJournal != journal || oe.intentScopeKey != key {
+		t.Fatal("rejected unresolved reentry polluted the active journal binding")
+	}
+
+	partial := &exchange.Order{OrderID: placed.OrderID, ClientOrderID: placed.ClientOrderID, Symbol: "BTCUSDT",
+		Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 0.5, AvgPrice: 100, Status: exchange.OrderStatusPartiallyFilled}
+	if !oe.ObserveOrder(partial) {
+		t.Fatal("loaded journal stopped accepting durable observations after retry rejection")
+	}
+	venue.mu.Lock()
+	venue.orders[placed.OrderID].ExecutedQty = 0.5
+	venue.orders[placed.OrderID].AvgPrice = 100
+	venue.orders[placed.OrderID].Status = exchange.OrderStatusCanceled
+	venue.mu.Unlock()
+	terminal := *partial
+	terminal.Status = exchange.OrderStatusCanceled
+	if !oe.ObserveOrder(&terminal) {
+		t.Fatal("loaded journal stopped accepting the terminal observation")
+	}
+	if err := oe.SettleIntent(t.Context(), placed.ClientOrderID); err != nil {
+		t.Fatalf("unresolved intent could not settle after retry rejection: %v", err)
+	}
+}
+
+func TestConfigureIntentJournalPendingReentryPreservesOtherIntents(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	journal := &memoryIntentJournal{}
+	oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	scope := journalScope()
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	first, err := oe.PlaceOrder(&OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: "first-terminal", StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := oe.PlaceOrder(&OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 99, Quantity: 1,
+		ClientOrderID: "second-unresolved", StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue.mu.Lock()
+	venue.orders[first.OrderID].ExecutedQty = 1
+	venue.orders[first.OrderID].AvgPrice = 100
+	venue.orders[first.OrderID].Status = exchange.OrderStatusFilled
+	venue.mu.Unlock()
+	if !oe.ObserveOrder(&exchange.Order{OrderID: first.OrderID, ClientOrderID: first.ClientOrderID, Symbol: scope.Symbol,
+		Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1, AvgPrice: 100, Status: exchange.OrderStatusFilled}) {
+		t.Fatal("first terminal order observation failed")
+	}
+	if err := oe.SettleIntent(t.Context(), first.ClientOrderID); err != nil {
+		t.Fatalf("settle first intent: %v", err)
+	}
+	firstIntent := oe.intents[first.ClientOrderID]
+	secondIntent := oe.intents[second.ClientOrderID]
+	if err := oe.ConfigureIntentJournal(t.Context(), journal, scope); err == nil {
+		t.Fatal("bootstrap reentry with another unresolved intent must fail")
+	}
+	if !oe.journalLoaded || oe.intentJournal != journal || oe.intents[first.ClientOrderID] != firstIntent ||
+		oe.intents[second.ClientOrderID] != secondIntent || firstIntent == nil || !firstIntent.settled || secondIntent == nil || secondIntent.settled {
+		t.Fatal("rejected reentry changed a settled or unresolved CID")
+	}
+	venue.mu.Lock()
+	venue.orders[second.OrderID].Status = exchange.OrderStatusCanceled
+	venue.mu.Unlock()
+	if !oe.ObserveOrder(&exchange.Order{OrderID: second.OrderID, ClientOrderID: second.ClientOrderID, Symbol: scope.Symbol,
+		Side: exchange.SideBuy, Quantity: 1, Status: exchange.OrderStatusCanceled}) {
+		t.Fatal("remaining CID could not be observed after bootstrap retry rejection")
+	}
+	if err := oe.SettleZeroFillIntent(t.Context(), second.ClientOrderID); err != nil {
+		t.Fatalf("remaining CID could not settle after bootstrap retry rejection: %v", err)
+	}
+}
+
+func TestConfigureIntentJournalRejectsDifferentBindingWithoutSideEffects(t *testing.T) {
+	for _, scenario := range []string{"different backend", "different scope"} {
+		t.Run(scenario, func(t *testing.T) {
+			venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+			original := &memoryIntentJournal{}
+			candidate := &memoryIntentJournal{}
+			oe := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+			originalScope := journalScope()
+			if err := oe.ConfigureIntentJournal(t.Context(), original, originalScope); err != nil {
+				t.Fatal(err)
+			}
+			candidateScope := originalScope
+			if scenario == "different scope" {
+				candidateScope.Account = "another-account-digest"
+			}
+			candidateBackend := execution.IntentJournal(original)
+			if scenario == "different backend" {
+				candidateBackend = candidate
+			}
+			originalKey, _ := originalScope.Key()
+			original.mu.Lock()
+			originalReads := original.reads
+			original.mu.Unlock()
+			if err := oe.ConfigureIntentJournal(t.Context(), candidateBackend, candidateScope); err == nil {
+				t.Fatal("different journal backend or scope was rebound")
+			}
+			if !oe.journalLoaded || oe.intentJournal != original || oe.intentScope != originalScope || oe.intentScopeKey != originalKey {
+				t.Fatal("rejected binding changed the active journal or loaded state")
+			}
+			if candidate.reads != 0 {
+				t.Fatalf("rejected binding read candidate journal %d times", candidate.reads)
+			}
+			original.mu.Lock()
+			readsAfterReject := original.reads
+			original.mu.Unlock()
+			if readsAfterReject != originalReads {
+				t.Fatalf("rejected binding read the original journal: reads %d -> %d", originalReads, readsAfterReject)
+			}
+			if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1,
+				ClientOrderID: "original-binding-still-usable"}); err != nil {
+				t.Fatalf("original binding was unusable after side-effect-free rejection: %v", err)
+			}
+		})
+	}
+}
+
+func TestSettleIntentUncertainCASCanReconcileOnSameBinding(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	journal := &memoryIntentJournal{}
+	scope := journalScope()
+	first := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := first.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := first.PlaceOrder(&OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: "cas-conflict-recovery", StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue.mu.Lock()
+	venue.orders[placed.OrderID].ExecutedQty = 1
+	venue.orders[placed.OrderID].AvgPrice = 100
+	venue.orders[placed.OrderID].Status = exchange.OrderStatusFilled
+	venue.mu.Unlock()
+	terminal := &exchange.Order{OrderID: placed.OrderID, ClientOrderID: placed.ClientOrderID, Symbol: scope.Symbol,
+		Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1, AvgPrice: 100, Status: exchange.OrderStatusFilled}
+	if !first.ObserveOrder(terminal) {
+		t.Fatal("terminal order observation failed")
+	}
+	journal.mu.Lock()
+	journal.conflictWrite = journal.writes + 2 // exact-order observation, then settlement CAS
+	conflictWrite := journal.conflictWrite
+	readsBeforeConflict := journal.reads
+	journal.mu.Unlock()
+	if err := first.SettleIntent(t.Context(), placed.ClientOrderID); err != nil {
+		t.Fatalf("same-binding readback proving the CAS base should permit a safe retry: %v", err)
+	}
+	journal.mu.Lock()
+	writesAfterRetry, readsAfterConflict := journal.writes, journal.reads
+	journal.mu.Unlock()
+	if writesAfterRetry != conflictWrite+1 || readsAfterConflict <= readsBeforeConflict {
+		t.Fatalf("base readback must be followed by exactly one safe CAS retry: target=%d writes=%d reads %d->%d",
+			conflictWrite, writesAfterRetry, readsBeforeConflict, readsAfterConflict)
+	}
+	if !first.journalLoaded || !first.intents[placed.ClientOrderID].settled || first.intents[placed.ClientOrderID].unknown || first.IsOpeningPaused() {
+		t.Fatal("safe CAS retry did not preserve a verified settled owner and open gate")
+	}
+	settled := first.intents[placed.ClientOrderID]
+	if err := first.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatalf("same-binding settled-only reentry should remain a no-op: %v", err)
+	}
+	if first.intents[placed.ClientOrderID] != settled || !settled.settled || first.IsOpeningPaused() {
+		t.Fatal("same-binding reentry lost the idempotent settled owner")
+	}
+}
+
+func TestSettleIntentUncertainCommitIsResolvedByRestart(t *testing.T) {
+	venue := &ownedTestVenue{orders: make(map[int64]*exchange.Order)}
+	journal := &memoryIntentJournal{}
+	scope := journalScope()
+	first := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := first.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatal(err)
+	}
+	placed, err := first.PlaceOrder(&OrderRequest{Symbol: scope.Symbol, Side: "BUY", Price: 100, Quantity: 1,
+		ClientOrderID: "settle-commit-ack-lost", StrategyName: "grid", StrategyType: "grid"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	venue.mu.Lock()
+	venue.orders[placed.OrderID].ExecutedQty = 1
+	venue.orders[placed.OrderID].AvgPrice = 100
+	venue.orders[placed.OrderID].Status = exchange.OrderStatusFilled
+	venue.mu.Unlock()
+	if !first.ObserveOrder(&exchange.Order{OrderID: placed.OrderID, ClientOrderID: placed.ClientOrderID, Symbol: scope.Symbol,
+		Side: exchange.SideBuy, Quantity: 1, ExecutedQty: 1, AvgPrice: 100, Status: exchange.OrderStatusFilled}) {
+		t.Fatal("terminal order observation failed")
+	}
+	journal.mu.Lock()
+	journal.commitErrorAt = journal.writes + 2 // exact-order observation, then committed settlement with lost acknowledgement
+	journal.failReadOnCommitError = true
+	journal.mu.Unlock()
+	if err := first.SettleIntent(t.Context(), placed.ClientOrderID); err == nil {
+		t.Fatal("lost settlement acknowledgement must not be reported as confirmed")
+	}
+	if first.journalLoaded || !first.IsOpeningPaused() {
+		t.Fatal("uncertain settlement commit did not fence the current executor")
+	}
+	journal.mu.Lock()
+	journal.failRead = false
+	journal.mu.Unlock()
+
+	restarted := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
+	if err := restarted.ConfigureIntentJournal(t.Context(), journal, scope); err != nil {
+		t.Fatalf("restart failed to reconcile durable settlement: %v", err)
+	}
+	if !restarted.journalLoaded || restarted.IsOpeningPaused() || len(restarted.RecoveredOrderRoutes()) != 0 {
+		t.Fatal("restart did not trust only the durable settled journal record")
 	}
 }
 
@@ -405,8 +766,9 @@ func TestIntentJournalRestartReleasesOnlyVerifiedZeroFillTerminalOrders(t *testi
 				}
 				return
 			}
-			if err != nil || oe.IsOpeningPaused() || len(oe.snapshotOwnedIntents()) != 0 {
-				t.Fatalf("verified no-fill order blocked restart: err=%v intents=%d", err, len(oe.snapshotOwnedIntents()))
+			settled := oe.snapshotOwnedIntents()
+			if err != nil || oe.IsOpeningPaused() || len(settled) != 1 || !settled[0].settled || settled[0].request.ClientOrderID != cid {
+				t.Fatalf("verified no-fill owner must remain settled in memory for idempotency: err=%v intents=%+v", err, settled)
 			}
 		})
 	}
@@ -445,7 +807,7 @@ func TestIntentJournalRestoresBeyond2000AndRejectsCorruptScope(t *testing.T) {
 	}
 }
 
-func TestIntentJournalObservationWriteFailureBlocksExecution(t *testing.T) {
+func TestIntentJournalObservationWriteFailureRetriesOnlyAfterBaseReadback(t *testing.T) {
 	oe, _, _ := newOwnedTestExecutor()
 	journal := &memoryIntentJournal{failWrite: 4}
 	if err := oe.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
@@ -454,15 +816,15 @@ func TestIntentJournalObservationWriteFailureBlocksExecution(t *testing.T) {
 	if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "open"}); err != nil {
 		t.Fatal(err)
 	}
-	if oe.ObserveOrder(&exchange.Order{OrderID: 1, ClientOrderID: "open", Symbol: "BTCUSDT", Quantity: 1, ExecutedQty: 0.5, Price: 100, Status: exchange.OrderStatusPartiallyFilled}) {
-		t.Fatal("failed durable observation admitted downstream consumers")
+	if !oe.ObserveOrder(&exchange.Order{OrderID: 1, ClientOrderID: "open", Symbol: "BTCUSDT", Quantity: 1, ExecutedQty: 0.5, Price: 100, Status: exchange.OrderStatusPartiallyFilled}) {
+		t.Fatal("readback-confirmed base revision should allow one safe retry")
 	}
-	if !oe.IsOpeningPaused() || !oe.snapshotOwnedIntents()[0].unknown {
-		t.Fatal("lost observation did not retain unknown ownership")
+	if oe.IsOpeningPaused() || len(oe.snapshotOwnedIntents()) != 1 || oe.snapshotOwnedIntents()[0].unknown {
+		t.Fatal("verified durable observation should not leave a phantom unknown hold")
 	}
 }
 
-func TestIntentJournalUncertainCommitIsNotRetriedOrForgotten(t *testing.T) {
+func TestIntentJournalCommittedWritesWithLostAcknowledgementAreReadBack(t *testing.T) {
 	for _, at := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("commit-%d", at), func(t *testing.T) {
 			oe, venue, _ := newOwnedTestExecutor()
@@ -471,19 +833,16 @@ func TestIntentJournalUncertainCommitIsNotRetriedOrForgotten(t *testing.T) {
 				t.Fatal(err)
 			}
 			_, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "BUY", Price: 100, Quantity: 1, ClientOrderID: "ambiguous-db", StrategyName: "grid"})
-			if err == nil || !oe.IsOpeningPaused() || journal.writes != at {
-				t.Fatalf("uncertain commit retried or cleared: %v writes=%d", err, journal.writes)
+			if err != nil || oe.IsOpeningPaused() || journal.writes != 3 {
+				t.Fatalf("committed CAS acknowledgement was not reconciled: err=%v paused=%v writes=%d", err, oe.IsOpeningPaused(), journal.writes)
 			}
-			want := int64(0)
-			if at == 3 {
-				want = 1
-			}
+			want := int64(1)
 			if venue.nextID != want {
 				t.Fatalf("unexpected venue call count: %d", venue.nextID)
 			}
 			restarted := NewExchangeOrderExecutor(venue, "BTCUSDT", 0, 0, lock.NewNopLock(), "bot-a")
 			if err := restarted.ConfigureIntentJournal(t.Context(), journal, journalScope()); !errors.Is(err, execution.ErrOrderUnknown) {
-				t.Fatalf("restart forgot committed intent: %v", err)
+				t.Fatalf("restart should retain the live order as unresolved: %v", err)
 			}
 			if len(restarted.RecoveredOrderRoutes()) != 1 {
 				t.Fatal("committed intent identity lost")
@@ -495,7 +854,7 @@ func TestIntentJournalUncertainCommitIsNotRetriedOrForgotten(t *testing.T) {
 func TestIntentJournalRejectsUnavailableOrMismatchedStoreBeforeSubmit(t *testing.T) {
 	for _, scenario := range []string{"missing", "read_error", "scope_mismatch"} {
 		t.Run(scenario, func(t *testing.T) {
-			oe, venue, _ := newOwnedTestExecutor()
+			oe, venue, gate := newOwnedTestExecutor()
 			var journal execution.IntentJournal = &memoryIntentJournal{failRead: scenario == "read_error"}
 			if scenario == "missing" {
 				journal = nil
@@ -506,6 +865,9 @@ func TestIntentJournalRejectsUnavailableOrMismatchedStoreBeforeSubmit(t *testing
 			}
 			if err := oe.ConfigureIntentJournal(t.Context(), journal, scope); err == nil {
 				t.Fatal("invalid setup accepted")
+			}
+			if !oe.IsOpeningPaused() || !gate.HasBlock(IntentRecoveryBlock) {
+				t.Fatalf("missing or mismatched journal must retain a fail-closed opening hold: paused=%v", oe.IsOpeningPaused())
 			}
 			// Closing requests also need a complete identity set to exclude duplicate closes.
 			if _, err := oe.PlaceOrder(&OrderRequest{Symbol: "BTCUSDT", Side: "SELL", Price: 100, Quantity: 1, ReduceOnly: true}); err == nil || venue.nextID != 0 {
@@ -654,8 +1016,9 @@ func TestTradeLedgerRecoveryReplaysDurablePayloadBeforeOpening(t *testing.T) {
 	if err := restarted.ConfigureIntentJournal(t.Context(), journal, journalScope()); err != nil {
 		t.Fatalf("idempotent trade replay should settle a pending ledger record: %v", err)
 	}
-	if !replayed || restarted.IsOpeningPaused() || len(restarted.snapshotOwnedIntents()) != 0 {
-		t.Fatalf("trade replay did not clear the recovered hold: replayed=%v paused=%v intents=%+v", replayed, restarted.IsOpeningPaused(), restarted.snapshotOwnedIntents())
+	recoveredIntents := restarted.snapshotOwnedIntents()
+	if !replayed || restarted.IsOpeningPaused() || len(recoveredIntents) != 1 || !recoveredIntents[0].settled {
+		t.Fatalf("trade replay did not clear the recovered hold while retaining settled ownership: replayed=%v paused=%v intents=%+v", replayed, restarted.IsOpeningPaused(), recoveredIntents)
 	}
 	page, err := journal.LoadExecutionIntents(t.Context(), func() string { key, _ := journalScope().Key(); return key }(), 0, 10)
 	if err != nil || len(page) != 1 {

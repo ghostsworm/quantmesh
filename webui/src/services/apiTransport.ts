@@ -1,5 +1,5 @@
 // 使用页面同源，避免相對路径被代理/扩展劫持
-export const API_BASE_URL = `${window.location.origin}/api`
+export const API_BASE_URL = typeof window === 'undefined' ? '' : `${window.location.origin}/api`
 
 // Helper function to make authenticated requests
 export async function fetchWithAuth(url: string, options: RequestInit = {}) {

@@ -1,6 +1,7 @@
 package order
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -108,11 +109,13 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 			oe.intentMu.Unlock()
 		}
 	}()
-	oe.journalRequired = true
-	oe.journalLoaded = false
-	oe.openingGate.Block(IntentRecoveryBlock)
-	if len(oe.intents) != 0 {
-		return fmt.Errorf("cannot bind journal after submissions")
+	// A fresh executor must fail closed as soon as journal configuration is
+	// attempted, including nil/unavailable/mismatched bindings. Do not alter an
+	// already-established binding on a rejected reconfiguration attempt.
+	if oe.intentJournal == nil && oe.intentScopeKey == "" {
+		oe.journalRequired = true
+		oe.journalLoaded = false
+		oe.openingGate.Block(IntentRecoveryBlock)
 	}
 	key, err := scope.Key()
 	if err != nil {
@@ -121,8 +124,54 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 	if journal == nil || scope.Bot != oe.botID || scope.Symbol != oe.symbol || scope.Exchange != oe.exchange.GetName() || scope.Market != oe.exchange.GetMarketType() {
 		return fmt.Errorf("intent journal owner mismatch or storage unavailable")
 	}
+	identity, err := execution.StableIntentJournalIdentity(journal)
+	if err != nil {
+		return fmt.Errorf("identify intent journal backend: %w", err)
+	}
+	if oe.intentJournal != nil || oe.intentScopeKey != "" {
+		boundIdentity, identityErr := execution.StableIntentJournalIdentity(oe.intentJournal)
+		if identityErr != nil || identity != boundIdentity || key != oe.intentScopeKey || scope != oe.intentScope {
+			return fmt.Errorf("intent journal is already bound to a different backend or owner scope")
+		}
+		// Refresh the interface value when a same-backend decorator is supplied.
+		// Its stable identity proves it still delegates to the bound durable store;
+		// this also preserves observability/instrumentation wrappers on retries.
+		oe.intentJournal = journal
+		if oe.journalLoaded {
+			if hasUnresolvedIntents(oe.intents) {
+				oe.openingGate.Block(IntentRecoveryBlock)
+				return &loadedIntentRecoveryRequiredError{}
+			}
+			oe.openingGate.Unblock(IntentRecoveryBlock)
+			return nil
+		}
+		if hasUncertainIntentWrites(oe.intents) {
+			if err := oe.reconcileUncertainIntentWritesLocked(ctx); err != nil {
+				oe.openingGate.Block(IntentRecoveryBlock)
+				oe.openingGate.Block(IntentJournalFailureBlock)
+				return fmt.Errorf("reconcile uncertain intent journal writes: %w", err)
+			}
+			oe.journalLoaded = true
+			oe.openingGate.Unblock(IntentJournalFailureBlock)
+			if hasUnresolvedIntents(oe.intents) {
+				oe.openingGate.Block(IntentRecoveryBlock)
+				return &loadedIntentRecoveryRequiredError{}
+			}
+			oe.openingGate.Unblock(IntentRecoveryBlock)
+			return nil
+		}
+		if len(oe.intents) != 0 {
+			oe.openingGate.Block(IntentRecoveryBlock)
+			return fmt.Errorf("intent journal is unloaded with owned intents requiring reconciliation")
+		}
+	} else if len(oe.intents) != 0 {
+		return fmt.Errorf("cannot bind journal after submissions")
+	}
+	oe.journalRequired = true
+	oe.journalLoaded = false
+	oe.openingGate.Block(IntentRecoveryBlock)
 	oe.intentJournal, oe.intentScope, oe.intentScopeKey = journal, scope, key
-	oe.intents = make(map[string]*ownedIntent)
+	loadedIntents := make(map[string]*ownedIntent)
 	var pendingTradeRecovery []*ownedIntent
 	var pendingZeroFillRecovery []string
 	var after int64
@@ -143,7 +192,8 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 			if err != nil {
 				return err
 			}
-			if _, duplicate := oe.intents[r.ClientOrderID]; duplicate {
+			intent.durablePayload = append([]byte(nil), r.Payload...)
+			if _, duplicate := loadedIntents[r.ClientOrderID]; duplicate {
 				return fmt.Errorf("duplicate restored intent")
 			}
 			if intent.rejected {
@@ -153,6 +203,9 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 				if intent.unknown || intent.ledgerPending || intent.order == nil || !terminalOrderStatus(intent.order.Status) {
 					return fmt.Errorf("persisted execution intent %s has invalid settled state", intent.request.ClientOrderID)
 				}
+				// Keep settled owner identity loaded so duplicate terminal callbacks
+				// remain attributable and idempotent after restart.
+				loadedIntents[r.ClientOrderID] = intent
 				continue
 			}
 			if isVerifiedZeroFillTerminalIntent(intent, oe.symbol) {
@@ -160,7 +213,7 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 				// Keep it in the owned set and re-query the venue before clearing the
 				// startup recovery gate.
 				pendingZeroFillRecovery = append(pendingZeroFillRecovery, r.ClientOrderID)
-				oe.intents[r.ClientOrderID] = intent
+				loadedIntents[r.ClientOrderID] = intent
 				continue
 			}
 			intent.unknown = true // Includes PREPARED and unaccounted terminal fills.
@@ -170,12 +223,13 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 					pendingTradeRecovery = append(pendingTradeRecovery, intent)
 				}
 			}
-			oe.intents[r.ClientOrderID] = intent
+			loadedIntents[r.ClientOrderID] = intent
 		}
 		if len(page) < intentJournalPageSize {
 			break
 		}
 	}
+	oe.intents = loadedIntents
 	oe.journalLoaded = true
 	for _, intent := range pendingTradeRecovery {
 		if oe.tradeLedgerRecoveryHandler == nil {
@@ -197,7 +251,6 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 			oe.blockJournalFailureLocked()
 			continue
 		}
-		delete(oe.intents, intent.request.ClientOrderID)
 	}
 	// Do not trust a stale zero-fill terminal observation across restart. Query
 	// each exact owned order again before marking its journal record settled.
@@ -215,13 +268,10 @@ func (oe *ExchangeOrderExecutor) ConfigureIntentJournal(ctx context.Context, jou
 			markErr := oe.MarkOrderReconciliationRequired(orderID, cid, err.Error())
 			return fmt.Errorf("re-verify zero-fill intent %s: %w (cause: %v; persist hold: %v)", cid, execution.ErrOrderUnknown, err, markErr)
 		}
-		oe.intentMu.Lock()
-		delete(oe.intents, cid)
-		oe.intentMu.Unlock()
 	}
 	oe.intentMu.Lock()
 	locked = true
-	if len(oe.intents) > 0 {
+	if hasUnresolvedIntents(oe.intents) {
 		return &loadedIntentRecoveryRequiredError{}
 	}
 	oe.openingGate.Unblock(IntentRecoveryBlock)
@@ -286,10 +336,148 @@ func (oe *ExchangeOrderExecutor) saveJournalIntentLocked(intent *ownedIntent) er
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), intentJournalTimeout)
 	defer cancel()
-	if err := oe.intentJournal.SaveExecutionIntent(ctx, oe.intentScopeKey, intent.request.ClientOrderID, intent.revision, data); err != nil {
-		return err
+	expected := intent.revision
+	if err := oe.intentJournal.SaveExecutionIntent(ctx, oe.intentScopeKey, intent.request.ClientOrderID, expected, data); err != nil {
+		record, found, readErr := readIntentJournalRecord(ctx, oe.intentJournal, oe.intentScopeKey, intent.request.ClientOrderID)
+		if readErr == nil && found && record.Revision == expected+1 && bytes.Equal(record.Payload, data) {
+			intent.revision = record.Revision
+			intent.durablePayload = append(intent.durablePayload[:0], data...)
+			intent.uncertainPayload = nil
+			intent.uncertainRevision = 0
+			return nil
+		}
+		baseMatches := expected == 0 && !found
+		if expected > 0 && readErr == nil && found && record.Revision == expected && bytes.Equal(record.Payload, intent.durablePayload) {
+			baseMatches = true
+		}
+		if baseMatches {
+			retryErr := oe.intentJournal.SaveExecutionIntent(ctx, oe.intentScopeKey, intent.request.ClientOrderID, expected, data)
+			if retryErr == nil {
+				intent.revision = expected + 1
+				intent.durablePayload = append(intent.durablePayload[:0], data...)
+				intent.uncertainPayload = nil
+				intent.uncertainRevision = 0
+				return nil
+			}
+			record, found, readErr = readIntentJournalRecord(ctx, oe.intentJournal, oe.intentScopeKey, intent.request.ClientOrderID)
+			if readErr == nil && found && record.Revision == expected+1 && bytes.Equal(record.Payload, data) {
+				intent.revision = record.Revision
+				intent.durablePayload = append(intent.durablePayload[:0], data...)
+				intent.uncertainPayload = nil
+				intent.uncertainRevision = 0
+				return nil
+			}
+			err = errors.Join(err, retryErr)
+		}
+		intent.uncertainPayload = append(intent.uncertainPayload[:0], data...)
+		intent.uncertainRevision = expected
+		return fmt.Errorf("intent journal CAS outcome is uncertain: %w (readback: %v)", err, readErr)
 	}
 	intent.revision++
+	intent.durablePayload = append(intent.durablePayload[:0], data...)
+	intent.uncertainPayload = nil
+	intent.uncertainRevision = 0
+	return nil
+}
+
+func readIntentJournalRecord(ctx context.Context, journal execution.IntentJournal, scopeKey, clientOrderID string) (execution.IntentJournalRecord, bool, error) {
+	if reader, ok := journal.(execution.IntentJournalRecordReader); ok {
+		return reader.LoadExecutionIntent(ctx, scopeKey, clientOrderID)
+	}
+	var after int64
+	for {
+		page, err := journal.LoadExecutionIntents(ctx, scopeKey, after, intentJournalPageSize)
+		if err != nil {
+			return execution.IntentJournalRecord{}, false, err
+		}
+		if len(page) > intentJournalPageSize {
+			return execution.IntentJournalRecord{}, false, fmt.Errorf("oversized intent journal readback page")
+		}
+		for _, record := range page {
+			if record.ID <= after || record.Revision <= 0 {
+				return execution.IntentJournalRecord{}, false, fmt.Errorf("invalid intent journal readback cursor")
+			}
+			after = record.ID
+			if record.ClientOrderID == clientOrderID {
+				return record, true, nil
+			}
+		}
+		if len(page) < intentJournalPageSize {
+			return execution.IntentJournalRecord{}, false, nil
+		}
+	}
+}
+
+func hasUnresolvedIntents(intents map[string]*ownedIntent) bool {
+	for _, intent := range intents {
+		if intent == nil || (!intent.settled && !intent.rejected) || intent.unknown || intent.ledgerPending {
+			return true
+		}
+	}
+	return false
+}
+
+func hasUncertainIntentWrites(intents map[string]*ownedIntent) bool {
+	for _, intent := range intents {
+		if intent != nil && len(intent.uncertainPayload) != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (oe *ExchangeOrderExecutor) reconcileUncertainIntentWritesLocked(ctx context.Context) error {
+	for cid, intent := range oe.intents {
+		if intent == nil || len(intent.uncertainPayload) == 0 {
+			continue
+		}
+		expected := intent.uncertainRevision
+		payload := append([]byte(nil), intent.uncertainPayload...)
+		record, found, err := readIntentJournalRecord(ctx, oe.intentJournal, oe.intentScopeKey, cid)
+		if err != nil {
+			return fmt.Errorf("read back uncertain intent %s: %w", cid, err)
+		}
+		if found && record.Revision == expected+1 && bytes.Equal(record.Payload, payload) {
+			if err := oe.applyPersistedIntentLocked(cid, record); err != nil {
+				return err
+			}
+			continue
+		}
+		baseMatches := expected == 0 && !found
+		if expected > 0 && found && record.Revision == expected && bytes.Equal(record.Payload, intent.durablePayload) {
+			baseMatches = true
+		}
+		if !baseMatches {
+			return fmt.Errorf("uncertain intent %s conflicts with durable revision", cid)
+		}
+		if err := oe.intentJournal.SaveExecutionIntent(ctx, oe.intentScopeKey, cid, expected, payload); err != nil {
+			record, found, readErr := readIntentJournalRecord(ctx, oe.intentJournal, oe.intentScopeKey, cid)
+			if readErr != nil || !found || record.Revision != expected+1 || !bytes.Equal(record.Payload, payload) {
+				return errors.Join(fmt.Errorf("retry uncertain intent %s CAS: %w", cid, err), readErr)
+			}
+		}
+		record, found, err = readIntentJournalRecord(ctx, oe.intentJournal, oe.intentScopeKey, cid)
+		if err != nil || !found || record.Revision != expected+1 || !bytes.Equal(record.Payload, payload) {
+			return errors.Join(fmt.Errorf("confirm reconciled intent %s CAS", cid), err)
+		}
+		if err := oe.applyPersistedIntentLocked(cid, record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (oe *ExchangeOrderExecutor) applyPersistedIntentLocked(cid string, record execution.IntentJournalRecord) error {
+	current := oe.intents[cid]
+	if current == nil || record.ClientOrderID != cid {
+		return fmt.Errorf("uncertain intent owner changed during journal reconciliation")
+	}
+	updated, err := oe.decodeJournalIntent(record)
+	if err != nil {
+		return err
+	}
+	updated.durablePayload = append([]byte(nil), record.Payload...)
+	*current = *updated
 	return nil
 }
 
@@ -399,7 +587,7 @@ func (oe *ExchangeOrderExecutor) RecoveredOrderRoutes() []RecoveredOrderRoute {
 	}
 	var routes []RecoveredOrderRoute
 	for cid, intent := range oe.intents {
-		if intent.request.StrategyName == "" {
+		if intent == nil || intent.settled || intent.rejected || intent.request.StrategyName == "" {
 			continue
 		}
 		route := RecoveredOrderRoute{ClientOrderID: cid, StrategyName: intent.request.StrategyName}

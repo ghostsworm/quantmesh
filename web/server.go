@@ -580,6 +580,10 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 资金管理 API
 			capital := protected.Group("/capital")
 			{
+				capital.GET("/order-reconciliations", listOrderReconciliationsHandler)
+				capital.POST("/order-reconciliations", createOrderReconciliationHandler)
+				capital.POST("/order-reconciliations/:case_id/reconcile", reconcileOrderReconciliationHandler)
+				capital.POST("/order-reconciliations/:case_id/release", releaseOrderReconciliationHandler)
 				capital.GET("/retired-equity-accounts", getRetiredEquityAccountStatusesHandler)
 				capital.GET("/retired-equity-accounts/reset-history", getRetiredEquityAccountResetHistoryHandler)
 				capital.POST("/retired-equity-accounts/reset", resetRetiredEquityAccountsHandler)

@@ -183,7 +183,14 @@ func TestShutdownCancellationRequiresValidTerminalEvidence(t *testing.T) {
 				oe.intents["owned"].unknown = true
 			}
 			oe.BeginShutdown()
-			if err := oe.CancelOwnedShutdownOrders(t.Context()); err == nil {
+			cancelErr := oe.CancelOwnedShutdownOrders(t.Context())
+			if scenario == "journal_failure" {
+				if cancelErr != nil || oe.intents["owned"].unknown {
+					t.Fatalf("readback-confirmed unchanged journal revision should permit safe retry: err=%v unknown=%v", cancelErr, oe.intents["owned"].unknown)
+				}
+				return
+			}
+			if cancelErr == nil {
 				t.Fatal("unverified cancellation reported success")
 			}
 			if !oe.intents["owned"].unknown {
