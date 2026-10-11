@@ -581,6 +581,7 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			capital := protected.Group("/capital")
 			{
 				capital.GET("/order-reconciliations", listOrderReconciliationsHandler)
+				capital.GET("/order-reconciliations/:case_id/audit", listOrderReconciliationAuditHandler)
 				capital.POST("/order-reconciliations", createOrderReconciliationHandler)
 				capital.POST("/order-reconciliations/:case_id/reconcile", reconcileOrderReconciliationHandler)
 				capital.POST("/order-reconciliations/:case_id/release", releaseOrderReconciliationHandler)

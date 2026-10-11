@@ -74,6 +74,17 @@ export type CreateOrderReconciliation = {
   idempotency_key: string
 }
 
+export type OrderReconciliationAudit = {
+  audit_id: string
+  case_id: string
+  case_revision: number
+  action: string
+  actor: string
+  outcome: string
+  detail: Record<string, unknown>
+  created_at: string
+}
+
 const basePath = `${API_BASE_URL}/capital/order-reconciliations`
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -183,6 +194,19 @@ function casePath(caseId: string): string {
 
 export async function listOrderReconciliations(signal?: AbortSignal): Promise<OrderReconciliationCase[]> {
   return decodeList(await fetchWithAuth(basePath, { signal }))
+}
+export async function listOrderReconciliationAudit(caseId: string, signal?: AbortSignal): Promise<OrderReconciliationAudit[]> {
+  const value: unknown = await fetchWithAuth(`${casePath(caseId)}/audit`, { signal })
+  if (!isRecord(value) || value.case_id !== caseId || !Array.isArray(value.audit)) throw new Error('order_reconciliation_contract_invalid')
+  return value.audit.map((entry) => {
+    if (!isRecord(entry) || !isNonEmptyString(entry.audit_id) || entry.case_id !== caseId
+      || !Number.isSafeInteger(entry.case_revision) || !isNonEmptyString(entry.action)
+      || !isNonEmptyString(entry.actor) || !isNonEmptyString(entry.outcome)
+      || !isNonEmptyString(entry.created_at) || !isRecord(entry.detail)) {
+      throw new Error('order_reconciliation_contract_invalid')
+    }
+    return entry as OrderReconciliationAudit
+  })
 }
 export async function createOrderReconciliation(request: CreateOrderReconciliation): Promise<OrderReconciliationCase> {
   return decodeAction(await fetchWithAuth(basePath, { method: 'POST', body: JSON.stringify(request) }), 'prepared')

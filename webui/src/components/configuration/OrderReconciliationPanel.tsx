@@ -9,8 +9,8 @@ import { RepeatIcon, WarningIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import {
   canManuallyReconcile, canReleaseOrderQuarantine, createOrderReconciliation,
-  listOrderReconciliations, reconcileOrderAccounting, releaseOrderQuarantine,
-  type OrderReconciliationCase, type OrderReconciliationOwner,
+  listOrderReconciliationAudit, listOrderReconciliations, reconcileOrderAccounting, releaseOrderQuarantine,
+  type OrderReconciliationAudit, type OrderReconciliationCase, type OrderReconciliationOwner,
 } from '../../services/orderReconciliation'
 import { ConfigCard } from './ConfigurationSections'
 
@@ -41,6 +41,8 @@ function idempotencyKey(): string {
 export function OrderReconciliationPanel() {
   const { t } = useTranslation()
   const [cases, setCases] = useState<OrderReconciliationCase[]>([])
+  const [auditByCase, setAuditByCase] = useState<Record<string, OrderReconciliationAudit[]>>({})
+  const [auditLoadingCase, setAuditLoadingCase] = useState<string | null>(null)
   const [owner, setOwner] = useState<OrderReconciliationOwner>(emptyOwner)
   const [expectedIntentRevision, setExpectedIntentRevision] = useState('')
   const [expectedStrategyRevision, setExpectedStrategyRevision] = useState('')
@@ -81,6 +83,27 @@ export function OrderReconciliationPanel() {
 
   const updateCase = (updated: OrderReconciliationCase) => {
     setCases((current) => [updated, ...current.filter((item) => item.case_id !== updated.case_id)])
+  }
+
+  const toggleAudit = async (caseId: string) => {
+    if (Object.prototype.hasOwnProperty.call(auditByCase, caseId)) {
+      setAuditByCase((current) => {
+        const next = { ...current }
+        delete next[caseId]
+        return next
+      })
+      return
+    }
+    setAuditLoadingCase(caseId)
+    setActionError(null)
+    try {
+      const audit = await listOrderReconciliationAudit(caseId)
+      setAuditByCase((current) => ({ ...current, [caseId]: audit }))
+    } catch (error) {
+      setActionError(requestErrorMessage(error) || t('configuration.orderReconciliation.actionFailed'))
+    } finally {
+      setAuditLoadingCase(null)
+    }
   }
 
   const submitCase = async (event: React.FormEvent) => {
@@ -125,6 +148,19 @@ export function OrderReconciliationPanel() {
       setPendingAction(null)
       setConfirmationChecked(false)
       await loadCases()
+      if (Object.prototype.hasOwnProperty.call(auditByCase, item.case_id)) {
+        try {
+          const audit = await listOrderReconciliationAudit(item.case_id)
+          setAuditByCase((current) => ({ ...current, [item.case_id]: audit }))
+        } catch {
+          setAuditByCase((current) => {
+            const next = { ...current }
+            delete next[item.case_id]
+            return next
+          })
+          setActionError(t('configuration.orderReconciliation.auditRefreshFailed'))
+        }
+      }
     } catch (error) {
       setActionError(requestErrorMessage(error) || t('configuration.orderReconciliation.actionFailed'))
       setPendingAction(null)
@@ -198,6 +234,16 @@ export function OrderReconciliationPanel() {
                     </Box>
                   </> : <Text fontSize="sm" color="orange.600">{t('configuration.orderReconciliation.cursorUnavailable')}</Text>}
                   <Text fontSize="sm">{t('configuration.orderReconciliation.evidenceRefs', { count: item.evidence_refs.length })}</Text>
+                  <Button alignSelf="flex-start" size="sm" variant="link" onClick={() => void toggleAudit(item.case_id)} isLoading={auditLoadingCase === item.case_id}>
+                    {t(Object.prototype.hasOwnProperty.call(auditByCase, item.case_id) ? 'configuration.orderReconciliation.hideAudit' : 'configuration.orderReconciliation.showAudit')}
+                  </Button>
+                  {auditByCase[item.case_id] && <VStack align="stretch" spacing={2} borderLeftWidth="2px" pl={3}>
+                    {auditByCase[item.case_id].length === 0 ? <Text fontSize="sm">{t('configuration.orderReconciliation.noAudit')}</Text>
+                      : auditByCase[item.case_id].map((entry) => <Box key={entry.audit_id} fontSize="xs">
+                        <Text>{t('configuration.orderReconciliation.auditEntry', { revision: entry.case_revision, action: entry.action, outcome: entry.outcome, actor: entry.actor, time: entry.created_at })}</Text>
+                        <Code display="block" whiteSpace="pre-wrap" overflowWrap="anywhere">{JSON.stringify(entry.detail, null, 2)}</Code>
+                      </Box>)}
+                  </VStack>}
                   {item.status === 'unverified' && <Text fontSize="sm" color="red.600">{t('configuration.orderReconciliation.serverUnverified')}</Text>}
                   {item.release_evidence_hash && <Text fontSize="xs" color="gray.600">{t('configuration.orderReconciliation.releaseEvidence', { revision: item.revision, hash: item.release_evidence_hash })}</Text>}
                   <HStack flexWrap="wrap">

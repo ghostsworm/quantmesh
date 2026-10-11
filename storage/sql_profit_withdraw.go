@@ -595,7 +595,8 @@ func (s *SQLStorage) ClaimProfitWithdrawRule(ruleID, claimID string) (bool, erro
 	if ruleID == "" || claimID == "" {
 		return false, fmt.Errorf("ruleID 和 claimID 不能為空")
 	}
-	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = ?, claim_started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND enabled = 1 AND COALESCE(claim_id, '') = ''`, claimID, ruleID)
+	now := utils.NowUTC()
+	result, err := s.db.Exec(`UPDATE profit_withdraw_rules SET claim_id = ?, claim_started_at = ?, updated_at = ? WHERE id = ? AND enabled = 1 AND COALESCE(claim_id, '') = ''`, claimID, now, now, ruleID)
 	if err != nil {
 		return false, fmt.Errorf("认领利润提取规则失败 rule=%s: %w", ruleID, err)
 	}

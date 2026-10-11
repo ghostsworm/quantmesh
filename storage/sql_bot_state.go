@@ -433,7 +433,8 @@ func migrateBotStatesTableMySQL(db *sql.DB) error {
 func (s *SQLStorage) GetBotState(botID string) (*BotState, error) {
 	var state BotState
 	var enabled int
-	var updatedAt, updatedBy, reason sql.NullString
+	var updatedAt any
+	var updatedBy, reason sql.NullString
 
 	err := s.db.QueryRow(`
 		SELECT bot_id, enabled, updated_at, updated_by, reason
@@ -450,10 +451,8 @@ func (s *SQLStorage) GetBotState(botID string) (*BotState, error) {
 	}
 
 	state.Enabled = enabled == 1
-	if updatedAt.Valid {
-		if t, e := time.Parse(time.RFC3339, updatedAt.String); e == nil {
-			state.UpdatedAt = t
-		}
+	if updated, ok := parseBotStateUpdatedAt(updatedAt); ok {
+		state.UpdatedAt = updated
 	}
 	if updatedBy.Valid {
 		state.UpdatedBy = updatedBy.String
@@ -465,6 +464,27 @@ func (s *SQLStorage) GetBotState(botID string) (*BotState, error) {
 	return &state, nil
 }
 
+func parseBotStateUpdatedAt(value any) (time.Time, bool) {
+	if updated, ok := value.(time.Time); ok {
+		return updated, true
+	}
+	var raw string
+	switch updated := value.(type) {
+	case string:
+		raw = updated
+	case []byte:
+		raw = string(updated)
+	default:
+		return time.Time{}, false
+	}
+	for _, layout := range []string{time.RFC3339Nano, "2006-01-02 15:04:05.999999999", "2006-01-02 15:04:05"} {
+		if parsed, err := time.Parse(layout, raw); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // SetBotState 設置 Bot 啟停狀態
 func (s *SQLStorage) SetBotState(state *BotState) error {
 	enabled := 0
@@ -472,7 +492,6 @@ func (s *SQLStorage) SetBotState(state *BotState) error {
 		enabled = 1
 	}
 
-	updatedAt := state.UpdatedAt.Format(time.RFC3339)
 	var err error
 	switch s.dbType {
 	case "mysql":
@@ -484,8 +503,9 @@ func (s *SQLStorage) SetBotState(state *BotState) error {
 				updated_at = VALUES(updated_at),
 				updated_by = VALUES(updated_by),
 				reason = VALUES(reason)`,
-			state.BotID, enabled, updatedAt, state.UpdatedBy, state.Reason)
+			state.BotID, enabled, state.UpdatedAt.UTC(), state.UpdatedBy, state.Reason)
 	default:
+		updatedAt := state.UpdatedAt.Format(time.RFC3339)
 		_, err = s.db.Exec(`
 			INSERT INTO bot_states (bot_id, enabled, updated_at, updated_by, reason)
 			VALUES (?, ?, ?, ?, ?)

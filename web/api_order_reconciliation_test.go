@@ -77,6 +77,12 @@ type failReleaseFinalizeRepository struct {
 	failOnce bool
 }
 
+type failAuditRepository struct{ orderReconciliationRepository }
+
+func (r failAuditRepository) ListOrderReconciliationAudit(context.Context, string) ([]storage.OrderReconciliationAudit, error) {
+	return nil, errFakeTimeout
+}
+
 func (r *failReleaseFinalizeRepository) TransitionOrderReconciliation(ctx context.Context, id string, rev int64, from, to storage.OrderReconciliationStatus, actor, action, outcome string, detail []byte, receipt *storage.OrderReconciliationReceipt, hash string) (storage.OrderReconciliationCase, error) {
 	if r.failOnce && from == storage.OrderReconciliationReleasePending && to == storage.OrderReconciliationReleased {
 		r.failOnce = false
@@ -115,6 +121,7 @@ func TestOrderReconciliationAPIUsesTrustedAdapterAndSeparateReleaseConfirmation(
 	router := gin.New()
 	router.Use(testReconciliationAuth())
 	router.GET("/cases", listOrderReconciliationsHandler)
+	router.GET("/cases/:case_id/audit", listOrderReconciliationAuditHandler)
 	router.POST("/cases", createOrderReconciliationHandler)
 	router.POST("/cases/:case_id/reconcile", reconcileOrderReconciliationHandler)
 	router.POST("/cases/:case_id/release", releaseOrderReconciliationHandler)
@@ -144,6 +151,31 @@ func TestOrderReconciliationAPIUsesTrustedAdapterAndSeparateReleaseConfirmation(
 	if _, ok := createdCase["validation"]; !ok {
 		t.Fatal("case DTO omitted validation")
 	}
+	auditResponse := performReconciliationRequest(router, http.MethodGet, "/cases/"+createdCase["case_id"].(string)+"/audit", "", true)
+	if auditResponse.Code != http.StatusOK {
+		t.Fatalf("admin audit read failed: %d %s", auditResponse.Code, auditResponse.Body.String())
+	}
+	var auditEnvelope struct {
+		CaseID string                             `json:"case_id"`
+		Audit  []storage.OrderReconciliationAudit `json:"audit"`
+	}
+	if err := json.Unmarshal(auditResponse.Body.Bytes(), &auditEnvelope); err != nil {
+		t.Fatal(err)
+	}
+	if auditEnvelope.CaseID != createdCase["case_id"].(string) || len(auditEnvelope.Audit) != 1 || auditEnvelope.Audit[0].Action != "case_created" {
+		t.Fatalf("audit readback mismatch: %+v", auditEnvelope)
+	}
+	if forbiddenAudit := performReconciliationRequest(router, http.MethodGet, "/cases/"+auditEnvelope.CaseID+"/audit", "", false); forbiddenAudit.Code != http.StatusForbidden {
+		t.Fatalf("non-admin audit read should be forbidden: %d", forbiddenAudit.Code)
+	}
+	if missingAudit := performReconciliationRequest(router, http.MethodGet, "/cases/missing/audit", "", true); missingAudit.Code != http.StatusNotFound {
+		t.Fatalf("missing case audit should return 404: %d", missingAudit.Code)
+	}
+	SetOrderReconciliationService(&OrderReconciliationService{Repository: failAuditRepository{orderReconciliationRepository: repo}})
+	if failedAudit := performReconciliationRequest(router, http.MethodGet, "/cases/"+auditEnvelope.CaseID+"/audit", "", true); failedAudit.Code != http.StatusServiceUnavailable {
+		t.Fatalf("audit storage failure should return 503: %d", failedAudit.Code)
+	}
+	SetOrderReconciliationService(&OrderReconciliationService{Repository: repo, Evidence: fakeOrderEvidence{verified}, Accounting: accountant, Gate: gate})
 	malicious := strings.TrimSuffix(request, "}") + `,"fills":[{"trade_id":"forged"}]}`
 	if response := performReconciliationRequest(router, http.MethodPost, "/cases", malicious, true); response.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("client fill input must be rejected: %d", response.Code)

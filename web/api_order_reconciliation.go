@@ -170,6 +170,36 @@ func listOrderReconciliationsHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"cases": dtos})
 }
 
+func listOrderReconciliationAuditHandler(c *gin.Context) {
+	if !requireRetiredEquityAdmin(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	s := currentOrderReconciliationService()
+	if s == nil || s.Repository == nil {
+		reconciliationUnavailable(c)
+		return
+	}
+	caseID := strings.TrimSpace(c.Param("case_id"))
+	if caseID == "" {
+		c.JSON(http.StatusNotFound, gin.H{"error": "reconciliation_case_not_found"})
+		return
+	}
+	if _, found, err := s.Repository.GetOrderReconciliation(c.Request.Context(), caseID); err != nil {
+		reconciliationUnavailable(c)
+		return
+	} else if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "reconciliation_case_not_found"})
+		return
+	}
+	items, err := s.Repository.ListOrderReconciliationAudit(c.Request.Context(), caseID)
+	if err != nil {
+		reconciliationUnavailable(c)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"case_id": caseID, "audit": items})
+}
+
 func createOrderReconciliationHandler(c *gin.Context) {
 	if !requireRetiredEquityAdmin(c) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})

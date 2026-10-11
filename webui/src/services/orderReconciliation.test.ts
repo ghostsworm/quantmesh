@@ -14,7 +14,7 @@ vi.mock('./apiTransport', () => ({
 }))
 import {
   canManuallyReconcile, canReleaseOrderQuarantine, createOrderReconciliation,
-  listOrderReconciliations, reconcileOrderAccounting, releaseOrderQuarantine,
+  listOrderReconciliationAudit, listOrderReconciliations, reconcileOrderAccounting, releaseOrderQuarantine,
   type OrderReconciliationCase,
 } from './orderReconciliation'
 
@@ -77,6 +77,20 @@ describe('订单核账 API 契约与操作门禁', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ case_revision: 2, confirm: true })
     expect(fetchMock.mock.calls[1][0]).toMatch(/\/case-1\/release$/)
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ case_revision: 4, evidence_hash: 'a'.repeat(64), confirm: true })
+  })
+
+  it('审计历史必须与请求的核账案 ID 一致且字段完整', async () => {
+    const audit = {
+      audit_id: 'audit-1', case_id: 'case-1', case_revision: 1, action: 'case_created', actor: 'admin',
+      outcome: 'prepared', detail: { evidence_verified: false }, created_at: '2026-10-11T00:00:00Z',
+    }
+    const fetchMock = vi.fn().mockResolvedValue(response({ case_id: 'case-1', audit: [audit] }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(listOrderReconciliationAudit('case-1')).resolves.toEqual([audit])
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/case-1\/audit$/), expect.anything())
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response({ case_id: 'case-2', audit: [audit] })))
+    await expect(listOrderReconciliationAudit('case-1')).rejects.toThrow('order_reconciliation_contract_invalid')
   })
 
   it('API 未接线的 404、畸形响应、未验证状态均不得形成成功态', async () => {
