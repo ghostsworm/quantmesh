@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.111.0-rc1160"
+var Version = "3.111.0-rc1161"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -1865,6 +1865,19 @@ func main() {
 	symbolManager := NewSymbolManager(cfg, eventBus, storageService, distributedLock, mainYAMLPath)
 	symbolManager.GetBotManager().StartFeeRateRefreshLoop(ctx)
 	SetCurrentSymbolManager(symbolManager) // 让 MCP 写工具能找到 BotManager
+	if storageService == nil || storageService.GetStorage() == nil {
+		web.SetOrderReconciliationService(nil)
+		logger.Warn("[訂單人工核賬] SQL 存儲未就緒，保持核賬服務不可用並封鎖補賬/解鎖")
+	} else {
+		service, err := buildProductionOrderReconciliationService(storageService.GetStorage(), symbolManager.GetBotManager())
+		if err != nil {
+			web.SetOrderReconciliationService(nil)
+			logger.Warn("[訂單人工核賬] 生產服務裝配失敗，保持核賬服務不可用並封鎖補賬/解鎖: %v", err)
+		} else {
+			web.SetOrderReconciliationService(service)
+			logger.Info("[訂單人工核賬] 已接入耐久核賬案/審計存儲與只讀運行態證據；策略補賬與封鎖解除仍未啟用")
+		}
+	}
 
 	// 創建 SymbolManager 适配器（用於 Web API）
 	symbolManagerAdapter := &symbolManagerWebAdapter{

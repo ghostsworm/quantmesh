@@ -259,6 +259,65 @@ func TestOrderReconciliationAPIUnavailableAdaptersRemainFailClosed(t *testing.T)
 	}
 }
 
+func TestOrderReconciliationAPIFailsClosedForPersistedCaseWithoutProductionAdapters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := context.Background()
+	repo, err := storage.NewSQLStorage(filepath.Join(t.TempDir(), "production-composition.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	if err := repo.MigrateOrderReconciliations(ctx); err != nil {
+		t.Fatal(err)
+	}
+	owner := accounting.OrderOwner{Exchange: "fake", Market: "spot", AccountScope: "production-composition-test", Bot: "bot-1", Symbol: "BTCUSDT", StrategyName: "grid", StrategyType: "grid", ClientOrderID: "cid-1", VenueOrderID: "42"}
+	created, replayed, err := repo.CreateOrderReconciliationCase(ctx, storage.NewOrderReconciliationCase{
+		ID: "production-composition-case", IdempotencyKey: "production-composition-key", Owner: owner,
+		ExpectedIntentRevision: "intent-r1", ExpectedStrategyRevision: "strategy-r1",
+		Reason: "fail-closed production composition test", Actor: "admin", EvidenceRefs: []string{"test-evidence"},
+	})
+	if err != nil || replayed {
+		t.Fatalf("create durable test case: replayed=%t err=%v", replayed, err)
+	}
+	SetOrderReconciliationService(&OrderReconciliationService{
+		Repository: repo,
+		Evidence:   fakeOrderEvidence{},
+		// Production currently has no audited per-strategy accountant or gate.
+		Accounting: nil,
+		Gate:       nil,
+	})
+	defer SetOrderReconciliationService(nil)
+	router := gin.New()
+	router.Use(testReconciliationAuth())
+	router.GET("/cases", listOrderReconciliationsHandler)
+	router.GET("/cases/:case_id/audit", listOrderReconciliationAuditHandler)
+	router.POST("/cases/:case_id/reconcile", reconcileOrderReconciliationHandler)
+	router.POST("/cases/:case_id/release", releaseOrderReconciliationHandler)
+
+	if response := performReconciliationRequest(router, http.MethodGet, "/cases", "", true); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), created.ID) {
+		t.Fatalf("admin must read persisted cases: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if response := performReconciliationRequest(router, http.MethodGet, "/cases/"+created.ID+"/audit", "", true); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "case_created") {
+		t.Fatalf("admin must read persisted audit history: status=%d body=%s", response.Code, response.Body.String())
+	}
+	reconcile := performReconciliationRequest(router, http.MethodPost, "/cases/"+created.ID+"/reconcile", `{"case_revision":1,"confirm":true}`, true)
+	if reconcile.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing strategy accounting must reject reconcile: status=%d body=%s", reconcile.Code, reconcile.Body.String())
+	}
+	release := performReconciliationRequest(router, http.MethodPost, "/cases/"+created.ID+"/release", `{"case_revision":1,"evidence_hash":"0123456789012345678901234567890123456789012345678901234567890123","confirm":true}`, true)
+	if release.Code != http.StatusServiceUnavailable {
+		t.Fatalf("missing durable gate bridge must reject release: status=%d body=%s", release.Code, release.Body.String())
+	}
+	stored, found, err := repo.GetOrderReconciliation(ctx, created.ID)
+	if err != nil || !found || stored.Status != storage.OrderReconciliationPrepared || stored.Revision != created.Revision {
+		t.Fatalf("blocked operations must not alter the durable case: case=%+v found=%t err=%v", stored, found, err)
+	}
+	audit, err := repo.ListOrderReconciliationAudit(ctx, created.ID)
+	if err != nil || len(audit) != 1 || audit[0].Action != "case_created" {
+		t.Fatalf("blocked operations must not append reconcile/release audit: audit=%+v err=%v", audit, err)
+	}
+}
+
 func TestVerifiedOrderEvidenceRequiresEveryIndependentProof(t *testing.T) {
 	owner := accounting.OrderOwner{Exchange: "fake", Market: "spot", AccountScope: "acct", Bot: "bot", Symbol: "BTCUSDT", StrategyName: "trend", StrategyType: "trend", ClientOrderID: "cid", VenueOrderID: "1"}
 	item := storage.OrderReconciliationCase{ID: "case", Owner: owner, ExpectedIntentRevision: "intent-r1", ExpectedStrategyRevision: "strategy-r1"}

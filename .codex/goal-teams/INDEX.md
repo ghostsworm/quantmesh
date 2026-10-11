@@ -2,6 +2,7 @@
 
 | 版本 | 目标 | 状态 | 索引 |
 |---|---|---|---|
+| 3.111.0-rc1161 | 核账服务生产装配与证据读取；账务/Gate 缺失时持续 fail-closed | 本地代码与定向/全仓验证通过；人工核账闭环仍未完成，MySQL 同 SHA CI 待推送 | [版本索引](versions/3.111.0-rc1161/INDEX.md) / [计划](versions/3.111.0-rc1161/plan.md) / [任务清单](versions/3.111.0-rc1161/tasklist.md) |
 | 3.111.0-rc1160 | 管理端核账审计刷新与 MySQL UTC claim 修复 | 全仓 Go 串行测试、storage MySQL、前端类型检查与测试通过；策略生产适配、Gate 接线及可审计真实盈利证据仍未闭合；未提交/推送/发布 | [RC1160进度](versions/3.111.0-rc1160/progress.md) / [RC1159整体计划](versions/3.111.0-rc1159/plan.md) |
 
 | 3.111.0-rc1159 | 完成人工核账生产闭环、Bot 状态 MySQL 回归修复与盈利证据验收框架 | MySQL 8.0.46 隔离库上的 storage 整包已通过；管理员审计历史 API/UI 与定向测试已完成。策略级账务适配、生产装配、Gate bridge、财务导出与跨层验收仍未闭合；真实盈利数据未提供 | [版本索引](versions/3.111.0-rc1159/INDEX.md) / [计划](versions/3.111.0-rc1159/plan.md) / [任务清单](versions/3.111.0-rc1159/tasklist.md) / [验收基线](versions/3.111.0-rc1159/spec/acceptance.md) |
