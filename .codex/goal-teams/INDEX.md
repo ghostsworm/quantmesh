@@ -2,6 +2,7 @@
 
 | 版本 | 目标 | 状态 | 索引 |
 |---|---|---|---|
+| 3.111.0-rc1162 | 核账生产组合端到端验收与 SQLite/MySQL schema 迁移并发安全 | 本机阶段验收通过；同提交远端 CI 待提交后验证；逐策略账务、费用入账与真实盈利证据不在本切片验收范围 | [版本索引](versions/3.111.0-rc1162/INDEX.md) / [计划](versions/3.111.0-rc1162/plan.md) / [任务清单](versions/3.111.0-rc1162/tasklist.md) |
 | 3.111.0-rc1161 | 核账服务生产装配与证据读取；账务/Gate 缺失时持续 fail-closed | 本地代码与定向/全仓验证通过；人工核账闭环仍未完成，MySQL 同 SHA CI 待推送 | [版本索引](versions/3.111.0-rc1161/INDEX.md) / [计划](versions/3.111.0-rc1161/plan.md) / [任务清单](versions/3.111.0-rc1161/tasklist.md) |
 | 3.111.0-rc1160 | 管理端核账审计刷新与 MySQL UTC claim 修复 | 全仓 Go 串行测试、storage MySQL、前端类型检查与测试通过；策略生产适配、Gate 接线及可审计真实盈利证据仍未闭合；未提交/推送/发布 | [RC1160进度](versions/3.111.0-rc1160/progress.md) / [RC1159整体计划](versions/3.111.0-rc1159/plan.md) |
 

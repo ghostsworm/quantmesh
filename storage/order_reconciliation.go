@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -10,11 +11,22 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
+	sqlite3 "github.com/mattn/go-sqlite3"
+
 	"quantmesh/accounting"
 )
 
 //go:embed migrations/2026101001_order_reconciliation_*.sql
 var orderReconciliationMigrations embed.FS
+
+const (
+	orderReconciliationMySQLLockName  = "quantmesh:order_reconciliation_schema_v1"
+	orderReconciliationLockTimeout    = 30
+	orderReconciliationSQLiteBusyMS   = 100
+	orderReconciliationSQLiteRetry    = 25 * time.Millisecond
+	orderReconciliationSQLiteLockWait = 30 * time.Second
+)
 
 type OrderReconciliationStatus string
 
@@ -101,25 +113,123 @@ type NewOrderReconciliationCase struct {
 	EvidenceRefs             []string
 }
 
+type orderReconciliationRevisionColumn struct {
+	name, sqlite, mysql string
+}
+
 // MigrateOrderReconciliations installs the additive SQLite/MySQL schema.
 func (s *SQLStorage) MigrateOrderReconciliations(ctx context.Context) error {
 	if s == nil || s.db == nil || (s.dbType != "sqlite" && s.dbType != "mysql") {
 		return fmt.Errorf("unsupported order reconciliation database")
 	}
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("connect for order reconciliation migration: %w", err)
+	}
+	defer conn.Close()
+	if s.dbType == "mysql" {
+		return s.migrateOrderReconciliationsMySQL(ctx, conn)
+	}
+	return s.migrateOrderReconciliationsSQLite(ctx, conn)
+}
+
+func (s *SQLStorage) migrateOrderReconciliationsSQLite(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA busy_timeout=%d`, orderReconciliationSQLiteBusyMS)); err != nil {
+		return fmt.Errorf("set SQLite reconciliation migration busy timeout: %w", err)
+	}
+	lockCtx, cancel := context.WithTimeout(ctx, orderReconciliationSQLiteLockWait)
+	defer cancel()
+	for {
+		if _, err := conn.ExecContext(lockCtx, `BEGIN EXCLUSIVE`); err == nil {
+			break
+		} else if !isSQLiteReconciliationLockBusy(err) {
+			return fmt.Errorf("acquire SQLite reconciliation migration lock: %w", err)
+		} else if lockErr := lockCtx.Err(); lockErr != nil {
+			return fmt.Errorf("acquire SQLite reconciliation migration lock: %w", lockErr)
+		}
+		timer := time.NewTimer(orderReconciliationSQLiteRetry)
+		select {
+		case <-lockCtx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return fmt.Errorf("acquire SQLite reconciliation migration lock: %w", lockCtx.Err())
+		case <-timer.C:
+		}
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = conn.ExecContext(context.Background(), `ROLLBACK`)
+		}
+	}()
+	if err := s.applyOrderReconciliationSchema(ctx, conn); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, `COMMIT`); err != nil {
+		return fmt.Errorf("commit SQLite reconciliation migration: %w", err)
+	}
+	committed = true
+	return nil
+}
+
+func isSQLiteReconciliationLockBusy(err error) bool {
+	var sqliteErr sqlite3.Error
+	return errors.As(err, &sqliteErr) && (sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked)
+}
+
+func (s *SQLStorage) migrateOrderReconciliationsMySQL(ctx context.Context, conn *sql.Conn) error {
+	var acquired sql.NullInt64
+	if err := conn.QueryRowContext(ctx, `SELECT GET_LOCK(?, ?)`, orderReconciliationMySQLLockName, orderReconciliationLockTimeout).Scan(&acquired); err != nil {
+		return fmt.Errorf("acquire MySQL reconciliation migration lock: %w", err)
+	}
+	if !acquired.Valid || acquired.Int64 != 1 {
+		return fmt.Errorf("acquire MySQL reconciliation migration lock: timed out or unavailable")
+	}
+	migrationErr := s.applyOrderReconciliationSchema(ctx, conn)
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var released sql.NullInt64
+	releaseErr := conn.QueryRowContext(releaseCtx, `SELECT RELEASE_LOCK(?)`, orderReconciliationMySQLLockName).Scan(&released)
+	if releaseErr != nil || !released.Valid || released.Int64 != 1 {
+		if releaseErr == nil {
+			releaseErr = fmt.Errorf("MySQL reconciliation migration lock was not owned at release")
+		}
+		// A named lock survives returning a live session to database/sql's pool.
+		// ErrBadConn makes database/sql discard this physical connection instead.
+		_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+		if migrationErr != nil {
+			return fmt.Errorf("%v; release MySQL reconciliation migration lock: %w", migrationErr, releaseErr)
+		}
+		return fmt.Errorf("release MySQL reconciliation migration lock: %w", releaseErr)
+	}
+	return migrationErr
+}
+
+type reconciliationMigrationExecutor interface {
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func (s *SQLStorage) applyOrderReconciliationSchema(ctx context.Context, exec reconciliationMigrationExecutor) error {
 	body, err := orderReconciliationMigrations.ReadFile("migrations/2026101001_order_reconciliation_" + s.dbType + ".up.sql")
 	if err != nil {
-		return err
+		return fmt.Errorf("read order reconciliation migration: %w", err)
 	}
 	for _, statement := range strings.Split(string(body), ";") {
 		statement = strings.TrimSpace(statement)
 		if statement == "" {
 			continue
 		}
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+		if _, err := exec.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("migrate order reconciliations: %w", err)
 		}
 	}
-	return s.migrateOrderReconciliationRevisionColumns(ctx)
+	return s.migrateOrderReconciliationRevisionColumns(ctx, exec)
 }
 
 func (s *SQLStorage) CreateOrderReconciliationCase(ctx context.Context, in NewOrderReconciliationCase) (OrderReconciliationCase, bool, error) {
@@ -351,14 +461,14 @@ func validOrderReconciliationTransition(from, to OrderReconciliationStatus) bool
 	}
 }
 
-func (s *SQLStorage) migrateOrderReconciliationRevisionColumns(ctx context.Context) error {
-	columns := []struct{ name, sqlite, mysql string }{
+func (s *SQLStorage) migrateOrderReconciliationRevisionColumns(ctx context.Context, exec reconciliationMigrationExecutor) error {
+	columns := []orderReconciliationRevisionColumn{
 		{"expected_intent_revision", `ALTER TABLE order_reconciliation_cases ADD COLUMN expected_intent_revision TEXT NOT NULL DEFAULT ''`, `ALTER TABLE order_reconciliation_cases ADD COLUMN expected_intent_revision VARCHAR(191) NOT NULL DEFAULT ''`},
 		{"expected_strategy_revision", `ALTER TABLE order_reconciliation_cases ADD COLUMN expected_strategy_revision TEXT NOT NULL DEFAULT ''`, `ALTER TABLE order_reconciliation_cases ADD COLUMN expected_strategy_revision VARCHAR(191) NOT NULL DEFAULT ''`},
 		{"operation_evidence_hash", `ALTER TABLE order_reconciliation_cases ADD COLUMN operation_evidence_hash TEXT NOT NULL DEFAULT ''`, `ALTER TABLE order_reconciliation_cases ADD COLUMN operation_evidence_hash VARCHAR(128) NOT NULL DEFAULT ''`},
 	}
 	for _, column := range columns {
-		present, err := s.orderReconciliationColumnExists(ctx, column.name)
+		present, err := s.orderReconciliationColumnExists(ctx, exec, column.name)
 		if err != nil {
 			return err
 		}
@@ -369,16 +479,76 @@ func (s *SQLStorage) migrateOrderReconciliationRevisionColumns(ctx context.Conte
 		if s.dbType == "mysql" {
 			statement = column.mysql
 		}
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("add order reconciliation column %s: %w", column.name, err)
+		if _, err := exec.ExecContext(ctx, statement); err != nil {
+			// A pre-lock binary may be migrating the same legacy schema. MySQL DDL
+			// commits independently, so accept only a duplicate-column outcome
+			// whose readback proves the requested column now exists.
+			var mysqlErr *mysql.MySQLError
+			if s.dbType != "mysql" || !errors.As(err, &mysqlErr) || mysqlErr.Number != 1060 {
+				return fmt.Errorf("add order reconciliation column %s: %w", column.name, err)
+			}
+			present, checkErr := s.orderReconciliationColumnExists(ctx, exec, column.name)
+			if checkErr != nil || !present {
+				return fmt.Errorf("add order reconciliation column %s: %w (readback present=%t err=%v)", column.name, err, present, checkErr)
+			}
+		}
+	}
+	return s.validateOrderReconciliationRevisionColumns(ctx, exec, columns)
+}
+
+func (s *SQLStorage) validateOrderReconciliationRevisionColumns(ctx context.Context, exec reconciliationMigrationExecutor, columns []orderReconciliationRevisionColumn) error {
+	for _, column := range columns {
+		valid, err := s.orderReconciliationRevisionColumnDefinitionMatches(ctx, exec, column.name)
+		if err != nil {
+			return fmt.Errorf("verify order reconciliation column %s: %w", column.name, err)
+		}
+		if !valid {
+			return fmt.Errorf("verify order reconciliation column %s: incompatible schema definition", column.name)
 		}
 	}
 	return nil
 }
 
-func (s *SQLStorage) orderReconciliationColumnExists(ctx context.Context, name string) (bool, error) {
+func (s *SQLStorage) orderReconciliationRevisionColumnDefinitionMatches(ctx context.Context, exec reconciliationMigrationExecutor, name string) (bool, error) {
 	if s.dbType == "sqlite" {
-		rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(order_reconciliation_cases)`)
+		rows, err := exec.QueryContext(ctx, `PRAGMA table_info(order_reconciliation_cases)`)
+		if err != nil {
+			return false, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var index, notNull, primaryKey int
+			var column, dataType string
+			var defaultValue sql.NullString
+			if err := rows.Scan(&index, &column, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
+				return false, err
+			}
+			if column == name {
+				return strings.EqualFold(dataType, "TEXT") && notNull == 1 && defaultValue.Valid && defaultValue.String == "''", nil
+			}
+		}
+		return false, rows.Err()
+	}
+	length := int64(191)
+	if name == "operation_evidence_hash" {
+		length = 128
+	}
+	var dataType, nullable string
+	var actualLength sql.NullInt64
+	var defaultValue sql.NullString
+	err := exec.QueryRowContext(ctx, `SELECT DATA_TYPE, CHARACTER_MAXIMUM_LENGTH, IS_NULLABLE, COLUMN_DEFAULT FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='order_reconciliation_cases' AND COLUMN_NAME=?`, name).Scan(&dataType, &actualLength, &nullable, &defaultValue)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return strings.EqualFold(dataType, "varchar") && actualLength.Valid && actualLength.Int64 == length && nullable == "NO" && defaultValue.Valid && defaultValue.String == "", nil
+}
+
+func (s *SQLStorage) orderReconciliationColumnExists(ctx context.Context, exec reconciliationMigrationExecutor, name string) (bool, error) {
+	if s.dbType == "sqlite" {
+		rows, err := exec.QueryContext(ctx, `PRAGMA table_info(order_reconciliation_cases)`)
 		if err != nil {
 			return false, err
 		}
@@ -397,7 +567,7 @@ func (s *SQLStorage) orderReconciliationColumnExists(ctx context.Context, name s
 		return false, rows.Err()
 	}
 	var count int
-	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='order_reconciliation_cases' AND COLUMN_NAME=?`, name).Scan(&count)
+	err := exec.QueryRowContext(ctx, `SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='order_reconciliation_cases' AND COLUMN_NAME=?`, name).Scan(&count)
 	return count > 0, err
 }
 
