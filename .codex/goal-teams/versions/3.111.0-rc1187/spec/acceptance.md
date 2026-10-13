@@ -1,5 +1,13 @@
 # RC1187 驗收標準
 
+## RC1190 补充验收
+
+- SQLite `db.Conn(ctx)` 连接建立若返回可识别 BUSY/LOCKED，仅可按固定重试间隔和明确上限重试；调用方取消必须及时停止并保留可识别的 `context` 错误。若 `database/sql` 实际返回底层 SQLite 错误，则保留其错误链；若其在异步连接期间只返回 context 错误，不要求暴露 driver 内部错误。普通 SQLite 错误不得重试。
+- MySQL 仍只执行原有一次连接获取，命名锁、schema 和连接回收行为无变化。
+- 连接获取成功后复用既有 SQLite 事务锁重试；不在整个迁移操作外层重试，不得重复执行部分迁移。
+- 确定性注入测试和 12 个独立连接的新旧 schema 并发测试通过；需重复运行，`go test -race` 通过。
+- 版本号在后端、WebUI、Changelog 和两份产品概览一致为 `3.111.0-rc1190`。本地门禁后可提交推送；同 SHA 完整 CI 通过前不打 tag、不发布。
+
 ## 必須滿足
 
 0. Storage、FundingCarry takeover/retry/projection、income replay 與 Web API durable readback 全部使用同一 exported semantic/legacy hash verifier；不得殘留對 `ProjectionPayload` 的原始 SHA-only 校驗。

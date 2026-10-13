@@ -1,6 +1,8 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.111.0-rc1189`（2026-10-13，开发中，未发布）
+> 当前版本：`3.111.0-rc1190`（2026-10-14，开发中，未发布）
+
+RC1190 为 SQLite 对账迁移连接获取阶段增加有界、可取消的 BUSY/LOCKED 重试，解决并发冷启动连接因 SQLite 锁竞争而提前失败的问题；MySQL 连接、命名锁和 schema 路径不变。须以本地完整门禁及远端同 SHA CI 结果验收，未发布、未验收真实实盘或盈利。
 
 RC1187 将新 FundingRecovery outbox 的 `ExpectedRuntimeRevision` 纳入投影哈希，并在 receipt/outbox 配对和生产 runtime CAS 前交叉核对。旧格式 payload 仍可读作审计证据，但因缺少该 revision 绑定而禁止自动投影/重放，转人工核账。RC1188 修正 MySQL outbox 测试将十六进制哈希误 CAST 为 JSON 的夹具错误；RC1189 再修正该测试的旧哈希 helper 漏掉 `ExpectedRuntimeRevision`，生产校验逻辑不变。MySQL 与完整 CI 仍须验收。
 
