@@ -1,6 +1,6 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.111.0-rc1185`（2026-10-13，开发中，未发布）
+> 当前版本：`3.111.0-rc1186`（2026-10-13，开发中，未发布）
 
 FundingCarry 管理员 Binance funding-income 核账现支持 durable receipt/outbox 重试；投影失败仅允许精确 operation 的 pending receipt/outbox 恢复；游标推进后重试旧 operation 按 outbox 目标版本校验并返回自身历史 cursor snapshot，不重新查询来源、不修改当前 cursor。生产 service/router 故障注入回归覆盖 pending 恢复、CAS 已写后响应丢失、新 runtime generation 显式 takeover、连续窗口推进及旧操作重放，并确认 Gate/hold 保持。该 restart simulation 使用同一隔离 SQLite StorageService；真实 OS 进程重启、独立多实例 storage handles、MySQL、同 SHA CI 尚待验收。RC1185 新增耐久历史异常记录和管理员追加式 funding adjustment API：原始行不覆盖，迟到/改写/删除差异保存精确差额及审计依据；调整经 operation/CAS 与 receipt/outbox 持久投影，之后须完整来源回扫一致才推进 cursor/标记 verified，hold 仍须独立显式解锁。MySQL、多进程及同 SHA CI 尚待验收。零金额行可留作来源事实，不代表收益；双扫描摘要并非交易所独立签名证明，因此来源完整性仍未闭环。另修复管理员期初 snapshot 时间早于录入时间被错误拒绝的问题。
 

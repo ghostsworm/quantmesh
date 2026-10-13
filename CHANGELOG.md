@@ -1,13 +1,21 @@
 # Changelog
 
-## [3.111.0-rc1185] - 2026-10-13（开发中，未发布）
+## [3.111.0-rc1186] - 2026-10-13（开发中，未发布）
+
+### Test
+- 新增同一 funding source anomaly 上不同人工 adjustment operation 的 SQLite 跨句柄竞争验证，以及 MySQL 8 双连接专项集成测试；验证仅一个 operation 获胜、原始事实不可变、失败方不新增账务/receipt/outbox、不推进 cursor 且 hold 继续保持。
+
+### Verification
+- SQLite 专项 race 重复 20 次、`go test ./storage -count=1`、带回环权限的 `go test -p=2 ./... -count=1 -timeout=30m`、`go vet ./...` 与 WebUI `yarn verify`（类型检查、318 项测试、生产前端构建）通过。MySQL 8 专项因本地未配置 DSN 而跳过，等待强制 MySQL CI 对 RC1186 实际运行；同 SHA 远端 CI / release verification 尚未触发。
+
+## [3.111.0-rc1185] - 2026-10-13（已发布预发布版）
 
 ### Added
 - FundingCarry 对 Binance 历史 funding 迟到、改写、删除及仅摘要变化新增耐久异常记录；以原始事实不覆盖、管理员追加精确十进制调整事件的方式人工结案。
 - 新增异常列表状态读回和管理员调整 API；调整经 owner/episode/anomaly CAS 与 receipt/outbox 投影，后续完整复扫通过才验证异常，Gate/hold 不自动解除。
 
 ### Verification
-- `go test -p=2 ./... -count=1 -timeout=30m`、定向 production HTTP / storage race、`go vet ./...`、WebUI typecheck / 318 项 Vitest / production build 通过；MySQL 实际迁移与同 SHA 远端 CI 尚未验收；未提交、未推送、未发布。
+- 同 SHA GitHub CI 与 RC/CD 发布验证通过：MySQL 8 Go suite、race 门禁、WebUI typecheck/tests/build、Go 静态分析、Linux amd64 构建均通过；已发布 `v3.111.0-rc1185` Linux amd64 资产。未访问真实账户、未下单，也未验收实盘或盈利。
 
 ## [3.111.0-rc1184] - 2026-10-13（开发中，未发布）
 
