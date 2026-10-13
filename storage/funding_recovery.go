@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -10,6 +11,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math/big"
 	"reflect"
 	"sort"
 	"strings"
@@ -818,13 +821,15 @@ func (s *SQLStorage) ApplyRecoveryOperation(ctx context.Context, generation Fund
 	if n, e := result.RowsAffected(); e != nil || n != 1 {
 		return accounting.RecoveryReceipt{}, false, accounting.ErrRecoveryConflict
 	}
-	projectionBytes, _ := json.Marshal(struct {
-		Episode      accounting.RecoveryEpisode       `json:"episode"`
-		Children     []accounting.RecoveryChild       `json:"children"`
-		Events       []accounting.RecoveryEvent       `json:"events"`
-		SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
-	}{next, op.Children, op.Events, updatedCursor})
-	projectionHash := canonicalHash(projectionBytes)
+	projectionBytes, err := json.Marshal(fundingRecoveryProjection{Episode: next, Children: op.Children, Events: op.Events,
+		SourceCursor: updatedCursor, ExpectedRuntimeRevision: op.ExpectedRuntimeRevision})
+	if err != nil {
+		return accounting.RecoveryReceipt{}, false, err
+	}
+	projectionHash, err := fundingRecoveryProjectionHash(projectionBytes)
+	if err != nil {
+		return accounting.RecoveryReceipt{}, false, err
+	}
 	receipt := accounting.RecoveryReceipt{EpisodeID: op.EpisodeID, OperationID: op.OperationID, RequestHash: hash, EpisodeRevision: next.Revision, State: accounting.RecoveryLedgerCommitted, ProjectionHash: projectionHash, Actor: op.Actor, AuditRef: op.AuditRef, EvidenceHash: op.EvidenceHash, OwnerGeneration: episode.OwnerGeneration, CreatedAt: time.Now().UTC()}
 	receiptJSON, _ := json.Marshal(receipt)
 	_, err = tx.ExecContext(ctx, `INSERT INTO funding_recovery_operations(episode_id,operation_id,request_hash,phase,receipt_json) VALUES(?,?,?,?,?)`, op.EpisodeID, op.OperationID, hash, string(accounting.RecoveryLedgerCommitted), receiptJSON)
@@ -1003,19 +1008,32 @@ func (s *SQLStorage) MarkRecoveryProjected(ctx context.Context, generation Fundi
 	if err != nil {
 		return err
 	}
-	if current.ProjectionHash != outbox.ProjectionHash || current.TargetEpisodeRevision != outbox.TargetEpisodeRevision {
+	if current.ProjectionHash != outbox.ProjectionHash || current.TargetEpisodeRevision != outbox.TargetEpisodeRevision ||
+		current.ExpectedRuntimeRevision != outbox.ExpectedRuntimeRevision {
 		return accounting.ErrRecoveryConflict
 	}
-	digest := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(digest[:]) != outbox.ProjectionHash {
+	currentPayload, err := canonicalRecoveryJSON(current.ProjectionPayload)
+	if err != nil {
+		return err
+	}
+	providedPayload, err := canonicalRecoveryJSON(outbox.ProjectionPayload)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(currentPayload, providedPayload) {
+		return errors.New("recovery outbox projection differs from durable payload")
+	}
+	if err = VerifyFundingRecoveryProjectionHash(current.ProjectionPayload, current.ProjectionHash); err != nil {
+		return errors.New("durable recovery outbox payload hash mismatch")
+	}
+	if err = VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
 		return errors.New("recovery outbox payload hash mismatch")
 	}
-	var projection struct {
-		Episode  accounting.RecoveryEpisode `json:"episode"`
-		Children []accounting.RecoveryChild `json:"children"`
-		Events   []accounting.RecoveryEvent `json:"events"`
-	}
+	var projection fundingRecoveryProjection
 	if err = json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
+		return err
+	}
+	if err = VerifyFundingRecoveryOutboxRuntimeRevision(outbox, outbox.ProjectionPayload); err != nil {
 		return err
 	}
 	priorEpisode := projection.Episode
@@ -1037,6 +1055,20 @@ func (s *SQLStorage) MarkRecoveryProjected(ctx context.Context, generation Fundi
 	if priorEpisode.ID != currentEpisode.ID || priorEpisode.Bot != currentEpisode.Bot || priorEpisode.Strategy != currentEpisode.Strategy ||
 		!reflect.DeepEqual(priorEpisode.AccountScopes, currentEpisode.AccountScopes) || (!normalProjection && !takenOverProjection) {
 		return accounting.ErrRecoveryConflict
+	}
+	var receiptRaw []byte
+	err = tx.QueryRowContext(ctx, `SELECT receipt_json FROM funding_recovery_operations WHERE episode_id=? AND operation_id=?`, outbox.EpisodeID, outbox.OperationID).Scan(&receiptRaw)
+	if err != nil {
+		return err
+	}
+	var receipt accounting.RecoveryReceipt
+	if err = json.Unmarshal(receiptRaw, &receipt); err != nil {
+		return err
+	}
+	if receipt.EpisodeID != outbox.EpisodeID || receipt.OperationID != outbox.OperationID ||
+		receipt.EpisodeRevision != outbox.TargetEpisodeRevision || receipt.ProjectionHash != outbox.ProjectionHash ||
+		receipt.State != accounting.RecoveryLedgerCommitted {
+		return errors.New("recovery outbox does not match durable operation receipt")
 	}
 	if takenOverProjection {
 		for _, event := range projection.Events {
@@ -1071,15 +1103,6 @@ func (s *SQLStorage) MarkRecoveryProjected(ctx context.Context, generation Fundi
 	}
 	if n, e := result.RowsAffected(); e != nil || n != 1 {
 		return accounting.ErrRecoveryConflict
-	}
-	var receiptRaw []byte
-	err = tx.QueryRowContext(ctx, `SELECT receipt_json FROM funding_recovery_operations WHERE episode_id=? AND operation_id=?`, outbox.EpisodeID, outbox.OperationID).Scan(&receiptRaw)
-	if err != nil {
-		return err
-	}
-	var receipt accounting.RecoveryReceipt
-	if err = json.Unmarshal(receiptRaw, &receipt); err != nil {
-		return err
 	}
 	receipt.State, receipt.EpisodeRevision = accounting.RecoveryProjected, episode.Revision
 	receiptRaw, _ = json.Marshal(receipt)
@@ -1769,15 +1792,34 @@ func (s *SQLStorage) TakeOverRecoveryEpisode(ctx context.Context, generation Fun
 }
 
 func recoveryOwnerTakeoverRequestHash(generation FundingCarryRuntimeGeneration, auth accounting.RecoveryOwnerTakeoverAuthorization) (string, error) {
+	return ExpectedFundingRecoveryOwnerTakeoverRequestHash(generation.ID(), generation.ScopeKeys(), auth)
+}
+
+func recoveryOwnerTakeoverRequestHashForOwner(ownerGeneration string, scopes []string, auth accounting.RecoveryOwnerTakeoverAuthorization) (string, error) {
 	requestBytes, err := json.Marshal(struct {
 		Authorization accounting.RecoveryOwnerTakeoverAuthorization `json:"authorization"`
 		Owner         string                                        `json:"new_owner_generation"`
 		Scopes        []string                                      `json:"account_scopes"`
-	}{auth, generation.ID(), generation.ScopeKeys()})
+	}{auth, ownerGeneration, scopes})
 	if err != nil {
 		return "", err
 	}
 	return canonicalHash(requestBytes), nil
+}
+
+// ExpectedFundingRecoveryOwnerTakeoverRequestHash returns the idempotency hash
+// for a takeover authorization using its persisted non-secret owner identity
+// and normalized account scopes.
+func ExpectedFundingRecoveryOwnerTakeoverRequestHash(ownerGeneration string, scopes []string,
+	auth accounting.RecoveryOwnerTakeoverAuthorization) (string, error) {
+	if strings.TrimSpace(ownerGeneration) == "" {
+		return "", errors.New("funding recovery takeover owner generation is required")
+	}
+	normalized, err := normalizeFundingCarryGenerationScopes(scopes)
+	if err != nil {
+		return "", err
+	}
+	return recoveryOwnerTakeoverRequestHashForOwner(ownerGeneration, normalized, auth)
 }
 
 func readFundingRecoveryEpisodeTx(ctx context.Context, tx *sql.Tx, episodeID string) (accounting.RecoveryEpisode, error) {
@@ -2284,6 +2326,344 @@ func sameRecoveryChildOwner(a, b accounting.RecoveryChild) bool {
 	return a.ID == b.ID && a.EpisodeID == b.EpisodeID && a.Role == b.Role && a.Exchange == b.Exchange && a.Market == b.Market && a.AccountScope == b.AccountScope && a.Bot == b.Bot && a.Symbol == b.Symbol && a.StrategyName == b.StrategyName && a.StrategyType == b.StrategyType && a.ClientOrderID == b.ClientOrderID && a.OrderIntentHash == b.OrderIntentHash && a.SourceIntentHash == b.SourceIntentHash && a.Side == b.Side
 }
 func canonicalHash(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
+
+// fundingRecoveryProjection is the durable, complete business projection
+// protected by a recovery outbox hash. Keep its field order and tags stable:
+// pending records written before semantic hashing used json.Marshal on this
+// exact shape, and must remain recoverable after a database JSON round-trip.
+type fundingRecoveryProjection struct {
+	Episode                 accounting.RecoveryEpisode       `json:"episode"`
+	Children                []accounting.RecoveryChild       `json:"children"`
+	Events                  []accounting.RecoveryEvent       `json:"events"`
+	SourceCursor            *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+	ExpectedRuntimeRevision string                           `json:"expected_runtime_revision,omitempty"`
+}
+
+// VerifyFundingRecoveryReceiptOutboxPair checks that a durable receipt and its
+// outbox describe the same operation and projection state. It is intentionally
+// read-only so callers can run it before touching runtime state.
+func VerifyFundingRecoveryReceiptOutboxPair(receipt accounting.RecoveryReceipt, outbox accounting.RecoveryOutbox) error {
+	return verifyFundingRecoveryReceiptOutboxPair(receipt, outbox, 1)
+}
+
+// VerifyFundingRecoveryOwnerTakeoverReceipt binds the receipt to the exact
+// audited takeover record and recomputes the original idempotency request hash.
+func VerifyFundingRecoveryOwnerTakeoverReceipt(episode accounting.RecoveryEpisode, takeover accounting.RecoveryOwnerTakeoverRecord,
+	receipt accounting.RecoveryReceipt) error {
+	if episode.ID == "" || episode.RecoveryGeneration == 0 || takeover.EpisodeRevision == 0 || takeover.CreatedAt.IsZero() ||
+		takeover.OperationID == "" || takeover.Actor == "" || takeover.AuditRef == "" || takeover.EvidenceHash == "" ||
+		takeover.PreviousOwnerGeneration == "" || takeover.OwnerGeneration == "" || takeover.PreviousOwnerGeneration == takeover.OwnerGeneration ||
+		receipt.EpisodeID != episode.ID || receipt.OperationID != takeover.OperationID || receipt.RequestHash == "" || receipt.CreatedAt.IsZero() ||
+		receipt.Actor != takeover.Actor || receipt.AuditRef != takeover.AuditRef || receipt.EvidenceHash != takeover.EvidenceHash ||
+		receipt.ProjectionHash != takeover.EvidenceHash || receipt.RecoveryGeneration != episode.RecoveryGeneration ||
+		receipt.State != accounting.RecoveryBlocked || receipt.OwnerGeneration != takeover.OwnerGeneration ||
+		receipt.PreviousOwnerGeneration != takeover.PreviousOwnerGeneration || receipt.EpisodeRevision != takeover.EpisodeRevision {
+		return accounting.ErrRecoveryConflict
+	}
+	if takeover.EpisodeRevision > accounting.MaxDurableRecoveryRevision {
+		return accounting.ErrRecoveryConflict
+	}
+	scopes, err := normalizeFundingCarryGenerationScopes(episode.AccountScopes)
+	if err != nil {
+		return err
+	}
+	authorization := accounting.RecoveryOwnerTakeoverAuthorization{EpisodeID: episode.ID, OperationID: takeover.OperationID,
+		Actor: takeover.Actor, AuditRef: takeover.AuditRef, ExpectedOwnerGeneration: takeover.PreviousOwnerGeneration,
+		ExpectedEpisodeRevision: takeover.EpisodeRevision - 1, Confirmed: true}
+	expectedHash, err := recoveryOwnerTakeoverRequestHashForOwner(takeover.OwnerGeneration, scopes, authorization)
+	if err != nil || expectedHash != receipt.RequestHash {
+		return errors.Join(errors.New("owner takeover receipt request hash mismatch"), err)
+	}
+	return nil
+}
+
+// VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover is for a caller
+// that has already validated the exact owner-takeover record against the
+// projected episode. It permits only the single additional episode revision
+// created by that takeover; ordinary callers must use the strict helper above.
+func VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt accounting.RecoveryReceipt,
+	outbox accounting.RecoveryOutbox, episode accounting.RecoveryEpisode) error {
+	if err := verifyFundingRecoveryReceiptOutboxPair(receipt, outbox, 2); err != nil {
+		return err
+	}
+	if episode.ID != outbox.EpisodeID || episode.Revision < receipt.EpisodeRevision ||
+		!episode.HasCurrentOwnerTakeover() {
+		return errors.New("projected recovery receipt revision lacks a current owner takeover")
+	}
+	var projection fundingRecoveryProjection
+	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
+		return err
+	}
+	takeover := episode.OwnerTakeovers[len(episode.OwnerTakeovers)-1]
+	if outbox.TargetEpisodeRevision >= accounting.MaxDurableRecoveryRevision || takeover.EpisodeRevision != outbox.TargetEpisodeRevision+1 ||
+		takeover.OwnerGeneration != episode.OwnerGeneration || takeover.OperationID == "" || takeover.Actor == "" || takeover.AuditRef == "" || takeover.EvidenceHash == "" ||
+		takeover.PreviousOwnerGeneration == "" || takeover.PreviousOwnerGeneration == takeover.OwnerGeneration ||
+		projection.Episode.ID != episode.ID || projection.Episode.Revision != outbox.TargetEpisodeRevision ||
+		projection.Episode.OwnerGeneration != takeover.PreviousOwnerGeneration || projection.Episode.State != accounting.RecoveryLedgerCommitted ||
+		receipt.OwnerGeneration != projection.Episode.OwnerGeneration {
+		return errors.New("projected recovery receipt does not match the audited takeover record")
+	}
+	if err := VerifyFundingRecoveryOwnerTakeoverReceipt(episode, takeover, takeoverReceipt); err != nil {
+		return fmt.Errorf("owner takeover receipt does not match the audited takeover record: %w", err)
+	}
+	prior := projection.Episode
+	comparable := episode
+	comparable.OwnerGeneration = prior.OwnerGeneration
+	comparable.Revision = prior.Revision
+	comparable.State = prior.State
+	comparable.UpdatedAt = prior.UpdatedAt
+	comparable.OwnerTakeovers = append([]accounting.RecoveryOwnerTakeoverRecord(nil), episode.OwnerTakeovers[:len(episode.OwnerTakeovers)-1]...)
+	if !reflect.DeepEqual(comparable, prior) {
+		return errors.New("projected recovery receipt takeover changed unrelated episode fields")
+	}
+	return nil
+}
+
+func verifyFundingRecoveryReceiptOutboxPair(receipt accounting.RecoveryReceipt, outbox accounting.RecoveryOutbox, projectedRevisionDelta uint64) error {
+	if receipt.EpisodeID == "" || receipt.OperationID == "" || receipt.EpisodeID != outbox.EpisodeID ||
+		receipt.OperationID != outbox.OperationID || receipt.ProjectionHash == "" ||
+		receipt.ProjectionHash != outbox.ProjectionHash || outbox.TargetEpisodeRevision == 0 {
+		return errors.New("recovery receipt/outbox identity or projection hash mismatch")
+	}
+	if err := VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return fmt.Errorf("verify recovery receipt/outbox payload: %w", err)
+	}
+	if err := VerifyFundingRecoveryOutboxRuntimeRevision(outbox, outbox.ProjectionPayload); err != nil {
+		return err
+	}
+	switch outbox.State {
+	case accounting.RecoveryProjectionPending:
+		if receipt.State != accounting.RecoveryLedgerCommitted || receipt.EpisodeRevision != outbox.TargetEpisodeRevision ||
+			outbox.AppliedOperationID != "" || outbox.AppliedRevision != 0 || outbox.AppliedHash != "" {
+			return errors.New("pending recovery outbox does not match ledger-committed receipt")
+		}
+	case accounting.RecoveryProjected:
+		if receipt.State != accounting.RecoveryProjected || receipt.EpisodeRevision <= outbox.TargetEpisodeRevision ||
+			receipt.EpisodeRevision-outbox.TargetEpisodeRevision != projectedRevisionDelta || outbox.AppliedOperationID != outbox.OperationID ||
+			outbox.AppliedRevision != outbox.TargetEpisodeRevision || outbox.AppliedHash != outbox.ProjectionHash {
+			return errors.New("projected recovery outbox does not match projected receipt")
+		}
+	default:
+		return errors.New("recovery outbox has unsupported projection state")
+	}
+	return nil
+}
+
+func VerifyFundingRecoveryOutboxRuntimeRevision(outbox accounting.RecoveryOutbox, payload []byte) error {
+	var projection fundingRecoveryProjection
+	if err := json.Unmarshal(payload, &projection); err != nil {
+		return err
+	}
+	if projection.ExpectedRuntimeRevision == "" {
+		return errors.New("legacy recovery outbox runtime revision is not hash-bound; manual reconciliation is required")
+	}
+	if projection.ExpectedRuntimeRevision != outbox.ExpectedRuntimeRevision {
+		return errors.New("recovery outbox runtime revision differs from its hashed projection")
+	}
+	return nil
+}
+
+// fundingRecoveryProjectionHash hashes canonical JSON semantics instead of
+// serializer-specific bytes. MySQL's native JSON column may reorder object
+// keys and rewrite numeric spelling while preserving the represented value.
+func fundingRecoveryProjectionHash(payload []byte) (string, error) {
+	canonical, err := canonicalRecoveryJSON(payload)
+	if err != nil {
+		return "", fmt.Errorf("canonicalize recovery projection: %w", err)
+	}
+	digest := sha256.Sum256(canonical)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// FundingRecoveryProjectionHash returns the semantic hash used by durable
+// recovery outboxes. Callers creating replay fixtures or verifying exported
+// evidence should use this rather than hashing serializer-specific bytes.
+func FundingRecoveryProjectionHash(payload []byte) (string, error) {
+	return fundingRecoveryProjectionHash(payload)
+}
+
+// VerifyFundingRecoveryProjectionHash accepts the current semantic hash and
+// the legacy json.Marshal hash only when the stored payload is semantically
+// identical to the complete legacy projection shape. The second check keeps
+// already-persisted pending outboxes recoverable without trusting a hash
+// detached from its payload; unknown or changed JSON fields are not discarded.
+func VerifyFundingRecoveryProjectionHash(payload []byte, expected string) error {
+	semanticHash, err := fundingRecoveryProjectionHash(payload)
+	if err != nil {
+		return err
+	}
+	// Native MySQL JSON readback is compact; surrounding whitespace here is a
+	// caller-side byte change, not the database's object-key/number rewrite.
+	if !bytes.Equal(bytes.TrimSpace(payload), payload) {
+		return errors.New("legacy recovery projection byte hash mismatch")
+	}
+
+	var projection fundingRecoveryProjection
+	if err = json.Unmarshal(payload, &projection); err != nil {
+		return err
+	}
+	legacyPayload, err := json.Marshal(projection)
+	if err != nil {
+		return err
+	}
+	originalCanonical, err := canonicalRecoveryJSON(payload)
+	if err != nil {
+		return err
+	}
+	legacyCanonical, err := canonicalRecoveryJSON(legacyPayload)
+	if err != nil {
+		return err
+	}
+	legacyDigest := sha256.Sum256(legacyPayload)
+	if bytes.Equal(originalCanonical, legacyCanonical) {
+		if semanticHash == expected || hex.EncodeToString(legacyDigest[:]) == expected || canonicalHash(payload) == expected {
+			return nil
+		}
+		return errors.New("legacy recovery projection hash mismatch")
+	}
+
+	// Older replay records may have been hashed directly from an equivalent
+	// projection that omitted a nil children field. Accept that exact-byte
+	// digest only when decoding and re-encoding the known schema (with that one
+	// nil field omitted) proves there are no unrecognized or changed fields.
+	legacyWithoutNilChildren, err := json.Marshal(struct {
+		Episode      accounting.RecoveryEpisode       `json:"episode"`
+		Children     []accounting.RecoveryChild       `json:"children,omitempty"`
+		Events       []accounting.RecoveryEvent       `json:"events"`
+		SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+	}{projection.Episode, projection.Children, projection.Events, projection.SourceCursor})
+	if err != nil {
+		return err
+	}
+	legacyWithoutNilChildrenCanonical, err := canonicalRecoveryJSON(legacyWithoutNilChildren)
+	if err != nil {
+		return err
+	}
+	if projection.Children == nil && bytes.Equal(originalCanonical, legacyWithoutNilChildrenCanonical) && canonicalHash(legacyWithoutNilChildren) == expected {
+		return nil
+	}
+	return errors.New("recovery projection contains fields outside the legacy hash shape")
+}
+
+// canonicalRecoveryJSON parses JSON without float64 conversion, rejects
+// duplicate keys, sorts object members, preserves array order, and normalizes
+// equivalent numeric spellings. This makes the digest stable across native
+// JSON serializers without omitting any semantic payload content.
+func canonicalRecoveryJSON(payload []byte) ([]byte, error) {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	value, err := readCanonicalRecoveryJSONValue(decoder)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = decoder.Token(); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, errors.New("multiple JSON values")
+		}
+		return nil, err
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	return encoded, nil
+}
+
+func readCanonicalRecoveryJSONValue(decoder *json.Decoder) (any, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	switch value := token.(type) {
+	case json.Delim:
+		switch value {
+		case '{':
+			object := make(map[string]any)
+			for decoder.More() {
+				keyToken, keyErr := decoder.Token()
+				if keyErr != nil {
+					return nil, keyErr
+				}
+				key, ok := keyToken.(string)
+				if !ok {
+					return nil, errors.New("recovery JSON object key is not a string")
+				}
+				if _, duplicate := object[key]; duplicate {
+					return nil, fmt.Errorf("duplicate recovery JSON object key %q", key)
+				}
+				item, itemErr := readCanonicalRecoveryJSONValue(decoder)
+				if itemErr != nil {
+					return nil, itemErr
+				}
+				object[key] = item
+			}
+			if _, err = decoder.Token(); err != nil {
+				return nil, err
+			}
+			return object, nil
+		case '[':
+			array := make([]any, 0)
+			for decoder.More() {
+				item, itemErr := readCanonicalRecoveryJSONValue(decoder)
+				if itemErr != nil {
+					return nil, itemErr
+				}
+				array = append(array, item)
+			}
+			if _, err = decoder.Token(); err != nil {
+				return nil, err
+			}
+			return array, nil
+		default:
+			return nil, fmt.Errorf("unexpected recovery JSON delimiter %q", value)
+		}
+	case json.Number:
+		number, numberErr := canonicalRecoveryJSONNumber(value.String())
+		if numberErr != nil {
+			return nil, numberErr
+		}
+		return json.Number(number), nil
+	case string, bool, nil:
+		return value, nil
+	default:
+		return nil, fmt.Errorf("unexpected recovery JSON token type %T", token)
+	}
+}
+
+// canonicalRecoveryJSONNumber expresses a JSON number as an integer
+// coefficient times a power of ten. It avoids floating point and therefore
+// keeps large revisions and decimal evidence exact.
+func canonicalRecoveryJSONNumber(number string) (string, error) {
+	negative := strings.HasPrefix(number, "-")
+	if negative {
+		number = number[1:]
+	}
+	exponent := new(big.Int)
+	if index := strings.IndexAny(number, "eE"); index >= 0 {
+		if _, ok := exponent.SetString(number[index+1:], 10); !ok {
+			return "", errors.New("invalid recovery JSON number exponent")
+		}
+		number = number[:index]
+	}
+	if point := strings.IndexByte(number, '.'); point >= 0 {
+		fractionLength := big.NewInt(int64(len(number) - point - 1))
+		number = number[:point] + number[point+1:]
+		exponent.Sub(exponent, fractionLength)
+	}
+	digits := strings.TrimLeft(number, "0")
+	if digits == "" {
+		return "0e0", nil
+	}
+	for len(digits) > 1 && digits[len(digits)-1] == '0' {
+		digits = digits[:len(digits)-1]
+		exponent.Add(exponent, big.NewInt(1))
+	}
+	prefix := ""
+	if negative {
+		prefix = "-"
+	}
+	return prefix + digits + "e" + exponent.String(), nil
+}
 func containsString(items []string, want string) bool {
 	for _, item := range items {
 		if item == want {

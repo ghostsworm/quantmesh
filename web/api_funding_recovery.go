@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"reflect"
@@ -384,7 +385,19 @@ func (s *OrderReconciliationService) ApplyFundingRecoveryIncome(ctx context.Cont
 	}
 	var cursor accounting.RecoverySourceCursor
 	if result.Replayed {
-		cursor, err = fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, status.Episode)
+		var takeoverReceipt accounting.RecoveryReceipt
+		if receipt.EpisodeRevision > outbox.TargetEpisodeRevision && receipt.EpisodeRevision-outbox.TargetEpisodeRevision == 2 {
+			if len(status.Episode.OwnerTakeovers) == 0 {
+				return FundingRecoveryIncomeReadback{}, errors.New("funding-income replay has no matching takeover receipt")
+			}
+			takeover := status.Episode.OwnerTakeovers[len(status.Episode.OwnerTakeovers)-1]
+			var takeoverFound bool
+			takeoverReceipt, takeoverFound, err = s.Recovery.GetRecoveryReceipt(ctx, status.Episode.ID, takeover.OperationID)
+			if err != nil || !takeoverFound {
+				return FundingRecoveryIncomeReadback{}, errors.Join(errors.New("funding-income replay takeover receipt readback failed"), err)
+			}
+		}
+		cursor, err = fundingIncomeReplayCursorSnapshot(outbox, receipt, takeoverReceipt, request, result, status.Episode)
 		if err != nil {
 			return FundingRecoveryIncomeReadback{}, err
 		}
@@ -476,7 +489,7 @@ func (s *OrderReconciliationService) ApplyFundingRecoveryAnomalyAdjustment(ctx c
 		Anomaly: anomaly, Verified: true}, nil
 }
 
-func fundingIncomeReplayCursorSnapshot(outbox accounting.RecoveryOutbox, receipt accounting.RecoveryReceipt,
+func fundingIncomeReplayCursorSnapshot(outbox accounting.RecoveryOutbox, receipt, takeoverReceipt accounting.RecoveryReceipt,
 	request strategy.ApplyFundingRecoveryIncomeRequest, result strategy.ApplyFundingRecoveryIncomeResult,
 	currentEpisode accounting.RecoveryEpisode) (accounting.RecoverySourceCursor, error) {
 	if request.ExpectedEpisodeRevision >= accounting.MaxDurableRecoveryRevision-1 || result.SourceWindow.ExpectedRevision == ^uint64(0) ||
@@ -484,8 +497,7 @@ func fundingIncomeReplayCursorSnapshot(outbox accounting.RecoveryOutbox, receipt
 		outbox.TargetEpisodeRevision != request.ExpectedEpisodeRevision+1 || receipt.State != accounting.RecoveryProjected {
 		return accounting.RecoverySourceCursor{}, errors.New("funding-income replay receipt/outbox revision does not match the original request")
 	}
-	payloadHash := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(payloadHash[:]) != outbox.ProjectionHash || receipt.ProjectionHash != outbox.ProjectionHash {
+	if storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash) != nil || outbox.State != accounting.RecoveryProjected {
 		return accounting.RecoverySourceCursor{}, errors.New("funding-income replay outbox payload hash does not match its receipt")
 	}
 	var snapshot struct {
@@ -503,6 +515,15 @@ func fundingIncomeReplayCursorSnapshot(outbox accounting.RecoveryOutbox, receipt
 		snapshot.SourceCursor.Revision != result.SourceWindow.ExpectedRevision+1 || snapshot.SourceCursor.Identity().Validate() != nil ||
 		snapshot.SourceCursor.RecoverySourceWindow.Validate() != nil {
 		return accounting.RecoverySourceCursor{}, errors.New("funding-income replay outbox snapshot does not match its receipt and source facts")
+	}
+	var pairErr error
+	if receipt.EpisodeRevision-outbox.TargetEpisodeRevision == 2 {
+		pairErr = storage.VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt, outbox, currentEpisode)
+	} else {
+		pairErr = storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox)
+	}
+	if pairErr != nil {
+		return accounting.RecoverySourceCursor{}, fmt.Errorf("funding-income replay receipt/outbox mismatch: %w", pairErr)
 	}
 	return *snapshot.SourceCursor, nil
 }

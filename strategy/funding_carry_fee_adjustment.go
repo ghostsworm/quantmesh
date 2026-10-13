@@ -13,6 +13,7 @@ import (
 
 	"quantmesh/accounting"
 	"quantmesh/exchange"
+	"quantmesh/storage"
 )
 
 const fundingRecoveryManualFeeSource = accounting.RecoveryManualFeeAdjustmentSource
@@ -192,7 +193,16 @@ func (s *FundingCarryStrategy) readFundingRecoveryFeeAdjustmentRetry(ctx context
 	if err != nil || !found {
 		return ApplyFundingRecoveryFeeAdjustmentResult{}, false, errors.Join(errors.New("fee adjustment receipt has no outbox"), err)
 	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox); err != nil {
+		return ApplyFundingRecoveryFeeAdjustmentResult{}, false, fmt.Errorf("verify funding fee response-loss outbox receipt/outbox: %w", err)
+	}
+	if outbox.State == accounting.RecoveryProjected && receipt.EpisodeRevision != outbox.TargetEpisodeRevision+1 {
+		return ApplyFundingRecoveryFeeAdjustmentResult{}, false, accounting.ErrRecoveryOperationConflict
+	}
 	var projection fundingCarryRecoveryProjectionPayload
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return ApplyFundingRecoveryFeeAdjustmentResult{}, false, fmt.Errorf("verify funding fee response-loss outbox: %w", err)
+	}
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil || len(projection.Children) != 1 || len(projection.Events) != 1 ||
 		outbox.TargetEpisodeRevision != request.ExpectedEpisodeRevision+1 {
 		return ApplyFundingRecoveryFeeAdjustmentResult{}, false, errors.Join(errors.New("fee adjustment response-loss outbox is invalid"), err)

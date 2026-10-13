@@ -569,6 +569,23 @@ func (s *FundingCarryStrategy) verifyFundingRecoveryFillProjection(ctx context.C
 	if outbox.State != accounting.RecoveryProjected || outbox.AppliedOperationID != outbox.OperationID || outbox.AppliedRevision != outbox.TargetEpisodeRevision || outbox.AppliedHash != outbox.ProjectionHash {
 		return errors.New("projected FundingCarry fill outbox readback does not match its immutable receipt")
 	}
+	receipt, found, err := binding.store.GetRecoveryReceipt(ctx, outbox.EpisodeID, outbox.OperationID)
+	if err != nil || !found {
+		return errors.Join(errors.New("projected FundingCarry fill outbox has no durable receipt"), err)
+	}
+	pairErr := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox)
+	if pairErr != nil && receipt.EpisodeRevision > outbox.TargetEpisodeRevision &&
+		receipt.EpisodeRevision-outbox.TargetEpisodeRevision == 2 && episode.HasCurrentOwnerTakeover() {
+		takeover := episode.OwnerTakeovers[len(episode.OwnerTakeovers)-1]
+		takeoverReceipt, takeoverFound, takeoverErr := binding.store.GetRecoveryReceipt(ctx, episode.ID, takeover.OperationID)
+		if takeoverErr != nil || !takeoverFound {
+			return errors.Join(errors.New("projected FundingCarry replay takeover receipt unavailable"), takeoverErr, pairErr)
+		}
+		pairErr = storage.VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt, outbox, episode)
+	}
+	if pairErr != nil {
+		return fmt.Errorf("projected FundingCarry outbox receipt/runtime revision mismatch: %w", pairErr)
+	}
 	reader, ok := binding.stateStore.(RuntimeStateContextReader)
 	if !ok {
 		return errors.New("projected FundingCarry fill outbox requires runtime readback")
@@ -582,6 +599,9 @@ func (s *FundingCarryStrategy) verifyFundingRecoveryFillProjection(ctx context.C
 		return err
 	}
 	var projection fundingCarryRecoveryProjectionPayload
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return fmt.Errorf("verify projected FundingCarry fill outbox: %w", err)
+	}
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
 		return err
 	}
@@ -609,7 +629,16 @@ func (s *FundingCarryStrategy) readFundingRecoveryFillOperationRetry(ctx context
 	if err != nil || !found {
 		return ApplyFundingRecoveryFillsResult{}, false, errors.Join(errors.New("response-loss retry receipt has no matching outbox"), err)
 	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox); err != nil {
+		return ApplyFundingRecoveryFillsResult{}, false, fmt.Errorf("verify FundingCarry fill response-loss outbox receipt/outbox: %w", err)
+	}
+	if outbox.State == accounting.RecoveryProjected && receipt.EpisodeRevision != outbox.TargetEpisodeRevision+1 {
+		return ApplyFundingRecoveryFillsResult{}, false, accounting.ErrRecoveryOperationConflict
+	}
 	var projection fundingCarryRecoveryProjectionPayload
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return ApplyFundingRecoveryFillsResult{}, false, fmt.Errorf("verify FundingCarry fill response-loss outbox: %w", err)
+	}
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil || projection.Episode.ID != request.EpisodeID || len(projection.Children) != 1 {
 		return ApplyFundingRecoveryFillsResult{}, false, errors.Join(errors.New("response-loss retry outbox payload is invalid"), err)
 	}

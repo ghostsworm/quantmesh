@@ -280,9 +280,8 @@ func (s *FundingCarryStrategy) readFundingRecoveryIncomeRetry(ctx context.Contex
 	if err != nil || !found || (outbox.State != accounting.RecoveryProjectionPending && outbox.State != accounting.RecoveryProjected) {
 		return ApplyFundingRecoveryIncomeResult{}, true, errors.Join(errors.New("funding-income retry has no valid durable outbox"), err)
 	}
-	digest := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(digest[:]) != outbox.ProjectionHash {
-		return ApplyFundingRecoveryIncomeResult{}, true, errors.New("funding-income retry outbox payload hash mismatch")
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return ApplyFundingRecoveryIncomeResult{}, true, fmt.Errorf("funding-income retry projection hash mismatch: %w", err)
 	}
 	var projection fundingCarryRecoveryProjectionPayload
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
@@ -304,6 +303,19 @@ func (s *FundingCarryStrategy) readFundingRecoveryIncomeRetry(ctx context.Contex
 	}
 	if err := validateFundingIncomeRetryRevision(receipt, outbox, request, projection.Episode, currentEpisode); err != nil {
 		return ApplyFundingRecoveryIncomeResult{}, true, err
+	}
+	if receipt.EpisodeRevision-outbox.TargetEpisodeRevision == 2 {
+		takeover := currentEpisode.OwnerTakeovers[len(currentEpisode.OwnerTakeovers)-1]
+		takeoverReceipt, takeoverFound, takeoverErr := binding.store.GetRecoveryReceipt(ctx, currentEpisode.ID, takeover.OperationID)
+		if takeoverErr != nil || !takeoverFound {
+			return ApplyFundingRecoveryIncomeResult{}, true, errors.Join(errors.New("funding-income replay takeover receipt unavailable"), takeoverErr)
+		}
+		err = storage.VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt, outbox, currentEpisode)
+	} else {
+		err = storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox)
+	}
+	if err != nil {
+		return ApplyFundingRecoveryIncomeResult{}, true, fmt.Errorf("funding-income retry receipt/outbox mismatch: %w", err)
 	}
 	currentScopes, scopeErr := normalizeFundingCarryRecoveryScopes(currentEpisode.AccountScopes)
 	if scopeErr != nil || !equalFundingCarryRecoveryScopes(currentScopes, binding.scopeKeys) {

@@ -1,5 +1,17 @@
 # Changelog
 
+## [3.111.0-rc1187] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 修复 MySQL 原生 JSON 对 FundingRecovery outbox payload 规范化后，按原始字节哈希校验导致待投影恢复被拒绝的问题。新哈希基于完整语义投影的精确 JSON 规范化；保留旧 payload 的 hash 读取/审计兼容，但缺少 runtime revision 哈希绑定的旧 pending 记录 fail-closed 并转人工核账。SHA-256 只检测未同步篡改，不是抵御可改写所有哈希字段的数据库管理员的 MAC。
+- 将新写入 outbox 的 `ExpectedRuntimeRevision` 纳入投影哈希，并在 receipt/outbox 配对和 takeover 候选/待处理核验中交叉核对，阻止持久化层单独改写 CAS revision 后进入 runtime CAS。
+
+### Test
+- 增加 JSON 规范化精度、重复键/尾随值拒绝、旧 pending 记录兼容、MySQL JSON round-trip、投影/CAS revision 篡改及异常竞争测试；生产 FundingCarry projector 在 CAS 前拒绝被改写的外层 revision。本地定向测试通过；MySQL 专项需由同 SHA 远端 CI 实际验收。
+
+### Verification
+- `go vet ./...`、`git diff --check` 及 storage/strategy/web 定向用例通过。一次无 loopback 权限的全仓 Go 测试因 httptest 监听权限失败，随后提权重跑在链接阶段被中断；前端 `yarn verify` 测试通过但构建阶段被中断。新增 CAS revision 复核修复后，全量 Go、前端完整构建及同 SHA GitHub MySQL/完整 CI 尚未完成；本版本尚未提交、推送或发布。
+
 ## [3.111.0-rc1186] - 2026-10-13（开发中，未发布）
 
 ### Test
