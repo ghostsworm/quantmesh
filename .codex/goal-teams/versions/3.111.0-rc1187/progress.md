@@ -44,3 +44,10 @@
 - 定向 storage/strategy 用例通過；`go vet ./...`、`git diff --check` 通過。全倉 Go 首次執行受沙箱 loopback 監聽限制而有無關 httptest 失敗；提權重跑及前端 yarn verify 曾在完成前被中止（前端 318 項測試已通過，build 尚未完成）。需對最終 combined diff 重跑。
 - 使用者已確認舊格式採 fail-closed：`VerifyFundingRecoveryProjectionHash` 保留舊 payload hash 唯讀稽核相容，但 receipt/outbox pair、投影標記及 takeover pending/candidate 無新綁定字段即拒絕，自動投影/重放必須轉人工核帳。新增單測斷言舊 hash 可讀、pair 以人工核帳原因拒絕。
 - 未提交、未推送、未發布、未打 tag；MySQL DSN 未配置，MySQL 專項和同 SHA 遠端 CI 未驗收。
+
+## RC1188 MySQL CI fixture 修正
+
+- PR #9 上 RC1187 SHA `997ea94fcb460fd0e9190656d48057feb47219b7` 的 GitHub Actions run `38365627479` 使用 MySQL 8.0.36；前端測試通過，但 `go test` 在 `TestMySQLFundingRecoveryOutboxJSONRoundTripAndLegacyHashBoundProjection` 與 `TestMySQLFundingRecoveryOutboxReorderedLegacyProjectionWithOmittedNilChildrenFailsClosed` 失敗。兩處錯誤均為 `Error 3141`，原因是 fixture 把未加引號的 64 位 `legacyHash` 當 JSON 文檔 `CAST(? AS JSON)`；並非 production projection payload JSON 無效。
+- QA-MySQL夾具故障核驗獨立確認最小修正：`projection_payload` 繼續 `CAST(? AS JSON)`，`projection_hash` 改用普通字串 SQL 參數，讓 `JSON_SET` 將其保存為 JSON string。生產程式、schema、哈希/receipt/CAS/Gate 校驗不變。
+- RC1188 已同步到 `main.go`、`webui/package.json`、兩份產品概覽及 `CHANGELOG.md`。本地 `go test -p=2 ./... -count=1 -timeout=30m`（允許 httptest 回環綁定）、`go vet ./...`、WebUI `yarn verify` 與 `git diff --check` 通過；RC1188 兩個 MySQL 用例因本機無 `QUANTMESH_MYSQL_TEST_DSN` 明確 skip，不計通過。本機沒有啟動 MySQL 服務。
+- 評審-MySQL夾具修復安全複核未發現程式缺陷：SQL 將 projection hash 作 JSON string 寫入、projection payload 繼續作 JSON object 寫入；無生產程式/schema/hash/CAS/Gate 變更。RC1187 原失敗不代表 RC1188 通過；尚需新 SHA 遠端 MySQL 8.0.36 與完整 CI 全綠後才可結案/考慮後續發布。

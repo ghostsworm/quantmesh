@@ -18,7 +18,7 @@
 6. MySQL seed/cursor projection、異常調整競爭與 retry 都通過；只有一個 adjustment 勝者，loser 不產生 receipt/outbox/ledger、推進 cursor 或釋放 hold。
 7. 本地 SQLite/storage/全套 Go、race、`go vet ./...`、前端 typecheck/tests/build 通過。
 8. 推送後同 SHA MySQL 8.0.36 專項與完整 CI/race/build 均成功；CI 失敗須修復新提交並重跑，不能復用舊 SHA 結果。
-9. `main.go`、`webui/package.json`、Changelog、必要 Product Overview 版本一致為 `3.111.0-rc1187`；只有 CI 綠後才可 tag/release。
+9. RC1188 的 MySQL fixtures 必須把 projection payload 寫成 JSON object、把 64 位 projection hash 寫成 JSON string；`main.go`、`webui/package.json`、Changelog、必要 Product Overview 版本一致為 `3.111.0-rc1188`。只有修復後新 SHA 的 MySQL 與完整 CI 全綠才可 tag/release。
 
 ## 不屬於驗收
 

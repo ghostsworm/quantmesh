@@ -50,7 +50,7 @@ func TestMySQLFundingRecoveryOutboxJSONRoundTripAndLegacyHashBoundProjection(t *
 	if err != nil {
 		t.Fatal("marshal legacy recovery receipt:", err)
 	}
-	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_outbox SET projection_hash=?,payload_json=JSON_SET(payload_json,'$.projection_payload',CAST(? AS JSON),'$.projection_hash',CAST(? AS JSON)) WHERE episode_id=? AND operation_id=?`, legacyHash, string(legacyPayload), legacyHash, episode.ID, operation.OperationID); err != nil {
+	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_outbox SET projection_hash=?,payload_json=JSON_SET(payload_json,'$.projection_payload',CAST(? AS JSON),'$.projection_hash',?) WHERE episode_id=? AND operation_id=?`, legacyHash, string(legacyPayload), legacyHash, episode.ID, operation.OperationID); err != nil {
 		t.Fatal("persist legacy pending payload through MySQL JSON:", err)
 	}
 	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_operations SET receipt_json=? WHERE episode_id=? AND operation_id=?`, receiptJSON, episode.ID, operation.OperationID); err != nil {
@@ -110,7 +110,7 @@ func TestMySQLFundingRecoveryOutboxReorderedLegacyProjectionWithOmittedNilChildr
 	if err != nil {
 		t.Fatal("marshal historical receipt:", err)
 	}
-	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_outbox SET projection_hash=?,payload_json=JSON_SET(payload_json,'$.projection_payload',CAST(? AS JSON),'$.projection_hash',CAST(? AS JSON)) WHERE episode_id=? AND operation_id=?`, legacyHash, string(legacyPayload), legacyHash, episode.ID, operation.OperationID); err != nil {
+	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_outbox SET projection_hash=?,payload_json=JSON_SET(payload_json,'$.projection_payload',CAST(? AS JSON),'$.projection_hash',?) WHERE episode_id=? AND operation_id=?`, legacyHash, string(legacyPayload), legacyHash, episode.ID, operation.OperationID); err != nil {
 		t.Fatal("persist reordered historical projection through MySQL JSON:", err)
 	}
 	if _, err := fixture.store.db.ExecContext(ctx, `UPDATE funding_recovery_operations SET receipt_json=? WHERE episode_id=? AND operation_id=?`, receiptJSON, episode.ID, operation.OperationID); err != nil {

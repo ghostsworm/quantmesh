@@ -5,11 +5,11 @@
 | ID | 成員 | 狀態 | 鎖定範圍 | 完成標準 | 驗證責任 |
 |---|---|---|---|---|---|
 | T01 | 後端-完整哈希調用鏈修復 | 實作完成，待終審 | `storage/funding_recovery.go`、FundingCarry durable projection/replay/takeover callers | 共用 semantic/legacy verifier 覆蓋投影與 durable replay；receipt/outbox CAS 前驗證；target+2 takeover 證據完整；新 outbox runtime revision 位於 hashed projection 並與外層值相等 | QA 定向/整合測試通過；T03 最終唯讀複核 |
-| T02 | QA-恢復投影邊界驗收 | 測試完成，待全套門禁 | storage/strategy integrity tests | receipt-only/runtime-revision mismatch 無副作用；target+2 takeover/refusal；unknown-field matching-hash；MySQL legacy fixture；pending/completed replay tamper fail-closed | 定向 storage/strategy 測試通過；需最終全套與 MySQL CI |
+| T02 | QA-恢復投影邊界驗收 | 定向測試完成；MySQL CI 暴露 fixture CAST 錯誤，RC1188 修復後待重驗 | storage/strategy integrity tests | receipt-only/runtime-revision mismatch 無副作用；target+2 takeover/refusal；unknown-field matching-hash；MySQL legacy fixture；pending/completed replay tamper fail-closed | 定向 storage/strategy 測試通過；RC1187 同 SHA MySQL 8.0.36 實際失敗，須由 RC1188 新 SHA 全套 CI 重驗 |
 | T03 | 評審-恢復哈希邊界終審 | 第二輪複核中 | 唯讀 | 關閉 P1/P2，另審 ExpectedRuntimeRevision hash binding 與 legacy payload 相容邊界 | Lead 最終接受/退回 |
 | T04 | Goal Lead | 進行中 | 版本、變更記錄、整合、delivery | 本地門禁通過後提交並推送；同 SHA 遠端 MySQL/完整 CI 綠後才 tag/release；保留既有未跟蹤項目 | 本地全套 + 遠端 CI evidence |
 
-目前狀態：完整調用鏈與新增 CAS revision 綁定已實作；使用者已選擇舊格式缺欄位時拒絕自動投影/重放並轉人工核帳。storage/strategy 定向套件和相關 producer-route 測試通過，`go vet ./...`、`git diff --check` 通過。全倉 Go 與前端 build 必須在最終差異上完整重跑；之前的全倉測試一次因沙箱 loopback 權限失敗、一次被中斷，前端測試 318 項通過但 build 被中斷，均不計完整門禁通過。MySQL 等待同 SHA CI；T03 需複核 fail-closed legacy 分支。未提交、未推送、未發布、未打 tag。
+目前狀態：完整調用鏈與新增 CAS revision 綁定已實作；使用者已選擇舊格式缺欄位時拒絕自動投影/重放並轉人工核帳。PR #9 的 RC1187 SHA `997ea94fcb460fd0e9190656d48057feb47219b7` 已實際啟動 MySQL 8.0.36；前端測試通過，但 Go 測試在本文件所列兩個 fixture 的 `CAST(? AS JSON)` 哈希參數失敗，靜態分析/race/build 隨後跳過。RC1188 僅把 hash JSON_SET value 改為普通字串參數，保留 projection JSON CAST 和所有生產 fail-closed 規則；需以新 SHA 執行本地全套（本地 MySQL 如不可用須記為 skipped）及 PR MySQL/完整 CI。未驗收前不打 tag、不發布。
 
 下方舊表為首次確認時的窄範圍歷史快照，已被本節擴圍狀態及 `plan.md` 的 reviewer follow-up 修訂取代，不作為目前任務邊界。
 
