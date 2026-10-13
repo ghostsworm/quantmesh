@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.111.0-rc1188] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 修正 RC1187 MySQL outbox 集成测试夹具：哈希应作为 JSON 字符串写入，不再将未加引号的十六进制哈希误作 JSON 文档解析；生产校验与 fail-closed 行为不变。
+
+### Verification
+- RC1187 PR #9 同 SHA CI 已实际启动 MySQL 8.0.36，前端测试通过；两条 outbox MySQL 测试因错误 CAST 哈希值失败，Go 后续门禁被跳过。RC1188 本地全仓 Go、`go vet ./...` 与 WebUI `yarn verify` 通过；本机 MySQL DSN 未配置，相关集成用例跳过，不计通过。RC1188 推送后的 MySQL 专项及完整同 SHA CI 尚待验证；未发布、未打 tag。
+
 ## [3.111.0-rc1187] - 2026-10-13（开发中，未发布）
 
 ### Fixed
@@ -10,7 +18,7 @@
 - 增加 JSON 规范化精度、重复键/尾随值拒绝、旧 pending 记录兼容、MySQL JSON round-trip、投影/CAS revision 篡改及异常竞争测试；生产 FundingCarry projector 在 CAS 前拒绝被改写的外层 revision。本地定向测试通过；MySQL 专项需由同 SHA 远端 CI 实际验收。
 
 ### Verification
-- `go vet ./...`、`git diff --check` 及 storage/strategy/web 定向用例通过。一次无 loopback 权限的全仓 Go 测试因 httptest 监听权限失败，随后提权重跑在链接阶段被中断；前端 `yarn verify` 测试通过但构建阶段被中断。新增 CAS revision 复核修复后，全量 Go、前端完整构建及同 SHA GitHub MySQL/完整 CI 尚未完成；本版本尚未提交、推送或发布。
+- 本地 `go vet ./...`、`git diff --check` 及 storage/strategy/web 定向用例曾通过。后续 PR #9 的同 SHA GitHub CI 实际运行 MySQL 8.0.36，但两个 outbox MySQL 测试因 fixture 将未加引号的哈希错误 CAST 为 JSON 而失败；Go 静态分析、race 与 Build 被跳过。因此 RC1187 不满足 MySQL/完整 CI 验收，修复顺延至 RC1188。
 
 ## [3.111.0-rc1186] - 2026-10-13（开发中，未发布）
 
