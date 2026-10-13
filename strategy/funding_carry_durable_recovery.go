@@ -220,10 +220,11 @@ type fundingCarryRecoveryProjectionMarker struct {
 }
 
 type fundingCarryRecoveryProjectionPayload struct {
-	Episode      accounting.RecoveryEpisode       `json:"episode"`
-	Children     []accounting.RecoveryChild       `json:"children"`
-	Events       []accounting.RecoveryEvent       `json:"events"`
-	SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+	Episode                 accounting.RecoveryEpisode       `json:"episode"`
+	Children                []accounting.RecoveryChild       `json:"children"`
+	Events                  []accounting.RecoveryEvent       `json:"events"`
+	SourceCursor            *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+	ExpectedRuntimeRevision string                           `json:"expected_runtime_revision"`
 }
 
 type fundingCarryRecoveryBinding struct {
@@ -374,8 +375,7 @@ func (s *FundingCarryStrategy) ProjectRecoveryOutboxAfterTakeover(ctx context.Co
 		return false, accounting.ErrRecoveryConflict
 	}
 	takeoverReceipt, receiptFound, err := binding.store.GetRecoveryReceipt(ctx, episode.ID, takeover.OperationID)
-	if err != nil || !receiptFound || takeoverReceipt.State != accounting.RecoveryBlocked || takeoverReceipt.OwnerGeneration != takeover.OwnerGeneration ||
-		takeoverReceipt.PreviousOwnerGeneration != takeover.PreviousOwnerGeneration || takeoverReceipt.EpisodeRevision != takeover.EpisodeRevision {
+	if err != nil || !receiptFound || validateFundingCarryTakeoverReceipt(episode, takeover, takeoverReceipt) != nil {
 		return false, errors.Join(errors.New("audited owner takeover receipt does not match the current episode"), err)
 	}
 	episodeScopes, err := normalizeFundingCarryRecoveryScopes(episode.AccountScopes)
@@ -414,7 +414,7 @@ func (s *FundingCarryStrategy) ProjectRecoveryOutboxAfterTakeover(ctx context.Co
 		}
 		return false, nil
 	}
-	projection, err := validateFundingCarryTakeoverOutboxProof(binding, takeover, *candidate)
+	projection, err := validateFundingCarryTakeoverOutboxProof(ctx, binding, takeover, takeoverReceipt, episode, *candidate)
 	if err != nil {
 		return false, err
 	}
@@ -452,16 +452,33 @@ func (s *FundingCarryStrategy) ProjectRecoveryOutboxAfterTakeover(ctx context.Co
 	}
 }
 
-func validateFundingCarryTakeoverOutboxProof(binding fundingCarryRecoveryBinding, takeover accounting.RecoveryOwnerTakeoverRecord, outbox accounting.RecoveryOutbox) (fundingCarryRecoveryProjectionPayload, error) {
+func validateFundingCarryTakeoverReceipt(episode accounting.RecoveryEpisode, takeover accounting.RecoveryOwnerTakeoverRecord, receipt accounting.RecoveryReceipt) error {
+	return storage.VerifyFundingRecoveryOwnerTakeoverReceipt(episode, takeover, receipt)
+}
+
+func validateFundingCarryTakeoverOutboxProof(ctx context.Context, binding fundingCarryRecoveryBinding, takeover accounting.RecoveryOwnerTakeoverRecord,
+	takeoverReceipt accounting.RecoveryReceipt, episode accounting.RecoveryEpisode, outbox accounting.RecoveryOutbox) (fundingCarryRecoveryProjectionPayload, error) {
 	if (outbox.State != accounting.RecoveryProjectionPending && outbox.State != accounting.RecoveryProjected) || outbox.EpisodeID == "" || outbox.OperationID == "" ||
 		outbox.TargetEpisodeRevision == 0 || outbox.ExpectedRuntimeRevision == "" || outbox.ProjectionHash == "" || outbox.TargetEpisodeRevision+1 != takeover.EpisodeRevision {
 		return fundingCarryRecoveryProjectionPayload{}, errors.New("pre-takeover outbox identity/revision does not match takeover audit")
 	}
+	receipt, found, err := binding.store.GetRecoveryReceipt(ctx, outbox.EpisodeID, outbox.OperationID)
+	if err != nil || !found {
+		return fundingCarryRecoveryProjectionPayload{}, errors.Join(errors.New("pre-takeover outbox has no durable receipt"), err)
+	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox); err != nil {
+		if outbox.State != accounting.RecoveryProjected {
+			return fundingCarryRecoveryProjectionPayload{}, fmt.Errorf("pre-takeover receipt/outbox mismatch: %w", err)
+		}
+		if takeoverErr := storage.VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt, outbox, episode); takeoverErr != nil {
+			return fundingCarryRecoveryProjectionPayload{}, errors.Join(fmt.Errorf("pre-takeover receipt/outbox mismatch: %w", err),
+				fmt.Errorf("verified takeover receipt/outbox mismatch: %w", takeoverErr))
+		}
+	}
 	if outbox.State == accounting.RecoveryProjected && (outbox.AppliedOperationID != outbox.OperationID || outbox.AppliedRevision != outbox.TargetEpisodeRevision || outbox.AppliedHash != outbox.ProjectionHash) {
 		return fundingCarryRecoveryProjectionPayload{}, errors.New("completed outbox receipt does not match its immutable projection")
 	}
-	digest := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(digest[:]) != outbox.ProjectionHash {
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
 		return fundingCarryRecoveryProjectionPayload{}, errors.New("pre-takeover outbox payload hash mismatch")
 	}
 	var projection fundingCarryRecoveryProjectionPayload
@@ -492,9 +509,11 @@ func validateFundingCarryTakeoverOutboxCandidate(binding fundingCarryRecoveryBin
 	if outbox.State != accounting.RecoveryProjectionPending || outbox.EpisodeID != current.ID || outbox.OperationID == "" || outbox.ExpectedRuntimeRevision == "" || outbox.TargetEpisodeRevision == 0 || outbox.ProjectionHash == "" {
 		return errors.New("outbox identity or expected runtime revision is incomplete")
 	}
-	digest := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(digest[:]) != outbox.ProjectionHash {
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
 		return errors.New("outbox payload hash mismatch")
+	}
+	if err := storage.VerifyFundingRecoveryOutboxRuntimeRevision(outbox, outbox.ProjectionPayload); err != nil {
+		return err
 	}
 	var projection fundingCarryRecoveryProjectionPayload
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
@@ -540,9 +559,11 @@ func validateFundingCarryPendingOutboxForTakeover(binding fundingCarryRecoveryBi
 	if outbox.State != accounting.RecoveryProjectionPending || outbox.EpisodeID != episode.ID || outbox.OperationID == "" || outbox.ExpectedRuntimeRevision == "" || outbox.TargetEpisodeRevision == 0 || outbox.ProjectionHash == "" {
 		return errors.New("pending outbox identity or expected runtime revision is incomplete")
 	}
-	digest := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(digest[:]) != outbox.ProjectionHash {
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
 		return errors.New("pending outbox payload hash mismatch")
+	}
+	if err := storage.VerifyFundingRecoveryOutboxRuntimeRevision(outbox, outbox.ProjectionPayload); err != nil {
+		return err
 	}
 	var projection fundingCarryRecoveryProjectionPayload
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
@@ -720,10 +741,6 @@ func (s *FundingCarryStrategy) projectFundingCarryRecoveryOutbox(ctx context.Con
 	if outbox.State != accounting.RecoveryProjectionPending || outbox.EpisodeID != episode.ID || outbox.OperationID == "" || outbox.ExpectedRuntimeRevision == "" || outbox.TargetEpisodeRevision == 0 || outbox.ProjectionHash == "" {
 		return errors.New("FundingCarry recovery outbox identity or expected runtime revision is incomplete")
 	}
-	projectionHash := sha256.Sum256(outbox.ProjectionPayload)
-	if hex.EncodeToString(projectionHash[:]) != outbox.ProjectionHash {
-		return errors.New("FundingCarry recovery outbox projection hash mismatch")
-	}
 	var projection fundingCarryRecoveryProjectionPayload
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
 		return fmt.Errorf("decode FundingCarry recovery projection: %w", err)
@@ -741,6 +758,13 @@ func (s *FundingCarryStrategy) projectFundingCarryRecoveryOutbox(ctx context.Con
 	}
 	if err := validateFundingCarryRecoveryOutboxPredecessors(ctx, binding.store, outbox); err != nil {
 		return err
+	}
+	receipt, found, err := binding.store.GetRecoveryReceipt(ctx, outbox.EpisodeID, outbox.OperationID)
+	if err != nil || !found {
+		return errors.Join(errors.New("FundingCarry recovery projection has no durable receipt"), err)
+	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox); err != nil {
+		return fmt.Errorf("FundingCarry recovery receipt/outbox mismatch before runtime projection: %w", err)
 	}
 	for _, child := range projection.Children {
 		if err := child.Validate(); err != nil {

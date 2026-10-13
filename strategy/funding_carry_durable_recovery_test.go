@@ -132,6 +132,26 @@ func (r *multiEpisodeProjectionRepository) GetRecoveryOutbox(_ context.Context, 
 	return outbox, found, nil
 }
 
+func (r *multiEpisodeProjectionRepository) GetRecoveryReceipt(_ context.Context, episodeID, operationID string) (accounting.RecoveryReceipt, bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	outbox, found := r.outbox[episodeID+"\x00"+operationID]
+	if !found {
+		return accounting.RecoveryReceipt{}, false, nil
+	}
+	state, revision := accounting.RecoveryLedgerCommitted, outbox.TargetEpisodeRevision
+	if outbox.State == accounting.RecoveryProjected {
+		state, revision = accounting.RecoveryProjected, outbox.TargetEpisodeRevision+1
+	}
+	var projection fundingCarryRecoveryProjectionPayload
+	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil {
+		return accounting.RecoveryReceipt{}, false, err
+	}
+	return accounting.RecoveryReceipt{EpisodeID: episodeID, OperationID: operationID, State: state, EpisodeRevision: revision,
+		ProjectionHash: outbox.ProjectionHash, OwnerGeneration: projection.Episode.OwnerGeneration,
+		RecoveryGeneration: projection.Episode.RecoveryGeneration, RequestHash: "test-multi-episode-request-hash"}, true, nil
+}
+
 func (r *multiEpisodeProjectionRepository) MarkRecoveryProjected(_ context.Context, generation storage.FundingCarryRuntimeGeneration, outbox accounting.RecoveryOutbox) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -183,10 +203,31 @@ func (r *durableRecoveryRepositoryFixture) GetRecoveryReceipt(_ context.Context,
 	defer r.mu.Unlock()
 	for _, takeover := range r.episode.OwnerTakeovers {
 		if takeover.OperationID == operationID && r.episode.ID == episodeID {
+			authorization := accounting.RecoveryOwnerTakeoverAuthorization{EpisodeID: episodeID, OperationID: operationID, Actor: takeover.Actor,
+				AuditRef: takeover.AuditRef, ExpectedOwnerGeneration: takeover.PreviousOwnerGeneration,
+				ExpectedEpisodeRevision: takeover.EpisodeRevision - 1, Confirmed: true}
+			requestHash, err := storage.ExpectedFundingRecoveryOwnerTakeoverRequestHash(takeover.OwnerGeneration, r.episode.AccountScopes, authorization)
+			if err != nil {
+				return accounting.RecoveryReceipt{}, false, err
+			}
 			return accounting.RecoveryReceipt{EpisodeID: episodeID, OperationID: operationID, State: accounting.RecoveryBlocked,
 				EpisodeRevision: takeover.EpisodeRevision, PreviousOwnerGeneration: takeover.PreviousOwnerGeneration, OwnerGeneration: takeover.OwnerGeneration,
-				RequestHash: "test-takeover-request-hash"}, true, nil
+				RecoveryGeneration: r.episode.RecoveryGeneration, RequestHash: requestHash, Actor: takeover.Actor, AuditRef: takeover.AuditRef,
+				EvidenceHash: takeover.EvidenceHash, ProjectionHash: takeover.EvidenceHash, CreatedAt: takeover.CreatedAt.Add(time.Nanosecond)}, true, nil
 		}
+	}
+	if r.outbox.EpisodeID == episodeID && r.outbox.OperationID == operationID {
+		var projection fundingCarryRecoveryProjectionPayload
+		if err := json.Unmarshal(r.outbox.ProjectionPayload, &projection); err != nil {
+			return accounting.RecoveryReceipt{}, false, err
+		}
+		state, revision := accounting.RecoveryLedgerCommitted, r.outbox.TargetEpisodeRevision
+		if r.outbox.State == accounting.RecoveryProjected {
+			state, revision = accounting.RecoveryProjected, r.outbox.TargetEpisodeRevision+1
+		}
+		return accounting.RecoveryReceipt{EpisodeID: episodeID, OperationID: operationID, State: state, EpisodeRevision: revision,
+			ProjectionHash: r.outbox.ProjectionHash, OwnerGeneration: projection.Episode.OwnerGeneration,
+			RecoveryGeneration: projection.Episode.RecoveryGeneration, RequestHash: "test-outbox-request-hash"}, true, nil
 	}
 	return accounting.RecoveryReceipt{}, false, nil
 }
@@ -351,11 +392,6 @@ func newDurableRecoveryFixture(t *testing.T) durableRecoveryFixture {
 		CollectorEvidenceHash: fmt.Sprintf("%064x", 8), InitialFrom: from, HistoricalEvidenceHash: fmt.Sprintf("%064x", 9),
 		EvidenceHash: fmt.Sprintf("%064x", 7),
 	}, EpisodeID: episode.ID, Revision: 1, UpdatedAt: through}
-	payload, err := json.Marshal(fundingCarryRecoveryProjectionPayload{Episode: episode, Events: []accounting.RecoveryEvent{event}, SourceCursor: cursor})
-	if err != nil {
-		t.Fatal(err)
-	}
-	hash := sha256.Sum256(payload)
 	baseState := fundingCarryRuntimeState{
 		Strategy: "funding_carry", FuturesExchange: "binance", SpotExchange: "binance", Symbol: "BTCUSDT",
 		OwnershipReady: true, RecoveryProjectionSchema: fundingCarryRecoveryProjectionSchemaVersion,
@@ -364,10 +400,17 @@ func newDurableRecoveryFixture(t *testing.T) durableRecoveryFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
+	expectedRuntimeRevision := fundingCarryRuntimeRevision(fundingCarryRuntimeStateVersion, string(statePayload))
+	payload, err := json.Marshal(fundingCarryRecoveryProjectionPayload{Episode: episode, Events: []accounting.RecoveryEvent{event}, SourceCursor: cursor,
+		ExpectedRuntimeRevision: expectedRuntimeRevision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(payload)
 	runtime := &durableRecoveryRuntimeFixture{version: fundingCarryRuntimeStateVersion, payload: string(statePayload), found: true}
 	outbox := accounting.RecoveryOutbox{
 		EpisodeID: episode.ID, OperationID: "operation-1", ProjectionPayload: payload,
-		ExpectedRuntimeRevision: fundingCarryRuntimeRevision(fundingCarryRuntimeStateVersion, string(statePayload)),
+		ExpectedRuntimeRevision: expectedRuntimeRevision,
 		TargetEpisodeRevision:   episode.Revision, ProjectionHash: hex.EncodeToString(hash[:]),
 		State: accounting.RecoveryProjectionPending,
 	}
@@ -652,6 +695,7 @@ func TestFundingCarryRuntimeRevisionRequiresCanonicalToken(t *testing.T) {
 }
 
 func replaceSharedProjection(outbox accounting.RecoveryOutbox, projection fundingCarryRecoveryProjectionPayload) accounting.RecoveryOutbox {
+	projection.ExpectedRuntimeRevision = outbox.ExpectedRuntimeRevision
 	payload, _ := json.Marshal(projection)
 	hash := sha256.Sum256(payload)
 	outbox.ProjectionPayload = payload
@@ -755,6 +799,56 @@ func TestFundingCarryOldOwnerOutboxProjectsOnlyAfterAuditedTakeover(t *testing.T
 	}
 	if len(fixture.repository.holds) != 1 || fixture.repository.holds[0].State != "held" {
 		t.Fatal("outbox projection released the recovery hold")
+	}
+}
+
+func TestFundingCarryTakeoverReceiptMustMatchAuditRecordExactly(t *testing.T) {
+	takeover := accounting.RecoveryOwnerTakeoverRecord{OperationID: "takeover-op", Actor: "admin", AuditRef: "incident",
+		EvidenceHash: fmt.Sprintf("%064x", 123), PreviousOwnerGeneration: "owner-old", OwnerGeneration: "owner-new", EpisodeRevision: 9,
+		CreatedAt: time.Date(2026, 10, 13, 8, 0, 0, 0, time.UTC)}
+	episode := accounting.RecoveryEpisode{ID: "episode", RecoveryGeneration: 4, AccountScopes: []string{fmt.Sprintf("%064x", 1)}}
+	authorization := accounting.RecoveryOwnerTakeoverAuthorization{EpisodeID: episode.ID, OperationID: takeover.OperationID,
+		Actor: takeover.Actor, AuditRef: takeover.AuditRef, ExpectedOwnerGeneration: takeover.PreviousOwnerGeneration,
+		ExpectedEpisodeRevision: takeover.EpisodeRevision - 1, Confirmed: true}
+	requestHash, err := storage.ExpectedFundingRecoveryOwnerTakeoverRequestHash(takeover.OwnerGeneration, episode.AccountScopes, authorization)
+	if err != nil {
+		t.Fatal("build takeover receipt request hash:", err)
+	}
+	receipt := accounting.RecoveryReceipt{EpisodeID: episode.ID, OperationID: takeover.OperationID, RequestHash: "request-hash",
+		RecoveryGeneration: episode.RecoveryGeneration, State: accounting.RecoveryBlocked, EpisodeRevision: takeover.EpisodeRevision,
+		Actor: takeover.Actor, AuditRef: takeover.AuditRef, EvidenceHash: takeover.EvidenceHash, ProjectionHash: takeover.EvidenceHash,
+		PreviousOwnerGeneration: takeover.PreviousOwnerGeneration, OwnerGeneration: takeover.OwnerGeneration, CreatedAt: takeover.CreatedAt.Add(time.Nanosecond)}
+	receipt.RequestHash = requestHash
+	if err := validateFundingCarryTakeoverReceipt(episode, takeover, receipt); err != nil {
+		t.Fatalf("valid takeover receipt rejected: %v", err)
+	}
+	tests := []struct {
+		name   string
+		mutate func(*accounting.RecoveryReceipt)
+	}{
+		{name: "episode id", mutate: func(r *accounting.RecoveryReceipt) { r.EpisodeID = "other" }},
+		{name: "operation id", mutate: func(r *accounting.RecoveryReceipt) { r.OperationID = "other" }},
+		{name: "actor", mutate: func(r *accounting.RecoveryReceipt) { r.Actor = "other" }},
+		{name: "audit reference", mutate: func(r *accounting.RecoveryReceipt) { r.AuditRef = "other" }},
+		{name: "evidence hash", mutate: func(r *accounting.RecoveryReceipt) { r.EvidenceHash = "other" }},
+		{name: "projection hash", mutate: func(r *accounting.RecoveryReceipt) { r.ProjectionHash = "other" }},
+		{name: "recovery generation", mutate: func(r *accounting.RecoveryReceipt) { r.RecoveryGeneration++ }},
+		{name: "state", mutate: func(r *accounting.RecoveryReceipt) { r.State = accounting.RecoveryProjected }},
+		{name: "owner generation", mutate: func(r *accounting.RecoveryReceipt) { r.OwnerGeneration = "other-owner" }},
+		{name: "previous owner generation", mutate: func(r *accounting.RecoveryReceipt) { r.PreviousOwnerGeneration = "other-owner" }},
+		{name: "episode revision", mutate: func(r *accounting.RecoveryReceipt) { r.EpisodeRevision++ }},
+		{name: "request hash absent", mutate: func(r *accounting.RecoveryReceipt) { r.RequestHash = "" }},
+		{name: "request hash changed", mutate: func(r *accounting.RecoveryReceipt) { r.RequestHash = "different-non-empty-hash" }},
+		{name: "created at absent", mutate: func(r *accounting.RecoveryReceipt) { r.CreatedAt = time.Time{} }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changed := receipt
+			test.mutate(&changed)
+			if err := validateFundingCarryTakeoverReceipt(episode, takeover, changed); err == nil {
+				t.Fatal("mismatched takeover receipt was accepted")
+			}
+		})
 	}
 }
 
@@ -1218,6 +1312,7 @@ func TestFundingCarryDurableRecoveryIgnoresDifferentBotWithDisjointScopes(t *tes
 }
 
 func (f *durableRecoveryFixture) setProjection(projection fundingCarryRecoveryProjectionPayload) {
+	projection.ExpectedRuntimeRevision = f.repository.outbox.ExpectedRuntimeRevision
 	payload, _ := json.Marshal(projection)
 	hash := sha256.Sum256(payload)
 	f.repository.outbox.ProjectionPayload = payload
@@ -1235,7 +1330,8 @@ func makeSharedSnapshotProjection(fixture durableRecoveryFixture, episodeID, ope
 		Asset: "USDT", Amount: "0", SourceRevision: "r-" + operationID, SourceHash: fmt.Sprintf("%064x", targetRevision+11),
 		ObservedAt: time.Date(2026, 10, 12, 2, 0, 0, 0, time.UTC),
 	}
-	payload, _ := json.Marshal(fundingCarryRecoveryProjectionPayload{Episode: base, Events: []accounting.RecoveryEvent{event}})
+	payload, _ := json.Marshal(fundingCarryRecoveryProjectionPayload{Episode: base, Events: []accounting.RecoveryEvent{event},
+		ExpectedRuntimeRevision: expectedRuntimeRevision})
 	hash := sha256.Sum256(payload)
 	return base, accounting.RecoveryOutbox{
 		EpisodeID: episodeID, OperationID: operationID, ProjectionPayload: payload,

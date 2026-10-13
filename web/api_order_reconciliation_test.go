@@ -29,34 +29,43 @@ func TestFundingIncomeReplayUsesItsOutboxCursorSnapshot(t *testing.T) {
 	episode := accounting.RecoveryEpisode{ID: "episode-replay", Revision: 8}
 	cursor := accounting.RecoverySourceCursor{RecoverySourceWindow: window, EpisodeID: episode.ID, Revision: 5}
 	payload, err := json.Marshal(struct {
-		Episode      accounting.RecoveryEpisode       `json:"episode"`
-		Events       []accounting.RecoveryEvent       `json:"events"`
-		SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor"`
-	}{episode, []accounting.RecoveryEvent{}, &cursor})
+		Episode                 accounting.RecoveryEpisode       `json:"episode"`
+		Children                []accounting.RecoveryChild       `json:"children"`
+		Events                  []accounting.RecoveryEvent       `json:"events"`
+		SourceCursor            *accounting.RecoverySourceCursor `json:"source_cursor"`
+		ExpectedRuntimeRevision string                           `json:"expected_runtime_revision"`
+	}{episode, nil, []accounting.RecoveryEvent{}, &cursor, "runtime-revision-v1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest := sha256.Sum256(payload)
-	projectionHash := hex.EncodeToString(digest[:])
+	projectionHash, err := storage.FundingRecoveryProjectionHash(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.VerifyFundingRecoveryProjectionHash(payload, projectionHash); err != nil {
+		t.Fatalf("verify generated projection hash: %v", err)
+	}
 	request := strategy.ApplyFundingRecoveryIncomeRequest{EpisodeID: episode.ID, OperationID: "operation-old", ExpectedEpisodeRevision: 7}
 	receipt := accounting.RecoveryReceipt{EpisodeID: episode.ID, OperationID: request.OperationID,
 		EpisodeRevision: 9, State: accounting.RecoveryProjected, ProjectionHash: projectionHash}
 	outbox := accounting.RecoveryOutbox{EpisodeID: episode.ID, OperationID: request.OperationID,
-		TargetEpisodeRevision: 8, State: accounting.RecoveryProjected, ProjectionHash: projectionHash, ProjectionPayload: payload}
+		TargetEpisodeRevision: 8, State: accounting.RecoveryProjected, ProjectionHash: projectionHash, ProjectionPayload: payload,
+		AppliedOperationID: request.OperationID, AppliedRevision: 8, AppliedHash: projectionHash,
+		ExpectedRuntimeRevision: "runtime-revision-v1"}
 	result := strategy.ApplyFundingRecoveryIncomeResult{SourceWindow: window, Events: []accounting.RecoveryEvent{}, Replayed: true}
 	currentEpisode := accounting.RecoveryEpisode{ID: episode.ID}
 
-	replayed, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode)
+	replayed, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, accounting.RecoveryReceipt{}, request, result, currentEpisode)
 	if err != nil || replayed.Revision != 5 || replayed.EpisodeID != episode.ID {
 		t.Fatalf("replay did not return its original durable cursor snapshot: cursor=%+v err=%v", replayed, err)
 	}
 	request.ExpectedEpisodeRevision++
-	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode); err == nil {
+	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, accounting.RecoveryReceipt{}, request, result, currentEpisode); err == nil {
 		t.Fatal("replay accepted a request with a different expected episode revision")
 	}
 	request.ExpectedEpisodeRevision--
 	outbox.ProjectionPayload = append(outbox.ProjectionPayload, ' ')
-	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode); err == nil {
+	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, accounting.RecoveryReceipt{}, request, result, currentEpisode); err == nil {
 		t.Fatal("replay accepted a payload that no longer matches its durable hash")
 	}
 
@@ -101,7 +110,7 @@ func TestFundingIncomeReplayUsesItsOutboxCursorSnapshot(t *testing.T) {
 			changedOutbox.ProjectionHash = changedHash
 			changedReceipt := receipt
 			changedReceipt.ProjectionHash = changedHash
-			if _, err := fundingIncomeReplayCursorSnapshot(changedOutbox, changedReceipt, request, result, currentEpisode); err == nil {
+			if _, err := fundingIncomeReplayCursorSnapshot(changedOutbox, changedReceipt, accounting.RecoveryReceipt{}, request, result, currentEpisode); err == nil {
 				t.Fatalf("replay accepted a rehashed but inconsistent %s snapshot", test.name)
 			}
 		})

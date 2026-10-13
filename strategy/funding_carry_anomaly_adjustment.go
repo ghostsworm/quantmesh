@@ -12,6 +12,7 @@ import (
 
 	"quantmesh/accounting"
 	"quantmesh/execution"
+	"quantmesh/storage"
 )
 
 type ApplyFundingRecoveryAnomalyAdjustmentRequest struct {
@@ -158,7 +159,16 @@ func (s *FundingCarryStrategy) readFundingRecoveryAnomalyAdjustmentRetry(ctx con
 	if err != nil || !found {
 		return ApplyFundingRecoveryAnomalyAdjustmentResult{}, false, errors.Join(errors.New("anomaly adjustment receipt has no outbox"), err)
 	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, outbox); err != nil {
+		return ApplyFundingRecoveryAnomalyAdjustmentResult{}, false, fmt.Errorf("verify funding anomaly response-loss outbox receipt/outbox: %w", err)
+	}
+	if outbox.State == accounting.RecoveryProjected && receipt.EpisodeRevision != outbox.TargetEpisodeRevision+1 {
+		return ApplyFundingRecoveryAnomalyAdjustmentResult{}, false, accounting.ErrRecoveryOperationConflict
+	}
 	var projection fundingCarryRecoveryProjectionPayload
+	if err := storage.VerifyFundingRecoveryProjectionHash(outbox.ProjectionPayload, outbox.ProjectionHash); err != nil {
+		return ApplyFundingRecoveryAnomalyAdjustmentResult{}, false, fmt.Errorf("verify funding anomaly response-loss outbox: %w", err)
+	}
 	if err := json.Unmarshal(outbox.ProjectionPayload, &projection); err != nil || outbox.TargetEpisodeRevision != request.ExpectedEpisodeRevision+1 {
 		return ApplyFundingRecoveryAnomalyAdjustmentResult{}, false, errors.Join(errors.New("anomaly adjustment response-loss outbox is invalid"), err)
 	}
