@@ -1,6 +1,8 @@
 package order
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"testing"
 
@@ -35,6 +37,29 @@ func loadReconciliationFixture(t *testing.T, request OrderRequest, order *Order,
 		t.Fatal(err)
 	}
 	return executor, journal
+}
+
+func TestListOwnedIntentRecoverySnapshotsUsesExactLoadedJournalPayload(t *testing.T) {
+	request, venueOrder := reconciliationFixtureValues()
+	executor, journal := loadReconciliationFixture(t, request, venueOrder, true, false, false)
+	before := journal.writes
+	snapshots, err := executor.ListOwnedIntentRecoverySnapshots()
+	if err != nil || len(snapshots) != 1 {
+		t.Fatalf("recovery snapshots = (%+v, %v), want one exact unresolved journal intent", snapshots, err)
+	}
+	key := mustScopeKey(t, journalScope())
+	page, err := journal.LoadExecutionIntents(t.Context(), key, 0, 10)
+	if err != nil || len(page) != 1 {
+		t.Fatalf("journal readback = (%d, %v), want one row", len(page), err)
+	}
+	digest := sha256.Sum256(page[0].Payload)
+	if snapshots[0].Scope != journalScope() || snapshots[0].Request.ClientOrderID != request.ClientOrderID ||
+		snapshots[0].Revision != page[0].Revision || snapshots[0].PayloadHash != hex.EncodeToString(digest[:]) {
+		t.Fatalf("snapshot does not bind exact durable owner payload: %+v", snapshots[0])
+	}
+	if journal.writes != before {
+		t.Fatal("recovery snapshot unexpectedly wrote to the journal")
+	}
 }
 
 func mustScopeKey(t *testing.T, scope execution.IntentScope) string {

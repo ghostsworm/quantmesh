@@ -918,6 +918,23 @@ func TestFundingCarryRecoveredStateRejectsNilOpenOrderSnapshots(t *testing.T) {
 	}
 }
 
+func TestFundingCarryManagedExecutionFailsClosedWithoutExecutor(t *testing.T) {
+	venue := &mockFCExchange{name: "binance", marketType: "spot", baseAsset: "BTC"}
+	strategy := NewFundingCarryStrategy("funding_carry", nil, config.SymbolConfig{Symbol: "BTCUSDT"}, venue, venue, nil, nil)
+	if err := strategy.RequireManagedExecution(); err == nil {
+		t.Fatal("managed production execution accepted missing order executors")
+	}
+	if _, err := strategy.placeOrder(context.Background(), venue, nil, &exchange.OrderRequest{Symbol: "BTCUSDT", Side: exchange.SideBuy, Type: exchange.OrderTypeLimit, Quantity: 1, Price: 50000}); err == nil {
+		t.Fatal("managed execution fell back to direct exchange placement")
+	}
+	venue.mu.Lock()
+	placedOrderCount := len(venue.placedOrders)
+	venue.mu.Unlock()
+	if placedOrderCount != 0 {
+		t.Fatalf("direct venue order RPCs=%d; want 0", placedOrderCount)
+	}
+}
+
 func TestFundingCarryTickBlocksOnForeignOrderBeforePositionSync(t *testing.T) {
 	futures := &mockFCExchange{name: "binance", marketType: "futures", baseAsset: "BTC",
 		openOrders: []*exchange.Order{{OrderID: 92, Symbol: "BTCUSDT"}}}

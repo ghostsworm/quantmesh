@@ -1,0 +1,2 @@
+-- Intent identity is durable business history: retain mappings during rollback
+-- so a later upgrade cannot create a duplicate episode for the same intent.

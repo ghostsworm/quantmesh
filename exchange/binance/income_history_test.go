@@ -47,7 +47,7 @@ func TestGetIncomeHistoryPaginatesAndVerifiesSignedQueries(t *testing.T) {
 				rows = append(rows, &equityIncomeWire{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "-0.01", Asset: "USDT", Time: now.UnixMilli(), TransactionID: id})
 			}
 		} else {
-			rows = append(rows, &equityIncomeWire{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "0.02", Asset: "USDT", Info: "funding", TradeID: "trade-1001", Time: now.UnixMilli(), TransactionID: 1001})
+			rows = append(rows, &equityIncomeWire{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "0.020000000000000001", Asset: "USDT", Info: "funding", TradeID: "trade-1001", Time: now.UnixMilli(), TransactionID: 1001})
 		}
 		_ = json.NewEncoder(w).Encode(rows)
 	})
@@ -55,7 +55,7 @@ func TestGetIncomeHistoryPaginatesAndVerifiesSignedQueries(t *testing.T) {
 	if err != nil || len(entries) != 1001 || calls != 2 {
 		t.Fatalf("entries=%d calls=%d err=%v; want all 1001 rows from two pages", len(entries), calls, err)
 	}
-	if entries[1000].TransactionID != 1001 || entries[1000].Income != 0.02 || entries[1000].Info != "funding" {
+	if entries[1000].TransactionID != 1001 || entries[1000].Income != 0.02 || entries[1000].RawIncome != "0.020000000000000001" || entries[1000].Info != "funding" {
 		t.Fatalf("second-page record = %+v", entries[1000])
 	}
 }
@@ -85,9 +85,9 @@ func TestGetIncomeHistoryRejectsDuplicateAcrossPages(t *testing.T) {
 
 func TestNormalizeIncomeRecordValidatesCashflowEvidence(t *testing.T) {
 	const start, end = int64(1000), int64(2000)
-	base := &futures.IncomeHistory{Asset: "USDT", Income: "-0.25", IncomeType: "FUNDING_FEE", Symbol: "BTCUSDT", Time: 1500, TranID: 42}
+	base := &futures.IncomeHistory{Asset: "USDT", Income: "-0.250000000000000001", IncomeType: "FUNDING_FEE", Symbol: "BTCUSDT", Time: 1500, TranID: 42}
 	got, err := normalizeIncomeRecord(base, "BTCUSDT", "FUNDING_FEE", start, end)
-	if err != nil || got == nil || got.Income != -0.25 || got.TransactionID != 42 {
+	if err != nil || got == nil || got.Income != -0.25 || got.RawIncome != "-0.250000000000000001" || got.TransactionID != 42 {
 		t.Fatalf("valid income evidence rejected: record=%+v err=%v", got, err)
 	}
 
@@ -96,6 +96,7 @@ func TestNormalizeIncomeRecordValidatesCashflowEvidence(t *testing.T) {
 		mutate func(*futures.IncomeHistory)
 	}{
 		{name: "invalid amount", mutate: func(row *futures.IncomeHistory) { row.Income = "not-a-number" }},
+		{name: "missing amount", mutate: func(row *futures.IncomeHistory) { row.Income = "" }},
 		{name: "nan", mutate: func(row *futures.IncomeHistory) { row.Income = "NaN" }},
 		{name: "infinity", mutate: func(row *futures.IncomeHistory) { row.Income = "Inf" }},
 		{name: "missing transaction ID", mutate: func(row *futures.IncomeHistory) { row.TranID = 0 }},
@@ -116,5 +117,93 @@ func TestNormalizeIncomeRecordValidatesCashflowEvidence(t *testing.T) {
 	}
 	if _, err := normalizeIncomeRecord(nil, "BTCUSDT", "FUNDING_FEE", start, end); err == nil {
 		t.Fatal("nil income evidence must be rejected")
+	}
+}
+
+func TestGetFundingIncomeWindowFreezesHalfOpenBoundsAndRequiresStableFullScans(t *testing.T) {
+	serverNow := time.Now().UTC().Truncate(time.Millisecond)
+	from := serverNow.Add(-10 * time.Minute).Truncate(time.Millisecond)
+	rowTime := serverNow.Add(-4 * time.Minute).UnixMilli()
+	var scan int
+	adapter := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fapi/v1/time" {
+			_ = json.NewEncoder(w).Encode(map[string]int64{"serverTime": serverNow.UnixMilli()})
+			return
+		}
+		if r.URL.Path != "/fapi/v1/income" || r.URL.Query().Get("incomeType") != "FUNDING_FEE" || r.URL.Query().Get("symbol") != "BTCUSDT" {
+			t.Errorf("unexpected funding scan request: %s", r.URL.String())
+		}
+		expectedThrough := time.UnixMilli(serverNow.Add(-fundingIncomeMinimumSafetyLag).UnixMilli()).UTC()
+		if got, want := r.URL.Query().Get("endTime"), strconv.FormatInt(expectedThrough.UnixMilli()-1, 10); got != want {
+			t.Errorf("inclusive API endTime = %q, want half-open conversion %q", got, want)
+		}
+		scan++
+		_ = json.NewEncoder(w).Encode([]*equityIncomeWire{{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "-0.010000000000000001", Asset: "USDT", Time: rowTime, TransactionID: 71}})
+	})
+	window, err := adapter.GetFundingIncomeWindow(context.Background(), "BTCUSDT", from, fundingIncomeMinimumSafetyLag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan != 2 || window.Symbol != "BTCUSDT" || !window.From.Equal(from) || window.Through.UnixMilli() != serverNow.Add(-fundingIncomeMinimumSafetyLag).UnixMilli() ||
+		window.TotalRows != 1 || window.CompletionMarker != fundingIncomeCompletionMarker || window.Rows[0].RawIncome != "-0.010000000000000001" || window.EvidenceHash == "" {
+		t.Fatalf("stable window evidence incomplete: scans=%d window=%+v", scan, window)
+	}
+}
+
+func TestGetFundingIncomeWindowRejectsDriftAndUnsafeCutoff(t *testing.T) {
+	serverNow := time.Now().UTC().Truncate(time.Millisecond)
+	from := serverNow.Add(-10 * time.Minute).Truncate(time.Millisecond)
+	var incomeReads int
+	adapter := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fapi/v1/time" {
+			_ = json.NewEncoder(w).Encode(map[string]int64{"serverTime": serverNow.UnixMilli()})
+			return
+		}
+		incomeReads++
+		amount := "-0.01"
+		if incomeReads > 1 {
+			amount = "-0.02"
+		}
+		_ = json.NewEncoder(w).Encode([]*equityIncomeWire{{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: amount, Asset: "USDT", Time: serverNow.Add(-4 * time.Minute).UnixMilli(), TransactionID: 72}})
+	})
+	if window, err := adapter.GetFundingIncomeWindow(context.Background(), "BTCUSDT", from, fundingIncomeMinimumSafetyLag); err == nil || window.Rows != nil {
+		t.Fatalf("drifting source scan was accepted: %+v", window)
+	}
+	if _, err := adapter.GetFundingIncomeWindow(context.Background(), "BTCUSDT", from, time.Minute); err == nil {
+		t.Fatal("unsafe cutoff lag accepted")
+	}
+}
+
+func TestGetFundingIncomeContinuationDoubleScansWholeHistoryAndSplitsCursorWindow(t *testing.T) {
+	serverNow := time.Now().UTC().Truncate(time.Millisecond)
+	initialFrom := serverNow.Add(-20 * time.Minute).Truncate(time.Millisecond)
+	previousThrough := serverNow.Add(-10 * time.Minute).Truncate(time.Millisecond)
+	historicalAt := serverNow.Add(-15 * time.Minute).UnixMilli()
+	currentAt := serverNow.Add(-5 * time.Minute).UnixMilli()
+	var incomeReads int
+	adapter := equityTestAdapter(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fapi/v1/time" {
+			_ = json.NewEncoder(w).Encode(map[string]int64{"serverTime": serverNow.UnixMilli()})
+			return
+		}
+		incomeReads++
+		query := r.URL.Query()
+		wantEnd := serverNow.Add(-fundingIncomeMinimumSafetyLag).UnixMilli() - 1
+		if query.Get("startTime") != strconv.FormatInt(initialFrom.UnixMilli(), 10) || query.Get("endTime") != strconv.FormatInt(wantEnd, 10) {
+			t.Errorf("continuation query bounds start=%s end=%s", query.Get("startTime"), query.Get("endTime"))
+		}
+		_ = json.NewEncoder(w).Encode([]*equityIncomeWire{
+			{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "-0.010000000000000001", Asset: "USDT", Time: historicalAt, TransactionID: 81},
+			{Type: "FUNDING_FEE", Symbol: "BTCUSDT", Amount: "0.020000000000000001", Asset: "USDT", Time: currentAt, TransactionID: 82},
+		})
+	})
+	continuation, err := adapter.GetFundingIncomeContinuation(context.Background(), "BTCUSDT", initialFrom, previousThrough, fundingIncomeMinimumSafetyLag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incomeReads != 2 || !continuation.InitialFrom.Equal(initialFrom) || len(continuation.HistoricalRows) != 1 || continuation.HistoricalRows[0].TransactionID != 81 ||
+		!continuation.Window.From.Equal(previousThrough) || continuation.Window.TotalRows != 1 || len(continuation.Window.Rows) != 1 || continuation.Window.Rows[0].TransactionID != 82 ||
+		continuation.PriorEvidenceHash == "" || continuation.CumulativeEvidenceHash == "" || continuation.Window.EvidenceHash == "" {
+		t.Fatalf("continuation did not preserve prefix and new window: reads=%d value=%+v", incomeReads, continuation)
 	}
 }

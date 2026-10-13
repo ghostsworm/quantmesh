@@ -1,6 +1,14 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.111.0-rc1162`（2026-10-12，开发中，未发布）
+> 当前版本：`3.111.0-rc1185`（2026-10-13，开发中，未发布）
+
+FundingCarry 管理员 Binance funding-income 核账现支持 durable receipt/outbox 重试；投影失败仅允许精确 operation 的 pending receipt/outbox 恢复；游标推进后重试旧 operation 按 outbox 目标版本校验并返回自身历史 cursor snapshot，不重新查询来源、不修改当前 cursor。生产 service/router 故障注入回归覆盖 pending 恢复、CAS 已写后响应丢失、新 runtime generation 显式 takeover、连续窗口推进及旧操作重放，并确认 Gate/hold 保持。该 restart simulation 使用同一隔离 SQLite StorageService；真实 OS 进程重启、独立多实例 storage handles、MySQL、同 SHA CI 尚待验收。RC1185 新增耐久历史异常记录和管理员追加式 funding adjustment API：原始行不覆盖，迟到/改写/删除差异保存精确差额及审计依据；调整经 operation/CAS 与 receipt/outbox 持久投影，之后须完整来源回扫一致才推进 cursor/标记 verified，hold 仍须独立显式解锁。MySQL、多进程及同 SHA CI 尚待验收。零金额行可留作来源事实，不代表收益；双扫描摘要并非交易所独立签名证明，因此来源完整性仍未闭环。另修复管理员期初 snapshot 时间早于录入时间被错误拒绝的问题。
+
+RC1166 本地集成测试覆盖隔离 SQLite StorageService、生产核账 service/router、显式 owner takeover、原 client order ID venue 查询、attempt 与 provisional child 同步 CAS 绑定及 hold 保持。RC1171 增加经 SymbolManager/BotManager 和 FundingCarry 真实构造函数建立并登记 retained recovery runtime，再由管理员 HTTP 执行 takeover/found 的模拟组合测试；策略循环、订单重放、账务投影和 Gate 解锁均保持关闭。venue 为测试 fixture，MySQL、真实多进程、费用/借贷入账及持久 Gate 解锁仍待验证。
+
+历史阶段里程碑（RC1173）：在 RC1172 的 fill/cursor 基础上，为完整权威 fill 中 commission unknown 的交易增加管理员人工 fee adjustment API。费用记录以 append-only 独立 event 保存，要求准确匹配 episode/child/trade、source revision 和 CAS revision，原始签名 decimal 与币种不折算；凭证以 SHA-256 摘要绑定审计记录，actor 由管理员 session 注入。durable receipt/outbox 与 retained runtime CAS 读回支持响应丢失重试和幂等重复请求；测试中 Gate/hold 保持。正数为新增费用、负数为更正/返佣；人工输入和外部凭证摘要不构成交易所自动核验。
+
+RC1173 阶段限制记录：当时的 permit、Gate 来源约束、recovery outbox 与 takeover 基础能力仍受此前验收边界约束；RC1173 只增加受限人工费用记录能力，不提供借贷/还款/利息/资金费账本、跨币估值、持久 Gate 解锁或自动订单重放。MySQL DSN/多进程竞争、完整真实重启链、正式启动恢复装配、远端同 SHA CI、真实账户与盈利证据尚未验收。以上内容是历史阶段记录；当前状态以本页版本头与 Goal Teams 最新验收记录为准。
 
 ## 主要功能
 

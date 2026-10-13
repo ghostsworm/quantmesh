@@ -77,46 +77,47 @@ type SymbolRuntime struct {
 	ArbitrageManager     *arbitrage.FundingArbitrageManager
 	SuperPositionManager *position.SuperPositionManager
 	// OpeningGate covers specialized runtimes that do not use the grid position manager.
-	OpeningGate              *execution.OpeningGate
-	CancelOpeningOrders      func(context.Context) error
-	PrepareShutdown          func(context.Context, bool) error
-	CloseForShutdown         func(context.Context) error
-	VerifyShutdownClose      func(context.Context) error
-	CloseForManual           func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
-	UpdateOpenControl        func(config.OpenPositionControl) error
-	GetOpenControl           func() config.OpenPositionControl
-	StopWithError            func() error
-	OpeningController        *position.OpeningController
-	OrderCleaner             *safety.OrderCleaner
-	Reconciler               *safety.Reconciler
-	TrendDetector            *strategy.TrendDetector
-	DynamicAdjuster          *strategy.DynamicAdjuster
-	StrategyManager          *strategy.StrategyManager
-	CapitalExecutor          *strategy.MultiStrategyExecutor // immutable reservation-stage barrier and owner ledger
-	capitalReleaseScope      execution.IntentScope           // immutable startup owner; never inferred from mutable Config
-	capitalReleaseWalletLock lock.DistributedLock
-	ExchangeExecutor         *order.ExchangeOrderExecutor
-	ExecutorAdapter          *exchangeExecutorAdapter
-	ExchangeAdapter          *positionExchangeAdapter
-	EventBus                 *event.EventBus
-	StorageService           *storage.StorageService
-	AccountID                string  // 账戶標识
-	AccountScope             string  // immutable non-secret digest of exchange/environment/credential identity
-	AccountMarketType        string  // immutable valuation scope; do not read mutable Config while sampling
-	accountCredentialVersion string  // single-account runtime token; never log or persist credential material
-	verifiedCapitalBudget    float64 // immutable startup-verified gross notional ceiling for this Bot
-	capitalReservationStore  storage.AccountWalletCapitalReservationStore
-	capitalReservationBotID  string
-	capitalReservationClaims []storage.AccountWalletCapitalClaim
-	capitalReservationStop   func()
-	ClampOpenControl         func(config.OpenPositionControl) (config.OpenPositionControl, error)
-	Stop                     func()
-	fundingIncomeCancel      context.CancelFunc
-	shutdownContextMu        sync.RWMutex
-	shutdownContext          context.Context
-	closeManagerMu           sync.Mutex
-	closeManager             *position.ClosePositionManager
-	specialCloseRecords      []*position.ClosePositionRecord
+	OpeningGate                    *execution.OpeningGate
+	CancelOpeningOrders            func(context.Context) error
+	PrepareShutdown                func(context.Context, bool) error
+	CloseForShutdown               func(context.Context) error
+	VerifyShutdownClose            func(context.Context) error
+	CloseForManual                 func(context.Context, config.ClosePositionConfig) (*position.ClosePositionRecord, error)
+	UpdateOpenControl              func(config.OpenPositionControl) error
+	GetOpenControl                 func() config.OpenPositionControl
+	StopWithError                  func() error
+	OpeningController              *position.OpeningController
+	OrderCleaner                   *safety.OrderCleaner
+	Reconciler                     *safety.Reconciler
+	TrendDetector                  *strategy.TrendDetector
+	DynamicAdjuster                *strategy.DynamicAdjuster
+	StrategyManager                *strategy.StrategyManager
+	CapitalExecutor                *strategy.MultiStrategyExecutor // immutable reservation-stage barrier and owner ledger
+	capitalReleaseScope            execution.IntentScope           // immutable startup owner; never inferred from mutable Config
+	capitalReleaseWalletLock       lock.DistributedLock
+	ExchangeExecutor               *order.ExchangeOrderExecutor
+	ExecutorAdapter                *exchangeExecutorAdapter
+	ExchangeAdapter                *positionExchangeAdapter
+	EventBus                       *event.EventBus
+	StorageService                 *storage.StorageService
+	AccountID                      string  // 账戶標识
+	AccountScope                   string  // immutable non-secret digest of exchange/environment/credential identity
+	AccountMarketType              string  // immutable valuation scope; do not read mutable Config while sampling
+	accountCredentialVersion       string  // single-account runtime token; never log or persist credential material
+	fundingCarryReconciliationOnly bool    // retained runtime is held for reconciliation and must not trade
+	verifiedCapitalBudget          float64 // immutable startup-verified gross notional ceiling for this Bot
+	capitalReservationStore        storage.AccountWalletCapitalReservationStore
+	capitalReservationBotID        string
+	capitalReservationClaims       []storage.AccountWalletCapitalClaim
+	capitalReservationStop         func()
+	ClampOpenControl               func(config.OpenPositionControl) (config.OpenPositionControl, error)
+	Stop                           func()
+	fundingIncomeCancel            context.CancelFunc
+	shutdownContextMu              sync.RWMutex
+	shutdownContext                context.Context
+	closeManagerMu                 sync.Mutex
+	closeManager                   *position.ClosePositionManager
+	specialCloseRecords            []*position.ClosePositionRecord
 
 	// shutdownCloseHandled 非空表示退出流程中本 Bot 的持倉已由其他路徑（進程級 close_positions_on_exit）平倉，
 	// 值為原因；Stop 中的 close_on_stop 見到後跳過，避免重複提交平倉單。

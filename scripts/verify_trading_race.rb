@@ -19,6 +19,8 @@ module TradingRaceVerification
     TestMySQLProfitWithdrawRules
     TestMySQLStrategyRuntimeStateConditionalWritePreservesNewEvidence
     TestMySQLFundingCarryRuntimeGenerationFencesOldOwner
+    TestMySQLFundingRecoveryMigrationSerializesConcurrentCallers
+    TestMySQLFundingRecoveryRejectsStaleRuntimeGeneration
     TestMySQLFundingCarryFullConstructorBorrowReceiptRetainsCapitalAndOwnership
     TestMySQLFundingCarryFullConstructorRepaymentReceiptRetainsCapitalAndOwnership
     TestMySQLFundingCarryFullConstructorFinalVerificationReleasesOnlyAfterReadonlyRetry

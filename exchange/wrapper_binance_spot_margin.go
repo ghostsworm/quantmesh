@@ -8,6 +8,8 @@ import (
 	"quantmesh/exchange/income"
 )
 
+var _ OrderFillBatchSource = (*binanceSpotMarginWrapper)(nil)
+
 // binanceSpotMarginWrapper 包裝 Binance 現貨槓桿適配器（借幣做空）
 type binanceSpotMarginWrapper struct {
 	adapter *binance.BinanceSpotMarginAdapter
@@ -39,19 +41,28 @@ func (w *binanceSpotMarginWrapper) PlaceOrder(ctx context.Context, req *OrderReq
 		return nil, err
 	}
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
+}
+
+func (w *binanceSpotMarginWrapper) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	batch, err := w.adapter.GetOrderFillBatch(ctx, symbol, orderID)
+	if err != nil || batch == nil {
+		return nil, err
+	}
+	return setOrderFillBatchPnLAsset(binanceBatchToExchange(batch), w.adapter.GetQuoteAsset()), nil
 }
 
 func (w *binanceSpotMarginWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
@@ -109,18 +120,19 @@ func (w *binanceSpotMarginWrapper) GetOrder(ctx context.Context, symbol string, 
 		return nil, err
 	}
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
 }
 
@@ -133,7 +145,8 @@ func (w *binanceSpotMarginWrapper) GetOrderByClientOrderID(ctx context.Context, 
 		OrderID: binanceOrder.OrderID, ClientOrderID: binanceOrder.ClientOrderID,
 		Symbol: binanceOrder.Symbol, Side: Side(binanceOrder.Side), Type: OrderType(binanceOrder.Type),
 		Price: binanceOrder.Price, Quantity: binanceOrder.Quantity, ExecutedQty: binanceOrder.ExecutedQty,
-		AvgPrice: binanceOrder.AvgPrice, Status: OrderStatus(binanceOrder.Status),
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice, Status: OrderStatus(binanceOrder.Status),
 		CreatedAt: binanceOrder.CreatedAt, UpdateTime: binanceOrder.UpdateTime,
 	}, nil
 }
@@ -149,8 +162,9 @@ func (w *binanceSpotMarginWrapper) GetMarginTransactionHistory(ctx context.Conte
 	}
 	records := make([]MarginBorrowRecord, len(binanceRecords))
 	for i, record := range binanceRecords {
-		records[i] = MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount,
-			Principal: record.Principal, Interest: record.Interest, Status: record.Status, Timestamp: record.Timestamp}
+		records[i] = MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount, RawAmount: record.RawAmount,
+			Principal: record.Principal, RawPrincipal: record.RawPrincipal, Interest: record.Interest, RawInterest: record.RawInterest,
+			Status: record.Status, Timestamp: record.Timestamp}
 	}
 	return records, total, nil
 }
@@ -160,7 +174,9 @@ func (w *binanceSpotMarginWrapper) GetMarginTransactionByID(ctx context.Context,
 	if err != nil {
 		return MarginBorrowRecord{}, err
 	}
-	return MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount, Principal: record.Principal, Interest: record.Interest, Status: record.Status, Timestamp: record.Timestamp}, nil
+	return MarginBorrowRecord{TransferID: record.TransferID, Asset: record.Asset, Amount: record.Amount, RawAmount: record.RawAmount,
+		Principal: record.Principal, RawPrincipal: record.RawPrincipal, Interest: record.Interest, RawInterest: record.RawInterest,
+		Status: record.Status, Timestamp: record.Timestamp}, nil
 }
 
 func (w *binanceSpotMarginWrapper) GetMarginInterestHistory(ctx context.Context, asset string, startTime, endTime int64, page, pageSize int) ([]MarginInterestRecord, int64, error) {
@@ -172,7 +188,8 @@ func (w *binanceSpotMarginWrapper) GetMarginInterestHistory(ctx context.Context,
 	for i, record := range binanceRecords {
 		records[i] = MarginInterestRecord{
 			TransactionID: record.TransactionID, AccruedAt: record.AccruedAt, Asset: record.Asset, RawAsset: record.RawAsset,
-			Principal: record.Principal, Interest: record.Interest, Rate: record.Rate,
+			Principal: record.Principal, RawPrincipal: record.RawPrincipal, Interest: record.Interest, RawInterest: record.RawInterest,
+			Rate: record.Rate, RawRate: record.RawRate,
 			Type: record.Type, IsolatedSymbol: record.IsolatedSymbol,
 			ValuationAsset: record.ValuationAsset, ValuationRate: record.ValuationRate, ValuationAmount: record.ValuationAmount,
 			ValuationStatus: record.ValuationStatus, ValuationMinute: record.ValuationMinute, ValuationSource: record.ValuationSource,
@@ -381,12 +398,7 @@ func (w *binanceSpotMarginWrapper) GetOrderFills(ctx context.Context, symbol str
 		if row == nil {
 			return nil, fmt.Errorf("Binance margin order %d returned a nil fill at index %d", orderID, i)
 		}
-		fills[i] = &OrderFill{
-			OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(row.Side),
-			Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
-			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, IsMaker: row.IsMaker,
-			BaseFeeQty: row.BaseFeeQty,
-		}
+		fills[i] = binanceOrderFillToExchange(row)
 	}
 	return fills, nil
 }

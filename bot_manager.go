@@ -91,14 +91,18 @@ type BotManager struct {
 	storageService               *storage.StorageService
 	distributedLock              lock.DistributedLock
 	feeRateFetcher               func(*config.Config, string, string) (float64, float64, error)
-	botStatesFileOverride        string             // 測試用，空時用默認 ./data/bot_states.json
-	stopJournalDirectorySync     func(string) error // optional filesystem fault injection for journal durability tests
-	stopRecovery                 func(context.Context, *botStopJournal) error
-	stopRecoveryMu               sync.Mutex
-	stopRecoveryLeases           map[string][]*runtimeOwnershipLease
-	startFailMu                  sync.RWMutex
-	startFail                    map[string]botStartFailure
-	primaryYAMLPath              string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
+	// runtimeStarter is nil in production. Same-package composition tests may
+	// inject the dependency-aware constructor while retaining BotManager's real
+	// lifecycle, registry, ownership, and admission path.
+	runtimeStarter           func(context.Context, *config.Config, config.SymbolConfig, *event.EventBus, *storage.StorageService, lock.DistributedLock, func(string), []storage.OpeningPauseHolder) (*SymbolRuntime, error)
+	botStatesFileOverride    string             // 測試用，空時用默認 ./data/bot_states.json
+	stopJournalDirectorySync func(string) error // optional filesystem fault injection for journal durability tests
+	stopRecovery             func(context.Context, *botStopJournal) error
+	stopRecoveryMu           sync.Mutex
+	stopRecoveryLeases       map[string][]*runtimeOwnershipLease
+	startFailMu              sync.RWMutex
+	startFail                map[string]botStartFailure
+	primaryYAMLPath          string // 命令行主配置路徑（非空時啟動前與主庫一併刷新內存配置）
 }
 
 // SetDurableStopRecovery installs the explicit stopped-runtime reconciliation
@@ -791,7 +795,11 @@ func (bm *BotManager) startBotUnderTransition(ctx context.Context, botCfg config
 		ctx = execution.WithOpeningAdmissionCheck(ctx, pauseCoordinator.OpeningAdmissionAllowed)
 	}
 	defer finishPauseAdmission()
-	rt, err := startSymbolRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop, startupPauseHolders)
+	startRuntime := bm.runtimeStarter
+	if startRuntime == nil {
+		startRuntime = startSymbolRuntime
+	}
+	rt, err := startRuntime(ctx, bm.cfg, symCfg, bm.eventBus, bm.storageService, bm.distributedLock, onRequestStop, startupPauseHolders)
 	if err != nil {
 		// 发布启动失败事件
 		bm.eventBus.Publish(&event.Event{

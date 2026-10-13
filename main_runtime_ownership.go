@@ -53,6 +53,20 @@ func fundingCarryRuntimeOwnershipScopes(cfg *config.Config, exchangeName, symbol
 	return scopes, nil
 }
 
+func fundingCarryFuturesOwnerScopeKey(scopes []execution.IntentScope) (string, error) {
+	for _, scope := range scopes {
+		if scope.Market != "futures" {
+			continue
+		}
+		key, err := scope.Key()
+		if err != nil {
+			return "", fmt.Errorf("derive FundingCarry futures source scope: %w", err)
+		}
+		return key, nil
+	}
+	return "", errors.New("FundingCarry runtime owner scopes do not include a futures source scope")
+}
+
 func acquireFundingCarryRuntimeOwnershipLeases(ctx context.Context, distributedLock lock.DistributedLock, cfg *config.Config, exchangeName, symbol string, includeMargin bool, onLost func(error)) ([]*runtimeOwnershipLease, error) {
 	scopes, err := fundingCarryRuntimeOwnershipScopes(cfg, exchangeName, symbol, includeMargin)
 	if err != nil {

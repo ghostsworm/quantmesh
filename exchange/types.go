@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -61,18 +62,44 @@ type OrderRequest struct {
 
 // Order 订單信息（通用）
 type Order struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	Status        OrderStatus
-	CreatedAt     time.Time
-	UpdateTime    int64
+	OrderID        int64
+	ClientOrderID  string
+	Symbol         string
+	Side           Side
+	Type           OrderType
+	Price          float64
+	Quantity       float64
+	ExecutedQty    float64
+	ExecutedQtyRaw string // 交易所原始已成交数量文本；空值表示来源未提供
+	AvgPrice       float64
+	Status         OrderStatus
+	CreatedAt      time.Time
+	UpdateTime     int64
+}
+
+// OrderFillBatch is an exchange snapshot of one order and its execution ledger.
+// Complete describes only the fill set: the source proved its terminal page,
+// order status is terminal, and raw fill quantities equal ExecutedQuantityRaw.
+// FeesComplete is separate and must be required before accounting/unlock.
+type OrderFillBatch struct {
+	OrderID             int64
+	ClientOrderID       string
+	Symbol              string
+	Side                Side
+	TerminalStatus      OrderStatus
+	OrderUpdateTime     int64
+	ExecutedQuantityRaw string
+	SourceRevision      string
+	Fills               []*OrderFill
+	FillHistoryComplete bool
+	Complete            bool
+	FeesComplete        bool
+}
+
+// OrderFillBatchSource is an optional capability for adapters that can prove
+// completeness of a single order's fill ledger. It does not alter IExchange.
+type OrderFillBatchSource interface {
+	GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error)
 }
 
 // Position 持倉資訊（通用）
@@ -132,12 +159,18 @@ type OrderFill struct {
 	Symbol           string  // 交易對
 	Side             Side    // 買賣方向
 	Price            float64 // 成交價格
+	PriceRaw         string  // 交易所原始价格十进制文本；为空表示来源未提供
 	Quantity         float64 // 成交數量
+	QuantityRaw      string  // 交易所原始数量十进制文本；为空表示来源未提供
 	QuoteQuantity    float64 // 交易所回報的計價幣成交金額；0 表示交易所未提供
+	QuoteQuantityRaw string  // 交易所原始计价币成交金额文本；为空表示来源未提供
 	Commission       float64 // 手續費
+	CommissionRaw    string  // 交易所原始手续费十进制文本；为空表示来源未提供
+	CommissionKnown  bool    // true 表示交易所明确返回了手续费字段（包括明确零）
 	CommissionAsset  string  // 手續費幣種
 	TradeTime        int64   // 成交時間（毫秒）
 	RealizedPnL      float64 // 交易所逐筆已實現盈虧
+	RealizedPnLRaw   string  // 交易所原始逐笔已实现盈亏文本；为空表示来源未提供
 	RealizedPnLKnown bool    // true 表示交易所明確返回了逐筆盈虧（包括 0）
 	RealizedPnLAsset string  // 已實現盈虧資產；仅适用于交易所回报能证明与结算/费用币种一致的合约
 	IsMaker          bool    // 是否為 Maker 訂單

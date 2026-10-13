@@ -2,10 +2,14 @@ package order
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
+	"quantmesh/accounting"
 	"quantmesh/config"
+	"quantmesh/exchange"
 	"quantmesh/execution"
 )
 
@@ -49,18 +53,82 @@ func (oe *ExchangeOrderExecutor) IsOpeningPaused() bool {
 	return oe.openingGate != nil && oe.openingGate.Blocked()
 }
 
-func (oe *ExchangeOrderExecutor) admitOrder(req *OrderRequest) (func(), error) {
+func (oe *ExchangeOrderExecutor) admitOrder(req *OrderRequest) (func(), execution.OpeningLease, error) {
 	if req == nil {
-		return nil, fmt.Errorf("order request is nil")
+		return nil, execution.OpeningLease{}, fmt.Errorf("order request is nil")
 	}
 	side := strings.ToUpper(strings.TrimSpace(req.Side))
 	if side != "BUY" && side != "SELL" {
-		return nil, fmt.Errorf("invalid order side %q", req.Side)
+		return nil, execution.OpeningLease{}, fmt.Errorf("invalid order side %q", req.Side)
 	}
 	if oe.openingGate == nil || !oe.isOpeningOrder(req) {
-		return func() {}, nil
+		return func() {}, execution.OpeningLease{}, nil
 	}
-	return oe.openingGate.Begin()
+	lease, err := oe.openingGate.BeginLease()
+	if err != nil {
+		return nil, execution.OpeningLease{}, err
+	}
+	return func() { oe.openingGate.ReleaseLease(lease.ID) }, lease, nil
+}
+
+func validateRecoveryOrderSubmission(oe *ExchangeOrderExecutor, req *OrderRequest, orderType exchange.OrderType, tif exchange.TimeInForce, permit accounting.OneShotPermit) error {
+	if oe.openingGate == nil || !oe.isOpeningOrder(req) {
+		return execution.ErrOpeningPaused
+	}
+	if permit.Kind != accounting.RecoveryActionOrder || permit.State != accounting.PermitAuthorized {
+		return errors.New("recovery order requires an authorized order permit")
+	}
+	if req.ClientOrderID == "" {
+		return errors.New("recovery order requires its pre-persisted client order ID")
+	}
+	hash, err := CanonicalRecoveryOrderIntentHash(oe, req, orderType, tif)
+	if err != nil {
+		return err
+	}
+	if hash != permit.OrderIntentHash {
+		return accounting.ErrRecoveryConflict
+	}
+	return permit.Validate()
+}
+
+func (oe *ExchangeOrderExecutor) beginRecoveryOrder(submission *recoveryOrderSubmission) (execution.OpeningLease, func(), error) {
+	lease, err := oe.openingGate.BeginWithEpisodeActionPermit(submission.permit)
+	if err != nil {
+		return execution.OpeningLease{}, nil, err
+	}
+	release := func() { oe.openingGate.ReleaseLease(lease.ID) }
+	return lease, release, nil
+}
+
+func sameConsumedRecoveryPermit(authorized, consumed accounting.OneShotPermit) bool {
+	if consumed.State != accounting.PermitConsumed || authorized.ID != consumed.ID || authorized.EpisodeID != consumed.EpisodeID ||
+		authorized.Generation != consumed.Generation || authorized.ActionID != consumed.ActionID || authorized.ActionOrdinal != consumed.ActionOrdinal ||
+		authorized.Kind != consumed.Kind || authorized.AccountScope != consumed.AccountScope || authorized.OwnerGeneration != consumed.OwnerGeneration ||
+		authorized.LeaseID != consumed.LeaseID || authorized.OrderIntentHash != consumed.OrderIntentHash ||
+		authorized.ExpectedRevision != consumed.ExpectedRevision || len(authorized.GateSourceExceptions) != len(consumed.GateSourceExceptions) {
+		return false
+	}
+	for i := range authorized.GateSourceExceptions {
+		if authorized.GateSourceExceptions[i] != consumed.GateSourceExceptions[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// CanonicalRecoveryOrderIntentHash binds the durable permit to the exact
+// client ID, market/leg and order parameters that will be passed to the venue.
+func CanonicalRecoveryOrderIntentHash(oe *ExchangeOrderExecutor, req *OrderRequest, orderType exchange.OrderType, tif exchange.TimeInForce) (string, error) {
+	if oe == nil || oe.exchange == nil || req == nil {
+		return "", errors.New("recovery order intent requires an executor and request")
+	}
+	return (accounting.RecoveryOrderIntent{
+		SchemaVersion: 1, Exchange: oe.exchange.GetName(), Market: oe.exchange.GetMarketType(), Symbol: req.Symbol, Side: req.Side,
+		OrderType: string(orderType), TimeInForce: string(tif), Price: strconv.FormatFloat(req.Price, 'f', -1, 64),
+		Quantity: strconv.FormatFloat(req.Quantity, 'f', -1, 64), PriceDecimals: req.PriceDecimals,
+		ReduceOnly: req.ReduceOnly, PostOnly: req.PostOnly, PositionSide: req.PositionSide,
+		ClientOrderID: req.ClientOrderID,
+	}).CanonicalHash()
 }
 
 func (oe *ExchangeOrderExecutor) isOpeningOrder(req *OrderRequest) bool {

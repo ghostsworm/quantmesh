@@ -32,11 +32,35 @@ func startFundingCarryManagedStrategy(ctx context.Context, manager *strategy.Str
 	if !fundingCarryReconciliationOnlyError(err) {
 		return false, err
 	}
+	if fundingCarryDurableRecoveryOnlyError(err) {
+		var durable *strategy.FundingCarryDurableRecoveryRequiredError
+		if !errors.As(err, &durable) || fc.VerifyDurableRecovery(ctx, gate, durable.Episodes) != nil {
+			return false, fmt.Errorf("funding_carry durable recovery hold changed during startup; reconciliation runtime was not retained")
+		}
+		return true, nil
+	}
 	if verifyErr := fc.VerifyRemainingReconciliation(ctx, gate); verifyErr != nil {
 		return false, errors.Join(err, verifyErr)
 	}
 	gate.Block(fundingCarryReconciliationBlock)
 	return true, nil
+}
+
+func fundingCarryDurableRecoveryOnlyError(err error) bool {
+	for err != nil {
+		if _, retained := err.(*fundingCarryStartupRetentionError); retained {
+			return false
+		}
+		if _, ok := err.(*strategy.FundingCarryDurableRecoveryRequiredError); ok {
+			return true
+		}
+		wrapped, ok := err.(interface{ Unwrap() error })
+		if !ok {
+			return false
+		}
+		err = wrapped.Unwrap()
+	}
+	return false
 }
 
 // A diagnostic joined with another failure is not managed-recovery admission.
@@ -47,6 +71,9 @@ func fundingCarryReconciliationOnlyError(err error) bool {
 			return false
 		}
 		if _, ok := err.(*strategy.FundingCarryReconciliationRequiredError); ok {
+			return true
+		}
+		if _, ok := err.(*strategy.FundingCarryDurableRecoveryRequiredError); ok {
 			return true
 		}
 		wrapped, ok := err.(interface{ Unwrap() error })

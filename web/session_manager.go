@@ -452,13 +452,25 @@ func (sm *SessionManager) ClearSessionCookie(w http.ResponseWriter) {
 // 全局會话管理器
 var (
 	globalSessionManager *SessionManager
-	sessionManagerOnce   sync.Once
+	sessionManagerMu     sync.RWMutex
+	sessionManagerReady  bool
 )
+
+// NewEphemeralSessionManager creates a non-persistent manager for isolated
+// in-process sessions, such as tests and short-lived local workflows.
+func NewEphemeralSessionManager() *SessionManager {
+	return &SessionManager{sessions: make(map[string]*Session), sessionTimeout: 24 * time.Hour}
+}
 
 // GetSessionManager 獲取全局會话管理器
 func GetSessionManager() *SessionManager {
-	sessionManagerOnce.Do(func() {
-		globalSessionManager = NewSessionManager()
-	})
+	sessionManagerMu.Lock()
+	defer sessionManagerMu.Unlock()
+	if !sessionManagerReady {
+		if globalSessionManager == nil {
+			globalSessionManager = NewSessionManager()
+		}
+		sessionManagerReady = true
+	}
 	return globalSessionManager
 }

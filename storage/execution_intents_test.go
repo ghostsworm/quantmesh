@@ -208,6 +208,14 @@ func TestExecutionIntentJournalPaginatesAndIsolatesOwners(t *testing.T) {
 	c := a
 	c.Account = "account-b"
 	key, _ := a.Key()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO execution_intents (scope_key, client_order_id, revision, state_json) VALUES (?, ?, 1, ?)`)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, scope := range []execution.IntentScope{a, b, c} {
 		k, _ := scope.Key()
 		n := 1
@@ -215,10 +223,19 @@ func TestExecutionIntentJournalPaginatesAndIsolatesOwners(t *testing.T) {
 			n = 2101
 		}
 		for i := 0; i < n; i++ {
-			if err := s.SaveExecutionIntent(ctx, k, fmt.Sprintf("cid-%d", i), 0, []byte(`{"phase":"prepared"}`)); err != nil {
+			if _, err := stmt.ExecContext(ctx, k, fmt.Sprintf("cid-%d", i), `{"phase":"prepared"}`); err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
 				t.Fatal(err)
 			}
 		}
+	}
+	if err := stmt.Close(); err != nil {
+		_ = tx.Rollback()
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
 	}
 	var after int64
 	count := 0

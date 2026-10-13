@@ -8,6 +8,8 @@ import (
 	"quantmesh/exchange/income"
 )
 
+var _ OrderFillBatchSource = (*binanceSpotWrapper)(nil)
+
 // binanceSpotWrapper 包装 Binance 現貨适配器以實現 IExchange 接口
 type binanceSpotWrapper struct {
 	adapter *binance.BinanceSpotAdapter
@@ -56,19 +58,28 @@ func (w *binanceSpotWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) 
 		return nil, err
 	}
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
+}
+
+func (w *binanceSpotWrapper) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	batch, err := w.adapter.GetOrderFillBatch(ctx, symbol, orderID)
+	if err != nil || batch == nil {
+		return nil, err
+	}
+	return setOrderFillBatchPnLAsset(binanceBatchToExchange(batch), w.adapter.GetQuoteAsset()), nil
 }
 
 func (w *binanceSpotWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
@@ -126,18 +137,19 @@ func (w *binanceSpotWrapper) GetOrder(ctx context.Context, symbol string, orderI
 		return nil, err
 	}
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
 }
 
@@ -343,10 +355,7 @@ func (w *binanceSpotWrapper) GetOrderFills(ctx context.Context, symbol string, o
 		if row == nil {
 			return nil, fmt.Errorf("Binance returned an empty spot execution for order %d", orderID)
 		}
-		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol,
-			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
-			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime, BaseFeeQty: row.BaseFeeQty,
-			CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate, CommissionQuoteKnown: row.CommissionQuoteKnown})
+		fills = append(fills, binanceOrderFillToExchange(row))
 	}
 	return fills, nil
 }

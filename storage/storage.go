@@ -305,6 +305,24 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 			return nil, fmt.Errorf("初始化人工核账审计存储失败: %w", err)
 		}
 	}
+	if recoveryStore, ok := ss.storage.(interface {
+		MigrateFundingRecovery(context.Context) error
+	}); ok {
+		if err := recoveryStore.MigrateFundingRecovery(ctx); err != nil {
+			ss.storage.Close()
+			cancel()
+			return nil, fmt.Errorf("initialize durable funding recovery storage: %w", err)
+		}
+	}
+	if recoveryVerifierStore, ok := ss.storage.(interface {
+		SetRecoverySourceWindowVerifier(RecoverySourceWindowVerifier) error
+	}); ok {
+		if err := recoveryVerifierStore.SetRecoverySourceWindowVerifier(productionRecoverySourceWindowVerifier{}); err != nil {
+			ss.storage.Close()
+			cancel()
+			return nil, fmt.Errorf("install trusted funding recovery source verifier: %w", err)
+		}
+	}
 	return ss, nil
 }
 

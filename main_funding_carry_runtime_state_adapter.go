@@ -12,7 +12,15 @@ import (
 // while fencing every FundingCarry write with its claimed shared generation.
 type fundingCarryRuntimeStateAdapter struct {
 	*strategyRuntimeStateAdapter
-	generation storage.FundingCarryRuntimeGeneration
+	generation         storage.FundingCarryRuntimeGeneration
+	fundingIncomeScope string
+}
+
+func (a *fundingCarryRuntimeStateAdapter) FundingCarryFundingIncomeScope() string {
+	if a == nil {
+		return ""
+	}
+	return a.fundingIncomeScope
 }
 
 func (a *fundingCarryRuntimeStateAdapter) SaveRuntimeState(name string, schemaVersion int, payload string) error {
@@ -28,6 +36,19 @@ func (a *fundingCarryRuntimeStateAdapter) SaveRuntimeState(name string, schemaVe
 	return writer.SetFundingCarryRuntimeState(ctx, a.generation, &storage.StrategyRuntimeState{
 		BotID: a.botID, StrategyName: name, SchemaVersion: schemaVersion, Payload: payload,
 	})
+}
+
+// FundingCarryRecoveryBinding exposes the durable recovery repository together
+// with the exact owner generation already claimed for this runtime.
+func (a *fundingCarryRuntimeStateAdapter) FundingCarryRecoveryBinding() (storage.FundingRecoveryStore, storage.FundingCarryRuntimeGeneration, string, []string, error) {
+	if a == nil || a.strategyRuntimeStateAdapter == nil || a.storageService == nil || a.storageService.GetStorage() == nil || a.generation.ID() == "" {
+		return nil, storage.FundingCarryRuntimeGeneration{}, "", nil, fmt.Errorf("funding_carry recovery binding is unavailable")
+	}
+	store, ok := a.storageService.GetStorage().(storage.FundingRecoveryStore)
+	if !ok {
+		return nil, storage.FundingCarryRuntimeGeneration{}, "", nil, fmt.Errorf("storage does not support durable funding_carry recovery")
+	}
+	return store, a.generation, a.botID, a.generation.ScopeKeys(), nil
 }
 
 func (a *fundingCarryRuntimeStateAdapter) SaveRuntimeStateContext(ctx context.Context, name string, schemaVersion int, payload string) error {

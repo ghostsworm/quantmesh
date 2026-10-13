@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"quantmesh/config"
+	"quantmesh/event"
 	"quantmesh/web"
 )
 
@@ -32,6 +34,77 @@ func TestBotConfigurationContextCanceledWaiterDoesNotRetainLock(t *testing.T) {
 		return nil
 	}); err != nil || !called {
 		t.Fatalf("canceled waiter retained lock: %v", err)
+	}
+}
+
+func TestBotRuntimeOperationSerializesWithStopWithoutHoldingRegistryLock(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, event.NewEventBus(8), nil, nil, "")
+	bm.botStatesFileOverride = filepath.Join(t.TempDir(), "bot-states.json")
+	var stopCalls atomic.Int32
+	runtime := &BotRuntime{BotID: "recovery-runtime", Inner: &SymbolRuntime{StopWithError: func() error {
+		stopCalls.Add(1)
+		return nil
+	}}}
+	bm.AddRuntime(runtime)
+
+	entered, release := make(chan struct{}), make(chan struct{})
+	operationDone := make(chan error, 1)
+	go func() {
+		operationDone <- bm.WithBotRuntimeOperationContext(t.Context(), runtime.BotID, func(operationCtx context.Context, got *BotRuntime) error {
+			if got != runtime {
+				return errors.New("operation received a stale runtime")
+			}
+			if _, hasDeadline := operationCtx.Deadline(); !hasDeadline {
+				return errors.New("runtime operation has no bounded context")
+			}
+			close(entered)
+			<-release
+			return nil
+		})
+	}()
+	<-entered
+	stopAttempted := make(chan struct{})
+	stopDone := make(chan error, 1)
+	go func() {
+		close(stopAttempted)
+		stopDone <- bm.StopBotWithReason(runtime.BotID, "test", "test")
+	}()
+	<-stopAttempted
+	select {
+	case err := <-stopDone:
+		t.Fatalf("stop interleaved with active runtime operation: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	if err := <-operationDone; err != nil {
+		t.Fatalf("runtime operation failed: %v", err)
+	}
+	if err := <-stopDone; err != nil {
+		t.Fatalf("stop after runtime operation: %v", err)
+	}
+	if stopCalls.Load() != 1 {
+		t.Fatalf("financial stop callback count=%d, want exactly one", stopCalls.Load())
+	}
+	if _, found := bm.Get(runtime.BotID); found {
+		t.Fatal("stopped runtime remained registered")
+	}
+}
+
+func TestBotRuntimeOperationDeadlineAlsoBoundsLifecycleWait(t *testing.T) {
+	bm := NewBotManager(&config.Config{}, nil, nil, nil, "")
+	runtime := &BotRuntime{BotID: "deadline-runtime", Inner: &SymbolRuntime{}}
+	bm.AddRuntime(runtime)
+	unlock := bm.lockBotLifecycle(runtime.BotID)
+	ctx, cancel := context.WithTimeout(t.Context(), 25*time.Millisecond)
+	defer cancel()
+	called := false
+	err := bm.WithBotRuntimeOperationContext(ctx, runtime.BotID, func(context.Context, *BotRuntime) error {
+		called = true
+		return nil
+	})
+	unlock()
+	if !errors.Is(err, context.DeadlineExceeded) || called {
+		t.Fatalf("lifecycle wait was not canceled by request deadline: called=%t err=%v", called, err)
 	}
 }
 

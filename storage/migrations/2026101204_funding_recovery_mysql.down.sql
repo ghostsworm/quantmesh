@@ -1,0 +1,2 @@
+-- Forward-only migration: retaining symbol-scoped cursor identity is required
+-- to prevent merging Funding events for different instruments.

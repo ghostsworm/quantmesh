@@ -2,6 +2,8 @@ package order
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -62,6 +64,41 @@ type OwnedIntentSnapshot struct {
 	LedgerPending     bool
 	Settled           bool
 	Rejected          bool
+}
+
+// OwnedIntentRecoverySnapshot is a read-only view of an unresolved durable
+// intent. PayloadHash identifies the exact journal payload, not a reconstructed
+// request, and Scope is the owner-validated journal scope loaded at startup.
+type OwnedIntentRecoverySnapshot struct {
+	Scope       execution.IntentScope
+	Request     OrderRequest
+	Revision    int64
+	PayloadHash string
+}
+
+func (oe *ExchangeOrderExecutor) ListOwnedIntentRecoverySnapshots() ([]OwnedIntentRecoverySnapshot, error) {
+	oe.intentMu.Lock()
+	defer oe.intentMu.Unlock()
+	if !oe.journalRequired || !oe.journalLoaded || oe.intentJournal == nil || oe.intentScopeKey == "" {
+		return nil, fmt.Errorf("owned intent journal is not fully loaded")
+	}
+	snapshots := make([]OwnedIntentRecoverySnapshot, 0)
+	for clientOrderID, intent := range oe.intents {
+		if intent == nil || (intent.settled && !intent.unknown && !intent.ledgerPending) || intent.rejected {
+			continue
+		}
+		if intent.request.ClientOrderID != clientOrderID || intent.revision <= 0 || len(intent.durablePayload) == 0 ||
+			intent.request.Symbol != oe.intentScope.Symbol ||
+			(intent.request.Side != "BUY" && intent.request.Side != "SELL") {
+			return nil, fmt.Errorf("unresolved owned intent %q lacks exact durable identity", clientOrderID)
+		}
+		digest := sha256.Sum256(intent.durablePayload)
+		snapshots = append(snapshots, OwnedIntentRecoverySnapshot{
+			Scope: oe.intentScope, Request: intent.request, Revision: intent.revision,
+			PayloadHash: hex.EncodeToString(digest[:]),
+		})
+	}
+	return snapshots, nil
 }
 
 // ReadOwnedIntentSnapshot resolves exactly one already-loaded intent by both

@@ -347,17 +347,18 @@ func (b *BinanceSpotAdapter) GetOrder(ctx context.Context, symbol string, orderI
 	cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
 	avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 	return &Order{
-		OrderID:       o.OrderID,
-		ClientOrderID: o.ClientOrderID,
-		Symbol:        o.Symbol,
-		Side:          Side(o.Side),
-		Type:          OrderType(o.Type),
-		Price:         price,
-		Quantity:      qty,
-		ExecutedQty:   execQty,
-		AvgPrice:      avgPrice,
-		Status:        OrderStatus(o.Status),
-		UpdateTime:    o.UpdateTime,
+		OrderID:        o.OrderID,
+		ClientOrderID:  o.ClientOrderID,
+		Symbol:         o.Symbol,
+		Side:           Side(o.Side),
+		Type:           OrderType(o.Type),
+		Price:          price,
+		Quantity:       qty,
+		ExecutedQty:    execQty,
+		ExecutedQtyRaw: o.ExecutedQuantity,
+		AvgPrice:       avgPrice,
+		Status:         OrderStatus(o.Status),
+		UpdateTime:     o.UpdateTime,
 	}, nil
 }
 
@@ -843,6 +844,10 @@ func (b *BinanceSpotAdapter) GetQuantityDecimals() int {
 
 // GetOrderFills returns the spot execution ledger for a single order.
 func (b *BinanceSpotAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return b.getOrderFills(ctx, symbol, orderID, false)
+}
+
+func (b *BinanceSpotAdapter) getOrderFills(ctx context.Context, symbol string, orderID int64, allowIncompleteRawFields bool) ([]*OrderFill, error) {
 	if b == nil || b.client == nil || b.apiKey == "" || b.secretKey == "" || orderID <= 0 || strings.TrimSpace(symbol) == "" {
 		return nil, fmt.Errorf("Binance spot execution lookup requires a configured adapter, symbol, and order ID")
 	}
@@ -877,9 +882,23 @@ func (b *BinanceSpotAdapter) GetOrderFills(ctx context.Context, symbol string, o
 		}
 		price, priceErr := strconv.ParseFloat(row.Price, 64)
 		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
-		quoteQty, quoteErr := strconv.ParseFloat(row.QuoteQuantity, 64)
-		commission, commissionErr := strconv.ParseFloat(row.Commission, 64)
-		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 || quoteQty <= 0 || commission < 0 {
+		quoteQty := 0.0
+		var quoteErr error
+		if row.QuoteQuantity != "" {
+			quoteQty, quoteErr = strconv.ParseFloat(row.QuoteQuantity, 64)
+		} else if !allowIncompleteRawFields {
+			quoteErr = fmt.Errorf("quote quantity is missing")
+		}
+		commission := 0.0
+		var commissionErr error
+		commissionKnown := row.Commission != ""
+		if commissionKnown {
+			commission, commissionErr = strconv.ParseFloat(row.Commission, 64)
+		} else if !allowIncompleteRawFields {
+			commissionErr = fmt.Errorf("commission is missing")
+		}
+		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 ||
+			(row.QuoteQuantity != "" && quoteQty <= 0) || commission < 0 {
 			return nil, fmt.Errorf("Binance spot execution %d contains invalid economic fields", row.ID)
 		}
 		side := SideSell
@@ -887,14 +906,20 @@ func (b *BinanceSpotAdapter) GetOrderFills(ctx context.Context, symbol string, o
 			side = SideBuy
 		}
 		baseFee := 0.0
-		if strings.EqualFold(row.CommissionAsset, b.baseAsset) {
+		commissionAsset := row.CommissionAsset
+		if !commissionKnown {
+			commissionAsset = ""
+		}
+		if commissionKnown && strings.EqualFold(commissionAsset, b.baseAsset) {
 			baseFee = commission
 		}
 		fill := &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
-			Side: side, Price: price, Quantity: quantity, QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: row.CommissionAsset,
+			Side: side, Price: price, PriceRaw: row.Price, Quantity: quantity, QuantityRaw: row.Quantity,
+			QuoteQuantity: quoteQty, QuoteQuantityRaw: row.QuoteQuantity, Commission: commission, CommissionRaw: row.Commission,
+			CommissionKnown: commissionKnown, CommissionAsset: commissionAsset,
 			TradeTime: row.Time, IsMaker: row.IsMaker, BaseFeeQty: baseFee}
 		trade := &UserTrade{ID: row.ID, OrderID: row.OrderID, Symbol: row.Symbol, Side: side, Price: price, Quantity: quantity,
-			QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: row.CommissionAsset, Time: time.UnixMilli(row.Time), IsMaker: row.IsMaker}
+			QuoteQuantity: quoteQty, Commission: commission, CommissionAsset: commissionAsset, Time: time.UnixMilli(row.Time), IsMaker: row.IsMaker}
 		asset := strings.ToUpper(strings.TrimSpace(row.CommissionAsset))
 		switch {
 		case strings.EqualFold(asset, b.quoteAsset):
@@ -912,6 +937,20 @@ func (b *BinanceSpotAdapter) GetOrderFills(ctx context.Context, symbol string, o
 		fills[index].CommissionQuoteKnown = trade.CommissionQuoteKnown
 	}
 	return fills, nil
+}
+
+// GetOrderFillBatch returns a fill snapshot whose completeness is proved by
+// the venue order state and exact raw executed quantity.
+func (b *BinanceSpotAdapter) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	fills, err := b.getOrderFills(ctx, symbol, orderID, true)
+	if err != nil {
+		return nil, err
+	}
+	order, err := b.GetOrder(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return buildOrderFillBatch(order, fills, true)
 }
 
 // GetUserTradesFromID 获取现货账户成交并支持成交 ID 分页。

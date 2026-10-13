@@ -26,13 +26,16 @@ type BinanceSpotMarginAdapter struct {
 }
 
 type MarginBorrowRecord struct {
-	TransferID int64
-	Asset      string
-	Amount     float64
-	Principal  float64
-	Interest   float64
-	Status     string
-	Timestamp  int64
+	TransferID   int64
+	Asset        string
+	Amount       float64
+	RawAmount    string
+	Principal    float64
+	RawPrincipal string
+	Interest     float64
+	RawInterest  string
+	Status       string
+	Timestamp    int64
 }
 
 type MarginInterestRecord struct {
@@ -41,8 +44,11 @@ type MarginInterestRecord struct {
 	Asset           string
 	RawAsset        string
 	Principal       float64
+	RawPrincipal    string
 	Interest        float64
+	RawInterest     string
 	Rate            float64
+	RawRate         string
 	Type            string
 	IsolatedSymbol  string
 	ValuationAsset  string
@@ -626,18 +632,19 @@ func (b *BinanceSpotMarginAdapter) GetOrder(ctx context.Context, symbol string, 
 	cumulativeQuote, _ := strconv.ParseFloat(o.CummulativeQuoteQuantity, 64)
 	avgPrice := cumulativeAveragePrice(cumulativeQuote, execQty)
 	return &Order{
-		OrderID:       o.OrderID,
-		ClientOrderID: o.ClientOrderID,
-		Symbol:        o.Symbol,
-		Side:          Side(o.Side),
-		Type:          OrderType(o.Type),
-		Price:         price,
-		Quantity:      qty,
-		ExecutedQty:   execQty,
-		AvgPrice:      avgPrice,
-		Status:        OrderStatus(o.Status),
-		CreatedAt:     time.UnixMilli(o.Time),
-		UpdateTime:    o.UpdateTime,
+		OrderID:        o.OrderID,
+		ClientOrderID:  o.ClientOrderID,
+		Symbol:         o.Symbol,
+		Side:           Side(o.Side),
+		Type:           OrderType(o.Type),
+		Price:          price,
+		Quantity:       qty,
+		ExecutedQty:    execQty,
+		ExecutedQtyRaw: o.ExecutedQuantity,
+		AvgPrice:       avgPrice,
+		Status:         OrderStatus(o.Status),
+		CreatedAt:      time.UnixMilli(o.Time),
+		UpdateTime:     o.UpdateTime,
 	}, nil
 }
 
@@ -678,7 +685,8 @@ func (b *BinanceSpotMarginAdapter) GetOrderByClientOrderID(ctx context.Context, 
 		OrderID: o.OrderID, ClientOrderID: o.ClientOrderID, Symbol: o.Symbol,
 		Side: Side(o.Side), Type: OrderType(o.Type), Price: price, Quantity: qty,
 		ExecutedQty: execQty, AvgPrice: cumulativeAveragePrice(cumulativeQuote, execQty),
-		Status: OrderStatus(o.Status), CreatedAt: time.UnixMilli(o.Time), UpdateTime: o.UpdateTime,
+		ExecutedQtyRaw: o.ExecutedQuantity,
+		Status:         OrderStatus(o.Status), CreatedAt: time.UnixMilli(o.Time), UpdateTime: o.UpdateTime,
 	}, nil
 }
 
@@ -707,17 +715,20 @@ func (b *BinanceSpotMarginAdapter) GetMarginTransactionHistory(ctx context.Conte
 		}
 		principal, principalErr := strconv.ParseFloat(row.Principal, 64)
 		interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+		rawPrincipal, rawInterest := row.Principal, row.Interest
 		if strings.EqualFold(strings.TrimSpace(transactionType), "BORROW") {
 			// Match the exact-ID BORROW contract: the borrowed amount is principal.
 			principal, interest = amount, 0
 			principalErr, interestErr = nil, nil
+			rawPrincipal, rawInterest = row.Amount, "0"
 		}
 		if principalErr != nil || interestErr != nil || math.IsNaN(principal) || math.IsInf(principal, 0) || principal < 0 ||
 			math.IsNaN(interest) || math.IsInf(interest, 0) || interest < 0 || math.Abs(principal+interest-amount) > math.Max(1e-10, amount*1e-8) {
 			return nil, 0, fmt.Errorf("Binance margin %s history transaction %d lacks verified principal and interest", transactionType, row.TxID)
 		}
-		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount,
-			Principal: principal, Interest: interest, Status: row.Status, Timestamp: row.Timestamp})
+		records = append(records, MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, RawAmount: row.Amount,
+			Principal: principal, RawPrincipal: rawPrincipal, Interest: interest, RawInterest: rawInterest,
+			Status: row.Status, Timestamp: row.Timestamp})
 	}
 	return records, response.Total, nil
 }
@@ -737,9 +748,11 @@ func (b *BinanceSpotMarginAdapter) GetMarginTransactionByID(ctx context.Context,
 	amount, parseErr := strconv.ParseFloat(row.Amount, 64)
 	principal, principalErr := strconv.ParseFloat(row.Principal, 64)
 	interest, interestErr := strconv.ParseFloat(row.Interest, 64)
+	rawPrincipal, rawInterest := row.Principal, row.Interest
 	if strings.EqualFold(strings.TrimSpace(transactionType), "BORROW") {
 		principal, interest = amount, 0
 		principalErr, interestErr = nil, nil
+		rawPrincipal, rawInterest = row.Amount, "0"
 	}
 	if row.TxID != transactionID || !strings.EqualFold(strings.TrimSpace(row.Asset), strings.TrimSpace(asset)) ||
 		!strings.EqualFold(strings.TrimSpace(row.Status), "CONFIRMED") || row.Timestamp <= 0 || row.IsolatedSymbol != "" ||
@@ -748,7 +761,9 @@ func (b *BinanceSpotMarginAdapter) GetMarginTransactionByID(ctx context.Context,
 		math.Abs(principal+interest-amount) > math.Max(1e-10, amount*1e-8) {
 		return MarginBorrowRecord{}, fmt.Errorf("Binance margin transaction %d is missing exact cross-margin confirmation", transactionID)
 	}
-	return MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, Principal: principal, Interest: interest, Status: row.Status, Timestamp: row.Timestamp}, nil
+	return MarginBorrowRecord{TransferID: row.TxID, Asset: row.Asset, Amount: amount, RawAmount: row.Amount,
+		Principal: principal, RawPrincipal: rawPrincipal, Interest: interest, RawInterest: rawInterest,
+		Status: row.Status, Timestamp: row.Timestamp}, nil
 }
 
 // GetMarginInterestHistory returns one verified page. Cross-margin rows remain
@@ -782,7 +797,8 @@ func (b *BinanceSpotMarginAdapter) GetMarginInterestHistory(ctx context.Context,
 		}
 		record := MarginInterestRecord{
 			TransactionID: row.TxId, AccruedAt: row.InterestAccuredTime, Asset: row.Asset, RawAsset: row.RawAsset,
-			Principal: principal, Interest: interest, Rate: rate, Type: row.Type, IsolatedSymbol: row.IsolatedSymbol,
+			Principal: principal, RawPrincipal: row.Principal, Interest: interest, RawInterest: row.Interest,
+			Rate: rate, RawRate: row.InterestRate, Type: row.Type, IsolatedSymbol: row.IsolatedSymbol,
 			ValuationAsset: "USDT", ValuationStatus: "UNVALUED",
 		}
 		if interest == 0 {
@@ -825,6 +841,10 @@ func (b *BinanceSpotMarginAdapter) GetMarginInterestHistory(ctx context.Context,
 // GetOrderFills queries the margin-account trade ledger for a specific order.
 // Base-asset commissions are preserved separately so repayment uses net received quantity.
 func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return b.getOrderFills(ctx, symbol, orderID, false)
+}
+
+func (b *BinanceSpotMarginAdapter) getOrderFills(ctx context.Context, symbol string, orderID int64, allowIncompleteRawFields bool) ([]*OrderFill, error) {
 	if b == nil || b.marginClient == nil || b.BinanceSpotAdapter == nil {
 		return nil, fmt.Errorf("Binance spot margin adapter is unavailable")
 	}
@@ -846,21 +866,38 @@ func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol str
 	fills := make([]*OrderFill, 0, len(trades))
 	var reconciledQuantity float64
 	for _, trade := range trades {
-		if trade == nil || trade.ID <= 0 || trade.OrderID != orderID || !strings.EqualFold(trade.Symbol, sym) ||
-			trade.Time <= 0 || strings.TrimSpace(trade.CommissionAsset) == "" {
-			return nil, fmt.Errorf("margin order %d returned incomplete trade identity, timestamp, or commission asset", orderID)
+		if trade == nil || trade.ID <= 0 || trade.OrderID != orderID || !strings.EqualFold(trade.Symbol, sym) || trade.Time <= 0 {
+			return nil, fmt.Errorf("margin order %d returned incomplete trade identity or timestamp", orderID)
 		}
 		price, priceErr := strconv.ParseFloat(trade.Price, 64)
 		qty, qtyErr := strconv.ParseFloat(trade.Quantity, 64)
-		commission, commissionErr := strconv.ParseFloat(trade.Commission, 64)
-		if priceErr != nil || qtyErr != nil || commissionErr != nil || math.IsNaN(price) || math.IsInf(price, 0) ||
+		quoteQty := 0.0
+		var quoteErr error
+		if strings.TrimSpace(trade.QuoteQuantity) != "" {
+			quoteQty, quoteErr = strconv.ParseFloat(trade.QuoteQuantity, 64)
+		}
+		commission := 0.0
+		var commissionErr error
+		commissionKnown := trade.Commission != ""
+		if commissionKnown {
+			commission, commissionErr = strconv.ParseFloat(trade.Commission, 64)
+		} else if !allowIncompleteRawFields {
+			commissionErr = fmt.Errorf("commission is missing")
+		}
+		if priceErr != nil || qtyErr != nil || quoteErr != nil || commissionErr != nil || math.IsNaN(price) || math.IsInf(price, 0) ||
 			math.IsNaN(qty) || math.IsInf(qty, 0) || math.IsNaN(commission) || math.IsInf(commission, 0) ||
-			price <= 0 || qty <= 0 || commission < 0 {
+			math.IsNaN(quoteQty) || math.IsInf(quoteQty, 0) || price <= 0 || qty <= 0 || quoteQty < 0 || commission < 0 {
 			return nil, fmt.Errorf("margin order %d trade %d contains invalid price, quantity, or commission", orderID, trade.ID)
 		}
 		commissionAsset := trade.CommissionAsset
+		if !commissionKnown {
+			commissionAsset = ""
+		}
+		if commissionKnown && strings.TrimSpace(commissionAsset) == "" {
+			return nil, fmt.Errorf("margin order %d trade %d has no commission asset", orderID, trade.ID)
+		}
 		baseFeeQty := 0.0
-		if strings.EqualFold(commissionAsset, b.baseAsset) {
+		if commissionKnown && strings.EqualFold(commissionAsset, b.baseAsset) {
 			baseFeeQty = commission
 		}
 		side := SideSell
@@ -869,7 +906,9 @@ func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol str
 		}
 		fills = append(fills, &OrderFill{
 			OrderID: orderID, TradeID: strconv.FormatInt(trade.ID, 10), Symbol: trade.Symbol,
-			Side: side, Price: price, Quantity: qty, Commission: commission,
+			Side: side, Price: price, PriceRaw: trade.Price, Quantity: qty, QuantityRaw: trade.Quantity,
+			QuoteQuantity: quoteQty, QuoteQuantityRaw: trade.QuoteQuantity, Commission: commission, CommissionRaw: trade.Commission,
+			CommissionKnown: commissionKnown,
 			CommissionAsset: commissionAsset, TradeTime: trade.Time, IsMaker: trade.IsMaker, BaseFeeQty: baseFeeQty,
 		})
 		reconciledQuantity += qty
@@ -877,11 +916,27 @@ func (b *BinanceSpotMarginAdapter) GetOrderFills(ctx context.Context, symbol str
 			return nil, fmt.Errorf("margin order %d execution quantity overflowed during reconciliation", orderID)
 		}
 	}
-	quantityTolerance := math.Max(1e-8, math.Abs(order.ExecutedQty)*1e-8)
-	if math.Abs(reconciledQuantity-order.ExecutedQty) > quantityTolerance {
-		return nil, fmt.Errorf("margin order %d execution ledger quantity %.12g does not match order executed quantity %.12g", orderID, reconciledQuantity, order.ExecutedQty)
+	if !allowIncompleteRawFields {
+		quantityTolerance := math.Max(1e-8, math.Abs(order.ExecutedQty)*1e-8)
+		if math.Abs(reconciledQuantity-order.ExecutedQty) > quantityTolerance {
+			return nil, fmt.Errorf("margin order %d execution ledger quantity %.12g does not match order executed quantity %.12g", orderID, reconciledQuantity, order.ExecutedQty)
+		}
 	}
 	return fills, nil
+}
+
+// GetOrderFillBatch returns a fill snapshot whose completeness is proved by
+// the margin order state and exact raw executed quantity.
+func (b *BinanceSpotMarginAdapter) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	fills, err := b.getOrderFills(ctx, symbol, orderID, true)
+	if err != nil {
+		return nil, err
+	}
+	order, err := b.GetOrder(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return buildOrderFillBatch(order, fills, true)
 }
 
 // GetOpenOrders 查詢未完成訂單（使用 margin API）

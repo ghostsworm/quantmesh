@@ -234,13 +234,16 @@ type OrderByClientIDQuerier interface {
 
 // MarginBorrowRecord is a venue-confirmed margin borrow transaction.
 type MarginBorrowRecord struct {
-	TransferID int64
-	Asset      string
-	Amount     float64
-	Principal  float64
-	Interest   float64
-	Status     string
-	Timestamp  int64
+	TransferID   int64
+	Asset        string
+	Amount       float64
+	RawAmount    string
+	Principal    float64
+	RawPrincipal string
+	Interest     float64
+	RawInterest  string
+	Status       string
+	Timestamp    int64
 }
 
 // MarginBorrowHistoryQuerier reads a bounded, paginated borrow history window.
@@ -267,8 +270,11 @@ type MarginInterestRecord struct {
 	Asset           string
 	RawAsset        string
 	Principal       float64
+	RawPrincipal    string
 	Interest        float64
+	RawInterest     string
 	Rate            float64
+	RawRate         string
 	Type            string
 	IsolatedSymbol  string
 	ValuationAsset  string

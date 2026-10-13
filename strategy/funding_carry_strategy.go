@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"quantmesh/accounting"
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
@@ -92,6 +94,9 @@ type FundingCarryStrategy struct {
 	stopErr                   error
 	eventBus                  EventBus
 	runtimeStateStore         RuntimeStateStore
+	recoveryFacts             []accounting.RecoveryEvent
+	recoverySourceCursors     []accounting.RecoverySourceCursor
+	recoveryProjectionMarkers []fundingCarryRecoveryProjectionMarker
 	runtimeStateErr           error
 	startupRecoveryErr        error
 	intentInFlight            bool
@@ -101,6 +106,7 @@ type FundingCarryStrategy struct {
 	futuresExecutor           FundingCarryExecutor
 	spotExecutor              FundingCarryExecutor
 	marginExecutor            FundingCarryExecutor
+	managedExecutionRequired  bool
 	openingBlocker            func(string)
 	openingGate               *execution.OpeningGate
 	openControl               config.OpenPositionControl
@@ -325,10 +331,174 @@ type FundingCarryExecutor interface {
 	SettleIntent(context.Context, string) error
 }
 
+type FundingCarryRecoveryOrderExecutor interface {
+	PlaceRecoveryOrderContext(context.Context, *exchange.OrderRequest, accounting.OneShotPermit) (*exchange.Order, error)
+}
+
 func (s *FundingCarryStrategy) SetOrderExecutors(futures, spot, margin FundingCarryExecutor) {
 	s.mu.Lock()
 	s.futuresExecutor, s.spotExecutor, s.marginExecutor = futures, spot, margin
 	s.mu.Unlock()
+}
+
+// SubmitRecoveryOrderAction is the strategy-owned entry for a durable,
+// operator-authorized next order action. It serializes against ticks/closes,
+// checks the exact runtime account scope, and still leaves the episode held;
+// fill/fee projection and explicit release are separate required steps.
+func (s *FundingCarryStrategy) SubmitRecoveryOrderAction(ctx context.Context, market string, request *exchange.OrderRequest, permit accounting.OneShotPermit) (*exchange.Order, error) {
+	if ctx == nil || request == nil || request.Symbol != s.symbol || request.ClientOrderID == "" {
+		return nil, errors.New("FundingCarry recovery action requires context, symbol and stable client order ID")
+	}
+	requestSnapshot := *request
+	request = &requestSnapshot
+	permit = permit.Clone()
+	s.mu.RLock()
+	stateStore := s.runtimeStateStore
+	s.mu.RUnlock()
+	provider, ok := stateStore.(FundingCarryRecoveryProvider)
+	if !ok {
+		return nil, ErrFundingCarryDurableRecoveryUnavailable
+	}
+	store, generation, botID, scopes, err := provider.FundingCarryRecoveryBinding()
+	if err != nil {
+		return nil, err
+	}
+	if nilFundingRecoveryStore(store) || generation.ID() == "" || permit.Validate() != nil || permit.Kind != accounting.RecoveryActionOrder ||
+		permit.OwnerGeneration != generation.ID() || !containsFundingCarryScope(scopes, permit.AccountScope) {
+		return nil, errors.New("recovery permit account scope does not belong to this FundingCarry runtime")
+	}
+	episode, found, err := store.GetRecoveryEpisode(ctx, permit.EpisodeID)
+	if err != nil {
+		return nil, fmt.Errorf("read FundingCarry recovery episode: %w", err)
+	}
+	if !found || episode.Bot != botID || episode.Strategy != "funding_carry" || episode.OwnerGeneration != generation.ID() ||
+		episode.RecoveryGeneration != permit.Generation || episode.Revision != permit.ExpectedRevision ||
+		episode.NextActionOrdinal != permit.ActionOrdinal || int(permit.ActionOrdinal) > len(episode.ActionPlan) ||
+		!containsFundingCarryScope(episode.AccountScopes, permit.AccountScope) {
+		return nil, accounting.ErrRecoveryConflict
+	}
+	action := episode.ActionPlan[permit.ActionOrdinal-1]
+	if action.Status != "authorized" || action.ID != permit.ActionID || action.Ordinal != permit.ActionOrdinal ||
+		action.Kind != accounting.RecoveryActionOrder || action.AccountScope != permit.AccountScope ||
+		action.OrderIntentHash != permit.OrderIntentHash || action.Symbol != request.Symbol ||
+		action.OrderIntentHash == "" || !sameFundingCarryStrings(action.GateSourceExceptions, permit.GateSourceExceptions) {
+		return nil, accounting.ErrRecoveryConflict
+	}
+	hold, held, err := store.GetRecoveryHold(ctx, permit.EpisodeID, permit.Generation)
+	if err != nil {
+		return nil, fmt.Errorf("read FundingCarry recovery hold: %w", err)
+	}
+	if !held || hold.State != "held" || hold.Bot != botID || hold.Strategy != "funding_carry" || !containsFundingCarryScope(hold.AccountScopes, permit.AccountScope) {
+		return nil, accounting.ErrRecoveryConflict
+	}
+	var venue exchange.IExchange
+	var executor FundingCarryExecutor
+	switch strings.ToLower(strings.TrimSpace(market)) {
+	case "futures", "future", "usdm", "swap":
+		venue, executor = s.fut, s.futuresExecutor
+	case "spot":
+		venue, executor = s.spot, s.spotExecutor
+	case "spot_margin", "margin":
+		venue, executor = s.marginEx, s.marginExecutor
+	default:
+		return nil, fmt.Errorf("unsupported FundingCarry recovery market %q", market)
+	}
+	canonicalMarket := normalizeFundingCarryRecoveryMarket(market)
+	if venue == nil || executor == nil || canonicalMarket == "" || normalizeFundingCarryRecoveryMarket(venue.GetMarketType()) != canonicalMarket {
+		return nil, errors.New("recovery permit market does not match an active FundingCarry executor")
+	}
+	if normalizeFundingCarryRecoveryMarket(action.Market) != canonicalMarket {
+		return nil, accounting.ErrRecoveryConflict
+	}
+	orderType := exchange.OrderType(strings.ToUpper(strings.TrimSpace(string(request.Type))))
+	if orderType == "" {
+		orderType = exchange.OrderTypeLimit
+	}
+	if orderType != exchange.OrderTypeLimit {
+		return nil, errors.New("FundingCarry recovery currently requires an immutable LIMIT order intent")
+	}
+	timeInForce := exchange.TimeInForce(strings.ToUpper(strings.TrimSpace(string(request.TimeInForce))))
+	if timeInForce == "" {
+		timeInForce = exchange.TimeInForceGTC
+	}
+	if timeInForce != exchange.TimeInForceGTC && timeInForce != exchange.TimeInForceIOC && timeInForce != exchange.TimeInForceFOK && timeInForce != exchange.TimeInForceGTX {
+		return nil, errors.New("FundingCarry recovery intent has invalid time-in-force")
+	}
+	if request.PostOnly && timeInForce != exchange.TimeInForceGTX {
+		return nil, errors.New("PostOnly recovery intent must use GTX to bind venue semantics")
+	}
+	positionSide := ""
+	if canonicalMarket == "spot" {
+		positionSide = "LONG"
+	} else if canonicalMarket == "spot_margin" {
+		positionSide = "SHORT"
+	}
+	if request.ReduceOnly {
+		return nil, errors.New("FundingCarry recovery open-action does not accept reduce-only intent")
+	}
+	intent := accounting.RecoveryOrderIntent{
+		SchemaVersion: 1, Exchange: venue.GetName(), Market: venue.GetMarketType(), Symbol: request.Symbol, Side: strings.ToUpper(string(request.Side)),
+		OrderType: string(orderType), TimeInForce: string(timeInForce),
+		Price: strconv.FormatFloat(request.Price, 'f', -1, 64), Quantity: strconv.FormatFloat(request.Quantity, 'f', -1, 64),
+		PriceDecimals: request.PriceDecimals, ReduceOnly: request.ReduceOnly, PostOnly: request.PostOnly,
+		PositionSide: positionSide, ClientOrderID: request.ClientOrderID,
+	}
+	intentHash, err := intent.CanonicalHash()
+	if err != nil || intentHash != permit.OrderIntentHash {
+		return nil, accounting.ErrRecoveryConflict
+	}
+	recoveryExecutor, ok := executor.(FundingCarryRecoveryOrderExecutor)
+	if !ok {
+		return nil, errors.New("FundingCarry executor does not support durable recovery permits")
+	}
+	if err := s.acquireOperation(ctx); err != nil {
+		return nil, err
+	}
+	defer s.releaseOperation()
+	var placed *exchange.Order
+	err = s.withAccountWalletCoordination(ctx, func(actionCtx context.Context) error {
+		var submitErr error
+		placed, submitErr = recoveryExecutor.PlaceRecoveryOrderContext(actionCtx, request, permit)
+		return submitErr
+	})
+	return placed, err
+}
+
+func normalizeFundingCarryRecoveryMarket(market string) string {
+	switch strings.ToLower(strings.TrimSpace(market)) {
+	case "future", "futures", "usdm", "swap":
+		return "futures"
+	case "spot":
+		return "spot"
+	case "margin", "spot_margin":
+		return "spot_margin"
+	default:
+		return ""
+	}
+}
+
+func sameFundingCarryStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// RequireManagedExecution disables direct exchange fallbacks in production
+// and verifies all executor legs needed by this strategy before startup.
+func (s *FundingCarryStrategy) RequireManagedExecution() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.managedExecutionRequired = true
+	if s.futuresExecutor == nil || s.spotExecutor == nil || (s.reverseEnabled && s.marginEx != nil && s.marginExecutor == nil) {
+		return errors.New("funding_carry production order executors are incomplete")
+	}
+	return nil
 }
 
 func (s *FundingCarryStrategy) SetOpeningBlocker(blocker func(string)) {
@@ -389,6 +559,12 @@ func (s *FundingCarryStrategy) RequireExecutionRecovery() {
 
 func (s *FundingCarryStrategy) placeOrder(ctx context.Context, ex exchange.IExchange, executor FundingCarryExecutor, request *exchange.OrderRequest) (*exchange.Order, error) {
 	if executor == nil {
+		s.mu.RLock()
+		managed := s.managedExecutionRequired
+		s.mu.RUnlock()
+		if managed {
+			return nil, errors.New("funding_carry managed order executor is unavailable")
+		}
 		return ex.PlaceOrder(ctx, request)
 	}
 	return executor.PlaceOrderContext(ctx, request)
@@ -433,8 +609,32 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 	s.mu.Unlock()
 	checkCtx, checkCancel := context.WithTimeout(ctx, 15*time.Second)
 	defer checkCancel()
+	// Durable manual-reconciliation holds and pending projections are the
+	// earliest startup barrier. Check them before legacy recovery can mutate a
+	// runtime checkpoint or issue a financial RPC.
+	if err := s.reconcileDurableFundingCarryRecovery(checkCtx); err != nil {
+		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry durable recovery remains held: %w", err))
+	}
 	if err := s.recoverPreparedRuntimeIntentContext(checkCtx); err != nil {
 		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry prepared intent recovery: %w", err))
+	}
+	s.mu.RLock()
+	executionPending := s.executionRecoveryRequired
+	s.mu.RUnlock()
+	if executionPending {
+		// Fill lookup is read-only at the venue and can only strengthen the
+		// durable ledger evidence for the exact already-submitted CID. It never
+		// resubmits, cancels, repays, or clears the shared execution hold.
+		if err := s.reconcileSavedMarginCoverFills(checkCtx); err != nil {
+			var held *FundingCarryReconciliationRequiredError
+			if !errors.As(err, &held) {
+				return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry execution fill evidence: %w", err))
+			}
+		}
+		if err := s.restoreRuntimeStateForExecutionHoldContext(checkCtx); err != nil {
+			return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry execution recovery evidence: %w", err))
+		}
+		return &FundingCarryReconciliationRequiredError{message: "funding_carry shared execution intents require durable economic reconciliation; trading startup withheld"}
 	}
 	if err := s.reconcileSavedMarginBorrowReceipt(checkCtx); err != nil {
 		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry pending borrow receipt recovery: %w", err))
@@ -450,12 +650,6 @@ func (s *FundingCarryStrategy) Start(ctx context.Context) error {
 	}
 	if err := s.reconcileSavedMarginRemaining(checkCtx); err != nil {
 		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry remaining margin asset recovery: %w", err))
-	}
-	s.mu.RLock()
-	executionPending := s.executionRecoveryRequired
-	s.mu.RUnlock()
-	if executionPending {
-		return s.latchStartupRecoveryFailure(errors.New("funding_carry shared execution intents require durable economic reconciliation; trading startup withheld"))
 	}
 	if err := s.restoreRuntimeStateContext(checkCtx); err != nil {
 		return s.latchStartupRecoveryFailure(fmt.Errorf("funding_carry runtime state recovery failed: %w", err))
@@ -852,12 +1046,18 @@ func (s *FundingCarryStrategy) StopContext(ctx context.Context) error {
 	s.mu.RLock()
 	cancel, runDone := s.cancel, s.runDone
 	startupErr := s.startupRecoveryErr
+	executionPending := s.executionRecoveryRequired
 	unstartedFinancialState := s.unownedExposure || s.intentInFlight || s.marginCloseVerificationPending || s.runtimeStateErr != nil || s.direction != DirectionNone ||
 		s.marginDebt > 0 || s.strategySpotQty > 0 || s.futQty > 0 || s.marginRepayIntent != nil || s.marginCoverIntent != nil
 	s.mu.RUnlock()
 	if cancel == nil {
 		if startupErr != nil {
 			return fmt.Errorf("funding_carry startup recovery is unresolved; stop cannot be reported complete: %w", startupErr)
+		}
+		if executionPending {
+			// No producer was started. Quiescing this lifecycle is safe, while
+			// the durable execution hold and opening gate remain unresolved.
+			return nil
 		}
 		if unstartedFinancialState {
 			return errors.New("funding_carry unstarted runtime retains financial state requiring reconciliation; automatic close is withheld")

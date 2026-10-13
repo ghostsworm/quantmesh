@@ -1,0 +1,1 @@
+-- Funding anomaly observations are financial audit records; retain them on rollback.

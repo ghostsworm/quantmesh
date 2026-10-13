@@ -2,6 +2,8 @@ package strategy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,11 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"quantmesh/accounting"
 	"quantmesh/exchange"
 	"quantmesh/storage"
 )
 
 const fundingCarryRuntimeStateVersion = 8
+const fundingCarryRecoveryProjectionSchemaVersion = 1
 
 const (
 	fundingCarryIntentPhasePrepared    = "prepared"
@@ -30,27 +34,31 @@ type fundingCarryRuntimeStateContextWriter interface {
 }
 
 type fundingCarryRuntimeState struct {
-	Strategy                       string                        `json:"strategy"`
-	FuturesExchange                string                        `json:"futures_exchange"`
-	SpotExchange                   string                        `json:"spot_exchange"`
-	Symbol                         string                        `json:"symbol"`
-	MarginAccountScope             string                        `json:"margin_account_scope,omitempty"`
-	OwnershipReady                 bool                          `json:"ownership_ready"`
-	IntentInFlight                 bool                          `json:"intent_in_flight"`
-	IntentPhase                    string                        `json:"intent_phase,omitempty"`
-	StandaloneSpotOwned            bool                          `json:"standalone_spot_owned,omitempty"`
-	ExposureUnknown                bool                          `json:"exposure_unknown"`
-	Direction                      CarryDirection                `json:"direction"`
-	OwnedSpot                      float64                       `json:"owned_spot"`
-	OwnedFutures                   float64                       `json:"owned_futures"`
-	MarginDebt                     float64                       `json:"margin_debt"`
-	MarginBorrowTransferID         int64                         `json:"margin_borrow_transfer_id,omitempty"`
-	MarginBorrowedAt               time.Time                     `json:"margin_borrowed_at,omitempty"`
-	MarginDebtEvents               []fundingCarryMarginDebtEvent `json:"margin_debt_events,omitempty"`
-	MarginRepayIntent              *fundingCarryRepayIntent      `json:"margin_repay_intent,omitempty"`
-	MarginCoverOrders              []fundingCarryCoverOrder      `json:"margin_cover_orders,omitempty"`
-	MarginCoverIntent              *fundingCarryCoverIntent      `json:"margin_cover_intent,omitempty"`
-	MarginCloseVerificationPending bool                          `json:"margin_close_verification_pending,omitempty"`
+	Strategy                       string                                 `json:"strategy"`
+	FuturesExchange                string                                 `json:"futures_exchange"`
+	SpotExchange                   string                                 `json:"spot_exchange"`
+	Symbol                         string                                 `json:"symbol"`
+	MarginAccountScope             string                                 `json:"margin_account_scope,omitempty"`
+	OwnershipReady                 bool                                   `json:"ownership_ready"`
+	IntentInFlight                 bool                                   `json:"intent_in_flight"`
+	IntentPhase                    string                                 `json:"intent_phase,omitempty"`
+	StandaloneSpotOwned            bool                                   `json:"standalone_spot_owned,omitempty"`
+	ExposureUnknown                bool                                   `json:"exposure_unknown"`
+	Direction                      CarryDirection                         `json:"direction"`
+	OwnedSpot                      float64                                `json:"owned_spot"`
+	OwnedFutures                   float64                                `json:"owned_futures"`
+	MarginDebt                     float64                                `json:"margin_debt"`
+	MarginBorrowTransferID         int64                                  `json:"margin_borrow_transfer_id,omitempty"`
+	MarginBorrowedAt               time.Time                              `json:"margin_borrowed_at,omitempty"`
+	MarginDebtEvents               []fundingCarryMarginDebtEvent          `json:"margin_debt_events,omitempty"`
+	MarginRepayIntent              *fundingCarryRepayIntent               `json:"margin_repay_intent,omitempty"`
+	MarginCoverOrders              []fundingCarryCoverOrder               `json:"margin_cover_orders,omitempty"`
+	MarginCoverIntent              *fundingCarryCoverIntent               `json:"margin_cover_intent,omitempty"`
+	MarginCloseVerificationPending bool                                   `json:"margin_close_verification_pending,omitempty"`
+	RecoveryProjectionSchema       int                                    `json:"recovery_projection_schema,omitempty"`
+	RecoveryFacts                  []accounting.RecoveryEvent             `json:"recovery_facts,omitempty"`
+	RecoverySourceCursors          []accounting.RecoverySourceCursor      `json:"recovery_source_cursors,omitempty"`
+	RecoveryProjectionMarkers      []fundingCarryRecoveryProjectionMarker `json:"recovery_projection_markers,omitempty"`
 }
 
 type fundingCarryMarginDebtEvent struct {
@@ -78,6 +86,10 @@ func (s *FundingCarryStrategy) runtimeStateSnapshotLocked() fundingCarryRuntimeS
 		MarginCoverOrders:              cloneFundingCarryCoverOrders(s.marginCoverOrders),
 		MarginCoverIntent:              cloneFundingCarryCoverIntent(s.marginCoverIntent),
 		MarginCloseVerificationPending: s.marginCloseVerificationPending,
+		RecoveryProjectionSchema:       fundingCarryRecoveryProjectionSchemaVersion,
+		RecoveryFacts:                  append([]accounting.RecoveryEvent(nil), s.recoveryFacts...),
+		RecoverySourceCursors:          append([]accounting.RecoverySourceCursor(nil), s.recoverySourceCursors...),
+		RecoveryProjectionMarkers:      append([]fundingCarryRecoveryProjectionMarker(nil), s.recoveryProjectionMarkers...),
 	}
 }
 
@@ -186,6 +198,16 @@ func (s *FundingCarryStrategy) restoreRuntimeState() error {
 }
 
 func (s *FundingCarryStrategy) restoreRuntimeStateContext(ctx context.Context) error {
+	return s.restoreRuntimeStateForRecoveryContext(ctx, false)
+}
+
+// restoreRuntimeStateForExecutionHoldContext loads ownership and ledger
+// evidence without clearing unresolved intent/exposure flags or issuing RPCs.
+func (s *FundingCarryStrategy) restoreRuntimeStateForExecutionHoldContext(ctx context.Context) error {
+	return s.restoreRuntimeStateForRecoveryContext(ctx, true)
+}
+
+func (s *FundingCarryStrategy) restoreRuntimeStateForRecoveryContext(ctx context.Context, allowPending bool) error {
 	if ctx == nil {
 		return fmt.Errorf("runtime state recovery requires context")
 	}
@@ -212,7 +234,7 @@ func (s *FundingCarryStrategy) restoreRuntimeStateContext(ctx context.Context) e
 	if !found {
 		return nil
 	}
-	state, err := decodeFundingCarryRuntimeState(version, payload, s.fut.GetName(), s.spot.GetName(), s.symbol)
+	state, err := decodeFundingCarryRuntimeStateForRecovery(version, payload, s.fut.GetName(), s.spot.GetName(), s.symbol, allowPending)
 	if err != nil {
 		return err
 	}
@@ -243,9 +265,12 @@ func (s *FundingCarryStrategy) restoreRuntimeStateContext(ctx context.Context) e
 	s.marginCoverOrders = cloneFundingCarryCoverOrders(state.MarginCoverOrders)
 	s.marginCoverIntent = cloneFundingCarryCoverIntent(state.MarginCoverIntent)
 	s.marginCloseVerificationPending = state.MarginCloseVerificationPending
+	s.recoveryFacts = append([]accounting.RecoveryEvent(nil), state.RecoveryFacts...)
+	s.recoverySourceCursors = append([]accounting.RecoverySourceCursor(nil), state.RecoverySourceCursors...)
+	s.recoveryProjectionMarkers = append([]fundingCarryRecoveryProjectionMarker(nil), state.RecoveryProjectionMarkers...)
 	s.strategySpotKnown = true
-	s.unownedExposure = false
-	s.intentInFlight = false
+	s.unownedExposure = state.ExposureUnknown
+	s.intentInFlight = state.IntentInFlight
 	s.intentPhase = state.IntentPhase
 	s.intentSourcePayload = ""
 	s.mu.Unlock()
@@ -257,7 +282,7 @@ func decodeFundingCarryRuntimeState(version int, payload, futuresExchange, spotE
 }
 
 func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExchange, spotExchange, symbol string, allowPending bool) (fundingCarryRuntimeState, error) {
-	if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != fundingCarryRuntimeStateVersion {
+	if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != fundingCarryRuntimeStateVersion {
 		return fundingCarryRuntimeState{}, fmt.Errorf("unsupported funding_carry runtime state schema %d", version)
 	}
 	var state fundingCarryRuntimeState
@@ -288,6 +313,50 @@ func decodeFundingCarryRuntimeStateForRecovery(version int, payload, futuresExch
 	}
 	if state.StandaloneSpotOwned && (version < 8 || state.Direction != DirectionNone || state.OwnedSpot <= 0 || state.OwnedFutures > 0 || state.MarginDebt > 0) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("standalone spot ownership marker is inconsistent")
+	}
+	if (len(state.RecoveryFacts) != 0 || len(state.RecoverySourceCursors) != 0 || len(state.RecoveryProjectionMarkers) != 0) && state.RecoveryProjectionSchema != fundingCarryRecoveryProjectionSchemaVersion {
+		return fundingCarryRuntimeState{}, errors.New("durable recovery projection schema marker is missing or unsupported")
+	}
+	if state.RecoveryProjectionSchema != 0 && state.RecoveryProjectionSchema != fundingCarryRecoveryProjectionSchemaVersion {
+		return fundingCarryRuntimeState{}, errors.New("unsupported FundingCarry recovery projection sub-schema")
+	}
+	seenRecoveryFacts := make(map[string]struct{}, len(state.RecoveryFacts))
+	for _, fact := range state.RecoveryFacts {
+		if err := fact.Validate(); err != nil {
+			return fundingCarryRuntimeState{}, fmt.Errorf("invalid durable recovery fact: %w", err)
+		}
+		key := fact.EpisodeID + "\x00" + fact.ID
+		if _, exists := seenRecoveryFacts[key]; exists {
+			return fundingCarryRuntimeState{}, errors.New("runtime state repeats a durable recovery fact")
+		}
+		seenRecoveryFacts[key] = struct{}{}
+	}
+	seenRecoveryCursors := make(map[string]struct{}, len(state.RecoverySourceCursors))
+	for _, cursor := range state.RecoverySourceCursors {
+		identity := cursor.RecoverySourceWindow.Identity()
+		if err := identity.Validate(); err != nil || cursor.RecoverySourceWindow.Validate() != nil || cursor.EpisodeID == "" ||
+			cursor.Revision != cursor.ExpectedRevision+1 {
+			return fundingCarryRuntimeState{}, errors.New("runtime state contains an invalid durable recovery source cursor")
+		}
+		keyBytes, _ := json.Marshal(identity)
+		key := string(keyBytes)
+		if _, exists := seenRecoveryCursors[key]; exists {
+			return fundingCarryRuntimeState{}, errors.New("runtime state repeats a durable recovery source identity")
+		}
+		seenRecoveryCursors[key] = struct{}{}
+	}
+	seenRecoveryMarkers := make(map[string]struct{}, len(state.RecoveryProjectionMarkers))
+	for _, marker := range state.RecoveryProjectionMarkers {
+		hash, err := hex.DecodeString(marker.ProjectionHash)
+		if marker.EpisodeID == "" || marker.EpisodeRevision == 0 || marker.OperationID == "" || !validFundingCarryRuntimeRevision(marker.ExpectedRuntimeRevision) ||
+			!validFundingCarryRuntimeRevision(marker.RuntimeBaseRevision) || !validFundingCarryRuntimeRevision(marker.RuntimeResultRevision) || err != nil || len(hash) != sha256.Size {
+			return fundingCarryRuntimeState{}, errors.New("runtime state contains an invalid durable recovery projection marker")
+		}
+		key := marker.EpisodeID + "\x00" + marker.OperationID
+		if _, exists := seenRecoveryMarkers[key]; exists {
+			return fundingCarryRuntimeState{}, errors.New("runtime state repeats a durable recovery projection marker")
+		}
+		seenRecoveryMarkers[key] = struct{}{}
 	}
 	if state.Direction == DirectionNone && ((state.OwnedSpot > 0 && !state.StandaloneSpotOwned) || state.OwnedFutures > 0 || state.MarginDebt > 0) {
 		return fundingCarryRuntimeState{}, fmt.Errorf("funding_carry flat state contains owned exposure")

@@ -78,7 +78,7 @@ func TestFundingCarryCoverFillRequiresContextReaderBeforeAnyRead(t *testing.T) {
 }
 
 func TestFundingCarryStartupRecoversNetCoverFillsWithoutSpending(t *testing.T) {
-	for _, mode := range []string{"confirmed", "consistent_conversion", "inconsistent_conversion", "cancelled_partial", "expired_partial", "cancelled_zero_net", "cancelled_missing_fees", "cancelled_owner_lost", "cancelled_save_failure", "cancelled_cleanup_failure", "partial_then_filled", "missing", "wrong_order", "duplicate", "fee_shortfall", "query_error", "owner_lost", "cancelled", "save_failure", "changed_checkpoint", "cancelled_changed_checkpoint"} {
+	for _, mode := range []string{"confirmed", "consistent_conversion", "inconsistent_conversion", "cancelled_partial", "expired_partial", "cancelled_zero_net", "cancelled_missing_fees", "cancelled_quote_fee", "cancelled_third_asset_fee", "cancelled_negative_rebate", "cancelled_missing_fee_asset", "cancelled_owner_lost", "cancelled_save_failure", "cancelled_cleanup_failure", "partial_then_filled", "missing", "wrong_order", "duplicate", "fee_shortfall", "query_error", "owner_lost", "cancelled", "save_failure", "changed_checkpoint", "cancelled_changed_checkpoint"} {
 		t.Run(mode, func(t *testing.T) {
 			s, margin, store := newFundingCarryRepayIntentFixture()
 			s.fut.(*mockFCExchange).name = "binance"
@@ -96,7 +96,7 @@ func TestFundingCarryStartupRecoversNetCoverFillsWithoutSpending(t *testing.T) {
 			switch mode {
 			case "partial_then_filled":
 				order.Status, order.ExecutedQty = exchange.OrderStatusPartiallyFilled, 0.2
-			case "cancelled_partial", "expired_partial", "cancelled_zero_net", "cancelled_missing_fees", "cancelled_owner_lost", "cancelled_save_failure", "cancelled_cleanup_failure", "cancelled_changed_checkpoint":
+			case "cancelled_partial", "expired_partial", "cancelled_zero_net", "cancelled_missing_fees", "cancelled_quote_fee", "cancelled_third_asset_fee", "cancelled_negative_rebate", "cancelled_missing_fee_asset", "cancelled_owner_lost", "cancelled_save_failure", "cancelled_cleanup_failure", "cancelled_changed_checkpoint":
 				order.Status, order.ExecutedQty = exchange.OrderStatusCanceled, 0.2
 				fill.Quantity = 0.2
 				if mode == "expired_partial" {
@@ -104,6 +104,18 @@ func TestFundingCarryStartupRecoversNetCoverFillsWithoutSpending(t *testing.T) {
 				}
 				if mode == "cancelled_missing_fees" {
 					venue.fills = nil
+				}
+				if mode == "cancelled_quote_fee" {
+					fill.CommissionAsset, fill.Commission, fill.BaseFeeQty = "USDT", 0.25, 0
+				}
+				if mode == "cancelled_third_asset_fee" {
+					fill.CommissionAsset, fill.Commission, fill.BaseFeeQty = "BNB", 0.00001, 0
+				}
+				if mode == "cancelled_negative_rebate" {
+					fill.CommissionAsset, fill.Commission, fill.BaseFeeQty = "USDT", -0.01, 0
+				}
+				if mode == "cancelled_missing_fee_asset" {
+					fill.CommissionAsset, fill.Commission, fill.BaseFeeQty = "", 0.01, 0
 				}
 				if mode == "cancelled_zero_net" {
 					fill.Commission, fill.BaseFeeQty = 0.2, 0.2
@@ -199,8 +211,11 @@ func TestFundingCarryStartupRecoversNetCoverFillsWithoutSpending(t *testing.T) {
 			if state.MarginCoverIntent != nil || r.OrderID != 7 || !state.IntentInFlight || !state.ExposureUnknown || state.MarginDebt != 0.4 {
 				t.Fatal("ACK or unresolved operation lost")
 			}
-			if mode == "cancelled_partial" || mode == "expired_partial" || mode == "cancelled_zero_net" {
+			if mode == "cancelled_partial" || mode == "expired_partial" || mode == "cancelled_zero_net" || mode == "cancelled_quote_fee" || mode == "cancelled_third_asset_fee" {
 				wantNet := 0.1995
+				if mode == "cancelled_quote_fee" || mode == "cancelled_third_asset_fee" {
+					wantNet = 0.2 // Non-base fees do not change base-asset inventory, but must remain in the raw evidence.
+				}
 				if mode == "cancelled_zero_net" {
 					wantNet = 0
 				}
@@ -224,6 +239,20 @@ func TestFundingCarryStartupRecoversNetCoverFillsWithoutSpending(t *testing.T) {
 				before, queries := store.payload, venue.fillQueries
 				if err := restarted.Start(ctx); !errors.As(err, &pending) || restarted.started || store.payload != before || venue.fillQueries != queries {
 					t.Fatal("restart replayed fills or falsely resumed trading")
+				}
+				if mode == "cancelled_quote_fee" || mode == "cancelled_third_asset_fee" {
+					persisted := r.Fills[0]
+					wantAsset, wantFee := "USDT", 0.25
+					if mode == "cancelled_third_asset_fee" {
+						wantAsset, wantFee = "BNB", 0.00001
+					}
+					if persisted.CommissionAsset != wantAsset || persisted.Commission != wantFee || persisted.BaseFeeQty != 0 {
+						t.Fatalf("raw non-base fee evidence changed: got asset=%q amount=%v base_fee=%v", persisted.CommissionAsset, persisted.Commission, persisted.BaseFeeQty)
+					}
+				}
+			} else if mode == "cancelled_negative_rebate" || mode == "cancelled_missing_fee_asset" {
+				if r.Verified || len(r.Fills) != 0 || !state.IntentInFlight || !state.ExposureUnknown || state.MarginDebt != 0.4 || restarted.started {
+					t.Fatalf("invalid/unknown fee evidence advanced accounting or admitted startup: verified=%v fills=%d intent=%v unknown=%v debt=%v started=%v", r.Verified, len(r.Fills), state.IntentInFlight, state.ExposureUnknown, state.MarginDebt, restarted.started)
 				}
 			} else if mode == "confirmed" || mode == "consistent_conversion" || mode == "partial_then_filled" {
 				if !r.Verified || r.Net != 0.4005 || r.Gross != 0.401 || len(r.Fills) != 1 || r.Consumed != 0 || venue.queries != 1 {

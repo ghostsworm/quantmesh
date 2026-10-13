@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"quantmesh/utils"
 
@@ -18,10 +19,12 @@ const pairedTradesTableMySQL = "qm_paired_trades"
 
 // SQLStorage 基於 database/sql 的存儲實現（SQLite 與 MySQL 共用本類型）。
 type SQLStorage struct {
-	db          *sql.DB
-	commitProbe *sql.DB // Separate pool: ambiguous-commit readback must not reuse the writer session.
-	dbType      string  // sqlite, mysql, postgres
-	closed      bool
+	db                           *sql.DB
+	commitProbe                  *sql.DB // Separate pool: ambiguous-commit readback must not reuse the writer session.
+	dbType                       string  // sqlite, mysql, postgres
+	closed                       bool
+	recoverySourceWindowVerifier RecoverySourceWindowVerifier
+	recoverySourceVerifierMu     sync.RWMutex
 	// tradesTable 網格配對成交表名：SQLite 為 trades；MySQL 為 qm_paired_trades（避免與 GORM trades 同庫衝突）
 	tradesTable string
 }

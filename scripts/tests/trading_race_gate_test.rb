@@ -232,13 +232,36 @@ class TradingRaceGateTest < Minitest::Test
     wrong_package.first['Package'] = 'quantmesh/order'
     refute result(complete_events + wrong_package, require_mysql: true)[:success]
     refute result(events + [mysql_events.first], require_mysql: true)[:success]
-    assert_equal 19, result(complete_events, require_mysql: true)[:missing_verified_mysql_cases].length
+    assert_equal 21, result(complete_events, require_mysql: true)[:missing_verified_mysql_cases].length
     # Local-only regression may still report a partial acceptance boundary,
     # while both actual release workflows require the stricter mode.
     report = result(complete_events)
     assert report[:success]
     refute report[:mysql_required]
-    assert_equal 19, report[:missing_verified_mysql_cases].length
+    assert_equal 21, report[:missing_verified_mysql_cases].length
+  end
+
+  def test_funding_recovery_migration_and_generation_cases_are_forced_mysql_evidence
+    required = %w[
+      TestMySQLFundingRecoveryMigrationSerializesConcurrentCallers
+      TestMySQLFundingRecoveryRejectsStaleRuntimeGeneration
+    ]
+    required.each do |name|
+      assert_includes TradingRaceVerification::MYSQL_CASES, name
+      assert_equal 'quantmesh/storage', TradingRaceVerification.mysql_case_package(name, 'quantmesh')
+      event = mysql_events.find { |item| item['Test'] == name }
+      refute_nil event, "#{name}: missing synthetic fixture event"
+      %w[skip fail].each do |action|
+        events = mysql_events.map(&:dup)
+        events.find { |item| item['Test'] == name }['Action'] = action
+        refute result(complete_events + events, require_mysql: true)[:success], "#{name}: #{action} was accepted"
+      end
+      missing = mysql_events.reject { |item| item['Test'] == name }
+      refute result(complete_events + missing, require_mysql: true)[:success], "#{name}: missing evidence was accepted"
+      wrong_package = mysql_events.map(&:dup)
+      wrong_package.find { |item| item['Test'] == name }['Package'] = 'quantmesh/order'
+      refute result(complete_events + wrong_package, require_mysql: true)[:success], "#{name}: wrong package was accepted"
+    end
   end
 
   def test_mysql_runtime_generation_fencing_is_required_release_evidence
@@ -313,7 +336,7 @@ class TradingRaceGateTest < Minitest::Test
     assert_includes TradingRaceVerification::MYSQL_CASES, parent
     assert_equal 'quantmesh', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
     proof = result(complete_events + mysql_events, require_mysql: true)[:mysql_evidence]
-    assert_equal 56, proof.length
+    assert_equal 58, proof.length
     assert_equal %w[StopBot StopAll], proof.select { |event| event['Test'].start_with?("#{parent}/") }.map { |event| event['Test'].delete_prefix("#{parent}/") }
     %w[StopBot StopAll].each do |mode|
       name = "#{parent}/#{mode}"

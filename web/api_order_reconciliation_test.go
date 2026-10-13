@@ -3,6 +3,8 @@ package web
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,8 +15,142 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/accounting"
+	"quantmesh/config"
 	"quantmesh/storage"
+	"quantmesh/strategy"
 )
+
+func TestFundingIncomeReplayUsesItsOutboxCursorSnapshot(t *testing.T) {
+	from := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	window := accounting.RecoverySourceWindow{Source: accounting.RecoverySourceBinanceFuturesIncomeV1, Exchange: "binance", Market: "futures",
+		AccountScope: strings.Repeat("a", 64), Symbol: "BTCUSDT", Kind: accounting.RecoveryFundingEvent, Asset: "USDT",
+		From: from, Through: from.Add(time.Minute), ExpectedRevision: 4, CompletionMarker: accounting.RecoverySourceWindowCompleteV1,
+		EvidenceHash: strings.Repeat("b", 64), InitialFrom: from, HistoricalEvidenceHash: strings.Repeat("c", 64)}
+	episode := accounting.RecoveryEpisode{ID: "episode-replay", Revision: 8}
+	cursor := accounting.RecoverySourceCursor{RecoverySourceWindow: window, EpisodeID: episode.ID, Revision: 5}
+	payload, err := json.Marshal(struct {
+		Episode      accounting.RecoveryEpisode       `json:"episode"`
+		Events       []accounting.RecoveryEvent       `json:"events"`
+		SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor"`
+	}{episode, []accounting.RecoveryEvent{}, &cursor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(payload)
+	projectionHash := hex.EncodeToString(digest[:])
+	request := strategy.ApplyFundingRecoveryIncomeRequest{EpisodeID: episode.ID, OperationID: "operation-old", ExpectedEpisodeRevision: 7}
+	receipt := accounting.RecoveryReceipt{EpisodeID: episode.ID, OperationID: request.OperationID,
+		EpisodeRevision: 9, State: accounting.RecoveryProjected, ProjectionHash: projectionHash}
+	outbox := accounting.RecoveryOutbox{EpisodeID: episode.ID, OperationID: request.OperationID,
+		TargetEpisodeRevision: 8, State: accounting.RecoveryProjected, ProjectionHash: projectionHash, ProjectionPayload: payload}
+	result := strategy.ApplyFundingRecoveryIncomeResult{SourceWindow: window, Events: []accounting.RecoveryEvent{}, Replayed: true}
+	currentEpisode := accounting.RecoveryEpisode{ID: episode.ID}
+
+	replayed, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode)
+	if err != nil || replayed.Revision != 5 || replayed.EpisodeID != episode.ID {
+		t.Fatalf("replay did not return its original durable cursor snapshot: cursor=%+v err=%v", replayed, err)
+	}
+	request.ExpectedEpisodeRevision++
+	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode); err == nil {
+		t.Fatal("replay accepted a request with a different expected episode revision")
+	}
+	request.ExpectedEpisodeRevision--
+	outbox.ProjectionPayload = append(outbox.ProjectionPayload, ' ')
+	if _, err := fundingIncomeReplayCursorSnapshot(outbox, receipt, request, result, currentEpisode); err == nil {
+		t.Fatal("replay accepted a payload that no longer matches its durable hash")
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*accounting.RecoveryEpisode, *[]accounting.RecoveryEvent, *accounting.RecoverySourceCursor)
+	}{
+		{name: "episode revision", mutate: func(episode *accounting.RecoveryEpisode, _ *[]accounting.RecoveryEvent, _ *accounting.RecoverySourceCursor) {
+			episode.Revision++
+		}},
+		{name: "cursor revision", mutate: func(_ *accounting.RecoveryEpisode, _ *[]accounting.RecoveryEvent, cursor *accounting.RecoverySourceCursor) {
+			cursor.Revision++
+		}},
+		{name: "cursor episode", mutate: func(_ *accounting.RecoveryEpisode, _ *[]accounting.RecoveryEvent, cursor *accounting.RecoverySourceCursor) {
+			cursor.EpisodeID = "other-episode"
+		}},
+		{name: "source window", mutate: func(_ *accounting.RecoveryEpisode, _ *[]accounting.RecoveryEvent, cursor *accounting.RecoverySourceCursor) {
+			cursor.Through = cursor.Through.Add(time.Minute)
+		}},
+		{name: "events", mutate: func(_ *accounting.RecoveryEpisode, events *[]accounting.RecoveryEvent, _ *accounting.RecoverySourceCursor) {
+			*events = append(*events, accounting.RecoveryEvent{ID: "unexpected"})
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			changedEpisode := episode
+			changedEvents := []accounting.RecoveryEvent{}
+			changedCursor := cursor
+			test.mutate(&changedEpisode, &changedEvents, &changedCursor)
+			changedPayload, err := json.Marshal(struct {
+				Episode      accounting.RecoveryEpisode       `json:"episode"`
+				Events       []accounting.RecoveryEvent       `json:"events"`
+				SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor"`
+			}{changedEpisode, changedEvents, &changedCursor})
+			if err != nil {
+				t.Fatal(err)
+			}
+			changedDigest := sha256.Sum256(changedPayload)
+			changedHash := hex.EncodeToString(changedDigest[:])
+			changedOutbox := outbox
+			changedOutbox.ProjectionPayload = changedPayload
+			changedOutbox.ProjectionHash = changedHash
+			changedReceipt := receipt
+			changedReceipt.ProjectionHash = changedHash
+			if _, err := fundingIncomeReplayCursorSnapshot(changedOutbox, changedReceipt, request, result, currentEpisode); err == nil {
+				t.Fatalf("replay accepted a rehashed but inconsistent %s snapshot", test.name)
+			}
+		})
+	}
+}
+
+func TestFundingIncomeReplayAllowsOnlyAuditedTakeoverRevisionAdvance(t *testing.T) {
+	outbox := accounting.RecoveryOutbox{TargetEpisodeRevision: 8}
+	projectedEpisode := accounting.RecoveryEpisode{ID: "episode", Revision: 8, OwnerGeneration: "old-owner"}
+	receipt := accounting.RecoveryReceipt{State: accounting.RecoveryProjected, EpisodeRevision: 10, OwnerGeneration: "old-owner"}
+	currentEpisode := accounting.RecoveryEpisode{ID: "episode", OwnerGeneration: "new-owner", OwnerTakeovers: []accounting.RecoveryOwnerTakeoverRecord{{
+		OperationID: "takeover", Actor: "admin", AuditRef: "incident", EvidenceHash: strings.Repeat("a", 64),
+		PreviousOwnerGeneration: "old-owner", OwnerGeneration: "new-owner", EpisodeRevision: 9,
+	}}}
+	if !fundingIncomeReplayReceiptRevisionMatches(receipt, outbox, projectedEpisode, currentEpisode) {
+		t.Fatal("receipt advanced by the exact audited takeover was rejected")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*accounting.RecoveryReceipt, *accounting.RecoveryOutbox, *accounting.RecoveryEpisode)
+	}{
+		{name: "missing takeover", mutate: func(_ *accounting.RecoveryReceipt, _ *accounting.RecoveryOutbox, episode *accounting.RecoveryEpisode) {
+			episode.OwnerTakeovers = nil
+		}},
+		{name: "wrong takeover revision", mutate: func(_ *accounting.RecoveryReceipt, _ *accounting.RecoveryOutbox, episode *accounting.RecoveryEpisode) {
+			episode.OwnerTakeovers[0].EpisodeRevision++
+		}},
+		{name: "wrong previous owner", mutate: func(_ *accounting.RecoveryReceipt, _ *accounting.RecoveryOutbox, episode *accounting.RecoveryEpisode) {
+			episode.OwnerTakeovers[0].PreviousOwnerGeneration = "other-owner"
+		}},
+		{name: "takeover owner is not the current episode owner", mutate: func(_ *accounting.RecoveryReceipt, _ *accounting.RecoveryOutbox, episode *accounting.RecoveryEpisode) {
+			episode.OwnerTakeovers[0].OwnerGeneration = "other-owner"
+		}},
+		{name: "wrong receipt revision", mutate: func(receipt *accounting.RecoveryReceipt, _ *accounting.RecoveryOutbox, _ *accounting.RecoveryEpisode) {
+			receipt.EpisodeRevision++
+		}},
+		{name: "overflow", mutate: func(_ *accounting.RecoveryReceipt, outbox *accounting.RecoveryOutbox, _ *accounting.RecoveryEpisode) {
+			outbox.TargetEpisodeRevision = accounting.MaxDurableRecoveryRevision - 1
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			changedReceipt, changedOutbox, changedEpisode := receipt, outbox, currentEpisode
+			test.mutate(&changedReceipt, &changedOutbox, &changedEpisode)
+			if fundingIncomeReplayReceiptRevisionMatches(changedReceipt, changedOutbox, projectedEpisode, changedEpisode) {
+				t.Fatal("unproven receipt revision advance was accepted")
+			}
+		})
+	}
+}
 
 type fakeOrderEvidence struct{ evidence VerifiedOrderEvidence }
 
@@ -437,5 +573,191 @@ func testReconciliationAuth() gin.HandlerFunc {
 		}
 		c.Set("session", &Session{Username: "admin", Role: "admin"})
 		c.Next()
+	}
+}
+
+func TestFundingRecoveryAdjudicationRequiresAdminAndRejectsClientVenueFacts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defer gin.SetMode(gin.DebugMode)
+	calls := 0
+	var received accounting.RecoverySubmissionAdjudication
+	SetOrderReconciliationService(&OrderReconciliationService{
+		Recovery: &storage.SQLStorage{},
+		RecoverySubmissionAdjudicator: func(_ context.Context, episodeID string, adjudication accounting.RecoverySubmissionAdjudication) (accounting.RecoverySubmissionAttempt, bool, error) {
+			calls++
+			received = adjudication
+			if episodeID != "episode-1" {
+				t.Fatalf("episode path = %q", episodeID)
+			}
+			return accounting.RecoverySubmissionAttempt{State: accounting.RecoverySubmissionFound, VenueOrderID: "venue-verified"}, false, nil
+		},
+	})
+	defer SetOrderReconciliationService(nil)
+	router := gin.New()
+	router.Use(testReconciliationAuth())
+	router.POST("/funding-recovery/:episode_id/submission-attempts/adjudicate-found", adjudicateFundingRecoverySubmissionHandler)
+
+	bad := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-1/submission-attempts/adjudicate-found", `{"operation_id":"op-1","permit_id":"permit-1","expected_attempt_revision":1,"expected_episode_revision":2,"audit_ref":"incident-1","confirmed":true,"venue_order_id":"attacker-chosen"}`, true)
+	if bad.Code != http.StatusBadRequest || calls != 0 {
+		t.Fatalf("client-supplied venue fact response=%d calls=%d body=%s", bad.Code, calls, bad.Body.String())
+	}
+	denied := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-1/submission-attempts/adjudicate-found", `{"operation_id":"op-1","permit_id":"permit-1","expected_attempt_revision":1,"expected_episode_revision":2,"audit_ref":"incident-1","confirmed":true}`, false)
+	if denied.Code != http.StatusForbidden || calls != 0 {
+		t.Fatalf("non-admin response=%d calls=%d body=%s", denied.Code, calls, denied.Body.String())
+	}
+	good := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-1/submission-attempts/adjudicate-found", `{"operation_id":"op-1","permit_id":"permit-1","expected_attempt_revision":1,"expected_episode_revision":2,"audit_ref":"incident-1","confirmed":true}`, true)
+	if good.Code != http.StatusOK || calls != 1 || received.Actor != "admin" || received.VenueOrderID != "" || received.EvidenceHash != "" || received.Decision != accounting.RecoverySubmissionFound {
+		t.Fatalf("admin adjudication response=%d calls=%d request=%+v body=%s", good.Code, calls, received, good.Body.String())
+	}
+}
+
+func TestFundingRecoveryTakeoverUsesSessionActorAndServerOwnedGeneration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defer gin.SetMode(gin.DebugMode)
+	calls := 0
+	var actor, auditRef, operationID string
+	var expectedRevision uint64
+	SetOrderReconciliationService(&OrderReconciliationService{
+		Recovery: &storage.SQLStorage{},
+		RecoveryOwnerTakeover: func(_ context.Context, episodeID, opID, who, ref string, revision uint64, confirmed bool) (accounting.RecoveryEpisode, bool, error) {
+			calls++
+			if episodeID != "episode-takeover" || !confirmed {
+				t.Fatalf("takeover input: episode=%q confirmed=%t", episodeID, confirmed)
+			}
+			actor, auditRef, operationID, expectedRevision = who, ref, opID, revision
+			return accounting.RecoveryEpisode{ID: episodeID, State: accounting.RecoveryBlocked, OwnerGeneration: "server-current-generation"}, false, nil
+		},
+	})
+	defer SetOrderReconciliationService(nil)
+	router := gin.New()
+	router.Use(testReconciliationAuth())
+	router.POST("/funding-recovery/:episode_id/takeover", takeOverFundingRecoveryEpisodeHandler)
+
+	forged := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-takeover/takeover", `{"operation_id":"take-1","expected_episode_revision":1,"audit_ref":"incident","confirmed":true,"expected_owner_generation":"attacker"}`, true)
+	if forged.Code != http.StatusBadRequest || calls != 0 {
+		t.Fatalf("client generation was not rejected: status=%d calls=%d body=%s", forged.Code, calls, forged.Body.String())
+	}
+	denied := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-takeover/takeover", `{"operation_id":"take-1","expected_episode_revision":1,"audit_ref":"incident","confirmed":true}`, false)
+	if denied.Code != http.StatusForbidden || calls != 0 {
+		t.Fatalf("non-admin takeover was not rejected: status=%d calls=%d", denied.Code, calls)
+	}
+	response := performReconciliationRequest(router, http.MethodPost, "/funding-recovery/episode-takeover/takeover", `{"operation_id":"take-1","expected_episode_revision":1,"audit_ref":"incident","confirmed":true}`, true)
+	if response.Code != http.StatusOK || calls != 1 || actor != "admin" || auditRef != "incident" || operationID != "take-1" || expectedRevision != 1 {
+		t.Fatalf("admin takeover input: status=%d calls=%d actor=%q audit=%q operation=%q revision=%d body=%s", response.Code, calls, actor, auditRef, operationID, expectedRevision, response.Body.String())
+	}
+}
+
+type installedRecoveryAuthSettingsProvider struct{ localDevSettingsProvider }
+
+func (installedRecoveryAuthSettingsProvider) GetSystemSettingBool(ctx context.Context, key string, defaultValue bool) (bool, error) {
+	if key == "local_dev_mode" {
+		return false, nil
+	}
+	return defaultValue, nil
+}
+
+func TestProductionFundingRecoveryRouteUsesSessionAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	defer gin.SetMode(gin.DebugMode)
+	originalStorage := storageProvider
+	originalService := currentOrderReconciliationService()
+	originalSessionManager := SwapSessionManager(NewEphemeralSessionManager())
+	t.Cleanup(func() {
+		SetStorageProvider(originalStorage)
+		SetOrderReconciliationService(originalService)
+		if originalSessionManager == nil {
+			originalSessionManager = NewEphemeralSessionManager()
+		}
+		SetSessionManager(originalSessionManager)
+	})
+	SetStorageProvider(installedRecoveryAuthSettingsProvider{})
+
+	sessionManager := GetSessionManager()
+	adminSession, err := sessionManager.CreateSession("auditor", "admin", "192.0.2.10", "recovery-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	nonAdminSession, err := sessionManager.CreateSession("operator", "user", "192.0.2.10", "recovery-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	takeoverCalls := 0
+	var takeoverActor string
+	SetOrderReconciliationService(&OrderReconciliationService{
+		Recovery: &storage.SQLStorage{},
+		RecoverySubmissionAdjudicator: func(_ context.Context, episodeID string, adjudication accounting.RecoverySubmissionAdjudication) (accounting.RecoverySubmissionAttempt, bool, error) {
+			calls++
+			if episodeID != "episode-production-route" || adjudication.Actor != "auditor" {
+				t.Fatalf("production route callback got episode=%q actor=%q", episodeID, adjudication.Actor)
+			}
+			return accounting.RecoverySubmissionAttempt{State: accounting.RecoverySubmissionFound, VenueOrderID: "venue-verified"}, false, nil
+		},
+		RecoveryOwnerTakeover: func(_ context.Context, episodeID, operationID, actor, auditRef string, revision uint64, confirmed bool) (accounting.RecoveryEpisode, bool, error) {
+			takeoverCalls++
+			takeoverActor = actor
+			if episodeID != "episode-production-route" || operationID != "op-takeover" || auditRef != "incident-takeover" || revision != 3 || !confirmed {
+				t.Fatalf("production takeover route callback input: episode=%q operation=%q audit=%q revision=%d confirmed=%t", episodeID, operationID, auditRef, revision, confirmed)
+			}
+			return accounting.RecoveryEpisode{ID: episodeID, State: accounting.RecoveryBlocked, OwnerGeneration: "server-owned"}, false, nil
+		},
+	})
+
+	router := gin.New()
+	router.Use(gin.Recovery())
+	cfg := &config.Config{}
+	cfg.Web.SharedDir = t.TempDir()
+	SetupRoutesWithConfig(router, cfg)
+	path := "/api/capital/funding-recovery/episode-production-route/submission-attempts/adjudicate-found"
+	body := `{"operation_id":"op-production","permit_id":"permit-1","expected_attempt_revision":1,"expected_episode_revision":2,"audit_ref":"incident-production","confirmed":true}`
+
+	for _, tc := range []struct {
+		name        string
+		session     *Session
+		wantStatus  int
+		wantCallCnt int
+	}{
+		{name: "unauthenticated", wantStatus: http.StatusUnauthorized},
+		{name: "non-admin session", session: nonAdminSession, wantStatus: http.StatusForbidden},
+		{name: "admin session", session: adminSession, wantStatus: http.StatusOK, wantCallCnt: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+			req.RemoteAddr = "192.0.2.10:1234" // never take the local-dev bypass branch.
+			if tc.session != nil {
+				req.AddCookie(&http.Cookie{Name: "session_id", Value: tc.session.SessionID})
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if response.Code != tc.wantStatus || calls != tc.wantCallCnt {
+				t.Fatalf("status=%d calls=%d want status=%d calls=%d body=%s", response.Code, calls, tc.wantStatus, tc.wantCallCnt, response.Body.String())
+			}
+		})
+	}
+
+	takeoverPath := "/api/capital/funding-recovery/episode-production-route/takeover"
+	takeoverBody := `{"operation_id":"op-takeover","expected_episode_revision":3,"audit_ref":"incident-takeover","confirmed":true}`
+	for _, tc := range []struct {
+		name       string
+		session    *Session
+		wantStatus int
+		wantCalls  int
+	}{
+		{name: "unauthenticated takeover", wantStatus: http.StatusUnauthorized},
+		{name: "non-admin takeover session", session: nonAdminSession, wantStatus: http.StatusForbidden},
+		{name: "admin takeover session", session: adminSession, wantStatus: http.StatusOK, wantCalls: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, takeoverPath, strings.NewReader(takeoverBody))
+			req.RemoteAddr = "192.0.2.10:1234"
+			if tc.session != nil {
+				req.AddCookie(&http.Cookie{Name: "session_id", Value: tc.session.SessionID})
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, req)
+			if response.Code != tc.wantStatus || takeoverCalls != tc.wantCalls || (tc.wantCalls == 1 && takeoverActor != "auditor") {
+				t.Fatalf("takeover status=%d calls=%d actor=%q want status=%d calls=%d body=%s", response.Code, takeoverCalls, takeoverActor, tc.wantStatus, tc.wantCalls, response.Body.String())
+			}
+		})
 	}
 }

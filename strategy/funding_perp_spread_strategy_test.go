@@ -452,6 +452,42 @@ type fundingPerpSpreadOpeningExchange struct {
 	requests []*exchange.OrderRequest
 }
 
+func TestFundingPerpSpreadDirectOpeningRechecksGateBeforeVenueRPC(t *testing.T) {
+	gate := &execution.OpeningGate{}
+	store := &memoryRuntimeStateStore{}
+	venue := &fundingPerpSpreadOpeningExchange{name: "venue-a", symbol: "BTCUSDT"}
+	strategy := &FundingPerpSpreadStrategy{
+		openingGate: gate, legA: venue, legB: &fundingPerpSpreadOpeningExchange{name: "venue-b", symbol: "ETHUSDT"},
+		symA: "BTCUSDT", symB: "ETHUSDT", ownershipReady: true,
+	}
+	strategy.SetRuntimeStateStore(store)
+	operation, err := gate.BeginOperationLease()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer gate.ReleaseLease(operation.ID)
+	request := &exchange.OrderRequest{Symbol: "BTCUSDT", Side: exchange.SideBuy, Type: exchange.OrderTypeMarket, Quantity: 1, ClientOrderID: "spread-gate-race"}
+	if err := strategy.beginOrderIntent(fundingPerpSpreadOrderIntent{ClientOrderID: request.ClientOrderID, LegExchange: venue.name,
+		Symbol: request.Symbol, Side: "BUY", Quantity: request.Quantity}); err != nil {
+		t.Fatal(err)
+	}
+	guardCalls := 0
+	guard := func(context.Context) error {
+		guardCalls++
+		if guardCalls == 2 {
+			gate.Block("recovery-test")
+		}
+		return nil
+	}
+	_, dispatched, err := strategy.submitOpeningOrder(t.Context(), guard, venue, request, operation)
+	if !errors.Is(err, execution.ErrOpeningPaused) || dispatched || venue.placed != 0 {
+		t.Fatalf("direct strategy path submitted after gate closed: dispatched=%t calls=%d err=%v", dispatched, venue.placed, err)
+	}
+	if strategy.pendingOrder == nil || strategy.pendingOrder.Phase != fundingPerpSpreadIntentPrepared || strategy.exposureUnknown {
+		t.Fatalf("proven-undispatched intent did not return to prepared: pending=%+v unknown=%t", strategy.pendingOrder, strategy.exposureUnknown)
+	}
+}
+
 func (e *fundingPerpSpreadOpeningExchange) GetName() string          { return e.name }
 func (e *fundingPerpSpreadOpeningExchange) GetQuantityDecimals() int { return 3 }
 func (e *fundingPerpSpreadOpeningExchange) GetPriceDecimals() int    { return 2 }

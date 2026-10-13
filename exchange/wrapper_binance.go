@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"quantmesh/exchange/accounting"
@@ -36,6 +37,74 @@ func (w *binanceWrapper) ReadAccountEvidence(ctx context.Context, since time.Tim
 }
 
 var _ accounting.Source = (*binanceWrapper)(nil)
+var _ OrderFillBatchSource = (*binanceWrapper)(nil)
+
+// FundingIncomeHistoryWindowSource exposes the bounded, read-only source
+// snapshot capability. It is intentionally optional on IExchange so other
+// exchange wrappers cannot accidentally claim Binance pagination evidence.
+type FundingIncomeHistoryWindowSource interface {
+	GetFundingIncomeWindow(context.Context, string, time.Time, time.Duration) (BinanceFundingIncomeWindow, error)
+	GetFundingIncomeWindowRange(context.Context, string, time.Time, time.Time) (BinanceFundingIncomeWindow, error)
+	GetFundingIncomeContinuation(context.Context, string, time.Time, time.Time, time.Duration) (BinanceFundingIncomeContinuation, error)
+}
+
+type BinanceFundingIncomeWindow = binance.FundingIncomeWindow
+type BinanceFundingIncomeContinuation = binance.FundingIncomeContinuation
+
+var _ FundingIncomeHistoryWindowSource = (*binanceWrapper)(nil)
+
+func (w *binanceWrapper) GetFundingIncomeWindow(ctx context.Context, symbol string, from time.Time, safetyLag time.Duration) (BinanceFundingIncomeWindow, error) {
+	if w == nil || w.adapter == nil {
+		return BinanceFundingIncomeWindow{}, fmt.Errorf("Binance funding income window source unavailable")
+	}
+	return w.adapter.GetFundingIncomeWindow(ctx, symbol, from, safetyLag)
+}
+
+func (w *binanceWrapper) GetFundingIncomeWindowRange(ctx context.Context, symbol string, from, through time.Time) (BinanceFundingIncomeWindow, error) {
+	if w == nil || w.adapter == nil {
+		return BinanceFundingIncomeWindow{}, fmt.Errorf("Binance funding income window source unavailable")
+	}
+	return w.adapter.GetFundingIncomeWindowRange(ctx, symbol, from, through)
+}
+
+func (w *binanceWrapper) GetFundingIncomeContinuation(ctx context.Context, symbol string, initialFrom, previousThrough time.Time, safetyLag time.Duration) (BinanceFundingIncomeContinuation, error) {
+	if w == nil || w.adapter == nil {
+		return BinanceFundingIncomeContinuation{}, fmt.Errorf("Binance funding income continuation source unavailable")
+	}
+	return w.adapter.GetFundingIncomeContinuation(ctx, symbol, initialFrom, previousThrough, safetyLag)
+}
+
+func binanceOrderFillToExchange(row *binance.OrderFill) *OrderFill {
+	if row == nil {
+		return nil
+	}
+	return &OrderFill{
+		OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol, Side: Side(row.Side),
+		Price: row.Price, PriceRaw: row.PriceRaw, Quantity: row.Quantity, QuantityRaw: row.QuantityRaw,
+		QuoteQuantity: row.QuoteQuantity, QuoteQuantityRaw: row.QuoteQuantityRaw, Commission: row.Commission,
+		CommissionRaw: row.CommissionRaw, CommissionKnown: row.CommissionKnown, CommissionAsset: row.CommissionAsset,
+		TradeTime: row.TradeTime, IsMaker: row.IsMaker, BaseFeeQty: row.BaseFeeQty,
+		CommissionQuote: row.CommissionQuote, CommissionQuoteRate: row.CommissionQuoteRate,
+		CommissionQuoteKnown: row.CommissionQuoteKnown, RealizedPnL: row.RealizedPnL,
+		RealizedPnLRaw: row.RealizedPnLRaw, RealizedPnLKnown: row.RealizedPnLKnown,
+	}
+}
+
+func binanceBatchToExchange(batch *binance.OrderFillBatch) *OrderFillBatch {
+	if batch == nil {
+		return nil
+	}
+	fills := make([]*OrderFill, 0, len(batch.Fills))
+	for _, row := range batch.Fills {
+		fills = append(fills, binanceOrderFillToExchange(row))
+	}
+	return &OrderFillBatch{
+		OrderID: batch.OrderID, ClientOrderID: batch.ClientOrderID, Symbol: batch.Symbol, Side: Side(batch.Side),
+		TerminalStatus: OrderStatus(batch.TerminalStatus), OrderUpdateTime: batch.OrderUpdateTime,
+		ExecutedQuantityRaw: batch.ExecutedQuantityRaw, SourceRevision: batch.SourceRevision,
+		Fills: fills, FillHistoryComplete: batch.FillHistoryComplete, Complete: batch.Complete, FeesComplete: batch.FeesComplete,
+	}
+}
 
 func (w *binanceWrapper) GetName() string {
 	return w.adapter.GetName()
@@ -72,19 +141,41 @@ func (w *binanceWrapper) PlaceOrder(ctx context.Context, req *OrderRequest) (*Or
 	}
 
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
+}
+
+func (w *binanceWrapper) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	batch, err := w.adapter.GetOrderFillBatch(ctx, symbol, orderID)
+	if err != nil || batch == nil {
+		return nil, err
+	}
+	return setOrderFillBatchPnLAsset(binanceBatchToExchange(batch), w.adapter.GetQuoteAsset()), nil
+}
+
+func setOrderFillBatchPnLAsset(batch *OrderFillBatch, settlementAsset string) *OrderFillBatch {
+	if batch == nil {
+		return nil
+	}
+	settlementAsset = strings.TrimSpace(settlementAsset)
+	for _, fill := range batch.Fills {
+		if fill != nil && fill.RealizedPnLKnown && fill.RealizedPnLAsset == "" {
+			fill.RealizedPnLAsset = settlementAsset
+		}
+	}
+	return batch
 }
 
 func (w *binanceWrapper) BatchPlaceOrders(ctx context.Context, orders []*OrderRequest) ([]*Order, bool) {
@@ -166,18 +257,19 @@ func (w *binanceWrapper) GetOrder(ctx context.Context, symbol string, orderID in
 	}
 
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
 }
 
@@ -188,18 +280,19 @@ func (w *binanceWrapper) GetOrderByClientOrderID(ctx context.Context, symbol, cl
 		return nil, err
 	}
 	return &Order{
-		OrderID:       binanceOrder.OrderID,
-		ClientOrderID: binanceOrder.ClientOrderID,
-		Symbol:        binanceOrder.Symbol,
-		Side:          Side(binanceOrder.Side),
-		Type:          OrderType(binanceOrder.Type),
-		Price:         binanceOrder.Price,
-		Quantity:      binanceOrder.Quantity,
-		ExecutedQty:   binanceOrder.ExecutedQty,
-		AvgPrice:      binanceOrder.AvgPrice,
-		Status:        OrderStatus(binanceOrder.Status),
-		CreatedAt:     binanceOrder.CreatedAt,
-		UpdateTime:    binanceOrder.UpdateTime,
+		OrderID:        binanceOrder.OrderID,
+		ClientOrderID:  binanceOrder.ClientOrderID,
+		Symbol:         binanceOrder.Symbol,
+		Side:           Side(binanceOrder.Side),
+		Type:           OrderType(binanceOrder.Type),
+		Price:          binanceOrder.Price,
+		Quantity:       binanceOrder.Quantity,
+		ExecutedQty:    binanceOrder.ExecutedQty,
+		ExecutedQtyRaw: binanceOrder.ExecutedQtyRaw,
+		AvgPrice:       binanceOrder.AvgPrice,
+		Status:         OrderStatus(binanceOrder.Status),
+		CreatedAt:      binanceOrder.CreatedAt,
+		UpdateTime:     binanceOrder.UpdateTime,
 	}, nil
 }
 
@@ -438,9 +531,7 @@ func (w *binanceWrapper) GetOrderFills(ctx context.Context, symbol string, order
 		if row == nil {
 			return nil, fmt.Errorf("Binance returned an empty execution for order %d", orderID)
 		}
-		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: row.TradeID, Symbol: row.Symbol,
-			Side: Side(row.Side), Price: row.Price, Quantity: row.Quantity, Commission: row.Commission,
-			CommissionAsset: row.CommissionAsset, TradeTime: row.TradeTime})
+		fills = append(fills, binanceOrderFillToExchange(row))
 	}
 	return fills, nil
 }

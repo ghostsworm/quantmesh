@@ -17,6 +17,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"quantmesh/accounting"
 	"quantmesh/storage"
+	"quantmesh/strategy"
 )
 
 type orderReconciliationRepository interface {
@@ -62,11 +63,44 @@ type OrderAccountingOperationReader interface {
 }
 
 type OrderReconciliationService struct {
-	Repository orderReconciliationRepository
-	Evidence   TrustedOrderEvidenceProvider
-	Accounting accounting.OrderAccounting
-	Gate       OrderReconciliationGateBridge
+	Repository                     orderReconciliationRepository
+	Evidence                       TrustedOrderEvidenceProvider
+	Accounting                     accounting.OrderAccounting
+	Gate                           OrderReconciliationGateBridge
+	Recovery                       storage.FundingRecoveryStore
+	RecoveryRuntimeResolver        FundingRecoveryRuntimeResolver
+	RecoverySubmissionAdjudicator  FundingRecoverySubmissionAdjudicator
+	RecoveryOwnerTakeover          FundingRecoveryOwnerTakeover
+	RecoveryFillPreview            FundingRecoveryFillPreview
+	RecoveryFillApply              FundingRecoveryFillApply
+	RecoveryFeePreview             FundingRecoveryFeeAdjustmentPreview
+	RecoveryFeeApply               FundingRecoveryFeeAdjustmentApply
+	RecoveryOpeningBalanceApply    FundingRecoveryOpeningBalanceApply
+	RecoveryFundingIncomeApply     FundingRecoveryFundingIncomeApply
+	RecoveryAnomalyAdjustmentApply FundingRecoveryAnomalyAdjustmentApply
 }
+
+// FundingRecoveryRuntimeResolver returns only an already-owned runtime token;
+// implementations must never acquire or rotate ownership while resolving.
+type FundingRecoveryRuntimeResolver func(context.Context, accounting.RecoveryEpisode) (storage.FundingCarryRuntimeGeneration, error)
+
+type FundingRecoverySubmissionAdjudicator func(context.Context, string, accounting.RecoverySubmissionAdjudication) (accounting.RecoverySubmissionAttempt, bool, error)
+
+type FundingRecoveryOwnerTakeover func(context.Context, string, string, string, string, uint64, bool) (accounting.RecoveryEpisode, bool, error)
+
+type FundingRecoveryFillPreview func(context.Context, string, string) (strategy.FundingRecoveryFillPreview, error)
+
+type FundingRecoveryFillApply func(context.Context, strategy.ApplyFundingRecoveryFillsRequest) (strategy.ApplyFundingRecoveryFillsResult, error)
+
+type FundingRecoveryFeeAdjustmentPreview func(context.Context, string, string, string) (strategy.FundingRecoveryFeeAdjustmentPreview, error)
+
+type FundingRecoveryFeeAdjustmentApply func(context.Context, strategy.ApplyFundingRecoveryFeeAdjustmentRequest) (strategy.ApplyFundingRecoveryFeeAdjustmentResult, error)
+
+type FundingRecoveryOpeningBalanceApply func(context.Context, strategy.ApplyFundingRecoveryOpeningBalanceRequest) (strategy.ApplyFundingRecoveryOpeningBalanceResult, error)
+
+type FundingRecoveryFundingIncomeApply func(context.Context, strategy.ApplyFundingRecoveryIncomeRequest) (strategy.ApplyFundingRecoveryIncomeResult, error)
+
+type FundingRecoveryAnomalyAdjustmentApply func(context.Context, strategy.ApplyFundingRecoveryAnomalyAdjustmentRequest) (strategy.ApplyFundingRecoveryAnomalyAdjustmentResult, error)
 
 type OrderReconciliationValidation struct {
 	OwnerMatched          bool     `json:"owner_matched"`

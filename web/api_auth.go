@@ -18,9 +18,23 @@ func SetPasswordManager(pm *PasswordManager) {
 	globalPasswordManager = pm
 }
 
-// SetSessionManager 設置會话管理器（為了保持一致性，但實際使用 GetSessionManager）
+// SetSessionManager installs a session manager for this process.
 func SetSessionManager(sm *SessionManager) {
-	// 實際使用全局單例 GetSessionManager()
+	sessionManagerMu.Lock()
+	globalSessionManager = sm
+	sessionManagerReady = true
+	sessionManagerMu.Unlock()
+}
+
+// SwapSessionManager replaces the process session manager and returns the
+// previous value without forcing persistent manager initialization.
+func SwapSessionManager(sm *SessionManager) *SessionManager {
+	sessionManagerMu.Lock()
+	previous := globalSessionManager
+	globalSessionManager = sm
+	sessionManagerReady = true
+	sessionManagerMu.Unlock()
+	return previous
 }
 
 // getAuthStatus 獲取认证状態

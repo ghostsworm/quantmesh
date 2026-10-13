@@ -101,6 +101,27 @@ func TestSessionManagerPersistenceCookiesAndDeletion(t *testing.T) {
 	}
 }
 
+func TestSessionManagerExplicitNilRemainsUnavailable(t *testing.T) {
+	original := SwapSessionManager(NewEphemeralSessionManager())
+	t.Cleanup(func() {
+		if original == nil {
+			original = NewEphemeralSessionManager()
+		}
+		SetSessionManager(original)
+	})
+	SetSessionManager(nil)
+	if manager := GetSessionManager(); manager != nil {
+		t.Fatal("explicitly unavailable session manager was replaced by lazy initialization")
+	}
+	SetSessionManager(NewEphemeralSessionManager())
+	if previous := SwapSessionManager(nil); previous == nil {
+		t.Fatal("swap did not return the installed session manager")
+	}
+	if manager := GetSessionManager(); manager != nil {
+		t.Fatal("SwapSessionManager(nil) did not remain fail-closed")
+	}
+}
+
 func TestPasswordManagerInstallRecoveryAndSecurityStates(t *testing.T) {
 	pm, err := NewPasswordManager(t.TempDir())
 	if err != nil {

@@ -580,6 +580,17 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// 资金管理 API
 			capital := protected.Group("/capital")
 			{
+				capital.GET("/funding-recovery/:episode_id", getFundingRecoveryStatusHandler)
+				capital.GET("/funding-recovery/:episode_id/operations/:operation_id", getFundingRecoveryReceiptHandler)
+				capital.POST("/funding-recovery/:episode_id/submission-attempts/adjudicate-found", adjudicateFundingRecoverySubmissionHandler)
+				capital.POST("/funding-recovery/:episode_id/takeover", takeOverFundingRecoveryEpisodeHandler)
+				capital.GET("/funding-recovery/:episode_id/children/:child_id/fills/preview", previewFundingRecoveryFillsHandler)
+				capital.POST("/funding-recovery/:episode_id/children/:child_id/fills/apply", applyFundingRecoveryFillsHandler)
+				capital.GET("/funding-recovery/:episode_id/children/:child_id/fills/:trade_id/fee-adjustments/preview", previewFundingRecoveryFeeAdjustmentHandler)
+				capital.POST("/funding-recovery/:episode_id/children/:child_id/fills/:trade_id/fee-adjustments/apply", applyFundingRecoveryFeeAdjustmentHandler)
+				capital.POST("/funding-recovery/:episode_id/opening-balances", applyFundingRecoveryOpeningBalanceHandler)
+				capital.POST("/funding-recovery/:episode_id/funding-income", applyFundingRecoveryIncomeHandler)
+				capital.POST("/funding-recovery/:episode_id/source-anomalies/:anomaly_id/adjust", applyFundingRecoveryAnomalyAdjustmentHandler)
 				capital.GET("/order-reconciliations", listOrderReconciliationsHandler)
 				capital.GET("/order-reconciliations/:case_id/audit", listOrderReconciliationAuditHandler)
 				capital.POST("/order-reconciliations", createOrderReconciliationHandler)

@@ -351,7 +351,7 @@ func (s *FundingPerpSpreadStrategy) Start(ctx context.Context) error {
 	gate := s.openingGate
 	s.mu.RUnlock()
 	if ledgerUnverified && gate != nil {
-		gate.Block("execution_ledger_unverified")
+		gate.Block(execution.PairedExecutionLedgerGateSource)
 	}
 	if ledgerUnverified && len(s.pendingExecutions) > 0 {
 		if reconcileErr := s.reconcilePendingExecutionLedger(checkCtx); reconcileErr != nil {
@@ -1093,27 +1093,37 @@ func (s *FundingPerpSpreadStrategy) resolvePreparedAdmissionRejection(clientOrde
 	return nil
 }
 
-func (s *FundingPerpSpreadStrategy) submitOpeningOrder(ctx context.Context, admissionGuard func(context.Context) error, ex exchange.IExchange, request *exchange.OrderRequest) (*exchange.Order, bool, error) {
-	// The enclosing pair already owns a logical opening admission. Do not
-	// reacquire the gate here: recording the first leg deliberately blocks new
-	// openings while this admitted pair finishes its hedge.
-	if admissionGuard != nil {
-		if err := admissionGuard(ctx); err != nil {
-			return nil, false, err
-		}
-	}
-	if err := s.markOrderIntentDispatching(request.ClientOrderID); err != nil {
-		return nil, false, err
-	}
-	// Persistence can outlive the ownership/capital observation. If the
-	// second check fails, downgrade to a proven-undispatched intent before
-	// returning; a failed downgrade remains conservatively unresolved.
+func (s *FundingPerpSpreadStrategy) submitOpeningOrder(ctx context.Context, admissionGuard func(context.Context) error, ex exchange.IExchange, request *exchange.OrderRequest, operation execution.OpeningLease) (*exchange.Order, bool, error) {
 	if admissionGuard != nil {
 		if err := admissionGuard(ctx); err != nil {
 			return nil, false, errors.Join(err, s.restorePreparedOrderIntent(request.ClientOrderID))
 		}
 	}
+	if err := s.markOrderIntentDispatching(request.ClientOrderID); err != nil {
+		return nil, false, err
+	}
+	if admissionGuard != nil {
+		if err := admissionGuard(ctx); err != nil {
+			return nil, false, errors.Join(err, s.restorePreparedOrderIntent(request.ClientOrderID))
+		}
+	}
+	s.mu.RLock()
+	gate := s.openingGate
+	s.mu.RUnlock()
+	if gate == nil {
+		return nil, false, errors.Join(execution.ErrOpeningPaused, s.restorePreparedOrderIntent(request.ClientOrderID))
+	}
+	physicalLease, err := gate.BeginChildOpeningLease(operation)
+	if err != nil {
+		return nil, false, errors.Join(fmt.Errorf("acquire physical opening gate lease: %w", err), s.restorePreparedOrderIntent(request.ClientOrderID))
+	}
+	defer gate.ReleaseLease(physicalLease.ID)
+	finishPhysicalSubmission, err := gate.AuthorizeOpeningSubmission(physicalLease)
+	if err != nil {
+		return nil, false, errors.Join(fmt.Errorf("authorize physical opening gate submission: %w", err), s.restorePreparedOrderIntent(request.ClientOrderID))
+	}
 	order, err := ex.PlaceOrder(ctx, request)
+	finishPhysicalSubmission()
 	return order, true, err
 }
 
@@ -1150,6 +1160,14 @@ func (s *FundingPerpSpreadStrategy) retainExecutionLedgerFailure(client exchange
 }
 
 func (s *FundingPerpSpreadStrategy) persistPendingExecution(client exchange.IExchange, request *exchange.OrderRequest, order *exchange.Order) error {
+	return s.persistPendingExecutionWithOperation(client, request, order, execution.OpeningLease{})
+}
+
+func (s *FundingPerpSpreadStrategy) persistPendingExecutionWithinOperation(client exchange.IExchange, request *exchange.OrderRequest, order *exchange.Order, operation execution.OpeningLease) error {
+	return s.persistPendingExecutionWithOperation(client, request, order, operation)
+}
+
+func (s *FundingPerpSpreadStrategy) persistPendingExecutionWithOperation(client exchange.IExchange, request *exchange.OrderRequest, order *exchange.Order, operation execution.OpeningLease) error {
 	s.mu.Lock()
 	s.executionLedgerUnverified = true
 	if client != nil && request != nil && request.ClientOrderID != "" && request.Symbol != "" &&
@@ -1185,7 +1203,14 @@ func (s *FundingPerpSpreadStrategy) persistPendingExecution(client exchange.IExc
 	gate := s.openingGate
 	s.mu.Unlock()
 	if gate != nil {
-		gate.Block("execution_ledger_unverified")
+		if persistErr == nil && operation.ID != 0 {
+			if err := gate.BlockForOperation(execution.PairedExecutionLedgerGateSource, operation); err == nil {
+				return nil
+			} else {
+				persistErr = errors.Join(persistErr, fmt.Errorf("bind execution ledger hold to active pair: %w", err))
+			}
+		}
+		gate.Block(execution.PairedExecutionLedgerGateSource)
 	}
 	return persistErr
 }
@@ -1428,11 +1453,11 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 			return fmt.Errorf("funding_perp_spread wallet capital admission rejected opening: %w", err)
 		}
 	}
-	releaseOpening, err := gate.Begin()
+	openingOperation, err := gate.BeginOperationLease()
 	if err != nil {
 		return err
 	}
-	defer releaseOpening()
+	defer gate.ReleaseLease(openingOperation.ID)
 	shortClientOrderID := utils.NewCompactOrderID()
 	shortPositionBefore := currentA
 	if strings.EqualFold(shortEx.GetName(), s.legB.GetName()) && strings.EqualFold(shortSym, s.symB) {
@@ -1449,7 +1474,7 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		Quantity: qtyShort, Price: 0, PriceDecimals: shortEx.GetPriceDecimals(),
 		StrategyType: "funding_perp_spread", ClientOrderID: shortClientOrderID,
 	}
-	shortOrder, shortDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, shortEx, shortRequest)
+	shortOrder, shortDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, shortEx, shortRequest, openingOperation)
 	if !shortDispatched {
 		return errors.Join(fmt.Errorf("short opening was not submitted: %w", err), s.resolvePreparedAdmissionRejection(shortClientOrderID))
 	}
@@ -1473,7 +1498,7 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		s.markExposureUnknown()
 		return errors.New("short order returned success but no position change was confirmed")
 	}
-	if err := s.persistPendingExecution(shortEx, shortRequest, shortOrder); err != nil {
+	if err := s.persistPendingExecutionWithinOperation(shortEx, shortRequest, shortOrder, openingOperation); err != nil {
 		return fmt.Errorf("short leg is open but pending execution identity could not be persisted: %w", err)
 	}
 	if err := s.finishOrderIntent(); err != nil {
@@ -1494,7 +1519,7 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		Quantity: qtyLong, Price: 0, PriceDecimals: longEx.GetPriceDecimals(),
 		StrategyType: "funding_perp_spread", ClientOrderID: longClientOrderID,
 	}
-	longOrder, longDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, longEx, longRequest)
+	longOrder, longDispatched, err := s.submitOpeningOrder(ctx, admissionGuard, longEx, longRequest, openingOperation)
 	if !longDispatched {
 		return errors.Join(fmt.Errorf("short leg is open but long opening was not submitted: %w", err), s.resolvePreparedAdmissionRejection(longClientOrderID))
 	}
@@ -1521,7 +1546,7 @@ func (s *FundingPerpSpreadStrategy) openSpreadCoordinated(ctx context.Context, s
 		s.markExposureUnknown()
 		return errors.New("long order returned success but no position change was confirmed; short leg may remain open")
 	}
-	if err := s.persistPendingExecution(longEx, longRequest, longOrder); err != nil {
+	if err := s.persistPendingExecutionWithinOperation(longEx, longRequest, longOrder, openingOperation); err != nil {
 		return fmt.Errorf("both leg positions are open but long pending execution identity could not be persisted: %w", err)
 	}
 	if err := s.finishOrderIntent(); err != nil {

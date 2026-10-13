@@ -1,5 +1,193 @@
 # Changelog
 
+## [3.111.0-rc1185] - 2026-10-13（开发中，未发布）
+
+### Added
+- FundingCarry 对 Binance 历史 funding 迟到、改写、删除及仅摘要变化新增耐久异常记录；以原始事实不覆盖、管理员追加精确十进制调整事件的方式人工结案。
+- 新增异常列表状态读回和管理员调整 API；调整经 owner/episode/anomaly CAS 与 receipt/outbox 投影，后续完整复扫通过才验证异常，Gate/hold 不自动解除。
+
+### Verification
+- `go test -p=2 ./... -count=1 -timeout=30m`、定向 production HTTP / storage race、`go vet ./...`、WebUI typecheck / 318 项 Vitest / production build 通过；MySQL 实际迁移与同 SHA 远端 CI 尚未验收；未提交、未推送、未发布。
+
+## [3.111.0-rc1184] - 2026-10-13（开发中，未发布）
+
+### Test
+- 加强双独立 SQLite handles 同 operation 并发回归：以逆序 funding events 覆盖规范化排序，并精确核对事件 ID/金额、cursor 证据、episode revision 与 outbox target/hash。
+
+### Verification
+- accounting、storage、strategy、exchange、web 与主包完整测试通过；双 handles race 25 次、生产子进程恢复组合 race、go vet、格式及 diff 检查通过。MySQL 专项与同 SHA 远端 CI 未验收。未提交、未推送、未发布。
+
+## [3.111.0-rc1183] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 修复 `RecoveryOperation.CanonicalHash` 对浅拷贝的 source window 原地 UTC 归一化，以及共享 child/event slice 排序导致并发调用数据竞争；规范化只作用于本地副本。
+- 新增两个独立 SQLite handles 并发提交相同 recovery operation 的原子幂等测试，校验唯一 ledger event/cursor/receipt/outbox。
+
+### Verification
+- accounting、storage、strategy、exchange、web 与主包完整测试通过；双独立 SQLite handles 同 operation race 运行 25 次、hash 输入不可变测试及生产子进程恢复组合 race 测试通过；`go vet` 与格式/diff 检查通过。MySQL 专项与同 SHA 远端 CI 未验收。未提交、未推送、未发布。
+
+## [3.111.0-rc1182] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 将 FundingCarry funding-income CAS response-loss 恢复组合升级为独立 OS 子进程：新进程重开 SQLite，经生产 startup bridge 自动恢复精确 durable Gate 并进入 reconciliation-only，重建 production route，拒绝错误 actor/audit ref 后再以原身份显式 takeover 和重放原 operation；父进程重新读回 projected receipt/outbox、cursor 与仍 held 的 durable hold。
+
+### Verification
+- 子进程生产组合普通/race 测试、旧 generation 跨进程 stale-write fencing 定向测试、`go vet . ./strategy ./web` 与 diff 检查通过；全量根包回归与 MySQL/同 SHA 远端 CI 尚未验证。未提交、未推送、未发布。
+
+## [3.111.0-rc1181] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- FundingCarry 旧收入核账回放的 takeover revision 例外现在要求审计记录的新 owner generation 与当前 episode owner 完全一致，并补充错配 owner 的拒绝测试。
+
+### Verification
+- strategy/web 完整包、accounting/storage/Binance adapter/exchange 包、FundingCarry 生产组合及 race 测试、定向负例、go vet 与 diff 检查通过。响应丢失场景关闭并重开真实 SQLite 文件及 StorageService 后恢复成功；仍不等同于 OS 子进程崩溃恢复或多进程/MySQL 验收。一次主包测试因用户级 Go cache 权限失败，改用 `/private/tmp` 独立缓存后通过。未提交、未推送、未发布。
+
+## [3.111.0-rc1180] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- Funding-income 操作按 durable outbox target revision 绑定原始请求，并区分 ledger-committed 与 projected receipt revision；仅当 episode 下精确 operation 的 pending receipt/outbox 一致时允许重试投影，修复后续游标推进后的旧操作快照重放及投影失败后无法恢复的问题。ledger 初始提交前按 SQL signed BIGINT/INTEGER 可表示上限预留两阶段 revision 空间，storage 投影再做防御性检查。
+- 增加生产 service/router 故障注入组合回归，验证投影 CAS 首次失败后同 operation 可恢复且不重查来源，并在后续窗口推进后仍返回原 cursor snapshot、不回退当前 cursor、保留 Gate/hold。
+- 补充 production resolver 负例，receipt/outbox 的 episode、operation、phase、revision、hash 或请求 revision 不匹配时均不允许恢复。
+- 补充 runtime CAS 已提交但调用方响应丢失后的新 generation takeover + 原 operation 重放组合；target+2 receipt 仅在同 episode、精确 target+1 takeover 记录绑定旧 owner 与新 owner 时接受。
+
+### Known limitations
+- 独立复核未发现 P1/P2；accounting、storage、strategy、Binance adapter、exchange、web 与主包本地完整测试、race 组合测试、vet 和编译检查通过。MySQL 与同 SHA 远端 CI 尚未完成。持久 anomaly/人工处置、process restart/多进程验收及盈利证据仍缺；未提交、未推送、未发布，真实账户/实盘未验收。
+
+## [3.111.0-rc1179] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 增加 FundingCarry recovery origin-intent 唯一绑定存储原语：stable business client-order identity 唯一映射一个 accounting-only episode 与 UNKNOWN child；owner scope 变化落到同一 identity 并 fail closed，immutable intent revision/hash 冲突时拒绝；episode、initial hold、child 与 origin binding 同事务提交。
+- 接入 FundingCarry 启动时未决 journal intent 与运行期 UNKNOWN callback 的 durable recovery episode/hold 创建；仅接受完整加载的 owner-scoped intent payload，物化失败保持 Gate、资金 claim 与 owner lease，不自动重放或解锁。
+- 接入受管理员显式确认的 Binance USDⓈ-M funding-income 核账 POST：冻结安全延迟半开窗口、双重完整扫描与原始金额映射，复用 durable episode/event/cursor/receipt/outbox CAS 和 runtime 投影回读；失败时 hold/Gate 保持，不触发下单、permit 或解锁。
+- Binance funding cursor 按 symbol 与账户 scope 隔离；同 operation 重试先读 durable receipt/outbox，不重新查询交易所。
+- 修正人工期初余额的时间校验：允许 snapshot 时间早于管理员提交/观察时间；拒绝 snapshot 时间晚于观察时间。
+
+### Known limitations
+- 新增生产接线的定向编译、单测与旧 operation 重放组合回归已通过。生产 response-loss/restart/多进程测试仍未完成。历史迟到/改写/删除记录会触发全历史回扫差异并 fail-closed，但专用 durable anomaly/reblock 与人工处置路径仍缺；零金额 funding 行可保留为来源事实，不代表收益。verifier digest 是同进程双扫描一致性摘要，不是 Binance 签名或独立真实性证明。MySQL 与同 SHA CI 未验收；真实账户、实盘或盈利均未验收；未提交、未推送、未发布。
+
+## [3.111.0-rc1178] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- FundingCarry 期初余额相同 operation 重试现校验 expected episode revision 与 durable receipt 的 revision 关系，拒绝载荷 revision 被改写的冲突重试。
+
+### Known limitations
+- RC1177 人工期初快照的账户来源仍未由交易所权威账单独立验证；MySQL/多进程、远端 CI、真实账户及盈利证据未验收。未提交、未推送或发布。
+
+## [3.111.0-rc1177] - 2026-10-13（开发中，未发布）
+
+### Added
+- 将 FundingCarry 审计期初余额扩展为受管理员认证的全资产快照提交：服务器规范化并计算摘要，策略层检查账户 scope/episode revision/held 状态，以 durable outbox + runtime CAS 投影并读回。响应明确标注仅为操作人声明、未验证交易所权威来源；不解除 Gate/hold、不重放订单。
+
+### Known limitations
+- 尚无对交易所账单原件/完整快照的独立权威 verifier；跨仓利息账户级 ledger、来源 cursor CAS 与逐策略交易所来源写入仍未完成。MySQL/多进程和远端 CI、真实账户及盈利证据未验收；未提交、未推送或发布。
+
+## [3.111.0-rc1176] - 2026-10-13（开发中，未发布）
+
+### Added
+- 增加带原始十进制金额、操作人、审计引用、快照时间与摘要的 FundingCarry 核账期初余额事实；SQL 写入强制 operation/event/snapshot 三方证据摘要一致。该事实是账本基线而非收益，不触发 Gate 解锁或订单重放。
+
+### Known limitations
+- 此版本只建立期初余额事实 contract 与 durable event 读回测试；生产首次水位 API、跨仓利息账户级独立账簿/未分摊展示、source-window verifier 和逐策略来源写入仍未接线。MySQL/多进程/远端 CI、真实账户及盈利证据未验收；未提交、未推送或发布。
+
+## [3.111.0-rc1175] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 修复不同 FundingCarry recovery episode 竞争同一 runtime snapshot 时，后续 outbox 因旧 runtime revision 永久 pending；以记录输入/输出摘要的完整 revision 链证明当前快照只经历已验证恢复投影，前序 outbox 未完成、普通 runtime 漂移、来源 cursor 冲突或 CAS/readback 失败时仍保持封锁。
+- 修正 source-cursor SQLite/MySQL down migration 注释中的分号，避免按分号执行迁移的验收器把注释尾段误当 SQL 执行。
+
+### Known limitations
+- MySQL、多进程完整组合、来源 API/账务生产接线及用户待确认的首次历史水位与跨仓利息归属仍未验收；未提交、未推送或发布，无实盘/盈利验收。
+
+## [3.111.0-rc1174] - 2026-10-13（开发中，未发布）
+
+### Changed
+- FundingCarry 借还款、利息与资金费 adapter 增加只读原始十进制载体；durable SQL recovery 增加完整 source-window cursor CAS、迁移及严格 raw 事件校验。默认缺少可信来源 verifier 时拒绝推进，未接生产 API/runtime，Gate/hold 不释放。
+
+### Known limitations
+- Binance 借还款完整历史回补 caller、跨仓利息到策略的可审计分摊、服务端可信 source verifier、FundingCarry 生产 runtime/API 接线与 source cursor restart projection 尚未完成；MySQL 专项未实测。
+- 本版本未提交、未推送或发布；无真实账户、实盘或盈利验收证据。
+
+## [3.111.0-rc1173] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- FundingCarry 对完整权威 fill 中 commission unknown 的成交提供管理员显式 fee adjustment：按 episode/child/trade 与 source revision/CAS 绑定，原币 raw signed decimal、审计 actor、operation receipt/outbox 与证据摘要持久化；重复/响应丢失可重试，正数记费用增加、负数记更正/返佣，Gate/hold 不会解除。
+
+### Known limitations
+- fee adjustment 是基于外部凭证摘要的人工认定，不代表交易所费用自动核实；未支持借款/还款/利息/资金费账本、跨币种估值或显式 Gate 解锁。
+- MySQL/多进程/真实 restart 全链路、远端同提交 CI、真实账户/实盘与盈利证据未验收；本版本未提交、未推送、未发布。
+
+## [3.111.0-rc1172] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- FundingCarry 人工核账可从权威完整逐单 fill batch 写入 durable fill/cursor，并经 SQL receipt/outbox 与 retained runtime CAS 投影读回；响应丢失和重复请求按原始 operation 证据收敛，Gate/hold 始终保持。
+- 原始成交手续费和已知 realized PnL 必须带可信 raw decimal 与资产归属；Binance wrapper 仅在适配器结算币种明确时补全 PnL asset，缺字段或未知状态夹带值均拒绝入账。
+- 恢复 attempt 原 owner 可沿经验证的完整 takeover 链继续核账；无关或断裂 owner 链拒绝。独立审查所报 response-loss 哈希冲突经当前 outbox payload 与重试测试核验未复现。
+
+### Known limitations
+- 未知手续费的独立人工补录/费用调整事件、借贷/利息/资金费账本及显式 Gate 解锁尚未接通；未知费用仍保持 held。
+- MySQL DSN/多进程竞态、正式启动恢复装配、远端同提交 CI、真实账户/实盘与盈利证据均未验收。本 RC 未提交、未推送、未发布。
+
+## [3.111.0-rc1171] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- FundingCarry 重启遇到有效持久化核账 hold 时保留仅核账 runtime，并将人工核账操作纳入 Bot 停止生命周期协调；旧 owner episode 仅可在 scope 完全一致且新 generation 拥有存储权时显式审计接管，撤销未消费 permit、保留旧 attempt/hold，绝不自动重放。
+- 人工“确认已找到”现可从已确认的 Acknowledged attempt 推进到 Found，但必须经原 client order ID 查询并核对 venue order ID 与完整订单身份；NotSent、查询失败、无订单和身份不符继续 fail-closed。账务投影、释放 Gate 与策略恢复仍不在此步骤。
+- 管理员显式接管旧 owner episode 后，可仅投影唯一既存、SHA-256 hash 匹配且业务快照一致的非 fill/fee outbox；运行态 CAS 与 SQL 投影标记均读回确认，并在新 revision 保留 takeover 审计记录。hash/身份漂移、多 outbox、fill/fee 证据或 runtime revision 不匹配均保持 held；不查交易所、不下单、不创建成交/费用记录、不发放 permit、不解锁 Gate。
+- 收紧 outbox 接管读回：若仍有 pending outbox 却没有与 takeover 前 revision 精确匹配的唯一记录则报错；逐项核对持久化索引列与 JSON payload，覆盖 revision/key 漂移及 SQL 标记已提交但响应丢失的测试。
+- 放宽 Bot lifecycle 取消测试的调度窗口，避免并行全包测试负载下因 30ms deadline 先于 waiter 调度而产生误报；仍要求 waiter 在释放 lifecycle lock 前因 context deadline 返回。
+
+## [3.111.0-rc1170] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 将 FundingRecovery MySQL 8 并发迁移和 stale-generation fencing 两项测试纳入 `verify_trading_race.rb --require-mysql` 强制证据集，并更新门禁缺失数与拒绝 skip/fail/错包的 Ruby 契约测试。
+- 校正阶段验收文档：确认本地 SQLite production composition→HTTP→venue fixture 纵向测试已完成，同时明确 MySQL、正式启动创建 runtime、费用/借贷投影与显式解锁尚未验收。
+
+## [3.111.0-rc1169] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 统一 session manager 未初始化、显式 nil、Set 与 Swap 语义：由同一互斥锁保护 ready 状态，显式 nil 始终 fail-closed；恢复核账 route tests 均用 ephemeral session 注入/恢复，不依赖全局初始化顺序。
+
+## [3.111.0-rc1168] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 保持 session manager 的显式 nil 注入语义：未初始化时惰性创建，但已初始化后被设置为 nil 代表明确不可用，不自动恢复，从而维持认证 fail-closed 行为。
+
+## [3.111.0-rc1167] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 让 session manager 注入/替换使用线程安全的延迟初始化，提供不落盘的 ephemeral manager；隔离核账 HTTP 集成测试不再初始化或写入仓库 `data/auth.db`，并在测试结束恢复原单例。
+
+## [3.111.0-rc1166] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 收紧 FundingCarry 人工发现订单的数量/限价比较：仅接受可表示的精确数值相等，极小数量差异不再被绝对 epsilon 吞掉；增加微小数量回归测试。
+- 增加真实 `SetupRoutesWithConfig` + session/authMiddleware 路由覆盖，验证无会话拒绝、非管理员拒绝及管理员会话进入 found 核证处理器。
+- 增加隔离 SQLite `StorageService` + 生产 recovery service composition 的 takeover→found HTTP 纵向测试：新 generation 经持久接管后按原 CID 查询，CAS 同时绑定 attempt/原 child，核证后 hold 仍为 held；runtime 使用测试构造的 retained reconciliation-only fixture，不代表真实交易所或生产账户验收。
+
+## [3.111.0-rc1165] - 2026-10-13（开发中，未发布）
+
+### Changed
+- 将显式 runtime takeover 与人工 found 裁决接入受保护 API：actor 取认证 session，generation/旧 owner/CID/订单事实全部从服务端或持久记录解析；found 仅按原 CID 查询并校验 exchange/market、CID、symbol、side、type、quantity 与可验证限价，再以 SQLite/MySQL CAS 绑定原 provisional child。空查询、查询错误及任何身份/意图不匹配继续 UNKNOWN，hold 保持不变；账务投影、费用/借贷核对及显式解锁仍未完成。
+- 为核账 API 增加只读现存 runtime generation resolver，仅接受 reconciliation-only runtime、当前 owner、精确 bot/strategy/account scope 与仍 held 的 durable episode；不 claim 或轮换 generation。
+- 同 operation 响应丢失重试先读回原裁决；幂等 hash 绑定操作输入而不包含会变化的 venue 状态快照，确保重复请求返回已持久化的原证据结果。
+
+## [3.111.0-rc1164] - 2026-10-12（开发中，未发布）
+
+### Fixed
+- 针对 RC1163 独立评审发现，推进一次性 recovery permit 的耐久 attempt、预建 provisional child、成功 ACK CAS 与人工裁决基础；旧 CID/intent/permit 不得重放，证据不完整继续封锁。人工裁决 API/服务、借贷账务及 MySQL/生产验收仍未完成。
+- 增加 owner/recovery generation 写入围栏与重启读回测试；任何尚无账务结清终态的 submission attempt（包括 `found`）及 provisional child 都会阻止底层 release prepare，活动 episode 之外不能再消费或创建 permit。新 owner takeover、完整人工核账 API 与最终 release 仍未验收。
+- 实现同账户 scope 新 runtime 的显式审计接管：事务内撤销未消费 permit、保留 consumed attempt/hold 及原 action owner 归属；接管后允许携带 actor/audit/evidence 的账务 CAS，但投影完成后仍禁止创建新的执行 permit。修正全量 SQLite 分页测试的 fixture 装载方式，避免 2,101 次 FULL-sync 单行写入拖垮完整 storage 回归；生产写入 durability/CAS 仍由专门测试覆盖。
+
+## [3.111.0-rc1163] - 2026-10-12（开发中，未发布）
+
+### Changed
+- 启动 FundingCarry 人工核账垂直切片；补入耐久 recovery episode/hold/permit/outbox 存储、受保护只读状态 API，并将普通开仓 gate lease 接到通用订单 executor 与 FundingPerpSpread 直连路径的每次真实 RPC 前原子授权。已准入双腿 operation 仅能继续穿过自己绑定的 execution-ledger hold；manual/risk 及其他 hold 仍拒绝。Permit CAS 仅允许获胜事务拿到一次 `maySubmit`，重复读回不授予再次下单权。
+- 增加 SQLite/MySQL 并发迁移、并发 permit claim、开仓封锁与恢复 lease 边界测试，以及生产存储/API/重启组合覆盖。SQLite 本地 fail-closed composition 与 migration race 定向测试通过；MySQL 8.0.36 migration race 有此前本机执行记录，但当前工作树未配置 DSN，本轮复验明确跳过，不能计作当前同提交门禁；MySQL HTTP production composition 与远端同 SHA CI 尚未验收。此版本仍未接入策略 accounting 与持久化 Gate 解锁桥，未解锁自动或人工执行能力。
+- 按用户批准扩展公共 `OrderFill` 与 Binance futures/spot/margin 原始 decimal/手续费已知映射，并增加 adapter、wrapper 小数精度与零值测试；新增可选 `RecoveryFillEvidence` 持久化子合同，保留原始价格/数量/quote/手续费及 known 标记并纳入 operation hash。FundingCarry 启动恢复初步读取 durable holds/outbox、CAS 投影并读回，active hold 仍 fail-closed；逐单账务 writer 尚未接入。策略账务、显式解锁和生产组合完整验收仍未完成。
+- 修复共享 execution UNKNOWN 启动屏障将只读核账 runtime 误判为启动回滚失败的问题：恢复 pending ledger/owner 状态，允许仅对原始 CID 查询订单/成交证据，未决标志与封锁保持不变。Gate 恢复 lease 现在与 durable permit `LeaseID` 精确绑定且消费后保留进程内 tombstone；生产 FundingCarry 装配强制完整 executor，缺失时拒绝启动且禁止 direct exchange fallback。恢复 permit executor bridge 已有本地实现与定向覆盖，但生产 action dispatcher、成交账本投影和释放流程仍未完成。
+- 新增明确的 FundingCarry `SubmitRecoveryOrderAction` → production wrapper → `ExchangeOrderExecutor.PlaceRecoveryOrderContext` 桥接：先从 durable store 复核 episode、active hold、owner generation、next action、来源集合及完整订单意图 hash，再于 RPC 前 CAS 消费 permit；每个 permit 最多一次 venue RPC，拒单/UNKNOWN 均不自动重试，漂移及独立 manual/risk source 在消费前拒绝。当前仍无生产 dispatcher/API 创建并调用该 action，fill/cursor/fee/debt projection 和人工 release 未接通，不构成可操作恢复闭环。
+- 按用户确认，将恢复 permit 的 Gate 例外来源集合持久化并做精确匹配；只允许显式白名单的执行 intent / FundingCarry recovery 来源，集合外 manual、risk、未知来源继续封锁且不会被核账清除。新增提交前来源变化、旧 JSON 兼容、非规范/危险来源拒绝与零值 lease fail-closed 测试；现有 executor bridge 尚无生产 action dispatcher。
+
 ## [3.111.0-rc1162] - 2026-10-12（开发中，未发布）
 
 ### Fixed

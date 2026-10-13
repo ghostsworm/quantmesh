@@ -74,6 +74,40 @@ func TestFundingCarryRuntimeGenerationAdapterFencesSaveAndCAS(t *testing.T) {
 	}
 }
 
+func TestFundingCarryRuntimeAdapterRecoveryBindingMatchesGenerationAndBot(t *testing.T) {
+	service, _ := newFundingCarryGenerationTestStorage(t)
+	store := service.GetStorage().(storage.FundingCarryRuntimeGenerationStore)
+	scopes := []string{fmt.Sprintf("%064x", 21), fmt.Sprintf("%064x", 22)}
+	generation, err := store.ClaimFundingCarryRuntimeGeneration(t.Context(), scopes)
+	if err != nil {
+		t.Fatal("claim owner generation:", err)
+	}
+	adapter := &fundingCarryRuntimeStateAdapter{
+		strategyRuntimeStateAdapter: &strategyRuntimeStateAdapter{storageService: service, botID: "funding-recovery-bot"},
+		generation:                  generation,
+	}
+	repository, gotGeneration, botID, gotScopes, err := adapter.FundingCarryRecoveryBinding()
+	if err != nil || repository == nil || gotGeneration.ID() != generation.ID() || botID != "funding-recovery-bot" {
+		t.Fatalf("recovery binding = store %T generation %q bot %q scopes %v err %v", repository, gotGeneration.ID(), botID, gotScopes, err)
+	}
+	if len(gotScopes) != len(scopes) {
+		t.Fatalf("scope count=%d want %d", len(gotScopes), len(scopes))
+	}
+	for i := range gotScopes {
+		if gotScopes[i] != generation.ScopeKeys()[i] {
+			t.Fatalf("scope[%d]=%q want generation scope %q", i, gotScopes[i], generation.ScopeKeys()[i])
+		}
+	}
+	gotScopes[0] = "mutated"
+	if adapter.generation.ScopeKeys()[0] == "mutated" {
+		t.Fatal("recovery binding exposed mutable generation scopes")
+	}
+	adapter.generation = storage.FundingCarryRuntimeGeneration{}
+	if _, _, _, _, err := adapter.FundingCarryRecoveryBinding(); err == nil {
+		t.Fatal("empty generation yielded an active recovery binding")
+	}
+}
+
 func TestFundingCarryGenerationClaimFailureDoesNotCreateExchange(t *testing.T) {
 	service, path := newFundingCarryGenerationTestStorage(t)
 	cfg := &config.Config{Exchanges: map[string]config.ExchangeConfig{

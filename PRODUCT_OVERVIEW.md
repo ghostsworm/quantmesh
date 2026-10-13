@@ -1,6 +1,14 @@
 # Product Overview
 
-本轮变更：3.111.0-rc1162 聚焦核账生产组合及 SQLite/MySQL 迁移并发安全验收；是否完成以本版本测试和验证记录为准。rc1161 已将耐久核账案/审计存储和只读运行态证据提供器接入生产启动装配；Accounting 与 Gate 继续保持空置，所有策略仍不能补账或解锁。生产策略审计发现当前 14 种策略均缺统一的 durable cursor/CAS 与幂等人工补账实现；基础币手续费及未知手续费等费用证据也仍无法安全闭合。rc1160 修正 MySQL 自动提现 claim 时间与 UTC 回收截止时间不一致，并完善人工核账审计刷新及路由失败覆盖；rc1159 增加管理员核账台审计历史读取 API/界面；rc1158 修正 MySQL Bot 启停状态时间参数序列化与读取解析。盈利汇总与权益风控数据尚未形成可独立复算的真实收益证据包。当前未发布，不代表真实实盘或盈利已验收。
+当前版本为 `3.111.0-rc1185`（开发中、未发布）。FundingCarry 管理员 Binance USDⓈ-M funding-income 核账支持 durable receipt/outbox 重试；投影失败仅允许精确 operation 的 pending receipt/outbox 恢复，后续游标推进后旧操作仍按原 outbox target revision 返回自身 cursor snapshot，不重新查询交易所或修改当前 cursor。生产恢复组合覆盖 CAS 响应丢失、独立 OS 子进程重启、启动桥从 durable hold 恢复 Gate、显式 takeover 与原 operation 重放。新增双 SQL handles 同 operation 竞争回归发现并修复 `RecoveryOperation.CanonicalHash` 原地修改共享数据的 race；并发测试以逆序事件精确核对账务事实、cursor、episode revision 与 outbox 绑定，race 25 次通过。所有失败仍不得自动重放订单、发 permit 或解锁。RC1185 将 Binance 全历史迟到、改写、删除及摘要异常持久化；管理员可对可分类差异追加绑定原始/观察事实、精确十进制差额与 audit ref 的 funding adjustment event，原事件不可变，receipt/outbox/CAS 原子投影。只有后续完整历史扫描匹配账本后才验证异常并推进 cursor；Gate/hold 不自动释放。零金额 funding 行可留作来源事实，不代表收益。采集摘要只证明进程内双扫描一致，不是 Binance 签名或独立真实性证明。MySQL 实际迁移、多进程及同 SHA CI 尚未验收。跨仓利息仍是账户级未分摊事实；真实账户、实盘与盈利证据未验收。
+
+RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
+
+历史阶段记录（RC1164）：聚焦 RC1163 复核发现的“permit 已消费、订单提交结果未知”耐久读回与人工裁决；旧请求绝不自动重放，未获完整证据时仍保持封锁。
+
+RC1163–RC1171 的许可、Gate 来源约束、运行态 takeover 与只读/Found 核证能力属于前序阶段。RC1172 在其基础上增加权威完整逐单成交及 cursor 写入、outbox/CAS 幂等读回和已知 PnL 资产归属；具体本地/外部验收边界见上方当前状态与版本化验收记录。未知手续费独立补录、借贷/利息/资金费、显式 Gate 解锁、MySQL/多进程、远端同提交 CI、真实账户与盈利证据仍未验收。本版本未发布。
+
+历史阶段汇总（RC1158–RC1162）：RC1162 聚焦核账生产组合及 SQLite/MySQL 迁移并发安全验收；是否完成以当时版本测试和验证记录为准。RC1161 已将耐久核账案/审计存储和只读运行态证据提供器接入生产启动装配；Accounting 与 Gate 继续保持空置，所有策略仍不能补账或解锁。生产策略审计曾发现 14 种策略均缺统一的 durable cursor/CAS 与幂等人工补账实现；基础币手续费及未知手续费等费用证据也无法安全闭合。RC1160 修正 MySQL 自动提现 claim 时间与 UTC 回收截止时间不一致，并完善人工核账审计刷新及路由失败覆盖；RC1159 增加管理员核账台审计历史读取 API/界面；RC1158 修正 MySQL Bot 启停状态时间参数序列化与读取解析。当时盈利汇总与权益风控数据尚未形成可独立复算的真实收益证据包。此处为历史阶段状态，不代表当前版本验收。
 
 本轮变更：3.111.0-rc1152 修复网格终态成交 intent 未耐久结算导致重启后持续 UNKNOWN 封锁的问题；须先保存网格槽位状态及完整成交明细，再持久结算并重试账户暴露核账。另包含 rc1151 的 SpotShort 启动对账自动重试，不代表财务账或盈利验收完成。
 
@@ -16,7 +24,7 @@
 
 历史整改阶段说明（rc1123–rc1130 的能力演进）：rc1130 增加 Binance Spot Margin REST-only 负债/挂单 verifier factory，但不覆盖普通现货库存、期货持仓或完整账户归零。rc1129 增加 Binance/Bitget REST-only Futures 核验；rc1128 增加 Bitget 全产品 Futures 仓位与账户挂单观测；rc1127 增加 Bitget Futures 原始快照；rc1126 展开复合策略权益范围；rc1125 处理凭据轮换后的旧 adapter；rc1124 增加 Funding Carry 只读核账诊断；rc1123 撤销变化前范围的权益健康证明。该阶段的“旧账户只读追踪/显式重置待完成”状态已由 rc1131–rc1142 后续接通归档、观测与管理员重置；Bitget Spot 仍 fail-closed。上述本地与隔离测试不代表真实交易或盈利验收。
 
-> 最后更新：2026-10-12 | 当前版本：v3.111.0-rc1162（开发中；未发布或实盘验收）
+> 最后更新：2026-10-13 | 当前版本：v3.111.0-rc1179（开发中；未发布或实盘验收）
 
 - `3.111.0-rc1151` SpotShort 首次借贷/订单/还款对账暂时失败但运行态结构可读时，不再因 Start 返回错误而永久跳过重试器：先持有 `spot_short_reconciliation_unverified`、再启动后台核对；完整成功才释放该专属来源并触发账户暴露核账重试。其他来源的暂停不受影响。
 - `3.111.0-rc1152` 网格终态正成交只有在槽位状态与完整成交明细耐久保存后才结算共享执行 intent；结算期间保持开仓封锁，成功后再尝试账户级暴露核账。失败继续保留封锁和可恢复状态。

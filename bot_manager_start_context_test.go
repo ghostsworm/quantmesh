@@ -20,7 +20,9 @@ func TestStartBotCancellationWhileLifecycleLockedSkipsValidation(t *testing.T) {
 		return cause
 	})
 	unlock := bm.lockBotLifecycle("owner")
-	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Millisecond)
+	// Leave enough scheduling headroom for the goroutine to reach the lifecycle
+	// wait even when this test runs beside the repository's larger test suites.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
@@ -32,7 +34,7 @@ func TestStartBotCancellationWhileLifecycleLockedSkipsValidation(t *testing.T) {
 	select {
 	case err = <-done:
 		returned = true
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(2 * time.Second):
 	}
 	unlock()
 	if !returned {

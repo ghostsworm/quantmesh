@@ -270,6 +270,23 @@ func testFundingCarryFullConstructorRecovery(t *testing.T, wrongScope bool, part
 	}
 	if sharedPending {
 		assertConstructorIntentStillUnknown(t, service, botID, scope)
+		recoveryStore := service.GetStorage().(storage.FundingRecoveryStore)
+		holds, holdErr := recoveryStore.ListActiveRecoveryHolds(t.Context())
+		if holdErr != nil {
+			t.Fatal("read production-materialized recovery holds:", holdErr)
+		}
+		foundHold := false
+		for _, hold := range holds {
+			if hold.Bot == botID && hold.Strategy == "funding_carry" && hold.State == "held" {
+				foundHold = true
+				if !rt.OpeningGate.HasBlock(execution.RecoveryEpisodeGateSource(hold.EpisodeID, hold.Generation)) {
+					t.Fatalf("durable intent episode %s does not own a live opening gate", hold.EpisodeID)
+				}
+			}
+		}
+		if !foundHold {
+			t.Fatal("production constructor returned without materializing a durable intent recovery hold")
+		}
 	}
 	t.Cleanup(func() {
 		if err := rt.StopWithError(); err != nil {

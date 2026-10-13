@@ -5,6 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"quantmesh/config"
 	"quantmesh/exchange"
 	"quantmesh/execution"
@@ -12,12 +18,9 @@ import (
 	"quantmesh/logger"
 	"quantmesh/metrics"
 	"quantmesh/utils"
-	"strings"
-	"sync"
-	"sync/atomic"
-	"time"
 
 	"golang.org/x/time/rate"
+	"quantmesh/accounting"
 )
 
 // ErrLockNotAcquired 價格位分布式鎖已被其他實例持有，本次下單被跳過（未向交易所提交）
@@ -208,10 +211,42 @@ func (oe *ExchangeOrderExecutor) PlaceOrder(req *OrderRequest) (*Order, error) {
 	return oe.PlaceOrderContext(context.Background(), req)
 }
 
+// RecoveryPermitConsumer is the runtime-generation-fenced durable CAS used
+// immediately before an authorized recovery action's single venue attempt.
+type RecoveryPermitConsumer interface {
+	ConsumeRecoveryPermit(context.Context, accounting.OneShotPermit) (accounting.OneShotPermit, bool, error)
+	AcknowledgeRecoverySubmission(context.Context, accounting.OneShotPermit, string) error
+}
+
+// PlaceRecoveryOrderContext submits only the order intent durably bound to the
+// permit. The permit is consumed once and this method never retries the venue
+// RPC, including after a definitive refusal.
+func (oe *ExchangeOrderExecutor) PlaceRecoveryOrderContext(ctx context.Context, req *OrderRequest, permit accounting.OneShotPermit, consumer RecoveryPermitConsumer) (*Order, error) {
+	permit = permit.Clone()
+	if consumer == nil {
+		return nil, errors.New("recovery permit consumer is unavailable")
+	}
+	if req == nil {
+		return nil, errors.New("recovery order request is nil")
+	}
+	requestSnapshot := *req
+	req = &requestSnapshot
+	return oe.placeOrderContext(ctx, req, &recoveryOrderSubmission{permit: permit, consumer: consumer})
+}
+
+type recoveryOrderSubmission struct {
+	permit   accounting.OneShotPermit
+	consumer RecoveryPermitConsumer
+}
+
 // PlaceOrderContext propagates the caller's deadline through admission, lock,
 // rate waiting, venue submission, definitive-refusal backoff and CID lookup.
 // Cancellation after entering the venue call remains UNKNOWN, never rejection.
 func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *OrderRequest) (placed *Order, err error) {
+	return oe.placeOrderContext(ctx, req, nil)
+}
+
+func (oe *ExchangeOrderExecutor) placeOrderContext(ctx context.Context, req *OrderRequest, recovery *recoveryOrderSubmission) (placed *Order, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -234,10 +269,14 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	if err != nil {
 		return nil, err
 	}
-	if req.ClientOrderID == "" {
+	if req.ClientOrderID == "" && recovery == nil {
 		req.ClientOrderID = utils.NewCompactOrderID()
 	}
-	if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
+	if recovery != nil {
+		if err := validateRecoveryOrderSubmission(oe, req, orderType, tif, recovery.permit); err != nil {
+			return nil, err
+		}
+	} else if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
 		if oe.openingGate != nil && oe.openingGate.HasBlock(ExposureLimitBlock) {
 			if oe.exposureBook != nil && oe.exposureBook.OverLimits() {
 				return nil, execution.ErrExposureLimit
@@ -316,7 +355,13 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 			return nil, fmt.Errorf("opening admission guard rejected order: %w", err)
 		}
 	}
-	release, err := oe.admitOrder(req)
+	var release func()
+	var openingLease execution.OpeningLease
+	if recovery != nil {
+		openingLease, release, err = oe.beginRecoveryOrder(recovery)
+	} else {
+		release, openingLease, err = oe.admitOrder(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -340,8 +385,14 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 	postOnlyRejects := 0
 	orderPrice := req.Price
 	priceDecimals := req.PriceDecimals
+	maxRetries := orderMaxRetries
+	recoveryPermitConsumed := false
+	if recovery != nil {
+		maxRetries = 0
+		postOnlyMaxAttempts = 0
+	}
 
-	for i := 0; i <= orderMaxRetries; i++ {
+	for i := 0; i <= maxRetries; i++ {
 		if orderLockLost.Load() {
 			return nil, ErrOrderLockLost
 		}
@@ -350,7 +401,7 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		}
 		// Only definitive refusals are retried. A pause during that backoff
 		// cancels the remaining unaccepted attempts, while closes remain allowed.
-		if i > 0 || postOnlyRejects > 0 {
+		if recovery == nil && (i > 0 || postOnlyRejects > 0) {
 			if oe.IsOpeningPaused() && oe.isOpeningOrder(req) {
 				return nil, execution.ErrOpeningPaused
 			}
@@ -397,12 +448,33 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		// Journal persistence can outlive the observation used for admission.
 		// Recheck after that wait, before each physical opening submission. This
 		// does not revoke a call already sent or replace venue-side fencing.
-		if oe.isOpeningOrder(req) && oe.IsOpeningPaused() {
+		if recovery == nil && oe.isOpeningOrder(req) && oe.IsOpeningPaused() {
 			return nil, execution.ErrOpeningPaused
+		}
+		finishOpeningAttempt := func() {}
+		if oe.isOpeningOrder(req) && openingLease.ID != 0 {
+			if recovery != nil && !recoveryPermitConsumed {
+				consumed, maySubmit, consumeErr := recovery.consumer.ConsumeRecoveryPermit(ctx, recovery.permit)
+				if consumeErr != nil {
+					return nil, fmt.Errorf("consume durable recovery permit: %w", consumeErr)
+				}
+				if !maySubmit || !sameConsumedRecoveryPermit(recovery.permit, consumed) {
+					return nil, accounting.ErrRecoveryConflict
+				}
+				if consumeErr = oe.openingGate.ConsumeEpisodeActionLease(openingLease, consumed); consumeErr != nil {
+					return nil, consumeErr
+				}
+				recoveryPermitConsumed = true
+			}
+			finishOpeningAttempt, err = oe.openingGate.AuthorizeOpeningSubmission(openingLease)
+			if err != nil {
+				return nil, err
+			}
 		}
 		callCtx, callCancel := context.WithTimeout(ctx, orderLookupTimeout)
 		exchangeOrder, err := oe.exchange.PlaceOrder(callCtx, exchangeReq)
 		callCancel()
+		finishOpeningAttempt()
 		mapped := oe.mapVenueOrder(req, orderPrice, exchangeOrder)
 		if err != nil && exchangeOrder != nil {
 			// Any non-nil response object contradicts deterministic rejection, even
@@ -416,6 +488,20 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		}
 		if err != nil && oe.intentAcceptanceObserved(req.ClientOrderID) {
 			return mapped, fmt.Errorf("REST refusal conflicts with observed acceptance; retry forbidden: %w", execution.ErrOrderUnknown)
+		}
+		if recovery != nil && err == nil && mapped != nil {
+			intentCID := recovery.permit.OrderIntent.ClientOrderID
+			if exchangeOrder == nil || exchangeOrder.OrderID <= 0 || exchangeOrder.ClientOrderID == "" || exchangeOrder.Symbol == "" || exchangeOrder.Side == "" ||
+				(exchangeOrder.ClientOrderID != intentCID && exchangeOrder.ClientOrderID != oe.VenueClientOrderID(intentCID)) ||
+				exchangeOrder.Symbol != recovery.permit.OrderIntent.Symbol || !strings.EqualFold(string(exchangeOrder.Side), recovery.permit.OrderIntent.Side) {
+				return mapped, fmt.Errorf("recovery acknowledgement identity mismatch; retry forbidden: %w", execution.ErrOrderUnknown)
+			}
+			ackCtx, ackCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			ackErr := recovery.consumer.AcknowledgeRecoverySubmission(ackCtx, recovery.permit, strconv.FormatInt(mapped.OrderID, 10))
+			ackCancel()
+			if ackErr != nil {
+				return mapped, fmt.Errorf("persist recovery venue acknowledgement; retry forbidden: %w: %v", execution.ErrOrderUnknown, ackErr)
+			}
 		}
 		if err == nil {
 			// 轉换回 Order 格式（價格為實際掛單價，可能已被 PostOnly 重定價）
@@ -439,6 +525,9 @@ func (oe *ExchangeOrderExecutor) PlaceOrderContext(ctx context.Context, req *Ord
 		}
 
 		lastErr = err
+		if recovery != nil {
+			return nil, fmt.Errorf("recovery venue attempt requires reconciliation; retry forbidden: %w: %v", execution.ErrOrderUnknown, err)
+		}
 
 		// 判断錯误類型
 		errStr := err.Error()

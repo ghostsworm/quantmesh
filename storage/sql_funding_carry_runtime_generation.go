@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/hex"
@@ -24,6 +25,21 @@ const fundingCarryRuntimeCommitProbeTimeout = 5 * time.Second
 type FundingCarryRuntimeGeneration struct {
 	scopeKeys  []string
 	ownerToken string
+}
+
+// ID returns a non-secret identifier for audit records. The token itself is
+// deliberately never exposed or persisted in recovery episode payloads.
+func (g FundingCarryRuntimeGeneration) ID() string {
+	if g.ownerToken == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(g.ownerToken))
+	return fmt.Sprintf("%x", sum[:])
+}
+
+// ScopeKeys returns a defensive copy of the normalized, non-secret ownership scopes.
+func (g FundingCarryRuntimeGeneration) ScopeKeys() []string {
+	return append([]string(nil), g.scopeKeys...)
 }
 
 type FundingCarryRuntimeGenerationStore interface {

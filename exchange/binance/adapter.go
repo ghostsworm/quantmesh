@@ -2,14 +2,17 @@ package binance
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,18 +73,19 @@ type OrderRequest struct {
 }
 
 type Order struct {
-	OrderID       int64
-	ClientOrderID string
-	Symbol        string
-	Side          Side
-	Type          OrderType
-	Price         float64
-	Quantity      float64
-	ExecutedQty   float64
-	AvgPrice      float64
-	Status        OrderStatus
-	CreatedAt     time.Time
-	UpdateTime    int64
+	OrderID        int64
+	ClientOrderID  string
+	Symbol         string
+	Side           Side
+	Type           OrderType
+	Price          float64
+	Quantity       float64
+	ExecutedQty    float64
+	ExecutedQtyRaw string
+	AvgPrice       float64
+	Status         OrderStatus
+	CreatedAt      time.Time
+	UpdateTime     int64
 }
 
 type Position struct {
@@ -182,6 +186,37 @@ type BinanceAdapter struct {
 	accountCacheTTL         time.Duration
 	accountCacheInvalidated bool
 	accountCacheMu          sync.RWMutex
+}
+
+const (
+	fundingIncomeMinimumSafetyLag = 2 * time.Minute
+	fundingIncomeCompletionMarker = "complete_stable_double_scan_v1"
+)
+
+// FundingIncomeWindow is a read-only, stable double-scan of one frozen,
+// half-open Binance USD-M FUNDING_FEE interval. TotalRows is the exact row
+// count returned by both complete page scans; it is not a Binance-reported
+// total (the endpoint does not provide one).
+type FundingIncomeWindow struct {
+	Symbol           string
+	From             time.Time
+	Through          time.Time
+	ReadAt           time.Time
+	Rows             []*income.Income
+	TotalRows        uint64
+	CompletionMarker string
+	EvidenceHash     string
+}
+
+// FundingIncomeContinuation contains the unchanged historical prefix and the
+// next contiguous window from one stable full scan. Prefix evidence makes a
+// later cursor advance detect late or changed rows anywhere since InitialFrom.
+type FundingIncomeContinuation struct {
+	InitialFrom            time.Time
+	HistoricalRows         []*income.Income
+	PriorEvidenceHash      string
+	CumulativeEvidenceHash string
+	Window                 FundingIncomeWindow
 }
 
 // APIPermissions API 权限信息（临時定义，避免循環匯入）
@@ -687,17 +722,18 @@ func (b *BinanceAdapter) GetOrder(ctx context.Context, symbol string, orderID in
 	avgPrice, _ := strconv.ParseFloat(order.AvgPrice, 64)
 
 	return &Order{
-		OrderID:       order.OrderID,
-		ClientOrderID: order.ClientOrderID,
-		Symbol:        order.Symbol,
-		Side:          Side(order.Side),
-		Type:          OrderType(order.Type),
-		Price:         price,
-		Quantity:      quantity,
-		ExecutedQty:   executedQty,
-		AvgPrice:      avgPrice,
-		Status:        OrderStatus(order.Status),
-		UpdateTime:    order.UpdateTime,
+		OrderID:        order.OrderID,
+		ClientOrderID:  order.ClientOrderID,
+		Symbol:         order.Symbol,
+		Side:           Side(order.Side),
+		Type:           OrderType(order.Type),
+		Price:          price,
+		Quantity:       quantity,
+		ExecutedQty:    executedQty,
+		ExecutedQtyRaw: order.ExecutedQuantity,
+		AvgPrice:       avgPrice,
+		Status:         OrderStatus(order.Status),
+		UpdateTime:     order.UpdateTime,
 	}, nil
 }
 
@@ -1629,6 +1665,179 @@ func (b *BinanceAdapter) GetIncomeHistory(ctx context.Context, symbol, incomeTyp
 	return nil, fmt.Errorf("Binance income history exceeded %d pages; coverage is incomplete", equityMaxPages)
 }
 
+// GetFundingIncomeWindow freezes a safe, millisecond-aligned half-open window
+// using Binance server time, converts it to the endpoint's inclusive endTime,
+// and requires two identical complete paginated reads before returning rows.
+// It is read-only. Callers must persist the returned events and cursor through
+// the durable recovery CAS; this method itself writes no application state.
+func (b *BinanceAdapter) GetFundingIncomeWindow(ctx context.Context, symbol string, from time.Time, safetyLag time.Duration) (FundingIncomeWindow, error) {
+	if ctx == nil || b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || from.IsZero() ||
+		from.Nanosecond()%int(time.Millisecond) != 0 || safetyLag < fundingIncomeMinimumSafetyLag {
+		return FundingIncomeWindow{}, errors.New("Binance funding window requires context, symbol, millisecond start, and at least two minutes safety lag")
+	}
+	if err := ctx.Err(); err != nil {
+		return FundingIncomeWindow{}, err
+	}
+	serverNow, err := b.equityServerTime(ctx)
+	if err != nil {
+		return FundingIncomeWindow{}, fmt.Errorf("freeze Binance funding window using server time: %w", err)
+	}
+	from = from.UTC()
+	through := time.UnixMilli(serverNow.Add(-safetyLag).UnixMilli()).UTC()
+	if !from.Before(through) {
+		return FundingIncomeWindow{}, errors.New("funding window start must precede the frozen safe cutoff")
+	}
+	return b.collectFundingIncomeWindow(ctx, symbol, from, through, serverNow)
+}
+
+// GetFundingIncomeWindowRange repeats a previously accepted exact interval.
+// It is used as an overlap audit before a cursor advances, detecting late or
+// changed venue facts without rewriting the prior ledger window.
+func (b *BinanceAdapter) GetFundingIncomeWindowRange(ctx context.Context, symbol string, from, through time.Time) (FundingIncomeWindow, error) {
+	if ctx == nil || b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || from.IsZero() || through.IsZero() ||
+		from.Nanosecond()%int(time.Millisecond) != 0 || through.Nanosecond()%int(time.Millisecond) != 0 || !from.Before(through) {
+		return FundingIncomeWindow{}, errors.New("Binance funding range requires context, symbol, and valid millisecond bounds")
+	}
+	serverNow, err := b.equityServerTime(ctx)
+	if err != nil {
+		return FundingIncomeWindow{}, fmt.Errorf("read Binance server time for overlap audit: %w", err)
+	}
+	from, through = from.UTC(), through.UTC()
+	if through.After(serverNow.Add(-fundingIncomeMinimumSafetyLag)) {
+		return FundingIncomeWindow{}, errors.New("overlap audit range is newer than the safe Binance cutoff")
+	}
+	return b.collectFundingIncomeWindow(ctx, symbol, from, through, serverNow)
+}
+
+// GetFundingIncomeContinuation scans from the durable initial watermark to a
+// newly frozen safe cutoff, then separates the already-accepted prefix from
+// the next contiguous window. Both hashes are derived from the same stable,
+// fully paginated double scan.
+func (b *BinanceAdapter) GetFundingIncomeContinuation(ctx context.Context, symbol string, initialFrom, previousThrough time.Time, safetyLag time.Duration) (FundingIncomeContinuation, error) {
+	if ctx == nil || b == nil || b.client == nil || strings.TrimSpace(symbol) == "" || initialFrom.IsZero() || previousThrough.IsZero() ||
+		initialFrom.Nanosecond()%int(time.Millisecond) != 0 || previousThrough.Nanosecond()%int(time.Millisecond) != 0 || !initialFrom.Before(previousThrough) || safetyLag < fundingIncomeMinimumSafetyLag {
+		return FundingIncomeContinuation{}, errors.New("Binance funding continuation requires valid initial/cursor bounds and at least two minutes safety lag")
+	}
+	if err := ctx.Err(); err != nil {
+		return FundingIncomeContinuation{}, err
+	}
+	serverNow, err := b.equityServerTime(ctx)
+	if err != nil {
+		return FundingIncomeContinuation{}, fmt.Errorf("freeze Binance funding continuation using server time: %w", err)
+	}
+	through := time.UnixMilli(serverNow.Add(-safetyLag).UnixMilli()).UTC()
+	initialFrom, previousThrough = initialFrom.UTC(), previousThrough.UTC()
+	if !previousThrough.Before(through) {
+		return FundingIncomeContinuation{}, errors.New("funding cursor must precede the frozen safe cutoff")
+	}
+	full, err := b.collectFundingIncomeWindow(ctx, symbol, initialFrom, through, serverNow)
+	if err != nil {
+		return FundingIncomeContinuation{}, err
+	}
+	allRows := full.Rows
+	historical := make([]*income.Income, 0, len(full.Rows))
+	current := make([]*income.Income, 0, len(full.Rows))
+	for _, row := range full.Rows {
+		if row.TradeTime.Before(previousThrough) {
+			historical = append(historical, row)
+		} else {
+			current = append(current, row)
+		}
+	}
+	priorHash, err := hashFundingIncomeRows(symbol, initialFrom, previousThrough, historical)
+	if err != nil {
+		return FundingIncomeContinuation{}, fmt.Errorf("hash previously accepted Binance funding prefix: %w", err)
+	}
+	currentHash, err := hashFundingIncomeRows(symbol, previousThrough, through, current)
+	if err != nil {
+		return FundingIncomeContinuation{}, fmt.Errorf("hash next Binance funding window: %w", err)
+	}
+	cumulativeHash, err := hashFundingIncomeRows(symbol, initialFrom, through, allRows)
+	if err != nil {
+		return FundingIncomeContinuation{}, fmt.Errorf("hash cumulative Binance funding history: %w", err)
+	}
+	full.From, full.Rows, full.TotalRows, full.EvidenceHash = previousThrough, cloneIncomeRows(current), uint64(len(current)), currentHash
+	return FundingIncomeContinuation{InitialFrom: initialFrom, HistoricalRows: cloneIncomeRows(historical), PriorEvidenceHash: priorHash,
+		CumulativeEvidenceHash: cumulativeHash, Window: full}, nil
+}
+
+func (b *BinanceAdapter) collectFundingIncomeWindow(ctx context.Context, symbol string, from, through, readAt time.Time) (FundingIncomeWindow, error) {
+	if from.Before(readAt.AddDate(0, -3, 0)) {
+		return FundingIncomeWindow{}, errors.New("funding window starts before Binance income-history retention; completeness cannot be claimed")
+	}
+	startMS, throughMS := from.UnixMilli(), through.UnixMilli()
+	if startMS <= 0 || throughMS <= startMS {
+		return FundingIncomeWindow{}, errors.New("frozen Binance funding window has invalid millisecond bounds")
+	}
+	// Binance endTime is inclusive. Subtract one millisecond to preserve the
+	// storage contract's exact [from, through) interval without boundary overlap.
+	endInclusiveMS := throughMS - 1
+	first, err := b.GetIncomeHistory(ctx, symbol, "FUNDING_FEE", startMS, endInclusiveMS)
+	if err != nil {
+		return FundingIncomeWindow{}, fmt.Errorf("read first complete Binance funding scan: %w", err)
+	}
+	second, err := b.GetIncomeHistory(ctx, symbol, "FUNDING_FEE", startMS, endInclusiveMS)
+	if err != nil {
+		return FundingIncomeWindow{}, fmt.Errorf("read confirming Binance funding scan: %w", err)
+	}
+	firstHash, err := hashFundingIncomeRows(symbol, from, through, first)
+	if err != nil {
+		return FundingIncomeWindow{}, err
+	}
+	secondHash, err := hashFundingIncomeRows(symbol, from, through, second)
+	if err != nil {
+		return FundingIncomeWindow{}, err
+	}
+	if firstHash != secondHash {
+		return FundingIncomeWindow{}, errors.New("Binance funding pages changed between complete scans; window remains unverified")
+	}
+	return FundingIncomeWindow{Symbol: strings.ToUpper(strings.TrimSpace(symbol)), From: from, Through: through,
+		ReadAt: readAt.UTC(), Rows: cloneIncomeRows(second), TotalRows: uint64(len(second)),
+		CompletionMarker: fundingIncomeCompletionMarker, EvidenceHash: secondHash}, nil
+}
+
+func hashFundingIncomeRows(symbol string, from, through time.Time, rows []*income.Income) (string, error) {
+	canonical := make([]income.Income, 0, len(rows))
+	seen := make(map[int64]struct{}, len(rows))
+	for _, row := range rows {
+		if row == nil || row.TransactionID <= 0 || row.Symbol != strings.ToUpper(strings.TrimSpace(symbol)) || row.IncomeType != "FUNDING_FEE" ||
+			row.Asset != strings.ToUpper(strings.TrimSpace(row.Asset)) || row.RawIncome == "" || row.TradeTime.IsZero() ||
+			row.TradeTime.Before(from) || !row.TradeTime.Before(through) {
+			return "", errors.New("Binance funding scan contains a row outside its canonical identity or half-open bounds")
+		}
+		if _, duplicate := seen[row.TransactionID]; duplicate {
+			return "", fmt.Errorf("Binance funding scan repeats transaction %d", row.TransactionID)
+		}
+		seen[row.TransactionID] = struct{}{}
+		canonical = append(canonical, *row)
+	}
+	sort.Slice(canonical, func(i, j int) bool { return canonical[i].TransactionID < canonical[j].TransactionID })
+	encoded, err := json.Marshal(struct {
+		Symbol string
+		From   time.Time
+		To     time.Time
+		Rows   []income.Income
+	}{strings.ToUpper(strings.TrimSpace(symbol)), from.UTC(), through.UTC(), canonical})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return fmt.Sprintf("%x", digest[:]), nil
+}
+
+func cloneIncomeRows(rows []*income.Income) []*income.Income {
+	cloned := make([]*income.Income, 0, len(rows))
+	for _, row := range rows {
+		if row == nil {
+			cloned = append(cloned, nil)
+			continue
+		}
+		copy := *row
+		cloned = append(cloned, &copy)
+	}
+	return cloned
+}
+
 func normalizeIncomeRecord(row *futures.IncomeHistory, symbol, incomeType string, startTime, endTime int64) (*income.Income, error) {
 	if row == nil || row.TranID <= 0 || row.Time <= 0 || strings.TrimSpace(row.Asset) == "" || strings.TrimSpace(row.IncomeType) == "" {
 		return nil, fmt.Errorf("Binance returned income without complete identity or denomination")
@@ -1646,7 +1855,7 @@ func normalizeIncomeRecord(row *futures.IncomeHistory, symbol, incomeType string
 	if err != nil || math.IsNaN(amount) || math.IsInf(amount, 0) {
 		return nil, fmt.Errorf("Binance income transaction %d has invalid amount", row.TranID)
 	}
-	return &income.Income{Symbol: row.Symbol, IncomeType: row.IncomeType, Income: amount, Asset: row.Asset,
+	return &income.Income{Symbol: row.Symbol, IncomeType: row.IncomeType, Income: amount, RawIncome: row.Income, Asset: row.Asset,
 		Info: row.Info, TransactionID: row.TranID, TradeTime: time.UnixMilli(row.Time)}, nil
 }
 
@@ -1974,9 +2183,14 @@ type OrderFill struct {
 	Symbol               string
 	Side                 Side
 	Price                float64
+	PriceRaw             string
 	Quantity             float64
+	QuantityRaw          string
 	QuoteQuantity        float64
+	QuoteQuantityRaw     string
 	Commission           float64
+	CommissionRaw        string
+	CommissionKnown      bool
 	CommissionAsset      string
 	TradeTime            int64
 	IsMaker              bool
@@ -1985,7 +2199,148 @@ type OrderFill struct {
 	CommissionQuoteRate  float64
 	CommissionQuoteKnown bool
 	RealizedPnL          float64
+	RealizedPnLRaw       string
 	RealizedPnLKnown     bool
+}
+
+// OrderFillBatch is the Binance-package representation used before the public
+// exchange wrapper maps it to exchange.OrderFillBatch.
+type OrderFillBatch struct {
+	OrderID             int64
+	ClientOrderID       string
+	Symbol              string
+	Side                Side
+	TerminalStatus      OrderStatus
+	OrderUpdateTime     int64
+	ExecutedQuantityRaw string
+	SourceRevision      string
+	Fills               []*OrderFill
+	FillHistoryComplete bool
+	Complete            bool
+	FeesComplete        bool
+}
+
+func exactDecimal(raw string, positive bool) (*big.Rat, bool) {
+	if strings.TrimSpace(raw) != raw || raw == "" {
+		return nil, false
+	}
+	digits := 0
+	dots := 0
+	for _, char := range raw {
+		if char == '.' {
+			dots++
+			if dots > 1 {
+				return nil, false
+			}
+			continue
+		}
+		if char < '0' || char > '9' {
+			return nil, false
+		}
+		digits++
+	}
+	if digits == 0 {
+		return nil, false
+	}
+	value, ok := new(big.Rat).SetString(raw)
+	if !ok || (positive && value.Sign() <= 0) || (!positive && value.Sign() < 0) {
+		return nil, false
+	}
+	return value, true
+}
+
+func terminalOrderStatus(status OrderStatus) bool {
+	switch status {
+	case OrderStatusFilled, OrderStatusCanceled, OrderStatusRejected, OrderStatusExpired:
+		return true
+	default:
+		return false
+	}
+}
+
+func buildOrderFillBatch(order *Order, fills []*OrderFill, fillHistoryComplete bool) (*OrderFillBatch, error) {
+	if order == nil || order.OrderID <= 0 || strings.TrimSpace(order.ClientOrderID) == "" || strings.TrimSpace(order.Symbol) == "" ||
+		(order.Side != SideBuy && order.Side != SideSell) {
+		return nil, fmt.Errorf("Binance order snapshot has incomplete identity")
+	}
+	if order.UpdateTime <= 0 {
+		return nil, fmt.Errorf("Binance order %d has no authoritative update time", order.OrderID)
+	}
+	executed, validExecuted := exactDecimal(order.ExecutedQtyRaw, false)
+	if !validExecuted {
+		return nil, fmt.Errorf("Binance order %d has unverifiable raw executed quantity %q", order.OrderID, order.ExecutedQtyRaw)
+	}
+
+	batch := &OrderFillBatch{
+		OrderID: order.OrderID, ClientOrderID: order.ClientOrderID, Symbol: order.Symbol, Side: order.Side, TerminalStatus: order.Status,
+		OrderUpdateTime: order.UpdateTime, ExecutedQuantityRaw: order.ExecutedQtyRaw, Fills: fills,
+		FillHistoryComplete: fillHistoryComplete, FeesComplete: true,
+	}
+	seen := make(map[string]struct{}, len(fills))
+	sum := new(big.Rat)
+	canonicalFills := append([]*OrderFill(nil), fills...)
+	sort.Slice(canonicalFills, func(i, j int) bool {
+		if canonicalFills[i] == nil {
+			return canonicalFills[j] != nil
+		}
+		if canonicalFills[j] == nil {
+			return false
+		}
+		return canonicalFills[i].TradeID < canonicalFills[j].TradeID
+	})
+	for _, fill := range canonicalFills {
+		if fill == nil || fill.OrderID != order.OrderID || fill.Symbol != order.Symbol || fill.Side != order.Side ||
+			strings.TrimSpace(fill.TradeID) == "" {
+			return nil, fmt.Errorf("Binance order %d contains a fill with mismatched identity", order.OrderID)
+		}
+		if _, duplicate := seen[fill.TradeID]; duplicate {
+			return nil, fmt.Errorf("Binance order %d contains duplicate trade ID %q", order.OrderID, fill.TradeID)
+		}
+		seen[fill.TradeID] = struct{}{}
+		if _, ok := exactDecimal(fill.PriceRaw, true); !ok {
+			return nil, fmt.Errorf("Binance order %d trade %s has invalid raw price", order.OrderID, fill.TradeID)
+		}
+		quantity, ok := exactDecimal(fill.QuantityRaw, true)
+		if !ok {
+			return nil, fmt.Errorf("Binance order %d trade %s has invalid raw quantity", order.OrderID, fill.TradeID)
+		}
+		if fill.QuoteQuantityRaw != "" {
+			if _, ok := exactDecimal(fill.QuoteQuantityRaw, true); !ok {
+				return nil, fmt.Errorf("Binance order %d trade %s has invalid raw quote quantity", order.OrderID, fill.TradeID)
+			}
+		}
+		sum.Add(sum, quantity)
+		if fill.CommissionRaw == "" {
+			if fill.CommissionKnown || fill.CommissionAsset != "" {
+				return nil, fmt.Errorf("Binance order %d trade %s has inconsistent unknown commission", order.OrderID, fill.TradeID)
+			}
+			batch.FeesComplete = false
+		} else {
+			if _, ok := exactDecimal(fill.CommissionRaw, false); !ok || !fill.CommissionKnown || strings.TrimSpace(fill.CommissionAsset) == "" {
+				return nil, fmt.Errorf("Binance order %d trade %s has invalid commission evidence", order.OrderID, fill.TradeID)
+			}
+		}
+	}
+
+	content := struct {
+		OrderID             int64
+		ClientOrderID       string
+		Symbol              string
+		Side                Side
+		Status              OrderStatus
+		UpdateTime          int64
+		ExecutedQuantityRaw string
+		FillHistoryComplete bool
+		Fills               []*OrderFill
+	}{order.OrderID, order.ClientOrderID, order.Symbol, order.Side, order.Status, order.UpdateTime, order.ExecutedQtyRaw, fillHistoryComplete, canonicalFills}
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		return nil, fmt.Errorf("encode Binance order %d source revision: %w", order.OrderID, err)
+	}
+	digest := sha256.Sum256(encoded)
+	batch.SourceRevision = fmt.Sprintf("sha256:%x", digest[:])
+	batch.Complete = fillHistoryComplete && terminalOrderStatus(order.Status) && sum.Cmp(executed) == 0
+	return batch, nil
 }
 
 func isFinitePositive(value float64) bool {
@@ -2006,6 +2361,10 @@ func (b *BinanceAdapter) GetUserTrades(ctx context.Context, symbol string, start
 
 // GetOrderFills returns the exchange execution ledger for one futures order.
 func (b *BinanceAdapter) GetOrderFills(ctx context.Context, symbol string, orderID int64) ([]*OrderFill, error) {
+	return b.getOrderFills(ctx, symbol, orderID, false)
+}
+
+func (b *BinanceAdapter) getOrderFills(ctx context.Context, symbol string, orderID int64, allowIncompleteRawFields bool) ([]*OrderFill, error) {
 	if b == nil || b.client == nil || b.apiKey == "" || b.secretKey == "" || orderID <= 0 || strings.TrimSpace(symbol) == "" {
 		return nil, fmt.Errorf("Binance execution lookup requires a configured adapter, symbol, and order ID")
 	}
@@ -2034,29 +2393,71 @@ func (b *BinanceAdapter) GetOrderFills(ctx context.Context, symbol string, order
 	}
 	fills := make([]*OrderFill, 0, len(rows))
 	for _, row := range rows {
-		if row == nil || row.OrderID != orderID || row.Symbol != symbol || row.ID <= 0 {
+		if row == nil || row.OrderID != orderID || row.Symbol != symbol || row.ID <= 0 ||
+			(row.Side != futures.SideTypeBuy && row.Side != futures.SideTypeSell) {
 			return nil, fmt.Errorf("Binance returned an invalid execution for order %d", orderID)
 		}
 		price, priceErr := strconv.ParseFloat(row.Price, 64)
 		quantity, quantityErr := strconv.ParseFloat(row.Quantity, 64)
-		quoteQuantity, quoteErr := strconv.ParseFloat(row.QuoteQuantity, 64)
-		commission, commissionErr := strconv.ParseFloat(row.Commission, 64)
-		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 || quoteQuantity <= 0 || commission < 0 {
+		quoteQuantity := 0.0
+		var quoteErr error
+		if row.QuoteQuantity != "" {
+			quoteQuantity, quoteErr = strconv.ParseFloat(row.QuoteQuantity, 64)
+		} else if !allowIncompleteRawFields {
+			quoteErr = fmt.Errorf("quote quantity is missing")
+		}
+		commission := 0.0
+		var commissionErr error
+		commissionKnown := row.Commission != ""
+		if commissionKnown {
+			commission, commissionErr = strconv.ParseFloat(row.Commission, 64)
+		} else if !allowIncompleteRawFields {
+			commissionErr = fmt.Errorf("commission is missing")
+		}
+		if priceErr != nil || quantityErr != nil || quoteErr != nil || commissionErr != nil || price <= 0 || quantity <= 0 ||
+			(row.QuoteQuantity != "" && quoteQuantity <= 0) || commission < 0 {
 			return nil, fmt.Errorf("Binance execution %d contains invalid economic fields", row.ID)
 		}
 		side := SideBuy
 		if row.Side == futures.SideTypeSell {
 			side = SideSell
 		}
-		realizedPnL, pnlErr := strconv.ParseFloat(row.RealizedPnl, 64)
+		realizedPnL := 0.0
+		var pnlErr error
+		pnlKnown := row.RealizedPnl != ""
+		if pnlKnown {
+			realizedPnL, pnlErr = strconv.ParseFloat(row.RealizedPnl, 64)
+		} else if !allowIncompleteRawFields {
+			pnlErr = fmt.Errorf("realized PnL is missing")
+		}
 		if pnlErr != nil || math.IsNaN(realizedPnL) || math.IsInf(realizedPnL, 0) {
 			return nil, fmt.Errorf("Binance execution %d contains invalid realized PnL", row.ID)
 		}
+		commissionAsset := row.CommissionAsset
+		if !commissionKnown {
+			commissionAsset = ""
+		}
 		fills = append(fills, &OrderFill{OrderID: row.OrderID, TradeID: strconv.FormatInt(row.ID, 10), Symbol: row.Symbol,
-			Side: side, Price: price, Quantity: quantity, QuoteQuantity: quoteQuantity, Commission: commission, CommissionAsset: row.CommissionAsset,
-			TradeTime: row.Time, IsMaker: row.Maker, RealizedPnL: realizedPnL, RealizedPnLKnown: true})
+			Side: side, Price: price, PriceRaw: row.Price, Quantity: quantity, QuantityRaw: row.Quantity,
+			QuoteQuantity: quoteQuantity, QuoteQuantityRaw: row.QuoteQuantity, Commission: commission, CommissionRaw: row.Commission,
+			CommissionKnown: commissionKnown, CommissionAsset: commissionAsset, TradeTime: row.Time, IsMaker: row.Maker,
+			RealizedPnL: realizedPnL, RealizedPnLRaw: row.RealizedPnl, RealizedPnLKnown: pnlKnown})
 	}
 	return fills, nil
+}
+
+// GetOrderFillBatch returns a fill snapshot whose completeness is proved by
+// the venue order state and exact raw executed quantity.
+func (b *BinanceAdapter) GetOrderFillBatch(ctx context.Context, symbol string, orderID int64) (*OrderFillBatch, error) {
+	fills, err := b.getOrderFills(ctx, symbol, orderID, true)
+	if err != nil {
+		return nil, err
+	}
+	order, err := b.GetOrder(ctx, symbol, orderID)
+	if err != nil {
+		return nil, err
+	}
+	return buildOrderFillBatch(order, fills, true)
 }
 
 // GetUserTradesFromID 查询账户成交并支持按成交 ID 翻页；调用方应将下一页游标设为末条 ID+1。

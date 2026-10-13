@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS funding_recovery_source_cursors (
+    cursor_key CHAR(64) NOT NULL,
+    episode_id VARCHAR(64) NOT NULL,
+    revision BIGINT UNSIGNED NOT NULL,
+    source VARCHAR(191) NOT NULL,
+    exchange_name VARCHAR(64) NOT NULL,
+    market VARCHAR(64) NOT NULL,
+    account_scope CHAR(64) NOT NULL,
+    event_type VARCHAR(32) NOT NULL,
+    asset VARCHAR(32) NOT NULL,
+    window_from DATETIME(3) NOT NULL,
+    window_through DATETIME(3) NOT NULL,
+    complete_rows BIGINT UNSIGNED NOT NULL,
+    total_rows BIGINT UNSIGNED NOT NULL,
+    completion_marker VARCHAR(32) NOT NULL,
+    evidence_hash CHAR(64) NOT NULL,
+    payload_json JSON NOT NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (cursor_key),
+    INDEX idx_funding_recovery_source_cursors_episode (episode_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

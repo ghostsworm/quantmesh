@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"quantmesh/accounting"
 	"quantmesh/config"
 	"quantmesh/event"
 	"quantmesh/exchange"
@@ -360,11 +361,19 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	if err := fc.SetAccountCapitalReserves(futuresAccountCapital, futuresExternalCapital, spotAccountCapital, spotExternalCapital); err != nil {
 		return nil, fmt.Errorf("configure account-level funding_carry capital reserves: %w", err)
 	}
+	var recoveryPermitConsumer order.RecoveryPermitConsumer
 	if storageService != nil {
-		fc.SetRuntimeStateStore(&fundingCarryRuntimeStateAdapter{
+		fundingIncomeScope, scopeErr := fundingCarryFuturesOwnerScopeKey(ownershipScopes)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		recoveryAdapter := &fundingCarryRuntimeStateAdapter{
 			strategyRuntimeStateAdapter: &strategyRuntimeStateAdapter{storageService: storageService, botID: botID},
 			generation:                  runtimeGeneration,
-		})
+			fundingIncomeScope:          fundingIncomeScope,
+		}
+		fc.SetRuntimeStateStore(recoveryAdapter)
+		recoveryPermitConsumer = fundingCarryPermitConsumer{provider: recoveryAdapter}
 	}
 	intentBackend, ok := storageService.GetStorage().(runtimeIntentBackend)
 	if !ok {
@@ -459,6 +468,7 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		if target == nil {
 			return
 		}
+		target.recoveryPermitConsumer = recoveryPermitConsumer
 		target.executor.SetPhysicalSubmissionGuard(func(guardCtx context.Context) error {
 			return validateRuntimeOwnershipLeases(guardCtx, ownershipLeases)
 		})
@@ -505,22 +515,49 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		}
 	}
 	fc.SetOrderExecutors(futuresOrderExecutor, spotOrderExecutor, marginOrderExecutor)
+	if err := fc.RequireManagedExecution(); err != nil {
+		return nil, fmt.Errorf("configure funding_carry production execution path: %w", err)
+	}
 	fc.SetOpeningBlocker(openingGate.Block)
 	fc.SetOpeningGate(openingGate)
-	futuresOrderExecutor.executor.SetUnknownOrderHandler(func(req order.OrderRequest) {
-		fc.MarkExecutionUnknown(fmt.Errorf("futures order %s has unresolved outcome", req.ClientOrderID))
-	})
-	spotOrderExecutor.executor.SetUnknownOrderHandler(func(req order.OrderRequest) {
-		fc.MarkExecutionUnknown(fmt.Errorf("spot order %s has unresolved outcome", req.ClientOrderID))
-	})
-	if marginOrderExecutor != nil {
-		marginOrderExecutor.executor.SetUnknownOrderHandler(func(req order.OrderRequest) {
-			fc.MarkExecutionUnknown(fmt.Errorf("margin order %s has unresolved outcome", req.ClientOrderID))
+	setUnknownHandler := func(executor *order.ExchangeOrderExecutor, market string) {
+		executor.SetUnknownOrderHandler(func(req order.OrderRequest) {
+			fc.MarkExecutionUnknown(fmt.Errorf("%s order %s has unresolved outcome", market, req.ClientOrderID))
+			persistCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if persistErr := persistFundingCarryIntentRecoveryEpisodes(persistCtx, storageService, runtimeGeneration, openingGate, executor); persistErr != nil {
+				logger.ErrorCtx(ctx, "[%s] %s UNKNOWN intent remains fail-closed but recovery episode persistence failed: %v", botID, market, persistErr)
+			}
 		})
+	}
+	setUnknownHandler(futuresOrderExecutor.executor, "futures")
+	setUnknownHandler(spotOrderExecutor.executor, "spot")
+	if marginOrderExecutor != nil {
+		setUnknownHandler(marginOrderExecutor.executor, "spot_margin")
 	}
 	strategyManager.RegisterStrategy("funding_carry", fc, 1.0, 0)
 	strategyStartAttempted = true
 	reconciliationOnly, err := startFundingCarryManagedStrategy(ctx, strategyManager, fc, openingGate)
+	for _, executor := range []*order.ExchangeOrderExecutor{
+		futuresOrderExecutor.executor, spotOrderExecutor.executor,
+		func() *order.ExchangeOrderExecutor {
+			if marginOrderExecutor != nil {
+				return marginOrderExecutor.executor
+			}
+			return nil
+		}(),
+	} {
+		if executor == nil {
+			continue
+		}
+		if persistErr := persistFundingCarryIntentRecoveryEpisodes(ctx, storageService, runtimeGeneration, openingGate, executor); persistErr != nil {
+			fc.MarkExecutionUnknown(persistErr)
+			stopErr := strategyManager.StopAllWithError()
+			retainOwnershipOnFailure = true
+			reservationTransferred = true
+			return nil, errors.Join(fmt.Errorf("persist loaded Funding Carry intent recovery episode: %w", persistErr), stopErr)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -552,6 +589,7 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 		ExchangeAdapter:       nil,
 	}
 	if reconciliationOnly {
+		rt.fundingCarryReconciliationOnly = true
 		rt.markShutdownCloseUnverified("funding_carry remaining margin inventory and disposal require reconciliation")
 		logger.WarnCtx(ctx, "[%s] funding_carry 保留受管核賬運行時：交易循環未啟動，資產和資金預留不得當作已核清", botID)
 	}
@@ -817,6 +855,49 @@ func startFundingCarrySymbolRuntimeWithDependencies(
 	return rt, nil
 }
 
+func persistFundingCarryIntentRecoveryEpisodes(ctx context.Context, storageService *storage.StorageService, generation storage.FundingCarryRuntimeGeneration, gate *execution.OpeningGate, executor *order.ExchangeOrderExecutor) error {
+	if ctx == nil || storageService == nil || storageService.GetStorage() == nil || gate == nil || executor == nil {
+		return fmt.Errorf("durable Funding Carry recovery dependencies are unavailable")
+	}
+	repository, ok := storageService.GetStorage().(storage.FundingRecoveryStore)
+	if !ok {
+		return fmt.Errorf("storage backend does not support durable recovery episodes")
+	}
+	snapshots, err := executor.ListOwnedIntentRecoverySnapshots()
+	if err != nil {
+		return err
+	}
+	for _, snapshot := range snapshots {
+		request := snapshot.Request
+		if snapshot.Scope.Bot == "" || snapshot.Scope.Account == "" || snapshot.Scope.Symbol == "" ||
+			(request.StrategyName != "" && request.StrategyName != "funding_carry") || request.ClientOrderID == "" || snapshot.Scope.Symbol != request.Symbol {
+			return fmt.Errorf("unresolved intent %q does not match the Funding Carry owner scope", request.ClientOrderID)
+		}
+		origin := accounting.RecoveryOriginIntent{
+			Bot: snapshot.Scope.Bot, Strategy: "funding_carry",
+			Exchange: strings.ToLower(snapshot.Scope.Exchange), Market: strings.ToLower(snapshot.Scope.Market),
+			AccountScope: snapshot.Scope.Account, OwnerScopes: generation.ScopeKeys(),
+			Symbol: strings.ToUpper(request.Symbol), ClientOrderID: request.ClientOrderID,
+			Side: strings.ToUpper(request.Side), IntentRevision: snapshot.Revision, IntentHash: snapshot.PayloadHash,
+		}
+		key, keyErr := origin.Key()
+		if keyErr != nil {
+			return fmt.Errorf("validate unresolved intent %q identity: %w", request.ClientOrderID, keyErr)
+		}
+		episode := accounting.RecoveryEpisode{
+			ID: "funding-origin-" + key[:40], Bot: origin.Bot, Strategy: origin.Strategy,
+			AccountScopes: generation.ScopeKeys(), OwnerGeneration: generation.ID(),
+			Revision: 1, RecoveryGeneration: 1, State: accounting.RecoveryBlocked,
+		}
+		persisted, _, err := repository.CreateRecoveryEpisodeForIntent(ctx, generation, origin, episode)
+		if err != nil {
+			return fmt.Errorf("create accounting-only episode for client order %q: %w", request.ClientOrderID, err)
+		}
+		gate.Block(execution.RecoveryEpisodeGateSource(persisted.ID, persisted.RecoveryGeneration))
+	}
+	return nil
+}
+
 func validateFundingCarryPairAssets(spotBase, spotQuote, hedgeBase, hedgeQuote string) error {
 	spotBase = strings.ToUpper(strings.TrimSpace(spotBase))
 	spotQuote = strings.ToUpper(strings.TrimSpace(spotQuote))
@@ -846,8 +927,35 @@ func fundingCarryReverseEnabled(symCfg config.SymbolConfig) bool {
 }
 
 type fundingCarryOrderExecutor struct {
-	executor *order.ExchangeOrderExecutor
-	market   string
+	executor               *order.ExchangeOrderExecutor
+	market                 string
+	recoveryPermitConsumer order.RecoveryPermitConsumer
+}
+
+type fundingCarryPermitConsumer struct {
+	provider strategy.FundingCarryRecoveryProvider
+}
+
+func (c fundingCarryPermitConsumer) ConsumeRecoveryPermit(ctx context.Context, permit accounting.OneShotPermit) (accounting.OneShotPermit, bool, error) {
+	if c.provider == nil {
+		return accounting.OneShotPermit{}, false, storage.ErrFundingRecoveryUnavailable
+	}
+	repository, generation, _, _, err := c.provider.FundingCarryRecoveryBinding()
+	if err != nil {
+		return accounting.OneShotPermit{}, false, err
+	}
+	return repository.ConsumeRecoveryPermit(ctx, generation, permit)
+}
+
+func (c fundingCarryPermitConsumer) AcknowledgeRecoverySubmission(ctx context.Context, permit accounting.OneShotPermit, venueOrderID string) error {
+	if c.provider == nil {
+		return storage.ErrFundingRecoveryUnavailable
+	}
+	repository, generation, _, _, err := c.provider.FundingCarryRecoveryBinding()
+	if err != nil {
+		return err
+	}
+	return repository.AcknowledgeRecoverySubmission(ctx, generation, permit, venueOrderID)
 }
 
 func newFundingCarryOrderExecutor(ex exchange.IExchange, symbol, botID string, cfg config.Config, distributedLock lock.DistributedLock, gate *execution.OpeningGate, direction string) *fundingCarryOrderExecutor {
@@ -878,6 +986,40 @@ func (a *fundingCarryOrderExecutor) PlaceOrderContext(ctx context.Context, reque
 			return nil, err
 		}
 		return nil, fmt.Errorf("funding_carry executor returned an empty order acknowledgement")
+	}
+	return &exchange.Order{
+		OrderID: placed.OrderID, ClientOrderID: placed.ClientOrderID, Symbol: placed.Symbol,
+		Side: exchange.Side(placed.Side), Type: exchange.OrderType(request.Type), Price: placed.Price,
+		Quantity: placed.Quantity, ExecutedQty: placed.ExecutedQty, AvgPrice: placed.AvgPrice,
+		Status: exchange.OrderStatus(placed.Status), CreatedAt: placed.CreatedAt,
+	}, nil
+}
+
+// PlaceRecoveryOrderContext is the only FundingCarry executor entry that may
+// cross an existing recovery hold; it requires the production durable CAS
+// consumer installed by the runtime constructor.
+func (a *fundingCarryOrderExecutor) PlaceRecoveryOrderContext(ctx context.Context, request *exchange.OrderRequest, permit accounting.OneShotPermit) (*exchange.Order, error) {
+	if a == nil || a.executor == nil || request == nil || a.recoveryPermitConsumer == nil {
+		return nil, fmt.Errorf("funding_carry recovery order executor is unavailable")
+	}
+	positionSide := ""
+	if strings.EqualFold(a.market, "spot") {
+		positionSide = "LONG"
+	} else if strings.EqualFold(a.market, "spot_margin") {
+		positionSide = "SHORT"
+	}
+	orderRequest := &order.OrderRequest{
+		Symbol: request.Symbol, Side: string(request.Side), Type: string(request.Type), TimeInForce: string(request.TimeInForce),
+		Price: request.Price, Quantity: request.Quantity, PriceDecimals: request.PriceDecimals, ReduceOnly: request.ReduceOnly,
+		PostOnly: request.PostOnly, ClientOrderID: request.ClientOrderID, PositionSide: positionSide, StrategyName: "funding_carry",
+		StrategyType: request.StrategyType,
+	}
+	placed, err := a.executor.PlaceRecoveryOrderContext(ctx, orderRequest, permit, a.recoveryPermitConsumer)
+	if err != nil || placed == nil {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("funding_carry recovery executor returned an empty acknowledgement")
 	}
 	return &exchange.Order{
 		OrderID: placed.OrderID, ClientOrderID: placed.ClientOrderID, Symbol: placed.Symbol,
