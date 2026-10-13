@@ -1,5 +1,12 @@
 # RC1187 任務清單
 
+## 2026-10-14 RC1190 SQLite 迁移连接并发修复
+
+- T01 后端：已在 SQLite `db.Conn(ctx)` 获取阶段，仅对 SQLite BUSY/LOCKED 做 30 秒上限、尊重调用方 context 的重试；MySQL 获取路径和事务/schema 路径未扩展。定向/全包测试通过。
+- T02 QA：已对连接获取注入 BUSY、非锁错误、MySQL 单次失败做确定性断言；12 个独立连接当前/旧 schema 并发迁移重复 100 轮通过，包含取消测试。
+- T03 Reviewer：两轮独立只读复核，前轮发现的错误链测试过度断言与产品概览旧版本均已修正；终审未发现新缺陷。
+- T04 Lead：RC1190 版本及 changelog/product docs 已更新；全仓 Go、race、vet、build、WebUI verify 全绿；已按既有授权本地提交，待推送。PR #9 同 SHA MySQL/完整 CI 全绿前不打 tag、不发布。
+
 ## 2026-10-13 RC1189 MySQL 哈希测试夹具回归
 
 - T02：已补 `ExpectedRuntimeRevision` 到历史哈希 helper，并新增无需 MySQL 的单测断言版本值变化会改变哈希；定向单测通过。MySQL 集成仍因本机无 MySQL 8.0 端点而跳过，完整本地/远端验收待完成。

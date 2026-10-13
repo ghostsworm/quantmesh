@@ -122,7 +122,13 @@ func (s *SQLStorage) MigrateOrderReconciliations(ctx context.Context) error {
 	if s == nil || s.db == nil || (s.dbType != "sqlite" && s.dbType != "mysql") {
 		return fmt.Errorf("unsupported order reconciliation database")
 	}
-	conn, err := s.db.Conn(ctx)
+	connCtx := ctx
+	var cancel context.CancelFunc
+	if s.dbType == "sqlite" {
+		connCtx, cancel = context.WithTimeout(ctx, orderReconciliationSQLiteLockWait)
+		defer cancel()
+	}
+	conn, err := acquireOrderReconciliationConn(connCtx, s.db, s.dbType)
 	if err != nil {
 		return fmt.Errorf("connect for order reconciliation migration: %w", err)
 	}
@@ -131,6 +137,33 @@ func (s *SQLStorage) MigrateOrderReconciliations(ctx context.Context) error {
 		return s.migrateOrderReconciliationsMySQL(ctx, conn)
 	}
 	return s.migrateOrderReconciliationsSQLite(ctx, conn)
+}
+
+func acquireOrderReconciliationConn(ctx context.Context, db *sql.DB, dbType string) (*sql.Conn, error) {
+	for {
+		conn, err := db.Conn(ctx)
+		if err == nil {
+			return conn, nil
+		}
+		if dbType != "sqlite" || !isSQLiteReconciliationLockBusy(err) {
+			return nil, err
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("SQLite connection acquisition interrupted: %w; last lock error: %w", ctxErr, err)
+		}
+		timer := time.NewTimer(orderReconciliationSQLiteRetry)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return nil, fmt.Errorf("SQLite connection acquisition interrupted: %w; last lock error: %w", ctx.Err(), err)
+		case <-timer.C:
+		}
+	}
 }
 
 func (s *SQLStorage) migrateOrderReconciliationsSQLite(ctx context.Context, conn *sql.Conn) error {

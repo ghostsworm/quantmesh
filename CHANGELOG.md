@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.111.0-rc1190] - 2026-10-14（开发中，未发布）
+
+### Fixed
+- SQLite 对账表迁移在并发冷启动时，连接建立阶段遇到 BUSY/LOCKED 会在有界且可取消的期限内重试；MySQL 连接、锁及迁移路径不变。
+
+### Test
+- 覆盖 SQLite 连接获取的 BUSY 重试、非锁错误快速失败、MySQL 单次连接获取语义，并保留 12 个独立连接的新旧 schema 并发迁移测试。
+
+### Verification
+- 全仓 Go 测试、`go vet ./...`、`go build ./...`、SQLite 定向 race、前端 `yarn verify` 通过；当前机器未配置 MySQL 测试 DSN，远端同 SHA MySQL/完整 CI 尚待完成；未发布、未打 tag。
+
 ## [3.111.0-rc1189] - 2026-10-13（开发中，未发布）
 
 ### Fixed

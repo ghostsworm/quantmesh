@@ -1,5 +1,14 @@
 # RC1187 測試計畫
 
+## RC1190 SQLite 迁移并发连接获取
+
+| 层级 | 测试 | 关键断言 | 执行环境 |
+|---|---|---|---|
+| 连接获取单测 | 可控 driver 连续返回 SQLite BUSY 后成功 | 重试到成功；非 BUSY SQLite 错误立即返回；MySQL 不重试；错误链保留 | 本地 Go |
+| 并发迁移 | 12 个独立冷连接同时初始化当前/旧 schema，重复多轮 | 全部成功、最终 schema 完整、幂等；无锁泄漏 | 本地 Go/race |
+| 取消边界 | 持有 SQLite 独占锁并取消调用方 context | 返回及时且可由 `errors.Is` 识别；释放锁后重试成功 | 本地 Go |
+| 完整门禁 | 全仓 Go、vet、WebUI verify、CI | 同一候选提交全绿；记录同 SHA 的远端 MySQL/完整 CI 状态 | 本地及 GitHub Actions |
+
 | 層級 | 測試 | 關鍵斷言 | 執行環境 |
 |---|---|---|---|
 | Hash 單元 | 原始 projection 與 MySQL JSON normalization 等價 payload | 正常化不改驗證結果；episode/child/event/cursor 語義篡改均改變 hash 並被拒絕 | 本地 Go |

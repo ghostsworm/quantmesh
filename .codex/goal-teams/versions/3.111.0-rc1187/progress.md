@@ -1,5 +1,13 @@
 # RC1187 進度
 
+## RC1190 SQLite 迁移连接并发修复
+
+- CI 前一提交 `55bc6b673c4fc2defae2f22001d7df762ebaf5f1` 的 PR #9 run `38416385497` 在 `TestOrderReconciliationMigrationConcurrentSQLiteConnections` 报 `database is locked`；本地复现同一并发冷连接测试亦出现间歇失败。故障发生在 `db.Conn(ctx)`，旧代码的 BUSY 重试只覆盖取得连接后的 `BEGIN EXCLUSIVE`。
+- RC1190 将仅 SQLite 的连接获取纳入 30 秒 context deadline 内 BUSY/LOCKED 重试；普通错误直接返回，MySQL 一次性获取不变；事务和 schema 不改。
+- 已增加确定性驱动测试计划及新旧 schema、12 连接并发回归要求。最终本地门禁与独立终审已完成并通过；RC1190 已本地提交，待推送及新 SHA CI。不得将旧 SHA CI 或仅本地通过作为 RC1190 验收。
+- 最终本地证据：`go test -p=2 ./... -count=1 -timeout=30m`（允许 httptest 回环绑定）、`go test ./storage -run 'Test(AcquireOrderReconciliationConn|OrderReconciliationMigrationConcurrentSQLiteConnections|OrderReconciliationRevisionMigrationConcurrentSQLiteConnections|OrderReconciliationSQLiteMigrationWaitIsCancelableAndRetryable)$' -count=20`、迁移新旧 schema 子集 `-count=100`、storage 全包单次、`go test -race ./storage` 定向子集、`go vet ./...`、`go build ./...`、`yarn --cwd webui verify`（typecheck、56 文件/318 tests、生产 build）均通过；`git diff --check` 通过。
+- 本机没有 MySQL 测试 DSN，因此 MySQL 专项不计本地通过；待提交/推送后核实 PR #9 新 SHA 的 MySQL 与完整 CI。未打 tag、未发布。
+
 ## 起始證據
 
 - `main` 與 `origin/main` 均為 `d39ffbcb4f8b4fd4d2edae64e22f5758b529027f`；RC1186 GitHub CI `38347532032` 已完成且失敗。

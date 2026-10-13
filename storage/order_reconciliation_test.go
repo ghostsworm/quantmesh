@@ -3,18 +3,121 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	sqlite3 "github.com/mattn/go-sqlite3"
 	"quantmesh/accounting"
 )
+
+type reconciliationConnTestDriver struct {
+	openErrors atomic.Int64
+	openCalls  atomic.Int64
+	openErr    error
+}
+
+type reconciliationConnTestConnector struct{ driver *reconciliationConnTestDriver }
+
+func (c reconciliationConnTestConnector) Connect(context.Context) (driver.Conn, error) {
+	return c.driver.Open("")
+}
+func (c reconciliationConnTestConnector) Driver() driver.Driver { return c.driver }
+
+func (d *reconciliationConnTestDriver) Open(string) (driver.Conn, error) {
+	d.openCalls.Add(1)
+	if d.openErrors.Add(-1) >= 0 {
+		return nil, d.openErr
+	}
+	return reconciliationConnTestConn{}, nil
+}
+
+type reconciliationConnTestConn struct{}
+
+func (reconciliationConnTestConn) Prepare(string) (driver.Stmt, error) {
+	return nil, errors.New("not implemented")
+}
+func (reconciliationConnTestConn) Close() error { return nil }
+func (reconciliationConnTestConn) Begin() (driver.Tx, error) {
+	return nil, errors.New("not implemented")
+}
+
+func TestAcquireOrderReconciliationConnRetriesSQLiteBusy(t *testing.T) {
+	driverImpl := &reconciliationConnTestDriver{openErr: sqlite3.Error{Code: sqlite3.ErrBusy}}
+	driverImpl.openErrors.Store(2)
+	db := sql.OpenDB(reconciliationConnTestConnector{driver: driverImpl})
+	defer db.Close()
+
+	conn, err := acquireOrderReconciliationConn(context.Background(), db, "sqlite")
+	if err != nil {
+		t.Fatalf("SQLite connection acquisition should retry busy errors: %v", err)
+	}
+	if got := driverImpl.openCalls.Load(); got != 3 {
+		t.Fatalf("SQLite busy errors should retry until connection succeeds: open calls=%d, want=3", got)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close acquired connection: %v", err)
+	}
+}
+
+func TestAcquireOrderReconciliationConnDoesNotRetryMySQLOrNonBusyErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		dbType  string
+		openErr error
+	}{
+		{name: "mysql busy remains one shot", dbType: "mysql", openErr: sqlite3.Error{Code: sqlite3.ErrBusy}},
+		{name: "sqlite non-busy remains one shot", dbType: "sqlite", openErr: errors.New("connection refused")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			driverImpl := &reconciliationConnTestDriver{openErr: tc.openErr}
+			driverImpl.openErrors.Store(100)
+			db := sql.OpenDB(reconciliationConnTestConnector{driver: driverImpl})
+			defer db.Close()
+
+			_, err := acquireOrderReconciliationConn(context.Background(), db, tc.dbType)
+			if err == nil {
+				t.Fatal("connection acquisition should fail")
+			}
+			if got := driverImpl.openCalls.Load(); got != 1 {
+				t.Fatalf("unexpected retries: open calls=%d, want=1", got)
+			}
+		})
+	}
+}
+
+func TestAcquireOrderReconciliationConnBusyRetryHonorsContext(t *testing.T) {
+	driverImpl := &reconciliationConnTestDriver{openErr: sqlite3.Error{Code: sqlite3.ErrLocked}}
+	driverImpl.openErrors.Store(100)
+	db := sql.OpenDB(reconciliationConnTestConnector{driver: driverImpl})
+	defer db.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := acquireOrderReconciliationConn(ctx, db, "sqlite")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("busy retry should preserve caller deadline: %v", err)
+	}
+	// database/sql may return the caller's deadline while its async connector
+	// opener is still holding the driver's last BUSY/LOCKED error internally.
+	// The caller contract here is bounded cancellation with an inspectable ctx error.
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("connection acquisition did not stop promptly after cancellation: %s", elapsed)
+	}
+	if calls := driverImpl.openCalls.Load(); calls < 2 {
+		t.Fatalf("expected retry before caller deadline, got %d open calls", calls)
+	}
+}
 
 func TestOrderReconciliationSQLiteDurableCaseAndAudit(t *testing.T) {
 	ctx := context.Background()
