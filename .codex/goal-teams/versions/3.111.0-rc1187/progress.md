@@ -51,3 +51,9 @@
 - QA-MySQL夾具故障核驗獨立確認最小修正：`projection_payload` 繼續 `CAST(? AS JSON)`，`projection_hash` 改用普通字串 SQL 參數，讓 `JSON_SET` 將其保存為 JSON string。生產程式、schema、哈希/receipt/CAS/Gate 校驗不變。
 - RC1188 已同步到 `main.go`、`webui/package.json`、兩份產品概覽及 `CHANGELOG.md`。本地 `go test -p=2 ./... -count=1 -timeout=30m`（允許 httptest 回環綁定）、`go vet ./...`、WebUI `yarn verify` 與 `git diff --check` 通過；RC1188 兩個 MySQL 用例因本機無 `QUANTMESH_MYSQL_TEST_DSN` 明確 skip，不計通過。本機沒有啟動 MySQL 服務。
 - 評審-MySQL夾具修復安全複核未發現程式缺陷：SQL 將 projection hash 作 JSON string 寫入、projection payload 繼續作 JSON object 寫入；無生產程式/schema/hash/CAS/Gate 變更。RC1187 原失敗不代表 RC1188 通過；尚需新 SHA 遠端 MySQL 8.0.36 與完整 CI 全綠後才可結案/考慮後續發布。
+
+## RC1189 MySQL 舊哈希 helper 修正
+
+- RC1188 提交 `61170b728dcb081673113c9b2cec767a5e445405` 的 PR #9 CI run `38379709005`：前端測試通過；Go 測試在 `TestMySQLFundingRecoveryOutboxJSONRoundTripAndLegacyHashBoundProjection` 第 66 行失敗，錯誤為 `durable recovery outbox payload hash mismatch`，其餘 Go 靜態分析、race gate 與 Build 被跳過。
+- 根因定位：`legacyFundingRecoveryProjectionHash` 測試 helper 重建哈希輸入時漏掉 `ExpectedRuntimeRevision`，但該用例要模擬「包含目前 runtime revision 綁定」的舊序列化哈希。生產 verifier 正確拒絕未被哈希認證的 CAS revision；修正 helper 的 projection shape，不放寬生產 fail-closed 規則。
+- 版本順延為 `3.111.0-rc1189`，已更新 changelog/product overview 與驗收標準；MySQL 實際專項、全套本地門禁、同 SHA 遠端 CI 尚待執行。不得以 RC1188 本地 skip 或部分 CI 當作完成；同 SHA 全綠前不打 tag、不發布。

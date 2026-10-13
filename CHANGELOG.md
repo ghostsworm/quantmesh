@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.111.0-rc1189] - 2026-10-13（开发中，未发布）
+
+### Fixed
+- 修正 MySQL 旧哈希兼容测试 helper 漏掉 `ExpectedRuntimeRevision` 的问题，使测试哈希覆盖实际受保护的 runtime CAS 版本；新增纯单测防止该 helper 再次遗漏字段；生产 fail-closed 校验不放宽。
+
+### Verification
+- RC1188 PR #9 同 SHA CI 的 MySQL 8.0.36 前端测试通过，但 `TestMySQLFundingRecoveryOutboxJSONRoundTripAndLegacyHashBoundProjection` 因测试哈希未包含 runtime revision 而在投影时失败；Go 后续静态分析、race 与 Build 被跳过。RC1189 本地 MySQL 专项及完整门禁、推送后同 SHA CI 尚待验证；未发布、未打 tag。
+
 ## [3.111.0-rc1188] - 2026-10-13（开发中，未发布）
 
 ### Fixed

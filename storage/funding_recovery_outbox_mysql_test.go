@@ -67,6 +67,14 @@ func TestMySQLFundingRecoveryOutboxJSONRoundTripAndLegacyHashBoundProjection(t *
 	fixture.assertProjectedState(t, episode, operation, identity)
 }
 
+func TestLegacyFundingRecoveryProjectionHashBindsExpectedRuntimeRevision(t *testing.T) {
+	first := []byte(`{"episode":{},"children":[],"events":[],"expected_runtime_revision":"runtime-a"}`)
+	second := []byte(`{"episode":{},"children":[],"events":[],"expected_runtime_revision":"runtime-b"}`)
+	if firstHash, secondHash := legacyFundingRecoveryProjectionHash(t, first), legacyFundingRecoveryProjectionHash(t, second); firstHash == secondHash {
+		t.Fatal("legacy projection hash did not bind ExpectedRuntimeRevision")
+	}
+}
+
 func TestMySQLFundingRecoveryOutboxReorderedLegacyProjectionWithOmittedNilChildrenFailsClosed(t *testing.T) {
 	fixture := newMySQLFundingRecoveryOutboxFixture(t)
 	ctx := fixture.ctx
@@ -525,10 +533,11 @@ func reorderProjectionJSONKeys(t *testing.T, raw []byte) []byte {
 func legacyFundingRecoveryProjectionHash(t *testing.T, raw []byte) string {
 	t.Helper()
 	var projection struct {
-		Episode      accounting.RecoveryEpisode       `json:"episode"`
-		Children     []accounting.RecoveryChild       `json:"children"`
-		Events       []accounting.RecoveryEvent       `json:"events"`
-		SourceCursor *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+		Episode                 accounting.RecoveryEpisode       `json:"episode"`
+		Children                []accounting.RecoveryChild       `json:"children"`
+		Events                  []accounting.RecoveryEvent       `json:"events"`
+		SourceCursor            *accounting.RecoverySourceCursor `json:"source_cursor,omitempty"`
+		ExpectedRuntimeRevision string                           `json:"expected_runtime_revision,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &projection); err != nil {
 		t.Fatal("decode projection into historical release shape:", err)
