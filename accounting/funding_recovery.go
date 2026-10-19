@@ -255,13 +255,14 @@ func (i RecoveryOrderIntent) CanonicalHash() (string, error) {
 type RecoveryEventKind string
 
 const (
-	RecoveryFillEvent     RecoveryEventKind = "fill"
-	RecoveryFeeEvent      RecoveryEventKind = "fee"
-	RecoveryBorrowEvent   RecoveryEventKind = "borrow"
-	RecoveryRepayEvent    RecoveryEventKind = "repay"
-	RecoveryInterestEvent RecoveryEventKind = "interest"
-	RecoveryFundingEvent  RecoveryEventKind = "funding"
-	RecoveryTerminalEvent RecoveryEventKind = "terminal_zero_fill"
+	RecoveryFillEvent              RecoveryEventKind = "fill"
+	RecoveryFeeEvent               RecoveryEventKind = "fee"
+	RecoveryBorrowEvent            RecoveryEventKind = "borrow"
+	RecoveryRepayEvent             RecoveryEventKind = "repay"
+	RecoveryInterestEvent          RecoveryEventKind = "interest"
+	RecoveryFundingEvent           RecoveryEventKind = "funding"
+	RecoveryTerminalEvent          RecoveryEventKind = "terminal_zero_fill"
+	RecoveryFillBatchCompleteEvent RecoveryEventKind = "fill_batch_complete"
 	// RecoveryOpeningBalanceEvent is an audited account snapshot fact used as
 	// a ledger baseline. It is not realized PnL and must never authorize release.
 	RecoveryOpeningBalanceEvent RecoveryEventKind = "opening_balance"
@@ -289,10 +290,127 @@ type RecoveryEvent struct {
 	SourceHash         string                             `json:"source_hash"`
 	ObservedAt         time.Time                          `json:"observed_at"`
 	CompletenessMarker string                             `json:"completeness_marker,omitempty"`
+	FillBatchEvidence  *RecoveryFillBatchEvidence         `json:"fill_batch_evidence,omitempty"`
 	FillEvidence       *RecoveryFillEvidence              `json:"fill_evidence,omitempty"`
 	DebtEvidence       *RecoveryDebtEvidence              `json:"debt_evidence,omitempty"`
 	OpeningBalance     *RecoveryOpeningBalanceEvidence    `json:"opening_balance_evidence,omitempty"`
 	FundingAdjustment  *RecoveryFundingAdjustmentEvidence `json:"funding_adjustment_evidence,omitempty"`
+}
+
+// RecoveryFillBatchEvidence attests the exact ordered fill prefix known when
+// a venue batch revision was reconciled. Later additive revisions may append
+// a larger prefix without rewriting the prior evidence.
+type RecoveryFillBatchEvidence struct {
+	ExecutedQuantityRaw string `json:"executed_quantity_raw"`
+	FillCount           uint64 `json:"fill_count"`
+	FillSetHash         string `json:"fill_set_hash"`
+	TerminalStatus      string `json:"terminal_status"`
+	OrderUpdateTime     int64  `json:"order_update_time"`
+}
+
+// RecoveryFillBatchPrefixHash hashes the stable identity and evidence digest
+// of a contiguous, sequence-ordered fill prefix.
+func RecoveryFillBatchPrefixHash(events []RecoveryEvent) (string, error) {
+	type fillIdentity struct {
+		Sequence   uint64    `json:"sequence"`
+		TradeID    string    `json:"trade_id"`
+		Asset      string    `json:"asset"`
+		Amount     string    `json:"amount"`
+		SourceHash string    `json:"source_hash"`
+		ObservedAt time.Time `json:"observed_at"`
+	}
+	fills := append([]RecoveryEvent(nil), events...)
+	sort.Slice(fills, func(i, j int) bool { return fills[i].CursorSequence < fills[j].CursorSequence })
+	identities := make([]fillIdentity, len(fills))
+	for index, event := range fills {
+		if event.Kind != RecoveryFillEvent || event.CursorSequence != uint64(index+1) || event.ExternalID == "" || !validRecoveryHash(event.SourceHash) {
+			return "", errors.New("fill batch prefix is not contiguous or has invalid identity")
+		}
+		identities[index] = fillIdentity{Sequence: event.CursorSequence, TradeID: event.ExternalID, Asset: event.Asset,
+			Amount: event.Amount, SourceHash: event.SourceHash, ObservedAt: event.ObservedAt.UTC()}
+	}
+	encoded, err := json.Marshal(identities)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func RecoveryFillBatchEvidenceHash(evidence RecoveryFillBatchEvidence) (string, error) {
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func ValidateRecoveryFillBatchMarkers(events []RecoveryEvent, childID string) error {
+	if strings.TrimSpace(childID) == "" {
+		return errors.New("fill batch marker validation requires a child")
+	}
+	fills := make([]RecoveryEvent, 0)
+	markers := make([]RecoveryEvent, 0)
+	for _, event := range events {
+		if event.ChildID != childID {
+			continue
+		}
+		if event.Kind == RecoveryFillEvent {
+			fills = append(fills, event)
+		}
+		if event.Kind == RecoveryFillBatchCompleteEvent {
+			markers = append(markers, event)
+		}
+	}
+	sort.Slice(fills, func(i, j int) bool { return fills[i].CursorSequence < fills[j].CursorSequence })
+	if len(fills) == 0 || len(markers) == 0 {
+		return errors.New("non-zero fill history requires a complete batch marker")
+	}
+	for index, event := range fills {
+		if event.CursorSequence != uint64(index+1) || event.FillEvidence == nil || event.Amount != event.FillEvidence.QuantityRaw {
+			return errors.New("fill events are not a complete ordered prefix")
+		}
+	}
+	seenRevisions := make(map[string]struct{}, len(markers))
+	maxCount := uint64(0)
+	for _, marker := range markers {
+		if err := marker.Validate(); err != nil || marker.FillBatchEvidence == nil || marker.EpisodeID != fills[0].EpisodeID {
+			return errors.New("fill batch completion marker is invalid")
+		}
+		if _, duplicate := seenRevisions[marker.SourceRevision]; duplicate {
+			return errors.New("duplicate fill batch completion revision")
+		}
+		seenRevisions[marker.SourceRevision] = struct{}{}
+		evidence := marker.FillBatchEvidence
+		if evidence.FillCount > uint64(len(fills)) {
+			return errors.New("fill batch completion marker exceeds durable fill history")
+		}
+		prefix := fills[:evidence.FillCount]
+		prefixHash, err := RecoveryFillBatchPrefixHash(prefix)
+		if err != nil || prefixHash != evidence.FillSetHash {
+			return errors.New("fill batch completion marker does not match its durable fill prefix")
+		}
+		quantity := new(big.Rat)
+		for _, fill := range prefix {
+			part, ok := new(big.Rat).SetString(fill.FillEvidence.QuantityRaw)
+			if !ok || part.Sign() <= 0 {
+				return errors.New("fill batch prefix has invalid executed quantity")
+			}
+			quantity.Add(quantity, part)
+		}
+		executed, ok := new(big.Rat).SetString(evidence.ExecutedQuantityRaw)
+		if !ok || executed.Sign() <= 0 || quantity.Cmp(executed) != 0 {
+			return errors.New("fill batch completion executed quantity differs from durable fill prefix")
+		}
+		if evidence.FillCount > maxCount {
+			maxCount = evidence.FillCount
+		}
+	}
+	if maxCount != uint64(len(fills)) {
+		return errors.New("latest complete fill batch does not cover all durable fill events")
+	}
+	return nil
 }
 
 // RecoveryDebtEvidence preserves the source-provided raw components of a
@@ -585,27 +703,31 @@ type RecoveryReceipt struct {
 	Actor                   string        `json:"actor,omitempty"`
 	AuditRef                string        `json:"audit_ref,omitempty"`
 	EvidenceHash            string        `json:"evidence_hash,omitempty"`
+	ExposureClearanceHash   string        `json:"exposure_clearance_hash,omitempty"`
 	PreviousOwnerGeneration string        `json:"previous_owner_generation,omitempty"`
 	OwnerGeneration         string        `json:"owner_generation,omitempty"`
 	CreatedAt               time.Time     `json:"created_at"`
 }
 
 type RecoveryReleaseAuthorization struct {
-	EpisodeID               string `json:"episode_id"`
-	OperationID             string `json:"operation_id"`
-	Actor                   string `json:"actor"`
-	EvidenceHash            string `json:"evidence_hash"`
-	ProjectionHash          string `json:"projection_hash"`
-	RuntimeRevision         string `json:"runtime_revision"`
-	OwnerGeneration         string `json:"owner_generation"`
-	ExpectedEpisodeRevision uint64 `json:"expected_episode_revision"`
-	RecoveryGeneration      uint64 `json:"recovery_generation"`
-	ExpectedHoldRevision    uint64 `json:"expected_hold_revision"`
-	Confirmed               bool   `json:"confirmed"`
+	EpisodeID                  string `json:"episode_id"`
+	OperationID                string `json:"operation_id"`
+	Actor                      string `json:"actor"`
+	AuditRef                   string `json:"audit_ref"`
+	EvidenceHash               string `json:"evidence_hash"`
+	ExposureClearanceHash      string `json:"exposure_clearance_hash"`
+	ProjectionHash             string `json:"projection_hash"`
+	RuntimeRevision            string `json:"runtime_revision"`
+	OwnerGeneration            string `json:"owner_generation"`
+	ExpectedEpisodeRevision    uint64 `json:"expected_episode_revision"`
+	RecoveryGeneration         uint64 `json:"recovery_generation"`
+	ExpectedHoldRevision       uint64 `json:"expected_hold_revision"`
+	Confirmed                  bool   `json:"confirmed"`
+	ExposureClearanceConfirmed bool   `json:"exposure_clearance_confirmed"`
 }
 
 func (r RecoveryReleaseAuthorization) Validate() error {
-	if r.EpisodeID == "" || r.OperationID == "" || r.Actor == "" || r.EvidenceHash == "" || r.ProjectionHash == "" || r.RuntimeRevision == "" || r.OwnerGeneration == "" || r.ExpectedEpisodeRevision == 0 || r.RecoveryGeneration == 0 || r.ExpectedHoldRevision == 0 || !r.Confirmed {
+	if r.EpisodeID == "" || r.OperationID == "" || r.Actor == "" || r.AuditRef == "" || !validRecoveryHash(r.EvidenceHash) || !validRecoveryHash(r.ExposureClearanceHash) || !validRecoveryHash(r.ProjectionHash) || r.RuntimeRevision == "" || r.OwnerGeneration == "" || r.ExpectedEpisodeRevision == 0 || r.RecoveryGeneration == 0 || r.ExpectedHoldRevision == 0 || !r.Confirmed || !r.ExposureClearanceConfirmed {
 		return errors.New("incomplete recovery release authorization")
 	}
 	return nil
@@ -915,7 +1037,7 @@ func (e RecoveryEvent) Validate() error {
 		return errors.New("event observed_at is required")
 	}
 	switch e.Kind {
-	case RecoveryFillEvent, RecoveryFeeEvent, RecoveryBorrowEvent, RecoveryRepayEvent, RecoveryInterestEvent, RecoveryFundingEvent, RecoveryTerminalEvent, RecoveryOpeningBalanceEvent:
+	case RecoveryFillEvent, RecoveryFeeEvent, RecoveryBorrowEvent, RecoveryRepayEvent, RecoveryInterestEvent, RecoveryFundingEvent, RecoveryTerminalEvent, RecoveryFillBatchCompleteEvent, RecoveryOpeningBalanceEvent:
 	default:
 		return errors.New("unsupported recovery event type")
 	}
@@ -927,6 +1049,23 @@ func (e RecoveryEvent) Validate() error {
 	}
 	if e.Kind == RecoveryFillEvent && e.FillEvidence == nil {
 		return errors.New("fill event requires raw fill evidence")
+	}
+	if e.Kind == RecoveryFillBatchCompleteEvent {
+		if e.ChildID == "" || e.Source != "venue_order_fill_batch" || e.CompletenessMarker != string(RecoveryFillBatchCompleteEvent) || e.FillBatchEvidence == nil {
+			return errors.New("fill batch completion requires child, venue source, explicit marker, and batch evidence")
+		}
+		if err := validateRawRecoveryDecimal(e.FillBatchEvidence.ExecutedQuantityRaw, false); err != nil || e.FillBatchEvidence.FillCount == 0 ||
+			!validRecoveryHash(e.FillBatchEvidence.FillSetHash) || e.FillBatchEvidence.OrderUpdateTime <= 0 ||
+			(e.FillBatchEvidence.TerminalStatus != "FILLED" && e.FillBatchEvidence.TerminalStatus != "CANCELED" &&
+				e.FillBatchEvidence.TerminalStatus != "REJECTED" && e.FillBatchEvidence.TerminalStatus != "EXPIRED") {
+			return errors.New("fill batch completion evidence is incomplete or invalid")
+		}
+		expectedHash, hashErr := RecoveryFillBatchEvidenceHash(*e.FillBatchEvidence)
+		if hashErr != nil || e.SourceHash != expectedHash {
+			return errors.New("fill batch completion source hash does not bind its evidence")
+		}
+	} else if e.FillBatchEvidence != nil {
+		return errors.New("fill batch evidence is only valid on completion markers")
 	}
 	if e.Kind == RecoveryFeeEvent && e.Source == RecoveryManualFeeAdjustmentSource {
 		if strings.TrimSpace(e.ChildID) == "" || strings.TrimSpace(e.RelatedExternalID) == "" {

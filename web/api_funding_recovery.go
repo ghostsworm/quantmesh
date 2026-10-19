@@ -10,11 +10,13 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"quantmesh/accounting"
+	"quantmesh/execution"
 	"quantmesh/storage"
 	"quantmesh/strategy"
 )
@@ -27,6 +29,56 @@ type FundingRecoveryStatus struct {
 	Attempts  []accounting.RecoverySubmissionAttempt `json:"submission_attempts"`
 	Hold      accounting.RecoveryHold                `json:"hold"`
 	Outbox    []accounting.RecoveryOutbox            `json:"pending_outbox"`
+}
+
+type FundingRecoveryReleasePreview struct {
+	EpisodeID                 string                     `json:"episode_id"`
+	Ready                     bool                       `json:"ready"`
+	Blockers                  []string                   `json:"blockers"`
+	EvidenceHash              string                     `json:"evidence_hash"`
+	ProjectionHash            string                     `json:"projection_hash"`
+	RuntimeRevision           string                     `json:"runtime_revision"`
+	OwnerGeneration           string                     `json:"owner_generation"`
+	ExpectedEpisodeRevision   uint64                     `json:"expected_episode_revision"`
+	RecoveryGeneration        uint64                     `json:"recovery_generation"`
+	ExpectedHoldRevision      uint64                     `json:"expected_hold_revision"`
+	RecoveryGateSource        string                     `json:"recovery_gate_source"`
+	OtherGateSources          []string                   `json:"other_gate_sources"`
+	OperatorClearanceRequired bool                       `json:"operator_clearance_required"`
+	Episode                   accounting.RecoveryEpisode `json:"episode"`
+	Hold                      accounting.RecoveryHold    `json:"hold"`
+}
+
+type FundingRecoveryReleaseReadback struct {
+	Episode           accounting.RecoveryEpisode `json:"episode"`
+	Hold              accounting.RecoveryHold    `json:"hold"`
+	GateSources       []string                   `json:"gate_sources"`
+	ReleasedSource    string                     `json:"released_source"`
+	Receipt           accounting.RecoveryReceipt `json:"receipt"`
+	ExecutionReplayed bool                       `json:"execution_replayed"`
+	Verified          bool                       `json:"verified"`
+}
+
+// FundingRecoveryReleaseStateError preserves durable facts when Gate cleanup
+// or post-release readback fails after the hold transaction already committed.
+type FundingRecoveryReleaseStateError struct {
+	HoldReleased bool
+	GateCleared  bool
+	Cause        error
+}
+
+func (e *FundingRecoveryReleaseStateError) Error() string {
+	if e == nil || e.Cause == nil {
+		return "FundingCarry release state is not fully verified"
+	}
+	return e.Cause.Error()
+}
+
+func (e *FundingRecoveryReleaseStateError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
 }
 
 type FundingRecoveryFillApplyReadback struct {
@@ -140,6 +192,216 @@ func (s *OrderReconciliationService) ReadFundingRecoveryStatus(ctx context.Conte
 		}
 	}
 	return FundingRecoveryStatus{Episode: episode, Children: children, Events: events, Anomalies: anomalies, Attempts: attempts, Hold: hold, Outbox: pending}, nil
+}
+
+func FundingRecoveryReleaseEvidenceHash(status FundingRecoveryStatus, outboxes []accounting.RecoveryOutbox, ownerGeneration string, gateSources []string) (string, error) {
+	children := append([]accounting.RecoveryChild(nil), status.Children...)
+	events := append([]accounting.RecoveryEvent(nil), status.Events...)
+	anomalies := append([]accounting.RecoverySourceAnomaly(nil), status.Anomalies...)
+	attempts := append([]accounting.RecoverySubmissionAttempt(nil), status.Attempts...)
+	outboxes = append([]accounting.RecoveryOutbox(nil), outboxes...)
+	gateSources = append([]string(nil), gateSources...)
+	sort.Slice(children, func(i, j int) bool { return children[i].ID < children[j].ID })
+	sort.Slice(events, func(i, j int) bool { return events[i].ID < events[j].ID })
+	sort.Slice(anomalies, func(i, j int) bool { return anomalies[i].ID < anomalies[j].ID })
+	sort.Slice(attempts, func(i, j int) bool { return attempts[i].PermitID < attempts[j].PermitID })
+	sort.Slice(outboxes, func(i, j int) bool {
+		if outboxes[i].TargetEpisodeRevision == outboxes[j].TargetEpisodeRevision {
+			return outboxes[i].OperationID < outboxes[j].OperationID
+		}
+		return outboxes[i].TargetEpisodeRevision < outboxes[j].TargetEpisodeRevision
+	})
+	sort.Strings(gateSources)
+	encoded, err := json.Marshal(struct {
+		Episode         accounting.RecoveryEpisode             `json:"episode"`
+		Children        []accounting.RecoveryChild             `json:"children"`
+		Events          []accounting.RecoveryEvent             `json:"events"`
+		Anomalies       []accounting.RecoverySourceAnomaly     `json:"anomalies"`
+		Attempts        []accounting.RecoverySubmissionAttempt `json:"attempts"`
+		Hold            accounting.RecoveryHold                `json:"hold"`
+		Outboxes        []accounting.RecoveryOutbox            `json:"outboxes"`
+		OwnerGeneration string                                 `json:"owner_generation"`
+		GateSources     []string                               `json:"gate_sources"`
+	}{status.Episode, children, events, anomalies, attempts, status.Hold, outboxes, ownerGeneration, gateSources})
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+func (s *OrderReconciliationService) PreviewFundingRecoveryRelease(ctx context.Context, episodeID string) (FundingRecoveryReleasePreview, error) {
+	if s == nil || s.Recovery == nil || s.RecoveryGateSourceReader == nil || ctx == nil || strings.TrimSpace(episodeID) == "" {
+		return FundingRecoveryReleasePreview{}, storage.ErrFundingRecoveryUnavailable
+	}
+	status, err := s.ReadFundingRecoveryStatus(ctx, episodeID)
+	if err != nil {
+		return FundingRecoveryReleasePreview{}, err
+	}
+	preview := FundingRecoveryReleasePreview{EpisodeID: episodeID, Episode: status.Episode, Hold: status.Hold,
+		ExpectedEpisodeRevision: status.Episode.Revision, RecoveryGeneration: status.Episode.RecoveryGeneration,
+		ExpectedHoldRevision: status.Hold.Revision, RecoveryGateSource: execution.RecoveryEpisodeGateSource(episodeID, status.Episode.RecoveryGeneration),
+		OperatorClearanceRequired: true}
+	generation, err := s.ResolveFundingRecoveryRuntime(ctx, status.Episode)
+	if err != nil {
+		preview.Blockers = append(preview.Blockers, "retained_reconciliation_runtime_unavailable")
+	} else {
+		preview.OwnerGeneration = generation.ID()
+	}
+	preview.OtherGateSources, err = s.RecoveryGateSourceReader(ctx, status.Episode)
+	if err != nil {
+		preview.Blockers = append(preview.Blockers, "opening_gate_sources_unavailable")
+		preview.OtherGateSources = nil
+	}
+	if !containsFundingRecoveryString(preview.OtherGateSources, preview.RecoveryGateSource) {
+		preview.Blockers = append(preview.Blockers, "exact_recovery_gate_source_missing")
+	}
+	otherSources := make([]string, 0, len(preview.OtherGateSources))
+	for _, source := range preview.OtherGateSources {
+		if source != preview.RecoveryGateSource {
+			otherSources = append(otherSources, source)
+		}
+	}
+	preview.OtherGateSources = otherSources
+	if status.Episode.Strategy != "funding_carry" || status.Episode.State != accounting.RecoveryProjected || status.Hold.State != "held" || status.Episode.OwnerGeneration != preview.OwnerGeneration {
+		preview.Blockers = append(preview.Blockers, "episode_owner_or_durable_hold_not_release_ready")
+	}
+	for _, anomaly := range status.Anomalies {
+		if anomaly.State != accounting.RecoverySourceAnomalyVerified {
+			preview.Blockers = append(preview.Blockers, "source_anomaly_unresolved")
+			break
+		}
+	}
+	for _, attempt := range status.Attempts {
+		if attempt.State != accounting.RecoverySubmissionFound {
+			preview.Blockers = append(preview.Blockers, "submission_attempt_not_proven_and_accounted")
+			break
+		}
+		child, found := fundingRecoveryChildByID(status.Children, attempt.ChildID)
+		if !found || child.State == accounting.ChildProvisional || child.State == accounting.ChildUnknown || child.VenueOrderID != attempt.VenueOrderID ||
+			child.OrderIntentHash != attempt.IntentHash || child.AccountScope != attempt.AccountScope {
+			preview.Blockers = append(preview.Blockers, "submission_child_identity_unverified")
+			continue
+		}
+		zeroTerminalMarkers, batchMarkerCount, fillCount := 0, 0, 0
+		fillIDs := make(map[string]struct{})
+		feeIDs := make(map[string]struct{})
+		for _, event := range status.Events {
+			if event.ChildID != attempt.ChildID {
+				continue
+			}
+			if event.Validate() != nil {
+				preview.Blockers = append(preview.Blockers, "recovery_event_invalid")
+				break
+			}
+			if event.Kind == accounting.RecoveryFillBatchCompleteEvent && event.CompletenessMarker == string(accounting.RecoveryFillBatchCompleteEvent) {
+				if event.Source != "venue_order_fill_batch" {
+					preview.Blockers = append(preview.Blockers, "fill_batch_completion_marker_invalid")
+				}
+				batchMarkerCount++
+			} else if event.Kind == accounting.RecoveryTerminalEvent && event.CompletenessMarker == "zero_fill_terminal" && strings.HasPrefix(event.ExternalID, "terminal_zero:") {
+				zeroTerminalMarkers++
+			}
+			if event.Kind == accounting.RecoveryFillEvent && event.FillEvidence != nil {
+				fillCount++
+				if event.FillEvidence.VenueOrderID != attempt.VenueOrderID || event.FillEvidence.ClientOrderID != attempt.Intent.ClientOrderID || event.FillEvidence.OrderIntentHash != attempt.IntentHash {
+					preview.Blockers = append(preview.Blockers, "fill_identity_unverified")
+				}
+				fillIDs[event.ExternalID] = struct{}{}
+			}
+			if event.Kind == accounting.RecoveryFeeEvent && event.Source == accounting.RecoveryManualFeeAdjustmentSource {
+				feeIDs[event.RelatedExternalID] = struct{}{}
+			}
+		}
+		if fillCount == 0 {
+			if zeroTerminalMarkers != 1 || batchMarkerCount != 0 {
+				preview.Blockers = append(preview.Blockers, "complete_venue_fill_batch_missing")
+			}
+		} else if zeroTerminalMarkers != 0 || batchMarkerCount == 0 || accounting.ValidateRecoveryFillBatchMarkers(status.Events, attempt.ChildID) != nil {
+			preview.Blockers = append(preview.Blockers, "complete_venue_fill_batch_missing")
+		}
+		for _, event := range status.Events {
+			if event.ChildID == attempt.ChildID && event.Kind == accounting.RecoveryFillEvent && event.FillEvidence != nil && !event.FillEvidence.CommissionKnown {
+				if _, adjusted := feeIDs[event.ExternalID]; !adjusted {
+					preview.Blockers = append(preview.Blockers, "fill_fee_unresolved")
+				}
+			}
+		}
+		for tradeID := range feeIDs {
+			if _, exists := fillIDs[tradeID]; !exists {
+				preview.Blockers = append(preview.Blockers, "fee_adjustment_fill_not_found")
+			}
+		}
+	}
+	for _, child := range status.Children {
+		if child.State == accounting.ChildProvisional || child.State == accounting.ChildUnknown {
+			preview.Blockers = append(preview.Blockers, "child_order_outcome_unresolved")
+			break
+		}
+	}
+	outboxes, err := s.Recovery.ListRecoveryOutboxes(ctx, episodeID)
+	if err != nil {
+		return FundingRecoveryReleasePreview{}, err
+	}
+	if len(outboxes) == 0 {
+		preview.Blockers = append(preview.Blockers, "durable_projection_missing")
+	} else {
+		latest := outboxes[len(outboxes)-1]
+		preview.ProjectionHash, preview.RuntimeRevision = latest.AppliedHash, latest.ExpectedRuntimeRevision
+		if latest.State != accounting.RecoveryProjected || latest.AppliedOperationID != latest.OperationID || latest.AppliedHash != latest.ProjectionHash || latest.ExpectedRuntimeRevision == "" {
+			preview.Blockers = append(preview.Blockers, "latest_projection_not_fully_read_back")
+		}
+	}
+	preview.EvidenceHash, err = FundingRecoveryReleaseEvidenceHash(status, outboxes, preview.OwnerGeneration, append(preview.OtherGateSources, preview.RecoveryGateSource))
+	if err != nil {
+		return FundingRecoveryReleasePreview{}, err
+	}
+	preview.Ready = len(preview.Blockers) == 0
+	return preview, nil
+}
+
+func containsFundingRecoveryString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func fundingRecoveryChildByID(children []accounting.RecoveryChild, id string) (accounting.RecoveryChild, bool) {
+	for _, child := range children {
+		if child.ID == id {
+			return child, true
+		}
+	}
+	return accounting.RecoveryChild{}, false
+}
+
+func (s *OrderReconciliationService) ApplyFundingRecoveryRelease(ctx context.Context, auth accounting.RecoveryReleaseAuthorization) (FundingRecoveryReleaseReadback, error) {
+	if s == nil || s.Recovery == nil || s.RecoveryReleaseApply == nil || ctx == nil {
+		return FundingRecoveryReleaseReadback{}, storage.ErrFundingRecoveryUnavailable
+	}
+	if err := auth.Validate(); err != nil {
+		return FundingRecoveryReleaseReadback{}, err
+	}
+	status, err := s.ReadFundingRecoveryStatus(ctx, auth.EpisodeID)
+	if err != nil {
+		return FundingRecoveryReleaseReadback{}, err
+	}
+	if status.Episode.State != accounting.RecoveryReleasePending && status.Episode.State != accounting.RecoveryReleased {
+		preview, err := s.PreviewFundingRecoveryRelease(ctx, auth.EpisodeID)
+		if err != nil {
+			return FundingRecoveryReleaseReadback{}, err
+		}
+		if !preview.Ready || auth.EvidenceHash != preview.EvidenceHash || auth.ProjectionHash != preview.ProjectionHash ||
+			auth.RuntimeRevision != preview.RuntimeRevision || auth.OwnerGeneration != preview.OwnerGeneration ||
+			auth.ExpectedEpisodeRevision != preview.ExpectedEpisodeRevision || auth.RecoveryGeneration != preview.RecoveryGeneration ||
+			auth.ExpectedHoldRevision != preview.ExpectedHoldRevision {
+			return FundingRecoveryReleaseReadback{}, accounting.ErrRecoveryConflict
+		}
+	}
+	return s.RecoveryReleaseApply(ctx, auth)
 }
 
 func (s *OrderReconciliationService) PreviewFundingRecoveryFill(ctx context.Context, episodeID, childID string) (strategy.FundingRecoveryFillPreview, error) {
@@ -580,6 +842,99 @@ func getFundingRecoveryStatusHandler(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": status})
+}
+
+func getFundingRecoveryReleasePreviewHandler(c *gin.Context) {
+	if !requireRetiredEquityAdmin(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	s := currentOrderReconciliationService()
+	if s == nil {
+		reconciliationUnavailable(c)
+		return
+	}
+	preview, err := s.PreviewFundingRecoveryRelease(c.Request.Context(), c.Param("episode_id"))
+	if err != nil {
+		writeFundingRecoveryReleaseError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"preview": preview, "execution_replayed": false})
+}
+
+type fundingRecoveryReleaseRequest struct {
+	OperationID                string `json:"operation_id"`
+	AuditRef                   string `json:"audit_ref"`
+	EvidenceHash               string `json:"evidence_hash"`
+	ExposureClearanceHash      string `json:"exposure_clearance_hash"`
+	ProjectionHash             string `json:"projection_hash"`
+	RuntimeRevision            string `json:"runtime_revision"`
+	OwnerGeneration            string `json:"owner_generation"`
+	ExpectedEpisodeRevision    uint64 `json:"expected_episode_revision"`
+	RecoveryGeneration         uint64 `json:"recovery_generation"`
+	ExpectedHoldRevision       uint64 `json:"expected_hold_revision"`
+	Confirmed                  bool   `json:"confirmed"`
+	ExposureClearanceConfirmed bool   `json:"exposure_clearance_confirmed"`
+}
+
+func applyFundingRecoveryReleaseHandler(c *gin.Context) {
+	if !requireRetiredEquityAdmin(c) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	s := currentOrderReconciliationService()
+	if s == nil || s.RecoveryReleaseApply == nil {
+		reconciliationUnavailable(c)
+		return
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 16<<10)
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	var input fundingRecoveryReleaseRequest
+	if err := decoder.Decode(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_funding_recovery_release"})
+		return
+	}
+	var trailing any
+	if !errors.Is(decoder.Decode(&trailing), io.EOF) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_funding_recovery_release"})
+		return
+	}
+	session, _ := c.Get("session")
+	admin, ok := session.(*Session)
+	if !ok || strings.TrimSpace(admin.Username) == "" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin_required"})
+		return
+	}
+	readback, err := s.ApplyFundingRecoveryRelease(c.Request.Context(), accounting.RecoveryReleaseAuthorization{
+		EpisodeID: c.Param("episode_id"), OperationID: input.OperationID, Actor: admin.Username, AuditRef: input.AuditRef,
+		EvidenceHash: input.EvidenceHash, ExposureClearanceHash: input.ExposureClearanceHash, ProjectionHash: input.ProjectionHash, RuntimeRevision: input.RuntimeRevision,
+		OwnerGeneration: input.OwnerGeneration, ExpectedEpisodeRevision: input.ExpectedEpisodeRevision,
+		RecoveryGeneration: input.RecoveryGeneration, ExpectedHoldRevision: input.ExpectedHoldRevision, Confirmed: input.Confirmed,
+		ExposureClearanceConfirmed: input.ExposureClearanceConfirmed,
+	})
+	if err != nil {
+		writeFundingRecoveryReleaseError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"readback": readback, "hold_released": readback.Verified, "execution_replayed": false})
+}
+
+func writeFundingRecoveryReleaseError(c *gin.Context, err error) {
+	var stateErr *FundingRecoveryReleaseStateError
+	if errors.As(err, &stateErr) {
+		c.JSON(http.StatusConflict, gin.H{"error": "funding_recovery_release_unverified", "hold_released": stateErr.HoldReleased,
+			"recovery_gate_cleared": stateErr.GateCleared, "execution_replayed": false})
+		return
+	}
+	switch {
+	case errors.Is(err, storage.ErrFundingRecoveryNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "funding_recovery_episode_not_found", "hold_released": false})
+	case errors.Is(err, accounting.ErrRecoveryConflict), errors.Is(err, accounting.ErrRecoveryOperationConflict):
+		c.JSON(http.StatusConflict, gin.H{"error": "funding_recovery_release_conflict", "hold_released": false})
+	default:
+		c.JSON(http.StatusConflict, gin.H{"error": "funding_recovery_release_unverified", "hold_released": false})
+	}
 }
 
 func getFundingRecoveryReceiptHandler(c *gin.Context) {

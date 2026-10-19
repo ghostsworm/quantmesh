@@ -394,7 +394,8 @@ func assertRecoverySourceAnomalyBlocksRelease(t *testing.T, store *SQLStorage, g
 		t.Fatalf("read projected outbox for release guard: found=%t err=%v", found, err)
 	}
 	authorization := accounting.RecoveryReleaseAuthorization{EpisodeID: episodeID, OperationID: "release-with-unresolved-source-anomaly",
-		Actor: "admin", EvidenceHash: strings.Repeat("a", 64), ProjectionHash: outbox.ProjectionHash, RuntimeRevision: outbox.ExpectedRuntimeRevision,
+		Actor: "admin", AuditRef: "incident-unresolved-anomaly", EvidenceHash: strings.Repeat("a", 64), ExposureClearanceHash: strings.Repeat("b", 64),
+		ExposureClearanceConfirmed: true, ProjectionHash: outbox.ProjectionHash, RuntimeRevision: outbox.ExpectedRuntimeRevision,
 		OwnerGeneration: generation.ID(), ExpectedEpisodeRevision: episode.Revision, RecoveryGeneration: episode.RecoveryGeneration,
 		ExpectedHoldRevision: hold.Revision, Confirmed: true}
 	if _, err := store.PrepareRecoveryRelease(context.Background(), generation, authorization); !errors.Is(err, accounting.ErrRecoveryConflict) {

@@ -1,5 +1,26 @@
 # Changelog
 
+## [3.111.0-rc1192] - 2026-10-19（开发中，未发布）
+
+### Fixed
+- 净收益完整性改为检查原始成交账本发现的全部账户交易流；孤立成交、未估值币种手续费、原始成交费与配对交易费用总额不一致时均标为不完整。lifetime 账本覆盖下界统一到 MySQL/SQLite 可表达的 Unix epoch，避免摘要统计与成交覆盖起点错位。
+- 从 trades 与 order_fills 双向枚举账户 scope；未归档旧 scope、无归属历史、缺少稳定买卖订单号、订单 side/累计成交量不匹配均阻断完整性声明。总净收益及日/周/月“已核实”标志在日级权益/净外部资金流勾稽尚未实现前保持未通过。
+
+### Verification
+- `go test -p 1 ./...`、关键包 `go test -race -p 1 ./accounting ./storage ./strategy ./web . -run 'OrderFill|Profit|FundingIncomeCoverage|AccountExecutionScope|FundingRecoveryReleaseError|ProductionFundingRecoveryRoute|RecoveryOwnerTakeover|RecoveryRelease'`、`go vet -p 1 ./...`、`go build -p 1 ./...`、WebUI `yarn verify`（318 项测试及生产构建）通过。MySQL 专项因未配置隔离 DSN/破坏性 schema opt-in 而跳过；最新源码同 SHA 远端 CI 尚待推送后验证。未发布、未打 tag，不代表真实账户核账或盈利验收。
+
+## [3.111.0-rc1191] - 2026-10-19（开发中，未发布）
+
+### Fixed
+- 修复本周起始日在上月时周收益漏计上月日期的问题；为摘要/趋势增加成交覆盖与完整性提示，未完整覆盖时不再把净收益标为已核实；订单级待处理手续费修正无法精确归期时，保守阻断该账户交易流所有区间。
+- 为 FundingCarry 增加生产管理员预览与显式解锁路径：持久化 CAS/审计 receipt、只清除精确 recovery Gate、拒绝未决 UNKNOWN/部分成交/费用缺口；解锁还要求操作人确认仓位及借贷均已清零并绑定核账材料摘要。完整成交批次按 source revision 追加只增标记，不覆写旧成交。
+
+### Added
+- 新增策略验收证据报告，明确现有网格回放不是 FundingCarry 盈利证明，并列出真实账户、成本账本、样本外策略结果及最终同 SHA CI 的缺口。
+
+### Verification
+- 本地 `go test ./...`、关键包 `go test -race ./accounting ./storage ./strategy ./web . -run 'Recovery|Profit|FeeCorrection|FundingRecovery'`、`go vet ./...`、`go build ./...`、前端 `yarn verify` 及 `git diff --check` 通过。MySQL 专项因未配置隔离测试 DSN/破坏性 schema 授权而跳过；最终同 SHA 远端 CI 未验收。未提交、未推送、未打 tag、未发布；未访问真实账户、未下单、未验收实盘或盈利。
+
 ## [3.111.0-rc1190] - 2026-10-14（开发中，未发布）
 
 ### Fixed

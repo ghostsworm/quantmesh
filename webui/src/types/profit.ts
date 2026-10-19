@@ -9,6 +9,9 @@ export interface ProfitSummary {
   exchangeId?: string
   totalProfit: number // 已合并交易盈亏、资金费及已估值跨仓利息；完整性由 netProfitComplete 标明
   netProfitComplete?: boolean
+  equityReconciliationComplete?: boolean
+  accountHistoryComplete?: boolean
+  executionHistoryComplete?: boolean
   grossProfit?: number // 毛利（價差盈虧，未扣手續費）
   totalFee?: number // 手續費合計
   fundingNet?: number // 資金費淨額（正=淨收入，負=淨支出）
@@ -177,4 +180,5 @@ export interface ProfitTrendResponse {
   trend: ProfitTrendItem[]
   period: string
   income_basis: string
+  execution_history_complete: boolean
 }

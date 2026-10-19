@@ -48,12 +48,12 @@ func TestFundingCarryManualFeeAdjustmentCASReplayAndCorrectionKeepsHold(t *testi
 			feeEvent = &events[index]
 		}
 	}
-	if len(events) != 2 || feeEvent == nil || feeEvent.RelatedExternalID != "13" || feeEvent.Amount != "0.0001200" ||
+	if len(events) != 3 || feeEvent == nil || feeEvent.RelatedExternalID != "13" || feeEvent.Amount != "0.0001200" ||
 		feeEvent.Asset != "BNB" || feeEvent.SourceHash != request.EvidenceHash || feeEvent.CursorSequence != 0 {
 		t.Fatalf("raw fee adjustment was not persisted as an independent linked event: %+v", events)
 	}
 	replay, err := fixture.strategy.ApplyFundingRecoveryFeeAdjustment(fixture.ctx, request)
-	if err != nil || !replay.Replayed || !replay.Projected || !replay.HoldRetained || lenMustRecoveryEvents(t, fixture) != 2 {
+	if err != nil || !replay.Replayed || !replay.Projected || !replay.HoldRetained || lenMustRecoveryEvents(t, fixture) != 3 {
 		t.Fatalf("same fee operation did not replay idempotently: result=%+v err=%v", replay, err)
 	}
 	conflicting := request
@@ -75,7 +75,7 @@ func TestFundingCarryManualFeeAdjustmentCASReplayAndCorrectionKeepsHold(t *testi
 	correction.ExpectedEpisodeRevision = correctionPreview.EpisodeRevision
 	correction.ExpectedChildRevision = correctionPreview.ChildRevision
 	corrected, err := fixture.strategy.ApplyFundingRecoveryFeeAdjustment(fixture.ctx, correction)
-	if err != nil || !corrected.Projected || !corrected.FeesComplete || !corrected.HoldRetained || lenMustRecoveryEvents(t, fixture) != 3 {
+	if err != nil || !corrected.Projected || !corrected.FeesComplete || !corrected.HoldRetained || lenMustRecoveryEvents(t, fixture) != 4 {
 		t.Fatalf("append-only fee correction failed: result=%+v err=%v", corrected, err)
 	}
 }
@@ -138,7 +138,7 @@ func TestFundingCarryManualFeeApplyRefusesWhenVenueFeeBecomesKnown(t *testing.T)
 	if _, err := fixture.strategy.ApplyFundingRecoveryFeeAdjustment(fixture.ctx, request); err == nil {
 		t.Fatal("manual fee apply accepted after authoritative venue fee became available")
 	}
-	if lenMustRecoveryEvents(t, fixture) != 1 {
+	if lenMustRecoveryEvents(t, fixture) != 2 {
 		t.Fatal("rejected manual fee apply wrote a fee event")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	"quantmesh/accounting"
+	"quantmesh/execution"
 	"quantmesh/storage"
 	"quantmesh/strategy"
 	"quantmesh/web"
@@ -42,7 +43,7 @@ func newProductionOrderReconciliationService(store *storage.SQLStorage, bots *Bo
 		RecoveryRuntimeResolver: func(ctx context.Context, episode accounting.RecoveryEpisode) (storage.FundingCarryRuntimeGeneration, error) {
 			var generation storage.FundingCarryRuntimeGeneration
 			err := bots.WithBotRuntimeOperationContext(ctx, episode.Bot, func(operationCtx context.Context, _ *BotRuntime) error {
-				_, resolved, resolveErr := resolveHeldFundingCarryStrategy(operationCtx, store, bots, episode, false)
+				_, resolved, resolveErr := resolveHeldFundingCarryStrategyForFill(operationCtx, store, bots, episode, false)
 				generation = resolved
 				return resolveErr
 			})
@@ -412,12 +413,101 @@ func newProductionOrderReconciliationService(store *storage.SQLStorage, bots *Bo
 			})
 			return result, err
 		},
-		// Strategy accounting and quarantine release remain unset. A found order
-		// stays held until debt projection and an independent release gate.
+		// Generic order-accounting release remains unset. FundingCarry has a
+		// separate evidence-bound durable release path below.
 		Accounting: nil,
 		Gate:       nil,
 	}
+	service.RecoveryGateSourceReader = func(ctx context.Context, episode accounting.RecoveryEpisode) ([]string, error) {
+		var sources []string
+		err := bots.WithBotRuntimeOperationContext(ctx, episode.Bot, func(operationCtx context.Context, _ *BotRuntime) error {
+			current, found, err := store.GetRecoveryEpisode(operationCtx, episode.ID)
+			if err != nil || !found {
+				return errors.Join(storage.ErrFundingRecoveryNotFound, err)
+			}
+			carry, _, err := resolveHeldFundingCarryStrategyForFill(operationCtx, store, bots, current, false)
+			if err != nil {
+				return err
+			}
+			sources = carry.RecoveryOpeningGateSources()
+			return nil
+		})
+		return sources, err
+	}
+	service.RecoveryReleaseApply = func(ctx context.Context, auth accounting.RecoveryReleaseAuthorization) (web.FundingRecoveryReleaseReadback, error) {
+		episode, found, err := store.GetRecoveryEpisode(ctx, auth.EpisodeID)
+		if err != nil || !found {
+			return web.FundingRecoveryReleaseReadback{}, errors.Join(storage.ErrFundingRecoveryNotFound, err)
+		}
+		var readback web.FundingRecoveryReleaseReadback
+		err = bots.WithBotRuntimeOperationContext(ctx, episode.Bot, func(operationCtx context.Context, _ *BotRuntime) error {
+			current, stillFound, readErr := store.GetRecoveryEpisode(operationCtx, auth.EpisodeID)
+			if readErr != nil || !stillFound {
+				return errors.Join(storage.ErrFundingRecoveryNotFound, readErr)
+			}
+			carry, generation, resolveErr := resolveHeldFundingCarryStrategyForRelease(operationCtx, store, bots, current)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			if current.State != accounting.RecoveryReleasePending && current.State != accounting.RecoveryReleased {
+				status, statusErr := service.ReadFundingRecoveryStatus(operationCtx, current.ID)
+				outboxes, outboxErr := store.ListRecoveryOutboxes(operationCtx, current.ID)
+				gates := carry.RecoveryOpeningGateSources()
+				if statusErr != nil || outboxErr != nil || len(outboxes) == 0 {
+					return errors.Join(errors.New("read current FundingCarry release evidence"), statusErr, outboxErr)
+				}
+				evidenceHash, hashErr := web.FundingRecoveryReleaseEvidenceHash(status, outboxes, generation.ID(), gates)
+				latest := outboxes[len(outboxes)-1]
+				if hashErr != nil || evidenceHash != auth.EvidenceHash || current.Revision != auth.ExpectedEpisodeRevision ||
+					current.RecoveryGeneration != auth.RecoveryGeneration || current.OwnerGeneration != auth.OwnerGeneration ||
+					status.Hold.Revision != auth.ExpectedHoldRevision || latest.State != accounting.RecoveryProjected ||
+					latest.AppliedHash != auth.ProjectionHash || latest.ExpectedRuntimeRevision != auth.RuntimeRevision {
+					return errors.Join(accounting.ErrRecoveryConflict, hashErr)
+				}
+			}
+			if _, err := store.PrepareRecoveryRelease(operationCtx, generation, auth); err != nil {
+				return err
+			}
+			hold, err := store.ReleaseRecoveryHold(operationCtx, generation, auth)
+			if err != nil {
+				return err
+			}
+			if err := carry.ReleaseFundingRecoveryGate(operationCtx, auth.EpisodeID); err != nil {
+				return &web.FundingRecoveryReleaseStateError{HoldReleased: hold.State == "released", Cause: fmt.Errorf("durable FundingCarry release recorded but exact Gate source readback failed: %w", err)}
+			}
+			updated, found, err := store.GetRecoveryEpisode(operationCtx, auth.EpisodeID)
+			if err != nil || !found {
+				return &web.FundingRecoveryReleaseStateError{HoldReleased: hold.State == "released", GateCleared: true, Cause: errors.Join(errors.New("read released FundingCarry episode"), err)}
+			}
+			receipt, receiptFound, err := store.GetRecoveryReceipt(operationCtx, auth.EpisodeID, auth.OperationID)
+			if err != nil || !receiptFound {
+				return &web.FundingRecoveryReleaseStateError{HoldReleased: hold.State == "released", GateCleared: true, Cause: errors.Join(errors.New("read durable FundingCarry release receipt"), err)}
+			}
+			sources := carry.RecoveryOpeningGateSources()
+			source := execution.RecoveryEpisodeGateSource(auth.EpisodeID, auth.RecoveryGeneration)
+			verified := updated.State == accounting.RecoveryReleased && hold.State == "released" && !containsFundingRecoveryGateSource(sources, source) &&
+				receipt.State == accounting.RecoveryReleased && receipt.Actor == auth.Actor && receipt.AuditRef == auth.AuditRef && receipt.EvidenceHash == auth.EvidenceHash &&
+				receipt.ExposureClearanceHash == auth.ExposureClearanceHash
+			if !verified {
+				return &web.FundingRecoveryReleaseStateError{HoldReleased: hold.State == "released", GateCleared: !containsFundingRecoveryGateSource(sources, source),
+					Cause: errors.New("FundingCarry durable release/Gate readback mismatch; no order was replayed")}
+			}
+			readback = web.FundingRecoveryReleaseReadback{Episode: updated, Hold: hold, GateSources: sources, ReleasedSource: source,
+				Receipt: receipt, ExecutionReplayed: false, Verified: true}
+			return nil
+		})
+		return readback, err
+	}
 	return service, nil
+}
+
+func containsFundingRecoveryGateSource(sources []string, source string) bool {
+	for _, candidate := range sources {
+		if candidate == source {
+			return true
+		}
+	}
+	return false
 }
 
 func fundingIncomePendingProjectionMatches(receipt accounting.RecoveryReceipt, outbox accounting.RecoveryOutbox,
@@ -493,6 +583,38 @@ func resolveHeldFundingCarryStrategyForFill(ctx context.Context, store *storage.
 	// required only when ownership was actually transferred; native current-owner
 	// blocked episodes need no synthetic takeover operation.
 	return resolveHeldFundingCarryStrategy(ctx, store, bots, blockedView, false)
+}
+
+func resolveHeldFundingCarryStrategyForRelease(ctx context.Context, store *storage.SQLStorage, bots *BotManager, episode accounting.RecoveryEpisode) (*strategy.FundingCarryStrategy, storage.FundingCarryRuntimeGeneration, error) {
+	if episode.State == accounting.RecoveryProjected || episode.State == accounting.RecoveryReleasePending {
+		blockedView := episode
+		blockedView.State = accounting.RecoveryBlocked
+		return resolveHeldFundingCarryStrategy(ctx, store, bots, blockedView, false)
+	}
+	if ctx == nil || store == nil || bots == nil || episode.State != accounting.RecoveryReleased || episode.Strategy != "funding_carry" {
+		return nil, storage.FundingCarryRuntimeGeneration{}, errors.New("FundingCarry release requires a projected or previously released episode")
+	}
+	bot, found := bots.Get(episode.Bot)
+	if !found || bot == nil || bot.Inner == nil || bot.stopTransitionPending() || !bot.Inner.fundingCarryReconciliationOnly || bot.Inner.StrategyManager == nil {
+		return nil, storage.FundingCarryRuntimeGeneration{}, errors.New("retained FundingCarry reconciliation runtime is unavailable")
+	}
+	carry, ok := bot.Inner.StrategyManager.GetStrategy("funding_carry").(*strategy.FundingCarryStrategy)
+	if !ok || carry == nil {
+		return nil, storage.FundingCarryRuntimeGeneration{}, errors.New("retained FundingCarry strategy is unavailable")
+	}
+	boundStore, generation, botID, scopes, err := carry.CurrentFundingCarryRecoveryBinding()
+	if err != nil || boundStore != store || botID != episode.Bot || generation.ID() != episode.OwnerGeneration {
+		return nil, storage.FundingCarryRuntimeGeneration{}, errors.Join(errors.New("released episode runtime owner mismatch"), err)
+	}
+	episodeScopes, err := normalizeFundingRecoveryScopes(episode.AccountScopes)
+	if err != nil {
+		return nil, storage.FundingCarryRuntimeGeneration{}, err
+	}
+	sort.Strings(scopes)
+	if !sameFundingRecoveryScopes(scopes, episodeScopes) {
+		return nil, storage.FundingCarryRuntimeGeneration{}, storage.ErrFundingRecoveryGenerationScopeMismatch
+	}
+	return carry, generation, nil
 }
 
 func fundingCarryProjectionMarkerReadbackMatches(payload, episodeID, operationID string, outbox accounting.RecoveryOutbox) bool {

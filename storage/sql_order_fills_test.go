@@ -49,6 +49,139 @@ func TestSaveOrderFillIsIdempotentAndRejectsConflictingReplay(t *testing.T) {
 	}
 }
 
+func TestListOrderFillStreamsFindsRawStreamsWithoutPairedTrades(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/raw-streams.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	for _, fill := range []*OrderFill{
+		{Exchange: "binance", MarketType: "spot", AccountScope: "scope-a", Symbol: "ETHUSDT", TradeID: "raw-only", OrderID: 17, Side: "BUY", Price: 100, Quantity: 1, TradeTime: time.Now().UTC()},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "configured-away", OrderID: 18, Side: "SELL", Price: 100, Quantity: 1, TradeTime: time.Now().UTC()},
+	} {
+		if err := st.SaveOrderFill(fill); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, symbol, trade_id, order_id, side, price, quantity, trade_time) VALUES ('binance', 'spot', 'scope-a', '', 'invalid-symbol', 19, 'BUY', 100, 1, CURRENT_TIMESTAMP)`); err != nil {
+		t.Fatal(err)
+	}
+	streams, invalid, err := st.ListOrderFillStreamsByAccountScope("binance", "scope-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if invalid != 1 || len(streams) != 2 {
+		t.Fatalf("raw stream inventory missed an orphan or invalid identity: streams=%+v invalid=%d", streams, invalid)
+	}
+	if streams[0].Exchange != "binance" || streams[0].MarketType != "futures" || streams[0].Symbol != "BTCUSDT" {
+		t.Fatalf("raw stream identity was not normalized: %+v", streams[0])
+	}
+}
+
+func TestListAccountExecutionScopesFindsUnarchivedAndUnattributedHistory(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/execution-scopes.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	if err := st.SaveOrderFill(&OrderFill{Exchange: "binance", MarketType: "spot", AccountScope: "current-scope", Symbol: "BTCUSDT", TradeID: "current", OrderID: 11, Side: "BUY", Price: 100, Quantity: 1, TradeTime: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveTrade(&Trade{BuyOrderID: 21, SellOrderID: 22, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", AccountScope: "unarchived-old-scope", Symbol: "ETHUSDT", Quantity: 1, PnL: 1, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`INSERT INTO order_fills (exchange, market_type, account_scope, symbol, trade_id, order_id, side, price, quantity, trade_time) VALUES ('binance', 'spot', '', 'SOLUSDT', 'legacy-unattributed', 31, 'BUY', 100, 1, ?)`, now); err != nil {
+		t.Fatal(err)
+	}
+	scopes, invalid, err := st.ListAccountExecutionScopesByExchange("binance")
+	if err != nil || invalid != 1 {
+		t.Fatalf("execution scope inventory failed to flag legacy attribution: scopes=%+v invalid=%d err=%v", scopes, invalid, err)
+	}
+	found := map[string]bool{}
+	for _, scope := range scopes {
+		found[scope.Exchange+"/"+scope.Scope] = true
+	}
+	if !found["binance/current-scope"] || !found["binance/unarchived-old-scope"] {
+		t.Fatalf("execution scope inventory omitted durable history: %+v", scopes)
+	}
+}
+
+func TestOrderFillLedgerIntegrityRequiresPairingValuationAndFeeAgreement(t *testing.T) {
+	st, err := NewSQLStorage(t.TempDir() + "/fill-integrity.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	now := time.Now().UTC()
+	for _, fill := range []*OrderFill{
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "buy-fill", OrderID: 101, Side: "BUY", Price: 100, Quantity: 1, Commission: 0.05, CommissionAsset: "USDT", TradeTime: now},
+		{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "sell-fill", OrderID: 102, Side: "SELL", Price: 101, Quantity: 1, Commission: 0.05, CommissionAsset: "USDT", TradeTime: now},
+	} {
+		if err := st.SaveOrderFill(fill); err != nil {
+			t.Fatal(err)
+		}
+	}
+	trade := &Trade{BuyOrderID: 101, SellOrderID: 102, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", AccountScope: "scope-a", Symbol: "BTCUSDT", Quantity: 1, PnL: 1, ExchangePnL: 1, Fee: 0.1, FeeAsset: "USDT", CreatedAt: now}
+	if err := st.SaveTrade(trade); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.UnpairedOrderCount != 0 || got.UnvaluedFeeCount != 0 || !got.FeeTotalsMatch {
+		t.Fatalf("consistent raw and paired fee ledgers rejected: %+v err=%v", got, err)
+	}
+	if got.ExecutionMismatchOrderCount != 0 {
+		t.Fatalf("matching side and quantity should pass execution reconciliation: %+v", got)
+	}
+	if _, err := st.db.Exec(`UPDATE order_fills SET quantity = 0.5 WHERE trade_id = 'buy-fill'`); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.ExecutionMismatchOrderCount == 0 {
+		t.Fatalf("partial raw quantity must not match a full trade leg: %+v err=%v", got, err)
+	}
+	if _, err := st.db.Exec(`UPDATE order_fills SET quantity = 1, side = 'SELL' WHERE trade_id = 'buy-fill'`); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.ExecutionMismatchOrderCount == 0 {
+		t.Fatalf("side mismatch must not pass execution reconciliation: %+v err=%v", got, err)
+	}
+	if _, err := st.db.Exec(`UPDATE order_fills SET side = 'BUY' WHERE trade_id = 'buy-fill'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveTrade(&Trade{BuyOrderID: 103, SellOrderID: 104, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", AccountScope: "scope-a", Symbol: "BTCUSDT", Quantity: 1, PnL: 0, ExchangePnL: 0, Fee: 0, FeeAsset: "USDT", CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.MissingFillOrderCount != 2 {
+		t.Fatalf("paired trades missing raw fills were not detected: %+v err=%v", got, err)
+	}
+	if _, err := st.db.Exec(`DELETE FROM trades WHERE buy_order_id = 103`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE trades SET fee = 0.11 WHERE account_scope = 'scope-a'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.db.Exec(`UPDATE order_fills SET commission_asset = 'BNB' WHERE trade_id = 'buy-fill'`); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SaveOrderFill(&OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", Symbol: "BTCUSDT", TradeID: "open-fill", OrderID: 103, Side: "BUY", Price: 100, Quantity: 0.1, TradeTime: now}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.UnpairedOrderCount != 1 || got.UnvaluedFeeCount != 1 || got.FeeTotalsMatch {
+		t.Fatalf("unpaired, unvalued or mismatched ledger was not rejected: %+v err=%v", got, err)
+	}
+	if err := st.SaveTrade(&Trade{Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", AccountScope: "scope-a", Symbol: "BTCUSDT", Quantity: 1, PnL: 1, CreatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.GetOrderFillLedgerIntegrity("binance", "futures", "BTCUSDT", "scope-a", "USDT")
+	if err != nil || got.InvalidTradeOrderCount != 1 {
+		t.Fatalf("trade without stable buy/sell order identities must be rejected: %+v err=%v", got, err)
+	}
+}
+
 func TestSaveOrderFillsAtomicRollsBackEarlierRowsOnConflict(t *testing.T) {
 	st, err := NewSQLStorage(t.TempDir() + "/atomic-fills.db")
 	if err != nil {

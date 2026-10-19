@@ -112,6 +112,32 @@ func TestLegacyTradeFeeCorrectionEventRestoresConservativeHold(t *testing.T) {
 	}
 }
 
+func TestPendingTradeFeeCorrectionConservativelyBlocksWholeScopedStream(t *testing.T) {
+	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "fee-correction-range.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fillTime := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	if err := store.SaveOrderFill(&OrderFill{Exchange: "binance", MarketType: "futures", AccountScope: "scope-a", BotID: "bot-a",
+		Symbol: "BTCUSDT", TradeID: "trade-1", OrderID: 912, Side: "BUY", Price: 100, Quantity: 1, TradeTime: fillTime}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SaveTradeFeeCorrection(&TradeFeeCorrection{CorrectionID: "range-correction", BotID: "bot-a", Exchange: "binance",
+		MarketType: "futures", Symbol: "BTCUSDT", AccountScope: "scope-a", OrderID: 912, Leg: "open", Side: "BUY", Fee: 0.1,
+		ExecutedQty: 1, Reason: "late fee"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"affected interval", "unrelated interval"} {
+		t.Run(name, func(t *testing.T) {
+			got, err := store.CountPendingTradeFeeCorrectionsForAccount("BINANCE", "FUTURES", "btcusdt", "scope-a")
+			if err != nil || got != 1 {
+				t.Fatalf("scoped pending count=%d err=%v want=1 in %s", got, err, name)
+			}
+		})
+	}
+}
+
 func TestTradeFeeCorrectionRejectsMissingEvidenceAndOwner(t *testing.T) {
 	store, err := NewSQLStorage(filepath.Join(t.TempDir(), "fee-corrections-invalid.db"))
 	if err != nil {

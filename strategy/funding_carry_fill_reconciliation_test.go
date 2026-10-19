@@ -46,7 +46,7 @@ type fundingRecoveryFillFixture struct {
 	ctx      context.Context
 }
 
-func newFundingRecoveryFillFixture(t *testing.T, fills []*exchange.OrderFill, complete, feesComplete, adjudicateFound bool) fundingRecoveryFillFixture {
+func newFundingRecoveryFillFixture(t *testing.T, fills []*exchange.OrderFill, complete, feesComplete, adjudicateFound bool, intentQuantity ...string) fundingRecoveryFillFixture {
 	t.Helper()
 	ctx := context.Background()
 	scope := fmt.Sprintf("%064x", 171)
@@ -64,6 +64,9 @@ func newFundingRecoveryFillFixture(t *testing.T, fills []*exchange.OrderFill, co
 	}
 	intent := accounting.RecoveryOrderIntent{SchemaVersion: 1, Exchange: "binance", Market: "spot", Symbol: "BTCUSDT",
 		Side: "BUY", OrderType: "LIMIT", TimeInForce: "GTC", Price: "100", Quantity: "0.1", ClientOrderID: "fill-cid-171"}
+	if len(intentQuantity) > 0 {
+		intent.Quantity = intentQuantity[0]
+	}
 	intentHash, err := intent.CanonicalHash()
 	if err != nil {
 		t.Fatal(err)
@@ -180,7 +183,13 @@ func TestFundingCarryFillPreviewIsReadOnlyAndApplyKeepsUnknownFeeHeld(t *testing
 		t.Fatalf("fill apply changed hold/Gate: hold=%+v found=%v err=%v sources=%v", hold, found, err, fixture.gate.Sources())
 	}
 	events, err := fixture.store.ListRecoveryEvents(fixture.ctx, fixture.episode.ID)
-	if err != nil || len(events) != 1 || events[0].FillEvidence.CommissionKnown || events[0].FillEvidence.CommissionRaw != "" || events[0].FillEvidence.CommissionAsset != "" {
+	fillEvents := make([]accounting.RecoveryEvent, 0, 1)
+	for _, event := range events {
+		if event.Kind == accounting.RecoveryFillEvent {
+			fillEvents = append(fillEvents, event)
+		}
+	}
+	if err != nil || len(fillEvents) != 1 || fillEvents[0].FillEvidence.CommissionKnown || fillEvents[0].FillEvidence.CommissionRaw != "" || fillEvents[0].FillEvidence.CommissionAsset != "" {
 		t.Fatalf("unknown fee was converted or written as fee zero: events=%+v err=%v", events, err)
 	}
 	if calls := fixture.venue.calls; calls != 2 {
@@ -325,8 +334,52 @@ func TestFundingCarryFillPreviewFailsClosedForLowerLateTradeID(t *testing.T) {
 	if _, err = fixture.strategy.PreviewFundingRecoveryFills(fixture.ctx, current.ID, children[0].ID); err == nil {
 		t.Fatal("newly discovered lower numeric trade ID was accepted")
 	}
-	if records, err := fixture.store.ListRecoveryEvents(fixture.ctx, fixture.episode.ID); err != nil || len(records) != 1 {
+	if records, err := fixture.store.ListRecoveryEvents(fixture.ctx, fixture.episode.ID); err != nil || len(records) != 2 {
 		t.Fatalf("late lower trade ID changed durable cursor/events: events=%+v err=%v", records, err)
+	}
+}
+
+func TestFundingCarryAdditiveLateHigherTradeGetsNewDurableBatchMarker(t *testing.T) {
+	fixture := newFundingRecoveryFillFixture(t, []*exchange.OrderFill{validFundingRecoveryFill("20", "0.1", true)}, true, true, true, "0.2")
+	firstPreview, err := fixture.strategy.PreviewFundingRecoveryFills(fixture.ctx, fixture.episode.ID, fixture.child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRequest := ApplyFundingRecoveryFillsRequest{EpisodeID: fixture.episode.ID, ChildID: fixture.child.ID, OperationID: "late-higher-first",
+		ExpectedEpisodeRevision: firstPreview.EpisodeRevision, ExpectedChildRevision: firstPreview.ChildRevision,
+		PreviewSourceRevision: firstPreview.Batch.SourceRevision, Actor: "operator", AuditRef: "late-fill-first", Confirmed: true}
+	if _, err := fixture.strategy.ApplyFundingRecoveryFills(fixture.ctx, firstRequest); err != nil {
+		t.Fatal("apply initial complete fill batch:", err)
+	}
+	updatedEpisode, found, err := fixture.store.GetRecoveryEpisode(fixture.ctx, fixture.episode.ID)
+	if err != nil || !found {
+		t.Fatalf("read episode after first batch: found=%t err=%v", found, err)
+	}
+	children, err := fixture.store.ListRecoveryChildren(fixture.ctx, fixture.episode.ID)
+	if err != nil || len(children) != 1 {
+		t.Fatalf("read child after first batch: children=%+v err=%v", children, err)
+	}
+	batch := cloneOrderFillBatch(fixture.venue.batch)
+	batch.Fills = append(batch.Fills, validFundingRecoveryFill("21", "0.1", true))
+	batch.ExecutedQuantityRaw = "0.2"
+	batch.SourceRevision = "sha256:late-higher-trade"
+	fixture.venue.batch = &batch
+	secondPreview, err := fixture.strategy.PreviewFundingRecoveryFills(fixture.ctx, updatedEpisode.ID, children[0].ID)
+	if err != nil {
+		t.Fatal("preview additive later complete batch:", err)
+	}
+	secondRequest := ApplyFundingRecoveryFillsRequest{EpisodeID: fixture.episode.ID, ChildID: fixture.child.ID, OperationID: "late-higher-second",
+		ExpectedEpisodeRevision: secondPreview.EpisodeRevision, ExpectedChildRevision: secondPreview.ChildRevision,
+		PreviewSourceRevision: secondPreview.Batch.SourceRevision, Actor: "operator", AuditRef: "late-fill-second", Confirmed: true}
+	if _, err := fixture.strategy.ApplyFundingRecoveryFills(fixture.ctx, secondRequest); err != nil {
+		t.Fatal("append later trade without replacing historical facts:", err)
+	}
+	events, err := fixture.store.ListRecoveryEvents(fixture.ctx, fixture.episode.ID)
+	if err != nil || len(events) != 4 {
+		t.Fatalf("late additive batch events=%+v err=%v; want two fills and two immutable markers", events, err)
+	}
+	if err := accounting.ValidateRecoveryFillBatchMarkers(events, fixture.child.ID); err != nil {
+		t.Fatalf("complete marker chain did not authenticate the append-only fill prefix: %v", err)
 	}
 }
 

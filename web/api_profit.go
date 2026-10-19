@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -23,34 +24,41 @@ import (
 
 // ProfitSummary 盈利彙總
 type ProfitSummary struct {
-	ExchangeID                  string   `json:"exchangeId,omitempty"`
-	TotalProfit                 float64  `json:"totalProfit"` // 已合并交易盈亏、资金费及已估值跨倉利息；完整性见 NetProfitComplete
-	NetProfitComplete           bool     `json:"netProfitComplete"`
-	GrossProfit                 float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
-	TotalFee                    float64  `json:"totalFee"`    // 手續費合計
-	FundingNet                  float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
-	FundingIncomeComplete       bool     `json:"fundingIncomeComplete"`
-	TodayFundingIncomeComplete  bool     `json:"todayFundingIncomeComplete"`
-	WeekFundingIncomeComplete   bool     `json:"weekFundingIncomeComplete"`
-	MonthFundingIncomeComplete  bool     `json:"monthFundingIncomeComplete"`
-	MarginInterestCost          float64  `json:"marginInterestCost"`
-	MarginInterestCostComplete  bool     `json:"marginInterestCostComplete"`
-	TodayProfit                 float64  `json:"todayProfit"`
-	TodayProfitVerified         bool     `json:"todayProfitVerified"`
-	WeekProfit                  float64  `json:"weekProfit"`
-	WeekProfitVerified          bool     `json:"weekProfitVerified"`
-	MonthProfit                 float64  `json:"monthProfit"`
-	MonthProfitVerified         bool     `json:"monthProfitVerified"`
-	UnrealizedProfit            float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
-	UnrealizedProfitVerified    bool     `json:"unrealizedProfitVerified"`
-	ExchangeProfit              *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
-	WithdrawnProfit             float64  `json:"withdrawnProfit"`
-	AvailableToWithdraw         float64  `json:"availableToWithdraw"`
-	AvailableToWithdrawVerified bool     `json:"availableToWithdrawVerified"`
-	PriceDeviationLoss          float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
-	BuyPriceDeviation           float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
-	SellPriceDeviation          float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
-	LastUpdated                 string   `json:"lastUpdated"`
+	ExchangeID                   string   `json:"exchangeId,omitempty"`
+	TotalProfit                  float64  `json:"totalProfit"` // 已合并交易盈亏、资金费及已估值跨倉利息；完整性见 NetProfitComplete
+	NetProfitComplete            bool     `json:"netProfitComplete"`
+	EquityReconciliationComplete bool     `json:"equityReconciliationComplete"`
+	AccountHistoryComplete       bool     `json:"accountHistoryComplete"`
+	ExecutionHistoryComplete     bool     `json:"executionHistoryComplete"`
+	GrossProfit                  float64  `json:"grossProfit"` // 毛利（價差盈虧，未扣手續費）
+	TotalFee                     float64  `json:"totalFee"`    // 手續費合計
+	FundingNet                   float64  `json:"fundingNet"`  // 資金費淨額（正=淨收入，負=淨支出）
+	FundingIncomeComplete        bool     `json:"fundingIncomeComplete"`
+	TodayFundingIncomeComplete   bool     `json:"todayFundingIncomeComplete"`
+	WeekFundingIncomeComplete    bool     `json:"weekFundingIncomeComplete"`
+	MonthFundingIncomeComplete   bool     `json:"monthFundingIncomeComplete"`
+	MarginInterestCost           float64  `json:"marginInterestCost"`
+	MarginInterestCostComplete   bool     `json:"marginInterestCostComplete"`
+	TodayProfit                  float64  `json:"todayProfit"`
+	TodayProfitVerified          bool     `json:"todayProfitVerified"`
+	WeekProfit                   float64  `json:"weekProfit"`
+	WeekProfitVerified           bool     `json:"weekProfitVerified"`
+	MonthProfit                  float64  `json:"monthProfit"`
+	MonthProfitVerified          bool     `json:"monthProfitVerified"`
+	UnrealizedProfit             float64  `json:"unrealizedProfit"` // 未實現盈利（根據當前倉位和價格計算）
+	UnrealizedProfitVerified     bool     `json:"unrealizedProfitVerified"`
+	ExchangeProfit               *float64 `json:"exchangeProfit,omitempty"` // 僅在當前憑據作用域可核驗時返回
+	WithdrawnProfit              float64  `json:"withdrawnProfit"`
+	AvailableToWithdraw          float64  `json:"availableToWithdraw"`
+	AvailableToWithdrawVerified  bool     `json:"availableToWithdrawVerified"`
+	PriceDeviationLoss           float64  `json:"priceDeviationLoss"` // 🔥 價格偏差導致的總損失（USDT）
+	BuyPriceDeviation            float64  `json:"buyPriceDeviation"`  // 🔥 買入價格偏差總和（USDT）
+	SellPriceDeviation           float64  `json:"sellPriceDeviation"` // 🔥 賣出價格偏差總和（USDT）
+	LastUpdated                  string   `json:"lastUpdated"`
+}
+
+func profitPeriodVerified(accountHistory, marginInterest, fundingIncome, executionHistory, equityReconciled bool) bool {
+	return accountHistory && marginInterest && fundingIncome && executionHistory && equityReconciled
 }
 
 // StrategyProfit 策略盈利
@@ -241,7 +249,13 @@ type profitAccountScope struct {
 	exchange                           string
 	scope                              string
 	futuresSymbols                     []string
+	tradeStreams                       []profitTradeStream
 	unsupportedMarginInterestUntracked bool
+}
+
+type profitTradeStream struct {
+	market string
+	symbol string
 }
 
 type scopedProfitSummaryReader interface {
@@ -259,6 +273,125 @@ type scopedFundingIncomeCoverageReader interface {
 	GetFundingIncomeCoverage(exchange, symbol, marketType, accountScope string) (time.Time, time.Time, error)
 	GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
 	GetFundingPaymentSymbolsByAccountScope(exchange, asset, accountScope string, startTime, endTime time.Time) ([]string, error)
+}
+
+type scopedOrderFillCoverageReader interface {
+	GetOrderFillCoverage(exchange, marketType, symbol, accountScope string) (*storage.OrderFillCoverage, error)
+}
+
+type scopedPendingFeeCorrectionReader interface {
+	CountPendingTradeFeeCorrectionsForAccount(exchange, marketType, symbol, accountScope string) (int, error)
+}
+
+type scopedPnLStreamReader interface {
+	GetPnLByAccountScopeAndAsset(exchange, accountScope, asset string, startTime, endTime time.Time) ([]*storage.PnLBySymbol, error)
+}
+
+type rawOrderFillIntegrityReader interface {
+	ListOrderFillStreamsByAccountScope(exchange, accountScope string) ([]storage.OrderFillStream, int64, error)
+	GetOrderFillLedgerIntegrity(exchange, marketType, symbol, accountScope, pnlAsset string) (storage.OrderFillLedgerIntegrity, error)
+}
+
+type retiredAccountScopeCheckpointReader interface {
+	LoadRiskCheckpoint(context.Context, string) ([]byte, int64, error)
+}
+
+const retiredAccountScopeCheckpointKey = "retired-equity-accounts-v1"
+const maxRetiredProfitAccountScopes = 1000
+
+func resolveProfitAccountScopesWithHistory(ctx context.Context, exchangeID string, st storage.Storage) ([]profitAccountScope, bool, error) {
+	scopes, err := resolveProfitAccountScopes(exchangeID)
+	if err != nil {
+		return nil, false, err
+	}
+	archiveComplete := false
+	reader, ok := st.(retiredAccountScopeCheckpointReader)
+	if ok && ctx != nil {
+		payload, revision, readErr := reader.LoadRiskCheckpoint(ctx, retiredAccountScopeCheckpointKey)
+		if readErr == nil {
+			if payload == nil && revision == 0 {
+				archiveComplete = true
+			} else {
+				scopes, archiveComplete, err = appendRetiredProfitAccountScopes(scopes, exchangeID, payload, revision)
+				if err != nil {
+					return scopes, false, err
+				}
+			}
+		}
+	}
+	observedReader, ok := st.(interface {
+		ListAccountExecutionScopesByExchange(string) ([]storage.ExecutionAccountScope, int64, error)
+	})
+	if !ok {
+		return scopes, false, nil
+	}
+	observed, invalid, readErr := observedReader.ListAccountExecutionScopesByExchange(exchangeID)
+	observedComplete := readErr == nil && accountExecutionScopesCovered(scopes, observed, invalid)
+	return scopes, archiveComplete && observedComplete, nil
+}
+
+func accountExecutionScopesCovered(scopes []profitAccountScope, observed []storage.ExecutionAccountScope, invalid int64) bool {
+	if invalid > 0 {
+		return false
+	}
+	known := make(map[string]struct{}, len(scopes))
+	for _, scope := range scopes {
+		known[strings.ToLower(strings.TrimSpace(scope.exchange))+"/"+strings.TrimSpace(scope.scope)] = struct{}{}
+	}
+	for _, observedScope := range observed {
+		key := strings.ToLower(strings.TrimSpace(observedScope.Exchange)) + "/" + strings.TrimSpace(observedScope.Scope)
+		if _, found := known[key]; !found {
+			return false
+		}
+	}
+	return true
+}
+
+func appendRetiredProfitAccountScopes(scopes []profitAccountScope, exchangeID string, payload []byte, revision int64) ([]profitAccountScope, bool, error) {
+	if payload == nil || revision < 1 {
+		return scopes, false, errors.New("retired account-scope checkpoint is inconsistent")
+	}
+	var archive struct {
+		Version  int   `json:"version"`
+		Revision int64 `json:"revision"`
+		Accounts []struct {
+			Exchange   string `json:"exchange"`
+			MarketType string `json:"market_type"`
+			Scope      string `json:"scope"`
+			Status     string `json:"status"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(payload, &archive); err != nil || archive.Version != 1 || archive.Revision != revision || archive.Accounts == nil {
+		return scopes, false, errors.New("retired account-scope checkpoint is invalid")
+	}
+	if len(archive.Accounts) > maxRetiredProfitAccountScopes {
+		return scopes, false, fmt.Errorf("retired account-scope count exceeds verification limit %d", maxRetiredProfitAccountScopes)
+	}
+	filter := strings.ToLower(strings.TrimSpace(exchangeID))
+	seen := make(map[string]struct{}, len(scopes)+len(archive.Accounts))
+	for _, scope := range scopes {
+		seen[strings.ToLower(strings.TrimSpace(scope.exchange))+"/"+strings.TrimSpace(scope.scope)] = struct{}{}
+	}
+	for _, archived := range archive.Accounts {
+		exchange := strings.ToLower(strings.TrimSpace(archived.Exchange))
+		scope := strings.TrimSpace(archived.Scope)
+		market := strings.ToLower(strings.TrimSpace(archived.MarketType))
+		if (archived.Status != "pending_verification" && archived.Status != "ready_for_explicit_reset") || exchange == "" || scope == "" ||
+			(market != "spot" && market != "futures" && market != "spot_margin") {
+			return scopes, false, errors.New("retired account-scope entry has invalid identity or status")
+		}
+		if filter != "" && exchange != filter {
+			continue
+		}
+		key := exchange + "/" + scope
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		scopes = append(scopes, profitAccountScope{exchange: exchange, scope: scope,
+			unsupportedMarginInterestUntracked: market == "spot_margin" && !strings.EqualFold(exchange, "binance")})
+	}
+	return scopes, true, nil
 }
 
 func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error) {
@@ -287,6 +420,7 @@ func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error)
 			profitScope := profitAccountScope{exchange: exchange, scope: scope,
 				unsupportedMarginInterestUntracked: !strings.EqualFold(strings.TrimSpace(exchange), "binance") && exchangeUsesSpotMargin(exchange, cfg)}
 			profitScope.futuresSymbols = configuredFundingSymbolsForExchange(exchange, cfg)
+			profitScope.tradeStreams = configuredProfitTradeStreamsForExchange(exchange, cfg)
 			scopes = append(scopes, profitScope)
 		}
 	}
@@ -294,6 +428,74 @@ func resolveProfitAccountScopes(exchangeID string) ([]profitAccountScope, error)
 		return nil, fmt.Errorf("no configured credential scope is available for profit summary")
 	}
 	return scopes, nil
+}
+
+func configuredProfitTradeStreamsForExchange(exchange string, cfg *config.Config) []profitTradeStream {
+	if cfg == nil {
+		return nil
+	}
+	streams := make([]profitTradeStream, 0)
+	add := func(market, symbol string) {
+		market, symbol = strings.ToLower(strings.TrimSpace(market)), strings.ToUpper(strings.TrimSpace(symbol))
+		if market == "" {
+			market = "futures"
+		}
+		switch market {
+		case config.MarketTypeFundingCarry, config.MarketTypeFundingPerpSpread:
+			market = "futures"
+		}
+		if symbol == "" {
+			return
+		}
+		for _, existing := range streams {
+			if existing.market == market && existing.symbol == symbol {
+				return
+			}
+		}
+		streams = append(streams, profitTradeStream{market: market, symbol: symbol})
+	}
+	for _, bot := range cfg.Bots {
+		if !strings.EqualFold(strings.TrimSpace(bot.Exchange), exchange) {
+			continue
+		}
+		if bot.GetMarketType() == config.MarketTypeFundingCarry {
+			add("spot", bot.Symbol)
+			add("futures", bot.Symbol)
+			continue
+		}
+		if bot.GetMarketType() == config.MarketTypeFundingPerpSpread && bot.FundingPerpSpread != nil {
+			for _, leg := range []config.FundingPerpLeg{bot.FundingPerpSpread.LegA, bot.FundingPerpSpread.LegB} {
+				if strings.EqualFold(strings.TrimSpace(leg.Exchange), exchange) {
+					add("futures", leg.Symbol)
+				}
+			}
+			continue
+		}
+		add(bot.GetMarketType(), bot.Symbol)
+	}
+	for _, symbol := range cfg.Trading.Symbols {
+		symbolExchange := strings.TrimSpace(symbol.Exchange)
+		if symbolExchange == "" {
+			symbolExchange = strings.TrimSpace(cfg.App.CurrentExchange)
+		}
+		if symbol.GetMarketType() == config.MarketTypeFundingCarry && strings.EqualFold(symbolExchange, exchange) {
+			add("spot", symbol.Symbol)
+			add("futures", symbol.Symbol)
+			continue
+		}
+		if symbol.GetMarketType() == config.MarketTypeFundingPerpSpread && symbol.FundingPerpSpread != nil {
+			for _, leg := range []config.FundingPerpLeg{symbol.FundingPerpSpread.LegA, symbol.FundingPerpSpread.LegB} {
+				if strings.EqualFold(strings.TrimSpace(leg.Exchange), exchange) {
+					add("futures", leg.Symbol)
+				}
+			}
+			continue
+		}
+		if strings.EqualFold(symbolExchange, exchange) {
+			add(symbol.MarketType, symbol.Symbol)
+		}
+	}
+	return streams
 }
 
 func configuredFundingSymbolsForExchange(exchange string, cfg *config.Config) []string {
@@ -487,6 +689,8 @@ func readScopedFundingProfitTotals(reader scopedProfitSummaryReader, scopes []pr
 
 const profitSummaryAsset = "USDT"
 
+var profitCoverageHistoryStart = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
+
 type fundingProfitTotals struct {
 	Total float64
 	Today float64
@@ -570,6 +774,134 @@ func addFiniteProfitToMap(totals map[string]float64, key string, value float64) 
 	}
 	totals[key] = total
 	return nil
+}
+
+func sumDailyProfitInRange(daily map[string]float64, startKey, endKey string) (float64, error) {
+	var total float64
+	days := make([]string, 0, len(daily))
+	for day := range daily {
+		days = append(days, day)
+	}
+	sort.Strings(days)
+	for _, day := range days {
+		if day < startKey || day > endKey {
+			continue
+		}
+		var ok bool
+		if total, ok = addFiniteProfitValues(total, daily[day]); !ok {
+			return 0, errors.New("daily profit range contains a non-finite or overflowing amount")
+		}
+	}
+	return total, nil
+}
+
+func readScopedOrderFillCoverageWindows(reader interface{}, scopes []profitAccountScope, windows []profitCoverageWindow) ([]bool, error) {
+	fillReader, hasFillCoverage := reader.(scopedOrderFillCoverageReader)
+	feeReader, hasFeeCorrections := reader.(scopedPendingFeeCorrectionReader)
+	pnlReader, hasPnLStreams := reader.(scopedPnLStreamReader)
+	rawReader, hasRawFillIntegrity := reader.(rawOrderFillIntegrityReader)
+	complete := make([]bool, len(windows))
+	if !hasFillCoverage || !hasFeeCorrections || !hasPnLStreams || !hasRawFillIntegrity {
+		return complete, nil
+	}
+	maxEnd := time.Time{}
+	for _, window := range windows {
+		if window.start.IsZero() || window.end.IsZero() || window.end.Before(window.start) {
+			return nil, errors.New("execution coverage window is invalid")
+		}
+		if window.end.After(maxEnd) {
+			maxEnd = window.end
+		}
+	}
+	for i := range complete {
+		complete[i] = true
+	}
+	for _, scope := range scopes {
+		rawStreams, invalidRawIdentityCount, err := rawReader.ListOrderFillStreamsByAccountScope(scope.exchange, scope.scope)
+		if err != nil {
+			return nil, fmt.Errorf("discover raw account-scoped order-fill streams for %s: %w", scope.exchange, err)
+		}
+		streams, err := pnlReader.GetPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, profitCoverageHistoryStart, maxEnd)
+		if err != nil {
+			return nil, fmt.Errorf("read account-scoped trade streams for %s: %w", scope.exchange, err)
+		}
+		type streamKey struct{ market, symbol string }
+		streamSet := make(map[streamKey]struct{})
+		for _, configured := range scope.tradeStreams {
+			streamSet[streamKey{market: configured.market, symbol: configured.symbol}] = struct{}{}
+		}
+		if invalidRawIdentityCount > 0 {
+			for i := range complete {
+				complete[i] = false
+			}
+		}
+		for _, raw := range rawStreams {
+			if !strings.EqualFold(strings.TrimSpace(raw.Exchange), scope.exchange) ||
+				(raw.MarketType != "spot" && raw.MarketType != "futures" && raw.MarketType != "spot_margin") || raw.Symbol == "" {
+				for i := range complete {
+					complete[i] = false
+				}
+				continue
+			}
+			streamSet[streamKey{market: raw.MarketType, symbol: raw.Symbol}] = struct{}{}
+		}
+		for _, stream := range streams {
+			if stream == nil {
+				return nil, fmt.Errorf("read account-scoped trade streams for %s: result contains a missing row", scope.exchange)
+			}
+			market, symbol := strings.ToLower(strings.TrimSpace(stream.MarketType)), strings.ToUpper(strings.TrimSpace(stream.Symbol))
+			if (market != "spot" && market != "futures" && market != "spot_margin") || symbol == "" ||
+				!strings.EqualFold(strings.TrimSpace(stream.Exchange), scope.exchange) || !strings.EqualFold(strings.TrimSpace(stream.PnLAsset), profitSummaryAsset) {
+				for i := range complete {
+					complete[i] = false
+				}
+				continue
+			}
+			streamSet[streamKey{market: market, symbol: symbol}] = struct{}{}
+		}
+		for _, symbol := range scope.futuresSymbols {
+			streamSet[streamKey{market: "futures", symbol: strings.ToUpper(strings.TrimSpace(symbol))}] = struct{}{}
+		}
+		if len(streamSet) == 0 {
+			for i := range complete {
+				complete[i] = false
+			}
+		}
+		for key := range streamSet {
+			integrity, err := rawReader.GetOrderFillLedgerIntegrity(scope.exchange, key.market, key.symbol, scope.scope, profitSummaryAsset)
+			if err != nil {
+				return nil, fmt.Errorf("verify raw fill accounting for %s %s %s: %w", scope.exchange, key.market, key.symbol, err)
+			}
+			if integrity.UnpairedOrderCount > 0 || integrity.MissingFillOrderCount > 0 || integrity.InvalidTradeOrderCount > 0 || integrity.ExecutionMismatchOrderCount > 0 || integrity.UnvaluedFeeCount > 0 || !integrity.FeeTotalsMatch {
+				for i := range complete {
+					complete[i] = false
+				}
+			}
+			coverage, err := fillReader.GetOrderFillCoverage(scope.exchange, key.market, key.symbol, scope.scope)
+			if err != nil {
+				return nil, fmt.Errorf("read order-fill coverage for %s %s %s: %w", scope.exchange, key.market, key.symbol, err)
+			}
+			for i, window := range windows {
+				// Fee corrections currently identify an order, not the specific fill/time
+				// affected. Block every interval for this exact stream until resolved.
+				pendingFees, err := feeReader.CountPendingTradeFeeCorrectionsForAccount(scope.exchange, key.market, key.symbol, scope.scope)
+				if err != nil {
+					return nil, fmt.Errorf("read pending fee corrections for %s %s %s: %w", scope.exchange, key.market, key.symbol, err)
+				}
+				if pendingFees > 0 {
+					complete[i] = false
+				}
+				if coverage == nil || !strings.EqualFold(strings.TrimSpace(coverage.Exchange), scope.exchange) ||
+					!strings.EqualFold(strings.TrimSpace(coverage.MarketType), key.market) ||
+					!strings.EqualFold(strings.TrimSpace(coverage.Symbol), key.symbol) || coverage.AccountScope != scope.scope ||
+					coverage.CoveredFrom.IsZero() || coverage.CoveredThrough.Before(coverage.CoveredFrom) ||
+					coverage.CoveredFrom.After(window.start.UTC()) || coverage.CoveredThrough.Before(window.end.UTC()) {
+					complete[i] = false
+				}
+			}
+		}
+	}
+	return complete, nil
 }
 
 func roundProfitToCents(value float64) (float64, bool) {
@@ -905,7 +1237,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 
 	// 獲取當前账戶標识
 	accountID := GetCurrentAccountID()
-	profitScopes, err := resolveProfitAccountScopes(exchangeID)
+	profitScopes, accountHistoryComplete, err := resolveProfitAccountScopesWithHistory(c.Request.Context(), exchangeID, st)
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法验证当前账户的盈利数据作用域: " + err.Error()})
 		return
@@ -944,8 +1276,12 @@ func getProfitSummaryHandler(c *gin.Context) {
 	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, utils.GlobalLocation)
 
 	dailyStatsByDate := make(map[string]float64)
+	dailyQueryStart := monthStart
+	if weekStart.Before(dailyQueryStart) {
+		dailyQueryStart = weekStart
+	}
 	for _, scope := range profitScopes {
-		dailyStats, queryErr := scopedProfitReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, monthStart, now)
+		dailyStats, queryErr := scopedProfitReader.QueryDailyPnLByAccountScopeAndAsset(scope.exchange, scope.scope, profitSummaryAsset, dailyQueryStart, now)
 		if queryErr != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "每日盈利未能通过账户/币种完整性核验: " + queryErr.Error()})
 			return
@@ -965,29 +1301,22 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 	}
 
-	todayProfit := 0.0
-	weekProfit := 0.0
-	monthProfit := 0.0
-
 	todayKey, weekKey := todayStart.Format("2006-01-02"), weekStart.Format("2006-01-02")
-	for day, pnl := range dailyStatsByDate {
-		var ok bool
-		if monthProfit, ok = addFiniteProfitValues(monthProfit, pnl); !ok {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "月度盈利统计累加溢出"})
-			return
-		}
-		if day >= todayKey {
-			if todayProfit, ok = addFiniteProfitValues(todayProfit, pnl); !ok {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "当日盈利统计累加溢出"})
-				return
-			}
-		}
-		if day >= weekKey {
-			if weekProfit, ok = addFiniteProfitValues(weekProfit, pnl); !ok {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "本周盈利统计累加溢出"})
-				return
-			}
-		}
+	monthKey, endKey := monthStart.Format("2006-01-02"), now.Format("2006-01-02")
+	todayProfit, err := sumDailyProfitInRange(dailyStatsByDate, todayKey, endKey)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "当日盈利统计累加溢出"})
+		return
+	}
+	weekProfit, err := sumDailyProfitInRange(dailyStatsByDate, weekKey, endKey)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "本周盈利统计累加溢出"})
+		return
+	}
+	monthProfit, err := sumDailyProfitInRange(dailyStatsByDate, monthKey, endKey)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "月度盈利统计累加溢出"})
+		return
 	}
 
 	// 3. 獲取未實現盈利 (Unrealized Profit)
@@ -1007,7 +1336,7 @@ func getProfitSummaryHandler(c *gin.Context) {
 	}
 
 	// 資金費用淨額（正=淨收入，負=淨支出）
-	startAll := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	startAll := profitCoverageHistoryStart
 	fundingTotals, err := readScopedFundingProfitTotals(scopedProfitReader, profitScopes, startAll, todayStart, weekStart, monthStart, now)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查詢資金費統計失敗: " + err.Error()})
@@ -1026,6 +1355,16 @@ func getProfitSummaryHandler(c *gin.Context) {
 	}
 	fundingLifetimeComplete, fundingTodayComplete := fundingCoverage[0], fundingCoverage[1]
 	fundingWeekComplete, fundingMonthComplete := fundingCoverage[2], fundingCoverage[3]
+	executionCoverage, err := readScopedOrderFillCoverageWindows(st, profitScopes, []profitCoverageWindow{
+		{start: startAll, end: now},
+		{start: todayStart, end: now},
+		{start: weekStart, end: now},
+		{start: monthStart, end: now},
+	})
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验成交历史覆盖: " + err.Error()})
+		return
+	}
 	marginInterestReader, hasMarginInterestReader := st.(scopedMarginInterestProfitReader)
 	if !hasMarginInterestReader {
 		marginInterestReader = nil
@@ -1099,35 +1438,42 @@ func getProfitSummaryHandler(c *gin.Context) {
 		}
 		return rounded
 	}
+	// Equity samples alone cannot prove period PnL: the current storage contract
+	// does not expose historical, fully reconciled external capital flows.
+	// Keep the all-in net-profit claim fail-closed until that evidence is wired.
+	const equityReconciliationComplete = false
 	summary := ProfitSummary{
-		ExchangeID:                  exchangeID,
-		TotalProfit:                 roundCents(netWithFunding),
-		NetProfitComplete:           marginLifetime.Complete && fundingLifetimeComplete,
-		GrossProfit:                 roundCents(summaryStats.GrossPnL),
-		TotalFee:                    roundCents(summaryStats.TotalFee),
-		FundingNet:                  roundCents(fundingSum),
-		FundingIncomeComplete:       fundingLifetimeComplete,
-		TodayFundingIncomeComplete:  fundingTodayComplete,
-		WeekFundingIncomeComplete:   fundingWeekComplete,
-		MonthFundingIncomeComplete:  fundingMonthComplete,
-		MarginInterestCost:          roundCents(marginLifetime.Total),
-		MarginInterestCostComplete:  marginLifetime.Complete,
-		TodayProfit:                 roundCents(todayProfitWithFunding),
-		TodayProfitVerified:         marginToday.Complete && fundingTodayComplete,
-		WeekProfit:                  roundCents(weekProfitWithFunding),
-		WeekProfitVerified:          marginWeek.Complete && fundingWeekComplete,
-		MonthProfit:                 roundCents(monthProfitWithFunding),
-		MonthProfitVerified:         marginMonth.Complete && fundingMonthComplete,
-		UnrealizedProfit:            roundCents(unrealizedProfit),
-		UnrealizedProfitVerified:    unrealizedProfitVerified,
-		ExchangeProfit:              exchangeProfit,
-		WithdrawnProfit:             roundCents(withdrawnAmounts.withdrawn),
-		AvailableToWithdraw:         availableToWithdraw,
-		AvailableToWithdrawVerified: availableToWithdrawVerified,
-		PriceDeviationLoss:          roundCents(priceDeviationLoss),
-		BuyPriceDeviation:           roundCents(summaryStats.TotalBuyDeviation),
-		SellPriceDeviation:          roundCents(summaryStats.TotalSellDeviation),
-		LastUpdated:                 time.Now().Format(time.RFC3339),
+		ExchangeID:                   exchangeID,
+		TotalProfit:                  roundCents(netWithFunding),
+		NetProfitComplete:            profitPeriodVerified(accountHistoryComplete, marginLifetime.Complete, fundingLifetimeComplete, executionCoverage[0], equityReconciliationComplete),
+		EquityReconciliationComplete: equityReconciliationComplete,
+		AccountHistoryComplete:       accountHistoryComplete,
+		ExecutionHistoryComplete:     accountHistoryComplete && executionCoverage[0],
+		GrossProfit:                  roundCents(summaryStats.GrossPnL),
+		TotalFee:                     roundCents(summaryStats.TotalFee),
+		FundingNet:                   roundCents(fundingSum),
+		FundingIncomeComplete:        fundingLifetimeComplete,
+		TodayFundingIncomeComplete:   fundingTodayComplete,
+		WeekFundingIncomeComplete:    fundingWeekComplete,
+		MonthFundingIncomeComplete:   fundingMonthComplete,
+		MarginInterestCost:           roundCents(marginLifetime.Total),
+		MarginInterestCostComplete:   marginLifetime.Complete,
+		TodayProfit:                  roundCents(todayProfitWithFunding),
+		TodayProfitVerified:          profitPeriodVerified(accountHistoryComplete, marginToday.Complete, fundingTodayComplete, executionCoverage[1], equityReconciliationComplete),
+		WeekProfit:                   roundCents(weekProfitWithFunding),
+		WeekProfitVerified:           profitPeriodVerified(accountHistoryComplete, marginWeek.Complete, fundingWeekComplete, executionCoverage[2], equityReconciliationComplete),
+		MonthProfit:                  roundCents(monthProfitWithFunding),
+		MonthProfitVerified:          profitPeriodVerified(accountHistoryComplete, marginMonth.Complete, fundingMonthComplete, executionCoverage[3], equityReconciliationComplete),
+		UnrealizedProfit:             roundCents(unrealizedProfit),
+		UnrealizedProfitVerified:     unrealizedProfitVerified,
+		ExchangeProfit:               exchangeProfit,
+		WithdrawnProfit:              roundCents(withdrawnAmounts.withdrawn),
+		AvailableToWithdraw:          availableToWithdraw,
+		AvailableToWithdrawVerified:  availableToWithdrawVerified,
+		PriceDeviationLoss:           roundCents(priceDeviationLoss),
+		BuyPriceDeviation:            roundCents(summaryStats.TotalBuyDeviation),
+		SellPriceDeviation:           roundCents(summaryStats.TotalSellDeviation),
+		LastUpdated:                  time.Now().Format(time.RFC3339),
 	}
 	if !roundOK {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "盈利摘要包含无法安全舍入的非有限数值"})
@@ -2276,6 +2622,13 @@ func getProfitTrendHandler(c *gin.Context) {
 			return
 		}
 	}
+	trendExecutionCoverage, err := readScopedOrderFillCoverageWindows(st, profitScopes, []profitCoverageWindow{{
+		start: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), end: now,
+	}})
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "无法完整核验趋势成交历史覆盖: " + err.Error()})
+		return
+	}
 
 	// 將結果按日期填充，缺失的日期补0
 	trendMap := dailyStatsByDate
@@ -2307,10 +2660,11 @@ func getProfitTrendHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"success":      true,
-		"trend":        trend,
-		"period":       period,
-		"income_basis": "account_scoped_paired_trade_pnl_net_of_recorded_fees_excludes_funding_and_margin_interest",
+		"success":                    true,
+		"trend":                      trend,
+		"period":                     period,
+		"income_basis":               "account_scoped_paired_trade_pnl_net_of_recorded_fees_excludes_funding_and_margin_interest",
+		"execution_history_complete": trendExecutionCoverage[0],
 	})
 }
 

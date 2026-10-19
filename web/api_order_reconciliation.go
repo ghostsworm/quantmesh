@@ -78,6 +78,8 @@ type OrderReconciliationService struct {
 	RecoveryOpeningBalanceApply    FundingRecoveryOpeningBalanceApply
 	RecoveryFundingIncomeApply     FundingRecoveryFundingIncomeApply
 	RecoveryAnomalyAdjustmentApply FundingRecoveryAnomalyAdjustmentApply
+	RecoveryGateSourceReader       FundingRecoveryGateSourceReader
+	RecoveryReleaseApply           FundingRecoveryReleaseApply
 }
 
 // FundingRecoveryRuntimeResolver returns only an already-owned runtime token;
@@ -101,6 +103,10 @@ type FundingRecoveryOpeningBalanceApply func(context.Context, strategy.ApplyFund
 type FundingRecoveryFundingIncomeApply func(context.Context, strategy.ApplyFundingRecoveryIncomeRequest) (strategy.ApplyFundingRecoveryIncomeResult, error)
 
 type FundingRecoveryAnomalyAdjustmentApply func(context.Context, strategy.ApplyFundingRecoveryAnomalyAdjustmentRequest) (strategy.ApplyFundingRecoveryAnomalyAdjustmentResult, error)
+
+type FundingRecoveryGateSourceReader func(context.Context, accounting.RecoveryEpisode) ([]string, error)
+
+type FundingRecoveryReleaseApply func(context.Context, accounting.RecoveryReleaseAuthorization) (FundingRecoveryReleaseReadback, error)
 
 type OrderReconciliationValidation struct {
 	OwnerMatched          bool     `json:"owner_matched"`

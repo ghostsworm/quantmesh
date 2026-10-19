@@ -6,6 +6,25 @@ import (
 	"time"
 )
 
+func TestRecoveryReleaseAuthorizationRequiresAuditedExposureClearance(t *testing.T) {
+	base := RecoveryReleaseAuthorization{EpisodeID: "episode", OperationID: "operation", Actor: "admin", AuditRef: "accounting-case-17",
+		EvidenceHash: fmt.Sprintf("%064x", 1), ExposureClearanceHash: fmt.Sprintf("%064x", 2), ProjectionHash: fmt.Sprintf("%064x", 3),
+		RuntimeRevision: "runtime-rev-4", OwnerGeneration: "owner-4", ExpectedEpisodeRevision: 8, RecoveryGeneration: 2,
+		ExpectedHoldRevision: 3, Confirmed: true, ExposureClearanceConfirmed: true}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid audited exposure clearance rejected: %v", err)
+	}
+	withoutHash := base
+	withoutHash.ExposureClearanceHash = ""
+	withoutConfirmation := base
+	withoutConfirmation.ExposureClearanceConfirmed = false
+	for _, candidate := range []RecoveryReleaseAuthorization{withoutHash, withoutConfirmation} {
+		if err := candidate.Validate(); err == nil {
+			t.Fatal("release authorization without audited no-position/no-liability clearance was accepted")
+		}
+	}
+}
+
 func TestRecoveryDebtEventRequiresExactRawComponentsAndDirection(t *testing.T) {
 	base := RecoveryEvent{
 		ID: "debt-1", Source: "binance_margin_history", Exchange: "binance", Market: "spot_margin",

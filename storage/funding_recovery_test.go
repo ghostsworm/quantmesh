@@ -816,8 +816,9 @@ func TestConsumeOrderPermitAtomicallyPersistsUnknownSubmissionAttempt(t *testing
 		t.Fatalf("consumed permit replay = maySubmit %v, err %v; must never reauthorize RPC", maySubmit, err)
 	}
 	releaseAuth := accounting.RecoveryReleaseAuthorization{
-		EpisodeID: episode.ID, OperationID: "release-before-reconcile", Actor: "admin", EvidenceHash: "evidence-hash",
-		ProjectionHash: "projection-hash", RuntimeRevision: "runtime-revision", OwnerGeneration: generation.ID(),
+		EpisodeID: episode.ID, OperationID: "release-before-reconcile", Actor: "admin", AuditRef: "incident-release-before-reconcile", EvidenceHash: strings.Repeat("a", 64),
+		ExposureClearanceHash: strings.Repeat("b", 64), ExposureClearanceConfirmed: true,
+		ProjectionHash: strings.Repeat("c", 64), RuntimeRevision: "runtime-revision", OwnerGeneration: generation.ID(),
 		ExpectedEpisodeRevision: 1, RecoveryGeneration: 1, ExpectedHoldRevision: 1, Confirmed: true,
 	}
 	if _, err = store.PrepareRecoveryRelease(ctx, generation, releaseAuth); !errors.Is(err, accounting.ErrRecoveryConflict) {

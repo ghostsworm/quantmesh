@@ -1949,6 +1949,164 @@ func applyRecoveryOwnerTakeover(episode accounting.RecoveryEpisode, hold account
 	}, nil
 }
 
+func validateRecoveryReleaseSubmissionEvidence(ctx context.Context, tx *sql.Tx, episodeID string) error {
+	attemptRows, err := tx.QueryContext(ctx, `SELECT payload_json FROM funding_recovery_submission_attempts WHERE episode_id=?`, episodeID)
+	if err != nil {
+		return fmt.Errorf("read recovery submission attempts before release: %w", err)
+	}
+	attempts := make([]accounting.RecoverySubmissionAttempt, 0)
+	for attemptRows.Next() {
+		var raw []byte
+		var attempt accounting.RecoverySubmissionAttempt
+		if err := attemptRows.Scan(&raw); err != nil {
+			attemptRows.Close()
+			return err
+		}
+		if err := json.Unmarshal(raw, &attempt); err != nil {
+			attemptRows.Close()
+			return err
+		}
+		if err := attempt.Validate(); err != nil || attempt.EpisodeID != episodeID || attempt.State != accounting.RecoverySubmissionFound {
+			attemptRows.Close()
+			return accounting.ErrRecoveryConflict
+		}
+		attempts = append(attempts, attempt)
+	}
+	if err := attemptRows.Err(); err != nil {
+		attemptRows.Close()
+		return err
+	}
+	if err := attemptRows.Close(); err != nil {
+		return err
+	}
+	if len(attempts) == 0 {
+		return nil
+	}
+	childRows, err := tx.QueryContext(ctx, `SELECT payload_json FROM funding_recovery_children WHERE episode_id=?`, episodeID)
+	if err != nil {
+		return fmt.Errorf("read recovery children before release: %w", err)
+	}
+	children := make(map[string]accounting.RecoveryChild)
+	for childRows.Next() {
+		var raw []byte
+		var child accounting.RecoveryChild
+		if err := childRows.Scan(&raw); err != nil {
+			childRows.Close()
+			return err
+		}
+		if err := json.Unmarshal(raw, &child); err != nil {
+			childRows.Close()
+			return err
+		}
+		children[child.ID] = child
+	}
+	if err := childRows.Err(); err != nil {
+		childRows.Close()
+		return err
+	}
+	if err := childRows.Close(); err != nil {
+		return err
+	}
+	eventRows, err := tx.QueryContext(ctx, `SELECT payload_json FROM funding_recovery_events WHERE episode_id=?`, episodeID)
+	if err != nil {
+		return fmt.Errorf("read recovery events before release: %w", err)
+	}
+	events := make([]accounting.RecoveryEvent, 0)
+	for eventRows.Next() {
+		var raw []byte
+		var event accounting.RecoveryEvent
+		if err := eventRows.Scan(&raw); err != nil {
+			eventRows.Close()
+			return err
+		}
+		if err := json.Unmarshal(raw, &event); err != nil {
+			eventRows.Close()
+			return err
+		}
+		events = append(events, event)
+	}
+	if err := eventRows.Err(); err != nil {
+		eventRows.Close()
+		return err
+	}
+	if err := eventRows.Close(); err != nil {
+		return err
+	}
+	accountedChildren := make(map[string]struct{}, len(attempts))
+	for _, attempt := range attempts {
+		accountedChildren[attempt.ChildID] = struct{}{}
+		child, found := children[attempt.ChildID]
+		if !found || child.EpisodeID != episodeID || child.State == accounting.ChildProvisional || child.State == accounting.ChildUnknown ||
+			child.VenueOrderID != attempt.VenueOrderID || child.OrderIntentHash != attempt.IntentHash || child.Symbol != attempt.Intent.Symbol ||
+			child.Side != attempt.Intent.Side || child.Exchange != attempt.Intent.Exchange || child.Market != attempt.Intent.Market || child.AccountScope != attempt.AccountScope {
+			return accounting.ErrRecoveryConflict
+		}
+		zeroTerminalMarkers := 0
+		fillEventCount := 0
+		batchMarkerCount := 0
+		fillIDs := make(map[string]struct{})
+		feeAdjustedFillIDs := make(map[string]struct{})
+		for _, event := range events {
+			if event.Validate() != nil || event.EpisodeID != episodeID {
+				return accounting.ErrRecoveryConflict
+			}
+			if event.ChildID != attempt.ChildID {
+				continue
+			}
+			if event.Exchange != child.Exchange || event.Market != child.Market || event.AccountScope != child.AccountScope {
+				return accounting.ErrRecoveryConflict
+			}
+			if event.Kind == accounting.RecoveryFillBatchCompleteEvent && event.CompletenessMarker == string(accounting.RecoveryFillBatchCompleteEvent) {
+				if event.Source != "venue_order_fill_batch" {
+					return accounting.ErrRecoveryConflict
+				}
+				batchMarkerCount++
+			} else if event.Kind == accounting.RecoveryTerminalEvent && strings.HasPrefix(event.ExternalID, "terminal_zero:") && event.CompletenessMarker == "zero_fill_terminal" {
+				zeroTerminalMarkers++
+			}
+			if event.Kind == accounting.RecoveryFillEvent {
+				if event.Source != "venue_order_fill_batch" || event.FillEvidence == nil || event.FillEvidence.VenueOrderID != attempt.VenueOrderID ||
+					event.FillEvidence.ClientOrderID != attempt.Intent.ClientOrderID || event.FillEvidence.OrderIntentHash != attempt.IntentHash ||
+					event.FillEvidence.Symbol != attempt.Intent.Symbol || event.FillEvidence.Side != attempt.Intent.Side {
+					return accounting.ErrRecoveryConflict
+				}
+				fillEventCount++
+				fillIDs[event.ExternalID] = struct{}{}
+			}
+			if event.Kind == accounting.RecoveryFeeEvent && event.Source == accounting.RecoveryManualFeeAdjustmentSource {
+				feeAdjustedFillIDs[event.RelatedExternalID] = struct{}{}
+			}
+		}
+		if fillEventCount == 0 {
+			if zeroTerminalMarkers != 1 || batchMarkerCount != 0 {
+				return accounting.ErrRecoveryConflict
+			}
+		} else if zeroTerminalMarkers != 0 || batchMarkerCount == 0 || accounting.ValidateRecoveryFillBatchMarkers(events, attempt.ChildID) != nil {
+			return accounting.ErrRecoveryConflict
+		}
+		for _, event := range events {
+			if event.ChildID == attempt.ChildID && event.Kind == accounting.RecoveryFillEvent && event.FillEvidence != nil && !event.FillEvidence.CommissionKnown {
+				if _, adjusted := feeAdjustedFillIDs[event.ExternalID]; !adjusted {
+					return accounting.ErrRecoveryConflict
+				}
+			}
+		}
+		for tradeID := range feeAdjustedFillIDs {
+			if _, exists := fillIDs[tradeID]; !exists {
+				return accounting.ErrRecoveryConflict
+			}
+		}
+	}
+	for _, child := range children {
+		if child.State == accounting.ChildBound {
+			if _, found := accountedChildren[child.ID]; !found {
+				return accounting.ErrRecoveryConflict
+			}
+		}
+	}
+	return nil
+}
+
 func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation FundingCarryRuntimeGeneration, auth accounting.RecoveryReleaseAuthorization) (accounting.RecoveryEpisode, error) {
 	if err := auth.Validate(); err != nil {
 		return accounting.RecoveryEpisode{}, err
@@ -1966,15 +2124,8 @@ func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation Fund
 	if err = requireRecoverySourceAnomaliesVerified(ctx, tx, auth.EpisodeID); err != nil {
 		return accounting.RecoveryEpisode{}, err
 	}
-	var attemptsWithoutAccounting int
-	// No submission-attempt state currently proves that fills, fees, and debt
-	// have been fully projected. In particular, "found" only binds the venue
-	// order to its provisional child; it is not an accounting-complete state.
-	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM funding_recovery_submission_attempts WHERE episode_id=?`, auth.EpisodeID).Scan(&attemptsWithoutAccounting); err != nil {
-		return accounting.RecoveryEpisode{}, fmt.Errorf("count recovery submission attempts before release: %w", err)
-	}
-	if attemptsWithoutAccounting != 0 {
-		return accounting.RecoveryEpisode{}, accounting.ErrRecoveryConflict
+	if err = validateRecoveryReleaseSubmissionEvidence(ctx, tx, auth.EpisodeID); err != nil {
+		return accounting.RecoveryEpisode{}, err
 	}
 	childRows, err := tx.QueryContext(ctx, `SELECT payload_json FROM funding_recovery_children WHERE episode_id=?`, auth.EpisodeID)
 	if err != nil {
@@ -2066,6 +2217,9 @@ func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation Fund
 	if outbox.State != accounting.RecoveryProjected || outbox.AppliedOperationID != outbox.OperationID || outbox.AppliedHash != auth.ProjectionHash || outbox.ExpectedRuntimeRevision != auth.RuntimeRevision {
 		return episode, accounting.ErrRecoveryConflict
 	}
+	if err = revokeAuthorizedRecoveryPermitsTx(ctx, tx, auth.EpisodeID); err != nil {
+		return episode, fmt.Errorf("revoke unused recovery permits before hold release: %w", err)
+	}
 	episode.Revision++
 	episode.State = accounting.RecoveryReleasePending
 	episode.UpdatedAt = time.Now().UTC()
@@ -2077,7 +2231,7 @@ func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation Fund
 	if n, e := result.RowsAffected(); e != nil || n != 1 {
 		return episode, accounting.ErrRecoveryConflict
 	}
-	receipt := accounting.RecoveryReceipt{EpisodeID: auth.EpisodeID, OperationID: auth.OperationID, RequestHash: requestHash, EpisodeRevision: episode.Revision, State: accounting.RecoveryReleasePending, ProjectionHash: auth.ProjectionHash, CreatedAt: time.Now().UTC()}
+	receipt := accounting.RecoveryReceipt{EpisodeID: auth.EpisodeID, OperationID: auth.OperationID, RequestHash: requestHash, EpisodeRevision: episode.Revision, RecoveryGeneration: auth.RecoveryGeneration, State: accounting.RecoveryReleasePending, ProjectionHash: auth.ProjectionHash, Actor: auth.Actor, AuditRef: auth.AuditRef, EvidenceHash: auth.EvidenceHash, ExposureClearanceHash: auth.ExposureClearanceHash, OwnerGeneration: auth.OwnerGeneration, CreatedAt: time.Now().UTC()}
 	receiptJSON, _ := json.Marshal(receipt)
 	if _, err = tx.ExecContext(ctx, `INSERT INTO funding_recovery_operations(episode_id,operation_id,request_hash,phase,receipt_json) VALUES(?,?,?,?,?)`, auth.EpisodeID, auth.OperationID, requestHash, string(accounting.RecoveryReleasePending), receiptJSON); err != nil {
 		return episode, recoveryConflict(err)
@@ -2180,6 +2334,10 @@ func (s *SQLStorage) ReleaseRecoveryHold(ctx context.Context, generation Funding
 	var receipt accounting.RecoveryReceipt
 	if err = json.Unmarshal(receiptRaw, &receipt); err != nil {
 		return hold, err
+	}
+	if receipt.Actor != auth.Actor || receipt.AuditRef != auth.AuditRef || receipt.EvidenceHash != auth.EvidenceHash || receipt.ExposureClearanceHash != auth.ExposureClearanceHash ||
+		receipt.ProjectionHash != auth.ProjectionHash || receipt.OwnerGeneration != auth.OwnerGeneration {
+		return accounting.RecoveryHold{}, accounting.ErrRecoveryOperationConflict
 	}
 	receipt.State = accounting.RecoveryReleased
 	receipt.EpisodeRevision = episode.Revision

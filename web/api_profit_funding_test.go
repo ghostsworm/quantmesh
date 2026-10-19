@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
@@ -27,6 +28,209 @@ type fundingIncomeCoverageFixture struct {
 	streams        []*storage.PnLBySymbol
 	fundingSymbols []string
 	coverage       map[string][2]time.Time
+}
+
+type orderFillCoverageFixture struct {
+	streams        []*storage.PnLBySymbol
+	rawStreams     []storage.OrderFillStream
+	invalidRawRows int64
+	coverage       map[string]*storage.OrderFillCoverage
+	pending        map[string]int
+	integrity      map[string]storage.OrderFillLedgerIntegrity
+}
+
+func (f orderFillCoverageFixture) GetPnLByAccountScopeAndAsset(_, _, _ string, _, _ time.Time) ([]*storage.PnLBySymbol, error) {
+	return f.streams, nil
+}
+
+func (f orderFillCoverageFixture) GetOrderFillCoverage(exchange, marketType, symbol, scope string) (*storage.OrderFillCoverage, error) {
+	return f.coverage[strings.ToLower(exchange)+"/"+strings.ToLower(marketType)+"/"+strings.ToUpper(symbol)+"/"+scope], nil
+}
+
+func (f orderFillCoverageFixture) CountPendingTradeFeeCorrectionsForAccount(exchange, marketType, symbol, scope string) (int, error) {
+	return f.pending[strings.ToLower(exchange)+"/"+strings.ToLower(marketType)+"/"+strings.ToUpper(symbol)+"/"+scope], nil
+}
+
+func (f orderFillCoverageFixture) ListOrderFillStreamsByAccountScope(_, _ string) ([]storage.OrderFillStream, int64, error) {
+	return f.rawStreams, f.invalidRawRows, nil
+}
+
+func (f orderFillCoverageFixture) GetOrderFillLedgerIntegrity(exchange, marketType, symbol, scope, _ string) (storage.OrderFillLedgerIntegrity, error) {
+	key := strings.ToLower(exchange) + "/" + strings.ToLower(marketType) + "/" + strings.ToUpper(symbol) + "/" + scope
+	result, exists := f.integrity[key]
+	if !exists {
+		result.FeeTotalsMatch = true
+	}
+	return result, nil
+}
+
+func TestSumDailyProfitInRangeIncludesPriorMonthWeekDaysOnly(t *testing.T) {
+	daily := map[string]float64{
+		"2026-09-28": 10,
+		"2026-09-29": 20,
+		"2026-10-01": 30,
+		"2026-10-04": 40,
+	}
+	week, err := sumDailyProfitInRange(daily, "2026-09-28", "2026-10-04")
+	if err != nil || week != 100 {
+		t.Fatalf("cross-month week total=%v err=%v, want 100", week, err)
+	}
+	month, err := sumDailyProfitInRange(daily, "2026-10-01", "2026-10-04")
+	if err != nil || month != 70 {
+		t.Fatalf("month total=%v err=%v, want 70", month, err)
+	}
+}
+
+func TestProfitCompletenessRequiresDailyEquityReconciliation(t *testing.T) {
+	if profitPeriodVerified(true, true, true, true, false) {
+		t.Fatal("complete transaction ledgers without daily equity/cash-flow reconciliation must not be declared net-profit verified")
+	}
+	if !profitPeriodVerified(true, true, true, true, true) {
+		t.Fatal("fully reconciled account and ledgers should pass the completeness gate")
+	}
+}
+
+func TestReadScopedOrderFillCoverageWindowsFailsClosed(t *testing.T) {
+	start := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC)
+	window := []profitCoverageWindow{{start: start, end: end}}
+	scopes := []profitAccountScope{{exchange: "binance", scope: "scope-a", futuresSymbols: []string{"BTCUSDT"}}}
+	completeCoverage := func(market, symbol string) *storage.OrderFillCoverage {
+		return &storage.OrderFillCoverage{Exchange: "binance", MarketType: market, Symbol: symbol, AccountScope: "scope-a", CoveredFrom: start.Add(-time.Hour), CoveredThrough: end.Add(time.Hour)}
+	}
+	fixture := orderFillCoverageFixture{
+		streams:    []*storage.PnLBySymbol{{Exchange: "binance", MarketType: "spot", Symbol: "ETHUSDT", PnLAsset: "USDT"}},
+		rawStreams: []storage.OrderFillStream{{Exchange: "binance", MarketType: "spot", Symbol: "ETHUSDT"}},
+		coverage: map[string]*storage.OrderFillCoverage{
+			"binance/futures/BTCUSDT/scope-a": completeCoverage("futures", "BTCUSDT"),
+			"binance/spot/ETHUSDT/scope-a":    completeCoverage("spot", "ETHUSDT"),
+		},
+		pending: map[string]int{},
+	}
+	results, err := readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || len(results) != 1 || !results[0] {
+		t.Fatalf("complete execution history=%v err=%v", results, err)
+	}
+	delete(fixture.coverage, "binance/spot/ETHUSDT/scope-a")
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || results[0] {
+		t.Fatalf("missing spot execution coverage must be incomplete: %v err=%v", results, err)
+	}
+	fixture.coverage["binance/spot/ETHUSDT/scope-a"] = completeCoverage("spot", "ETHUSDT")
+	fixture.streams = append(fixture.streams, &storage.PnLBySymbol{Exchange: "binance", MarketType: "unknown", Symbol: "XRPUSDT", PnLAsset: "USDT"})
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || results[0] {
+		t.Fatalf("unknown market stream must fail closed: %v err=%v", results, err)
+	}
+	fixture.streams = fixture.streams[:1]
+	fixture.rawStreams = append(fixture.rawStreams, storage.OrderFillStream{Exchange: "binance", MarketType: "futures", Symbol: "SOLUSDT"})
+	fixture.coverage["binance/futures/SOLUSDT/scope-a"] = completeCoverage("futures", "SOLUSDT")
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || !results[0] {
+		t.Fatalf("raw-only stream with coverage should be discovered and verified: %v err=%v", results, err)
+	}
+	fixture.integrity = map[string]storage.OrderFillLedgerIntegrity{
+		"binance/futures/SOLUSDT/scope-a": {UnpairedOrderCount: 1, FeeTotalsMatch: false},
+	}
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || results[0] {
+		t.Fatalf("orphan raw fill must block complete profit claims: %v err=%v", results, err)
+	}
+	fixture.integrity["binance/futures/SOLUSDT/scope-a"] = storage.OrderFillLedgerIntegrity{MissingFillOrderCount: 1, FeeTotalsMatch: true}
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || results[0] {
+		t.Fatalf("paired trade missing raw fills must block complete profit claims: %v err=%v", results, err)
+	}
+	fixture.rawStreams = fixture.rawStreams[:1]
+	fixture.integrity = nil
+	fixture.pending["binance/spot/ETHUSDT/scope-a"] = 1
+	results, err = readScopedOrderFillCoverageWindows(fixture, scopes, window)
+	if err != nil || results[0] {
+		t.Fatalf("unresolved fee correction must make execution history incomplete: %v err=%v", results, err)
+	}
+}
+
+func TestAppendRetiredProfitAccountScopesKeepsOldHistoryAndFailsClosed(t *testing.T) {
+	payload := []byte(`{"version":1,"revision":7,"accounts":[{"exchange":"BINANCE","market_type":"futures","scope":"old-scope","status":"pending_verification"},{"exchange":"binance","market_type":"spot","scope":"current-scope","status":"ready_for_explicit_reset"},{"exchange":"okx","market_type":"spot_margin","scope":"other-scope","status":"pending_verification"}]}`)
+	current := []profitAccountScope{{exchange: "binance", scope: "current-scope"}}
+	got, complete, err := appendRetiredProfitAccountScopes(current, "binance", payload, 7)
+	if err != nil || !complete || len(got) != 2 || got[1].scope != "old-scope" {
+		t.Fatalf("archived scope history not retained safely: scopes=%+v complete=%t err=%v", got, complete, err)
+	}
+	got, complete, err = appendRetiredProfitAccountScopes(current, "", payload, 7)
+	if err != nil || !complete || len(got) != 3 {
+		t.Fatalf("all exchange archives not retained for aggregate report: scopes=%+v complete=%t err=%v", got, complete, err)
+	}
+	if !got[2].unsupportedMarginInterestUntracked {
+		t.Fatal("retired unsupported spot-margin interest was incorrectly treated as tracked")
+	}
+	for _, tc := range []struct {
+		name     string
+		payload  []byte
+		revision int64
+	}{
+		{name: "revision mismatch", payload: payload, revision: 8},
+		{name: "invalid archive", payload: []byte(`{"version":1}`), revision: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, complete, err := appendRetiredProfitAccountScopes(current, "", tc.payload, tc.revision); err == nil || complete {
+				t.Fatalf("invalid retired scope archive was attested complete: complete=%t err=%v", complete, err)
+			}
+		})
+	}
+}
+
+func TestAccountExecutionScopeInventoryRequiresEveryStoredScopeToBeKnown(t *testing.T) {
+	known := []profitAccountScope{{exchange: "binance", scope: "current"}, {exchange: "binance", scope: "archived"}}
+	if !accountExecutionScopesCovered(known, []storage.ExecutionAccountScope{{Exchange: "binance", Scope: "current"}, {Exchange: "BINANCE", Scope: "archived"}}, 0) {
+		t.Fatal("current and explicitly archived account scopes should be covered")
+	}
+	if accountExecutionScopesCovered(known[:1], []storage.ExecutionAccountScope{{Exchange: "binance", Scope: "unarchived-old"}}, 0) {
+		t.Fatal("an unarchived database scope must not be treated as complete account history")
+	}
+	if accountExecutionScopesCovered(known, nil, 1) {
+		t.Fatal("unattributed executions must keep account history incomplete")
+	}
+}
+
+func TestProfitAccountHistoryRejectsUnarchivedDatabaseScope(t *testing.T) {
+	store, err := storage.NewSQLStorage(t.TempDir() + "/unarchived-profit-scope.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	previousConfig := fileConfigManager
+	fcm := NewFileConfigManager("")
+	cfg := config.CreateMinimalConfig()
+	cfg.Exchanges = map[string]config.ExchangeConfig{"binance": {APIKey: "scope-inventory-test", SecretKey: "scope-inventory-test-secret"}}
+	if err := fcm.SetRuntimeConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	SetFileConfigManager(fcm)
+	t.Cleanup(func() { SetFileConfigManager(previousConfig) })
+	if err := store.SaveTrade(&storage.Trade{BuyOrderID: 1, SellOrderID: 2, Exchange: "binance", MarketType: "futures", PnLAsset: "USDT", AccountScope: "not-in-config-or-archive", Symbol: "BTCUSDT", Quantity: 1, PnL: 1, CreatedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	_, complete, err := resolveProfitAccountScopesWithHistory(context.Background(), "binance", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if complete {
+		t.Fatal("unarchived historical scope in durable trades must make account history incomplete")
+	}
+}
+
+func TestFundingRecoveryReleaseErrorReportsDurableHoldState(t *testing.T) {
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	writeFundingRecoveryReleaseError(ctx, &FundingRecoveryReleaseStateError{HoldReleased: true, Cause: errors.New("injected Gate readback failure")})
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusConflict || payload["hold_released"] != true || payload["recovery_gate_cleared"] != false || payload["execution_replayed"] != false {
+		t.Fatalf("release API contradicted durable facts or implied replay: status=%d payload=%v", response.Code, payload)
+	}
 }
 
 func (f fundingIncomeCoverageFixture) GetFundingIncomeCoverage(exchange, symbol, marketType, scope string) (time.Time, time.Time, error) {
@@ -93,6 +297,35 @@ func TestConfiguredFundingSymbolsForExchangeIncludesBothPerpSpreadLegs(t *testin
 	got := configuredFundingSymbolsForExchange("okx", cfg)
 	if len(got) != 1 || got[0] != "BTC-USDT-SWAP" {
 		t.Fatalf("configuredFundingSymbolsForExchange()=%v, want second perp leg", got)
+	}
+}
+
+func TestConfiguredProfitTradeStreamsIncludesPerpSpreadLegsAndSpotSymbols(t *testing.T) {
+	cfg := &config.Config{
+		Bots: []config.BotConfig{
+			{Exchange: "binance", MarketType: config.MarketTypeFundingPerpSpread,
+				FundingPerpSpread: &config.FundingPerpSpreadConfig{
+					LegA: config.FundingPerpLeg{Exchange: "binance", Symbol: "BTCUSDT"},
+					LegB: config.FundingPerpLeg{Exchange: "okx", Symbol: "ETH-USDT-SWAP"},
+				}},
+			{Exchange: "binance", Symbol: "SOLUSDT", MarketType: config.MarketTypeFundingCarry},
+		},
+	}
+	cfg.Trading.Symbols = []config.SymbolConfig{{Exchange: "binance", Symbol: "ETHUSDT", MarketType: "spot"}}
+	got := configuredProfitTradeStreamsForExchange("binance", cfg)
+	want := map[profitTradeStream]bool{
+		{market: "futures", symbol: "BTCUSDT"}: true,
+		{market: "spot", symbol: "ETHUSDT"}:    true,
+		{market: "spot", symbol: "SOLUSDT"}:    true,
+		{market: "futures", symbol: "SOLUSDT"}: true,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("configured trade streams=%+v, want %+v", got, want)
+	}
+	for _, stream := range got {
+		if !want[stream] {
+			t.Fatalf("unexpected configured trade stream: %+v", stream)
+		}
 	}
 }
 
@@ -219,7 +452,8 @@ func TestProfitTrendDeclaresItsIncompleteIncomeBasis(t *testing.T) {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
 	}
 	var payload struct {
-		IncomeBasis string `json:"income_basis"`
+		IncomeBasis              string `json:"income_basis"`
+		ExecutionHistoryComplete bool   `json:"execution_history_complete"`
 	}
 	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
@@ -227,6 +461,9 @@ func TestProfitTrendDeclaresItsIncompleteIncomeBasis(t *testing.T) {
 	const expectedBasis = "account_scoped_paired_trade_pnl_net_of_recorded_fees_excludes_funding_and_margin_interest"
 	if payload.IncomeBasis != expectedBasis {
 		t.Fatalf("profit trend income basis=%q, want %q", payload.IncomeBasis, expectedBasis)
+	}
+	if payload.ExecutionHistoryComplete {
+		t.Fatal("profit trend must report incomplete execution history when no configured stream coverage exists")
 	}
 }
 

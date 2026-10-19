@@ -85,6 +85,7 @@ const ProfitManagement: React.FC = () => {
   const [summary, setSummary] = useState<ProfitSummary | null>(null)
   const [strategyProfits, setStrategyProfits] = useState<StrategyProfit[]>([])
   const [trend, setTrend] = useState<ProfitTrendItem[]>([])
+  const [trendExecutionHistoryComplete, setTrendExecutionHistoryComplete] = useState<boolean | undefined>()
   const [allWithdrawRules, setAllWithdrawRules] = useState<ProfitWithdrawRule[]>([])
   const [withdrawHistory, setWithdrawHistory] = useState<WithdrawRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -245,6 +246,7 @@ const ProfitManagement: React.FC = () => {
       setSummary(null)
       setStrategyProfits([])
       setTrend([])
+      setTrendExecutionHistoryComplete(undefined)
       setAllWithdrawRules([])
       setWithdrawHistory([])
       toast({
@@ -297,9 +299,11 @@ const ProfitManagement: React.FC = () => {
     try {
       const res = await getProfitTrend(period, exchangeId)
       setTrend(res.trend)
+      setTrendExecutionHistoryComplete(res.execution_history_complete)
     } catch (err) {
       console.warn('獲取盈利趨勢失败:', err)
       setTrend([])
+      setTrendExecutionHistoryComplete(undefined)
     }
   }
 
@@ -533,6 +537,7 @@ const ProfitManagement: React.FC = () => {
         {/* Profit Chart */}
         <ProfitChart
           trend={trend}
+          executionHistoryComplete={trendExecutionHistoryComplete}
           strategyProfits={strategyProfits}
           period={period}
           onPeriodChange={setPeriod}

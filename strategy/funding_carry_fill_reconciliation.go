@@ -334,8 +334,14 @@ func fundingRecoveryFillSuffix(snapshot fundingRecoveryFillSnapshot, existing []
 	for _, event := range existing {
 		if event.ChildID == snapshot.child.ID && event.Kind == accounting.RecoveryFillEvent {
 			stored = append(stored, event)
-		} else if event.ChildID == snapshot.child.ID && event.Kind == accounting.RecoveryTerminalEvent {
+		} else if event.ChildID == snapshot.child.ID && event.Kind == accounting.RecoveryTerminalEvent && strings.HasPrefix(event.ExternalID, "terminal_zero:") {
 			terminalSeen = true
+		}
+	}
+	for _, event := range existing {
+		if event.ChildID == snapshot.child.ID && event.Kind == accounting.RecoveryFillBatchCompleteEvent &&
+			event.SourceRevision == snapshot.batch.SourceRevision && len(batchFills) > len(stored) {
+			return nil, errors.New("venue added fills without advancing its complete batch revision")
 		}
 	}
 	if terminalSeen {
@@ -356,7 +362,7 @@ func fundingRecoveryFillSuffix(snapshot fundingRecoveryFillSnapshot, existing []
 		}
 	}
 	for _, event := range existing {
-		if event.ChildID == snapshot.child.ID && event.Kind != accounting.RecoveryFillEvent && event.Kind != accounting.RecoveryTerminalEvent {
+		if event.ChildID == snapshot.child.ID && event.Kind != accounting.RecoveryFillEvent && event.Kind != accounting.RecoveryTerminalEvent && event.Kind != accounting.RecoveryFillBatchCompleteEvent {
 			return nil, errors.New("child has an unexpected non-fill accounting event")
 		}
 	}
@@ -390,6 +396,7 @@ func fundingRecoveryFillEventMatches(event accounting.RecoveryEvent, fill *excha
 	}
 	request := ApplyFundingRecoveryFillsRequest{EpisodeID: snapshot.episode.ID, ChildID: snapshot.child.ID}
 	expected := fundingRecoveryFillEvent(request, snapshot, fill, evidence, time.UnixMilli(fill.TradeTime).UTC(), sequence)
+	expected.SourceRevision = event.SourceRevision
 	return reflect.DeepEqual(event, expected)
 }
 
@@ -422,7 +429,16 @@ func (s *FundingCarryStrategy) applyFundingRecoveryFills(ctx context.Context, re
 		return ApplyFundingRecoveryFillsResult{}, err
 	}
 	executed, _ := new(big.Rat).SetString(snapshot.batch.ExecutedQuantityRaw)
-	if len(newFills) == 0 && !(len(snapshot.fills) == 0 && snapshot.child.FillCursor.Sequence == 0 && executed != nil && executed.Sign() == 0) {
+	completionPresent := false
+	for _, event := range existing {
+		if event.ChildID == snapshot.child.ID && ((event.Kind == accounting.RecoveryTerminalEvent && strings.HasPrefix(event.ExternalID, "terminal_zero:")) ||
+			(event.Kind == accounting.RecoveryFillBatchCompleteEvent && event.CompletenessMarker == string(accounting.RecoveryFillBatchCompleteEvent))) {
+			completionPresent = true
+		}
+	}
+	zeroFillTerminal := len(snapshot.fills) == 0 && snapshot.child.FillCursor.Sequence == 0 && executed != nil && executed.Sign() == 0
+	backfillCompletionOnly := len(newFills) == 0 && len(snapshot.fills) > 0 && !completionPresent
+	if len(newFills) == 0 && !zeroFillTerminal && !backfillCompletionOnly {
 		return ApplyFundingRecoveryFillsResult{}, errors.New("no new venue fills to reconcile")
 	}
 	reader, ok := snapshot.binding.stateStore.(RuntimeStateContextReader)
@@ -433,7 +449,7 @@ func (s *FundingCarryStrategy) applyFundingRecoveryFills(ctx context.Context, re
 	if err != nil || !found || version != fundingCarryRuntimeStateVersion {
 		return ApplyFundingRecoveryFillsResult{}, errors.Join(errors.New("read current FundingCarry runtime revision"), err)
 	}
-	operation, err := buildFundingRecoveryFillOperation(request, snapshot, newFills, fundingCarryRuntimeRevision(version, payload))
+	operation, err := buildFundingRecoveryFillOperation(request, snapshot, newFills, backfillCompletionOnly, fundingCarryRuntimeRevision(version, payload))
 	if err != nil {
 		return ApplyFundingRecoveryFillsResult{}, err
 	}
@@ -450,7 +466,7 @@ func (s *FundingCarryStrategy) applyFundingRecoveryFills(ctx context.Context, re
 	return result, nil
 }
 
-func buildFundingRecoveryFillOperation(request ApplyFundingRecoveryFillsRequest, snapshot fundingRecoveryFillSnapshot, fills []*exchange.OrderFill, runtimeRevision string) (accounting.RecoveryOperation, error) {
+func buildFundingRecoveryFillOperation(request ApplyFundingRecoveryFillsRequest, snapshot fundingRecoveryFillSnapshot, fills []*exchange.OrderFill, backfillCompletionOnly bool, runtimeRevision string) (accounting.RecoveryOperation, error) {
 	baseAsset := strings.TrimSpace(snapshot.venue.GetBaseAsset())
 	if baseAsset == "" {
 		return accounting.RecoveryOperation{}, errors.New("retained venue does not expose authoritative base asset")
@@ -508,6 +524,8 @@ func buildFundingRecoveryFillOperation(request ApplyFundingRecoveryFillsRequest,
 	executed, _ := new(big.Rat).SetString(snapshot.batch.ExecutedQuantityRaw)
 	if len(snapshot.fills) == 0 && executed != nil && executed.Sign() == 0 && snapshot.child.FillCursor.Sequence == 0 {
 		events = append(events, fundingRecoveryZeroTerminalEvent(request, snapshot, maxObservedAt))
+	} else if len(fills) > 0 || backfillCompletionOnly {
+		events = append(events, fundingRecoveryFillBatchCompleteEvent(request, snapshot, maxObservedAt))
 	}
 	evidenceDigest, err := sha256JSON(struct {
 		EpisodeID, ChildID, SourceRevision string
@@ -540,7 +558,37 @@ func fundingRecoveryZeroTerminalEvent(request ApplyFundingRecoveryFillsRequest, 
 	return accounting.RecoveryEvent{ID: "terminal_zero:" + hash, Source: "venue_order_fill_batch", Exchange: snapshot.child.Exchange,
 		Market: snapshot.child.Market, AccountScope: snapshot.child.AccountScope, Kind: accounting.RecoveryTerminalEvent,
 		ExternalID: "terminal_zero:" + hash, EpisodeID: request.EpisodeID, ChildID: snapshot.child.ID, Asset: snapshot.venue.GetBaseAsset(),
-		Amount: "0", SourceRevision: snapshot.batch.SourceRevision, SourceHash: hash, ObservedAt: observedAt, CompletenessMarker: "fill_batch_complete"}
+		Amount: "0", SourceRevision: snapshot.batch.SourceRevision, SourceHash: hash, ObservedAt: observedAt, CompletenessMarker: "zero_fill_terminal"}
+}
+
+func fundingRecoveryFillBatchCompleteEvent(request ApplyFundingRecoveryFillsRequest, snapshot fundingRecoveryFillSnapshot, observedAt time.Time) accounting.RecoveryEvent {
+	prefixEvents := make([]accounting.RecoveryEvent, 0, len(snapshot.fills))
+	for index, fill := range snapshot.fills {
+		evidence := accounting.RecoveryFillEvidence{
+			ClientOrderID: snapshot.child.ClientOrderID, VenueOrderID: snapshot.child.VenueOrderID,
+			Symbol: snapshot.child.Symbol, OrderIntentHash: snapshot.child.OrderIntentHash, Side: snapshot.child.Side,
+			BaseAsset: strings.TrimSpace(snapshot.venue.GetBaseAsset()), PriceRaw: fill.PriceRaw, QuantityRaw: fill.QuantityRaw,
+		}
+		if fill.QuoteQuantityRaw != "" {
+			evidence.QuoteAsset, evidence.QuoteQuantityRaw = strings.TrimSpace(snapshot.venue.GetQuoteAsset()), fill.QuoteQuantityRaw
+		}
+		if fill.CommissionKnown {
+			evidence.CommissionKnown, evidence.CommissionRaw, evidence.CommissionAsset = true, fill.CommissionRaw, fill.CommissionAsset
+		}
+		if fill.RealizedPnLKnown {
+			evidence.RealizedPnLKnown, evidence.RealizedPnLRaw, evidence.RealizedPnLAsset = true, fill.RealizedPnLRaw, fill.RealizedPnLAsset
+		}
+		prefixEvents = append(prefixEvents, fundingRecoveryFillEvent(request, snapshot, fill, evidence, time.UnixMilli(fill.TradeTime).UTC(), uint64(index+1)))
+	}
+	prefixHash, _ := accounting.RecoveryFillBatchPrefixHash(prefixEvents)
+	evidence := accounting.RecoveryFillBatchEvidence{ExecutedQuantityRaw: snapshot.batch.ExecutedQuantityRaw, FillCount: uint64(len(snapshot.fills)),
+		FillSetHash: prefixHash, TerminalStatus: string(snapshot.batch.TerminalStatus), OrderUpdateTime: snapshot.batch.OrderUpdateTime}
+	hash, _ := accounting.RecoveryFillBatchEvidenceHash(evidence)
+	return accounting.RecoveryEvent{ID: "terminal_batch:" + hash, Source: "venue_order_fill_batch", Exchange: snapshot.child.Exchange,
+		Market: snapshot.child.Market, AccountScope: snapshot.child.AccountScope, Kind: accounting.RecoveryFillBatchCompleteEvent,
+		ExternalID: "terminal_batch:" + hash, EpisodeID: request.EpisodeID, ChildID: snapshot.child.ID, Asset: snapshot.venue.GetBaseAsset(),
+		Amount: "0", SourceRevision: snapshot.batch.SourceRevision, SourceHash: hash, ObservedAt: observedAt,
+		CompletenessMarker: string(accounting.RecoveryFillBatchCompleteEvent), FillBatchEvidence: &evidence}
 }
 
 func (s *FundingCarryStrategy) projectFundingRecoveryFillOperation(ctx context.Context, binding fundingCarryRecoveryBinding, episodeID, operationID string) error {

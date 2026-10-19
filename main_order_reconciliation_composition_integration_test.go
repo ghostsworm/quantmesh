@@ -1195,10 +1195,19 @@ func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(persistedEvents) != 2 || persistedEvents[0].FillEvidence == nil || persistedEvents[0].ExternalID != "90811001" ||
-		persistedEvents[0].FillEvidence.QuantityRaw != "0.1" || persistedEvents[0].CursorSequence != 1 ||
-		persistedEvents[1].FillEvidence == nil || persistedEvents[1].ExternalID != "90811002" ||
-		persistedEvents[1].FillEvidence.QuantityRaw != "0.15" || persistedEvents[1].CursorSequence != 2 {
+	fillEvents := make(map[string]accounting.RecoveryEvent)
+	completionMarkerFound := false
+	for _, event := range persistedEvents {
+		if event.Kind == accounting.RecoveryFillEvent {
+			fillEvents[event.ExternalID] = event
+		}
+		if event.Kind == accounting.RecoveryFillBatchCompleteEvent && event.CompletenessMarker == string(accounting.RecoveryFillBatchCompleteEvent) {
+			completionMarkerFound = true
+		}
+	}
+	if len(persistedEvents) != 3 || !completionMarkerFound || fillEvents["90811001"].FillEvidence == nil ||
+		fillEvents["90811001"].FillEvidence.QuantityRaw != "0.1" || fillEvents["90811001"].CursorSequence != 1 ||
+		fillEvents["90811002"].FillEvidence == nil || fillEvents["90811002"].FillEvidence.QuantityRaw != "0.15" || fillEvents["90811002"].CursorSequence != 2 {
 		t.Fatalf("expected two server-derived sequential cursor fill events, got %+v", persistedEvents)
 	}
 	duplicateResponse := adminPost(fillPath+"apply", validApply)
@@ -1216,7 +1225,7 @@ func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *te
 		t.Fatalf("duplicate retry did not return original receipt while retaining hold: body=%s err=%v", duplicateResponse.Body.String(), err)
 	}
 	persistedEvents, err = recoveryStore.ListRecoveryEvents(ctx, episode.ID)
-	if err != nil || len(persistedEvents) != 2 {
+	if err != nil || len(persistedEvents) != 3 {
 		t.Fatalf("duplicate retry created duplicate accounting events: events=%+v err=%v", persistedEvents, err)
 	}
 
@@ -1273,7 +1282,7 @@ func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *te
 		t.Fatalf("duplicate fee operation retry failed: status=%d body=%s", duplicateFeeResponse.Code, duplicateFeeResponse.Body.String())
 	}
 	persistedEvents, err = recoveryStore.ListRecoveryEvents(ctx, episode.ID)
-	if err != nil || len(persistedEvents) != 3 {
+	if err != nil || len(persistedEvents) != 4 {
 		t.Fatalf("manual fee adjustment or duplicate retry produced unexpected event count: events=%+v err=%v", persistedEvents, err)
 	}
 
@@ -1335,8 +1344,77 @@ func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *te
 			}
 		}
 	}
-	if err != nil || len(persistedEvents) != 5 || openingCount != 2 {
+	if err != nil || len(persistedEvents) != 6 || openingCount != 2 {
 		t.Fatalf("opening balance retry duplicated or lost durable facts: events=%+v openingCount=%d err=%v", persistedEvents, openingCount, err)
+	}
+
+	openingGate.Block("manual_operator_hold")
+	releasePreviewResponse := adminGet("/api/capital/funding-recovery/" + episode.ID + "/release/preview")
+	if releasePreviewResponse.Code != http.StatusOK {
+		t.Fatalf("production release preview failed: status=%d body=%s", releasePreviewResponse.Code, releasePreviewResponse.Body.String())
+	}
+	var releasePreviewEnvelope struct {
+		Preview web.FundingRecoveryReleasePreview `json:"preview"`
+	}
+	if err := json.Unmarshal(releasePreviewResponse.Body.Bytes(), &releasePreviewEnvelope); err != nil {
+		t.Fatalf("decode release preview: %v", err)
+	}
+	releasePreview := releasePreviewEnvelope.Preview
+	if !releasePreview.Ready || !releasePreview.OperatorClearanceRequired || releasePreview.EvidenceHash == "" || len(releasePreview.OtherGateSources) != 1 || releasePreview.OtherGateSources[0] != "manual_operator_hold" {
+		t.Fatalf("release preview omitted evidence or unrelated Gate source: %+v", releasePreview)
+	}
+	releasePath := "/api/capital/funding-recovery/" + episode.ID + "/release"
+	releaseBody, err := json.Marshal(struct {
+		OperationID                string `json:"operation_id"`
+		AuditRef                   string `json:"audit_ref"`
+		EvidenceHash               string `json:"evidence_hash"`
+		ExposureClearanceHash      string `json:"exposure_clearance_hash"`
+		ProjectionHash             string `json:"projection_hash"`
+		RuntimeRevision            string `json:"runtime_revision"`
+		OwnerGeneration            string `json:"owner_generation"`
+		ExpectedEpisodeRevision    uint64 `json:"expected_episode_revision"`
+		RecoveryGeneration         uint64 `json:"recovery_generation"`
+		ExpectedHoldRevision       uint64 `json:"expected_hold_revision"`
+		Confirmed                  bool   `json:"confirmed"`
+		ExposureClearanceConfirmed bool   `json:"exposure_clearance_confirmed"`
+	}{OperationID: "e2e-manual-release", AuditRef: "incident-e2e-release", EvidenceHash: releasePreview.EvidenceHash,
+		ExposureClearanceHash: strings.Repeat("b", 64), ExposureClearanceConfirmed: true,
+		ProjectionHash: releasePreview.ProjectionHash, RuntimeRevision: releasePreview.RuntimeRevision, OwnerGeneration: releasePreview.OwnerGeneration,
+		ExpectedEpisodeRevision: releasePreview.ExpectedEpisodeRevision, RecoveryGeneration: releasePreview.RecoveryGeneration,
+		ExpectedHoldRevision: releasePreview.ExpectedHoldRevision, Confirmed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongEvidence := strings.Replace(string(releaseBody), releasePreview.EvidenceHash, strings.Repeat("0", 64), 1)
+	if response := adminPost(releasePath, wrongEvidence); response.Code != http.StatusConflict {
+		t.Fatalf("release accepted a stale/forged evidence digest: status=%d body=%s", response.Code, response.Body.String())
+	}
+	missingClearance := strings.Replace(string(releaseBody), `"exposure_clearance_confirmed":true`, `"exposure_clearance_confirmed":false`, 1)
+	if response := adminPost(releasePath, missingClearance); response.Code != http.StatusConflict {
+		t.Fatalf("release accepted without explicit position/liability clearance: status=%d body=%s", response.Code, response.Body.String())
+	}
+	releaseResponse := adminPost(releasePath, string(releaseBody))
+	if releaseResponse.Code != http.StatusOK {
+		t.Fatalf("production manual release failed: status=%d body=%s", releaseResponse.Code, releaseResponse.Body.String())
+	}
+	var releaseEnvelope struct {
+		Readback web.FundingRecoveryReleaseReadback `json:"readback"`
+	}
+	if err := json.Unmarshal(releaseResponse.Body.Bytes(), &releaseEnvelope); err != nil {
+		t.Fatalf("decode release readback: %v", err)
+	}
+	if !releaseEnvelope.Readback.Verified || releaseEnvelope.Readback.ExecutionReplayed || releaseEnvelope.Readback.Episode.State != accounting.RecoveryReleased ||
+		releaseEnvelope.Readback.Hold.State != "released" || containsFundingRecoveryGateSource(releaseEnvelope.Readback.GateSources, releasePreview.RecoveryGateSource) ||
+		releaseEnvelope.Readback.Receipt.ExposureClearanceHash != strings.Repeat("b", 64) ||
+		!openingGate.HasBlock("manual_operator_hold") || openingGate.HasBlock(releasePreview.RecoveryGateSource) {
+		t.Fatalf("manual release readback cleared an unrelated Gate or failed to retain the operator hold: %+v sources=%v", releaseEnvelope.Readback, openingGate.Sources())
+	}
+	duplicateReleaseResponse := adminPost(releasePath, string(releaseBody))
+	if duplicateReleaseResponse.Code != http.StatusOK {
+		t.Fatalf("idempotent release retry failed: status=%d body=%s", duplicateReleaseResponse.Code, duplicateReleaseResponse.Body.String())
+	}
+	if !openingGate.HasBlock("manual_operator_hold") {
+		t.Fatal("idempotent release retry removed the unrelated manual Gate source")
 	}
 }
 

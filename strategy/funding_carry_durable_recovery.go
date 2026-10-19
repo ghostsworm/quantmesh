@@ -44,6 +44,68 @@ func (s *FundingCarryStrategy) CurrentFundingCarryRecoveryBinding() (storage.Fun
 	return provider.FundingCarryRecoveryBinding()
 }
 
+// ReleaseFundingRecoveryGate removes only the episode-owned recovery source
+// after durable storage already records the matching hold as released. It
+// never touches manual, risk, or other episode sources and never starts the
+// strategy or submits an order.
+func (s *FundingCarryStrategy) ReleaseFundingRecoveryGate(ctx context.Context, episodeID string) error {
+	if ctx == nil || s == nil || strings.TrimSpace(episodeID) == "" {
+		return errors.New("recovery gate release requires context and episode identity")
+	}
+	store, generation, botID, scopes, err := s.CurrentFundingCarryRecoveryBinding()
+	if err != nil || nilFundingRecoveryStore(store) || generation.ID() == "" || botID == "" {
+		return errors.Join(ErrFundingCarryDurableRecoveryUnavailable, err)
+	}
+	episode, found, err := store.GetRecoveryEpisode(ctx, episodeID)
+	if err != nil || !found {
+		return errors.Join(errors.New("read durably released FundingCarry episode"), err)
+	}
+	if episode.Bot != botID || episode.Strategy != "funding_carry" || episode.OwnerGeneration != generation.ID() || episode.State != accounting.RecoveryReleased {
+		return accounting.ErrRecoveryConflict
+	}
+	episodeScopes, err := normalizeFundingCarryRecoveryScopes(episode.AccountScopes)
+	if err != nil || !equalFundingCarryRecoveryScopes(scopes, episodeScopes) {
+		return storage.ErrFundingRecoveryGenerationScopeMismatch
+	}
+	hold, held, err := store.GetRecoveryHold(ctx, episode.ID, episode.RecoveryGeneration)
+	if err != nil || !held || hold.State != "released" || hold.ReleasedByOperation == "" {
+		return errors.Join(errors.New("durable FundingCarry hold is not released"), err)
+	}
+	holdScopes, err := normalizeFundingCarryRecoveryScopes(hold.AccountScopes)
+	if err != nil || !equalFundingCarryRecoveryScopes(scopes, holdScopes) {
+		return storage.ErrFundingRecoveryGenerationScopeMismatch
+	}
+	s.mu.RLock()
+	gate, started, runtimeCtx := s.openingGate, s.started, s.ctx
+	s.mu.RUnlock()
+	if gate == nil || started || runtimeCtx != nil {
+		return errors.New("FundingCarry recovery runtime must remain stopped while releasing its Gate source")
+	}
+	source := execution.RecoveryEpisodeGateSource(episode.ID, episode.RecoveryGeneration)
+	if gate.HasBlock(source) {
+		gate.Unblock(source)
+	}
+	if gate.HasBlock(source) {
+		return errors.New("exact FundingCarry recovery Gate source remains after durable release")
+	}
+	return nil
+}
+
+// RecoveryOpeningGateSources returns the current immutable-source snapshot for
+// diagnostics and release evidence; callers cannot mutate the Gate through it.
+func (s *FundingCarryStrategy) RecoveryOpeningGateSources() []string {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	gate := s.openingGate
+	s.mu.RUnlock()
+	if gate == nil {
+		return nil
+	}
+	return gate.Sources()
+}
+
 // PreviewFundingRecoveryFills returns the exact retained venue fill snapshot
 // for a currently held, taken-over FundingCarry child. It performs no writes.
 func (s *FundingCarryStrategy) PreviewFundingRecoveryFills(ctx context.Context, episodeID, childID string) (FundingRecoveryFillPreview, error) {

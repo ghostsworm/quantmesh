@@ -29,6 +29,7 @@ import type { ProfitTrendItem, StrategyProfit, PriceChangeItem } from '../../typ
 
 interface ProfitChartProps {
   trend: ProfitTrendItem[]
+  executionHistoryComplete?: boolean
   strategyProfits: StrategyProfit[]
   period: '7d' | '30d' | '90d' | '1y'
   onPeriodChange: (period: '7d' | '30d' | '90d' | '1y') => void
@@ -78,6 +79,7 @@ const CustomTooltip = ({ active, payload, label, t }: any) => {
 
 const ProfitChart: React.FC<ProfitChartProps> = ({
   trend,
+  executionHistoryComplete,
   strategyProfits,
   period,
   onPeriodChange,
@@ -245,7 +247,12 @@ const ProfitChart: React.FC<ProfitChartProps> = ({
               {(chartStats.totalProfit || 0) >= 0 ? '+' : ''}
               {(chartStats.totalProfit || 0).toFixed(2)}
             </StatNumber>
-            <StatHelpText>{t('profitManagement.realizedTradingPnlBasis')}</StatHelpText>
+            <StatHelpText>
+              {t('profitManagement.realizedTradingPnlBasis')}
+              {executionHistoryComplete === false && (
+                <Text color="orange.500">{t('profitManagement.trendExecutionCoverageIncomplete')}</Text>
+              )}
+            </StatHelpText>
           </Stat>
           <Stat>
             <StatLabel>{t('profitManagement.avgDaily')}</StatLabel>
