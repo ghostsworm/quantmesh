@@ -58,9 +58,9 @@ class TradingRaceGateTest < Minitest::Test
 
   def test_real_report_writer_retains_redacted_diagnostics_and_stderr_in_json_and_markdown
     events = complete_events + [
-      { 'Package' => 'quantmesh', 'Test' => 'TestBroken', 'Action' => 'output',
+      { 'Package' => 'quantmesh/internal/app', 'Test' => 'TestBroken', 'Action' => 'output',
         'Output' => "broken_test.go:42: APIKey=fixture-secret Authorization: Bearer fixture-bearer\n```\n" },
-      { 'Package' => 'quantmesh', 'Test' => 'TestBroken', 'Action' => 'fail' }
+      { 'Package' => 'quantmesh/internal/app', 'Test' => 'TestBroken', 'Action' => 'fail' }
     ]
     status = Struct.new(:exitstatus) { def success? = exitstatus.zero? }.new(1)
     Dir.mktmpdir('quantmesh-race-diagnostics-') do |dir|
@@ -131,7 +131,7 @@ class TradingRaceGateTest < Minitest::Test
   end
 
   def test_all_production_race_packages_and_uncached_execution_are_required
-    assert_equal %w[. ./strategy ./monitor ./execution ./order ./position ./risk ./storage ./web ./exchange/binance], TradingRaceVerification::PACKAGES
+    assert_equal %w[./internal/app ./strategy ./monitor ./execution ./order ./position ./risk ./storage ./web ./exchange/binance], TradingRaceVerification::PACKAGES
     assert_includes TradingRaceVerification.command, '-race'
     assert_includes TradingRaceVerification.command, '-count=1'
     assert_includes TradingRaceVerification.command, '-timeout=1200s'
@@ -161,7 +161,7 @@ class TradingRaceGateTest < Minitest::Test
 
   def complete_events
     TradingRaceVerification::PACKAGES.flat_map do |path|
-      package = path == '.' ? 'quantmesh' : "quantmesh/#{path.delete_prefix('./')}"
+      package = "quantmesh/#{path.delete_prefix('./')}"
       [{ 'Package' => package, 'Test' => 'TestFixture', 'Action' => 'pass' }, { 'Package' => package, 'Action' => 'pass' }]
     end
   end
@@ -293,7 +293,7 @@ class TradingRaceGateTest < Minitest::Test
     ]
     required.each do |name|
       assert_includes TradingRaceVerification::MYSQL_CASES, name
-      expected_package = name.include?('FullConstructor') ? 'quantmesh' : 'quantmesh/storage'
+      expected_package = name.include?('FullConstructor') ? 'quantmesh/internal/app' : 'quantmesh/storage'
       assert_equal expected_package, TradingRaceVerification.mysql_case_package(name, 'quantmesh')
       %w[skip fail].each do |action|
         events = mysql_events.map(&:dup)
@@ -334,7 +334,7 @@ class TradingRaceGateTest < Minitest::Test
   def test_final_verification_mysql_requires_both_actual_stop_paths
     parent = 'TestMySQLFundingCarryFullConstructorFinalVerificationReleasesOnlyAfterReadonlyRetry'
     assert_includes TradingRaceVerification::MYSQL_CASES, parent
-    assert_equal 'quantmesh', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
+    assert_equal 'quantmesh/internal/app', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
     proof = result(complete_events + mysql_events, require_mysql: true)[:mysql_evidence]
     assert_equal 58, proof.length
     assert_equal %w[StopBot StopAll], proof.select { |event| event['Test'].start_with?("#{parent}/") }.map { |event| event['Test'].delete_prefix("#{parent}/") }
@@ -358,7 +358,7 @@ class TradingRaceGateTest < Minitest::Test
   def test_committed_cas_mysql_requires_all_four_actual_stop_fault_paths
     parent = 'TestMySQLFundingCarryFullConstructorCommittedCASFailureRecoversWithoutFinancialReplay'
     assert_includes TradingRaceVerification::MYSQL_CASES, parent
-    assert_equal 'quantmesh', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
+    assert_equal 'quantmesh/internal/app', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
     modes = %w[StopBot_ack_error StopBot_cancelled_commit StopAll_ack_error StopAll_cancelled_commit]
     assert_equal modes, TradingRaceVerification.mysql_constructor_modes(parent)
     proof = result(complete_events + mysql_events, require_mysql: true)[:mysql_evidence]
@@ -389,7 +389,7 @@ class TradingRaceGateTest < Minitest::Test
       'TestMySQLFundingCarryRuntimeGenerationAdapterCommitOutcomeRecovery' => %w[save_before_commit save_after_commit_ack_lost save_owner_takeover save_commit_err_uncommitted cas_before_commit cas_after_commit_ack_lost cas_owner_takeover cas_commit_err_uncommitted cas_after_commit_ack_lost_cancelled]
     }.each do |parent, modes|
       assert_includes TradingRaceVerification::MYSQL_CASES, parent
-      assert_equal 'quantmesh', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
+      assert_equal 'quantmesh/internal/app', TradingRaceVerification.mysql_case_package(parent, 'quantmesh')
       assert_equal modes, TradingRaceVerification.mysql_constructor_modes(parent)
       proof = result(complete_events + mysql_events, require_mysql: true)[:mysql_evidence]
       assert_equal modes, proof.select { |event| event['Test'].start_with?("#{parent}/") }.map { |event| event['Test'].delete_prefix("#{parent}/") }
@@ -427,10 +427,10 @@ class TradingRaceGateTest < Minitest::Test
   end
 
   def test_missing_root_package_zero_cases_failure_and_invalid_json_fail_closed
-    refute result(complete_events.reject { |event| event['Package'] == 'quantmesh' })[:success]
+    refute result(complete_events.reject { |event| event['Package'] == 'quantmesh/internal/app' })[:success]
     refute result(complete_events.reject { |event| event['Test'] })[:success]
     refute result(complete_events, 1)[:success]
-    refute result(complete_events + [{ 'Package' => 'quantmesh', 'Test' => 'TestBroken', 'Action' => 'fail' }])[:success]
+    refute result(complete_events + [{ 'Package' => 'quantmesh/internal/app', 'Test' => 'TestBroken', 'Action' => 'fail' }])[:success]
     refute TradingRaceVerification.summarize('not json', 0, 'quantmesh')[:success]
     refute TradingRaceVerification.summarize('null', 0, 'quantmesh')[:success]
   end
@@ -441,7 +441,7 @@ class TradingRaceGateTest < Minitest::Test
     report = result(events)
     assert_equal 1, report[:totals]['skip']
     refute report[:success], 'a passed package with all cases skipped is not verified'
-    events << { 'Package' => 'quantmesh', 'Test' => 'TestSecond', 'Action' => 'pass' }
+    events << { 'Package' => 'quantmesh/internal/app', 'Test' => 'TestSecond', 'Action' => 'pass' }
     assert result(events)[:success], 'individual reported skips must not hide a real passing case'
     events[1]['Action'] = 'skip'
     refute result(events)[:success]

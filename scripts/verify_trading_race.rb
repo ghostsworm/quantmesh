@@ -7,7 +7,7 @@ require_relative 'source_provenance'
 
 module TradingRaceVerification
   ROOT = File.expand_path('..', __dir__)
-  PACKAGES = %w[. ./strategy ./monitor ./execution ./order ./position ./risk ./storage ./web ./exchange/binance].freeze
+  PACKAGES = %w[./internal/app ./strategy ./monitor ./execution ./order ./position ./risk ./storage ./web ./exchange/binance].freeze
   MYSQL_CASES = %w[
     TestMySQLOpeningPauseOwnersAreIndependentByInstance
     TestMySQLFundingPaymentIdentityAndCoverage
@@ -68,7 +68,7 @@ module TradingRaceVerification
   end
 
   def self.mysql_case_package(name, module_path)
-    MYSQL_CONSTRUCTOR_CASES.include?(name) ? module_path : "#{module_path}/storage"
+    MYSQL_CONSTRUCTOR_CASES.include?(name) ? "#{module_path}/internal/app" : "#{module_path}/storage"
   end
 
   def self.command
@@ -125,7 +125,7 @@ module TradingRaceVerification
       event.slice('Package', 'Test', 'Action', 'Elapsed')
     end
     packages = terminal.reject { |event| event['Test'] }.map { |event| event.slice('Package', 'Action', 'Elapsed') }
-    required = PACKAGES.map { |path| path == '.' ? module_path : "#{module_path}/#{path.delete_prefix('./')}" }
+    required = PACKAGES.map { |path| "#{module_path}/#{path.delete_prefix('./')}" }
     missing = required.reject do |package|
       packages.any? { |event| event['Package'] == package && event['Action'] == 'pass' } &&
         cases.any? { |event| event['Package'] == package && event['Action'] == 'pass' }
@@ -134,7 +134,7 @@ module TradingRaceVerification
       evidence = cases.select { |event| event['Package'] == mysql_case_package(name, module_path) && event['Test'] == name }
       parent_verified = evidence.length == 1 && evidence.first['Action'] == 'pass'
       children_verified = mysql_constructor_modes(name).all? do |mode|
-        children = terminal.select { |event| event['Package'] == module_path && event['Test'] == "#{name}/#{mode}" }
+        children = terminal.select { |event| event['Package'] == "#{module_path}/internal/app" && event['Test'] == "#{name}/#{mode}" }
         children.length == 1 && children.first['Action'] == 'pass'
       end
       parent_verified && children_verified

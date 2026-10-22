@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.111.0-rc1194] - 2026-10-22（开发中，未发布）
+
+### Fixed
+- 修正 Go 目录迁移后交易竞态门禁仍检查根包的问题，并将 FundingCarry MySQL 构造器证据绑定到 `internal/app` 实际包路径。
+
+### Verification
+- `ruby scripts/tests/trading_race_gate_test.rb`（21 项、462 断言）、`go test ./...`、`go vet ./...`、WebUI `yarn verify`（318 项测试及生产构建）、`make build-backend`（版本 `3.111.0-rc1194`）和前端嵌入校验通过。远端完整 race/MySQL CI 待本提交 SHA 运行；未发布，不代表真实交易或盈利验收。
+
 ## [3.111.0-rc1193] - 2026-10-22（开发中，未发布）
 
 ### Changed
@@ -7,7 +15,7 @@
 - 重排 README 首屏，压缩语言导航与徽章，补充准确的构建入口、Go/Node/Yarn 要求及当前源码边界。
 
 ### Verification
-- 本地 `go test ./...`、`go vet ./...`、`make build-backend`、WebUI `yarn verify`（318 项测试及生产构建）及前端嵌入校验通过；两条迁移后的启动装配静态测试通过。远端 CI 尚未运行；版本 tag 不代表 GitHub Release、真实交易或盈利验收。
+- 本地 `go test ./...`、`go vet ./...`、`make build-backend`、WebUI `yarn verify`（318 项测试及生产构建）及前端嵌入校验通过；两条迁移后的启动装配静态测试通过。远端 CI run 39726704620 中 Go/前端测试与静态分析通过，但旧竞态门禁仍要求根包 `quantmesh`，未匹配 `internal/app`，故本版本未全绿；修复见 RC1194。版本 tag 不代表 GitHub Release、真实交易或盈利验收。
 
 ## [3.111.0-rc1192] - 2026-10-19（开发中，未发布）
 
