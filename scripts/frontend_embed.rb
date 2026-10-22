@@ -19,7 +19,7 @@ module FrontendEmbed
 
     def version
       frontend = JSON.parse(File.read(File.join(@ui, 'package.json'))).fetch('version')
-      backend = File.read(File.join(@root, 'main.go'))[/^var Version = "([^"]+)"$/, 1]
+      backend = File.read(File.join(@root, 'internal', 'app', 'main.go'))[/^var Version = "([^"]+)"$/, 1]
       raise Invalid, 'frontend/backend versions disagree' unless frontend == backend && frontend.match?(/\A\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?\z/)
       frontend
     end

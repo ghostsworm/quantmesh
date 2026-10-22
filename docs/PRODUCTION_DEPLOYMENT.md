@@ -42,7 +42,7 @@ sudo chown -R quantmesh:quantmesh /opt/quantmesh
 ```bash
 # 在开发机器上编译
 cd /path/to/quantmesh
-go build -ldflags="-s -w" -o quantmesh .
+go build -ldflags="-s -w" -o quantmesh ./cmd/quantmesh
 
 # 或使用 Makefile
 make build

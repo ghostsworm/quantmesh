@@ -204,7 +204,7 @@ buffer = buffer[:0]  // 重置长度，保留容量
 
 ```bash
 # 启动时添加 pprof
-go run main.go -pprof=:6060
+go run ./cmd/quantmesh -pprof=:6060
 
 # 分析内存
 go tool pprof http://localhost:6060/debug/pprof/heap

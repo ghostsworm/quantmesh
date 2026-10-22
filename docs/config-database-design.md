@@ -60,7 +60,7 @@ flowchart LR
   end
 ```
 
-- **`.env`**：仅承载 **连接与启动必需项**（例如 SQLite 文件路径、或未来 Postgres DSN；与现有 [`main.go`](../main.go) 存储初始化方式对齐）。
+- **`.env`**：仅承载 **连接与启动必需项**（例如 SQLite 文件路径、或未来 Postgres DSN；与现有 [`internal/app/main.go`](../internal/app/main.go) 存储初始化方式对齐）。
 - **数据库**：存 **主配置 JSON 文档**、**每 Bot 一行配置**，以及 **首版即上线的历史表**（主配置历史 + Bot 配置历史），用于审计与回滚。
 
 ```mermaid
@@ -176,7 +176,7 @@ flowchart TB
 
 ## 7. 从 YAML 文件迁移（`--migrate-app-config`）
 
-**触发条件**（示例）：显式执行 `./quantmesh --migrate-app-config`，且 YAML 路径来自 **命令行第一参数**、环境变量 `QUANTMESH_IMPORT_YAML`，或工作目录下存在 `config.yaml`（与 [`main.go`](../main.go) 一致）。
+**触发条件**（示例）：显式执行 `./quantmesh --migrate-app-config`，且 YAML 路径来自 **命令行第一参数**、环境变量 `QUANTMESH_IMPORT_YAML`，或工作目录下存在 `config.yaml`（与 [`internal/app/main.go`](../internal/app/main.go) 一致）。
 
 **步骤**：
 

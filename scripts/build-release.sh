@@ -56,21 +56,9 @@ build_platform() {
     echo "  → 编译主程序..."
     cd "${PROJECT_ROOT}"
     GOOS=${GOOS} GOARCH=${GOARCH} go build \
-        -ldflags "-X main.Version=${VERSION}" \
+        -ldflags "-X quantmesh/internal/app.Version=${VERSION}" \
         -o "${OUTPUT_DIR}/${PROJECT_NAME}" \
-        ./cmd/main.go || ./main.go 2>/dev/null || {
-        echo -e "${RED}  ❌ 主程序编译失败（尝试其他入口）${NC}"
-        # 如果没有 cmd/main.go，尝试根目录的 main.go
-        if [ -f "main.go" ]; then
-            GOOS=${GOOS} GOARCH=${GOARCH} go build \
-                -ldflags "-X main.Version=${VERSION}" \
-                -o "${OUTPUT_DIR}/${PROJECT_NAME}" \
-                .
-        else
-            echo -e "${RED}  ❌ 找不到主程序入口文件${NC}"
-            return 1
-        fi
-    }
+        ./cmd/quantmesh
     
     # 编译插件（如果插件目录存在）
     if [ -d "${PLUGIN_DIR}" ]; then

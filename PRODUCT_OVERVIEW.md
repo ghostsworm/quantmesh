@@ -1,6 +1,6 @@
 # Product Overview
 
-当前版本为 `3.111.0-rc1190`（开发中、尚未发布）。RC1190 为 SQLite 对账迁移并发冷启动连接获取增加限时、可取消的 BUSY/LOCKED 重试；MySQL 路径不变。远端同 SHA CI 尚待通过，不代表发布、实盘或盈利验收。此前 RC1187–RC1189 的 FundingRecovery 哈希绑定与 MySQL 测试修复历史见下文。
+当前版本为 `3.111.0-rc1193`（开发中、尚未发布）。本版本将根目录应用包迁入 `internal/app`，由 `cmd/quantmesh` 提供启动入口，并同步调整构建、开发、部署及 CI 路径；该整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
 
 RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
 
@@ -1402,7 +1402,7 @@ QuantMesh 是一个面向量化交易运行、监控、回测、风控和 AI 辅
 
 - 前端构建：`cd webui && yarn build`
 - 后端测试：`go test ./...`
-- 本地运行：`go run main.go`
+- 本地运行：`go run ./cmd/quantmesh`
 - 生产部署：构建后将服务二进制复制到服务器，由 systemd 或同类守护进程托管。
 - 首次升级全局暂停持久化表：先备份数据库、停止所有旧版本实例并确认停机维护窗口，再用正式配置运行 `quantmesh --migrate-opening-pause-holders`；该显式命令创建暂停状态及实例 owner 表，并写入 `opening_pause_legacy_state_unverified` 安全门闩。核验旧版风险状态后，操作员才可从 `opening_pause_holders` 表删除该来源；服务正常启动不会自动执行迁移。
 

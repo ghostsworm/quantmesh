@@ -14,7 +14,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # 检查是否在正确的目录
-if [ ! -f "main.go" ]; then
+if [ ! -f "internal/app/main.go" ]; then
     echo -e "${RED}❌ 错误: 请在 quantmesh 项目根目录运行此脚本${NC}"
     exit 1
 fi
@@ -84,7 +84,7 @@ echo ""
 echo "5️⃣  重新编译"
 echo "-------------------"
 echo "编译中..."
-go build -o quantmesh
+go build -o quantmesh ./cmd/quantmesh
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ 编译成功${NC}"

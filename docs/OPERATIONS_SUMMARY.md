@@ -276,7 +276,7 @@ go run .
 
 ```bash
 # 1. 构建
-go build -ldflags="-s -w" -o quantmesh .
+go build -ldflags="-s -w" -o quantmesh ./cmd/quantmesh
 
 # 2. 部署到服务器
 scp quantmesh user@server:/opt/quantmesh/

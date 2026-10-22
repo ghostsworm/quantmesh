@@ -47,7 +47,7 @@ Example: Binance ETHUSDC, zero fees, ~$1 spacing, ~$300 per clip can reach milli
 
 ```
 quantmesh_platform/
-├── main.go
+├── cmd/quantmesh/main.go
 ├── config/                 # YAML, hot reload, history
 ├── exchange/               # venue adapters
 ├── strategy/               # grid, DCA, martingale, mean reversion, momentum, trend, combo
@@ -84,7 +84,7 @@ Open http://localhost:8080 in the browser. Stop: `docker-compose down`.
 
 ### From source
 
-Go 1.21+ and reachable exchange APIs.
+Go 1.25.4, Node.js 20, Yarn 4, and exchange API credentials for live access.
 
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
@@ -92,11 +92,11 @@ cd quantmesh
 go mod download
 cp docs/config/examples/config.example.yaml my-config.yaml
 # after editing: ./quantmesh --migrate-app-config my-config.yaml
-go run main.go
-# or: go build -o quantmesh && ./quantmesh
+go run ./cmd/quantmesh
+# or: go build -o quantmesh ./cmd/quantmesh && ./quantmesh
 ```
 
-By default the backend serves the embedded UI on **28888**. For dev, run `./scripts/local/dev.sh` or `go run main.go` plus `cd webui && yarn dev` (Vite defaults to **15173**).
+By default the backend serves the embedded UI on **28888**. For dev, run `./scripts/local/dev.sh` or `go run ./cmd/quantmesh` plus `cd webui && yarn dev` (Vite defaults to **15173**).
 
 Sample config snippet:
 

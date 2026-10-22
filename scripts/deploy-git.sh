@@ -131,7 +131,7 @@ main() {
     
     # 7. 在服务器上构建后端
     log_step "在服务器上构建后端..."
-    remote_exec "cd ${REMOTE_PATH} && export CGO_ENABLED=1 && go mod download && go build -buildvcs=false -ldflags='-s -w' -o quantmesh ."
+    remote_exec "cd ${REMOTE_PATH} && export CGO_ENABLED=1 && go mod download && go build -buildvcs=false -ldflags='-s -w' -o quantmesh ./cmd/quantmesh"
     log_info "✅ 后端构建完成"
     
     # 8. 设置执行权限

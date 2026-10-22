@@ -2124,7 +2124,7 @@ cd quantmesh
 go mod download
 
 # 编译
-go build -o quantmesh cmd/quantmesh/main.go
+go build -o quantmesh ./cmd/quantmesh
 
 # 运行（首参为可选 YAML 路径；主配置权威见 app_config）
 ./quantmesh
@@ -2536,7 +2536,7 @@ QuantMesh 是一个全面的、企业级加密货币做市平台，结合了复�
 ### 技术栈
 
 **后端**：
-- Go 1.21+
+- Go 1.25.4
 - WebSocket
 - gRPC
 - PostgreSQL/MySQL

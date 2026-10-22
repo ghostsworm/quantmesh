@@ -278,7 +278,7 @@ docker run -d --name postgres \
   -p 5432:5432 postgres:15-alpine
 
 # 3. 编译应用
-go build -o quantmesh .
+go build -o quantmesh ./cmd/quantmesh
 
 # 4. 启动实例（首参为 YAML 路径；每实例独立 data 目录）
 ./quantmesh config-instance1.yaml &

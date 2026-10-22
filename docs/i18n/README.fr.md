@@ -84,7 +84,7 @@ Pour des descriptions détaillées des améliorations et des informations sur le
 
 ```
 quantmesh_platform/
-├── main.go                    # Point d'entrée du programme principal, orchestration des composants
+├── cmd/quantmesh/main.go                    # Point d'entrée du programme principal, orchestration des composants
 │
 ├── config/                    # Gestion de la configuration
 │   └── config.go              # Chargement et validation de la configuration YAML
@@ -129,7 +129,7 @@ quantmesh_platform/
 ## 🚀 Démarrage Rapide
 
 ### Prérequis
-- Go 1.21 ou supérieur
+- Go 1.25.4, Node.js 20 et Yarn 4
 - Environnement réseau capable d'accéder aux API de bourse
 
 ### Installation
@@ -177,7 +177,7 @@ quantmesh_platform/
 ### Utilisation
 
 ```bash
-go run main.go
+go run ./cmd/quantmesh
 ```
 
 Ou compilez et exécutez :

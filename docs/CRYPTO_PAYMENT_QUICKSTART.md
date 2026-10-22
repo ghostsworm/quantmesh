@@ -58,7 +58,7 @@ COINBASE_WEBHOOK_SECRET=your_webhook_secret_here
 
 ```bash
 # 启动服务
-go run main.go
+go run ./cmd/quantmesh
 
 # 测试支付
 ./test_crypto_payment.sh
@@ -105,7 +105,7 @@ export WALLET_ADDRESS_USDC="0x..."
 ### 步骤 3: 启动服务 (1 分钟)
 
 ```bash
-go run main.go
+go run ./cmd/quantmesh
 ```
 
 ### 步骤 4: 测试支付 (2 分钟)

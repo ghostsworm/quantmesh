@@ -195,7 +195,7 @@ for platform in "${PLATFORMS[@]}"; do
     OUTPUT="release/v${VERSION}/${GOOS}-${GOARCH}"
     
     echo "Building ${platform}..."
-    GOOS=$GOOS GOARCH=$GOARCH go build -o "${OUTPUT}/quantmesh" ./cmd/main.go
+    GOOS=$GOOS GOARCH=$GOARCH go build -o "${OUTPUT}/quantmesh" ./cmd/quantmesh
     
     # 编译插件
     # ...

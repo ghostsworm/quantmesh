@@ -1,30 +1,24 @@
-<div align="center">
-  <img src="logo/qm_thick_tail_white.svg" alt="QuantMesh Logo" width="200"/>
-  
-  # QuantMesh Market Maker
-  
-  **面向实盘与研究的加密货币做市与网格系统 —— 开源可审计，控制台一站式管理**
-  
-  <p>
-    <a href="https://github.com/ghostsworm/quantmesh"><strong>若对你有用，请点右上角 Star ⭐</strong></a><br/>
-    <sub>Star 后可在 GitHub 首页「Following」里收到发版与重要更新动态，也方便我们判断项目是否值得持续投入。</sub>
-  </p>
-  <p>
-    <a href="https://github.com/ghostsworm/quantmesh">
-      <img src="https://img.shields.io/github/stars/ghostsworm/quantmesh?style=social" alt="GitHub Stars">
-    </a>
-  </p>
+# QuantMesh
 
-  [![Go Version](https://img.shields.io/badge/Go-1.21%2B-blue.svg)](https://golang.org/dl/)
-  [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-  [![GitHub Stars](https://img.shields.io/github/stars/ghostsworm/quantmesh.svg?style=social&label=Stars)](https://github.com/ghostsworm/quantmesh)
-  [![GitHub Forks](https://img.shields.io/github/forks/ghostsworm/quantmesh.svg?style=social&label=Forks)](https://github.com/ghostsworm/quantmesh)
-  [![GitHub Issues](https://img.shields.io/github/issues/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/issues)
-  [![GitHub Release](https://img.shields.io/github/release/ghostsworm/quantmesh.svg)](https://github.com/ghostsworm/quantmesh/releases)
-  [![Website](https://img.shields.io/badge/Website-quantmesh.io-green.svg)](https://quantmesh.io)
-  
-  [简体中文](README.md) | [繁体中文](docs/i18n/README.zh-TW.md) | [English](docs/i18n/README.en.md) | [Español](docs/i18n/README.es.md) | [Français](docs/i18n/README.fr.md) | [Português](docs/i18n/README.pt.md) | [Deutsch](docs/i18n/README.de.md) | [日本語](docs/i18n/README.ja.md) | [한국어](docs/i18n/README.ko.md) | [Русский](docs/i18n/README.ru.md) | [العربية](docs/i18n/README.ar.md) | [हिन्दी](docs/i18n/README.hi.md) | [Bahasa Indonesia](docs/i18n/README.id.md) | [Tiếng Việt](docs/i18n/README.vi.md) | [ไทย](docs/i18n/README.th.md) | [Türkçe](docs/i18n/README.tr.md) | [Українська](docs/i18n/README.uk.md) | [فارسی](docs/i18n/README.fa.md) | [Nederlands](docs/i18n/README.nl.md) | [Italiano](docs/i18n/README.it.md) | [বাংলা](docs/i18n/README.bn.md) | [اردو](docs/i18n/README.ur.md) | [Polski](docs/i18n/README.pl.md) | [Tagalog](docs/i18n/README.tl.md)
-</div>
+**开源的加密货币做市、网格交易与回测平台。**
+
+面向希望自托管、检查策略和风控实现的交易者与开发者。提供多交易所适配、策略运行、回测和 Web 控制台；不承诺收益，也不替用户承担交易风险。
+
+> QuantMesh is an open-source, self-hosted crypto market-making and grid-trading platform with backtesting and risk controls. It is built for users who want to inspect and operate their own trading stack. It does not promise profits.
+
+[![CI](https://github.com/ghostsworm/quantmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostsworm/quantmesh/actions/workflows/ci.yml)
+[![Go](https://img.shields.io/badge/Go-1.25.4-blue.svg)](https://go.dev/dl/)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Stars](https://img.shields.io/github/stars/ghostsworm/quantmesh.svg?style=social&label=Stars)](https://github.com/ghostsworm/quantmesh)
+
+[简体中文](README.md) · [English](docs/i18n/README.en.md) · [繁體中文](docs/i18n/README.zh-TW.md) · [其他语言](docs/i18n/README.md)
+
+```bash
+make build
+./quantmesh --version
+```
+
+> 当前主分支源码构建需 Go 1.25.4、Node.js 20 和 Yarn 4。首次运行前请先完成配置，并优先使用交易所测试网。
 
 ---
 
@@ -64,7 +58,7 @@ docker-compose up -d
 
 ### 源码运行
 
-需要 Go 1.21+，并能访问交易所 API。
+需要 Go 1.25.4、Node.js 20、Yarn 4；实盘接入还需要交易所 API 凭据。
 
 ```bash
 git clone https://github.com/ghostsworm/quantmesh.git
@@ -72,11 +66,11 @@ cd quantmesh
 go mod download
 cp docs/config/examples/config.example.yaml my-config.yaml
 # 编辑后：./quantmesh --migrate-app-config my-config.yaml
-go run main.go
-# 或 go build -o quantmesh && ./quantmesh
+go run ./cmd/quantmesh
+# 或 make build && ./quantmesh
 ```
 
-默认后端在 **28888** 嵌入前端静态资源。本地开发可执行 `./scripts/local/dev.sh`，或分别运行 `go run main.go` 与 `cd webui && yarn dev`（Vite 默认 **15173**）。  
+默认后端在 **28888** 嵌入前端静态资源。本地开发可执行 `./scripts/local/dev.sh`，或分别运行 `go run ./cmd/quantmesh` 与 `cd webui && yarn dev`（Vite 默认 **15173**）。
 常用启停脚本已放在 [`scripts/local/`](scripts/local/)，避免仓库根目录杂乱、便于在 GitHub 首页先看到本说明。  
 示例与场景 YAML 集中在 [`docs/config/examples/`](docs/config/examples/)，运行时以数据库为准，无需在根目录堆配置文件。
 
@@ -126,7 +120,8 @@ trading:
 
 ```
 quantmesh_platform/
-├── main.go          # 入口（Bot/Symbol 運行時與 main 同包，見同目錄 *.go）
+├── cmd/quantmesh/   # 程序启动入口
+├── internal/app/    # 应用编排与运行时（含同包测试）
 ├── docs/            # 架構說明、貢獻指南、API 等（首屏請看本 README）
 ├── config/          # YAML、热更新、历史
 ├── exchange/        # 各所适配
@@ -170,7 +165,7 @@ quantmesh_platform/
 ---
 
 <div align="center">
-  QuantMesh Team · <sub>Version 3.90.0-rc6</sub>
+  QuantMesh Team
 </div>
 
 Copyright © 2026 QuantMesh Team. All Rights Reserved.

@@ -40,16 +40,11 @@ RUN if [ -d "webui" ] && [ -f "webui/package.json" ]; then \
       echo "# Placeholder" > web/dist/.gitkeep; \
     fi
 
-# 构建应用（排除工具文件，避免 main 函数冲突）
-RUN mkdir -p .tools_backup && \
-    for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do \
-      if [ -f "$$file" ]; then mv "$$file" .tools_backup/ || true; fi \
-    done && \
-    echo "Building version: $VERSION" && \
+# 构建应用入口；业务包位于 internal/app
+RUN echo "Building version: $VERSION" && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-      -ldflags="-s -w -X main.Version=$VERSION" \
-      -o quantmesh . && \
-    rm -rf .tools_backup
+      -ldflags="-s -w -X quantmesh/internal/app.Version=$VERSION" \
+      -o quantmesh ./cmd/quantmesh
 
 # 运行阶段
 FROM alpine:latest

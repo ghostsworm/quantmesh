@@ -15,7 +15,7 @@ build-backend: build-frontend
 	@ruby scripts/frontend_embed.rb verify
 	@VERSION=$$(ruby scripts/frontend_embed.rb version) && \
 	echo "Version: $$VERSION" && \
-	go build -ldflags="-s -w -X main.Version=$$VERSION" -o "$(OUTPUT)" .
+	go build -ldflags="-s -w -X quantmesh/internal/app.Version=$$VERSION" -o "$(OUTPUT)" ./cmd/quantmesh
 
 # 完整构建（前端 + 后端）
 build: build-backend

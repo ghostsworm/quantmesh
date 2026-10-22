@@ -66,7 +66,7 @@ QuantMesh Market Maker 是一个高性能、低延迟的加密货币做市商系
 
 ```
 quantmesh_platform/
-├── main.go                    # 主程序入口，组件编排
+├── cmd/quantmesh/main.go                    # 主程序入口，组件编排
 │
 ├── config/                    # 配置管理
 │   └── config.go              # YAML配置加载与验证
@@ -113,7 +113,7 @@ quantmesh_platform/
 **配置说明：** 交易主配置的**权威来源**是主库表 **`app_config`**（JSON）。`docs/config/examples/config.example.yaml` 仅为**导入模板**，运行时**不依赖**固定磁盘文件名 `config.yaml`。将 YAML 写入主库：`./quantmesh --migrate-app-config`（可配合 `QUANTMESH_IMPORT_YAML` 或工作目录下的 `config.yaml`），或将 YAML 路径作为 **`./quantmesh` 的第一个参数**；配置完整时可能**自动迁移**入庫。请配置 **`QUANTMESH_SQLITE_PATH`** / **`QUANTMESH_DATABASE_DSN`**（或 `.env`）以连接主库。详见 [`docs/config-database-design.md`](../config-database-design.md)。
 
 ### 环境要求
-- Go 1.21 或更高版本
+- Go 1.25.4、Node.js 20 和 Yarn 4
 - 网络环境需能访问交易所 API
 
 ### 安装
@@ -165,7 +165,7 @@ quantmesh_platform/
 ### 运行
 
 ```bash
-go run main.go
+go run ./cmd/quantmesh
 ```
 
 或编译后：

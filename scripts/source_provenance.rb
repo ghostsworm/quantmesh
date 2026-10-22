@@ -36,7 +36,7 @@ module SourceProvenance
     end
 
     frontend_version = JSON.parse(File.read(File.join(root, 'webui/package.json'))).fetch('version')
-    server_source = File.read(File.join(root, 'main.go'))
+    server_source = File.read(File.join(root, 'internal', 'app', 'main.go'))
     server_version_match = server_source.match(/^var Version = "([^"]+)"/)
     server_version = server_version_match && server_version_match[1]
     complete = !!(sha_status.success? && worktree_status.success? && diff_status.success? && untracked_status.success? && server_version)

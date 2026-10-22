@@ -87,8 +87,8 @@ docker run --rm \
   -v "$PWD":/app \
   -w /app \
   -e CGO_ENABLED=1 \
-  golang:1.21 \
-  bash -c "go mod download && go build -ldflags='-s -w' -o quantmesh ."
+  golang:1.25.4 \
+  bash -c "go mod download && go build -ldflags='-s -w' -o quantmesh ./cmd/quantmesh"
 ```
 
 **本地编译（如果目标也是Mac）：**
@@ -102,7 +102,7 @@ cp -r webui/dist web/dist
 
 # 构建后端
 export CGO_ENABLED=1
-go build -ldflags="-s -w" -o quantmesh .
+go build -ldflags="-s -w" -o quantmesh ./cmd/quantmesh
 ```
 
 #### 2. 上传到服务器

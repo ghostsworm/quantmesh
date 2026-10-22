@@ -150,7 +150,7 @@ jobs:
         RELEASE_VERSION: ${{ steps.get_version.outputs.version }}
       run: |
         FRONTEND_VERSION=$(node -p "require('./webui/package.json').version")
-        BACKEND_VERSION=$(sed -n 's/^var Version = "\(.*\)"/\1/p' main.go)
+        BACKEND_VERSION=$(sed -n 's/^var Version = "\(.*\)"/\1/p' internal/app/main.go)
         if [ "$RELEASE_VERSION" != "$FRONTEND_VERSION" ] || [ "$RELEASE_VERSION" != "$BACKEND_VERSION" ]; then
           echo "Release version mismatch: release=$RELEASE_VERSION frontend=$FRONTEND_VERSION backend=$BACKEND_VERSION" >&2
           exit 1
@@ -196,25 +196,11 @@ jobs:
         echo "CGO_ENABLED=${CGO_ENABLED}"
         go env CGO_ENABLED
         
-        # 临时移动工具文件，避免 main 函数冲突
-        mkdir -p .tools_backup
-        for file in analyze_market_data.go run_1m_backtest.go run_3m_backtest.go run_eth_backtest.go test_intrabar_backtest.go test_intrabar_quick.go test_license_validation.go test_plugin_detailed.go test_plugin_loading.go test_zero_fee.go; do
-          if [ -f "$file" ]; then
-            mv "$file" .tools_backup/ || true
-          fi
-        done
-        
         # 构建
         ruby scripts/frontend_embed.rb verify
         VERSION=${{ steps.get_version.outputs.version }}
         echo "Building version ${VERSION} for ${{ matrix.goos }}/${{ matrix.goarch }} with CGO_ENABLED=1"
-        go build -ldflags="-s -w -X main.Version=${VERSION}" -o quantmesh-${{ matrix.goos }}-${{ matrix.goarch }} .
-        
-        # 恢复工具文件
-        if [ -d ".tools_backup" ]; then
-          mv .tools_backup/* . 2>/dev/null || true
-          rmdir .tools_backup 2>/dev/null || true
-        fi
+        go build -ldflags="-s -w -X quantmesh/internal/app.Version=${VERSION}" -o quantmesh-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/quantmesh
         
     - name: Create archive
       run: |

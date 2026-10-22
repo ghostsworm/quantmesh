@@ -190,7 +190,7 @@ export all_proxy=socks5://127.0.0.1:7890
 go mod download
 
 # 编译
-go build -o quantmesh .
+go build -o quantmesh ./cmd/quantmesh
 ```
 
 #### 4. 启动实例

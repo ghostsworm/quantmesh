@@ -307,7 +307,7 @@ build_online() {
     export CGO_ENABLED=1
     
     # 编译
-    go build -o "${BINARY_NAME}" .
+    go build -o "${BINARY_NAME}" ./cmd/quantmesh
     
     if [ $? -ne 0 ]; then
         log_error "后端构建失败"

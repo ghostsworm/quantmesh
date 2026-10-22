@@ -440,7 +440,7 @@ sudo systemctl start quantmesh
    go mod verify
    
    # 本地构建
-   go build .
+   go build ./cmd/quantmesh
    ```
 
 3. **Lint 失败**

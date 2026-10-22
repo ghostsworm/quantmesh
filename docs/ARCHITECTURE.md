@@ -33,7 +33,7 @@ QuantMesh 是一个**毫秒级高频加密货币做市商系统**，专注于永
 - ✅ 持仓安全性检查
 
 ### 技术栈
-- **语言**: Go 1.21+
+- **语言**: Go 1.25.4
 - **配置管理**: YAML
 - **WebSocket**: gorilla/websocket
 - **限流**: golang.org/x/time/rate
@@ -100,7 +100,8 @@ QuantMesh: 固定金额买入（如每次30 USDT）
 
 ```
 quantmesh_platform/
-├── main.go                    # 主程序入口，组件编排
+├── cmd/quantmesh/              # 主程序启动入口
+├── internal/app/               # 应用编排与运行时（含同包测试）
 │
 ├── config/                    # 配置管理
 │   └── config.go              # YAML配置加载与验证

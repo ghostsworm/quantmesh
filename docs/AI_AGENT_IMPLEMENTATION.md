@@ -61,7 +61,7 @@ quantmesh/
 ### 后端技术栈
 
 **Agent 框架**
-- Go 1.21+ - 主要开发语言
+- Go 1.25.4 - 主要开发语言
 - 事件溯源架构 - 可追溯和可审计
 - TODO 列表规划 - 清晰的任务管理
 - Tool Registry - 可扩展的工具系统
@@ -100,7 +100,7 @@ quantmesh/
 export ANTHROPIC_API_KEY="your-api-key"
 
 # 启动 QuantMesh
-go run main.go
+go run ./cmd/quantmesh
 ```
 
 ### 2. 访问聊天界面

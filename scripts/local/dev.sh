@@ -125,7 +125,7 @@ trap cleanup EXIT
 log_info "编译 Go 后端 -> ${DEV_BIN} ..."
 cd "${SCRIPT_DIR}"
 mkdir -p "${DEV_DIR}"
-go build -o "${DEV_BIN}" .
+go build -o "${DEV_BIN}" ./cmd/quantmesh
 
 # 开启作业控制：后台任务各自成为进程组组长（PGID == PID），stop.sh 可整组停止
 set -m

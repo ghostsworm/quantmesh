@@ -50,7 +50,7 @@ cp -r webui/dist/* web/dist/
 
 # 編譯 Go 後端
 echo ">>> 編譯 Go 後端..."
-CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X main.Version=$VERSION" -o quantmesh .
+CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w -X quantmesh/internal/app.Version=$VERSION" -o quantmesh ./cmd/quantmesh
 
 echo "編譯完成!"
 END_OF_SCRIPT

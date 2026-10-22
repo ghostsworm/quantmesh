@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.111.0-rc1193] - 2026-10-22（开发中，未发布）
+
+### Changed
+- 将根目录 201 个 Go 应用文件（含同包测试）整体迁入 `internal/app`，新增 `cmd/quantmesh` 启动入口；同步更新构建、开发、部署、CI、版本来源、Go 1.25.4 工具链要求和 README 目录说明，避免将同一 `main` 包拆散。
+- 重排 README 首屏，压缩语言导航与徽章，补充准确的构建入口、Go/Node/Yarn 要求及当前源码边界。
+
+### Verification
+- 本地 `go test ./...`、`go vet ./...`、`make build-backend`、WebUI `yarn verify`（318 项测试及生产构建）及前端嵌入校验通过；两条迁移后的启动装配静态测试通过。远端 CI 尚未运行；版本 tag 不代表 GitHub Release、真实交易或盈利验收。
+
 ## [3.111.0-rc1192] - 2026-10-19（开发中，未发布）
 
 ### Fixed

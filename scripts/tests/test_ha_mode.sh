@@ -28,7 +28,7 @@ echo "========================================"
 echo "测试 2: 编译测试"
 echo "========================================"
 
-go build -o /tmp/quantmesh_test . 2>&1 | grep -v "warning:" || true
+go build -o /tmp/quantmesh_test ./cmd/quantmesh
 
 if [ $? -eq 0 ]; then
     echo "✅ 编译成功"
@@ -96,16 +96,16 @@ else
     exit 1
 fi
 
-# 检查 main.go 是否初始化了 lock 和 database
-if grep -q "lock.NewDistributedLock" main.go; then
-    echo "✅ main.go 已初始化分布式锁"
+# 检查 app 包是否初始化了 lock 和 database
+if grep -q "lock.NewDistributedLock" internal/app/main.go; then
+    echo "✅ app 已初始化分布式锁"
 else
-    echo "❌ main.go 缺少分布式锁初始化"
+    echo "❌ app 缺少分布式锁初始化"
     exit 1
 fi
 
-if grep -q "database.NewDatabaseService" main.go; then
-    echo "✅ main.go 已初始化数据库服务"
+if grep -q "database.NewDatabaseService" internal/app/main.go; then
+    echo "✅ app 已初始化数据库服务"
 else
     echo "ℹ️  数据库服务暂未集成（使用现有 storage.StorageService）"
 fi

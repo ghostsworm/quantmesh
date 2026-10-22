@@ -310,8 +310,8 @@ build_with_docker() {
         -v "${PROJECT_DIR}":/app \
         -w /app \
         -e CGO_ENABLED=1 \
-        golang:1.21 \
-        bash -c "go mod download && go build -ldflags='-s -w' -o quantmesh ."
+        golang:1.25.4 \
+        bash -c "go mod download && go build -ldflags='-s -w' -o quantmesh ./cmd/quantmesh"
     
     if [ ! -f "${PROJECT_DIR}/quantmesh" ]; then
         log_error "Docker构建失败"
@@ -333,7 +333,7 @@ build_local() {
     # 构建后端
     log_info "构建后端..."
     export CGO_ENABLED=1
-    go build -ldflags="-s -w" -o quantmesh .
+    go build -ldflags="-s -w" -o quantmesh ./cmd/quantmesh
     
     if [ ! -f "${PROJECT_DIR}/quantmesh" ]; then
         log_error "构建失败"

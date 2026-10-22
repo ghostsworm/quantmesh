@@ -99,7 +99,7 @@ if [ "$DEV_MODE" = true ]; then
     log_info "编译开发模式后端 -> ${DEV_BIN} ..."
     mkdir -p "${DEV_DIR}"
     cd "${SCRIPT_DIR}"
-    go build -o "${DEV_BIN}" .
+    go build -o "${DEV_BIN}" ./cmd/quantmesh
     "${DEV_BIN}" &
     echo $! > "${PID_FILE_GO}"
     sleep 2

@@ -9,8 +9,9 @@ class FrontendEmbedTest < Minitest::Test
     FileUtils.mkdir_p(File.join(@root, 'webui', 'src'))
     FileUtils.mkdir_p(File.join(@root, 'web'))
     FileUtils.mkdir_p(File.join(@root, 'scripts'))
+    FileUtils.mkdir_p(File.join(@root, 'internal', 'app'))
     FileUtils.copy_file(File.expand_path('../frontend_embed.rb', __dir__), File.join(@root, 'scripts', 'frontend_embed.rb'))
-    write('main.go', "var Version = \"1.2.3-rc1\"\n")
+    write('internal/app/main.go', "var Version = \"1.2.3-rc1\"\n")
     write('webui/package.json', JSON.generate(version: '1.2.3-rc1'))
     write('webui/src/app.ts', 'fixture source')
     write('webui/dist/index.html', '<script src="/assets/app.js"></script>')
@@ -47,7 +48,7 @@ class FrontendEmbedTest < Minitest::Test
   end
 
   def test_rejects_version_mismatch
-    write('main.go', "var Version = \"1.2.3-rc2\"\n")
+    write('internal/app/main.go', "var Version = \"1.2.3-rc2\"\n")
     assert_raises(FrontendEmbed::Invalid) { @gate.sync }
   end
 
@@ -120,7 +121,7 @@ class FrontendEmbedTest < Minitest::Test
   end
 
   def test_rejects_source_symlink_escaping_source_directory
-    File.symlink('../../main.go', File.join(@root, 'webui/src/outside.ts'))
+    File.symlink('../../internal/app/main.go', File.join(@root, 'webui/src/outside.ts'))
     assert_raises(FrontendEmbed::Invalid) { @gate.source_digest }
   end
 
