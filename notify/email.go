@@ -116,6 +116,8 @@ func formatEmailMessage(evt *event.Event) string {
 		title = "系统啟动"
 	case event.EventTypeSystemStop:
 		title = "系统停止"
+	case event.EventTypeMCPWriteCompleted:
+		title = "MCP 写操作已完成"
 	case event.EventTypeMarginInsufficient:
 		title = "保证金不足告警"
 	case event.EventTypeAllocationExceeded:
@@ -149,6 +151,9 @@ func formatEmailMessage(evt *event.Event) string {
 			message += body + "\n"
 			return message
 		}
+	}
+	if body := eventBody(evt); body != "" {
+		return message + body + "\n"
 	}
 	// 添加事件數據
 	if evt.Data != nil {
@@ -209,7 +214,7 @@ func NewResendProvider(cfg *config.Config) *ResendProvider {
 // Send 发送邮件（使用 Resend API）
 func (rp *ResendProvider) Send(from, to, subject, body string) error {
 	url := "https://api.resend.com/emails"
-	
+
 	payload := map[string]interface{}{
 		"from":    from,
 		"to":      []string{to},
@@ -262,7 +267,7 @@ func NewMailgunProvider(cfg *config.Config) *MailgunProvider {
 // Send 发送邮件（使用 Mailgun API）
 func (mp *MailgunProvider) Send(from, to, subject, body string) error {
 	url := fmt.Sprintf("https://api.mailgun.net/v3/%s/messages", mp.domain)
-	
+
 	payload := map[string]string{
 		"from":    from,
 		"to":      to,

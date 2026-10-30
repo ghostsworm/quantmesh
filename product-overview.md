@@ -1,6 +1,8 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.111.0-rc1194`（2026-10-22，开发中，未发布）
+> 当前版本：`3.111.0-rc1195`（2026-10-30，开发中，未发布）
+
+MCP 令牌改为按张颁发。只读令牌只能查询且不发通知；读写令牌在颁发时必须指定通知渠道和地址，同一次请求里的修改全部完成后只通知一次。设置页可复制带密钥的 Streamable HTTP 地址。升级前的单个全局令牌继续有效，其写权限仍由原全局开关决定，且不单独通知。
 
 本版本将原根目录 `package main`（含同包测试）整体迁至 `internal/app`，并新增 `cmd/quantmesh` 作为启动入口；同步更新构建、部署、CI 与开发说明。此为目录结构整理，不改变交易行为，也不代表真实实盘或盈利验收。
 
@@ -26,7 +28,7 @@ RC1173 阶段限制记录：当时的 permit、Gate 来源约束、recovery outb
 - 多 AI 上游（OpenAI 兼容 / Claude 原生 / Gemini，含 DeepSeek / Moonshot / 智谱 / Ollama / OneAPI / Poe 等自定义 base_url）的市场解读、参数建议、新闻分析
 - WebUI（React + Chakra）+ REST API + WebSocket 推送 + Telegram / 邮件 / Webhook 告警
 - **PostHog / Sentry 可观测性错误上报（用户主动配置后启用）**
-- **内嵌 MCP streamable HTTP 服务，可被 Claude Desktop / Cursor / 自研 Agent 直接调用 Bot、持仓、订单、PNL、对账、风控、系统健康与诊断工具**
+- **内嵌 MCP Streamable HTTP 服务。按张颁发只读或读写令牌，读写令牌完成修改后按指定渠道通知；可被 Claude Desktop / Cursor / 自研 Agent 直接调用 Bot、持仓、订单、PNL、对账、风控、系统健康与诊断工具**
 - CI 会执行 Go 全仓单元测试、覆盖率摘要与 WebUI Vitest 单测，当前 Go 全仓语句覆盖率已推进到 `33.2%`
 
 ## 设计思路

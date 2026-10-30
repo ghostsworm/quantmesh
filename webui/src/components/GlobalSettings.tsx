@@ -27,23 +27,31 @@ import {
   useToast,
   VStack,
 } from '@chakra-ui/react'
-import { CopyIcon, RepeatIcon } from '@chakra-ui/icons'
+import { CopyIcon } from '@chakra-ui/icons'
 
 import {
   MCPConfig,
+  MCPIssuedToken,
+  MCPNotifyChannel,
   MCPSnippetStyle,
+  MCPTokenMode,
   ObservabilityConfig,
   clearMCPToken,
   getMCPClientSnippet,
   getMCPConfig,
   getObservabilityConfig,
-  rotateMCPToken,
+  issueMCPToken,
+  revokeMCPToken,
   testObservabilityConnection,
   updateMCPConfig,
   updateObservabilityConfig,
 } from '../services/globalSettings'
 
 const SNIPPET_STYLES: MCPSnippetStyle[] = ['claude', 'cursor', 'generic']
+const MCP_CHANNELS: MCPNotifyChannel[] = [
+  'email', 'telegram', 'webhook', 'feishu', 'dingtalk', 'wechat_work', 'slack',
+]
+const MCP_TARGET_REQUIRED = new Set<MCPNotifyChannel>(['email', 'webhook'])
 
 const GlobalSettings: React.FC = () => {
   const { t } = useTranslation()
@@ -71,8 +79,12 @@ const GlobalSettings: React.FC = () => {
   const [mcpAllowWrite, setMcpAllowWrite] = useState(false)
   const [mcpEnabled, setMcpEnabled] = useState(true)
   const [mcpSaving, setMcpSaving] = useState(false)
-  const [mcpRotating, setMcpRotating] = useState(false)
-  const [mcpNewToken, setMcpNewToken] = useState('') // 仅生成后展示一次
+  const [mcpIssuing, setMcpIssuing] = useState(false)
+  const [mcpIssued, setMcpIssued] = useState<MCPIssuedToken | null>(null)
+  const [mcpTokenName, setMcpTokenName] = useState('')
+  const [mcpTokenMode, setMcpTokenMode] = useState<MCPTokenMode>('readonly')
+  const [mcpNotifyChannel, setMcpNotifyChannel] = useState<MCPNotifyChannel>('email')
+  const [mcpNotifyTarget, setMcpNotifyTarget] = useState('')
   const [snippetStyle, setSnippetStyle] = useState<MCPSnippetStyle>('claude')
   const [snippetText, setSnippetText] = useState('')
   const [snippetLoading, setSnippetLoading] = useState(false)
@@ -291,15 +303,44 @@ const GlobalSettings: React.FC = () => {
     }
   }
 
-  const handleRotateToken = async () => {
-    if (!window.confirm(t('globalSettings.mcp.rotateConfirm'))) return
-    setMcpRotating(true)
+  const handleIssueToken = async () => {
+    if (mcpTokenMode === 'readwrite' && MCP_TARGET_REQUIRED.has(mcpNotifyChannel) && mcpNotifyTarget.trim() === '') {
+      toast({ title: t('globalSettings.mcp.notifyRequired'), status: 'warning', duration: 4000 })
+      return
+    }
+    setMcpIssuing(true)
     try {
-      const r = await rotateMCPToken()
-      setMcpNewToken(r.token)
+      const issued = await issueMCPToken({
+        name: mcpTokenName.trim(),
+        mode: mcpTokenMode,
+        notify: mcpTokenMode === 'readwrite'
+          ? { channel: mcpNotifyChannel, target: mcpNotifyTarget.trim() }
+          : undefined,
+      })
+      setMcpIssued(issued)
+      setMcpTokenName('')
+      setMcpNotifyTarget('')
       await refreshMCP()
-      await refreshSnippet(snippetStyle)
-      toast({ title: t('globalSettings.mcp.rotated'), status: 'success', duration: 4000 })
+      toast({ title: t('globalSettings.mcp.issued'), status: 'success', duration: 5000 })
+    } catch (err) {
+      toast({
+        title: t('globalSettings.mcp.issueFailed'),
+        description: String(err),
+        status: 'error',
+        duration: 5000,
+      })
+    } finally {
+      setMcpIssuing(false)
+    }
+  }
+
+  const handleRevokeToken = async (id: string) => {
+    if (!window.confirm(t('globalSettings.mcp.revokeConfirm'))) return
+    try {
+      await revokeMCPToken(id)
+      if (mcpIssued?.id === id) setMcpIssued(null)
+      await refreshMCP()
+      toast({ title: t('globalSettings.mcp.revoked'), status: 'success', duration: 3000 })
     } catch (err) {
       toast({
         title: t('globalSettings.saveFailed'),
@@ -307,8 +348,6 @@ const GlobalSettings: React.FC = () => {
         status: 'error',
         duration: 5000,
       })
-    } finally {
-      setMcpRotating(false)
     }
   }
 
@@ -316,7 +355,6 @@ const GlobalSettings: React.FC = () => {
     if (!window.confirm(t('globalSettings.mcp.clearConfirm'))) return
     try {
       await clearMCPToken()
-      setMcpNewToken('')
       await refreshMCP()
       await refreshSnippet(snippetStyle)
       toast({ title: t('globalSettings.mcp.cleared'), status: 'success', duration: 3000 })
@@ -495,22 +533,6 @@ const GlobalSettings: React.FC = () => {
                 onChange={(e) => setMcpEnabled(e.target.checked)}
               />
             </FormControl>
-
-            <FormControl display="flex" alignItems="center">
-              <FormLabel mb="0">{t('globalSettings.mcp.allowWriteLabel')}</FormLabel>
-              <Switch
-                isChecked={mcpAllowWrite}
-                onChange={(e) => setMcpAllowWrite(e.target.checked)}
-                colorScheme="red"
-              />
-            </FormControl>
-            <Alert status={mcpAllowWrite ? 'warning' : 'info'} fontSize="sm" borderRadius="md">
-              <AlertIcon />
-              {mcpAllowWrite
-                ? t('globalSettings.mcp.allowWriteWarn')
-                : t('globalSettings.mcp.allowWriteInfo')}
-            </Alert>
-
             <HStack>
               <Button colorScheme="blue" onClick={handleMcpSave} isLoading={mcpSaving}>
                 {t('globalSettings.save')}
@@ -519,50 +541,168 @@ const GlobalSettings: React.FC = () => {
 
             <Divider />
 
+            <Heading size="sm">{t('globalSettings.mcp.issueTitle')}</Heading>
+            <FormControl isRequired>
+              <FormLabel>{t('globalSettings.mcp.nameLabel')}</FormLabel>
+              <Input
+                value={mcpTokenName}
+                maxLength={80}
+                placeholder={t('globalSettings.mcp.namePlaceholder')}
+                onChange={(e) => setMcpTokenName(e.target.value)}
+              />
+            </FormControl>
             <FormControl>
-              <FormLabel>{t('globalSettings.mcp.tokenLabel')}</FormLabel>
-              <HStack>
-                <Input
-                  isReadOnly
-                  value={
-                    mcpNewToken
-                      ? mcpNewToken
-                      : mcpCfg?.has_token
-                        ? (mcpCfg.token_mask || '')
-                        : t('globalSettings.mcp.tokenEmpty')
-                  }
-                  fontFamily="mono"
-                />
-                {mcpNewToken && (
-                  <IconButton
-                    aria-label={t('globalSettings.copy')}
-                    icon={<CopyIcon />}
-                    onClick={() => copyToClipboard(mcpNewToken, 'token')}
+              <FormLabel>{t('globalSettings.mcp.modeLabel')}</FormLabel>
+              <Select value={mcpTokenMode} onChange={(e) => setMcpTokenMode(e.target.value as MCPTokenMode)}>
+                <option value="readonly">{t('globalSettings.mcp.modeReadonly')}</option>
+                <option value="readwrite">{t('globalSettings.mcp.modeReadWrite')}</option>
+              </Select>
+              <FormHelperText>
+                {mcpTokenMode === 'readwrite'
+                  ? t('globalSettings.mcp.modeReadWriteHelp')
+                  : t('globalSettings.mcp.modeReadonlyHelp')}
+              </FormHelperText>
+            </FormControl>
+
+            {mcpTokenMode === 'readwrite' && (
+              <>
+                <FormControl isRequired>
+                  <FormLabel>{t('globalSettings.mcp.notifyChannelLabel')}</FormLabel>
+                  <Select
+                    value={mcpNotifyChannel}
+                    onChange={(e) => setMcpNotifyChannel(e.target.value as MCPNotifyChannel)}
+                  >
+                    {MCP_CHANNELS.map((channel) => (
+                      <option key={channel} value={channel}>
+                        {t(`globalSettings.mcp.channels.${channel}`)}
+                      </option>
+                    ))}
+                  </Select>
+                </FormControl>
+                <FormControl isRequired={MCP_TARGET_REQUIRED.has(mcpNotifyChannel)}>
+                  <FormLabel>{t('globalSettings.mcp.notifyTargetLabel')}</FormLabel>
+                  <Input
+                    value={mcpNotifyTarget}
+                    placeholder={t(`globalSettings.mcp.targetPlaceholder.${mcpNotifyChannel}`)}
+                    onChange={(e) => setMcpNotifyTarget(e.target.value)}
                   />
-                )}
-                <Button
-                  leftIcon={<RepeatIcon />}
-                  onClick={handleRotateToken}
-                  isLoading={mcpRotating}
-                  colorScheme={mcpCfg?.has_token ? 'gray' : 'blue'}
-                >
-                  {mcpCfg?.has_token
-                    ? t('globalSettings.mcp.rotateButton')
-                    : t('globalSettings.mcp.generateButton')}
-                </Button>
-                {mcpCfg?.has_token && (
-                  <Button variant="ghost" colorScheme="red" onClick={handleClearToken}>
-                    {t('globalSettings.mcp.clearButton')}
-                  </Button>
-                )}
-              </HStack>
-              {mcpNewToken && (
-                <Alert status="warning" mt={2} fontSize="sm" borderRadius="md">
+                  {!MCP_TARGET_REQUIRED.has(mcpNotifyChannel) && (
+                    <FormHelperText>{t('globalSettings.mcp.notifyTargetOptional')}</FormHelperText>
+                  )}
+                </FormControl>
+                <Alert status="warning" fontSize="sm" borderRadius="md">
+                  <AlertIcon />
+                  {t('globalSettings.mcp.notifyRequired')}
+                </Alert>
+              </>
+            )}
+
+            <HStack>
+              <Button
+                colorScheme="blue"
+                onClick={handleIssueToken}
+                isLoading={mcpIssuing}
+                isDisabled={mcpTokenName.trim() === ''}
+              >
+                {t('globalSettings.mcp.issueButton')}
+              </Button>
+            </HStack>
+
+            {mcpIssued && (
+              <Box borderWidth="1px" borderRadius="md" p={4}>
+                <Alert status="warning" fontSize="sm" borderRadius="md" mb={3}>
                   <AlertIcon />
                   {t('globalSettings.mcp.tokenShownOnce')}
                 </Alert>
-              )}
-            </FormControl>
+                <FormControl mb={3}>
+                  <FormLabel>{t('globalSettings.mcp.secretLabel')}</FormLabel>
+                  <HStack>
+                    <Input isReadOnly value={mcpIssued.token} fontFamily="mono" />
+                    <IconButton
+                      aria-label={t('globalSettings.copy')}
+                      icon={<CopyIcon />}
+                      onClick={() => copyToClipboard(mcpIssued.token, t('globalSettings.mcp.secretLabel'))}
+                    />
+                  </HStack>
+                </FormControl>
+                <FormControl>
+                  <FormLabel>{t('globalSettings.mcp.endpointLabel')}</FormLabel>
+                  <HStack>
+                    <Input isReadOnly value={mcpIssued.endpoint_url} fontFamily="mono" />
+                    <Button
+                      leftIcon={<CopyIcon />}
+                      onClick={() => copyToClipboard(mcpIssued.endpoint_url, t('globalSettings.mcp.endpointLabel'))}
+                    >
+                      {t('globalSettings.mcp.copyEndpoint')}
+                    </Button>
+                  </HStack>
+                  <FormHelperText>{t('globalSettings.mcp.endpointHelp')}</FormHelperText>
+                </FormControl>
+              </Box>
+            )}
+
+            <Divider />
+
+            <Heading size="sm">{t('globalSettings.mcp.tokensTitle')}</Heading>
+            {(mcpCfg?.tokens ?? []).length === 0 ? (
+              <Text fontSize="sm" color="gray.500">{t('globalSettings.mcp.tokensEmpty')}</Text>
+            ) : (
+              <VStack align="stretch" spacing={3}>
+                {mcpCfg?.tokens.map((token) => (
+                  <HStack key={token.id} justify="space-between" align="flex-start" borderWidth="1px" borderRadius="md" p={3}>
+                    <Box>
+                      <HStack mb={1}>
+                        <Text fontWeight="semibold">{token.name}</Text>
+                        <Badge colorScheme={token.mode === 'readwrite' ? 'red' : 'green'}>
+                          {token.mode === 'readwrite'
+                            ? t('globalSettings.mcp.modeReadWrite')
+                            : t('globalSettings.mcp.modeReadonly')}
+                        </Badge>
+                        {token.notify && (
+                          <Badge>{t(`globalSettings.mcp.channels.${token.notify.channel}`)}</Badge>
+                        )}
+                      </HStack>
+                      <Text fontSize="sm" color="gray.500">
+                        {t('globalSettings.mcp.createdAt', { time: token.created_at })}
+                      </Text>
+                      {token.notify?.target && (
+                        <Text fontSize="sm" color="gray.500">{token.notify.target}</Text>
+                      )}
+                    </Box>
+                    <Button size="sm" variant="ghost" colorScheme="red" onClick={() => handleRevokeToken(token.id)}>
+                      {t('globalSettings.mcp.revokeButton')}
+                    </Button>
+                  </HStack>
+                ))}
+              </VStack>
+            )}
+
+            {mcpCfg?.has_token && mcpCfg.token_mask && (
+              <Box borderWidth="1px" borderRadius="md" p={3}>
+                <HStack justify="space-between" mb={2}>
+                  <Text fontWeight="semibold">{t('globalSettings.mcp.legacyTitle')}</Text>
+                  <Badge>{mcpCfg.token_mask}</Badge>
+                </HStack>
+                <Text fontSize="sm" color="gray.500" mb={3}>{t('globalSettings.mcp.legacyHelp')}</Text>
+                <FormControl display="flex" alignItems="center" mb={3}>
+                  <FormLabel mb="0">{t('globalSettings.mcp.allowWriteLabel')}</FormLabel>
+                  <Switch
+                    isChecked={mcpAllowWrite}
+                    onChange={(e) => setMcpAllowWrite(e.target.checked)}
+                    colorScheme="red"
+                  />
+                </FormControl>
+                <Alert status={mcpAllowWrite ? 'warning' : 'info'} fontSize="sm" borderRadius="md" mb={3}>
+                  <AlertIcon />
+                  {mcpAllowWrite
+                    ? t('globalSettings.mcp.allowWriteWarn')
+                    : t('globalSettings.mcp.allowWriteInfo')}
+                </Alert>
+                <Button size="sm" variant="ghost" colorScheme="red" onClick={handleClearToken}>
+                  {t('globalSettings.mcp.legacyClear')}
+                </Button>
+              </Box>
+            )}
 
             <Divider />
 

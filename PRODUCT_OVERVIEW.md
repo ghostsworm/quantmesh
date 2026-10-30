@@ -1,6 +1,6 @@
 # Product Overview
 
-当前版本为 `3.111.0-rc1194`（开发中、尚未发布）。本版本修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
+当前版本为 `3.111.0-rc1195`（开发中、尚未发布）。本版本把 MCP 从单个全局令牌改为按张颁发：只读令牌只查询且不通知，读写令牌必须指定通知方式，修改完成后按该方式通知；同时提供可复制的带密钥 Streamable HTTP 地址。旧全局令牌保持可用。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
 
 RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
 

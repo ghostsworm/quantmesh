@@ -18,7 +18,9 @@ func TestMCPServer_Smoke(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	const tok = "tok-abc"
-	s := NewServer("test-version", func(in string) bool { return in == tok })
+	s := NewServer("test-version", func(in string) (Access, bool) {
+		return Access{Mode: AccessReadOnly}, in == tok
+	})
 	s.Register(ToolEntry{
 		Tool: Tool{
 			Name:        "echo",

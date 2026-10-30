@@ -2,12 +2,12 @@ package web
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -15,22 +15,14 @@ import (
 	"quantmesh/mcp"
 )
 
-const (
-	settingKeyMCPToken      = "mcp_token"
-	settingKeyMCPAllowWrite = "mcp_allow_write"
-	settingKeyMCPEnabled    = "mcp_enabled"
-)
-
 var (
-	mcpServer       *mcp.Server
-	mcpServerMu     sync.RWMutex
-	mcpTokenCache   string
-	mcpTokenCacheMu sync.RWMutex
-	mcpReloader     func()
+	mcpServer   *mcp.Server
+	mcpServerMu sync.RWMutex
+	mcpReloader func()
 )
 
-// RegisterMCPReloader main 注入：当 mcp_allow_write 改变时调用，让 main 重建
-// server 并重新注册工具（写工具的有无要重置）。
+// RegisterMCPReloader main 注入：设置变化时重建 MCP server。
+// 写权限现在由每张令牌决定，重建不再用来增删写工具。
 func RegisterMCPReloader(fn func()) {
 	mcpReloader = fn
 }
@@ -40,39 +32,6 @@ func SetMCPServer(s *mcp.Server) {
 	mcpServerMu.Lock()
 	defer mcpServerMu.Unlock()
 	mcpServer = s
-}
-
-// MCPTokenCheck 给 mcp.Server 用的鉴权回调：缓存 token，避免每个请求都读 DB。
-func MCPTokenCheck(token string) bool {
-	if systemSettingsProvider == nil {
-		return false
-	}
-	enabled, err := systemSettingsProvider.GetSystemSettingBool(context.Background(), settingKeyMCPEnabled, true)
-	if err != nil || !enabled {
-		return false
-	}
-	mcpTokenCacheMu.RLock()
-	cached := mcpTokenCache
-	mcpTokenCacheMu.RUnlock()
-	if cached != "" && cached == token {
-		return true
-	}
-	// 缓存未命中或不匹配 → 从 settings 取一次
-	v, err := systemSettingsProvider.GetSystemSetting(context.Background(), settingKeyMCPToken)
-	if err != nil || v == nil || v.Value == "" {
-		return false
-	}
-	mcpTokenCacheMu.Lock()
-	mcpTokenCache = v.Value
-	mcpTokenCacheMu.Unlock()
-	return v.Value == token
-}
-
-// invalidateMCPTokenCache token 改了之后调一下。
-func invalidateMCPTokenCache() {
-	mcpTokenCacheMu.Lock()
-	mcpTokenCache = ""
-	mcpTokenCacheMu.Unlock()
 }
 
 // mountMCPIfReady 由路由初始化阶段调用：始终在 /mcp 挂代理 handler，
@@ -103,13 +62,26 @@ func mountMCPIfReady(r *gin.Engine) {
 
 // —————————————————————————— HTTP API ——————————————————————————
 
+type mcpTokenView struct {
+	ID           string          `json:"id"`
+	Name         string          `json:"name"`
+	Mode         string          `json:"mode"`
+	Notify       *mcp.NotifySpec `json:"notify,omitempty"`
+	EndpointURL  string          `json:"endpoint_url"`
+	CreatedAt    string          `json:"created_at"`
+	Legacy       bool            `json:"legacy,omitempty"`
+	SecretCopied bool            `json:"secret_available"`
+}
+
 type mcpConfigResponse struct {
-	Enabled    bool   `json:"enabled"`
-	HasToken   bool   `json:"has_token"`
-	TokenMask  string `json:"token_mask"`
-	AllowWrite bool   `json:"allow_write"`
-	ToolCount  int    `json:"tool_count"`
-	MountPath  string `json:"mount_path"`
+	Enabled     bool           `json:"enabled"`
+	HasToken    bool           `json:"has_token"`
+	TokenMask   string         `json:"token_mask"`
+	AllowWrite  bool           `json:"allow_write"`
+	ToolCount   int            `json:"tool_count"`
+	MountPath   string         `json:"mount_path"`
+	EndpointURL string         `json:"endpoint_url"`
+	Tokens      []mcpTokenView `json:"tokens"`
 }
 
 // GET /api/mcp/config
@@ -119,17 +91,28 @@ func getMCPConfig(c *gin.Context) {
 		return
 	}
 	ctx := context.Background()
-	resp := mcpConfigResponse{MountPath: "/mcp"}
+	resp := mcpConfigResponse{MountPath: "/mcp", EndpointURL: inferHostFromRequest(c) + "/mcp", Tokens: []mcpTokenView{}}
 
-	if v, err := systemSettingsProvider.GetSystemSetting(ctx, settingKeyMCPToken); err == nil && v != nil && v.Value != "" {
+	if hasLegacy, mask := legacyMCPTokenStatus(); hasLegacy {
 		resp.HasToken = true
-		resp.TokenMask = maskAPIKey(v.Value)
+		resp.TokenMask = mask
 	}
 	if enabled, err := systemSettingsProvider.GetSystemSettingBool(ctx, settingKeyMCPEnabled, true); err == nil {
 		resp.Enabled = enabled
 	}
 	if aw, err := systemSettingsProvider.GetSystemSettingBool(ctx, settingKeyMCPAllowWrite, false); err == nil {
 		resp.AllowWrite = aw
+	}
+	if records, err := activeMCPTokens(); err == nil {
+		for _, record := range records {
+			resp.Tokens = append(resp.Tokens, mcpTokenView{
+				ID: record.ID, Name: record.Name, Mode: record.Mode, Notify: cloneNotify(record.Notify),
+				CreatedAt: record.CreatedAt.Format(time.RFC3339),
+			})
+		}
+		if len(resp.Tokens) > 0 {
+			resp.HasToken = true
+		}
 	}
 	mcpServerMu.RLock()
 	if mcpServer != nil {
@@ -140,40 +123,96 @@ func getMCPConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// POST /api/mcp/token/rotate
-// 生成新 token，覆写 settings；返回明文 token（仅这一次）。
-func postMCPRotateToken(c *gin.Context) {
-	if systemSettingsProvider == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "设置提供者未初始化"})
-		return
-	}
-	tok, err := generateMCPToken()
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "生成 token 失败", err)
-		return
-	}
-	if err := systemSettingsProvider.SetSystemSettingString(context.Background(), settingKeyMCPToken, tok); err != nil {
-		respondError(c, http.StatusInternalServerError, "保存 token 失败", err)
-		return
-	}
-	invalidateMCPTokenCache()
-	logger.Info("MCP token 已轮换")
-	c.JSON(http.StatusOK, gin.H{"ok": true, "token": tok})
+type mcpIssueRequest struct {
+	Name    string          `json:"name"`
+	Mode    string          `json:"mode"`
+	Notify  *mcp.NotifySpec `json:"notify"`
+	Channel string          `json:"notify_channel"`
+	Target  string          `json:"notify_target"`
 }
 
-// DELETE /api/mcp/token
-// 清空 token —— 等于禁用所有 MCP 访问。
-func deleteMCPToken(c *gin.Context) {
+// POST /api/mcp/tokens
+// 颁发一张新令牌。明文密钥和带密钥的地址只在这次响应里出现。
+func postMCPIssueToken(c *gin.Context) {
 	if systemSettingsProvider == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "设置提供者未初始化"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": mcpErrorStoreUnavailable})
 		return
 	}
-	if err := systemSettingsProvider.SetSystemSettingString(context.Background(), settingKeyMCPToken, ""); err != nil {
+	var req mcpIssueRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		respondError(c, http.StatusBadRequest, "无效的请求", err)
+		return
+	}
+	notifySpec := req.Notify
+	if notifySpec == nil && (req.Channel != "" || req.Target != "") {
+		notifySpec = &mcp.NotifySpec{Channel: req.Channel, Target: req.Target}
+	}
+	record, secret, err := issueMCPToken(mcpTokenInput{Name: req.Name, Mode: req.Mode, Notify: notifySpec})
+	if err != nil {
+		respondError(c, mcpIssueStatus(err), err.Error(), err)
+		return
+	}
+	endpoint := mcpEndpointURL(inferHostFromRequest(c), secret)
+	c.JSON(http.StatusOK, gin.H{
+		"ok":           true,
+		"id":           record.ID,
+		"name":         record.Name,
+		"mode":         record.Mode,
+		"token":        secret,
+		"endpoint_url": endpoint,
+		"notify":       record.Notify,
+	})
+}
+
+// POST /api/mcp/token/rotate 保留给旧界面：等价于颁发一张只读令牌。
+func postMCPRotateToken(c *gin.Context) {
+	var req mcpIssueRequest
+	_ = c.ShouldBindJSON(&req)
+	if strings.TrimSpace(req.Name) == "" {
+		req.Name = "只读令牌"
+	}
+	if req.Mode == "" {
+		req.Mode = mcp.AccessReadOnly
+	}
+	postMCPIssueToken(c)
+}
+
+// DELETE /api/mcp/tokens/:id 吊销一张令牌，立即失效。
+func deleteMCPTokenByID(c *gin.Context) {
+	if systemSettingsProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": mcpErrorStoreUnavailable})
+		return
+	}
+	if err := revokeMCPToken(c.Param("id")); err != nil {
+		respondError(c, http.StatusNotFound, err.Error(), err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// DELETE /api/mcp/token 清空旧的全局令牌。不影响按张颁发的令牌。
+func deleteMCPToken(c *gin.Context) {
+	if systemSettingsProvider == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": mcpErrorStoreUnavailable})
+		return
+	}
+	if err := clearLegacyMCPToken(); err != nil {
 		respondError(c, http.StatusInternalServerError, "清空 token 失败", err)
 		return
 	}
-	invalidateMCPTokenCache()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func mcpIssueStatus(err error) int {
+	switch err.Error() {
+	case mcpErrorNameRequired, mcpErrorModeInvalid, mcpErrorNotifyRequired,
+		mcpErrorNotifyInvalid, mcpErrorEmailInvalid, mcpErrorURLInvalid:
+		return http.StatusBadRequest
+	case mcpErrorLimitReached:
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 type mcpUpdateRequest struct {
@@ -223,17 +262,17 @@ func getMCPClientSnippet(c *gin.Context) {
 	host = strings.TrimRight(host, "/")
 	style := c.DefaultQuery("style", "claude")
 
-	tok := ""
-	if systemSettingsProvider != nil {
+	tok := strings.TrimSpace(c.Query("token"))
+	if tok == "" && systemSettingsProvider != nil {
 		if v, err := systemSettingsProvider.GetSystemSetting(context.Background(), settingKeyMCPToken); err == nil && v != nil {
 			tok = v.Value
 		}
 	}
 	if tok == "" {
-		tok = "<在设置页生成 token 后此处会自动填充>"
+		tok = "<颁发令牌后此处会自动填充>"
 	}
 
-	url := host + "/mcp"
+	url := mcpEndpointURL(host, tok)
 	switch style {
 	case "cursor":
 		c.JSON(http.StatusOK, gin.H{
@@ -280,10 +319,12 @@ func inferHostFromRequest(c *gin.Context) string {
 	return fmt.Sprintf("%s://%s", scheme, host)
 }
 
-func generateMCPToken() (string, error) {
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
+// mcpEndpointURL 把密钥放进 query。Streamable HTTP 客户端只填一个 URL 就能连上，
+// 请求头方式仍然可用。密钥必须做转义，避免特殊字符把 URL 截断。
+func mcpEndpointURL(host, token string) string {
+	base := strings.TrimRight(host, "/") + "/mcp"
+	if token == "" || strings.HasPrefix(token, "<") {
+		return base
 	}
-	return "qm_mcp_" + hex.EncodeToString(b), nil
+	return base + "?token=" + url.QueryEscape(token)
 }

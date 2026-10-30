@@ -450,6 +450,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 			// MCP 服务管理（token / 开关 / 客户端 snippet）；MCP 协议端点本身挂在 /mcp，由 main 调用 MountMCP
 			protected.GET("/mcp/config", getMCPConfig)
 			protected.PUT("/mcp/config", putMCPConfig)
+			protected.POST("/mcp/tokens", postMCPIssueToken)
+			protected.DELETE("/mcp/tokens/:id", deleteMCPTokenByID)
 			protected.POST("/mcp/token/rotate", postMCPRotateToken)
 			protected.DELETE("/mcp/token", deleteMCPToken)
 			protected.GET("/mcp/client-snippet", getMCPClientSnippet)

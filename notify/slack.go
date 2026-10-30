@@ -40,7 +40,7 @@ func (sn *SlackNotifier) Name() string {
 // Send 发送通知
 func (sn *SlackNotifier) Send(evt *event.Event) error {
 	message := formatSlackMessage(evt)
-	
+
 	payload := map[string]interface{}{
 		"text": message,
 	}
@@ -108,6 +108,9 @@ func formatSlackMessage(evt *event.Event) string {
 	case event.EventTypeSystemStop:
 		title = "System Stopped"
 		emoji = ":stop_sign:"
+	case event.EventTypeMCPWriteCompleted:
+		title = "MCP write completed"
+		emoji = ":pencil2:"
 	case event.EventTypeMarginInsufficient:
 		title = "Margin Insufficient Warning"
 		emoji = ":warning:"
@@ -133,6 +136,9 @@ func formatSlackMessage(evt *event.Event) string {
 	}
 
 	message := fmt.Sprintf("%s *%s*\n\n*Time:* %s\n\n", emoji, title, evt.Timestamp.Format("2006-01-02 15:04:05"))
+	if body := eventBody(evt); body != "" {
+		return message + body + "\n"
+	}
 
 	if evt.Data != nil {
 		message += "*Details:*\n"

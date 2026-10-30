@@ -59,6 +59,30 @@ export async function testObservabilityConnection(
 
 // ——— MCP —————————————————————————————————————————————————————
 
+export type MCPTokenMode = 'readonly' | 'readwrite'
+
+export type MCPNotifyChannel =
+  | 'email'
+  | 'telegram'
+  | 'webhook'
+  | 'feishu'
+  | 'dingtalk'
+  | 'wechat_work'
+  | 'slack'
+
+export interface MCPNotifySpec {
+  channel: MCPNotifyChannel
+  target?: string
+}
+
+export interface MCPToken {
+  id: string
+  name: string
+  mode: MCPTokenMode
+  notify?: MCPNotifySpec
+  created_at: string
+}
+
 export interface MCPConfig {
   enabled: boolean
   has_token: boolean
@@ -66,11 +90,29 @@ export interface MCPConfig {
   allow_write: boolean
   tool_count: number
   mount_path: string
+  endpoint_url: string
+  tokens: MCPToken[]
 }
 
 export interface MCPUpdateRequest {
   enabled?: boolean
   allow_write?: boolean
+}
+
+export interface MCPIssueRequest {
+  name: string
+  mode: MCPTokenMode
+  notify?: MCPNotifySpec
+}
+
+export interface MCPIssuedToken {
+  ok: boolean
+  id: string
+  name: string
+  mode: MCPTokenMode
+  token: string
+  endpoint_url: string
+  notify?: MCPNotifySpec
 }
 
 export async function getMCPConfig(): Promise<MCPConfig> {
@@ -84,8 +126,15 @@ export async function updateMCPConfig(req: MCPUpdateRequest): Promise<MCPConfig>
   })
 }
 
-export async function rotateMCPToken(): Promise<{ ok: boolean; token: string }> {
-  return fetchWithAuth(`${API_BASE_URL}/mcp/token/rotate`, { method: 'POST' })
+export async function issueMCPToken(req: MCPIssueRequest): Promise<MCPIssuedToken> {
+  return fetchWithAuth(`${API_BASE_URL}/mcp/tokens`, {
+    method: 'POST',
+    body: JSON.stringify(req),
+  })
+}
+
+export async function revokeMCPToken(id: string): Promise<{ ok: boolean }> {
+  return fetchWithAuth(`${API_BASE_URL}/mcp/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
 
 export async function clearMCPToken(): Promise<{ ok: boolean }> {
