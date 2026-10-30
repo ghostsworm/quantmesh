@@ -14,6 +14,7 @@ var sensitiveSettingPrefixes = []string{
 	// 这条必须保留：移出本列表会让 MCP 明文返回那个残留的 API Key。
 	"aipipe_api_key",
 	"mcp_token",
+	"mcp_tokens",
 	"secret",
 	"password",
 	"webauthn",

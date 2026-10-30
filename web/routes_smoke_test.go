@@ -198,6 +198,8 @@ func TestProtectedRoutesSmokeEarlyExitPaths(t *testing.T) {
 		{http.MethodPost, "/api/observability/test", `{}`},
 		{http.MethodGet, "/api/mcp/config", ""},
 		{http.MethodPut, "/api/mcp/config", `{}`},
+		{http.MethodPost, "/api/mcp/tokens", `{}`},
+		{http.MethodDelete, "/api/mcp/tokens/token-id", ""},
 		{http.MethodPost, "/api/mcp/token/rotate", `{}`},
 		{http.MethodDelete, "/api/mcp/token", ""},
 		{http.MethodGet, "/api/mcp/client-snippet", ""},

@@ -36,26 +36,41 @@ type ToolSnapshot struct {
 	Write bool `json:"write"`
 }
 
+// TokenResolver 把请求里的令牌解析成身份。返回 false 则 401。
+type TokenResolver func(token string) (Access, bool)
+
+// WriteObserver 在本请求里的写操作已经成功之后调用。
+// 服务端异步调用，不阻塞 Agent；实现方不要再假设请求 context 还活着。
+type WriteObserver func(ctx context.Context, notice WriteNotice)
+
 // Server 一个进程一份。Register 完所有工具后 Mount 到 gin。
 type Server struct {
-	mu         sync.RWMutex
-	tools      map[string]ToolEntry
-	tokenCheck func(token string) bool
-	version    string
+	mu            sync.RWMutex
+	tools         map[string]ToolEntry
+	resolve       TokenResolver
+	writeObserver WriteObserver
+	version       string
 }
 
 // NewServer 创建空 server。
-//   - tokenCheck 收到请求的 token 是否有效；返回 false 则 401
+//   - resolve 收到请求的 token，无效则返回 false（401）
 //   - version  quantmesh 当前版本号，会出现在 initialize 响应里
-func NewServer(version string, tokenCheck func(token string) bool) *Server {
-	if tokenCheck == nil {
-		tokenCheck = func(string) bool { return false }
+func NewServer(version string, resolve TokenResolver) *Server {
+	if resolve == nil {
+		resolve = func(string) (Access, bool) { return Access{}, false }
 	}
 	return &Server{
-		tools:      make(map[string]ToolEntry),
-		tokenCheck: tokenCheck,
-		version:    version,
+		tools:   make(map[string]ToolEntry),
+		resolve: resolve,
+		version: version,
 	}
+}
+
+// SetWriteObserver 设置写操作完成后的通知回调。重复调用以最后一次为准。
+func (s *Server) SetWriteObserver(fn WriteObserver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeObserver = fn
 }
 
 // Register 注册一个工具。重复名以最后一次为准。
@@ -164,11 +179,16 @@ func (s *Server) handlePost(c *gin.Context) {
 			return
 		}
 		responses := make([]*jsonRPCResponse, 0, len(batch))
+		access := accessFrom(c)
+		writes := &writeCollector{}
+		// 批量请求共用同一份写操作记录，整批结束后只发一次通知。
+		ctx := requestContext(c, access, writes)
 		for _, raw := range batch {
-			if resp := s.dispatch(c.Request.Context(), raw); resp != nil {
+			if resp := s.dispatch(ctx, raw); resp != nil {
 				responses = append(responses, resp)
 			}
 		}
+		s.notifyWrites(access, writes.snapshot())
 		if len(responses) == 0 {
 			c.Status(http.StatusAccepted)
 			return
@@ -177,7 +197,10 @@ func (s *Server) handlePost(c *gin.Context) {
 		return
 	}
 
-	resp := s.dispatch(c.Request.Context(), body)
+	access := accessFrom(c)
+	writes := &writeCollector{}
+	resp := s.dispatch(requestContext(c, access, writes), body)
+	s.notifyWrites(access, writes.snapshot())
 	if resp == nil {
 		// 通知（无 id）—— 返回 202 表示已收
 		c.Status(http.StatusAccepted)
@@ -262,6 +285,14 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 		return rpcErr(req.ID, errCodeMethodNotFound, "tool not found: "+p.Name, nil)
 	}
 
+	access, _ := ctx.Value(accessContextKey).(Access)
+	if entry.Write && (!access.AllowWrite || access.Mode == AccessReadOnly) {
+		return &jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: newErrorResult(ErrTextReadOnly)}
+	}
+	if entry.Write && !access.Legacy && access.Notify == nil {
+		return &jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: newErrorResult(ErrTextNotifyRequired)}
+	}
+
 	// 给工具加一个 30s 超时兜底，避免某个慢工具卡死 agent
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -269,6 +300,11 @@ func (s *Server) handleToolsCall(ctx context.Context, req jsonRPCRequest) *jsonR
 	out, err := safeCall(callCtx, entry.Handler, p.Arguments)
 	if err != nil {
 		return &jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: newErrorResult(err.Error())}
+	}
+	if entry.Write {
+		if collector, ok := ctx.Value(writeCollectorKey).(*writeCollector); ok {
+			collector.add(WriteCall{Tool: p.Name, Detail: stringify(out)})
+		}
 	}
 	text := stringify(out)
 	return &jsonRPCResponse{JSONRPC: "2.0", ID: req.ID, Result: newTextResult(text)}
@@ -304,11 +340,46 @@ func (s *Server) checkAuth(c *gin.Context) bool {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing token"})
 		return false
 	}
-	if !s.tokenCheck(tok) {
+	access, ok := s.resolve(tok)
+	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 		return false
 	}
+	c.Set(accessGinKey, access)
 	return true
+}
+
+func accessFrom(c *gin.Context) Access {
+	v, ok := c.Get(accessGinKey)
+	if !ok {
+		return Access{}
+	}
+	access, _ := v.(Access)
+	return access
+}
+
+// notifyWrites 在响应发出前登记，但实际通知异步执行，失败只记日志。
+func (s *Server) notifyWrites(access Access, calls []WriteCall) {
+	if len(calls) == 0 {
+		return
+	}
+	s.mu.RLock()
+	observer := s.writeObserver
+	s.mu.RUnlock()
+	if observer == nil {
+		return
+	}
+	notice := WriteNotice{Access: access, Calls: append([]WriteCall(nil), calls...)}
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.Warn("MCP 写操作通知失败: %v", r)
+			}
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		observer(ctx, notice)
+	}()
 }
 
 // extractToken 接受 Authorization: Bearer xxx / X-MCP-Token: xxx / query ?token=xxx
@@ -340,3 +411,35 @@ func rpcErr(id json.RawMessage, code int, msg string, data any) *jsonRPCResponse
 
 // ErrNotImplemented 工具实现里用得上：明确告诉调用方某能力还没接通。
 var ErrNotImplemented = errors.New("not implemented")
+
+const (
+	accessGinKey      = "mcp_access"
+	accessContextKey  = contextKey("mcp_access")
+	writeCollectorKey = contextKey("mcp_writes")
+)
+
+type contextKey string
+
+// writeCollector 收集本请求里成功的写操作。批量请求里可能并发不到，
+// 但 handler 之间没有共享保证，所以加锁。
+type writeCollector struct {
+	mu    sync.Mutex
+	calls []WriteCall
+}
+
+func (w *writeCollector) add(call WriteCall) {
+	w.mu.Lock()
+	w.calls = append(w.calls, call)
+	w.mu.Unlock()
+}
+
+func (w *writeCollector) snapshot() []WriteCall {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]WriteCall(nil), w.calls...)
+}
+
+func requestContext(c *gin.Context, access Access, writes *writeCollector) context.Context {
+	ctx := context.WithValue(c.Request.Context(), accessContextKey, access)
+	return context.WithValue(ctx, writeCollectorKey, writes)
+}

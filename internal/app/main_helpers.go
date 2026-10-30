@@ -150,7 +150,6 @@ func bootstrapMCP(version string, provider web.SystemSettingsProvider, st storag
 		return
 	}
 	build := func() *mcp.Server {
-		allowWrite, _ := provider.GetSystemSettingBool(context.Background(), "mcp_allow_write", false)
 		providers := mcp.Providers{
 			Version:        version,
 			Storage:        st,
@@ -161,14 +160,16 @@ func bootstrapMCP(version string, provider web.SystemSettingsProvider, st storag
 		if st != nil {
 			providers.BacktestTasks = st.GetBacktestTaskStore()
 		}
-		s := mcp.NewServer(version, web.MCPTokenCheck)
-		mcp.RegisterAllTools(s, providers, allowWrite)
+		s := mcp.NewServer(version, web.MCPResolveToken)
+		s.SetWriteObserver(web.NotifyMCPWrites)
+		// 写工具始终注册。能不能调用由每张令牌决定，不再由全局开关一刀切。
+		mcp.RegisterAllTools(s, providers, true)
 		return s
 	}
 	web.SetMCPServer(build())
 	web.RegisterMCPReloader(func() {
 		web.SetMCPServer(build())
-		logger.Info("MCP server 已重建（allow_write 切换）")
+		logger.Info("MCP server 已重建")
 	})
 }
 

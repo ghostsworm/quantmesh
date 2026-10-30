@@ -45,7 +45,7 @@ func (dn *DingTalkNotifier) Name() string {
 // Send 发送通知
 func (dn *DingTalkNotifier) Send(evt *event.Event) error {
 	message := formatDingTalkMessage(evt)
-	
+
 	// 構建请求 URL（如果配置了签名密钥，需要添加签名参數）
 	requestURL := dn.webhook
 	if dn.secret != "" {
@@ -121,6 +121,8 @@ func formatDingTalkMessage(evt *event.Event) string {
 		title = "🚀 系统啟动"
 	case event.EventTypeSystemStop:
 		title = "🛑 系统停止"
+	case event.EventTypeMCPWriteCompleted:
+		title = "✏️ MCP 写操作已完成"
 	case event.EventTypeMarginInsufficient:
 		title = "⚠️ 保证金不足告警"
 	case event.EventTypeAllocationExceeded:
@@ -141,6 +143,9 @@ func formatDingTalkMessage(evt *event.Event) string {
 	}
 
 	message := fmt.Sprintf("%s\n\n時间: %s\n\n", title, evt.Timestamp.Format("2006-01-02 15:04:05"))
+	if body := eventBody(evt); body != "" {
+		return message + body + "\n"
+	}
 
 	if evt.Data != nil {
 		message += "详细信息:\n"

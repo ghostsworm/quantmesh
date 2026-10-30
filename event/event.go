@@ -75,6 +75,9 @@ const (
 
 	// 對沖信號事件（HedgeCoordinator 發送，spot_short 策略訂閱）
 	EventTypeHedgeSignal EventType = "hedge_signal"
+
+	// MCP 读写令牌完成写操作。只用于令牌自己指定的通知渠道，不进入全局通知规则。
+	EventTypeMCPWriteCompleted EventType = "mcp_write_completed"
 )
 
 // EventSeverity 事件严重程度
@@ -132,7 +135,8 @@ func GetEventSeverity(eventType EventType) EventSeverity {
 		EventTypeTradingStarted,
 		EventTypeTradingStopped,
 		EventTypeInspectorReport,
-		EventTypeHedgeSignal:
+		EventTypeHedgeSignal,
+		EventTypeMCPWriteCompleted:
 		return SeverityInfo
 
 	default:

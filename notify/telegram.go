@@ -118,6 +118,9 @@ func formatTelegramMessage(evt *event.Event) string {
 	case event.EventTypeSystemStop:
 		emoji = "🛑"
 		title = "系统停止"
+	case event.EventTypeMCPWriteCompleted:
+		emoji = "✏️"
+		title = "MCP 写操作已完成"
 	case event.EventTypeMarginInsufficient:
 		emoji = "⚠️"
 		title = "保证金不足"
@@ -158,6 +161,9 @@ func formatTelegramMessage(evt *event.Event) string {
 			message += "\n" + body
 			return message
 		}
+	}
+	if body := eventBody(evt); body != "" {
+		return message + "\n" + body
 	}
 	// 添加事件數據
 	if evt.Data != nil {
