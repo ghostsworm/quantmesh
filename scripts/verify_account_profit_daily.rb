@@ -1,0 +1,185 @@
+#!/usr/bin/env ruby
+# Runs the isolated account daily-equity acceptance matrix against real SQLite,
+# an explicitly isolated MySQL schema, and the production HTTP composition.
+# It never treats a skipped MySQL case, a mutated source tree, or a stale
+# version pair as acceptance.
+require 'json'
+require 'optparse'
+require 'open3'
+require 'fileutils'
+require 'time'
+require_relative 'verify_trading_race'
+require_relative 'source_provenance'
+
+root = File.expand_path('..', __dir__)
+parser = OptionParser.new do |options|
+  options.banner = 'Usage: ruby scripts/verify_account_profit_daily.rb OUTPUT_DIRECTORY'
+  options.on('-h', '--help', 'Print this help without running tests') do
+    puts options
+    exit 0
+  end
+end
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  warn "#{e.message}\n#{parser}"
+  exit 2
+end
+unless ARGV.length == 1
+  warn parser
+  exit 2
+end
+output_argument = ARGV.fetch(0)
+if output_argument.start_with?('-')
+  abort "OUTPUT_DIRECTORY must not start with '-'; prefix a relative path with './'"
+end
+output_dir = File.expand_path(output_argument)
+
+REQUIRED = [
+  ['quantmesh/accounting/daily', 'TestDailyEquityFixtureReconcilesCompleteDay'],
+  ['quantmesh/accounting/daily', 'TestDailyEquityFixtureFailsClosedOnUnsupportedActivity'],
+  ['quantmesh/accounting/daily', 'TestEvaluateBorrowAndRepayDoNotBecomeExternalFlow'],
+  ['quantmesh/accounting/daily', 'TestEvaluateCrossSourceDuplicateIsEvidenceOnly'],
+  ['quantmesh/accounting/daily', 'TestEvaluateAccruedInterestSettlementIsNotDoubleCharged'],
+  ['quantmesh/accounting/daily', 'TestEvaluateInterestHistoryLimit'],
+  ['quantmesh/storage', 'TestDailyEquityStorageRevisionAndRestart'],
+  ['quantmesh/storage', 'TestDailyEquityStorageRejectsConflictingReimport'],
+  ['quantmesh/storage', 'TestDailyEquityImportPersistsPayloadConflictSQLite'],
+  ['quantmesh/storage', 'TestDailyEquityScopeRevisionChangesDigestSQLite'],
+  ['quantmesh/internal/app', 'TestSQLiteDailyEquityProductionComposition'],
+  ['quantmesh/internal/app', 'TestMySQLDailyEquityProductionComposition']
+].freeze
+PACKAGES = %w[./accounting/daily ./storage ./internal/app].freeze
+command = ['go', 'test', '-json', '-count=1', '-timeout=10m', '-run', '^Test(DailyEquity|DailyLedger|Evaluate|SQLiteDailyEquity|MySQLDailyEquity)', *PACKAGES]
+
+source_before = SourceProvenance.capture(root)
+stdout, stderr, status = Open3.capture3(*command, chdir: root)
+source_after = SourceProvenance.capture(root)
+source_stable = source_before[:source_provenance_complete] && source_after[:source_provenance_complete] &&
+  source_before[:baseline_commit] == source_after[:baseline_commit] &&
+  source_before[:source_tree_sha256] == source_after[:source_tree_sha256] &&
+  source_before[:server_version] == source_after[:server_version] &&
+  source_before[:frontend_version] == source_after[:frontend_version]
+
+events = []
+parse_errors = 0
+unparsed = []
+stdout.each_line do |line|
+  begin
+    event = JSON.parse(line)
+    if event.is_a?(Hash)
+      event['Output'] = TradingRaceVerification.redact_diagnostic(event['Output']) if event['Output']
+      events << event
+    else
+      parse_errors += 1
+      unparsed << TradingRaceVerification.redact_diagnostic(line)
+    end
+  rescue JSON::ParserError
+    parse_errors += 1
+    unparsed << TradingRaceVerification.redact_diagnostic(line)
+  end
+end
+
+outputs = Hash.new { |packages, package| packages[package] = Hash.new { |tests, test| tests[test] = [] } }
+events.each do |event|
+  next unless event['Action'] == 'output' && event['Test'] && event['Output']
+
+  name = ''
+  event['Test'].split('/').each do |segment|
+    name = name.empty? ? segment : "#{name}/#{segment}"
+    outputs[event['Package']][name] << event['Output']
+  end
+end
+
+terminal = Hash.new { |result, key| result[key] = [] }
+events.each do |event|
+  next unless event['Test'] && %w[pass fail skip].include?(event['Action'])
+
+  terminal[[event['Package'], event['Test']]] << event['Action']
+end
+cases = terminal.map do |(package, test), outcomes|
+  { package: package, test: test, outcome: outcomes.last, attempts: outcomes.length,
+    output: (outputs.dig(package, test) || []).join }
+end.sort_by { |c| [c[:package], c[:test]] }
+
+required_evidence = REQUIRED.map do |package, test|
+  entry = cases.find { |c| c[:package] == package && c[:test] == test }
+  { package: package, test: test, outcome: entry ? entry[:outcome] : 'missing' }
+end
+missing = required_evidence.select { |e| e[:outcome] == 'missing' }
+skipped = required_evidence.select { |e| e[:outcome] == 'skip' }
+failed = required_evidence.select { |e| e[:outcome] == 'fail' }
+mysql_evidence = required_evidence.find { |e| e[:test] == 'TestMySQLDailyEquityProductionComposition' }
+mysql_verified = mysql_evidence && mysql_evidence[:outcome] == 'pass'
+sqlite_evidence = required_evidence.find { |e| e[:test] == 'TestSQLiteDailyEquityProductionComposition' }
+sqlite_verified = sqlite_evidence && sqlite_evidence[:outcome] == 'pass'
+
+report = {
+  generated_at: Time.now.iso8601,
+  baseline_commit: source_before[:baseline_commit],
+  worktree_status: source_before[:worktree_status],
+  source_dirty: source_before[:source_dirty],
+  source_tree_sha256: source_before[:source_tree_sha256],
+  source_tree_sha256_after: source_after[:source_tree_sha256],
+  source_stable_during_run: source_stable,
+  server_version: source_before[:server_version],
+  frontend_version: source_before[:frontend_version],
+  versions_consistent: source_before[:versions_consistent] && source_after[:versions_consistent],
+  command: command,
+  exit_code: status.exitstatus,
+  parse_errors: parse_errors,
+  unparsed_output: unparsed,
+  cases: cases,
+  required_evidence: required_evidence,
+  sqlite_verified: sqlite_verified,
+  mysql_verified: mysql_verified,
+  mysql_environment: ENV['QUANTMESH_MYSQL_TEST_DSN'] ? 'dsn_present' : 'dsn_absent',
+  totals: cases.group_by { |c| c[:outcome] }.transform_values(&:length),
+  package_results: events.select { |e| !e['Test'] && %w[pass fail skip].include?(e['Action']) },
+  build_diagnostics: events.select { |e| e['Action'] == 'build-output' }.map do |event|
+    event.slice('ImportPath', 'Package', 'Action').merge('Output' => TradingRaceVerification.redact_diagnostic(event['Output']))
+  end,
+  stderr: TradingRaceVerification.redact_diagnostic(stderr),
+  scope: 'Isolated single-scope USDT daily-equity acceptance over real SQLite and an explicitly isolated MySQL schema. Not real-account, exchange-connector, deployment or profitability acceptance.'
+}
+FileUtils.mkdir_p(output_dir)
+File.write(File.join(output_dir, 'results.json'), JSON.pretty_generate(report) + "\n")
+
+markdown = ['# 单账户历史自然日日账隔离验收', '',
+            "时间：#{report[:generated_at]}",
+            "基线提交：#{report[:baseline_commit]}",
+            "源码工作树：#{report[:source_dirty] ? '有未提交改动' : '干净'}",
+            "源码快照 SHA-256：#{report[:source_tree_sha256]}",
+            "测试期间源码稳定：#{source_stable}",
+            "后端/前端版本：#{report[:server_version] || '未知'} / #{report[:frontend_version]}（一致：#{report[:versions_consistent]}）",
+            "SQLite 验收：#{sqlite_verified}；MySQL 验收：#{mysql_verified}（环境：#{report[:mysql_environment]}）",
+            "Go JSON 解析错误：#{parse_errors}", '',
+            report[:scope], '',
+            '本报告只覆盖隔离 fixture 驱动的真实存储、生产日账服务与 HTTP 组合，不连接真实交易账户，也不证明真实账户盈利。', '',
+            '## 必需证据', '', '| 包 | 用例 | 结果 |', '|---|---|---|']
+required_evidence.each { |e| markdown << "| #{e[:package]} | #{e[:test]} | #{e[:outcome]} |" }
+markdown.concat(['', '## 全部用例', '', '| 包 | 用例 | 结果 | 尝试 |', '|---|---|---|---:|'])
+cases.each { |c| markdown << "| #{c[:package]} | #{c[:test]} | #{c[:outcome]} | #{c[:attempts]} |" }
+cases.select { |c| c[:outcome] != 'pass' }.each do |c|
+  markdown.concat(['', "## #{c[:test]}", '', '```text', c[:output], '```'])
+end
+unless report[:build_diagnostics].empty?
+  report[:build_diagnostics].each do |diagnostic|
+    TradingRaceVerification.append_diagnostic(markdown, "Go build: #{diagnostic['ImportPath'] || diagnostic['Package'] || 'unknown'}", diagnostic['Output'].to_s)
+  end
+end
+unless unparsed.empty?
+  markdown.concat(['', '## 未解析 Go 输出', '', '```text', unparsed.join, '```'])
+end
+unless report[:stderr].empty?
+  markdown.concat(['', '## stderr', '', '```text', report[:stderr], '```'])
+end
+File.write(File.join(output_dir, 'results.md'), markdown.join("\n") + "\n")
+
+accepted = status.success? && parse_errors.zero? && missing.empty? && skipped.empty? && failed.empty? &&
+  sqlite_verified && mysql_verified && source_stable && report[:versions_consistent]
+puts JSON.generate({ accepted: accepted, sqlite_verified: sqlite_verified, mysql_verified: mysql_verified,
+                     missing: missing.map { |e| e[:test] }, skipped: skipped.map { |e| e[:test] },
+                     failed: failed.map { |e| e[:test] }, parse_errors: parse_errors,
+                     exit_code: status.exitstatus, output_directory: output_dir })
+exit(accepted ? 0 : 1)

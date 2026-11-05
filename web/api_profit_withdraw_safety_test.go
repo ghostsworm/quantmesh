@@ -64,6 +64,7 @@ func TestProfitReadEndpointsReportUnavailableStorage(t *testing.T) {
 		handler func(*gin.Context)
 	}{
 		{name: "summary", target: "/api/profit/summary", handler: getProfitSummaryHandler},
+		{name: "daily reconciliation", target: "/api/profit/daily-reconciliation", handler: getProfitDailyReconciliationHandler},
 		{name: "funding history", target: "/api/profit/funding", handler: getFundingHistoryHandler},
 		{name: "strategy profits", target: "/api/profit/by-strategy", handler: getStrategyProfitsHandler},
 		{name: "strategy detail", target: "/api/profit/by-strategy/BTCUSDT", params: gin.Params{{Key: "id", Value: "BTCUSDT"}}, handler: getStrategyProfitDetailHandler},

@@ -1,5 +1,22 @@
 # Changelog
 
+## [3.112.0-rc1] - 2026-11-05（开发中，未发布）
+
+### Added
+- 新增单账户、USDT、固定三钱包（spot、spot_margin、futures）历史自然日日账：`accounting/daily` 以 `math/big.Rat` 精确核对“权益变化 − 净外部资金流 = 交易净收益 + 资金费 − 利息 + 未实现变化 + 明示估值变化 − 其他已核费用”，差额容差 `0.00000001` USDT；覆盖不足、未知费用、跨来源冲突、未匹配账本、范围修订变化等一律返回稳定原因码且 `equityReconciliationComplete=false`。
+- 新增 `storage` 日账证据/报告表、SQLite/MySQL 成对迁移、启动自动迁移与显式回滚；复用既有 `order_fills`、`funding_payments`、`margin_interest_payments` 及同步覆盖表，不复制经济账本。发布使用完整输入摘要 CAS，源账本事实变化后旧报告读取为 `source_changed`，历史版本保留。
+- 新增只读 `GET /api/profit/daily-reconciliation`，要求明确日期、交易所与当前已授权账户范围；缺失报告返回 404，不用“已核实零收益”代替。单日通过不解锁 lifetime/today/week/month 或提现权限。
+- 新增 `scripts/verify_account_profit_daily.rb` 与 CI 产物 `daily-equity-evidence-<sha>`：真实 SQLite、一次性 MySQL schema、生产 router/认证/API 组合及源码/版本指纹绑定；必需 MySQL 用例缺失或跳过即失败。
+
+### Fixed
+- `AdvanceOrderFillCoverage` 改用显式 UTC 观测时间写入 `updated_at`。此前 MySQL 非 UTC 会话下 `CURRENT_TIMESTAMP` 会被驱动读回为未来 8 小时，导致日账永远无法通过覆盖观测校验。
+- `scripts/source_provenance.rb` 以 UTF-8 读取服务端版本源文件，避免非 UTF-8 locale 下 Ruby 解析中文注释时报 `invalid byte sequence in US-ASCII`。
+
+### Verification
+- `go test ./accounting/daily ./storage` 与 `go test -run '^Test(SQLite|MySQL)DailyEquityProductionComposition$' ./internal/app` 通过；隔离 MySQL 9.5 一次性 schema 实测通过。
+- `ruby scripts/verify_account_profit_daily.rb /tmp/quantmesh-daily-equity` 返回 `accepted:true`，SQLite 与 MySQL 均为 pass，12 项必需证据齐全（本次筛选运行 44 个用例全部 pass）、无 skip/fail、Go JSON 解析零错误、测试期间源码稳定、前后端版本一致。
+- 验收仅覆盖隔离 fixture 驱动的真实存储、生产日账服务与 HTTP 组合；未连接真实交易账户，生产 Binance 三钱包权益连接器、真实账户历史回补、部署和盈利结论均未验收。本版本未提交、未推送、未发布。
+
 ## [3.111.0-rc1195] - 2026-10-30（开发中，未发布）
 
 ### Added

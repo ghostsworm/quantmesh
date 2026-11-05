@@ -1,6 +1,8 @@
 # Product Overview
 
-当前版本为 `3.111.0-rc1195`（开发中、尚未发布）。本版本把 MCP 从单个全局令牌改为按张颁发：只读令牌只查询且不通知，读写令牌必须指定通知方式，修改完成后按该方式通知；同时提供可复制的带密钥 Streamable HTTP 地址。旧全局令牌保持可用。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
+2026-11-05 已实现单账户、USDT、固定三钱包（spot、spot_margin、futures）历史自然日日账，方案与边界见 [日账 ADR](docs/decisions/2026-11-05-daily-equity-reconciliation.md)。日账以精确十进制核对“权益变化 − 净外部资金流 = 交易净收益 + 资金费 − 利息 + 未实现变化 + 明示估值变化 − 其他已核费用”，复用既有成交/资金费/利息账本，新增历史证据/报告版本、只读 API 与 Ruby 双格式验收。隔离 SQLite 与一次性 MySQL 生产组合验收通过；生产 Binance spot/Cross Margin 权益连接器、真实账户历史回补、后台自动发布、部署与盈利仍未验收，单日通过不解锁 lifetime/today/week/month 或提现权限。
+
+当前版本为 `3.112.0-rc1`（开发中、尚未发布）。本版本新增上述历史日账能力，并修复 MySQL 非 UTC 会话下成交覆盖观测时间被读成未来、导致日账永远无法通过覆盖校验的问题。此前 3.111.0-rc1195 把 MCP 从单个全局令牌改为按张颁发：只读令牌只查询且不通知，读写令牌必须指定通知方式，修改完成后按该方式通知；同时提供可复制的带密钥 Streamable HTTP 地址。旧全局令牌保持可用。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
 
 RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
 
@@ -24,7 +26,7 @@ RC1163–RC1171 的许可、Gate 来源约束、运行态 takeover 与只读/Fou
 
 历史整改阶段说明（rc1123–rc1130 的能力演进）：rc1130 增加 Binance Spot Margin REST-only 负债/挂单 verifier factory，但不覆盖普通现货库存、期货持仓或完整账户归零。rc1129 增加 Binance/Bitget REST-only Futures 核验；rc1128 增加 Bitget 全产品 Futures 仓位与账户挂单观测；rc1127 增加 Bitget Futures 原始快照；rc1126 展开复合策略权益范围；rc1125 处理凭据轮换后的旧 adapter；rc1124 增加 Funding Carry 只读核账诊断；rc1123 撤销变化前范围的权益健康证明。该阶段的“旧账户只读追踪/显式重置待完成”状态已由 rc1131–rc1142 后续接通归档、观测与管理员重置；Bitget Spot 仍 fail-closed。上述本地与隔离测试不代表真实交易或盈利验收。
 
-> 最后更新：2026-10-14 | 当前版本：v3.111.0-rc1190（开发中；未发布或实盘验收）
+> 最后更新：2026-11-05 | 当前版本：v3.112.0-rc1（开发中；未发布或实盘验收）
 
 - `3.111.0-rc1151` SpotShort 首次借贷/订单/还款对账暂时失败但运行态结构可读时，不再因 Start 返回错误而永久跳过重试器：先持有 `spot_short_reconciliation_unverified`、再启动后台核对；完整成功才释放该专属来源并触发账户暴露核账重试。其他来源的暂停不受影响。
 - `3.111.0-rc1152` 网格终态正成交只有在槽位状态与完整成交明细耐久保存后才结算共享执行 intent；结算期间保持开仓封锁，成功后再尝试账户级暴露核账。失败继续保留封锁和可恢复状态。
