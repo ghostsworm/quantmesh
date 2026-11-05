@@ -80,6 +80,8 @@ type OrderReconciliationService struct {
 	RecoveryAnomalyAdjustmentApply FundingRecoveryAnomalyAdjustmentApply
 	RecoveryGateSourceReader       FundingRecoveryGateSourceReader
 	RecoveryReleaseApply           FundingRecoveryReleaseApply
+	RecoveryReleaseResumePreview   func(context.Context, string, string) (FundingRecoveryReleaseResumePreview, error)
+	RecoveryReleaseResumeApply     func(context.Context, accounting.RecoveryReleaseResumeAuthorization) (FundingRecoveryReleaseResumeReadback, error)
 }
 
 // FundingRecoveryRuntimeResolver returns only an already-owned runtime token;

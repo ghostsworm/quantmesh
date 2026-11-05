@@ -1217,7 +1217,7 @@ func (s *SQLStorage) CreateRecoveryPermit(ctx context.Context, generation Fundin
 }
 
 func recoveryEpisodeAllowsPermit(episode accounting.RecoveryEpisode) bool {
-	return !episode.HasCurrentOwnerTakeover() && (episode.State == accounting.RecoveryPrepared || episode.State == accounting.RecoveryReopened || episode.State == accounting.RecoveryProjected)
+	return len(episode.ReleaseResumptions) == 0 && !episode.HasCurrentOwnerTakeover() && (episode.State == accounting.RecoveryPrepared || episode.State == accounting.RecoveryReopened || episode.State == accounting.RecoveryProjected)
 }
 
 func (s *SQLStorage) ConsumeRecoveryPermit(ctx context.Context, generation FundingCarryRuntimeGeneration, p accounting.OneShotPermit) (accounting.OneShotPermit, bool, error) {
@@ -2111,6 +2111,9 @@ func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation Fund
 	if err := auth.Validate(); err != nil {
 		return accounting.RecoveryEpisode{}, err
 	}
+	if auth.OwnerGeneration != generation.ID() {
+		return accounting.RecoveryEpisode{}, accounting.ErrRecoveryConflict
+	}
 	requestBytes, _ := json.Marshal(auth)
 	requestHash := canonicalHash(requestBytes)
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -2245,6 +2248,9 @@ func (s *SQLStorage) PrepareRecoveryRelease(ctx context.Context, generation Fund
 func (s *SQLStorage) ReleaseRecoveryHold(ctx context.Context, generation FundingCarryRuntimeGeneration, auth accounting.RecoveryReleaseAuthorization) (accounting.RecoveryHold, error) {
 	if err := auth.Validate(); err != nil {
 		return accounting.RecoveryHold{}, err
+	}
+	if auth.OwnerGeneration != generation.ID() {
+		return accounting.RecoveryHold{}, accounting.ErrRecoveryConflict
 	}
 	if auth.ExpectedEpisodeRevision == ^uint64(0) {
 		return accounting.RecoveryHold{}, accounting.ErrRecoveryConflict

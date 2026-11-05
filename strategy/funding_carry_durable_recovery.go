@@ -669,6 +669,11 @@ func (s *FundingCarryStrategy) durableRecoveryRetentionEpisodes(ctx context.Cont
 		if err != nil || !equalFundingCarryRecoveryScopes(binding.scopeKeys, holdScopes) {
 			return nil, false
 		}
+		if episode.State == accounting.RecoveryReleasePending {
+			if err := validateFundingCarryPendingReleaseRetention(ctx, binding, episode, hold); err != nil {
+				return nil, false
+			}
+		}
 		attempts, err := binding.store.ListRecoverySubmissionAttempts(ctx, episode.ID)
 		if err != nil {
 			return nil, false
@@ -687,10 +692,76 @@ func (s *FundingCarryStrategy) durableRecoveryRetentionEpisodes(ctx context.Cont
 	return refs, len(refs) > 0
 }
 
+// Pending release retention is read-only: PrepareRecoveryRelease atomically
+// persisted the release receipt and episode, but the existing read interface
+// cannot discover that receipt's operation ID. Verify the completed projection
+// receipt and original held hold here; only the explicit release workflow may
+// validate/replay the release authorization or change ownership and Gate state.
+func validateFundingCarryPendingReleaseRetention(ctx context.Context, binding fundingCarryRecoveryBinding, episode accounting.RecoveryEpisode, hold accounting.RecoveryHold) error {
+	if hold.Revision == 0 || hold.ReleasedByOperation != "" || hold.Source != execution.RecoveryEpisodeGateSource(episode.ID, episode.RecoveryGeneration) {
+		return errors.New("pending FundingCarry release has no intact held hold")
+	}
+	outboxes, err := binding.store.ListRecoveryOutboxes(ctx, episode.ID)
+	if err != nil {
+		return fmt.Errorf("read pending FundingCarry release projections: %w", err)
+	}
+	var latest *accounting.RecoveryOutbox
+	for i := range outboxes {
+		outbox := &outboxes[i]
+		if outbox.EpisodeID != episode.ID || outbox.OperationID == "" || outbox.State != accounting.RecoveryProjected ||
+			outbox.TargetEpisodeRevision == 0 || outbox.AppliedOperationID != outbox.OperationID ||
+			outbox.AppliedRevision != outbox.TargetEpisodeRevision || outbox.ProjectionHash == "" || outbox.AppliedHash != outbox.ProjectionHash {
+			return errors.New("pending FundingCarry release has an incomplete projection")
+		}
+		if latest == nil || outbox.TargetEpisodeRevision > latest.TargetEpisodeRevision {
+			latest = outbox
+		} else if outbox.TargetEpisodeRevision == latest.TargetEpisodeRevision {
+			return errors.New("pending FundingCarry release has ambiguous latest projections")
+		}
+	}
+	if latest == nil {
+		return errors.New("pending FundingCarry release has no completed projection")
+	}
+	receipt, found, err := binding.store.GetRecoveryReceipt(ctx, episode.ID, latest.OperationID)
+	if err != nil || !found {
+		return errors.Join(errors.New("pending FundingCarry release has no projection receipt"), err)
+	}
+	// Ordinary projection receipts omit RecoveryGeneration; bind that identity
+	// through the hashed projection episode rather than requiring a new field.
+	if episode.Revision < 2 || receipt.EpisodeRevision != episode.Revision-1 ||
+		(receipt.RecoveryGeneration != 0 && receipt.RecoveryGeneration != episode.RecoveryGeneration) {
+		return errors.New("pending FundingCarry release projection receipt revision/generation mismatch")
+	}
+	var projection fundingCarryRecoveryProjectionPayload
+	if err := json.Unmarshal(latest.ProjectionPayload, &projection); err != nil {
+		return fmt.Errorf("decode pending FundingCarry release projection: %w", err)
+	}
+	prior := projection.Episode
+	priorScopes, err := normalizeFundingCarryRecoveryScopes(prior.AccountScopes)
+	if err != nil || !equalFundingCarryRecoveryScopes(binding.scopeKeys, priorScopes) || prior.ID != episode.ID || prior.Bot != episode.Bot ||
+		prior.Strategy != episode.Strategy || prior.RecoveryGeneration != episode.RecoveryGeneration ||
+		prior.Revision != latest.TargetEpisodeRevision || prior.State != accounting.RecoveryLedgerCommitted || receipt.OwnerGeneration != prior.OwnerGeneration {
+		return errors.New("pending FundingCarry release projection owner identity mismatch")
+	}
+	if err := storage.VerifyFundingRecoveryReceiptOutboxPair(receipt, *latest); err == nil && receipt.OwnerGeneration == episode.OwnerGeneration {
+		return nil
+	}
+	if !episode.HasCurrentOwnerTakeover() {
+		return errors.New("pending FundingCarry release projection receipt mismatch")
+	}
+	takeover := episode.OwnerTakeovers[len(episode.OwnerTakeovers)-1]
+	takeoverReceipt, found, err := binding.store.GetRecoveryReceipt(ctx, episode.ID, takeover.OperationID)
+	if err != nil || !found {
+		return errors.Join(errors.New("pending FundingCarry release has no owner takeover receipt"), err)
+	}
+	return storage.VerifyFundingRecoveryReceiptOutboxPairAfterVerifiedTakeover(receipt, takeoverReceipt, *latest, episode)
+}
+
 func validFundingCarryRetainableEpisode(episode accounting.RecoveryEpisode) bool {
 	switch episode.State {
 	case accounting.RecoveryPrepared, accounting.RecoveryBlocked, accounting.RecoveryReopened,
-		accounting.RecoveryLedgerCommitted, accounting.RecoveryProjectionPending, accounting.RecoveryProjected, accounting.RecoveryStale:
+		accounting.RecoveryLedgerCommitted, accounting.RecoveryProjectionPending, accounting.RecoveryProjected, accounting.RecoveryStale,
+		accounting.RecoveryReleasePending:
 	default:
 		return false
 	}

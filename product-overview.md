@@ -1,12 +1,14 @@
 # QuantMesh 产品概览
 
-> 当前版本：`3.111.0-rc1195`（2026-10-30，开发中，未发布）
+> 当前版本：`3.111.0-rc1196`（2026-11-05，开发中，未发布）
+
+FundingCarry 管理员释放在准备提交后中断，可以在新的只读 runtime 上通过显式续办完成。续办复用原释放 operation/receipt，绑定账户范围、当前证据、owner 与 revision，并追加独立管理员审计；普通 takeover 不允许接管 release_pending/released 的规则保持不变。只清理对应 recovery Gate，不启动或重放交易。详见 [续办协议与验收边界](docs/funding-recovery-release-resume.md)。
 
 MCP 令牌改为按张颁发。只读令牌只能查询且不发通知；读写令牌在颁发时必须指定通知渠道和地址，同一次请求里的修改全部完成后只通知一次。设置页可复制带密钥的 Streamable HTTP 地址。升级前的单个全局令牌继续有效，其写权限仍由原全局开关决定，且不单独通知。
 
-本版本将原根目录 `package main`（含同包测试）整体迁至 `internal/app`，并新增 `cmd/quantmesh` 作为启动入口；同步更新构建、部署、CI 与开发说明。此为目录结构整理，不改变交易行为，也不代表真实实盘或盈利验收。
+此前 RC1193 将原根目录 `package main`（含同包测试）整体迁至 `internal/app`，并新增 `cmd/quantmesh` 作为启动入口；同步更新构建、部署、CI 与开发说明。此为目录结构整理，不改变交易行为，也不代表真实实盘或盈利验收。
 
-RC1192 在 RC1191 基础上，从原始 `order_fills` 枚举账户成交流，并从 `trades` 与 `order_fills` 双向清点历史账户 scope；孤立成交、无归属/未归档 scope、无效买卖订单号、订单 side/累计成交量不匹配、无法证明计价币的手续费及手续费总额差异均 fail-closed。由于现有权益采样没有按日可核对的净外部资金流证据，累计及日/周/月收益的“已核实”标志暂不通过；逐订单手续费归属和历史权益日账仍待完成，这不是盈利验收。FundingCarry 管理员人工解锁已有 durable 预览/授权/CAS/读回路径，但 release_pending 跨 runtime 接管及相应并发/故障注入仍未闭环。RC1192 已合入并推送至 main；RC1193 结构整理尚未提交或发布。
+RC1192 在 RC1191 基础上，从原始 `order_fills` 枚举账户成交流，并从 `trades` 与 `order_fills` 双向清点历史账户 scope；孤立成交、无归属/未归档 scope、无效买卖订单号、订单 side/累计成交量不匹配、无法证明计价币的手续费及手续费总额差异均 fail-closed。由于现有权益采样没有按日可核对的净外部资金流证据，累计及日/周/月收益的“已核实”标志暂不通过；逐订单手续费归属和历史权益日账仍待完成，这不是盈利验收。FundingCarry 管理员人工解锁已有 durable 预览/授权/CAS/读回路径；RC1196 增加 release_pending 跨 runtime 的显式续办与并发/故障注入，当前验证范围以续办协议报告为准。RC1192 已合入并推送至 main；RC1193 结构整理尚未提交或发布。
 
 RC1190 为 SQLite 对账迁移连接获取阶段增加有界、可取消的 BUSY/LOCKED 重试，解决并发冷启动连接因 SQLite 锁竞争而提前失败的问题；MySQL 连接、命名锁和 schema 路径不变。须以本地完整门禁及远端同 SHA CI 结果验收，未发布、未验收真实实盘或盈利。
 

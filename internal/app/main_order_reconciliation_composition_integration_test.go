@@ -952,6 +952,14 @@ func TestProductionTakeoverProjectsOnlyExistingHashedOutbox(t *testing.T) {
 }
 
 func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *testing.T) {
+	runProductionFundingRecoveryReleaseFixture(t, false)
+}
+
+func TestProductionFundingRecoveryReleaseInterruptedAcrossInstances(t *testing.T) {
+	runProductionFundingRecoveryReleaseFixture(t, true)
+}
+
+func runProductionFundingRecoveryReleaseFixture(t *testing.T, interruptRelease bool) {
 	gin.SetMode(gin.TestMode)
 	originalSessionManager := web.SwapSessionManager(web.NewEphemeralSessionManager())
 	t.Cleanup(func() {
@@ -1392,6 +1400,15 @@ func TestProductionFundingRecoveryRouteTakeoverAndFoundUsesRetainedRuntime(t *te
 	missingClearance := strings.Replace(string(releaseBody), `"exposure_clearance_confirmed":true`, `"exposure_clearance_confirmed":false`, 1)
 	if response := adminPost(releasePath, missingClearance); response.Code != http.StatusConflict {
 		t.Fatalf("release accepted without explicit position/liability clearance: status=%d body=%s", response.Code, response.Body.String())
+	}
+	if interruptRelease {
+		var auth accounting.RecoveryReleaseAuthorization
+		if err := json.Unmarshal(releaseBody, &auth); err != nil {
+			t.Fatal(err)
+		}
+		auth.EpisodeID, auth.Actor = episode.ID, "recovery-admin"
+		testInterruptedFundingRecoveryRelease(t, cfg, storageService, newGeneration, auth)
+		return
 	}
 	releaseResponse := adminPost(releasePath, string(releaseBody))
 	if releaseResponse.Code != http.StatusOK {
