@@ -1,6 +1,6 @@
 # ADR 2026-09-17：实盘同构回放回测引擎与 walk-forward 调参
 
-- 状态：已接受（引擎与 walk-forward 已实现；任务默认仍用 legacy 引擎）
+- 状态：已接受（2026-11-05 更新：`3.112.0-rc1` 网页 grid 优化接入 replay walk-forward；普通回测任务默认仍是 legacy）
 - 关联：`docs/audits/2026-09-17-full-audit.md` 第四节第 7、8 条，第五节第 9、10 条
 - 代码：`backtest/replay/`（新包）、`backtest/engine_select.go`、`backtest/optimizer/walkforward.go`、`backtest/optimizer/score.go`、`backtest/grid_adapter.go`
 
@@ -83,9 +83,21 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 4. **队列位置**：排队模型只按「触价成交量 ≥ 挂单量 × 系数」近似，不跟踪挂单时刻的真实队列长度与撤单；穿价成交按参与率分配，不区分主动方向（aggTrade 的 `isBuyerMaker` 未使用）。
 5. **延迟**：下单/撤单/回报都是零延迟（下一个 tick 就生效），实盘有网络与限流延迟（`order` 执行器 25 单/秒、PostOnly 重挂间隔 100ms）。
 6. **范围**：单交易对、单向净持仓合约；现货预算裁剪、BOTH 双腿记账、强平、ADL、资金划转、对账器（`reconcile`）、旧 tick 级趋势检测器、资金费套利未接入回放（未注入时对应逻辑自然关闭）。
-   - ~~regime 检测器 / 资金费监控器无法注入~~（已解决，见审计文档第八节「后续：回放注入点与订单清理器、补跑校准」）：`replay.Config.Setup(spm, clock)` 在 `Initialize` 前调用，可 `ConfigureRegimeControl`、`SetFundingMonitor`；`replay.Config.OnTick(now, price)` 每个 tick 在撮合回报之后、订单清理与 `AdjustOrders` 之前调用（不持锁），用于在模拟时间上同步驱动 `Detector.Refresh`、`RefreshRegimeInterval`。`RunRegimeControlLoop` 在 `SimClock` 下按模拟时间触发（有测试），但协程与主循环的相对顺序不确定，需要可重复结果时应在 `OnTick` 同步调用（`tools/replaycompare/hooks.go` 即如此）。回测任务入口（`RunGridTask`）尚未注入 regime/资金费，这些功能在 Web 回测中仍为关闭。
+   - ~~regime 检测器 / 资金费监控器无法注入~~（已解决，见审计文档第八节「后续：回放注入点与订单清理器、补跑校准」）：`replay.Config.Setup(spm, clock)` 在 `Initialize` 前调用，可 `ConfigureRegimeControl`、`SetFundingMonitor`；`replay.Config.OnTick(now, price)` 每个 tick 在撮合回报之后、订单清理与 `AdjustOrders` 之前调用（不持锁），用于在模拟时间上同步驱动 `Detector.Refresh`、`RefreshRegimeInterval`。`RunRegimeControlLoop` 在 `SimClock` 下按模拟时间触发（有测试），但协程与主循环的相对顺序不确定，需要可重复结果时应在 `OnTick` 同步调用（`tools/replaycompare/hooks.go` 即如此）。回测任务入口（`RunGridTask` / `task_features.go`）已注入 regime_filter、adaptive_interval、upper_bound_freeze、inventory_skew、fee_aware_spread 与资金费定价/结算，旧“Web 回测仍为关闭”的判断已过时。网页样本外优化复用这些现有功能的参数子集，但主动禁止资金费预测/偏置信号，只允许预先声明的费用结算。
    - 资金费监控器 `replay.SimFundingMonitor` 的「当前费率」是最后一个已结算费率（无未来函数），实盘读的是交易所当期预测费率，费率变化时相差一期；序列结束后沿用最后一个费率。
    - ~~订单清理器未接入~~（已解决）：`replay.Config.OrderCleaner=true` 时按 `timing.order_cleanup_interval` 模拟时间同步执行 `safety.OrderCleaner.CleanupOnce`（任务参数 `order_cleaner` 缺省 true）。此前回放不清理，单边行情中远端挂单累积到 `order_cleanup_threshold` 后网格永久停止开仓，趋势段绝对盈亏失真（见校准报告第三节 3.2）。清理与 regime 控制在 tick 之间同步执行，没有实盘协程之间的并发与延迟。
 7. **K 线回退路径**是假设的价格顺序，同一根 K 线内先低后高还是先高后低会显著影响网格成交；有 aggTrades 时应优先使用。
-8. **walk-forward** 只接入 `GridSearchOptimizer`（legacy 回测引擎）；Web 参数优化任务走的 `UniversalOptimizer`（`optimrun`）尚未接入，候选参数的回放评估（用 replay 引擎做 walk-forward）也未接入，回放速度需要先验证。
-9. 默认引擎仍是 legacy；在用回放结果对照几段实盘成交记录校准（成交数、maker 占比、净利）之前，不切换默认。
+8. **walk-forward**：旧 `GridSearchOptimizer` 的 legacy 分支保留。`3.112.0-rc1` 新增 `UniversalOptimizer` 的 replay 分支，接入网页 `/backtest` 参数优化和持久任务 `/api/backtest/optim/tasks`，协议见下节。样本外只评估训练胜者，不按测试结果再排序；首版限制搜索预算，不能据此宣称适合大规模优化。
+9. 普通回测任务默认引擎仍是 legacy；新建网页 grid 优化任务必须显式选择 replay walk-forward，不能静默回落。没有据此切换实盘或任何交易策略。
+
+## 2026-11-05：网页 replay 样本外协议 v1
+
+- 请求：`search_space.replay_walk_forward = {train_days, test_days, step_days, leverage, base_params}`，随原搜索空间 JSON 持久化。无需数据库迁移；持久化不代表进程崩溃后自动断点续算。
+- 固定基线由 base_params 预先声明；候选仅搜索已有 replay 的 spacing/spread/quantity/window/layer 等数值参数，最多 32 组、12 折。禁止 legacy 成交量风控轴、未知参数、外部 aggTrade 路径及资金费预测配置，全部在运行前显式拒绝。
+- 数据先复制并规范排序、校验完整 OHLCV、固定周期、UTC 周期对齐，窗口长度必须为完整 K 线整数倍。train/test 为相邻半开窗口、step=test；拒绝缺口和重复，末根完整 K 线可进入窗口，跨界未闭合 K 线不能进入。
+- 每个候选、每个窗口创建全新 replay/特征状态；warm-up 只允许窗内且在当前市场时间前闭合的 K 线。撤单等待推进的操作时钟不得提前开放 K 线特征。
+- 训练评分固定为净收益率减逐 tick 最大回撤（均为百分比），相同分数保留规范枚举顺序；测试窗只运行一次训练胜者。测试结果不能反向改选参数。
+- 所有窗口同额本金、空仓开始，期末按市值记账，不强平、不跨窗复利；输出选中参数的训练/测试和固定基线的训练/测试。成本分列 maker/taker 手续费和资金费；未实现盈亏及期末持仓单列，滑点/冲击未建模不应解释为已证实零成本。
+- 结果 `replay_walk_forward` 保存协议、切分、候选训练指标、冻结参数以及数据/配置/参数/实验 SHA-256。`best_by_return/best_by_sharpe` 不用于该模式，避免误称样本外最佳参数。
+- 固定费率为预声明的成本假设，历史 funding_series 仅结算，不把最终费率当提前已知的预测信号。缺历史预测费率、盘口、真实排队/延迟/冲击仍属明确限制。
+- 复现：`ruby scripts/verify_replay_walkforward.rb <新建且被git忽略的输出目录>`，生成三种趋势的确定性合成样本及 JSON/Markdown 报告。合成实验与泄漏负例只证明工程接线，不证明真实市场收益或实盘盈利。报告见 `docs/reports/2026-11-05-replay-walkforward.md`。

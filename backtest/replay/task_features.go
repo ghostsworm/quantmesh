@@ -2,6 +2,7 @@ package replay
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -217,7 +218,7 @@ func validateTaskFeatures(bot *config.Config) error {
 
 // installTaskFeatures 為回測任務注入新功能：regime K 線由任務 K 線聚合，資金費率來自序列或固定費率。
 // 返回的報告在 Engine.Run 之後由 finalizeFeatureReport 補全統計。
-func installTaskFeatures(cfg *Config, candles []*exchange.Candle) (*FeatureReport, *FeatureStats, error) {
+func installTaskFeatures(ctx context.Context, cfg *Config, candles []*exchange.Candle, sourceIntervalMs int64) (*FeatureReport, *FeatureStats, error) {
 	bot := cfg.Bot
 	t := bot.Trading
 	rep := &FeatureReport{
@@ -242,12 +243,12 @@ func installTaskFeatures(cfg *Config, candles []*exchange.Candle) (*FeatureRepor
 		rep.Notes = append(rep.Notes, "funding_rate.enabled 已開啟但未開啟 pricing_enabled/bias_enabled/pre_settlement_pause_minutes，資金費監控器不影響下單")
 	}
 
-	opts := FeatureOptions{Symbol: t.Symbol, FundingSeries: cfg.FundingSeries, FundingFallbackRate: cfg.FundingRate}
+	opts := FeatureOptions{Context: ctx, Symbol: t.Symbol, FundingSeries: cfg.FundingSeries, FundingFallbackRate: cfg.FundingRate}
 	if NeedsRegimeDetector(bot) {
 		interval := RegimeKlineInterval(bot)
 		rep.RegimeKlineInterval = interval
 		rep.RegimeRequiredBars = position.RegimeConfigFromConfig(t.RegimeFilter).WithDefaults().RequiredBars()
-		bars, err := regimeKlinesFromTaskCandles(candles, interval, t.Symbol)
+		bars, err := regimeKlinesFromTaskCandles(candles, interval, t.Symbol, sourceIntervalMs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -279,7 +280,7 @@ func finalizeFeatureReport(rep *FeatureReport, stats *FeatureStats) {
 }
 
 // regimeKlinesFromTaskCandles 把任務 K 線聚合為檢測器周期。任務 K 線周期必須能整除檢測器周期（例如 1m/15m → 1h）。
-func regimeKlinesFromTaskCandles(candles []*exchange.Candle, interval, symbol string) ([]*exchange.Candle, error) {
+func regimeKlinesFromTaskCandles(candles []*exchange.Candle, interval, symbol string, sourceIntervalMs int64) ([]*exchange.Candle, error) {
 	d, err := regime.ParseKlineInterval(interval)
 	if err != nil {
 		return nil, fmt.Errorf("params.%s.kline_interval: %w", paramRegimeFilter, err)
@@ -302,7 +303,10 @@ func regimeKlinesFromTaskCandles(candles []*exchange.Candle, interval, symbol st
 	if len(uniq) == 0 {
 		return nil, nil
 	}
-	srcMs := inferCandleIntervalMs(uniq)
+	srcMs := sourceIntervalMs
+	if srcMs <= 0 {
+		srcMs = inferCandleIntervalMs(uniq)
+	}
 	if srcMs > targetMs || targetMs%srcMs != 0 {
 		return nil, fmt.Errorf("regime 檢測器周期 %s 不能由任務 K 線周期 %dms 聚合（需要更小且能整除的 K 線周期，或調整 %s.kline_interval）",
 			interval, srcMs, paramRegimeFilter)

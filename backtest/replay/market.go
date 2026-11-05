@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -51,6 +52,13 @@ func AggTradesToTicks(rows []backtest.AggTradeRow) []Tick {
 // 每段按 StepsPerLeg 線性插值，K 線成交量平均分配到各路徑點，時間戳在 K 線周期內均勻分佈。
 // 注意：路徑是假設，真實 K 線內順序未知；aggTrade 數據可用時應優先使用。
 func CandlesToTicks(candles []*exchange.Candle, opt IntrabarOptions) ([]Tick, error) {
+	return candlesToTicksContext(context.Background(), candles, opt)
+}
+
+func candlesToTicksContext(ctx context.Context, candles []*exchange.Candle, opt IntrabarOptions) ([]Tick, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(candles) == 0 {
 		return nil, fmt.Errorf("candles to ticks: no candles")
 	}
@@ -80,6 +88,9 @@ func CandlesToTicks(candles []*exchange.Candle, opt IntrabarOptions) ([]Tick, er
 	pointsPerCandle := 1 + 3*steps
 	ticks := make([]Tick, 0, len(sorted)*pointsPerCandle)
 	for _, c := range sorted {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if c.Open <= 0 || c.High <= 0 || c.Low <= 0 || c.Close <= 0 {
 			return nil, fmt.Errorf("candles to ticks: candle ts=%d has non-positive OHLC (%v/%v/%v/%v)", c.Timestamp, c.Open, c.High, c.Low, c.Close)
 		}
@@ -96,6 +107,9 @@ func CandlesToTicks(candles []*exchange.Candle, opt IntrabarOptions) ([]Tick, er
 		prices = append(prices, c.Open)
 		for _, leg := range [][2]float64{{c.Open, x}, {x, y}, {y, c.Close}} {
 			for s := 1; s <= steps; s++ {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				prices = append(prices, leg[0]+(leg[1]-leg[0])*float64(s)/float64(steps))
 			}
 		}

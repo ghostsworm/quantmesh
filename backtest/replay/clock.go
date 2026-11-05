@@ -17,9 +17,12 @@ import (
 // 模擬時間單調不減：AdvanceTo 早於當前模擬時間時忽略（Sleep 推進後，後續更早的 tick 不回撥時鐘）。
 // 並發安全。
 type SimClock struct {
-	mu      sync.Mutex
-	now     time.Time
-	waiters []*simWaiter
+	mu  sync.Mutex
+	now time.Time
+	// marketTime 只由引擎的市場事件推進，不受操作等待 Sleep 影響。
+	marketTime   time.Time
+	marketDriven bool
+	waiters      []*simWaiter
 }
 
 // simWaiter 一次性（period=0）或週期觸發器
@@ -42,6 +45,36 @@ func (c *SimClock) Now() time.Time {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.now
+}
+
+// MarketNow 返回特徵可見的市場事件時間。單獨使用時兼容普通 SimClock，
+// 引擎啟用市場事件驅動後，Sleep 不會提前暴露尚未處理的 K 線或資金費。
+func (c *SimClock) MarketNow() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.marketDriven {
+		return c.marketTime
+	}
+	return c.now
+}
+
+func (c *SimClock) advanceMarketToMillis(ts int64) {
+	t := time.UnixMilli(ts)
+	c.mu.Lock()
+	if !c.marketDriven || t.After(c.marketTime) {
+		c.marketTime = t
+	}
+	c.marketDriven = true
+	c.mu.Unlock()
+	c.AdvanceTo(t)
+}
+
+// featureNow 將已知資料的時間與倉位管理器的操作等待時鐘隔離。
+func featureNow(clock position.Clock) time.Time {
+	if market, ok := clock.(interface{ MarketNow() time.Time }); ok {
+		return market.MarketNow()
+	}
+	return clock.Now()
 }
 
 // Sleep 立即返回並將模擬時間推進 d（d<=0 時不推進）

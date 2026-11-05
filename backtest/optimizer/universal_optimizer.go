@@ -22,8 +22,9 @@ type ParamRange struct {
 
 // UniversalSearchSpace 通用参数搜索空间
 type UniversalSearchSpace struct {
-	Strategy string                `json:"strategy"`
-	Ranges   map[string]ParamRange `json:"ranges"`
+	Strategy          string                            `json:"strategy"`
+	Ranges            map[string]ParamRange             `json:"ranges"`
+	ReplayWalkForward *backtest.ReplayWalkForwardConfig `json:"replay_walk_forward,omitempty"`
 }
 
 // UniversalParamResult 单组参数结果
@@ -39,21 +40,22 @@ type UniversalParamResult struct {
 
 // UniversalOptimResult 通用优化结果（含任务上下文，供前端结果弹窗标题等展示）
 type UniversalOptimResult struct {
-	TaskID        string                 `json:"task_id"`
-	Strategy      string                 `json:"strategy"`
-	Symbol        string                 `json:"symbol,omitempty"`
-	Interval      string                 `json:"interval,omitempty"`        // K 线类型：tick、1m、5m 等
-	StartTime     time.Time              `json:"start_time,omitempty"`      // K 线起始时间
-	EndTime       time.Time              `json:"end_time,omitempty"`        // K 线结束时间
-	UseOrderDepth bool                   `json:"use_order_depth,omitempty"` // 是否使用订单深度风控
-	RiskInfo      string                 `json:"risk_info,omitempty"`       // 风控参与说明：如 "成交量风控"、"成交量+订单深度"、"无"
-	AllResults    []UniversalParamResult `json:"all_results"`
-	BestByReturn  *UniversalParamResult  `json:"best_by_return,omitempty"`
-	BestBySharpe  *UniversalParamResult  `json:"best_by_sharpe,omitempty"`
-	Elapsed       time.Duration          `json:"elapsed"`
-	TotalCombos   int                    `json:"total_combos"`
-	Completed     int                    `json:"completed"`
-	Failed        int                    `json:"failed"`
+	TaskID            string                   `json:"task_id"`
+	Strategy          string                   `json:"strategy"`
+	Symbol            string                   `json:"symbol,omitempty"`
+	Interval          string                   `json:"interval,omitempty"`        // K 线类型：tick、1m、5m 等
+	StartTime         time.Time                `json:"start_time,omitempty"`      // K 线起始时间
+	EndTime           time.Time                `json:"end_time,omitempty"`        // K 线结束时间
+	UseOrderDepth     bool                     `json:"use_order_depth,omitempty"` // 是否使用订单深度风控
+	RiskInfo          string                   `json:"risk_info,omitempty"`       // 风控参与说明：如 "成交量风控"、"成交量+订单深度"、"无"
+	AllResults        []UniversalParamResult   `json:"all_results"`
+	BestByReturn      *UniversalParamResult    `json:"best_by_return,omitempty"`
+	BestBySharpe      *UniversalParamResult    `json:"best_by_sharpe,omitempty"`
+	Elapsed           time.Duration            `json:"elapsed"`
+	TotalCombos       int                      `json:"total_combos"`
+	Completed         int                      `json:"completed"`
+	Failed            int                      `json:"failed"`
+	ReplayWalkForward *ReplayWalkForwardResult `json:"replay_walk_forward,omitempty"`
 }
 
 // UniversalOptimizer 通用多策略优化器
@@ -239,6 +241,9 @@ func getIntParam(m map[string]interface{}, key string, def int) int {
 
 // Run 执行完整优化（阻塞），支持进度回调
 func (u *UniversalOptimizer) Run(ctx context.Context, taskID, symbol, interval string, candles []*exchange.Candle, space UniversalSearchSpace, totalCapital float64, onProgress func(completed, total int)) (*UniversalOptimResult, error) {
+	if space.ReplayWalkForward != nil {
+		return u.runReplayWalkForward(ctx, taskID, symbol, interval, candles, space, totalCapital, onProgress)
+	}
 	if _, err := CountUniversalParamCombos(space); err != nil {
 		return nil, err
 	}
@@ -381,10 +386,12 @@ func GetDefaultSearchSpace(strategy string) UniversalSearchSpace {
 		return UniversalSearchSpace{
 			Strategy: "grid",
 			Ranges: map[string]ParamRange{
-				"grid_spacing":           {Min: 100, Max: 500, Step: 50},
-				"order_quantity":         {Min: 100, Max: 500, Step: 50},
-				"risk_volume_multiplier": {Min: 2, Max: 5, Step: 0.5},
-				"risk_average_window":    {Min: 10, Max: 50, Step: 5},
+				"grid_spacing":   {Min: 100, Max: 200, Step: 100},
+				"order_quantity": {Min: 100, Max: 200, Step: 100},
+			},
+			ReplayWalkForward: &backtest.ReplayWalkForwardConfig{
+				TrainDays: 3, TestDays: 1, StepDays: 1, Leverage: 1,
+				BaseParams: map[string]interface{}{"grid_spacing": 100.0, "order_quantity": 100.0},
 			},
 		}
 	case "momentum":

@@ -26,6 +26,8 @@ const RegimeControlCheckInterval = 30 * time.Second
 
 // FeatureOptions 注入功能所需的外部數據
 type FeatureOptions struct {
+	// Context 為單次回放的取消上下文；未指定時兼容原有調用。
+	Context context.Context
 	// Symbol 交易對（與 Bot.Trading.Symbol 一致）
 	Symbol string
 	// RegimeKlines regime 檢測器使用的 K 線，周期必須等於 regime_filter.kline_interval（未配置時為 regime.DefaultKlineInterval）。
@@ -135,9 +137,12 @@ func InstallFeatureHooks(cfg *Config, opts FeatureOptions) (*FeatureStats, error
 		nextControl  time.Time
 		changed      bool
 		started      bool
-		ctx          = context.Background()
+		ctx          = opts.Context
 		pollInterval time.Duration
 	)
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	cfg.Setup = func(s *position.SuperPositionManager, clock position.Clock) error {
 		spm = s
 		if st.FundingMonitorEnabled {
@@ -150,12 +155,13 @@ func InstallFeatureHooks(cfg *Config, opts FeatureOptions) (*FeatureStats, error
 		if err != nil {
 			return err
 		}
-		src, err := NewClosedKlineSource(symbol, RegimeKlineInterval(bot), opts.RegimeKlines, clock.Now)
+		now := func() time.Time { return featureNow(clock) }
+		src, err := NewClosedKlineSource(symbol, RegimeKlineInterval(bot), opts.RegimeKlines, now)
 		if err != nil {
 			return err
 		}
 		det, err = regime.NewDetector(symbol, position.RegimeConfigFromConfig(bot.Trading.RegimeFilter), src,
-			regime.WithClock(clock.Now), regime.WithOnChange(func(regime.Change) { changed = true }))
+			regime.WithClock(now), regime.WithOnChange(func(regime.Change) { changed = true }))
 		if err != nil {
 			return fmt.Errorf("regime detector %s: %w", symbol, err)
 		}

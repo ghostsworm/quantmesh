@@ -59,11 +59,11 @@ func (m *SimFundingMonitor) RateAt(t time.Time) float64 {
 }
 
 // GetCurrentRate 當前模擬時間可見的費率
-func (m *SimFundingMonitor) GetCurrentRate() float64 { return m.RateAt(m.clock.Now()) }
+func (m *SimFundingMonitor) GetCurrentRate() float64 { return m.RateAt(featureNow(m.clock)) }
 
 // GetNextFundingTime 優先返回序列中下一個實際結算時間；序列外返回下一個 UTC 8h 默認結算點。
 func (m *SimFundingMonitor) GetNextFundingTime() time.Time {
-	ts := m.clock.Now().UnixMilli()
+	ts := featureNow(m.clock).UnixMilli()
 	i := sort.Search(len(m.series), func(k int) bool { return m.series[k].Timestamp > ts })
 	if i < len(m.series) {
 		return time.UnixMilli(m.series[i].Timestamp).UTC()

@@ -12,28 +12,56 @@ import (
 
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
+	"quantmesh/exchange"
 	"quantmesh/logger"
 )
 
 // OptimTaskManager 参数优化任务管理器
 type OptimTaskManager struct {
-	store         backtest.OptimTaskStore
-	binanceConfig map[string]string
-	resultsDir    string
-	mu            sync.Mutex
-	running       map[string]*taskRun
-	deleting      map[string]bool
+	store      backtest.OptimTaskStore
+	loadData   HistoricalDataLoader
+	resultsDir string
+	mu         sync.Mutex
+	running    map[string]*taskRun
+	deleting   map[string]bool
 }
 
-// NewOptimTaskManager 创建优化任务管理器
-func NewOptimTaskManager(store backtest.OptimTaskStore, binanceConfig map[string]string) *OptimTaskManager {
-	return &OptimTaskManager{
-		store:         store,
-		binanceConfig: binanceConfig,
-		resultsDir:    filepath.Join("backtest", "optim_results"),
-		running:       make(map[string]*taskRun),
-		deleting:      make(map[string]bool),
+// HistoricalDataLoader lets offline callers use isolated fixtures without accounts or network access.
+type HistoricalDataLoader func(context.Context, string, string, time.Time, time.Time) ([]*exchange.Candle, error)
+
+type ManagerOption func(*OptimTaskManager)
+
+func WithHistoricalDataLoader(loader HistoricalDataLoader) ManagerOption {
+	return func(m *OptimTaskManager) { m.loadData = loader }
+}
+
+func WithResultsDir(dir string) ManagerOption {
+	return func(m *OptimTaskManager) { m.resultsDir = dir }
+}
+
+// NewOptimTaskManager 创建优化任务管理器；options must be applied before any run.
+func NewOptimTaskManager(store backtest.OptimTaskStore, binanceConfig map[string]string, options ...ManagerOption) *OptimTaskManager {
+	m := &OptimTaskManager{
+		store: store,
+		loadData: func(ctx context.Context, symbol, interval string, start, end time.Time) ([]*exchange.Candle, error) {
+			return backtest.GetHistoricalDataContext(ctx, symbol, interval, start, end, binanceConfig)
+		},
+		resultsDir: filepath.Join("backtest", "optim_results"),
+		running:    make(map[string]*taskRun),
+		deleting:   make(map[string]bool),
 	}
+	for _, option := range options {
+		option(m)
+	}
+	return m
+}
+
+// ReadResult reads both replay and legacy JSON results from this manager's directory.
+func (m *OptimTaskManager) ReadResult(id string) ([]byte, error) {
+	if !IsValidTaskID(id) {
+		return nil, fmt.Errorf("invalid optimizer task id")
+	}
+	return os.ReadFile(filepath.Join(m.resultsDir, id+".json"))
 }
 
 // GetStore 返回任务存储
@@ -43,6 +71,13 @@ func (m *OptimTaskManager) GetStore() backtest.OptimTaskStore {
 
 // CreateAndRun 创建任务并异步执行
 func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
+	total, err := ValidateTask(task)
+	if err != nil {
+		return err
+	}
+	if m.store == nil || m.loadData == nil {
+		return fmt.Errorf("optimizer storage or historical data loader is unavailable")
+	}
 	if task.ID == "" {
 		var randomID [16]byte
 		if _, err := rand.Read(randomID[:]); err != nil {
@@ -55,13 +90,8 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	task.CompletedCombos = 0
 	task.CreatedAt = time.Now()
 
-	// 计算总组合数
-	space := toOptimizerSearchSpace(task.SearchSpace)
-	count, err := optimizer.CountUniversalParamCombos(space)
-	if err != nil {
-		return fmt.Errorf("invalid optimizer search space: %w", err)
-	}
-	task.TotalCombos = count
+	// Replay includes candidates, training baseline, test winner and test baseline per fold.
+	task.TotalCombos = total
 
 	run, err := m.beginRun(task.ID)
 	if err != nil {
@@ -100,11 +130,22 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 		return nil
 	}
 
+	total, err := ValidateTask(task)
+	if err != nil {
+		m.failTask(id, err.Error())
+		return nil
+	}
+	if task.SearchSpace.ReplayWalkForward != nil && task.TotalCombos != total {
+		m.failTask(id, "persisted replay total does not match the requested experiment")
+		return nil
+	}
 	now := time.Now()
-	_ = m.store.UpdateOptimTaskStatus(id, "running", &now, nil, "", "")
+	if err := m.store.UpdateOptimTaskStatus(id, "running", &now, nil, "", ""); err != nil {
+		return fmt.Errorf("mark optimizer task %s running: %w", id, err)
+	}
 
 	// 获取 K 线数据
-	candles, err := backtest.GetHistoricalDataContext(ctx, task.Symbol, task.Interval, task.StartTime, task.EndTime, m.binanceConfig)
+	candles, err := m.loadData(ctx, task.Symbol, task.Interval, task.StartTime, task.EndTime)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -116,19 +157,40 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 		m.failTask(id, "未获取到历史数据")
 		return nil
 	}
+	if task.SearchSpace.ReplayWalkForward != nil {
+		candles, err = replayCandlesForTask(task, candles)
+		if err != nil {
+			m.failTask(id, fmt.Sprintf("replay historical coverage: %v", err))
+			return nil
+		}
+	}
 
 	// 执行优化
 	opt := &optimizer.UniversalOptimizer{}
 	space := toOptimizerSearchSpace(task.SearchSpace)
+	runCtx, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
 	onProgress := func(completed, total int) {
+		if total != task.TotalCombos || completed < 0 || completed > total {
+			stop(fmt.Errorf("optimizer progress %d/%d differs from persisted total %d", completed, total, task.TotalCombos))
+			return
+		}
 		progress := 0
 		if total > 0 {
 			progress = completed * 100 / total
 		}
-		_ = m.store.UpdateOptimTaskProgress(id, completed, progress)
+		if err := m.store.UpdateOptimTaskProgress(id, completed, progress); err != nil {
+			stop(fmt.Errorf("persist optimizer task %s progress: %w", id, err))
+		}
 	}
 
-	result, err := opt.Run(ctx, id, task.Symbol, task.Interval, candles, space, task.TotalCapital, onProgress)
+	result, err := opt.Run(runCtx, id, task.Symbol, task.Interval, candles, space, task.TotalCapital, onProgress)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if cause := context.Cause(runCtx); cause != nil {
+		err = cause
+	}
 	if err != nil {
 		m.failTask(id, fmt.Sprintf("优化执行失败: %v", err))
 		return nil
@@ -137,8 +199,10 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 	// 写入任务上下文，供前端结果弹窗标题等展示
 	result.Symbol = task.Symbol
 	result.Interval = task.Interval
-	result.StartTime = task.StartTime
-	result.EndTime = task.EndTime
+	if result.ReplayWalkForward == nil {
+		result.StartTime = task.StartTime
+		result.EndTime = task.EndTime
+	}
 	result.UseOrderDepth = false // 当前参数优化未接入订单深度
 	result.RiskInfo = "无"
 	if space.Ranges != nil {
@@ -170,7 +234,9 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 	}
 
 	completed := time.Now()
-	_ = m.store.UpdateOptimTaskStatus(id, "completed", nil, &completed, "", resultPath)
+	if err := m.store.UpdateOptimTaskStatus(id, "completed", nil, &completed, "", resultPath); err != nil {
+		return fmt.Errorf("mark optimizer task %s completed: %w", id, err)
+	}
 	bestRet := 0.0
 	if result.BestByReturn != nil {
 		bestRet = result.BestByReturn.TotalReturn
@@ -182,15 +248,18 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 
 func (m *OptimTaskManager) failTask(id, errMsg string) {
 	completed := time.Now()
-	_ = m.store.UpdateOptimTaskStatus(id, "failed", nil, &completed, errMsg, "")
+	if err := m.store.UpdateOptimTaskStatus(id, "failed", nil, &completed, errMsg, ""); err != nil {
+		logger.Error("persist failed optimizer task %s: %v", id, err)
+	}
 	logger.Error("❌ 参数优化任务失败: %s, %s", id, errMsg)
 }
 
 // toOptimizerSearchSpace 转换 OptimSearchSpace 为 optimizer.UniversalSearchSpace
 func toOptimizerSearchSpace(s backtest.OptimSearchSpace) optimizer.UniversalSearchSpace {
 	space := optimizer.UniversalSearchSpace{
-		Strategy: s.Strategy,
-		Ranges:   make(map[string]optimizer.ParamRange),
+		Strategy:          s.Strategy,
+		Ranges:            make(map[string]optimizer.ParamRange),
+		ReplayWalkForward: s.ReplayWalkForward,
 	}
 	for k, v := range s.Ranges {
 		space.Ranges[k] = optimizer.ParamRange{Min: v.Min, Max: v.Max, Step: v.Step}

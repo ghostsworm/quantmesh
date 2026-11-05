@@ -72,6 +72,14 @@ func (e *Engine) Clock() *SimClock { return e.clock }
 //
 // 回報在倉位管理器的調用返回後才投遞，模擬 WebSocket 推送的異步性（同時避免持鎖回調死鎖）。
 func (e *Engine) Run(ticks []Tick) (*Result, error) {
+	return e.RunContext(context.Background(), ticks)
+}
+
+// RunContext 支援取消；取消時不返回可被誤當成成功的部分結果。
+func (e *Engine) RunContext(ctx context.Context, ticks []Tick) (*Result, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if e.ran {
 		return nil, fmt.Errorf("replay engine: Run called twice")
 	}
@@ -80,6 +88,9 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 		return nil, fmt.Errorf("replay engine: no ticks")
 	}
 	for i := 1; i < len(ticks); i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if ticks[i].Timestamp < ticks[i-1].Timestamp {
 			return nil, fmt.Errorf("replay engine: ticks not sorted at index %d (%d < %d)", i, ticks[i].Timestamp, ticks[i-1].Timestamp)
 		}
@@ -98,8 +109,9 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	e.spm = position.NewSuperPositionManager(cfg.Bot, e.exec, e.ex, cfg.PriceDecimals, cfg.QuantityDecimals)
 	// 模擬時鐘：保證金鎖、reduce-only 冷卻、去抖兜底、緩存 TTL、撤單等待均按 tick 時間生效
 	e.clock = NewSimClock(time.UnixMilli(first.Timestamp))
+	e.clock.advanceMarketToMillis(first.Timestamp)
 	e.spm.SetClock(e.clock)
-	if err := e.spm.ConfigureProtectiveLiquidation(context.Background(), &replayLiquidationVenue{engine: e}, func(work func()) {
+	if err := e.spm.ConfigureProtectiveLiquidation(ctx, &replayLiquidationVenue{engine: e}, func(work func()) {
 		e.protectiveJobs = append(e.protectiveJobs, work)
 	}); err != nil {
 		return nil, err
@@ -121,6 +133,9 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			return nil, fmt.Errorf("replay engine: setup hook: %w", err)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if err := e.spm.Initialize(first.Price, strconv.FormatFloat(first.Price, 'f', cfg.PriceDecimals, 64)); err != nil {
 		return nil, fmt.Errorf("replay engine: initialize position manager at price %.8f: %w", first.Price, err)
 	}
@@ -134,6 +149,9 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 	lastAdjust := int64(math.MinInt64)
 	prevTs := first.Timestamp
 	for i, t := range ticks {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if t.Price <= 0 {
 			continue
 		}
@@ -145,15 +163,36 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			}
 		}
 		prevTs = t.Timestamp
-		e.clock.AdvanceToMillis(t.Timestamp)
+		e.clock.advanceMarketToMillis(t.Timestamp)
 		if i > 0 {
 			e.ex.matchTrade(t)
 			e.deliver()
 		}
-		if cfg.OnTick != nil {
-			cfg.OnTick(e.clock.Now(), t.Price)
+		// Sleep 可令操作時鐘領先市場事件；期間交易所仍撮合既有訂單，
+		// 但策略不能拿等待結束後的時間對較早價格刷新或重新下單。
+		if e.clock.Now().UnixMilli() > t.Timestamp {
+			e.record(t.Timestamp, false)
+			continue
 		}
-		e.runOrderCleaner(t.Timestamp)
+		if cfg.OnTick != nil {
+			cfg.OnTick(time.UnixMilli(t.Timestamp), t.Price)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		// 自定義 hook 也可能推進操作時鐘。
+		if e.clock.Now().UnixMilli() > t.Timestamp {
+			e.record(t.Timestamp, false)
+			continue
+		}
+		e.runOrderCleaner(ctx, t.Timestamp)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if e.clock.Now().UnixMilli() > t.Timestamp {
+			e.record(t.Timestamp, false)
+			continue
+		}
 		if lastAdjust == math.MinInt64 || t.Timestamp-lastAdjust >= cfg.AdjustIntervalMs {
 			lastAdjust = t.Timestamp
 			if err := e.spm.AdjustOrders(t.Price); err != nil {
@@ -162,10 +201,13 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 			e.adjustCalls++
 			e.deliver()
 			for len(e.protectiveJobs) > 0 {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				job := e.protectiveJobs[0]
 				e.protectiveJobs = e.protectiveJobs[1:]
 				job()
-				if err := e.spm.WaitProtectiveLiquidation(context.Background()); err != nil {
+				if err := e.spm.WaitProtectiveLiquidation(ctx); err != nil {
 					return nil, fmt.Errorf("replay protective liquidation: %w", err)
 				}
 				e.deliver()
@@ -173,18 +215,25 @@ func (e *Engine) Run(ticks []Tick) (*Result, error) {
 		}
 		e.record(t.Timestamp, false)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	last := ticks[len(ticks)-1]
 	e.record(last.Timestamp, true)
-	return e.buildResult(ticks), nil
+	res := e.buildResult(ticks)
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // runOrderCleaner 模擬時間到達清理點時同步執行一輪 OrderCleaner 並投遞撤單回報；
 // 一個 tick 跨越多個清理點時只執行一次（與 time.Ticker 消費不及時丟棄觸發一致）。
-func (e *Engine) runOrderCleaner(ts int64) {
+func (e *Engine) runOrderCleaner(ctx context.Context, ts int64) {
 	if e.cleaner == nil || ts < e.nextCleanupTs {
 		return
 	}
-	e.cleaner.CleanupOnce(context.Background())
+	e.cleaner.CleanupOnce(ctx)
 	e.cleanerRuns++
 	e.deliver()
 	missed := (ts-e.nextCleanupTs)/e.cleanupEvery + 1

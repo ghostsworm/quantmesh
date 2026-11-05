@@ -5,6 +5,10 @@
 > 基线提交：`c52902380e5126de8fadaed7d5a57688bb6627a1`
 > 工作版本：`3.111.0-rc1192`（当前未提交；报告没有最终源码树摘要，任何工作树摘要都不是提交 SHA）
 
+## 2026-11-05 验证接线增量（3.112.0-rc1，未发布）
+
+网页 grid 参数优化现已接入 replay 的时间隔离训练/测试入口；已有 regime/adaptive_interval/upper_bound_freeze/inventory_skew/fee_aware_spread 任务注入由 `backtest/replay/task_features.go` 复用，不重做策略。新增固定基线、数据/配置摘要、逐折样本内外指标及上涨/横盘/下跌隔离合成样本。复现与本地结果见 [replay walk-forward 报告](2026-11-05-replay-walkforward.md)。本增量只补网格工程验证链路，不能补齐本报告列出的 FundingCarry、真实市场独立样本、账户费用/权益或盈利证明缺口；以下 RC1191/RC1192 历史验收状态保留当时口径。
+
 ## 结论
 
 当前证据不足以证明 QuantMesh 或 FundingCarry 已在真实账户盈利，也不足以得出可上线的策略验收结论。已有工程级回放能用于网格软件参数的有限比较，但不是 FundingCarry 的完整仿真；没有固定策略配置摘要、FundingCarry 的独立样本外收益/回撤结果、真实账户成交与资产负债对账包，也没有同一最终提交的远端 CI/release 验收。因此结论为“准备度改进中，盈利待验证”，不得表述为实盘验证通过。

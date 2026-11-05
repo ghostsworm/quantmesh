@@ -1,6 +1,7 @@
 package replay
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -66,8 +67,31 @@ const (
 // 數據源優先級：params.aggtrade_dir 下的 aggTrades（任務時間範圍）> 傳入的 K 線（K 線內路徑回退）。
 // 未配置 price_low/price_high 時不限制區間（實盤語義），不會從回測期數據推導區間。
 func RunGridTask(task *backtest.BacktestTask, candles []*exchange.Candle) (*backtest.BacktestResult, interface{}, error) {
+	// 保留舊入口的可選區間元資料語義；嚴格窗口回放使用 Context 入口。
+	return runGridTask(context.Background(), task, candles, false)
+}
+
+// RunGridTaskContext 用於有明確窗口的回放。所有 K 線必須完整落在
+// [StartTime, EndTime) 內；預熱歷史不得混入交易 K 線。歷史導入的 IsClosed
+// 可能為零值，閉合性以明確的 interval 和窗口邊界判斷。
+func RunGridTaskContext(ctx context.Context, task *backtest.BacktestTask, candles []*exchange.Candle) (*backtest.BacktestResult, interface{}, error) {
+	return runGridTask(ctx, task, candles, true)
+}
+
+func runGridTask(ctx context.Context, task *backtest.BacktestTask, candles []*exchange.Candle, strict bool) (*backtest.BacktestResult, interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	if task == nil {
 		return nil, nil, fmt.Errorf("replay task: nil task")
+	}
+	var intervalMs int64
+	if strict {
+		var err error
+		intervalMs, err = validateTaskWindow(ctx, task, candles)
+		if err != nil {
+			return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
+		}
 	}
 	cfg, err := ConfigFromTask(task)
 	if err != nil {
@@ -91,23 +115,35 @@ func RunGridTask(task *backtest.BacktestTask, candles []*exchange.Candle) (*back
 		if pathErr != nil {
 			return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, pathErr)
 		}
-		ticks, err = CandlesToTicks(candles, IntrabarOptions{
+		ticks, err = candlesToTicksContext(ctx, candles, IntrabarOptions{
 			Path:        path,
 			StepsPerLeg: paramInt(task.Params, paramIntrabarSteps, DefaultIntrabarStepsPerLeg),
+			IntervalMs:  intervalMs,
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
 		}
 	}
 
-	features, featureStats, err := installTaskFeatures(&cfg, candles)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	if strict {
+		if err := validateTaskTicks(ctx, task, ticks); err != nil {
+			return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
+		}
+	}
+	features, featureStats, err := installTaskFeatures(ctx, &cfg, candles, intervalMs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
 	}
 
-	res, err := NewEngine(cfg).Run(ticks)
+	res, err := NewEngine(cfg).RunContext(ctx, ticks)
 	if err != nil {
 		return nil, nil, fmt.Errorf("replay task %s: %w", task.ID, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
 	}
 	finalizeFeatureReport(features, featureStats)
 	res.Metrics.Features = features
@@ -117,6 +153,9 @@ func RunGridTask(task *backtest.BacktestTask, candles []*exchange.Candle) (*back
 	logger.Info("✅ [回放回測] 任務 %s: 淨盈虧=%.4f 手續費=%.4f(maker %.4f/taker %.4f) 資金費=%.4f 成交=%d maker占比=%.2f%% 每格淨利/手續費=%.3f",
 		task.ID, res.Metrics.NetPnL, res.Metrics.FeesTotal, res.Metrics.FeesMaker, res.Metrics.FeesTaker,
 		res.Metrics.FundingPaid, res.Metrics.Fills, res.Metrics.MakerRatio*100, res.Metrics.GridNetProfitToFeeRatio)
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
 	return res.Backtest, res.Metrics, nil
 }
 

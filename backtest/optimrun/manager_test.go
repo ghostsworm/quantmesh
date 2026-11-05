@@ -70,15 +70,9 @@ func TestOptimTaskManagerHelpersAndFailurePaths(t *testing.T) {
 
 	createErr := errors.New("store down")
 	store.createErr = createErr
-	err := manager.CreateAndRun(&backtest.OptimTask{
-		ID:       "task-1",
-		Strategy: "grid",
-		Symbol:   "BTCUSDT",
-		Interval: "1m",
-		SearchSpace: backtest.OptimSearchSpace{Strategy: "grid", Ranges: map[string]backtest.OptimParamRange{
-			"grid_count": {Min: 1, Max: 1, Step: 1},
-		}},
-	})
+	task := validReplayTask()
+	task.ID = "task-1"
+	err := manager.CreateAndRun(task)
 	if !errors.Is(err, createErr) {
 		t.Fatalf("CreateAndRun error = %v", err)
 	}
