@@ -1,6 +1,6 @@
 # Product Overview
 
-当前版本为 `3.111.0-rc1195`（开发中、尚未发布）。本版本把 MCP 从单个全局令牌改为按张颁发：只读令牌只查询且不通知，读写令牌必须指定通知方式，修改完成后按该方式通知；同时提供可复制的带密钥 Streamable HTTP 地址。旧全局令牌保持可用。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
+当前版本为 `3.111.0-rc1196`（开发中、尚未发布）。本版本修复 MCP 新令牌与客户端 JSON 配置身份不一致：页面使用本次颁发结果在内存中生成各格式配置，地址与 Bearer 头绑定同一令牌；未颁发、吊销当前令牌或刷新页面后不再回退旧全局令牌，复制入口保持禁用。旧令牌的延迟吊销响应不会清除后来颁发的新令牌。RC1195 已支持按张颁发只读/读写令牌及读写通知；旧全局令牌的服务端兼容行为保持不变。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
 
 RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
 
@@ -24,7 +24,7 @@ RC1163–RC1171 的许可、Gate 来源约束、运行态 takeover 与只读/Fou
 
 历史整改阶段说明（rc1123–rc1130 的能力演进）：rc1130 增加 Binance Spot Margin REST-only 负债/挂单 verifier factory，但不覆盖普通现货库存、期货持仓或完整账户归零。rc1129 增加 Binance/Bitget REST-only Futures 核验；rc1128 增加 Bitget 全产品 Futures 仓位与账户挂单观测；rc1127 增加 Bitget Futures 原始快照；rc1126 展开复合策略权益范围；rc1125 处理凭据轮换后的旧 adapter；rc1124 增加 Funding Carry 只读核账诊断；rc1123 撤销变化前范围的权益健康证明。该阶段的“旧账户只读追踪/显式重置待完成”状态已由 rc1131–rc1142 后续接通归档、观测与管理员重置；Bitget Spot 仍 fail-closed。上述本地与隔离测试不代表真实交易或盈利验收。
 
-> 最后更新：2026-10-14 | 当前版本：v3.111.0-rc1190（开发中；未发布或实盘验收）
+> 最后更新：2026-11-05 | 当前版本：v3.111.0-rc1196（开发中；未发布或实盘验收）
 
 - `3.111.0-rc1151` SpotShort 首次借贷/订单/还款对账暂时失败但运行态结构可读时，不再因 Start 返回错误而永久跳过重试器：先持有 `spot_short_reconciliation_unverified`、再启动后台核对；完整成功才释放该专属来源并触发账户暴露核账重试。其他来源的暂停不受影响。
 - `3.111.0-rc1152` 网格终态正成交只有在槽位状态与完整成交明细耐久保存后才结算共享执行 intent；结算期间保持开仓封锁，成功后再尝试账户级暴露核账。失败继续保留封锁和可恢复状态。
