@@ -585,6 +585,8 @@ func SetupRoutesWithConfig(r *gin.Engine, cfg *config.Config) {
 				capital.GET("/funding-recovery/:episode_id", getFundingRecoveryStatusHandler)
 				capital.GET("/funding-recovery/:episode_id/release/preview", getFundingRecoveryReleasePreviewHandler)
 				capital.POST("/funding-recovery/:episode_id/release", applyFundingRecoveryReleaseHandler)
+				capital.GET("/funding-recovery/:episode_id/release/resume/preview", getFundingRecoveryReleaseResumePreviewHandler)
+				capital.POST("/funding-recovery/:episode_id/release/resume", applyFundingRecoveryReleaseResumeHandler)
 				capital.GET("/funding-recovery/:episode_id/operations/:operation_id", getFundingRecoveryReceiptHandler)
 				capital.POST("/funding-recovery/:episode_id/submission-attempts/adjudicate-found", adjudicateFundingRecoverySubmissionHandler)
 				capital.POST("/funding-recovery/:episode_id/takeover", takeOverFundingRecoveryEpisodeHandler)

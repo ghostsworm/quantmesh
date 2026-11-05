@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"quantmesh/accounting"
 	"quantmesh/config"
@@ -255,10 +256,12 @@ func TestFundingCarryFillRejectsUnattributedRealizedPnL(t *testing.T) {
 
 func TestFundingRecoveryEpisodeAcceptsOriginalAttemptOwnerAcrossTakeoverChain(t *testing.T) {
 	episode := accounting.RecoveryEpisode{
-		OwnerGeneration: "generation-c",
+		OwnerGeneration: "generation-c", Revision: 4, RecoveryGeneration: 1,
 		OwnerTakeovers: []accounting.RecoveryOwnerTakeoverRecord{
-			{PreviousOwnerGeneration: "generation-a", OwnerGeneration: "generation-b"},
-			{PreviousOwnerGeneration: "generation-b", OwnerGeneration: "generation-c"},
+			{OperationID: "takeover-b", Actor: "admin", AuditRef: "incident-b", EvidenceHash: fmt.Sprintf("%064x", 1), EpisodeRevision: 2,
+				PreviousOwnerGeneration: "generation-a", OwnerGeneration: "generation-b", CreatedAt: time.Unix(1, 0).UTC()},
+			{OperationID: "takeover-c", Actor: "admin", AuditRef: "incident-c", EvidenceHash: fmt.Sprintf("%064x", 2), EpisodeRevision: 4,
+				PreviousOwnerGeneration: "generation-b", OwnerGeneration: "generation-c", CreatedAt: time.Unix(2, 0).UTC()},
 		},
 	}
 	for _, generation := range []string{"generation-a", "generation-b", "generation-c"} {
@@ -272,6 +275,29 @@ func TestFundingRecoveryEpisodeAcceptsOriginalAttemptOwnerAcrossTakeoverChain(t 
 	episode.OwnerTakeovers[1].OwnerGeneration = "disconnected-generation"
 	if fundingRecoveryEpisodeOwnsGeneration(episode, "generation-a") {
 		t.Fatal("disconnected takeover chain must not authorize the original owner")
+	}
+}
+
+func TestFundingRecoveryReleaseResumeKeepsHistoricalFillOwners(t *testing.T) {
+	digest := fmt.Sprintf("%064x", 42)
+	episode := accounting.RecoveryEpisode{ID: "resumed-fill-history", AccountScopes: []string{digest}, OwnerGeneration: "owner-d", Revision: 6, RecoveryGeneration: 2,
+		OwnerTakeovers: []accounting.RecoveryOwnerTakeoverRecord{
+			{OperationID: "takeover-b", Actor: "admin", AuditRef: "incident", EvidenceHash: digest, PreviousOwnerGeneration: "owner-a", OwnerGeneration: "owner-b", EpisodeRevision: 2, CreatedAt: time.Unix(1, 0).UTC()},
+			{OperationID: "takeover-d", Actor: "admin", AuditRef: "incident", EvidenceHash: digest, PreviousOwnerGeneration: "owner-c", OwnerGeneration: "owner-d", EpisodeRevision: 6, CreatedAt: time.Unix(3, 0).UTC()},
+		},
+		ReleaseResumptions: []accounting.RecoveryReleaseResumeRecord{{OperationID: "resume-c", ReleaseOperationID: "release-original", ReleaseRequestHash: digest,
+			RequestHash: digest, Actor: "admin", AuditRef: "incident-resume", EvidenceHash: digest, ResultEvidenceHash: digest,
+			PreviousOwnerGeneration: "owner-b", OwnerGeneration: "owner-c", AccountScopes: []string{digest}, ExpectedEpisodeRevision: 3,
+			ExpectedHoldRevision: 1, RecoveryGeneration: 1, PreviousState: accounting.RecoveryReleasePending, EpisodeRevision: 4, HoldRevision: 2, CreatedAt: time.Unix(2, 0).UTC()}},
+	}
+	for _, owner := range []string{"owner-a", "owner-b", "owner-c", "owner-d"} {
+		if !fundingRecoveryEpisodeOwnsGeneration(episode, owner) {
+			t.Fatalf("resume/reopen/takeover lost historical fill owner %s", owner)
+		}
+	}
+	episode.ReleaseResumptions[0].PreviousOwnerGeneration = "unrelated"
+	if fundingRecoveryEpisodeOwnsGeneration(episode, "owner-a") {
+		t.Fatal("disconnected resume audit authorized a historical fill owner")
 	}
 }
 

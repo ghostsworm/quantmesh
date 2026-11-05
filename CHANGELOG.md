@@ -1,5 +1,15 @@
 # Changelog
 
+## [3.111.0-rc1197] - 2026-11-05（开发中，未发布）
+
+### Fixed
+- 修复 FundingCarry 管理员解锁准备提交后跨实例无法续办：`release_pending` 在持久 hold 与投影证据完整时保留停止状态的只读 runtime；独立管理员预览/续办绑定原 release operation/receipt、完整账户 scope、当前证据摘要、新旧 owner 与 episode/hold CAS。
+- 续办在同一事务内完成 owner 审计和原释放操作，保留原授权 actor、audit、request hash 与证据；重复请求核对提交后证据，不重复写入，旧 generation、并发竞争或证据变化均拒绝越过 fence。
+- Gate 清理失败回报真实 durable hold 状态；精确重试只清理该 episode/recovery generation 的 Gate，保留人工及其他来源，不启动策略、不重放交易。
+
+### Verification
+- 隔离 SQLite/MySQL 的存储重开、原子性/重放、并发池、授权与证据边界用例通过；`docs/reports/funding-release-resume-rc1196/results.md` 记录 MySQL 专项完成、测试期间源码稳定，Ruby 验收入口输出 JSON 与 Markdown。未发布，未访问生产账户，不代表盈利验收。
+
 ## [3.111.0-rc1196] - 2026-11-05（开发中，未发布）
 
 ### Fixed

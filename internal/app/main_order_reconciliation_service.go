@@ -445,6 +445,9 @@ func newProductionOrderReconciliationService(store *storage.SQLStorage, bots *Bo
 			if readErr != nil || !stillFound {
 				return errors.Join(storage.ErrFundingRecoveryNotFound, readErr)
 			}
+			if current.OwnerGeneration != auth.OwnerGeneration {
+				return accounting.ErrRecoveryConflict
+			}
 			carry, generation, resolveErr := resolveHeldFundingCarryStrategyForRelease(operationCtx, store, bots, current)
 			if resolveErr != nil {
 				return resolveErr
@@ -498,6 +501,7 @@ func newProductionOrderReconciliationService(store *storage.SQLStorage, bots *Bo
 		})
 		return readback, err
 	}
+	wireFundingRecoveryReleaseResume(service, store, bots)
 	return service, nil
 }
 

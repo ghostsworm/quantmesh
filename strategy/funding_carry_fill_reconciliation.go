@@ -188,33 +188,7 @@ func (s *FundingCarryStrategy) readFundingRecoveryFillSnapshot(ctx context.Conte
 }
 
 func fundingRecoveryEpisodeOwnsGeneration(episode accounting.RecoveryEpisode, generation string) bool {
-	if generation == "" || episode.OwnerGeneration == "" || len(episode.OwnerTakeovers) > 0 && !episode.HasCurrentOwnerTakeover() {
-		return false
-	}
-	if len(episode.OwnerTakeovers) > 0 {
-		owner := episode.OwnerTakeovers[0].PreviousOwnerGeneration
-		if owner == "" {
-			return false
-		}
-		for _, takeover := range episode.OwnerTakeovers {
-			if takeover.PreviousOwnerGeneration != owner || takeover.OwnerGeneration == "" || takeover.OwnerGeneration == owner {
-				return false
-			}
-			owner = takeover.OwnerGeneration
-		}
-		if owner != episode.OwnerGeneration {
-			return false
-		}
-	}
-	if generation == episode.OwnerGeneration {
-		return true
-	}
-	for _, takeover := range episode.OwnerTakeovers {
-		if generation == takeover.PreviousOwnerGeneration || generation == takeover.OwnerGeneration {
-			return true
-		}
-	}
-	return false
+	return episode.KnowsOwnerGeneration(generation)
 }
 
 func resolveFundingCarryRecoveryBindingFromStrategy(s *FundingCarryStrategy) (fundingCarryRecoveryBinding, error) {

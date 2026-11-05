@@ -1,6 +1,6 @@
 # Product Overview
 
-当前版本为 `3.111.0-rc1196`（开发中、尚未发布）。本版本修复 MCP 新令牌与客户端 JSON 配置身份不一致：页面使用本次颁发结果在内存中生成各格式配置，地址与 Bearer 头绑定同一令牌；未颁发、吊销当前令牌或刷新页面后不再回退旧全局令牌，复制入口保持禁用。旧令牌的延迟吊销响应不会清除后来颁发的新令牌。RC1195 已支持按张颁发只读/读写令牌及读写通知；旧全局令牌的服务端兼容行为保持不变。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
+当前版本为 `3.111.0-rc1197`（开发中、尚未发布）。本版本修复 FundingCarry 管理员释放在 `release_pending` 提交后中断、换实例无法续办的问题：新 runtime 保留只读核账能力；独立管理员续办绑定原释放 operation/receipt、账户范围、证据摘要和 CAS，追加新 owner 审计后只清理精确 recovery Gate，不启动或重放交易。设计与验收边界见 [架构说明](ARCHITECTURE.md) 和 [续办协议](docs/funding-recovery-release-resume.md)。此前 RC1196 修复 MCP 新令牌与客户端 JSON 配置身份不一致：页面使用本次颁发结果在内存中生成各格式配置，地址与 Bearer 头绑定同一令牌；未颁发、吊销当前令牌或刷新页面后不再回退旧全局令牌，复制入口保持禁用。旧令牌的延迟吊销响应不会清除后来颁发的新令牌。RC1195 已支持按张颁发只读/读写令牌及读写通知；旧全局令牌的服务端兼容行为保持不变。此前 RC1194 修正根目录应用包迁移后竞态验证器的 Go 包路径，确保 CI 核验 `internal/app` 与 FundingCarry MySQL 用例；此前 RC1193 的目录整理不改变交易逻辑，也不代表实盘或盈利验收。此前 RC1190 的 SQLite 迁移锁重试及 RC1187–RC1189 的 FundingRecovery 哈希修复历史见下文。
 
 RC1166 已用隔离 SQLite StorageService 与生产 service/router 组合覆盖显式 takeover→原 CID 查询→found CAS 的纵向路径。RC1171 覆盖 retained runtime 管理员核证；RC1172 覆盖权威完整逐单 fill/cursor 写入、receipt/outbox 重试和 readback，以及 PnL 资产归属。venue 为内存 fixture；未知费用补录、借贷/利息/资金费、显式解锁、MySQL 与真实多进程仍未验收。版本号和本地测试不代表发布或实盘验收。
 

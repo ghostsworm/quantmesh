@@ -52,6 +52,7 @@ type RecoveryEpisode struct {
 	State              RecoveryState                 `json:"state"`
 	ActionPlan         []RecoveryAction              `json:"action_plan"`
 	OwnerTakeovers     []RecoveryOwnerTakeoverRecord `json:"owner_takeovers,omitempty"`
+	ReleaseResumptions []RecoveryReleaseResumeRecord `json:"release_resumptions,omitempty"`
 	CreatedAt          time.Time                     `json:"created_at"`
 	UpdatedAt          time.Time                     `json:"updated_at"`
 }
@@ -704,6 +705,8 @@ type RecoveryReceipt struct {
 	AuditRef                string        `json:"audit_ref,omitempty"`
 	EvidenceHash            string        `json:"evidence_hash,omitempty"`
 	ExposureClearanceHash   string        `json:"exposure_clearance_hash,omitempty"`
+	ReleaseOperationID      string        `json:"release_operation_id,omitempty"`
+	ReleaseRequestHash      string        `json:"release_request_hash,omitempty"`
 	PreviousOwnerGeneration string        `json:"previous_owner_generation,omitempty"`
 	OwnerGeneration         string        `json:"owner_generation,omitempty"`
 	CreatedAt               time.Time     `json:"created_at"`
@@ -930,33 +933,11 @@ func (e RecoveryEpisode) Validate() error {
 			return fmt.Errorf("action plan item %d has invalid action kind", i)
 		}
 	}
-	for i, takeover := range e.OwnerTakeovers {
-		if takeover.OperationID == "" || takeover.Actor == "" || takeover.AuditRef == "" || !validRecoveryHash(takeover.EvidenceHash) || takeover.PreviousOwnerGeneration == "" || takeover.OwnerGeneration == "" || takeover.PreviousOwnerGeneration == takeover.OwnerGeneration || takeover.EpisodeRevision == 0 || takeover.CreatedAt.IsZero() {
-			return fmt.Errorf("invalid owner takeover record %d", i)
-		}
-		if i > 0 && e.OwnerTakeovers[i-1].OwnerGeneration != takeover.PreviousOwnerGeneration {
-			return fmt.Errorf("disconnected owner takeover history at record %d", i)
-		}
-	}
-	if len(e.OwnerTakeovers) > 0 && e.OwnerTakeovers[len(e.OwnerTakeovers)-1].OwnerGeneration != e.OwnerGeneration {
-		return errors.New("owner takeover history does not match current owner generation")
-	}
-	return nil
+	return e.ValidateOwnerHistory()
 }
 
 func recoveryOwnerGenerationKnown(episode RecoveryEpisode, ownerGeneration string) bool {
-	if ownerGeneration == "" {
-		return false
-	}
-	if ownerGeneration == episode.OwnerGeneration {
-		return true
-	}
-	for _, takeover := range episode.OwnerTakeovers {
-		if ownerGeneration == takeover.PreviousOwnerGeneration || ownerGeneration == takeover.OwnerGeneration {
-			return true
-		}
-	}
-	return false
+	return episode.KnowsOwnerGeneration(ownerGeneration)
 }
 
 // HasCurrentOwnerTakeover reports whether the current owner explicitly took
