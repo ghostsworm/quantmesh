@@ -1,7 +1,9 @@
 # QuantMesh 做市商系统架构说明
 
+> 2026-11-05 已实现架构增量：[单账户历史自然日日账 ADR](decisions/2026-11-05-daily-equity-reconciliation.md)。复用现有成交/资金费/利息账本，新增历史证据/端点/现金流覆盖、可回放日账、只读 API 与隔离验收；不能把当前风控 checkpoint 当作历史账本。生产 Binance spot/Cross Margin 权益连接器与真实账户历史回补仍未实现。以下既有架构正文的原版本标识保留。
+
 > **版本**: v3.112.0-rc1（开发中，未发布；本次含 MCP 客户端配置数据流，其余章节为既有架构参考）
-> **文档创建日期**: 2025-12-24；当前架构入口及 replay 样本外数据流见 [根目录 ARCHITECTURE.md](../ARCHITECTURE.md)。  
+> **文档创建日期**: 2025-12-24；当前架构入口、replay 样本外数据流与日账数据流见 [根目录 ARCHITECTURE.md](../ARCHITECTURE.md)。
 > **目的**: 为系统重构改造提供全面的架构参考
 
 ---
@@ -47,6 +49,29 @@ QuantMesh 是一个**毫秒级高频加密货币做市商系统**，专注于永
 - JSON 的 URL 与 Bearer 头绑定同一张新令牌。切换格式仅改变配置结构，不选择其他身份；新令牌的权限及通知规则继续由服务端按张验证。
 - 刷新或离开页面后，一次性响应不再保留。无当前颁发结果或吊销当前令牌时，片段为空且禁用复制；不自动回退旧全局令牌。异步吊销只清除 ID 仍匹配的当前响应。
 - 原有 `/api/mcp/client-snippet` 和旧全局令牌保持服务端兼容。本次不改变存储 schema、交易工具、授权边界或通知投递方式。
+
+## 日账核验（Daily Equity Reconciliation，2026-11-05）
+
+### 模块边界
+
+- `accounting/daily`：固定 `Asia/Shanghai` 自然日、USDT 记账、三钱包（spot、spot_margin、futures）的精确十进制核验。入口为 `Evaluate` 与 `Service.Reconcile/Read`；不提交任何交易/划转，也不推导提现授权。
+- `storage`：`daily_equity_evidence_versions` 保存不可变证据 revision，`daily_equity_report_versions` 保存不可变报告，`daily_equity_current` 保存当前 evidence/report 指针与冲突标记，`daily_equity_conflicts` 保存来源身份冲突。迁移 `storage/migrations/2026110501_daily_equity_*` 在启动时自动 up，失败阻止启动。
+- `web`：`GET /api/profit/daily-reconciliation` 只读已发布报告，要求 `date`、`exchange_id`、`account_scope`，范围必须落在当前会话已授权的 credential scope 集合内。
+
+### 数据流
+
+```text
+交易所/隔离证据（期初期末余额、持仓、现金流、源覆盖收据）
+  → daily_equity_evidence_versions（PrepareEvidence + 内容 hash + revision CAS）
+  → 现有多账本投影（order_fills / funding_payments / margin_interest_payments + 同步覆盖表）
+  → accounting/daily.Evaluate（覆盖率、事件匹配、钱包变动、持仓量、精确差额）
+  → daily_equity_report_versions + daily_equity_current（完整 InputDigest CAS 发布）
+  → GET /api/profit/daily-reconciliation（读取时复核 digest，源变化则 false + source_changed）
+```
+
+核算恒等式：`equity_delta - net_external = trading_net + funding - interest + Δunrealized + explicit_valuation - other_verified_costs`，`|residual| <= 0.00000001`。借还本金和内部划转双 leg 不计利润，手续费只扣一次；任何未知费用、覆盖缺口、跨来源冲突或范围修订变化都会返回 `equityReconciliationComplete=false`。单日通过不解锁 lifetime/today/week/month 或提现权限。
+
+---
 
 ## 核心设计原则
 

@@ -6,7 +6,7 @@
 
 - Go 1.25.4；`cmd/quantmesh` 启动 `internal/app`，装配交易所、策略、存储和 Web 服务。
 - React / TypeScript WebUI 使用现有 Chakra 组件和 i18n 资源，由后端嵌入提供；HTTP API 沿用当前认证与访问控制，不新增匿名入口。
-- 交易配置、任务与业务数据使用现有 SQLStorage（SQLite / MySQL 等）。本轮没有 DDL 变更，沿用启动迁移机制。
+- 交易配置、任务与业务数据使用现有 SQLStorage（SQLite / MySQL 等）。日账新增证据/报告版本表及 SQLite/MySQL 成对迁移，沿用启动自动迁移机制，失败阻止启动。
 - 实盘策略/订单/仓位与回测隔离：`backtest/replay` 实例化模拟交易所、模拟时钟及 `position.SuperPositionManager`，不连接真实账户或提交真实订单。
 - `strategy` 承载策略和开仓 Gate；`accounting` 定义恢复事实与授权；`storage` 以 SQLite/MySQL 保存恢复 episode、hold、操作凭据和投影 outbox；`web` 提供受会话权限保护的 HTTP API。
 
@@ -32,6 +32,10 @@
 - 每次评估创建全新 replay 状态，各窗同额本金、空仓启动；warm-up 只读取当前窗内且在当前市场 tick 前闭合的 K 线。操作等待时钟不能提前开放特征数据；取消传到 replay 主循环并拒绝成功部分结果。
 - 实验固定基线、费用和数据，分别输出四组指标：选中参数的训练/测试、基线的训练/测试。期末持仓按市值计入净收益，未模拟强平手续费；不复利拼接独立窗口。
 - 结果包含协议版本、数据/配置/参数/实验 SHA-256、逐折边界与候选训练结果。独立 Ruby 验证器另绑定源码基线与 dirty 工作树摘要，保存原始样本和 JSON/Markdown 报告。
+
+## 日账核验
+
+`accounting/daily` 以精确十进制核对单账户、USDT、固定三钱包（spot、spot_margin、futures）的历史自然日权益变化；`storage` 保存不可变证据/报告版本与当前指针，迁移在启动时自动执行；`web` 提供只读 `GET /api/profit/daily-reconciliation`。核算恒等式、数据流与故障边界见 [日账 ADR](docs/decisions/2026-11-05-daily-equity-reconciliation.md) 与 [架构说明](docs/ARCHITECTURE.md)。单日通过不解锁汇总或提现权限。
 
 ## 证据边界
 

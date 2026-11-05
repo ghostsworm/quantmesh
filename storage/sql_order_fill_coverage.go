@@ -371,11 +371,17 @@ func (s *SQLStorage) AdvanceOrderFillCoverage(exchange, marketType, symbol, acco
 		if oldThrough.After(through) {
 			through = oldThrough
 		}
-		_, err = tx.Exec(`UPDATE order_fill_sync_coverage SET covered_from = ?, covered_through = ?, updated_at = CURRENT_TIMESTAMP WHERE scope_hash = ? AND exchange_name = ? AND market_type = ? AND symbol = ?`,
-			from, through, orderFillScopeHash(accountScope), exchange, marketType, symbol)
+		// Persist the observation in UTC explicitly. MySQL CURRENT_TIMESTAMP is
+		// evaluated in the session time zone; on a non-UTC server the driver would
+		// later read that wall clock as UTC and place the receipt hours in the
+		// future, permanently invalidating daily-equity coverage.
+		observed := time.Now().UTC()
+		_, err = tx.Exec(`UPDATE order_fill_sync_coverage SET covered_from = ?, covered_through = ?, updated_at = ? WHERE scope_hash = ? AND exchange_name = ? AND market_type = ? AND symbol = ?`,
+			from, through, observed, orderFillScopeHash(accountScope), exchange, marketType, symbol)
 	} else {
-		_, err = tx.Exec(`INSERT INTO order_fill_sync_coverage (scope_hash, exchange_name, market_type, symbol, account_scope, covered_from, covered_through) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			orderFillScopeHash(accountScope), exchange, marketType, symbol, accountScope, from, through)
+		observed := time.Now().UTC()
+		_, err = tx.Exec(`INSERT INTO order_fill_sync_coverage (scope_hash, exchange_name, market_type, symbol, account_scope, covered_from, covered_through, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			orderFillScopeHash(accountScope), exchange, marketType, symbol, accountScope, from, through, observed)
 	}
 	if err != nil {
 		return fmt.Errorf("persist order fill synchronization coverage: %w", err)

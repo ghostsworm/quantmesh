@@ -5,26 +5,30 @@
 ### Added
 - 网页网格参数优化接入 replay walk-forward：训练窗小规模网格搜索后冻结参数，仅在后续测试窗评估；固定基线、每折样本内/外净收益、回撤、成交次数及 maker/taker/资金费成本分列。
 - 保存规范化数据、参数、配置与实验 SHA-256；提供可重复的上涨/横盘/下跌隔离合成样本、未来数据扰动负例及 Ruby JSON/Markdown 验证报告。
+- 新增单账户、USDT、固定三钱包（spot、spot_margin、futures）历史自然日日账：`accounting/daily` 以 `math/big.Rat` 精确核对“权益变化 − 净外部资金流 = 交易净收益 + 资金费 − 利息 + 未实现变化 + 明示估值变化 − 其他已核费用”，差额容差 `0.00000001` USDT；覆盖不足、未知费用、跨来源冲突、未匹配账本、范围修订变化等一律返回稳定原因码且 `equityReconciliationComplete=false`。
+- 新增 `storage` 日账证据/报告表、SQLite/MySQL 成对迁移、启动自动迁移与显式回滚；复用既有 `order_fills`、`funding_payments`、`margin_interest_payments` 及同步覆盖表，不复制经济账本。发布使用完整输入摘要 CAS，源账本事实变化后旧报告读取为 `source_changed`，历史版本保留。
+- 新增只读 `GET /api/profit/daily-reconciliation`，要求明确日期、交易所与当前已授权账户范围；缺失报告返回 404，不用“已核实零收益”代替。单日通过不解锁 lifetime/today/week/month 或提现权限。
+- 新增 `scripts/verify_account_profit_daily.rb` 与 CI 产物 `daily-equity-evidence-<sha>`：真实 SQLite、一次性 MySQL schema、生产 router/认证/API 组合及源码/版本指纹绑定；必需 MySQL 用例缺失或跳过即失败。
 
 ### Fixed
 - 严格检查完整 K 线时间边界、周期和窗口互斥；补充 replay 任务取消与模拟等待期间的特征时间隔离，warm-up 只使用当前窗口内已闭合 K 线。
 - 历史结算资金费率仅用于费用结算；本优化入口拒绝资金费预测/偏置信号、外部 aggTrade 路径及 replay 不支持的参数，避免忽略参数或读取未冻结数据。
-
-### Scope
-- 单向合约 grid、最多 32 个候选和 12 折；各窗独立空仓、固定本金、期末按市值计价，不强平或跨窗复利。K 线撮合缺历史盘口、延迟/冲击与历史预测费率，不代表实盘盈利或 FundingCarry 验收。
-
-### Verification
-- 本地 `ruby scripts/verify_replay_walkforward.rb <新建目录>` 生成上涨/横盘/下跌隔离样本与 JSON/Markdown 报告；隔离 HTTP API 报告 23 项通过。`go vet ./...`、WebUI `yarn typecheck`、定向 Vitest 29 项及生产构建通过；`go test ./...` 的 77 个测试包通过，`internal/app` 触发默认 10 分钟包超时（无关的 capital-release 测试，单独重跑 30.5 秒通过），未计为全绿。浏览器仅做隔离预览。合成样本与本地测试不代表真实行情样本外通过、实盘盈利或部署。未提交、推送、发布或部署，未访问真实账户。
-
-## [3.111.0-rc1197] - 2026-11-05（开发中，未发布）
-
-### Fixed
+- `AdvanceOrderFillCoverage` 改用显式 UTC 观测时间写入 `updated_at`。此前 MySQL 非 UTC 会话下 `CURRENT_TIMESTAMP` 会被驱动读回为未来 8 小时，导致日账永远无法通过覆盖观测校验。
+- `scripts/source_provenance.rb` 以 UTF-8 读取前后端版本源文件，避免非 UTF-8 locale 下 Ruby 解析中文注释时报 `invalid byte sequence in US-ASCII`。
 - 修复 FundingCarry 管理员解锁准备提交后跨实例无法续办：`release_pending` 在持久 hold 与投影证据完整时保留停止状态的只读 runtime；独立管理员预览/续办绑定原 release operation/receipt、完整账户 scope、当前证据摘要、新旧 owner 与 episode/hold CAS。
 - 续办在同一事务内完成 owner 审计和原释放操作，保留原授权 actor、audit、request hash 与证据；重复请求核对提交后证据，不重复写入，旧 generation、并发竞争或证据变化均拒绝越过 fence。
 - Gate 清理失败回报真实 durable hold 状态；精确重试只清理该 episode/recovery generation 的 Gate，保留人工及其他来源，不启动策略、不重放交易。
 
+### Scope
+- 单向合约 grid、最多 32 个候选和 12 折；各窗独立空仓、固定本金、期末按市值计价，不强平或跨窗复利。K 线撮合缺历史盘口、延迟/冲击与历史预测费率，不代表实盘盈利或 FundingCarry 验收。
+- 日账只覆盖单账户、USDT 与固定三钱包；生产 Binance spot/Cross Margin 权益连接器、真实账户历史回补、后台自动发布与部署仍未验收，单日通过不解锁汇总或提现权限。
+
 ### Verification
-- 隔离 SQLite/MySQL 的存储重开、原子性/重放、并发池、授权与证据边界用例通过；`docs/reports/funding-release-resume-rc1196/results.md` 记录 MySQL 专项完成、测试期间源码稳定，Ruby 验收入口输出 JSON 与 Markdown。未发布，未访问生产账户，不代表盈利验收。
+- 本地 `ruby scripts/verify_replay_walkforward.rb <新建目录>` 生成上涨/横盘/下跌隔离样本与 JSON/Markdown 报告；隔离 HTTP API 报告 23 项通过。`go vet ./...`、WebUI `yarn typecheck`、定向 Vitest 29 项及生产构建通过；`go test ./...` 的 77 个测试包通过，`internal/app` 触发默认 10 分钟包超时（无关的 capital-release 测试，单独重跑 30.5 秒通过），未计为全绿。浏览器仅做隔离预览。合成样本与本地测试不代表真实行情样本外通过、实盘盈利或部署。
+- `go test ./accounting/daily ./storage` 与 `go test -run '^Test(SQLite|MySQL)DailyEquityProductionComposition$' ./internal/app` 通过；隔离 MySQL 9.5 一次性 schema 实测通过。
+- `ruby scripts/verify_account_profit_daily.rb /tmp/quantmesh-daily-equity` 返回 `accepted:true`，SQLite 与 MySQL 均为 pass，12 项必需证据齐全（本次筛选运行 44 个用例全部 pass）、无 skip/fail、Go JSON 解析零错误、测试期间源码稳定、前后端版本一致。
+- 验收仅覆盖隔离 fixture 驱动的真实存储、生产日账服务、HTTP 组合与合成 replay 样本；未连接真实交易账户，生产 Binance 三钱包权益连接器、真实账户历史回补、部署和盈利结论均未验收。
+- FundingCarry 续办的隔离 SQLite/MySQL 存储重开、原子性/重放、并发池、授权与证据边界用例通过；`docs/reports/funding-release-resume-rc1196/results.md` 记录 MySQL 专项完成、测试期间源码稳定，Ruby 验收入口输出 JSON 与 Markdown。
 
 ## [3.111.0-rc1196] - 2026-11-05（开发中，未发布）
 

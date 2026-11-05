@@ -90,6 +90,16 @@ jobs:
     - name: Race-test trading risk core
       run: ruby scripts/verify_trading_race.rb /tmp/quantmesh-trading-race --require-mysql
 
+    - name: Verify isolated daily equity acceptance
+      run: ruby scripts/verify_account_profit_daily.rb /tmp/quantmesh-daily-equity
+
+    - name: Upload daily equity evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: daily-equity-evidence-${{ github.sha }}
+        path: /tmp/quantmesh-daily-equity/
+
     - name: Upload trading race evidence
       if: always()
       uses: actions/upload-artifact@v4

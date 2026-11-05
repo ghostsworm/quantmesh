@@ -314,6 +314,15 @@ func NewStorageService(cfg *config.Config, ctx context.Context) (*StorageService
 			return nil, fmt.Errorf("initialize durable funding recovery storage: %w", err)
 		}
 	}
+	if dailyEquityStore, ok := ss.storage.(interface {
+		MigrateDailyEquity(context.Context) error
+	}); ok {
+		if err := dailyEquityStore.MigrateDailyEquity(ctx); err != nil {
+			ss.storage.Close()
+			cancel()
+			return nil, fmt.Errorf("initialize daily equity reconciliation storage: %w", err)
+		}
+	}
 	if recoveryVerifierStore, ok := ss.storage.(interface {
 		SetRecoverySourceWindowVerifier(RecoverySourceWindowVerifier) error
 	}); ok {
