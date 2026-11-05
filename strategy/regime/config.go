@@ -176,6 +176,9 @@ func ParseKlineInterval(s string) (time.Duration, error) {
 	default:
 		return 0, fmt.Errorf("%w: kline_interval %q: unit must be m/h/d", ErrInvalidConfig, s)
 	}
+	if int64(n) > math.MaxInt64/int64(unit) {
+		return 0, fmt.Errorf("%w: kline_interval %q: duration overflow", ErrInvalidConfig, s)
+	}
 	return time.Duration(n) * unit, nil
 }
 

@@ -14,8 +14,9 @@ type OptimParamRange struct {
 
 // OptimSearchSpace 参数搜索空间（避免 import cycle）
 type OptimSearchSpace struct {
-	Strategy string                     `json:"strategy"`
-	Ranges   map[string]OptimParamRange `json:"ranges"`
+	Strategy          string                     `json:"strategy"`
+	Ranges            map[string]OptimParamRange `json:"ranges"`
+	ReplayWalkForward *ReplayWalkForwardConfig   `json:"replay_walk_forward,omitempty"`
 }
 
 // OptimTaskStore 优化任務存储接口

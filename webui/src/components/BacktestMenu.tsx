@@ -117,6 +117,8 @@ import {
 } from '../services/backtest'
 import { listKlineFiles, listAvailableKlineFiles, type KlineFileInfo, type AvailableKlineFile } from '../services/klineFiles'
 import OptimResultModal from './OptimResultModal'
+import ReplayWalkForwardForm from './ReplayWalkForwardForm'
+import { buildReplaySearchSpace, createReplayFormValues } from '../utils/replayWalkForward'
 import BacktestTradesTable from './BacktestTradesTable'
 
 /** 回测结果数据结构（含风控对比） */
@@ -189,7 +191,7 @@ const formatDate = (s: string) => {
 
 // 网格策略回测时价格区间从 K 线自动推导，不再需要预设价格上下限
 
-export default function BacktestMenu() {
+export default function BacktestMenu({ optimizationOnly = false }: { optimizationOnly?: boolean }) {
   const [searchParams] = useSearchParams()
   const [strategies, setStrategies] = useState<StrategyParamDefinition[]>([])
   
@@ -208,7 +210,7 @@ export default function BacktestMenu() {
   const [endDate, setEndDate] = useState('')
   const [cacheExists, setCacheExists] = useState(false)
   const [cacheGenerating, setCacheGenerating] = useState(false)
-  const [strategyType, setStrategyType] = useState('')
+  const [strategyType, setStrategyType] = useState(optimizationOnly ? 'grid' : '')
   const [taskMode, setTaskMode] = useState<'single_strategy' | 'bot_strategies' | 'hedge_group'>('single_strategy')
   const [taskBotId, setTaskBotId] = useState('')
   const [taskGroupId, setTaskGroupId] = useState('')
@@ -258,7 +260,10 @@ export default function BacktestMenu() {
   const [optimTasksLoading, setOptimTasksLoading] = useState(true)
   const [selectedOptimTaskId, setSelectedOptimTaskId] = useState<string | null>(null)
   const [optimResultData, setOptimResultData] = useState<OptimResult | null>(null)
+  const [optimResultLoading, setOptimResultLoading] = useState(false)
+  const [optimResultError, setOptimResultError] = useState(false)
   const [optimRunning, setOptimRunning] = useState(false)
+  const [replayForm, setReplayForm] = useState(createReplayFormValues)
   const optimResultModal = useDisclosure()
 
   // 载入预计算结果（需在下方 useEffect 之前定义）
@@ -294,47 +299,63 @@ export default function BacktestMenu() {
       toast({ title: t('backtest.selectSymbolIntervalDateStrategy'), status: 'warning' })
       return
     }
-    if (totalCapital <= 0) {
+    if (!Number.isFinite(totalCapital) || totalCapital <= 0) {
       toast({ title: t('backtest.capitalMustBePositive'), status: 'warning' })
+      return
+    }
+    const replay = strategyType === 'grid' ? buildReplaySearchSpace(replayForm, startDate, endDate, interval) : undefined
+    if (replay && !replay.ok) {
+      toast({ title: t(`replayWalkForward.${replay.error}`), status: 'warning' })
       return
     }
     const start = new Date(startDate)
     const end = new Date(endDate)
     end.setHours(23, 59, 59, 999)
+    if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) {
+      toast({ title: t('replayWalkForward.invalidInput'), status: 'warning' })
+      return
+    }
     setOptimRunning(true)
     try {
       const r = await postOptimTask({
         strategy: strategyType,
         symbol,
         interval,
-        start_time: start.toISOString(),
-        end_time: end.toISOString(),
+        start_time: replay?.ok ? replay.startTime : start.toISOString(),
+        end_time: replay?.ok ? replay.endTime : end.toISOString(),
         total_capital: totalCapital,
-        search_space: undefined, // 使用後端默認
+        search_space: replay?.ok ? replay.searchSpace : undefined,
       })
       if (r.success) {
         toast({ title: t('backtest.optimTaskCreated'), status: 'success' })
         loadOptimTasks()
         setSelectedOptimTaskId(r.task_id)
+      } else {
+        toast({ title: r.message || t('backtest.createFailed'), status: 'error' })
       }
     } catch (e) {
       toast({ title: (e as Error)?.message || t('backtest.createFailed'), status: 'error' })
     } finally {
       setOptimRunning(false)
     }
-  }, [symbol, interval, startDate, endDate, strategyType, totalCapital, toast, loadOptimTasks])
+  }, [symbol, interval, startDate, endDate, strategyType, totalCapital, replayForm, toast, loadOptimTasks, t])
 
   const handleViewOptimResult = useCallback(
     async (taskId: string) => {
       setSelectedOptimTaskId(taskId)
       optimResultModal.onOpen()
       setOptimResultData(null)
+      setOptimResultLoading(true)
+      setOptimResultError(false)
       try {
         const data = await getOptimTaskResult(taskId)
-        setOptimResultData(data as OptimResult)
+        setOptimResultData(data)
       } catch (err) {
         console.error('载入优化结果失败:', err)
+        setOptimResultError(true)
         toast({ title: t('backtest.loadResultFailed'), status: 'error' })
+      } finally {
+        setOptimResultLoading(false)
       }
     },
     [optimResultModal, toast]
@@ -1027,10 +1048,10 @@ export default function BacktestMenu() {
 
   return (
     <Box>
-      <Heading size="md" mb={4}>{t('backtest.title')}</Heading>
+      <Heading size="md" mb={4}>{t(optimizationOnly ? 'replayWalkForward.title' : 'backtest.title')}</Heading>
 
       {/* 预计算推荐区域 */}
-      {precomputedResults.length > 0 && (
+      {!optimizationOnly && precomputedResults.length > 0 && (
         <Card mb={4} borderColor="blue.200" borderWidth={1}>
           <CardHeader pb={2}>
             <Flex justify="space-between" align="center">
@@ -1103,15 +1124,15 @@ export default function BacktestMenu() {
         </Card>
       )}
 
-      {precomputedLoading && (
+      {!optimizationOnly && precomputedLoading && (
         <Alert status="info" mb={4}>
           <Spinner size="sm" mr={3} />
           <AlertDescription>{t('backtest.loadingSmartRecommendation')}</AlertDescription>
         </Alert>
       )}
 
-      <Tabs>
-        <TabList>
+      <Tabs defaultIndex={optimizationOnly ? 2 : 0} isLazy={optimizationOnly}>
+        <TabList display={optimizationOnly ? 'none' : undefined}>
           <Tab>{t('backtest.newBacktest')}</Tab>
           <Tab>{t('backtest.taskList')}</Tab>
           <Tab>{t('backtest.paramOptimization')}</Tab>
@@ -2331,9 +2352,9 @@ export default function BacktestMenu() {
               <Card>
                 <CardHeader fontWeight="600">{t('backtest.baseConfig')}</CardHeader>
                 <CardBody>
-                  <Text fontSize="sm" color="gray.600" mb={3}>
+                  {strategyType !== 'grid' && <Text fontSize="sm" color="gray.600" mb={3}>
                     {t('backtest.optimDescription')}
-                  </Text>
+                  </Text>}
                   <FormControl mb={2}>
                     <FormLabel fontSize="sm">{t('backtest.tradingPair')}</FormLabel>
                     <Select placeholder={t('backtest.selectTradingPair')} value={symbol} onChange={(e) => setSymbol(e.target.value)} isDisabled={!selectedExchange}>
@@ -2345,7 +2366,7 @@ export default function BacktestMenu() {
                   <FormControl mb={2}>
                     <FormLabel fontSize="sm">{t('backtest.strategy')}</FormLabel>
                     <Select placeholder={t('backtest.selectStrategyPlaceholder')} value={strategyType} onChange={(e) => setStrategyType(e.target.value)}>
-                      {strategies.filter((s) => ['grid', 'momentum', 'mean_reversion', 'trend_following', 'dca', 'martingale'].includes(s.strategy_type)).map((s) => (
+                      {strategies.filter((s) => (optimizationOnly ? ['grid'] : ['grid', 'momentum', 'mean_reversion', 'trend_following', 'dca', 'martingale']).includes(s.strategy_type)).map((s) => (
                         <option key={s.strategy_type} value={s.strategy_type}>{t(`backtest.strategyNames.${s.strategy_type}`, { defaultValue: s.name })}</option>
                       ))}
                     </Select>
@@ -2374,6 +2395,9 @@ export default function BacktestMenu() {
                       <NumberInputField />
                     </NumberInput>
                   </FormControl>
+                  {strategyType === 'grid' && <Box mb={4}>
+                    <ReplayWalkForwardForm value={replayForm} onChange={setReplayForm} startDate={startDate} endDate={endDate} interval={interval} disabled={optimRunning} />
+                  </Box>}
                   <Button
                     colorScheme="purple"
                     onClick={handleStartOptim}
@@ -2382,9 +2406,9 @@ export default function BacktestMenu() {
                   >
                     {t('backtest.startParamOptimization')}
                   </Button>
-                  <Text fontSize="xs" color="gray.500" mt={2}>
+                  {strategyType !== 'grid' && <Text fontSize="xs" color="gray.500" mt={2}>
                     {t('backtest.optimHint')}
-                  </Text>
+                  </Text>}
                 </CardBody>
               </Card>
               <Card>
@@ -2400,7 +2424,7 @@ export default function BacktestMenu() {
                             <Th>{t('backtest.status')}</Th>
                             <Th>{t('backtest.strategy')}</Th>
                             <Th>{t('backtest.tradingPair')}</Th>
-                            <Th>{t('backtest.combos')}</Th>
+                            <Th>{t('replayWalkForward.workCount')}</Th>
                             <Th>{t('backtest.progress')}</Th>
                             <Th>{t('backtest.actions')}</Th>
                           </Tr>
@@ -2414,12 +2438,16 @@ export default function BacktestMenu() {
                                     task.status === 'completed' ? 'green' : task.status === 'failed' ? 'red' : task.status === 'running' ? 'blue' : 'gray'
                                   }
                                 >
-                                  {task.status}
+                                  {t(`optimizer.status${task.status.charAt(0).toUpperCase()}${task.status.slice(1)}`)}
                                 </Badge>
+                                {task.error && <Text role="alert" fontSize="xs" color="red.500" mt={1}>{task.error}</Text>}
                               </Td>
-                              <Td>{t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}</Td>
+                              <Td>
+                                {t(`backtest.strategyNames.${task.strategy}`, { defaultValue: task.strategy })}
+                                {task.search_space.replay_walk_forward && <Badge ml={1}>{t('replayWalkForward.mode')}</Badge>}
+                              </Td>
                               <Td>{task.symbol}</Td>
-                              <Td>{task.total_combos}</Td>
+                              <Td>{task.search_space.replay_walk_forward ? t('replayWalkForward.evaluationCount', { count: task.total_combos }) : task.total_combos}</Td>
                               <Td>{task.progress}%</Td>
                               <Td>
                                 <HStack>
@@ -2458,7 +2486,8 @@ export default function BacktestMenu() {
               }}
               result={optimResultData}
               task={selectedOptimTask}
-              isLoading={Boolean(optimResultModal.isOpen && selectedOptimTaskId && !optimResultData)}
+              isLoading={optimResultLoading}
+              loadError={optimResultError ? t('backtest.loadResultFailed') : undefined}
             />
           </TabPanel>
           <TabPanel>

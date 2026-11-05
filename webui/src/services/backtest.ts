@@ -453,6 +453,7 @@ export interface ParamRange {
 export interface OptimSearchSpace {
   strategy: string
   ranges: Record<string, ParamRange>
+  replay_walk_forward?: import('./replayWalkForward').ReplayWalkForwardConfig
 }
 
 export interface OptimTask {
@@ -498,6 +499,7 @@ export interface OptimResult {
   /** 风控参与说明：如 成交量风控、无 */
   risk_info?: string
   all_results: OptimParamResult[]
+  replay_walk_forward?: import('./replayWalkForward').ReplayWalkForwardResult
   best_by_return?: OptimParamResult
   best_by_sharpe?: OptimParamResult
   elapsed: number

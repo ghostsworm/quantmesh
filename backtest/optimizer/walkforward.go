@@ -101,10 +101,15 @@ func BuildWalkForwardWindows(candles []*exchange.Candle, cfg WalkForwardConfig) 
 		return nil, err
 	}
 	dataStart := sorted[0].Timestamp
-	dataEnd := sorted[len(sorted)-1].Timestamp // 最後一根 K 線的時間戳（包含）
+	dataEnd := sorted[len(sorted)-1].Timestamp // 最後一根 K 線的開盤時間戳
+	barMs := sorted[1].Timestamp - sorted[0].Timestamp
+	if dataEnd > math.MaxInt64-barMs || trainMs > math.MaxInt64-testMs {
+		return nil, errWalkForwardInvalidWindow
+	}
+	dataEnd += barMs // 完整最後一根 K 線也可用；右邊界仍為開區間。
 
 	var windows []WalkForwardWindow
-	for start := dataStart; start+trainMs+testMs <= dataEnd+1; start += stepMs {
+	for start := dataStart; trainMs+testMs <= dataEnd-start; start += stepMs {
 		w := WalkForwardWindow{
 			TrainStart: start,
 			TrainEnd:   start + trainMs,

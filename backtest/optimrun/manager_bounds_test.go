@@ -9,11 +9,8 @@ import (
 func TestCreateAndRunRejectsOversizedSpaceBeforePersistence(t *testing.T) {
 	store := &fakeOptimStore{}
 	manager := NewOptimTaskManager(store, nil)
-	task := &backtest.OptimTask{SearchSpace: backtest.OptimSearchSpace{
-		Strategy: "grid", Ranges: map[string]backtest.OptimParamRange{
-			"grid_spacing": {Min: 1, Max: 1e9, Step: 0.01},
-		},
-	}}
+	task := validReplayTask()
+	task.SearchSpace.Ranges["grid_spacing"] = backtest.OptimParamRange{Min: 1, Max: 1e9, Step: 0.01}
 	if err := manager.CreateAndRun(task); err == nil {
 		t.Fatal("oversized task accepted")
 	}
@@ -31,7 +28,7 @@ func TestCreateAndRunRejectsConcurrentOptimizerBeforePersistence(t *testing.T) {
 	}
 	defer manager.finishRun("active", active)
 
-	task := &backtest.OptimTask{SearchSpace: backtest.OptimSearchSpace{Strategy: "grid"}}
+	task := validReplayTask()
 	if err := manager.CreateAndRun(task); !errors.Is(err, ErrOptimizerCapacity) {
 		t.Fatalf("CreateAndRun error=%v, want capacity error", err)
 	}

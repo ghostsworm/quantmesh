@@ -3,7 +3,6 @@ package optimrun
 import (
 	"context"
 	"errors"
-	"quantmesh/backtest"
 	"testing"
 	"time"
 )
@@ -109,7 +108,7 @@ func TestFailedTaskCreationReleasesReservationAndUsesUniqueIDs(t *testing.T) {
 	m := NewOptimTaskManager(store, nil)
 	ids := map[string]bool{}
 	for i := 0; i < 20; i++ {
-		task := &backtest.OptimTask{}
+		task := validReplayTask()
 		if err := m.CreateAndRun(task); !errors.Is(err, store.createErr) {
 			t.Fatalf("creation=%v", err)
 		}

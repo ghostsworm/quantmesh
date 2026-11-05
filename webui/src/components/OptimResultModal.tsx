@@ -27,6 +27,7 @@ import {
 import { DownloadIcon } from '@chakra-ui/icons'
 import { useTranslation } from 'react-i18next'
 import type { OptimParamResult, OptimResult, OptimTask } from '../services/backtest'
+import ReplayWalkForwardResults from './ReplayWalkForwardResults'
 
 type SortKey = 'total_return' | 'sharpe_ratio' | 'max_drawdown' | 'win_rate' | 'total_trades'
 type SortOrder = 'asc' | 'desc'
@@ -36,10 +37,11 @@ interface OptimResultModalProps {
   onClose: () => void
   result: OptimResult | null
   isLoading?: boolean
+  loadError?: string
   task?: OptimTask | null
 }
 
-export default function OptimResultModal({ isOpen, onClose, result, isLoading, task }: OptimResultModalProps) {
+export default function OptimResultModal({ isOpen, onClose, result, isLoading, loadError, task }: OptimResultModalProps) {
   const { t } = useTranslation()
   const toast = useToast()
   const [maxDrawdown, setMaxDrawdown] = useState<string>('')
@@ -148,14 +150,16 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
     const interval = result?.interval || task?.interval
     const startTime = result?.start_time || task?.start_time
     const endTime = result?.end_time || task?.end_time
+    const isReplay = !!(result?.replay_walk_forward || task?.search_space?.replay_walk_forward)
     const taskRiskInfo = (() => {
+      if (isReplay) return undefined
       const ranges = task?.search_space?.ranges
       if (!ranges) return undefined
       if ('risk_volume_multiplier' in ranges || 'risk_average_window' in ranges) return t('optimResult.volumeRisk')
       return t('optimResult.noRisk')
     })()
-    const riskInfo = result?.risk_info ?? taskRiskInfo
-    const useOrderDepth = result?.use_order_depth ?? (task ? false : undefined)
+    const riskInfo = isReplay ? undefined : result?.risk_info ?? taskRiskInfo
+    const useOrderDepth = isReplay ? undefined : result?.use_order_depth ?? (task ? false : undefined)
     const hasContext = symbol || strategy || interval || startTime || endTime || riskInfo || useOrderDepth !== undefined
     if (!hasContext) return t('optimResult.defaultTitle')
 
@@ -202,7 +206,9 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
               <Text color="gray.500">{t('optimResult.loading')}</Text>
             </Box>
           )}
-          {!isLoading && result && (
+          {!isLoading && loadError && <Text role="alert" color="red.500">{loadError}</Text>}
+          {!isLoading && result?.replay_walk_forward && <ReplayWalkForwardResults result={result.replay_walk_forward} />}
+          {!isLoading && result && !result.replay_walk_forward && (
             <>
               <HStack mb={4} flexWrap="wrap" gap={2}>
                 <FormControl width="120px">
@@ -324,7 +330,7 @@ export default function OptimResultModal({ isOpen, onClose, result, isLoading, t
             </>
           )}
         </ModalBody>
-        {result && !isLoading && (
+        {result && !result.replay_walk_forward && !isLoading && (
           <ModalFooter>
             <Button leftIcon={<DownloadIcon />} size="sm" onClick={handleExportCSV}>
               {t('optimResult.exportCsv')}

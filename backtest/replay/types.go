@@ -122,7 +122,8 @@ type Config struct {
 	// clock 為引擎的模擬時鐘（*SimClock）。返回錯誤時 Run 失敗。
 	Setup func(spm *position.SuperPositionManager, clock position.Clock) error
 	// OnTick 可選：每個 tick 撮合並投遞回報之後、訂單清理與 AdjustOrders 之前調用（不持有倉位管理器鎖），
-	// now 為該 tick 的模擬時間。用於在模擬時間上同步驅動 regime.Detector.Refresh 與 RefreshRegimeInterval 等實盤後台循環。
+	// now 為該 tick 的市場事件時間；若操作 Sleep 已越過 tick，跳過本次策略回調。
+	// 內建特徵使用 SimClock.MarketNow，避免操作等待提前暴露未收盤 K 線。
 	OnTick func(now time.Time, price float64)
 }
 
