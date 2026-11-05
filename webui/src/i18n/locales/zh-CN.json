@@ -5063,7 +5063,8 @@
       "cleared": "Token 已清除",
       "tokenShownOnce": "Token 仅本次展示，请立即复制。后续只能再次重新生成。",
       "snippetLabel": "客户端配置 JSON",
-      "snippetHelp": "粘贴到对应 Agent 客户端的 MCP 配置文件即可。",
+      "snippetHelp": "此配置使用上方显示的令牌及其权限。请在刷新或离开页面前复制保存。",
+      "snippetIssueFirst": "请先颁发新令牌，再复制它的客户端配置。已有令牌的密钥无法再次显示。",
       "snippetFailed": "获取 JSON 失败",
       "snippetStyle": {
         "claude": "Claude Desktop",

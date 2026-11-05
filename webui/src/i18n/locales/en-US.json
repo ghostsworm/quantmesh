@@ -5061,7 +5061,8 @@
       "cleared": "Token cleared",
       "tokenShownOnce": "This token is shown only once. Copy it now; you can only rotate later.",
       "snippetLabel": "Client config JSON",
-      "snippetHelp": "Paste into your agent's MCP config file.",
+      "snippetHelp": "This configuration uses the token shown above and its permissions. Copy it before refreshing or leaving this page.",
+      "snippetIssueFirst": "Issue a new token to copy its client configuration. Existing token secrets cannot be shown again.",
       "snippetFailed": "Failed to fetch JSON",
       "snippetStyle": {
         "claude": "Claude Desktop",

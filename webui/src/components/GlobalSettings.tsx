@@ -37,7 +37,6 @@ import {
   MCPTokenMode,
   ObservabilityConfig,
   clearMCPToken,
-  getMCPClientSnippet,
   getMCPConfig,
   getObservabilityConfig,
   issueMCPToken,
@@ -46,6 +45,7 @@ import {
   updateMCPConfig,
   updateObservabilityConfig,
 } from '../services/globalSettings'
+import { buildMCPClientSnippet } from '../utils/mcpClientSnippet'
 
 const SNIPPET_STYLES: MCPSnippetStyle[] = ['claude', 'cursor', 'generic']
 const MCP_CHANNELS: MCPNotifyChannel[] = [
@@ -86,8 +86,7 @@ const GlobalSettings: React.FC = () => {
   const [mcpNotifyChannel, setMcpNotifyChannel] = useState<MCPNotifyChannel>('email')
   const [mcpNotifyTarget, setMcpNotifyTarget] = useState('')
   const [snippetStyle, setSnippetStyle] = useState<MCPSnippetStyle>('claude')
-  const [snippetText, setSnippetText] = useState('')
-  const [snippetLoading, setSnippetLoading] = useState(false)
+  const snippetText = buildMCPClientSnippet(mcpIssued, snippetStyle)
 
   const refreshMCP = useCallback(async () => {
     setMcpLoading(true)
@@ -129,36 +128,10 @@ const GlobalSettings: React.FC = () => {
     }
   }, [t, toast])
 
-  const refreshSnippet = useCallback(
-    async (style: MCPSnippetStyle) => {
-      setSnippetLoading(true)
-      try {
-        const data = await getMCPClientSnippet(style)
-        const snippet = (data as { snippet?: unknown }).snippet ?? data
-        setSnippetText(JSON.stringify(snippet, null, 2))
-      } catch (err) {
-        setSnippetText('')
-        toast({
-          title: t('globalSettings.mcp.snippetFailed'),
-          description: String(err),
-          status: 'error',
-          duration: 4000,
-        })
-      } finally {
-        setSnippetLoading(false)
-      }
-    },
-    [t, toast],
-  )
-
   useEffect(() => {
     refreshObservability()
     refreshMCP()
   }, [refreshObservability, refreshMCP])
-
-  useEffect(() => {
-    refreshSnippet(snippetStyle)
-  }, [snippetStyle, refreshSnippet, mcpCfg?.has_token])
 
   // ── observability actions ───────────────────────────────────
   const handleObservabilitySave = async () => {
@@ -338,7 +311,7 @@ const GlobalSettings: React.FC = () => {
     if (!window.confirm(t('globalSettings.mcp.revokeConfirm'))) return
     try {
       await revokeMCPToken(id)
-      if (mcpIssued?.id === id) setMcpIssued(null)
+      setMcpIssued((current) => current?.id === id ? null : current)
       await refreshMCP()
       toast({ title: t('globalSettings.mcp.revoked'), status: 'success', duration: 3000 })
     } catch (err) {
@@ -356,7 +329,6 @@ const GlobalSettings: React.FC = () => {
     try {
       await clearMCPToken()
       await refreshMCP()
-      await refreshSnippet(snippetStyle)
       toast({ title: t('globalSettings.mcp.cleared'), status: 'success', duration: 3000 })
     } catch (err) {
       toast({
@@ -713,6 +685,7 @@ const GlobalSettings: React.FC = () => {
                   size="sm"
                   width={{ base: '100%', md: '180px' }}
                   value={snippetStyle}
+                  isDisabled={!mcpIssued}
                   onChange={(e) => setSnippetStyle(e.target.value as MCPSnippetStyle)}
                 >
                   {SNIPPET_STYLES.map((s) => (
@@ -722,6 +695,16 @@ const GlobalSettings: React.FC = () => {
                   ))}
                 </Select>
               </Stack>
+              {mcpIssued && (
+                <HStack mb={2}>
+                  <Text fontSize="sm">{mcpIssued.name}</Text>
+                  <Badge colorScheme={mcpIssued.mode === 'readwrite' ? 'red' : 'green'}>
+                    {mcpIssued.mode === 'readwrite'
+                      ? t('globalSettings.mcp.modeReadWrite')
+                      : t('globalSettings.mcp.modeReadonly')}
+                  </Badge>
+                </HStack>
+              )}
               <Box position="relative">
                 <Textarea
                   bg={codeBg}
@@ -729,7 +712,8 @@ const GlobalSettings: React.FC = () => {
                   fontSize="sm"
                   rows={10}
                   isReadOnly
-                  value={snippetLoading ? t('globalSettings.loading') : snippetText}
+                  value={snippetText}
+                  placeholder={t('globalSettings.mcp.snippetIssueFirst')}
                 />
                 <IconButton
                   aria-label={t('globalSettings.copy')}
