@@ -34,6 +34,13 @@ const (
 	DefaultRoot = "data/kline/binance_vision"
 
 	minutesPerDay = 1440
+	// maxKlineCSVBytes bounds one official 1m day: 1440 rows plus a header, with
+	// room for the extra columns an official kline row carries. A larger entry is
+	// refused before it is inflated.
+	maxKlineCSVBytes int64 = 2 << 20
+	// maxFundingCSVBytes bounds one official funding month. Settlements are a few
+	// dozen rows, so this stays far below a day of klines.
+	maxFundingCSVBytes int64 = 256 << 10
 
 	klineColOpenTime = 0
 	klineColOpen     = 1
@@ -180,7 +187,7 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 		if err := CompleteUTCDay(path, symbol); err != nil {
 			return nil, nil, err
 		}
-		records, err := readCSVRecords(path)
+		records, err := readCSVRecords(path, maxKlineCSVBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("visionfeed: parse %s: %w", path, err)
 		}
@@ -271,7 +278,7 @@ func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) 
 		if err != nil {
 			return nil, nil, false, err
 		}
-		records, err := readCSVRecords(path)
+		records, err := readCSVRecords(path, maxFundingCSVBytes)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("visionfeed: parse %s: %w", path, err)
 		}
@@ -402,7 +409,10 @@ func verifyChecksum(path string) (string, error) {
 	return got, nil
 }
 
-func readCSVRecords(path string) ([][]string, error) {
+// readCSVRecords reads one csv, or the single csv stored inside a zip.
+// maxBytes bounds the csv itself: a zip entry is refused before inflation when
+// it claims to be larger, and the reader stops at the same limit.
+func readCSVRecords(path string, maxBytes int64) ([][]string, error) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".zip":
 		reader, err := zip.OpenReader(path)
@@ -410,27 +420,40 @@ func readCSVRecords(path string) ([][]string, error) {
 			return nil, fmt.Errorf("open zip: %w", err)
 		}
 		defer reader.Close()
-		var out [][]string
+		want := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) + ".csv"
+		var found *zip.File
 		for _, file := range reader.File {
 			if !strings.EqualFold(filepath.Ext(file.Name), ".csv") {
 				continue
 			}
-			rc, err := file.Open()
-			if err != nil {
-				return nil, fmt.Errorf("open %s in zip: %w", file.Name, err)
+			if found != nil {
+				return nil, fmt.Errorf("zip holds more than one csv")
 			}
-			records, err := parseCSV(rc)
-			rc.Close()
-			if err != nil {
-				return nil, fmt.Errorf("parse %s in zip: %w", file.Name, err)
-			}
-			out = append(out, records...)
+			found = file
 		}
-		if len(out) == 0 {
+		if found == nil {
 			return nil, fmt.Errorf("zip contains no csv")
 		}
-		return out, nil
+		if err := checkZipEntryName(found.Name, want); err != nil {
+			return nil, err
+		}
+		if found.UncompressedSize64 > uint64(maxBytes) {
+			return nil, fmt.Errorf("csv in zip claims %d bytes, limit %d", found.UncompressedSize64, maxBytes)
+		}
+		rc, err := found.Open()
+		if err != nil {
+			return nil, fmt.Errorf("open %s in zip: %w", found.Name, err)
+		}
+		defer rc.Close()
+		return parseCSV(newLimitedCSV(rc, maxBytes))
 	case ".csv":
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("open csv: %w", err)
+		}
+		if info.Size() > maxBytes {
+			return nil, fmt.Errorf("csv is %d bytes, limit %d", info.Size(), maxBytes)
+		}
 		file, err := os.Open(path)
 		if err != nil {
 			return nil, fmt.Errorf("open csv: %w", err)
@@ -440,6 +463,44 @@ func readCSVRecords(path string) ([][]string, error) {
 	default:
 		return nil, fmt.Errorf("unsupported extension")
 	}
+}
+
+// checkZipEntryName accepts only the csv whose name is the zip's own name with
+// the extension swapped. A separator, "..", or an absolute name is refused, so
+// the entry name can never name another file.
+func checkZipEntryName(name, want string) error {
+	if name != want || strings.ContainsAny(name, "/\\") || strings.Contains(name, "..") {
+		return fmt.Errorf("zip entry %q is not %s", name, want)
+	}
+	return nil
+}
+
+// limitedCSV reads at most max bytes and then reports that the csv is larger
+// than its limit instead of returning the short prefix as a complete file.
+type limitedCSV struct {
+	reader io.Reader
+	max    int64
+	read   int64
+}
+
+func newLimitedCSV(r io.Reader, max int64) *limitedCSV {
+	return &limitedCSV{reader: r, max: max}
+}
+
+func (l *limitedCSV) Read(p []byte) (int, error) {
+	if l.read > l.max {
+		return 0, fmt.Errorf("csv exceeds its size limit")
+	}
+	remaining := l.max - l.read + 1
+	if int64(len(p)) > remaining {
+		p = p[:remaining]
+	}
+	n, err := l.reader.Read(p)
+	l.read += int64(n)
+	if l.read > l.max {
+		return n, fmt.Errorf("csv exceeds its size limit")
+	}
+	return n, err
 }
 
 func parseCSV(r io.Reader) ([][]string, error) {

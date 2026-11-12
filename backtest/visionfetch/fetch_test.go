@@ -62,6 +62,10 @@ func testRequest(root string, client *http.Client) Request {
 }
 
 func fullDayZip(day time.Time, minutes int) []byte {
+	return fullDayZipNamed(day, minutes, "TESTUSDT-1m-"+day.UTC().Format("2006-01-02")+".csv")
+}
+
+func fullDayZipNamed(day time.Time, minutes int, entryName string) []byte {
 	var csv bytes.Buffer
 	csv.WriteString("open_time,open,high,low,close,volume\n")
 	start := day.UnixMilli()
@@ -70,7 +74,7 @@ func fullDayZip(day time.Time, minutes int) []byte {
 	}
 	var buf bytes.Buffer
 	writer := zip.NewWriter(&buf)
-	entry, err := writer.Create("day.csv")
+	entry, err := writer.Create(entryName)
 	if err != nil {
 		panic(err)
 	}

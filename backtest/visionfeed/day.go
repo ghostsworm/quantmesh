@@ -21,7 +21,7 @@ func CompleteUTCDay(path, symbol string) error {
 	if err != nil {
 		return fmt.Errorf("visionfeed: coverage: %s: %w", name, err)
 	}
-	records, err := readCSVRecords(path)
+	records, err := readCSVRecords(path, maxKlineCSVBytes)
 	if err != nil {
 		return fmt.Errorf("visionfeed: parse %s: %w", path, err)
 	}

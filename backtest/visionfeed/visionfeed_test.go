@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -235,6 +236,130 @@ func TestLoadRejectsFundingOutsideItsNamedMonth(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsAZipWhoseCSVNameDoesNotMatch(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	zipDay := fixtureDay + DayMs
+	for _, entryName := range []string{
+		"../" + fixtureSymbol + "-1m-" + dayLabel(zipDay) + ".csv",
+		"/tmp/" + fixtureSymbol + "-1m-" + dayLabel(zipDay) + ".csv",
+		fixtureSymbol + "-1m.csv",
+	} {
+		writeDayZipEntry(t, root, fixtureSymbol, zipDay, entryName)
+		_, err := Load(context.Background(), LoadRequest{
+			Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: zipDay + MinuteMs,
+		})
+		if err == nil || !strings.Contains(err.Error(), "zip entry") {
+			t.Fatalf("entry %s error = %v", entryName, err)
+		}
+	}
+}
+
+func TestLoadRejectsAZipWithTwoCSVs(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	zipDay := fixtureDay + DayMs
+	name := fixtureSymbol + "-1m-" + dayLabel(zipDay) + ".csv"
+	path := dayPath(root, fixtureSymbol, zipDay, "zip")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	for _, entryName := range []string{name, "second.csv"} {
+		entry, err := writer.Create(entryName)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := entry.Write([]byte("open_time,open,high,low,close,volume\n")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksum(t, path)
+	_, err = Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: zipDay + MinuteMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "more than one csv") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsAZipEntryThatClaimsToBeTooLarge(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	zipDay := fixtureDay + DayMs
+	name := fixtureSymbol + "-1m-" + dayLabel(zipDay) + ".csv"
+	path := dayPath(root, fixtureSymbol, zipDay, "zip")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	payload := []byte("open_time,open,high,low,close,volume\n")
+	header := &zip.FileHeader{Name: name, Method: zip.Store}
+	header.SetMode(0o644)
+	header.CRC32 = crc32.ChecksumIEEE(payload)
+	header.CompressedSize64 = uint64(len(payload))
+	header.UncompressedSize64 = uint64(maxKlineCSVBytes) + 1
+	entry, err := writer.CreateRaw(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksum(t, path)
+	_, err = Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: zipDay + MinuteMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "claims") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsAPlainCSVOverTheDayLimit(t *testing.T) {
+	root := t.TempDir()
+	path := dayPath(root, fixtureSymbol, fixtureDay, "csv")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(maxKlineCSVBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksum(t, path)
+	_, err = Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "limit") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestLoadRejectsDuplicateFundingFiles(t *testing.T) {
 	root := t.TempDir()
 	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
@@ -389,11 +514,38 @@ func writeDayZip(t *testing.T, root, symbol string, day int64) {
 		t.Fatal(err)
 	}
 	writer := zip.NewWriter(file)
-	entry, err := writer.Create(symbol + "-1m.csv")
+	entry, err := writer.Create(symbol + "-1m-" + dayLabel(day) + ".csv")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := entry.Write([]byte(body.String())); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksum(t, path)
+}
+
+func writeDayZipEntry(t *testing.T, root, symbol string, day int64, entryName string) {
+	t.Helper()
+	path := dayPath(root, symbol, day, "zip")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create(entryName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte("open_time,open,high,low,close,volume\n")); err != nil {
 		t.Fatal(err)
 	}
 	if err := writer.Close(); err != nil {
