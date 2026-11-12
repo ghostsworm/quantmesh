@@ -121,6 +121,13 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	if err != nil {
 		return err
 	}
+	// The slot is held, so a missing window must release it before anything is stored.
+	if task.SearchSpace.ReplayWalkForward != nil {
+		if err := m.preflightReplayData(task); err != nil {
+			m.finishRun(task.ID, run)
+			return err
+		}
+	}
 	if err := m.store.CreateOptimTask(task); err != nil {
 		m.finishRun(task.ID, run)
 		return err

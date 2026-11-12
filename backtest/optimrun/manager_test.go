@@ -1,6 +1,7 @@
 package optimrun
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"quantmesh/backtest"
+	"quantmesh/backtest/visionfeed"
 )
 
 type fakeOptimStore struct {
@@ -72,6 +74,9 @@ func TestOptimTaskManagerHelpersAndFailurePaths(t *testing.T) {
 	store.createErr = createErr
 	task := validReplayTask()
 	task.ID = "task-1"
+	manager.replayVision = func(context.Context, visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+		return visionResult(task, false), nil
+	}
 	err := manager.CreateAndRun(task)
 	if !errors.Is(err, createErr) {
 		t.Fatalf("CreateAndRun error = %v", err)

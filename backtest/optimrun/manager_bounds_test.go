@@ -1,9 +1,14 @@
 package optimrun
 
 import (
+	"context"
 	"errors"
-	"quantmesh/backtest"
 	"testing"
+	"time"
+
+	"quantmesh/backtest"
+	"quantmesh/backtest/visionfeed"
+	"quantmesh/exchange"
 )
 
 func TestCreateAndRunRejectsOversizedSpaceBeforePersistence(t *testing.T) {
@@ -34,5 +39,29 @@ func TestCreateAndRunRejectsConcurrentOptimizerBeforePersistence(t *testing.T) {
 	}
 	if store.task != nil || len(manager.running) != 1 {
 		t.Fatalf("over-capacity task was persisted or reserved: task=%v running=%d", store.task, len(manager.running))
+	}
+}
+
+func TestCreateAndRunRejectsMissingReplayDataBeforePersistence(t *testing.T) {
+	store := &fakeOptimStore{}
+	restCalled := false
+	manager := NewOptimTaskManager(store, nil, WithHistoricalDataLoader(func(context.Context, string, string, time.Time, time.Time) ([]*exchange.Candle, error) {
+		restCalled = true
+		return nil, nil
+	}), WithReplayVisionLoader(func(context.Context, visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+		return visionfeed.LoadResult{}, errors.New("visionfeed: coverage: missing 1m file for 2025-01-02")
+	}))
+	task := validReplayTask()
+	if err := manager.CreateAndRun(task); !errors.Is(err, ErrInvalidOptimTask) {
+		t.Fatalf("CreateAndRun error = %v, want invalid task", err)
+	}
+	if store.task != nil || len(manager.running) != 0 || len(store.statusCalls) != 0 {
+		t.Fatal("unreadable replay data reached persistence or reserved capacity")
+	}
+	if !IsValidTaskID(task.ID) {
+		t.Fatalf("rejected task id = %q", task.ID)
+	}
+	if restCalled {
+		t.Fatal("rejected replay task reached the live exchange loader")
 	}
 }
