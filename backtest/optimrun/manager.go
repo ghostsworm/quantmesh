@@ -141,6 +141,17 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	return nil
 }
 
+// withoutDataDir removes this manager's vision directory from a message a
+// client will see. The server log keeps the full path separately.
+func (m *OptimTaskManager) withoutDataDir(message string) string {
+	root := strings.TrimRight(filepath.Clean(m.visionRoot), string(os.PathSeparator))
+	if root == "" || root == "." {
+		return message
+	}
+	message = strings.ReplaceAll(message, root+string(os.PathSeparator), "")
+	return strings.ReplaceAll(message, root, "")
+}
+
 // RunTask 执行指定任务
 func (m *OptimTaskManager) RunTask(id string) error {
 	run, err := m.beginRun(id)
@@ -186,7 +197,8 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 		return ctx.Err()
 	}
 	if err != nil {
-		m.failTask(id, err.Error())
+		logger.Error("optimizer task %s data: %s", id, visionfeed.ErrorDetail(err))
+		m.failTask(id, m.withoutDataDir(err.Error()))
 		return nil
 	}
 	if len(candles) == 0 {

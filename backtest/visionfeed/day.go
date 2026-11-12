@@ -23,7 +23,7 @@ func CompleteUTCDay(path, symbol string) error {
 	}
 	records, err := readCSVRecords(path, maxKlineCSVBytes)
 	if err != nil {
-		return fmt.Errorf("visionfeed: parse %s: %w", path, err)
+		return fmt.Errorf("visionfeed: parse %s: %w", name, err)
 	}
 	seen := map[int64]bool{}
 	for i, record := range records {
@@ -32,16 +32,16 @@ func CompleteUTCDay(path, symbol string) error {
 		}
 		candle, err := parseKlineRecord(record, symbol)
 		if err != nil {
-			return fmt.Errorf("visionfeed: parse %s line %d: %w", path, i+1, err)
+			return fmt.Errorf("visionfeed: parse %s line %d: %w", name, i+1, err)
 		}
 		if candle.Timestamp < day || candle.Timestamp >= day+DayMs {
-			return fmt.Errorf("visionfeed: coverage: %s line %d is outside %s", path, i+1, dayLabel(day))
+			return fmt.Errorf("visionfeed: coverage: %s line %d is outside %s", name, i+1, dayLabel(day))
 		}
 		if candle.Timestamp%MinuteMs != 0 {
-			return fmt.Errorf("visionfeed: coverage: %s line %d is not minute aligned", path, i+1)
+			return fmt.Errorf("visionfeed: coverage: %s line %d is not minute aligned", name, i+1)
 		}
 		if seen[candle.Timestamp] {
-			return fmt.Errorf("visionfeed: coverage: duplicate candle at %d in %s", candle.Timestamp, path)
+			return fmt.Errorf("visionfeed: coverage: duplicate candle at %d in %s", candle.Timestamp, name)
 		}
 		seen[candle.Timestamp] = true
 	}

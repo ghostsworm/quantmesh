@@ -9,6 +9,7 @@ import (
 	"quantmesh/backtest/replay"
 	"quantmesh/backtest/visionfeed"
 	"quantmesh/exchange"
+	"quantmesh/logger"
 	"quantmesh/strategy/regime"
 )
 
@@ -56,7 +57,8 @@ func (m *OptimTaskManager) loadReplayData(ctx context.Context, task *backtest.Op
 // soon as it started. It does not download or call the exchange.
 func (m *OptimTaskManager) preflightReplayData(task *backtest.OptimTask) error {
 	if _, _, err := m.loadReplayData(context.Background(), task); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidOptimTask, err)
+		logger.Error("replay data preflight %s: %s", task.Symbol, visionfeed.ErrorDetail(err))
+		return fmt.Errorf("%w: %s", ErrInvalidOptimTask, m.withoutDataDir(err.Error()))
 	}
 	return nil
 }

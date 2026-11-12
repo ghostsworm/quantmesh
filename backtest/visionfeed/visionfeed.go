@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/csv"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -129,7 +130,7 @@ func Load(ctx context.Context, req LoadRequest) (LoadResult, error) {
 func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs int64) ([]*exchange.Candle, []FileDigest, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("visionfeed: coverage: read %s: %w", dir, err)
+		return nil, nil, hideCause(fmt.Sprintf("visionfeed: coverage: read %s/1m: %s", symbol, ioReason(err)), err)
 	}
 	type dayFile struct {
 		name string
@@ -189,7 +190,7 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 		}
 		records, err := readCSVRecords(path, maxKlineCSVBytes)
 		if err != nil {
-			return nil, nil, fmt.Errorf("visionfeed: parse %s: %w", path, err)
+			return nil, nil, fmt.Errorf("visionfeed: parse %s: %w", filepath.Base(path), err)
 		}
 		for _, record := range records {
 			if isHeaderRow(record) {
@@ -227,7 +228,7 @@ func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) 
 		if os.IsNotExist(err) {
 			return nil, nil, false, nil
 		}
-		return nil, nil, false, fmt.Errorf("visionfeed: read %s: %w", dir, err)
+		return nil, nil, false, hideCause(fmt.Sprintf("visionfeed: read %s/fundingRate: %s", symbol, ioReason(err)), err)
 	}
 	byMonth := map[string][]string{}
 	for _, entry := range entries {
@@ -280,7 +281,7 @@ func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) 
 		}
 		records, err := readCSVRecords(path, maxFundingCSVBytes)
 		if err != nil {
-			return nil, nil, false, fmt.Errorf("visionfeed: parse %s: %w", path, err)
+			return nil, nil, false, fmt.Errorf("visionfeed: parse %s: %w", filepath.Base(path), err)
 		}
 		points := 0
 		for i, record := range records {
@@ -288,28 +289,28 @@ func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) 
 				continue
 			}
 			if len(record) < fundingMinColumns {
-				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: funding record has %d columns, want >= %d", path, i+1, len(record), fundingMinColumns)
+				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: funding record has %d columns, want >= %d", filepath.Base(path), i+1, len(record), fundingMinColumns)
 			}
 			ts, err := strconv.ParseInt(strings.TrimSpace(record[fundingColCalcTime]), 10, 64)
 			if err != nil {
-				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: calc_time %q: %w", path, i+1, record[fundingColCalcTime], err)
+				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: calc_time %q: %w", filepath.Base(path), i+1, record[fundingColCalcTime], err)
 			}
 			rate, err := strconv.ParseFloat(strings.TrimSpace(record[fundingColRate]), 64)
 			if err != nil {
-				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: funding rate %q: %w", path, i+1, record[fundingColRate], err)
+				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: funding rate %q: %w", filepath.Base(path), i+1, record[fundingColRate], err)
 			}
 			stamp := normalizeTimestampMs(ts)
 			if stamp < month.start || stamp >= month.end {
-				return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s line %d: calc_time %d is outside %s", path, i+1, stamp, month.label)
+				return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s line %d: calc_time %d is outside %s", filepath.Base(path), i+1, stamp, month.label)
 			}
 			if _, exists := byTs[stamp]; exists {
-				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: duplicate calc_time %d", path, i+1, stamp)
+				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: duplicate calc_time %d", filepath.Base(path), i+1, stamp)
 			}
 			byTs[stamp] = replay.FundingPoint{Timestamp: stamp, Rate: rate}
 			points++
 		}
 		if points == 0 {
-			return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s has no funding settlement", path)
+			return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s has no funding settlement", filepath.Base(path))
 		}
 		digests = append(digests, FileDigest{Name: relName(symbol, "fundingRate", name), SHA256: digest})
 	}
@@ -365,19 +366,54 @@ func fundingMonths(firstMs, endMs int64) ([]fundingMonth, error) {
 	return out, nil
 }
 
+// visibleError is safe to show. Its cause is kept for the server log and may
+// name a filesystem path, so Error leaves that cause out.
+type visibleError struct {
+	text  string
+	cause error
+}
+
+func (e *visibleError) Error() string { return e.text }
+func (e *visibleError) Unwrap() error { return e.cause }
+
+func hideCause(text string, cause error) error {
+	return &visibleError{text: text, cause: cause}
+}
+
+func ioReason(err error) string {
+	switch {
+	case os.IsNotExist(err):
+		return "not found"
+	case os.IsPermission(err):
+		return "permission denied"
+	default:
+		return "io error"
+	}
+}
+
+// ErrorDetail adds the hidden cause so a server log can name the file.
+// The result can contain a filesystem path and must not be shown to a client.
+func ErrorDetail(err error) string {
+	var hidden *visibleError
+	if errors.As(err, &hidden) && hidden.cause != nil {
+		return err.Error() + ": " + hidden.cause.Error()
+	}
+	return err.Error()
+}
+
 // verifyChecksum checks the GNU sha256sum sidecar next to the data file.
 // The digest covers the file bytes actually read, zip or csv.
 func verifyChecksum(path string) (string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return "", fmt.Errorf("visionfeed: checksum: read %s: %w", path, err)
+		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", filepath.Base(path), ioReason(err)), err)
 	}
 	sum := sha256.Sum256(body)
 	got := hex.EncodeToString(sum[:])
 	sidecar := path + ".CHECKSUM"
 	file, err := os.Open(sidecar)
 	if err != nil {
-		return "", fmt.Errorf("visionfeed: checksum: %s: %w", sidecar, err)
+		return "", hideCause(fmt.Sprintf("visionfeed: checksum: %s: %s", filepath.Base(sidecar), ioReason(err)), err)
 	}
 	defer file.Close()
 	base := filepath.Base(path)
@@ -389,7 +425,7 @@ func verifyChecksum(path string) (string, error) {
 			continue
 		}
 		if !checksumLine.MatchString(line) {
-			return "", fmt.Errorf("visionfeed: checksum: %s: malformed line %q", sidecar, line)
+			return "", fmt.Errorf("visionfeed: checksum: %s: malformed line %q", filepath.Base(sidecar), line)
 		}
 		fields := strings.SplitN(line, "  ", 2)
 		if fields[1] != base {
@@ -397,14 +433,14 @@ func verifyChecksum(path string) (string, error) {
 		}
 		matched = true
 		if fields[0] != got {
-			return "", fmt.Errorf("visionfeed: checksum: %s: hash mismatch for %s", sidecar, base)
+			return "", fmt.Errorf("visionfeed: checksum: %s: hash mismatch for %s", filepath.Base(sidecar), base)
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("visionfeed: checksum: read %s: %w", sidecar, err)
+		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", filepath.Base(sidecar), ioReason(err)), err)
 	}
 	if !matched {
-		return "", fmt.Errorf("visionfeed: checksum: %s: basename %s not listed", sidecar, base)
+		return "", fmt.Errorf("visionfeed: checksum: %s: basename %s not listed", filepath.Base(sidecar), base)
 	}
 	return got, nil
 }
@@ -417,7 +453,7 @@ func readCSVRecords(path string, maxBytes int64) ([][]string, error) {
 	case ".zip":
 		reader, err := zip.OpenReader(path)
 		if err != nil {
-			return nil, fmt.Errorf("open zip: %w", err)
+			return nil, hideCause(fmt.Sprintf("open zip %s: %s", filepath.Base(path), ioReason(err)), err)
 		}
 		defer reader.Close()
 		want := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) + ".csv"
@@ -442,21 +478,21 @@ func readCSVRecords(path string, maxBytes int64) ([][]string, error) {
 		}
 		rc, err := found.Open()
 		if err != nil {
-			return nil, fmt.Errorf("open %s in zip: %w", found.Name, err)
+			return nil, hideCause(fmt.Sprintf("open %s in zip: %s", found.Name, ioReason(err)), err)
 		}
 		defer rc.Close()
 		return parseCSV(newLimitedCSV(rc, maxBytes))
 	case ".csv":
 		info, err := os.Stat(path)
 		if err != nil {
-			return nil, fmt.Errorf("open csv: %w", err)
+			return nil, hideCause(fmt.Sprintf("open csv %s: %s", filepath.Base(path), ioReason(err)), err)
 		}
 		if info.Size() > maxBytes {
 			return nil, fmt.Errorf("csv is %d bytes, limit %d", info.Size(), maxBytes)
 		}
 		file, err := os.Open(path)
 		if err != nil {
-			return nil, fmt.Errorf("open csv: %w", err)
+			return nil, hideCause(fmt.Sprintf("open csv %s: %s", filepath.Base(path), ioReason(err)), err)
 		}
 		defer file.Close()
 		return parseCSV(file)
