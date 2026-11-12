@@ -177,23 +177,20 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 		if err != nil {
 			return nil, nil, err
 		}
+		if err := CompleteUTCDay(path, symbol); err != nil {
+			return nil, nil, err
+		}
 		records, err := readCSVRecords(path)
 		if err != nil {
 			return nil, nil, fmt.Errorf("visionfeed: parse %s: %w", path, err)
 		}
-		for i, record := range records {
+		for _, record := range records {
 			if isHeaderRow(record) {
 				continue
 			}
 			candle, err := parseKlineRecord(record, symbol)
 			if err != nil {
-				return nil, nil, fmt.Errorf("visionfeed: parse %s line %d: %w", path, i+1, err)
-			}
-			if candle.Timestamp < file.day || candle.Timestamp >= file.day+DayMs {
-				return nil, nil, fmt.Errorf("visionfeed: coverage: %s line %d is outside %s", path, i+1, dayLabel(file.day))
-			}
-			if _, exists := byTs[candle.Timestamp]; exists {
-				return nil, nil, fmt.Errorf("visionfeed: coverage: duplicate candle at %d in %s", candle.Timestamp, path)
+				return nil, nil, err
 			}
 			byTs[candle.Timestamp] = candle
 		}
