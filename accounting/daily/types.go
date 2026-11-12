@@ -145,6 +145,9 @@ type Evidence struct {
 	Events         []Event    `json:"events"`
 	Coverage       []Coverage `json:"coverage"`
 	FuturesSymbols []string   `json:"futuresSymbols"`
+	// Notes records why this evidence cannot be complete. They are copied into
+	// the published reasons and never authorize a verified day on their own.
+	Notes []string `json:"notes,omitempty"`
 }
 
 // LedgerEntry is a projection, not a second ledger. SQL adapters read it from

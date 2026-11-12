@@ -56,7 +56,7 @@ QuantMesh 是一个**毫秒级高频加密货币做市商系统**，专注于永
 
 - `accounting/daily`：固定 `Asia/Shanghai` 自然日、USDT 记账、三钱包（spot、spot_margin、futures）的精确十进制核验。入口为 `Evaluate` 与 `Service.Reconcile/Read`；不提交任何交易/划转，也不推导提现授权。
 - `storage`：`daily_equity_evidence_versions` 保存不可变证据 revision，`daily_equity_report_versions` 保存不可变报告，`daily_equity_current` 保存当前 evidence/report 指针与冲突标记，`daily_equity_conflicts` 保存来源身份冲突。迁移 `storage/migrations/2026110501_daily_equity_*` 在启动时自动 up，失败阻止启动。
-- `web`：`GET /api/profit/daily-reconciliation` 只读已发布报告，要求 `date`、`exchange_id`、`account_scope`，范围必须落在当前会话已授权的 credential scope 集合内。
+- `web`：`GET /api/profit/daily-reconciliation` 只读已发布报告，要求 `date`、`exchange_id`、`account_scope`，范围必须落在当前会话已授权的 credential scope 集合内。`POST /api/profit/daily-reconciliation/futures-evidence` 复用同一个授权范围，把 Binance USDT 本位合约的只读候选采样写入 futures 钱包后发布；证据备注固定带上候选采样与缺失的 spot、spot_margin，发布结果因此保持未核实。
 
 ### 数据流
 
