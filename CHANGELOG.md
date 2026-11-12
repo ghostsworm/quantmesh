@@ -1,5 +1,18 @@
 # Changelog
 
+## [3.112.0-rc5] - 2026-11-12（开发中，未发布）
+
+### Added
+- 新增 `go run ./tools/visionfetch -symbol BTCUSDT -from 2026-01-01 -to 2026-01-03`。它从 data.binance.vision 下载 U 本位合约 1 分钟压缩包和对应月份的资金费文件，连同官方校验文件写入 `data/kline/binance_vision`。
+- 一个文件只有在官方校验文件的哈希和文件名都对得上时才会落到回放能读到的位置。校验失败、文件缺失，或响应被重定向到别的地址时，本次下载的全部新文件都会删除。已经校验通过的文件不覆盖。
+
+### Scope
+- 回放任务、普通回测和交易都不下载。命令退出 0 只表示请求的文件都已校验，不表示回放已经跑过，也不代表盈利。
+- 未连接真实账户验收，也没有对 data.binance.vision 做真实下载。测试只用本地伪造的响应。
+
+### Verification
+- `go test ./backtest/visionfetch/ ./backtest/visionfeed/ ./tools/visionfetch/` 与 `go vet` 覆盖：已校验文件不请求也不覆盖、资金费缺一个月则全部新文件删除、校验和不符不落地、重定向不落地、非法日期在联网前拒绝。未跑全仓测试，未发布。
+
 ## [3.112.0-rc4] - 2026-11-12（开发中，未发布）
 
 ### Changed

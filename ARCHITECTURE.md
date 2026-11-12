@@ -1,6 +1,6 @@
 # QuantMesh 架构入口
 
-当前版本：`3.112.0-rc4`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
+当前版本：`3.112.0-rc5`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
 
 ## 应用与持久化
 
@@ -27,7 +27,7 @@
 - 请求将 `replay_walk_forward` 放入原 `search_space` JSON，完整保存训练/测试/步长、杠杆、固定基线参数；无需迁移任务表。
 - 新 grid 优化必须显式指定 replay walk-forward。非 grid 的原路径和既有 legacy 结果读取保持兼容；独立旧 `/api/optimizer/run` 的 legacy walk-forward 不冒充本入口。
 - 首版只支持已有 replay 的单向合约网格参数与有界笛卡尔积；32 个候选、12 折、100000 根 K 线、2000000 次 K 线评估。拒绝未接线轴和外部 aggTrade 文件路径，避免静默忽略或使用未冻结行情。
-- replay 任务只读本地 data.binance.vision U 本位合约 1 分钟文件，目录由 `backtest_data.binance_vision_dir` 指定，缺省 `data/kline/binance_vision`（已在 `.gitignore` 内）。每个文件必须带 `sha256sum` 校验文件，缺一天、校验和不符或同一天同时存在 zip 与 csv 都整次失败，不回退到交易所接口，也不补造 K 线。请求的更长周期由完整 1 分钟桶精确聚合，桶内缺一根即失败。
+- replay 任务只读本地 data.binance.vision U 本位合约 1 分钟文件，目录由 `backtest_data.binance_vision_dir` 指定，缺省 `data/kline/binance_vision`（已在 `.gitignore` 内）。`go run ./tools/visionfetch -symbol BTCUSDT -from 2026-01-01 -to 2026-01-03` 从 data.binance.vision 下载这些文件和官方校验文件；任一文件校验失败或缺失，本次下载的全部新文件都会删除。回放任务本身不下载。每个文件必须带 `sha256sum` 校验文件，缺一天、校验和不符或同一天同时存在 zip 与 csv 都整次失败，不回退到交易所接口，也不补造 K 线。请求的更长周期由完整 1 分钟桶精确聚合，桶内缺一根即失败。
 - 资金费只在调用方已经开启时，用同一校验规则读到的历史结算序列替换固定费率，只计结算成本；没有该目录时沿用固定费率，不发明零费率序列。来源标识、已校验文件名与哈希写入结果和实验摘要，不写入 `base_params`。
 - 普通回测任务和非 replay 的优化任务仍走原有的未校验缓存与交易所下载路径，本轮不改。
 - 读入后冻结 OHLCV 副本并校验规则时间序列。每折采用完整 K 线半开窗口 train `[s,s+train)`、test `[s+train,s+train+test)`，step=test；测试窗不重叠。
