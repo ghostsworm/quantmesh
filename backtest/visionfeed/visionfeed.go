@@ -105,7 +105,7 @@ func Load(ctx context.Context, req LoadRequest) (LoadResult, error) {
 		return LoadResult{}, err
 	}
 	fundingDir := filepath.Join(req.Root, req.Symbol, "fundingRate")
-	funding, fundingFiles, used, err := loadFunding(ctx, fundingDir, req.Symbol)
+	funding, fundingFiles, used, err := loadFunding(ctx, fundingDir, req.Symbol, req.FirstMs, req.EndMs)
 	if err != nil {
 		return LoadResult{}, err
 	}
@@ -209,9 +209,12 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 	return out, digests, nil
 }
 
-// loadFunding reads verified fundingRate files. A missing directory, or one
-// with no data file, reports funding as unused rather than inventing a series.
-func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint, []FileDigest, bool, error) {
+// loadFunding reads the verified funding files for each UTC month overlapping
+// [firstMs, endMs). No file for any of those months leaves funding unused, so the
+// caller keeps its fixed rate; files for other months are ignored. Once one month
+// in the window is present, every month must be present. A gap fails the load
+// instead of becoming a stretch of zero funding.
+func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) ([]replay.FundingPoint, []FileDigest, bool, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -219,7 +222,7 @@ func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint
 		}
 		return nil, nil, false, fmt.Errorf("visionfeed: read %s: %w", dir, err)
 	}
-	var names []string
+	byMonth := map[string][]string{}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -228,19 +231,41 @@ func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint
 		if match == nil || match[1] != symbol {
 			continue
 		}
-		names = append(names, entry.Name())
+		byMonth[match[2]] = append(byMonth[match[2]], entry.Name())
 	}
-	if len(names) == 0 {
+	if len(byMonth) == 0 {
 		return nil, nil, false, nil
 	}
-	sort.Strings(names)
+	months, err := fundingMonths(firstMs, endMs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	covered := 0
+	for _, month := range months {
+		if len(byMonth[month.label]) > 0 {
+			covered++
+		}
+	}
+	if covered == 0 {
+		return nil, nil, false, nil
+	}
 
 	byTs := map[int64]replay.FundingPoint{}
 	var digests []FileDigest
-	for _, name := range names {
+	for _, month := range months {
+		files := append([]string(nil), byMonth[month.label]...)
+		sort.Strings(files)
+		switch len(files) {
+		case 0:
+			return nil, nil, false, fmt.Errorf("visionfeed: coverage: missing funding file for %s", month.label)
+		default:
+			return nil, nil, false, fmt.Errorf("visionfeed: duplicate: %s has both %s", month.label, strings.Join(files, " and "))
+		case 1:
+		}
 		if err := ctx.Err(); err != nil {
 			return nil, nil, false, err
 		}
+		name := files[0]
 		path := filepath.Join(dir, name)
 		digest, err := verifyChecksum(path)
 		if err != nil {
@@ -250,6 +275,7 @@ func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("visionfeed: parse %s: %w", path, err)
 		}
+		points := 0
 		for i, record := range records {
 			if isHeaderRow(record) {
 				continue
@@ -266,10 +292,17 @@ func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint
 				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: funding rate %q: %w", path, i+1, record[fundingColRate], err)
 			}
 			stamp := normalizeTimestampMs(ts)
+			if stamp < month.start || stamp >= month.end {
+				return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s line %d: calc_time %d is outside %s", path, i+1, stamp, month.label)
+			}
 			if _, exists := byTs[stamp]; exists {
 				return nil, nil, false, fmt.Errorf("visionfeed: parse %s line %d: duplicate calc_time %d", path, i+1, stamp)
 			}
 			byTs[stamp] = replay.FundingPoint{Timestamp: stamp, Rate: rate}
+			points++
+		}
+		if points == 0 {
+			return nil, nil, false, fmt.Errorf("visionfeed: coverage: %s has no funding settlement", path)
 		}
 		digests = append(digests, FileDigest{Name: relName(symbol, "fundingRate", name), SHA256: digest})
 	}
@@ -280,6 +313,49 @@ func loadFunding(ctx context.Context, dir, symbol string) ([]replay.FundingPoint
 	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp < out[j].Timestamp })
 	sort.Slice(digests, func(i, j int) bool { return digests[i].Name < digests[j].Name })
 	return out, digests, true, nil
+}
+
+type fundingMonth struct {
+	label      string
+	start, end int64
+}
+
+// fundingMonths lists each UTC month overlapping [firstMs, endMs). The month
+// that starts at endMs is excluded.
+func fundingMonths(firstMs, endMs int64) ([]fundingMonth, error) {
+	label := dayLabel(firstMs)
+	year, err := strconv.Atoi(label[:4])
+	if err != nil {
+		return nil, fmt.Errorf("visionfeed: coverage: bad window start %d", firstMs)
+	}
+	month, err := strconv.Atoi(label[5:7])
+	if err != nil {
+		return nil, fmt.Errorf("visionfeed: coverage: bad window start %d", firstMs)
+	}
+	var out []fundingMonth
+	for {
+		start, err := utcDayMillis(fmt.Sprintf("%04d-%02d-01", year, month))
+		if err != nil {
+			return nil, err
+		}
+		nextYear, nextMonth := year, month+1
+		if nextMonth == 13 {
+			nextYear, nextMonth = year+1, 1
+		}
+		next, err := utcDayMillis(fmt.Sprintf("%04d-%02d-01", nextYear, nextMonth))
+		if err != nil {
+			return nil, err
+		}
+		if start >= endMs {
+			break
+		}
+		out = append(out, fundingMonth{label: fmt.Sprintf("%04d-%02d", year, month), start: start, end: next})
+		if next >= endMs {
+			break
+		}
+		year, month = nextYear, nextMonth
+	}
+	return out, nil
 }
 
 // verifyChecksum checks the GNU sha256sum sidecar next to the data file.
