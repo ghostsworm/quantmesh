@@ -177,11 +177,11 @@ func TestReplayOptimizerAPIWithRuby(t *testing.T) {
 	}
 	vision := func(ctx context.Context, _ visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
 		loads.Add(1)
-		active.Add(1)
-		defer active.Add(-1)
-		// Admission reads with a context that can never be canceled. Only the
-		// running task's context is canceled, which is what delete waits for.
+		// Admission reads before a slot is taken and cannot be canceled, so it
+		// must stay quick. Only the running task's read blocks; delete cancels it.
 		if blocked.Load() && ctx.Done() != nil {
+			active.Add(1)
+			defer active.Add(-1)
 			<-ctx.Done()
 			canceled.Add(1)
 			return visionfeed.LoadResult{}, ctx.Err()

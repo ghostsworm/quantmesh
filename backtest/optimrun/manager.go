@@ -102,6 +102,13 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	if m.store == nil || m.loadData == nil {
 		return fmt.Errorf("optimizer storage or historical data loader is unavailable")
 	}
+	// Read before taking the only run slot, so a missing window rejects the
+	// request without blocking the next one.
+	if task.SearchSpace.ReplayWalkForward != nil {
+		if err := m.preflightReplayData(task); err != nil {
+			return err
+		}
+	}
 	if task.ID == "" {
 		var randomID [16]byte
 		if _, err := rand.Read(randomID[:]); err != nil {
@@ -120,13 +127,6 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	run, err := m.beginRun(task.ID)
 	if err != nil {
 		return err
-	}
-	// The slot is held, so a missing window must release it before anything is stored.
-	if task.SearchSpace.ReplayWalkForward != nil {
-		if err := m.preflightReplayData(task); err != nil {
-			m.finishRun(task.ID, run)
-			return err
-		}
 	}
 	if err := m.store.CreateOptimTask(task); err != nil {
 		m.finishRun(task.ID, run)

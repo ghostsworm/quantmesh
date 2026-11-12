@@ -51,10 +51,10 @@ func (m *OptimTaskManager) loadReplayData(ctx context.Context, task *backtest.Op
 	return candles, provenance, nil
 }
 
-// preflightReplayData reads the verified window after the run slot is taken and
-// before the task is stored. The caller releases that slot when this fails.
-// The run reads the same files again; this only stops a task that would fail as
-// soon as it started. It does not download or call the exchange.
+// preflightReplayData reads the verified window before a run slot is taken or
+// the task is stored, so a missing window never blocks another task. The run
+// reads the same files again; this only stops a task that would fail as soon as
+// it started. It does not download or call the exchange.
 func (m *OptimTaskManager) preflightReplayData(task *backtest.OptimTask) error {
 	if _, _, err := m.loadReplayData(context.Background(), task); err != nil {
 		logger.Error("replay data preflight %s: %s", task.Symbol, visionfeed.ErrorDetail(err))

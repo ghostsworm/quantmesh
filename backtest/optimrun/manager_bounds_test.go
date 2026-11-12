@@ -35,6 +35,9 @@ func TestCreateAndRunRejectsConcurrentOptimizerBeforePersistence(t *testing.T) {
 	defer manager.finishRun("active", active)
 
 	task := validReplayTask()
+	manager.replayVision = func(context.Context, visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+		return visionResult(task, false), nil
+	}
 	if err := manager.CreateAndRun(task); !errors.Is(err, ErrOptimizerCapacity) {
 		t.Fatalf("CreateAndRun error=%v, want capacity error", err)
 	}
@@ -59,8 +62,8 @@ func TestCreateAndRunRejectsMissingReplayDataBeforePersistence(t *testing.T) {
 	if store.task != nil || len(manager.running) != 0 || len(store.statusCalls) != 0 {
 		t.Fatal("unreadable replay data reached persistence or reserved capacity")
 	}
-	if !IsValidTaskID(task.ID) {
-		t.Fatalf("rejected task id = %q", task.ID)
+	if task.ID != "" {
+		t.Fatalf("rejected task was assigned an id %q", task.ID)
 	}
 	if restCalled {
 		t.Fatal("rejected replay task reached the live exchange loader")
