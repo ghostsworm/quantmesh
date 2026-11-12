@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.112.0-rc9] - 2026-11-12（开发中，未发布）
+
+### Changed
+- 回放读取一个已校验的 zip 时，只接受里面唯一的一个 csv，而且条目名必须等于把 zip 文件名的 `.zip` 换成 `.csv`。带目录、`..`、绝对路径，或另有第二个 csv，整次失败。
+- 这个 csv 在解压前就检查声明的未压缩大小：1 分钟日文件不超过 2 MiB，一个月的资金费不超过 256 KiB。声明更大，或者读出来超过这个上限，整次失败，不把超出的部分拼进当天的 K 线。
+- 已经校验通过、条目名和大小都符合的文件照常读取。普通回测和不带 replay 的优化任务不经过这次检查。
+
+### Scope
+- 不下载，不改交易、提现或日账。失败只表示这份 zip 不能当作回放行情，不表示行情被补造。
+- 未连接真实账户验收，也没有对 data.binance.vision 做真实下载。
+
+### Verification
+- `go test ./backtest/visionfeed/ ./backtest/visionfetch/ ./backtest/optimrun/ ./tools/visionfetch/` 覆盖：条目名不符、zip 里有两个 csv、声明超过 2 MiB、裸 csv 超过 2 MiB，都整次失败；名字正确的日 zip 仍可读。未跑全仓测试，未发布。
+
 ## [3.112.0-rc8] - 2026-11-12（开发中，未发布）
 
 ### Changed
