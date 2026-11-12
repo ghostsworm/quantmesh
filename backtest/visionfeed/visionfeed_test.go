@@ -185,6 +185,116 @@ func TestLoadFundingIsOptionalAndOrdered(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsAFundingMonthGap(t *testing.T) {
+	root := t.TempDir()
+	for day := int64(0); day < 32; day++ {
+		writeDayCSV(t, root, fixtureSymbol, fixtureDay+day*DayMs, false)
+	}
+	writeFunding(t, root, fixtureSymbol, "2026-01", []string{
+		"calc_time,funding_interval_hours,last_funding_rate",
+		"1767225600000,8,0.0001",
+	})
+	_, err := Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + 32*DayMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "missing funding file for 2026-02") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadIgnoresFundingOutsideTheWindow(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	writeFunding(t, root, fixtureSymbol, "2025-12", []string{
+		"calc_time,funding_interval_hours,last_funding_rate",
+		"1764547200000,8,0.0009",
+	})
+	loaded, err := Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.FundingUsed || loaded.Funding != nil {
+		t.Fatalf("funding outside the window was used: %+v", loaded.Funding)
+	}
+}
+
+func TestLoadRejectsFundingOutsideItsNamedMonth(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	writeFunding(t, root, fixtureSymbol, "2026-01", []string{
+		"calc_time,funding_interval_hours,last_funding_rate",
+		"1769904000000,8,0.0001",
+	})
+	_, err := Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside 2026-01") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadRejectsDuplicateFundingFiles(t *testing.T) {
+	root := t.TempDir()
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	lines := []string{"calc_time,funding_interval_hours,last_funding_rate", "1767225600000,8,0.0001"}
+	writeFunding(t, root, fixtureSymbol, "2026-01", lines)
+	dir := filepath.Join(root, fixtureSymbol, "fundingRate")
+	zipPath := filepath.Join(dir, fixtureSymbol+"-fundingRate-2026-01.zip")
+	file, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer := zip.NewWriter(file)
+	entry, err := writer.Create(fixtureSymbol + "-fundingRate-2026-01.csv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := entry.Write([]byte(strings.Join(lines, "\n") + "\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	writeChecksum(t, zipPath)
+	_, err = Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs,
+	})
+	if err == nil || !strings.Contains(err.Error(), "visionfeed: duplicate") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadReadsFundingAcrossCompleteMonths(t *testing.T) {
+	root := t.TempDir()
+	for day := int64(0); day < 32; day++ {
+		writeDayCSV(t, root, fixtureSymbol, fixtureDay+day*DayMs, false)
+	}
+	writeFunding(t, root, fixtureSymbol, "2026-01", []string{
+		"calc_time,funding_interval_hours,last_funding_rate",
+		"1769903999999,8,0.0001",
+	})
+	writeFunding(t, root, fixtureSymbol, "2026-02", []string{
+		"calc_time,funding_interval_hours,last_funding_rate",
+		"1769904000000,8,0.0002",
+	})
+	loaded, err := Load(context.Background(), LoadRequest{
+		Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + 32*DayMs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.FundingUsed || len(loaded.Funding) != 2 || len(loaded.Provenance.FundingFiles) != 2 {
+		t.Fatalf("funding = %+v files = %+v", loaded.Funding, loaded.Provenance.FundingFiles)
+	}
+	if loaded.Funding[0].Rate != 0.0001 || loaded.Funding[1].Rate != 0.0002 {
+		t.Fatalf("rates = %+v", loaded.Funding)
+	}
+}
 func TestLoadRejectsDuplicateFundingTime(t *testing.T) {
 	root := t.TempDir()
 	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
