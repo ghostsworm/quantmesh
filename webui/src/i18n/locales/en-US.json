@@ -2134,6 +2134,19 @@
     "marginInterestCost": "Cross-Margin Interest Cost",
     "marginInterestCoverageIncomplete": "Cross-margin interest coverage is incomplete; only valued costs within the covered interval are deducted.",
     "netProfitCoverageIncomplete": "Net profit is not fully verified: archived account history, raw executions, fee reconciliation, funding income, cross-margin interest, and daily equity reconciliation must all be covered. Only the verifiable portion is included.",
+    "dailyLatestTitle": "Daily reconciliation for {{date}}",
+    "dailyResidual": "Residual {{residual}} USDT",
+    "dailyStatus": {
+      "published": "Published, not yet verified",
+      "unpublished": "Not published yet",
+      "scope_unavailable": "No reconcilable account for the current scope"
+    },
+    "dailyReason": {
+      "futures_evidence_candidate_sample": "The futures evidence is a current sample, not a historical day-end snapshot",
+      "wallet_evidence_missing_spot": "Spot wallet evidence is missing",
+      "wallet_evidence_missing_spot_margin": "Cross-margin wallet evidence is missing",
+      "source_changed": "The ledger changed after publication, so this result is stale"
+    },
     "marginInterestCostIncomplete": "Coverage is incomplete or some charges are unvalued",
     "todayProfit": "Today's Profit",
     "unrealizedProfit": "Unrealized Profit",

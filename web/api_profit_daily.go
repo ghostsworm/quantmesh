@@ -79,6 +79,90 @@ func getProfitDailyReconciliationHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "dailyReconciliation": result})
 }
 
+// dailyLatestStatus is what the profit page can say about one closed day
+// without letting the caller invent a scope or a verified zero.
+type dailyLatestStatus string
+
+const (
+	dailyLatestPublished    dailyLatestStatus = "published"
+	dailyLatestUnpublished  dailyLatestStatus = "unpublished"
+	dailyLatestScopeMissing dailyLatestStatus = "scope_unavailable"
+)
+
+// getProfitDailyLatestHandler reports the most recent closed natural day for
+// the same credential scope the profit summary uses. A missing report is
+// "unpublished", never a verified zero, and this read changes no flag.
+func getProfitDailyLatestHandler(c *gin.Context) {
+	storageProv := PickStorageProvider(c)
+	if storageProv == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "daily_reconciliation_storage_unavailable"})
+		return
+	}
+	st := storageProv.GetStorage()
+	if st == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "daily_reconciliation_storage_unavailable"})
+		return
+	}
+	exchangeName := strings.ToLower(strings.TrimSpace(c.Query("exchange_id")))
+	if exchangeName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "error": "daily_reconciliation_requires_exchange"})
+		return
+	}
+	date := latestClosedDailyDate(time.Now().UTC())
+	authorized, _, err := resolveProfitAccountScopesWithHistory(c.Request.Context(), exchangeName, st)
+	if err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "daily_reconciliation_scope_unavailable"})
+		return
+	}
+	var scope string
+	for _, candidate := range authorized {
+		if strings.EqualFold(candidate.exchange, exchangeName) {
+			scope = candidate.scope
+			break
+		}
+	}
+	if scope == "" {
+		c.JSON(http.StatusOK, gin.H{"success": true, "status": dailyLatestScopeMissing, "date": date, "exchangeId": exchangeName})
+		return
+	}
+	repo, ok := st.(daily.Repository)
+	if !ok {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "daily_reconciliation_unsupported_storage"})
+		return
+	}
+	result, err := daily.NewService(repo).Read(c.Request.Context(), daily.Query{Exchange: exchangeName, AccountScope: scope, Date: date}, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, daily.ErrNotFound) {
+			c.JSON(http.StatusOK, gin.H{"success": true, "status": dailyLatestUnpublished, "date": date, "exchangeId": exchangeName})
+			return
+		}
+		c.JSON(http.StatusServiceUnavailable, gin.H{"success": false, "error": "daily_reconciliation_unavailable"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true, "status": dailyLatestPublished, "date": date, "exchangeId": exchangeName,
+		"equityReconciliationComplete": result.EquityReconciliationComplete,
+		"residual":                     result.Amounts.Residual,
+		"reasons":                      result.Reasons,
+	})
+}
+
+// latestClosedDailyDate is the last natural day whose safety lag has elapsed.
+func latestClosedDailyDate(now time.Time) string {
+	location, err := time.LoadLocation(daily.Timezone)
+	if err != nil {
+		location = time.FixedZone("Asia/Shanghai", 8*3600)
+	}
+	local := now.In(location)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, location)
+	if !local.Before(day.Add(daily.SafetyLag)) {
+		day = day.AddDate(0, 0, -1)
+	} else {
+		day = day.AddDate(0, 0, -2)
+	}
+	return day.Format("2006-01-02")
+}
+
 // importProfitDailyFuturesEvidenceHandler copies one already-authorized Binance
 // USD-M read-only sample into the daily futures wallet and publishes the day.
 // The published report stays incomplete: the sample is not a day-boundary

@@ -211,4 +211,6 @@ Ruby 验收器输出 JSON 与 Markdown，报告绑定源码指纹、版本、场
 
 `3.112.0-rc2` 起，已授权会话可以手动把现有 Binance USDT 本位合约只读证据导入 futures 钱包。导入使用 `ReadAccountEvidence` 的候选采样，不是历史日终端点；spot 与 spot_margin 仍无账本型来源，所以导入后的报告保持 `equityReconciliationComplete=false`，原因含 `futures_evidence_candidate_sample` 与两个 `wallet_evidence_missing`。没有后台调度。
 
+`3.112.0-rc3` 起，盈利页只读展示最近一个已闭合自然日。`GET /api/profit/daily-reconciliation/latest` 由服务端解析授权范围，不接受调用方传入 `account_scope`；没有报告返回 `unpublished`，已发布报告原样带出 `equityReconciliationComplete` 与原因码。这个读取不改变任何核实标志，也不改变提现门禁。
+
 未覆盖/未验收：生产 Binance spot/Cross Margin 权益连接器、真实账户历史回补、后台自动调度发布、活动状态下的 fail-closed 行为、部署、提现授权与任何盈利结论。单日 `equityReconciliationComplete=true` 不会改变 lifetime/today/week/month 或提现权限。验收样本只覆盖一个明确 credential scope；账户范围变更、API Key 轮换、跨午夜在途转账仍按失败/不完整处理。

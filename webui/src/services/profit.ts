@@ -10,6 +10,7 @@ import type {
   ManualWithdrawRequest,
   WithdrawResponse,
   ProfitSummaryResponse,
+  DailyLatest,
   StrategyProfitsResponse,
   WithdrawRulesResponse,
   UpdateWithdrawRuleRequest,
@@ -25,6 +26,11 @@ const API_BASE_URL = `${window.location.origin}/api`
 export async function getProfitSummary(exchangeId?: string): Promise<ProfitSummaryResponse> {
   const url = exchangeId ? `${API_BASE_URL}/profit/summary?exchange_id=${exchangeId}` : `${API_BASE_URL}/profit/summary`
   return fetchWithAuth(url)
+}
+
+// 最近一个已闭合自然日的日账。服务端按与汇总相同的账户范围解析，页面不传 scope。
+export async function getDailyLatest(exchangeId: string): Promise<DailyLatest> {
+  return fetchWithAuth(`${API_BASE_URL}/profit/daily-reconciliation/latest?exchange_id=${encodeURIComponent(exchangeId)}`)
 }
 
 // 按策略獲取盈利

@@ -1,6 +1,6 @@
 # QuantMesh 架构入口
 
-当前版本：`3.112.0-rc2`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
+当前版本：`3.112.0-rc3`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
 
 ## 应用与持久化
 
@@ -35,7 +35,7 @@
 
 ## 日账核验
 
-`accounting/daily` 以精确十进制核对单账户、USDT、固定三钱包（spot、spot_margin、futures）的历史自然日权益变化；`storage` 保存不可变证据/报告版本与当前指针，迁移在启动时自动执行；`web` 提供只读 `GET /api/profit/daily-reconciliation`。核算恒等式、数据流与故障边界见 [日账 ADR](docs/decisions/2026-11-05-daily-equity-reconciliation.md) 与 [架构说明](docs/ARCHITECTURE.md)。单日通过不解锁汇总或提现权限。
+`accounting/daily` 以精确十进制核对单账户、USDT、固定三钱包（spot、spot_margin、futures）的历史自然日权益变化；`storage` 保存不可变证据/报告版本与当前指针，迁移在启动时自动执行；`web` 提供只读 `GET /api/profit/daily-reconciliation`。`GET /api/profit/daily-reconciliation/latest` 由服务端按盈利汇总同一授权范围解析最近一个已闭合自然日，只读已发布报告；没有报告返回未发布，不返回已核实的零。核算恒等式、数据流与故障边界见 [日账 ADR](docs/decisions/2026-11-05-daily-equity-reconciliation.md) 与 [架构说明](docs/ARCHITECTURE.md)。单日通过不解锁汇总或提现权限。
 
 ## 证据边界
 

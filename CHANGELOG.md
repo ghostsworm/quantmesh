@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.112.0-rc3] - 2026-11-12（开发中，未发布）
+
+### Added
+- 新增只读 `GET /api/profit/daily-reconciliation/latest`：服务端按盈利汇总同一授权范围定位最近一个已闭合自然日（固定 `Asia/Shanghai`，5 分钟安全延迟内仍取前一天）。没有报告返回 `unpublished`，不返回已核实的零；已发布报告原样带出 `equityReconciliationComplete`、差额和原因码。
+- 盈利页新增该日的只读展示，中英文文案走 i18n；未登记的原因码原样显示。接口失败时只隐藏这一块，不影响盈利页其余内容。
+
+### Scope
+- 只读。不写证据、不发布报告、不新增定时任务，不改 lifetime/today/week/month 的汇总常量，不改提现门禁。调用方不能传入 `account_scope`。
+- 未连接真实账户验收。页面上看到的一天只是已发布报告的状态，不代表日账已核实，也不代表盈利。
+
+### Verification
+- `go test ./web/ -run 'TestDailyLatest|TestLatestClosed|TestImportDailyFutures|TestProfitReadEndpoints'` 通过，`go vet ./web/` 干净。`TestDailyLatestReportsTheClosedDayWithoutChangingSummaryFlags` 覆盖未发布不含核实标志、发布后保持 `equityReconciliationComplete=false` 且带上合约候选与两个钱包缺失原因。
+- WebUI `yarn typecheck` 通过；`yarn vitest run src/components/DailyLatestPanel.test.tsx src/services/dailyLatest.test.ts` 4 项通过，覆盖已发布未核实、未发布不显示差额、未知原因码原样显示，以及请求不带 `account_scope`。未跑全仓测试，未发布。
+
 ## [3.112.0-rc2] - 2026-11-12（开发中，未发布）
 
 ### Added

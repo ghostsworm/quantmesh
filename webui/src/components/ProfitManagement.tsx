@@ -60,6 +60,7 @@ import {
   updateWithdrawRules,
   getDailyKlines,
   getFundingHistory,
+  getDailyLatest,
   reconcileWithdrawRecord,
 } from '../services/profit'
 import { getExchanges, getSymbols } from '../services/api'
@@ -72,6 +73,7 @@ import type {
   WithdrawRecord,
   FundingPaymentItem,
   PriceChangeItem,
+  DailyLatest,
 } from '../types/profit'
 
 const MotionBox = motion(Box)
@@ -83,6 +85,7 @@ const ProfitManagement: React.FC = () => {
   const reconcileDialog = useDisclosure()
 
   const [summary, setSummary] = useState<ProfitSummary | null>(null)
+  const [dailyLatest, setDailyLatest] = useState<DailyLatest | null>(null)
   const [strategyProfits, setStrategyProfits] = useState<StrategyProfit[]>([])
   const [trend, setTrend] = useState<ProfitTrendItem[]>([])
   const [trendExecutionHistoryComplete, setTrendExecutionHistoryComplete] = useState<boolean | undefined>()
@@ -231,19 +234,22 @@ const ProfitManagement: React.FC = () => {
     setLoading(true)
     const exchangeId = activeExchange === 'all' ? undefined : activeExchange
     try {
-      const [summaryRes, profitsRes, rulesRes, historyRes] = await Promise.all([
+      const [summaryRes, profitsRes, rulesRes, historyRes, latestRes] = await Promise.all([
         getProfitSummary(exchangeId),
         getStrategyProfits(exchangeId),
         getWithdrawRules(),
         getWithdrawHistory({ exchangeId, limit: 10 }),
+        exchangeId ? getDailyLatest(exchangeId).catch(() => null) : Promise.resolve(null),
       ])
       setSummary(summaryRes.summary)
+      setDailyLatest(latestRes)
       setStrategyProfits(profitsRes.profits)
       setAllWithdrawRules(rulesRes.rules)
       setWithdrawHistory(historyRes.records)
     } catch (err: any) {
       console.error('獲取盈利数据失败:', err)
       setSummary(null)
+      setDailyLatest(null)
       setStrategyProfits([])
       setTrend([])
       setTrendExecutionHistoryComplete(undefined)
@@ -431,6 +437,8 @@ const ProfitManagement: React.FC = () => {
               <Text>{t('profitManagement.netProfitCoverageIncomplete')}</Text>
             </Alert>
           )}
+          {dailyLatest && <DailyLatestPanel latest={dailyLatest} />}
+
           <SimpleGrid columns={{ base: 2, md: 4 }} spacing={4}>
             <Box p={4} bg={bgColor} borderRadius="lg" borderWidth="1px" borderColor={borderColor}>
               <Stat>
@@ -767,6 +775,34 @@ const ProfitManagement: React.FC = () => {
           availableToWithdraw={summary.availableToWithdraw}
           onWithdrawComplete={handleWithdrawComplete}
         />
+      )}
+    </Box>
+  )
+}
+
+// DailyLatestPanel 只展示最近一个已闭合自然日。通过与否都不改汇总和提现，
+// 没有报告时显示未发布，而不是已核实的零。
+export const DailyLatestPanel: React.FC<{ latest: DailyLatest }> = ({ latest }) => {
+  const { t } = useTranslation()
+  const statusText = t(`profitManagement.dailyStatus.${latest.status}`)
+  const reasons = (latest.reasons ?? []).map((reason) => {
+    const key = `profitManagement.dailyReason.${reason.replaceAll(':', '_')}`
+    const translated = t(key)
+    return translated === key ? reason : translated
+  })
+  return (
+    <Box p={4} borderWidth="1px" borderRadius="md">
+      <Text fontWeight="semibold">{t('profitManagement.dailyLatestTitle', { date: latest.date })}</Text>
+      <Text mt={1}>{statusText}</Text>
+      {latest.status === 'published' && (
+        <Text mt={1} fontSize="sm">{t('profitManagement.dailyResidual', { residual: latest.residual ?? '0' })}</Text>
+      )}
+      {reasons.length > 0 && (
+        <VStack align="stretch" spacing={1} mt={2}>
+          {reasons.map((reason) => (
+            <Text key={reason} fontSize="sm">{reason}</Text>
+          ))}
+        </VStack>
       )}
     </Box>
   )

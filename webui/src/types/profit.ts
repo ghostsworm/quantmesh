@@ -118,6 +118,17 @@ export interface ProfitSummaryResponse {
   summary: ProfitSummary
 }
 
+// DailyLatest 是最近一个已闭合自然日的只读结果。unpublished 表示还没有报告，
+// 不能当成已核实的零；reasons 是稳定原因码，页面没有译文时原样展示。
+export interface DailyLatest {
+  status: 'published' | 'unpublished' | 'scope_unavailable'
+  date: string
+  exchangeId: string
+  equityReconciliationComplete?: boolean
+  residual?: string
+  reasons?: string[]
+}
+
 export interface StrategyProfitsResponse {
   profits: StrategyProfit[]
 }
