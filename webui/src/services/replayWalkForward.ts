@@ -62,6 +62,14 @@ export interface ReplayWalkForwardResult {
   candle_interval_ms: number
   baseline_params: Record<string, unknown>
   baseline_sha256: string
+  data_source?: string
+  verified_files?: ReplayVerifiedFile[]
+  funding_files?: ReplayVerifiedFile[]
   limitations: string[]
   folds: ReplayFold[]
+}
+
+export interface ReplayVerifiedFile {
+  name: string
+  sha256: string
 }

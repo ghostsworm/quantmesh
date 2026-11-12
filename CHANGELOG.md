@@ -1,5 +1,20 @@
 # Changelog
 
+## [3.112.0-rc4] - 2026-11-12（开发中，未发布）
+
+### Changed
+- 带 `replay_walk_forward` 的网页网格优化改为只读本地 data.binance.vision U 本位合约 1 分钟文件，目录由 `backtest_data.binance_vision_dir` 指定，缺省 `data/kline/binance_vision`。每个文件必须带 `sha256sum` 校验文件。
+- 窗口覆盖到的每个 UTC 日缺一天、不足 1440 根、时间戳重复、校验和不符，或同一天同时存在 zip 与 csv，整次失败。不回退到交易所接口，不补造 K 线。请求的更长周期按完整 1 分钟桶聚合，桶内缺一根即失败。
+- 资金费只在调用方已经开启且本地有已校验结算序列时，用该序列替换固定费率，只计结算成本；目录缺失时沿用固定费率，不发明零费率。不写标记价格，也不改方向。
+- 结果新增 `data_source`、`verified_files`、`funding_files`，限制中标明 `binance_vision_um_1m_checksum_verified`，结果页展示来源与文件哈希。这些字段只在有来源时进入实验摘要，不写入 `base_params`。
+
+### Scope
+- 普通回测任务与不带 replay 的优化任务仍走原来的未校验缓存和交易所下载，本轮不改。
+- 已校验只说明文件与官方清单一致且覆盖完整。没有 aggTrade，没有 FundingCarry 模拟，未连接真实账户验收，不代表盈利。
+
+### Verification
+- `go test ./backtest/visionfeed/ ./backtest/optimizer/ ./backtest/optimrun/ ./config/` 与 `go vet` 覆盖校验失败、覆盖缺口、重复文件、资金费开关，以及失败后不回退交易所接口。WebUI `yarn typecheck` 与回放结果测试覆盖来源展示和三语键一致。未跑全仓测试，未发布。
+
 ## [3.112.0-rc3] - 2026-11-12（开发中，未发布）
 
 ### Added

@@ -59,6 +59,9 @@ type ReplayWalkForwardResult struct {
 	CandleIntervalMs int64                            `json:"candle_interval_ms"`
 	BaselineParams   map[string]interface{}           `json:"baseline_params"`
 	BaselineSHA256   string                           `json:"baseline_sha256"`
+	DataSource       string                           `json:"data_source,omitempty"`
+	VerifiedFiles    []VerifiedFile                   `json:"verified_files,omitempty"`
+	FundingFiles     []VerifiedFile                   `json:"funding_files,omitempty"`
 	Limitations      []string                         `json:"limitations"`
 	Folds            []ReplayFold                     `json:"folds"`
 }

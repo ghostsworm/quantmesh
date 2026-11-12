@@ -59,7 +59,9 @@ type UniversalOptimResult struct {
 }
 
 // UniversalOptimizer 通用多策略优化器
-type UniversalOptimizer struct{}
+type UniversalOptimizer struct {
+	provenance *ReplayProvenance
+}
 
 // EnumerateParamCombos 枚举搜索空间内的所有参数组合
 func (u *UniversalOptimizer) EnumerateParamCombos(space UniversalSearchSpace) []map[string]interface{} {

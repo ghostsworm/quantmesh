@@ -1,6 +1,6 @@
 import { Box, Heading, ListItem, Table, Tbody, Td, Text, Th, Thead, Tr, UnorderedList, VStack } from '@chakra-ui/react'
 import { useTranslation } from 'react-i18next'
-import type { ReplayEvaluation, ReplayWalkForwardResult } from '../services/replayWalkForward'
+import type { ReplayEvaluation, ReplayVerifiedFile, ReplayWalkForwardResult } from '../services/replayWalkForward'
 
 const METRICS: (keyof ReplayEvaluation)[] = [
   'total_return', 'net_pnl', 'max_drawdown', 'fills', 'closed_grids',
@@ -12,6 +12,18 @@ const CORE_LIMITATIONS = [
   'no_historical_predicted_funding', 'settlement_funding_cost_only',
   'synthetic_or_historical_replay_is_not_live_profit_evidence',
 ]
+
+function VerifiedFileList({ label, files }: { label: string; files?: ReplayVerifiedFile[] }) {
+  if (!files?.length) return null
+  return (
+    <Box>
+      <Text fontSize="sm">{label}</Text>
+      {files.map((file) => (
+        <Text key={`${file.name}:${file.sha256}`} fontSize="xs" overflowWrap="anywhere">{file.name} · {file.sha256}</Text>
+      ))}
+    </Box>
+  )
+}
 
 function FrozenJSON({ label, value }: { label: string; value: unknown }) {
   return (
@@ -62,6 +74,9 @@ export default function ReplayWalkForwardResults({ result }: { result: ReplayWal
           {hash('configHash', result.config_sha256)}
           {hash('experimentHash', result.experiment_sha256)}
           {hash('baselineHash', result.baseline_sha256)}
+          {result.data_source ? hash('dataSource', result.data_source) : null}
+          <VerifiedFileList label={t('replayWalkForward.verifiedFiles')} files={result.verified_files} />
+          <VerifiedFileList label={t('replayWalkForward.fundingFiles')} files={result.funding_files} />
           <FrozenJSON label={t('replayWalkForward.frozenConfig')} value={result.config} />
           <FrozenJSON label={t('replayWalkForward.frozenBaseline')} value={result.baseline_params} />
         </VStack>
