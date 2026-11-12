@@ -1,5 +1,19 @@
 # Changelog
 
+## [3.112.0-rc2] - 2026-11-12（开发中，未发布）
+
+### Added
+- 新增受会话保护的 `POST /api/profit/daily-reconciliation/futures-evidence`：把已有的 Binance USDT 本位合约只读证据（`/fapi/v2/account` 与 `/fapi/v1/income`）写入日账的 futures 钱包并发布该日。来源标记为 `binance_usdm_account_evidence`，只是候选采样，不是期初/期末的历史端点。
+- 该日保持 `equityReconciliationComplete=false`，原因固定包含 `futures_evidence_candidate_sample`、`wallet_evidence_missing:spot`、`wallet_evidence_missing:spot_margin`。现货与全仓杠杆没有只读账本型来源，不补造。
+- 资金费流水超出约三个月留存窗口、币种不是 USDT、或收入类型无法归类时，整次导入拒绝，不写入部分记录。读取失败不会覆盖已经发布的报告。
+
+### Scope
+- 只接受当前会话已授权的 Binance 账户范围，且日期必须是已闭合、过了 5 分钟安全延迟的自然日。不新增定时发布，不改 lifetime/today/week/month 的汇总常量，不改提现门禁。
+- 未连接真实账户验收。写入成功只表示合约候选证据已入账，不代表日账已核实，也不代表盈利。
+
+### Verification
+- `go test ./accounting/daily/ ./storage/` 通过。`go test ./web/ -run TestImportDailyFuturesEvidenceStaysIncomplete` 覆盖拒绝不落库、导入后保持未核实、再次读取失败不覆盖旧报告。未跑全仓测试与前端构建，未发布。
+
 ## [3.112.0-rc1] - 2026-11-05（开发中，未发布）
 
 ### Added

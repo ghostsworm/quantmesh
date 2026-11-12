@@ -1252,6 +1252,17 @@ func (v *validator) buildResult(inputs Inputs, evidence Evidence, digest string,
 		v.seen[blocker] = struct{}{}
 		reasons = append(reasons, blocker)
 	}
+	for _, note := range evidence.Notes {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		if _, exists := v.seen[note]; exists {
+			continue
+		}
+		v.seen[note] = struct{}{}
+		reasons = append(reasons, note)
+	}
 	if new(big.Rat).Abs(residual).Cmp(toleranceRat) > 0 {
 		if _, exists := v.seen[reasonResidual]; !exists {
 			v.seen[reasonResidual] = struct{}{}

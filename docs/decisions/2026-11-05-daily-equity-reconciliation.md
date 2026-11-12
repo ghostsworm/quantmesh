@@ -209,4 +209,6 @@ Ruby 验收器输出 JSON 与 Markdown，报告绑定源码指纹、版本、场
 - `TestSQLiteDailyEquityProductionComposition` 与 `TestMySQLDailyEquityProductionComposition` 通过：真实 `storage.NewStorageService` → 生产日账服务发布 → `web.SetupRoutesWithConfig` → 管理员会话 → `GET /api/profit/daily-reconciliation` → 关闭/重开存储 → 追加可变账本事实后读取为 `source_changed`。MySQL 使用一次性随机 schema，库名/回环/无密码/显式 opt-in 均由既有 fixture 校验。
 - `ruby scripts/verify_account_profit_daily.rb /tmp/quantmesh-daily-equity` 返回 `accepted:true`：SQLite 与 MySQL 均 pass，12 项必需证据齐全（筛选运行 44 个用例全部 pass），无 missing/skip/fail，Go JSON 解析零错误，测试期间源码指纹稳定，前后端版本 `3.112.0-rc1` 一致。
 
+`3.112.0-rc2` 起，已授权会话可以手动把现有 Binance USDT 本位合约只读证据导入 futures 钱包。导入使用 `ReadAccountEvidence` 的候选采样，不是历史日终端点；spot 与 spot_margin 仍无账本型来源，所以导入后的报告保持 `equityReconciliationComplete=false`，原因含 `futures_evidence_candidate_sample` 与两个 `wallet_evidence_missing`。没有后台调度。
+
 未覆盖/未验收：生产 Binance spot/Cross Margin 权益连接器、真实账户历史回补、后台自动调度发布、活动状态下的 fail-closed 行为、部署、提现授权与任何盈利结论。单日 `equityReconciliationComplete=true` 不会改变 lifetime/today/week/month 或提现权限。验收样本只覆盖一个明确 credential scope；账户范围变更、API Key 轮换、跨午夜在途转账仍按失败/不完整处理。
