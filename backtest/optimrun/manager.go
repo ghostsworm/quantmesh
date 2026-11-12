@@ -7,23 +7,27 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
+	"quantmesh/backtest/visionfeed"
 	"quantmesh/exchange"
 	"quantmesh/logger"
 )
 
 // OptimTaskManager 参数优化任务管理器
 type OptimTaskManager struct {
-	store      backtest.OptimTaskStore
-	loadData   HistoricalDataLoader
-	resultsDir string
-	mu         sync.Mutex
-	running    map[string]*taskRun
-	deleting   map[string]bool
+	store        backtest.OptimTaskStore
+	loadData     HistoricalDataLoader
+	visionRoot   string
+	replayVision replayVisionLoader
+	resultsDir   string
+	mu           sync.Mutex
+	running      map[string]*taskRun
+	deleting     map[string]bool
 }
 
 // HistoricalDataLoader lets offline callers use isolated fixtures without accounts or network access.
@@ -39,6 +43,24 @@ func WithResultsDir(dir string) ManagerOption {
 	return func(m *OptimTaskManager) { m.resultsDir = dir }
 }
 
+// WithVisionRoot selects the local directory of checksum-verified Binance
+// USD-M 1m files. A blank value keeps the default gitignored directory.
+func WithVisionRoot(root string) ManagerOption {
+	return func(m *OptimTaskManager) {
+		if strings.TrimSpace(root) == "" {
+			m.visionRoot = visionfeed.DefaultRoot
+			return
+		}
+		m.visionRoot = root
+	}
+}
+
+// WithReplayVisionLoader replaces the verified-data reader. Tests use it to
+// avoid real market files; production uses visionfeed.Load.
+func WithReplayVisionLoader(loader replayVisionLoader) ManagerOption {
+	return func(m *OptimTaskManager) { m.replayVision = loader }
+}
+
 // NewOptimTaskManager 创建优化任务管理器；options must be applied before any run.
 func NewOptimTaskManager(store backtest.OptimTaskStore, binanceConfig map[string]string, options ...ManagerOption) *OptimTaskManager {
 	m := &OptimTaskManager{
@@ -46,9 +68,11 @@ func NewOptimTaskManager(store backtest.OptimTaskStore, binanceConfig map[string
 		loadData: func(ctx context.Context, symbol, interval string, start, end time.Time) ([]*exchange.Candle, error) {
 			return backtest.GetHistoricalDataContext(ctx, symbol, interval, start, end, binanceConfig)
 		},
-		resultsDir: filepath.Join("backtest", "optim_results"),
-		running:    make(map[string]*taskRun),
-		deleting:   make(map[string]bool),
+		visionRoot:   visionfeed.DefaultRoot,
+		replayVision: visionfeed.Load,
+		resultsDir:   filepath.Join("backtest", "optim_results"),
+		running:      make(map[string]*taskRun),
+		deleting:     make(map[string]bool),
 	}
 	for _, option := range options {
 		option(m)
@@ -144,30 +168,32 @@ func (m *OptimTaskManager) runTask(ctx context.Context, id string) error {
 		return fmt.Errorf("mark optimizer task %s running: %w", id, err)
 	}
 
-	// 获取 K 线数据
-	candles, err := m.loadData(ctx, task.Symbol, task.Interval, task.StartTime, task.EndTime)
+	var candles []*exchange.Candle
+	var provenance optimizer.ReplayProvenance
+	if task.SearchSpace.ReplayWalkForward != nil {
+		candles, provenance, err = m.loadReplayData(ctx, task)
+	} else {
+		candles, err = m.loadData(ctx, task.Symbol, task.Interval, task.StartTime, task.EndTime)
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if err != nil {
-		m.failTask(id, fmt.Sprintf("获取历史数据失败: %v", err))
+		m.failTask(id, err.Error())
 		return nil
 	}
 	if len(candles) == 0 {
 		m.failTask(id, "未获取到历史数据")
 		return nil
 	}
-	if task.SearchSpace.ReplayWalkForward != nil {
-		candles, err = replayCandlesForTask(task, candles)
-		if err != nil {
-			m.failTask(id, fmt.Sprintf("replay historical coverage: %v", err))
-			return nil
-		}
-	}
 
 	// 执行优化
 	opt := &optimizer.UniversalOptimizer{}
+	if provenance.Source != "" {
+		optimizer.WithReplayProvenance(provenance)(opt)
+	}
 	space := toOptimizerSearchSpace(task.SearchSpace)
+	applyReplayFunding(&space, provenance)
 	runCtx, stop := context.WithCancelCause(ctx)
 	defer stop(nil)
 	onProgress := func(completed, total int) {

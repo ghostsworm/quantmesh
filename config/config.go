@@ -837,6 +837,11 @@ type Config struct {
 		InitialCapital float64 `yaml:"initial_capital"` // 初始资金
 	} `yaml:"backtest"`
 
+	// BacktestData 网格回放使用的本地已校验行情目录
+	BacktestData struct {
+		BinanceVisionDir string `yaml:"binance_vision_dir" json:"binance_vision_dir"`
+	} `yaml:"backtest_data" json:"backtest_data"`
+
 	// 倉位资金分配管理
 	PositionAllocation struct {
 		Enabled     bool               `yaml:"enabled"`
@@ -1783,6 +1788,7 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
 	ApplyGammaRelatedDefaults(&cfg)
+	ApplyBacktestDataDefaults(&cfg)
 
 	if err := DecryptSensitiveFields(&cfg); err != nil {
 		return nil, err
@@ -1803,6 +1809,7 @@ func LoadConfigFromJSON(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("解析 JSON 配置失败: %v", err)
 	}
 	ApplyGammaRelatedDefaults(&cfg)
+	ApplyBacktestDataDefaults(&cfg)
 	if err := DecryptSensitiveFields(&cfg); err != nil {
 		return nil, err
 	}
@@ -1819,6 +1826,7 @@ func LoadConfigFromBytes(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("解析配置文件失败: %v", err)
 	}
 	ApplyGammaRelatedDefaults(&cfg)
+	ApplyBacktestDataDefaults(&cfg)
 
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("配置驗证失败: %v", err)
@@ -2098,6 +2106,7 @@ func CreateMinimalConfig() *Config {
 	cfg.Compliance.OSS.UploadTime = "02:00"
 
 	ApplyGammaRelatedDefaults(cfg)
+	ApplyBacktestDataDefaults(cfg)
 
 	return cfg
 }

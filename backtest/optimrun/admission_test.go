@@ -9,6 +9,7 @@ import (
 
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer/replayfixture"
+	"quantmesh/backtest/visionfeed"
 	"quantmesh/exchange"
 )
 
@@ -129,8 +130,8 @@ func TestReloadPersistedReplayExecutesWithExactTotal(t *testing.T) {
 	}
 	store := &fakeOptimStore{task: task}
 	dir := t.TempDir()
-	manager := NewOptimTaskManager(store, nil, WithResultsDir(dir), WithHistoricalDataLoader(func(context.Context, string, string, time.Time, time.Time) ([]*exchange.Candle, error) {
-		return replayfixture.Candles("sideways"), nil
+	manager := NewOptimTaskManager(store, nil, WithResultsDir(dir), WithReplayVisionLoader(func(context.Context, visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+		return visionResult(task, false), nil
 	}))
 	if err := manager.RunTask(task.ID); err != nil {
 		t.Fatal(err)

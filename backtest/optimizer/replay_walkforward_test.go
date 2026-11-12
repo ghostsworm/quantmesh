@@ -143,6 +143,39 @@ func TestReplayWalkForwardFreezesCallerOwnedInputs(t *testing.T) {
 	}
 }
 
+func TestReplayProvenanceChangesExperimentDigestOnly(t *testing.T) {
+	candles := replayfixture.Candles("sideways")
+	space := replaySampleSpace()
+	plain, err := (&UniversalOptimizer{}).Run(context.Background(), "plain", "BTCUSDT", replayfixture.Interval, candles, space, replayfixture.Capital, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(files []VerifiedFile) *ReplayWalkForwardResult {
+		t.Helper()
+		opt := &UniversalOptimizer{}
+		WithReplayProvenance(ReplayProvenance{Source: "binance_vision_um_1m", Files: files})(opt)
+		result, err := opt.Run(context.Background(), "verified", "BTCUSDT", replayfixture.Interval, candles, space, replayfixture.Capital, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.ReplayWalkForward
+	}
+	first := run([]VerifiedFile{{Name: "BTCUSDT/1m/a.csv", SHA256: "aaa"}})
+	second := run([]VerifiedFile{{Name: "BTCUSDT/1m/a.csv", SHA256: "bbb"}})
+	if first.ExperimentSHA256 == second.ExperimentSHA256 {
+		t.Fatal("a different verified file did not change the experiment digest")
+	}
+	if first.BaselineSHA256 != second.BaselineSHA256 || first.BaselineSHA256 != plain.ReplayWalkForward.BaselineSHA256 {
+		t.Fatal("provenance leaked into the baseline digest")
+	}
+	if first.ExperimentSHA256 == plain.ReplayWalkForward.ExperimentSHA256 {
+		t.Fatal("verified run kept the unverified experiment digest")
+	}
+	if plain.ReplayWalkForward.DataSource != "" || len(plain.ReplayWalkForward.VerifiedFiles) != 0 {
+		t.Fatal("a run without provenance recorded a data source")
+	}
+}
+
 func TestReplayWalkForwardRejectsInvalidAdmission(t *testing.T) {
 	cases := []struct {
 		name   string

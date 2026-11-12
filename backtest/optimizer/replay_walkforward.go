@@ -126,6 +126,12 @@ func (u *UniversalOptimizer) runReplayWalkForward(ctx context.Context, taskID, s
 		BaselineParams: base, Folds: make([]ReplayFold, 0, len(windows)),
 		Limitations: []string{"synthetic_ohlc_path", "no_historical_order_book", "zero_latency_no_market_impact", "no_historical_predicted_funding", "settlement_funding_cost_only", "cold_start_each_window", "mark_to_market_without_terminal_liquidation", "synthetic_or_historical_replay_is_not_live_profit_evidence"},
 	}
+	if u.provenance != nil && u.provenance.Source != "" {
+		out.DataSource = u.provenance.Source
+		out.VerifiedFiles = append([]VerifiedFile(nil), u.provenance.Files...)
+		out.FundingFiles = append([]VerifiedFile(nil), u.provenance.FundingFiles...)
+		out.Limitations = append(out.Limitations, "binance_vision_um_1m_checksum_verified")
+	}
 	out.ConfigSHA256, err = replayDigest(cfg)
 	if err != nil {
 		return nil, err
@@ -138,11 +144,20 @@ func (u *UniversalOptimizer) runReplayWalkForward(ctx context.Context, taskID, s
 	if err != nil {
 		return nil, err
 	}
-	out.ExperimentSHA256, err = replayDigest(struct {
+	digest := struct {
 		Protocol, Symbol, Interval, Data, Config string
 		Capital                                  float64
 		Ranges                                   map[string]ParamRange
-	}{replayWFProtocol, symbol, interval, out.DataSHA256, out.ConfigSHA256, capital, frozen.Ranges})
+		Source                                   string         `json:"Source,omitempty"`
+		Files                                    []VerifiedFile `json:"Files,omitempty"`
+		FundingFiles                             []VerifiedFile `json:"FundingFiles,omitempty"`
+	}{Protocol: replayWFProtocol, Symbol: symbol, Interval: interval, Data: out.DataSHA256, Config: out.ConfigSHA256, Capital: capital, Ranges: frozen.Ranges}
+	if out.DataSource != "" {
+		digest.Source = out.DataSource
+		digest.Files = out.VerifiedFiles
+		digest.FundingFiles = out.FundingFiles
+	}
+	out.ExperimentSHA256, err = replayDigest(digest)
 	if err != nil {
 		return nil, err
 	}

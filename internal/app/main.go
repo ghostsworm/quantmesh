@@ -46,7 +46,7 @@ import (
 )
 
 // Version 应用版本号
-var Version = "3.112.0-rc3"
+var Version = "3.112.0-rc4"
 
 // 全局日志存儲實例（用於清理任務和 WebSocket 推送）
 var globalLogStorage *storage.LogStorage
@@ -2656,7 +2656,7 @@ func Run() {
 					logger.Info("✅ 回测任務管理器已設置")
 
 					if optimStore := st.GetOptimTaskStore(); optimStore != nil {
-						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig)
+						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig, optimrun.WithVisionRoot(cfg.BacktestData.BinanceVisionDir))
 						web.SetOptimTaskManager(optimTaskManager)
 						logger.Info("✅ 參數優化任務管理器已設置")
 					}
@@ -2743,7 +2743,7 @@ func Run() {
 					logger.Info("✅ 回测任務管理器已設置")
 
 					if optimStore := st.GetOptimTaskStore(); optimStore != nil {
-						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig)
+						optimTaskManager := optimrun.NewOptimTaskManager(optimStore, binanceConfig, optimrun.WithVisionRoot(cfg.BacktestData.BinanceVisionDir))
 						web.SetOptimTaskManager(optimTaskManager)
 						logger.Info("✅ 參數優化任務管理器已設置")
 					}

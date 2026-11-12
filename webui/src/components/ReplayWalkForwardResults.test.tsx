@@ -35,7 +35,10 @@ function fixture(): ReplayWalkForwardResult {
     warmup_policy: 'closed_candles_inside_each_window_only', window_policy: 'independent_flat_start_fixed_capital_mark_to_market',
     config, config_sha256: 'config-digest', data_sha256: 'data-digest', experiment_sha256: 'experiment-digest', baseline_sha256: 'baseline-digest',
     data_bars: 168, data_start: Date.parse('2026-01-01T00:00:00Z'), data_end: Date.parse('2026-01-08T00:00:00Z'), candle_interval_ms: 3600000,
-    baseline_params: config.base_params, limitations: ['no_historical_order_book'],
+    baseline_params: config.base_params, limitations: ['no_historical_order_book', 'binance_vision_um_1m_checksum_verified'],
+    data_source: 'binance_vision_um_1m',
+    verified_files: [{ name: 'BTCUSDT/1m/BTCUSDT-1m-2026-01-01.csv', sha256: 'candle-file-digest' }],
+    funding_files: [{ name: 'BTCUSDT/fundingRate/BTCUSDT-fundingRate-2026-01.csv', sha256: 'funding-file-digest' }],
     folds: [{ index: 0, train_start: Date.parse('2026-01-01T00:00:00Z'), train_end: Date.parse('2026-01-04T00:00:00Z'),
       test_start: Date.parse('2026-01-04T00:00:00Z'), test_end: Date.parse('2026-01-05T00:00:00Z'),
       train_data_sha256: 'train-digest', test_data_sha256: 'test-digest', params_sha256: 'params-digest',
@@ -68,7 +71,9 @@ describe('replay result presentation', () => {
 
   it('shows frozen parameters, audit digests, and localized limitations', async () => {
     const html = await render(<ReplayWalkForwardResults result={fixture()} />, 'zh-CN')
-    for (const digest of ['data-digest', 'config-digest', 'experiment-digest', 'baseline-digest', 'train-digest', 'test-digest', 'params-digest']) expect(html).toContain(digest)
+    for (const digest of ['data-digest', 'config-digest', 'experiment-digest', 'baseline-digest', 'train-digest', 'test-digest', 'params-digest', 'candle-file-digest', 'funding-file-digest']) expect(html).toContain(digest)
+    expect(html).toContain('BTCUSDT/1m/BTCUSDT-1m-2026-01-01.csv')
+    expect(html).toContain(replayWalkForwardLocales['zh-CN'].binance_vision_um_1m_checksum_verified)
     for (const key of ['frozenConfig', 'frozenBaseline', 'frozenParams', 'windowPolicy', 'synthetic_ohlc_path', 'no_historical_order_book', 'zero_latency_no_market_impact', 'no_historical_predicted_funding'] as const) {
       expect(html).toContain(replayWalkForwardLocales['zh-CN'][key])
     }

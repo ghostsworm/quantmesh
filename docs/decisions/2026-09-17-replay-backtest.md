@@ -1,6 +1,6 @@
 # ADR 2026-09-17：实盘同构回放回测引擎与 walk-forward 调参
 
-- 状态：已接受（2026-11-05 更新：`3.112.0-rc1` 网页 grid 优化接入 replay walk-forward；普通回测任务默认仍是 legacy）
+- 状态：已接受（2026-11-05 更新：`3.112.0-rc1` 网页 grid 优化接入 replay walk-forward；2026-11-12 更新：`3.112.0-rc4` 起该入口只读本地已校验行情。普通回测任务默认仍是 legacy）
 - 关联：`docs/audits/2026-09-17-full-audit.md` 第四节第 7、8 条，第五节第 9、10 条
 - 代码：`backtest/replay/`（新包）、`backtest/engine_select.go`、`backtest/optimizer/walkforward.go`、`backtest/optimizer/score.go`、`backtest/grid_adapter.go`
 
@@ -101,3 +101,11 @@ K 线路径：`auto` 阳线 O→L→H→C、阴线 O→H→L→C（也可固定 
 - 结果 `replay_walk_forward` 保存协议、切分、候选训练指标、冻结参数以及数据/配置/参数/实验 SHA-256。`best_by_return/best_by_sharpe` 不用于该模式，避免误称样本外最佳参数。
 - 固定费率为预声明的成本假设，历史 funding_series 仅结算，不把最终费率当提前已知的预测信号。缺历史预测费率、盘口、真实排队/延迟/冲击仍属明确限制。
 - 复现：`ruby scripts/verify_replay_walkforward.rb <新建且被git忽略的输出目录>`，生成三种趋势的确定性合成样本及 JSON/Markdown 报告。合成实验与泄漏负例只证明工程接线，不证明真实市场收益或实盘盈利。报告见 `docs/reports/2026-11-05-replay-walkforward.md`。
+
+## 2026-11-12：网页 replay 只读已校验的本地行情
+
+- `3.112.0-rc4` 起，带 `replay_walk_forward` 的优化任务只读 `backtest_data.binance_vision_dir`（缺省 `data/kline/binance_vision`，位于已忽略的 `data/` 下）里的 data.binance.vision U 本位合约 1 分钟文件。每个数据文件旁必须有 `sha256sum` 格式的 `<文件名>.CHECKSUM`，哈希覆盖实际读取的字节。
+- 窗口覆盖到的每个 UTC 日都必须有且只有一个 csv 或 zip；同一天两者都在、缺一天、当天不足 1440 根、时间戳重复或校验和不符，整次失败。不回退到交易所接口，不补造 K 线，月度包不能顶替缺失的一天。请求的更长周期按完整 1 分钟桶聚合，桶内缺一根即失败，不用会吞掉缺口的聚合。
+- 资金费目录按同一规则读取。调用方已经开启资金费且序列非空时，才把历史结算序列写入本次运行的 `funding_series`，只计结算成本；目录缺失或为空时沿用调用方的固定费率，不发明零费率。不写 `mark_price`，不改 `funding_enabled`、`funding_rate`、`funding_pricing` 或方向。
+- 结果新增 `data_source`、`verified_files`、`funding_files`，并在限制里标明 `binance_vision_um_1m_checksum_verified`。这些字段只在有来源时进入实验摘要，因此没有来源的运行保持原有实验哈希。来源信息不写入 `base_params`，也不回写已持久化的搜索空间。
+- 普通回测任务与不带 replay 的优化任务仍走原有未校验缓存和交易所下载，本轮不改。已校验只说明文件与官方清单一致且覆盖完整，不说明盈利，也不代替实盘验收。
