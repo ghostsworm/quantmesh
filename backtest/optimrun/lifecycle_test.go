@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"quantmesh/backtest/visionfeed"
 )
 
 func TestDeleteWaitsForWorkerAndBlocksRestart(t *testing.T) {
@@ -109,6 +111,9 @@ func TestFailedTaskCreationReleasesReservationAndUsesUniqueIDs(t *testing.T) {
 	ids := map[string]bool{}
 	for i := 0; i < 20; i++ {
 		task := validReplayTask()
+		m.replayVision = func(context.Context, visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+			return visionResult(task, false), nil
+		}
 		if err := m.CreateAndRun(task); !errors.Is(err, store.createErr) {
 			t.Fatalf("creation=%v", err)
 		}

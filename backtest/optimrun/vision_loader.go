@@ -50,6 +50,17 @@ func (m *OptimTaskManager) loadReplayData(ctx context.Context, task *backtest.Op
 	return candles, provenance, nil
 }
 
+// preflightReplayData reads the verified window after the run slot is taken and
+// before the task is stored. The caller releases that slot when this fails.
+// The run reads the same files again; this only stops a task that would fail as
+// soon as it started. It does not download or call the exchange.
+func (m *OptimTaskManager) preflightReplayData(task *backtest.OptimTask) error {
+	if _, _, err := m.loadReplayData(context.Background(), task); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidOptimTask, err)
+	}
+	return nil
+}
+
 // aggregateReplayMinutes keeps a 1m request unchanged and folds every other
 // interval exactly. A partial bucket fails instead of emitting a short candle.
 func aggregateReplayMinutes(minutes []*exchange.Candle, interval string, firstMs, endMs int64) ([]*exchange.Candle, error) {

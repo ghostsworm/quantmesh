@@ -19,6 +19,7 @@ import (
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer/replayfixture"
 	"quantmesh/backtest/optimrun"
+	"quantmesh/backtest/visionfeed"
 	"quantmesh/exchange"
 )
 
@@ -174,8 +175,21 @@ func TestReplayOptimizerAPIWithRuby(t *testing.T) {
 		}
 		return candles, nil
 	}
+	vision := func(ctx context.Context, _ visionfeed.LoadRequest) (visionfeed.LoadResult, error) {
+		loads.Add(1)
+		active.Add(1)
+		defer active.Add(-1)
+		// Admission reads with a context that can never be canceled. Only the
+		// running task's context is canceled, which is what delete waits for.
+		if blocked.Load() && ctx.Done() != nil {
+			<-ctx.Done()
+			canceled.Add(1)
+			return visionfeed.LoadResult{}, ctx.Err()
+		}
+		return replayVisionFixture(), nil
+	}
 	makeManager := func() *optimrun.OptimTaskManager {
-		return optimrun.NewOptimTaskManager(store, nil, optimrun.WithHistoricalDataLoader(loader), optimrun.WithResultsDir(resultsDir))
+		return optimrun.NewOptimTaskManager(store, nil, optimrun.WithHistoricalDataLoader(loader), optimrun.WithReplayVisionLoader(vision), optimrun.WithResultsDir(resultsDir))
 	}
 	original := optimTaskManager
 	optimTaskManager = makeManager()
@@ -243,5 +257,27 @@ func TestReplayOptimizerAPIWithRuby(t *testing.T) {
 	t.Log(string(output))
 	if err != nil {
 		t.Fatalf("Ruby HTTP acceptance failed: %v", err)
+	}
+}
+
+// replayVisionFixture expands the synthetic hourly sample to the verified minute
+// series a replay task reads. It carries no market file and no funding history.
+func replayVisionFixture() visionfeed.LoadResult {
+	hourly := replayfixture.Candles("sideways")
+	minutes := make([]*exchange.Candle, 0, len(hourly)*60)
+	for _, hour := range hourly {
+		for step := int64(0); step < 60; step++ {
+			candle := *hour
+			candle.Timestamp = hour.Timestamp + step*time.Minute.Milliseconds()
+			candle.Volume = hour.Volume / 60
+			minutes = append(minutes, &candle)
+		}
+	}
+	return visionfeed.LoadResult{
+		Candles: minutes,
+		Provenance: visionfeed.Provenance{
+			Source: visionfeed.SourceBinanceVisionUM1m,
+			Files:  []visionfeed.FileDigest{{Name: "BTCUSDT/1m/BTCUSDT-1m-2025-01-01.csv", SHA256: "replay-optimizer-api-fixture"}},
+		},
 	}
 }
