@@ -3,6 +3,7 @@ package optimrun
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,5 +64,25 @@ func TestCreateAndRunRejectsMissingReplayDataBeforePersistence(t *testing.T) {
 	}
 	if restCalled {
 		t.Fatal("rejected replay task reached the live exchange loader")
+	}
+}
+
+func TestCreateAndRunDoesNotReportTheDataDirectory(t *testing.T) {
+	root := t.TempDir()
+	store := &fakeOptimStore{}
+	manager := NewOptimTaskManager(store, nil, WithVisionRoot(root))
+	task := validReplayTask()
+	err := manager.CreateAndRun(task)
+	if !errors.Is(err, ErrInvalidOptimTask) {
+		t.Fatalf("CreateAndRun error = %v", err)
+	}
+	if strings.Contains(err.Error(), root) || strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("directory leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error = %v", err)
+	}
+	if store.task != nil || len(manager.running) != 0 || len(store.statusCalls) != 0 {
+		t.Fatal("missing data was stored or kept the slot")
 	}
 }

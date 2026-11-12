@@ -160,8 +160,35 @@ func TestLoadReportsParseLocation(t *testing.T) {
 	}
 	writeChecksum(t, path)
 	_, err = Load(context.Background(), LoadRequest{Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs})
-	if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "line 2") {
+	if err == nil || !strings.Contains(err.Error(), filepath.Base(path)) || !strings.Contains(err.Error(), "line 2") || strings.Contains(err.Error(), root) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestLoadErrorOmitsTheDataDirectory(t *testing.T) {
+	root := t.TempDir()
+	_, err := Load(context.Background(), LoadRequest{Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs})
+	if err == nil || strings.Contains(err.Error(), root) {
+		t.Fatalf("path leaked: %v", err)
+	}
+	if !strings.Contains(err.Error(), fixtureSymbol+"/1m") || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("error = %v", err)
+	}
+	if !strings.Contains(ErrorDetail(err), root) {
+		t.Fatalf("server detail lost the directory: %s", ErrorDetail(err))
+	}
+
+	writeDayCSV(t, root, fixtureSymbol, fixtureDay, false)
+	path := dayPath(root, fixtureSymbol, fixtureDay, "csv")
+	if err := os.Remove(path + ".CHECKSUM"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Load(context.Background(), LoadRequest{Root: root, Symbol: fixtureSymbol, FirstMs: fixtureDay, EndMs: fixtureDay + MinuteMs})
+	if err == nil || strings.Contains(err.Error(), root) || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("checksum error = %v", err)
+	}
+	if !strings.Contains(ErrorDetail(err), root) {
+		t.Fatalf("checksum detail lost the directory: %s", ErrorDetail(err))
 	}
 }
 
