@@ -36,6 +36,7 @@ const (
 	reasonHTTP     = "http"
 	reasonRedirect = "redirect"
 	reasonLocal    = "local"
+	reasonCoverage = "coverage"
 )
 
 var symbolPattern = regexp.MustCompile(`^[A-Z0-9]{2,32}$`)
@@ -145,6 +146,10 @@ func plan(req Request) ([]Object, error) {
 	return objects, nil
 }
 
+func symbolOf(object Object) string {
+	return strings.SplitN(object.Name, "-", 2)[0]
+}
+
 func officialKlineURL(symbol, day string) string {
 	return "https://" + Host + "/data/futures/um/daily/klines/" + symbol + "/1m/" + symbol + "-1m-" + day + ".zip"
 }
@@ -203,6 +208,11 @@ func fetchOne(ctx context.Context, client *http.Client, root string, object Obje
 	if _, err := verifiedSidecar(data, body); err != nil {
 		return Outcome{Name: rel, Status: "fail", Reason: reasonChecksum}, nil, nil
 	}
+	if object.Kind == kindKline {
+		if err := visionfeed.CompleteUTCDay(data, symbolOf(object)); err != nil {
+			return Outcome{Name: rel, Status: "fail", Reason: reasonCoverage}, nil, nil
+		}
+	}
 	if err := visionfeed.PublishVerifiedFile(object.Directory, data, sidecar); err != nil {
 		return Outcome{Name: rel, Status: "fail", Reason: reasonLocal}, nil, nil
 	}
@@ -223,10 +233,15 @@ func localState(object Object) (string, string) {
 		return "", "absent"
 	case 1:
 		path := filepath.Join(object.Directory, present[0])
-		if _, err := verifiedLocalFile(path); err == nil {
-			return path, "verified"
+		if _, err := verifiedLocalFile(path); err != nil {
+			return path, "present"
 		}
-		return path, "present"
+		if object.Kind == kindKline {
+			if err := visionfeed.CompleteUTCDay(path, symbolOf(object)); err != nil {
+				return path, "present"
+			}
+		}
+		return path, "verified"
 	default:
 		return "", "present"
 	}

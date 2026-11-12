@@ -1,17 +1,18 @@
 package visionfetch
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"quantmesh/backtest/visionfeed"
 )
 
 type scriptedTransport struct {
@@ -60,46 +61,85 @@ func testRequest(root string, client *http.Client) Request {
 	}
 }
 
-func TestFetchSkipsVerifiedAndPublishesTheRest(t *testing.T) {
+func fullDayZip(day time.Time, minutes int) []byte {
+	var csv bytes.Buffer
+	csv.WriteString("open_time,open,high,low,close,volume\n")
+	start := day.UnixMilli()
+	for i := 0; i < minutes; i++ {
+		fmt.Fprintf(&csv, "%d,100,101,99,100,10\n", start+int64(i)*60000)
+	}
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	entry, err := writer.Create("day.csv")
+	if err != nil {
+		panic(err)
+	}
+	if _, err := entry.Write(csv.Bytes()); err != nil {
+		panic(err)
+	}
+	if err := writer.Close(); err != nil {
+		panic(err)
+	}
+	return buf.Bytes()
+}
+
+func TestFetchPublishesACompleteDayAndDropsAShortOne(t *testing.T) {
 	root := t.TempDir()
-	first := filepath.Join(root, "TESTUSDT", "1m", "TESTUSDT-1m-2026-01-01.zip")
-	os.MkdirAll(filepath.Dir(first), 0o755)
-	os.WriteFile(first, []byte("day-one"), 0o644)
-	os.WriteFile(first+".CHECKSUM", checksumBody("TESTUSDT-1m-2026-01-01.zip", []byte("day-one")), 0o644)
-
+	day := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	transport := &scriptedTransport{}
-	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-02"), "TESTUSDT-1m-2026-01-02.zip", []byte("day-two"))
-	servePair(transport, officialFundingURL("TESTUSDT", "2026-01"), "TESTUSDT-fundingRate-2026-01.zip", []byte("funding"))
-	client := &http.Client{Transport: transport}
+	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-02"), "TESTUSDT-1m-2026-01-02.zip", fullDayZip(day, 1440))
+	req := testRequest(root, &http.Client{Transport: transport})
+	req.Funding = false
+	req.From = day
+	req.To = day.AddDate(0, 0, 1)
 
-	result, err := Fetch(context.Background(), testRequest(root, client))
+	result, err := Fetch(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Published {
-		t.Fatalf("not published: %+v", result.Outcomes)
+	if !result.Published || result.Outcomes[0].Status != "ok" {
+		t.Fatalf("complete day not published: %+v", result.Outcomes)
 	}
-	for _, url := range transport.got {
-		if strings.Contains(url, "2026-01-01") {
-			t.Fatalf("verified day was requested: %s", url)
-		}
-	}
-	loaded, err := visionfeed.Load(context.Background(), visionfeed.LoadRequest{
-		Root: root, Symbol: "TESTUSDT", FirstMs: 1767225600000, EndMs: 1767225600000 + 2*86400000,
-	})
-	if err == nil {
-		t.Fatal("a two-byte stand-in must not pass as a full day")
-	}
-	if !strings.Contains(err.Error(), "visionfeed:") {
+
+	short := t.TempDir()
+	transport = &scriptedTransport{}
+	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-02"), "TESTUSDT-1m-2026-01-02.zip", fullDayZip(day, 1439))
+	req.Root = short
+	req.Client = &http.Client{Transport: transport}
+	result, err = Fetch(context.Background(), req)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_ = loaded
-	second, err := os.ReadFile(filepath.Join(root, "TESTUSDT", "1m", "TESTUSDT-1m-2026-01-02.zip"))
-	if err != nil || string(second) != "day-two" {
-		t.Fatalf("published bytes = %q (%v)", second, err)
+	if result.Published || result.Outcomes[0].Reason != reasonCoverage {
+		t.Fatalf("short day published: %+v", result.Outcomes)
 	}
-	if _, err := os.Stat(filepath.Join(root, "TESTUSDT", "1m", ".partial")); err != nil {
-		t.Fatal("stage directory missing")
+	if _, err := os.Stat(filepath.Join(short, "TESTUSDT", "1m", "TESTUSDT-1m-2026-01-02.zip")); !os.IsNotExist(err) {
+		t.Fatal("a short day was left where replay can read it")
+	}
+}
+
+func TestFetchRemovesACompleteDayWhenALaterDayIsShort(t *testing.T) {
+	root := t.TempDir()
+	first := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	second := first.AddDate(0, 0, 1)
+	transport := &scriptedTransport{}
+	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-01"), "TESTUSDT-1m-2026-01-01.zip", fullDayZip(first, 1440))
+	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-02"), "TESTUSDT-1m-2026-01-02.zip", fullDayZip(second, 10))
+	req := testRequest(root, &http.Client{Transport: transport})
+	req.Funding = false
+
+	result, err := Fetch(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Published {
+		t.Fatal("a range with one short day was published")
+	}
+	for _, day := range []string{"2026-01-01", "2026-01-02"} {
+		path := filepath.Join(root, "TESTUSDT", "1m", "TESTUSDT-1m-"+day+".zip")
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("%s stayed after the batch failed: %v", day, err)
+		}
 	}
 }
 
@@ -130,10 +170,12 @@ func TestFetchRemovesAPartialFundingMonth(t *testing.T) {
 
 func TestFetchLeavesAVerifiedFileUntouched(t *testing.T) {
 	root := t.TempDir()
+	day := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	original := fullDayZip(day, 1440)
 	path := filepath.Join(root, "TESTUSDT", "1m", "TESTUSDT-1m-2026-01-01.zip")
 	os.MkdirAll(filepath.Dir(path), 0o755)
-	os.WriteFile(path, []byte("original"), 0o644)
-	os.WriteFile(path+".CHECKSUM", checksumBody("TESTUSDT-1m-2026-01-01.zip", []byte("original")), 0o644)
+	os.WriteFile(path, original, 0o644)
+	os.WriteFile(path+".CHECKSUM", checksumBody("TESTUSDT-1m-2026-01-01.zip", original), 0o644)
 
 	transport := &scriptedTransport{}
 	servePair(transport, officialKlineURL("TESTUSDT", "2026-01-01"), "TESTUSDT-1m-2026-01-01.zip", []byte("replacement"))
@@ -149,8 +191,8 @@ func TestFetchLeavesAVerifiedFileUntouched(t *testing.T) {
 		t.Fatalf("verified file was not skipped: %+v", result.Outcomes)
 	}
 	got, err := os.ReadFile(path)
-	if err != nil || string(got) != "original" {
-		t.Fatalf("verified bytes = %q (%v)", got, err)
+	if err != nil || !bytes.Equal(got, original) {
+		t.Fatalf("verified bytes changed (%d bytes, %v)", len(got), err)
 	}
 	if len(transport.got) != 0 {
 		t.Fatalf("verified file was requested: %v", transport.got)
