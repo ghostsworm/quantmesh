@@ -93,8 +93,17 @@ func (m *OptimTaskManager) GetStore() backtest.OptimTaskStore {
 	return m.store
 }
 
-// CreateAndRun 创建任务并异步执行
+// CreateAndRun 创建任务并异步执行。该兼容入口不关联调用方的请求生命周期。
 func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
+	return m.CreateAndRunContext(context.Background(), task)
+}
+
+// CreateAndRunContext 在接受任务前使用调用方上下文完成同步回放预检；
+// 一旦接受，异步执行仍使用独立的后台上下文。
+func (m *OptimTaskManager) CreateAndRunContext(ctx context.Context, task *backtest.OptimTask) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	total, err := ValidateTask(task)
 	if err != nil {
 		return err
@@ -105,9 +114,14 @@ func (m *OptimTaskManager) CreateAndRun(task *backtest.OptimTask) error {
 	// Read before taking the only run slot, so a missing window rejects the
 	// request without blocking the next one.
 	if task.SearchSpace.ReplayWalkForward != nil {
-		if err := m.preflightReplayData(task); err != nil {
+		preflightCtx, cancel := context.WithTimeout(ctx, replayPreflightTimeout)
+		defer cancel()
+		if err := m.preflightReplayDataContext(preflightCtx, task); err != nil {
 			return err
 		}
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if task.ID == "" {
 		var randomID [16]byte

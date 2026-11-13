@@ -46,10 +46,17 @@
 2. **同一个窗口会读两次。** 创建时读一次，任务开跑时再读一次。两次之间文件被换掉，任务会按第二次的结果失败或成功。这是故意留下的：第二次读取才是任务实际用的行情。
 3. **下载命令的响应体上限是 512 MiB。** `backtest/visionfetch/fetch.go` 用 `io.LimitReader` 截断。超过这个大小会因为校验和对不上而失败，不会落地。没有再改成「超过上限就立刻报错」，因为它不改变已经落地的回放结果。这一轮用的 Go 1.26.3 里，关闭响应体不会把没读完的字节读完，所以这个上限不会把剩下的响应体拖完。
 
+## 接手后的进展（2026-11-13）
+
+- 当前工作树已同步到 `3.112.0-rc12`（开发中，未发布）；本轮代码和文档修改尚未提交或推送。上方分支尖与版本记录是交接时的状态。
+- 原第 1 项缺口已在代码中实现并按复核结果修正：优化任务创建预检继承 HTTP 请求 context，设置 30 秒 deadline；目录按小批次遍历并检查取消，SHA-256、CSV 与 ZIP 读取也会检查取消。日行情文件限制为 2 MiB，月资金费文件限制为 256 KiB，校验 sidecar 限制为 64 KiB；匹配的非普通文件会在打开前拒绝。预检 deadline 返回 HTTP 504，取消/超时不会映射成参数错误；校验文件大小按实际读取字节计数。
+- 取消检查按批次和读取边界协作执行；单次阻塞的底层文件系统调用（如远程挂载上的 `Stat` / `ReadDir`）不能被 Go context 强行中断。已接受的后台任务仍使用独立 context；任务启动时继续第二次读取行情。下载命令的 512 MiB 响应体上限没有改。
+- 本轮没有运行测试；变更的 Go 文件已执行 `gofmt`，`git diff --check` 通过。全仓测试、真实账户/真实下载、PR、tag 和部署仍未完成。
+
 ## 验证时要先知道的
 
 - 这个仓库的 commit message 用繁体中文，见 `AGENTS.md`。提交身份读本地 git config，经常换，提交前先读 `git config --local user.name` 和 `user.email`。
 - Go 文件用制表符缩进。按文本替换时要用文件里的真实制表符，改完跑 `gofmt`。
 - 测试文件只放明显的假凭据。会话环境会把像密钥的字面量替换成占位符，所以不要靠读文件来核对已提交的字面量。
 - 行情目录缺省是 `data/kline/binance_vision`，配置项是 `backtest_data.binance_vision_dir`，下载命令用 `-root` 指定。`data/` 已在 `.gitignore` 里。
-- 每次改代码都要同步版本号，只递增 rc：`internal/app/main.go` 的 `Version`、`webui/package.json`、`ARCHITECTURE.md`、`PRODUCT_OVERVIEW.md`（开头和「最后更新」）、`product-overview.md`、`CHANGELOG.md`，再加上对应的决策文档。这一份交接文档不改代码，所以版本号仍是 `3.112.0-rc11`。
+- 每次改代码都要同步版本号，只递增 rc：`internal/app/main.go` 的 `Version`、`webui/package.json`、`ARCHITECTURE.md`、`PRODUCT_OVERVIEW.md`（开头和「最后更新」）、`product-overview.md`、`CHANGELOG.md`，再加上对应的决策文档。本次代码更新已按这份清单同步到 `3.112.0-rc12`。

@@ -1,6 +1,7 @@
 package visionfeed
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 )
@@ -12,6 +13,14 @@ import (
 // files are not checked here: replay reads every settlement row it finds and
 // does not require one per minute.
 func CompleteUTCDay(path, symbol string) error {
+	return CompleteUTCDayContext(context.Background(), path, symbol)
+}
+
+// CompleteUTCDayContext validates complete daily coverage while honoring ctx.
+func CompleteUTCDayContext(ctx context.Context, path, symbol string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	name := filepath.Base(path)
 	match := dayFilePattern.FindStringSubmatch(name)
 	if match == nil || match[1] != symbol {
@@ -21,12 +30,15 @@ func CompleteUTCDay(path, symbol string) error {
 	if err != nil {
 		return fmt.Errorf("visionfeed: coverage: %s: %w", name, err)
 	}
-	records, err := readCSVRecords(path, maxKlineCSVBytes)
+	records, err := readCSVRecordsContext(ctx, path, maxKlineCSVBytes)
 	if err != nil {
 		return fmt.Errorf("visionfeed: parse %s: %w", name, err)
 	}
 	seen := map[int64]bool{}
 	for i, record := range records {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if isHeaderRow(record) {
 			continue
 		}

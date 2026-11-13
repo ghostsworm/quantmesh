@@ -1,6 +1,6 @@
 # QuantMesh 架构入口
 
-当前版本：`3.112.0-rc11`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
+当前版本：`3.112.0-rc12`（开发中，未发布）。详细历史架构见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，本文记录当前应用边界与本轮验证链路。
 
 ## 应用与持久化
 
