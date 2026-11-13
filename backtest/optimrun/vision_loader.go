@@ -2,7 +2,9 @@ package optimrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"quantmesh/backtest"
 	"quantmesh/backtest/optimizer"
@@ -12,6 +14,8 @@ import (
 	"quantmesh/logger"
 	"quantmesh/strategy/regime"
 )
+
+const replayPreflightTimeout = 30 * time.Second
 
 // replayVisionLoader reads one verified window. Tests substitute it so no
 // real market file is touched.
@@ -32,6 +36,9 @@ func (m *OptimTaskManager) loadReplayData(ctx context.Context, task *backtest.Op
 	if err != nil {
 		return nil, none, fmt.Errorf("获取历史数据失败: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, none, err
+	}
 	aggregated, err := aggregateReplayMinutes(loaded.Candles, task.Interval, plan.first, plan.end)
 	if err != nil {
 		return nil, none, fmt.Errorf("获取历史数据失败: %w", err)
@@ -51,16 +58,29 @@ func (m *OptimTaskManager) loadReplayData(ctx context.Context, task *backtest.Op
 	return candles, provenance, nil
 }
 
-// preflightReplayData reads the verified window before a run slot is taken or
-// the task is stored, so a missing window never blocks another task. The run
-// reads the same files again; this only stops a task that would fail as soon as
-// it started. It does not download or call the exchange.
+// preflightReplayData preserves the legacy helper for package callers.
 func (m *OptimTaskManager) preflightReplayData(task *backtest.OptimTask) error {
-	if _, _, err := m.loadReplayData(context.Background(), task); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), replayPreflightTimeout)
+	defer cancel()
+	return m.preflightReplayDataContext(ctx, task)
+}
+
+// preflightReplayDataContext reads the verified window before a run slot is
+// taken or the task is stored. The run deliberately reads the same files again;
+// this only stops a task that would fail as soon as it started. It does not
+// download or call the exchange.
+func (m *OptimTaskManager) preflightReplayDataContext(ctx context.Context, task *backtest.OptimTask) error {
+	if _, _, err := m.loadReplayData(ctx, task); err != nil {
 		logger.Error("replay data preflight %s: %s", task.Symbol, visionfeed.ErrorDetail(err))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
 		return fmt.Errorf("%w: %s", ErrInvalidOptimTask, m.withoutDataDir(err.Error()))
 	}
-	return nil
+	return ctx.Err()
 }
 
 // aggregateReplayMinutes keeps a 1m request unchanged and folds every other

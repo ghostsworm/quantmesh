@@ -75,13 +75,20 @@ func postOptimTasks(c *gin.Context) {
 		TotalCapital: req.TotalCapital,
 		SearchSpace:  space,
 	}
-	if err := optimTaskManager.CreateAndRun(task); err != nil {
+	if err := optimTaskManager.CreateAndRunContext(c.Request.Context(), task); err != nil {
 		if errors.Is(err, optimrun.ErrInvalidOptimTask) {
 			c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": err.Error()})
 			return
 		}
 		if errors.Is(err, optimrun.ErrOptimizerCapacity) {
 			c.JSON(http.StatusTooManyRequests, gin.H{"success": false, "message": "已有参数优化任务运行中，请稍后重试。"})
+			return
+		}
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.JSON(http.StatusGatewayTimeout, gin.H{"success": false, "message": "行情预检超时，请缩短时间范围后重试。"})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": err.Error()})

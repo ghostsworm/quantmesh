@@ -42,6 +42,10 @@ const (
 	// maxFundingCSVBytes bounds one official funding month. Settlements are a few
 	// dozen rows, so this stays far below a day of klines.
 	maxFundingCSVBytes int64 = 256 << 10
+	// maxChecksumSidecarBytes keeps a malformed checksum manifest bounded.
+	maxChecksumSidecarBytes int64 = 64 << 10
+	// directoryReadBatchSize bounds each cancellable directory scan batch.
+	directoryReadBatchSize = 128
 
 	klineColOpenTime = 0
 	klineColOpen     = 1
@@ -125,53 +129,140 @@ func Load(ctx context.Context, req LoadRequest) (LoadResult, error) {
 	}, nil
 }
 
+func walkDirContext(ctx context.Context, dir string, visit func(os.DirEntry) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	info, err := os.Stat(dir)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("not a directory")
+	}
+	directory, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, directory.Close())
+	}
+	defer directory.Close()
+
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		entries, readErr := directory.ReadDir(directoryReadBatchSize)
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := visit(entry); err != nil {
+				return err
+			}
+		}
+		if errors.Is(readErr, io.EOF) {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+func openRegularFile(ctx context.Context, path string) (*os.File, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(path)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("not a regular file")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, errors.Join(err, file.Close())
+	}
+	return file, nil
+}
+
 // loadMinuteKlines returns every 1m candle in [firstMs, endMs). Each UTC day
 // overlapping that window must have its own verified file.
 func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs int64) ([]*exchange.Candle, []FileDigest, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, nil, hideCause(fmt.Sprintf("visionfeed: coverage: read %s/1m: %s", symbol, ioReason(err)), err)
-	}
 	type dayFile struct {
 		name string
-		day  int64
 	}
-	var found []dayFile
-	for _, entry := range entries {
+	firstDay := firstMs - firstMs%DayMs
+	wantedDays := make(map[int64]struct{})
+	for day := firstDay; day < endMs; day += DayMs {
+		wantedDays[day] = struct{}{}
+	}
+	byDay := make(map[int64]dayFile, len(wantedDays))
+	err := walkDirContext(ctx, dir, func(entry os.DirEntry) error {
 		if entry.IsDir() {
-			continue
+			return nil
 		}
 		match := dayFilePattern.FindStringSubmatch(entry.Name())
 		if match == nil || match[1] != symbol {
-			continue
+			return nil
 		}
 		day, err := utcDayMillis(match[2])
 		if err != nil {
-			return nil, nil, fmt.Errorf("visionfeed: coverage: %s: %w", entry.Name(), err)
+			return fmt.Errorf("visionfeed: coverage: %s: %w", entry.Name(), err)
 		}
-		found = append(found, dayFile{name: entry.Name(), day: day})
+		if _, needed := wantedDays[day]; !needed {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := os.Stat(filepath.Join(dir, entry.Name()))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			return hideCause(fmt.Sprintf("visionfeed: coverage: stat %s: %s", entry.Name(), ioReason(err)), err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("visionfeed: coverage: %s is not a regular file", entry.Name())
+		}
+		if existing, ok := byDay[day]; ok {
+			names := []string{existing.name, entry.Name()}
+			sort.Strings(names)
+			return fmt.Errorf("visionfeed: duplicate: %s has both %s", dayLabel(day), strings.Join(names, " and "))
+		}
+		byDay[day] = dayFile{name: entry.Name()}
+		return nil
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, ctxErr
+	}
+	if err != nil {
+		return nil, nil, hideCause(fmt.Sprintf("visionfeed: coverage: read %s/1m: %s", symbol, ioReason(err)), err)
 	}
 
-	byDay := map[int64][]dayFile{}
-	for _, file := range found {
-		byDay[file.day] = append(byDay[file.day], file)
-	}
 	var wanted []dayFile
-	for day := firstMs - firstMs%DayMs; day < endMs; day += DayMs {
-		files := byDay[day]
-		switch len(files) {
-		case 0:
-			return nil, nil, fmt.Errorf("visionfeed: coverage: missing 1m file for %s", dayLabel(day))
-		case 1:
-			wanted = append(wanted, files[0])
-		default:
-			names := make([]string, len(files))
-			for i, file := range files {
-				names[i] = file.name
-			}
-			sort.Strings(names)
-			return nil, nil, fmt.Errorf("visionfeed: duplicate: %s has both %s", dayLabel(day), strings.Join(names, " and "))
+	for day := firstDay; day < endMs; day += DayMs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
 		}
+		file, ok := byDay[day]
+		if !ok {
+			return nil, nil, fmt.Errorf("visionfeed: coverage: missing 1m file for %s", dayLabel(day))
+		}
+		wanted = append(wanted, file)
 	}
 
 	byTs := map[int64]*exchange.Candle{}
@@ -181,18 +272,21 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 			return nil, nil, err
 		}
 		path := filepath.Join(dir, file.name)
-		digest, err := verifyChecksum(path)
+		digest, err := verifyChecksumContext(ctx, path, maxKlineCSVBytes)
 		if err != nil {
 			return nil, nil, err
 		}
-		if err := CompleteUTCDay(path, symbol); err != nil {
+		if err := CompleteUTCDayContext(ctx, path, symbol); err != nil {
 			return nil, nil, err
 		}
-		records, err := readCSVRecords(path, maxKlineCSVBytes)
+		records, err := readCSVRecordsContext(ctx, path, maxKlineCSVBytes)
 		if err != nil {
 			return nil, nil, fmt.Errorf("visionfeed: parse %s: %w", filepath.Base(path), err)
 		}
 		for _, record := range records {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, err
+			}
 			if isHeaderRow(record) {
 				continue
 			}
@@ -207,6 +301,9 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 
 	out := make([]*exchange.Candle, 0, (endMs-firstMs)/MinuteMs)
 	for ts := firstMs; ts < endMs; ts += MinuteMs {
+		if err := ctx.Err(); err != nil {
+			return nil, nil, err
+		}
 		candle, ok := byTs[ts]
 		if !ok {
 			return nil, nil, fmt.Errorf("visionfeed: coverage: missing 1m candle at %d", ts)
@@ -223,68 +320,85 @@ func loadMinuteKlines(ctx context.Context, dir, symbol string, firstMs, endMs in
 // in the window is present, every month must be present. A gap fails the load
 // instead of becoming a stretch of zero funding.
 func loadFunding(ctx context.Context, dir, symbol string, firstMs, endMs int64) ([]replay.FundingPoint, []FileDigest, bool, error) {
-	entries, err := os.ReadDir(dir)
+	months, err := fundingMonths(firstMs, endMs)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	wantedMonths := make(map[string]struct{}, len(months))
+	for _, month := range months {
+		wantedMonths[month.label] = struct{}{}
+	}
+	byMonth := make(map[string]string, len(months))
+	err = walkDirContext(ctx, dir, func(entry os.DirEntry) error {
+		if entry.IsDir() {
+			return nil
+		}
+		match := fundingFilePattern.FindStringSubmatch(entry.Name())
+		if match == nil || match[1] != symbol {
+			return nil
+		}
+		month := match[2]
+		if _, needed := wantedMonths[month]; !needed {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		info, err := os.Stat(filepath.Join(dir, entry.Name()))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		if err != nil {
+			return hideCause(fmt.Sprintf("visionfeed: funding: stat %s: %s", entry.Name(), ioReason(err)), err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("visionfeed: funding: %s is not a regular file", entry.Name())
+		}
+		if existing, ok := byMonth[month]; ok {
+			names := []string{existing, entry.Name()}
+			sort.Strings(names)
+			return fmt.Errorf("visionfeed: duplicate: %s has both %s", month, strings.Join(names, " and "))
+		}
+		byMonth[month] = entry.Name()
+		return nil
+	})
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, nil, false, ctxErr
+	}
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil, false, nil
 		}
 		return nil, nil, false, hideCause(fmt.Sprintf("visionfeed: read %s/fundingRate: %s", symbol, ioReason(err)), err)
 	}
-	byMonth := map[string][]string{}
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		match := fundingFilePattern.FindStringSubmatch(entry.Name())
-		if match == nil || match[1] != symbol {
-			continue
-		}
-		byMonth[match[2]] = append(byMonth[match[2]], entry.Name())
-	}
 	if len(byMonth) == 0 {
-		return nil, nil, false, nil
-	}
-	months, err := fundingMonths(firstMs, endMs)
-	if err != nil {
-		return nil, nil, false, err
-	}
-	covered := 0
-	for _, month := range months {
-		if len(byMonth[month.label]) > 0 {
-			covered++
-		}
-	}
-	if covered == 0 {
 		return nil, nil, false, nil
 	}
 
 	byTs := map[int64]replay.FundingPoint{}
 	var digests []FileDigest
 	for _, month := range months {
-		files := append([]string(nil), byMonth[month.label]...)
-		sort.Strings(files)
-		switch len(files) {
-		case 0:
-			return nil, nil, false, fmt.Errorf("visionfeed: coverage: missing funding file for %s", month.label)
-		default:
-			return nil, nil, false, fmt.Errorf("visionfeed: duplicate: %s has both %s", month.label, strings.Join(files, " and "))
-		case 1:
-		}
 		if err := ctx.Err(); err != nil {
 			return nil, nil, false, err
 		}
-		name := files[0]
+		name, ok := byMonth[month.label]
+		if !ok {
+			return nil, nil, false, fmt.Errorf("visionfeed: coverage: missing funding file for %s", month.label)
+		}
 		path := filepath.Join(dir, name)
-		digest, err := verifyChecksum(path)
+		digest, err := verifyChecksumContext(ctx, path, maxFundingCSVBytes)
 		if err != nil {
 			return nil, nil, false, err
 		}
-		records, err := readCSVRecords(path, maxFundingCSVBytes)
+		records, err := readCSVRecordsContext(ctx, path, maxFundingCSVBytes)
 		if err != nil {
 			return nil, nil, false, fmt.Errorf("visionfeed: parse %s: %w", filepath.Base(path), err)
 		}
 		points := 0
 		for i, record := range records {
+			if err := ctx.Err(); err != nil {
+				return nil, nil, false, err
+			}
 			if isHeaderRow(record) {
 				continue
 			}
@@ -401,25 +515,63 @@ func ErrorDetail(err error) string {
 	return err.Error()
 }
 
-// verifyChecksum checks the GNU sha256sum sidecar next to the data file.
-// The digest covers the file bytes actually read, zip or csv.
+// verifyChecksum keeps the existing helper source-compatible for publish paths.
+// Replay loads use verifyChecksumContext with the narrower file-specific bound.
 func verifyChecksum(path string) (string, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", filepath.Base(path), ioReason(err)), err)
+	maxBytes := maxKlineCSVBytes
+	if fundingFilePattern.MatchString(filepath.Base(path)) {
+		maxBytes = maxFundingCSVBytes
 	}
-	sum := sha256.Sum256(body)
-	got := hex.EncodeToString(sum[:])
+	return verifyChecksumContext(context.Background(), path, maxBytes)
+}
+
+// verifyChecksumContext checks the GNU sha256sum sidecar while streaming no more
+// than maxBytes+1 data bytes, so growth after any metadata check stays bounded.
+func verifyChecksumContext(ctx context.Context, path string, maxBytes int64) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if maxBytes < 0 {
+		return "", fmt.Errorf("visionfeed: checksum: invalid size limit %d", maxBytes)
+	}
+	base := filepath.Base(path)
+	file, err := openRegularFile(ctx, path)
+	if err != nil {
+		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", base, ioReason(err)), err)
+	}
+	defer file.Close()
+	hasher := sha256.New()
+	read, err := io.Copy(hasher, &io.LimitedReader{
+		R: &contextReader{ctx: ctx, reader: file},
+		N: maxBytes + 1,
+	})
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
+		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", base, ioReason(err)), err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if read > maxBytes {
+		return "", fmt.Errorf("visionfeed: checksum: %s exceeds %d-byte limit", base, maxBytes)
+	}
+	got := hex.EncodeToString(hasher.Sum(nil))
 	sidecar := path + ".CHECKSUM"
-	file, err := os.Open(sidecar)
+	checksumFile, err := openRegularFile(ctx, sidecar)
 	if err != nil {
 		return "", hideCause(fmt.Sprintf("visionfeed: checksum: %s: %s", filepath.Base(sidecar), ioReason(err)), err)
 	}
-	defer file.Close()
-	base := filepath.Base(path)
-	scanner := bufio.NewScanner(file)
+	defer checksumFile.Close()
+	sidecarReader := &countingReader{reader: &contextReader{ctx: ctx, reader: checksumFile}}
+	scanner := bufio.NewScanner(&io.LimitedReader{R: sidecarReader, N: maxChecksumSidecarBytes + 1})
+	scanner.Buffer(make([]byte, 1024), int(maxChecksumSidecarBytes))
 	matched := false
 	for scanner.Scan() {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		line := scanner.Text()
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -436,8 +588,20 @@ func verifyChecksum(path string) (string, error) {
 			return "", fmt.Errorf("visionfeed: checksum: %s: hash mismatch for %s", filepath.Base(sidecar), base)
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if sidecarReader.bytesRead > maxChecksumSidecarBytes {
+		return "", fmt.Errorf("visionfeed: checksum: %s exceeds %d-byte limit", filepath.Base(sidecar), maxChecksumSidecarBytes)
+	}
 	if err := scanner.Err(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return "", ctxErr
+		}
 		return "", hideCause(fmt.Sprintf("visionfeed: checksum: read %s: %s", filepath.Base(sidecar), ioReason(err)), err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	if !matched {
 		return "", fmt.Errorf("visionfeed: checksum: %s: basename %s not listed", filepath.Base(sidecar), base)
@@ -445,20 +609,75 @@ func verifyChecksum(path string) (string, error) {
 	return got, nil
 }
 
-// readCSVRecords reads one csv, or the single csv stored inside a zip.
-// maxBytes bounds the csv itself: a zip entry is refused before inflation when
-// it claims to be larger, and the reader stops at the same limit.
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r *contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	n, err := r.reader.Read(p)
+	if ctxErr := r.ctx.Err(); ctxErr != nil {
+		return n, ctxErr
+	}
+	return n, err
+}
+
+type countingReader struct {
+	reader    io.Reader
+	bytesRead int64
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.bytesRead += int64(n)
+	return n, err
+}
+
+// readCSVRecords preserves the original helper for non-replay package callers.
 func readCSVRecords(path string, maxBytes int64) ([][]string, error) {
+	return readCSVRecordsContext(context.Background(), path, maxBytes)
+}
+
+// readCSVRecordsContext reads one csv, or the single csv stored inside a zip.
+// Both entries and plain csv files are limited while reading to close stat/read
+// races; replay loads also inherit cancellation during parsing.
+func readCSVRecordsContext(ctx context.Context, path string, maxBytes int64) ([][]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if maxBytes < 0 {
+		return nil, fmt.Errorf("csv has invalid size limit %d", maxBytes)
+	}
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".zip":
-		reader, err := zip.OpenReader(path)
+		archiveFile, err := openRegularFile(ctx, path)
 		if err != nil {
 			return nil, hideCause(fmt.Sprintf("open zip %s: %s", filepath.Base(path), ioReason(err)), err)
 		}
-		defer reader.Close()
+		defer archiveFile.Close()
+		info, err := archiveFile.Stat()
+		if err != nil {
+			return nil, hideCause(fmt.Sprintf("stat zip %s: %s", filepath.Base(path), ioReason(err)), err)
+		}
+		if info.Size() > maxBytes {
+			return nil, fmt.Errorf("zip is %d bytes, limit %d", info.Size(), maxBytes)
+		}
+		reader, err := zip.NewReader(archiveFile, info.Size())
+		if err != nil {
+			return nil, hideCause(fmt.Sprintf("open zip %s: %s", filepath.Base(path), ioReason(err)), err)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		want := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)) + ".csv"
 		var found *zip.File
 		for _, file := range reader.File {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
 			if !strings.EqualFold(filepath.Ext(file.Name), ".csv") {
 				continue
 			}
@@ -481,21 +700,22 @@ func readCSVRecords(path string, maxBytes int64) ([][]string, error) {
 			return nil, hideCause(fmt.Sprintf("open %s in zip: %s", found.Name, ioReason(err)), err)
 		}
 		defer rc.Close()
-		return parseCSV(newLimitedCSV(rc, maxBytes))
+		records, err := parseCSV(newLimitedCSV(&contextReader{ctx: ctx, reader: rc}, maxBytes))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return records, err
 	case ".csv":
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, hideCause(fmt.Sprintf("open csv %s: %s", filepath.Base(path), ioReason(err)), err)
-		}
-		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("csv is %d bytes, limit %d", info.Size(), maxBytes)
-		}
-		file, err := os.Open(path)
+		file, err := openRegularFile(ctx, path)
 		if err != nil {
 			return nil, hideCause(fmt.Sprintf("open csv %s: %s", filepath.Base(path), ioReason(err)), err)
 		}
 		defer file.Close()
-		return parseCSV(file)
+		records, err := parseCSV(newLimitedCSV(&contextReader{ctx: ctx, reader: file}, maxBytes))
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, ctxErr
+		}
+		return records, err
 	default:
 		return nil, fmt.Errorf("unsupported extension")
 	}
